@@ -2,9 +2,15 @@
 // that finished its turn or asks for permission, only while no worfy window has focus, at most one
 // per Session in 10 s; a click opens that Session. Electron's Notification is replaced by
 // NotifyDeps.
+import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { QueuePr } from '../../src/main/github/gate-queue'
-import type { TicketNote, WindowNote } from '../../src/main/notify'
+import type { ListedProject, SharedTicketNote, TicketNote, WindowNote } from '../../src/main/notify'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { LiveSession } from '../../src/shared/ipc/claude-home'
 import type { StageSubscriber } from '../../src/main/workflow/stages'
@@ -100,7 +106,7 @@ vi.mock('../../src/main/ipc/pipeline', async () => {
   return { stageHub }
 })
 
-const { NOTIFY_INTERVAL_MS, NoteDisplay, Notifier, appWaitsSources, GateQueueNotices, electronNotifyDeps, electronWindowNoteDeps, installGateQueueNotifications, installNotifications, openNote } = await import('../../src/main/notify')
+const { MATCH_KEY_TTL_MS, NOTIFY_INTERVAL_MS, NoteDisplay, Notifier, RECEIVED_LIMIT, TicketNotes, ticketRecipients, appWaitsSources, GateQueueNotices, electronNotifyDeps, electronWindowNoteDeps, installGateQueueNotifications, installNotifications, openNote } = await import('../../src/main/notify')
 const { GATE_QUEUE_INTERVAL_MS, waitingPrs } = await import('../../src/main/github/gate-queue')
 const { NORMAL_WINDOWS, quietWindows } = await import('../../src/main/quiet-windows')
 const { app: electronApp } = await import('electron')
@@ -118,7 +124,8 @@ function withQuietWindows(value: string | undefined, body: () => void): void {
   }
 }
 const { PENDING_OPEN_MS, PendingOpens } = await import('../../src/main/notify-pending')
-const { WaitsNotices, installWaitsNotifications } = await import('../../src/main/workflow/waits-notify')
+const { WaitsNotices, installWaitsNotifications, waitKey } = await import('../../src/main/workflow/waits-notify')
+const { originKey, projectMatchKey, readProjectMatchKey, remoteHasHost } = await import('../../src/main/autopilot/origin')
 const { StageHub } = await import('../../src/main/workflow/stages')
 type Note = Parameters<ConstructorParameters<typeof Notifier>[0]['show']>[0]
 
@@ -946,7 +953,9 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
     const shown: { note: TicketNote; click: () => void }[] = []
     const opened: TicketNote[] = []
     const display = new NoteDisplay<TicketNote>({ focused: () => h.focused(), show: (note, click) => shown.push({ note, click }), open: (note) => opened.push(note), now: () => h.now() })
-    return { focus: h.focus, wait: h.wait, shown, opened, notices: new WaitsNotices(display) }
+    // This Machine is "Mac" and has no Linked machine: a wait for the owner or for "Mac" shows here.
+    const tickets = new TicketNotes(display, { machines: () => ({ self: 'Mac', linked: [] }) }, () => [{ path: ROOT }])
+    return { focus: h.focus, wait: h.wait, shown, opened, notices: new WaitsNotices(tickets) }
   }
 
   it('a Ticket going into Waits: owner gives one notification: the title «<epic> NN» and the waiting phrase, the text its Blocked reason', () => {
@@ -1044,7 +1053,7 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
     expect(w.shown.map((each) => each.note.title)).toEqual(['worfy-link 17 is waiting for you'])
   })
 
-  it('Waits: team, agent or a Machine gives none; only the owner', () => {
+  it('Waits: team, agent or a Machine that is not this one gives none here', () => {
     const w = waits()
     w.notices.read(ROOT, model([]))
     w.notices.read(ROOT, delta([ticket('e', 1, { waits: 'team' }), ticket('e', 2, { waits: 'Windows PC' }), ticket('e', 3, { waits: 'agent' }), ticket('e', 4, { waits: null })]))
@@ -1504,5 +1513,425 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('a Ticket that waits, across the Linked machines (worfy-pipeline ticket 10)', () => {
+  const MAC_ROOT = '/Users/a/worfy'
+  const PC_ROOT = 'C:/src/worfy'
+  const MAC_PROJECT = { path: MAC_ROOT, id: 'worfy-1a2b3c4d', name: 'worfy' }
+  const PC_PROJECT = { path: PC_ROOT, id: 'worfy-5e6f7a8b', name: 'worfy' }
+  /** The match keys of one repository on two Machines: the origin spelled two ways, the Project at the root. */
+  const MAC_KEY = projectMatchKey({ id: MAC_PROJECT.id, origin: originKey('git@git.example.com:o/worfy.git'), repoPath: '' })
+  const PC_KEY = projectMatchKey({ id: PC_PROJECT.id, origin: originKey('https://git.example.com/o/worfy'), repoPath: '' })
+  const AT = '2026-10-20T09:00Z'
+
+  const ticket = (epic: string, num: number, waits: string | null, reason: string | null = 'acceptance'): Ticket => ({
+    epic,
+    num,
+    slug: 'slug',
+    title: `Title of ${epic} ${num}`,
+    statusRaw: waits === null ? 'work' : 'blocked',
+    state: waits === null ? 'work' : 'blocked',
+    statusAt: AT,
+    statusError: null,
+    blockedReason: reason,
+    waits,
+    pr: null,
+    blockedRaw: null,
+    blockedNums: [],
+    blockedParsed: true,
+    branch: null,
+    repo: null,
+    files: [],
+    filesListed: true,
+    fromBranch: null,
+  })
+  const model = (root: string): WorkflowModel => ({ root, epics: [], tickets: [], error: null, branchErrors: [] })
+  const delta = (root: string, tickets: Ticket[]): WorkflowDelta => ({ root, epics: [], tickets, removedEpics: [], removedTickets: [], error: null, branchErrors: [] })
+  const settle = (): Promise<void> => new Promise((done) => setTimeout(done, 0))
+
+  type Sent = { note: SharedTicketNote; to: 'all' | readonly string[] }
+
+  /** One Machine: its name, its Linked machines, its Project list with the match keys, its display and what it sends. */
+  function machine(options: { self: string | null; linked?: { id: string; name: string }[]; projects?: ListedProject[]; keys?: Record<string, string> }) {
+    let now = 1_000_000
+    let self = options.self
+    /** The roots whose match key was read, in order. */
+    const reads: string[] = []
+    const shown: { note: TicketNote; click: () => void }[] = []
+    const opened: TicketNote[] = []
+    const sent: Sent[] = []
+    const projects = options.projects ?? [MAC_PROJECT]
+    const keys = options.keys ?? { [MAC_ROOT]: MAC_KEY }
+    const display = new NoteDisplay<TicketNote>({ focused: () => false, show: (note, click) => shown.push({ note, click }), open: (note) => opened.push(note), now: () => now })
+    const link = { sendTicket: (note: SharedTicketNote, to: 'all' | readonly string[]) => sent.push({ note, to }), machines: () => ({ self, linked: options.linked ?? [] }) }
+    const matchKey = async (root: string, id: string) => {
+      reads.push(root)
+      return keys[root] ?? projectMatchKey({ id, origin: null, repoPath: null })
+    }
+    const tickets = new TicketNotes(display, link, () => projects, matchKey, undefined, () => now)
+    const notices = new WaitsNotices(tickets)
+    return {
+      shown,
+      opened,
+      sent,
+      tickets,
+      notices,
+      reads,
+      titles: () => shown.map((each) => each.note.title),
+      wait: (ms: number) => {
+        now += ms
+      },
+      name: (value: string) => {
+        self = value
+      },
+    }
+  }
+
+  const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex')
+
+  /** A shared note of the Project with match key `match`, of Ticket `epic num`, as a Linked machine sends it. */
+  const shared = (match: string, epic = 'worfy-link', num = 16, wait = `${epic}|${num}|${AT}`): SharedTicketNote => ({
+    title: `${epic} ${String(num).padStart(2, '0')} is waiting for you`,
+    body: 'acceptance',
+    project: { id: PC_PROJECT.id, name: 'worfy', match },
+    epic,
+    num,
+    wait,
+  })
+
+  it('Waits: owner — one note here and one sending to every Linked machine, with the Project by id, name and match key, no local path', async () => {
+    const mac = machine({ self: 'Mac', linked: [{ id: 'pc', name: 'Windows PC' }] })
+    mac.notices.read(MAC_ROOT, model(MAC_ROOT))
+    mac.notices.read(MAC_ROOT, delta(MAC_ROOT, [ticket('worfy-link', 16, 'owner')]))
+    await settle()
+    expect(mac.titles()).toEqual(['worfy-link 16 is waiting for you'])
+    expect(mac.sent).toEqual([
+      {
+        to: 'all',
+        note: {
+          title: 'worfy-link 16 is waiting for you',
+          body: 'acceptance',
+          project: { id: MAC_PROJECT.id, name: 'worfy', match: MAC_KEY },
+          epic: 'worfy-link',
+          num: 16,
+          wait: sha256(waitKey(ticket('worfy-link', 16, 'owner'))),
+        },
+      },
+    ])
+    expect(JSON.stringify(mac.sent)).not.toContain(MAC_ROOT)
+  })
+
+  it('Waits: <this Machine> — a note here, nothing sent; Waits: <a Linked machine> — sent to it alone, nothing here', async () => {
+    const mac = machine({ self: 'Mac', linked: [{ id: 'pc', name: 'Windows PC' }, { id: 'linux', name: 'Linux box' }] })
+    mac.notices.read(MAC_ROOT, model(MAC_ROOT))
+    mac.notices.read(MAC_ROOT, delta(MAC_ROOT, [ticket('e', 1, 'Mac')]))
+    await settle()
+    expect(mac.titles()).toEqual(['e 01 is waiting for you'])
+    expect(mac.sent).toEqual([])
+
+    mac.notices.read(MAC_ROOT, delta(MAC_ROOT, [ticket('e', 2, 'Windows PC')]))
+    await settle()
+    expect(mac.titles()).toEqual(['e 01 is waiting for you'])
+    expect(mac.sent.map((each) => [each.note.num, each.to])).toEqual([[2, ['pc']]])
+  })
+
+  it('Waits: team, agent, or a name no Machine has (compared whole, case and all): nothing here, nothing sent', async () => {
+    const mac = machine({ self: 'Mac', linked: [{ id: 'pc', name: 'Windows PC' }] })
+    mac.notices.read(MAC_ROOT, model(MAC_ROOT))
+    mac.notices.read(MAC_ROOT, delta(MAC_ROOT, [ticket('e', 1, 'team'), ticket('e', 2, 'agent'), ticket('e', 3, 'windows pc'), ticket('e', 4, 'Windows'), ticket('e', 5, 'mac')]))
+    await settle()
+    expect(mac.shown).toEqual([])
+    expect(mac.sent).toEqual([])
+  })
+
+  it('ticketRecipients: owner, this Machine, a Linked machine, team and agent', () => {
+    const machines = { self: 'Mac', linked: [{ id: 'pc', name: 'Windows PC' }] }
+    expect(ticketRecipients('owner', machines)).toEqual({ here: true, linked: 'all' })
+    expect(ticketRecipients('Mac', machines)).toEqual({ here: true, linked: [] })
+    expect(ticketRecipients('Windows PC', machines)).toEqual({ here: false, linked: ['pc'] })
+    expect(ticketRecipients('team', machines)).toEqual({ here: false, linked: [] })
+    expect(ticketRecipients('agent', machines)).toEqual({ here: false, linked: [] })
+    // Before the link started this Machine has no name: a wait for a Machine shows nowhere.
+    expect(ticketRecipients('Mac', { self: null, linked: [] })).toEqual({ here: false, linked: [] })
+  })
+
+  it('a received note is shown with the name of the Machine that sent it, and goes nowhere; a click opens the Pipeline board of that Project on that Machine', async () => {
+    const pc = machine({ self: 'Windows PC', linked: [{ id: 'mac', name: 'Mac' }], projects: [] })
+    await pc.tickets.receive('mac', { ...shared(MAC_KEY), project: { id: MAC_PROJECT.id, name: 'worfy', match: MAC_KEY } })
+    expect(pc.shown.map((each) => each.note)).toEqual([
+      { title: 'worfy-link 16 is waiting for you (Mac)', body: 'acceptance', sessionId: null, projectRoot: null, ticket: { epic: 'worfy-link', num: 16 }, machineId: 'mac', projectId: MAC_PROJECT.id },
+    ])
+    expect(pc.sent).toEqual([])
+
+    pc.shown[0]!.click()
+    const pending = new PendingOpens()
+    const open = fakeWindow(12)
+    electron.windows = [open.window]
+    openNote(pc.opened[0]!, pending, vi.fn() as never, NORMAL_WINDOWS)
+    const held = pending.take(12)
+    expect(held).toEqual({ view: 'pipeline', projectId: MAC_PROJECT.id, machineId: 'mac', epic: 'worfy-link', num: 16 })
+    const { notifyOpenSchema } = await import('../../src/shared/ipc/notify')
+    expect(notifyOpenSchema.parse(held)).toEqual(held)
+    // A Pipeline note names its Project by root or by id.
+    expect(notifyOpenSchema.safeParse({ view: 'pipeline', machineId: 'mac', epic: 'e', num: 1 }).success).toBe(false)
+    electron.windows = []
+  })
+
+  it('a received note of a Project whose match key this Machine has in its list is not shown: it notified of it itself', async () => {
+    const pc = machine({ self: 'Windows PC', linked: [{ id: 'mac', name: 'Mac' }], projects: [PC_PROJECT], keys: { [PC_ROOT]: PC_KEY } })
+    await pc.tickets.receive('mac', shared(MAC_KEY))
+    expect(pc.shown).toEqual([])
+    // The control: a Project of another repository is shown.
+    await pc.tickets.receive('mac', shared(projectMatchKey({ id: 'other-0000', origin: originKey('git@git.example.com:o/other.git'), repoPath: '' })))
+    expect(pc.titles()).toEqual(['worfy-link 16 is waiting for you (Mac)'])
+  })
+
+  it('the same note twice is shown once, though 10 s passed and another Machine sent it; a new wait is shown again', async () => {
+    const linux = machine({ self: 'Linux box', linked: [{ id: 'mac', name: 'Mac' }, { id: 'pc', name: 'Windows PC' }], projects: [] })
+    await Promise.all([linux.tickets.receive('mac', shared(MAC_KEY)), linux.tickets.receive('mac', shared(MAC_KEY))])
+    linux.wait(NOTIFY_INTERVAL_MS)
+    await linux.tickets.receive('pc', shared(MAC_KEY))
+    expect(linux.titles()).toEqual(['worfy-link 16 is waiting for you (Mac)'])
+    await linux.tickets.receive('mac', shared(MAC_KEY, 'worfy-link', 16, 'worfy-link|16|2026-10-20T11:00Z'))
+    expect(linux.shown).toHaveLength(2)
+  })
+
+  it('two Machines with one repository at /Users/a/worfy and C:/src/worfy, origins spelled two ways: Waits: owner gives one note on each Machine, its own; the other\'s is dropped', async () => {
+    expect(MAC_KEY).toBe(PC_KEY)
+    const mac = machine({ self: 'Mac', linked: [{ id: 'pc', name: 'Windows PC' }, { id: 'linux', name: 'Linux box' }], projects: [MAC_PROJECT], keys: { [MAC_ROOT]: MAC_KEY } })
+    const pc = machine({ self: 'Windows PC', linked: [{ id: 'mac', name: 'Mac' }], projects: [PC_PROJECT], keys: { [PC_ROOT]: PC_KEY } })
+    // The control: a Machine without the repository in its list.
+    const linux = machine({ self: 'Linux box', linked: [{ id: 'mac', name: 'Mac' }], projects: [] })
+    mac.notices.read(MAC_ROOT, model(MAC_ROOT))
+    pc.notices.read(PC_ROOT, model(PC_ROOT))
+    // The Ticket file came to both clones: each Machine sees the wait in its own Project.
+    mac.notices.read(MAC_ROOT, delta(MAC_ROOT, [ticket('worfy-link', 16, 'owner')]))
+    pc.notices.read(PC_ROOT, delta(PC_ROOT, [ticket('worfy-link', 16, 'owner')]))
+    await settle()
+    for (const { note } of mac.sent) {
+      await pc.tickets.receive('mac', note)
+      await linux.tickets.receive('mac', note)
+    }
+    for (const { note } of pc.sent) await mac.tickets.receive('pc', note)
+    expect(mac.titles()).toEqual(['worfy-link 16 is waiting for you'])
+    expect(pc.titles()).toEqual(['worfy-link 16 is waiting for you'])
+    expect(linux.titles()).toEqual(['worfy-link 16 is waiting for you (Mac)'])
+  })
+
+  it('a repository without origin: the Project is matched by its id alone', async () => {
+    const idKey = projectMatchKey({ id: 'scratch-11111111', origin: null, repoPath: null })
+    const same = machine({ self: 'Windows PC', linked: [{ id: 'mac', name: 'Mac' }], projects: [{ path: 'C:/scratch', id: 'scratch-11111111', name: 'scratch' }], keys: {} })
+    await same.tickets.receive('mac', shared(idKey))
+    expect(same.shown).toEqual([])
+    const other = machine({ self: 'Windows PC', linked: [{ id: 'mac', name: 'Mac' }], projects: [{ path: 'C:/scratch', id: 'scratch-22222222', name: 'scratch' }], keys: {} })
+    await other.tickets.receive('mac', shared(idKey))
+    expect(other.shown).toHaveLength(1)
+  })
+
+  it('a Blocked reason of 1200 characters: the note still goes, its texts clipped, the wait as a hash, within the limits of the message', async () => {
+    const reason = 'r'.repeat(1200)
+    const mac = machine({ self: 'Mac', linked: [{ id: 'pc', name: 'Windows PC' }] })
+    mac.notices.read(MAC_ROOT, model(MAC_ROOT))
+    // A Status with a date alone: the key of the wait holds the reason.
+    const long = { ...ticket('worfy-link', 16, 'owner', reason), statusAt: '2026-10-20' }
+    mac.notices.read(MAC_ROOT, delta(MAC_ROOT, [long]))
+    await settle()
+    expect(mac.shown[0]?.note.body).toBe(reason)
+    expect(mac.sent).toHaveLength(1)
+    const sent = mac.sent[0]!.note
+    expect(sent.body.length).toBeLessThanOrEqual(160)
+    expect(sent.title.length).toBeLessThanOrEqual(1000)
+    expect(sent.wait).toBe(sha256(waitKey(long)))
+    expect(sent.wait).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('the receiver drops a note whose match key is that of its second Project, and names the second of two Linked machines that sent one', async () => {
+    const pc = machine({
+      self: 'Windows PC',
+      linked: [{ id: 'mac', name: 'Mac' }, { id: 'linux', name: 'Linux box' }],
+      projects: [{ path: 'C:/src/other', id: 'other-00000000', name: 'other' }, PC_PROJECT],
+      keys: { 'C:/src/other': projectMatchKey({ id: 'x', origin: 'git.example.com/o/other', repoPath: '' }), [PC_ROOT]: PC_KEY },
+    })
+    await pc.tickets.receive('linux', shared(MAC_KEY))
+    expect(pc.shown).toEqual([])
+    await pc.tickets.receive('linux', shared(projectMatchKey({ id: 'x', origin: 'git.example.com/o/third', repoPath: '' })))
+    expect(pc.titles()).toEqual(['worfy-link 16 is waiting for you (Linux box)'])
+  })
+
+  it('the match keys of this Machine\'s Projects are read with git once per minute, not for every note', async () => {
+    const pc = machine({ self: 'Windows PC', linked: [{ id: 'mac', name: 'Mac' }], projects: [PC_PROJECT, { path: 'C:/src/other', id: 'other-00000000', name: 'other' }], keys: { [PC_ROOT]: PC_KEY } })
+    await pc.tickets.receive('mac', shared(MAC_KEY, 'e', 1))
+    await pc.tickets.receive('mac', shared(MAC_KEY, 'e', 2))
+    expect(pc.reads).toEqual([PC_ROOT, 'C:/src/other'])
+    pc.wait(MATCH_KEY_TTL_MS)
+    await pc.tickets.receive('mac', shared(MAC_KEY, 'e', 3))
+    expect(pc.reads).toEqual([PC_ROOT, 'C:/src/other', PC_ROOT, 'C:/src/other'])
+  })
+
+  it(`remembers the last ${RECEIVED_LIMIT} waits: the oldest is forgotten and shows again, the next oldest does not`, async () => {
+    const shown: TicketNote[] = []
+    const tickets = new TicketNotes({ show: (note) => shown.push(note) }, { machines: () => ({ self: 'Linux box', linked: [] }) }, () => [], async () => 'unused')
+    for (let index = 0; index <= RECEIVED_LIMIT; index++) await tickets.receive('mac', shared(MAC_KEY, 'e', 1, `wait-${index}`))
+    expect(shown).toHaveLength(RECEIVED_LIMIT + 1)
+    await tickets.receive('mac', shared(MAC_KEY, 'e', 1, 'wait-1'))
+    expect(shown).toHaveLength(RECEIVED_LIMIT + 1)
+    await tickets.receive('mac', shared(MAC_KEY, 'e', 1, 'wait-0'))
+    expect(shown).toHaveLength(RECEIVED_LIMIT + 2)
+  })
+
+  it('Waits: <a Machine name> while this Machine has no name yet: nothing shown and the wait not counted as seen; once the name is known, the next read shows it', async () => {
+    const mac = machine({ self: null })
+    mac.notices.read(MAC_ROOT, model(MAC_ROOT))
+    mac.notices.read(MAC_ROOT, delta(MAC_ROOT, [ticket('e', 1, 'Mac')]))
+    expect(mac.shown).toEqual([])
+    mac.name('Mac')
+    mac.notices.read(MAC_ROOT, delta(MAC_ROOT, [ticket('e', 1, 'Mac')]))
+    expect(mac.titles()).toEqual(['e 01 is waiting for you'])
+  })
+
+  it('stopping the notifications lets go of the Linked machines\' Ticket notes', () => {
+    const handlers = new Set<unknown>()
+    const link = {
+      send: () => undefined,
+      receive: () => () => undefined,
+      receiveTicket: (handler: unknown) => {
+        handlers.add(handler)
+        return () => handlers.delete(handler)
+      },
+      machines: () => ({ self: 'Mac', linked: [] }),
+    }
+    const hub = { open: vi.fn(async (root: string) => model(root)), close: vi.fn(async () => true) }
+    const stop = installNotifications({ observe: () => () => undefined }, new Set(), undefined, link, { hub, projects: () => [], deps: { focused: () => false, show: () => undefined, open: () => undefined, now: () => 1 } })
+    expect(handlers.size).toBe(1)
+    stop()
+    expect(handlers.size).toBe(0)
+  })
+
+  it('remoteHasHost: a remote with a host has one; a local path, a Windows drive and file:// have none', () => {
+    for (const url of ['git@git.example.com:o/worfy.git', 'https://git.example.com/o/worfy', 'ssh://git@host:22/o/r.git', 'host.example:o/r']) expect(remoteHasHost(url)).toBe(true)
+    for (const url of ['/Users/x/repo.git', 'C:\\repos\\x.git', 'C:/repos/x.git', 'file:///srv/x.git', '../x.git', 'x.git', 'https:///nohost']) expect(remoteHasHost(url)).toBe(false)
+  })
+
+  describe('a failure of git is not "no origin"', () => {
+    type Answer = { ok: true; out: string } | { ok: false; code: number | null; stderr: string }
+    /** A git that answers `rev-parse` and `get-url` as given. */
+    const git = (prefix: Answer, url: Answer) => async (_cwd: string, args: string[]) => (args[0] === 'rev-parse' ? prefix : url)
+    const ROOT_PREFIX: Answer = { ok: true, out: '' }
+    const SUB_PREFIX: Answer = { ok: true, out: 'docs/site/' }
+    const ORIGIN: Answer = { ok: true, out: 'git@git.example.com:o/worfy.git' }
+    const idKey = projectMatchKey({ id: 'p-1', origin: null, repoPath: null })
+
+    it('get-url exit 2 (no remote origin) and "not a git repository" give the id key; an origin gives the origin key with the path', async () => {
+      expect(await readProjectMatchKey('/r', 'p-1', git(ROOT_PREFIX, { ok: false, code: 2, stderr: 'error: No such remote' }))).toBe(idKey)
+      const outside = { ok: false as const, code: 128, stderr: 'fatal: not a git repository (or any of the parent directories): .git' }
+      expect(await readProjectMatchKey('/r', 'p-1', git(outside, outside))).toBe(idKey)
+      expect(await readProjectMatchKey('/r', 'p-1', git(SUB_PREFIX, ORIGIN))).toBe(projectMatchKey({ id: 'x', origin: 'git.example.com/o/worfy', repoPath: 'docs/site' }))
+    })
+
+    it('get-url timed out, killed or failed otherwise: the read rejects, no id key', async () => {
+      for (const failed of [{ ok: false as const, code: null, stderr: '' }, { ok: false as const, code: 1, stderr: 'error' }, { ok: false as const, code: 128, stderr: 'fatal: unable to access' }]) {
+        await expect(readProjectMatchKey('/r', 'p-1', git(ROOT_PREFIX, failed))).rejects.toThrow(/match key of Project p-1 is unknown/)
+      }
+    })
+
+    it('rev-parse failed for a Project in a subfolder: the read rejects, rather than give the key of the repository\'s root', async () => {
+      await expect(readProjectMatchKey('/r/docs/site', 'p-1', git({ ok: false, code: null, stderr: '' }, ORIGIN))).rejects.toThrow(/rev-parse failed/)
+    })
+
+    it('a sender whose key could not be read sends nothing, keeps no key, and reads it again for the next wait', async () => {
+      const sent: SharedTicketNote[] = []
+      const warned: string[] = []
+      let fail = true
+      const reads: string[] = []
+      const tickets = new TicketNotes(
+        { show: () => undefined },
+        { sendTicket: (note) => sent.push(note), machines: () => ({ self: 'Mac', linked: [{ id: 'pc', name: 'Windows PC' }] }) },
+        () => [MAC_PROJECT],
+        async (root) => {
+          reads.push(root)
+          if (fail) throw new Error('git remote get-url origin failed (exit null)')
+          return MAC_KEY
+        },
+        (message) => warned.push(message),
+        () => 1,
+      )
+      const notices = new WaitsNotices(tickets)
+      notices.read(MAC_ROOT, model(MAC_ROOT))
+      notices.read(MAC_ROOT, delta(MAC_ROOT, [ticket('e', 1, 'owner')]))
+      await settle()
+      expect(sent).toEqual([])
+      expect(warned).toHaveLength(1)
+      fail = false
+      notices.read(MAC_ROOT, delta(MAC_ROOT, [{ ...ticket('e', 2, 'owner') }]))
+      await settle()
+      // Within the minute of the cache: the failed read was not kept.
+      expect(reads).toEqual([MAC_ROOT, MAC_ROOT])
+      expect(sent.map((note) => [note.num, note.project.match])).toEqual([[2, MAC_KEY]])
+    })
+
+    it('a receiver whose own key could not be read shows the note, and reads the key again for the next one', async () => {
+      const shown: TicketNote[] = []
+      let fail = true
+      const reads: string[] = []
+      const tickets = new TicketNotes({ show: (note) => shown.push(note) }, { machines: () => ({ self: 'Windows PC', linked: [{ id: 'mac', name: 'Mac' }] }) }, () => [PC_PROJECT], async (root) => {
+        reads.push(root)
+        if (fail) throw new Error('timed out')
+        return PC_KEY
+      })
+      await tickets.receive('mac', shared(MAC_KEY, 'e', 1))
+      expect(shown).toHaveLength(1)
+      fail = false
+      await tickets.receive('mac', shared(MAC_KEY, 'e', 2))
+      expect(reads).toEqual([PC_ROOT, PC_ROOT])
+      expect(shown).toHaveLength(1)
+    })
+  })
+
+  describe('the match key read with git', () => {
+    const dirs: string[] = []
+    const scratch = (): string => {
+      const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-match-')))
+      dirs.push(dir)
+      return dir
+    }
+    const git = (cwd: string, ...args: string[]): void => {
+      const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+      execFileSync('git', ['-c', 'init.defaultBranch=main', ...args], { cwd, env, stdio: 'ignore' })
+    }
+    const repo = (origin: string | null): string => {
+      const dir = scratch()
+      git(dir, 'init', '-q')
+      if (origin !== null) git(dir, 'remote', 'add', 'origin', origin)
+      mkdirSync(join(dir, 'docs', 'site'), { recursive: true })
+      return dir
+    }
+
+    it('one repository at two paths is one key; another folder inside it is another; without origin, the id; no local path in any', async () => {
+      try {
+        const a = repo('git@git.example.com:o/worfy.git')
+        const b = repo('https://git.example.com/o/worfy')
+        const atA = await readProjectMatchKey(a, 'worfy-aaaaaaaa')
+        expect(atA).toBe(await readProjectMatchKey(b, 'worfy-bbbbbbbb'))
+        expect(atA).toBe(projectMatchKey({ id: 'x', origin: 'git.example.com/o/worfy', repoPath: '' }))
+        const docsA = await readProjectMatchKey(join(a, 'docs', 'site'), 'site-1')
+        expect(docsA).toBe(projectMatchKey({ id: 'x', origin: 'git.example.com/o/worfy', repoPath: 'docs/site' }))
+        expect(docsA).toBe(await readProjectMatchKey(join(b, 'docs', 'site'), 'site-2'))
+        expect(docsA).not.toBe(atA)
+        // A folder outside any repository: git says so, and the key is the id.
+        expect(await readProjectMatchKey(scratch(), 'plain-eeeeeeee')).toBe(projectMatchKey({ id: 'plain-eeeeeeee', origin: null, repoPath: null }))
+        const bare = repo(null)
+        expect(await readProjectMatchKey(bare, 'bare-cccccccc')).toBe(projectMatchKey({ id: 'bare-cccccccc', origin: null, repoPath: null }))
+        // An origin that is a folder of this Machine is no origin (Q16): its key would be a local path.
+        const local = repo(a)
+        const localKey = await readProjectMatchKey(local, 'local-dddddddd')
+        expect(localKey).toBe(projectMatchKey({ id: 'local-dddddddd', origin: null, repoPath: null }))
+        expect(localKey.toLowerCase()).not.toContain(a.toLowerCase().slice(1))
+        for (const key of [atA, docsA]) for (const dir of dirs) expect(key).not.toContain(dir)
+      } finally {
+        for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
+      }
+    })
   })
 })

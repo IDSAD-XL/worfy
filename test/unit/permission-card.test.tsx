@@ -495,6 +495,47 @@ describe('the notification overlay', () => {
     })
   })
 
+  describe('a note of a Linked machine\'s Ticket that waits (worfy-pipeline ticket 10)', () => {
+    const OF_A = { projects: [{ id: 'beta', name: 'beta', path: '/Users/test/beta', branch: 'main' }, { id: 'gamma', name: 'gamma', path: '/Users/test/gamma', branch: 'main' }], activeId: 'beta', revision: 3 }
+    const NOTE = { view: 'pipeline', projectId: 'gamma', machineId: 'machine-a', epic: 'worfy-link', num: 16 } as const
+
+    it('in a window on this Machine, loads the window on that Machine at the Project of the note\'s id, and carries the note across the load', async () => {
+      answers['projects.list'] = () => PROJECTS
+      answers['notify.pending'] = () => ({ note: NOTE })
+      answers['linked.invoke'] = () => ({ ok: false, error: 'the Project is named by id: Machine A is not asked' })
+      const { navigation } = await import('../../src/renderer/projects/useProjects')
+      const loads: string[] = []
+      navigation.load = (url) => loads.push(url)
+      const h = await mountOverlay()
+      await vi.waitFor(() => expect(loads).toHaveLength(1))
+      expect(new URL(loads[0] ?? '').searchParams.get('machine')).toBe('machine-a')
+      expect(new URL(loads[0] ?? '').searchParams.get('project')).toBe('gamma')
+      expect(asked.filter((each) => each.channel === 'linked.invoke')).toEqual([])
+      expect(h.opened().view).not.toBe('pipeline')
+      expect(h.target.takeCarriedNote()?.note).toEqual(NOTE)
+    })
+
+    it('after the load on that Machine, opens the Pipeline board of that Project there, found by id', async () => {
+      window.history.replaceState(null, '', '/?machine=machine-a&project=beta')
+      answers['linked.invoke'] = (input) => {
+        const call = input as { channel: string }
+        return call.channel === 'projects.list' ? { ok: true, value: OF_A } : { ok: false, error: `no ${call.channel}` }
+      }
+      answers['linked.open'] = () => ({})
+      answers['notify.pending'] = () => ({ note: null })
+      const { carryNote } = await import('../../src/renderer/session/notification-target')
+      carryNote({ note: NOTE, until: Date.now() + 5_000 })
+      const { navigation } = await import('../../src/renderer/projects/useProjects')
+      navigation.replace = () => undefined
+      navigation.load = () => {
+        throw new Error('the window must not load again')
+      }
+      const h = await mountOverlay()
+      await vi.waitFor(() => expect(h.opened().view).toBe('pipeline'))
+      expect(asked).toContainEqual({ channel: 'linked.open', input: { machine: 'machine-a', projectId: 'gamma' } })
+    })
+  })
+
   it('a newer note replaces one still waiting; letting go of the old one keeps the new', async () => {
     const { dropNote, holdNote, usePendingNote } = await import('../../src/renderer/session/notification-target')
     holdNote({ sessionId: 'a', projectRoot: null })

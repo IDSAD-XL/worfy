@@ -370,7 +370,7 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
   return commands
 }
 
-function goToCommands({ project, model, layoutNodes, history, adrs }: CommandContext): PaletteCommand[] {
+function goToCommands({ project, model, layoutNodes, history, adrs, readOnly }: CommandContext): PaletteCommand[] {
   if (!project) return []
   const projectId = project.id
   // The Orchestrator's Session view (worfy-polish ticket 25), whether it runs or not: picking the row
@@ -411,6 +411,8 @@ function goToCommands({ project, model, layoutNodes, history, adrs }: CommandCon
   }
   for (const node of layoutNodes) {
     if (SKIPPED_KINDS.has(node.kind)) continue
+    // An archived or hidden Node comes back before the Canvas goes to it: a change of the Project.
+    const showHint = shownOnCanvas(node) ? undefined : (readOnly ?? undefined)
     if (SESSION_KINDS.has(node.kind)) {
       const sessionId = typeof node.data.sessionId === 'string' ? node.data.sessionId : undefined
       commands.push({
@@ -420,6 +422,7 @@ function goToCommands({ project, model, layoutNodes, history, adrs }: CommandCon
         detail: node.kind === 'orchestrator' ? 'Orchestrator' : 'Session',
         keys: sessionId === undefined ? undefined : [sessionId, sessionId.slice(0, 8)],
         run: () => goToNode(projectId, node),
+        readOnly: showHint,
       })
       continue
     }
@@ -432,6 +435,7 @@ function goToCommands({ project, model, layoutNodes, history, adrs }: CommandCon
       detail: title === null ? undefined : label,
       keys: node.kind === 'card' ? [typeof node.data.cardId === 'string' ? node.data.cardId : node.id] : undefined,
       run: () => goToNode(projectId, node),
+      readOnly: showHint,
     })
   }
   for (const adr of adrs) {

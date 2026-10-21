@@ -1,6 +1,6 @@
 // The order of the Epic frames and their number of columns (ADR-0075): pure functions every
 // screen of a Project computes the same way from the Layout's `epic-arrangement` record. How
-// sources/epics.ts writes the record: epic-arrangement-record.test.tsx.
+// arrangement-record.ts writes the record: epic-arrangement-record.test.tsx.
 import { describe, expect, it } from 'vitest'
 import {
   arrange,

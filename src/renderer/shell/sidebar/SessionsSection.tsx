@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { ProjectView } from '../../../shared/ipc/projects'
+import { shownOnCanvas } from '../../../shared/layout/derived'
 import { useOrchestratorView, useOrchestratorViews } from '../../canvas/nodes/orchestrator-view'
 import { showNode } from '../../canvas/show-node'
 import { useLayout } from '../../canvas/useLayout'
@@ -117,6 +118,9 @@ function Sessions({ project }: { project: ProjectView }) {
         {live.map((session) => {
           const title = session.name ?? history.find((each) => each.sessionId === session.sessionId)?.title ?? `Session ${session.sessionId.slice(0, 8)}`
           const row = sessionRow(session, worfyIds, worfy, title)
+          // An archived or hidden Node would come back first: a change of the Project, which a read-only screen does not make.
+          const node = nodeOf(session.sessionId)
+          const shows = node !== undefined && !shownOnCanvas(node)
           return (
             <li key={session.sessionId}>
               <button
@@ -126,8 +130,7 @@ function Sessions({ project }: { project: ProjectView }) {
                 data-testid="sidebar-session"
                 data-session-id={session.sessionId}
                 data-source={row.source}
-                title={`${row.name} — ${session.cwd}`}
-                onClick={() => open(session.sessionId)}
+                {...writeAction(shows ? readOnly : null, () => open(session.sessionId), `${row.name} — ${session.cwd}`)}
               >
                 <span style={styles.name} data-testid="sidebar-session-name">
                   {row.name}

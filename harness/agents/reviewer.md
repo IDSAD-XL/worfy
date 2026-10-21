@@ -195,7 +195,8 @@ Rules of evidence:
   "Could not resolve to a Repository", compare `gh auth status` with `github.account` and say so in
   the answer.
 
-Answer format — no more than 30 lines:
+Answer format — no more than 30 lines (under the lens implementer's report the verdict line comes
+first, before everything below; see that lens):
 - `path:line: [high|med|low] <defect>; scenario: <which input or state gives which wrong
   behaviour> — <the fix in one sentence>`, in descending order of severity;
 - a separate line: what you ran and with what exit code;
@@ -234,7 +235,10 @@ whatever the claims show. An exit 3 under a temporary HOME without `HARNESS_HOME
 does not count: run the gate again by the recipe first. Every unconfirmed claim on the list
 comes with its `file:line`, or with the command and both exit codes, the reported one and yours.
 Nothing comes before the verdict line: no heading, no summary, not the line of a failed `profile`,
-which comes second under this lens. The other lines of the answer keep the format above, and the
+which comes second under this lens. The answer's very first characters are `VERIFIED` or
+`REJECTED:` as written here: no label in front (`Verdict:`), no bold or other markup around them,
+no sentence about what you checked or are about to say. One verdict only: `VERIFIED` and
+`REJECTED` never share the line. The other lines of the answer keep the format above, and the
 whole answer stays within its 30 lines. What happens to the verdict — where it is recorded, which
 commit it marks — is the business of the skill that launched the review.
 

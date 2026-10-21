@@ -1,7 +1,8 @@
 # 19 — Долг после review Wave 3: PR #654, #656, #657, #659, #662, #664, #668
 
 Type: task
-Status: claimed 2026-10-21T08:11Z
+Status: claimed 2026-10-21T09:59Z
+Branch: worfy-canvas/19-c
 Blocked by: —
 Source: ревью PR [#654](https://github.com/IDSAD-XL/worfy/pull/654) (Ticket 14, архивные Node-ы вне Find,
 истории и canvas MCP, круги 1–2), [#656](https://github.com/IDSAD-XL/worfy/pull/656) (Ticket 09, история
@@ -36,9 +37,9 @@ Session-ов и popover Archive, круги 1–3), [#657](https://github.com/ID
       main.
 - [x] `history.ts:478`: нет test-а на ветку undo с закреплённым (pinned) Node-ом.
 - [x] `test/contract/canvas-tools.test.ts:41`: очередь mock-а `node:crypto` не очищается между test-ами.
-- [ ] `src/renderer/canvas/show-node.ts` повторяет канал записанных операций из `Canvas.tsx` (send с
+- [x] `src/renderer/canvas/show-node.ts` повторяет канал записанных операций из `Canvas.tsx` (send с
       `screenId` плюс `currentLayout`) без общей фабрики.
-- [ ] Show архивного Node-а из sidebar-а и палитры на read-only экране не показывает подсказку (как на
+- [x] Show архивного Node-а из sidebar-а и палитры на read-only экране не показывает подсказку (как на
       main для скрытого Node-а).
 
 **#657 (Ticket 05), low:**
@@ -68,9 +69,9 @@ Session-ов и popover Archive, круги 1–3), [#657](https://github.com/ID
 
 **#659 (follow-up Ticket-а 18), low:**
 
-- [ ] `expectSettledWithoutOverlaps` (`test/e2e/helpers.ts:820`) без своего test-а и проходит на пустом
+- [x] `expectSettledWithoutOverlaps` (`test/e2e/helpers.ts:820`) без своего test-а и проходит на пустом
       списке и на прямоугольниках нулевого размера; добавить guard-ы.
-- [ ] `helpers.ts:801`: `querySelector` молча берёт первое совпадение; требовать ровно одно.
+- [x] `helpers.ts:801`: `querySelector` молча берёт первое совпадение; требовать ровно одно.
 - [ ] Другие e2e всё ещё читают несколько прямоугольников по одному: `epic-frame.spec.ts:888-898` и `:523`,
       `tidy-up.spec.ts:112`, `no-overlap.spec.ts:128/140/196/258`, `selection-toolbar-frame.spec.ts:163`
       и `:186-201`, `done-stack.spec.ts:96`.
@@ -84,7 +85,7 @@ Session-ов и popover Archive, круги 1–3), [#657](https://github.com/ID
       проверять `dayWrites.has`.
 - [x] Переключение Project-а во время ожидания Binding-ов: `nodes()` читает `nodeLookup` другого
       Project-а.
-- [ ] Границы модулей: `bindingsRead` читает сырое состояние store; разрешение сигналов повторяет
+- [x] Границы модулей: `bindingsRead` читает сырое состояние store; разрешение сигналов повторяет
       `session-spots.ts`; прямой `invoke('claudeHome.live')`; поле model продублировано; планировщик
       upkeep вынести в свой модуль.
 - [x] `epics.ts` вырос до 1104 строк (gate предупреждает выше 1000): вынести запись и upkeep расстановки
@@ -107,7 +108,7 @@ Session-ов и popover Archive, круги 1–3), [#657](https://github.com/ID
 
 - [ ] `test/unit/zoom-level.test.tsx:184-198`: перечень Node-ов ищет текст `{...NODE_HEADER}`; проверять,
       что каждый ключ `EXCEPTIONS` существует и что пометка — прямой потомок `.w-node-surface`.
-- [ ] `test/e2e/semantic-zoom.spec.ts`: размер Terminal читается один раз, без ожидания кадра (на голове
+- [x] `test/e2e/semantic-zoom.spec.ts`: размер Terminal читается один раз, без ожидания кадра (на голове
       PR — `:264` и `:304`; на main `306bf09e` сравнения на `:267` и `:309` уже через `expect.poll`, а
       исходный `terminalFull` на `:249` — одно чтение); перечитать и при нужде брать `expect.poll`.
 - [ ] `shortcut:` в `src/renderer/canvas/epic-frame.css:443`: на far шапка короткой рамки выходит за её
@@ -194,3 +195,37 @@ PR первой части (2026-10-21, ветка `worfy-canvas/19`): ошиб�
 
 Осталось (следующий PR): `show-node.ts` и общая фабрика канала; подсказка Show на read-only экране;
 #657 (KIND, `ariaLabel`, test-ы); две части границ #662 выше; #659; #668; flaky test `workflow-reader`.
+
+Третья часть (ветка `worfy-canvas/19-c`): замечания review #679 и часть оставшихся пунктов.
+
+- "Re-pack" (`useRepack`) — в `arrangement-record.ts` рядом с записью; в `sources/epics.ts` остались
+  только запрос палитры (`requestRepack`, `useRepackRequests`). Реэкспорт из `epics.ts` убран:
+  `arrange-by-epic-command.ts` берёт `arrangementOf` из `arrangement-record.ts`.
+- `bindingsRead` и `whenBindingsRead` — в `binding/store.ts` рядом с `manualRead` и `storedBindings`;
+  `arrange-by-epic-command.ts` разрешает Binding-и через `storedBindings()` (третья копия цикла
+  сигналов убрана).
+- «Поле model продублировано»: `ArrangementState.root` убран — он всегда равен `model.root` (main
+  отдаёт model с `root`, как его прислал экран, `src/main/ipc/workflow.ts`); `activityNow` принимает
+  состояние один раз (`model` и `sessions`), а не Tickets отдельно.
+- Прямой `invoke('claudeHome.live')`: вызов — `liveSessionsNow()` в `claude-home/useClaudeHome.ts`
+  (PR #677 влит).
+- #654: Canvas и Show пользуются одной фабрикой `screenChannel()` (`useLayout.ts`) — Canvas передаёт
+  свой ответ на отказ и свой Layout до первого ответа main; test — `test/unit/screen-channel.test.tsx`.
+  На read-only экране строка sidebar-а и команда «go to» палитры для архивного или скрытого Node-а
+  неактивны с подсказкой, как Show в истории Session-ов.
+- #659: `expectSettledWithoutOverlaps` отказывает при меньше чем двух элементах; селектор должен находить
+  ровно один элемент; пустой прямоугольник — ошибка прохода. Проверки — `test/e2e/box-checks.ts`,
+  test — `test/unit/e2e-box-checks.test.ts`.
+- #668: размер Terminal в `semantic-zoom.spec.ts` берётся, когда два чтения подряд совпали.
+- #657: test-ы на имя Session Node-а (`sessionLabel`: «my session», «Sessions overview», «session-2»,
+  «New session») и на Node до чтения registry (`live === undefined`: нейтральный chip, не finished) —
+  `test/unit/node-kind-header.test.tsx`.
+
+Осталось (следующий PR):
+- #657: цвет KIND одной константой — правка во всех файлах Node-ов; `ariaLabel` на Node-ах React Flow;
+  порядок CSS в unit test-е привязать к bundle-у.
+- #659: остальные e2e, которые читают прямоугольники по одному.
+- #668: проверка в `zoom-level.test.tsx`, что пометка — прямой потомок `.w-node-surface` (нужен render
+  каждого типа Node-а); `shortcut:` в `epic-frame.css` — нужен выбор дизайна (прогресс в строке имени у
+  короткой рамки).
+- Flaky test `workflow-reader`.

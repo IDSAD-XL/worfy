@@ -9,6 +9,7 @@
 // code runs on Windows) with an ECDSA P-256 key: TLS 1.3 in Electron's BoringSSL accepts it, which
 // test/contract/link-server.test.ts shows by connecting through it.
 import { randomUUID, createPrivateKey, X509Certificate } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { generate } from 'selfsigned'
 import { z } from 'zod'
@@ -39,6 +40,20 @@ export interface MachineIdentity {
 }
 
 export const machineFile = (linkDir: string): string => join(linkDir, 'machine.json')
+
+/**
+ * This Machine's name as link/machine.json keeps it (Settings → Machines shows it), read without the
+ * link service; undefined before the first start of the link made the file, or when it is unreadable.
+ */
+export function storedMachineName(linkDir: string): string | undefined {
+  // Not readJsonFile: it sets an unreadable file aside, and this read must never move the identity.
+  try {
+    const parsed = machineFileSchema.safeParse(JSON.parse(readFileSync(machineFile(linkDir), 'utf8')))
+    return parsed.success ? parsed.data.name : undefined
+  } catch {
+    return undefined
+  }
+}
 
 /** SHA-256 fingerprint of a PEM certificate, in the form TLSSocket.getPeerCertificate() gives. */
 export function fingerprintOf(certificate: string): string {

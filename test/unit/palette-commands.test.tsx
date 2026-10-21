@@ -382,6 +382,17 @@ describe('palette commands', () => {
       expect(buildCommands(context()).filter((command) => command.readOnly !== undefined)).toEqual([])
     })
 
+    it('"go to" an archived or hidden Node carries the hint: it would bring the Node back first', () => {
+      const archived = { at: 1, rule: 'idle' as const, batch: 'b1' }
+      const layoutNodes = [node('n1', 'note', { archived }), node('c1', 'card', { hidden: true }), node('s1', 'session', { archived, data: { sessionId: 'abcdef1234' } }), node('n2', 'note')]
+      const hints = (readOnly: string | null) =>
+        buildCommands(context({ readOnly, layoutNodes }))
+          .filter((command) => command.id.startsWith('node:') && command.readOnly !== undefined)
+          .map((command) => command.id)
+      expect(hints(HINT)).toEqual(['node:n1', 'node:c1', 'node:s1'])
+      expect(hints(null)).toEqual([])
+    })
+
     it('their rows are inactive with the hint, a gated row too, and a click or Enter runs nothing', () => {
       // A row the hint makes inactive asks main nothing: no gate hook runs, so no main process is needed.
       const runs: string[] = []

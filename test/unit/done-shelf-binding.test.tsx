@@ -36,7 +36,8 @@ vi.mock('../../src/renderer/projects/useProjects', async (original) => ({
   useProjects: () => fixed.projects,
   useReadOnly: () => null,
 }))
-vi.mock('../../src/renderer/claude-home/useClaudeHome', () => ({ useClaudeHome: () => fixed.home }))
+// No live list for the arrangement's activity: this window has no main to ask.
+vi.mock('../../src/renderer/claude-home/useClaudeHome', () => ({ useClaudeHome: () => fixed.home, liveSessionsNow: () => Promise.resolve(undefined) }))
 vi.mock('../../src/renderer/workflow/useWorkflow', () => ({ useWorkflow: () => ({ model: fixed.model as WorkflowModel }) }))
 vi.mock('../../src/renderer/binding/store', async (original) => ({
   ...(await original<typeof import('../../src/renderer/binding/store')>()),

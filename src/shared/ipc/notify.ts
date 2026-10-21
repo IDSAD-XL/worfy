@@ -25,15 +25,23 @@ export const sessionOpenSchema = z.object({
 export type SessionOpen = z.output<typeof sessionOpenSchema>
 
 /**
- * A Ticket of this Machine that came to wait for the owner (worfy-pipeline ticket 06,
- * src/main/workflow/waits-notify.ts): the window opens the Pipeline board of its Project.
+ * A Ticket that came to wait for the owner (worfy-pipeline ticket 06, src/main/workflow/waits-notify.ts):
+ * the window opens the Pipeline board of its Project. A Ticket of this Machine names its Project by
+ * root; one of a Linked machine (worfy-pipeline ticket 10) names that Machine and its Project's id
+ * there, and the window opens the board among that Machine's Projects, as for a Session.
  */
-export const pipelineOpenSchema = z.object({
-  view: z.literal('pipeline'),
-  projectRoot: z.string().min(1),
-  epic: z.string().min(1),
-  num: z.number().int().nonnegative(),
-})
+export const pipelineOpenSchema = z
+  .object({
+    view: z.literal('pipeline'),
+    projectRoot: z.string().min(1).optional(),
+    /** The id of the Project on the note's Machine: a Linked machine's root is not sent (Q16). */
+    projectId: z.string().min(1).optional(),
+    /** The Linked machine whose Ticket it is; null or absent: a Ticket of this Machine. */
+    machineId: z.string().min(1).nullable().optional(),
+    epic: z.string().min(1),
+    num: z.number().int().nonnegative(),
+  })
+  .refine((note) => note.projectRoot !== undefined || note.projectId !== undefined, { message: 'a Pipeline note names its Project by root or id' })
 export type PipelineOpen = z.output<typeof pipelineOpenSchema>
 
 export const notifyOpenSchema = z.union([sessionOpenSchema, pipelineOpenSchema])
