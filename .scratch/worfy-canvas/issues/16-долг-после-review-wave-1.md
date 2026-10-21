@@ -61,13 +61,13 @@ focus mode (#539, круг 2).
       (`NODE_COLOR_DEFAULT = 'var(--text-muted)'`): `test/unit/minimap-paint.test.tsx:41-44` сравнивает
       с самой константой, поэтому смена константы test не краснит. Сравнивать с литералом, как и заливку
       Ticket-а.
-- [ ] **#538, выбранная Session и Note под курсором.** `src/renderer/canvas/edge-focus.ts:76-84`
+- [x] **Снято ticket-ом 17 (#644): затемнения больше нет.** **#538, выбранная Session и Note под курсором.** `src/renderer/canvas/edge-focus.ts:76-84`
       (`brightOf`): выбрана Session, курсор над Note — Note остаётся ярким, потому что набор ярких
       начинается с `new Set(focused)` (`:81`), а Node под курсором входит в `focused`
       (`src/renderer/canvas/overlays/EdgeFocus.tsx:53`). Test-а на этот случай нет — закрепить.
-- [ ] **#538, затемнение закреплённого Node-а.** `NodeChrome.tsx:77`: ветка `PinnedFrame` рисует
+- [x] **Снято ticket-ом 17 (#644): затемнения больше нет.** **#538, затемнение закреплённого Node-а.** `NodeChrome.tsx:77`: ветка `PinnedFrame` рисует
       затемнение — test-а нет.
-- [ ] **#538, Reduce motion.** `src/renderer/canvas/node-chrome.css:58-60`: `prefers-reduced-motion`
+- [x] **Снято ticket-ом 17 (#644): затемнения больше нет.** **#538, Reduce motion.** `src/renderer/canvas/node-chrome.css:58-60`: `prefers-reduced-motion`
       выключает переход — test-а нет (e2e с `reducedMotion: 'reduce'` или unit на класс).
 - [ ] **#538, Show family и фильтр по тегу.** «Show family» (`src/renderer/canvas/overlays/SelectionToolbar.tsx:271-281`)
       подгоняет вид и под Node-ы, которые скрыл фильтр по тегу (`src/renderer/find/CanvasFind.tsx:177`).
