@@ -69,10 +69,8 @@ export function windowShow(deps: WindowShowDeps): WindowShow {
     didFinishLoad: () => {
       // A reload before the window is shown fires did-finish-load again; the first timer stands.
       if (shown !== null || timerSet) return
-      timer = deps.setTimer(() => {
-        timerSet = false
-        showBy('fallback')
-      }, fallbackMs)
+      // showBy clears this timer once it has fired; clearing a fired timer does nothing.
+      timer = deps.setTimer(() => showBy('fallback'), fallbackMs)
       timerSet = true
     },
     dispose: stopTimer,

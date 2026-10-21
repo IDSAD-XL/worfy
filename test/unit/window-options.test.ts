@@ -38,6 +38,8 @@ const electron = vi.hoisted(() => {
     /** The window's own once() listeners and how it was put on screen. */
     windowOnce: [] as { event: string; handler: Listener }[],
     shows: [] as ('show' | 'showInactive')[],
+    /** What the window's isDestroyed() answers. */
+    destroyed: false,
     dark: false,
     appListeners: new Map<string, Listener[]>(),
     fakeSession,
@@ -70,7 +72,7 @@ vi.mock('electron', () => {
     }
     setIgnoreMouseEvents(): void {}
     isDestroyed(): boolean {
-      return false
+      return electron.destroyed
     }
     loadFile(): Promise<void> {
       return Promise.resolve()
@@ -157,6 +159,7 @@ describe('createMainWindow', () => {
     electron.handlers.length = 0
     electron.windowOnce.length = 0
     electron.shows.length = 0
+    electron.destroyed = false
     electron.dark = dark
     vi.stubEnv('WORFY_DATA_DIR', join(tmpdir(), 'worfy-window-options-test'))
     vi.stubEnv('ELECTRON_RENDERER_URL', '')
@@ -219,6 +222,15 @@ describe('createMainWindow', () => {
       fire(electron.handlers, 'did-finish-load')
       vi.advanceTimersByTime(3_000)
       expect(electron.shows).toEqual(['showInactive'])
+    })
+
+    it('not when the window is destroyed before the timer fires, even without a closed event', async () => {
+      vi.stubEnv('WORFY_QUIET_WINDOWS', '')
+      await optionsOn('darwin', false)
+      fire(electron.handlers, 'did-finish-load')
+      electron.destroyed = true
+      vi.advanceTimersByTime(3_000)
+      expect(electron.shows).toEqual([])
     })
 
     it('not after the window has closed', async () => {

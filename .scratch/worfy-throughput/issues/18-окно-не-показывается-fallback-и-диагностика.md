@@ -67,6 +67,9 @@ Playwright на macOS): 2 из 4 gate full упали на «the window was not 
 - `src/main/index.ts` — комментарий у `appendSwitch`.
 - `playwright.config.ts` — ставит новую переменную.
 - `test/e2e/helpers.ts` — `launchApp`, диагностика timeout-а.
+- `test/e2e/start-diagnosis.ts` — новый: чистые части диагностики (предел шага, бюджет, хвост вывода, сводка).
+- `test/e2e/linked-notify.spec.ts` — проверка, что switch-и отрисовки дошли до запуска без тихих окон.
+- `test/unit/start-diagnosis.test.ts` — новый.
 - `test/unit/window-show.test.ts` — новый.
 - `test/unit/quiet-windows.test.ts`, `test/unit/e2e-notifications.test.ts`, `test/unit/playwright-json-report.test.ts`
   — новая переменная и восстановление окружения.
@@ -120,6 +123,16 @@ PNG 2560 × 1600 сохранён; правка откатана из копии
 `nice -n 10`: `launch.spec.ts`, `settings-health.spec.ts`, `linked-notify.spec.ts`, `quiet-windows.spec.ts` —
 12 passed, exit 0. Весь `pnpm test`, весь e2e и gate не запускались: тяжёлые run-ы на этом Mac ведёт Session
 очереди gate.
+
+**Круг ревью 1 (PR #661).** Бюджет диагностики ограничен временем, которое осталось у test-а до его timeout-а,
+минус 10 s на kill и удаление временных папок (`diagnosisBudget`, `deadline` в `test/e2e/start-diagnosis.ts`);
+без времени шаги не запускаются, а cleanup идёт всё равно. Часы test-а стартуют на его первом `launchApp`
+(у Playwright нет времени начала test-а) — помечено `shortcut:`. Замена в `error.stack` — функцией. Чистые части
+диагностики вынесены в `test/e2e/start-diagnosis.ts` и покрыты `test/unit/start-diagnosis.test.ts`. В
+`window-show.ts` строка `timerSet = false` в callback-е timer-а убрана: `showBy` сам снимает сработавший timer,
+снятие сработавшего timer-а ничего не делает. Проверка `isDestroyed` в `window.ts` покрыта test-ом (окно
+уничтожено без события `closed`). `linked-notify.spec.ts` проверяет `disable-renderer-backgrounding` у обоих
+приложений; эту правку проверит только следующий gate full. 5 новых мутантов — каждый красный.
 
 **Windows (ADR-0056).** `src/main/window.ts` и `src/main/quiet-windows.ts` работают и на Windows — PR
 платформенный, нужен вердикт Session на Windows-ПК.
