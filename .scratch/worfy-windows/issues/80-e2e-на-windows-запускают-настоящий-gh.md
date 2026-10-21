@@ -1,7 +1,8 @@
 # 80 — e2e на Windows запускают настоящий `gh.exe`
 
 Type: task
-Status: claimed 2026-10-21T06:31Z
+Status: done 2026-10-21T06:37Z
+PR: #667
 Branch: worfy-windows/80-e2e-gh-stub
 Blocked by: —
 Source: прогоны на ПК владельца 2026-10-21 (тикет 79, PR #665); решение Session на Mac того же дня.
