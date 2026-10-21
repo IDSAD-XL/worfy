@@ -30,6 +30,7 @@ import {
   repoRoot,
   setProjectsAccess,
   shownCode,
+  smallestWindow,
   type LaunchedApp,
 } from './helpers'
 import { snapshotThemes } from './snapshots'
@@ -372,11 +373,10 @@ test('Settings → Machines in the smallest window: a refusal of main is shown a
   try {
     const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
     try {
-      const { app, window } = launched
+      const { window } = launched
       await machineIdOf(window)
-      // 800×520: the smallest window worfy allows.
-      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(800, 520))
-      await expect.poll(() => window.evaluate(() => [(globalThis as unknown as { innerWidth: number }).innerWidth, (globalThis as unknown as { innerHeight: number }).innerHeight])).toStrictEqual([800, 520])
+      // The smallest window worfy allows: 800×520 outside, a little less inside on Windows.
+      await smallestWindow(launched)
 
       const dialog = await openMachinesSettings(launched)
       const access = dialog.getByRole('switch', { name: PROJECTS_ACCESS_LABEL, exact: true })

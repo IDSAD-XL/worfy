@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { _electron, expect, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import type { Reporter, TestCase, TestResult } from '@playwright/test/reporter'
+import { MIN_SIZE } from '../../src/shared/window/bounds'
 import { checkTargets, overlaps, passOf, passProblems, type BoxPass } from './box-checks'
 import { endApp, exited, killThenClean } from './end-app'
 import { SHOW_POLL_MS, waitForFirstWindowShown } from './first-window-shown'
@@ -266,10 +267,41 @@ interface PageDom {
   requestAnimationFrame(callback: (now: number) => void): number
   performance: { now(): number }
   innerWidth: number
+  innerHeight: number
 }
 interface PageElement {
   getAttribute(name: string): string | null
   getBoundingClientRect(): { x: number; y: number; width: number; height: number }
+}
+
+/**
+ * Shrinks the first window to the smallest size worfy allows and waits until the page has the room
+ * that size leaves; returns the page's width and height. worfy's minimum (MIN_SIZE, given to the
+ * window as minWidth/minHeight without useContentSize in src/main/window.ts) is an outer size, so
+ * this sets the outer size, unlike the other e2e steps that size the content: on Windows the
+ * system frame takes part of it and the page is narrower and lower than MIN_SIZE (about 786×458);
+ * on macOS the window has no frame of its own (titleBarStyle hiddenInset) and the page is MIN_SIZE.
+ */
+export async function smallestWindow({ app, window }: { app: ElectronApplication; window: Page }): Promise<{ width: number; height: number }> {
+  await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]?.setSize(size.width, size.height), MIN_SIZE)
+  let inner = { width: 0, height: 0 }
+  await expect
+    .poll(
+      async () => {
+        const [outer, content] = await app.evaluate(({ BrowserWindow }) => {
+          const shown = BrowserWindow.getAllWindows()[0]
+          return [shown?.getSize(), shown?.getContentSize()]
+        })
+        inner = await window.evaluate(() => {
+          const dom = globalThis as unknown as PageDom
+          return { width: dom.innerWidth, height: dom.innerHeight }
+        })
+        return { outer, pageFillsContent: inner.width === content?.[0] }
+      },
+      { message: `the window is at its smallest, ${MIN_SIZE.width}×${MIN_SIZE.height} outside` },
+    )
+    .toStrictEqual({ outer: [MIN_SIZE.width, MIN_SIZE.height], pageFillsContent: true })
+  return inner
 }
 
 export interface CanvasReadyOptions {
@@ -313,7 +345,8 @@ export async function canvasReady(launched: { window: Page; app?: ElectronApplic
     if (!app) throw new Error('canvasReady: setting the window size needs the app')
     // The content size, as innerWidth measures it: on Windows setSize would count the frame too (14 px
     // narrower inside); on macOS the window has no frame of its own (titleBarStyle hiddenInset), so the two agree.
-    // Every e2e spec sizes the window this way.
+    // Every e2e spec sizes the window this way, except the steps at the smallest window: worfy's
+    // minimum is an outer size, so smallestWindow sets the outer size.
     await expect
       .poll(
         async () => {

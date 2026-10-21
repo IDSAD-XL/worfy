@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { closeSettings, launchApp, openSecondWindow } from './helpers'
+import { closeSettings, launchApp, openSecondWindow, smallestWindow } from './helpers'
 import { clickMenuItem } from './menu'
 
 // worfy-ui ticket 20: worfy's own memory on the second line of the toolbar's Harness column, after
@@ -30,8 +30,7 @@ test('the memory figure shows by default; the switch in Settings hides it in eve
     expect(version !== null && shown !== null && shown.x >= version.x + version.width).toBe(true)
 
     // At the smallest window the figure stays on the version's line, one line high, inside the toolbar.
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(800, 520))
-    await expect.poll(() => window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)).toBeLessThanOrEqual(800)
+    await smallestWindow(launched)
     const bar = await window.getByRole('banner').boundingBox()
     const lineBox = await line.boundingBox()
     const small = await figure.boundingBox()
