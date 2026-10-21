@@ -34,7 +34,8 @@ vi.mock('../../src/renderer/markdown/Markdown', () => ({ Markdown: ({ text }: { 
 
 // The window's Machine: null — this Machine; an id — a window on that Linked machine (worfy-link ticket 12).
 const shown: { machine: string | null } = { machine: null }
-const invoke = vi.hoisted(() => vi.fn<(channel: string, input?: unknown) => Promise<{ ok: true; value: undefined }>>(() => Promise.resolve({ ok: true, value: undefined })))
+// shell.openInEditor answers with the path it opened, as main does; other outcomes when a test sets one.
+const invoke = vi.hoisted(() => vi.fn<(channel: string, input?: unknown) => Promise<{ ok: true; value: unknown }>>(() => Promise.resolve({ ok: true, value: { path: 'opened', outcome: 'opened' } })))
 vi.mock('../../src/renderer/ipc', () => ({ invoke, windowMachine: () => shown.machine }))
 vi.mock('../../src/renderer/machines/useMachines', () => ({
   useMachines: () => ({ linked: [{ id: 'machine-m', name: 'Mini' }] }),
@@ -113,6 +114,13 @@ describe('ADR panel: Open in Editor', () => {
     await openInEditor()
     expect(invoke).toHaveBeenCalledWith('shell.openInEditor', { projectId: 'p1', path: 'docs/adr/0001-a.md' })
     expect(toasts.getState().toasts).toEqual([])
+  })
+
+  // worfy-polish ticket 35: a symlinked ADR that leads to anything but a document is shown, not opened.
+  it('says why when main showed the file in Finder instead of opening it', async () => {
+    invoke.mockResolvedValueOnce({ ok: true, value: { path: '/p1/run.term', outcome: 'revealed', revealedIn: 'darwin' } })
+    await openInEditor()
+    expect(toasts.getState().toasts).toMatchObject([{ kind: 'info', text: 'Shown in Finder: not a document', testId: 'file-revealed' }])
   })
 
   it('in a window on a Linked machine shows "File is on Mini" and calls nothing', async () => {

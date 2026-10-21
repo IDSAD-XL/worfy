@@ -7,8 +7,8 @@ import { invoke, subscribe, windowMachine } from '../../ipc'
 import { useInFocusTile } from '../../focus/focus-tile'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { NodeResizeClamp } from '../NodeResizeClamp'
+import { NODE_HEADER } from '../node-header'
 import { useLayoutOps } from '../useLayout'
-import { NODE_HEADER, NODE_TITLE, useZoomLevel } from '../zoom-level'
 import { useFramesStepAsideWhilePressed } from './frames-step-aside'
 import type { CanvasNodeProps } from './index'
 
@@ -16,9 +16,9 @@ import type { CanvasNodeProps } from './index'
 // <Project data folder>/cards/<id>/. It runs in an iframe on its own origin, worfy-card://
 // (src/main/cards/protocol.ts), so it reaches neither the worfy window nor another Card; main
 // keeps the frame from navigating away or opening windows. The Node reloads the Card when main
-// reports a change of its files. It runs at the `full` zoom level of the Canvas (zoom-level.ts),
-// and always when pinned (a pinned Node keeps its screen size) or in a tile of focus mode; otherwise
-// it draws its title and a frame instead of the page.
+// reports a change of its files. It runs from zoom LIVE_ZOOM_MIN up, and at any zoom when pinned (a
+// pinned Node keeps its screen size) or in a tile of focus mode; otherwise it draws its title and a
+// frame instead of the page.
 //
 // In a window on Linked machine M (worfy-link ticket 10) the Card's address from M gets M's machine
 // label (frameUrl): the frame then has an origin of its own, and this Machine's main fetches the
@@ -26,6 +26,9 @@ import type { CanvasNodeProps } from './index'
 export const kind = 'card'
 export const defaultWidth = 360
 export const defaultHeight = 280
+
+/** Below this zoom a Card that is not pinned nor in a focus tile is not running: a frame with its title is drawn instead. */
+export const LIVE_ZOOM_MIN = 0.4
 
 /**
  * Scripts run, and the Card keeps its own origin (its storage, its own files). That origin is
@@ -108,9 +111,9 @@ export default function CardNode({ id, data, selected }: CanvasNodeProps) {
   const projectId = activeProject(useProjects())?.id
   const cardId = cardIdOf(data.node)
   const { info, error } = useCard(projectId, cardId)
-  const level = useZoomLevel()
+  const zoomedIn = useStore((store) => store.transform[2] >= LIVE_ZOOM_MIN)
   const inFocusTile = useInFocusTile()
-  const live = level === 'full' || data.node.pinned || inFocusTile
+  const live = zoomedIn || data.node.pinned || inFocusTile
   useFramesStepAsideWhilePressed(useStore((store) => store.domNode))
   const title = info?.title ?? 'Card'
   const src = info === undefined ? null : frameUrl(info.url, windowMachine())
@@ -156,7 +159,7 @@ export default function CardNode({ id, data, selected }: CanvasNodeProps) {
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
       <div className="w-note__header" data-testid="card-title" {...NODE_HEADER}>
-        <span style={titleStyle} {...NODE_TITLE} title={title}>
+        <span style={titleStyle} title={title}>
           {title}
         </span>
       </div>

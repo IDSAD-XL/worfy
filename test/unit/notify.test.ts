@@ -4,6 +4,7 @@
 // NotifyDeps.
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { EventEmitter } from 'node:events'
 import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -106,7 +107,7 @@ vi.mock('../../src/main/ipc/pipeline', async () => {
   return { stageHub }
 })
 
-const { MATCH_KEY_TTL_MS, NOTIFY_INTERVAL_MS, NoteDisplay, Notifier, RECEIVED_LIMIT, TicketNotes, ticketRecipients, appWaitsSources, GateQueueNotices, electronNotifyDeps, electronWindowNoteDeps, installGateQueueNotifications, installNotifications, openNote } = await import('../../src/main/notify')
+const { MATCH_KEY_TTL_MS, NOTIFY_INTERVAL_MS, NoteDisplay, Notifier, RECEIVED_LIMIT, TicketNotes, ticketRecipients, appWaitsSources, GateQueueNotices, electronNotifyDeps, electronWindowNoteDeps, installGateQueueNotifications, installNotifications, followAppLinkPauses, installPairingPauseNotes, openNote, pairingPauseNoteBody } = await import('../../src/main/notify')
 const { GATE_QUEUE_INTERVAL_MS, waitingPrs } = await import('../../src/main/github/gate-queue')
 const { NORMAL_WINDOWS, quietWindows } = await import('../../src/main/quiet-windows')
 const { app: electronApp } = await import('electron')
@@ -199,6 +200,41 @@ function harness() {
     },
   }
 }
+
+const question = (first = 'Which database should the cache use?'): AgentEvent => ({
+  type: 'question_request',
+  requestId: 'q1',
+  toolUseId: 'toolu_q1',
+  questions: [
+    { question: first, header: 'Database', multiSelect: false, options: [{ label: 'Postgres', description: '', preview: null }, { label: 'SQLite', description: '', preview: null }] },
+    { question: 'Which checks?', header: 'Checks', multiSelect: true, options: [{ label: 'Lint', description: '', preview: null }] },
+  ],
+})
+
+describe('Notifier and questions (worfy-ui ticket 17)', () => {
+  it('a question of a Session in the background says "Asks: <its first question>"; a click opens that Session', () => {
+    const h = harness()
+    h.notifier.sessionEvent('s1', init('/Users/test/alpha'))
+    h.focus(true)
+    h.notifier.sessionEvent('s1', question())
+    expect(h.shown).toEqual([])
+
+    h.focus(false)
+    h.notifier.sessionEvent('s1', question())
+    expect(h.shown.map((each) => each.note)).toEqual([{ title: 'alpha', body: 'Asks: Which database should the cache use?', sessionId: 's1', projectRoot: null }])
+    h.shown[0]?.click()
+    expect(h.opened).toEqual([{ title: 'alpha', body: 'Asks: Which database should the cache use?', sessionId: 's1', projectRoot: null }])
+  })
+
+  it('a long question is clipped like any note; the next one waits out the Session\'s interval', () => {
+    const h = harness()
+    h.notifier.sessionEvent('s1', question('x'.repeat(400)))
+    expect(h.shown[0]?.note.body.length).toBeLessThan(400)
+    expect(h.shown[0]?.note.body.startsWith('Asks: xxx')).toBe(true)
+    h.notifier.sessionEvent('s1', question())
+    expect(h.shown).toHaveLength(1)
+  })
+})
 
 describe('Notifier', () => {
   it('notifies a finished turn and a permission request while no worfy window has focus, and not while one has', () => {
@@ -1933,5 +1969,67 @@ describe('a Ticket that waits, across the Linked machines (worfy-pipeline ticket
         for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
       }
     })
+  })
+})
+
+describe('"Link a machine" paused after too many failed pairing attempts (worfy-link ticket 28)', () => {
+  const pause = { failures: 10, addresses: ['192.168.1.20', '10.0.0.7'], until: Date.parse('2026-10-21T15:05:00.000Z') }
+  const body = '10 failed attempts to link to this Machine within an hour, from 192.168.1.20, 10.0.0.7. "Link a machine" is paused until 15:05. Restart worfy to link sooner.'
+  type PauseEvents = { 'pairing-paused': [typeof pause] }
+
+  it('says how many failures, from which addresses, until when, that a restart lifts the pause, and never a code', () => {
+    expect(pairingPauseNoteBody(pause, () => '15:05')).toBe(body)
+    expect(pairingPauseNoteBody(pause, () => '15:05')).not.toMatch(/\d{6}/)
+  })
+
+  it.each([
+    ['has focus', true],
+    ['has no focus', false],
+  ])('shows one notification per pause while a worfy window %s; a click opens worfy; nothing after stop', (_how, focused) => {
+    const service = new EventEmitter<PauseEvents>()
+    const shown: { note: WindowNote; click: () => void }[] = []
+    const opened: WindowNote[] = []
+    const stop = installPairingPauseNotes(
+      service,
+      { focused: () => focused, show: (note, click) => shown.push({ note, click }), open: (note) => opened.push(note) },
+      () => '15:05',
+    )
+    service.emit('pairing-paused', pause)
+    expect(shown.map((each) => each.note)).toEqual([{ title: 'Link a machine is paused', body, sessionId: null }])
+    expect(opened).toEqual([])
+    shown[0]?.click()
+    expect(opened).toEqual([{ title: 'Link a machine is paused', body, sessionId: null }])
+    stop()
+    service.emit('pairing-paused', pause)
+    expect(shown).toHaveLength(1)
+  })
+
+  it("follows the app's link: the service running now and each one started later get their notes once", () => {
+    const listeners: (() => void)[] = []
+    const onStart = (listener: () => void): (() => void) => {
+      listeners.push(listener)
+      return () => listeners.splice(listeners.indexOf(listener), 1)
+    }
+    let current: EventEmitter<PauseEvents> | undefined
+    const shown: WindowNote[] = []
+    const deps = { focused: () => false, show: (note: WindowNote) => shown.push(note), open: () => undefined }
+    const stop = followAppLinkPauses(onStart, () => current, (service) => installPairingPauseNotes(service, deps, () => '15:05'))
+    const first = new EventEmitter<PauseEvents>()
+    current = first
+    for (const listener of [...listeners]) listener()
+    // Announced twice (a start, then a later one with the same service): still one subscription.
+    for (const listener of [...listeners]) listener()
+    first.emit('pairing-paused', pause)
+    expect(shown).toHaveLength(1)
+    const second = new EventEmitter<PauseEvents>()
+    current = second
+    for (const listener of [...listeners]) listener()
+    first.emit('pairing-paused', pause)
+    second.emit('pairing-paused', pause)
+    expect(shown).toHaveLength(2)
+    stop()
+    expect(listeners).toEqual([])
+    second.emit('pairing-paused', pause)
+    expect(shown).toHaveLength(2)
   })
 })

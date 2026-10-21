@@ -7,6 +7,7 @@ import { invoke } from '../../ipc'
 import { useFileElsewhere } from '../../machines/useFileElsewhere'
 import { Markdown } from '../../markdown/Markdown'
 import { activeProject, useProjects } from '../../projects/useProjects'
+import { showRevealed } from '../../toast/revealed'
 import { SidebarSection } from '../SidebarSection'
 
 /** The ADRs of the active Project (docs/adr/NNNN-*.md), after its Epics (design F). */
@@ -116,6 +117,8 @@ function AdrPanel({ projectId, adr, onClose }: AdrPanelProps) {
     }
     void invoke('shell.openInEditor', { projectId, path: adr.path }).then((result) => {
       if (!result.ok) console.error('shell.openInEditor failed:', result.error)
+      // A symlinked ADR that leads to anything but a document: main asked, and the user chose to see it in the file manager.
+      else if (result.value.revealedIn !== undefined) showRevealed(result.value.revealedIn)
     })
   }
 

@@ -24,8 +24,7 @@ const VIEWPORT = { x: 20, y: 60, zoom: 1 }
 const NOTCH = 120
 /**
  * A small pinch out (Control + wheel): about 13% smaller each time, so every Node stays on screen
- * and the Canvas stays at the full zoom level (zoom >= 0.6, zoom-level.ts), where the Card draws
- * its page and the Terminal its screen.
+ * and the Card stays above the zoom where it stops drawing its page (CardNode LIVE_ZOOM_MIN).
  */
 const PINCH = 10
 
@@ -269,12 +268,11 @@ test('a pinch over active HANDOFF, Note and Terminal zooms the Canvas, over an a
   }
 
   // ⌘ + wheel with the keyboard focus in xterm.js. Outside macOS the key is Control (Canvas.tsx,
-  // zoomActivationKeyCode), so there this is the same wheel event as the pinch above. It zooms in:
-  // a whole notch out would take the Canvas below the full zoom level, where the Card runs no page.
+  // zoomActivationKeyCode), so there this is the same wheel event as the pinch above.
   await clickOn(window, terminalScreen(window))
   await expectActive(window, 'term')
   const beforeMeta = await scaleOf(window)
-  await wheelOver(window, terminalScreen(window), -NOTCH, ['ControlOrMeta'])
+  await wheelOver(window, terminalScreen(window), NOTCH, ['ControlOrMeta'])
   await expect.poll(() => scaleOf(window), { message: '⌘ + wheel over an active Terminal zooms the Canvas' }).not.toBe(beforeMeta)
 
   await clickOn(window, cardFrame(window))

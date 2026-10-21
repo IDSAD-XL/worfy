@@ -8,6 +8,7 @@ import { useFileElsewhere } from '../../machines/useFileElsewhere'
 import Stepper from '../../pipeline/Stepper'
 import { stageOfTicket, usePipeline } from '../../pipeline/usePipeline'
 import { StatusChip } from '../../theme/primitives'
+import { showRevealed } from '../../toast/revealed'
 import { actions, badges, type SlotSubject } from '../badges'
 import { useProjectRepos } from '../badges/use-checks'
 import { ticketTitle } from '../epic-layout'
@@ -31,8 +32,7 @@ import '../epic-frame.css'
 // repository (its `Repo:` line), or says it has none.
 //
 // Nothing on the card is cut (worfy-canvas ticket 18): the title, the reason and the blockers line
-// wrap, the top row and the checks chips take more lines. Only at the far zoom level (zoom-level.ts)
-// the card is a block without text (epic-frame.css); at the full and compact levels it is whole. The Node is as tall as ticket-card.ts
+// wrap, the top row and the checks chips take more lines. The Node is as tall as ticket-card.ts
 // computes from the same data, so whatever is added here needs room there too.
 export const kind = 'ticket'
 // TICKET_WIDTH and TICKET_MIN_HEIGHT of ticket-card.ts; literals, so Fast Refresh keeps working, checked against them by type.
@@ -126,6 +126,8 @@ function TicketNode({ id, data, width }: CanvasNodeProps) {
     if (read.path === undefined) return
     void invoke('shell.openInEditor', { projectId, path: read.path }).then((result) => {
       if (!result.ok) console.error(`shell.openInEditor ${ticket.epic}/${ticket.num} failed:`, result.error)
+      // A symlinked Ticket that leads to anything but a document: main asked, and the user chose to see it in the file manager.
+      else if (result.value.revealedIn !== undefined) showRevealed(result.value.revealedIn)
     })
   }
 

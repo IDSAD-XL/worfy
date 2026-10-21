@@ -53,6 +53,15 @@ describe('LimitsMeterView', () => {
     expect(Number(sevenDay.style.opacity)).toBeLessThan(1)
   })
 
+  it('the value of an old bar has no tooltip of its own: the bar\'s tooltip carries it with "as of"', () => {
+    render(<LimitsMeterView state={state} now={AT} timeZone={TZ} />)
+    // A fresh bar's value keeps its tooltip, in case the value is cut.
+    expect(screen.getByTestId('limit-five_hour-value').getAttribute('title')).toBe('62%')
+    const sevenDay = screen.getByTestId('limit-seven_day')
+    expect(sevenDay.dataset.stale).toBe('true')
+    expect(within(sevenDay).getByTestId('limit-seven_day-value').getAttribute('title')).toBeNull()
+  })
+
   it('an old bar with a reset time still has two lines of text at most: the label line and the reset line', () => {
     const old: LimitsState = { windows: { ...state.windows, five_hour: { ...state.windows.five_hour!, receivedAt: AT - 2 * 24 * 60 * 60 * 1000 } } }
     render(<LimitsMeterView state={old} now={AT} timeZone={TZ} />)

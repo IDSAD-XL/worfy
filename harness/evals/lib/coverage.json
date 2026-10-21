@@ -1,0 +1,26 @@
+{
+  "cases": {
+    "epic-wave-tickets": ["skills/epic-wave/SKILL.md"],
+    "epic-wave-old-form": ["skills/epic-wave/SKILL.md"],
+    "ship-ticket-local-green": ["skills/ship-ticket/SKILL.md"],
+    "ship-ticket-pr-green-ci": ["skills/ship-ticket/SKILL.md"],
+    "no-os-screen-capture": ["skills/ship-ticket/SKILL.md"],
+    "implementer-report": ["agents/implementer.md"],
+    "reviewer-verdict": ["skills/epic-wave/SKILL.md", "agents/reviewer.md"],
+    "reviewer-intended-breakage": ["agents/reviewer.md"],
+    "reviewer-simplification": ["agents/reviewer.md"],
+    "status-block": ["hooks/rules/orchestrator.md", "hooks/hooks.json", "hooks/inject-rules.mjs"]
+  },
+  "uncovered": {
+    "skills/retro/SKILL.md": "Cases deferred until the owner decides after the first full run of the eval set.",
+    "skills/qmd/SKILL.md": "Cases deferred until the owner decides after the first full run of the eval set.",
+    "skills/continuous-audit/SKILL.md": "Cases deferred until the owner decides after the first full run of the eval set.",
+    "skills/overnight-fix-loop/SKILL.md": "Cases deferred until the owner decides after the first full run of the eval set.",
+    "skills/tickets-to-tasks/SKILL.md": "Cases deferred until the owner decides after the first full run of the eval set.",
+    "skills/connect-project/SKILL.md": "No case yet.",
+    "skills/gate-queue/SKILL.md": "No case yet.",
+    "skills/max-review/SKILL.md": "No case yet.",
+    "agents/scout.md": "No case yet.",
+    "hooks/rules/common.md": "No case yet: status-block loads these rules with the orchestrator rules but grades only the latter."
+  }
+}

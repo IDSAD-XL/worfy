@@ -67,8 +67,8 @@
   --terminal-dim: #8e8e93;
 
   /*
-   * Node kinds (ADR-0077): `band` is the kind's colour for the header band, the kind icon, the
-   * minimap and the far-zoom block; `-tint` is the pale header ground. Never status text, a status
+   * Node kinds (ADR-0077): `band` is the kind's colour for the header band, the kind icon and the
+   * minimap; `-tint` is the pale header ground. Never status text, a status
    * chip, a Node's body or an Edge. test/unit/kind-tokens.test.ts checks them against the F-SPEC
    * table, for contrast and under colour-vision simulation.
    */

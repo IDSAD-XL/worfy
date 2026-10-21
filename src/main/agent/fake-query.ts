@@ -40,6 +40,14 @@
 //                                    gives them: why it asks, which Subagent asks. With
 //                                    "bypassImmune":true it asks in bypassPermissions too, as Claude
 //                                    Code does for a few of its own checks (dangerousRemoval)
+//   {"fake":"question","toolUseId":"toolu_…","questions":[...]}
+//                                    the model asks the user questions with answer options (Claude
+//                                    Code's AskUserQuestion, worfy-ui ticket 17): a `permission` line
+//                                    of that tool with input {questions}, asked in every mode,
+//                                    bypassPermissions included, with requiresUserInteraction, as
+//                                    Claude Code does. Its result is the text Claude Code gives the
+//                                    model for the answer (questionResultText), recorded from the real
+//                                    binary in test/contract/ask-user-question-sdk.test.ts
 // In SDK messages, "{{session}}" becomes the SDK session id (the id passed as `resume`, else the one
 // passed as `sessionId`, else a new uuid), "{{cwd}}" the Session's cwd and "{{home}}" the user's
 // home folder (os.homedir()). After the last line the
@@ -71,6 +79,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { ASK_USER_QUESTION, MULTI_SELECT_SEPARATOR } from '../../shared/agent/questions'
 import type { SessionSettings } from '../../shared/agent/settings'
 import type { CommandInfoLike } from './commands'
 import type { PermissionAnswer, PermissionRequestOptions } from './permissions'
@@ -162,6 +171,18 @@ const DIRECTIVES: Record<string, (value: Record<string, unknown>) => Line> = {
     bypassImmune: value.bypassImmune === true,
     decisionReason: typeof value.decisionReason === 'string' ? value.decisionReason : null,
     agentID: typeof value.agentID === 'string' ? value.agentID : null,
+  }),
+  question: (value) => ({
+    kind: 'permission',
+    toolName: ASK_USER_QUESTION,
+    toolUseId: String(value.toolUseId ?? 'toolu_fake_question'),
+    input: { questions: Array.isArray(value.questions) ? (value.questions as unknown[]) : [] },
+    suggestions: [],
+    keepSignal: false,
+    crash: null,
+    bypassImmune: true,
+    decisionReason: null,
+    agentID: null,
   }),
   account: (value) => ({ kind: 'config', config: { account: typeof value.error === 'string' ? { error: value.error } : { info: value.info as AccountInfoLike } } }),
   models: (value) => ({ kind: 'config', config: { models: value.models as ModelInfoLike[] } }),
@@ -424,6 +445,7 @@ class FakeQuery implements QueryHandle {
       description,
       ...(line.decisionReason === null ? {} : { decisionReason: line.decisionReason }),
       ...(line.agentID === null ? {} : { agentID: line.agentID }),
+      ...(line.toolName === ASK_USER_QUESTION ? { requiresUserInteraction: true } : {}),
     }
     const answer = this.request
       .canUseTool(line.toolName, { ...line.input }, options)
@@ -480,9 +502,10 @@ class FakeQuery implements QueryHandle {
   private toolResult(line: Extract<Step, { kind: 'permission' }>, answer: PermissionAnswer | null): unknown {
     const command = typeof line.input.command === 'string' ? line.input.command : JSON.stringify(line.input)
     const refused = answer?.behavior === 'deny'
+    const ran = line.toolName === ASK_USER_QUESTION ? questionResultText(line.input, answer) : `(fake) ${line.toolName} ran: ${command}`
     return {
       type: 'user',
-      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: line.toolUseId, content: refused ? answer.message : `(fake) ${line.toolName} ran: ${command}`, is_error: refused }] },
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: line.toolUseId, content: refused ? answer.message : ran, is_error: refused }] },
       parent_tool_use_id: null,
       session_id: this.session,
       uuid: randomUUID(),
@@ -578,6 +601,27 @@ class FakeQuery implements QueryHandle {
       }
     }
   }
+}
+
+/**
+ * What Claude Code tells the model for an allowed AskUserQuestion call, as its binary (SDK 0.3.289)
+ * does: no `answers` — the user did not answer; every answer one of its question's labels (a
+ * multiSelect answer split at ", ") — "have been answered"; any other text — the user's own words.
+ */
+export function questionResultText(input: Record<string, unknown>, answer: PermissionAnswer | null): string {
+  const given = answer?.behavior === 'allow' ? answer.updatedInput.answers : undefined
+  const answers = typeof given === 'object' && given !== null ? Object.entries(given as Record<string, unknown>).filter((each): each is [string, string] => typeof each[1] === 'string') : []
+  if (answers.length === 0) return 'The user did not answer the questions.'
+  const questions = Array.isArray(input.questions) ? (input.questions as { question?: unknown; multiSelect?: unknown; options?: { label?: unknown }[] }[]) : []
+  const picked = answers.every(([text, value]) => {
+    const question = questions.find((each) => each.question === text)
+    const labels = (question?.options ?? []).map((option) => option.label)
+    return (question?.multiSelect === true ? value.split(MULTI_SELECT_SEPARATOR) : [value]).every((part) => labels.includes(part))
+  })
+  const said = answers.map(([text, value]) => `"${text}"="${value}"`).join(', ')
+  return picked
+    ? `Your questions have been answered: ${said}. You can now continue with these answers in mind.`
+    : `The user answered: ${said}. Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.`
 }
 
 export interface FakeQueryOptions {

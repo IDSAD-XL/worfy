@@ -100,6 +100,8 @@ export interface LinkServiceEvents {
   'pairing-code': []
   /** A pairing attempt on this Machine (as B) failed; the message never carries the code. */
   'pairing-failed': [{ message: string }]
+  /** Too many attempts failed within the hour: linking is paused (pairing.ts); once per pause. */
+  'pairing-paused': [PairingPause]
   linked: [LinkedMachineInfo]
   /** A Linked machine was forgotten: revoked here, or the other side revoked this one. */
   unlinked: [{ id: string; name: string; by: 'this-machine' | 'other-machine' }]
@@ -114,6 +116,13 @@ export interface LinkServiceEvents {
   'ipc-event': [{ machineId: string; channel: string; payload: unknown; connection: LinkConnection }]
   /** The link settings changed (settings.ts). */
   settings: [LinkSettingsValue]
+}
+
+/** A pause of linking: how many attempts failed within the hour, from which addresses, and until when. */
+export interface PairingPause {
+  failures: number
+  addresses: string[]
+  until: number
 }
 
 export interface LinkServiceOptions {
@@ -291,7 +300,8 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
 
   /** Opens "Link a machine": a code to show, and the server listens. */
   async openLinking(): Promise<void> {
-    this.pairingWindow.open()
+    // Paused after too many failed attempts (pairing.ts): linking stays closed until the pause ends.
+    if (!this.pairingWindow.open()) return
     this.reasons.add('linking')
     this.updateReasons()
     await this.listenChain
@@ -304,6 +314,11 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     this.reasons.delete('linking')
     this.updateReasons()
     await this.listenChain
+  }
+
+  /** Until when linking is paused after too many failed attempts within the hour, or null. */
+  pairingPausedUntil(): number | null {
+    return this.pairingWindow.pausedUntil()
   }
 
   /** The code "Link a machine" shows and when it expires; null while it is closed. */
@@ -686,7 +701,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       const refusal = this.pairingWindow.begin()
       if (refusal !== null) return { status: refusal.startsWith('another') ? 409 : 403, body: refusal }
       const clientFingerprint = upgrade.clientFingerprint
-      return { accept: (ws) => void this.respond(ws, clientFingerprint, upgrade.remoteAddress), abort: () => this.endAttempt(false) }
+      return { accept: (ws) => void this.respond(ws, clientFingerprint, upgrade.remoteAddress), abort: () => this.endAttempt(false, upgrade.remoteAddress) }
     }
     if (upgrade.token === undefined) return UNAUTHORIZED
     const record = this.store.byToken(upgrade.token)
@@ -728,18 +743,32 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       this.emit('pairing-failed', { message })
     } finally {
       this.pairingSockets.delete(ws)
-      this.endAttempt(stored !== undefined)
+      this.endAttempt(stored !== undefined, remoteAddress)
     }
   }
 
-  /** Ends a pairing attempt; too many failures in a row close "Link a machine" (pairing.ts). */
-  private endAttempt(succeeded: boolean): void {
-    if (this.pairingWindow.end(succeeded) === 'closed' && this.reasons.has('linking')) {
-      this.warn('[link] "Link a machine" closed after too many failed pairing attempts')
-      this.emit('pairing-failed', { message: 'too many failed pairing attempts; "Link a machine" was closed' })
+  /**
+   * Ends a pairing attempt; too many failures in a row close "Link a machine", and too many within
+   * the hour pause it (pairing.ts). The pause is announced once, when it starts: no attempt runs
+   * during it, so no later attempt ends one.
+   */
+  private endAttempt(succeeded: boolean, address: string): void {
+    const pausedBefore = this.pairingWindow.pausedUntil()
+    const result = this.pairingWindow.end(succeeded, address)
+    const until = this.pairingWindow.pausedUntil()
+    const paused = pausedBefore === null && until !== null
+    if (result === 'closed' && this.reasons.has('linking')) {
+      if (paused) {
+        this.warn(`[link] "Link a machine" is paused until ${new Date(until).toISOString()} after too many failed pairing attempts within an hour`)
+        this.emit('pairing-failed', { message: 'too many failed pairing attempts within an hour; "Link a machine" is paused' })
+      } else {
+        this.warn('[link] "Link a machine" closed after too many failed pairing attempts')
+        this.emit('pairing-failed', { message: 'too many failed pairing attempts; "Link a machine" was closed' })
+      }
       this.reasons.delete('linking')
       this.updateReasons()
     }
+    if (paused) this.emit('pairing-paused', { ...this.pairingWindow.recentFailures(), until })
   }
 
   /** Recomputes the reasons from the state and makes the server follow them. */

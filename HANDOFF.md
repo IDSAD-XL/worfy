@@ -2,7 +2,7 @@
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 58/61; в работе 51, 29; 52 — инфраструктура после 29, задачи ждут Session без plugin-а; 31, 36, 47, 48, 50 — шаг владельца («Итог»).
+- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 60/63; в работе 52 (инфраструктура), 62; 63 открыт; задачи 52, Q-H29 — у владельца; 31, 36, 47, 48, 50, 51 — шаг владельца («Итог»).
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26; приёмка 16; 32 закрыт (#508). Вне LAN через Tailscale (ADR-0070) — 27–31, код после очереди `worfy-windows`.
@@ -19,7 +19,7 @@
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 9/10, влиты 01–09 (08 — #552, 09 — #550); 10 (ADR-0079) — в работе; решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077): 14/19; влиты 01–04, 05 (#657), 06 (#668), 07, 08 (#664), 09 (#656), 11, 14 (#654), 15 (#662), 17, 18 — Wave 4 закрыта; дальше 12, 16, 19 (open); blocked 10 (ждёт `worfy-ui` 16), 13 (решение владельца).
-- `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 6/13; 03 в работе (ответы владельца приняты); 13 — после 03.
+- `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 9/15; 15 (тесты после ревью 14) в работе; 04 ждёт владельца (Q-B2, Q-B7).
 
 ## Ждёт владельца
 

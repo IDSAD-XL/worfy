@@ -4,8 +4,8 @@ import { useDocs, useDocText } from '../../docs/useDocs'
 import { Markdown } from '../../markdown/Markdown'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { NodeResizeClamp } from '../NodeResizeClamp'
+import { NODE_HEADER } from '../node-header'
 import { useLayoutOps } from '../useLayout'
-import { NODE_HEADER, NODE_TITLE } from '../zoom-level'
 import type { CanvasNodeProps } from './index'
 
 // The HANDOFF Node: the Project's HANDOFF.md (CONTEXT.md, «HANDOFF»), rendered as markdown and
@@ -88,7 +88,7 @@ export default function HandoffNode({ id, selected }: CanvasNodeProps) {
         <span style={styles.icon}>
           <DocumentIcon />
         </span>
-        <span style={styles.title} {...NODE_TITLE}>
+        <span style={styles.title}>
           HANDOFF
         </span>
         <span className="w-mono" style={styles.file}>

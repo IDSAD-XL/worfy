@@ -87,10 +87,33 @@ export const claudeHomeLive = invokeChannel('claudeHome.live', z.object({ projec
 export const claudeHomeClose = invokeChannel('claudeHome.close', z.object({ projectRoot: absolutePath }), z.object({ closed: z.boolean() }), 'project', 'read')
 
 /**
+ * Bytes of a transcript one read from its end takes (worfy-ui ticket 21): the Session view opens
+ * on this window of the file and «Load earlier» brings the window before it. An Orchestrator's
+ * transcript grows to tens of megabytes; read whole, it kept the view half-drawn for seconds.
+ */
+export const TRANSCRIPT_WINDOW_BYTES = 4 * 1024 * 1024
+
+const transcriptBytes = z
+  .number()
+  .int()
+  .positive()
+  .max(16 * 1024 * 1024)
+
+/**
  * Events of a Session's transcript after `cursor` (from the start without one). They are the
  * events of a live Session (src/shared/agent/events.ts), of the Session's own thread only
  * (src/shared/transcript/parse.ts), so one transcript view draws both. `reset` means the file was
  * truncated or replaced and the events start over; `more` means call again.
+ *
+ * With `back`, the events of the window of `back.bytes` that ends at `back.before` — at the end of
+ * the file without it — instead, read from the end (src/main/claude-home/tail.ts,
+ * readLinesBefore); `cursor` is ignored. `earlier` is where the window's first line starts, the
+ * `before` of the window ahead of it; 0 means the start of the file. The answer's `cursor` is
+ * where the window ends: after a read at the end of the file, the cursor to follow it from.
+ * `reset` means `back.before` no longer names a line of this file: read from the end again.
+ *
+ * `offsets` gives, for each event, the byte offset of the line it came from: a reader that drops
+ * its oldest events knows where the window before the kept ones ends.
  */
 export const claudeHomeTranscript = invokeChannel(
   'claudeHome.transcript',
@@ -98,12 +121,8 @@ export const claudeHomeTranscript = invokeChannel(
     projectRoot: absolutePath,
     sessionId: sessionIdSchema,
     cursor: tailCursorSchema.optional(),
-    maxBytes: z
-      .number()
-      .int()
-      .positive()
-      .max(16 * 1024 * 1024)
-      .optional(),
+    maxBytes: transcriptBytes.optional(),
+    back: z.object({ bytes: transcriptBytes, before: tailCursorSchema.optional() }).optional(),
   }),
   z.object({
     found: z.boolean(),
@@ -111,6 +130,8 @@ export const claudeHomeTranscript = invokeChannel(
     cursor: tailCursorSchema,
     reset: z.boolean(),
     more: z.boolean(),
+    earlier: z.number().int().nonnegative().optional(),
+    offsets: z.array(z.number().int().nonnegative()).optional(),
   }),
   'project',
   'read',

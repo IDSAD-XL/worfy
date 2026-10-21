@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type FormEvent } from 'react'
 import type { AgentEvent } from '../../../shared/agent/events'
+import { TRANSCRIPT_WINDOW_BYTES } from '../../../shared/ipc/claude-home'
 import type { ProjectView } from '../../../shared/ipc/projects'
 import type { WorfySessionNodeData } from '../../../shared/ipc/sessions'
 import {
@@ -26,8 +27,8 @@ import { StatusChip, type Status } from '../../theme/primitives'
 import { badges, type SlotSubject } from '../badges'
 import { KindBand, KindIcon } from '../kind-icons'
 import { NodeResizeClamp } from '../NodeResizeClamp'
+import { NODE_HEADER } from '../node-header'
 import { useLayoutOps } from '../useLayout'
-import { NODE_HEADER, NODE_TITLE } from '../zoom-level'
 import type { CanvasNodeProps } from './index'
 
 // A Session of Claude Code on the Canvas (CONTEXT.md, "Session": one Session — one Node, wherever it
@@ -163,36 +164,35 @@ function lastAnswer(events: readonly AgentEvent[]): string | null {
   return null
 }
 
-/** How much of a transcript file one `claudeHome.transcript` call reads, as claude-home/useClaudeHome.ts reads it. */
-const CHUNK_BYTES = 1024 * 1024
-
 /**
- * The last answer a Session's transcript file holds, read once to its end; null while reading,
- * for no `sessionId`, or when the file has none. It calls `claudeHome.transcript` itself rather
- * than useSessionTranscript: that one keeps a single state per transcript, which the Session view
- * of the same Session uses at the same time, and whichever of the two let go first would drop
- * the state of the other.
+ * The last answer a Session's transcript file holds, read from the window at its end (ticket 21);
+ * null while reading, for no `sessionId`, or when that window has none. It calls
+ * `claudeHome.transcript` itself rather than useSessionTranscript: that one keeps a single state
+ * per transcript, which the Session view of the same Session uses at the same time, and whichever
+ * of the two let go first would drop the state of the other.
  */
+// shortcut: an answer older than the last TRANSCRIPT_WINDOW_BYTES of the file is not found, redo when a Node shows no answer for a Session whose last turn wrote megabytes of tool output.
 function usePastAnswer(root: string, sessionId: string | null): string | null {
   const [read, setRead] = useState<{ sessionId: string; answer: string | null } | null>(null)
   useEffect(() => {
     if (sessionId === null) return
     let current = true
     void (async () => {
-      let cursor: { offset: number; fileId: string | null } | undefined
+      let result = await invoke('claudeHome.transcript', { projectRoot: root, sessionId, back: { bytes: TRANSCRIPT_WINDOW_BYTES } })
       let answer: string | null = null
+      // An older main (a Linked machine) drops `back`, reads from the start and answers without
+      // `earlier`: read on to the end, as before ticket 21.
       for (let round = 0; round < 1000; round += 1) {
-        const result = await invoke('claudeHome.transcript', { projectRoot: root, sessionId, maxBytes: CHUNK_BYTES, ...(cursor ? { cursor } : {}) })
         if (!current) return
         if (!result.ok) {
           console.error(`claudeHome.transcript ${sessionId} failed:`, result.error)
           return
         }
-        const { found, events, reset, more } = result.value
-        if (reset) answer = null
-        answer = lastAnswer(events) ?? answer
-        cursor = result.value.cursor
-        if (!found || !more) break
+        const { value } = result
+        if (value.reset) answer = null
+        answer = lastAnswer(value.events) ?? answer
+        if (!value.found || value.earlier !== undefined || !value.more) break
+        result = await invoke('claudeHome.transcript', { projectRoot: root, sessionId, cursor: value.cursor, maxBytes: TRANSCRIPT_WINDOW_BYTES })
       }
       setRead({ sessionId, answer })
     })()
@@ -375,7 +375,7 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
       <div style={styles.header} title="Double-click to open the Session" {...NODE_HEADER}>
         <KindBand kind="session" />
         <KindIcon kind="session" />
-        <span style={styles.title} data-testid="session-node-title" {...NODE_TITLE} title={title}>
+        <span style={styles.title} data-testid="session-node-title" title={title}>
           {title}
         </span>
         <span data-testid="session-node-status" title={running ? (view.error ?? undefined) : undefined}>
@@ -529,7 +529,7 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
       <div style={styles.header} title="Double-click to open the transcript" {...NODE_HEADER}>
         <KindBand kind="session" />
         <KindIcon kind="session" />
-        <span style={styles.title} data-testid="session-node-title" {...NODE_TITLE} title={title}>
+        <span style={styles.title} data-testid="session-node-title" title={title}>
           {title}
         </span>
         <span data-testid="session-node-status">

@@ -1,10 +1,16 @@
-import { useState } from 'react'
-import { useReadOnly } from '../../projects/useProjects'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import type { BrowserProfile } from '../../../shared/browser/profiles'
+import { BrowserProfiles } from '../../browser/BrowserProfiles'
+import { useBrowserProfiles } from '../../browser/profiles'
+import { writeAction } from '../../projects/read-only'
+import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { useLayoutOps } from '../useLayout'
 import {
   BROWSER_HEADER_HEIGHT,
   addressUrl,
+  browserProfileChoice,
   browserUrl,
+  type BrowserProfileChoice,
   dismissBrowserOpenRequest,
   navigateBrowserPage,
   openBarAddress,
@@ -15,8 +21,12 @@ import {
 import type { CanvasNodeProps } from './index'
 import './BrowserNode.css'
 
-// A Browser Node (ADR-0078): a frame with a header that holds the back, forward and reload buttons
-// and the address bar, and the Open bar under it while the page asks to open an address. The page itself is
+// A Browser Node (ADR-0078): a frame with a header that holds the name of its Browser profile, the
+// back, forward and reload buttons and the address bar, and the Open bar under it while the page
+// asks to open an address. The profile's name opens the window «Browser profiles…» (worfy-browser
+// ticket 03, the owner's decision 1). A Browser whose profile is not settled — deleted, or a new
+// Browser while the Project has several — shows an empty frame with «Choose a profile»
+// (browserProfileChoice in browser-frame.ts). The page itself is
 // not drawn here but by the Browser layer (../overlays/BrowserLayer.tsx), under the frame's body,
 // at browserPageRect() of the frame. The body is transparent and lets the mouse through, so the
 // page shows and takes the mouse through it, and any Node or menu over the frame covers the page.
@@ -33,10 +43,13 @@ export const createLabel = 'New browser'
  * that is not a step of ⌘Z (history.ts): typing an address is not a gesture over the Node. A new
  * Browser has no address and shows an empty page.
  */
-function AddressBar({ id, url }: { id: string; url: string | null }) {
+function AddressBar({ id, url, noProfile }: { id: string; url: string | null; noProfile: boolean }) {
   const ops = useLayoutOps()
-  // On a read-only screen (worfy-link ticket 25) the address is shown and cannot be changed.
-  const readOnly = useReadOnly()
+  // On a read-only screen (worfy-link ticket 25) the address is shown and cannot be changed. Nor
+  // while the Browser has no profile: there is no page to send, and an address kept in the Node
+  // would settle its profile by the rule for old Browsers (browserProfileChoice).
+  const screenReadOnly = useReadOnly()
+  const readOnly = screenReadOnly ?? (noProfile ? 'Choose a profile first' : null)
   /** What is being typed, while the bar has the focus; null otherwise. */
   const [draft, setDraft] = useState<string | null>(null)
   /** The address sent last and the Node's address then: shown until the Node's address changes. */
@@ -63,7 +76,7 @@ function AddressBar({ id, url }: { id: string; url: string | null }) {
       data-testid="browser-address"
       aria-label="Address"
       aria-invalid={invalid}
-      placeholder="Enter an address"
+      placeholder={noProfile ? 'Choose a profile first' : 'Enter an address'}
       spellCheck={false}
       autoComplete="off"
       value={draft ?? shown ?? ''}
@@ -197,18 +210,109 @@ function OpenBar({ id, url }: { id: string; url: string | null }) {
   )
 }
 
+/** «Browser profiles…»: the window over the Canvas, opened from a frame; `selected` — the profile shown first. */
+function useProfilesWindow(): { open: (selected: string | null) => void; window: ReactNode } {
+  const project = activeProject(useProjects())
+  const [opened, setOpened] = useState<{ selected: string | null } | null>(null)
+  return {
+    open: (selected) => setOpened({ selected }),
+    window:
+      opened !== null && project !== undefined ? <BrowserProfiles project={{ id: project.id, name: project.name }} selected={opened.selected} onClose={() => setOpened(null)} /> : null,
+  }
+}
+
+/**
+ * The frame of a Browser whose profile is not settled: the button «Choose a profile» and its list —
+ * the Project's profiles, and «Browser profiles…» to make or manage one. The choice goes into the
+ * Node's data, as the address does; the Browser layer then opens the page on that profile.
+ */
+function ChooseProfile({ id, choice, profiles, manage }: { id: string; choice: BrowserProfileChoice & { kind: 'choose' }; profiles: readonly BrowserProfile[]; manage: () => void }) {
+  const ops = useLayoutOps()
+  const readOnly = useReadOnly()
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const outside = (event: MouseEvent) => {
+      if (event.target instanceof Node && root.current?.contains(event.target) !== true) setOpen(false)
+    }
+    document.addEventListener('mousedown', outside)
+    return () => document.removeEventListener('mousedown', outside)
+  }, [open])
+  const why = {
+    deleted: 'The Browser profile of this Browser was deleted.',
+    several: 'This Browser has no Browser profile yet.',
+    none: 'This Project has no Browser profile yet.',
+  }[choice.reason]
+  return (
+    <div ref={root} className="w-browser-frame__choose nodrag" data-testid="browser-choose-profile">
+      <span className="w-browser-frame__choose-why">{why}</span>
+      <button type="button" className="w-browser-frame__open-button" data-testid="browser-choose-profile-button" aria-expanded={open} {...writeAction(readOnly, () => setOpen(!open))}>
+        Choose a profile
+      </button>
+      {open ? (
+        <div role="menu" aria-label="Browser profiles" className="w-browser-frame__choose-menu">
+          {profiles.map((profile) => (
+            <button
+              key={profile.id}
+              type="button"
+              role="menuitem"
+              className="w-row"
+              onClick={() => {
+                setOpen(false)
+                void ops.apply({ op: 'patchData', id, data: { profile: profile.id } })
+              }}
+            >
+              {profile.name}
+            </button>
+          ))}
+          <button
+            type="button"
+            role="menuitem"
+            className="w-row"
+            onClick={() => {
+              setOpen(false)
+              manage()
+            }}
+          >
+            Browser profiles…
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function BrowserNode({ id, data }: CanvasNodeProps) {
   const url = browserUrl(data.node)
+  const projectId = activeProject(useProjects())?.id
+  const profiles = useBrowserProfiles(projectId)
+  const choice = browserProfileChoice(data.node.data, profiles)
+  const profile = choice.kind === 'use' ? profiles?.find((each) => each.id === choice.id) : undefined
+  const profilesWindow = useProfilesWindow()
   return (
-    <div className="w-node-surface w-browser-frame" data-testid="browser-frame" data-node-id={id}>
+    <div className="w-node-surface w-browser-frame" data-testid="browser-frame" data-node-id={id} data-profile={choice.kind === 'use' ? choice.id : undefined}>
       <div className="w-browser-frame__header" style={{ height: BROWSER_HEADER_HEIGHT }}>
-        <span className="w-browser-frame__title">Browser</span>
+        {profile !== undefined ? (
+          <button
+            type="button"
+            className="w-browser-frame__title w-browser-frame__profile nodrag"
+            data-testid="browser-profile-name"
+            title="Browser profiles…"
+            onClick={() => profilesWindow.open(profile.id)}
+          >
+            {profile.name}
+          </button>
+        ) : (
+          <span className="w-browser-frame__title">Browser</span>
+        )}
         <NavButtons id={id} />
-        <AddressBar id={id} url={url} />
+        <AddressBar id={id} url={url} noProfile={choice.kind !== 'use'} />
       </div>
       <div className="w-browser-frame__body" data-testid="browser-frame-body">
-        <OpenBar id={id} url={url} />
+        {choice.kind === 'choose' ? <ChooseProfile id={id} choice={choice} profiles={profiles ?? []} manage={() => profilesWindow.open(null)} /> : <OpenBar id={id} url={url} />}
       </div>
+      {profilesWindow.window}
     </div>
   )
 }

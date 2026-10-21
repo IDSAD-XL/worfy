@@ -8,8 +8,8 @@ import { formatCost, STATE_CHIPS } from '../../session/format'
 import { StatusChip } from '../../theme/primitives'
 import { KindBand, KindIcon } from '../kind-icons'
 import { NodeResizeClamp } from '../NodeResizeClamp'
+import { NODE_HEADER } from '../node-header'
 import { useLayoutOps } from '../useLayout'
-import { NODE_HEADER, NODE_TITLE } from '../zoom-level'
 import type { CanvasNodeProps } from './index'
 import { useOrchestratorView } from './orchestrator-view'
 
@@ -123,7 +123,7 @@ export default function OrchestratorNode({ id, selected }: CanvasNodeProps) {
       <div className="w-orchestrator__header" style={styles.header} title="Double-click to open the Session" {...NODE_HEADER}>
         <KindBand kind="orchestrator" />
         <KindIcon kind="orchestrator" />
-        <span style={styles.title} {...NODE_TITLE}>
+        <span style={styles.title}>
           Orchestrator
         </span>
         <span data-testid="orchestrator-state" title={view?.error ?? undefined}>

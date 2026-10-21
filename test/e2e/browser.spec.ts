@@ -125,10 +125,10 @@ async function start(): Promise<Page> {
 }
 
 /** The Browser Nodes of the Layout main saved. */
-function savedBrowsers(): { id: string; data: { url?: string } }[] {
+function savedBrowsers(): { id: string; data: { url?: string; profile?: string | null } }[] {
   const file = join(dataDir(), PROJECT, 'layout.json')
   if (!existsSync(file)) return []
-  const layout = JSON.parse(readFileSync(file, 'utf8')) as { nodes: { id: string; kind: string; data: { url?: string } }[] }
+  const layout = JSON.parse(readFileSync(file, 'utf8')) as { nodes: { id: string; kind: string; data: { url?: string; profile?: string | null } }[] }
   return layout.nodes.filter((node) => node.kind === 'browser')
 }
 
@@ -227,6 +227,8 @@ test('New browser from the Canvas menu opens the typed address; the address the 
   await expect.poll(() => savedBrowsers().length, { message: 'main saved the new Browser' }).toBe(1)
   const id = savedBrowsers()[0]!.id
   expect(savedBrowsers()[0]!.data.url).toBeUndefined()
+  // The Project has one Browser profile, Default: the new Node is made under it (worfy-browser ticket 14).
+  await expect.poll(() => savedBrowsers()[0]?.data.profile, { message: 'the new Browser is under Default' }).toBe('default')
   await expect.poll(async () => (await guests()).map((guest) => guest.url), { message: 'the empty page' }).toEqual(['about:blank'])
 
   // The address typed and Enter: the page opens, the bar and the Node keep the address.
@@ -541,6 +543,8 @@ test('a rel="noreferrer" link of the page is offered in the Open bar: Open sends
 // the scheme and host whole — wrapping onto more lines when they do not fit — and cuts only the path.
 // In a narrow frame (review of PR #630) the host keeps room for at least 12 characters: the address
 // moves to a line of its own under the label instead of squeezing the host to a column of letters.
+// worfy-browser ticket 13: when the host wraps, the path stands after its last line, never beside the
+// first — otherwise the top line reads as a whole address (`http://bank.e` + `…/bank.example.com/login`).
 for (const { width, name, underLabel } of [
   { width: 640, name: 'long', underLabel: false },
   { width: 400, name: 'long-narrow', underLabel: true },
@@ -583,6 +587,12 @@ for (const { width, name, underLabel } of [
       site.append(probe)
       const twelveChars = probe.getBoundingClientRect().width
       probe.remove()
+      // The lines the host takes, as the browser laid them out.
+      const range = barElement.ownerDocument.createRange()
+      range.selectNodeContents(site)
+      const lines = [...range.getClientRects()].filter((rect) => rect.width > 0)
+      const lastLine = lines[lines.length - 1]
+      const headBox = head.getBoundingClientRect()
       return {
         siteWhole: site.scrollWidth <= site.clientWidth && site.scrollHeight <= site.clientHeight,
         siteInBar: inside(siteBox, barBox),
@@ -592,9 +602,16 @@ for (const { width, name, underLabel } of [
         buttonsInBar: [...barElement.querySelectorAll('button')].map((button) => inside(button.getBoundingClientRect(), barBox)),
         barUnder240: barBox.height < 240,
         underLabel: label.getBoundingClientRect().bottom <= part('browser-open-url').getBoundingClientRect().top + 0.5,
+        siteWraps: lines.length > 1,
+        // The middle of each path part falls within the host's last line (a span's line box is
+        // taller than the glyph rectangles a Range reports, so the edges are not compared).
+        pathOnLastHostLine: [headBox, tailBox].map((box) => {
+          const middle = (box.top + box.bottom) / 2
+          return middle >= lastLine.top && middle <= lastLine.bottom
+        }),
       }
     })
-    expect(layout, 'the host is whole, at least 12 characters wide, clear of the tail; the path is cut; Open and Close stay in the bar').toEqual({
+    expect(layout, 'the host is whole, at least 12 characters wide, clear of the tail; the path is cut and stands on the host\'s last line; Open and Close stay in the bar').toEqual({
       siteWhole: true,
       siteInBar: true,
       siteAtLeast12Chars: true,
@@ -603,6 +620,8 @@ for (const { width, name, underLabel } of [
       buttonsInBar: [true, true],
       barUnder240: true,
       underLabel,
+      siteWraps: true,
+      pathOnLastHostLine: [true, true],
     })
     await expect(bar.getByRole('button', { name: 'Open' })).toBeVisible()
     await expect(bar.getByRole('button', { name: 'Close' })).toBeVisible()

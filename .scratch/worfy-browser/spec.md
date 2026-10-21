@@ -234,6 +234,8 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 11 | `src/main/window.ts`, `src/renderer/canvas/nodes/BrowserNode.tsx`, `src/renderer/canvas/nodes/BrowserNode.css`, `src/renderer/canvas/overlays/BrowserLayer.tsx`, `test/unit/window-options.test.ts`, `test/e2e/browser.spec.ts`, `test/fixtures/browser/` | 4 (после 10, до 03) |
 | 12 | `src/renderer/canvas/nodes/BrowserNode.tsx`, `src/renderer/canvas/nodes/BrowserNode.css`, `src/renderer/canvas/overlays/BrowserLayer.tsx`, `src/renderer/canvas/nodes/browser-frame.ts`, `test/unit/`, `test/e2e/browser.spec.ts` | 4 (после 11, до 03: 03 ждёт ответов владельца) |
 | 13 | `src/renderer/canvas/nodes/BrowserNode.css`, `src/renderer/canvas/nodes/BrowserNode.tsx`, `test/e2e/browser.spec.ts` | после 03 |
+| 14 | `src/renderer/canvas/overlays/CanvasMenu.tsx`, `src/renderer/find/CanvasFind.tsx`, `src/renderer/canvas/nodes/create-items.ts`, `src/renderer/canvas/nodes/browser-frame.ts`, `src/renderer/browser/BrowserProfiles.tsx`, `src/main/browser/profiles.ts`, `test/unit/canvas-menu.test.tsx`, `test/contract/browser-profiles.test.ts` | после 03 |
+| 15 | `test/unit/canvas-menu.test.tsx`, `test/unit/palette-new-browser.test.tsx`, `test/unit/browser-profiles-store.test.tsx`, `test/unit/browser-layer.test.tsx` или `test/e2e/browser-profile.spec.ts` | после 14 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.

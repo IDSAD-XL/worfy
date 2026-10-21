@@ -98,7 +98,9 @@ Browser (Live, Asleep) — `CONTEXT.md`. Код перечитан по main `dd
 
 1. **«Уровень читаемого текста».** ADR числа не даёт. Если к началу Ticket-а влит semantic zoom
    `worfy-canvas` 06, порог — его граница уровней; иначе число предлагает исполнитель, решает
-   владелец.
+   владелец. **Решено владельцем 2026-10-21:** порог сна — zoom 0.4, тот же, что у живой страницы
+   Card (`CardNode.tsx`, `LIVE_ZOOM_MIN`); уровни semantic zoom, за которыми он шёл, удалены
+   Ticket-ом `worfy-canvas` 20.
 2. **Где лежит снимок Asleep** — в памяти main или файлом в папке данных Project-а — и переживает ли
    он перезапуск worfy. ADR не говорит. Не в Layout: Layout read-only Linked machine получает
    (`layout.get` и `layout.changed` — `read`, `src/shared/ipc/layout.ts:16`, `:33`), а снимок ей не

@@ -19,7 +19,7 @@ import { ZOOM_MAX, ZOOM_MIN, type LayoutNode } from '../../shared/layout/types'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { requestCardText } from '../canvas/card-bridge'
 import { nodeTypes, type CanvasFlowNode } from '../canvas/nodes'
-import { createItems } from '../canvas/overlays/create-items'
+import { createItems, newNodeData } from '../canvas/overlays/create-items'
 import { useTidyUp } from '../canvas/tidy'
 import { useLayout, useLayoutOps } from '../canvas/useLayout'
 import { useDocs, useDocText } from '../docs/useDocs'
@@ -116,7 +116,7 @@ function useCreateRequests(projectId: string): void {
       const center = flow.screenToFlowPosition({ x: box.left + box.width / 2, y: box.top + box.height / 2 })
       void ops.apply({
         op: 'create',
-        node: { kind: type.kind, x: Math.round(center.x - type.defaultWidth / 2), y: Math.round(center.y - type.defaultHeight / 2), w: type.defaultWidth, h: type.defaultHeight, data: {} },
+        node: { kind: type.kind, x: Math.round(center.x - type.defaultWidth / 2), y: Math.round(center.y - type.defaultHeight / 2), w: type.defaultWidth, h: type.defaultHeight, data: newNodeData(type.kind, projectId) },
       })
     }
     attempt()

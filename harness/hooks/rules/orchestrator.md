@@ -113,8 +113,15 @@ parallel when the change is large. Do not substitute your own self-check for thi
 ## Phase 3 — state, then report
 
 **Every turn that does work ends with a four-line status block**, in the language of reports,
-after the prose. The four labels are fixed English tokens whatever the language of reports —
-worfy parses them; only the text after each label follows that language:
+after the prose.
+
+**Right before the block, run `epic-status`** when the project keeps tickets (`tickets.path`), after
+any ticket status change of this turn: `${CLAUDE_PLUGIN_ROOT}/bin/epic-status <epic>`, bare with no
+single epic in play. The Stage line is the line of that run for the work at hand; only then write
+the block. With no tickets the Stage line is one plain phrase naming the stage of the work.
+
+The four labels are fixed English tokens whatever the language of reports — worfy parses them;
+only the text after each label follows that language:
 
     — Stage: <a line of epic-status output, or one phrase naming the stage>
     — Now: <what is true right now>
@@ -125,10 +132,6 @@ Rules that keep it honest:
 
 - Only verified state goes in. "Done" after a green run, not after the last edit lands. Failing
   tests are reported as failing.
-- When the project keeps tickets (`tickets.path`), the Stage line is this turn's output of
-  `${CLAUDE_PLUGIN_ROOT}/bin/epic-status <epic>`; with no single epic in play, run it bare and
-  paste the line for the work at hand. Otherwise the Stage line is one plain phrase naming the stage
-  of the work.
 - Skip it on purely conversational turns — there it is noise, not signal.
 - It is a status line, not a second summary. Four lines, no prose.
 

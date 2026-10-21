@@ -6,7 +6,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { ReactFlow, ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NodeType } from '../../src/renderer/canvas/nodes/index'
-import { createItems } from '../../src/renderer/canvas/overlays/create-items'
+import { createItems, newNodeData } from '../../src/renderer/canvas/overlays/create-items'
 import { LayoutOpsContext, type LayoutOps } from '../../src/renderer/canvas/useLayout'
 import { TERMINAL_NODE_KIND } from '../../src/shared/ipc/terminal'
 import type { LayoutOpInput } from '../../src/shared/layout/types'
@@ -55,6 +55,19 @@ vi.mock('../../src/renderer/projects/useProjects', async (importOriginal) => ({
   useProjects: () => ({ activeId: 'p1', projects: [{ id: 'p1', name: 'one', path: '/repo/one', branch: 'main' }] }),
   useReadOnly: () => readOnly.hint,
 }))
+
+// The Browser profiles this window knows (renderer/browser/profiles.ts), as «New browser» reads them.
+const browserProfiles = vi.hoisted(() => ({ now: undefined as { id: string; name: string; origins: string[]; autopilot: boolean }[] | undefined, asked: [] as string[] }))
+
+vi.mock('../../src/renderer/browser/profiles', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/renderer/browser/profiles')>()),
+  browserProfilesNow: (projectId: string) => {
+    browserProfiles.asked.push(projectId)
+    return browserProfiles.now
+  },
+}))
+
+const profile = (id: string) => ({ id, name: id, origins: [], autopilot: false })
 
 const Dummy = () => null
 const type = (kind: string): NodeType => ({ kind, Component: Dummy, defaultWidth: 100, defaultHeight: 50 })
@@ -111,6 +124,30 @@ describe('the Browser Node type', () => {
   })
 })
 
+describe('the data of a new Node (newNodeData), for the Canvas menu and the palette\'s "New …" commands', () => {
+  afterEach(() => {
+    browserProfiles.now = undefined
+    browserProfiles.asked.length = 0
+  })
+
+  it('a Browser gets the only Browser profile of its Project, or null with several, none, or none read yet (worfy-browser ticket 14)', () => {
+    browserProfiles.now = [profile('admin-aaaaaa')]
+    expect(newNodeData('browser', 'p1')).toEqual({ profile: 'admin-aaaaaa' })
+    expect(browserProfiles.asked).toEqual(['p1'])
+    browserProfiles.now = [profile('default'), profile('admin-aaaaaa')]
+    expect(newNodeData('browser', 'p1')).toEqual({ profile: null })
+    browserProfiles.now = []
+    expect(newNodeData('browser', 'p1')).toEqual({ profile: null })
+    browserProfiles.now = undefined
+    expect(newNodeData('browser', 'p1')).toEqual({ profile: null })
+  })
+
+  it('any other Node starts with no data', () => {
+    browserProfiles.now = [profile('admin-aaaaaa')]
+    for (const kind of ['terminal', 'session', 'note']) expect(newNodeData(kind, 'p1'), kind).toEqual({})
+  })
+})
+
 describe('the Canvas menu', () => {
   let hadObserver = false
   beforeEach(() => {
@@ -125,6 +162,8 @@ describe('the Canvas menu', () => {
   afterEach(() => {
     if (!hadObserver) delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver
     readOnly.hint = null
+    browserProfiles.now = undefined
+    browserProfiles.asked.length = 0
     tidyUp.run.mockClear()
     arrange.run.mockClear()
     repack.run.mockClear()
@@ -199,12 +238,23 @@ describe('the Canvas menu', () => {
     expect(repack.run).not.toHaveBeenCalled()
   })
 
-  it('has New browser, which creates a Browser Node with no address at the spot of the right click (worfy-browser/02)', async () => {
+  it('has New browser, which creates a Browser Node with no address at the spot of the right click, under the only Browser profile (worfy-browser/02, 14)', async () => {
+    browserProfiles.now = [profile('admin-aaaaaa')]
     const apply = vi.fn<(op: LayoutOpInput) => Promise<void>>(() => Promise.resolve())
     await openMenu({ apply })
     fireEvent.click(screen.getByRole('menuitem', { name: 'New browser' }))
     expect(apply).toHaveBeenCalledTimes(1)
-    expect(apply.mock.calls[0]?.[0]).toMatchObject({ op: 'create', node: { kind: 'browser', w: 640, h: 440, data: {} } })
+    expect(apply.mock.calls[0]?.[0]).toMatchObject({ op: 'create', node: { kind: 'browser', w: 640, h: 440 } })
+    expect(apply.mock.calls[0]?.[0]).toHaveProperty('node.data', { profile: 'admin-aaaaaa' })
+    expect(browserProfiles.asked).toEqual(['p1'])
     expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('with several Browser profiles New browser creates a Browser Node with `profile: null`, whose frame asks (worfy-browser/14)', async () => {
+    browserProfiles.now = [profile('default'), profile('admin-aaaaaa')]
+    const apply = vi.fn<(op: LayoutOpInput) => Promise<void>>(() => Promise.resolve())
+    await openMenu({ apply })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'New browser' }))
+    expect(apply.mock.calls[0]?.[0]).toHaveProperty('node.data', { profile: null })
   })
 })

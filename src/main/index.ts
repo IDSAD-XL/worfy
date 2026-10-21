@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { bindingWorkflowOf } from '../shared/binding/resolve'
-import { browserPartitions } from '../shared/browser/partition'
 import { sessionArchiveOf } from '../shared/settings/app-settings'
 import { startOrchestrators } from './agent/app-orchestrators'
 import { sharedRegistry } from './agent/app-registry'
 import { installLimitsRefresh } from './agent/limits-usage'
 import { appUserModelId } from './app-id'
+import { browserProfilePartitions } from './browser/profiles'
 import { installCardRuntime, registerCardScheme } from './cards/protocol'
 import { cardStore } from './cards/store'
 import { installProcessGone } from './diagnostics/process-gone'
@@ -17,13 +17,13 @@ import { liveSessionListeners, type LiveSessionsListener } from './ipc/claude-ho
 import { sharedGateQueue } from './ipc/gate-queue'
 import { appUrlMatcher, registerIpc } from './ipc/index'
 import { appNoteLink } from './link/notes'
-import { startAppLink, stopLinkOnQuit } from './link/service'
+import { appLinkService, onAppLinkStart, startAppLink, stopLinkOnQuit } from './link/service'
 import { installAppMenu } from './menu'
 import { workflowHub } from './ipc/workflow'
 import { archiveRegistry, archiveSettings, archiveTickMs, AutoArchiver, sessionBindings, startAppArchiver } from './layout/archive'
 import { bindingStore } from './layout/bindings'
 import { layoutStore } from './layout/store'
-import { appWaitsSources, electronNotifyDeps, installGateQueueNotifications, installNotifications } from './notify'
+import { appWaitsSources, electronNotifyDeps, followAppLinkPauses, installGateQueueNotifications, installNotifications } from './notify'
 import { projectStore } from './projects/store'
 import { quietWindows } from './quiet-windows'
 import { appSettingsStore } from './settings/store'
@@ -132,8 +132,9 @@ function start(): void {
       const isAppUrl = inStep('loadURL', () => appUrlMatcher(rendererEntry()))
       await inStep('registerIpc', () => registerIpc(ipcMain, { isTrustedSender: isAppUrl }))
       // Navigation, new windows and permissions for every page, the window and its Cards alike.
-      // A Browser's <webview> attaches on the partition of a Project of this Machine (ticket 10).
-      inStep('installWebPolicy', () => installWebPolicy(isAppUrl, () => browserPartitions(projectStore().list().map((project) => project.id))))
+      // A Browser's <webview> attaches only on the partition of a Browser profile of a Project of
+      // this Machine (worfy-browser ticket 03), read at each attach: a deleted profile's is refused.
+      inStep('installWebPolicy', () => installWebPolicy(isAppUrl, () => browserProfilePartitions(projectStore().list().map((project) => project.id))))
       inStep('installCardRuntime', () => installCardRuntime((host) => cardStore().locate(host)))
       // Before the first window: its creation is what opens the active Project's Orchestrator.
       inStep('startOrchestrators', () => startOrchestrators())
@@ -148,10 +149,15 @@ function start(): void {
         app.on('will-quit', stopNotifications)
         const stopGateQueueNotices = installGateQueueNotifications(sharedGateQueue(), () => projectStore().list())
         app.on('will-quit', stopGateQueueNotices)
+        // "Link a machine" paused after too many failed pairing attempts (worfy-link ticket 28), for
+        // the app's link once it has started.
+        app.on('will-quit', followAppLinkPauses(onAppLinkStart, appLinkService))
       })
       // The automatic archive of finished Sessions (worfy-canvas ticket 07, ADR-0076): main runs it
-      // for the Projects of this Machine, at start and every 10 minutes. Not a startup step: worfy
-      // runs without it, as without the link.
+      // for a Project of this Machine when it first reads the Project's Layout — the first window
+      // below opens the active one — and then every 10 minutes. A Project nobody opens stays unread.
+      // Before the first window, so its first read is heard. Not a startup step: worfy runs without
+      // it, as without the link.
       try {
         app.on('will-quit', installAutoArchive())
       } catch (error) {

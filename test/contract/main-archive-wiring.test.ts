@@ -137,10 +137,10 @@ describe('the automatic archive in src/main/index.ts', () => {
     }
   })
 
-  it('reads the Setting of Settings → Canvas at every run: «Never» by default, the person\'s threshold and switch after a change', async () => {
+  it('reads the Setting of Settings → Canvas at every run: 24 h by default, the person\'s threshold and switch after a change', async () => {
     const { appSettingsStore } = await import('../../src/main/settings/store')
     const deps = seen.deps[0]!
-    expect(deps.settings('any')).toEqual({ idleMs: null, ticketDone: true })
+    expect(deps.settings('any')).toEqual({ idleMs: 24 * 3_600_000, ticketDone: true })
     appSettingsStore().set({ sessionArchive: { after: '6h', ticketDone: false } })
     expect(deps.settings('any')).toEqual({ idleMs: 6 * 3_600_000, ticketDone: false })
     appSettingsStore().set({ sessionArchive: { after: 'never' } })
