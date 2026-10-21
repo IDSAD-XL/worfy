@@ -486,8 +486,8 @@ const codeLines = (text) =>
  * order: { name, lines, skipped }. `lines` is the body: everything after the name up to the closing
  * `)` of the call, without the test calls nested in it (they are compared on their own), as its
  * lines. `skipped` is an x/f form, a skip, todo or only modifier, or such a key in an options object
- * right after the name: `test(name, { skip: true }, fn)`. `outside` is the code of the file around
- * its top-level test calls.
+ * right after the name: `test(name, { skip: true }, fn)`; `start` and `end` are where the call is in
+ * `code`. `outside` is the code of the file around its top-level test calls.
  */
 function testFile(code) {
   const spans = [...code.matchAll(TEST_CALL)].map((call) => {
@@ -506,7 +506,7 @@ function testFile(code) {
       at = Math.min(inner.end, span.end)
     }
     body += code.slice(at, span.end)
-    return { name: span.name, lines: codeLines(body), skipped: span.skipped }
+    return { name: span.name, lines: codeLines(body), skipped: span.skipped, start: span.start, end: span.end }
   })
   let outside = ''
   let at = 0
@@ -520,7 +520,8 @@ function testFile(code) {
 
 /**
  * A line that is one whole assertion: assert(…), assert.x(…) or expect(…)…, its brackets closed on
- * the line, one statement (a `;` only at its end: `assert.ok(true); return` is two).
+ * the line, one statement (a `;` only at its end: `assert.ok(true); return` is two) and one
+ * expression (no `,` outside the brackets: `assert.ok(true), (assert.equal = () => {})` is two).
  */
 function wholeAssertion(line) {
   if (!/^(?:assert(?:\.\w+)*|expect)\s*\(/.test(line) || !/\);?$/.test(line)) return false
@@ -535,6 +536,7 @@ function wholeAssertion(line) {
     if ('([{'.includes(line[i])) depth++
     else if (')]}'.includes(line[i]) && --depth < 0) return false
     else if (line[i] === ';' && depth === 0 && i < line.length - 1) return false
+    else if (line[i] === ',' && depth === 0) return false
     i++
   }
   return depth === 0
@@ -599,9 +601,11 @@ function outsideCode(text) {
 
 /**
  * Whether the code outside the test calls of `now` is that of `base`, but for imports: every module
- * `base` imports is still imported with all its bindings, and a new binding is not named like a
- * test call or an assertion (`test`, `it`, `expect`, `assert`). Any other change there (`if (false) {`
- * around a whole test, `const test = () => {}`) can disarm the tests, so it counts as a change.
+ * `base` imports is still imported with all its bindings, a new binding is not named like a test
+ * call or an assertion (`test`, `it`, `expect`, `assert`), and a new module is not imported for its
+ * side effects alone (`import './setup.mjs'`, which can patch `assert`). Any other change there
+ * (`if (false) {` around a whole test, `const test = () => {}`) can disarm the tests, so it counts
+ * as a change.
  */
 function outsideIntact(base, now) {
   const before = outsideCode(base)
@@ -611,6 +615,7 @@ function outsideIntact(base, now) {
     if (!kept || ![...entries].every((entry) => kept.has(entry))) return false
   }
   for (const [from, entries] of after.imports) {
+    if (entries.size === 0 && !before.imports.has(from)) return false
     for (const entry of entries) if (!before.imports.get(from)?.has(entry) && TEST_NAME.test(entry.slice(entry.indexOf(':') + 1))) return false
   }
   return before.lines.length === after.lines.length && before.lines.every((line, i) => line === after.lines[i])
@@ -623,6 +628,13 @@ function outsideIntact(base, now) {
  * changed other than by imports added or grown. New tests (also inside an existing describe), new
  * assertions in a test, new imports and new files are fine.
  */
+/** Line breaks as `\n`: JavaScript also ends a line (and a `//` comment) at `\r`, U+2028 and U+2029. */
+const lf = (text) => text.replace(/\r\n?|[\u2028\u2029]/g, '\n')
+
+/** The body of a test call that holds nothing but the callback around its tests: `, () => {` … `})`. */
+const WRAPPER_HEAD = /^,\s*(?:async\s*)?(?:\(\s*\)\s*=>|function\s*\(\s*\))\s*\{$/
+const bareWrapper = (lines) => lines.length === 2 && WRAPPER_HEAD.test(lines[0]) && /^\}\s*\)$/.test(lines[1])
+
 function testsIntact(work, base, paths, env) {
   const values = { deleted_files: 0, removed_tests: 0, altered_tests: 0, added_skips: 0, altered_outside: 0 }
   for (const [path, blob] of Object.entries(filesAt(work, base, paths, env))) {
@@ -631,18 +643,24 @@ function testsIntact(work, base, paths, env) {
       values.deleted_files++
       continue
     }
-    const { calls: before, outside: baseOutside } = testFile(stripComments(blob.toString('utf8')))
-    const { calls: after, outside } = testFile(stripComments(readFileSync(onDisk, 'utf8')))
-    if (!outsideIntact(baseOutside, outside)) values.altered_outside++
+    const { calls: before, outside: baseOutside } = testFile(stripComments(lf(blob.toString('utf8'))))
+    const { calls: after, outside } = testFile(stripComments(lf(readFileSync(onDisk, 'utf8'))))
     const now = Map.groupBy(after, (call) => call.name)
     const seen = new Map()
+    const matched = new Set()
     for (const call of before) {
       const i = seen.get(call.name) ?? 0
       seen.set(call.name, i + 1)
       const match = now.get(call.name)?.[i]
+      if (match) matched.add(match)
       if (!match) values.removed_tests++
       else if (!onlyNewAssertions(call.lines, match.lines)) values.altered_tests++
     }
+    // A new test call that holds tests of `base` (a new describe around them) is code outside those
+    // tests: it may hold nothing but its callback, or `if (false) {` there would stop them all.
+    const holdsOld = (call) => [...matched].some((old) => old.start > call.start && old.start < call.end)
+    const wrappersBare = after.filter((call) => !matched.has(call) && holdsOld(call)).every((call) => bareWrapper(call.lines))
+    if (!wrappersBare || !outsideIntact(baseOutside, outside)) values.altered_outside++
     const skips = (calls) => calls.filter((call) => call.skipped).length
     values.added_skips += Math.max(0, skips(after) - skips(before))
   }
