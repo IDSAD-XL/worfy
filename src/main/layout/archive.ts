@@ -5,7 +5,9 @@
 // - The rule is archiveCandidates(), a pure function (ADR-0076, points 1–2). A Session whose
 //   transcript tells no time — Claude Code deletes transcripts past its cleanup period — is idle
 //   since its Node's `touchedAt`; a run of the timer starts that clock with a `touch` without a
-//   screen when the Node has none (sessionsWithoutClock; ADR-0076, Amendments).
+//   screen when the Node has none (sessionsWithoutClock; ADR-0076, Amendments). Neither happens in a
+//   run during which `git worktree list` failed: a worktree outside the root then drops out of both
+//   the live Sessions and the transcripts, and a Session running there would look finished.
 // - AutoArchiver runs it for every Project of this Machine at start and every ARCHIVE_TICK_MS
 //   (point 3). main does it, not a window: two screens of one Project archive once (ADR-0053), and
 //   a Project watched only by a read-only Linked machine is archived too (ADR-0066). One run of a
@@ -32,7 +34,7 @@ import { SESSION_NODE_KIND } from '../../shared/ipc/sessions'
 import type { ArchiveCandidate } from '../../shared/ipc/layout'
 import { isArchived, type LayoutNode, type LayoutOp, type LayoutState } from '../../shared/layout/types'
 import type { SessionArchive, SessionArchiveAfter } from '../../shared/settings/app-settings'
-import { ClaudeHomeRegistry, processState, type RegistryOptions } from '../claude-home/registry'
+import { ClaudeHomeRegistry, listGitWorktrees, processState, type RegistryOptions } from '../claude-home/registry'
 import { samePath } from '../harness/status-line'
 import type { LayoutStore } from './store'
 
@@ -136,12 +138,13 @@ function finishedSessions(nodes: readonly LayoutNode[], live: readonly LiveSessi
  * The Session Nodes the rule may take, before any threshold: the finished ones not touched less
  * than `threshold` ago, with their idle time counted from the last record of their transcript or,
  * when the transcript tells no time (Claude Code deleted it past its cleanup period, or it has no
- * record yet), from the Node's `touchedAt` (ADR-0076, Amendments). A Node with neither is left.
+ * record yet) and `fromTouch` holds, from the Node's `touchedAt` (ADR-0076, Amendments). A Node with
+ * neither is left.
  */
-function idleSessions(nodes: readonly LayoutNode[], live: readonly LiveSessionLike[], history: readonly HistoryLike[], now: number, threshold: number): IdleSession[] {
+function idleSessions(nodes: readonly LayoutNode[], live: readonly LiveSessionLike[], history: readonly HistoryLike[], now: number, threshold: number, fromTouch: boolean): IdleSession[] {
   return finishedSessions(nodes, live, history).flatMap(({ node, sessionId, lastAt }): IdleSession[] => {
     if (node.touchedAt != null && now - node.touchedAt < threshold) return []
-    const since = lastAt ?? node.touchedAt ?? undefined
+    const since = lastAt ?? (fromTouch ? (node.touchedAt ?? undefined) : undefined)
     return since === undefined ? [] : [{ node, sessionId, idle: now - since }]
   })
 }
@@ -165,7 +168,9 @@ export function sessionsWithoutClock(nodes: readonly LayoutNode[], live: readonl
  * since the last record of its transcript (`idle`), or, when `settings.ticketDone`, is bound to a
  * Ticket the workflow model says is done and had its last record over TICKET_DONE_GRACE_MS ago
  * (`ticket-done`). The Orchestrator is another kind, so the rule does not see it. «Never»
- * (`idleMs` null) gives nothing.
+ * (`idleMs` null) gives nothing. `fromTouch` false — the reads may have missed a Session's
+ * transcript and its being live (the worktree list failed): a Session whose transcript tells no
+ * time is not counted from its touchedAt then.
  */
 export function archiveCandidates(
   nodes: readonly LayoutNode[],
@@ -175,12 +180,13 @@ export function archiveCandidates(
   bindings: ReadonlyMap<string, BindingTarget | null>,
   now: number,
   settings: ArchiveSettings,
+  fromTouch = true,
 ): ArchiveCandidate[] {
   const threshold = settings.idleMs
   if (threshold === null) return []
   const done = (target: BindingTarget | null | undefined): boolean =>
     target?.kind === 'ticket' && workflow !== undefined && workflow.tickets.some((ticket) => ticket.epic === target.epic && ticket.num === target.num && ticket.state === 'done')
-  return idleSessions(nodes, live, history, now, threshold).flatMap(({ node, sessionId, idle }): ArchiveCandidate[] => {
+  return idleSessions(nodes, live, history, now, threshold, fromTouch).flatMap(({ node, sessionId, idle }): ArchiveCandidate[] => {
     if (idle > threshold) return [{ id: node.id, sessionId, rule: 'idle' }]
     if (settings.ticketDone && idle > TICKET_DONE_GRACE_MS && done(bindings.get(sessionId))) return [{ id: node.id, sessionId, rule: 'ticket-done' }]
     return []
@@ -195,23 +201,42 @@ export function archiveCandidates(
 export function bindingsNeeded(nodes: readonly LayoutNode[], live: readonly LiveSessionLike[], history: readonly HistoryLike[], now: number, settings: ArchiveSettings): string[] {
   const threshold = settings.idleMs
   if (threshold === null || !settings.ticketDone) return []
-  return idleSessions(nodes, live, history, now, threshold)
+  // A Session counted from its touchedAt is touched at least `threshold` ago: never in the grace window.
+  return idleSessions(nodes, live, history, now, threshold, false)
     .filter(({ idle }) => idle > TICKET_DONE_GRACE_MS && idle <= threshold)
     .map(({ sessionId }) => sessionId)
+}
+
+/** The archive's registry, with the count of failed worktree lists. */
+export type ArchiveRegistry = ClaudeHomeRegistry & {
+  /** How many times listing a Project's git worktrees failed (an error or git's timeout) so far. */
+  worktreeFailures(): number
 }
 
 /**
  * The registry of live Sessions the archive reads: a process whose state cannot be told (`ps` or
  * PowerShell did not answer) counts as running, so its Session is never taken for finished
- * (ADR-0031), as for the Subagent tree (src/main/claude-home/subagents.ts).
+ * (ADR-0031), as for the Subagent tree (src/main/claude-home/subagents.ts). A worktree list that
+ * fails (`listWorktrees` throws; `git worktree list` by default) reads as no worktrees, as in the
+ * other registries, and is counted, so a run knows its reads may have missed a worktree.
  */
-export function archiveRegistry(options: { home: string; processState?: typeof processState; listWorktrees?: RegistryOptions['listWorktrees'] }): ClaudeHomeRegistry {
+export function archiveRegistry(options: { home: string; processState?: typeof processState; listWorktrees?: RegistryOptions['listWorktrees'] }): ArchiveRegistry {
   const state = options.processState ?? processState
-  return new ClaudeHomeRegistry({
+  const list = options.listWorktrees ?? listGitWorktrees
+  let failures = 0
+  const registry = new ClaudeHomeRegistry({
     home: options.home,
-    ...(options.listWorktrees === undefined ? {} : { listWorktrees: options.listWorktrees }),
+    listWorktrees: async (root) => {
+      try {
+        return await list(root)
+      } catch {
+        failures += 1
+        return []
+      }
+    },
     isAlive: async (pid, procStart) => (await state(pid, procStart)) !== 'gone',
   })
+  return Object.assign(registry, { worktreeFailures: () => failures })
 }
 
 /** A Project of this Machine as the archive needs it. */
@@ -239,6 +264,11 @@ export interface AutoArchiveDeps {
   now(): number
   /** A new batch id. */
   batchId(): string
+  /**
+   * How many times listing a Project's git worktrees failed so far (ArchiveRegistry). A run during
+   * which it grows does not count a Session without a transcript time from its touchedAt.
+   */
+  worktreeFailures(): number
 }
 
 /** The Project's archived Session Nodes. */
@@ -251,6 +281,8 @@ interface RuleReads {
   history: readonly HistoryLike[]
   workflow: BindingWorkflow | undefined
   bindings: ReadonlyMap<string, BindingTarget | null>
+  /** The worktree list did not fail during the reads: a Session without a transcript time may count from its touchedAt. */
+  fromTouch: boolean
 }
 
 /** Runs the archive of every Project of this Machine and brings resumed Sessions back. */
@@ -296,9 +328,10 @@ export class AutoArchiver {
     // From here to the write nothing waits: the Layout and the live Sessions are the latest main knows.
     const found = this.candidatesOf(project.id, reads, settings)
     if (found.length > 0) this.deps.store.apply(project.id, { op: 'archive', batch: this.deps.batchId(), nodes: found.map(({ id, rule }) => ({ id, rule })) }, null)
-    for (const id of sessionsWithoutClock(this.deps.store.get(project.id).layout.nodes, this.liveOf(project.id), reads.history)) {
-      this.deps.store.apply(project.id, { op: 'touch', id }, null)
-    }
+    // shortcut: one `touch` (and one layout.changed) per Node, only on the first run after an old Layout
+    // is read; redo as one operation if a Layout with hundreds of such Nodes makes that run slow.
+    const clockless = reads.fromTouch ? sessionsWithoutClock(this.deps.store.get(project.id).layout.nodes, this.liveOf(project.id), reads.history) : []
+    for (const id of clockless) this.deps.store.apply(project.id, { op: 'touch', id }, null)
     return found.length
   }
 
@@ -343,6 +376,7 @@ export class AutoArchiver {
    * no wait after it, on the Layout as it is then.
    */
   private async read(project: ArchiveProject, settings: ArchiveSettings): Promise<RuleReads> {
+    const failures = this.deps.worktreeFailures()
     const history = await this.deps.history(project)
     let workflow: BindingWorkflow | undefined
     let bindings: ReadonlyMap<string, BindingTarget | null> = new Map()
@@ -356,12 +390,12 @@ export class AutoArchiver {
       bindings = await this.deps.bindings(project, needed, workflow)
     }
     await this.readLive(project)
-    return { history, workflow, bindings }
+    return { history, workflow, bindings, fromTouch: this.deps.worktreeFailures() === failures }
   }
 
   /** The rule on the Project's Layout and live Sessions as main knows them now. */
-  private candidatesOf(projectId: string, { history, workflow, bindings }: RuleReads, settings: ArchiveSettings): ArchiveCandidate[] {
-    return archiveCandidates(this.deps.store.get(projectId).layout.nodes, this.liveOf(projectId), history, workflow, bindings, this.deps.now(), settings)
+  private candidatesOf(projectId: string, { history, workflow, bindings, fromTouch }: RuleReads, settings: ArchiveSettings): ArchiveCandidate[] {
+    return archiveCandidates(this.deps.store.get(projectId).layout.nodes, this.liveOf(projectId), history, workflow, bindings, this.deps.now(), settings, fromTouch)
   }
 
   /** What a registry watcher read (liveSessionListeners): the root names a Project of this Machine, or nothing happens. */

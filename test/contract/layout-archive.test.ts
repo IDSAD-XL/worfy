@@ -107,6 +107,7 @@ function archiver(overrides: Partial<AutoArchiveDeps> = {}): AutoArchiverClass {
     settings: () => ({ idleMs: 24 * HOUR, ticketDone: true }),
     now: () => world.now,
     batchId: () => `batch-${(batches += 1)}`,
+    worktreeFailures: () => 0,
     ...overrides,
   })
 }
@@ -827,6 +828,44 @@ describe('review debt of Wave 1 (worfy-canvas ticket 16; ADR-0076, Amendments)',
     expect(await runner.run({ id: PROJECT, path: repo })).toBe(1)
     expect(nodeOf('session:gone')?.archived).toMatchObject({ rule: 'idle' })
     expect(isArchived(nodeOf('session:recorded')!)).toBe(false)
+  })
+
+  it('a live Session without a transcript gets no clock: the timer touches only finished Sessions', async () => {
+    apply(sessionNode('running'))
+    world.live = () => Promise.resolve([{ sessionId: 'running', status: 'idle' }])
+    expect(await archiver().run({ id: PROJECT, path: repo })).toBe(0)
+    expect(nodeOf('session:running')?.touchedAt).toBeUndefined()
+    expect(changes(1, 'touch')).toEqual([])
+  })
+
+  it('when the git worktree list fails during a run, a Session without a transcript is neither archived from its touchedAt nor given a clock (review of PR #680)', async () => {
+    const { archiveRegistry } = await import('../../src/main/layout/archive')
+    const home = join(scratch, 'claude-home')
+    mkdirSync(join(home, 'sessions'), { recursive: true })
+    apply(sessionNode('worktree'))
+    apply({ op: 'touch', id: 'session:worktree' })
+    apply(sessionNode('clockless', 400, 0))
+    const touched = nodeOf('session:worktree')!.touchedAt!
+    world.now = touched + 30 * HOUR
+    let gitFails = true
+    // A Session running in a worktree outside the root: with the list missing, the registry sees neither it nor its transcript.
+    const registry = archiveRegistry({ home, listWorktrees: () => (gitFails ? Promise.reject(new Error('git worktree list timed out')) : Promise.resolve([])) })
+    const over = archiver({
+      live: (project) => registry.live({ path: project.path, local: true }),
+      history: async (project) => (await registry.sessions({ path: project.path, local: true })).history,
+      worktreeFailures: () => registry.worktreeFailures(),
+    })
+    expect(await over.run({ id: PROJECT, path: repo })).toBe(0)
+    expect(isArchived(nodeOf('session:worktree')!)).toBe(false)
+    expect(nodeOf('session:worktree')?.touchedAt).toBe(touched)
+    expect(nodeOf('session:clockless')?.touchedAt).toBeUndefined()
+    expect(registry.worktreeFailures()).toBeGreaterThan(0)
+
+    // The list read again without an error: the rule counts from touchedAt as usual.
+    gitFails = false
+    expect(await over.run({ id: PROJECT, path: repo })).toBe(1)
+    expect(nodeOf('session:worktree')?.archived).toMatchObject({ rule: 'idle' })
+    expect(nodeOf('session:clockless')?.touchedAt).toEqual(expect.any(Number))
   })
 
   it('«Archive finished sessions now» and «Never» start no clock: only the timer\'s run writes it', async () => {

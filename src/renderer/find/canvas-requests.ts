@@ -85,6 +85,15 @@ export function requestTidyUp(projectId: string): void {
   useCanvasRequests.setState(({ tidy }) => ({ tidy: { projectId, seq: (tidy?.seq ?? 0) + 1 } }))
 }
 
+/**
+ * Whether the tag filter leaves a Node with `tags` drawn on the Canvas of `projectId`: always when
+ * no filter is on for that Project, else when the Node carries the filter's tag. The one rule of
+ * "Show only tag" (find/CanvasFind.tsx) and of "Show family" (canvas/overlays/SelectionToolbar.tsx).
+ */
+export function drawnUnderTagFilter(filter: TagFilter | null, projectId: string | undefined, tags: readonly string[] | undefined): boolean {
+  return filter === null || filter.projectId !== projectId || (tags ?? []).includes(filter.tag)
+}
+
 /** Shows only the Nodes that carry `tag`; null shows every Node again. */
 export function setTagFilter(filter: TagFilter | null): void {
   useCanvasRequests.setState({ tagFilter: filter })

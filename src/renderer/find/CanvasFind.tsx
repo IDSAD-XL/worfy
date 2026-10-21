@@ -27,7 +27,7 @@ import { activeProject, useProjects } from '../projects/useProjects'
 import { useSessionLogs } from '../session/store'
 import { label, matches as matchesShortcut } from '../shortcuts/match'
 import { useWorkflow } from '../workflow/useWorkflow'
-import { closeFind, openFind, useCanvasRequests } from './canvas-requests'
+import { closeFind, drawnUnderTagFilter, openFind, useCanvasRequests } from './canvas-requests'
 import { rectOf, type Rect } from './node-rect'
 import { FIND_LIMIT, findDocs, FindIndex, MIN_FIND_QUERY, orderMatches, selectionScope, snippet, stepMatch, type FindField, type FindMatch } from './search-index'
 
@@ -161,11 +161,11 @@ function TagFilterView({ projectId }: { projectId: string }) {
   const active = filter !== null && filter.projectId === projectId ? filter : null
   const css = useMemo(() => {
     if (active === null) return ''
-    const hidden = new Set(nodes.filter((node) => !(node.data.node.tags ?? []).includes(active.tag)).map((node) => node.id))
+    const hidden = new Set(nodes.filter((node) => !drawnUnderTagFilter(active, projectId, node.data.node.tags)).map((node) => node.id))
     const rules = [...hidden].map((id) => `.react-flow__node[data-id="${cssId(id)}"]`)
     for (const edge of edges) if (hidden.has(edge.source) || hidden.has(edge.target)) rules.push(`.react-flow__edge[data-id="${cssId(edge.id)}"]`)
     return rules.length ? `${rules.join(',\n')} { visibility: hidden; pointer-events: none; }` : ''
-  }, [active, nodes, edges])
+  }, [active, projectId, nodes, edges])
   if (active === null) return null
   return (
     <>

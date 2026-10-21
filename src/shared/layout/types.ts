@@ -197,7 +197,11 @@ export const layoutOpSchema = z.discriminatedUnion('op', [
   }),
   /** Sets or clears the Node's Keep flag (ADR-0076): the automatic archive never takes it. */
   z.object({ op: z.literal('keep'), id: nodeIdSchema, keep: z.boolean() }),
-  /** The user opened or otherwise worked with the Node: main sets its `touchedAt` to now. */
+  /**
+   * The user opened or otherwise worked with the Node: main sets its `touchedAt` to now. main's
+   * archive timer sends it too, without a screen, to start the clock of a Session Node whose
+   * transcript tells no time (ADR-0076, Amendments).
+   */
   z.object({ op: z.literal('touch'), id: nodeIdSchema }),
 ])
 /** An operation as a caller writes it (defaults may be left out). */

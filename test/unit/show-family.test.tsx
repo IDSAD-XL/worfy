@@ -5,7 +5,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearEdgeFocus, setEdgeFocus } from '../../src/renderer/canvas/edge-focus'
-import { setTagFilter } from '../../src/renderer/find/canvas-requests'
+import { drawnUnderTagFilter, setTagFilter } from '../../src/renderer/find/canvas-requests'
 import type { FamilyLinks } from '../../src/renderer/canvas/family'
 import { FamilySection } from '../../src/renderer/canvas/overlays/SelectionToolbar'
 import { epicNodeId, ticketNodeId } from '../../src/shared/layout/derived'
@@ -22,6 +22,11 @@ const camera = vi.hoisted(() => ({
   },
 }))
 vi.mock('@xyflow/react', async (importOriginal) => ({ ...(await importOriginal<typeof import('@xyflow/react')>()), useReactFlow: () => camera }))
+// The Canvas of Project `p` is the one on screen: FamilySection reads the active Project itself.
+vi.mock('../../src/renderer/projects/useProjects', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/renderer/projects/useProjects')>()),
+  useProjects: () => ({ projects: [{ id: 'p', name: 'p', path: '/p', branch: 'main' }], activeId: 'p', revision: 1 }),
+}))
 
 const A = 'session:A'
 const A1 = 'subagent:A/a1'
@@ -78,7 +83,7 @@ describe('Show family', () => {
   it('with the tag filter on, takes in only the Family members the filter leaves drawn (review of PR #538)', () => {
     for (const [id, tags] of [[A, ['x']], [A1, []], [epicNodeId('e'), ['x']], [ticketNodeId('e', 1), ['y']]] as const) camera.drawn.set(id, [...tags])
     setTagFilter({ projectId: 'p', tag: 'x' })
-    render(<FamilySection nodes={[node(A, 'session')]} projectId="p" />)
+    render(<FamilySection nodes={[node(A, 'session')]} />)
     fireEvent.click(button()!)
     const options = camera.fitView.mock.calls[0]![0] as { nodes: { id: string }[] }
     expect(options.nodes.map(({ id }) => id).sort()).toEqual([A, epicNodeId('e')].sort())
@@ -87,11 +92,22 @@ describe('Show family', () => {
   it('a filter of another Project leaves the Family whole; a filter that leaves no member drawn moves no camera', () => {
     for (const id of [A, A1, epicNodeId('e'), ticketNodeId('e', 1)]) camera.drawn.set(id, [])
     setTagFilter({ projectId: 'other', tag: 'x' })
-    render(<FamilySection nodes={[node(A, 'session')]} projectId="p" />)
+    render(<FamilySection nodes={[node(A, 'session')]} />)
     fireEvent.click(button()!)
     expect((camera.fitView.mock.calls[0]![0] as { nodes: unknown[] }).nodes).toHaveLength(4)
     setTagFilter({ projectId: 'p', tag: 'x' })
     fireEvent.click(button()!)
     expect(camera.fitView).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('drawnUnderTagFilter: the one rule of "Show only tag" and of Show family', () => {
+  it('draws every Node without a filter for the Project, and only the Nodes with its tag under one', () => {
+    expect(drawnUnderTagFilter(null, 'p', [])).toBe(true)
+    expect(drawnUnderTagFilter({ projectId: 'other', tag: 'x' }, 'p', [])).toBe(true)
+    expect(drawnUnderTagFilter({ projectId: 'p', tag: 'x' }, 'p', ['y', 'x'])).toBe(true)
+    expect(drawnUnderTagFilter({ projectId: 'p', tag: 'x' }, 'p', ['y'])).toBe(false)
+    expect(drawnUnderTagFilter({ projectId: 'p', tag: 'x' }, 'p', undefined)).toBe(false)
+    expect(drawnUnderTagFilter({ projectId: 'p', tag: 'x' }, undefined, [])).toBe(true)
   })
 })

@@ -25,7 +25,7 @@ import { useNodes, useReactFlow, useStore, useStoreApi, ViewportPortal, type Rea
 import { create } from 'zustand'
 import type { LayoutNode } from '../../../shared/layout/types'
 import { SHORTCUTS } from '../../../shared/shortcuts'
-import { useCanvasRequests } from '../../find/canvas-requests'
+import { drawnUnderTagFilter, useCanvasRequests } from '../../find/canvas-requests'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { isTextTarget, matches } from '../../shortcuts/match'
@@ -59,8 +59,6 @@ export const order = 20
 export interface SelectionSectionProps {
   /** The selected Nodes as the Layout has them, in Layout order; never empty. */
   nodes: readonly LayoutNode[]
-  /** The Project whose Canvas shows the toolbar; undefined until the Project list is read. */
-  projectId?: string | undefined
 }
 
 /** Sends operations one after another, so main applies them in the order they were made; one step of the history. */
@@ -274,15 +272,16 @@ const reducedMotion = (): boolean => typeof matchMedia === 'function' && matchMe
  * While "Show only tag" is on for this Project, a member without the tag is not drawn
  * (find/CanvasFind.tsx, TagFilterView), so the camera leaves it out; with no member drawn it stays.
  */
-export function FamilySection({ nodes, projectId }: SelectionSectionProps) {
+export function FamilySection({ nodes }: SelectionSectionProps) {
   const flow = useReactFlow()
   const links = useEdgeFocus((state) => state.links)
+  const projectId = activeProject(useProjects())?.id
   const family = nodes.length === 1 ? familyOf(nodes[0]!.id, links) : null
   if (family === null) return null
   const show = () => {
     const filter = useCanvasRequests.getState().tagFilter
-    const tag = filter !== null && filter.projectId === projectId ? filter.tag : null
-    const drawn = (id: string): boolean => tag === null || ((flow.getNode(id) as CanvasFlowNode | undefined)?.data.node.tags ?? []).includes(tag)
+    // A member React Flow does not have counts as one without tags.
+    const drawn = (id: string): boolean => drawnUnderTagFilter(filter, projectId, (flow.getNode(id) as CanvasFlowNode | undefined)?.data.node.tags)
     const shown = [...family].filter(drawn)
     if (shown.length === 0) return
     void flow.fitView({ nodes: shown.map((id) => ({ id })), padding: 0.1, maxZoom: flow.getZoom(), duration: reducedMotion() ? 0 : 250 })
@@ -382,7 +381,7 @@ export default function SelectionToolbar() {
       <div style={style} className="react-flow__node-toolbar">
         <div ref={measure} className="w-selection-toolbar nodrag nopan nowheel" role="toolbar" aria-label="Selection" data-testid="selection-toolbar">
           {SELECTION_SECTIONS.map((Section, index) => (
-            <Section key={Section.displayName ?? Section.name ?? index} nodes={nodes} projectId={projectId} />
+            <Section key={Section.displayName ?? Section.name ?? index} nodes={nodes} />
           ))}
         </div>
       </div>

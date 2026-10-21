@@ -117,16 +117,24 @@ focus mode (#539, круг 2).
   (`src/main/layout/archive.ts`, `idleSessions`). Если нет и `touchedAt`, прогон таймера ставит его
   сам — `touch` без экрана (`sessionsWithoutClock`, `AutoArchiver.run`), — и Node уходит в архив через
   порог. «Archive finished sessions now» и «Never» часы не ставят. Время создания Node-а Layout не
-  хранит, поэтому оно не взято. Test-ы: `test/unit/archive-rule.test.ts` (`is idle since its
+  хранит, поэтому оно не взято. Ревью PR #680, круг 1: если за прогон упал `git worktree list`,
+  правило от `touchedAt` и часы в этом прогоне выключены — иначе живая Session в worktree вне корня
+  выглядела бы законченной (`ArchiveRegistry.worktreeFailures`, `AutoArchiveDeps.worktreeFailures`).
+  Время из transcript-а важнее `touchedAt`. Первый прогон после чтения старого Layout-а шлёт по
+  одной операции `touch` (и одному `layout.changed`) на каждый такой Node; это помечено
+  `shortcut:` в `AutoArchiver.run` — переделать в одну операцию, если Layout с сотнями таких Node-ов
+  сделает прогон медленным. Test-ы: `test/unit/archive-rule.test.ts` (`is idle since its
   touchedAt`, `the clock the timer starts`), `test/contract/layout-archive.test.ts` (describe
   `review debt of Wave 1`).
 - **Tidy up и Arrange by Epic** — одно правило для обоих: команды раскладки не ставят `touchedAt`.
   Их `moveMany` несёт `arrange: true` (`src/shared/layout/types.ts`), `touchedBy` в
   `src/main/layout/store.ts` его не считает касанием. Перетаскивание руками — касание, как было.
   Test-ы: contract (`a layout command's moveMany …`), `test/unit/tidy.test.tsx`,
-  `test/unit/arrange-by-epic-command.test.tsx`. Остаток — после #677 (`worfy-ui` 16 правит
-  `src/renderer/canvas/history.ts`): ⌘Z такой команды шлёт обратный `moveMany` без пометки
-  (`inverseOf`) и считается касанием.
+  `test/unit/arrange-by-epic-command.test.tsx`.
+- **Follow-up после #677** (`worfy-ui` 16, сейчас правит `src/renderer/canvas/history.ts`): ⌘Z
+  команды раскладки шлёт обратный `moveMany` без `arrange` (`inverseOf`) и считается касанием.
+  Нужно переносить `arrange` в обратную операцию, с test-ом в `test/unit/history.test.ts`. Отдельный
+  пункт будущего Ticket-а долга.
 - **Старая сборка на Linked machine** — test не нужен. Linked machine не пишет `layout.json` чужого
   Project-а: она шлёт операции через `layout.apply` (`src/shared/ipc/layout.ts:23`), а main Machine-а
   Project-а применяет их к своему полному Node-у, поля `archived`, `keep`, `touchedAt` остаются. Старая
@@ -142,18 +150,24 @@ focus mode (#539, круг 2).
   `'var(--text-muted)'`.
 - **Show family и фильтр по тегу** — исключать. Камера берёт только тех членов Family, которых фильтр
   оставил на экране; если не осталось никого, камера не двигается
-  (`src/renderer/canvas/overlays/SelectionToolbar.tsx`, `FamilySection`; Project приходит prop-ом
-  секции). Test-ы — `test/unit/show-family.test.tsx`.
+  (`src/renderer/canvas/overlays/SelectionToolbar.tsx`, `FamilySection` сам читает активный
+  Project). Правило «Node нарисован под фильтром» одно — `drawnUnderTagFilter` в
+  `src/renderer/find/canvas-requests.ts`, его зовут и `FamilySection`, и `TagFilterView`
+  (`src/renderer/find/CanvasFind.tsx`). Test-ы — `test/unit/show-family.test.tsx`,
+  `test/unit/show-family-toolbar.test.tsx` (весь toolbar на Canvas React Flow).
 - **FRAME_GAP в формуле K** — test `W counts the gap between columns` в
   `test/unit/epic-arrangement.test.ts` (10 рамок 100×400: K 5, без промежутка было бы 8).
 - **Резерв высоты при отказе ELK** — test в `test/unit/elk-client.test.tsx` (`when ELK fails`):
   `open` сравнивается с `layoutEpic({ doneExpanded: true })` прямо на `requestEpicLayout`, без
   `sources/epics.ts` (его делит 19-b).
 - **Устаревший отказ ELK** — test `drops a failure of a request a newer one replaced` там же.
-- **Свёрнутая рамка со старым ответом (S4-nullsafe)** — не сделано, после 19-b: test живёт в
-  `test/unit/epic-arrangement-record.test.tsx` над `src/renderer/canvas/sources/epics.ts`, который ветка
-  `worfy-canvas/19-b` делит на части; правка сейчас дала бы конфликт.
+- **Свёрнутая рамка со старым ответом (S4-nullsafe)** — не сделано, после 19-b / #679: test живёт в
+  `test/unit/epic-arrangement-record.test.tsx` над `src/renderer/canvas/sources/epics.ts`; #679
+  переносит запись раскладки в `src/renderer/canvas/arrangement-record.ts` и на 2026-10-21 не влит,
+  правка сейчас дала бы конфликт.
 - **Проверки.** `pnpm lint` и `pnpm typecheck` — exit 0. Test-ы затронутых файлов — exit 0. Mutation
-  testing: 9 мутантов (fallback на `touchedAt`, `touch` для часов, `arrange` в `touchedBy`, `seq` в
-  отказе ELK, `open` при отказе, `+ FRAME_GAP`, граница `>`, фильтр в Show family, цвет minimap) —
-  все убиты. Полный `pnpm test` и gate — за Orchestrator-ом.
+  testing: 9 мутантов первого круга (fallback на `touchedAt`, `touch` для часов, `arrange` в
+  `touchedBy`, `seq` в отказе ELK, `open` при отказе, `+ FRAME_GAP`, граница `>`, фильтр в Show
+  family, цвет minimap) и 7 мутантов круга ревью (`fromTouch` не учтён, прогон всегда «список
+  известен», сбой списка не считается, порядок `lastAt`/`touchedAt`, часы без списка живых, фильтр
+  любого Project-а, Show family без Project-а) — все убиты. Полный `pnpm test` и gate — за Orchestrator-ом.
