@@ -74,6 +74,8 @@ const WORKFLOW: CanvasWorkflow = {
 }
 
 beforeEach(async () => {
+  // Ids a test queued and did not use would be the next test's.
+  uuids.queued.length = 0
   scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-canvas-')))
   dataDir = join(scratch, 'data')
   repo = join(scratch, 'repo')

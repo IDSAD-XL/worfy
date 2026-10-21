@@ -1,5 +1,5 @@
 import { ticketHistory, useArchive } from '../archive-list'
-import { SessionHistoryButton } from '../overlays/ArchivePopover'
+import { SessionHistoryButton } from '../session-history'
 import type { SlotProps } from './index'
 import '../overlays/archive.css'
 

@@ -166,6 +166,17 @@ describe('archive and restore through the Layout store', () => {
     expect(isArchived(nodeOf('session:b')!)).toBe(true)
   })
 
+  it('an archive\'s `at` (the undo of a Restore) is kept when it is past; one in the future, negative or not a number is refused (review of PR #654)', () => {
+    apply(sessionNode('a'))
+    const before = store.get(PROJECT)
+    for (const at of [Date.now() + HOUR, -1, Number.NaN, '1000' as unknown as number]) {
+      expect(() => apply({ op: 'archive', batch: 'b1', nodes: [{ id: 'session:a', rule: 'idle', at }] })).toThrow(/invalid layout operation/)
+    }
+    expect(store.get(PROJECT)).toEqual(before)
+    apply({ op: 'archive', batch: 'b1', nodes: [{ id: 'session:a', rule: 'idle', at: 1_000 }] })
+    expect(nodeOf('session:a')?.archived).toEqual({ at: 1_000, rule: 'idle', batch: 'b1' })
+  })
+
   it('an archived Node is in nobody\'s way: a Node created at its place stays there', () => {
     apply(sessionNode('a'))
     apply({ op: 'archive', batch: 'b1', nodes: [{ id: 'session:a', rule: 'idle' }] })
@@ -615,19 +626,30 @@ describe('a screen\'s `archive` keeps the rule\'s exceptions at the write (round
     expect(changes(1, 'archive').map((change) => change.op)).toEqual([{ op: 'archive', batch: 'now-1', nodes: [{ id: 'session:a', rule: 'idle' }] }])
   })
 
-  it('a Session that came back to life during the read (`claude --resume`) is not archived; one worfy runs neither', async () => {
+  it('a Session that came back to life during the read (`claude --resume`) is not archived; one worfy runs neither, nor one that has no session yet', async () => {
     const running = new Set<string>()
     const stop = startAppArchiver(archiver({ settings: () => ({ idleMs: null, ticketDone: true }), running: () => running }), 3_600_000)
     onTestFinished(stop)
     apply(sessionNode('a'))
     apply(sessionNode('b', 400, 0))
     apply(sessionNode('c', 800, 0))
+    // A Session Node worfy has just started: no `data.sessionId` until the Session's first event.
+    apply({ op: 'create', node: { id: 'session:starting', kind: 'session', x: 1200, y: 0, w: 300, h: 120, data: { origin: 'worfy' } } })
     world.history = transcripts(['a', 30 * HOUR], ['b', 30 * HOUR], ['c', 30 * HOUR])
     expect(await call('layout.archiveCandidates', { projectId: PROJECT })).toMatchObject({ ok: true, value: [{ id: 'session:a' }, { id: 'session:b' }, { id: 'session:c' }] })
     world.live = () => Promise.resolve([{ sessionId: 'b', status: 'unknown' }])
     running.add('c')
 
-    const op: LayoutOpInput = { op: 'archive', batch: 'now-1', nodes: [{ id: 'session:a', rule: 'idle' }, { id: 'session:b', rule: 'idle' }, { id: 'session:c', rule: 'idle' }] }
+    const op: LayoutOpInput = {
+      op: 'archive',
+      batch: 'now-1',
+      nodes: [
+        { id: 'session:a', rule: 'idle' },
+        { id: 'session:b', rule: 'idle' },
+        { id: 'session:c', rule: 'idle' },
+        { id: 'session:starting', rule: 'idle' },
+      ],
+    }
     expect(await call('layout.apply', { projectId: PROJECT, op, screen: 'screen-1' })).toMatchObject({ ok: true })
     expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:a'])
   })
@@ -672,6 +694,26 @@ describe('a screen\'s `archive` keeps the rule\'s exceptions at the write (round
     apply({ op: 'keep', id: 'session:a', keep: true }, 'screen-2')
     expect(await historyOf(PROJECT).redo()).toBe(false)
     expect(nodes().filter(isArchived)).toEqual([])
+  })
+
+  it('⌘Z restores only what main archived in the batch: a Node main refused and the timer archived later stays in the archive', async () => {
+    const { applyRecorded, historyOf, resetHistories } = await import('../../src/renderer/canvas/history')
+    resetHistories()
+    appArchiver()
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    world.live = () => Promise.resolve([{ sessionId: 'b', status: 'unknown' }])
+    expect(await applyRecorded(PROJECT, both, ipcChannel())).toBeUndefined()
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:a'])
+
+    // The Session of b ends; the timer archives b in its own batch before the user undoes.
+    apply({ op: 'archive', batch: 'timer-1', nodes: [{ id: 'session:b', rule: 'idle' }] })
+    const record = nodeOf('session:b')!.archived
+
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    expect(isArchived(nodeOf('session:a')!)).toBe(false)
+    expect(nodeOf('session:b')!.archived).toEqual(record)
+    expect(changes(1, 'restore').map((change) => change.op)).toEqual([{ op: 'restore', ids: ['session:a'] }])
   })
 
   it('a candidate the timer archived before the screen\'s write keeps its batch, and ⌘Z does not restore it', async () => {

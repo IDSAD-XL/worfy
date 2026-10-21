@@ -169,8 +169,9 @@ export const layoutOpSchema = z.discriminatedUnion('op', [
     batch: archiveBatchSchema,
     nodes: z
       // `at` — when the Node was archived the first time: the undo of a Restore sends it, so the
-      // Node keeps its place in the archive's list (worfy-canvas 09). Absent — now.
-      .array(z.object({ id: nodeIdSchema, rule: archiveRuleSchema, at: z.number().nonnegative().optional() }))
+      // Node keeps its place in the archive's list (worfy-canvas 09). Absent — now. It is a time
+      // main wrote before, so one in the future is refused (read when the operation is parsed).
+      .array(z.object({ id: nodeIdSchema, rule: archiveRuleSchema, at: z.number().nonnegative().refine((at) => at <= Date.now(), 'an archive time may not be in the future').optional() }))
       .min(1)
       .max(ARCHIVE_PER_OP_MAX)
       .refine((nodes) => new Set(nodes.map((node) => node.id)).size === nodes.length, 'each Node may be archived once'),

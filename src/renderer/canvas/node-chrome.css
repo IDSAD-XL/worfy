@@ -1,4 +1,6 @@
-/* The chrome around every Node (NodeChrome.tsx): tags in the header, the frame of a pinned Node. */
+/* The chrome around every Node (NodeChrome.tsx): tags in the header, the frame of a pinned Node,
+   the double surface of the Orchestrator's kind (kind-icons.tsx), a finished Session, and what each
+   level of the semantic zoom hides or draws (zoom-level.ts). */
 
 .w-node-tags {
   position: absolute;

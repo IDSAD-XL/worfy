@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { epicHistory, useArchive } from '../archive-list'
 import type { SlotProps } from '../badges'
-import { SessionHistoryButton } from '../overlays/ArchivePopover'
+import { SessionHistoryButton } from '../session-history'
 import '../overlays/archive.css'
 
 // «N sessions» in an Epic frame's header (worfy-canvas ticket 09, ADR-0076): the archived Sessions
