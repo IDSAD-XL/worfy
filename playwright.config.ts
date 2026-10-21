@@ -35,15 +35,21 @@ const jsonReport = `${outputDir.replace(/[\\/]+$/, '')}-report.json`
 // temporary WORFY_DATA_DIR (Electron's userData, and with it the single-instance lock of
 // src/main/index.ts), WORFY_CLAUDE_HOME and shell folder; the link server and the specs' own servers
 // take a port the OS picks; specs keep their files in mkdtemp folders. Tests of one file stay in one
-// worker, in order (fullyParallel: false), because specs keep state between their tests. The
-// default stays one worker until a measured run on the Mac picks the number: several Electron
-// starts at once slow every start, and some specs time a reaction in milliseconds.
+// worker, in order (fullyParallel: false), because specs keep state between their tests.
+//
+// Three workers on macOS, by measurement on the owner's Mac (2026-10-21, 287 tests): one worker
+// 565 s, two 292 s, three 207 s, then three runs in a row at three 202–203 s, all green with no
+// retries. Elsewhere one worker: the Windows PC and the Linux runner were not measured, and several
+// Electron starts at once slow every start there too; some specs time a reaction in milliseconds.
+// `--workers=N` on the command line overrides either; `pnpm test:package` passes --workers=1, since
+// the packaged run was not measured in several workers.
+const E2E_WORKERS = process.platform === 'darwin' ? 3 : 1
 export default defineConfig({
   testDir: 'test/e2e',
   testMatch: '**/*.spec.ts',
   outputDir: OUTPUT_DIR,
   fullyParallel: false,
-  workers: 1,
+  workers: E2E_WORKERS,
   timeout: 60_000,
   reporter: [['list'], ['./test/e2e/helpers.ts'], ['json', { outputFile: jsonReport }]],
   use: {
