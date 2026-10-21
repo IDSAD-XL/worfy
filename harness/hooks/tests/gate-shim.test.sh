@@ -41,6 +41,9 @@ trap 'rm -rf "$T"' EXIT
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
+# The test's own tr works on bytes: the outputs it cleans hold bytes that are not UTF-8 (a lone surrogate), and in a
+# UTF-8 locale BSD tr stops on them with "Illegal byte sequence". The scripts under test keep the caller's locale.
+tr() { LC_ALL=C command tr "$@"; }
 # The tag of a worktree, as the gate counts it: the first 8 hex digits of the SHA-1 of its path.
 # node, not shasum: Git Bash has shasum only where perl is on PATH.
 tag() { node -e 'process.stdout.write(require("node:crypto").createHash("sha1").update(process.argv[1]).digest("hex").slice(0, 8))' "$1"; }
@@ -137,7 +140,7 @@ if [ "$WIN" -eq 1 ]; then NONODE="/usr/bin:/mingw64/bin"
 else
     mkdir -p "$T/bin"
     for t in bash env git sha1sum shasum mkdir mktemp date mv rm cat dirname realpath sort awk tr wc; do
-        p="$(command -v "$t" 2>/dev/null)" && [ "${p#/}" != "$p" ] && ln -sf "$p" "$T/bin/$t"
+        p="$(type -P "$t" 2>/dev/null)" && [ "${p#/}" != "$p" ] && ln -sf "$p" "$T/bin/$t"
     done
     NONODE="$T/bin"
 fi
