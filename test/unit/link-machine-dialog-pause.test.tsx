@@ -144,3 +144,32 @@ it('does not open linking when the window is closed during the pause', async () 
   await act(() => vi.advanceTimersByTimeAsync(10 * 60_000))
   expect(main.opened()).toBe(1)
 })
+
+it('asks main again, once a second, while it answers the end-of-pause call with the same pause', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  vi.setSystemTime(new Date(2026, 9, 21, 14, 0))
+  const until = Date.now() + 5 * 60_000
+  const paused = linkState({ pausedUntil: until })
+  const main = preload(paused, [
+    paused,
+    // main's clock is a moment behind the window's: the pause is not over there yet.
+    { ...paused, revision: 2 },
+    { ...linkState({ code: '482913', expiresAt: until + 120_000 }), revision: 3 },
+  ])
+  const { LinkMachineDialog } = await import('../../src/renderer/machines/LinkMachineDialog')
+  render(<LinkMachineDialog onClose={() => undefined} />)
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  expect(main.opened()).toBe(1)
+  await act(() => vi.advanceTimersByTimeAsync(until - Date.now()))
+  expect(main.opened()).toBe(2)
+  expect(screen.getByTestId('link-paused')).toBeTruthy()
+  // Not at once: a main that keeps answering with the same pause is not asked in a tight loop.
+  await act(() => vi.advanceTimersByTimeAsync(999))
+  expect(main.opened()).toBe(2)
+  await act(() => vi.advanceTimersByTimeAsync(1))
+  expect(main.opened()).toBe(3)
+  expect(screen.getByTestId('link-code').textContent).toBe('482913')
+  expect(screen.queryByTestId('link-paused')).toBeNull()
+  await act(() => vi.advanceTimersByTimeAsync(10 * 60_000))
+  expect(main.opened()).toBe(3)
+})

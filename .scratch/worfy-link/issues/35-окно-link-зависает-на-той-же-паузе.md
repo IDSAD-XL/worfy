@@ -1,7 +1,8 @@
 # 35 — Окно «Link a machine» зависает, если в конце паузы main отвечает той же паузой
 
 Type: task
-Status: open
+Status: claimed 2026-10-21T23:34Z
+Branch: worfy-link/35
 Blocked by: —
 Source: ревью PR [#718](https://github.com/IDSAD-XL/worfy/pull/718) (Ticket 34), круг 1, 2026-10-22, находка вне
 диффа, low. Так было и до PR #718. Строки — по main `22f03a99`.
