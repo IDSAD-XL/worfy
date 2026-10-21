@@ -145,6 +145,9 @@ test('Arrange by Epic from ⌘K: the Sessions stand right of the strip at their 
   writeSession(claudeHome, S_KEPT, repo, claim(S_KEPT, ALPHA, 3))
   mkdirSync(join(dataDir, PROJECT_ID), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT_ID, name: 'demo', path: repo }], activeId: PROJECT_ID }))
+  // The fixture transcripts end weeks ago, and the 24 h auto-archive would take their Sessions off the
+  // canvas when the Layout is first read. This spec is not about the archive: the person chose «Never».
+  writeFileSync(join(dataDir, 'app-settings.json'), JSON.stringify({ sessionArchive: { after: 'never' } }))
   writeFileSync(
     join(dataDir, PROJECT_ID, 'layout.json'),
     JSON.stringify({

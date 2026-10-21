@@ -116,6 +116,9 @@ test('hovering a Session draws its Binding line and fades no Node; "Show family"
   writeSession(claudeHome, FOLDER, join(repo, '.claude', 'worktrees', '12'), [prompt('look around'), answer('a2', 'ok')])
   mkdirSync(join(dataDir, PROJECT_ID), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT_ID, name: 'demo', path: repo }], activeId: PROJECT_ID }))
+  // The fixture transcripts end weeks ago, and the 24 h auto-archive would take their Sessions off the
+  // canvas when the Layout is first read. This spec is not about the archive: the person chose «Never».
+  writeFileSync(join(dataDir, 'app-settings.json'), JSON.stringify({ sessionArchive: { after: 'never' } }))
   writeFileSync(
     join(dataDir, PROJECT_ID, 'layout.json'),
     JSON.stringify({
