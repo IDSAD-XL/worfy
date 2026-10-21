@@ -104,22 +104,18 @@ export const SESSION_ARCHIVE_AFTER = ['never', '6h', '24h', '3d', '7d'] as const
 export const sessionArchiveAfterSchema = z.enum(SESSION_ARCHIVE_AFTER)
 export type SessionArchiveAfter = z.output<typeof sessionArchiveAfterSchema>
 
+/** What the person chose in Settings → Canvas: each field only once chosen. */
+export const sessionArchiveChoiceSchema = z.object({ after: sessionArchiveAfterSchema.optional(), ticketDone: z.boolean().optional() })
+export type SessionArchiveChoice = z.output<typeof sessionArchiveChoiceSchema>
+
 /** The archive settings in force: the person's choice, else the default. */
-export interface SessionArchive {
-  after: SessionArchiveAfter
-  /** «…and when their Ticket is done». */
-  ticketDone: boolean
-}
+export type SessionArchive = { [K in keyof SessionArchiveChoice]-?: NonNullable<SessionArchiveChoice[K]> }
 
 /**
  * The archive of a Machine whose person chose nothing. «Never» until the toast with Undo exists
  * (ADR-0076, point 10); worfy-canvas ticket 10 makes it 24 h.
  */
 export const SESSION_ARCHIVE_DEFAULTS: Readonly<SessionArchive> = Object.freeze({ after: 'never', ticketDone: true })
-
-/** What the person chose in Settings → Canvas: each field only once chosen. */
-export const sessionArchiveChoiceSchema = z.object({ after: sessionArchiveAfterSchema.optional(), ticketDone: z.boolean().optional() })
-export type SessionArchiveChoice = z.output<typeof sessionArchiveChoiceSchema>
 
 export const appSettingsSchema = z.object({
   interfaceScale: z.number().min(INTERFACE_SCALE_MIN).max(INTERFACE_SCALE_MAX),

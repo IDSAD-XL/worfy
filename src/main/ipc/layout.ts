@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { layoutApply, layoutArchiveCandidates, layoutChanged, layoutGet } from '../../shared/ipc/layout'
 import { toEveryWindow } from '../broadcast'
-import { runningArchiver } from '../layout/archive'
+import { runningArchiver, type AutoArchiver } from '../layout/archive'
 import { layoutStore } from '../layout/store'
 import { defineHandler, emit, type HandlerModule } from './index'
 
@@ -18,13 +18,18 @@ store.onChange(({ projectId, layout, revision, op, screen }) => {
 // Writes are debounced; what is still pending is written before the app exits.
 app.on('will-quit', () => store.flushAll())
 
+/** The app's archiver; without it nobody can tell a live Session, so nothing is archived (not known — not closed). */
+function appArchiver(): AutoArchiver {
+  const archiver = runningArchiver()
+  if (archiver === null) throw new Error('the automatic archive is not running')
+  return archiver
+}
+
 export default [
   defineHandler(layoutGet, ({ projectId }) => store.get(projectId)),
-  defineHandler(layoutApply, ({ projectId, op, screen }) => store.apply(projectId, op, screen ?? null)),
+  // An `archive` from a window or a Linked machine keeps the archive rule's exceptions, checked by
+  // the app's archiver at the write (ADR-0076); main's own timer applies to the store directly.
+  defineHandler(layoutApply, ({ projectId, op, screen }) => (op.op === 'archive' ? appArchiver().archiveFromScreen(projectId, op, screen ?? null) : store.apply(projectId, op, screen ?? null))),
   // The candidates of «Archive finished sessions now», read by the app's archiver (src/main/index.ts).
-  defineHandler(layoutArchiveCandidates, ({ projectId }) => {
-    const archiver = runningArchiver()
-    if (archiver === null) throw new Error('the automatic archive is not running')
-    return archiver.candidatesNow(projectId)
-  }),
+  defineHandler(layoutArchiveCandidates, ({ projectId }) => appArchiver().candidatesNow(projectId)),
 ] satisfies HandlerModule

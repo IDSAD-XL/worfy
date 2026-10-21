@@ -261,8 +261,8 @@ describe('palette commands', () => {
   })
 
   describe('Archive finished sessions now (worfy-canvas/08)', () => {
-    /** A stand-in main: candidates as given, and a Layout store that applies `archive` and `restore`. */
-    async function stubMain(candidates: { id: string; sessionId: string; rule: 'idle' | 'ticket-done' }[]) {
+    /** A stand-in main: candidates as given, and a Layout store that applies `archive` and `restore`; `refuse` answers a channel with that error. */
+    async function stubMain(candidates: { id: string; sessionId: string; rule: 'idle' | 'ticket-done' }[], refuse: Partial<Record<'layout.archiveCandidates' | 'layout.apply', string>> = {}) {
       const { acceptLayoutState } = await import('../../src/renderer/canvas/useLayout')
       const { resetHistories } = await import('../../src/renderer/canvas/history')
       resetHistories()
@@ -274,6 +274,7 @@ describe('palette commands', () => {
       const globals = globalThis as { worfy?: WorfyBridge }
       globals.worfy = {
         invoke: (channel: string, input: unknown) => {
+          if (channel in refuse) return Promise.resolve({ ok: false, error: refuse[channel as keyof typeof refuse] })
           if (channel === 'layout.archiveCandidates') {
             expect(input).toEqual({ projectId: 'p1' })
             return Promise.resolve({ ok: true, value: candidates })
@@ -327,6 +328,21 @@ describe('palette commands', () => {
       const { applied } = await stubMain([])
       expect(await archiveCommand()!.run()).toBeUndefined()
       expect(applied).toEqual([])
+      expect(historyOf('p1').size).toBe(0)
+    })
+
+    it("tells main's reason when it cannot name the candidates, and sends nothing", async () => {
+      const { historyOf } = await import('../../src/renderer/canvas/history')
+      const { applied } = await stubMain([], { 'layout.archiveCandidates': 'layout.archiveCandidates failed: the automatic archive is not running' })
+      expect(await archiveCommand()!.run()).toMatch(/the automatic archive is not running/)
+      expect(applied).toEqual([])
+      expect(historyOf('p1').size).toBe(0)
+    })
+
+    it("tells main's reason when it refuses the archive (every candidate kept meanwhile), and leaves no step", async () => {
+      const { historyOf } = await import('../../src/renderer/canvas/history')
+      await stubMain([{ id: 'session:a', sessionId: 'a', rule: 'idle' }], { 'layout.apply': 'layout.apply failed: nothing to archive: the Sessions are kept' })
+      expect(await archiveCommand()!.run()).toMatch(/nothing to archive/)
       expect(historyOf('p1').size).toBe(0)
     })
   })

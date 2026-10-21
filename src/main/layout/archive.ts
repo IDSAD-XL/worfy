@@ -17,13 +17,17 @@
 // - «Archive finished sessions now» (point 9) asks main for the candidates of one Project
 //   (AutoArchiver.candidatesNow, channel `layout.archiveCandidates`) by the same rule, with 24 h
 //   under «Never»; the screen archives them itself, as one step of its undo history.
+// - Every `archive` that comes over IPC — that command, its redo, the undo of a Restore — goes
+//   through archiveFromScreen(): main drops the Nodes the rule never takes as they are at the write
+//   (Keep, pinned, a live Session), so no screen archives a kept or running Session (points 2 and 6).
 import { resolve } from 'node:path'
 import type { AgentSignals, BindingTarget, BindingWorkflow } from '../../shared/binding/resolve'
 import { resolveBinding } from '../../shared/binding/resolve'
 import type { ManualBinding } from '../../shared/ipc/bindings'
 import { isLaunchBinding } from '../../shared/ipc/bindings'
 import { SESSION_NODE_KIND } from '../../shared/ipc/sessions'
-import { isArchived, type ArchiveRule, type LayoutNode } from '../../shared/layout/types'
+import type { ArchiveCandidate } from '../../shared/ipc/layout'
+import { isArchived, type LayoutNode, type LayoutOp, type LayoutState } from '../../shared/layout/types'
 import type { SessionArchive, SessionArchiveAfter } from '../../shared/settings/app-settings'
 import { ClaudeHomeRegistry, processState, type RegistryOptions } from '../claude-home/registry'
 import { samePath } from '../harness/status-line'
@@ -85,12 +89,7 @@ export interface HistoryLike {
   lastAt?: string | undefined
 }
 
-/** A Node the archive takes, and the rule that takes it. */
-export interface ArchiveCandidate {
-  id: string
-  sessionId: string
-  rule: ArchiveRule
-}
+export type { ArchiveCandidate }
 
 /** The Session a Session Node shows, or null when it names none (a Session worfy starts, before Claude Code reported it). */
 const sessionOf = (node: LayoutNode): string | null => {
@@ -269,6 +268,30 @@ export class AutoArchiver {
   }
 
   /**
+   * An `archive` a screen sent over IPC («Archive finished sessions now», its redo, the undo of a
+   * Restore): the live Sessions are read again, then, with no wait before the write, the Nodes the
+   * rule never takes are dropped — not a Session Node, already archived, pinned, with Keep, or
+   * naming a Session that is live now (by the registry or run by worfy). The touch rule does not
+   * apply: the user asks for these Nodes. Throws when none is left, and changes nothing then.
+   */
+  async archiveFromScreen(projectId: string, op: Extract<LayoutOp, { op: 'archive' }>, screen: string | null): Promise<LayoutState> {
+    const project = this.deps.projects().find((each) => each.id === projectId)
+    if (project === undefined) throw new Error(`${projectId} is not a Project of this Machine`)
+    await this.readLive(project)
+    // From here to the write nothing waits: Keep, pins and the live Sessions are the latest main knows.
+    const alive = new Set(this.liveOf(projectId).map((session) => session.sessionId))
+    const nodes = new Map(this.deps.store.get(projectId).layout.nodes.map((node) => [node.id, node]))
+    const taken = op.nodes.filter(({ id }) => {
+      const node = nodes.get(id)
+      if (node === undefined || node.kind !== SESSION_NODE_KIND || isArchived(node) || node.pinned || node.keep === true) return false
+      const sessionId = sessionOf(node)
+      return sessionId !== null && !alive.has(sessionId)
+    })
+    if (taken.length === 0) throw new Error('nothing to archive: the Sessions are kept, pinned, archived already or running')
+    return this.deps.store.apply(projectId, { ...op, nodes: taken }, screen)
+  }
+
+  /**
    * The candidates of «Archive finished sessions now» in one Project of this Machine (ADR-0076,
    * point 9): the same reads and rule as a run, with archiveNowSettings(); nothing is archived here
    * — the screen sends the `archive` itself, as a step of its undo history.
@@ -342,8 +365,19 @@ export class AutoArchiver {
 
   /** Runs now and then every `everyMs`, until the returned function is called. */
   start(everyMs: number = ARCHIVE_TICK_MS): () => void {
-    void this.runAll()
-    const timer = setInterval(() => void this.runAll(), everyMs)
+    // A tick while the previous runs still read (a slow registry, a short tick) is skipped.
+    let busy = false
+    const tick = async (): Promise<void> => {
+      if (busy) return
+      busy = true
+      try {
+        await this.runAll()
+      } finally {
+        busy = false
+      }
+    }
+    void tick()
+    const timer = setInterval(() => void tick(), everyMs)
     return () => clearInterval(timer)
   }
 }
