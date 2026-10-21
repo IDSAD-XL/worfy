@@ -1,5 +1,6 @@
+import type { ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -116,6 +117,142 @@ async function saveArtifacts(app: ElectronApplication, window: Page, tracing: bo
   }
 }
 
+// ── A start whose window did not show ───────────────────────────────────────
+
+/** Name of the folder, in the test's output folder, that keeps what startDiagnostics found. */
+export const START_DIAGNOSTICS = 'start-diagnostics'
+/** How long each step of startDiagnostics may take: the app may be hung, and the diagnosis must not hang with it. */
+const DIAGNOSTIC_STEP_MS = 3_000
+/** How much of the app's output (stdout and stderr together) a launch keeps for a diagnosis: the last 256 KB. */
+const OUTPUT_LIMIT = 256 * 1024
+
+/**
+ * Keeps the last OUTPUT_LIMIT characters of the app's stdout and stderr, where main's console
+ * lines go (src/main/window-show.ts names there the path that showed the window).
+ * shortcut: lines the app printed before _electron.launch resolved are not kept, redo when a diagnosis needs the first lines of a start.
+ */
+function recordOutput(child: ChildProcess): () => string {
+  let text = ''
+  const append = (data: Buffer | string): void => {
+    text += String(data)
+    if (text.length > OUTPUT_LIMIT) text = text.slice(-OUTPUT_LIMIT)
+  }
+  child.stdout?.on('data', append)
+  child.stderr?.on('data', append)
+  return () => text
+}
+
+/** A step of startDiagnostics: its value, or what went wrong — an error, or no answer within `ms`. */
+async function step<T>(work: () => Promise<T>, ms = DIAGNOSTIC_STEP_MS): Promise<{ value: T } | { problem: string }> {
+  return Promise.race([
+    Promise.resolve()
+      .then(work)
+      .then(
+        (value) => ({ value }),
+        (error: unknown) => ({ problem: error instanceof Error ? error.message.split('\n')[0]! : String(error) }),
+      ),
+    timeout(ms).then(() => ({ problem: `no answer within ${ms} ms` })),
+  ])
+}
+
+/** What main says about its first window and the window's web contents. */
+interface WindowState {
+  windows: number
+  isVisible?: boolean
+  isMinimized?: boolean
+  opacity?: number
+  bounds?: { x: number; y: number; width: number; height: number }
+  isLoading?: boolean
+  isLoadingMainFrame?: boolean
+  isWaitingForResponse?: boolean
+  isCrashed?: boolean
+  url?: string
+}
+
+/**
+ * Collects, for a start whose window was not shown, what the gate log otherwise lacks: the state of
+ * the window and its web contents, a capturePage() PNG, the page's document.readyState, the app's
+ * output and the files of logs/ in its data folder. Runs before the app is killed and its data
+ * folder removed; every step is bounded, so a hung app costs a few seconds, not the test.
+ * Inside a test the files go to `<test output>/start-diagnostics/` and are attached; the returned
+ * line sums them up for the error message, which the gate log keeps.
+ */
+async function startDiagnostics(app: ElectronApplication, dataDir: string, output: () => string): Promise<string> {
+  const state = await step(() =>
+    app.evaluate(({ BrowserWindow }): WindowState => {
+      const all = BrowserWindow.getAllWindows()
+      const first = all[0]
+      if (!first || first.isDestroyed()) return { windows: all.length }
+      const contents = first.webContents
+      return {
+        windows: all.length,
+        isVisible: first.isVisible(),
+        isMinimized: first.isMinimized(),
+        opacity: first.getOpacity(),
+        bounds: first.getBounds(),
+        isLoading: contents.isLoading(),
+        isLoadingMainFrame: contents.isLoadingMainFrame(),
+        isWaitingForResponse: contents.isWaitingForResponse(),
+        isCrashed: contents.isCrashed(),
+        url: contents.getURL(),
+      }
+    }),
+  )
+  const readyState = await step(() =>
+    app.evaluate(({ BrowserWindow }) => {
+      const first = BrowserWindow.getAllWindows()[0]
+      return first ? (first.webContents.executeJavaScript('document.readyState') as Promise<string>) : 'no window'
+    }),
+  )
+  const capture = await step(() =>
+    app.evaluate(async ({ BrowserWindow }) => {
+      const first = BrowserWindow.getAllWindows()[0]
+      if (!first) return null
+      const image = await first.webContents.capturePage()
+      return image.isEmpty() ? '' : image.toPNG().toString('base64')
+    }),
+  )
+  const appOutput = output()
+  const shownLine = appOutput.split('\n').findLast((line) => line.includes('[worfy] the window was shown')) ?? 'no line of the app says the window was shown'
+
+  const report = { state, readyState, capture: 'value' in capture ? (capture.value ? 'saved' : 'empty') : capture, shownLine }
+  const value = <T,>(result: { value: T } | { problem: string }): T | string => ('value' in result ? result.value : `(${result.problem})`)
+  const window = value(state)
+  const summary =
+    typeof window === 'string'
+      ? `window: ${window}`
+      : window.windows === 0
+        ? 'window: none'
+        : `window: visible ${window.isVisible}, loading ${window.isLoading}, crashed ${window.isCrashed}, url ${window.url}`
+  let where = ''
+
+  const info = currentTest()
+  if (info) {
+    const dir = info.outputPath(`${START_DIAGNOSTICS}-${info.retry}-${Date.now()}`)
+    const saved = await step(async () => {
+      await mkdir(dir, { recursive: true })
+      const files: { name: string; path: string; contentType: string }[] = []
+      const save = async (name: string, body: string | Buffer, contentType: string): Promise<void> => {
+        const path = join(dir, name)
+        await writeFile(path, body)
+        files.push({ name, path, contentType })
+      }
+      await save('state.json', `${JSON.stringify(report, null, 2)}\n`, 'application/json')
+      if ('value' in capture && capture.value) await save('capture.png', Buffer.from(capture.value, 'base64'), 'image/png')
+      await save('app-output.txt', appOutput, 'text/plain')
+      const logs = join(dataDir, 'logs')
+      const names = await readdir(logs).catch(() => [] as string[])
+      for (const name of names) {
+        const path = join(dir, `data-logs-${name}`)
+        if (await copyFile(join(logs, name), path).then(() => true, () => false)) files.push({ name: `data-logs-${name}`, path, contentType: 'text/plain' })
+      }
+      for (const file of files) await info.attach(`${START_DIAGNOSTICS}-${file.name}`, { path: file.path, contentType: file.contentType })
+    }, 10_000)
+    where = 'value' in saved ? `; diagnostics in ${dir}` : `; diagnostics not saved (${saved.problem})`
+  }
+  return `${summary}, document.readyState ${value(readyState)}; ${shownLine}${where}`
+}
+
 /**
  * Starts the app with isolated data and Claude directories and the fake agent: the built out/
  * bundle by default, or the packaged app when `executablePath` is given. Resolves once the window
@@ -154,6 +291,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
   }
   // Taken now: once Playwright has closed its connection to the app, app.process() throws.
   const child = app.process()
+  const output = recordOutput(child)
   // The PID of the app's main process, as the app names it. On Windows `child` is the cmd.exe
   // Playwright starts Electron through, and the app is its child (end-app.ts). Asked now, while the
   // app answers; a kill waits for the answer only briefly, since a hung app may never give it.
@@ -199,6 +337,14 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
       },
     }
   } catch (error) {
+    // The window did not show, or firstWindow gave up: say why while the app and its data folder
+    // are still there. A diagnosis that fails itself only adds its reason to the message.
+    if (error instanceof Error) {
+      const diagnosis = await startDiagnostics(app, dataDir, output).catch((failure: unknown) => `diagnostics failed: ${String(failure)}`)
+      const before = error.message
+      error.message = `${before}\n  ${diagnosis}`
+      if (error.stack?.includes(before)) error.stack = error.stack.replace(before, error.message)
+    }
     reportKillFailure(await killThenClean(kill, cleanDirs), error)
     throw error
   }

@@ -6,6 +6,10 @@ import { defineConfig } from '@playwright/test'
 // whole environment to the app. A test that needs the real window focus starts worfy with
 // WORFY_QUIET_WINDOWS=0; a run started with the variable already set keeps its value.
 process.env.WORFY_QUIET_WINDOWS ??= '1'
+// Every e2e start is also kept painting (WORFY_KEEP_PAINTING, src/main/quiet-windows.ts), the specs
+// that turn quiet windows off included: Chromium otherwise stops painting a window it counts as
+// covered, and several Electron starts at once left a loaded page without 'ready-to-show'.
+process.env.WORFY_KEEP_PAINTING ??= '1'
 
 // e2e tests drive the built app (out/) through Playwright's _electron; `pnpm test:e2e`
 // rebuilds it first, so a run never sees a stale build.
