@@ -102,12 +102,6 @@ describe('candidates', () => {
     expect(run({ nodes: [session('a', { touchedAt: NOW - 30 * HOUR })], history: [last('a', 2 * HOUR)] })).toEqual([])
   })
 
-  it('with the worktree list unknown (`fromTouch` false), a Session without a transcript time is not counted from touchedAt', () => {
-    const nodes = [session('a', { touchedAt: NOW - 30 * HOUR }), session('b')]
-    expect(archiveCandidates(nodes, [], [last('b', 30 * HOUR)], undefined, new Map(), NOW, DAY, false).map(({ id }) => id)).toEqual(['session:b'])
-    expect(archiveCandidates(nodes, [], [last('b', 30 * HOUR)], undefined, new Map(), NOW, DAY).map(({ id }) => id)).toEqual(['session:a', 'session:b'])
-  })
-
   it('the clock the timer starts: Session Nodes the rule could take that have neither a transcript time nor a touchedAt', () => {
     const nodes = [
       session('none'),

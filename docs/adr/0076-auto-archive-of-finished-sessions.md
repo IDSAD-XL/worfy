@@ -120,9 +120,10 @@ Ticket-ами», вопросы 4–6 исследования; Epic [worfy-canv
   и Node уходит в архив через порог после того, как архив его впервые увидел. Исключения пункта 2
   остаются: живая Session, Keep, закреплённый Node. «Archive finished sessions now» и «Never» часы не
   ставят. Время создания Node-а Layout не хранит, поэтому оно не используется. Если за прогон
-  `git worktree list` упал (ошибка или его timeout 5 с), worktree вне корня Project-а пропадает и из
-  живых Session-ов, и из транскриптов: в таком прогоне Session без времени в транскрипте не считается
-  от `touchedAt` и часы ей не ставятся (`fromTouch`, `src/main/layout/archive.ts`).
+  `git worktree list` упал (ошибка или его timeout 5 с), worktree вне корня Project-а пропадает из
+  живых Session-ов (и, возможно, из транскриптов): такой прогон не архивирует ничего и часов не ставит
+  (`worktreesListed`, `src/main/layout/archive.ts`), «Archive finished sessions now» в нём не находит
+  кандидатов. Иначе живая Session в таком worktree выглядела бы законченной.
 - **2026-10-21, команды раскладки не трогают Node-ы** (worfy-canvas Ticket 16, ревью PR #536).
   «Tidy up» и «Arrange by Epic» двигают все Node-ы одним `moveMany` с пометкой `arrange: true`; main
   не ставит по нему `touchedAt` (`src/main/layout/store.ts`, `touchedBy`). Раньше после «Tidy up»

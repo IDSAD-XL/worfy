@@ -868,6 +868,25 @@ describe('review debt of Wave 1 (worfy-canvas ticket 16; ADR-0076, Amendments)',
     expect(nodeOf('session:clockless')?.touchedAt).toEqual(expect.any(Number))
   })
 
+  it('a run whose live read fails on the worktree list archives nothing, not even a Session whose transcript is 25 h old (review of PR #680, round 2)', async () => {
+    const { archiveRegistry } = await import('../../src/main/layout/archive')
+    const home = join(scratch, 'claude-home')
+    mkdirSync(join(home, 'sessions'), { recursive: true })
+    apply(sessionNode('waiting'))
+    // The transcript reads fine; the live read that comes last times out on `git worktree list`.
+    world.history = transcripts(['waiting', 25 * HOUR])
+    let gitFails = true
+    const registry = archiveRegistry({ home, listWorktrees: () => (gitFails ? Promise.reject(new Error('git worktree list timed out')) : Promise.resolve([])) })
+    const over = archiver({ live: (project) => registry.live({ path: project.path, local: true }), worktreeFailures: () => registry.worktreeFailures() })
+    expect(await over.run({ id: PROJECT, path: repo })).toBe(0)
+    expect(await over.candidatesNow(PROJECT)).toEqual([])
+    expect(isArchived(nodeOf('session:waiting')!)).toBe(false)
+    expect(changes(1, 'archive')).toEqual([])
+
+    gitFails = false
+    expect(await over.run({ id: PROJECT, path: repo })).toBe(1)
+  })
+
   it('«Archive finished sessions now» and «Never» start no clock: only the timer\'s run writes it', async () => {
     apply(sessionNode('gone'))
     expect(await archiver().candidatesNow(PROJECT)).toEqual([])

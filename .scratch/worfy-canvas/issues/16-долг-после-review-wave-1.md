@@ -117,9 +117,10 @@ focus mode (#539, круг 2).
   (`src/main/layout/archive.ts`, `idleSessions`). Если нет и `touchedAt`, прогон таймера ставит его
   сам — `touch` без экрана (`sessionsWithoutClock`, `AutoArchiver.run`), — и Node уходит в архив через
   порог. «Archive finished sessions now» и «Never» часы не ставят. Время создания Node-а Layout не
-  хранит, поэтому оно не взято. Ревью PR #680, круг 1: если за прогон упал `git worktree list`,
-  правило от `touchedAt` и часы в этом прогоне выключены — иначе живая Session в worktree вне корня
-  выглядела бы законченной (`ArchiveRegistry.worktreeFailures`, `AutoArchiveDeps.worktreeFailures`).
+  хранит, поэтому оно не взято. Ревью PR #680, круги 1–2: если за прогон упал `git worktree list`,
+  прогон не архивирует ничего (ни по `touchedAt`, ни по `lastAt`) и часов не ставит — иначе живая
+  Session в worktree вне корня выглядела бы законченной (`ArchiveRegistry.worktreeFailures`,
+  `AutoArchiveDeps.worktreeFailures`, `RuleReads.worktreesListed`).
   Время из transcript-а важнее `touchedAt`. Первый прогон после чтения старого Layout-а шлёт по
   одной операции `touch` (и одному `layout.changed`) на каждый такой Node; это помечено
   `shortcut:` в `AutoArchiver.run` — переделать в одну операцию, если Layout с сотнями таких Node-ов
@@ -170,4 +171,5 @@ focus mode (#539, круг 2).
   `touchedBy`, `seq` в отказе ELK, `open` при отказе, `+ FRAME_GAP`, граница `>`, фильтр в Show
   family, цвет minimap) и 7 мутантов круга ревью (`fromTouch` не учтён, прогон всегда «список
   известен», сбой списка не считается, порядок `lastAt`/`touchedAt`, часы без списка живых, фильтр
-  любого Project-а, Show family без Project-а) — все убиты. Полный `pnpm test` и gate — за Orchestrator-ом.
+  любого Project-а, Show family без Project-а) и мутант круга 2 (архив при упавшем списке) — все
+  убиты. Полный `pnpm test` и gate — за Orchestrator-ом.
