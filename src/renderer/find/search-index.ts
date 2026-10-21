@@ -9,6 +9,9 @@
 //   (set/remove), never per keystroke. A query scans the lower-cased texts; a query that only adds
 //   characters to the previous one scans only the documents that matched it.
 
+import { shownOnCanvas } from '../../shared/layout/derived'
+import type { ArchiveRecord } from '../../shared/layout/types'
+
 // ── palette ranking ─────────────────────────────────────────────────────────
 
 export interface Rankable {
@@ -295,6 +298,8 @@ export interface FindNode {
   id: string
   kind: string
   hidden: boolean
+  /** Set when the automatic archive took the Node off the Canvas (ADR-0076); absent or null — not archived. */
+  archived?: ArchiveRecord | null | undefined
   data: Record<string, unknown>
 }
 
@@ -334,7 +339,9 @@ export function findDocs({ nodes, epics, tickets, transcripts, handoff, cards }:
   }
   let handoffShown = false
   for (const node of nodes) {
-    if (node.hidden || NO_TITLE_KINDS.has(node.kind)) continue
+    // A Node the Canvas does not draw is not found: focusing it would go nowhere. An archived
+    // Session is found through its history and the Archive popover (worfy-canvas 09).
+    if (!shownOnCanvas(node) || NO_TITLE_KINDS.has(node.kind)) continue
     const title = nodeTitle(node)
     if (title !== null) docs.push({ key: `node:${node.id}`, nodeId: node.id, field: 'node', text: title })
     const sessionId = node.data.sessionId

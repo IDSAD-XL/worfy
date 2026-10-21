@@ -3,6 +3,8 @@ import type { HistorySession } from '../../shared/ipc/claude-home'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { ResumeVerdict } from '../../shared/ipc/sessions'
 import { useOrchestratorViews } from '../canvas/nodes/orchestrator-view'
+import { shownOnCanvas } from '../../shared/layout/derived'
+import { showNode } from '../canvas/show-node'
 import { applyLayoutOp, useLayout } from '../canvas/useLayout'
 import { focusSessionNode } from '../claude-home/focus'
 import { externalSource, readSessionNodeData, SESSION_KIND, showSessionNodeOp, worfySessionIds, worfySessions } from '../claude-home/session-nodes'
@@ -150,7 +152,8 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
     const nodes = layout?.layout.nodes ?? []
     const existing = nodes.find((node) => node.data.sessionId === session.sessionId)
     if (existing) {
-      if (existing.hidden) await applyLayoutOp(project.id, { op: 'hide', id: existing.id, hidden: false })
+      // An archived or hidden Node comes back first, as one step ⌘Z undoes (canvas/show-node.ts).
+      await showNode(project.id, existing)
       focus(existing.id)
       return
     }
@@ -178,7 +181,7 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
           const refused = verdict !== undefined && !verdict.resumable ? verdict.label : null
           const why = problem?.sessionId === session.sessionId ? problem.text : refused
           const onCanvas = layout?.layout.nodes.find((node) => node.data.sessionId === session.sessionId)
-          const showWrites = onCanvas === undefined || onCanvas.hidden === true
+          const showWrites = onCanvas === undefined || !shownOnCanvas(onCanvas)
           return (
             <li key={session.sessionId} style={styles.row} data-testid="history-session" data-session-id={session.sessionId}>
               <div style={styles.top}>

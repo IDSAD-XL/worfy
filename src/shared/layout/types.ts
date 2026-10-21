@@ -161,13 +161,16 @@ export const layoutOpSchema = z.discriminatedUnion('op', [
   /**
    * Takes Nodes off the Canvas into the archive, each with the rule that took it, as one batch
    * (ADR-0076). Sent by main's automatic archive (src/main/layout/archive.ts), without a screen, so
-   * no screen's undo history records it (ADR-0016). A Node already archived keeps its record.
+   * no screen's undo history records it (ADR-0016), and by the undo of a user's Restore
+   * (src/renderer/canvas/history.ts). A Node already archived keeps its record.
    */
   z.object({
     op: z.literal('archive'),
     batch: archiveBatchSchema,
     nodes: z
-      .array(z.object({ id: nodeIdSchema, rule: archiveRuleSchema }))
+      // `at` — when the Node was archived the first time: the undo of a Restore sends it, so the
+      // Node keeps its place in the archive's list (worfy-canvas 09). Absent — now.
+      .array(z.object({ id: nodeIdSchema, rule: archiveRuleSchema, at: z.number().nonnegative().optional() }))
       .min(1)
       .max(ARCHIVE_PER_OP_MAX)
       .refine((nodes) => new Set(nodes.map((node) => node.id)).size === nodes.length, 'each Node may be archived once'),

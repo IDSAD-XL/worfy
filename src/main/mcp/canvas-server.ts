@@ -36,8 +36,8 @@ import {
   type ListedNode,
 } from '../../shared/canvas/tools'
 import { cardEditedBy } from '../../shared/cards/last-editor'
-import { EPIC_ARRANGEMENT_ID, EPIC_ARRANGEMENT_KIND, SOURCE_NODE_KINDS, SUBAGENT_KIND, SUBAGENT_TREE_KIND, isSourceNodeId, isSubagentNodeId } from '../../shared/layout/derived'
-import type { LayoutNode, LayoutOpInput, LayoutState } from '../../shared/layout/types'
+import { EPIC_ARRANGEMENT_ID, EPIC_ARRANGEMENT_KIND, SOURCE_NODE_KINDS, SUBAGENT_KIND, SUBAGENT_TREE_KIND, isSourceNodeId, isSubagentNodeId, shownOnCanvas } from '../../shared/layout/derived'
+import { isArchived, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import type { CanvasAttachment } from '../agent/options'
 import { harnessScriptEnv } from '../harness/script-env'
@@ -148,12 +148,17 @@ function handlers(context: CanvasContext): Handlers {
   // Epic frames and Tickets are laid out from the workflow, Subagents from their Session's
   // transcript (shared/layout/derived.ts): the Layout Node of an Epic frame or of a Session's
   // Subagent tree is the renderer's saved offsets, not a Node on the canvas, so the tools neither
-  // list nor change it.
-  const nodes = (): LayoutNode[] => layout.get(projectId).layout.nodes.filter((node) => !SOURCE_NODE_KINDS.includes(node.kind))
+  // list nor change it. An archived Node (ADR-0076) is off the Canvas until the user brings it
+  // back: the tools neither list nor change it either, so an agent never works on a Node the user
+  // does not see.
+  const nodes = (): LayoutNode[] => layout.get(projectId).layout.nodes.filter((node) => !SOURCE_NODE_KINDS.includes(node.kind) && !isArchived(node))
   const nodeOf = (id: string): LayoutNode => {
     const node = nodes().find((each) => each.id === id)
     if (node) return node
     const stored = layout.get(projectId).layout.nodes.find((each) => each.id === id)
+    if (stored !== undefined && isArchived(stored) && !SOURCE_NODE_KINDS.includes(stored.kind)) {
+      throw new ToolError(`Node ${id} is archived: it is off the canvas until the user brings it back from the archive, and it cannot be changed until then.`)
+    }
     if (isSubagentNodeId(id) || stored?.kind === SUBAGENT_KIND || stored?.kind === SUBAGENT_TREE_KIND) {
       throw new ToolError(`${id} is a Subagent of a Session: it is laid out from the Session's transcript and only the user moves it. A Card cannot be linked to it.`)
     }
@@ -172,13 +177,14 @@ function handlers(context: CanvasContext): Handlers {
   const freshId = (prefix: string): string => {
     for (;;) {
       const id = `${prefix}-${randomUUID().slice(0, 8)}`
-      if (!nodes().some((node) => node.id === id) && !cardIdTaken(context.cardsDir, id)) return id
+      // Every Node of the Layout counts, an archived one too: its id is still taken.
+      if (!layout.get(projectId).layout.nodes.some((node) => node.id === id) && !cardIdTaken(context.cardsDir, id)) return id
     }
   }
   /** x/y as given, or a free place next to the calling Session's Node. */
   const place = (args: { x?: number | undefined; y?: number | undefined }, w: number, h: number): { x: number; y: number } => {
     if (args.x !== undefined && args.y !== undefined) return { x: args.x, y: args.y }
-    const visible = nodes().filter((node) => !node.hidden)
+    const visible = nodes().filter(shownOnCanvas)
     const sessionId = context.sessionId()
     const anchor = sessionId === null ? undefined : visible.find((node) => node.data.sessionId === sessionId)
     const spot = placeNear(visible, anchor ?? null, w, h)

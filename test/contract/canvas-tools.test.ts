@@ -36,6 +36,13 @@ vi.mock('electron', () => ({
 // The real SDK, except query(): it records the options a Session would start Claude Code with.
 vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({ ...(await importOriginal<object>()), query: mocks.query }))
 vi.mock('../../src/main/agent/env', () => ({ agentEnv: mocks.agentEnv }))
+// randomUUID as it is, except the ids a test queues: a new Node's id can then be made to meet one
+// the Layout already has.
+const uuids = vi.hoisted(() => ({ queued: [] as string[] }))
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>()
+  return { ...actual, randomUUID: () => uuids.queued.shift() ?? actual.randomUUID() }
+})
 
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
 
@@ -545,6 +552,46 @@ describe('canvas tools: the Epic frames\' arrangement record', () => {
     await refused(rpc, 'link_card', { id: 'epic-arrangement', target: 'worfy-mvp' }, reason)
     await refused(rpc, 'hide_node', { id: 'stray-record', hidden: true }, reason)
     expect(nodeOf('epic-arrangement')).toMatchObject({ x: 0, y: 0, w: 1, h: 1, hidden: false, data: { columns: 1 } })
+  })
+})
+
+describe('canvas tools: archived Nodes', () => {
+  // The automatic archive takes finished Sessions off the Canvas (ADR-0076); the Node stays in the
+  // Layout. The agent works on what the user sees: it neither lists nor changes an archived Node.
+  const archive = (...ids: string[]): LayoutOpInput => ({ op: 'archive', batch: 'batch-1', nodes: ids.map((id) => ({ id, rule: 'idle' as const })) })
+
+  it('list_nodes does not list an archived Node, and lists it again once it is restored', async () => {
+    store.apply(PROJECT, note('n1'))
+    store.apply(PROJECT, note('n2', { x: 400 }))
+    store.apply(PROJECT, archive('n2'))
+    const rpc = await connect()
+    expect(json<ListedNode[]>(await rpc.call('list_nodes')).map((node) => node.id)).toEqual(['n1'])
+    store.apply(PROJECT, { op: 'restore', ids: ['n2'] })
+    expect(json<ListedNode[]>(await rpc.call('list_nodes')).map((node) => node.id)).toEqual(['n1', 'n2'])
+  })
+
+  it('every tool that names an archived Node refuses it, says it is archived, and changes nothing', async () => {
+    store.apply(PROJECT, note('n2'))
+    store.apply(PROJECT, { op: 'create', node: { id: 'c1', kind: 'card', x: 600, y: 0, w: 320, h: 240, data: { title: 'Old' } } })
+    store.apply(PROJECT, archive('n2', 'c1'))
+    const rpc = await connect()
+    const reason = /^Node \S+ is archived: it is off the canvas until the user brings it back/
+    await refused(rpc, 'move_node', { id: 'n2', x: 500, y: 300 }, reason)
+    await refused(rpc, 'resize_node', { id: 'n2', w: 400, h: 300 }, reason)
+    await refused(rpc, 'hide_node', { id: 'n2', hidden: true }, reason)
+    await refused(rpc, 'update_node', { id: 'n2', text: 't' }, reason)
+    await refused(rpc, 'link_card', { id: 'c1', target: 'worfy-mvp' }, reason)
+    expect(nodeOf('n2')).toMatchObject({ x: 0, y: 0, w: 220, h: 120, hidden: false, archived: { rule: 'idle', batch: 'batch-1' } })
+  })
+
+  it("a new Node's id is never an archived Node's: the id is still taken", async () => {
+    store.apply(PROJECT, note('note-aaaaaaaa'))
+    store.apply(PROJECT, archive('note-aaaaaaaa'))
+    const rpc = await connect()
+    uuids.queued.push('aaaaaaaa-0000-4000-8000-000000000000', 'bbbbbbbb-0000-4000-8000-000000000000')
+    const made = json<ListedNode>(await rpc.call('create_note', { text: 'new' }))
+    expect(made.id).toBe('note-bbbbbbbb')
+    expect(nodeOf('note-aaaaaaaa')).toMatchObject({ data: { text: 'note-aaaaaaaa' }, archived: { batch: 'batch-1' } })
   })
 })
 

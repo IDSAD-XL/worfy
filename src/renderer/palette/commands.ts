@@ -24,13 +24,13 @@ import type { ProjectView } from '../../shared/ipc/projects'
 import type { HistorySession } from '../../shared/ipc/claude-home'
 import type { GateQueueView } from '../../shared/ipc/gate-queue'
 import { failureReason } from '../../shared/ipc/channels'
-import { epicNodeId, SOURCE_NODE_KINDS, ticketNodeId } from '../../shared/layout/derived'
+import { epicNodeId, shownOnCanvas, SOURCE_NODE_KINDS, ticketNodeId } from '../../shared/layout/derived'
 import type { LayoutNode } from '../../shared/layout/types'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import type { Ticket, WorkflowModel } from '../../shared/workflow/types'
 import { hasRunWave, hasShipTicket } from '../canvas/actions/gates'
 import { requestRepack } from '../canvas/sources/epics'
-import { applyLayoutOp } from '../canvas/useLayout'
+import { showNode } from '../canvas/show-node'
 import { createCanvasNode, focusCanvasNode, openAdr, requestTidyUp, setTagFilter, type TagFilter } from '../find/canvas-requests'
 import { kindLabel, nodeTitle, normalizeQuery, type Rankable } from '../find/search-index'
 import { invoke, windowMachine } from '../ipc'
@@ -92,11 +92,11 @@ const SESSION_KINDS = new Set(['session', 'orchestrator'])
 /** Kinds that are not worth a "go to": drawn by a source, or an anchor without content. */
 const SKIPPED_KINDS = new Set([...SOURCE_NODE_KINDS, 'binding-anchor'])
 
-/** Shows the Canvas and centers it on a Node; a hidden Node is shown first, as the sidebar does. */
-function goToNode(projectId: string, node: Pick<LayoutNode, 'id' | 'hidden'>, fallbackId?: string): undefined {
+/** Shows the Canvas and centers it on a Node; an archived or hidden Node is brought back first, as the sidebar does. */
+function goToNode(projectId: string, node: Pick<LayoutNode, 'id' | 'hidden' | 'archived'>, fallbackId?: string): undefined {
   setView('canvas')
-  if (node.hidden) void applyLayoutOp(projectId, { op: 'hide', id: node.id, hidden: false }).then(() => focusCanvasNode(projectId, node.id, fallbackId))
-  else focusCanvasNode(projectId, node.id, fallbackId)
+  if (shownOnCanvas(node)) focusCanvasNode(projectId, node.id, fallbackId)
+  else void showNode(projectId, node).then(() => focusCanvasNode(projectId, node.id, fallbackId))
   return undefined
 }
 

@@ -1,0 +1,233 @@
+// "Show" on an archived Node (worfy-canvas ticket 14, ADR-0076): the history of Sessions
+// (session/HistoryPopover.tsx), a row of the sidebar's Sessions (shell/sidebar/SessionsSection.tsx)
+// and a "go to" command of the palette (palette/commands.ts) bring the Node back through `restore`
+// before they focus it, as one step of the Project's undo history: ⌘Z archives it again, with the
+// rule and the batch it had. A fake main keeps the Layout and applies the operations it is sent.
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { WorfyBridge } from '../../src/shared/ipc/channels'
+import type { HistorySession, LiveSession } from '../../src/shared/ipc/claude-home'
+import type { ArchiveRecord, LayoutNode, LayoutOpInput, LayoutState } from '../../src/shared/layout/types'
+
+const PROJECT_ID = 'demo-0000000a'
+const ROOT = '/Users/test/projects/demo'
+const LIST = { projects: [{ id: PROJECT_ID, name: 'demo', path: ROOT, branch: 'main' }], activeId: PROJECT_ID, revision: 1 }
+const SESSION = 'S-archived'
+const RECORD: ArchiveRecord = { at: 1000, rule: 'ticket-done', batch: 'batch-7' }
+
+const sessionNode = (over: Partial<LayoutNode> = {}): LayoutNode => ({
+  id: 'node-s',
+  kind: 'session',
+  x: 40,
+  y: 40,
+  w: 300,
+  h: 120,
+  hidden: false,
+  locked: false,
+  pinned: false,
+  tags: [],
+  data: { origin: 'worfy', sessionId: SESSION },
+  archived: RECORD,
+  ...over,
+})
+
+const historyRow: HistorySession = { sessionId: SESSION, title: 'Old work', size: 10, modifiedAt: 1, live: false }
+const liveRow: LiveSession = { pid: 42, sessionId: SESSION, cwd: ROOT, status: 'idle', entrypoint: 'cli' }
+
+interface Main {
+  nodes: LayoutNode[]
+  revision: number
+  /** The Layout operations sent, in order, with the screen they came from. */
+  applied: { op: LayoutOpInput; screen: string | undefined }[]
+}
+
+let main: Main
+
+const state = (): LayoutState => ({ projectId: PROJECT_ID, layout: { nodes: main.nodes, viewport: { x: 0, y: 0, zoom: 1 } }, revision: main.revision })
+
+/** main's `layout.apply`, as far as these tests need it. */
+function apply(op: LayoutOpInput): void {
+  const change = (id: string, next: (node: LayoutNode) => LayoutNode) => {
+    main.nodes = main.nodes.map((node) => (node.id === id ? next(node) : node))
+  }
+  // main puts a restored Node off a Node that took its place (ADR-0038); here, always 200 lower.
+  if (op.op === 'restore') for (const id of op.ids) change(id, (node) => ({ ...node, archived: null, y: node.y + 200 }))
+  else if (op.op === 'archive') for (const { id, rule, at } of op.nodes) change(id, (node) => ({ ...node, archived: { at: at ?? 2000, rule, batch: op.batch } }))
+  else if (op.op === 'hide') change(op.id, (node) => ({ ...node, hidden: op.hidden }))
+  else if (op.op === 'move') change(op.id, (node) => ({ ...node, x: op.x, y: op.y }))
+  else throw new Error(`not in this test: ${op.op}`)
+  main.revision += 1
+}
+
+function preload(live: LiveSession[]): void {
+  const bridge = {
+    invoke: (channel: string, input: unknown) => {
+      if (channel === 'layout.apply') {
+        const { op, screen } = input as { op: LayoutOpInput; screen?: string }
+        main.applied.push({ op, screen })
+        apply(op)
+        return Promise.resolve({ ok: true, value: state() })
+      }
+      const value: unknown =
+        channel === 'layout.get'
+          ? state()
+          : channel === 'projects.list'
+            ? LIST
+            : channel === 'claudeHome.sessions'
+              ? { live, history: [historyRow] }
+              : channel === 'claudeHome.live'
+                ? { live }
+                : channel === 'sessions.views'
+                  ? { views: [] }
+                  : channel === 'sessions.resumable'
+                    ? { verdicts: {} }
+                    : undefined
+      return Promise.resolve(value === undefined ? { ok: false, error: `no ${channel}` } : { ok: true, value })
+    },
+    on: () => 1,
+    off: () => undefined,
+  } as unknown as WorfyBridge
+  ;(globalThis as { worfy?: WorfyBridge }).worfy = bridge
+}
+
+beforeEach(() => {
+  vi.resetModules()
+  main = { nodes: [sessionNode()], revision: 1, applied: [] }
+  preload([])
+})
+
+afterEach(() => {
+  cleanup()
+  delete (globalThis as { worfy?: WorfyBridge }).worfy
+})
+
+const ops = () => main.applied.map(({ op }) => op)
+
+/** ⌘Z on the Project's Canvas: the undo of its history. */
+async function undo(): Promise<void> {
+  const { historyOf } = await import('../../src/renderer/canvas/history')
+  await expect(historyOf(PROJECT_ID).undo()).resolves.toBe(true)
+}
+
+/** After ⌘Z: the Node is archived again with its whole record and moved back to its old place, by the Show's own step. */
+async function expectUndoArchives(): Promise<void> {
+  await undo()
+  expect(ops().slice(-2)).toEqual([
+    { op: 'archive', batch: RECORD.batch, nodes: [{ id: 'node-s', rule: RECORD.rule, at: RECORD.at }] },
+    { op: 'move', id: 'node-s', x: 40, y: 40 },
+  ])
+  expect(main.nodes[0]).toMatchObject({ x: 40, y: 40, archived: RECORD })
+}
+
+describe('Show of an archived Node', () => {
+  it('the history of Sessions restores it, then focuses it; ⌘Z archives it again', async () => {
+    const { HistoryPopover } = await import('../../src/renderer/session/HistoryPopover')
+    const { useSessionFocus } = await import('../../src/renderer/claude-home/focus')
+    render(<HistoryPopover project={LIST.projects[0]!} onClose={() => undefined} />)
+    const row = await screen.findByTestId('history-session')
+    // The Layout is read before the click: the Node is known as archived.
+    await waitFor(() => expect(within(row).getByTestId('history-show').getAttribute('aria-disabled')).not.toBe('true'))
+    await act(async () => {
+      fireEvent.click(within(row).getByTestId('history-show'))
+      await waitFor(() => expect(useSessionFocus.getState().request).toMatchObject({ projectId: PROJECT_ID, nodeId: 'node-s' }))
+    })
+    expect(ops()).toEqual([{ op: 'restore', ids: ['node-s'] }])
+    expect(main.applied[0]!.screen).toEqual(expect.any(String))
+    expect(main.nodes[0]!.archived).toBeNull()
+    await expectUndoArchives()
+  })
+
+  it('a row of the sidebar\'s Sessions restores it, then focuses it; ⌘Z archives it again', async () => {
+    preload([liveRow])
+    const projects = await import('../../src/renderer/projects/useProjects')
+    projects.acceptProjectsState(LIST)
+    const { default: SessionsSection } = await import('../../src/renderer/shell/sidebar/SessionsSection')
+    const { useLayout } = await import('../../src/renderer/canvas/useLayout')
+    const { useSessionFocus } = await import('../../src/renderer/claude-home/focus')
+    function LayoutReady() {
+      return useLayout(PROJECT_ID).state === undefined ? null : <span data-testid="layout-ready" />
+    }
+    render(
+      <>
+        <SessionsSection />
+        <LayoutReady />
+      </>,
+    )
+    await screen.findByTestId('layout-ready')
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId('sidebar-session'))
+      await waitFor(() => expect(useSessionFocus.getState().request).toMatchObject({ projectId: PROJECT_ID, nodeId: 'node-s' }))
+    })
+    expect(ops()).toEqual([{ op: 'restore', ids: ['node-s'] }])
+    await expectUndoArchives()
+  })
+
+  it('a "go to" command of the palette restores it, then focuses it; ⌘Z archives it again', async () => {
+    const { acceptLayoutState } = await import('../../src/renderer/canvas/useLayout')
+    const { buildCommands } = await import('../../src/renderer/palette/commands')
+    const { useCanvasRequests } = await import('../../src/renderer/find/canvas-requests')
+    acceptLayoutState(state())
+    const commands = buildCommands({
+      project: LIST.projects[0],
+      projects: LIST.projects,
+      view: 'canvas',
+      model: undefined,
+      layoutNodes: main.nodes,
+      history: [historyRow],
+      adrs: [],
+      tagFilter: null,
+      createItems: [],
+    })
+    const command = commands.find((each) => each.id === 'node:node-s')
+    expect(command).toBeDefined()
+    command!.run()
+    await waitFor(() => expect(useCanvasRequests.getState().focus).toMatchObject({ projectId: PROJECT_ID, nodeId: 'node-s' }))
+    expect(ops()).toEqual([{ op: 'restore', ids: ['node-s'] }])
+    await expectUndoArchives()
+  })
+
+  it('an archived Node that is hidden too comes back shown, as one step: one ⌘Z archives and hides it again', async () => {
+    main.nodes = [sessionNode({ hidden: true })]
+    const { acceptLayoutState } = await import('../../src/renderer/canvas/useLayout')
+    const { showNode } = await import('../../src/renderer/canvas/show-node')
+    acceptLayoutState(state())
+    await expect(showNode(PROJECT_ID, main.nodes[0]!)).resolves.toBeUndefined()
+    expect(ops()).toEqual([
+      { op: 'restore', ids: ['node-s'] },
+      { op: 'hide', id: 'node-s', hidden: false },
+    ])
+    await undo()
+    expect(main.nodes[0]).toMatchObject({ hidden: true, archived: { batch: RECORD.batch } })
+  })
+
+  it('a hidden Node that is not archived is only shown, as a step: ⌘Z hides it again', async () => {
+    main.nodes = [sessionNode({ hidden: true, archived: null })]
+    const { acceptLayoutState } = await import('../../src/renderer/canvas/useLayout')
+    const { showNode } = await import('../../src/renderer/canvas/show-node')
+    acceptLayoutState(state())
+    await expect(showNode(PROJECT_ID, main.nodes[0]!)).resolves.toBeUndefined()
+    expect(ops()).toEqual([{ op: 'hide', id: 'node-s', hidden: false }])
+    await undo()
+    expect(ops().at(-1)).toEqual({ op: 'hide', id: 'node-s', hidden: true })
+    expect(main.nodes[0]).toMatchObject({ hidden: true, archived: null })
+  })
+
+  it('showOps: restore only for an archived Node (a needless restore would count as the user\'s work with it), hide false only for a hidden one', async () => {
+    const { showOps } = await import('../../src/renderer/canvas/show-node')
+    expect(showOps({ id: 'n', hidden: true, archived: null })).toEqual([{ op: 'hide', id: 'n', hidden: false }])
+    expect(showOps({ id: 'n', hidden: true })).toEqual([{ op: 'hide', id: 'n', hidden: false }])
+    expect(showOps({ id: 'n', hidden: false, archived: RECORD })).toEqual([{ op: 'restore', ids: ['n'] }])
+    expect(showOps({ id: 'n', hidden: true, archived: RECORD })).toEqual([
+      { op: 'restore', ids: ['n'] },
+      { op: 'hide', id: 'n', hidden: false },
+    ])
+    expect(showOps({ id: 'n', hidden: false, archived: null })).toEqual([])
+  })
+
+  it('a Node already on the Canvas is focused with nothing sent', async () => {
+    main.nodes = [sessionNode({ archived: null })]
+    const { showNode } = await import('../../src/renderer/canvas/show-node')
+    await expect(showNode(PROJECT_ID, main.nodes[0]!)).resolves.toBeUndefined()
+    expect(ops()).toEqual([])
+  })
+})

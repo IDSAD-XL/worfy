@@ -583,6 +583,33 @@ describe('the Session view, the sidebar and the Orchestrator', () => {
     expect(fake.sent).not.toContain('sessions.resume')
   })
 
+  it('read-only: Show of a Session whose Node is archived is inactive with the hint; of one whose Node is shown, it only focuses and stays active', async () => {
+    const row = (sessionId: string) => ({ sessionId, title: sessionId, size: 10, modifiedAt: 1, live: false })
+    const sessionNode = (id: string, sessionId: string, archived: LayoutNode['archived']) => ({ id, kind: 'session', x: 0, y: 0, w: 300, h: 120, data: { sessionId }, archived })
+    await windowOn(M, true, {
+      'claudeHome.sessions': { live: [], history: [row('s-shown'), row('s-archived')] },
+      'claudeHome.live': { live: [] },
+      'sessions.resumable': { verdicts: {} },
+      'layout.get': {
+        projectId: PROJECT,
+        layout: { nodes: [sessionNode('n-shown', 's-shown', null), sessionNode('n-archived', 's-archived', { at: 1, rule: 'idle', batch: 'b1' })], viewport: { x: 0, y: 0, zoom: 1 } },
+        revision: 1,
+      },
+    })
+    const { HistoryPopover } = await import('../../src/renderer/session/HistoryPopover')
+    render(<HistoryPopover project={{ id: PROJECT, name: 'shop', path: '/repos/shop', branch: 'main' }} onClose={() => undefined} />)
+    const showOf = async (sessionId: string) => {
+      const rows = await screen.findAllByTestId('history-session')
+      return within(rows.find((each) => each.getAttribute('data-session-id') === sessionId)!).getByTestId('history-show')
+    }
+    // Once the Layout is read, the shown Node's Show is active: it only focuses.
+    await waitFor(async () => expect((await showOf('s-shown')).getAttribute('aria-disabled')).not.toBe('true'))
+    // Show of the archived one would restore it: a write, inactive here.
+    expectInactive(await showOf('s-archived'))
+    fireEvent.click(await showOf('s-archived'))
+    expect(fake.sent).not.toContain('layout.apply')
+  })
+
   it('read-only: the Orchestrator Node shows, "New conversation" is inactive', async () => {
     const view = { projectId: PROJECT, nodeId: 'orch', sessionId: 'pending-1', state: 'idle', error: null, model: 'claude-opus-5-5', costUsd: 0, statusBlock: null, version: 1 }
     await windowOn(M, true, { 'orchestrator.view': { view } })

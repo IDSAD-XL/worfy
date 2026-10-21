@@ -126,7 +126,7 @@ function archive(layout: Layout, op: Extract<LayoutOp, { op: 'archive' }>, now: 
   const nodes = [...layout.nodes]
   for (const [n, index] of indexes.entries()) {
     const node = nodes[index]!
-    if (!isArchived(node)) nodes[index] = { ...node, archived: { at: now, rule: op.nodes[n]!.rule, batch: op.batch } }
+    if (!isArchived(node)) nodes[index] = { ...node, archived: { at: op.nodes[n]!.at ?? now, rule: op.nodes[n]!.rule, batch: op.batch } }
   }
   return { ...layout, nodes }
 }

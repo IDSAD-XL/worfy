@@ -222,6 +222,24 @@ describe('what the search reads', () => {
     ])
     expect(docs[1]!.fallbackId).toBe('epic:e')
   })
+
+  it('skips archived Nodes: their title, transcript and Card text are not searched (ADR-0076)', () => {
+    const archived = { at: 1, rule: 'idle' as const, batch: 'b1' }
+    const docs = findDocs({
+      nodes: [
+        { id: 'n1', kind: 'note', hidden: false, archived: null, data: { text: 'shown note' } },
+        { id: 'n2', kind: 'note', hidden: false, archived, data: { text: 'archived note' } },
+        { id: 's1', kind: 'session', hidden: false, archived, data: { title: 'Old session', sessionId: 'sid-1' } },
+        { id: 'c1', kind: 'card', hidden: false, archived, data: { title: 'Old card' } },
+      ],
+      epics: [],
+      tickets: [],
+      transcripts: { 'sid-1': { events: [{ type: 'text', text: 'said this' }] } },
+      handoff: undefined,
+      cards: { c1: 'card one text' },
+    })
+    expect(docs.map((each) => each.key)).toEqual(['node:n1'])
+  })
 })
 
 describe('speed on a Project the size of Auction', () => {

@@ -8,6 +8,8 @@
 // and only a whole frame is moved, by the user. An agent refers to an Epic or a Ticket through
 // `link_card`.
 
+import { isArchived, type ArchiveRecord } from './types'
+
 export const EPIC_FRAME_KIND = 'epic-frame'
 export const TICKET_KIND = 'ticket'
 /**
@@ -45,13 +47,20 @@ export const subagentNodeId = (sessionId: string, key: string): string => `subag
 export const SOURCE_NODE_KINDS: readonly string[] = [EPIC_FRAME_KIND, TICKET_KIND, SUBAGENT_KIND, SUBAGENT_TREE_KIND, EPIC_ARRANGEMENT_KIND, DONE_SHELF_KIND]
 
 /**
+ * A Layout Node the Canvas draws: neither hidden nor archived (ADR-0076). Every place that lists
+ * the Layout's Nodes to the user or to an agent — Find, the palette, the canvas tools — asks this,
+ * not `hidden` alone: an archived Node is in the Layout but not on the screen.
+ */
+export const shownOnCanvas = (node: { hidden: boolean; archived?: ArchiveRecord | null | undefined }): boolean => !node.hidden && !isArchived(node)
+
+/**
  * A Layout Node that takes room on the plane: one rule for main, which places new Nodes
  * (src/main/layout/place.ts), and the renderer, which keeps the Epic frames clear of them
  * (ADR-0032). A source kind keeps an offset, not a place; a pinned Node keeps screen pixels, not
  * plane coordinates; a hidden Node is not drawn, and neither is an archived one (ADR-0076).
  */
-export const onThePlane = (node: { kind: string; pinned: boolean; hidden: boolean; archived?: unknown }): boolean =>
-  !node.pinned && !node.hidden && node.archived == null && !SOURCE_NODE_KINDS.includes(node.kind)
+export const onThePlane = (node: { kind: string; pinned: boolean; hidden: boolean; archived?: ArchiveRecord | null | undefined }): boolean =>
+  !node.pinned && shownOnCanvas(node) && !SOURCE_NODE_KINDS.includes(node.kind)
 
 /** True for the id of a Subagent Node, or of the Layout Node that kept a Session's Subagent offsets in older versions. */
 export const isSubagentNodeId = (id: string): boolean => id.startsWith('subagent:') || id.startsWith('subagents:')

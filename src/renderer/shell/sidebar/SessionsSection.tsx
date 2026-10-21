@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { ProjectView } from '../../../shared/ipc/projects'
 import { useOrchestratorView, useOrchestratorViews } from '../../canvas/nodes/orchestrator-view'
-import { applyLayoutOp, useLayout } from '../../canvas/useLayout'
+import { showNode } from '../../canvas/show-node'
+import { useLayout } from '../../canvas/useLayout'
 import { focusSessionNode } from '../../claude-home/focus'
 import { sessionNodeId, sessionRow, worfySessionIds, worfySessions } from '../../claude-home/session-nodes'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
@@ -104,8 +105,8 @@ function Sessions({ project }: { project: ProjectView }) {
     const node = nodeOf(sessionId)
     if (!node) return
     setView('canvas')
-    const shown = node.hidden ? applyLayoutOp(project.id, { op: 'hide', id: node.id, hidden: false }) : Promise.resolve(undefined)
-    void shown.then(() => focusSessionNode(project.id, node.id))
+    // An archived or hidden Node comes back first, as one step ⌘Z undoes (canvas/show-node.ts).
+    void showNode(project.id, node).then(() => focusSessionNode(project.id, node.id))
   }
 
   let body = null

@@ -26,7 +26,7 @@
 // without sending anything and raises the notice (overlays/UndoSkipped.tsx). Changes without a
 // screen — main, agents, the automatic writers — leave steps alone, as before.
 import { createStore } from 'zustand/vanilla'
-import type { Layout, LayoutNode, LayoutOpInput } from '../../shared/layout/types'
+import type { ArchiveRule, Layout, LayoutNode, LayoutOpInput } from '../../shared/layout/types'
 import { trashRefusal, type TrashEntry } from '../../shared/ipc/trash'
 import { invoke } from '../ipc'
 import { readOnlyNow } from '../projects/read-only-now'
@@ -412,11 +412,14 @@ export interface RecordOptions {
 /**
  * The operation that reverts `op` on `layout`, or undefined when `op` is not recorded: a Node's
  * data unless `options.data` (a note's text has its own undo), a Node that is not there. A `create` must carry its id (applyRecorded() gives it one).
+ * A `restore` is reverted by several operations, sent in their order.
  */
-export function inverseOf(layout: Layout, op: LayoutOpInput, options: RecordOptions = {}): LayoutOpInput | undefined {
-  // The archive's operations are main's own (ADR-0076) and a touch changes nothing to undo; the
-  // user's Restore and «Archive now» get their steps with their tickets (worfy-canvas 08, 09).
-  if (op.op === 'archive' || op.op === 'restore' || op.op === 'touch') return undefined
+export function inverseOf(layout: Layout, op: LayoutOpInput, options: RecordOptions = {}): LayoutOpInput | LayoutOpInput[] | undefined {
+  // The archive is main's own operation (ADR-0076) and a touch changes nothing to undo; «Archive
+  // now» gets its step with its ticket (worfy-canvas 08). The user's `restore` is undone by
+  // several operations: archiving the Nodes again and moving them back (restoreInverse).
+  if (op.op === 'archive' || op.op === 'touch') return undefined
+  if (op.op === 'restore') return restoreInverse(layout, op)
   if (op.op === 'patchData') return options.data === true ? dataInverse(layout, op) : undefined
   if (op.op === 'create') return op.node.id === undefined ? undefined : { op: 'remove', id: op.node.id }
   if (op.op === 'moveMany') {
@@ -453,6 +456,31 @@ export function inverseOf(layout: Layout, op: LayoutOpInput, options: RecordOpti
       return had === op.keep ? undefined : { op: 'keep', id: op.id, keep: had }
     }
   }
+}
+
+/**
+ * What takes back the Nodes a `restore` brings back: one `archive` per batch, each Node with the
+ * rule and the time of its record, then a move of each to the place it had in the archive. The
+ * restore may have put a Node elsewhere (its old place was taken, ADR-0038); archived first, the
+ * Node is off the plane and in nobody's way, so the move puts it exactly back. Undefined when none
+ * of them is archived (the restore changes nothing).
+ */
+function restoreInverse(layout: Layout, op: Extract<LayoutOpInput, { op: 'restore' }>): LayoutOpInput[] | undefined {
+  const batches = new Map<string, { id: string; rule: ArchiveRule; at: number }[]>()
+  const moves: { id: string; x: number; y: number }[] = []
+  for (const id of op.ids) {
+    const node = nodeOf(layout, id)
+    const record = node?.archived
+    if (node === undefined || record == null) continue
+    const batch = batches.get(record.batch) ?? []
+    batches.set(record.batch, [...batch, { id, rule: record.rule, at: record.at }])
+    // A pinned Node keeps screen pixels and is not moved by a restore.
+    if (!node.pinned) moves.push({ id, x: node.x, y: node.y })
+  }
+  if (batches.size === 0) return undefined
+  const archives: LayoutOpInput[] = [...batches].map(([batch, nodes]) => ({ op: 'archive', batch, nodes }))
+  if (moves.length === 0) return archives
+  return [...archives, moves.length === 1 ? { op: 'move', ...moves[0]! } : { op: 'moveMany', moves }]
 }
 
 /**
@@ -583,6 +611,16 @@ function takeAndBring(id: string, first: NodeInput, channel: LayoutChannel): { t
   }
 }
 
+/** Sends the operations one after another; stops at the first refusal and answers with it, else with the last answer. */
+async function sendInOrder(channel: LayoutChannel, ops: readonly LayoutOpInput[]): Promise<SendAnswer> {
+  let answer: SendAnswer
+  for (const op of ops) {
+    answer = await channel.send(op)
+    if (refusalOf(answer) !== undefined) return answer
+  }
+  return answer
+}
+
 /**
  * Sends an operation the user made on the Canvas and records it, into `group` when it is part of a
  * gesture. The inverse is computed from channel.layout() just before sending. A `create` without an
@@ -595,7 +633,9 @@ export async function applyRecorded(projectId: string, op: LayoutOpInput, channe
   const error = refusalOf(answer)
   if (error !== undefined || inverse === undefined) return error
   let both: { undo(): Promise<SendAnswer>; redo(): Promise<SendAnswer> }
-  if (sent.op === 'create' && inverse.op === 'remove') {
+  if (Array.isArray(inverse)) {
+    both = { undo: () => sendInOrder(channel, inverse), redo: () => channel.send(sent) }
+  } else if (sent.op === 'create' && inverse.op === 'remove') {
     const node = takeAndBring(inverse.id, sent.node, channel)
     both = { undo: node.take, redo: node.bring }
   } else if (sent.op === 'remove' && inverse.op === 'create') {
