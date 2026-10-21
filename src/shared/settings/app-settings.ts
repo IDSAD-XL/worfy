@@ -22,6 +22,12 @@
 // - `memoryIndicator` — whether the toolbar shows how much memory worfy's own processes use
 //   (worfy-ui ticket 20); on by default. Main samples the memory only while it is on
 //   (src/main/diagnostics/memory.ts);
+// - `sessionArchive` — the automatic archive of finished Sessions (worfy-canvas ticket 08,
+//   ADR-0076, point 7): `after` — how long a finished Session stays on the Canvas, «Never» turning
+//   the timer off; `ticketDone` — also archive a finished Session of a done Ticket. The field holds
+//   only what the person chose in Settings → Canvas; sessionArchiveOf() fills the rest with
+//   SESSION_ARCHIVE_DEFAULTS, so a choice outlives a later change of the defaults. Main reads it at
+//   every run of the archive (src/main/layout/archive.ts);
 // - `revision` — grows with every write, so a renderer keeps the newest of the states it hears.
 import { z } from 'zod'
 
@@ -93,6 +99,24 @@ export const sidebarVisibilitySchema = z.object({
   focus: z.boolean(),
 })
 
+/** How long a finished Session stays on the Canvas before the automatic archive takes it; `never` — the timer is off. */
+export const SESSION_ARCHIVE_AFTER = ['never', '6h', '24h', '3d', '7d'] as const
+export const sessionArchiveAfterSchema = z.enum(SESSION_ARCHIVE_AFTER)
+export type SessionArchiveAfter = z.output<typeof sessionArchiveAfterSchema>
+
+/** What the person chose in Settings → Canvas: each field only once chosen. */
+export const sessionArchiveChoiceSchema = z.object({ after: sessionArchiveAfterSchema.optional(), ticketDone: z.boolean().optional() })
+export type SessionArchiveChoice = z.output<typeof sessionArchiveChoiceSchema>
+
+/** The archive settings in force: the person's choice, else the default. */
+export type SessionArchive = { [K in keyof SessionArchiveChoice]-?: NonNullable<SessionArchiveChoice[K]> }
+
+/**
+ * The archive of a Machine whose person chose nothing. «Never» until the toast with Undo exists
+ * (ADR-0076, point 10); worfy-canvas ticket 10 makes it 24 h.
+ */
+export const SESSION_ARCHIVE_DEFAULTS: Readonly<SessionArchive> = Object.freeze({ after: 'never', ticketDone: true })
+
 export const appSettingsSchema = z.object({
   interfaceScale: z.number().min(INTERFACE_SCALE_MIN).max(INTERFACE_SCALE_MAX),
   sidebar: z.object({
@@ -110,6 +134,8 @@ export const appSettingsSchema = z.object({
   autoCompactWindowChosen: z.object({ orchestrator: z.boolean(), other: z.boolean() }).optional(),
   /** Whether the toolbar shows worfy's own memory. */
   memoryIndicator: z.boolean(),
+  /** The archive settings the person chose; absent while none is (see sessionArchiveOf). */
+  sessionArchive: sessionArchiveChoiceSchema.optional(),
   revision: z.number().int().nonnegative(),
 })
 export type AppSettings = z.output<typeof appSettingsSchema>
@@ -136,6 +162,8 @@ export const appSettingsPatchSchema = z.object({
     })
     .optional(),
   memoryIndicator: z.boolean().optional(),
+  /** Each field given is chosen, the default value too; the others stay as they are. */
+  sessionArchive: sessionArchiveChoiceSchema.optional(),
 })
 export type AppSettingsPatch = z.input<typeof appSettingsPatchSchema>
 
@@ -156,6 +184,14 @@ export function defaultAppSettings(): AppSettings {
     autoCompactWindow: { ...AUTO_COMPACT_WINDOW_DEFAULTS },
     memoryIndicator: true,
     revision: 0,
+  }
+}
+
+/** The archive settings in force: each field the person chose, else its default. */
+export function sessionArchiveOf(settings: Pick<AppSettings, 'sessionArchive'>): SessionArchive {
+  return {
+    after: settings.sessionArchive?.after ?? SESSION_ARCHIVE_DEFAULTS.after,
+    ticketDone: settings.sessionArchive?.ticketDone ?? SESSION_ARCHIVE_DEFAULTS.ticketDone,
   }
 }
 

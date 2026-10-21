@@ -202,8 +202,22 @@ function usePastAnswer(root: string, sessionId: string | null): string | null {
   return read !== null && read.sessionId === sessionId ? read.answer : null
 }
 
+/**
+ * Keep (ADR-0076): the automatic archive and «Archive finished sessions now» leave the Node on the
+ * Canvas while it is pressed. A step of ⌘Z; inactive on a read-only screen.
+ */
+function KeepButton({ id, keep, readOnly }: { id: string; keep: boolean; readOnly: string | null }) {
+  const ops = useLayoutOps()
+  const hint = keep ? 'Kept: the archive leaves this Session on the Canvas. Click to let it go' : 'Keep this Session on the Canvas: the archive leaves it'
+  return (
+    <button type="button" style={styles.tool} data-testid="session-node-keep" aria-pressed={keep} {...writeAction(readOnly, () => void ops.apply({ op: 'keep', id, keep: !keep }), hint)}>
+      {keep ? 'Kept' : 'Keep'}
+    </button>
+  )
+}
+
 /** A Session worfy runs, or ran: main's view while it runs, its saved session id otherwise. */
-function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 'id' | 'selected'> & { info: WorfySessionNodeData; project: ProjectView }) {
+function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeProps, 'id' | 'selected'> & { info: WorfySessionNodeData; project: ProjectView; keep: boolean }) {
   const ops = useLayoutOps()
   const { history } = useClaudeHome(project.path)
   const view = useSessionNodeView(project.id, id)
@@ -392,6 +406,7 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
               Resume
             </button>
           ) : null}
+          <KeepButton id={id} keep={keep} readOnly={readOnly} />
           <button type="button" style={styles.tool} {...writeAction(readOnly, () => void ops.apply({ op: 'hide', id, hidden: true }), 'Hide the Node; the Session goes on')}>
             Hide
           </button>
@@ -470,7 +485,7 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
   const project = activeProject(useProjects())
   const { live, history } = useClaudeHome(project?.path)
 
-  if (worfy !== null && project !== undefined) return <LiveSessionNode id={id} selected={selected} info={worfy} project={project} />
+  if (worfy !== null && project !== undefined) return <LiveSessionNode id={id} selected={selected} info={worfy} project={project} keep={data.node.keep === true} />
 
   if (info === null || project === undefined) {
     return (
@@ -520,6 +535,7 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
           <StatusChip status={chip.status} label={chip.label} />
         </span>
         <span className="nodrag" style={styles.tools}>
+          <KeepButton id={id} keep={data.node.keep === true} readOnly={readOnly} />
           <button type="button" style={styles.tool} {...writeAction(readOnly, () => void ops.apply({ op: 'hide', id, hidden: true }), `Hide the Node; ${leaves}`)}>
             Hide
           </button>

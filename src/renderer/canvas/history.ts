@@ -415,10 +415,12 @@ export interface RecordOptions {
  * A `restore` is reverted by several operations, sent in their order.
  */
 export function inverseOf(layout: Layout, op: LayoutOpInput, options: RecordOptions = {}): LayoutOpInput | LayoutOpInput[] | undefined {
-  // The archive is main's own operation (ADR-0076) and a touch changes nothing to undo; «Archive
-  // now» gets its step with its ticket (worfy-canvas 08). The user's `restore` is undone by
-  // several operations: archiving the Nodes again and moving them back (restoreInverse).
-  if (op.op === 'archive' || op.op === 'touch') return undefined
+  // A touch changes nothing to undo. The timer's `archive` comes from main without a screen and is
+  // never recorded (ADR-0076); the user's — «Archive finished sessions now» (worfy-canvas 08) — is
+  // undone by a `restore` of the Nodes it took. The user's `restore` is undone by several
+  // operations: archiving the Nodes again and moving them back (restoreInverse).
+  if (op.op === 'touch') return undefined
+  if (op.op === 'archive') return archiveInverse(layout, op)
   if (op.op === 'restore') return restoreInverse(layout, op)
   if (op.op === 'patchData') return options.data === true ? dataInverse(layout, op) : undefined
   if (op.op === 'create') return op.node.id === undefined ? undefined : { op: 'remove', id: op.node.id }
@@ -456,6 +458,19 @@ export function inverseOf(layout: Layout, op: LayoutOpInput, options: RecordOpti
       return had === op.keep ? undefined : { op: 'keep', id: op.id, keep: had }
     }
   }
+}
+
+/**
+ * What takes back an `archive` the user sent: a `restore` of the Nodes it takes off the Canvas —
+ * those there and not archived yet; nothing when there is none. Each Node comes back at its place
+ * when it is clear, else at the nearest clear one (ADR-0038).
+ */
+function archiveInverse(layout: Layout, op: Extract<LayoutOpInput, { op: 'archive' }>): LayoutOpInput | undefined {
+  const ids = op.nodes.flatMap(({ id }) => {
+    const node = nodeOf(layout, id)
+    return node === undefined || node.archived != null ? [] : [id]
+  })
+  return ids.length === 0 ? undefined : { op: 'restore', ids }
 }
 
 /**

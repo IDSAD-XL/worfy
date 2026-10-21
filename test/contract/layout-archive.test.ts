@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } fro
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { layoutChangeSchema } from '../../src/shared/ipc/layout'
 import { onThePlane } from '../../src/shared/layout/derived'
@@ -41,6 +41,7 @@ let repo: string
 let handlers: Map<string, Listener>
 let store: LayoutStore
 let AutoArchiver: typeof AutoArchiverClass
+let startAppArchiver: typeof import('../../src/main/layout/archive').startAppArchiver
 
 /** Loads src/main/ipc/layout.ts afresh, as an app start does, over the current data dir. */
 async function start(): Promise<void> {
@@ -54,7 +55,7 @@ async function start(): Promise<void> {
     { modules: { './layout.ts': () => import('../../src/main/ipc/layout').then((module) => module.default) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) },
   )
   store = (await import('../../src/main/layout/store')).layoutStore()
-  AutoArchiver = (await import('../../src/main/layout/archive')).AutoArchiver
+  ;({ AutoArchiver, startAppArchiver } = await import('../../src/main/layout/archive'))
 }
 
 /** Calls a handler as a window of this Machine does; with `sender`, as that client does (a string id: a Linked machine's). */
@@ -527,5 +528,199 @@ describe('the read-only screen of a Linked machine (ADR-0066)', () => {
     // What every client hears, a Linked machine's window too, parses with the channel's schema.
     expect(changes(1, 'archive')).toHaveLength(1)
     expect(changes(2, 'archive')).toHaveLength(1)
+  })
+})
+
+/** Starts the app's archiver under `settings`; its run at start archives nothing under «Never». Stopped after the test. */
+function appArchiver(settings: AutoArchiveDeps['settings'] = () => ({ idleMs: null, ticketDone: true })): void {
+  const stop = startAppArchiver(archiver({ settings }), 3_600_000)
+  onTestFinished(stop)
+}
+
+/** A screen's recorded channel through the real `layout.apply` handler, as the renderer sends (screenChannel). */
+const ipcChannel = (screen = 'screen-1') => ({
+  send: async (op: LayoutOpInput) => {
+    const answer = await call('layout.apply', { projectId: PROJECT, op, screen })
+    return answer.ok ? { revision: layoutStateSchema.parse(answer.value).revision } : answer.error
+  },
+  layout: () => store.get(PROJECT).layout,
+})
+
+describe('«Archive finished sessions now» (worfy-canvas ticket 08, ADR-0076, point 9)', () => {
+
+  it('layout.archiveCandidates answers the rule\'s candidates with 24 h under «Never», and archives nothing itself', async () => {
+    apply(sessionNode('old'))
+    apply(sessionNode('day', 400, 0))
+    apply(sessionNode('kept', 800, 0))
+    apply({ op: 'keep', id: 'session:kept', keep: true })
+    world.history = transcripts(['old', 30 * HOUR], ['day', 20 * HOUR], ['kept', 300 * HOUR])
+    appArchiver(() => ({ idleMs: null, ticketDone: true }))
+    const answer = await call('layout.archiveCandidates', { projectId: PROJECT })
+    expect(answer).toEqual({ ok: true, value: [{ id: 'session:old', sessionId: 'old', rule: 'idle' }] })
+    expect(nodes().filter(isArchived)).toEqual([])
+    expect(changes(1, 'archive')).toEqual([])
+  })
+
+  it('takes the threshold of the Setting when it is not «Never»', async () => {
+    apply(sessionNode('day', 400, 0))
+    world.history = transcripts(['day', 20 * HOUR])
+    // «Never» while the archiver starts, so its run at start leaves the Node; then the person picks 6 h.
+    let idleMs: number | null = null
+    appArchiver(() => ({ idleMs, ticketDone: true }))
+    idleMs = 6 * HOUR
+    expect(await call('layout.archiveCandidates', { projectId: PROJECT })).toEqual({ ok: true, value: [{ id: 'session:day', sessionId: 'day', rule: 'idle' }] })
+  })
+
+  it('is refused while the app has no archiver, and for a Project that is not of this Machine', async () => {
+    expect(await call('layout.archiveCandidates', { projectId: PROJECT })).toMatchObject({ ok: false })
+    appArchiver(() => ({ idleMs: null, ticketDone: true }))
+    expect(await call('layout.archiveCandidates', { projectId: 'other-00000000' })).toMatchObject({ ok: false })
+  })
+
+  it('the screen\'s `archive` of the candidates is one step of ⌘Z: undo brings every Node back at its place, redo archives them again', async () => {
+    const { applyRecorded, historyOf, resetHistories } = await import('../../src/renderer/canvas/history')
+    resetHistories()
+    appArchiver()
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    const op: LayoutOpInput = { op: 'archive', batch: 'now-1', nodes: [{ id: 'session:a', rule: 'idle' }, { id: 'session:b', rule: 'idle' }] }
+    expect(await applyRecorded(PROJECT, op, ipcChannel())).toBeUndefined()
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:a', 'session:b'])
+    expect(historyOf(PROJECT).size).toBe(1)
+
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    expect(nodes().filter(isArchived)).toEqual([])
+    expect(nodeOf('session:a')).toMatchObject({ x: 0, y: 0 })
+    expect(nodeOf('session:b')).toMatchObject({ x: 400, y: 0 })
+
+    expect(await historyOf(PROJECT).redo()).toBe(true)
+    expect(nodes().filter(isArchived).map((node) => node.archived?.batch)).toEqual(['now-1', 'now-1'])
+  })
+})
+
+describe('a screen\'s `archive` keeps the rule\'s exceptions at the write (round 1 of the review of PR #664)', () => {
+  const both: LayoutOpInput = { op: 'archive', batch: 'now-1', nodes: [{ id: 'session:a', rule: 'idle' }, { id: 'session:b', rule: 'idle' }] }
+
+  it('a Node kept on another screen between the candidates and the apply stays on the Canvas', async () => {
+    appArchiver()
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    world.history = transcripts(['a', 30 * HOUR], ['b', 30 * HOUR])
+    const candidates = await call('layout.archiveCandidates', { projectId: PROJECT })
+    expect(candidates).toMatchObject({ ok: true, value: [{ id: 'session:a' }, { id: 'session:b' }] })
+    apply({ op: 'keep', id: 'session:b', keep: true }, 'screen-2')
+
+    expect(await call('layout.apply', { projectId: PROJECT, op: both, screen: 'screen-1' })).toMatchObject({ ok: true })
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:a'])
+    expect(changes(1, 'archive').map((change) => change.op)).toEqual([{ op: 'archive', batch: 'now-1', nodes: [{ id: 'session:a', rule: 'idle' }] }])
+  })
+
+  it('a Session that came back to life during the read (`claude --resume`) is not archived; one worfy runs neither', async () => {
+    const running = new Set<string>()
+    const stop = startAppArchiver(archiver({ settings: () => ({ idleMs: null, ticketDone: true }), running: () => running }), 3_600_000)
+    onTestFinished(stop)
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    apply(sessionNode('c', 800, 0))
+    world.history = transcripts(['a', 30 * HOUR], ['b', 30 * HOUR], ['c', 30 * HOUR])
+    expect(await call('layout.archiveCandidates', { projectId: PROJECT })).toMatchObject({ ok: true, value: [{ id: 'session:a' }, { id: 'session:b' }, { id: 'session:c' }] })
+    world.live = () => Promise.resolve([{ sessionId: 'b', status: 'unknown' }])
+    running.add('c')
+
+    const op: LayoutOpInput = { op: 'archive', batch: 'now-1', nodes: [{ id: 'session:a', rule: 'idle' }, { id: 'session:b', rule: 'idle' }, { id: 'session:c', rule: 'idle' }] }
+    expect(await call('layout.apply', { projectId: PROJECT, op, screen: 'screen-1' })).toMatchObject({ ok: true })
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:a'])
+  })
+
+  it('a pinned Node, or one that is no Session Node, is not archived; with none left the apply is refused and changes nothing', async () => {
+    appArchiver()
+    apply(sessionNode('a'))
+    apply({ op: 'create', node: { id: 'n', kind: 'note', x: 1000, y: 0, w: 220, h: 120 } })
+    apply({ op: 'pin', id: 'session:a', pinned: true, x: 10, y: 10, w: 300, h: 120 }, 'screen-1')
+    const op: LayoutOpInput = { op: 'archive', batch: 'now-1', nodes: [{ id: 'session:a', rule: 'idle' }, { id: 'n', rule: 'idle' }] }
+    const before = store.get(PROJECT).revision
+    const answer = await call('layout.apply', { projectId: PROJECT, op, screen: 'screen-1' })
+    expect(answer.ok).toBe(false)
+    expect(answer.ok ? '' : answer.error).toMatch(/nothing to archive/)
+    expect(store.get(PROJECT).revision).toBe(before)
+    expect(nodes().filter(isArchived)).toEqual([])
+  })
+
+  it('without the app\'s archiver a screen\'s `archive` is refused: nobody can tell a live Session', async () => {
+    apply(sessionNode('a'))
+    expect(await call('layout.apply', { projectId: PROJECT, op: { op: 'archive', batch: 'b', nodes: [{ id: 'session:a', rule: 'idle' }] }, screen: 'screen-1' })).toMatchObject({ ok: false })
+    expect(nodes().filter(isArchived)).toEqual([])
+  })
+
+  it('Archive now, ⌘Z, Keep on another screen, ⇧⌘Z: the redo leaves the kept Node; with every Node kept the redo is refused', async () => {
+    const { applyRecorded, historyOf, resetHistories } = await import('../../src/renderer/canvas/history')
+    resetHistories()
+    appArchiver()
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    expect(await applyRecorded(PROJECT, both, ipcChannel())).toBeUndefined()
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    expect(nodes().filter(isArchived)).toEqual([])
+
+    apply({ op: 'keep', id: 'session:b', keep: true }, 'screen-2')
+    expect(await historyOf(PROJECT).redo()).toBe(true)
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:a'])
+    expect(nodeOf('session:b')!.keep).toBe(true)
+
+    // Again, with both kept: the redo is refused and archives nothing.
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    apply({ op: 'keep', id: 'session:a', keep: true }, 'screen-2')
+    expect(await historyOf(PROJECT).redo()).toBe(false)
+    expect(nodes().filter(isArchived)).toEqual([])
+  })
+
+  it('a candidate the timer archived before the screen\'s write keeps its batch, and ⌘Z does not restore it', async () => {
+    const { applyRecorded, historyOf, resetHistories } = await import('../../src/renderer/canvas/history')
+    resetHistories()
+    appArchiver()
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    apply({ op: 'archive', batch: 'timer-1', nodes: [{ id: 'session:a', rule: 'idle' }] })
+    const record = nodeOf('session:a')!.archived
+
+    expect(await applyRecorded(PROJECT, both, ipcChannel())).toBeUndefined()
+    expect(nodeOf('session:a')!.archived).toEqual(record)
+    expect(nodeOf('session:b')!.archived?.batch).toBe('now-1')
+
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    expect(nodeOf('session:a')!.archived).toEqual(record)
+    expect(isArchived(nodeOf('session:b')!)).toBe(false)
+
+    // A screen's archive of only the Node archived already is refused: no empty write, no step.
+    const before = store.get(PROJECT).revision
+    const again = await call('layout.apply', { projectId: PROJECT, op: { op: 'archive', batch: 'now-2', nodes: [{ id: 'session:a', rule: 'idle' }] }, screen: 'screen-1' })
+    expect(again.ok ? '' : again.error).toMatch(/nothing to archive/)
+    expect(store.get(PROJECT).revision).toBe(before)
+  })
+})
+
+describe('the timer', () => {
+  it('skips a tick while the previous runs still read', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    apply(sessionNode('a'))
+    world.history = transcripts(['a', 30 * HOUR])
+    const read = deferred<readonly LiveSessionLike[]>()
+    let reads = 0
+    world.live = () => {
+      reads += 1
+      return read.promise
+    }
+    const stop = archiver().start(10)
+    onTestFinished(stop)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(reads).toBe(1)
+    read.resolve([])
+    await vi.waitFor(() => expect(isArchived(nodeOf('session:a')!)).toBe(true))
+    world.live = noneLive
+    await vi.advanceTimersByTimeAsync(10)
+    expect(changes(1, 'archive')).toHaveLength(1)
   })
 })

@@ -4,10 +4,11 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { create } from 'zustand'
 import type { LayoutChangeEvent } from '../../shared/ipc/layout'
-import type { Layout, LayoutOpInput, LayoutState } from '../../shared/layout/types'
+import { EMPTY_LAYOUT, type Layout, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
 import { invoke, subscribe } from '../ipc'
 import { readOnlyNow } from '../projects/read-only-now'
-import { noteLayoutChange, type Group, type RecordOptions, type SendAnswer } from './history'
+import { noteLayoutChange, type Group, type LayoutChannel, type RecordOptions, type SendAnswer } from './history'
+import { screenId } from './screen'
 
 interface LayoutsStore {
   byProject: Readonly<Record<string, LayoutState>>
@@ -98,6 +99,18 @@ export async function sendLayoutOp(projectId: string, op: LayoutOpInput, screen?
   }
   console.error(`layout.apply ${op.op} failed:`, result.error)
   return result.error
+}
+
+/**
+ * The channel of this screen's recorded gestures made outside the Canvas (canvas/show-node.ts,
+ * canvas/archive-now.ts): sent with this screen's id, as the Canvas sends, so another screen's
+ * history knows the change is not its own.
+ */
+export function screenChannel(projectId: string): LayoutChannel {
+  return {
+    send: (op) => sendLayoutOp(projectId, op, screenId()),
+    layout: () => currentLayout(projectId) ?? EMPTY_LAYOUT,
+  }
 }
 
 /** The Layout of a Project as main last sent it, or undefined before main has answered. */

@@ -2,7 +2,7 @@ import { fireEvent, render, renderHook, screen, waitFor } from '@testing-library
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { GateQueueView } from '../../src/shared/ipc/gate-queue'
-import type { LayoutNode } from '../../src/shared/layout/types'
+import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { PaletteBody } from '../../src/renderer/palette/CommandPalette'
 import { buildCommands, forQuery, type CommandContext } from '../../src/renderer/palette/commands'
@@ -260,10 +260,97 @@ describe('palette commands', () => {
     expect(ids(context({ model: failed })).filter((id) => id.startsWith('ticket') || id.startsWith('ship') || id.startsWith('run') || id.startsWith('epic'))).toEqual([])
   })
 
+  describe('Archive finished sessions now (worfy-canvas/08)', () => {
+    /** A stand-in main: candidates as given, and a Layout store that applies `archive` and `restore`; `refuse` answers a channel with that error. */
+    async function stubMain(candidates: { id: string; sessionId: string; rule: 'idle' | 'ticket-done' }[], refuse: Partial<Record<'layout.archiveCandidates' | 'layout.apply', string>> = {}) {
+      const { acceptLayoutState } = await import('../../src/renderer/canvas/useLayout')
+      const { resetHistories } = await import('../../src/renderer/canvas/history')
+      resetHistories()
+      let nodes: LayoutNode[] = [node('session:a', 'session', { data: { sessionId: 'a' } }), node('session:b', 'session', { data: { sessionId: 'b' } })]
+      let revision = 1
+      const state = () => ({ projectId: 'p1', layout: { nodes, viewport: { x: 0, y: 0, zoom: 1 } }, revision })
+      acceptLayoutState(state())
+      const applied: { op: LayoutOpInput; screen?: string }[] = []
+      const globals = globalThis as { worfy?: WorfyBridge }
+      globals.worfy = {
+        invoke: (channel: string, input: unknown) => {
+          if (channel in refuse) return Promise.resolve({ ok: false, error: refuse[channel as keyof typeof refuse] })
+          if (channel === 'layout.archiveCandidates') {
+            expect(input).toEqual({ projectId: 'p1' })
+            return Promise.resolve({ ok: true, value: candidates })
+          }
+          if (channel !== 'layout.apply') return Promise.resolve({ ok: false, error: { code: 'unexpected', message: channel } })
+          const { op, screen } = input as { op: LayoutOpInput; screen?: string }
+          applied.push({ op, ...(screen === undefined ? {} : { screen }) })
+          if (op.op === 'archive') {
+            const ids = new Set(op.nodes.map((each) => each.id))
+            nodes = nodes.map((each) => (ids.has(each.id) ? { ...each, archived: { at: 1, rule: 'idle', batch: op.batch } } : each))
+          } else if (op.op === 'restore') {
+            nodes = nodes.map((each) => (op.ids.includes(each.id) ? { ...each, archived: null } : each))
+          }
+          revision += 1
+          return Promise.resolve({ ok: true, value: state() })
+        },
+        on: () => 1,
+        off: () => undefined,
+      } as unknown as WorfyBridge
+      onTestFinished(() => {
+        delete globals.worfy
+      })
+      return { applied }
+    }
+
+    const archiveCommand = () => buildCommands(context()).find((command) => command.id === 'archive-finished')
+
+    it('is in the Action group after Re-pack, found by "archive"', () => {
+      const commands = buildCommands(context())
+      const index = commands.findIndex((command) => command.id === 'archive-finished')
+      expect(commands[index]).toMatchObject({ group: 'Action', title: 'Archive finished sessions now' })
+      expect(commands[index - 1]?.id).toBe('repack')
+      expect(rankItems(commands, 'archive finished')[0]?.id).toBe('archive-finished')
+      expect(buildCommands(context({ project: undefined })).some((command) => command.id === 'archive-finished')).toBe(false)
+    })
+
+    it("archives main's candidates as one operation with a new batch, sent with the screen: one step of ⌘Z, whose undo restores them", async () => {
+      const { historyOf } = await import('../../src/renderer/canvas/history')
+      const { applied } = await stubMain([{ id: 'session:a', sessionId: 'a', rule: 'idle' }])
+      expect(await archiveCommand()!.run()).toBeUndefined()
+      expect(applied).toEqual([{ op: { op: 'archive', batch: expect.any(String), nodes: [{ id: 'session:a', rule: 'idle' }] }, screen: expect.any(String) }])
+      expect(historyOf('p1').size).toBe(1)
+      expect(await historyOf('p1').undo()).toBe(true)
+      expect(applied.at(-1)?.op).toEqual({ op: 'restore', ids: ['session:a'] })
+      expect(await historyOf('p1').redo()).toBe(true)
+      expect(applied.at(-1)?.op).toEqual(applied[0]?.op)
+    })
+
+    it('with nothing to archive sends no operation and leaves no step', async () => {
+      const { historyOf } = await import('../../src/renderer/canvas/history')
+      const { applied } = await stubMain([])
+      expect(await archiveCommand()!.run()).toBeUndefined()
+      expect(applied).toEqual([])
+      expect(historyOf('p1').size).toBe(0)
+    })
+
+    it("tells main's reason when it cannot name the candidates, and sends nothing", async () => {
+      const { historyOf } = await import('../../src/renderer/canvas/history')
+      const { applied } = await stubMain([], { 'layout.archiveCandidates': 'layout.archiveCandidates failed: the automatic archive is not running' })
+      expect(await archiveCommand()!.run()).toMatch(/the automatic archive is not running/)
+      expect(applied).toEqual([])
+      expect(historyOf('p1').size).toBe(0)
+    })
+
+    it("tells main's reason when it refuses the archive (every candidate kept meanwhile), and leaves no step", async () => {
+      const { historyOf } = await import('../../src/renderer/canvas/history')
+      await stubMain([{ id: 'session:a', sessionId: 'a', rule: 'idle' }], { 'layout.apply': 'layout.apply failed: nothing to archive: the Sessions are kept' })
+      expect(await archiveCommand()!.run()).toMatch(/nothing to archive/)
+      expect(historyOf('p1').size).toBe(0)
+    })
+  })
+
   describe('on the read-only screen of a Linked machine (worfy-link/26)', () => {
     const HINT = 'Mini gives this Machine read-only access'
     /** The commands that call a `write` channel of the Project's Machine. */
-    const WRITES = ['new:session', 'new:terminal', 'tidy-up', 'repack', 'run-wave:e', 'ship-ticket:e/07', 'ship-ticket:e/08']
+    const WRITES = ['new:session', 'new:terminal', 'tidy-up', 'repack', 'archive-finished', 'run-wave:e', 'ship-ticket:e/07', 'ship-ticket:e/08']
 
     it('the commands that would change the Project carry the hint; moving, showing and switching do not; with Full access none does', () => {
       const commands = buildCommands(context({ readOnly: HINT }))
