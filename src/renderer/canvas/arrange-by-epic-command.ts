@@ -11,17 +11,16 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useStoreApi } from '@xyflow/react'
 import { create } from 'zustand'
-import { bindingWorkflowOf } from '../../shared/binding/resolve'
 import type { Rect } from '../../shared/layout/free-place'
 import type { Layout, LayoutOpInput } from '../../shared/layout/types'
-import { resolveAgentBindings, sessionSignalsOf, useBindingsStore } from '../binding/store'
+import { storedBindings, useBindingsStore, whenBindingsRead } from '../binding/store'
 import { useSubagentTrees } from '../claude-home/subagents'
 import { readOnlyNow } from '../projects/read-only-now'
+import { arrangementOf } from './arrangement-record'
 import { arrangeByEpic } from './arrange-by-epic'
 import type { CanvasFlowNode } from './nodes'
 import { frameReserves } from './overlays/session-spots'
 import { spotInputs, type DrawnNode } from './session-spot'
-import { arrangementOf, whenBindingsRead } from './sources/epics'
 import { sessionParents } from './sources/subagents'
 import { naturalTreeBlocks } from './tidy'
 import { currentLayout, useLayout, useLayoutOps } from './useLayout'
@@ -64,15 +63,8 @@ const sessionIdsOf = (layout: Layout): string[] => sessionParents(layout).map((n
 /** The Epic each Session Node on the plane is bound to, resolved from the Bindings' store as the anchors resolve it (sources/workflow-bindings.ts). */
 function sessionEpics(projectId: string, root: string, layout: Layout): Map<string, string> {
   const sessions = sessionParents(layout)
-  const sessionIds = sessionIdsOf(layout)
-  const signals = new Map(
-    sessionIds.flatMap((sessionId) => {
-      const found = sessionSignalsOf(root, sessionId)
-      return found === undefined ? [] : [[sessionId, found] as const]
-    }),
-  )
   const manual = useBindingsStore.getState().manual[projectId] ?? []
-  const bindings = resolveAgentBindings({ sessionIds, signals, manual, workflow: bindingWorkflowOf(arrangementOf(projectId)?.model) })
+  const bindings = storedBindings(root, sessionIdsOf(layout), manual, arrangementOf(projectId)?.model)
   return new Map(
     sessions.flatMap((node) => {
       const binding = bindings.get(node.data.sessionId as string)

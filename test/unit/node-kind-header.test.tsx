@@ -32,6 +32,8 @@ const LIVE_NODE = 'live-session-node'
 let live: LiveSession[]
 /** main's views of the live Session Node: none means its Session does not run in this run of the app. */
 let views: SessionNodeView[]
+/** The registry of live Sessions is not read yet: `claudeHome.sessions` and `claudeHome.live` never answer. */
+let unread: boolean
 
 const liveView = (state: SessionNodeView['state']): SessionNodeView => ({
   projectId: PROJECT.id,
@@ -65,6 +67,7 @@ beforeEach(() => {
   vi.resetModules()
   live = []
   views = []
+  unread = false
   const bridge = {
     invoke: (channel: string) => {
       const value: unknown =
@@ -79,6 +82,7 @@ beforeEach(() => {
                 : undefined
       // The Orchestrator's view never answers: its header is drawn without it.
       if (channel === 'orchestrator.view') return new Promise(() => undefined)
+      if (unread && (channel === 'claudeHome.sessions' || channel === 'claudeHome.live')) return new Promise(() => undefined)
       return Promise.resolve(value === undefined ? { ok: false, error: `no ${channel}` } : { ok: true, value })
     },
     on: () => 1,
@@ -180,6 +184,25 @@ describe('read-only Session Node', () => {
     const node = await sessionNode('finished')
     expect(within(node).getByTestId('session-node-title').textContent).toBe('Session dddddddd')
     expect(node.getAttribute('aria-label')).toBe('Session dddddddd')
+  })
+
+  it.each([
+    ['my session', 'Session my session'],
+    ['Sessions overview', 'Session Sessions overview'],
+    ['session-2', 'session-2'],
+    ['New session', 'New session'],
+  ])('a Session named %j is named %j', async (name, label) => {
+    live = [{ pid: 100, sessionId: SESSION, cwd: ROOT, status: 'idle', entrypoint: 'cli', name }]
+    const node = await sessionNode('idle')
+    expect(node.getAttribute('aria-label')).toBe(label)
+  })
+
+  it('before the registry of live Sessions is read: a neutral chip, not finished', async () => {
+    unread = true
+    const node = await sessionNode('…')
+    expect(node.dataset.finished).toBeUndefined()
+    expect(opacityOf(node)).toBe(1)
+    expectChipWithoutKind(node)
   })
 
   it('a running Session: full opacity, a status chip without any kind colour', async () => {

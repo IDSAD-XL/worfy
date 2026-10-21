@@ -318,7 +318,7 @@ type LayoutNodeInput = ReturnType<typeof node>
 /**
  * The Canvas over a fake main: `layout.apply` answers with the Layout the operation makes, corrected
  * the way main corrects it (src/main/layout/store.ts: the shared freePlace and stopResize, ADR-0038).
- * Returns every operation the renderer sent.
+ * Returns every operation the renderer sent; `refuse(op)` makes main refuse every later operation of that kind.
  */
 async function renderCanvas(projectId: string, nodes: LayoutNodeInput[], zoom = 1) {
   const { freePlace, obstaclesFor, stopResize } = await import('../../src/shared/layout/free-place')
@@ -368,6 +368,7 @@ async function renderCanvas(projectId: string, nodes: LayoutNodeInput[], zoom = 
   const viewport = { x: PANE_ORIGIN, y: PANE_ORIGIN, zoom }
   let layout = layoutState(1, nodes, projectId, viewport)
   const sent: Record<string, unknown>[] = []
+  const refused = new Set<string>()
   const settle = (all: LayoutNodeInput[], id: string, before: LayoutNodeInput | undefined, resize: boolean): LayoutNodeInput[] =>
     all.map((each) => {
       if (each.id !== id) return each
@@ -380,6 +381,7 @@ async function renderCanvas(projectId: string, nodes: LayoutNodeInput[], zoom = 
       if (channel !== 'layout.apply') return Promise.resolve({ ok: false, error: 'not in this test' })
       const op = (payload as { op: Record<string, unknown> }).op
       sent.push(op)
+      if (refused.has(op.op as string)) return Promise.resolve({ ok: false, error: `main refuses ${String(op.op)}` })
       const all = layout.layout.nodes as LayoutNodeInput[]
       const before = all.find((each) => each.id === op.id)
       let next = all
@@ -401,6 +403,7 @@ async function renderCanvas(projectId: string, nodes: LayoutNodeInput[], zoom = 
     sent,
     view,
     layout: () => layout.layout,
+    refuse: (op: string) => void refused.add(op),
     cleanup() {
       view.unmount()
       for (const undo of restore) undo()
@@ -510,6 +513,21 @@ describe('dragging a Node on the Canvas (worfy-week ticket 06)', () => {
       expect(flowNode('note').style.transform).toBe('translate(40px,216px)')
     } finally {
       canvas.cleanup()
+    }
+  })
+
+  it("a move main refuses puts the Node back at main's place, through the Canvas's first gesture", async () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const canvas = await renderCanvas('snap-refused-0000', [node('n', 'note', 0, { text: '' })])
+    try {
+      canvas.refuse('move')
+      await drag('n', { x: 0, y: 0 }, { x: 13, y: 21 })
+      expect(canvas.sent).toEqual([{ op: 'move', id: 'n', x: 16, y: 24 }])
+      expect(canvas.layout().nodes.find((each) => each.id === 'n')).toMatchObject({ x: 0, y: 0 })
+      await waitFor(() => expect(flowNode('n').style.transform).toBe('translate(0px,0px)'))
+    } finally {
+      canvas.cleanup()
+      quiet.mockRestore()
     }
   })
 

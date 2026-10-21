@@ -104,15 +104,29 @@ export async function sendLayoutOp(projectId: string, op: LayoutOpInput, screen?
   return result.error
 }
 
+/** What the Canvas adds to a screen channel: its own answer to a refusal, and its Layout before main's first answer. */
+export interface ScreenChannelOptions {
+  /** Called when main refuses an operation, before the refusal goes back to the history. */
+  onRefused?: () => void
+  /** The Layout until main has answered; an empty one when absent. */
+  fallback?: () => Layout
+}
+
 /**
- * The channel of this screen's recorded gestures made outside the Canvas (canvas/show-node.ts,
- * canvas/archive-now.ts): sent with this screen's id, as the Canvas sends, so another screen's
- * history knows the change is not its own.
+ * The channel of this screen's recorded gestures, on the Canvas (Canvas.tsx) and outside it
+ * (canvas/show-node.ts, canvas/archive-now.ts): sent with this screen's id, so another screen's
+ * history knows the change is not its own (history.ts, worfy-link ticket 07); the Layout is main's
+ * latest answer, which sendLayoutOp() stores before it resolves, so the next operation of a gesture,
+ * and an undo, see what the previous one did.
  */
-export function screenChannel(projectId: string): LayoutChannel {
+export function screenChannel(projectId: string, { onRefused, fallback }: ScreenChannelOptions = {}): LayoutChannel {
   return {
-    send: (op) => sendLayoutOp(projectId, op, screenId()),
-    layout: () => currentLayout(projectId) ?? EMPTY_LAYOUT,
+    send: (op) =>
+      sendLayoutOp(projectId, op, screenId()).then((answer) => {
+        if (typeof answer === 'string') onRefused?.()
+        return answer
+      }),
+    layout: () => currentLayout(projectId) ?? fallback?.() ?? EMPTY_LAYOUT,
   }
 }
 

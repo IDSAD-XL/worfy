@@ -260,6 +260,22 @@ function release(root: string): void {
 }
 
 /**
+ * main's list of the live Sessions of `root` at this moment, read past the store and its polls, for
+ * a decision that cannot wait for the next poll (the epic arrangement's first opening of the day,
+ * canvas/arrangement-record.ts). Undefined when main could not read it; the reason goes to the log.
+ */
+export async function liveSessionsNow(root: string): Promise<readonly LiveSession[] | undefined> {
+  try {
+    const result = await invoke('claudeHome.live', { projectRoot: root })
+    if (result.ok) return result.value.live
+    console.error('claudeHome.live failed:', result.error)
+  } catch (error) {
+    console.error('claudeHome.live failed:', error)
+  }
+  return undefined
+}
+
+/**
  * Reads the live Sessions and the history of `root` again, for a view that needs Sessions that
  * ended or started since (the history popover, ticket 18). Does nothing while nothing uses `root`.
  */

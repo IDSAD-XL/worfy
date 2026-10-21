@@ -5,7 +5,9 @@
 //
 // The file is .tsx, in the jsdom project: the command's module uses the renderer's stores and React.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ARRANGE_GAP } from '../../src/renderer/canvas/arrange-by-epic'
 import { runArrangeByEpic } from '../../src/renderer/canvas/arrange-by-epic-command'
+import { setArrangement, type ArrangementState } from '../../src/renderer/canvas/arrangement-record'
 import { FRAME_GAP } from '../../src/renderer/canvas/epic-layout'
 import type { DrawnNode } from '../../src/renderer/canvas/session-spot'
 import { acceptLayoutState } from '../../src/renderer/canvas/useLayout'
@@ -78,6 +80,32 @@ describe('the command Arrange by Epic', () => {
         { id: `session:${FREE}`, x: COLUMN, y: 120 + FRAME_GAP },
       ],
     })
+  })
+
+  it("binds by the Project's workflow model: a Session on a Ticket's branch goes to that Ticket's Epic", async () => {
+    // Only the model knows that branch `feature/x` is alpha 09: without it FREE would go to "Unbound".
+    const model = {
+      root: ROOT,
+      epics: [{ epic: 'alpha', hasSpec: false, hasMap: false, title: null }],
+      tickets: [
+        { epic: 'alpha', num: 7, state: 'work', branch: null },
+        { epic: 'alpha', num: 9, state: 'work', branch: 'feature/x' },
+      ],
+      error: null,
+      branchErrors: [],
+    }
+    setArrangement(PROJECT, { model, sessions: [] } as unknown as ArrangementState)
+    readBindings()
+    useBindingsStore.setState(({ signals }) => ({ signals: { ...signals, [signalsKey(FREE)]: { found: true, session: { ...EMPTY_AGENT_SIGNALS, gitBranch: 'feature/x' }, subagents: [] } } }))
+    const op = await run(() => Promise.resolve())
+    if (op?.op !== 'moveMany') throw new Error('expected moveMany')
+    // Both in alpha's cluster, ARRANGE_GAP apart, in the order the Layout lists them; with FREE
+    // unbound, the two would stand in two clusters, CLUSTER_GAP apart, BOUND first.
+    expect(op.moves).toEqual([
+      { id: `session:${FREE}`, x: COLUMN, y: 0 },
+      { id: `session:${BOUND}`, x: COLUMN, y: 120 + ARRANGE_GAP },
+    ])
+    setArrangement(PROJECT, undefined)
   })
 
   it('sends nothing when the Bindings are not read in time', async () => {
