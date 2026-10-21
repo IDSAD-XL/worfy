@@ -52,7 +52,19 @@ export function KindIcon({ kind, size = 14 }: { kind: NodeKindColour; size?: num
 
 const BAND_HEIGHT = 4
 
+/**
+ * The far-zoom block of the kind (F-SPEC "Zoom levels"): node-chrome.css draws the band as the whole
+ * Node's block at the far zoom level, in these colours. A Subagent has no tint of its own: its block
+ * is neutral, with the Session's colour as a dashed outline.
+ */
+const farColours = (kind: NodeKindColour): Record<`--w-far-${string}`, string> => ({
+  '--w-far-band': colourOf(kind),
+  '--w-far-line': kind === 'subagent' ? 'dashed' : 'solid',
+  ...(kind === 'subagent' ? {} : { '--w-far-fill': `var(--kind-${kind}-tint)` }),
+})
+
 const bandStyle = (kind: NodeKindColour): CSSProperties => ({
+  ...farColours(kind),
   position: 'absolute',
   top: 0,
   left: 0,
@@ -66,5 +78,5 @@ const bandStyle = (kind: NodeKindColour): CSSProperties => ({
  * it) is `position: relative`, and the Node's rounded, clipping surface cuts its corners.
  */
 export function KindBand({ kind }: { kind: NodeKindColour }) {
-  return <span aria-hidden="true" data-testid="kind-band" data-kind={kind} style={bandStyle(kind)} />
+  return <span className="w-kind-band" aria-hidden="true" data-testid="kind-band" data-kind={kind} style={bandStyle(kind)} />
 }

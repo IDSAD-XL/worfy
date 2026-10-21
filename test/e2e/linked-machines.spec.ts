@@ -613,9 +613,11 @@ function prepareB(scratch: string, shared: string) {
     JSON.stringify({
       nodes: [
         { id: 'note-b', kind: 'note', x: 1300, y: 60, w: 220, h: 120, ...base, data: { text: 'A note of B' } },
-        { id: 'term', kind: 'terminal', x: 1300, y: 260, w: 520, h: 300, ...base, data: {} },
+        { id: 'term', kind: 'terminal', x: 600, y: 820, w: 520, h: 300, ...base, data: {} },
       ],
-      viewport: { x: 0, y: 0, zoom: 0.5 },
+      // The full zoom level (zoom-level.ts): below it the Terminal's screen is hidden. The Terminal
+      // stands low and near the middle: it stays on A's screen when A's Canvas centres on the new Session.
+      viewport: { x: 0, y: 0, zoom: 0.6 },
     }),
   )
   const home = join(scratch, 'b-home')

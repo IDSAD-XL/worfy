@@ -59,3 +59,89 @@
 .w-canvas .react-flow__node:not(.selected):not(:hover) .w-node-surface[data-finished='true'] {
   opacity: 0.6;
 }
+
+/* Semantic zoom (zoom-level.ts, overlays/ZoomLevel.tsx; F-SPEC "Zoom levels"). The React Flow root
+   carries the level; a Node type takes part by marking its header row NODE_HEADER (a direct child of
+   its surface) and the title in it NODE_TITLE. A pinned Node keeps its screen size and stays full; a
+   Node type that marks no header stays full too.
+
+   Nothing in the Node's flow changes size at any level: hidden parts keep their place (`visibility`,
+   never `display: none`), the header stays in the flow with its own height, and what the far view
+   draws (the block and the title) is laid over the Node with `position: absolute`. A Terminal's
+   screen therefore keeps its rows and columns, and its shell gets no resize from a change of level.
+   (A Note's header is its title, so at far it leaves the flow; the hidden textarea under it grows,
+   which nothing measures.)
+   The surfaces are not positioned (TerminalNode.css), so the Node's React Flow wrapper is the box
+   those layers are placed in, and the surface's `overflow` does not cut them. */
+
+/* compact and far: everything but the header (and React Flow's resize and edge handles) is hidden. */
+.react-flow:is([data-zoom-level='compact'], [data-zoom-level='far'])
+  .react-flow__node:not(.w-pinned)
+  .w-node-surface:has(> [data-node-header])
+  > :not([data-node-header], .react-flow__resize-control, .react-flow__handle) {
+  visibility: hidden;
+}
+
+/* far: the Node is a block of its kind with its title as a label at a constant screen size (scaled
+   by 1/zoom). A neutral kind's block is the surface itself: raised, with the strong border as a 4 px
+   outline. A coloured kind's block is its band (kind-icons.tsx, which gives it the kind's colours)
+   spread over the whole Node: the kind's tint with a 4 px outline in its band colour, dashed for a
+   Subagent. `!important` where a Node type styles its header or title inline. */
+.react-flow[data-zoom-level='far'] .react-flow__node:not(.w-pinned) .w-node-surface:has(> [data-node-header]) {
+  background: var(--surface-raised);
+  outline: calc(4px / var(--w-zoom, 1)) solid var(--border-strong);
+  outline-offset: calc(-4px / var(--w-zoom, 1));
+}
+/* A selected Node keeps a mark at a constant screen size: an accent outline round its block. */
+.react-flow[data-zoom-level='far'] .react-flow__node.selected:not(.w-pinned) .w-node-surface:has(> [data-node-header]) {
+  outline: calc(3px / var(--w-zoom, 1)) solid var(--accent);
+  outline-offset: calc(2px / var(--w-zoom, 1));
+}
+.react-flow[data-zoom-level='far'] .react-flow__node:not(.w-pinned) .w-node-surface > [data-node-header] {
+  position: static !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+.react-flow[data-zoom-level='far'] .react-flow__node:not(.w-pinned) .w-node-surface > [data-node-header] > * {
+  visibility: hidden;
+}
+.react-flow[data-zoom-level='far'] .react-flow__node:not(.w-pinned) .w-node-surface > [data-node-header] > .w-kind-band {
+  visibility: visible;
+  inset: 0;
+  height: auto !important;
+  box-sizing: border-box;
+  border: calc(4px / var(--w-zoom, 1)) var(--w-far-line, solid) var(--w-far-band) !important;
+  border-radius: var(--radius-node);
+  background: var(--w-far-fill, var(--surface-raised)) !important;
+}
+/* The title: centred on the Node, one line, at most 200 px on the screen and then "…"; it may reach
+   past a block smaller than itself, on its own ground. */
+.react-flow[data-zoom-level='far'] .react-flow__node:not(.w-pinned) .w-node-surface [data-node-title] {
+  visibility: visible;
+  position: absolute !important;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  display: block !important;
+  box-sizing: border-box;
+  width: max-content !important;
+  max-width: calc(200px / var(--w-zoom, 1)) !important;
+  height: auto !important;
+  margin: 0;
+  padding: calc(2px / var(--w-zoom, 1)) calc(4px / var(--w-zoom, 1)) !important;
+  transform: translate(-50%, -50%);
+  border: 0 !important;
+  border-radius: calc(4px / var(--w-zoom, 1));
+  background: var(--surface-raised) !important;
+  color: var(--text) !important;
+  font-family: var(--font-ui);
+  font-size: calc(var(--text-15) / var(--w-zoom, 1)) !important;
+  font-weight: 600;
+  line-height: 1.25 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+.react-flow[data-zoom-level='far'] .react-flow__node:not(.w-pinned) .w-node-tags {
+  visibility: hidden;
+}
