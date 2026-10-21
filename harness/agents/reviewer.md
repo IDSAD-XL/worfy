@@ -159,6 +159,23 @@ Rules of evidence:
 - "Green" means an exit code. Run the checks yourself, without filters that swallow the exit code:
   `<commands.verify>; echo "EXIT=$?"`; targeted — `commands.test_one`. Environment requirements —
   `commands.requires`, specifics of the checks — `rules.md`. A pipe only under `set -o pipefail`.
+- With `Temporary HOME: yes` in the brief, run the checks and the gate with HOME in a temporary
+  folder, by this recipe:
+  ```bash
+  REAL_HOME="$HOME"; H="${HARNESS_HOME:-$REAL_HOME/.claude/worfy-harness}"; T="$(mktemp -d)"
+  : > "$T/.zshenv"; : > "$T/.zprofile"; : > "$T/.zshrc"   # without them zsh -ilc waits for the new-user prompt
+  ( export HOME="$T"; <commands.verify> ); echo "EXIT=$?"
+  HOME="$T" HARNESS_HOME="$H" CLAUDE_GATE_CONFIG="${CLAUDE_GATE_CONFIG:-$H/gate/config.json}" \
+    node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"
+  ```
+  The three empty rc files keep `zsh -ilc` from stopping at the setup prompt zsh shows a new user;
+  without them a test that starts a login shell hangs until its timeout. `HARNESS_HOME` and
+  `CLAUDE_GATE_CONFIG` point the gate at the real Harness home and its registry. An exit 3 of the
+  gate under a temporary HOME without them (`[gate] not verified: the project is not registered …`)
+  is an error of your run's environment, not of the code: run the gate again by the recipe. With
+  `HARNESS_HOME` on the real Harness home the gate writes its verdict, markers and cache there, as
+  it does without a temporary HOME; that write is allowed whatever the line `Write to ~/.claude`
+  says.
 - Independent commands — in one call.
 - Write to the Claude configuration directory only if the brief says `Write to ~/.claude: allowed`.
   For example, a test with a real Claude Code or Agent SDK writes transcripts to `~/.claude/projects`.
@@ -203,7 +220,8 @@ to check, not a fact. Read `not_verified` first: it names what the implementer d
 `REJECTED: <the unconfirmed claims>` when at least one did not. If you run the project's gate, as
 the brief or the calling skill asks, and it exits 3 or 127 — a broken environment, not broken code
 — the verdict is `REJECTED: gate 3 — <the gate's reason line>`, as the calling skill requires,
-whatever the claims show. Every unconfirmed claim on the list
+whatever the claims show. An exit 3 under a temporary HOME without the recipe's variables (above)
+does not count: run the gate again by the recipe first. Every unconfirmed claim on the list
 comes with its `file:line`, or with the command and both exit codes, the reported one and yours.
 Nothing comes before the verdict line: no heading, no summary, not the line of a failed `profile`,
 which comes second under this lens. The other lines of the answer keep the format above, and the

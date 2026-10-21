@@ -45,6 +45,31 @@ for a in $ALL; do
 done
 has implementer 'node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"' \
     && ok "implementer: gate through \${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" || bad "implementer: no \${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs fast call"
+# A brief with "Temporary HOME: yes": the checks and the gate run with HOME in a temporary folder,
+# by one recipe — three empty zsh rc files (or zsh -ilc waits for the new-user prompt) and the
+# gate pointed at the real Harness home (or it finds no registry and exits 3). The same text is
+# in skills/epic-wave/SKILL.md (epic-wave-ship-ticket.test.sh).
+RECIPE='REAL_HOME="$HOME"; H="${HARNESS_HOME:-$REAL_HOME/.claude/worfy-harness}"; T="$(mktemp -d)"
+: > "$T/.zshenv"; : > "$T/.zprofile"; : > "$T/.zshrc"   # without them zsh -ilc waits for the new-user prompt
+( export HOME="$T"; <commands.verify> ); echo "EXIT=$?"
+HOME="$T" HARNESS_HOME="$H" CLAUDE_GATE_CONFIG="${CLAUDE_GATE_CONFIG:-$H/gate/config.json}" \
+node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"'
+# recipe_of FILE: the recipe's lines, unindented, from the REAL_HOME line to the gate call.
+recipe_of() {
+    awk '{ l = $0; sub(/\r$/, "", l); sub(/^ +/, "", l) } l ~ /^REAL_HOME="\$HOME";/ { p = 1 } p { print l } p && l ~ /hooks\/gate\.mjs/ { exit }' "$1"
+}
+for a in implementer reviewer; do
+    has "$a" 'With `Temporary HOME: yes` in the brief' && ok "$a: names the brief line 'Temporary HOME: yes'" \
+        || bad "$a: no brief line 'Temporary HOME: yes'"
+    [ "$(recipe_of "$AGENTS/$a.md")" = "$RECIPE" ] && ok "$a: the temporary HOME recipe, word for word" \
+        || bad "$a: the temporary HOME recipe is missing or changed"
+    has "$a" 'environment, not of the code' && ok "$a: gate exit 3 under a temporary HOME is the environment, not the code" \
+        || bad "$a: no rule that gate exit 3 under a temporary HOME is the environment"
+    has "$a" 'write is allowed whatever the' && ok "$a: the gate's writes to the real Harness home are allowed" \
+        || bad "$a: no rule that the gate may write to the real Harness home"
+done
+bash -n <<<"${RECIPE//<commands.verify>/true}" && ok "the temporary HOME recipe parses under bash" \
+    || bad "the temporary HOME recipe does not parse under bash"
 for a in implementer reviewer; do
     grep -F -- "$BIN_RULE" "$AGENTS/$a.md" | grep -qF '`${CLAUDE_PLUGIN_ROOT}/bin/`' \
         && ok "$a: rule for Profile values starting with ~/.claude/bin/" || bad "$a: no rule for Profile values starting with ~/.claude/bin/"
@@ -199,8 +224,9 @@ THERMOS_SOURCE='Source: Thermos, `thermos/skills/thermo-nuclear-review/SKILL.md`
 rv "the borrowed rules name Thermos, the file and the commit" "$THERMOS_SOURCE"
 
 # No word written wholly in capitals: such pressure gives newer models false alarms. A word here is
-# a run of four or more capital Latin letters; the allowed ones are names of the protocol and of files.
-CAPS_ALLOWED='VERIFIED REJECTED NARROW EXIT JSON CLAUDE PLUGIN ROOT AGENTS TOKEN SKILL'
+# a run of four or more capital Latin letters; the allowed ones are names of the protocol, of files and
+# of environment variables (the temporary HOME recipe: REAL_HOME, HARNESS_HOME, CLAUDE_GATE_CONFIG).
+CAPS_ALLOWED='VERIFIED REJECTED NARROW EXIT JSON CLAUDE PLUGIN ROOT AGENTS TOKEN SKILL HOME REAL HARNESS GATE CONFIG'
 caps="$(CAPS_ALLOWED="$CAPS_ALLOWED" perl -ne 'BEGIN { %ok = map { $_ => 1 } split " ", $ENV{CAPS_ALLOWED} }
     while (/(?<![A-Z])([A-Z]{4,})(?![A-Z])/g) { print "$.: $1\n" unless $ok{$1} }' "$AGENTS/reviewer.md")"
 [ -z "$caps" ] && ok "reviewer: no word of four or more capital letters outside the allowed names" \
@@ -421,6 +447,7 @@ every exit_code in commands :: - **Every `exit_code` in `commands`.** Run the co
 a refutation of the strongest sentence :: - **The strongest sentence of the report.** Look for its refutation: the test it cites passed before the change too, or the command it cites never ran the changed code.
 the verdict is the first line :: **The verdict is the first line of the answer:** `VERIFIED` when every claim held, `REJECTED: <the unconfirmed claims>` when at least one did not.
 gate exit 3 or 127 is REJECTED: gate 3 :: If you run the project's gate, as the brief or the calling skill asks, and it exits 3 or 127 — a broken environment, not broken code — the verdict is `REJECTED: gate 3 — <the gate's reason line>`, as the calling skill requires, whatever the claims show.
+gate exit 3 under a temporary HOME without the recipe's variables does not count :: An exit 3 under a temporary HOME without the recipe's variables (above) does not count: run the gate again by the recipe first.
 each unconfirmed claim with its evidence :: Every unconfirmed claim on the list comes with its `file:line`, or with the command and both exit codes, the reported one and yours.
 nothing before the verdict line :: Nothing comes before the verdict line: no heading, no summary, not the line of a failed `profile`, which comes second under this lens.
 the general format and its 30 lines :: The other lines of the answer keep the format above, and the whole answer stays within its 30 lines.

@@ -347,6 +347,7 @@ Numbers: ADR-<NNNN> — create <F numbering.adr.dir>/<NNNN>-<slug>.md, as a plac
 Wave neighbours' files (do not touch): <NN>: <files>; <NN>: <files>
 Scratchpad: only your own subdirectory <scratchpad>/impl-<NN>/; do not run other agents' scripts from the scratchpad
 Write to ~/.claude: allowed | forbidden   # real Claude Code / Agent SDK writes transcripts to ~/.claude/projects
+Temporary HOME: yes | no                    # yes — the checks and the gate run with HOME in a temporary folder, by the recipe below
 GUI checks: yours | not yours                  # "yours" — to at most one agent of the wave at a time
 ```
 
@@ -357,7 +358,33 @@ runners run once only, never in watch mode (vitest — `vitest run`): a watch pr
 and the agent hangs. Manual GUI checks (rules — skill `/worfy:ship-ticket`, step 6) — at most one
 agent at a time across the whole wave: the next agent gets "yours" in the "GUI checks" line only
 after the previous one has reported. The verifier's brief (section 3) carries the same
-"Scratchpad" and "Write to ~/.claude" lines: the gate runs tests and `gh` too.
+"Scratchpad", "Write to ~/.claude" and "Temporary HOME" lines: the gate runs tests and `gh` too.
+
+The brief always fills the "Temporary HOME" line too. `yes` when the tests or checks of the ticket
+must not touch the real home folder: "Write to ~/.claude" is `forbidden` and the tests may still
+write under HOME (a real Claude Code, the Agent SDK, an installer, a tool's cache or config), or the
+run must not read the developer's own shell rc files. `no` — the agent runs with its own HOME. With
+`yes` the agent runs `<F commands.verify>` and the gate by this recipe (the agents
+`worfy:implementer` and `worfy:reviewer` carry the same one):
+
+```bash
+REAL_HOME="$HOME"; H="${HARNESS_HOME:-$REAL_HOME/.claude/worfy-harness}"; T="$(mktemp -d)"
+: > "$T/.zshenv"; : > "$T/.zprofile"; : > "$T/.zshrc"   # without them zsh -ilc waits for the new-user prompt
+( export HOME="$T"; <commands.verify> ); echo "EXIT=$?"
+HOME="$T" HARNESS_HOME="$H" CLAUDE_GATE_CONFIG="${CLAUDE_GATE_CONFIG:-$H/gate/config.json}" \
+  node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"
+```
+
+The three empty rc files keep `zsh -ilc` (a login shell that code and tests start to read the
+user's environment) from stopping at the setup prompt zsh shows a new user: without them such a
+test hangs until its timeout. `HARNESS_HOME` and `CLAUDE_GATE_CONFIG` point the gate at the real
+Harness home and its registry: under a temporary HOME without them the gate finds no registry,
+prints `[gate] not verified: the project is not registered …` and exits 3. That exit 3 is an error
+of the run's environment, not of the code: the agent runs the gate again by the recipe, and it is
+not the gate's verdict of section 3. With `HARNESS_HOME` on the real Harness home the gate writes
+its verdict, markers and cache there (`<HARNESS_HOME>/gate/state`), as it does without a temporary
+HOME. That write is allowed whatever the "Write to ~/.claude" line says: it is the Harness home, not
+the transcripts in `~/.claude/projects`.
 
 A question instead of a report (a disputed spec, a conflict that cannot be resolved mechanically,
 CI or a local check red after two attempts) is resolved by an answer through `SendMessage` to the
@@ -389,6 +416,10 @@ git diff --name-only <base>...HEAD                            # compare with fil
 node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"  # green: see below
 gh pr view <N> --json mergeStateStatus,headRefOid             # pr-green-ci only
 ```
+
+With "Temporary HOME: yes" in its brief the verifier runs the gate by the recipe of section 2; an
+exit 3 under a temporary HOME without the recipe's variables is its own environment, not the
+gate's verdict below.
 
 CI of the PR (`pr-green-ci` only) is its checks without the agents' marks: `review`, `check/<name>`
 and `deploy` are commit statuses too (`"${CLAUDE_PLUGIN_ROOT}/bin/ticket" mark --contexts` prints

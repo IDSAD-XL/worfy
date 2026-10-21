@@ -164,6 +164,23 @@ for label in 'Goal:' 'Repository:' 'Ticket: ' '; spec: ' 'Worktree:' 'Base:' 'Fi
     'GUI checks: yours | not yours'; do
     check "epic-wave brief label '$label'" bash -c '[[ "$1" == *"$2"* ]]' _ "$brief" "$label"
 done
+# Temporary HOME: the brief line, when to set it, the recipe (the same text as in agents/implementer.md
+# and agents/reviewer.md, agents-text.test.sh), and the verifier's brief carries the line too.
+check "epic-wave brief label 'Temporary HOME: yes | no'" bash -c '[[ "$1" == *"$2"* ]]' _ "$brief" 'Temporary HOME: yes | no'
+RECIPE='REAL_HOME="$HOME"; H="${HARNESS_HOME:-$REAL_HOME/.claude/worfy-harness}"; T="$(mktemp -d)"
+: > "$T/.zshenv"; : > "$T/.zprofile"; : > "$T/.zshrc"   # without them zsh -ilc waits for the new-user prompt
+( export HOME="$T"; <commands.verify> ); echo "EXIT=$?"
+HOME="$T" HARNESS_HOME="$H" CLAUDE_GATE_CONFIG="${CLAUDE_GATE_CONFIG:-$H/gate/config.json}" \
+  node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"'
+sec2="$(awk '/^## 2\./{p=1; next} /^## /{p=0} p' "$EW")"
+check "epic-wave section 2: the temporary HOME recipe, word for word" bash -c '[[ "$1" == *"$2"* ]]' _ "$sec2" "$RECIPE"
+check "epic-wave section 2: when to set Temporary HOME" bash -c '[[ "$1" == *"$2"* ]]' _ "$sec2" 'The brief always fills the "Temporary HOME" line too.'
+check "epic-wave section 2: the verifier's brief carries Temporary HOME" bash -c '[[ "$(tr -s " \n" " " <<<"$1")" == *"$2"* ]]' _ "$sec2" \
+    'The verifier'"'"'s brief (section 3) carries the same "Scratchpad", "Write to ~/.claude" and "Temporary HOME" lines'
+check "epic-wave section 2: gate exit 3 under a temporary HOME is the environment, not the code" \
+    bash -c '[[ "$(tr -s " \n" " " <<<"$1")" == *"$2"* ]]' _ "$sec2" 'That exit 3 is an error of the run'"'"'s environment, not of the code'
+check "epic-wave section 2: the gate's writes to the real Harness home are allowed" \
+    bash -c '[[ "$(tr -s " \n" " " <<<"$1")" == *"$2"* ]]' _ "$sec2" 'That write is allowed whatever the "Write to ~/.claude" line says'
 # GH_TOKEN comes from the plugin's SessionStart hook: the brief has no "GitHub:" line.
 for old in 'GitHub:' 'Цель:' 'Репозиторий:' 'Тикет:' 'Дерево:' 'База:' 'След по файлам:' 'Номера:' 'Следы соседей' 'Запись в' 'GUI-проверки'; do
     check "epic-wave brief has no old label '$old'" bash -c '[[ "$1" != *"$2"* ]]' _ "$brief" "$old"

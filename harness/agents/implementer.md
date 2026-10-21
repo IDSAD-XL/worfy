@@ -156,6 +156,25 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
    `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"`. Filter the output
    only under `set -o pipefail`. Environment requirements — `commands.requires`. A red check is your
    work, not an obstacle: do not get around it.
+   **Temporary HOME.** With `Temporary HOME: yes` in the brief, run both commands of this step
+   with HOME in a temporary folder, by this recipe:
+   ```bash
+   REAL_HOME="$HOME"; H="${HARNESS_HOME:-$REAL_HOME/.claude/worfy-harness}"; T="$(mktemp -d)"
+   : > "$T/.zshenv"; : > "$T/.zprofile"; : > "$T/.zshrc"   # without them zsh -ilc waits for the new-user prompt
+   ( export HOME="$T"; <commands.verify> ); echo "EXIT=$?"
+   HOME="$T" HARNESS_HOME="$H" CLAUDE_GATE_CONFIG="${CLAUDE_GATE_CONFIG:-$H/gate/config.json}" \
+     node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"
+   ```
+   The three empty rc files keep `zsh -ilc` (a login shell that code and tests start to read the
+   user's environment) from stopping at the setup prompt zsh shows a new user: without them a test
+   that starts it hangs until its timeout. `HARNESS_HOME` and `CLAUDE_GATE_CONFIG` point the gate
+   at the real Harness home and its registry. Under a temporary HOME without them the gate finds
+   no registry, prints `[gate] not verified: the project is not registered …` and exits 3: that is
+   an error of the run's environment, not of the code — run the gate again by the recipe, and do
+   not report that exit 3 as the gate's verdict. With `HARNESS_HOME` on the real Harness home the
+   gate writes its verdict, markers and cache there (`<HARNESS_HOME>/gate/state`), as it does
+   without a temporary HOME. That write is allowed whatever the brief's line `Write to ~/.claude`
+   says: it is the Harness home, not the transcripts in `~/.claude/projects`.
    Gate exit codes: `2` — red, fix it. `3` — not verified (neither green nor red): the line
    `[gate] not verified: …` names the reason (project not registered,
    registry unreadable, resolver crashed); put it into `not_verified` with code 3 and do
