@@ -24,11 +24,13 @@ export const POLL_MS = 3000
 interface BindingsStore {
   /** By projectId; undefined until main has answered. */
   manual: Readonly<Record<string, readonly ManualBinding[]>>
+  /** By projectId: main's error when `bindings.get` failed, until the Bindings arrive. */
+  manualError: Readonly<Record<string, string>>
   /** By `<root>\0<sessionId>`. */
   signals: Readonly<Record<string, SessionBindingSignals>>
 }
 
-export const useBindingsStore = create<BindingsStore>(() => ({ manual: {}, signals: {} }))
+export const useBindingsStore = create<BindingsStore>(() => ({ manual: {}, manualError: {}, signals: {} }))
 
 const signalsKey = (root: string, sessionId: string): string => `${root}\0${sessionId}`
 
@@ -38,7 +40,11 @@ const asked = new Set<string>()
 let changesSubscribed = false
 
 function setManual(projectId: string, bindings: readonly ManualBinding[]): void {
-  useBindingsStore.setState(({ manual }) => ({ manual: { ...manual, [projectId]: bindings } }))
+  useBindingsStore.setState(({ manual, manualError }) => {
+    const errors = { ...manualError }
+    delete errors[projectId]
+    return { manual: { ...manual, [projectId]: bindings }, manualError: errors }
+  })
 }
 
 function ensureManual(projectId: string): void {
@@ -57,6 +63,7 @@ function ensureManual(projectId: string): void {
     if (result.ok) setManual(projectId, result.value.bindings)
     else {
       asked.delete(projectId)
+      useBindingsStore.setState(({ manualError }) => ({ manualError: { ...manualError, [projectId]: result.error } }))
       console.error('bindings.get failed:', result.error)
     }
   })

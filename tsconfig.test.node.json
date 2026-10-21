@@ -16,6 +16,8 @@
     "src/renderer/canvas/elk/layout.ts",
     "src/renderer/canvas/family.ts",
     "src/renderer/canvas/session-spot.ts",
+    "src/renderer/canvas/archive-list.ts",
+    "src/renderer/canvas/show-ops.ts",
     "src/renderer/focus/split-tree.ts",
     "src/renderer/canvas/card-bridge.ts",
     "src/renderer/canvas/history.ts",
