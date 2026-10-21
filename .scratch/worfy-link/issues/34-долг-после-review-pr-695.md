@@ -1,7 +1,8 @@
 # 34 — Долг после review PR #695: окно «Link a machine» после паузы pairing
 
 Type: task
-Status: claimed 2026-10-21T22:43Z
+Status: done 2026-10-21T23:34Z
+PR: #718
 Branch: worfy-link/34
 Blocked by: —
 Source: ревью PR [#695](https://github.com/IDSAD-XL/worfy/pull/695) (Ticket 28, предел неудачных pairing за час), круг 2,
