@@ -1,0 +1,165 @@
+/* The Archive (ArchivePopover.tsx): «Archive N» left of Trash at the bottom centre of the Canvas,
+   its popover, the popover of a Ticket's or an Epic's archived Sessions, and the «N sessions» badge
+   on a Ticket (badges/SessionHistory.tsx). Values come from tokens.css; sizes follow trash.css. */
+.w-archive {
+  font-family: var(--font-ui);
+  font-size: var(--text-12);
+  color: var(--text);
+}
+/* Both panels are at the bottom centre: this one stands left of the Trash button, its right edge
+   56 px left of the centre (half of the Trash button and a gap). */
+/* React Flow centres a bottom-centre panel with `.react-flow__panel.bottom.center`; this rule is more specific. */
+.react-flow__panel.bottom.center.w-archive--panel {
+  transform: translateX(calc(-100% - 56px));
+}
+.w-archive__root {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.w-archive__button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 26px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  box-shadow: var(--shadow-control);
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.w-archive__button[aria-expanded='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.w-archive__count {
+  padding: 0 5px;
+  border-radius: var(--radius-chip);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-size: var(--text-11);
+}
+.w-archive__popover {
+  width: 360px;
+  max-height: 360px;
+  overflow: auto;
+  margin-bottom: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-popover);
+  background: var(--surface);
+  box-shadow: var(--shadow-control);
+}
+/* The history of a Ticket or an Epic: drawn into document.body, under its button. */
+.w-archive__popover--history {
+  position: fixed;
+  z-index: 1000;
+  width: 320px;
+  margin: 0;
+}
+.w-archive__heading {
+  padding: 0 var(--space-1) var(--space-1);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.w-archive__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-1) var(--space-1);
+}
+.w-archive__search {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+}
+.w-archive__search:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.w-archive__empty {
+  padding: var(--space-2) var(--space-1);
+  color: var(--text-muted);
+}
+.w-archive__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.w-archive__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--row-height);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-button);
+}
+.w-archive__row:hover {
+  background: var(--surface-raised);
+}
+.w-archive__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.w-archive__time {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--text-11);
+}
+.w-archive__action {
+  flex: none;
+  height: 22px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.w-archive__action[aria-disabled='true'] {
+  background: transparent;
+  color: var(--text-muted);
+  cursor: default;
+}
+.w-archive__action:focus-visible,
+.w-archive__button:focus-visible,
+.w-archive-badge:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* The «N sessions» badge on a Ticket: as tall as a checks chip (checks-badges.css), so the row of
+   badges keeps the height ticket-card.ts gives it. */
+.w-archive-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-11);
+  line-height: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.w-archive-badge[aria-expanded='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
