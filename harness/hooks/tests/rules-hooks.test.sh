@@ -450,12 +450,17 @@ block_at="$(printf '%s\n' "$phase3" | grep -nE '^[[:space:]]*(—|–|-)[[:space
     && ok "orchestrator.md Phase 3: the epic-status run stands before the status block" \
     || bad "orchestrator.md Phase 3: the epic-status run is not a step before the status block (run at line ${run_at:-none}, block at line ${block_at:-none})"
 runs="$(printf '%s\n' "$phase3" | grep -cF 'bin/epic-status')"
-[ "$runs" -eq 1 ] && ok "orchestrator.md Phase 3: the epic-status run is written once" \
-    || bad "orchestrator.md Phase 3: the epic-status run is written $runs times, not once"
-phase3_flat="$(printf '%s\n' "$phase3" | tr '\n' ' ' | tr -s ' ')"
-[[ "$phase3_flat" == *'only then write the block'* ]] \
-    && ok "orchestrator.md Phase 3: the block is written only after the run" \
-    || bad "orchestrator.md Phase 3: no 'only then write the block' after the epic-status step"
+# Once: the full path appears once, and nothing after the Stage line names epic-status again (a
+# bullet under the block may name it without the path).
+after="$(printf '%s\n' "$phase3" | awk -v from="${block_at:-0}" 'from > 0 && NR > from' | grep -cF 'epic-status')"
+[ "$runs" -eq 1 ] && [ -n "$block_at" ] && [ "$after" -eq 0 ] \
+    && ok "orchestrator.md Phase 3: the epic-status run is written once" \
+    || bad "orchestrator.md Phase 3: the epic-status run is written more than once (path $runs times, $after mentions after the Stage line)"
+# "only then write the block" belongs to the step itself: between the run and the Stage line.
+step_flat="$(printf '%s\n' "$phase3" | awk -v a="${run_at:-0}" -v b="${block_at:-0}" 'a > 0 && NR >= a && NR < b' | tr '\n' ' ' | tr -s ' ')"
+[[ "$step_flat" == *'only then write the block'* ]] \
+    && ok "orchestrator.md Phase 3: the step says the block is written only after the run" \
+    || bad "orchestrator.md Phase 3: no 'only then write the block' between the epic-status run and the status block"
 
 # common.md holds exactly Plain language, Evidence before "green", Context hygiene and Shell commands
 # without a confirmation (the agents point at that section by its name).
