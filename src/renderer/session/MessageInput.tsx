@@ -289,7 +289,7 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
   const canSend = !disabled && !sending && (text.trim() !== '' || chips.length > 0)
 
   return (
-    <div className="w-composer" data-testid="message-input">
+    <div className="w-composer" data-testid="message-input" data-toast-keep-out="">
       <div className="w-composer__anchor">
         {slash.element}
         <div

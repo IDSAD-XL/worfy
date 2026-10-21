@@ -5,8 +5,10 @@
 // the toolbar, a view's header with its buttons (focus mode, a focused Ticket, the Session view, an
 // ADR), an open popup (the Command palette, Settings, a menu) — and puts the stack into the first
 // free band from the top that holds it (placement.ts). An element marks itself with
-// `data-toast-keep-out`; a dialog or a menu is kept clear of without a mark, unless it says
-// `data-toast-over` (the ADR panel, a whole column high: only its header is kept clear).
+// `data-toast-keep-out` (the toolbar, the headers, the Session's message field with Send); a dialog
+// or a menu is kept clear of without a mark, unless it says `data-toast-over` (the ADR panel, a
+// whole column high: only its header is kept clear). The minimap is kept clear of by its class:
+// React Flow's MiniMap passes no other attribute to its element.
 //
 // Accessibility: the area is a landmark "Notifications"; `info`, `success` and `action` toasts are in
 // a polite live region (role="status"), `error` toasts in role="alert". Both regions stay in the DOM
@@ -94,7 +96,7 @@ function ToastView({ toast }: { toast: Toast }) {
 }
 
 /** What the stack keeps clear of (see the head of the file). */
-const KEEP_OUT = '[data-toast-keep-out], [role="dialog"]:not([data-toast-over]), [role="menu"], .w-focus [data-node-header]'
+const KEEP_OUT = '[data-toast-keep-out], [role="dialog"]:not([data-toast-over]), [role="menu"], .w-focus [data-node-header], .w-minimap'
 
 /** Measures what lies in the column of `region` and moves the stack into the free band (placement.ts). */
 function place(region: HTMLElement): void {

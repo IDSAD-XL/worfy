@@ -283,6 +283,90 @@ describe('Load earlier', () => {
     expect(hook.result.current.earlier).toBe(1000)
   })
 
+  it('loadEarlierUntil stops after a read that fails: one request and one error toast, not a hundred', async () => {
+    const module = await import('../../src/renderer/claude-home/useClaudeHome')
+    const { toasts } = await import('../../src/renderer/toast/toasts')
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    answers.push(() => ok({ ...lines(20, 30), earlier: 2000, cursor: { offset: 3000, fileId: FILE } }))
+    const { hook } = await openTranscript()
+    // No answer left: the bridge says the read failed; `earlier` stays where it was.
+    await act(async () => {
+      await module.loadEarlierUntil(ROOT, S, () => false)
+    })
+    expect(requests).toHaveLength(2)
+    const errors = toasts.getState().toasts.filter((toast) => toast.kind === 'error' && toast.text.startsWith('Earlier messages could not be read'))
+    expect(errors).toHaveLength(1)
+    expect(hook.result.current.earlier).toBe(2000)
+    expect(hook.result.current.loadingEarlier).toBe(false)
+    vi.restoreAllMocks()
+  })
+
+  it('a forward read under way when Load earlier finds the file replaced does not cancel the reopening from the end', async () => {
+    const module = await import('../../src/renderer/claude-home/useClaudeHome')
+    answers.push(() => ok({ ...lines(10, 20), earlier: 1000, cursor: { offset: 2000, fileId: FILE } }))
+    const { hook } = await openTranscript()
+    // Records were appended: the forward read starts and waits.
+    let release: (value: Answer) => void = () => undefined
+    answers.push(() => new Promise<Answer>((done) => (release = done)))
+    await transcriptChanged()
+    await vi.waitFor(() => expect(requests).toHaveLength(2))
+    // Load earlier meanwhile: the file under the shown events was replaced.
+    answers.push(() => ok({ reset: true }))
+    await act(async () => {
+      await module.loadEarlierTranscript(ROOT, S)
+    })
+    expect(requests).toHaveLength(3)
+    // The forward read ends with what it read of the old file; the file is then opened from its end.
+    answers.push((request) => {
+      expect(request.back).toStrictEqual({ bytes: WINDOW })
+      return ok({ ...lines(0, 3), earlier: 0, cursor: { offset: 300, fileId: 'dev:other' } })
+    })
+    await act(async () => {
+      release(ok({ ...lines(20, 25), cursor: { offset: 2500, fileId: FILE } }))
+    })
+    await vi.waitFor(() => expect(requests).toHaveLength(4))
+    expect(requests[3]).toStrictEqual({ projectRoot: ROOT, sessionId: S, back: { bytes: WINDOW } })
+    await vi.waitFor(() => expect(texts(hook.result.current.events)).toEqual(['answer 0', 'answer 1', 'answer 2']))
+  })
+
+  it('keeps the row the reader looked at in place when the cap moved the first row while Load earlier read', async () => {
+    const { Transcript } = await import('../../src/renderer/session/Transcript')
+    const ROW = 100
+    let log: HTMLElement | null = null
+    const rows = () => Array.from(log?.children ?? []).filter((row) => !row.hasAttribute('data-transcript-earlier'))
+    // jsdom lays nothing out: the log is 300 px tall at the top of the window, each row ROW px.
+    const measured = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      if (this === log) return new DOMRect(0, 0, 800, 300)
+      const at = rows().indexOf(this)
+      return at < 0 ? new DOMRect(0, 0, 0, 0) : new DOMRect(0, at * ROW - (log?.scrollTop ?? 0), 800, ROW)
+    })
+    try {
+      const load = vi.fn()
+      const shown = (from: number, to: number, loading: boolean) => <Transcript events={range(from, to).map(answer)} firstIndex={from} earlier={{ load, loading }} />
+      const { rerender } = render(shown(10, 20, false))
+      log = screen.getByTestId('transcript')
+      let top = 0
+      Object.defineProperty(log, 'scrollHeight', { configurable: true, get: () => rows().length * ROW })
+      Object.defineProperty(log, 'clientHeight', { configurable: true, get: () => 300 })
+      Object.defineProperty(log, 'scrollTop', { configurable: true, get: () => top, set: (value: number) => (top = value) })
+      expect(rows()).toHaveLength(10)
+      // The reader scrolled up to «answer 13» and pressed Load earlier.
+      log.scrollTop = 3 * ROW
+      fireEvent.scroll(log)
+      fireEvent.click(screen.getByRole('button', { name: 'Load earlier' }))
+      expect(load).toHaveBeenCalledTimes(1)
+      // While it reads, two records come and the cap drops the two oldest: the first row moves on.
+      rerender(shown(12, 22, true))
+      // The earlier window comes: «answer 13» is back at the top of the log.
+      rerender(shown(0, 22, false))
+      const looked = rows().find((row) => row.textContent?.includes('answer 13') === true)
+      expect(looked?.getBoundingClientRect().top).toBe(0)
+      expect(log.scrollTop).toBe(13 * ROW)
+    } finally {
+      measured.mockRestore()
+    }
+  })
+
   it('the control above the first row: a button while there is more, disabled while it reads', async () => {
     const { Transcript } = await import('../../src/renderer/session/Transcript')
     const load = vi.fn()
@@ -324,6 +408,29 @@ describe('a main that does not know `back` (an older build on a Linked machine)'
     await transcriptChanged()
     await vi.waitFor(() => expect(texts(hook.result.current.events).at(-1)).toBe('answer 6000'))
     expect(hook.result.current.events).toHaveLength(keep)
+  })
+
+  it('keeps no more than KEEP_EVENTS and one chunk while it reads: a long file takes time in proportion to it, not to its square', { timeout: 5_000 }, async () => {
+    const module = await import('../../src/renderer/claude-home/useClaudeHome')
+    const keep = module.KEEP_EVENTS
+    // 1000 chunks of 20 000 events. Kept whole until the end, the events would be copied about
+    // 10^10 times (each chunk copies all read before it) and hold 20 million at once.
+    const CHUNK = 20_000
+    const chunk = range(0, CHUNK).map(answer)
+    const last = range(1_000_000, 1_000_000 + keep).map(answer)
+    let round = 0
+    const next = (): Answer => {
+      round += 1
+      const final = round === 1000
+      return { found: true, events: final ? last : chunk, cursor: { offset: round * 1000, fileId: FILE }, reset: false, more: !final }
+    }
+    for (let at = 0; at < 1000; at += 1) answers.push(next)
+    const { hook } = await openTranscript()
+    expect(requests).toHaveLength(1000)
+    expect(texts(hook.result.current.events)).toEqual(range(1_000_000, 1_000_000 + keep).map((n) => `answer ${n}`))
+    // Rows are counted from the start of the file, as when every event was kept until the end.
+    expect(hook.result.current.first).toBe(999 * CHUNK)
+    expect(hook.result.current.earlier).toBeNull()
   })
 
   it('the last answer of a Session Node reads on to the end of the file', async () => {

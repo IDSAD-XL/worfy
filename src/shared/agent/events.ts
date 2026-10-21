@@ -16,6 +16,16 @@ export type SessionState = z.infer<typeof sessionState>
 
 const nullableString = z.string().nullable()
 
+/**
+ * Strings keyed by any text, "__proto__" too. z.record builds its output by assignment into a plain
+ * {}, where "__proto__" sets the prototype and the key is lost; this keeps the input object, whose
+ * keys come from JSON or a structured clone as own keys.
+ */
+const stringMap = z.custom<Record<string, string>>(
+  (value) => typeof value === 'object' && value !== null && !Array.isArray(value) && Object.values(value).every((each) => typeof each === 'string'),
+  'Expected an object of strings',
+)
+
 /** A message waiting in a Session's queue; `id` tells two messages with the same text apart. */
 export const queuedMessageSchema = z.object({ id: z.string().min(1), text: z.string() })
 export type QueuedMessage = z.output<typeof queuedMessageSchema>
@@ -100,7 +110,7 @@ export const agentEvent = z.discriminatedUnion('type', [
    * `declined` by the user, or `cancelled` by Interrupt, by closing the Session or by Claude Code;
    * `answers` is empty unless answered.
    */
-  timed({ type: z.literal('question_resolved'), requestId: z.string().min(1), outcome: z.enum(['answered', 'declined', 'cancelled']), answers: z.record(z.string(), z.string()) }),
+  timed({ type: z.literal('question_resolved'), requestId: z.string().min(1), outcome: z.enum(['answered', 'declined', 'cancelled']), answers: stringMap }),
   /**
    * An unattended Session (Autopilot, src/main/agent/session-settings.ts) refused something that
    * would have waited for a person, and showed nothing: a permission request (`subject`: the tool's

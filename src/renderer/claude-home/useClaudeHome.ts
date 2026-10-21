@@ -408,11 +408,21 @@ function transcriptReader(root: string, sessionId: string, agentId?: string): Tr
    * A main that does not know `back` (an older build on a Linked machine: LINK_PROTOCOL_VERSION
    * did not change) drops it, reads forward from the start of the file and answers without
    * `earlier`. Read on to the end the old way and draw the newest KEEP_EVENTS events once, with no
-   * «Load earlier».
+   * «Load earlier». Only the newest KEEP_EVENTS are held between chunks: a long file costs one
+   * chunk of memory above them, not the whole file.
    */
   const readFromStart = async (first: TranscriptAnswer): Promise<void> => {
     let answer = first
-    let events = [...first.events]
+    // The events before `events`, dropped while reading: rows stay counted from the start of the file.
+    let dropped = 0
+    let events: AgentEvent[] = []
+    const keepNewest = (more: readonly AgentEvent[]): void => {
+      const all = [...events, ...more]
+      const over = Math.max(0, all.length - KEEP_EVENTS)
+      dropped += over
+      events = over === 0 ? all : all.slice(over)
+    }
+    keepNewest(first.events)
     for (let round = 0; answer.more && round < 1000; round += 1) {
       const result = await ask({ cursor: answer.cursor, maxBytes: CHUNK_BYTES })
       if (closed()) return
@@ -423,10 +433,14 @@ function transcriptReader(root: string, sessionId: string, agentId?: string): Tr
         setTranscript(key, { ...EMPTY_TRANSCRIPT, loaded: true })
         return
       }
-      events = answer.reset ? [...answer.events] : [...events, ...answer.events]
+      if (answer.reset) {
+        dropped = 0
+        events = []
+      }
+      keepNewest(answer.events)
     }
     cursor = answer.cursor
-    setTranscript(key, { ...capped({ ...EMPTY_TRANSCRIPT, events, offsets: events.map(() => -1) }), loaded: true, found: true })
+    setTranscript(key, { ...EMPTY_TRANSCRIPT, events, offsets: events.map(() => -1), first: dropped, loaded: true, found: true })
   }
 
   /** Everything written after `cursor`, read forward and drawn once. */
@@ -437,6 +451,10 @@ function transcriptReader(root: string, sessionId: string, agentId?: string): Tr
     for (let round = 0; round < 1000; round += 1) {
       const result = await ask({ cursor: at, maxBytes: CHUNK_BYTES })
       if (closed()) return
+      // «Load earlier» found the file replaced while this read ran, and cleared `cursor` to open it
+      // again from its end: this read joins events that are gone, and setting `cursor` here would
+      // undo that request. follow() opens the file next (it was asked again meanwhile).
+      if (cursor === undefined) return
       if (!result.ok) return failed(result.error)
       const answer = result.value
       if (!answer.found) {
