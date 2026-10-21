@@ -411,15 +411,17 @@ function shortHome(file) {
 }
 
 // --- what changed --------------------------------------------------------------------------
+// A rename counts as its two paths (`--no-renames`: the old path arrives as a deletion), so a file
+// moved from one package to another puts both in the scope. `-z`: the paths come NUL-separated,
+// never quoted or escaped.
 function changedPaths() {
+    const nul = (text) => (text ? text.split("\0") : [])
     const found = []
-    // the worktree and the index, with rename arrows removed
-    for (const line of lines(git(["-c", "core.quotePath=false", "status", "--porcelain"]).stdout)) {
-        found.push(line.slice(3).replace(/^.* -> /, ""))
-    }
+    // the worktree and the index: two status letters and a space, then the path
+    for (const entry of nul(git(["status", "--porcelain", "--no-renames", "-z"]).stdout)) found.push(entry.slice(3))
     // everything the branch added on top of its base
-    if (mb) found.push(...lines(git(["-c", "core.quotePath=false", "diff", "--name-only", `${mb}...HEAD`]).stdout))
-    return [...new Set(found.map((p) => p.replace(/^"/, "").replace(/"$/, "")).filter(Boolean))].sort()
+    if (mb) found.push(...nul(git(["diff", "--name-only", "--no-renames", "-z", `${mb}...HEAD`, "--"]).stdout))
+    return [...new Set(found.filter(Boolean))].sort()
 }
 
 // --- files that grew past the size limit --------------------------------------------

@@ -900,7 +900,7 @@ EOF
     at "status --porcelain" group:TERM "$R" node
     untouched "SIGTERM to the group in git status" 143 "$R" "$before"
     at "status --porcelain" child "$R" node
-    couldnt "git status ended by a signal the gate did not get" "$R" "$before" "git -c core.quotePath=false status --porcelain was ended by the signal SIGTERM"
+    couldnt "git status ended by a signal the gate did not get" "$R" "$before" "git status --porcelain --no-renames -z was ended by the signal SIGTERM"
     # The git call that finds the worktree, before the gate has handlers: still not an answer. The
     # gate does not know the worktree yet, so it leaves no marker.
     at "rev-parse --show-toplevel" child "$R" node GATE_SCOPE=all
@@ -1189,7 +1189,7 @@ else bad "git rev-parse --show-toplevel ended alone: rc=$rc, verdict file: $([ -
 # (d) git whose output went past the limit: Node ended it, no signal came from outside.
 touched
 fake "$R" enobufs "status --porcelain" GATE_SCOPE=all
-if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] not verified: git -c core.quotePath=false status --porcelain wrote more output than the gate reads, and Node ended it"* ]] \
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] not verified: git status --porcelain --no-renames -z wrote more output than the gate reads, and Node ended it"* ]] \
     && [[ "$out" != *"was ended by the signal"* ]] && [ ! -e "$VR" ] && [ -s "$MR" ]; then
     ok "git with output past the limit: exit 3, the line says so and names no signal, no verdict file, the marker"
 else bad "git with output past the limit: rc=$rc, out: ${out:0:300}"; fi
