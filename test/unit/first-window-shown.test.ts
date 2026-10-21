@@ -21,10 +21,16 @@ class FakeWindow extends EventEmitter implements WatchedWindow {
 
 const TIMEOUT_MS = 30_000
 
+/**
+ * The function rebuilt from its source text, as app.evaluate sends it to main: a name from outside
+ * its body, even in a rare branch, fails here with a ReferenceError instead of only in main.
+ */
+const fromSource = new Function(`return (${String(waitForFirstWindowShown)})`)() as typeof waitForFirstWindowShown
+
 /** Starts the wait over `windows` (read again on every tick) and keeps what it resolved with. */
 function startWait(windows: FakeWindow[]): { result: () => ShowWait | undefined } {
   let result: ShowWait | undefined
-  void waitForFirstWindowShown({ BrowserWindow: { getAllWindows: () => windows } }, { intervalMs: SHOW_POLL_MS, timeoutMs: TIMEOUT_MS }).then((value) => {
+  void fromSource({ BrowserWindow: { getAllWindows: () => windows } }, { intervalMs: SHOW_POLL_MS, timeoutMs: TIMEOUT_MS }).then((value) => {
     result = value
   })
   return { result: () => result }

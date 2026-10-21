@@ -151,10 +151,13 @@ PNG 2560 × 1600 сохранён; правка откатана из копии
 true, в выводе приложения — «the window was shown on ready-to-show». Причина — в Electron 44.5.1 на macOS: событие
 `show` приходит только из уведомления о смене occlusion state окна (`windowDidChangeOcclusionState`), а не из
 `show()`/`showInactive()`, и `isVisible()` тоже читает occlusion state. Нет уведомления — нет `show`, а
-`isVisible()` становится true позже. Исправление только в test-ах. `launchApp` ждёт первое из трёх событий:
-`isVisible()` true (main опрашивает каждые 100 ms, функция `waitForFirstWindowShown` в
-`test/e2e/first-window-shown.ts`), событие `show` или строку приложения в stdout о том, что оно вызвало `show()`.
-Hook в `src/` не понадобился. Диагностика теперь пишет, вызвало ли приложение show, каким путём и через сколько
-секунд после запуска. К состоянию окна добавлены `isFocused`, `app.isHidden()` и `powerMonitor.getSystemIdleState()`.
-Unit test-ы: `test/unit/first-window-shown.test.ts` (в том числе случай этого сбоя) и новые случаи в
-`test/unit/start-diagnosis.test.ts`. Мутант «только событие» красный: 5 из 7 test-ов.
+`isVisible()` становится true позже. Исправление только в test-ах. `launchApp` ждёт, пока `isVisible()` станет
+true (main опрашивает каждые 100 ms, функция `waitForFirstWindowShown` в `test/e2e/first-window-shown.ts`) или
+придёт событие `show`. Строка приложения в stdout о вызове `show()` окно не «отпускает»: она приходит до того, как
+macOS сообщит, что окно видно, а `quiet-windows.spec.ts` читает `isVisible()` сразу после `launchApp`. Эта строка
+идёт только в диагностику: вызвало ли приложение show, каким путём и через сколько секунд после запуска. Hook в
+`src/` не понадобился. К состоянию окна в диагностике добавлены `isFocused`, `app.isHidden()` и
+`powerMonitor.getSystemIdleState()`. Тот же опрос заменил ожидание `show` у второго окна в `quiet-windows.spec.ts`.
+Unit test-ы: `test/unit/first-window-shown.test.ts` (в том числе случай этого сбоя) запускает функцию из её
+исходного текста, как Playwright; новые случаи — в `test/unit/start-diagnosis.test.ts`. Мутант «только событие»
+красный: 5 из 7 test-ов.

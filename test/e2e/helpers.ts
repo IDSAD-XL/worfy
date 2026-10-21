@@ -277,8 +277,8 @@ async function startDiagnostics(
 
 /**
  * Starts the app with isolated data and Claude directories and the fake agent: the built out/
- * bundle by default, or the packaged app when `executablePath` is given. Resolves once the window
- * is on screen.
+ * bundle by default, or the packaged app when `executablePath` is given. Resolves once the first
+ * window is on screen: main reports it visible (isVisible() true) or it has emitted 'show'.
  * Every e2e test launches the app through this helper, so a new isolation variable added to its
  * environment (launchEnv, launch-env.ts) covers the packaged-app tests too.
  */
@@ -333,17 +333,12 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
     // that is undone on a display smaller than the window (a CI runner's is 1024 × 768).
     // Not on the 'show' event alone: on macOS Electron emits it only when the window's occlusion
     // state changes, not from show() itself, and when that notification did not come the wait hung
-    // with the window on screen. So main polls isVisible() (first-window-shown.ts), 'show' still
-    // counts, and so does the app's own line that it called show(): by then macOS has fitted the
-    // window, even if it is hidden behind another one and isVisible() stays false.
-    // The poll in main ends by itself at the deadline; when the app's line wins the race it keeps
-    // polling until then, an isVisible() call every SHOW_POLL_MS.
+    // with the window on screen. So main polls isVisible() (first-window-shown.ts), and 'show'
+    // still counts. The app's own line that it called show() does not: it comes before macOS
+    // reports the window visible, and tests read isVisible() right after launchApp. That line only
+    // tells the diagnosis whether and when the app showed the window.
     const inMain = app.evaluate(waitForFirstWindowShown, { intervalMs: SHOW_POLL_MS, timeoutMs: windowLeft() })
-    const shown = await Promise.race([
-      inMain.then((wait) => (wait.how === 'timeout' ? ('timeout' as const) : ('shown' as const))),
-      output.appShow.whenShown.then(() => 'shown' as const),
-      timeout(windowLeft()),
-    ])
+    const shown = await Promise.race([inMain.then((wait) => (wait.how === 'timeout' ? ('timeout' as const) : ('shown' as const))), timeout(windowLeft())])
     if (shown === 'timeout') {
       throw new Error(`the window was not shown within ${FIRST_WINDOW_TIMEOUT_MS / 1000} s`)
     }

@@ -131,20 +131,13 @@ export const PARTIAL_LINE_LIMIT = 4_096
 
 /**
  * Reads the app's output chunk by chunk for the first line that says the window was shown: a line
- * split across chunks is joined first, and `now` is read when the line is complete. `whenShown`
- * resolves with it; it never resolves for an app that does not say so.
+ * split across chunks is joined first, and `now` is read when the line is complete. Diagnosis
+ * only: the line comes right after show(), before macOS reports the window visible, so launchApp
+ * does not take it as the window being on screen.
  */
-export function appShowWatcher(now: () => number = Date.now): {
-  append: (data: Buffer | string) => void
-  shown: () => AppShow | null
-  whenShown: Promise<AppShow>
-} {
+export function appShowWatcher(now: () => number = Date.now): { append: (data: Buffer | string) => void; shown: () => AppShow | null } {
   let partial = ''
   let shown: AppShow | null = null
-  let resolve: (value: AppShow) => void = () => undefined
-  const whenShown = new Promise<AppShow>((done) => {
-    resolve = done
-  })
   return {
     append: (data) => {
       if (shown !== null) return
@@ -154,12 +147,10 @@ export function appShowWatcher(now: () => number = Date.now): {
         const path = appShowPathOf(line)
         if (path === null) continue
         shown = { path, atMs: now() }
-        resolve(shown)
         return
       }
     },
     shown: () => shown,
-    whenShown,
   }
 }
 

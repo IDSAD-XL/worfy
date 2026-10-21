@@ -188,7 +188,7 @@ describe('appShowPathOf', () => {
 })
 
 describe('appShowWatcher', () => {
-  it('records the first shown line and the time it was read, and resolves whenShown with it', async () => {
+  it('records the first shown line and the time it was read', () => {
     let clock = 1_000
     const watcher = appShowWatcher(() => clock)
     watcher.append('boot\n')
@@ -198,7 +198,6 @@ describe('appShowWatcher', () => {
     clock = 9_000
     watcher.append('[worfy] the window was shown by the fallback: x\n')
     expect(watcher.shown()).toEqual({ path: 'ready-to-show', atMs: 1_600 })
-    await expect(watcher.whenShown).resolves.toEqual({ path: 'ready-to-show', atMs: 1_600 })
   })
 
   it('joins a line split across chunks and reads the clock when the line is complete', () => {
