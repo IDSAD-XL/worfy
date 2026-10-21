@@ -291,7 +291,7 @@ export function BrowserProfiles({ project, selected, onClose }: BrowserProfilesP
         <h2 id={titleId} style={styles.title}>
           Browser profiles
         </h2>
-        <p style={styles.subtitle}>{project.name} · each profile keeps its own cookies and logins. You log in yourself, in a Browser.</p>
+        <p style={styles.subtitle}>{project.name} · each Browser profile keeps its own cookies and logins. You log in yourself, in a Browser.</p>
 
         {profiles === undefined ? <p style={styles.muted}>Loading…</p> : null}
         <ul style={styles.list} aria-label="Browser profiles">

@@ -78,10 +78,10 @@ async function start(): Promise<Page> {
 }
 
 /** The `data` of each Browser Node main saved, by id. */
-function savedBrowsers(): Record<string, { url?: string; profile?: string }> {
+function savedBrowsers(): Record<string, { url?: string; profile?: string | null }> {
   const file = join(dataDir(), PROJECT, 'layout.json')
   if (!existsSync(file)) return {}
-  const layout = JSON.parse(readFileSync(file, 'utf8')) as { nodes: { id: string; kind: string; data: { url?: string; profile?: string } }[] }
+  const layout = JSON.parse(readFileSync(file, 'utf8')) as { nodes: { id: string; kind: string; data: { url?: string; profile?: string | null } }[] }
   return Object.fromEntries(layout.nodes.filter((node) => node.kind === 'browser').map((node) => [node.id, node.data]))
 }
 
@@ -196,6 +196,19 @@ test('a cookie of one Browser profile is seen by its other Browser, not by a Bro
   await window.getByRole('menuitem', { name: 'New browser' }).click()
   await expect(window.getByTestId('browser-choose-profile')).toHaveCount(1)
   await expect(window.getByTestId('browser-choose-profile')).toContainText('no Browser profile yet')
+  // The new Node keeps `profile: null` (worfy-browser ticket 14): it is never taken for a Browser
+  // saved before profiles existed. The palette's «New browser» makes one the same way.
+  const made = () =>
+    Object.entries(savedBrowsers())
+      .filter(([id]) => !['b0', 'b1', 'b2'].includes(id))
+      .map(([, data]) => data.profile)
+  await expect.poll(made, { message: 'the Browser the Canvas menu made' }).toEqual([null])
+  await window.keyboard.press('ControlOrMeta+k')
+  await window.getByTestId('palette-input').fill('new browser')
+  await expect(window.getByTestId('palette-option').first()).toHaveAttribute('data-command', 'new:browser')
+  await window.getByTestId('palette-input').press('Enter')
+  await expect(window.getByTestId('browser-choose-profile')).toHaveCount(2)
+  await expect.poll(made, { message: 'the Browser the palette made' }).toEqual([null, null])
 
   // After a restart the cookie is there for admin, and still not for Default.
   await launched!.close()

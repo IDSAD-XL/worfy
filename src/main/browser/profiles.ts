@@ -162,8 +162,8 @@ const CLOSE_PAGE_MS = 2000
 async function clearElectronPartition(partition: string): Promise<void> {
   const { session, webContents } = await import('electron')
   const browserSession = session.fromPartition(partition)
-  const onIt = (contents: WebContents) =>
-    !contents.isDestroyed() && contents.getType() === 'webview' && (contents.session === browserSession || (browserSession.storagePath !== null && contents.session.storagePath === browserSession.storagePath))
+  // Electron answers one Session object per partition, the same one a <webview> on it has.
+  const onIt = (contents: WebContents) => !contents.isDestroyed() && contents.getType() === 'webview' && contents.session === browserSession
   await Promise.all(
     webContents
       .getAllWebContents()

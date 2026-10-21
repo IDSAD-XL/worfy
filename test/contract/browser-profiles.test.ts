@@ -8,7 +8,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appUrlMatcher, registerIpc } from '../../src/main/ipc/index'
 import { BROWSER_PROFILES_FILE, BrowserProfileStore, browserProfilePartitions, browserProfileStore } from '../../src/main/browser/profiles'
 import { createLinkIpc, LinkPeer, readOnlyRefusal } from '../../src/main/link/ipc-adapter'
@@ -46,7 +46,15 @@ interface FakeGuest {
   partition: string
   destroyed: boolean
   onDestroyed: Listener[]
+  /**
+   * When the page is gone after close(): at once (the default), PAGE_GOES_MS later, or never — a
+   * page that hangs in its unload.
+   */
+  goes?: 'now' | 'later' | 'never'
 }
+
+/** How long a page with `goes: 'later'` takes to go after close(). */
+const PAGE_GOES_MS = 500
 
 const electron = vi.hoisted(() => {
   const partitions = new Map<string, FakeSession>()
@@ -75,7 +83,6 @@ const electron = vi.hoisted(() => {
 vi.mock('electron', () => {
   const asSession = (fake: FakeSession): object => (fake.api ??= makeSession(fake))
   const makeSession = (fake: FakeSession) => ({
-    storagePath: `/sessions/${fake.partition}`,
     setPermissionRequestHandler: (handler: Listener) => {
       fake.request = handler
     },
@@ -118,8 +125,13 @@ vi.mock('electron', () => {
           },
           close: () => {
             electron.log.push(`close ${guest.partition}`)
-            guest.destroyed = true
-            for (const listener of guest.onDestroyed) listener()
+            const go = () => {
+              guest.destroyed = true
+              electron.log.push(`destroyed ${guest.partition}`)
+              for (const listener of guest.onDestroyed) listener()
+            }
+            if (guest.goes === 'later') setTimeout(go, PAGE_GOES_MS)
+            else if (guest.goes !== 'never') go()
           },
         })),
     },
@@ -291,8 +303,54 @@ describe('the Browser profiles of a Project, over the channels', () => {
     const [gone, kept] = [browserPartition(ALPHA, admin.id)!, browserPartition(ALPHA, 'default')!]
     electron.guests.push({ partition: gone, destroyed: false, onDestroyed: [] }, { partition: kept, destroyed: false, onDestroyed: [] }, { partition: gone, destroyed: false, onDestroyed: [] })
     await value('browser.profiles.delete', { projectId: ALPHA, id: admin.id })
-    expect(electron.log).toEqual([`close ${gone}`, `close ${gone}`, `storage ${gone}`])
+    expect(electron.log).toEqual([`close ${gone}`, `destroyed ${gone}`, `close ${gone}`, `destroyed ${gone}`, `storage ${gone}`])
     expect(electron.guests.map((guest) => guest.destroyed)).toEqual([true, false, true])
+  })
+
+  describe('a page that takes its time to go (fake timers)', () => {
+    beforeEach(() => {
+      // Only the timers: the files and the IPC run as they do.
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    /** Lets the promises of the delete run, without moving the fake clock. */
+    const settle = async (): Promise<void> => {
+      for (let turn = 0; turn < 20; turn += 1) await new Promise((resolve) => setImmediate(resolve))
+    }
+
+    it('erases the storage only once the page is gone, not when it is asked to close', async () => {
+      const admin = await value('browser.profiles.create', { projectId: ALPHA, name: 'admin' })
+      const gone = browserPartition(ALPHA, admin.id)!
+      electron.guests.push({ partition: gone, destroyed: false, onDestroyed: [], goes: 'later' })
+      const deleting = call('browser.profiles.delete', { projectId: ALPHA, id: admin.id })
+      await settle()
+      expect(electron.log).toEqual([`close ${gone}`])
+      await vi.advanceTimersByTimeAsync(PAGE_GOES_MS - 1)
+      await settle()
+      expect(electron.log, 'the page is still there: nothing erased yet').toEqual([`close ${gone}`])
+      await vi.advanceTimersByTimeAsync(1)
+      expect(await deleting).toEqual({ ok: true, value: { id: admin.id } })
+      expect(electron.log).toEqual([`close ${gone}`, `destroyed ${gone}`, `storage ${gone}`])
+      expect(electron.partitions.get(gone)?.cleared).toEqual(['storage', 'cache', 'auth'])
+    })
+
+    it('erases the storage anyway when a page has not gone 2 s after it was asked to close (CLOSE_PAGE_MS)', async () => {
+      const admin = await value('browser.profiles.create', { projectId: ALPHA, name: 'admin' })
+      const gone = browserPartition(ALPHA, admin.id)!
+      electron.guests.push({ partition: gone, destroyed: false, onDestroyed: [], goes: 'never' }, { partition: gone, destroyed: false, onDestroyed: [], goes: 'later' })
+      const deleting = call('browser.profiles.delete', { projectId: ALPHA, id: admin.id })
+      await settle()
+      await vi.advanceTimersByTimeAsync(1999)
+      await settle()
+      expect(electron.log, 'one page went, the other hangs: nothing erased yet').toEqual([`close ${gone}`, `close ${gone}`, `destroyed ${gone}`])
+      await vi.advanceTimersByTimeAsync(1)
+      expect(await deleting).toEqual({ ok: true, value: { id: admin.id } })
+      expect(electron.log).toEqual([`close ${gone}`, `close ${gone}`, `destroyed ${gone}`, `storage ${gone}`])
+      expect(electron.partitions.get(gone)?.cleared).toEqual(['storage', 'cache', 'auth'])
+    })
   })
 
   it('Default can be renamed and deleted like any other; a Project whose list was emptied keeps it empty', async () => {

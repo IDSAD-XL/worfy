@@ -50,18 +50,20 @@ export function browserUrl(node: LayoutNode): string | null {
  * - `choose` — the frame shows «Choose a profile»: the Node's profile was deleted (`deleted`), the
  *   Project has several and the Node none yet (`several`), or the Project has none (`none`).
  *
- * A Node without `data.profile` is either a Browser opened before profiles existed or a new one:
- * «New browser» makes a Node with empty `data` (the Canvas menu and the palette, which this ticket
- * does not change). The two are told apart by the page address: an old Browser that had a page keeps
- * a web address in `data.url` and stays on `default`, where its logins are; once `default` is
- * deleted it asks, as any Browser of a deleted profile does. Without an address — a new Browser, or an old empty frame, which loses no page — the only
- * profile of the Project is taken, and with several the frame asks: that is how «New browser» asks
- * for a profile only when there is more than one.
+ * «New browser» (the Canvas menu and the palette, newNodeData in ../overlays/create-items.ts) writes
+ * the profile into the Node it makes: the only profile of the Project, or `null` while there are
+ * several or none, or the profiles are not read yet (newBrowserData). A Node with `profile: null`
+ * takes the only profile when there is one by then, and otherwise the frame asks.
  *
- * Why the frame asks rather than «New browser» itself: the two places that create the Node (the
- * Canvas menu and the palette) were being changed by PR #682 when this was written, so they keep
- * creating it with empty `data`. The reasons are in the result section of worfy-browser ticket 03
- * (.scratch/worfy-browser/issues/03-browser-profile.md).
+ * A Node with no `profile` key at all is a Browser saved before profiles existed. Such a Browser
+ * that had a page keeps a web address in `data.url` and stays on `default`, where its logins are;
+ * once `default` is deleted it asks, as any Browser of a deleted profile does. Without an address
+ * it is an empty frame, which loses no page: it is treated as a new one. The Browser layer writes
+ * the profile picked into the Node, so each old Browser goes through this rule once.
+ * Remove the `data.url` rule once no saved Layout can still hold a Browser Node without the
+ * `profile` key: after a Layout migration writes `profile: "default"` into such Nodes, or once
+ * the owner has opened the Canvas of every Project with a build that has profiles (PR #691) while
+ * `default` still existed.
  */
 export type BrowserProfileChoice = { kind: 'loading' } | { kind: 'use'; id: string; write: boolean } | { kind: 'choose'; reason: 'deleted' | 'several' | 'none' }
 
@@ -69,10 +71,21 @@ export function browserProfileChoice(data: { profile?: unknown; url?: unknown },
   if (profiles === undefined) return { kind: 'loading' }
   const has = (id: string) => profiles.some((profile) => profile.id === id)
   if (typeof data.profile === 'string') return has(data.profile) ? { kind: 'use', id: data.profile, write: false } : { kind: 'choose', reason: 'deleted' }
-  if (webAddress(data.url) !== null) return has(DEFAULT_BROWSER_PROFILE) ? { kind: 'use', id: DEFAULT_BROWSER_PROFILE, write: true } : { kind: 'choose', reason: 'deleted' }
+  if (data.profile === undefined && webAddress(data.url) !== null) return has(DEFAULT_BROWSER_PROFILE) ? { kind: 'use', id: DEFAULT_BROWSER_PROFILE, write: true } : { kind: 'choose', reason: 'deleted' }
   const [only] = profiles
   if (profiles.length === 1 && only !== undefined) return { kind: 'use', id: only.id, write: true }
   return { kind: 'choose', reason: profiles.length === 0 ? 'none' : 'several' }
+}
+
+/**
+ * The `data` of a Browser that «New browser» makes (worfy-browser ticket 14): the only profile of
+ * the Project, so the Browser opens under it at once; `null` while the Project has several or none,
+ * or `profiles` are not read yet. `null`, not a missing key, marks the Node as new: the rule for
+ * Browsers saved before profiles existed (browserProfileChoice) never applies to it.
+ */
+export function newBrowserData(profiles: readonly { id: string }[] | undefined): { profile: string | null } {
+  const [only] = profiles ?? []
+  return { profile: profiles?.length === 1 && only !== undefined ? only.id : null }
 }
 
 /**

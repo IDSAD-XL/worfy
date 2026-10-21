@@ -2,7 +2,7 @@
 // src/renderer/canvas/nodes/browser-frame.ts): the profile the Node keeps; for a Node without one, an
 // old Browser (a page address) stays on `default` and a new one takes the only profile or asks.
 import { describe, expect, it } from 'vitest'
-import { browserProfileChoice, browserProfileUsage } from '../../src/renderer/canvas/nodes/browser-frame'
+import { browserProfileChoice, browserProfileUsage, newBrowserData } from '../../src/renderer/canvas/nodes/browser-frame'
 
 describe('which Browser profile a Browser Node is opened under (browserProfileChoice)', () => {
   const p = (...ids: string[]) => ids.map((id) => ({ id }))
@@ -41,6 +41,15 @@ describe('which Browser profile a Browser Node is opened under (browserProfileCh
     for (const profile of [null, 7, { id: 'default' }]) expect(browserProfileChoice({ profile }, p('default', 'admin-aaaaaa')), JSON.stringify(profile)).toEqual({ kind: 'choose', reason: 'several' })
   })
 
+  it('applies the rule for old Browsers only to a Node with no `profile` key: a new Browser (`profile: null`) with an address takes the only profile or asks (worfy-browser ticket 14)', () => {
+    expect(browserProfileChoice({ profile: null, url: page }, p('default', 'admin-aaaaaa'))).toEqual({ kind: 'choose', reason: 'several' })
+    expect(browserProfileChoice({ profile: null, url: page }, p('admin-aaaaaa'))).toEqual({ kind: 'use', id: 'admin-aaaaaa', write: true })
+    expect(browserProfileChoice({ profile: null }, p('default'))).toEqual({ kind: 'use', id: 'default', write: true })
+    expect(browserProfileChoice({ profile: null }, p())).toEqual({ kind: 'choose', reason: 'none' })
+    // The same address with no `profile` key at all: an old Browser, kept on `default`.
+    expect(browserProfileChoice({ url: page }, p('default', 'admin-aaaaaa'))).toEqual({ kind: 'use', id: 'default', write: true })
+  })
+
   it('a Browser with a page whose `default` was deleted asks, as any Browser of a deleted profile does, even with one profile left', () => {
     expect(browserProfileChoice({ url: page }, p('admin-aaaaaa'))).toEqual({ kind: 'choose', reason: 'deleted' })
     expect(browserProfileChoice({ url: page }, p('admin-aaaaaa', 'user-bbbbbb'))).toEqual({ kind: 'choose', reason: 'deleted' })
@@ -74,5 +83,23 @@ describe('how many Browsers use each profile (browserProfileUsage), named before
 
   it('counts nothing while the profiles are not read', () => {
     expect(browserProfileUsage([{ profile: 'admin-aaaaaa' }, { url: page }, {}], undefined)).toEqual({})
+  })
+})
+
+describe('the data «New browser» gives a new Browser Node (newBrowserData, worfy-browser ticket 14)', () => {
+  const p = (...ids: string[]) => ids.map((id) => ({ id }))
+
+  it('the only profile of the Project, so the Browser opens under it at once', () => {
+    expect(newBrowserData(p('default'))).toEqual({ profile: 'default' })
+    expect(newBrowserData(p('admin-aaaaaa'))).toEqual({ profile: 'admin-aaaaaa' })
+  })
+
+  it('null with several profiles, none, or while they are not read: the frame then takes the only one or asks, never by the old Browsers\' rule', () => {
+    expect(newBrowserData(p('default', 'admin-aaaaaa'))).toEqual({ profile: null })
+    expect(newBrowserData(p())).toEqual({ profile: null })
+    expect(newBrowserData(undefined)).toEqual({ profile: null })
+    for (const profiles of [p('default', 'admin-aaaaaa'), p()]) {
+      expect(browserProfileChoice({ ...newBrowserData(profiles), url: 'http://127.0.0.1:3000/page.html' }, profiles).kind).toBe('choose')
+    }
   })
 })

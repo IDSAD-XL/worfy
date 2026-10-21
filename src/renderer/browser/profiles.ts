@@ -28,6 +28,15 @@ export function reloadBrowserProfiles(projectId: string): void {
   )
 }
 
+/**
+ * The Project's profiles as this window knows them now, without reading them from main: undefined
+ * when none was read yet. The Browser layer of the Canvas keeps them current (useBrowserProfiles);
+ * «New browser» takes them from here when it makes a Node (../canvas/overlays/create-items.ts).
+ */
+export function browserProfilesNow(projectId: string): readonly BrowserProfile[] | undefined {
+  return useProfiles.getState()[projectId]
+}
+
 /** The Project's profiles, kept current while the caller is mounted; undefined until the first answer. */
 export function useBrowserProfiles(projectId: string | undefined): readonly BrowserProfile[] | undefined {
   useEffect(() => {
