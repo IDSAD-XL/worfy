@@ -529,88 +529,172 @@ function filesAt(work, rev, paths, env) {
   return files
 }
 
+/** Keywords after which a `/` starts a regular expression, not a division. */
+const REGEX_AFTER_WORD = new Set(['return', 'typeof', 'case', 'in', 'of', 'delete', 'void', 'throw', 'new', 'else', 'do', 'yield', 'await'])
+
 /**
- * `text` without its `//` and `/* *\/` comments; strings in '…', "…" and `…` are kept whole. A block
- * comment leaves its line breaks, so the lines of the code around it stay apart.
- * shortcut: a regular expression literal that holds a quote or two slashes, and a template literal
- * with a backtick inside `${…}`, are read as code; replace with a real JavaScript tokenizer when a
- * task's tests use either in a test body.
+ * Whether the `/` at `i` starts a regular expression literal: it is first on its line, or follows
+ * one of `( , = : [ ! & | ? { } ;` or a keyword such as `return`.
+ * shortcut: a regular expression after another operator (`+`, `<`) is read as a division; replace
+ * with a real JavaScript tokenizer when a task's tests write one there.
+ */
+function regexStarts(text, i) {
+  let j = i - 1
+  while (j >= 0 && (text[j] === ' ' || text[j] === '\t')) j--
+  if (j < 0 || text[j] === '\n' || '(,=:[!&|?{};'.includes(text[j])) return true
+  const word = /[\w$]+$/.exec(text.slice(Math.max(0, j - 10), j + 1))
+  return word !== null && REGEX_AFTER_WORD.has(word[0])
+}
+
+/**
+ * The end (exclusive) of the string or regular expression literal that starts at `i`, or -1 when
+ * none does there. Strings are '…', "…" and `…`; a literal left open ends at the end of its line
+ * (a template literal at the end of `text`).
+ * shortcut: a template literal with a backtick inside `${…}` ends at that backtick; replace with a
+ * real JavaScript tokenizer when a task's tests nest template literals.
+ */
+function literalEnd(text, i) {
+  const c = text[i]
+  if (c === "'" || c === '"' || c === '`') {
+    let j = i + 1
+    while (j < text.length && text[j] !== c && (c === '`' || text[j] !== '\n')) j += text[j] === '\\' ? 2 : 1
+    return Math.min(j + 1, text.length)
+  }
+  if (c !== '/' || text[i + 1] === '/' || text[i + 1] === '*' || !regexStarts(text, i)) return -1
+  let inClass = false
+  for (let j = i + 1; j < text.length; j++) {
+    const d = text[j]
+    if (d === '\\') j++
+    else if (d === '\n') return j
+    else if (d === '[') inClass = true
+    else if (d === ']') inClass = false
+    else if (d === '/' && !inClass) return j + 1 + (/^\w*/.exec(text.slice(j + 1))?.[0].length ?? 0)
+  }
+  return text.length
+}
+
+/**
+ * `text` without its `//` and `/* *\/` comments; string and regular expression literals are kept
+ * whole. A block comment leaves its line breaks, so the lines of the code around it stay apart.
  */
 function stripComments(text) {
   let out = ''
   for (let i = 0; i < text.length; ) {
-    const c = text[i]
-    if (c === "'" || c === '"' || c === '`') {
-      let j = i + 1
-      while (j < text.length && text[j] !== c && (c === '`' || text[j] !== '\n')) j += text[j] === '\\' ? 2 : 1
-      out += text.slice(i, j + 1)
-      i = j + 1
-    } else if (c === '/' && text[i + 1] === '/') {
+    const end = literalEnd(text, i)
+    if (end >= 0) {
+      out += text.slice(i, end)
+      i = end
+    } else if (text[i] === '/' && text[i + 1] === '/') {
       const eol = text.indexOf('\n', i)
       i = eol < 0 ? text.length : eol
-    } else if (c === '/' && text[i + 1] === '*') {
-      const end = text.indexOf('*/', i + 2)
-      const comment = text.slice(i, end < 0 ? text.length : end + 2)
+    } else if (text[i] === '/' && text[i + 1] === '*') {
+      const close = text.indexOf('*/', i + 2)
+      const comment = text.slice(i, close < 0 ? text.length : close + 2)
       out += ` ${comment.replace(/[^\n]/g, '')}`
       i += comment.length
     } else {
-      out += c
-      i++
+      out += text[i++]
     }
   }
   return out
 }
 
-/** The index of the `)` that closes the `(` at `open`, skipping strings; the end of `text` when none does. */
-function closingParen(text, open) {
+/**
+ * The index of the bracket that closes the `(`, `[` or `{` at `open`, skipping string and regular
+ * expression literals; the end of `text` when none does.
+ */
+function closing(text, open) {
+  const [left, right] = { '(': '()', '[': '[]', '{': '{}' }[text[open]]
   let depth = 0
-  for (let i = open; i < text.length; i++) {
-    const c = text[i]
-    if (c === "'" || c === '"' || c === '`') {
-      i++
-      while (i < text.length && text[i] !== c) i += text[i] === '\\' ? 2 : 1
-    } else if (c === '(') depth++
-    else if (c === ')' && --depth === 0) return i
+  for (let i = open; i < text.length; ) {
+    const end = literalEnd(text, i)
+    if (end >= 0) {
+      i = end
+      continue
+    }
+    if (text[i] === left) depth++
+    else if (text[i] === right && --depth === 0) return i
+    i++
   }
   return text.length
 }
 
 /** A test call with a quoted name: test(, it(, describe(, with .skip, .only and the like, and the x/f forms. */
-const TEST_CALL = /\b(?:x|f)?(?:it|test|describe)((?:\.\w+)*)\s*\(\s*(['"`])((?:\\.|(?!\2)[^\\\n])*)\2/g
-/** A skip, todo or only marker: a modifier, an option, or the x/f forms. */
-const SKIP_MARK = /\.(?:skip|only|todo)\b|\b(?:skip|only|todo)\s*:\s*(?:true|['"`])|\b(?:xit|xtest|xdescribe|fit|fdescribe)\s*\(/g
+const TEST_CALL = /\b(x|f)?(?:it|test|describe)((?:\.\w+)*)\s*\(\s*(['"`])((?:\\.|(?!\3)[^\\\n])*)\3/g
+/** A skip, todo or only modifier of a test call. */
+const SKIP_MODIFIER = /\.(?:skip|only|todo)\b/
+/** A skip, todo or only key in the options argument of a test call. */
+const SKIP_OPTION = /\b(?:skip|only|todo)\s*:\s*(?:true|['"`])/
 
 /**
- * The tests of a test file without its comments: name → the bodies of the calls of that name, in
- * order. A body is everything after the name up to the closing `)` of the call, as its lines with
- * spaces collapsed and empty lines dropped. A describe's body holds the tests inside it.
+ * The test calls of a test file without its comments, in order: { name, lines, skipped }. `lines`
+ * is the body: everything after the name up to the closing `)` of the call, without the test calls
+ * nested in it (they are compared on their own), as its lines with spaces collapsed and empty lines
+ * dropped. `skipped` is an x/f form, a skip, todo or only modifier, or such a key in an options
+ * object right after the name: `test(name, { skip: true }, fn)`.
  */
-function testsOf(code) {
-  const tests = new Map()
-  for (const call of code.matchAll(TEST_CALL)) {
+function testCalls(code) {
+  const spans = [...code.matchAll(TEST_CALL)].map((call) => {
     const after = call.index + call[0].length
-    const lines = code
-      .slice(after, closingParen(code, call.index + call[0].indexOf('(')) + 1)
+    const options = /^\s*,\s*\{/.exec(code.slice(after))
+    const optionsOpen = options ? after + options[0].length - 1 : -1
+    const skipped = Boolean(call[1]) || SKIP_MODIFIER.test(call[2]) || (options !== null && SKIP_OPTION.test(code.slice(optionsOpen, closing(code, optionsOpen) + 1)))
+    return { name: call[4], start: call.index, after, end: closing(code, call.index + call[0].indexOf('(')) + 1, skipped }
+  })
+  return spans.map((span) => {
+    let body = ''
+    let at = span.after
+    for (const inner of spans) {
+      if (inner.start < at || inner.start >= span.end) continue
+      body += code.slice(at, inner.start)
+      at = Math.min(inner.end, span.end)
+    }
+    body += code.slice(at, span.end)
+    const lines = body
       .split('\n')
       .map((line) => line.replace(/\s+/g, ' ').trim())
       .filter(Boolean)
-    tests.set(call[3], [...(tests.get(call[3]) ?? []), lines])
-  }
-  return tests
+    return { name: span.name, lines, skipped: span.skipped }
+  })
 }
 
-/** Whether every line of `base` is in `now`, in the same order: lines were added and none changed. */
-function onlyAdded(base, now) {
+/** A line that is one whole assertion: assert(…), assert.x(…) or expect(…)…, its brackets closed on the line. */
+function wholeAssertion(line) {
+  if (!/^(?:assert(?:\.\w+)*|expect)\s*\(/.test(line) || !/\);?$/.test(line)) return false
+  let depth = 0
+  for (let i = 0; i < line.length; ) {
+    const end = literalEnd(line, i)
+    // A literal left open runs to the end of the line, and the bracket before it stays open.
+    if (end >= 0) {
+      i = end
+      continue
+    }
+    if ('([{'.includes(line[i])) depth++
+    else if (')]}'.includes(line[i]) && --depth < 0) return false
+    i++
+  }
+  return depth === 0
+}
+
+/**
+ * Whether `now` keeps every line of `base` in the same order, and every line it adds is a whole
+ * assertion. Any other added line (`if (false) {`, `return`, a second key in an expectation) can
+ * disarm the lines around it, so it counts as a change.
+ */
+function onlyNewAssertions(base, now) {
   let at = 0
-  for (const line of now) if (at < base.length && line === base[at]) at++
+  for (const line of now) {
+    if (at < base.length && line === base[at]) at++
+    else if (!wholeAssertion(line)) return false
+  }
   return at === base.length
 }
 
 /**
  * Compares the test files of `base` with the files on disk, comments left out on both sides: a file
- * deleted, a test name gone, an existing test whose body changed other than by added lines, a skip,
- * todo or only marker added. New tests, new lines in a test, new files and edits outside the tests
- * are fine.
+ * deleted, a test name gone, an existing test whose body changed other than by whole assertions
+ * added, a skip, todo or only marker added to a test call. New tests (also inside an existing
+ * describe), new assertions in a test, new files and edits outside the tests are fine.
  */
 function testsIntact(work, base, paths, env) {
   const values = { deleted_files: 0, removed_tests: 0, altered_tests: 0, added_skips: 0 }
@@ -620,18 +704,19 @@ function testsIntact(work, base, paths, env) {
       values.deleted_files++
       continue
     }
-    const before = stripComments(blob.toString('utf8'))
-    const after = stripComments(readFileSync(onDisk, 'utf8'))
-    if (before === after) continue
-    const now = testsOf(after)
-    for (const [name, bodies] of testsOf(before)) {
-      const nowBodies = now.get(name) ?? []
-      bodies.forEach((body, i) => {
-        if (i >= nowBodies.length) values.removed_tests++
-        else if (!onlyAdded(body, nowBodies[i])) values.altered_tests++
-      })
+    const before = testCalls(stripComments(blob.toString('utf8')))
+    const after = testCalls(stripComments(readFileSync(onDisk, 'utf8')))
+    const now = Map.groupBy(after, (call) => call.name)
+    const seen = new Map()
+    for (const call of before) {
+      const i = seen.get(call.name) ?? 0
+      seen.set(call.name, i + 1)
+      const match = now.get(call.name)?.[i]
+      if (!match) values.removed_tests++
+      else if (!onlyNewAssertions(call.lines, match.lines)) values.altered_tests++
     }
-    values.added_skips += Math.max(0, (after.match(SKIP_MARK) ?? []).length - (before.match(SKIP_MARK) ?? []).length)
+    const skips = (calls) => calls.filter((call) => call.skipped).length
+    values.added_skips += Math.max(0, skips(after) - skips(before))
   }
   return values
 }
@@ -850,8 +935,10 @@ function refsOf(expr) {
 }
 
 /**
- * The fields the metrics read from a judge that answered without them, as lines "check <name>: the
- * judge gave no <field>". A bare reference to a judge check reads its `pass`.
+ * The fields the metrics read from a judge that answered without them or with a value a metric
+ * cannot count (null, a string, an object), as lines "check <name>: …"; without this such a run
+ * would drop out of the metric's n. A bare reference to a judge check reads its `pass`, which must
+ * be a boolean.
  */
 function missingJudgeFields(spec, record) {
   const judges = new Set(spec.checks.filter((check) => check.kind === 'judge').map((check) => check.name))
@@ -862,7 +949,10 @@ function missingJudgeFields(spec, record) {
       const values = record.checks[name]?.values
       if (!judges.has(name) || !values) continue
       const field = rest.join('.') || 'pass'
-      if (values[field] === undefined || (field === 'pass' && typeof values.pass !== 'boolean')) missing.add(`check ${name}: the judge gave no ${field}`)
+      const value = values[field]
+      if (value === undefined) missing.add(`check ${name}: the judge gave no ${field}`)
+      else if (field === 'pass' ? typeof value !== 'boolean' : typeof value !== 'boolean' && typeof value !== 'number')
+        missing.add(`check ${name}: the judge gave ${field} as ${JSON.stringify(value)}, not ${field === 'pass' ? 'a boolean' : 'a boolean or a number'}`)
     }
   }
   return [...missing]
