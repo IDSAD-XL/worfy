@@ -2,7 +2,7 @@
 
 Type: task
 Status: done 2026-10-21T01:18Z
-PR: #PR_NUMBER
+PR: #647
 Branch: worfy-canvas/18
 Blocked by: —
 Source: владелец, 2026-10-21, скриншот карточки 27: шапка «27 ●●●●●●●○○ Closing ! · ow…», заголовок,
