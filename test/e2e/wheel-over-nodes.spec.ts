@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
-import { chooseGitBash, WINDOWS } from './terminal-shell'
+import { chooseGitBash, WINDOWS, windowsProfileEnv } from './terminal-shell'
 
 // The wheel over a Node (worfy-week ticket 16). Until a Node is clicked, a wheel or a two-finger
 // swipe over it moves the Canvas, whatever the Node draws: a scrolling HANDOFF, a Note's textarea,
@@ -105,7 +105,7 @@ const statusBlock = (window: Page) => window.getByTestId('orchestrator-status-bl
 
 /** Starts the app over the fixture, with the Orchestrator's status block shown and 200 lines of output in the Terminal. */
 async function start(): Promise<Page> {
-  launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_AGENT_SCRIPT: 'orchestrator', SHELL: '/bin/sh', HOME: home } })
+  launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_AGENT_SCRIPT: 'orchestrator', SHELL: '/bin/sh', HOME: home, ...windowsProfileEnv(join(scratch, 'profile')) } })
   const { window } = launched
   await expect(window.getByTestId('terminal-node')).toHaveAttribute('data-state', 'running')
   await expect(window.frameLocator('[data-card-id="c1"] iframe').locator('body[data-ready="yes"]')).toHaveCount(1)

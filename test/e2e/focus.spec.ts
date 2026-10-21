@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
-import { printJoined, WINDOWS } from './terminal-shell'
+import { printJoined, WINDOWS, windowsProfileEnv } from './terminal-shell'
 import { settled } from './wait'
 
 // Focus mode against the built app: selected Nodes fill the window as tiles, presets, dividers
@@ -343,7 +343,7 @@ test('a Terminal in focus mode gets the size of its tile, and after leaving focu
   const home = join(scratch, 'home')
   mkdirSync(home)
   writeFileSync(layoutFile, JSON.stringify({ nodes: [{ id: 'term', kind: 'terminal', x: 40, y: 40, w: 560, h: 340, data: {} }], viewport: VIEWPORT }))
-  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, SHELL: '/bin/sh', HOME: home } })
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, SHELL: '/bin/sh', HOME: home, ...windowsProfileEnv(join(scratch, 'profile')) } })
   try {
     const { window } = launched
     const onCanvas = window.locator('.react-flow__node[data-id="term"]').getByTestId('terminal-node')

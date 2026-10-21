@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, win32 } from 'node:path'
 
 // The shell a Terminal Node starts, and what the e2e specs type into it. On Windows it is PowerShell
@@ -11,11 +11,33 @@ export const WINDOWS = process.platform === 'win32'
 /**
  * Chooses Git Bash for the Terminals of the Project whose data folder is `projectDataDir`, as the
  * settings window would: settings.json, written before worfy starts. The action templates have no
- * placeholder, which is valid. Git Bash reads no HOME of the test: it gets the user's profile folder,
- * so a spec types `unset HISTFILE` before anything else, and no history is written there.
+ * placeholder, which is valid. Git Bash reads no HOME of the test: its HOME is USERPROFILE, a
+ * temporary folder when the spec launches with windowsProfileEnv. A spec still types `unset HISTFILE`
+ * before anything else, so no history is written even where it does not.
  */
 export function chooseGitBash(projectDataDir: string): void {
   writeFileSync(join(projectDataDir, 'settings.json'), JSON.stringify({ actionTemplates: { shipTicket: 'ship', runWave: 'wave', gateQueue: 'queue' }, terminalShell: 'git-bash' }))
+}
+
+/**
+ * On Windows, the profile variables for the app's process that put the Terminal's shell in `dir`, a
+ * temporary folder of the test; {} elsewhere. worfy passes USERPROFILE, APPDATA and LOCALAPPDATA of
+ * its own process to the shell (WINDOWS_SESSION_VARS, src/main/agent/env.ts), so without this the
+ * shell would get the owner's: PSReadLine would append every typed command to the owner's
+ * history, pwsh would run the owner's $PROFILE, and Git Bash would read the owner's rc files from
+ * HOME. With it, Windows PowerShell 5.1 finds no $PROFILE and PSReadLine keeps its history under
+ * `dir`; pwsh takes both from `dir`; Git Bash's HOME is `dir`. TEMP of the user's registry is
+ * %USERPROFILE%\AppData\Local\Temp on most machines, so the shell's TEMP lands in `dir` too: the
+ * folders are made here. worfy's own folders do not move: WORFY_DATA_DIR and WORFY_CLAUDE_HOME
+ * name them in every test (launch-env.ts).
+ */
+export function windowsProfileEnv(dir: string): Record<string, string> {
+  if (!WINDOWS) return {}
+  const appData = join(dir, 'AppData', 'Roaming')
+  const localAppData = join(dir, 'AppData', 'Local')
+  mkdirSync(appData, { recursive: true })
+  mkdirSync(join(localAppData, 'Temp'), { recursive: true })
+  return { USERPROFILE: dir, APPDATA: appData, LOCALAPPDATA: localAppData }
 }
 
 /**
@@ -43,10 +65,27 @@ interface Child {
   commandLine: string
 }
 
-/** The processes whose parent is `pid`, from CIM. The script has no double quote, so it stays one argument. */
+/**
+ * The PowerShell script that prints, as JSON, the processes whose parent is `pid`. Windows gives the
+ * pid of an ended process to a new one and does not re-parent orphans: a process created before
+ * `pid`'s process names that pid as its parent only because its real parent, now gone, once had
+ * it. Such a process is left out, by the rule descendantsScript (src/main/terminal/pty.ts) uses;
+ * without it a test could SIGKILL an unrelated program. No process with `pid` gives no children.
+ * The script has no double quote, so it stays one argument of the command line.
+ */
+export function windowsChildrenScript(pid: number): string {
+  const id = Math.trunc(pid)
+  return [
+    `$parent = Get-CimInstance -Query 'SELECT CreationDate FROM Win32_Process WHERE ProcessId = ${id}' | Select-Object -First 1`,
+    "if ($null -eq $parent -or $null -eq $parent.CreationDate) { '[]'; exit 0 }",
+    '$born = $parent.CreationDate.ToUniversalTime()',
+    `ConvertTo-Json -Compress -InputObject @(Get-CimInstance -Query 'SELECT ProcessId, Name, CommandLine, CreationDate FROM Win32_Process WHERE ParentProcessId = ${id}' | Where-Object { $null -ne $_.CreationDate -and $_.CreationDate.ToUniversalTime() -ge $born } | ForEach-Object { @{ pid = $_.ProcessId; name = [string]$_.Name; commandLine = [string]$_.CommandLine } })`,
+  ].join('; ')
+}
+
+/** The processes whose parent is `pid`, from CIM (windowsChildrenScript). */
 function windowsChildren(pid: number): Child[] {
-  const script = `ConvertTo-Json -Compress -InputObject @(Get-CimInstance -Query 'SELECT ProcessId, Name, CommandLine FROM Win32_Process WHERE ParentProcessId = ${Math.trunc(pid)}' | ForEach-Object { @{ pid = $_.ProcessId; name = [string]$_.Name; commandLine = [string]$_.CommandLine } })`
-  const out = execFileSync(win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true })
+  const out = execFileSync(win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', windowsChildrenScript(pid)], { encoding: 'utf8', windowsHide: true })
   return (JSON.parse(out.trim() || '[]') as Child[]).map((child) => ({ ...child, name: child.name.toLowerCase() }))
 }
 

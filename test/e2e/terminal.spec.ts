@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, openSecondWindow, repoRoot, type LaunchedApp, type LaunchOptions } from './helpers'
-import { childrenOf, chooseGitBash, printJoined, shellsOf, SIZE_EXPRESSION, WINDOWS, windowsProcessName } from './terminal-shell'
+import { childrenOf, chooseGitBash, printJoined, shellsOf, SIZE_EXPRESSION, WINDOWS, windowsProcessName, windowsProfileEnv } from './terminal-shell'
 
 // The Terminal Node against the built app: "New terminal" in the Canvas context menu starts the
 // user's shell in the Project root on a real pty; the Node's size is the pty's size; the output
@@ -14,8 +14,9 @@ import { childrenOf, chooseGitBash, printJoined, shellsOf, SIZE_EXPRESSION, WIND
 // prints, and no shell history of the machine is written. On Windows the shell is PowerShell, the
 // default there (Q20), and one test runs Git Bash, chosen in the Project's settings; the commands
 // typed are the ones of the shell that runs (terminal-shell.ts). There SHELL and HOME do nothing:
-// the shell gets the user's session environment, so PowerShell reads the user's $PROFILE and
-// PSReadLine adds the typed commands to the user's history file.
+// the shell gets worfy's session variables, and the app is launched with USERPROFILE, APPDATA and
+// LOCALAPPDATA in the test's temporary folder (windowsProfileEnv), so PowerShell reads no $PROFILE
+// of the machine, PSReadLine writes its history there, and Git Bash's HOME is there.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -41,7 +42,8 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
-const launch = (options: LaunchOptions = {}) => launchApp({ ...options, env: { WORFY_DATA_DIR: dataDir, SHELL: '/bin/sh', HOME: home, ...options.env } })
+const launch = (options: LaunchOptions = {}) =>
+  launchApp({ ...options, env: { WORFY_DATA_DIR: dataDir, SHELL: '/bin/sh', HOME: home, ...windowsProfileEnv(join(scratch, 'profile')), ...options.env } })
 
 /** True while a process with this pid exists. */
 function alive(pid: number): boolean {
@@ -399,6 +401,8 @@ test('quitting worfy ends every shell; after a restart the Node starts a new she
     // The second shell ignores SIGHUP and waits for a job that ignores it too: the pty closing
     // with the app's process does not end it, only worfy's SIGKILL before it quits does. Windows has
     // no SIGHUP; the job there is a program (Start-Sleep would run inside PowerShell, no child).
+    // On Windows this test proves less: closing the pseudo-console with the app already ends
+    // PowerShell and ping, so it passes whether or not worfy ends them itself before it exits.
     if (WINDOWS) await run(window, nodes.nth(1), 'ping -n 31 127.0.0.1 > $null', /ping -n 31/)
     else await run(window, nodes.nth(1), `trap '' HUP; sleep 30`, /sleep 30/)
     await expect.poll(() => childrenOf(pids[1] ?? 0).length, { timeout: 15_000 }).toBe(1)
@@ -550,6 +554,9 @@ async function setNewestWindowSize(launched: LaunchedApp, width: number, height:
 
 test('one Terminal on two windows: both show the output, the second gets the replay, the pty has the size of the window that typed or clicked last; Restart and closing a window', async () => {
   test.setTimeout(240_000)
+  // On Windows ConPTY does not pass every byte on: it repaints the console screen, so the 10 MB
+  // timing there measures the repaint rather than worfy's output path. Hold it to the limit only
+  // with WORFY_PERF=1, as on the Mac.
   const enforce = process.env.WORFY_PERF === '1'
   const launched = await launch()
   try {
@@ -651,9 +658,15 @@ test('on Windows, Git Bash chosen in the settings starts in the Project root; cl
     // A long path wraps over several rows: they are joined, as in expectPwdIsRoot.
     await run(window, node, 'echo "cwd=$(cygpath -w "$PWD")"', /^cwd=/m)
     await expect.poll(async () => (await screenText(node)).replace(/\n/g, '')).toContain(`cwd=${root}`)
+    // Git for Windows' bin\bash.exe, the one worfy starts, is a launcher: the interactive shell is
+    // its child, usr\bin\bash.exe (seen on the Windows PC on 2026-10-21: bin\bash.exe -c "sleep 25"
+    // had one child besides conhost.exe, <Git>\bin\..\usr\bin\bash.exe). Closing the Node has to end
+    // that one too, not only the pid worfy holds.
+    const inner = childrenOf(pid)
+    expect(inner).toHaveLength(1)
     await node.getByRole('button', { name: 'Close terminal' }).click()
     await expect(node).toHaveCount(0)
-    await expect.poll(() => alive(pid), { timeout: 10_000 }).toBe(false)
+    await expect.poll(() => [pid, ...inner].filter(alive), { timeout: 10_000 }).toEqual([])
     expect(shellsOf(mainPid)).toEqual([])
   } finally {
     await launched.close()
