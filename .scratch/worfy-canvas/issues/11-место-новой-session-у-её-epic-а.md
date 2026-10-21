@@ -1,7 +1,8 @@
 # 11 — Место новой Session с Binding — справа от полосы рамок, на высоте её Ticket-а или Epic-а
 
 Type: task
-Status: open
+Status: done 2026-10-21T03:29Z
+PR: #553
 Blocked by: 01
 Source: [spec.md](../spec.md), решение владельца 9 (Session-ы не двигаются сами — только место новой и
 команда); исследование [2026-10-19-организация-canvas.md](../../../docs/research/2026-10-19-организация-canvas.md),
@@ -64,7 +65,35 @@ P4, вариант 4b, шаг 1. Код перечитан по main `7dab925f`.
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-canvas/11`. PR #553 влит squash-ом 6488f628 2026-10-20 09:21 UTC.
+
+- `session-spot.ts` (новый): `sessionSpot()` — место новой Session с Binding: `FRAME_GAP` правее всей
+  полосы рамок, на высоте нарисованного Ticket-а (Binding к Ticket-у) или шапки рамки (Binding к
+  Epic-у). `undefined` без Binding, без полосы, для Epic-а не в полосе (на Done shelf или ещё не
+  нарисован) и для Ticket-а, которого рамка не показывает. `spotInputs()` читает рамки и Ticket-ы из
+  `nodeLookup` React Flow; keep-out — полоса плюс рамки, сдвинутые пользователем, так что Node,
+  поставленный `freePlace`, не сдвигает полосу (ADR-0032).
+- Ship ticket вызывает `sessionSpot` вместо своего `shipTicketSpot`: при K > 1 место правее всей
+  полосы, а не правее самой длинной рамки.
+- Внешние Session-ы: `planSessionNodes` берёт `near` и `keepOut`. Новая Session, чей Binding известен,
+  когда создаётся её Node (ручной Binding или сигналы transcript-а: claim, `/epic-wave`, ветка), встаёт
+  на ближайшее свободное место от своей точки (`freePlace`, ADR-0038); без Binding — под последним Node-ом
+  Session, как раньше. Такой Node помечен `placed: 'binding'`, следующая Session без Binding под него не
+  встаёт. Node, уже стоящий на Canvas, не двигается, когда Binding появляется позже.
+- `session-spots.ts` (новый): `bindingSpots` читает сигналы новых Session-ов через store Binding-ов
+  параллельно и высоту, которую полоса держит под каждую рамку (`frameReserves` последней сборки
+  Project-а); точки отбрасываются, если Project сменился во время чтения.
+- После merge main (Done shelf, #554): нижний край полосы считает открытые done stack-и и полку — Node
+  от точки не встаёт на полку.
+- `tsconfig.test.node.json` перечисляет `session-spot.ts`.
+- Test-ы: новый unit `session-spot.test.ts` (точки для Ticket-а и Epic-а, K = 3, сдвинутая рамка, все
+  случаи `undefined`, keep-out); `session-nodes.test.tsx` (Session у своего Epic-а, без Binding — под
+  последней, Node не двигается, `bindingSpots`); `canvas-actions.test.tsx` (Ship ticket правее всей
+  полосы). Мутанты — правый край по самой длинной рамке, точка не учтена, keep-out не расширен,
+  сигналы не прочитаны — каждый красный.
+- Ревью: круг 1 — keep-out сдвинутых рамок, чтение через store, колонка `nextPlace`; затем две правки
+  под Done shelf после merge main.
+- Gate full Mac на 70237f3a + main ddde90dd зелёный; Windows runner 39397910456 зелёный.
 
 - Оставлено как есть (ревью PR #553, круг 1): Binding к Ticket-у, который не нарисован (свёрнутая рамка
   или сложенный done stack), не даёт точки — Session встаёт в общую колонку Session-ов, как Session без

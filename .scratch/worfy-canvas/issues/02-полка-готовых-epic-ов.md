@@ -1,7 +1,8 @@
 # 02 — Done shelf: готовые Epic-и — chip-ы под рамками, клик разворачивает рамку
 
 Type: task
-Status: open
+Status: done 2026-10-21T03:29Z
+PR: #554
 Blocked by: 01
 Source: [spec.md](../spec.md), решение владельца 3;
 [ADR-0075](../../../docs/adr/0075-epic-frames-in-columns-and-done-shelf.md) (рамки — полоса из K колонок
@@ -64,7 +65,35 @@ Source: [spec.md](../spec.md), решение владельца 3;
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-canvas/02`. PR #554 влит squash-ом 50063ee7 2026-10-20 03:35 UTC.
+
+- Epic уходит на полку, когда у него есть Ticket-ы, все они done и рамка свёрнута (пользователем или
+  по умолчанию). Epic с незавершённым Ticket-ом, Epic без Ticket-ов и открытая рамка готового Epic-а
+  остаются в полосе.
+- Полка — производный Node `done-shelf`: его рисует источник Node-ов Epic-ов, в Layout он не хранится.
+  Стоит у левого края полосы, на `FRAME_GAP` ниже самой высокой колонки (высота колонки считает каждый
+  done stack открытым). Chip — «галочка, `<epic>`, `N/N`»; порядок — по записи раскладки, потом по
+  имени; перенос по ширине полосы. Высота полосы в `frameColumnX` включает полку. Пустая полка не
+  рисуется.
+- Chip — `<button>` с `aria-label` «Expand <epic>, N of N done». Клик ставит `collapsed = false` и
+  переносит Epic в конец порядка записи — один шаг ⌘Z. Свернуть рамку снова — Epic возвращается на
+  полку. На read-only экране chip неактивен. Epic-и на полке не входят в порядок и в K.
+- `epic-layout.ts`: `placeStrip` (`stackFrames` плюс полка), `layoutShelf`, `shelfChipWidth`,
+  `onDoneShelf`. Фокус Epic-а из sidebar и Find: Canvas центрируется на полке (`find/node-rect.ts`,
+  `rectOf` с chip-ом как запасным прямоугольником). Binding к Epic-у на полке крепится к его chip-у.
+  F-SPEC: раздел «Done shelf (Epic frames)».
+- Test-ы: новый unit `done-shelf.test.tsx` (19 test-ов: какие Epic-и на полке, место под самой высокой
+  колонкой, перенос и порядок chip-ов, клик и ⌘Z) и `done-shelf-binding.test.tsx`; мутант без проверки
+  `collapsed` в `onDoneShelf` — 5 test-ов красные. Новый e2e `done-shelf.spec.ts` (три готовых Epic-а,
+  клик, ⌘Z, Enter с клавиатуры, второе окно, снимок `done-shelf` в светлой и тёмной теме).
+  `epic-columns.spec.ts` ждёт 9 рамок и 2 chip-а; в `epic-canvas.test.tsx` три test-а ждут полку.
+- Ревью: круг 1 (high) — якорь Binding-а на chip-е, разворот всегда в конец порядка, запасной
+  прямоугольник Find; круг 2 (medium) — свернуть рамку готового Epic-а и убрать его из порядка одним
+  шагом undo; круг 3 — правка и узкая проверка, high и med не осталось.
+- Gate full Mac на 6c1b03de + main e1daa395 зелёный: lint, typecheck, test, e2e, package.
+- Не покрыто e2e (только unit): свернуть рамку и ⌘Z; Binding к chip-у на полке.
+- Вопрос владельцу (ушёл в утренний отчёт): ADR-0075, пункт 6, и третий случай автозаписи — Epic,
+  свёрнутый по умолчанию, уходит из порядка, когда попадает на полку.
 
 - Заметка ревью PR #554, круг 1. На настоящем Project-е (worfy-week 20/20) полка может уйти за экран
   после того, как развернулась большая рамка. Причина: полка стоит под высотой каждой колонки с
