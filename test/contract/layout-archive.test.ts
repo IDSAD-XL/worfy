@@ -169,12 +169,19 @@ describe('archive and restore through the Layout store', () => {
   it('an archive\'s `at` (the undo of a Restore) is kept when it is past; one in the future, negative or not a number is refused (review of PR #654)', () => {
     apply(sessionNode('a'))
     const before = store.get(PROJECT)
-    for (const at of [Date.now() + HOUR, -1, Number.NaN, '1000' as unknown as number]) {
+    expect(() => apply({ op: 'archive', batch: 'b1', nodes: [{ id: 'session:a', rule: 'idle', at: Date.now() + HOUR }] })).toThrow(/archive time of session:a is in the future/)
+    for (const at of [-1, Number.NaN, '1000' as unknown as number]) {
       expect(() => apply({ op: 'archive', batch: 'b1', nodes: [{ id: 'session:a', rule: 'idle', at }] })).toThrow(/invalid layout operation/)
     }
     expect(store.get(PROJECT)).toEqual(before)
     apply({ op: 'archive', batch: 'b1', nodes: [{ id: 'session:a', rule: 'idle', at: 1_000 }] })
     expect(nodeOf('session:a')?.archived).toEqual({ at: 1_000, rule: 'idle', batch: 'b1' })
+  })
+
+  it('a `layout.changed` whose archive has an `at` in the future still parses: a Linked machine\'s clock may lag main\'s', () => {
+    const at = Date.now() + HOUR
+    const change = { projectId: PROJECT, layout: { nodes: [], viewport: { x: 0, y: 0, zoom: 1 } }, revision: 1, screen: null, op: { op: 'archive', batch: 'b1', nodes: [{ id: 'session:a', rule: 'idle', at }] } }
+    expect(layoutChangeSchema.parse(change).op).toEqual({ op: 'archive', batch: 'b1', nodes: [{ id: 'session:a', rule: 'idle', at }] })
   })
 
   it('an archived Node is in nobody\'s way: a Node created at its place stays there', () => {
@@ -714,6 +721,24 @@ describe('a screen\'s `archive` keeps the rule\'s exceptions at the write (round
     expect(isArchived(nodeOf('session:a')!)).toBe(false)
     expect(nodeOf('session:b')!.archived).toEqual(record)
     expect(changes(1, 'restore').map((change) => change.op)).toEqual([{ op: 'restore', ids: ['session:a'] }])
+  })
+
+  it('⌘Z when every Node of the batch has left the archive already: the step succeeds and sends no restore', async () => {
+    const { applyRecorded, historyOf, resetHistories } = await import('../../src/renderer/canvas/history')
+    resetHistories()
+    appArchiver()
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    expect(await applyRecorded(PROJECT, both, ipcChannel())).toBeUndefined()
+    // Both are restored on another screen before this one undoes.
+    apply({ op: 'restore', ids: ['session:a', 'session:b'] }, 'screen-2')
+    const restores = changes(1, 'restore').length
+    const revision = store.get(PROJECT).revision
+
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    expect(changes(1, 'restore')).toHaveLength(restores)
+    expect(store.get(PROJECT).revision).toBe(revision)
+    expect(nodes().filter(isArchived)).toEqual([])
   })
 
   it('a candidate the timer archived before the screen\'s write keeps its batch, and ⌘Z does not restore it', async () => {

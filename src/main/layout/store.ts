@@ -123,6 +123,9 @@ function archive(layout: Layout, op: Extract<LayoutOp, { op: 'archive' }>, now: 
     layout,
     op.nodes.map((node) => node.id),
   )
+  // `at` is a time main wrote before (the undo of a Restore sends it back): one in the future is refused.
+  const future = op.nodes.find((node) => node.at !== undefined && node.at > now)
+  if (future !== undefined) throw new Error(`The archive time of ${future.id} is in the future`)
   const nodes = [...layout.nodes]
   for (const [n, index] of indexes.entries()) {
     const node = nodes[index]!

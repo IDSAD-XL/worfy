@@ -215,16 +215,19 @@ export class NodeSessions {
 
   /**
    * The id of a worfy Node for the Session: the Node itself when worfy runs it already; a read-only
-   * Node turns into one in place (same id, same place, live size, its flags kept); else a new Node.
+   * Node turns into one in place (same id, same place, live size, its flags kept; a locked one is
+   * refused); else a new Node.
    * An archived Node comes back onto the Canvas first: Resume is the user's work with it, and the
    * `restore` sets its `touchedAt`, so the automatic archive does not take it again at once.
    */
   private liveNode(projectId: string, found: LayoutNode | undefined, sessionId: string): string {
     const data: WorfySessionNodeData = { origin: 'worfy', sessionId }
+    // A read-only Node turns live by `remove` and `create`, and `remove` is refused for a locked
+    // Node: refused here, before anything changes (an archived one is not restored first).
+    if (found && !isWorfyNode(found) && found.locked) throw new Error(`${found.id} is locked and cannot be turned into a live Session Node`)
     const node = found && isArchived(found) ? this.restored(projectId, found.id) : found
     if (node && isWorfyNode(node)) return node.id
     if (node) {
-      // `remove` is refused for a locked Node, so a locked read-only Node is not turned live.
       this.deps.layout.apply(projectId, { op: 'remove', id: node.id })
       this.deps.layout.apply(projectId, {
         op: 'create',
@@ -236,7 +239,6 @@ export class NodeSessions {
           w: Math.max(node.w, LIVE_SESSION_WIDTH),
           h: Math.max(node.h, LIVE_SESSION_HEIGHT),
           hidden: node.hidden,
-          locked: node.locked,
           pinned: node.pinned,
           tags: node.tags,
           ...(node.keep === undefined ? {} : { keep: node.keep }),

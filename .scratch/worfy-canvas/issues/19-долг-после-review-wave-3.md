@@ -145,16 +145,17 @@ PR первой части (2026-10-21, ветка `worfy-canvas/19`): ошиб�
 
 Сделано:
 
-- Resume read-only Node-а переносит `keep`, `touchedAt` и `locked`; архивный Node (read-only или Node
-  worfy) на Resume сначала возвращается на Canvas операцией `restore`, она же ставит `touchedAt`.
-  Locked read-only Node по-прежнему не становится живым: `remove` для него запрещён, а Session Node-ы
-  на деле не бывают locked (`session-nodes.ts` создаёт их с `locked: false`). Test-ы —
-  `test/contract/node-sessions.test.ts`, describe «Resume».
+- Resume read-only Node-а переносит `keep` и `touchedAt`; архивный Node (read-only или Node worfy) на
+  Resume сначала возвращается на Canvas операцией `restore`, она же ставит `touchedAt`. Locked
+  read-only Node не становится живым (его `remove` запрещён): Resume отклоняется сразу, до `restore`, и
+  ничего не меняет. Session Node-ы на деле не бывают locked (`session-nodes.ts` создаёт их с
+  `locked: false`). Test-ы — `test/contract/node-sessions.test.ts`, describe «Resume».
 - Undo «Archive now» строит `restore` в момент undo по Node-ам с `archived.batch` этой операции:
   Node, который main отклонил, а таймер позже заархивировал своим batch-ем, остаётся в архиве.
 - Test «came back to life» включает Session Node без `data.sessionId`.
-- `at` операции `archive` не может быть в будущем (refine в `types.ts`); test на будущее, отрицательное
-  значение, NaN и строку.
+- `at` операции `archive` в будущем отклоняет `apply` в main по своим часам (`store.ts`), а не общая
+  схема: её же читает `layout.changed` на Linked machine, чьи часы могут отставать. Test-ы на будущее,
+  отрицательное значение, NaN и строку, и что `layout.changed` с `at` в будущем читается.
 - `dayWrites`: каждая запись дня снимает только свою отметку; запись, начатая до полуночи, после неё
   ничего не пишет; upkeep молчит, пока идёт любая запись дня (`dayWrites.has`). Test «midnight during
   the wait» и test-ы: два mount-а, `whenSettled` при удалении расстановки, `clearTimeout` в

@@ -195,7 +195,7 @@ describe('Resume', () => {
     savedLayout([{ ...externalNode(FINISHED, worktree), keep: true, touchedAt: 1_000 }])
     const h = harness({ claude: { live: [], history: [{ sessionId: FINISHED, cwd: worktree }] } })
     const resumed = await h.sessions.resume(PROJECT, FINISHED)
-    expect(h.node(resumed.nodeId)).toMatchObject({ keep: true, touchedAt: 1_000, locked: false })
+    expect(h.node(resumed.nodeId)).toMatchObject({ keep: true, touchedAt: 1_000 })
   })
 
   it('an archived Node comes back onto the Canvas on Resume, read-only or worfy\'s own, its Keep kept', async () => {
@@ -215,6 +215,17 @@ describe('Resume', () => {
     // Brought back by the user's Resume: the automatic archive does not take it again at once.
     expect(h.node(external.nodeId).touchedAt).toBeGreaterThanOrEqual(before)
     expect(h.node(own.nodeId).touchedAt).toBeGreaterThanOrEqual(before)
+  })
+
+  it('a locked read-only Node is refused before anything changes: an archived one stays in the archive', async () => {
+    const archived = { at: 1_000, rule: 'idle', batch: 'b-1' }
+    savedLayout([{ ...externalNode(FINISHED, worktree), locked: true, archived }])
+    const h = harness({ claude: { live: [], history: [{ sessionId: FINISHED, cwd: worktree }] } })
+    const before = h.layout.get(PROJECT).revision
+    await expect(h.sessions.resume(PROJECT, FINISHED)).rejects.toThrow(/locked/)
+    expect(h.requests).toEqual([])
+    expect(h.layout.get(PROJECT).revision).toBe(before)
+    expect(h.node(`session:${FINISHED}`)).toMatchObject({ archived, locked: true, data: { origin: 'external' } })
   })
 
   it('makes a new Node for a Session of the history that has none; a second Resume returns the same run', async () => {

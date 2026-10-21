@@ -24,15 +24,23 @@ const invoke = vi.hoisted(() => vi.fn())
 vi.mock('../../src/renderer/ipc', async (original) => ({ ...(await original<typeof import('../../src/renderer/ipc')>()), invoke }))
 
 // The operations sent past the ⌘Z history, recorded instead of sent; the Layout main has now.
-const sent = vi.hoisted(() => ({ ops: [] as LayoutOpInput[], layout: undefined as Layout | undefined }))
+// Each test mounts the upkeep for Projects of its own (`mounted`); a write a finished test left
+// under way (its awaits outlive the unmount) goes on later, and an operation of such a Project
+// (`finished`) is dropped instead of landing among the next test's.
+const sent = vi.hoisted(() => ({ ops: [] as LayoutOpInput[], layout: undefined as Layout | undefined, mounted: new Set<string>(), finished: new Set<string>() }))
 vi.mock('../../src/renderer/canvas/useLayout', async (original) => ({
   ...(await original<typeof import('../../src/renderer/canvas/useLayout')>()),
-  applyLayoutOp: (_projectId: string, op: LayoutOpInput) => {
-    sent.ops.push(op)
+  applyLayoutOp: (projectId: string, op: LayoutOpInput) => {
+    if (!sent.finished.has(projectId)) sent.ops.push(op)
     return Promise.resolve(undefined)
   },
   currentLayout: () => sent.layout,
 }))
+
+afterEach(() => {
+  for (const projectId of sent.mounted) sent.finished.add(projectId)
+  sent.mounted.clear()
+})
 
 describe('the record in the Layout (sources/epics.ts)', () => {
   const record = { order: ['b', 'a'], columns: 2, at: '2026-10-19T08:00:00.000Z' }
@@ -150,8 +158,10 @@ describe('the upkeep of the record (useArrangementUpkeep)', () => {
       }),
     )
   const wrapper = ({ children }: { children: ReactNode }) => <ReactFlowProvider>{children}</ReactFlowProvider>
-  const upkeep = (projectId: string, nodes: readonly unknown[]) =>
-    renderHook(({ current }) => useArrangementUpkeep(projectId, current as never), { wrapper, initialProps: { current: nodes } })
+  const upkeep = (projectId: string, nodes: readonly unknown[]) => {
+    sent.mounted.add(projectId)
+    return renderHook(({ current }) => useArrangementUpkeep(projectId, current as never), { wrapper, initialProps: { current: nodes } })
+  }
 
   beforeEach(() => {
     sent.ops = []
@@ -308,8 +318,10 @@ describe('the first opening of the day waits for the Bindings and writes once (u
       }),
     )
   const wrapper = ({ children }: { children: ReactNode }) => <ReactFlowProvider>{children}</ReactFlowProvider>
-  const upkeep = (projectId: string, nodes: readonly unknown[]) =>
-    renderHook(({ current }) => useArrangementUpkeep(projectId, current as never), { wrapper, initialProps: { current: nodes } })
+  const upkeep = (projectId: string, nodes: readonly unknown[]) => {
+    sent.mounted.add(projectId)
+    return renderHook(({ current }) => useArrangementUpkeep(projectId, current as never), { wrapper, initialProps: { current: nodes } })
+  }
   /** main's Bindings of the Project: Session s1 bound by hand to `epic`, its transcript read. */
   const bindingsArrive = (projectId: string, epic: string) =>
     useBindingsStore.setState(({ manual, signals }) => ({
