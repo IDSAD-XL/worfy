@@ -152,11 +152,20 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
   const machine = state?.machine ?? null
 
   // When the pause ends, linking opens again by itself: the window asks main once more and shows the code.
+  // Timers stand still while the Mac sleeps, so main may end the pause first: its next state has no
+  // pause and no code, cancels the timer, and linking opens from here instead.
+  const wasPaused = useRef(false)
+  const shownCode = linking?.code ?? null
   useEffect(() => {
-    if (pausedUntil === undefined) return
-    const timer = setTimeout(() => void openLinking().then(setOpenError), Math.max(0, pausedUntil - Date.now()))
-    return () => clearTimeout(timer)
-  }, [pausedUntil])
+    if (pausedUntil !== undefined) {
+      wasPaused.current = true
+      const timer = setTimeout(() => void openLinking().then(setOpenError), Math.max(0, pausedUntil - Date.now()))
+      return () => clearTimeout(timer)
+    }
+    if (!wasPaused.current) return
+    wasPaused.current = false
+    if (shownCode === null) void openLinking().then(setOpenError)
+  }, [pausedUntil, shownCode])
 
   const problem = openError ?? state?.problem ?? null
   const targetLabel = target ? (target.name === null ? target.address : `${target.name} (${target.address})`) : ''
