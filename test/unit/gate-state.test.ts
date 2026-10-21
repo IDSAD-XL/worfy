@@ -771,6 +771,17 @@ describe('GateReader and the verdict file', () => {
     expect((await reader.read(root, same))[1]).toEqual({ path: worktree07, branch: 'demo/07', gate: { outcome: 'red', source: 'file', at: '2026-10-05T09:00:00Z' } })
   })
 
+  it('readVerdictFile takes a file with the timings of the run (total_ms, steps, cached) as the gate now writes it', async () => {
+    const { home, worktree07 } = await world()
+    const timings = {
+      total_ms: 531_837,
+      steps: [{ step: 'worfy/.:test', package: '.', script: 'test', ms: 518_989, exit: 1 }],
+      cached: [{ step: 'worfy/.:lint', ms: 9_378, at: '2026-10-20T17:53:36Z' }],
+    }
+    const file = await writeVerdict(home, { worktree: worktree07, outcome: 'red', exit: 2, ...timings })
+    expect(await readVerdictFile(file, worktree07)).toEqual({ verdict: expect.objectContaining({ outcome: 'red', exit: 2, worktree: worktree07 }) })
+  })
+
   it('readVerdictFile: null without a file, the verdict for its own worktree', async () => {
     const { home, worktree07 } = await world()
     expect(await readVerdictFile(join(home, 'gate', 'state', verdictFileName(gateTag(worktree07))), worktree07)).toBeNull()
