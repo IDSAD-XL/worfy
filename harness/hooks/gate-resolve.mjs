@@ -2,7 +2,7 @@
 // Maps changed files to the workspaces they belong to.
 //
 //   gate-resolve.mjs --which <path>          -> TSV: key \t repoRoot \t pm   (or empty)
-//   <changed paths> | gate-resolve.mjs <repoPath> <profile> <key>
+//   <changed paths, NUL-separated> | gate-resolve.mjs <repoPath> <profile> <key>
 //                                            -> TSV: wsdir \t packageName \t "script1 script2"
 //                                                    \t "fingerprint paths" \t "added from"
 //                                               ("." + an empty name = the repository root;
@@ -97,11 +97,10 @@ if (!rc || !repoPath) process.exit(0)
 // "Everything" mode: the gate does not trust the diff from the merge-base (no base, HEAD
 // detached, the branch far from origin/main) and asks for the full scope.
 const ALL = process.env.GATE_ALL === "1"
-const changed = fs
-    .readFileSync(0, "utf8")
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean)
+// The paths come NUL-separated and are taken as they are: a file name may hold a line break, and
+// one may start or end with a space (git -z prints them so). Split by lines and trimmed, such a path
+// fell apart or lost its edge, and the scope could lose the workspace it belongs to.
+const changed = fs.readFileSync(0, "utf8").split("\0").filter(Boolean)
 if (!changed.length && !ALL) process.exit(0)
 
 const pick = (table) => (table && (table[profile] || [])) || []

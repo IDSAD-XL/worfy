@@ -899,7 +899,8 @@ async function main() {
     }
 
     const planned = spawnSync(process.execPath, [RESOLVE, repo, PROFILE, KEY], {
-        input: `${changed.join("\n")}\n`,
+        // NUL-separated, as git printed them: a path may hold a line break or a space at its edge
+        input: changed.map((file) => `${file}\0`).join(""),
         encoding: "utf8",
         stdio: ["pipe", "pipe", "inherit"],
         env: { ...process.env, GATE_ALL: scopeWhy ? "1" : "0" },
