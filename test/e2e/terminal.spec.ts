@@ -156,7 +156,8 @@ async function pidOf(node: Locator): Promise<number> {
 
 /** What the terminal shows; xterm.js draws spaces as no-break spaces. */
 async function screenText(node: Locator): Promise<string> {
-  return (await node.locator('.xterm-rows').innerText()).replace(/\u00a0/g, ' ')
+  // ConPTY fills the rest of a row it writes with spaces: they are dropped, so `$` in a regex is the end of the text.
+  return (await node.locator('.xterm-rows').innerText()).replace(/\u00a0/g, ' ').replace(/ +$/gm, '')
 }
 
 /**
@@ -464,7 +465,8 @@ test('a shell that exited stays exited across a reload of the window; Restart st
     const { window } = launched
     const node = await newTerminal(window)
     const pid = await pidOf(node)
-    const mainPid = launched.app.process().pid ?? 0
+    // From main itself: on Windows app.process() is the cmd.exe that starts electron.exe.
+    const mainPid = await launched.app.evaluate(() => process.pid)
     // The shells run as children of main, so a shell started behind the user's back would show here.
     expect(shellsOf(mainPid)).toEqual([pid])
     await run(window, node, printJoined('be', 'fore-exit'), /^before-exit$/m)
@@ -650,7 +652,7 @@ test('on Windows, Git Bash chosen in the settings starts in the Project root; cl
     const { window } = launched
     const node = await newTerminal(window)
     const pid = await pidOf(node)
-    const mainPid = launched.app.process().pid ?? 0
+    const mainPid = await launched.app.evaluate(() => process.pid)
     expect(shellsOf(mainPid)).toEqual([pid])
     expect(windowsProcessName(pid)).toBe('bash.exe')
     // PowerShell would print an empty tp= here: $TERM_PROGRAM is no variable of its own.

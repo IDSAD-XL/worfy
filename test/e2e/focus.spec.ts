@@ -301,8 +301,8 @@ test('keys pressed in focus mode stay in the layer: the selected Nodes on the Ca
   }
 })
 
-/** What a terminal shows; xterm.js draws spaces as no-break spaces. */
-const screenText = async (terminal: Locator): Promise<string> => (await terminal.locator('.xterm-rows').innerText()).replace(/\u00a0/g, ' ')
+/** What a terminal shows; xterm.js draws spaces as no-break spaces. ConPTY fills the rest of a row it writes with spaces: they are dropped. */
+const screenText = async (terminal: Locator): Promise<string> => (await terminal.locator('.xterm-rows').innerText()).replace(/\u00a0/g, ' ').replace(/ +$/gm, '')
 
 /** The size of the terminal's pty as `stty size` reports it (PowerShell: its window size), typed into this view of the shell. */
 async function sttySize(window: Page, terminal: Locator, tag: string): Promise<{ rows: number; cols: number }> {
