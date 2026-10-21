@@ -139,6 +139,8 @@ export const linkStateSchema = z.object({
     linked: z.object({ id: z.uuid(), name: z.string().min(1) }).nullable(),
     /** The last failed attempt of another worfy to link to this one. */
     failure: z.string().nullable(),
+    /** While linking is paused after too many failed attempts within the hour: until when (ms since epoch). */
+    pausedUntil: z.number().optional(),
   }),
   linked: z.array(linkedMachineViewSchema),
   discovered: z.array(discoveredMachineSchema),
