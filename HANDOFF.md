@@ -18,7 +18,7 @@
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 7/17, влиты 01–03, 06, 08, 10 (#620), 16 (#626: gate full 18,5 → 12,9 min); 07, 09 — `wave-gate`; 04, 05 — Orchestrator; 11–15, 17 — скорость test-ов (ADR-0081), узкое место — e2e (17).
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 9/10, влиты 01–09 (08 — #552, 09 — #550); 10 (ADR-0079) — в работе; решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
-- `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077): 6/18; влиты 01 (#539), 03, 04, 07, 17 (#644, без затухания карточек), 18 (#647, карточка без обрезки) — Wave 1 закрыта; Wave 2 — 02 и 11 в работе; новые 14–16 (14 — до 10).
+- `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077): 8/18; влиты 01 (#539), 02 (#554), 03, 04, 07, 11 (#553), 17 (#644), 18 (#647) — Wave 2 закрыта; дальше 05, 06, 08, 09, 12, 14–16 (14 — до 10); blocked 10 (ждёт `worfy-ui` 16), 13 (решение владельца).
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 6/13; 03 ждёт ответов владельца; 13 — после 03.
 
 ## Ждёт владельца
