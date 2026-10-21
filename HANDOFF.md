@@ -2,7 +2,7 @@
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 58/61; 31, 36, 47, 48, 50 — шаг владельца («Итог»); 29, 52 — платные eval, только владелец.
+- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 58/61; в работе 51, 29; 52 — инфраструктура после 29, задачи ждут Session без plugin-а; 31, 36, 47, 48, 50 — шаг владельца («Итог»).
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26; приёмка 16; 32 закрыт (#508). Вне LAN через Tailscale (ADR-0070) — 27–31, код после очереди `worfy-windows`.
@@ -53,7 +53,7 @@
 ## Дальше
 
 - Очередь мержа (владелец, Q7, Q10) пройдена: #517, #496, #508 влиты; `worfy-pipeline` 08 влит (#552).
-- `worfy-harness` 50, 51 — правка правил и платный повтор кейса (eval с `Bash`: `~/.docker/bin` вынести на время run-а); 29 — карта «кейс eval → файлы правил».
+- `worfy-harness` 50, 51 — платный повтор кейса eval (`~/.docker/bin` вынести на время run-а); 52 — Session без plugin-а для задач и платные шаги 2б, 4, 5.
 - `worfy-windows`, очередь ПК (2026-10-20): 43 (#557) → 14 (часть unit/contract) → 47; потом 66; 15, 42, 62; 16 — итог на ПК; 61 — low; 60 — в своём PR; 73 — правка на ПК (`worfy-windows/70-lows`).
 - `worfy-link` 27–31 (вне LAN через Tailscale, ADR-0070) — после очереди `worfy-windows`: 27 и 28, затем 29 и 31; 30 — позже.
 - Приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot.

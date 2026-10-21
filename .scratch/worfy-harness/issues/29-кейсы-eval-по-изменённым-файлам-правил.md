@@ -1,7 +1,7 @@
 # 29 — Кейсы eval по изменённым файлам правил: карта «кейс → файлы правил», `pnpm eval:harness -- --changed <base>`, строка для описания PR
 
 Type: task
-Status: open
+Status: claimed 2026-10-21T12:19Z
 Blocked by: 27, 28
 Source: решение владельца 2026-10-10 по второму вопросу Ticket-а 27 (eval-кейсы Harness через `claude plugin eval`) — «когда гонять полный набор»: перед мержем PR, который правит правила Harness, — кейсы изменённых файлов; полный набор — при смене закреплённой модели, версии Claude Code и перед обновлением Stable copy; владелец попросил отдельный маленький Ticket на связь «кейс → файлы правил»; [Ticket 27](27-eval-кейсы-harness-через-plugin-eval.md); [Ticket 28](28-git-и-harness-home-в-прогонах-eval.md) (git и `HARNESS_HOME` в прогонах eval); решение владельца о дешёвом CI (2026-10-06, PR #42); [документация `claude plugin eval`](https://code.claude.com/docs/en/plugin-evals); [spec.md](../spec.md)
 

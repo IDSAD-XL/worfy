@@ -1,7 +1,9 @@
 # 52 — Сравнительный eval исходов: plugin worfy против Claude Code без plugin-а (пилот), позже — против чужих plugin-ов
 
 Type: spike
-Status: open
+Status: blocked 2026-10-21T12:20Z
+Blocked reason: задачи и grader-ы пишет Session без plugin-а worfy (бриф — brief-52-plain-session.md) или владелец; инфраструктура (фикстура, eval:outcome, score, пустой слот) — отдельным PR, после 29
+Waits: owner
 Blocked by: 27
 Source: вопрос владельца 2026-10-19 — можно ли прогнать конкурентов через наши eval и получить числом, что worfy лучше
 набора разрозненных skills-plugin-ов. Ответ Orchestrator-а: кейсы Ticket-а 27 (eval-кейсы Harness через `claude plugin
