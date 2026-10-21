@@ -81,6 +81,41 @@ async function openTranscript() {
   return { module, hook }
 }
 
+/** The height of a transcript row in px, in the layout below. */
+const ROW = 100
+
+/**
+ * Lays out the transcript log, which jsdom does not: the log is 300 px tall at the top of the
+ * window, each row `height(row)` px (ROW by default) one under the other, and scrollTop keeps what
+ * is set. `attach` gives the log its scroll geometry once it is rendered.
+ */
+function layOut(height: (row: Element) => number = () => ROW) {
+  let log: HTMLElement | null = null
+  let top = 0
+  const rows = () => Array.from(log?.children ?? []).filter((row) => !row.hasAttribute('data-transcript-earlier'))
+  const measured = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    if (this === log) return new DOMRect(0, 0, 800, 300)
+    const all = rows()
+    const at = all.indexOf(this)
+    if (at < 0) return new DOMRect(0, 0, 0, 0)
+    let y = 0
+    for (let index = 0; index < at; index += 1) y += height(all[index]!)
+    return new DOMRect(0, y - top, 800, height(this))
+  })
+  return {
+    attach(element: HTMLElement) {
+      log = element
+      Object.defineProperty(element, 'scrollHeight', { configurable: true, get: () => rows().reduce((sum, row) => sum + height(row), 0) })
+      Object.defineProperty(element, 'clientHeight', { configurable: true, get: () => 300 })
+      Object.defineProperty(element, 'scrollTop', { configurable: true, get: () => top, set: (value: number) => (top = value) })
+    },
+    rows,
+    /** The row of «answer n». */
+    rowOf: (n: number) => rows().find((row) => new RegExp(`answer ${n}(?!\\d)`).test(row.textContent ?? '')),
+    restore: () => measured.mockRestore(),
+  }
+}
+
 const transcriptChanged = () =>
   act(async () => {
     changed?.({ projectRoot: ROOT, sessions: false, transcripts: [S] })
@@ -249,6 +284,60 @@ describe('Load earlier', () => {
     expect(hook.result.current.loadingEarlier).toBe(false)
   })
 
+  it('stays loading through every ask again, and gives up after five moves with the control back', async () => {
+    const module = await import('../../src/renderer/claude-home/useClaudeHome')
+    const keep = module.KEEP_EVENTS
+    answers.push(() => ok({ ...lines(100, 100 + keep), earlier: 100 * 100, cursor: { offset: (100 + keep) * 100, fileId: FILE } }))
+    const { hook } = await openTranscript()
+    let release: (value: Answer) => void = () => undefined
+    const waiting = () => new Promise<Answer>((done) => (release = done))
+    answers.push(waiting)
+    const loading = module.loadEarlierTranscript(ROOT, S)
+    for (let move = 0; move < 5; move += 1) {
+      await vi.waitFor(() => expect(requests).toHaveLength(2 + 2 * move))
+      // Ten records come while it reads: the cap moves the start, the answer no longer joins.
+      const at = 100 + keep + 10 * move
+      answers.push(() => ok({ ...lines(at, at + 10), cursor: { offset: (at + 10) * 100, fileId: FILE } }))
+      await transcriptChanged()
+      await vi.waitFor(() => expect(hook.result.current.earlier).toBe((110 + 10 * move) * 100))
+      expect(hook.result.current.loadingEarlier).toBe(true)
+      if (move < 4) answers.push(waiting)
+      const answered = release
+      await act(async () => {
+        answered(ok({ ...lines(0, 10), earlier: 0, cursor: { offset: 1000, fileId: FILE } }))
+      })
+      if (move < 4) expect(hook.result.current.loadingEarlier).toBe(true)
+    }
+    await act(async () => {
+      await loading
+    })
+    expect(requests).toHaveLength(11)
+    expect(hook.result.current.loadingEarlier).toBe(false)
+    expect(module.earlierControl(hook.result.current, ROOT, S)).toMatchObject({ loading: false })
+  })
+
+  it('an ask again that finds no start to read from ends the loading', async () => {
+    const module = await import('../../src/renderer/claude-home/useClaudeHome')
+    const keep = module.KEEP_EVENTS
+    answers.push(() => ok({ ...lines(100, 110), earlier: 100 * 100, cursor: { offset: 110 * 100, fileId: FILE } }))
+    const { hook } = await openTranscript()
+    let release: (value: Answer) => void = () => undefined
+    answers.push(() => new Promise<Answer>((done) => (release = done)))
+    const loading = module.loadEarlierTranscript(ROOT, S)
+    await vi.waitFor(() => expect(requests).toHaveLength(2))
+    // KEEP_EVENTS records come with no lines (a main that sends no offsets): the cap drops every
+    // event of the window, and no line is left to read before.
+    answers.push(() => ({ found: true, events: range(110, 110 + keep).map(answer), cursor: { offset: (110 + keep) * 100, fileId: FILE }, reset: false, more: false }))
+    await transcriptChanged()
+    await vi.waitFor(() => expect(hook.result.current.earlier).toBeNull())
+    await act(async () => {
+      release(ok({ ...lines(0, 100), earlier: 0, cursor: { offset: 100 * 100, fileId: FILE } }))
+      await loading
+    })
+    expect(requests).toHaveLength(3)
+    expect(hook.result.current.loadingEarlier).toBe(false)
+  })
+
   it('a file gone under the shown events opens it again from its end', async () => {
     const module = await import('../../src/renderer/claude-home/useClaudeHome')
     answers.push(() => ok({ ...lines(10, 20), earlier: 1000, cursor: { offset: 2000, fileId: FILE } }))
@@ -329,41 +418,93 @@ describe('Load earlier', () => {
     await vi.waitFor(() => expect(texts(hook.result.current.events)).toEqual(['answer 0', 'answer 1', 'answer 2']))
   })
 
-  it('keeps the row the reader looked at in place when the cap moved the first row while Load earlier read', async () => {
+  it('ExternalSessionPanel: the row the reader looked at stays in place when the cap moved the first row while Load earlier read', { timeout: 60_000 }, async () => {
+    const module = await import('../../src/renderer/claude-home/useClaudeHome')
+    const { ExternalSessionPanel } = await import('../../src/renderer/session/ExternalSessionPanel')
+    const keep = module.KEEP_EVENTS
+    const end = (100 + keep) * 100
+    answers.push(() => ok({ ...lines(100, 100 + keep), earlier: 100 * 100, cursor: { offset: end, fileId: FILE } }))
+    const layout = layOut()
+    const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    const had = actEnvironment.IS_REACT_ACT_ENVIRONMENT
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      render(<ExternalSessionPanel projectId={PROJECT.id} nodeId="claude-session:dddd" sessionId={S} />)
+      await vi.waitFor(() => expect(screen.getByTestId('transcript').children.length).toBeGreaterThan(keep), { timeout: 20_000 })
+      const log = screen.getByTestId('transcript')
+      layout.attach(log)
+      // Every frame React draws counts from here on, as in the window: no act() batches them.
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = false
+      // The reader scrolled up to «answer 120» and pressed Load earlier.
+      log.scrollTop = 20 * ROW
+      fireEvent.scroll(log)
+      let release: (value: Answer) => void = () => undefined
+      answers.push(() => new Promise<Answer>((done) => (release = done)))
+      fireEvent.click(screen.getByRole('button', { name: 'Load earlier' }))
+      await vi.waitFor(() => expect(requests).toHaveLength(2))
+      // Ten records come while it reads: the cap drops the ten oldest shown, the start moves.
+      answers.push(() => ok({ ...lines(100 + keep, 110 + keep), cursor: { offset: end + 1000, fileId: FILE } }))
+      changed?.({ projectRoot: ROOT, sessions: false, transcripts: [S] })
+      await vi.waitFor(() => expect(module.sessionTranscriptNow(ROOT, S).earlier).toBe(110 * 100))
+      await vi.waitFor(() => expect(layout.rowOf(110)).toBeDefined())
+      // The answer no longer joins the shown events: it is asked again from the new start.
+      answers.push(() => ok({ ...lines(0, 110), earlier: 0, cursor: { offset: 110 * 100, fileId: FILE } }))
+      release(ok({ ...lines(0, 100), earlier: 0, cursor: { offset: 100 * 100, fileId: FILE } }))
+      await vi.waitFor(() => expect(layout.rows()).toHaveLength(110 + keep), { timeout: 20_000 })
+      expect(requests).toHaveLength(4)
+      expect(layout.rowOf(120)?.getBoundingClientRect().top).toBe(0)
+    } finally {
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = had
+      layout.restore()
+      vi.restoreAllMocks()
+    }
+  })
+
+  it('the row the reader looked at stays in place when fewer rows came on top than the cap dropped meanwhile', async () => {
     const { Transcript } = await import('../../src/renderer/session/Transcript')
-    const ROW = 100
-    let log: HTMLElement | null = null
-    const rows = () => Array.from(log?.children ?? []).filter((row) => !row.hasAttribute('data-transcript-earlier'))
-    // jsdom lays nothing out: the log is 300 px tall at the top of the window, each row ROW px.
-    const measured = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
-      if (this === log) return new DOMRect(0, 0, 800, 300)
-      const at = rows().indexOf(this)
-      return at < 0 ? new DOMRect(0, 0, 0, 0) : new DOMRect(0, at * ROW - (log?.scrollTop ?? 0), 800, ROW)
-    })
+    const layout = layOut()
     try {
       const load = vi.fn()
       const shown = (from: number, to: number, loading: boolean) => <Transcript events={range(from, to).map(answer)} firstIndex={from} earlier={{ load, loading }} />
       const { rerender } = render(shown(10, 20, false))
-      log = screen.getByTestId('transcript')
-      let top = 0
-      Object.defineProperty(log, 'scrollHeight', { configurable: true, get: () => rows().length * ROW })
-      Object.defineProperty(log, 'clientHeight', { configurable: true, get: () => 300 })
-      Object.defineProperty(log, 'scrollTop', { configurable: true, get: () => top, set: (value: number) => (top = value) })
-      expect(rows()).toHaveLength(10)
-      // The reader scrolled up to «answer 13» and pressed Load earlier.
-      log.scrollTop = 3 * ROW
+      const log = screen.getByTestId('transcript')
+      layout.attach(log)
+      // The reader scrolled up to «answer 15» and pressed Load earlier.
+      log.scrollTop = 5 * ROW
       fireEvent.scroll(log)
       fireEvent.click(screen.getByRole('button', { name: 'Load earlier' }))
       expect(load).toHaveBeenCalledTimes(1)
-      // While it reads, two records come and the cap drops the two oldest: the first row moves on.
-      rerender(shown(12, 22, true))
-      // The earlier window comes: «answer 13» is back at the top of the log.
-      rerender(shown(0, 22, false))
-      const looked = rows().find((row) => row.textContent?.includes('answer 13') === true)
-      expect(looked?.getBoundingClientRect().top).toBe(0)
-      expect(log.scrollTop).toBe(13 * ROW)
+      // While it reads, four records come and the cap drops the four oldest.
+      rerender(shown(14, 24, true))
+      // The window before the new start holds two lines only: the first row is still after the old one.
+      rerender(shown(12, 24, false))
+      expect(layout.rowOf(15)?.getBoundingClientRect().top).toBe(0)
     } finally {
-      measured.mockRestore()
+      layout.restore()
+    }
+  })
+
+  it('a row the cap dropped from under the anchor: the scroll moves by the height the rows on top added', async () => {
+    const { Transcript } = await import('../../src/renderer/session/Transcript')
+    // The records that come while it reads are taller: the height of the log changes before the rows on top come.
+    const layout = layOut((row) => (Number(/answer (\d+)/.exec(row.textContent ?? '')?.[1]) >= 20 ? 3 * ROW : ROW))
+    try {
+      const load = vi.fn()
+      const shown = (from: number, to: number, loading: boolean) => <Transcript events={range(from, to).map(answer)} firstIndex={from} earlier={{ load, loading }} />
+      const { rerender } = render(shown(10, 20, false))
+      const log = screen.getByTestId('transcript')
+      layout.attach(log)
+      // The reader looks at «answer 11», which the cap drops next.
+      log.scrollTop = 1 * ROW
+      fireEvent.scroll(log)
+      fireEvent.click(screen.getByRole('button', { name: 'Load earlier' }))
+      rerender(shown(14, 24, true))
+      expect(layout.rowOf(11)).toBeUndefined()
+      // Ten rows come on top: the scroll moves by their height, not by what the new records added.
+      rerender(shown(4, 24, false))
+      expect(log.scrollTop).toBe(1 * ROW + 10 * ROW)
+    } finally {
+      layout.restore()
     }
   })
 
@@ -410,7 +551,7 @@ describe('a main that does not know `back` (an older build on a Linked machine)'
     expect(hook.result.current.events).toHaveLength(keep)
   })
 
-  it('keeps no more than KEEP_EVENTS and one chunk while it reads: a long file takes time in proportion to it, not to its square', { timeout: 5_000 }, async () => {
+  it('reads a long file in time in proportion to its length, not to its square', { timeout: 5_000 }, async () => {
     const module = await import('../../src/renderer/claude-home/useClaudeHome')
     const keep = module.KEEP_EVENTS
     // 1000 chunks of 20 000 events. Kept whole until the end, the events would be copied about
@@ -431,6 +572,34 @@ describe('a main that does not know `back` (an older build on a Linked machine)'
     // Rows are counted from the start of the file, as when every event was kept until the end.
     expect(hook.result.current.first).toBe(999 * CHUNK)
     expect(hook.result.current.earlier).toBeNull()
+  })
+
+  it('keepNewest, what it holds between chunks: never more than KEEP_EVENTS, the newest, and the count of the dropped', async () => {
+    const { keepNewest, KEEP_EVENTS: keep } = await import('../../src/renderer/claude-home/useClaudeHome')
+    const CHUNK = 20_000
+    let held = { events: [] as AgentEvent[], dropped: 0 }
+    for (let round = 0; round < 1000; round += 1) {
+      held = keepNewest(held, range(round * CHUNK, (round + 1) * CHUNK).map(answer))
+      expect(held.events.length).toBeLessThanOrEqual(keep)
+      expect(held.dropped + held.events.length).toBe((round + 1) * CHUNK)
+    }
+    expect(texts(held.events)).toEqual(range(1000 * CHUNK - keep, 1000 * CHUNK).map((n) => `answer ${n}`))
+    const few = keepNewest({ events: [answer(0)], dropped: 7 }, [answer(1)])
+    expect(texts(few.events)).toEqual(['answer 0', 'answer 1'])
+    expect(few.dropped).toBe(7)
+  })
+
+  it('a file replaced while it is read from its start: only the new file is shown, its rows counted from its start', async () => {
+    const module = await import('../../src/renderer/claude-home/useClaudeHome')
+    const keep = module.KEEP_EVENTS
+    // The old file: KEEP_EVENTS + 1000 events, 1000 of them dropped by the time the file is replaced.
+    answers.push(() => ({ found: true, events: range(100_000, 101_000 + keep).map(answer), cursor: { offset: 900_000, fileId: FILE }, reset: false, more: true }))
+    answers.push(() => ({ found: true, events: range(0, 3000).map(answer), cursor: { offset: 300_000, fileId: 'dev:other' }, reset: true, more: true }))
+    answers.push(() => ({ found: true, events: range(3000, 3000 + keep).map(answer), cursor: { offset: 800_000, fileId: 'dev:other' }, reset: false, more: false }))
+    const { hook } = await openTranscript()
+    expect(requests).toHaveLength(3)
+    expect(texts(hook.result.current.events)).toEqual(range(3000, 3000 + keep).map((n) => `answer ${n}`))
+    expect(hook.result.current.first).toBe(3000)
   })
 
   it('the last answer of a Session Node reads on to the end of the file', async () => {

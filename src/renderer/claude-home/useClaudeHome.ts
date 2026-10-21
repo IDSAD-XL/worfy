@@ -349,6 +349,24 @@ function capped(state: TranscriptState): TranscriptState {
 const offsetsOf = (events: readonly AgentEvent[], offsets: readonly number[] | undefined): readonly number[] =>
   offsets !== undefined && offsets.length === events.length ? offsets : events.map(() => -1)
 
+/** Events read forward from the start of a file (readFromStart): the newest ones, and how many before them were dropped. */
+export interface HeldEvents {
+  events: AgentEvent[]
+  dropped: number
+}
+
+const NONE_HELD: HeldEvents = { events: [], dropped: 0 }
+
+/**
+ * `held` with `more` after it, cut to the newest KEEP_EVENTS: what readFromStart holds between
+ * chunks, so a long file costs one chunk of memory above KEEP_EVENTS, not the whole file.
+ */
+export function keepNewest(held: HeldEvents, more: readonly AgentEvent[]): HeldEvents {
+  const all = [...held.events, ...more]
+  const over = Math.max(0, all.length - KEEP_EVENTS)
+  return { events: over === 0 ? all : all.slice(over), dropped: held.dropped + over }
+}
+
 /** The current state of a transcript's view, outside React. */
 function transcriptNow(key: string): TranscriptState {
   return useClaudeHomeStore.getState().transcripts[key] ?? EMPTY_TRANSCRIPT
@@ -413,16 +431,7 @@ function transcriptReader(root: string, sessionId: string, agentId?: string): Tr
    */
   const readFromStart = async (first: TranscriptAnswer): Promise<void> => {
     let answer = first
-    // The events before `events`, dropped while reading: rows stay counted from the start of the file.
-    let dropped = 0
-    let events: AgentEvent[] = []
-    const keepNewest = (more: readonly AgentEvent[]): void => {
-      const all = [...events, ...more]
-      const over = Math.max(0, all.length - KEEP_EVENTS)
-      dropped += over
-      events = over === 0 ? all : all.slice(over)
-    }
-    keepNewest(first.events)
+    let held = keepNewest(NONE_HELD, first.events)
     for (let round = 0; answer.more && round < 1000; round += 1) {
       const result = await ask({ cursor: answer.cursor, maxBytes: CHUNK_BYTES })
       if (closed()) return
@@ -433,13 +442,12 @@ function transcriptReader(root: string, sessionId: string, agentId?: string): Tr
         setTranscript(key, { ...EMPTY_TRANSCRIPT, loaded: true })
         return
       }
-      if (answer.reset) {
-        dropped = 0
-        events = []
-      }
-      keepNewest(answer.events)
+      // A file replaced or cut under the read: what was held came from the old one.
+      held = keepNewest(answer.reset ? NONE_HELD : held, answer.events)
     }
     cursor = answer.cursor
+    const { events, dropped } = held
+    // Rows stay counted from the start of the file: the first one shown follows the dropped ones.
     setTranscript(key, { ...EMPTY_TRANSCRIPT, events, offsets: events.map(() => -1), first: dropped, loaded: true, found: true })
   }
 
@@ -492,11 +500,16 @@ function transcriptReader(root: string, sessionId: string, agentId?: string): Tr
 
   /**
    * One window before the shown events. 'moved' when the shown events changed their start while it
-   * was read (the cap dropped old ones as new ones came): the answer no longer joins them.
+   * was read (the cap dropped old ones as new ones came): the answer no longer joins them, and
+   * `loadingEarlier` stays true for the next ask. `again`: the ask after a 'moved' one, whose
+   * `loadingEarlier` is still set.
    */
-  const earlierOnce = async (): Promise<'done' | 'moved'> => {
+  const earlierOnce = async (again: boolean): Promise<'done' | 'moved'> => {
     const shown = current()
-    if (shown.earlier === null || shown.earlier === 0 || shown.loadingEarlier || !shown.found) return 'done'
+    if (shown.earlier === null || shown.earlier === 0 || (shown.loadingEarlier && !again) || !shown.found) {
+      if (again) setTranscript(key, { ...shown, loadingEarlier: false })
+      return 'done'
+    }
     const before = { offset: shown.earlier, fileId: cursor?.fileId ?? null }
     const generation = opened
     setTranscript(key, { ...shown, loadingEarlier: true })
@@ -508,10 +521,7 @@ function transcriptReader(root: string, sessionId: string, agentId?: string): Tr
       setTranscript(key, { ...now, loadingEarlier: false })
       return 'done'
     }
-    if (now.earlier !== before.offset) {
-      setTranscript(key, { ...now, loadingEarlier: false })
-      return 'moved'
-    }
+    if (now.earlier !== before.offset) return 'moved'
     if (!result.ok) {
       console.error(`claudeHome.transcript ${label} (earlier) failed:`, result.error)
       setTranscript(key, { ...now, loadingEarlier: false })
@@ -538,9 +548,14 @@ function transcriptReader(root: string, sessionId: string, agentId?: string): Tr
     return 'done'
   }
 
-  /** «Load earlier»: asks again from the new start when the shown events moved while it read. */
+  /**
+   * «Load earlier»: asks again from the new start when the shown events moved while it read.
+   * `loadingEarlier` stays set from the first ask to the last: a view that keeps the reader's row
+   * in place (Transcript) takes its clearing for the end of the read.
+   */
   const earlier = async (): Promise<void> => {
-    for (let attempt = 0; attempt < 5; attempt += 1) if ((await earlierOnce()) === 'done') return
+    for (let attempt = 0; attempt < 5; attempt += 1) if ((await earlierOnce(attempt > 0)) === 'done') return
+    if (!closed()) setTranscript(key, { ...current(), loadingEarlier: false })
   }
 
   const reader: TranscriptReader = { follow, earlier }
