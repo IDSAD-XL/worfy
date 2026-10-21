@@ -1,7 +1,8 @@
 # 72 — `wave-gate` на Windows не снимает замок e2e, когда его останавливают сигналом
 
 Type: bug
-Status: claimed 2026-10-21T09:46Z
+Status: done 2026-10-21T17:06Z
+PR: #705
 Blocked by: —
 Source: Ticket [71](71-harness-test-sh-на-windows.md) (PR #555), 2026-10-20 — найдено при переносе
 `wave-gate.test.sh` на Git Bash; проверка «e2e lock on signal» на win32 пропущена с причиной. Правка `harness/` —
