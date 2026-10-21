@@ -1,7 +1,7 @@
 # 80 — e2e на Windows запускают настоящий `gh.exe`
 
 Type: task
-Status: open
+Status: claimed 2026-10-21T06:31Z
 Branch: worfy-windows/80-e2e-gh-stub
 Blocked by: —
 Source: прогоны на ПК владельца 2026-10-21 (тикет 79, PR #665); решение Session на Mac того же дня.
@@ -35,13 +35,38 @@ Source: прогоны на ПК владельца 2026-10-21 (тикет 79, P
 
 ## Готово, когда
 
-- [ ] Названо, что запускало gh в `window.spec.ts`, и этот путь закрыт.
-- [ ] Guard test: красный, если e2e запускает приложение без stub-а gh или если код worfy запускает
+- [x] Названо, что запускало gh в `window.spec.ts`, и этот путь закрыт.
+- [x] Guard test: красный, если e2e запускает приложение без stub-а gh или если код worfy запускает
       gh в обход `WORFY_GH`; мутанты фикса — красные.
-- [ ] На Windows прогон `window.spec.ts` под watcher-ом `gh.exe` — 0 запусков настоящего gh.
-- [ ] `pnpm typecheck`, `pnpm lint` — exit 0.
+- [x] На Windows прогон `window.spec.ts` под watcher-ом `gh.exe` — 0 запусков настоящего gh.
+- [x] `pnpm typecheck`, `pnpm lint` — exit 0.
 
 ## Вне скоупа
 
 - Seam, чтобы проверки first-run на Windows видели stand-in-ы остальных инструментов, и включение
   `settings-health.spec.ts` и `first-run.spec.ts` на Windows — тикет 81.
+
+## Итог
+
+Причина — два пути, оба закрыты.
+
+- `window.spec.ts` (2 запуска) и `packaged.spec.ts` (2 запуска) запускали Electron сами, через `spawn`,
+  и собирали env вручную: без `WORFY_FIRST_RUN_AUTO=0`. Приложение открывало экран first-run, и его
+  проверки запускали gh. Теперь эти запуски берут env из `directStartEnv` (`test/e2e/launch-env.ts`):
+  те же переменные изоляции, что `launchEnv` у Playwright (`WORFY_GH` на stub, first-run выключен).
+- Проверки first-run (`src/main/first-run/checks.ts`) запускали gh по имени из PATH и не смотрели на
+  `WORFY_GH`. Теперь обе строки gh (`--version`, `auth status`) идут через `programStart(deps.gh)`,
+  как `src/main/github/accounts.ts`; `src/main/ipc/first-run.ts` передаёт `WORFY_GH`. На win32
+  абсолютный путь к `.exe` запускается как есть. `first-run.spec.ts` и `settings-health.spec.ts`
+  ставят `WORFY_GH` на свой gh из sandbox, чтобы на macOS их поведение не изменилось.
+
+Guard test: `test/unit/e2e-gh-stub.test.ts` (каждый запуск приложения в e2e получает stub gh) и
+describe «the gh rows and WORFY_GH» в `test/unit/first-run-windows.test.ts`. Мутанты красные:
+без `gh` в ipc, gh по имени в checks.ts, `spawn` без `directStartEnv`.
+
+На ПК 2026-10-21, ветка тикета: gate fast exit 0; 6 unit-файлов, 171 passed. `window.spec.ts` и
+`projects-connect.spec.ts` под watcher-ом `gh.exe`: 0 запусков gh. `window.spec.ts` зелёный.
+
+Заметка: 3 test-а `projects-connect.spec.ts` (`:73`, `:230`, `:294`) на Windows падают — экран
+connect-project показывает стадию `harness`, а не `form`. Так же они падают на базе (ветка тикета 79),
+тоже с 0 запусков gh: тикет 80 их не вызывает, это отдельная проблема Windows.

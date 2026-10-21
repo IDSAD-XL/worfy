@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { BUILD_VERSION, buildVersion } from '../../scripts/build-version'
-import { GH_STUB, launchApp, type LaunchedApp, NO_WINDOW_RESTORE, repoRoot } from './helpers'
+import { launchApp, type LaunchedApp, NO_WINDOW_RESTORE, repoRoot } from './helpers'
+import { directStartEnv } from './launch-env'
 import { catScript } from '../harness-node'
 
 // The packaged tests drive the stable copy of worfy.app that scripts/install-stable.mjs installs:
@@ -77,16 +78,7 @@ async function exitWithin(child: ChildProcess, ms: number): Promise<{ exited: bo
  * the way a second start of worfy.app or `pnpm dev` would, and reports whether it quit on its own.
  */
 async function secondStart(first: LaunchedApp, command: string, args: string[]): Promise<{ exited: boolean; code: number | null }> {
-  const env: Record<string, string> = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE') env[key] = value
-  }
-  Object.assign(env, {
-    WORFY_DATA_DIR: first.dataDir,
-    WORFY_CLAUDE_HOME: first.claudeHome,
-    WORFY_AGENT: 'fake',
-    WORFY_GH: GH_STUB,
-  })
+  const env = directStartEnv({ dataDir: first.dataDir, claudeHome: first.claudeHome })
   const child = spawn(command, [...args, ...NO_WINDOW_RESTORE], { cwd: repoRoot, env, stdio: 'ignore' })
   return exitWithin(child, 20_000)
 }
@@ -669,18 +661,11 @@ test.describe('dev run of the unpacked build', () => {
   // URL fails the start with the error window's text, not with an unhandled exception.
   test('with an ELECTRON_RENDERER_URL that is not a URL stops with exit code 1 and names step loadURL', async () => {
     const root = await mkdtemp(join(tmpdir(), 'worfy-bad-renderer-url-'))
-    const env: Record<string, string> = {}
-    for (const [key, value] of Object.entries(process.env)) {
-      if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE') env[key] = value
-    }
-    Object.assign(env, {
-      WORFY_DATA_DIR: join(root, 'data'),
-      WORFY_CLAUDE_HOME: root,
-      WORFY_AGENT: 'fake',
-      WORFY_GH: GH_STUB,
-      ELECTRON_RENDERER_URL: 'not a url',
+    const env = directStartEnv({
+      dataDir: join(root, 'data'),
+      claudeHome: root,
       // The native error window is modal and would hold the process until someone dismisses it.
-      WORFY_STARTUP_DIALOG: 'off',
+      env: { ELECTRON_RENDERER_URL: 'not a url', WORFY_STARTUP_DIALOG: 'off' },
     })
     const electron = createRequire(import.meta.url)('electron') as string
     // Started without Playwright: launchApp waits for a window, and this start must never open one.

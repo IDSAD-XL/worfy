@@ -102,6 +102,7 @@ async function checks(): Promise<FirstRunReport> {
   const env = await loginEnv()
   return runChecks({
     env,
+    gh: process.env.WORFY_GH || undefined,
     scriptEnv: harnessScriptEnv,
     bundledClaudeCodeVersion: bundledClaudeCodeVersion(),
     accountInfo: () => accountInfo(env),

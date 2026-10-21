@@ -48,23 +48,28 @@ async function defaultShell(shellDir: string, path: string): Promise<string> {
   return link
 }
 
-/** The environment of the app process of one launch. */
-export async function launchEnv(options: LaunchEnvOptions): Promise<Record<string, string>> {
-  const source = options.source ?? process.env
+/** The test process's environment without ELECTRON_RUN_AS_NODE, which would start Electron as Node. */
+function inherited(source: NodeJS.ProcessEnv): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(source)) {
     if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE') env[key] = value
   }
-  // Off Windows only: there the environment comes from the registry, not from a login shell (ADR-0057).
-  const shell = process.platform === 'win32' || options.env?.SHELL !== undefined ? {} : { SHELL: await defaultShell(options.shellDir, source.PATH ?? '') }
-  return Object.assign(env, {
-    WORFY_DATA_DIR: options.dataDir,
-    WORFY_CLAUDE_HOME: options.claudeHome,
+  return env
+}
+
+/** What every start of the app in a test gets, whether Playwright starts it or the spec does. */
+function isolation(dataDir: string, claudeHome: string): Record<string, string> {
+  return {
+    WORFY_DATA_DIR: dataDir,
+    WORFY_CLAUDE_HOME: claudeHome,
     WORFY_AGENT: 'fake',
-    // A gh that never reaches GitHub (test/fixtures/gh/gh-stub.mjs): no PRs unless GH_STUB_DIR says otherwise.
+    // A gh that never reaches GitHub (test/fixtures/gh/gh-stub.mjs): no PRs unless GH_STUB_DIR says
+    // otherwise. Every gh worfy runs goes through it, the first-run checks included (worfy-windows
+    // ticket 80): without it they would run the machine's own gh.
     WORFY_GH: GH_STUB,
     // The first-run screen (worfy-harness ticket 19) does not open by itself: it would cover the
-    // window of every test. test/e2e/first-run.spec.ts turns it back on with WORFY_FIRST_RUN_AUTO=1.
+    // window of every test, and its checks would run. test/e2e/first-run.spec.ts turns it back on
+    // with WORFY_FIRST_RUN_AUTO=1.
     WORFY_FIRST_RUN_AUTO: '0',
     // The link server (worfy-link) listens on loopback only, so the macOS firewall never asks about
     // incoming connections, and Bonjour is off, so macOS never asks for the Local Network
@@ -72,7 +77,31 @@ export async function launchEnv(options: LaunchEnvOptions): Promise<Record<strin
     // 127.0.0.1:<port> (launchLinkedPair in helpers.ts).
     WORFY_LINK_HOST: '127.0.0.1',
     WORFY_LINK_BONJOUR: '0',
-    ...shell,
-    ...options.env,
-  })
+  }
+}
+
+/** The environment of the app process of one launch. */
+export async function launchEnv(options: LaunchEnvOptions): Promise<Record<string, string>> {
+  const source = options.source ?? process.env
+  // Off Windows only: there the environment comes from the registry, not from a login shell (ADR-0057).
+  const shell: Record<string, string> = process.platform === 'win32' || options.env?.SHELL !== undefined ? {} : { SHELL: await defaultShell(options.shellDir, source.PATH ?? '') }
+  return { ...inherited(source), ...isolation(options.dataDir, options.claudeHome), ...shell, ...options.env }
+}
+
+export interface DirectStartEnvOptions {
+  dataDir: string
+  claudeHome: string
+  /** The test process's environment; process.env by default. */
+  source?: NodeJS.ProcessEnv
+  /** The spec's own variables: each wins over the default of the same name. */
+  env?: Record<string, string>
+}
+
+/**
+ * The environment of an app process a spec starts itself, without Playwright (a start that must
+ * fail, a second start, a hook given with `-r`): the same isolation as launchEnv, with the test
+ * process's own login shell. test/unit/e2e-gh-stub.test.ts checks that every such start uses it.
+ */
+export function directStartEnv(options: DirectStartEnvOptions): Record<string, string> {
+  return { ...inherited(options.source ?? process.env), ...isolation(options.dataDir, options.claudeHome), ...options.env }
 }

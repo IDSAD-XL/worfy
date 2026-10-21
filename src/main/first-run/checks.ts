@@ -63,6 +63,7 @@ import type { HarnessScriptEnvSource } from '../harness/script-env'
 import { environmentExit, harnessScriptRunner, HarnessScriptStartError, HARNESS_SCRIPT_TIMEOUT_MS, NODE_NOT_FOUND, scriptFailureDetail } from '../workflow/profile'
 import { hasLegacyHarness, type PlanOptions } from '../harness/migrate/plan'
 import { MIN_NODE_MAJOR, modelPlan, NODE_INSTALL_HINT, profileDocsLanguages, QMD_VERSION, qmdState, type QmdHomes } from '../harness/qmd'
+import { programStart } from '../program'
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import type { Check, CheckGroup, CheckId, FirstRunAction, FirstRunReport } from '../../shared/ipc/first-run'
 
@@ -81,6 +82,12 @@ export interface ProjectProfile {
 export interface CheckDeps {
   /** The login shell environment (agentEnv()). */
   env: Env
+  /**
+   * The program the gh rows run in place of gh: WORFY_GH, which tests point at a stand-in
+   * (src/main/program.ts), as the PR badges and the GitHub accounts do. Unset: gh from the PATH of
+   * `env`. Without it an e2e run reached the machine's own gh (worfy-windows ticket 80).
+   */
+  gh?: string
   /**
    * The environment the Harness scripts get, asked when the scripts row runs: the source the
    * Epics read uses (src/main/harness/script-env.ts), so the row fails exactly when that read does.
@@ -193,6 +200,9 @@ export function windowsProgram(name: string, env: Env, exists?: FileExists): { f
  */
 export function toolStart(name: string, args: readonly string[], env: Env, platform: NodeJS.Platform, exists?: FileExists): { file: string; args: string[]; shell: string | false } | null {
   if (platform !== 'win32') return { file: name, args: [...args], shell: false }
+  // An `.exe` by its full path starts as it is: a WORFY_GH override, or worfy's own executable that
+  // runs a `.mjs` one (runGh). Only a bare name is looked for on the Path.
+  if (win32.isAbsolute(name) && /\.exe$/i.test(name)) return { file: name, args: [...args], shell: false }
   const program = windowsProgram(name, env, exists)
   if (program === null) return null
   if (!program.cmd) return { file: program.file, args: [...args], shell: false }
@@ -428,8 +438,14 @@ async function claudeVersion(deps: CheckDeps, machine: Machine, timeoutMs: numbe
 /** What jq is for on Windows, where it only warns: the Harness installs and runs without it. */
 export const JQ_WINDOWS_HINT = 'Skill steps that call jq do not work without it; installing the Harness does not need it'
 
+/** Runs gh, or the program deps.gh names in its place: a `.mjs` one under worfy's own Node (programStart). */
+function runGh(args: readonly string[], deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<ToolRun> {
+  const start = programStart(deps.gh, 'gh')
+  return machine.probes.run(start.file, [...start.args, ...args], { ...deps.env, ...start.env }, timeoutMs)
+}
+
 async function tool(name: 'git' | 'gh' | 'jq', deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {
-  const run = await machine.probes.run(name, ['--version'], deps.env, timeoutMs)
+  const run = name === 'gh' ? await runGh(['--version'], deps, machine, timeoutMs) : await machine.probes.run(name, ['--version'], deps.env, timeoutMs)
   const install = installCommand(machine, name)
   // On Windows jq is not required (owner's decision of 2026-10-09): missing or broken, it warns.
   const optional = machine.windows && name === 'jq'
@@ -569,7 +585,7 @@ export function ghAccounts(output: string): string[] {
 }
 
 async function ghAuth(deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {
-  const run = await machine.probes.run('gh', ['auth', 'status'], deps.env, timeoutMs)
+  const run = await runGh(['auth', 'status'], deps, machine, timeoutMs)
   if (run.missing) return row('fail', 'gh is not installed', `Install gh first (${installCommand(machine, 'gh')}), then sign in`)
   const accounts = ghAccounts(`${run.stdout}\n${run.stderr}`)
   if (accounts.length > 0) return row('ok', accounts.join(', '))

@@ -698,3 +698,70 @@ describe('Limits from terminal (Windows)', () => {
     expect(readdirSync(root).filter((name) => name.includes('.worfy-move-'))).toEqual([])
   })
 })
+
+// worfy-windows ticket 80: the gh rows run WORFY_GH when worfy has it, as the PR badges and the
+// GitHub accounts do. Without it an e2e run on Windows reached the machine's own gh.exe, since there
+// the checks find gh by the Path from the registry, not by the sandbox's login shell.
+describe('the gh rows and WORFY_GH', () => {
+  /** Every run the checks ask for: the program and its arguments. */
+  function recording(): { probes: Probes; runs: string[][] } {
+    const runs: string[][] = []
+    const run = (name: string, args: readonly string[]): Promise<ToolRun> => {
+      runs.push([name, ...args])
+      if (args.includes('auth')) return Promise.resolve({ code: 0, stdout: 'github.com\n  ✓ Logged in to github.com account alice (keyring)\n', stderr: '', missing: false })
+      return Promise.resolve({ code: 0, stdout: 'gh version 2.60.0 (2024-10-15)\n', stderr: '', missing: false })
+    }
+    return { probes: { run, exists: () => false }, runs }
+  }
+  const ghRuns = (runs: string[][]): string[][] => runs.filter((run) => run.includes('--version') ? run.join(' ').includes('gh') : run.includes('auth'))
+
+  it('without it: gh from the Path, as before', async () => {
+    const { probes, runs } = recording()
+    await runChecks(deps(WIN11, ALL, [], { probes }))
+    expect(ghRuns(runs)).toEqual([
+      ['gh', '--version'],
+      ['gh', 'auth', 'status'],
+    ])
+  })
+
+  it.each([WIN11, MAC])('with a program by its path on $platform: that program, never gh from the Path', async (system) => {
+    const { probes, runs } = recording()
+    const stand = system.platform === 'win32' ? 'C:\\stand-in\\gh.exe' : '/stand-in/gh'
+    await runChecks(deps(system, ALL, [], { probes, gh: stand }))
+    expect(runs.some(([name]) => name === 'gh')).toBe(false)
+    expect(ghRuns(runs)).toEqual([
+      [stand, '--version'],
+      [stand, 'auth', 'status'],
+    ])
+  })
+
+  it('with a .mjs stand-in: worfy\'s own Node runs it, with ELECTRON_RUN_AS_NODE', async () => {
+    const runs: { name: string; args: readonly string[]; env: Record<string, string | undefined> }[] = []
+    const run = (name: string, args: readonly string[], env: Record<string, string | undefined>): Promise<ToolRun> => {
+      runs.push({ name, args, env })
+      return Promise.resolve({ code: 0, stdout: '', stderr: '', missing: false })
+    }
+    const stub = 'C:\\fixtures\\gh\\gh-stub.mjs'
+    await runChecks(deps(WIN11, ALL, [], { probes: { run, exists: () => false }, gh: stub }))
+    const viaStub = runs.filter((each) => each.args[0] === stub)
+    expect(viaStub.map((each) => [each.name, ...each.args])).toEqual([
+      [process.execPath, stub, '--version'],
+      [process.execPath, stub, 'auth', 'status'],
+    ])
+    for (const each of viaStub) expect(each.env).toMatchObject({ ...WINDOWS_ENV, ELECTRON_RUN_AS_NODE: '1' })
+    expect(runs.some((each) => each.name === 'gh')).toBe(false)
+  })
+
+  it('toolStart on Windows starts an .exe by its full path as it is, without looking on the Path', () => {
+    const looked: string[] = []
+    const exists = (path: string): boolean => {
+      looked.push(path)
+      return false
+    }
+    expect(toolStart('C:\\stand-in\\gh.exe', ['--version'], WINDOWS_ENV, 'win32', exists)).toEqual({ file: 'C:\\stand-in\\gh.exe', args: ['--version'], shell: false })
+    expect(looked).toEqual([])
+    // A bare name is still looked for folder by folder.
+    expect(toolStart('gh', ['--version'], WINDOWS_ENV, 'win32', exists)).toBeNull()
+    expect(looked.length).toBeGreaterThan(0)
+  })
+})
