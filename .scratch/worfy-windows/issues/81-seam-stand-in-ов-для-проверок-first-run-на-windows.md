@@ -1,7 +1,8 @@
 # 81 — Seam: проверки first-run на Windows видят stand-in-ы e2e
 
 Type: task
-Status: done 2026-10-21T08:02Z
+Status: done 2026-10-21T08:14Z
+PR: #673
 Blocked by: 80
 Source: ревью PR #665 (тикет 79), Session на Mac, 2026-10-21.
 
