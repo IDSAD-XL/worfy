@@ -8,10 +8,11 @@ import { useDevBundle } from './scripts/dev-bundle'
 import { removeTree } from './src/main/storage/remove'
 
 /**
- * Folders of harness/ that stay out of the copy the app carries: the Harness's own tests and its
- * eval cases (evals/, run by `pnpm eval:harness`; their local results/ hold run transcripts).
+ * Folders of harness/ that stay out of the copy the app carries: the Harness's own tests, its
+ * eval cases (evals/, run by `pnpm eval:harness`) and the outcome eval (evals-outcome/, run by
+ * `pnpm eval:outcome`); their local results/ hold run transcripts.
  */
-export const HARNESS_NOT_BUNDLED = [join('bin', 'tests'), join('hooks', 'tests'), 'evals']
+export const HARNESS_NOT_BUNDLED = [join('bin', 'tests'), join('hooks', 'tests'), 'evals', 'evals-outcome']
 
 /**
  * Copies harness/ into out/harness/ next to out/main/ on every build of main (`pnpm build`,

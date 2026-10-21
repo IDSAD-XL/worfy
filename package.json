@@ -22,6 +22,7 @@
     "test:acceptance": "bash scripts/e3-sandbox.sh lock-run playwright test -c playwright.acceptance.config.ts",
     "install:stable": "node scripts/install-stable.mjs",
     "eval:harness": "node scripts/eval-harness.mjs",
+    "eval:outcome": "node scripts/eval-outcome.mjs",
     "postinstall": "node scripts/postinstall.mjs"
   },
   "dependencies": {
