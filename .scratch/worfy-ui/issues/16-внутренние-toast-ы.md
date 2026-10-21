@@ -1,7 +1,8 @@
 # 16 — Внутренние toast-ы: одно хранилище и один компонент для уведомлений в окне
 
 Type: task
-Status: open
+Status: claimed 2026-10-21T08:09Z
+Branch: worfy-ui/16
 Blocked by: —
 Source: отзыв владельца 2026-10-19 после ручной приёмки Ticket-а 12 на Stable copy: «внутренние
 toast-ы, которые можно использовать для многих вещей, в том числе для таких вопросов» (вопросы с
@@ -154,4 +155,32 @@ toast-ы, которые можно использовать для многих
 
 ## Итог
 
-Заполняется при закрытии.
+Черновик исполнителя (PR ветки `worfy-ui/16`); оркестратор дополняет при закрытии.
+
+- **Файлы.** Хранилище — `src/renderer/toast/toasts.ts` (`showToast`, `dismissToast`, `pressToastAction`,
+  `holdToast`, `setToastProject`, `showIpcError`). Компонент — `src/renderer/toast/ToastRegion.tsx`, а не
+  `Toasts.tsx`: рядом с `toasts.ts` на файловой системе без учёта регистра (macOS, Windows) импорт
+  `./toasts` и `./Toasts` попадает в один файл, test компонента получал хранилище вместо компонента.
+- **API для worfy-canvas 10.** `showToast({ kind: 'action', key: batch, projectId, text, actions: [{ label: 'Undo', run }] })`;
+  `key` — это id toast-а, повтор с тем же `key` заменяет toast на месте; кнопка зовёт `run` и закрывает
+  toast, даже если `run` бросил; у `action` от одной до трёх кнопок (проверяет тип).
+- **Место.** Сверху по центру окна, под toolbar (`top: toolbar-height + 8px`), ширина до 420 px;
+  область рисуется на `<body>` с z-index 120: над focus mode, над диалогами (90–101) и над окном Settings
+  (110; modal guard пропускает клавиши слоя выше). Поле ввода Session с Send и Minimap — внизу, toast-ы
+  их не закрывают. Порядок: сначала `error` (область `role="alert"`), под ними остальные (`role="status"`).
+- **Вид.** Поверхность `--surface`, рамка `--border`, радиус `--radius-button`, тень `--shadow-node`,
+  текст 12/18 px, до трёх строк (полный текст — в `title`). Вид — полоса слева 3 px: `info` —
+  `--border-strong`, `success` — `--ready-dot`, `error` — `--blocked-ring`, `action` — `--working-dot`.
+  Кнопки `action` — 24 px, `--accent`; кнопка закрытия «Dismiss» 24 px. Появление — 160 мс
+  (прозрачность и сдвиг на 4 px), при «Reduce motion» без анимации.
+- **Время.** Наведение мыши или фокус останавливают время; когда ушли оба, 4 с начинаются заново
+  целиком.
+- **Toast другого Project-а** скрыт и не занимает места в стопке из трёх; его время идёт.
+- **Тексты.** ⌘Z — прежние «Not undone/Not redone: this Node was changed on another screen»;
+  «File is on <Machine>»; отказ Fix — «Fix in Terminal <shell>: <причина>»; Copy — «Copied <команда>»;
+  сбой подписки — «Updates stopped: cannot subscribe to <канал> (<ошибка>)»; `claudeHome.live` —
+  «Live Sessions not read: <причина>».
+- **Снимки.** Все четыре вида (разметка компонента с `tokens.css` и `toast.css` в Chromium):
+  ![светлая](../evidence/16-toasts-light.png) ![тёмная](../evidence/16-toasts-dark.png).
+  В приложении (e2e `trash-undo.spec.ts`): ![светлая](../evidence/16-undo-skipped-light.png)
+  ![тёмная](../evidence/16-undo-skipped-dark.png).

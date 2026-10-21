@@ -106,10 +106,10 @@ function AdrPanel({ projectId, adr, onClose }: AdrPanelProps) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onClose])
 
-  const file = useFileElsewhere({ style: styles.panelStatus })
+  const file = useFileElsewhere()
 
   const openInEditor = () => {
-    // In a window on a Linked machine the ADR file lies there: the hint instead of its editor.
+    // In a window on a Linked machine the ADR file lies there: the toast instead of its editor.
     if (file.elsewhere) {
       file.show()
       return
@@ -129,7 +129,6 @@ function AdrPanel({ projectId, adr, onClose }: AdrPanelProps) {
           {adr.title}
         </h2>
         {adr.status !== null ? <span style={styles.panelStatus}>{adr.status}</span> : null}
-        {file.hint}
         <button type="button" style={styles.button} onClick={openInEditor} title={adr.path}>
           Open in Editor
         </button>

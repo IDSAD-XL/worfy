@@ -22,6 +22,7 @@ import MigrationForm from '../harness/MigrationForm'
 import { invoke } from '../ipc'
 import { activeProject, useProjects } from '../projects/useProjects'
 import { setView } from '../session/navigation'
+import { showToast } from '../toast/toasts'
 import { checkAgain, useFirstRun } from './first-run-store'
 
 /** The size of the Terminal Node the GitHub sign-in opens: the default of the Terminal Node type. */
@@ -73,18 +74,18 @@ function StatusChip({ state }: { state: ChipState }) {
   )
 }
 
+/** Copies a command; a `success` toast of the window says what was copied, the label stays "Copy". */
 function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
   return (
     <button
       type="button"
       className="w-action"
       aria-label={`Copy ${text}`}
       onClick={() => {
-        void navigator.clipboard?.writeText(text).then(() => setCopied(true))
+        void navigator.clipboard?.writeText(text).then(() => showToast({ kind: 'success', key: 'copied', text: `Copied ${text}` }))
       }}
     >
-      {copied ? 'Copied' : 'Copy'}
+      Copy
     </button>
   )
 }

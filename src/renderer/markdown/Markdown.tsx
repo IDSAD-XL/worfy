@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
+import { useMemo, type MouseEvent, type ReactNode } from 'react'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { invoke } from '../ipc'
@@ -35,9 +35,6 @@ export interface MarkdownProps {
  */
 const keepWindowsPaths = (url: string): string => (isWindowsPathLink(url) ? url : defaultUrlTransform(url))
 
-/** The hint "File is on <Machine>" next to a file link in a window on a Linked machine. */
-const hintStyle: CSSProperties = { marginLeft: 6, fontSize: 'var(--text-11)', color: 'var(--text-muted)' }
-
 function open(href: string | undefined, projectId: string | undefined, baseDir: string | undefined): void {
   const target = classifyLink(href, baseDir)
   // An https:// address opens on the Machine where it was clicked: `shell.openExternal` is `local`,
@@ -55,7 +52,7 @@ function open(href: string | undefined, projectId: string | undefined, baseDir: 
 
 function Link({ href, children, projectId, baseDir }: { href: string | undefined; children: ReactNode; projectId: string | undefined; baseDir: string | undefined }) {
   const target = classifyLink(href, baseDir)
-  const file = useFileElsewhere({ style: hintStyle })
+  const file = useFileElsewhere()
   if (target.kind === 'none') {
     return (
       <span className="w-md__inert-link" title={href}>
@@ -66,17 +63,14 @@ function Link({ href, children, projectId, baseDir }: { href: string | undefined
   const onClick = (event: MouseEvent) => {
     // The window itself never navigates: the link always leaves through main.
     event.preventDefault()
-    // A Project file lies on the window's Linked machine: the hint instead of its editor.
+    // A Project file lies on the window's Linked machine: the toast instead of its editor.
     if (target.kind === 'file' && projectId !== undefined && file.elsewhere) file.show()
     else open(href, projectId, baseDir)
   }
   return (
-    <>
-      <a href={href} title={target.kind === 'external' ? target.url : target.path} onClick={onClick}>
-        {children}
-      </a>
-      {file.hint}
-    </>
+    <a href={href} title={target.kind === 'external' ? target.url : target.path} onClick={onClick}>
+      {children}
+    </a>
   )
 }
 

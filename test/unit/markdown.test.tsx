@@ -6,6 +6,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Markdown } from '../../src/renderer/markdown/Markdown'
 import { classifyLink } from '../../src/renderer/markdown/links'
+import { resetToasts, toasts } from '../../src/renderer/toast/toasts'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 
 const asked: { channel: string; input: unknown }[] = []
@@ -238,6 +239,7 @@ describe('Markdown: links in a window on a Linked machine', () => {
   })
 
   beforeEach(() => {
+    resetToasts()
     window.history.replaceState(null, '', `/?machine=${M}&project=alpha`)
     ;(globalThis as { worfy?: WorfyBridge }).worfy = {
       invoke: (channel: string, input: unknown) => {
@@ -262,9 +264,10 @@ describe('Markdown: links in a window on a Linked machine', () => {
 
   it('a link to a Project file shows "File is on Mini" and calls nothing on either Machine', async () => {
     render(<Markdown text={'Decided in [ADR 0002](../adr/0002-view.md).'} projectId="alpha" baseDir="docs/design" />)
-    expect(screen.queryByTestId('file-elsewhere')).toBeNull()
     expect(fireEvent.click(screen.getByRole('link', { name: 'ADR 0002' }))).toBe(false)
-    await vi.waitFor(() => expect(screen.getByTestId('file-elsewhere').textContent).toBe('File is on Mini'))
+    // A toast of the window (toast/toasts.ts, worfy-ui ticket 16): the name once the link state has it.
+    const elsewhere = () => toasts.getState().toasts.find((toast) => toast.testId === 'file-elsewhere')
+    await vi.waitFor(() => expect(elsewhere()?.text).toBe('File is on Mini'))
     // Only the link state of this Machine, for the name; no shell call here or on M.
     expect(asked.map((each) => each.channel).filter((channel) => channel !== 'link.state')).toEqual([])
   })

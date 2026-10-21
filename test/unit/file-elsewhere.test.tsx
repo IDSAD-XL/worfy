@@ -1,7 +1,8 @@
-// The hint "File is on <Machine>" (src/renderer/machines/useFileElsewhere.ts; worfy-link ticket 12):
-// a window on a Linked machine does not open a Project file and shows the hint for a few seconds;
-// a window on this Machine opens it as before and never asks for the link state on its account.
-import { act, fireEvent, render, screen } from '@testing-library/react'
+// The toast "File is on <Machine>" (src/renderer/machines/useFileElsewhere.ts; worfy-link ticket 12,
+// worfy-ui ticket 16): a window on a Linked machine does not open a Project file and shows the toast
+// for a few seconds; a window on this Machine opens it as before and never asks for the link state on
+// its account.
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 
@@ -32,21 +33,24 @@ afterEach(() => {
 
 async function mount(machine: string | null) {
   window.history.replaceState(null, '', machine === null ? '/' : `/?machine=${machine}&project=p-00000001`)
-  const { useFileElsewhere, HINT_MS } = await import('../../src/renderer/machines/useFileElsewhere')
+  const { useFileElsewhere } = await import('../../src/renderer/machines/useFileElsewhere')
+  const { ToastRegion } = await import('../../src/renderer/toast/ToastRegion')
+  const store = await import('../../src/renderer/toast/toasts')
+  store.resetToasts()
   const opened = vi.fn()
   function Probe() {
-    const file = useFileElsewhere({ className: 'probe-hint' })
+    const file = useFileElsewhere()
     return (
       <div>
         <button type="button" onClick={() => (file.elsewhere ? file.show() : opened())}>
           open
         </button>
-        {file.hint}
+        <ToastRegion projectId={undefined} />
       </div>
     )
   }
   render(<Probe />)
-  return { opened, HINT_MS }
+  return { opened, TOAST_MS: store.TOAST_MS }
 }
 
 const click = async () => {
@@ -56,7 +60,7 @@ const click = async () => {
 }
 
 describe('useFileElsewhere', () => {
-  it('in a window on this Machine: not elsewhere, no hint, no link state asked', async () => {
+  it('in a window on this Machine: not elsewhere, no toast, no link state asked', async () => {
     const { opened } = await mount(null)
     await click()
     expect(opened).toHaveBeenCalledTimes(1)
@@ -64,30 +68,36 @@ describe('useFileElsewhere', () => {
     expect(asked).toEqual([])
   })
 
-  it('in a window on M: shows "File is on Mini" instead of opening', async () => {
+  it('in a window on M: shows the toast "File is on Mini" instead of opening', async () => {
     const { opened } = await mount(M)
     expect(screen.queryByTestId('file-elsewhere')).toBeNull()
+    // Nothing is asked before a toast is wanted.
+    expect(asked).toEqual([])
     await click()
     expect(opened).not.toHaveBeenCalled()
+    // The link state is read then; the toast names the Machine once it has the name.
     await vi.waitFor(() => expect(screen.getByTestId('file-elsewhere').textContent).toBe('File is on Mini'))
-    expect(screen.getByRole('status').textContent).toBe('File is on Mini')
-    // The look the caller asked for.
-    expect(screen.getByRole('status').className).toBe('probe-hint')
+    expect(asked).toEqual(['link.state'])
+    // An info toast: in the polite region of the window's notifications.
+    const region = screen.getByRole('region', { name: 'Notifications' })
+    expect(within(region).getByRole('status').contains(screen.getByTestId('file-elsewhere'))).toBe(true)
+    expect(screen.getAllByTestId('file-elsewhere')).toHaveLength(1)
   })
 
-  it('hides the hint after HINT_MS; another click starts the time again', async () => {
-    const { HINT_MS } = await mount(M)
+  it('hides the toast after TOAST_MS; another click replaces it and starts the time again', async () => {
+    const { TOAST_MS } = await mount(M)
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     await click()
     expect(screen.queryByTestId('file-elsewhere')).not.toBeNull()
     await act(async () => {
-      vi.advanceTimersByTime(HINT_MS - 1)
+      vi.advanceTimersByTime(TOAST_MS - 1)
     })
     expect(screen.queryByTestId('file-elsewhere')).not.toBeNull()
-    // A second click starts the time again.
+    // A second click starts the time again, with one toast on screen.
     await click()
+    expect(screen.getAllByTestId('file-elsewhere')).toHaveLength(1)
     await act(async () => {
-      vi.advanceTimersByTime(HINT_MS - 1)
+      vi.advanceTimersByTime(TOAST_MS - 1)
     })
     expect(screen.queryByTestId('file-elsewhere')).not.toBeNull()
     await act(async () => {
@@ -101,6 +111,7 @@ describe('useFileElsewhere', () => {
     await mount(M)
     await click()
     await vi.waitFor(() => expect(asked).toContain('link.state'))
+    await act(async () => {})
     expect(screen.getByTestId('file-elsewhere').textContent).toBe('File is on the Linked machine')
   })
 })

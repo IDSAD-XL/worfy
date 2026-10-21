@@ -25,8 +25,8 @@ import '../epic-frame.css'
 // (focus/focus-tile.ts) the Ticket shows its whole file as markdown under the same header
 // (TicketBody.tsx) and the title uncut, and "Open in editor" in the header opens the file — at the
 // path main found — in the default editor through `shell.openInEditor`; in a window on a Linked
-// machine that button shows "File is on <Machine>" in place of the blockers line instead (worfy-link
-// ticket 12). The card on the Canvas reads no file. The Node comes from sources/epics.ts. In a
+// machine that button shows the toast "File is on <Machine>" instead (worfy-link ticket 12,
+// worfy-ui ticket 16). The card on the Canvas reads no file. The Node comes from sources/epics.ts. In a
 // Project over several repositories (ADR-0045) a chip next to the number names the Ticket's
 // repository (its `Repo:` line), or says it has none.
 //
@@ -106,13 +106,13 @@ function TicketNode({ id, data, width }: CanvasNodeProps) {
   const stateLabel = ticket.state === 'work' ? 'claimed' : ticket.state === 'none' ? 'no status' : ticket.state
   const title = ticketTitle(ticket)
 
-  const file = useFileElsewhere({ className: 'w-ticket__meta' })
+  const file = useFileElsewhere()
   const inFocus = useInFocusTile()
   // Only the focused Ticket reads its file; the card on the Canvas stays compact.
   const read = useTicketText(inFocus ? { projectId, ticket } : null)
 
   const openInEditor = () => {
-    // In a window on a Linked machine the Ticket file lies there: the hint instead of its editor.
+    // In a window on a Linked machine the Ticket file lies there: the toast instead of its editor.
     if (file.elsewhere) {
       file.show()
       return
@@ -163,9 +163,7 @@ function TicketNode({ id, data, width }: CanvasNodeProps) {
       <div className="w-ticket__title" title={title}>
         {title}
       </div>
-      {file.hint !== null ? (
-        file.hint
-      ) : reason ? (
+      {reason ? (
         <div className="w-ticket__reason" title={reason}>
           {reason}
         </div>

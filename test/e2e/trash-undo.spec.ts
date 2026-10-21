@@ -306,10 +306,14 @@ test.describe('⌘Z with two windows', () => {
       const byB = await drag(b, 'n1', 0, 160)
       await drawnAt(a, 'n1', seenInA, byB)
 
+      // Before the press: the toast shows after it, so it has been up at least this long.
+      const pressedAt = Date.now()
       await a.keyboard.press('ControlOrMeta+z')
+      // A toast of the window (worfy-ui ticket 16), in the polite region of its notifications.
       const notice = a.getByTestId('undo-skipped')
       await expect(notice).toBeVisible()
-      await expect(notice).toHaveAttribute('role', 'status')
+      await expect(a.getByRole('region', { name: 'Notifications' }).getByRole('status').getByTestId('undo-skipped')).toBeVisible()
+      await expect(notice).toHaveAttribute('data-kind', 'info')
       await expect(notice).toHaveText('Not undone: this Node was changed on another screen')
       // The skip is decided before the notice shows: nothing was sent, n1 stays where B put it.
       expect(await nodeIn(a, 'n1')).toMatchObject({ x: byB.x, y: byB.y })
@@ -324,8 +328,9 @@ test.describe('⌘Z with two windows', () => {
       await b.keyboard.press('ControlOrMeta+z')
       await expect.poll(async () => await nodeIn(b, 'n1')).toMatchObject({ x: byA.x, y: byA.y })
       await expect(b.getByTestId('undo-skipped')).toHaveCount(0)
-      // The notice goes away by itself.
+      // The notice goes away by itself, about TOAST_MS (4 s) after it showed.
       await expect(notice).toHaveCount(0, { timeout: 8000 })
+      expect(Date.now() - pressedAt).toBeGreaterThanOrEqual(3900)
     } finally {
       await launched.close()
     }

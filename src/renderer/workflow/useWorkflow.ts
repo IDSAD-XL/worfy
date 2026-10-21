@@ -10,6 +10,7 @@ import { useEffect } from 'react'
 import { create } from 'zustand'
 import { ticketKey, type WorkflowDelta, type WorkflowModel } from '../../shared/workflow/types'
 import { invoke, subscribe } from '../ipc'
+import { errorText, showIpcError } from '../toast/toasts'
 
 export interface WorkflowEntry {
   /** Undefined until main has answered `workflow.open`. */
@@ -73,6 +74,7 @@ function ensureSubscribed(): void {
     subscribe('workflow.changed', onChanged)
   } catch (error) {
     console.error('workflow.changed: cannot subscribe', error)
+    showIpcError('workflow.changed', `Updates stopped: cannot subscribe to workflow.changed (${errorText(error)})`)
   }
 }
 

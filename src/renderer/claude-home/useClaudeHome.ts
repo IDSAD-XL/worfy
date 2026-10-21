@@ -24,7 +24,8 @@ import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { AgentEvent } from '../../shared/agent/events'
 import type { HistorySession, LiveSession } from '../../shared/ipc/claude-home'
-import { invoke, subscribe } from '../ipc'
+import { invoke, readableReason, subscribe } from '../ipc'
+import { errorText, showIpcError } from '../toast/toasts'
 
 /** How often the live list is asked again while a Session is live. */
 export const LIVE_POLL_MS = 2000
@@ -152,6 +153,7 @@ async function refreshLive(root: string): Promise<void> {
   if (!users.has(root)) return
   if (!result.ok) {
     console.error(`claudeHome.live ${root} failed:`, result.error)
+    showIpcError('claudeHome.live', `Live Sessions not read: ${readableReason(result.error)}`)
     return
   }
   const shown = applied.get(root) ?? NONE_APPLIED
@@ -189,6 +191,7 @@ function ensureSubscribed(): void {
   } catch (error) {
     subscribed = false
     console.error('claudeHome.changed: cannot subscribe', error)
+    showIpcError('claudeHome.changed', `Updates stopped: cannot subscribe to claudeHome.changed (${errorText(error)})`)
   }
 }
 

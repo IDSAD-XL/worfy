@@ -16,6 +16,7 @@ import { buildEpicNodes, ticketNodeId } from '../../src/renderer/canvas/sources/
 import { requestFocus, useFocusState } from '../../src/renderer/focus/focus-state'
 import { FocusTileContext } from '../../src/renderer/focus/focus-tile'
 import { setView } from '../../src/renderer/session/navigation'
+import { resetToasts, toasts } from '../../src/renderer/toast/toasts'
 
 type Result = { ok: true; value: unknown } | { ok: false; error: string }
 
@@ -35,6 +36,7 @@ vi.mock('../../src/renderer/ipc', async (importOriginal) => ({ ...(await importO
 vi.mock('../../src/renderer/machines/useMachines', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/renderer/machines/useMachines')>()),
   useMachines: () => ({ linked: [{ id: 'machine-m', name: 'Mini' }] }),
+  linkStateNow: () => ({ linked: [{ id: 'machine-m', name: 'Mini' }] }),
 }))
 
 const PROJECT = 'focus-00000033'
@@ -96,6 +98,7 @@ const readCalls = () => invoke.mock.calls.filter(([channel]) => channel === 'tic
 const editorCalls = () => invoke.mock.calls.filter(([channel]) => channel === 'shell.openInEditor')
 
 beforeEach(() => {
+  resetToasts()
   ipc.machine = null
   ipc.reads = [{ ok: true, value: { path: FILE, text: TEXT } }]
   invoke.mockClear()
@@ -169,7 +172,8 @@ describe('the focused Ticket', () => {
     render(inTile(<TicketNode {...propsOf(nodeOf(ticket()))} />))
     await screen.findByRole('heading', { name: 'Что делаем' })
     fireEvent.click(screen.getByRole('button', { name: 'Open in editor' }))
-    expect(screen.getByTestId('file-elsewhere').textContent).toBe('File is on Mini')
+    // A toast of the window (toast/toasts.ts, worfy-ui ticket 16), not a line of the Ticket.
+    expect(toasts.getState().toasts).toMatchObject([{ kind: 'info', text: 'File is on Mini', testId: 'file-elsewhere' }])
     expect(editorCalls()).toEqual([])
   })
 

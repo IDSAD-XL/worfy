@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react'
 import { create } from 'zustand'
 import type { DocsState } from '../../shared/ipc/docs'
 import { invoke, subscribe } from '../ipc'
+import { errorText, showIpcError } from '../toast/toasts'
 
 export interface DocsEntry {
   /** Undefined until main has answered `docs.open`. */
@@ -41,6 +42,7 @@ function ensureSubscribed(): void {
     subscribe('docs.changed', onChanged)
   } catch (error) {
     console.error('docs.changed: cannot subscribe', error)
+    showIpcError('docs.changed', `Updates stopped: cannot subscribe to docs.changed (${errorText(error)})`)
   }
 }
 
