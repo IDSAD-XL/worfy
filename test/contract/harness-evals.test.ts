@@ -611,12 +611,17 @@ describe('harness/evals: reviewer-simplification is the diff the case describes'
 // STUB_HANG: the first call writes its pid there and waits a minute before it exits; with
 // STUB_CATCH it exits 0 on a signal instead of being ended by it. STUB_AGGREGATE: every call writes
 // this text as aggregate-result.json into its --output-dir, as claude plugin eval does.
+// STUB_VERSION_LOG: every `claude --version` appends a line there.
 const STUB = `#!/usr/bin/env node
 const { spawnSync } = require('node:child_process')
 const { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } = require('node:fs')
 const { dirname, join, resolve } = require('node:path')
 const args = process.argv.slice(2)
-if (args[0] === '--version') { console.log(process.env.STUB_VERSION + ' (Claude Code)'); process.exit(0) }
+if (args[0] === '--version') {
+  if (process.env.STUB_VERSION_LOG) appendFileSync(process.env.STUB_VERSION_LOG, '--version\\n')
+  console.log(process.env.STUB_VERSION + ' (Claude Code)')
+  process.exit(0)
+}
 const log = process.env.STUB_LOG
 const calls = existsSync(log) ? readFileSync(log, 'utf8').split('\\n').filter(Boolean).length : 0
 const manifest = JSON.parse(readFileSync(join(args[2], '.claude-plugin', 'plugin.json'), 'utf8'))
@@ -1243,11 +1248,18 @@ describe('harness/evals/lib/coverage.json: which case checks which rule file', (
     ['a case of the map with no folder', (dir) => removeTestTree(join(dir, 'evals', 'status-block')), 'case without a folder: status-block'],
     ['an empty reason', (dir) => editCoverage(dir, (coverage) => (coverage.uncovered['skills/qmd/SKILL.md'] = ' ')), 'empty reason: skills/qmd/SKILL.md'],
     ['a case that names no rule file', (dir) => editCoverage(dir, (coverage) => (coverage.cases['status-block'] = [])), 'case names no rule file: status-block'],
+    ['a case list that is not a list', (dir) => editCoverage(dir, (coverage) => ((coverage.cases as Record<string, unknown>)['status-block'] = 'hooks/hooks.json')), 'case lists no paths: status-block'],
     ['a mapped path that is no rule file', (dir) => editCoverage(dir, (coverage) => coverage.cases['status-block']?.push('bin/profile')), 'not a rule file: bin/profile'],
   ]
   it.each(breaks)('coverageProblems names %s', async (_, edit, problem) => {
     const { coverageProblems } = await coverageModule()
     expect(coverageProblems(harnessCopyWith(edit))).toContain(problem)
+  })
+
+  it('coverageProblems names a map whose cases are not an object', async () => {
+    const { coverageProblems } = await coverageModule()
+    const dir = harnessCopyWith((copy) => editCoverage(copy, (coverage) => ((coverage as unknown as Record<string, unknown>).cases = [])))
+    expect(coverageProblems(dir)).toEqual(['evals/lib/coverage.json must hold the objects "cases" and "uncovered"'])
   })
 
   it('coverageProblems names a map that cannot be read', async () => {
@@ -1317,13 +1329,23 @@ function changedRepo(): { repo: string; git: (...args: string[]) => SpawnSyncRet
 }
 
 /** Runs the copy of eval-harness.mjs in `repo` against the claude stub, without HARNESS_DIR. */
-function evalIn(repo: string, args: string[], extra: NodeJS.ProcessEnv = {}, codes = '0,0,0,0,0'): { run: SpawnSyncReturns<string>; calls: StubCall[] } {
-  const { log, env } = stubSetup('2.1.289', codes, () => process.env.PATH ?? '', {})
+// The stub answers --version with 2.1.300, and the reports it writes say 2.1.289: the summary line
+// must take the version of the report.
+function evalIn(
+  repo: string,
+  args: string[],
+  extra: NodeJS.ProcessEnv = {},
+  codes = '0,0,0,0,0',
+): { run: SpawnSyncReturns<string>; calls: StubCall[]; versionCalls: number } {
+  const { dir, log, env } = stubSetup('2.1.300', codes, () => process.env.PATH ?? '', {})
+  const versionLog = join(dir, 'version.log')
   delete env.HARNESS_DIR
-  Object.assign(env, extra)
+  Object.assign(env, { STUB_VERSION_LOG: versionLog }, extra)
   const run = spawnSync(process.execPath, [join(repo, 'scripts', 'eval-harness.mjs'), ...args], { env, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
-  return { run, calls: loggedCalls(log) }
+  const versionCalls = existsSync(versionLog) ? readFileSync(versionLog, 'utf8').split('\n').filter(Boolean).length : 0
+  return { run, calls: loggedCalls(log), versionCalls }
 }
+const caseArgs = (calls: StubCall[]): string[][] => calls.map((call) => listAfter(call.args, '--case'))
 
 const aggregate = (fields: Record<string, unknown> = {}): string =>
   JSON.stringify({ claudeVersion: '2.1.289', costUsd: 0.3, partial: false, aggregates: { casesTotal: 1, casesPassed: 1, overallScore: 1 }, ...fields })
@@ -1348,6 +1370,11 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
     expect(git('checkout', '-q', '-b', 'topic').status).toBe(0)
     appendFileSync(join(repo, 'harness', 'skills', 'epic-wave', 'SKILL.md'), '\nOne more rule.\n')
     expect(git('commit', '-q', '-am', 'change epic-wave').status).toBe(0)
+    // main moves on after topic branched off: its change is not the branch's (`...`, not `..`).
+    expect(git('checkout', '-q', 'main').status).toBe(0)
+    appendFileSync(join(repo, 'harness', 'agents', 'implementer.md'), '\nA rule on main.\n')
+    expect(git('commit', '-q', '-am', 'change implementer on main').status).toBe(0)
+    expect(git('checkout', '-q', 'topic').status).toBe(0)
     writeFileIn(join(repo, 'harness', 'evals', 'status-block', 'extra', 'note.md'), 'note\n')
     const { run, calls } = evalIn(repo, ['--changed', 'main'])
     expect(run.status, run.stderr).toBe(0)
@@ -1355,6 +1382,85 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
     expect(calls.map((call) => listAfter(call.args, '--case'))).toEqual([['epic-wave-old-form'], ['epic-wave-tickets'], ['reviewer-verdict'], ['status-block']])
     for (const call of calls) expect(listAfter(call.args, '--tag')).toEqual(['main'])
     expect(new Set(calls.map((call) => listAfter(call.args, '--output-dir')[0])).size).toBe(4)
+  })
+
+  it('takes the --changed=<base> form, and keeps it from claude', () => {
+    const { repo } = changedRepo()
+    appendFileSync(join(repo, 'harness', 'agents', 'implementer.md'), '\nOne more rule.\n')
+    const { run, calls } = evalIn(repo, ['--', '--changed=HEAD', '--runs', '1'])
+    expect(run.status, run.stderr).toBe(0)
+    expect(caseArgs(calls)).toEqual([['implementer-report']])
+    expect(calls[0]?.args.join(' ')).not.toMatch(/--changed/)
+    expect(listAfter(calls[0]?.args ?? [], '--runs')).toEqual(['1'])
+  })
+
+  // A rename reaches git as a deletion of the old path and an addition of the new one: a file moved
+  // from one case folder to another changes both cases.
+  it('picks both cases of a file moved between case folders, staged', () => {
+    const { repo, git } = changedRepo()
+    const from = 'harness/evals/status-block/graders/epic-status-ran.md'
+    expect(git('mv', from, 'harness/evals/implementer-report/graders/epic-status-ran.md').status).toBe(0)
+    const { run, calls } = evalIn(repo, ['--changed', 'HEAD'])
+    expect(run.status, run.stderr).toBe(0)
+    expect(caseArgs(calls)).toEqual([['implementer-report'], ['status-block']])
+  })
+
+  it('picks both cases of a file moved between case folders, committed on the branch', () => {
+    const { repo, git } = changedRepo()
+    expect(git('checkout', '-q', '-b', 'topic').status).toBe(0)
+    expect(git('mv', 'harness/evals/status-block/graders/epic-status-ran.md', 'harness/evals/implementer-report/graders/epic-status-ran.md').status).toBe(0)
+    expect(git('commit', '-q', '-m', 'move a grader').status).toBe(0)
+    const { run, calls } = evalIn(repo, ['--changed', 'main'])
+    expect(run.status, run.stderr).toBe(0)
+    expect(caseArgs(calls)).toEqual([['implementer-report'], ['status-block']])
+  })
+
+  it('picks the case of a file removed from its folder, staged and committed', () => {
+    const staged = changedRepo()
+    expect(staged.git('rm', '-q', 'harness/evals/status-block/graders/epic-status-ran.md').status).toBe(0)
+    const first = evalIn(staged.repo, ['--changed', 'HEAD'])
+    expect(first.run.status, first.run.stderr).toBe(0)
+    expect(caseArgs(first.calls)).toEqual([['status-block']])
+    const committed = changedRepo()
+    expect(committed.git('checkout', '-q', '-b', 'topic').status).toBe(0)
+    expect(committed.git('rm', '-q', 'harness/evals/status-block/graders/epic-status-ran.md').status).toBe(0)
+    expect(committed.git('commit', '-q', '-m', 'remove a grader').status).toBe(0)
+    const second = evalIn(committed.repo, ['--changed', 'main'])
+    expect(second.run.status, second.run.stderr).toBe(0)
+    expect(caseArgs(second.calls)).toEqual([['status-block']])
+  })
+
+  // git quotes a path with a double quote (and escapes it inside); the script reads git's output
+  // NUL-separated, where no path is quoted. Windows allows no `"` in a file name.
+  it.skipIf(process.platform === 'win32')('reads a rule file whose name has a space and a double quote', () => {
+    const { repo, git } = changedRepo()
+    const name = 'notes "on" waves.md'
+    writeFileIn(join(repo, 'harness', 'skills', 'epic-wave', name), '# notes\n')
+    editCoverage(join(repo, 'harness'), (coverage) => coverage.cases['status-block']?.push(`skills/epic-wave/${name}`))
+    expect(git('add', '-A').status).toBe(0)
+    expect(git('commit', '-q', '-m', 'add notes').status).toBe(0)
+    appendFileSync(join(repo, 'harness', 'skills', 'epic-wave', name), 'more\n')
+    const { run, calls } = evalIn(repo, ['--changed', 'HEAD'])
+    expect(run.status, run.stderr).toBe(0)
+    expect(caseArgs(calls)).toEqual([['status-block']])
+    expect(run.stdout).toContain(`harness/skills/epic-wave/${name} -> status-block`)
+  })
+
+  // --max-cost-usd is per call; the 30 USD of the script hold across all of its calls.
+  it('gives each call what is left of the 30 USD, and starts no call once it is spent', () => {
+    const { repo, git } = changedRepo()
+    expect(git('checkout', '-q', '-b', 'topic').status).toBe(0)
+    appendFileSync(join(repo, 'harness', 'skills', 'epic-wave', 'SKILL.md'), '\nOne more rule.\n')
+    expect(git('commit', '-q', '-am', 'change epic-wave').status).toBe(0)
+    const { run, calls } = evalIn(repo, ['--changed', 'main'], { STUB_AGGREGATE: aggregate({ costUsd: 12.5 }) })
+    expect(calls.map((call) => listAfter(call.args, '--max-cost-usd'))).toEqual([['30'], ['17.5'], ['5']])
+    expect(run.status, run.stderr).toBe(0)
+    const spent = evalIn(repo, ['--changed', 'main'], { STUB_AGGREGATE: aggregate({ costUsd: 20 }) })
+    expect(caseArgs(spent.calls)).toEqual([['epic-wave-old-form'], ['epic-wave-tickets']])
+    expect(spent.calls.map((call) => listAfter(call.args, '--max-cost-usd'))).toEqual([['30'], ['10']])
+    // Exit 2, as a call that hit the ceiling: the run is partial.
+    expect(spent.run.status).toBe(2)
+    expect(spent.run.stdout).toMatch(/30 USD .*spent.*main-reviewer-verdict call and any after it are skipped/)
   })
 
   it('makes the usual call of a tag, without --case, when a change chooses every case of it', () => {
@@ -1369,9 +1475,10 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
   it('calls no claude and exits 0 when no rule file changed', () => {
     const { repo } = changedRepo()
     appendFileSync(join(repo, 'README.md'), 'more\n')
-    const { run, calls } = evalIn(repo, ['--changed', 'HEAD'])
+    const { run, calls, versionCalls } = evalIn(repo, ['--changed', 'HEAD'])
     expect(run.status, run.stderr).toBe(0)
     expect(calls).toEqual([])
+    expect(versionCalls).toBe(0)
     expect(run.stdout).toMatch(/no case selected/)
   })
 
@@ -1391,6 +1498,8 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
     ['--changed with --tag', ['--changed', 'HEAD', '--tag', 'main'], none, /--tag/],
     ['--changed with HARNESS_DIR', ['--changed', 'HEAD'], (repo) => ({ HARNESS_DIR: join(repo, 'harness') }), /HARNESS_DIR/],
     ['--changed with no base', ['--changed'], none, /--changed/],
+    ['--changed twice', ['--changed', 'HEAD', '--changed', 'main'], none, /--changed/],
+    ['--changed= twice', ['--changed=HEAD', '--changed=main'], none, /--changed/],
   ]
   it.each(refusals)('exits 1 and calls no claude on %s', (_, args, extra, stderr) => {
     const { repo } = changedRepo()

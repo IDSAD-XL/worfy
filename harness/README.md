@@ -97,14 +97,18 @@ Run, on a Mac, by hand, from the repository root:
 
 `scripts/eval-harness.mjs` evaluates a temporary copy of `harness/` without `dependencies` in
 `plugin.json` (a run installs nothing besides the plugin under test, and Claude Code does not load a
-plugin with a missing dependency). It makes two calls: the cases tagged `main` with `Bash`, `Write`
-and `Edit`, and `no-os-screen-capture` (tag `gui`) with `Bash` only for `git`, `node`, the
-Harness scripts, `echo` and `set -o pipefail`. Both pass `--scaffold --trust-plugin --ablation none --threshold 0.8
---max-cost-usd 30 --no-publish` and pinned `--model` and `--judge-model`; arguments after `--` go
-to both. `HARNESS_DIR=<dir>` evaluates another copy of the Harness. The exit code is the worst of
-the two calls: `0` — every case at 0.8 or above, `1` — a case below it or not loaded, `2` — a
-partial run (cost ceiling, the account refused), 128 + the signal number — stopped by a signal
-(`130` SIGINT, `129` SIGHUP, `143` SIGTERM); after a signal the remaining call is not started.
+plugin with a missing dependency). It makes one call per tag: the cases tagged `main` with `Bash`,
+`Write` and `Edit`, and `no-os-screen-capture` (tag `gui`) with `Bash` only for `git`, `node`, the
+Harness scripts, `echo` and `set -o pipefail`; with `--changed` (below) a tag of which only some
+cases are chosen gets one call per chosen case. Every call passes `--scaffold --trust-plugin
+--ablation none --threshold 0.8 --no-publish` and pinned `--model` and `--judge-model`; arguments
+after `--` go to every call. The cost ceiling is 30 USD for the whole run: each call gets
+`--max-cost-usd` with what the calls before it left (by the `costUsd` of their
+`aggregate-result.json`), and once nothing is left the remaining calls are not started and the run
+exits `2`. `HARNESS_DIR=<dir>` evaluates another copy of the Harness. The exit code is the worst of
+the calls: `0` — every case at 0.8 or above, `1` — a case below it or not loaded, `2` — a partial
+run (cost ceiling, the account refused), 128 + the signal number — stopped by a signal (`130`
+SIGINT, `129` SIGHUP, `143` SIGTERM); after a signal the remaining calls are not started.
 
 Every run and every `llm` grader is a real model call on your account. The full set (ten
 cases, 25 runs, `claude-sonnet-5`) cost 15 USD and took an hour on 2026-10-18: an `epic-wave` or `ship-ticket` run costs 0.4–1.9 USD, a

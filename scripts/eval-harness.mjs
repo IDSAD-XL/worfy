@@ -34,7 +34,9 @@
 // before any call.
 //
 // claude: $CLAUDE_BIN, else the binary bundled with the Agent SDK in node_modules; older than
-// 2.1.269 (no `plugin eval`) — exit 1. Exit code: the worst of the calls (0 — every case at or
+// 2.1.269 (no `plugin eval`) — exit 1. The cost ceiling is BUDGET_USD for the whole run: each call
+// gets --max-cost-usd with what the calls before it left, by the costUsd of their reports; nothing
+// left — the remaining calls are not started, exit 2. Exit code: the worst of the calls (0 — every case at or
 // above the threshold; 1 — a case below it or not loaded; 2 — partial: cost ceiling or the
 // account refused; 128 + the signal number — stopped by a signal: SIGINT 130, SIGHUP 129, SIGTERM
 // 143, and the remaining calls are not started). At the end: the paths to aggregate-result.json and
@@ -73,12 +75,14 @@ const MIN_VERSION = [2, 1, 269]
 // Pinned, so that a change of the default model does not look like a broken Harness.
 const MODEL = 'claude-sonnet-5'
 const JUDGE_MODEL = 'claude-haiku-4-5'
+// The cost ceiling of one run of this script, in USD, across all of its calls: each call gets
+// --max-cost-usd with what the calls before it left.
+const BUDGET_USD = 30
 const COMMON = [
   '--scaffold',
   '--trust-plugin',
   '--ablation', 'none',
   '--threshold', '0.8',
-  '--max-cost-usd', '30',
   '--no-publish',
   '--model', MODEL,
   '--judge-model', JUDGE_MODEL,
@@ -215,24 +219,37 @@ const hasOption = (args, name) => args.some((arg) => arg === name || arg.startsW
 /**
  * The files changed since `base` in the repository of this script, relative to its root: what the
  * branch added on top of its merge-base with `base` (`git diff <base>...HEAD`), and what
- * `git status` shows — staged, unstaged and untracked, every file of a new folder. Exits 1 when git
- * fails, an unknown base among the reasons.
+ * `git status` shows — staged, unstaged and untracked, every file of a new folder. A rename counts
+ * as its two paths (`--no-renames`: the old path arrives as a deletion), so a file moved from one
+ * case folder to another changes both cases. `-z`: paths come NUL-separated and never quoted.
+ * Exits 1 when git fails, an unknown base among the reasons.
  */
 function changedFiles(base) {
-  const git = (args) => spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: REPO, encoding: 'utf8', env: childEnv })
+  const git = (args) => spawnSync('git', args, { cwd: REPO, encoding: 'utf8', env: childEnv })
   const steps = [
-    ['diff', '--name-only', `${base}...HEAD`, '--'],
-    ['status', '--porcelain', '--untracked-files=all'],
+    ['diff', '--name-only', '--no-renames', '-z', `${base}...HEAD`, '--'],
+    ['status', '--porcelain', '--no-renames', '-z', '--untracked-files=all'],
   ]
   const found = []
   for (const args of steps) {
     const run = git(args)
     if (run.error || run.status !== 0) fail(`--changed: git ${args.join(' ')} failed (exit ${run.status ?? run.error?.code}): ${(run.stderr ?? '').trim()}`)
-    const lines = run.stdout.split('\n').filter(Boolean)
-    // `git status --porcelain`: two status letters and a space, then the path; a rename is `old -> new`.
-    found.push(...(args[0] === 'status' ? lines.map((line) => line.slice(3).replace(/^.* -> /, '')) : lines))
+    const entries = run.stdout.split('\0').filter(Boolean)
+    // `git status --porcelain -z`: two status letters and a space, then the path.
+    found.push(...(args[0] === 'status' ? entries.map((entry) => entry.slice(3)) : entries))
   }
-  return [...new Set(found.map((path) => path.replace(/^"(.*)"$/, '$1')))].sort()
+  return [...new Set(found)].sort()
+}
+
+/** The costUsd of the aggregate-result.json in `outputDir`; 0 when there is none to read. */
+function spentIn(outputDir) {
+  try {
+    const cost = JSON.parse(readFileSync(join(outputDir, 'aggregate-result.json'), 'utf8'))?.costUsd
+    return typeof cost === 'number' && cost > 0 ? cost : 0
+  } catch {
+    // shortcut: a call that wrote no report counts as 0 USD, redo if claude starts to fail after spending.
+    return 0
+  }
 }
 
 /** The line of one call for the PR description, from the aggregate-result.json the call wrote. */
@@ -414,9 +431,22 @@ try {
       process.stdout.write(`eval:harness: stopped by ${stopped}, the ${call.name} call and any after it are skipped\n`)
       break
     }
+    const spent = outputs.reduce((sum, done) => sum + spentIn(done.outputDir), 0)
+    const left = Number((BUDGET_USD - spent).toFixed(2))
+    if (left <= 0) {
+      process.stdout.write(
+        `eval:harness: the ${BUDGET_USD} USD of this run are spent (${Number(spent.toFixed(2))} USD), the ${call.name} call and any after it are skipped\n`,
+      )
+      // As a call that hit its ceiling: the run is partial.
+      worst = Math.max(worst, 2)
+      break
+    }
     const outputDir = join(EVALS, 'results', `${stamp}-${call.name}`)
     // The target goes before --tag and --allow-tools: both take a list and would swallow it.
-    const args = ['plugin', 'eval', harness, ...COMMON, '--output-dir', outputDir, '--tag', call.tag, '--allow-tools', ...grants(harness)[call.tag], ...passThrough, ...call.args]
+    const args = [
+      'plugin', 'eval', harness, ...COMMON, '--max-cost-usd', String(left), '--output-dir', outputDir,
+      '--tag', call.tag, '--allow-tools', ...grants(harness)[call.tag], ...passThrough, ...call.args,
+    ]
     process.stdout.write(`eval:harness: ${call.name} — claude ${args.join(' ')}\n`)
     const run = runClaude(claude, args, { stdio: 'inherit', cwd: REPO, env: childEnv })
     const code = run.status ?? 128 + (constants.signals[run.signal] ?? constants.signals.SIGTERM)
