@@ -227,6 +227,12 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
                 <p style={styles.code} data-testid="link-code" aria-label="Pairing code">
                   {linking.code}
                 </p>
+              ) : linking?.pausedUntil !== undefined ? (
+                <p role="alert" data-testid="link-paused" style={{ ...styles.error, margin: 'var(--space-2) 0' }}>
+                  Too many failed attempts to link within an hour. Linking is paused until{' '}
+                  {new Date(linking.pausedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}; close this window and open it again
+                  after that.
+                </p>
               ) : (
                 <p style={{ ...styles.hint, margin: 'var(--space-2) 0' }}>{problem ? '' : 'Opening…'}</p>
               )}

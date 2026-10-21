@@ -45,6 +45,12 @@
 // src/main/autopilot/origin.ts): it notified of it itself. It shows the others with the sender's name,
 // and a click opens the Pipeline board of that Project on that Machine.
 //
+// "Link a machine" paused (worfy-link ticket 28): when too many pairing attempts failed within an
+// hour (src/main/link/pairing.ts), the link service pauses linking and this Machine shows one
+// WindowNote: how many failed, from which addresses, until when. It shows whatever window has
+// focus — a pause is a warning about the network, not a Session's news — and never names a code
+// (ADR-0052, point 10). Linked machines are not told.
+//
 // Notifier holds the rules and takes its Electron parts as NotifyDeps, so tests pass their own
 // (test/unit/notify.test.ts, test/unit/link-notify.test.ts). macOS takes the name and the icon of
 // a notification from the bundle of the process, so a Notification sets no icon of its own: `icon`
@@ -532,6 +538,35 @@ export function installGateQueueNotifications(
   const timer = setInterval(() => void tick(), intervalMs)
   timer.unref()
   return () => clearInterval(timer)
+}
+
+/** What the link service tells of a pause (src/main/link/service.ts, 'pairing-paused'). */
+export interface PairingPauseNews {
+  failures: number
+  addresses: readonly string[]
+  until: number
+}
+
+const localTime = (at: number): string => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+/** The text of the notification of a pause; there is no code to name in it. */
+export function pairingPauseNoteBody(pause: PairingPauseNews, formatTime: (at: number) => string = localTime): string {
+  const from = pause.addresses.length > 0 ? `, from ${pause.addresses.join(', ')}` : ''
+  return `${pause.failures} failed attempts to link to this Machine within an hour${from}. "Link a machine" is paused until ${formatTime(pause.until)}.`
+}
+
+/** Shows one notification for each pause `service` announces; answers the function that stops it. */
+export function installPairingPauseNotes(
+  service: { on(event: 'pairing-paused', listener: (pause: PairingPauseNews) => void): unknown; off(event: 'pairing-paused', listener: (pause: PairingPauseNews) => void): unknown },
+  deps: WindowNoteDeps = electronWindowNoteDeps,
+  formatTime: (at: number) => string = localTime,
+): () => void {
+  const onPause = (pause: PairingPauseNews): void => {
+    const note: WindowNote = { title: 'Link a machine is paused', body: pairingPauseNoteBody(pause, formatTime), sessionId: null }
+    deps.show(note, () => deps.open(note))
+  }
+  service.on('pairing-paused', onPause)
+  return () => void service.off('pairing-paused', onPause)
 }
 
 /** Notifications shown and not yet closed: a notification nobody holds may lose its click handler. */

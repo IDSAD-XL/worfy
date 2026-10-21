@@ -164,6 +164,49 @@ export const PAIRING_FAILED = 'the code did not match, or the connection to the 
 export const PAIRING_MAX_FAILURES = 10
 
 /**
+ * Failed attempts within PAIRING_FAILURE_WINDOW_MS that pause linking (worfy-link ticket 28,
+ * ADR-0070, point 6). PAIRING_MAX_FAILURES counts within one opening and resets when it reopens;
+ * this one counts across every opening and every address, so reopening gives no more guesses.
+ */
+export const PAIRING_HOURLY_FAILURES = 10
+export const PAIRING_FAILURE_WINDOW_MS = 60 * 60_000
+
+/**
+ * The failed attempts of the last PAIRING_FAILURE_WINDOW_MS, a sliding window: a failure that old
+ * no longer counts. In memory only: a restart of worfy, which only the owner does on their own
+ * Machine, starts it over (worfy-link ticket 28, point 4, the recommended answer).
+ */
+class PairingFailures {
+  private readonly failures: { at: number; address: string | undefined }[] = []
+
+  constructor(private readonly now: () => number) {}
+
+  record(address: string | undefined): void {
+    this.failures.push({ at: this.now(), address })
+    // Admission stops at the limit, so only the newest PAIRING_HOURLY_FAILURES can ever matter.
+    if (this.failures.length > PAIRING_HOURLY_FAILURES) this.failures.shift()
+  }
+
+  /** When linking may open again, or null when it is not paused. */
+  pausedUntil(): number | null {
+    this.forgetOld()
+    const oldest = this.failures.length >= PAIRING_HOURLY_FAILURES ? this.failures[this.failures.length - PAIRING_HOURLY_FAILURES] : undefined
+    return oldest === undefined ? null : oldest.at + PAIRING_FAILURE_WINDOW_MS
+  }
+
+  recent(): { failures: number; addresses: string[] } {
+    this.forgetOld()
+    const addresses = this.failures.flatMap((failure) => (failure.address === undefined ? [] : [failure.address]))
+    return { failures: this.failures.length, addresses: [...new Set(addresses)] }
+  }
+
+  private forgetOld(): void {
+    const now = this.now()
+    while (this.failures.length > 0 && now - (this.failures[0]?.at ?? now) >= PAIRING_FAILURE_WINDOW_MS) this.failures.shift()
+  }
+}
+
+/**
  * B's side of "Link a machine": whether linking is open, the current code, its age, and the one
  * attempt that may run. Codes are one-time: every attempt that reached the first SPAKE2 message
  * burns the code, and the next one is shown.
@@ -176,21 +219,38 @@ export class PairingWindow {
   /** This side closed linking while the attempt ran, so the attempt is not the other Machine's failure. */
   private cut = false
   private failures = 0
+  /** Failures over the last hour, kept across openings: open() does not reset them. */
+  private readonly hourly: PairingFailures
 
   constructor(
     private readonly now: () => number,
     private readonly ttlMs: number,
     private readonly onCodeChange: () => void,
-  ) {}
+  ) {
+    this.hourly = new PairingFailures(now)
+  }
 
   get isOpen(): boolean {
     return this.current !== null
   }
 
-  open(): void {
-    if (this.current !== null) return
+  /** Opens linking; false while it is paused (pausedUntil), when it stays closed. */
+  open(): boolean {
+    if (this.current !== null) return true
+    if (this.hourly.pausedUntil() !== null) return false
     this.failures = 0
     this.rotate()
+    return true
+  }
+
+  /** Until when linking is paused after PAIRING_HOURLY_FAILURES failures within the hour, or null. */
+  pausedUntil(): number | null {
+    return this.hourly.pausedUntil()
+  }
+
+  /** How many attempts failed within the hour, and the addresses they came from. */
+  recentFailures(): { failures: number; addresses: string[] } {
+    return this.hourly.recent()
   }
 
   close(): void {
@@ -208,6 +268,8 @@ export class PairingWindow {
 
   /** Why a new attempt cannot start now, or null when it may (it then holds the one slot). */
   begin(): string | null {
+    const pausedUntil = this.hourly.pausedUntil()
+    if (pausedUntil !== null) return `too many failed pairing attempts within an hour; linking is paused until ${new Date(pausedUntil).toISOString()}`
     if (this.current === null) return 'linking is not open on this Machine'
     if (this.attemptRunning) return 'another Machine is linking right now; try again in a moment'
     if (this.expired()) {
@@ -231,8 +293,11 @@ export class PairingWindow {
    * PAIRING_MAX_FAILURES-th failure in a row closes linking (the result is then 'closed'). Only a
    * burnt code is replaced: an attempt without the first message saw nothing. An attempt cut off by
    * close() neither counts nor replaces the code, even if linking was opened again meanwhile.
+   * A failure also counts towards PAIRING_HOURLY_FAILURES, with the address it came from; the
+   * PAIRING_HOURLY_FAILURES-th within the hour closes linking and pauses it (pausedUntil). A success
+   * resets only the failures in a row.
    */
-  end(succeeded: boolean): 'open' | 'closed' {
+  end(succeeded: boolean, address?: string): 'open' | 'closed' {
     if (!this.attemptRunning) return this.isOpen ? 'open' : 'closed'
     this.attemptRunning = false
     const burnt = this.burnt
@@ -242,8 +307,11 @@ export class PairingWindow {
     if (this.current === null) return 'closed'
     if (cut) return 'open'
     if (succeeded) this.failures = 0
-    else this.failures += 1
-    if (this.failures >= PAIRING_MAX_FAILURES) {
+    else {
+      this.failures += 1
+      this.hourly.record(address)
+    }
+    if (this.failures >= PAIRING_MAX_FAILURES || this.hourly.pausedUntil() !== null) {
       this.close()
       return 'closed'
     }

@@ -4,6 +4,7 @@
 // NotifyDeps.
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { EventEmitter } from 'node:events'
 import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -106,7 +107,7 @@ vi.mock('../../src/main/ipc/pipeline', async () => {
   return { stageHub }
 })
 
-const { MATCH_KEY_TTL_MS, NOTIFY_INTERVAL_MS, NoteDisplay, Notifier, RECEIVED_LIMIT, TicketNotes, ticketRecipients, appWaitsSources, GateQueueNotices, electronNotifyDeps, electronWindowNoteDeps, installGateQueueNotifications, installNotifications, openNote } = await import('../../src/main/notify')
+const { MATCH_KEY_TTL_MS, NOTIFY_INTERVAL_MS, NoteDisplay, Notifier, RECEIVED_LIMIT, TicketNotes, ticketRecipients, appWaitsSources, GateQueueNotices, electronNotifyDeps, electronWindowNoteDeps, installGateQueueNotifications, installNotifications, installPairingPauseNotes, openNote, pairingPauseNoteBody } = await import('../../src/main/notify')
 const { GATE_QUEUE_INTERVAL_MS, waitingPrs } = await import('../../src/main/github/gate-queue')
 const { NORMAL_WINDOWS, quietWindows } = await import('../../src/main/quiet-windows')
 const { app: electronApp } = await import('electron')
@@ -1933,5 +1934,26 @@ describe('a Ticket that waits, across the Linked machines (worfy-pipeline ticket
         for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
       }
     })
+  })
+})
+
+describe('"Link a machine" paused after too many failed pairing attempts (worfy-link ticket 28)', () => {
+  const pause = { failures: 10, addresses: ['192.168.1.20', '10.0.0.7'], until: Date.parse('2026-10-21T15:05:00.000Z') }
+
+  it('says how many failures, from which addresses and until when, and never a code', () => {
+    const body = pairingPauseNoteBody(pause, () => '15:05')
+    expect(body).toBe('10 failed attempts to link to this Machine within an hour, from 192.168.1.20, 10.0.0.7. "Link a machine" is paused until 15:05.')
+    expect(body).not.toMatch(/\d{6}/)
+  })
+
+  it('shows one notification per pause, whether or not a worfy window has focus, until stopped', () => {
+    const service = new EventEmitter<{ 'pairing-paused': [typeof pause] }>()
+    const shown: WindowNote[] = []
+    const stop = installPairingPauseNotes(service, { focused: () => true, show: (note) => shown.push(note), open: () => undefined }, () => '15:05')
+    service.emit('pairing-paused', pause)
+    expect(shown).toEqual([{ title: 'Link a machine is paused', body: pairingPauseNoteBody(pause, () => '15:05'), sessionId: null }])
+    stop()
+    service.emit('pairing-paused', pause)
+    expect(shown).toHaveLength(1)
   })
 })
