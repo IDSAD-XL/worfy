@@ -2,12 +2,13 @@
 // "Blocked by" Edges that lights up (worfy-week ticket 05). overlays/EdgeFocus.tsx writes here; the
 // Edge components read here and decide for themselves whether they are pale, lit or not drawn.
 //
-// The same focus lights up the Family of each focused Node (worfy-canvas ticket 03, family.ts):
-// the Family stays bright and NodeChrome.tsx dims every other Node. The state is this window's own
-// (ADR-0053): another window of the same Project does not dim, and nothing is written anywhere.
+// The same focus lights up the Family of each focused Node (worfy-canvas ticket 03, family.ts): the
+// Binding lines within it are drawn. No Node is dimmed for it (worfy-canvas ticket 17). The state
+// is this window's own (ADR-0053): another window of the same Project lights nothing, and nothing
+// is written anywhere.
 //
 // The Canvas's list of Edges (`edgesOf`) does not change with the pointer: only the Edges whose
-// state changed draw again, because each one subscribes to its own yes/no answer; so does each Node.
+// state changed draw again, because each one subscribes to its own yes/no answer.
 import { create } from 'zustand'
 import { familyOf, NO_LINKS, type FamilyLinks } from './family'
 
@@ -23,7 +24,7 @@ interface EdgeFocusState {
   focused: ReadonlySet<string>
   /** The ids of the "Blocked by" Edges on the chains of the focused Nodes. */
   lit: ReadonlySet<string>
-  /** The Nodes that stay bright: the focused ones and their Families; null while none of them has a Family (nothing dims). */
+  /** The focused Nodes and their Families, whose Binding lines are drawn; null while none of them has a Family. */
   family: ReadonlySet<string> | null
   /** What the Families on the Canvas are made of now (overlays/EdgeFocus.tsx reads it from React Flow's Nodes). */
   links: FamilyLinks
@@ -116,6 +117,3 @@ export const useEdgeLit = (id: string): boolean => useEdgeFocus((state) => state
  */
 export const useAnyFocused = (nodes: readonly string[] | undefined): boolean =>
   useEdgeFocus((state) => nodes !== undefined && nodes.length > 0 && (nodes.some((node) => state.focused.has(node)) || (state.family !== null && nodes.every((node) => state.family!.has(node)))))
-
-/** Whether the Node `id` is dimmed: something focused has a Family, and this Node is not in it. */
-export const useNodeDimmed = (id: string): boolean => useEdgeFocus((state) => state.family !== null && !state.family.has(id))

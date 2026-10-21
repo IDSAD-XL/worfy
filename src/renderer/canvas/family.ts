@@ -1,7 +1,7 @@
 // The Family of a Node (worfy-canvas ticket 03, CONTEXT.md): the Node and what is tied to it by a
-// Binding and by the Subagent tree. Hovering or selecting a Node of a Family keeps the Family bright
-// and dims the other Nodes (edge-focus.ts, NodeChrome.tsx); "Show family" fits the camera to it
-// (overlays/SelectionToolbar.tsx). Nothing here moves a Node or writes anything.
+// Binding and by the Subagent tree. Hovering or selecting a Node of a Family draws the Binding lines
+// within the Family (edge-focus.ts) and dims no other Node (worfy-canvas ticket 17); "Show family"
+// fits the camera to it (overlays/SelectionToolbar.tsx). Nothing here moves a Node or writes anything.
 //
 //   Ticket     → it, its Epic frame, the agents bound to it with their Subagents
 //   Session    → it, its Subagents, its Ticket and that Ticket's Epic frame (or its Epic frame)

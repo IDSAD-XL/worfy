@@ -1,8 +1,9 @@
-// The Family of a Node on the built app (worfy-canvas ticket 03): hovering a Session keeps its
-// Ticket and the Ticket's Epic frame bright and dims the other Nodes — another Session, another
-// Ticket, a note; "Show family" in the selection toolbar fits the camera to the whole Family; a
-// second window of the same Project dims nothing (the highlight is the window's own, ADR-0053); on
-// the read-only screen of a Linked machine (ADR-0066) the highlight and "Show family" work too.
+// The Family of a Node on the built app (worfy-canvas ticket 03): hovering a Session draws its
+// Binding line and no other Node fades — another Session, another Ticket, a note all keep opacity 1
+// (worfy-canvas ticket 17); "Show family" in the selection toolbar fits the camera to the whole
+// Family; a second window of the same Project draws no line for it (the highlight is the window's
+// own, ADR-0053); on the read-only screen of a Linked machine (ADR-0066) hovering fades nothing
+// either and "Show family" works.
 //
 // The Sessions are bound the way binding.spec.ts binds them, from transcripts in a temporary
 // WORFY_CLAUDE_HOME: one ran `ticket claim worfy-mvp 07`, the other works in `.claude/worktrees/12`.
@@ -23,7 +24,6 @@ const PROJECT_ID = 'demo-0000000d'
 const EPIC = 'worfy-mvp'
 const CLAIM = 'aaaaaaaa-1111-4111-8111-111111111111'
 const FOLDER = 'bbbbbbbb-2222-4222-8222-222222222222'
-const DIMMED = '0.3'
 
 /** git for the fixtures, without GIT_* variables of a surrounding hook. */
 function git(cwd: string, ...args: string[]): void {
@@ -76,7 +76,7 @@ const opacity = (window: Page, nodeId: string): Promise<string> =>
     .locator(`.react-flow__node[data-id="${nodeId}"]`)
     .evaluate((element) => (globalThis as unknown as { getComputedStyle(e: object): { opacity: string } }).getComputedStyle(element).opacity)
 
-/** Polls until each Node has its opacity: '1' for a bright one, DIMMED for a dimmed one. */
+/** Polls until each Node has its opacity; a Node is never faded, so it is '1' for every one. */
 async function expectOpacities(window: Page, expected: Record<string, string>, timeout = 20_000): Promise<void> {
   const ids = Object.keys(expected)
   await expect.poll(async () => Object.fromEntries(await Promise.all(ids.map(async (id) => [id, await opacity(window, id)]))), { timeout }).toEqual(expected)
@@ -98,7 +98,7 @@ async function allOnCanvas(window: Page, nodeIds: readonly string[]): Promise<bo
   return true
 }
 
-test('hovering a Session keeps its Ticket and Epic frame bright and dims the rest; "Show family" fits the camera to it; a second window does not dim', async () => {
+test('hovering a Session draws its Binding line and fades no Node; "Show family" fits the camera to it; a second window draws no line', async () => {
   const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-family-')))
   const repo = join(scratch, 'demo')
   const claudeHome = join(scratch, 'claude-home')
@@ -135,7 +135,7 @@ test('hovering a Session keeps its Ticket and Epic frame bright and dims the res
     await canvasReady({ window: second }, { visible: [second.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)] })
     // The machine's own cursor may rest over either window. A Node that comes to lie under it while
     // the Canvas settles (a frame that grows, a camera that moves) is hovered for real, and its
-    // Family dims the rest. Each window first gets the test's pointer at an empty corner of its
+    // Family's lines are drawn. Each window first gets the test's pointer at an empty corner of its
     // Canvas, so only the test's own moves hover anything.
     for (const page of [window, second]) {
       const canvas = await box(page.locator('.react-flow'))
@@ -150,21 +150,22 @@ test('hovering a Session keeps its Ticket and Epic frame bright and dims the res
     // Nothing focused: every Node bright.
     await expectOpacities(window, { [claim]: '1', [folder]: '1', [ticket7]: '1', [ticket12]: '1', [epicFrame]: '1', 'note-1': '1' })
 
-    // Hovering the claiming Session: its Ticket and the Epic frame stay bright, the rest dims.
+    // Hovering the claiming Session: its Binding line is drawn; the other Session's is not.
     const claimNode = window.locator(`[data-testid="session-node"][data-session-id="${CLAIM}"]`)
     await claimNode.hover()
-    await expectOpacities(window, { [claim]: '1', [ticket7]: '1', [epicFrame]: '1', [folder]: DIMMED, [ticket12]: DIMMED, 'note-1': DIMMED })
-    // Its Binding line is drawn; the other Session's is not.
     await expect(window.getByTestId(`rf__edge-binding:${claim}`).locator('path.react-flow__edge-path')).toHaveCount(1)
     await expect(window.getByTestId(`rf__edge-binding:${folder}`).locator('path.react-flow__edge-path')).toHaveCount(0)
-    // The second window of the same Project dims nothing.
-    await expect(second.locator('[data-testid="node-dimmed"]')).toHaveCount(0)
+    // No Node fades, in the Family or outside it.
+    await expectOpacities(window, { [claim]: '1', [ticket7]: '1', [epicFrame]: '1', [folder]: '1', [ticket12]: '1', 'note-1': '1' })
+    // The second window of the same Project draws no line for it.
+    await expect(second.getByTestId(`rf__edge-binding:${claim}`).locator('path.react-flow__edge-path')).toHaveCount(0)
     expect(await opacity(second, ticket12)).toBe('1')
     await snapshotThemes(window, 'family-hover')
 
-    // Away from the Nodes: everything bright again.
+    // Away from the Nodes: the line goes, and the Nodes are as they were.
     const pane = await box(window.locator('.react-flow'))
     await window.mouse.move(pane.x + 8, pane.y + pane.height - 8)
+    await expect(window.getByTestId(`rf__edge-binding:${claim}`).locator('path.react-flow__edge-path')).toHaveCount(0)
     await expectOpacities(window, { [folder]: '1', [ticket12]: '1', 'note-1': '1' })
 
     // Select the Session, then pan the Canvas right until the Epic frame (right of the Sessions)
@@ -184,9 +185,9 @@ test('hovering a Session keeps its Ticket and Epic frame bright and dims the res
     await showFamily.click()
     await expect.poll(() => allOnCanvas(window, [epicFrame, ticket7, claim])).toBe(true)
     expect(await camera(window)).not.toBe(before)
-    // The second window's camera did not move with it, and nothing dims there.
+    // The selected Session fades no Node either, and the second window's camera did not move with it.
+    await expectOpacities(window, { [folder]: '1', [ticket12]: '1', 'note-1': '1' })
     expect(await camera(second)).toBe(secondCamera)
-    await expect(second.locator('[data-testid="node-dimmed"]')).toHaveCount(0)
   } finally {
     await launched.close()
     await removeDir(scratch)
@@ -196,7 +197,7 @@ test('hovering a Session keeps its Ticket and Epic frame bright and dims the res
 test.describe('on a read-only screen', () => {
   test.setTimeout(180_000)
 
-  test('hovering a Ticket of a Linked machine shown read-only dims the Nodes outside its Family; "Show family" is there and active', async () => {
+  test('hovering a Ticket of a Linked machine shown read-only fades no Node; "Show family" is there and active', async () => {
     const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-family-ro-')))
     const ALPHA = 'alpha-0000000a'
     const BETA = 'beta-0000000b'
@@ -244,9 +245,7 @@ test.describe('on a read-only screen', () => {
       await canvasReady(a, { visible: [ticket1, a.window.locator('[data-testid="note-node"][data-node-id="note-b"]')] })
 
       await ticket1.hover()
-      await expectOpacities(a.window, { [`ticket:${epic}/1`]: '1', [`epic:${epic}`]: '1', [`ticket:${epic}/2`]: DIMMED, 'note-b': DIMMED })
-      // B's own window is another window: nothing dims there.
-      await expect(b.window.locator('[data-testid="node-dimmed"]')).toHaveCount(0)
+      await expectOpacities(a.window, { [`ticket:${epic}/1`]: '1', [`epic:${epic}`]: '1', [`ticket:${epic}/2`]: '1', 'note-b': '1' })
 
       await ticket1.click()
       const showFamily = a.window.getByTestId('selection-toolbar').getByRole('button', { name: 'Show family' })

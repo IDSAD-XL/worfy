@@ -43,20 +43,3 @@
   border-style: dashed;
   border-color: var(--accent);
 }
-
-/*
- * A Node outside the lit Family of a hovered or selected Node (worfy-canvas ticket 03): NodeChrome
- * puts the .w-node-dimmed marker into the Node's element. With Reduce motion the opacity changes
- * at once.
- */
-.w-canvas .react-flow__node {
-  transition: opacity 120ms ease-out;
-}
-.w-canvas .react-flow__node:has(> .w-node-dimmed) {
-  opacity: 0.3;
-}
-@media (prefers-reduced-motion: reduce) {
-  .w-canvas .react-flow__node {
-    transition: none;
-  }
-}
