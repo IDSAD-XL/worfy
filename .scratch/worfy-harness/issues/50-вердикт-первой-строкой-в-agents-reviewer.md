@@ -79,3 +79,17 @@ PR [#631](https://github.com/IDSAD-XL/worfy/pull/631), merge 9f9529c9. Gate full
 - **`harness/evals/reviewer-verdict/prompt.md`** называет источник правила — `agents/reviewer.md`.
 - **Мутанты красные:** правило убрано; линза убрана; копия в skill-е; предложения про улики и 30 строк убраны;
   противоречащее «summary before the verdict»; предложение про gate 3 убрано; пересказанная копия в skill-е.
+
+### Платный прогон 2026-10-21 и исправление
+
+Владелец разрешил прогон; `pnpm install:stable` сделан (Stable и Harness с main `cd77f454`). Прогон
+`pnpm eval:harness -- --tag main --case reviewer-verdict --runs 3 --max-cost-usd 1.5`: **0.67 ×3, ниже порога 0.8**,
+$0.84. `names-false-claim` и `one-reviewer` — PASS во всех трёх run-ах; `rejected-first` (`^REJECTED`) — FAIL во
+всех: reviewer отклонял отчёт верно, но первая строка была `Verdict: REJECTED: …`, вводная фраза перед
+`**REJECTED: …**` или `VERIFIED: nothing — REJECTED: …`. Правило в `reviewer.md` после #631 не менялось; после
+#631 кейс не был зелёным ни разу.
+
+Исправление (PR fix/reviewer-verdict-first-line): в линзе «implementer's report» — первые символы ответа ровно
+`VERIFIED` или `REJECTED:`, без метки `Verdict:`, без разметки, без вводной фразы, один вердикт на строке; в общем
+«Answer format» — отсылка, что под этой линзой вердикт идёт раньше всего. `agents-text.test.sh` закрепляет новые
+фразы. Проверка — ещё один платный прогон кейса (×3) после merge и `pnpm install:stable`.

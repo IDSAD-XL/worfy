@@ -447,6 +447,8 @@ gate exit 3 or 127 is REJECTED: gate 3 :: If you run the project's gate, as the 
 gate exit 3 under a temporary HOME without HARNESS_HOME does not count :: An exit 3 under a temporary HOME without `HARNESS_HOME` (above) does not count: run the gate again by the recipe first.
 each unconfirmed claim with its evidence :: Every unconfirmed claim on the list comes with its `file:line`, or with the command and both exit codes, the reported one and yours.
 nothing before the verdict line :: Nothing comes before the verdict line: no heading, no summary, not the line of a failed `profile`, which comes second under this lens.
+the verdict word is the very first characters :: The answer's very first characters are `VERIFIED` or `REJECTED:` as written here: no label in front (`Verdict:`), no bold or other markup around them, no sentence about what you checked or are about to say.
+one verdict only :: One verdict only: `VERIFIED` and `REJECTED` never share the line.
 the general format and its 30 lines :: The other lines of the answer keep the format above, and the whole answer stays within its 30 lines.
 recording the verdict is the skill's business :: What happens to the verdict — where it is recorded, which commit it marks — is the business of the skill that launched the review.
 EOF
