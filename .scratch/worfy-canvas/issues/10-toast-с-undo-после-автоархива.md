@@ -67,6 +67,7 @@ Source: [spec.md](../spec.md), решение владельца 6;
 - `test/e2e/session-archive-toast.spec.ts` (новый)
 - `test/e2e/session-archive.spec.ts`, `test/unit/link-access.test.ts`, test-ы значения по умолчанию
   (`settings-canvas`, `archive-rule`, `main-archive-wiring`, `app-settings`)
+- `test/e2e/binding.spec.ts`, `test/e2e/family.spec.ts`, `test/e2e/arrange-by-epic.spec.ts` (выбор «Never»)
 
 Только чтение: `src/renderer/toast/toasts.ts` (`worfy-ui` 16).
 
@@ -126,10 +127,20 @@ Source: [spec.md](../spec.md), решение владельца 6;
   чтении без тика; остановленный архив не реагирует на чтение; непрочитанный Layout не читается); unit
   `test/unit/archive-toast.test.tsx` (10); e2e `test/e2e/session-archive-toast.spec.ts`.
   `test/e2e/session-archive.spec.ts` пишет выбор «Never» в `app-settings.json`.
+- **Fixture-ы с давними Session-ами.** Gate full на PR (head 3a3920d7 + main 23dc8439) был красным:
+  `binding.spec.ts`, `family.spec.ts` и `arrange-by-epic.spec.ts` кладут на Canvas завершённые Session-ы,
+  чьи transcript-ы кончаются 2026-10-05. С 24 h по умолчанию и архивом при первом чтении Layout они
+  уходили в архив при открытии окна. Человек с такими старыми Session-ами увидит то же самое — это
+  поведение, которое задаёт ADR-0076, а не ошибка. Эти spec-и не про архив, поэтому пишут выбор «Never»
+  в `app-settings.json`, как `session-archive.spec.ts`. Других spec-ов, которые кладут Session Node-ы
+  в Layout, в `test/e2e` нет: Node-ы остальных создаёт main для живых Session-ов, их архив не берёт.
 - Мутанты красные: Undo возвращает все архивные Session-ы, а не партию; read-only читается один раз
   при подписке; ключ toast-а по партии (стопка); toast не закрывается после ухода партии из архива;
   нет прогона при первом чтении Layout.
 - e2e под замком: `session-archive-toast`, `session-archive`, `session-archive-history`, `no-overlap`,
   `toast-placement`, `linked-read-only` — 9 passed.
+- e2e под замком после правки fixture-ов, ветка с main 23dc8439: `binding`, `family`, `arrange-by-epic`,
+  `external-session`, `new-session`, `session-archive`, `session-archive-toast`, `session-archive-history`,
+  `session-two-windows`, `subagent-tree`, `session-resume`, `session-back`, `no-overlap` — 29 passed.
 - Снимки toast-а: [светлая тема](../evidence/10-archive-toast-light.png),
   [тёмная тема](../evidence/10-archive-toast-dark.png).
