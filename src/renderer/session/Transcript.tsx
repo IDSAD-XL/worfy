@@ -23,6 +23,18 @@ export interface TranscriptProps {
   projectId?: string | undefined
   /** How the assistant's rows are labelled. */
   assistantLabel?: string
+  /**
+   * «Load earlier» at the top of the log, for a transcript read from its end (ticket 21); none
+   * without it, or once the events start at the beginning of the file.
+   */
+  earlier?: EarlierControl | undefined
+}
+
+export interface EarlierControl {
+  /** Reads the events before the shown ones; the log keeps the row the reader looked at in place. */
+  load: () => void
+  /** True while they are read. */
+  loading: boolean
 }
 
 const extensionTypes: ReadonlySet<string> = new Set(rowTypes.keys())
@@ -398,18 +410,55 @@ function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps })
   }
 }
 
+/** The first row of the log the reader sees, and how far below the top of the log it is. */
+function firstVisibleRow(log: HTMLElement): { row: Element; offset: number } | null {
+  const top = log.getBoundingClientRect().top
+  for (const row of Array.from(log.children)) {
+    if (row.hasAttribute('data-transcript-earlier')) continue
+    const box = row.getBoundingClientRect()
+    if (box.bottom > top) return { row, offset: box.top - top }
+  }
+  return null
+}
+
 export function Transcript(props: TranscriptProps) {
-  const { events, firstIndex = 0 } = props
+  const { events, firstIndex = 0, earlier } = props
   const items = useMemo(() => foldTranscript(events, extensionTypes, firstIndex), [events, firstIndex])
   const now = useToday()
   const log = useRef<HTMLDivElement>(null)
   // Follows new rows while the reader is at the bottom; leaves the scroll alone once they scrolled up.
   const atBottom = useRef(true)
+  // The row the reader looked at when they asked for earlier events, and the scroll height then.
+  const anchor = useRef<{ row: Element | null; offset: number; height: number; firstIndex: number } | null>(null)
 
   useLayoutEffect(() => {
     const element = log.current
-    if (element && atBottom.current) element.scrollTop = element.scrollHeight
-  }, [items])
+    if (!element) return
+    const kept = anchor.current
+    // The anchor serves the next change of the first row only: older rows in front, or not.
+    if (kept !== null && firstIndex !== kept.firstIndex) anchor.current = null
+    if (kept !== null && firstIndex < kept.firstIndex) {
+      // Older rows came in at the top: the row the reader looked at stays where it was. The rows
+      // keep their keys (firstIndex), so it is the same element; if it went (its fold changed),
+      // the scroll moves by the height the new rows added.
+      if (kept.row?.isConnected) {
+        element.scrollTop += kept.row.getBoundingClientRect().top - element.getBoundingClientRect().top - kept.offset
+      } else {
+        element.scrollTop += element.scrollHeight - kept.height
+      }
+      return
+    }
+    if (atBottom.current) element.scrollTop = element.scrollHeight
+  }, [items, firstIndex])
+
+  const loadEarlier = () => {
+    const element = log.current
+    if (element) {
+      const visible = firstVisibleRow(element)
+      anchor.current = { row: visible?.row ?? null, offset: visible?.offset ?? 0, height: element.scrollHeight, firstIndex }
+    }
+    earlier?.load()
+  }
 
   // Rows that arrive while the log is hidden (the Canvas is on screen) cannot be followed: a hidden
   // element has no height. The log follows them once it is shown again, and when it is resized.
@@ -435,6 +484,13 @@ export function Transcript(props: TranscriptProps) {
         atBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24
       }}
     >
+      {earlier !== undefined && items.length > 0 ? (
+        <div className="w-tr__earlier" data-transcript-earlier="">
+          <button type="button" className="w-tr__earlier-button" data-testid="transcript-load-earlier" disabled={earlier.loading} aria-busy={earlier.loading} onClick={loadEarlier}>
+            {earlier.loading ? 'Loading earlier…' : 'Load earlier'}
+          </button>
+        </div>
+      ) : null}
       <NowContext.Provider value={now}>
         {items.length === 0 ? <div className="w-tr__empty">No messages yet</div> : items.map((item) => <Item key={item.key} item={item} props={props} />)}
       </NowContext.Provider>

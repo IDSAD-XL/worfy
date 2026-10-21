@@ -10,7 +10,7 @@ import { resolve } from 'node:path'
 import { ClaudeHomeRegistry, rootPath, type ClaudeHomeWatch, type RegistryRoot } from '../claude-home/registry'
 import { TranscriptSearch } from '../claude-home/search'
 import { SubagentReader, subagentTranscriptPath } from '../claude-home/subagents'
-import { readNewLines } from '../claude-home/tail'
+import { readLinesBefore, readNewLines, type TailCursor } from '../claude-home/tail'
 import { ClientHolders, clientOf, type Client, type ClientId } from '../clients'
 import { isRemoteCall, projectRootOf } from '../link/caller'
 import { projectStore } from '../projects/store'
@@ -26,7 +26,8 @@ import {
   claudeHomeTranscript,
   type LiveSession,
 } from '../../shared/ipc/claude-home'
-import { mainThreadEvents, parseTranscriptLines, timedEvent } from '../../shared/transcript/parse'
+import type { AgentEvent } from '../../shared/agent/events'
+import { mainThreadEvents, parseTranscriptLine, timedEvent, type TranscriptEntry } from '../../shared/transcript/parse'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 /** The client the subscriptions serve (src/main/clients.ts); tests pass a fake. */
@@ -147,6 +148,37 @@ export class ClaudeHomeSubscriptions {
  * from a Linked machine names the root of a Project of `projects` or one of its worktrees
  * (src/main/link/caller.ts).
  */
+interface TranscriptRead {
+  cursor?: TailCursor | undefined
+  maxBytes?: number | undefined
+  back?: { bytes: number; before?: TailCursor | undefined } | undefined
+}
+
+/**
+ * The answer of `claudeHome.transcript` and `claudeHome.subagentTranscript` for the file at
+ * `path`: forward from `cursor`, or the window `back` names, read from the end. `events` picks the
+ * events a line's entries give; each keeps the offset of its line in `offsets`.
+ */
+async function readTranscript(path: string, read: TranscriptRead, events: (entries: TranscriptEntry[]) => AgentEvent[]) {
+  const parse = (lines: readonly string[], lineOffsets: readonly number[]) => {
+    const all: AgentEvent[] = []
+    const offsets: number[] = []
+    lines.forEach((line, at) => {
+      for (const each of events(parseTranscriptLine(line))) {
+        all.push(each)
+        offsets.push(lineOffsets[at] ?? 0)
+      }
+    })
+    return { events: all, offsets }
+  }
+  if (read.back !== undefined) {
+    const chunk = await readLinesBefore(path, { windowBytes: read.back.bytes, ...(read.back.before ? { before: read.back.before } : {}) })
+    return { found: true, ...parse(chunk.lines, chunk.offsets), cursor: chunk.cursor, reset: chunk.reset, more: false, earlier: chunk.start }
+  }
+  const chunk = await readNewLines(path, read.cursor, read.maxBytes === undefined ? {} : { maxBytes: read.maxBytes })
+  return { found: true, ...parse(chunk.lines, chunk.offsets), cursor: chunk.cursor, reset: chunk.reset, more: chunk.more }
+}
+
 export function claudeHomeHandlers(
   registry: ClaudeHomeRegistry,
   subscriptions = new ClaudeHomeSubscriptions(registry),
@@ -182,23 +214,21 @@ export function claudeHomeHandlers(
       const client = clientOf(event)
       return { closed: client ? await subscriptions.unsubscribe(client.id, projectRoot) : false }
     }),
-    defineHandler(claudeHomeTranscript, async ({ projectRoot, sessionId, cursor, maxBytes }, { event }) => {
+    defineHandler(claudeHomeTranscript, async ({ projectRoot, sessionId, ...read }, { event }) => {
       const path = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
       if (path === null) return notFound
-      const chunk = await readNewLines(path, cursor, maxBytes === undefined ? {} : { maxBytes })
-      return { found: true, events: mainThreadEvents(parseTranscriptLines(chunk.lines)), cursor: chunk.cursor, reset: chunk.reset, more: chunk.more }
+      return readTranscript(path, read, mainThreadEvents)
     }),
     defineHandler(claudeHomeSubagents, async ({ projectRoot, sessionId }, { event }) => {
       const path = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
       if (path === null) return { found: false, signals: [], files: [] }
       return { found: true, ...(await subagents.session(path)) }
     }),
-    defineHandler(claudeHomeSubagentTranscript, async ({ projectRoot, sessionId, agentId, cursor, maxBytes }, { event }) => {
+    defineHandler(claudeHomeSubagentTranscript, async ({ projectRoot, sessionId, agentId, cursor, maxBytes, back }, { event }) => {
       const session = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
       const path = session === null ? null : await subagentTranscriptPath(session, agentId)
       if (path === null) return notFound
-      const chunk = await readNewLines(path, cursor, maxBytes === undefined ? {} : { maxBytes })
-      return { found: true, events: parseTranscriptLines(chunk.lines).map(timedEvent), cursor: chunk.cursor, reset: chunk.reset, more: chunk.more }
+      return readTranscript(path, { cursor, maxBytes, back }, (entries) => entries.map(timedEvent))
     }),
     defineHandler(claudeHomeSearch, async ({ projectRoot, query }, { event }) => search.search(await rootOf(projectRoot, event), query)),
   ]

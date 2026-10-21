@@ -3,7 +3,7 @@ import type { AgentEvent } from '../../shared/agent/events'
 import { ORCHESTRATOR_KIND, readOrchestratorData } from '../../shared/ipc/orchestrator'
 import { useOrchestratorView } from '../canvas/nodes/orchestrator-view'
 import { useLayout } from '../canvas/useLayout'
-import { useSessionTranscript } from '../claude-home/useClaudeHome'
+import { earlierControl, useSessionTranscript } from '../claude-home/useClaudeHome'
 import { invoke } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useProjects, useReadOnly } from '../projects/useProjects'
@@ -138,8 +138,10 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   // The SDK session whose transcript holds the turns before the live events: the one a Session
   // Node resumed, or the one the Orchestrator's Node saved.
   const transcriptId = (orchestrator !== undefined ? (savedNode ? readOrchestratorData(savedNode.data).sessionId : null) : nodeSession?.sdkSessionId) ?? undefined
+  // The transcript opens on its last window; «Load earlier» puts older windows in front (ticket 21).
   const past = useSessionTranscript(root, transcriptId)
   const events = useMemo(() => joinPastAndLive(past.events, live), [past.events, live])
+  const earlier = earlierControl(past, root, transcriptId)
   // Rows are keyed by position (store.ts, SessionLog.first): counted back from the live events, so
   // a live event keeps its row as the turns before it grow or shrink.
   const firstIndex = log.first - (events.length - live.length)
@@ -239,7 +241,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
       </header>
       <div className="w-session__body">
         <section className="w-session__main" aria-label="Session">
-          <Transcript events={events} firstIndex={firstIndex} sessionId={sessionId} projectId={projectId} assistantLabel={assistantLabel} />
+          <Transcript events={events} firstIndex={firstIndex} sessionId={sessionId} projectId={projectId} assistantLabel={assistantLabel} earlier={earlier} />
           <MessageInput key={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} onSend={send} onInterrupt={interrupt} />
         </section>
         <SessionRail blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={sessionId} />
