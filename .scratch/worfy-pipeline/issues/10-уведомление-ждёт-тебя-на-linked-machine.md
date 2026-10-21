@@ -1,7 +1,8 @@
 # 10 — Уведомление «ждёт тебя» доходит до Linked machine
 
 Type: task
-Status: open
+Status: claimed 2026-10-20T02:46Z
+Branch: worfy-pipeline/10
 Blocked by: 09
 Source: follow-up Ticket-а 06 (PR #501); решение владельца 2026-10-19, Q-c: #501 влит как есть, это — отдельный
 Ticket, приоритет low; решения владельца 2026-10-20, grilling Q1–Q16 (здесь Q11–Q16; [spec.md](../spec.md),
@@ -83,6 +84,8 @@ Ticket, приоритет low; решения владельца 2026-10-20, gr
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge.
 - [ ] (вручную) Mac и ПК связаны: `ticket block <epic> <NN> "приёмка" --waits owner` на ПК — уведомление на Mac;
       клик — вкладка Pipeline Project-а ПК или окно worfy с ним, как записано в «Итог».
+      Не сделано. PR #577 вливается без этой проверки — решение владельца 2026-10-21; проверка остаётся
+      открытым пунктом, её можно сделать в любой момент.
 
 ## Тесты
 
@@ -106,4 +109,70 @@ Ticket, приоритет low; решения владельца 2026-10-20, gr
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-pipeline/10`. Заметка Ticket-а уходит на Linked machines новым сообщением связи `ticket-note`
+(`src/main/link/notes.ts`), только Machine, чей `hello` назвал его в `accepts` (ADR-0079).
+
+- **`accepts` в `hello`** (`src/main/link/messages.ts`, `src/main/link/service.ts`). `hello` соединения несёт имена
+  сообщений, зарегистрированных на link service (не больше 200). Список хранится в памяти на каждое соединение
+  (`WeakMap` по `LinkConnection`) и заменяется каждым `hello`; `hello` без `accepts` — пустой список.
+  `LinkService.accepts(machineId, message)` смотрит соединение, которое возьмёт `sendMessage`. `hello` pairing-а списка
+  не несёт. Версия протокола — 3, как была.
+- **Узкое прочтение 1: повторный `hello` при регистрации сообщения.** Модуль может зарегистрировать сообщение после
+  того, как соединения открылись (`appNoteLink` создаёт `LinkNotes` после старта link). Тогда `registerMessage`
+  шлёт `hello` ещё раз по каждому открытому соединению, иначе другая сторона не узнала бы о `ticket-note` до нового
+  соединения. Сборка старше принимает второй `hello` как обновление имени (`store.touch`). ADR-0079 не правился.
+- **Что несёт сообщение (Q16):** `title`, `body`, `project` (`id`, `name`, `match` — ключ совпадения), `epic`, `num`,
+  `wait` (sha256 ключа Q11). Поля `projectRoot` нет; схема zod его срезает. Пределы длины — как у `note` (1000 символов
+  на текст), `match` и `wait` — до 4096. Отправитель обрезает `title` и `body`, как заметку Session (`clip`, 160
+  символов в одну строку), и шлёт хэш ключа ожидания: без даты-времени в `Status:` ключ содержит весь `Blocked reason`,
+  и длинная причина вывела бы заметку за схему — она не дошла бы совсем. Поля `waits` в сообщении нет: получателей
+  выбирает отправитель (Q15).
+- **Ключ совпадения (Q14)** — `projectMatchKey` и `readProjectMatchKey` в `src/main/autopilot/origin.ts`, поверх
+  `originKey`/`readOriginKey`: `["origin", <originKey>, <путь внутри репозитория через "/", корень — "">]`, без
+  `origin` — `["id", <id Project-а>]`. Путь внутри репозитория — `git rev-parse --show-prefix`. `origin` без хоста
+  (локальный путь `/Users/x/repo.git`, `C:\repos\x.git`, `file://`) считается отсутствующим (`remoteHasHost`): иначе
+  в кадр ушёл бы путь диска (Q16). Ключ Project-а читается git-ом не чаще раза в минуту (`MATCH_KEY_TTL_MS`): смена
+  `origin` видна в течение минуты. Сбой git — не «нет `origin`»: ключ по id даётся, только когда git так и ответил
+  (`get-url` с exit 2 — нет remote `origin`; exit 128 «not a git repository»). Timeout, сигнал, другой exit code
+  `get-url` или сбой `rev-parse` — чтение отклоняется и не кэшируется. **Узкое прочтение 5:** отправитель при сбое
+  не шлёт заметку Linked machines (у себя показывает), пишет предупреждение в лог; следующее ожидание Ticket-а
+  читает ключ снова. Угаданный ключ дал бы на другой Machine дубль или потерю чужой заметки, а пропуск — та же
+  потеря, что у Machine без соединения (ADR-0079). Получатель при сбое чтения своего ключа показывает заметку:
+  лучше дубль, чем потеря.
+- **Кому (Q15)** — `ticketRecipients` в `src/main/notify.ts`. `WaitsNotices` теперь отдаёт каждое ожидание человека
+  (не `team`, `agent`, не пустое) с `Waits:` и ключом; решает `TicketNotes`. **Узкое прочтение 2:** имя сравнивается
+  точно (с регистром), имя этой Machine проверяется раньше имён Linked machines. Пока link service не запущен, имя
+  этой Machine берётся из `link/machine.json` (то, что показывает Settings → Machines). Файла нет только до первого
+  старта link на этой Machine; тогда ожидание с именем Machine не показывается и не считается увиденным: следующее
+  чтение Ticket-а решает снова.
+- **Приём.** Получатель бросает заметку, если ключ совпадения есть у Project-а его списка. **Узкое прочтение 3:**
+  повтор отсекается по (ключ совпадения, Epic, NN, ключ ожидания) на всех Machine-отправителях сразу: тот же
+  Ticket от Mac и ПК показывается один раз; хранится sha256 ключа, до 10 000 штук, старые уходят первыми. **Узкое прочтение 4:**
+  заголовок — `<epic> NN is waiting for you (<имя Machine-отправителя>)` (строка интерфейса английская после
+  worfy-neutral 07, PR #625), имя — из списка Linked machines получателя по id
+  соединения. Показ — по правилам `NoteDisplay` (фокус окна, 10 s), счёт по Machine, id Project-а и Ticket-у.
+- **Клик (Q13) — выбран путь «вкладка Pipeline на той Machine».** Окно Linked machine показывает вкладку Pipeline
+  (`pipeline.get` открыт как `read`, `invoke` окна Linked machine идёт через link). Цель `pipeline` получила
+  `machineId` и `projectId` (`src/shared/ipc/notify.ts`, `projectRoot` теперь необязателен, нужен root или id);
+  окно грузится на той Machine на Project с этим id (`projectToLoad`) и открывает его Pipeline (`pipelineProjectOf`,
+  `src/renderer/session/notification-target.ts`). Запасной путь «окно worfy с Project-ом» не понадобился.
+- **Файлы вне «Где в коде»:** `src/main/link/identity.ts` (`storedMachineName`: чтение имени без link service, файл
+  при ошибке не переносится), `src/main/notify-pending.ts` (копирует поля цели `pipeline` по одному — без правки
+  терял `machineId` и `projectId`), `src/renderer/canvas/overlays/NotificationTarget.tsx` (две строки: вызов
+  `projectToLoad` и `pipelineProjectOf`), `test/unit/permission-card.test.tsx` (test-ы клика в окне Linked machine).
+- **Test-ы:** `test/unit/notify.test.ts` (получатели, приём, дубль, две Machine с одним репозиторием по разным
+  путям, без `origin`, ключ на настоящем git), `test/unit/link-notify.test.ts` (схема, две настоящие link service,
+  сборка без `accepts`), `test/contract/link-server.test.ts` (`hello` с `accepts` и без, повторный `hello`),
+  `test/unit/permission-card.test.tsx` (клик). Каждый новый test красный на одном из 44 mutant-ов (отчёт PR).
+- **Вручную (не проверено агентом):** Mac и ПК связаны, обе сборки с этим PR — `ticket block <epic> <NN> "приёмка"
+  --waits owner` на ПК даёт уведомление на Mac с именем ПК; клик открывает вкладку Pipeline Project-а ПК в окне ПК.
+  **Не сделано.** По решению владельца 2026-10-21 PR #577 вливается до этой проверки, не дожидаясь её; пункт
+  остаётся открытым в «Готово, когда», его можно сделать в любой момент.
+- **Rebase на `main` 2026-10-21.** После Epic-а `worfy-neutral` (Ticket 07, PR #625; Ticket 10, PR #649) заголовок
+  ожидания в `src/main/workflow/waits-notify.ts` — `<epic> NN is waiting for you`, а кириллица в коде и именах
+  test-ов запрещена (`scripts/check-cyrillic.mjs`). Конфликт в `waits-notify.ts` решён так: английский заголовок
+  `main` и проверка ответа `show` из этого PR (`decided === false` — ожидание не считается увиденным). Проверки
+  заголовков в `test/unit/notify.test.ts` и `test/unit/link-notify.test.ts` переведены на английский заголовок.
+  Ещё `test/unit/no-github-git.test.ts` из `main` не пускает test с remote на github.com рядом со строкой
+  `git push` (здесь это текст заметки о разрешении): в ключах совпадения этих двух файлов хост remote —
+  `git.example.com` вместо `github.com`. Ключ от хоста не зависит (`originKey`), смысл проверок тот же.

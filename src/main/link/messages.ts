@@ -5,7 +5,8 @@
 // module registers its message by name with a zod schema and a handler on the link service
 // (LinkService.registerMessage), and sends it to a Machine by id (LinkService.sendMessage). The
 // receiving side parses the payload with its own schema; a payload outside it never reaches the
-// handler. This ticket defines two: `hello` and `revoked`. Service messages are not IPC channels
+// handler. This ticket defines two: `hello` and `revoked`. A message added after ADR-0079 goes only to a
+// Machine whose `hello` names it in `accepts` (LinkService.accepts). Service messages are not IPC channels
 // and are not in the list of channels open to Linked machines (ipc-adapter.ts).
 import { z } from 'zod'
 
@@ -54,6 +55,9 @@ export function defineLinkMessage<S extends z.ZodType>(name: string, schema: S):
   return { name, schema }
 }
 
+/** The most names `accepts` of `hello` carries (ADR-0079, point 1). */
+export const MAX_ACCEPTS = 200
+
 /** Who this Machine is, sent by both sides as the first frame of every connection. */
 export const helloMessage = defineLinkMessage(
   'hello',
@@ -64,6 +68,11 @@ export const helloMessage = defineLinkMessage(
     build: z.string().min(1).max(200),
     /** The port this Machine's server listens on; null when it is not listening. */
     port: z.number().int().min(1).max(65535).nullable(),
+    /**
+     * The service messages this Machine handles: the names registered on its link service (ADR-0079).
+     * Absent from a build before it: such a Machine gets only the messages that were there before.
+     */
+    accepts: z.array(z.string().min(1).max(200)).max(MAX_ACCEPTS).optional(),
   }),
 )
 
@@ -84,6 +93,11 @@ export class MessageRegistry {
   register<S extends z.ZodType>(message: LinkMessage<S>, handle: MessageHandler<S>): void {
     if (this.messages.has(message.name)) throw new Error(`link message ${message.name} is registered more than once`)
     this.messages.set(message.name, { schema: message.schema, handle: handle as Registered['handle'] })
+  }
+
+  /** The names registered, in the order of registration: what `accepts` of `hello` announces. */
+  names(): string[] {
+    return [...this.messages.keys()]
   }
 
   /** The payload, parsed with the schema this side registered; throws when it is not. */

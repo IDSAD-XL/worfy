@@ -11,7 +11,8 @@ import {
   holdNote,
   noteMachine,
   notificationTarget,
-  projectOfNote,
+  pipelineProjectOf,
+  projectToLoad,
   takeCarriedNote,
   usePendingNote,
   type PendingNote,
@@ -23,7 +24,8 @@ import { useOrchestratorViews } from '../nodes/orchestrator-view'
 // `notify.pending` when it mounts and again on each `notify.open` signal, so a signal sent before it
 // mounted loses nothing. The note then waits until this window knows the Session's Node
 // (session/notification-target.ts). Draws nothing. A note of a Ticket that waits for the owner
-// (worfy-pipeline ticket 06) opens the Pipeline board of its Project instead of a Session.
+// (worfy-pipeline ticket 06) opens the Pipeline board of its Project instead of a Session; one of a
+// Linked machine's Ticket (worfy-pipeline ticket 10) opens it among that Machine's Projects, read only.
 //
 // A note of a Linked machine's Session (worfy-link ticket 13) opens it among the Projects of that
 // Machine, the way the sidebar opens a Linked machine's Project (worfy-link ticket 09): a window on
@@ -65,7 +67,7 @@ export default function NotificationTarget() {
     const wanted = noteMachine(note)
     if (wanted !== machine) {
       dropNote(pending)
-      void (wanted === null || 'view' in note ? Promise.resolve(null) : projectOfNote(note, wanted)).then((projectId) => {
+      void projectToLoad(note, wanted).then((projectId) => {
         // A newer click came meanwhile: it decides where the window goes.
         if (latest.current !== pending) return
         // The note waits across the load of this window on its Machine.
@@ -79,8 +81,8 @@ export default function NotificationTarget() {
     if ('view' in note) {
       if (projects !== undefined) {
         dropNote(pending)
-        const target = projects.projects.find((each) => sameProjectRoot(each.path, note.projectRoot))
-        if (target === undefined) console.warn(`a notification of ${note.epic} ${note.num}: ${note.projectRoot} is no longer in the list of Projects`)
+        const target = pipelineProjectOf(note, projects.projects)
+        if (target === undefined) console.warn(`a notification of ${note.epic} ${note.num}: ${note.projectRoot ?? note.projectId} is no longer in the list of Projects`)
         else
           void openPipelineOf(target.id, projects.activeId ?? undefined).then((problem) => {
             if (problem !== undefined) console.error('a notification could not open the Pipeline of its Project:', problem)

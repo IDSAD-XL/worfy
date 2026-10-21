@@ -9,9 +9,14 @@
 // a new `ticket block … --waits owner` writes a new key and notifies again. Only a transition worfy
 // saw itself counts: the first model of a Project is its start, and what already waited then gives
 // none. Other transitions (CI red, a failed review) are left to the board.
+//
+// A wait for a Machine (`Waits: <Machine name>`, worfy-pipeline ticket 10, Q15) is read the same
+// way: every wait for a person — the owner or a Machine — gives a note with its `Waits:` and its
+// key, and the display (TicketNotes, src/main/notify.ts) decides which Machines show it. `team` and
+// `agent` give none.
 import type { Ticket, WorkflowDelta, WorkflowModel } from '../../shared/workflow/types'
 import { MAX_INTERVAL_MS } from '../github/prs'
-import type { TicketNote } from '../notify'
+import type { WaitNote } from '../notify'
 import type { WorkflowHub, WorkflowSubscriber } from './watch'
 
 /** What of the workflow hub (src/main/ipc/workflow.ts, workflowHub) the notes follow. */
@@ -42,6 +47,9 @@ export const waitKey = (ticket: WaitingTicket): string => {
   return `${ticket.epic}\0${ticket.num}\0\0${ticket.state}\0${ticket.blockedReason ?? ''}`
 }
 
+/** Whether `Waits:` names a person: the owner or a Machine, not `team` or `agent`. */
+export const waitsForPerson = (waits: string | null | undefined): waits is string => waits !== null && waits !== undefined && waits !== '' && waits !== 'team' && waits !== 'agent'
+
 /** The text of a wait's notification (Q10): its Blocked reason, else `<epic> NN — <title>`. */
 export const waitBody = (ticket: WaitingTicket): string => ticket.blockedReason ?? `${refOf(ticket)} — ${ticket.title}`
 
@@ -50,7 +58,8 @@ export class WaitsNotices {
   /** Every wait seen, by Project root; a Project without an entry has had no start yet. */
   private readonly seen = new Map<string, Set<string>>()
 
-  constructor(private readonly display: { show(note: TicketNote): void }) {}
+  /** `display.show` answers false when it cannot tell yet whom the wait is for: the wait is not counted as seen. */
+  constructor(private readonly display: { show(note: WaitNote): unknown }) {}
 
   /**
    * Reads a model, or a change (only the Tickets that changed), of the Project followed as `root` (the spelling of the Project list,
@@ -63,22 +72,27 @@ export class WaitsNotices {
     // failure carries every Ticket (it is diffed against the empty model), so it can be the start.
     if (read.tickets.length === 0 && read.error !== null) return
     const seen = this.seen.get(root)
-    const waiting = read.tickets.filter((ticket) => ticket.waits === 'owner')
+    const waiting = read.tickets.filter((ticket) => waitsForPerson(ticket.waits))
     if (seen === undefined) {
       this.seen.set(root, new Set(waiting.map(waitKey)))
       return
     }
     for (const ticket of waiting) {
+      const waits = ticket.waits
+      if (!waitsForPerson(waits)) continue
       const key = waitKey(ticket)
       if (seen.has(key)) continue
       seen.add(key)
-      this.display.show({
+      const decided = this.display.show({
         title: `${refOf(ticket)} is waiting for you`,
         body: waitBody(ticket),
         sessionId: null,
         projectRoot: root,
         ticket: { epic: ticket.epic, num: ticket.num },
+        waits,
+        wait: key,
       })
+      if (decided === false) seen.delete(key)
     }
   }
 
@@ -100,7 +114,7 @@ export class WaitsNotices {
 export function installWaitsNotifications(
   hub: WaitsHub,
   projects: () => readonly { readonly path: string }[],
-  display: { show(note: TicketNote): void },
+  display: { show(note: WaitNote): unknown },
   intervalMs = WAITS_TICK_MS,
   log: (message: string, error: unknown) => void = (message, error) => console.warn(message, error),
 ): () => void {

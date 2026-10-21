@@ -45,6 +45,7 @@ import {
   CONNECT_PATH,
   helloMessage,
   LINK_PROTOCOL_VERSION,
+  MAX_ACCEPTS,
   MessageRegistry,
   PAIR_PATH,
   revokedMessage,
@@ -178,6 +179,8 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   private readonly pairingWindow: PairingWindow
   private readonly reasons = new Set<ListenReason>()
   private readonly connections = new Map<string, Set<LinkConnection>>()
+  /** What each connection's Machine accepts, from its last `hello` (ADR-0079): in memory, gone with the connection. */
+  private readonly accepted = new WeakMap<LinkConnection, ReadonlySet<string>>()
   /** The clients of every open connection (ipc-adapter.ts); they follow the access switch. */
   private readonly peers = new Set<LinkPeer>()
   private readonly certificateChanged = new Set<string>()
@@ -431,9 +434,21 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
 
   // ---- service messages ------------------------------------------------------------------------
 
-  /** Registers a service message of a module (messages.ts); each name once per service. */
+  /**
+   * Registers a service message of a module (messages.ts); each name once per service. A module may
+   * register after connections opened (the notes follow the app's link once it started,
+   * src/main/link/notes.ts): each open connection then gets `hello` again, so the other side's
+   * list of what this Machine accepts names the new message without waiting for a new connection.
+   */
   registerMessage<S extends z.ZodType>(message: LinkMessage<S>, handle: MessageHandler<S>): void {
     this.messages.register(message, handle)
+    for (const set of this.connections.values()) for (const connection of set) if (connection.isOpen) this.sendHello(connection)
+  }
+
+  /** Whether the connection sendMessage would use to `machineId` named `message` in its last `hello` (ADR-0079). */
+  accepts(machineId: string, message: LinkMessage): boolean {
+    const connection = this.openConnection(machineId)
+    return connection !== undefined && (this.accepted.get(connection)?.has(message.name) ?? false)
   }
 
   /** Sends a service message to Linked machine `machineId`; throws when it is not connected. */
@@ -604,9 +619,15 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       const name = this.store.get(record.id)?.name ?? record.name
       if (!this.isConnected(record.id)) this.emit('disconnected', { id: record.id, name })
     })
-    connection.send({ t: 'msg', name: helloMessage.name, payload: this.messages.outgoing(helloMessage, this.hello()) })
+    this.sendHello(connection)
     this.emit('connected', { id: record.id, name: record.name })
     return true
+  }
+
+  /** `hello` of a connection: who this Machine is and the service messages it accepts (ADR-0079). Pairing's `hello` carries no list. */
+  private sendHello(connection: LinkConnection): void {
+    const hello: Hello = { ...this.hello(), accepts: this.messages.names().slice(0, MAX_ACCEPTS) }
+    connection.send({ t: 'msg', name: helloMessage.name, payload: this.messages.outgoing(helloMessage, hello) })
   }
 
   private async onFrame(connection: LinkConnection, peer: LinkPeer, frame: Frame): Promise<void> {
@@ -617,6 +638,11 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     }
     switch (frame.t) {
       case 'msg':
+        if (frame.name === helloMessage.name) {
+          // Each `hello` on a connection replaces what it accepts; one without `accepts` names nothing.
+          const hello = helloMessage.schema.safeParse(frame.payload)
+          if (hello.success) this.accepted.set(connection, new Set(hello.data.accepts ?? []))
+        }
         await this.messages.dispatch(frame.name, frame.payload, { machineId: connection.machineId }, this.warn)
         return
       case 'call': {
