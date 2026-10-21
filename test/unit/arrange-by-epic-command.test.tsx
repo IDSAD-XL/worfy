@@ -71,6 +71,8 @@ describe('the command Arrange by Epic', () => {
     expect(apply).toHaveBeenCalledTimes(1)
     expect(op).toEqual({
       op: 'moveMany',
+      // A layout command: main does not count the moved Sessions as touched (ADR-0076, Amendments).
+      arrange: true,
       moves: [
         { id: `session:${BOUND}`, x: COLUMN, y: 0 },
         { id: `session:${FREE}`, x: COLUMN, y: 120 + FRAME_GAP },

@@ -220,6 +220,7 @@ function installAutoArchive(): () => void {
     settings: () => archiveSettings(sessionArchiveOf(appSettingsStore().get())),
     now: Date.now,
     batchId: randomUUID,
+    worktreeFailures: () => registry.worktreeFailures(),
   })
   const onLive: LiveSessionsListener = (projectRoot, live) => archiver.noteLive(projectRoot, live)
   liveSessionListeners.add(onLive)

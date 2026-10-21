@@ -107,6 +107,7 @@ function archiver(overrides: Partial<AutoArchiveDeps> = {}): AutoArchiverClass {
     settings: () => ({ idleMs: 24 * HOUR, ticketDone: true }),
     now: () => world.now,
     batchId: () => `batch-${(batches += 1)}`,
+    worktreeFailures: () => 0,
     ...overrides,
   })
 }
@@ -789,5 +790,148 @@ describe('the timer', () => {
     world.live = noneLive
     await vi.advanceTimersByTimeAsync(10)
     expect(changes(1, 'archive')).toHaveLength(1)
+  })
+})
+
+describe('review debt of Wave 1 (worfy-canvas ticket 16; ADR-0076, Amendments)', () => {
+  it('a layout command\'s `moveMany` (Tidy up, Arrange by Epic: `arrange`) does not set touchedAt; the same move by hand does', () => {
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    apply({ op: 'moveMany', arrange: true, moves: [{ id: 'session:a', x: 0, y: 2000 }, { id: 'session:b', x: 400, y: 2000 }] }, 'screen-1')
+    expect(nodeOf('session:a')).toMatchObject({ x: 0, y: 2000 })
+    expect(nodeOf('session:a')?.touchedAt).toBeUndefined()
+    expect(nodeOf('session:b')?.touchedAt).toBeUndefined()
+    apply({ op: 'moveMany', moves: [{ id: 'session:a', x: 0, y: 3000 }] }, 'screen-1')
+    expect(nodeOf('session:a')?.touchedAt).toEqual(expect.any(Number))
+    expect(nodeOf('session:b')?.touchedAt).toBeUndefined()
+  })
+
+  it('a Session Node without a transcript: the first run starts its clock (touchedAt, without a screen), a run past the threshold archives it', async () => {
+    apply(sessionNode('gone'))
+    apply(sessionNode('recorded', 400, 0))
+    world.history = transcripts(['recorded', HOUR])
+    const runner = archiver()
+    expect(await runner.run({ id: PROJECT, path: repo })).toBe(0)
+    const started = nodeOf('session:gone')?.touchedAt
+    expect(started).toEqual(expect.any(Number))
+    expect(nodeOf('session:recorded')?.touchedAt).toBeUndefined()
+    const touches = changes(1, 'touch')
+    expect(touches.map((change) => [change.op, change.screen])).toEqual([[{ op: 'touch', id: 'session:gone' }, null]])
+
+    // A later run within the threshold keeps the clock where it started and archives nothing.
+    world.now += HOUR
+    expect(await runner.run({ id: PROJECT, path: repo })).toBe(0)
+    expect(nodeOf('session:gone')?.touchedAt).toBe(started)
+    expect(changes(1, 'touch')).toHaveLength(1)
+
+    world.now = started! + 24 * HOUR + 1
+    expect(await runner.run({ id: PROJECT, path: repo })).toBe(1)
+    expect(nodeOf('session:gone')?.archived).toMatchObject({ rule: 'idle' })
+    expect(isArchived(nodeOf('session:recorded')!)).toBe(false)
+  })
+
+  it('a live Session without a transcript gets no clock: the timer touches only finished Sessions', async () => {
+    apply(sessionNode('running'))
+    world.live = () => Promise.resolve([{ sessionId: 'running', status: 'idle' }])
+    expect(await archiver().run({ id: PROJECT, path: repo })).toBe(0)
+    expect(nodeOf('session:running')?.touchedAt).toBeUndefined()
+    expect(changes(1, 'touch')).toEqual([])
+  })
+
+  it('when the git worktree list fails during a run, a Session without a transcript is neither archived from its touchedAt nor given a clock (review of PR #680)', async () => {
+    const { archiveRegistry } = await import('../../src/main/layout/archive')
+    const home = join(scratch, 'claude-home')
+    mkdirSync(join(home, 'sessions'), { recursive: true })
+    apply(sessionNode('worktree'))
+    apply({ op: 'touch', id: 'session:worktree' })
+    apply(sessionNode('clockless', 400, 0))
+    const touched = nodeOf('session:worktree')!.touchedAt!
+    world.now = touched + 30 * HOUR
+    let gitFails = true
+    // A Session running in a worktree outside the root: with the list missing, the registry sees neither it nor its transcript.
+    const registry = archiveRegistry({ home, listWorktrees: () => (gitFails ? Promise.reject(new Error('git worktree list timed out')) : Promise.resolve([])) })
+    const over = archiver({
+      live: (project) => registry.live({ path: project.path, local: true }),
+      history: async (project) => (await registry.sessions({ path: project.path, local: true })).history,
+      worktreeFailures: () => registry.worktreeFailures(),
+    })
+    expect(await over.run({ id: PROJECT, path: repo })).toBe(0)
+    expect(isArchived(nodeOf('session:worktree')!)).toBe(false)
+    expect(nodeOf('session:worktree')?.touchedAt).toBe(touched)
+    expect(nodeOf('session:clockless')?.touchedAt).toBeUndefined()
+    expect(registry.worktreeFailures()).toBeGreaterThan(0)
+
+    // The list read again without an error: the rule counts from touchedAt as usual.
+    gitFails = false
+    expect(await over.run({ id: PROJECT, path: repo })).toBe(1)
+    expect(nodeOf('session:worktree')?.archived).toMatchObject({ rule: 'idle' })
+    expect(nodeOf('session:clockless')?.touchedAt).toEqual(expect.any(Number))
+  })
+
+  it('a run whose live read fails on the worktree list archives nothing, not even a Session whose transcript is 25 h old (review of PR #680, round 2)', async () => {
+    const { archiveRegistry } = await import('../../src/main/layout/archive')
+    const home = join(scratch, 'claude-home')
+    mkdirSync(join(home, 'sessions'), { recursive: true })
+    apply(sessionNode('waiting'))
+    // The transcript reads fine; the live read that comes last times out on `git worktree list`.
+    world.history = transcripts(['waiting', 25 * HOUR])
+    let gitFails = true
+    const registry = archiveRegistry({ home, listWorktrees: () => (gitFails ? Promise.reject(new Error('git worktree list timed out')) : Promise.resolve([])) })
+    const over = archiver({ live: (project) => registry.live({ path: project.path, local: true }), worktreeFailures: () => registry.worktreeFailures() })
+    expect(await over.run({ id: PROJECT, path: repo })).toBe(0)
+    expect(await over.candidatesNow(PROJECT)).toEqual([])
+    expect(isArchived(nodeOf('session:waiting')!)).toBe(false)
+    expect(changes(1, 'archive')).toEqual([])
+
+    gitFails = false
+    expect(await over.run({ id: PROJECT, path: repo })).toBe(1)
+  })
+
+  it('a Project that is not a git repository archives as usual: no worktrees is not a failure (gate of PR #680)', async () => {
+    const { archiveRegistry } = await import('../../src/main/layout/archive')
+    const home = join(scratch, 'claude-home')
+    mkdirSync(join(home, 'sessions'), { recursive: true })
+    apply(sessionNode('old'))
+    world.history = transcripts(['old', 25 * HOUR])
+    // The real `git worktree list` on the temporary repo folder, which git does not know.
+    const registry = archiveRegistry({ home })
+    const over = archiver({ live: (project) => registry.live({ path: project.path, local: true }), worktreeFailures: () => registry.worktreeFailures() })
+    expect(await over.run({ id: PROJECT, path: repo })).toBe(1)
+    expect(registry.worktreeFailures()).toBe(0)
+  })
+
+  it.skipIf(process.platform === 'win32')('git not installed is no failure; git failing otherwise (a timeout, an unexpected exit) is, and that run archives nothing', async () => {
+    const { archiveRegistry } = await import('../../src/main/layout/archive')
+    const home = join(scratch, 'claude-home')
+    mkdirSync(join(home, 'sessions'), { recursive: true })
+    apply(sessionNode('old'))
+    world.history = transcripts(['old', 25 * HOUR])
+    const bin = join(scratch, 'bin')
+    mkdirSync(bin)
+    const path = process.env.PATH
+    onTestFinished(() => {
+      process.env.PATH = path
+    })
+    const registry = archiveRegistry({ home })
+    const over = archiver({ live: (project) => registry.live({ path: project.path, local: true }), worktreeFailures: () => registry.worktreeFailures() })
+    // A git that fails with something other than "not a git repository": the worktrees could not be read.
+    writeFileSync(join(bin, 'git'), '#!/bin/sh\necho "fatal: unable to read the index" >&2\nexit 128\n', { mode: 0o755 })
+    process.env.PATH = bin
+    expect(await over.run({ id: PROJECT, path: repo })).toBe(0)
+    expect(registry.worktreeFailures()).toBeGreaterThan(0)
+    expect(isArchived(nodeOf('session:old')!)).toBe(false)
+    // No git on PATH at all: no worktrees can exist, the run archives.
+    process.env.PATH = join(scratch, 'no-such-bin')
+    const failures = registry.worktreeFailures()
+    expect(await over.run({ id: PROJECT, path: repo })).toBe(1)
+    expect(registry.worktreeFailures()).toBe(failures)
+  })
+
+  it('«Archive finished sessions now» and «Never» start no clock: only the timer\'s run writes it', async () => {
+    apply(sessionNode('gone'))
+    expect(await archiver().candidatesNow(PROJECT)).toEqual([])
+    expect(await archiver({ settings: () => ({ idleMs: null, ticketDone: true }) }).run({ id: PROJECT, path: repo })).toBe(0)
+    expect(nodeOf('session:gone')?.touchedAt).toBeUndefined()
+    expect(changes(1, 'touch')).toEqual([])
   })
 })

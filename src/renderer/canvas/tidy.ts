@@ -86,7 +86,8 @@ export async function tidyOperation(nodes: readonly LayoutNode[], trees: Readonl
     return { id: item.id, x: onGrid(left + place.x + item.dx), y: onGrid(top + place.y + item.dy) }
   })
   if (moves.every((move) => byId.get(move.id)?.x === move.x && byId.get(move.id)?.y === move.y)) return undefined
-  return { op: 'moveMany', moves }
+  // `arrange`: a layout command, so main does not count every moved Node as touched (ADR-0076, Amendments).
+  return { op: 'moveMany', arrange: true, moves }
 }
 
 /** The block of each Session's Subagent tree where it hangs with nothing in its way, by the Session's Node id. */

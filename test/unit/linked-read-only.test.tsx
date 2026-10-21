@@ -698,7 +698,8 @@ describe('the selection toolbar, the Command palette and Focus mode', () => {
       expect(show.getAttribute('aria-disabled')).toBeNull()
       expect((show as HTMLButtonElement).disabled).toBe(false)
       fireEvent.click(show)
-      expect(fake.sent).toEqual([])
+      // Nothing is sent but the read of the Project list: Show family reads which Project is active.
+      expect(fake.sent.filter((channel) => channel !== 'projects.list')).toEqual([])
     } finally {
       focus.clearEdgeFocus()
     }

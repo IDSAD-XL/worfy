@@ -42,7 +42,9 @@ describe('minimap paint by kind, the app registry', () => {
       expect(className, kind).toBe('')
     }
     expect(drawn('note').fill).toBe('var(--border-strong)')
-    expect(drawn('no-such-kind').fill).toBe(NODE_COLOR_DEFAULT)
+    // A literal, not the constant: a change of the default colour has to show here.
+    expect(drawn('no-such-kind').fill).toBe('var(--text-muted)')
+    expect(NODE_COLOR_DEFAULT).toBe('var(--text-muted)')
   })
 
   it('keeps the pinned class, alone or with the outline class', () => {
@@ -55,7 +57,7 @@ describe('minimap paint over another registry', () => {
   it('outlines an outlined kind whose type declares no colour in the default colour', () => {
     const own = minimapPaint(new Map([['session', { minimapColor: 'var(--kind-session)' }]]))
     expect(own.fill(node('subagent'))).toBe(NO_COLOR)
-    expect(own.stroke(node('subagent'))).toBe(NODE_COLOR_DEFAULT)
+    expect(own.stroke(node('subagent'))).toBe('var(--text-muted)')
     expect(own.fill(node('session'))).toBe('var(--kind-session)')
   })
 })

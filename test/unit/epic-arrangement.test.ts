@@ -37,6 +37,13 @@ describe('columnsFor', () => {
     for (const n of [1, 4, 11, 30]) expect(columnsFor(usual(n), null)).toBe(formula(n))
   })
 
+  it('W counts the gap between columns: narrow frames, where the gap is half a frame, get fewer columns than without it (review of PR #539)', () => {
+    // S = 10 × 100 × 400, sqrt(S × 1.6) = 800: 800 / (100 + 48) = 5.4 gives 5; without the gap 800 / 100 would give 8.
+    const narrow = Array.from({ length: 10 }, () => ({ width: 100, height: 400 }))
+    expect(FRAME_GAP).toBe(48)
+    expect(columnsFor(narrow, null)).toBe(5)
+  })
+
   it('counts a frame with its done stack open (`reserve`), not the folded height', () => {
     const folded = Array.from({ length: 11 }, () => ({ width: 900, height: 200 }))
     const reserved = folded.map((frame) => ({ ...frame, reserve: 900 }))

@@ -17,13 +17,15 @@
 // (projects/read-only.ts). The keys stop where they send: history.ts and deleteToTrash.
 //
 // "Show family" (worfy-canvas ticket 03), for one selected Node that has a Family (family.ts),
-// fits this window's camera to the whole Family, as focusEpic does for a frame. It writes nothing,
-// so it works on the read-only screen too.
+// fits this window's camera to the whole Family, as focusEpic does for a frame — but for the members
+// the tag filter leaves undrawn (find/CanvasFind.tsx). It writes nothing, so it works on the
+// read-only screen too.
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent } from 'react'
 import { useNodes, useReactFlow, useStore, useStoreApi, ViewportPortal, type ReactFlowState } from '@xyflow/react'
 import { create } from 'zustand'
 import type { LayoutNode } from '../../../shared/layout/types'
 import { SHORTCUTS } from '../../../shared/shortcuts'
+import { drawnUnderTagFilter, useCanvasRequests } from '../../find/canvas-requests'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { isTextTarget, matches } from '../../shortcuts/match'
@@ -267,14 +269,22 @@ const reducedMotion = (): boolean => typeof matchMedia === 'function' && matchMe
 /**
  * Show family: for one selected Node with a Family, the camera takes in the whole Family, zoomed
  * out as far as it needs and never in (as focusEpic, sources/epics.ts). No Family, no button.
+ * While "Show only tag" is on for this Project, a member without the tag is not drawn
+ * (find/CanvasFind.tsx, TagFilterView), so the camera leaves it out; with no member drawn it stays.
  */
 export function FamilySection({ nodes }: SelectionSectionProps) {
   const flow = useReactFlow()
   const links = useEdgeFocus((state) => state.links)
+  const projectId = activeProject(useProjects())?.id
   const family = nodes.length === 1 ? familyOf(nodes[0]!.id, links) : null
   if (family === null) return null
   const show = () => {
-    void flow.fitView({ nodes: [...family].map((id) => ({ id })), padding: 0.1, maxZoom: flow.getZoom(), duration: reducedMotion() ? 0 : 250 })
+    const filter = useCanvasRequests.getState().tagFilter
+    // A member React Flow does not have counts as one without tags.
+    const drawn = (id: string): boolean => drawnUnderTagFilter(filter, projectId, (flow.getNode(id) as CanvasFlowNode | undefined)?.data.node.tags)
+    const shown = [...family].filter(drawn)
+    if (shown.length === 0) return
+    void flow.fitView({ nodes: shown.map((id) => ({ id })), padding: 0.1, maxZoom: flow.getZoom(), duration: reducedMotion() ? 0 : 250 })
   }
   return (
     <button type="button" className="w-selection-toolbar__button" title="Show this node with everything bound to it" onClick={show}>

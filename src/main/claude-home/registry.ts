@@ -108,17 +108,43 @@ const belongs = (cwd: string | undefined, roots: readonly string[], strict: bool
 /** Variables that would point git at another repository than the one `-C` names. */
 const GIT_LOCATION_VARS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE']
 
+/**
+ * Whether a failed `git worktree list` means the Project can have no worktrees: git is not
+ * installed (ENOENT), or the folder is not a git repository (exit 128, "not a git repository").
+ */
+function noWorktreesPossible(error: unknown): boolean {
+  const failed = error as { code?: unknown; stderr?: unknown }
+  if (failed.code === 'ENOENT') return true
+  return failed.code === 128 && typeof failed.stderr === 'string' && failed.stderr.includes('not a git repository')
+}
+
+/**
+ * Paths of the Project's git worktrees other than the root itself; empty when the folder is not a
+ * git repository or git is not installed. Throws when git fails otherwise or does not answer within
+ * 5 s: the worktrees could not be read.
+ */
+export async function listGitWorktrees(root: string): Promise<string[]> {
+  // LC_ALL=C: git's messages in English, so a folder outside git is told by its text.
+  const env = { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !GIT_LOCATION_VARS.includes(name))), LC_ALL: 'C' }
+  let stdout: string
+  try {
+    // `worktree list` only reads the repository; it prunes nothing.
+    ;({ stdout } = await run('git', ['-C', root, 'worktree', 'list', '--porcelain'], { env, timeout: 5000 }))
+  } catch (error) {
+    if (noWorktreesPossible(error)) return []
+    throw error
+  }
+  return stdout
+    .split('\n')
+    .filter((line) => line.startsWith('worktree '))
+    .map((line) => resolve(line.slice('worktree '.length)))
+    .filter((path) => path !== resolve(root))
+}
+
 /** Paths of the Project's git worktrees other than the root itself; empty when git fails. */
 export async function gitWorktrees(root: string): Promise<string[]> {
   try {
-    const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !GIT_LOCATION_VARS.includes(name)))
-    // `worktree list` only reads the repository; it prunes nothing.
-    const { stdout } = await run('git', ['-C', root, 'worktree', 'list', '--porcelain'], { env, timeout: 5000 })
-    return stdout
-      .split('\n')
-      .filter((line) => line.startsWith('worktree '))
-      .map((line) => resolve(line.slice('worktree '.length)))
-      .filter((path) => path !== resolve(root))
+    return await listGitWorktrees(root)
   } catch {
     return []
   }

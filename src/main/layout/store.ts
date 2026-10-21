@@ -17,6 +17,10 @@
 // clear one. Every operation the user makes on a Node — one sent with a screen: move, moveMany,
 // resize, pin, hide, tag, patchData, keep — and every `touch` and `restore` set the Node's
 // `touchedAt` to now, so the archive leaves a Node the user has just worked with or brought back.
+// main's archive timer also sends `touch` without a screen, to start the clock of a Session Node
+// whose transcript tells no time (archive.ts, sessionsWithoutClock; ADR-0076, Amendments).
+// A `moveMany` of a layout command (`arrange`: Tidy up, Arrange by Epic) does not: it moves every
+// Node at once, which is not work with each of them (ADR-0076, Amendments).
 //
 // Operations change the Layout in memory at once; the file is written after a quiet period
 // (LAYOUT_SAVE_DELAY_MS since the last operation) or, while operations keep coming with no quiet
@@ -163,7 +167,8 @@ function touchedBy(op: LayoutOp, screen: string | null): string[] {
     case 'keep':
       return screen === null ? [] : [op.id]
     case 'moveMany':
-      return screen === null ? [] : op.moves.map((move) => move.id)
+      // A layout command (Tidy up, Arrange by Epic) is not the user's work with each Node it moves.
+      return screen === null || op.arrange === true ? [] : op.moves.map((move) => move.id)
     case 'create':
     case 'remove':
     case 'archive':
