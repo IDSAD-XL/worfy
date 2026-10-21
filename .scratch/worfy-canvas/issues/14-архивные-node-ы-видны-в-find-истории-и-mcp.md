@@ -125,8 +125,13 @@ Node-ы Layout-а, смотрят только на `hidden` и про `archived
   Restore возвращает старые x/y и запись `archived`, redo снова восстанавливает; Restore Node-ов из двух
   партий отменяется в свои партии, места и время), contract `canvas-tools.test.ts` (пять tool-ов
   отказывают архивному Node-у, `randomUUID` замокан), `linked-read-only.test.tsx` (Show архивного Node-а
-  на read-only экране неактивен с подсказкой). 16 мутантов за два круга, каждый краснит свой test;
-  поимённо в PR они не перечислены.
+  на read-only экране неактивен с подсказкой).
+- Мутанты, 16 за два круга, все красные (отчёты implementer-а). Круг 1: M1 Find проверяет только
+  `hidden` (1 test), M2 restore без обратной операции (4), M3–M5 история, sidebar и палитра только
+  снимают `hidden` (по 1), M6 MCP перечисляет архивные Node-ы (2), M7 нет отказа архивному Node-у (1),
+  M8 `showNode` шлёт без записи (4). Круг 2: undo без move; undo без `at`; main игнорирует `at`; hide
+  без записи; лишний restore; подсказка проверяет только `hidden`; `freshId` сверяет только
+  перечисленные Node-ы; все Node-ы в одной партии.
 - Круг ревью 1 (high): BLOCK на 1 medium — undo Restore терял x/y и `at` Node-а. Исправлено вторым
   коммитом (`restoreInverse`, `at` у `archive`). Круг 2 (medium): PASS.
 - Gate full Mac (2026-10-21, main 920caedc + PR): зелёный, 425 s — первый gate с тремя worker-ами e2e.
