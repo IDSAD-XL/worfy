@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { CHECK_IDS, CLAUDE_STAND_IN, NO_QMD, TOOLS, toolFile, writeSandbox } from './first-run-sandbox'
+import { CHECK_IDS, CHECK_RUN_CALL, CLAUDE_STAND_IN, NO_QMD, TOOLS, toolFile, writeSandbox } from './first-run-sandbox'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
@@ -69,11 +69,8 @@ const launch = (): Promise<LaunchedApp> =>
   })
 
 const calls = (): string[] => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : [])
-/**
- * How many times the checks ran: each run asks the stand-in qmd for its version, and on Windows, where
- * worfy never calls the stand-in qmd (NO_QMD), the stand-in jq.
- */
-const checkRuns = (): number => calls().filter((line) => line === (NO_QMD ? 'jq --version' : 'qmd --version')).length
+/** How many times the checks ran: each run writes CHECK_RUN_CALL once. */
+const checkRuns = (): number => calls().filter((line) => line === CHECK_RUN_CALL).length
 const mark = (): string => join(dataDir, 'first-run.json')
 
 /** The rows of `place` once its checks are in: the id, the name and the status of each. */

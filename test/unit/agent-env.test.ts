@@ -7,7 +7,7 @@
 // they run on the Mac and on Linux CI. The last two blocks run the real reader and agentEnv() on
 // Windows only.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
@@ -492,6 +492,20 @@ describe('the registry stand-in of WORFY_REGISTRY_STAND_IN', () => {
     expect(first.env).not.toHaveProperty('NVM_HOME')
     await write('C:\\other\\bin')
     expect((await capture({ source, readKey: undefined })).env.Path).toBe('C:\\other\\bin')
+  })
+
+  it('no code of the app sets it: src/ names it only in env.ts, which reads it from worfy\'s environment', () => {
+    const sources = readdirSync(join(__dirname, '..', '..', 'src'), { recursive: true, encoding: 'utf8' })
+      .filter((file) => /\.tsx?$/.test(file))
+      .map((file) => ({ file: file.split('\\').join('/'), text: readFileSync(join(__dirname, '..', '..', 'src', file), 'utf8') }))
+    const naming = sources.filter(({ text }) => /WORFY_REGISTRY_STAND_IN|REGISTRY_STAND_IN_VAR/.test(text)).map(({ file }) => file)
+    expect(naming).toEqual(['main/agent/env.ts'])
+    // The code of env.ts, without its comment lines.
+    const env = sources.find(({ file }) => file === 'main/agent/env.ts')!.text.split('\n').filter((line) => !/^\s*(\/\/|\/?\*)/.test(line)).join('\n')
+    // Its one use besides the declaration is the read in registryReader: no assignment, no object key that would set it.
+    expect(env.match(/REGISTRY_STAND_IN_VAR(?!\s*=\s*'WORFY_REGISTRY_STAND_IN')/g)).toEqual(['REGISTRY_STAND_IN_VAR'])
+    expect(env).toContain('getVar(source, REGISTRY_STAND_IN_VAR)')
+    expect(env).not.toMatch(/\[REGISTRY_STAND_IN_VAR\]|\.WORFY_REGISTRY_STAND_IN\s*=/)
   })
 
   it('a key the file lacks is a registry that cannot be read: the capture falls back and says why', async () => {

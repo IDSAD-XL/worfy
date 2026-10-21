@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { CHECK_IDS, CLAUDE_STAND_IN, NO_QMD, TOOLS, toolFile, writeSandbox } from './first-run-sandbox'
+import { CHECK_IDS, CHECK_RUN_CALL, CLAUDE_STAND_IN, NO_QMD, TOOLS, toolFile, writeSandbox } from './first-run-sandbox'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 
@@ -165,7 +165,7 @@ test.describe('first-run screen', () => {
     try {
       const dialog = await screen(launched.window)
       expect(await dialog.locator('[data-check]').evaluateAll((rows) => rows.map((each) => each.getAttribute('data-check')))).toEqual(CHECK_IDS)
-      for (const id of ['claude-login', 'claude-version', 'git', 'git-identity', 'gh', 'node', 'jq', 'gh-auth', 'legacy-harness', ...(NO_QMD ? [] : ['qmd', 'qmd-collections'])]) {
+      for (const id of ['claude-login', 'claude-version', 'git', 'git-identity', 'gh', 'node', 'jq', 'gh-auth', 'legacy-harness', ...(NO_QMD ? [] : ['qmd']), 'qmd-collections']) {
         await expect(row(dialog, id), id).toHaveAttribute('data-status', 'ok')
       }
       await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'fail')
@@ -229,31 +229,32 @@ test.describe('first-run screen', () => {
         `claude plugin marketplace add ${join(claudeHome, 'worfy-harness', 'plugin')}`,
         'claude plugin install worfy@worfy-harness --scope user',
       ])
-      // The rest needs the qmd rows and every other row OK. On Windows the qmd rows are not (NO_QMD),
-      // and neither are two rows of the machine: Limits (a development build has no bridge) and
-      // PowerShell (no pwsh on the sandbox's Path).
-      if (NO_QMD) return
+      // The models and "Everything is ready" need the qmd row and every other row OK. On Windows the
+      // qmd row is not (NO_QMD), and neither are two rows of the machine: Limits (a development build
+      // has no bridge) and PowerShell (no pwsh on the sandbox's Path). They are warnings, not
+      // failures, so the mark and the second start below hold there too.
+      if (!NO_QMD) {
+        // Download → the dialog names the size of the models; Cancel → nothing is downloaded.
+        await answerDialogWith(launched, 1)
+        await row(dialog, 'qmd-models').getByRole('button', { name: 'Download…' }).click()
+        await expect.poll(async () => (await shownDialogs(launched)).length).toBe(2)
+        shown = await shownDialogs(launched)
+        expect(shown[1]?.buttons).toEqual(['Confirm', 'Cancel'])
+        expect(shown[1]?.message).toMatch(/^Download the qmd models \(\d+\.\d GiB\)\?$/)
+        expect(shown[1]?.detail).toContain('qmd pull')
+        expect(shown[1]?.detail).toContain(join(scratch, 'cache', 'qmd', 'models'))
+        await expect(row(dialog, 'qmd-models')).toHaveAttribute('data-status', 'warn')
+        expect(calls().filter((line) => line.startsWith('qmd pull'))).toEqual([])
 
-      // Download → the dialog names the size of the models; Cancel → nothing is downloaded.
-      await answerDialogWith(launched, 1)
-      await row(dialog, 'qmd-models').getByRole('button', { name: 'Download…' }).click()
-      await expect.poll(async () => (await shownDialogs(launched)).length).toBe(2)
-      shown = await shownDialogs(launched)
-      expect(shown[1]?.buttons).toEqual(['Confirm', 'Cancel'])
-      expect(shown[1]?.message).toMatch(/^Download the qmd models \(\d+\.\d GiB\)\?$/)
-      expect(shown[1]?.detail).toContain('qmd pull')
-      expect(shown[1]?.detail).toContain(join(scratch, 'cache', 'qmd', 'models'))
-      await expect(row(dialog, 'qmd-models')).toHaveAttribute('data-status', 'warn')
-      expect(calls().filter((line) => line.startsWith('qmd pull'))).toEqual([])
-
-      // Skip → Confirm → the models are "skipped".
-      await answerDialogWith(launched, 0)
-      await row(dialog, 'qmd-models').getByRole('button', { name: 'Skip…' }).click()
-      await expect(row(dialog, 'qmd-models')).toHaveAttribute('data-status', 'ok', { timeout: 30_000 })
-      await expect(row(dialog, 'qmd-models')).toContainText('skipped')
-      expect(readFileSync(join(claudeHome, 'worfy-harness', 'qmd-models'), 'utf8')).toBe('skipped\n')
-      await expect(dialog.getByTestId('first-run-summary')).toHaveText('Everything is ready')
-      await keep(launched.window, 'first-run-ready')
+        // Skip → Confirm → the models are "skipped".
+        await answerDialogWith(launched, 0)
+        await row(dialog, 'qmd-models').getByRole('button', { name: 'Skip…' }).click()
+        await expect(row(dialog, 'qmd-models')).toHaveAttribute('data-status', 'ok', { timeout: 30_000 })
+        await expect(row(dialog, 'qmd-models')).toContainText('skipped')
+        expect(readFileSync(join(claudeHome, 'worfy-harness', 'qmd-models'), 'utf8')).toBe('skipped\n')
+        await expect(dialog.getByTestId('first-run-summary')).toHaveText('Everything is ready')
+        await keep(launched.window, 'first-run-ready')
+      }
 
       await dialog.getByRole('button', { name: 'Close' }).click()
       await expect(dialog).toBeHidden()
@@ -262,12 +263,12 @@ test.describe('first-run screen', () => {
       await launched.close()
     }
 
-    // The second start: every check ok and the mark there — main runs the checks and the screen stays shut.
+    // The second start: no check failed and the mark there — main runs the checks and the screen stays shut.
     const before = calls().length
     launched = await launch()
     try {
       await expect(launched.window.getByTestId('app-shell')).toBeVisible()
-      await expect.poll(() => calls().slice(before).includes('qmd --version'), { timeout: 30_000 }).toBe(true)
+      await expect.poll(() => calls().slice(before).includes(CHECK_RUN_CALL), { timeout: 30_000 }).toBe(true)
       const startup = await launched.window.evaluate(() =>
         (globalThis as unknown as { worfy: { invoke(c: string, i?: unknown): Promise<{ ok: boolean; value: { show: boolean } }> } }).worfy.invoke('firstRun.startup'),
       )

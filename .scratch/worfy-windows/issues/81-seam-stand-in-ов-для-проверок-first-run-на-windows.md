@@ -41,7 +41,9 @@ Seam — stand-in реестра. Переменная `WORFY_REGISTRY_STAND_IN`
 и дальше строит окружение тем же кодом (Path machine;user, REG_EXPAND_SZ, Git Bash). Так seam
 покрывает всё, что берёт `agentEnv()`: проверки first-run, Harness-скрипты, Sessions, Terminal Node.
 Без переменной (или с пустой) реестр читает Windows PowerShell, как раньше. Как любая `WORFY_*`,
-переменная не доходит до дочерних процессов. Это аналог `.profile` песочницы на macOS.
+переменная не доходит до дочерних процессов. Это аналог `.profile` песочницы на macOS. Guard test в
+`test/unit/agent-env.test.ts`: в `src/` переменную называет только `env.ts`, и только читает её
+(мутант с присваиванием в `src/main/program.ts` — красный).
 
 Песочница e2e — `writeSandbox` в `test/e2e/first-run-sandbox.ts`, общая для обоих spec-ов. На macOS и
 Linux — как было: ссылки на shell stand-in-ы и `$HOME/.profile`. На Windows:
@@ -56,11 +58,13 @@ Linux — как было: ссылки на shell stand-in-ы и `$HOME/.profil
 
 `CHECK_IDS` — общий, на Windows с пятью строками машины на своих местах. Что на Windows отличается в
 spec-ах, и почему:
-- qmd: `src/main/harness/qmd.ts` не находит `qmd.cmd` на Path (тикет 15), так что строки qmd не OK, и
-  qmd не вызывается (`NO_QMD`). Первый test `first-run.spec.ts` на Windows кончается после Install:
-  дальше нужны строки qmd и все строки OK. А на Windows ещё две строки машины всегда Warning: Limits (у
-  dev-сборки нет моста) и PowerShell (pwsh нет на Path песочницы). `settings-health.spec.ts` считает
-  прогоны проверок по `jq --version` вместо `qmd --version` и ждёт `1 failed · 6 warnings`.
+- qmd: `src/main/harness/qmd.ts` не находит `qmd.cmd` на Path (тикет 15), так что строка qmd не OK, и
+  qmd не вызывается (`NO_QMD`). Первый test `first-run.spec.ts` на Windows пропускает только шаги
+  моделей qmd и «Everything is ready»: им нужны строка qmd и все строки OK. А на Windows ещё две строки
+  машины всегда Warning: Limits (у dev-сборки нет моста) и PowerShell (pwsh нет на Path песочницы).
+  Это warning, не fail, так что Close, отметка `failing: []` и второй запуск без экрана проверяются и
+  на Windows. Прогон проверок считается по `CHECK_RUN_CALL`: `jq --version` на Windows вместо
+  `qmd --version`. `settings-health.spec.ts` на Windows ждёт `1 failed · 6 warnings`.
 - Harness scripts: строку `node <profile> --help` в журнале вызовов пишет только stand-in node; на
   Windows скрипт запускает node.exe, и эта проверка журнала — не на Windows.
 
@@ -76,5 +80,5 @@ spec-ах, и почему:
 - `src/main/agent/env.ts` — `REGISTRY_STAND_IN_VAR`, `fileRegRead`, `registryReader`;
   `captureWindowsEnv` берёт `registryReader(source)`.
 - `test/unit/agent-env.test.ts` — describe «the registry stand-in of WORFY_REGISTRY_STAND_IN».
-- `test/e2e/first-run-sandbox.ts` — `writeSandbox`, `CHECK_IDS`, `NO_QMD`, `toolFile`, `CLAUDE_STAND_IN`.
+- `test/e2e/first-run-sandbox.ts` — `writeSandbox`, `CHECK_IDS`, `CHECK_RUN_CALL`, `NO_QMD`, `toolFile`, `CLAUDE_STAND_IN`.
 - `test/e2e/first-run.spec.ts`, `test/e2e/settings-health.spec.ts` — песочница через `writeSandbox`.

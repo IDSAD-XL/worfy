@@ -36,6 +36,12 @@ export const CHECK_IDS = [
  */
 export const NO_QMD = WINDOWS
 
+/**
+ * The stand-in's call-log line that every run of the checks writes once: `qmd --version`, and on
+ * Windows, where worfy never calls the stand-in qmd (NO_QMD), `jq --version`.
+ */
+export const CHECK_RUN_CALL = NO_QMD ? 'jq --version' : 'qmd --version'
+
 /** The sandbox's tool `name` in `bin`: `<name>` on macOS and Linux, `<name>.cmd` on Windows. */
 export const toolFile = (bin: string, name: string): string => join(bin, WINDOWS ? `${name}.cmd` : name)
 
