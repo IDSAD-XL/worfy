@@ -184,6 +184,8 @@ interface PointerPage {
   MutationObserver: new (callback: () => void) => { observe(target: object, options: object): void }
 }
 
+// The log keeps its last entries: a real pointer moving over the window fills it within seconds,
+// and the moment that matters is the latest one.
 const POINTER_LOG_LIMIT = 400
 
 /** Starts the page's pointer log: pointer and focus events, and each change of the number of lit Edges. */
@@ -193,7 +195,8 @@ async function recordPointer(window: Page): Promise<void> {
     const log: PointerEntry[] = []
     page.pointerLog = log
     const push = (entry: Omit<PointerEntry, 't'>) => {
-      if (log.length < limit) log.push({ t: Math.round(page.performance.now() * 10) / 10, ...entry })
+      log.push({ t: Math.round(page.performance.now() * 10) / 10, ...entry })
+      if (log.length > limit) log.shift()
     }
     const describe = (target: LogTarget | null | undefined): string => {
       if (!target) return 'none'
