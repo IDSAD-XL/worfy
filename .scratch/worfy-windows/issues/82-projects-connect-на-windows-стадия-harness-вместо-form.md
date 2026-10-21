@@ -1,7 +1,7 @@
 # 82 — `projects-connect.spec.ts` на Windows: диалог показывает стадию `harness`, а не `form`
 
 Type: task
-Status: open
+Status: done 2026-10-21T07:39Z
 Blocked by: 80
 Source: проверка тикета 80 на ПК владельца (PR #667) и решение Session на Mac, 2026-10-21.
 
@@ -30,11 +30,38 @@ watcher `gh.exe` видел 0 запусков настоящего gh. Знач
 
 ## Готово, когда
 
-- [ ] Названа причина стадии `harness` на Windows.
-- [ ] `projects-connect.spec.ts` на Windows — зелёный, под watcher-ом `gh.exe` 0 запусков gh.
-- [ ] Unit test на причину, если она в коде worfy (красный без фикса).
-- [ ] `pnpm typecheck`, `pnpm lint` — exit 0.
+- [x] Названа причина стадии `harness` на Windows.
+- [x] `projects-connect.spec.ts` на Windows — зелёный, под watcher-ом `gh.exe` 0 запусков gh.
+- [x] Unit test на причину, если она в коде worfy (красный без фикса).
+- [x] `pnpm typecheck`, `pnpm lint` — exit 0.
 
 ## Вне скоупа
 
 - Проверки first-run на Windows и stand-in-ы инструментов — тикет 81.
+
+## Итог
+
+Причин четыре. Все в том, как test-ы запускают инструменты на Windows; каждая следующая была видна,
+только когда исправлена предыдущая.
+
+1. Стадия `harness`. `projects-connect.spec.ts` и `select.spec.ts` давали в `WORFY_CLAUDE` stand-in
+   Claude Code — скрипт `#!/bin/sh`. Windows такой не запускает, проверка Harness падала с ошибкой, и
+   диалог останавливался на стадии `harness`. Теперь stand-in общий, `.mjs`
+   (`test/e2e/claude-plugin-stub.ts`): worfy запускает его своим Node на любой системе
+   (`src/main/program.ts`).
+2. `bin/profile` Harness — тоже скрипт `#!/usr/bin/env node`; `:281` запускал его напрямую. Теперь
+   через Node (`process.execPath`).
+3. «Sign in with gh». На Windows stand-in gh — `.mjs`, а `signInCommand` отдавал его node-pty как
+   программу (это был долг тикета 80). Под своим Node тоже нельзя: worfy.exe — GUI-программа, и в
+   pseudo-terminal (ConPTY) она ничего не печатает и не читает (проверено на ПК). Теперь `.mjs` на
+   Windows идёт через `node.exe` из Path терминала; без него — ошибка с причиной. На macOS — через Node
+   самого worfy (`programStart`). Contract test-ы в `test/contract/github-accounts.test.ts`.
+4. Язык отчётов по умолчанию — язык системы (`app.getLocale()`), а `select.spec.ts` ждёт `en`. На ПК
+   владельца Windows на русском, и было `ru`. Теперь `launchApp` запускает приложение с `--lang=en-US`
+   (`ENGLISH_LOCALE` в `test/e2e/helpers.ts`); macOS этот флаг не читает.
+
+Плюс: `:110` ждал путь в JSON без экранирования; на Windows обратные слэши в JSON удвоены
+(`JSON.stringify`).
+
+На ПК 2026-10-21: `projects-connect.spec.ts` и `select.spec.ts` под watcher-ом `gh.exe` — 6 passed,
+0 запусков gh; typecheck, lint — exit 0.

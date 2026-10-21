@@ -252,6 +252,19 @@ describe('"Sign in with gh"', () => {
     expect(signInCommand('\\\\host\\share\\gh.exe', 'win32', {}, (path) => path === '\\\\host\\share\\gh.exe')).toEqual({ file: '\\\\host\\share\\gh.exe', args: ['auth', 'login'] })
   })
 
+  it('a .mjs WORFY_GH off Windows runs under worfy\'s own Node, never handed to the terminal as a program', () => {
+    const stub = '/fixtures/gh/gh-stub.mjs'
+    expect(signInCommand(stub, 'darwin')).toEqual({ file: process.execPath, args: [stub, 'auth', 'login'], env: { ELECTRON_RUN_AS_NODE: '1' } })
+  })
+
+  it('a .mjs WORFY_GH on Windows runs under node.exe of the Path: worfy\'s own executable prints nothing in a terminal there', () => {
+    const stub = 'C:\\fixtures\\gh\\gh-stub.mjs'
+    const nodeExe = 'C:\\Program Files\\nodejs\\node.exe'
+    const env = { PATH: 'C:\\Program Files\\nodejs;C:\\Windows\\System32' }
+    expect(signInCommand(stub, 'win32', env, (path) => path === nodeExe)).toEqual({ file: nodeExe, args: [stub, 'auth', 'login'] })
+    expect(() => signInCommand(stub, 'win32', env, () => false)).toThrow('node.exe was not found in the Path')
+  })
+
   it('on Windows a full-path WORFY_GH without an extension starts its .exe, and one that is not there fails with why', () => {
     expect(signInCommand('C:\\stub\\gh', 'win32', WIN_PATH, (path) => path === 'C:\\stub\\gh.exe')).toEqual({ file: 'C:\\stub\\gh.exe', args: ['auth', 'login'] })
     expect(() => signInCommand('C:\\stub\\gh', 'win32', WIN_PATH, onlyGhExe)).toThrow('C:\\stub\\gh was not found: WORFY_GH must name gh.exe by its full path')
