@@ -24,6 +24,7 @@ import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { AgentEvent } from '../../shared/agent/events'
 import { TRANSCRIPT_WINDOW_BYTES, type HistorySession, type LiveSession } from '../../shared/ipc/claude-home'
+import type { InvokeOutput } from '../../shared/ipc/channels'
 import { invoke, readableReason, showSubscribeError, subscribe } from '../ipc'
 import { dismissToast, showToast, toasts } from '../toast/toasts'
 
@@ -310,13 +311,14 @@ function setTranscript(key: string, state: TranscriptState): void {
 /**
  * Drops the oldest events beyond KEEP_EVENTS, unless the reader asked for older ones. It drops
  * whole lines, and `earlier` moves to the first line kept, so «Load earlier» brings the dropped
- * events back with no gap.
+ * events back with no gap. Without the lines (a main that sends no offsets) it keeps the newest
+ * KEEP_EVENTS events and offers no «Load earlier».
  */
 function capped(state: TranscriptState): TranscriptState {
   const over = state.events.length - KEEP_EVENTS
   if (state.pinned || over <= 0) return state
   let cut = over
-  while (cut < state.offsets.length && state.offsets[cut] === state.offsets[cut - 1]) cut += 1
+  if ((state.offsets[cut] ?? -1) >= 0) while (cut < state.offsets.length && state.offsets[cut] === state.offsets[cut - 1]) cut += 1
   const offset = state.offsets[cut]
   return {
     ...state,
@@ -327,9 +329,16 @@ function capped(state: TranscriptState): TranscriptState {
   }
 }
 
-/** The offsets of an answer's events; -1 for each when main sent none (the cap then hides «Load earlier»). */
+/** The offsets of an answer's events; -1 for each when main sent none (the cap then cuts by events and hides «Load earlier»). */
 const offsetsOf = (events: readonly AgentEvent[], offsets: readonly number[] | undefined): readonly number[] =>
   offsets !== undefined && offsets.length === events.length ? offsets : events.map(() => -1)
+
+/** The current state of a transcript's view, outside React. */
+function transcriptNow(key: string): TranscriptState {
+  return useClaudeHomeStore.getState().transcripts[key] ?? EMPTY_TRANSCRIPT
+}
+
+type TranscriptAnswer = InvokeOutput<'claudeHome.transcript'>
 
 type TranscriptRequest = {
   cursor?: { offset: number; fileId: string | null }
@@ -359,7 +368,7 @@ function transcriptReader(root: string, sessionId: string, agentId?: string): Tr
     return agentId === undefined ? invoke('claudeHome.transcript', input) : invoke('claudeHome.subagentTranscript', { ...input, agentId })
   }
   const closed = () => readers.get(key) !== reader
-  const current = () => useClaudeHomeStore.getState().transcripts[key] ?? EMPTY_TRANSCRIPT
+  const current = () => transcriptNow(key)
   const failed = (error: string) => {
     console.error(`claudeHome.transcript ${label} failed:`, error)
     setTranscript(key, { ...current(), loaded: true, error })
@@ -372,10 +381,36 @@ function transcriptReader(root: string, sessionId: string, agentId?: string): Tr
     if (closed()) return
     if (!result.ok) return failed(result.error)
     const { found, events } = result.value
+    if (found && result.value.earlier === undefined) return readFromStart(result.value)
     // Without a file the next read looks at the end again; with one, it follows from this window.
     cursor = found ? result.value.cursor : undefined
     const offsets = offsetsOf(events, result.value.offsets)
     setTranscript(key, { ...capped({ ...EMPTY_TRANSCRIPT, events, offsets, earlier: found ? (result.value.earlier ?? 0) : null }), loaded: true, found })
+  }
+
+  /**
+   * A main that does not know `back` (an older build on a Linked machine: LINK_PROTOCOL_VERSION
+   * did not change) drops it, reads forward from the start of the file and answers without
+   * `earlier`. Read on to the end the old way and draw the newest KEEP_EVENTS events once, with no
+   * «Load earlier».
+   */
+  const readFromStart = async (first: TranscriptAnswer): Promise<void> => {
+    let answer = first
+    let events = [...first.events]
+    for (let round = 0; answer.more && round < 1000; round += 1) {
+      const result = await ask({ cursor: answer.cursor, maxBytes: CHUNK_BYTES })
+      if (closed()) return
+      if (!result.ok) return failed(result.error)
+      answer = result.value
+      if (!answer.found) {
+        cursor = undefined
+        setTranscript(key, { ...EMPTY_TRANSCRIPT, loaded: true })
+        return
+      }
+      events = answer.reset ? [...answer.events] : [...events, ...answer.events]
+    }
+    cursor = answer.cursor
+    setTranscript(key, { ...capped({ ...EMPTY_TRANSCRIPT, events, offsets: events.map(() => -1) }), loaded: true, found: true })
   }
 
   /** Everything written after `cursor`, read forward and drawn once. */
@@ -421,42 +456,57 @@ function transcriptReader(root: string, sessionId: string, agentId?: string): Tr
     })()
   }
 
-  const earlier = async (): Promise<void> => {
+  /**
+   * One window before the shown events. 'moved' when the shown events changed their start while it
+   * was read (the cap dropped old ones as new ones came): the answer no longer joins them.
+   */
+  const earlierOnce = async (): Promise<'done' | 'moved'> => {
     const shown = current()
-    if (shown.earlier === null || shown.earlier === 0 || shown.loadingEarlier || !shown.found) return
+    if (shown.earlier === null || shown.earlier === 0 || shown.loadingEarlier || !shown.found) return 'done'
     const before = { offset: shown.earlier, fileId: cursor?.fileId ?? null }
     const generation = opened
     setTranscript(key, { ...shown, loadingEarlier: true })
     const result = await ask({ back: { bytes: TRANSCRIPT_WINDOW_BYTES, before } })
-    if (closed()) return
+    if (closed()) return 'done'
     const now = current()
-    if (generation !== opened || now.earlier !== before.offset) {
+    // The file was opened again from its end meanwhile: its window replaced what this one would join.
+    if (generation !== opened) {
       setTranscript(key, { ...now, loadingEarlier: false })
-      return
+      return 'done'
+    }
+    if (now.earlier !== before.offset) {
+      setTranscript(key, { ...now, loadingEarlier: false })
+      return 'moved'
     }
     if (!result.ok) {
       console.error(`claudeHome.transcript ${label} (earlier) failed:`, result.error)
       setTranscript(key, { ...now, loadingEarlier: false })
       showToast({ kind: 'error', text: `Earlier messages could not be read: ${readableReason(result.error)}` })
-      return
+      return 'done'
     }
     const answer = result.value
-    if (answer.reset || !answer.found) {
-      // The file changed under the shown events: open it again from its end.
+    if (answer.reset || !answer.found || answer.earlier === undefined) {
+      // The file was replaced, cut or removed under the shown events: open it again from its end.
       setTranscript(key, { ...now, loadingEarlier: false })
       cursor = undefined
       follow()
-      return
+      return 'done'
     }
     setTranscript(key, {
       ...now,
       events: [...answer.events, ...now.events],
       offsets: [...offsetsOf(answer.events, answer.offsets), ...now.offsets],
       first: now.first - answer.events.length,
-      earlier: answer.earlier ?? 0,
+      earlier: answer.earlier,
       loadingEarlier: false,
       pinned: true,
     })
+    return 'done'
+  }
+
+  /** «Load earlier»: asks again from the new start when the shown events moved while it read. */
+  const earlier = async (): Promise<void> => {
+    for (let attempt = 0; attempt < 5; attempt += 1) if ((await earlierOnce()) === 'done') return
   }
 
   const reader: TranscriptReader = { follow, earlier }
@@ -473,13 +523,39 @@ export function loadEarlierTranscript(root: string, sessionId: string, agentId?:
 }
 
 /**
+ * «Load earlier» until `grew()` says the view shows more, the start of the file is reached, or a
+ * press moves nothing. The Session view shows the turns written since Resume from its live events
+ * (joinPastAndLive), so a window that holds only those turns adds no row: it reads on.
+ */
+export async function loadEarlierUntil(root: string, sessionId: string, grew: () => boolean): Promise<void> {
+  const key = transcriptKey(root, sessionId)
+  for (let round = 0; round < 100; round += 1) {
+    const before = transcriptNow(key).earlier
+    await loadEarlierTranscript(root, sessionId)
+    const after = transcriptNow(key).earlier
+    if (grew() || after === null || after === 0 || after === before) return
+  }
+}
+
+/** The state of a transcript's view now, outside React (for loadEarlierUntil's `grew`). */
+export function sessionTranscriptNow(root: string, sessionId: string): TranscriptState {
+  return transcriptNow(transcriptKey(root, sessionId))
+}
+
+/**
  * «Load earlier» for a view of a transcript read from its end (src/renderer/session/Transcript.tsx,
  * `earlier`): none before the first read and none once the shown events start at the beginning of
- * the file.
+ * the file. `load` replaces the plain press (the Session view reads on past its live turns).
  */
-export function earlierControl(state: TranscriptState, root: string | undefined, sessionId: string | undefined, agentId?: string): { load: () => void; loading: boolean } | undefined {
+export function earlierControl(
+  state: TranscriptState,
+  root: string | undefined,
+  sessionId: string | undefined,
+  agentId?: string,
+  load?: () => void,
+): { load: () => void; loading: boolean } | undefined {
   if (root === undefined || sessionId === undefined || state.earlier === null || state.earlier === 0) return undefined
-  return { load: () => void loadEarlierTranscript(root, sessionId, agentId), loading: state.loadingEarlier }
+  return { load: load ?? (() => void loadEarlierTranscript(root, sessionId, agentId)), loading: state.loadingEarlier }
 }
 
 /**

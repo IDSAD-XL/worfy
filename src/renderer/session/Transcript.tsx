@@ -430,13 +430,18 @@ export function Transcript(props: TranscriptProps) {
   const atBottom = useRef(true)
   // The row the reader looked at when they asked for earlier events, and the scroll height then.
   const anchor = useRef<{ row: Element | null; offset: number; height: number; firstIndex: number } | null>(null)
+  // Whether the earlier events were being read at the last layout.
+  const loadingBefore = useRef(false)
 
   useLayoutEffect(() => {
     const element = log.current
     if (!element) return
     const kept = anchor.current
-    // The anchor serves the next change of the first row only: older rows in front, or not.
-    if (kept !== null && firstIndex !== kept.firstIndex) anchor.current = null
+    // The anchor serves the next change of the first row only: older rows in front, or not. A read
+    // that ended without new rows on top leaves none to keep in place.
+    const ended = loadingBefore.current && earlier?.loading !== true
+    loadingBefore.current = earlier?.loading === true
+    if (kept !== null && (firstIndex !== kept.firstIndex || ended)) anchor.current = null
     if (kept !== null && firstIndex < kept.firstIndex) {
       // Older rows came in at the top: the row the reader looked at stays where it was. The rows
       // keep their keys (firstIndex), so it is the same element; if it went (its fold changed),
@@ -449,7 +454,7 @@ export function Transcript(props: TranscriptProps) {
       return
     }
     if (atBottom.current) element.scrollTop = element.scrollHeight
-  }, [items, firstIndex])
+  }, [items, firstIndex, earlier?.loading])
 
   const loadEarlier = () => {
     const element = log.current

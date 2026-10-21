@@ -143,11 +143,6 @@ export class ClaudeHomeSubscriptions {
   }
 }
 
-/**
- * Builds the handler list over a registry; the default export uses the real Claude home. A call
- * from a Linked machine names the root of a Project of `projects` or one of its worktrees
- * (src/main/link/caller.ts).
- */
 interface TranscriptRead {
   cursor?: TailCursor | undefined
   maxBytes?: number | undefined
@@ -179,6 +174,11 @@ async function readTranscript(path: string, read: TranscriptRead, events: (entri
   return { found: true, ...parse(chunk.lines, chunk.offsets), cursor: chunk.cursor, reset: chunk.reset, more: chunk.more }
 }
 
+/**
+ * Builds the handler list over a registry; the default export uses the real Claude home. A call
+ * from a Linked machine names the root of a Project of `projects` or one of its worktrees
+ * (src/main/link/caller.ts).
+ */
 export function claudeHomeHandlers(
   registry: ClaudeHomeRegistry,
   subscriptions = new ClaudeHomeSubscriptions(registry),

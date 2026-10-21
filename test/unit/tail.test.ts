@@ -133,6 +133,16 @@ describe('readNewLines', () => {
     await appendFile(file, '{"n":3}\n')
     expect((await readNewLines(file, first.cursor)).offsets).toEqual([18])
   })
+
+  it('counts offsets in bytes, not characters: a line of two-byte characters moves the next one by its bytes', async () => {
+    // '\u0436' is two bytes in UTF-8: the first line is 14 characters and 19 bytes with its line end.
+    const wide = `{"t":"${'\u0436'.repeat(5)}"}`
+    await writeFile(file, `${wide}\n{"n":2}\n`)
+    const chunk = await readNewLines(file)
+    expect(chunk.lines).toEqual([wide, '{"n":2}'])
+    expect(chunk.offsets).toEqual([0, Buffer.byteLength(`${wide}\n`)])
+    expect(chunk.offsets[1]).toBe(19)
+  })
 })
 
 // The window read from the end of a transcript (worfy-ui ticket 21).
@@ -241,5 +251,25 @@ describe('readLinesBefore', () => {
     expect((await readLinesBefore(file, { windowBytes: 300, before })).reset).toBe(true)
     await truncate(file, 100)
     expect((await readLinesBefore(file, { windowBytes: 300, before })).reset).toBe(true)
+  })
+
+  it('answers reset when the file is gone and the window had a start inside it', async () => {
+    const all = padded(10)
+    await writeFile(file, all.join(''))
+    const tail = await readLinesBefore(file, { windowBytes: 300 })
+    await unlink(file)
+    const chunk = await readLinesBefore(file, { windowBytes: 300, before: { offset: tail.start, fileId: tail.cursor.fileId } })
+    expect(chunk).toMatchObject({ lines: [], offsets: [], reset: true })
+  })
+
+  it('counts offsets in bytes, not characters, reading back', async () => {
+    // Each line holds two-byte characters ('\u0436'): 4 lines of 19 bytes each.
+    const wide = (n: number) => `{"${n}":"${'\u0436'.repeat(5)}"}`
+    await writeFile(file, [0, 1, 2, 3].map((n) => `${wide(n)}\n`).join(''))
+    expect(Buffer.byteLength(`${wide(0)}\n`)).toBe(19)
+    const chunk = await readLinesBefore(file, { windowBytes: 40 })
+    expect(chunk.lines).toEqual([wide(2), wide(3)])
+    expect(chunk.offsets).toEqual([38, 57])
+    expect(chunk.start).toBe(38)
   })
 })

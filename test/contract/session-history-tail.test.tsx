@@ -9,7 +9,7 @@
 // Main's modules and the generator of the file are imported by a path the type checker does not
 // follow, as in claude-home-window-root.test.tsx: this file belongs to tsconfig.test.web.json.
 /// <reference types="node" />
-import { appendFileSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -53,7 +53,11 @@ interface MainModules {
   appUrlMatcher: (options: { indexHtml: string }) => unknown
 }
 
-/** test/big-transcript.ts, by a path the type checker does not follow (it needs Node's types). */
+/**
+ * test/big-transcript.ts, by a path the type checker does not follow (it needs Node's types). The
+ * checker cannot see the module, so this signature is copied by hand: keep it in step with
+ * writeBigTranscript there.
+ */
 type WriteBigTranscript = (file: string, options: { sessionId: string; cwd: string; bytes?: number }) => { size: number; turns: number }
 let writeBigTranscript: WriteBigTranscript
 
@@ -148,11 +152,11 @@ interface Shown {
 }
 
 /** Mounts the reader and records every distinct state the window drew. */
-async function open() {
+async function open(agentId?: string) {
   const module = await import('../../src/renderer/claude-home/useClaudeHome')
   const states: Shown[] = []
   const hook = renderHook(() => {
-    const state = module.useSessionTranscript(ROOT, S) as Shown
+    const state = module.useSessionTranscript(ROOT, S, agentId) as Shown
     if (states.at(-1) !== state) states.push(state)
     return state
   })
@@ -171,7 +175,7 @@ describe('opening a large transcript', () => {
     expect(size).toBeGreaterThan(40 * MB)
     const started = performance.now()
     const { hook, drawn } = await open()
-    await vi.waitFor(() => expect(texts(hook.result.current.events)).toContain(`Answer number ${turns - 1}`), { timeout: 100_000, interval: 5 })
+    await vi.waitFor(() => expect(texts(hook.result.current.events)).toContain(`Answer number ${turns - 1}`), { timeout: 10_000, interval: 5 })
     const newest = performance.now() - started
     const first = drawn()[0]
     report(
@@ -208,6 +212,23 @@ describe('after the tail', () => {
     expect(events.slice(0, tail.length)).toStrictEqual(tail)
     expect(texts(events.slice(tail.length))).toEqual(['Live one', 'Live two'])
     expect(texts(tail).at(-1)).toBe(`Answer number ${turns - 1}`)
+  })
+
+  it('a read that finds only half a line draws nothing', async () => {
+    writeBigTranscript(file, { sessionId: S, cwd: ROOT, bytes: 2 * MB })
+    const { hook, states } = await open()
+    await vi.waitFor(() => expect(hook.result.current.loaded).toBe(true))
+    const shown = hook.result.current
+    const count = states.length
+    const calls = transcriptCalls().length
+    appendFileSync(file, '{"type":"assistant","isSidechain":false,"uuid":"half"')
+    await changed()
+    await vi.waitFor(() => expect(transcriptCalls().length).toBe(calls + 1))
+    await act(async () => {
+      await new Promise((done) => setTimeout(done, 50))
+    })
+    expect(states).toHaveLength(count)
+    expect(hook.result.current).toBe(shown)
   })
 
   it('a growth of several windows is read forward and drawn in one state update', { timeout: 30_000 }, async () => {
@@ -258,5 +279,102 @@ describe('Load earlier', () => {
     expect(texts(hook.result.current.events)[0]).toBe('Prompt number 0')
     // 10 MB: the window at the end, then two more.
     expect(loads).toBe(2)
+  })
+})
+
+/** A transcript of `count` short answers, one line each: `Line N`. Returns each line's byte offset. */
+function writeShortLines(count: number): number[] {
+  const offsets: number[] = []
+  let at = 0
+  const text = Array.from({ length: count }, (_, n) => {
+    const line = `${JSON.stringify({ type: 'assistant', isSidechain: false, cwd: ROOT, uuid: `s${n}`, message: { id: `msg_s${n}`, role: 'assistant', content: [{ type: 'text', text: `Line ${n}` }] } })}\n`
+    offsets.push(at)
+    at += Buffer.byteLength(line)
+    return line
+  }).join('')
+  writeFileSync(file, text)
+  return offsets
+}
+
+describe('a window of more than KEEP_EVENTS short lines', () => {
+  it('keeps the newest KEEP_EVENTS, Load earlier starts at the first line kept, and brings the rest back', { timeout: 60_000 }, async () => {
+    const count = 40_000
+    const offsets = writeShortLines(count)
+    const { module, hook } = await open()
+    await vi.waitFor(() => expect(hook.result.current.loaded).toBe(true))
+    const keep = module.KEEP_EVENTS
+    // The window at the end holds far more lines than the view keeps.
+    expect(count - offsets.findIndex((offset) => offset >= (offsets.at(-1) ?? 0) - WINDOW)).toBeGreaterThan(keep)
+    expect(hook.result.current.events).toHaveLength(keep)
+    expect(texts(hook.result.current.events)[0]).toBe(`Line ${count - keep}`)
+    expect(hook.result.current.earlier).toBe(offsets[count - keep])
+    let loads = 0
+    while (hook.result.current.earlier !== 0 && loads < 10) {
+      await act(async () => {
+        await module.loadEarlierTranscript(ROOT, S)
+      })
+      loads += 1
+    }
+    const whole = wholeFile()
+    expect(whole).toHaveLength(count)
+    expect(hook.result.current.events).toStrictEqual(whole)
+  })
+})
+
+describe('a Subagent\'s transcript', () => {
+  it('opens on the window at the end of its file and loads the rest with Load earlier', { timeout: 60_000 }, async () => {
+    const agentId = 'a21tail'
+    writeFileSync(file, '')
+    const folder = join(dir, S, 'subagents')
+    mkdirSync(folder, { recursive: true })
+    const agentFile = join(folder, `agent-${agentId}.jsonl`)
+    const { turns, size } = writeBigTranscript(agentFile, { sessionId: S, cwd: ROOT, bytes: 6 * MB })
+    const { module, hook } = await open(agentId)
+    await vi.waitFor(() => expect(hook.result.current.loaded).toBe(true), { timeout: 10_000 })
+    const calls = asked.filter((call) => call.channel === 'claudeHome.subagentTranscript')
+    expect(calls[0]?.input).toMatchObject({ projectRoot: ROOT, sessionId: S, agentId, back: { bytes: WINDOW } })
+    expect(texts(hook.result.current.events)).toContain(`Answer number ${turns - 1}`)
+    expect(texts(hook.result.current.events)).not.toContain('Prompt number 0')
+    expect(hook.result.current.earlier).toBeGreaterThan(0)
+    expect(hook.result.current.earlier).toBeGreaterThan(size - WINDOW - 1)
+    while (hook.result.current.earlier !== 0) {
+      await act(async () => {
+        await module.loadEarlierTranscript(ROOT, S, agentId)
+      })
+    }
+    expect(texts(hook.result.current.events)[0]).toBe('Prompt number 0')
+  })
+})
+
+describe('a main that does not know `back` (an older build on a Linked machine)', () => {
+  it('is read forward to the end the old way: the newest answer shows, no Load earlier, live records still come', { timeout: 60_000 }, async () => {
+    const { turns } = writeBigTranscript(file, { sessionId: S, cwd: ROOT, bytes: 12 * MB })
+    // The old main's schema drops `back`, and its answer has no `earlier` and no `offsets`.
+    const bridge = (globalThis as { worfy?: WorfyBridge }).worfy as unknown as { invoke: (channel: string, input: unknown) => Promise<unknown> }
+    const current = bridge.invoke
+    bridge.invoke = async (channel, input) => {
+      const old = { ...(input as Record<string, unknown>) }
+      delete old.back
+      const result = (await current(channel, old)) as { ok: boolean; value?: Record<string, unknown> }
+      if (!result.ok || result.value === undefined) return result
+      const value = { ...result.value }
+      delete value.earlier
+      delete value.offsets
+      return { ...result, value }
+    }
+    const { module, hook } = await open()
+    await vi.waitFor(() => expect(hook.result.current.loaded).toBe(true), { timeout: 30_000 })
+    const keep = module.KEEP_EVENTS
+    const whole = wholeFile()
+    expect(whole.length).toBeGreaterThan(keep)
+    expect(hook.result.current.events).toStrictEqual(whole.slice(whole.length - keep))
+    expect(texts(hook.result.current.events)).toContain(`Answer number ${turns - 1}`)
+    expect(hook.result.current.earlier).toBeNull()
+    expect(module.earlierControl(hook.result.current as never, ROOT, S)).toBeUndefined()
+    const record = JSON.stringify({ type: 'assistant', isSidechain: false, cwd: ROOT, uuid: 'live1', message: { id: 'msg_live1', role: 'assistant', content: [{ type: 'text', text: 'Live one' }] } })
+    appendFileSync(file, `${record}\n`)
+    await changed()
+    await vi.waitFor(() => expect(texts(hook.result.current.events).at(-1)).toBe('Live one'))
+    expect(hook.result.current.events).toHaveLength(keep)
   })
 })

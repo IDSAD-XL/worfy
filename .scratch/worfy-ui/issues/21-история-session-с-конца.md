@@ -174,3 +174,27 @@ Orchestrator-а и Session Node и в read-only view (Session из термин�
 файлы не трогают код Ticket-а; их отдельный прогон — exit 0, 447 passed. e2e
 `session-history-tail`, `external-session`, `session-resume`, `session-view` под замком — 6 passed.
 Gate по брифу не запускался.
+
+**Раунд исправлений после review PR #693.**
+- Linked machine со старым main: его схема отбрасывает `back`, он читает файл с начала и отвечает
+  без `earlier`. `LINK_PROTOCOL_VERSION` не меняется: такой ответ значит «старый main», и окно
+  читает файл вперёд до конца, как до Ticket-а, одним обновлением, с последними `KEEP_EVENTS`
+  событиями и без «Load earlier». `usePastAnswer` тоже читает дальше, пока `more`. Cap без
+  смещений строк режет по событиям, не по строкам.
+- Устаревший ответ «Load earlier»: два условия разделены. Файл открыт заново — ответ
+  отбрасывается. Начало показанных событий сдвинул cap (пришли новые записи) — запрос
+  повторяется от нового начала, до пяти раз.
+- «Load earlier» с ответом `found: false` или `reset` открывает файл заново с конца.
+- Session view: окно, где только записи после Resume (их Session view показывает из живых
+  событий), не добавляет строк; кнопка читает дальше (`loadEarlierUntil`), пока не появится
+  новая строка или не кончится файл. Прокрутка держит строку на месте за все окна сразу;
+  `Transcript` снимает якорь, если чтение кончилось без новых строк сверху.
+- Новые test-ы: смещения в байтах для строк с двухбайтовыми символами; `readLinesBefore` на
+  удалённом файле; оба условия устаревшего ответа; `found: false` при «Load earlier»;
+  `loadEarlierUntil`; старый main — unit и contract (файл 12 MB через мост, который убирает
+  `back`, `earlier`, `offsets`); `usePastAnswer` со старым main; путь `back` у
+  `claudeHome.subagentTranscript` на файле 6 MB; окно из 40 000 коротких строк (больше
+  `KEEP_EVENTS`): `earlier` — начало первой оставленной строки, «Load earlier» возвращает весь
+  файл; чтение половины строки не меняет состояние.
+- Ticket 23 — `readTranscriptFacts` на `readLinesBefore` (не сделан здесь).
+

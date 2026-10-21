@@ -178,13 +178,23 @@ function usePastAnswer(root: string, sessionId: string | null): string | null {
     if (sessionId === null) return
     let current = true
     void (async () => {
-      const result = await invoke('claudeHome.transcript', { projectRoot: root, sessionId, back: { bytes: TRANSCRIPT_WINDOW_BYTES } })
-      if (!current) return
-      if (!result.ok) {
-        console.error(`claudeHome.transcript ${sessionId} failed:`, result.error)
-        return
+      let result = await invoke('claudeHome.transcript', { projectRoot: root, sessionId, back: { bytes: TRANSCRIPT_WINDOW_BYTES } })
+      let answer: string | null = null
+      // An older main (a Linked machine) drops `back`, reads from the start and answers without
+      // `earlier`: read on to the end, as before ticket 21.
+      for (let round = 0; round < 1000; round += 1) {
+        if (!current) return
+        if (!result.ok) {
+          console.error(`claudeHome.transcript ${sessionId} failed:`, result.error)
+          return
+        }
+        const { value } = result
+        if (value.reset) answer = null
+        answer = lastAnswer(value.events) ?? answer
+        if (!value.found || value.earlier !== undefined || !value.more) break
+        result = await invoke('claudeHome.transcript', { projectRoot: root, sessionId, cursor: value.cursor, maxBytes: TRANSCRIPT_WINDOW_BYTES })
       }
-      setRead({ sessionId, answer: lastAnswer(result.value.events) })
+      setRead({ sessionId, answer })
     })()
     return () => {
       current = false

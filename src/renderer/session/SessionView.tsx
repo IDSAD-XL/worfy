@@ -3,7 +3,7 @@ import type { AgentEvent } from '../../shared/agent/events'
 import { ORCHESTRATOR_KIND, readOrchestratorData } from '../../shared/ipc/orchestrator'
 import { useOrchestratorView } from '../canvas/nodes/orchestrator-view'
 import { useLayout } from '../canvas/useLayout'
-import { earlierControl, useSessionTranscript } from '../claude-home/useClaudeHome'
+import { earlierControl, loadEarlierUntil, sessionTranscriptNow, useSessionTranscript } from '../claude-home/useClaudeHome'
 import { invoke } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useProjects, useReadOnly } from '../projects/useProjects'
@@ -141,7 +141,18 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   // The transcript opens on its last window; «Load earlier» puts older windows in front (ticket 21).
   const past = useSessionTranscript(root, transcriptId)
   const events = useMemo(() => joinPastAndLive(past.events, live), [past.events, live])
-  const earlier = earlierControl(past, root, transcriptId)
+  // A window of only the turns since Resume adds no row (the live events show them): read on. The
+  // control reads as loading until the last window, so the transcript keeps its row in place.
+  const [readingPast, setReadingPast] = useState(false)
+  const loadPast = () => {
+    if (root === undefined || transcriptId === undefined) return
+    const shownPast = () => joinPastAndLive(sessionTranscriptNow(root, transcriptId).events, live).length - live.length
+    const start = shownPast()
+    setReadingPast(true)
+    void loadEarlierUntil(root, transcriptId, () => shownPast() > start).finally(() => setReadingPast(false))
+  }
+  const pastControl = earlierControl(past, root, transcriptId, undefined, loadPast)
+  const earlier = pastControl && { ...pastControl, loading: pastControl.loading || readingPast }
   // Rows are keyed by position (store.ts, SessionLog.first): counted back from the live events, so
   // a live event keeps its row as the turns before it grow or shrink.
   const firstIndex = log.first - (events.length - live.length)

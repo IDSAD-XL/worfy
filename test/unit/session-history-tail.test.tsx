@@ -197,6 +197,92 @@ describe('Load earlier', () => {
     await vi.waitFor(() => expect(texts(hook.result.current.events)).toEqual(['answer 0', 'answer 1', 'answer 2']))
   })
 
+  it('an answer from the old file is dropped when the file was opened again at the same start', async () => {
+    const module = await import('../../src/renderer/claude-home/useClaudeHome')
+    answers.push(() => ok({ ...lines(10, 20), earlier: 1000, cursor: { offset: 2000, fileId: FILE } }))
+    const { hook } = await openTranscript()
+    let release: (value: Answer) => void = () => undefined
+    answers.push(() => new Promise<Answer>((done) => (release = done)))
+    const loading = module.loadEarlierTranscript(ROOT, S)
+    await vi.waitFor(() => expect(requests).toHaveLength(2))
+    // The file was replaced by one whose window at the end starts at the same byte: only the
+    // reopening tells the old answer from a good one.
+    answers.push(() => ok({ reset: true }))
+    answers.push(() => ok({ ...lines(10, 25), earlier: 1000, cursor: { offset: 2500, fileId: 'dev:other' } }))
+    await transcriptChanged()
+    await vi.waitFor(() => expect(hook.result.current.events).toHaveLength(15))
+    expect(hook.result.current.earlier).toBe(1000)
+    await act(async () => {
+      release(ok({ ...lines(0, 10), earlier: 0, cursor: { offset: 1000, fileId: FILE } }))
+      await loading
+    })
+    expect(texts(hook.result.current.events)).toEqual(range(10, 25).map((n) => `answer ${n}`))
+    expect(hook.result.current.loadingEarlier).toBe(false)
+    expect(hook.result.current.earlier).toBe(1000)
+  })
+
+  it('asks again from the new start when the cap dropped old events while it read', async () => {
+    const module = await import('../../src/renderer/claude-home/useClaudeHome')
+    const keep = module.KEEP_EVENTS
+    const end = (100 + keep) * 100
+    answers.push(() => ok({ ...lines(100, 100 + keep), earlier: 100 * 100, cursor: { offset: end, fileId: FILE } }))
+    const { hook } = await openTranscript()
+    let release: (value: Answer) => void = () => undefined
+    answers.push(() => new Promise<Answer>((done) => (release = done)))
+    const loading = module.loadEarlierTranscript(ROOT, S)
+    await vi.waitFor(() => expect(requests).toHaveLength(2))
+    // Ten records come while it reads: the cap drops the ten oldest shown, the start moves.
+    answers.push(() => ok({ ...lines(100 + keep, 110 + keep), cursor: { offset: end + 1000, fileId: FILE } }))
+    await transcriptChanged()
+    await vi.waitFor(() => expect(hook.result.current.earlier).toBe(110 * 100))
+    answers.push((request) => {
+      expect(request.back).toStrictEqual({ bytes: WINDOW, before: { offset: 110 * 100, fileId: FILE } })
+      return ok({ ...lines(0, 110), earlier: 0, cursor: { offset: 110 * 100, fileId: FILE } })
+    })
+    await act(async () => {
+      release(ok({ ...lines(0, 100), earlier: 0, cursor: { offset: 100 * 100, fileId: FILE } }))
+      await loading
+    })
+    expect(requests).toHaveLength(4)
+    expect(texts(hook.result.current.events)).toEqual(range(0, 110 + keep).map((n) => `answer ${n}`))
+    expect(hook.result.current.earlier).toBe(0)
+    expect(hook.result.current.loadingEarlier).toBe(false)
+  })
+
+  it('a file gone under the shown events opens it again from its end', async () => {
+    const module = await import('../../src/renderer/claude-home/useClaudeHome')
+    answers.push(() => ok({ ...lines(10, 20), earlier: 1000, cursor: { offset: 2000, fileId: FILE } }))
+    const { hook } = await openTranscript()
+    answers.push(() => ({ found: false, events: [], cursor: { offset: 0, fileId: null }, reset: false, more: false }))
+    answers.push((request) => {
+      expect(request.back).toStrictEqual({ bytes: WINDOW })
+      return { found: false, events: [], cursor: { offset: 0, fileId: null }, reset: false, more: false }
+    })
+    await act(async () => {
+      await module.loadEarlierTranscript(ROOT, S)
+    })
+    await vi.waitFor(() => expect(requests).toHaveLength(3))
+    await vi.waitFor(() => expect(hook.result.current.found).toBe(false))
+    expect(hook.result.current.events).toEqual([])
+    expect(module.earlierControl(hook.result.current, ROOT, S)).toBeUndefined()
+  })
+
+  it('loadEarlierUntil reads on while a window adds nothing the caller shows', async () => {
+    const module = await import('../../src/renderer/claude-home/useClaudeHome')
+    answers.push(() => ok({ ...lines(20, 30), earlier: 2000, cursor: { offset: 3000, fileId: FILE } }))
+    const { hook } = await openTranscript()
+    answers.push(() => ok({ ...lines(15, 20), earlier: 1500, cursor: { offset: 2000, fileId: FILE } }))
+    answers.push(() => ok({ ...lines(10, 15), earlier: 1000, cursor: { offset: 1500, fileId: FILE } }))
+    // The caller counts only events 0..14 as new rows: the first window (15..19) adds none.
+    const grew = () => module.sessionTranscriptNow(ROOT, S).events.some((event) => event.type === 'text' && Number(event.text.split(' ')[1]) < 15)
+    await act(async () => {
+      await module.loadEarlierUntil(ROOT, S, grew)
+    })
+    expect(requests).toHaveLength(3)
+    expect(texts(hook.result.current.events)).toEqual(range(10, 30).map((n) => `answer ${n}`))
+    expect(hook.result.current.earlier).toBe(1000)
+  })
+
   it('the control above the first row: a button while there is more, disabled while it reads', async () => {
     const { Transcript } = await import('../../src/renderer/session/Transcript')
     const load = vi.fn()
@@ -210,6 +296,54 @@ describe('Load earlier', () => {
     expect(screen.getByTestId('transcript-load-earlier')).toHaveProperty('disabled', true)
     rerender(<Transcript events={events} />)
     expect(screen.queryByTestId('transcript-load-earlier')).toBeNull()
+  })
+})
+
+describe('a main that does not know `back` (an older build on a Linked machine)', () => {
+  it('is read forward to the end the old way; the newest KEEP_EVENTS events are kept, with no Load earlier', async () => {
+    const module = await import('../../src/renderer/claude-home/useClaudeHome')
+    const keep = module.KEEP_EVENTS
+    // No `earlier` and no `offsets`: the old main read the first chunk of the file and says there is more.
+    answers.push(() => ({ found: true, events: range(0, 4000).map(answer), cursor: { offset: 400_000, fileId: FILE }, reset: false, more: true }))
+    answers.push((request) => {
+      expect(request).toStrictEqual({ projectRoot: ROOT, sessionId: S, cursor: { offset: 400_000, fileId: FILE }, maxBytes: WINDOW })
+      return { found: true, events: range(4000, 6000).map(answer), cursor: { offset: 600_000, fileId: FILE }, reset: false, more: false }
+    })
+    const { hook } = await openTranscript()
+    expect(requests).toHaveLength(2)
+    expect(hook.result.current.events).toHaveLength(keep)
+    expect(texts(hook.result.current.events)[0]).toBe(`answer ${6000 - keep}`)
+    expect(texts(hook.result.current.events).at(-1)).toBe('answer 5999')
+    expect(hook.result.current.earlier).toBeNull()
+    expect(module.earlierControl(hook.result.current, ROOT, S)).toBeUndefined()
+    // Records appended later come after the kept ones.
+    answers.push((request) => {
+      expect(request.cursor).toStrictEqual({ offset: 600_000, fileId: FILE })
+      return { found: true, events: [answer(6000)], cursor: { offset: 600_100, fileId: FILE }, reset: false, more: false }
+    })
+    await transcriptChanged()
+    await vi.waitFor(() => expect(texts(hook.result.current.events).at(-1)).toBe('answer 6000'))
+    expect(hook.result.current.events).toHaveLength(keep)
+  })
+
+  it('the last answer of a Session Node reads on to the end of the file', async () => {
+    views = [
+      { projectId: PROJECT.id, nodeId: 'live-node', sessionId: 'live-1', sdkSessionId: S, state: 'idle', error: null, cwd: ROOT, model: null, version: 1 },
+    ]
+    answers.push(() => ({ found: true, events: range(0, 3).map(answer), cursor: { offset: 300, fileId: FILE }, reset: false, more: true }))
+    answers.push(() => ({ found: true, events: [answer(3), { type: 'notice', kind: 'user', text: 'a prompt' } as AgentEvent], cursor: { offset: 500, fileId: FILE }, reset: false, more: true }))
+    answers.push(() => ({ found: true, events: [], cursor: { offset: 600, fileId: FILE }, reset: false, more: false }))
+    const { default: SessionNode } = await import('../../src/renderer/canvas/nodes/SessionNode')
+    const data = { node: { id: 'live-node', kind: 'session', data: { origin: 'worfy', sessionId: S } } }
+    render(
+      <ReactFlowProvider>
+        <SessionNode {...({ id: 'live-node', data, selected: false } as unknown as CanvasNodeProps)} />
+      </ReactFlowProvider>,
+    )
+    await vi.waitFor(() => expect(requests).toHaveLength(3))
+    expect((await screen.findByTestId('session-node-answer')).textContent).toBe('answer 3')
+    expect(requests[1]).toStrictEqual({ projectRoot: ROOT, sessionId: S, cursor: { offset: 300, fileId: FILE }, maxBytes: WINDOW })
+    expect(requests[2]).toStrictEqual({ projectRoot: ROOT, sessionId: S, cursor: { offset: 500, fileId: FILE }, maxBytes: WINDOW })
   })
 })
 
