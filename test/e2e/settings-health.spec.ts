@@ -66,7 +66,9 @@ test.afterEach(async () => {
 
 const launch = (): Promise<LaunchedApp> =>
   launchApp({
-    env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, HOME: home, SHELL: '/bin/sh', WORFY_CLAUDE: join(TOOLS, 'claude'), FIRST_RUN_TOOLS_STATE: state, FIRST_RUN_TOOLS_LOG: log },
+    // WORFY_GH: the gh rows run the sandbox's gh (worfy-windows ticket 80), as the login shell's PATH has it.
+    // The rest of the app gets it too, and it answers only the first-run commands (no `pr list`).
+    env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, HOME: home, SHELL: '/bin/sh', WORFY_CLAUDE: join(TOOLS, 'claude'), WORFY_GH: join(bin, 'gh'), FIRST_RUN_TOOLS_STATE: state, FIRST_RUN_TOOLS_LOG: log },
   })
 
 const calls = (): string[] => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : [])

@@ -175,7 +175,7 @@ test('a move from the form of the first-run screen: "Move old Harness…" leaves
   // The first-run screen opens by itself. Its checks run a login /bin/sh over the sandbox's HOME,
   // whose .profile sets PATH to the system folders alone (as sandbox() in first-run.spec.ts does):
   // without it /etc/profile's path_helper adds /opt/homebrew/bin, and the checks would run the real
-  // gh and qmd of the machine running the test.
+  // qmd of the machine running the test (gh comes from WORFY_GH, the stub of launchApp).
   const home = join(scratch, 'home')
   writeFileSync(join(home, '.profile'), "PATH='/usr/bin:/bin'; export PATH\n")
   const launched = await launchApp({ env: { ...env, WORFY_FIRST_RUN_AUTO: '1', HOME: home, SHELL: '/bin/sh' } })

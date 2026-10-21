@@ -20,7 +20,7 @@ import { queryFactoryFromEnv } from '../agent/app-registry'
 import { agentEnv } from '../agent/env'
 import type { AccountInfoLike } from '../agent/session'
 import { FirstRunActions, type Confirmation } from '../first-run/actions'
-import { ACCOUNT_TIMEOUT_MS, askAccount, oldHarnessPresent, runChecks, type Env, type ProjectProfile } from '../first-run/checks'
+import { ACCOUNT_TIMEOUT_MS, askAccount, ghOverride, oldHarnessPresent, runChecks, type Env, type ProjectProfile } from '../first-run/checks'
 import { harnessScriptEnv, recaptureForCheckAgain } from '../harness/script-env'
 import { bridgeFile } from '../harness/status-line'
 import { projectStore } from '../projects/store'
@@ -102,6 +102,7 @@ async function checks(): Promise<FirstRunReport> {
   const env = await loginEnv()
   return runChecks({
     env,
+    gh: ghOverride(process.env),
     scriptEnv: harnessScriptEnv,
     bundledClaudeCodeVersion: bundledClaudeCodeVersion(),
     accountInfo: () => accountInfo(env),

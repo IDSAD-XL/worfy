@@ -22,6 +22,29 @@
 
 import { posix, resolve, win32 } from 'node:path'
 
+/** A full Windows path: a drive letter (`C:\…`, `C:/…`) or a network share (`\\…`). */
+const WINDOWS_FULL_PATH = /^(?:[A-Za-z]:[\\/]|[\\/]{2})/
+
+/**
+ * How Windows reads a program an override names (WORFY_GH), the one rule of the first-run checks
+ * (src/main/first-run/checks.ts) and of "Sign in with gh" (src/main/github/accounts.ts):
+ * - `name`: a bare name, for the caller to look for on the Path;
+ * - `full`: a full path, that file with `.exe` added when it has no extension; `file` is null when
+ *   there is no such file, and no other gh is looked for then;
+ * - `relative`: a path that is not a full one (`tools\gh.exe`, `\opt\gh`), refused rather than looked
+ *   for in every folder of the Path.
+ */
+export type WindowsProgramPath = { kind: 'name' } | { kind: 'relative' } | { kind: 'full'; file: string | null }
+
+export function windowsProgramPath(program: string, exists: (path: string) => boolean): WindowsProgramPath {
+  if (WINDOWS_FULL_PATH.test(program)) {
+    // Backslashes, as a lookup on the Path would give it (`C:/tools/gh` is `C:\tools\gh.exe`).
+    const file = win32.normalize(win32.extname(program) === '' ? `${program}.exe` : program)
+    return { kind: 'full', file: exists(file) ? file : null }
+  }
+  return /[\\/]/.test(program) ? { kind: 'relative' } : { kind: 'name' }
+}
+
 /** What to start in place of a program. */
 export interface ProgramStart {
   file: string

@@ -30,7 +30,7 @@ import { existsSync } from 'node:fs'
 import { z } from 'zod'
 import { NARROW_TEXT_MAX, type CiState, type GhStatus, type NarrowState, type PullRequest } from '../../shared/ipc/checks'
 import type { CheckFact } from '../../shared/workflow/pipeline'
-import { programStart } from '../program'
+import { programStart, windowsProgramPath } from '../program'
 
 export const BASE_INTERVAL_MS = 60_000
 export const SEARCH_INTERVAL_MS = 5 * 60_000
@@ -48,8 +48,13 @@ export type GhEnv = Readonly<Record<string, string>>
 export type GhRunner = (args: readonly string[], cwd: string, env?: GhEnv) => Promise<string>
 
 export interface GhRunnerOptions {
-  /** The gh executable; `gh` from PATH by default. WORFY_GH points tests at a stub. */
+  /** The gh executable; by default WORFY_GH (appGhOverride), else `gh` from PATH. WORFY_GH points tests at a stub. */
   command?: string
+  /** Where the default reads WORFY_GH: worfy's own environment. For tests. */
+  processEnv?: Readonly<Record<string, string | undefined>>
+  /** For tests: the system and the file check of a full Windows path. */
+  platform?: NodeJS.Platform
+  exists?: (path: string) => boolean
   /** Environment for gh, e.g. the login shell's (src/main/agent/env.ts) so PATH and auth are found. */
   env?: () => Promise<Record<string, string | undefined>>
   timeoutMs?: number
@@ -59,13 +64,41 @@ const firstLine = (text: string): string => text.trim().split('\n')[0]?.trim() ?
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /**
+ * The gh program worfy's own environment names in place of gh: WORFY_GH, unset when empty. A
+ * runner or "Sign in with gh" given no program of its own takes it, so a caller that forgets
+ * WORFY_GH still runs the stand-in in tests (worfy-windows ticket 80).
+ */
+export function appGhOverride(processEnv: Readonly<Record<string, string | undefined>> = process.env): string | undefined {
+  return processEnv.WORFY_GH || undefined
+}
+
+/**
+ * On Windows, the override as the first-run checks read it (windowsProgramPath): a full path is that
+ * file, `.exe` added when it has no extension. Throws "gh not found" for a path that is not a full
+ * one or a missing file, and refuses a `.cmd`/`.bat`, which Node does not start without a shell. A
+ * `.mjs` and a bare name pass.
+ */
+function windowsOverride(override: string | undefined, platform: NodeJS.Platform, exists: (path: string) => boolean): string | undefined {
+  if (override === undefined || platform !== 'win32' || override.endsWith('.mjs')) return override
+  const path = windowsProgramPath(override, exists)
+  if (path.kind === 'name') return override
+  // Not a full path, or no such file: by that rule there is no gh to run.
+  if (path.kind === 'relative' || path.file === null) throw new Error(`gh not found (${override})`)
+  if (/\.(?:cmd|bat)$/i.test(path.file)) throw new Error(`WORFY_GH must name gh.exe or a .mjs stand-in, not ${override}`)
+  return path.file
+}
+
+/**
  * The default runner: gh as a child process, never through a shell. A `command` that is a `.mjs`
  * script (a stand-in in tests) runs under worfy's own Node (src/main/program.ts).
  */
 export function ghRunner(options: GhRunnerOptions = {}): GhRunner {
-  const command = options.command ?? 'gh'
-  const start = programStart(options.command, 'gh')
+  const override = options.command ?? appGhOverride(options.processEnv)
+  const command = override ?? 'gh'
+  const platform = options.platform ?? process.platform
   return async (args, cwd, extra = {}) => {
+    const program = windowsOverride(override, platform, options.exists ?? existsSync)
+    const start = programStart(program, 'gh')
     const env = options.env ? await options.env() : process.env
     // A script started under worfy's own Node: the system cannot say it is missing, Node would.
     const [script] = start.args

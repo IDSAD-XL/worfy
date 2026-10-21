@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { endApp } from './end-app'
-import { GH_STUB, launchApp, NO_WINDOW_RESTORE, repoRoot } from './helpers'
+import { launchApp, NO_WINDOW_RESTORE, repoRoot } from './helpers'
+import { directStartEnv } from './launch-env'
 
 // Electron helper processes may still hold files in a directory for a moment after the app exits.
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -16,17 +17,11 @@ test('a data folder that is a file stops the start with exit code 1 and names th
   const root = await mkdtemp(join(tmpdir(), 'worfy-bad-data-'))
   const dataFile = join(root, 'data')
   await writeFile(dataFile, 'not a folder')
-  const env: Record<string, string> = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE') env[key] = value
-  }
-  Object.assign(env, {
-    WORFY_DATA_DIR: dataFile,
-    WORFY_CLAUDE_HOME: root,
-    WORFY_AGENT: 'fake',
-    WORFY_GH: GH_STUB,
+  const env = directStartEnv({
+    dataDir: dataFile,
+    claudeHome: root,
     // The native error window is modal and would hold the process until someone dismisses it.
-    WORFY_STARTUP_DIALOG: 'off',
+    env: { WORFY_STARTUP_DIALOG: 'off' },
   })
   const electron = createRequire(import.meta.url)('electron') as string
   const child = spawn(electron, [repoRoot, ...NO_WINDOW_RESTORE], { cwd: repoRoot, env, stdio: ['ignore', 'ignore', 'pipe'] })
@@ -109,18 +104,11 @@ for (const [mode, rejection] of [
     const root = await mkdtemp(join(tmpdir(), 'worfy-interrupt-'))
     const hook = join(root, 'interrupt.cjs')
     await writeFile(hook, INTERRUPT_HOOK)
-    const env: Record<string, string> = {}
-    for (const [key, value] of Object.entries(process.env)) {
-      if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE') env[key] = value
-    }
-    Object.assign(env, {
-      WORFY_DATA_DIR: join(root, 'data'),
-      WORFY_CLAUDE_HOME: root,
-      WORFY_AGENT: 'fake',
-      WORFY_GH: GH_STUB,
+    const env = directStartEnv({
+      dataDir: join(root, 'data'),
+      claudeHome: root,
       // A failed start would otherwise hold the process with its modal error window.
-      WORFY_STARTUP_DIALOG: 'off',
-      E2E_INTERRUPT: mode,
+      env: { WORFY_STARTUP_DIALOG: 'off', E2E_INTERRUPT: mode },
     })
     const electron = createRequire(import.meta.url)('electron') as string
     const child = spawn(electron, ['-r', hook, repoRoot, ...NO_WINDOW_RESTORE], { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'] })

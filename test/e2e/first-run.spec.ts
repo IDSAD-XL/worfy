@@ -94,6 +94,10 @@ const launch = (extra: Record<string, string> = {}): Promise<LaunchedApp> =>
       HOME: home,
       SHELL: '/bin/sh',
       WORFY_CLAUDE: join(TOOLS, 'claude'),
+      // The gh rows run WORFY_GH (worfy-windows ticket 80): the sandbox's own gh, missing when
+      // sandbox() leaves it out, as on the login shell's PATH. The rest of the app gets it too: the
+      // sandbox gh answers only the first-run commands, so a test with a Project here gets gh errors.
+      WORFY_GH: join(bin, 'gh'),
       FIRST_RUN_TOOLS_STATE: state,
       FIRST_RUN_TOOLS_LOG: log,
       ...extra,
