@@ -25,7 +25,7 @@ import { create } from 'zustand'
 import type { AgentEvent } from '../../shared/agent/events'
 import type { HistorySession, LiveSession } from '../../shared/ipc/claude-home'
 import { invoke, readableReason, showSubscribeError, subscribe } from '../ipc'
-import { dismissToast, showToast } from '../toast/toasts'
+import { dismissToast, showToast, toasts } from '../toast/toasts'
 
 /** How often the live list is asked again while a Session is live. */
 export const LIVE_POLL_MS = 2000
@@ -163,10 +163,22 @@ function liveFailed(root: string, error: string): void {
   showToast({ kind: 'error', key: LIVE_ERROR, text })
 }
 
-/** A `claudeHome.live` of `root` that answered: the toast goes once no root fails any more. */
+/**
+ * A `claudeHome.live` of `root` that answered: the toast goes once no root fails any more. While
+ * another root still fails, a toast that shows the reason of `root` shows that root's reason instead;
+ * a toast the user closed stays closed.
+ */
 function liveAnswered(root: string): void {
-  if (!liveErrors.delete(root) || liveErrors.size > 0) return
-  dismissToast(LIVE_ERROR)
+  const answered = liveErrors.get(root)
+  if (answered === undefined) return
+  liveErrors.delete(root)
+  const left = [...liveErrors.values()].at(-1)
+  if (left === undefined) {
+    dismissToast(LIVE_ERROR)
+    return
+  }
+  const shown = toasts.getState().toasts.find((toast) => toast.id === LIVE_ERROR)?.text
+  if (shown === answered && left !== answered) showToast({ kind: 'error', key: LIVE_ERROR, text: left })
 }
 
 async function refreshLive(root: string): Promise<void> {

@@ -120,8 +120,9 @@ function AdrPanel({ projectId, adr, onClose }: AdrPanelProps) {
   }
 
   return createPortal(
-    <section role="dialog" aria-label={`ADR ${adr.number}`} style={styles.panel} data-testid="adr-panel" data-path={adr.path}>
-      <header style={styles.panelHeader}>
+    // A toast may go over the text of the ADR, never over its header with the buttons (toast/ToastRegion.tsx).
+    <section role="dialog" aria-label={`ADR ${adr.number}`} style={styles.panel} data-testid="adr-panel" data-path={adr.path} data-toast-over="">
+      <header style={styles.panelHeader} data-toast-keep-out="">
         <span className="w-mono" style={styles.number}>
           {adr.number}
         </span>

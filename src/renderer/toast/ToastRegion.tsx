@@ -1,8 +1,12 @@
 // The toasts of the window (worfy-ui ticket 16): one component, mounted once in main.tsx, shows what
 // the store holds (toasts.ts). It is drawn on <body>, above the Canvas, the Session view, focus mode
-// and the Settings window (toast.css), in the top right corner below the toolbar and the headers
-// under it: away from the Command palette and Canvas find at the top centre, and from the Session's
-// message field with Send and the Minimap at the bottom.
+// and the Settings window (toast.css), at the right edge of the window. Its height in that column is
+// measured, not fixed: while a toast is shown, the region finds what the user works with there —
+// the toolbar, a view's header with its buttons (focus mode, a focused Ticket, the Session view, an
+// ADR), an open popup (the Command palette, Settings, a menu) — and puts the stack into the first
+// free band from the top that holds it (placement.ts). An element marks itself with
+// `data-toast-keep-out`; a dialog or a menu is kept clear of without a mark, unless it says
+// `data-toast-over` (the ADR panel, a whole column high: only its header is kept clear).
 //
 // Accessibility: the area is a landmark "Notifications"; `info`, `success` and `action` toasts are in
 // a polite live region (role="status"), `error` toasts in role="alert". Both regions stay in the DOM
@@ -14,6 +18,7 @@
 import { useEffect, useLayoutEffect, useRef, type FocusEvent, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore } from 'zustand'
+import { PLACE_MS, placeStack, type Span } from './placement'
 import './toast.css'
 import { dismissToast, holdToast, pressToastAction, setToastProject, shownToasts, toasts, type Toast } from './toasts'
 
@@ -88,6 +93,26 @@ function ToastView({ toast }: { toast: Toast }) {
   )
 }
 
+/** What the stack keeps clear of (see the head of the file). */
+const KEEP_OUT = '[data-toast-keep-out], [role="dialog"]:not([data-toast-over]), [role="menu"], .w-focus [data-node-header]'
+
+/** Measures what lies in the column of `region` and moves the stack into the free band (placement.ts). */
+function place(region: HTMLElement): void {
+  const column = region.getBoundingClientRect()
+  const blocked: Span[] = []
+  for (const element of document.querySelectorAll(KEEP_OUT)) {
+    const rect = element.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0 || rect.right <= column.left || rect.left >= column.right) continue
+    blocked.push({ top: rect.top, bottom: rect.bottom })
+  }
+  const placement = placeStack(blocked, region.scrollHeight, window.innerHeight)
+  const top = placement === null ? '' : `${placement.top}px`
+  const cut = placement?.maxHeight ?? null
+  if (region.style.top !== top) region.style.top = top
+  region.style.maxHeight = cut === null ? '' : `${cut}px`
+  region.style.overflowY = cut === null ? '' : 'auto'
+}
+
 /** The toasts of `projectId`, the active Project, and those of no Project. */
 export function ToastRegion({ projectId }: { projectId: string | undefined }) {
   // Before paint: a toast of the Project just left never flashes on the new one.
@@ -95,8 +120,25 @@ export function ToastRegion({ projectId }: { projectId: string | undefined }) {
   const shown = shownToasts(useStore(toasts))
   const alerts = shown.filter((toast) => toast.kind === 'error')
   const polite = shown.filter((toast) => toast.kind !== 'error')
+  const region = useRef<HTMLElement>(null)
+  // Placed before paint whenever the toasts change, then again every PLACE_MS and on a resize while
+  // any is shown; with none shown nothing is measured.
+  const any = shown.length > 0
+  const lineup = shown.map((toast) => `${toast.id}:${toast.version}`).join(' ')
+  useLayoutEffect(() => {
+    const element = region.current
+    if (!any || element === null) return
+    const again = () => place(element)
+    again()
+    const timer = setInterval(again, PLACE_MS)
+    window.addEventListener('resize', again)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('resize', again)
+    }
+  }, [any, lineup])
   return createPortal(
-    <section className="w-toasts" aria-label="Notifications" data-testid="toasts">
+    <section ref={region} className="w-toasts" aria-label="Notifications" data-testid="toasts">
       <div role="alert" className="w-toasts__list">
         {alerts.map((toast) => (
           <ToastView key={toast.id} toast={toast} />

@@ -124,7 +124,7 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
 
   return (
     <div className="w-session" data-testid="session-view" data-session-id={sessionId} data-node-id={nodeId} data-agent-id={agentId} data-read-only="true">
-      <header className="w-session__header">
+      <header className="w-session__header" data-toast-keep-out="">
         {agentId !== undefined ? <BackArrow to={back} name={backName} /> : null}
         <h1 className="w-session__title" title={titleTooltip}>
           {title}

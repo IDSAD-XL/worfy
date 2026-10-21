@@ -5,16 +5,14 @@
    context, shell.css), above the dialogs of the app (90–101) and above the Settings window (110,
    settings-window.ts), whose modal guard lets a layer above it keep its keys and its focus.
 
-   Place: the top right corner, not the top centre, where the Command palette and Canvas find open
-   (a toast that stays would cover their field). It starts 148 px below the toolbar, under what the
-   views put in that corner: the Session view's header (44 px), and in focus mode a tile's title bar
-   (22 px) with the Node's header under it (a Ticket's "Open in editor" and, below it, its action
-   row with "Ship ticket", which ends about 144 px below the toolbar). The Minimap and the
-   Session's message field with Send are at the bottom. Only the toasts take the pointer; the area
-   around them passes it through. */
+   Place: the right edge of the window, not the top centre, where the Command palette and Canvas find
+   open. The height there is measured while a toast is shown (ToastRegion.tsx, placement.ts): the
+   stack goes into the first free band, from the top, between the toolbar, the headers of the view
+   and the popups open in that column. `top` below is where it starts and where it stays when a popup
+   fills the whole column. Only the toasts take the pointer; the area around them passes it through. */
 .w-toasts {
   position: fixed;
-  top: calc(var(--toolbar-height) + 148px);
+  top: calc(var(--toolbar-height) + var(--space-3));
   right: var(--space-4);
   z-index: 120;
   width: min(360px, calc(100vw - 2 * var(--space-4)));

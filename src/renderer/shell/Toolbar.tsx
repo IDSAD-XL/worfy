@@ -64,7 +64,7 @@ export interface ToolbarViewProps {
 export function ToolbarView({ items, project, view, onViewChange, sidebarVisible, onToggleSidebar }: ToolbarViewProps) {
   const title = project ? `worfy — ${project.name}` : 'worfy'
   return (
-    <header className="w-toolbar" data-sidebar={sidebarVisible ? 'visible' : 'hidden'}>
+    <header className="w-toolbar" data-toast-keep-out="" data-sidebar={sidebarVisible ? 'visible' : 'hidden'}>
       {/* Hides and shows the sidebar; View ▸ Toggle Sidebar (Cmd/Ctrl+B) does the same. */}
       <SidebarToggle className="w-toolbar__icon-button" visible={sidebarVisible} onToggle={onToggleSidebar} />
 

@@ -77,12 +77,15 @@ function RepoChip({ root, repo }: { root: string; repo: string | null | undefine
   )
 }
 
+/** The mark of the header's rows in focus mode: a toast keeps clear of them (toast/ToastRegion.tsx). */
+type KeepOut = { 'data-toast-keep-out'?: '' }
+
 /** The line under the title, the same text as ticket-card.ts gives room for (`blockersLine`). */
-function BlockersLine({ data }: { data: TicketNodeData }) {
+function BlockersLine({ data, keepOut }: { data: TicketNodeData; keepOut: KeepOut }) {
   const { ticket, placed, waitingOn } = data
   const line = blockersLine(ticket, placed.attention, waitingOn)
   return (
-    <div className={`w-ticket__meta${line.attention ? ' w-ticket__meta--attention' : ''}`} title={blockersString(line)}>
+    <div className={`w-ticket__meta${line.attention ? ' w-ticket__meta--attention' : ''}`} title={blockersString(line)} {...keepOut}>
       {line.lead}
       {line.nums === null ? null : <span className="w-mono w-ticket__nums">{line.nums}</span>}
       {line.tail}
@@ -110,6 +113,9 @@ function TicketNode({ id, data, width }: CanvasNodeProps) {
   const inFocus = useInFocusTile()
   // Only the focused Ticket reads its file; the card on the Canvas stays compact.
   const read = useTicketText(inFocus ? { projectId, ticket } : null)
+  // In focus mode the header — its rows above the body, with "Open in editor" and the actions — stays
+  // clear of toasts; on the Canvas a card is not marked, the Canvas moves under the toasts.
+  const keepOut: KeepOut = inFocus ? { 'data-toast-keep-out': '' } : {}
 
   const openInEditor = () => {
     // In a window on a Linked machine the Ticket file lies there: the toast instead of its editor.
@@ -137,7 +143,7 @@ function TicketNode({ id, data, width }: CanvasNodeProps) {
       onDoubleClick={inFocus ? undefined : () => requestFocus([id])}
     >
       <Handle type="target" position={Position.Left} isConnectable={false} className="w-ticket__handle" />
-      <div className="w-ticket__top">
+      <div className="w-ticket__top" {...keepOut}>
         <span className="w-mono w-ticket__num">{pad(ticket.num)}</span>
         <RepoChip root={root} repo={ticket.repo} />
         {stage !== null && snapshot !== undefined ? <Stepper pipeline={snapshot.pipeline} stage={stage} narrow={narrow} /> : <StateChip ticket={ticket} />}
@@ -160,18 +166,18 @@ function TicketNode({ id, data, width }: CanvasNodeProps) {
           </button>
         ) : null}
       </div>
-      <div className="w-ticket__title" title={title}>
+      <div className="w-ticket__title" title={title} {...keepOut}>
         {title}
       </div>
       {reason ? (
-        <div className="w-ticket__reason" title={reason}>
+        <div className="w-ticket__reason" title={reason} {...keepOut}>
           {reason}
         </div>
       ) : (
-        <BlockersLine data={node} />
+        <BlockersLine data={node} keepOut={keepOut} />
       )}
       {badges.length || actions.length ? (
-        <div className="w-ticket__slots">
+        <div className="w-ticket__slots" {...keepOut}>
           {badges.length ? (
             <div className="w-ticket__badges">
               {badges.map(({ id, Component }) => (

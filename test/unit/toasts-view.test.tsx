@@ -4,6 +4,7 @@
 // where it was when a toast appears.
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { PLACE_MS } from '../../src/renderer/toast/placement'
 import { ToastRegion } from '../../src/renderer/toast/ToastRegion'
 import { resetToasts, showToast, TOAST_MS, toasts } from '../../src/renderer/toast/toasts'
 
@@ -172,6 +173,71 @@ describe('ToastRegion', () => {
     rerender(<ToastRegion projectId="alpha" />)
     expect(screen.queryByText('Not undone')).not.toBeNull()
   })
+
+  it('places the stack below what it keeps clear of in its column, measures again while a toast is shown, and stops with none', () => {
+    vi.useFakeTimers()
+    // jsdom lays nothing out: each element's box is given here, in window px.
+    const boxes = new Map<Element, DOMRect>()
+    const measured = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return boxes.get(this) ?? new DOMRect(0, 0, 0, 0)
+    })
+    const mark = (attributes: Record<string, string>, box: DOMRect): HTMLElement => {
+      const element = document.body.appendChild(document.createElement('div'))
+      for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value)
+      boxes.set(element, box)
+      return element
+    }
+    const added: HTMLElement[] = []
+    try {
+      // The toolbar and a focused Ticket's header in the right column (x 904..1264 of a 1280 px window).
+      added.push(mark({ 'data-toast-keep-out': '' }, new DOMRect(0, 0, 1280, 52)))
+      added.push(mark({ 'data-toast-keep-out': '' }, new DOMRect(700, 74, 560, 162)))
+      // Outside the column: kept clear of by nobody.
+      added.push(mark({ 'data-toast-keep-out': '' }, new DOMRect(0, 260, 400, 300)))
+      render(<ToastRegion projectId={undefined} />)
+      const section = region()
+      boxes.set(section, new DOMRect(904, 64, 360, 0))
+      Object.defineProperty(section, 'scrollHeight', { configurable: true, value: 50 })
+      expect(section.style.top).toBe('')
+      act(() => {
+        showToast({ kind: 'error', text: 'boom' })
+      })
+      expect(section.style.top).toBe(`${236 + 12}px`)
+
+      // A dialog opens over the column: the next measure puts the stack below it.
+      const dialog = mark({ role: 'dialog' }, new DOMRect(360, 60, 560, 440))
+      added.push(dialog)
+      act(() => {
+        vi.advanceTimersByTime(PLACE_MS)
+      })
+      expect(section.style.top).toBe(`${500 + 12}px`)
+      // A dialog that lets toasts over it (the ADR panel) does not count.
+      dialog.setAttribute('data-toast-over', '')
+      act(() => {
+        vi.advanceTimersByTime(PLACE_MS)
+      })
+      expect(section.style.top).toBe('248px')
+      dialog.removeAttribute('data-toast-over')
+      // A popup over the whole column: the stack keeps its place in toast.css, over it.
+      boxes.set(dialog, new DOMRect(360, 0, 920, 768))
+      act(() => {
+        vi.advanceTimersByTime(PLACE_MS)
+      })
+      expect(section.style.top).toBe('')
+
+      // With no toast shown nothing is measured any more.
+      boxes.set(dialog, new DOMRect(0, 0, 0, 0))
+      act(() => resetToasts())
+      const calls = measured.mock.calls.length
+      act(() => {
+        vi.advanceTimersByTime(PLACE_MS * 3)
+      })
+      expect(measured.mock.calls.length).toBe(calls)
+    } finally {
+      for (const element of added) element.remove()
+      measured.mockRestore()
+    }
+  })
 })
 
 // A subscription of a renderer hook that fails (worfy-ui ticket 16, item 8): the failure used to go to
@@ -294,6 +360,62 @@ describe('IPC subscription failures', () => {
       live = { ok: true, value: { live: [session] } }
       await poll()
       expect(errors()).toEqual([])
+      store.resetToasts()
+    } finally {
+      logged.mockRestore()
+    }
+  })
+
+  it('claudeHome.live of two roots: when the root whose reason is shown answers and the other still fails, the toast shows the reason of the other', async () => {
+    vi.resetModules()
+    vi.useFakeTimers()
+    const failing = (reason: string) => ({ ok: false as const, error: `claudeHome.live: ${reason}` })
+    const live: Record<string, { ok: true; value: { live: unknown[] } } | { ok: false; error: string }> = { '/a': failing('A is unreachable'), '/b': failing('B is unreachable') }
+    const session = (cwd: string) => ({ sessionId: `s${cwd}`, pid: 1, cwd, startedAt: 1, kind: 'interactive' })
+    ;(globalThis as { worfy?: unknown }).worfy = {
+      invoke: (channel: string, input: { projectRoot: string }) => {
+        const root = input.projectRoot
+        if (channel === 'claudeHome.sessions') return Promise.resolve({ ok: true, value: { live: [session(root)], history: [{ sessionId: `s${root}`, title: 'one' }] } })
+        if (channel === 'claudeHome.live') return Promise.resolve(live[root])
+        return new Promise(() => undefined)
+      },
+      on: () => 1,
+      off: () => undefined,
+    }
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const { renderHook } = await import('@testing-library/react')
+      const store = await import('../../src/renderer/toast/toasts')
+      const { useClaudeHome, LIVE_POLL_MS } = await import('../../src/renderer/claude-home/useClaudeHome')
+      store.resetToasts()
+      const texts = () => store.toasts.getState().toasts.filter((toast) => toast.kind === 'error').map((toast) => toast.text)
+      const poll = () => act(async () => {
+        await vi.advanceTimersByTimeAsync(LIVE_POLL_MS)
+      })
+      renderHook(() => useClaudeHome('/a'))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      await poll()
+      expect(texts()).toEqual(['Live Sessions not read: A is unreachable'])
+      renderHook(() => useClaudeHome('/b'))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      await poll()
+      expect(texts()).toEqual(['Live Sessions not read: B is unreachable'])
+      // B answers, A still fails: the toast says A's reason, not B's stale one.
+      live['/b'] = { ok: true, value: { live: [session('/b')] } }
+      await poll()
+      expect(texts()).toEqual(['Live Sessions not read: A is unreachable'])
+      // B fails again: its reason. Closed by the user, the toast is not brought back with A's reason when B answers.
+      live['/b'] = failing('B is unreachable')
+      await poll()
+      expect(texts()).toEqual(['Live Sessions not read: B is unreachable'])
+      store.dismissToast('ipc:claudeHome.live')
+      live['/b'] = { ok: true, value: { live: [session('/b')] } }
+      await poll()
+      expect(texts()).toEqual([])
       store.resetToasts()
     } finally {
       logged.mockRestore()
