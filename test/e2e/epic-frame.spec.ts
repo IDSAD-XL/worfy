@@ -13,7 +13,7 @@ import { ORCHESTRATOR_WIDTH } from '../../src/shared/ipc/orchestrator'
 import { onThePlane } from '../../src/shared/layout/derived'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
-import { canvasReady, launchApp, overlaps, repoRoot, ticketCardCuts, type LaunchedApp } from './helpers'
+import { canvasReady, expectSettledWithoutOverlaps, launchApp, repoRoot, ticketCardCuts, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
@@ -867,12 +867,20 @@ test('long names: the Ticket title, blocked reason and blockers line are whole o
       const blockers = ticketNode(window, 42).locator('.w-ticket__meta')
       await expect(blockers).toHaveText(`blocked by ${Array.from({ length: 33 }, (_, i) => String(i + 1).padStart(2, '0')).join(', ')} · done`)
       await expectWhole(blockers, 'the blockers line')
-      // Taller cards push the next ones down: no two cards of the frame overlap, nor a card and the done stack.
+      // Taller cards push the next ones down: no two cards of the frame overlap, nor a card and the
+      // done stack. All of them in one pass, once the layout has settled (helpers.ts).
       const cards = window.locator(`[data-testid="ticket-node"][data-epic="${LONG_EPIC}"]`)
-      const boxes = [{ name: 'the done stack', ...(await box(window.getByTestId('done-stack'))) }]
-      for (const each of await cards.all()) boxes.push({ name: `Ticket ${await each.getAttribute('data-ticket')}`, ...(await box(each)) })
-      expect(boxes.length, 'the done stack and the three open Tickets').toBe(4)
-      expect(overlaps(boxes), 'cards that overlap').toEqual([])
+      await expect(cards, 'the three open Tickets').toHaveCount(3)
+      await expect(window.getByTestId('done-stack')).toHaveCount(1)
+      const nums = await cards.evaluateAll((nodes) => nodes.map((node) => (node as unknown as { getAttribute(name: string): string | null }).getAttribute('data-ticket')))
+      await expectSettledWithoutOverlaps(
+        window,
+        [
+          { name: 'the done stack', selector: '[data-testid="done-stack"]' },
+          ...nums.map((num) => ({ name: `Ticket ${num}`, selector: `[data-testid="ticket-node"][data-epic="${LONG_EPIC}"][data-ticket="${num}"]` })),
+        ],
+        'cards that overlap',
+      )
 
       // The frame title: the Epic's whole name, the spec title whole or in the tooltip.
       const heading = frame.locator('.w-epic__title')
