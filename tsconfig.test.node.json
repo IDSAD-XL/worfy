@@ -35,6 +35,7 @@
     "src/renderer/toast/placement.ts",
     "test/app-url.ts",
     "test/big-transcript.ts",
+    "test/claude-home-legacy.ts",
     "test/git-bash.ts",
     "test/global-setup-contract.ts",
     "test/harness-node.ts",
