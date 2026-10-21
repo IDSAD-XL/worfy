@@ -44,7 +44,10 @@ const jsonReport = `${outputDir.replace(/[\\/]+$/, '')}-report.json`
 // Electron starts at once slow every start, and some specs time a reaction in milliseconds.
 // `--workers=N` on the command line overrides either; `pnpm test:package` passes --workers=1, since
 // the packaged run was not measured in several workers.
-const E2E_WORKERS = process.platform === 'darwin' && !process.env.CI ? 3 : 1
+// Two, not three, for now: after the switch to three, 2 of 3 gate full runs went red on "the window
+// was not shown within 30 s" (settings-health.spec.ts:126, linked-notify.spec.ts:90, 2026-10-21)
+// while the cause is being found; two workers ran green at 292 s. Back to three once it is fixed.
+const E2E_WORKERS = process.platform === 'darwin' && !process.env.CI ? 2 : 1
 export default defineConfig({
   testDir: 'test/e2e',
   testMatch: '**/*.spec.ts',
