@@ -209,7 +209,7 @@ function frameOf(window: Page) {
 }
 
 async function setUp(launched: LaunchedApp): Promise<() => Promise<string[]>> {
-  await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
+  await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
   return recordPower(launched.app)
 }
 

@@ -1,7 +1,7 @@
 # 14 — Gate full на Windows: unit- и e2e-test-ы, ручной job «Windows» в CI
 
 Type: task
-Status: open
+Status: claimed 2026-10-21T18:06Z
 Blocked by: 03, 08, 10, 11, 12
 Source: решения владельца 2026-10-07: Q23 (Windows-раннера на PR нет; gate full на ПК владельца перед мержем платформенных PR; ручной job «Windows»), Q20 (Terminal на Windows — PowerShell, Git Bash — в настройках), Q24 (Windows 10 21H2+ и 11, x64); «Готово, когда» Epic-а, пункт 2 (подтверждено 2026-10-08); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions»; [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port»; [spec.md](../spec.md); решение владельца 2026-10-19: часть unit/contract (пункт 1 «Что делаем» — main зелёный на Windows) идёт первой, от неё зависит [Ticket 66](66-полный-unit-contract-на-windows-runner.md) (полный `pnpm test` на Windows-runner-е, [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md)); `harness-evals` — [Ticket 65](65-harness-evals-на-windows.md)
 
@@ -147,6 +147,33 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
     (`harness-*` и `e3-*` — 200 падений); ожидание POSIX-пути там, где Windows отвечает своим
     (`gate-state`, `workflow-*`). Ещё 426 падений не подошли ни под один класс по тексту ошибки:
     их причина этим замером не названа.
+- e2e и `test:package` на ПК владельца 2026-10-21, main `c2716a1c` (Playwright JSON-отчёт,
+  группы по первой строке ошибки и по месту в коде): 130 e2e красных и 6 `test:package`. Ошибок в
+  `src/` среди них не найдено — все причины в test-ах:
+
+  | # | Причина | Падений | Где | Что делаем |
+  |---|---|---|---|---|
+  | 1 | Окно задаётся `setSize` (внешний размер), а test меряет `innerWidth` (содержимое). На Windows рамка забирает 14 px ширины и 64 px высоты (при 150 % окно с минимумом 800×520 выходит 800×522 снаружи, страница 786×458); на macOS у окна нет своей рамки (`titleBarStyle: 'hiddenInset'`) | 92 | `helpers.ts:316` и свои ожидания в `sidebar-sections`, `linked-machines`, `pipeline`, `toolbar`; вероятно `pin-tags`, `epic-frame-undo` | `setContentSize` во всех e2e — PR группы 1 |
+  | 2 | Test-ы Terminal печатают команды bash в PowerShell (`SHELL=/bin/sh` на Windows не действует) | 12 | `terminal.spec.ts:40`, `wheel-over-nodes.spec.ts:106`; `src/main/pty.ts:196` | `terminal.spec` проверяет PowerShell (пункт 2 Ticket-а 16); остальным годится любая оболочка |
+  | 3 | Test-ы собранного приложения знают только macOS | 6 package + 5 e2e | `packaged.spec.ts:40-52`, `:631` (путь `Library`), `:650`, `:696` (бит исполнения); `install-stable.mjs:93-95` | `packaged.spec` идёт на win32: `win-unpacked\worfy.exe`, `%APPDATA%`, install-stable для Windows |
+  | 4 | Stub `epic-status` делит путь по `/` | 6 | `epic-frame.spec.ts:52` | одним PR с 5, 7 и одиночными |
+  | 5 | Test ждёт путь в POSIX-виде | 4 | `checks-badges:31` (против `gate/state.ts:68`), `binding:133`, `message-input-slash:170`, `ship-ticket:289` | там же |
+  | 6 | `pgrep` нет на Windows | 2 | `terminal.spec.ts:53-67` | helper дерева процессов Windows, PR группы 2 |
+  | 7 | Stub `gh` на sh | 1 | `silent-project:147` | PR групп 4, 5, 7 |
+  | 8 | Одиночные: высота 562 против 560, путь в Finder, `openssl`, настройки AI Terminal | 4 | `window.spec:179`, `finder-path:122`, `browser.spec:212`, `terminal-ai-settings:384` | там же; без ясной причины — свой Ticket, не skip |
+
+  Сумма e2e по группам — 126 из 130: 4 test-а в группы не вошли. Их разбор — после повторного
+  прогона e2e с PR группы 1.
+- Повторный прогон e2e на ПК 2026-10-22 (масштаб экрана 150 %), main `30031d93` против PR группы 1,
+  слитого с ним локально: красных 136 → 55 (зелёных 144 → 225, всего 301: ещё 21 пропущены или не запускались), новых красных нет, 81
+  починено. В 20 spec-файлах, которые меняет PR: 37 → 24 красных из 71. На 150 % окно с `minHeight`
+  520 после `setSize(800, 520)` получается 800×522 снаружи (страница 786×458), без минимума — 800×520:
+  `smallestWindow` допускает внешний размер на 2 px больше `MIN_SIZE`.
+- После каждого полного e2e на ПК остаётся один `electron.exe` без родителя (три прогона из трёх
+  2026-10-22): процесс сети Chromium (`--utility-sub-type=network.mojom.NetworkService`) test-а
+  `packaged.spec.ts:662` (`ELECTRON_RENDERER_URL` не URL, главный процесс выходит с кодом 1; папка
+  `worfy-bad-renderer-url-*`). Он снимается `Stop-Process`. Почему процесс сети переживает главный —
+  не разобрано.
 
 ## Что делаем
 

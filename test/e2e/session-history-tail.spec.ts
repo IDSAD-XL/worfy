@@ -63,7 +63,7 @@ test('a 40 MB transcript opens on its newest turns; Load earlier brings the ones
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome } })
   try {
     const { window } = launched
-    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
     const node = window.locator(`[data-testid="session-node"][data-session-id="${SESSION}"]`)
     await node.waitFor({ state: 'visible', timeout: 10_000 })
 

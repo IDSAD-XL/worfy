@@ -19,8 +19,6 @@ const BIGGER = 'view.scale.bigger'
 const SMALLER = 'view.scale.smaller'
 const ACTUAL = 'view.scale.actual'
 
-/** The smallest window (src/shared/window/bounds.ts): the scale has the least room there. */
-const SIZE = { width: 800, height: 520 }
 /** The toolbar and the room left of it for the window buttons of macOS, in pixels of the window. */
 const TOOLBAR_PX = 52
 const TRAFFIC_LIGHTS_PX = 80
@@ -268,12 +266,16 @@ test('the slider of Settings → General zooms the whole window when the thumb i
   try {
     const { app, window } = launched
     await expect(window.getByTestId('note-node')).toHaveCount(2)
-    await canvasReady(launched, { size: SIZE })
+    // The smallest window worfy allows (800×520 outside; the page is narrower on Windows): the scale
+    // has the least room there.
+    await canvasReady(launched, { size: 'smallest' })
 
     // 100 %: the zoom is 1, and the toolbar height written on <html> is the one of the design tokens.
     await expectZoom(app, 1)
     const before = await pageMetrics(window)
-    expect(before).toMatchObject({ innerWidth: SIZE.width, scale: '1' })
+    expect(before.scale).toBe('1')
+    /** The page's width at 100 %, in pixels of the window. */
+    const pageWidth = before.innerWidth
     const heights = await window.evaluate(() => {
       const page = globalThis as unknown as PageGlobals
       const toolbar = page.document.querySelector('.w-toolbar')
@@ -307,7 +309,7 @@ test('the slider of Settings → General zooms the whole window when the thumb i
     await expect(slider).toHaveValue('150')
     expect(await zoomFactor(app)).toBeCloseTo(1, 5)
     expect(savedScale(dataDir)).toBeUndefined()
-    expect((await pageMetrics(window)).innerWidth).toBe(SIZE.width)
+    expect((await pageMetrics(window)).innerWidth).toBe(pageWidth)
 
     // Let go: the whole window is at 150 %. The page is 1.5 times narrower in CSS pixels, and its
     // text keeps its size in them — it is the pixel that grew.
@@ -316,7 +318,7 @@ test('the slider of Settings → General zooms the whole window when the thumb i
     await expect.poll(() => savedScale(dataDir)).toBe(1.5)
     await expect.poll(async () => (await pageMetrics(window)).scale).toBe('1.5')
     const zoomed = await pageMetrics(window)
-    expect(Math.abs(zoomed.innerWidth * 1.5 - SIZE.width)).toBeLessThan(1.5)
+    expect(Math.abs(zoomed.innerWidth * 1.5 - pageWidth)).toBeLessThan(1.5)
     expect(zoomed.bodyFont).toBe(before.bodyFont)
     await expect(value).toHaveText('150 %')
     await expect(slider).toHaveValue('150')
@@ -344,7 +346,7 @@ test('the slider of Settings → General zooms the whole window when the thumb i
     await expectZoom(app, 0.8)
     await expect(value).toHaveText('80 %')
     await expect.poll(async () => (await pageMetrics(window)).scale).toBe('0.8')
-    expect(Math.abs((await pageMetrics(window)).innerWidth * 0.8 - SIZE.width)).toBeLessThan(1.5)
+    expect(Math.abs((await pageMetrics(window)).innerWidth * 0.8 - pageWidth)).toBeLessThan(1.5)
     expect([await menuItemEnabled(app, BIGGER), await menuItemEnabled(app, SMALLER)]).toEqual([true, false])
     await closeSettings(window)
     await expectStrips(window, 0.8)
@@ -376,10 +378,14 @@ test('the slider of Settings → General zooms the whole window when the thumb i
 
 test('the scale is remembered: a restart over the same data folder comes back at 150 %, every load of the page puts it back, app-settings.json beats the zoom Chromium remembers, and Actual size returns to 100 %', async () => {
   const { scratch, dataDir } = projectData()
+  /** The page's width at 100 % in the smallest window, in pixels of the window. */
+  let pageWidth = 0
   try {
     const first = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
     try {
-      await canvasReady(first, { size: SIZE })
+      // The smallest window worfy allows: 800×520 outside, a narrower page on Windows.
+      await canvasReady(first, { size: 'smallest' })
+      pageWidth = (await pageMetrics(first.window)).innerWidth
       await openSettings(first.app, first.window)
       await settingsDialog(first.window).getByRole('slider', { name: 'Interface scale' }).fill('150')
       await expectZoom(first.app, 1.5)
@@ -393,9 +399,10 @@ test('the scale is remembered: a restart over the same data folder comes back at
       const { app, window } = second
       await expectZoom(app, 1.5)
       await expect.poll(async () => (await pageMetrics(window)).scale).toBe('1.5')
+      // The window comes back at the size it had, so its content is as wide as the page was at 100 %.
       const width = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getContentSize()[0])
-      expect(width).toBe(SIZE.width)
-      expect(Math.abs((await pageMetrics(window)).innerWidth * 1.5 - SIZE.width)).toBeLessThan(1.5)
+      expect(Math.abs((width ?? 0) - pageWidth)).toBeLessThanOrEqual(1)
+      expect(Math.abs((await pageMetrics(window)).innerWidth * 1.5 - pageWidth)).toBeLessThan(1.5)
       expect((await boxOf(window, '.w-toolbar')).height * 1.5).toBeCloseTo(TOOLBAR_PX, 0)
       await openSettings(app, window)
       await expect(settingsDialog(window).getByRole('slider', { name: 'Interface scale' })).toHaveValue('150')
@@ -433,7 +440,7 @@ test('the scale is remembered: a restart over the same data folder comes back at
       await clickMenuItem(app, ACTUAL)
       await expectZoom(app, 1)
       await expect.poll(() => savedScale(dataDir)).toBe(1)
-      await expect.poll(async () => (await pageMetrics(window)).innerWidth).toBe(SIZE.width)
+      await expect.poll(async () => Math.abs((await pageMetrics(window)).innerWidth - pageWidth)).toBeLessThanOrEqual(1)
       await expect.poll(async () => (await pageMetrics(window)).scale).toBe('1')
     } finally {
       await third.close()

@@ -215,7 +215,7 @@ test('a Silent Project: the Epic frame with its title and the Tickets come from 
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_HARNESS_HOME: join(scratch, 'no-harness-home'), WORFY_GH: gh.command } })
   try {
     const { window } = launched
-    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
     const frame = window.locator('[data-testid="epic-frame"]')
     // The frame appears after three Harness scripts run one after another (profile, ticket root,
     // epic-status); under a loaded gate full that took longer than the default 5 s.
@@ -277,7 +277,7 @@ test('a Project over two repositories: each Ticket shows its repository, and its
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_HARNESS_HOME: join(scratch, 'no-harness-home'), WORFY_GH: gh.command } })
   try {
     const { window } = launched
-    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
     const ticket = (num: number): Locator => window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`)
     await expect(window.locator('[data-testid="epic-frame"] .w-epic__title')).toContainText('Two repositories', {
       timeout: 15_000,

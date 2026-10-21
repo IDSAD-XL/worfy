@@ -231,7 +231,7 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, GH_STUB_DIR: ghDir, GH_STUB_LOG: ghLog } })
   try {
     const { window } = launched
-    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 1000))
 
     const ticket = (num: number): Locator => window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`)
     const session = window.locator(`[data-testid="session-node"][data-session-id="${S7}"]`)
@@ -514,7 +514,7 @@ test('nine Stages on a 240 px Card: the Stage name and whom it waits for are nev
   const launched = await launchNineStages(tickets, pulls, () => [])
   try {
     const { window } = launched
-    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 1000))
     const ticket = (num: number): Locator => window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`)
     const expected = [
       { num: 2, stage: 'Implementing', rework: true, blocked: false },
@@ -618,7 +618,7 @@ test('the width estimate against the real fonts: Cyrillic, wide letters, a long 
   )
   try {
     const { window } = launched
-    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 1000))
     for (const each of tickets) {
       const card = window.locator(`[data-testid="ticket-node"][data-ticket="${each.num}"]`)
       await expect(card.getByTestId('ticket-repo')).toBeVisible({ timeout: 20_000 })

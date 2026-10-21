@@ -4,7 +4,8 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { expandMachines, launchApp, type LaunchedApp } from './helpers'
+import { MIN_SIZE } from '../../src/shared/window/bounds'
+import { expandMachines, launchApp, smallestWindow, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
 
@@ -27,8 +28,7 @@ const ROW = 28
 const EPIC_ROW = 48
 /** The header of a section. */
 const HEADER = 24
-/** The smallest window worfy allows, and one that fits the owner's screen. */
-const SMALLEST = { width: 800, height: 520 }
+/** A window that fits the owner's screen. The smallest window worfy allows is set by smallestWindow. */
 const TALL = { width: 1200, height: 900 }
 
 let scratch: string
@@ -154,11 +154,17 @@ function expectNoOverlap(column: ColumnBox): void {
 const region = (window: Page, name: string): Locator => window.getByRole('region', { name, exact: true })
 const heading = (window: Page, name: string): Locator => region(window, name).getByRole('button', { name, exact: true })
 
-async function setWindowSize(launched: LaunchedApp, size: { width: number; height: number }): Promise<void> {
-  await launched.app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setSize(wanted.width, wanted.height), size)
+/**
+ * Sets the page to `size`, or the window to the smallest worfy allows: 800×520 outside, so on
+ * Windows the page is lower and narrower than that (smallestWindow). Returns the page's size.
+ */
+async function setWindowSize(launched: LaunchedApp, size: { width: number; height: number } | 'smallest'): Promise<{ width: number; height: number }> {
+  if (size === 'smallest') return smallestWindow(launched)
+  await launched.app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setContentSize(wanted.width, wanted.height), size)
   await expect
     .poll(() => launched.window.evaluate(() => [(globalThis as unknown as { innerWidth: number }).innerWidth, (globalThis as unknown as { innerHeight: number }).innerHeight]))
     .toStrictEqual([size.width, size.height])
+  return size
 }
 
 /** The lists of the fixture are read and drawn. */
@@ -344,16 +350,31 @@ test('an error of "Add project" stays above the list of Projects and takes no ro
   try {
     const { window } = launched
     await listsShown(window)
-    await setWindowSize(launched, SMALLEST)
-    // 800×520 as a fresh worfy shows the sidebar, Machines collapsed to its header: the sections
-    // fit the column, which does not scroll, and the long lists are squeezed, but above their floors.
+    const page = await setWindowSize(launched, 'smallest')
+    // The smallest window as a fresh worfy shows the sidebar, Machines collapsed to its header; the
+    // long lists are squeezed.
     await expect.poll(async () => sectionOf(await measure(window), 'EpicsSection').body).toBeLessThan(EPICS.length * EPIC_ROW)
     const fresh = await measure(window)
     expect(sectionOf(fresh, 'MachinesSection').bottom - sectionOf(fresh, 'MachinesSection').top).toBe(HEADER)
-    expect(fresh.scrollHeight).toBe(fresh.clientHeight)
-    expect(sectionOf(fresh, 'EpicsSection').body).toBeGreaterThan(3 * EPIC_ROW)
-    expect(sectionOf(fresh, 'AdrSection').body).toBeGreaterThan(3 * ROW)
-    expect(Math.round(sectionOf(fresh, 'AdrSection').bottom)).toBe(Math.round(fresh.bottom))
+    const freshEpics = sectionOf(fresh, 'EpicsSection').body
+    const freshAdr = sectionOf(fresh, 'AdrSection').body
+    // The column is the page less 60 px (toolbar 52, padding 8; shell.css, tokens.css), and the
+    // sections need 442 px with both long lists at their floors. In a page of 800×520 (macOS, where
+    // the window has no frame) the column is 460 px: it does not scroll and is used to its end, the
+    // 18 px left over going to the long lists. On Windows the frame takes part of the smallest window:
+    // the page is 786×458 (measured at 150 %), the column 398 px, so each long list is at its floor
+    // and the column scrolls instead. The else branch is that frame; a page of 502 to 519 px would
+    // fit without scrolling and needs a branch of its own.
+    if (page.height >= MIN_SIZE.height) {
+      expect(fresh.scrollHeight).toBe(fresh.clientHeight)
+      expect(freshEpics).toBeGreaterThan(3 * EPIC_ROW)
+      expect(freshAdr).toBeGreaterThan(3 * ROW)
+      expect(Math.round(sectionOf(fresh, 'AdrSection').bottom)).toBe(Math.round(fresh.bottom))
+    } else {
+      expect(fresh.scrollHeight).toBeGreaterThan(fresh.clientHeight)
+      expect(freshEpics).toBe(3 * EPIC_ROW)
+      expect(freshAdr).toBe(3 * ROW)
+    }
     expectNoOverlap(fresh)
     // Every section expanded: Machines is collapsed until the user expands it.
     await expandMachines(window)
@@ -361,7 +382,7 @@ test('an error of "Add project" stays above the list of Projects and takes no ro
     const projects = region(window, 'Projects')
     const error = await addProjectFails(launched)
     // With the message the floors of the sections do not fit the column of the smallest window.
-    // (Without it they do, since the switches of Machines moved to Settings.)
+    // (Without it they do in a page of 800×520, since the switches of Machines moved to Settings.)
     await expect.poll(async () => sectionOf(await measure(window), 'EpicsSection').body).toBe(3 * EPIC_ROW)
     const notice = projects.locator('.w-sidebar-section__notice')
     const row = window.getByTestId('project-row')
@@ -391,12 +412,12 @@ test('an error of "Add project" stays above the list of Projects and takes no ro
       await expect(row, where).toBeInViewport({ ratio: 1 })
     }
 
-    // 800×520: every section is at its floor and the column scrolls.
+    // The smallest window: every section is at its floor and the column scrolls.
     const small = await measure(window)
     expect(small.scrollHeight).toBeGreaterThan(small.clientHeight)
     expect(sectionOf(small, 'EpicsSection').body).toBe(3 * EPIC_ROW)
     expect(sectionOf(small, 'AdrSection').body).toBe(3 * ROW)
-    await check('800×520')
+    await check('the smallest window')
 
     // 1200×900, Epics and ADR expanded and squeezed: the column has no room to spare either.
     await setWindowSize(launched, TALL)
@@ -435,9 +456,9 @@ test('under an error of "Add project" a list of 8 Projects keeps 3 rows at the f
     await listsShown(window, 8)
     // Every section expanded: Machines is collapsed until the user expands it.
     await expandMachines(window)
-    await setWindowSize(launched, SMALLEST)
+    await setWindowSize(launched, 'smallest')
     await expect.poll(async () => sectionOf(await measure(window), 'EpicsSection').body).toBe(3 * EPIC_ROW)
-    // 800×520, every section at its floor. Without a message the floor is the header and 3 rows.
+    // The smallest window, every section at its floor. Without a message the floor is the header and 3 rows.
     const quiet = sectionOf(await measure(window), 'ProjectsSection')
     expect(quiet.content).toBe(8 * ROW)
     expect(quiet.body).toBe(3 * ROW)
@@ -493,7 +514,7 @@ test('under an error of "Add project" a list of 8 Projects keeps 3 rows at the f
 
 test('in the smallest window a long list keeps 3 of its rows and the column scrolls; in a tall one it grows to 15 rows and scrolls by itself', async () => {
   // Two more Projects, in plain folders: a list of 3 rows, as high as the floor of its section.
-  // With one Project the floors of the sections fit the column of the smallest window, since the
+  // With one Project the floors of the sections fit the column of a page of 800×520, since the
   // switches of Machines moved to Settings; with three, and Machines expanded, they do not.
   const more = ['beta', 'gamma'].map((name, index) => {
     mkdirSync(join(scratch, name))
@@ -514,10 +535,10 @@ test('in the smallest window a long list keeps 3 of its rows and the column scro
     expect(await height(window.getByTestId('sidebar-adr').first())).toBe(ROW)
     expect(await height(window.getByTestId('project-row').first())).toBe(ROW)
 
-    // 800×520, every section expanded — Machines too, which is collapsed until the user expands
+    // The smallest window, every section expanded — Machines too, which is collapsed until the user expands
     // it: the floors of the sections do not fit the column.
     await expandMachines(window)
-    await setWindowSize(launched, SMALLEST)
+    await setWindowSize(launched, 'smallest')
     await expect.poll(async () => sectionOf(await measure(window), 'EpicsSection').body).toBe(3 * EPIC_ROW)
     const small = await measure(window)
     const epics = sectionOf(small, 'EpicsSection')

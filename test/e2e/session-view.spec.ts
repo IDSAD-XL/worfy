@@ -190,7 +190,7 @@ test('the Session view: opened from the Orchestrator Node, a turn, an interrupte
     await window.emulateMedia({ colorScheme: null })
 
     // A window low enough that the transcript scrolls; the reader is at its bottom.
-    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(800, 520))
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(800, 520))
     const transcript = view.getByTestId('transcript')
     await expect.poll(() => transcript.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0)
     await transcript.evaluate((element) => {

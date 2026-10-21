@@ -135,7 +135,7 @@ test('a Session started in a terminal: its Node, its read-only transcript, its e
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'turn' } })
   try {
     const { window } = launched
-    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
     const canvasView = window.locator('.w-shell__view[data-view="canvas"]')
     const sessionView = window.locator('.w-shell__view[data-view="session"]')
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
