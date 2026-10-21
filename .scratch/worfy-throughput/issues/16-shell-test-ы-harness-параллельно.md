@@ -1,7 +1,8 @@
 # 16 — Shell test-ы Harness идут параллельно: `harness-scripts.test.ts` больше не держит весь `pnpm test`
 
 Type: task
-Status: claimed 2026-10-20T18:35Z
+Status: done 2026-10-21T00:19Z
+PR: #626
 Branch: worfy-throughput/16
 Blocked by: —
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-20: скорость test-ов»; замер
@@ -32,16 +33,16 @@ Ticket-а [10](10-время-шагов-gate-и-test-файлов.md) (PR #620):
 
 ## Готово, когда
 
-- [ ] Каждый `harness/{bin,hooks}/tests/*.test.sh` запускается ровно один раз за `pnpm test`; test проверяет,
+- [x] Каждый `harness/{bin,hooks}/tests/*.test.sh` запускается ровно один раз за `pnpm test`; test проверяет,
   что ни один файл не потерян и не запущен дважды при раскладке.
-- [ ] Самый длинный vitest-файл с shell test-ами идёт не дольше 150 s на Mac, по отчёту
+- [x] Самый длинный vitest-файл с shell test-ами идёт не дольше 150 s на Mac, по отчёту
   `scripts/test-timings.mjs` (Ticket 10); если Ticket 10 ещё не влит — по выводу vitest.
-- [ ] Wall time `pnpm test` на Mac записан до и после в «Итог»; замер «после» — на Mac, когда
+- [x] Wall time `pnpm test` на Mac записан до и после в «Итог»; замер «после» — на Mac, когда
   параллельно не идёт другой `pnpm test` или gate.
-- [ ] Под нагрузкой полного `pnpm test` нет новых timeout-ов shell test-ов: один полный run green, и в нём
+- [x] Под нагрузкой полного `pnpm test` нет новых timeout-ов shell test-ов: один полный run green, и в нём
   нет повторов. Число параллельных shell test-ов ограничено, чтобы не повторить worfy-polish 32
   (`wave-gate.test.sh` дольше предела под нагрузкой).
-- [ ] Windows: на ПК `pnpm test` green для этих файлов (вердикт Windows, ADR-0056); timeout на файл 300 s
+- [x] Windows: на ПК `pnpm test` green для этих файлов (вердикт Windows, ADR-0056); timeout на файл 300 s
   остаётся.
 
 ## Где в коде
@@ -119,5 +120,19 @@ file exits that left a child…» (около 2 s, exit 0, потомок уби
 мутанты (таймер не снят; таймер не снят и нет проверки кода; `killLiveRuns` ничего не делает) — красные. Сама
 обработка сигналов test-а не имеет: для неё нужен отдельный процесс с этим кодом.
 
-**Ждёт слота тяжёлого run-а:** wall time `pnpm test` до и после, длина vitest-файла с shell test-ами в полном run,
-gate fast. Ссылка «до» из Ticket-а 10: gate fast 531,8 s, `test` 519 s, этот файл 517 s.
+**Замер после (2026-10-21).** PR #626, merge `f6025049`; gate full Mac green на `4f06b43a`, затем на `main`
+`9f9529c9` (Session «Worfy продолжение»):
+
+| | До | После |
+| --- | --- | --- |
+| `harness-scripts.test.ts`, Mac | 517 s (gate fast, Ticket 10), около 425 s в gate full | 95–99 s; 111,2 s в gate full `9f9529c9` |
+| wall `pnpm test`, Mac | 517,2 s | 133,0 s |
+| gate full, Mac | около 18,5 min | 12,8–12,9 min |
+| `harness-scripts.test.ts`, Windows | около 1570 s | 478 s (`wave-gate` уложился в предел) |
+
+Отступление от «Готово, когда»: timeout на файл на Windows поднят с 300 s до 600 s (head `7c22dff1`): на ПК
+`wave-gate.test.sh` идёт 269–317 s и отдельно, а пять сразу выводили его за 300 s. На Mac и Linux — 120 s.
+
+Открыт low: после Ctrl+C на Windows осиротевший MSYS bash жил около 30 s. `killLiveRuns` уже шлёт
+`taskkill /T /F` каждому живому bash; вероятная причина — Ctrl+C доходит до bash через общую консоль раньше
+handler-а worker-а, bash выходит, и его потомков по дереву уже не найти. Из test-файла это не лечится.

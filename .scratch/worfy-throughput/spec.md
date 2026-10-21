@@ -274,6 +274,7 @@ ADR-0068 (batch CI на `main`, CI на PR нет) и ADR-0065 (один gate fu
 | [14](issues/14-бюджет-времени-от-зелёных-проверок-до-мержа.md) | Время от зелёных проверок до merge по Ticket-у и отчёт о превышении бюджета | Q1, Q2 | 10 |
 | [15](issues/15-аудит-test-ов-и-правило-одного-слоя.md) | Аудит дублирующих test-ов и правило одного слоя | Q6 | 11, 12, 13 |
 | [16](issues/16-shell-test-ы-harness-параллельно.md) | Shell test-ы Harness идут параллельно: `harness-scripts.test.ts` (517 s из 519 s шага `test`) больше не держит весь `pnpm test` | замер 10; «да» владельца 2026-10-20 | — |
+| [17](issues/17-e2e-в-несколько-worker-ов.md) | e2e в несколько worker-ов Playwright: после 16 последовательный e2e — 565 s, около 73 % gate full 12,9 min | замер 10 после 16; приоритет — за владельцем | — |
 
 ### Порядок
 
@@ -282,7 +283,8 @@ ADR-0068 (batch CI на `main`, CI на PR нет) и ADR-0065 (один gate fu
    выигрыш выбора test-ов (11) и поставить базу бюджета (14).
 2. **16** — сразу, параллельно с merge 10: замер 10 показал, что один файл `test/contract/harness-scripts.test.ts`
    идёт 517 s из 519 s шага `test`; владелец 2026-10-20 сказал «да» отдельному Ticket-у до 11–13.
-   Число shard-ов 12 считать после 16.
+   Число shard-ов 12 считать после 16. Влит 2026-10-21 (#626): gate full на Mac 18,5 → 12,9 min,
+   `pnpm test` 517 → 133 s. После него узкое место — последовательный e2e (Ticket 17, приоритет за владельцем).
 3. **12 и 14** — после 10, параллельно: 12 правит CI и тексты ожидания CI, 14 — скрипт замера.
 4. **11** — после 10 и 12 (`Blocked by: 10, 12`): PR без полного набора безопасен, только
    когда у него есть CI на Linux, а 11 и 12 правят одни тексты Harness (`harness/skills/epic-wave/SKILL.md`,
@@ -290,7 +292,7 @@ ADR-0068 (batch CI на `main`, CI на PR нет) и ADR-0065 (один gate fu
 5. **13** — после 11: те же тексты Harness и тот же шаг перед merge.
 6. **15** — последним, когда влиты 11, 12 и 13 (условие Q6).
 
-### Волны Ticket-ов 10–16
+### Волны Ticket-ов 10–17
 
 План по правилу раздела «Волны» выше: общий файл в «Где в коде» — Ticket с большим номером уходит в
 следующую Wave. Основную таблицу «Волны» этот раздел не меняет; Wave этих Ticket-ов берётся командой
@@ -305,6 +307,7 @@ ADR-0068 (batch CI на `main`, CI на PR нет) и ADR-0065 (один gate fu
 | 13 | `harness/bin/profile`, `harness/bin/tests/profile.test.sh`, `harness/bin/wave-gate`, `harness/skills/epic-wave/SKILL.md`, `harness/agents/implementer.md`, `harness/bin/tests/agents-text.test.sh`, `harness/profiles/README.md`, `harness/profiles/draft.schema.json` | 4 |
 | 15 | `test/`, `harness/agents/implementer.md`, `harness/bin/tests/agents-text.test.sh`, `docs/lessons/testing.md` | 5 |
 | 16 | `test/contract/harness-scripts.test.ts`, `test/git-bash.ts`, `vitest.config.ts`, `harness/{bin,hooks}/tests/*.test.sh` | 2 |
+| 17 | `playwright.config.ts`, `test/e2e/helpers.ts`, `test/e2e/*.spec.ts`, `harness/bin/profile`, `harness/hooks/gate.mjs` | 2 |
 
 ### Не решено — вопросы к инструментам
 
