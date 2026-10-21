@@ -22,9 +22,13 @@ const linkState = (linking: Partial<LinkState['linking']>): LinkState => ({
   keepAwake: false,
 })
 
-/** This Machine's preload: `link.state` answers `link`, each `link.open` the next of `opens` (the last one again). */
-function preload(link: LinkState, opens: LinkState[] = [link]): { opened: () => number } {
+/**
+ * This Machine's preload: `link.state` answers `link`, each `link.open` the next of `opens` (the last
+ * one again); `push` sends a state as main's `link.changed` broadcast does.
+ */
+function preload(link: LinkState, opens: LinkState[] = [link]): { opened: () => number; push: (state: LinkState) => void } {
   let opened = 0
+  const handlers: ((payload: unknown) => void)[] = []
   const bridge: WorfyBridge = {
     invoke: (channel) => {
       if (channel === 'link.state') return Promise.resolve({ ok: true, value: link } as never)
@@ -35,11 +39,14 @@ function preload(link: LinkState, opens: LinkState[] = [link]): { opened: () => 
       }
       return new Promise(() => undefined)
     },
-    on: () => 1,
+    on: (channel, handler) => {
+      if (channel === 'link.changed') handlers.push(handler)
+      return handlers.length
+    },
     off: () => undefined,
   }
   ;(globalThis as { worfy?: WorfyBridge }).worfy = bridge
-  return { opened: () => opened }
+  return { opened: () => opened, push: (state) => handlers.forEach((handler) => handler(state)) }
 }
 
 beforeEach(() => {
@@ -89,4 +96,51 @@ it('shows the code, and no pause, while linking is not paused', async () => {
   render(<LinkMachineDialog onClose={() => undefined} />)
   expect((await screen.findByTestId('link-code')).textContent).toBe('482913')
   expect(screen.queryByTestId('link-paused')).toBeNull()
+})
+
+it('opens linking again when main ends the pause before the late timer does (the Mac slept)', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  vi.setSystemTime(new Date(2026, 9, 21, 14, 0))
+  const until = Date.now() + 5 * 60_000
+  const paused = linkState({ pausedUntil: until })
+  const main = preload(paused, [paused, { ...linkState({ code: '482913', expiresAt: until + 120_000 }), revision: 3 }])
+  const { LinkMachineDialog } = await import('../../src/renderer/machines/LinkMachineDialog')
+  render(<LinkMachineDialog onClose={() => undefined} />)
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  expect(main.opened()).toBe(1)
+  // Timers stood still while the Mac slept; main's clock did not, so its next state has no pause and no code.
+  await act(async () => main.push({ ...linkState({}), revision: 2 }))
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  expect(main.opened()).toBe(2)
+  expect(screen.getByTestId('link-code').textContent).toBe('482913')
+  await act(() => vi.advanceTimersByTimeAsync(10 * 60_000))
+  expect(main.opened()).toBe(2)
+  // Once the code is back the pause is over: linking closed later (failed attempts in a row) stays closed.
+  await act(async () => main.push({ ...linkState({ failure: 'too many failed pairing attempts' }), revision: 4 }))
+  expect(main.opened()).toBe(2)
+})
+
+it('does not open linking again on a state without a code when there was no pause', async () => {
+  const main = preload(linkState({}))
+  const { LinkMachineDialog } = await import('../../src/renderer/machines/LinkMachineDialog')
+  render(<LinkMachineDialog onClose={() => undefined} />)
+  await act(async () => undefined)
+  expect(main.opened()).toBe(1)
+  await act(async () => main.push({ ...linkState({}), revision: 2 }))
+  expect(main.opened()).toBe(1)
+  expect(screen.getByText('Opening…')).toBeTruthy()
+})
+
+it('does not open linking when the window is closed during the pause', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  vi.setSystemTime(new Date(2026, 9, 21, 14, 0))
+  const until = Date.now() + 5 * 60_000
+  const main = preload(linkState({ pausedUntil: until }))
+  const { LinkMachineDialog } = await import('../../src/renderer/machines/LinkMachineDialog')
+  const view = render(<LinkMachineDialog onClose={() => undefined} />)
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  expect(main.opened()).toBe(1)
+  view.unmount()
+  await act(() => vi.advanceTimersByTimeAsync(10 * 60_000))
+  expect(main.opened()).toBe(1)
 })
