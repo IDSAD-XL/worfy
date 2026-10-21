@@ -6,7 +6,7 @@
 //
 // Focus mode covers the main area of the window and leaves the sidebar and the command palette
 // working, and both can ask the main area for something else: the Session view, or the Canvas
-// centered on an Epic, a Session's Node or a found Node, a new Node, "Tidy up", "Re-pack", a tag
+// centered on an Epic, a Session's Node or a found Node, a new Node, "Tidy up", "Arrange by Epic", "Re-pack", a tag
 // filter, an ADR. Carried out under the layer, the request would look ignored, so focus mode leaves on it
 // (useLeaveOnRequest). Another active Project needs no rule: the Canvas, and this file with it, is
 // mounted anew for each Project (Canvas.tsx).
@@ -15,6 +15,7 @@ import { useStore, ViewportPortal, type ReactFlowState } from '@xyflow/react'
 import { SHORTCUTS } from '../../../shared/shortcuts'
 import { useSessionFocus } from '../../claude-home/focus'
 import { useCanvasRequests } from '../../find/canvas-requests'
+import { onArrangeByEpicRequest } from '../arrange-by-epic-command'
 import { FocusMode } from '../../focus/FocusMode'
 import { useFocusState } from '../../focus/focus-state'
 import { buildPreset, type TileTree } from '../../focus/split-tree'
@@ -32,7 +33,8 @@ const selectedKey = (state: ReactFlowState): string => JSON.stringify(state.node
 /**
  * While `open`, calls `leave` when something asks the main area to show something else: the view
  * leaves the Canvas, or a request to the Canvas arrives — from the sidebar's Epics and Sessions
- * sections (focusEpic, focusSessionNode), the palette's "Re-pack" (requestRepack) or through
+ * sections (focusEpic, focusSessionNode), the palette's "Re-pack" (requestRepack) and "Arrange by
+ * Epic" (requestArrangeByEpic) or through
  * find/canvas-requests.ts ("Go to", a new Node, "Tidy up", a tag filter, an ADR). Only what happens from now on counts: a request made before
  * focus mode opened was carried out then. The find bar is not such a request.
  */
@@ -44,6 +46,7 @@ function useLeaveOnRequest(open: boolean, leave: () => void): void {
         if (state.view !== 'canvas') leave()
       }),
       onEpicFocusRequest(leave),
+      onArrangeByEpicRequest(leave),
       useSessionFocus.subscribe((state, previous) => {
         if (state.request !== previous.request) leave()
       }),

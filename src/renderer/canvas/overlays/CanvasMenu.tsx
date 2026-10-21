@@ -3,10 +3,11 @@
 // Node there. The items come from the Node types themselves: a file in ../nodes/ that exports
 // `createLabel` (e.g. `export const createLabel = 'New terminal'`) gets an item, so a new
 // creatable Node type adds no line here or in Canvas.tsx. Under them, past a separator, "Tidy up"
-// lays out the Nodes of the Canvas (../tidy.ts, worfy-week/07), and "Re-pack" puts the Epic frames
-// in the order "active first" and counts their columns again (../sources/epics.ts, ADR-0075). The
-// menu also carries out the palette's "Re-pack": it is inside the Canvas's LayoutOps, so the write
-// is one step of ⌘Z.
+// lays out the Nodes of the Canvas (../tidy.ts, worfy-week/07), "Arrange by Epic" lines the Sessions
+// up at their Epic frames (../arrange-by-epic.ts, worfy-canvas ticket 12), and "Re-pack" puts the
+// Epic frames in the order "active first" and counts their columns again (../sources/epics.ts,
+// ADR-0075). The menu also carries out the palette's "Arrange by Epic" and "Re-pack": it is inside
+// the Canvas's LayoutOps, so each write is one step of ⌘Z.
 //
 // The menu is HTML, not a native Menu.popup: Playwright cannot click a native menu (ticket 04).
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
@@ -14,6 +15,7 @@ import { createPortal } from 'react-dom'
 import { useReactFlow, useStore } from '@xyflow/react'
 import '../../theme/primitives.css'
 import { writeAction } from '../../projects/read-only'
+import { useArrangeByEpic, useArrangeByEpicRequests } from '../arrange-by-epic-command'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { nodeTypes, type NodeType } from '../nodes'
 import { useRepack, useRepackRequests } from '../sources/epics'
@@ -53,6 +55,8 @@ function ProjectCanvasMenu({ projectId, root }: { projectId: string; root: strin
   const flow = useReactFlow()
   const ops = useLayoutOps()
   const tidyUp = useTidyUp(projectId, root)
+  const arrangeByEpic = useArrangeByEpic(projectId, root)
+  useArrangeByEpicRequests(projectId, arrangeByEpic)
   const repack = useRepack(projectId)
   useRepackRequests(projectId, repack)
   const container = useStore((state) => state.domNode)
@@ -134,6 +138,17 @@ function ProjectCanvasMenu({ projectId, root }: { projectId: string; root: strin
         })}
       >
         Tidy up
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className="w-row"
+        {...writeAction(readOnly, () => {
+          close()
+          void arrangeByEpic()
+        })}
+      >
+        Arrange by Epic
       </button>
       <button
         type="button"
