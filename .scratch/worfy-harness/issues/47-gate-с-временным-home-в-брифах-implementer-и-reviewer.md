@@ -1,7 +1,8 @@
 # 47 — Брифы implementer и reviewer: gate и test-ы с временным HOME — реестр Gate и пустые rc-файлы zsh
 
 Type: task
-Status: claimed 2026-10-21T00:35Z
+Status: done 2026-10-21T03:14Z
+PR: #643
 Blocked by:
 Source: решение владельца 2026-10-15 по Wave-ам Epic-а `worfy-polish` (Ticket-ы 01–13): implementer-ы
 и verifier-ы гоняли test-ы и gate с временным HOME ([`worfy-polish` 03](../../worfy-polish/issues/03-contract-test-ы-без-настоящего-claude-home.md), раздел
@@ -100,4 +101,24 @@ Ticket 45 не называет. Этот Ticket это не дублирует:
 
 ## Итог
 
-—
+PR [#643](https://github.com/IDSAD-XL/worfy/pull/643), merge 98325043. Gate full на main+PR зелёный; plugin-neutral 26/0;
+check/windows с PC — epic-wave-ship-ticket 336/0, TMPDIR после прогона пустой. Платформенный PR.
+
+- **Что изменилось.** `harness/skills/epic-wave/SKILL.md` (раздел 2): строка брифа `Temporary HOME: yes | no`, когда её
+  ставить, рецепт; бриф verifier-а несёт ту же строку; раздел 3 — exit 3 под временным HOME без переменных рецепта —
+  ошибка окружения, не verdict gate. `harness/agents/implementer.md` (шаг 5) и `reviewer.md` — тот же рецепт слово в
+  слово и два правила: exit 3 под временным HOME без `HARNESS_HOME` — gate запускается заново по рецепту; запись
+  verdict, marker-ов и cache в настоящий Harness home через `HARNESS_HOME` разрешена.
+- **Рецепт** (после ревью) не называет путей: `H` берётся из `node "${CLAUDE_PLUGIN_ROOT}/hooks/eval-env.cjs" harness-home`
+  до смены HOME (так учитываются `EVAL_HARNESS_HOME` и Windows); временный HOME с тремя пустыми rc-файлами zsh;
+  `USERPROFILE` — через `pwd -W` в Git Bash; gate получает `HARNESS_HOME="$H"`. `CLAUDE_GATE_CONFIG` убран: он отключал
+  запасной путь к старому реестру.
+- **Проверка рецепта** на подставном Harness home (настоящий не трогали): с переменными — exit 0 и зелёная строка
+  gate, verdict записан в подставной home; без них — gate «не проверено» (resolver реестра exit 4). Зависание zsh
+  для нового пользователя на macOS (zsh 5.9) не воспроизвелось; пустые rc-файлы оставлены — они дёшевы.
+- **Test-ы:** `agents-text.test.sh` и `epic-wave-ship-ticket.test.sh` сверяют строку брифа, рецепт целиком и оба
+  правила; новый test запускает сам рецепт (bash и zsh, подставной реестр, случай только с `EVAL_HARNESS_HOME`), его
+  временные папки остаются внутри дерева test-а. Прогоны на финальном head: 362/201/26 — exit 0; оба guard test-а — 0.
+- **Ревью:** три круга. Круг 1 (high): correctness BLOCK — 2 med (рецепт сам вычислял Harness home; на Windows не
+  ставился `USERPROFILE`); tests — PASS с low. Круги 2 и 3 (medium) — только low, исправлены.
+- **Шаг владельца:** `pnpm install:stable` — до него новые брифы в Stable copy не действуют.
