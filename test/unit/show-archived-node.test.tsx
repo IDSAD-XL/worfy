@@ -50,9 +50,11 @@ function apply(op: LayoutOpInput): void {
   const change = (id: string, next: (node: LayoutNode) => LayoutNode) => {
     main.nodes = main.nodes.map((node) => (node.id === id ? next(node) : node))
   }
-  if (op.op === 'restore') for (const id of op.ids) change(id, (node) => ({ ...node, archived: null }))
-  else if (op.op === 'archive') for (const { id, rule } of op.nodes) change(id, (node) => ({ ...node, archived: { at: 2000, rule, batch: op.batch } }))
+  // main puts a restored Node off a Node that took its place (ADR-0038); here, always 200 lower.
+  if (op.op === 'restore') for (const id of op.ids) change(id, (node) => ({ ...node, archived: null, y: node.y + 200 }))
+  else if (op.op === 'archive') for (const { id, rule, at } of op.nodes) change(id, (node) => ({ ...node, archived: { at: at ?? 2000, rule, batch: op.batch } }))
   else if (op.op === 'hide') change(op.id, (node) => ({ ...node, hidden: op.hidden }))
+  else if (op.op === 'move') change(op.id, (node) => ({ ...node, x: op.x, y: op.y }))
   else throw new Error(`not in this test: ${op.op}`)
   main.revision += 1
 }
@@ -107,11 +109,14 @@ async function undo(): Promise<void> {
   await expect(historyOf(PROJECT_ID).undo()).resolves.toBe(true)
 }
 
-/** After ⌘Z: the Node is archived again, with its rule and batch, by the Show's own step. */
+/** After ⌘Z: the Node is archived again with its whole record and moved back to its old place, by the Show's own step. */
 async function expectUndoArchives(): Promise<void> {
   await undo()
-  expect(ops().at(-1)).toEqual({ op: 'archive', batch: RECORD.batch, nodes: [{ id: 'node-s', rule: RECORD.rule }] })
-  expect(main.nodes[0]!.archived).toMatchObject({ rule: RECORD.rule, batch: RECORD.batch })
+  expect(ops().slice(-2)).toEqual([
+    { op: 'archive', batch: RECORD.batch, nodes: [{ id: 'node-s', rule: RECORD.rule, at: RECORD.at }] },
+    { op: 'move', id: 'node-s', x: 40, y: 40 },
+  ])
+  expect(main.nodes[0]).toMatchObject({ x: 40, y: 40, archived: RECORD })
 }
 
 describe('Show of an archived Node', () => {
@@ -193,6 +198,30 @@ describe('Show of an archived Node', () => {
     ])
     await undo()
     expect(main.nodes[0]).toMatchObject({ hidden: true, archived: { batch: RECORD.batch } })
+  })
+
+  it('a hidden Node that is not archived is only shown, as a step: ⌘Z hides it again', async () => {
+    main.nodes = [sessionNode({ hidden: true, archived: null })]
+    const { acceptLayoutState } = await import('../../src/renderer/canvas/useLayout')
+    const { showNode } = await import('../../src/renderer/canvas/show-node')
+    acceptLayoutState(state())
+    await expect(showNode(PROJECT_ID, main.nodes[0]!)).resolves.toBeUndefined()
+    expect(ops()).toEqual([{ op: 'hide', id: 'node-s', hidden: false }])
+    await undo()
+    expect(ops().at(-1)).toEqual({ op: 'hide', id: 'node-s', hidden: true })
+    expect(main.nodes[0]).toMatchObject({ hidden: true, archived: null })
+  })
+
+  it('showOps: restore only for an archived Node (a needless restore would count as the user\'s work with it), hide false only for a hidden one', async () => {
+    const { showOps } = await import('../../src/renderer/canvas/show-node')
+    expect(showOps({ id: 'n', hidden: true, archived: null })).toEqual([{ op: 'hide', id: 'n', hidden: false }])
+    expect(showOps({ id: 'n', hidden: true })).toEqual([{ op: 'hide', id: 'n', hidden: false }])
+    expect(showOps({ id: 'n', hidden: false, archived: RECORD })).toEqual([{ op: 'restore', ids: ['n'] }])
+    expect(showOps({ id: 'n', hidden: true, archived: RECORD })).toEqual([
+      { op: 'restore', ids: ['n'] },
+      { op: 'hide', id: 'n', hidden: false },
+    ])
+    expect(showOps({ id: 'n', hidden: false, archived: null })).toEqual([])
   })
 
   it('a Node already on the Canvas is focused with nothing sent', async () => {

@@ -8,7 +8,7 @@
 // and only a whole frame is moved, by the user. An agent refers to an Epic or a Ticket through
 // `link_card`.
 
-import type { LayoutOpInput } from './types'
+import { isArchived, type ArchiveRecord } from './types'
 
 export const EPIC_FRAME_KIND = 'epic-frame'
 export const TICKET_KIND = 'ticket'
@@ -51,19 +51,7 @@ export const SOURCE_NODE_KINDS: readonly string[] = [EPIC_FRAME_KIND, TICKET_KIN
  * the Layout's Nodes to the user or to an agent — Find, the palette, the canvas tools — asks this,
  * not `hidden` alone: an archived Node is in the Layout but not on the screen.
  */
-export const shownOnCanvas = (node: { hidden: boolean; archived?: unknown }): boolean => !node.hidden && node.archived == null
-
-/**
- * The operations that put a Layout Node back on the Canvas before it is focused: `restore` for an
- * archived one (at its old place or the nearest clear one, ADR-0038), then `hide` false for a
- * hidden one. None for a Node already shown.
- */
-export function showOps(node: { id: string; hidden: boolean; archived?: unknown }): LayoutOpInput[] {
-  const ops: LayoutOpInput[] = []
-  if (node.archived != null) ops.push({ op: 'restore', ids: [node.id] })
-  if (node.hidden) ops.push({ op: 'hide', id: node.id, hidden: false })
-  return ops
-}
+export const shownOnCanvas = (node: { hidden: boolean; archived?: ArchiveRecord | null | undefined }): boolean => !node.hidden && !isArchived(node)
 
 /**
  * A Layout Node that takes room on the plane: one rule for main, which places new Nodes
@@ -71,7 +59,7 @@ export function showOps(node: { id: string; hidden: boolean; archived?: unknown 
  * (ADR-0032). A source kind keeps an offset, not a place; a pinned Node keeps screen pixels, not
  * plane coordinates; a hidden Node is not drawn, and neither is an archived one (ADR-0076).
  */
-export const onThePlane = (node: { kind: string; pinned: boolean; hidden: boolean; archived?: unknown }): boolean =>
+export const onThePlane = (node: { kind: string; pinned: boolean; hidden: boolean; archived?: ArchiveRecord | null | undefined }): boolean =>
   !node.pinned && shownOnCanvas(node) && !SOURCE_NODE_KINDS.includes(node.kind)
 
 /** True for the id of a Subagent Node, or of the Layout Node that kept a Session's Subagent offsets in older versions. */

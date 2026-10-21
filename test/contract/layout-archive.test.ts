@@ -461,6 +461,57 @@ describe('the undo history of a screen', () => {
     expect(isArchived(nodeOf('session:a')!)).toBe(true)
     expect(historyOf(PROJECT).canUndo).toBe(false)
   })
+
+  /** The screen's channel to the real store, as the Canvas and canvas/show-node.ts send. */
+  const screenChannel = () => ({
+    send: (op: LayoutOpInput) => Promise.resolve({ revision: apply(op, 'screen-1').revision }),
+    layout: () => store.get(PROJECT).layout,
+  })
+
+  it('⌘Z after a Restore that had to put the Node elsewhere archives it again at its old place, with its old record (worfy-canvas 14)', async () => {
+    const { applyRecorded, historyOf, resetHistories } = await import('../../src/renderer/canvas/history')
+    resetHistories()
+    apply(sessionNode('a'))
+    apply({ op: 'archive', batch: 'b1', nodes: [{ id: 'session:a', rule: 'ticket-done' }] })
+    const record = nodeOf('session:a')!.archived
+    // Another Node takes the archived one's place: an archived Node is in nobody's way.
+    apply({ op: 'create', node: { id: 'b', kind: 'note', x: 0, y: 0, w: 300, h: 120 } })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+
+    expect(await applyRecorded(PROJECT, { op: 'restore', ids: ['session:a'] }, screenChannel())).toBeUndefined()
+    const restored = nodeOf('session:a')!
+    expect(restored.archived).toBeNull()
+    expect({ x: restored.x, y: restored.y }).not.toEqual({ x: 0, y: 0 })
+
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    expect(nodeOf('session:a')).toMatchObject({ x: 0, y: 0, archived: record })
+    expect(nodeOf('b')).toMatchObject({ x: 0, y: 0 })
+
+    // Redo restores it again, off the other Node.
+    expect(await historyOf(PROJECT).redo()).toBe(true)
+    expect(nodeOf('session:a')).toMatchObject({ x: restored.x, y: restored.y, archived: null })
+  })
+
+  it('⌘Z after one Restore of Nodes from two batches puts each back into its own batch, at its own place and time', async () => {
+    const { applyRecorded, historyOf, resetHistories } = await import('../../src/renderer/canvas/history')
+    resetHistories()
+    apply(sessionNode('a'))
+    apply(sessionNode('c', 1000, 0))
+    apply({ op: 'archive', batch: 'b1', nodes: [{ id: 'session:a', rule: 'idle' }] })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    apply({ op: 'archive', batch: 'b2', nodes: [{ id: 'session:c', rule: 'ticket-done' }] })
+    const before = { a: nodeOf('session:a')!.archived, c: nodeOf('session:c')!.archived }
+    apply({ op: 'create', node: { id: 'b', kind: 'note', x: 0, y: 0, w: 300, h: 120 } })
+    apply({ op: 'create', node: { id: 'd', kind: 'note', x: 1000, y: 0, w: 300, h: 120 } })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+
+    expect(await applyRecorded(PROJECT, { op: 'restore', ids: ['session:a', 'session:c'] }, screenChannel())).toBeUndefined()
+    expect(nodes().filter(isArchived)).toEqual([])
+
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    expect(nodeOf('session:a')).toMatchObject({ x: 0, y: 0, archived: before.a })
+    expect(nodeOf('session:c')).toMatchObject({ x: 1000, y: 0, archived: before.c })
+  })
 })
 
 describe('the read-only screen of a Linked machine (ADR-0066)', () => {

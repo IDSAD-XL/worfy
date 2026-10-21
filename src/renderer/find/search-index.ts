@@ -10,6 +10,7 @@
 //   characters to the previous one scans only the documents that matched it.
 
 import { shownOnCanvas } from '../../shared/layout/derived'
+import type { ArchiveRecord } from '../../shared/layout/types'
 
 // ── palette ranking ─────────────────────────────────────────────────────────
 
@@ -298,7 +299,7 @@ export interface FindNode {
   kind: string
   hidden: boolean
   /** Set when the automatic archive took the Node off the Canvas (ADR-0076); absent or null — not archived. */
-  archived?: unknown
+  archived?: ArchiveRecord | null | undefined
   data: Record<string, unknown>
 }
 

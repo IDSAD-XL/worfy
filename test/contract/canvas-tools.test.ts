@@ -36,6 +36,13 @@ vi.mock('electron', () => ({
 // The real SDK, except query(): it records the options a Session would start Claude Code with.
 vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({ ...(await importOriginal<object>()), query: mocks.query }))
 vi.mock('../../src/main/agent/env', () => ({ agentEnv: mocks.agentEnv }))
+// randomUUID as it is, except the ids a test queues: a new Node's id can then be made to meet one
+// the Layout already has.
+const uuids = vi.hoisted(() => ({ queued: [] as string[] }))
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>()
+  return { ...actual, randomUUID: () => uuids.queued.shift() ?? actual.randomUUID() }
+})
 
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
 
@@ -575,6 +582,16 @@ describe('canvas tools: archived Nodes', () => {
     await refused(rpc, 'update_node', { id: 'n2', text: 't' }, reason)
     await refused(rpc, 'link_card', { id: 'c1', target: 'worfy-mvp' }, reason)
     expect(nodeOf('n2')).toMatchObject({ x: 0, y: 0, w: 220, h: 120, hidden: false, archived: { rule: 'idle', batch: 'batch-1' } })
+  })
+
+  it("a new Node's id is never an archived Node's: the id is still taken", async () => {
+    store.apply(PROJECT, note('note-aaaaaaaa'))
+    store.apply(PROJECT, archive('note-aaaaaaaa'))
+    const rpc = await connect()
+    uuids.queued.push('aaaaaaaa-0000-4000-8000-000000000000', 'bbbbbbbb-0000-4000-8000-000000000000')
+    const made = json<ListedNode>(await rpc.call('create_note', { text: 'new' }))
+    expect(made.id).toBe('note-bbbbbbbb')
+    expect(nodeOf('note-aaaaaaaa')).toMatchObject({ data: { text: 'note-aaaaaaaa' }, archived: { batch: 'batch-1' } })
   })
 })
 
