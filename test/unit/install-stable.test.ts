@@ -19,6 +19,41 @@ import { describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 import { build, checkTarget, dir, head, installerDir, installStable, junction, leftoverName, links, local, onDisk, registrations, REMOVE_ROUNDS, REPO, run, stamp, targetIn, useStandInBuild, WIN_HOME, WINDOWS } from './install-stable-harness'
 
+/**
+ * A copy of /bin/sleep at `program` that keeps running. A plain copy of an Apple binary
+ * fails the code-signature check and the kernel kills it with SIGKILL within moments of its start;
+ * the refusal tests then passed only when the script listed processes before the kill, and went
+ * red under a loaded gate. An ad-hoc signature makes the copy a program of its own that runs.
+ */
+const sleepCopyAt = (program: string): void => {
+  mkdirSync(dirname(program), { recursive: true })
+  copyFileSync('/bin/sleep', program)
+  chmodSync(program, 0o755)
+  // Linux (CI) runs these cases too: it has no codesign and does not kill the copy.
+  if (process.platform === 'darwin') execFileSync('codesign', ['--sign', '-', '--force', program], { stdio: 'ignore' })
+}
+
+/**
+ * macOS: waits until `ps` lists the process under `program`. Node's 'spawn' event fires once the
+ * child is forked, which can be before it has executed `program`. A process that is already gone
+ * fails at once rather than after the deadline.
+ */
+const waitUntilListed = (pid: number | undefined, program: string): void => {
+  const deadline = Date.now() + 10_000
+  for (;;) {
+    let command = ''
+    try {
+      command = execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' }).trim()
+    } catch {
+      // No such process yet: try again until the deadline.
+    }
+    if (command.startsWith(program)) return
+    if (command.includes('<defunct>')) throw new Error(`${program} (pid ${pid}) exited before the test could use it`)
+    if (Date.now() > deadline) throw new Error(`ps never listed ${program} as pid ${pid}; last seen: ${command || 'nothing'}`)
+    execFileSync('sleep', ['0.05'])
+  }
+}
+
 // The script itself. Its build is a stand-in folder that has what the script looks for on either
 // system, and every folder it may write to is a temporary one.
 describe('scripts/install-stable.mjs, run over a stand-in build', () => {
@@ -567,15 +602,14 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       const target = targetIn('apps', 'worfy-stable')
       // A real program inside the copy: sleep under the name of the app.
       const program = join(target, 'Contents', 'MacOS', 'worfy')
-      mkdirSync(dirname(program), { recursive: true })
-      copyFileSync('/bin/sleep', program)
-      chmodSync(program, 0o755)
+      sleepCopyAt(program)
       const child = spawn(program, ['60'], { stdio: 'ignore' })
       try {
         await new Promise((resolve, reject) => {
           child.once('spawn', resolve)
           child.once('error', reject)
         })
+        waitUntilListed(child.pid, program)
         // The build is not one: a run that looked at it first would say so.
         const refused = run([target], { WORFY_STABLE_PREBUILT: join(dir, 'no-such-build') })
         expect(refused.status).not.toBe(0)
@@ -604,9 +638,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       const target = targetIn('apps', 'worfy-stable')
       // A real program inside the copy: sleep under the name of the app. It is not running yet.
       const program = join(target, 'Contents', 'MacOS', 'worfy')
-      mkdirSync(dirname(program), { recursive: true })
-      copyFileSync('/bin/sleep', program)
-      chmodSync(program, 0o755)
+      sleepCopyAt(program)
       const env = { ...process.env, WORFY_STABLE_PREBUILT: '' }
       const builds: string[] = []
       let child: ReturnType<typeof spawn> | undefined
@@ -616,6 +648,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
         mkdirSync(join(repo, 'dist', 'mac-arm64', 'worfy.app', 'Contents'), { recursive: true })
         writeFileSync(join(repo, 'dist', 'mac-arm64', 'worfy.app', 'Contents', 'Info.plist'), 'not a real plist')
         child = spawn(program, ['60'], { stdio: 'ignore' })
+        waitUntilListed(child.pid, program)
       }
       try {
         expect(() => installStable([target], { env, repo, build })).toThrow(`the stable copy at ${target} is running`)
