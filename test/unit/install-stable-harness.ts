@@ -26,6 +26,8 @@ interface InstallStable {
   leftovers: (names: string[], base: string, alive: (pid: number) => boolean) => { installing: string[]; replaced: string[]; kept: string[] }
   buildCommand: (platform: string) => { command: string; args: string[]; shell: boolean }
   builtApp: (platform: string, dist: string, names: string[], exists: (path: string) => boolean) => string
+  electronMissing: (platform: string, repo: string, exists?: (path: string) => boolean, read?: (file: string) => string) => string | null
+  ELECTRON_INSTALL: string
   swapIn: (paths: { staging: string; target: string; aside: string }, files: Files) => string | null
   onDisk: (path: string) => string
   installStable: (
@@ -40,7 +42,7 @@ interface InstallStable {
 }
 export const REPO = join(import.meta.dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'install-stable.mjs')
-export const { defaultTarget, installerDir, checkTarget, metadataPath, runningCopies, notACopy, leftoverName, leftovers, buildCommand, builtApp, swapIn, onDisk, installStable, stamp, registerCommand, LSREGISTER, REMOVE_ROUNDS, removeInRounds } = (await import(
+export const { defaultTarget, installerDir, checkTarget, metadataPath, runningCopies, notACopy, leftoverName, leftovers, buildCommand, builtApp, electronMissing, ELECTRON_INSTALL, swapIn, onDisk, installStable, stamp, registerCommand, LSREGISTER, REMOVE_ROUNDS, removeInRounds } = (await import(
   pathToFileURL(SCRIPT).href
 )) as InstallStable
 

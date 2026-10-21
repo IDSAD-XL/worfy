@@ -174,3 +174,14 @@ Orchestrator гонял свой gate full. Gate принял `--help` за им
 Код: `harness/hooks/gate.mjs:123`.
 Проверка: проверки нет: правило брифа; hook-а, который не пускает gate с настоящим `HOME` из Subagent-а, нет.
 Источник: ревью PR #510 (`worfy-windows` 48), 2026-10-18.
+
+## Перед отправкой head — оба guard-test-а: `no-rmsync` и `e2e-no-spawn-on-load`
+
+2026-10-20 gate full Mac дважды покраснел только на `test/unit/no-rmsync.test.ts` (PR #591, PR #592): test
+удалял свою папку через `rmSync(…, { recursive: true })`, а не через `removeTestTree` из `test/remove.ts`.
+Остальные 7000+ test-ов, lint и e2e были зелёными; каждый такой красный — лишний полный gate в общей очереди.
+Оба guard-а читают исходники всех test-ов и идут за секунды. Что делать: бриф implementer-а и круга правок
+велит перед push-ем, который меняет `test/`, запустить по файлу `test/unit/no-rmsync.test.ts` и
+`test/unit/e2e-no-spawn-on-load.test.ts` и приложить exit code; ревьюер линзы тестов запускает их сам.
+Проверка: проверки нет: правило брифа; сами guard-ы ловят нарушение только в gate или при запуске по файлу.
+Источник: gate full PR #591 и PR #592 (`worfy-harness` 41, 36), 2026-10-20.

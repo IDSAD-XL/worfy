@@ -378,8 +378,8 @@ the verifier is alone in it — so it uses that worktree (with `single` — the 
 start a second agent in that worktree, and run mutations only on copies in its own scratchpad
 subdirectory (`<scratchpad>/verify-<NN>/`; on 16 September a second reviewer in a shared worktree
 took a mutant for a flaky test). Do not run other agents' scripts from the scratchpad: a verifier
-that ran someone else's `mut.sh` hung for three hours. The report is a claim; the verifier reads
-`not_verified` first and gathers the evidence itself:
+that ran someone else's `mut.sh` hung for three hours. The report is a claim, and the verifier
+gathers the evidence itself:
 
 ```bash
 cd <implementer worktree>                                     # the worktree from <F worktree.implementer> or <repo>
@@ -437,9 +437,8 @@ as a `blocked` row with that reason, and a human fixes it. `EXIT=127` — node i
 the gate never started: the same as exit code 3, with the reason "node not found". 128 + the signal
 number — `EXIT=129`, `130`, `143`, `149` (SIGHUP, SIGINT, SIGTERM, Ctrl+Break of Windows) — the gate itself was stopped and this run wrote nothing: that is no
 verdict, and the ticket is not merged on it.
-Then the verifier re-reads every `file:line` in `claims`, compares `exit_code` in `commands` with
-its own run, and looks for a refutation of the report's strongest sentence (the test passed before
-the change too). Owner rules the verifier gets in its brief: an acceptance item that cannot be
+Then the verifier checks the report by the lens "implementer's report" of agent `worfy:reviewer`
+(section "Lens descriptions" of the agent). Owner rules the verifier gets in its brief: an acceptance item that cannot be
 automated (a system dialog, an OS notification, a live terminal) may stay `[ ]` with a line
 "not verified: <why>" (in the docs' language; worfy: «не проверено: …») in the ticket's result
 section — that is not a finding and not a reason for `REJECTED`; attached evidence (a screenshot,
@@ -488,9 +487,8 @@ shows. Details — agent `worfy:reviewer`. A UI ticket without screenshots is a 
 finding, not "not verified": a screenshot can be automated, and the exception for manual GUI checks
 does not cover it.
 
-The verdict is the first line of the answer: `VERIFIED` or `REJECTED` with the list of unconfirmed
-claims; ≤30 lines, `file:line`. Every verdict is recorded so the round count survives a session
-break:
+The verifier's answer starts with its verdict, in the form that lens gives it. Every verdict is
+recorded so the round count survives a session break:
 
 ```bash
 gh pr comment <N> --body "VERIFIED"            # or "REJECTED: <list>"

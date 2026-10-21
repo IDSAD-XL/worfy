@@ -19,14 +19,26 @@ process.env.WORFY_QUIET_WINDOWS ??= '1'
 // one folder for both the packaged run, which follows the e2e run in a full gate, deleted the
 // error context and the traces of a failed e2e test. A command-line flag, not an environment
 // variable in the script, because package.json scripts run through cmd.exe on Windows.
+//
+// A JSON report of the run, with the duration of every test, goes next to the output folder and is
+// named after it: test-results/e2e-report.json, and test-results/package-report.json for
+// `pnpm test:package` (scripts/test-timings.mjs reads both). One file for both runs would let the
+// packaged run of a full gate overwrite the report of the e2e run. The output folder is read from
+// the command line here because the config does not know --output otherwise.
+const OUTPUT_DIR = 'test-results/e2e'
+const outputFlag = process.argv.findIndex((arg) => arg === '--output' || arg.startsWith('--output='))
+const outputDir =
+  outputFlag < 0 ? OUTPUT_DIR : process.argv[outputFlag]!.startsWith('--output=') ? process.argv[outputFlag]!.slice('--output='.length) : (process.argv[outputFlag + 1] ?? OUTPUT_DIR)
+const jsonReport = `${outputDir.replace(/[\\/]+$/, '')}-report.json`
+
 export default defineConfig({
   testDir: 'test/e2e',
   testMatch: '**/*.spec.ts',
-  outputDir: 'test-results/e2e',
+  outputDir: OUTPUT_DIR,
   fullyParallel: false,
   workers: 1,
   timeout: 60_000,
-  reporter: [['list'], ['./test/e2e/helpers.ts']],
+  reporter: [['list'], ['./test/e2e/helpers.ts'], ['json', { outputFile: jsonReport }]],
   use: {
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',

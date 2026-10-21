@@ -26,8 +26,9 @@ import {
   browserPageRect,
   browserUrl,
   dismissBrowserOpenRequest,
-  offerBrowserOpenRequest,
+  offerOwnBrowserOpenRequest,
   registerBrowserPage,
+  type BrowserOpenRequestEvent,
   setBrowserHistory,
   webAddress,
 } from '../nodes/browser-frame'
@@ -124,15 +125,7 @@ function BrowserPage({ page, partition }: { page: Page; partition: string }) {
     }
     // The Open bar (worfy-browser ticket 11): main names the page by its web contents id, and only
     // this page's requests are this frame's; a navigation of the page takes the bar away.
-    const onOpenRequest = ({ webContentsId, url }: { webContentsId: number; url: string }) => {
-      let own: number
-      try {
-        own = element.getWebContentsId()
-      } catch {
-        return
-      }
-      if (webContentsId === own) offerBrowserOpenRequest(page.id, url)
-    }
+    const onOpenRequest = (request: BrowserOpenRequestEvent) => offerOwnBrowserOpenRequest(page.id, () => element.getWebContentsId(), request)
     const onNavigated = (event: Event) => {
       if ((event as NavigationEvent).isMainFrame !== false) dismissBrowserOpenRequest(page.id)
     }

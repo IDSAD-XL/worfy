@@ -125,14 +125,16 @@ registry "$HOME/.claude/worfy-harness" "$R"
 # --- 1. Every script with EVAL_GIT and a failing git on PATH --------------------------------
 # pair <name> <stdin> <command…>: the command in $R twice — with the real git on PATH, then with the
 # failing git first on PATH and EVAL_GIT; the same exit code and stdout, and new lines in the log.
-# PAIR_STDERR=1 compares stderr too.
+# PAIR_STDERR=1 compares stderr too. The gate's timing line («[gate] time (…): …») is left out of
+# the comparison: the durations differ from run to run by themselves.
+untimed() { sed '/^\[gate\] time /d'; }
 pair() {
     local name="$1" input="$2"; shift 2
     local real_out real_rc eval_out eval_rc before after err=/dev/null
     [ "${PAIR_STDERR:-0}" = 1 ] && err=/dev/stdout
-    real_out="$(cd "$R" && printf '%s' "$input" | "$@" 2>"$err" | nocr)"; real_rc=$?
+    real_out="$(cd "$R" && printf '%s' "$input" | "$@" 2>"$err" | nocr | untimed)"; real_rc=$?
     before="$(log_lines)"
-    eval_out="$(cd "$R" && printf '%s' "$input" | PATH="$BROKEN_PATH" EVAL_GIT="$EVAL_GIT_NODE" "$@" 2>"$err" | nocr)"; eval_rc=$?
+    eval_out="$(cd "$R" && printf '%s' "$input" | PATH="$BROKEN_PATH" EVAL_GIT="$EVAL_GIT_NODE" "$@" 2>"$err" | nocr | untimed)"; eval_rc=$?
     after="$(log_lines)"
     if [ "$eval_rc" -eq "$real_rc" ] && [ "$eval_out" = "$real_out" ]; then ok "$name: with EVAL_GIT the same exit code ($real_rc) and output as with git on PATH"
     else bad "$name: git on PATH rc=$real_rc, out: ${real_out:0:400}; EVAL_GIT rc=$eval_rc, out: ${eval_out:0:400}"; fi

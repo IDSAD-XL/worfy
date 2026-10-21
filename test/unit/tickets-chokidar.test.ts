@@ -121,10 +121,25 @@ describe('chokidar with the filter of a Tickets root', () => {
   // After the root is removed chokidar does not watch the folder above for it again. Measured on
   // macOS only: on Windows a removed folder chokidar watches sends events without end
   // (worfy-windows ticket 37), and Linux was not measured.
+  //
+  // The claim needs chokidar to have taken the removal in (`unlinkDir` of the root): a removal it
+  // missed leaves the old watch on the path, and that watch would report the new root. On macOS
+  // fs.watch of a folder runs through one FSEvents stream that is made again, on a thread of its
+  // own, for every new folder; a change made before that is done is lost for good, as the first
+  // test of this file says of a write in the tick of `ready`. Under the load of a full run that
+  // takes longer, and a removal made right after `ready` went unreported, so a longer wait would
+  // not help. So the root is removed only once the watch is seen to report: a new Ticket is
+  // written until chokidar reports it.
   it.skipIf(process.platform !== 'darwin')('does not see a root that is removed and made again under the same name', async () => {
     mkdirSync(join(root, 'demo', 'issues'), { recursive: true })
     writeFileSync(join(root, 'demo', 'issues', '01-a.md'), '# 01\n')
     const { events } = await started()
+    const probe = join(root, 'demo', 'issues', '02-probe.md')
+    await until('a report of the watch before the removal', () => {
+      if (events.some((event) => event.endsWith(` ${probe}`))) return true
+      writeFileSync(probe, `# 02 ${events.length}\n`)
+      return false
+    })
     removeTestTree(root)
     expect(existsSync(root)).toBe(false)
     await until('the removal of the root', () => events.includes(`unlinkDir ${root}`))
