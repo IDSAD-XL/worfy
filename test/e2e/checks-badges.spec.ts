@@ -384,7 +384,13 @@ interface StepperTicket {
 }
 
 /** A Project whose Profile (a stand-in bin/profile) has the nine-Stage Pipeline (or `pipeline`) and `repos`, launched. */
-async function launchNineStages(tickets: StepperTicket[], pulls: unknown[], repos: (repo: string) => { name: string; path: string }[], pipeline: unknown[] = WORFY_PIPELINE) {
+async function launchNineStages(
+  tickets: StepperTicket[],
+  pulls: unknown[],
+  repos: (repo: string) => { name: string; path: string }[],
+  pipeline: unknown[] = WORFY_PIPELINE,
+  viewport = { x: 40, y: 40, zoom: 0.8 },
+) {
   const dataDir = join(scratch, 'data')
   const claudeHome = join(scratch, 'claude-home')
   const ghDir = join(scratch, 'gh')
@@ -420,7 +426,7 @@ async function launchNineStages(tickets: StepperTicket[], pulls: unknown[], repo
   for (const script of ['epic-status', 'profile']) chmodSync(join(claudeHome, 'bin', script), 0o755)
   writeFileSync(join(ghDir, 'prs.json'), JSON.stringify(pulls))
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'demo', path: repo }], activeId: PROJECT }))
-  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 40, y: 40, zoom: 0.8 } }))
+  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport }))
   return launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_HARNESS_HOME: join(scratch, 'no-harness-home'), GH_STUB_DIR: ghDir, GH_STUB_LOG: join(ghDir, 'calls.jsonl') } })
 }
 
@@ -588,10 +594,18 @@ test('the width estimate against the real fonts: Cyrillic, wide letters, a long 
     { num: 4, status: 'blocked — see the path', state: 'blocked', reason: PATH, title: PATH },
     { num: 5, status: 'open', state: 'open', title: EMOJI, repo: REPO },
   ]
-  const launched = await launchNineStages(tickets, [], (repo) => [
-    { name: REPO, path: repo },
-    { name: 'web', path: join(scratch, 'web') },
-  ])
+  // The five tall cards stand in one column: zoomed out so React Flow draws all of them
+  // (it draws only the Nodes in view).
+  const launched = await launchNineStages(
+    tickets,
+    [],
+    (repo) => [
+      { name: REPO, path: repo },
+      { name: 'web', path: join(scratch, 'web') },
+    ],
+    WORFY_PIPELINE,
+    { x: 40, y: 20, zoom: 0.5 },
+  )
   try {
     const { window } = launched
     await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))

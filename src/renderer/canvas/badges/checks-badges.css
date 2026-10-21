@@ -14,21 +14,24 @@
   display: inline-flex;
   flex: none;
 }
+/* 16 px with its 1 px border (`.w-chip--open`, border-box): a line of 14 px inside. */
 .w-checks .w-chip {
   display: block;
   height: 16px;
   padding: 0 3px;
   font-size: var(--text-11);
-  line-height: 16px;
+  line-height: 14px;
 }
 .w-checks .w-chip > svg {
   display: inline-block;
   margin-right: 3px;
   vertical-align: -1px;
 }
+/* As tall as a chip: the card's 17 px line would make a row of chips 1 px taller than ticket-card.ts allows. */
 .w-checks__pr {
   padding: 0 2px;
   font-size: var(--text-11);
+  line-height: 16px;
   font-weight: 500;
   color: var(--accent);
   white-space: nowrap;
