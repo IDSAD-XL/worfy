@@ -1,7 +1,8 @@
 # 10 — Английские подстановки Profile и имена lens без русских слов в plugin
 
 Type: task
-Status: claimed 2026-10-21T01:01Z
+Status: done 2026-10-21T03:27Z
+PR: #649
 Blocked by: 07
 Source: ревью PR [#625](https://github.com/IDSAD-XL/worfy/pull/625) (Ticket 07, правило lint против
 кириллицы), круг 1, lens «границы модулей», находка med; [ADR-0074](../../../docs/adr/0074-harness-neutral-by-language-and-project.md),
@@ -44,10 +45,10 @@ Ticket 07 нашёл русские слова, которые не уходят
 
 ## Готово, когда
 
-- [ ] `harness/hooks/tests/*`, `harness/bin/tests/profile.test.sh` — exit 0: новые и старые подстановки дают
+- [x] `harness/hooks/tests/*`, `harness/bin/tests/profile.test.sh` — exit 0: новые и старые подстановки дают
       тот же результат; красный до правки на новом слове.
-- [ ] `pnpm lint` — exit 0 без списка `profileWords`.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge; вердикт
+- [x] `pnpm lint` — exit 0 без списка `profileWords`.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge; вердикт
       Windows с ПК (меняет скрипты Harness).
 
 ## Тесты
@@ -66,4 +67,39 @@ Ticket 07 нашёл русские слова, которые не уходят
 
 ## Итог
 
-Заполняется при закрытии.
+Влит #649 (5dbe12c2), после #643. Проверки Orchestrator-а: gate full — зелено на `main` (+#643) + PR,
+`plugin-neutral` 26/0; вердикт Windows с ПК — зелено (12 shell test-ов, 8 файлов vitest, 369 прошли).
+Review: круг 1 — high, три lens (корректность — ничего; границы модулей — 4 low; тесты — 32 из 39 mutant-ов
+убиты, low); круг 2 — medium, 1 low (static import в hook-е), исправлен; high и med не было.
+
+- Подстановки: `<эпик>`→`<epic>`, `<ветка>`→`<branch>`, `<имя-тикета>`→`<ticket-name>`,
+  `<что-ревьюишь>`→`<review-target>`, `<файл>`→`<file>`, `<пакет>`→`<package>`, `<имя>`→`<name>`,
+  `<каталог модуля>`→`<module-dir>` (через дефис, без пробела внутри). Заголовки `rules.md`:
+  `## Required reading for the implementer`, `## Overnight run and audit`.
+- Совместимость на один release — одно место, `harness/lib/old-words.cjs` (пометка
+  `shortcut: accepts the old Russian token`): `bin/profile` печатает старые подстановки во всех строковых
+  значениях (`--field`, `--json`, сводка) и старые заголовки (`--rules`) в английской форме; hook
+  `session-start.mjs` подмешивает правила через тот же файл (грузит его внутри hook-а: без файла — правила как
+  написаны и одна строка в stderr). Файл Profile-а не меняется и остаётся источником: обратно вывод `bin/profile`
+  никто не пишет (`profile-set`, `migrate` читают файл). `worktree-create.sh` и regex `epic-wave` знают только
+  английские формы — значения к ним приходят через `bin/profile`.
+- Plugin не называет конкретных lens: описание в `reviewer.md` относится к lens с тем же именем, назначает ли
+  её skill или `review.lenses`. Временный список правила lint (`scripts/cyrillic-allow.json`, `--allow`)
+  удалён; дубль в `agents-text.test.sh` — тоже (теперь строгое «в agents нет кириллицы»).
+- В `src/` подстановщиков нет; `src/main/harness/migrate/profiles.ts` (schema 1 → 2) копирует русские
+  подстановки в файл как есть — `bin/profile` печатает их английскими до 08.
+
+Пункт 5 — шаг владельца (в утреннем списке Orchestrator-а), **после** установки Stable с этим PR: иначе
+старый skill epic-wave увидит `<epic>`, а его текст говорит `<эпик>`. В файлах Profile-ов:
+
+- worfy — `worktree.implementer`, `worktree.reviewer` (`<ветка>`, `<что-ревьюишь>`), `tickets.path`,
+  `tickets.spec`, `tickets.branch`, `qmd.fallback_grep` (`<эпик>`).
+- auction — `commands.test_one`, `commands.package.*` (`<файл>`, `<пакет>`), `tests.new_file.*` (`<имя>`,
+  `<каталог модуля>`), `worktree.*` (`<ветка>`, `<имя-тикета>`, `<что-ревьюишь>`), `tickets.*`,
+  `qmd.fallback_grep` (`<эпик>`); `rules.md:9` и `:85` — английские заголовки.
+- atakama — `commands.package.test` (`<пакет>`), `tickets.*`, `qmd.fallback_grep` (`<эпик>`); `rules.md:108`.
+  Свои подстановки проекта `<репозиторий>`, `<сервис>` остаются.
+- По желанию — имена lens в `review.lenses` / `ticket_lenses` по-английски (worfy: `correctness`,
+  `module boundaries`, `tests`; auction и atakama — так же по смыслу).
+
+Долг (low): `\r?` в `englishHeadings` лишний (`$` с флагом `m` уже совпадает перед `\r`).
