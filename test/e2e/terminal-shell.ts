@@ -30,6 +30,18 @@ export function chooseGitBash(projectDataDir: string): void {
  * %USERPROFILE%\AppData\Local\Temp on most machines, so the shell's TEMP lands in `dir` too: the
  * folders are made here. worfy's own folders do not move: WORFY_DATA_DIR and WORFY_CLAUDE_HOME
  * name them in every test (launch-env.ts).
+ *
+ * HOMEDRIVE and HOMEPATH move too. worfy passes no HOME on Windows, and Git for Windows takes HOME
+ * from HOMEDRIVE + HOMEPATH before USERPROFILE: on the Windows PC on 2026-10-21, bin\bash.exe -c
+ * with USERPROFILE, APPDATA and LOCALAPPDATA moved but the real HOMEDRIVE/HOMEPATH printed
+ * HOME=/c/Users/<owner>; with these two moved as well it printed the temporary folder. The git
+ * worfy runs in these specs gets that HOME as well and so no global git config: it only reads
+ * (status, log), and the specs commit with their own -c identity.
+ *
+ * Moving USERPROFILE and LOCALAPPDATA also changes which shell worfy finds (src/main/agent/env.ts):
+ * a per-user Git in %LOCALAPPDATA%\Programs\Git (findGitBash) and pwsh as an app execution alias in
+ * %LOCALAPPDATA%\Microsoft\WindowsApps are not found. On such a machine these specs run Windows
+ * PowerShell, and the Git Bash ones need a machine-wide Git or one on the Path.
  */
 export function windowsProfileEnv(dir: string): Record<string, string> {
   if (!WINDOWS) return {}
@@ -37,7 +49,9 @@ export function windowsProfileEnv(dir: string): Record<string, string> {
   const localAppData = join(dir, 'AppData', 'Local')
   mkdirSync(appData, { recursive: true })
   mkdirSync(join(localAppData, 'Temp'), { recursive: true })
-  return { USERPROFILE: dir, APPDATA: appData, LOCALAPPDATA: localAppData }
+  // shortcut: a drive-letter path only (C:\...), not a UNC one; redo if tmpdir() is ever on a share.
+  const drive = win32.parse(dir).root.replace(/\\$/, '')
+  return { USERPROFILE: dir, APPDATA: appData, LOCALAPPDATA: localAppData, HOMEDRIVE: drive, HOMEPATH: dir.slice(drive.length) }
 }
 
 /**
