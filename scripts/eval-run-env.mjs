@@ -128,6 +128,19 @@ export function pluginCopy(source) {
   return target
 }
 
+/**
+ * Gives the runs their copy of git: `gitCopy` into `dir`, that folder first on the PATH of `env`, and
+ * the two variables `harness/hooks/eval-env.cjs` reads — `EVAL_GIT` (the wrapper) and
+ * `EVAL_HARNESS_HOME`. Changes `env` in place and returns the wrapper; `fail` as `gitCopy`.
+ */
+export function gitForRuns(dir, env, fail) {
+  const git = gitCopy(dir, env, fail)
+  env.PATH = [dir, env.PATH].filter(Boolean).join(delimiter)
+  env.EVAL_GIT = git
+  env.EVAL_HARNESS_HOME = 'worfy-harness'
+  return git
+}
+
 /** A string as one word of a POSIX shell. */
 const shellWord = (text) => `'${text.replaceAll("'", `'\\''`)}'`
 

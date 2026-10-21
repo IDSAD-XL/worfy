@@ -882,6 +882,12 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(calls).toEqual([])
   })
 
+  it('runs on claude 2.1.269 itself, the first version with `plugin eval`', () => {
+    const { run, calls } = evalHarness('2.1.269', '0,0')
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls).toHaveLength(2)
+  })
+
   it('makes two calls with the flags of the ticket and a narrow Bash for the gui case', async () => {
     const { MODEL, JUDGE_MODEL } = await runEnvModule()
     const { run, calls: logged } = evalHarness('2.1.289', '0,0')

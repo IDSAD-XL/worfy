@@ -50,12 +50,12 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { constants } from 'node:os'
-import { delimiter, dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { setImmediate } from 'node:timers'
 import { fileURLToPath } from 'node:url'
 import { casesFor, coverageProblems, readCoverage } from './eval-harness-coverage.mjs'
-import { checkVersion, claudeBinary, cleanEnv, gitCopy, JUDGE_MODEL, MODEL, pluginCopy, runClaude } from './eval-run-env.mjs'
+import { checkVersion, claudeBinary, cleanEnv, gitForRuns, JUDGE_MODEL, MODEL, pluginCopy, runClaude } from './eval-run-env.mjs'
 import { removeTree } from './remove-tree.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -249,10 +249,7 @@ for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => (
 const signalsHandled = () => new Promise((resolve) => setImmediate(resolve))
 
 const gitDir = join(EVALS, 'results', `${stamp}-git`)
-const evalGit = gitCopy(gitDir, childEnv, fail)
-childEnv.PATH = [gitDir, childEnv.PATH].filter(Boolean).join(delimiter)
-childEnv.EVAL_GIT = evalGit
-childEnv.EVAL_HARNESS_HOME = 'worfy-harness'
+const evalGit = gitForRuns(gitDir, childEnv, fail)
 process.stdout.write(`eval:harness: git for the runs — ${evalGit}\n`)
 let harness = ''
 let worst = 0

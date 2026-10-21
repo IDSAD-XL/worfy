@@ -28,12 +28,12 @@
 // git, or a score with problems; 2 — usage; 128 + the signal number — stopped by a signal.
 import { constants } from 'node:os'
 import { existsSync } from 'node:fs'
-import { delimiter, dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { setImmediate } from 'node:timers'
 import { fileURLToPath } from 'node:url'
 import { judgeCommand, scoreResults, taskFolders } from './eval-outcome-lib.mjs'
-import { checkVersion, claudeBinary, cleanEnv, gitCopy, JUDGE_MODEL, MODEL, pluginCopy, runClaude } from './eval-run-env.mjs'
+import { checkVersion, claudeBinary, cleanEnv, gitForRuns, JUDGE_MODEL, MODEL, pluginCopy, runClaude } from './eval-run-env.mjs'
 import { removeTree } from './remove-tree.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -85,10 +85,7 @@ const exitStopped = () => {
 
 const RESULTS = process.env.EVAL_OUTCOME_RESULTS ? resolve(process.env.EVAL_OUTCOME_RESULTS) : join(REPO, 'scripts', 'eval-outcome', 'results')
 const gitDir = join(RESULTS, `${stamp}-git`)
-const evalGit = gitCopy(gitDir, childEnv, fail)
-childEnv.PATH = [gitDir, childEnv.PATH].filter(Boolean).join(delimiter)
-childEnv.EVAL_GIT = evalGit
-childEnv.EVAL_HARNESS_HOME = 'worfy-harness'
+const evalGit = gitForRuns(gitDir, childEnv, fail)
 const outputDir = join(RESULTS, stamp)
 let harness = ''
 let worst
