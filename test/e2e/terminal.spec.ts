@@ -385,7 +385,8 @@ test('at Canvas zoom 50% a drag that began in one terminal and goes over another
 
 test('quitting worfy ends every shell; after a restart the Node starts a new shell in the same folder', async () => {
   const first = await launch()
-  const mainPid = first.app.process().pid ?? 0
+  // From main itself: on Windows app.process() is the cmd.exe that starts electron.exe.
+  const mainPid = await first.app.evaluate(() => process.pid)
   let pids: number[] = []
   const jobs: number[] = []
   let closing: Promise<void> | undefined
