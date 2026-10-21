@@ -219,6 +219,15 @@ c="$(CLAUDE_GATE_CONFIG="$T/syn5.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" 
     && ok "synthetic: rules.md without its '## Sources' section" || bad "synthetic: '## Sources' section: [$c]"
 [[ "$c" == *$'## Required reading for the implementer\nREAD-RULE'* && "$c" == *$'## Overnight run and audit\r\nNIGHT-RULE'* && "$c" == *$'## Ночной прогон и аудит (old)\nOLD-RULE'* && "$c" != *"## Обязательное чтение исполнителя"* && "$c" != *$'## Ночной прогон и аудит\r'* && "$c" != *$'## Ночной прогон и аудит\n'* ]] \
     && ok "synthetic: the old Russian rules.md headings are mixed in under their English form" || bad "synthetic: rules.md headings: [$c]"
+# A copy of the hook without lib/old-words.cjs next to it: exit 0, one line on stderr, and the rules still
+# mixed in, their headings as written.
+mkdir -p "$T/nolib/hooks" && cp "$START" "$T/nolib/hooks/"
+out="$(CLAUDE_PROFILE_BIN="$HARNESS/bin/profile" CLAUDE_GATE_CONFIG="$T/syn5.json" CLAUDE_PROFILES_DIR="$T/sp" run "$T/nolib/hooks/session-start.mjs" "$T/syn/p5" "$T/syn/p5" 2>"$T/nolib.err")"; rc=$?
+c="$(printf '%s' "$out" | ctx)"
+[ "$rc" -eq 0 ] && [ "$(wc -l <"$T/nolib.err" | tr -d ' ')" = 1 ] && grep -q '^session-start: .*rules.md headings left as written$' "$T/nolib.err" \
+    && [[ "$c" == *$'## Обязательное чтение исполнителя\nREAD-RULE'* && "$c" == *"KEPT-RULE"* ]] \
+    && ok "without lib/old-words.cjs: exit 0, one stderr line, the rules mixed in as written" \
+    || bad "without lib/old-words.cjs: rc=$rc, stderr: [$(cat "$T/nolib.err")], context: [${c:0:200}]"
 
 # --- the workflow mode -----------------------------------------------
 # Silent mode and attribution off are said in every session of the project, whatever session.inject_rules

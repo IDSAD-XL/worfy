@@ -33,12 +33,10 @@
 
 import { spawnSync } from "node:child_process"
 import fs from "node:fs"
+import { createRequire } from "node:module"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import oldWords from "../lib/old-words.cjs"
-
-const { englishHeadings } = oldWords
 
 const DEFAULT_CAP = 20000
 
@@ -189,7 +187,15 @@ function main() {
             if (!skip) kept.push(line)
         }
         const heading = str(session.rules_heading)
-        // The old Russian headings agents look for are mixed in under their English form, as bin/profile prints them.
+        // The old Russian headings agents look for are mixed in under their English form, as bin/profile prints
+        // them (lib/old-words.cjs). Loaded here, not by a static import: a copy of the hook without that file
+        // still mixes the rules in, as written, with one line on stderr.
+        let englishHeadings = (text) => text
+        try {
+            ;({ englishHeadings } = createRequire(import.meta.url)("../lib/old-words.cjs"))
+        } catch (e) {
+            process.stderr.write(`session-start: ${String(e?.message ?? e).split("\n")[0]} — rules.md headings left as written\n`)
+        }
         add(heading || `Project rules (profile ${name})`, englishHeadings(kept.join("\n")).replace(/\n+$/, ""), rulesFile)
     }
 
