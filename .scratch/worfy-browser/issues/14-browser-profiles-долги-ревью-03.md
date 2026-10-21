@@ -1,7 +1,8 @@
 # 14 — Browser profiles: долги ревью Ticket-а 03 и вопрос profile-а при создании Browser-а
 
 Type: task
-Status: claimed 2026-10-21T15:51Z
+Status: done 2026-10-21T17:42Z
+PR: #703
 Blocked by: 03
 Source: review PR #691 (Ticket 03), круги 1 и 2, находки low, 2026-10-21. Код перечитан по main
 `4a0f0ea3`.
@@ -184,3 +185,12 @@ profile-а проверено, что session открытой страницы 
 | `reloadBrowserProfiles` без `current.delete` | browser-profiles-store | 1 |
 | palette передаёт чужой projectId | palette-new-browser | 1 |
 | palette создаёт `data: {}` | palette-new-browser | 1 |
+
+**Ревью и merge.**
+- Круг 1, глубина high (корректность, тесты, границы модулей и безопасность): REJECTED. Находки:
+  1 high — Browser layer превращал отсутствующий `profile` в `null`, поэтому правило старых
+  Browser-ов работало в рамке, но не в слое; 3 low. Все четыре исправлены, см. «Rework».
+- Круг 2, глубина medium (корректность, тесты): VERIFIED, находок high и med нет. Три low — пробелы
+  в тестах, удаление они не охраняют. Они вынесены в Ticket 15.
+- Gate full зелёный на main `40c3050a` с первого прогона. Merge — `b42bdbb3` (очередь gate Session
+  «Worfy продолжение»).
