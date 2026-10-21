@@ -147,13 +147,15 @@
    for 12 characters of host and the path's tail (OPEN_BAR_ADDRESS_TAIL, 24 characters). Inside it the
    path's head gives way first (its flex-shrink is far larger) down to nothing; then the host gets
    narrower, down to 12 characters, and wraps onto more lines instead of being cut, so the bar grows
-   taller. Only a frame narrower than that minimum clips the end of the tail. */
+   taller. Only a frame narrower than that minimum clips the end of the tail. The path lines up with
+   the host's last line (worfy-browser ticket 13): beside the first one, the top line would read as a
+   whole address made of the host's start and the path's end. */
 .w-browser-frame__open-url {
   flex: 1 1 0;
   min-width: min(100%, 12ch + 24ch);
   overflow: hidden;
   display: flex;
-  align-items: baseline;
+  align-items: last baseline;
 }
 .w-browser-frame__open-url-site {
   flex: 0 1 auto;
