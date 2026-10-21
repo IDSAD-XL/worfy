@@ -1,7 +1,7 @@
 # 51 — Запуск `epic-status` — отдельный шаг перед блоком статуса в правилах Orchestrator-а
 
 Type: task
-Status: open
+Status: claimed 2026-10-21T12:17Z
 Blocked by: —
 Source: follow-up Ticket-а 27 (eval-кейсы Harness): платный круг 2026-10-18, кейс `status-block` — 0.50 при
 пороге 0.8 («Итог» Ticket-а 27, «Ниже порога — нарушения правил Harness», на ветке `worfy-harness/27-eval`,
