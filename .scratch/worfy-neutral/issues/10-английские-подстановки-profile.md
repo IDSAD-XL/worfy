@@ -1,7 +1,7 @@
 # 10 — Английские подстановки Profile и имена lens без русских слов в plugin
 
 Type: task
-Status: open
+Status: claimed 2026-10-21T01:01Z
 Blocked by: 07
 Source: ревью PR [#625](https://github.com/IDSAD-XL/worfy/pull/625) (Ticket 07, правило lint против
 кириллицы), круг 1, lens «границы модулей», находка med; [ADR-0074](../../../docs/adr/0074-harness-neutral-by-language-and-project.md),
