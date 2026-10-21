@@ -194,11 +194,10 @@ for (const [where, below] of [['the middle', 0.5], ['the lower end', 1]] as cons
 }
 
 test('a Note jerked across a Card iframe ends its drag on the release and lands where it was dropped', async () => {
-  // At zoom 0.6 the Note stands 10 screen px left of the Card (16 on the Canvas, ADR-0038). Held at
+  // At zoom 0.5 the Note stands 8 screen px left of the Card (16 on the Canvas, ADR-0038). Held at
   // the right end of its header and pulled right: the first step puts the pointer on the Card's
-  // iframe, and the pull carries the Note across the Card to beyond it. 0.6 is the lowest zoom at
-  // which the Card runs its page (the full zoom level, zoom-level.ts).
-  const viewport = { x: -400, y: 0, zoom: 0.6 }
+  // iframe, and the pull carries the Note across the Card to beyond it.
+  const viewport = { x: -400, y: 0, zoom: 0.5 }
   const window = await start([noteNode('n1', 1064, 300), cardNode('c1', 1300, 200)], viewport)
   const title = await box(header(window, 'n1'))
   const moved = await jerk(window, { x: title.x + title.width - 2, y: title.y + title.height / 2 }, { x: 360, y: 0 })

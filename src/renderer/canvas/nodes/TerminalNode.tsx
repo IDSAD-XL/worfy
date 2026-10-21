@@ -19,7 +19,7 @@ import { failureReason } from '../../../shared/ipc/channels'
 import type { TerminalAiFixState } from '../../../shared/ipc/terminal-ai-fix'
 import type { TerminalAiRequestState } from '../../../shared/ipc/terminal-ai-request'
 import { SHORTCUTS } from '../../../shared/shortcuts'
-import { NODE_HEADER, NODE_TITLE } from '../zoom-level'
+import { NODE_HEADER } from '../node-header'
 
 // A Terminal: the user's interactive shell in the root of the Project (CONTEXT.md, "Terminal").
 // The agent does not use it. main runs the shell (src/main/terminal/pty.ts); this Node draws it
@@ -465,7 +465,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
           <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
           <path d="M4.5 6l2 2-2 2M8.5 10.5h3" />
         </svg>
-        <span className="w-terminal__title" {...NODE_TITLE}>
+        <span className="w-terminal__title">
           Terminal
         </span>
         {shell !== '' ? <span className="w-terminal__shell">{shell}</span> : null}

@@ -104,7 +104,7 @@ test.beforeEach(() => {
   mkdirSync(join(claudeHome, 'sessions'), { recursive: true })
   mkdirSync(projectPath)
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
-  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 20, y: 40, zoom: 0.6 } }))
+  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 20, y: 40, zoom: 0.45 } }))
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'alpha', path: projectPath }], activeId: PROJECT }))
 })
 

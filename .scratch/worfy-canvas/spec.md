@@ -88,7 +88,8 @@ Ticket-ами.» Все 11 вопросов раздела 6 исследова�
 10. **«Arrange by Epic» перебивает ручное размещение**, но только по команде и одним шагом ⌘Z. Node-ы с
     `pinned` и Keep не двигаются (Ticket 12).
 11. **Semantic zoom — параллельно с токенами**, не после: без него цвет на дальнем zoom помогает мало
-    (ADR-0077, пункт 7; Ticket 06).
+    (ADR-0077, пункт 7; Ticket 06). **Отключено Ticket-ом 20 (владелец, 2026-10-21):** на любом zoom
+    Node рисуется целиком.
 
 ## Как устроено
 
@@ -150,8 +151,10 @@ Ticket-ами.» Все 11 вопросов раздела 6 исследова�
 5. **Голубой Session рядом с синим working**, жёлтый Epic рядом с лаймовым ready под протанопией.
    Снято местом цвета: тип — полоса и иконка, статус — chip со словом (ADR-0077, пункты 3, 5).
 6. **Производительность на дальнем zoom.** `onlyRenderVisibleElements`
-   (`src/renderer/canvas/Canvas.tsx:542`) не помогает, когда видно всё. Ticket 06 упрощает Node-ы на
-   дальнем zoom и проверяет, что смена zoom внутри уровня их не перерисовывает.
+   (`src/renderer/canvas/Canvas.tsx:542`) не помогает, когда видно всё. Ticket 06 упрощал Node-ы на
+   дальнем zoom и проверял, что смена zoom внутри уровня их не перерисовывает; Ticket 20 (владелец,
+   2026-10-21) это убрал вместе с semantic zoom. Защиты от этого риска сейчас нет; из упрощений остался
+   только порог Card `LIVE_ZOOM_MIN` = 0.4 (ниже него — заголовок без iframe).
 7. **Read-only экран Linked machine** (ADR-0066). Команды, которые двигают или убирают Node-ы
    («Re-pack», «Archive finished sessions now», «Arrange by Epic», Restore, Undo в toast-е), там
    недоступны. Каждый такой Ticket проверяет это test-ом.
@@ -213,7 +216,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 03 | `src/renderer/canvas/family.ts`, `src/renderer/canvas/edge-focus.ts`, `src/renderer/canvas/overlays/EdgeFocus.tsx`, `src/renderer/canvas/NodeChrome.tsx`, `src/renderer/canvas/node-chrome.css`, `src/renderer/canvas/overlays/SelectionToolbar.tsx`, `test/unit/family.test.ts`, `test/unit/edge-focus.test.tsx`, `test/e2e/family.spec.ts` | 1 |
 | 04 | `docs/design/F-SPEC.md`, `src/renderer/theme/tokens.css`, `src/renderer/canvas/nodes/SessionNode.tsx`, `src/renderer/canvas/nodes/SubagentNode.tsx`, `src/renderer/canvas/nodes/OrchestratorNode.tsx`, `src/renderer/canvas/nodes/EpicFrameNode.tsx`, `src/renderer/canvas/overlays/MiniMapOverlay.tsx`, `test/unit/kind-tokens.test.ts`, `test/e2e/minimap-kinds.spec.ts` | 1 |
 | 05 | `docs/design/F-SPEC.md`, `src/renderer/canvas/NodeChrome.tsx`, `src/renderer/canvas/node-chrome.css`, `src/renderer/canvas/kind-icons.tsx`, `src/renderer/canvas/nodes/SessionNode.tsx`, `src/renderer/canvas/nodes/SubagentNode.tsx`, `src/renderer/canvas/nodes/OrchestratorNode.tsx`, `src/renderer/canvas/nodes/EpicFrameNode.tsx`, `src/renderer/canvas/epic-frame.css`, `test/unit/node-kind-header.test.tsx`, `test/e2e/node-kinds.spec.ts` | 3 |
-| 06 | `docs/design/F-SPEC.md`, `src/renderer/canvas/zoom-level.ts`, `src/renderer/canvas/NodeChrome.tsx`, `src/renderer/canvas/node-chrome.css`, `src/renderer/canvas/nodes/EpicFrameNode.tsx`, `src/renderer/canvas/epic-frame.css`, `src/renderer/canvas/nodes/CardNode.tsx`, `src/renderer/canvas/nodes/TicketNode.tsx`, `test/unit/zoom-level.test.tsx`, `test/e2e/semantic-zoom.spec.ts` | 4 |
+| 06 (отключено Ticket-ом 20, владелец, 2026-10-21) | `docs/design/F-SPEC.md`, `src/renderer/canvas/zoom-level.ts`, `src/renderer/canvas/NodeChrome.tsx`, `src/renderer/canvas/node-chrome.css`, `src/renderer/canvas/nodes/EpicFrameNode.tsx`, `src/renderer/canvas/epic-frame.css`, `src/renderer/canvas/nodes/CardNode.tsx`, `src/renderer/canvas/nodes/TicketNode.tsx`, `test/unit/zoom-level.test.tsx`, `test/e2e/semantic-zoom.spec.ts` | 4 |
 | 07 | `src/shared/layout/types.ts`, `src/shared/layout/derived.ts`, `src/main/layout/store.ts`, `src/main/layout/archive.ts`, `src/main/index.ts`, `src/main/ipc/claude-home.ts`, `src/renderer/claude-home/session-nodes.ts`, `src/renderer/session/navigation.ts`, `test/unit/archive-rule.test.ts`, `test/contract/layout-archive.test.ts`, `test/unit/session-nodes.test.tsx` | 3 |
 | 08 | `src/shared/settings/app-settings.ts`, `src/main/layout/archive.ts`, `src/shared/ipc/layout.ts`, `src/main/ipc/layout.ts`, `src/renderer/settings/CanvasSection.tsx`, `src/renderer/palette/commands.ts`, `src/renderer/canvas/nodes/SessionNode.tsx`, `test/contract/app-settings.test.ts`, `test/unit/settings-canvas.test.tsx`, `test/unit/palette-commands.test.tsx`, `test/e2e/session-archive.spec.ts` | 4 |
 | 09 | `src/renderer/canvas/archive-list.ts`, `src/renderer/canvas/badges/SessionHistory.tsx`, `src/renderer/canvas/actions/EpicSessionHistory.tsx`, `src/renderer/canvas/overlays/ArchivePopover.tsx`, `src/renderer/canvas/overlays/archive.css`, `test/unit/archive-list.test.ts`, `test/unit/archive-popover.test.tsx`, `test/e2e/session-archive-history.spec.ts` | 4 |

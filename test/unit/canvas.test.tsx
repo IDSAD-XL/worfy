@@ -921,3 +921,19 @@ describe('the keys of the Canvas by system', () => {
     }
   })
 })
+
+// ── no semantic zoom (worfy-canvas ticket 20) ────────────────────────────────
+
+describe('the Canvas draws every Node whole at any zoom (worfy-canvas ticket 20)', () => {
+  it.each([0.2, 0.45])('at zoom %f the React Flow root carries no zoom level and no zoom variable', async (zoom) => {
+    const canvas = await renderCanvas(`zoom-whole-${zoom * 100}`, [node('n', 'note', 0, { text: 'a body' })], zoom)
+    try {
+      const root = document.querySelector('.react-flow') as HTMLElement
+      await waitFor(() => expect(document.querySelector('.react-flow__viewport')?.getAttribute('style')).toContain(`scale(${zoom})`))
+      expect(root.hasAttribute('data-zoom-level')).toBe(false)
+      expect(root.style.getPropertyValue('--w-zoom')).toBe('')
+    } finally {
+      canvas.cleanup()
+    }
+  })
+})

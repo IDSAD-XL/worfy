@@ -106,14 +106,17 @@ Session-ов и popover Archive, круги 1–3), [#657](https://github.com/ID
 
 **#668 (Ticket 06, semantic zoom), low:**
 
-- [ ] `test/unit/zoom-level.test.tsx:184-198`: перечень Node-ов ищет текст `{...NODE_HEADER}`; проверять,
+- [x] `test/unit/zoom-level.test.tsx:184-198`: перечень Node-ов ищет текст `{...NODE_HEADER}`; проверять,
       что каждый ключ `EXCEPTIONS` существует и что пометка — прямой потомок `.w-node-surface`.
+      Снято Ticket-ом 20: файл удалён вместе с semantic zoom; перечень пометок теперь в
+      `test/unit/canvas-zoom.test.tsx` (считает пометки, проверяет ключи), «прямой потомок» был нужен
+      только удалённому CSS.
 - [x] `test/e2e/semantic-zoom.spec.ts`: размер Terminal читается один раз, без ожидания кадра (на голове
       PR — `:264` и `:304`; на main `306bf09e` сравнения на `:267` и `:309` уже через `expect.poll`, а
       исходный `terminalFull` на `:249` — одно чтение); перечитать и при нужде брать `expect.poll`.
-- [ ] `shortcut:` в `src/renderer/canvas/epic-frame.css:443`: на far шапка короткой рамки выходит за её
+- [x] `shortcut:` в `src/renderer/canvas/epic-frame.css:443`: на far шапка короткой рамки выходит за её
       нижний край; если рамка — последняя в самой высокой колонке, шапка закрывает подпись done shelf и
-      первый ряд chip-ов и забирает их клики.
+      первый ряд chip-ов и забирает их клики. Снято Ticket-ом 20: шапка far удалена вместе с semantic zoom.
 
 **Flaky test в полных прогонах:**
 
@@ -137,6 +140,7 @@ Session-ов и popover Archive, круги 1–3), [#657](https://github.com/ID
 - `test/contract/workflow-reader.test.ts`
 - `src/renderer/canvas/sources/epics.ts`, `src/renderer/canvas/overlays/session-spots.ts`, `src/main/layout/archive.ts`,
   `src/renderer/canvas/epic-frame.css`, `test/unit/zoom-level.test.tsx`, `test/e2e/semantic-zoom.spec.ts`
+  (два последних удалены Ticket-ом 20)
 
 ## Итог
 
@@ -227,5 +231,5 @@ PR первой части (2026-10-21, ветка `worfy-canvas/19`): ошиб�
 - #659: остальные e2e, которые читают прямоугольники по одному.
 - #668: проверка в `zoom-level.test.tsx`, что пометка — прямой потомок `.w-node-surface` (нужен render
   каждого типа Node-а); `shortcut:` в `epic-frame.css` — нужен выбор дизайна (прогресс в строке имени у
-  короткой рамки).
+  короткой рамки). Оба пункта сняты Ticket-ом 20: semantic zoom удалён вместе с этими файлами.
 - Flaky test `workflow-reader`.

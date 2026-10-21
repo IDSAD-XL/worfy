@@ -26,8 +26,8 @@ import { StatusChip, type Status } from '../../theme/primitives'
 import { badges, type SlotSubject } from '../badges'
 import { KindBand, KindIcon } from '../kind-icons'
 import { NodeResizeClamp } from '../NodeResizeClamp'
+import { NODE_HEADER } from '../node-header'
 import { useLayoutOps } from '../useLayout'
-import { NODE_HEADER, NODE_TITLE } from '../zoom-level'
 import type { CanvasNodeProps } from './index'
 
 // A Session of Claude Code on the Canvas (CONTEXT.md, "Session": one Session — one Node, wherever it
@@ -375,7 +375,7 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
       <div style={styles.header} title="Double-click to open the Session" {...NODE_HEADER}>
         <KindBand kind="session" />
         <KindIcon kind="session" />
-        <span style={styles.title} data-testid="session-node-title" {...NODE_TITLE} title={title}>
+        <span style={styles.title} data-testid="session-node-title" title={title}>
           {title}
         </span>
         <span data-testid="session-node-status" title={running ? (view.error ?? undefined) : undefined}>
@@ -529,7 +529,7 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
       <div style={styles.header} title="Double-click to open the transcript" {...NODE_HEADER}>
         <KindBand kind="session" />
         <KindIcon kind="session" />
-        <span style={styles.title} data-testid="session-node-title" {...NODE_TITLE} title={title}>
+        <span style={styles.title} data-testid="session-node-title" title={title}>
           {title}
         </span>
         <span data-testid="session-node-status">

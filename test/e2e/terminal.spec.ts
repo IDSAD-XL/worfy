@@ -310,8 +310,7 @@ async function selectionOf(node: Locator): Promise<string> {
 // The Canvas draws its Nodes inside a CSS transform: scale(zoom). xterm.js measures the mouse
 // against the scaled box but divides by the unscaled cell size, so without a correction a drag
 // selects other characters than the ones under the pointer.
-// 0.6 is the lowest zoom at which a Terminal shows its screen (the full zoom level, zoom-level.ts).
-for (const zoom of [0.6, 1.5]) {
+for (const zoom of [0.5, 1.5]) {
   test(`at Canvas zoom ${zoom * 100}% a mouse drag from one character to another selects exactly those characters`, async () => {
     writeFileSync(
       join(dataDir, PROJECT, 'layout.json'),
@@ -349,7 +348,7 @@ for (const zoom of [0.6, 1.5]) {
   })
 }
 
-test('at Canvas zoom 60% a drag that began in one terminal and goes over another selects in the first', async () => {
+test('at Canvas zoom 50% a drag that began in one terminal and goes over another selects in the first', async () => {
   // B comes first in the Layout, so it mounts first; it stands to the right of A and 60 px lower on
   // the screen, so the moves over B are corrected for the wrong row if B takes them.
   writeFileSync(
@@ -359,7 +358,7 @@ test('at Canvas zoom 60% a drag that began in one terminal and goes over another
         { id: 'b', kind: 'terminal', x: 620, y: 140, w: 560, h: 340, data: {} },
         { id: 'a', kind: 'terminal', x: 20, y: 20, w: 560, h: 340, data: {} },
       ],
-      viewport: { x: 0, y: 0, zoom: 0.6 },
+      viewport: { x: 0, y: 0, zoom: 0.5 },
     }),
   )
   const launched = await launch()

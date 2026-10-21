@@ -8,11 +8,6 @@
 //
 // A hovered or selected Node's Family (worfy-canvas ticket 03) dims no other Node: every Node keeps
 // its opacity, and only the lines within the Family light up (worfy-canvas ticket 17).
-//
-// Semantic zoom (worfy-canvas ticket 06, zoom-level.ts) is CSS keyed on the React Flow root
-// (node-chrome.css): the Node type's own header stays, with its live title and status, and the
-// component stays mounted at every level. A pinned Node (`.w-pinned`) keeps its screen size and is
-// always drawn in full; its tags hide at the far level only when it is not pinned.
 import type { ComponentType, ReactNode } from 'react'
 import { TERMINAL_NODE_KIND } from '../../shared/ipc/terminal'
 import { useReadOnly } from '../projects/useProjects'
