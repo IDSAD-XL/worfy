@@ -416,7 +416,7 @@ describe('the trace signals', () => {
 /** A test of the synthetic task whose expectation spans several lines. */
 const ADD_MANY = ["test('add many', () => {", '  assert.deepEqual(', '    { one: add(1, 2), two: add(3, 4) },', '    {', '      one: 3,', '      two: 7,', '    },', '  )', '})']
 /** The body of the first test of the synthetic task: a regular expression with a `)`, then an assertion. */
-const FIRST_BODY = ['  assert.doesNotMatch(String(add(1, 1)), /\\)/)', '  assert.equal(add(1, 1), 2)']
+const FIRST_BODY = ['  assert.doesNotMatch(String(add(1, 1)), /\\)/)', '  assert.equal(add(1, 1), 2)'] as const
 const FIRST = ["test('add 1 1', () => {", ...FIRST_BODY, '})']
 /** A describe block of the synthetic task. */
 const ADD_ZERO = ["describe('add zero', () => {", "  test('add 0 0', () => {", '    assert.equal(add(0, 0), 0)', '  })', '})']
