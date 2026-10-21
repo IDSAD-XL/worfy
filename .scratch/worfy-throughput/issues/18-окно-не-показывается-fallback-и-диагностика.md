@@ -144,3 +144,17 @@ PNG 2560 × 1600 сохранён; правка откатана из копии
 `start-diagnostics-…` в `test-results`. В том же PR — чистая функция часов test-а `timeLeftOnClock` с unit test-ом
 и запас на kill и cleanup 15 s вместо 10 s (`CLEANUP_MARGIN_MS`: на Windows `endApp` ждёт выхода приложения до
 10 s, затем три папки удаляются по очереди, до 5 повторов на каждую — около 1,5 s на папку, 4,5 s всего).
+
+**Сбой в gate full PR #664 на `9ae4bca7` (3 worker-а): ожидание `show` пропустило показанное окно (PR #669).**
+`session-view.spec.ts:98` упал с «the window was not shown within 30 s». `firstWindow` вернулся через 0,44 s, а
+ожидание события `show` в `launchApp` так и не завершилось. Диагностика через 30 s: окно загружено, `isVisible`
+true, в выводе приложения — «the window was shown on ready-to-show». Причина — в Electron 44.5.1 на macOS: событие
+`show` приходит только из уведомления о смене occlusion state окна (`windowDidChangeOcclusionState`), а не из
+`show()`/`showInactive()`, и `isVisible()` тоже читает occlusion state. Нет уведомления — нет `show`, а
+`isVisible()` становится true позже. Исправление только в test-ах. `launchApp` ждёт первое из трёх событий:
+`isVisible()` true (main опрашивает каждые 100 ms, функция `waitForFirstWindowShown` в
+`test/e2e/first-window-shown.ts`), событие `show` или строку приложения в stdout о том, что оно вызвало `show()`.
+Hook в `src/` не понадобился. Диагностика теперь пишет, вызвало ли приложение show, каким путём и через сколько
+секунд после запуска. К состоянию окна добавлены `isFocused`, `app.isHidden()` и `powerMonitor.getSystemIdleState()`.
+Unit test-ы: `test/unit/first-window-shown.test.ts` (в том числе случай этого сбоя) и новые случаи в
+`test/unit/start-diagnosis.test.ts`. Мутант «только событие» красный: 5 из 7 test-ов.
