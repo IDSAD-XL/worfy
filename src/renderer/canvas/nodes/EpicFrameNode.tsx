@@ -1,9 +1,9 @@
-import { memo, useEffect, useRef, type CSSProperties } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import { writeAction } from '../../projects/read-only'
 import { useReadOnly } from '../../projects/useProjects'
 import { actions, type SlotSubject } from '../badges'
 import { KindBand, KindIcon } from '../kind-icons'
-import { onDoneShelf, PROGRESS_SEGMENTS, TICKET_WIDTH, TICKETS_TOP, type EpicLayout, type Progress, type TicketColumn } from '../epic-layout'
+import { onDoneShelf, PROGRESS_SEGMENTS, TICKET_WIDTH, type EpicLayout, type Progress, type TicketColumn } from '../epic-layout'
 import { setDoneStack, toggleFrame, type EpicFrameData } from '../sources/epics'
 import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
@@ -93,8 +93,6 @@ function EpicFrameNode({ data }: CanvasNodeProps) {
       data-testid="epic-frame"
       data-epic={epic.epic}
       data-collapsed={collapsed ? 'true' : 'false'}
-      // Where the Tickets begin: the far zoom level keeps the header above them (epic-frame.css).
-      style={{ '--w-tickets-top': `${TICKETS_TOP}px` } as CSSProperties}
     >
       {/* The pale ground of the Epic's kind under the header, across the frame, with the kind band on top (ADR-0077). */}
       <div className="w-epic__ground" aria-hidden="true">

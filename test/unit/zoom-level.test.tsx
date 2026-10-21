@@ -198,6 +198,10 @@ describe('every Node type marks its header and title, or is a known exception', 
     else expect(marked, `${name} marks neither NODE_HEADER nor NODE_TITLE`).toBe(true)
   })
 
+  it('every exception is a Node type that still exists', () => {
+    expect(Object.keys(EXCEPTIONS).filter((name) => !files.includes(name))).toEqual([])
+  })
+
   it('the read-only Terminal of a Linked machine is marked like the Terminal', () => {
     const source = readFileSync(join(process.cwd(), 'src/renderer/canvas/ReadOnlyTerminal.tsx'), 'utf8')
     expect(source).toContain('{...NODE_HEADER}')

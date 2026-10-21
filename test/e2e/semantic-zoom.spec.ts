@@ -26,6 +26,8 @@ const EPIC = 'semantic-zoom-demo'
  * frame is wide at the lowest zoom (a longer name widens the frame itself).
  */
 const EPIC_LONG = 'semantic-zoom-second-epic-with-a-long-name'
+/** A third Epic: with K = 2 its frame stands under the first one, in the same column. */
+const EPIC_BELOW = 'semantic-zoom-third-epic-below'
 const CARD_TITLE = 'A Card whose title is much longer than two hundred pixels on the screen'
 
 let scratch: string
@@ -54,8 +56,9 @@ function writeSession(): void {
 }
 
 /**
- * epic-status answers two Epics, of three Tickets and of five. With K = 2 in the arrangement record
- * the second, taller frame keeps the strip near enough to 16:10 that the two frames stay side by side.
+ * epic-status answers three Epics, of three Tickets, five and one. With K = 2 in the arrangement
+ * record the first two frames stand side by side and the third under the first; the second, taller
+ * frame keeps the strip near enough to 16:10 that K stays 2.
  */
 function writeEpic(): void {
   mkdirSync(join(claudeHome, 'bin'), { recursive: true })
@@ -71,8 +74,8 @@ function writeEpic(): void {
     blockedNums,
     blockedParsed: true,
   })
-  const tickets = [ticket(1, 'open', []), ticket(2, 'open', []), ticket(3, 'open', [1]), ...[1, 2, 3, 4].map((num) => ticket(num, 'open', [], EPIC_LONG)), ticket(5, 'open', [1], EPIC_LONG)]
-  const epics = [EPIC, EPIC_LONG].map((epic) => ({ epic, hasSpec: true, hasMap: false }))
+  const tickets = [ticket(1, 'open', []), ticket(2, 'open', []), ticket(3, 'open', [1]), ...[1, 2, 3, 4].map((num) => ticket(num, 'open', [], EPIC_LONG)), ticket(5, 'open', [1], EPIC_LONG), ticket(1, 'open', [], EPIC_BELOW)]
+  const epics = [EPIC, EPIC_LONG, EPIC_BELOW].map((epic) => ({ epic, hasSpec: true, hasMap: false }))
   writeFileSync(answer, JSON.stringify({ ref: 'main', epics, tickets }))
   const script = join(claudeHome, 'bin', 'epic-status')
   writeFileSync(script, catScript(answer))
@@ -182,8 +185,8 @@ test.beforeEach(() => {
     { id: 'zoom-pinned', kind: 'note', x: 20, y: 1000, w: 240, h: 140, ...base, pinned: true, data: { text: 'A pinned note stays whole' } },
     { id: 'zoom-card', kind: 'card', x: 320, y: 1000, w: 300, h: 180, ...base, data: {} },
     { id: 'zoom-handoff', kind: 'handoff', x: 1100, y: 1000, w: 360, h: 200, ...base, locked: true, data: {} },
-    // The frames' order and K = 2 columns, written today, so the two frames stand side by side (ADR-0075).
-    { id: 'epic-arrangement', kind: 'epic-arrangement', x: 0, y: 0, w: 1, h: 1, ...base, locked: true, data: { order: [EPIC, EPIC_LONG], columns: 2, at: new Date().toISOString() } },
+    // The frames' order and K = 2 columns, written today: two frames side by side, the third under the first (ADR-0075).
+    { id: 'epic-arrangement', kind: 'epic-arrangement', x: 0, y: 0, w: 1, h: 1, ...base, locked: true, data: { order: [EPIC, EPIC_LONG, EPIC_BELOW], columns: 2, at: new Date().toISOString() } },
   ]
   mkdirSync(join(dataDir, PROJECT, 'cards', 'zoom-card'), { recursive: true })
   writeFileSync(join(dataDir, PROJECT, 'cards', 'zoom-card', 'index.html'), `<!doctype html><title>${CARD_TITLE}</title><p>card</p>`)
@@ -261,7 +264,7 @@ test('a Node is drawn in full, as its header, or as a block of its kind by zoom;
     await expect(body.terminalScreen).toBeHidden()
     // The Terminal is not stopped below its header, and its screen keeps its rows and columns.
     await expect(nodes.terminal).toHaveAttribute('data-state', 'running')
-    expect(await terminalSize(window)).toEqual(terminalFull)
+    await expect.poll(() => terminalSize(window)).toEqual(terminalFull)
     // The Card runs no page below full; a pinned Node stays full.
     await expect(nodes.card.getByTestId('card-placeholder')).toBeHidden()
     await expect(nodes.card.getByTestId('card-frame')).toHaveCount(0)
@@ -287,6 +290,8 @@ test('a Node is drawn in full, as its header, or as a block of its kind by zoom;
       epicProgress,
       epicHeader,
       epicLongTitle: `[data-testid="epic-frame"][data-epic="${EPIC_LONG}"] .w-epic__title`,
+      epicBelowTitle: `[data-testid="epic-frame"][data-epic="${EPIC_BELOW}"] .w-epic__title`,
+      epicBelowProgress: `[data-testid="epic-frame"][data-epic="${EPIC_BELOW}"] [data-testid="epic-progress"]`,
       columnLabel: `[data-testid="epic-frame"][data-epic="${EPIC}"] [data-testid="epic-column"]`,
       ticketTitle: `[data-testid="rf__node-ticket:${EPIC}/1"] .w-ticket__title`,
       orchestrator: '[data-testid="orchestrator-node"] [data-node-title]',
@@ -301,7 +306,7 @@ test('a Node is drawn in full, as its header, or as a block of its kind by zoom;
       pinnedText: '.react-flow__node[data-id="zoom-pinned"] textarea',
     })
     // The Terminal still has the size it had at full; the pinned Note still shows its text.
-    expect(await terminalSize(window)).toEqual(terminalFull)
+    await expect.poll(() => terminalSize(window)).toEqual(terminalFull)
     expect(far.pinnedText?.shown).toBe(true)
     // The frame's header keeps its text at a constant screen size, whatever the zoom: the name on
     // its first rows (wrapped to the frame's width), the progress under it, as tall at any far zoom.
@@ -310,15 +315,49 @@ test('a Node is drawn in full, as its header, or as a block of its kind by zoom;
     const header = await boxOf(window, epicHeader)
     expect(progressAtLowest.top, 'the progress under the name').toBeGreaterThan((await boxOf(window, `${epicHeader} .w-epic__title`)).bottom - 1)
     expect(progressAtLowest.bottom).toBeLessThanOrEqual(header.bottom)
-    // The two frames stand side by side (the second is off the screen at full, so it is checked here).
-    const frames = await boxes(window, '[data-testid="epic-frame"]')
-    expect(frames).toHaveLength(2)
-    expect(frames[0] && frames[1] ? Math.abs(frames[0].top - frames[1].top) : Infinity, 'the two frames in one row').toBeLessThan(1)
-    // No two frame headers overlap: each is as wide as its frame, and the frames are FRAME_GAP apart.
-    const headers = await boxes(window, '[data-testid="epic-frame"] .w-epic__header')
-    expect(headers).toHaveLength(2)
-    const [left, right] = [...headers].sort((a, b) => a.left - b.left)
-    expect(left && right ? right.left - left.right : -1, 'the left header ends before the right one starts').toBeGreaterThanOrEqual(0)
+    // The first two frames stand side by side, the third under the first (the others are off the
+    // screen at full, so they are checked here).
+    const frameOf = (epic: string) => boxOf(window, `[data-testid="epic-frame"][data-epic="${epic}"]`)
+    const headerOf = (epic: string) => boxOf(window, `[data-testid="epic-frame"][data-epic="${epic}"] .w-epic__header`)
+    const [first, second, below] = await Promise.all([frameOf(EPIC), frameOf(EPIC_LONG), frameOf(EPIC_BELOW)])
+    expect(Math.abs(first.top - second.top), 'the first two frames in one row').toBeLessThan(1)
+    expect(Math.abs(first.left - below.left), 'the third frame in the first one\'s column').toBeLessThan(1)
+    expect(below.top, 'the third frame under the first').toBeGreaterThan(first.bottom)
+    // Each frame's header lies inside its own frame: from its top edge down, as wide as the frame.
+    for (const epic of [EPIC, EPIC_LONG, EPIC_BELOW]) {
+      const [frame, header] = await Promise.all([frameOf(epic), headerOf(epic)])
+      expect(header.top, `${epic}: the header does not cross the frame's top`).toBeGreaterThanOrEqual(frame.top - 0.5)
+      expect(header.left, `${epic}: nor its left edge`).toBeGreaterThanOrEqual(frame.left - 0.5)
+      expect(header.right, `${epic}: nor its right edge`).toBeLessThanOrEqual(frame.right + 0.5)
+    }
+    // So the headers of a row do not overlap, and the header of the lower frame of a column touches
+    // neither the upper frame nor its Tickets; it is drawn whole, over its own Tickets.
+    const [leftHeader, rightHeader] = await Promise.all([headerOf(EPIC), headerOf(EPIC_LONG)])
+    expect(rightHeader.left - leftHeader.right, 'the left header ends before the right one starts').toBeGreaterThanOrEqual(0)
+    const belowHeader = await headerOf(EPIC_BELOW)
+    expect(belowHeader.top, 'the lower header starts under the upper frame').toBeGreaterThanOrEqual(first.bottom)
+    for (const ticket of await boxes(window, `[data-testid="ticket-node"][data-epic="${EPIC}"]`)) expect(belowHeader.top).toBeGreaterThanOrEqual(ticket.bottom)
+    expect(far.epicBelowTitle).toMatchObject({ shown: true, whole: true, text: EPIC_BELOW })
+    expect(far.epicBelowProgress).toMatchObject({ shown: true, text: '0/1' })
+    // A Ticket under no header still takes the mouse: the frame lets it through.
+    const hits = await window.evaluate(
+      ([epic, headerBottom]) => {
+        const scope = globalThis as unknown as {
+          document: {
+            querySelectorAll(selector: string): ArrayLike<{ getBoundingClientRect(): { left: number; right: number; top: number; bottom: number } }>
+            elementFromPoint(x: number, y: number): { closest(selector: string): unknown } | null
+          }
+        }
+        const free = Array.from(scope.document.querySelectorAll(`.react-flow__node-ticket:has([data-epic="${epic}"])`)).filter((ticket) => ticket.getBoundingClientRect().top > headerBottom)
+        return free.map((ticket) => {
+          const rect = ticket.getBoundingClientRect()
+          return scope.document.elementFromPoint((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2)?.closest('.react-flow__node-ticket') === ticket
+        })
+      },
+      [EPIC_LONG, (await headerOf(EPIC_LONG)).bottom] as const,
+    )
+    expect(hits.length, 'a Ticket of the second frame under no header').toBeGreaterThan(0)
+    expect(hits.every(Boolean), 'each such Ticket is the element under the mouse').toBe(true)
     expect(far.epicTitle).toMatchObject({ shown: true, whole: true, text: EPIC })
     expect(far.epicLongTitle).toMatchObject({ shown: true, whole: true, text: EPIC_LONG })
     expect(far.epicTitle?.height).toBeGreaterThanOrEqual(16)

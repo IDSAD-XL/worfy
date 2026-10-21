@@ -431,21 +431,35 @@
 
 /* ── semantic zoom: far (zoom-level.ts; F-SPEC "Zoom levels") ─────────────── */
 /* The frame's name and progress stay readable: its header keeps a constant screen size (scaled by
-   1/zoom, `--w-zoom` from overlays/ZoomLevel.tsx). It is as wide as the frame plus 16 of the 48
-   units between frames (FRAME_GAP, epic-layout.ts), so it never reaches the next frame of the row.
-   The name has the first row and wraps rather than being cut; the bar, the count and the Collapse /
-   Expand chevron have the second. The header's bottom stays on the Tickets' top (`--w-tickets-top`,
-   TICKETS_TOP from EpicFrameNode.tsx; a collapsed frame: its own bottom), so it covers no Ticket,
-   and it grows upwards, over the gap above the frame. The tag, the subtitle and the actions go; the
-   column labels and the done stack's text go; Tickets are blocks without text. */
+   1/zoom, `--w-zoom` from overlays/ZoomLevel.tsx). It stays inside its frame: as wide as the frame,
+   from the frame's top edge downwards, over the Tickets, which show no text at this level. Nothing
+   of it crosses the frame's top or side edges, so it never reaches the frame above it in its column
+   or the next one in its row, and the frame is drawn (onlyRenderVisibleElements) whenever its header
+   is on the screen. The name and the Collapse / Expand chevron have the first row, the name wrapping
+   rather than being cut; the bar and the count have the second.
+   The header must be drawn over its own Tickets, which React Flow puts above their parent frame
+   (a child Node's z-index is its parent's + 1): at this level the frame is lifted over its Tickets,
+   and it lets the mouse through everywhere but its header, so a Ticket under it still takes clicks.
+   shortcut: a frame shorter than its header on the screen (a collapsed one, 56 units tall; or one of
+   a single Ticket with a name of two lines at zoom 0.2) has the header reach below its bottom edge
+   into the gap and under the next frame of the column, whose own header covers it; redo when such a
+   frame must show its progress at far, e.g. with the progress on the name's row when it is short.
+   The tag, the subtitle and the actions go; the column labels and the done stack's text go; Tickets
+   are blocks without text. */
+.react-flow[data-zoom-level='far'] .react-flow__node-epic-frame {
+  z-index: 1 !important;
+  pointer-events: none !important;
+}
+.react-flow[data-zoom-level='far'] .react-flow__node-ticket {
+  z-index: 0 !important;
+}
 .react-flow[data-zoom-level='far'] .w-epic__ground {
   visibility: hidden;
 }
 .react-flow[data-zoom-level='far'] .w-epic__header {
-  top: auto;
+  left: 0;
   right: auto;
-  bottom: max(0px, calc(100% - var(--w-tickets-top, 92px)));
-  width: calc((100% + 16px) * var(--w-zoom, 1));
+  width: calc(100% * var(--w-zoom, 1));
   height: auto;
   box-sizing: border-box;
   flex-wrap: wrap;
@@ -456,16 +470,20 @@
   border-radius: var(--radius-chip);
   background: var(--kind-epic-tint);
   box-shadow: inset 0 3px 0 var(--kind-epic);
+  pointer-events: auto;
   transform: scale(calc(1 / var(--w-zoom, 1)));
-  transform-origin: 0 100%;
+  transform-origin: 0 0;
 }
 .react-flow[data-zoom-level='far'] .w-epic__header > :not(.w-epic__drag, .w-progress, .w-epic__count, .w-epic__button),
 .react-flow[data-zoom-level='far'] :is(.w-epic__tag, .w-epic__subtitle) {
   display: none;
 }
 .react-flow[data-zoom-level='far'] .w-epic__drag {
-  flex: 1 0 100%;
+  flex: 1 0 calc(100% - 26px);
   height: auto;
+}
+.react-flow[data-zoom-level='far'] :is(.w-epic__header > .w-progress, .w-epic__count) {
+  order: 1;
 }
 .react-flow[data-zoom-level='far'] .w-epic__title {
   display: block;
