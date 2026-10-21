@@ -235,6 +235,14 @@ describe('the Archive popover', () => {
     await waitFor(() => expect(sent).toEqual(restoreOf('session:a1', 'session:a2')))
   })
 
+  it('«Restore all from today» also shows a hidden Node of today, in the same gesture (review of PR #656)', async () => {
+    NODES = ALL_NODES.map((node) => (node.id === 'session:a2' ? { ...node, hidden: true } : node))
+    const { ops, sent } = recordingOps()
+    fireEvent.click(await renderCanvas(ops))
+    fireEvent.click(screen.getByRole('button', { name: 'Restore all from today' }))
+    await waitFor(() => expect(sent).toEqual([...restoreOf('session:a1', 'session:a2'), { op: 'hide', id: 'session:a2', hidden: false }]))
+  })
+
   it('Esc closes it, and that press does nothing else', async () => {
     fireEvent.click(await renderCanvas(recordingOps().ops))
     expect(screen.getByRole('dialog', { name: 'Archive' })).toBeTruthy()
@@ -369,6 +377,18 @@ describe('until the Bindings are read', () => {
     await waitFor(() => expect(signalsAsked.filter((id) => id === 'a2')).toHaveLength(2))
     // A read that worked is not asked again.
     expect(signalsAsked.filter((id) => id === 'a1')).toHaveLength(1)
+  })
+
+  it('a failed transcript read is not asked again while the archived set stays the same (review of PR #656)', async () => {
+    failSignals.add('a2')
+    const button = await renderCanvas(recordingOps().ops)
+    await waitFor(() => expect(button.textContent).toBe('Archive3'))
+    // A Layout change that archives nothing: the Node still on the Canvas moves.
+    const moved = ALL_NODES.map((node) => (node.id === 'session:live' ? { ...node, x: 900 } : node))
+    await layoutChanged(moved, 2)
+    await layoutChanged(ALL_NODES, 3)
+    await act(() => Promise.resolve())
+    expect(signalsAsked.filter((id) => id === 'a2')).toHaveLength(1)
   })
 
   it('reads the transcript of each archived Session once, however often the archived set changes', async () => {

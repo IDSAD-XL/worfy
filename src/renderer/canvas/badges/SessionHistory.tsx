@@ -1,11 +1,11 @@
 import { ticketHistory, useArchive } from '../archive-list'
-import { SessionHistoryButton } from '../overlays/ArchivePopover'
+import { SessionHistoryButton } from '../session-history'
 import type { SlotProps } from './index'
 import '../overlays/archive.css'
 
 // «N sessions» on a Ticket whose Sessions the automatic archive took off the Canvas (worfy-canvas
 // ticket 09, ADR-0076). A click opens their list, newest first, each with its title, the time it
-// ended and Show, which brings the Node back next to the Ticket (overlays/ArchivePopover.tsx).
+// ended and Show, which brings the Node back next to the Ticket (../session-history.tsx).
 export const order = 40
 
 function TicketSessions({ projectId, ticket }: Extract<SlotProps['subject'], { kind: 'ticket' }>) {

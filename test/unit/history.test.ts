@@ -226,6 +226,40 @@ interface UseLayoutModule {
 // it is loaded through a computed specifier and given the signatures used here.
 const useLayoutModule = (): Promise<UseLayoutModule> => import(/* @vite-ignore */ ['..', '..', 'src', 'renderer', 'canvas', 'useLayout.ts'].join('/')) as Promise<UseLayoutModule>
 
+describe('history: the undo of a Restore (review of PR #654)', () => {
+  it('a pinned Node is archived again and not moved: its x and y are screen pixels', async () => {
+    note('a', { pinned: true, x: 12, y: 14 })
+    note('b', { x: 400 })
+    agent({ op: 'archive', batch: 'b1', nodes: [{ id: 'a', rule: 'idle', at: 1_000 }, { id: 'b', rule: 'idle', at: 1_000 }] })
+    expect(inverseOf(layout(), { op: 'restore', ids: ['a', 'b'] })).toEqual([
+      { op: 'archive', batch: 'b1', nodes: [{ id: 'a', rule: 'idle', at: 1_000 }, { id: 'b', rule: 'idle', at: 1_000 }] },
+      { op: 'move', id: 'b', x: 400, y: 0 },
+    ])
+    expect(inverseOf(layout(), { op: 'restore', ids: ['a'] })).toEqual([{ op: 'archive', batch: 'b1', nodes: [{ id: 'a', rule: 'idle', at: 1_000 }] }])
+
+    await user({ op: 'restore', ids: ['a'] })
+    sent = []
+    expect(await history().undo()).toBe(true)
+    expect(sent.map((op) => op.op)).toEqual(['archive'])
+    expect(nodeOf('a')).toMatchObject({ pinned: true, x: 12, y: 14, archived: { batch: 'b1', at: 1_000 } })
+  })
+
+  it('stops at the first operation main refuses: nothing after it is sent', async () => {
+    note('a')
+    note('b', { x: 400 })
+    agent({ op: 'archive', batch: 'b1', nodes: [{ id: 'a', rule: 'idle' }] })
+    agent({ op: 'archive', batch: 'b2', nodes: [{ id: 'b', rule: 'idle' }] })
+    await user({ op: 'restore', ids: ['a', 'b'] })
+    // An agent removes Node a: the archive of its batch is refused.
+    agent({ op: 'remove', id: 'a' })
+    sent = []
+    await history().undo()
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toMatchObject({ op: 'archive', batch: 'b1' })
+    expect(nodeOf('b')?.archived ?? null).toBeNull()
+  })
+})
+
 describe('history: operations of agents', () => {
   // The renderer side as the app has it: the Canvas's channel sends through applyLayoutOp() and
   // reads currentLayout(); the automatic writers (Session Nodes sync, Epic and Subagent sources)

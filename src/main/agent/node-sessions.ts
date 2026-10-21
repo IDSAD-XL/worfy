@@ -24,7 +24,7 @@ import {
   type SessionNodeView,
   type WorfySessionNodeData,
 } from '../../shared/ipc/sessions'
-import type { LayoutNode, LayoutOpInput, LayoutState } from '../../shared/layout/types'
+import { isArchived, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
 import type { RegistryRoot } from '../claude-home/registry'
 import { placeDownFrom, placeNewNode } from '../layout/place'
 import { closeRefusal, resumeVerdict } from './resume'
@@ -215,10 +215,17 @@ export class NodeSessions {
 
   /**
    * The id of a worfy Node for the Session: the Node itself when worfy runs it already; a read-only
-   * Node turns into one in place (same id, same place, live size); else a new Node.
+   * Node turns into one in place (same id, same place, live size, its flags kept; a locked one is
+   * refused); else a new Node.
+   * An archived Node comes back onto the Canvas first: Resume is the user's work with it, and the
+   * `restore` sets its `touchedAt`, so the automatic archive does not take it again at once.
    */
-  private liveNode(projectId: string, node: LayoutNode | undefined, sessionId: string): string {
+  private liveNode(projectId: string, found: LayoutNode | undefined, sessionId: string): string {
     const data: WorfySessionNodeData = { origin: 'worfy', sessionId }
+    // A read-only Node turns live by `remove` and `create`, and `remove` is refused for a locked
+    // Node: refused here, before anything changes (an archived one is not restored first).
+    if (found && !isWorfyNode(found) && found.locked) throw new Error(`${found.id} is locked and cannot be turned into a live Session Node`)
+    const node = found && isArchived(found) ? this.restored(projectId, found.id) : found
     if (node && isWorfyNode(node)) return node.id
     if (node) {
       this.deps.layout.apply(projectId, { op: 'remove', id: node.id })
@@ -234,6 +241,8 @@ export class NodeSessions {
           hidden: node.hidden,
           pinned: node.pinned,
           tags: node.tags,
+          ...(node.keep === undefined ? {} : { keep: node.keep }),
+          ...(node.touchedAt == null ? {} : { touchedAt: node.touchedAt }),
           data,
         },
       })
@@ -246,6 +255,12 @@ export class NodeSessions {
     const created = after.layout.nodes.find((each) => !before.has(each.id))
     if (!created) throw new Error(`the Session Node of ${sessionId} was not created`)
     return created.id
+  }
+
+  /** Brings an archived Node back onto the Canvas; the Node as main has it after the `restore`. */
+  private restored(projectId: string, id: string): LayoutNode | undefined {
+    const { layout } = this.deps.layout.apply(projectId, { op: 'restore', ids: [id] })
+    return layout.nodes.find((each) => each.id === id)
   }
 
   private launch(projectId: string, nodeId: string, cwd: string, resume: string | undefined): SessionNodeView {

@@ -7,8 +7,11 @@ import type { LayoutChangeEvent } from '../../shared/ipc/layout'
 import { EMPTY_LAYOUT, type Layout, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
 import { invoke, subscribe } from '../ipc'
 import { readOnlyNow } from '../projects/read-only-now'
-import { noteLayoutChange, type Group, type LayoutChannel, type RecordOptions, type SendAnswer } from './history'
+import { noteLayoutChange, type LayoutChannel, type SendAnswer } from './history'
+import type { LayoutOps } from './layout-ops'
 import { screenId } from './screen'
+
+export type { LayoutOps } from './layout-ops'
 
 interface LayoutsStore {
   byProject: Readonly<Record<string, LayoutState>>
@@ -116,21 +119,6 @@ export function screenChannel(projectId: string): LayoutChannel {
 /** The Layout of a Project as main last sent it, or undefined before main has answered. */
 export function currentLayout(projectId: string): Layout | undefined {
   return useLayoutsStore.getState().byProject[projectId]?.layout
-}
-
-/**
- * What the user's gestures on the Canvas use to change the Layout, the gestures on an Epic frame
- * too (its drag and its collapse button, sources/epics.ts). Every operation sent here is a step of
- * the user's undo history (history.ts); code that changes the Layout on its own (the Session Nodes
- * sync, the Subagent source) calls applyLayoutOp() instead.
- */
-export interface LayoutOps {
-  /**
-   * Resolves once main has answered, whether it applied the operation or refused it. `group` makes
-   * the operation part of one gesture's step (history.ts grouped()); `options` say how it is
-   * recorded (a `patchData` is a step only with `data`).
-   */
-  apply(op: LayoutOpInput, group?: Group, options?: RecordOptions): Promise<void>
 }
 
 export const LayoutOpsContext = createContext<LayoutOps>({

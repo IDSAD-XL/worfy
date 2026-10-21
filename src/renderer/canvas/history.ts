@@ -626,6 +626,17 @@ function takeAndBring(id: string, first: NodeInput, channel: LayoutChannel): { t
   }
 }
 
+/**
+ * The undo of an `archive` the user sent: a `restore` of the Nodes main archived in its batch, read
+ * from the Layout when the undo runs. A Node main refused (Keep, a live Session) and the timer
+ * archived later in a batch of its own stays in the archive; nothing is sent when no Node is left.
+ */
+function restoreBatch(channel: LayoutChannel, op: Extract<LayoutOpInput, { op: 'archive' }>): Promise<SendAnswer> {
+  const layout = channel.layout()
+  const ids = op.nodes.flatMap(({ id }) => (nodeOf(layout, id)?.archived?.batch === op.batch ? [id] : []))
+  return ids.length === 0 ? Promise.resolve(undefined) : channel.send({ op: 'restore', ids })
+}
+
 /** Sends the operations one after another; stops at the first refusal and answers with it, else with the last answer. */
 async function sendInOrder(channel: LayoutChannel, ops: readonly LayoutOpInput[]): Promise<SendAnswer> {
   let answer: SendAnswer
@@ -656,6 +667,8 @@ export async function applyRecorded(projectId: string, op: LayoutOpInput, channe
   } else if (sent.op === 'remove' && inverse.op === 'create') {
     const node = takeAndBring(sent.id, inverse.node, channel)
     both = { undo: node.bring, redo: node.take }
+  } else if (sent.op === 'archive') {
+    both = { undo: () => restoreBatch(channel, sent), redo: () => channel.send(sent) }
   } else {
     both = { undo: () => channel.send(inverse), redo: () => channel.send(sent) }
   }

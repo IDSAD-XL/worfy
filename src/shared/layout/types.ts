@@ -169,7 +169,9 @@ export const layoutOpSchema = z.discriminatedUnion('op', [
     batch: archiveBatchSchema,
     nodes: z
       // `at` — when the Node was archived the first time: the undo of a Restore sends it, so the
-      // Node keeps its place in the archive's list (worfy-canvas 09). Absent — now.
+      // Node keeps its place in the archive's list (worfy-canvas 09). Absent — now. main's apply
+      // refuses one in the future by its own clock (store.ts); the schema does not, as it also reads
+      // `layout.changed` on a Linked machine, whose clock may lag.
       .array(z.object({ id: nodeIdSchema, rule: archiveRuleSchema, at: z.number().nonnegative().optional() }))
       .min(1)
       .max(ARCHIVE_PER_OP_MAX)

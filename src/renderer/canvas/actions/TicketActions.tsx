@@ -1,10 +1,9 @@
-import { useStoreApi } from '@xyflow/react'
 import { failureReason } from '../../../shared/ipc/channels'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import { invoke } from '../../ipc'
 import { useReadOnly } from '../../projects/useProjects'
 import type { SlotProps } from '../badges'
-import type { CanvasFlowNode } from '../nodes'
+import { useCanvasStore } from '../canvas-store'
 import { sessionSpot, spotInputs } from '../session-spot'
 import { ActionButton } from './action-button'
 import { hasShipTicket, useShipTicketState } from './gates'
@@ -24,15 +23,6 @@ import { hasShipTicket, useShipTicketState } from './gates'
 // places the Node as it places every new one.
 
 export const order = 10
-
-/** The Canvas's React Flow store; null where the button is drawn outside a Canvas. */
-function useCanvasStore(): ReturnType<typeof useStoreApi<CanvasFlowNode>> | null {
-  try {
-    return useStoreApi<CanvasFlowNode>()
-  } catch {
-    return null
-  }
-}
 
 function ShipTicket({ projectId, root, ticket }: Extract<SlotProps['subject'], { kind: 'ticket' }>) {
   const { model } = useWorkflow(root)

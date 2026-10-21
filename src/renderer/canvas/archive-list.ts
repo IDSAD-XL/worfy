@@ -24,19 +24,14 @@ import type { BindingTarget } from '../../shared/binding/resolve'
 import { SESSION_NODE_KIND } from '../../shared/ipc/sessions'
 import { onThePlane } from '../../shared/layout/derived'
 import { freePlace, type Rect } from '../../shared/layout/free-place'
-import { isArchived, type ArchiveRule, type Layout, type LayoutNode, type LayoutOpInput } from '../../shared/layout/types'
+import { isArchived, type ArchiveRule, type Layout, type LayoutNode } from '../../shared/layout/types'
 import { ticketKey } from '../../shared/workflow/types'
-import { grouped, type Group } from './history'
+import { grouped } from './history'
+import type { LayoutOps } from './layout-ops'
 import { showOps } from './show-ops'
 
-/**
- * What Show and Restore send through: the Canvas's LayoutOps (useLayout.ts), which records each
- * gesture as a step of ⌘Z. Written out rather than Pick<LayoutOps, 'apply'>: useLayout.ts brings
- * React's DOM types into the Node test program (tsconfig.test.node.json), and they break the e2e specs' types.
- */
-export interface ArchiveOps {
-  apply(op: LayoutOpInput, group?: Group): Promise<void>
-}
+/** What Show and Restore send through: the Canvas's LayoutOps, which records each gesture as a step of ⌘Z. */
+export type ArchiveOps = Pick<LayoutOps, 'apply'>
 
 /** One archived Session Node. */
 export interface ArchivedSession {

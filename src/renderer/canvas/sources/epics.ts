@@ -556,11 +556,12 @@ const pendingOrders = new Map<string, string>()
 export const FIRST_OPENING_WAIT_MS = 3000
 
 /**
- * Per Project, the calendar day whose first-opening write is under way (writeFirstOpening): from
- * its start until it ends, sent or failed. No other automatic write goes out meanwhile, so the
- * first opening makes one write, not two.
+ * Per Project, the first-opening write under way (writeFirstOpening) and its calendar day: from its
+ * start until it ends, sent or failed. No other automatic write goes out meanwhile, so the first
+ * opening makes one write, not two. Each write removes only its own mark: a write of the day before
+ * that ends after midnight leaves the next day's.
  */
-const dayWrites = new Map<string, string>()
+const dayWrites = new Map<string, { day: string }>()
 
 const dayKey = (now: Date): string => now.toDateString()
 const today = (record: ArrangementRecord | null): boolean => record !== null && sameDay(record.at, new Date())
@@ -574,7 +575,8 @@ const recordInLayout = (projectId: string): ArrangementRecord | null => readArra
  * when the Layout has a record of today by then: another screen's, or "Re-pack" during the wait.
  */
 async function writeFirstOpening(projectId: string, start: ArrangementState, nodes: () => AnchorLookup): Promise<void> {
-  dayWrites.set(projectId, dayKey(new Date()))
+  const mark = { day: dayKey(new Date()) }
+  dayWrites.set(projectId, mark)
   try {
     if (!(await whenBindingsRead(projectId, start, FIRST_OPENING_WAIT_MS)))
       console.warn(`epic arrangement: the Bindings of Project ${projectId} were not read in ${FIRST_OPENING_WAIT_MS} ms; the day's order counts the live agents known by then`)
@@ -583,10 +585,12 @@ async function writeFirstOpening(projectId: string, start: ArrangementState, nod
     // The frames may have changed while the Bindings were read: K waits for ELK's answers again.
     await whenSettled(projectId)
     if (today(recordInLayout(projectId))) return
+    // Midnight passed during the wait: the record of the new day is that day's first opening's.
+    if (dayKey(new Date()) !== mark.day) return
     const last = arrangements.get(projectId) ?? now
     await saveArrangement(projectId, { ...repack(last.epics, last.frames, activity), at: new Date().toISOString() })
   } finally {
-    dayWrites.delete(projectId)
+    if (dayWrites.get(projectId) === mark) dayWrites.delete(projectId)
   }
 }
 
@@ -619,13 +623,14 @@ export function useArrangementUpkeep(projectId: string, nodes: readonly CanvasFl
         if (!state.settled) return
         checkedDay.current = true
         // Another mount of this Canvas may have started today's write already.
-        if (dayWrites.get(projectId) !== dayKey(new Date()))
+        if (dayWrites.get(projectId)?.day !== dayKey(new Date()))
           writeFirstOpening(projectId, state, () => store.getState().nodeLookup).catch((error: unknown) => console.error('epic arrangement: the day\'s write failed:', error))
         return
       }
       if (state.settled) checkedDay.current = true
     }
-    if (dayWrites.get(projectId) === dayKey(new Date())) return
+    // Any day's write under way, also one that started before midnight: its record comes first.
+    if (dayWrites.has(projectId)) return
     // main has a record of today and this build has not read it yet: it is drawn from the one before.
     if (!today(state.record) && today(recordInLayout(projectId))) return
     const shelved = new Set(state.defaultShelf)

@@ -22,7 +22,7 @@ import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import type { LiveSession } from '../../src/shared/ipc/claude-home'
 import { LIVE_SESSION_HEIGHT, LIVE_SESSION_WIDTH, type SessionNodeView } from '../../src/shared/ipc/sessions'
-import type { LayoutNode } from '../../src/shared/layout/types'
+import { isArchived, type LayoutNode } from '../../src/shared/layout/types'
 import { APP_URL } from '../app-url'
 
 vi.mock('electron', () => ({
@@ -189,6 +189,43 @@ describe('Resume', () => {
     // Claude Code reports the resumed session and the worktree as its cwd: the new turn goes into that transcript.
     expect(h.view(resumed.nodeId)).toMatchObject({ sdkSessionId: FINISHED, cwd: worktree })
     expect(h.node(resumed.nodeId).data).toStrictEqual({ origin: 'worfy', sessionId: FINISHED })
+  })
+
+  it('a read-only Node turned live keeps Keep and when it was last touched (review of PR #654)', async () => {
+    savedLayout([{ ...externalNode(FINISHED, worktree), keep: true, touchedAt: 1_000 }])
+    const h = harness({ claude: { live: [], history: [{ sessionId: FINISHED, cwd: worktree }] } })
+    const resumed = await h.sessions.resume(PROJECT, FINISHED)
+    expect(h.node(resumed.nodeId)).toMatchObject({ keep: true, touchedAt: 1_000 })
+  })
+
+  it('an archived Node comes back onto the Canvas on Resume, read-only or worfy\'s own, its Keep kept', async () => {
+    const OTHER = 'f0000000-0000-4000-8000-0000000000f2'
+    const archived = { at: 1_000, rule: 'idle', batch: 'b-1' }
+    savedLayout([
+      { ...externalNode(FINISHED, worktree), keep: true, archived },
+      { id: 'live-1', kind: 'session', x: 0, y: 400, w: 340, h: 220, data: { origin: 'worfy', sessionId: OTHER }, archived },
+    ])
+    const h = harness({ claude: { live: [], history: [{ sessionId: FINISHED, cwd: worktree }, { sessionId: OTHER, cwd: repo }] } })
+    const before = Date.now()
+    const external = await h.sessions.resume(PROJECT, FINISHED)
+    const own = await h.sessions.start(PROJECT, 'live-1')
+    expect(h.node(external.nodeId)).toMatchObject({ keep: true, data: { origin: 'worfy', sessionId: FINISHED } })
+    expect(isArchived(h.node(external.nodeId))).toBe(false)
+    expect(isArchived(h.node(own.nodeId))).toBe(false)
+    // Brought back by the user's Resume: the automatic archive does not take it again at once.
+    expect(h.node(external.nodeId).touchedAt).toBeGreaterThanOrEqual(before)
+    expect(h.node(own.nodeId).touchedAt).toBeGreaterThanOrEqual(before)
+  })
+
+  it('a locked read-only Node is refused before anything changes: an archived one stays in the archive', async () => {
+    const archived = { at: 1_000, rule: 'idle', batch: 'b-1' }
+    savedLayout([{ ...externalNode(FINISHED, worktree), locked: true, archived }])
+    const h = harness({ claude: { live: [], history: [{ sessionId: FINISHED, cwd: worktree }] } })
+    const before = h.layout.get(PROJECT).revision
+    await expect(h.sessions.resume(PROJECT, FINISHED)).rejects.toThrow(/locked/)
+    expect(h.requests).toEqual([])
+    expect(h.layout.get(PROJECT).revision).toBe(before)
+    expect(h.node(`session:${FINISHED}`)).toMatchObject({ archived, locked: true, data: { origin: 'external' } })
   })
 
   it('makes a new Node for a Session of the history that has none; a second Resume returns the same run', async () => {
