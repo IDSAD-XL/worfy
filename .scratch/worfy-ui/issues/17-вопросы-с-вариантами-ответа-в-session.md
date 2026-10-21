@@ -1,7 +1,8 @@
 # 17 — Вопросы с вариантами ответа в Session (AskUserQuestion)
 
 Type: task
-Status: open
+Status: claimed 2026-10-21T14:02Z
+Branch: worfy-ui/17
 Blocked by: —
 Source: отзыв владельца 2026-10-19 после ручной приёмки Ticket-а 12: в чате Session worfy — окно
 вопроса с вариантами ответа, как окно вопроса в Claude Code desktop; ответить можно и из toast-а

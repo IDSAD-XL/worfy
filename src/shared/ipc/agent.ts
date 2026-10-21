@@ -15,10 +15,14 @@
 //
 // Ticket 21: outside bypassPermissions Claude Code asks before tools; the request arrives as a
 // `permission_request` event and `agent.permission` answers it.
+//
+// worfy-ui ticket 17: Claude Code's questions with answer options arrive as a `question_request`
+// event and `agent.answerQuestion` answers them.
 import { z } from 'zod'
 import { attachmentSchema, attachmentSourceSchema, attachResultSchema, MAX_ATTACHMENTS } from '../agent/attachments'
 import { slashCommandSchema } from '../agent/commands'
 import { agentEventEnvelope, permissionDecisionSchema, queueSnapshotSchema, sessionState } from '../agent/events'
+import { questionPickSchema } from '../agent/questions'
 import { modelOptionSchema, sessionSettingsSchema, settingsChangeSchema } from '../agent/settings'
 import { absolutePathSchema } from '../paths'
 import { eventChannel, invokeChannel } from './channels'
@@ -94,6 +98,20 @@ export const agentPermission = invokeChannel(
   'write',
 )
 
+/**
+ * Answers an open question request (Claude Code's AskUserQuestion, worfy-ui ticket 17): one pick
+ * per question in the questions' order, or `answers: null` for "Decline". `answered` is false when
+ * the request is no longer open; picks that do not answer every question with its own options are
+ * refused with an error, and the request stays open.
+ */
+export const agentAnswerQuestion = invokeChannel(
+  'agent.answerQuestion',
+  z.object({ sessionId, requestId: z.string().min(1), answers: z.array(questionPickSchema).min(1).max(4).nullable() }),
+  z.object({ answered: z.boolean() }),
+  'project',
+  'write',
+)
+
 export const agentEvent = eventChannel('agent.event', agentEventEnvelope, 'project', 'read')
 
 declare module './channels' {
@@ -112,6 +130,7 @@ declare module './channels' {
     'agent.queueRemove': typeof agentQueueRemove
     'agent.queueSend': typeof agentQueueSend
     'agent.permission': typeof agentPermission
+    'agent.answerQuestion': typeof agentAnswerQuestion
     'agent.event': typeof agentEvent
   }
 }

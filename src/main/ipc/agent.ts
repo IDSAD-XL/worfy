@@ -21,6 +21,7 @@ import { projectForCwd } from '../mcp/canvas-server'
 import { projectStore } from '../projects/store'
 import { dataRoot } from '../storage/paths'
 import {
+  agentAnswerQuestion,
   agentAttach,
   agentAttachPick,
   agentClose,
@@ -185,6 +186,11 @@ export function agentHandlers(
       const session = registry().get(sessionId)
       registry().noteInput(sessionId, 'answered a permission request')
       return { answered: session.answerPermission(requestId, decision) }
+    }),
+    defineHandler(agentAnswerQuestion, ({ sessionId, requestId, answers }) => {
+      const session = registry().get(sessionId)
+      registry().noteInput(sessionId, answers === null ? 'declined a question' : 'answered a question')
+      return { answered: session.answerQuestion(requestId, answers) }
     }),
   ]
 }

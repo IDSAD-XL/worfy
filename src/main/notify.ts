@@ -4,8 +4,9 @@
 // Start menu. A notification goes out when a Session finished its turn or waits for a permission
 // answer, and no worfy window has focus:
 //
-// - a Session worfy runs: its `result` (not one the user interrupted) and each `permission_request`,
-//   seen through SessionRegistry.observe;
+// - a Session worfy runs: its `result` (not one the user interrupted), each `permission_request`
+//   and each `question_request` ("Asks: <its first question>", worfy-ui ticket 17), seen through
+//   SessionRegistry.observe;
 // - a Session from the registry under ~/.claude (a terminal, Claude desktop): its status going
 //   from `busy` to `idle`, seen through the registry watchers the windows already run
 //   (src/main/ipc/claude-home.ts, liveSessionListeners). The first sight of a Session is not a
@@ -282,6 +283,9 @@ export class Notifier {
           sessionId,
           projectRoot: null,
         })
+        return
+      case 'question_request':
+        this.notify({ title: this.titleOf(sessionId), body: clip(`Asks: ${event.questions[0]?.question ?? ''}`), sessionId, projectRoot: null })
         return
       case 'state':
         if (event.state === 'closed') {

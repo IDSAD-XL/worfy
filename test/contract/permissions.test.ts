@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { CANCELLED_MESSAGE, DENIED_MESSAGE, PermissionGate, UNATTENDED_DENIED_MESSAGE } from '../../src/main/agent/permissions'
+import { CANCELLED_MESSAGE, DENIED_MESSAGE, PermissionGate, QUESTION_DECLINED_MESSAGE, UNATTENDED_DENIED_MESSAGE } from '../../src/main/agent/permissions'
 import { UNATTENDED_MODE_MESSAGE } from '../../src/main/agent/session-settings'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { agentHandlers } from '../../src/main/ipc/agent'
@@ -645,5 +645,209 @@ describe('an unattended Session (Autopilot, worfy-daily ticket 02)', () => {
     expect(h.ofType('refused_dialog')).toEqual([])
     // Closing the Session refuses the open request, so nothing is left waiting.
     await h.ok('agent.close', { sessionId: id })
+  })
+})
+
+// Questions with answer options (Claude Code's AskUserQuestion, worfy-ui ticket 17) on the fake
+// agent's `question` line, which copies what the real Claude Code does
+// (test/contract/ask-user-question-sdk.test.ts): it asks in every mode, bypassPermissions included.
+describe('a question (AskUserQuestion, worfy-ui ticket 17)', () => {
+  type QuestionRequest = Extract<AgentEvent, { type: 'question_request' }>
+  const DATABASE = 'Which database should the cache use?'
+  const LAYOUT = 'Which layout should the report use?'
+  const CHECKS = 'Which checks should run first?'
+
+  /** Starts a Session in its own mode — bypassPermissions, a new Session's — and sends one message. */
+  async function asked(h: Awaited<ReturnType<typeof harness>>, count = 1): Promise<{ id: string; request: QuestionRequest }> {
+    const { sessionId } = await h.ok<{ sessionId: string }>('agent.start', { cwd })
+    await vi.waitFor(() => expect(h.registry.get(sessionId).state).toBe('idle'))
+    expect(h.registry.get(sessionId).settings.permissionMode).toBe('bypassPermissions')
+    await h.ok('agent.send', { sessionId, text: 'set up the cache' })
+    await vi.waitFor(() => expect(h.ofType('question_request')).toHaveLength(count))
+    return { id: sessionId, request: h.ofType('question_request')[count - 1]! }
+  }
+
+  it('arrives as a question request, not a permission request; one option goes to canUseTool as `answers`, and the model reads it', async () => {
+    const h = await harness('question')
+    const { id, request } = await asked(h)
+    expect(h.ofType('permission_request')).toEqual([])
+    expect(request).toEqual({
+      type: 'question_request',
+      requestId: request.requestId,
+      toolUseId: 'toolu_fake_question_1',
+      questions: [
+        {
+          question: DATABASE,
+          header: 'Database',
+          multiSelect: false,
+          options: [
+            { label: 'Postgres', description: 'The server the app already runs', preview: null },
+            { label: 'SQLite', description: 'A file next to the app', preview: null },
+          ],
+        },
+      ],
+    })
+    expect(h.registry.get(id).state).toBe('needs_permission')
+
+    expect(await h.ok('agent.answerQuestion', { sessionId: id, requestId: request.requestId, answers: [{ selected: ['SQLite'], other: null }] })).toEqual({ answered: true })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('idle'))
+    const [call] = h.permissions()
+    expect(call?.toolName).toBe('AskUserQuestion')
+    expect(call?.result).toEqual({ behavior: 'allow', updatedInput: { questions: (call?.input as { questions: unknown }).questions, answers: { [DATABASE]: 'SQLite' } } })
+    expect(h.ofType('question_resolved')).toEqual([{ type: 'question_resolved', requestId: request.requestId, outcome: 'answered', answers: { [DATABASE]: 'SQLite' } }])
+    expect(h.ofType('tool_result').find((each) => each.toolUseId === 'toolu_fake_question_1')).toMatchObject({
+      isError: false,
+      content: `Your questions have been answered: "${DATABASE}"="SQLite". You can now continue with these answers in mind.`,
+    })
+    // Answering it again changes nothing.
+    expect(await h.ok('agent.answerQuestion', { sessionId: id, requestId: request.requestId, answers: [{ selected: ['Postgres'], other: null }] })).toEqual({ answered: false })
+  })
+
+  it('multiSelect labels go in the options\' order joined by ", ", the "Other" text last; previews reach the renderer', async () => {
+    const h = await harness('question')
+    const { id, request: first } = await asked(h)
+    await h.ok('agent.answerQuestion', { sessionId: id, requestId: first.requestId, answers: [{ selected: ['Postgres'], other: null }] })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('idle'))
+    await h.ok('agent.send', { sessionId: id, text: 'and the report' })
+    await vi.waitFor(() => expect(h.ofType('question_request')).toHaveLength(2))
+    const second = h.ofType('question_request')[1]!
+    expect(second.questions.map((each) => [each.header, each.multiSelect])).toEqual([
+      ['Layout', false],
+      ['Checks', true],
+    ])
+    expect(second.questions[0]?.options[0]?.preview).toBe('| Ticket | State |\n| --- | --- |\n| 17 | open |')
+
+    await h.ok('agent.answerQuestion', {
+      sessionId: id,
+      requestId: second.requestId,
+      answers: [
+        { selected: ['Cards'], other: null },
+        { selected: ['Unit tests', 'Lint'], other: '  Format check ' },
+      ],
+    })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('idle'))
+    const answers = { [LAYOUT]: 'Cards', [CHECKS]: 'Lint, Unit tests, Format check' }
+    expect(h.permissions()[1]?.result).toMatchObject({ behavior: 'allow', updatedInput: { answers } })
+    expect(h.ofType('question_resolved')[1]).toMatchObject({ outcome: 'answered', answers })
+    // "Format check" is no option: the model reads the answers as the user's own words.
+    expect(h.ofType('tool_result').find((each) => each.toolUseId === 'toolu_fake_question_2')?.content).toBe(
+      `The user answered: "${LAYOUT}"="Cards", "${CHECKS}"="Lint, Unit tests, Format check". Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.`,
+    )
+  })
+
+  it('"Decline" refuses the call: the model reads the refusal as the tool\'s error', async () => {
+    const h = await harness('question')
+    const { id, request } = await asked(h)
+    expect(await h.ok('agent.answerQuestion', { sessionId: id, requestId: request.requestId, answers: null })).toEqual({ answered: true })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('idle'))
+    expect(h.permissions()[0]?.result).toEqual({ behavior: 'deny', message: QUESTION_DECLINED_MESSAGE })
+    expect(h.ofType('question_resolved')).toEqual([{ type: 'question_resolved', requestId: request.requestId, outcome: 'declined', answers: {} }])
+    expect(h.ofType('tool_result').find((each) => each.toolUseId === 'toolu_fake_question_1')).toMatchObject({ isError: true, content: QUESTION_DECLINED_MESSAGE })
+  })
+
+  it('Interrupt cancels the open question; closing the Session does too', async () => {
+    const h = await harness('question')
+    const { id, request } = await asked(h)
+    expect(await h.ok('agent.interrupt', { sessionId: id })).toEqual({ interrupted: true })
+    await vi.waitFor(() => expect(h.ofType('question_resolved')).toHaveLength(1))
+    expect(h.ofType('question_resolved')[0]).toEqual({ type: 'question_resolved', requestId: request.requestId, outcome: 'cancelled', answers: {} })
+    await vi.waitFor(() => expect(h.permissions()).toHaveLength(1))
+    expect(h.permissions()[0]?.result).toEqual({ behavior: 'deny', message: CANCELLED_MESSAGE, interrupt: true })
+
+    const other = await harness('question')
+    const { id: closing, request: open } = await asked(other)
+    other.registry.get(closing).close()
+    await vi.waitFor(() => expect(other.ofType('question_resolved')).toEqual([{ type: 'question_resolved', requestId: open.requestId, outcome: 'cancelled', answers: {} }]))
+  })
+
+  it('refuses picks that do not answer every question with its own options, and keeps the question open', async () => {
+    const h = await harness('question')
+    const { id, request } = await asked(h)
+    const requestId = request.requestId
+    for (const answers of [
+      [{ selected: ['MySQL'], other: null }],
+      [{ selected: [], other: null }],
+      [{ selected: [], other: '   ' }],
+      [{ selected: ['Postgres', 'SQLite'], other: null }],
+      [{ selected: ['SQLite'], other: 'and Redis' }],
+      [{ selected: ['SQLite'], other: null }, { selected: ['SQLite'], other: null }],
+    ]) {
+      const result = await h.call('agent.answerQuestion', { sessionId: id, requestId, answers })
+      expect(result.ok, JSON.stringify(answers)).toBe(false)
+    }
+    for (const input of [
+      { sessionId: id, requestId, answers: [] },
+      { sessionId: id, requestId, answers: [{ selected: 'SQLite', other: null }] },
+      { sessionId: id, requestId: '', answers: null },
+    ]) {
+      expect((await h.call('agent.answerQuestion', input)).ok, JSON.stringify(input)).toBe(false)
+    }
+    // A question is not a permission request: "Allow" would give the model no answer.
+    expect((await h.call('agent.permission', { sessionId: id, requestId, decision: 'allow' })).ok).toBe(false)
+    expect(h.registry.get(id).state).toBe('needs_permission')
+    expect(h.ofType('question_resolved')).toEqual([])
+    expect(h.permissions()).toEqual([])
+
+    const session = h.registry.get(id)
+    const answer = vi.spyOn(session, 'answerQuestion')
+    expect(await h.ok('agent.answerQuestion', { sessionId: id, requestId, answers: [{ selected: ['SQLite'], other: null, extra: 1 }], decision: 'allow' })).toEqual({ answered: true })
+    expect(answer).toHaveBeenCalledWith(requestId, [{ selected: ['SQLite'], other: null }])
+  })
+
+  it('an unattended Session refuses the question at once, as any request: no question request', async () => {
+    const h = await harness('question')
+    await h.startUnattended()
+    const [sessionId] = h.registry.list().map((each) => each.sessionId)
+    await h.ok('agent.send', { sessionId, text: 'set up the cache' })
+    await vi.waitFor(() => expect(h.ofType('refused_dialog')).toHaveLength(1))
+    expect(h.ofType('refused_dialog')[0]).toMatchObject({ dialog: 'permission_request', subject: 'AskUserQuestion', message: UNATTENDED_DENIED_MESSAGE })
+    expect(h.ofType('question_request')).toEqual([])
+    await vi.waitFor(() => expect(h.permissions()[0]?.result).toEqual({ behavior: 'deny', message: UNATTENDED_DENIED_MESSAGE }))
+  })
+})
+
+describe('PermissionGate and questions', () => {
+  const options = () => ({ signal: new AbortController().signal })
+  const QUESTIONS = [{ question: 'Pick?', header: 'Pick', options: [{ label: 'A', description: '' }, { label: 'B', description: '' }] }]
+
+  it('an AskUserQuestion input it cannot read as questions goes the ordinary way, as a permission request', async () => {
+    const events: AgentEvent[] = []
+    const gate = new PermissionGate((event) => events.push(event), () => undefined)
+    void gate.canUseTool('AskUserQuestion', { questions: 'not a list' }, options())
+    void gate.canUseTool('AskUserQuestion', { questions: [QUESTIONS[0], QUESTIONS[0]] }, options())
+    expect(events.map((event) => event.type)).toEqual(['permission_request', 'permission_request'])
+    gate.cancelAll()
+  })
+
+  it('a question never offers "Always allow", and "Always allow" given to AskUserQuestion before never answers a question', async () => {
+    const events: AgentEvent[] = []
+    const gate = new PermissionGate((event) => events.push(event), () => undefined)
+    const odd = gate.canUseTool('AskUserQuestion', { questions: 'odd' }, options())
+    const oddId = events[0]?.type === 'permission_request' ? events[0].requestId : ''
+    expect(gate.answer(oddId, 'always_allow')).toBe(true)
+    await odd
+
+    const asked = gate.canUseTool('AskUserQuestion', { questions: QUESTIONS }, options())
+    const request = events.find((event) => event.type === 'question_request')
+    expect(request).toBeDefined()
+    expect(gate.pending).toBe(1)
+    const requestId = request?.type === 'question_request' ? request.requestId : ''
+    expect(() => gate.answer(requestId, 'always_allow')).toThrow(/question/)
+    expect(gate.answerQuestion(requestId, [{ selected: ['B'], other: null }])).toBe(true)
+    expect(await asked).toEqual({ behavior: 'allow', updatedInput: { questions: QUESTIONS, answers: { 'Pick?': 'B' } } })
+  })
+
+  it('"Always allow" for a tool leaves an open question of a parallel Subagent waiting', async () => {
+    const events: AgentEvent[] = []
+    const gate = new PermissionGate((event) => events.push(event), () => undefined)
+    void gate.canUseTool('AskUserQuestion', { questions: QUESTIONS }, options())
+    const bash = gate.canUseTool('Bash', { command: 'ls' }, options())
+    const bashId = events.find((event) => event.type === 'permission_request')
+    expect(gate.answer(bashId?.type === 'permission_request' ? bashId.requestId : '', 'always_allow')).toBe(true)
+    await bash
+    expect(gate.pending).toBe(1)
+    expect(() => gate.answerQuestion(bashId?.type === 'permission_request' ? bashId.requestId : '', null)).not.toThrow()
+    gate.cancelAll()
+    expect(events.filter((event) => event.type === 'question_resolved')).toMatchObject([{ outcome: 'cancelled' }])
   })
 })
