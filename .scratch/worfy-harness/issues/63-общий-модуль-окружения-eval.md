@@ -1,7 +1,7 @@
 # 63 — Общий модуль окружения для `eval:harness` и `eval:outcome`
 
 Type: task
-Status: open
+Status: claimed 2026-10-21T19:30Z
 Blocked by: 29, 52
 Source: ревью PR #697 (инфраструктура worfy-harness 52), линза границ модулей, 2026-10-21. `scripts/eval-outcome-lib.mjs`
 повторяет из `scripts/eval-harness.mjs` закреплённые модели, очистку окружения, `claudeBinary`, `checkVersion`,
