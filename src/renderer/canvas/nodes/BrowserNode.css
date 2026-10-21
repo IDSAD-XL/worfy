@@ -230,3 +230,55 @@
 .w-canvas .react-flow[data-node-resizing] .w-browser-layer__page {
   pointer-events: none;
 }
+
+/* The name of the Browser profile in the header (worfy-browser ticket 03): a quiet button that
+   opens the window «Browser profiles…». */
+.w-browser-frame__profile {
+  max-width: 140px;
+  height: 20px;
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+.w-browser-frame__profile:hover {
+  background: var(--segment-track);
+}
+.w-browser-frame__profile:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* «Choose a profile»: the empty frame of a Browser without a settled profile. No page lies under
+   it, so it has the surface's fill and takes the mouse. */
+.w-browser-frame__choose {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border-radius: 0 0 var(--radius-node) var(--radius-node);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  pointer-events: all;
+}
+.w-browser-frame__choose-menu {
+  min-width: 180px;
+  padding: var(--space-1);
+  border-radius: var(--radius-popover);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-node);
+}
+.w-browser-frame__choose .w-browser-frame__open-button {
+  margin-left: 0;
+}

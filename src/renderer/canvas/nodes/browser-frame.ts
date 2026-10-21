@@ -40,6 +40,38 @@ export function browserUrl(node: LayoutNode): string | null {
   return webAddress(node.data.url)
 }
 
+/** The id of the profile a Browser Node was opened under before Browser profiles existed (worfy-browser ticket 10). */
+const LEGACY_PROFILE = 'default'
+
+/**
+ * Which Browser profile the Browser of a Node is opened under (worfy-browser ticket 03, the owner's
+ * decisions 3 and 5), from the Node's `data` and the Project's profiles:
+ * - `loading` — the profiles are not read yet: no page, no question;
+ * - `use` — open the page on that profile's partition; `write` — the profile is not in the Node yet
+ *   and goes into `data.profile` (by the Browser layer, never on a read-only screen);
+ * - `choose` — the frame shows «Choose a profile»: the Node's profile was deleted (`deleted`), the
+ *   Project has several and the Node none yet (`several`), or the Project has none (`none`).
+ *
+ * A Node without `data.profile` is either a Browser opened before profiles existed or a new one:
+ * «New browser» makes a Node with empty `data` (the Canvas menu and the palette, which this ticket
+ * does not change). The two are told apart by the page address: an old Browser that had a page keeps
+ * a web address in `data.url` and stays on `default`, where its logins are; once `default` is
+ * deleted it asks, as any Browser of a deleted profile does. Without an address — a new Browser, or an old empty frame, which loses no page — the only
+ * profile of the Project is taken, and with several the frame asks: that is how «New browser» asks
+ * for a profile only when there is more than one.
+ */
+export type BrowserProfileChoice = { kind: 'loading' } | { kind: 'use'; id: string; write: boolean } | { kind: 'choose'; reason: 'deleted' | 'several' | 'none' }
+
+export function browserProfileChoice(data: { profile?: unknown; url?: unknown }, profiles: readonly { id: string }[] | undefined): BrowserProfileChoice {
+  if (profiles === undefined) return { kind: 'loading' }
+  const has = (id: string) => profiles.some((profile) => profile.id === id)
+  if (typeof data.profile === 'string') return has(data.profile) ? { kind: 'use', id: data.profile, write: false } : { kind: 'choose', reason: 'deleted' }
+  if (webAddress(data.url) !== null) return has(LEGACY_PROFILE) ? { kind: 'use', id: LEGACY_PROFILE, write: true } : { kind: 'choose', reason: 'deleted' }
+  const [only] = profiles
+  if (profiles.length === 1 && only !== undefined) return { kind: 'use', id: only.id, write: true }
+  return { kind: 'choose', reason: profiles.length === 0 ? 'none' : 'several' }
+}
+
 /**
  * The address typed into a frame's address bar as the URL to open, or null when it is none. An
  * http(s) URL is taken as it is; an address without a scheme (`example.com/path`,
