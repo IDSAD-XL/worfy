@@ -155,5 +155,9 @@ exit 0, «[gate] зелено (fast)».
   `check`); отдельно — зелёный за 98 s. Предел обёртки — `FILE_TIMEOUT_MS` 120 s, на Windows 300 s
   (`test/contract/harness-scripts.test.ts:28`, один `it.for` на файл — `:70-73`).
 
+- 2026-10-21, Implementer PR #716 (`worfy-ui` 24): `wave-gate.test.sh` убит по пределу 120 s в двух
+  полных `pnpm test` подряд при load average 15–17 от соседних Session-ов; отдельно — зелёный,
+  третий полный прогон — зелёный.
+
 98 s без нагрузки — уже больше остатка ~70 s выше. Следующий шаг из «Не сделано» — разбить файл.
 Сводка flaky test-ов этого дня — [34](34-flaky-test-ы-gate-full-2026-10-19.md).
