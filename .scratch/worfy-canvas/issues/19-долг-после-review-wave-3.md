@@ -1,4 +1,4 @@
-# 19 — Долг после review Wave 3: PR #654, #656, #657, #659
+# 19 — Долг после review Wave 3: PR #654, #656, #657, #659, #662, #664, #668
 
 Type: task
 Status: open
@@ -8,6 +8,9 @@ Source: ревью PR [#654](https://github.com/IDSAD-XL/worfy/pull/654) (Ticket
 Session-ов и popover Archive, круги 1–3), [#657](https://github.com/IDSAD-XL/worfy/pull/657) (Ticket 05,
 полоса и иконка типа в шапке Node-а, круги 1–2), [#659](https://github.com/IDSAD-XL/worfy/pull/659)
 (follow-up Ticket-а 18, e2e перекрытия карточек), 2026-10-21. Все четыре влиты; строки — по main `d207756b`.
+Добавлено после Wave 4: ревью PR [#662](https://github.com/IDSAD-XL/worfy/pull/662) (Ticket 15, круги 1–2),
+[#664](https://github.com/IDSAD-XL/worfy/pull/664) (Ticket 08) и [#668](https://github.com/IDSAD-XL/worfy/pull/668)
+(Ticket 06); все три влиты, строки — по main `306bf09e`.
 
 ## Что происходит
 
@@ -72,6 +75,45 @@ Session-ов и popover Archive, круги 1–3), [#657](https://github.com/ID
       `tidy-up.spec.ts:112`, `no-overlap.spec.ts:128/140/196/258`, `selection-toolbar-frame.spec.ts:163`
       и `:186-201`, `done-stack.spec.ts:96`.
 
+**#662 (Ticket 15, живые агенты при первом открытии за день), low:**
+
+- [ ] `src/renderer/canvas/sources/epics.ts:589`: `dayWrites.delete` снимает отметку, не проверив, что она
+      от этого вызова (запоздавшая вчерашняя запись плюс запись дня D+1); проверять день перед
+      `saveArrangement`.
+- [ ] `epics.ts:628`: полночь во время ожидания пропускает запись K или порядка раньше записи дня;
+      проверять `dayWrites.has`.
+- [ ] Переключение Project-а во время ожидания Binding-ов: `nodes()` читает `nodeLookup` другого
+      Project-а.
+- [ ] Границы модулей: `bindingsRead` читает сырое состояние store; разрешение сигналов повторяет
+      `session-spots.ts`; прямой `invoke('claudeHome.live')`; поле model продублировано; планировщик
+      upkeep вынести в свой модуль.
+- [ ] `epics.ts` вырос до 1104 строк (gate предупреждает выше 1000): вынести запись и upkeep расстановки
+      рамок в свой модуль.
+- [ ] Test (medium, без разрушений): `epics.ts:530` — то, что `useRepack` передаёт состояние store в
+      `activityNow`, не проверено (`canvas-menu.test` подменяет `useRepack` mock-ом).
+- [ ] Test-ы: два mount-а, оба запускают запись дня; `whenSettled` просыпается при удалении расстановки;
+      `clearTimeout` в `whenBindingsRead`; ошибка `claudeHome.live` → нет живых Session-ов.
+
+**#664 (Ticket 08, настройка автоархива и команда), low:**
+
+- [ ] `src/main/layout/archive.ts:288`: условие `sessionId !== null` в `archiveFromScreen` без test-а —
+      только что запущенный Session Node без `sessionId`, названный archive-ом с экрана или Linked, был бы
+      заархивирован; добавить Node без `data.sessionId` в test «came back to life».
+- [ ] `src/renderer/canvas/history.ts:468`: undo «Archive now» строит `restore` по локальному Layout-у для
+      всех id, в том числе отклонённых main; строить `restore` по Node-ам с `archived.batch === op.batch`
+      после ответа main.
+
+**#668 (Ticket 06, semantic zoom), low:**
+
+- [ ] `test/unit/zoom-level.test.tsx:184-198`: перечень Node-ов ищет текст `{...NODE_HEADER}`; проверять,
+      что каждый ключ `EXCEPTIONS` существует и что пометка — прямой потомок `.w-node-surface`.
+- [ ] `test/e2e/semantic-zoom.spec.ts`: размер Terminal читается один раз, без ожидания кадра (на голове
+      PR — `:264` и `:304`; на main `306bf09e` сравнения на `:267` и `:309` уже через `expect.poll`, а
+      исходный `terminalFull` на `:249` — одно чтение); перечитать и при нужде брать `expect.poll`.
+- [ ] `shortcut:` в `src/renderer/canvas/epic-frame.css:443`: на far шапка короткой рамки выходит за её
+      нижний край; если рамка — последняя в самой высокой колонке, шапка закрывает подпись done shelf и
+      первый ряд chip-ов и забирает их клики.
+
 **Flaky test в полных прогонах:**
 
 - [ ] `test/contract/workflow-reader.test.ts` (test file watcher-а) дважды упал в полном `pnpm test` у
@@ -92,6 +134,8 @@ Session-ов и popover Archive, круги 1–3), [#657](https://github.com/ID
   `src/renderer/binding/store.ts`
 - `test/e2e/helpers.ts` и spec-и из пункта #659
 - `test/contract/workflow-reader.test.ts`
+- `src/renderer/canvas/sources/epics.ts`, `src/renderer/canvas/overlays/session-spots.ts`, `src/main/layout/archive.ts`,
+  `src/renderer/canvas/epic-frame.css`, `test/unit/zoom-level.test.tsx`, `test/e2e/semantic-zoom.spec.ts`
 
 ## Итог
 

@@ -1,7 +1,8 @@
 # 06 — Semantic zoom: три уровня вида Node-а по zoom; заголовок рамки Epic-а постоянного экранного размера
 
 Type: task
-Status: open
+Status: done 2026-10-21T08:09Z
+PR: #668
 Blocked by: 04
 Source: [spec.md](../spec.md), решение владельца 11 (semantic zoom — параллельно с токенами);
 [ADR-0077](../../../docs/adr/0077-node-kind-tokens.md), пункты 3 и 7 (блок цвета типа на дальнем zoom);
