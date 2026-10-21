@@ -8,7 +8,8 @@
 #   - the limit itself: 1000 → 1001 warns, 900 → 1000 does not; a last line without a newline counts;
 #   - committed on the branch, staged, edited in the worktree, untracked, in an untracked folder;
 #   - not counted: lock files, *.min.js, *.map, *.snap, dist/ out/ build/, binary files (by content
-#     and by .gitattributes), deleted files, symlinks; a long file that was only renamed;
+#     and by .gitattributes), deleted files, symlinks; a long file that was only renamed, also to a
+#     name git quotes (a double quote, not on Windows);
 #   - a green cache hit prints the warning again; red stays red; a narrowed scope warns too;
 #   - without a merge-base the check is skipped silently.
 # Run: bash harness/hooks/tests/gate-file-size.test.sh; exit code 0 means everything passed.
@@ -133,6 +134,8 @@ lines 900 "$R/committed.ts"         # grows in a commit of the branch, the workt
 lines 900 "$R/staged.ts"            # grows in the index
 lines 1200 "$R/moved-from.ts"       # renamed without edits: was long under the old name
 lines 900 "$R/short-from.ts"        # renamed and grown to 1100: crossed the limit under the new name
+# renamed without edits to a name git quotes (a double quote); Windows file names cannot hold one
+[ "$WIN" -eq 1 ] || lines 1200 "$R/quoted-from.ts"
 lines 900 "$R/with space.ts"        # a path with a space
 lines 900 "$R/distant/a.ts"         # "dist" only as the start of a folder name: counted
 lines 900 "$R/заметки/файл.md"      # a path that is not ASCII
@@ -148,6 +151,7 @@ lines 1100 "$R/staged.ts"
 git -C "$R" add staged.ts
 git -C "$R" mv moved-from.ts moved-to.ts
 git -C "$R" mv short-from.ts short-to.ts
+[ "$WIN" -eq 1 ] || git -C "$R" mv quoted-from.ts 'quoted"to.ts'
 lines 1100 "$R/short-to.ts"
 git -C "$R" rm -q gone.ts
 lines 1100 "$R/grow.ts"
@@ -196,6 +200,11 @@ warns "grown in a commit of the branch: a warning" "committed.ts" 900 1100
 warns "grown in the index: a warning" "staged.ts" 900 1100
 silent "a long file renamed without edits: no warning" "moved-to.ts"
 warns "a file renamed and grown past the limit: a warning with its old length" "short-to.ts" 900 1100
+if [ "$WIN" -eq 1 ]; then
+    echo "skip a long file renamed to a name with a double quote: Windows file names cannot hold one"
+else
+    silent 'a long file renamed without edits to a name git quotes: no warning' 'quoted"to.ts'
+fi
 warns "a path with a space: a warning" "with space.ts" 900 1100
 warns "a new file in an untracked folder: a warning" "newdir/deep/inside.ts" 0 1500
 silent "dist/ inside an untracked folder: no warning" "newdir/dist/gen.js"
