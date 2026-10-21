@@ -3,7 +3,8 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
-import { launchApp } from './helpers'
+import { MIN_SIZE } from '../../src/shared/window/bounds'
+import { launchApp, smallestWindow } from './helpers'
 import { nextFrames, settled } from './wait'
 
 // The input field's pickers and message queue (ticket 19) against the built app, on the fake agent
@@ -275,8 +276,15 @@ async function box(locator: Locator): Promise<Box> {
   return found
 }
 
-/** Resizes the app's window until the page of `inPage` is `width` px wide. */
+/**
+ * Resizes the app's window until the page of `inPage` is `width` px wide. 800×520 is the smallest
+ * window worfy allows, an outer size: smallestWindow sets it, and on Windows the page is narrower.
+ */
 async function resizeWindow(app: ElectronApplication, inPage: Locator, width: number, height: number): Promise<void> {
+  if (width === MIN_SIZE.width && height === MIN_SIZE.height) {
+    await smallestWindow({ app, window: inPage.page() })
+    return
+  }
   await expect
     .poll(
       async () => {

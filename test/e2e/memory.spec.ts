@@ -30,7 +30,10 @@ test('the memory figure shows by default; the switch in Settings hides it in eve
     expect(version !== null && shown !== null && shown.x >= version.x + version.width).toBe(true)
 
     // At the smallest window the figure stays on the version's line, one line high, inside the toolbar.
-    await smallestWindow(launched)
+    const page = await smallestWindow(launched)
+    // The page is no larger than the window (a frame, where the system draws one, takes part of it).
+    expect(page.width).toBeLessThanOrEqual(801)
+    expect(page.height).toBeLessThanOrEqual(521)
     const bar = await window.getByRole('banner').boundingBox()
     const lineBox = await line.boundingBox()
     const small = await figure.boundingBox()
