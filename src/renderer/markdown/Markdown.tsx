@@ -3,6 +3,7 @@ import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markd
 import remarkGfm from 'remark-gfm'
 import { invoke } from '../ipc'
 import { useFileElsewhere } from '../machines/useFileElsewhere'
+import { revealedNote } from '../toast/revealed'
 import { classifyLink, isWindowsPathLink } from './links'
 import { remarkSoftBreaks } from './soft-breaks'
 import './markdown.css'
@@ -17,8 +18,9 @@ import './markdown.css'
 // path as a file of the Project in the default editor. Fonts and colours come from the theme
 // tokens (markdown.css). In a window on a Linked machine a file link shows "File is on <Machine>"
 // instead (machines/useFileElsewhere.ts), and an https:// link opens on this Machine. A link to a
-// program (`.command`, `.app`, `.exe`…) is never run: main shows the file in Finder or Explorer, and
-// the reason appears next to the link (worfy-polish ticket 35).
+// file that is not a document (`.command`, `.term`, `.app`, `.exe`…) is not opened unasked: main asks
+// "Open", "Show in Finder" or "Cancel", and when it was shown the reason appears next to the link
+// (toast/revealed.ts, worfy-polish ticket 35).
 
 export interface MarkdownProps {
   text: string
@@ -36,9 +38,6 @@ export interface MarkdownProps {
  * decides what such a path opens.
  */
 const keepWindowsPaths = (url: string): string => (isWindowsPathLink(url) ? url : defaultUrlTransform(url))
-
-/** The reason shown next to a link whose file main showed in the file manager instead of opening. */
-const revealedNote = (fileManager: string): string => `Shown in ${fileManager}: worfy does not run programs from links`
 
 function open(href: string | undefined, projectId: string | undefined, baseDir: string | undefined, note: (text: string) => void): void {
   const target = classifyLink(href, baseDir)

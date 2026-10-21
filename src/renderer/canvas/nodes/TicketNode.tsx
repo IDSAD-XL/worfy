@@ -8,6 +8,7 @@ import { useFileElsewhere } from '../../machines/useFileElsewhere'
 import Stepper from '../../pipeline/Stepper'
 import { stageOfTicket, usePipeline } from '../../pipeline/usePipeline'
 import { StatusChip } from '../../theme/primitives'
+import { showRevealed } from '../../toast/revealed'
 import { actions, badges, type SlotSubject } from '../badges'
 import { useProjectRepos } from '../badges/use-checks'
 import { ticketTitle } from '../epic-layout'
@@ -126,6 +127,8 @@ function TicketNode({ id, data, width }: CanvasNodeProps) {
     if (read.path === undefined) return
     void invoke('shell.openInEditor', { projectId, path: read.path }).then((result) => {
       if (!result.ok) console.error(`shell.openInEditor ${ticket.epic}/${ticket.num} failed:`, result.error)
+      // A symlinked Ticket that leads to anything but a document: main asked, and the user chose to see it in the file manager.
+      else if (result.value.revealedIn !== undefined) showRevealed(result.value.revealedIn)
     })
   }
 

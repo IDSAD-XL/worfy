@@ -115,7 +115,7 @@ describe('Markdown: links', () => {
       invoke: (channel: string, input: unknown) => {
         asked.push({ channel, input })
         const path = (input as { path: string }).path
-        return Promise.resolve({ ok: true, value: path.endsWith('.md') ? { path } : { path, revealedIn: 'Finder' } })
+        return Promise.resolve({ ok: true, value: path.endsWith('.md') ? { path, outcome: 'opened' } : { path, outcome: 'revealed', revealedIn: 'darwin' } })
       },
       on: () => 1,
       off: () => undefined,
@@ -125,7 +125,7 @@ describe('Markdown: links', () => {
     expect(fireEvent.click(screen.getByRole('link', { name: 'notes' }))).toBe(false)
     expect(fireEvent.click(screen.getByRole('link', { name: 'setup' }))).toBe(false)
     const note = await screen.findByRole('status')
-    expect(note.textContent).toBe('Shown in Finder: worfy does not run programs from links')
+    expect(note.textContent).toBe('Shown in Finder: not a document')
     // Next to its own link, and only one: the opened file has none.
     expect(note.previousElementSibling?.textContent).toBe('setup')
     expect(screen.getAllByRole('status')).toHaveLength(1)
@@ -133,6 +133,40 @@ describe('Markdown: links', () => {
       { projectId: 'alpha', path: 'notes.md' },
       { projectId: 'alpha', path: 'scripts/setup.command' },
     ])
+  })
+
+  it('shows no reason when the user cancelled main\'s question', async () => {
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      invoke: (channel: string, input: unknown) => {
+        asked.push({ channel, input })
+        return Promise.resolve({ ok: true, value: { path: (input as { path: string }).path, outcome: 'cancelled' } })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    render(<Markdown text={'[x](run.term)'} projectId="alpha" />)
+    fireEvent.click(screen.getByRole('link', { name: 'x' }))
+    await vi.waitFor(() => expect(asked).toHaveLength(1))
+    await Promise.resolve()
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it.each([
+    ['darwin', 'Shown in Finder: not a document'],
+    ['win32', 'Shown in Explorer: not a document'],
+    ['other', 'Shown in the file manager: not a document'],
+  ])('names the file manager of %s in the reason', async (platform, text) => {
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      invoke: (channel: string, input: unknown) => {
+        asked.push({ channel, input })
+        return Promise.resolve({ ok: true, value: { path: (input as { path: string }).path, outcome: 'revealed', revealedIn: platform } })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    render(<Markdown text={'[x](run.term)'} projectId="alpha" />)
+    fireEvent.click(screen.getByRole('link', { name: 'x' }))
+    expect((await screen.findByRole('status')).textContent).toBe(text)
   })
 
   // The renderer is not trusted to judge the file: every such link reaches main, which decides.

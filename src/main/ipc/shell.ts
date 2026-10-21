@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process'
 import { realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
-import { shell } from 'electron'
-import { shellOpenExternal, shellOpenInEditor } from '../../shared/ipc/shell'
+import { BrowserWindow, dialog, shell, type Dialog } from 'electron'
+import { shellOpenExternal, shellOpenInEditor, type RevealPlatform } from '../../shared/ipc/shell'
 import { projectStore } from '../projects/store'
 import { isInside, UNCHECKED, walkLinks, type LinkFs, type PathRules } from '../remote-links'
 import { defineHandler, type HandlerModule } from './index'
@@ -64,80 +64,85 @@ export async function resolveProjectFile(root: string, path: string, worktrees: 
   return target
 }
 
-// What a double click would run rather than open, by the system's name of it (worfy-polish ticket
-// 35). shell.openPath does what a double click does; for these it is starting a program, so they
-// are shown in the file manager instead. When in doubt a kind belongs here: showing a file costs a
-// click, running one can cost the machine.
-const LAUNCHED_DARWIN = [
-  // Programs, scripts and installers: Terminal, Automator, Script Editor, Installer run them.
-  ...['.app', '.command', '.terminal', '.tool', '.workflow', '.action', '.scpt', '.scptd', '.applescript', '.pkg', '.mpkg'],
-  // Shell scripts, and the kinds an installed launcher runs (Python Launcher, Jar Launcher).
-  ...['.sh', '.bash', '.zsh', '.csh', '.tcsh', '.ksh', '.fish', '.py', '.pyw', '.jar'],
-  // Pointers to another file or address that is opened in turn, disk images, system add-ons.
-  ...['.webloc', '.inetloc', '.fileloc', '.dmg', '.mobileconfig', '.prefpane', '.saver', '.kext', '.osax', '.shortcut'],
-]
+// The files a link hands to the system to open without asking (worfy-polish ticket 35). shell.openPath does
+// what a double click does, and for a program, a script, an installer or a pointer to one that is
+// running it. No list of such kinds is ever complete (a Terminal `.term` file runs its command), so
+// the check is the other way round: a regular file whose extension is one of these documents is
+// opened at once, and for anything else main asks first (askToOpen). Each kind opens in a viewer or an editor:
+// text and markdown, data formats, TypeScript and CSS as text, images, PDF. Not here, on any system:
+// `.html`, `.htm`, `.svg` and `.xml` open in a browser, where a page can send itself on to the
+// handler of a URL scheme (`ms-msdt:`, `search-ms:`, `x-apple…:`), so they lead to programs too;
+// `.csv` opens in a spreadsheet, which may evaluate formulas.
+const DOCUMENTS_EVERYWHERE = ['.md', '.markdown', '.txt', '.log', '.json', '.jsonc', '.yaml', '.yml', '.toml', '.ts', '.tsx', '.css', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf']
 
-// The default PATHEXT of Windows; the PATHEXT of the running system is added at the check.
-const LAUNCHED_WIN32 = [
-  ...['.com', '.exe', '.bat', '.cmd', '.vbs', '.vbe', '.js', '.jse', '.wsf', '.wsh', '.msc'],
-  // Shortcuts, PowerShell, installers, screen savers and the other kinds Explorer runs or follows.
-  ...['.lnk', '.url', '.pif', '.scf', '.ps1', '.psm1', '.msi', '.msp', '.mst', '.scr', '.cpl', '.hta', '.reg', '.inf', '.jar'],
-  ...['.application', '.appref-ms', '.appx', '.appxbundle', '.msix', '.msixbundle', '.appinstaller', '.settingcontent-ms'],
-  ...['.library-ms', '.search-ms', '.diagcab', '.chm', '.gadget', '.iso', '.img', '.vhd', '.vhdx'],
-]
+// JavaScript sources open in an editor on macOS and Linux; on Windows Script Host runs `.js` and
+// `.jse`, and `.mjs` and `.cjs` have no editor by default, so there they are shown.
+const DOCUMENTS_POSIX = ['.js', '.mjs', '.cjs', '.jsx']
 
-const LAUNCHED_OTHER = ['.sh', '.bash', '.zsh', '.csh', '.ksh', '.fish', '.py', '.jar', '.desktop', '.appimage', '.run', '.deb', '.rpm', '.flatpakref', '.snap']
-
-// A file with the execute bit is run by macOS (Terminal) when it has no extension the system opens
-// as a document; these are the document kinds an execute bit left by a checkout does not change.
-const DOCUMENT = new Set(
-  ['.md', '.markdown', '.txt', '.json', '.jsonc', '.yaml', '.yml', '.toml', '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs']
-    .concat(['.css', '.html', '.htm', '.xml', '.csv', '.log', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf']),
-)
-
-/** What the answer calls the file manager a file was shown in. */
-export type FileManager = 'Finder' | 'Explorer' | 'the file manager'
-
-export function fileManager(platform: string): FileManager {
-  if (platform === 'darwin') return 'Finder'
-  if (platform === 'win32') return 'Explorer'
-  return 'the file manager'
+/** The documents a link opens on `platform`, lower case. */
+export function documentKinds(platform: string): readonly string[] {
+  return platform === 'win32' ? DOCUMENTS_EVERYWHERE : [...DOCUMENTS_EVERYWHERE, ...DOCUMENTS_POSIX]
 }
 
-export interface LaunchOptions {
+/** Which file manager a file is shown in, by the system's name of it. */
+export function revealPlatform(platform: string): RevealPlatform {
+  return platform === 'darwin' || platform === 'win32' ? platform : 'other'
+}
+
+export interface DocumentOptions {
   /** process.platform; any value in tests. */
   platform?: string
-  /** PATHEXT of the system, for win32. */
-  pathext?: string | undefined
   /** stat of the file; replaced in tests. */
-  stat?: (path: string) => Promise<{ isDirectory(): boolean; mode: number }>
+  stat?: (path: string) => Promise<{ isFile(): boolean }>
 }
 
 /**
- * Whether the system would run `target` (a real path, symlinks resolved) rather than open it: a
- * folder (an `.app` bundle is one), a name whose extension is a program kind of the platform, and
- * off Windows a file with an execute bit and no document extension. Throws when the file cannot be
- * read, so a file that cannot be checked is never handed over.
+ * Whether `target` (a real path, symlinks resolved) is a document a link may open: a regular file
+ * whose extension, in any letter case, is one of documentKinds. A folder (an `.app` bundle is one),
+ * a name without an extension or with any other, and on Windows a name with `:` (a stream of a file)
+ * are not. The execute bit is not looked at: the system types a file with an extension by the
+ * extension, which is why a document copied from a FAT or SMB volume, every bit set, still opens in
+ * its editor. Throws when the file cannot be read, so a file that cannot be checked is never opened.
  */
-export async function runsAsProgram(target: string, options: LaunchOptions = {}): Promise<boolean> {
+export async function isDocument(target: string, options: DocumentOptions = {}): Promise<boolean> {
   const platform = options.platform ?? process.platform
   const info = await (options.stat ?? stat)(target)
-  if (info.isDirectory()) return true
-  let name = nativePath.basename(target).toLowerCase()
-  if (platform === 'win32') {
-    // `a.txt:b.exe` names a stream of a file, and Windows drops a trailing dot or space of a name.
-    if (name.includes(':')) return true
-    name = name.replace(/[. ]+$/, '')
+  if (!info.isFile()) return false
+  const name = nativePath.basename(target).toLowerCase()
+  if (platform === 'win32' && name.includes(':')) return false
+  return documentKinds(platform).includes(nativePath.extname(name))
+}
+
+/** What the user chose for a file that is not a document. */
+export type OpenChoice = 'open' | 'show' | 'cancel'
+
+/** The buttons of askToOpen, in order: Cancel first, the default and the answer to Escape. */
+export function openButtons(platform: string): readonly [string, string, string] {
+  const show = platform === 'darwin' ? 'Show in Finder' : platform === 'win32' ? 'Show in Explorer' : 'Show in folder'
+  return ['Cancel', show, 'Open']
+}
+
+/**
+ * The question for a file that is not a document (owner's decision on PR #692: convenience over
+ * security, the third option): a message box on the window that asked, on the Machine of that window.
+ * "Open" hands the file to the system as a double click would, "Show in Finder" shows it selected,
+ * "Cancel" does nothing. Cancel is the default button and the answer to Escape, so Return never runs
+ * a program; a closed box is Cancel too.
+ */
+export async function askToOpen(owner: BrowserWindow | null, target: string, platform: string, box: Pick<Dialog, 'showMessageBox'> = dialog): Promise<OpenChoice> {
+  const name = nativePath.basename(target)
+  const options = {
+    type: 'warning' as const,
+    buttons: [...openButtons(platform)],
+    defaultId: 0,
+    cancelId: 0,
+    title: `Open ${name}?`,
+    message: `Open ${name}?`,
+    detail: 'This file may run a program. worfy opens documents directly; this one is not a document.',
+    noLink: true,
   }
-  const extension = nativePath.extname(name)
-  const launched =
-    platform === 'darwin'
-      ? LAUNCHED_DARWIN
-      : platform === 'win32'
-        ? [...LAUNCHED_WIN32, ...(options.pathext ?? process.env.PATHEXT ?? '').toLowerCase().split(';')]
-        : LAUNCHED_OTHER
-  if (extension !== '' && launched.includes(extension)) return true
-  return platform !== 'win32' && (info.mode & 0o111) !== 0 && !DOCUMENT.has(extension)
+  const { response } = owner ? await box.showMessageBox(owner, options) : await box.showMessageBox(options)
+  return response === 2 ? 'open' : response === 1 ? 'show' : 'cancel'
 }
 
 /** The URL when it is an https:// address; throws otherwise. */
@@ -149,18 +154,23 @@ export function httpsUrl(url: string): string {
 }
 
 export default [
-  defineHandler(shellOpenInEditor, async ({ projectId, path }) => {
+  defineHandler(shellOpenInEditor, async ({ projectId, path }, { event }) => {
     const root = projectStore().get(projectId).path
     const target = await resolveProjectFile(root, path, await worktreeFolders(root))
-    // A program is shown, never run: the window says why next to the link (Markdown.tsx).
-    if (await runsAsProgram(target)) {
-      shell.showItemInFolder(target)
-      return { path: target, revealedIn: fileManager(process.platform) }
+    // A document opens at once; for anything else the user decides in a box of main, never the
+    // window: the renderer is not trusted. `desktop`: a Linked machine never reaches this handler.
+    if (!(await isDocument(target))) {
+      const choice = await askToOpen(BrowserWindow.fromWebContents(event.sender), target, process.platform)
+      if (choice === 'cancel') return { path: target, outcome: 'cancelled' as const }
+      if (choice === 'show') {
+        shell.showItemInFolder(target)
+        return { path: target, outcome: 'revealed' as const, revealedIn: revealPlatform(process.platform) }
+      }
     }
     // openPath answers with an error message, or '' when the file was handed over.
     const failure = await shell.openPath(target)
     if (failure) throw new Error(failure)
-    return { path: target }
+    return { path: target, outcome: 'opened' as const }
   }),
   defineHandler(shellOpenExternal, async ({ url }) => {
     const href = httpsUrl(url)

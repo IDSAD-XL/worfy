@@ -24,8 +24,8 @@ mode), круг 1: линза «корректность» и линза «те�
 - [ ] **Silent mode: «Open in editor» и ссылки в теле ничего не делают.** В Silent mode Ticket-ы лежат в
       Workflow folder вне Project-а. `tickets.read` разрешает места «корень Project-а, `ticketsRoot`,
       Workflow folder» (`src/main/ipc/tickets.ts:39`), а `shell.openInEditor` — только корень Project-а
-      и его worktree (`src/main/ipc/shell.ts:77-78`). Кнопка «Open in editor»
-      (`src/renderer/canvas/nodes/TicketNode.tsx:187-190`, вызов `:152`) и ссылки тела Ticket-а получают
+      и его worktree (`src/main/ipc/shell.ts:126-127`). Кнопка «Open in editor»
+      (`src/renderer/canvas/nodes/TicketNode.tsx:161-169`, вызов `:128`) и ссылки тела Ticket-а получают
       отказ, а окно пишет его только в console. Правка: Workflow folder — разрешённое место
       `shell.openInEditor` (вместе с проверкой вида файла Ticket-а 35); пока её нет — причина на плитке, а
       не молчание.

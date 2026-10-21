@@ -66,47 +66,87 @@ focus mode), круг 1, находка вне диффа (security). Код п�
 
 ## Итог
 
-**Платформенный PR (ADR-0056, пункт 2):** в main есть ветка по `process.platform` для win32 (свой
-список расширений, `PATHEXT`, обрезка точки и пробела в конце имени, имя с `:`). Перед мержем нужен
+**Платформенный PR (ADR-0056, пункт 2):** в main есть ветка по `process.platform`: свой список
+документов для win32, правило имени с `:` и подпись кнопки «Show in Explorer». Перед мержем нужен
 вердикт Windows (`check/windows`).
 
-Что сделано:
+**Решение владельца (2026-10-21, PR #692): «удобство важнее безопасности», вариант «в».** Что
+привело к нему:
 
-- `src/main/ipc/shell.ts`: `runsAsProgram(target)` решает в main, по реальному пути после
-  `resolveProjectFile` (симлинки уже раскрыты), запустит ли ОС файл вместо открытия. Такой файл
-  уходит в `shell.showItemInFolder`, а не в `shell.openPath`, и ответ несёт `revealedIn`
-  (`Finder` / `Explorer` / `the file manager`). Renderer не доверенный: он только показывает причину.
-- Что считается программой:
-  - любой каталог (`.app`, `.workflow`, `.plugin` и каталог с именем вида `Guide.md`), на всех
-    платформах;
-  - macOS, по расширению без учёта регистра: `.app .command .terminal .tool .workflow .action .scpt
-    .scptd .applescript .pkg .mpkg .sh .bash .zsh .csh .tcsh .ksh .fish .py .pyw .jar .webloc .inetloc
-    .fileloc .dmg .mobileconfig .prefpane .saver .kext .osax .shortcut`. `.py` и `.jar` — из-за
-    Python Launcher и Jar Launcher, которые их запускают;
-  - Windows: стандартный `PATHEXT` (`.com .exe .bat .cmd .vbs .vbe .js .jse .wsf .wsh .msc`) и
-    `PATHEXT` системы, плюс `.lnk .url .pif .scf .ps1 .psm1 .msi .msp .mst .scr .cpl .hta .reg .inf
-    .jar .application .appref-ms .appx .appxbundle .msix .msixbundle .appinstaller .settingcontent-ms
-    .library-ms .search-ms .diagcab .chm .gadget .iso .img .vhd .vhdx`; точка и пробел в конце имени
-    отбрасываются, имя с `:` (поток NTFS) — всегда программа;
-  - Linux и прочие: `.sh .bash .zsh .csh .ksh .fish .py .jar .desktop .appimage .run .deb .rpm
-    .flatpakref .snap`;
-  - не на Windows: файл с битом исполнения, если его расширение не из списка документов (`.md .txt
-    .json .yaml .ts .js .mjs .css .html .png .pdf` и подобные). Файл без расширения с битом
-    исполнения и `tool.xyz` с битом — показываются; `notes.md` и `check.mjs` с битом — открываются.
-- Ссылки `file://` и прочие схемы кроме `https:` в renderer и так не ссылки (`links.ts`, не менялся);
-  test-ы это закрепляют. `%2E` в ссылке renderer раскрывает до вызова main, main судит по реальному
-  имени файла.
-- `src/renderer/markdown/Markdown.tsx`: после ответа с `revealedIn` рядом со ссылкой появляется
-  `Shown in Finder: worfy does not run programs from links` (`role="status"`, класс
-  `w-md__link-note` в `markdown.css`).
+- Круг 1 ревью нашёл обход списка программ: файл `.term` (сессия Terminal со строкой
+  `ExecutionString`) в список не входил, и Terminal выполнял его команду с одного щелчка.
+- Orchestrator перевернул проверку: белый список документов вместо списка программ.
+- Владелец выбрал вариант «в»: документ из белого списка открывается сразу; для любого другого файла
+  main сначала спрашивает.
 
-Test-ы: `test/contract/shell.test.ts`, блок «shell.openInEditor never runs a program» (6 test-ов,
-красные на main: 5 из 6); `test/unit/markdown.test.tsx` — причина рядом со ссылкой, ссылки с `%2E`,
-`/` в конце и `?#` уходят в main, `file://` — не ссылка. Мутанты (каждый убран по одному) — все
-красные: проверка в обработчике, правило каталога, список расширений, бит исполнения, исключение для
-документов, обрезка точки в конце на win32, нижний регистр, причина в renderer.
+**Изменение поведения против main:** ссылка в Markdown и «Open in editor» больше не открывают
+не-документ сразу.
 
-Не проверено: запуск на настоящем Windows (test-ы подменяют `process.platform`; test бита исполнения
-на win32 пропускается); гонка — файл подменён программой между `stat` и `shell.openPath`
-(файл лежит в Project-е, окно гонки — миллисекунды). Вызовы `shell.openInEditor` из `AdrSection` и
-`TicketNode` причину не показывают: ADR и Ticket — всегда `.md`.
+- **Белый список** (`src/main/ipc/shell.ts`, `isDocument` по реальному пути после
+  `resolveProjectFile`, симлинки уже раскрыты): обычный файл (`isFile`), расширение без учёта
+  регистра.
+  - На всех системах: `.md .markdown .txt .log .json .jsonc .yaml .yml .toml .ts .tsx .css .png .jpg
+    .jpeg .gif .webp .pdf` — текст, markdown, форматы данных, TypeScript и CSS как текст, картинки,
+    PDF. Всё это открывается в редакторе или просмотрщике.
+  - Только macOS и Linux: `.js .mjs .cjs .jsx`. На Windows `.js` и `.jse` запускает Windows Script
+    Host, а у `.mjs` и `.cjs` там нет редактора по умолчанию.
+  - Нигде: `.html .htm .svg .xml`. Они открываются в браузере, а страница может перейти на
+    обработчик схемы URL (`ms-msdt:`, `search-ms:`, `x-apple…:`). `.csv` открывается в таблице,
+    которая может вычислять формулы.
+- **Всё прочее спрашивает.** Это каталог (bundle `.app`, `.plugin`, каталог `Guide.md/`), файл без
+  расширения или с любым другим расширением, `.command`, `.term`, скрипты, `trail.md.`,
+  `space.md `, на win32 — имя с `:` (поток NTFS). Для таких файлов main показывает
+  `dialog.showMessageBox` на окне, которое позвало:
+  - заголовок `Open <имя>?`;
+  - текст `This file may run a program. worfy opens documents directly; this one is not a
+    document.`;
+  - кнопки `Cancel` / `Show in Finder` (`Show in Explorer` на win32, `Show in folder` на прочих) /
+    `Open`.
+  
+  `Cancel` — кнопка по умолчанию и ответ на Escape, поэтому Return программу не запускает. `Open` —
+  `shell.openPath`, как раньше; `Show` — `shell.showItemInFolder`; `Cancel` — ничего. Ошибка самого
+  окна вопроса — отказ, файл не открыт.
+- **Решение и окно вопроса — в main**: renderer не доверенный.
+- **Ответ** `shell.openInEditor`: `outcome: 'opened' | 'revealed' | 'cancelled'` и
+  `revealedIn: 'darwin' | 'win32' | 'other'`, только при `revealed`. Тип `RevealPlatform` — через
+  `z.infer` из `src/shared/ipc/shell.ts`. Текст UI строит renderer (`src/renderer/toast/revealed.ts`):
+  - ссылка в Markdown после «Show» пишет рядом `Shown in Finder: not a document`;
+  - панель ADR и «Open in editor» Ticket-а показывают тот же текст toast-ом (ADR или Ticket —
+    симлинк на не-документ);
+  - после `Cancel` и `Open` текста нет.
+- **Linked machine:** канал `shell.openInEditor` помечен `desktop`. Окно на Linked machine его не
+  зовёт, а показывает «File is on <Machine>». Вызов с Linked machine main отклоняет: «not open to
+  Linked machines», `test/contract/link-access.test.ts`. Окно вопроса и запуск программы бывают
+  только на Machine окна, которое щёлкнули; на другой машине программа не открывается.
+- **Не смотрим:** бит исполнения — файл с расширением система определяет по расширению, а файл с
+  FAT или SMB со всеми битами открывается в своём редакторе. `PATHEXT` — он задаёт поиск команд в
+  командной строке, а двойной щелчок решает ассоциация.
+
+Test-ы:
+
+- `test/contract/shell.test.ts`, блок «shell.openInEditor opens documents and asks about anything
+  else». `dialog.showMessageBox` — stand-in.
+  - `.term`: окно вопроса на окне-отправителе, все тексты, `Cancel` — default и cancel.
+  - `Show`, `Open`, `Cancel` → `showItemInFolder`, `openPath`, ничего.
+  - Без окна — `showMessageBox(options)`; ошибка окна вопроса — отказ.
+  - Буквальный список известных пусковых видов по платформам (среди них `.term`, `.search-ms`,
+    `.library-ms`, `.iso`, `.vhd`, `.appinstaller`, `.chm`, `.dmg`, `.mobileconfig`, `.jar`,
+    `.shortcut`, `.applescript`): каждый вид в обоих регистрах спрашивает, подпись «Show» — по
+    платформе.
+  - Неизвестное расширение и файл без расширения, каталоги на трёх системах, симлинк `.md` на
+    `.term` (окно вопроса называет настоящее имя), имя с `:` на win32.
+  - Документы с `+x` в любом регистре открываются без вопроса. `.js` открывается без вопроса на
+    macOS и Linux и спрашивает на Windows.
+- `test/unit/markdown.test.tsx`: причина рядом со ссылкой после `revealed`, текст для каждого кода
+  системы, после `cancelled` текста нет. `test/unit/adr-section.test.tsx` и
+  `test/unit/ticket-focus.test.tsx`: toast с причиной.
+- `test/e2e/ticket-focus.spec.ts`: ссылка на `setup.command` через настоящий IPC. Main спрашивает
+  (stand-in отвечает «Show»), `shell.showItemInFolder` получает файл, `shell.openPath` не вызван,
+  рядом причина.
+
+Не проверено:
+
+- запуск на настоящем Windows: test-ы подменяют `process.platform`;
+- настоящее окно вопроса macOS: e2e подменяет `dialog.showMessageBox`;
+- ассоциация, которую поменял сам пользователь (например `.ts` → программа, которая его
+  запускает), не видна: такой файл откроется без вопроса.
