@@ -1,7 +1,8 @@
 # 58 — `gate.sh` без node пишет marker и verdict на `--help` и неизвестный профиль
 
 Type: bug
-Status: claimed 2026-10-20T20:50Z
+Status: done 2026-10-21T01:35Z
+PR: #636
 Blocked by: 55
 Source: ревью PR #596 (worfy-harness 55), линза корректности, 2026-10-20 — находка вне diff-а.
 
@@ -47,4 +48,24 @@ Ticket 55 научил `harness/hooks/gate.mjs` отвечать на `--help` /
 
 ## Итог
 
-Заполняется при закрытии.
+PR [#636](https://github.com/IDSAD-XL/worfy/pull/636), merge 03d8c856. Gate full Mac на main cd6d4f30 зелёный; Windows verdict
+(check/windows) на e2ae41ed зелёный, включая gate-shim через vitest. Платформенный PR. Ревью: три круга (круг 1 high —
+корректность и тесты PASS с low; круг 2 medium — PASS с двумя low; круг 3 их исправил).
+
+- **gate.sh без node** разбирает аргументы до записи состояния так же, как `gate.mjs`: `--help`/`-h` — usage, exit 0;
+  неизвестный профиль — usage на stderr, exit 2. Известный профиль — `fast`, `full` или ключ `root`/`workspace` любой
+  записи реестра.
+- **Реестр без node** читает строгий разборщик JSON на POSIX awk (`registry_names`, `LC_ALL=C`, имя через `ENVIRON`).
+  Он отказывает имени только при корректном JSON без такого профиля; не JSON, нет реестра, нечитаемый файл, байт NUL
+  (проверка `LC_ALL=C tr -d '\000'` + `wc -c`), нет awk — имя проходит, как в `gate.mjs`. Путь реестра — как в
+  `gateConfigFile` (CLAUDE_GATE_CONFIG, HARNESS_HOME, EVAL_HARNESS_HOME, старый путь). Ревьюер сверил 22 случая на BSD awk,
+  mawk 1.3.4, busybox и gawk 5.2.1 — совпадают; Windows (awk Git Bash) — первый настоящий прогон, зелёный.
+- **Текст usage** — две копии (gate.sh и gate.mjs); test сверяет вывод побайтно.
+- **Test-ы** (`gate-shim.test.sh`, раздел 8): сравнение с `node gate.mjs` по коду выхода, stdout и stderr; таблица решений
+  реестра (ключи с escape-ами, суррогаты, CRLF, повторы ключей, вне git); старые marker и verdict переживают `--help`.
+  Все мутанты ревьюеров красные.
+- **Красный gate full на первом head** (вне кода gate.sh): под UTF-8 локалью vitest-electron BSD `tr` самого test-а
+  останавливался на байтах lone surrogate («Illegal byte sequence»). Правка — обёртка `tr` test-а в `LC_ALL=C` и `type -P`
+  в подборе инструментов PATH без node; gate-shim зелёный при LANG не задан и en_US.UTF-8.
+- **Предел (`shortcut:` в gate.sh):** байты не UTF-8 сравниваются как байты, а node читает U+FFFD.
+- **Вне diff (low, не делали):** `EVAL_HARNESS_HOME` вида `\abs` на Windows gate.sh считает относительным, node — абсолютным.

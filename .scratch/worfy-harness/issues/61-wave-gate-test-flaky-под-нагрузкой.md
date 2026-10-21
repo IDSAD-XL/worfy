@@ -42,8 +42,8 @@ harness-scripts 46/46).
 ## Итог
 
 PR [#638](https://github.com/IDSAD-XL/worfy/pull/638), merge cd6d4f30. Gate full Mac: шаг test-ов красный один раз на
-`test/unit/install-stable.test.ts` («refuses while a program of the copy is running», вне diff; гонка fork/exec — правка
-оркестратора, PR #646), повтор шага зелёный (7356/0). Windows verdict (check/windows) на 1e92d444 зелёный (wave-gate
+`test/unit/install-stable.test.ts` («refuses while a program of the copy is running», вне diff; причина — macOS убивает SIGKILL
+неподписанную копию `/bin/sleep`; правка оркестратора — подпись ad hoc, PR #646), повтор шага зелёный (7356/0). Windows verdict (check/windows) на 1e92d444 зелёный (wave-gate
 отдельно 294 s). Платформенный PR. Ревью: один круг (тесты, корректность; medium) — PASS, high/med нет.
 
 - **Какая проверка падала — не записано** ни в одном красном прогоне. Воспроизводят ту же картину `passed 164, failed 1`
