@@ -235,6 +235,21 @@ exit 0 (2 теста; самый первый запуск был красным
 PR #698. Gate full — за оркестратором перед
 merge.
 
+**Review, раунд 1** (после rebase на main `657f478e`).
+- Enter в карточке ведёт дальше или отправляет ответ только с варианта и из поля «Other»
+  (`question-keys.ts`). На Decline, Back, Next и чипах шагов Enter нажимает саму кнопку. Раньше Enter
+  на Decline при готовых ответах отправлял их: Claude Code получал allow вместо deny.
+- `answers` собирается через `Object.fromEntries`: вопрос с текстом `__proto__` не теряет ответ.
+- Toast берёт Session на экране из `shown-session.ts`, а не из DOM. `installQuestionToasts`
+  возвращает unsubscribe и показывает ошибку подписки, как `installArchiveToasts`.
+- Новые мутанты, все красные: Enter на любой кнопке отправляет ответ (unit, и e2e в Electron — и на
+  Back, и на Decline); «Always allow» закрывает открытый вопрос того же инструмента; пустой «Other»
+  рядом с вариантом; вариант выбран дважды; `answers` через обычный `{}`; toast не смотрит, какая
+  Session на экране.
+- `pnpm lint` — exit 0; `pnpm typecheck` — exit 0; затронутые unit и contract файлы — exit 0
+  (9 файлов, 293 теста); e2e `session-question.spec.ts` — exit 0. Весь `pnpm test` в этом раунде
+  не запускался.
+
 **Платформенный PR?** Нет (ADR-0056, пункт 2): в `src` нет веток по платформе, нет скриптов Harness
 и упаковки. Contract test запускает бинарник Claude Code текущей платформы. На Windows runner он
 прошёл: run 39630300392 на `eb6dbab2` — 3 файла, 64 теста, `ask-user-question-sdk` 4 из 4, не
