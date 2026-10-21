@@ -945,8 +945,12 @@ function release() {
 }
 for (const [sig, n] of Object.entries(SIGNALS))
     process.on(sig, () => {
-        // A signal is a broken-off run: the worktree stays for the resume, the locks go.
-        if (held.child) held.child.kill(sig)
+        // A signal is a broken-off run: the worktree stays for the resume, the locks go. On Windows libuv cannot
+        // send SIGHUP or SIGBREAK (kill throws ENOSYS), so the gate is ended there (TerminateProcess); whatever the
+        // kill does, the locks are released.
+        try {
+            if (held.child) process.platform === "win32" ? held.child.kill() : held.child.kill(sig)
+        } catch {}
         release()
         letSleep()
         process.stderr.write(`[wave-gate] stopped by ${sig}: the state file has every finished step; run the same command again to resume\n`)

@@ -52,8 +52,14 @@ Source: Ticket [71](71-harness-test-sh-на-windows.md) (PR #555), 2026-10-20 �
 
 ## Где в коде
 
-- `harness/bin/wave-gate:108-109`, `:114`, `:190-205` (возраст замка), `:326-385` (pid-файл), `:842-850`
-- `harness/bin/tests/wave-gate.test.sh` — блок «e2e lock on signal»
+- `harness/bin/wave-gate`: `:112` (`TAKEOVER_STALE_S`, возраст маркера перехвата), `:120` (`SIGNALS`, `SIGBREAK`
+  на Windows), `:190-240` (`lock`: ожидание, возраст замка, `holder.json` с `host`), `:248` (`deadHolder`), `:267`
+  (`takeOver`: маркер `<lock>.takeover`, повторное чтение `holder.json`, повтор `rmdir`), `:310` (`noteChild`, поле
+  `child`), `:482` (`releasePid`), `:947-960` (обработчик сигналов: на Windows gate завершается `kill()` без
+  сигнала, замки снимаются в любом случае).
+- `harness/bin/tests/wave-gate.test.sh`: `:246` (`finish` — предел ожидания фонового запуска), `:629` (сигнал, который
+  нельзя переслать: SIGHUP везде, SIGBREAK на Windows), `:654` («killed»), `:672` («orphan»), `:703` («twins»),
+  `:714` («token», со старым замком), `:730` (`holder.json` без `host` и с чужим `host`).
 
 ## Найдено позже
 

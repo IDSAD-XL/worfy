@@ -240,6 +240,17 @@ state() {
 gate_count() { cat "$GATE_DIR/count" 2>/dev/null || echo 0; }
 # until_ok <seconds> <command…>: polls the command every 0.2 s; exit 0 as soon as it succeeds, 1 after the time
 until_ok() { local n=$(( $1 * 5 )); shift; while [ "$n" -gt 0 ]; do "$@" && return 0; sleep 0.2; n=$((n - 1)); done; return 1; }
+# Waits at most $2 s for the background run $1 and sets rc to its exit code. A run still going then is stopped with
+# SIGTERM, and with SIGKILL 2 s later; rc says which it took, and the case fails instead of hanging the file.
+gone() { ! kill -0 "$1" 2>/dev/null; }
+finish() {
+    if gone "$1" || until_ok "$2" gone "$1"; then wait "$1"; rc=$?; return 0; fi
+    kill "$1" 2>/dev/null
+    if until_ok 2 gone "$1"; then rc="still running after $2 s, stopped by SIGTERM"
+    else kill -KILL "$1" 2>/dev/null; rc="still running after $2 s, SIGTERM ignored, killed"; fi
+    wait "$1" 2>/dev/null
+    return 1
+}
 # caf_gone <caf.log>…: every stub caffeinate those logs name has ended (within 3 s)
 caf_alive() { local f p; for f in "$@"; do [ -f "$f" ] || continue; for p in $(awk '{print $1}' "$f"); do kill -0 "$p" 2>/dev/null && return 0; done; done; return 1; }
 caf_gone() { local n=15; while caf_alive "$@"; do n=$((n - 1)); [ "$n" -le 0 ] && return 1; sleep 0.2; done; return 0; }
@@ -506,7 +517,7 @@ echo "$sp" >"$(PIDF)"
 kill "$job"; wait "$job" 2>/dev/null
 git -C "$W/repo" worktree remove --force "$(TMPW_OF)"
 # a dead pid: stale, taken over. The pid of a node that has exited: node's pid is the one wave-gate checks, while in
-# Git Bash `$!` is an MSYS pid, which may fall on a live Windows process (worfy-windows ticket 72).
+# Git Bash `$!` is an MSYS pid, which may fall on a live Windows process.
 dp="$(node -e 'process.stdout.write(String(process.pid))')"
 echo "$dp" >"$(PIDF)"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
@@ -529,7 +540,7 @@ touch "$GATE_DIR/hold"
 "$WG" check "$W/s2.json" >"$W/o2" 2>&1 & p2=$!
 until_ok 30 grep -q "another wave-gate check" "$W/o1" "$W/o2"
 rm -f "$GATE_DIR/hold"
-wait "$p1"; r1=$?; wait "$p2"; r2=$?
+finish "$p1" 120; r1=$rc; finish "$p2" 120; r2=$rc
 codes="$(printf '%s\n' "$r1" "$r2" | sort | tr '\n' ' ')"
 [ "$codes" = "0 1 " ] && grep -q "another wave-gate check" "$W/o1" "$W/o2" && [ "$(gate_count)" = 1 ] && ok "pid: two checks at once -> one runs, the other exits 1" || bad "pid race: codes [$codes] runs $(gate_count): $(tail -2 "$W/o1") | $(tail -2 "$W/o2")"
 
@@ -551,13 +562,13 @@ mkdir "$L"
 until_ok 30 grep -q "waiting for the e2e lock" "$W/out"; sleep 3
 [ "$(gate_count)" = 0 ] && kill -0 "$wg" 2>/dev/null && ok "e2e lock: a live lock held by another -> waits" || bad "e2e lock: did not wait ($(gate_count) runs)"
 rmdir "$L"; wait "$toucher" 2>/dev/null
-wait "$wg"; rc=$?
+finish "$wg" 120
 [ "$rc" -eq 0 ] && [ "$(gate_count)" = 1 ] && grep -q "lock=held" "$GATE_DIR/log" && ok "e2e lock: taken after release, the gate runs under it" || bad "e2e lock: exit $rc runs $(gate_count) $(cat "$GATE_DIR/log")"
 [ ! -e "$L" ] && ok "e2e lock: released after the run" || bad "e2e lock: left after the run"
 # the holder of the lock: holder.json with the numbers of the set while the gate runs, gone with the lock
 new_world holder 1:a.txt 2:b.txt 3:c.txt
 S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1 2 3; export GATE_LOCK="$L"
-STAND_IN_PARENTS="$GATE_DIR/parents" "$WG" check "$S" >"$W/out" 2>&1 & wg=$!; wait "$wg"; rc=$?
+STAND_IN_PARENTS="$GATE_DIR/parents" "$WG" check "$S" >"$W/out" 2>&1 & wg=$!; finish "$wg" 120
 # wave-gate's pid as node sees it: in Git Bash its Windows pid, which the gate stand-in recorded as its parent
 on_windows && wg="$(head -n 1 "$GATE_DIR/parents" 2>/dev/null)"
 h="$GATE_DIR/holder.1.json"
@@ -593,7 +604,7 @@ mkdir "$L"; touch -t "$(date -r $(( $(date +%s) - 1500 )) +%Y%m%d%H%M.%S 2>/dev/
 "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
 until_ok 30 grep -q "waiting for the e2e lock" "$W/out"; sleep 2
 [ "$(gate_count)" = 0 ] && grep -q "waiting for the e2e lock" "$W/out" && ok "e2e lock: a lock 25 min old is not taken over" || bad "e2e lock: a 25-min lock was taken"
-rmdir "$L"; wait "$wg"
+rmdir "$L"; finish "$wg" 120 || bad "young lock: the run did not end: $rc"
 # heartbeat: the lock's mtime moves during a run
 new_world beat 1:a.txt
 S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
@@ -611,9 +622,35 @@ if $RUN_SIGTERM; then
     [ -s "$SCREEN_DIR/caf.log" ] && caf_gone "$SCREEN_DIR/caf.log" && ok "signal: no caffeinate left after SIGTERM" || bad "signal: caffeinate left or not started: $(cat "$SCREEN_DIR/caf.log" 2>/dev/null)"
     unset GATE_LOCK
 fi
+# a signal that cannot be forwarded to the gate as such (on Windows libuv sends no SIGHUP or SIGBREAK, and kill
+# throws): the gate is ended all the same, the lock released, and the exit code is the signal's. The signal is
+# emitted inside wave-gate once its gate runs, by a preload: Git Bash cannot send one to a native process. On every
+# system; SIGBREAK only on Windows, where wave-gate listens for it.
+EMIT="$T/emit-signal.cjs"
+cat >"$EMIT" <<'EOF'
+const fs = require("fs")
+const t = setInterval(() => {
+    if (!fs.existsSync(process.env.EMIT_WHEN)) return
+    clearInterval(t)
+    process.emit(process.env.EMIT_SIGNAL, process.env.EMIT_SIGNAL)
+}, 50)
+EOF
+sigs="SIGHUP:129"; on_windows && sigs="$sigs SIGBREAK:149"
+for pair in $sigs; do
+    sig="${pair%%:*}"; code="${pair#*:}"
+    new_world "emit-$sig" 1:a.txt
+    S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
+    touch "$GATE_DIR/hold"
+    EMIT_SIGNAL="$sig" EMIT_WHEN="$(tn "$GATE_DIR/count")" node -r "$(tn "$EMIT")" "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
+    finish "$wg" 60
+    rm -f "$GATE_DIR/hold"
+    [ "$rc" = "$code" ] && [ ! -e "$L" ] && grep -q "stopped by $sig" "$W/out" \
+        && ok "e2e lock: released when wave-gate gets $sig during its gate (exit $code)" || bad "e2e lock on $sig: exit $rc, lock $( [ -e "$L" ] && echo left || echo gone): $(tail -3 "$W/out")"
+    unset GATE_LOCK
+done
 # killed without its signal handlers (SIGKILL; on Windows every kill from another process): the lock stays with its
-# holder.json, and the next run takes it at once because the holder's pid is not running, not after 30 min
-# (worfy-windows ticket 72). On every system.
+# holder.json, and the next run takes it at once because the holder's pid is not running, not after 30 min.
+# On every system.
 new_world killed 1:a.txt
 S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
 echo KILL >"$GATE_DIR/kill1"
@@ -625,7 +662,7 @@ kp="$(q "$L/holder.json" s.pid 2>&1)"
     && ok "e2e lock: a killed wave-gate leaves its lock with its pid and host (exit $rc)" || bad "e2e lock killed: exit $rc, holder [$(cat "$L/holder.json" 2>&1)]"
 held_twice() { [ "$(grep -c 'lock=held' "$GATE_DIR/log" 2>/dev/null)" -ge 2 ]; }
 "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
-if until_ok 30 held_twice; then wait "$wg"; rc=$?; else kill "$wg" 2>/dev/null; wait "$wg" 2>/dev/null; rc="still waiting after 30 s"; fi
+if until_ok 30 held_twice; then finish "$wg" 120; else finish "$wg" 0; rc="still waiting after 30 s ($rc)"; fi
 [ "$rc" = 0 ] && grep -q "held by pid $kp, which is not running" "$W/out" && [ ! -e "$L" ] \
     && ok "e2e lock: the lock of a killed wave-gate is taken at once by the next run" || bad "e2e lock of a killed run: $rc: $(tail -3 "$W/out")"
 rm -rf "$L"; unset GATE_LOCK
@@ -650,7 +687,7 @@ else
     [ "$(gate_count)" = 1 ] && [ -d "$L" ] && ok "e2e lock: the lock of a killed run is kept while its gate runs" || bad "e2e lock orphan: taken while the gate ran [$(tail -2 "$W/out2")]"
     rm -f "$GATE_DIR/hold"
 fi
-if until_ok 30 held_twice; then wait "$wg"; rc=$?; else kill "$wg" 2>/dev/null; wait "$wg" 2>/dev/null; rc="still waiting 30 s after the gate ended"; fi
+if until_ok 30 held_twice; then finish "$wg" 120; else finish "$wg" 0; rc="still waiting 30 s after the gate ended ($rc)"; fi
 [ "$rc" = 0 ] && grep -q "which is not running" "$W/out2" && [ ! -e "$L" ] \
     && ok "e2e lock: taken at once when the killed run's gate has ended" || bad "e2e lock orphan after the gate: $rc: $(tail -3 "$W/out2")"
 rm -rf "$L"; unset GATE_LOCK
@@ -666,23 +703,24 @@ new_world twin2 1:a.txt; W2="$W"; state "$W2/state.json" "$L2" 1
 twin() { GATE_DIR="$1/gate" GATE_LOCK="$L2" GH_ORIGIN="$1/origin.git" GH_LOG="$1/gh/log" GH_TMP="$1/gh" SCREEN_DIR="$1/screen" exec "$WG" check "$1/state.json" >"$1/out" 2>&1; }
 twin "$W1" & t1=$!; twin "$W2" & t2=$!
 twins_done() { ! kill -0 "$t1" 2>/dev/null && ! kill -0 "$t2" 2>/dev/null; }
-if until_ok 60 twins_done; then wait "$t1"; r1=$?; wait "$t2"; r2=$?
-else kill "$t1" "$t2" 2>/dev/null; wait "$t1" "$t2" 2>/dev/null; r1="still waiting after 60 s"; r2="$r1"; fi
+if until_ok 60 twins_done; then finish "$t1" 0; r1=$rc; finish "$t2" 0; r2=$rc
+else finish "$t1" 0; r1="still waiting after 60 s ($rc)"; finish "$t2" 0; r2="still waiting after 60 s ($rc)"; fi
 n="$(cat "$W1/out" "$W2/out" | grep -c "which is not running")"
 [ "$r1" = 0 ] && [ "$r2" = 0 ] && [ "$n" = 1 ] && [ ! -e "$L2" ] && [ -z "$(ls -d "$L2".* 2>/dev/null)" ] \
     && ok "e2e lock: of two runs waiting on a dead lock one takes it over, both run" || bad "e2e lock twins: exit $r1 $r2, takeovers $n, left [$(ls -d "$L2"* 2>/dev/null)], dead pid $gone2: $(grep -h "not running\|waiting\|taken over" "$W1/out" "$W2/out" | tr '\n' '|')"
 # a takeover token: a young one is another waiter taking the dead lock over right now, so the lock is waited for; an
-# old one was left by a waiter killed in those milliseconds and is removed, and the dead lock is taken
+# old one was left by a waiter killed in those milliseconds and is removed, and the dead lock is taken. The lock is
+# older than its stale age: a dead lock under a token is not removed by age either, the token's holder removes it.
 new_world token 1:a.txt
 S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
-mkdir "$L" "$L.takeover"
+mkdir "$L" "$L.takeover"; touch -t 202001010000 "$L"
 printf '{"prs":[9],"what":"gate-full","pid":%s,"host":"%s","since":"x"}\n' "$gone2" "$me" >"$L/holder.json"
 "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
 until_ok 30 grep -q "waiting for the e2e lock" "$W/out"; sleep 2
 [ "$(gate_count)" = 0 ] && [ -f "$L/holder.json" ] && [ -d "$L.takeover" ] \
     && ok "e2e lock: a dead lock under a young takeover token is waited for" || bad "e2e lock young token: [$(tail -2 "$W/out")]"
 touch -t 202001010000 "$L.takeover"
-if until_ok 30 grep -q "which is not running" "$W/out"; then wait "$wg"; rc=$?; else kill "$wg" 2>/dev/null; wait "$wg" 2>/dev/null; rc="not taken 30 s after the token aged"; fi
+if until_ok 30 grep -q "which is not running" "$W/out"; then finish "$wg" 120; else finish "$wg" 0; rc="not taken 30 s after the token aged ($rc)"; fi
 [ "$rc" = 0 ] && [ ! -e "$L" ] && [ ! -e "$L.takeover" ] && [ "$(gate_count)" = 1 ] \
     && ok "e2e lock: an old takeover token is removed and the dead lock taken" || bad "e2e lock old token: $rc, left [$(ls -d "$L"* 2>/dev/null)]: $(tail -3 "$W/out")"
 rm -rf "$L" "$L.takeover"; unset GATE_LOCK
@@ -699,7 +737,7 @@ for host in none elsewhere; do
     until_ok 30 grep -q "waiting for the e2e lock" "$W/out"; sleep 2
     [ "$(gate_count)" = 0 ] && grep -q "waiting for the e2e lock" "$W/out" && [ -f "$L/holder.json" ] \
         && ok "e2e lock: a young lock whose holder.json has host $host is waited for, its pid not looked at" || bad "e2e lock host $host: taken [$(tail -2 "$W/out")]"
-    rm -f "$L/holder.json"; rmdir "$L"; wait "$wg"
+    rm -f "$L/holder.json"; rmdir "$L"; finish "$wg" 120 || bad "e2e lock host $host: the run did not end: $rc"
     unset GATE_LOCK
 done
 
@@ -736,7 +774,7 @@ if $RUN_SCREEN; then
     grep -q "^-n Root -d1$" "$SCREEN_DIR/ioreg.log" && [ "$(wc -l <"$SCREEN_DIR/ioreg.log" | tr -d ' ')" -ge 3 ] \
         && ok "locked screen: ioreg -n Root -d1, polled while it waits" || bad "locked screen: ioreg calls: $(cat "$SCREEN_DIR/ioreg.log" 2>/dev/null)"
     rm -f "$SCREEN_DIR/locked"
-    wait "$wg"; rc=$?
+    finish "$wg" 120
     [ "$rc" -eq 0 ] && [ "$(gate_count)" = 1 ] && [ "$(q "$S" s.status)" = green ] && ok "locked screen: unlocked -> the gate runs, green" || bad "locked screen: after unlock exit $rc runs $(gate_count)"
     # the screen locks while the check waits for the e2e lock: the lock is given back and the check waits
     new_world screenlock 1:a.txt
@@ -748,7 +786,7 @@ if $RUN_SCREEN; then
     until_ok 30 grep -q "screen locked: gate full waits" "$W/out"; sleep 1
     [ "$(gate_count)" = 0 ] && [ ! -e "$L" ] && ok "locked screen after the e2e lock: the lock is released, the gate waits" || bad "locked screen after the lock: $(gate_count) runs, lock $( [ -e "$L" ] && echo held || echo free): $(cat "$W/out")"
     rm -f "$SCREEN_DIR/locked"
-    wait "$wg"; rc=$?
+    finish "$wg" 120
     [ "$rc" -eq 0 ] && [ "$(gate_count)" = 1 ] && ok "locked screen after the e2e lock: unlocked -> green" || bad "locked screen after the lock: exit $rc runs $(gate_count)"
     # an unlocked screen: ioreg is asked, the gate runs at once
     new_world screenno 1:a.txt
@@ -771,7 +809,7 @@ if $RUN_SCREEN; then
         && ok "screen locked during the run: the run is recorded not verified (screen locked), not red" || bad "screen locked during the run: runs $(q "$S" s.runs 2>&1) status $(q "$S" s.status 2>&1)"
     grep -q "screen locked during gate full" "$W/out" && [ ! -e "$L" ] && ! grep -q "window was not shown" "$(q "$S" 's.runs[0].log')" && ok "screen locked during the run: said so, the e2e lock released while it waits" || bad "screen locked during the run: output $(cat "$W/out")"
     rm -f "$SCREEN_DIR/locked"
-    wait "$wg"; rc=$?
+    finish "$wg" 120
     [ "$rc" -eq 0 ] && [ "$(q "$S" s.status)" = green ] && [ "$(gate_count)" = 2 ] && [ "$(q "$S" 's.runs.map(r=>r.role+":"+r.size+":"+r.outcome).join(" ")')" = "full:2:unverified full:2:green" ] \
         && [ "$(q "$S" '"flaky" in s')" = false ] && ok "screen locked during the run: repeated after unlock, green, not flaky" || bad "screen locked during the run: exit $rc runs $(q "$S" 's.runs.map(r=>r.role+":"+r.size+":"+r.outcome)') flaky $(q "$S" s.flaky 2>&1)"
     # the screen was locked in the middle of the run and unlocked before its end: seen by the poll during the run
@@ -802,7 +840,7 @@ if $RUN_SCREEN; then
     "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
     until_ok 30 grep -q "screen locked: gate full waits" "$W/out"
     [ "$(q "$S" 's.runs.map(r=>r.role+":"+r.outcome).join(" ")')" = "full:red" ] && ok "screen locked, only test failed: red" || bad "screen locked, only test failed: runs $(q "$S" 's.runs.map(r=>r.role+":"+r.outcome)' 2>&1)"
-    rm -f "$SCREEN_DIR/locked"; wait "$wg"
+    rm -f "$SCREEN_DIR/locked"; finish "$wg" 120 || bad "screen: the run did not end: $rc"
     # the screen locks during every run: three tries, then not verified (exit 3); the next check runs it again
     new_world screenloop 1:a.txt
     S="$W/state.json"; state "$S" null 1
@@ -819,12 +857,12 @@ fi
 if $RUN_SCREEN; then
     new_world caf 1:a.txt
     S="$W/state.json"; state "$S" null 1
-    "$WG" check "$S" >"$W/out" 2>&1 & wg=$!; wait "$wg"; rc=$?
+    "$WG" check "$S" >"$W/out" 2>&1 & wg=$!; finish "$wg" 120
     [ "$rc" -eq 0 ] && [ "$(awk '{$1=""; print substr($0,2)}' "$SCREEN_DIR/caf.log")" = "-d -w $wg" ] \
         && ok "caffeinate: check runs caffeinate -d -w <its own pid>" || bad "caffeinate: check exit $rc, pid $wg, calls: $(cat "$SCREEN_DIR/caf.log" 2>/dev/null)"
     caf_gone "$SCREEN_DIR/caf.log" && ok "caffeinate: gone after check exits" || bad "caffeinate: left after check"
     mv "$SCREEN_DIR/caf.log" "$SCREEN_DIR/caf-check.log"
-    "$WG" merge "$S" >"$W/mout" 2>&1 & wg=$!; wait "$wg"; rc=$?
+    "$WG" merge "$S" >"$W/mout" 2>&1 & wg=$!; finish "$wg" 120
     [ "$rc" -eq 0 ] && [ "$(awk '{$1=""; print substr($0,2)}' "$SCREEN_DIR/caf.log")" = "-d -w $wg" ] \
         && ok "caffeinate: merge runs caffeinate -d -w <its own pid>" || bad "caffeinate: merge exit $rc, pid $wg, calls: $(cat "$SCREEN_DIR/caf.log" 2>/dev/null)"
     caf_gone "$SCREEN_DIR/caf.log" && ok "caffeinate: gone after merge exits" || bad "caffeinate: left after merge"
