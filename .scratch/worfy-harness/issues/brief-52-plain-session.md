@@ -14,11 +14,16 @@ not read them. The owner reads the tasks before they are frozen and may reject a
 ## What you may and may not read
 
 - Read: ticket `.scratch/worfy-harness/issues/52-сравнительный-eval-исходов-worfy-против-claude-code-без-plugin.md`,
-  sections 1 (tasks), 2 (metrics), 6 (bias controls) and 7 (steps). Also read the slot contract in
-  `harness/evals-outcome/README.md` and the code it names. The infrastructure PR of ticket 52 adds them: the fixture,
-  `pnpm eval:outcome`, `scripts/eval-outcome-score.mjs`, and the contract test.
-- Do not open: `harness/hooks/rules/`, `harness/agents/`, `harness/skills/`, `harness/evals/*/prompt.md`, and the worfy
-  `CLAUDE.md` / `HANDOFF.md` rule text. The ticket mentions worfy by name; that is unavoidable. Do not copy wording
+  sections 1 (tasks), 2 (metrics), 6 (bias controls) and 7 (steps). Then read what the infrastructure PR of ticket 52
+  added:
+  - the slot layout in `harness/evals-outcome/README.md`, and the neutral fixture `harness/evals-outcome/lib/fixture.sh`;
+  - the scoring contract in `scripts/eval-outcome/README.md`. It covers the score spec each task declares, the check
+    kinds, the `primary` field and `human_intervention`, and the free checker;
+  - `pnpm eval:outcome`, `scripts/eval-outcome-score.mjs`, `scripts/eval-outcome-check.mjs`, and the contract test
+    `test/contract/harness-evals-outcome.test.ts`.
+- Do not open: `harness/hooks/rules/`, `harness/agents/`, `harness/skills/`, `harness/evals/*/prompt.md`,
+  `harness/evals-outcome/lib/plugin-state/` (the state one plugin needs; it quotes that plugin's workflow), and the
+  worfy `CLAUDE.md` / `HANDOFF.md` rule text. The ticket mentions worfy by name; that is unavoidable. Do not copy wording
   from it into the tasks.
 - The task texts (`prompt.md`), the fixture `README.md` and the graders must not contain the words worfy, Ticket, Epic,
   Gate or `worfy:`. The contract test checks this.
@@ -33,8 +38,10 @@ For each of the four tasks in section 1 — `fix-hidden-tests`, `review-planted-
 3. Graders inside `claude plugin eval`. Only these exist: `regex`, `tool_used`, `tool_order`, `file_exists`, `llm`,
    `baseline`. Ground truth that needs a command after the run belongs to `eval-outcome-score.mjs`, not here
    (section 1, "Как grader запускает скрытые test-ы").
-4. Hidden tests outside the plugin copy (`scripts/eval-outcome/hidden/<task>/`, or wherever the slot contract says).
-   For example: 8–12 cases for task 1, and the `--json` option tests for task 3.
+4. Hidden tests and the task's score spec outside the plugin copy (`scripts/eval-outcome/hidden/<task>/`, as the
+   scoring contract says). The spec names the primary metrics, as section 2 of the ticket requires: `solved` and
+   `false_done` for task 1, and `false_done` for task 3. It also defines `human_intervention` for its task. Hidden
+   tests, for example: 8–12 cases for task 1, and the `--json` option tests for task 3.
 5. Reference solutions: one good and two bad per task. Run the free checker from the infrastructure PR against them.
    Every grader and every score check must give the expected verdict. Put the table in your PR description.
 
