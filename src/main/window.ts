@@ -73,8 +73,12 @@ export function loadEndedAsReplaced(error: unknown): boolean {
  * mouseleave or a mousemove at the pointer in the middle of a test that hovers over CDP. Checked
  * when the window is created and right after it is shown (macOS may move a window as it shows
  * it), and after a change of size (setSize grows the window over the pointer; sizeOnlyChange). A window
- * placed from the saved state, or moved to a place by setBounds, stays where it was asked to be:
- * test/e2e/window.spec.ts pins those places, and those tests do not hover.
+ * placed from the saved state is not checked until its size changes. A place given to setBounds is
+ * kept unless it also has the same x as before, a new size and a top either unchanged or at the top
+ * of the work area: that is how a setSize looks once macOS has pulled the window up under the menu
+ * bar, and then the window is checked like after setSize. test/e2e/window.spec.ts pins its places
+ * with a new x, and those tests do not hover. A move off the pointer fires 'moved', which rewrites
+ * window-state.json; quiet mode runs only in e2e, each test with its own temporary data folder.
  * shortcut: no check while the pointer moves (a pointer moved onto a quiet window stays under it), redo
  * with a poll of the pointer only if a hover test still fails and its pointer log shows such a move;
  * moving the window in the middle of a test would itself send the page a mouseleave.
@@ -94,7 +98,7 @@ function keepOffPointer(window: BrowserWindow, checkNow: boolean): { afterShow: 
   if (checkNow) check()
   window.on('resize', () => {
     const now = window.getBounds()
-    const sizeOnly = sizeOnlyChange(last, now)
+    const sizeOnly = sizeOnlyChange(last, now, screen.getAllDisplays().map((display) => display.workArea))
     last = now
     if (sizeOnly) check()
   })
@@ -140,8 +144,9 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
     },
   })
   if (quiet.ignoreMouseEvents) window.setIgnoreMouseEvents(true)
-  // Quiet windows on macOS only. A place from the saved state is kept ('x' in bounds: initialBounds
-  // reused it); a window centred by the system is moved off the pointer.
+  // Quiet windows on macOS only. A place from the saved state is not checked at creation or show
+  // ('x' in bounds: initialBounds reused it), only after a change of size; a window centred by the
+  // system is moved off the pointer at once.
   const offPointer = quiet.avoidPointer ? keepOffPointer(window, !('x' in bounds)) : undefined
   // And again after every load, and on every change (settings/interface-scale.ts).
   followInterfaceScale(window)

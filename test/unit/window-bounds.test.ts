@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SIZE, MIN_SIZE, POINTER_MARGIN, SIZE_CHANGE_TOP_SHIFT, boundsOffPoint, initialBounds, parseWindowState, serializeWindowState, sizeOnlyChange } from '../../src/shared/window/bounds'
+import { DEFAULT_SIZE, MIN_SIZE, POINTER_MARGIN, boundsOffPoint, initialBounds, parseWindowState, serializeWindowState, sizeOnlyChange } from '../../src/shared/window/bounds'
 
 const display = { x: 0, y: 25, width: 1440, height: 875 }
 
@@ -131,9 +131,21 @@ describe('boundsOffPoint', () => {
     const window = { x: -100, y: 0, width: 1700, height: 1000 }
     const pointer = { x: 720, y: 450 }
     const moved = boundsOffPoint(window, pointer, [display])
-    expect(moved).toBeDefined()
-    expect(moved).toMatchObject({ width: 1700, height: 1000 })
+    // Down leaves 1440 × 441 on the display; left 712 × 875 and right 711 × 875 leave less.
+    expect(moved).toEqual({ x: -100, y: 450 + POINTER_MARGIN + 1, width: 1700, height: 1000 })
     expect(boundsOffPoint(moved!, pointer, [display])).toBeUndefined()
+  })
+
+  it('takes no top limit from a pointer on no work area (the menu bar) and still moves the window', () => {
+    const window = { x: 100, y: 25, width: 800, height: 600 }
+    const pointer = { x: 500, y: 20 }
+    expect(boundsOffPoint(window, pointer, [display])).toEqual({ x: 100, y: 20 + POINTER_MARGIN + 1, width: 800, height: 600 })
+  })
+
+  it('moves a window off a pointer on no display at all, by the order of the sides', () => {
+    const window = { x: 4800, y: 4800, width: 800, height: 600 }
+    const pointer = { x: 5000, y: 5000 }
+    expect(boundsOffPoint(window, pointer, [display])).toEqual({ x: 5000 + POINTER_MARGIN + 1, y: 4800, width: 800, height: 600 })
   })
 
   // A second display to the right, its top at 0, listed first: the menu bar that limits a move up
@@ -168,23 +180,38 @@ describe('boundsOffPoint', () => {
 })
 
 describe('sizeOnlyChange', () => {
+  const before = { x: 10, y: 300, width: 1280, height: 800 }
+
   it('is a change of size with the top-left corner kept (setSize)', () => {
-    expect(sizeOnlyChange({ x: 10, y: 40, width: 1280, height: 800 }, { x: 10, y: 40, width: 1600, height: 1000 })).toBe(true)
+    expect(sizeOnlyChange(before, { x: 10, y: 300, width: 1600, height: 1000 }, [display])).toBe(true)
   })
 
-  it('is a change of size whose top macOS moved by up to the menu bar, the left edge kept', () => {
-    const before = { x: 10, y: 95, width: 1280, height: 800 }
-    expect(sizeOnlyChange(before, { x: 10, y: 95 - SIZE_CHANGE_TOP_SHIFT, width: 1600, height: 1000 })).toBe(true)
-    expect(sizeOnlyChange(before, { x: 10, y: 95 + SIZE_CHANGE_TOP_SHIFT, width: 1600, height: 1000 })).toBe(true)
-    expect(sizeOnlyChange(before, { x: 10, y: 95 - SIZE_CHANGE_TOP_SHIFT - 1, width: 1600, height: 1000 })).toBe(false)
-    expect(sizeOnlyChange(before, { x: 11, y: 95, width: 1600, height: 1000 })).toBe(false)
+  it('is a change of size whose top macOS pulled up to the top of the work area, by any distance', () => {
+    expect(sizeOnlyChange(before, { x: 10, y: display.y, width: 1600, height: 1000 }, [display])).toBe(true)
+  })
+
+  it('takes the top of the work area of the display the window is on, not of the first display', () => {
+    const external = { x: 1440, y: 0, width: 1920, height: 1080 }
+    const onExternal = { x: 1500, y: 300, width: 1280, height: 800 }
+    expect(sizeOnlyChange(onExternal, { x: 1500, y: 0, width: 1600, height: 1000 }, [display, external])).toBe(true)
+    expect(sizeOnlyChange(onExternal, { x: 1500, y: display.y, width: 1600, height: 1000 }, [display, external])).toBe(false)
   })
 
   it.each([
+    ['a top moved up, not to the work area top', { x: 10, y: 280, width: 1600, height: 1000 }],
+    ['a top moved down', { x: 10, y: 320, width: 1600, height: 1000 }],
+    ['a top moved above the work area top', { x: 10, y: display.y - 15, width: 1600, height: 1000 }],
+    ['a left edge moved by one', { x: 11, y: 300, width: 1600, height: 1000 }],
+    ['a left edge moved, the top at the work area top', { x: 11, y: display.y, width: 1600, height: 1000 }],
     ['a move with a new size (setBounds with a place)', { x: 60, y: 100, width: 900, height: 560 }],
     ['a move alone', { x: 60, y: 100, width: 1280, height: 800 }],
-    ['no change', { x: 10, y: 40, width: 1280, height: 800 }],
+    ['a move alone to the work area top', { x: 10, y: display.y, width: 1280, height: 800 }],
+    ['no change', { x: 10, y: 300, width: 1280, height: 800 }],
   ])('is not %s', (_case, next) => {
-    expect(sizeOnlyChange({ x: 10, y: 40, width: 1280, height: 800 }, next)).toBe(false)
+    expect(sizeOnlyChange(before, next, [display])).toBe(false)
+  })
+
+  it('is not a move to a top on no display', () => {
+    expect(sizeOnlyChange(before, { x: 10, y: 5000, width: 1600, height: 1000 }, [{ ...display, y: 5000, x: 9000 }])).toBe(false)
   })
 })

@@ -356,6 +356,20 @@ describe('createMainWindow', () => {
       expect(holds(electron.bounds, pointer)).toBe(false)
     })
 
+    it('checks again after setSize a window it already moved: the move is the corner setSize keeps', async () => {
+      vi.stubEnv('WORFY_QUIET_WINDOWS', '1')
+      await optionsOn('darwin', false, undefined, () => {
+        electron.cursor = centre
+      })
+      // Moved left at creation: (-568, 63), clear of the pointer.
+      expect(electron.setBounds).toEqual([{ x: 720 - 8 - 1280, y: 63, width: 1280, height: 800 }])
+      readyToShow()
+      // 1400 wide from x -568 reaches 832, over the pointer at 720 again.
+      electron.last!.setSize(1400, 850)
+      expect(electron.setBounds).toHaveLength(2)
+      expect(holds(electron.bounds, centre)).toBe(false)
+    })
+
     it('leaves a place given to setBounds as it is, the pointer under it or not', async () => {
       vi.stubEnv('WORFY_QUIET_WINDOWS', '1')
       await optionsOn('darwin', false)

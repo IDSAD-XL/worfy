@@ -127,21 +127,21 @@ export function boundsOffPoint(bounds: Rect, point: Point, workAreas: readonly R
 }
 
 /**
- * How far macOS may move a window's top while it changes the window's size, in DIP: the height
- * of the menu bar (37–38 DIP on a display with a notch) and some room. AppKit keeps a window's top
- * under the menu bar and shrinks a window taller than the display; it never moves it sideways.
- */
-export const SIZE_CHANGE_TOP_SHIFT = 40
-
-/**
  * Whether a change of the window's bounds is a change of size (BrowserWindow.setSize): the width
- * or height changed, the left edge kept, and the top kept or moved by no more than
- * SIZE_CHANGE_TOP_SHIFT, as macOS does to a window grown taller than the display (setSize(1600,
- * 1000) on a 1512 × 982 display). A change that also moves the window further (setBounds with a
- * place, a drag) names the place it wants, and a window kept off the pointer leaves that place as
- * it is.
+ * or height changed, the left edge kept, and the top either kept or now exactly at the top of the
+ * work area of the display the window is mostly on. macOS never moves a resized window sideways,
+ * but it may pull its top up to the menu bar, by any distance, when the window no longer fits below
+ * it (setSize(1600, 1000) on a 1512 × 982 display, a window moved down off the pointer before). A
+ * change that moves the window anywhere else (setBounds with a place, a drag) names the place it
+ * wants, and a window kept off the pointer leaves that place as it is.
  */
-export function sizeOnlyChange(previous: Rect, next: Rect): boolean {
-  const resized = previous.width !== next.width || previous.height !== next.height
-  return resized && previous.x === next.x && Math.abs(previous.y - next.y) <= SIZE_CHANGE_TOP_SHIFT
+export function sizeOnlyChange(previous: Rect, next: Rect, workAreas: readonly Rect[]): boolean {
+  if (previous.width === next.width && previous.height === next.height) return false
+  if (previous.x !== next.x) return false
+  if (previous.y === next.y) return true
+  const under = workAreas.reduce<{ area: Rect; size: number } | undefined>((best, area) => {
+    const size = visibleArea(next, [area])
+    return size > 0 && (best === undefined || size > best.size) ? { area, size } : best
+  }, undefined)
+  return under !== undefined && next.y === under.area.y
 }
