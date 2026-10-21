@@ -82,6 +82,13 @@ async function expectOpacities(window: Page, expected: Record<string, string>, t
   await expect.poll(async () => Object.fromEntries(await Promise.all(ids.map(async (id) => [id, await opacity(window, id)]))), { timeout }).toEqual(expected)
 }
 
+/** Waits until no Node element of the window runs an animation or a transition of its own, so its opacity is the final one. */
+async function animationsDone(window: Page): Promise<void> {
+  await expect
+    .poll(() => window.locator('.react-flow__node').evaluateAll((elements) => elements.filter((element) => (element as unknown as { getAnimations(): unknown[] }).getAnimations().length > 0).length))
+    .toBe(0)
+}
+
 async function box(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
   const found = await locator.boundingBox()
   if (!found) throw new Error('the element has no box')
@@ -155,7 +162,8 @@ test('hovering a Session draws its Binding line and fades no Node; "Show family"
     await claimNode.hover()
     await expect(window.getByTestId(`rf__edge-binding:${claim}`).locator('path.react-flow__edge-path')).toHaveCount(1)
     await expect(window.getByTestId(`rf__edge-binding:${folder}`).locator('path.react-flow__edge-path')).toHaveCount(0)
-    // No Node fades, in the Family or outside it.
+    // No Node fades, in the Family or outside it, once nothing is animating.
+    await animationsDone(window)
     await expectOpacities(window, { [claim]: '1', [ticket7]: '1', [epicFrame]: '1', [folder]: '1', [ticket12]: '1', 'note-1': '1' })
     // The second window of the same Project draws no line for it.
     await expect(second.getByTestId(`rf__edge-binding:${claim}`).locator('path.react-flow__edge-path')).toHaveCount(0)
@@ -245,14 +253,15 @@ test.describe('on a read-only screen', () => {
       await canvasReady(a, { visible: [ticket1, a.window.locator('[data-testid="note-node"][data-node-id="note-b"]')] })
 
       await ticket1.hover()
-      await expectOpacities(a.window, { [`ticket:${epic}/1`]: '1', [`epic:${epic}`]: '1', [`ticket:${epic}/2`]: '1', 'note-b': '1' })
-
       await ticket1.click()
       const showFamily = a.window.getByTestId('selection-toolbar').getByRole('button', { name: 'Show family' })
       await expect(showFamily).toBeVisible()
       await expect(showFamily).not.toHaveAttribute('aria-disabled', 'true')
       await showFamily.click()
       await expect.poll(() => allOnCanvas(a.window, [`epic:${epic}`, `ticket:${epic}/1`])).toBe(true)
+      // Ticket 1 hovered and selected: no Node fades.
+      await animationsDone(a.window)
+      await expectOpacities(a.window, { [`ticket:${epic}/1`]: '1', [`epic:${epic}`]: '1', [`ticket:${epic}/2`]: '1', 'note-b': '1' })
     } finally {
       await a.close()
       await b?.close()

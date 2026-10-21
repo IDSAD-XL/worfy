@@ -252,12 +252,7 @@ describe('the Family of a focused Node', () => {
       anchor(B, 2, 8),
     ].map((node) => ({ ...node, selected: selected.has(node.id) }))
 
-  /** Each Node type's own component counts its renders (the Node's content). */
-  const Counted = ({ id }: CanvasNodeProps) => {
-    renders.set(id, (renders.get(id) ?? 0) + 1)
-    return <div />
-  }
-  const Chromed = withNodeChrome(Counted)
+  const Chromed = withNodeChrome(() => <div />)
   /** Every draw of anything in a Node — its content or NodeChrome — counted by a React Profiler. */
   let draws = new Map<string, number>()
   const chromed = (props: CanvasNodeProps) => (
@@ -280,8 +275,23 @@ describe('the Family of a focused Node', () => {
     </div>
   )
   const element = (container: HTMLElement, id: string): Element => container.querySelector(`.react-flow__node[data-id="${id}"]`)!
-  /** What each Node's element holds, by Node id: a dim marker or anything else a focus adds would show here. */
-  const contents = (container: HTMLElement): Record<string, string> => Object.fromEntries(COUNTED.map((id) => [id, element(container, id).innerHTML]))
+  /**
+   * Each Node's element by Node id: what it holds, its own style and its classes, without what React
+   * Flow changes on the selected Node itself (the `selected` class, a raised z-index). A dim marker,
+   * an opacity set on the element or a class a focus adds would show here.
+   */
+  const contents = (container: HTMLElement): Record<string, { html: string; style: string; className: string }> =>
+    Object.fromEntries(
+      COUNTED.map((id) => {
+        const node = element(container, id) as HTMLElement
+        const className = [...node.classList].filter((name) => name !== 'selected').join(' ')
+        const style = [...node.style]
+          .filter((name) => name !== 'z-index')
+          .map((name) => `${name}: ${node.style.getPropertyValue(name)}`)
+          .join('; ')
+        return [id, { html: node.innerHTML, style, className }]
+      }),
+    )
   /** The counted Nodes in the store's Family, which the Binding lines read; null while nothing focused has one. */
   const family = (): string[] | null => {
     const members = useEdgeFocus.getState().family
