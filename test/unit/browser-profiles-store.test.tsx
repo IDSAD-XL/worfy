@@ -2,7 +2,7 @@
 // 14): «New browser» reads them with browserProfilesNow and writes the only one into the new Node.
 // A list kept from an earlier read must not be given out while a new read is unanswered or after it
 // failed: the Project may have more profiles by now, and the Node would be put under the wrong one.
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { BrowserProfile } from '../../src/shared/browser/profiles'
 
 type Answer = { ok: true; value: { profiles: BrowserProfile[] } } | { ok: false; error: string }
@@ -24,6 +24,14 @@ async function reply(with_: Answer): Promise<void> {
 }
 
 describe('the profiles «New browser» reads (browserProfilesNow)', () => {
+  // The answers queue is shared by the tests: a read one test leaves unanswered would be answered by
+  // the next test's reply, and that test would fail for nothing. The test that left it fails here.
+  afterEach(() => {
+    const left = main.answers.length
+    main.answers.length = 0
+    expect(left, 'reads this test left unanswered (answer each with reply)').toBe(0)
+  })
+
   it('is undefined before the first answer, then the answered list', async () => {
     expect(browserProfilesNow('a')).toBeUndefined()
     reloadBrowserProfiles('a')
