@@ -15,13 +15,16 @@
 // - the first-run checks get WORFY_GH (src/main/ipc/first-run.ts) and run it for both gh rows
 //   (test/unit/first-run-windows.test.ts, "the gh rows and WORFY_GH").
 // It reads the source text, so a start written some other way is not seen: an aliased import of
-// spawn, a program name built at run time, the app started through a launcher named by a literal
-// (`npx electron .`, `open`, `sh -c`). An `env` shorthand counts by the file's last `const env =`
-// before the call, whatever function it is in. The detectors' own tests below show what is seen.
+// spawn, a program name built at run time or held in a constant (`const GH = 'gh'; execFile(GH)`),
+// the app started through a launcher named by a literal (`npx electron .`, `open`, `sh -c`). An
+// `env` shorthand counts by the file's last `const env =` before the call, whatever function it is
+// in. What closes the gap for gh: a runner or sign-in given no program takes WORFY_GH by itself
+// (appGhOverride in src/main/github/prs.ts). The detectors' own tests below show what is seen.
 import { mkdtempSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { appGhOverride, ghRunner } from '../../src/main/github/prs'
 import { directStartEnv, GH_STUB, launchEnv } from '../e2e/launch-env'
 import { removeTestTree } from '../remove'
 
@@ -85,7 +88,9 @@ const STARTERS = '(?:spawn|spawnSync|execFile|execFileSync|exec|execSync|fork)'
 function processStarts(source: Source): Start[] {
   const text = code(source.text)
   const found: Start[] = []
-  for (const match of text.matchAll(new RegExp(`(?:(?<![\\w$.])|\\bchild_process\\.)${STARTERS}\\s*\\(`, 'g'))) {
+  // node:child_process by its own name or a namespace one (`import * as cp`, `const cp = require(...)`).
+  const namespaces = ['child_process', ...[...text.matchAll(/(?:import\s*\*\s*as\s+([\w$]+)\s+from|(?:const|let|var)\s+([\w$]+)\s*=\s*require\()\s*['"](?:node:)?child_process['"]/g)].map((match) => match[1] ?? match[2])]
+  for (const match of text.matchAll(new RegExp(`(?:(?<![\\w$.])|\\b(?:${namespaces.join('|')})\\.)${STARTERS}\\s*\\(`, 'g'))) {
     const open = match.index + match[0].length - 1
     const args = argumentsAt(text, open)
     // The env: directStartEnv right there, or `env` shorthand whose last assignment before the call is directStartEnv.
@@ -99,9 +104,12 @@ function processStarts(source: Source): Start[] {
   return found
 }
 
-/** A program named by a string literal (`'git'`) or Node itself is a tool; anything else, or a literal naming Electron or worfy, may be the app. */
+/**
+ * A program named by a string literal (`'git'`) or Node itself is a tool; anything else may be the
+ * app: a literal naming Electron or worfy, or a template with `${…}` in it.
+ */
 const mayBeTheApp = (start: Start): boolean =>
-  /electron|worfy/i.test(start.program) || !(/^(['"`])[^'"`]*\1$/.test(start.program) || start.program === 'process.execPath')
+  /electron|worfy|\$\{/i.test(start.program) || !(/^(['"`])[^'"`]*\1$/.test(start.program) || start.program === 'process.execPath')
 
 // Programs by a computed path that are not the app, each with what it is.
 const KNOWN_TOOLS = [
@@ -168,6 +176,8 @@ describe('every e2e start of the app gets the gh stub', () => {
     expect(looseAppStarts(spec('execFile(electronPath, [repoRoot], () => {})'))).toEqual(['test/e2e/x.spec.ts:1 electronPath'])
     expect(looseAppStarts(spec("fork(join(repoRoot, 'out', 'main', 'index.js'), { env: process.env })"))).toEqual(["test/e2e/x.spec.ts:1 join(repoRoot, 'out', 'main', 'index.js')"])
     expect(looseAppStarts(spec("spawnSync('electron', ['.'])"))).toEqual(["test/e2e/x.spec.ts:1 'electron'"])
+    expect(looseAppStarts(spec('spawn(`${dist}/app`, [])'))).toEqual(['test/e2e/x.spec.ts:1 `${dist}/app`'])
+    expect(looseAppStarts(spec("import * as cp from 'node:child_process'\ncp.spawn(binary, [repoRoot], { env: process.env })"))).toEqual(['test/e2e/x.spec.ts:2 binary'])
     // An earlier directStartEnv does not cover a later env of another kind.
     expect(looseAppStarts(spec('let env = directStartEnv(o)\nconst env = { ...process.env }\nspawn(electron, [repoRoot], { env })'))).toEqual(['test/e2e/x.spec.ts:3 electron'])
     // The shapes the specs use pass; tools by name, Node, a RegExp's exec and node-pty are not starts of the app.
@@ -205,6 +215,26 @@ describe('worfy starts gh only through WORFY_GH', () => {
     expect(bareGhStarts(file("// execFile('gh', [])\nexecFile(start.file, [...start.args, ...args])"))).toEqual([])
   })
 
+  it('appGhOverride: WORFY_GH of worfy\'s own environment; empty or unset, none', () => {
+    expect(appGhOverride({ WORFY_GH: 'C:\\stand-in\\gh.exe' })).toBe('C:\\stand-in\\gh.exe')
+    expect(appGhOverride({ WORFY_GH: '' })).toBeUndefined()
+    expect(appGhOverride({})).toBeUndefined()
+  })
+
+  it('ghRunner given no program takes WORFY_GH: a caller that forgets it still gets the stand-in', async () => {
+    // A stand-in that is not there: the runner names it and starts nothing.
+    const missing = join(scratch, 'no-such-gh.mjs')
+    await expect(ghRunner({ processEnv: { WORFY_GH: missing } })(['pr', 'list'], scratch)).rejects.toThrow(`gh not found (${missing})`)
+  })
+
+  it('ghRunner on Windows reads WORFY_GH by the first-run checks\' rule, and starts nothing it refuses', async () => {
+    const run = (command: string, exists: (path: string) => boolean): Promise<string> => ghRunner({ command, platform: 'win32', exists })(['pr', 'list'], scratch)
+    await expect(run('tools\\gh.exe', () => true)).rejects.toThrow('gh not found (tools\\gh.exe)')
+    await expect(run('\\opt\\gh.exe', () => true)).rejects.toThrow('gh not found (\\opt\\gh.exe)')
+    await expect(run('C:\\stand-in\\gh.cmd', () => true)).rejects.toThrow('WORFY_GH must name gh.exe or a .mjs stand-in')
+    await expect(run('C:\\stand-in\\gh', () => false)).rejects.toThrow('gh not found (C:\\stand-in\\gh)')
+  })
+
   it('the places that pick the gh program are the WORFY_GH-aware ones, and no others', () => {
     // A new one must take the override: programStart(<WORFY_GH>, 'gh') (src/main/program.ts).
     const picks = main.flatMap((file) => [...code(file.text).matchAll(/programStart\([^()]*,\s*['"`]gh['"`]\)|(?:\?\?|\|\|)\s*['"`]gh['"`]/g)].map((match) => `${file.name}: ${match[0]}`))
@@ -215,8 +245,12 @@ describe('worfy starts gh only through WORFY_GH', () => {
       "src/main/github/accounts.ts: ?? 'gh'",
       // ghRunner: the name for its error messages, and the program.
       "src/main/github/prs.ts: ?? 'gh'",
-      "src/main/github/prs.ts: programStart(options.command, 'gh')",
+      "src/main/github/prs.ts: programStart(program, 'gh')",
     ])
+    // And with no program from the caller, both fall back to WORFY_GH before gh.
+    const text = (name: string): string => code(main.find((file) => file.name === name)?.text ?? '')
+    expect(text('src/main/github/prs.ts')).toMatch(/const override = options\.command \?\? appGhOverride\(/)
+    expect(text('src/main/github/accounts.ts')).toMatch(/gh\.command \?\? appGhOverride\(\) \?\? 'gh'/)
   })
 
   it('`gh auth login` for the user to run is only in the sign-in action of the first-run screen', () => {

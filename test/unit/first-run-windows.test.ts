@@ -759,8 +759,9 @@ describe('the gh rows and WORFY_GH', () => {
       [stand, 'auth', 'status'],
     ])
     // worfy's own environment under the login shell's: what only worfy has (GH_STUB_LOG) and what
-    // only the shell sets (FAKE_GH_ACCOUNT) both reach it.
-    for (const each of viaStand) expect(each.env).toEqual({ ...OWN_ENV, ...login })
+    // only the shell sets (FAKE_GH_ACCOUNT) both reach it. worfy's `Path` gives way to the shell's
+    // `PATH`: Windows reads the two as one variable.
+    for (const each of viaStand) expect(each.env).toEqual({ WORFY_GH: OWN_ENV.WORFY_GH, GH_STUB_LOG: OWN_ENV.GH_STUB_LOG, ...login })
   })
 
   it('with a .mjs stand-in: worfy\'s own Node runs it, with ELECTRON_RUN_AS_NODE', async () => {
@@ -772,7 +773,7 @@ describe('the gh rows and WORFY_GH', () => {
       [process.execPath, stub, '--version'],
       [process.execPath, stub, 'auth', 'status'],
     ])
-    for (const each of viaStub) expect(each.env).toEqual({ ...OWN_ENV, ...WINDOWS_ENV, ELECTRON_RUN_AS_NODE: '1' })
+    for (const each of viaStub) expect(each.env).toEqual({ WORFY_GH: OWN_ENV.WORFY_GH, GH_STUB_LOG: OWN_ENV.GH_STUB_LOG, ...WINDOWS_ENV, ELECTRON_RUN_AS_NODE: '1' })
     expect(runs.some((each) => each.name === 'gh')).toBe(false)
   })
 

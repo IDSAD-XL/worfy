@@ -456,7 +456,10 @@ function runGh(args: readonly string[], deps: CheckDeps, machine: Machine, timeo
   const start = programStart(deps.gh?.command, 'gh')
   // The override gets worfy's own variables under the login shell's: the shell's PATH, HOME and
   // whatever its profile sets win, and what only worfy has (a stand-in's settings) still reaches it.
-  return machine.probes.run(start.file, [...start.args, ...args], { ...deps.gh?.env, ...deps.env, ...start.env }, timeoutMs)
+  // Keys compare without case, as Windows does: worfy's `PATH` must not stay beside the shell's `Path`.
+  const shell = new Set(Object.keys(deps.env).map((key) => key.toUpperCase()))
+  const own = Object.fromEntries(Object.entries(deps.gh?.env ?? {}).filter(([key]) => !shell.has(key.toUpperCase())))
+  return machine.probes.run(start.file, [...start.args, ...args], { ...own, ...deps.env, ...start.env }, timeoutMs)
 }
 
 async function tool(name: 'git' | 'gh' | 'jq', deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {

@@ -21,7 +21,7 @@ import { fileOrAlias, findOnPath, type Env, type FileExists } from '../agent/env
 import { windowsProgramPath } from '../program'
 import type { GitRunner } from '../projects/store'
 import { TerminalRegistry, type SpawnPty } from '../terminal/pty'
-import { accountAuth, type GhRunner } from './prs'
+import { accountAuth, appGhOverride, type GhRunner } from './prs'
 
 /** A remote on a host: `owner/repo` there. */
 export interface RemoteRepo {
@@ -245,7 +245,8 @@ export function signInRegistry(
     platform,
     // The command is chosen for each sign-in: on Windows gh is looked for in the Path it will get.
     spawn: (_shell, _args, options) => {
-      const command = signInCommand(gh.command ?? 'gh', platform, options.env, system.exists)
+      // No program of its own: WORFY_GH, as ghRunner takes it, so a caller that forgets it still runs the stand-in.
+      const command = signInCommand(gh.command ?? appGhOverride() ?? 'gh', platform, options.env, system.exists)
       return spawn(command.file, command.args, options)
     },
   })

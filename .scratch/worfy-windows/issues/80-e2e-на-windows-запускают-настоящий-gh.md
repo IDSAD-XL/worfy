@@ -81,8 +81,21 @@ Guard test `test/unit/e2e-gh-stub.test.ts`:
 На ПК 2026-10-21, ветка тикета: gate fast exit 0; unit-тесты зелёные. `window.spec.ts` и
 `projects-connect.spec.ts` под watcher-ом `gh.exe`: 0 запусков gh. `window.spec.ts` зелёный.
 
-Дальше, отдельным тикетом: одна функция `appGh()` для всех четырёх мест, что читают `WORFY_GH`
-(`src/main/ipc/checks.ts`, `projects.ts`, `gate-queue.ts`, `first-run.ts`).
+Ревью Mac, раунд 2: `ghRunner` (`src/main/github/prs.ts`) и «Sign in with gh» без своей программы
+сами берут `WORFY_GH` (`appGhOverride`), так что место, которое забыло прочитать `WORFY_GH`, всё равно
+запускает stand-in. `ghRunner` на Windows читает `WORFY_GH` тем же `windowsProgramPath`. Строки gh не
+оставляют `PATH` worfy рядом с `Path` login shell (ключи сравниваются без учёта регистра).
+
+## Долг (после ревью, не high)
+
+- Одна функция `appGh()` для всех четырёх мест, что читают `WORFY_GH` (`src/main/ipc/checks.ts`,
+  `projects.ts`, `gate-queue.ts`, `first-run.ts`).
+- «Sign in with gh» (`src/main/github/accounts.ts`, `signInCommand`) отдаёт `.mjs` из `WORFY_GH` прямо
+  в node-pty, без `programStart`. Так было и до тикета 80.
+- Guard читает текст исходников. Он не видит: программу в константе (`const GH = 'gh'; execFile(GH)`),
+  импорт `spawn` под другим именем, запуск приложения через launcher с литеральным именем
+  (`npx electron .`, `open`, `sh -c`); `env` в сокращённой записи засчитывается по последнему
+  `const env =` файла, без учёта области видимости.
 
 Заметка: 3 test-а `projects-connect.spec.ts` (`:73`, `:230`, `:294`) на Windows падают — экран
 connect-project показывает стадию `harness`, а не `form`. Так же они падают на базе (ветка тикета 79),
