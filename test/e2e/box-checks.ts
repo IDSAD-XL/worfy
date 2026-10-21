@@ -16,6 +16,29 @@ export interface BoxPass {
   ambiguous: string[]
 }
 
+/** What the page reports for one element to measure: how many elements its selector found, and the box of the one when it found exactly one. */
+export interface BoxRead {
+  name: string
+  count: number
+  box: Omit<Box, 'name'> | null
+}
+
+/** One pass from what the page read: a selector that found nothing is missing, one that found several is ambiguous. */
+export function passOf(reads: readonly BoxRead[]): BoxPass {
+  const pass: BoxPass = { boxes: [], missing: [], ambiguous: [] }
+  for (const { name, count, box } of reads) {
+    if (count === 0) pass.missing.push(name)
+    else if (count > 1) pass.ambiguous.push(name)
+    else if (box !== null) pass.boxes.push({ name, ...box })
+  }
+  return pass
+}
+
+/** Refuses fewer than two elements: no two boxes of such a list overlap, so the check would pass without checking anything. */
+export function checkTargets(targets: readonly unknown[], message: string): void {
+  if (targets.length < 2) throw new Error(`expectSettledWithoutOverlaps: ${message}: needs at least two elements, got ${targets.length}`)
+}
+
 /** The pairs of boxes that overlap, by name; boxes that only touch do not. */
 export function overlaps(boxes: readonly Box[]): string[] {
   const found: string[] = []

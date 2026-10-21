@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { _electron, expect, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import type { Reporter, TestCase, TestResult } from '@playwright/test/reporter'
-import { overlaps, passProblems, type Box, type BoxPass } from './box-checks'
+import { checkTargets, overlaps, passOf, passProblems, type BoxPass } from './box-checks'
 import { endApp, exited, killThenClean } from './end-app'
 import { SHOW_POLL_MS, waitForFirstWindowShown } from './first-window-shown'
 import { launchEnv } from './launch-env'
@@ -799,23 +799,17 @@ export interface Measured {
  * missing, one whose selector finds several elements as ambiguous, and neither has a box.
  */
 export async function boxesInOnePass(page: Page, targets: readonly Measured[]): Promise<BoxPass> {
-  return page.evaluate((list) => {
+  const reads = await page.evaluate((list) => {
     type Rect = { x: number; y: number; width: number; height: number }
     const doc = (globalThis as unknown as { document: { querySelectorAll(selector: string): ArrayLike<{ getBoundingClientRect(): Rect }> } }).document
-    const boxes: Box[] = []
-    const missing: string[] = []
-    const ambiguous: string[] = []
-    for (const { name, selector } of list) {
+    return list.map(({ name, selector }) => {
       const found = doc.querySelectorAll(selector)
-      if (found.length === 0) missing.push(name)
-      else if (found.length > 1) ambiguous.push(name)
-      else {
-        const { x, y, width, height } = found[0]!.getBoundingClientRect()
-        boxes.push({ name, x, y, width, height })
-      }
-    }
-    return { boxes, missing, ambiguous }
+      if (found.length !== 1) return { name, count: found.length, box: null }
+      const { x, y, width, height } = found[0]!.getBoundingClientRect()
+      return { name, count: 1, box: { x, y, width, height } }
+    })
   }, targets)
+  return passOf(reads)
 }
 
 /**
@@ -826,8 +820,7 @@ export async function boxesInOnePass(page: Page, targets: readonly Measured[]): 
  * every settled pass and fails the test.
  */
 export async function expectSettledWithoutOverlaps(page: Page, targets: readonly Measured[], message: string, timeout = 10_000): Promise<void> {
-  // No two boxes of an empty list overlap: such a call would pass without checking anything.
-  if (targets.length < 2) throw new Error(`expectSettledWithoutOverlaps: ${message}: needs at least two elements, got ${targets.length}`)
+  checkTargets(targets, message)
   let previous: string | null = null
   await expect
     .poll(

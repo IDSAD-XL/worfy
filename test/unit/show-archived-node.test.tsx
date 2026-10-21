@@ -182,6 +182,39 @@ describe('Show of an archived Node', () => {
     expect(ops()).toEqual([])
   })
 
+  it('on a read-only screen the sidebar row of a Node already on the Canvas stays active: a click only focuses it', async () => {
+    main.nodes = [sessionNode({ archived: null })]
+    preload([liveRow])
+    vi.doMock('../../src/renderer/projects/useProjects', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../src/renderer/projects/useProjects')>()),
+      useReadOnly: () => 'Mini gives this Machine read-only access',
+    }))
+    onTestFinished(() => void vi.doUnmock('../../src/renderer/projects/useProjects'))
+    const projects = await import('../../src/renderer/projects/useProjects')
+    projects.acceptProjectsState(LIST)
+    const { default: SessionsSection } = await import('../../src/renderer/shell/sidebar/SessionsSection')
+    const { useLayout } = await import('../../src/renderer/canvas/useLayout')
+    const { useSessionFocus } = await import('../../src/renderer/claude-home/focus')
+    function LayoutReady() {
+      return useLayout(PROJECT_ID).state === undefined ? null : <span data-testid="layout-ready" />
+    }
+    render(
+      <>
+        <SessionsSection />
+        <LayoutReady />
+      </>,
+    )
+    await screen.findByTestId('layout-ready')
+    const row = await screen.findByTestId('sidebar-session')
+    expect(row.getAttribute('aria-disabled')).toBeNull()
+    expect(row.getAttribute('title')).toContain(ROOT)
+    await act(async () => {
+      fireEvent.click(row)
+      await waitFor(() => expect(useSessionFocus.getState().request).toMatchObject({ projectId: PROJECT_ID, nodeId: 'node-s' }))
+    })
+    expect(ops()).toEqual([])
+  })
+
   it('a "go to" command of the palette restores it, then focuses it; ⌘Z archives it again', async () => {
     const { acceptLayoutState } = await import('../../src/renderer/canvas/useLayout')
     const { buildCommands } = await import('../../src/renderer/palette/commands')
