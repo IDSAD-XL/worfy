@@ -125,10 +125,10 @@ async function start(): Promise<Page> {
 }
 
 /** The Browser Nodes of the Layout main saved. */
-function savedBrowsers(): { id: string; data: { url?: string } }[] {
+function savedBrowsers(): { id: string; data: { url?: string; profile?: string | null } }[] {
   const file = join(dataDir(), PROJECT, 'layout.json')
   if (!existsSync(file)) return []
-  const layout = JSON.parse(readFileSync(file, 'utf8')) as { nodes: { id: string; kind: string; data: { url?: string } }[] }
+  const layout = JSON.parse(readFileSync(file, 'utf8')) as { nodes: { id: string; kind: string; data: { url?: string; profile?: string | null } }[] }
   return layout.nodes.filter((node) => node.kind === 'browser')
 }
 
@@ -227,6 +227,8 @@ test('New browser from the Canvas menu opens the typed address; the address the 
   await expect.poll(() => savedBrowsers().length, { message: 'main saved the new Browser' }).toBe(1)
   const id = savedBrowsers()[0]!.id
   expect(savedBrowsers()[0]!.data.url).toBeUndefined()
+  // The Project has one Browser profile, Default: the new Node is made under it (worfy-browser ticket 14).
+  await expect.poll(() => savedBrowsers()[0]?.data.profile, { message: 'the new Browser is under Default' }).toBe('default')
   await expect.poll(async () => (await guests()).map((guest) => guest.url), { message: 'the empty page' }).toEqual(['about:blank'])
 
   // The address typed and Enter: the page opens, the bar and the Node keep the address.

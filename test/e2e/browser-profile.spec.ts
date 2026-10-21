@@ -78,10 +78,10 @@ async function start(): Promise<Page> {
 }
 
 /** The `data` of each Browser Node main saved, by id. */
-function savedBrowsers(): Record<string, { url?: string; profile?: string }> {
+function savedBrowsers(): Record<string, { url?: string; profile?: string | null }> {
   const file = join(dataDir(), PROJECT, 'layout.json')
   if (!existsSync(file)) return {}
-  const layout = JSON.parse(readFileSync(file, 'utf8')) as { nodes: { id: string; kind: string; data: { url?: string; profile?: string } }[] }
+  const layout = JSON.parse(readFileSync(file, 'utf8')) as { nodes: { id: string; kind: string; data: { url?: string; profile?: string | null } }[] }
   return Object.fromEntries(layout.nodes.filter((node) => node.kind === 'browser').map((node) => [node.id, node.data]))
 }
 
@@ -196,6 +196,19 @@ test('a cookie of one Browser profile is seen by its other Browser, not by a Bro
   await window.getByRole('menuitem', { name: 'New browser' }).click()
   await expect(window.getByTestId('browser-choose-profile')).toHaveCount(1)
   await expect(window.getByTestId('browser-choose-profile')).toContainText('no Browser profile yet')
+  // The new Node keeps `profile: null` (worfy-browser ticket 14): it is never taken for a Browser
+  // saved before profiles existed. The palette's «New browser» makes one the same way.
+  const made = () =>
+    Object.entries(savedBrowsers())
+      .filter(([id]) => !['b0', 'b1', 'b2'].includes(id))
+      .map(([, data]) => data.profile)
+  await expect.poll(made, { message: 'the Browser the Canvas menu made' }).toEqual([null])
+  await window.keyboard.press('ControlOrMeta+k')
+  await window.getByTestId('palette-input').fill('new browser')
+  await expect(window.getByTestId('palette-option').first()).toHaveAttribute('data-command', 'new:browser')
+  await window.getByTestId('palette-input').press('Enter')
+  await expect(window.getByTestId('browser-choose-profile')).toHaveCount(2)
+  await expect.poll(made, { message: 'the Browser the palette made' }).toEqual([null, null])
 
   // After a restart the cookie is there for admin, and still not for Default.
   await launched!.close()
@@ -212,6 +225,19 @@ test('a cookie of one Browser profile is seen by its other Browser, not by a Bro
   expect(existsSync(join(repo(), 'browser-profiles.json'))).toBe(false)
 })
 
+test('«New browser» from the palette, with one Browser profile, makes the Node under it at once', async () => {
+  project([])
+  const window = await start()
+  await window.keyboard.press('ControlOrMeta+k')
+  await window.getByTestId('palette-input').fill('new browser')
+  await expect(window.getByTestId('palette-option').first()).toHaveAttribute('data-command', 'new:browser')
+  await window.getByTestId('palette-input').press('Enter')
+  // The palette passes the Project shown, whose only profile is Default (worfy-browser ticket 14).
+  await expect.poll(() => Object.values(savedBrowsers()).map((data) => data.profile), { message: 'the Browser the palette made' }).toEqual(['default'])
+  await expect(window.getByTestId('browser-profile-name')).toHaveText('Default')
+  await expect(window.getByTestId('browser-choose-profile')).toHaveCount(0)
+})
+
 test('deleting a profile names the Browsers that use it, erases its cookies, and its Browsers ask for another profile', async () => {
   const page = `${origin}/page`
   project([{ id: 'b0', kind: 'browser', x: 600, y: 20, w: 360, h: 280, data: { url: page } }])
@@ -223,6 +249,17 @@ test('deleting a profile names the Browsers that use it, erases its cookies, and
   const partition = 'persist:worfy-browser-0000000c-default'
   const cookiesOf = async () => launched!.app.evaluate(async ({ session }, name) => (await session.fromPartition(name).cookies.get({})).map((cookie) => cookie.name), partition)
   await expect.poll(cookiesOf, { message: 'the cookie before the delete' }).toContain('kept')
+  // The delete finds the pages to close by the session object alone (clearElectronPartition): the
+  // page's session is the very object session.fromPartition answers for its partition.
+  const sameSession = await launched!.app.evaluate(
+    ({ session, webContents }, name) =>
+      webContents
+        .getAllWebContents()
+        .filter((contents) => contents.getType() === 'webview')
+        .map((contents) => contents.session === session.fromPartition(name)),
+    partition,
+  )
+  expect(sameSession).toEqual([true])
 
   await frame.getByTestId('browser-profile-name').click()
   const profiles = window.getByTestId('browser-profiles')

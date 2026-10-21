@@ -1,3 +1,5 @@
+import { browserProfilesNow } from '../../browser/profiles'
+import { BROWSER_KIND, newBrowserData } from '../nodes/browser-frame'
 import type { NodeType } from '../nodes'
 
 /** One item of the Canvas context menu (CanvasMenu.tsx): it creates a Node of `type`. */
@@ -22,4 +24,13 @@ export function createItems(modules: Record<string, unknown>, types: ReadonlyMap
     items.push({ label: createLabel, type })
   }
   return items.sort((a, b) => a.label.localeCompare(b.label))
+}
+
+/**
+ * The `data` a Node of `kind` made by a "New …" item starts with, in Project `projectId`: a Browser
+ * gets its Browser profile (newBrowserData, worfy-browser ticket 14), any other Node nothing. The
+ * Canvas menu and the palette's "New …" commands (../../find/CanvasFind.tsx) both make Nodes so.
+ */
+export function newNodeData(kind: string, projectId: string): Record<string, unknown> {
+  return kind === BROWSER_KIND ? newBrowserData(browserProfilesNow(projectId)) : {}
 }
