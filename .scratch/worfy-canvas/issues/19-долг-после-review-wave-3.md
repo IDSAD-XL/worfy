@@ -87,7 +87,7 @@ Session-ов и popover Archive, круги 1–3), [#657](https://github.com/ID
 - [ ] Границы модулей: `bindingsRead` читает сырое состояние store; разрешение сигналов повторяет
       `session-spots.ts`; прямой `invoke('claudeHome.live')`; поле model продублировано; планировщик
       upkeep вынести в свой модуль.
-- [ ] `epics.ts` вырос до 1104 строк (gate предупреждает выше 1000): вынести запись и upkeep расстановки
+- [x] `epics.ts` вырос до 1104 строк (gate предупреждает выше 1000): вынести запись и upkeep расстановки
       рамок в свой модуль.
 - [x] Test (medium, без разрушений): `epics.ts:530` — то, что `useRepack` передаёт состояние store в
       `activityNow`, не проверено (`canvas-menu.test` подменяет `useRepack` mock-ом).
@@ -176,6 +176,21 @@ PR первой части (2026-10-21, ветка `worfy-canvas/19`): ошиб�
   каждого Project-а свой `ReactFlowProvider`, так что `nodes()` читает store того же Project-а (после
   unmount — его последнее состояние), а не другого.
 
+Вторая часть (ветка `worfy-canvas/19-b`): вынос записи расстановки и границы модулей #662.
+
+- Запись `epic-arrangement`, её upkeep (запись дня, K, порядок без полки) и чтение активности
+  перенесены без изменений поведения из `sources/epics.ts` в `src/renderer/canvas/arrangement-record.ts`:
+  `epics.ts` — 815 строк, новый модуль — 304. В `epics.ts` остались "Re-pack" (`useRepack`,
+  `requestRepack`, `useRepackRequests` — они идут через состояние UI frame-ов) и реэкспорт
+  `arrangementOf` и `whenBindingsRead` для кода, который их оттуда импортирует (PR #676).
+- `bindingsRead` и `ArchivePopover` спрашивают store через `manualRead()` (`binding/store.ts`), а не
+  читают его сырое состояние; разрешение Binding-ов по прочитанным сигналам — одна функция
+  `storedBindings()` для `session-spots.ts` и записи расстановки.
+
+Пункт границ #662 остаётся открытым в двух частях: прямой `invoke('claudeHome.live')` — общий вызов
+должен жить в `claude-home/useClaudeHome.ts`, а этот файл сейчас правит PR #677; «поле model
+продублировано» — из записи ревью не ясно, какое поле имелось в виду (`ArrangementState` держит `root`
+и `model`, у которого есть свой `root`), нужен комментарий ревьюера.
+
 Осталось (следующий PR): `show-node.ts` и общая фабрика канала; подсказка Show на read-only экране;
-#657 (KIND, `ariaLabel`, test-ы); границы модулей #662 и вынос записи расстановки из `epics.ts`
-(сейчас 1109 строк); #659; #668; flaky test `workflow-reader`.
+#657 (KIND, `ariaLabel`, test-ы); две части границ #662 выше; #659; #668; flaky test `workflow-reader`.

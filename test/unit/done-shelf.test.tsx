@@ -28,7 +28,8 @@ import EpicFrameNode from '../../src/renderer/canvas/nodes/EpicFrameNode'
 import { rectOf } from '../../src/renderer/find/node-rect'
 import type { CanvasFlowNode, CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import { buildBindingAnchors, epicAnchorId } from '../../src/renderer/canvas/sources/workflow-bindings'
-import source, { arrangementOf, buildEpicNodes, epicPlace, shelfChipRect, useArrangementUpkeep, epicNodeId, openDoneStacks, setDoneStack, foldHiddenDoneStacks, type DoneShelfData, type EpicFrameData } from '../../src/renderer/canvas/sources/epics'
+import { arrangementOf, useArrangementUpkeep } from '../../src/renderer/canvas/arrangement-record'
+import source, { buildEpicNodes, epicPlace, shelfChipRect, epicNodeId, openDoneStacks, setDoneStack, foldHiddenDoneStacks, type DoneShelfData, type EpicFrameData } from '../../src/renderer/canvas/sources/epics'
 import { acceptLayoutState, applyLayoutOp, currentLayout, LayoutOpsContext, type LayoutOps } from '../../src/renderer/canvas/useLayout'
 
 // The badges and actions on a Ticket and a frame are other tickets' business: none here.

@@ -1,5 +1,5 @@
-// How sources/epics.ts writes the Layout's `epic-arrangement` record (ADR-0075, point 6): an
-// automatic write goes past the ⌘Z history (ADR-0016), "Re-pack" is one step of it. The arrangement
+// How sources/epics.ts and arrangement-record.ts write the Layout's `epic-arrangement` record
+// (ADR-0075, point 6): an automatic write goes past the ⌘Z history (ADR-0016), "Re-pack" is one step of it. The arrangement
 // itself: epic-arrangement.test.ts.
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { ReactFlowProvider, useStoreApi } from '@xyflow/react'
@@ -7,7 +7,8 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { elkKey, setElkEngine, useElkAnswers, type ElkAnswer } from '../../src/renderer/canvas/elk/client'
 import { layoutEpic } from '../../src/renderer/canvas/epic-layout'
-import source, { activityNow, arrangementOf, buildEpicNodes, epicsWithWork, FIRST_OPENING_WAIT_MS, requestEpicLayouts, saveArrangement, useArrangementUpkeep, useRepack, whenBindingsRead } from '../../src/renderer/canvas/sources/epics'
+import { activityNow, arrangementOf, epicsWithWork, FIRST_OPENING_WAIT_MS, saveArrangement, useArrangementUpkeep, whenBindingsRead } from '../../src/renderer/canvas/arrangement-record'
+import source, { buildEpicNodes, requestEpicLayouts, useRepack } from '../../src/renderer/canvas/sources/epics'
 import { useBindingsStore } from '../../src/renderer/binding/store'
 import { EMPTY_AGENT_SIGNALS } from '../../src/shared/binding/resolve'
 import { BINDING_ANCHOR_KIND } from '../../src/renderer/canvas/sources/workflow-bindings'
