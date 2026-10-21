@@ -38,6 +38,17 @@ export const DONE_SHELF_KIND = 'done-shelf'
 export const DONE_SHELF_ID = 'done-shelf'
 
 export const epicNodeId = (epic: string): string => `epic:${epic}`
+
+/**
+ * The ids of the Nodes still archived in `batch`: of all `nodes`, or of `among` only, in its order.
+ * A Node restored since, or archived again in another batch, is not one of them (ADR-0076). The
+ * undo of a screen's archive (src/renderer/canvas/history.ts) and main's Undo of a timer batch
+ * (src/main/layout/archive.ts, restoreBatch) restore exactly these.
+ */
+export function stillInBatch(nodes: readonly { id: string; archived?: ArchiveRecord | null | undefined }[], batch: string, among?: readonly string[]): string[] {
+  const inBatch = new Set(nodes.filter((node) => node.archived?.batch === batch).map((node) => node.id))
+  return among === undefined ? [...inBatch] : among.filter((id) => inBatch.has(id))
+}
 export const ticketNodeId = (epic: string, num: number): string => `ticket:${epic}/${num}`
 
 export const subagentTreeNodeId = (sessionId: string): string => `subagents:${sessionId}`

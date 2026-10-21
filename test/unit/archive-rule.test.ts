@@ -194,11 +194,11 @@ describe('the settings', () => {
     }
   })
 
-  it('each threshold of Settings → Canvas is its idle time; the default is «Never» with the ticket-done rule on (ADR-0076, point 10)', () => {
+  it('each threshold of Settings → Canvas is its idle time; the default is 24 h with the ticket-done rule on (ADR-0076, points 7 and 10)', () => {
     const idle = SESSION_ARCHIVE_AFTER.map((after) => archiveSettings({ after, ticketDone: true }).idleMs)
     expect(idle).toEqual([null, 6 * HOUR, 24 * HOUR, 72 * HOUR, 168 * HOUR])
-    expect(SESSION_ARCHIVE_DEFAULTS).toEqual({ after: 'never', ticketDone: true })
-    expect(archiveSettings(SESSION_ARCHIVE_DEFAULTS)).toEqual({ idleMs: null, ticketDone: true })
+    expect(SESSION_ARCHIVE_DEFAULTS).toEqual({ after: '24h', ticketDone: true })
+    expect(archiveSettings(SESSION_ARCHIVE_DEFAULTS)).toEqual({ idleMs: 24 * HOUR, ticketDone: true })
   })
 
   it('the box «…and when their Ticket is done» off: the ticket-done rule takes nothing', () => {

@@ -112,10 +112,11 @@ export type SessionArchiveChoice = z.output<typeof sessionArchiveChoiceSchema>
 export type SessionArchive = { [K in keyof SessionArchiveChoice]-?: NonNullable<SessionArchiveChoice[K]> }
 
 /**
- * The archive of a Machine whose person chose nothing. «Never» until the toast with Undo exists
- * (ADR-0076, point 10); worfy-canvas ticket 10 makes it 24 h.
+ * The archive of a Machine whose person chose nothing: 24 h, and a done Ticket's Sessions too
+ * (ADR-0076, points 7 and 10). It was «Never» until the toast with Undo came (worfy-canvas ticket
+ * 10); a person who chose «Never» then keeps it.
  */
-export const SESSION_ARCHIVE_DEFAULTS: Readonly<SessionArchive> = Object.freeze({ after: 'never', ticketDone: true })
+export const SESSION_ARCHIVE_DEFAULTS: Readonly<SessionArchive> = Object.freeze({ after: '24h', ticketDone: true })
 
 export const appSettingsSchema = z.object({
   interfaceScale: z.number().min(INTERFACE_SCALE_MIN).max(INTERFACE_SCALE_MAX),

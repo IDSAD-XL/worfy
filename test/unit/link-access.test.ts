@@ -246,6 +246,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'cardApi.askPrepare',
     'cardApi.dataSet',
     'layout.apply',
+    // The Undo of the archive toast: main restores a batch (worfy-canvas ticket 10); a read-only screen has no Undo.
+    'layout.restoreBatch',
     // Starts the Orchestrator Session when there is none.
     'orchestrator.open',
     'orchestrator.newConversation',

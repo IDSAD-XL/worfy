@@ -21,6 +21,8 @@
 // whose transcript tells no time (archive.ts, sessionsWithoutClock; ADR-0076, Amendments).
 // A `moveMany` of a layout command (`arrange`: Tidy up, Arrange by Epic) does not: it moves every
 // Node at once, which is not work with each of them (ADR-0076, Amendments).
+// The archive runs a Project when main first reads its Layout (onFirstRead), so the first archive
+// of a Project comes when it is opened, not one timer tick later (ADR-0076, Amendments).
 //
 // Operations change the Layout in memory at once; the file is written after a quiet period
 // (LAYOUT_SAVE_DELAY_MS since the last operation) or, while operations keep coming with no quiet
@@ -262,6 +264,7 @@ export class LayoutStore {
    */
   private readonly forgottenRevisions = new Map<string, number>()
   private readonly listeners = new Set<(change: LayoutChange) => void>()
+  private readonly readers = new Set<(projectId: string) => void>()
   private readonly write: (file: string, layout: Layout) => void
   private readonly delayMs: number
   private readonly maxDelayMs: number
@@ -305,6 +308,13 @@ export class LayoutStore {
         entry.dirty = true
         this.flush(projectId)
       }
+      for (const reader of this.readers) {
+        try {
+          reader(projectId)
+        } catch (error) {
+          console.error('[layout] a first-read listener threw', error)
+        }
+      }
     }
     return entry
   }
@@ -344,6 +354,15 @@ export class LayoutStore {
       }
     }
     return state
+  }
+
+  /**
+   * Called once main has read a Project's layout.json into memory — its first use, or the first
+   * after forget() — with the Layout already held (peek() has it). Returns the function that unsubscribes.
+   */
+  onFirstRead(listener: (projectId: string) => void): () => void {
+    this.readers.add(listener)
+    return () => this.readers.delete(listener)
   }
 
   /** Called after every applied operation, whoever sent it. Returns the function that unsubscribes. */

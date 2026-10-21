@@ -25,6 +25,7 @@
 // changes the same side of the same Node puts the step out of date; ⌘Z on such a step drops it
 // without sending anything and raises the notice (a toast, toast/toasts.ts). Changes without a
 // screen — main, agents, the automatic writers — leave steps alone, as before.
+import { stillInBatch } from '../../shared/layout/derived'
 import type { ArchiveRule, Layout, LayoutNode, LayoutOpInput } from '../../shared/layout/types'
 import { trashRefusal, type TrashEntry } from '../../shared/ipc/trash'
 import { invoke } from '../ipc'
@@ -615,7 +616,7 @@ function takeAndBring(id: string, first: NodeInput, channel: LayoutChannel): { t
  */
 function restoreBatch(channel: LayoutChannel, op: Extract<LayoutOpInput, { op: 'archive' }>): Promise<SendAnswer> {
   const layout = channel.layout()
-  const ids = op.nodes.flatMap(({ id }) => (nodeOf(layout, id)?.archived?.batch === op.batch ? [id] : []))
+  const ids = stillInBatch(layout.nodes, op.batch, op.nodes.map(({ id }) => id))
   return ids.length === 0 ? Promise.resolve(undefined) : channel.send({ op: 'restore', ids })
 }
 

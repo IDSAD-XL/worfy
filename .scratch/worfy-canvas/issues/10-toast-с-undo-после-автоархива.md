@@ -1,9 +1,8 @@
 # 10 — Toast «Archived N finished sessions · Undo» после партии; автоархив включён по умолчанию (24 h)
 
 Type: task
-Status: blocked 2026-10-19T15:22Z
-Blocked reason: ждёт мержа worfy-ui 16 (внутренние toast-ы: одно хранилище и один компонент)
-Waits: agent
+Status: claimed 2026-10-21T11:04Z
+Branch: worfy-canvas/10
 Blocked by: 07, 08, 09, 14
 Source: [spec.md](../spec.md), решение владельца 6;
 [ADR-0076](../../../docs/adr/0076-auto-archive-of-finished-sessions.md) (автоархив законченных Session-ов),
@@ -26,7 +25,7 @@ Source: [spec.md](../spec.md), решение владельца 6;
 2. **Undo партии.** Операция `restoreBatch` (`batch`) в main (`src/main/layout/archive.ts`): возвращает
    ровно Node-ы этой партии, которые ещё в архиве; мимо ⌘Z. Node, который пользователь уже вернул или
    двигал, не трогается.
-3. **Toast** — `src/renderer/canvas/overlays/ArchiveToast.tsx` (новый): на событие — `showToast` вида
+3. **Toast** — `src/renderer/canvas/archive-toast.ts` (новый; сначала был overlay `ArchiveToast.tsx`, ревью #686): на событие — `showToast` вида
    `action` с `key` = `batch` и `projectId`: «Archived N finished sessions» и кнопка Undo. На read-only
    экране (ADR-0066) — вид `info` без кнопки.
 4. **Порог по умолчанию — 24 h** (`src/shared/settings/app-settings.ts`, `sessionArchive.after`). Человек,
@@ -34,14 +33,14 @@ Source: [spec.md](../spec.md), решение владельца 6;
 
 ## Готово, когда
 
-- [ ] Contract `test/contract/layout-archive.test.ts`: `restoreBatch` возвращает ровно свою партию;
+- [x] Contract `test/contract/layout-archive.test.ts`: `restoreBatch` возвращает ровно свою партию;
       Node, тронутый после партии, не меняется; событие `layout.archived` приходит обоим окнам Project-а.
-- [ ] Unit `test/unit/archive-toast.test.tsx`: событие даёт один toast с Undo; на read-only экране — без
+- [x] Unit `test/unit/archive-toast.test.tsx`: событие даёт один toast с Undo; на read-only экране — без
       Undo; Undo зовёт `restoreBatch` своей партии.
-- [ ] e2e `test/e2e/session-archive-toast.spec.ts`: таймер (ускоренный в test-е) с порогом по умолчанию
+- [x] e2e `test/e2e/session-archive-toast.spec.ts`: таймер (ускоренный в test-е) с порогом по умолчанию
       убирает finished Session-ы фикстуры, toast показывает их число, Undo возвращает их на места; ⌘Z после
       Undo не убирает их снова; снимок toast-а в обеих темах.
-- [ ] Мутант красный: Undo возвращает все архивные Session-ы, а не партию.
+- [x] Мутант красный: Undo возвращает все архивные Session-ы, а не партию.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
@@ -52,13 +51,23 @@ Source: [spec.md](../spec.md), решение владельца 6;
 
 ## Где в коде
 
-- `src/main/layout/archive.ts`
-- `src/shared/ipc/layout.ts` (`layout.changed` `:33`)
+- `src/main/layout/archive.ts` (`restoreBatch`, `onArchiveBatch`, прогон при первом чтении Layout)
+- `src/main/layout/store.ts` (`onFirstRead`)
+- `src/main/ipc/layout.ts` (`layout.restoreBatch`, рассылка `layout.archived`)
+- `src/main/index.ts` (комментарий о старте архива)
+- `src/shared/ipc/layout.ts` (`layout.restoreBatch`, `layout.archived`; `layout.changed` `:33`)
+- `src/shared/layout/derived.ts` (`stillInBatch`: общий для Undo партии в main и undo архива экрана)
+- `src/renderer/canvas/history.ts` (undo архива экрана через `stillInBatch`)
 - `src/shared/settings/app-settings.ts`
-- `src/renderer/canvas/overlays/ArchiveToast.tsx` (новый)
+- `src/renderer/canvas/archive-toast.ts` (новый)
+- `src/renderer/main.tsx` (подписка `installArchiveToasts()` до первого render)
+- `docs/adr/0076-auto-archive-of-finished-sessions.md` (Amendment 2026-10-21)
 - `test/unit/archive-toast.test.tsx` (новый)
 - `test/contract/layout-archive.test.ts`
 - `test/e2e/session-archive-toast.spec.ts` (новый)
+- `test/e2e/session-archive.spec.ts`, `test/unit/link-access.test.ts`, test-ы значения по умолчанию
+  (`settings-canvas`, `archive-rule`, `main-archive-wiring`, `app-settings`)
+- `test/e2e/binding.spec.ts`, `test/e2e/family.spec.ts`, `test/e2e/arrange-by-epic.spec.ts` (выбор «Never»)
 
 Только чтение: `src/renderer/toast/toasts.ts` (`worfy-ui` 16).
 
@@ -87,4 +96,51 @@ Source: [spec.md](../spec.md), решение владельца 6;
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-canvas/10`, PR #686. Круг 1 ревью (глубина high) — исправлен во втором коммите.
+
+- **Событие партии.** `layout.archived` (`src/shared/ipc/layout.ts`; `project`, `read`): `projectId`,
+  `batch`, `count`. Main шлёт его всем окнам после каждой партии таймера (`onArchiveBatch` в
+  `src/main/layout/archive.ts`, рассылка в `src/main/ipc/layout.ts`). «Archive finished sessions now» и
+  его redo события не шлют: это шаг ⌘Z экрана.
+- **Undo партии.** `layout.restoreBatch` (`project`, `write`) → `restoreBatch` в `archive.ts`: один
+  `restore` без экрана для Node-ов, которые ещё в архиве в этой партии (`stillInBatch`,
+  `src/shared/layout/derived.ts`; тот же helper — у undo архива экрана в `src/renderer/canvas/history.ts`).
+  Node, который пользователь уже вернул (и, может быть, двигал), или Node из другой партии не меняется.
+  Пустая партия ничего не меняет. Restore ставит `touchedAt`, поэтому следующий прогон таймера их не
+  берёт. Read-only Linked machine вызвать канал не может: он `write`.
+- **Toast** — `src/renderer/canvas/archive-toast.ts`. Окно подписывается в `main.tsx` до первого render,
+  поэтому партия не теряется, пока Canvas грузится или показан другой Project. Один toast на Project
+  (ключ `archive:<projectId>`, с `projectId`): «Archived N finished sessions» (для одной — «session») и
+  Undo; следующая партия заменяет его, и toast-ы, которые ждут закрытия, не забивают стопку. Ранние
+  партии — в popover «Archive» и истории Ticket-ов. Read-only (`readOnlyNow()`, ADR-0066) проверяется на
+  каждой партии: на read-only экране toast вида `info` без Undo. Отказ main на Undo — `error` toast.
+  Toast закрывается сам, когда в архиве не осталось ни одного Node-а его партии (Undo в другом окне,
+  Restore, resume) — по `layout.changed`.
+- **Порог по умолчанию — 24 h** (`SESSION_ARCHIVE_DEFAULTS`); выбравший «Never» его сохраняет.
+- **Старт.** Таймер не читает `layout.json` Project-а, который никто не открывал. Project архивируется
+  в момент, когда main впервые читает его Layout (`LayoutStore.onFirstRead`, подписка в
+  `AutoArchiver.start`), и дальше раз в 10 минут. Так Project, открытый при старте, архивируется при
+  старте, а `no-overlap.spec.ts:182` зелёный без правки. Записано в Amendments ADR-0076 (2026-10-21).
+- Текст toast-а не обещает «через час после done»: drop сбрасывает часы архива (заметка ревью #536).
+- Test-ы: contract `test/contract/layout-archive.test.ts` (ровно своя партия; пустая партия; событие
+  обоим окнам и его отсутствие для архива экрана; ⌘Z после Undo; метки каналов; архив при первом
+  чтении без тика; остановленный архив не реагирует на чтение; непрочитанный Layout не читается); unit
+  `test/unit/archive-toast.test.tsx` (10); e2e `test/e2e/session-archive-toast.spec.ts`.
+  `test/e2e/session-archive.spec.ts` пишет выбор «Never» в `app-settings.json`.
+- **Fixture-ы с давними Session-ами.** Gate full на PR (head 3a3920d7 + main 23dc8439) был красным:
+  `binding.spec.ts`, `family.spec.ts` и `arrange-by-epic.spec.ts` кладут на Canvas завершённые Session-ы,
+  чьи transcript-ы кончаются 2026-10-05. С 24 h по умолчанию и архивом при первом чтении Layout они
+  уходили в архив при открытии окна. Человек с такими старыми Session-ами увидит то же самое — это
+  поведение, которое задаёт ADR-0076, а не ошибка. Эти spec-и не про архив, поэтому пишут выбор «Never»
+  в `app-settings.json`, как `session-archive.spec.ts`. Других spec-ов, которые кладут Session Node-ы
+  в Layout, в `test/e2e` нет: Node-ы остальных создаёт main для живых Session-ов, их архив не берёт.
+- Мутанты красные: Undo возвращает все архивные Session-ы, а не партию; read-only читается один раз
+  при подписке; ключ toast-а по партии (стопка); toast не закрывается после ухода партии из архива;
+  нет прогона при первом чтении Layout.
+- e2e под замком: `session-archive-toast`, `session-archive`, `session-archive-history`, `no-overlap`,
+  `toast-placement`, `linked-read-only` — 9 passed.
+- e2e под замком после правки fixture-ов, ветка с main 23dc8439: `binding`, `family`, `arrange-by-epic`,
+  `external-session`, `new-session`, `session-archive`, `session-archive-toast`, `session-archive-history`,
+  `session-two-windows`, `subagent-tree`, `session-resume`, `session-back`, `no-overlap` — 29 passed.
+- Снимки toast-а: [светлая тема](../evidence/10-archive-toast-light.png),
+  [тёмная тема](../evidence/10-archive-toast-dark.png).
