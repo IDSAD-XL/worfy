@@ -48,7 +48,7 @@ const jsonReport = `${outputDir.replace(/[\\/]+$/, '')}-report.json`
 // Electron starts at once slow every start, and some specs time a reaction in milliseconds.
 // `--workers=N` on the command line overrides either; `pnpm test:package` passes --workers=1, since
 // the packaged run was not measured in several workers.
-// At three, 2 of 3 gate full runs went red on "the window was not shown within 30 s" (2026-10-21);
+// At three, 2 of 4 gate full runs went red on "the window was not shown within 30 s" (2026-10-21);
 // since the fallback show of the window and the start diagnosis (src/main/window-show.ts,
 // test/e2e/start-diagnosis.ts), three runs at three took 204–227 s, 289 passed, none flaky. If
 // that failure comes back, the start-diagnostics-… folder in test-results says why.

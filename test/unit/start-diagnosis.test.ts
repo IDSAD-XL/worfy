@@ -66,15 +66,15 @@ describe('diagnosisBudget', () => {
     expect(diagnosisBudget(60_000)).toBe(DIAGNOSIS_MAX_MS)
   })
 
-  it('keeps CLEANUP_MARGIN_MS (12 s) of the time left for the kill and the cleanup', () => {
-    expect(CLEANUP_MARGIN_MS).toBe(12_000)
-    expect(diagnosisBudget(25_000)).toBe(13_000)
-    expect(diagnosisBudget(12_001)).toBe(1)
+  it('keeps CLEANUP_MARGIN_MS (15 s) of the time left for the kill and the cleanup', () => {
+    expect(CLEANUP_MARGIN_MS).toBe(15_000)
+    expect(diagnosisBudget(25_000)).toBe(10_000)
+    expect(diagnosisBudget(15_001)).toBe(1)
   })
 
   it('is 0 when the test has no more than the margin left, or is already past its timeout', () => {
+    expect(diagnosisBudget(15_000)).toBe(0)
     expect(diagnosisBudget(12_000)).toBe(0)
-    expect(diagnosisBudget(10_000)).toBe(0)
     expect(diagnosisBudget(4_000)).toBe(0)
     expect(diagnosisBudget(-2_000)).toBe(0)
   })

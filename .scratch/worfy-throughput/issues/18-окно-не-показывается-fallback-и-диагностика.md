@@ -142,5 +142,5 @@ PNG 2560 × 1600 сохранён; правка откатана из копии
 203,7 s и 204,0 s, в каждом 289 passed, 0 failed, 0 flaky. По этому замеру follow-up PR возвращает на macOS вне CI
 3 worker-а (`playwright.config.ts`, `E2E_WORKERS`); если «the window was not shown» вернётся, причину покажет папка
 `start-diagnostics-…` в `test-results`. В том же PR — чистая функция часов test-а `timeLeftOnClock` с unit test-ом
-и запас на kill и cleanup 12 s вместо 10 s (`CLEANUP_MARGIN_MS`: на Windows `endApp` ждёт выхода приложения до
-10 s, удаление трёх папок — около 1,5 s).
+и запас на kill и cleanup 15 s вместо 10 s (`CLEANUP_MARGIN_MS`: на Windows `endApp` ждёт выхода приложения до
+10 s, затем три папки удаляются по очереди, до 5 повторов на каждую — около 1,5 s на папку, 4,5 s всего).

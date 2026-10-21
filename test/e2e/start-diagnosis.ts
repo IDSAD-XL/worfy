@@ -11,12 +11,13 @@ export const DIAGNOSTIC_SAVE_MS = 10_000
 export const DIAGNOSIS_MAX_MS = 3 * DIAGNOSTIC_STEP_MS + DIAGNOSTIC_SAVE_MS
 /**
  * What the diagnosis leaves of the test's time for the kill and the removal of the temporary
- * folders after it, about 11.5 s at worst. On Windows endApp (end-app.ts) waits up to 10 s
+ * folders after it, about 14.5 s at worst. On Windows endApp (end-app.ts) waits up to 10 s
  * (GONE_TIMEOUT_MS) for the app's own process to exit after SIGKILL, then three folders are removed
- * with retries, about 1.5 s (removeDir in helpers.ts). An app that never reported its PID costs up
- * to 5 s instead (PID_TIMEOUT_MS in helpers.ts) and skips that 10 s wait.
+ * one after another (cleanDirs in helpers.ts), each with up to 5 retries 100, 200 … 500 ms apart:
+ * about 1.5 s per folder, 4.5 s in all (removeDir in helpers.ts). An app that never reported its
+ * PID costs up to 5 s instead (PID_TIMEOUT_MS in helpers.ts) and skips that 10 s wait.
  */
-export const CLEANUP_MARGIN_MS = 12_000
+export const CLEANUP_MARGIN_MS = 15_000
 /** How much of the app's output (stdout and stderr together) a launch keeps for a diagnosis: the last 256 KB. */
 export const OUTPUT_LIMIT = 256 * 1024
 /** The problem of a step that did not run because the budget was spent. */
