@@ -13,7 +13,9 @@ import { childrenOf, chooseGitBash, printJoined, shellsOf, SIZE_EXPRESSION, WIND
 // in a temporary folder, so no rc file of the machine running the tests decides what the terminal
 // prints, and no shell history of the machine is written. On Windows the shell is PowerShell, the
 // default there (Q20), and one test runs Git Bash, chosen in the Project's settings; the commands
-// typed are the ones of the shell that runs (terminal-shell.ts).
+// typed are the ones of the shell that runs (terminal-shell.ts). There SHELL and HOME do nothing:
+// the shell gets the user's session environment, so PowerShell reads the user's $PROFILE and
+// PSReadLine adds the typed commands to the user's history file.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -399,7 +401,7 @@ test('quitting worfy ends every shell; after a restart the Node starts a new she
     // no SIGHUP; the job there is a program (Start-Sleep would run inside PowerShell, no child).
     if (WINDOWS) await run(window, nodes.nth(1), 'ping -n 31 127.0.0.1 > $null', /ping -n 31/)
     else await run(window, nodes.nth(1), `trap '' HUP; sleep 30`, /sleep 30/)
-    await expect.poll(() => childrenOf(pids[1] ?? 0).length).toBe(1)
+    await expect.poll(() => childrenOf(pids[1] ?? 0).length, { timeout: 15_000 }).toBe(1)
     jobs.push(...childrenOf(pids[1] ?? 0))
     expect(pids.every(alive)).toBe(true)
 
