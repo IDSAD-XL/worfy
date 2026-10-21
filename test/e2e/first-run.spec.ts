@@ -1,9 +1,9 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { NO_STAND_INS, NO_STAND_INS_ON_WINDOWS } from './first-run-sandbox'
+import { CHECK_IDS, CLAUDE_STAND_IN, NO_QMD, TOOLS, toolFile, writeSandbox } from './first-run-sandbox'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 
@@ -17,12 +17,9 @@ import { snapshotThemes } from './snapshots'
 // too. The agent is the fake one (launchApp), so the sign-in check gets a subscription login. The
 // dialog of each action is replaced in main: it records what it was shown and answers with the given button.
 // Ticket 40: the Harness item of the toolbar follows an install made from this screen without a reload.
-// Not on Windows until worfy-windows ticket 81: first-run-sandbox.ts.
-
-test.skip(NO_STAND_INS, NO_STAND_INS_ON_WINDOWS)
+// On Windows the sandbox is a registry stand-in instead of .profile (first-run-sandbox.ts, worfy-windows ticket 81).
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
-const TOOLS = join(repoRoot, 'test', 'fixtures', 'first-run-tools')
 const PROJECT = 'alpha-0000000a'
 /** The Claude Code version this build carries: the stand-in `claude --version` prints the same, so that check is ok. */
 const bundledClaude = (): string =>
@@ -38,6 +35,8 @@ let dataDir: string
 let bin: string
 let state: string
 let log: string
+/** What the app needs in its environment to see the sandbox: the registry stand-in on Windows. */
+let sandboxEnv: Record<string, string>
 
 test.beforeEach(() => {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-first-run-')))
@@ -47,6 +46,7 @@ test.beforeEach(() => {
   bin = join(scratch, 'bin')
   state = join(scratch, 'state')
   log = join(scratch, 'calls.log')
+  sandboxEnv = {}
   for (const dir of [claudeHome, dataDir, bin, state]) mkdirSync(dir, { recursive: true })
 })
 
@@ -54,11 +54,9 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
-/** The tools on the PATH and the stand-ins' settings, through $HOME/.profile as a login shell reads them. */
+/** The tools on the PATH and the stand-ins' settings, as the checks see them (first-run-sandbox.ts). */
 function sandbox(options: { tools?: string[]; ghAccount?: string } = {}): void {
-  for (const name of options.tools ?? ['claude', 'gh', 'node', 'jq', 'git', 'npm', 'qmd']) symlinkSync(join(TOOLS, name), join(bin, name))
   const variables: Record<string, string> = {
-    PATH: `${bin}:/usr/bin:/bin`,
     FIRST_RUN_TOOLS_LOG: log,
     FIRST_RUN_TOOLS_DIR: TOOLS,
     FIRST_RUN_TOOLS_STATE: state,
@@ -72,7 +70,7 @@ function sandbox(options: { tools?: string[]; ghAccount?: string } = {}): void {
     XDG_CACHE_HOME: join(scratch, 'cache'),
     XDG_CONFIG_HOME: join(scratch, 'config'),
   }
-  writeFileSync(join(home, '.profile'), Object.entries(variables).map(([key, value]) => `${key}='${value}'; export ${key}\n`).join(''))
+  sandboxEnv = writeSandbox({ scratch, home, bin, tools: options.tools, variables })
 }
 
 function withProject(): void {
@@ -93,13 +91,14 @@ const launch = (extra: Record<string, string> = {}): Promise<LaunchedApp> =>
       WORFY_CLAUDE_HOME: claudeHome,
       HOME: home,
       SHELL: '/bin/sh',
-      WORFY_CLAUDE: join(TOOLS, 'claude'),
+      WORFY_CLAUDE: CLAUDE_STAND_IN,
       // The gh rows run WORFY_GH (worfy-windows ticket 80): the sandbox's own gh, missing when
       // sandbox() leaves it out, as on the login shell's PATH. The rest of the app gets it too: the
       // sandbox gh answers only the first-run commands, so a test with a Project here gets gh errors.
-      WORFY_GH: join(bin, 'gh'),
+      WORFY_GH: toolFile(bin, 'gh'),
       FIRST_RUN_TOOLS_STATE: state,
       FIRST_RUN_TOOLS_LOG: log,
+      ...sandboxEnv,
       ...extra,
     },
   })
@@ -140,8 +139,6 @@ const heardHarnessChanged = (window: Page): Promise<{ state: { kind: string } }[
 /** The Harness item of the toolbar (src/renderer/shell/toolbar/HarnessStatus.tsx). */
 const toolbarHarness = (window: Page): Locator => window.getByTestId('harness-status')
 
-const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'git-identity', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'harness-scripts', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
-
 /** The screen, once its checks are in. */
 async function screen(window: Page): Promise<Locator> {
   const dialog = window.getByTestId('first-run')
@@ -168,7 +165,7 @@ test.describe('first-run screen', () => {
     try {
       const dialog = await screen(launched.window)
       expect(await dialog.locator('[data-check]').evaluateAll((rows) => rows.map((each) => each.getAttribute('data-check')))).toEqual(CHECK_IDS)
-      for (const id of ['claude-login', 'claude-version', 'git', 'git-identity', 'gh', 'node', 'jq', 'gh-auth', 'legacy-harness', 'qmd', 'qmd-collections']) {
+      for (const id of ['claude-login', 'claude-version', 'git', 'git-identity', 'gh', 'node', 'jq', 'gh-auth', 'legacy-harness', ...(NO_QMD ? [] : ['qmd', 'qmd-collections'])]) {
         await expect(row(dialog, id), id).toHaveAttribute('data-status', 'ok')
       }
       await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'fail')
@@ -232,6 +229,10 @@ test.describe('first-run screen', () => {
         `claude plugin marketplace add ${join(claudeHome, 'worfy-harness', 'plugin')}`,
         'claude plugin install worfy@worfy-harness --scope user',
       ])
+      // The rest needs the qmd rows and every other row OK. On Windows the qmd rows are not (NO_QMD),
+      // and neither are two rows of the machine: Limits (a development build has no bridge) and
+      // PowerShell (no pwsh on the sandbox's Path).
+      if (NO_QMD) return
 
       // Download → the dialog names the size of the models; Cancel → nothing is downloaded.
       await answerDialogWith(launched, 1)
@@ -402,7 +403,9 @@ test.describe('first-run screen', () => {
       await expect(scripts).toHaveAttribute('data-status', 'ok')
       await expect(scripts).toContainText('Harness scripts')
       await expect(scripts).toContainText('profile --help answered')
-      expect(calls()).toContain(`node ${join(pluginDir, 'bin', 'profile')} --help`)
+      // On Windows worfy runs the script with node.exe from the Path, never the node.cmd stand-in
+      // (first-run-sandbox.ts), so the stand-in does not log it.
+      if (process.platform !== 'win32') expect(calls()).toContain(`node ${join(pluginDir, 'bin', 'profile')} --help`)
       expect(await launched.app.evaluate(() => process.env.PATH)).toBe(SYSTEM_PATH)
     } finally {
       await launched.close()

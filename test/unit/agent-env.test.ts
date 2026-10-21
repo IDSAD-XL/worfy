@@ -27,9 +27,12 @@ import {
   powershellCommand,
   powershellRegRead,
   powershellScriptCommand,
+  fileRegRead,
   REGISTRY_HIVE_VAR,
   REGISTRY_SCRIPT,
+  REGISTRY_STAND_IN_VAR,
   REGISTRY_SUBKEY_VAR,
+  registryReader,
   registryVars,
   runFile,
   stderrLine,
@@ -38,6 +41,7 @@ import {
   withoutApiKeys,
   WINDOWS_SESSION_VARS,
   type CapturedEnv,
+  type RegRead,
   type RegValue,
   type RunFile,
 } from '../../src/main/agent/env'
@@ -455,6 +459,48 @@ describe('captureAgentEnv on win32', () => {
     const { env, error } = await capture({ exists: files() })
     expect(env).not.toHaveProperty('CLAUDE_CODE_GIT_BASH_PATH')
     expect(error).toBe('Git Bash not found: the agent has no Bash tool')
+  })
+})
+
+// worfy-windows ticket 81: an e2e sandbox names a JSON file that stands in for the registry.
+describe('the registry stand-in of WORFY_REGISTRY_STAND_IN', () => {
+  let dir: string
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'worfy-registry-stand-in-'))
+  })
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('without the variable, or with it empty, the registry is read through Windows PowerShell of %SystemRoot%, as before', () => {
+    for (const source of [parentEnv, { ...parentEnv, [REGISTRY_STAND_IN_VAR]: '' }]) {
+      const reader: RegRead = vi.fn()
+      const powershell = vi.fn(() => reader)
+      expect(registryReader(source, powershell)).toBe(reader)
+      expect(powershell).toHaveBeenCalledWith(parentEnv.SystemRoot)
+    }
+  })
+
+  it('with the variable, captureAgentEnv builds the environment from the file, read anew on every capture', async () => {
+    const file = join(dir, 'registry.json')
+    const write = (path: string): Promise<void> =>
+      writeFile(file, JSON.stringify({ [PERSISTENT_ENV_KEYS[0]]: key(['Path', SZ, path], ['FAKE_GH_ACCOUNT', SZ, 'alice']), [PERSISTENT_ENV_KEYS[1]]: [] }))
+    await write('C:\\sandbox\\bin')
+    const source = { ...parentEnv, [REGISTRY_STAND_IN_VAR]: file }
+    const first = await capture({ source, readKey: undefined })
+    expect(first).toMatchObject({ from: 'registry', env: { Path: 'C:\\sandbox\\bin', FAKE_GH_ACCOUNT: 'alice' } })
+    expect(first.env).not.toHaveProperty('NVM_HOME')
+    await write('C:\\other\\bin')
+    expect((await capture({ source, readKey: undefined })).env.Path).toBe('C:\\other\\bin')
+  })
+
+  it('a key the file lacks is a registry that cannot be read: the capture falls back and says why', async () => {
+    const file = join(dir, 'registry.json')
+    await writeFile(file, JSON.stringify({ [PERSISTENT_ENV_KEYS[0]]: [] }))
+    await expect(fileRegRead(file)(PERSISTENT_ENV_KEYS[1])).rejects.toThrow(`${PERSISTENT_ENV_KEYS[1]} is not in the registry stand-in ${file}`)
+    const { from, error } = await capture({ source: { ...parentEnv, [REGISTRY_STAND_IN_VAR]: file }, readKey: undefined })
+    expect(from).toBe('fallback')
+    expect(error).toContain('is not in the registry stand-in')
   })
 })
 
