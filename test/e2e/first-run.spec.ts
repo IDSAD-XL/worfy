@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { NO_STAND_INS_ON_WINDOWS, STAND_INS_REACHED } from './first-run-sandbox'
+import { NO_STAND_INS, NO_STAND_INS_ON_WINDOWS } from './first-run-sandbox'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 
@@ -17,9 +17,9 @@ import { snapshotThemes } from './snapshots'
 // too. The agent is the fake one (launchApp), so the sign-in check gets a subscription login. The
 // dialog of each action is replaced in main: it records what it was shown and answers with the given button.
 // Ticket 40: the Harness item of the toolbar follows an install made from this screen without a reload.
-// Not on Windows: first-run-sandbox.ts.
+// Not on Windows until worfy-windows ticket 81: first-run-sandbox.ts.
 
-test.skip(!STAND_INS_REACHED, NO_STAND_INS_ON_WINDOWS)
+test.skip(NO_STAND_INS, NO_STAND_INS_ON_WINDOWS)
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const TOOLS = join(repoRoot, 'test', 'fixtures', 'first-run-tools')

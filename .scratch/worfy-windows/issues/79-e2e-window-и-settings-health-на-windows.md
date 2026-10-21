@@ -56,12 +56,12 @@ Source: прогон PR #661 на ПК владельца 2026-10-21; те же 
 ## Вне скоупа
 
 - Seam, через который e2e направляет проверки first-run на Windows к stand-in-ам (и к gh-stub), чтобы
-  `settings-health.spec.ts` и `first-run.spec.ts` шли и там. Это изменение продукта, отдельный тикет.
+  `settings-health.spec.ts` и `first-run.spec.ts` шли и там. Это изменение продукта — тикет 81.
 - Настоящий `gh.exe` запускают и другие e2e на Windows: при прогоне `window.spec.ts` после этой правки
   watcher увидел 4 запуска (`gh --version` и `gh auth status` от двух процессов electron.exe), хотя
   `launchApp` ставит `WORFY_GH` на `gh-stub.mjs`, а `WORFY_FIRST_RUN_AUTO=0` выключает проверки на
   старте. Кто их делает — не выяснено. Возможная причина: `src/main/github/accounts.ts` на Windows
-  требует от `WORFY_GH` полный путь к `gh.exe`. Отдельный тикет; до него e2e на Windows не гонять.
+  требует от `WORFY_GH` полный путь к `gh.exe`. Тикет 80, с guard test-ом; до него e2e на Windows не гонять.
 
 ## Итог
 
