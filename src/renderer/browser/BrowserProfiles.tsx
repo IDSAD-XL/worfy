@@ -57,7 +57,6 @@ const styles = {
     background: 'var(--bg)',
     color: 'var(--text)',
     fontSize: 'var(--text-13)',
-    flex: 1,
     minWidth: 0,
   },
   origins: {
@@ -323,7 +322,7 @@ export function BrowserProfiles({ project, selected, onClose }: BrowserProfilesP
         <div style={styles.create}>
           <input
             type="text"
-            style={styles.input}
+            style={{ ...styles.input, flex: 1 }}
             value={newName}
             placeholder="New profile, e.g. admin"
             aria-label="New profile name"
