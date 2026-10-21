@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { bindingWorkflowOf, type BindingTarget } from '../../../shared/binding/resolve'
 import type { SessionBindingSignals } from '../../../shared/ipc/bindings'
-import { refreshSessionSignals, resolveAgentBindings, sessionSignalsOf, useBindingsStore, useManualBindings } from '../../binding/store'
+import { manualRead, refreshSessionSignals, resolveAgentBindings, sessionSignalsOf, useBindingsStore, useManualBindings } from '../../binding/store'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
@@ -85,7 +85,7 @@ function useArchiveFeed(projectId: string, root: string): void {
   // Undefined until main has answered `bindings.get`: until then no Session is known to be without a
   // Binding. An error answer counts as read, like the workflow model's: a machine that does not
   // answer must not keep the Sessions pending and the Archive button away for good.
-  const manualRead = useBindingsStore((store) => store.manual[projectId] !== undefined || store.manualError[projectId] !== undefined)
+  const bindingsGot = useBindingsStore((store) => manualRead(store, projectId))
   // Keyed by the ids, not by the Layout: a change of the Layout that archives or restores nothing
   // keeps the same list, so a failed transcript read is asked again only when the set changes.
   const sessionKey = layout === undefined ? '' : archivedSessionNodes(layout).map((node) => node.data.sessionId as string).join('\0')
@@ -99,8 +99,8 @@ function useArchiveFeed(projectId: string, root: string): void {
     const targets = new Map<string, BindingTarget>(sessionIds.flatMap((id) => (bindings.has(id) ? [[id, bindings.get(id)!.target] as const] : [])))
     // A branch or a worktree folder binds only through the workflow model: it must be read (or have failed) too.
     const workflowRead = model !== undefined || workflowError !== undefined
-    return archiveList(layout, history, targets, (sessionId) => manualRead && workflowRead && read(sessionId))
-  }, [layout, history, model, workflowError, manual, manualRead, signals, read, sessionIds])
+    return archiveList(layout, history, targets, (sessionId) => bindingsGot && workflowRead && read(sessionId))
+  }, [layout, history, model, workflowError, manual, bindingsGot, signals, read, sessionIds])
   useEffect(() => {
     if (list !== undefined) publishArchive(projectId, list)
   }, [projectId, list])

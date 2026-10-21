@@ -1,13 +1,12 @@
 // Where the new Session Nodes of SessionNodes.tsx go when their Sessions are bound (worfy-canvas
 // ticket 11): each Session's Binding at the moment its Node is made, turned into a spot right of
 // the strip of Epic frames (../session-spot.ts). A Binding that shows up later moves nothing.
-import { bindingWorkflowOf } from '../../../shared/binding/resolve'
-import type { ManualBinding, SessionBindingSignals } from '../../../shared/ipc/bindings'
+import type { ManualBinding } from '../../../shared/ipc/bindings'
 import type { Rect } from '../../../shared/layout/free-place'
 import type { WorkflowModel } from '../../../shared/workflow/types'
-import { refreshSessionSignals, resolveAgentBindings, sessionSignalsOf } from '../../binding/store'
+import { refreshSessionSignals, storedBindings } from '../../binding/store'
+import { arrangementOf } from '../arrangement-record'
 import { sessionSpot, spotInputs, spotKeepOut, type DrawnNode } from '../session-spot'
-import { arrangementOf } from '../sources/epics'
 
 export interface BindingSpotsInput {
   root: string
@@ -44,12 +43,7 @@ export async function bindingSpots({ projectId, root, sessionIds, manual, model,
       }),
     ),
   )
-  const signals = new Map<string, SessionBindingSignals>()
-  for (const sessionId of sessionIds) {
-    const found = sessionSignalsOf(root, sessionId)
-    if (found !== undefined) signals.set(sessionId, found)
-  }
-  const bindings = resolveAgentBindings({ sessionIds, signals, manual, workflow: bindingWorkflowOf(model) })
+  const bindings = storedBindings(root, sessionIds, manual, model)
   const drawn = spotInputs(nodes(), frameReserves(projectId))
   if (drawn.strip === undefined) return { near, keepOut: [] }
   for (const sessionId of sessionIds) {

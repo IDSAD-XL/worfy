@@ -10,7 +10,8 @@
 //   data.columns  K the last time it was written: the hysteresis keeps it
 //   data.at       when the order was computed (ISO time of the screen that wrote it)
 //
-// sources/epics.ts reads it, writes it on a screen that may change the Layout, and runs "Re-pack".
+// sources/epics.ts reads it and runs "Re-pack"; arrangement-record.ts writes it on a screen that may
+// change the Layout.
 import { FRAME_GAP } from './epic-layout'
 
 /** The aspect ratio the strip aims at: 16:10. */

@@ -12,7 +12,7 @@
 // model, so a change of any of the three shows at once.
 import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
-import { resolveBinding, type Binding, type BindingTarget, type BindingWorkflow } from '../../shared/binding/resolve'
+import { bindingWorkflowOf, resolveBinding, type Binding, type BindingTarget, type BindingWorkflow } from '../../shared/binding/resolve'
 import { agentKey, isLaunchBinding, type BindingAgent, type ManualBinding, type SessionBindingSignals } from '../../shared/ipc/bindings'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import { invoke, subscribe } from '../ipc'
@@ -240,6 +240,23 @@ export function resolveAgentBindings({ sessionIds, signals, manual, workflow }: 
     }
   }
   return result
+}
+
+/** True once main has answered `bindings.get` for the Project, with its Bindings or with an error. */
+export const manualRead = (state: Pick<BindingsStore, 'manual' | 'manualError'>, projectId: string): boolean =>
+  state.manual[projectId] !== undefined || state.manualError[projectId] !== undefined
+
+/**
+ * The Bindings of these Sessions from what the store has now: `manual`, and the transcript signals
+ * read so far (a Session whose signals are not read binds only by hand), against the workflow model.
+ */
+export function storedBindings(root: string, sessionIds: readonly string[], manual: readonly ManualBinding[], model: WorkflowModel | undefined): Map<string, Binding> {
+  const signals = new Map<string, SessionBindingSignals>()
+  for (const sessionId of sessionIds) {
+    const found = sessionSignalsOf(root, sessionId)
+    if (found !== undefined) signals.set(sessionId, found)
+  }
+  return resolveAgentBindings({ sessionIds, signals, manual, workflow: bindingWorkflowOf(model) })
 }
 
 /** The manual Binding of one agent, if it has one; a launch Binding (ticket 23) is not one. */
