@@ -55,6 +55,7 @@ vi.mock('../../src/main/notify', () => ({
   },
   appWaitsSources: () => waitsSources,
   installGateQueueNotifications: () => stopGateQueueNotices,
+  followAppLinkPauses: () => () => undefined,
   electronNotifyDeps: {},
 }))
 

@@ -10,7 +10,7 @@ import { WebSocket } from 'ws'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LinkConnectError, openLinkSocket } from '../../src/main/link/client'
 import { fingerprintOf, generateCertificate } from '../../src/main/link/identity'
-import { CONNECT_PATH, LINK_PROTOCOL_VERSION, PAIR_PATH } from '../../src/main/link/messages'
+import { CONNECT_PATH, LINK_PROTOCOL_HEADER, LINK_PROTOCOL_VERSION, PAIR_PATH } from '../../src/main/link/messages'
 import {
   PAIRING_CLOSE_FAILED,
   PAIRING_CODE_TTL_MS,
@@ -18,6 +18,7 @@ import {
   PAIRING_FAILURE_WINDOW_MS,
   PAIRING_HOURLY_FAILURES,
   PAIRING_MAX_FAILURES,
+  PAIRING_PAUSED,
   PairingWindow,
   SPAKE2_M,
   SPAKE2_N,
@@ -28,6 +29,8 @@ import type { PairingPause } from '../../src/main/link/service'
 import { tokenHash } from '../../src/main/link/store'
 import { LinkBench, type BenchMachine } from './link-bench'
 import { linkPairingHelpers } from './link-pairing-helpers'
+
+const MINUTE = 60_000
 
 let bench: LinkBench
 const { errors, rejection, linkFile, certificateOf, secretsOf, outgoingToken } = linkPairingHelpers(() => bench)
@@ -304,8 +307,12 @@ describe('linking two Machines by code', () => {
     const pauses: PairingPause[] = []
     b.service.on('pairing-paused', (pause) => pauses.push(pause))
     const port = bench.portOf(b)
+    // A minute between failures: each one has its own time, so the pause's end names the oldest.
+    const failedAt: number[] = []
     const fail = async (count: number): Promise<void> => {
       for (let attempt = 0; attempt < count; attempt++) {
+        bench.advance(MINUTE)
+        failedAt.push(bench.now)
         const before = b.pairingFailures.length
         const shown = b.service.pairingCode()?.code ?? ''
         const wrong = shown === '000000' ? '000001' : '000000'
@@ -313,7 +320,6 @@ describe('linking two Machines by code', () => {
         await expect.poll(() => b.pairingFailures.length).toBeGreaterThan(before)
       }
     }
-    const firstFailureAt = bench.now
     await bench.codeOf(b)
     await fail(5)
     await b.service.closeLinking()
@@ -326,7 +332,7 @@ describe('linking two Machines by code', () => {
     await fail(1)
 
     await expect.poll(() => b.service.pairingCode()).toBeNull()
-    const until = firstFailureAt + PAIRING_FAILURE_WINDOW_MS
+    const until = (failedAt[0] ?? 0) + PAIRING_FAILURE_WINDOW_MS
     expect(b.service.pairingPausedUntil()).toBe(until)
     expect(pauses).toEqual([{ failures: PAIRING_HOURLY_FAILURES, addresses: ['127.0.0.1'], until }])
     expect(b.pairingFailures.at(-1)).toMatch(/too many failed pairing attempts within an hour; "Link a machine" is paused/)
@@ -335,10 +341,15 @@ describe('linking two Machines by code', () => {
     // "Link a machine" does not open during the pause.
     await b.service.openLinking()
     expect(b.service.pairingCode()).toBeNull()
-    // The 11th attempt is refused when its connection is upgraded, before any SPAKE2 message.
+    // The 11th attempt, minutes later, is refused when its connection is upgraded, before any SPAKE2
+    // message. It says that linking is paused, not until when, and it is not counted: the end of the
+    // pause stays an hour after the oldest of the ten.
+    bench.advance(5 * MINUTE)
     const refused = await rejection(a.service.pair({ host: '127.0.0.1', port, code: '123456' }))
-    expect(refused.message).toMatch(/paused until/)
+    expect(refused.message).toContain(PAIRING_PAUSED)
+    expect(refused.message).not.toMatch(/until|\d{1,2}:\d{2}/)
     await b.service.settled()
+    expect(b.service.pairingPausedUntil()).toBe(until)
     expect(b.pairingFailures.length).toBe(counted)
     expect(pauses).toHaveLength(1)
     expect(a.service.linkedMachines()).toEqual([])
@@ -353,6 +364,33 @@ describe('linking two Machines by code', () => {
     expect(b.service.pairingPausedUntil()).toBeNull()
     await b.service.openLinking()
     expect(b.service.pairingCode()).not.toBeNull()
+  })
+
+  it('counts an attempt whose WebSocket handshake fails after admission, with the address it came from', async () => {
+    const a = await bench.machine('alpha')
+    const b = await bench.machine('beta')
+    const c = await bench.machine('gamma')
+    const pauses: PairingPause[] = []
+    b.service.on('pairing-paused', (pause) => pauses.push(pause))
+    await bench.codeOf(b)
+    const port = bench.portOf(b)
+    for (let attempt = 1; attempt < PAIRING_HOURLY_FAILURES; attempt++) {
+      const shown = b.service.pairingCode()?.code ?? ''
+      await rejection(a.service.pair({ host: '127.0.0.1', port, code: shown === '000000' ? '000001' : '000000' }))
+      await expect.poll(() => b.pairingFailures.length).toBeGreaterThanOrEqual(attempt)
+    }
+    expect(pauses).toEqual([])
+    // An upgrade to /link/pair that passes admission but has no Sec-WebSocket-Key: ws never hands
+    // over a WebSocket, the socket closes, and the attempt ends through the server's abort.
+    const socket = tls.connect({ host: '127.0.0.1', port, key: secretsOf(c)['machine-key'] ?? '', cert: certificateOf(c), minVersion: 'TLSv1.3', rejectUnauthorized: false })
+    socket.on('error', () => undefined)
+    await new Promise<void>((resolve) => socket.once('secureConnect', () => resolve()))
+    socket.write(`GET ${PAIR_PATH} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n${LINK_PROTOCOL_HEADER}: ${LINK_PROTOCOL_VERSION}\r\n\r\n`)
+    // Read B's 400 answer to its end: a socket nobody reads never sees the end, and never closes.
+    socket.resume()
+    await new Promise<void>((resolve) => socket.once('close', () => resolve()))
+    await expect.poll(() => pauses).toHaveLength(1)
+    expect(pauses[0]?.addresses).toEqual(['127.0.0.1'])
   })
 
   it('does not listen for linking during the pause, when no Linked machine keeps the server open', async () => {
@@ -564,7 +602,6 @@ describe('PairingWindow', () => {
     expect(wrong.win.end(false)).toBe('closed')
   })
 
-  const MINUTE = 60_000
   /** A window over a clock the test moves; each attempt reopens it, so only the count over the hour can close it. */
   const clockedWindow = (): { win: PairingWindow; at: (ms: number) => void; fail: (address?: string) => 'open' | 'closed' } => {
     let now = 0
@@ -599,7 +636,7 @@ describe('PairingWindow', () => {
     expect(win.pausedUntil()).toBe(until)
     expect(win.open()).toBe(false)
     expect(win.isOpen).toBe(false)
-    expect(win.begin()).toMatch(/paused until/)
+    expect(win.begin()).toBe(PAIRING_PAUSED)
     at(until - 1)
     expect(win.open()).toBe(false)
     at(until)

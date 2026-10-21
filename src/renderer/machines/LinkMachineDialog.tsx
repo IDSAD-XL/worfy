@@ -147,8 +147,17 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
   }
 
   const linking = state?.linking
+  const pausedUntil = linking?.pausedUntil
   const linked = linking?.linked ?? null
   const machine = state?.machine ?? null
+
+  // When the pause ends, linking opens again by itself: the window asks main once more and shows the code.
+  useEffect(() => {
+    if (pausedUntil === undefined) return
+    const timer = setTimeout(() => void openLinking().then(setOpenError), Math.max(0, pausedUntil - Date.now()))
+    return () => clearTimeout(timer)
+  }, [pausedUntil])
+
   const problem = openError ?? state?.problem ?? null
   const targetLabel = target ? (target.name === null ? target.address : `${target.name} (${target.address})`) : ''
 
@@ -229,9 +238,7 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
                 </p>
               ) : linking?.pausedUntil !== undefined ? (
                 <p role="alert" data-testid="link-paused" style={{ ...styles.error, margin: 'var(--space-2) 0' }}>
-                  Too many failed attempts to link within an hour. Linking is paused until{' '}
-                  {new Date(linking.pausedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}; close this window and open it again
-                  after that.
+                  {`Linking is paused until ${new Date(linking.pausedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} after repeated failed attempts. Restart worfy to link sooner.`}
                 </p>
               ) : (
                 <p style={{ ...styles.hint, margin: 'var(--space-2) 0' }}>{problem ? '' : 'Opening…'}</p>

@@ -1004,20 +1004,13 @@ export async function startAppLink(options: { buildKind: BuildKind; buildVersion
   try {
     // Imported here, not at the top: broadcast.ts and keep-awake.ts reach Electron, and the link
     // tests run without it.
-    const [{ addClient }, { powerMonitor }, { LinkKeepAwake }, { installPairingPauseNotes }] = await Promise.all([
-      import('../broadcast'),
-      import('electron'),
-      import('./keep-awake'),
-      import('../notify'),
-    ])
+    const [{ addClient }, { powerMonitor }, { LinkKeepAwake }] = await Promise.all([import('../broadcast'), import('electron'), import('./keep-awake')])
     const service = await LinkService.start({
       dataDir: dataRoot(),
       ...options,
       addClient,
       ...(environment.listenHost === undefined ? {} : { listenHost: environment.listenHost }),
     })
-    // Lives as long as the service: the app starts its link once.
-    installPairingPauseNotes(service)
     appLinkValue = wireAppLink(service, { bonjour: environment.bonjour, power: powerMonitor, keepAwake: (followed) => new LinkKeepAwake(followed) })
     appProblem = undefined
     return service

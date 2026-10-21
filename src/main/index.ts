@@ -17,13 +17,13 @@ import { liveSessionListeners, type LiveSessionsListener } from './ipc/claude-ho
 import { sharedGateQueue } from './ipc/gate-queue'
 import { appUrlMatcher, registerIpc } from './ipc/index'
 import { appNoteLink } from './link/notes'
-import { startAppLink, stopLinkOnQuit } from './link/service'
+import { appLinkService, onAppLinkStart, startAppLink, stopLinkOnQuit } from './link/service'
 import { installAppMenu } from './menu'
 import { workflowHub } from './ipc/workflow'
 import { archiveRegistry, archiveSettings, archiveTickMs, AutoArchiver, sessionBindings, startAppArchiver } from './layout/archive'
 import { bindingStore } from './layout/bindings'
 import { layoutStore } from './layout/store'
-import { appWaitsSources, electronNotifyDeps, installGateQueueNotifications, installNotifications } from './notify'
+import { appWaitsSources, electronNotifyDeps, followAppLinkPauses, installGateQueueNotifications, installNotifications } from './notify'
 import { projectStore } from './projects/store'
 import { quietWindows } from './quiet-windows'
 import { appSettingsStore } from './settings/store'
@@ -148,6 +148,9 @@ function start(): void {
         app.on('will-quit', stopNotifications)
         const stopGateQueueNotices = installGateQueueNotifications(sharedGateQueue(), () => projectStore().list())
         app.on('will-quit', stopGateQueueNotices)
+        // "Link a machine" paused after too many failed pairing attempts (worfy-link ticket 28), for
+        // the app's link once it has started.
+        app.on('will-quit', followAppLinkPauses(onAppLinkStart, appLinkService))
       })
       // The automatic archive of finished Sessions (worfy-canvas ticket 07, ADR-0076): main runs it
       // for the Projects of this Machine, at start and every 10 minutes. Not a startup step: worfy

@@ -31,18 +31,27 @@ const electron = vi.hoisted(() => {
  */
 const link = vi.hoisted(() => ({
   startAppLink: vi.fn<(options: unknown) => Promise<unknown>>(() => Promise.resolve({})),
+  appLinkService: () => undefined,
+  onAppLinkStart: () => () => undefined,
+  /** src/main/notify.ts's followAppLinkPauses, recorded: the notification of a paused "Link a machine". */
+  followAppLinkPauses: vi.fn<(onStart: unknown, current: unknown) => () => void>(() => () => undefined),
   /** How many IPC channels were registered when the link service was started. */
   handlersAtStart: [] as number[],
 }))
 
 vi.mock('../../src/main/link/service', () => ({
   startAppLink: link.startAppLink,
-  appLinkService: () => undefined,
+  appLinkService: link.appLinkService,
   appLinkProblem: () => 'the link service is replaced in this test',
   // src/main/ipc/autopilot.ts subscribes when its module loads (worfy-link ticket 15), and
   // src/main/ipc/linked.ts follows the start of the link from its load on (worfy-link ticket 09).
-  onAppLinkStart: () => () => undefined,
+  onAppLinkStart: link.onAppLinkStart,
   stopLinkOnQuit: vi.fn(),
+}))
+
+vi.mock('../../src/main/notify', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/main/notify')>()),
+  followAppLinkPauses: link.followAppLinkPauses,
 }))
 
 /** The menus set as the app menu (a plain list: mock call records are cleared between tests). */
@@ -81,6 +90,7 @@ async function call(frameUrl: string): Promise<IpcResult<unknown>> {
 }
 
 const startup: {
+  pauseFollows: unknown[][]
   linkStarts: unknown[]
   linkAfterWindow: boolean
   schemes: unknown[]
@@ -88,7 +98,7 @@ const startup: {
   servedBeforeWindow: boolean
   policies: ((url: string) => boolean)[]
   policyBeforeWindow: boolean
-} = { linkStarts: [], linkAfterWindow: false, schemes: [], served: [], servedBeforeWindow: false, policies: [], policyBeforeWindow: false }
+} = { pauseFollows: [], linkStarts: [], linkAfterWindow: false, schemes: [], served: [], servedBeforeWindow: false, policies: [], policyBeforeWindow: false }
 
 // The mocked app is packaged, so src/main/harness/bundled.ts looks for the Harness copy of the build
 // in <process.resourcesPath>/harness: a temporary folder the tests fill or leave empty.
@@ -122,6 +132,7 @@ beforeAll(async () => {
   startup.servedBeforeWindow =
     (electron.protocol.handle.mock.invocationCallOrder[0] ?? Infinity) < (electron.createMainWindow.mock.invocationCallOrder[0] ?? -Infinity)
   startup.linkStarts = link.startAppLink.mock.calls.map((args) => args[0])
+  startup.pauseFollows = link.followAppLinkPauses.mock.calls
   startup.linkAfterWindow =
     (link.startAppLink.mock.invocationCallOrder[0] ?? -Infinity) > (electron.createMainWindow.mock.invocationCallOrder[0] ?? Infinity)
   startup.policies = electron.installWebPolicy.mock.calls.map((args) => args[0] as (url: string) => boolean)
@@ -201,6 +212,10 @@ describe('link service wiring in src/main/index.ts', () => {
     expect(link.handlersAtStart).toHaveLength(1)
     expect(link.handlersAtStart[0]).toBe(electron.handlers.size)
     expect(electron.handlers.has(`${IPC_CHANNEL_PREFIX}link.ping`)).toBe(true)
+  })
+
+  it('follows the app\'s link for the notification of a paused "Link a machine"', () => {
+    expect(startup.pauseFollows).toEqual([[link.onAppLinkStart, link.appLinkService]])
   })
 
   // Runs last: it imports src/main/index.ts a second time, over a temporary data folder.

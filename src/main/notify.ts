@@ -47,9 +47,11 @@
 //
 // "Link a machine" paused (worfy-link ticket 28): when too many pairing attempts failed within an
 // hour (src/main/link/pairing.ts), the link service pauses linking and this Machine shows one
-// WindowNote: how many failed, from which addresses, until when. It shows whatever window has
+// WindowNote: how many failed, from which addresses, until when, and that a restart of worfy lifts
+// the pause (the count lives in main's memory; ADR-0070, Amendments). It shows whatever window has
 // focus — a pause is a warning about the network, not a Session's news — and never names a code
-// (ADR-0052, point 10). Linked machines are not told.
+// (ADR-0052, point 10). Linked machines are not told. src/main/index.ts follows the app's link
+// (followAppLinkPauses).
 //
 // Notifier holds the rules and takes its Electron parts as NotifyDeps, so tests pass their own
 // (test/unit/notify.test.ts, test/unit/link-notify.test.ts). macOS takes the name and the icon of
@@ -552,12 +554,18 @@ const localTime = (at: number): string => new Date(at).toLocaleTimeString([], { 
 /** The text of the notification of a pause; there is no code to name in it. */
 export function pairingPauseNoteBody(pause: PairingPauseNews, formatTime: (at: number) => string = localTime): string {
   const from = pause.addresses.length > 0 ? `, from ${pause.addresses.join(', ')}` : ''
-  return `${pause.failures} failed attempts to link to this Machine within an hour${from}. "Link a machine" is paused until ${formatTime(pause.until)}.`
+  return `${pause.failures} failed attempts to link to this Machine within an hour${from}. "Link a machine" is paused until ${formatTime(pause.until)}. Restart worfy to link sooner.`
+}
+
+/** What installPairingPauseNotes listens to: a link service. */
+export interface PairingPauseSource {
+  on(event: 'pairing-paused', listener: (pause: PairingPauseNews) => void): unknown
+  off(event: 'pairing-paused', listener: (pause: PairingPauseNews) => void): unknown
 }
 
 /** Shows one notification for each pause `service` announces; answers the function that stops it. */
 export function installPairingPauseNotes(
-  service: { on(event: 'pairing-paused', listener: (pause: PairingPauseNews) => void): unknown; off(event: 'pairing-paused', listener: (pause: PairingPauseNews) => void): unknown },
+  service: PairingPauseSource,
   deps: WindowNoteDeps = electronWindowNoteDeps,
   formatTime: (at: number) => string = localTime,
 ): () => void {
@@ -567,6 +575,33 @@ export function installPairingPauseNotes(
   }
   service.on('pairing-paused', onPause)
   return () => void service.off('pairing-paused', onPause)
+}
+
+/**
+ * Follows the app's link (src/main/link/service.ts, onAppLinkStart and appLinkService): the link
+ * service running now, and each one that starts later, gets its pause notes, once. Answers the
+ * function that stops it.
+ */
+export function followAppLinkPauses(
+  onStart: (listener: () => void) => () => void,
+  current: () => PairingPauseSource | undefined,
+  install: (service: PairingPauseSource) => () => void = (service) => installPairingPauseNotes(service),
+): () => void {
+  let followed: PairingPauseSource | undefined
+  let stopNotes: (() => void) | undefined
+  const follow = (): void => {
+    const service = current()
+    if (service === followed) return
+    stopNotes?.()
+    followed = service
+    stopNotes = service === undefined ? undefined : install(service)
+  }
+  const stopFollowing = onStart(follow)
+  follow()
+  return () => {
+    stopFollowing()
+    stopNotes?.()
+  }
 }
 
 /** Notifications shown and not yet closed: a notification nobody holds may lose its click handler. */

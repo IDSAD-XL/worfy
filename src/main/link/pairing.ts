@@ -169,12 +169,14 @@ export const PAIRING_MAX_FAILURES = 10
  * this one counts across every opening and every address, so reopening gives no more guesses.
  */
 export const PAIRING_HOURLY_FAILURES = 10
+/** The refusal of an attempt during the pause; it does not say when the pause ends. */
+export const PAIRING_PAUSED = 'linking is paused on this Machine after too many failed attempts'
 export const PAIRING_FAILURE_WINDOW_MS = 60 * 60_000
 
 /**
  * The failed attempts of the last PAIRING_FAILURE_WINDOW_MS, a sliding window: a failure that old
  * no longer counts. In memory only: a restart of worfy, which only the owner does on their own
- * Machine, starts it over (worfy-link ticket 28, point 4, the recommended answer).
+ * Machine, starts it over and so lifts a pause (the owner's answer of 2026-10-21; ADR-0070, Amendments).
  */
 class PairingFailures {
   private readonly failures: { at: number; address: string | undefined }[] = []
@@ -268,8 +270,8 @@ export class PairingWindow {
 
   /** Why a new attempt cannot start now, or null when it may (it then holds the one slot). */
   begin(): string | null {
-    const pausedUntil = this.hourly.pausedUntil()
-    if (pausedUntil !== null) return `too many failed pairing attempts within an hour; linking is paused until ${new Date(pausedUntil).toISOString()}`
+    // The other side learns that linking is paused, not until when: only this Machine's owner sees the end.
+    if (this.hourly.pausedUntil() !== null) return PAIRING_PAUSED
     if (this.current === null) return 'linking is not open on this Machine'
     if (this.attemptRunning) return 'another Machine is linking right now; try again in a moment'
     if (this.expired()) {
