@@ -95,8 +95,7 @@ function prepareB(scratch: string) {
         { id: 'note-b', kind: 'note', x: 1300, y: 60, w: 220, h: 120, ...base, data: { text: 'A note of B' } },
         { id: 'term', kind: 'terminal', x: 1300, y: 260, w: 520, h: 300, ...base, data: {} },
       ],
-      // The full zoom level (zoom-level.ts): below it the Note's text and the Terminal's screen are hidden.
-      viewport: { x: 0, y: 0, zoom: 0.6 },
+      viewport: { x: 0, y: 0, zoom: 0.5 },
     }),
   )
   const home = join(scratch, 'b-home')

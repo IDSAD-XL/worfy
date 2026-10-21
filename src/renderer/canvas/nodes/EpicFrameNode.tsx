@@ -15,8 +15,6 @@ import '../epic-frame.css'
 // (worfy-week ticket 15). Its Tickets are separate Nodes inside it (TicketNode.tsx), each
 // ready one with its own "Ready" chip; both come from the node source sources/epics.ts, never from
 // the Layout. The frame is dragged as a whole by its header; its Tickets are not dragged (ADR-0037).
-// At the far zoom level (zoom-level.ts) epic-frame.css keeps the header at a constant screen size
-// with the name and progress, and hides the column labels and the done stack's text.
 export const kind = 'epic-frame'
 export const defaultWidth = 520
 export const defaultHeight = 56

@@ -107,8 +107,7 @@ test.beforeEach(() => {
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
   // Zoomed out: the tree reaches far to the right, and a CI display may be narrower than the window
   // asked for. A Node off the screen is not rendered (onlyRenderVisibleElements) and cannot be clicked.
-  // 0.6 is the lowest zoom at which a Node shows more than its header (zoom-level.ts).
-  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 20, y: 40, zoom: 0.6 } }))
+  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 20, y: 40, zoom: 0.45 } }))
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'alpha', path: projectPath }], activeId: PROJECT }))
 })
 

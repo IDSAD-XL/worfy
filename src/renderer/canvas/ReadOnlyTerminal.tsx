@@ -4,7 +4,7 @@
 // sent to a read-only Machine at all (`terminal.output` is a `write` event). NodeChrome.tsx draws
 // this in its place; the look is the Terminal's header and colours (nodes/TerminalNode.css).
 import type { CSSProperties } from 'react'
-import { NODE_HEADER, NODE_TITLE } from './zoom-level'
+import { NODE_HEADER } from './node-header'
 
 const styles = {
   body: {
@@ -28,7 +28,7 @@ export function ReadOnlyTerminal({ id, hint }: { id: string; hint: string }) {
           <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
           <path d="M4.5 6l2 2-2 2M8.5 10.5h3" />
         </svg>
-        <span className="w-terminal__title" {...NODE_TITLE}>
+        <span className="w-terminal__title">
           Terminal
         </span>
       </div>

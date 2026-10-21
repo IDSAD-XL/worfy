@@ -31,8 +31,7 @@ import '../epic-frame.css'
 // repository (its `Repo:` line), or says it has none.
 //
 // Nothing on the card is cut (worfy-canvas ticket 18): the title, the reason and the blockers line
-// wrap, the top row and the checks chips take more lines. Only at the far zoom level (zoom-level.ts)
-// the card is a block without text (epic-frame.css); at the full and compact levels it is whole. The Node is as tall as ticket-card.ts
+// wrap, the top row and the checks chips take more lines. The Node is as tall as ticket-card.ts
 // computes from the same data, so whatever is added here needs room there too.
 export const kind = 'ticket'
 // TICKET_WIDTH and TICKET_MIN_HEIGHT of ticket-card.ts; literals, so Fast Refresh keeps working, checked against them by type.

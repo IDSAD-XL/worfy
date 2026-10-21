@@ -5,8 +5,8 @@ import { statusLabel, useTick } from '../../claude-home/subagents'
 import { openSession } from '../../session/navigation'
 import { StatusChip, type Status } from '../../theme/primitives'
 import { KindBand, KindIcon } from '../kind-icons'
+import { NODE_HEADER } from '../node-header'
 import { SUBAGENT_HEIGHT, SUBAGENT_WIDTH, toggleDoneSubagents, type SubagentNodeData, type SubagentSummary, type SUBAGENT_KIND } from '../sources/subagents'
-import { NODE_HEADER, NODE_TITLE } from '../zoom-level'
 import type { CanvasNodeProps } from './index'
 
 // A Subagent of a Session on the Canvas (ticket 15; CONTEXT.md, «Subagent»): its name, type and
@@ -93,7 +93,7 @@ function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; ag
       <div style={styles.header} {...NODE_HEADER}>
         <KindBand kind="subagent" />
         <KindIcon kind="subagent" />
-        <span className="w-mono" style={styles.name} data-testid="subagent-name" {...NODE_TITLE} title={agent.name === null ? (agent.subagentType ?? undefined) : undefined}>
+        <span className="w-mono" style={styles.name} data-testid="subagent-name" title={agent.name === null ? (agent.subagentType ?? undefined) : undefined}>
           {title}
         </span>
         <span data-testid="subagent-status">
