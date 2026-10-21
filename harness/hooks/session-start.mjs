@@ -183,7 +183,10 @@ function main() {
             // shortcut: accepts the old Russian token, remove after the next release
             // Profiles written before the heading was English name the section in Russian.
             if (line.startsWith("## ")) skip = /^## (Sources|Источники)/.test(line)
-            if (!skip) kept.push(line)
+            // The headings agents look for are English; profiles written before name them in Russian, and
+            // bin/profile prints them in English too.
+            // shortcut: accepts the old Russian token, remove after the next release
+            if (!skip) kept.push(line.replace(/^## Обязательное чтение исполнителя(?=[ \t]*\r?$)/, "## Required reading for the implementer").replace(/^## Ночной прогон и аудит(?=[ \t]*\r?$)/, "## Overnight run and audit"))
         }
         const heading = str(session.rules_heading)
         add(heading || `Project rules (profile ${name})`, kept.join("\n").replace(/\n+$/, ""), rulesFile)

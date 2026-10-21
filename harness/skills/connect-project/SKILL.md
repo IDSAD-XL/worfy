@@ -61,8 +61,8 @@ In a project over several repositories, read each repository, and the folder abo
   `$HARNESS_HOME/projects/<name>/workflow/`, or the folder above the repositories of a project over
   several repositories (its `.scratch/` and `HANDOFF.md` stay where they are);
 - `worktree.root` — `<repository>/.claude/worktrees/` for one repository, `null` for several, with
-  `worktree.implementer` = `git worktree add -b <ветка> <repository>/.claude/worktrees/<NN> <base>`;
-  the placeholders stay as written (`<ветка>`, `<NN>`, `<эпик>`). In Silent mode `project-connect`
+  `worktree.implementer` = `git worktree add -b <branch> <repository>/.claude/worktrees/<NN> <base>`;
+  the placeholders stay as written (`<branch>`, `<NN>`, `<epic>`). In Silent mode `project-connect`
   puts `.claude/worktrees/` into each repository's `.git/info/exclude`, so the trees never show in
   git; `rules.md` needs no `.gitignore` advice for them;
 - `language.docs` — the language of the documents already there; without documents, the language of
@@ -72,7 +72,7 @@ In a project over several repositories, read each repository, and the folder abo
 - `attribution` — `"off"` in Silent mode, `"on"` in Full mode: a Silent project's commits and PRs
   carry no Claude attribution lines unless the user asks for them;
 - `github.account` — `null` (the account is chosen later);
-- `tickets.branch` — `<эпик>/<NN>` in Full mode, `null` in Silent mode (the branch is named by the
+- `tickets.branch` — `<epic>/<NN>` in Full mode, `null` in Silent mode (the branch is named by the
   change);
 - `review.lenses` — two to four lenses that fit the code (correctness, module boundaries, tests,
   security for a web backend); `review.ticket_lenses` — two or three of them.

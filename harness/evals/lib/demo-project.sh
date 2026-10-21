@@ -318,7 +318,7 @@ cat >"$state/projects/demo/profile.json" <<EOF
     "lint": null,
     "typecheck": null,
     "test": "node --test",
-    "test_one": "node --test <файл>",
+    "test_one": "node --test <file>",
     "contract": null,
     "e2e": null,
     "build": null,
@@ -333,10 +333,10 @@ cat >"$state/projects/demo/profile.json" <<EOF
   "worktree": { "root": null, "base": "$base", "implementer": null, "reviewer": null },
   "tickets": {
     "root": ".scratch/",
-    "path": ".scratch/<эпик>/issues/NN-*.md",
+    "path": ".scratch/<epic>/issues/NN-*.md",
     "trail_section": "## Где в коде",
-    "spec": ".scratch/<эпик>/spec.md",
-    "branch": "<эпик>/<NN>"
+    "spec": ".scratch/<epic>/spec.md",
+    "branch": "<epic>/<NN>"
   },
   "workflow": {
     "ticket_skill": "ship-ticket",

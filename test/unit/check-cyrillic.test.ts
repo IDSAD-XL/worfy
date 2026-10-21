@@ -4,8 +4,8 @@
 // Comments are English everywhere. Cyrillic outside comments is allowed in test/fixtures/, in test
 // files (the Russian input a test feeds a parser) and in the statement right after a comment that
 // carries the marker of an old Russian token, which a reader still accepts for one release.
-// In harness/ the words of a list (scripts/cyrillic-allow.json, or the file of --allow and the
-// rule's harnessWords option) pass outside comments. The cases are small files in a temporary folder
+// There is no list of allowed words: a Russian placeholder of the profile contract is a finding in
+// harness/ as anywhere else. The cases are small files in a temporary folder
 // that stands for the repository root; one case lints a probe text through the repository's own
 // eslint.config.js.
 import { spawnSync } from 'node:child_process'
@@ -21,10 +21,6 @@ import { removeTestTree } from '../remove'
 const REPO = join(import.meta.dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'check-cyrillic.mjs')
 const MARKER = '// shortcut: accepts the old Russian token, remove after the next release'
-// The allowed words of the cases, in place of scripts/cyrillic-allow.json: one of its placeholders
-// and a word it does not have. The epic placeholder is in the repository's list and not here, so
-// the cases report it.
-const WORDS = ['<ветка>', '<проба>']
 
 const dirs: string[] = []
 afterEach(() => {
@@ -54,7 +50,7 @@ async function eslintErrors(root: string): Promise<string[]> {
         files: ['**/*.{ts,tsx,mjs}'],
         languageOptions: { parser: tseslint.parser },
         plugins: { worfy: { rules: { 'no-cyrillic': noCyrillic } } } as never,
-        rules: { 'worfy/no-cyrillic': ['error', { harnessWords: WORDS }] },
+        rules: { 'worfy/no-cyrillic': 'error' },
       },
     ],
   })
@@ -64,11 +60,8 @@ async function eslintErrors(root: string): Promise<string[]> {
 }
 
 /** Runs the command on a root; `pnpm test` runs under Electron as Node, so the child does too. */
-function run(root: string, allowed: unknown = { harnessWords: WORDS }): { status: number | null; lines: string[]; stderr: string } {
-  const allow = join(root, '..', `${root.split(/[\\/]/).pop()}.allow.json`)
-  writeFileSync(allow, JSON.stringify(allowed))
-  dirs.push(allow)
-  const child = spawnSync(process.execPath, [SCRIPT, '--root', root, '--allow', allow], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+function run(root: string): { status: number | null; lines: string[]; stderr: string } {
+  const child = spawnSync(process.execPath, [SCRIPT, '--root', root], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
   const lines = child.stderr
     .split('\n')
     .filter((l) => /^[^\s:]+:\d+: /.test(l))
@@ -120,15 +113,9 @@ describe('the ESLint rule (JS and TS files)', () => {
     expect(await eslintErrors(tree({ 'src/trailing.ts': code }))).toEqual(['src/trailing.ts:2'])
   })
 
-  it('the harnessWords option replaces the list: a word of the option passes, a word of the default list does not', async () => {
-    const code = "export const a = 'git switch <проба>'\nexport const b = 'git switch <эпик>'\n"
-    expect(await eslintErrors(tree({ 'harness/bin/y.mjs': code }))).toEqual(['harness/bin/y.mjs:2'])
-  })
-
-  it('lets the allowed words through in harness/ code, not in its comments and not outside harness/', async () => {
-    const harness = "// the branch <ветка>\nexport const t = 'git switch <ветка>'\n"
-    const src = "export const t = 'git switch <ветка>'\n"
-    expect(await eslintErrors(tree({ 'harness/bin/x.mjs': harness, 'src/x.ts': src }))).toEqual(['harness/bin/x.mjs:1', 'src/x.ts:1'])
+  it('reports a Russian placeholder of the profile contract in harness/ code unless it is marked', async () => {
+    const harness = `export const t = 'git switch <ветка>'\n${MARKER}\nexport const old = '<эпик>'\n`
+    expect(await eslintErrors(tree({ 'harness/bin/x.mjs': harness }))).toEqual(['harness/bin/x.mjs:1'])
   })
 
   it('checks a src/ file whose name has "test" in it as code; tests/ folders and harness/evals/ are test data', async () => {
@@ -257,18 +244,6 @@ describe('the command (files ESLint does not read)', () => {
     expect(run(tree({ 'harness/bin/tests/sub.test.sh': script })).lines).toEqual(['harness/bin/tests/sub.test.sh:5'])
   })
 
-  it('--allow replaces the list: a word of the file passes, a word of the default list does not', () => {
-    const script = ['git switch "<проба>"', 'git switch "<эпик>"', ''].join('\n')
-    expect(run(tree({ 'harness/hooks/allow.sh': script })).lines).toEqual(['harness/hooks/allow.sh:2'])
-  })
-
-  it('--allow with a malformed list exits non-zero and names the field', () => {
-    const r = run(tree({ 'harness/hooks/ok.sh': 'echo ok\n' }), { harnessWords: 1 })
-    expect(r.status).not.toBe(0)
-    expect(r.status).not.toBe(1)
-    expect(r.stderr).toContain('harnessWords')
-  })
-
   it('a trailing marker covers its own command, not the next one', () => {
     const script = ['echo "зелено" # shortcut: accepts the old Russian token, remove after the next release', 'echo "нет"', ''].join('\n')
     expect(run(tree({ 'harness/hooks/t.sh': script })).lines).toEqual(['harness/hooks/t.sh:2'])
@@ -287,10 +262,9 @@ describe('the command (files ESLint does not read)', () => {
     expect(run(tree({ 'harness/hooks/crlf.sh': script })).lines).toEqual(['harness/hooks/crlf.sh:2', 'harness/hooks/crlf.sh:6'])
   })
 
-  it('allowed words pass in harness/ code, not in its comments and not outside harness/', () => {
-    const harness = ['# the branch <ветка>', 'git switch "<ветка>"', ''].join('\n')
-    const scripts = ['echo "<ветка>"', ''].join('\n')
-    expect(run(tree({ 'harness/hooks/w.sh': harness, 'scripts/w.sh': scripts })).lines).toEqual(['harness/hooks/w.sh:1', 'scripts/w.sh:1'])
+  it('a Russian placeholder in harness/ shell code is a finding; under the marker it passes', () => {
+    const harness = ['git switch "<ветка>"', '# shortcut: accepts the old Russian token, remove after the next release', 'cmd="${cmd//<ветка>/b}"', ''].join('\n')
+    expect(run(tree({ 'harness/hooks/w.sh': harness })).lines).toEqual(['harness/hooks/w.sh:1'])
   })
 
   it('harness/evals/ and a tests/ folder hold test data', () => {
@@ -312,11 +286,11 @@ describe('the command (files ESLint does not read)', () => {
     expect(run(tree({ 'harness/bin/tool': '#!/bin/zsh\n# комментарий\necho ok\n' })).lines).toEqual(['harness/bin/tool:2'])
   })
 
-  it('Markdown of harness/: a marked paragraph and the placeholders of the profile pass, other text does not', () => {
+  it('Markdown of harness/: a marked paragraph passes, other text and a Russian placeholder do not', () => {
     const md = [
       '# Skill',
       '',
-      'The branch is `<ветка>`, the probe `<проба>`: the allowed words.',
+      'The branch is `<ветка>`.',
       '',
       '<!-- shortcut: accepts the old Russian token, remove after the next release -->',
       'The old form of the command, "волна N эпика X",',
@@ -325,7 +299,7 @@ describe('the command (files ESLint does not read)', () => {
       'Запусти волну.',
       '',
     ].join('\n')
-    expect(run(tree({ 'harness/skills/x/SKILL.md': md })).lines).toEqual(['harness/skills/x/SKILL.md:9'])
+    expect(run(tree({ 'harness/skills/x/SKILL.md': md })).lines).toEqual(['harness/skills/x/SKILL.md:3', 'harness/skills/x/SKILL.md:9'])
   })
 
   it('Markdown of harness/: a marked paragraph covers its later lines too', () => {

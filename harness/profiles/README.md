@@ -153,27 +153,27 @@ the way the project really runs them.
 | `stack` | strings | the stack — facts, not wishes | all agents |
 | `commands.install` | string | installing dependencies in a fresh tree | implementer, reviewer |
 | `commands.lint` / `typecheck` / `test` / `build` | string | how the project runs them from the root | all |
-| `commands.test_one` | string | a targeted run of one test, with the placeholder `<файл>` (file) | implementer, reviewer |
+| `commands.test_one` | string | a targeted run of one test, with the placeholder `<file>` (file) | implementer, reviewer |
 | `commands.contract` / `e2e` | string \| null | suites not included in `test` | implementer, reviewer |
 | `commands.verify` | string | the full local check in one line; agents append `; echo "EXIT=$?"`. A line that runs the gate names `node <plugin>/hooks/gate.mjs` or `bash <plugin>/hooks/gate.sh`, the spelling of profiles moved from the old Harness. Both work; where node is not on PATH, `gate.sh` answers "could not verify: node not found" with code 3 and replaces the verdict file, while `node …/gate.mjs` fails with 127 before the gate starts | implementer, reviewer |
 | `commands.prepare_tree` | string | what to do in a freshly created worktree before running checks | orchestrator, reviewer |
 | `commands.requires` | strings | what must be up (Docker, a database, the stack) | implementer, reviewer |
-| `commands.package` | `{typecheck, test, test_one, names}` \| null | commands of one package of a monorepo: templates with the placeholders `<пакет>` (package name) and `<файл>` (path from the package root, `test_one` only); `names` — package directory → name for `<пакет>` (`{"apps/api": "@acme/api"}`). No field — the root's commands | overnight-fix-loop |
-| `modules` | `{deep, flat, skip, heavy}` \| null | what counts as a module: by default a directory right under `<пакет>/src`; `deep` — roots where a module is one level deeper; `flat` — packages that are one module as a whole; `skip` — directory names that form no modules; `heavy` — `{"<пакет>": N}`, no more than N modules of the package at once (the tests bring up their own database or stack) | overnight-fix-loop |
-| `tests.new_file` | `{"<пакет>": template}` \| null | where a module's new test file goes; placeholders `<имя>` (module name) and `<каталог модуля>` (module directory) | overnight-fix-loop |
+| `commands.package` | `{typecheck, test, test_one, names}` \| null | commands of one package of a monorepo: templates with the placeholders `<package>` (package name) and `<file>` (path from the package root, `test_one` only); `names` — package directory → name for `<package>` (`{"apps/api": "@acme/api"}`). No field — the root's commands | overnight-fix-loop |
+| `modules` | `{deep, flat, skip, heavy}` \| null | what counts as a module: by default a directory right under `<package>/src`; `deep` — roots where a module is one level deeper; `flat` — packages that are one module as a whole; `skip` — directory names that form no modules; `heavy` — `{"<package>": N}`, no more than N modules of the package at once (the tests bring up their own database or stack) | overnight-fix-loop |
+| `tests.new_file` | `{"<package>": template}` \| null | where a module's new test file goes; placeholders `<name>` (module name) and `<module-dir>` (module directory) | overnight-fix-loop |
 | `tests.globs` | strings \| null | test file name masks (`*.spec.ts`), for `grep --include` | overnight-fix-loop |
 | `workflow.folder` | absolute path \| null | the Workflow folder of a Silent mode project (section "Full mode and Silent mode"); `~/` is expanded, a relative path is a broken profile (exit 1). `null` or absent — the folder above the repositories for a project of several repositories, otherwise `$HARNESS_HOME/projects/<name>/workflow/`. Full mode ignores it: the Workflow folder is the root of the working tree. Written when the project is connected | profile (`_resolved.workflow_folder`), all skills and agents that write workflow files, qmd-collections |
 | `parallel` | `"worktrees"` \| `"single"` | `worktrees` — several implementers, each in its own worktree; `single` — one implementer, work in the main checkout, no worktree | all agents, epic-wave |
 | `worktree.root` | path \| null | where working trees are created. Projects connected so far keep `.claude/worktrees/` inside the repository. The planned default for newly connected projects is `<HARNESS_HOME>/worktrees/<name>/` (outside the repository, so the project's test runner and linter never walk into it, and `.gitignore` needs no entry), with a ticket's tree at `<worktree.root><NN>`. It is **not set** — the connection does not write it — and not supported yet: an implementer subagent edits only in a tree under `.claude/worktrees/` of the repository (`EnterWorktree` refuses any other), so until then `worktree.root` lies there, as skill `ship-ticket` requires. One way to support it later is a `WorktreeCreate` hook with `isolation: "worktree"` — live probes with a test script given through `claude -p --settings` pinned the subagent to a tree outside the repository. The plugin does not register such a hook: `hooks/worktree-create.sh` is an unregistered draft, never probed through the plugin, and it is not Claude Code's own worktree creation for a root inside the repository (no reuse of an existing tree, no cleanup, no fetch, no `.worktreeinclude`). `bin/profile`, `hooks/gate.mjs` and `bin/worktree-lock` recognise a tree outside the repository by `git rev-parse --git-common-dir` | implementer, reviewer, orchestrator |
 | `worktree.base` | string \| null | what to branch from (`origin/main`, `origin/master`). `null` — the Harness preflight takes `origin/<layout.repos.<repo>.default_branch>`, then the branch `origin/HEAD` points to, then `origin/main`. In a repository without a remote named `origin` and with `workflow.finish: local-green` the Harness preflight takes the local branch: this value without `origin/` (`main` and `origin/main` both give `main`), then `layout.repos.<repo>.default_branch`, then `main`, then `master` | implementer, preflight |
-| `worktree.implementer` / `reviewer` | string | a ready `git worktree add` command with placeholders: `<ветка>` (branch, = `tickets.branch`), `<имя-тикета>` (ticket name, = `<NN>-<slug>`), `<эпик>` (epic), `<NN>`, `<slug>`, `<что-ревьюишь>` (what is reviewed). worfy names the tree by number only — `…/worktrees/<NN>` | implementer, reviewer, ship-ticket, epic-wave |
+| `worktree.implementer` / `reviewer` | string | a ready `git worktree add` command with placeholders: `<branch>` (branch, = `tickets.branch`), `<ticket-name>` (ticket name, = `<NN>-<slug>`), `<epic>` (epic), `<NN>`, `<slug>`, `<review-target>` (what is reviewed). worfy names the tree by number only — `…/worktrees/<NN>` | implementer, reviewer, ship-ticket, epic-wave |
 | `tickets.root` | path \| null | root of the epics directory (`.scratch/`), with a trailing slash; the audit epic is created there. `bin/ticket`, `bin/epic-status` and `bin/epic-board` take the root from here too (path rules — below the table) | continuous-audit, ticket, epic-status, epic-board |
 | `tickets.path` | path template | where a ticket lies | implementer, epic-wave |
 | `tickets.trail_section` | string \| null | the heading of the ticket section listing the files that may be edited, as the tickets write it (`## Where in code`). `null` — the tickets have no such section: the steps that read it are skipped. `bin/profile` prints it as written; the worfy app reads `## Where in code` when it is `null` or absent | implementer, reviewer, ship-ticket, epic-wave, the worfy app (the files of a ticket) |
 | `tickets.done_section` | string \| null | the heading of the ticket section of the items that say the ticket is done (`## Done when`). Absent or `null` — `bin/profile` resolves it to `## Done when`; a value that is not a non-empty string — one warning on stderr and the default | the worfy app (the manual checks of a ticket) |
 | `tickets.manual_mark` | string \| null | the word in parentheses right after the checkbox of a manual item of that section: `- [ ] (manual) …` or `- [ ] (manual, owner) …`. Absent or `null` — `manual`; a malformed value — a warning and the default | the worfy app (the manual checks of a ticket) |
 | `tickets.spec` | path template \| null | the epic spec, read together with the ticket | ship-ticket, epic-wave |
-| `tickets.branch` | template \| null | the ticket's branch name: `<эпик>/<NN>-<slug>` (acme) or `<эпик>/<NN>` (worfy — number only); epic-wave finds the wave's branches by it when resuming (everything after `<эпик>/` → `*`). Silent mode has no template (`null`): a branch is named by what it changes and is recorded in the ticket's `Branch:` line | ship-ticket, epic-wave |
+| `tickets.branch` | template \| null | the ticket's branch name: `<epic>/<NN>-<slug>` (acme) or `<epic>/<NN>` (worfy — number only); epic-wave finds the wave's branches by it when resuming (everything after `<epic>/` → `*`). Silent mode has no template (`null`): a branch is named by what it changes and is recorded in the ticket's `Branch:` line | ship-ticket, epic-wave |
 | `workflow.ticket_skill` | string \| null | the skill a ticket goes by | implementer |
 | `workflow.implementer_steps` | string | which steps of the skill the implementer does | implementer |
 | `workflow.finish` | `"pr-green-ci"` \| `"local-green"` | how the ticket finishes: a PR with green CI, merged by `workflow.merge`; or `local-green` — no PR: the ticket closes when the local `gate full` is green and its branch is merged locally into the main branch of its repository (section "Local finish"), and `ticket done` goes without `--pr`. The Harness preflight reads it in a repository without a remote named `origin`: `local-green` allows that (no fetch, a local base), any other value or none is a `BLOCKED` reason | implementer, ship-ticket, epic-wave, preflight |
@@ -211,7 +211,7 @@ the way the project really runs them.
 | `qmd.mirror.path` | path \| absent | the git copy of the main branch that the qmd collections of a Full mode project are read from; absent — `~/.cache/qmd/<name>-<branch>`. `~/` is expanded | qmd-sync-main, qmd-collections, qmd-refresh |
 | `qmd.mirror.branch` | string \| absent | the branch of that copy; absent — `worktree.base` without `origin/`, and without it `main` | qmd-sync-main, qmd-collections, qmd-refresh |
 | `qmd.fallback_grep` | strings | where to search with `grep` if `qmd` is silent | scout |
-| `review.lenses` | strings | the project's review lenses; the orchestrator gives each reviewer one. What a lens looks for is described in `agents/reviewer.md`, section "Lens descriptions"; a lens that has no description there is read by its name. The lens `simplification` described there may be named `упрощение` in a profile | orchestrator |
+| `review.lenses` | strings | the project's review lenses; the orchestrator gives each reviewer one. What a lens looks for is described in `agents/reviewer.md`, section "Lens descriptions"; a description applies to the lens of the same name, and a lens that has no description there is read by its name | orchestrator |
 | `review.ticket_lenses` | strings | two or three of `review.lenses` that ship-ticket runs on every ticket by default | ship-ticket |
 | `review.depth.wave` | `"low"` \| `"medium"` \| `"high"` \| `"max"` \| null | the review depth of a wave's gate: how many agents check each ticket, which lenses, how much mutation testing, which findings get a sceptic; the scale is described in skill `ship-ticket`, step 7, and what each depth adds to the gate in skill `epic-wave`, section 3. An argument of the skill overrides it. absent or `null` — `low` depth (one verifier), and the skill says in its report that it took the default. Above `low` every ticket of the wave costs more: `high` is 5.3–6.4 million subagent tokens per ticket and round | epic-wave |
 | `review.depth.first_round` | `"low"` \| `"medium"` \| `"high"` \| `"max"` \| null | the review depth of the first review round of a ticket's diff (ship-ticket, step 7) and of a PR another session or person wrote (ship-ticket, section "Review of a PR another session wrote"). An argument of the skill or the owner's word in a message overrides it. absent or `null` — the review of a ticket's own diff stays as it was, without a depth (two or three reviewers by `review.ticket_lenses`, the same cost as before), and a PR another session wrote gets `high` depth (`medium` depth for a PR of tests and comments only); the skill says in its report that it took the default. `max` depth is `high` depth and then skill `max-review` | ship-ticket |
@@ -222,8 +222,20 @@ the way the project really runs them.
 Secrets are not written into the profile: no environment variable values, no passwords, no
 addresses of private databases. The profile names the variable (`$API_URL`), not its value.
 
-Placeholders inside values (`<эпик>`, `<NN>`, `<пакет>` and the rest above) are part of the
-contract: they are substituted as written, not translated.
+Placeholders inside values (`<epic>`, `<NN>`, `<package>` and the rest above) are part of the
+contract: they are substituted as written, not translated. The full set: `<epic>`, `<NN>`, `<slug>`,
+`<branch>`, `<ticket-name>` (= `<NN>-<slug>`), `<review-target>`, `<file>`, `<package>`, `<name>`
+(module name), `<module-dir>` (module directory).
+
+<!-- shortcut: accepts the old Russian token, remove after the next release -->
+Profiles written before the release carry Russian placeholders and two Russian headings of
+`rules.md`. For one release `bin/profile` prints them in the English form — in every value and in
+`rules.md` — so readers know one set: `<эпик>` → `<epic>`, `<ветка>` → `<branch>`, `<имя-тикета>` →
+`<ticket-name>`, `<что-ревьюишь>` → `<review-target>`, `<файл>` → `<file>`, `<пакет>` → `<package>`,
+`<имя>` → `<name>`, `<каталог модуля>` → `<module-dir>`; `## Обязательное чтение исполнителя` →
+`## Required reading for the implementer`, `## Ночной прогон и аудит` → `## Overnight run and audit`.
+`hooks/worktree-create.sh`, the branch regex of skill `epic-wave` and the rules `hooks/session-start.mjs`
+mixes in accept the old forms too. Rewrite such a profile with the English forms before support ends.
 
 `cross_machine_gate` is checked by `bin/profile` the way `mode` is. No field, or
 `null` — exit 4 for `--field cross_machine_gate.<name>` (the project has one machine: the skills skip
@@ -456,11 +468,11 @@ Profiles of schema 1 are read until they are moved to schema 2 and into `$HARNES
   **`language.docs`** — absent prints `en`; the string form of `language` gives all three fields its
   value.
 - **The four path fields.** Schema 1 has `tickets.status_tool`, `tickets.epic_status`,
-  `workflow.preflight` (with the placeholder `<эпик>`) and `numbering.reserve_with` — paths to the
+  `workflow.preflight` (with the placeholder `<epic>`) and `numbering.reserve_with` — paths to the
   Harness, not facts of the project. A value that starts with `~/.claude/bin/` or with its
   absolute form `$HOME/.claude/bin/` (the Harness before the plugin) is replaced with the same
   script next to `bin/profile`: `~/.claude/bin/ticket` → `<bin>/ticket`,
-  `~/.claude/bin/preflight --epic <эпик>` → `<bin>/preflight --epic <эпик>`. Any other value is
+  `~/.claude/bin/preflight --epic <epic>` → `<bin>/preflight --epic <epic>`. Any other value is
   left as it is, and `null` stays `null` (for example `workflow.preflight: null`). Schema 2 has no
   such choice — the Harness preflight is one for all projects; skills no longer read these fields,
   so the repositories of such a project now go through the Harness preflight too (its base — section "The
@@ -469,7 +481,7 @@ Profiles of schema 1 are read until they are moved to schema 2 and into `$HARNES
   that a reader that still asks for one does not break, `--field` (and `--json`) answers with this
   Harness's own script: `tickets.status_tool` → `<bin>/ticket`, `tickets.epic_status` →
   `<bin>/epic-status`, `numbering.reserve_with` → `<bin>/preflight`, `workflow.preflight` →
-  `<bin>/preflight --epic <эпик>`, where `<bin>` is the folder of `bin/profile`.
+  `<bin>/preflight --epic <epic>`, where `<bin>` is the folder of `bin/profile`.
 - **`language`** as a string — expanded into `{reports, team}` (the `language.team` row).
 
 ## rules.md
@@ -482,7 +494,7 @@ no general working rules here — they are in the agents.
 `rules.md` is not a reading list. The agent opens the paths in it only when the task needs them.
 If a project really needs documents the implementer must read beyond `CLAUDE.md` / `AGENTS.md`, the
 ticket and the brief, they are listed under a separate heading
-`## Обязательное чтение исполнителя` (required reading for the implementer), and only there.
+`## Required reading for the implementer`, and only there.
 
 <!-- shortcut: accepts the old Russian token, remove after the next release -->
 At the end — a `## Sources` section (in the existing Russian profiles `## Источники`): where the

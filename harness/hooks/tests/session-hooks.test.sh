@@ -208,13 +208,16 @@ n="$(wc -l <"$T/sp/remind/state/pending-retro.log" | tr -d ' ')"
 # rules.md is mixed in without its sources section, under either heading: `## Sources` or its old Russian form.
 mkdir -p "$T/syn/p5" "$T/sp/rules"; git -C "$T/syn/p5" init -q
 echo '{"schema":1,"name":"rules","session":{"inject_rules":true}}' >"$T/sp/rules/profile.json"
-printf '# rules\n\n## Kept\nKEPT-RULE\n\n## Источники\nRU-SOURCE-LINE\n\n## After\nAFTER-RULE\n\n## Sources\nEN-SOURCE-LINE\n' >"$T/sp/rules/rules.md"
+# The old Russian headings agents look for (Russian input on purpose) are mixed in under their English form.
+printf '# rules\n\n## Kept\nKEPT-RULE\n\n## Источники\nRU-SOURCE-LINE\n\n## After\nAFTER-RULE\n\n## Обязательное чтение исполнителя\nREAD-RULE\n\n## Ночной прогон и аудит\nNIGHT-RULE\n\n## Sources\nEN-SOURCE-LINE\n' >"$T/sp/rules/rules.md"
 printf '{"repos":[{"key":"r5","match":"%s","profile":"rules"}]}\n' "$T/syn/p5" >"$T/syn5.json"
 c="$(CLAUDE_GATE_CONFIG="$T/syn5.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/p5" "$T/syn/p5" | ctx)"
 [[ "$c" == *"KEPT-RULE"* && "$c" == *"AFTER-RULE"* && "$c" != *"## Источники"* && "$c" != *"RU-SOURCE-LINE"* ]] \
     && ok "synthetic: rules.md without its old Russian sources section" || bad "synthetic: old Russian sources section: [$c]"
 [[ "$c" != *"## Sources"* && "$c" != *"EN-SOURCE-LINE"* ]] \
     && ok "synthetic: rules.md without its '## Sources' section" || bad "synthetic: '## Sources' section: [$c]"
+[[ "$c" == *$'## Required reading for the implementer\nREAD-RULE'* && "$c" == *$'## Overnight run and audit\nNIGHT-RULE'* && "$c" != *"## Обязательное чтение исполнителя"* && "$c" != *"## Ночной прогон и аудит"* ]] \
+    && ok "synthetic: the old Russian rules.md headings are mixed in under their English form" || bad "synthetic: rules.md headings: [$c]"
 
 # --- the workflow mode -----------------------------------------------
 # Silent mode and attribution off are said in every session of the project, whatever session.inject_rules

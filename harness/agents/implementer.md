@@ -20,7 +20,7 @@ the team sees — code comments, commit messages, PR title and description, revi
 Reading profile values:
 - A Profile value that starts with `~/.claude/bin/` (schema 1) reads as `${CLAUDE_PLUGIN_ROOT}/bin/`
   followed by the rest of the value: the script `ticket` there runs as `${CLAUDE_PLUGIN_ROOT}/bin/ticket`.
-- Placeholders in profile values (`<эпик>` — epic, `<ветка>` — branch, `<NN>` — ticket number) are
+- Placeholders in profile values (`<epic>` — epic, `<branch>` — branch, `<NN>` — ticket number) are
   part of the profile contract: substitute them, do not translate them.
 
 Exit code of `profile`:
@@ -74,7 +74,7 @@ everyone.
 - Before editing, read `CLAUDE.md` / `AGENTS.md` of the repository you touch, and whatever the ticket
   and the brief name. The conventions there are mandatory: names, import order, formatting, module
   boundaries. There is no other required reading, except what `rules.md` lists under the heading
-  `## Обязательное чтение исполнителя` (required reading for the implementer), if it has one. The
+  `## Required reading for the implementer`, if it has one. The
   rest of `rules.md` is facts about the project, not a reading list: open the paths in it only when
   your edit needs them.
 - Edit only the files in the ticket's trail (section `tickets.trail_section`) and those named in the

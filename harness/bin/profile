@@ -341,7 +341,7 @@ for (const k of ["team", "docs"]) if (typeof profile.language[k] !== "string" ||
 const HARNESS_PATHS = [
     ["tickets", "status_tool", `${BIN}/ticket`],
     ["tickets", "epic_status", `${BIN}/epic-status`],
-    ["workflow", "preflight", `${BIN}/preflight --epic <эпик>`],
+    ["workflow", "preflight", `${BIN}/preflight --epic <epic>`],
     ["numbering", "reserve_with", `${BIN}/preflight`],
 ]
 const LEGACY_BIN = ["~/.claude/bin/", path.join(CLAUDE, "bin") + path.sep] // schema 1
@@ -484,9 +484,26 @@ const resolved = {
     repos,
     pipeline,
 }
+// Placeholders in profile values and the headings of rules.md that agents look for are English
+// (profiles/README.md, "Placeholders"). Profiles written before carry Russian ones: every value and
+// rules.md are printed with the English forms, so readers know one set of words.
+// shortcut: accepts the old Russian token, remove after the next release
+const OLD_WORDS = {
+    placeholders: [["<эпик>", "<epic>"], ["<ветка>", "<branch>"], ["<имя-тикета>", "<ticket-name>"], ["<что-ревьюишь>", "<review-target>"], ["<файл>", "<file>"], ["<пакет>", "<package>"], ["<имя>", "<name>"], ["<каталог модуля>", "<module-dir>"]],
+    headings: [["Обязательное чтение исполнителя", "Required reading for the implementer"], ["Ночной прогон и аудит", "Overnight run and audit"]],
+}
+const englishPlaceholders = (v) => {
+    if (typeof v === "string") return OLD_WORDS.placeholders.reduce((s, [old, now]) => s.split(old).join(now), v)
+    if (Array.isArray(v)) return v.map(englishPlaceholders)
+    if (v !== null && typeof v === "object") for (const k of Object.keys(v)) v[k] = englishPlaceholders(v[k])
+    return v
+}
+englishPlaceholders(profile)
+const englishHeadings = (text) =>
+    OLD_WORDS.headings.reduce((t, [old, now]) => t.replace(new RegExp(`^## ${old}(?=[ \\t]*\\r?$)`, "gm"), `## ${now}`), text)
 const full = { ...profile, _resolved: resolved }
 const rulesPath = path.join(dir, "rules.md")
-const rules = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, "utf8") : null
+const rules = fs.existsSync(rulesPath) ? englishHeadings(fs.readFileSync(rulesPath, "utf8")) : null
 
 // --- output -----------------------------------------------------------------------
 switch (mode) {

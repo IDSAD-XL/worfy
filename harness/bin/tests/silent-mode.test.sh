@@ -276,6 +276,24 @@ git -C "$out" branch -m worktree-agent-a1 fix/agent-a1 2>/dev/null
     && ok "the hook's tree: the same profile, the implementer renames the branch, the repository stays clean" || bad "hook tree: $(git -C "$out" rev-parse --abbrev-ref HEAD)"
 out="$(wtc agent-a1 "$R")"; rc=$?
 [ "$rc" -ne 0 ] && [ -z "$out" ] && ok "WorktreeCreate: the template fails (the tree exists) — exit $rc, no path" || bad "WorktreeCreate repeat: exit $rc, out: $out"
+# The placeholders of worktree.implementer: the English ones, and the old Russian ones of profiles written
+# before the release (Russian input on purpose), give the same tree and branch. A stub profile prints the
+# template as written, so the hook's own substitution is what is tested.
+cat >"$T/wtc-profile" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in *worktree.root*) printf '%s\n' "$WTC_ROOT" ;; *worktree.implementer*) printf '%s\n' "$WTC_TMPL" ;; *) exit 4 ;; esac
+EOF
+chmod +x "$T/wtc-profile"
+for form in en ru; do
+    if [ "$form" = en ]; then tmpl="git worktree add -b <branch> $HARNESS_HOME/worktrees/sp/<ticket-name> main"
+    else tmpl="git worktree add -b <ветка> $HARNESS_HOME/worktrees/sp/<имя-тикета> main"; fi
+    out="$(printf '{"name":"ph-%s","cwd":"%s","hook_event_name":"WorktreeCreate"}' "$form" "$R" \
+        | CLAUDE_PROFILE_BIN="$T/wtc-profile" WTC_ROOT="$HARNESS_HOME/worktrees/sp/" WTC_TMPL="$tmpl" "$WTC" 2>"$T/wtc.err")"; rc=$?
+    [ "$rc" -eq 0 ] && [ "$out" = "$HARNESS_HOME/worktrees/sp/ph-$form" ] && [ "$(git -C "$out" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "worktree-ph-$form" ] \
+        && ok "WorktreeCreate: the $form placeholders <branch>/<ticket-name> give <root><name> on worktree-<name>" \
+        || bad "WorktreeCreate $form placeholders: exit $rc, out: $out, err: $(head -c 300 "$T/wtc.err")"
+    [ -d "$out" ] && git -C "$R" worktree remove --force "$out" && git -C "$R" branch -q -D "worktree-ph-$form"
+done
 fi
 out="$(wtc ../escape "$R")"; rc=$?
 [ "$rc" -ne 0 ] && [ -z "$out" ] && [ ! -e "$HARNESS_HOME/worktrees/escape" ] && ok "WorktreeCreate: a name with .. is refused" || bad "WorktreeCreate ../: exit $rc, out: $out"

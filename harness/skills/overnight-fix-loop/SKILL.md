@@ -34,11 +34,11 @@ a turned-off step is a line in the morning report, not a silent skip.
 The project facts of the overnight run are in profile fields: the module layout and the limit for heavy packages
 (`F modules`), the commands of one package (`F commands.package`), new-test files and test-file globs
 (`F tests.new_file`, `F tests.globs`), the GitHub account (`F github.account`). What does not fit into a field is in
-the section `## Ночной прогон и аудит` (overnight run and audit) of the profile's `rules.md` (`"${CLAUDE_PLUGIN_ROOT}/bin/profile" --rules`):
+the section `## Overnight run and audit` of the profile's `rules.md` (`"${CLAUDE_PLUGIN_ROOT}/bin/profile" --rules`):
 mandatory rebuilds, project-specific bug classes, why the limit is what it is. Read it once before
 the start; below it is called "the profile section". The morning report and the briefs are in the language of `F language.reports`;
 commit messages, PR titles and descriptions, code comments — in the language of `F language.team`
-(the templates `test(<имя>): red — …` and `overnight(<имя>): …` below are a form, not a language).
+(the templates `test(<name>): red — …` and `overnight(<name>): …` below are a form, not a language).
 
 Shell state does not persist between Bash calls: every block below declares `F` itself and derives
 the variables it uses itself.
@@ -53,14 +53,14 @@ go into the morning report as a "not started" line. The main session is the orch
 their branches, writes the morning report. A question to the user at night is an entry in `FAILURE.md` and a stop of the module.
 
 `F parallel` = `single` (one local stack per project) — modules strictly one at a time, no worktrees:
-the module branch is created in the main checkout (`git switch -c overnight/<date>-<имя> overnight/<date>`),
+the module branch is created in the main checkout (`git switch -c overnight/<date>-<name> overnight/<date>`),
 and only if `git status --porcelain` there is empty; not empty — the whole run stops with a line in the report.
 
-The run's files live in the session's scratchpad directory (the session gives the path): `<scratchpad>/overnight/<имя>/PR.md`,
+The run's files live in the session's scratchpad directory (the session gives the path): `<scratchpad>/overnight/<name>/PR.md`,
 `FAILURE.md` next to it, `<scratchpad>/OVERNIGHT-REPORT.md`. They must not be kept inside the worktree: they are not in
 `.gitignore`, and 1b and 1d commit with `git add -A` — the files would end up in the module's commit.
 
-`<имя>` throughout is the module name (the same placeholder the profile's `tests.new_file` uses).
+`<name>` throughout is the module name (the same placeholder the profile's `tests.new_file` uses).
 
 ## 0. The night branch and choosing modules
 
@@ -112,8 +112,8 @@ touch them. The module branch name cannot start with `overnight/<date>/`: git do
 already taken name, so the separator is a hyphen. Dependencies are installed by `F commands.install` inside the tree.
 
 ```bash
-git worktree add <worktree.root>/overnight-<имя> -b overnight/<date>-<имя> overnight/<date> \
-  && (cd <worktree.root>/overnight-<имя> && <commands.install>)
+git worktree add <worktree.root>/overnight-<name> -b overnight/<date>-<name> overnight/<date> \
+  && (cd <worktree.root>/overnight-<name> && <commands.install>)
 ```
 
 Before 1a — a `worfy:scout` over the module, with the module tree path in the brief: entry points, the call chain and, if
@@ -149,7 +149,7 @@ by package directory (`apps/api` → `@acme/api`), `<file>` — a path from the 
 The module reads existing test files but does not edit them: shared test files usually import more than
 one module, and two parallel agents would collide in one file. New tests always go into a new
 file, one per module, with the `.hardening` suffix; where it lives in each package is given by the template
-`F tests.new_file` by package directory (`<имя>` — the module name, `<каталог модуля>` — its path). No
+`F tests.new_file` by package directory (`<name>` — the module name, `<module-dir>` — its path). No
 field, or no package in it — next to the nearest existing test of that package, following its naming pattern.
 
 The module's test list for mutation testing — the existing test files that import the
@@ -162,7 +162,7 @@ F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$@"; }
 # turn globbing off, and an unquoted `$INC` string is not split into words in zsh — grep got one glued glob)
 INC=(); while IFS= read -r g; do INC+=("--include=$g"); done < <(F tests.globs | jq -r '.[]' | tr -d '\r')
 DIRS=(); for d in test src; do [ -d "<package dir>/$d" ] && DIRS+=("$d"); done
-cd <package dir> && grep -rslE "/<имя>(/|')" "${INC[@]}" "${DIRS[@]}"   # exit 1 on an empty result is not an error
+cd <package dir> && grep -rslE "/<name>(/|')" "${INC[@]}" "${DIRS[@]}"   # exit 1 on an empty result is not an error
 ```
 
 `<package dir>` is the package directory. The list is fixed here and used unchanged in 1d.
@@ -180,7 +180,7 @@ not on a compile error.
 ```bash
 <package typecheck>; echo "EXIT=$?"
 <package test_one with the new file>; echo "EXIT=$?"
-git add -A && git commit -m "test(<имя>): red — <what is checked>"
+git add -A && git commit -m "test(<name>): red — <what is checked>"
 ```
 
 Mandatory rebuilds before `typecheck` (a package that others read in built form) are in the profile
@@ -244,9 +244,9 @@ looked at. The implementer first compares `git rev-parse HEAD` with that SHA: no
 answer the orchestrator (the review saw different code).
 
 ```bash
-git push -u origin overnight/<date>-<имя>
-gh pr create --base overnight/<date> --title "overnight(<имя>): <what was hardened>" \
-  --body-file <scratchpad>/overnight/<имя>/PR.md
+git push -u origin overnight/<date>-<name>
+gh pr create --base overnight/<date> --title "overnight(<name>): <what was hardened>" \
+  --body-file <scratchpad>/overnight/<name>/PR.md
 ```
 
 `GH_TOKEN` of `F github.account` is set by the plugin's `SessionStart` hook (`hooks/gh-token-env.mjs`) for every
@@ -340,7 +340,7 @@ Into the table go only a PR with the gate exit code and a `FAILURE.md` with the 
 
 | Module | Tests added | Mutations before → after | PR | Merged | FAILURE |
 |---|---|---|---|---|---|
-| `<имя>` | 7 | 1 of 5 → 5 of 5 | #NNN | yes | — |
+| `<name>` | 7 | 1 of 5 → 5 of 5 | #NNN | yes | — |
 
 What is left for the human is to confirm the merge. After their "yes" — two commands in a row, then the production check
 (only if `F deploy` is not `null`; otherwise there is nothing to check after the merge — say so):

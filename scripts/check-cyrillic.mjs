@@ -3,7 +3,7 @@
 // log messages and test names are English; the documents of the Project (tickets, ADRs, HANDOFF.md)
 // are not code and are not checked.
 //
-//   node scripts/check-cyrillic.mjs [--root <dir>] [--allow <file>]   → exit 0 clean, 1 with one line per finding, 2 when the allow file is unreadable
+//   node scripts/check-cyrillic.mjs [--root <dir>]   → exit 0 clean, 1 with one line per finding
 //
 // The file has two halves:
 //   - noCyrillic, an ESLint rule; eslint.config.js turns it on for the JS and TS files `eslint .` reads;
@@ -27,11 +27,7 @@
 //     open quote, and a heredoc it opens; a marker after code on the same line covers that command
 //     alone. In Markdown an HTML comment
 //     `<!-- shortcut: accepts the old Russian token … -->` (in the front matter a YAML comment
-//     `# shortcut: …`) covers the lines up to the next blank line or `---`;
-//   - in harness/, outside comments, the words of scripts/cyrillic-allow.json (`harnessWords`): the
-//     Russian placeholders of the profile contract, two headings of rules.md and two lens names, which
-//     profiles written today carry. Temporary: remove with worfy-neutral 10, which gives them English
-//     forms. `--allow <file>` and the rule's option `{ harnessWords }` replace the list (tests).
+//     `# shortcut: …`) covers the lines up to the next blank line or `---`.
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -43,14 +39,6 @@ const CYRILLIC = /\p{Script=Cyrillic}/u
 export const MARKER = 'shortcut: accepts the old Russian token'
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-/** The `harnessWords` list of an allow file. */
-function readWords(file) {
-  const words = JSON.parse(readFileSync(file, 'utf8')).harnessWords
-  if (!Array.isArray(words) || !words.every((w) => typeof w === 'string' && w)) throw new Error(`${file}: harnessWords is not a list of words`)
-  return words
-}
-
-const HARNESS_WORDS = readWords(join(REPO, 'scripts', 'cyrillic-allow.json'))
 
 const MESSAGES = {
   comment: 'Cyrillic in a comment: comments are English everywhere.',
@@ -71,12 +59,6 @@ export function kindOf(rel) {
   if (rel.startsWith('test/fixtures/')) return 'fixture'
   if (rel.startsWith('test/') || rel.startsWith('harness/evals/') || /(^|\/)tests\//.test(rel) || /\.(test|spec)\.[^/]+$/.test(rel)) return 'test'
   return 'code'
-}
-
-/** The text with the allowed words taken out, for a file of harness/. */
-function withoutTokens(rel, text, words) {
-  if (!rel.startsWith('harness/')) return text
-  return words.reduce((s, word) => s.split(word).join(''), text)
 }
 
 const TEST_CALLS = new Set(['describe', 'it', 'test'])
@@ -110,20 +92,13 @@ export const noCyrillic = {
   meta: {
     type: 'problem',
     docs: { description: 'No Cyrillic in code: comments never, data only in tests, fixtures and marked statements' },
-    schema: [
-      {
-        type: 'object',
-        properties: { harnessWords: { type: 'array', items: { type: 'string', minLength: 1 } } },
-        additionalProperties: false,
-      },
-    ],
+    schema: [],
     messages: MESSAGES,
   },
   create(context) {
     const rel = relPath(context.cwd, context.filename)
     const kind = kindOf(rel)
     if (kind === 'out' || kind === 'fixture') return {}
-    const words = context.options[0]?.harnessWords ?? HARNESS_WORDS
     return {
       CallExpression(node) {
         // A test name is a string, but not data: it is read by people, as a comment is.
@@ -144,7 +119,7 @@ export const noCyrillic = {
         }
         if (kind === 'test') return
         for (const token of sourceCode.ast.tokens) {
-          if (!CYRILLIC.test(withoutTokens(rel, token.value, words))) continue
+          if (!CYRILLIC.test(token.value)) continue
           if (covered.some(([start, end]) => token.range[0] >= start && token.range[1] <= end)) continue
           context.report({ loc: token.loc, messageId: 'code' })
         }
@@ -228,7 +203,7 @@ function shellLines(lines) {
 }
 
 /** Findings of a shell script: [line number, message id]. */
-function checkShell(rel, kind, lines, words) {
+function checkShell(kind, lines) {
   const found = []
   const parsed = shellLines(lines)
   let cover = 'none' // 'none' | 'seek' (after a marker, before its command) | 'in' (inside the command)
@@ -237,7 +212,7 @@ function checkShell(rel, kind, lines, words) {
     if (marker) cover = code.trim() ? 'in' : 'seek'
     else if (cover === 'seek' && code.trim()) cover = 'in'
     if (CYRILLIC.test(comment)) found.push([index + 1, 'comment'])
-    if (kind === 'code' && cover !== 'in' && CYRILLIC.test(withoutTokens(rel, code, words))) found.push([index + 1, 'code'])
+    if (kind === 'code' && cover !== 'in' && CYRILLIC.test(code)) found.push([index + 1, 'code'])
     if (cover === 'in' && !continues) cover = 'none'
   })
   return found
@@ -248,19 +223,19 @@ function checkShell(rel, kind, lines, words) {
  * marker is an HTML comment, or a YAML comment in the front matter (`# shortcut: …`), where an HTML
  * comment would break the YAML; it covers the lines up to the next blank line or `---`.
  */
-function checkMarkdown(rel, lines, words) {
+function checkMarkdown(lines) {
   const found = []
   let covered = false
   lines.forEach((line, index) => {
     if (line.includes(MARKER) && (line.includes('<!--') || /^#\s/.test(line))) covered = true
     else if (!line.trim() || line.trim() === '---') covered = false
-    if (!covered && CYRILLIC.test(withoutTokens(rel, line, words))) found.push([index + 1, 'code'])
+    if (!covered && CYRILLIC.test(line)) found.push([index + 1, 'code'])
   })
   return found
 }
 
 /** Findings of a Node script without an extension, read with the ESLint rule. */
-function checkNodeScript(root, file, text, words) {
+function checkNodeScript(root, file, text) {
   const linter = new Linter({ cwd: root })
   const rel = relPath(root, file)
   let messages = []
@@ -272,7 +247,7 @@ function checkNodeScript(root, file, text, words) {
           files: [rel],
           languageOptions: { ecmaVersion: 'latest', sourceType },
           plugins: { worfy: { rules: { 'no-cyrillic': noCyrillic } } },
-          rules: { 'worfy/no-cyrillic': ['error', { harnessWords: words }] },
+          rules: { 'worfy/no-cyrillic': 'error' },
         },
       ],
       { filename: file },
@@ -286,7 +261,7 @@ const SHELL = new Set(['.sh', '.zsh', '.bash'])
 const PLAIN = new Set(['.css', '.html', '.yaml', '.yml'])
 
 /** Findings of one file the command reads; [] for a file it leaves to ESLint or does not check. */
-export function checkFile(root, file, words = HARNESS_WORDS) {
+export function checkFile(root, file) {
   const rel = relPath(root, file)
   const kind = kindOf(rel)
   if (kind === 'out' || kind === 'fixture') return []
@@ -295,10 +270,10 @@ export function checkFile(root, file, words = HARNESS_WORDS) {
   if (!SHELL.has(ext) && !PLAIN.has(ext) && ext !== '' && !isMarkdown) return []
   const text = readFileSync(file, 'utf8')
   const lines = text.split(/\r?\n/)
-  if (isMarkdown) return kind === 'test' ? [] : checkMarkdown(rel, lines, words)
+  if (isMarkdown) return kind === 'test' ? [] : checkMarkdown(lines)
   if (PLAIN.has(ext)) return lines.flatMap((line, i) => (CYRILLIC.test(line) ? [[i + 1, 'code']] : []))
-  if (ext === '' && /^#!.*\bnode\b/.test(lines[0])) return checkNodeScript(root, file, text, words)
-  return checkShell(rel, kind, lines, words)
+  if (ext === '' && /^#!.*\bnode\b/.test(lines[0])) return checkNodeScript(root, file, text)
+  return checkShell(kind, lines)
 }
 
 /** Every file under the four code folders, node_modules left out. */
@@ -319,20 +294,10 @@ function* walk(dir) {
 function main(argv) {
   const at = argv.indexOf('--root')
   const root = resolve(at >= 0 ? argv[at + 1] : REPO)
-  const allow = argv.indexOf('--allow')
-  let words = HARNESS_WORDS
-  try {
-    if (allow >= 0) words = readWords(resolve(argv[allow + 1] ?? ''))
-  } catch (error) {
-    // Exit 2, apart from 1 (findings): the check did not run.
-    process.stderr.write(`check-cyrillic: ${error.message}\n`)
-    process.exitCode = 2
-    return
-  }
   let count = 0
   for (const top of ['src', 'scripts', 'test', 'harness']) {
     for (const file of walk(join(root, top))) {
-      for (const [line, what] of checkFile(root, file, words)) {
+      for (const [line, what] of checkFile(root, file)) {
         process.stderr.write(`${relPath(root, file)}:${line}: ${MESSAGES[what] ?? what}\n`)
         count++
       }

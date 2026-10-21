@@ -17,9 +17,9 @@ short for `"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field <field>`.
 Schema-1 profiles may still carry such values; they point into the frozen pre-plugin Harness, so run
 the plugin's copy instead. The Harness's own scripts — `ticket`, `epic-status`, `preflight` — are
 not profile facts: they are always called from `${CLAUDE_PLUGIN_ROOT}/bin/`. A bare skill name in `workflow.ticket_skill` (`ship-ticket`) means
-`/worfy:ship-ticket`. Placeholders inside profile values (`<эпик>` — the epic, `<NN>` — the ticket
-number, `<slug>`, `<ветка>` — the branch, `<имя-тикета>` — `<NN>-<slug>`, `<что-ревьюишь>` — what
-is reviewed, `<файл>` — a test file) are part of the profile contract: substitute them as written.
+`/worfy:ship-ticket`. Placeholders inside profile values (`<epic>` — the epic, `<NN>` — the ticket
+number, `<slug>`, `<branch>` — the branch, `<ticket-name>` — `<NN>-<slug>`, `<review-target>` — what
+is reviewed, `<file>` — a test file) are part of the profile contract: substitute them as written.
 
 ## 0. Profile
 
@@ -205,7 +205,9 @@ whose branch does not match this epic's branch template `F tickets.branch`, one 
 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
-re=$(F tickets.branch | sed -e 's/<эпик>/<epic>/g' -e 's/<NN>/[0-9]+/g' -e 's/<slug>/.+/g')
+# [<]epic[>] is the profile's own placeholder, matched as written; <epic> after it is the wave's epic.
+# shortcut: accepts the old Russian token, remove after the next release
+re=$(F tickets.branch | sed -e 's/[<]epic[>]/<epic>/g' -e 's/[<]эпик[>]/<epic>/g' -e 's/<NN>/[0-9]+/g' -e 's/<slug>/.+/g')
 [ -n "$re" ] || echo "no tickets.branch in the profile: every open PR is listed"
 gh pr list --state open --limit 200 --json number,headRefName,files \
   --jq ".[] | select(\"$re\" == \"\" or (.headRefName | test(\"^$re\$\") | not)) | \"#\\(.number) \\(.headRefName) \\(.files[].path)\""; echo "EXIT=$?"
@@ -334,12 +336,12 @@ does not repeat them.
 Goal: <one sentence from the ticket>
 Repository: <repo>                           # the agent runs profile -C with this path
 Ticket: <F tickets.path for NN>; spec: <F tickets.spec>
-Worktree: <F worktree.implementer>, <ветка> = <F tickets.branch>, <имя-тикета> = <NN>-<slug>;
-        # <эпик>, <NN>, <slug> in the templates come from the ticket (worfy: branch <эпик>/<NN>, worktree <NN>)
+Worktree: <F worktree.implementer>, <branch> = <F tickets.branch>, <ticket-name> = <NN>-<slug>;
+        # <epic>, <NN>, <slug> in the templates come from the ticket (worfy: branch <epic>/<NN>, worktree <NN>)
         # with single: "main checkout <repo>, no worktree, branch <F tickets.branch>
         #   from the base" (with local-green — from the main branch after the previous ticket's local merge)
-        # Silent mode: <ветка> is a branch named by the change (ship-ticket, step 2), recorded with
-        #   ticket claim <epic> <NN> --branch <ветка>; Repository: the repository of the ticket's Repo: line
+        # Silent mode: <branch> is a branch named by the change (ship-ticket, step 2), recorded with
+        #   ticket claim <epic> <NN> --branch <branch>; Repository: the repository of the ticket's Repo: line
 Base: <base line from the preflight>
 Files: <exact list>
 Numbers: ADR-<NNNN> — create <F numbering.adr.dir>/<NNNN>-<slug>.md, as a placeholder first;
@@ -1239,7 +1241,7 @@ branch" meaning that branch. In Full mode:
 `ticket claim` runs in the implementer's worktree, and the status lives on its branch:
 `epic-status` on the local main branch does not see it. The state of the wave is read from
 branches, PRs and worktrees (branches — the `F tickets.branch` template with everything after
-`<эпик>/` replaced by `*`; below — for `<epic>/<NN>-<slug>` and `<epic>/<NN>`):
+`<epic>/` replaced by `*`; below — for `<epic>/<NN>-<slug>` and `<epic>/<NN>`):
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/preflight" --epic <epic>; echo "EXIT=$?"   # or the minimal preflight from section 1
