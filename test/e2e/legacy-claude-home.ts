@@ -2,13 +2,12 @@
 // fixture test/fixtures/claude-home-legacy in a scratch folder, as test/contract/harness-migrate-harness.ts builds it
 // for the contract tests.
 import { spawnSync } from 'node:child_process'
-import { cpSync, renameSync } from 'node:fs'
+import { cpSync } from 'node:fs'
 import { join } from 'node:path'
-import { substituteSandbox } from '../claude-home-legacy'
+import { copyLegacyFixture, SANDBOX_GIT_IDENTITY } from '../claude-home-legacy'
 import { repoRoot } from './helpers'
 
-const FIXTURE = join(repoRoot, 'test', 'fixtures', 'claude-home-legacy')
-const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'Sandbox', GIT_AUTHOR_EMAIL: 'sandbox@example.com', GIT_COMMITTER_NAME: 'Sandbox', GIT_COMMITTER_EMAIL: 'sandbox@example.com' }
+const GIT_ENV = { ...process.env, ...SANDBOX_GIT_IDENTITY }
 
 function gitCommitAll(dir: string): void {
   for (const args of [['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'fixture']]) {
@@ -22,10 +21,7 @@ function gitCommitAll(dir: string): void {
  * with the Harness plugin of this build in worfy-harness/plugin.
  */
 export function legacyClaudeHome(scratch: string): string {
-  cpSync(FIXTURE, scratch, { recursive: true })
-  substituteSandbox(scratch, scratch)
-  const claudeHome = join(scratch, 'home', '.claude')
-  renameSync(join(claudeHome, 'gitignore'), join(claudeHome, '.gitignore'))
+  const claudeHome = copyLegacyFixture(repoRoot, scratch)
   gitCommitAll(claudeHome)
   gitCommitAll(join(scratch, 'repos', 'worfy'))
   cpSync(join(repoRoot, 'out', 'harness'), join(claudeHome, 'worfy-harness', 'plugin'), { recursive: true })

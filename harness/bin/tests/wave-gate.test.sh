@@ -434,9 +434,11 @@ STAND_IN_PARENTS="$GATE_DIR/parents" "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 137 ] && [ "$(q "$S" 's.runs.length')" = 1 ] && [ "$(q "$S" 's.runs[0].outcome')" = red ] && ok "resume: killed after the first run, which is recorded" || bad "resume: exit $rc runs $(q "$S" s.runs 2>&1)"
 [ -d "$(TMPW_OF)" ] && ok "resume: the broken run left its worktree" || bad "resume: no worktree left"
 before=$(gate_count)
-WAVE_GATE_LOCK_STALE_S=2 "$WG" check "$S" >"$W/out2" 2>&1; rc=$?
+# the killed run's lock keeps a holder.json with a dead pid, which only a takeover removes: without one this waits
+WAVE_GATE_LOCK_STALE_S=2 "$WG" check "$S" >"$W/out2" 2>&1 & wg=$!
+finish "$wg" 120
 after=$(gate_count)
-[ "$rc" -eq 2 ] && [ "$(q "$S" s.culprit)" = 3 ] && ok "resume: the second check finds PR 3" || bad "resume: exit $rc culprit $(q "$S" s.culprit 2>&1): $(tail -5 "$W/out2")"
+[ "$rc" = 2 ] && [ "$(q "$S" s.culprit)" = 3 ] && ok "resume: the second check finds PR 3" || bad "resume: exit $rc culprit $(q "$S" s.culprit 2>&1): $(tail -5 "$W/out2")"
 # 4 runs in all (full, retry, 2 bisect); the first is not repeated: 2 + 3 = 5 stub calls with the killed one
 [ "$before" = 2 ] && [ "$after" = 5 ] && [ "$(q "$S" 's.runs.length')" = 4 ] && ok "resume: the finished run is not repeated ($before + $((after - before)) stub calls)" || bad "resume: stub calls $before then $after, runs $(q "$S" 's.runs.length')"
 grep -q "reus" "$W/out2" && ok "resume: the worktree of the broken run is reused" || bad "resume: no reuse in the output: $(head -5 "$W/out2")"
@@ -713,8 +715,9 @@ n="$(cat "$W1/out" "$W2/out" | grep -c "which is not running")"
 # older than its stale age: a dead lock under a token is not removed by age either, the token's holder removes it.
 new_world token 1:a.txt
 S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
-mkdir "$L" "$L.takeover"; touch -t 202001010000 "$L"
+mkdir "$L" "$L.takeover"
 printf '{"prs":[9],"what":"gate-full","pid":%s,"host":"%s","since":"x"}\n' "$gone2" "$me" >"$L/holder.json"
+touch -t 202001010000 "$L"   # after holder.json: creating a file in the folder gives it the current mtime again
 "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
 until_ok 30 grep -q "waiting for the e2e lock" "$W/out"; sleep 2
 [ "$(gate_count)" = 0 ] && [ -f "$L/holder.json" ] && [ -d "$L.takeover" ] \

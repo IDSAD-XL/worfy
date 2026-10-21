@@ -60,6 +60,20 @@ Source: Ticket [71](71-harness-test-sh-на-windows.md) (PR #555), 2026-10-20 �
 - `harness/bin/tests/wave-gate.test.sh`: `:246` (`finish` — предел ожидания фонового запуска), `:629` (сигнал, который
   нельзя переслать: SIGHUP везде, SIGBREAK на Windows), `:654` («killed»), `:672` («orphan»), `:703` («twins»),
   `:714` («token», со старым замком), `:730` (`holder.json` без `host` и с чужим `host`).
+- `harness/profiles/README.md`: `:184` (`workflow.e2e_lock`: для `bin/wave-gate` замок убитого прогона забирается
+  сразу).
+- Полный путь Windows проверяет одна функция `isWindowsAbsolutePath` (`src/shared/paths.ts:26`) вместо
+  регулярного выражения `WINDOWS_FULL_PATH`: `src/main/agent/env.ts:475` (`findOnPath`), `src/main/program.ts:44`
+  (`windowsProgramPath`), `src/main/harness/migrate/plan.ts:193` (`otherBuildBridge`). `\\srv` (сервер без общей
+  папки) больше не считается полным путём: `test/unit/agent-env.test.ts:596`, `test/contract/github-accounts.test.ts:305`.
+- `src/main/github/accounts.ts`: `:206`, `:227` (текст ошибки и JSDoc `signInCommand` называют `\\server\share\…`).
+- Песочница `~/.claude` старого Harness собирается в одном месте: `test/claude-home-legacy.ts:13`
+  (`copyLegacyFixture`, `SANDBOX_GIT_IDENTITY`). Её зовут `test/contract/harness-migrate-harness.ts:84`
+  (`makeSandbox`) и `test/e2e/legacy-claude-home.ts:23` (`legacyClaudeHome`, общий для
+  `test/e2e/harness-migrate.spec.ts` и `test/e2e/select.spec.ts`). `tsconfig.test.node.json` включает
+  `test/claude-home-legacy.ts`.
+- `test/contract/harness-migrate.test.ts:767` (диалог согласия: папка резервной копии задана явно, кавычки не
+  зависят от пути репозитория).
 
 ## Найдено позже
 
