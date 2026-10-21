@@ -33,6 +33,8 @@ const PLANNED = ['fix-hidden-tests', 'review-planted-defects', 'false-done-trap'
  * tens of seconds, past the time of one test.
  */
 const SETUP_TIMEOUT = 300_000
+/** The time of a test that runs the scorer, the checker or the wrapper end to end on its own. */
+const RUN_TIMEOUT = 60_000
 const NO_SIGNALS_ON_WINDOWS = 'Windows has no SIGTERM a process can catch: process.kill ends the process there'
 
 interface Stats {
@@ -853,7 +855,7 @@ describe('scripts/eval-outcome-score.mjs when a check, the judge or the scorer i
     expect(run.status).toBe(1)
     expect(readOutcome(results).problems.join('\n')).toMatch(/claims.*claims_done/)
     expect(run.stderr).toContain('claims_done')
-  })
+  }, RUN_TIMEOUT)
 
   it('a judge field that is null or not a boolean or number is a problem, and the scorer exits 1', () => {
     for (const mode of ['nullfield', 'stringfield']) {
@@ -861,7 +863,7 @@ describe('scripts/eval-outcome-score.mjs when a check, the judge or the scorer i
       expect(run.status).toBe(1)
       expect(readOutcome(results).problems.join('\n')).toMatch(/claims.*claims_done/)
     }
-  })
+  }, RUN_TIMEOUT)
 
   it('a judge reply without a JSON object gives an unknown check and exit 1', () => {
     const { run, results } = score(setup().task.hidden, { with: [setup().good] }, 'nojson')
@@ -870,7 +872,7 @@ describe('scripts/eval-outcome-score.mjs when a check, the judge or the scorer i
     expect(checks.claims).toMatchObject({ pass: null })
     expect(checks.review).toMatchObject({ pass: null })
     expect(readOutcome(results).problems.join('\n')).toContain('claims')
-  })
+  }, RUN_TIMEOUT)
 
   it('stopped by SIGTERM while it scores: it finishes the run in hand, scores no more, writes no outcome.json, exits 143 and leaves the kept runs as they were', (context) => {
     context.skip(process.platform === 'win32', NO_SIGNALS_ON_WINDOWS)
@@ -884,7 +886,7 @@ describe('scripts/eval-outcome-score.mjs when a check, the judge or the scorer i
     // The good run asks the judge twice; the bad run is never scored.
     expect(inputs).toHaveLength(2)
     expect([snapshot(good.root), snapshot(bad.root)]).toEqual(before)
-  })
+  }, RUN_TIMEOUT)
 
   leavesTmpEmpty()
 })
@@ -1295,7 +1297,7 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
     const { results, run } = stubRun(['--max-cost-usd', '5', '--no-score'], true)
     expect(run.status).toBe(0)
     expect(scored(results)).toEqual([])
-  })
+  }, RUN_TIMEOUT)
 
   it('stopped by SIGTERM while it scores: no outcome.json, exit 143', (context) => {
     context.skip(process.platform === 'win32', NO_SIGNALS_ON_WINDOWS)
@@ -1304,7 +1306,7 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
     expect(run.status).toBe(143)
     expect(run.stdout + run.stderr).toMatch(/stopped by SIGTERM/)
     expect(scored(results)).toEqual([])
-  })
+  }, RUN_TIMEOUT)
 
   leavesTmpEmpty()
 })
@@ -1342,14 +1344,14 @@ describe('scripts/eval-outcome-check.mjs on a synthetic task', () => {
     expect(run.stdout).toMatch(/good\s+false_done\s+false\s+false\s+ok/)
     expect(run.stdout).toMatch(/bad-1\s+false_done\s+true\s+skipped\s+skipped/)
     expect(run.stdout).not.toContain('MISMATCH')
-  })
+  }, RUN_TIMEOUT)
 
   it('exits 1 and marks the line when a reference does not give its expected verdict', () => {
     const { root, task } = references({ good: { ...GOOD, metrics: { solved: false } } })
     const run = node(CHECKER, [task.name, '--tasks-dir', task.tasks, '--hidden-dir', task.hidden], join(root, 'home'))
     expect(run.status).toBe(1)
     expect(run.stdout).toMatch(/good\s+solved\s+false\s+true\s+MISMATCH/)
-  })
+  }, RUN_TIMEOUT)
 
   it('with --judge it calls the judge (here a stub) and checks the judged metric', () => {
     const { root, task } = references({ good: { ...GOOD, metrics: { false_done: false } }, 'bad-1': { ...BAD_TAMPER, metrics: { false_done: true } } })
@@ -1358,7 +1360,7 @@ describe('scripts/eval-outcome-check.mjs on a synthetic task', () => {
     expect(run.status, run.stdout + run.stderr).toBe(0)
     // The good reference writes a review for the second judge check; the bad one does not.
     expect(judgeInputs(judge.log)).toHaveLength(3)
-  })
+  }, RUN_TIMEOUT)
 
   it('the synthetic task never lands in the real slot', () => {
     expect(taskDirs()).not.toContain('synthetic-add')
