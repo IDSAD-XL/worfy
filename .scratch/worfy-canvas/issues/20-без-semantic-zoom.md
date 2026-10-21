@@ -103,3 +103,25 @@ Ticket 06 ввёл три уровня вида Node-а по zoom: `full` (≥ 0
 - **Мутанты (красные):** overlay, который ниже 0.55 оставляет у Node-а одну шапку (e2e: «noteText at
   zoom 0.50»); правило `[data-zoom-level='far']` в `epic-frame.css` (unit, CSS); `LIVE_ZOOM_MIN = 0.6`
   (unit, Card на 0.5 и 0.4); Note без `NODE_HEADER` (unit, перечень пометок).
+
+**Круг ревью 2 (PR #689).**
+
+- e2e проверяет каждую часть ещё и `checkVisibility({ opacityProperty, visibilityProperty })`: режим «одна
+  шапка» через `opacity: 0` тоже ловится. Добавлены части тела Session (`session-node-source`),
+  Subagent (строка типа и кнопка Transcript) и Orchestrator (модель и status block), и точка около 0.35.
+- Unit проверка CSS разбирает селекторы и не пускает ни один, где есть `zoom`, `scale`, `transform` или
+  `[style`; известный предел (метка без этих слов) — `shortcut:` в test-е, такое ловит e2e.
+- Перечень пометок считает их: у Session две шапки (живая и из транскрипта).
+- Новый unit: toast-ы уходят под помеченную шапку в `.w-focus` и не обходят её на Canvas; имя атрибута —
+  из `node-header.ts`.
+- Мутанты (красные): `opacity: 0` по `.react-flow__viewport[style*="scale(0.2"]` (e2e, «noteText at zoom
+  0.20: not hidden by opacity or visibility»); `visibility: hidden` на теле Session из транскрипта ниже
+  0.6 (e2e, «sessionSource at zoom 0.50»); правило по `[data-zoomed-out]` и по `[style*="scale(0.2"]`
+  (unit, CSS); без пометки вторая шапка Session (unit); другое имя атрибута в `node-header.ts` и другой
+  селектор в `KEEP_OUT` (unit, toast).
+- Владелец, 2026-10-21: на zoom 0.2 имя и прогресс рамки Epic-а мелкие, как всё остальное, — так и
+  должно быть, отдельного Ticket-а не нужно. Порог сна Browser — zoom 0.4, как у Card (записано в
+  `worfy-browser` 05, открытый вопрос 1).
+- Ticket 19: пункты #668 про удалённые файлы сняты; spec Epic-а: решение 11, риск 6 и строка Ticket-а 06
+  отмечены.
+

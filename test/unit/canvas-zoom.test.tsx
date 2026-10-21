@@ -4,12 +4,16 @@
 // jsdom applies no CSS: what the Canvas looks like zoomed out is test/e2e/zoom-whole-nodes.spec.ts.
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { act, render, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { ReactFlowProvider, useStoreApi } from '@xyflow/react'
 import { useLayoutEffect, type ReactNode } from 'react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { NODE_HEADER } from '../../src/renderer/canvas/node-header'
 import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import { FocusTileContext } from '../../src/renderer/focus/focus-tile'
+import { PLACE_MS } from '../../src/renderer/toast/placement'
+import { ToastRegion } from '../../src/renderer/toast/ToastRegion'
+import { resetToasts, showToast } from '../../src/renderer/toast/toasts'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 
 const renderer = join(process.cwd(), 'src/renderer')
@@ -23,12 +27,42 @@ function stylesheets(folder = renderer): { name: string; text: string }[] {
   })
 }
 
+/** The selectors of a stylesheet: the text before each `{` back to the last `}` or `;`, comments taken out. */
+function selectorsOf(text: string): string[] {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('{')
+    .slice(0, -1)
+    .map((part) => part.slice(Math.max(part.lastIndexOf('}'), part.lastIndexOf(';')) + 1).trim())
+}
+
 describe('no stylesheet draws a Node by the zoom', () => {
-  it('none keys a rule on a zoom level or on the zoom itself', () => {
+  // A rule can follow the zoom only through something on the page that changes with it: a mark that
+  // code puts on the React Flow root by zoom (any attribute or class named after the zoom or the
+  // scale), or the viewport's own inline `transform: scale(...)` read by an attribute selector.
+  // shortcut: a mark named after neither (say `[data-far]`) passes here, redo if one is ever needed;
+  // the e2e test/e2e/zoom-whole-nodes.spec.ts sees what such a rule hides.
+  const FOLLOWS_ZOOM = /zoom|scale|transform|\[style/i
+
+  it('none keys a selector on the zoom, the scale, the viewport transform or an inline style', () => {
+    const found = stylesheets().flatMap(({ name, text }) => selectorsOf(text).filter((selector) => FOLLOWS_ZOOM.test(selector)).map((selector) => `${name}: ${selector}`))
+    expect(found).toEqual([])
+  })
+
+  it('none reads a zoom variable or the far title mark of ticket 06', () => {
     const found = stylesheets()
-      .filter(({ text }) => /data-zoom-level|--w-zoom|data-node-title/.test(text))
+      .filter(({ text }) => /--w-zoom|data-node-title/.test(text))
       .map(({ name }) => name)
     expect(found).toEqual([])
+  })
+
+  it.each([
+    ['.react-flow[data-zoom-level="far"] .w-ticket > *'],
+    ['.react-flow__viewport[style*="scale(0.2"] .w-node-surface > :not([data-node-header])'],
+    ['.react-flow[data-zoomed-out] .w-note__text'],
+    ['.w-canvas.is-scaled-down .w-node-surface'],
+  ])('the check finds %s', (selector) => {
+    expect(selectorsOf(`/* a rule */\n${selector} {\n  opacity: 0;\n}\n`).some((each) => FOLLOWS_ZOOM.test(each))).toBe(true)
   })
 })
 
@@ -41,20 +75,67 @@ describe('every Node type marks its header row, or is a known exception', () => 
     'EpicFrameNode.tsx': 'a frame, never in a focus tile',
     'BindingAnchorNode.tsx': 'an invisible anchor of a Binding',
   }
+  /** Node types with more than one header: a live Session and a Session read from its transcript. */
+  const HEADERS: Record<string, number> = { 'SessionNode.tsx': 2 }
   const folder = join(renderer, 'canvas/nodes')
   const files = readdirSync(folder).filter((name) => name.endsWith('Node.tsx'))
 
   it.each(files)('%s', (name) => {
-    const marked = readFileSync(join(folder, name), 'utf8').includes('{...NODE_HEADER}')
-    expect(marked, name in EXCEPTIONS ? `${name} is listed as an exception` : `${name} does not mark its header`).toBe(!(name in EXCEPTIONS))
+    const marks = readFileSync(join(folder, name), 'utf8').split('{...NODE_HEADER}').length - 1
+    const expected = name in EXCEPTIONS ? 0 : (HEADERS[name] ?? 1)
+    expect(marks, name in EXCEPTIONS ? `${name} is listed as an exception` : `${name}: marked headers`).toBe(expected)
   })
 
-  it('every exception is a Node type that still exists', () => {
-    expect(Object.keys(EXCEPTIONS).filter((name) => !files.includes(name))).toEqual([])
+  it('every listed Node type still exists', () => {
+    expect([...Object.keys(EXCEPTIONS), ...Object.keys(HEADERS)].filter((name) => !files.includes(name))).toEqual([])
   })
 
   it('the read-only Terminal of a Linked machine is marked like the Terminal', () => {
     expect(readFileSync(join(renderer, 'canvas/ReadOnlyTerminal.tsx'), 'utf8')).toContain('{...NODE_HEADER}')
+  })
+})
+
+describe('the toasts keep clear of a marked Node header in a focus tile', () => {
+  afterEach(() => {
+    cleanup()
+    resetToasts()
+    vi.useRealTimers()
+    document.body.replaceChildren()
+  })
+
+  it.each([
+    ['in a focus tile, the stack goes below the header', true, `${180 + 12}px`],
+    ['on the Canvas, the header is not kept clear of', false, '12px'],
+  ] as const)('%s', (_name, inFocus, top) => {
+    vi.useFakeTimers()
+    resetToasts()
+    // jsdom lays nothing out: each element's box is given here, in window px.
+    const boxes = new Map<Element, DOMRect>()
+    const measured = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return boxes.get(this) ?? new DOMRect(0, 0, 0, 0)
+    })
+    try {
+      const tile = document.body.appendChild(document.createElement('div'))
+      if (inFocus) tile.className = 'w-focus'
+      const header = tile.appendChild(document.createElement('div'))
+      for (const [name, value] of Object.entries(NODE_HEADER)) header.setAttribute(name, value)
+      // A Node's header across the top of the right column (x 904..1264 of a 1280 px window): no
+      // room above it for the stack.
+      boxes.set(header, new DOMRect(700, 0, 560, 180))
+      render(<ToastRegion projectId={undefined} />)
+      const section = screen.getByRole('region', { name: 'Notifications' })
+      boxes.set(section, new DOMRect(904, 64, 360, 0))
+      Object.defineProperty(section, 'scrollHeight', { configurable: true, value: 50 })
+      act(() => {
+        showToast({ kind: 'error', text: 'boom' })
+      })
+      act(() => {
+        vi.advanceTimersByTime(PLACE_MS)
+      })
+      expect(section.style.top).toBe(top)
+    } finally {
+      measured.mockRestore()
+    }
   })
 })
 

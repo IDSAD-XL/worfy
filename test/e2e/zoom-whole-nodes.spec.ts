@@ -10,8 +10,8 @@ import { catScript } from '../harness-node'
 // No semantic zoom (worfy-canvas ticket 20, the owner's decision of 2026-10-21; F-SPEC "Zoom"): at
 // every zoom each Node is drawn whole, only scaled by the Canvas transform. Ticket 06 had drawn a
 // Node as its header alone from 0.3 up to 0.6 and as a block of its kind below 0.3; here the same
-// Canvas is checked at 0.6, at about 0.5 and at the lowest zoom of the Canvas, ZOOM_MIN 0.2
-// (src/shared/layout/types.ts): every body is shown, the Ticket cards keep their text, a Terminal
+// Canvas is checked at 0.6, at about 0.5, at about 0.35 and at the lowest zoom of the Canvas,
+// ZOOM_MIN 0.2 (src/shared/layout/types.ts): every body is shown, neither hidden nor transparent, the Ticket cards keep their text, a Terminal
 // keeps its rows and columns, and the Epic frames keep their arrangement. A Card runs its page from
 // zoom 0.4 up (CardNode LIVE_ZOOM_MIN) and below it is its title in a frame, as before ticket 06.
 // A temporary WORFY_CLAUDE_HOME stands in for ~/.claude.
@@ -178,8 +178,13 @@ test('every Node is drawn whole at any zoom, down to the lowest: bodies, Ticket 
       pinnedText: nodes.pinned.locator('textarea'),
       terminalScreen: nodes.terminal.locator('.xterm'),
       sessionStatus: nodes.session.getByTestId('session-node-status'),
+      sessionSource: nodes.session.getByTestId('session-node-source'),
       subagentStatus: nodes.subagent.getByTestId('subagent-status'),
+      subagentKind: nodes.subagent.getByTestId('subagent-kind'),
+      subagentOpen: nodes.subagent.getByTestId('subagent-open'),
       orchestratorState: nodes.orchestrator.getByTestId('orchestrator-state'),
+      orchestratorModel: nodes.orchestrator.getByTestId('orchestrator-model'),
+      orchestratorBlock: nodes.orchestrator.locator('[data-testid^="orchestrator-status-block"]').first(),
       handoffText: nodes.handoff.getByText('Nothing yet.'),
       ticketTitle: nodes.ticket.locator('.w-ticket__title'),
       ticketMeta: nodes.ticket.locator('.w-ticket__meta'),
@@ -187,8 +192,15 @@ test('every Node is drawn whole at any zoom, down to the lowest: bodies, Ticket 
       epicTag: nodes.epic.locator('.w-epic__tag'),
       epicProgress: nodes.epic.getByTestId('epic-progress'),
     }
+    // toBeVisible reads `visibility` and the box only; checkVisibility also sees an opacity of 0 on
+    // the part or on anything round it (a Node, the viewport).
     const allWhole = async (zoom: string) => {
-      for (const [name, part] of Object.entries(whole)) await expect(part, `${name} at zoom ${zoom}`).toBeVisible()
+      for (const [name, part] of Object.entries(whole)) {
+        await expect(part, `${name} at zoom ${zoom}`).toBeVisible()
+        await expect
+          .poll(() => part.evaluate((element) => (element as unknown as { checkVisibility(options: object): boolean }).checkVisibility({ opacityProperty: true, visibilityProperty: true })), { message: `${name} at zoom ${zoom}: not hidden by opacity or visibility` })
+          .toBe(true)
+      }
       await expect(whole.ticketTitle).toContainText('Ticket 1 of the demo')
     }
 
@@ -224,6 +236,15 @@ test('every Node is drawn whole at any zoom, down to the lowest: bodies, Ticket 
     await expect(nodes.card.getByTestId('card-frame')).toBeVisible()
     await expect.poll(() => terminalSize(window)).toEqual(terminalAtStart)
     await scaledOnly(middle)
+
+    // About 0.35 (where ticket 06 still drew a Node as its header alone): everything still whole;
+    // below 0.4 the Card is its title in a frame (CardNode LIVE_ZOOM_MIN), as before ticket 06.
+    const low = await zoomOutBelow(window, 0.36)
+    expect(low).toBeGreaterThan(0.3)
+    await allWhole(low.toFixed(2))
+    await expect(nodes.card.getByTestId('card-placeholder')).toBeVisible()
+    await expect.poll(() => terminalSize(window)).toEqual(terminalAtStart)
+    await scaledOnly(low)
 
     // The lowest zoom (where ticket 06 drew a block of the kind and Tickets without text).
     const lowest = await zoomOutBelow(window, 0.21)
