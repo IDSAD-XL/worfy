@@ -120,7 +120,9 @@ focus mode (#539, круг 2).
   хранит, поэтому оно не взято. Ревью PR #680, круги 1–2: если за прогон упал `git worktree list`,
   прогон не архивирует ничего (ни по `touchedAt`, ни по `lastAt`) и часов не ставит — иначе живая
   Session в worktree вне корня выглядела бы законченной (`ArchiveRegistry.worktreeFailures`,
-  `AutoArchiveDeps.worktreeFailures`, `RuleReads.worktreesListed`).
+  `AutoArchiveDeps.worktreeFailures`, `RuleReads.worktreesListed`). Сбоем считается timeout и любая
+  ошибка git, кроме двух: папка — не git-репозиторий и git не установлен; тогда worktree-ов нет и
+  архив идёт как обычно (`listGitWorktrees`, `src/main/claude-home/registry.ts`; gate full PR #680).
   Время из transcript-а важнее `touchedAt`. Первый прогон после чтения старого Layout-а шлёт по
   одной операции `touch` (и одному `layout.changed`) на каждый такой Node; это помечено
   `shortcut:` в `AutoArchiver.run` — переделать в одну операцию, если Layout с сотнями таких Node-ов
