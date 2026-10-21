@@ -11,7 +11,8 @@
 #     piece after the break neither adds another workspace nor counts as a file outside workspaces
 #     (not on Windows, where a file name cannot hold a line break);
 #   - a file name that ends with a space is not taken for the name without it: root_if, which asks
-#     for names ending in .ts, does not match it (not on Windows, which drops a trailing space).
+#     for names ending in .ts, does not match it, and such a file in a workspace keeps that workspace
+#     in scope (not on Windows, which drops a trailing space).
 # Run: bash harness/hooks/tests/gate-scope.test.sh; exit code 0 means everything passed.
 # HOOKS_DIR runs the test on another copy of the hooks (for example, on the version before an edit).
 #
@@ -93,12 +94,14 @@ U="$T/untracked"  # key "u": a new file that git does not track yet
 L="$T/lead"       # key "l": a workspace whose folder name starts with a space
 N="$T/newline"    # key "n": a changed path with a line break in it
 E="$T/edge"       # key "e": a file name that ends with a space, and root scripts limited by root_if
+P="$T/trail"      # key "t": a file name that ends with a space, in a workspace
 newrepo "$M" packages/a packages/b
 newrepo "$S" "packages/my pkg" packages/b
 [ "$WIN" -eq 1 ] || newrepo "$Q" 'packages/q"t' packages/b
 newrepo "$U" packages/a packages/b
 newrepo "$L" " lead" packages/b
 [ "$WIN" -eq 1 ] || newrepo "$N" packages/a packages/b
+[ "$WIN" -eq 1 ] || newrepo "$P" packages/a packages/b
 if [ "$WIN" -ne 1 ]; then
     # The root of «edge» has a "check" script of its own, which root_if limits to names ending in .ts.
     newrepo "$E" packages/a
@@ -106,13 +109,14 @@ if [ "$WIN" -ne 1 ]; then
     git -C "$E" -c user.email=t@t -c user.name=t commit -q -a --amend --no-edit
     git -C "$E" update-ref refs/remotes/origin/main HEAD
 fi
-jq -n --arg m "$M" --arg s "$S" --arg q "$Q" --arg u "$U" --arg l "$L" --arg n "$N" --arg e "$E" '{repos: [
+jq -n --arg m "$M" --arg s "$S" --arg q "$Q" --arg u "$U" --arg l "$L" --arg n "$N" --arg e "$E" --arg p "$P" '{repos: [
     {key: "m", match: $m, pm: "npm", root: {}, workspace: {fast: ["check"]}},
     {key: "s", match: $s, pm: "npm", root: {}, workspace: {fast: ["check"]}},
     {key: "q", match: $q, pm: "npm", root: {}, workspace: {fast: ["check"]}},
     {key: "u", match: $u, pm: "npm", root: {}, workspace: {fast: ["check"]}},
     {key: "l", match: $l, pm: "npm", root: {}, workspace: {fast: ["check"]}},
     {key: "n", match: $n, pm: "npm", root: {}, workspace: {fast: ["check"]}},
+    {key: "t", match: $p, pm: "npm", root: {}, workspace: {fast: ["check"]}},
     {key: "e", match: $e, pm: "npm", root: {fast: ["check"]}, root_if: "\\.ts$", workspace: {}}
 ]}' >"$CLAUDE_GATE_CONFIG"
 
@@ -164,19 +168,25 @@ if [[ "${scope#*—}" != *" packages/b"* ]]; then ok "an edit in « lead»: pack
 else bad "an edit in « lead» put packages/b in the scope: $scope"; fi
 
 # --- 7. A changed path with a line break in it ---------------------------------------------------
-# The file is «packages/a/x<line break>packages/b»: split by lines, it reads as «packages/a/x» and
-# «packages/b», and the second piece is the folder of another workspace.
+# The file is «packages/a/x<line break>packages/b». Untracked, git status names its new folder,
+# «packages/a/x<line break>packages/»: split by lines, the piece «packages/» lies in no workspace.
+# Staged or committed, git names the file itself: split by lines, the piece «packages/b» is the folder
+# of another workspace.
 if [ "$WIN" -eq 1 ]; then
     echo "skip a path with a line break: Windows file names cannot hold one"
 else
     mkdir -p "$N/packages/a/x"$'\n'"packages"
     echo 'export const added = 1' >"$N/packages/a/x"$'\n'"packages/b"
     gate "$N"
-    scoped "a new file whose path has a line break, in packages/a: that package in the scope" packages/a
-    if [[ "${scope#*—}" != *" packages/b"* ]]; then ok "a path with a line break: the piece after the break does not put packages/b in the scope"
-    else bad "a path with a line break put packages/b in the scope: $scope"; fi
-    if [[ "$out" != *"changes outside workspaces"* ]]; then ok "a path with a line break: no piece of it counts as a file outside workspaces"
-    else bad "a path with a line break left a piece outside workspaces: ${out:0:600}"; fi
+    scoped "a new untracked folder whose path has a line break, in packages/a: that package in the scope" packages/a
+    if [[ "$out" != *"changes outside workspaces"* ]]; then ok "an untracked path with a line break: no piece of it counts as a file outside workspaces"
+    else bad "an untracked path with a line break left a piece outside workspaces: ${out:0:600}"; fi
+    # Staged: git status lists the full file path.
+    git -C "$N" add -A
+    gate "$N"
+    scoped "a staged path with a line break, in packages/a: that package in the scope" packages/a
+    if [[ "${scope#*—}" != *" packages/b"* ]]; then ok "a staged path with a line break: the piece after the break does not put packages/b in the scope"
+    else bad "a staged path with a line break put packages/b in the scope: $scope"; fi
     # The same path, committed on the branch: it now comes from the diff against the merge-base.
     commit "$N" "a path with a line break"
     gate "$N"
@@ -196,6 +206,12 @@ else
     if [ "$rc" -eq 0 ] && [[ "$scope" == *"narrowed by the diff"*"— none."* ]] && [[ "$out" == *"[gate] nothing ran (fast): the changes touch no checked package"* ]]; then
         ok "a new file «notes.ts »: root_if does not match it, and no root script runs"
     else bad "a new file «notes.ts » ran the root scripts (rc=$rc, out: ${out:0:600})"; fi
+    # Kept, not dropped: the same kind of name inside a workspace puts that workspace in scope.
+    echo 'export const added = 1' >"$P/packages/a/mod.ts "
+    gate "$P"
+    scoped "a new file «packages/a/mod.ts »: packages/a in the scope" packages/a
+    if [[ "${scope#*—}" != *" packages/b"* ]]; then ok "a new file «packages/a/mod.ts »: packages/b stays out of the scope"
+    else bad "a new file «packages/a/mod.ts » put packages/b in the scope: $scope"; fi
 fi
 
 echo
