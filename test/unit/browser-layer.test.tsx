@@ -7,6 +7,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { ReactFlow, ReactFlowProvider, type Node } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { browserProfilesNow } from '../../src/renderer/browser/profiles'
 import BrowserNode from '../../src/renderer/canvas/nodes/BrowserNode'
 import BrowserLayer from '../../src/renderer/canvas/overlays/BrowserLayer'
 import { LayoutOpsContext } from '../../src/renderer/canvas/useLayout'
@@ -14,11 +15,10 @@ import type { BrowserProfile } from '../../src/shared/browser/profiles'
 import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 
 // main: `browser.profiles.list` answers the profiles each Project has here; nothing else is asked.
-const main = vi.hoisted(() => ({ profiles: {} as Record<string, string[]>, asked: [] as string[] }))
+const main = vi.hoisted(() => ({ profiles: {} as Record<string, string[]> }))
 vi.mock('../../src/renderer/ipc', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/renderer/ipc')>()),
   invoke: (channel: string, input: { projectId: string }) => {
-    main.asked.push(channel)
     if (channel !== 'browser.profiles.list') return Promise.resolve({ ok: false, error: `${channel} is not faked` })
     const profiles = (main.profiles[input.projectId] ?? []).map((id): BrowserProfile => ({ id, name: id, origins: [], autopilot: false }))
     return Promise.resolve({ ok: true, value: { profiles } })
@@ -72,18 +72,18 @@ describe('the Browser layer with an old Browser (a page address, no `profile` ke
   afterEach(() => {
     if (!hadObserver) delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver
     main.profiles = {}
-    main.asked.length = 0
   })
 
   it('asks for a profile when `default` is gone and two others are left: no <webview>, nothing written into the Node', async () => {
     shown.projectId = 'alpha-0a1b2c3d'
     main.profiles = { [shown.projectId]: ['work-bbbbbb', 'admin-aaaaaa'] }
     const apply = drawCanvas([oldBrowser('b0')])
+    // Main's answer is in the profiles store, which the layer and the frame both read. React draws a
+    // store change in one commit for both, before waitFor looks again, and the layer writes a profile
+    // from that commit's effect: from here on the test sees what the layer did with the list.
+    await waitFor(() => expect(browserProfilesNow(shown.projectId)?.map((profile) => profile.id)).toEqual(['work-bbbbbb', 'admin-aaaaaa']))
     // React Flow keeps a Node it has not measured hidden (jsdom measures nothing): found by test id.
-    expect((await screen.findByTestId('browser-choose-profile-button')).textContent).toBe('Choose a profile')
-    // The read was answered and the layer drew with it: a page or a write would be there by now.
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(main.asked).toContain('browser.profiles.list')
+    expect(screen.getByTestId('browser-choose-profile-button').textContent).toBe('Choose a profile')
     expect(screen.getByTestId('browser-choose-profile').textContent).toContain('The Browser profile of this Browser was deleted.')
     expect(document.querySelector('webview')).toBeNull()
     expect(screen.queryByTestId('browser-layer')).toBeNull()
