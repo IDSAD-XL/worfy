@@ -79,7 +79,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { ASK_USER_QUESTION } from '../../shared/agent/questions'
+import { ASK_USER_QUESTION, MULTI_SELECT_SEPARATOR } from '../../shared/agent/questions'
 import type { SessionSettings } from '../../shared/agent/settings'
 import type { CommandInfoLike } from './commands'
 import type { PermissionAnswer, PermissionRequestOptions } from './permissions'
@@ -616,7 +616,7 @@ export function questionResultText(input: Record<string, unknown>, answer: Permi
   const picked = answers.every(([text, value]) => {
     const question = questions.find((each) => each.question === text)
     const labels = (question?.options ?? []).map((option) => option.label)
-    return (question?.multiSelect === true ? value.split(', ') : [value]).every((part) => labels.includes(part))
+    return (question?.multiSelect === true ? value.split(MULTI_SELECT_SEPARATOR) : [value]).every((part) => labels.includes(part))
   })
   const said = answers.map(([text, value]) => `"${text}"="${value}"`).join(', ')
   return picked

@@ -236,7 +236,7 @@ describe('the question card', () => {
     await key(box, '2')
     expect(options(card).map((each) => each.getAttribute('aria-checked'))).toEqual(['false', 'true'])
     await key(box, '9')
-    await key(box, 'Enter')
+    await key(options(card)[1]!, 'Enter')
     expect(within(card).getByTestId('question-text').textContent).toBe(CHECKS.question)
     await key(box, '1')
     await key(box, '3')
@@ -246,7 +246,8 @@ describe('the question card', () => {
     const other = within(card).getByTestId('question-other')
     await key(other, '2')
     expect(options(card).map((each) => each.getAttribute('aria-checked'))).toEqual(['true', 'false', 'true'])
-    await key(box, 'Enter')
+    // Enter in "Other" goes on too: here every question is answered, so it submits.
+    await key(other, 'Enter')
     expect(answered()).toEqual([
       {
         sessionId: 's1',
@@ -261,9 +262,39 @@ describe('the question card', () => {
 
   it('Enter does nothing while the question shown has no answer', async () => {
     const card = await renderCard([request([LAYOUT, CHECKS])])
-    await key(card.querySelector('.w-question') as HTMLElement, 'Enter')
+    await key(options(card)[0]!, 'Enter')
     expect(within(card).getByTestId('question-text').textContent).toBe(LAYOUT.question)
     expect(answered()).toEqual([])
+  })
+
+  it('Enter on Decline, Back, Next or a step chip is left to that button: it neither submits nor moves on', async () => {
+    const card = await renderCard([request([LAYOUT, CHECKS])])
+    const box = card.querySelector('.w-question') as HTMLElement
+    await key(box, '1')
+    await click(within(card).getByTestId('question-next'))
+    await key(box, '1')
+    // Every question is answered: Enter on an option would submit now.
+    for (const id of ['question-decline', 'question-back', 'question-next', 'question-steps']) {
+      const target = id === 'question-steps' ? within(within(card).getByTestId(id)).getAllByRole('button')[0]! : within(card).getByTestId(id)
+      let prevented = false
+      await act(async () => {
+        prevented = !fireEvent.keyDown(target, { key: 'Enter' })
+        await Promise.resolve()
+      })
+      expect(prevented, id).toBe(false)
+    }
+    expect(within(card).getByTestId('question-text').textContent).toBe(CHECKS.question)
+    expect(answered()).toEqual([])
+  })
+
+  it('answersWithEnter: an option and the "Other" field only', async () => {
+    const { answersWithEnter } = await import('../../src/renderer/session/QuestionCard')
+    const card = await renderCard([request([LAYOUT, CHECKS])])
+    expect(answersWithEnter(options(card)[0]!)).toBe(true)
+    expect(answersWithEnter(within(card).getByTestId('question-other'))).toBe(true)
+    for (const id of ['question-decline', 'question-back', 'question-next', 'question-submit']) expect(answersWithEnter(within(card).getByTestId(id)), id).toBe(false)
+    expect(answersWithEnter(card)).toBe(false)
+    expect(answersWithEnter(null)).toBe(false)
   })
 
   it('"Decline" sends no answers', async () => {
@@ -391,11 +422,27 @@ describe('the "Waits for answer" badge', () => {
 
 describe('the toast of a question whose Session is not on screen', () => {
   async function start() {
-    const { startQuestionToasts } = await import('../../src/renderer/session/question-toast')
+    const { installQuestionToasts } = await import('../../src/renderer/session/question-toast')
     const { toasts } = await import('../../src/renderer/toast/toasts')
-    startQuestionToasts()
+    installQuestionToasts()
     return () => toasts.getState().toasts
   }
+
+  it('returns the unsubscribe; a subscribe that fails shows the error toast of any subscription', async () => {
+    const { installQuestionToasts } = await import('../../src/renderer/session/question-toast')
+    const { toasts } = await import('../../src/renderer/toast/toasts')
+    const stop = installQuestionToasts()
+    expect(handlers.get('agent.event')).toHaveLength(1)
+    expect(stop).toBeTypeOf('function')
+    const bridge = (globalThis as { worfy?: { on: unknown } }).worfy!
+    bridge.on = () => {
+      throw new Error('bridge gone')
+    }
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    expect(() => installQuestionToasts()()).not.toThrow()
+    expect(toasts.getState().toasts).toMatchObject([{ kind: 'error', key: 'ipc:agent.event' }])
+    errors.mockRestore()
+  })
 
   it('a simple question: its text and options as buttons that answer it through agent.answerQuestion, then "Open"', async () => {
     const shown = await start()
@@ -454,15 +501,23 @@ describe('the toast of a question whose Session is not on screen', () => {
   it('no toast while the Session view shows that Session', async () => {
     const shown = await start()
     const { useNavigation } = await import('../../src/renderer/session/navigation')
-    useNavigation.setState({ view: 'session' })
-    render(
-      <div className="w-shell__view" data-view="session">
-        <div data-testid="session-view" data-session-id="sdk-7" />
-      </div>,
-    )
+    const { useShowSession } = await import('../../src/renderer/session/shown-session')
+    function Shown() {
+      useShowSession('sdk-7')
+      return null
+    }
+    const view = render(<Shown />)
+    // The Session view keeps that Session, but the Canvas is the view shown: a toast.
+    emit('sdk-7', request([DATABASE], 'q-canvas'))
+    expect(shown().map((each) => each.key)).toEqual(['question:q-canvas'])
+    act(() => useNavigation.setState({ view: 'session' }))
     emit('sdk-7', request())
-    expect(shown()).toEqual([])
+    expect(shown().map((each) => each.key)).toEqual(['question:q-canvas'])
     emit('sdk-8', request([DATABASE], 'q-other'))
-    expect(shown().map((each) => each.key)).toEqual(['question:q-other'])
+    expect(shown().map((each) => each.key)).toEqual(['question:q-canvas', 'question:q-other'])
+    // The panel goes away: the Session is no longer on screen.
+    view.unmount()
+    emit('sdk-7', request([DATABASE], 'q-after'))
+    expect(shown().map((each) => each.key)).toEqual(['question:q-canvas', 'question:q-other', 'question:q-after'])
   })
 })

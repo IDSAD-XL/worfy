@@ -19,8 +19,9 @@ import './question-card.css'
 // goes to main with `agent.answerQuestion`; once resolved (answered here or from a toast, declined,
 // or cancelled by Interrupt or by closing the Session) the card shows the answers and no controls.
 //
-// Keys, while the focus is in the card: 1–4 pick an option of the question shown, Enter goes to the
-// next question or, with every question answered, submits; Tab moves between the options. On a
+// Keys, while the focus is in the card: 1–4 pick an option of the question shown; Enter on an option
+// or in the "Other" field goes to the next question or, with every question answered, submits (on
+// any other button Enter presses that button); Tab moves between the options. On a
 // read-only screen (worfy-link ticket 25) the card shows and nothing in it answers.
 
 type Resolution = Extract<AgentEvent, { type: 'question_resolved' }>
@@ -62,6 +63,14 @@ function toggled(question: Question, pick: QuestionPick, label: string): Questio
 function withOther(question: Question, pick: QuestionPick, text: string): QuestionPick {
   if (!question.multiSelect && text.trim() !== '') return { selected: [], other: text }
   return { ...pick, other: text }
+}
+
+/**
+ * Whether Enter pressed on `target` moves through the card (next question, or submit): only on an
+ * option or in the "Other" field. Any other button of the card keeps Enter as its own press.
+ */
+export function answersWithEnter(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (target.classList.contains('w-question__option') || target.classList.contains('w-question__other-input'))
 }
 
 /** The picks as main takes them: blank "Other" text is none. */
@@ -117,6 +126,8 @@ export function QuestionCard({ request, sessionId, projectId }: QuestionCardProp
     if (!open || readOnly !== null || event.metaKey || event.ctrlKey || event.altKey) return
     const typing = event.target instanceof HTMLInputElement
     if (event.key === 'Enter') {
+      // Enter on Decline, Back, Next or a step chip is that button's own press.
+      if (!answersWithEnter(event.target)) return
       event.preventDefault()
       if (complete) submit()
       else if (answered[step] === true && !last) go(step + 1)

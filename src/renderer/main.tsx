@@ -11,7 +11,7 @@ import { markPlatform } from './platform'
 import { PipelineBoard } from './pipeline/PipelineBoard'
 import { activeProject, useLinked, useProjects } from './projects/useProjects'
 import { setView, useNavigation } from './session/navigation'
-import { startQuestionToasts } from './session/question-toast'
+import { installQuestionToasts } from './session/question-toast'
 import { SessionView } from './session/SessionView'
 import { ToastRegion } from './toast/ToastRegion'
 
@@ -99,7 +99,7 @@ if (container) {
   // while the Canvas loads (canvas/archive-toast.ts).
   installArchiveToasts()
   // A question of a Session that is not on screen comes as a toast (worfy-ui ticket 17).
-  startQuestionToasts()
+  installQuestionToasts()
   createRoot(container).render(
     <StrictMode>
       <App />

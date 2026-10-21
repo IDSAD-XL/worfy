@@ -97,8 +97,9 @@ export function pickAnswers(question: Question, pick: QuestionPick | undefined):
  */
 export function formatAnswers(questions: readonly Question[], picks: readonly QuestionPick[]): Record<string, string> {
   if (picks.length !== questions.length) throw new Error(`Expected ${questions.length} answers, got ${picks.length}`)
-  const answers: Record<string, string> = {}
-  questions.forEach((question, index) => {
+  // Object.fromEntries defines each key as an own property: a question whose text is "__proto__"
+  // keeps its answer, which an assignment into a plain {} would turn into a prototype change.
+  const entries = questions.map((question, index): [string, string] => {
     const pick = picks[index]!
     const labels = question.options.map((option) => option.label)
     for (const label of pick.selected) if (!labels.includes(label)) throw new Error(`"${label}" is not an option of "${question.question}"`)
@@ -106,7 +107,7 @@ export function formatAnswers(questions: readonly Question[], picks: readonly Qu
     if (!pickAnswers(question, pick)) throw new Error(`"${question.question}" has no answer`)
     const parts = labels.filter((label) => pick.selected.includes(label))
     if (pick.other !== null && pick.other.trim() !== '') parts.push(pick.other.trim())
-    answers[question.question] = parts.join(MULTI_SELECT_SEPARATOR)
+    return [question.question, parts.join(MULTI_SELECT_SEPARATOR)]
   })
-  return answers
+  return Object.fromEntries(entries)
 }

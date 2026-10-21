@@ -5,24 +5,21 @@
 // card. The toast goes when the question is resolved anywhere: answered here, in the card, in
 // another window, or cancelled. A read-only screen (worfy-link ticket 25) gets "Open" only.
 //
-// "On screen" is the Session view showing that Session: the toast is for the Canvas, the Pipeline
-// board and the Session view of another Session.
+// "On screen" is the Session view showing that Session (shown-session.ts): the toast is for the
+// Canvas, the Pipeline board and the Session view of another Session.
 import type { AgentEventEnvelope } from '../../shared/agent/events'
 import { dismissToast, showToast, type ToastAction } from '../toast/toasts'
-import { invoke, subscribe, windowMachine } from '../ipc'
+import { invoke, showSubscribeError, subscribe, windowMachine } from '../ipc'
 import { readOnlyNow } from '../projects/read-only-now'
 import { openSession, useNavigation } from './navigation'
 import { notificationTarget } from './notification-target'
+import { useShownSession } from './shown-session'
 
 const toastKey = (requestId: string): string => `question:${requestId}`
 
 /** Whether the Session view of this window shows `sessionId` now. */
 function onScreen(sessionId: string): boolean {
-  if (useNavigation.getState().view !== 'session') return false
-  // The Session view writes its live Session's id on its element (SessionView.tsx); reading it keeps
-  // this module out of the view's own choice between a Node's Session and the Orchestrator.
-  const view = globalThis.document?.querySelector('.w-shell__view[data-view="session"] [data-testid="session-view"]')
-  return view?.getAttribute('data-session-id') === sessionId
+  return useNavigation.getState().view === 'session' && useShownSession.getState().sessionId === sessionId
 }
 
 /** Shows the Session; the Session view of the active Project when this window knows no Node for it. */
@@ -60,16 +57,12 @@ export function acceptQuestionEvent({ sessionId, event }: AgentEventEnvelope): v
   })
 }
 
-let started = false
-
-/** Subscribes to `agent.event` once for the whole renderer; safe to call on every render. */
-export function startQuestionToasts(): void {
-  if (started) return
-  started = true
+/** Subscribes the window to the events of live Sessions for their questions; returns the unsubscribe. */
+export function installQuestionToasts(): () => void {
   try {
-    subscribe('agent.event', acceptQuestionEvent)
+    return subscribe('agent.event', acceptQuestionEvent)
   } catch (error) {
-    started = false
-    console.error('agent.event: cannot subscribe for question toasts', error)
+    showSubscribeError('agent.event', error)
+    return () => undefined
   }
 }

@@ -137,20 +137,34 @@ Source: отзыв владельца 2026-10-19 после ручной при�
 
 ## Где в коде
 
+Файлы, которые меняет diff (сверено с PR #698 после первого раунда review):
+
 - `src/main/agent/permissions.ts`
 - `src/main/agent/fake-query.ts`
 - `src/main/agent/session.ts`
-- `src/shared/agent/events.ts`
-- `src/shared/ipc/agent.ts`
 - `src/main/ipc/agent.ts`
 - `src/main/notify.ts`
-- `src/renderer/session/QuestionCard.tsx` (новый)
-- `src/renderer/session/rows/PermissionRequest.tsx`
-- `src/renderer/session/rows/index.ts`
+- `src/shared/agent/events.ts`
+- `src/shared/agent/questions.ts` (новый)
+- `src/shared/ipc/agent.ts`
+- `src/renderer/main.tsx`
+- `src/renderer/canvas/badges/NeedsPermission.tsx`
 - `src/renderer/canvas/badges/WaitsForAnswer.tsx` (новый)
+- `src/renderer/session/QuestionCard.tsx` (новый)
+- `src/renderer/session/question-card.css` (новый)
+- `src/renderer/session/question-toast.ts` (новый)
+- `src/renderer/session/open-requests.ts` (новый)
+- `src/renderer/session/shown-session.ts` (новый)
+- `src/renderer/session/SessionView.tsx` (одна строка: Session на экране — в `shown-session.ts`)
+- `src/renderer/session/rows/QuestionRequest.tsx` (новый; строки transcript находит `import.meta.glob`)
 - `test/fixtures/agent-scripts/question.jsonl` (новый)
+- `test/contract/ask-user-question-sdk.test.ts` (новый)
+- `test/contract/messages-api-stand-in.ts` (новый)
 - `test/contract/permissions.test.ts`
+- `test/contract/link-access.test.ts`
+- `test/unit/link-access.test.ts`
 - `test/unit/question-card.test.tsx` (новый)
+- `test/unit/questions.test.ts` (новый)
 - `test/unit/notify.test.ts`
 - `test/e2e/session-question.spec.ts` (новый)
 
@@ -222,8 +236,9 @@ PR #698. Gate full — за оркестратором перед
 merge.
 
 **Платформенный PR?** Нет (ADR-0056, пункт 2): в `src` нет веток по платформе, нет скриптов Harness
-и упаковки. Contract test запускает бинарник Claude Code текущей платформы; на Linux и Windows он
-не запускался.
+и упаковки. Contract test запускает бинарник Claude Code текущей платформы. На Windows runner он
+прошёл: run 39630300392 на `eb6dbab2` — 3 файла, 64 теста, `ask-user-question-sdk` 4 из 4, не
+пропущен. На Linux отдельно не запускался.
 
 **Не сделано / известные пределы.**
 - Шапка Session для вопроса по-прежнему говорит «needs permission» (статус Session общий с

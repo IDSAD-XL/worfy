@@ -837,17 +837,22 @@ describe('PermissionGate and questions', () => {
     expect(await asked).toEqual({ behavior: 'allow', updatedInput: { questions: QUESTIONS, answers: { 'Pick?': 'B' } } })
   })
 
-  it('"Always allow" for a tool leaves an open question of a parallel Subagent waiting', async () => {
+  it('"Always allow" on an unreadable AskUserQuestion call leaves an open question of a parallel Subagent waiting', async () => {
     const events: AgentEvent[] = []
     const gate = new PermissionGate((event) => events.push(event), () => undefined)
-    void gate.canUseTool('AskUserQuestion', { questions: QUESTIONS }, options())
-    const bash = gate.canUseTool('Bash', { command: 'ls' }, options())
-    const bashId = events.find((event) => event.type === 'permission_request')
-    expect(gate.answer(bashId?.type === 'permission_request' ? bashId.requestId : '', 'always_allow')).toBe(true)
-    await bash
+    const question = gate.canUseTool('AskUserQuestion', { questions: QUESTIONS }, options())
+    // The same tool, with input worfy cannot show as questions: an ordinary permission request.
+    const odd = gate.canUseTool('AskUserQuestion', { questions: 'odd' }, options())
+    const oddRequest = events.find((event) => event.type === 'permission_request')
+    const questionRequest = events.find((event) => event.type === 'question_request')
+    expect(oddRequest).toMatchObject({ toolName: 'AskUserQuestion' })
+    expect(gate.answer(oddRequest?.type === 'permission_request' ? oddRequest.requestId : '', 'always_allow')).toBe(true)
+    expect(await odd).toEqual({ behavior: 'allow', updatedInput: { questions: 'odd' } })
+    // The question of the same tool is not settled by that "Always allow": it still waits for its answer.
     expect(gate.pending).toBe(1)
-    expect(() => gate.answerQuestion(bashId?.type === 'permission_request' ? bashId.requestId : '', null)).not.toThrow()
-    gate.cancelAll()
-    expect(events.filter((event) => event.type === 'question_resolved')).toMatchObject([{ outcome: 'cancelled' }])
+    expect(events.filter((event) => event.type === 'question_resolved')).toEqual([])
+    const requestId = questionRequest?.type === 'question_request' ? questionRequest.requestId : ''
+    expect(gate.answerQuestion(requestId, [{ selected: ['A'], other: null }])).toBe(true)
+    expect(await question).toEqual({ behavior: 'allow', updatedInput: { questions: QUESTIONS, answers: { 'Pick?': 'A' } } })
   })
 })

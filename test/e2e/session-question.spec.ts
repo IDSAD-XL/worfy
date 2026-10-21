@@ -7,7 +7,8 @@ import { canvasReady, launchApp } from './helpers'
 
 // Questions with answer options (worfy-ui ticket 17) against the built app, on the fake agent:
 // test/fixtures/agent-scripts/question.jsonl asks one simple question in its first turn and two
-// questions (one with previews, one multiSelect) in its second, through the fake agent's `question`
+// questions (one with previews, one multiSelect) in its second and one more simple question in its
+// third, through the fake agent's `question`
 // line — Claude Code's AskUserQuestion, asked in bypassPermissions as the real one does
 // (test/contract/ask-user-question-sdk.test.ts). WORFY_AGENT_LOG records what canUseTool answered.
 
@@ -17,6 +18,7 @@ const PROJECT = 'alpha-0000000a'
 const DATABASE = 'Which database should the cache use?'
 const LAYOUT = 'Which layout should the report use?'
 const CHECKS = 'Which checks should run first?'
+const CLEANUP = 'Should the old cache be deleted?'
 
 type Call = { kind: string; toolName?: string; result?: { behavior: string; message?: string; updatedInput?: { answers?: Record<string, string> } } }
 
@@ -111,7 +113,11 @@ test('the Session view asks with a card: keys, Back / Next, previews, multiSelec
     await second.getByTestId('question-option').nth(2).click()
     await second.getByTestId('question-option').nth(0).click()
     await second.getByTestId('question-other').fill('Format check')
-    await second.getByTestId('question-back').click()
+    // Every question is answered now. Enter on Back is Back's own press: it goes back, it does not submit.
+    await second.getByTestId('question-back').focus()
+    await window.keyboard.press('Enter')
+    await expect(second.getByTestId('question-text')).toHaveText(LAYOUT)
+    await expect(second).toHaveAttribute('data-resolution', 'open')
     await expect(second.getByTestId('question-option').nth(0)).toHaveAttribute('aria-checked', 'true')
     await second.getByTestId('question-submit').click()
     await expect(second).toHaveAttribute('data-resolution', 'answered')
@@ -119,7 +125,20 @@ test('the Session view asks with a card: keys, Back / Next, previews, multiSelec
     await expect(view.getByTestId('transcript-turn-done')).toHaveCount(2)
     await snapshots(window, 'question-card-answered')
 
-    expect(answers().map((answer) => answer?.updatedInput?.answers)).toEqual([{ [DATABASE]: 'SQLite' }, { [LAYOUT]: 'Table', [CHECKS]: 'Lint, Unit tests, Format check' }])
+    // ── Enter on Decline declines, even with an option picked: the call gets a deny, not the answer.
+    await send(field, 'and the old cache')
+    await expect(cards).toHaveCount(3)
+    const third = cards.nth(2)
+    await expect(third.getByTestId('question-text')).toHaveText(CLEANUP)
+    await third.getByTestId('question-option').nth(0).click()
+    await expect(third.getByTestId('question-submit')).toBeEnabled()
+    await third.getByTestId('question-decline').focus()
+    await window.keyboard.press('Enter')
+    await expect(third).toHaveAttribute('data-resolution', 'declined')
+    await expect(view.getByTestId('transcript-turn-done')).toHaveCount(3)
+
+    expect(answers().map((answer) => answer?.updatedInput?.answers)).toEqual([{ [DATABASE]: 'SQLite' }, { [LAYOUT]: 'Table', [CHECKS]: 'Lint, Unit tests, Format check' }, undefined])
+    expect(answers()[2]).toMatchObject({ behavior: 'deny' })
   } finally {
     await app.close()
   }
