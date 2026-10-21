@@ -177,11 +177,8 @@ async function renderCanvas(ops: LayoutOps) {
   return screen.findByTestId('archive-button')
 }
 
-/** What Restore sends for these Nodes, all at (0, 0): a move where they stand, then the restore. */
-const restoreOf = (...nodeIds: string[]): LayoutOpInput[] => [
-  { op: 'moveMany', moves: nodeIds.map((id) => ({ id, x: 0, y: 0 })) },
-  { op: 'restore', ids: nodeIds },
-]
+/** What Restore sends for these Nodes: one restore; its undo is the shared inverse (history.ts). */
+const restoreOf = (...nodeIds: string[]): LayoutOpInput[] => [{ op: 'restore', ids: nodeIds }]
 
 const rowTitles = (dialog: HTMLElement) => within(dialog).getAllByTestId('archive-row').map((row) => row.querySelector('.w-archive__title')!.textContent)
 

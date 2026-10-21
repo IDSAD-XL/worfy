@@ -7,12 +7,12 @@
 // The list is built once per Canvas, by the Archive popover, and published here by Project: a badge
 // on each Ticket reads its group from this store instead of resolving every Binding again.
 //
-// Show and Restore are one gesture sent through the Canvas's LayoutOps, so each is one step of the
-// user's undo history: a move of the archived Nodes, then a `restore`. main puts a restored Node at
-// its place when that is clear, else at the nearest clear one (ADR-0038); the undo archives the
-// Nodes again (history.ts) and the move's undo puts them back where they stood before, even when
-// main had to move them off another Node. Restore's move keeps the Nodes where they are; Show's
-// moves the Node next to its Ticket or frame — the spot a new bound Session gets (session-spot.ts).
+// Show and Restore go through the Canvas's LayoutOps, so each is one step of the user's undo
+// history. Restore is one `restore`: main puts a restored Node at its place when that is clear, else
+// at the nearest clear one (ADR-0038), and the undo (history.ts) archives the Nodes again with their
+// rule, batch and time and moves them back where they stood. Show is one gesture: a move of the
+// archived Node next to its Ticket or frame — the spot a new bound Session gets (session-spot.ts) —
+// then the `restore`; its undo archives the Node again and moves it back to its old place.
 //
 // A Session whose Binding is not known yet (its transcript's signals, the manual Bindings or the
 // workflow model are still being read) is in `pending`, in no group: until then it would look
@@ -23,7 +23,7 @@ import type { BindingTarget } from '../../shared/binding/resolve'
 import { SESSION_NODE_KIND } from '../../shared/ipc/sessions'
 import { onThePlane } from '../../shared/layout/derived'
 import { freePlace, type Rect } from '../../shared/layout/free-place'
-import type { ArchiveRule, Layout, LayoutNode, LayoutOpInput } from '../../shared/layout/types'
+import { isArchived, type ArchiveRule, type Layout, type LayoutNode, type LayoutOpInput } from '../../shared/layout/types'
 import { ticketKey } from '../../shared/workflow/types'
 import { grouped, type Group } from './history'
 
@@ -76,7 +76,7 @@ export function archivedSessionNodes(layout: Layout): LayoutNode[] {
   const seen = new Set<string>()
   return layout.nodes.filter((node) => {
     const sessionId = node.data.sessionId
-    if (node.kind !== SESSION_NODE_KIND || node.archived == null || typeof sessionId !== 'string' || sessionId === '' || seen.has(sessionId)) return false
+    if (node.kind !== SESSION_NODE_KIND || !isArchived(node) || typeof sessionId !== 'string' || sessionId === '' || seen.has(sessionId)) return false
     seen.add(sessionId)
     return true
   })
@@ -93,13 +93,16 @@ function timeOf(iso: string | undefined): number | null {
 /**
  * The Project's archive, grouped by Binding. `bindings` has each Session's target by Session id;
  * a Session it does not name is without a Binding, unless `known` says its Binding is not known
- * yet: then it is pending.
+ * yet: then it is pending. main accepts any non-negative archive time, a future one too (a clock
+ * set wrong, a Layout written on another machine): `archivedAt` is capped at `now`, so such a
+ * Session reads and sorts as archived just now instead of staying above the ones archived after it.
  */
 export function archiveList(
   layout: Layout,
   history: readonly ArchiveHistoryEntry[],
   bindings: ReadonlyMap<string, BindingTarget>,
   known: (sessionId: string) => boolean = () => true,
+  now: number = Date.now(),
 ): ArchiveList {
   const historyById = new Map(history.map((entry) => [entry.sessionId, entry]))
   const tickets = new Map<string, ArchivedSession[]>()
@@ -116,7 +119,7 @@ export function archiveList(
       nodeId: node.id,
       sessionId,
       title: recorded?.title ?? name ?? `Session ${sessionId.slice(0, 8)}`,
-      archivedAt: node.archived!.at,
+      archivedAt: Math.min(node.archived!.at, now),
       rule: node.archived!.rule,
       endedAt: timeOf(recorded?.lastAt),
       binding,
@@ -169,18 +172,15 @@ export function showPlace(size: { w: number; h: number }, spot: { x: number; y: 
 }
 
 /**
- * Restore: the archived ones of these Nodes come back, as one step of the history. The gesture is a
- * `moveMany` of the Nodes to where they stand, then one `restore`: the move changes nothing, but its
- * undo puts each Node back at that place after main moved it off a Node that took its place.
+ * Restore: the archived ones of these Nodes come back, as one step of the history. Its undo puts
+ * each Node back into the archive at the place it had, even when main moved it off a Node that
+ * took that place (history.ts, the inverse of `restore`).
  */
 export async function restoreSessions(ops: ArchiveOps, layout: Layout, nodeIds: readonly string[]): Promise<void> {
   const named = new Set(nodeIds)
-  const nodes = layout.nodes.filter((node) => named.has(node.id) && node.archived != null)
-  if (nodes.length === 0) return
-  await grouped(async (group) => {
-    await ops.apply({ op: 'moveMany', moves: nodes.map(({ id, x, y }) => ({ id, x, y })) }, group)
-    await ops.apply({ op: 'restore', ids: nodes.map((node) => node.id) }, group)
-  })
+  const ids = layout.nodes.filter((node) => named.has(node.id) && isArchived(node)).map((node) => node.id)
+  if (ids.length === 0) return
+  await ops.apply({ op: 'restore', ids })
 }
 
 /**
@@ -190,7 +190,8 @@ export async function restoreSessions(ops: ArchiveOps, layout: Layout, nodeIds: 
  */
 export async function showSession(ops: ArchiveOps, layout: Layout, nodeId: string, spot: { x: number; y: number } | undefined, keepOut: readonly Rect[]): Promise<void> {
   const node = layout.nodes.find((each) => each.id === nodeId)
-  if (node === undefined || spot === undefined) return restoreSessions(ops, layout, [nodeId])
+  if (node === undefined || !isArchived(node)) return
+  if (spot === undefined) return restoreSessions(ops, layout, [nodeId])
   const obstacles = [...layout.nodes.filter((each) => each.id !== nodeId && onThePlane(each)), ...keepOut]
   const place = showPlace(node, spot, obstacles)
   await grouped(async (group) => {

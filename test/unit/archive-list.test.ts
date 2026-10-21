@@ -1,13 +1,14 @@
 // The list of archived Session Nodes (src/renderer/canvas/archive-list.ts, worfy-canvas ticket 09):
 // grouped by Binding, newest first; where Show puts a Node; that Show and Restore go through the
-// Canvas's LayoutOps; and that a Restore sent through the history is one step whose undo archives
-// the Nodes again (src/renderer/canvas/history.ts, inverseOf).
+// Canvas's LayoutOps; and that Restore and Show sent through the history against main's store are
+// one step whose undo archives the Nodes again at their old place, with their rule, batch and time
+// (the shared inverse of `restore`, src/renderer/canvas/history.ts).
 import { describe, expect, it } from 'vitest'
 import type { BindingTarget } from '../../src/shared/binding/resolve'
 import type { Layout, LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 import { DEFAULT_VIEWPORT } from '../../src/shared/layout/types'
 import { archivedToday, archiveList, epicHistory, restoreSessions, searchArchive, showPlace, showSession, ticketHistory, type ArchiveOps } from '../../src/renderer/canvas/archive-list'
-import { applyRecorded, historyOf, inverseOf, resetHistories, type Group, type LayoutChannel, type Send } from '../../src/renderer/canvas/history'
+import { applyRecorded, historyOf, resetHistories, type Group, type LayoutChannel, type Send } from '../../src/renderer/canvas/history'
 import { LayoutStore } from '../../src/main/layout/store'
 
 const sessionNode = (sessionId: string, at: number | null, extra: Partial<LayoutNode> = {}): LayoutNode => ({
@@ -78,6 +79,14 @@ describe('archiveList', () => {
   it('orders each group by archived.at, newest first', () => {
     expect(ticketHistory(list, 'demo', 1).map((each) => each.archivedAt)).toEqual([300, 100])
     expect(list.unbound.map((each) => each.archivedAt)).toEqual([500, 50])
+  })
+
+  it('caps an archive time in the future at now: such a Session is archived just now, not above the later ones', () => {
+    const capped = archiveList(layoutOf(sessionNode('future', 9_000), sessionNode('recent', 900)), [], new Map(), () => true, 1_000)
+    expect(capped.unbound.map((each) => [each.sessionId, each.archivedAt])).toEqual([
+      ['future', 1_000],
+      ['recent', 900],
+    ])
   })
 
   it("shows a Session bound to a Ticket in its Epic's history too, with the Epic's own, newest first", () => {
@@ -153,22 +162,11 @@ function fakeOps(): { ops: ArchiveOps; sent: { op: LayoutOpInput; group: Group |
 }
 
 describe('Show and Restore go through LayoutOps', () => {
-  it('Restore is one gesture: the archived Nodes moved where they stand, then one restore of them all', async () => {
+  it('Restore is one restore of the archived ones of the named Nodes', async () => {
     const { ops, sent } = fakeOps()
     const layout = layoutOf({ ...sessionNode('a', 10), x: 5, y: 6 }, { ...sessionNode('b', 20), x: 7, y: 8 }, sessionNode('live', null))
     await restoreSessions(ops, layout, ['session:a', 'session:b', 'session:live', 'session:gone'])
-    expect(sent.map((each) => each.op)).toEqual([
-      {
-        op: 'moveMany',
-        moves: [
-          { id: 'session:a', x: 5, y: 6 },
-          { id: 'session:b', x: 7, y: 8 },
-        ],
-      },
-      { op: 'restore', ids: ['session:a', 'session:b'] },
-    ])
-    expect(sent[0]!.group).toBeDefined()
-    expect(sent[1]!.group).toBe(sent[0]!.group)
+    expect(sent.map((each) => each.op)).toEqual([{ op: 'restore', ids: ['session:a', 'session:b'] }])
   })
 
   it('Restore of Nodes none of which is archived sends nothing', async () => {
@@ -193,16 +191,20 @@ describe('Show and Restore go through LayoutOps', () => {
   it('Show without a spot only restores the Node, at its old place or the nearest clear one', async () => {
     const { ops, sent } = fakeOps()
     await showSession(ops, layoutOf(sessionNode('a', 10)), 'session:a', undefined, [])
-    expect(sent.map((each) => each.op)).toEqual([
-      { op: 'moveMany', moves: [{ id: 'session:a', x: 0, y: 0 }] },
-      { op: 'restore', ids: ['session:a'] },
-    ])
+    expect(sent.map((each) => each.op)).toEqual([{ op: 'restore', ids: ['session:a'] }])
+  })
+
+  it('Show of a Node that is no longer archived sends nothing: it does not move a Node on the Canvas', async () => {
+    const { ops, sent } = fakeOps()
+    await showSession(ops, layoutOf(sessionNode('live', null)), 'session:live', { x: 2000, y: 40 }, [])
+    expect(sent).toEqual([])
   })
 })
 
 describe('Restore and Show against the store of main, through the undo history', () => {
   const PROJECT = 'demo-0a1b2c3d'
-  /** An archived Session Node at (0, 0) and a Note that took its place since. */
+  const ARCHIVED_AT = 1_700_000_000_000
+  /** An archived Session Node at (0, 0), a second one at (600, 0) of another batch, and a Note that took the first one's place since. */
   function setup() {
     resetHistories()
     const store = new LayoutStore(() => '/nonexistent/worfy-test', { write: () => undefined, delayMs: 60_000 })
@@ -216,10 +218,12 @@ describe('Restore and Show against the store of main, through the undo history',
     const channel: LayoutChannel = { send, layout: () => store.get(PROJECT).layout }
     const ops: ArchiveOps = { apply: async (op, group) => void (await applyRecorded(PROJECT, op, channel, group)) }
     store.apply(PROJECT, { op: 'create', node: { id: 's1', kind: 'session', x: 0, y: 0, w: 200, h: 100, data: { sessionId: 'aaaa' } } })
-    store.apply(PROJECT, { op: 'archive', batch: 'b1', nodes: [{ id: 's1', rule: 'idle' }] })
+    store.apply(PROJECT, { op: 'create', node: { id: 's2', kind: 'session', x: 600, y: 0, w: 200, h: 100, data: { sessionId: 'bbbb' } } })
+    store.apply(PROJECT, { op: 'archive', batch: 'b1', nodes: [{ id: 's1', rule: 'idle', at: ARCHIVED_AT }] })
+    store.apply(PROJECT, { op: 'archive', batch: 'b2', nodes: [{ id: 's2', rule: 'ticket-done', at: ARCHIVED_AT + 5 }] })
     store.apply(PROJECT, { op: 'create', node: { id: 'n1', kind: 'note', x: 0, y: 0, w: 200, h: 100, data: {} } })
-    const s1 = () => store.get(PROJECT).layout.nodes.find((node) => node.id === 's1')!
-    return { store, ops, s1 }
+    const nodeOf = (id: string) => () => store.get(PROJECT).layout.nodes.find((node) => node.id === id)!
+    return { store, ops, s1: nodeOf('s1'), s2: nodeOf('s2') }
   }
 
   it('Restore puts the Node off the Note; ⌘Z archives it again at its old place; ⇧⌘Z restores it again', async () => {
@@ -229,7 +233,7 @@ describe('Restore and Show against the store of main, through the undo history',
     expect(s1().x === 0 && s1().y === 0).toBe(false)
     const restoredAt = { x: s1().x, y: s1().y }
     expect(await historyOf(PROJECT).undo()).toBe(true)
-    expect(s1()).toMatchObject({ x: 0, y: 0, archived: { rule: 'idle', batch: 'b1' } })
+    expect(s1()).toMatchObject({ x: 0, y: 0, archived: { rule: 'idle', batch: 'b1', at: ARCHIVED_AT } })
     expect(await historyOf(PROJECT).redo()).toBe(true)
     expect(s1()).toMatchObject({ ...restoredAt, archived: null })
   })
@@ -239,24 +243,16 @@ describe('Restore and Show against the store of main, through the undo history',
     await showSession(ops, store.get(PROJECT).layout, 's1', { x: 1000, y: 40 }, [])
     expect(s1()).toMatchObject({ x: 1000, y: 40, archived: null })
     expect(await historyOf(PROJECT).undo()).toBe(true)
-    expect(s1()).toMatchObject({ x: 0, y: 0, archived: { rule: 'idle' } })
-  })
-})
-
-describe('the undo of a Restore', () => {
-  it('archives the Nodes again with their rules', () => {
-    const layout = layoutOf(sessionNode('a', 10), { ...sessionNode('b', 20), archived: { at: 20, rule: 'ticket-done', batch: 'b20' } }, sessionNode('live', null))
-    expect(inverseOf(layout, { op: 'restore', ids: ['session:a', 'session:b', 'session:live'] })).toEqual({
-      op: 'archive',
-      batch: 'b10',
-      nodes: [
-        { id: 'session:a', rule: 'idle' },
-        { id: 'session:b', rule: 'ticket-done' },
-      ],
-    })
+    expect(s1()).toMatchObject({ x: 0, y: 0, archived: { rule: 'idle', batch: 'b1', at: ARCHIVED_AT } })
   })
 
-  it('records nothing when no named Node is archived', () => {
-    expect(inverseOf(layoutOf(sessionNode('live', null)), { op: 'restore', ids: ['session:live'] })).toBeUndefined()
+  it('Restore of several (Restore all from today) is one step; ⌘Z archives each again in its batch, at its place and time', async () => {
+    const { store, ops, s1, s2 } = setup()
+    await restoreSessions(ops, store.get(PROJECT).layout, ['s1', 's2'])
+    expect([s1().archived, s2().archived]).toEqual([null, null])
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    expect(s1()).toMatchObject({ x: 0, y: 0, archived: { rule: 'idle', batch: 'b1', at: ARCHIVED_AT } })
+    expect(s2()).toMatchObject({ x: 600, y: 0, archived: { rule: 'ticket-done', batch: 'b2', at: ARCHIVED_AT + 5 } })
+    expect(await historyOf(PROJECT).undo()).toBe(false)
   })
 })
