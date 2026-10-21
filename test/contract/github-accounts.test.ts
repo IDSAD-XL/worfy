@@ -7,8 +7,9 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { findOnPath } from '../../src/main/agent/env'
 import { parseAuthStatus, parseRemote, readGithubAccounts, signInCommand, signInRegistry, type FolderRepo } from '../../src/main/github/accounts'
 import { ghRunner } from '../../src/main/github/prs'
 import { runGit } from '../../src/main/projects/store'
@@ -261,8 +262,36 @@ describe('"Sign in with gh"', () => {
     const stub = 'C:\\fixtures\\gh\\gh-stub.mjs'
     const nodeExe = 'C:\\Program Files\\nodejs\\node.exe'
     const env = { PATH: 'C:\\Program Files\\nodejs;C:\\Windows\\System32' }
-    expect(signInCommand(stub, 'win32', env, (path) => path === nodeExe)).toEqual({ file: nodeExe, args: [stub, 'auth', 'login'] })
+    expect(signInCommand(stub, 'win32', env, (path) => path === nodeExe)).toEqual({ file: nodeExe, args: [stub, 'auth', 'login'], env: {} })
     expect(() => signInCommand(stub, 'win32', env, () => false)).toThrow('node.exe was not found in the Path')
+  })
+
+  it('a relative .mjs WORFY_GH is started by its absolute path: the terminal runs in another folder', () => {
+    const nodeExe = 'C:\\Program Files\\nodejs\\node.exe'
+    const env = { PATH: 'C:\\Program Files\\nodejs' }
+    const relative = join('test', 'fixtures', 'gh', 'gh-stub.mjs')
+    expect(signInCommand(relative, 'win32', env, (path) => path === nodeExe).args).toEqual([resolve(relative), 'auth', 'login'])
+    expect(signInCommand(relative, 'darwin').args).toEqual([resolve(relative), 'auth', 'login'])
+  })
+
+  it('a .mjs WORFY_GH off Windows: the pseudo-terminal gets ELECTRON_RUN_AS_NODE=1 on top of its own environment', async () => {
+    let started: { file: string; args: string[]; env: Record<string, string> } | undefined
+    const registry = signInRegistry(
+      { command: '/x/gh-stub.mjs', env: () => Promise.resolve({ PATH: '/usr/bin', GH_STUB_DIR: '/stub/dir', EMPTY: undefined }) },
+      (file, args, options) => {
+        started = { file, args, env: options.env }
+        throw new Error('not started in this test')
+      },
+      { platform: 'darwin' },
+    )
+    await Promise.resolve(registry.open('s3', { cwd: scratch, cols: 80, rows: 24 }, {}, { output: () => undefined, exit: () => undefined, started: () => undefined })).catch(() => undefined)
+    expect(started?.file).toBe(process.execPath)
+    expect(started?.args).toEqual(['/x/gh-stub.mjs', 'auth', 'login'])
+    expect(started?.env.ELECTRON_RUN_AS_NODE).toBe('1')
+    expect(started?.env.PATH).toBe('/usr/bin')
+    expect(started?.env.GH_STUB_DIR).toBe('/stub/dir')
+    expect(started?.env.TERM).toBe('xterm-256color')
+    await registry.closeAll()
   })
 
   it('on Windows a full-path WORFY_GH without an extension starts its .exe, and one that is not there fails with why', () => {
@@ -332,12 +361,11 @@ describe('"Sign in with gh"', () => {
     await registry.closeAll()
   })
 
-  // The two tests below start the gh stand-in in a real pseudo-terminal. They do not run on
-  // Windows: the stand-in there is gh-stub.mjs, which node-pty cannot start (it starts .exe files
-  // only), and running it under process.execPath gives it no terminal (the Electron executable is a
-  // GUI program). On Windows the command is covered by the tests above, and the sign-in itself by
-  // the owner's check of the installed build.
-  it.skipIf(process.platform === 'win32')('gh auth login in a real pseudo-terminal: worfy types nothing, the user\'s Enter signs in, the exit ends it and the new account is there', async () => {
+  // The two tests below start the gh stand-in in a real pseudo-terminal. On Windows the stand-in is
+  // gh-stub.mjs, and the sign-in starts it under node.exe of the Path (programStartInPty): without
+  // one there they cannot run.
+  const NO_NODE_EXE = process.platform === 'win32' && findOnPath('node', process.env) === null
+  it.skipIf(NO_NODE_EXE)('gh auth login in a real pseudo-terminal: worfy types nothing, the user\'s Enter signs in, the exit ends it and the new account is there', async () => {
     const gh = ghWorld(join(scratch, 'gh'), { accounts: [ALICE], login: { login: 'carol', token: 'gho_carol_SECRET_0004' } })
     const registry = signInRegistry({ command: gh.command, env: () => Promise.resolve({ ...process.env, GH_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_ENTERPRISE_TOKEN: undefined, GITHUB_ENTERPRISE_TOKEN: undefined, ...gh.env }) })
     let output = ''
@@ -358,7 +386,7 @@ describe('"Sign in with gh"', () => {
     await registry.closeAll()
   })
 
-  it.skipIf(process.platform === 'win32')('closing a sign-in that waits for its user ends gh', async () => {
+  it.skipIf(NO_NODE_EXE)('closing a sign-in that waits for its user ends gh', async () => {
     const gh = ghWorld(join(scratch, 'gh'), { accounts: [], login: { login: 'carol', token: 'gho_carol' } })
     const registry = signInRegistry({ command: gh.command, env: () => Promise.resolve({ ...process.env, GH_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_ENTERPRISE_TOKEN: undefined, GITHUB_ENTERPRISE_TOKEN: undefined, ...gh.env }) })
     let output = ''

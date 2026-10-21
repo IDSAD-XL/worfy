@@ -102,6 +102,19 @@ describe('TerminalRegistry without a spawn of its own: node-pty as the app start
     for (const exit of nodePty.exits) exit()
     await closed
   })
+
+  // "Sign in with gh" passes the registry a spawn of its own: gh must get the same console, or a gh
+  // that exits leaves its console host until worfy quits (ADR-0063).
+  it('on Windows the gh of "Sign in with gh" gets the console of the package too (useConptyDll)', async () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { signInRegistry } = await import('../../src/main/github/accounts')
+    const gh = 'C:\\stub\\gh.exe'
+    const registry = signInRegistry({ command: gh, env: winEnv }, undefined, { platform: 'win32', exists: (path) => path === gh })
+    await registry.open('g', OPEN, {}, SINK)
+    expect(nodePty.calls.map((call) => [call.file, call.args, call.options.useConptyDll])).toEqual([[gh, ['auth', 'login'], true]])
+    await registry.closeAll()
+  })
 })
 
 // worfy-windows ticket 22, review of PR #280. On the console of the node-pty package the exit

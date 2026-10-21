@@ -1,9 +1,10 @@
 // What worfy starts for a program an override variable may name in its place (src/main/program.ts):
 // a `.mjs` override is a Node script and runs under worfy's own Node; any other override, and the
-// usual program when nothing overrides it, start as they are. The same on every system.
+// usual program when nothing overrides it, start as they are. The same on every system. In a
+// pseudo-terminal on Windows a `.mjs` override runs under node.exe of the terminal's Path instead.
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { programStart } from '../../src/main/program'
+import { programStart, programStartInPty } from '../../src/main/program'
 
 const NODE = '/Applications/worfy.app/Contents/MacOS/worfy'
 
@@ -30,5 +31,39 @@ describe('programStart', () => {
   it('without an override the usual program starts as it is, whatever its name', () => {
     expect(programStart(undefined, 'gh', NODE)).toEqual({ file: 'gh', args: [], env: {} })
     expect(programStart(undefined, '/bundled/claude.mjs', NODE)).toEqual({ file: '/bundled/claude.mjs', args: [], env: {} })
+  })
+})
+
+describe('programStartInPty', () => {
+  const NODE_EXE = 'C:\\Program Files\\nodejs\\node.exe'
+  const WIN_ENV = { Path: 'C:\\Windows\\System32;C:\\Program Files\\nodejs' }
+  const onlyNode = (path: string): boolean => path === NODE_EXE
+
+  it('off Windows is programStart: a .mjs override runs under worfy\'s own Node', () => {
+    expect(programStartInPty('/repo/gh-stub.mjs', 'gh', { platform: 'darwin', execPath: NODE })).toEqual({ file: NODE, args: ['/repo/gh-stub.mjs'], env: { ELECTRON_RUN_AS_NODE: '1' } })
+    expect(programStartInPty(join('test', 'gh-stub.mjs'), 'gh', { platform: 'linux', execPath: NODE }).args).toEqual([resolve('test', 'gh-stub.mjs')])
+  })
+
+  it('on Windows a .mjs override runs under node.exe of the Path of the terminal, with no variable added', () => {
+    const script = 'C:\\repo\\test\\fixtures\\gh\\gh-stub.mjs'
+    expect(programStartInPty(script, 'gh', { platform: 'win32', env: WIN_ENV, exists: onlyNode, execPath: NODE })).toEqual({ file: NODE_EXE, args: [script], env: {} })
+  })
+
+  it('on Windows a relative .mjs override is resolved against worfy\'s own folder, not the terminal\'s', () => {
+    const start = programStartInPty(join('test', 'fixtures', 'gh', 'gh-stub.mjs'), 'gh', { platform: 'win32', env: WIN_ENV, exists: onlyNode })
+    expect(start.args).toEqual([resolve('test', 'fixtures', 'gh', 'gh-stub.mjs')])
+  })
+
+  it('on Windows without node.exe in the Path a .mjs override starts nothing and says why', () => {
+    expect(() => programStartInPty('C:\\stub\\gh.mjs', 'gh', { platform: 'win32', env: WIN_ENV, exists: () => false })).toThrow(
+      'node.exe was not found in the Path: a .mjs WORFY_GH (C:\\stub\\gh.mjs) needs it on Windows',
+    )
+  })
+
+  it('on Windows any other override, and no override, come back as they are', () => {
+    for (const override of ['gh', 'C:\\Program Files\\GitHub CLI\\gh.exe', 'C:\\stub\\gh.js']) {
+      expect(programStartInPty(override, 'gh', { platform: 'win32', env: WIN_ENV, exists: () => true })).toEqual({ file: override, args: [], env: {} })
+    }
+    expect(programStartInPty(undefined, 'gh', { platform: 'win32', env: WIN_ENV, exists: () => true })).toEqual({ file: 'gh', args: [], env: {} })
   })
 })
