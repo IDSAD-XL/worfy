@@ -1,7 +1,7 @@
 # 64 — `gate-resolve.mjs` получает изменённые пути построчно и обрезает их
 
 Type: bug
-Status: open
+Status: claimed 2026-10-21T18:30Z
 Blocked by: 62
 Source: ревью PR #702 (worfy-harness 62), линза корректности, 2026-10-21 — находка вне diff-а, low; implementer 62
 заметил то же.
