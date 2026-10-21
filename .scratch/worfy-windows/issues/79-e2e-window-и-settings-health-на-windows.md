@@ -1,7 +1,8 @@
 # 79 — e2e `window.spec.ts` и `settings-health.spec.ts` падают на Windows
 
 Type: task
-Status: claimed 2026-10-21T06:04Z
+Status: done 2026-10-21T06:15Z
+PR: #665
 Branch: worfy-windows/79-e2e-windows
 Blocked by: —
 Source: прогон PR #661 на ПК владельца 2026-10-21; те же 5 падений на main `85cec301`; Session на Mac
