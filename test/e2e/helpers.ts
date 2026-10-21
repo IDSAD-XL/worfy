@@ -36,6 +36,14 @@ const PID_TIMEOUT_MS = 5_000
  */
 export const NO_WINDOW_RESTORE = ['-ApplePersistenceIgnoreState', 'YES']
 
+/**
+ * The app's system language for the tests: English. app.getLocale() gives the default reports
+ * language of "Add project" (src/main/ipc/projects.ts), and the specs expect `en`; on a machine whose
+ * Windows is in Russian it was `ru` (worfy-windows ticket 82). Chromium's --lang sets the locale on
+ * Windows and Linux; macOS ignores it and keeps the system's own.
+ */
+export const ENGLISH_LOCALE = ['--lang=en-US']
+
 /** Names of the attachments a failing test keeps (see FailureArtifactsReporter below). */
 export const APP_TRACE = 'app-trace'
 export const APP_SCREENSHOT = 'app-screenshot'
@@ -143,8 +151,8 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
     // and version are worfy's own, not Electron's.
     app = await _electron.launch(
       executablePath === undefined
-        ? { args: [repoRoot, ...NO_WINDOW_RESTORE], cwd: repoRoot, env }
-        : { executablePath, args: NO_WINDOW_RESTORE, env },
+        ? { args: [repoRoot, ...NO_WINDOW_RESTORE, ...ENGLISH_LOCALE], cwd: repoRoot, env }
+        : { executablePath, args: [...NO_WINDOW_RESTORE, ...ENGLISH_LOCALE], env },
     )
   } catch (error) {
     await cleanDirs()
