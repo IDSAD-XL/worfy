@@ -1,7 +1,8 @@
 # 17 — e2e в несколько worker-ов Playwright: последовательный e2e больше не 73 % gate full
 
 Type: task
-Status: claimed 2026-10-21T02:44Z
+Status: done 2026-10-21T04:14Z
+PR: #655
 Branch: worfy-throughput/17
 Blocked by: —
 Source: замер Ticket-а [10](10-время-шагов-gate-и-test-файлов.md) после Ticket-а [16](16-shell-test-ы-harness-параллельно.md)
@@ -114,3 +115,14 @@ retries — 0, поэтому любой нестабильный test был б
 
 **Windows (ADR-0056).** Вердикт не нужен: на Windows `workers` остаётся 1, `test:package` с `--workers=1` совпадает
 с прежним значением по умолчанию; на ПК ничего не меняется.
+
+**Merge и gate full (2026-10-21).** PR #655, merge `f644b3ac` (head `c2301e27`). Review — 1 круг (корректность и
+тесты, medium): should fix — `full-macos` на GitHub получал бы 3 worker-а, исправлено условием
+`!process.env.CI`; два nit — исправлены. gate full на Mac (Session «Worfy продолжение») — на `d514a7aa`, слитом с
+`main` `93118978`: lint, typecheck, `test:e2e`, `test:package` green; `pnpm test` красный на двух timeout-ах 15 s в
+`harness-evals.test.ts` (в списке известных flaky test-ов, Mac под нагрузкой трёх implementer-ов), повтор шага
+`pnpm test` на том же дереве — exit 0, 7378 passed. Разница `d514a7aa..c2301e27` — только условие `!process.env.CI`,
+комментарий и текст ticket-а; на Mac `CI` не задан, поведение то же, поэтому merge без повторного gate.
+Конфиг без флага `--workers` в этом gate: e2e 211,6 s (88 файлов, 3 worker-а; было 565,3 s), vitest 176,3 s (под
+нагрузкой; обычно около 135 s), `test:package` 25,0 s, весь gate full — 501 s wall (было около 780 s). Число для
+Mac без нагрузки — из следующих gate full на новом `main`.
