@@ -19,6 +19,27 @@ import { describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 import { build, checkTarget, dir, head, installerDir, installStable, junction, leftoverName, links, local, onDisk, registrations, REMOVE_ROUNDS, REPO, run, stamp, targetIn, useStandInBuild, WIN_HOME, WINDOWS } from './install-stable-harness'
 
+/**
+ * macOS: waits until `ps` lists the process under `program`. Node's 'spawn' event fires once the
+ * child is forked, which can be before it has executed `program`: until then `ps` shows the node
+ * binary, and a run of the script that looks at that moment sees no running copy. Under a loaded
+ * gate that window was wide enough to turn the refusal tests red.
+ */
+const waitUntilListed = (pid: number | undefined, program: string): void => {
+  const deadline = Date.now() + 10_000
+  for (;;) {
+    let command = ''
+    try {
+      command = execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' }).trim()
+    } catch {
+      // No such process yet, or already gone: try again until the deadline.
+    }
+    if (command.startsWith(program)) return
+    if (Date.now() > deadline) throw new Error(`ps never listed ${program} as pid ${pid}; last seen: ${command || 'nothing'}`)
+    execFileSync('sleep', ['0.05'])
+  }
+}
+
 // The script itself. Its build is a stand-in folder that has what the script looks for on either
 // system, and every folder it may write to is a temporary one.
 describe('scripts/install-stable.mjs, run over a stand-in build', () => {
@@ -576,6 +597,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
           child.once('spawn', resolve)
           child.once('error', reject)
         })
+        waitUntilListed(child.pid, program)
         // The build is not one: a run that looked at it first would say so.
         const refused = run([target], { WORFY_STABLE_PREBUILT: join(dir, 'no-such-build') })
         expect(refused.status).not.toBe(0)
@@ -616,6 +638,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
         mkdirSync(join(repo, 'dist', 'mac-arm64', 'worfy.app', 'Contents'), { recursive: true })
         writeFileSync(join(repo, 'dist', 'mac-arm64', 'worfy.app', 'Contents', 'Info.plist'), 'not a real plist')
         child = spawn(program, ['60'], { stdio: 'ignore' })
+        waitUntilListed(child.pid, program)
       }
       try {
         expect(() => installStable([target], { env, repo, build })).toThrow(`the stable copy at ${target} is running`)
