@@ -157,8 +157,8 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
   // When the pause ends, linking opens again by itself: the window asks main once more and shows the code.
   // Timers stand still while the Mac sleeps, so main may end the pause first: its next state has no
   // pause and no code, cancels the timer, and linking opens from here instead.
-  // main may answer that call with the same pause (its clock a moment behind): every answer counts as
-  // an ask, so the timer is set again, never sooner than PAUSE_RECHECK_MS, and main is not asked in a loop.
+  // main may answer that call with the same pause (its clock a moment behind): every answer that is not
+  // an error counts as an ask, so the timer is set again, never sooner than PAUSE_RECHECK_MS, and main is not asked in a loop.
   const wasPaused = useRef(false)
   const [asks, setAsks] = useState(0)
   const shownCode = linking?.code ?? null
@@ -168,7 +168,8 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
       const ask = (): void =>
         void openLinking().then((error) => {
           setOpenError(error)
-          setAsks((count) => count + 1)
+          // A failed call is shown once: asking again would only repeat it and restart main's discovery.
+          if (error === undefined) setAsks((count) => count + 1)
         })
       const timer = setTimeout(ask, Math.max(PAUSE_RECHECK_MS, pausedUntil - Date.now()))
       return () => clearTimeout(timer)

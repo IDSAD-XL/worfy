@@ -24,9 +24,10 @@ const linkState = (linking: Partial<LinkState['linking']>): LinkState => ({
 
 /**
  * This Machine's preload: `link.state` answers `link`, each `link.open` the next of `opens` (the last
- * one again); `push` sends a state as main's `link.changed` broadcast does.
+ * one again), an `{ error }` entry as a failed call; `push` sends a state as main's `link.changed`
+ * broadcast does.
  */
-function preload(link: LinkState, opens: LinkState[] = [link]): { opened: () => number; push: (state: LinkState) => void } {
+function preload(link: LinkState, opens: (LinkState | { error: string })[] = [link]): { opened: () => number; push: (state: LinkState) => void } {
   let opened = 0
   const handlers: ((payload: unknown) => void)[] = []
   const bridge: WorfyBridge = {
@@ -35,6 +36,7 @@ function preload(link: LinkState, opens: LinkState[] = [link]): { opened: () => 
       if (channel === 'link.open') {
         const value = opens[Math.min(opened, opens.length - 1)]
         opened += 1
+        if (value !== undefined && 'error' in value) return Promise.resolve({ ok: false, error: value.error } as never)
         return Promise.resolve({ ok: true, value } as never)
       }
       return new Promise(() => undefined)
@@ -172,4 +174,23 @@ it('asks main again, once a second, while it answers the end-of-pause call with 
   expect(screen.queryByTestId('link-paused')).toBeNull()
   await act(() => vi.advanceTimersByTimeAsync(10 * 60_000))
   expect(main.opened()).toBe(3)
+})
+
+it('does not ask main again when the end-of-pause call fails, and shows the error once', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  vi.setSystemTime(new Date(2026, 9, 21, 14, 0))
+  const until = Date.now() + 5 * 60_000
+  const paused = linkState({ pausedUntil: until })
+  const main = preload(paused, [paused, { error: 'link is not running' }])
+  const { LinkMachineDialog } = await import('../../src/renderer/machines/LinkMachineDialog')
+  render(<LinkMachineDialog onClose={() => undefined} />)
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  expect(main.opened()).toBe(1)
+  await act(() => vi.advanceTimersByTimeAsync(until - Date.now()))
+  expect(main.opened()).toBe(2)
+  expect(screen.getByTestId('link-problem').textContent).toBe('link is not running')
+  // The pause stays in the window's state: each new ask would start main's discovery once more.
+  await act(() => vi.advanceTimersByTimeAsync(10_000))
+  expect(main.opened()).toBe(2)
+  expect(screen.getByTestId('link-problem').textContent).toBe('link is not running')
 })
