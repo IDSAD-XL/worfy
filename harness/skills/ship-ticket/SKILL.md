@@ -1,6 +1,6 @@
 ---
 name: ship-ticket
-description: Carry one ticket of any registered project from claim to the finish its profile declares — worktree or main checkout, reserved ADR/migration numbers, failing test first, bare verification runs, review agents, then PR + green CI + merge + production check, or locally green checks. Project commands, paths, deploy and numbering come from `${CLAUDE_PLUGIN_ROOT}/bin/profile`. Use when starting or resuming work on a ticket from the project's ticket folder (`tickets.path`, e.g. .scratch/<эпик>/issues/), when running a wave of them, or when reviewing a PR another session or person wrote ("review #237 — low").
+description: Carry one ticket of any registered project from claim to the finish its profile declares — worktree or main checkout, reserved ADR/migration numbers, failing test first, bare verification runs, review agents, then PR + green CI + merge + production check, or locally green checks. Project commands, paths, deploy and numbering come from `${CLAUDE_PLUGIN_ROOT}/bin/profile`. Use when starting or resuming work on a ticket from the project's ticket folder (`tickets.path`, e.g. .scratch/<epic>/issues/), when running a wave of them, or when reviewing a PR another session or person wrote ("review #237 — low").
 ---
 
 # Carry a ticket from claim to finish
@@ -19,9 +19,9 @@ where the work happens; `F <field>` is short for
 Schema-1 profiles may still carry such values; they point into the frozen pre-plugin Harness, so run
 the plugin's copy instead. The Harness's own scripts — `ticket`, `epic-status`, `preflight` — are
 not profile facts: they are always called from `${CLAUDE_PLUGIN_ROOT}/bin/`. A bare skill name in `workflow.ticket_skill` (`ship-ticket`) means
-`/worfy:ship-ticket`. Placeholders inside profile values (`<эпик>` — the epic, `<NN>` — the ticket
-number, `<slug>`, `<ветка>` — the branch, `<имя-тикета>` — `<NN>-<slug>`, `<что-ревьюишь>` — what
-is reviewed, `<файл>` — a test file) are part of the profile contract: substitute them as written.
+`/worfy:ship-ticket`. Placeholders inside profile values (`<epic>` — the epic, `<NN>` — the ticket
+number, `<slug>`, `<branch>` — the branch, `<ticket-name>` — `<NN>-<slug>`, `<review-target>` — what
+is reviewed, `<file>` — a test file) are part of the profile contract: substitute them as written.
 
 ## 0. Profile
 
@@ -163,10 +163,10 @@ if "${CLAUDE_PLUGIN_ROOT}/bin/silent-check" -C <repo> "$b"; then          # prin
 else echo "RENAME: the branch name carries a trace of the workflow"; fi
 ```
 
-`<ветка>` in the templates below is then `$b`.
+`<branch>` in the templates below is then `$b`.
 
 **`parallel: worktrees`.** Work from your own worktree from the first minute (`F worktree.implementer`,
-where `<ветка>` = `F tickets.branch` (Silent mode: the branch above), `<имя-тикета>` = `<NN>-<slug>`, and `<эпик>`, `<NN>`, `<slug>`
+where `<branch>` = `F tickets.branch` (Silent mode: the branch above), `<ticket-name>` = `<NN>-<slug>`, and `<epic>`, `<NN>`, `<slug>`
 in the templates come from the ticket; root `F worktree.root`, base `F worktree.base`): the checkout
 is shared with other sessions, and the last write wins. Right after `git worktree add` —
 `EnterWorktree` with the `path` of that worktree: the PreToolUse check on Edit and Write lets edits
@@ -202,7 +202,7 @@ ADR number and a broken migration order are caught later by `F numbering.adr.che
 ## 4. Failing test first
 
 ```bash
-<F commands.test_one>        # placeholder <файл>
+<F commands.test_one>        # placeholder <file>
 ```
 
 Make sure the test is red, and only then fix. What must be running for the tests —
@@ -422,7 +422,7 @@ SHA.
 the start:
 
 ```bash
-<F worktree.reviewer>                 # <что-ревьюишь> = <lens>-<NN>, <ветка> — the ticket's branch
+<F worktree.reviewer>                 # <review-target> = <lens>-<NN>, <branch> — the ticket's branch
 (cd <worktree> && <F commands.prepare_tree>)
 git worktree remove <worktree>        # after the verdict; a "dirty" refusal means the reviewer left changes — look, no --force
 ```
@@ -811,7 +811,7 @@ field the review of such a PR always has a depth, by what the PR changes
 - `max` depth only when the owner asks for it.
 
 The reviewers work in their own worktrees on the PR's head (`git -C <repo> fetch origin
-<headRefName>`, then `F worktree.reviewer` with `<ветка>` = `origin/<headRefName>`), with the
+<headRefName>`, then `F worktree.reviewer` with `<branch>` = `origin/<headRefName>`), with the
 briefs, the four groups of findings and the exchange with the reviewers of step 7. A repeat round
 checks the author's rework the way step 7 says for a repeat review.
 

@@ -97,7 +97,7 @@ check "ship-ticket step 8 holds the gh run watch block (agents cite it)" bash -c
 st4="$(awk '/^## 4\./{p=1; next} /^## /{p=0} p' "$ST")"
 want4='
 ```bash
-<F commands.test_one>        # placeholder <файл>
+<F commands.test_one>        # placeholder <file>
 ```
 
 Make sure the test is red, and only then fix. What must be running for the tests —
@@ -311,7 +311,7 @@ check "ship-ticket: no isolation: worktree path for an outside root" lacks "$ST"
 check "epic-wave: an outside root is not supported yet" has "$EW" 'is not supported yet. The plugin registers'
 check "epic-wave: no isolation: worktree for implementers" lacks "$EW" 'start each implementer with'
 check "implementer: an outside root is a false premise" has "$IM" 'hook that would put you there. It is a false premise of the brief'
-check "implementer: no rename of a hook-made branch" lacks "$IM" 'git branch -m <ветка>'
+check "implementer: no rename of a hook-made branch" lacks "$IM" 'git branch -m <branch>'
 check "implementer: the outside-root exception comes before the create-a-tree rule" eval '[ "$(grep -n -m1 -F "**\`worktree.root\` outside the repository**" "$IM" | cut -d: -f1)" -lt "$(grep -n -m1 -F "**First of all, create a working tree" "$IM" | cut -d: -f1)" ]'
 WC="${WORKTREE_CREATE_FILE:-$HARNESS/hooks/worktree-create.sh}"
 check "worktree-create.sh says it is not registered" has "$WC" '# NOT REGISTERED. hooks.json does not run this script'
@@ -526,8 +526,6 @@ done
 ALLOWED=(
     # The old Autopilot forms and the Russian request, which the skill still accepts.
     'Ticket-ы NN, NN эпика X' 'волна N эпика X' 'прогони волну N эпика X'
-    # Placeholders in profile values (schema 1).
-    '<эпик>' '<ветка>' '<имя-тикета>' '<что-ревьюишь>' '<файл>' '<база>'
     # Section names of worfy's Project documents and examples of what an agent writes there.
     '## Где в коде' '## Итог' 'Готово, когда' 'Ждёт владельца' 'Волны'
     'решено без владельца, подтвердить' 'не проверено: …' 'узкий круг листовому Ticket-у — решение владельца'

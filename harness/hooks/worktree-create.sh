@@ -24,7 +24,7 @@
 #
 # - The project's profile (bin/profile -C <cwd>) has `worktree.root` outside the repository and a
 #   `worktree.implementer` template: the template runs from the repository's main checkout with
-#   <NN> and the ticket-name placeholder = <name>, the branch placeholder = worktree-<name>; the tree it adds is the answer. The
+#   <NN> and <ticket-name> = <name>, <branch> = worktree-<name>; the tree it adds is the answer. The
 #   implementer renames the branch to the ticket's branch in its tree (`git branch -m`).
 # - Anything else (no profile, `worktree.root` inside the repository or empty, no template): only the
 #   location Claude Code uses without a hook — `<repository>/.claude/worktrees/<name>` on a new branch
@@ -74,7 +74,7 @@ if [ -n "$root" ] && [ -n "$tmpl" ] && [ "${root#/}" != "$root" ]; then
 fi
 
 if [ -n "$outside" ]; then
-    cmd="${tmpl//<NN>/$name}"; cmd="${cmd//<имя-тикета>/$name}"; cmd="${cmd//<ветка>/worktree-$name}"
+    cmd="${tmpl//<NN>/$name}"; cmd="${cmd//<ticket-name>/$name}"; cmd="${cmd//<branch>/worktree-$name}"
     case "$cmd" in *'<'*'>'*) echo "worktree-create: unknown placeholder left in worktree.implementer: $cmd" >&2; exit 1 ;; esac
     before="$(trees)"
     mkdir -p "$root" || exit 1

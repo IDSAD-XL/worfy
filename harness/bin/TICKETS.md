@@ -6,14 +6,14 @@ The language of `epic-status`, `epic-board` and `ticket`. It lives here, not in 
 process, not of the product.
 
 **Ticket**
-A unit of work. The file `<repo>/.scratch/<эпик>/issues/NN-slug.md`.
+A unit of work. The file `<repo>/.scratch/<epic>/issues/NN-slug.md`.
 A ticket's identity is the pair `(epic, number)`; the slug is not part of it, so renaming the file
 in a branch does not create a second ticket. Two files with one number in one epic are not a
 duplicate ticket but a data error: two places took one number.
 _Avoid:_ issue, task
 
 **Epic**
-The ticket folder `.scratch/<эпик>/`, sometimes with a `spec.md` or `map.md`. Not the same as a
+The ticket folder `.scratch/<epic>/`, sometimes with a `spec.md` or `map.md`. Not the same as a
 product epic: it is the folder that holds a coherent batch of work.
 
 **Header**

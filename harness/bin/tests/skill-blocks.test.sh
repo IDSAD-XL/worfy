@@ -106,7 +106,7 @@ done
 # Module test-list block: --include globs from tests.globs.
 B2="$(block 'grep -rslE')"
 [ -n "$B2" ] || bad "test-list block not found in $SKILL"
-B2="${B2//<package dir>/$R/apps/api}"; B2="${B2//<имя>/carts}"
+B2="${B2//<package dir>/$R/apps/api}"; B2="${B2//<name>/carts}"
 want="$(printf '%s\n' src/z.spec.ts test/carts.test.ts)"
 for sh in "${SHELLS[@]}"; do
     got="$(cd "$R" && $sh -c "$STUB"$'\n'"$B2" 2>&1 | sort)"
@@ -816,6 +816,22 @@ for f in "$SHIP" "$WAVE"; do
             || bad "$sh: $(basename "$(dirname "$f")"): worktree of a missing branch: got $got"
     done
 done
+
+# --- skills/epic-wave, "Open PRs of other epics": the branch template turned into a regex -----------------
+# The `re=` line of the block, with the epic put in as the skill says, under a stub F that prints the
+# template. (Old Russian placeholders never reach the block: bin/profile prints them in English.)
+RE_LINE="$(SKILL="$WAVE" blockf 'F tickets.branch | sed' | grep '^re=')"
+[ -n "$RE_LINE" ] || bad "the tickets.branch regex line not found in $WAVE"
+RE_LINE="${RE_LINE//<epic>/pay-flow}"
+while IFS='|' read -r tmpl want; do
+    for sh in "${SHELLS[@]}"; do
+        got="$(TMPL="$tmpl" $sh -c 'F() { printf "%s\n" "$TMPL"; }'$'\n'"$RE_LINE"$'\n''printf "%s" "$re"' 2>&1)"
+        [ "$got" = "$want" ] && ok "$sh: epic-wave branch regex: $tmpl -> $want" || bad "$sh: epic-wave branch regex: $tmpl -> [$got], want [$want]"
+    done
+done <<'EOF'
+<epic>/<NN>|pay-flow/[0-9]+
+<epic>/<NN>-<slug>|pay-flow/[0-9]+-.+
+EOF
 
 [ -s "$CHANGED" ] && bad "blocks that Claude Code changes when the skill is called with arguments (a \$N in the text):"$'\n'"$(cat "$CHANGED")" \
     || ok "every block checked here is the same text with and without the arguments [$SKILL_ARGS]"

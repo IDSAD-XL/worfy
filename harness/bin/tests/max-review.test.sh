@@ -44,8 +44,9 @@ check "max-review: edits nothing, merges nothing" has 'The mode edits nothing an
 check "max-review: one brief, stated intent" has 'State the intent of the branch in one paragraph before the reviewers start'
 
 # --- 2. Two lenses, the model field, the two models --------------------------------------------------
-check "max-review: lens correctness (with its Russian profile name)" has 'lens `correctness` (the worfy profile calls it `корректность`)'
-check "max-review: lens simplification (with its Russian profile name)" has 'lens `simplification` (`упрощение`)'
+check "max-review: two lenses of its own, not the profile's" has "Two lenses, the skill's own, whatever the profile's \`review.lenses\` call theirs:"
+check "max-review: lens correctness" has '- lens `correctness`: defects the branch ships'
+check "max-review: lens simplification" has '- lens `simplification`: what in the branch can be deleted, reused or made simpler'
 check "max-review: two models by the model field of the Agent call" has 'the `model` field of the Agent call that starts `worfy:reviewer`'
 check "max-review: the orchestrator's model — no model field" has "The first model is the orchestrator's own: start that reviewer without the \`model\` field"
 check "max-review: the second model is sonnet" has 'The second model is `sonnet`: `model: "sonnet"`.'
@@ -98,11 +99,9 @@ while IFS= read -r p; do
     [ -e "$HARNESS/$p" ] || missing="$missing $p"
 done < <(grep -oE '\$\{CLAUDE_PLUGIN_ROOT\}/[A-Za-z0-9._/-]+' "$MR" | sed 's|^${CLAUDE_PLUGIN_ROOT}/||; s|/$||' | sort -u)
 check "max-review: every \${CLAUDE_PLUGIN_ROOT}/ path exists in harness/ (missing:${missing:- none})" test -z "$missing"
-# Cyrillic only in the lens names of the profile and the profile placeholder of a reviewer worktree.
-ALLOWED=('`корректность`' '`упрощение`' '<что-ревьюишь>')
-left="$(perl -CSDA -e 'open my $fh, "<:encoding(UTF-8)", shift or die "$!\n"; local $/; my $t = <$fh>;
-    for my $a (@ARGV) { $t =~ s/\Q$a\E//g } print $t' "$MR" "${ALLOWED[@]}" | perl -CSD -ne 'print "$.: $_" if /\p{Cyrillic}/' | head -n 5)"
-check "max-review: no Cyrillic outside the lens names${left:+ — first: $left}" test -z "$left"
+# No Cyrillic: the lens names are the skill's own, the placeholder of a reviewer worktree is English.
+left="$(perl -CSD -ne 'print "$.: $_" if /\p{Cyrillic}/' "$MR" | head -n 5)"
+check "max-review: no Cyrillic${left:+ — first: $left}" test -z "$left"
 
 # --- 8. epic-wave, section 4: the call, the prefix, the three places, REJECTED -----------------------------
 s4="$(section "$EW" '4\.' | flat)"

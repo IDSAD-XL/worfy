@@ -564,7 +564,7 @@ describe('harness/evals: reviewer-simplification is the diff the case describes'
       'src/export.mjs',
       'test/export.test.mjs',
     ])
-    expect(readFileSync(join(EVALS, 'reviewer-simplification', 'prompt.md'), 'utf8')).toContain('одной линзой «упрощение»')
+    expect(readFileSync(join(EVALS, 'reviewer-simplification', 'prompt.md'), 'utf8')).toContain('одной линзой «simplification»')
 
     // The finding: durationText only passes its argument on to a helper the base branch already has.
     expect(git('show', 'origin/main:src/duration.mjs')).toContain('export function formatDuration(ms)')

@@ -35,6 +35,7 @@ const { execFileSync } = require("node:child_process")
 const { git: GIT, harnessHome } = require("../hooks/eval-env.cjs")
 // The rules of the Pipeline (workflow.pipeline), one copy for this reader and the writer bin/profile-set.
 const { resolvePipeline } = require("../lib/pipeline.cjs")
+const { englishPlaceholders, englishHeadings } = require("../lib/old-words.cjs")
 
 // os.homedir(): $HOME where it is set (macOS, Linux, Git Bash), %USERPROFILE% on Windows without it.
 const CLAUDE = path.join(os.homedir(), ".claude")
@@ -341,7 +342,7 @@ for (const k of ["team", "docs"]) if (typeof profile.language[k] !== "string" ||
 const HARNESS_PATHS = [
     ["tickets", "status_tool", `${BIN}/ticket`],
     ["tickets", "epic_status", `${BIN}/epic-status`],
-    ["workflow", "preflight", `${BIN}/preflight --epic <эпик>`],
+    ["workflow", "preflight", `${BIN}/preflight --epic <epic>`],
     ["numbering", "reserve_with", `${BIN}/preflight`],
 ]
 const LEGACY_BIN = ["~/.claude/bin/", path.join(CLAUDE, "bin") + path.sep] // schema 1
@@ -484,9 +485,13 @@ const resolved = {
     repos,
     pipeline,
 }
+// Placeholders in profile values and the headings of rules.md that agents look for are English
+// (profiles/README.md, "Placeholders"); the old Russian ones of profiles written before are printed in
+// the English form for one release (lib/old-words.cjs, shared with hooks/session-start.mjs).
+englishPlaceholders(profile)
 const full = { ...profile, _resolved: resolved }
 const rulesPath = path.join(dir, "rules.md")
-const rules = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, "utf8") : null
+const rules = fs.existsSync(rulesPath) ? englishHeadings(fs.readFileSync(rulesPath, "utf8")) : null
 
 // --- output -----------------------------------------------------------------------
 switch (mode) {

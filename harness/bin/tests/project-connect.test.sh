@@ -81,7 +81,7 @@ const profile = {
               build: null, verify: "npm run lint && npm test", prepare_tree: "npm ci", requires: [] },
   parallel: "worktrees",
   worktree: { root: matches[0] + "/.claude/worktrees/", base: "origin/main", implementer: null, reviewer: null },
-  tickets: { root: ".scratch/", path: ".scratch/<эпик>/issues/NN-*.md", trail_section: "## Where in the code", spec: ".scratch/<эпик>/spec.md", branch: null },
+  tickets: { root: ".scratch/", path: ".scratch/<epic>/issues/NN-*.md", trail_section: "## Where in the code", spec: ".scratch/<epic>/spec.md", branch: null },
   workflow: { folder: JSON.parse(folder), ticket_skill: "ship-ticket", implementer_steps: "steps 1-8", finish: "local-green", merge: "orchestrator" },
   numbering: null, deploy: null, github: { account: null }, docs: null, lessons: "repo:docs/lessons",
   mcp: { allowed: ["plugin_worfy_qmd", "worfy-canvas"] }, review: { lenses: ["correctness"], ticket_lenses: ["correctness"] },

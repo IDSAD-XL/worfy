@@ -276,6 +276,21 @@ git -C "$out" branch -m worktree-agent-a1 fix/agent-a1 2>/dev/null
     && ok "the hook's tree: the same profile, the implementer renames the branch, the repository stays clean" || bad "hook tree: $(git -C "$out" rev-parse --abbrev-ref HEAD)"
 out="$(wtc agent-a1 "$R")"; rc=$?
 [ "$rc" -ne 0 ] && [ -z "$out" ] && ok "WorktreeCreate: the template fails (the tree exists) — exit $rc, no path" || bad "WorktreeCreate repeat: exit $rc, out: $out"
+# The placeholders of worktree.implementer, <branch> and <ticket-name>: a stub profile prints the template
+# as written, so the hook's own substitution is what is tested. (Old Russian placeholders never reach the
+# hook: bin/profile prints them in English, profile.test.sh.)
+cat >"$T/wtc-profile" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in *worktree.root*) printf '%s\n' "$WTC_ROOT" ;; *worktree.implementer*) printf '%s\n' "$WTC_TMPL" ;; *) exit 4 ;; esac
+EOF
+chmod +x "$T/wtc-profile"
+tmpl="git worktree add -b <branch> $HARNESS_HOME/worktrees/sp/<ticket-name> main"
+out="$(printf '{"name":"ph-en","cwd":"%s","hook_event_name":"WorktreeCreate"}' "$R" \
+    | CLAUDE_PROFILE_BIN="$T/wtc-profile" WTC_ROOT="$HARNESS_HOME/worktrees/sp/" WTC_TMPL="$tmpl" "$WTC" 2>"$T/wtc.err")"; rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "$HARNESS_HOME/worktrees/sp/ph-en" ] && [ "$(git -C "$out" rev-parse --abbrev-ref HEAD 2>/dev/null)" = worktree-ph-en ] \
+    && ok "WorktreeCreate: the placeholders <branch>/<ticket-name> give <root><name> on worktree-<name>" \
+    || bad "WorktreeCreate placeholders: exit $rc, out: $out, err: $(head -c 300 "$T/wtc.err")"
+[ -d "$out" ] && git -C "$R" worktree remove --force "$out" && git -C "$R" branch -q -D worktree-ph-en
 fi
 out="$(wtc ../escape "$R")"; rc=$?
 [ "$rc" -ne 0 ] && [ -z "$out" ] && [ ! -e "$HARNESS_HOME/worktrees/escape" ] && ok "WorktreeCreate: a name with .. is refused" || bad "WorktreeCreate ../: exit $rc, out: $out"

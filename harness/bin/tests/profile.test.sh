@@ -246,11 +246,11 @@ H="$T/home" HH="$T/hh"
 BINREAL="$(cd "$BIN" && pwd -P)"
 BINOUT="$(printed "$BINREAL")" # the bin folder as profile prints it
 mkdir -p "$H/.claude/profiles" "$HH/projects" "$HH/gate" "$T/r"
-for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj langnum langarr langnull teamempty langblank teamnum docsempty; do git -C "$T/r" init -q -b main "$n"; done
+for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj langnum langarr langnull teamempty langblank teamnum docsempty phru phen; do git -C "$T/r" init -q -b main "$n"; done
 {
     printf '{"repos":['
     sep=""
-    for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj langnum langarr langnull teamempty langblank teamnum docsempty; do printf '%s{"key":"%s","match":"%s","profile":"%s"}' "$sep" "$n" "$T/r/$n" "$n"; sep=","; done
+    for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj langnum langarr langnull teamempty langblank teamnum docsempty phru phen; do printf '%s{"key":"%s","match":"%s","profile":"%s"}' "$sep" "$n" "$T/r/$n" "$n"; sep=","; done
     printf ']}\n'
 } >"$HH/gate/config.json"
 newp() { mkdir -p "$HH/projects/$1" && printf '%s\n' "$2" >"$HH/projects/$1/profile.json"; }
@@ -278,6 +278,14 @@ newp langnull '{"schema":2,"name":"langnull","mode":"full","language":null}'
 newp teamempty '{"schema":2,"name":"teamempty","mode":"full","language":{"team":"","docs":"ru"}}'
 newp langblank '{"schema":2,"name":"langblank","mode":"full","language":""}'
 newp teamnum '{"schema":2,"name":"teamnum","mode":"full","language":{"team":5,"docs":"ru"}}'
+# Placeholders in profile values: phen writes the English ones, phru the Russian ones of profiles written
+# before the release (Russian input on purpose: profile prints them in the English form for one release).
+PH_EN='"worktree":{"implementer":"git worktree add -b <branch> /w/<ticket-name> main","reviewer":"git worktree add /w/review-<review-target> --detach <branch>"},"tickets":{"branch":"<epic>/<NN>","path":".scratch/<epic>/issues/NN-*.md","spec":".scratch/<epic>/<epic>-spec.md"},"commands":{"test_one":"node --test <file>","package":{"test":"pnpm -C <package> test"}},"tests":{"new_file":{"apps/api":"<module-dir>/<name>.test.ts"}},"qmd":{"fallback_grep":[".scratch/<epic>/"]}'
+PH_RU='"worktree":{"implementer":"git worktree add -b <ветка> /w/<имя-тикета> main","reviewer":"git worktree add /w/review-<что-ревьюишь> --detach <ветка>"},"tickets":{"branch":"<эпик>/<NN>","path":".scratch/<эпик>/issues/NN-*.md","spec":".scratch/<эпик>/<эпик>-spec.md"},"commands":{"test_one":"node --test <файл>","package":{"test":"pnpm -C <пакет> test"}},"tests":{"new_file":{"apps/api":"<каталог модуля>/<имя>.test.ts"}},"qmd":{"fallback_grep":[".scratch/<эпик>/"]}'
+newp phen "{\"schema\":2,\"name\":\"phen\",\"mode\":\"full\",$PH_EN}"
+newp phru "{\"schema\":2,\"name\":\"phru\",\"mode\":\"full\",$PH_RU}"
+printf '# phru\n\n## Обязательное чтение исполнителя\n\n- docs/a.md\n\n## Ночной прогон и аудит\r\n\n- x\n\n## Ночной прогон и аудит (old)\n' >"$HH/projects/phru/rules.md"
+printf '# phru\n\n## Required reading for the implementer\n\n- docs/a.md\n\n## Overnight run and audit\r\n\n- x\n\n## Ночной прогон и аудит (old)\n' >"$HH/projects/phen/rules.md"
 newp docsempty '{"schema":2,"name":"docsempty","mode":"full","language":{"reports":"","team":"ru","docs":""}}'
 # Silent mode: a Workflow folder given with ~/, a relative one (broken), and a
 # project of two repositories without workflow.folder (the folder above them).
@@ -580,14 +588,37 @@ check "--field mcp.allowed absent -> 4" 4 "" "$P2" -C "$T/r/bare" --field mcp.al
 eq "schema 2: tickets.status_tool -> bin next to profile" "$BINOUT/ticket" "$P2" -C "$T/r/demo" --field tickets.status_tool
 eq "schema 2: tickets.epic_status -> bin next to profile" "$BINOUT/epic-status" "$P2" -C "$T/r/demo" --field tickets.epic_status
 eq "schema 2: numbering.reserve_with -> bin next to profile" "$BINOUT/preflight" "$P2" -C "$T/r/demo" --field numbering.reserve_with
-eq "schema 2: workflow.preflight -> bin next to profile" "$BINOUT/preflight --epic <эпик>" "$P2" -C "$T/r/demo" --field workflow.preflight
+eq "schema 2: workflow.preflight -> bin next to profile" "$BINOUT/preflight --epic <epic>" "$P2" -C "$T/r/demo" --field workflow.preflight
 eq "schema 2: without the fields: tickets.status_tool still answered" "$BINOUT/ticket" "$P2" -C "$T/r/bare" --field tickets.status_tool
 eq "schema 1: ~/.claude/bin/ticket -> the same path as v2" "$BINOUT/ticket" "$P2" -C "$T/r/legacy" --field tickets.status_tool
 eq "schema 1: ~/.claude/bin/epic-status -> bin next to profile" "$BINOUT/epic-status" "$P2" -C "$T/r/legacy" --field tickets.epic_status
-eq "schema 1: ~/.claude/bin/preflight --epic -> bin next to profile" "$BINOUT/preflight --epic <эпик>" "$P2" -C "$T/r/legacy" --field workflow.preflight
+eq "schema 1: ~/.claude/bin/preflight --epic -> bin next to profile, the placeholder in English" "$BINOUT/preflight --epic <epic>" "$P2" -C "$T/r/legacy" --field workflow.preflight
 eq "schema 1: null stays null" null "$P2" -C "$T/r/legacy" --field numbering.reserve_with
 eq "schema 1: <HOME>/.claude/bin/ticket -> bin next to profile" "$BINOUT/ticket" "$P2" -C "$T/r/absbin" --field tickets.status_tool
-eq "schema 1: <HOME>/.claude/bin/preflight --epic -> bin next to profile" "$BINOUT/preflight --epic <эпик>" "$P2" -C "$T/r/absbin" --field workflow.preflight
+eq "schema 1: <HOME>/.claude/bin/preflight --epic -> bin next to profile, the placeholder in English" "$BINOUT/preflight --epic <epic>" "$P2" -C "$T/r/absbin" --field workflow.preflight
+# Placeholders: the English ones are printed as written; the old Russian ones of the same profile print the same.
+while IFS='|' read -r f want; do
+    eq "placeholders: $f of English placeholders is printed as written" "$want" "$P2" -C "$T/r/phen" --field "$f"
+    eq "placeholders: $f of the old Russian placeholders prints the English form" "$want" "$P2" -C "$T/r/phru" --field "$f"
+done <<'EOF'
+worktree.implementer|git worktree add -b <branch> /w/<ticket-name> main
+worktree.reviewer|git worktree add /w/review-<review-target> --detach <branch>
+tickets.branch|<epic>/<NN>
+tickets.path|.scratch/<epic>/issues/NN-*.md
+tickets.spec|.scratch/<epic>/<epic>-spec.md
+commands.test_one|node --test <file>
+commands.package.test|pnpm -C <package> test
+EOF
+eq "placeholders: tests.new_file of the old Russian placeholders prints the English form" '{"apps/api":"<module-dir>/<name>.test.ts"}' \
+    bash -c '"$@" | node -e "console.log(JSON.stringify(JSON.parse(require(\"fs\").readFileSync(0,\"utf8\"))))"' _ "$P2" -C "$T/r/phru" --field tests.new_file
+eq "placeholders: --json of the old Russian placeholders equals the English one (apart from _resolved)" "$("$P2" -C "$T/r/phen" --json | node -e 'const p=JSON.parse(require("fs").readFileSync(0,"utf8")); delete p._resolved; delete p.name; console.log(JSON.stringify(p))')" \
+    bash -c '"$@" | node -e '"'"'const p=JSON.parse(require("fs").readFileSync(0,"utf8")); delete p._resolved; delete p.name; console.log(JSON.stringify(p))'"'"'' _ "$P2" -C "$T/r/phru" --json
+check "placeholders: the summary of the old Russian placeholders has no Russian placeholder" 0 "" bash -c 'o="$("$@")" && [[ "$o" == *"<ticket-name>"* && "$o" != *"<имя-тикета>"* && "$o" != *"<эпик>"* ]]' _ "$P2" -C "$T/r/phru"
+# rules.md headings: the old Russian headings read as the English ones (CRLF line kept as written); a heading
+# with more words after it (the overnight heading followed by "(old)") stays as written (Russian input on purpose).
+eq "rules.md: --rules prints the old Russian headings in English" "$("$P2" -C "$T/r/phen" --rules)" "$P2" -C "$T/r/phru" --rules
+check "rules.md: the summary prints the English heading" 0 "## Required reading for the implementer" "$P2" -C "$T/r/phru"
+check "rules.md: a heading with more words after it stays as written" 0 "" bash -c 'o="$("$@")" && [[ "$o" == *"## Ночной прогон и аудит (old)"* && "$o" != *"## Overnight run and audit (old)"* ]]' _ "$P2" -C "$T/r/phru" --rules
 fails_with "profile.json that is not an object -> 1 with the reason" 1 "not a JSON object" "$P2" -C "$T/r/notobj" --name
 check "schema 1: --json and briefing name no ~/.claude/bin" 0 "" bash -c 'o="$("$@" --json && "$@")" && [[ "$o" == *"$0"* && "$o" != *"~/.claude/bin"* ]]' "$(json_printed "$BINREAL")/ticket" "$P2" -C "$T/r/legacy"
 eq "schema 1: string language -> language.reports" ru "$P2" -C "$T/r/legacy" --field language.reports

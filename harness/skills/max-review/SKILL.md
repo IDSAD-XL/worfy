@@ -51,10 +51,10 @@ ask; in a wave without a human, take it from the ticket and say so in the report
 
 ## 3. The reviewers
 
-Two lenses:
-- lens `correctness` (the worfy profile calls it `корректность`): defects the branch ships —
+Two lenses, the skill's own, whatever the profile's `review.lenses` call theirs:
+- lens `correctness`: defects the branch ships —
   wrong behaviour, a broken local build or start, a leak past a feature flag, races, lost data;
-- lens `simplification` (`упрощение`): what in the branch can be deleted, reused or made simpler
+- lens `simplification`: what in the branch can be deleted, reused or made simpler
   while the behaviour stays; its rules are in agent `worfy:reviewer`, "Lens: simplification".
 
 By default each lens runs on two models, so four agents `worfy:reviewer` start in one message, in
@@ -70,7 +70,7 @@ different roles. The briefs of the two lenses differ only in the lens. A brief n
 - the branch, the base and the diff command `git diff <base>...<branch>`;
 - the intent paragraph (section 2) and the path to the ticket, when there is one;
 - the lens;
-- its own worktree, `F worktree.reviewer` with `<что-ревьюишь>` = `max-<NN>-<n>` (`<NN>` — the
+- its own worktree, `F worktree.reviewer` with `<review-target>` = `max-<NN>-<n>` (`<NN>` — the
   ticket's number, outside a wave the branch name with `/` replaced by `-`; `<n>` — 1 to 4). The four reviewers never share a tree:
   a reviewer runs the checks itself, and two runs in one tree spoil each other;
 - the rules every reviewer gets: read only, mutations only on copies in its own scratchpad

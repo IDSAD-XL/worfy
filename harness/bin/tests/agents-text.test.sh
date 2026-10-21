@@ -141,17 +141,13 @@ done
 sed -n '1,/^---$/{1d;/^---$/d;p;}' "$AGENTS/implementer.md" | grep -q '^tools:' && bad "implementer: got a tools: line" \
     || ok "implementer: no tools: line (all tools, as before)"
 
-# --- 7. Cyrillic only where other programs and files still expect it -------------------------
-# Profile placeholders and the Profile heading for the implementer's required reading
-# (Profile contract), and the name a Profile gives the lens "simplification". The gate
-# verdict lines are English and quoted as the gate prints them.
-ALLOWED=(
-    '<эпик>' '<ветка>' '<что-ревьюишь>' '## Обязательное чтение исполнителя'
-    'упрощение'
-)
+# --- 7. No Cyrillic in the agents -------------------------------------------------------------
+# Profile placeholders, the rules.md headings and the lens names are English or the project's own
+# (Profile contract); bin/profile prints the old Russian forms in English. The gate verdict lines are
+# English and quoted as the gate prints them.
 for a in $ALL; do
-    left="$(strip "$AGENTS/$a.md" "${ALLOWED[@]}" | perl -CSD -ne 'print "$.: $_" if /\p{Cyrillic}/')"
-    [ -z "$left" ] && ok "$a: Cyrillic only in the allowed strings" || bad "$a: Cyrillic outside the allowed strings:"$'\n'"$left"
+    left="$(perl -CSD -ne 'print "$.: $_" if /\p{Cyrillic}/' "$AGENTS/$a.md")"
+    [ -z "$left" ] && ok "$a: no Cyrillic" || bad "$a: Cyrillic:"$'\n'"$left"
 done
 for p in '`0` is green only if the output has `[gate] green (…)`' '`[gate] not verified: …` names the reason' \
     'with the line `[gate] nothing ran (…)` or `[gate] not verified — environment unavailable:`'; do
@@ -264,11 +260,10 @@ sentences() {
 sentences "$(section '## Lens descriptions')" "lens descriptions" <<'EOF'
 the general rules hold for every lens :: The rules above — the scope, the rules of evidence, the answer format — hold for every lens.
 a description adds what the lens looks for and leaves out :: A description below adds what its lens looks for and what it leaves out.
-a lens without a description is read by its name :: A lens that has no description here is read by its name.
+a description goes by the lens name :: A description applies to the lens of that name, whether a skill assigns it or the profile's `review.lenses` lists it; a lens that has no description here is read by its name.
 EOF
 LENS="$(section '### Lens: simplification')"
 sentences "$LENS" "lens simplification" <<'EOF'
-the profile's name of the lens :: The profile may name this lens `упрощение`: `упрощение` and `simplification` are one and the same lens.
 the question of the lens :: The question of the lens: what in the diff can be deleted, reused or made simpler while the behaviour stays the same. Look for:
 a restructuring that makes code disappear :: - **A restructuring that makes code disappear.** Another arrangement of the change, with the same behaviour, after which a branch, a mode, a layer or a wrapper is no longer needed. Complexity that only moves to another place does not count.
 thin wrappers and identity functions :: - **Thin wrappers and identity functions.** A function, a class or a type that only passes its input on and adds nothing: no check, no conversion, no clearer name for the caller.
@@ -483,7 +478,7 @@ fi
 
 # The Profile contract points at the descriptions (harness/profiles/README.md, the row of review.lenses).
 README="${PROFILES_README_FILE:-$AGENTS/../profiles/README.md}"
-LENSES_ROW='the project'"'"'s review lenses; the orchestrator gives each reviewer one. What a lens looks for is described in `agents/reviewer.md`, section "Lens descriptions"; a lens that has no description there is read by its name. The lens `simplification` described there may be named `упрощение` in a profile |'
+LENSES_ROW='the project'"'"'s review lenses; the orchestrator gives each reviewer one. What a lens looks for is described in `agents/reviewer.md`, section "Lens descriptions"; a description applies to the lens of the same name, and a lens that has no description there is read by its name |'
 if [ ! -f "$README" ]; then bad "profiles/README.md not found at $README"
 elif grep -F -- '| `review.lenses` | strings |' "$README" | grep -qF -- "$LENSES_ROW"; then ok "profiles/README.md: the row of review.lenses points at the lens descriptions"
 else bad "profiles/README.md: the row of review.lenses has no '$LENSES_ROW'"; fi

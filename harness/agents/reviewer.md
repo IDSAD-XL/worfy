@@ -20,7 +20,7 @@ Project documents, if the brief asks you to write one, are in `language.docs`.
 Reading profile values:
 - A Profile value that starts with `~/.claude/bin/` (schema 1) reads as `${CLAUDE_PLUGIN_ROOT}/bin/`
   followed by the rest.
-- Placeholders in profile values (`<ветка>` — branch, `<что-ревьюишь>` — what you review) are part
+- Placeholders in profile values (`<branch>` — branch, `<review-target>` — what you review) are part
   of the profile contract: substitute them, do not translate them.
 
 Exit code of `profile`:
@@ -211,8 +211,9 @@ process.
 ## Lens descriptions
 
 The rules above — the scope, the rules of evidence, the answer format — hold for every lens. A
-description below adds what its lens looks for and what it leaves out. A lens that has no
-description here is read by its name.
+description below adds what its lens looks for and what it leaves out. A description applies to the
+lens of that name, whether a skill assigns it or the profile's `review.lenses` lists it; a lens that
+has no description here is read by its name.
 
 ### Lens: implementer's report
 
@@ -238,9 +239,6 @@ whole answer stays within its 30 lines. What happens to the verdict — where it
 commit it marks — is the business of the skill that launched the review.
 
 ### Lens: simplification
-
-The profile may name this lens `упрощение`: `упрощение` and `simplification` are one and the same
-lens.
 
 The question of the lens: what in the diff can be deleted, reused or made simpler while the
 behaviour stays the same. Look for:
