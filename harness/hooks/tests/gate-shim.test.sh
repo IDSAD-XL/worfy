@@ -13,6 +13,10 @@
 #     verdict file in place of the one of the run before — through the hook command of
 #     hooks.json, after a green run; outside git it is silent and exits with 0; when the verdict
 #     file cannot be put in place, the file of the run before is removed;
+#   - no node anywhere, the profile argument: `--help` / `-h` and an unknown profile get the same
+#     exit code, stdout and stderr as from gate.mjs and leave nothing in the state folder; whether a
+#     profile is known is decided as gate.mjs decides it, on a table of registries (valid and broken
+#     JSON, duplicate keys, lists, escapes) and for each place the registry can be in;
 #   - its bash lines name the state folder and the worktree tag as gate-paths.mjs does: for a
 #     path with a space, one with Cyrillic letters and one reached through a symlink;
 #   - git has the file as executable: hooks.json starts it by its path.
@@ -37,6 +41,9 @@ trap 'rm -rf "$T"' EXIT
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
+# The test's own tr works on bytes: the outputs it cleans hold bytes that are not UTF-8 (a lone surrogate), and in a
+# UTF-8 locale BSD tr stops on them with "Illegal byte sequence". The scripts under test keep the caller's locale.
+tr() { LC_ALL=C command tr "$@"; }
 # The tag of a worktree, as the gate counts it: the first 8 hex digits of the SHA-1 of its path.
 # node, not shasum: Git Bash has shasum only where perl is on PATH.
 tag() { node -e 'process.stdout.write(require("node:crypto").createHash("sha1").update(process.argv[1]).digest("hex").slice(0, 8))' "$1"; }
@@ -133,8 +140,8 @@ NONODE="" why=""
 if [ "$WIN" -eq 1 ]; then NONODE="/usr/bin:/mingw64/bin"
 else
     mkdir -p "$T/bin"
-    for t in bash env git sha1sum shasum mkdir mktemp date mv rm cat dirname realpath sort; do
-        p="$(command -v "$t" 2>/dev/null)" && [ "${p#/}" != "$p" ] && ln -sf "$p" "$T/bin/$t"
+    for t in bash env git sha1sum shasum mkdir mktemp date mv rm cat dirname realpath sort awk tr wc; do
+        p="$(type -P "$t" 2>/dev/null)" && [ "${p#/}" != "$p" ] && ln -sf "$p" "$T/bin/$t"
     done
     NONODE="$T/bin"
 fi
@@ -340,6 +347,198 @@ if [ -z "$NONODE" ]; then echo "skip the checks of the launcher without node on 
         ln -s "$SPACE" "$T/link"
         agree "a path reached through a symlink" "$T/link" link harness
     fi
+
+    # --- 8. The profile argument without node ----------------------------------------------
+    # gate.mjs answers `--help`, `-h` and an unknown profile before it writes anything. The launcher
+    # without node must give the same answer: the same exit code, stdout and stderr, and no state
+    # folder. A profile is known as gate.mjs knows it: fast, full, or an own key of root or
+    # workspace in some entry of the registry; a registry that cannot be read says nothing against
+    # the name. Each case runs `node gate.mjs` and the launcher on a PATH without node, each with a
+    # state folder of its own that does not exist yet, and compares both with the expected answer.
+    n_args=0
+    # args_run <registry file or ""> <arguments…> [-- VAR=value…]: sets A (the folder of the case),
+    # rc_js and rc_sh; the outputs are in $A/{js,sh}.{out,err}, the state folders $A/state-{js,sh}.
+    # With ONLY_SH=1 gate.mjs is not run (rc_js is empty). RUN_IN is the folder both run in ($R by default).
+    args_run() {
+        local cfg="$1" prof=() envs=()
+        shift
+        while [ $# -gt 0 ] && [ "$1" != -- ]; do prof+=("$1"); shift; done
+        [ $# -gt 0 ] && shift
+        envs=(${1+"$@"})
+        n_args=$((n_args + 1))
+        A="$T/args-$n_args"
+        mkdir -p "$A/home"
+        rc_js=""
+        : >"$A/js.out"; : >"$A/js.err"
+        if [ "${ONLY_SH:-0}" -ne 1 ]; then
+            (cd "${RUN_IN:-$R}" && env HOME="$A/home" USERPROFILE="$A/home" CLAUDE_GATE_CONFIG="$cfg" CLAUDE_GATE_STATE="$A/state-js" GATE_SCOPE=all \
+                ${envs[@]+"${envs[@]}"} node "$GATE" ${prof[@]+"${prof[@]}"} </dev/null >"$A/js.out" 2>"$A/js.err"); rc_js=$?
+        fi
+        (cd "${RUN_IN:-$R}" && env HOME="$A/home" USERPROFILE="$A/home" CLAUDE_GATE_CONFIG="$cfg" CLAUDE_GATE_STATE="$A/state-sh" GATE_SCOPE=all \
+            ${envs[@]+"${envs[@]}"} PATH="$NONODE" "$BASH" "$LAUNCHER" ${prof[@]+"${prof[@]}"} </dev/null >"$A/sh.out" 2>"$A/sh.err"); rc_sh=$?
+    }
+    nocr() { tr -d '\r' <"$1"; }
+    args_detail() { echo "gate.mjs: rc=$rc_js, out: $(head -c 200 "$A/js.out"), err: $(head -c 200 "$A/js.err"); gate.sh: rc=$rc_sh, out: $(head -c 200 "$A/sh.out"), err: $(head -c 200 "$A/sh.err"); left: $(ls -A "$A" | tr '\n' ' ')"; }
+    # exact <description> <exit code> <out | err> <a line that stream must have>: both runs end with
+    # that code, print the same stdout and the same stderr, and make no state folder.
+    exact() {
+        if [ "$rc_js" -eq "$2" ] && [ "$rc_sh" -eq "$2" ] && [ "$(nocr "$A/js.out")" = "$(nocr "$A/sh.out")" ] \
+            && [ "$(nocr "$A/js.err")" = "$(nocr "$A/sh.err")" ] && nocr "$A/sh.$3" | grep -qxF -- "$4" \
+            && [ ! -e "$A/state-js" ] && [ ! -e "$A/state-sh" ]; then ok "$1"
+        else bad "$1 ($(args_detail))"; fi
+    }
+    ARGS_CFG="$T/args-config.json"
+    printf '{"repos":[{"key":"t","match":"%s","pm":"npm","root":{"p_custom":[]},"workspace":{"p_ws":[]}}]}\n' "$R" >"$ARGS_CFG"
+    USAGE_LINE='usage: node gate.mjs [<profile>]   profile: fast (the default), full, or a key of root or workspace in the gate registry'
+    for flag in --help -h; do
+        args_run "$ARGS_CFG" "$flag"
+        exact "without node, $flag: the usage on stdout, exit 0, no state folder, as gate.mjs" 0 out "$USAGE_LINE"
+    done
+    for name in nosuch --verbose toString __proto__; do
+        args_run "$ARGS_CFG" "$name"
+        exact "without node, unknown profile $name: exit 2, the same stderr as gate.mjs, no state folder" 2 err "[gate] unknown profile: $name"
+    done
+    args_run "$ARGS_CFG" nosuch extra
+    exact "without node, unknown profile with a second argument: exit 2, as gate.mjs" 2 err "[gate] unknown profile: nosuch"
+    # Outside git the argument is checked too: the silent exit 0 there comes after it.
+    RUN_IN="$T/none" args_run "$ARGS_CFG" --help
+    exact "without node, outside git, --help: the usage, exit 0, as gate.mjs" 0 out "$USAGE_LINE"
+    RUN_IN="$T/none" args_run "$ARGS_CFG" nosuch
+    exact "without node, outside git, unknown profile: exit 2, as gate.mjs" 2 err "[gate] unknown profile: nosuch"
+
+    # decides <description> <known | unknown> <registry file or ""> <profile> [-- VAR=value…]:
+    # gate.mjs and the launcher without node take the same side. Unknown: both exit with 2 and the
+    # launcher makes no state folder. Known: gate.mjs does not exit with 2 (it runs), and the
+    # launcher answers «node not found» with 3 and a verdict file that names the profile.
+    # On Windows, where each process starts slowly, only the launcher is run: the expected sides
+    # are the ones gate.mjs takes on the other systems, where the table runs both.
+    decides() {
+        local d="$1" want="$2" name="$4" first js_unknown=0 js_known=0
+        shift 2
+        ONLY_SH="$WIN" args_run "$@"
+        if [ "$WIN" -eq 1 ]; then js_unknown=1 js_known=1
+        elif [ "$rc_js" -eq 2 ]; then js_unknown=1
+        else js_known=1; fi
+        first="$(nocr "$A/sh.err" | head -1)"
+        if [ "$want" = unknown ]; then
+            if [ "$js_unknown" -eq 1 ] && [ "$rc_sh" -eq 2 ] && [ "$first" = "[gate] unknown profile: $name" ] && [ ! -e "$A/state-sh" ]; then ok "$d: unknown, exit 2"
+            else bad "$d: expected unknown ($(args_detail))"; fi
+        else
+            if [ "$js_known" -eq 1 ] && [ "$rc_sh" -eq 3 ] && [ "$first" = "[gate] not verified: node not found" ] \
+                && [ "$(jqr .profile "$A/state-sh/verdict-$(tag "$R").json" 2>/dev/null)" = "${name:-fast}" ]; then ok "$d: known, the run goes on"
+            else bad "$d: expected known ($(args_detail))"; fi
+        fi
+    }
+    decides "a key of root in the registry" known "$ARGS_CFG" p_custom
+    decides "a key of workspace in the registry" known "$ARGS_CFG" p_ws
+    decides "full, named by no entry" known "$ARGS_CFG" full
+    decides "an empty argument (fast)" known "$ARGS_CFG" ""
+    n_reg=0
+    # reg <format of printf>: a registry file of its own, written with printf (escapes in the format
+    # give a raw tab, a CR or a BOM); REG is its path.
+    reg() { n_reg=$((n_reg + 1)); REG="$T/reg-$n_reg.json"; printf "$1" >"$REG"; }
+    reg '{ not json';                                  decides "a registry that is not JSON" known "$REG" nosuch
+    reg '';                                            decides "an empty registry file" known "$REG" nosuch
+    decides "no registry file" known "$T/no-such-registry.json" nosuch
+    reg '{}';                                          decides "a registry without repos" known "$REG" nosuch
+    reg '[]';                                          decides "a registry that is a list" known "$REG" nosuch
+    reg '{"repos":{}}';                                decides "repos that is not a list" known "$REG" nosuch
+    reg '{"repos":[],}';                               decides "a trailing comma" known "$REG" nosuch
+    reg '{"repos":[]} x';                              decides "text after the registry" known "$REG" nosuch
+    reg '{"repos":[{"root":{"a":[]}}]';                decides "an unclosed registry" known "$REG" nosuch
+    reg '\357\273\277{"repos":[]}';                    decides "a registry with a byte order mark" known "$REG" nosuch
+    reg '{"repos":["a\tb"]}';                          decides "a raw tab in a string" known "$REG" nosuch
+    reg '{"repos":["\\x"]}';                           decides "an unknown escape" known "$REG" nosuch
+    reg '{"repos":["\\u12"]}';                         decides "a short \\u escape" known "$REG" nosuch
+    reg '{"repos":[01]}';                              decides "a number with a leading zero" known "$REG" nosuch
+    reg '{"repos":[],"x":1e}';                         decides "a number without exponent digits" known "$REG" nosuch
+    reg '{"repos":[],"x":.5}';                         decides "a number without an integer part" known "$REG" nosuch
+    reg '{"repos":[],"x":tru}';                        decides "a broken literal" known "$REG" nosuch
+    reg '{"repos":[]}';                                decides "an empty repos list" unknown "$REG" nosuch
+    reg ' {"repos" : [ ] ,"x":[1.5e+3,-0,0.25E-2,true,false,null,"s\\u0000\\/\\b"]} \r\n'
+    decides "numbers, literals, escapes and white space" unknown "$REG" nosuch
+    reg '{\r\n  "repos": [\r\n    {\r\n      "key": "t",\r\n      "workspace": {\r\n        "p_ws": []\r\n      }\r\n    }\r\n  ]\r\n}\r\n'
+    decides "a registry over several lines with CR LF" known "$REG" p_ws
+    reg '{"repos":[{"root":{"x":{"deep":[]}}},{"other":{"deep":[]}},null,"root",[{"root":{"deep":[]}}]]}'
+    decides "a key deeper than root, beside root, or in a list entry" unknown "$REG" deep
+    reg '{"repos":[{"root":{"a":[]},"root":{"b":[]}}]}'
+    decides "two root keys in an entry: the first one" unknown "$REG" a
+    decides "two root keys in an entry: the last one" known "$REG" b
+    reg '{"repos":[{"workspace":{"a":[]},"workspace":{"b":[]}}]}'
+    decides "two workspace keys in an entry: the first one" unknown "$REG" a
+    decides "two workspace keys in an entry: the last one" known "$REG" b
+    reg '{"repos":[{"root":{"x":1}}],"repos\\u0000":[]}'
+    decides "a key repos with \\u0000 after it is not repos" known "$REG" x
+    reg '{"repos":[{"root":{"x":1},"root\\ud800":{}}]}'
+    decides "a key root with a lone surrogate after it is not root" known "$REG" x
+    reg '{"repos":[{"root":{"a\\ud800":[],"b\\u0000":[],"\\ud83dA":[],"\\ud83d\\u0043":[]}}]}'
+    decides "a key with a lone surrogate equals no argument" unknown "$REG" a
+    decides "a key with a lone surrogate is not its bytes in UTF-8 either" unknown "$REG" $'a\xed\xa0\x80'
+    decides "a key with \\u0000 equals no argument" unknown "$REG" b
+    decides "a high surrogate before a letter equals no argument" unknown "$REG" A
+    decides "a high surrogate before a \\u escape that is not low equals no argument" unknown "$REG" C
+    reg '{"repos":[{"root":{"\\u20ac":[],"\\u00e9":[]}}]}'
+    decides "a key in a three-byte \\u escape" known "$REG" $'\xe2\x82\xac'
+    decides "a key in a two-byte \\u escape" known "$REG" $'\xc3\xa9'
+    reg '{"repos":["a\000b"]}'
+    decides "a NUL byte inside a string" known "$REG" nosuch
+    reg '{"repos":[]}\000junk'
+    decides "a NUL byte after the registry" known "$REG" nosuch
+    reg '{"repos":[{"workspace\\ud800":{"y":[]}}]}'
+    decides "a key workspace with a lone surrogate after it is not workspace" unknown "$REG" y
+    # A byte that is not UTF-8 (node reads U+FFFD), with the launcher in a UTF-8 locale: the NUL
+    # check must not stop at that byte and leave the name unchecked.
+    utf8_locale="$(locale -a 2>/dev/null | tr -d '\r' | grep -ixE 'en_US\.(UTF-8|utf8)|C\.(UTF-8|utf8)' | head -1)"
+    if [ -z "$utf8_locale" ]; then echo "skip the check in a UTF-8 locale: locale -a lists neither en_US.UTF-8 nor C.UTF-8"; else
+        reg '{"repos":[{"root":{"x":["caf\351"]}}]}'
+        decides "a byte that is not UTF-8, in the locale $utf8_locale" unknown "$REG" nosuch -- LC_ALL="$utf8_locale"
+    fi
+    reg '{"repos":[{"root":{"b":[]}}],"repos":[]}'
+    decides "two repos keys: the last one wins" unknown "$REG" b
+    reg '{"repos":[{"root":["a"]}]}'
+    decides "root that is a list: index 0" known "$REG" 0
+    decides "root that is a list: length" known "$REG" length
+    decides "root that is a list: an index past its end" unknown "$REG" 1
+    decides "root that is a list: 00" unknown "$REG" 00
+    reg '{"repos":[{"root":{"1":[]},"workspace":"p_str"}]}'
+    decides "a numeric key: the same text" known "$REG" 1
+    decides "a numeric key: an equal number written otherwise" unknown "$REG" 1.0
+    decides "workspace that is a string" unknown "$REG" p_str
+    reg '{"repos":[{"root":{"p\\u005fx":[],"a\\"b":[],"c\\\\d":[]}}]}'
+    decides "a key with a \\u escape" known "$REG" p_x
+    decides "a key with an escaped quote" known "$REG" 'a"b'
+    decides "a key with an escaped backslash" known "$REG" 'c\d'
+    reg '{"repos":[{"root":{"проф":[],"\\u0441\\u0442\\u0435\\u043a":[],"\\ud83d\\ude00":[]}}]}'
+    decides "a key in Cyrillic letters" known "$REG" "проф"
+    decides "a key in Cyrillic \\u escapes" known "$REG" "стек"
+    decides "a key in a surrogate pair" known "$REG" $'\xf0\x9f\x98\x80'
+
+    # Where the registry is when CLAUDE_GATE_CONFIG is not set: $HARNESS_HOME/gate/config.json; the
+    # old ~/.claude/gate/config.json only when the first is missing; a relative EVAL_HARNESS_HOME
+    # from the git common directory.
+    mkdir -p "$T/loc-hh/gate" "$T/loc-home/.claude/gate" "$T/loc-empty-hh" "$R/.git/evalhh/gate"
+    printf '{"repos":[{"root":{"p_hh":[]}}]}' >"$T/loc-hh/gate/config.json"
+    printf '{"repos":[{"root":{"p_legacy":[]}}]}' >"$T/loc-home/.claude/gate/config.json"
+    printf '{"repos":[{"root":{"p_eval":[]}}]}' >"$R/.git/evalhh/gate/config.json"
+    for p in p_hh p_legacy; do
+        [ "$p" = p_hh ] && w=known || w=unknown
+        decides "the registry under HARNESS_HOME, with one in the old place too: $p" "$w" "" "$p" -- HARNESS_HOME="$T/loc-hh" HOME="$T/loc-home" USERPROFILE="$T/loc-home"
+        [ "$p" = p_legacy ] && w=known || w=unknown
+        decides "no registry under HARNESS_HOME, one in the old place: $p" "$w" "" "$p" -- HARNESS_HOME="$T/loc-empty-hh" HOME="$T/loc-home" USERPROFILE="$T/loc-home"
+    done
+    decides "the registry under a relative EVAL_HARNESS_HOME: its profile" known "" p_eval -- EVAL_HARNESS_HOME=evalhh
+    decides "the registry under a relative EVAL_HARNESS_HOME: another profile" unknown "" p_hh -- EVAL_HARNESS_HOME=evalhh
+
+    # After a run without node the state folder has its files: --help and an unknown profile leave them.
+    args_run "$ARGS_CFG" p_custom
+    keep="$A/state-sh"
+    before="$(ls -A "$keep" 2>/dev/null | tr '\n' ' ')"; kept="$(cat "$keep/verdict-$(tag "$R").json" 2>/dev/null)"
+    for a in --help nosuch; do
+        (cd "$R" && HOME="$A/home" USERPROFILE="$A/home" CLAUDE_GATE_CONFIG="$ARGS_CFG" CLAUDE_GATE_STATE="$keep" PATH="$NONODE" "$BASH" "$LAUNCHER" "$a" </dev/null >/dev/null 2>&1)
+    done
+    if [ -n "$kept" ] && [ "$(ls -A "$keep" | tr '\n' ' ')" = "$before" ] && [ "$(cat "$keep/verdict-$(tag "$R").json")" = "$kept" ]; then
+        ok "without node, --help and an unknown profile leave the files of the run before"
+    else bad "without node, after --help and an unknown profile: $(ls -A "$keep" | tr '\n' ' '), was: $before"; fi
 fi
 
 echo "passed $pass, failed $fail"
