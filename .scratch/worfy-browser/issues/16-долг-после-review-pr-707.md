@@ -1,7 +1,8 @@
 # 16 — Долг после review PR #707: комментарий и пустое ожидание в test-е Browser layer
 
 Type: task
-Status: claimed 2026-10-21T21:41Z
+Status: done 2026-10-21T22:28Z
+PR: #715
 Branch: worfy-browser/16
 Blocked by: —
 Source: ревью PR [#707](https://github.com/IDSAD-XL/worfy/pull/707) (Ticket 15), 2026-10-21. Low.

@@ -1,7 +1,8 @@
 # 10 — Toast «Archived N finished sessions · Undo» после партии; автоархив включён по умолчанию (24 h)
 
 Type: task
-Status: claimed 2026-10-21T11:04Z
+Status: done 2026-10-21T21:38Z
+PR: #686
 Branch: worfy-canvas/10
 Blocked by: 07, 08, 09, 14
 Source: [spec.md](../spec.md), решение владельца 6;
