@@ -286,7 +286,8 @@ ADR-0068 (batch CI на `main`, CI на PR нет) и ADR-0065 (один gate fu
    идёт 517 s из 519 s шага `test`; владелец 2026-10-20 сказал «да» отдельному Ticket-у до 11–13.
    Число shard-ов 12 считать после 16. Влит 2026-10-21 (#626): gate full на Mac 18,5 → 12,9 min,
    `pnpm test` 517 → 133 s. После него узкое место — последовательный e2e: Ticket 17 влит 2026-10-21 (#655), e2e в 3 worker-а на
-   macOS: 565 → 212 s, gate full 780 → 501 s под нагрузкой.
+   macOS: 565 → 212 s, gate full 780 → 501 s под нагрузкой. Ticket 18 влит 2026-10-21 (#661): fallback show
+   окна и диагностика старта; после него 3 worker-а — 204–227 s, 289 passed, без flaky.
 3. **12 и 14** — после 10, параллельно: 12 правит CI и тексты ожидания CI, 14 — скрипт замера.
 4. **11** — после 10 и 12 (`Blocked by: 10, 12`): PR без полного набора безопасен, только
    когда у него есть CI на Linux, а 11 и 12 правят одни тексты Harness (`harness/skills/epic-wave/SKILL.md`,
@@ -294,7 +295,7 @@ ADR-0068 (batch CI на `main`, CI на PR нет) и ADR-0065 (один gate fu
 5. **13** — после 11: те же тексты Harness и тот же шаг перед merge.
 6. **15** — последним, когда влиты 11, 12 и 13 (условие Q6).
 
-### Волны Ticket-ов 10–17
+### Волны Ticket-ов 10–18
 
 План по правилу раздела «Волны» выше: общий файл в «Где в коде» — Ticket с большим номером уходит в
 следующую Wave. Основную таблицу «Волны» этот раздел не меняет; Wave этих Ticket-ов берётся командой
@@ -310,6 +311,7 @@ ADR-0068 (batch CI на `main`, CI на PR нет) и ADR-0065 (один gate fu
 | 15 | `test/`, `harness/agents/implementer.md`, `harness/bin/tests/agents-text.test.sh`, `docs/lessons/testing.md` | 5 |
 | 16 | `test/contract/harness-scripts.test.ts`, `test/git-bash.ts`, `vitest.config.ts`, `harness/{bin,hooks}/tests/*.test.sh` | 2 |
 | 17 | `playwright.config.ts`, `test/e2e/helpers.ts`, `test/e2e/*.spec.ts`, `harness/bin/profile`, `harness/bin/wave-gate` | 6 |
+| 18 | `src/main/window.ts`, `src/main/window-show.ts`, `src/main/quiet-windows.ts`, `src/main/index.ts`, `playwright.config.ts`, `test/e2e/helpers.ts`, `test/e2e/start-diagnosis.ts`, `test/e2e/linked-notify.spec.ts`, `test/unit/start-diagnosis.test.ts`, `test/unit/window-show.test.ts`, `test/unit/quiet-windows.test.ts`, `test/unit/e2e-notifications.test.ts`, `test/unit/playwright-json-report.test.ts` | 7 |
 
 ### Не решено — вопросы к инструментам
 

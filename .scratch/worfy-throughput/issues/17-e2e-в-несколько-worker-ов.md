@@ -124,5 +124,5 @@ retries — 0, поэтому любой нестабильный test был б
 `pnpm test` на том же дереве — exit 0, 7378 passed. Разница `d514a7aa..c2301e27` — только условие `!process.env.CI`,
 комментарий и текст ticket-а; на Mac `CI` не задан, поведение то же, поэтому merge без повторного gate.
 Конфиг без флага `--workers` в этом gate: e2e 211,6 s (88 файлов, 3 worker-а; было 565,3 s), vitest 176,3 s (под
-нагрузкой; обычно около 135 s), `test:package` 25,0 s, весь gate full — 501 s wall (было около 780 s). Число для
-Mac без нагрузки — из следующих gate full на новом `main`.
+нагрузкой; обычно около 135 s), `test:package` 25,0 s, весь gate full — 501 s wall (было около 780 s). gate full на
+Mac без нагрузки: 425–445 s при 3 worker-ах; 525 s и 517 s при 2 worker-ах (gate full PR #660 и #661).

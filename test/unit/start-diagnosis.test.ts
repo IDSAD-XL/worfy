@@ -15,6 +15,7 @@ import {
   outputTail,
   shownLine,
   step,
+  timeLeftOnClock,
 } from '../e2e/start-diagnosis'
 
 afterEach(() => {
@@ -65,16 +66,48 @@ describe('diagnosisBudget', () => {
     expect(diagnosisBudget(60_000)).toBe(DIAGNOSIS_MAX_MS)
   })
 
-  it('keeps CLEANUP_MARGIN_MS (10 s) of the time left for the kill and the cleanup', () => {
-    expect(CLEANUP_MARGIN_MS).toBe(10_000)
-    expect(diagnosisBudget(25_000)).toBe(15_000)
-    expect(diagnosisBudget(10_001)).toBe(1)
+  it('keeps CLEANUP_MARGIN_MS (12 s) of the time left for the kill and the cleanup', () => {
+    expect(CLEANUP_MARGIN_MS).toBe(12_000)
+    expect(diagnosisBudget(25_000)).toBe(13_000)
+    expect(diagnosisBudget(12_001)).toBe(1)
   })
 
   it('is 0 when the test has no more than the margin left, or is already past its timeout', () => {
+    expect(diagnosisBudget(12_000)).toBe(0)
     expect(diagnosisBudget(10_000)).toBe(0)
     expect(diagnosisBudget(4_000)).toBe(0)
     expect(diagnosisBudget(-2_000)).toBe(0)
+  })
+})
+
+describe('timeLeftOnClock', () => {
+  it('starts the clock of a key at its first call, with the whole timeout left', () => {
+    const starts = new Map<string, number>()
+    expect(timeLeftOnClock(starts, 'test-a:0', 60_000, 1_000)).toBe(60_000)
+    expect(starts.get('test-a:0')).toBe(1_000)
+  })
+
+  it('keeps the first start on later calls for the same key', () => {
+    const starts = new Map<string, number>()
+    timeLeftOnClock(starts, 'test-a:0', 60_000, 1_000)
+    expect(timeLeftOnClock(starts, 'test-a:0', 60_000, 21_000)).toBe(40_000)
+    expect(timeLeftOnClock(starts, 'test-a:0', 60_000, 31_000)).toBe(30_000)
+    expect(starts.get('test-a:0')).toBe(1_000)
+  })
+
+  it('starts fresh for another key: another test, or a retry of the same test', () => {
+    const starts = new Map<string, number>()
+    timeLeftOnClock(starts, 'test-a:0', 60_000, 1_000)
+    expect(timeLeftOnClock(starts, 'test-b:0', 60_000, 50_000)).toBe(60_000)
+    expect(timeLeftOnClock(starts, 'test-a:1', 60_000, 70_000)).toBe(60_000)
+    expect(timeLeftOnClock(starts, 'test-a:0', 60_000, 41_000)).toBe(20_000)
+  })
+
+  it('never gives less than 0 once the timeout has passed', () => {
+    const starts = new Map<string, number>()
+    timeLeftOnClock(starts, 'test-a:0', 60_000, 1_000)
+    expect(timeLeftOnClock(starts, 'test-a:0', 60_000, 61_000)).toBe(0)
+    expect(timeLeftOnClock(starts, 'test-a:0', 60_000, 90_000)).toBe(0)
   })
 })
 

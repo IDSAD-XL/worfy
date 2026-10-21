@@ -1,7 +1,8 @@
 # 18 — Окно не показывается в e2e при 3 worker-ах: fallback show, диагностика timeout-а и switch-и отрисовки для всех e2e-запусков
 
 Type: bug
-Status: claimed 2026-10-21T05:31Z
+Status: done 2026-10-21T06:17Z
+PR: #661
 Branch: worfy-throughput/18
 Blocked by: —
 Source: разбор 2026-10-21 после Ticket-а [17](17-e2e-в-несколько-worker-ов.md) (PR #655, e2e в 3 worker-а
@@ -136,3 +137,10 @@ PNG 2560 × 1600 сохранён; правка откатана из копии
 
 **Windows (ADR-0056).** `src/main/window.ts` и `src/main/quiet-windows.ts` работают и на Windows — PR
 платформенный, нужен вердикт Session на Windows-ПК.
+
+**Влит (#661); 3 worker-а снова.** После merge — три run-а `pnpm test:e2e --workers=3` на `c75aaf8c`: 226,8 s,
+203,7 s и 204,0 s, в каждом 289 passed, 0 failed, 0 flaky. По этому замеру follow-up PR возвращает на macOS вне CI
+3 worker-а (`playwright.config.ts`, `E2E_WORKERS`); если «the window was not shown» вернётся, причину покажет папка
+`start-diagnostics-…` в `test-results`. В том же PR — чистая функция часов test-а `timeLeftOnClock` с unit test-ом
+и запас на kill и cleanup 12 s вместо 10 s (`CLEANUP_MARGIN_MS`: на Windows `endApp` ждёт выхода приложения до
+10 s, удаление трёх папок — около 1,5 s).
