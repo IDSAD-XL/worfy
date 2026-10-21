@@ -1,7 +1,8 @@
 # 83 — Другие e2e на Windows: stand-in-ы `#!/bin/sh`, как было в `projects-connect.spec.ts`
 
 Type: task
-Status: claimed 2026-10-21T08:58Z
+Status: done 2026-10-21T09:08Z
+PR: #678
 Blocked by: —
 Source: ревью PR #671, Session на Mac, 2026-10-21.
 
