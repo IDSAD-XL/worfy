@@ -20,10 +20,22 @@ import { removeTestTree } from '../remove'
 import { build, checkTarget, dir, head, installerDir, installStable, junction, leftoverName, links, local, onDisk, registrations, REMOVE_ROUNDS, REPO, run, stamp, targetIn, useStandInBuild, WIN_HOME, WINDOWS } from './install-stable-harness'
 
 /**
+ * macOS: a copy of /bin/sleep at `program` that keeps running. A plain copy of an Apple binary
+ * fails the code-signature check and the kernel kills it with SIGKILL within moments of its start;
+ * the refusal tests then passed only when the script listed processes before the kill, and went
+ * red under a loaded gate. An ad-hoc signature makes the copy a program of its own that runs.
+ */
+const sleepCopyAt = (program: string): void => {
+  mkdirSync(dirname(program), { recursive: true })
+  copyFileSync('/bin/sleep', program)
+  chmodSync(program, 0o755)
+  execFileSync('codesign', ['--sign', '-', '--force', program], { stdio: 'ignore' })
+}
+
+/**
  * macOS: waits until `ps` lists the process under `program`. Node's 'spawn' event fires once the
- * child is forked, which can be before it has executed `program`: until then `ps` shows the node
- * binary, and a run of the script that looks at that moment sees no running copy. Under a loaded
- * gate that window was wide enough to turn the refusal tests red.
+ * child is forked, which can be before it has executed `program`. A process that is already gone
+ * fails at once rather than after the deadline.
  */
 const waitUntilListed = (pid: number | undefined, program: string): void => {
   const deadline = Date.now() + 10_000
@@ -32,9 +44,10 @@ const waitUntilListed = (pid: number | undefined, program: string): void => {
     try {
       command = execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' }).trim()
     } catch {
-      // No such process yet, or already gone: try again until the deadline.
+      // No such process yet: try again until the deadline.
     }
     if (command.startsWith(program)) return
+    if (command.includes('<defunct>')) throw new Error(`${program} (pid ${pid}) exited before the test could use it`)
     if (Date.now() > deadline) throw new Error(`ps never listed ${program} as pid ${pid}; last seen: ${command || 'nothing'}`)
     execFileSync('sleep', ['0.05'])
   }
@@ -588,9 +601,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       const target = targetIn('apps', 'worfy-stable')
       // A real program inside the copy: sleep under the name of the app.
       const program = join(target, 'Contents', 'MacOS', 'worfy')
-      mkdirSync(dirname(program), { recursive: true })
-      copyFileSync('/bin/sleep', program)
-      chmodSync(program, 0o755)
+      sleepCopyAt(program)
       const child = spawn(program, ['60'], { stdio: 'ignore' })
       try {
         await new Promise((resolve, reject) => {
@@ -626,9 +637,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       const target = targetIn('apps', 'worfy-stable')
       // A real program inside the copy: sleep under the name of the app. It is not running yet.
       const program = join(target, 'Contents', 'MacOS', 'worfy')
-      mkdirSync(dirname(program), { recursive: true })
-      copyFileSync('/bin/sleep', program)
-      chmodSync(program, 0o755)
+      sleepCopyAt(program)
       const env = { ...process.env, WORFY_STABLE_PREBUILT: '' }
       const builds: string[] = []
       let child: ReturnType<typeof spawn> | undefined
