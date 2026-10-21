@@ -210,10 +210,12 @@ describe('the chain of a Ticket', () => {
   })
 })
 
-// The Family of a hovered or selected Node (worfy-canvas ticket 03): it stays bright and every other
-// Node is dimmed, by NodeChrome.tsx around each Node type's component. The Canvas holds an Epic
-// frame e with Tickets 1 and 2, Session A bound to Ticket 1 with Subagent a1, Session B bound to
-// Ticket 2, and a note; the Bindings come as the invisible anchors sources/workflow-bindings.ts makes.
+// The Family of a hovered or selected Node (worfy-canvas ticket 03): the store knows it, so the
+// Binding lines within it are drawn; no Node is dimmed or drawn again for it (worfy-canvas ticket
+// 17: the owner asked for the other cards to keep their opacity). The Canvas holds an Epic frame e
+// with Tickets 1 and 2, Session A bound to Ticket 1 with Subagent a1, Session B bound to Ticket 2,
+// and a note; the Bindings come as the invisible anchors sources/workflow-bindings.ts makes. Each
+// Node is wrapped in NodeChrome.tsx, as on the Canvas.
 describe('the Family of a focused Node', () => {
   const A = 'session:A'
   const B = 'session:B'
@@ -250,13 +252,8 @@ describe('the Family of a focused Node', () => {
       anchor(B, 2, 8),
     ].map((node) => ({ ...node, selected: selected.has(node.id) }))
 
-  /** Each Node type's own component counts its renders (the Node's content). */
-  const Counted = ({ id }: CanvasNodeProps) => {
-    renders.set(id, (renders.get(id) ?? 0) + 1)
-    return <div />
-  }
-  const Chromed = withNodeChrome(Counted)
-  /** Every draw of anything in a Node — its content, NodeChrome or the dim marker — counted by a React Profiler. */
+  const Chromed = withNodeChrome(() => <div />)
+  /** Every draw of anything in a Node — its content or NodeChrome — counted by a React Profiler. */
   let draws = new Map<string, number>()
   const chromed = (props: CanvasNodeProps) => (
     <Profiler id={props.id} onRender={(id) => draws.set(id, (draws.get(id) ?? 0) + 1)}>
@@ -278,57 +275,65 @@ describe('the Family of a focused Node', () => {
     </div>
   )
   const element = (container: HTMLElement, id: string): Element => container.querySelector(`.react-flow__node[data-id="${id}"]`)!
-  const dimmed = (container: HTMLElement): string[] =>
-    COUNTED.filter((id) => element(container, id).querySelector(':scope > [data-testid="node-dimmed"]') !== null).sort()
+  /**
+   * Each Node's element by Node id: what it holds, its own style and its classes, without what React
+   * Flow changes on the selected Node itself (the `selected` class, a raised z-index). A dim marker,
+   * an opacity set on the element or a class a focus adds would show here.
+   */
+  const contents = (container: HTMLElement): Record<string, { html: string; style: string; className: string }> =>
+    Object.fromEntries(
+      COUNTED.map((id) => {
+        const node = element(container, id) as HTMLElement
+        const className = [...node.classList].filter((name) => name !== 'selected').join(' ')
+        const style = [...node.style]
+          .filter((name) => name !== 'z-index')
+          .map((name) => `${name}: ${node.style.getPropertyValue(name)}`)
+          .join('; ')
+        return [id, { html: node.innerHTML, style, className }]
+      }),
+    )
+  /** The counted Nodes in the store's Family, which the Binding lines read; null while nothing focused has one. */
+  const family = (): string[] | null => {
+    const members = useEdgeFocus.getState().family
+    return members === null ? null : COUNTED.filter((id) => members.has(id)).sort()
+  }
 
   it('the anchor kind family.ts reads is the one sources/workflow-bindings.ts makes', () => {
     expect(FAMILY_ANCHOR_KIND).toBe(BINDING_ANCHOR_KIND)
   })
 
-  it('hovering a Ticket dims the Nodes outside its Family; leaving it brings them back', () => {
+  it('hovering a Node lights its Family for the Binding lines and changes no Node: nothing is added to one, none draws again', () => {
     const { container } = render(canvas())
-    expect(dimmed(container)).toEqual([])
-    fireEvent.pointerOver(element(container, T1))
-    expect(dimmed(container)).toEqual([B, NOTE, T2].sort())
-    fireEvent.pointerOver(pane(container))
-    expect(dimmed(container)).toEqual([])
-    // A Node without a Family dims nothing.
-    fireEvent.pointerOver(element(container, NOTE))
-    expect(dimmed(container)).toEqual([])
-    // A Subagent: its Session's Family.
-    fireEvent.pointerOver(element(container, A1))
-    expect(dimmed(container)).toEqual([B, NOTE, T2].sort())
-    fireEvent.pointerLeave(flowRoot(container))
-    expect(dimmed(container)).toEqual([])
-  })
-
-  it('a selected Session keeps its Family bright until it is unselected', () => {
-    const { container, rerender } = render(canvas(new Set([B])))
-    expect(dimmed(container)).toEqual([A, A1, NOTE, T1].sort())
-    rerender(canvas(new Set()))
-    expect(dimmed(container)).toEqual([])
-  })
-
-  it('a Node whose answer did not change does not draw again', () => {
-    const { container } = render(canvas())
-    fireEvent.pointerOver(element(container, T1))
+    const idle = contents(container)
     const before = new Map(draws)
-    // From Ticket 1's Family to Ticket 2's: the frame stays bright and the note stays dim.
+    fireEvent.pointerOver(element(container, T1))
+    expect(family()).toEqual([A, A1, FRAME, T1].sort())
+    expect(contents(container)).toEqual(idle)
+    // From Ticket 1's Family to Ticket 2's, then a Subagent: its Session's Family.
     fireEvent.pointerOver(element(container, T2))
-    expect(dimmed(container)).toEqual([A, A1, NOTE, T1].sort())
-    const changed = COUNTED.filter((id) => draws.get(id) !== before.get(id)).sort()
-    expect(changed).toEqual([A, A1, B, T1, T2].sort())
+    expect(family()).toEqual([B, FRAME, T2].sort())
+    expect(contents(container)).toEqual(idle)
+    fireEvent.pointerOver(element(container, A1))
+    expect(family()).toEqual([A, A1, FRAME, T1].sort())
+    expect(contents(container)).toEqual(idle)
+    // A Node without a Family, then the pointer leaves the Canvas.
+    fireEvent.pointerOver(element(container, NOTE))
+    expect(family()).toBeNull()
+    fireEvent.pointerLeave(flowRoot(container))
+    expect(family()).toBeNull()
+    expect(contents(container)).toEqual(idle)
+    expect(COUNTED.filter((id) => draws.get(id) !== before.get(id))).toEqual([])
   })
 
-  it('a Node that dims or brightens does not draw its content again: only the marker changes', () => {
-    const { container } = render(canvas())
-    const before = new Map(renders)
-    fireEvent.pointerOver(element(container, T1))
-    expect(dimmed(container)).toEqual([B, NOTE, T2].sort())
-    fireEvent.pointerOver(element(container, T2))
-    fireEvent.pointerLeave(flowRoot(container))
-    expect(dimmed(container)).toEqual([])
-    expect(COUNTED.filter((id) => renders.get(id) !== before.get(id))).toEqual([])
+  it('a selected Session keeps its Family lit until it is unselected, and no other Node changes', () => {
+    const { container, rerender } = render(canvas())
+    const idle = contents(container)
+    rerender(canvas(new Set([B])))
+    expect(family()).toEqual([B, FRAME, T2].sort())
+    expect(contents(container)).toEqual(idle)
+    rerender(canvas(new Set()))
+    expect(family()).toBeNull()
+    expect(contents(container)).toEqual(idle)
   })
 
   it('a Binding line between two members of the bright Family is drawn; one with an end outside it is not', () => {

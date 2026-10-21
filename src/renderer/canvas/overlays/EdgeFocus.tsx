@@ -1,8 +1,8 @@
 // Which Nodes the user is looking at, for the Edges (worfy-week ticket 05): the Node under the
 // pointer and the selected Nodes go to edge-focus.ts, together with the "Blocked by" Edges whose
 // chains they light up, and with what the Families on the Canvas are made of (worfy-canvas ticket 03,
-// family.ts). The Edge components and NodeChrome.tsx read that store and decide for themselves
-// whether they are pale, lit, dimmed or not drawn; this overlay draws nothing.
+// family.ts). The Edge components read that store and decide for themselves whether they are pale,
+// lit or not drawn; this overlay draws nothing.
 import { useEffect, useMemo, useState } from 'react'
 import { useStore, type ReactFlowState } from '@xyflow/react'
 import { clearEdgeFocus, setEdgeFocus, type ChainEdge } from '../edge-focus'
