@@ -9,6 +9,7 @@
 // methods in main: the first window is already shown when launchApp returns, and a later window
 // is made by the same createMainWindow.
 import { expect, test } from '@playwright/test'
+import { SHOW_POLL_MS, waitForFirstWindowShown } from './first-window-shown'
 import { launchApp, type LaunchedApp } from './helpers'
 
 const QUIET = { WORFY_QUIET_WINDOWS: '1' }
@@ -71,7 +72,7 @@ test('a second start of worfy does not bring the quiet window to the front', asy
 test('a window worfy opens later is quiet too: shown inactive, transparent, and the mouse goes through it', async () => {
   const launched = await launchApp({ env: QUIET })
   try {
-    const reopened = await launched.app.evaluate(async ({ app, BrowserWindow }) => {
+    const reopened = await launched.app.evaluate(async ({ app, BrowserWindow }, { waitSource, intervalMs }) => {
       const calls: string[] = []
       const proto = BrowserWindow.prototype as unknown as Record<string, (...args: unknown[]) => unknown>
       for (const name of ['show', 'showInactive', 'focus', 'setIgnoreMouseEvents', 'setOpacity']) {
@@ -95,9 +96,13 @@ test('a window worfy opens later is quiet too: shown inactive, transparent, and 
       app.emit('second-instance', {}, [], process.cwd(), {})
       const [next] = BrowserWindow.getAllWindows()
       if (next === undefined) throw new Error('no window after the second start')
-      if (!next.isVisible()) await new Promise<void>((done) => next.once('show', () => done()))
+      // Polled, not on 'show' alone: on macOS 'show' comes only with an occlusion change and can
+      // fail to come (first-window-shown.ts). The helper arrives as source text, as app.evaluate
+      // sends any function to main.
+      const wait = new Function(`return (${waitSource})`)() as typeof waitForFirstWindowShown
+      await wait({ BrowserWindow }, { intervalMs, timeoutMs: 30_000 })
       return { calls, visible: next.isVisible(), focused: next.isFocused(), opacity: next.getOpacity() }
-    })
+    }, { waitSource: String(waitForFirstWindowShown), intervalMs: SHOW_POLL_MS })
     expect(reopened.visible).toBe(true)
     expect(reopened.focused).toBe(false)
     if (process.platform !== 'linux') expect(reopened.opacity).toBe(0)

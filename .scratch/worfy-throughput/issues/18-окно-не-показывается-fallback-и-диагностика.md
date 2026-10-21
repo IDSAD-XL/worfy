@@ -144,3 +144,20 @@ PNG 2560 × 1600 сохранён; правка откатана из копии
 `start-diagnostics-…` в `test-results`. В том же PR — чистая функция часов test-а `timeLeftOnClock` с unit test-ом
 и запас на kill и cleanup 15 s вместо 10 s (`CLEANUP_MARGIN_MS`: на Windows `endApp` ждёт выхода приложения до
 10 s, затем три папки удаляются по очереди, до 5 повторов на каждую — около 1,5 s на папку, 4,5 s всего).
+
+**Сбой в gate full PR #664 на `9ae4bca7` (3 worker-а): ожидание `show` пропустило показанное окно (PR #669).**
+`session-view.spec.ts:98` упал с «the window was not shown within 30 s». `firstWindow` вернулся через 0,44 s, а
+ожидание события `show` в `launchApp` так и не завершилось. Диагностика через 30 s: окно загружено, `isVisible`
+true, в выводе приложения — «the window was shown on ready-to-show». Причина — в Electron 44.5.1 на macOS: событие
+`show` приходит только из уведомления о смене occlusion state окна (`windowDidChangeOcclusionState`), а не из
+`show()`/`showInactive()`, и `isVisible()` тоже читает occlusion state. Нет уведомления — нет `show`, а
+`isVisible()` становится true позже. Исправление только в test-ах. `launchApp` ждёт, пока `isVisible()` станет
+true (main опрашивает каждые 100 ms, функция `waitForFirstWindowShown` в `test/e2e/first-window-shown.ts`) или
+придёт событие `show`. Строка приложения в stdout о вызове `show()` окно не «отпускает»: она приходит до того, как
+macOS сообщит, что окно видно, а `quiet-windows.spec.ts` читает `isVisible()` сразу после `launchApp`. Эта строка
+идёт только в диагностику: вызвало ли приложение show, каким путём и через сколько секунд после запуска. Hook в
+`src/` не понадобился. К состоянию окна в диагностике добавлены `isFocused`, `app.isHidden()` и
+`powerMonitor.getSystemIdleState()`. Тот же опрос заменил ожидание `show` у второго окна в `quiet-windows.spec.ts`.
+Unit test-ы: `test/unit/first-window-shown.test.ts` (в том числе случай этого сбоя) запускает функцию из её
+исходного текста, как Playwright; новые случаи — в `test/unit/start-diagnosis.test.ts`. Мутант «только событие»
+красный: 5 из 7 test-ов.

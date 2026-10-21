@@ -9,6 +9,10 @@ import {
   DIAGNOSTIC_STEP_MS,
   NO_TIME_LEFT,
   OUTPUT_LIMIT,
+  PARTIAL_LINE_LIMIT,
+  appShowPathOf,
+  appShowSummary,
+  appShowWatcher,
   deadline,
   diagnosisBudget,
   diagnosisSummary,
@@ -175,13 +179,67 @@ describe('shownLine', () => {
   })
 })
 
+describe('appShowPathOf', () => {
+  it('reads the path from the two lines of src/main/window-show.ts and nothing from other lines', () => {
+    expect(appShowPathOf('[worfy] the window was shown on ready-to-show')).toBe('ready-to-show')
+    expect(appShowPathOf('[worfy] the window was shown by the fallback: no ready-to-show within 3000 ms of did-finish-load\r')).toBe('fallback')
+    expect(appShowPathOf('[worfy] the window could not load its page (loadURL)')).toBeNull()
+  })
+})
+
+describe('appShowWatcher', () => {
+  it('records the first shown line and the time it was read', () => {
+    let clock = 1_000
+    const watcher = appShowWatcher(() => clock)
+    watcher.append('boot\n')
+    expect(watcher.shown()).toBeNull()
+    clock = 1_600
+    watcher.append(Buffer.from('[worfy] the window was shown on ready-to-show\nmore\n'))
+    clock = 9_000
+    watcher.append('[worfy] the window was shown by the fallback: x\n')
+    expect(watcher.shown()).toEqual({ path: 'ready-to-show', atMs: 1_600 })
+  })
+
+  it('joins a line split across chunks and reads the clock when the line is complete', () => {
+    let clock = 0
+    const watcher = appShowWatcher(() => clock)
+    watcher.append('log\n[worfy] the window was sh')
+    clock = 5
+    watcher.append('own by the fallback: no ready-to-show')
+    expect(watcher.shown()).toBeNull()
+    clock = 7
+    watcher.append(' within 3000 ms of did-finish-load\n')
+    expect(watcher.shown()).toEqual({ path: 'fallback', atMs: 7 })
+  })
+
+  it('keeps at most PARTIAL_LINE_LIMIT characters of a line without its newline yet', () => {
+    const watcher = appShowWatcher(() => 3)
+    watcher.append('x'.repeat(PARTIAL_LINE_LIMIT * 4))
+    watcher.append('[worfy] the window was shown on ready-to-show\n')
+    expect(watcher.shown()).toEqual({ path: 'ready-to-show', atMs: 3 })
+  })
+})
+
+describe('appShowSummary', () => {
+  it('says how and how long after the launch the app showed the window', () => {
+    expect(appShowSummary({ path: 'ready-to-show', atMs: 10_620 }, 10_000)).toBe('the app showed the window on ready-to-show 0.62 s after launch')
+    expect(appShowSummary({ path: 'fallback', atMs: 14_000 }, 10_000)).toBe('the app showed the window by the fallback 4.00 s after launch')
+  })
+
+  it('says so when the app never said it showed the window', () => {
+    expect(appShowSummary(null, 10_000)).toBe('the app did not say it showed the window')
+  })
+})
+
 describe('diagnosisSummary', () => {
-  const shown = '[worfy] the window was shown on ready-to-show'
+  const shown = 'the app showed the window on ready-to-show 0.62 s after launch'
 
   it('names the window state, the readyState, the shown line and where the files are', () => {
-    const state = { value: { windows: 1, isVisible: false, isLoading: false, isCrashed: false, url: 'file:///out/renderer/index.html' } }
+    const state = {
+      value: { windows: 1, isVisible: false, isFocused: false, appHidden: false, idleState: 'locked', isLoading: false, isCrashed: false, url: 'file:///out/renderer/index.html' },
+    }
     expect(diagnosisSummary(state, { value: 'complete' }, shown, '; diagnostics in /tmp/d')).toBe(
-      'window: visible false, loading false, crashed false, url file:///out/renderer/index.html, document.readyState complete; [worfy] the window was shown on ready-to-show; diagnostics in /tmp/d',
+      'window: visible false, focused false, app hidden false, system locked, loading false, crashed false, url file:///out/renderer/index.html, document.readyState complete; the app showed the window on ready-to-show 0.62 s after launch; diagnostics in /tmp/d',
     )
   })
 
