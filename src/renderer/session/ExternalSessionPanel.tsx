@@ -6,7 +6,7 @@ import { readSessionNodeData, sessionStatus } from '../claude-home/session-nodes
 import { useOrchestratorView } from '../canvas/nodes/orchestrator-view'
 import { useLayout } from '../canvas/useLayout'
 import { useSubagentTree } from '../claude-home/subagents'
-import { useClaudeHome, useSessionTranscript } from '../claude-home/useClaudeHome'
+import { earlierControl, useClaudeHome, useSessionTranscript } from '../claude-home/useClaudeHome'
 import { useProjects } from '../projects/useProjects'
 import { ariaKeys, label, matches } from '../shortcuts/match'
 import { StatusChip, type Status } from '../theme/primitives'
@@ -161,7 +161,14 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
               {empty}
             </div>
           ) : (
-            <Transcript events={transcript.events} firstIndex={transcript.first} sessionId={null} projectId={projectId} assistantLabel="claude" />
+            <Transcript
+              events={transcript.events}
+              firstIndex={transcript.first}
+              sessionId={null}
+              projectId={projectId}
+              assistantLabel="claude"
+              earlier={earlierControl(transcript, root, sessionId, agentId)}
+            />
           )}
           <div className="w-composer" data-testid="session-read-only" style={styles.readOnly}>
             {agentId === undefined ? `Read-only: started in ${startedIn}` : 'Read-only: Subagent transcript'}

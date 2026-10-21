@@ -221,6 +221,40 @@
   color: var(--text-muted);
 }
 
+/* «Load earlier» above the first row of a transcript read from its end (worfy-ui ticket 21). */
+.w-tr__earlier {
+  display: flex;
+  justify-content: center;
+  flex: none;
+}
+
+.w-tr__earlier-button {
+  height: 24px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-12);
+  cursor: default;
+}
+
+.w-tr__earlier-button:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.w-tr__earlier-button:disabled {
+  color: var(--text-muted);
+}
+
+.w-tr__earlier-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .w-tr__row {
   display: flex;
   gap: var(--space-3);
