@@ -6,6 +6,7 @@
 // security options were inherited.
 import { describe, expect, it } from 'vitest'
 import { webviewAttachRefusal, type WebviewAttach } from '../../src/main/browser/attach-policy'
+import { browserPartition, browserPartitions } from '../../src/shared/browser/partition'
 
 const PARTITIONS = ['worfy-browser-test']
 
@@ -149,5 +150,37 @@ describe('webviewAttachRefusal', () => {
     const safe = good()
     Object.assign(safe.webPreferences, { allowRunningInsecureContent: false, experimentalFeatures: false, webviewTag: false })
     expect(webviewAttachRefusal(safe, PARTITIONS)).toBeNull()
+  })
+})
+
+// worfy-browser ticket 03: the list main hands the check is the partitions of the Browser profiles
+// of the Projects of this Machine (browserProfilePartitions, src/main/browser/profiles.ts).
+describe('webviewAttachRefusal over the partitions of Browser profiles', () => {
+  const ALPHA = 'alpha-0a1b2c3d'
+  const BETA = 'beta-99999999'
+  /** alpha has Default and admin; beta is not a Project of this Machine; user was deleted from alpha. */
+  const partitions = browserPartitions([ALPHA], () => ['default', 'admin-aaaaaa'])
+  const on = (partition: string | null): WebviewAttach => {
+    const attach = good()
+    attach.webPreferences.partition = partition ?? ''
+    attach.params.partition = partition ?? ''
+    return attach
+  }
+
+  it('lets a <webview> attach on a profile of a Project of this Machine', () => {
+    expect(webviewAttachRefusal(on(browserPartition(ALPHA, 'default')), partitions)).toBeNull()
+    expect(webviewAttachRefusal(on(browserPartition(ALPHA, 'admin-aaaaaa')), partitions)).toBeNull()
+  })
+
+  it('refuses the partition of another Project, also under a profile id this Project has', () => {
+    expect(webviewAttachRefusal(on(browserPartition(BETA, 'default')), partitions)).toMatch(/only on a Browser partition/)
+    expect(webviewAttachRefusal(on(browserPartition(BETA, 'admin-aaaaaa')), partitions)).toMatch(/only on a Browser partition/)
+  })
+
+  it('refuses the partition of a deleted Browser profile', () => {
+    expect(webviewAttachRefusal(on(browserPartition(ALPHA, 'user-bbbbbb')), partitions)).toMatch(/only on a Browser partition/)
+    // Once a profile is deleted, the list main reads at the next attach no longer holds it.
+    const afterDelete = browserPartitions([ALPHA], () => ['default'])
+    expect(webviewAttachRefusal(on(browserPartition(ALPHA, 'admin-aaaaaa')), afterDelete)).toMatch(/only on a Browser partition/)
   })
 })

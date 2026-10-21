@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { bindingWorkflowOf } from '../shared/binding/resolve'
-import { browserPartitions } from '../shared/browser/partition'
 import { sessionArchiveOf } from '../shared/settings/app-settings'
 import { startOrchestrators } from './agent/app-orchestrators'
 import { sharedRegistry } from './agent/app-registry'
 import { installLimitsRefresh } from './agent/limits-usage'
 import { appUserModelId } from './app-id'
+import { browserProfilePartitions } from './browser/profiles'
 import { installCardRuntime, registerCardScheme } from './cards/protocol'
 import { cardStore } from './cards/store'
 import { installProcessGone } from './diagnostics/process-gone'
@@ -132,8 +132,9 @@ function start(): void {
       const isAppUrl = inStep('loadURL', () => appUrlMatcher(rendererEntry()))
       await inStep('registerIpc', () => registerIpc(ipcMain, { isTrustedSender: isAppUrl }))
       // Navigation, new windows and permissions for every page, the window and its Cards alike.
-      // A Browser's <webview> attaches on the partition of a Project of this Machine (ticket 10).
-      inStep('installWebPolicy', () => installWebPolicy(isAppUrl, () => browserPartitions(projectStore().list().map((project) => project.id))))
+      // A Browser's <webview> attaches only on the partition of a Browser profile of a Project of
+      // this Machine (worfy-browser ticket 03), read at each attach: a deleted profile's is refused.
+      inStep('installWebPolicy', () => installWebPolicy(isAppUrl, () => browserProfilePartitions(projectStore().list().map((project) => project.id))))
       inStep('installCardRuntime', () => installCardRuntime((host) => cardStore().locate(host)))
       // Before the first window: its creation is what opens the active Project's Orchestrator.
       inStep('startOrchestrators', () => startOrchestrators())

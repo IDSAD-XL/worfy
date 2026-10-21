@@ -9,9 +9,12 @@
 // onto the page, and any other Node or menu over the frame covers the page. While a mouse button
 // pressed on the Canvas is held, no page takes the mouse (frames-step-aside.ts).
 //
-// Every <webview> is on the partition of the Canvas's Project (browserPartition,
-// src/shared/browser/partition.ts): persistent, so cookies and logins survive a restart. main lets
-// it attach only on the partition of a Project of this Machine and without a preload, refuses its
+// Every <webview> is on the partition of its Browser's profile (browserPartition,
+// src/shared/browser/partition.ts; worfy-browser ticket 03): persistent, so cookies and logins
+// survive a restart, and shared by all the Browsers of one profile. The layer opens no page for a
+// Browser whose profile is not settled (browserProfileChoice: the frame shows «Choose a profile»),
+// and writes the profile the rule picks into a Node that has none yet. main lets
+// it attach only on the partition of a Browser profile of a Project of this Machine and without a preload, refuses its
 // page every permission, and sends it to the address of a target="_blank" link or window.open
 // instead of opening a window (src/main/window.ts). A request main does not open by itself (from a
 // frame of another origin, or without a referrer) comes here as `browser.openRequest`, and the
@@ -19,11 +22,13 @@
 import { createElement, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore, ViewportPortal, type InternalNode, type ReactFlowState } from '@xyflow/react'
 import { browserPartition } from '../../../shared/browser/partition'
+import { useBrowserProfiles } from '../../browser/profiles'
 import { subscribe } from '../../ipc'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import {
   BROWSER_KIND,
   browserPageRect,
+  browserProfileChoice,
   browserUrl,
   dismissBrowserOpenRequest,
   offerOwnBrowserOpenRequest,
@@ -43,6 +48,8 @@ interface Page {
   id: string
   /** The address the Node keeps; null for a Browser that has none yet (an empty page). */
   url: string | null
+  /** The Node's `data.profile` when it is a string; null otherwise (browserProfileChoice). */
+  profile: string | null
   x: number
   y: number
   w: number
@@ -79,7 +86,8 @@ function pagesKey(state: ReactFlowState): string {
     const { x, y } = node.internals.positionAbsolute
     const w = node.width ?? node.measured.width ?? node.data.node.w
     const h = node.height ?? node.measured.height ?? node.data.node.h
-    pages.push({ id: node.id, url: browserUrl(node.data.node), ...browserPageRect({ x, y, w, h }) })
+    const { profile } = node.data.node.data
+    pages.push({ id: node.id, url: browserUrl(node.data.node), profile: typeof profile === 'string' ? profile : null, ...browserPageRect({ x, y, w, h }) })
   }
   pages.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   return JSON.stringify(pages)
@@ -202,16 +210,45 @@ function BrowserPage({ page, partition }: { page: Page; partition: string }) {
 export default function BrowserLayer() {
   useFramesStepAsideWhilePressed(useStore((store) => store.domNode))
   const project = activeProject(useProjects())
-  // The partition of a <webview> is fixed once it attaches; the Canvas of another Project is a new
-  // Canvas (Canvas.tsx), and so a new layer.
-  const partition = project === undefined ? null : browserPartition(project.id)
+  const profiles = useBrowserProfiles(project?.id)
+  const ops = useLayoutOps()
+  const readOnly = useReadOnly()
   const key = useStore(pagesKey)
   const pages = useMemo(() => JSON.parse(key) as Page[], [key])
-  if (pages.length === 0 || partition === null) return null
+  // Each page with the partition of its profile; null while its frame asks for one. The partition
+  // of a <webview> is fixed once it attaches, so a page whose profile changes is a new <webview>
+  // (its key); the Canvas of another Project is a new Canvas (Canvas.tsx), and so a new layer.
+  const placed = useMemo(
+    () =>
+      pages.map((page) => {
+        const choice = browserProfileChoice(page, profiles)
+        const partition = project === undefined || choice.kind !== 'use' ? null : browserPartition(project.id, choice.id)
+        return { page, choice, partition }
+      }),
+    [pages, profiles, project],
+  )
+
+  // The profile the rule picked for a Node without one goes into the Node, as the address bar's
+  // address does (not a step of ⌘Z): from then on the Node keeps it whatever profiles come later.
+  // Not on a read-only screen: there the frame only shows the profile picked.
+  const written = useRef(new Set<string>())
+  useEffect(() => {
+    if (readOnly !== null) return
+    for (const { page, choice } of placed) {
+      if (choice.kind !== 'use' || !choice.write) continue
+      const mark = `${page.id} ${choice.id}`
+      if (written.current.has(mark)) continue
+      written.current.add(mark)
+      void ops.apply({ op: 'patchData', id: page.id, data: { profile: choice.id } })
+    }
+  }, [placed, ops, readOnly])
+
+  const shown = placed.filter((each): each is { page: Page; choice: typeof each.choice; partition: string } => each.partition !== null)
+  if (shown.length === 0) return null
   return (
     <ViewportPortal>
       <div className="w-browser-layer" data-testid="browser-layer">
-        {pages.map((page) => (
+        {shown.map(({ page, partition }) => (
           <BrowserPage key={`${partition} ${page.id}`} page={page} partition={partition} />
         ))}
       </div>
