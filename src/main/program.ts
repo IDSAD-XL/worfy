@@ -25,10 +25,7 @@
 // flips them after packaging), so the mode is on in `pnpm dev` and in the packaged app.
 
 import { posix, resolve, win32 } from 'node:path'
-import { fileOrAlias, findOnPath, type FileExists } from './agent/env'
-
-/** A full Windows path: a drive letter (`C:\…`, `C:/…`) or a network share (`\\…`). */
-const WINDOWS_FULL_PATH = /^(?:[A-Za-z]:[\\/]|[\\/]{2})/
+import { fileOrAlias, findOnPath, WINDOWS_FULL_PATH, type FileExists } from './agent/env'
 
 /**
  * How Windows reads a program an override names (WORFY_GH) when it is not a `.mjs` stand-in, the
@@ -79,7 +76,7 @@ export function programStart(override: string | undefined, usual: string, execPa
  * `.mjs` override runs under node.exe, the first one in the Path of `env` (the environment the
  * pseudo-terminal gets), with no variable added; throws when there is none. Any other override, and
  * the usual program, come back as they are: the caller reads them by its own rule
- * (windowsProgramPath). The one caller is "Sign in with gh", so the error names WORFY_GH.
+ * (windowsProgramPath). The error names no variable: the caller adds the one it read.
  */
 export function programStartInPty(
   override: string | undefined,
@@ -89,7 +86,7 @@ export function programStartInPty(
   const script = override === undefined ? null : stubScript(override)
   if (script === null || (system.platform ?? process.platform) !== 'win32') return programStart(override, usual, system.execPath)
   const node = findOnPath('node', system.env ?? {}, system.exists ?? fileOrAlias)
-  if (node === null) throw new Error(`node.exe was not found in the Path: a .mjs WORFY_GH (${override}) needs it on Windows`)
+  if (node === null) throw new Error(`node.exe was not found in the Path: the .mjs stand-in ${override} needs it on Windows`)
   return { file: node, args: [script], env: {} }
 }
 

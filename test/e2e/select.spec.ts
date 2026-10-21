@@ -149,13 +149,16 @@ test('the Profile form of "Add project": a field opens from the keyboard, letter
 const FIXTURE = join(repoRoot, 'test', 'fixtures', 'claude-home-legacy')
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'Sandbox', GIT_AUTHOR_EMAIL: 'sandbox@example.com', GIT_COMMITTER_NAME: 'Sandbox', GIT_COMMITTER_EMAIL: 'sandbox@example.com' }
 
+// `__SANDBOX__` replaced by the root, JSON-escaped in a .json file: a Windows path has backslashes
+// (harness-migrate.spec.ts, worfy-windows ticket 83).
 function substitute(dir: string, root: string): void {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name)
     if (entry.isDirectory()) substitute(path, root)
     else {
       const text = readFileSync(path, 'utf8')
-      if (text.includes('__SANDBOX__')) writeFileSync(path, text.replaceAll('__SANDBOX__', root))
+      const value = entry.name.endsWith('.json') ? JSON.stringify(root).slice(1, -1) : root
+      if (text.includes('__SANDBOX__')) writeFileSync(path, text.replaceAll('__SANDBOX__', value))
     }
   }
 }

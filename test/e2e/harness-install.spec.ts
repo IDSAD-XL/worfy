@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { chmodSync, cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
@@ -65,10 +65,10 @@ let stub: { env: Record<string, string>; log: string; envLog: string; state: str
 
 test.beforeEach(() => {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-harness-')))
-  writeFileSync(join(scratch, 'claude-stub.mjs'), STUB)
-  const claude = join(scratch, 'claude')
-  writeFileSync(claude, `#!/bin/sh\nexec "${process.execPath}" "${join(scratch, 'claude-stub.mjs')}" "$@"\n`)
-  chmodSync(claude, 0o755)
+  // A .mjs, which worfy starts under its own Node on every system (src/main/program.ts); Windows
+  // cannot start a #!/bin/sh wrapper (worfy-windows ticket 83).
+  const claude = join(scratch, 'claude-stub.mjs')
+  writeFileSync(claude, STUB)
   const log = join(scratch, 'calls.log')
   const state = join(scratch, 'state.json')
   const envLog = join(scratch, 'env.log')

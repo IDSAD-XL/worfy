@@ -56,7 +56,7 @@ describe('programStartInPty', () => {
 
   it('on Windows without node.exe in the Path a .mjs override starts nothing and says why', () => {
     expect(() => programStartInPty('C:\\stub\\gh.mjs', 'gh', { platform: 'win32', env: WIN_ENV, exists: () => false })).toThrow(
-      'node.exe was not found in the Path: a .mjs WORFY_GH (C:\\stub\\gh.mjs) needs it on Windows',
+      'node.exe was not found in the Path: the .mjs stand-in C:\\stub\\gh.mjs needs it on Windows',
     )
   })
 
