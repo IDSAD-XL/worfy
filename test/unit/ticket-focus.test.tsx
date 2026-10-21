@@ -28,7 +28,7 @@ const ipc = vi.hoisted(() => ({
 const invoke = vi.hoisted(() =>
   vi.fn<(channel: string, input?: unknown) => Promise<Result>>((channel) => {
     if (channel === 'tickets.read') return Promise.resolve(ipc.reads.length > 1 ? ipc.reads.shift()! : (ipc.reads[0] ?? { ok: false, error: 'no answer' }))
-    if (channel === 'shell.openInEditor') return Promise.resolve({ ok: true, value: { path: 'opened' } })
+    if (channel === 'shell.openInEditor') return Promise.resolve({ ok: true, value: { path: 'opened', outcome: 'opened' } })
     return Promise.resolve({ ok: false, error: 'not in this test' })
   }),
 )
@@ -165,6 +165,17 @@ describe('the focused Ticket', () => {
     await screen.findByRole('heading', { name: 'Что делаем' })
     fireEvent.click(screen.getByRole('button', { name: 'Open in editor' }))
     expect(editorCalls()).toEqual([['shell.openInEditor', { projectId: PROJECT, path: '/wf/.scratch/demo/issues/07-rate-limit.md' }]])
+  })
+
+  // worfy-polish ticket 35: a symlinked Ticket that leads to anything but a document is shown, not opened.
+  it('"Open in editor" says why when main showed the file in Explorer instead of opening it', async () => {
+    render(inTile(<TicketNode {...propsOf(nodeOf(ticket()))} />))
+    await screen.findByRole('heading', { name: 'Что делаем' })
+    invoke.mockResolvedValueOnce({ ok: true, value: { path: 'C:\\w\\07.lnk', outcome: 'revealed', revealedIn: 'win32' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open in editor' }))
+    await vi.waitFor(() =>
+      expect(toasts.getState().toasts).toMatchObject([{ kind: 'info', text: 'Shown in Explorer: not a document', testId: 'file-revealed' }]),
+    )
   })
 
   it('on a Linked machine "Open in editor" says where the file is and opens nothing; the body is still read', async () => {

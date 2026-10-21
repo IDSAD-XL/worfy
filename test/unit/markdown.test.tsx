@@ -109,6 +109,87 @@ describe('Markdown: links', () => {
     expect(asked).toEqual([])
   })
 
+  // worfy-polish ticket 35: main shows a program in Finder instead of running it; the window says why.
+  it('shows the reason next to a link whose file main showed in Finder, and nothing for an opened file', async () => {
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      invoke: (channel: string, input: unknown) => {
+        asked.push({ channel, input })
+        const path = (input as { path: string }).path
+        return Promise.resolve({ ok: true, value: path.endsWith('.md') ? { path, outcome: 'opened' } : { path, outcome: 'revealed', revealedIn: 'darwin' } })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    render(<Markdown text={'Run [setup](scripts/setup.command), read [notes](notes.md).'} projectId="alpha" />)
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(fireEvent.click(screen.getByRole('link', { name: 'notes' }))).toBe(false)
+    expect(fireEvent.click(screen.getByRole('link', { name: 'setup' }))).toBe(false)
+    const note = await screen.findByRole('status')
+    expect(note.textContent).toBe('Shown in Finder: not a document')
+    // Next to its own link, and only one: the opened file has none.
+    expect(note.previousElementSibling?.textContent).toBe('setup')
+    expect(screen.getAllByRole('status')).toHaveLength(1)
+    expect(asked.map((each) => each.input)).toEqual([
+      { projectId: 'alpha', path: 'notes.md' },
+      { projectId: 'alpha', path: 'scripts/setup.command' },
+    ])
+  })
+
+  it('shows no reason when the user cancelled main\'s question', async () => {
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      invoke: (channel: string, input: unknown) => {
+        asked.push({ channel, input })
+        return Promise.resolve({ ok: true, value: { path: (input as { path: string }).path, outcome: 'cancelled' } })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    render(<Markdown text={'[x](run.term)'} projectId="alpha" />)
+    fireEvent.click(screen.getByRole('link', { name: 'x' }))
+    await vi.waitFor(() => expect(asked).toHaveLength(1))
+    await Promise.resolve()
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it.each([
+    ['darwin', 'Shown in Finder: not a document'],
+    ['win32', 'Shown in Explorer: not a document'],
+    ['other', 'Shown in the file manager: not a document'],
+  ])('names the file manager of %s in the reason', async (platform, text) => {
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      invoke: (channel: string, input: unknown) => {
+        asked.push({ channel, input })
+        return Promise.resolve({ ok: true, value: { path: (input as { path: string }).path, outcome: 'revealed', revealedIn: platform } })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    render(<Markdown text={'[x](run.term)'} projectId="alpha" />)
+    fireEvent.click(screen.getByRole('link', { name: 'x' }))
+    expect((await screen.findByRole('status')).textContent).toBe(text)
+  })
+
+  // The renderer is not trusted to judge the file: every such link reaches main, which decides.
+  it.each([
+    ['[x](scripts/setup%2Ecommand)', 'scripts/setup.command'],
+    ['[x](Tool.APP/)', 'Tool.APP'],
+    ['[x](bin/Run.Command?x=1#top)', 'bin/Run.Command'],
+  ])('hands %s to main as the file %s, not to the browser', (text, path) => {
+    render(<Markdown text={text} projectId="alpha" />)
+    fireEvent.click(screen.getByRole('link', { name: 'x' }))
+    expect(asked).toEqual([{ channel: 'shell.openInEditor', input: { projectId: 'alpha', path } }])
+  })
+
+  it.each(['[x](file:///Applications/Calculator.app)', '[x](file:scripts/setup.command)', '[x](x-apple.systempreferences:com.apple.preference)'])(
+    'makes %s no link at all, so it opens nothing',
+    (text) => {
+      const { container } = render(<Markdown text={text} projectId="alpha" />)
+      expect(screen.queryByRole('link')).toBeNull()
+      fireEvent.click(container.querySelector('.w-md__inert-link')!)
+      expect(asked).toEqual([])
+    },
+  )
+
   // worfy-windows ticket 08: react-markdown's default urlTransform blanked these before classifyLink.
   it.each([
     ['[f](C:\\Users\\a\\f.md)', 'C:\\Users\\a\\f.md'],

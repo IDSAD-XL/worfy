@@ -9,8 +9,10 @@ import { canvasReady, launchApp } from './helpers'
 // The focused Ticket in the built app: a double click on a Ticket card opens focus mode on it, the
 // tile shows the whole Ticket file as markdown under the header, an edit of the file shows there
 // without opening it again, and "Open in editor" and a relative link open files at the paths main
-// resolves. A temporary HOME, Claude home and Harness home; `shell.openPath` is a recorder, so no
-// editor opens.
+// resolves, while for a link to a program main asks first, and "Show in Finder" shows it in the file
+// manager (worfy-polish ticket 35). A temporary HOME, Claude home and Harness home; `shell.openPath`,
+// `shell.showItemInFolder` and `dialog.showMessageBox` are recorders, so no editor, file manager or
+// box opens; the box answers "Show in Finder".
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -27,17 +29,35 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
-/** Replaces the OS shell of main with a recorder of the files it is asked to open. */
+/**
+ * Replaces the OS shell of main with recorders of the files it is asked to open and to show, and its
+ * message box with one that records the question and answers button 1, "Show in Finder".
+ */
 async function recordOpenedFiles(app: ElectronApplication): Promise<void> {
-  await app.evaluate(({ shell }) => {
+  await app.evaluate(({ shell, dialog }) => {
     const paths: string[] = []
-    ;(globalThis as unknown as { openedPaths: string[] }).openedPaths = paths
+    const shown: string[] = []
+    const asked: string[] = []
+    ;(globalThis as unknown as { openedPaths: string[]; shownPaths: string[]; askedBoxes: string[] }).openedPaths = paths
+    ;(globalThis as unknown as { openedPaths: string[]; shownPaths: string[]; askedBoxes: string[] }).shownPaths = shown
+    ;(globalThis as unknown as { openedPaths: string[]; shownPaths: string[]; askedBoxes: string[] }).askedBoxes = asked
+    // showMessageBox(window, options) or showMessageBox(options): the options are the last argument.
+    dialog.showMessageBox = (async (...args: unknown[]) => {
+      asked.push((args.at(-1) as { message: string }).message)
+      return { response: 1, checkboxChecked: false }
+    }) as typeof dialog.showMessageBox
     shell.openPath = async (path: string) => {
       paths.push(path)
       return ''
     }
+    shell.showItemInFolder = (path: string) => {
+      shown.push(path)
+    }
   })
 }
+
+const shownPaths = (app: ElectronApplication): Promise<string[]> => app.evaluate(() => (globalThis as unknown as { shownPaths: string[] }).shownPaths)
+const askedBoxes = (app: ElectronApplication): Promise<string[]> => app.evaluate(() => (globalThis as unknown as { askedBoxes: string[] }).askedBoxes)
 
 const openedPaths = (app: ElectronApplication): Promise<string[]> => app.evaluate(() => (globalThis as unknown as { openedPaths: string[] }).openedPaths)
 
@@ -47,10 +67,12 @@ test('a double click on a Ticket card shows the whole Ticket in focus mode, foll
   mkdirSync(issues, { recursive: true })
   const spec = join(repo, '.scratch', EPIC, 'spec.md')
   writeFileSync(spec, '# Demo epic\n')
+  const program = join(repo, '.scratch', EPIC, 'setup.command')
+  writeFileSync(program, '#!/bin/sh\necho launched\n')
   const file = join(issues, '07-rate-limit.md')
   writeFileSync(
     file,
-    ['# 07 — Rate limit', '', 'Type: task', 'Status: open', 'Blocked by: —', '', '## Что делаем', '', 'Limit the bids; see [the spec](../spec.md).', ''].join('\n'),
+    ['# 07 — Rate limit', '', 'Type: task', 'Status: open', 'Blocked by: —', '', '## Что делаем', '', 'Limit the bids; see [the spec](../spec.md). Run [setup](../setup.command).', ''].join('\n'),
   )
 
   const home = join(scratch, 'home')
@@ -110,6 +132,12 @@ test('a double click on a Ticket card shows the whole Ticket in focus mode, foll
     await expect.poll(() => openedPaths(app)).toEqual([file])
     await body.getByRole('link', { name: 'the spec' }).click()
     await expect.poll(() => openedPaths(app)).toEqual([file, spec])
+    // A link to a program goes through IPC to main, which asks first; "Show in Finder" shows it.
+    await body.getByRole('link', { name: 'setup' }).click()
+    await expect.poll(() => shownPaths(app)).toEqual([program])
+    expect(await askedBoxes(app)).toEqual(['Open setup.command?'])
+    await expect(body.getByRole('status')).toHaveText(/^Shown in (Finder|Explorer|the file manager): not a document$/)
+    expect(await openedPaths(app)).toEqual([file, spec])
 
     // An edit of the body alone shows in the open tile.
     writeFileSync(file, `${readFileSync(file, 'utf8')}\n## Итог\n\nDone in the e2e test.\n`)

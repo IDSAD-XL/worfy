@@ -89,6 +89,12 @@
   text-underline-offset: 2px;
 }
 
+.w-md__link-note {
+  margin-left: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+
 .w-md__image {
   display: inline-block;
   padding: 0 var(--space-1);
