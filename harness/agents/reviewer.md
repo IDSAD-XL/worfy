@@ -168,10 +168,10 @@ Rules of evidence:
   HOME="$T" HARNESS_HOME="$H" CLAUDE_GATE_CONFIG="${CLAUDE_GATE_CONFIG:-$H/gate/config.json}" \
     node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"
   ```
-  The three empty rc files keep `zsh -ilc` from stopping at the setup prompt zsh shows a new user;
-  without them a test that starts a login shell hangs until its timeout. `HARNESS_HOME` and
-  `CLAUDE_GATE_CONFIG` point the gate at the real Harness home and its registry. An exit 3 of the
-  gate under a temporary HOME without them (`[gate] not verified: the project is not registered …`)
+  The three empty rc files keep `zsh -ilc` from stopping at the setup prompt that zsh shows a new
+  user when its build ships the new-user script; without them a test that starts a login shell
+  hangs until its timeout. `HARNESS_HOME` and `CLAUDE_GATE_CONFIG` point the gate at the real Harness home and its registry. An exit 3 of the
+  gate under a temporary HOME without them (`[gate] not verified: …`, the registry cannot be read)
   is an error of your run's environment, not of the code: run the gate again by the recipe. With
   `HARNESS_HOME` on the real Harness home the gate writes its verdict, markers and cache there, as
   it does without a temporary HOME; that write is allowed whatever the line `Write to ~/.claude`

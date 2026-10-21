@@ -166,12 +166,13 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
      node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"
    ```
    The three empty rc files keep `zsh -ilc` (a login shell that code and tests start to read the
-   user's environment) from stopping at the setup prompt zsh shows a new user: without them a test
-   that starts it hangs until its timeout. `HARNESS_HOME` and `CLAUDE_GATE_CONFIG` point the gate
-   at the real Harness home and its registry. Under a temporary HOME without them the gate finds
-   no registry, prints `[gate] not verified: the project is not registered …` and exits 3: that is
-   an error of the run's environment, not of the code — run the gate again by the recipe, and do
-   not report that exit 3 as the gate's verdict. With `HARNESS_HOME` on the real Harness home the
+   user's environment) from stopping at the setup prompt that zsh shows a new user when its build
+   ships the new-user script: without them a test that starts it hangs until its timeout.
+   `HARNESS_HOME` and `CLAUDE_GATE_CONFIG` point the gate at the real Harness home and its
+   registry. Under a temporary HOME without them the gate finds no registry, prints
+   `[gate] not verified: …` (the registry cannot be read) and exits 3: that is an error of the
+   run's environment, not of the code — run the gate again by the recipe, and do not report that
+   exit 3 as the gate's verdict. With `HARNESS_HOME` on the real Harness home the
    gate writes its verdict, markers and cache there (`<HARNESS_HOME>/gate/state`), as it does
    without a temporary HOME. That write is allowed whatever the brief's line `Write to ~/.claude`
    says: it is the Harness home, not the transcripts in `~/.claude/projects`.

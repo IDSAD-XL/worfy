@@ -376,10 +376,10 @@ HOME="$T" HARNESS_HOME="$H" CLAUDE_GATE_CONFIG="${CLAUDE_GATE_CONFIG:-$H/gate/co
 ```
 
 The three empty rc files keep `zsh -ilc` (a login shell that code and tests start to read the
-user's environment) from stopping at the setup prompt zsh shows a new user: without them such a
-test hangs until its timeout. `HARNESS_HOME` and `CLAUDE_GATE_CONFIG` point the gate at the real
-Harness home and its registry: under a temporary HOME without them the gate finds no registry,
-prints `[gate] not verified: the project is not registered …` and exits 3. That exit 3 is an error
+user's environment) from stopping at the setup prompt that zsh shows a new user when its build
+ships the new-user script: without them such a test hangs until its timeout. `HARNESS_HOME` and
+`CLAUDE_GATE_CONFIG` point the gate at the real Harness home and its registry: under a temporary HOME without them the gate finds no registry,
+prints `[gate] not verified: …` (the registry cannot be read) and exits 3. That exit 3 is an error
 of the run's environment, not of the code: the agent runs the gate again by the recipe, and it is
 not the gate's verdict of section 3. With `HARNESS_HOME` on the real Harness home the gate writes
 its verdict, markers and cache there (`<HARNESS_HOME>/gate/state`), as it does without a temporary
