@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { realpath } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { shell } from 'electron'
 import { shellOpenExternal, shellOpenInEditor } from '../../shared/ipc/shell'
@@ -64,6 +64,82 @@ export async function resolveProjectFile(root: string, path: string, worktrees: 
   return target
 }
 
+// What a double click would run rather than open, by the system's name of it (worfy-polish ticket
+// 35). shell.openPath does what a double click does; for these it is starting a program, so they
+// are shown in the file manager instead. When in doubt a kind belongs here: showing a file costs a
+// click, running one can cost the machine.
+const LAUNCHED_DARWIN = [
+  // Programs, scripts and installers: Terminal, Automator, Script Editor, Installer run them.
+  ...['.app', '.command', '.terminal', '.tool', '.workflow', '.action', '.scpt', '.scptd', '.applescript', '.pkg', '.mpkg'],
+  // Shell scripts, and the kinds an installed launcher runs (Python Launcher, Jar Launcher).
+  ...['.sh', '.bash', '.zsh', '.csh', '.tcsh', '.ksh', '.fish', '.py', '.pyw', '.jar'],
+  // Pointers to another file or address that is opened in turn, disk images, system add-ons.
+  ...['.webloc', '.inetloc', '.fileloc', '.dmg', '.mobileconfig', '.prefpane', '.saver', '.kext', '.osax', '.shortcut'],
+]
+
+// The default PATHEXT of Windows; the PATHEXT of the running system is added at the check.
+const LAUNCHED_WIN32 = [
+  ...['.com', '.exe', '.bat', '.cmd', '.vbs', '.vbe', '.js', '.jse', '.wsf', '.wsh', '.msc'],
+  // Shortcuts, PowerShell, installers, screen savers and the other kinds Explorer runs or follows.
+  ...['.lnk', '.url', '.pif', '.scf', '.ps1', '.psm1', '.msi', '.msp', '.mst', '.scr', '.cpl', '.hta', '.reg', '.inf', '.jar'],
+  ...['.application', '.appref-ms', '.appx', '.appxbundle', '.msix', '.msixbundle', '.appinstaller', '.settingcontent-ms'],
+  ...['.library-ms', '.search-ms', '.diagcab', '.chm', '.gadget', '.iso', '.img', '.vhd', '.vhdx'],
+]
+
+const LAUNCHED_OTHER = ['.sh', '.bash', '.zsh', '.csh', '.ksh', '.fish', '.py', '.jar', '.desktop', '.appimage', '.run', '.deb', '.rpm', '.flatpakref', '.snap']
+
+// A file with the execute bit is run by macOS (Terminal) when it has no extension the system opens
+// as a document; these are the document kinds an execute bit left by a checkout does not change.
+const DOCUMENT = new Set(
+  ['.md', '.markdown', '.txt', '.json', '.jsonc', '.yaml', '.yml', '.toml', '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs']
+    .concat(['.css', '.html', '.htm', '.xml', '.csv', '.log', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf']),
+)
+
+/** What the answer calls the file manager a file was shown in. */
+export type FileManager = 'Finder' | 'Explorer' | 'the file manager'
+
+export function fileManager(platform: string): FileManager {
+  if (platform === 'darwin') return 'Finder'
+  if (platform === 'win32') return 'Explorer'
+  return 'the file manager'
+}
+
+export interface LaunchOptions {
+  /** process.platform; any value in tests. */
+  platform?: string
+  /** PATHEXT of the system, for win32. */
+  pathext?: string | undefined
+  /** stat of the file; replaced in tests. */
+  stat?: (path: string) => Promise<{ isDirectory(): boolean; mode: number }>
+}
+
+/**
+ * Whether the system would run `target` (a real path, symlinks resolved) rather than open it: a
+ * folder (an `.app` bundle is one), a name whose extension is a program kind of the platform, and
+ * off Windows a file with an execute bit and no document extension. Throws when the file cannot be
+ * read, so a file that cannot be checked is never handed over.
+ */
+export async function runsAsProgram(target: string, options: LaunchOptions = {}): Promise<boolean> {
+  const platform = options.platform ?? process.platform
+  const info = await (options.stat ?? stat)(target)
+  if (info.isDirectory()) return true
+  let name = nativePath.basename(target).toLowerCase()
+  if (platform === 'win32') {
+    // `a.txt:b.exe` names a stream of a file, and Windows drops a trailing dot or space of a name.
+    if (name.includes(':')) return true
+    name = name.replace(/[. ]+$/, '')
+  }
+  const extension = nativePath.extname(name)
+  const launched =
+    platform === 'darwin'
+      ? LAUNCHED_DARWIN
+      : platform === 'win32'
+        ? [...LAUNCHED_WIN32, ...(options.pathext ?? process.env.PATHEXT ?? '').toLowerCase().split(';')]
+        : LAUNCHED_OTHER
+  if (extension !== '' && launched.includes(extension)) return true
+  return platform !== 'win32' && (info.mode & 0o111) !== 0 && !DOCUMENT.has(extension)
+}
+
 /** The URL when it is an https:// address; throws otherwise. */
 export function httpsUrl(url: string): string {
   if (!URL.canParse(url)) throw new Error(`${url} is not an address`)
@@ -76,6 +152,11 @@ export default [
   defineHandler(shellOpenInEditor, async ({ projectId, path }) => {
     const root = projectStore().get(projectId).path
     const target = await resolveProjectFile(root, path, await worktreeFolders(root))
+    // A program is shown, never run: the window says why next to the link (Markdown.tsx).
+    if (await runsAsProgram(target)) {
+      shell.showItemInFolder(target)
+      return { path: target, revealedIn: fileManager(process.platform) }
+    }
     // openPath answers with an error message, or '' when the file was handed over.
     const failure = await shell.openPath(target)
     if (failure) throw new Error(failure)

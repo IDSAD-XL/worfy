@@ -1,7 +1,8 @@
 # 35 — Ссылка в markdown на `.command` или `.app` в Project-е запускает его по щелчку
 
 Type: bug
-Status: open
+Status: claimed 2026-10-21T12:16Z
+Branch: worfy-polish/35
 Blocked by: —
 Source: ревью PR [#530](https://github.com/IDSAD-XL/worfy/pull/530) (worfy-polish 33, Ticket целиком в
 focus mode), круг 1, находка вне диффа (security). Код перечитан по main `2af91b51`; запуском не
@@ -39,12 +40,12 @@ focus mode), круг 1, находка вне диффа (security). Код п�
 
 ## Готово, когда
 
-- [ ] Contract `test/contract/shell.test.ts` (или файл test-ов `shell.openInEditor`): `.command`,
+- [x] Contract `test/contract/shell.test.ts` (или файл test-ов `shell.openInEditor`): `.command`,
       каталог `.app`, файл с битом исполнения, `.cmd` на win32 — `showItemInFolder`, `openPath` не
       вызван; `.md`, `.ts`, `.png` — `openPath`, как раньше. `shell` Electron — stand-in.
-- [ ] Мутант красный: проверка вида файла убрана — `.command` уходит в `openPath`.
-- [ ] Unit: ссылка на такой файл в `Markdown` показывает причину после ответа main.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [x] Мутант красный: проверка вида файла убрана — `.command` уходит в `openPath`.
+- [x] Unit: ссылка на такой файл в `Markdown` показывает причину после ответа main.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
 
@@ -65,4 +66,47 @@ focus mode), круг 1, находка вне диффа (security). Код п�
 
 ## Итог
 
-Заполняется при закрытии.
+**Платформенный PR (ADR-0056, пункт 2):** в main есть ветка по `process.platform` для win32 (свой
+список расширений, `PATHEXT`, обрезка точки и пробела в конце имени, имя с `:`). Перед мержем нужен
+вердикт Windows (`check/windows`).
+
+Что сделано:
+
+- `src/main/ipc/shell.ts`: `runsAsProgram(target)` решает в main, по реальному пути после
+  `resolveProjectFile` (симлинки уже раскрыты), запустит ли ОС файл вместо открытия. Такой файл
+  уходит в `shell.showItemInFolder`, а не в `shell.openPath`, и ответ несёт `revealedIn`
+  (`Finder` / `Explorer` / `the file manager`). Renderer не доверенный: он только показывает причину.
+- Что считается программой:
+  - любой каталог (`.app`, `.workflow`, `.plugin` и каталог с именем вида `Guide.md`), на всех
+    платформах;
+  - macOS, по расширению без учёта регистра: `.app .command .terminal .tool .workflow .action .scpt
+    .scptd .applescript .pkg .mpkg .sh .bash .zsh .csh .tcsh .ksh .fish .py .pyw .jar .webloc .inetloc
+    .fileloc .dmg .mobileconfig .prefpane .saver .kext .osax .shortcut`. `.py` и `.jar` — из-за
+    Python Launcher и Jar Launcher, которые их запускают;
+  - Windows: стандартный `PATHEXT` (`.com .exe .bat .cmd .vbs .vbe .js .jse .wsf .wsh .msc`) и
+    `PATHEXT` системы, плюс `.lnk .url .pif .scf .ps1 .psm1 .msi .msp .mst .scr .cpl .hta .reg .inf
+    .jar .application .appref-ms .appx .appxbundle .msix .msixbundle .appinstaller .settingcontent-ms
+    .library-ms .search-ms .diagcab .chm .gadget .iso .img .vhd .vhdx`; точка и пробел в конце имени
+    отбрасываются, имя с `:` (поток NTFS) — всегда программа;
+  - Linux и прочие: `.sh .bash .zsh .csh .ksh .fish .py .jar .desktop .appimage .run .deb .rpm
+    .flatpakref .snap`;
+  - не на Windows: файл с битом исполнения, если его расширение не из списка документов (`.md .txt
+    .json .yaml .ts .js .mjs .css .html .png .pdf` и подобные). Файл без расширения с битом
+    исполнения и `tool.xyz` с битом — показываются; `notes.md` и `check.mjs` с битом — открываются.
+- Ссылки `file://` и прочие схемы кроме `https:` в renderer и так не ссылки (`links.ts`, не менялся);
+  test-ы это закрепляют. `%2E` в ссылке renderer раскрывает до вызова main, main судит по реальному
+  имени файла.
+- `src/renderer/markdown/Markdown.tsx`: после ответа с `revealedIn` рядом со ссылкой появляется
+  `Shown in Finder: worfy does not run programs from links` (`role="status"`, класс
+  `w-md__link-note` в `markdown.css`).
+
+Test-ы: `test/contract/shell.test.ts`, блок «shell.openInEditor never runs a program» (6 test-ов,
+красные на main: 5 из 6); `test/unit/markdown.test.tsx` — причина рядом со ссылкой, ссылки с `%2E`,
+`/` в конце и `?#` уходят в main, `file://` — не ссылка. Мутанты (каждый убран по одному) — все
+красные: проверка в обработчике, правило каталога, список расширений, бит исполнения, исключение для
+документов, обрезка точки в конце на win32, нижний регистр, причина в renderer.
+
+Не проверено: запуск на настоящем Windows (test-ы подменяют `process.platform`; test бита исполнения
+на win32 пропускается); гонка — файл подменён программой между `stat` и `shell.openPath`
+(файл лежит в Project-е, окно гонки — миллисекунды). Вызовы `shell.openInEditor` из `AdrSection` и
+`TicketNode` причину не показывают: ADR и Ticket — всегда `.md`.

@@ -10,12 +10,22 @@ import { invokeChannel } from './channels'
  * inside the Project root or one of its git worktrees; anything else is refused. `desktop`: the
  * file lies on the Project's Machine, so a window on a Linked machine does not call it and shows
  * "File is on <Machine>" instead (src/renderer/machines/useFileElsewhere.ts).
+ *
+ * A file the system would run rather than open — an `.app` or other folder, a `.command`, an
+ * `.exe`, a file with the execute bit — is never handed over: it is shown selected in the file
+ * manager, and the answer names that file manager in `revealedIn` (worfy-polish ticket 35). A link
+ * in a document of the Project is written by agents and other people, and one click on it must not
+ * start a program.
  */
 export const shellOpenInEditor = invokeChannel(
   'shell.openInEditor',
   z.object({ projectId: z.string().min(1), path: z.string().min(1).max(4096) }),
-  /** The real path that was opened. */
-  z.object({ path: z.string() }),
+  z.object({
+    /** The real path that was opened or shown. */
+    path: z.string(),
+    /** Present when the file was shown in the file manager instead of opened, which one. */
+    revealedIn: z.enum(['Finder', 'Explorer', 'the file manager']).optional(),
+  }),
   'desktop',
 )
 

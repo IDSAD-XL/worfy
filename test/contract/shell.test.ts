@@ -1,9 +1,9 @@
 // The `shell` channels in main: src/main/ipc/shell.ts registered through registerIpc (the same
 // wrapper the app uses) over a mocked `electron`, against a real git repository with a linked
-// worktree in a temporary folder. Nothing reaches macOS: shell.openPath and shell.openExternal
-// are recorders.
+// worktree in a temporary folder. Nothing reaches macOS: shell.openPath, shell.showItemInFolder and
+// shell.openExternal are recorders.
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -17,10 +17,11 @@ const PROJECT_ID = 'repo-00000001'
 const electron = vi.hoisted(() => ({
   openPath: vi.fn<(path: string) => Promise<string>>(),
   openExternal: vi.fn<(url: string) => Promise<void>>(),
+  showItemInFolder: vi.fn<(path: string) => void>(),
 }))
 
 vi.mock('electron', () => ({
-  shell: { openPath: electron.openPath, openExternal: electron.openExternal },
+  shell: { openPath: electron.openPath, openExternal: electron.openExternal, showItemInFolder: electron.showItemInFolder },
 }))
 
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
@@ -73,6 +74,7 @@ beforeEach(async () => {
 
   electron.openPath.mockReset().mockResolvedValue('')
   electron.openExternal.mockReset().mockResolvedValue(undefined)
+  electron.showItemInFolder.mockReset()
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
   vi.resetModules()
@@ -153,6 +155,122 @@ describe('shell.openInEditor', () => {
   it('reports the reason macOS gives when it cannot open the file', async () => {
     electron.openPath.mockResolvedValue('No application knows how to open this file')
     await refused('shell.openInEditor', { projectId: PROJECT_ID, path: join(repo, 'README.md') }, /No application knows/)
+  })
+})
+
+/** Runs `step` with process.platform as asked; the real value is back when it ends, failed or not. */
+async function asPlatform<T>(platform: NodeJS.Platform, step: () => Promise<T>): Promise<T> {
+  const real = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...real, value: platform })
+  try {
+    return await step()
+  } finally {
+    Object.defineProperty(process, 'platform', real)
+  }
+}
+
+/** A file of the Project at `relative`, with `mode` when given; its real path. */
+function projectFile(relative: string, mode?: number): string {
+  const file = join(repo, relative)
+  mkdirSync(join(file, '..'), { recursive: true })
+  writeFileSync(file, '#!/bin/sh\necho launched\n')
+  if (mode !== undefined) chmodSync(file, mode)
+  // Windows drops a trailing dot or space of a name: the file is what the file system made.
+  return realpathSync(file)
+}
+
+// worfy-polish ticket 35: a link in a Ticket or a document of the Project is written by agents,
+// other people's PRs and cloned repositories. shell.openPath does what a double click does, which
+// for a program is running it; such a file is shown in Finder or Explorer instead.
+describe('shell.openInEditor never runs a program', () => {
+  const REVEALED = /^(Finder|Explorer|the file manager)$/
+  const opened = () => electron.openPath.mock.calls.map(([path]) => path)
+  const shown = () => electron.showItemInFolder.mock.calls.map(([path]) => path)
+
+  it('shows a .command file in Finder and does not open it', async () => {
+    const file = projectFile('scripts/setup.command')
+    const result = await asPlatform('darwin', () => call('shell.openInEditor', { projectId: PROJECT_ID, path: 'scripts/setup.command' }))
+    expect(result).toStrictEqual({ ok: true, value: { path: file, revealedIn: 'Finder' } })
+    expect(opened()).toStrictEqual([])
+    expect(shown()).toStrictEqual([file])
+  })
+
+  it('shows every macOS launcher kind, in any letter case, and a folder bundle with a trailing slash', async () => {
+    const bundle = join(repo, 'Tool.app')
+    mkdirSync(join(bundle, 'Contents', 'MacOS'), { recursive: true })
+    const files = ['a.terminal', 'b.tool', 'c.pkg', 'd.sh', 'e.scpt', 'f.webloc', 'RUN.COMMAND', 'Mixed.Command'].map((name) => projectFile(`bin/${name}`))
+    const workflow = join(repo, 'Do.workflow')
+    mkdirSync(workflow)
+    // A bundle of a kind no list names (a plug-in, a framework) is still a folder: shown, never opened.
+    const plugin = join(repo, 'Thing.plugin')
+    mkdirSync(join(plugin, 'Contents'), { recursive: true })
+    // A folder named like a document is a folder too: its name does not make it one to open.
+    const named = join(repo, 'Guide.md')
+    mkdirSync(named)
+    await asPlatform('darwin', async () => {
+      for (const path of ['Tool.app', 'Tool.app/', './Tool.app', 'Do.workflow/', 'Thing.plugin', 'Guide.md/', ...files]) {
+        const result = await call('shell.openInEditor', { projectId: PROJECT_ID, path })
+        expect(result.ok && (result.value as { revealedIn?: string }).revealedIn, path).toBe('Finder')
+      }
+    })
+    expect(opened()).toStrictEqual([])
+    expect(shown()).toStrictEqual([bundle, bundle, bundle, workflow, plugin, named, ...files])
+  })
+
+  it('shows the program a symlink with a document name points at, not the link', async () => {
+    const program = projectFile('scripts/setup.command')
+    symlinkSync(program, join(repo, 'readme-setup.md'))
+    const result = await asPlatform('darwin', () => call('shell.openInEditor', { projectId: PROJECT_ID, path: 'readme-setup.md' }))
+    expect(result).toStrictEqual({ ok: true, value: { path: program, revealedIn: 'Finder' } })
+    expect(opened()).toStrictEqual([])
+  })
+
+  // chmod sets no execute bit on Windows, so these run where a POSIX file system is.
+  it.skipIf(process.platform === 'win32')('shows a file with the execute bit and no text extension; a text file with it still opens', async () => {
+    const plain = projectFile('bin/run', 0o755)
+    const unknown = projectFile('bin/tool.xyz', 0o744)
+    const notes = projectFile('notes.md', 0o755)
+    const source = projectFile('scripts/check.mjs', 0o755)
+    for (const platform of ['darwin', 'linux'] as const) {
+      await asPlatform(platform, async () => {
+        for (const path of [plain, unknown]) {
+          const result = await call('shell.openInEditor', { projectId: PROJECT_ID, path })
+          expect(result.ok && (result.value as { revealedIn?: string }).revealedIn, `${platform} ${path}`).toMatch(REVEALED)
+        }
+        expect(await call('shell.openInEditor', { projectId: PROJECT_ID, path: notes })).toStrictEqual({ ok: true, value: { path: notes } })
+        expect(await call('shell.openInEditor', { projectId: PROJECT_ID, path: source })).toStrictEqual({ ok: true, value: { path: source } })
+      })
+    }
+    expect(opened()).toStrictEqual([notes, source, notes, source])
+    expect(shown()).toStrictEqual([plain, unknown, plain, unknown])
+  })
+
+  it('on Windows shows .cmd and the other launcher kinds in Explorer', async () => {
+    const names = ['setup.cmd', 'a.exe', 'b.bat', 'c.ps1', 'd.lnk', 'e.url', 'f.scr', 'g.msi', 'h.js', 'i.vbs', 'j.hta', 'K.EXE', 'l.exe.', 'm.bat ']
+    const files = names.map((name) => projectFile(`win/${name}`))
+    // A folder opens in Explorer; any folder is shown selected instead, whatever its name.
+    const folder = join(repo, 'Setup.txt')
+    mkdirSync(folder)
+    files.push(folder)
+    await asPlatform('win32', async () => {
+      for (const path of files) {
+        const result = await call('shell.openInEditor', { projectId: PROJECT_ID, path })
+        expect(result.ok && (result.value as { revealedIn?: string }).revealedIn, path).toBe('Explorer')
+      }
+    })
+    expect(opened()).toStrictEqual([])
+    expect(shown()).toStrictEqual(files)
+  })
+
+  it('opens .md, .ts and .png as before, on every platform', async () => {
+    const files = ['docs/a.md', 'src/b.ts', 'img/c.png'].map((name) => projectFile(name, 0o644))
+    for (const platform of ['darwin', 'win32', 'linux'] as const) {
+      await asPlatform(platform, async () => {
+        for (const path of files) expect(await call('shell.openInEditor', { projectId: PROJECT_ID, path })).toStrictEqual({ ok: true, value: { path } })
+      })
+    }
+    expect(opened()).toStrictEqual([...files, ...files, ...files])
+    expect(shown()).toStrictEqual([])
   })
 })
 

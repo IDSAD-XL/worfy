@@ -1,4 +1,4 @@
-import { useMemo, type MouseEvent, type ReactNode } from 'react'
+import { useMemo, useState, type MouseEvent, type ReactNode } from 'react'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { invoke } from '../ipc'
@@ -16,7 +16,9 @@ import './markdown.css'
 // shown instead. Links open outside the window (links.ts): https:// in the browser, a relative
 // path as a file of the Project in the default editor. Fonts and colours come from the theme
 // tokens (markdown.css). In a window on a Linked machine a file link shows "File is on <Machine>"
-// instead (machines/useFileElsewhere.ts), and an https:// link opens on this Machine.
+// instead (machines/useFileElsewhere.ts), and an https:// link opens on this Machine. A link to a
+// program (`.command`, `.app`, `.exe`…) is never run: main shows the file in Finder or Explorer, and
+// the reason appears next to the link (worfy-polish ticket 35).
 
 export interface MarkdownProps {
   text: string
@@ -35,7 +37,10 @@ export interface MarkdownProps {
  */
 const keepWindowsPaths = (url: string): string => (isWindowsPathLink(url) ? url : defaultUrlTransform(url))
 
-function open(href: string | undefined, projectId: string | undefined, baseDir: string | undefined): void {
+/** The reason shown next to a link whose file main showed in the file manager instead of opening. */
+const revealedNote = (fileManager: string): string => `Shown in ${fileManager}: worfy does not run programs from links`
+
+function open(href: string | undefined, projectId: string | undefined, baseDir: string | undefined, note: (text: string) => void): void {
   const target = classifyLink(href, baseDir)
   // An https:// address opens on the Machine where it was clicked: `shell.openExternal` is `local`,
   // so a window on a Linked machine calls its own main (worfy-link ticket 12).
@@ -46,6 +51,7 @@ function open(href: string | undefined, projectId: string | undefined, baseDir: 
   } else if (target.kind === 'file' && projectId !== undefined) {
     void invoke('shell.openInEditor', { projectId, path: target.path }).then((result) => {
       if (!result.ok) console.error('shell.openInEditor failed:', result.error)
+      else if (result.value.revealedIn !== undefined) note(revealedNote(result.value.revealedIn))
     })
   }
 }
@@ -53,6 +59,7 @@ function open(href: string | undefined, projectId: string | undefined, baseDir: 
 function Link({ href, children, projectId, baseDir }: { href: string | undefined; children: ReactNode; projectId: string | undefined; baseDir: string | undefined }) {
   const target = classifyLink(href, baseDir)
   const file = useFileElsewhere()
+  const [note, setNote] = useState<string | null>(null)
   if (target.kind === 'none') {
     return (
       <span className="w-md__inert-link" title={href}>
@@ -65,12 +72,19 @@ function Link({ href, children, projectId, baseDir }: { href: string | undefined
     event.preventDefault()
     // A Project file lies on the window's Linked machine: the toast instead of its editor.
     if (target.kind === 'file' && projectId !== undefined && file.elsewhere) file.show()
-    else open(href, projectId, baseDir)
+    else open(href, projectId, baseDir, setNote)
   }
   return (
-    <a href={href} title={target.kind === 'external' ? target.url : target.path} onClick={onClick}>
-      {children}
-    </a>
+    <>
+      <a href={href} title={target.kind === 'external' ? target.url : target.path} onClick={onClick}>
+        {children}
+      </a>
+      {note !== null && (
+        <span className="w-md__link-note" role="status">
+          {note}
+        </span>
+      )}
+    </>
   )
 }
 
