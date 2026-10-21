@@ -162,11 +162,17 @@ function fakeOps(): { ops: ArchiveOps; sent: { op: LayoutOpInput; group: Group |
 }
 
 describe('Show and Restore go through LayoutOps', () => {
-  it('Restore is one restore of the archived ones of the named Nodes', async () => {
+  it('Restore brings back the archived ones of the named Nodes, a hidden one shown, as one gesture', async () => {
     const { ops, sent } = fakeOps()
-    const layout = layoutOf({ ...sessionNode('a', 10), x: 5, y: 6 }, { ...sessionNode('b', 20), x: 7, y: 8 }, sessionNode('live', null))
-    await restoreSessions(ops, layout, ['session:a', 'session:b', 'session:live', 'session:gone'])
-    expect(sent.map((each) => each.op)).toEqual([{ op: 'restore', ids: ['session:a', 'session:b'] }])
+    const layout = layoutOf(sessionNode('a', 10), sessionNode('b', 20, { hidden: true }), sessionNode('live', null), sessionNode('hidden-live', null, { hidden: true }))
+    await restoreSessions(ops, layout, ['session:a', 'session:b', 'session:live', 'session:hidden-live', 'session:gone'])
+    expect(sent.map((each) => each.op)).toEqual([
+      { op: 'restore', ids: ['session:a'] },
+      { op: 'restore', ids: ['session:b'] },
+      { op: 'hide', id: 'session:b', hidden: false },
+    ])
+    expect(sent[0]!.group).toBeDefined()
+    expect(new Set(sent.map((each) => each.group)).size).toBe(1)
   })
 
   it('Restore of Nodes none of which is archived sends nothing', async () => {
@@ -188,6 +194,17 @@ describe('Show and Restore go through LayoutOps', () => {
     expect(sent[1]!.group).toBe(sent[0]!.group)
   })
 
+  it('Show of a hidden archived Node also shows it, in the same gesture', async () => {
+    const { ops, sent } = fakeOps()
+    await showSession(ops, layoutOf(sessionNode('a', 10, { hidden: true })), 'session:a', { x: 2000, y: 40 }, [])
+    expect(sent.map((each) => each.op)).toEqual([
+      { op: 'move', id: 'session:a', x: 2000, y: 40 },
+      { op: 'restore', ids: ['session:a'] },
+      { op: 'hide', id: 'session:a', hidden: false },
+    ])
+    expect(new Set(sent.map((each) => each.group)).size).toBe(1)
+  })
+
   it('Show without a spot only restores the Node, at its old place or the nearest clear one', async () => {
     const { ops, sent } = fakeOps()
     await showSession(ops, layoutOf(sessionNode('a', 10)), 'session:a', undefined, [])
@@ -205,7 +222,7 @@ describe('Restore and Show against the store of main, through the undo history',
   const PROJECT = 'demo-0a1b2c3d'
   const ARCHIVED_AT = 1_700_000_000_000
   /** An archived Session Node at (0, 0), a second one at (600, 0) of another batch, and a Note that took the first one's place since. */
-  function setup() {
+  function setup({ hidden = false } = {}) {
     resetHistories()
     const store = new LayoutStore(() => '/nonexistent/worfy-test', { write: () => undefined, delayMs: 60_000 })
     const send: Send = (op) => {
@@ -219,6 +236,7 @@ describe('Restore and Show against the store of main, through the undo history',
     const ops: ArchiveOps = { apply: async (op, group) => void (await applyRecorded(PROJECT, op, channel, group)) }
     store.apply(PROJECT, { op: 'create', node: { id: 's1', kind: 'session', x: 0, y: 0, w: 200, h: 100, data: { sessionId: 'aaaa' } } })
     store.apply(PROJECT, { op: 'create', node: { id: 's2', kind: 'session', x: 600, y: 0, w: 200, h: 100, data: { sessionId: 'bbbb' } } })
+    if (hidden) store.apply(PROJECT, { op: 'hide', id: 's1', hidden: true })
     store.apply(PROJECT, { op: 'archive', batch: 'b1', nodes: [{ id: 's1', rule: 'idle', at: ARCHIVED_AT }] })
     store.apply(PROJECT, { op: 'archive', batch: 'b2', nodes: [{ id: 's2', rule: 'ticket-done', at: ARCHIVED_AT + 5 }] })
     store.apply(PROJECT, { op: 'create', node: { id: 'n1', kind: 'note', x: 0, y: 0, w: 200, h: 100, data: {} } })
@@ -254,5 +272,23 @@ describe('Restore and Show against the store of main, through the undo history',
     expect(s1()).toMatchObject({ x: 0, y: 0, archived: { rule: 'idle', batch: 'b1', at: ARCHIVED_AT } })
     expect(s2()).toMatchObject({ x: 600, y: 0, archived: { rule: 'ticket-done', batch: 'b2', at: ARCHIVED_AT + 5 } })
     expect(await historyOf(PROJECT).undo()).toBe(false)
+  })
+
+  it('Restore of a Node hidden before it was archived shows it; ⌘Z archives and hides it again at its old place', async () => {
+    const { store, ops, s1 } = setup({ hidden: true })
+    expect(s1()).toMatchObject({ hidden: true })
+    await restoreSessions(ops, store.get(PROJECT).layout, ['s1'])
+    expect(s1()).toMatchObject({ hidden: false, archived: null })
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    expect(s1()).toMatchObject({ x: 0, y: 0, hidden: true, archived: { rule: 'idle', batch: 'b1', at: ARCHIVED_AT } })
+    expect(await historyOf(PROJECT).undo()).toBe(false)
+  })
+
+  it('Show of a Node hidden before it was archived puts it at the spot, shown; ⌘Z archives and hides it again at its old place', async () => {
+    const { store, ops, s1 } = setup({ hidden: true })
+    await showSession(ops, store.get(PROJECT).layout, 's1', { x: 1000, y: 40 }, [])
+    expect(s1()).toMatchObject({ x: 1000, y: 40, hidden: false, archived: null })
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    expect(s1()).toMatchObject({ x: 0, y: 0, hidden: true, archived: { rule: 'idle', batch: 'b1', at: ARCHIVED_AT } })
   })
 })

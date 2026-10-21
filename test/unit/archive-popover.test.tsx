@@ -9,6 +9,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ReactFlow, ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AgentSignals } from '../../src/shared/binding/resolve'
 import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 import { DEFAULT_VIEWPORT } from '../../src/shared/layout/types'
 import type { WorkflowModel } from '../../src/shared/workflow/types'
@@ -81,13 +82,21 @@ const MODEL: WorkflowModel = {
   branchErrors: [],
 }
 
-const EMPTY_SIGNALS = { claim: null, cwd: null, gitBranch: null, skill: null, task: null }
+const EMPTY_SIGNALS: AgentSignals = { claim: null, cwd: null, gitBranch: null, skill: null, task: null }
 
 /** The Layout's Nodes `layout.get` answers with. */
 let NODES: LayoutNode[] = ALL_NODES
-/** The answers a test holds back: `bindings.get`, or `bindings.signals` of these Sessions. */
+/** The answers a test holds back: `bindings.get`, `workflow.open`, or `bindings.signals` of these Sessions. */
 let holdManual: Promise<void> | undefined
+let holdWorkflow: Promise<void> | undefined
 let holdSignals: Map<string, Promise<void>>
+/** The workflow model, the manual Bindings and the transcript signals main answers with. */
+let WORKFLOW: WorkflowModel
+let MANUAL: { sessionId: string; agentId: null; target: { kind: 'ticket'; epic: string; num: number } | { kind: 'epic'; epic: string } }[]
+let SIGNALS: Map<string, AgentSignals>
+/** `bindings.get` answers with an error; so does `bindings.signals` of these Sessions. */
+let failManual: boolean
+let failSignals: Set<string>
 /** The Sessions `bindings.signals` was asked about, in order. */
 let signalsAsked: string[]
 
@@ -103,7 +112,13 @@ beforeEach(() => {
   readOnly.hint = null
   NODES = ALL_NODES
   holdManual = undefined
+  holdWorkflow = undefined
   holdSignals = new Map()
+  WORKFLOW = MODEL
+  MANUAL = [{ sessionId: 'b1', agentId: null, target: { kind: 'ticket', epic: 'demo', num: 1 } }]
+  SIGNALS = new Map()
+  failManual = false
+  failSignals = new Set()
   signalsAsked = []
   ipc.invoke.mockImplementation((channel: string, input: unknown) => {
     switch (channel) {
@@ -112,13 +127,17 @@ beforeEach(() => {
       case 'claudeHome.sessions':
         return Promise.resolve({ ok: true, value: { live: [], history: [] } })
       case 'workflow.open':
-        return Promise.resolve({ ok: true, value: MODEL })
+        return (holdWorkflow ?? Promise.resolve()).then(() => ({ ok: true, value: WORKFLOW }))
       case 'bindings.get':
-        return (holdManual ?? Promise.resolve()).then(() => ({ ok: true, value: { projectId: PROJECT, bindings: [{ sessionId: 'b1', agentId: null, target: { kind: 'ticket', epic: 'demo', num: 1 } }] } }))
+        return (holdManual ?? Promise.resolve()).then(() =>
+          failManual ? { ok: false, error: 'the other machine did not answer in time' } : { ok: true, value: { projectId: PROJECT, bindings: MANUAL } },
+        )
       case 'bindings.signals': {
         const { sessionId } = input as { sessionId: string }
         signalsAsked.push(sessionId)
-        return (holdSignals.get(sessionId) ?? Promise.resolve()).then(() => ({ ok: true, value: { session: EMPTY_SIGNALS, subagents: [] } }))
+        return (holdSignals.get(sessionId) ?? Promise.resolve()).then(() =>
+          failSignals.has(sessionId) ? { ok: false, error: 'cannot read the transcript' } : { ok: true, value: { session: SIGNALS.get(sessionId) ?? EMPTY_SIGNALS, subagents: [] } },
+        )
       }
       default:
         return Promise.resolve({ ok: true, value: undefined })
@@ -177,8 +196,8 @@ async function renderCanvas(ops: LayoutOps) {
   return screen.findByTestId('archive-button')
 }
 
-/** What Restore sends for these Nodes: one restore; its undo is the shared inverse (history.ts). */
-const restoreOf = (...nodeIds: string[]): LayoutOpInput[] => [{ op: 'restore', ids: nodeIds }]
+/** What Restore sends for these shown Nodes: a restore of each; its undo is the shared inverse (history.ts). */
+const restoreOf = (...nodeIds: string[]): LayoutOpInput[] => nodeIds.map((id) => ({ op: 'restore', ids: [id] }))
 
 const rowTitles = (dialog: HTMLElement) => within(dialog).getAllByTestId('archive-row').map((row) => row.querySelector('.w-archive__title')!.textContent)
 
@@ -312,6 +331,46 @@ describe('until the Bindings are read', () => {
     expect(all.getAttribute('aria-disabled')).toBeNull()
   })
 
+  it('a Session bound only by its branch stays pending until the workflow model is read', async () => {
+    const workflow = later()
+    holdWorkflow = workflow.promise
+    WORKFLOW = { ...MODEL, tickets: MODEL.tickets.map((ticket) => ({ ...ticket, branch: 'change-the-parser' })) }
+    SIGNALS.set('a1', { ...EMPTY_SIGNALS, gitBranch: 'change-the-parser' })
+    await mountCanvas(recordingOps().ops)
+    await waitFor(() => expect([...signalsAsked].sort()).toEqual(['a1', 'a2', 'a3', 'b1']))
+    await act(() => Promise.resolve())
+    // Without the model the branch names no Ticket: a1 would look unbound and be listed in the Archive.
+    // Until the model is read no Session counts as without a Binding.
+    expect(screen.queryByTestId('archive-button')).toBeNull()
+    workflow.release()
+    const button = await screen.findByTestId('archive-button')
+    expect(button.textContent).toBe('Archive2')
+    await waitFor(() => expect(screen.getByTestId('ticket-sessions-button').textContent).toBe('2 sessions'))
+    fireEvent.click(button)
+    expect(rowTitles(screen.getByRole('dialog', { name: 'Archive' }))).toEqual(['Write the docs', 'Old spike'])
+  })
+
+  it('a failed read of the manual Bindings counts as read: the Sessions are listed, not pending for good', async () => {
+    failManual = true
+    const button = await renderCanvas(recordingOps().ops)
+    // b1's manual Binding is unknown: it is listed without one.
+    await waitFor(() => expect(button.textContent).toBe('Archive4'))
+    fireEvent.click(button)
+    expect(rowTitles(screen.getByRole('dialog', { name: 'Archive' }))).toEqual(['Refactor the parser', 'Write the docs', 'Ship ticket one', 'Old spike'])
+    expect(screen.queryByTestId('archive-pending')).toBeNull()
+  })
+
+  it('a failed transcript read counts as read, and is asked again when the archived set changes', async () => {
+    failSignals.add('a2')
+    const button = await renderCanvas(recordingOps().ops)
+    await waitFor(() => expect(button.textContent).toBe('Archive3'))
+    expect(signalsAsked.filter((id) => id === 'a2')).toHaveLength(1)
+    await layoutChanged([...ALL_NODES, sessionNode('c1', 'New one', NOW - 1000)], 2)
+    await waitFor(() => expect(signalsAsked.filter((id) => id === 'a2')).toHaveLength(2))
+    // A read that worked is not asked again.
+    expect(signalsAsked.filter((id) => id === 'a1')).toHaveLength(1)
+  })
+
   it('reads the transcript of each archived Session once, however often the archived set changes', async () => {
     await renderCanvas(recordingOps().ops)
     await waitFor(() => expect([...signalsAsked].sort()).toEqual(['a1', 'a2', 'a3', 'b1']))
@@ -332,6 +391,16 @@ describe('nothing to show', () => {
     expect(screen.queryByTestId('archive-button')).toBeNull()
   })
 
+  it('the Archive popover closes, and its button goes, when its list empties', async () => {
+    fireEvent.click(await renderCanvas(recordingOps().ops))
+    expect(screen.getByRole('dialog', { name: 'Archive' })).toBeTruthy()
+    // a1, a2 and a3 come back on the Canvas (another screen restored them).
+    const unbound = new Set(['session:a1', 'session:a2', 'session:a3'])
+    await layoutChanged(ALL_NODES.map((node) => (unbound.has(node.id) ? { ...node, archived: null } : node)), 2)
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Archive' })).toBeNull())
+    expect(screen.queryByTestId('archive-button')).toBeNull()
+  })
+
   it('no «N sessions» on a Ticket without archived Sessions; the history closes when its list empties and stays closed', async () => {
     await renderCanvas(recordingOps().ops)
     const badge = await screen.findByRole('button', { name: '1 session archived of ticket demo/01' })
@@ -346,5 +415,28 @@ describe('nothing to show', () => {
     await layoutChanged(ALL_NODES, 3)
     await screen.findByRole('button', { name: '1 session archived of ticket demo/01' })
     expect(screen.queryByRole('dialog', { name: 'Archived sessions of demo/01' })).toBeNull()
+  })
+})
+
+describe("an Epic's history", () => {
+  it("lists the Epic's own archived Sessions and its Tickets'; Show of one bound to the Epic restores it through LayoutOps", async () => {
+    MANUAL = [...MANUAL, { sessionId: 'a3', agentId: null, target: { kind: 'epic', epic: 'demo' } }]
+    const { ops, sent } = recordingOps()
+    await renderCanvas(ops)
+    const { default: EpicSessionHistory } = await import('../../src/renderer/canvas/actions/EpicSessionHistory')
+    const { LayoutOpsContext } = await import('../../src/renderer/canvas/useLayout')
+    render(
+      <LayoutOpsContext.Provider value={ops}>
+        <EpicSessionHistory subject={{ kind: 'epic', projectId: PROJECT, root: ROOT, epic: MODEL.epics[0]!, tickets: MODEL.tickets }} />
+      </LayoutOpsContext.Provider>,
+    )
+    const button = await screen.findByRole('button', { name: '2 sessions archived of epic demo' })
+    fireEvent.click(button)
+    const dialog = screen.getByRole('dialog', { name: 'Archived sessions of demo' })
+    // The Epic's own (a3) and demo/01's (b1), newest first.
+    expect(rowTitles(dialog)).toEqual(['Ship ticket one', 'Old spike'])
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Show Old spike' }))
+    // No frame drawn here: Show is a plain Restore.
+    await waitFor(() => expect(sent).toEqual(restoreOf('session:a3')))
   })
 })

@@ -7,12 +7,13 @@
 // The list is built once per Canvas, by the Archive popover, and published here by Project: a badge
 // on each Ticket reads its group from this store instead of resolving every Binding again.
 //
-// Show and Restore go through the Canvas's LayoutOps, so each is one step of the user's undo
-// history. Restore is one `restore`: main puts a restored Node at its place when that is clear, else
-// at the nearest clear one (ADR-0038), and the undo (history.ts) archives the Nodes again with their
-// rule, batch and time and moves them back where they stood. Show is one gesture: a move of the
-// archived Node next to its Ticket or frame — the spot a new bound Session gets (session-spot.ts) —
-// then the `restore`; its undo archives the Node again and moves it back to its old place.
+// Show and Restore go through the Canvas's LayoutOps, each as one step of the user's undo history.
+// Restore sends, per Node, what puts it back on the Canvas (show-ops.ts): a `restore`, and `hide`
+// false for a Node the user had hidden before main archived it. main puts a restored Node at its
+// place when that is clear, else at the nearest clear one (ADR-0038); the undo (history.ts) hides
+// the Node again, archives it with its rule, batch and time and moves it back where it stood. Show
+// first moves the archived Node next to its Ticket or frame — the spot a new bound Session gets
+// (session-spot.ts) — then sends the same operations; its undo also moves the Node back.
 //
 // A Session whose Binding is not known yet (its transcript's signals, the manual Bindings or the
 // workflow model are still being read) is in `pending`, in no group: until then it would look
@@ -26,6 +27,7 @@ import { freePlace, type Rect } from '../../shared/layout/free-place'
 import { isArchived, type ArchiveRule, type Layout, type LayoutNode, type LayoutOpInput } from '../../shared/layout/types'
 import { ticketKey } from '../../shared/workflow/types'
 import { grouped, type Group } from './history'
+import { showOps } from './show-ops'
 
 /**
  * What Show and Restore send through: the Canvas's LayoutOps (useLayout.ts), which records each
@@ -172,15 +174,17 @@ export function showPlace(size: { w: number; h: number }, spot: { x: number; y: 
 }
 
 /**
- * Restore: the archived ones of these Nodes come back, as one step of the history. Its undo puts
- * each Node back into the archive at the place it had, even when main moved it off a Node that
- * took that place (history.ts, the inverse of `restore`).
+ * Restore: the archived ones of these Nodes come back onto the Canvas, shown, as one step of the
+ * history. Its undo puts each Node back into the archive at the place it had, even when main moved
+ * it off a Node that took that place (history.ts, the inverse of `restore`), and hidden again if it was.
  */
 export async function restoreSessions(ops: ArchiveOps, layout: Layout, nodeIds: readonly string[]): Promise<void> {
   const named = new Set(nodeIds)
-  const ids = layout.nodes.filter((node) => named.has(node.id) && isArchived(node)).map((node) => node.id)
-  if (ids.length === 0) return
-  await ops.apply({ op: 'restore', ids })
+  const sent = layout.nodes.filter((node) => named.has(node.id) && isArchived(node)).flatMap(showOps)
+  if (sent.length === 0) return
+  await grouped(async (group) => {
+    for (const op of sent) await ops.apply(op, group)
+  })
 }
 
 /**
@@ -196,7 +200,7 @@ export async function showSession(ops: ArchiveOps, layout: Layout, nodeId: strin
   const place = showPlace(node, spot, obstacles)
   await grouped(async (group) => {
     await ops.apply({ op: 'move', id: nodeId, x: place.x, y: place.y }, group)
-    await ops.apply({ op: 'restore', ids: [nodeId] }, group)
+    for (const op of showOps(node)) await ops.apply(op, group)
   })
 }
 

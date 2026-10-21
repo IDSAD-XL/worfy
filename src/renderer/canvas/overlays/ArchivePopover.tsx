@@ -59,7 +59,8 @@ const readKey = (root: string, sessionId: string): string => `${root}\0${session
  * The transcript signals of these archived Sessions, and which of them are read (or failed to
  * read). Each Session's are asked for once per window, however often the archived set changes: an
  * archived Session is over, its transcript does not change. A Session that comes back to life is
- * restored by main and leaves the archive.
+ * restored by main and leaves the archive. A read that failed counts as read — the Session is then
+ * without a Binding — and is asked again the next time the archived set changes.
  */
 function useArchivedSignals(root: string, sessionIds: readonly string[]): { signals: ReadonlyMap<string, SessionBindingSignals>; read: (sessionId: string) => boolean } {
   useEffect(() => {
@@ -67,8 +68,11 @@ function useArchivedSignals(root: string, sessionIds: readonly string[]): { sign
       const key = readKey(root, sessionId)
       if (asked.has(key)) continue
       asked.add(key)
-      // A failed read is logged by the store and counts as read: the Session is then without a Binding.
-      void refreshSessionSignals(root, sessionId).finally(() => useSignalsRead.setState(({ done }) => ({ done: { ...done, [key]: true } })))
+      // A failed read is logged by the store, which then has no signals for the Session.
+      void refreshSessionSignals(root, sessionId).finally(() => {
+        if (sessionSignalsOf(root, sessionId) === undefined) asked.delete(key)
+        useSignalsRead.setState(({ done }) => ({ done: { ...done, [key]: true } }))
+      })
     }
   }, [root, sessionIds])
   const all = useBindingsStore((store) => store.signals)
@@ -92,8 +96,10 @@ function useArchiveFeed(projectId: string, root: string): void {
   const { history } = useClaudeHome(root)
   const { model, error: workflowError } = useWorkflow(root)
   const manual = useManualBindings(projectId)
-  // Undefined until main has answered `bindings.get`: until then no Session is known to be without a Binding.
-  const manualRead = useBindingsStore((store) => store.manual[projectId] !== undefined)
+  // Undefined until main has answered `bindings.get`: until then no Session is known to be without a
+  // Binding. An error answer counts as read, like the workflow model's: a machine that does not
+  // answer must not keep the Sessions pending and the Archive button away for good.
+  const manualRead = useBindingsStore((store) => store.manual[projectId] !== undefined || store.manualError[projectId] !== undefined)
   const sessionIds = useMemo(() => (layout === undefined ? [] : archivedSessionNodes(layout).map((node) => node.data.sessionId as string)), [layout])
   // shortcut: the transcript of every archived Session is read once per window to find its Binding;
   // redo when the archive grows to thousands of Sessions, by keeping the Binding in the archive record.
