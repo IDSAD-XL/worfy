@@ -268,7 +268,7 @@ describe('AppSettingsStore', () => {
   })
 
   it('the archive of finished Sessions (worfy-canvas ticket 08): a file without the field gives the defaults; a choice is written, read back and kept apart from the defaults', () => {
-    expect(SESSION_ARCHIVE_DEFAULTS).toEqual({ after: 'never', ticketDone: true })
+    expect(SESSION_ARCHIVE_DEFAULTS).toEqual({ after: '24h', ticketDone: true })
     const file = freshFile()
     mkdirSync(join(file, '..'), { recursive: true })
     writeFileSync(file, JSON.stringify({ interfaceScale: 1.1, revision: 2 }))
@@ -285,9 +285,10 @@ describe('AppSettingsStore', () => {
     expect(store.set({ sessionArchive: { ticketDone: false } }).sessionArchive).toStrictEqual({ after: '3d', ticketDone: false })
     expect(new AppSettingsStore(file).get().sessionArchive).toStrictEqual({ after: '3d', ticketDone: false })
 
-    // The default value chosen is kept as chosen: a later default does not move it.
+    // «Never», the default before worfy-canvas ticket 10, chosen: kept as chosen under the 24 h default.
     expect(store.set({ sessionArchive: { after: 'never' } }).sessionArchive).toStrictEqual({ after: 'never', ticketDone: false })
     expect(JSON.parse(readFileSync(file, 'utf8')).sessionArchive).toStrictEqual({ after: 'never', ticketDone: false })
+    expect(sessionArchiveOf(new AppSettingsStore(file).get())).toEqual({ after: 'never', ticketDone: false })
 
     // The same choice again writes nothing; another setting keeps the choice.
     expect(store.set({ sessionArchive: { after: 'never' } }).revision).toBe(5)
@@ -301,7 +302,7 @@ describe('AppSettingsStore', () => {
     const read = new AppSettingsStore(file).get()
     expect(read.interfaceScale).toBe(1.3)
     expect(read.sessionArchive).toStrictEqual({ ticketDone: false })
-    expect(sessionArchiveOf(read)).toEqual({ after: 'never', ticketDone: false })
+    expect(sessionArchiveOf(read)).toEqual({ after: '24h', ticketDone: false })
   })
 
   it.each([

@@ -12,7 +12,8 @@ import { snapshotThemes } from './snapshots'
 // The Project holds five external Session Nodes: OLD_A and OLD_B, finished, last record 30 h ago;
 // KEPT, as old, with Keep; FRESH, finished an hour ago; LIVE, as old, whose Claude Code still runs
 // (a `sleep` process the registry sees). The timer runs every 250 ms (WORFY_ARCHIVE_TICK_MS) and the
-// Setting is «Never», the default: through Settings → Canvas and many runs, nothing is archived.
+// Setting is «Never», which the person chose (app-settings.json; the default is 24 h since
+// worfy-canvas ticket 10): through Settings → Canvas and many runs, nothing is archived.
 // Keep on FRESH is a step of ⌘Z. «Archive finished sessions now» takes OLD_A and OLD_B — 24 h under
 // «Never» — and leaves KEPT, FRESH and LIVE; one ⌘Z brings both back. Last, LIVE's process ends and
 // the person picks 24 h: the next run of the timer takes LIVE alone (the others were touched or kept).
@@ -77,6 +78,8 @@ function makeProject(): void {
   const project = join(dataDir, PROJECT_ID)
   mkdirSync(project, { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT_ID, name: 'demo', path: repo }], activeId: PROJECT_ID }))
+  // «Never», chosen by the person: the choice outlives the 24 h default (APP_SETTINGS_FILE of src/main/settings/store.ts).
+  writeFileSync(join(dataDir, 'app-settings.json'), JSON.stringify({ sessionArchive: { after: 'never' } }))
   const nodes = [sessionNode(OLD_A, 0), sessionNode(OLD_B, 400), sessionNode(KEPT, 800, { keep: true }), sessionNode(FRESH, 1200), sessionNode(LIVE, 1600)]
   writeFileSync(join(project, 'layout.json'), JSON.stringify({ nodes, viewport: { x: 40, y: 40, zoom: 0.6 } }))
 }
@@ -142,7 +145,7 @@ test('«Never» archives nothing on a fast timer; Settings → Canvas offers the
     await expect(nodeOf(window, KEPT).getByTestId('session-node-keep')).toHaveAttribute('aria-pressed', 'true')
     await expect(nodeOf(window, FRESH).getByTestId('session-node-keep')).toHaveAttribute('aria-pressed', 'false')
 
-    // Settings → Canvas: the defaults, the five thresholds, a snapshot in both themes. The timer runs meanwhile.
+    // Settings → Canvas: «Never» as chosen, the switch's default, the five thresholds, a snapshot in both themes. The timer runs meanwhile.
     let dialog = await openCanvasSettings(launched)
     const threshold = dialog.getByRole('combobox', { name: 'Archive finished sessions after' })
     await expect(threshold).toContainText('Never')

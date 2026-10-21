@@ -66,9 +66,9 @@ describe('Settings → Canvas', () => {
     expect(canvas.order).toBeLessThan(pipeline.order)
   })
 
-  it('a Machine that chose nothing shows the defaults: Never, and the switch on', async () => {
+  it('a Machine that chose nothing shows the defaults: 24 h, and the switch on (worfy-canvas ticket 10)', async () => {
     await mount(settings(1))
-    await waitFor(() => expect(threshold().textContent).toContain('Never'))
+    await waitFor(() => expect(threshold().textContent).toContain('24 h'))
     expect(ticketDone().getAttribute('aria-checked')).toBe('true')
   })
 
@@ -96,11 +96,11 @@ describe('Settings → Canvas', () => {
 
   it('a choice main refuses is not shown as saved: the reason is', async () => {
     const main = await mount(settings(1))
-    await waitFor(() => expect(threshold().textContent).toContain('Never'))
+    await waitFor(() => expect(threshold().textContent).toContain('24 h'))
     fireEvent.click(threshold())
     fireEvent.click(within(screen.getByRole('listbox', { name: 'Archive finished sessions after' })).getByRole('option', { name: '7 days' }))
     await act(async () => main.sets[0]!.answer({ ok: false, error: 'disk full' }))
     expect(screen.getByTestId('settings-archive-problem').textContent).toBe('Not saved: disk full')
-    expect(threshold().textContent).toContain('Never')
+    expect(threshold().textContent).toContain('24 h')
   })
 })

@@ -1,7 +1,7 @@
 import { app } from 'electron'
-import { layoutApply, layoutArchiveCandidates, layoutChanged, layoutGet } from '../../shared/ipc/layout'
+import { layoutApply, layoutArchiveCandidates, layoutArchived, layoutChanged, layoutGet, layoutRestoreBatch } from '../../shared/ipc/layout'
 import { toEveryWindow } from '../broadcast'
-import { runningArchiver, type AutoArchiver } from '../layout/archive'
+import { onArchiveBatch, restoreBatch, runningArchiver, type AutoArchiver } from '../layout/archive'
 import { layoutStore } from '../layout/store'
 import { defineHandler, emit, type HandlerModule } from './index'
 
@@ -13,6 +13,12 @@ const store = layoutStore()
 // history can tell when another screen changed a Node it would undo (worfy-link ticket 07).
 store.onChange(({ projectId, layout, revision, op, screen }) => {
   toEveryWindow((client) => emit(client, layoutChanged, { projectId, layout, revision, op, screen }))
+})
+
+// Each batch of main's archive timer: every window of its Project shows the toast with Undo
+// (worfy-canvas ticket 10, ADR-0076, point 8).
+onArchiveBatch((batch) => {
+  toEveryWindow((client) => emit(client, layoutArchived, batch))
 })
 
 // Writes are debounced; what is still pending is written before the app exits.
@@ -32,4 +38,6 @@ export default [
   defineHandler(layoutApply, ({ projectId, op, screen }) => (op.op === 'archive' ? appArchiver().archiveFromScreen(projectId, op, screen ?? null) : store.apply(projectId, op, screen ?? null))),
   // The candidates of «Archive finished sessions now», read by the app's archiver (src/main/index.ts).
   defineHandler(layoutArchiveCandidates, ({ projectId }) => appArchiver().candidatesNow(projectId)),
+  // The Undo of a batch's toast: that batch alone, without a screen (src/main/layout/archive.ts).
+  defineHandler(layoutRestoreBatch, ({ projectId, batch }) => restoreBatch(store, projectId, batch)),
 ] satisfies HandlerModule

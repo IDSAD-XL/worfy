@@ -935,3 +935,97 @@ describe('review debt of Wave 1 (worfy-canvas ticket 16; ADR-0076, Amendments)',
     expect(changes(1, 'touch')).toEqual([])
   })
 })
+
+/** The layout.archived events window `window` got. */
+const batchEvents = (window: number) => electron.sent.filter((message) => message.window === window && message.channel === `${IPC_CHANNEL_PREFIX}layout.archived`).map((message) => message.payload)
+
+describe('the toast of a batch and its Undo (worfy-canvas ticket 10; ADR-0076, point 8)', () => {
+  it('layout.restoreBatch brings back exactly its own batch: not another batch, not a Node the user restored and moved since', async () => {
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    apply(sessionNode('moved', 800, 0))
+    apply(sessionNode('other', 1200, 0))
+    world.history = transcripts(['a', 30 * HOUR], ['b', 30 * HOUR], ['moved', 30 * HOUR])
+    expect(await archiver().run({ id: PROJECT, path: repo })).toBe(3)
+    // Another batch: «Archive finished sessions now» of a screen, later.
+    apply({ op: 'archive', batch: 'now-1', nodes: [{ id: 'session:other', rule: 'idle' }] }, 'screen-1')
+    // The user brings `moved` back from the Archive and drags it: the batch's Undo must leave it.
+    apply({ op: 'restore', ids: ['session:moved'] }, 'screen-1')
+    apply({ op: 'move', id: 'session:moved', x: 800, y: 600 }, 'screen-1')
+    const movedBefore = nodeOf('session:moved')
+    electron.sent.length = 0
+
+    const answer = await call('layout.restoreBatch', { projectId: PROJECT, batch: 'batch-1' })
+    expect(answer.ok).toBe(true)
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:other'])
+    expect(nodeOf('session:a')).toMatchObject({ x: 0, y: 0 })
+    expect(nodeOf('session:b')).toMatchObject({ x: 400, y: 0 })
+    expect(nodeOf('session:moved')).toEqual(movedBefore)
+    // One `restore` of the batch's archived Nodes, without a screen: no screen's undo history records it.
+    const restores = changes(1, 'restore')
+    expect(restores.map((change) => [change.op, change.screen])).toEqual([[{ op: 'restore', ids: ['session:a', 'session:b'] }, null]])
+  })
+
+  it('layout.restoreBatch of a batch with nothing left in the archive changes nothing and succeeds', async () => {
+    apply(sessionNode('a'))
+    world.history = transcripts(['a', 30 * HOUR])
+    await archiver().run({ id: PROJECT, path: repo })
+    apply({ op: 'restore', ids: ['session:a'] }, 'screen-1')
+    const before = store.get(PROJECT).revision
+    electron.sent.length = 0
+    expect((await call('layout.restoreBatch', { projectId: PROJECT, batch: 'batch-1' })).ok).toBe(true)
+    expect((await call('layout.restoreBatch', { projectId: PROJECT, batch: 'no-such-batch' })).ok).toBe(true)
+    expect(store.get(PROJECT).revision).toBe(before)
+    expect(changes(1)).toEqual([])
+  })
+
+  it('every batch of the timer reaches both windows as layout.archived with its batch and count; a run that archives nothing, and a screen\'s archive, send none', async () => {
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    apply(sessionNode('fresh', 800, 0))
+    world.history = transcripts(['a', 30 * HOUR], ['b', 25 * HOUR], ['fresh', HOUR])
+    const one = archiver()
+    await one.run({ id: PROJECT, path: repo })
+    expect(batchEvents(1)).toEqual([{ projectId: PROJECT, batch: 'batch-1', count: 2 }])
+    expect(batchEvents(2)).toEqual([{ projectId: PROJECT, batch: 'batch-1', count: 2 }])
+    await one.run({ id: PROJECT, path: repo })
+    expect(batchEvents(1)).toHaveLength(1)
+    appArchiver(() => ({ idleMs: 24 * HOUR, ticketDone: true }))
+    expect((await call('layout.apply', { projectId: PROJECT, op: { op: 'archive', batch: 'now-1', nodes: [{ id: 'session:fresh', rule: 'idle' }] }, screen: 'screen-1' })).ok).toBe(true)
+    expect(batchEvents(1)).toHaveLength(1)
+  })
+
+  it('⌘Z after the Undo does not archive the batch again: the Undo is no step of a screen\'s history', async () => {
+    const { applyRecorded, historyOf, resetHistories } = await import('../../src/renderer/canvas/history')
+    resetHistories()
+    apply(sessionNode('a'))
+    apply(sessionNode('c', 0, 400))
+    world.history = transcripts(['a', 30 * HOUR])
+    await archiver().run({ id: PROJECT, path: repo })
+    expect(await applyRecorded(PROJECT, { op: 'move', id: 'session:c', x: 0, y: 800 }, ipcChannel())).toBeUndefined()
+    expect((await call('layout.restoreBatch', { projectId: PROJECT, batch: 'batch-1' })).ok).toBe(true)
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    // The user's own move is what ⌘Z undid; the batch stays back on the Canvas.
+    expect(nodeOf('session:c')).toMatchObject({ x: 0, y: 400 })
+    expect(isArchived(nodeOf('session:a')!)).toBe(false)
+  })
+
+  it('a read-only Linked machine cannot undo a batch: layout.restoreBatch is a write', async () => {
+    const { useOf } = await import('../../src/shared/ipc/channels')
+    expect(useOf('layout.restoreBatch')).toBe('write')
+    expect(useOf('layout.archived')).toBe('read')
+  })
+
+  it('a run, whatever the threshold, does not read the layout.json of a Project nobody opened; once main holds it, the run archives', async () => {
+    writeFileSync(layoutFile(), JSON.stringify({ nodes: [{ id: 'session:a', kind: 'session', x: 0, y: 0, w: 300, h: 120, data: { sessionId: 'a' } }] }))
+    store.forget(PROJECT)
+    world.history = transcripts(['a', 30 * HOUR])
+    const history = vi.fn(() => world.history())
+    const one = archiver({ history })
+    expect(await one.run({ id: PROJECT, path: repo })).toBe(0)
+    expect(store.peek(PROJECT)).toBeUndefined()
+    expect(history).not.toHaveBeenCalled()
+    expect(nodes()).toHaveLength(1)
+    expect(await one.run({ id: PROJECT, path: repo })).toBe(1)
+  })
+})

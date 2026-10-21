@@ -17,9 +17,15 @@
 // - A Session that came back to life (`claude --resume`) is restored by main, also without a
 //   screen (point 6): whenever main sees the Project's live Sessions — on its own runs and on every
 //   read of a registry watcher (src/main/ipc/claude-home.ts, liveSessionListeners).
+// - A run takes only a Project whose Layout main already holds — a window, a Linked machine or main
+//   itself read it. A Project nobody opened since the start keeps its layout.json unread, as before
+//   the archive; its first run comes with the first tick after it is opened.
 // - The threshold comes from archiveSettings(), over the Setting of Settings → Canvas of this
-//   Machine (`sessionArchive`, worfy-canvas ticket 08, point 7), read at every run. Its default is
-//   «Never» until ticket 10: the timer runs and restores, but archives nothing (point 10).
+//   Machine (`sessionArchive`, worfy-canvas ticket 08, point 7), read at every run; 24 h by default
+//   (point 10, worfy-canvas ticket 10).
+// - Every batch of a run is announced to the windows (onArchiveBatch, `layout.archived`); their
+//   toast «Archived N finished sessions» has Undo, which brings back that batch alone, without a
+//   screen (restoreBatch, `layout.restoreBatch`; point 8).
 // - «Archive finished sessions now» (point 9) asks main for the candidates of one Project
 //   (AutoArchiver.candidatesNow, channel `layout.archiveCandidates`) by the same rule, with 24 h
 //   under «Never»; the screen archives them itself, as one step of its undo history.
@@ -32,7 +38,7 @@ import { resolveBinding } from '../../shared/binding/resolve'
 import type { ManualBinding } from '../../shared/ipc/bindings'
 import { isLaunchBinding } from '../../shared/ipc/bindings'
 import { SESSION_NODE_KIND } from '../../shared/ipc/sessions'
-import type { ArchiveCandidate } from '../../shared/ipc/layout'
+import type { ArchiveBatchEvent, ArchiveCandidate } from '../../shared/ipc/layout'
 import { isArchived, type LayoutNode, type LayoutOp, type LayoutState } from '../../shared/layout/types'
 import type { SessionArchive, SessionArchiveAfter } from '../../shared/settings/app-settings'
 import { ClaudeHomeRegistry, listGitWorktrees, processState, type RegistryOptions } from '../claude-home/registry'
@@ -311,19 +317,26 @@ export class AutoArchiver {
    * (sessionsWithoutClock), each with a `touch` without a screen. Returns how many Nodes it archived.
    */
   async run(project: ArchiveProject): Promise<number> {
+    // A Layout nobody opened since the start stays unread, as before the archive: no layout.json
+    // read, registry, git or ps for it. Reading every Layout at start would also run the fixes of
+    // a first read (overlaps, src/main/layout/upgrade.ts) before any window asked for it.
+    const held = this.deps.store.peek(project.id)
+    if (held === undefined) return 0
     const settings = this.deps.settings(project.id)
     if (settings.idleMs === null) {
-      // «Never» turns the archive off (ADR-0076, point 7): no registry, git or ps, and no
-      // layout.json read — a Layout nobody opened stays unread, as before the archive. Only Nodes
-      // archived before, in a Layout main holds, still come back when their Session is resumed.
-      const held = this.deps.store.peek(project.id)
-      if (held !== undefined && archivedSessionNodes(held.layout.nodes).length > 0) await this.readLive(project)
+      // «Never» turns the archive off (ADR-0076, point 7): no registry, git or ps. Only Nodes
+      // archived before still come back when their Session is resumed.
+      if (archivedSessionNodes(held.layout.nodes).length > 0) await this.readLive(project)
       return 0
     }
     const reads = await this.read(project, settings)
     // From here to the write nothing waits: the Layout and the live Sessions are the latest main knows.
     const found = this.candidatesOf(project.id, reads, settings)
-    if (found.length > 0) this.deps.store.apply(project.id, { op: 'archive', batch: this.deps.batchId(), nodes: found.map(({ id, rule }) => ({ id, rule })) }, null)
+    if (found.length > 0) {
+      const batch = this.deps.batchId()
+      this.deps.store.apply(project.id, { op: 'archive', batch, nodes: found.map(({ id, rule }) => ({ id, rule })) }, null)
+      announceBatch({ projectId: project.id, batch, count: found.length })
+    }
     // shortcut: one `touch` (and one layout.changed) per Node, only on the first run after an old Layout
     // is read; redo as one operation if a Layout with hundreds of such Nodes makes that run slow.
     const clockless = reads.worktreesListed ? sessionsWithoutClock(this.deps.store.get(project.id).layout.nodes, this.liveOf(project.id), reads.history) : []
@@ -453,6 +466,39 @@ export class AutoArchiver {
     const timer = setInterval(() => void tick(), everyMs)
     return () => clearInterval(timer)
   }
+}
+
+/** Who hears of each batch of a run: src/main/ipc/layout.ts sends it to the windows as `layout.archived`. */
+const batchListeners = new Set<(event: ArchiveBatchEvent) => void>()
+
+/** Calls `listener` after each batch any archiver's run writes; returns the function that stops it. */
+export function onArchiveBatch(listener: (event: ArchiveBatchEvent) => void): () => void {
+  batchListeners.add(listener)
+  return () => batchListeners.delete(listener)
+}
+
+/** Tells every listener of a batch; one that throws is logged, the rest still hear. */
+function announceBatch(event: ArchiveBatchEvent): void {
+  for (const listener of batchListeners) {
+    try {
+      listener(event)
+    } catch (error) {
+      console.error(`[archive] a listener of batch ${event.batch} failed`, error)
+    }
+  }
+}
+
+/**
+ * The Undo of a batch's toast (ADR-0076, point 8): brings back the Nodes still archived in
+ * `batch`, as one `restore` without a screen, so no screen's ⌘Z records it and none undoes it. A
+ * Node of the batch the user restored since is not archived, and one archived again since has
+ * another batch: neither is named, so neither moves. The restore touches the Nodes it brings back,
+ * so the next run of the timer leaves them for a threshold. Nothing left: the Layout as it is.
+ */
+export function restoreBatch(store: Pick<LayoutStore, 'get' | 'apply'>, projectId: string, batch: string): LayoutState {
+  const state = store.get(projectId)
+  const ids = state.layout.nodes.filter((node) => node.archived?.batch === batch).map((node) => node.id)
+  return ids.length === 0 ? state : store.apply(projectId, { op: 'restore', ids }, null)
 }
 
 /** The archiver of the running app, set by its start (src/main/index.ts); null before it and after it stops. */
