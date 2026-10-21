@@ -474,14 +474,22 @@ const SKIP_MODIFIER = /\.(?:skip|only|todo)\b/
 /** A skip, todo or only key in the options argument of a test call. */
 const SKIP_OPTION = /\b(?:skip|only|todo)\s*:\s*(?:true|['"`])/
 
+/** `text` as its lines with spaces collapsed, empty lines dropped. */
+const codeLines = (text) =>
+  text
+    .split('\n')
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+
 /**
- * The test calls of a test file without its comments, in order: { name, lines, skipped }. `lines`
- * is the body: everything after the name up to the closing `)` of the call, without the test calls
- * nested in it (they are compared on their own), as its lines with spaces collapsed and empty lines
- * dropped. `skipped` is an x/f form, a skip, todo or only modifier, or such a key in an options
- * object right after the name: `test(name, { skip: true }, fn)`.
+ * A test file without its comments, read as { calls, outside }. `calls` are its test calls, in
+ * order: { name, lines, skipped }. `lines` is the body: everything after the name up to the closing
+ * `)` of the call, without the test calls nested in it (they are compared on their own), as its
+ * lines. `skipped` is an x/f form, a skip, todo or only modifier, or such a key in an options object
+ * right after the name: `test(name, { skip: true }, fn)`. `outside` is the code of the file around
+ * its top-level test calls.
  */
-function testCalls(code) {
+function testFile(code) {
   const spans = [...code.matchAll(TEST_CALL)].map((call) => {
     const after = call.index + call[0].length
     const options = /^\s*,\s*\{/.exec(code.slice(after))
@@ -489,7 +497,7 @@ function testCalls(code) {
     const skipped = Boolean(call[1]) || SKIP_MODIFIER.test(call[2]) || (options !== null && SKIP_OPTION.test(code.slice(optionsOpen, closing(code, optionsOpen) + 1)))
     return { name: call[4], start: call.index, after, end: closing(code, call.index + call[0].indexOf('(')) + 1, skipped }
   })
-  return spans.map((span) => {
+  const calls = spans.map((span) => {
     let body = ''
     let at = span.after
     for (const inner of spans) {
@@ -498,15 +506,22 @@ function testCalls(code) {
       at = Math.min(inner.end, span.end)
     }
     body += code.slice(at, span.end)
-    const lines = body
-      .split('\n')
-      .map((line) => line.replace(/\s+/g, ' ').trim())
-      .filter(Boolean)
-    return { name: span.name, lines, skipped: span.skipped }
+    return { name: span.name, lines: codeLines(body), skipped: span.skipped }
   })
+  let outside = ''
+  let at = 0
+  for (const span of spans) {
+    if (span.start < at) continue
+    outside += code.slice(at, span.start)
+    at = span.end
+  }
+  return { calls, outside: outside + code.slice(at) }
 }
 
-/** A line that is one whole assertion: assert(…), assert.x(…) or expect(…)…, its brackets closed on the line. */
+/**
+ * A line that is one whole assertion: assert(…), assert.x(…) or expect(…)…, its brackets closed on
+ * the line, one statement (a `;` only at its end: `assert.ok(true); return` is two).
+ */
 function wholeAssertion(line) {
   if (!/^(?:assert(?:\.\w+)*|expect)\s*\(/.test(line) || !/\);?$/.test(line)) return false
   let depth = 0
@@ -519,41 +534,106 @@ function wholeAssertion(line) {
     }
     if ('([{'.includes(line[i])) depth++
     else if (')]}'.includes(line[i]) && --depth < 0) return false
+    else if (line[i] === ';' && depth === 0 && i < line.length - 1) return false
     i++
   }
   return depth === 0
 }
 
+/** A line whose expression goes on to the next line: it ends with an operator, `,`, `(`, `[` or a keyword that takes an operand. */
+const OPEN_END = /(?:[=+\-*/%&|^<>!?:,.~([]|\b(?:return|throw|typeof|void|delete|await|new|in|of|instanceof|yield|case))$/
+/** A line that goes on with the expression of the line before: it starts with `.`, `?.`, an operator, `,`, `(`, `[` or a template literal. */
+const CONTINUES = /^(?:[.?=+\-*/%&|^<>,:([`]|(?:in|of|instanceof)\b)/
+
 /**
  * Whether `now` keeps every line of `base` in the same order, and every line it adds is a whole
- * assertion. Any other added line (`if (false) {`, `return`, a second key in an expectation) can
- * disarm the lines around it, so it counts as a change.
+ * assertion that stands between two statements. Any other added line (`if (false) {`, `return`, a
+ * second key in an expectation) can disarm the lines around it, and so can an assertion slipped into
+ * an expression that runs over a line break (`expect(0)` before an existing `.toBe(0)`, an assertion
+ * after `const sum =`), so it counts as a change. An assertion placed inside an open bracket of the
+ * lines around it leaves the file unparsable, and its tests fail on their own.
  */
 function onlyNewAssertions(base, now) {
   let at = 0
-  for (const line of now) {
+  for (const [i, line] of now.entries()) {
     if (at < base.length && line === base[at]) at++
-    else if (!wholeAssertion(line)) return false
+    else if (!wholeAssertion(line) || OPEN_END.test(now[i - 1] ?? '') || CONTINUES.test(now[i + 1] ?? '')) return false
   }
   return at === base.length
 }
 
 /**
+ * An import declaration: its bindings (none for `import 'x'`) and its module.
+ * shortcut: the text `import … from '…'` inside a string at the top level of a test file is read as
+ * an import too; replace with a real JavaScript tokenizer when a task's tests hold such a string.
+ */
+const IMPORT = /\bimport\s+(?:([\w$*{][^;'"`]*?)\s*from\s*)?(['"])([^'"\n]*)\2[ \t]*;?/g
+/** The local names the check reads as test calls and assertions. */
+const TEST_NAME = /^(?:(?:x|f)?(?:it|test|describe)|expect|assert)$/
+
+/** The bindings of an import clause as `imported:local`: `default:assert`, `test:run`, `*:ns`. */
+function importEntries(clause) {
+  if (!clause) return []
+  const named = /\{([^}]*)\}/.exec(clause)
+  const entries = (named ? named[1].split(',') : [])
+    .map((part) => part.trim().split(/\s+as\s+/))
+    .filter(([imported]) => imported)
+    .map(([imported, local = imported]) => `${imported}:${local}`)
+  for (const part of clause.replace(/\{[^}]*\}/, '').split(',').map((p) => p.trim()).filter(Boolean)) {
+    const ns = /^\*\s*as\s+([\w$]+)$/.exec(part)
+    entries.push(ns ? `*:${ns[1]}` : `default:${part}`)
+  }
+  return entries
+}
+
+/** The code outside the test calls as { imports, lines }: each imported module with its bindings, and the other lines. */
+function outsideCode(text) {
+  const imports = new Map()
+  for (const m of text.matchAll(IMPORT)) {
+    const entries = imports.get(m[3]) ?? new Set()
+    for (const entry of importEntries(m[1])) entries.add(entry)
+    imports.set(m[3], entries)
+  }
+  return { imports, lines: codeLines(text.replace(IMPORT, '')).filter((line) => !/^;+$/.test(line)) }
+}
+
+/**
+ * Whether the code outside the test calls of `now` is that of `base`, but for imports: every module
+ * `base` imports is still imported with all its bindings, and a new binding is not named like a
+ * test call or an assertion (`test`, `it`, `expect`, `assert`). Any other change there (`if (false) {`
+ * around a whole test, `const test = () => {}`) can disarm the tests, so it counts as a change.
+ */
+function outsideIntact(base, now) {
+  const before = outsideCode(base)
+  const after = outsideCode(now)
+  for (const [from, entries] of before.imports) {
+    const kept = after.imports.get(from)
+    if (!kept || ![...entries].every((entry) => kept.has(entry))) return false
+  }
+  for (const [from, entries] of after.imports) {
+    for (const entry of entries) if (!before.imports.get(from)?.has(entry) && TEST_NAME.test(entry.slice(entry.indexOf(':') + 1))) return false
+  }
+  return before.lines.length === after.lines.length && before.lines.every((line, i) => line === after.lines[i])
+}
+
+/**
  * Compares the test files of `base` with the files on disk, comments left out on both sides: a file
  * deleted, a test name gone, an existing test whose body changed other than by whole assertions
- * added, a skip, todo or only marker added to a test call. New tests (also inside an existing
- * describe), new assertions in a test, new files and edits outside the tests are fine.
+ * added, a skip, todo or only marker added to a test call, a file whose code outside the test calls
+ * changed other than by imports added or grown. New tests (also inside an existing describe), new
+ * assertions in a test, new imports and new files are fine.
  */
 function testsIntact(work, base, paths, env) {
-  const values = { deleted_files: 0, removed_tests: 0, altered_tests: 0, added_skips: 0 }
+  const values = { deleted_files: 0, removed_tests: 0, altered_tests: 0, added_skips: 0, altered_outside: 0 }
   for (const [path, blob] of Object.entries(filesAt(work, base, paths, env))) {
     const onDisk = inside(work, path)
     if (!onDisk || !lstatSync(onDisk, { throwIfNoEntry: false })?.isFile()) {
       values.deleted_files++
       continue
     }
-    const before = testCalls(stripComments(blob.toString('utf8')))
-    const after = testCalls(stripComments(readFileSync(onDisk, 'utf8')))
+    const { calls: before, outside: baseOutside } = testFile(stripComments(blob.toString('utf8')))
+    const { calls: after, outside } = testFile(stripComments(readFileSync(onDisk, 'utf8')))
+    if (!outsideIntact(baseOutside, outside)) values.altered_outside++
     const now = Map.groupBy(after, (call) => call.name)
     const seen = new Map()
     for (const call of before) {
