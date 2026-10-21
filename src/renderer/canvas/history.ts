@@ -414,9 +414,11 @@ export interface RecordOptions {
  * data unless `options.data` (a note's text has its own undo), a Node that is not there. A `create` must carry its id (applyRecorded() gives it one).
  */
 export function inverseOf(layout: Layout, op: LayoutOpInput, options: RecordOptions = {}): LayoutOpInput | undefined {
-  // The archive's operations are main's own (ADR-0076) and a touch changes nothing to undo; the
-  // user's Restore and «Archive now» get their steps with their tickets (worfy-canvas 08, 09).
-  if (op.op === 'archive' || op.op === 'restore' || op.op === 'touch') return undefined
+  // The archive is main's own operation (ADR-0076) and a touch changes nothing to undo; «Archive
+  // now» gets its step with its ticket (worfy-canvas 08). The user's `restore` is undone by
+  // archiving the Nodes again.
+  if (op.op === 'archive' || op.op === 'touch') return undefined
+  if (op.op === 'restore') return restoreInverse(layout, op)
   if (op.op === 'patchData') return options.data === true ? dataInverse(layout, op) : undefined
   if (op.op === 'create') return op.node.id === undefined ? undefined : { op: 'remove', id: op.node.id }
   if (op.op === 'moveMany') {
@@ -453,6 +455,22 @@ export function inverseOf(layout: Layout, op: LayoutOpInput, options: RecordOpti
       return had === op.keep ? undefined : { op: 'keep', id: op.id, keep: had }
     }
   }
+}
+
+/**
+ * The `archive` that takes back the Nodes a `restore` brings back, each with the rule that had
+ * archived it. Undefined when none of them is archived (the restore changes nothing).
+ */
+function restoreInverse(layout: Layout, op: Extract<LayoutOpInput, { op: 'restore' }>): LayoutOpInput | undefined {
+  const archived = op.ids.flatMap((id) => {
+    const record = nodeOf(layout, id)?.archived
+    return record == null ? [] : [{ id, record }]
+  })
+  const first = archived[0]
+  if (first === undefined) return undefined
+  // shortcut: Nodes of several batches go back into the first one's batch, redo when undoing a
+  // Restore must keep the batches apart (the batch Undo of worfy-canvas 10 reads them).
+  return { op: 'archive', batch: first.record.batch, nodes: archived.map(({ id, record }) => ({ id, rule: record.rule })) }
 }
 
 /**

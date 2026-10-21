@@ -548,6 +548,36 @@ describe('canvas tools: the Epic frames\' arrangement record', () => {
   })
 })
 
+describe('canvas tools: archived Nodes', () => {
+  // The automatic archive takes finished Sessions off the Canvas (ADR-0076); the Node stays in the
+  // Layout. The agent works on what the user sees: it neither lists nor changes an archived Node.
+  const archive = (...ids: string[]): LayoutOpInput => ({ op: 'archive', batch: 'batch-1', nodes: ids.map((id) => ({ id, rule: 'idle' as const })) })
+
+  it('list_nodes does not list an archived Node, and lists it again once it is restored', async () => {
+    store.apply(PROJECT, note('n1'))
+    store.apply(PROJECT, note('n2', { x: 400 }))
+    store.apply(PROJECT, archive('n2'))
+    const rpc = await connect()
+    expect(json<ListedNode[]>(await rpc.call('list_nodes')).map((node) => node.id)).toEqual(['n1'])
+    store.apply(PROJECT, { op: 'restore', ids: ['n2'] })
+    expect(json<ListedNode[]>(await rpc.call('list_nodes')).map((node) => node.id)).toEqual(['n1', 'n2'])
+  })
+
+  it('every tool that names an archived Node refuses it, says it is archived, and changes nothing', async () => {
+    store.apply(PROJECT, note('n2'))
+    store.apply(PROJECT, { op: 'create', node: { id: 'c1', kind: 'card', x: 600, y: 0, w: 320, h: 240, data: { title: 'Old' } } })
+    store.apply(PROJECT, archive('n2', 'c1'))
+    const rpc = await connect()
+    const reason = /^Node \S+ is archived: it is off the canvas until the user brings it back/
+    await refused(rpc, 'move_node', { id: 'n2', x: 500, y: 300 }, reason)
+    await refused(rpc, 'resize_node', { id: 'n2', w: 400, h: 300 }, reason)
+    await refused(rpc, 'hide_node', { id: 'n2', hidden: true }, reason)
+    await refused(rpc, 'update_node', { id: 'n2', text: 't' }, reason)
+    await refused(rpc, 'link_card', { id: 'c1', target: 'worfy-mvp' }, reason)
+    expect(nodeOf('n2')).toMatchObject({ x: 0, y: 0, w: 220, h: 120, hidden: false, archived: { rule: 'idle', batch: 'batch-1' } })
+  })
+})
+
 describe('canvas tools: Subagent Nodes', () => {
   // Subagent Nodes are computed from their Session's transcript and nothing about them is in the
   // Layout (ADR-0037). Older versions kept a Layout Node of kind subagent-tree per Session; main

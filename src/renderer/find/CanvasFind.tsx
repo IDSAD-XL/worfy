@@ -14,6 +14,7 @@
 // from the palette go through the Canvas's LayoutOps like a click in the Canvas menu.
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Panel, useReactFlow, useStore, useStoreApi, type ReactFlowInstance } from '@xyflow/react'
+import { shownOnCanvas } from '../../shared/layout/derived'
 import { ZOOM_MAX, ZOOM_MIN, type LayoutNode } from '../../shared/layout/types'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { requestCardText } from '../canvas/card-bridge'
@@ -302,7 +303,7 @@ function FindBar({ projectId, root }: FindBarProps) {
   const logs = useSessionLogs((state) => state.logs)
   const { state: docsState } = useDocs(projectId)
   const handoff = useDocText(projectId, docsState?.handoff?.path, docsState?.handoff?.version).text
-  const cardNodes = useMemo(() => layoutNodes.filter((node) => node.kind === 'card' && !node.hidden).map((node) => ({ nodeId: node.id, cardId: cardIdOf(node) })), [layoutNodes])
+  const cardNodes = useMemo(() => layoutNodes.filter((node) => node.kind === 'card' && shownOnCanvas(node)).map((node) => ({ nodeId: node.id, cardId: cardIdOf(node) })), [layoutNodes])
   const cards = useCardTexts(cardNodes)
 
   const docs = useMemo(
