@@ -43,3 +43,16 @@
   border-style: dashed;
   border-color: var(--accent);
 }
+
+/* The kind of a Node in its header (kind-icons.tsx, ADR-0077). The Orchestrator's surface has a
+   double border, so its kind shows not only by colour; a selected one keeps the accent colour on it. */
+.w-node-surface.w-node-surface--double {
+  border-width: 3px;
+  border-style: double;
+  border-color: var(--border-strong);
+}
+/* A finished Session is drawn at lower opacity (SessionNode.tsx); hovering its Node gives the full
+   opacity back, as selecting it does. No other Node changes on hover. */
+.w-canvas .react-flow__node:hover .w-node-surface[data-finished='true'] {
+  opacity: 1 !important;
+}

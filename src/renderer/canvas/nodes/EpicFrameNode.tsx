@@ -2,6 +2,7 @@ import { memo, useEffect, useRef } from 'react'
 import { writeAction } from '../../projects/read-only'
 import { useReadOnly } from '../../projects/useProjects'
 import { actions, type SlotSubject } from '../badges'
+import { KindBand, KindIcon } from '../kind-icons'
 import { onDoneShelf, PROGRESS_SEGMENTS, TICKET_WIDTH, type EpicLayout, type Progress, type TicketColumn } from '../epic-layout'
 import { setDoneStack, toggleFrame, type EpicFrameData } from '../sources/epics'
 import { useLayoutOps } from '../useLayout'
@@ -91,9 +92,16 @@ function EpicFrameNode({ data }: CanvasNodeProps) {
       data-epic={epic.epic}
       data-collapsed={collapsed ? 'true' : 'false'}
     >
+      {/* The pale ground of the Epic's kind under the header, across the frame, with the kind band on top (ADR-0077). */}
+      <div className="w-epic__ground" aria-hidden="true">
+        <KindBand kind="epic" />
+      </div>
       <header className="w-epic__header">
         <div className="w-epic__drag">
-          <span className="w-epic__tag">Epic</span>
+          <span className="w-epic__tag">
+            <KindIcon kind="epic" size={12} />
+            Epic
+          </span>
           <h2 className="w-epic__title" title={epic.title ? `${epic.epic} — ${epic.title}` : epic.epic}>
             <span className="w-mono">{epic.epic}</span>
             {epic.title ? <span className="w-epic__subtitle"> — {epic.title}</span> : null}

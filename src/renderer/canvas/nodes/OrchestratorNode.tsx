@@ -6,6 +6,7 @@ import { useReadOnly } from '../../projects/useProjects'
 import { openSession } from '../../session/navigation'
 import { formatCost, STATE_CHIPS } from '../../session/format'
 import { StatusChip } from '../../theme/primitives'
+import { KindBand, KindIcon } from '../kind-icons'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
@@ -29,7 +30,10 @@ export const minimapColor = 'var(--kind-orchestrator)'
 
 const styles = {
   root: { width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+  // The kind band and icon of the Orchestrator, on the pale ground of its kind (kind-icons.tsx,
+  // ADR-0077); its surface has a double border (node-chrome.css), so the kind shows not only by colour.
   header: {
+    position: 'relative',
     flex: 'none',
     height: 'var(--row-height)',
     display: 'flex',
@@ -37,6 +41,7 @@ const styles = {
     gap: 'var(--space-2)',
     padding: '0 var(--space-3)',
     borderBottom: '1px solid var(--border)',
+    background: 'var(--kind-orchestrator-tint)',
     cursor: 'grab',
   },
   title: { fontSize: 'var(--text-15)', fontWeight: 600, color: 'var(--text)', marginRight: 'auto' },
@@ -98,8 +103,10 @@ export default function OrchestratorNode({ id, selected }: CanvasNodeProps) {
 
   return (
     <div
-      className="w-node-surface"
+      className="w-node-surface w-node-surface--double"
       style={styles.root}
+      role="group"
+      aria-label="Orchestrator"
       data-testid="orchestrator-node"
       data-node-id={id}
       onDoubleClick={() => {
@@ -113,6 +120,8 @@ export default function OrchestratorNode({ id, selected }: CanvasNodeProps) {
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
       <div className="w-orchestrator__header" style={styles.header} title="Double-click to open the Session">
+        <KindBand kind="orchestrator" />
+        <KindIcon kind="orchestrator" />
         <span style={styles.title}>Orchestrator</span>
         <span data-testid="orchestrator-state" title={view?.error ?? undefined}>
           <StatusChip status={chip.status} label={chip.label} />

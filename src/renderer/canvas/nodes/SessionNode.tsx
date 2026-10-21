@@ -24,6 +24,7 @@ import { isRunning, useSessionNodeView } from '../../session/node-sessions'
 import { useSessionLog } from '../../session/store'
 import { StatusChip, type Status } from '../../theme/primitives'
 import { badges, type SlotSubject } from '../badges'
+import { KindBand, KindIcon } from '../kind-icons'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
@@ -57,7 +58,9 @@ export const minimapColor = 'var(--kind-session)'
 
 const styles = {
   root: { width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+  // The kind band and icon of a Session, on the pale ground of its kind (kind-icons.tsx, ADR-0077).
   header: {
+    position: 'relative',
     flex: 'none',
     height: 'var(--row-height)',
     display: 'flex',
@@ -65,6 +68,7 @@ const styles = {
     gap: 'var(--space-2)',
     padding: '0 var(--space-3)',
     borderBottom: '1px solid var(--border)',
+    background: 'var(--kind-session-tint)',
     cursor: 'grab',
   },
   title: { flex: 1, minWidth: 0, fontSize: 'var(--text-13)', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
@@ -110,6 +114,9 @@ const styles = {
   error: { flex: 'none', fontSize: 'var(--text-11)', color: 'var(--text-secondary)', overflowWrap: 'anywhere', whiteSpace: 'pre-line' },
   // Files over the Node: the accent ring of a selected Node, dashed like the Session view's field.
   dragging: { borderColor: 'var(--accent)', borderStyle: 'dashed', boxShadow: 'var(--shadow-node), 0 0 0 1px var(--accent)' },
+  // A finished Session (ADR-0077, point 3): told by its opacity and the word in its chip, never by
+  // a hue. Hovering it (node-chrome.css) or selecting it gives it its full opacity back.
+  finished: { opacity: 0.6 },
   chips: { flex: 'none', maxHeight: 64, overflow: 'auto', paddingBottom: 'var(--space-1)' },
   form: { flex: 'none', display: 'flex', gap: 'var(--space-1)', padding: '0 var(--space-3) var(--space-2)' },
   input: {
@@ -125,6 +132,15 @@ const styles = {
     fontSize: 'var(--text-12)',
   },
 } satisfies Record<string, CSSProperties>
+
+const isFinished = (status: string): boolean => status === 'finished'
+
+/** The surface of a Session Node: its finished look while it is not selected. */
+const surfaceStyle = (status: string, selected: boolean, extra?: CSSProperties): CSSProperties => ({
+  ...styles.root,
+  ...extra,
+  ...(isFinished(status) && !selected ? styles.finished : null),
+})
 
 /** A drag that carries files, not text or a Node. */
 const hasFiles = (event: DragEvent): boolean => event.dataTransfer.types.includes('Files')
@@ -323,10 +339,13 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
   return (
     <div
       className="w-node-surface"
-      style={dragging ? { ...styles.root, ...styles.dragging } : styles.root}
+      style={surfaceStyle(chip.label, selected, dragging ? styles.dragging : undefined)}
+      role="group"
+      aria-label={`Session ${title}`}
       data-testid="session-node"
       data-live="true"
       data-node-id={id}
+      data-finished={isFinished(chip.label) || undefined}
       data-session-id={(running ? view.sdkSessionId : null) ?? saved}
       data-cwd={cwd}
       data-status={chip.label}
@@ -346,6 +365,8 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
       <div style={styles.header} title="Double-click to open the Session">
+        <KindBand kind="session" />
+        <KindIcon kind="session" />
         <span style={styles.title} data-testid="session-node-title" title={title}>
           {title}
         </span>
@@ -477,9 +498,12 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
   return (
     <div
       className="w-node-surface"
-      style={styles.root}
+      style={surfaceStyle(chip.label, selected)}
+      role="group"
+      aria-label={`Session ${title}`}
       data-testid="session-node"
       data-node-id={id}
+      data-finished={isFinished(chip.label) || undefined}
       data-session-id={info.sessionId}
       data-status={chip.label}
       {...refuseFiles}
@@ -492,6 +516,8 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
       <div style={styles.header} title="Double-click to open the transcript">
+        <KindBand kind="session" />
+        <KindIcon kind="session" />
         <span style={styles.title} data-testid="session-node-title" title={title}>
           {title}
         </span>
