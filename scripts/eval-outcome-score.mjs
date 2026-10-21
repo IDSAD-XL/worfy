@@ -2,7 +2,7 @@
 // node scripts/eval-outcome-score.mjs <results dir> [--hidden-dir <dir>]
 // node scripts/eval-outcome-score.mjs --validate <hidden task dir>
 //
-// Scores a result of `pnpm eval:outcome` (harness/evals-outcome/README.md, "The score spec"): for
+// Scores a result of `pnpm eval:outcome` (scripts/eval-outcome/README.md, "The score spec"): for
 // every run of both arms in <results dir>/aggregate-result.json it copies the kept working folder
 // the run's trace points at, runs the checks of scripts/eval-outcome/hidden/<task>/score.json on
 // the copy, asks the judge, and writes <results dir>/outcome.json with the metrics per task and arm
@@ -12,13 +12,18 @@
 // JSON list of arguments; the tests give a stub). --hidden-dir (or EVAL_OUTCOME_HIDDEN) points at
 // another folder of score specs. --validate checks one score spec and exits.
 //
-// Exit code: 0 — scored; 1 — no aggregate-result.json, or a task without a valid score spec (the
-// other tasks are still scored); 2 — usage.
+// Ctrl-C, SIGTERM or SIGHUP: it finishes the run in hand, puts back any mode it opened on a kept run,
+// scores no more and writes no outcome.json.
+//
+// Exit code: 0 — scored; 1 — no aggregate-result.json, a task without a valid score spec, a run that
+// could not be scored or a check that could not tell (outcome.json lists them under problems; the
+// rest is still scored); 2 — usage; 128 + the signal number — stopped by a signal.
 import { existsSync } from 'node:fs'
+import { constants } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { claudeBinary, judgeCommand, loadSpec, scoreResults } from './eval-outcome-lib.mjs'
+import { claudeBinary, judgeCommand, loadSpec, restoreOpenedModes, scoreResults } from './eval-outcome-lib.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
 const say = (line) => process.stdout.write(`eval:outcome-score: ${line}\n`)
@@ -55,6 +60,14 @@ try {
 } catch (error) {
   stop(2, error.message)
 }
-const { problems } = scoreResults({ resultsDir: resolve(resultsDir), hiddenDir: resolve(hiddenDir), judge, log: say })
+let signal = null
+for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(name, () => {
+    signal ??= name
+    restoreOpenedModes()
+  })
+}
+const { problems, stopped } = await scoreResults({ resultsDir: resolve(resultsDir), hiddenDir: resolve(hiddenDir), judge, log: say, stopped: () => signal })
+if (stopped) stop(128 + (constants.signals[stopped] ?? constants.signals.SIGTERM), `stopped by ${stopped}: no outcome.json written; score again to finish`)
 say(join(resolve(resultsDir), 'outcome.json'))
-if (problems.length > 0) stop(1, `not scored:\n${problems.join('\n')}`)
+if (problems.length > 0) stop(1, `not scored, or scored with checks that could not tell:\n${problems.join('\n')}`)

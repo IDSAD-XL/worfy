@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // node scripts/eval-outcome-check.mjs <task> [--tasks-dir <dir>] [--hidden-dir <dir>] [--judge]
 //
-// The free check of an outcome task against its reference solutions (harness/evals-outcome/README.md,
+// The free check of an outcome task against its reference solutions (scripts/eval-outcome/README.md,
 // "Free check against the reference solutions"). For every scripts/eval-outcome/hidden/<task>/
 // reference/<name>/ it builds the run's working folder in a temporary HOME (the task's scaffold.sh,
 // then the reference's apply.sh), writes a trace whose shell commands are the lines of apply.sh and
@@ -10,6 +10,9 @@
 //   <reference>  <metric | grader name>  <expected>  <actual>  ok | MISMATCH | skipped
 // Judge checks are not called unless --judge is given (it is paid; EVAL_OUTCOME_JUDGE replaces the
 // judge); a metric that rests on them prints `skipped`.
+//
+// A check that could not tell (a missing program, a timeout, a failed judge) prints a `problem` line
+// marked MISMATCH.
 //
 // Exit code: 0 — every expectation met; 1 — a MISMATCH, or a reference that could not be built;
 // 2 — usage or a bad score spec.
@@ -116,6 +119,10 @@ for (const reference of references) {
     const trace = join(root, 'out', 'trace.jsonl')
     writeFileSync(trace, `${events.map((e) => JSON.stringify(e)).join('\n')}\n`)
     const record = scoreRun({ tracePath: trace, spec, judge })
+    for (const problem of record.problems) {
+      rows.push([reference, 'problem', '-', problem, 'MISMATCH'])
+      failed = true
+    }
     for (const [name, want] of Object.entries(expected.metrics ?? {})) {
       const got = record.metrics[name]
       if (got === undefined) {

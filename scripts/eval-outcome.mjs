@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // pnpm eval:outcome -- --max-cost-usd <usd> [<claude plugin eval options>] [--no-score]
 //
-// Runs the outcome eval (harness/evals-outcome/README.md): every task twice on the same model, with
+// Runs the outcome eval (scripts/eval-outcome/README.md): every task twice on the same model, with
 // the plugin under test and without any plugin, through one `claude plugin eval --ablation
 // with-without` call, then scores what each run left behind (scripts/eval-outcome-score.mjs).
 // Real model calls on the owner's account, by hand: not in CI and not in any check.
@@ -15,15 +15,17 @@
 // PATH, EVAL_GIT and EVAL_HARNESS_HOME=worfy-harness (the plugin's state lives in .git/worfy-harness
 // of the run's working folder, harness/hooks/eval-env.cjs).
 //
-// --max-cost-usd is required: every call is paid. --ablation and --eval-dir are fixed and refused.
-// With no task folder in harness/evals-outcome/ it says so and exits 1 before claude starts.
-// HARNESS_DIR=<dir> evaluates another copy of the plugin (the tests); results go to
-// <that dir>/evals-outcome/results/<time>/.
+// --max-cost-usd is required: every call is paid. --ablation, --eval-dir, --output-dir, --model and
+// --judge-model are fixed and refused. With no task folder in harness/evals-outcome/ it says so and
+// exits 1 before claude starts. HARNESS_DIR=<dir> evaluates another copy of the plugin (the tests).
+// Results go to scripts/eval-outcome/results/<time>/, outside the plugin, so no plugin copy carries
+// them; EVAL_OUTCOME_RESULTS names another folder (the tests).
 //
 // After the call, when it wrote aggregate-result.json, the result is scored (paid judge calls;
 // EVAL_OUTCOME_JUDGE replaces the judge, EVAL_OUTCOME_HIDDEN the folder of score specs); --no-score
-// skips that. Exit code: the worse of the call's and the score's; 1 — no task folder, no claude, a
-// claude without `plugin eval` or no git; 2 — usage; 128 + the signal number — stopped by a signal.
+// skips that. A signal during the score stops it between runs: no outcome.json. Exit code: the worse
+// of the call's and the score's; 1 — no task folder, no claude, a claude without `plugin eval`, no
+// git, or a score with problems; 2 — usage; 128 + the signal number — stopped by a signal.
 import { constants } from 'node:os'
 import { existsSync } from 'node:fs'
 import { delimiter, dirname, join, resolve } from 'node:path'
@@ -39,6 +41,7 @@ import {
   judgeCommand,
   MODEL,
   pluginCopy,
+  restoreOpenedModes,
   runClaude,
   scoreResults,
   taskFolders,
@@ -61,7 +64,7 @@ if (given[0] === '--') given.shift()
 const score = !given.includes('--no-score')
 const passThrough = given.filter((arg) => arg !== '--no-score')
 const named = (name) => passThrough.some((arg) => arg === name || arg.startsWith(`${name}=`))
-for (const fixed of ['--ablation', '--eval-dir']) if (named(fixed)) stop(2, `${fixed} is fixed by this script and cannot be given; ${usage}`)
+for (const fixed of ['--ablation', '--eval-dir', '--output-dir', '--model', '--judge-model']) if (named(fixed)) stop(2, `${fixed} is fixed by this script and cannot be given; ${usage}`)
 const costIndex = passThrough.findIndex((arg) => arg === '--max-cost-usd' || arg.startsWith('--max-cost-usd='))
 const cost = costIndex < 0 ? '' : passThrough[costIndex].includes('=') ? passThrough[costIndex].split('=')[1] : passThrough[costIndex + 1]
 if (!(Number(cost) > 0)) stop(2, `--max-cost-usd <usd> is required: every run is paid; ${usage}`)
@@ -77,17 +80,28 @@ const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 say(`claude ${version} (${claude}), model ${MODEL}, judge ${JUDGE_MODEL}, tasks: ${tasks.join(', ')}`)
 
 // Ctrl-C, SIGTERM and SIGHUP reach claude too; this process outlives it to remove the copies, does
-// not score (the judge is paid) and exits with 128 + the signal number.
+// not score (the judge is paid) and exits with 128 + the signal number. During the score the handler
+// puts back any mode opened on a kept run, and the score stops before its next run.
 let stopped = null
-for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => (stopped ??= signal))
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(signal, () => {
+    stopped ??= signal
+    restoreOpenedModes()
+  })
+}
 const signalsHandled = () => new Promise((done) => setImmediate(done))
+const exitStopped = () => {
+  say(`stopped by ${stopped}; the result is not scored, no outcome.json`)
+  process.exit(128 + (constants.signals[stopped] ?? constants.signals.SIGTERM))
+}
 
-const gitDir = join(OUTCOME, 'results', `${stamp}-git`)
+const RESULTS = process.env.EVAL_OUTCOME_RESULTS ? resolve(process.env.EVAL_OUTCOME_RESULTS) : join(REPO, 'scripts', 'eval-outcome', 'results')
+const gitDir = join(RESULTS, `${stamp}-git`)
 const evalGit = gitCopy(gitDir, childEnv, fail)
 childEnv.PATH = [gitDir, childEnv.PATH].filter(Boolean).join(delimiter)
 childEnv.EVAL_GIT = evalGit
 childEnv.EVAL_HARNESS_HOME = 'worfy-harness'
-const outputDir = join(OUTCOME, 'results', stamp)
+const outputDir = join(RESULTS, stamp)
 let harness = ''
 let worst
 try {
@@ -134,19 +148,17 @@ try {
 }
 
 await signalsHandled()
-if (stopped) {
-  say(`stopped by ${stopped}; the result is not scored`)
-  process.exit(128 + (constants.signals[stopped] ?? constants.signals.SIGTERM))
-}
+if (stopped) exitStopped()
 const aggregate = join(outputDir, 'aggregate-result.json')
 if (!existsSync(aggregate)) stop(Math.max(worst, 1), `no ${aggregate}: nothing to score`)
 say(aggregate)
 if (score) {
   const hiddenDir = process.env.EVAL_OUTCOME_HIDDEN || join(REPO, 'scripts', 'eval-outcome', 'hidden')
-  const { problems } = scoreResults({ resultsDir: outputDir, hiddenDir, judge: judgeCommand(claude), log: say })
+  const { problems, stopped: interrupted } = await scoreResults({ resultsDir: outputDir, hiddenDir, judge: judgeCommand(claude), log: say, stopped: () => stopped })
+  if (interrupted) exitStopped()
   say(join(outputDir, 'outcome.json'))
   if (problems.length > 0) {
-    process.stderr.write(`eval:outcome: not scored:\n${problems.join('\n')}\n`)
+    process.stderr.write(`eval:outcome: not scored, or scored with checks that could not tell:\n${problems.join('\n')}\n`)
     worst = Math.max(worst, 1)
   }
 } else {

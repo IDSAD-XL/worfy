@@ -12,5 +12,5 @@ playwright-report/
 ZzVitestProbe*
 # Results of `pnpm eval:harness`: reports and run transcripts stay local.
 harness/evals/results/
-# Results of `pnpm eval:outcome`: reports, outcome.json and the copy of git stay local.
-harness/evals-outcome/results/
+# Results of `pnpm eval:outcome`: reports, outcome.json and the copy of git stay local, outside harness/.
+scripts/eval-outcome/results/

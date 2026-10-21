@@ -25,7 +25,7 @@ import { join, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const REPO = join(import.meta.dirname, '..', '..')
-const ROOTS = ['test', join('harness', 'bin', 'tests'), join('harness', 'hooks', 'tests'), join('harness', 'evals')]
+const ROOTS = ['test', join('harness', 'bin', 'tests'), join('harness', 'hooks', 'tests'), join('harness', 'evals'), join('harness', 'evals-outcome')]
 const LEFT_OUT = [join('test', 'acceptance')]
 /**
  * Source files: code and scripts, the extensionless stand-ins of programs (test/fixtures/first-run-tools/gh),
