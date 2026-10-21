@@ -63,7 +63,7 @@ import type { HarnessScriptEnvSource } from '../harness/script-env'
 import { environmentExit, harnessScriptRunner, HarnessScriptStartError, HARNESS_SCRIPT_TIMEOUT_MS, NODE_NOT_FOUND, scriptFailureDetail } from '../workflow/profile'
 import { hasLegacyHarness, type PlanOptions } from '../harness/migrate/plan'
 import { MIN_NODE_MAJOR, modelPlan, NODE_INSTALL_HINT, profileDocsLanguages, QMD_VERSION, qmdState, type QmdHomes } from '../harness/qmd'
-import { programStart } from '../program'
+import { programStart, windowsProgramPath } from '../program'
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import type { Check, CheckGroup, CheckId, FirstRunAction, FirstRunReport } from '../../shared/ipc/first-run'
 
@@ -85,9 +85,11 @@ export interface CheckDeps {
   /**
    * The program the gh rows run in place of gh: WORFY_GH, which tests point at a stand-in
    * (src/main/program.ts), as the PR badges and the GitHub accounts do. Unset: gh from the PATH of
-   * `env`. Without it an e2e run reached the machine's own gh (worfy-windows ticket 80).
+   * `env`. Without it an e2e run reached the machine's own gh (worfy-windows ticket 80). It runs
+   * with `env` of its own, worfy's environment, as the PR badges run their stand-in: the login
+   * shell's would drop the variables a stand-in reads. ghOverride builds it.
    */
-  gh?: string
+  gh?: { command: string; env: Env }
   /**
    * The environment the Harness scripts get, asked when the scripts row runs: the source the
    * Epics read uses (src/main/harness/script-env.ts), so the row fails exactly when that read does.
@@ -200,16 +202,12 @@ export function windowsProgram(name: string, env: Env, exists?: FileExists): { f
  */
 export function toolStart(name: string, args: readonly string[], env: Env, platform: NodeJS.Platform, exists?: FileExists): { file: string; args: string[]; shell: string | false } | null {
   if (platform !== 'win32') return { file: name, args: [...args], shell: false }
-  // An `.exe` by its full path starts as it is: a WORFY_GH override, or worfy's own executable that
-  // runs a `.mjs` one (runGh). Only a bare name is looked for on the Path.
-  if (win32.isAbsolute(name) && /\.exe$/i.test(name)) return { file: name, args: [...args], shell: false }
-  // A full path without an extension (WORFY_GH may name gh so): the `.exe` of that folder, as
-  // signInCommand (src/main/github/accounts.ts) finds it; null when the file is not there.
-  if (win32.isAbsolute(name) && win32.extname(name) === '') {
-    const file = findOnPath(win32.basename(name), { PATH: win32.dirname(name) }, exists)
-    return file === null ? null : { file, args: [...args], shell: false }
-  }
-  const program = windowsProgram(name, env, exists)
+  // A full path (a WORFY_GH override, or worfy's own executable that runs a `.mjs` one in runGh) is
+  // that file, as "Sign in with gh" reads it (windowsProgramPath); only a bare name is looked for on
+  // the Path, and a relative path is refused.
+  const path = windowsProgramPath(name, exists ?? fileOrAlias)
+  if (path.kind === 'relative') return null
+  const program = path.kind === 'full' ? (path.file === null ? null : { file: path.file, cmd: /\.(?:cmd|bat)$/i.test(path.file) }) : windowsProgram(name, env, exists)
   if (program === null) return null
   if (!program.cmd) return { file: program.file, args: [...args], shell: false }
   const root = variable(env, 'SystemRoot') ?? ''
@@ -444,10 +442,19 @@ async function claudeVersion(deps: CheckDeps, machine: Machine, timeoutMs: numbe
 /** What jq is for on Windows, where it only warns: the Harness installs and runs without it. */
 export const JQ_WINDOWS_HINT = 'Skill steps that call jq do not work without it; installing the Harness does not need it'
 
+/**
+ * The gh of the checks from worfy's own environment: WORFY_GH with that environment, as the PR
+ * badges run it (src/main/ipc/checks.ts); unset or empty, none, and the rows run gh.
+ */
+export function ghOverride(processEnv: Env): CheckDeps['gh'] {
+  const command = processEnv.WORFY_GH
+  return command ? { command, env: processEnv } : undefined
+}
+
 /** Runs gh, or the program deps.gh names in its place: a `.mjs` one under worfy's own Node (programStart). */
 function runGh(args: readonly string[], deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<ToolRun> {
-  const start = programStart(deps.gh, 'gh')
-  return machine.probes.run(start.file, [...start.args, ...args], { ...deps.env, ...start.env }, timeoutMs)
+  const start = programStart(deps.gh?.command, 'gh')
+  return machine.probes.run(start.file, [...start.args, ...args], { ...(deps.gh?.env ?? deps.env), ...start.env }, timeoutMs)
 }
 
 async function tool(name: 'git' | 'gh' | 'jq', deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {

@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FirstRunActions, type Confirmation } from '../../src/main/first-run/actions'
-import { killTool, runChecks, runTool, toolStart, windowsNativeArch, windowsProgram, type CheckDeps, type Probes, type ToolRun } from '../../src/main/first-run/checks'
+import { ghOverride, killTool, runChecks, runTool, toolStart, windowsNativeArch, windowsProgram, type CheckDeps, type Probes, type ToolRun } from '../../src/main/first-run/checks'
 import { writeAtomically, writeStatusLine } from '../../src/main/harness/migrate/apply'
 import { otherBuildBridge } from '../../src/main/harness/migrate/plan'
 import { bridgeCommand, bridgeFile, bridgeOf, limitsBridgeState, splitCommand, statusLineCommandOf, withBridge } from '../../src/main/harness/status-line'
@@ -715,60 +715,93 @@ describe('the gh rows and WORFY_GH', () => {
   }
   const ghRuns = (runs: string[][]): string[][] => runs.filter((run) => run.includes('--version') ? run.join(' ').includes('gh') : run.includes('auth'))
 
-  it('without it: gh from the Path, as before', async () => {
+  /** Every run the checks ask for, with the environment it gets. */
+  function recordingEnv(): { probes: Probes; runs: { name: string; args: readonly string[]; env: Record<string, string | undefined> }[] } {
+    const runs: { name: string; args: readonly string[]; env: Record<string, string | undefined> }[] = []
+    const run = (name: string, args: readonly string[], env: Record<string, string | undefined>): Promise<ToolRun> => {
+      runs.push({ name, args, env })
+      return Promise.resolve({ code: 0, stdout: '', stderr: '', missing: false })
+    }
+    return { probes: { run, exists: () => false }, runs }
+  }
+  const OWN_ENV = { WORFY_GH: 'C:\\stand-in\\gh.exe', GH_STUB_LOG: 'C:\\log.jsonl', Path: 'C:\\worfy-own' }
+
+  it('without it: gh from the Path, with the login shell environment, as before', async () => {
     const { probes, runs } = recording()
     await runChecks(deps(WIN11, ALL, [], { probes }))
     expect(ghRuns(runs)).toEqual([
       ['gh', '--version'],
       ['gh', 'auth', 'status'],
     ])
+    const withEnv = recordingEnv()
+    await runChecks(deps(WIN11, ALL, [], { probes: withEnv.probes }))
+    const gh = withEnv.runs.filter((each) => each.name === 'gh')
+    expect(gh).toHaveLength(2)
+    for (const each of gh) expect(each.env).toEqual(WINDOWS_ENV)
   })
 
-  it.each([WIN11, MAC])('with a program by its path on $platform: that program, never gh from the Path', async (system) => {
-    const { probes, runs } = recording()
+  it('ghOverride: WORFY_GH with worfy\'s own environment; unset or empty, none', () => {
+    expect(ghOverride(OWN_ENV)).toEqual({ command: 'C:\\stand-in\\gh.exe', env: OWN_ENV })
+    expect(ghOverride({ ...OWN_ENV, WORFY_GH: '' })).toBeUndefined()
+    expect(ghOverride({ Path: 'C:\\worfy-own' })).toBeUndefined()
+  })
+
+  it.each([WIN11, MAC])('with a program by its path on $platform: that program with its environment, never gh from the Path', async (system) => {
+    const { probes, runs } = recordingEnv()
     const stand = system.platform === 'win32' ? 'C:\\stand-in\\gh.exe' : '/stand-in/gh'
-    await runChecks(deps(system, ALL, [], { probes, gh: stand }))
-    expect(runs.some(([name]) => name === 'gh')).toBe(false)
-    expect(ghRuns(runs)).toEqual([
+    await runChecks(deps(system, ALL, [], { probes, gh: { command: stand, env: OWN_ENV } }))
+    expect(runs.some(({ name }) => name === 'gh')).toBe(false)
+    const viaStand = runs.filter(({ name }) => name === stand)
+    expect(viaStand.map((each) => [each.name, ...each.args])).toEqual([
       [stand, '--version'],
       [stand, 'auth', 'status'],
     ])
+    // worfy's own environment, not the login shell's: the variables a stand-in reads reach it.
+    for (const each of viaStand) expect(each.env).toEqual(OWN_ENV)
   })
 
   it('with a .mjs stand-in: worfy\'s own Node runs it, with ELECTRON_RUN_AS_NODE', async () => {
-    const runs: { name: string; args: readonly string[]; env: Record<string, string | undefined> }[] = []
-    const run = (name: string, args: readonly string[], env: Record<string, string | undefined>): Promise<ToolRun> => {
-      runs.push({ name, args, env })
-      return Promise.resolve({ code: 0, stdout: '', stderr: '', missing: false })
-    }
+    const { probes, runs } = recordingEnv()
     const stub = 'C:\\fixtures\\gh\\gh-stub.mjs'
-    await runChecks(deps(WIN11, ALL, [], { probes: { run, exists: () => false }, gh: stub }))
+    await runChecks(deps(WIN11, ALL, [], { probes, gh: { command: stub, env: OWN_ENV } }))
     const viaStub = runs.filter((each) => each.args[0] === stub)
     expect(viaStub.map((each) => [each.name, ...each.args])).toEqual([
       [process.execPath, stub, '--version'],
       [process.execPath, stub, 'auth', 'status'],
     ])
-    for (const each of viaStub) expect(each.env).toMatchObject({ ...WINDOWS_ENV, ELECTRON_RUN_AS_NODE: '1' })
+    for (const each of viaStub) expect(each.env).toEqual({ ...OWN_ENV, ELECTRON_RUN_AS_NODE: '1' })
     expect(runs.some((each) => each.name === 'gh')).toBe(false)
   })
 
-  it('toolStart on Windows starts an .exe by its full path as it is, without looking on the Path', () => {
+  it('toolStart on Windows starts a full path as that file, without looking on the Path', () => {
     const looked: string[] = []
     const exists = (path: string): boolean => {
       looked.push(path)
-      return false
+      return path.startsWith('C:\\stand-in\\')
     }
     expect(toolStart('C:\\stand-in\\gh.exe', ['--version'], WINDOWS_ENV, 'win32', exists)).toEqual({ file: 'C:\\stand-in\\gh.exe', args: ['--version'], shell: false })
-    expect(looked).toEqual([])
+    // Any case of the extension.
+    expect(toolStart('C:\\stand-in\\GH.EXE', ['--version'], WINDOWS_ENV, 'win32', exists)).toEqual({ file: 'C:\\stand-in\\GH.EXE', args: ['--version'], shell: false })
+    expect(looked).toEqual(['C:\\stand-in\\gh.exe', 'C:\\stand-in\\GH.EXE'])
+    // Not there: the row says gh is missing, and the Path is not searched for another gh.
+    expect(toolStart('C:\\elsewhere\\gh.exe', ['--version'], WINDOWS_ENV, 'win32', exists)).toBeNull()
+    expect(looked).toEqual(['C:\\stand-in\\gh.exe', 'C:\\stand-in\\GH.EXE', 'C:\\elsewhere\\gh.exe'])
     // A bare name is still looked for folder by folder.
     expect(toolStart('gh', ['--version'], WINDOWS_ENV, 'win32', exists)).toBeNull()
-    expect(looked.length).toBeGreaterThan(0)
+    expect(looked.length).toBeGreaterThan(3)
   })
 
   it('toolStart on Windows adds .exe to a full path without an extension, as the sign-in command does', () => {
     const exists = (path: string): boolean => path === 'C:\\stand-in\\gh.exe'
     expect(toolStart('C:\\stand-in\\gh', ['--version'], WINDOWS_ENV, 'win32', exists)).toEqual({ file: 'C:\\stand-in\\gh.exe', args: ['--version'], shell: false })
-    // Not there: the row says gh is missing, and the Path is not searched for another gh.
     expect(toolStart('C:\\elsewhere\\gh', ['--version'], WINDOWS_ENV, 'win32', exists)).toBeNull()
+  })
+
+  it('toolStart on Windows: a full-path .cmd through cmd.exe; a path that is not a full one is refused', () => {
+    const exists = (): boolean => true
+    expect(toolStart('C:\\stand-in\\gh.cmd', ['--version'], WINDOWS_ENV, 'win32', exists)).toEqual({ file: '"C:\\stand-in\\gh.cmd" --version', args: [], shell: 'C:\\Windows\\System32\\cmd.exe' })
+    // No drive letter or share: refused rather than looked for in every folder of the Path.
+    expect(toolStart('\\opt\\gh.exe', ['--version'], WINDOWS_ENV, 'win32', exists)).toBeNull()
+    expect(toolStart('tools\\gh.exe', ['--version'], WINDOWS_ENV, 'win32', exists)).toBeNull()
   })
 })

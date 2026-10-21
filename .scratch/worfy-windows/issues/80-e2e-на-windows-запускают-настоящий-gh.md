@@ -56,17 +56,32 @@ Source: прогоны на ПК владельца 2026-10-21 (тикет 79, P
   проверки запускали gh. Теперь эти запуски берут env из `directStartEnv` (`test/e2e/launch-env.ts`):
   те же переменные изоляции, что `launchEnv` у Playwright (`WORFY_GH` на stub, first-run выключен).
 - Проверки first-run (`src/main/first-run/checks.ts`) запускали gh по имени из PATH и не смотрели на
-  `WORFY_GH`. Теперь обе строки gh (`--version`, `auth status`) идут через `programStart(deps.gh)`,
-  как `src/main/github/accounts.ts`; `src/main/ipc/first-run.ts` передаёт `WORFY_GH`. На win32
-  абсолютный путь к `.exe` запускается как есть. `first-run.spec.ts` и `settings-health.spec.ts`
-  ставят `WORFY_GH` на свой gh из sandbox, чтобы на macOS их поведение не изменилось.
+  `WORFY_GH`. Теперь обе строки gh (`--version`, `auth status`) идут через `programStart`, как
+  `ghRunner` в `src/main/github/prs.ts`, с окружением самого worfy, как PR badges запускают свой stub.
+  `src/main/ipc/first-run.ts` передаёт `ghOverride(process.env)` (пустой `WORFY_GH` = не задан).
+  Полный путь на Windows читает одно правило, `windowsProgramPath` в `src/main/program.ts`, и для
+  проверок, и для «Sign in with gh» (`src/main/github/accounts.ts`). `first-run.spec.ts` и
+  `settings-health.spec.ts` ставят `WORFY_GH` на свой gh из sandbox, чтобы на macOS их поведение
+  не изменилось.
 
-Guard test: `test/unit/e2e-gh-stub.test.ts` (каждый запуск приложения в e2e получает stub gh) и
-describe «the gh rows and WORFY_GH» в `test/unit/first-run-windows.test.ts`. Мутанты красные:
-без `gh` в ipc, gh по имени в checks.ts, `spawn` без `directStartEnv`.
+Guard test `test/unit/e2e-gh-stub.test.ts`:
+- каждый запуск приложения в e2e получает stub gh: Electron от Playwright только в `helpers.ts`, а
+  каждый процесс, который spec запускает по вычисленному пути, — известный инструмент или приложение
+  с env из `directStartEnv` (любой API child_process, любая папка `test/e2e`);
+- в `src/main` нет запуска gh по голому имени, а места, где выбирается программа gh, — известный
+  список, все через `WORFY_GH`.
+Плюс describe «the gh rows and WORFY_GH» в `test/unit/first-run-windows.test.ts`. Мутанты красные:
+без `gh` в ipc, gh по имени в checks.ts, `spawn` без `directStartEnv`, env spec-а собран вручную,
+строки gh с окружением login shell.
 
-На ПК 2026-10-21, ветка тикета: gate fast exit 0; 6 unit-файлов, 171 passed. `window.spec.ts` и
+Намеренное исключение: `gh auth login` действия «Sign in…» экрана first-run (`checks.ts`,
+`actions.ts`). worfy печатает эту команду в Terminal Node, и запускает её shell пользователя, а не worfy.
+
+На ПК 2026-10-21, ветка тикета: gate fast exit 0; unit-тесты зелёные. `window.spec.ts` и
 `projects-connect.spec.ts` под watcher-ом `gh.exe`: 0 запусков gh. `window.spec.ts` зелёный.
+
+Дальше, отдельным тикетом: одна функция `appGh()` для всех четырёх мест, что читают `WORFY_GH`
+(`src/main/ipc/checks.ts`, `projects.ts`, `gate-queue.ts`, `first-run.ts`).
 
 Заметка: 3 test-а `projects-connect.spec.ts` (`:73`, `:230`, `:294`) на Windows падают — экран
 connect-project показывает стадию `harness`, а не `form`. Так же они падают на базе (ветка тикета 79),
