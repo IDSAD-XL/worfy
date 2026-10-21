@@ -7,10 +7,13 @@ import { fileURLToPath } from 'node:url'
 import { _electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import type { Reporter, TestCase, TestResult } from '@playwright/test/reporter'
 import { endApp, exited, killThenClean } from './end-app'
+import { SHOW_POLL_MS, waitForFirstWindowShown } from './first-window-shown'
 import { launchEnv } from './launch-env'
 import {
   DIAGNOSTIC_SAVE_MS,
   DIAGNOSTIC_STEP_MS,
+  appShowSummary,
+  appShowWatcher,
   deadline,
   diagnosisBudget,
   diagnosisSummary,
@@ -18,6 +21,7 @@ import {
   shownLine,
   step,
   timeLeftOnClock,
+  type AppShow,
   type WindowState,
 } from './start-diagnosis'
 import { clickMenuItem } from './menu'
@@ -136,14 +140,17 @@ export const START_DIAGNOSTICS = 'start-diagnostics'
 
 /**
  * Keeps the last OUTPUT_LIMIT characters of the app's stdout and stderr, where main's console
- * lines go (src/main/window-show.ts names there the path that showed the window).
+ * lines go, and watches stdout for the console.info line in which src/main/window-show.ts names
+ * the path that showed the window (stdout alone: a chunk of stderr cannot split that line).
  * shortcut: lines the app printed before _electron.launch resolved are not kept, redo when a diagnosis needs the first lines of a start.
  */
-function recordOutput(child: ChildProcess): () => string {
+function recordOutput(child: ChildProcess): { text: () => string; appShow: ReturnType<typeof appShowWatcher> } {
   const tail = outputTail()
+  const appShow = appShowWatcher()
   child.stdout?.on('data', tail.append)
+  child.stdout?.on('data', appShow.append)
   child.stderr?.on('data', tail.append)
-  return tail.text
+  return { text: tail.text, appShow }
 }
 
 /** When the first launchApp of each running test began, by test id and retry: the start of the clock testTimeLeft reads. */
@@ -168,20 +175,26 @@ function testTimeLeft(): number | undefined {
 
 /**
  * Collects, for a start whose window was not shown, what the gate log otherwise lacks: the state of
- * the window and its web contents, a capturePage() PNG, the page's document.readyState, the app's
- * output and the files of logs/ in its data folder. Runs before the app is killed and its data
+ * the window and its web contents, a capturePage() PNG, the page's document.readyState, whether and
+ * when (from `launchedAtMs`) the app said it showed the window, the app's output and the files of
+ * logs/ in its data folder. Runs before the app is killed and its data
  * folder removed. Every step is bounded, and all of them together keep to diagnosisBudget: what
  * the test has left before its timeout, less the time the kill and the cleanup after it need, so
  * the test timeout never cuts the cleanup off. With no time left nothing is asked.
  * Inside a test the files go to `<test output>/start-diagnostics-…/` and are attached; the returned
  * line sums them up for the error message, which the gate log keeps.
  */
-async function startDiagnostics(app: ElectronApplication, dataDir: string, output: () => string): Promise<string> {
+async function startDiagnostics(
+  app: ElectronApplication,
+  dataDir: string,
+  output: () => string,
+  start: { launchedAtMs: number; appShow: AppShow | null },
+): Promise<string> {
   const budget = diagnosisBudget(testTimeLeft())
   const left = deadline(budget)
   const state = await step(
     () =>
-      app.evaluate(({ BrowserWindow }): WindowState => {
+      app.evaluate(({ app: electronApp, BrowserWindow, powerMonitor }): WindowState => {
         const all = BrowserWindow.getAllWindows()
         const first = all[0]
         if (!first || first.isDestroyed()) return { windows: all.length }
@@ -197,6 +210,10 @@ async function startDiagnostics(app: ElectronApplication, dataDir: string, outpu
           isWaitingForResponse: contents.isWaitingForResponse(),
           isCrashed: contents.isCrashed(),
           url: contents.getURL(),
+          isFocused: first.isFocused(),
+          // macOS only; elsewhere the method is missing.
+          ...(typeof electronApp.isHidden === 'function' ? { appHidden: electronApp.isHidden() } : {}),
+          idleState: powerMonitor.getSystemIdleState(60),
         }
       }),
     left(DIAGNOSTIC_STEP_MS),
@@ -220,8 +237,15 @@ async function startDiagnostics(app: ElectronApplication, dataDir: string, outpu
     left(DIAGNOSTIC_STEP_MS),
   )
   const appOutput = output()
-  const shown = shownLine(appOutput)
-  const report = { budgetMs: budget, state, readyState, capture: 'value' in capture ? (capture.value ? 'saved' : 'empty') : capture, shownLine: shown }
+  const appShow = start.appShow === null ? null : { path: start.appShow.path, afterLaunchMs: start.appShow.atMs - start.launchedAtMs }
+  const report = {
+    budgetMs: budget,
+    state,
+    readyState,
+    capture: 'value' in capture ? (capture.value ? 'saved' : 'empty') : capture,
+    appShow,
+    shownLine: shownLine(appOutput),
+  }
   let where = ''
 
   const info = currentTest()
@@ -248,7 +272,7 @@ async function startDiagnostics(app: ElectronApplication, dataDir: string, outpu
     }, left(DIAGNOSTIC_SAVE_MS))
     where = 'value' in saved ? `; diagnostics in ${dir}` : `; diagnostics not saved (${saved.problem})`
   }
-  return diagnosisSummary(state, readyState, shown, where)
+  return diagnosisSummary(state, readyState, appShowSummary(start.appShow, start.launchedAtMs), where)
 }
 
 /**
@@ -274,8 +298,11 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
   }
 
   let app: ElectronApplication
+  // The moment the diagnosis counts the app's show from.
+  let launchedAtMs: number
   try {
     const env = await launchEnv({ dataDir, claudeHome, shellDir, env: options.env })
+    launchedAtMs = Date.now()
     // Unpackaged, the app is started by its directory, as `electron .` and the packaged .app start
     // it: Electron then reads package.json (`main` points at out/main/index.js), and the app's name
     // and version are worfy's own, not Electron's.
@@ -304,15 +331,20 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
     // Returned only once the window is on screen. The app creates it hidden and shows it when the
     // page has painted; macOS then fits it into the display. A size or position a test sets before
     // that is undone on a display smaller than the window (a CI runner's is 1024 × 768).
-    const shown = app.evaluate(
-      ({ BrowserWindow }) =>
-        new Promise<void>((done) => {
-          const first = BrowserWindow.getAllWindows()[0]
-          if (!first || first.isVisible()) return done()
-          first.once('show', () => done())
-        }),
-    )
-    if ((await Promise.race([shown.then(() => 'shown' as const), timeout(windowLeft())])) === 'timeout') {
+    // Not on the 'show' event alone: on macOS Electron emits it only when the window's occlusion
+    // state changes, not from show() itself, and when that notification did not come the wait hung
+    // with the window on screen. So main polls isVisible() (first-window-shown.ts), 'show' still
+    // counts, and so does the app's own line that it called show(): by then macOS has fitted the
+    // window, even if it is hidden behind another one and isVisible() stays false.
+    // The poll in main ends by itself at the deadline; when the app's line wins the race it keeps
+    // polling until then, an isVisible() call every SHOW_POLL_MS.
+    const inMain = app.evaluate(waitForFirstWindowShown, { intervalMs: SHOW_POLL_MS, timeoutMs: windowLeft() })
+    const shown = await Promise.race([
+      inMain.then((wait) => (wait.how === 'timeout' ? ('timeout' as const) : ('shown' as const))),
+      output.appShow.whenShown.then(() => 'shown' as const),
+      timeout(windowLeft()),
+    ])
+    if (shown === 'timeout') {
       throw new Error(`the window was not shown within ${FIRST_WINDOW_TIMEOUT_MS / 1000} s`)
     }
     return {
@@ -339,7 +371,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
     // The window did not show, or firstWindow gave up: say why while the app and its data folder
     // are still there. A diagnosis that fails itself only adds its reason to the message.
     if (error instanceof Error) {
-      const diagnosis = await startDiagnostics(app, dataDir, output).catch((failure: unknown) => `diagnostics failed: ${String(failure)}`)
+      const diagnosis = await startDiagnostics(app, dataDir, output.text, { launchedAtMs, appShow: output.appShow.shown() }).catch((failure: unknown) => `diagnostics failed: ${String(failure)}`)
       const before = error.message
       error.message = `${before}\n  ${diagnosis}`
       // A function, not a string: a $& or $' in a path or URL of the message must not be read as a pattern.

@@ -102,6 +102,72 @@ export interface WindowState {
   isWaitingForResponse?: boolean
   isCrashed?: boolean
   url?: string
+  /** Signs of a window hidden behind something, as main can read them cheaply (it has no occlusion state). */
+  isFocused?: boolean
+  /** app.isHidden(), macOS only. */
+  appHidden?: boolean
+  /** powerMonitor.getSystemIdleState(): 'locked' while the screen is locked, which hides every window. */
+  idleState?: string
+}
+
+/** How the app says it showed its window (src/main/window-show.ts). */
+export type AppShowPath = 'ready-to-show' | 'fallback'
+
+/** The app's line that it showed the window: the path, and when the test process read the line (Date.now()). */
+export interface AppShow {
+  path: AppShowPath
+  atMs: number
+}
+
+/** The path a line of the app's output names, or null for any other line. */
+export function appShowPathOf(line: string): AppShowPath | null {
+  if (line.includes('[worfy] the window was shown on ready-to-show')) return 'ready-to-show'
+  if (line.includes('[worfy] the window was shown by the fallback')) return 'fallback'
+  return null
+}
+
+/** How much of a line without its newline yet the watcher keeps: the line it looks for is under 120 characters. */
+export const PARTIAL_LINE_LIMIT = 4_096
+
+/**
+ * Reads the app's output chunk by chunk for the first line that says the window was shown: a line
+ * split across chunks is joined first, and `now` is read when the line is complete. `whenShown`
+ * resolves with it; it never resolves for an app that does not say so.
+ */
+export function appShowWatcher(now: () => number = Date.now): {
+  append: (data: Buffer | string) => void
+  shown: () => AppShow | null
+  whenShown: Promise<AppShow>
+} {
+  let partial = ''
+  let shown: AppShow | null = null
+  let resolve: (value: AppShow) => void = () => undefined
+  const whenShown = new Promise<AppShow>((done) => {
+    resolve = done
+  })
+  return {
+    append: (data) => {
+      if (shown !== null) return
+      const lines = (partial + String(data)).split('\n')
+      partial = (lines.pop() ?? '').slice(-PARTIAL_LINE_LIMIT)
+      for (const line of lines) {
+        const path = appShowPathOf(line)
+        if (path === null) continue
+        shown = { path, atMs: now() }
+        resolve(shown)
+        return
+      }
+    },
+    shown: () => shown,
+    whenShown,
+  }
+}
+
+/** Whether and when, from the launch, the app said it showed the window: the summary's part on the app's own show. */
+export function appShowSummary(shown: AppShow | null, launchedAtMs: number): string {
+  if (shown === null) return 'the app did not say it showed the window'
+  const after = ((shown.atMs - launchedAtMs) / 1000).toFixed(2)
+  return `the app showed the window ${shown.path === 'ready-to-show' ? 'on ready-to-show' : 'by the fallback'} ${after} s after launch`
 }
 
 /** The last line of the app's output that names how the window was shown (src/main/window-show.ts). */
@@ -109,7 +175,10 @@ export function shownLine(output: string): string {
   return output.split('\n').findLast((line) => line.includes('[worfy] the window was shown')) ?? 'no line of the app says the window was shown'
 }
 
-/** The one line the error message gets: the window, the page's readyState, the shown line and where the files went. */
+/**
+ * The one line the error message gets: the window, the page's readyState, `shown` (whether and when
+ * the app showed the window, appShowSummary) and where the files went.
+ */
 export function diagnosisSummary(state: StepResult<WindowState>, readyState: StepResult<string>, shown: string, where: string): string {
   const window = 'value' in state ? state.value : undefined
   const head =
@@ -117,7 +186,7 @@ export function diagnosisSummary(state: StepResult<WindowState>, readyState: Ste
       ? `window: (${'problem' in state ? state.problem : ''})`
       : window.windows === 0
         ? 'window: none'
-        : `window: visible ${window.isVisible}, loading ${window.isLoading}, crashed ${window.isCrashed}, url ${window.url}`
+        : `window: visible ${window.isVisible}, focused ${window.isFocused}, app hidden ${window.appHidden}, system ${window.idleState}, loading ${window.isLoading}, crashed ${window.isCrashed}, url ${window.url}`
   const ready = 'value' in readyState ? readyState.value : `(${readyState.problem})`
   return `${head}, document.readyState ${ready}; ${shown}${where}`
 }
