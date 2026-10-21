@@ -1,5 +1,5 @@
 // The pure parts of the diagnosis of a start whose first window was not shown (startDiagnostics in
-// helpers.ts): the time bound of each step, the budget the test's own timeout leaves, the tail of
+// start-diagnostics-run.ts): the time bound of each step, the budget the test's own timeout leaves, the tail of
 // the app's output and the line that sums it all up. No Electron and no Playwright here, so
 // test/unit/start-diagnosis.test.ts checks them without starting an app.
 
