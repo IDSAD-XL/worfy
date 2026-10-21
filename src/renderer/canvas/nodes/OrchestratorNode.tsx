@@ -11,7 +11,7 @@ import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
 import { useOrchestratorView } from './orchestrator-view'
 
-// The Orchestrator: the Project's main Session (CONTEXT.md, «Оркестратор»), collapsed to a Node.
+// The Orchestrator: the Project's main Session (CONTEXT.md, "Orchestrator"), collapsed to a Node.
 // main creates it locked (it can be moved and resized, not removed). What it shows — state, model,
 // cost and the last status block of the Session's answers, verbatim — is main's view of the
 // Orchestrator (src/main/agent/orchestrator.ts), asked for once and then followed on
@@ -51,7 +51,7 @@ const styles = {
     overflow: 'hidden',
   },
   // The four lines of the status block, one row each (ticket 27): a wrapped block of four long
-  // lines did not fit the Node of the default size, and «— Жду:» needed a scroll. A row too long
+  // lines did not fit the Node of the default size, and the fourth label (Waiting) needed a scroll. A row too long
   // for the Node is cut with an ellipsis; the whole line is its title and stays in the Session view.
   // The block still scrolls when the Node is resized below four rows.
   block: {

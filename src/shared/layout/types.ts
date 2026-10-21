@@ -1,4 +1,4 @@
-// The Layout of a Project's Canvas (CONTEXT.md, «Раскладка»): its Nodes. The camera of the Canvas
+// The Layout of a Project's Canvas (CONTEXT.md, "Layout"): its Nodes. The camera of the Canvas
 // is not part of it: each screen keeps its own (src/main/layout/viewports.ts, worfy-link ticket 06);
 // the `viewport` left in layout.json is only read, as the camera of a first opening.
 // main is its only writer (ADR-0003): the renderer and, later, the MCP tools send the operations

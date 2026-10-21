@@ -48,7 +48,7 @@ the variables it uses itself.
 No more than five agents at once in total; heavy packages (their tests bring up their own database or stack) — with
 the limit from `F modules.heavy` (`{"<package>": <modules at once>}`); modules of the other packages run on top of
 that limit. Modules are taken as a queue: a slot frees up — the next one is taken, and so on until the time
-budget runs out (by default six hours from the start, otherwise an argument like `until 06:30` or `до 06:30`). Modules not taken
+budget runs out (by default six hours from the start, otherwise an argument like `until 06:30`, in any language). Modules not taken
 go into the morning report as a "not started" line. The main session is the orchestrator: it hands out modules, merges
 their branches, writes the morning report. A question to the user at night is an entry in `FAILURE.md` and a stop of the module.
 
@@ -161,11 +161,11 @@ F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$@"; }
 # Globs as a quoted array: that way neither bash nor zsh expands them (`set -f` in zsh does not
 # turn globbing off, and an unquoted `$INC` string is not split into words in zsh — grep got one glued glob)
 INC=(); while IFS= read -r g; do INC+=("--include=$g"); done < <(F tests.globs | jq -r '.[]' | tr -d '\r')
-DIRS=(); for d in test src; do [ -d "<каталог пакета>/$d" ] && DIRS+=("$d"); done
-cd <каталог пакета> && grep -rslE "/<имя>(/|')" "${INC[@]}" "${DIRS[@]}"   # exit 1 on an empty result is not an error
+DIRS=(); for d in test src; do [ -d "<package dir>/$d" ] && DIRS+=("$d"); done
+cd <package dir> && grep -rslE "/<имя>(/|')" "${INC[@]}" "${DIRS[@]}"   # exit 1 on an empty result is not an error
 ```
 
-`<каталог пакета>` is the package directory. The list is fixed here and used unchanged in 1d.
+`<package dir>` is the package directory. The list is fixed here and used unchanged in 1d.
 
 Read the module, choose at least five mutation points (see "What to break"); fewer than
 five suitable places — take all of them and record their number. For each: break it, run the module tests, record

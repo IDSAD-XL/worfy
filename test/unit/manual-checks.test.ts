@@ -6,7 +6,7 @@ const ticket = (done: string, rest = ''): string =>
   ['# 05 — A Ticket', '', 'Status: done', '', '## Что делаем', '', '- [ ] (вручную) not a check: wrong section', '', '## Готово, когда', '', done, '', '## Тесты', '', rest].join('\n')
 
 describe('manual checks of a Ticket', () => {
-  it('takes the unchecked and the checked "(вручную)" items of "Готово, когда", in file order', () => {
+  it('takes the unchecked and the checked manual items of the done section, in file order', () => {
     const markdown = ticket(['- [ ] Unit tests pass.', '- [ ] (вручную) Stable copy after the merge: the palette lists it.', '- [x] (вручную) The owner saw the frame.', '- [X] (вручную) Upper-case mark.'].join('\n'))
     expect(manualChecks(markdown)).toEqual([
       { text: 'Stable copy after the merge: the palette lists it.', checked: false },
@@ -15,7 +15,7 @@ describe('manual checks of a Ticket', () => {
     ])
   })
 
-  it('takes "(вручную, <note>)" items and keeps the note in parentheses at the start of the text', () => {
+  it('takes manual items with a note and keeps the note in parentheses at the start of the text', () => {
     const markdown = ticket(['- [ ] (вручную, владелец) Stable copy: ⌘, opens Settings.', '- [x] (вручную,после влития) done'].join('\n'))
     expect(manualChecks(markdown)).toEqual([
       { text: '(владелец) Stable copy: ⌘, opens Settings.', checked: false },
@@ -23,7 +23,7 @@ describe('manual checks of a Ticket', () => {
     ])
   })
 
-  it('skips items without "(вручную)" and items where it is not the first word', () => {
+  it('skips items without the manual mark and items where it is not the first word', () => {
     const markdown = ticket(['- [ ] `pnpm test` exit 0 (вручную not here)', '- [x] Пункт 4 (вручную): not first', '- (вручную) no checkbox'].join('\n'))
     expect(manualChecks(markdown)).toEqual([])
   })
@@ -48,7 +48,7 @@ describe('manual checks of a Ticket', () => {
     expect(manualChecks(markdown)).toEqual([{ text: 'Check both themes:', checked: false }])
   })
 
-  it('gives [] when there is no "Готово, когда" section, and ignores code fences', () => {
+  it('gives [] when there is no done section, and ignores code fences', () => {
     expect(manualChecks('# 01\n\n## Что делаем\n\n- [ ] (вручную) elsewhere\n')).toEqual([])
     const fenced = ticket('```\n## Готово, когда\n```\n- [ ] (вручную) real', '```md\n- [ ] (вручную) in a fence\n```')
     expect(manualChecks(fenced)).toEqual([{ text: 'real', checked: false }])

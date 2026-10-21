@@ -77,7 +77,7 @@ export function isTerminalKey(event: { target: unknown }, platform: Platform = c
 
 /**
  * The punctuation keys of shortcuts that a layout puts a letter on, by place (`event.code`): the
- * Russian layout has `х` where a US one has `[`, the German one `ü`, the Nordic ones `å`; there
+ * Russian layout has the Cyrillic letter kha where a US one has `[`, the German one `ü`, the Nordic ones `å`; there
  * `[` itself is typed with AltGr (Option on macOS), which is no shortcut.
  * shortcut: only the punctuation of the registry's entries (`[` of Back), add a place when an entry gets another punctuation key.
  */
@@ -86,8 +86,8 @@ const PUNCTUATION_PLACES: Readonly<Record<string, string>> = { BracketLeft: '[' 
 /**
  * The key a shortcut is matched by. A Latin letter a–z is taken from the key cap (`event.key`), in
  * lower case, so a shortcut follows the letter on QWERTZ, AZERTY, Dvorak and BÉPO (`z` where QWERTY
- * has `[`). Any other letter on the place of a key of PUNCTUATION_PLACES is that punctuation (`х`
- * and `ü` on `BracketLeft` are `[`). With a layout that is not Latin the key cap says `л` where the
+ * has `[`). Any other letter on the place of a key of PUNCTUATION_PLACES is that punctuation (kha
+ * and `ü` on `BracketLeft` are `[`). With a layout that is not Latin the key cap says the Cyrillic el where the
  * shortcut says K — on Windows also while Ctrl is held — so there the letter comes from the place of
  * the key (`event.code`, `KeyK`); only a single letter of another script is read by a letter's
  * place. Everything else is `event.key` as it is: punctuation and the other accented letters of a

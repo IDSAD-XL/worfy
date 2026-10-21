@@ -9,7 +9,7 @@
 //   say about one Subagent (its type, name and parent; its own calls of the Agent tool; its model,
 //   times and last answer).
 //
-// How a call, its Subagent and its end are linked (ticket 09, "Итог", section 3): the Agent
+// How a call, its Subagent and its end are linked (ticket 09, its result section, part 3): the Agent
 // tool's result names the Subagent (`toolUseResult.agentId`, a `subagent` event); `meta.toolUseId`
 // names the call; a task-notification names both. A nested Subagent's call is in its parent's
 // transcript, where the result has no `agentId`: `meta.parentAgentId` and `meta.toolUseId` link
@@ -254,7 +254,7 @@ export function subagentSignals(events: readonly TimedEvent[], calls: Set<string
  * A task-notification that waited in Claude Code's queue, as the user message it stands for; the
  * record itself otherwise. A notification that comes while the Session is busy is written as a
  * `queue-operation` (`enqueue`) and, once delivered, as an `attachment` of type `queued_command` —
- * often with no user message at all (ticket worfy-daily/08, «Итог»: 310 of 311 Subagents stuck in
+ * often with no user message at all (ticket worfy-daily/08, its result section: 310 of 311 Subagents stuck in
  * `running` on Auction ended this way). Read as a user message, it gives the same `subagent` event.
  */
 function asNotification(record: Json): Json {

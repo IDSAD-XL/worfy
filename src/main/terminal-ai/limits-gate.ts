@@ -1,4 +1,4 @@
-// The Limits threshold of Terminal AI (ADR-0058, point 4; spec, "Решено без владельца", point 10):
+// The Limits threshold of Terminal AI (ADR-0058, point 4; spec, "Decided without the owner", point 10):
 // whether the known Limits let the assist process be asked for a feature now. Pure: the state, the
 // feature and the time come in, the verdict goes out.
 //

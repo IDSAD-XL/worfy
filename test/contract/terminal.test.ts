@@ -388,7 +388,7 @@ describe('the output of one Terminal on one and on two screens, measured (worfy-
       console.log(`terminal 10 MB, ${name}: ${m.events} terminal.output events per screen, ${m.bytes} characters, last byte after ${m.ms} ms, event loop delay p99 ${m.p99} ms, max ${m.max} ms`)
     }
     // Merging chunks is needed only when two screens are more than twice as slow as one, or the event
-    // loop of main waits more than 100 ms at p99 (worfy-link ticket 05, «Что делаем», point 7).
+    // loop of main waits more than 100 ms at p99 (worfy-link ticket 05, "What we do", point 7).
     if (enforce) {
       expect(two.ms).toBeLessThanOrEqual(2 * one.ms)
       expect(two.p99).toBeLessThanOrEqual(100)

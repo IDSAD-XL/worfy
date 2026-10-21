@@ -1,4 +1,4 @@
-// The Orchestrator of each Project: its main Session (CONTEXT.md, «Оркестратор») and the locked
+// The Orchestrator of each Project: its main Session (CONTEXT.md, "Orchestrator") and the locked
 // Node that shows it on the Canvas.
 //
 // open() finds the Project's Orchestrator Node in the Layout or creates it, then starts the

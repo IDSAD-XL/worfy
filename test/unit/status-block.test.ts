@@ -3,7 +3,7 @@ import { findStatusBlock } from '../../src/shared/agent/status-block'
 
 // Samples shaped like the closing lines of real orchestrator answers: the four-line block of the
 // orchestrator rules («— Stage / — Now / — Next / — Waiting»), often indented as a code block. The
-// old Russian labels («— Этап / — Сейчас / — Дальше / — Жду») are still read for one release.
+// old Russian labels (the same four words in Russian) are still read for one release.
 
 const ENGLISH_LINES = [
   '— Stage: audit-2026-09-19 · /implement · волна 2',

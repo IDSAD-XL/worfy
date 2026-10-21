@@ -11,7 +11,7 @@ import { catScript } from '../harness-node'
 // Bindings of Sessions and Subagents to Tickets and Epics (ticket 16), against the built app:
 // Sessions whose transcripts the test writes into a temporary WORFY_CLAUDE_HOME the way Claude Code
 // does — one that ran `ticket claim worfy-mvp 07`, two that work in the worktree folders
-// `.claude/worktrees/12` and `.claude/worktrees/07-движок-сессий`, and one that runs
+// `.claude/worktrees/12` and `.claude/worktrees/07-<a Cyrillic slug>`, and one that runs
 // `/epic-wave` with two Subagents (the synthetic Session 7777 of test/fixtures/claude-home, its
 // briefs naming Ticket files). That Session's checkout is on the branch of Ticket 07, as an
 // Orchestrator's often is, and its Subagents' files carry the same branch, as Claude Code writes

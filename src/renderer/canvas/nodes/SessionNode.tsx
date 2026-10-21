@@ -28,7 +28,7 @@ import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
 
-// A Session of Claude Code on the Canvas (CONTEXT.md, «Сессия»: one Session — one Node, wherever it
+// A Session of Claude Code on the Canvas (CONTEXT.md, "Session": one Session — one Node, wherever it
 // was started). Two modes:
 //
 // - Read-only (ticket 14): a Session started outside worfy — `claude` in a terminal, the Claude

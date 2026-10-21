@@ -34,7 +34,7 @@ const keysOf = (shortcut: Shortcut): readonly string[] => [shortcut.keys.key, ..
  * Whether Shift is part of the combination for `key`, pressed as `pressed` (KeyboardEvent.key): for
  * letters and named keys (`Enter`) it is; for punctuation Shift only picks the character, and which
  * one depends on the layout (`?` is Shift and / on a US keyboard, Shift and , on a German one), so
- * the character alone decides. Punctuation read by the place of a letter (`х` on the key of `[`)
+ * the character alone decides. Punctuation read by the place of a letter (the Cyrillic kha on the key of `[`)
  * counts Shift as the letter does: Shift there only changes the letter's case.
  */
 const shiftCounts = (key: string, pressed: string): boolean => key.length > 1 || /^\p{L}$/u.test(key) || /^\p{L}$/u.test(pressed)
@@ -43,7 +43,7 @@ const shiftCounts = (key: string, pressed: string): boolean => key.length > 1 ||
  * Whether the key press is the entry's on `platform`: the primary modifier exactly when the entry
  * has it, never the other modifier (Ctrl on macOS, the Windows key elsewhere), Alt and Shift as the
  * entry has them, and the key by shortcutKey — the letter of a Latin layout, the place of the key
- * in another one (`х` on the key of `[` is `[`).
+ * in another one (the Cyrillic kha on the key of `[` is `[`).
  *
  * The rule of the Terminal Node (worfy-windows ticket 11), one for every entry: on Windows and
  * Linux an entry with the primary modifier does not match a press inside a terminal, where Ctrl

@@ -154,7 +154,7 @@ export function ticketBranch(ticket: Pick<Ticket, 'epic' | 'num' | 'fromBranch' 
 /**
  * The branches whose PRs are worth a lookup: those of Tickets in work or claimed in a branch.
  * Only branches `checks.get` takes are sent — `<epic>/<NN>`, or the Ticket's own `Branch:` — a
- * branch it refuses (`аудит/03`, `Q4 work/05` from an Epic named so) would make it refuse the
+ * branch it refuses (an Epic named in Cyrillic, `Q4 work/05` from an Epic named so) would make it refuse the
  * whole call, and every badge of the Project would go.
  */
 export function branchesInWork(tickets: readonly Ticket[]): string[] {

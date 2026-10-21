@@ -1,4 +1,4 @@
-// The Cards of each Project (CONTEXT.md, «Карточка»): folders <Project data folder>/cards/<id>/,
+// The Cards of each Project (CONTEXT.md, "Card"): folders <Project data folder>/cards/<id>/,
 // in worfy's own data folder and never in the Project's repository (ADR-0003, ADR-0005). Agents
 // write a Card's files; this store only reads them: it lists the Cards, reads a Card's <title>,
 // and watches the folders so a Node reloads its Card within a second of a file change.

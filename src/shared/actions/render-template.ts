@@ -63,8 +63,8 @@ export function waveValues(epic: string, wave: number | null, branch: string | n
 type WaveTicket = Parameters<typeof readyWave>[0][number]
 
 /**
- * The number of the Epic's ready Wave as the Epic's plan counts it — the «Волны» table of its
- * spec.md, where every Ticket is still open (waves.ts, waveNumbers) — so that `/epic-wave волна 3`
+ * The number of the Epic's ready Wave as the Epic's plan counts it — the waves table of its
+ * spec.md, where every Ticket is still open (waves.ts, waveNumbers) — so that `/epic-wave` with wave 3
  * names the same Wave as the table. When the ready Tickets fall into several Waves of the plan,
  * the earliest one. Null when nothing is ready.
  */

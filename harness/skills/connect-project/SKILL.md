@@ -1,6 +1,6 @@
 ---
 name: connect-project
-description: Connect a project to the Harness — read the repository (or the folder above several repositories), propose its profile, rules.md and gate registry entries, and with the user's confirmation write them through bin/project-connect. Use on "/worfy:connect-project <folder> <full|silent>", when worfy's "Add project" dialog asks for a draft (`--draft-only`), or when the user says "connect this project", "register the project in the Harness", "подключи проект".
+description: Connect a project to the Harness — read the repository (or the folder above several repositories), propose its profile, rules.md and gate registry entries, and with the user's confirmation write them through bin/project-connect. Use on "/worfy:connect-project <folder> <full|silent>", when worfy's "Add project" dialog asks for a draft (`--draft-only`), or when the user says "connect this project", "register the project in the Harness".
 ---
 
 # Connect a project
@@ -20,7 +20,7 @@ The result is a **draft**: one JSON object `{ profile, rules, gate }` by the sch
 - `profile` — `profile.json`, schema 2, every field of the table in `profiles/README.md`; a field
   the project does not have is `null`;
 - `rules` — the text of `rules.md`: facts for agents that do not fit a field, ending with a
-  `## Sources` section (`## Источники` when `language.docs` is `ru`) — file and line of every fact;
+  `## Sources` section — file and line of every fact;
 - `gate` — gate registry entries, one per repository: `key`, `match` (the absolute path of the
   repository root), `profile` (= `profile.name`), `pm`, `root: {fast, full}` (package scripts the
   gate runs at the root), `workspace` (`{}` for one package), `root_if` when only some files should

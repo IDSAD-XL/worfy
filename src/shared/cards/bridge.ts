@@ -1,4 +1,4 @@
-// The Card API (CONTEXT.md, «Карточка»; ticket 26): the messages a Card and worfy exchange with
+// The Card API (CONTEXT.md, "Card"; ticket 26): the messages a Card and worfy exchange with
 // postMessage. A Card has no Node and no IPC: everything it may ask of worfy is one of CARD_OPS,
 // each checked here with zod at the boundary, and the answer goes back to the Card's own frame.
 //
@@ -129,7 +129,7 @@ export const snapshotTicketSchema = z.object({
   state: z.enum(['open', 'work', 'blocked', 'done', 'none']),
   /** Numbers of the Tickets it waits for. */
   blockedBy: z.array(z.number().int().nonnegative()),
-  /** Its Wave, as the spec's "Волны" table counts it; null for done or in-work Tickets and those that never get ready. */
+  /** Its Wave, as the spec's waves table counts it; null for done or in-work Tickets and those that never get ready. */
   wave: z.number().int().positive().nullable(),
   /** The gate of its worktree; null when it has none. */
   gate: gateSchema.nullable(),

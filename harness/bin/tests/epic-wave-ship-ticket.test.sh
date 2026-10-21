@@ -63,8 +63,8 @@ for f in "$EW" "$ST"; do
     check "$n: no /ship-ticket, /epic-wave, /retro without worfy:" lacks_re "$f" '(^|[^a-z:])/(ship-ticket|epic-wave|retro)([^a-z-]|$)'
     check "$n: worfy:reviewer named" has "$f" '`worfy:reviewer`'
 
-    # 5. EXIT=, not КОД=.
-    check "$n: no КОД=" lacks "$f" 'КОД='
+    # 5. EXIT=, not the old Russian exit-code label.
+    check "$n: no old exit-code line" lacks "$f" 'КОД='
     check "$n: exit code printed as EXIT=\$?" has "$f" 'echo "EXIT=$?"'
 done
 
@@ -106,7 +106,7 @@ check "ship-ticket step 4 (failing test first) is unchanged" test "$st4" = "$wan
 st5="$(awk '/^## 5\./{p=1; next} /^## /{p=0} p' "$ST")"
 in_st5() { printf '%s\n' "$st5" | tr '\n' ' ' | tr -s ' ' | grep -qF -- "$1"; }
 check "ship-ticket step 5 keeps its first paragraph" in_st5 \
-    'Along the files listed in the ticket (section `F tickets.trail_section`; worfy: `## Где в коде`). Going outside that list is a reason to say so, not to widen the change silently.'
+    'Along the files listed in the ticket (section `F tickets.trail_section`). Going outside that list is a reason to say so, not to widen the change silently.'
 check "ship-ticket step 5: the smallest complete change, after the failing test" in_st5 \
     "The change is the smallest one that does the whole ticket. It comes after step 4 — the failing test stays first — and it never drops an item of the ticket's list of what \"done\" means."
 check "ship-ticket step 5: before the edit, every place the change has to reach" in_st5 \

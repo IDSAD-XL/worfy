@@ -118,7 +118,7 @@ const violations = (stdout: string): string[] => stdout.trim().split('\n').slice
 const tilde = (rel: string): string => join('~', ...rel.split('/'))
 
 describe('e3-owner-check.sh: files of the Harness in ~/.claude', () => {
-  it('passes a personal ~/.claude that keeps what the plugin does not ship: bin/tests, bin/ТИКЕТЫ.md, hooks/tests', () => {
+  it('passes a personal ~/.claude that keeps what the plugin does not ship: bin/tests, a Cyrillic-named bin/*.md, hooks/tests', () => {
     const result = check(journal(FINISHED))
     expect(result.stdout).toContain(`ok: ${tilde('.claude')} holds only personal files`)
     expect(result.status).toBe(0)

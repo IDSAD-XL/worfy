@@ -4,7 +4,7 @@
 // the Ticket files: no gh, git or `bin/profile` runs while nothing changes. The Stage hub
 // (src/main/workflow/stages.ts) asks those every minute, so the notes no longer follow it.
 // A Ticket whose `waits` became `owner` gives one notification through NoteDisplay
-// (src/main/notify.ts): the title `<epic> NN` and the Russian for "waits for you", the text its `Blocked reason:` or
+// (src/main/notify.ts): the title `<epic> NN is waiting for you`, the text its `Blocked reason:` or
 // `<epic> NN — <title>`. One wait has one key (waitKey): the same wait seen again notifies nobody,
 // a new `ticket block … --waits owner` writes a new key and notifies again. Only a transition worfy
 // saw itself counts: the first model of a Project is its start, and what already waited then gives
@@ -73,7 +73,7 @@ export class WaitsNotices {
       if (seen.has(key)) continue
       seen.add(key)
       this.display.show({
-        title: `${refOf(ticket)} ждёт тебя`,
+        title: `${refOf(ticket)} is waiting for you`,
         body: waitBody(ticket),
         sessionId: null,
         projectRoot: root,

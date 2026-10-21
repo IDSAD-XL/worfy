@@ -201,13 +201,14 @@ export async function readVerdictFile(file: string, worktree: string, head?: str
 
 // ── gate lines in transcripts ────────────────────────────────────────────────
 
+// shortcut: accepts the old Russian token, remove after the next release (worfy-neutral 08)
+// The last four words are those of a gate of the release before, still installed where the Harness
+// was not updated.
 const OUTCOME: Record<string, GateOutcome> = {
   green: 'green',
   red: 'red',
   'nothing ran': 'none',
   'not verified': 'unverified',
-  // shortcut: accepts the old Russian token, remove after the next release (worfy-neutral 08)
-  // The words of a gate of the release before, still installed where the Harness was not updated.
   зелено: 'green',
   красно: 'red',
   'ничего не прогналось': 'none',

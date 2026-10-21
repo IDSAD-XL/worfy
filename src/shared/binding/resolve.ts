@@ -1,4 +1,4 @@
-// The Binding of a Session or a Subagent (CONTEXT.md, «Привязка»): the one Ticket or Epic it works
+// The Binding of a Session or a Subagent (CONTEXT.md, "Binding"): the one Ticket or Epic it works
 // on. Pure, so main, the renderer and tests resolve it the same way.
 //
 // A Binding comes from the strongest signal that names a target, in this order:

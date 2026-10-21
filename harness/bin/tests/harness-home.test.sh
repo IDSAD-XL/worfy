@@ -12,7 +12,7 @@
 #      or $HOME/.claude/hooks, also when a script is started through a symlink.
 #   5. Machine output is unchanged: epic-status --json, the ticket Status line, the last line
 #      of preflight, profile exit codes.
-#   6. The files of the ticket hold no ~/.claude/bin, ~/.claude/hooks or КОД=, and Cyrillic
+#   6. The files of the ticket hold no ~/.claude/bin, ~/.claude/hooks or the old Russian exit-code label, and Cyrillic
 #      only in the allowed substrings below.
 # Run: bash harness/bin/tests/harness-home.test.sh; exit code 0 means everything passed.
 # Every HOME here is a temporary folder: the real ~/.claude is neither read nor written.
@@ -314,7 +314,7 @@ FILES=(
 # plugin says "schema 1", and only such a line may name the old place. This file is left out:
 # it spells the banned strings to look for them.
 banned="$(cd "$HARNESS" && grep -nE '~/\.claude/(bin|hooks)|\$HOME/\.claude/(bin|hooks)|КОД=' "${FILES[@]}" | grep -v 'schema 1')"
-check "no ~/.claude/bin, ~/.claude/hooks or КОД= in the ticket's files" [ -z "$banned" ]
+check "no ~/.claude/bin, ~/.claude/hooks or old exit-code line in the ticket's files" [ -z "$banned" ]
 [ -z "$banned" ] || printf '%s\n' "$banned" | sed -n '1,20p' | sed 's/^/     /'
 # Allowed Cyrillic, cut out before the search: profile placeholders, the Russian section names
 # a profile or ticket of the release before still has, and quoted Russian examples. The gate

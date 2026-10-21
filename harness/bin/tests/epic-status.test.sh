@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Characterization test of harness/bin/epic-status: the «Этап» (stage) line, the --json slice, the
+# Characterization test of harness/bin/epic-status: the Stage line, the --json slice, the
 # --ref reader of a branch's tree, the flags and the exit codes. The expectations were printed by the
 # bash version of origin/main on this fixture; a rewrite of the script must keep every one of them
 # byte for byte: a port of a Harness script to another language does not change its contract.
@@ -176,7 +176,7 @@ w blk '[.blockedNums, .blockedParsed]' '[[[1,2],true],[[1,2],true],[[1,2],true],
 w blk '[.branch, .repo]' '[["feat/one","app"],["feat/two","lib"],[null,null],[null,null],[null,null],[null,null],[null,null],[null,null],[null,null],[null,null]]' \
     "Branch and Repo: bold markers and backticks are not part of the value"
 
-# --- 2. The «Этап» line --------------------------------------------------------------------
+# --- 2. The Stage line ---------------------------------------------------------------------
 run --root "$S" states
 is "line: old headers are counted apart from N without Status and are not done; ticket NN — title, branch" 0 '/to-tickets · states 0/9 · main · ticket 01 — Done one · 1 without Status · 7 with an old header — run ticket migrate'
 run --root "$S" hdr

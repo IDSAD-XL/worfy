@@ -1,4 +1,4 @@
-// Terminal AI settings in main: <WORFY_DATA_DIR>/terminal-ai.json (spec, "Решено без владельца",
+// Terminal AI settings in main: <WORFY_DATA_DIR>/terminal-ai.json (spec, "Decided without the owner",
 // point 4: they belong to the Machine, not to a Project). The schema and defaults are in
 // src/shared/terminal-ai/settings.ts. A missing file means the defaults; a broken field takes its
 // default; a file that is not JSON at all is set aside by readJsonFile and the defaults apply.

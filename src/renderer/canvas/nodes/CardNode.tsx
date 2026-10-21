@@ -10,7 +10,7 @@ import { useLayoutOps } from '../useLayout'
 import { useFramesStepAsideWhilePressed } from './frames-step-aside'
 import type { CanvasNodeProps } from './index'
 
-// A Card (CONTEXT.md, «Карточка»): a small HTML app an agent wrote into
+// A Card (CONTEXT.md, "Card"): a small HTML app an agent wrote into
 // <Project data folder>/cards/<id>/. It runs in an iframe on its own origin, worfy-card://
 // (src/main/cards/protocol.ts), so it reaches neither the worfy window nor another Card; main
 // keeps the frame from navigating away or opening windows. The Node reloads the Card when main

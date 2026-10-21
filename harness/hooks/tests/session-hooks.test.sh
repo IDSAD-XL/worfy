@@ -205,14 +205,14 @@ n="$(wc -l <"$T/sp/remind/state/pending-retro.log" | tr -d ' ')"
 [ "$n" = 2 ] && grep -c $'\t'"$T/syn/p3"'$' "$T/sp/remind/state/pending-retro.log" | grep -qx 2 \
     && ok "synthetic: two session-end runs -> two lines time<TAB>cwd" || bad "synthetic: session-end twice -> $n lines"
 
-# rules.md is mixed in without its sources section, under either heading: `## Sources` or `## Источники`.
+# rules.md is mixed in without its sources section, under either heading: `## Sources` or its old Russian form.
 mkdir -p "$T/syn/p5" "$T/sp/rules"; git -C "$T/syn/p5" init -q
 echo '{"schema":1,"name":"rules","session":{"inject_rules":true}}' >"$T/sp/rules/profile.json"
 printf '# rules\n\n## Kept\nKEPT-RULE\n\n## Источники\nRU-SOURCE-LINE\n\n## After\nAFTER-RULE\n\n## Sources\nEN-SOURCE-LINE\n' >"$T/sp/rules/rules.md"
 printf '{"repos":[{"key":"r5","match":"%s","profile":"rules"}]}\n' "$T/syn/p5" >"$T/syn5.json"
 c="$(CLAUDE_GATE_CONFIG="$T/syn5.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/p5" "$T/syn/p5" | ctx)"
 [[ "$c" == *"KEPT-RULE"* && "$c" == *"AFTER-RULE"* && "$c" != *"## Источники"* && "$c" != *"RU-SOURCE-LINE"* ]] \
-    && ok "synthetic: rules.md without its '## Источники' section" || bad "synthetic: '## Источники' section: [$c]"
+    && ok "synthetic: rules.md without its old Russian sources section" || bad "synthetic: old Russian sources section: [$c]"
 [[ "$c" != *"## Sources"* && "$c" != *"EN-SOURCE-LINE"* ]] \
     && ok "synthetic: rules.md without its '## Sources' section" || bad "synthetic: '## Sources' section: [$c]"
 

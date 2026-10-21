@@ -1,5 +1,6 @@
 ---
 name: epic-wave
+# shortcut: accepts the old Russian token, remove after the next release
 description: Run a wave of an epic's tickets — "tickets NN, NN of epic X" (the worfy Autopilot command, `/worfy:epic-wave tickets 05, 06 of epic X`); the older forms "Ticket-ы NN, NN эпика X" (Autopilot before the plugin), "волна N эпика X", "run wave N of epic X" and the request "прогони волну N эпика X"; resuming a wave after a session break. Works in any registered project; commands, paths, deploy and merge order come from the project profile (`${CLAUDE_PLUGIN_ROOT}/bin/profile`).
 ---
 
@@ -170,7 +171,7 @@ gh pr list --state open --json number,headRefName,mergeStateStatus,files   # pr-
 ```
 
 Preflight: the last line is `GO` or `BLOCKED: <reasons>`, exit code 1 on `BLOCKED`. The line
-`<база>: <sha> …` (the base is `F worktree.base`; in a repository without `origin` — the branch that
+`<base>: <sha> …` (the base is `F worktree.base`; in a repository without `origin` — the branch that
 line names) is the base for the dispatch briefs. What it
 checks is in `rules.md`. If the preflight cannot run here (exit 2: not a git repository, for
 example the common directory above a multi-repository project) — say "preflight cannot run here,
@@ -215,6 +216,7 @@ ticket that shares a file with such a PR is **not dispatched until that PR is me
 that keeps two tickets with a shared file out of one wave. The plan table and the wave report name the
 ticket, the file and the PR number. On one machine the rule means "a PR of another session".
 
+<!-- shortcut: accepts the old Russian token, remove after the next release -->
 **What goes into the wave.** The request names the wave in one of these ways, and each is the
 owner's permission:
 - "tickets NN, NN of epic X" — the worfy Autopilot command, for example
@@ -225,7 +227,7 @@ owner's permission:
   their trail section; a ticket that fails the check is not dispatched and is named in the report
   with the reason;
 - "волна N эпика X" or "run wave N of epic X" — the tickets of row N of the plan table (the waves
-  section of `F tickets.spec`; worfy: «Волны») that are not yet `done`.
+  section of `F tickets.spec`) that are not yet `done`.
 
 The wave takes tickets with `state: "open"`, `blockedParsed: true` and every number in
 `blockedNums` in state `done`; with `blockedParsed: false`, fix `Blocked by` first.
@@ -234,7 +236,7 @@ One `qmd` call (skill `worfy:qmd`: `vec` as a question, `lex` with word stems, `
 expected answer; where to expect the answer — `F qmd.collections`) on the epic's subject — before
 the plan: an accepted ADR or a lesson already paid for changes the briefs.
 
-The files a ticket may touch come from its section `F tickets.trail_section` (worfy: `## Где в коде`).
+The files a ticket may touch come from its section `F tickets.trail_section`.
 An incomplete list (no test, no entry point, or not what `rules.md` requires for such a change) is
 completed before dispatch by the agent `worfy:scout` (the brief gives the path `<repo>`): a map of
 the ticket with `file:line`.
@@ -256,7 +258,7 @@ profile keeps them (`F numbering.adr`, `F numbering.migrations`; none — the co
 line "the project has no numbers"). ADR numbers are handed out in the plan one per ticket, next
 after the highest on the base (printed by the preflight, `"${CLAUDE_PLUGIN_ROOT}/bin/preflight"`); the implementer pushes a
 placeholder with the taken number in the first minutes, so the claim shows up in `gh pr list` for
-other sessions. A number goes to every ticket whose acceptance list (worfy: «Готово, когда»)
+other sessions. A number goes to every ticket whose acceptance list (`F tickets.done_section`)
 requires an accepted ADR (`grep -n '^- \[ \].*ADR' <wave tickets>`), not only to the one that asks
 for a number itself: the brief "no number — do not create ADR files" with such an item takes the
 ticket out of the wave (it once took one ticket and, after it, the whole epic out of a wave). Migrations
@@ -308,8 +310,8 @@ its own. A session with a human needs no log.
 
 **Questions for the owner do not stop the wave.** A fork the owner decides, in the middle of a
 wave: pick the recommended option and record it in the ticket's result section and in the state
-file's list of what waits for the owner (worfy: «Ждёт владельца») as "decided without the owner,
-confirm" (in the docs' language; worfy: «решено без владельца, подтвердить»). `AskUserQuestion` —
+file's list of what waits for the owner as "decided without the owner,
+confirm" (in the docs' language). `AskUserQuestion` —
 only when the wave cannot continue without an answer; in a Session without a human (worfy
 Autopilot) it is declined automatically.
 
@@ -440,7 +442,7 @@ verdict, and the ticket is not merged on it.
 Then the verifier checks the report by the lens "implementer's report" of agent `worfy:reviewer`
 (section "Lens descriptions" of the agent). Owner rules the verifier gets in its brief: an acceptance item that cannot be
 automated (a system dialog, an OS notification, a live terminal) may stay `[ ]` with a line
-"not verified: <why>" (in the docs' language; worfy: «не проверено: …») in the ticket's result
+"not verified: <why>" (in the docs' language) in the ticket's result
 section — that is not a finding and not a reason for `REJECTED`; attached evidence (a screenshot,
 command output) that does not show what is claimed is a high-severity finding.
 
@@ -640,6 +642,7 @@ a narrow round only by the owner's decision. How many tickets stand behind the r
 counted from tickets actually removed from the wave, not from those skipped in it as already
 merged.
 
+<!-- shortcut: accepts the old Russian token, remove after the next release -->
 **The narrow round without a human** (worfy Autopilot). What decides is that a question to the
 owner is declined automatically (see section 2); the wave then usually came as "tickets NN, NN of
 epic X" or its older form "Ticket-ы NN, NN эпика X". Nobody answers, so for a ticket on the
@@ -652,7 +655,7 @@ critical path with a second `REJECTED` the rule decides, without a question and 
 
 A leaf ticket gets no narrow round in Autopilot: `ticket block`, a `blocked` row, and a line in the
 state file's list of what waits for the owner: "narrow round for a leaf ticket — the owner's
-decision" (in the docs' language; worfy: «узкий круг листовому Ticket-у — решение владельца»). The
+decision" (in the docs' language). The
 critical path, the sceptics, the three grounds of the narrow round's `REJECTED` and the `NARROW: …`
 verdicts recorded as above do not change. There is no marker for worfy besides the `NARROW:`
 verdicts: its run journal reads them from the PR comments. A session with a human keeps the rule

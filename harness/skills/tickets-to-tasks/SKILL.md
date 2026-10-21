@@ -1,6 +1,6 @@
 ---
 name: tickets-to-tasks
-description: Import the markdown tickets produced by /mattpocock-skills:to-tickets or /mattpocock-skills:wayfinder into native Claude Code Tasks, preserving their blocking edges so the task list enforces ordering. Use after /mattpocock-skills:to-tickets has published tickets, or when the user says "залей тикеты в таски", "import tickets", or asks why the task list is empty for an epic.
+description: Import the markdown tickets produced by /mattpocock-skills:to-tickets or /mattpocock-skills:wayfinder into native Claude Code Tasks, preserving their blocking edges so the task list enforces ordering. Use after /mattpocock-skills:to-tickets has published tickets, or when the user says "import tickets" (or the same words in the user's language), or asks why the task list is empty for an epic.
 ---
 
 # Tickets -> native Tasks

@@ -77,7 +77,7 @@ describe('the command palette', () => {
     expect(opened()).toBe(true)
   })
 
-  // Review round 1 of PR #215: with a Russian layout the K key gives key 'л' and code 'KeyK'.
+  // Review round 1 of PR #215: with a Russian layout the K key gives the Cyrillic el as key and 'KeyK' as code.
   it('on Windows opens on Ctrl+K with a Russian layout: by the place of the key, not its letter', () => {
     on('windows')
     render(<CommandPalette />)

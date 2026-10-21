@@ -3,7 +3,7 @@
 // It answers: what is in the session registry (sessions/<pid>.json), how a cwd maps to a
 // projects/<dir> name, which record types each Claude Code version writes, how subagent
 // transcripts link to the Agent tool call, where `ticket claim`, skill calls and gate.sh output
-// show up, and how large the data is. Findings are written up in the ticket's "Итог" section.
+// show up, and how large the data is. Findings are written up in the ticket's result section.
 //
 // Run:   node scripts/spikes/claude-home-survey.ts [--home <dir>] [--project-prefix <dir-prefix>] [--sdk]
 //        node scripts/spikes/claude-home-survey.ts --skeleton <file.jsonl> [--max <n>]

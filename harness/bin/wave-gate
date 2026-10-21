@@ -451,7 +451,9 @@ function gateCommand() {
 // shortcut: accepts the old Russian token, remove after the next release
 // A gate of the release before prints the same lines with Russian words in place of green, red and passed.
 const GREEN_FULL = /^\[gate\] (?:green|зелено) \(full\)/
+// shortcut: accepts the old Russian token, remove after the next release
 const RED_LINE = /^\[gate\] (?:red|красно) \([^)]*\):/
+// shortcut: accepts the old Russian token, remove after the next release
 const PASSED_TAIL = /\((?:passed|прошло):.*$/
 function verdict(code, text) {
     const lines = text.split(/\r?\n/)

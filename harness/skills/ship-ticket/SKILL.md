@@ -137,7 +137,7 @@ the command checks and what each reason means is in `rules.md`. The reason "anot
 the worktree" means the command was run from a shared checkout: with `worktrees`, move to your own
 worktree (the `parallel: worktrees` paragraph below) and repeat; with `single` it means another
 session works in the checkout — stop and ask the user.
-Any other reason — stop, do not work around it. Put the line `<база>: <sha> …` (the base is
+Any other reason — stop, do not work around it. Put the line `<base>: <sha> …` (the base is
 `F worktree.base`; in a repository without `origin` — the branch that line names) into every agent's brief as the base — a subagent that read the local `main`
 once reasoned over a stale tree.
 
@@ -210,7 +210,7 @@ Make sure the test is red, and only then fix. What must be running for the tests
 
 ## 5. Implementation
 
-Along the files listed in the ticket (section `F tickets.trail_section`; worfy: `## Где в коде`).
+Along the files listed in the ticket (section `F tickets.trail_section`).
 Going outside that list is a reason to say so, not to widen the change silently.
 
 The change is the smallest one that does the whole ticket. It comes after step 4 — the failing test
@@ -313,7 +313,7 @@ same as Finder; launch through `env -i` with the launchd environment (HOME, USER
 TMPDIR, PATH=/usr/bin:/bin:/usr/sbin:/sbin). Several builds with one bundle id on disk — macOS may
 open the wrong one (a click on a notification, `open -b`): before the check, verify the process
 path (`ps -o comm= -p <pid>`). No permissions, or the check cannot be automated — the item stays
-`[ ]` with a line "not verified: <why>" (in the docs' language; worfy: «не проверено: …») in the
+`[ ]` with a line "not verified: <why>" (in the docs' language) in the
 ticket's result section: that is an honest gap, not a review finding.
 
 On Windows the same rules hold, with these steps instead of the macOS ones. Screenshots come only
@@ -515,7 +515,7 @@ whose change needs no label; a path that ends with `/` is a folder and covers ev
 One file outside `exempt` — the PR gets the label `F cross_machine_gate.label`, and its description
 gets the section `## <checks_section>` (`F cross_machine_gate.checks_section`): the old description
 and the section, through `--body-file`. The section lists the commands of the ticket's acceptance
-items (worfy: «Готово, когда») that run on the machine with `serve` beyond its `check` — the ticket
+items (`F tickets.done_section`) that run on the machine with `serve` beyond its `check` — the ticket
 marks them itself, the skill does not decide which — one line each, with its expected result:
 ``- `<command>` — <expected result>``. No such item — the single line `none`. Write those lines into
 `<section file>` first; the block prints `label` or `no-label`, or a line starting with `ERROR:`

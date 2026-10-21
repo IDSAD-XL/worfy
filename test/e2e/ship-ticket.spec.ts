@@ -251,7 +251,7 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
     await settled(window)
     await expect(sessionNodes).toHaveCount(2)
 
-    // Run wave with the default template: the Orchestrator gets `/epic-wave Ticket-ы 07, 09 эпика worfy-mvp`
+    // Run wave with the default template: the Orchestrator gets `/epic-wave` with tickets 07, 09 of epic worfy-mvp
     // and is bound to the Epic. The old default saved here reads as the new one (ADR-0033).
     await bridgeCall(window, 'projects.settings.set', { id: PROJECT, settings: { actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave волна {wave} эпика {epic}' } } })
     await expect(runWave).toHaveAttribute('aria-disabled', 'false')

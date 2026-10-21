@@ -44,8 +44,8 @@ check "max-review: edits nothing, merges nothing" has 'The mode edits nothing an
 check "max-review: one brief, stated intent" has 'State the intent of the branch in one paragraph before the reviewers start'
 
 # --- 2. Two lenses, the model field, the two models --------------------------------------------------
-check "max-review: lens correctness (profile name корректность)" has 'lens `correctness` (the worfy profile calls it `корректность`)'
-check "max-review: lens simplification (profile name упрощение)" has 'lens `simplification` (`упрощение`)'
+check "max-review: lens correctness (with its Russian profile name)" has 'lens `correctness` (the worfy profile calls it `корректность`)'
+check "max-review: lens simplification (with its Russian profile name)" has 'lens `simplification` (`упрощение`)'
 check "max-review: two models by the model field of the Agent call" has 'the `model` field of the Agent call that starts `worfy:reviewer`'
 check "max-review: the orchestrator's model — no model field" has "The first model is the orchestrator's own: start that reviewer without the \`model\` field"
 check "max-review: the second model is sonnet" has 'The second model is `sonnet`: `model: "sonnet"`.'

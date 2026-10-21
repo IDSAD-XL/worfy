@@ -112,7 +112,7 @@ function render(svg, px, png) {
   if (size === null || size.width !== px || size.height !== px) {
     fail(
       `sips did not rasterize ${svg} into a ${px}×${px} PNG (got ${size ? `${size.width}×${size.height}` : 'no PNG'}). ` +
-        'Rendering SVG with sips needs a recent macOS; on an older one draw the PNGs some other way (ticket 31, "Итог").',
+        'Rendering SVG with sips needs a recent macOS; on an older one draw the PNGs some other way (the result section of ticket 31).',
     )
   }
 }

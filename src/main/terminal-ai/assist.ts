@@ -8,7 +8,7 @@
 // requests for IDLE_MS is closed. A request that comes while the spare is still starting waits for
 // it and starts no second one.
 //
-// The queue (spec, "Решено без владельца", point 3). One request in flight. A new automatic request
+// The queue (spec, "Decided without the owner", point 3). One request in flight. A new automatic request
 // (suggest, next) cancels an automatic one in flight; an on-demand request (request, fix) cancels an
 // automatic one and is never cancelled itself: the next on-demand request waits for it, and an
 // automatic one is refused as `busy` meanwhile.

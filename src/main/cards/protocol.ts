@@ -1,4 +1,4 @@
-// The worfy-card:// protocol: how a Card (CONTEXT.md, «Карточка») reaches the window, and the
+// The worfy-card:// protocol: how a Card (CONTEXT.md, "Card") reaches the window, and the
 // walls around it.
 //
 // A Card is a folder <Project data folder>/cards/<id>/ (ADR-0003, ADR-0005) with an index.html and

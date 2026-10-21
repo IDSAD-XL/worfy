@@ -106,7 +106,7 @@ done
 # Module test-list block: --include globs from tests.globs.
 B2="$(block 'grep -rslE')"
 [ -n "$B2" ] || bad "test-list block not found in $SKILL"
-B2="${B2//<каталог пакета>/$R/apps/api}"; B2="${B2//<имя>/carts}"
+B2="${B2//<package dir>/$R/apps/api}"; B2="${B2//<имя>/carts}"
 want="$(printf '%s\n' src/z.spec.ts test/carts.test.ts)"
 for sh in "${SHELLS[@]}"; do
     got="$(cd "$R" && $sh -c "$STUB"$'\n'"$B2" 2>&1 | sort)"
@@ -733,7 +733,7 @@ for sh in "${SHELLS[@]}"; do
 done
 
 # The open PRs of other epics, skills/epic-wave section 1: every file of each open PR whose branch does not match
-# this epic's tickets.branch (<эпик>/<NN>, the epic is pay-flow here), filtered by gh's own --jq.
+# this epic's tickets.branch (the epic placeholder, a slash and <NN>; the epic is pay-flow here), filtered by gh's own --jq.
 BOP="$(SKILL="$WAVE" blockf 'gh pr list --state open --limit 200 --json number,headRefName,files')"
 [ -n "$BOP" ] || bad "open PRs of other epics block not found in $WAVE"
 BOP="$(sub "${BOP//<repo>/$CR}")"
