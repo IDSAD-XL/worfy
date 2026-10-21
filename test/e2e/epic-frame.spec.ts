@@ -7,13 +7,13 @@ import { pathToFileURL } from 'node:url'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { codeSection } from '../../src/main/workflow/reader'
 import ELK from 'elkjs/lib/elk.bundled.js'
-import { FRAME_GAP, layoutEpic, MIN_FRAME_WIDTH, stackFrames, TICKET_TITLE_LINES, type EpicLayout, type Rect } from '../../src/renderer/canvas/epic-layout'
+import { FRAME_GAP, layoutEpic, MIN_FRAME_WIDTH, stackFrames, type EpicLayout, type Rect } from '../../src/renderer/canvas/epic-layout'
 import { layoutEpicElk } from '../../src/renderer/canvas/elk/layout'
 import { ORCHESTRATOR_WIDTH } from '../../src/shared/ipc/orchestrator'
 import { onThePlane } from '../../src/shared/layout/derived'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
-import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, overlaps, repoRoot, ticketCardCuts, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
@@ -827,7 +827,7 @@ const LONG_SPEC_TITLE = 'An Epic whose spec title is far longer than the frame h
 /** 120 characters: the ticket's fixture for a long Ticket title. */
 const LONG_TICKET_TITLE = 'Withdraw-lot button for moderators, with a reason the seller sees and an audit record kept for the support team to check'
 
-test('long names: Ticket title, frame title, done stack and the sidebar name show whole or carry the whole text in a tooltip, in both themes', async () => {
+test('long names: the Ticket title, blocked reason and blockers line are whole on cards that do not overlap; frame title, done stack and the sidebar name whole or in a tooltip, in both themes', async () => {
   expect(LONG_TICKET_TITLE).toHaveLength(120)
   makeClaudeHome()
   makeProject((dir) => {
@@ -852,20 +852,27 @@ test('long names: Ticket title, frame title, done stack and the sidebar name sho
     for (const scheme of ['light', 'dark'] as const) {
       await window.emulateMedia({ colorScheme: scheme })
 
-      // The Ticket title: never squeezed below its line limit, and the whole title in its tooltip
-      // when it is cut there.
+      // Nothing on a card is cut (worfy-canvas ticket 18): the whole title, reason and blockers
+      // line, each on as many lines as it takes, inside a card as tall as its content.
       const title = long.locator('.w-ticket__title')
-      const titleFit = await expectWholeOrTitled(title, LONG_TICKET_TITLE, 'the Ticket title')
-      expect(titleFit.clientHeight, `the Ticket title shows ${TICKET_TITLE_LINES} lines`).toBeGreaterThanOrEqual(Math.min(titleFit.scrollHeight, TICKET_TITLE_LINES * titleFit.lineHeight) - 0.5)
-      await expectRowsInside(long, 'Ticket 40')
-      await expectRowsInside(ticketNode(window, 41), 'Ticket 41')
-      await expectRowsInside(ticketNode(window, 42), 'Ticket 42')
-      await expectWholeOrTitled(ticketNode(window, 41).locator('.w-ticket__reason'), 'waits for the owner to answer which payment provider the platform uses in production', 'the blocked reason')
-      await expectWholeOrTitled(
-        ticketNode(window, 42).locator('.w-ticket__meta'),
-        `blocked by ${Array.from({ length: 33 }, (_, i) => String(i + 1).padStart(2, '0')).join(', ')} · done`,
-        'the blockers line',
-      )
+      await expect(title).toHaveText(LONG_TICKET_TITLE)
+      await expectWhole(title, 'the Ticket title')
+      for (const num of [40, 41, 42]) {
+        await expectRowsInside(ticketNode(window, num), `Ticket ${num}`)
+        expect(await ticketCardCuts(ticketNode(window, num)), `nothing is cut on Ticket ${num}`).toEqual([])
+      }
+      const reason = ticketNode(window, 41).locator('.w-ticket__reason')
+      await expect(reason).toHaveText('waits for the owner to answer which payment provider the platform uses in production')
+      await expectWhole(reason, 'the blocked reason')
+      const blockers = ticketNode(window, 42).locator('.w-ticket__meta')
+      await expect(blockers).toHaveText(`blocked by ${Array.from({ length: 33 }, (_, i) => String(i + 1).padStart(2, '0')).join(', ')} · done`)
+      await expectWhole(blockers, 'the blockers line')
+      // Taller cards push the next ones down: no two cards of the frame overlap, nor a card and the done stack.
+      const cards = window.locator(`[data-testid="ticket-node"][data-epic="${LONG_EPIC}"]`)
+      const boxes = [{ name: 'the done stack', ...(await box(window.getByTestId('done-stack'))) }]
+      for (const each of await cards.all()) boxes.push({ name: `Ticket ${await each.getAttribute('data-ticket')}`, ...(await box(each)) })
+      expect(boxes.length, 'the done stack and the three open Tickets').toBe(4)
+      expect(overlaps(boxes), 'cards that overlap').toEqual([])
 
       // The frame title: the Epic's whole name, the spec title whole or in the tooltip.
       const heading = frame.locator('.w-epic__title')

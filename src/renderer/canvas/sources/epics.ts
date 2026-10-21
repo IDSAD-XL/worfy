@@ -36,6 +36,7 @@ import type { Epic, Ticket, WorkflowModel } from '../../../shared/workflow/types
 import { invoke } from '../../ipc'
 import { readOnlyNow } from '../../projects/read-only-now'
 import { useProjects } from '../../projects/useProjects'
+import { usePipeline } from '../../pipeline/usePipeline'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import { elkEngine, elkKey, requestEpicLayout, useElkAnswers, type ElkAnswer, type ElkRequest } from '../elk/client'
 import { arrange, orderFor, readArrangement, repack, sameDay, stripSize, type ArrangedFrame, type ArrangementRecord } from '../epic-arrangement'
@@ -48,7 +49,6 @@ import {
   placeStrip,
   progressOf,
   SHELF_CHIP_HEIGHT,
-  TICKET_HEIGHT,
   TICKET_WIDTH,
   type EpicLayout,
   type Offset,
@@ -62,6 +62,7 @@ import {
 import type { NodeDrop, NodeSource, NodeSourceContext } from '../extensions'
 import { grouped, type Group } from '../history'
 import type { CanvasFlowNode } from '../nodes'
+import { waitingOnOf } from '../ticket-card'
 import { applyLayoutOp, currentLayout, useLayoutOps, type LayoutOps } from '../useLayout'
 import { BINDING_ANCHOR_KIND, type BindingAnchorData } from './workflow-bindings'
 
@@ -519,7 +520,17 @@ const syntheticNode = (id: string, kind: string, x: number, y: number, w: number
 })
 
 interface EpicEntry {
-  inputs: { root: string; epic: Epic; tickets: readonly Ticket[]; saved: string; collapsed: boolean; doneExpanded: boolean; answer: ElkAnswer | undefined }
+  inputs: {
+    root: string
+    epic: Epic
+    tickets: readonly Ticket[]
+    saved: string
+    collapsed: boolean
+    doneExpanded: boolean
+    answer: ElkAnswer | undefined
+    /** The Project's Stage names (`stagesKey`), which the cards' heights allow for. */
+    stages: string
+  }
   layout: EpicLayout
   /** The frame's height with the done stack open: what the frames' column keeps free for it (ADR-0032). */
   reserve: number
@@ -551,15 +562,26 @@ function keepPlaces(stale: EpicLayout, tickets: readonly Ticket[]): EpicLayout {
 }
 
 /** The layout a frame shows, and the height the frames' column keeps free for it (ADR-0032). */
-function frameLayout(tickets: readonly Ticket[], name: string, collapsed: boolean, doneExpanded: boolean, answer: ElkAnswer | undefined, key: string | null): { layout: EpicLayout; reserve: number } {
+function frameLayout(
+  tickets: readonly Ticket[],
+  name: string,
+  collapsed: boolean,
+  doneExpanded: boolean,
+  answer: ElkAnswer | undefined,
+  key: string | null,
+  stages: readonly string[] | undefined,
+): { layout: EpicLayout; reserve: number } {
   if (collapsed || answer === undefined || key === null) {
-    const layout = layoutEpic({ tickets, collapsed, doneExpanded, name })
-    const reserve = collapsed || doneExpanded ? layout.height : layoutEpic({ tickets, collapsed: false, doneExpanded: true, name }).height
+    const layout = layoutEpic({ tickets, collapsed, doneExpanded, name, stages })
+    const reserve = collapsed || doneExpanded ? layout.height : layoutEpic({ tickets, collapsed: false, doneExpanded: true, name, stages }).height
     return { layout, reserve }
   }
   const chosen = doneExpanded ? answer.open : answer.folded
   return { layout: answer.key === key ? chosen : keepPlaces(chosen, tickets), reserve: answer.open.height }
 }
+
+/** The Stage names as one string, to tell a new list from the same one. */
+const stagesKey = (stages: readonly string[] | undefined): string => JSON.stringify(stages ?? null)
 
 /** Per Project and Epic, the last computed frame, so an Epic that did not change keeps its objects. */
 const cache = new Map<string, EpicEntry>()
@@ -580,7 +602,7 @@ function ticketNodes(projectId: string, root: string, epic: string, tickets: rea
       root,
       ticket,
       placed,
-      waitingOn: ticket.blockedNums.filter((blocker) => byNum.has(blocker) && byNum.get(blocker)!.state !== 'done'),
+      waitingOn: waitingOnOf(ticket, byNum),
       saved,
     }
     return {
@@ -589,12 +611,13 @@ function ticketNodes(projectId: string, root: string, epic: string, tickets: rea
       parentId,
       position: { x: placed.x, y: placed.y },
       width: TICKET_WIDTH,
-      height: TICKET_HEIGHT,
+      // As tall as what the card shows (ticket-card.ts, worfy-canvas ticket 18).
+      height: placed.height,
       deletable: false,
       connectable: false,
       // Its place is computed (ADR-0037); it can still be selected.
       draggable: false,
-      data: { node: syntheticNode(id, TICKET_KIND, placed.x, placed.y, TICKET_WIDTH, TICKET_HEIGHT, data) },
+      data: { node: syntheticNode(id, TICKET_KIND, placed.x, placed.y, TICKET_WIDTH, placed.height, data) },
     }
   })
 }
@@ -648,6 +671,8 @@ export function buildEpicNodes(
   derived: readonly Rect[] = [],
   /** ELK's last answer per Epic of this Project (elk/client.ts). */
   answers: Readonly<Record<string, ElkAnswer>> = {},
+  /** The names of the Project's Stages (the Pipeline snapshot); the cards' heights allow for them. Undefined: the default Pipeline's. */
+  stages?: readonly string[],
 ): readonly CanvasFlowNode[] {
   if (root === undefined || model === undefined || model.error !== null) {
     lastNodes.delete(projectId)
@@ -682,6 +707,7 @@ export function buildEpicNodes(
       collapsed: saved.collapsed ?? defaultCollapsed(tickets),
       doneExpanded: doneExpanded[key] === true,
       answer: answers[epic.epic],
+      stages: stagesKey(stages),
     }
     let entry = cache.get(key)
     const sameTickets = entry !== undefined && entry.inputs.epic === inputs.epic && sameArray(entry.inputs.tickets, inputs.tickets)
@@ -692,16 +718,17 @@ export function buildEpicNodes(
       entry.inputs.saved === inputs.saved &&
       entry.inputs.collapsed === inputs.collapsed &&
       entry.inputs.doneExpanded === inputs.doneExpanded &&
-      entry.inputs.answer === inputs.answer
+      entry.inputs.answer === inputs.answer &&
+      entry.inputs.stages === inputs.stages
     if (!same) {
       // ELK lays out an open frame with Tickets; the key is computed again only when they changed.
       const request =
         inputs.collapsed || tickets.length === 0
           ? null
-          : sameTickets && entry!.request !== null
+          : sameTickets && entry!.request !== null && entry!.inputs.stages === inputs.stages
             ? entry!.request
-            : { key: elkKey(tickets, epic.epic), tickets, name: epic.epic }
-      const { layout: epicLayout, reserve } = frameLayout(tickets, epic.epic, inputs.collapsed, inputs.doneExpanded, inputs.answer, request?.key ?? null)
+            : { key: elkKey(tickets, epic.epic, stages), tickets, name: epic.epic, stages }
+      const { layout: epicLayout, reserve } = frameLayout(tickets, epic.epic, inputs.collapsed, inputs.doneExpanded, inputs.answer, request?.key ?? null, stages)
       entry = {
         inputs,
         layout: epicLayout,
@@ -883,9 +910,13 @@ function useEpicNodes({ projectId, layout }: NodeSourceContext): readonly Canvas
   )
   const derived = useDerivedRects(projectId)
   const answers = useElkAnswers((state) => state[projectId])
+  // The Stage names the cards can show, for their heights: one string, so a new snapshot of the same Pipeline changes nothing.
+  const { snapshot } = usePipeline(root)
+  const titles = snapshot === undefined ? null : JSON.stringify(snapshot.pipeline.map((column) => column.title))
+  const stages = useMemo(() => (titles === null ? undefined : (JSON.parse(titles) as string[])), [titles])
   const nodes = useMemo(
-    () => buildEpicNodes(projectId, root, model, layout, doneExpanded, derived, answers),
-    [projectId, root, model, layout, doneExpanded, derived, answers],
+    () => buildEpicNodes(projectId, root, model, layout, doneExpanded, derived, answers, stages),
+    [projectId, root, model, layout, doneExpanded, derived, answers, stages],
   )
   // After the build, so a request goes out for the inputs the Canvas shows.
   useEffect(() => requestEpicLayouts(projectId), [projectId, nodes])

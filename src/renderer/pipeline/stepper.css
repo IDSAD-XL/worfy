@@ -1,20 +1,21 @@
-/* The stepper of a Ticket (Stepper.tsx): one row, 18 px high like the Card's top row it sits in
-   (TICKET_HEIGHT of epic-layout.ts budgets no extra row). Colours are the tokens of F-SPEC's table:
+/* The stepper of a Ticket (Stepper.tsx): lines of 16 px, at least 18 px high like the Card's top
+   row it sits in. Nothing is cut: a part that does not fit goes to the next line, and the Card's
+   height (canvas/ticket-card.ts, `stepperHeight`) has room for it. Colours are the tokens of F-SPEC's table:
    a passed Stage has the ready dot, the current one the working dot, blocked the blocked ring; the
    Stage's name is a compact chip in the colours the status chip it replaces had (open, working,
    blocked, done). Every state also has its own shape or word, so none is told by colour alone. */
 .w-stepper {
-  flex: 1 1 auto;
-  min-width: 0;
+  /* The row's free room, at least STEPPER_MIN_WIDTH (ticket-card.ts), else a line of its own. */
+  flex: 1 1 0;
+  min-width: min(100%, 100px);
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  height: 18px;
-  overflow: hidden;
+  gap: 2px 4px;
+  min-height: 18px;
   font-size: var(--text-11);
   line-height: 16px;
   color: var(--text);
-  white-space: nowrap;
 }
 /* Stuck past the threshold of its Stage (worfy-pipeline ticket 06): a frame drawn inside the box, so the measure of the full form does not change. */
 .w-stepper[data-stuck='true'] {
@@ -69,8 +70,9 @@
 .w-stepper__label {
   flex: 0 1 auto;
   min-width: 0;
+  /* One line in the full form: a name that does not fit is measured (Stepper.tsx) and the narrow form drawn. */
+  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   padding: 0 4px;
   border-radius: var(--radius-chip);
   font-weight: 600;
@@ -93,13 +95,16 @@
   background: var(--blocked-bg);
   color: var(--blocked-text);
 }
-/* Who it waits for takes only the room left after the Stage's name: it is cut first, the name only
-   when the dots and the name alone do not fit (the tooltip has both). */
+/* The narrow form's name wraps rather than run past the Card. */
+.w-stepper[data-narrow='true'] .w-stepper__label {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* Who it waits for, whole: on the next line when it does not fit after the name. */
 .w-stepper__waits {
-  flex: 1 1 0;
+  flex: 0 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
   color: var(--text-muted);
 }
 .w-stepper__waits::before {
@@ -107,6 +112,7 @@
 }
 .w-stepper__count {
   flex: none;
+  white-space: nowrap;
   color: var(--text-muted);
 }
 .w-stepper__flag {

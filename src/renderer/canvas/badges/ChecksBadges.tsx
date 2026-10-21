@@ -43,7 +43,7 @@ const GATE: Record<Exclude<GateOutcome, 'none'>, { status: Status; label: string
 }
 
 function GateBadge({ outcome, path }: { outcome: GateOutcome; path: string }) {
-  // The label leads the tooltip: the chip may be cut to "gate: n…" on a narrow Ticket.
+  // The tooltip adds the worktree's path to the label; the label itself is never cut (checks-badges.css).
   if (outcome === 'none') return <Neutral label="gate: no data" title={`gate: no data — ${path}`} testId="checks-gate" />
   const { status, label } = GATE[outcome]
   return <Chip status={status} label={label} testId="checks-gate" value={outcome} title={`${label} — ${path}`} />
@@ -64,7 +64,7 @@ function PullBadges({ pull }: { pull: PullRequest }) {
   )
 }
 
-/** Everything the row shows, for its tooltip: the row may be cut at the Node's edge. */
+/** Everything the row shows, in one line for its tooltip. */
 function summary(worktree: { gate: { outcome: GateOutcome } } | null, pull: PullRequest | null, unavailable: boolean): string {
   const parts: string[] = []
   if (worktree) parts.push(worktree.gate.outcome === 'none' ? 'gate: no data' : GATE[worktree.gate.outcome].label)

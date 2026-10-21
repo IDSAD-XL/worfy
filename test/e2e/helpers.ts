@@ -664,3 +664,51 @@ export async function launchLinkedPair(options: { a?: LaunchOptions; b?: LaunchO
     throw error
   }
 }
+
+/**
+ * What is cut inside a Ticket card (worfy-canvas ticket 18: nothing is): every element whose
+ * content is wider than its box, that ends its text with "…" or clamps its lines, and the card
+ * itself when its content is taller than the card. Empty when everything on the card is whole.
+ */
+export async function ticketCardCuts(card: Locator): Promise<string[]> {
+  return card.evaluate((node) => {
+    // The e2e typecheck has no DOM library: the few page types used here.
+    type Element = {
+      scrollWidth?: number
+      clientWidth: number
+      scrollHeight: number
+      clientHeight: number
+      tagName: string
+      className: unknown
+      textContent: string | null
+      querySelectorAll(selector: string): ArrayLike<Element>
+    }
+    type Style = { display: string; textOverflow: string; webkitLineClamp?: string }
+    const page = globalThis as unknown as { getComputedStyle(element: Element): Style }
+    const root = node as unknown as Element
+    const name = (element: Element) => `<${element.tagName.toLowerCase()} class="${String(element.className)}"> «${(element.textContent ?? '').slice(0, 60)}»`
+    const cuts: string[] = []
+    if (root.scrollHeight > root.clientHeight) cuts.push(`the card: its content is ${root.scrollHeight} px tall in ${root.clientHeight} px`)
+    for (const element of [root, ...Array.from(root.querySelectorAll('*'))]) {
+      // SVG elements have no scrollWidth; an element not drawn cuts nothing.
+      if (typeof element.scrollWidth !== 'number') continue
+      const style = page.getComputedStyle(element)
+      if (style.display === 'none') continue
+      if (element.clientWidth > 0 && element.scrollWidth > element.clientWidth) cuts.push(`${name(element)}: ${element.scrollWidth} px wide in ${element.clientWidth} px`)
+      if (style.textOverflow === 'ellipsis') cuts.push(`${name(element)}: text-overflow: ellipsis`)
+      if (style.webkitLineClamp !== undefined && style.webkitLineClamp !== 'none' && style.webkitLineClamp !== '') cuts.push(`${name(element)}: -webkit-line-clamp: ${style.webkitLineClamp}`)
+    }
+    return cuts
+  })
+}
+
+/** The pairs of boxes that overlap, by name; boxes that only touch do not. */
+export function overlaps(boxes: readonly { name: string; x: number; y: number; width: number; height: number }[]): string[] {
+  const found: string[] = []
+  boxes.forEach((a, i) => {
+    for (const b of boxes.slice(i + 1)) {
+      if (a.x < b.x + b.width - 0.5 && b.x < a.x + a.width - 0.5 && a.y < b.y + b.height - 0.5 && b.y < a.y + a.height - 0.5) found.push(`${a.name} and ${b.name}`)
+    }
+  })
+  return found
+}

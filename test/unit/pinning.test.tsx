@@ -3,7 +3,7 @@
 // the viewport, and a pinned Node is placed on the plane anew for every viewport.
 import { describe, expect, it } from 'vitest'
 import type { LayoutNode, Viewport } from '../../src/shared/layout/types'
-import { COLUMN_GAP, FRAME_PADDING, HEADER_HEIGHT, ROW_GAP, TICKET_HEIGHT, TICKET_WIDTH, TICKETS_TOP } from '../../src/renderer/canvas/epic-layout'
+import { COLUMN_GAP, FRAME_PADDING, HEADER_HEIGHT, ROW_GAP, TICKET_MIN_HEIGHT, TICKET_WIDTH, TICKETS_TOP } from '../../src/renderer/canvas/epic-layout'
 import {
   canvasToScreen,
   clearToolbarPlacement,
@@ -205,9 +205,9 @@ describe('the selection toolbar takes a place around the selection that covers n
   const band = epicHeaderBand(frame)
   const ticketAt = (column: number, row: number) => ({
     x: FRAME_PADDING + column * (TICKET_WIDTH + COLUMN_GAP),
-    y: TICKETS_TOP + row * (TICKET_HEIGHT + ROW_GAP),
+    y: TICKETS_TOP + row * (TICKET_MIN_HEIGHT + ROW_GAP),
     width: TICKET_WIDTH,
-    height: TICKET_HEIGHT,
+    height: TICKET_MIN_HEIGHT,
   })
   const size = { width: 200, height: 34 }
   const focus = { size: FOCUS_ENTRY_SIZE, offset: FOCUS_ENTRY_OFFSET }
@@ -347,12 +347,15 @@ describe('the selection toolbar takes a place around the selection that covers n
   it('toolbarRect is where planeToolbarStyle draws the toolbar', () => {
     const selection = ticketAt(0, 0)
     const plain = { ...selection, z: 1000, pinned: false }
-    expect(planeToolbarStyle([plain], 1, 'bottom', 48)?.transform).toBe('translate(118px, 300px) scale(1) translate(-50%, 0%)')
-    expect(toolbarRect([plain], 1, size, { side: 'bottom', offset: 48 })).toEqual({ x: 18, y: 300, width: 200, height: 34 })
-    expect(planeToolbarStyle([plain], 2, 'right', 12)?.transform).toBe('translate(226px, 92px) scale(0.5) translate(0%, 0%)')
-    expect(toolbarRect([plain], 2, size, { side: 'right', offset: 12 })).toEqual({ x: 226, y: 92, width: 100, height: 17 })
-    expect(planeToolbarStyle([plain], 2, 'left', 12)?.transform).toBe('translate(10px, 92px) scale(0.5) translate(-100%, 0%)')
-    expect(toolbarRect([plain], 2, size, { side: 'left', offset: 12 })).toEqual({ x: -90, y: 92, width: 100, height: 17 })
+    const { x, y, width, height } = selection
+    const below = y + height + 48
+    expect(planeToolbarStyle([plain], 1, 'bottom', 48)?.transform).toBe(`translate(${x + width / 2}px, ${below}px) scale(1) translate(-50%, 0%)`)
+    expect(toolbarRect([plain], 1, size, { side: 'bottom', offset: 48 })).toEqual({ x: x + width / 2 - 100, y: below, width: 200, height: 34 })
+    // At zoom 2 the 12 px offset is 6 canvas units, and the toolbar is half its screen size.
+    expect(planeToolbarStyle([plain], 2, 'right', 12)?.transform).toBe(`translate(${x + width + 6}px, ${y}px) scale(0.5) translate(0%, 0%)`)
+    expect(toolbarRect([plain], 2, size, { side: 'right', offset: 12 })).toEqual({ x: x + width + 6, y, width: 100, height: 17 })
+    expect(planeToolbarStyle([plain], 2, 'left', 12)?.transform).toBe(`translate(${x - 6}px, ${y}px) scale(0.5) translate(-100%, 0%)`)
+    expect(toolbarRect([plain], 2, size, { side: 'left', offset: 12 })).toEqual({ x: x - 6 - 100, y, width: 100, height: 17 })
     expect(toolbarRect([], 1, size, { side: 'top', offset: 12 })).toBeNull()
   })
 })

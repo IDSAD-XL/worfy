@@ -10,8 +10,9 @@ import { stageOfTicket, usePipeline } from '../../pipeline/usePipeline'
 import { StatusChip } from '../../theme/primitives'
 import { actions, badges, type SlotSubject } from '../badges'
 import { useProjectRepos } from '../badges/use-checks'
-import { ticketTitle, type AttentionReason } from '../epic-layout'
+import { ticketTitle } from '../epic-layout'
 import type { TicketNodeData } from '../sources/epics'
+import { blockersLine, blockersString, pad, type TICKET_MIN_HEIGHT, type TICKET_WIDTH } from '../ticket-card'
 import type { CanvasNodeProps } from './index'
 import { TicketBody } from './TicketBody'
 import { useTicketText } from './ticket-text'
@@ -25,17 +26,17 @@ import '../epic-frame.css'
 // (TicketBody.tsx) and the title uncut, and "Open in editor" in the header opens the file — at the
 // path main found — in the default editor through `shell.openInEditor`; in a window on a Linked
 // machine that button shows "File is on <Machine>" in place of the blockers line instead (worfy-link
-// ticket 12). The card on the Canvas reads no file. The Node comes from sources/epics.ts. A row that
-// may be cut — the title past its line limit, the blockers line, the blocked reason — carries its
-// whole text in its tooltip. In a Project over several repositories (ADR-0045) a chip next to the
-// number names the Ticket's repository (its `Repo:` line), or says it has none.
+// ticket 12). The card on the Canvas reads no file. The Node comes from sources/epics.ts. In a
+// Project over several repositories (ADR-0045) a chip next to the number names the Ticket's
+// repository (its `Repo:` line), or says it has none.
+//
+// Nothing on the card is cut (worfy-canvas ticket 18): the title, the reason and the blockers line
+// wrap, the top row and the checks chips take more lines. The Node is as tall as ticket-card.ts
+// computes from the same data, so whatever is added here needs room there too.
 export const kind = 'ticket'
-// TICKET_WIDTH and TICKET_HEIGHT of epic-layout.ts; a literal, so Fast Refresh keeps working.
-export const defaultWidth = 204
-export const defaultHeight = 160
-
-const pad = (num: number) => String(num).padStart(2, '0')
-const list = (nums: readonly number[]) => nums.map(pad).join(', ')
+// TICKET_WIDTH and TICKET_MIN_HEIGHT of ticket-card.ts; literals, so Fast Refresh keeps working, checked against them by type.
+export const defaultWidth = 240 satisfies typeof TICKET_WIDTH
+export const defaultHeight = 138 satisfies typeof TICKET_MIN_HEIGHT
 
 function StateChip({ ticket }: { ticket: Ticket }) {
   switch (ticket.state) {
@@ -58,25 +59,14 @@ function StateChip({ ticket }: { ticket: Ticket }) {
   }
 }
 
-/**
- * The chip is cut with "…" past this width; its tooltip has the whole name. It gives way before the
- * stepper beside it (flexShrink): the Stage is the Card's state, the repository's name is in the tooltip.
- * Flex shares a row's lack of room in proportion to flexShrink times width, so at 100 the stepper
- * still gave up 0.4 px of the Stage's name («Queued» beside `app`); at 100000 it gives up under
- * 1/64 px, a layout pixel's smallest step, until the chip is down to its padding. Only then does the
- * stepper shrink, and the name is cut with «…» while «N/M», its flags and Ready stay whole.
- */
-const REPO_CHIP_STYLE = { display: 'block', minWidth: 0, maxWidth: 84, flexShrink: 100000, overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '16px' } as const
-
-/** The Ticket's repository, shown only in a Project with more than one. */
+/** The Ticket's repository, shown only in a Project with more than one: its whole name (`.w-ticket__repo`). */
 function RepoChip({ root, repo }: { root: string; repo: string | null | undefined }) {
   const repos = useProjectRepos(root)
   if (!repos || repos.repos.length < 2) return null
   const name = repo?.trim() || null
   return (
     <span
-      className="w-chip w-chip--open w-mono"
-      style={REPO_CHIP_STYLE}
+      className="w-chip w-chip--open w-mono w-ticket__repo"
       data-testid="ticket-repo"
       data-repo={name ?? undefined}
       title={name ? `repository ${name}` : 'no repository: the Ticket has no Repo: line'}
@@ -86,37 +76,15 @@ function RepoChip({ root, repo }: { root: string; repo: string | null | undefine
   )
 }
 
-function attentionText(reason: AttentionReason): string {
-  switch (reason.kind) {
-    case 'unparsed':
-      return `“Blocked by: ${reason.raw ?? ''}” is not a list of tickets`
-    case 'missing-blocker':
-      return `blocked by ${list(reason.missing)}, not in this epic`
-    case 'cycle':
-      return `blocking cycle: ${list(reason.cycle)}`
-  }
-}
-
+/** The line under the title, the same text as ticket-card.ts gives room for (`blockersLine`). */
 function BlockersLine({ data }: { data: TicketNodeData }) {
   const { ticket, placed, waitingOn } = data
-  if (placed.attention) {
-    const text = attentionText(placed.attention)
-    return (
-      <div className="w-ticket__meta w-ticket__meta--attention" title={text}>
-        {text}
-      </div>
-    )
-  }
-  if (!ticket.blockedNums.length) return <div className="w-ticket__meta">no blockers</div>
-  if (ticket.state !== 'done' && waitingOn.length)
-    return (
-      <div className="w-ticket__meta" title={`waiting on ${list(waitingOn)}`}>
-        waiting on <span className="w-mono w-ticket__nums">{list(waitingOn)}</span>
-      </div>
-    )
+  const line = blockersLine(ticket, placed.attention, waitingOn)
   return (
-    <div className="w-ticket__meta" title={`blocked by ${list(ticket.blockedNums)} · done`}>
-      blocked by <span className="w-mono w-ticket__nums">{list(ticket.blockedNums)}</span> · done
+    <div className={`w-ticket__meta${line.attention ? ' w-ticket__meta--attention' : ''}`} title={blockersString(line)}>
+      {line.lead}
+      {line.nums === null ? null : <span className="w-mono w-ticket__nums">{line.nums}</span>}
+      {line.tail}
     </div>
   )
 }

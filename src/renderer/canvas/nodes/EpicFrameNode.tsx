@@ -2,7 +2,7 @@ import { memo, useEffect, useRef } from 'react'
 import { writeAction } from '../../projects/read-only'
 import { useReadOnly } from '../../projects/useProjects'
 import { actions, type SlotSubject } from '../badges'
-import { onDoneShelf, PROGRESS_SEGMENTS, TICKET_HEIGHT, TICKET_WIDTH, type EpicLayout, type Progress, type TicketColumn } from '../epic-layout'
+import { onDoneShelf, PROGRESS_SEGMENTS, TICKET_WIDTH, type EpicLayout, type Progress, type TicketColumn } from '../epic-layout'
 import { setDoneStack, toggleFrame, type EpicFrameData } from '../sources/epics'
 import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
@@ -53,7 +53,7 @@ function openStackRegion(layout: EpicLayout): { left: number; top: number; width
   if (layout.doneStack !== null || done.length === 0) return null
   const left = Math.min(...done.map((ticket) => ticket.x)) - STACK_REGION_INSET
   const top = COLUMN_LABEL_TOP - STACK_REGION_INSET
-  const bottom = Math.max(...done.map((ticket) => ticket.y)) + TICKET_HEIGHT + STACK_REGION_INSET
+  const bottom = Math.max(...done.map((ticket) => ticket.y + ticket.height)) + STACK_REGION_INSET
   return { left, top, width: TICKET_WIDTH + 2 * STACK_REGION_INSET, height: bottom - top }
 }
 

@@ -10,23 +10,15 @@
 // The order inside the columns and the routes of the "Blocked by" Edges come from ELK in a Web
 // Worker (elk/layout.ts, ADR-0037). `layoutEpic` here is the synchronous layout an Epic gets until
 // ELK's first answer: Tickets by number, Edges without a route.
+//
+// A card is as tall as what it shows (ticket-card.ts, worfy-canvas ticket 18): in the synchronous
+// layout each row is as tall as its tallest card; ELK gets each card's own height.
 import { freePlace, NODE_GAP } from '../../shared/layout/free-place'
 import type { Ticket } from '../../shared/workflow/types'
 import { readyWave, ticketLevels } from '../../shared/workflow/waves'
+import { blockersLine, cardHeight, TICKET_WIDTH, waitingOnOf, type Attention } from './ticket-card'
 
-export const TICKET_WIDTH = 204
-/**
- * Lines of a Ticket's title before it is cut with "…"; the whole title is the title row's tooltip.
- * epic-frame.css clamps `.w-ticket__title` to the same number.
- */
-export const TICKET_TITLE_LINES = 3
-/**
- * Room for every row of a Ticket Node (epic-frame.css), so none is squeezed or cut: 1 px borders
- * (2) + padding (16) + number and state (18) + the title (TICKET_TITLE_LINES × 17) + the blockers
- * line or blocked reason (19) + badges (16) and actions (20) on two rows when one does not hold
- * both (4 between them) + the gaps between the four rows (3 × 4) = 158, rounded up.
- */
-export const TICKET_HEIGHT = 160
+export { TICKET_MIN_HEIGHT, TICKET_WIDTH } from './ticket-card'
 export const COLUMN_GAP = 24
 export const ROW_GAP = 12
 export const FRAME_PADDING = 16
@@ -66,10 +58,7 @@ export interface Point {
 export type TicketColumn = { kind: 'done' } | { kind: 'level'; level: number } | { kind: 'attention' }
 
 /** Why a Ticket is in "Needs attention". */
-export type AttentionReason =
-  | { kind: 'unparsed'; raw: string | null }
-  | { kind: 'missing-blocker'; missing: number[] }
-  | { kind: 'cycle'; cycle: number[] }
+export type AttentionReason = Attention
 
 export interface PlacedTicket {
   num: number
@@ -77,6 +66,8 @@ export interface PlacedTicket {
   /** Where the Ticket is drawn, relative to the frame's top-left corner. */
   x: number
   y: number
+  /** The card's height (`cardHeight` of ticket-card.ts); its width is TICKET_WIDTH. */
+  height: number
   /** In the ready Wave of the Epic. */
   ready: boolean
   attention: AttentionReason | null
@@ -117,8 +108,9 @@ export interface EpicLayout {
   routes: Readonly<Record<string, readonly Point[]>>
 }
 
-/** What the layout reads of a Ticket. */
-export type LayoutTicket = Pick<Ticket, 'epic' | 'num' | 'state' | 'blockedRaw' | 'blockedNums' | 'blockedParsed' | 'files' | 'filesListed'>
+/** What the layout reads of a Ticket: its blocking, and what its card shows, which sets the card's height. */
+export type LayoutTicket = Pick<Ticket, 'epic' | 'num' | 'title' | 'state' | 'blockedRaw' | 'blockedNums' | 'blockedParsed' | 'files' | 'filesListed'> &
+  Partial<Pick<Ticket, 'blockedReason' | 'waits' | 'repo'>>
 
 export interface EpicLayoutInput {
   /** The Tickets of one Epic. */
@@ -128,6 +120,8 @@ export interface EpicLayoutInput {
   doneExpanded: boolean
   /** The Epic's name, which the header shows whole (`headerWidth`); defaults to its Tickets' Epic. */
   name?: string | undefined
+  /** The names of the Project's Stages, in order (the Pipeline snapshot); the cards' heights allow for them. */
+  stages?: readonly string[] | undefined
 }
 
 export const routeKey = (blocker: number, blocked: number): string => `${blocker}->${blocked}`
@@ -223,6 +217,37 @@ export function epicColumns(tickets: readonly LayoutTicket[]): EpicColumns {
   return { columns, ready, attention }
 }
 
+/**
+ * The height of each Ticket's card (ticket-card.ts): what the card shows — its title, the blocked
+ * reason or the blockers line, the Ready chip, its repository, whom it waits for, the Stage names
+ * it can show — and nothing measured on screen, so the same Tickets always get the same heights.
+ */
+export function cardHeights(tickets: readonly LayoutTicket[], columns: EpicColumns, stages?: readonly string[]): Map<number, number> {
+  const byNum = new Map(tickets.map((t) => [t.num, t]))
+  // The repository chip is drawn only in a Project over several repositories (TicketNode.tsx), which
+  // the layout does not read: a Ticket with a `Repo:` line says the Project is one, and there a
+  // Ticket without the line shows «no repo».
+  // shortcut: an Epic of such a Project in which no Ticket has a `Repo:` line gets no room for «no repo»; redo when the layout gets the Project's repositories.
+  const severalRepos = tickets.some((t) => t.repo?.trim())
+  const heights = new Map<number, number>()
+  for (const t of tickets) {
+    const reason = t.state === 'blocked' ? (t.blockedReason ?? null) : null
+    const height = cardHeight({
+      num: t.num,
+      title: ticketTitle(t),
+      state: t.state,
+      waits: t.waits,
+      repo: t.repo?.trim() || (severalRepos ? 'no repo' : null),
+      ready: columns.ready.has(t.num),
+      reason: reason || null,
+      meta: blockersLine(t, columns.attention.get(t.num) ?? null, waitingOnOf(t, byNum)),
+      stages,
+    })
+    heights.set(t.num, height)
+  }
+  return heights
+}
+
 /** Every "Blocked by" Edge between two drawn Tickets, once per pair, as `blockingEdges` draws them. */
 export function blockingPairs(tickets: readonly LayoutTicket[], drawn: ReadonlySet<number>): { blocker: number; blocked: number }[] {
   const pairs: { blocker: number; blocked: number }[] = []
@@ -236,7 +261,30 @@ export function blockingPairs(tickets: readonly LayoutTicket[], drawn: ReadonlyS
 const columnX = (index: number) => FRAME_PADDING + index * (TICKET_WIDTH + COLUMN_GAP)
 /** A frame at least this wide shows the Epic's whole name in its header, beside the header's other parts. */
 export const headerWidth = (name: string) => (name ? HEADER_CHROME_WIDTH + Math.ceil(name.length * NAME_CHAR_WIDTH) : 0)
-const rowY = (index: number) => TICKETS_TOP + index * (TICKET_HEIGHT + ROW_GAP)
+
+/**
+ * The top of each row of the synchronous layout: a row is as tall as its tallest card, and the
+ * next starts ROW_GAP below it. `rows[i]` holds the heights of the cards in row `i` of every column.
+ */
+function rowTops(rows: readonly (readonly number[])[]): number[] {
+  const tops: number[] = []
+  let y = TICKETS_TOP
+  for (const row of rows) {
+    tops.push(y)
+    y += Math.max(...row) + ROW_GAP
+  }
+  return tops
+}
+
+/** The tops of a column of cards stacked from TICKETS_TOP, ROW_GAP apart: the open done stack. */
+export function stackTops(heights: readonly number[]): number[] {
+  let y = TICKETS_TOP
+  return heights.map((height) => {
+    const top = y
+    y += height + ROW_GAP
+    return top
+  })
+}
 
 /** The frame's width: its columns' or the header's, at least MIN_FRAME_WIDTH. */
 export const frameWidth = (contentWidth: number, name: string): number => Math.max(MIN_FRAME_WIDTH, contentWidth, headerWidth(name))
@@ -254,11 +302,17 @@ export function headerOnly(columns: EpicColumns, collapsed: boolean, name: strin
  * The synchronous layout: Tickets by number in rows, Edges without a route. An Epic shows it until
  * ELK's first answer (ADR-0037); a collapsed frame and one without Tickets always show it.
  */
-export function layoutEpic({ tickets, collapsed, doneExpanded, name }: EpicLayoutInput): EpicLayout {
+export function layoutEpic({ tickets, collapsed, doneExpanded, name, stages }: EpicLayoutInput): EpicLayout {
   const columns = epicColumns(tickets)
   const epicName = name ?? columns.columns[0]?.tickets[0]?.epic ?? ''
   const shell = headerOnly(columns, collapsed, epicName)
   if (collapsed || !columns.columns.length) return shell
+
+  const heights = cardHeights(tickets, columns, stages)
+  const drawn = columns.columns.filter((c) => c.column.kind !== 'done' || doneExpanded)
+  const rows: number[][] = []
+  for (const c of drawn) c.tickets.forEach((t, row) => (rows[row] ??= []).push(heights.get(t.num)!))
+  const tops = rowTops(rows)
 
   const placed: PlacedTicket[] = []
   let doneStack: EpicLayout['doneStack'] = null
@@ -271,9 +325,10 @@ export function layoutEpic({ tickets, collapsed, doneExpanded, name }: EpicLayou
       return
     }
     c.tickets.forEach((t, row) => {
-      const y = rowY(row)
-      placed.push({ num: t.num, column: c.column, x, y, ready: columns.ready.has(t.num), attention: columns.attention.get(t.num) ?? null })
-      bottom = Math.max(bottom, y + TICKET_HEIGHT)
+      const y = tops[row]!
+      const height = heights.get(t.num)!
+      placed.push({ num: t.num, column: c.column, x, y, height, ready: columns.ready.has(t.num), attention: columns.attention.get(t.num) ?? null })
+      bottom = Math.max(bottom, y + height)
     })
   })
 

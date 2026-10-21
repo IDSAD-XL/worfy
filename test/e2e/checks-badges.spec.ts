@@ -5,7 +5,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Locator } from '@playwright/test'
-import { launchApp } from './helpers'
+import { launchApp, ticketCardCuts } from './helpers'
 import { catScript, profileJsonScript } from '../harness-node'
 
 // Gate, PR, CI and verdict badges (ticket 17) in the built app. A temporary WORFY_CLAUDE_HOME holds
@@ -92,7 +92,7 @@ async function clippedBy(locator: Locator): Promise<string[]> {
   })
 }
 
-/** What of `locator` is seen: its own overflow and how its text ends when cut. */
+/** What of `locator` is seen: its own overflow and how its text would end if cut. */
 async function seen(locator: Locator): Promise<{ scroll: number; client: number; textOverflow: string }> {
   return locator.evaluate((node) => {
     const element = node as unknown as { scrollWidth: number; clientWidth: number }
@@ -257,9 +257,9 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
     await expect(ticket(9)).toHaveAttribute('aria-label', 'Ticket 09, Queued')
     await expect(ticket(8).getByText('claimed', { exact: true })).toHaveCount(0)
     expect(await clippedBy(ticket(8).locator('.w-stepper__dots')), 'the dots of the stepper are cut by no box around them').toEqual([])
-    // A gate, a PR, CI and a verdict on a 204 px Ticket: the PR number and the CI chip are whole,
-    // inside the Ticket Node and inside every box that clips them. The gate and the verdict may be
-    // cut, then with "…" and their text in a tooltip; the row's tooltip lists everything.
+    // A gate, a PR, CI and a verdict on a 240 px Ticket: every chip is whole (worfy-canvas ticket
+    // 18), on a second line when the first has no room, inside the Ticket Node and inside every box
+    // that clips them; the row's tooltip still lists everything.
     await expect(ticket(8).getByTestId('checks-gate')).toHaveText('gate: no data')
     await expect(ticket(10).getByTestId('checks-gate')).toHaveText('gate: no data')
     await expect(ticket(10).getByTestId('checks-pr')).toHaveText('PR #1234')
@@ -275,12 +275,11 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
         const chip = ticket(num).getByTestId(id)
         const face = id === 'checks-gate' ? chip : chip.locator('.w-chip')
         const chipSeen = await seen(face)
-        expect(chipSeen.client, `${id} on Ticket ${num} keeps some width`).toBeGreaterThan(12)
-        if (chipSeen.scroll > chipSeen.client) {
-          expect(chipSeen.textOverflow, `${id} on Ticket ${num} is cut, so it ends with "…"`).toBe('ellipsis')
-          await expect(chip, `${id} on Ticket ${num} is cut, so its tooltip holds its text`).toHaveAttribute('title', new RegExp(`^${(await chip.textContent())!}`))
-        }
+        expect(chipSeen.scroll, `${id} on Ticket ${num} is whole: ${JSON.stringify(chipSeen)}`).toBeLessThanOrEqual(chipSeen.client)
+        expect(chipSeen.textOverflow, `${id} on Ticket ${num} never ends with "…"`).not.toBe('ellipsis')
+        expect(await clippedBy(chip), `${id} on Ticket ${num} is cut by no box around it`).toEqual([])
       }
+      expect(await ticketCardCuts(ticket(num)), `nothing is cut on Ticket ${num}`).toEqual([])
 
       const card = (await ticket(num).boundingBox())!
       const ci = ticket(num).getByTestId('checks-ci')
@@ -359,7 +358,7 @@ test('gh missing: «gh unavailable» on the Tickets in work, and the app goes on
   }
 })
 
-// ── the stepper of a nine-Stage Pipeline on a 204 px Card (worfy-pipeline ticket 05) ──────────
+// ── the stepper of a nine-Stage Pipeline on a 240 px Card (worfy-pipeline ticket 05) ──────────
 
 /** worfy's own Pipeline (spec.md of worfy-pipeline, owner's decision 4): nine Stages. */
 const WORFY_PIPELINE = [
@@ -475,7 +474,7 @@ const ok = { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusi
 const review = (state: string) => ({ __typename: 'StatusContext', context: 'review', state })
 const openPull = (num: number, branch: string, rollup: unknown[]) => ({ number: num, headRefName: branch, state: 'OPEN', url: `https://github.com/o/r/pull/${num}`, headRefOid: HEAD(num % 9 + 1), statusCheckRollup: rollup, comments: [] })
 
-test('nine Stages on a 204 px Card: the Stage name is never cut — rework, blocked, both, Check «windows»; the narrow form when the full one does not fit', async () => {
+test('nine Stages on a 240 px Card: the Stage name and whom it waits for are never cut — rework, blocked, both, Check «windows»; the narrow form when the full one does not fit on one line', async () => {
   const tickets: StepperTicket[] = [
     { num: 2, status: 'claimed — 2026-10-17', state: 'work' },
     { num: 3, status: 'blocked — needs Stripe test keys', state: 'blocked', reason: 'needs Stripe test keys' },
@@ -507,14 +506,17 @@ test('nine Stages on a 204 px Card: the Stage name is never cut — rework, bloc
       await expect(card.getByTestId('stepper-label')).toHaveText(each.stage)
       await expect(card.getByTestId('stepper-rework')).toHaveCount(each.rework ? 1 : 0)
       await expect(card.getByTestId('stepper-blocked')).toHaveCount(each.blocked ? 1 : 0)
+      // Who it waits for, whole, in the narrow form too.
+      await expect(card.getByTestId('stepper-waits')).toHaveText('agent')
       const fit = await stepperFit(card)
-      expect(fit.card, `Ticket ${each.num} is a Card of the default width`).toBe(204)
+      expect(fit.card, `Ticket ${each.num} is a Card of the default width`).toBe(240)
       whole(fit.label, `the Stage name on Ticket ${each.num}`, fit)
       whole(fit.stepper, `the stepper of Ticket ${each.num}`, fit)
       whole(fit.row, `the top row of Ticket ${each.num}`, fit)
       if (fit.count !== null) whole(fit.count, `«N/M» on Ticket ${each.num}`, fit)
+      expect(await ticketCardCuts(card), `nothing is cut on Ticket ${each.num}`).toEqual([])
     }
-    // Nine dots, the name and its flags do not fit 204 px for these: the narrow form with «N/M».
+    // Nine dots, the name, its flags and whom it waits for do not fit one line of 240 px for these: the narrow form with «N/M».
     await expect(ticket(5).getByTestId('ticket-stepper')).toHaveAttribute('data-narrow', 'true')
     await expect(ticket(5).getByTestId('stepper-count')).toHaveText('2/9')
     await expect(ticket(4).getByTestId('stepper-count')).toHaveText('5/9')
@@ -527,7 +529,7 @@ test('nine Stages on a 204 px Card: the Stage name is never cut — rework, bloc
   }
 })
 
-test('nine Stages, a repository chip and the Ready chip in one row of a 204 px Card: the Stage name and «N/M» stay whole to the fraction of a pixel, the repository chip gives way', async () => {
+test('nine Stages, a repository chip and the Ready chip on a 240 px Card: the repository name, the Stage name, «N/M» and whom it waits for stay whole; the stepper takes a line of its own when the row has no room', async () => {
   // The names of the round-2 review: «Queued» needed 42.66 px and got 42 beside each of them.
   const names = ['app', 'web-client', 'application-server']
   const launched = await launchNineStages(
@@ -541,12 +543,15 @@ test('nine Stages, a repository chip and the Ready chip in one row of a 204 px C
       const card = window.locator(`[data-testid="ticket-node"][data-ticket="${at + 1}"]`)
       await expect(card).toHaveAttribute('aria-label', `Ticket 0${at + 1}, Queued`, { timeout: 20_000 })
       await expect(card.getByTestId('ticket-repo')).toHaveAttribute('data-repo', name)
+      await expect(card.getByTestId('ticket-repo')).toHaveText(name)
       await expect(card.getByTestId('ticket-ready')).toBeVisible()
       await expect(card.getByTestId('ticket-stepper')).toHaveAttribute('data-narrow', 'true')
       await expect(card.getByTestId('stepper-label')).toHaveText('Queued')
       await expect(card.getByTestId('stepper-count')).toHaveText('1/9')
+      await expect(card.getByTestId('stepper-waits')).toHaveText('agent')
+      expect(await ticketCardCuts(card), `nothing is cut on the Card of ${name}`).toEqual([])
       const fit = await stepperFit(card)
-      expect(fit.card, `the Card of ${name} has the default width`).toBe(204)
+      expect(fit.card, `the Card of ${name} has the default width`).toBe(240)
       whole(fit.label, `the Stage name beside ${name}`, fit)
       whole(fit.count, `«N/M» beside ${name}`, fit)
       whole(fit.stepper, `the stepper beside ${name}`, fit)
@@ -557,7 +562,7 @@ test('nine Stages, a repository chip and the Ready chip in one row of a 204 px C
   }
 })
 
-test('a Stage name too long even for the narrow form, beside a repository chip: the name is cut with «…», and «N/M», the blocked «!» and Ready stay whole inside the 204 px Card', async () => {
+test('a Stage name too long even for the narrow form, beside a repository chip: the name wraps onto more lines, never «…», and «N/M», the blocked «!» and Ready stay whole inside the 240 px Card', async () => {
   // Check names and labels have no length limit (pipeline.ts): a long one in a Project over several repositories.
   const pipeline = WORFY_PIPELINE.map((stage) =>
     stage.kind === 'queued' ? { kind: 'queued', label: 'Waiting to start' } : stage.kind === 'check' ? { kind: 'check', name: 'windows-full-e2e' } : stage,
@@ -590,10 +595,10 @@ test('a Stage name too long even for the narrow form, beside a repository chip: 
       await expect(card.getByTestId('stepper-label')).toHaveText(each.stage)
       await expect(card.getByTestId('stepper-count')).toHaveText(each.count)
       const fit = await stepperFit(card)
-      expect(fit.card, `Ticket ${each.num} is a Card of the default width`).toBe(204)
-      // The last resort: the name gives way, with «…» (the tooltip has it whole).
-      expect(fit.label![0], `the Stage name on Ticket ${each.num} is cut: ${JSON.stringify(fit)}`).toBeGreaterThan(fit.label![1]! + 1)
-      await expect(card.getByTestId('stepper-label')).toHaveCSS('text-overflow', 'ellipsis')
+      expect(fit.card, `Ticket ${each.num} is a Card of the default width`).toBe(240)
+      // The name wraps rather than end with «…»; the Card is tall enough for the extra lines.
+      await expect(card.getByTestId('stepper-label')).not.toHaveCSS('text-overflow', 'ellipsis')
+      expect(await ticketCardCuts(card), `nothing is cut on Ticket ${each.num}`).toEqual([])
       whole(fit.count, `«N/M» on Ticket ${each.num}`, fit)
       if (each.blocked) whole(fit.blocked, `the blocked «!» on Ticket ${each.num}`, fit)
       if (each.ready) whole(fit.ready, `the Ready chip on Ticket ${each.num}`, fit)
