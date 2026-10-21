@@ -33,8 +33,9 @@ STUBS="$T/stubs"; mkdir -p "$STUBS"
 # The stub gate. Its cwd is the tree under test. Every run appends one line to $GATE_LOG:
 # "<n> <tree> <files of the tree>". A file RED in the tree — red, with a failing test line; $GATE_DIR/redonce —
 # red on the first run only; $GATE_DIR/code3 — exit 3; $GATE_DIR/none — "nothing ran"; $GATE_DIR/kill<n> — the n-th run
-# kills wave-gate (its parent) with that file's signal; $GATE_DIR/sleep — seconds to sleep; $GATE_DIR/lockwatch —
-# records the mtime of $GATE_LOCK at the start and at the end of the run; the holder.json of $GATE_LOCK during the
+# kills wave-gate (its parent) with that file's signal; $GATE_DIR/hold — the run waits while that file exists (at most
+# 30 s); $GATE_DIR/lockwatch — records the mtime of $GATE_LOCK at the start and at the end of the run, the end once
+# the mtime has moved (at most 10 s later), so a heartbeat that comes late still counts; the holder.json of $GATE_LOCK during the
 # run is copied to $GATE_DIR/holder.<n>.json; $GATE_DIR/takeover — a script run first, as another agent would.
 # $GATE_DIR/fastgreen — a green line of the fast profile with exit 0; $GATE_DIR/midred — red once, with a line that
 # mentions a red verdict in its middle before the red line; $GATE_DIR/words — a script that sets the verdict words.
@@ -51,7 +52,7 @@ if [ -f "$GATE_DIR/artifacts" ]; then  # what an earlier run left in the tree; t
   mkdir -p build-out node_modules && touch build-out/leftover node_modules/keep
 fi
 mt() { node -e 'try{process.stdout.write(String(Math.floor(require("fs").statSync(process.argv[1]).mtimeMs/1000)))}catch{process.stdout.write("gone")}' "$1"; }
-[ -f "$GATE_DIR/lockwatch" ] && echo "start $(mt "$GATE_LOCK")" >>"$GATE_DIR/lockwatch"
+[ -f "$GATE_DIR/lockwatch" ] && { m0="$(mt "$GATE_LOCK")"; echo "start $m0" >>"$GATE_DIR/lockwatch"; }
 # On Windows wave-gate is not $PPID (the gate stand-in, a node process, runs this stub): its Windows pid is the
 # last line the stand-in appended to $STAND_IN_PARENTS, and Git Bash reaches a native process by that pid only
 # through kill -f -W.
@@ -60,21 +61,30 @@ if [ -f "$GATE_DIR/kill$n" ]; then
   else kill -"$(cat "$GATE_DIR/kill$n")" "$PPID"; fi
   sleep 1; exit 0
 fi
-[ -f "$GATE_DIR/sleep" ] && sleep "$(cat "$GATE_DIR/sleep")"
+i=150; while [ -f "$GATE_DIR/hold" ] && [ "$i" -gt 0 ]; do sleep 0.2; i=$((i - 1)); done
 # The verdict words: English, as the gate prints them; $GATE_DIR/old — the Russian words of the gate of the
 # release before, which wave-gate still reads.
 # shortcut: accepts the old Russian token, remove after the next release
 if [ -f "$GATE_DIR/old" ]; then green="[gate] зелено"; red="[gate] красно"; passed="прошло"; none="[gate] ничего не прогналось"; unv="[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ"
 else green="[gate] green"; red="[gate] red"; passed="passed"; none="[gate] nothing ran"; unv="[gate] not verified"; fi
 [ -f "$GATE_DIR/words" ] && . "$GATE_DIR/words"
-[ -f "$GATE_DIR/lockwatch" ] && echo "end $(mt "$GATE_LOCK")" >>"$GATE_DIR/lockwatch"
+if [ -f "$GATE_DIR/lockwatch" ]; then
+  m1="$(mt "$GATE_LOCK")"; i=50; while [ "$m1" = "$m0" ] && [ "$i" -gt 0 ]; do sleep 0.2; m1="$(mt "$GATE_LOCK")"; i=$((i - 1)); done
+  echo "end $m1" >>"$GATE_DIR/lockwatch"
+fi
 # $GATE_DIR/lockscreen — the run locks the screen: its contents go to $SCREEN_DIR/locked; $GATE_DIR/lockfor — the run
-# locks the screen for that many seconds and unlocks it before it ends; $GATE_DIR/window — the run is red in the
+# locks the screen until the stub ioreg has answered Yes once (at most that many seconds) and unlocks it before it
+# ends — wave-gate's poll during the run sees the lock however late its ioreg starts; $GATE_DIR/window — the run is red in the
 # script named in the file (test:e2e when empty) and prints what the real gate prints for it: the
 # "[gate] red (full): <project>/<workspace>:<script> (passed: …)" line and the last 40 lines of the script —
 # Playwright's list of failed tests, without the "window was not shown" message that scrolled out of them.
 # They are used once, unless $GATE_DIR/keep exists. $GATE_DIR/unitonce — red once in `test` alone.
-if [ -f "$GATE_DIR/lockfor" ]; then : >"$SCREEN_DIR/locked"; sleep "$(cat "$GATE_DIR/lockfor")"; rm -f "$SCREEN_DIR/locked" "$GATE_DIR/lockfor"; fi
+if [ -f "$GATE_DIR/lockfor" ]; then
+  yes0=0; [ -f "$SCREEN_DIR/yes.log" ] && yes0=$(( $(wc -l <"$SCREEN_DIR/yes.log") ))
+  : >"$SCREEN_DIR/locked"; i=$(( $(cat "$GATE_DIR/lockfor") * 5 ))
+  while [ "$i" -gt 0 ] && [ "$(( $(cat "$SCREEN_DIR/yes.log" 2>/dev/null | wc -l) ))" -le "$yes0" ]; do sleep 0.2; i=$((i - 1)); done
+  rm -f "$SCREEN_DIR/locked" "$GATE_DIR/lockfor"
+fi
 if [ -f "$GATE_DIR/lockscreen" ]; then cp "$GATE_DIR/lockscreen" "$SCREEN_DIR/locked"; [ -f "$GATE_DIR/keep" ] || rm -f "$GATE_DIR/lockscreen"; fi
 if [ -f "$GATE_DIR/window" ]; then script="$(cat "$GATE_DIR/window")"; script="${script:-test:e2e}"; [ -f "$GATE_DIR/keep" ] || rm -f "$GATE_DIR/window"
   { echo "$red (full): worfy/.:$script ($passed: worfy/.:lint worfy/.:typecheck worfy/.:test)"
@@ -125,7 +135,7 @@ chmod +x "$STUBS/gate" "$STUBS/gh"
 # The screen stubs, in a folder of their own: every test finds them before the real /usr/sbin/ioreg and
 # /usr/bin/caffeinate, so no test reads the real screen state or holds the real display awake.
 # ioreg: `"IOConsoleLocked" = Yes` while $SCREEN_DIR/locked exists — always if the file is empty, the next
-# N answers if it holds N; each call is logged to $SCREEN_DIR/ioreg.log.
+# N answers if it holds N; each call is logged to $SCREEN_DIR/ioreg.log, each Yes also to $SCREEN_DIR/yes.log.
 # caffeinate: logs "<own pid> <args>" to $SCREEN_DIR/caf.log and, like the real one with -w, lives until
 # that pid is gone.
 POWER="$T/power"; mkdir -p "$POWER"
@@ -134,7 +144,7 @@ cat >"$POWER/ioreg" <<'EOF'
 d="${SCREEN_DIR:-/nonexistent}"; echo "$*" >>"$d/ioreg.log" 2>/dev/null
 v=No
 if [ -f "$d/locked" ]; then
-  v=Yes; n="$(cat "$d/locked")"
+  v=Yes; n="$(cat "$d/locked")"; echo "$*" >>"$d/yes.log" 2>/dev/null
   if [ -n "$n" ]; then n=$((n - 1)); if [ "$n" -le 0 ]; then rm -f "$d/locked"; else echo "$n" >"$d/locked"; fi; fi
 fi
 printf '+-o Root  <class IORegistryEntry, id 0x100000100, retain 31>\n    {\n      "IOConsoleUsers" = ()\n      "IOConsoleLocked" = %s\n    }\n' "$v"
@@ -508,16 +518,18 @@ S="$W/state.json"; state "$S" null 1
 touch -t 202001010000 "$(PIDF)"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 0 ] && grep -q "no pid for over" "$W/out" && ok "pid: an empty pid file older than 10 s is taken over" || bad "pid empty old: exit $rc: $(tail -3 "$W/out")"
-# two checks started together: exactly one runs
+# two checks started together: exactly one runs. The gate run of the one that runs is held until the other has
+# given way: a fixed sleep in the gate let the first check finish before a late second one started, and both ran.
 new_world pidrace 1:a.txt
 state "$W/s1.json" null 1; state "$W/s2.json" null 1
-echo 2 >"$GATE_DIR/sleep"
+touch "$GATE_DIR/hold"
 "$WG" check "$W/s1.json" >"$W/o1" 2>&1 & p1=$!
 "$WG" check "$W/s2.json" >"$W/o2" 2>&1 & p2=$!
+until_ok 30 grep -q "another wave-gate check" "$W/o1" "$W/o2"
+rm -f "$GATE_DIR/hold"
 wait "$p1"; r1=$?; wait "$p2"; r2=$?
 codes="$(printf '%s\n' "$r1" "$r2" | sort | tr '\n' ' ')"
 [ "$codes" = "0 1 " ] && grep -q "another wave-gate check" "$W/o1" "$W/o2" && [ "$(gate_count)" = 1 ] && ok "pid: two checks at once -> one runs, the other exits 1" || bad "pid race: codes [$codes] runs $(gate_count): $(tail -2 "$W/o1") | $(tail -2 "$W/o2")"
-rm -f "$GATE_DIR/sleep"
 
 # --- between runs: ignored build output is removed, node_modules stays ---------------------------
 new_world artifacts 1:a.txt 2:RED
@@ -533,7 +545,8 @@ export GATE_LOCK="$L"
 mkdir "$L"
 ( while [ -d "$L" ]; do touch -c "$L"; sleep 1; done ) & toucher=$!
 "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
-sleep 3
+# 3 s from the moment it says it waits, not from its start: a late start left no time to wait in
+until_ok 30 grep -q "waiting for the e2e lock" "$W/out"; sleep 3
 [ "$(gate_count)" = 0 ] && kill -0 "$wg" 2>/dev/null && ok "e2e lock: a live lock held by another -> waits" || bad "e2e lock: did not wait ($(gate_count) runs)"
 rmdir "$L"; wait "$toucher" 2>/dev/null
 wait "$wg"; rc=$?
@@ -576,13 +589,13 @@ new_world young 1:a.txt
 S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
 mkdir "$L"; touch -t "$(date -r $(( $(date +%s) - 1500 )) +%Y%m%d%H%M.%S 2>/dev/null || date -d @$(( $(date +%s) - 1500 )) +%Y%m%d%H%M.%S)" "$L"
 "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
-sleep 2
-[ "$(gate_count)" = 0 ] && ok "e2e lock: a lock 25 min old is not taken over" || bad "e2e lock: a 25-min lock was taken"
+until_ok 30 grep -q "waiting for the e2e lock" "$W/out"; sleep 2
+[ "$(gate_count)" = 0 ] && grep -q "waiting for the e2e lock" "$W/out" && ok "e2e lock: a lock 25 min old is not taken over" || bad "e2e lock: a 25-min lock was taken"
 rmdir "$L"; wait "$wg"
 # heartbeat: the lock's mtime moves during a run
 new_world beat 1:a.txt
 S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
-echo 3 >"$GATE_DIR/sleep"; touch "$GATE_DIR/lockwatch"
+touch "$GATE_DIR/lockwatch"
 WAVE_GATE_HEARTBEAT_S=1 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 s=$(awk '$1=="start"{print $2}' "$GATE_DIR/lockwatch"); e=$(awk '$1=="end"{print $2}' "$GATE_DIR/lockwatch")
 [ "$rc" -eq 0 ] && [ -n "$s" ] && [ -n "$e" ] && [ "$e" != gone ] && [ "$e" -gt "$s" ] && ok "e2e lock: the heartbeat moves the mtime during the run ($s -> $e)" || bad "e2e lock heartbeat: exit $rc start $s end $e"
@@ -620,7 +633,10 @@ if $RUN_SCREEN; then
     S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1
     : >"$SCREEN_DIR/locked"
     "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
-    until_ok 10 grep -q "screen locked: gate full waits" "$W/out"; sleep 2
+    # the wait polls ioreg every second: three calls in all, however late each one starts (a fixed 2 s here fit
+    # only two calls of a slow ioreg)
+    until_ok 30 grep -q "screen locked: gate full waits" "$W/out"
+    until_ok 30 eval '[ "$(wc -l <"$SCREEN_DIR/ioreg.log" | tr -d " ")" -ge 3 ]'
     [ "$(gate_count)" = 0 ] && kill -0 "$wg" 2>/dev/null && [ "$(grep -c 'screen locked' "$W/out")" = 1 ] \
         && ok "locked screen: one line 'screen locked: gate full waits', the gate does not run" || bad "locked screen: $(gate_count) runs: $(cat "$W/out")"
     [ ! -e "$L" ] && ok "locked screen: the e2e lock is not held while it waits" || bad "locked screen: the e2e lock is held while waiting"
@@ -634,9 +650,9 @@ if $RUN_SCREEN; then
     S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1
     mkdir "$L"
     "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
-    until_ok 10 grep -q "waiting for the e2e lock" "$W/out"
+    until_ok 30 grep -q "waiting for the e2e lock" "$W/out"
     : >"$SCREEN_DIR/locked"; rmdir "$L"
-    until_ok 10 grep -q "screen locked: gate full waits" "$W/out"; sleep 1
+    until_ok 30 grep -q "screen locked: gate full waits" "$W/out"; sleep 1
     [ "$(gate_count)" = 0 ] && [ ! -e "$L" ] && ok "locked screen after the e2e lock: the lock is released, the gate waits" || bad "locked screen after the lock: $(gate_count) runs, lock $( [ -e "$L" ] && echo held || echo free): $(cat "$W/out")"
     rm -f "$SCREEN_DIR/locked"
     wait "$wg"; rc=$?
@@ -656,7 +672,7 @@ if $RUN_SCREEN; then
     S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1 2
     : >"$GATE_DIR/lockscreen"; touch "$GATE_DIR/window"
     "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
-    until_ok 10 grep -q "screen locked: gate full waits" "$W/out"; sleep 1
+    until_ok 30 grep -q "screen locked: gate full waits" "$W/out"; sleep 1
     [ "$(gate_count)" = 1 ] && [ "$(q "$S" 's.runs.length')" = 1 ] && [ "$(q "$S" 's.runs[0].outcome')" = unverified ] \
         && [[ "$(q "$S" 's.runs[0].reason')" == "screen locked"* ]] && [ "$(q "$S" s.status)" = checking ] \
         && ok "screen locked during the run: the run is recorded not verified (screen locked), not red" || bad "screen locked during the run: runs $(q "$S" s.runs 2>&1) status $(q "$S" s.status 2>&1)"
@@ -668,14 +684,14 @@ if $RUN_SCREEN; then
     # the screen was locked in the middle of the run and unlocked before its end: seen by the poll during the run
     new_world screenblip 1:a.txt 2:b.txt
     S="$W/state.json"; state "$S" null 1 2
-    echo 3 >"$GATE_DIR/lockfor"; touch "$GATE_DIR/window"
+    echo 30 >"$GATE_DIR/lockfor"; touch "$GATE_DIR/window"
     "$WG" check "$S" >"$W/out" 2>&1; rc=$?
     [ "$rc" -eq 0 ] && [ "$(q "$S" 's.runs.map(r=>r.role+":"+r.size+":"+r.outcome).join(" ")')" = "full:2:unverified full:2:green" ] && ! grep -q "gate full waits" "$W/out" \
         && ok "screen locked and unlocked during the run: not verified, run again at once, green" || bad "screen locked and unlocked during the run: exit $rc runs $(q "$S" 's.runs.map(r=>r.role+":"+r.size+":"+r.outcome)'): $(cat "$W/out")"
     # test:package (the packaged .app) also needs a window
     new_world screenpkg 1:a.txt
     S="$W/state.json"; state "$S" null 1
-    echo 3 >"$GATE_DIR/lockfor"; echo test:package >"$GATE_DIR/window"
+    echo 30 >"$GATE_DIR/lockfor"; echo test:package >"$GATE_DIR/window"
     "$WG" check "$S" >"$W/out" 2>&1; rc=$?
     [ "$rc" -eq 0 ] && [ "$(q "$S" 's.runs.map(r=>r.role+":"+r.outcome).join(" ")')" = "full:unverified full:green" ] \
         && ok "screen locked, test:package failed: not verified, run again" || bad "screen locked, test:package: exit $rc runs $(q "$S" 's.runs.map(r=>r.role+":"+r.outcome)')"
@@ -691,7 +707,7 @@ if $RUN_SCREEN; then
     new_world screenred 1:a.txt
     S="$W/state.json"; state "$S" null 1; : >"$GATE_DIR/lockscreen"; touch "$GATE_DIR/unitonce"
     "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
-    until_ok 10 grep -q "screen locked: gate full waits" "$W/out"
+    until_ok 30 grep -q "screen locked: gate full waits" "$W/out"
     [ "$(q "$S" 's.runs.map(r=>r.role+":"+r.outcome).join(" ")')" = "full:red" ] && ok "screen locked, only test failed: red" || bad "screen locked, only test failed: runs $(q "$S" 's.runs.map(r=>r.role+":"+r.outcome)' 2>&1)"
     rm -f "$SCREEN_DIR/locked"; wait "$wg"
     # the screen locks during every run: three tries, then not verified (exit 3); the next check runs it again

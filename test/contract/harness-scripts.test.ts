@@ -73,6 +73,19 @@ const ordered = runOrder(testFiles, RUN_FIRST, relative)
 
 const tail = (text: string, lines: number): string => text.split('\n').slice(-lines).join('\n')
 
+// What a red shell test printed, bounded: every "FAIL <check>" line its bad() wrote (the first 30), then the
+// last 20 lines; with no FAIL line, the last 40 lines. The tail alone can miss the failed check: a file prints its FAIL lines where the check runs,
+// and later cases fill the tail.
+const MAX_FAIL_LINES = 30
+const TAIL_LINES = 20
+const failureReport = (output: string): string => {
+  const failed = output.split('\n').filter((line) => line.startsWith('FAIL '))
+  const shown = failed.slice(0, MAX_FAIL_LINES)
+  if (failed.length > shown.length) shown.push(`... and ${failed.length - shown.length} more FAIL lines`)
+  if (!shown.length) return tail(output, 40)
+  return `${shown.join('\n')}\n--- last ${TAIL_LINES} lines:\n${tail(output, TAIL_LINES)}`
+}
+
 // The qmd scripts of the Harness and their test are zsh scripts; Windows has no zsh.
 const NO_ZSH_UNTIL_TICKET_15 = 'qmd scripts are zsh until worfy-windows ticket 15'
 const ZSH_ONLY = new Set([join(HARNESS, 'bin', 'tests', 'qmd.test.sh')])
@@ -221,9 +234,9 @@ async function runInEmptyHome(file: string, timeoutMs: number): Promise<{ run: R
   }
 }
 
-/** Why the run failed, with the last 40 lines of its output; null when it exited 0. */
+/** Why the run failed, with failureReport of its output; null when it exited 0. */
 function failure(file: string, run: Run, timeoutMs: number): string | null {
-  const output = tail(run.output, 40)
+  const output = failureReport(run.output)
   if (run.error !== undefined) return `${file} did not start: ${String(run.error)}\n${output}`
   if (run.timedOut) return `${file} did not finish: it was killed after ${timeoutMs / 1000} s\n${output}`
   if (run.status !== 0) return `${file} exited ${String(run.status)}${run.signal ? ` (${run.signal})` : ''}:\n${output}`
@@ -268,6 +281,17 @@ describe('harness shell tests', () => {
     const bash = gitBash()
     if (WINDOWS) expect(bash.toLowerCase()).not.toContain('\\system32\\')
     else expect(bash).toBe('bash')
+  })
+
+  it('the message of a red shell test names its FAIL lines before the tail', () => {
+    const lines = ['ok   one', 'FAIL two: exit 1', ...Array.from({ length: 50 }, (_, i) => `ok   later ${i}`), 'passed 51, failed 1']
+    const report = failureReport(lines.join('\n'))
+    expect(report.startsWith('FAIL two: exit 1\n')).toBe(true)
+    expect(report).toContain('passed 51, failed 1')
+    expect(report.split('\n').length).toBeLessThanOrEqual(MAX_FAIL_LINES + TAIL_LINES + 2)
+    const many = Array.from({ length: 40 }, (_, i) => `FAIL check ${i}`).join('\n')
+    expect(failureReport(many)).toContain('... and 10 more FAIL lines')
+    expect(failureReport('ok   one\npassed 1, failed 0')).toBe('ok   one\npassed 1, failed 0')
   })
 
   // Commands the Harness scripts need. The shell tests do not skip a check when one is missing,
