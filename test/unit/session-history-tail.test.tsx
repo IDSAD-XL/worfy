@@ -576,14 +576,19 @@ describe('a main that does not know `back` (an older build on a Linked machine)'
 
   it('keepNewest, what it holds between chunks: never more than KEEP_EVENTS, the newest, and the count of the dropped', async () => {
     const { keepNewest, KEEP_EVENTS: keep } = await import('../../src/renderer/claude-home/useClaudeHome')
-    const CHUNK = 20_000
+    // Chunks smaller than KEEP_EVENTS (the hold fills up over several chunks) and one larger (a single
+    // chunk overflows it). A few hundred thousand events are enough: 20 million made the test run out
+    // of its 5 s under a loaded machine (gate full of PR #718).
+    const sizes = [...Array.from({ length: 40 }, () => Math.ceil(keep / 3)), keep * 2 + 1]
     let held = { events: [] as AgentEvent[], dropped: 0 }
-    for (let round = 0; round < 1000; round += 1) {
-      held = keepNewest(held, range(round * CHUNK, (round + 1) * CHUNK).map(answer))
+    let read = 0
+    for (const size of sizes) {
+      held = keepNewest(held, range(read, read + size).map(answer))
+      read += size
       expect(held.events.length).toBeLessThanOrEqual(keep)
-      expect(held.dropped + held.events.length).toBe((round + 1) * CHUNK)
+      expect(held.dropped + held.events.length).toBe(read)
     }
-    expect(texts(held.events)).toEqual(range(1000 * CHUNK - keep, 1000 * CHUNK).map((n) => `answer ${n}`))
+    expect(texts(held.events)).toEqual(range(read - keep, read).map((n) => `answer ${n}`))
     const few = keepNewest({ events: [answer(0)], dropped: 7 }, [answer(1)])
     expect(texts(few.events)).toEqual(['answer 0', 'answer 1'])
     expect(few.dropped).toBe(7)
