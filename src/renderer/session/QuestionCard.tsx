@@ -157,6 +157,9 @@ export function QuestionCard({ request, sessionId, projectId }: QuestionCardProp
 
   const shown = pointed ?? pick.selected.at(-1) ?? null
   const preview = question.options.find((option) => option.label === shown)?.preview ?? null
+  // The preview's column stays while the question has previews at all: an option that moved when
+  // the pointer came over it would leave the pointer, and the preview would blink.
+  const previews = question.options.some((option) => option.preview !== null)
   const hint = readOnly
   return (
     <div className="w-tr__row" data-testid="question-card" data-request-id={request.requestId} data-resolution="open">
@@ -190,7 +193,7 @@ export function QuestionCard({ request, sessionId, projectId }: QuestionCardProp
           <div className="w-question__text" data-testid="question-text">
             {question.question}
           </div>
-          <div className={`w-question__body${preview !== null ? ' w-question__body--preview' : ''}`}>
+          <div className={`w-question__body${previews ? ' w-question__body--preview' : ''}`}>
             <div className="w-question__options" role={question.multiSelect ? 'group' : 'radiogroup'} aria-label={question.question}>
               {question.options.map((option, index) => {
                 const chosen = pick.selected.includes(option.label)
@@ -237,9 +240,9 @@ export function QuestionCard({ request, sessionId, projectId }: QuestionCardProp
                 />
               </label>
             </div>
-            {preview !== null ? (
-              <div className="w-question__preview w-mono" data-testid="question-preview">
-                <Markdown text={preview} projectId={projectId} />
+            {previews ? (
+              <div className="w-question__preview w-mono" data-testid="question-preview" data-empty={preview === null}>
+                {preview !== null ? <Markdown text={preview} projectId={projectId} /> : <span className="w-question__preview-hint">Point at an option to see its preview</span>}
               </div>
             ) : null}
           </div>

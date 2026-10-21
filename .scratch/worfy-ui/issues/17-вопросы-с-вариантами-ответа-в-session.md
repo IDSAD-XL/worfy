@@ -107,19 +107,19 @@ Source: отзыв владельца 2026-10-19 после ручной при�
 
 ## Готово, когда
 
-- [ ] «Итог» называет поведение настоящего Claude Code из шага 1 (режимы, путь — `canUseTool` или
+- [x] «Итог» называет поведение настоящего Claude Code из шага 1 (режимы, путь — `canUseTool` или
       `onUserDialog`, форма `answers`, что видит модель), со ссылкой на файл записи.
-- [ ] Contract test на fake-агенте (`test/contract/permissions.test.ts` или новый): вопрос даёт
+- [x] Contract test на fake-агенте (`test/contract/permissions.test.ts` или новый): вопрос даёт
       событие вопроса, а не `permission_request`; ответ одним вариантом, `multiSelect` и «Other»
       отдаёт в `canUseTool` `updatedInput` с `answers` в форме шага 1; отказ — `deny`; interrupt —
       отмена; Session без человека отказывает, как раньше.
-- [ ] Unit карточки (`test/unit/question-card.test.tsx`): варианты, `multiSelect`, «Other», Submit
+- [x] Unit карточки (`test/unit/question-card.test.tsx`): варианты, `multiSelect`, «Other», Submit
       неактивна без ответа, клавиши 1–4 и Enter, отвеченная карточка, только чтение.
-- [ ] e2e (`test/e2e/session-question.spec.ts`, новый, fake-агент): вопрос → карточка → ответ →
+- [x] e2e (`test/e2e/session-question.spec.ts`, новый, fake-агент): вопрос → карточка → ответ →
       transcript показывает ответ; значок «Waits for answer» на Node и его снятие после ответа.
-- [ ] Системное уведомление для Session в фоне — unit `test/unit/notify.test.ts`.
-- [ ] Toast `action` (если Ticket 16 влит): ответ из toast-а доходит до `canUseTool` (e2e или unit).
-- [ ] Мутанты красные: `updatedInput` без `answers`; ответ `multiSelect` одной строкой без запятых
+- [x] Системное уведомление для Session в фоне — unit `test/unit/notify.test.ts`.
+- [x] Toast `action` (если Ticket 16 влит): ответ из toast-а доходит до `canUseTool` (e2e или unit).
+- [x] Мутанты красные: `updatedInput` без `answers`; ответ `multiSelect` одной строкой без запятых
       (если шаг 1 подтвердил запятые); вопрос как обычный `permission_request`.
 - [ ] Снимки карточки в светлой и тёмной теме — в «Итог»; `pnpm lint`, `pnpm typecheck`,
       `pnpm test` — exit 0; gate full — exit 0 и строка `[gate] зелено (full)` (оркестратор перед
@@ -164,4 +164,68 @@ Source: отзыв владельца 2026-10-19 после ручной при�
 
 ## Итог
 
-Заполняется при закрытии.
+**Поведение настоящего Claude Code (шаг 1).** Проверено без вызова модели: бинарник Claude Code из
+Agent SDK 0.3.289 запущен против локального stand-in Messages API
+(`test/contract/messages-api-stand-in.ts`), файл записи — `test/contract/ask-user-question-sdk.test.ts`
+(4 теста, ~1 с). Настоящий `~/.claude` не тронут: `HOME` и `CLAUDE_CONFIG_DIR` — временная папка.
+
+- Путь — `canUseTool`, во всех трёх режимах: `default`, `acceptEdits` и `bypassPermissions`. В опциях
+  вызова — `requiresUserInteraction: true`. `onUserDialog` для этого инструмента не вызывается.
+  Без `canUseTool` модели инструмент даже не предлагается. Предупреждение SDK
+  `CLAUDE_SDK_CAN_USE_TOOL_SHADOWED` для этого инструмента ложное.
+- Ответ — `{ behavior: 'allow', updatedInput: { ...input, answers } }`. `answers` — объект: текст
+  вопроса → одна строка. Ответ `multiSelect` — метки через `", "`; Claude Code сам режет по `", "`.
+- Что читает модель в `tool_result`:
+  - каждый ответ — метка своего вопроса: «Your questions have been answered: "Q"="A". You can now
+    continue with these answers in mind.»;
+  - хоть один ответ — свой текст («Other»): «The user answered: "Q"="A". Read the answers
+    carefully …»;
+  - `allow` без `answers` (так было на main): «The user did not answer the questions.»;
+  - `deny` — текст отказа с `is_error: true`.
+- PreToolUse hook с `updatedInput.answers` тоже работает, но реализация его не использует.
+
+**Что сделано.**
+- В main вопрос AskUserQuestion — своё событие `question_request` / `question_resolved`
+  (`src/shared/agent/events.ts`), а не `permission_request`. Ответ — новый канал
+  `agent.answerQuestion` (доступ `write`: на Linked машине только для чтения отказ).
+  Формат `answers` собирается в одном месте — `formatAnswers` в `src/shared/agent/questions.ts`.
+  «Always allow» вопрос не отвечает. Вход, который не читается как вопросы, идёт прежним путём
+  разрешения.
+- Карточка вопроса в transcript (`QuestionCard.tsx`): несколько вопросов — по одному, с Back / Next
+  и чипами заголовков сверху; варианты с описанием, «Other», `preview` (markdown) в колонке рядом;
+  клавиши 1–4 и Enter; Submit неактивна без ответа на каждый вопрос; Decline — `deny`. Отвеченная
+  карточка показывает ответы и исход (Answered / Declined / Cancelled). На экране только для чтения
+  карточка видна, ответить нельзя.
+- Значок «Waits for answer» на Node (`badges/WaitsForAnswer.tsx`); «Needs permission» прячется,
+  когда открыты только вопросы.
+- Системное уведомление «Asks: <вопрос>» для Session в фоне (`src/main/notify.ts`).
+- Toast (Ticket 16 влит): `question-toast.ts`. Простой вопрос (один, два варианта, без
+  `multiSelect` и `preview`) отвечается кнопками toast-а, любой другой — «Open». Toast уходит, когда
+  вопрос решён где угодно.
+- Fake-агент: директива `{"fake":"question",…}` и текст результата как у настоящего Claude Code.
+
+**Снимки** (e2e `test/e2e/session-question.spec.ts`):
+[карточка, светлая](../evidence/17-question-card-light.png),
+[карточка, тёмная](../evidence/17-question-card-dark.png),
+[toast, светлый](../evidence/17-question-toast-light.png),
+[toast, тёмный](../evidence/17-question-toast-dark.png).
+
+**Мутанты — все красные (10 из 10):** `updatedInput` без `answers`; `multiSelect` через пробел;
+вопрос как обычный `permission_request`; текст «Other» потерян; Submit на экране только для чтения;
+клавиши на экране только для чтения; канал `agent.answerQuestion` с доступом `read`; toast отвечает
+`multiSelect`-вопрос; нет уведомления; значок не видит вопросов.
+
+**Проверки.** `pnpm lint` — exit 0; `pnpm typecheck` — exit 0; `pnpm test` — exit 0 (370 файлов,
+7814 тестов пройдено, 83 пропущено); e2e `session-question.spec.ts` — exit 0 (2 теста; первый запуск
+был красным из-за мигания `preview` под курсором, исправлено). Gate full — за оркестратором перед
+merge.
+
+**Платформенный PR?** Нет (ADR-0056, пункт 2): в `src` нет веток по платформе, нет скриптов Harness
+и упаковки. Contract test запускает бинарник Claude Code текущей платформы; на Linux и Windows он
+не запускался.
+
+**Не сделано / известные пределы.**
+- Шапка Session для вопроса по-прежнему говорит «needs permission» (статус Session общий с
+  разрешением).
+- После перезагрузки окна открытые вопросы renderer не знает — тот же предел, что у карточки
+  разрешения.

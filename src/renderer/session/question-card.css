@@ -1,9 +1,5 @@
 /* The question card (QuestionCard.tsx, worfy-ui ticket 17): on top of the permission card's frame,
-   head and buttons (.w-permission in session.css). */
-
-.w-question[data-open='true'] {
-  border-color: var(--accent);
-}
+   head and buttons (.w-permission in session.css), its open border included. */
 
 .w-question__steps {
   display: inline-flex;
@@ -189,6 +185,11 @@ button.w-question__chip {
   border-radius: var(--radius-button);
   background: var(--surface-raised);
   font-size: var(--text-12);
+}
+
+.w-question__preview-hint {
+  color: var(--text-muted);
+  font-family: var(--font-ui);
 }
 
 .w-question__answers {
