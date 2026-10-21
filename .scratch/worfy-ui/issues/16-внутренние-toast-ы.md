@@ -1,7 +1,8 @@
 # 16 — Внутренние toast-ы: одно хранилище и один компонент для уведомлений в окне
 
 Type: task
-Status: open
+Status: claimed 2026-10-21T08:09Z
+Branch: worfy-ui/16
 Blocked by: —
 Source: отзыв владельца 2026-10-19 после ручной приёмки Ticket-а 12 на Stable copy: «внутренние
 toast-ы, которые можно использовать для многих вещей, в том числе для таких вопросов» (вопросы с
@@ -58,7 +59,8 @@ toast-ы, которые можно использовать для многих
 3. **Предел стопки:** на экране не больше трёх toast-ов. Новый toast вытесняет самый старый из тех,
    что скрываются сами. Если все три висят (`error`, `action`), новый ждёт в очереди и выходит, когда
    место освободится.
-4. **Компонент** `src/renderer/toast/Toasts.tsx` (новый) — один на окно, ставится в
+4. **Компонент** `src/renderer/toast/ToastRegion.tsx` (новый; не `Toasts.tsx`: рядом с `toasts.ts` на
+   файловой системе без учёта регистра оба имени — один файл) — один на окно, ставится в
    `src/renderer/main.tsx`. Его видно поверх Canvas, Session view и режима фокуса. Место на экране
    выбирает исполнитель (в «Итог», со снимком), с одним условием: toast-ы не закрывают поле ввода
    Session с кнопкой Send и Minimap.
@@ -120,7 +122,7 @@ toast-ы, которые можно использовать для многих
 ## Где в коде
 
 - `src/renderer/toast/toasts.ts` (новый)
-- `src/renderer/toast/Toasts.tsx` (новый)
+- `src/renderer/toast/ToastRegion.tsx` (новый)
 - `src/renderer/toast/toast.css` (новый)
 - `src/renderer/main.tsx`
 - `src/renderer/canvas/history.ts`
@@ -142,6 +144,18 @@ toast-ы, которые можно использовать для многих
 - `test/unit/file-elsewhere.test.tsx`
 - `test/e2e/trash-undo.spec.ts`
 - `test/e2e/linked-system-actions.spec.ts`
+- `src/renderer/ipc.ts` (`showSubscribeError` — один текст сбоя подписки для четырёх hook-ов)
+- `src/renderer/canvas/nodes/TerminalNode.css` (убрано правило строки отказа Fix)
+- `tsconfig.test.node.json` (`toasts.ts` в `include`: его импортирует `history.ts`)
+- `test/unit/adr-section.test.tsx`, `test/unit/markdown.test.tsx`, `test/unit/ticket-focus.test.tsx`,
+  `test/unit/settings-health.test.tsx` — «File is on <Machine>» и «Copied» теперь toast-ы
+- `src/renderer/toast/placement.ts` (новый: выбор полосы для стопки), `test/unit/toast-placement.test.ts` (новый)
+- `test/e2e/toast-placement.spec.ts` (новый: toast не закрывает кнопки при 1280×800 и 1024×768)
+- метки `data-toast-keep-out` / `data-toast-over`: `src/renderer/shell/Toolbar.tsx`,
+  `src/renderer/focus/FocusMode.tsx`, `src/renderer/session/SessionView.tsx`,
+  `src/renderer/session/ExternalSessionPanel.tsx`, `src/renderer/find/CanvasFind.tsx`,
+  `src/renderer/shell/sidebar/AdrSection.tsx`, `src/renderer/canvas/nodes/TicketNode.tsx`
+- `.scratch/worfy-ui/evidence/16-*.png` (снимки)
 
 ## Вне скоупа
 
@@ -154,4 +168,60 @@ toast-ы, которые можно использовать для многих
 
 ## Итог
 
-Заполняется при закрытии.
+Черновик исполнителя (PR ветки `worfy-ui/16`); оркестратор дополняет при закрытии.
+
+- **Файлы.** Хранилище — `src/renderer/toast/toasts.ts` (`showToast`, `dismissToast`, `pressToastAction`,
+  `holdToast`, `setToastProject`, `isToastShown`); текст сбоя подписки — `showSubscribeError` в
+  `src/renderer/ipc.ts`, его зовут четыре hook-а. Компонент — `src/renderer/toast/ToastRegion.tsx`, а не
+  `Toasts.tsx`: рядом с `toasts.ts` на файловой системе без учёта регистра (macOS, Windows) импорт
+  `./toasts` и `./Toasts` попадает в один файл, test компонента получал хранилище вместо компонента.
+- **API для worfy-canvas 10.** `showToast({ kind: 'action', key: batch, projectId, text, actions: [{ label: 'Undo', run }] })`;
+  `key` — это id toast-а, повтор с тем же `key` заменяет toast на месте; кнопка зовёт `run` и закрывает
+  toast, даже если `run` бросил; у `action` от одной до трёх кнопок (проверяет тип).
+- **Место — правый край окна, высота измеряется** (решение исполнителя после второго ревью #677, для
+  владельца): сверху по центру открываются Command palette и поиск по Canvas, и `error`, который
+  висит, закрывал бы их поле; а постоянный отступ от toolbar не годится, потому что шапка focus mode
+  растёт с заголовком и строкой блокеров Ticket-а. Пока toast на экране, `ToastRegion.tsx` раз в
+  200 мс и при resize меряет, что лежит в его колонке (ширина до 360 px, `right: 16px`): toolbar,
+  полосу focus mode и заголовки плиток, ряды шапки Ticket-а в фокусе (номер с «Open in editor»,
+  заголовок, строка блокеров, ряд действий с «Ship ticket»), шапку Session view, шапку ADR, поиск по
+  Canvas — они помечены `data-toast-keep-out`, — и любой открытый `role="dialog"` или `role="menu"`
+  (Command palette, Settings, меню «⋯»). Стопка встаёт в первую свободную полосу сверху, где
+  помещается целиком (`placement.ts`, зазор 12 px); если такой нет — в самую высокую полосу,
+  обрезанная по ней (прокрутка); если колонку целиком закрывает диалог — под toolbar поверх него,
+  чтобы ошибку всё равно было видно. Панель ADR (`data-toast-over`) высотой во всю колонку: toast
+  может лечь на её текст, но не на шапку с кнопками. Canvas не меряется: его Node-ы двигаются под
+  toast-ом вместе с видом. Без toast-ов ничего не меряется. Доказательство — e2e
+  `toast-placement.spec.ts` при 1280×800 и 1024×768 с `error`, который висит: ни одна кнопка, поле
+  или пункт focus mode на Ticket-е с заголовком в две строки и строкой блокеров, Command palette с
+  результатами, Settings, шапки Session view (Orchestrator с Interrupt и Session из терминала) не
+  пересекается с toast-ом, и `document.elementFromPoint` в центре каждого — не toast. Область
+  рисуется на `<body>` с z-index 120: над focus mode, над диалогами (90–101) и над окном Settings
+  (110; modal guard пропускает клавиши слоя выше). Мышь берут только сами toast-ы.
+  Порядок: сначала `error` (область `role="alert"`), под ними остальные (`role="status"`).
+- **Вид.** Поверхность `--surface`, рамка `--border`, радиус `--radius-button`, тень `--shadow-node`,
+  текст 12/18 px, до трёх строк (полный текст — в `title`). Вид — полоса слева 3 px: `info` —
+  `--border-strong`, `success` — `--ready-dot`, `error` — `--blocked-ring`, `action` — `--working-dot`.
+  Кнопки `action` — 24 px, `--accent`; кнопка закрытия «Dismiss» 24 px. Появление — 160 мс
+  (прозрачность и сдвиг справа на 8 px), при «Reduce motion» без анимации.
+- **Фокус.** Escape, Dismiss или кнопка `action` на toast-е в фокусе возвращают фокус туда, где он был
+  до toast-а.
+- **Время.** Наведение мыши или фокус останавливают время; когда ушли оба, 4 с начинаются заново
+  целиком.
+- **Toast другого Project-а** скрыт и не занимает места в стопке из трёх; его время идёт.
+- **Тексты.** ⌘Z — прежние «Not undone/Not redone: this Node was changed on another screen»;
+  «File is on <Machine>»; отказ Fix — «Fix in Terminal <shell>: <причина>»; Copy — «Copied <команда>»;
+  сбой подписки — «Updates stopped: cannot subscribe to <канал> (<ошибка>)»; `claudeHome.live` —
+  «Live Sessions not read: <причина>». Повтор той же причины `claudeHome.live` при опросе раз в 2 с
+  не показывает toast снова и не возвращает закрытый; ответ без ошибки убирает его. Toast один на все
+  корни Project-ов: когда отвечает корень, чью причину он показывает, а другой ещё не отвечает, toast
+  показывает причину другого.
+- **Снимки.** Все четыре вида (разметка компонента с `tokens.css` и `toast.css` в Chromium):
+  ![светлая](../evidence/16-toasts-light.png) ![тёмная](../evidence/16-toasts-dark.png).
+  В приложении (e2e `trash-undo.spec.ts`): ![светлая](../evidence/16-undo-skipped-light.png)
+  ![тёмная](../evidence/16-undo-skipped-dark.png) (снято в середине появления, 160 мс); над focus mode
+  (e2e `linked-system-actions.spec.ts`): ![светлая](../evidence/16-file-elsewhere-focus-light.png)
+  ![тёмная](../evidence/16-file-elsewhere-focus-dark.png); `error` под шапкой Ticket-а с заголовком в две
+  строки (e2e `toast-placement.spec.ts`), 1280×800: ![светлая](../evidence/16-toast-focus-1280-light.png)
+  ![тёмная](../evidence/16-toast-focus-1280-dark.png), 1024×768: ![светлая](../evidence/16-toast-focus-1024-light.png)
+  ![тёмная](../evidence/16-toast-focus-1024-dark.png).

@@ -1,7 +1,8 @@
 // The "Fix" button in the header of a Terminal Node (src/renderer/canvas/nodes/TerminalNode.tsx),
 // over the real renderer IPC client and a fake preload: it is there only while main says so, a press
 // shows "Fixing…" and calls `terminalAi.fix.run`, the answer takes it away and gives the focus to the
-// terminal, a refusal shows its reason for a few seconds, and `terminalAi.fix.changed` hides it.
+// terminal, a refusal shows its reason in an error toast (toast/toasts.ts), and `terminalAi.fix.changed`
+// hides the button.
 //
 // xterm.js does not run in jsdom: the Terminal here is a fake that counts its focus. The look in both
 // themes and the real shell are checked against the built app (test/e2e/terminal-ai-fix.spec.ts).
@@ -55,6 +56,8 @@ vi.mock('../../src/renderer/canvas/useLayout', () => ({ useLayoutOps: () => ({ a
 vi.mock('../../src/renderer/canvas/NodeResizeClamp', () => ({ NodeResizeClamp: () => null }))
 
 const { default: TerminalNode } = await import('../../src/renderer/canvas/nodes/TerminalNode')
+const { ToastRegion } = await import('../../src/renderer/toast/ToastRegion')
+const { resetToasts } = await import('../../src/renderer/toast/toasts')
 
 interface Call {
   channel: string
@@ -100,6 +103,7 @@ function preload(): FakeMain {
 
 beforeEach(() => {
   focused.count = 0
+  resetToasts()
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -130,7 +134,12 @@ const nodeProps = { id: NODE, data: { node: { id: NODE, kind: 'terminal', locked
 /** A Terminal Node whose Fix state main answered with `state`. */
 async function terminalNode(state: TerminalAiFixState) {
   const main = preload()
-  render(<TerminalNode {...nodeProps} />)
+  render(
+    <>
+      <TerminalNode {...nodeProps} />
+      <ToastRegion projectId={PROJECT} />
+    </>,
+  )
   expect(callsOf(main, 'terminalAi.fix.state').map((call) => call.input)).toEqual([{ projectId: PROJECT, nodeId: NODE }])
   await answer(callsOf(main, 'terminalAi.fix.state')[0], { ok: true, value: state })
   return main
@@ -167,27 +176,34 @@ describe('the Fix button of a Terminal Node', () => {
     await answer(callsOf(main, 'terminalAi.fix.run')[0], { ok: true, value: { ok: true } })
     expect(fixButton()).toBeNull()
     expect(focused.count).toBe(focusBefore + 1)
-    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.queryByTestId('terminal-fix-refused')).toBeNull()
   })
 
-  it('a refusal shows its reason in the header for a few seconds; the button stays', async () => {
+  it('a refusal shows its reason in an error toast of the window that stays; the button stays; the next press takes the toast down', async () => {
     const main = await terminalNode({ available: true })
     vi.useFakeTimers()
     fireEvent.click(screen.getByRole('button', { name: 'Fix' }))
     await answer(callsOf(main, 'terminalAi.fix.run')[0], { ok: true, value: { ok: false, message: 'Limits reached until 14:20' } })
-    expect(screen.getByRole('status').textContent).toBe('Limits reached until 14:20')
+    const toast = screen.getByTestId('terminal-fix-refused')
+    expect(toast.textContent).toMatch(/^Fix in Terminal.*: Limits reached until 14:20$/)
+    // Not in the header of the Terminal: in the alert region of the window's notifications.
+    expect(toast.closest('.w-terminal__header')).toBeNull()
+    expect(toast.closest('[role="alert"]')).not.toBeNull()
     expect(screen.getByRole('button', { name: 'Fix' })).not.toBeNull()
-    act(() => vi.advanceTimersByTime(3000))
-    expect(screen.queryByRole('status')).not.toBeNull()
-    act(() => vi.advanceTimersByTime(1500))
-    expect(screen.queryByRole('status')).toBeNull()
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(screen.queryByTestId('terminal-fix-refused')).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Fix' }))
+    expect(screen.queryByTestId('terminal-fix-refused')).toBeNull()
+    // A second refusal: one toast again, not two.
+    await answer(callsOf(main, 'terminalAi.fix.run')[1], { ok: true, value: { ok: false, message: 'Limits reached until 14:25' } })
+    expect(screen.getAllByTestId('terminal-fix-refused')).toHaveLength(1)
   })
 
   it('an error of the channel shows the handler\'s own reason', async () => {
     const main = await terminalNode({ available: true })
     fireEvent.click(screen.getByRole('button', { name: 'Fix' }))
     await answer(callsOf(main, 'terminalAi.fix.run')[0], { ok: false, error: 'terminalAi.fix.run failed: something broke' })
-    expect(screen.getByRole('status').textContent).toBe('something broke')
+    expect(screen.getByTestId('terminal-fix-refused').textContent).toMatch(/: something broke$/)
   })
 
   it('`terminalAi.fix.changed` with available false hides the button', async () => {

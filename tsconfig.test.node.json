@@ -31,6 +31,8 @@
     "src/renderer/machines/machines-dot.ts",
     "src/renderer/platform.ts",
     "src/renderer/projects/read-only-now.ts",
+    "src/renderer/toast/toasts.ts",
+    "src/renderer/toast/placement.ts",
     "test/app-url.ts",
     "test/git-bash.ts",
     "test/global-setup-contract.ts",

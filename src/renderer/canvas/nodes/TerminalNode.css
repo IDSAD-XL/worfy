@@ -93,16 +93,6 @@
   background: transparent;
   color: var(--terminal-muted);
 }
-/* Why the last Fix put nothing into the line; it goes after a few seconds. */
-.w-terminal__fix-note {
-  min-width: 0;
-  overflow: hidden;
-  font-size: var(--text-11);
-  color: var(--terminal-muted);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
 .w-terminal__error {
   flex: none;
   padding: var(--space-2) 10px;

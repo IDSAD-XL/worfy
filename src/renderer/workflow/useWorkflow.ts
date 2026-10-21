@@ -9,7 +9,7 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import { ticketKey, type WorkflowDelta, type WorkflowModel } from '../../shared/workflow/types'
-import { invoke, subscribe } from '../ipc'
+import { invoke, showSubscribeError, subscribe } from '../ipc'
 
 export interface WorkflowEntry {
   /** Undefined until main has answered `workflow.open`. */
@@ -72,7 +72,7 @@ function ensureSubscribed(): void {
   try {
     subscribe('workflow.changed', onChanged)
   } catch (error) {
-    console.error('workflow.changed: cannot subscribe', error)
+    showSubscribeError('workflow.changed', error)
   }
 }
 

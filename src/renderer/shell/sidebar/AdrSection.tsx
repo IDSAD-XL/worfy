@@ -106,10 +106,10 @@ function AdrPanel({ projectId, adr, onClose }: AdrPanelProps) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onClose])
 
-  const file = useFileElsewhere({ style: styles.panelStatus })
+  const file = useFileElsewhere()
 
   const openInEditor = () => {
-    // In a window on a Linked machine the ADR file lies there: the hint instead of its editor.
+    // In a window on a Linked machine the ADR file lies there: the toast instead of its editor.
     if (file.elsewhere) {
       file.show()
       return
@@ -120,8 +120,9 @@ function AdrPanel({ projectId, adr, onClose }: AdrPanelProps) {
   }
 
   return createPortal(
-    <section role="dialog" aria-label={`ADR ${adr.number}`} style={styles.panel} data-testid="adr-panel" data-path={adr.path}>
-      <header style={styles.panelHeader}>
+    // A toast may go over the text of the ADR, never over its header with the buttons (toast/ToastRegion.tsx).
+    <section role="dialog" aria-label={`ADR ${adr.number}`} style={styles.panel} data-testid="adr-panel" data-path={adr.path} data-toast-over="">
+      <header style={styles.panelHeader} data-toast-keep-out="">
         <span className="w-mono" style={styles.number}>
           {adr.number}
         </span>
@@ -129,7 +130,6 @@ function AdrPanel({ projectId, adr, onClose }: AdrPanelProps) {
           {adr.title}
         </h2>
         {adr.status !== null ? <span style={styles.panelStatus}>{adr.status}</span> : null}
-        {file.hint}
         <button type="button" style={styles.button} onClick={openInEditor} title={adr.path}>
           Open in Editor
         </button>

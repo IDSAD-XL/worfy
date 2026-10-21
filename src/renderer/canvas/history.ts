@@ -23,13 +23,13 @@
 // which side of them (place and size, visibility, data keys, tags, existence) and the Layout's
 // revision after it. A `layout.changed` from another screen (screen.ts) with a later revision that
 // changes the same side of the same Node puts the step out of date; ⌘Z on such a step drops it
-// without sending anything and raises the notice (overlays/UndoSkipped.tsx). Changes without a
+// without sending anything and raises the notice (a toast, toast/toasts.ts). Changes without a
 // screen — main, agents, the automatic writers — leave steps alone, as before.
-import { createStore } from 'zustand/vanilla'
 import type { ArchiveRule, Layout, LayoutNode, LayoutOpInput } from '../../shared/layout/types'
 import { trashRefusal, type TrashEntry } from '../../shared/ipc/trash'
 import { invoke } from '../ipc'
 import { readOnlyNow } from '../projects/read-only-now'
+import { showToast } from '../toast/toasts'
 import { screenId } from './screen'
 
 /** How many steps can be undone. */
@@ -178,44 +178,26 @@ export function historyOf(projectId: string): History {
   return history
 }
 
-/** Forgets every Project's history, what other screens changed and the notice; tests start from a clean one. */
+/** Forgets every Project's history and what other screens changed; tests start from a clean one. */
 export function resetHistories(): void {
   histories.clear()
   watches.clear()
-  hideSkipped()
 }
 
 // ── Changes made on another screen (worfy-link ticket 07) ────────────────────────────────────────
 
-/** How long the notice of a skipped step stays up. */
-export const SKIPPED_NOTICE_MS = 4000
-
-/** The notice that ⌘Z or ⇧⌘Z skipped a step another screen had changed since. */
-export interface SkippedNotice {
-  projectId: string
-  direction: Direction
-  /** Grows with every skip, so the same notice raised twice is shown afresh. */
-  count: number
+/** The notice of a skipped step, as the toast (toast/toasts.ts) shows it. */
+const SKIPPED_TEXT: Record<Direction, string> = {
+  undo: 'Not undone: this Node was changed on another screen',
+  redo: 'Not redone: this Node was changed on another screen',
 }
 
-/** The notice of the latest skipped step, null when none is up. overlays/UndoSkipped.tsx shows it. */
-export const skippedNotice = createStore<{ notice: SkippedNotice | null }>(() => ({ notice: null }))
-
-let noticeTimer: ReturnType<typeof setTimeout> | undefined
-let noticeCount = 0
-
+/**
+ * The notice that ⌘Z or ⇧⌘Z skipped a step another screen had changed since: an `info` toast of
+ * the Project, one per Project, so a second skip shows afresh and starts its time again.
+ */
 function showSkipped(projectId: string, direction: Direction): void {
-  if (noticeTimer !== undefined) clearTimeout(noticeTimer)
-  noticeCount += 1
-  skippedNotice.setState({ notice: { projectId, direction, count: noticeCount } })
-  noticeTimer = setTimeout(hideSkipped, SKIPPED_NOTICE_MS)
-}
-
-/** Takes the notice down. */
-export function hideSkipped(): void {
-  if (noticeTimer !== undefined) clearTimeout(noticeTimer)
-  noticeTimer = undefined
-  skippedNotice.setState({ notice: null })
+  showToast({ kind: 'info', key: `undo-skipped:${projectId}`, projectId, text: SKIPPED_TEXT[direction], testId: 'undo-skipped' })
 }
 
 /**

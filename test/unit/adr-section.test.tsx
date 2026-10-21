@@ -4,6 +4,7 @@ import type { DocsState } from '../../src/shared/ipc/docs'
 import type { ProjectsState } from '../../src/shared/ipc/projects'
 import { openAdr, useCanvasRequests } from '../../src/renderer/find/canvas-requests'
 import AdrSection from '../../src/renderer/shell/sidebar/AdrSection'
+import { resetToasts, toasts } from '../../src/renderer/toast/toasts'
 
 // "Go to ADR" in the command palette (ticket 31) leaves a request that the sidebar's ADR section
 // carries out. The Project list, the ADR list and the ADR text come from main; here they are fixed.
@@ -35,12 +36,17 @@ vi.mock('../../src/renderer/markdown/Markdown', () => ({ Markdown: ({ text }: { 
 const shown: { machine: string | null } = { machine: null }
 const invoke = vi.hoisted(() => vi.fn<(channel: string, input?: unknown) => Promise<{ ok: true; value: undefined }>>(() => Promise.resolve({ ok: true, value: undefined })))
 vi.mock('../../src/renderer/ipc', () => ({ invoke, windowMachine: () => shown.machine }))
-vi.mock('../../src/renderer/machines/useMachines', () => ({ useMachines: () => ({ linked: [{ id: 'machine-m', name: 'Mini' }] }) }))
+vi.mock('../../src/renderer/machines/useMachines', () => ({
+  useMachines: () => ({ linked: [{ id: 'machine-m', name: 'Mini' }] }),
+  linkStateNow: () => ({ linked: [{ id: 'machine-m', name: 'Mini' }] }),
+  refreshLinkState: () => Promise.resolve(),
+}))
 
 const project = (id: string) => ({ id, name: id, path: `/repo/${id}`, branch: 'main' })
 const panelPath = () => screen.queryByTestId('adr-panel')?.getAttribute('data-path') ?? null
 
 beforeEach(() => {
+  resetToasts()
   shown.machine = null
   invoke.mockClear()
   projects.state = { projects: [project('p1'), project('p2')], activeId: 'p1', revision: 1 }
@@ -103,16 +109,17 @@ describe('ADR panel: Open in Editor', () => {
     })
   }
 
-  it('in a window on this Machine calls shell.openInEditor with the ADR path, and shows no hint', async () => {
+  it('in a window on this Machine calls shell.openInEditor with the ADR path, and shows no toast', async () => {
     await openInEditor()
     expect(invoke).toHaveBeenCalledWith('shell.openInEditor', { projectId: 'p1', path: 'docs/adr/0001-a.md' })
-    expect(screen.queryByTestId('file-elsewhere')).toBeNull()
+    expect(toasts.getState().toasts).toEqual([])
   })
 
   it('in a window on a Linked machine shows "File is on Mini" and calls nothing', async () => {
     shown.machine = 'machine-m'
     await openInEditor()
-    expect(screen.getByTestId('adr-panel').querySelector('[data-testid="file-elsewhere"]')?.textContent).toBe('File is on Mini')
+    // The toast of the window (toast/ToastRegion.tsx) shows it, not the panel.
+    expect(toasts.getState().toasts).toMatchObject([{ kind: 'info', text: 'File is on Mini', testId: 'file-elsewhere' }])
     expect(invoke).not.toHaveBeenCalled()
   })
 })

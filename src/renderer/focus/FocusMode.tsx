@@ -453,7 +453,7 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
   return createPortal(
     // A region, not a modal dialog: the sidebar next to it stays in reach, for a screen reader too.
     <div ref={layer} tabIndex={-1} className="w-focus" role="region" aria-label="Focus mode" data-testid="focus-mode">
-      <div className="w-focus__bar" data-sidebar={sidebar.visible ? 'visible' : 'hidden'}>
+      <div className="w-focus__bar" data-toast-keep-out="" data-sidebar={sidebar.visible ? 'visible' : 'hidden'}>
         {/* The toolbar's button is under the layer: the same one here. */}
         <SidebarToggle className="w-focus__icon-button" visible={sidebar.visible} onToggle={sidebar.toggle} />
         <span className="w-focus__title">Focus · {ids.length === 1 ? '1 node' : `${ids.length} nodes`}</span>
@@ -487,6 +487,7 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
                 <div
                   className="w-focus__tile-title"
                   data-testid="focus-tile-title"
+                  data-toast-keep-out=""
                   onPointerDown={onTitleDown(tile.id)}
                 >
                   <span aria-hidden="true">⠿</span>

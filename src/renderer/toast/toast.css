@@ -1,0 +1,129 @@
+/* The toasts of the window (ToastRegion.tsx; worfy-ui ticket 16). Values come from tokens.css, so the
+   light and the dark theme both follow the system.
+
+   The area is drawn on <body> at z-index 120: above focus mode (inside the main area's own stacking
+   context, shell.css), above the dialogs of the app (90–101) and above the Settings window (110,
+   settings-window.ts), whose modal guard lets a layer above it keep its keys and its focus.
+
+   Place: the right edge of the window, not the top centre, where the Command palette and Canvas find
+   open. The height there is measured while a toast is shown (ToastRegion.tsx, placement.ts): the
+   stack goes into the first free band, from the top, between the toolbar, the headers of the view
+   and the popups open in that column. `top` below is where it starts and where it stays when a popup
+   fills the whole column. Only the toasts take the pointer; the area around them passes it through. */
+.w-toasts {
+  position: fixed;
+  top: calc(var(--toolbar-height) + var(--space-3));
+  right: var(--space-4);
+  z-index: 120;
+  width: min(360px, calc(100vw - 2 * var(--space-4)));
+  pointer-events: none;
+  font-family: var(--font-ui);
+}
+
+.w-toasts__list {
+  display: flex;
+  flex-direction: column;
+}
+
+.w-toast {
+  --toast-accent: var(--border-strong);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+  margin-bottom: var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--toast-accent);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  box-shadow: var(--shadow-node);
+  color: var(--text);
+  font-size: var(--text-12);
+  line-height: 18px;
+  pointer-events: auto;
+  animation: w-toast-in 160ms ease-out;
+}
+
+/* The kind is told by the stripe on the left: neutral, the ready, the blocked and the working colour
+   (the primary colour is the ready one in the dark theme). */
+.w-toast--success {
+  --toast-accent: var(--ready-dot);
+}
+.w-toast--error {
+  --toast-accent: var(--blocked-ring);
+}
+.w-toast--action {
+  --toast-accent: var(--working-dot);
+}
+
+/* Up to three lines; the title holds the whole text. */
+.w-toast__text {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.w-toast__action {
+  flex: none;
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  background: var(--surface-raised);
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.w-toast__action:hover {
+  background: var(--selected);
+}
+
+.w-toast__close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.w-toast__close:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.w-toast__action:focus-visible,
+.w-toast__close:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+@keyframes w-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* "Reduce motion" in the system settings: the toast appears at once. */
+@media (prefers-reduced-motion: reduce) {
+  .w-toast {
+    animation: none;
+  }
+}

@@ -383,7 +383,7 @@ function FindBar({ projectId, root }: FindBarProps) {
   const text = match === undefined ? undefined : index.text(match.key)
 
   return (
-    <Panel position="top-center">
+    <Panel position="top-center" data-toast-keep-out="">
       <style>{css}</style>
       <div
         role="search"

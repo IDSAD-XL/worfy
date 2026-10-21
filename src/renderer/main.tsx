@@ -11,6 +11,7 @@ import { PipelineBoard } from './pipeline/PipelineBoard'
 import { activeProject, useLinked, useProjects } from './projects/useProjects'
 import { setView, useNavigation } from './session/navigation'
 import { SessionView } from './session/SessionView'
+import { ToastRegion } from './toast/ToastRegion'
 
 const styles = {
   column: { display: 'flex', flexDirection: 'column', width: '100%', height: '100%' },
@@ -56,30 +57,34 @@ export function App() {
   const view = useNavigation((store) => store.view)
   const canvas = <Canvas projectId={active?.id} />
   // The app version is the second line of the Harness toolbar item (shell/toolbar/HarnessStatus.tsx).
+  // The toasts of the window (toast/ToastRegion.tsx) are drawn on <body>, above every view.
   return (
-    <AppShell
-      project={project}
-      view={view}
-      onViewChange={setView}
-      canvas={
-        shown === undefined ? (
-          canvas
-        ) : (
-          // Over the Canvas, why the Linked machine's Projects cannot be reached now; the window
-          // loads again by itself once they can (useProjects.ts, acceptLinkedState).
-          <div style={styles.column}>
-            {shown.problem !== null ? (
-              <div role="status" data-testid="linked-machine-notice" style={styles.notice}>
-                {shown.problem}
-              </div>
-            ) : null}
-            <div style={styles.fill}>{canvas}</div>
-          </div>
-        )
-      }
-      session={<SessionView projectId={active?.id} projectName={active?.name} />}
-      pipeline={<PipelineBoard project={active} />}
-    />
+    <>
+      <AppShell
+        project={project}
+        view={view}
+        onViewChange={setView}
+        canvas={
+          shown === undefined ? (
+            canvas
+          ) : (
+            // Over the Canvas, why the Linked machine's Projects cannot be reached now; the window
+            // loads again by itself once they can (useProjects.ts, acceptLinkedState).
+            <div style={styles.column}>
+              {shown.problem !== null ? (
+                <div role="status" data-testid="linked-machine-notice" style={styles.notice}>
+                  {shown.problem}
+                </div>
+              ) : null}
+              <div style={styles.fill}>{canvas}</div>
+            </div>
+          )
+        }
+        session={<SessionView projectId={active?.id} projectName={active?.name} />}
+        pipeline={<PipelineBoard project={active} />}
+      />
+      <ToastRegion projectId={active?.id} />
+    </>
   )
 }
 

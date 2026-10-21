@@ -2,7 +2,8 @@
 // store: every operation and every inverse goes through LayoutStore.apply, the code that applies
 // them in the app, so an inverse that main would read differently fails here.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { applyRecorded, deleteToTrash, grouped, History, historyOf, HISTORY_DEPTH, inverseOf, resetHistories, skippedNotice, SKIPPED_NOTICE_MS, trashRecorded, type Group, type LayoutChannel, type Send, type StepOutcome, type TrashClient } from '../../src/renderer/canvas/history'
+import { applyRecorded, deleteToTrash, grouped, History, historyOf, HISTORY_DEPTH, inverseOf, resetHistories, trashRecorded, type Group, type LayoutChannel, type Send, type StepOutcome, type TrashClient } from '../../src/renderer/canvas/history'
+import { resetToasts, TOAST_MS, toasts } from '../../src/renderer/toast/toasts'
 import { screenId } from '../../src/renderer/canvas/screen'
 import { LayoutStore, type LayoutChange } from '../../src/main/layout/store'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
@@ -37,8 +38,12 @@ const history = () => historyOf(PROJECT)
 const layoutNodeOf = (fields: Partial<LayoutNode> & { id: string; kind: string }): LayoutNode => layoutNodeSchema.parse({ x: 0, y: 0, w: 220, h: 120, ...fields })
 const note = (id: string, extra: Partial<LayoutNode> = {}) => store.apply(PROJECT, { op: 'create', node: { id, kind: 'note', x: 0, y: 0, w: 220, h: 120, data: { text: id }, ...extra } })
 
+/** The toast of a skipped ⌘Z or ⇧⌘Z, undefined when none is up. */
+const skippedToast = () => toasts.getState().toasts.find((toast) => toast.testId === 'undo-skipped')
+
 beforeEach(() => {
   resetHistories()
+  resetToasts()
   sent = []
   store = new LayoutStore(() => '/nonexistent/worfy-history-test', { write: () => undefined, delayMs: 60_000 })
 })
@@ -666,7 +671,7 @@ describe('history: changes made on another screen', () => {
     expect(await steps().undo()).toBe('skipped')
     expect(sends).toEqual([])
     expect(place('n')).toEqual({ x: 900, y: 900 })
-    expect(skippedNotice.getState().notice).toMatchObject({ projectId: SCREENS, direction: 'undo' })
+    expect(skippedToast()).toMatchObject({ kind: 'info', projectId: SCREENS, text: 'Not undone: this Node was changed on another screen', testId: 'undo-skipped' })
 
     expect(await steps().undo()).toBe(true)
     expect(place('m')).toEqual({ x: 0, y: 0 })
@@ -685,11 +690,11 @@ describe('history: changes made on another screen', () => {
     vi.useFakeTimers()
     try {
       expect(await steps().undo()).toBe('skipped')
-      expect(skippedNotice.getState().notice).not.toBeNull()
-      vi.advanceTimersByTime(SKIPPED_NOTICE_MS - 1)
-      expect(skippedNotice.getState().notice).not.toBeNull()
+      expect(skippedToast()).toBeDefined()
+      vi.advanceTimersByTime(TOAST_MS - 1)
+      expect(skippedToast()).toBeDefined()
       vi.advanceTimersByTime(1)
-      expect(skippedNotice.getState().notice).toBeNull()
+      expect(skippedToast()).toBeUndefined()
     } finally {
       vi.useRealTimers()
     }
@@ -702,7 +707,7 @@ describe('history: changes made on another screen', () => {
     expect(await steps().undo()).toBe(true)
     expect(place('n')).toEqual({ x: 0, y: 0 })
     expect(at('n')?.tags).toEqual(['theirs'])
-    expect(skippedNotice.getState().notice).toBeNull()
+    expect(skippedToast()).toBeUndefined()
   })
 
   it('a change of N without a screen (main, an agent, an automatic writer) leaves the step as it was before', async () => {
@@ -766,7 +771,7 @@ describe('history: changes made on another screen', () => {
     expect(await steps().redo()).toBe('skipped')
     expect(sends).toEqual([])
     expect(place('n')).toEqual({ x: 800, y: 0 })
-    expect(skippedNotice.getState().notice).toMatchObject({ projectId: SCREENS, direction: 'redo' })
+    expect(skippedToast()).toMatchObject({ kind: 'info', projectId: SCREENS, text: 'Not redone: this Node was changed on another screen' })
     expect(steps().canRedo).toBe(false)
   })
 
