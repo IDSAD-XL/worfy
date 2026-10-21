@@ -337,6 +337,8 @@ test('a Node is drawn in full, as its header, or as a block of its kind by zoom;
     const belowHeader = await headerOf(EPIC_BELOW)
     expect(belowHeader.top, 'the lower header starts under the upper frame').toBeGreaterThanOrEqual(first.bottom)
     for (const ticket of await boxes(window, `[data-testid="ticket-node"][data-epic="${EPIC}"]`)) expect(belowHeader.top).toBeGreaterThanOrEqual(ticket.bottom)
+    // The frame, drawn over its Tickets at far, has no ground of its own that would wash them out.
+    expect(await window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`).evaluate((element) => (globalThis as unknown as { getComputedStyle(target: unknown): { backgroundColor: string } }).getComputedStyle(element).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
     expect(far.epicBelowTitle).toMatchObject({ shown: true, whole: true, text: EPIC_BELOW })
     expect(far.epicBelowProgress).toMatchObject({ shown: true, text: '0/1' })
     // A Ticket under no header still takes the mouse: the frame lets it through.

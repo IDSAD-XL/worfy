@@ -442,8 +442,11 @@
    and it lets the mouse through everywhere but its header, so a Ticket under it still takes clicks.
    shortcut: a frame shorter than its header on the screen (a collapsed one, 56 units tall; or one of
    a single Ticket with a name of two lines at zoom 0.2) has the header reach below its bottom edge
-   into the gap and under the next frame of the column, whose own header covers it; redo when such a
-   frame must show its progress at far, e.g. with the progress on the name's row when it is short.
+   into the gap and under the next frame of the column, whose own header covers it. When that frame
+   is the last of the tallest column, 48 units above the done shelf (or another Node), the header
+   instead covers the shelf's label and first row of chips and takes their clicks. Redo when such a
+   frame must show its progress at far or a Node under it must stay clickable, e.g. with the progress
+   on the name's row when the frame is short. (A max-height of the frame's height would cut the name.)
    The tag, the subtitle and the actions go; the column labels and the done stack's text go; Tickets
    are blocks without text. */
 .react-flow[data-zoom-level='far'] .react-flow__node-epic-frame {
@@ -452,6 +455,10 @@
 }
 .react-flow[data-zoom-level='far'] .react-flow__node-ticket {
   z-index: 0 !important;
+}
+.react-flow[data-zoom-level='far'] .w-epic {
+  /* Drawn over its Tickets: a translucent ground would wash out their borders and the arrows. */
+  background: transparent;
 }
 .react-flow[data-zoom-level='far'] .w-epic__ground {
   visibility: hidden;
