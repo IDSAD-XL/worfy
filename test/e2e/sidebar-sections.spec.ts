@@ -359,22 +359,19 @@ test('an error of "Add project" stays above the list of Projects and takes no ro
     const freshEpics = sectionOf(fresh, 'EpicsSection').body
     const freshAdr = sectionOf(fresh, 'AdrSection').body
     // The column is as high as the page leaves it. In a page of 800×520 (macOS, where the window has
-    // no frame) the sections fit the column, which does not scroll, with both long lists above their
-    // floors. On Windows the frame takes part of the smallest window, and the column may be lower
-    // than the floors: then each long list is at its floor and the column scrolls instead.
+    // no frame) the sections fit the column, which does not scroll and is used to its end, with both
+    // long lists above their floors: by the CSS about 6 px are left over. On Windows the frame takes
+    // part of the smallest window: the page is 786×458 (measured at 150 %), the column 398 px high for
+    // 442 px of sections, so each long list is at its floor and the column scrolls instead.
     if (page.height >= MIN_SIZE.height) {
       expect(fresh.scrollHeight).toBe(fresh.clientHeight)
       expect(freshEpics).toBeGreaterThan(3 * EPIC_ROW)
       expect(freshAdr).toBeGreaterThan(3 * ROW)
-    }
-    if (fresh.scrollHeight > fresh.clientHeight) {
+      expect(Math.round(sectionOf(fresh, 'AdrSection').bottom)).toBe(Math.round(fresh.bottom))
+    } else {
+      expect(fresh.scrollHeight).toBeGreaterThan(fresh.clientHeight)
       expect(freshEpics).toBe(3 * EPIC_ROW)
       expect(freshAdr).toBe(3 * ROW)
-    } else {
-      // The column is used to its end, and no long list is squeezed under its floor.
-      expect(freshEpics).toBeGreaterThanOrEqual(3 * EPIC_ROW)
-      expect(freshAdr).toBeGreaterThanOrEqual(3 * ROW)
-      expect(Math.round(sectionOf(fresh, 'AdrSection').bottom)).toBe(Math.round(fresh.bottom))
     }
     expectNoOverlap(fresh)
     // Every section expanded: Machines is collapsed until the user expands it.

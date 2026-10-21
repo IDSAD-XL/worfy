@@ -281,11 +281,15 @@ interface PageElement {
  * this sets the outer size, unlike the other e2e steps that size the content: on Windows the
  * system frame takes part of it and the page is narrower and lower than MIN_SIZE (about 786×458);
  * on macOS the window has no frame of its own (titleBarStyle hiddenInset) and the page is MIN_SIZE.
- * At a fractional display scale the sizes Electron reports are rounded, so each may be 1 px off.
+ * At a fractional display scale the sizes Electron reports are rounded, so each may be 1 px off; the
+ * minimum itself goes through physical pixels and is rounded up: at 150 % the outer size comes out
+ * 800×522 (page 786×458), while a window without a minimum takes 800×520. So the outer size may be up
+ * to 2 px larger than MIN_SIZE (and 1 px smaller from the rounding).
  */
 export async function smallestWindow({ app, window }: { app: ElectronApplication; window: Page }, timeout?: number): Promise<{ width: number; height: number }> {
   await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]?.setSize(size.width, size.height), MIN_SIZE)
   const near = (got: number | undefined, wanted: number): boolean => got !== undefined && Math.abs(got - wanted) <= 1
+  const atMinimum = (got: number | undefined, wanted: number): boolean => got !== undefined && got >= wanted - 1 && got <= wanted + 2
   let inner = { width: 0, height: 0 }
   await expect
     .poll(
@@ -299,7 +303,7 @@ export async function smallestWindow({ app, window }: { app: ElectronApplication
           return { width: dom.innerWidth, height: dom.innerHeight }
         })
         return {
-          outerAtMinimum: near(outer?.[0], MIN_SIZE.width) && near(outer?.[1], MIN_SIZE.height),
+          outerAtMinimum: atMinimum(outer?.[0], MIN_SIZE.width) && atMinimum(outer?.[1], MIN_SIZE.height),
           pageFillsContent: near(content?.[0], inner.width),
           outer,
           content,
