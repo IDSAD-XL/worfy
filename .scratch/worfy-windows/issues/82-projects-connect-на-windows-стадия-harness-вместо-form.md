@@ -1,7 +1,8 @@
 # 82 — `projects-connect.spec.ts` на Windows: диалог показывает стадию `harness`, а не `form`
 
 Type: task
-Status: done 2026-10-21T07:39Z
+Status: done 2026-10-21T07:45Z
+PR: #671
 Blocked by: 80
 Source: проверка тикета 80 на ПК владельца (PR #667) и решение Session на Mac, 2026-10-21.
 
