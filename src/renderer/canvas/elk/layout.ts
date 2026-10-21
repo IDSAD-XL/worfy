@@ -29,6 +29,7 @@ import {
   stackTops,
   TICKET_WIDTH,
   TICKETS_TOP,
+  type CardContext,
   type EpicLayout,
   type LayoutTicket,
   type PlacedTicket,
@@ -44,8 +45,8 @@ export interface ElkEpicInput {
   tickets: readonly LayoutTicket[]
   doneExpanded: boolean
   name?: string | undefined
-  /** The names of the Project's Stages, for the cards' heights (`cardHeights`). */
-  stages?: readonly string[] | undefined
+  /** What the cards' heights depend on beyond the Tickets (`cardHeights`). */
+  cards?: CardContext | undefined
 }
 
 /** How far from a Ticket's side a route turns into the corridor. */
@@ -80,11 +81,11 @@ const LAYOUT_OPTIONS: Record<string, string> = {
  * column, see `layoutEpicElk`), and the forward Edges between open Tickets. `own` are the Edges
  * routed here instead; `heights` the height of each card (`cardHeights`), its ELK node's height.
  */
-export function elkGraph({ tickets, doneExpanded, stages }: ElkEpicInput): { graph: ElkNode; own: { blocker: number; blocked: number }[]; heights: Map<number, number> } {
+export function elkGraph({ tickets, doneExpanded, cards }: ElkEpicInput): { graph: ElkNode; own: { blocker: number; blocked: number }[]; heights: Map<number, number> } {
   const epic = epicColumns(tickets)
   const { columns } = epic
   // Each card as tall as what it shows (ticket-card.ts): ELK keeps them apart by their own heights.
-  const heights = cardHeights(tickets, epic, stages)
+  const heights = cardHeights(tickets, epic, cards)
   const columnOf = new Map<number, number>()
   const doneNums = new Set<number>()
   const children: ElkNode[] = []

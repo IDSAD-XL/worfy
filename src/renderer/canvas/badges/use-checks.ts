@@ -58,10 +58,12 @@ function fetchRepos(root: string): void {
   })
 }
 
-/** The mode and repositories of the Project at `root`; undefined until main answered. */
-export function useProjectRepos(root: string): ProjectRepos | undefined {
-  useEffect(() => fetchRepos(root), [root])
-  return useChecksStore((store) => store.repos[root])
+/** The mode and repositories of the Project at `root`; undefined until main answered, or without a root. */
+export function useProjectRepos(root: string | undefined): ProjectRepos | undefined {
+  useEffect(() => {
+    if (root !== undefined) fetchRepos(root)
+  }, [root])
+  return useChecksStore((store) => (root === undefined ? undefined : store.repos[root]))
 }
 
 /** What a copy of the checks is kept by: the Project that asks and the folder it asks about. */

@@ -5,7 +5,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Locator } from '@playwright/test'
-import { launchApp, ticketCardCuts } from './helpers'
+import { launchApp, overlaps, ticketCardCuts } from './helpers'
 import { catScript, profileJsonScript } from '../harness-node'
 
 // Gate, PR, CI and verdict badges (ticket 17) in the built app. A temporary WORFY_CLAUDE_HOME holds
@@ -379,6 +379,8 @@ interface StepperTicket {
   state: string
   reason?: string
   repo?: string
+  /** The title without its number; «Ticket N» when left out. */
+  title?: string
 }
 
 /** A Project whose Profile (a stand-in bin/profile) has the nine-Stage Pipeline (or `pipeline`) and `repos`, launched. */
@@ -405,7 +407,12 @@ async function launchNineStages(tickets: StepperTicket[], pulls: unknown[], repo
     git(each.path, 'commit', '-q', '-m', 'init')
   }
   const answer = join(claudeHome, 'epic-status.json')
-  const json = (t: StepperTicket) => ({ ...ticketJson(t.num, t.status, t.state), ...(t.reason ? { blockedReason: t.reason } : {}), ...(t.repo ? { repo: t.repo } : {}) })
+  const json = (t: StepperTicket) => ({
+    ...ticketJson(t.num, t.status, t.state),
+    ...(t.reason ? { blockedReason: t.reason } : {}),
+    ...(t.repo ? { repo: t.repo } : {}),
+    ...(t.title ? { title: `${String(t.num).padStart(2, '0')} — ${t.title}` } : {}),
+  })
   writeFileSync(answer, JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: true, hasMap: false }], tickets: tickets.map(json) }))
   writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
   const profile = { _resolved: { name: 'worfy', mode: 'full', workflow_folder: repo, workspace: repo, repos: projectRepos, pipeline }, workflow: { e2e_lock: join(scratch, 'no-lock') } }
@@ -557,6 +564,50 @@ test('nine Stages, a repository chip and the Ready chip on a 240 px Card: the re
       whole(fit.stepper, `the stepper beside ${name}`, fit)
       whole(fit.row, `the top row beside ${name}`, fit)
     }
+  } finally {
+    await launched.close()
+  }
+})
+
+test('the width estimate against the real fonts: Cyrillic, wide letters, a long path, emoji and a long repository name are whole on cards that do not overlap', async () => {
+  // ticket-card.ts guesses each character's width; these are the texts it is most likely to guess
+  // too narrow. Cyrillic is written as escapes: the sources stay in Latin script.
+  const CYRILLIC_TITLE =
+    'Кнопка снятия лота для модератора с причиной, которую видит продавец'
+  const CYRILLIC_REASON =
+    'ждёт ответа владельца, какой платёжный провайдер работает в продакшене'
+  const SHA = 'ШЩЖ'
+  const WIDE = `WWWWWWWWWW MMMMMMMMMM WMWMWMWMWM ${SHA.repeat(4)} ${'W'.repeat(30)}`
+  const PATH = 'src/renderer/canvas/epic-arrangement-and-k-column-strip-layout-with-long-names.ts'
+  const EMOJI = '✅ gate ❌ verdict ✅✅✅✅ ❌❌❌❌ ✅ done ❌ failed ✅❌✅❌✅❌'
+  const REPO = 'application-server-with-a-really-long-repository-name'
+  const tickets: StepperTicket[] = [
+    { num: 1, status: 'open', state: 'open', title: CYRILLIC_TITLE, repo: REPO },
+    { num: 2, status: `blocked — ${CYRILLIC_REASON}`, state: 'blocked', reason: CYRILLIC_REASON, title: CYRILLIC_TITLE },
+    { num: 3, status: 'open', state: 'open', title: WIDE },
+    { num: 4, status: 'blocked — see the path', state: 'blocked', reason: PATH, title: PATH },
+    { num: 5, status: 'open', state: 'open', title: EMOJI, repo: REPO },
+  ]
+  const launched = await launchNineStages(tickets, [], (repo) => [
+    { name: REPO, path: repo },
+    { name: 'web', path: join(scratch, 'web') },
+  ])
+  try {
+    const { window } = launched
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))
+    const boxes: { name: string; x: number; y: number; width: number; height: number }[] = []
+    for (const each of tickets) {
+      const card = window.locator(`[data-testid="ticket-node"][data-ticket="${each.num}"]`)
+      await expect(card.getByTestId('ticket-repo')).toBeVisible({ timeout: 20_000 })
+      await expect(card.locator('.w-ticket__title')).toHaveText(each.title!)
+      if (each.reason) await expect(card.locator('.w-ticket__reason')).toHaveText(each.reason)
+      if (each.repo) await expect(card.getByTestId('ticket-repo')).toHaveText(each.repo)
+      expect(await card.evaluate((node) => (node as unknown as { offsetWidth: number }).offsetWidth), `Ticket ${each.num} has the default width`).toBe(240)
+      expect(await ticketCardCuts(card), `nothing is cut on Ticket ${each.num}`).toEqual([])
+      const box = await card.boundingBox()
+      boxes.push({ name: `Ticket ${each.num}`, ...box! })
+    }
+    expect(overlaps(boxes), 'cards that overlap').toEqual([])
   } finally {
     await launched.close()
   }

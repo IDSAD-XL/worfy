@@ -120,8 +120,20 @@ export interface EpicLayoutInput {
   doneExpanded: boolean
   /** The Epic's name, which the header shows whole (`headerWidth`); defaults to its Tickets' Epic. */
   name?: string | undefined
-  /** The names of the Project's Stages, in order (the Pipeline snapshot); the cards' heights allow for them. */
+  /** What the cards' heights depend on beyond the Tickets (`cardHeights`). */
+  cards?: CardContext | undefined
+}
+
+/** What a card's height depends on beyond its Ticket: the Project's Stages and repositories. */
+export interface CardContext {
+  /** The names of the Project's Stages, in order (the Pipeline snapshot); the default Pipeline's while unknown. */
   stages?: readonly string[] | undefined
+  /**
+   * The Project has more than one repository, so every card shows a repository chip, «no repo»
+   * when the Ticket has no `Repo:` line (TicketNode.tsx, `useProjectRepos`); undefined until main
+   * answered.
+   */
+  severalRepos?: boolean | undefined
 }
 
 export const routeKey = (blocker: number, blocked: number): string => `${blocker}->${blocked}`
@@ -222,13 +234,11 @@ export function epicColumns(tickets: readonly LayoutTicket[]): EpicColumns {
  * reason or the blockers line, the Ready chip, its repository, whom it waits for, the Stage names
  * it can show — and nothing measured on screen, so the same Tickets always get the same heights.
  */
-export function cardHeights(tickets: readonly LayoutTicket[], columns: EpicColumns, stages?: readonly string[]): Map<number, number> {
+export function cardHeights(tickets: readonly LayoutTicket[], columns: EpicColumns, cards: CardContext = {}): Map<number, number> {
   const byNum = new Map(tickets.map((t) => [t.num, t]))
-  // The repository chip is drawn only in a Project over several repositories (TicketNode.tsx), which
-  // the layout does not read: a Ticket with a `Repo:` line says the Project is one, and there a
-  // Ticket without the line shows «no repo».
-  // shortcut: an Epic of such a Project in which no Ticket has a `Repo:` line gets no room for «no repo»; redo when the layout gets the Project's repositories.
-  const severalRepos = tickets.some((t) => t.repo?.trim())
+  // Until main says how many repositories the Project has, a Ticket with a `Repo:` line says it has
+  // several: the room for a chip the card does not draw yet costs one line, not cut text.
+  const severalRepos = cards.severalRepos ?? tickets.some((t) => t.repo?.trim())
   const heights = new Map<number, number>()
   for (const t of tickets) {
     const reason = t.state === 'blocked' ? (t.blockedReason ?? null) : null
@@ -241,7 +251,7 @@ export function cardHeights(tickets: readonly LayoutTicket[], columns: EpicColum
       ready: columns.ready.has(t.num),
       reason: reason || null,
       meta: blockersLine(t, columns.attention.get(t.num) ?? null, waitingOnOf(t, byNum)),
-      stages,
+      stages: cards.stages,
     })
     heights.set(t.num, height)
   }
@@ -302,13 +312,13 @@ export function headerOnly(columns: EpicColumns, collapsed: boolean, name: strin
  * The synchronous layout: Tickets by number in rows, Edges without a route. An Epic shows it until
  * ELK's first answer (ADR-0037); a collapsed frame and one without Tickets always show it.
  */
-export function layoutEpic({ tickets, collapsed, doneExpanded, name, stages }: EpicLayoutInput): EpicLayout {
+export function layoutEpic({ tickets, collapsed, doneExpanded, name, cards }: EpicLayoutInput): EpicLayout {
   const columns = epicColumns(tickets)
   const epicName = name ?? columns.columns[0]?.tickets[0]?.epic ?? ''
   const shell = headerOnly(columns, collapsed, epicName)
   if (collapsed || !columns.columns.length) return shell
 
-  const heights = cardHeights(tickets, columns, stages)
+  const heights = cardHeights(tickets, columns, cards)
   const drawn = columns.columns.filter((c) => c.column.kind !== 'done' || doneExpanded)
   const rows: number[][] = []
   for (const c of drawn) c.tickets.forEach((t, row) => (rows[row] ??= []).push(heights.get(t.num)!))

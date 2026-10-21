@@ -14,7 +14,7 @@ import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import TicketNode, { defaultHeight, defaultWidth } from '../../src/renderer/canvas/nodes/TicketNode'
 import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import { buildEpicNodes } from '../../src/renderer/canvas/sources/epics'
-import { cardHeight, CONTENT_WIDTH, TICKET_MIN_HEIGHT, TICKET_WIDTH, type CardInput } from '../../src/renderer/canvas/ticket-card'
+import { cardHeight, charEm, CONTENT_WIDTH, textLines, TICKET_MIN_HEIGHT, TICKET_WIDTH, type CardInput } from '../../src/renderer/canvas/ticket-card'
 
 // The badges and actions are their own tests' business: none here.
 vi.mock('../../src/renderer/canvas/badges', () => ({ actions: [], badges: [] }))
@@ -30,8 +30,9 @@ function rulesFor(source: string, parts: readonly string[]): { selector: string;
 }
 
 describe('the card CSS cuts nothing', () => {
-  const sheets = ['canvas/epic-frame.css', 'pipeline/stepper.css', 'canvas/badges/checks-badges.css']
-  const parts = ['.w-ticket', '.w-stepper', '.w-checks']
+  // primitives.css holds the base `.w-chip` of the Ready, repository and check chips.
+  const sheets = ['canvas/epic-frame.css', 'pipeline/stepper.css', 'canvas/badges/checks-badges.css', 'theme/primitives.css']
+  const parts = ['.w-ticket', '.w-stepper', '.w-checks', '.w-chip']
   const WRAPPING_ROWS = ['.w-ticket__top', '.w-ticket__title', '.w-ticket__meta', '.w-ticket__reason', '.w-ticket__slots', '.w-stepper', '.w-checks']
 
   it.each(sheets)('%s: no rule of the card ends text with «…», clamps lines or keeps text on one line inside a narrower box', (sheet) => {
@@ -40,6 +41,8 @@ describe('the card CSS cuts nothing', () => {
     for (const { selector, body } of rules) {
       expect(body, `${selector} ends text with «…»`).not.toMatch(/text-overflow\s*:\s*ellipsis/u)
       expect(body, `${selector} clamps lines`).not.toMatch(/line-clamp/u)
+      // A capped height that hides the rest cuts text as a clamp does.
+      if (/max-height\s*:/u.test(body)) expect(body, `${selector} caps its height and hides the rest`).not.toMatch(/overflow(-[xy])?\s*:\s*(hidden|clip)/u)
       // A fixed height would cut a row that wraps; these rows grow (min-height) instead.
       if (WRAPPING_ROWS.includes(selector)) expect(body, `${selector} has a fixed height`).not.toMatch(/(^|[;\s])height\s*:\s*\d+px/u)
     }
@@ -214,6 +217,33 @@ describe('the card is as tall as what it shows', () => {
     expect(cardHeight({ ...base, title: word })).toBeGreaterThan(cardHeight({ ...base, title: 'x'.repeat(10) }))
   })
 
+  it('a long path breaks after «-» and «/» as the browser does, which can take more lines than breaking anywhere', () => {
+    const path = 'src/renderer/canvas/epic-arrangement-and-k-column-strip-lay'
+    const at = (text: string) => textLines([{ text, font: { size: 12 } }], 206)
+    // The browser draws it on 3 lines at 12 px in 206 px (the blocked reason's width).
+    expect(at(path)).toBeGreaterThanOrEqual(3)
+    // Never fewer lines than breaking at white space only.
+    expect(at(path)).toBeGreaterThanOrEqual(at(path.replace(/[-/]/gu, 'x')))
+    // Four parts of about 60-67 px in 100 px: one part a line, where breaking anywhere would fill three.
+    expect(textLines([{ text: 'aaaaaaaa-aaaaaaaa-aaaaaaaa-aaaaaaaa', font: { size: 12 } }], 100)).toBe(4)
+  })
+
+  it('the character widths stay at or above what the UI fonts draw', () => {
+    const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => String.fromCodePoint(from + i))
+    const floor = (chars: readonly string[], em: number, label: string) => {
+      for (const ch of chars) expect(charEm(ch), `${label} ${ch}`).toBeGreaterThanOrEqual(em)
+    }
+    floor([...'abcdeghknopqsuvxyz'], 0.62, 'Latin small')
+    floor([...'ABCDEFGHKLNOPQRSTUVXYZ'], 0.78, 'Latin capital')
+    floor([...'0123456789-"'], 0.66, 'digit or sign')
+    floor(range(0x430, 0x44f), 0.66, 'Cyrillic small')
+    floor(range(0x410, 0x42f), 0.78, 'Cyrillic capital')
+    floor(['W', 'M', 'm', String.fromCodePoint(0x428)], 0.95, 'wide')
+    // Symbols and emoji, such as the check marks of a verdict.
+    floor([0x2600, 0x2705, 0x274c, 0x1f600].map((code) => String.fromCodePoint(code)), 1.5, 'emoji')
+    for (const ch of 'aZ0-') expect(charEm(ch, true), `monospace ${ch}`).toBeGreaterThanOrEqual(0.62)
+  })
+
   it('room for the Stage names the Project uses: a long custom name takes another line of the top row', () => {
     const custom = ['Waiting to start for a really long while', 'Implementing', 'Done']
     expect(cardHeight({ ...base, stages: custom })).toBeGreaterThan(cardHeight(base))
@@ -223,7 +253,9 @@ describe('the card is as tall as what it shows', () => {
   it('room for a long Waits: value, a repository name and the Ready chip in the top row', () => {
     expect(cardHeight({ ...base, waits: 'the owner of the payment provider account, after the vendor answers' })).toBeGreaterThan(cardHeight(base))
     expect(cardHeight({ ...base, repo: 'x'.repeat(60) })).toBeGreaterThan(cardHeight(base))
-    expect(cardHeight({ ...base, ready: true })).toBeGreaterThanOrEqual(cardHeight(base))
+    // Ready fits beside a short card's stepper; beside a repository chip it goes to a row of its own.
+    expect(cardHeight({ ...base, ready: true })).toBe(cardHeight(base))
+    expect(cardHeight({ ...base, repo: 'abcdefghij', ready: true })).toBeGreaterThan(cardHeight({ ...base, repo: 'abcdefghij' }))
   })
 
   it('CONTENT_WIDTH is the card less its 1 px border and 10 px padding on each side', () => {

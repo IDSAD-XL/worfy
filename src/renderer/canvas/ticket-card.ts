@@ -64,7 +64,7 @@ export interface Font {
 // Wide Cyrillic: capital and small Zhe, Sha, Shcha, Yu, Em, Ef, Yeru.
 const WIDE = new Set('MWmw@%\u0416\u0428\u0429\u042e\u041c\u0424\u042b\u0436\u0448\u0449\u044e\u043c\u0444\u044b')
 const NARROW = new Set(" il.,:;'!|`Ij")
-const SLIM = new Set('ftr()[]{}-/\\"*')
+const SLIM = new Set('ftr()[]{}/\\*')
 
 /**
  * The width of one character in em, a little over that of the UI font (SF Pro on macOS, Segoe UI
@@ -73,12 +73,15 @@ const SLIM = new Set('ftr()[]{}-/\\"*')
  */
 export function charEm(ch: string, mono = false): number {
   const code = ch.codePointAt(0) ?? 0
-  if (code >= 0x2e80) return 1.3
+  // Symbols and emoji (from U+2600 on) and CJK: a colour emoji is wider than its em.
+  if (code >= 0x2600) return 1.5
   if (mono) return code < 0x2000 ? 0.62 : 1
   if (NARROW.has(ch)) return 0.32
   if (SLIM.has(ch)) return 0.44
   if (WIDE.has(ch)) return ch === ch.toLowerCase() ? 0.95 : 1.02
-  if (/[a-z0-9]/u.test(ch)) return 0.62
+  // Digits, «-» and «"» are tabular or wide in SF Pro and Segoe UI.
+  if (/[0-9"-]/u.test(ch)) return 0.66
+  if (/[a-z]/u.test(ch)) return 0.62
   if (/[\u0430-\u044f\u0451]/u.test(ch)) return 0.66
   if (/[A-Z\u0410-\u042f\u0401]/u.test(ch)) return 0.78
   return code < 0x2000 ? 0.8 : 1
@@ -101,47 +104,58 @@ export interface Run {
   font: Font
 }
 
-/**
- * How many lines `runs` take in `width` px: breaks at spaces, and inside a word only when the word
- * alone is wider than the line (`overflow-wrap: anywhere`). White space collapses as in HTML. No
- * text — no lines.
- */
-export function textLines(runs: readonly Run[], width: number): number {
-  const room = width - 1
-  const words: { width: number; chars: number[] }[] = []
-  let current: number[] = []
+/** A piece of a line between break opportunities, with the width of the white space before it. */
+interface Piece {
+  width: number
+  chars: number[]
+  space: number
+}
+
+/** `runs` cut at white space, and also after «-» and «/» when `soft`. */
+function pieces(runs: readonly Run[], soft: boolean): Piece[] {
+  const out: Piece[] = []
+  let chars: number[] = []
   let space = 0
   const close = () => {
-    if (current.length) words.push({ width: current.reduce((sum, w) => sum + w, 0), chars: current })
-    current = []
+    if (chars.length) out.push({ width: chars.reduce((sum, w) => sum + w, 0), chars, space })
+    chars = []
+    space = 0
   }
   for (const run of runs) {
     for (const ch of run.text) {
       if (/\s/u.test(ch)) {
         close()
         space = Math.max(space, charWidth(' ', run.font))
-      } else current.push(charWidth(ch, run.font))
+        continue
+      }
+      chars.push(charWidth(ch, run.font))
+      if (soft && (ch === '-' || ch === '/')) close()
     }
   }
   close()
-  if (!words.length) return 0
+  return out
+}
+
+/** Greedy line filling of `list` in `room` px; a piece wider than the line breaks between its characters. */
+function fill(list: readonly Piece[], room: number): number {
+  if (!list.length) return 0
   let lines = 1
   let x = 0
-  for (const word of words) {
-    const gap = x === 0 ? 0 : space
-    if (x + gap + word.width <= room) {
-      x += gap + word.width
+  for (const piece of list) {
+    const gap = x === 0 ? 0 : piece.space
+    if (x + gap + piece.width <= room) {
+      x += gap + piece.width
       continue
     }
     if (x > 0) {
       lines += 1
       x = 0
     }
-    if (word.width <= room) {
-      x = word.width
+    if (piece.width <= room) {
+      x = piece.width
       continue
     }
-    for (const w of word.chars) {
+    for (const w of piece.chars) {
       if (x > 0 && x + w > room) {
         lines += 1
         x = 0
@@ -150,6 +164,17 @@ export function textLines(runs: readonly Run[], width: number): number {
     }
   }
   return lines
+}
+
+/**
+ * How many lines `runs` take in `width` px. The browser breaks at white space and after «-» and
+ * «/», and inside a word only when a piece alone is wider than the line (`overflow-wrap:
+ * anywhere`); the count is the larger of breaking at white space only and breaking at all three,
+ * since either can take more lines. White space collapses as in HTML. No text — no lines.
+ */
+export function textLines(runs: readonly Run[], width: number): number {
+  const room = width - 1
+  return Math.max(fill(pieces(runs, false), room), fill(pieces(runs, true), room))
 }
 
 const lines = (text: string, font: Font, width: number) => textLines([{ text, font }], width)

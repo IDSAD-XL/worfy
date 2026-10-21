@@ -59,6 +59,15 @@ describe('elkKey', () => {
     delete withoutField.fromBranch
     expect(elkKey([withoutField, merged[1]!], 'a')).toBe(elkKey(merged, 'a'))
   })
+
+  it("holds each card's height: a title that takes another line, or a repository chip, is a new key; a word changed on the same line is not", () => {
+    const short = [ticket(1, { title: 'Short title' })]
+    const long = [ticket(1, { title: 'A title long enough to take a second and then a third line of the card on the Canvas' })]
+    expect(elkKey(long, 'a')).not.toBe(elkKey(short, 'a'))
+    expect(elkKey([ticket(1, { title: 'Short titel' })], 'a')).toBe(elkKey(short, 'a'))
+    const work = [ticket(1, { state: 'work', statusRaw: 'claimed', waits: 'agent' })]
+    expect(elkKey(work, 'a', { severalRepos: true })).not.toBe(elkKey(work, 'a', { severalRepos: false }))
+  })
 })
 
 describe('the frame when a branch-done blocker is merged', () => {
@@ -125,5 +134,26 @@ describe('the frame when a branch-done blocker is merged', () => {
     for (const release of forMerged) release()
     await vi.waitFor(() => expect(useElkAnswers.getState()[id]?.a?.key).toBe(elkKey(merged, 'a')))
     expect(readyOf(build(merged))).toEqual([2])
+  })
+})
+
+describe('the old answer shown while ELK works', () => {
+  it("keeps each card's place and gives it the height of what it shows now", async () => {
+    setElkEngine(new ELK())
+    const id = freshProject()
+    const build = (tickets: Ticket[]) => buildEpicNodes(id, '/repo', model(tickets), layout, {}, [], useElkAnswers.getState()[id])
+    const card = (nodes: ReturnType<typeof build>, num: number) => nodes.find((n) => n.type === 'ticket' && (n.data.node.data as TicketNodeData).placed.num === num)!
+    const short = [ticket(1, { title: 'Short' }), ticket(2)]
+    build(short)
+    requestEpicLayouts(id)
+    await vi.waitFor(() => expect(useElkAnswers.getState()[id]?.a?.key).toBe(elkKey(short, 'a')))
+    const before = card(build(short), 1)
+
+    // ELK not asked yet: the old place, the new height.
+    const long = [ticket(1, { title: 'A title long enough to take a second and then a third line of the card on the Canvas' }), ticket(2)]
+    const waiting = card(build(long), 1)
+    expect(waiting.position).toEqual(before.position)
+    expect(waiting.height).toBeGreaterThan(before.height!)
+    expect((waiting.data.node.data as TicketNodeData).placed.height).toBe(waiting.height)
   })
 })

@@ -38,6 +38,7 @@ import { readOnlyNow } from '../../projects/read-only-now'
 import { useProjects } from '../../projects/useProjects'
 import { usePipeline } from '../../pipeline/usePipeline'
 import { useWorkflow } from '../../workflow/useWorkflow'
+import { useProjectRepos } from '../badges/use-checks'
 import { elkEngine, elkKey, requestEpicLayout, useElkAnswers, type ElkAnswer, type ElkRequest } from '../elk/client'
 import { arrange, orderFor, readArrangement, repack, sameDay, stripSize, type ArrangedFrame, type ArrangementRecord } from '../epic-arrangement'
 import {
@@ -50,6 +51,8 @@ import {
   progressOf,
   SHELF_CHIP_HEIGHT,
   TICKET_WIDTH,
+  cardHeights,
+  type CardContext,
   type EpicLayout,
   type Offset,
   type PlacedChip,
@@ -528,8 +531,8 @@ interface EpicEntry {
     collapsed: boolean
     doneExpanded: boolean
     answer: ElkAnswer | undefined
-    /** The Project's Stage names (`stagesKey`), which the cards' heights allow for. */
-    stages: string
+    /** What the cards' heights depend on beyond the Tickets (`cardsKey`). */
+    cards: string
   }
   layout: EpicLayout
   /** The frame's height with the done stack open: what the frames' column keeps free for it (ADR-0032). */
@@ -548,10 +551,15 @@ interface EpicEntry {
  * Ticket that is gone is dropped with its routes. A Ticket that is new has no place in it and
  * waits for the answer.
  */
-function keepPlaces(stale: EpicLayout, tickets: readonly Ticket[]): EpicLayout {
+function keepPlaces(stale: EpicLayout, tickets: readonly Ticket[], cards: CardContext | undefined): EpicLayout {
   const nums = new Set(tickets.map((t) => t.num))
-  const { ready, attention } = epicColumns(tickets)
-  const kept = stale.tickets.filter((t) => nums.has(t.num)).map((t) => ({ ...t, ready: ready.has(t.num), attention: attention.get(t.num) ?? null }))
+  const columns = epicColumns(tickets)
+  const { ready, attention } = columns
+  // A card is as tall as what it shows now: a longer title is not cut while ELK works.
+  const heights = cardHeights(tickets, columns, cards)
+  const kept = stale.tickets
+    .filter((t) => nums.has(t.num))
+    .map((t) => ({ ...t, height: heights.get(t.num) ?? t.height, ready: ready.has(t.num), attention: attention.get(t.num) ?? null }))
   const shown = new Set(kept.map((t) => t.num))
   const routes: Record<string, readonly Point[]> = {}
   for (const [key, route] of Object.entries(stale.routes)) {
@@ -569,19 +577,19 @@ function frameLayout(
   doneExpanded: boolean,
   answer: ElkAnswer | undefined,
   key: string | null,
-  stages: readonly string[] | undefined,
+  cards: CardContext | undefined,
 ): { layout: EpicLayout; reserve: number } {
   if (collapsed || answer === undefined || key === null) {
-    const layout = layoutEpic({ tickets, collapsed, doneExpanded, name, stages })
-    const reserve = collapsed || doneExpanded ? layout.height : layoutEpic({ tickets, collapsed: false, doneExpanded: true, name, stages }).height
+    const layout = layoutEpic({ tickets, collapsed, doneExpanded, name, cards })
+    const reserve = collapsed || doneExpanded ? layout.height : layoutEpic({ tickets, collapsed: false, doneExpanded: true, name, cards }).height
     return { layout, reserve }
   }
   const chosen = doneExpanded ? answer.open : answer.folded
-  return { layout: answer.key === key ? chosen : keepPlaces(chosen, tickets), reserve: answer.open.height }
+  return { layout: answer.key === key ? chosen : keepPlaces(chosen, tickets, cards), reserve: answer.open.height }
 }
 
-/** The Stage names as one string, to tell a new list from the same one. */
-const stagesKey = (stages: readonly string[] | undefined): string => JSON.stringify(stages ?? null)
+/** The card context as one string, to tell a new one from the same. */
+const cardsKey = (cards: CardContext | undefined): string => JSON.stringify([cards?.stages ?? null, cards?.severalRepos ?? null])
 
 /** Per Project and Epic, the last computed frame, so an Epic that did not change keeps its objects. */
 const cache = new Map<string, EpicEntry>()
@@ -671,8 +679,8 @@ export function buildEpicNodes(
   derived: readonly Rect[] = [],
   /** ELK's last answer per Epic of this Project (elk/client.ts). */
   answers: Readonly<Record<string, ElkAnswer>> = {},
-  /** The names of the Project's Stages (the Pipeline snapshot); the cards' heights allow for them. Undefined: the default Pipeline's. */
-  stages?: readonly string[],
+  /** The Project's Stage names and whether it has several repositories, which the cards' heights allow for. */
+  cards?: CardContext,
 ): readonly CanvasFlowNode[] {
   if (root === undefined || model === undefined || model.error !== null) {
     lastNodes.delete(projectId)
@@ -707,7 +715,7 @@ export function buildEpicNodes(
       collapsed: saved.collapsed ?? defaultCollapsed(tickets),
       doneExpanded: doneExpanded[key] === true,
       answer: answers[epic.epic],
-      stages: stagesKey(stages),
+      cards: cardsKey(cards),
     }
     let entry = cache.get(key)
     const sameTickets = entry !== undefined && entry.inputs.epic === inputs.epic && sameArray(entry.inputs.tickets, inputs.tickets)
@@ -719,16 +727,16 @@ export function buildEpicNodes(
       entry.inputs.collapsed === inputs.collapsed &&
       entry.inputs.doneExpanded === inputs.doneExpanded &&
       entry.inputs.answer === inputs.answer &&
-      entry.inputs.stages === inputs.stages
+      entry.inputs.cards === inputs.cards
     if (!same) {
       // ELK lays out an open frame with Tickets; the key is computed again only when they changed.
       const request =
         inputs.collapsed || tickets.length === 0
           ? null
-          : sameTickets && entry!.request !== null && entry!.inputs.stages === inputs.stages
+          : sameTickets && entry!.request !== null && entry!.inputs.cards === inputs.cards
             ? entry!.request
-            : { key: elkKey(tickets, epic.epic, stages), tickets, name: epic.epic, stages }
-      const { layout: epicLayout, reserve } = frameLayout(tickets, epic.epic, inputs.collapsed, inputs.doneExpanded, inputs.answer, request?.key ?? null, stages)
+            : { key: elkKey(tickets, epic.epic, cards), tickets, name: epic.epic, cards }
+      const { layout: epicLayout, reserve } = frameLayout(tickets, epic.epic, inputs.collapsed, inputs.doneExpanded, inputs.answer, request?.key ?? null, cards)
       entry = {
         inputs,
         layout: epicLayout,
@@ -913,10 +921,16 @@ function useEpicNodes({ projectId, layout }: NodeSourceContext): readonly Canvas
   // The Stage names the cards can show, for their heights: one string, so a new snapshot of the same Pipeline changes nothing.
   const { snapshot } = usePipeline(root)
   const titles = snapshot === undefined ? null : JSON.stringify(snapshot.pipeline.map((column) => column.title))
-  const stages = useMemo(() => (titles === null ? undefined : (JSON.parse(titles) as string[])), [titles])
+  // A Project of several repositories draws a repository chip on every card (TicketNode.tsx).
+  const repos = useProjectRepos(root)
+  const severalRepos = repos === undefined ? undefined : repos.repos.length >= 2
+  const cards = useMemo<CardContext>(
+    () => ({ stages: titles === null ? undefined : (JSON.parse(titles) as string[]), severalRepos }),
+    [titles, severalRepos],
+  )
   const nodes = useMemo(
-    () => buildEpicNodes(projectId, root, model, layout, doneExpanded, derived, answers, stages),
-    [projectId, root, model, layout, doneExpanded, derived, answers, stages],
+    () => buildEpicNodes(projectId, root, model, layout, doneExpanded, derived, answers, cards),
+    [projectId, root, model, layout, doneExpanded, derived, answers, cards],
   )
   // After the build, so a request goes out for the inputs the Canvas shows.
   useEffect(() => requestEpicLayouts(projectId), [projectId, nodes])

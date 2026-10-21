@@ -4,8 +4,10 @@ import { placeNear } from '../../src/shared/canvas/tools'
 import { freePlace, NODE_GAP } from '../../src/shared/layout/free-place'
 import type { Ticket } from '../../src/shared/workflow/types'
 import {
+  cardHeights,
   COLUMN_GAP,
   defaultCollapsed,
+  epicColumns,
   EDGE_CORNER_RADIUS,
   FRAME_GAP,
   FRAME_PADDING,
@@ -742,14 +744,15 @@ describe('cards of different heights', () => {
     for (const t of layout.tickets) expect(t.y + t.height + FRAME_PADDING, `${label}: ticket ${t.num} in the frame`).toBeLessThanOrEqual(layout.height)
   }
 
-  // Level 1: 1 (long title), 2; level 2: 3 (blocked, long reason), 4; level 3: 5. Two done Tickets in the stack.
+  // Level 1: 1 (long title), 2; level 2: 3 (blocked, long reason), 4; level 3: 5. Two done Tickets
+  // in the stack, the first with a long title: the open stack steps by each card's own height.
   const mixed = [
     ticket(1, { title: `01 — ${LONG}` }),
     ticket(2),
     ticket(3, { ...blocked(1), state: 'blocked', statusRaw: 'blocked', blockedReason: 'waits for the owner to answer which payment provider the platform uses in production' }),
     ticket(4, blocked(2)),
     ticket(5, blocked(3, 4)),
-    ticket(8, done),
+    ticket(8, { ...done, title: `08 — ${LONG}` }),
     ticket(9, done),
   ]
 
@@ -784,6 +787,29 @@ describe('cards of different heights', () => {
       expectApart(layoutEpic({ tickets: mixed, collapsed: false, doneExpanded }), `synchronous, stack ${doneExpanded ? 'open' : 'folded'}`)
       expectApart(await laidOut(mixed, doneExpanded), `ELK, stack ${doneExpanded ? 'open' : 'folded'}`)
     }
+    // The open stack holds a tall card on top: the one under it starts below its own height.
+    for (const [label, layout] of [
+      ['synchronous', layoutEpic({ tickets: mixed, collapsed: false, doneExpanded: true })],
+      ['ELK', await laidOut(mixed, true)],
+    ] as const) {
+      const [top, next] = layout.tickets.filter((t) => t.column.kind === 'done').sort((a, b) => a.y - b.y)
+      expect(top!.num, label).toBe(8)
+      expect(top!.height, label).toBeGreaterThan(TICKET_MIN_HEIGHT)
+      expect(next!.y, label).toBe(top!.y + top!.height + ROW_GAP)
+    }
+  })
+
+  it('a Project of several repositories: every card has room for its repository chip, «no repo» too, when no Ticket of the Epic has a Repo: line', () => {
+    // Ticket 12 in work waits for an agent: its stepper and the «no repo» chip do not fit one row.
+    const tickets = [ticket(12, { state: 'work', statusRaw: 'claimed', waits: 'agent' })]
+    const columns = epicColumns(tickets)
+    const several = cardHeights(tickets, columns, { severalRepos: true }).get(12)!
+    expect(several).toBeGreaterThan(cardHeights(tickets, columns, { severalRepos: false }).get(12)!)
+    expect(placed(layoutEpic({ tickets, collapsed: false, doneExpanded: false, cards: { severalRepos: true } }), 12).height).toBe(several)
+    // Until main answers, a Ticket with a Repo: line is what says the Project has several.
+    expect(cardHeights(tickets, columns).get(12)).toBe(TICKET_MIN_HEIGHT)
+    const withRepo = [ticket(12, { state: 'work', statusRaw: 'claimed', waits: 'agent' }), ticket(13, { repo: 'api' })]
+    expect(cardHeights(withRepo, epicColumns(withRepo)).get(12)).toBe(several)
   })
 
   it('ELK keeps a row gap under each card by its own height, and routes from the middle of its side', async () => {

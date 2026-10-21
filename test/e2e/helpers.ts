@@ -666,13 +666,15 @@ export async function launchLinkedPair(options: { a?: LaunchOptions; b?: LaunchO
 }
 
 /**
- * What is cut inside a Ticket card (worfy-canvas ticket 18: nothing is): every element whose
- * content is wider than its box, that ends its text with "…" or clamps its lines, and the card
- * itself when its content is taller than the card. Empty when everything on the card is whole.
+ * What is cut inside a Ticket card (worfy-canvas ticket 18: nothing is). For the card and every
+ * element in it: content wider or taller than its box, text ending with "…" or clamped lines. And
+ * by the drawn boxes, to a fraction of a pixel: an element or a piece of text that reaches past
+ * the padding box of an ancestor that clips (the card is one). Empty when everything is whole.
  */
 export async function ticketCardCuts(card: Locator): Promise<string[]> {
   return card.evaluate((node) => {
     // The e2e typecheck has no DOM library: the few page types used here.
+    type Box = { left: number; top: number; right: number; bottom: number; width: number; height: number }
     type Element = {
       scrollWidth?: number
       clientWidth: number
@@ -681,22 +683,88 @@ export async function ticketCardCuts(card: Locator): Promise<string[]> {
       tagName: string
       className: unknown
       textContent: string | null
+      parentElement: Element | null
+      childNodes: ArrayLike<{ nodeType: number; textContent: string | null }>
+      getBoundingClientRect(): Box
       querySelectorAll(selector: string): ArrayLike<Element>
     }
-    type Style = { display: string; textOverflow: string; webkitLineClamp?: string }
-    const page = globalThis as unknown as { getComputedStyle(element: Element): Style }
+    type Style = {
+      display: string
+      textOverflow: string
+      webkitLineClamp?: string
+      overflowX: string
+      overflowY: string
+      borderLeftWidth: string
+      borderTopWidth: string
+      borderRightWidth: string
+      borderBottomWidth: string
+    }
+    type Range = { selectNodeContents(element: Element): void; getBoundingClientRect(): Box }
+    const page = globalThis as unknown as { getComputedStyle(element: Element): Style; document: { createRange(): Range } }
     const root = node as unknown as Element
     const name = (element: Element) => `<${element.tagName.toLowerCase()} class="${String(element.className)}"> «${(element.textContent ?? '').slice(0, 60)}»`
+    // Rounding of the layout itself, far below what shows as a cut glyph.
+    const EPSILON = 0.05
+    /** The padding box of `element`: what it shows when it clips. */
+    const paddingBox = (element: Element): Box => {
+      const box = element.getBoundingClientRect()
+      const style = page.getComputedStyle(element)
+      const left = box.left + parseFloat(style.borderLeftWidth)
+      const top = box.top + parseFloat(style.borderTopWidth)
+      const right = box.right - parseFloat(style.borderRightWidth)
+      const bottom = box.bottom - parseFloat(style.borderBottomWidth)
+      return { left, top, right, bottom, width: right - left, height: bottom - top }
+    }
+    const clips = (element: Element) => {
+      const style = page.getComputedStyle(element)
+      return style.overflowX !== 'visible' || style.overflowY !== 'visible'
+    }
+    /** How far `box` reaches past `clip`, side by side; empty when it stays inside. */
+    const past = (box: Box, clip: Box): string[] => {
+      const sides: string[] = []
+      if (box.left < clip.left - EPSILON) sides.push(`left by ${(clip.left - box.left).toFixed(2)} px`)
+      if (box.top < clip.top - EPSILON) sides.push(`top by ${(clip.top - box.top).toFixed(2)} px`)
+      if (box.right > clip.right + EPSILON) sides.push(`right by ${(box.right - clip.right).toFixed(2)} px`)
+      if (box.bottom > clip.bottom + EPSILON) sides.push(`bottom by ${(box.bottom - clip.bottom).toFixed(2)} px`)
+      return sides
+    }
+    /** The clipping ancestors of `element` up to the card, the card included, with `element` itself when it clips. */
+    const clippers = (element: Element, self: boolean): Element[] => {
+      const found: Element[] = []
+      for (let at: Element | null = self ? element : element.parentElement; at; at = at.parentElement) {
+        if (at === root || clips(at)) found.push(at)
+        if (at === root) break
+      }
+      return found
+    }
     const cuts: string[] = []
-    if (root.scrollHeight > root.clientHeight) cuts.push(`the card: its content is ${root.scrollHeight} px tall in ${root.clientHeight} px`)
     for (const element of [root, ...Array.from(root.querySelectorAll('*'))]) {
       // SVG elements have no scrollWidth; an element not drawn cuts nothing.
       if (typeof element.scrollWidth !== 'number') continue
       const style = page.getComputedStyle(element)
       if (style.display === 'none') continue
       if (element.clientWidth > 0 && element.scrollWidth > element.clientWidth) cuts.push(`${name(element)}: ${element.scrollWidth} px wide in ${element.clientWidth} px`)
+      if (element.clientHeight > 0 && element.scrollHeight > element.clientHeight) cuts.push(`${name(element)}: ${element.scrollHeight} px tall in ${element.clientHeight} px`)
       if (style.textOverflow === 'ellipsis') cuts.push(`${name(element)}: text-overflow: ellipsis`)
       if (style.webkitLineClamp !== undefined && style.webkitLineClamp !== 'none' && style.webkitLineClamp !== '') cuts.push(`${name(element)}: -webkit-line-clamp: ${style.webkitLineClamp}`)
+      const box = element.getBoundingClientRect()
+      if (element !== root && box.width > 0 && box.height > 0) {
+        for (const clip of clippers(element, false)) {
+          const sides = past(box, paddingBox(clip))
+          if (sides.length) cuts.push(`${name(element)}: past ${clip === root ? 'the card' : name(clip)}, ${sides.join(', ')}`)
+        }
+      }
+      // The element's own text, measured as drawn, inside every box that clips it.
+      const hasText = Array.from(element.childNodes).some((child) => child.nodeType === 3 && (child.textContent ?? '').trim() !== '')
+      if (!hasText) continue
+      const range = page.document.createRange()
+      range.selectNodeContents(element)
+      const text = range.getBoundingClientRect()
+      if (text.width === 0 && text.height === 0) continue
+      for (const clip of clippers(element, true)) {
+        const sides = past(text, paddingBox(clip))
+        if (sides.length) cuts.push(`${name(element)}: its text past ${clip === element ? 'its own box' : clip === root ? 'the card' : name(clip)}, ${sides.join(', ')}`)
+      }
     }
     return cuts
   })
