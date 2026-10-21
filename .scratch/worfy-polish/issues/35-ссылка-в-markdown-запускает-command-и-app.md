@@ -1,7 +1,8 @@
 # 35 — Ссылка в markdown на `.command` или `.app` в Project-е запускает его по щелчку
 
 Type: bug
-Status: claimed 2026-10-21T12:16Z
+Status: done 2026-10-21T19:33Z
+PR: #692
 Branch: worfy-polish/35
 Blocked by: —
 Source: ревью PR [#530](https://github.com/IDSAD-XL/worfy/pull/530) (worfy-polish 33, Ticket целиком в
