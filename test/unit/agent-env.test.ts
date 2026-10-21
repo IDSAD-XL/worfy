@@ -502,10 +502,22 @@ describe('the registry stand-in of WORFY_REGISTRY_STAND_IN', () => {
     expect(naming).toEqual(['main/agent/env.ts'])
     // The code of env.ts, without its comment lines.
     const env = sources.find(({ file }) => file === 'main/agent/env.ts')!.text.split('\n').filter((line) => !/^\s*(\/\/|\/?\*)/.test(line)).join('\n')
-    // Its one use besides the declaration is the read in registryReader: no assignment, no object key that would set it.
+    // The name itself is written once, in the declaration: no `process.env['WORFY_…'] =`, no
+    // `{ WORFY_…: … }`, no `setVar(env, 'WORFY_…', …)` (Mac review of PR #673).
+    expect(env.match(/WORFY_REGISTRY_STAND_IN/g)).toEqual(['WORFY_REGISTRY_STAND_IN'])
+    expect(env).toContain("export const REGISTRY_STAND_IN_VAR = 'WORFY_REGISTRY_STAND_IN'")
+    // The constant's one use besides the declaration is the read in registryReader: so no
+    // `[REGISTRY_STAND_IN_VAR]: …`, `env[REGISTRY_STAND_IN_VAR] =` or `setVar(env, REGISTRY_STAND_IN_VAR, …)` either.
     expect(env.match(/REGISTRY_STAND_IN_VAR(?!\s*=\s*'WORFY_REGISTRY_STAND_IN')/g)).toEqual(['REGISTRY_STAND_IN_VAR'])
     expect(env).toContain('getVar(source, REGISTRY_STAND_IN_VAR)')
-    expect(env).not.toMatch(/\[REGISTRY_STAND_IN_VAR\]|\.WORFY_REGISTRY_STAND_IN\s*=/)
+  })
+
+  it('a file of another shape is a registry that cannot be read: the reader rejects and names the file', async () => {
+    const file = join(dir, 'registry.json')
+    for (const keys of [[], { [PERSISTENT_ENV_KEYS[0]]: 'C:\\bin' }, { [PERSISTENT_ENV_KEYS[0]]: [{ name: 'Path', type: 'REG_SZ', value: 1 }] }]) {
+      await writeFile(file, JSON.stringify(keys))
+      await expect(fileRegRead(file)(PERSISTENT_ENV_KEYS[0]), JSON.stringify(keys)).rejects.toThrow(`the registry stand-in ${file} is not keys of { name, type, value } lists`)
+    }
   })
 
   it('a key the file lacks is a registry that cannot be read: the capture falls back and says why', async () => {

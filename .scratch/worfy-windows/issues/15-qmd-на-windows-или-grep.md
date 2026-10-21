@@ -140,6 +140,10 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
 - [ ] Подмены `test/fixtures/first-run-tools/npm.mjs` и `qmd.mjs` запускаются хотя бы одним test-ом до того,
       как сняты пропуски qmd на Windows: сейчас их не запускает ни один test ни на одной системе
       (`test/fixtures/first-run-tools/README.md:15`; ревью PR #523, low 2; добавлено 2026-10-20).
+- [ ] В e2e первого запуска нет веток Windows из-за qmd (тикет 81, ревью Mac PR #673; добавлено 2026-10-21):
+      `NO_QMD` и `CHECK_RUN_CALL` в `test/e2e/first-run-sandbox.ts` убраны; `first-run.spec.ts` проходит
+      шаги моделей qmd и «Everything is ready» и на Windows; `settings-health.spec.ts` считает прогоны по
+      `qmd --version` и на Windows, а его сводка на Windows — без warning строки qmd.
 - [ ] Сняты пропуски на Windows групп A–C в `harness/bin/tests/qmd-collections.test.sh` (`if [ "$WIN" = 1 ]` с
       причинами `NO_ZSH`, `NO_SH_QMD`, `NO_UPDATE_LINE`, а также ранний `return` в `accepted()`), и на Windows
       эти случаи зелёные: A — `qmd-sync-main` без zsh, B — запуск `qmd` (не по `#!`), C — строка `update:` на

@@ -20,10 +20,11 @@ Code был скриптом `#!/bin/sh`. Windows такой скрипт как
 - `test/e2e/harness-install.spec.ts:~70` — обёртка `#!/bin/sh` (`exec node claude-stub.mjs "$@"`)
   вокруг `.mjs`, который ведёт состояние установки (marketplace, plugin-ы), журнал команд и журнал
   окружения. Обёртка больше не нужна: `.mjs` worfy запускает сам.
-- `test/e2e/epics-reading.spec.ts:~65` — другой случай: stand-in-ы `#!/bin/sh` — это медленная
-  login shell (`SHELL`) и `epic-status` Harness-а в `<claude home>/bin`. Stand-in Claude Code тут ни
-  при чём. На Windows worfy читает окружение не из login shell (`src/main/agent/env.ts`), так что
-  сценарий «медленная login shell» там, возможно, не воспроизводится вовсе — не проверено.
+- `test/e2e/epics-reading.spec.ts:~65` — другой случай: stand-in `#!/bin/sh` там один — медленная
+  login shell (`SHELL`). `epic-status` Harness-а в `<claude home>/bin` (`:89`, `catScript`) — Node-скрипт
+  без расширения и без `#!`, его переводить не нужно. Stand-in Claude Code тут ни при чём. На Windows
+  worfy читает окружение не из login shell (`src/main/agent/env.ts`), так что сценарий «медленная
+  login shell» там, возможно, не воспроизводится вовсе — не проверено.
 
 ## Что делаем
 
@@ -34,8 +35,7 @@ Code был скриптом `#!/bin/sh`. Windows такой скрипт как
    состояние установки `claudePluginStub` не повторяет; переносить на него только если это не
    усложнит общий stand-in.
 4. `epics-reading.spec.ts` — выяснить, что этот spec проверяет на Windows: если login shell там не
-   читается, test пропускать на `win32` с причиной в комментарии; `epic-status` — как скрипты Harness
-   на Windows в остальных spec-ах.
+   читается, test пропускать на `win32` с причиной в комментарии.
 
 ## Готово, когда
 

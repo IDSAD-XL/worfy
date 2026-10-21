@@ -94,7 +94,9 @@ const launch = (extra: Record<string, string> = {}): Promise<LaunchedApp> =>
       WORFY_CLAUDE: CLAUDE_STAND_IN,
       // The gh rows run WORFY_GH (worfy-windows ticket 80): the sandbox's own gh, missing when
       // sandbox() leaves it out, as on the login shell's PATH. The rest of the app gets it too: the
-      // sandbox gh answers only the first-run commands, so a test with a Project here gets gh errors.
+      // sandbox gh answers only the first-run commands, so a test with a Project here gets gh errors
+      // (on Windows earlier still: ghRunner refuses a .cmd WORFY_GH). The sign-in types
+      // `gh auth login` into a Terminal Node, whose shell finds the sandbox's gh on its own PATH.
       WORFY_GH: toolFile(bin, 'gh'),
       FIRST_RUN_TOOLS_STATE: state,
       FIRST_RUN_TOOLS_LOG: log,
