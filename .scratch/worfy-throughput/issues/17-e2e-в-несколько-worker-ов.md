@@ -1,7 +1,8 @@
 # 17 — e2e в несколько worker-ов Playwright: последовательный e2e больше не 73 % gate full
 
 Type: task
-Status: open
+Status: claimed 2026-10-21T02:44Z
+Branch: worfy-throughput/17
 Blocked by: —
 Source: замер Ticket-а [10](10-время-шагов-gate-и-test-файлов.md) после Ticket-а [16](16-shell-test-ы-harness-параллельно.md)
 (gate full на `main` `9f9529c9`, 2026-10-21); предложение Session «Worfy продолжение» (очередь gate full на Mac).

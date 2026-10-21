@@ -31,6 +31,13 @@ const outputDir =
   outputFlag < 0 ? OUTPUT_DIR : process.argv[outputFlag]!.startsWith('--output=') ? process.argv[outputFlag]!.slice('--output='.length) : (process.argv[outputFlag + 1] ?? OUTPUT_DIR)
 const jsonReport = `${outputDir.replace(/[\\/]+$/, '')}-report.json`
 
+// Spec files may run in several workers (`pnpm test:e2e --workers=N`): every launchApp gets its own
+// temporary WORFY_DATA_DIR (Electron's userData, and with it the single-instance lock of
+// src/main/index.ts), WORFY_CLAUDE_HOME and shell folder; the link server and the specs' own servers
+// take a port the OS picks; specs keep their files in mkdtemp folders. Tests of one file stay in one
+// worker, in order (fullyParallel: false), because specs keep state between their tests. The
+// default stays one worker until a measured run on the Mac picks the number: several Electron
+// starts at once slow every start, and some specs time a reaction in milliseconds.
 export default defineConfig({
   testDir: 'test/e2e',
   testMatch: '**/*.spec.ts',

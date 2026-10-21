@@ -14,8 +14,9 @@
 //
 // For each project it prints the number of files, their time in all, and the N slowest files
 // (default 20) with seconds and their share of that time. The files of a vitest project run side
-// by side, so their sum is more than the run took; the line of each vitest report says how long the
-// run itself took. --json prints the same as one JSON object.
+// by side, and so do the e2e files of a Playwright run with several workers, so their sum is more
+// than the run took; the line of each report says how long the run itself took. --json prints the
+// same as one JSON object.
 //
 // Exit code 0 — printed; 1 — no report to read, or a report that cannot be read; 2 — a wrong
 // argument. A default report that is missing is skipped; a report named on the command line must
