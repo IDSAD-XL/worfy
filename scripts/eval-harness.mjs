@@ -45,37 +45,22 @@
 // aggregate-result.json: `eval:harness <tag>: casesPassed <n> of <selected>, overallScore <x>, costUsd
 // <y>, claudeVersion <v>, cases <a,b>` (`, partial` at the end of a partial run), or
 // `eval:harness <tag>: no aggregate-result.json`; the exit code does not depend on these lines.
+// The pinned models, the environment of the runs and the copies of the plugin and of git come from
+// scripts/eval-run-env.mjs, which `pnpm eval:outcome` shares.
 import { spawnSync } from 'node:child_process'
-import {
-  chmodSync,
-  copyFileSync,
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  statSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs'
-import { createRequire } from 'node:module'
-import { constants, homedir, tmpdir } from 'node:os'
-import { delimiter, dirname, join, relative, resolve, sep } from 'node:path'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { constants } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { setImmediate } from 'node:timers'
 import { fileURLToPath } from 'node:url'
 import { casesFor, coverageProblems, readCoverage } from './eval-harness-coverage.mjs'
+import { checkVersion, claudeBinary, cleanEnv, gitForRuns, JUDGE_MODEL, MODEL, pluginCopy, runClaude } from './eval-run-env.mjs'
 import { removeTree } from './remove-tree.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SOURCE = process.env.HARNESS_DIR ? resolve(process.env.HARNESS_DIR) : join(REPO, 'harness')
 const EVALS = join(SOURCE, 'evals')
-const MIN_VERSION = [2, 1, 269]
-// Pinned, so that a change of the default model does not look like a broken Harness.
-const MODEL = 'claude-sonnet-5'
-const JUDGE_MODEL = 'claude-haiku-4-5'
 // The cost ceiling of one run of this script, in USD, across all of its calls: each call gets
 // --max-cost-usd with what the calls before it left.
 const BUDGET_USD = 30
@@ -109,71 +94,12 @@ const grants = (harness) => ({
   ],
 })
 
-// Variables that tie a process to the Claude Code session it was started from. A run started from
-// inside a session (a worfy Session, Autopilot) would hand them to every eval child, and the
-// children would report to that session's messaging socket under its id.
-const SESSION_VARIABLES = [
-  'CLAUDECODE',
-  'CLAUDE_PID',
-  'CLAUDE_EFFORT',
-  'CLAUDE_AGENT_SDK_VERSION',
-  'CLAUDE_CODE_SESSION_ID',
-  'CLAUDE_CODE_SESSION_ATTENDED',
-  'CLAUDE_CODE_CHILD_SESSION',
-  'CLAUDE_CODE_ENTRYPOINT',
-  'CLAUDE_CODE_EXECPATH',
-  'CLAUDE_CODE_MESSAGING_SOCKET',
-  'CLAUDE_CODE_MESSAGING_TOKEN',
-]
-// Folders of other Harness copies on PATH: the frozen ~/.claude/bin, the installed plugin under
-// ~/.claude/worfy-harness/, the Stable copy's .../harness/bin. A run inherits PATH, and its sandbox
-// lets it read every PATH folder, so an agent that calls `profile` or `ticket` by name would run
-// another Harness than the one under test.
-const otherHarness = (dir) =>
-  dir === join(homedir(), '.claude', 'bin') || dir.includes(`${sep}.claude${sep}worfy-harness${sep}`) || /[\\/]harness[\\/](bin|hooks)[\\/]?$/.test(dir)
-const childEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !SESSION_VARIABLES.includes(key)))
-if (childEnv.PATH) childEnv.PATH = childEnv.PATH.split(delimiter).filter((dir) => dir && !otherHarness(dir)).join(delimiter)
+// The environment of every child: no Claude Code session variables, no other Harness copy on PATH.
+const childEnv = cleanEnv()
 
 const fail = (message) => {
   process.stderr.write(`eval:harness: ${message}\n`)
   process.exit(1)
-}
-
-function claudeBinary() {
-  if (process.env.CLAUDE_BIN) return process.env.CLAUDE_BIN
-  try {
-    const sdk = createRequire(join(REPO, 'package.json')).resolve('@anthropic-ai/claude-agent-sdk')
-    const pkg = createRequire(sdk).resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`)
-    return join(dirname(pkg), 'claude')
-  } catch {
-    return fail(`no claude binary of the Agent SDK for ${process.platform}-${process.arch} in node_modules; set CLAUDE_BIN`)
-  }
-}
-
-/**
- * spawnSync of claude. On Windows a CLAUDE_BIN that ends in `.mjs` is a stand-in of the tests: Windows
- * starts no script by its path, so it runs as a script of this process's own Node (the way worfy
- * starts a `.mjs` WORFY_CLAUDE, src/main/program.ts). The environment stays childEnv: under
- * `pnpm eval:harness` this process is plain node, and when it runs as Electron's Node it does so
- * only because ELECTRON_RUN_AS_NODE=1 is in its own environment, which childEnv keeps. Elsewhere,
- * and for the SDK's binary or any other path, claude starts by its path.
- */
-const runClaude = (claude, args, options) =>
-  process.platform === 'win32' && claude.endsWith('.mjs') ? spawnSync(process.execPath, [claude, ...args], options) : spawnSync(claude, args, options)
-
-/** -1, 0 or 1: version a against version b, both [major, minor, patch]. */
-const compare = (a, b) => a.reduce((acc, n, i) => acc || Math.sign(n - b[i]), 0)
-
-function checkVersion(claude) {
-  const run = runClaude(claude, ['--version'], { encoding: 'utf8', env: childEnv })
-  if (run.error || run.status !== 0) fail(`${claude} --version failed: ${run.error?.message ?? run.stderr.trim()}`)
-  const match = /(\d+)\.(\d+)\.(\d+)/.exec(run.stdout)
-  if (!match) fail(`cannot read the version from "${run.stdout.trim()}"`)
-  const version = match.slice(1, 4).map(Number)
-  if (compare(version, MIN_VERSION) < 0) {
-    fail(`claude ${version.join('.')} has no \`plugin eval\`: it needs ${MIN_VERSION.join('.')} or newer (${claude})`)
-  }
-  return version.join('.')
 }
 
 /** Values of a repeatable option in the pass-through arguments (`--case a`, `--tag a b`). */
@@ -274,100 +200,6 @@ function summary({ tag, outputDir, cases }) {
   )
 }
 
-/**
- * Copies the Harness at `source` into a new temporary folder, without evals/results/ and with no
- * `dependencies` in .claude-plugin/plugin.json; returns the copy's real path.
- */
-function pluginCopy(source) {
-  const target = join(realpathSync(mkdtempSync(join(tmpdir(), 'worfy-eval-harness-'))), 'harness')
-  const results = join('evals', 'results')
-  cpSync(source, target, {
-    recursive: true,
-    filter: (path) => {
-      const inside = relative(source, path)
-      return !path.endsWith(`${sep}.DS_Store`) && inside !== results && !inside.startsWith(`${results}${sep}`)
-    },
-  })
-  const manifestPath = join(target, '.claude-plugin', 'plugin.json')
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-  delete manifest.dependencies
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
-  return target
-}
-
-/** A string as one word of a POSIX shell. */
-const shellWord = (text) => `'${text.replaceAll("'", `'\\''`)}'`
-
-/**
- * Copies the folder of `git --exec-path` into `<dir>/git-core/` without git-credential*, and writes
- * the wrapper `<dir>/git`; returns the wrapper. Each file is copied once: a second name of the same
- * file (git-add and the rest are links to the git binary) becomes a symlink inside the copy, so
- * the copy holds a few binaries and not a hundred copies of one. Exits 1 when git names no folder
- * or the copy does not answer `--version`.
- */
-function gitCopy(dir) {
-  // Windows starts no `#!/bin/sh` script by its path, and its PATH lookup of `git` finds only
-  // git.exe. There `sh` (Git for Windows; `bash` may be the one of WSL) looks git up on PATH, as the
-  // shell of a run does, and runs the wrapper.
-  const exec =
-    process.platform === 'win32'
-      ? spawnSync('sh', ['-c', 'git --exec-path'], { encoding: 'utf8', env: childEnv })
-      : spawnSync('git', ['--exec-path'], { encoding: 'utf8', env: childEnv })
-  const source = exec.status === 0 ? exec.stdout.trim() : ''
-  if (source === '' || !existsSync(source) || !statSync(source).isDirectory()) fail(`\`git --exec-path\` gave no folder (exit ${exec.status ?? exec.error?.code}): the runs need a copy of git`)
-  const core = join(dir, 'git-core')
-  const wrapper = join(dir, 'git')
-  try {
-    const copied = new Map() // device:inode of a file -> its path in the copy
-    const copyFolder = (from, to) => {
-      mkdirSync(to, { recursive: true })
-      // git first: the other names of its binary become links to it.
-      const names = readdirSync(from).sort((a, b) => (a === 'git' ? -1 : b === 'git' ? 1 : a < b ? -1 : a > b ? 1 : 0))
-      for (const name of names) {
-        if (name.startsWith('git-credential')) continue
-        const file = join(from, name)
-        const target = join(to, name)
-        const stat = statSync(file)
-        if (stat.isDirectory()) {
-          copyFolder(file, target)
-          continue
-        }
-        const first = copied.get(`${stat.dev}:${stat.ino}`)
-        if (first) {
-          symlinkSync(relative(dirname(target), first), target)
-        } else {
-          copyFileSync(file, target)
-          chmodSync(target, stat.mode & 0o777)
-          copied.set(`${stat.dev}:${stat.ino}`, target)
-        }
-      }
-    }
-    copyFolder(source, core)
-    // GIT_CONFIG_NOSYSTEM: the system gitconfig of Command Line Tools sets credential.helper osxkeychain.
-    writeFileSync(
-      wrapper,
-      `#!/bin/sh\n# git for the sandbox of a \`claude plugin eval\` run: a copy of ${source} (scripts/eval-harness.mjs)\n` +
-        `GIT_EXEC_PATH=${shellWord(core)}\nGIT_CONFIG_NOSYSTEM=1\nexport GIT_EXEC_PATH GIT_CONFIG_NOSYSTEM\n` +
-        `exec ${shellWord(join(core, 'git'))} "$@"\n`,
-    )
-    chmodSync(wrapper, 0o755)
-  } catch (error) {
-    removeTree(dir)
-    fail(`cannot copy ${source} into ${core}: ${error instanceof Error ? error.message : String(error)}`)
-  }
-  // shortcut: on Windows the check keeps the PATH of the runs (the copied git.exe loads its DLLs
-  // from mingw64/bin of the real one through it), redo when the paid runs go to Windows.
-  const check =
-    process.platform === 'win32'
-      ? spawnSync('sh', [wrapper, '--version'], { encoding: 'utf8', env: { PATH: childEnv.PATH } })
-      : spawnSync(wrapper, ['--version'], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin' } })
-  if (check.status !== 0) {
-    removeTree(dir)
-    fail(`the copy of git does not run (${wrapper} --version, exit ${check.status ?? check.error?.code}): ${(check.stderr ?? '').trim()}`)
-  }
-  return wrapper
-}
-
 const passThrough = process.argv.slice(2)
 if (passThrough[0] === '--') passThrough.shift()
 
@@ -403,8 +235,8 @@ for (const tag of ['main', 'gui']) {
   else for (const name of cases) calls.push({ tag, name: `${tag}-${name}`, args: ['--case', name], cases: [name] })
 }
 
-const claude = claudeBinary()
-const version = checkVersion(claude)
+const claude = claudeBinary(REPO, fail)
+const version = checkVersion(claude, childEnv, fail)
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 process.stdout.write(`eval:harness: claude ${version} (${claude}), model ${MODEL}, judge ${JUDGE_MODEL}\n`)
 
@@ -417,10 +249,7 @@ for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => (
 const signalsHandled = () => new Promise((resolve) => setImmediate(resolve))
 
 const gitDir = join(EVALS, 'results', `${stamp}-git`)
-const evalGit = gitCopy(gitDir)
-childEnv.PATH = [gitDir, childEnv.PATH].filter(Boolean).join(delimiter)
-childEnv.EVAL_GIT = evalGit
-childEnv.EVAL_HARNESS_HOME = 'worfy-harness'
+const evalGit = gitForRuns(gitDir, childEnv, fail)
 process.stdout.write(`eval:harness: git for the runs — ${evalGit}\n`)
 let harness = ''
 let worst = 0

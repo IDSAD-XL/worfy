@@ -10,10 +10,10 @@
 // `--eval-dir evals-outcome` picks the tasks; `--keep-temp` keeps each run's working folder for the
 // score; `--scaffold --trust-plugin`, the pinned agent and judge models, `--threshold 0` (a low
 // score is a result here, not a failure), `--no-publish`, Bash, Write and Edit granted, and the
-// arguments given. The runs get the environment `pnpm eval:harness` gives its runs: no variables of
-// the Claude Code session this is started from, no other plugin copy on PATH, a copy of git first on
-// PATH, EVAL_GIT and EVAL_HARNESS_HOME=worfy-harness (the plugin's state lives in .git/worfy-harness
-// of the run's working folder, harness/hooks/eval-env.cjs).
+// arguments given. The runs get the environment `pnpm eval:harness` gives its runs (both take it from
+// scripts/eval-run-env.mjs): no variables of the Claude Code session this is started from, no other
+// plugin copy on PATH, a copy of git first on PATH, EVAL_GIT and EVAL_HARNESS_HOME=worfy-harness (the
+// plugin's state lives in .git/worfy-harness of the run's working folder, harness/hooks/eval-env.cjs).
 //
 // --max-cost-usd is required: every call is paid. --ablation, --eval-dir, --output-dir, --model and
 // --judge-model are fixed and refused. With no task folder in harness/evals-outcome/ it says so and
@@ -28,23 +28,12 @@
 // git, or a score with problems; 2 — usage; 128 + the signal number — stopped by a signal.
 import { constants } from 'node:os'
 import { existsSync } from 'node:fs'
-import { delimiter, dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { setImmediate } from 'node:timers'
 import { fileURLToPath } from 'node:url'
-import {
-  checkVersion,
-  claudeBinary,
-  cleanEnv,
-  gitCopy,
-  JUDGE_MODEL,
-  judgeCommand,
-  MODEL,
-  pluginCopy,
-  runClaude,
-  scoreResults,
-  taskFolders,
-} from './eval-outcome-lib.mjs'
+import { judgeCommand, scoreResults, taskFolders } from './eval-outcome-lib.mjs'
+import { checkVersion, claudeBinary, cleanEnv, gitForRuns, JUDGE_MODEL, MODEL, pluginCopy, runClaude } from './eval-run-env.mjs'
 import { removeTree } from './remove-tree.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -96,10 +85,7 @@ const exitStopped = () => {
 
 const RESULTS = process.env.EVAL_OUTCOME_RESULTS ? resolve(process.env.EVAL_OUTCOME_RESULTS) : join(REPO, 'scripts', 'eval-outcome', 'results')
 const gitDir = join(RESULTS, `${stamp}-git`)
-const evalGit = gitCopy(gitDir, childEnv, fail)
-childEnv.PATH = [gitDir, childEnv.PATH].filter(Boolean).join(delimiter)
-childEnv.EVAL_GIT = evalGit
-childEnv.EVAL_HARNESS_HOME = 'worfy-harness'
+const evalGit = gitForRuns(gitDir, childEnv, fail)
 const outputDir = join(RESULTS, stamp)
 let harness = ''
 let worst

@@ -22,7 +22,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { claudeBinary, judgeCommand, loadSpec, scoreRun } from './eval-outcome-lib.mjs'
+import { judgeCommand, loadSpec, scoreRun } from './eval-outcome-lib.mjs'
+import { claudeBinary } from './eval-run-env.mjs'
 import { removeTree } from './remove-tree.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')

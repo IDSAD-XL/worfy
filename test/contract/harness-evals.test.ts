@@ -22,6 +22,7 @@ import {
 } from 'node:fs'
 import { constants, homedir, tmpdir, userInfo } from 'node:os'
 import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { findStatusBlock } from '../../src/shared/agent/status-block'
 import { removeTestTree } from '../remove'
@@ -739,6 +740,9 @@ const loggedCalls = (log: string): StubCall[] =>
     : []
 
 const EVAL_HARNESS = join(REPO, 'scripts', 'eval-harness.mjs')
+/** The run environment eval-harness.mjs shares with eval-outcome.mjs: the pinned models among it. */
+const runEnvModule = async (): Promise<{ MODEL: string; JUDGE_MODEL: string; MIN_VERSION: number[] }> =>
+  (await import(pathToFileURL(join(REPO, 'scripts', 'eval-run-env.mjs')).href)) as { MODEL: string; JUDGE_MODEL: string; MIN_VERSION: number[] }
 
 /** Runs scripts/eval-harness.mjs against the stub; returns the run and the logged eval calls. */
 function evalHarness(
@@ -870,14 +874,22 @@ describe('a child process sees the temporary home', () => {
 })
 
 describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub)', () => {
-  it('refuses with exit code 1 on claude older than 2.1.269 and runs nothing', () => {
+  it('refuses with exit code 1 on claude older than 2.1.269 and runs nothing', async () => {
+    expect((await runEnvModule()).MIN_VERSION).toEqual([2, 1, 269])
     const { run, calls } = evalHarness('2.1.268', '0,0')
     expect(run.status).toBe(1)
     expect(run.stderr).toMatch(/2\.1\.269/)
     expect(calls).toEqual([])
   })
 
-  it('makes two calls with the flags of the ticket and a narrow Bash for the gui case', () => {
+  it('runs on claude 2.1.269 itself, the first version with `plugin eval`', () => {
+    const { run, calls } = evalHarness('2.1.269', '0,0')
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls).toHaveLength(2)
+  })
+
+  it('makes two calls with the flags of the ticket and a narrow Bash for the gui case', async () => {
+    const { MODEL, JUDGE_MODEL } = await runEnvModule()
     const { run, calls: logged } = evalHarness('2.1.289', '0,0')
     expect(run.status, run.stderr).toBe(0)
     expect(logged).toHaveLength(2)
@@ -888,8 +900,8 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
       expect(listAfter(args, '--ablation')).toEqual(['none'])
       expect(listAfter(args, '--threshold')).toEqual(['0.8'])
       expect(listAfter(args, '--max-cost-usd')).toEqual(['30'])
-      expect(listAfter(args, '--model')).toHaveLength(1)
-      expect(listAfter(args, '--judge-model')).toHaveLength(1)
+      expect(listAfter(args, '--model')).toEqual([MODEL])
+      expect(listAfter(args, '--judge-model')).toEqual([JUDGE_MODEL])
     }
     const [main = [], gui = []] = calls
     expect(listAfter(main, '--tag')).toEqual(['main'])
@@ -1302,7 +1314,7 @@ describe('harness/evals/lib/coverage.json: which case checks which rule file', (
 })
 
 /**
- * A temporary git repository with copies of scripts/eval-harness.mjs, its two modules and harness/,
+ * A temporary git repository with copies of scripts/eval-harness.mjs, its three modules and harness/,
  * the base commit on `main`; `git` runs git in it with a temporary home.
  */
 function changedRepo(): { repo: string; git: (...args: string[]) => SpawnSyncReturns<string> } {
@@ -1311,7 +1323,7 @@ function changedRepo(): { repo: string; git: (...args: string[]) => SpawnSyncRet
   const home = join(root, 'home')
   mkdirSync(home)
   mkdirSync(join(repo, 'scripts'), { recursive: true })
-  for (const file of ['eval-harness.mjs', 'eval-harness-coverage.mjs', 'remove-tree.mjs']) copyFileSync(join(REPO, 'scripts', file), join(repo, 'scripts', file))
+  for (const file of ['eval-harness.mjs', 'eval-harness-coverage.mjs', 'eval-run-env.mjs', 'remove-tree.mjs']) copyFileSync(join(REPO, 'scripts', file), join(repo, 'scripts', file))
   cpSync(HARNESS, join(repo, 'harness'), { recursive: true, filter: withoutResults(HARNESS) })
   writeFileSync(join(repo, '.gitignore'), 'harness/evals/results/\n')
   writeFileSync(join(repo, 'README.md'), '# repo\n')

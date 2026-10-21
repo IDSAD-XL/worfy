@@ -1,7 +1,7 @@
 # 63 — Общий модуль окружения для `eval:harness` и `eval:outcome`
 
 Type: task
-Status: open
+Status: claimed 2026-10-21T19:30Z
 Blocked by: 29, 52
 Source: ревью PR #697 (инфраструктура worfy-harness 52), линза границ модулей, 2026-10-21. `scripts/eval-outcome-lib.mjs`
 повторяет из `scripts/eval-harness.mjs` закреплённые модели, очистку окружения, `claudeBinary`, `checkVersion`,
@@ -30,6 +30,20 @@ Source: ревью PR #697 (инфраструктура worfy-harness 52), ли
 ## Где в коде
 
 - `scripts/eval-harness.mjs`, `scripts/eval-outcome.mjs`, `scripts/eval-outcome-lib.mjs`.
+
+## Где остановились (2026-10-21, плановая остановка по лимиту использования)
+
+- PR [#713](https://github.com/IDSAD-XL/worfy/pull/713), head d2643d5c, MERGEABLE. Реализация готова: `scripts/eval-run-env.mjs`,
+  оба eval импортируют его, test равенства удалён.
+- Проверки implementer-а на d2643d5c и предыдущем коммите — exit 0: `harness-evals.test.ts` (173 + 1 skip),
+  `harness-evals-outcome.test.ts` (87), `no-github-git`, `no-rmsync`, `e2e-no-spawn-on-load`, `plugin-neutral.test.sh`
+  (26/0), `check-cyrillic`, lint, typecheck. Три mutant-а (фильтр PATH, папка результатов, `GIT_CONFIG_NOSYSTEM`) —
+  красные.
+- Ревью первого круга (high: корректность, границы модулей) было запущено и остановлено до результата. Начать с него
+  заново на текущем head.
+- Дальше: ревью → круг исправлений → очередь Session-оркестратора: gate full и check/windows (runner:
+  `harness-evals.test.ts`, `harness-evals-outcome.test.ts`, `no-github-git.test.ts`).
+- После 63 — Ticket 65: тот же `eval-outcome-lib.mjs` и тот же contract test.
 
 ## Итог
 
