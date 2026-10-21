@@ -11,13 +11,17 @@ const argv = process.argv
 // A new query for every import, so that the config is evaluated again (digits only: a dot would
 // read as a file extension to Vite).
 let loads = 0
-// The config sets WORFY_QUIET_WINDOWS for the run when it is not set; the test leaves it as it was.
+// The config sets WORFY_QUIET_WINDOWS and WORFY_KEEP_PAINTING for the run when they are not set;
+// the test leaves both as they were.
 const quiet = process.env.WORFY_QUIET_WINDOWS
+const keepPainting = process.env.WORFY_KEEP_PAINTING
 
 afterEach(() => {
   process.argv = argv
   if (quiet === undefined) delete process.env.WORFY_QUIET_WINDOWS
   else process.env.WORFY_QUIET_WINDOWS = quiet
+  if (keepPainting === undefined) delete process.env.WORFY_KEEP_PAINTING
+  else process.env.WORFY_KEEP_PAINTING = keepPainting
   vi.resetModules()
 })
 

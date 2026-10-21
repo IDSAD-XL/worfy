@@ -10,6 +10,7 @@ import { quietWindows } from './quiet-windows'
 import { followInterfaceScale, interfaceScale } from './settings/interface-scale'
 import { reportStartupFailure } from './startup-failure'
 import { frameOptions } from './window-frame'
+import { windowShow } from './window-show'
 import { dataRoot } from './storage/paths'
 
 /** Path of the file that remembers the window's position and size (ADR 0005: worfy's own state). */
@@ -72,7 +73,8 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
   )
 
   // WORFY_QUIET_WINDOWS=1, e2e tests only: shown without taking the focus, transparent, mouse-through
-  // and still painted (quiet-windows.ts). A normal start gets Electron's defaults, as before.
+  // and still painted (quiet-windows.ts); WORFY_KEEP_PAINTING=1, every e2e start: still painted. A
+  // normal start gets Electron's defaults, as before.
   const quiet = quietWindows()
 
   const window = new BrowserWindow({
@@ -107,11 +109,19 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
   window.on('moved', remember)
   window.on('close', remember)
 
-  window.once('ready-to-show', () => {
+  // On 'ready-to-show', or, when that does not come, a few seconds after the page has loaded
+  // (window-show.ts); either way once, and the app's output names the path.
+  const shower = windowShow({
     // show() makes worfy the active app on macOS; showInactive() puts the window on screen without that.
-    if (quiet.show === 'showInactive') window.showInactive()
-    else window.show()
+    show: () => (quiet.show === 'showInactive' ? window.showInactive() : window.show()),
+    isDestroyed: () => window.isDestroyed(),
+    log: (line) => console.info(line),
+    setTimer: (callback, ms) => setTimeout(callback, ms),
+    clearTimer: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
   })
+  window.once('ready-to-show', shower.readyToShow)
+  window.webContents.on('did-finish-load', shower.didFinishLoad)
+  window.once('closed', shower.dispose)
 
   // Navigations of the main frame to a new document: the first is the load below, any later one
   // replaces it (View ▸ Reload, a Vite reload under `pnpm dev`). Same-document navigations

@@ -35,6 +35,11 @@ const electron = vi.hoisted(() => {
   return {
     options: [] as Record<string, unknown>[],
     handlers: [] as { event: string; handler: Listener }[],
+    /** The window's own once() listeners and how it was put on screen. */
+    windowOnce: [] as { event: string; handler: Listener }[],
+    shows: [] as ('show' | 'showInactive')[],
+    /** What the window's isDestroyed() answers. */
+    destroyed: false,
     dark: false,
     appListeners: new Map<string, Listener[]>(),
     fakeSession,
@@ -49,14 +54,25 @@ vi.mock('electron', () => {
       on: (event: string, handler: (...args: unknown[]) => void) => {
         electron.handlers.push({ event, handler })
       },
+      // The interface scale listens to did-finish-load too (settings/interface-scale.ts).
+      setZoomFactor: () => undefined,
     }
     constructor(options: Record<string, unknown>) {
       electron.options.push(options)
     }
     on(): void {}
-    once(): void {}
+    once(event: string, handler: Listener): void {
+      electron.windowOnce.push({ event, handler })
+    }
+    show(): void {
+      electron.shows.push('show')
+    }
+    showInactive(): void {
+      electron.shows.push('showInactive')
+    }
+    setIgnoreMouseEvents(): void {}
     isDestroyed(): boolean {
-      return false
+      return electron.destroyed
     }
     loadFile(): Promise<void> {
       return Promise.resolve()
@@ -141,6 +157,9 @@ describe('createMainWindow', () => {
   async function optionsOn(system: NodeJS.Platform, dark: boolean): Promise<Record<string, unknown>> {
     electron.options.length = 0
     electron.handlers.length = 0
+    electron.windowOnce.length = 0
+    electron.shows.length = 0
+    electron.destroyed = false
     electron.dark = dark
     vi.stubEnv('WORFY_DATA_DIR', join(tmpdir(), 'worfy-window-options-test'))
     vi.stubEnv('ELECTRON_RENDERER_URL', '')
@@ -159,6 +178,69 @@ describe('createMainWindow', () => {
 
   it('on macOS makes the window of design F', async () => {
     expect(await optionsOn('darwin', true)).toMatchObject({ ...frameOptions('darwin', true), title: 'worfy', show: false })
+  })
+
+  // When the window is put on screen (src/main/window-show.ts, test/unit/window-show.test.ts): the
+  // window's own events reach the decision, and the window's mode picks show() or showInactive().
+  describe('shows the window', () => {
+    const fire = (list: { event: string; handler: Listener }[], event: string): void => {
+      for (const each of list.filter((entry) => entry.event === event)) each.handler()
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+      vi.restoreAllMocks()
+    })
+
+    it('with show() on ready-to-show', async () => {
+      vi.stubEnv('WORFY_QUIET_WINDOWS', '')
+      await optionsOn('darwin', false)
+      fire(electron.windowOnce, 'ready-to-show')
+      expect(electron.shows).toEqual(['show'])
+      expect(console.info).toHaveBeenCalledWith('[worfy] the window was shown on ready-to-show')
+    })
+
+    it('3 s after did-finish-load when ready-to-show does not come, and only once', async () => {
+      vi.stubEnv('WORFY_QUIET_WINDOWS', '')
+      await optionsOn('darwin', false)
+      fire(electron.handlers, 'did-finish-load')
+      vi.advanceTimersByTime(2_999)
+      expect(electron.shows).toEqual([])
+      vi.advanceTimersByTime(1)
+      expect(electron.shows).toEqual(['show'])
+      fire(electron.windowOnce, 'ready-to-show')
+      expect(electron.shows).toEqual(['show'])
+    })
+
+    it('with showInactive() in quiet mode, by the fallback too', async () => {
+      vi.stubEnv('WORFY_QUIET_WINDOWS', '1')
+      await optionsOn('darwin', false)
+      fire(electron.handlers, 'did-finish-load')
+      vi.advanceTimersByTime(3_000)
+      expect(electron.shows).toEqual(['showInactive'])
+    })
+
+    it('not when the window is destroyed before the timer fires, even without a closed event', async () => {
+      vi.stubEnv('WORFY_QUIET_WINDOWS', '')
+      await optionsOn('darwin', false)
+      fire(electron.handlers, 'did-finish-load')
+      electron.destroyed = true
+      vi.advanceTimersByTime(3_000)
+      expect(electron.shows).toEqual([])
+    })
+
+    it('not after the window has closed', async () => {
+      vi.stubEnv('WORFY_QUIET_WINDOWS', '')
+      await optionsOn('darwin', false)
+      fire(electron.handlers, 'did-finish-load')
+      fire(electron.windowOnce, 'closed')
+      vi.advanceTimersByTime(10_000)
+      expect(electron.shows).toEqual([])
+    })
   })
 
   // The Browser (worfy-browser ticket 02, ADR-0078 item 3): the <webview> tag is on in every

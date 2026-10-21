@@ -86,8 +86,9 @@ function start(): void {
   let started = false
 
   // WORFY_QUIET_WINDOWS=1, e2e tests only (quiet-windows.ts): worfy never comes to the front, has no
-  // Dock icon, and Chromium keeps painting its transparent window. Switches count only before ready,
-  // and the activation policy is set before anything can show the Dock icon.
+  // Dock icon, and Chromium keeps painting its transparent window; WORFY_KEEP_PAINTING=1, every e2e
+  // start, keeps the painting switches alone. Switches count only before ready, and the activation
+  // policy is set before anything can show the Dock icon.
   const quiet = quietWindows()
   for (const name of quiet.chromiumSwitches) app.commandLine.appendSwitch(name)
   if (quiet.activationPolicy !== null) app.setActivationPolicy(quiet.activationPolicy)
