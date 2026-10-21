@@ -132,3 +132,55 @@ profile-а проверено, что session открытой страницы 
 - Gate fast и полный `pnpm test` не запускались (по брифу); весь `test:e2e` — gate full перед мержем.
 - e2e удаления profile-а проверяет в main, что session страницы — тот же объект, что
   `session.fromPartition(...)` (Electron 44.5.1). Другие версии Electron не проверялись.
+
+### Rework, круг 1 ревью PR #703 (глубина high: 1 high, 3 low)
+
+**Находки и что изменено.**
+
+1. **high — Browser layer терял разницу между «ключа `profile` нет» и `null`.** `pagesKey` в
+   `BrowserLayer.tsx` писал `profile: null` и для Node без ключа. Поэтому в layer правило старого
+   Browser-а по `data.url` не срабатывало, а в рамке и в окне «Browser profiles…» срабатывало.
+   Последствия: при двух profile-ах старый Browser с адресом не открывал страницу; при удалённом
+   `default` и одном profile-е `work` layer молча писал `work` в Node и открывал страницу не под тем
+   profile-ом. Исправлено: расчёт страниц вынесен в `src/renderer/canvas/overlays/browser-pages.ts`
+   (`pagesKey`, `placeBrowserPages`, `profileWrites`). Если ключа нет, в странице его тоже нет:
+   `JSON.stringify` выбрасывает undefined, и после разбора ключа нет. Test
+   `test/unit/browser-layer-pages.test.tsx` прогоняет данные через строку selector-а и обратно:
+   - старый Browser при `default` + `admin` открывается под `default` и получает запись `default`.
+     Это поведение рамки, а не «choose», как сказано в находке: «choose» бывает, когда `default`
+     нет;
+   - старый Browser при `work` или `work` + `admin` получает «choose (deleted)»: без страницы и без
+     записи;
+   - новый Browser с `profile: null` и адресом при двух profile-ах получает «choose (several)»;
+   - для семи вариантов `data` и пяти наборов profile-ов layer выбирает ровно то же, что
+     `browserProfileChoice` по исходным данным Node.
+2. **low — `browserProfilesNow` отдавал старый список, пока новое чтение не ответило.** Теперь
+   Project считается актуальным только после ответа на последнее чтение. Пока ответа нет, после
+   ошибки или если пришёл только старый ответ, функция отдаёт undefined, и «New browser» пишет
+   `profile: null`. Test — `test/unit/browser-profiles-store.test.tsx`.
+3. **low — palette не проверялась с одним profile-ом.**
+   - Новый unit-тест `test/unit/palette-new-browser.test.tsx` рендерит `CanvasFind` и вызывает
+     `createCanvasNode('p1', 'browser')`. У Project p1 один profile `admin-aaaaaa`, у другого —
+     `default`: Node получает `admin-aaaaaa`. При нескольких profile-ах — `null`.
+   - e2e: новый test в `test/e2e/browser-profile.spec.ts` — «New browser» из palette при одном
+     Default сохраняет `profile: 'default'`. Этот e2e не отличит неверный projectId: layer всё равно
+     допишет `default`. Неверный projectId ловит unit-тест.
+4. **low — настоящий `browserProfilesNow` в тесте меню был mock-ом.** В
+   `test/e2e/browser.spec.ts` («New browser from the Canvas menu», один Default) добавлена проверка:
+   сохранённый `profile` равен `'default'`.
+
+**Проверки rework-а** (по одному файлу, `nice -n 10`): `pnpm lint` 0, `pnpm typecheck` 0;
+`browser-layer-pages.test.tsx` 0 (6), `browser-profiles-store.test.tsx` 0 (4),
+`palette-new-browser.test.tsx` 0 (2), `canvas-zoom.test.tsx` 0 (30), `canvas-menu.test.tsx` 0 (14),
+`browser-profiles.test.ts` 0 (14), `browser-profiles-window.test.tsx` 0 (3). e2e под замком:
+`browser-profile.spec.ts` 0 (3 passed), `browser.spec.ts -g "New browser from the Canvas menu"` 0.
+
+**Mutant-ы rework-а** (detached worktree, каждый — exit 1):
+
+| Mutant | Test-файл | Exit |
+| --- | --- | --- |
+| `pagesKey` снова пишет `: null` при отсутствии ключа | browser-layer-pages | 1 |
+| `browserProfilesNow` отдаёт кэш при незавершённом чтении | browser-profiles-store | 1 |
+| `reloadBrowserProfiles` без `current.delete` | browser-profiles-store | 1 |
+| palette передаёт чужой projectId | palette-new-browser | 1 |
+| palette создаёт `data: {}` | palette-new-browser | 1 |
