@@ -155,7 +155,9 @@ try {
 } catch (e) {
     // What the resolver said: its Error line when it crashed ("TypeError: …"), not the stack under it
     // nor the "Node.js vNN" line node prints last; otherwise its own last line, which says what to
-    // fix ("registry <path> cannot be read: …"). worfy's scriptFailureDetail reads stderr the same way.
+    // fix ("registry <path> cannot be read: …"). worfy's scriptFailureDetail shares only the `at`,
+    // "Node.js vNN" and `^` filters and the choice of the Error line; it also drops node's crash
+    // report and takes a FATAL ERROR line, and without an Error line it keeps the first lines.
     const lines = String(e.stderr ?? "")
         .split(/\r?\n/)
         .map((line) => line.trim())

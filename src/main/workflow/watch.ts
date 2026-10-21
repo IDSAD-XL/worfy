@@ -18,6 +18,7 @@
 // so node added by an rc file is found; otherwise only when the held one is the capture's fallback.
 // First run's "Check again" captures the login shell again itself and then asks every failed layout
 // at once (`WorkflowHub.retryFailedLayouts`), with the environment it just took: no second shell.
+// That ask takes the place of the pending retry; the back-off keeps its step.
 // Reads never overlap: a change during a read leads to exactly one more read after it.
 //
 // A Tickets root that is not a folder — not there at the start (a Project before its first Epic,
@@ -381,15 +382,18 @@ export class WorkflowWatcher {
   /**
    * Asks the failed layout again now, not at the retry timer: the caller has just captured the login
    * shell again (First run's "Check again", `WorkflowHub.retryFailedLayouts`), so this ask takes the
-   * environment held now and starts no shell of its own. The pending timer is dropped and the
-   * back-off starts over: a failure after this waits 10 s again. Returns false, and does nothing,
-   * when the layout has not failed or the watcher is closed.
+   * environment held now and starts no shell of its own. Any failed layout is asked, not only one
+   * that points at the environment: an old node on the captured PATH exits with 1, and the user
+   * who put a new one first presses "Check again" for it. The pending timer is dropped, as this ask
+   * takes its place, but the back-off keeps its step: a failure after this waits for the step after
+   * the dropped one. Every show of Settings -> Health runs the checks, so a reset would ask a
+   * Project that does not recover four times in the next 100 s after each show. Returns false, and
+   * does nothing, when the layout has not failed or the watcher is closed.
    */
   retryFailedLayout(): boolean {
     if (this.closed || !this.layout?.failed) return false
     if (this.retry) clearTimeout(this.retry)
     this.retry = null
-    this.retries = 0
     this.layoutStale = true
     this.layoutRequest = {}
     this.request()
@@ -789,12 +793,20 @@ export class WorkflowHub {
    * Makes every watched Project whose layout failed ask it again now (`retryFailedLayout`), after
    * First run's "Check again" captured the login shell again (src/main/harness/script-env.ts,
    * `recaptureForCheckAgain`). A healthy Project is not touched, a closed one is not started again,
-   * and a Project whose first read failed is not watched at all. Resolves with how many were asked,
-   * once each has been asked, not when their reads end; never rejects.
+   * and a Project whose first read failed is not watched at all. Each Project is asked as soon as
+   * its own start has ended, so a slow start of another one does not hold it back. Resolves with
+   * how many were asked, once each has been asked, not when their reads end; never rejects.
    */
   async retryFailedLayouts(): Promise<number> {
-    const watchers = await Promise.all([...this.projects.values()].map((project) => project.watcher.catch(() => null)))
-    return watchers.filter((watcher) => watcher !== null && watcher.retryFailedLayout()).length
+    const asked = await Promise.all(
+      [...this.projects.values()].map((project) =>
+        project.watcher.then(
+          (watcher) => watcher.retryFailedLayout(),
+          () => false,
+        ),
+      ),
+    )
+    return asked.filter(Boolean).length
   }
 
   /** Stops `subscriber`'s interest in `root`; returns false when it was not subscribed. */

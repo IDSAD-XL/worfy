@@ -101,7 +101,7 @@ Ticket на круг доработки. Как узнать: заявленно
 ## Три test-а краснеют только под нагрузкой параллельного gate full
 
 - `harness/bin/tests/wave-gate.test.sh` упёрся в timeout файла 120 s (`FILE_TIMEOUT_MS`,
-  `test/contract/harness-scripts.test.ts:22`) при load average 9 (implementer PR #496, 2026-10-18); отдельно и
+  `test/contract/harness-scripts.test.ts:35`) при load average 9 (implementer PR #496, 2026-10-18); отдельно и
   при повторе — зелёный.
 - `test/contract/terminal.test.ts:63` «open starts $SHELL -l … output comes back» — `vi.waitFor` 5 s в
   `test/contract/terminal-harness.ts:288` красный один раз в gate full PR #501 на `0d1a6c1b` (main уже с

@@ -84,7 +84,8 @@ both() {
     out_new="$(cd "$repo" && printf '%s' "$input" | CLAUDE_GATE_STATE="$T/state-new" GATE_SCOPE=all node "$GATE" "$@" 2>&1)"; rc_new=$?
     out_old="$(cd "$repo" && printf '%s' "$input" | CLAUDE_GATE_STATE="$T/state-old" GATE_SCOPE=all bash "$SHIM" "$@" 2>&1)"; rc_old=$?
 }
-gate_lines() { printf '%s\n' "$1" | tr -d '\r' | grep '^\[gate\]'; }
+# The timing line («[gate] time (…): …») differs from run to run by itself and is left out.
+gate_lines() { printf '%s\n' "$1" | tr -d '\r' | grep '^\[gate\]' | grep -v '^\[gate\] time '; }
 # same <description> <exit code> <a "[gate]" line both must print>
 same() {
     if [ "$rc_new" -eq "$2" ] && [ "$rc_old" -eq "$2" ] && [ "$(gate_lines "$out_new")" = "$(gate_lines "$out_old")" ] && [[ "$out_old" == *"$3"* ]]; then ok "$1"

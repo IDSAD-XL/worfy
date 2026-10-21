@@ -183,6 +183,17 @@ check "resolver crash with error properties -> its Error line, not the closing b
 check "resolver message, stack and version lines -> the message" 0 "" bash -c \
     'err=$(CLAUDE_GATE_RESOLVE="$0" "$1" -C "$2" 2>&1 >/dev/null); rc=$?; [ "$rc" -eq 1 ] && [[ "$err" == *"project not determined: gate-resolve: the registry names no repos" ]]' \
     "$T/resolver-note.mjs" "$PROFILE" "$T/repo"
+# A crash that does not depend on what the resolver accepts in the registry: a TypeError with
+# properties is told by any Error name, not only a bare "Error", and the lines after it are not kept.
+printf '%s\n' "throw Object.assign(new TypeError('stand-in broke'), { code: 'ERR_STAND_IN' })" >"$T/resolver-type-error.mjs"
+check "resolver TypeError with error properties -> its Error line" 0 "" bash -c \
+    'err=$(CLAUDE_GATE_RESOLVE="$0" "$1" -C "$2" 2>&1 >/dev/null); rc=$?; [ "$rc" -eq 1 ] && [[ "$err" == *"project not determined: TypeError: stand-in broke" ]]' \
+    "$T/resolver-type-error.mjs" "$PROFILE" "$T/repo"
+# A caret line last, with no Error line: the caret is not the reason; the line before it is.
+printf '%s\n' "process.stderr.write('gate-resolve: the registry names no repos\\n    ^\\n'); process.exit(1)" >"$T/resolver-caret.mjs"
+check "resolver message then a caret line -> the message" 0 "" bash -c \
+    'err=$(CLAUDE_GATE_RESOLVE="$0" "$1" -C "$2" 2>&1 >/dev/null); rc=$?; [ "$rc" -eq 1 ] && [[ "$err" == *"project not determined: gate-resolve: the registry names no repos" ]]' \
+    "$T/resolver-caret.mjs" "$PROFILE" "$T/repo"
 
 # common directory (workspace): the parent of all repositories of one profile, not a repo itself
 mkdir -p "$T/ws/a" "$T/ws/b" "$T/ws/notes" "$T/ws/c" "$T/profiles/multi" "$T/profiles/multi2" "$T/mixed/x" "$T/mixed/y" "$T/mixed/z"

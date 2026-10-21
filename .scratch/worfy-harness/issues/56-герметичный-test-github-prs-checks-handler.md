@@ -1,7 +1,8 @@
 # 56 — Test checks handler в `github-prs.test.ts` зависит от login shell машины и печатает настоящий token
 
 Type: task
-Status: claimed 2026-10-20T17:48Z
+Status: done 2026-10-20T21:56Z
+PR: #621
 Blocked by: —
 Source: gate full PR [#563](https://github.com/IDSAD-XL/worfy/pull/563) (worfy-harness 40), 2026-10-20:
 повторный прогон unit-набора оркестратором с временным HOME дал красный test, которого PR не трогает.
@@ -53,4 +54,18 @@ login shell разработчика с переменной HOME.
 
 ## Итог
 
-Заполняется при закрытии.
+PR [#621](https://github.com/IDSAD-XL/worfy/pull/621), merge 123198db. Gate full Mac зелёный. Последний пункт «Готово, когда»
+закрыт оркестратором: полный `pnpm test` с временным HOME — EXIT=0, 7240 passed, в выводе 0 совпадений
+`ghp_`/`gho_`/`github_pat_`.
+
+- **Причина.** Test checks handler шёл через настоящее окружение скриптов Harness (`harnessScriptEnv`), которое
+  запускает login shell разработчика ради `bin/profile`. С временным HOME rc-файлы nvm не читаются, node нет в
+  PATH, account — null, test красный. `GH_TOKEN` из shell разработчика доходил до stub-а gh, который его
+  записывает, и упавшая проверка печатала настоящий token в log.
+- **Правка.** Test подменяет `src/main/harness/script-env` своим окружением (node в PATH, без login shell) и
+  проверяет, что оно использовано. `github-prs.test.ts` снимает `GH_TOKEN`/`GITHUB_TOKEN` перед каждым test-ом;
+  runner stub-а gh в `test/contract/gh-world.ts` не передаёт их дальше. Поведение приложения не менялось.
+- **Обход соседей.** Остальные contract test-ы с `harnessScriptEnv` его уже подменяют или проверяют намеренно;
+  ни один больше не отдаёт унаследованный `GH_TOKEN` stub-у, который его записывает.
+- **Мутанты красные:** test снова берёт настоящий `harnessScriptEnv` (красный под временным HOME); без снятия
+  token-а поддельный token появляется в выводе ошибки.

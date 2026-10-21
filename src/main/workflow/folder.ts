@@ -49,8 +49,9 @@ export interface ProjectLayout {
   failed: boolean
   /**
    * On a failed layout, true when the failure points at the environment the script ran with (no
-   * node: exit code 127 or 126, or a script that could not be started); the watcher then takes the
-   * login shell environment again before it asks once more (src/main/workflow/watch.ts).
+   * node on its PATH, or exit code 127 or 126); the watcher then takes the login shell environment
+   * again before it asks once more (src/main/workflow/watch.ts). A script that could not be started
+   * for another reason is not such a failure.
    */
   environmentFailure?: boolean
   /** The names of the document sections the Profile gives; absent when it gives none (readers take the defaults). */
