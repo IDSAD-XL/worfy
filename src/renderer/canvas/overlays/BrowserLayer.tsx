@@ -20,16 +20,11 @@
 // frame of another origin, or without a referrer) comes here as `browser.openRequest`, and the
 // frame offers its address in the Open bar (worfy-browser ticket 11).
 import { createElement, useEffect, useMemo, useRef, useState } from 'react'
-import { useStore, ViewportPortal, type InternalNode, type ReactFlowState } from '@xyflow/react'
-import { browserPartition } from '../../../shared/browser/partition'
+import { useStore, ViewportPortal } from '@xyflow/react'
 import { useBrowserProfiles } from '../../browser/profiles'
 import { subscribe } from '../../ipc'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import {
-  BROWSER_KIND,
-  browserPageRect,
-  browserProfileChoice,
-  browserUrl,
   dismissBrowserOpenRequest,
   offerOwnBrowserOpenRequest,
   registerBrowserPage,
@@ -38,23 +33,11 @@ import {
   webAddress,
 } from '../nodes/browser-frame'
 import { useFramesStepAsideWhilePressed } from '../nodes/frames-step-aside'
-import type { CanvasFlowNode } from '../nodes'
 import { useLayoutOps } from '../useLayout'
+import { pagesKey, placeBrowserPages, profileWrites, type BrowserLayerPage, type PlacedBrowserPage } from './browser-pages'
 import '../nodes/BrowserNode.css'
 
 export const order = 5
-
-interface Page {
-  id: string
-  /** The address the Node keeps; null for a Browser that has none yet (an empty page). */
-  url: string | null
-  /** The Node's `data.profile` when it is a string; null otherwise (browserProfileChoice). */
-  profile: string | null
-  x: number
-  y: number
-  w: number
-  h: number
-}
 
 /** The part of Electron's <webview> element the layer uses (the renderer has no Electron types). */
 interface WebviewElement extends HTMLElement {
@@ -72,34 +55,12 @@ interface WebviewElement extends HTMLElement {
 type NavigationEvent = Event & { url: string; isMainFrame?: boolean }
 
 /**
- * Every Browser Node's page as one string, so the selector's result compares by value and the layer
- * draws again only when a page moves, changes size or address, not on every pan. Sorted by id: a
- * <webview> moved in the DOM reloads its page, so the order of the existing ones never changes.
- * It reads React Flow's node lookup, which holds every Node, drawn or not, at the same place the
- * Node renderer reads it, so the frame and its page are drawn in the same commit.
- */
-function pagesKey(state: ReactFlowState): string {
-  const pages: Page[] = []
-  // Every Node of this Canvas is a CanvasFlowNode (nodes/index.ts); React Flow's store does not know it.
-  for (const node of state.nodeLookup.values() as Iterable<InternalNode<CanvasFlowNode>>) {
-    if (node.type !== BROWSER_KIND || node.hidden === true) continue
-    const { x, y } = node.internals.positionAbsolute
-    const w = node.width ?? node.measured.width ?? node.data.node.w
-    const h = node.height ?? node.measured.height ?? node.data.node.h
-    const { profile } = node.data.node.data
-    pages.push({ id: node.id, url: browserUrl(node.data.node), profile: typeof profile === 'string' ? profile : null, ...browserPageRect({ x, y, w, h }) })
-  }
-  pages.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-  return JSON.stringify(pages)
-}
-
-/**
  * The page of one Browser. The <webview> starts on the Node's address (an empty page without
  * one) and is sent anywhere later only by loadURL, from the address bar (navigateBrowserPage): a
  * changed `src` attribute would load the page again, and the attribute would change on every
  * navigation the page makes itself, since the address it reaches is written back into the Node.
  */
-function BrowserPage({ page, partition }: { page: Page; partition: string }) {
+function BrowserPage({ page, partition }: { page: BrowserLayerPage; partition: string }) {
   const ops = useLayoutOps()
   const readOnly = useReadOnly()
   const view = useRef<WebviewElement>(null)
@@ -214,19 +175,11 @@ export default function BrowserLayer() {
   const ops = useLayoutOps()
   const readOnly = useReadOnly()
   const key = useStore(pagesKey)
-  const pages = useMemo(() => JSON.parse(key) as Page[], [key])
+  const pages = useMemo(() => JSON.parse(key) as BrowserLayerPage[], [key])
   // Each page with the partition of its profile; null while its frame asks for one. The partition
   // of a <webview> is fixed once it attaches, so a page whose profile changes is a new <webview>
   // (its key); the Canvas of another Project is a new Canvas (Canvas.tsx), and so a new layer.
-  const placed = useMemo(
-    () =>
-      pages.map((page) => {
-        const choice = browserProfileChoice(page, profiles)
-        const partition = project === undefined || choice.kind !== 'use' ? null : browserPartition(project.id, choice.id)
-        return { page, choice, partition }
-      }),
-    [pages, profiles, project],
-  )
+  const placed = useMemo(() => placeBrowserPages(pages, profiles, project?.id), [pages, profiles, project])
 
   // The profile the rule picked for a Node without one goes into the Node, as the address bar's
   // address does (not a step of ⌘Z): from then on the Node keeps it whatever profiles come later.
@@ -234,16 +187,15 @@ export default function BrowserLayer() {
   const written = useRef(new Set<string>())
   useEffect(() => {
     if (readOnly !== null) return
-    for (const { page, choice } of placed) {
-      if (choice.kind !== 'use' || !choice.write) continue
-      const mark = `${page.id} ${choice.id}`
+    for (const { id, profile } of profileWrites(placed)) {
+      const mark = `${id} ${profile}`
       if (written.current.has(mark)) continue
       written.current.add(mark)
-      void ops.apply({ op: 'patchData', id: page.id, data: { profile: choice.id } })
+      void ops.apply({ op: 'patchData', id, data: { profile } })
     }
   }, [placed, ops, readOnly])
 
-  const shown = placed.filter((each): each is { page: Page; choice: typeof each.choice; partition: string } => each.partition !== null)
+  const shown = placed.filter((each): each is PlacedBrowserPage & { partition: string } => each.partition !== null)
   if (shown.length === 0) return null
   return (
     <ViewportPortal>

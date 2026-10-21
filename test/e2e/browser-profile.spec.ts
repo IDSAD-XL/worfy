@@ -225,6 +225,19 @@ test('a cookie of one Browser profile is seen by its other Browser, not by a Bro
   expect(existsSync(join(repo(), 'browser-profiles.json'))).toBe(false)
 })
 
+test('«New browser» from the palette, with one Browser profile, makes the Node under it at once', async () => {
+  project([])
+  const window = await start()
+  await window.keyboard.press('ControlOrMeta+k')
+  await window.getByTestId('palette-input').fill('new browser')
+  await expect(window.getByTestId('palette-option').first()).toHaveAttribute('data-command', 'new:browser')
+  await window.getByTestId('palette-input').press('Enter')
+  // The palette passes the Project shown, whose only profile is Default (worfy-browser ticket 14).
+  await expect.poll(() => Object.values(savedBrowsers()).map((data) => data.profile), { message: 'the Browser the palette made' }).toEqual(['default'])
+  await expect(window.getByTestId('browser-profile-name')).toHaveText('Default')
+  await expect(window.getByTestId('browser-choose-profile')).toHaveCount(0)
+})
+
 test('deleting a profile names the Browsers that use it, erases its cookies, and its Browsers ask for another profile', async () => {
   const page = `${origin}/page`
   project([{ id: 'b0', kind: 'browser', x: 600, y: 20, w: 360, h: 280, data: { url: page } }])
