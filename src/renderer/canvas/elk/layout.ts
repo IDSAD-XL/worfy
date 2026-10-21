@@ -17,6 +17,7 @@
 import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk-api'
 import {
   blockingPairs,
+  cardHeights,
   COLUMN_GAP,
   DONE_STACK_HEIGHT,
   epicColumns,
@@ -25,9 +26,10 @@ import {
   headerOnly,
   routeKey,
   ROW_GAP,
-  TICKET_HEIGHT,
+  stackTops,
   TICKET_WIDTH,
   TICKETS_TOP,
+  type CardContext,
   type EpicLayout,
   type LayoutTicket,
   type PlacedTicket,
@@ -43,6 +45,8 @@ export interface ElkEpicInput {
   tickets: readonly LayoutTicket[]
   doneExpanded: boolean
   name?: string | undefined
+  /** What the cards' heights depend on beyond the Tickets (`cardHeights`). */
+  cards?: CardContext | undefined
 }
 
 /** How far from a Ticket's side a route turns into the corridor. */
@@ -75,10 +79,13 @@ const LAYOUT_OPTIONS: Record<string, string> = {
  * The ELK graph of an open frame: one node per open Ticket in its column's partition, the Done
  * column as one block of the folded stack's size (open or not: the frame's height holds the open
  * column, see `layoutEpicElk`), and the forward Edges between open Tickets. `own` are the Edges
- * routed here instead.
+ * routed here instead; `heights` the height of each card (`cardHeights`), its ELK node's height.
  */
-export function elkGraph({ tickets, doneExpanded }: ElkEpicInput): { graph: ElkNode; own: { blocker: number; blocked: number }[] } {
-  const { columns } = epicColumns(tickets)
+export function elkGraph({ tickets, doneExpanded, cards }: ElkEpicInput): { graph: ElkNode; own: { blocker: number; blocked: number }[]; heights: Map<number, number> } {
+  const epic = epicColumns(tickets)
+  const { columns } = epic
+  // Each card as tall as what it shows (ticket-card.ts): ELK keeps them apart by their own heights.
+  const heights = cardHeights(tickets, epic, cards)
   const columnOf = new Map<number, number>()
   const doneNums = new Set<number>()
   const children: ElkNode[] = []
@@ -95,15 +102,16 @@ export function elkGraph({ tickets, doneExpanded }: ElkEpicInput): { graph: ElkN
     }
     for (const t of c.tickets) {
       columnOf.set(t.num, index)
+      const height = heights.get(t.num)!
       children.push({
         id: nodeId(t.num),
         width: TICKET_WIDTH,
-        height: TICKET_HEIGHT,
+        height,
         layoutOptions: { ...partition, 'elk.portConstraints': 'FIXED_POS' },
         // The handles of TicketNode.tsx: the middle of the left side (in) and of the right side (out).
         ports: [
-          { id: inPort(t.num), x: 0, y: TICKET_HEIGHT / 2, width: 0, height: 0, layoutOptions: { 'elk.port.side': 'WEST' } },
-          { id: outPort(t.num), x: TICKET_WIDTH, y: TICKET_HEIGHT / 2, width: 0, height: 0, layoutOptions: { 'elk.port.side': 'EAST' } },
+          { id: inPort(t.num), x: 0, y: height / 2, width: 0, height: 0, layoutOptions: { 'elk.port.side': 'WEST' } },
+          { id: outPort(t.num), x: TICKET_WIDTH, y: height / 2, width: 0, height: 0, layoutOptions: { 'elk.port.side': 'EAST' } },
         ],
       })
     }
@@ -115,7 +123,7 @@ export function elkGraph({ tickets, doneExpanded }: ElkEpicInput): { graph: ElkN
       edges.push({ id: routeKey(pair.blocker, pair.blocked), sources: [outPort(pair.blocker)], targets: [inPort(pair.blocked)] })
     } else own.push(pair)
   }
-  return { graph: { id: 'frame', layoutOptions: LAYOUT_OPTIONS, children, edges }, own }
+  return { graph: { id: 'frame', layoutOptions: LAYOUT_OPTIONS, children, edges }, own, heights }
 }
 
 const pointsOf = (edge: ElkExtendedEdge): Point[] =>
@@ -129,8 +137,8 @@ const pointsOf = (edge: ElkExtendedEdge): Point[] =>
  */
 function forwardAcross(start: Point, end: Point, placed: readonly PlacedTicket[], below: number): number {
   const between = placed.filter((t) => t.x > start.x && t.x < end.x)
-  const clear = (y: number) => between.every((t) => y <= t.y || y >= t.y + TICKET_HEIGHT)
-  const candidates = [end.y, start.y, ...between.flatMap((t) => [t.y - ROW_GAP / 2, t.y + TICKET_HEIGHT + ROW_GAP / 2])].filter(
+  const clear = (y: number) => between.every((t) => y <= t.y || y >= t.y + t.height)
+  const candidates = [end.y, start.y, ...between.flatMap((t) => [t.y - ROW_GAP / 2, t.y + t.height + ROW_GAP / 2])].filter(
     (y) => y > TICKETS_TOP - ROW_GAP && y < below && clear(y),
   )
   const cost = (y: number) => Math.abs(y - start.y) + Math.abs(y - end.y)
@@ -146,8 +154,8 @@ function forwardAcross(start: Point, end: Point, placed: readonly PlacedTicket[]
  * (`forwardAcross`).
  */
 function ownRoute(from: PlacedTicket, to: PlacedTicket, sameColumn: boolean, column: readonly PlacedTicket[], placed: readonly PlacedTicket[], below: number): Point[] {
-  const start = { x: from.x + TICKET_WIDTH, y: from.y + TICKET_HEIGHT / 2 }
-  const end = { x: to.x, y: to.y + TICKET_HEIGHT / 2 }
+  const start = { x: from.x + TICKET_WIDTH, y: from.y + from.height / 2 }
+  const end = { x: to.x, y: to.y + to.height / 2 }
   let across = below
   if (!sameColumn && from.x < to.x) across = forwardAcross(start, end, placed, below)
   else if (sameColumn) {
@@ -156,7 +164,7 @@ function ownRoute(from: PlacedTicket, to: PlacedTicket, sameColumn: boolean, col
       ? column.filter((t) => t.y < to.y).reduce<PlacedTicket | null>((best, t) => (best === null || t.y > best.y ? t : best), null)
       : column.filter((t) => t.y > to.y).reduce<PlacedTicket | null>((best, t) => (best === null || t.y < best.y ? t : best), null)
     // `from` itself is on that side, so the neighbour always exists.
-    across = above ? (neighbour!.y + TICKET_HEIGHT + to.y) / 2 : (to.y + TICKET_HEIGHT + neighbour!.y) / 2
+    across = above ? (neighbour!.y + neighbour!.height + to.y) / 2 : (to.y + to.height + neighbour!.y) / 2
   }
   const points = [
     start,
@@ -180,7 +188,7 @@ export async function layoutEpicElk(input: ElkEpicInput, elk: ElkEngine): Promis
   const shell = headerOnly(columns, false, name)
   if (!columns.columns.length) return shell
 
-  const { graph, own } = elkGraph(input)
+  const { graph, own, heights } = elkGraph(input)
   const answer = await elk.layout(graph)
   const at = new Map((answer.children ?? []).map((child) => [child.id, { x: child.x ?? 0, y: child.y ?? 0 }]))
 
@@ -202,10 +210,12 @@ export async function layoutEpicElk(input: ElkEpicInput, elk: ElkEngine): Promis
     if (c.column.kind === 'done') {
       // The open stack: its Tickets from the top of the column down, by number (ADR-0039). The block
       // ELK placed only holds the column's x: ELK may put it lower, beside the Tickets it lines up.
+      const tops = stackTops(c.tickets.map((t) => heights.get(t.num)!))
       c.tickets.forEach((t, row) => {
-        const y = TICKETS_TOP + row * (TICKET_HEIGHT + ROW_GAP)
-        placed.push({ num: t.num, column: c.column, x: xs[index]!, y, ready: columns.ready.has(t.num), attention: columns.attention.get(t.num) ?? null })
-        bottom = Math.max(bottom, y + TICKET_HEIGHT)
+        const y = tops[row]!
+        const height = heights.get(t.num)!
+        placed.push({ num: t.num, column: c.column, x: xs[index]!, y, height, ready: columns.ready.has(t.num), attention: columns.attention.get(t.num) ?? null })
+        bottom = Math.max(bottom, y + height)
       })
       return
     }
@@ -214,8 +224,9 @@ export async function layoutEpicElk(input: ElkEpicInput, elk: ElkEngine): Promis
       // A column split over two of ELK's layers would draw a Ticket off its column, and the routes
       // made here assume one x per column: refuse the answer, the frame keeps its places.
       if (where.x !== xs[index]) throw new Error(`ELK put the Tickets of column "${c.label}" at more than one x`)
-      placed.push({ num: t.num, column: c.column, x: where.x, y: where.y, ready: columns.ready.has(t.num), attention: columns.attention.get(t.num) ?? null })
-      bottom = Math.max(bottom, where.y + TICKET_HEIGHT)
+      const height = heights.get(t.num)!
+      placed.push({ num: t.num, column: c.column, x: where.x, y: where.y, height, ready: columns.ready.has(t.num), attention: columns.attention.get(t.num) ?? null })
+      bottom = Math.max(bottom, where.y + height)
     }
   })
 

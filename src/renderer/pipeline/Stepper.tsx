@@ -3,10 +3,12 @@
 // apart — then the current Stage's name and who the Ticket waits for. `blocked` is a flag on the
 // current step with its reason in the tooltip; `rework` (Implementing again after a failed mark) is
 // a flag on Implementing; a Ticket stuck past its Stage's threshold has a frame and its time on the
-// Stage in the tooltip. A narrow one shows only the current Stage and «N/M»: when the caller says
-// so, and when the full one does not fit — the dots, the Stage's name and its flags measured in the
-// box the stepper has, again whenever that box changes width. The Stage comes from main
-// (`pipeline.get`, usePipeline.ts); the stepper only draws it.
+// Stage in the tooltip. A narrow one shows the current Stage, «N/M» and who it waits for, without
+// the dots: when the caller says so, and when the full one does not fit on one line — the dots, the
+// Stage's name, its flags and who it waits for measured in the box the stepper has, again whenever
+// that box changes width. Nothing is cut with «…» (worfy-canvas ticket 18): the narrow form wraps
+// onto more lines when even it does not fit, and the Card's height (canvas/ticket-card.ts) allows
+// for that. The Stage comes from main (`pipeline.get`, usePipeline.ts); the stepper only draws it.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { PipelineColumn } from '../../shared/ipc/pipeline'
 import type { TicketStage } from '../../shared/workflow/pipeline'
@@ -19,7 +21,7 @@ export interface StepperProps {
   pipeline: readonly PipelineColumn[]
   /** The Ticket's Stage in it. */
   stage: TicketStage
-  /** Only the current Stage and «N/M», without measuring: the row is known to have no room for the dots. */
+  /** The current Stage, «N/M» and who it waits for, without the dots or measuring: the row is known to have no room for the dots. */
   narrow?: boolean
 }
 
@@ -31,7 +33,7 @@ function stepState(column: PipelineColumn, at: number, stage: TicketStage): Step
   return stage.passed.includes(column.id) ? 'passed' : 'future'
 }
 
-/** The whole picture in words: the stepper may be cut at the Card's edge, and the dots carry no text. */
+/** The whole picture in words: the dots carry no text, and the narrow form drops them. */
 function stepperTitle(pipeline: readonly PipelineColumn[], stage: TicketStage, stuck: string | null): string {
   const head = [pipeline[stage.index]?.title ?? stage.stage]
   if (stage.rework) head.push('rework')
@@ -77,9 +79,8 @@ function labelCut(label: HTMLElement): boolean {
 }
 
 /**
- * Whether the dots, the name and the flags run past the stepper's edge: from its first part's left
- * to its last part's right. The parts' own boxes, not their text: who it waits for is meant to be
- * cut with «…» inside its box.
+ * Whether the dots, the name, the flags and who it waits for run past the stepper's edge: from its
+ * first part's left to its last part's right. The parts' own boxes, not their text.
  */
 function partsRunPast(stepper: HTMLElement): boolean {
   const parts = Array.from(stepper.children, (part) => part.getBoundingClientRect())
@@ -87,10 +88,19 @@ function partsRunPast(stepper: HTMLElement): boolean {
   return runsPast(stepper, Math.max(...parts.map((part) => part.right)) - Math.min(...parts.map((part) => part.left)))
 }
 
-/** Whether the full stepper does not fit its box: the Stage's name is cut, or the dots and flags run past the edge. */
+/**
+ * Whether the parts take more than one line (the stepper wraps, stepper.css): a part starts below
+ * the bottom of another. Parts of one line are centred on it and overlap in height.
+ */
+function partsWrap(stepper: HTMLElement): boolean {
+  const parts = Array.from(stepper.children, (part) => part.getBoundingClientRect()).filter((part) => part.height > 0)
+  return parts.some((part) => parts.some((other) => other !== part && part.top >= other.bottom - 0.5))
+}
+
+/** Whether the full stepper does not fit its box on one line: the Stage's name is cut, the parts run past the edge or wrap. */
 function overflows(stepper: HTMLElement): boolean {
   const label = stepper.querySelector<HTMLElement>('.w-stepper__label')
-  return partsRunPast(stepper) || (label !== null && labelCut(label))
+  return partsRunPast(stepper) || partsWrap(stepper) || (label !== null && labelCut(label))
 }
 
 /** Everything the full stepper's width depends on, besides its box. */
@@ -114,9 +124,8 @@ export default function Stepper({ pipeline, stage, narrow = false }: StepperProp
     setFit({ shape, tight: overflows(ref.current) })
   }, [narrow, fit, shape])
   // The box changed width (the Card was resized, a chip beside it came or went): measure again.
-  // The stepper takes the row's free space, so its width does not depend on the form drawn in it,
-  // except beside the repository chip: there both share the row's lack of room by their widths, but
-  // the Card already asks for the narrow form and no measure runs.
+  // The stepper takes the row's free space (`flex: 1 1 0`), so its width does not depend on the
+  // form drawn in it.
   useEffect(() => {
     const element = ref.current
     if (element === null || typeof ResizeObserver === 'undefined') return
@@ -186,7 +195,8 @@ export default function Stepper({ pipeline, stage, narrow = false }: StepperProp
         <span className="w-stepper__count w-mono" data-testid="stepper-count">
           {stage.index + 1}/{pipeline.length}
         </span>
-      ) : stage.waits !== null ? (
+      ) : null}
+      {stage.waits !== null ? (
         <span className="w-stepper__waits" data-testid="stepper-waits">
           {stage.waits}
         </span>

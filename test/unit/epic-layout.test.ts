@@ -4,8 +4,10 @@ import { placeNear } from '../../src/shared/canvas/tools'
 import { freePlace, NODE_GAP } from '../../src/shared/layout/free-place'
 import type { Ticket } from '../../src/shared/workflow/types'
 import {
+  cardHeights,
   COLUMN_GAP,
   defaultCollapsed,
+  epicColumns,
   EDGE_CORNER_RADIUS,
   FRAME_GAP,
   FRAME_PADDING,
@@ -22,7 +24,7 @@ import {
   ROW_GAP,
   routeKey,
   stackFrames,
-  TICKET_HEIGHT,
+  TICKET_MIN_HEIGHT,
   TICKET_WIDTH,
   TICKETS_TOP,
   type EpicLayout,
@@ -106,7 +108,7 @@ function through(a: Point, b: Point, box: Rect): boolean {
 /** Every route of a layout: orthogonal, from the blocker's right handle to the blocked Ticket's left handle, through no Ticket and not through the done stack. */
 function expectRoutesAroundTickets(layout: EpicLayout, tickets: readonly Ticket[]): number {
   const drawn = new Set(layout.tickets.map((t) => t.num))
-  const boxes: (Rect & { num: number | null })[] = layout.tickets.map((t) => ({ num: t.num, x: t.x, y: t.y, w: TICKET_WIDTH, h: TICKET_HEIGHT }))
+  const boxes: (Rect & { num: number | null })[] = layout.tickets.map((t) => ({ num: t.num, x: t.x, y: t.y, w: TICKET_WIDTH, h: t.height }))
   if (layout.doneStack) boxes.push({ num: null, x: layout.doneStack.x, y: layout.doneStack.y, w: layout.doneStack.width, h: layout.doneStack.height })
   let count = 0
   for (const t of tickets) {
@@ -116,8 +118,8 @@ function expectRoutesAroundTickets(layout: EpicLayout, tickets: readonly Ticket[
       expect(route, routeKey(blocker, t.num)).toBeDefined()
       const from = placed(layout, blocker)
       const to = placed(layout, t.num)
-      expect(route![0]).toEqual({ x: from.x + TICKET_WIDTH, y: from.y + TICKET_HEIGHT / 2 })
-      expect(route![route!.length - 1]).toEqual({ x: to.x, y: to.y + TICKET_HEIGHT / 2 })
+      expect(route![0]).toEqual({ x: from.x + TICKET_WIDTH, y: from.y + from.height / 2 })
+      expect(route![route!.length - 1]).toEqual({ x: to.x, y: to.y + to.height / 2 })
       for (let i = 1; i < route!.length; i += 1) {
         const [a, b] = [route![i - 1]!, route![i]!]
         expect(a.x === b.x || a.y === b.y, `${routeKey(blocker, t.num)} segment ${i} is not orthogonal`).toBe(true)
@@ -187,8 +189,8 @@ describe('layoutEpic by ELK', () => {
     layout.columns.slice(1).forEach((c, i) => expect(c.x - layout.columns[i]!.x).toBeGreaterThanOrEqual(TICKET_WIDTH + COLUMN_GAP))
     // Tickets of one column keep at least the row gap between them.
     for (const column of layout.columns) {
-      const ys = layout.tickets.filter((t) => sameColumn(t.column, column.column)).map((t) => t.y).sort((a, b) => a - b)
-      ys.slice(1).forEach((y, i) => expect(y - ys[i]!).toBeGreaterThanOrEqual(TICKET_HEIGHT + ROW_GAP))
+      const cards = layout.tickets.filter((t) => sameColumn(t.column, column.column)).sort((a, b) => a.y - b.y)
+      cards.slice(1).forEach((t, i) => expect(t.y - cards[i]!.y).toBeGreaterThanOrEqual(cards[i]!.height + ROW_GAP))
     }
   })
 
@@ -244,8 +246,8 @@ describe('layoutEpic by ELK', () => {
       for (const t of folded.tickets) expect({ x: placed(open, t.num).x, y: placed(open, t.num).y }, `${label} ticket ${t.num}`).toEqual({ x: t.x, y: t.y })
       const column = open.tickets.filter((t) => t.column.kind === 'done')
       expect(column.map((t) => t.num), label).toEqual(tickets.filter((t) => t.state === 'done').map((t) => t.num).sort((a, b) => a - b))
-      column.forEach((t, row) => expect(t.y, `${label} done ticket ${t.num}`).toBe(TICKETS_TOP + row * (TICKET_HEIGHT + ROW_GAP)))
-      for (const t of open.tickets) expect(t.y + TICKET_HEIGHT + FRAME_PADDING, `${label} ticket ${t.num} in the frame`).toBeLessThanOrEqual(open.height)
+      column.forEach((t, row) => expect(t.y, `${label} done ticket ${t.num}`).toBe(row === 0 ? TICKETS_TOP : column[row - 1]!.y + column[row - 1]!.height + ROW_GAP))
+      for (const t of open.tickets) expect(t.y + t.height + FRAME_PADDING, `${label} ticket ${t.num} in the frame`).toBeLessThanOrEqual(open.height)
       expect(open.width, label).toBeGreaterThanOrEqual(folded.width)
       expectRoutesAroundTickets(open, tickets)
       return open
@@ -302,7 +304,7 @@ describe('layoutEpic by ELK', () => {
       const allDone = [ticket(1, done), ticket(2, { ...done, ...blocked(1) }), ticket(3, { ...done, ...blocked(1) })]
       const stack = await expectStackOpensInPlace(allDone)
       expect(columnsOf(stack)).toEqual(['Done: 1,2,3'])
-      expect(stack.height).toBe(TICKETS_TOP + 3 * TICKET_HEIGHT + 2 * ROW_GAP + FRAME_PADDING)
+      expect(stack.height).toBe(TICKETS_TOP + stack.tickets.reduce((sum, t) => sum + t.height, 0) + 2 * ROW_GAP + FRAME_PADDING)
 
       const noneDone = [ticket(1), ticket(2, blocked(1)), ticket(3, blocked(1, 2))]
       expect(await laidOut(noneDone, true)).toEqual(await laidOut(noneDone))
@@ -335,8 +337,8 @@ describe('layoutEpic by ELK', () => {
       expect(column.map((t) => t.num)).toEqual(doneChain.map((t) => t.num))
       for (const t of column) expect(t.x, `ticket ${t.num}`).toBe(doneColumn.x)
       expect(column[0]!.y - TICKETS_TOP).toBeLessThanOrEqual(ROW_GAP)
-      column.slice(1).forEach((t, i) => expect(t.y - column[i]!.y, `ticket ${t.num}`).toBe(TICKET_HEIGHT + ROW_GAP))
-      expect(open.height).toBeGreaterThanOrEqual(column[column.length - 1]!.y + TICKET_HEIGHT + FRAME_PADDING)
+      column.slice(1).forEach((t, i) => expect(t.y - column[i]!.y, `ticket ${t.num}`).toBe(column[i]!.height + ROW_GAP))
+      expect(open.height).toBeGreaterThanOrEqual(column[column.length - 1]!.y + column[column.length - 1]!.height + FRAME_PADDING)
     })
   })
 
@@ -394,7 +396,7 @@ describe('layoutEpic by ELK', () => {
     expect(layout.tickets).toHaveLength(30)
     for (const t of layout.tickets) {
       expect(t.x + TICKET_WIDTH + FRAME_PADDING).toBeLessThanOrEqual(layout.width)
-      expect(t.y + TICKET_HEIGHT + FRAME_PADDING).toBeLessThanOrEqual(layout.height)
+      expect(t.y + t.height + FRAME_PADDING).toBeLessThanOrEqual(layout.height)
     }
     expectRoutesAroundTickets(layout, tickets)
   })
@@ -722,5 +724,108 @@ describe('Ticket text helpers', () => {
     expect(ticketTitle({ num: 7, title: '07 — Rate-limit the bid endpoint' })).toBe('Rate-limit the bid endpoint')
     expect(ticketTitle({ num: 11, title: 'Эпик рамкой на Холсте' })).toBe('Эпик рамкой на Холсте')
     expect(ticketTitle({ num: 3, title: '03 —' })).toBe('03 —')
+  })
+})
+
+// ── cards as tall as their content (worfy-canvas ticket 18) ─────────────────
+
+describe('cards of different heights', () => {
+  const LONG = 'Withdraw-lot button for moderators, with a reason the seller sees and an audit record kept for the support team to check'
+  /** Every two drawn cards, and a card and the folded done stack, apart: no box overlaps another. */
+  function expectApart(layout: EpicLayout, label: string): void {
+    const boxes: (Rect & { name: string })[] = layout.tickets.map((t) => ({ name: `ticket ${t.num}`, x: t.x, y: t.y, w: TICKET_WIDTH, h: t.height }))
+    if (layout.doneStack) boxes.push({ name: 'the done stack', x: layout.doneStack.x, y: layout.doneStack.y, w: layout.doneStack.width, h: layout.doneStack.height })
+    boxes.forEach((a, i) => {
+      for (const b of boxes.slice(i + 1)) {
+        const apart = a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y
+        expect(apart, `${label}: ${a.name} and ${b.name} overlap`).toBe(true)
+      }
+    })
+    for (const t of layout.tickets) expect(t.y + t.height + FRAME_PADDING, `${label}: ticket ${t.num} in the frame`).toBeLessThanOrEqual(layout.height)
+  }
+
+  // Level 1: 1 (long title), 2; level 2: 3 (blocked, long reason), 4; level 3: 5. Two done Tickets
+  // in the stack, the first with a long title: the open stack steps by each card's own height.
+  const mixed = [
+    ticket(1, { title: `01 — ${LONG}` }),
+    ticket(2),
+    ticket(3, { ...blocked(1), state: 'blocked', statusRaw: 'blocked', blockedReason: 'waits for the owner to answer which payment provider the platform uses in production' }),
+    ticket(4, blocked(2)),
+    ticket(5, blocked(3, 4)),
+    ticket(8, { ...done, title: `08 — ${LONG}` }),
+    ticket(9, done),
+  ]
+
+  it('gives each card its own height: a long title or reason makes a taller card, the shortest is TICKET_MIN_HEIGHT', () => {
+    const layout = layoutEpic({ tickets: mixed, collapsed: false, doneExpanded: true })
+    expect(placed(layout, 1).height).toBeGreaterThan(placed(layout, 2).height)
+    expect(placed(layout, 3).height).toBeGreaterThan(placed(layout, 4).height)
+    expect(Math.min(...layout.tickets.map((t) => t.height))).toBe(TICKET_MIN_HEIGHT)
+  })
+
+  it('the synchronous layout: each row as tall as its tallest card, the next row ROW_GAP below it', () => {
+    const tickets = [ticket(1), ticket(2), ticket(3, { title: `03 — ${LONG}` }), ticket(4, blocked(1)), ticket(5, blocked(1)), ticket(6, blocked(1))]
+    const layout = layoutEpic({ tickets, collapsed: false, doneExpanded: false })
+    expect(columnsOf(layout)).toEqual(['Level 1: 1,2,3', 'Level 2: 4,5,6'])
+    // Row 3 of level 1 holds the tall card 3; card 6 of level 2 starts with it, and both rows above are TICKET_MIN_HEIGHT.
+    const top = (num: number) => placed(layout, num).y
+    expect([top(1), top(4)]).toEqual([TICKETS_TOP, TICKETS_TOP])
+    expect([top(2), top(5)]).toEqual([TICKETS_TOP + TICKET_MIN_HEIGHT + ROW_GAP, TICKETS_TOP + TICKET_MIN_HEIGHT + ROW_GAP])
+    expect(top(6)).toBe(top(3))
+    expect(placed(layout, 3).height).toBeGreaterThan(TICKET_MIN_HEIGHT)
+    expect(layout.height).toBe(top(3) + placed(layout, 3).height + FRAME_PADDING)
+
+    // A tall card in the first row pushes the second row of every column down.
+    const first = layoutEpic({ tickets: [ticket(1, { title: `01 — ${LONG}` }), ticket(2), ticket(4, blocked(1)), ticket(5, blocked(1))], collapsed: false, doneExpanded: false })
+    const tall = placed(first, 1).height
+    expect(placed(first, 2).y).toBe(TICKETS_TOP + tall + ROW_GAP)
+    expect(placed(first, 5).y).toBe(TICKETS_TOP + tall + ROW_GAP)
+  })
+
+  it("no card overlaps another or the done stack, folded or open, in the synchronous layout and in ELK's", async () => {
+    for (const doneExpanded of [false, true]) {
+      expectApart(layoutEpic({ tickets: mixed, collapsed: false, doneExpanded }), `synchronous, stack ${doneExpanded ? 'open' : 'folded'}`)
+      expectApart(await laidOut(mixed, doneExpanded), `ELK, stack ${doneExpanded ? 'open' : 'folded'}`)
+    }
+    // The open stack holds a tall card on top: the one under it starts below its own height.
+    for (const [label, layout] of [
+      ['synchronous', layoutEpic({ tickets: mixed, collapsed: false, doneExpanded: true })],
+      ['ELK', await laidOut(mixed, true)],
+    ] as const) {
+      const [top, next] = layout.tickets.filter((t) => t.column.kind === 'done').sort((a, b) => a.y - b.y)
+      expect(top!.num, label).toBe(8)
+      expect(top!.height, label).toBeGreaterThan(TICKET_MIN_HEIGHT)
+      expect(next!.y, label).toBe(top!.y + top!.height + ROW_GAP)
+    }
+  })
+
+  it('a Project of several repositories: every card has room for its repository chip, «no repo» too, when no Ticket of the Epic has a Repo: line', () => {
+    // Ticket 12 in work waits for an agent: its stepper and the «no repo» chip do not fit one row.
+    const tickets = [ticket(12, { state: 'work', statusRaw: 'claimed', waits: 'agent' })]
+    const columns = epicColumns(tickets)
+    const several = cardHeights(tickets, columns, { severalRepos: true }).get(12)!
+    expect(several).toBeGreaterThan(cardHeights(tickets, columns, { severalRepos: false }).get(12)!)
+    expect(placed(layoutEpic({ tickets, collapsed: false, doneExpanded: false, cards: { severalRepos: true } }), 12).height).toBe(several)
+    // Until main answers, a Ticket with a Repo: line is what says the Project has several.
+    expect(cardHeights(tickets, columns).get(12)).toBe(TICKET_MIN_HEIGHT)
+    const withRepo = [ticket(12, { state: 'work', statusRaw: 'claimed', waits: 'agent' }), ticket(13, { repo: 'api' })]
+    expect(cardHeights(withRepo, epicColumns(withRepo)).get(12)).toBe(several)
+  })
+
+  it('ELK keeps a row gap under each card by its own height, and routes from the middle of its side', async () => {
+    const layout = await laidOut(mixed, true)
+    for (const column of layout.columns) {
+      const cards = layout.tickets.filter((t) => sameColumn(t.column, column.column)).sort((a, b) => a.y - b.y)
+      cards.slice(1).forEach((t, i) => expect(t.y - cards[i]!.y, `${column.label}: ticket ${t.num}`).toBeGreaterThanOrEqual(cards[i]!.height + ROW_GAP))
+    }
+    // The open done stack: its cards from the top of the column by number, each a row gap under the one before.
+    const stack = layout.tickets.filter((t) => t.column.kind === 'done')
+    expect(stack.map((t) => t.num)).toEqual([8, 9])
+    expect(stack[1]!.y).toBe(stack[0]!.y + stack[0]!.height + ROW_GAP)
+    expectRoutesAroundTickets(layout, mixed)
+  })
+
+  it('the same Tickets always get the same heights and places', () => {
+    expect(layoutEpic({ tickets: mixed, collapsed: false, doneExpanded: true })).toEqual(layoutEpic({ tickets: [...mixed].reverse(), collapsed: false, doneExpanded: true }))
   })
 })

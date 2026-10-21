@@ -20,7 +20,7 @@ import elkWorkerUrl from 'elkjs/lib/elk-worker.min.js?url&no-inline'
 import { create } from 'zustand'
 import type { Ticket } from '../../../shared/workflow/types'
 import { doneOnlyInBranch } from '../../../shared/workflow/waves'
-import { layoutEpic, type EpicLayout, type LayoutTicket } from '../epic-layout'
+import { cardHeights, epicColumns, layoutEpic, type CardContext, type EpicLayout, type LayoutTicket } from '../epic-layout'
 import { layoutEpicElk, type ElkEngine } from './layout'
 
 /** ELK's layouts of an open frame, for the inputs named by `key`. */
@@ -37,6 +37,8 @@ export interface ElkRequest {
   key: string
   tickets: readonly LayoutTicket[]
   name: string
+  /** What the cards' heights depend on beyond the Tickets (`cardHeights`). */
+  cards?: CardContext | undefined
 }
 
 /** Per Project, per Epic, ELK's last answer. */
@@ -73,12 +75,14 @@ export function setElkEngine(next: ElkEngine | null): void {
  * unmerged branch is not a closed blocker for the ready Wave (waves.ts), so the merge of that
  * branch, which changes nothing but `fromBranch`, changes the key too.
  */
-export function elkKey(tickets: readonly (LayoutTicket & Partial<Pick<Ticket, 'fromBranch'>>)[], name: string): string {
+export function elkKey(tickets: readonly (LayoutTicket & Partial<Pick<Ticket, 'fromBranch'>>)[], name: string, cards?: CardContext): string {
+  // The cards' heights (ticket-card.ts): a new title or reason that takes another line is a new layout.
+  const heights = cardHeights(tickets, epicColumns(tickets), cards)
   return JSON.stringify([
     name,
     [...tickets]
       .sort((a, b) => a.num - b.num)
-      .map((t) => [t.num, t.state, doneOnlyInBranch(t), t.blockedRaw, t.blockedNums, t.blockedParsed, t.files, t.filesListed]),
+      .map((t) => [t.num, t.state, doneOnlyInBranch(t), t.blockedRaw, t.blockedNums, t.blockedParsed, t.files, t.filesListed, heights.get(t.num)]),
   ])
 }
 
@@ -91,7 +95,7 @@ export function requestEpicLayout(projectId: string, epic: string, request: ElkR
   const seq = (sequence += 1)
   latest.set(id, { key: request.key, seq })
   const hasDone = request.tickets.some((t) => t.state === 'done')
-  const input = { tickets: request.tickets, name: request.name }
+  const input = { tickets: request.tickets, name: request.name, cards: request.cards }
   const folded = layoutEpicElk({ ...input, doneExpanded: false }, elk)
   const open = hasDone ? layoutEpicElk({ ...input, doneExpanded: true }, elk) : folded
   const answer = (foldedLayout: EpicLayout, openLayout: EpicLayout) =>

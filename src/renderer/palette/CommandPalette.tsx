@@ -43,7 +43,7 @@ export const TRANSCRIPTS_GROUP = 'In transcripts'
 /** Characters of a snippet shown before its match; the row cuts the rest at its end. */
 const SNIPPET_LEAD = 24
 
-/** Lines of a wrapped title before it is cut with "…", as the title of a Ticket on the Canvas (TICKET_TITLE_LINES). */
+/** Lines of a wrapped title before it is cut with "…" in a palette row. */
 const WRAPPED_TITLE_LINES = 3
 
 const styles = {

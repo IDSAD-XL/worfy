@@ -1,7 +1,8 @@
 // The stepper of Stages on a Ticket's Card (src/renderer/pipeline/Stepper.tsx, worfy-pipeline ticket 05):
 // a dot per Stage of the Project's Pipeline — passed, current, future, a Check passed by a `skipped`
 // mark — the current Stage's name and who the Ticket waits for, the `blocked` flag with its reason in
-// the tooltip, `rework` on Implementing, and on a narrow Card only the current Stage and «N/M». The
+// the tooltip, `rework` on Implementing, and on a narrow Card the current Stage, «N/M» and who it
+// waits for, without the dots (worfy-canvas ticket 18: who it waits for is never dropped or cut). The
 // Card (TicketNode.tsx) draws it from the `pipeline.get` snapshot in place of the status word.
 import { act, render, screen } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
@@ -152,17 +153,17 @@ describe('Stepper', () => {
     expect(screen.getByTestId('ticket-stepper').title).toBe('Done · Stage 9 of 9')
   })
 
-  it('narrow: only the current Stage and «N/M», no dots and no one waited for; the tooltip keeps everything', () => {
-    render(<Stepper pipeline={WORFY} stage={on(WORFY, 'agent-review', { rework: false, blocked: { reason: 'x' } })} narrow />)
+  it('narrow: the current Stage, «N/M» and who it waits for, no dots; the tooltip keeps everything', () => {
+    render(<Stepper pipeline={WORFY} stage={on(WORFY, 'agent-review', { rework: false, blocked: { reason: 'x' }, waits: 'owner' })} narrow />)
     const stepper = screen.getByTestId('ticket-stepper')
     expect(stepper.dataset.narrow).toBe('true')
     expect(stepper.querySelectorAll('[data-step]')).toHaveLength(0)
     expect(screen.getByTestId('stepper-label').textContent).toBe('Agent review')
     expect(screen.getByTestId('stepper-count').textContent).toBe('4/9')
-    expect(screen.queryByTestId('stepper-waits')).toBeNull()
+    expect(screen.getByTestId('stepper-waits').textContent).toBe('owner')
     // The blocked flag stays: it is a fact about the current Stage.
     expect(screen.getByTestId('stepper-blocked')).toBeTruthy()
-    expect(stepper.title).toBe('Agent review · waits for agent · Stage 4 of 9\nblocked: x')
+    expect(stepper.title).toBe('Agent review · waits for owner · Stage 4 of 9\nblocked: x')
   })
 
   it('narrow Atakama on its last Stage: 7/7', () => {
@@ -253,6 +254,8 @@ describe('Stepper measures whether the full form fits', () => {
   let need: (stepper: HTMLElement) => number
   let labelCut: boolean
   let labelNeeds = 80
+  /** The top of whom it waits for: 0 on the first line, 18 when the full form puts it on a second one. */
+  let waitsTop = 0
   let observers: { callback: () => void }[]
 
   const rect = (width: number) => ({ width, height: 16, top: 0, left: 0, right: width, bottom: 16, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
@@ -262,6 +265,7 @@ describe('Stepper measures whether the full form fits', () => {
       if (this.classList.contains('w-stepper__label')) return rect(labelCut && this.closest('[data-narrow]') === null ? 40 : 80)
       // The parts of the stepper: the dots span what the full form needs, from the stepper's left edge.
       if (this.classList.contains('w-stepper__dots')) return rect(need(this.closest<HTMLElement>('.w-stepper')!))
+      if (this.classList.contains('w-stepper__waits') && this.closest('[data-narrow]') === null) return { ...rect(30), top: waitsTop, bottom: waitsTop + 16, y: waitsTop } as DOMRect
       return rect(0)
     })
     vi.spyOn(document, 'createRange').mockImplementation(() => {
@@ -297,6 +301,7 @@ describe('Stepper measures whether the full form fits', () => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     labelNeeds = 80
+    waitsTop = 0
   })
 
   const stepper = () => screen.getByTestId('ticket-stepper')
@@ -324,6 +329,17 @@ describe('Stepper measures whether the full form fits', () => {
     expect(isNarrow()).toBe(false)
     expect(stepper().querySelectorAll('[data-step]')).toHaveLength(9)
     expect(screen.getByTestId('stepper-waits')).toBeTruthy()
+  })
+
+  it('the dots and the name fit, but whom it waits for goes to a second line: narrow, and it waits for the owner there too', () => {
+    room = 300
+    need = () => 230
+    labelCut = false
+    waitsTop = 18
+    layout()
+    render(<Stepper pipeline={WORFY} stage={on(WORFY, 'ci', { waits: 'owner' })} />)
+    expect(isNarrow()).toBe(true)
+    expect(screen.getByTestId('stepper-waits').textContent).toBe('owner')
   })
 
   it('the dots fit but the Stage\'s name would be cut: narrow', () => {

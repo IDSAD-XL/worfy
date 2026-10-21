@@ -11,6 +11,7 @@
     "scripts/build-version.ts",
     "scripts/dev-bundle.ts",
     "src/renderer/canvas/epic-layout.ts",
+    "src/renderer/canvas/ticket-card.ts",
     "src/renderer/canvas/epic-arrangement.ts",
     "src/renderer/canvas/elk/layout.ts",
     "src/renderer/canvas/family.ts",

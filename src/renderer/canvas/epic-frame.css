@@ -221,6 +221,9 @@
 }
 
 /* ── Ticket ────────────────────────────────────────────────────────────── */
+/* Nothing on the card is cut (worfy-canvas ticket 18): text wraps and rows take more lines. The
+   Node is as tall as ticket-card.ts computes; its numbers mirror the sizes here — change both.
+   `overflow: hidden` only keeps a wrong estimate from drawing over the card below. */
 .w-ticket {
   width: 100%;
   height: 100%;
@@ -258,39 +261,45 @@
 .w-ticket__top {
   flex: none;
   display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 18px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 2px 4px;
+  min-height: 18px;
 }
 .w-ticket__num {
   margin-right: auto;
   font-size: var(--text-12);
+  line-height: 18px;
   font-weight: 600;
+}
+/* The repository's whole name (TicketNode.tsx, RepoChip), on more lines when the row is too narrow. */
+.w-ticket__repo {
+  flex: 0 1 auto;
+  max-width: 100%;
+  height: auto;
+  min-height: 18px;
+  line-height: 16px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 /* In the ready Wave (ADR-0037): the "Ready" chip and the ready colour on the border, F-SPEC's ready token. */
 .w-ticket--ready {
   border-color: var(--ready-dot);
 }
-/* TICKET_TITLE_LINES lines (epic-layout.ts), never squeezed below them: TICKET_HEIGHT holds them. */
+/* The whole title, on as many lines as it takes. */
 .w-ticket__title {
   flex: none;
   font-size: var(--text-13);
   line-height: 17px;
   font-weight: 600;
   overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 .w-ticket__meta {
   flex: none;
   font-size: var(--text-11);
   line-height: 15px;
   color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .w-ticket__meta--attention {
   color: var(--blocked-text);
@@ -306,14 +315,13 @@
   color: var(--blocked-text);
   font-size: var(--text-12);
   line-height: 15px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
-/* Badges on the left, actions on the right, on one row when both fit and on two when not, so an
-   action never takes the room of the CI chip (checks-badges.css). */
+/* Badges on the left, actions on the right, on one row when both fit and on more when not (the
+   chips wrap too, checks-badges.css); at the card's bottom, below any room left for them. */
 .w-ticket__slots {
   flex: none;
+  margin-top: auto;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -328,7 +336,6 @@
 .w-ticket__badges {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
 }
 .w-ticket__actions {
   flex: none;
@@ -376,12 +383,6 @@
    header row, the title uncut, and the whole file under the header (TicketBody.tsx). */
 .w-ticket[data-focused='true'] {
   padding: 12px 16px;
-}
-.w-ticket[data-focused='true'] .w-ticket__top {
-  height: auto;
-}
-.w-ticket[data-focused='true'] .w-ticket__title {
-  display: block;
 }
 .w-ticket__open {
   flex: none;

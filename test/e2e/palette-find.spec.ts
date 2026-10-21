@@ -150,7 +150,8 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
         { id: 'c1', kind: 'card', x: -760, y: 40, w: 320, h: 220, ...base, tags: [], data: {} },
         { id: 'n1', kind: 'note', x: -760, y: 320, w: 220, h: 120, ...base, tags: ['plan'], data: { text: 'Plan of the wave' } },
       ],
-      viewport: { x: 800, y: 60, zoom: 0.8 },
+      // Zoomed out enough for the frame's 240 px columns (worfy-canvas ticket 18) to reach Ticket 07.
+      viewport: { x: 700, y: 60, zoom: 0.7 },
     }),
   )
 
