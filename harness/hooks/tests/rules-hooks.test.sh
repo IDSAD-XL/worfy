@@ -440,6 +440,28 @@ flat="$(tr '\n' ' ' <"$RULES/orchestrator.md" 2>/dev/null | tr -s ' ')"
     && ok "orchestrator.md: the log says why, is not committed and is not read on resume" \
     || bad "orchestrator.md: the caveat does not say what the log is for, that it is not committed or that it is not read on resume"
 
+# "Phase 3": running epic-status is a step of its own that comes before the status block, and the
+# rule is written once. As a condition in the list of rules under the block, sessions skipped the
+# run and wrote the Stage line in their own words.
+phase3="$(awk '/^## Phase 3/ { on = 1; next } on && /^## / { exit } on' "$RULES/orchestrator.md" 2>/dev/null)"
+run_at="$(printf '%s\n' "$phase3" | grep -nF '${CLAUDE_PLUGIN_ROOT}/bin/epic-status' | head -n 1 | cut -d: -f1)"
+block_at="$(printf '%s\n' "$phase3" | grep -nE '^[[:space:]]*(—|–|-)[[:space:]]*Stage[[:space:]]*:' | head -n 1 | cut -d: -f1)"
+[ -n "$run_at" ] && [ -n "$block_at" ] && [ "$run_at" -lt "$block_at" ] \
+    && ok "orchestrator.md Phase 3: the epic-status run stands before the status block" \
+    || bad "orchestrator.md Phase 3: the epic-status run is not a step before the status block (run at line ${run_at:-none}, block at line ${block_at:-none})"
+runs="$(printf '%s\n' "$phase3" | grep -cF 'bin/epic-status')"
+# Once: the full path appears once, and nothing after the Stage line names epic-status again (a
+# bullet under the block may name it without the path).
+after="$(printf '%s\n' "$phase3" | awk -v from="${block_at:-0}" 'from > 0 && NR > from' | grep -cF 'epic-status')"
+[ "$runs" -eq 1 ] && [ -n "$block_at" ] && [ "$after" -eq 0 ] \
+    && ok "orchestrator.md Phase 3: the epic-status run is written once" \
+    || bad "orchestrator.md Phase 3: the epic-status run is written more than once (path $runs times, $after mentions after the Stage line)"
+# "only then write the block" belongs to the step itself: between the run and the Stage line.
+step_flat="$(printf '%s\n' "$phase3" | awk -v a="${run_at:-0}" -v b="${block_at:-0}" 'a > 0 && NR >= a && NR < b' | tr '\n' ' ' | tr -s ' ')"
+[[ "$step_flat" == *'only then write the block'* ]] \
+    && ok "orchestrator.md Phase 3: the step says the block is written only after the run" \
+    || bad "orchestrator.md Phase 3: no 'only then write the block' between the epic-status run and the status block"
+
 # common.md holds exactly Plain language, Evidence before "green", Context hygiene and Shell commands
 # without a confirmation (the agents point at that section by its name).
 heads="$(grep '^## ' "$RULES/common.md" 2>/dev/null | tr '\n' '|')"
