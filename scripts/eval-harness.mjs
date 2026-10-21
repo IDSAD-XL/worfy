@@ -3,7 +3,8 @@
 // (harness/evals/, ticket worfy-harness/27) with `claude plugin eval`: real model calls on the
 // owner's account, by hand, on a Mac. Not in CI and not in the gate.
 //
-// Two calls, because the cases need different shell grants:
+// One call per tag, because the cases need different shell grants (with --changed, below, a tag of
+// which only some cases are chosen gets one call per chosen case):
 //   main — cases tagged `main`, with Bash, Write and Edit;
 //   gui  — cases tagged `gui` (no-os-screen-capture), with Bash only for git, node, the Harness
 //          scripts, `echo` and `set -o pipefail`: an attempt at an OS screen capture is refused,
@@ -14,7 +15,7 @@
 // dependency (mattpocock-skills) is missing — then no case sees a single rule of the Harness.
 // HARNESS_DIR=<dir> evaluates another copy of the Harness instead of harness/ (the mutation check of
 // the ticket); results go to <that dir>/evals/results/.
-// Arguments after `--` go to both calls as they are (`pnpm eval:harness -- --case status-block
+// Arguments after `--` go to every call as they are (`pnpm eval:harness -- --case status-block
 // --runs 1`); a call whose tag no case selected by --case/--tag carries is skipped.
 // `--changed <base>` (ticket worfy-harness/29) is this script's own and does not reach claude: it runs
 // only the cases of the rule files changed since <base> — `git diff <base>...HEAD` plus what
@@ -241,14 +242,18 @@ function changedFiles(base) {
   return [...new Set(found)].sort()
 }
 
-/** The costUsd of the aggregate-result.json in `outputDir`; 0 when there is none to read. */
-function spentIn(outputDir) {
+/**
+ * What a finished call spent: the costUsd of the aggregate-result.json in its `outputDir`, a partial
+ * run's too; `granted`, the --max-cost-usd it was given, when the report is missing, unreadable or has
+ * no costUsd — a call that crashed after spending must not hand its whole limit to the next one.
+ */
+function spentIn(outputDir, granted) {
   try {
     const cost = JSON.parse(readFileSync(join(outputDir, 'aggregate-result.json'), 'utf8'))?.costUsd
-    return typeof cost === 'number' && cost > 0 ? cost : 0
+    // shortcut: a call without a costUsd counts its whole limit, redo if claude reports a crashed call's spend.
+    return typeof cost === 'number' && cost >= 0 ? cost : granted
   } catch {
-    // shortcut: a call that wrote no report counts as 0 USD, redo if claude starts to fail after spending.
-    return 0
+    return granted
   }
 }
 
@@ -431,7 +436,7 @@ try {
       process.stdout.write(`eval:harness: stopped by ${stopped}, the ${call.name} call and any after it are skipped\n`)
       break
     }
-    const spent = outputs.reduce((sum, done) => sum + spentIn(done.outputDir), 0)
+    const spent = outputs.reduce((sum, done) => sum + spentIn(done.outputDir, done.granted), 0)
     const left = Number((BUDGET_USD - spent).toFixed(2))
     if (left <= 0) {
       process.stdout.write(
@@ -452,7 +457,7 @@ try {
     const code = run.status ?? 128 + (constants.signals[run.signal] ?? constants.signals.SIGTERM)
     process.stdout.write(`eval:harness: ${call.name} exited ${code}\n`)
     worst = Math.max(worst, code)
-    outputs.push({ ...call, outputDir })
+    outputs.push({ ...call, outputDir, granted: left })
   }
   await signalsHandled()
   if (stopped) worst = Math.max(worst, 128 + (constants.signals[stopped] ?? constants.signals.SIGTERM))

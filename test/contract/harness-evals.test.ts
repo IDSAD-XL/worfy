@@ -722,6 +722,9 @@ function stubSetup(
     STUB_VERSION: version,
     STUB_CODES: codes,
     STUB_LOG: log,
+    // A report that spent nothing: a call without a report counts its whole --max-cost-usd, and the
+    // next call would get nothing. A test that wants no report sets STUB_AGGREGATE to ''.
+    STUB_AGGREGATE: JSON.stringify({ claudeVersion: '2.1.289', costUsd: 0, partial: false, aggregates: { casesPassed: 0, overallScore: 0 } }),
     ...extra,
   })
   return { dir, log, env }
@@ -1432,7 +1435,8 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
 
   // git quotes a path with a double quote (and escapes it inside); the script reads git's output
   // NUL-separated, where no path is quoted. Windows allows no `"` in a file name.
-  it.skipIf(process.platform === 'win32')('reads a rule file whose name has a space and a double quote', () => {
+  it('reads a rule file whose name has a space and a double quote', (context) => {
+    context.skip(process.platform === 'win32', 'Windows allows no double quote in a file name')
     const { repo, git } = changedRepo()
     const name = 'notes "on" waves.md'
     writeFileIn(join(repo, 'harness', 'skills', 'epic-wave', name), '# notes\n')
@@ -1461,6 +1465,39 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
     // Exit 2, as a call that hit the ceiling: the run is partial.
     expect(spent.run.status).toBe(2)
     expect(spent.run.stdout).toMatch(/30 USD .*spent.*main-reviewer-verdict call and any after it are skipped/)
+  })
+
+  /** A branch whose change to the epic-wave skill chooses three cases of the main tag, three calls. */
+  const threeCalls = (): string => {
+    const { repo, git } = changedRepo()
+    expect(git('checkout', '-q', '-b', 'topic').status).toBe(0)
+    appendFileSync(join(repo, 'harness', 'skills', 'epic-wave', 'SKILL.md'), '\nOne more rule.\n')
+    expect(git('commit', '-q', '-am', 'change epic-wave').status).toBe(0)
+    return repo
+  }
+  const limits = (calls: StubCall[]): string[][] => calls.map((call) => listAfter(call.args, '--max-cost-usd'))
+
+  it('counts the whole limit of a call that wrote no report: the next call does not start', () => {
+    const { repo } = changedRepo()
+    appendFileSync(join(repo, 'harness', 'evals', 'lib', 'demo-project.sh'), '\n# a comment\n')
+    const { run, calls } = evalIn(repo, ['--changed', 'HEAD'], { STUB_AGGREGATE: '' })
+    expect(calls.map((call) => listAfter(call.args, '--tag'))).toEqual([['main']])
+    expect(limits(calls)).toEqual([['30']])
+    expect(run.status).toBe(2)
+    expect(run.stdout).toMatch(/30 USD .*spent \(30 USD\).*gui call and any after it are skipped/)
+  })
+
+  it('counts the cost of a partial run', () => {
+    const { run, calls } = evalIn(threeCalls(), ['--changed', 'main'], { STUB_AGGREGATE: aggregate({ partial: true, costUsd: 20 }) })
+    expect(limits(calls)).toEqual([['30'], ['10']])
+    expect(run.status).toBe(2)
+  })
+
+  it('stops with exit 2 when exactly nothing is left', () => {
+    const { run, calls } = evalIn(threeCalls(), ['--changed', 'main'], { STUB_AGGREGATE: aggregate({ costUsd: 15 }) })
+    expect(limits(calls)).toEqual([['30'], ['15']])
+    expect(run.status).toBe(2)
+    expect(run.stdout).toMatch(/spent \(30 USD\).*main-reviewer-verdict call and any after it are skipped/)
   })
 
   it('makes the usual call of a tag, without --case, when a change chooses every case of it', () => {
@@ -1540,7 +1577,7 @@ describe('pnpm eval:harness: one line per call for the PR description, from aggr
   })
 
   it('says so when the call wrote no report, and keeps the exit code of the call', () => {
-    const { run } = evalIn(implementerChange(), ['--changed', 'HEAD'], {}, '1')
+    const { run } = evalIn(implementerChange(), ['--changed', 'HEAD'], { STUB_AGGREGATE: '' }, '1')
     expect(run.status).toBe(1)
     expect(lines(run.stdout)).toContain('eval:harness main: no aggregate-result.json')
   })

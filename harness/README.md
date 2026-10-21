@@ -104,8 +104,9 @@ cases are chosen gets one call per chosen case. Every call passes `--scaffold --
 --ablation none --threshold 0.8 --no-publish` and pinned `--model` and `--judge-model`; arguments
 after `--` go to every call. The cost ceiling is 30 USD for the whole run: each call gets
 `--max-cost-usd` with what the calls before it left (by the `costUsd` of their
-`aggregate-result.json`), and once nothing is left the remaining calls are not started and the run
-exits `2`. `HARNESS_DIR=<dir>` evaluates another copy of the Harness. The exit code is the worst of
+`aggregate-result.json`, partial runs included; a call whose report is missing, unreadable or has no
+`costUsd` counts its whole limit), and once nothing is left the remaining calls are not started and
+the run exits `2`. `HARNESS_DIR=<dir>` evaluates another copy of the Harness. The exit code is the worst of
 the calls: `0` — every case at 0.8 or above, `1` — a case below it or not loaded, `2` — a partial
 run (cost ceiling, the account refused), 128 + the signal number — stopped by a signal (`130`
 SIGINT, `129` SIGHUP, `143` SIGTERM); after a signal the remaining calls are not started.
