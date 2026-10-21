@@ -440,6 +440,23 @@ flat="$(tr '\n' ' ' <"$RULES/orchestrator.md" 2>/dev/null | tr -s ' ')"
     && ok "orchestrator.md: the log says why, is not committed and is not read on resume" \
     || bad "orchestrator.md: the caveat does not say what the log is for, that it is not committed or that it is not read on resume"
 
+# "Phase 3": running epic-status is a step of its own that comes before the status block, and the
+# rule is written once. As a condition in the list of rules under the block, sessions skipped the
+# run and wrote the Stage line in their own words.
+phase3="$(awk '/^## Phase 3/ { on = 1; next } on && /^## / { exit } on' "$RULES/orchestrator.md" 2>/dev/null)"
+run_at="$(printf '%s\n' "$phase3" | grep -nF '${CLAUDE_PLUGIN_ROOT}/bin/epic-status' | head -n 1 | cut -d: -f1)"
+block_at="$(printf '%s\n' "$phase3" | grep -nE '^[[:space:]]*(—|–|-)[[:space:]]*Stage[[:space:]]*:' | head -n 1 | cut -d: -f1)"
+[ -n "$run_at" ] && [ -n "$block_at" ] && [ "$run_at" -lt "$block_at" ] \
+    && ok "orchestrator.md Phase 3: the epic-status run stands before the status block" \
+    || bad "orchestrator.md Phase 3: the epic-status run is not a step before the status block (run at line ${run_at:-none}, block at line ${block_at:-none})"
+runs="$(printf '%s\n' "$phase3" | grep -cF 'bin/epic-status')"
+[ "$runs" -eq 1 ] && ok "orchestrator.md Phase 3: the epic-status run is written once" \
+    || bad "orchestrator.md Phase 3: the epic-status run is written $runs times, not once"
+phase3_flat="$(printf '%s\n' "$phase3" | tr '\n' ' ' | tr -s ' ')"
+[[ "$phase3_flat" == *'only then write the block'* ]] \
+    && ok "orchestrator.md Phase 3: the block is written only after the run" \
+    || bad "orchestrator.md Phase 3: no 'only then write the block' after the epic-status step"
+
 # common.md holds exactly Plain language, Evidence before "green", Context hygiene and Shell commands
 # without a confirmation (the agents point at that section by its name).
 heads="$(grep '^## ' "$RULES/common.md" 2>/dev/null | tr '\n' '|')"
