@@ -389,7 +389,7 @@ describe('the note as it travels', () => {
 describe('the note of a Ticket that waits, over the link (worfy-pipeline ticket 10)', () => {
   const A_ROOT = '/Users/a/worfy'
   const B_ROOT = 'C:/src/worfy'
-  const REPO_KEY = projectMatchKey({ id: 'any', origin: 'github.com/o/worfy', repoPath: '' })
+  const REPO_KEY = projectMatchKey({ id: 'any', origin: 'git.example.com/o/worfy', repoPath: '' })
   const AT = '2026-10-20T09:00Z'
   const waiting = (waits: string, num = 16): Ticket => ({
     epic: 'worfy-link',
@@ -524,9 +524,9 @@ describe('the note of a Ticket that waits, over the link (worfy-pipeline ticket 
     })
     onA.wait(A_ROOT, waiting('owner'))
     await until(() => onB.tickets.length === 1)
-    expect(onA.tickets.map((note) => note.title)).toEqual(['worfy-link 16 ждёт тебя'])
+    expect(onA.tickets.map((note) => note.title)).toEqual(['worfy-link 16 is waiting for you'])
     expect(onB.tickets).toEqual([
-      { title: `worfy-link 16 ждёт тебя (${a.service.machine.name})`, body: 'acceptance', sessionId: null, projectRoot: null, ticket: { epic: 'worfy-link', num: 16 }, machineId: aId, projectId: 'worfy-aaaaaaaa' },
+      { title: `worfy-link 16 is waiting for you (${a.service.machine.name})`, body: 'acceptance', sessionId: null, projectRoot: null, ticket: { epic: 'worfy-link', num: 16 }, machineId: aId, projectId: 'worfy-aaaaaaaa' },
     ])
     expect(raw).toHaveLength(1)
     expect(Object.keys(raw[0] as object).sort()).toEqual(['body', 'epic', 'num', 'project', 'title', 'wait'])
@@ -560,8 +560,8 @@ describe('the note of a Ticket that waits, over the link (worfy-pipeline ticket 
     // B's handler ran as the frame came; the rest of its decision waits only on the test's match keys,
     // which resolve in microtasks: a macrotask later it has decided.
     await new Promise((done) => setTimeout(done, 0))
-    expect(onA.tickets.map((note) => note.title)).toEqual(['worfy-link 16 ждёт тебя'])
-    expect(onB.tickets.map((note) => note.title)).toEqual(['worfy-link 16 ждёт тебя'])
+    expect(onA.tickets.map((note) => note.title)).toEqual(['worfy-link 16 is waiting for you'])
+    expect(onB.tickets.map((note) => note.title)).toEqual(['worfy-link 16 is waiting for you'])
   })
 
   it('B of a build before the message (hello without accepts) gets no ticket-note, its link works as before; accepts without the name — none either; with it — the note comes', async () => {
@@ -608,7 +608,7 @@ describe('the note of a Ticket that waits, over the link (worfy-pipeline ticket 
 
 describe('the note of a Ticket over the link: whom it reaches, and the app\'s link (worfy-pipeline ticket 10, round 2)', () => {
   const A_ROOT = '/Users/a/worfy'
-  const REPO_KEY = projectMatchKey({ id: 'any', origin: 'github.com/o/worfy', repoPath: '' })
+  const REPO_KEY = projectMatchKey({ id: 'any', origin: 'git.example.com/o/worfy', repoPath: '' })
   const waiting = (waits: string, num: number, reason = 'acceptance', statusAt = '2026-10-20T09:00Z'): Ticket => ({
     epic: 'worfy-link',
     num,
