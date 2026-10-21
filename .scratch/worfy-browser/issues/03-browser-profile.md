@@ -1,7 +1,7 @@
 # 03 — Browser profile: создать и удалить, `persist:` partition, список origin-ов, флажок «доступен Autopilot»
 
 Type: task
-Status: open
+Status: claimed — 2026-10-21
 Blocked by: 02, 10, 11, 12
 Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md) (Browser Node), пункт 5
 (Browser profile — у Project-а, на Machine; вход и создание — только пользователь; список origin-ов;
@@ -101,11 +101,11 @@ Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md
 - Autopilot по флажку — Ticket 08.
 - Вход и создание Browser profile с экрана Linked machine — после Ticket-а 07 (кадры и ввод).
 
-## Открытые вопросы
+## Открытые вопросы (решены 2026-10-21, см. «Решения владельца»)
 
-1. **Где пользователь управляет Browser profile-ами.** ADR не говорит. Варианты: «Project settings…»
+1. **Где пользователь управляет Browser profile-ами** (решено, см. ниже). ADR не говорит. Варианты: «Project settings…»
    (Browser profile принадлежит Project-у; Settings — настройки worfy на Machine, `CONTEXT.md`),
-   меню Browser Node, отдельная панель. Решает владелец до claim.
+   меню Browser Node, отдельная панель.
 2. **Поддомены в списке origin-ов** (`https://*.example.com`). ADR приводит только точные origin-ы.
    Предложение: только точные; решает владелец.
 3. **Удаление Browser profile, под которым открыты Browser-ы:** закрыть их или отказать в удалении —
@@ -116,6 +116,28 @@ Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md
    Project-а на partition-е `…-default`. Как он называется, создаётся ли сам при первом открытии,
    можно ли его удалить. Предложение: создаётся сам при первом чтении пустого списка с именем
    «Default», переименовать и удалить можно, как любой другой.
+
+## Решения владельца — 2026-10-21
+
+Владелец ответил «согласен со всеми» в чате Session «Worfy продолжение», то есть принял все пять
+предложений:
+
+1. **Управление** — окно «Browser profiles…». Оно открывается из имени Browser profile в шапке
+   рамки Browser-а. В окне: создать, переименовать, удалить, список origin-ов, флажок «доступен
+   Autopilot».
+2. **Origin-ы** — только точные `scheme://host:port`, без `*` и поддоменов.
+3. **Удаление Browser profile, под которым есть Browser-ы на Canvas**, разрешено после
+   подтверждения, где названо, сколько Browser-ов его используют. Эти Browser-ы показывают пустую
+   рамку с кнопкой «Choose a profile».
+4. **Переименование** разрешено. Partition называется по id, не по имени, поэтому куки остаются.
+5. **«Default»**: Browser profile с id `default` и именем «Default» создаётся сам при первом
+   чтении пустого списка. Так вход, сделанный после Ticket-а 10, остаётся у него. Его можно
+   переименовать и удалить, как любой другой. «New browser» спрашивает Browser profile, только
+   когда их больше одного.
+
+Пункт 6 «Что делаем» («Browser без Browser profile не открывается») читать вместе с решениями 3
+и 5. Browser с удалённым Browser profile — пустая рамка с «Choose a profile». Новый Browser при
+одном Browser profile открывается под ним без вопроса.
 
 ## Итог
 
