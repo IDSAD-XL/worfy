@@ -5,6 +5,7 @@ import { Markdown } from '../../markdown/Markdown'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
+import { NODE_HEADER, NODE_TITLE } from '../zoom-level'
 import type { CanvasNodeProps } from './index'
 
 // The HANDOFF Node: the Project's HANDOFF.md (CONTEXT.md, «HANDOFF»), rendered as markdown and
@@ -83,11 +84,13 @@ export default function HandoffNode({ id, selected }: CanvasNodeProps) {
         minHeight={120}
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
-      <div style={styles.header}>
+      <div style={styles.header} {...NODE_HEADER}>
         <span style={styles.icon}>
           <DocumentIcon />
         </span>
-        <span style={styles.title}>HANDOFF</span>
+        <span style={styles.title} {...NODE_TITLE}>
+          HANDOFF
+        </span>
         <span className="w-mono" style={styles.file}>
           HANDOFF.md
         </span>

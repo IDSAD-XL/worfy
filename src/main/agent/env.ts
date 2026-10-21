@@ -18,9 +18,11 @@
 // parent Claude Code session's CLAUDECODE or GH_TOKEN, WORFY_* — reaches Claude Code, as the
 // minimal start of the login shell ensures on the Mac. The API keys are removed as on the Mac.
 // Claude Code gets Git Bash for its Bash tool through CLAUDE_CODE_GIT_BASH_PATH; `bash.exe` from
-// Path may be the WSL launcher.
+// Path may be the WSL launcher. An e2e sandbox replaces the registry with a JSON file
+// (WORFY_REGISTRY_STAND_IN, worfy-windows ticket 81), as $HOME/.profile replaces the shell's setup on the Mac.
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { readlinkSync, statSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { Socket } from 'node:net'
 import { win32 } from 'node:path'
 
@@ -509,10 +511,37 @@ export function findGitBash(env: SourceEnv, exists: FileExists = fileOrAlias): s
   return null
 }
 
+/**
+ * The variable of worfy's environment that names a JSON file standing in for the registry: an object
+ * from each key of PERSISTENT_ENV_KEYS to its values as RegRead answers them (`{ name, type, value }`).
+ * Only an e2e sandbox sets it (test/e2e/first-run-sandbox.ts), so the checks of First run and the
+ * Sessions see its stand-in tools; like every WORFY_* variable, it is not passed to a child.
+ */
+export const REGISTRY_STAND_IN_VAR = 'WORFY_REGISTRY_STAND_IN'
+
+/** A RegRead over a REGISTRY_STAND_IN_VAR file, read anew on every call; a key the file lacks rejects. */
+export function fileRegRead(file: string): RegRead {
+  return async (key) => {
+    const keys = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>
+    const values = keys[key]
+    if (!Array.isArray(values)) throw new Error(`${key} is not in the registry stand-in ${file}`)
+    return values as RegValue[]
+  }
+}
+
+/**
+ * The registry reader of `source`: the stand-in file of REGISTRY_STAND_IN_VAR when it is set and not
+ * empty, otherwise Windows PowerShell of %SystemRoot% (`powershell`, powershellRegRead by default).
+ */
+export function registryReader(source: SourceEnv, powershell: (systemRoot: string | undefined) => RegRead = powershellRegRead): RegRead {
+  const file = getVar(source, REGISTRY_STAND_IN_VAR)
+  return file ? fileRegRead(file) : powershell(getVar(source, 'SystemRoot'))
+}
+
 export interface WindowsEnvOptions {
   /** worfy's own environment; process.env by default. */
   source?: SourceEnv
-  /** The registry reader; powershellRegRead of %SystemRoot% by default. */
+  /** The registry reader; registryReader of `source` by default. */
   readKey?: RegRead
   exists?: FileExists
 }
@@ -539,7 +568,7 @@ export async function captureWindowsEnv(options: WindowsEnvOptions = {}): Promis
   }
   let from: CapturedEnv['from'] = 'registry'
   try {
-    const readKey = options.readKey ?? powershellRegRead(getVar(source, 'SystemRoot'))
+    const readKey = options.readKey ?? registryReader(source)
     // PERSISTENT_ENV_KEYS: the user's key first, the machine's second.
     const [userValues, machineValues] = await Promise.all(PERSISTENT_ENV_KEYS.map((key) => readKey(key)))
     // Built apart and taken only when complete, so a fallback carries nothing of the registry.

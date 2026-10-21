@@ -27,6 +27,7 @@ import { badges, type SlotSubject } from '../badges'
 import { KindBand, KindIcon } from '../kind-icons'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
+import { NODE_HEADER, NODE_TITLE } from '../zoom-level'
 import type { CanvasNodeProps } from './index'
 
 // A Session of Claude Code on the Canvas (CONTEXT.md, "Session": one Session — one Node, wherever it
@@ -371,10 +372,10 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
         minHeight={140}
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
-      <div style={styles.header} title="Double-click to open the Session">
+      <div style={styles.header} title="Double-click to open the Session" {...NODE_HEADER}>
         <KindBand kind="session" />
         <KindIcon kind="session" />
-        <span style={styles.title} data-testid="session-node-title" title={title}>
+        <span style={styles.title} data-testid="session-node-title" {...NODE_TITLE} title={title}>
           {title}
         </span>
         <span data-testid="session-node-status" title={running ? (view.error ?? undefined) : undefined}>
@@ -525,10 +526,10 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
         minHeight={80}
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
-      <div style={styles.header} title="Double-click to open the transcript">
+      <div style={styles.header} title="Double-click to open the transcript" {...NODE_HEADER}>
         <KindBand kind="session" />
         <KindIcon kind="session" />
-        <span style={styles.title} data-testid="session-node-title" title={title}>
+        <span style={styles.title} data-testid="session-node-title" {...NODE_TITLE} title={title}>
           {title}
         </span>
         <span data-testid="session-node-status">

@@ -1,9 +1,9 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { NO_STAND_INS, NO_STAND_INS_ON_WINDOWS } from './first-run-sandbox'
+import { CHECK_IDS, CHECK_RUN_CALL, CLAUDE_STAND_IN, NO_QMD, TOOLS, toolFile, writeSandbox } from './first-run-sandbox'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
@@ -14,12 +14,9 @@ import { snapshotThemes } from './snapshots'
 // first on the PATH, so the checks see them and nothing of the machine running the tests. First run
 // does not open by itself here (launchApp), and the data folder starts without its mark.
 // Snapshots in both themes: test-results/e2e/snapshots/settings-health*/ (test/e2e/snapshots.ts).
-// Not on Windows until worfy-windows ticket 81: first-run-sandbox.ts.
-
-test.skip(NO_STAND_INS, NO_STAND_INS_ON_WINDOWS)
+// On Windows the sandbox is a registry stand-in instead of .profile (first-run-sandbox.ts, worfy-windows ticket 81).
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
-const TOOLS = join(repoRoot, 'test', 'fixtures', 'first-run-tools')
 /** SETTINGS_MENU_ITEM_ID of src/main/menu.ts; that module needs Electron, so it is not imported here. */
 const SETTINGS_MENU_ITEM_ID = 'app.settings'
 /** The Claude Code version this build carries: the stand-in `claude --version` prints the same. */
@@ -33,6 +30,8 @@ let dataDir: string
 let bin: string
 let state: string
 let log: string
+/** What the app needs in its environment to see the sandbox: the registry stand-in on Windows. */
+let sandboxEnv: Record<string, string>
 
 test.beforeEach(() => {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-settings-health-')))
@@ -43,9 +42,7 @@ test.beforeEach(() => {
   state = join(scratch, 'state')
   log = join(scratch, 'calls.log')
   for (const dir of [claudeHome, dataDir, bin, state]) mkdirSync(dir, { recursive: true })
-  for (const name of ['claude', 'gh', 'node', 'jq', 'git', 'npm', 'qmd']) symlinkSync(join(TOOLS, name), join(bin, name))
   const variables: Record<string, string> = {
-    PATH: `${bin}:/usr/bin:/bin`,
     FIRST_RUN_TOOLS_LOG: log,
     FIRST_RUN_TOOLS_DIR: TOOLS,
     FIRST_RUN_TOOLS_STATE: state,
@@ -57,7 +54,7 @@ test.beforeEach(() => {
     XDG_CACHE_HOME: join(scratch, 'cache'),
     XDG_CONFIG_HOME: join(scratch, 'config'),
   }
-  writeFileSync(join(home, '.profile'), Object.entries(variables).map(([key, value]) => `${key}='${value}'; export ${key}\n`).join(''))
+  sandboxEnv = writeSandbox({ scratch, home, bin, variables })
 })
 
 test.afterEach(async () => {
@@ -68,15 +65,13 @@ const launch = (): Promise<LaunchedApp> =>
   launchApp({
     // WORFY_GH: the gh rows run the sandbox's gh (worfy-windows ticket 80), as the login shell's PATH has it.
     // The rest of the app gets it too, and it answers only the first-run commands (no `pr list`).
-    env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, HOME: home, SHELL: '/bin/sh', WORFY_CLAUDE: join(TOOLS, 'claude'), WORFY_GH: join(bin, 'gh'), FIRST_RUN_TOOLS_STATE: state, FIRST_RUN_TOOLS_LOG: log },
+    env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, HOME: home, SHELL: '/bin/sh', WORFY_CLAUDE: CLAUDE_STAND_IN, WORFY_GH: toolFile(bin, 'gh'), FIRST_RUN_TOOLS_STATE: state, FIRST_RUN_TOOLS_LOG: log, ...sandboxEnv },
   })
 
 const calls = (): string[] => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : [])
-/** How many times the checks ran: each run asks the stand-in qmd for its version. */
-const checkRuns = (): number => calls().filter((line) => line === 'qmd --version').length
+/** How many times the checks ran: each run writes CHECK_RUN_CALL once. */
+const checkRuns = (): number => calls().filter((line) => line === CHECK_RUN_CALL).length
 const mark = (): string => join(dataDir, 'first-run.json')
-
-const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'git-identity', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'harness-scripts', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
 
 /** The rows of `place` once its checks are in: the id, the name and the status of each. */
 async function checksOf(place: Locator): Promise<{ id: string | null; name: string | null; status: string | null }[]> {
@@ -144,7 +139,9 @@ test('Settings → Health shows the checks of the First run dialog; closing Sett
     expect(checkRuns()).toBe(1)
     // What First run shows on a first start (test/e2e/first-run.spec.ts): one failed (the Harness
     // plugin), three warnings (its dependencies and its scripts, checked once it is installed; the qmd models).
-    await expect(health.getByTestId('first-run-summary')).toHaveText('1 failed · 3 warnings')
+    // On Windows three more: Limits (a development build has no bridge), PowerShell (no pwsh on the
+    // sandbox's Path) and qmd (NO_QMD).
+    await expect(health.getByTestId('first-run-summary')).toHaveText(NO_QMD ? '1 failed · 6 warnings' : '1 failed · 3 warnings')
     await expect(health.locator('[data-check="harness"]')).toHaveAttribute('data-status', 'fail')
     await expect(health.locator('[data-check="harness"]').getByRole('button', { name: 'Install' })).toBeVisible()
     await expect(health.getByRole('button', { name: 'Check again' })).toBeVisible()
