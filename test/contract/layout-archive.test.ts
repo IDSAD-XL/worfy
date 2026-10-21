@@ -1016,6 +1016,31 @@ describe('the toast of a batch and its Undo (worfy-canvas ticket 10; ADR-0076, p
     expect(useOf('layout.archived')).toBe('read')
   })
 
+  it('the app\'s archiver runs a Project the moment main first reads its Layout: an overdue Session goes without waiting for a tick', async () => {
+    writeFileSync(layoutFile(), JSON.stringify({ nodes: [{ id: 'session:a', kind: 'session', x: 0, y: 0, w: 300, h: 120, data: { sessionId: 'a' } }] }))
+    world.history = transcripts(['a', 30 * HOUR])
+    // The tick is an hour away; the run at start finds no Layout held and reads none.
+    appArchiver(() => ({ idleMs: 24 * HOUR, ticketDone: true }))
+    await vi.waitFor(() => expect(store.peek(PROJECT)).toBeUndefined())
+    // A window opens the Project.
+    expect((await call('layout.get', { projectId: PROJECT })).ok).toBe(true)
+    await vi.waitFor(() => expect(isArchived(nodeOf('session:a')!)).toBe(true))
+    expect(batchEvents(1)).toEqual([{ projectId: PROJECT, batch: 'batch-1', count: 1 }])
+    expect(batchEvents(2)).toEqual([{ projectId: PROJECT, batch: 'batch-1', count: 1 }])
+  })
+
+  it('a stopped archiver no longer runs a Project on its first read', async () => {
+    writeFileSync(layoutFile(), JSON.stringify({ nodes: [{ id: 'session:a', kind: 'session', x: 0, y: 0, w: 300, h: 120, data: { sessionId: 'a' } }] }))
+    world.history = transcripts(['a', 30 * HOUR])
+    const history = vi.fn(() => world.history())
+    const stop = startAppArchiver(archiver({ history }), 3_600_000)
+    stop()
+    store.get(PROJECT)
+    await new Promise((done) => setTimeout(done, 20))
+    expect(history).not.toHaveBeenCalled()
+    expect(isArchived(nodeOf('session:a')!)).toBe(false)
+  })
+
   it('a run, whatever the threshold, does not read the layout.json of a Project nobody opened; once main holds it, the run archives', async () => {
     writeFileSync(layoutFile(), JSON.stringify({ nodes: [{ id: 'session:a', kind: 'session', x: 0, y: 0, w: 300, h: 120, data: { sessionId: 'a' } }] }))
     store.forget(PROJECT)

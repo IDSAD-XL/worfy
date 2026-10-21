@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 // Tokens first: every other stylesheet reads its variables.
 import './theme/tokens.css'
 import { AppShell } from './shell/AppShell'
+import { installArchiveToasts } from './canvas/archive-toast'
 import { Canvas } from './canvas/Canvas'
 import { windowMachine } from './ipc'
 import { useMachines } from './machines/useMachines'
@@ -93,6 +94,9 @@ if (container) {
   // Before the first render: the styles and the key handlers read the system from <html>
   // (platform.ts, worfy-windows ticket 11).
   markPlatform()
+  // The toasts of the automatic archive: subscribed before the first render, so no batch is missed
+  // while the Canvas loads (canvas/archive-toast.ts).
+  installArchiveToasts()
   createRoot(container).render(
     <StrictMode>
       <App />

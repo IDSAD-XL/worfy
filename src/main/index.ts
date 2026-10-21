@@ -150,8 +150,10 @@ function start(): void {
         app.on('will-quit', stopGateQueueNotices)
       })
       // The automatic archive of finished Sessions (worfy-canvas ticket 07, ADR-0076): main runs it
-      // for the Projects of this Machine, at start and every 10 minutes. Not a startup step: worfy
-      // runs without it, as without the link.
+      // for a Project of this Machine when it first reads the Project's Layout — the first window
+      // below opens the active one — and then every 10 minutes. A Project nobody opens stays unread.
+      // Before the first window, so its first read is heard. Not a startup step: worfy runs without
+      // it, as without the link.
       try {
         app.on('will-quit', installAutoArchive())
       } catch (error) {

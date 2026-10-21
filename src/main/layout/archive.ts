@@ -9,8 +9,8 @@
 // - A run during which `git worktree list` failed archives nothing and starts no clock: a worktree
 //   outside the root then drops out of the live Sessions (and maybe of the transcripts), and a
 //   Session running there would look finished (ADR-0076, Amendments).
-// - AutoArchiver runs it for every Project of this Machine at start and every ARCHIVE_TICK_MS
-//   (point 3). main does it, not a window: two screens of one Project archive once (ADR-0053), and
+// - AutoArchiver runs a Project of this Machine when main first reads its Layout, and then every
+//   ARCHIVE_TICK_MS with the others (point 3; ADR-0076, Amendments). main does it, not a window: two screens of one Project archive once (ADR-0053), and
 //   a Project watched only by a read-only Linked machine is archived too (ADR-0066). One run of a
 //   Project is one `archive` operation with a new batch id, sent without a screen, so no screen's
 //   undo history records it (ADR-0016).
@@ -19,7 +19,8 @@
 //   read of a registry watcher (src/main/ipc/claude-home.ts, liveSessionListeners).
 // - A run takes only a Project whose Layout main already holds — a window, a Linked machine or main
 //   itself read it. A Project nobody opened since the start keeps its layout.json unread, as before
-//   the archive; its first run comes with the first tick after it is opened.
+//   the archive; its first run comes the moment main reads it (LayoutStore.onFirstRead), so a
+//   Project opened at start is archived at start.
 // - The threshold comes from archiveSettings(), over the Setting of Settings → Canvas of this
 //   Machine (`sessionArchive`, worfy-canvas ticket 08, point 7), read at every run; 24 h by default
 //   (point 10, worfy-canvas ticket 10).
@@ -39,6 +40,7 @@ import type { ManualBinding } from '../../shared/ipc/bindings'
 import { isLaunchBinding } from '../../shared/ipc/bindings'
 import { SESSION_NODE_KIND } from '../../shared/ipc/sessions'
 import type { ArchiveBatchEvent, ArchiveCandidate } from '../../shared/ipc/layout'
+import { stillInBatch } from '../../shared/layout/derived'
 import { isArchived, type LayoutNode, type LayoutOp, type LayoutState } from '../../shared/layout/types'
 import type { SessionArchive, SessionArchiveAfter } from '../../shared/settings/app-settings'
 import { ClaudeHomeRegistry, listGitWorktrees, processState, type RegistryOptions } from '../claude-home/registry'
@@ -249,7 +251,7 @@ export interface ArchiveProject {
 
 /** What the archive reads and writes; the app passes the real ones (src/main/index.ts), tests their own. */
 export interface AutoArchiveDeps {
-  store: Pick<LayoutStore, 'get' | 'peek' | 'apply'>
+  store: Pick<LayoutStore, 'get' | 'peek' | 'apply' | 'onFirstRead'>
   /** The Projects of this Machine. */
   projects(): readonly ArchiveProject[]
   /** The Project's live Sessions, from the registry under the Claude home. */
@@ -451,6 +453,13 @@ export class AutoArchiver {
 
   /** Runs now and then every `everyMs`, until the returned function is called. */
   start(everyMs: number = ARCHIVE_TICK_MS): () => void {
+    // A Project is run the moment main first reads its Layout: a window opened it, so its overdue
+    // Sessions go now, not a tick later. Overlapping with a tick is safe: the rule runs again at the write.
+    const stopReads = this.deps.store.onFirstRead((projectId) => {
+      const project = this.deps.projects().find((each) => each.id === projectId)
+      if (project === undefined) return
+      this.run(project).catch((error: unknown) => console.error(`[archive] the archive of ${projectId} failed`, error))
+    })
     // A tick while the previous runs still read (a slow registry, a short tick) is skipped.
     let busy = false
     const tick = async (): Promise<void> => {
@@ -464,17 +473,19 @@ export class AutoArchiver {
     }
     void tick()
     const timer = setInterval(() => void tick(), everyMs)
-    return () => clearInterval(timer)
+    return () => {
+      clearInterval(timer)
+      stopReads()
+    }
   }
 }
 
 /** Who hears of each batch of a run: src/main/ipc/layout.ts sends it to the windows as `layout.archived`. */
 const batchListeners = new Set<(event: ArchiveBatchEvent) => void>()
 
-/** Calls `listener` after each batch any archiver's run writes; returns the function that stops it. */
-export function onArchiveBatch(listener: (event: ArchiveBatchEvent) => void): () => void {
+/** Calls `listener` after each batch any archiver's run writes, for as long as main runs. */
+export function onArchiveBatch(listener: (event: ArchiveBatchEvent) => void): void {
   batchListeners.add(listener)
-  return () => batchListeners.delete(listener)
 }
 
 /** Tells every listener of a batch; one that throws is logged, the rest still hear. */
@@ -497,7 +508,7 @@ function announceBatch(event: ArchiveBatchEvent): void {
  */
 export function restoreBatch(store: Pick<LayoutStore, 'get' | 'apply'>, projectId: string, batch: string): LayoutState {
   const state = store.get(projectId)
-  const ids = state.layout.nodes.filter((node) => node.archived?.batch === batch).map((node) => node.id)
+  const ids = stillInBatch(state.layout.nodes, batch)
   return ids.length === 0 ? state : store.apply(projectId, { op: 'restore', ids }, null)
 }
 

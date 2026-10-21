@@ -48,7 +48,7 @@ export type ArchiveBatchEvent = z.output<typeof archiveBatchEventSchema>
 
 /**
  * Sent to every window after each batch of main's archive timer (src/main/layout/archive.ts); the
- * windows of the Project show the toast with Undo (src/renderer/canvas/overlays/ArchiveToast.tsx).
+ * windows of the Project show the toast with Undo (src/renderer/canvas/archive-toast.ts).
  * A screen's own `archive` («Archive finished sessions now», a redo) sends none: it is a step of ⌘Z.
  */
 export const layoutArchived = eventChannel('layout.archived', archiveBatchEventSchema, 'project', 'read')
