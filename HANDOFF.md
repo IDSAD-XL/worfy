@@ -19,7 +19,7 @@
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 9/10, влиты 01–09 (08 — #552, 09 — #550); 10 (ADR-0079) — в работе; решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077): 14/19; влиты 01–04, 05 (#657), 06 (#668), 07, 08 (#664), 09 (#656), 11, 14 (#654), 15 (#662), 17, 18 — Wave 4 закрыта; дальше 12, 16, 19 (open); blocked 10 (ждёт `worfy-ui` 16), 13 (решение владельца).
-- `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 6/13; 03 ждёт ответов владельца; 13 — после 03.
+- `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 6/13; 03 в работе (ответы владельца приняты); 13 — после 03.
 
 ## Ждёт владельца
 
