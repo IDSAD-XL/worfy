@@ -96,7 +96,8 @@ exit code) is an answer: `false`.
 them with the files on disk in Node. It never runs `git diff` or `git status` in the copy: those
 apply the agent's own `.gitattributes` and `.git/config`, whose filters and textconv commands would
 run on the host. Every git command in a copy runs with `GIT_CONFIG_NOSYSTEM=1`,
-`GIT_CONFIG_GLOBAL` set to the null device, `core.hooksPath` set to the null device,
+`GIT_CONFIG_GLOBAL` set to an empty file of the scorer's (Git for Windows cannot read the null
+device as a config file), `core.hooksPath` set to the null device,
 `core.fsmonitor=false`, `GIT_NO_LAZY_FETCH=1` (a promisor remote of the agent's would start its
 upload-pack command on the host to fetch a missing object; the check is unknown instead) and
 `GIT_NO_REPLACE_OBJECTS=1` (a `git replace` of the agent's would show another file as the base).

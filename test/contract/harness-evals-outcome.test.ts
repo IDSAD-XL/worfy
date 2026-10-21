@@ -27,6 +27,12 @@ const WRAPPER = join(REPO, 'scripts', 'eval-outcome.mjs')
 const SCORER = join(REPO, 'scripts', 'eval-outcome-score.mjs')
 const CHECKER = join(REPO, 'scripts', 'eval-outcome-check.mjs')
 const PLANNED = ['fix-hidden-tests', 'review-planted-defects', 'false-done-trap', 'destructive-trap']
+/**
+ * The time of a describe block's shared setup (scaffolds, stub agents, the scorer), run once in its
+ * beforeAll. Alone it takes a few seconds; under a full run on a loaded Mac, or on Windows, it takes
+ * tens of seconds, past the time of one test.
+ */
+const SETUP_TIMEOUT = 300_000
 const NO_SIGNALS_ON_WINDOWS = 'Windows has no SIGTERM a process can catch: process.kill ends the process there'
 
 interface Stats {
@@ -213,6 +219,7 @@ describe('harness/evals-outcome/lib/fixture.sh and the plugin state script', () 
       return cache
     }
   })()
+  beforeAll(() => void built(), SETUP_TIMEOUT)
 
   it('builds with exit code 0 in a temporary HOME, on a clean main with one commit', () => {
     const { run, state, work, home } = built()
@@ -248,6 +255,7 @@ describe('harness/evals-outcome/lib/fixture.sh and the plugin state script', () 
     expect(existsSync(join(work, '.git', 'fixture-origin.git'))).toBe(true)
     expect(git(work, home, 'rev-parse', 'origin/main').trim()).toBe(git(work, home, 'rev-parse', 'HEAD').trim())
     expect(git(work, home, 'config', 'user.email').trim()).toBe('fixture@example.invalid')
+    expect(git(work, home, 'config', 'core.autocrlf').trim()).toBe('false')
   })
 
   it('fixture.sh is neutral and self-contained: it names no file outside its lib folder and none of the plugin words', () => {
@@ -646,6 +654,7 @@ describe('scripts/eval-outcome-score.mjs (stub judge, synthetic kept runs)', () 
       return cache
     }
   })()
+  beforeAll(() => void setup(), SETUP_TIMEOUT)
   const outcome = (): Outcome => readOutcome(setup().results)
 
   it('exits 0 and writes outcome.json next to aggregate-result.json', () => {
@@ -799,16 +808,22 @@ describe('scripts/eval-outcome-score.mjs when a check, the judge or the scorer i
     let cache: ReturnType<typeof score> | null = null
     return () => (cache ??= score(setup().failing, { with: [setup().good], without: [setup().bad] }, 'fail'))
   })()
+  beforeAll(() => void failed(), SETUP_TIMEOUT)
 
-  it('a missing program, a timeout and a signal give an unknown check, not a failed one', () => {
+  it('a missing program, a timeout and a signal give an unknown check, not a failed one', (context) => {
     const outcome = readOutcome(failed().results)
+    const checksOf = (arm: string): Record<string, Check> => outcome.tasks['synthetic-add']!.arms[arm]!.runs[0]!.checks
     for (const arm of ['with', 'without']) {
-      const checks = outcome.tasks['synthetic-add']!.arms[arm]!.runs[0]!.checks
-      expect(checks['missing-bin']).toMatchObject({ pass: null })
-      expect(checks['missing-bin']!.error).toMatch(/ENOENT/)
-      expect(checks.slow).toMatchObject({ pass: null })
-      expect(checks.killed).toMatchObject({ pass: null })
-      expect(checks.killed!.error).toMatch(/SIGKILL/)
+      expect(checksOf(arm)['missing-bin']).toMatchObject({ pass: null })
+      expect(checksOf(arm)['missing-bin']!.error).toMatch(/ENOENT/)
+      expect(checksOf(arm).slow).toMatchObject({ pass: null })
+    }
+    // On Windows process.kill(pid, 'SIGKILL') ends the process with exit code 1 and no signal: the
+    // check gets an answer there (a failed one), so only POSIX has a check killed by a signal.
+    context.skip(process.platform === 'win32', NO_SIGNALS_ON_WINDOWS)
+    for (const arm of ['with', 'without']) {
+      expect(checksOf(arm).killed).toMatchObject({ pass: null })
+      expect(checksOf(arm).killed!.error).toMatch(/SIGKILL/)
     }
   })
 
@@ -822,12 +837,15 @@ describe('scripts/eval-outcome-score.mjs when a check, the judge or the scorer i
     expect(outcome.tasks['synthetic-add']!.arms.without!.metrics.false_done).toMatchObject({ n: 0 })
   })
 
-  it('every unknown check is listed under problems in outcome.json, and the scorer exits 1', () => {
+  it('every unknown check is listed under problems in outcome.json, and the scorer exits 1', (context) => {
     const { run, results } = failed()
     expect(run.status).toBe(1)
     const problems = readOutcome(results).problems.join('\n')
-    for (const name of ['missing-bin', 'slow', 'killed', 'claims']) expect(problems).toContain(name)
+    for (const name of ['missing-bin', 'slow', 'claims']) expect(problems).toContain(name)
     expect(run.stderr).toContain('missing-bin')
+    // The check killed by a signal is unknown on POSIX only (see the test above).
+    context.skip(process.platform === 'win32', NO_SIGNALS_ON_WINDOWS)
+    expect(problems).toContain('killed')
   })
 
   it('a judge reply without a field a metric reads is a problem, and the scorer exits 1', () => {
@@ -983,6 +1001,7 @@ describe('the tests-intact check (stub agents on synthetic kept runs)', () => {
       return cache
     }
   })()
+  beforeAll(() => void setup(), SETUP_TIMEOUT)
   const check = (name: string): Check => readOutcome(setup().results).tasks['synthetic-add']!.arms.with!.runs[Object.keys(AGENTS).indexOf(name)]!.checks['tests-intact']!
   const gitCheck = (name: string): Check => readOutcome(setup().gitResults).tasks['synthetic-add']!.arms.with!.runs[Object.keys(GIT_AGENTS).indexOf(name)]!.checks['tests-intact']!
 
@@ -1220,6 +1239,7 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
     let cache: ReturnType<typeof stubRun> | null = null
     return () => (cache ??= stubRun(['--', '--max-cost-usd', '5', '--runs', '1'], true, { CLAUDECODE: '1', PATH: `${FAKE_PLUGIN_BIN}${delimiter}${process.env.PATH ?? ''}` }))
   })()
+  beforeAll(() => void full(), SETUP_TIMEOUT)
 
   it('makes one call: the plugin copy first, then with-without, the outcome eval dir, kept temp folders and the pinned models', () => {
     const { run, calls } = full()

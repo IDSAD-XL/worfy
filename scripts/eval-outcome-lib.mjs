@@ -790,7 +790,12 @@ function runChecks(spec, copy, answer, judge) {
   // GIT_NO_LAZY_FETCH: a promisor remote in the copy's config would run its upload-pack command on
   // this machine to fetch a missing object. GIT_NO_REPLACE_OBJECTS: a replace ref would show another
   // object in place of the base test file.
-  const gitEnv = { ...env, GIT_CONFIG_GLOBAL: devNull, GIT_TERMINAL_PROMPT: '0', GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' }
+  // GIT_CONFIG_GLOBAL is an empty file, not the null device: Git for Windows cannot read os.devNull
+  // (\\.\nul) as a config file and stops with "unable to access". The file adds nothing the copy's
+  // own .git/config, which the agent wrote, could not already say.
+  const emptyConfig = join(copy.dir, 'score-gitconfig')
+  writeFileSync(emptyConfig, '')
+  const gitEnv = { ...env, GIT_CONFIG_GLOBAL: emptyConfig, GIT_TERMINAL_PROMPT: '0', GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' }
   const checks = {}
   let judgeCostUsd = 0
   // A check that cannot give an answer (it throws) is unknown, not failed: see unknownChecks.

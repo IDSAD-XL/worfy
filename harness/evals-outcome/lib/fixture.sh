@@ -7,7 +7,8 @@
 #   ./                          a git repository on branch main with one commit: a small Node package
 #                               (src/text.mjs, test/text.test.mjs, package.json with `node --test`), a
 #                               .gitignore and an ordinary README.md that names the test command; a
-#                               repository-local git identity, so commits work in the run's empty HOME
+#                               repository-local git identity, so commits work in the run's empty HOME,
+#                               and core.autocrlf off, so the files stay LF on every system
 #   ./.git/fixture-origin.git   a local bare repository as `origin`, main pushed: push and fetch need
 #                               no network
 #
@@ -89,6 +90,9 @@ printf 'node_modules/\n' >.gitignore
 git init -q -b main
 git config user.name "Fixture Author"
 git config user.email fixture@example.invalid
+# Git for Windows turns core.autocrlf on in its system config: the files would turn CRLF on checkout,
+# and git warns about each one on stderr.
+git config core.autocrlf false
 git add -A
 git commit -q -m "Initial commit"
 git init -q --bare .git/fixture-origin.git
