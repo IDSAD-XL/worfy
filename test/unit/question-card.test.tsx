@@ -206,6 +206,10 @@ describe('the question card', () => {
 
   it('shows the preview of the option pointed at or picked, as markdown', async () => {
     const card = await renderCard([request([LAYOUT])])
+    // The card took the focus, nothing else had it: the focused option's preview shows.
+    expect(document.activeElement).toBe(options(card)[0])
+    expect(within(card).getByTestId('question-preview').querySelector('table')).not.toBeNull()
+    act(() => options(card)[0]!.blur())
     expect(within(card).queryByTestId('question-preview')).toBeNull()
     fireEvent.mouseEnter(options(card)[0]!)
     expect(within(card).getByTestId('question-preview').querySelector('table')).not.toBeNull()
@@ -213,6 +217,15 @@ describe('the question card', () => {
     expect(within(card).queryByTestId('question-preview')).toBeNull()
     await click(options(card)[1]!)
     expect(within(card).getByTestId('question-preview').querySelector('h2')?.textContent).toBe('17')
+  })
+
+  it('never takes the focus from the field the user types in', async () => {
+    const field = document.createElement('textarea')
+    document.body.append(field)
+    field.focus()
+    await renderCard([request()])
+    expect(document.activeElement).toBe(field)
+    field.remove()
   })
 
   it('keys: 1–4 pick an option of the question shown, Enter goes on and then submits', async () => {
@@ -294,6 +307,19 @@ describe('the question card', () => {
     expect((within(card).getByTestId('question-other') as HTMLInputElement).readOnly).toBe(true)
     await click(within(card).getByTestId('question-decline'))
     await click(within(card).getByTestId('question-submit'))
+    expect(answered()).toEqual([])
+  })
+
+  it('a screen that turns read-only with an answer picked does not send it', async () => {
+    const { QuestionCard } = await import('../../src/renderer/session/QuestionCard')
+    const { rerender } = render(<QuestionCard request={request()} sessionId="s1" />)
+    await click(screen.getAllByTestId('question-option')[0]!)
+    expect((screen.getByTestId('question-submit') as HTMLButtonElement).disabled).toBe(false)
+    screenState.readOnly = 'Studio gives this Machine read-only access'
+    rerender(<QuestionCard request={request()} sessionId="s1" />)
+    expect(screen.getByTestId('question-submit').getAttribute('aria-disabled')).toBe('true')
+    await click(screen.getByTestId('question-submit'))
+    await key(screen.getByTestId('question-card').querySelector('.w-question') as HTMLElement, 'Enter')
     expect(answered()).toEqual([])
   })
 
