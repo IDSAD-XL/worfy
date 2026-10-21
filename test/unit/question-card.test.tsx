@@ -288,7 +288,7 @@ describe('the question card', () => {
   })
 
   it('answersWithEnter: an option and the "Other" field only', async () => {
-    const { answersWithEnter } = await import('../../src/renderer/session/QuestionCard')
+    const { answersWithEnter } = await import('../../src/renderer/session/question-keys')
     const card = await renderCard([request([LAYOUT, CHECKS])])
     expect(answersWithEnter(options(card)[0]!)).toBe(true)
     expect(answersWithEnter(within(card).getByTestId('question-other'))).toBe(true)

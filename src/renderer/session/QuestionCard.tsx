@@ -6,6 +6,7 @@ import { Markdown } from '../markdown/Markdown'
 import { writeAction } from '../projects/read-only'
 import { useReadOnly } from '../projects/useProjects'
 import type { QuestionRequestEvent } from './open-requests'
+import { answersWithEnter } from './question-keys'
 import { useSessionLog } from './store'
 import './question-card.css'
 
@@ -63,14 +64,6 @@ function toggled(question: Question, pick: QuestionPick, label: string): Questio
 function withOther(question: Question, pick: QuestionPick, text: string): QuestionPick {
   if (!question.multiSelect && text.trim() !== '') return { selected: [], other: text }
   return { ...pick, other: text }
-}
-
-/**
- * Whether Enter pressed on `target` moves through the card (next question, or submit): only on an
- * option or in the "Other" field. Any other button of the card keeps Enter as its own press.
- */
-export function answersWithEnter(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && (target.classList.contains('w-question__option') || target.classList.contains('w-question__other-input'))
 }
 
 /** The picks as main takes them: blank "Other" text is none. */
