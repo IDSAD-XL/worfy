@@ -4,6 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
+import { restoreCommand } from '../../src/main/harness/migrate/restore'
 import { claudePluginStub } from './claude-plugin-stub'
 import { writeSandbox } from './first-run-sandbox'
 import { launchApp, type LaunchedApp, repoRoot } from './helpers'
@@ -138,10 +139,14 @@ test('the move form: from the toolbar, rows by group and the CLAUDE.md diff, swi
     await answerDialogWith(launched, 0)
     await form.getByTestId('migration-actions').getByRole('button', { name: 'Move' }).click()
     const done = form.getByTestId('migration-done')
-    await expect(done).toBeVisible()
+    // The move copies the backup first; on Windows that takes longer than the default 5 s.
+    await expect(done).toBeVisible({ timeout: 30_000 })
     const backup = (await form.getByTestId('migration-backup').textContent()) ?? ''
     expect(backup).toMatch(new RegExp(`^${join(claudeHome, 'worfy-harness', 'backup-').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
-    await expect(form.getByTestId('migration-restore-command')).toHaveText(`node ${join(backup, 'restore.mjs')}`)
+    // Quoted by the rule of the system (test/contract/harness-migrate.test.ts pins it): double
+    // quotes on Windows, single quotes elsewhere for a path with a space.
+    const restore = restoreCommand(backup)
+    await expect(form.getByTestId('migration-restore-command')).toHaveText(restore)
     await expect(form.getByTestId('migration-actions').getByRole('button', { name: 'Move' })).toHaveCount(0)
     await shoot(launched, form, 'done')
 
@@ -149,7 +154,7 @@ test('the move form: from the toolbar, rows by group and the CLAUDE.md diff, swi
     expect(more).toEqual([])
     expect(shown?.buttons).toEqual(['Move', 'Cancel'])
     expect(shown?.message).toBe('Move the old Harness out of ~/.claude?')
-    expect(shown?.detail).toContain(`To undo the move: node ${join(backup, 'restore.mjs')}`)
+    expect(shown?.detail).toContain(`To undo the move: ${restore}`)
 
     // On disk: the Harness is gone, the personal files stay, the backup and restore.mjs are there.
     expect(existsSync(join(claudeHome, 'agents', 'scout.md'))).toBe(false)
@@ -192,7 +197,7 @@ test('a move from the form of the first-run screen: "Move old Harness…" leaves
     await expect(form.getByTestId('migration-group').first()).toBeVisible()
     await answerDialogWith(launched, 0)
     await form.getByTestId('migration-actions').getByRole('button', { name: 'Move' }).click()
-    await expect(form.getByTestId('migration-done')).toBeVisible()
+    await expect(form.getByTestId('migration-done')).toBeVisible({ timeout: 30_000 })
     // The form is still open and was not opened by the toolbar: only `harnessMigration.changed` tells the toolbar.
     await expect(item.getByTestId('harness-migrate')).toHaveCount(0)
     expect(existsSync(join(claudeHome, 'agents', 'scout.md'))).toBe(false)

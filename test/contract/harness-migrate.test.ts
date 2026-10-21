@@ -762,6 +762,15 @@ describe('the IPC of a dev build on the real ~/.claude', () => {
       if (saved.WORFY_CLAUDE_HOME !== undefined) process.env.WORFY_CLAUDE_HOME = saved.WORFY_CLAUDE_HOME
     }
   })
+
+  it('the consent dialog names the same quoted restore command as the form after the move', async () => {
+    const { migrationConfirmationText } = await import('../../src/main/ipc/harness-migration')
+    // Only the text is built: nothing is read from the folder.
+    const dir = resolve('backup with space')
+    const script = join(dir, 'restore.mjs')
+    const { detail } = migrationConfirmationText({ removed: 1, hooks: 0, sections: 0, moved: 0, statusLine: false, qmd: false, backupDir: dir })
+    expect(detail).toContain(`To undo the move: ${process.platform === 'win32' ? `node "${script}"` : `node '${script}'`}\n`)
+  })
 })
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)

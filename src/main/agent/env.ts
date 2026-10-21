@@ -463,6 +463,9 @@ export const fileOrAlias: FileExists = (path) => {
   }
 }
 
+/** A full Windows path: a drive letter (`C:\…`, `C:/…`) or a network share (`\\…`). */
+export const WINDOWS_FULL_PATH = /^(?:[A-Za-z]:[\\/]|[\\/]{2})/
+
 /**
  * The first `<name>.exe` in the Path of `env`, or null. An entry of the Path that is not a full
  * path (`.`, `tools`, `\bin`) is skipped: it would be looked for in worfy's own working folder.
@@ -471,7 +474,7 @@ export function findOnPath(name: string, env: SourceEnv, exists: FileExists = fi
   const file = /\.[a-z0-9]+$/i.test(name) ? name : `${name}.exe`
   for (const raw of (getVar(env, 'PATH') ?? '').split(';')) {
     const dir = raw.trim().replace(/^"(.*)"$/, '$1')
-    if (!/^(?:[A-Za-z]:[\\/]|[\\/]{2})/.test(dir)) continue
+    if (!WINDOWS_FULL_PATH.test(dir)) continue
     const candidate = win32.join(dir, file)
     if (exists(candidate)) return candidate
   }

@@ -6,7 +6,6 @@
 // WORFY_CLAUDE_HOME (a sandbox). There `claude` and git get HOME and CLAUDE_CONFIG_DIR of the
 // sandbox (claudeCommandEnv), and .claude.json is the sandbox's, so a test never reaches the real
 // ~/.claude. A dev run on the real ~/.claude shows nothing to move.
-import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { app, BrowserWindow, dialog } from 'electron'
 import { harnessMigrationApply, harnessMigrationChanged, harnessMigrationOffer, harnessMigrationPlan } from '../../shared/ipc/harness-migration'
@@ -16,6 +15,7 @@ import { bundledHarnessDir } from '../harness/bundled'
 import { claudeCommandEnv, HarnessInstaller, installOffered } from '../harness/install'
 import { applyMigration, type MigrationSummary } from '../harness/migrate/apply'
 import { buildPlan, claudeJsonPath, hasLegacyHarness, type PlanOptions } from '../harness/migrate/plan'
+import { restoreCommand } from '../harness/migrate/restore'
 import { bridgeFile } from '../harness/status-line'
 import { claudeHome, harnessHome } from '../storage/paths'
 import { defineHandler, emit, type HandlerModule } from './index'
@@ -62,7 +62,8 @@ export function migrationConfirmationText(summary: MigrationSummary): { message:
     summary.moved > 0 ? `${summary.moved} Profiles and state folders move into the Harness home.` : null,
     '',
     `Everything is copied first to ${summary.backupDir}.`,
-    `To undo the move: node ${join(summary.backupDir, 'restore.mjs')}`,
+    // The same quoted command as the form after the move: an unquoted Windows path breaks at a space.
+    `To undo the move: ${restoreCommand(summary.backupDir)}`,
     '',
     'Claude Code sessions already running keep the old hooks: restart them afterwards.',
   ]

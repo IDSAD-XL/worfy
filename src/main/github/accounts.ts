@@ -17,7 +17,7 @@
 import { z } from 'zod'
 import type { GithubAccount, GithubAccountsStep, WorkflowFinish } from '../../shared/ipc/projects'
 import { fileOrAlias, findOnPath, type Env, type FileExists } from '../agent/env'
-import { programStartInPty, windowsProgramPath } from '../program'
+import { programStartInPty, windowsProgramPath, type ProgramStart } from '../program'
 import type { GitRunner } from '../projects/store'
 import { spawnShellPty, TerminalRegistry, type SpawnPty } from '../terminal/pty'
 import { accountAuth, appGhOverride, type GhRunner } from './prs'
@@ -210,7 +210,12 @@ export async function readGithubAccounts(repos: readonly FolderRepo[], deps: Acc
 export function signInCommand(gh: string, platform: NodeJS.Platform = process.platform, env: Readonly<Env> = {}, exists?: FileExists): { file: string; args: string[]; env?: Record<string, string> } {
   // A `.mjs` stand-in (tests), started by its absolute path: off Windows under worfy's own Node, on
   // Windows under node.exe of the Path of `env` (programStartInPty).
-  const start = programStartInPty(gh, 'gh', { platform, env, exists })
+  let start: ProgramStart
+  try {
+    start = programStartInPty(gh, 'gh', { platform, env, exists })
+  } catch (error) {
+    throw new Error(`WORFY_GH: ${(error as Error).message}`, { cause: error })
+  }
   if (start.args.length > 0) return { file: start.file, args: [...start.args, 'auth', 'login'], env: start.env }
   if (platform !== 'win32') return { file: '/bin/sh', args: ['-c', 'exec "$0" auth login', gh] }
   // The rule the first-run checks read WORFY_GH by too (src/main/program.ts).
