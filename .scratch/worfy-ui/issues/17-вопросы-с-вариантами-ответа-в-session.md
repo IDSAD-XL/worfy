@@ -215,9 +215,10 @@ Agent SDK 0.3.289 запущен против локального stand-in Mess
 клавиши на экране только для чтения; канал `agent.answerQuestion` с доступом `read`; toast отвечает
 `multiSelect`-вопрос; нет уведомления; значок не видит вопросов.
 
-**Проверки.** `pnpm lint` — exit 0; `pnpm typecheck` — exit 0; `pnpm test` — exit 0 (370 файлов,
-7814 тестов пройдено, 83 пропущено); e2e `session-question.spec.ts` — exit 0 (2 теста; первый запуск
-был красным из-за мигания `preview` под курсором, исправлено). Gate full — за оркестратором перед
+**Проверки** (после rebase на main `7cd9cac7`). `pnpm lint` — exit 0; `pnpm typecheck` — exit 0;
+`pnpm test` — exit 0 (371 файл, 7834 теста пройдено, 83 пропущено); e2e `session-question.spec.ts` —
+exit 0 (2 теста; самый первый запуск был красным из-за мигания `preview` под курсором, исправлено).
+PR #698. Gate full — за оркестратором перед
 merge.
 
 **Платформенный PR?** Нет (ADR-0056, пункт 2): в `src` нет веток по платформе, нет скриптов Harness
