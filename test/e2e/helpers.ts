@@ -17,6 +17,7 @@ import {
   outputTail,
   shownLine,
   step,
+  timeLeftOnClock,
   type WindowState,
 } from './start-diagnosis'
 import { clickMenuItem } from './menu'
@@ -151,7 +152,7 @@ const firstLaunchOfTest = new Map<string, number>()
 /** Marks the start of the test's clock at its first launchApp. */
 function startTestClock(): void {
   const info = currentTest()
-  if (info && !firstLaunchOfTest.has(`${info.testId}:${info.retry}`)) firstLaunchOfTest.set(`${info.testId}:${info.retry}`, Date.now())
+  if (info) timeLeftOnClock(firstLaunchOfTest, `${info.testId}:${info.retry}`, info.timeout, Date.now())
 }
 
 /**
@@ -162,7 +163,7 @@ function startTestClock(): void {
 function testTimeLeft(): number | undefined {
   const info = currentTest()
   if (!info || info.timeout === 0) return undefined
-  return info.timeout - (Date.now() - (firstLaunchOfTest.get(`${info.testId}:${info.retry}`) ?? Date.now()))
+  return timeLeftOnClock(firstLaunchOfTest, `${info.testId}:${info.retry}`, info.timeout, Date.now())
 }
 
 /**
