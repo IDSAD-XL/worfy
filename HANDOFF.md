@@ -2,7 +2,7 @@
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 58/61; в работе 51, 29; 52 — инфраструктура после 29, задачи ждут Session без plugin-а; 31, 36, 47, 48, 50 — шаг владельца («Итог»).
+- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 59/61; в работе 29, 52 (инфраструктура); задачи 52 — в списке владельца; 31, 36, 47, 48, 50, 51 — шаг владельца («Итог»).
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26; приёмка 16; 32 закрыт (#508). Вне LAN через Tailscale (ADR-0070) — 27–31, код после очереди `worfy-windows`.
