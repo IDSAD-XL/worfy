@@ -19,6 +19,7 @@ describe('quietWindows', () => {
       backgroundThrottling: undefined,
       opacity: undefined,
       ignoreMouseEvents: false,
+      avoidPointer: false,
     })
   })
 
@@ -33,6 +34,7 @@ describe('quietWindows', () => {
       backgroundThrottling: false,
       opacity: 0,
       ignoreMouseEvents: true,
+      avoidPointer: true,
     })
   })
 
@@ -43,6 +45,16 @@ describe('quietWindows', () => {
       expect(plan.show).toBe('showInactive')
       expect(plan.activationPolicy).toBeNull()
     }
+  })
+
+  // The real pointer reaches the web view of a mouse-through window through AppKit's tracking
+  // areas (ui/base/cocoa/base_view.mm in Chromium); the other systems keep their windows' places.
+  it('keeps the window off the real pointer on macOS only, and never in a normal or kept-painting start', () => {
+    expect(quietWindows({ WORFY_QUIET_WINDOWS: '1' }, 'darwin').avoidPointer).toBe(true)
+    expect(quietWindows({ WORFY_QUIET_WINDOWS: '1' }, 'win32').avoidPointer).toBe(false)
+    expect(quietWindows({ WORFY_QUIET_WINDOWS: '1' }, 'linux').avoidPointer).toBe(false)
+    expect(quietWindows({}, 'darwin').avoidPointer).toBe(false)
+    expect(quietWindows({ WORFY_KEEP_PAINTING: '1' }, 'darwin').avoidPointer).toBe(false)
   })
 
   it.each(['0', '', 'true', 'yes', ' 1', '1 ', '2'])('treats WORFY_QUIET_WINDOWS=%j as the normal start', (value) => {

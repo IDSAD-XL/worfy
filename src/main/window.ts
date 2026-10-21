@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, nativeTheme, screen, session, type HandlerDetails, type Session, type WebContents, type WindowOpenHandlerResponse } from 'electron'
 import { browserOpenRequest } from '../shared/ipc/browser'
-import { MIN_SIZE, initialBounds, parseWindowState, serializeWindowState, type Rect } from '../shared/window/bounds'
+import { MIN_SIZE, boundsOffPoint, initialBounds, parseWindowState, serializeWindowState, sizeOnlyChange, type Rect } from '../shared/window/bounds'
 import { webviewAttachRefusal } from './browser/attach-policy'
 import { allowFrameNavigation } from './cards/protocol'
 import { emit } from './ipc/index'
@@ -65,6 +65,46 @@ export function loadEndedAsReplaced(error: unknown): boolean {
   return code === 'ERR_ABORTED' || errno === -3 || code === 'ERR_FAILED' || errno === -2
 }
 
+/**
+ * Quiet windows on macOS (quiet-windows.ts, avoidPointer): keeps the window from containing the
+ * real mouse pointer. AppKit sends Chromium's web view mouse entered and exited for a window that
+ * ignores the mouse when another window appears or goes away under a still pointer (in e2e runs,
+ * the windows of the other Playwright workers open at the same place), and the page then gets a
+ * mouseleave or a mousemove at the pointer in the middle of a test that hovers over CDP. Checked
+ * when the window is created and right after it is shown (macOS may move a window as it shows
+ * it), and after a change of size alone (setSize grows the window over the pointer). A window
+ * placed from the saved state, or moved to a place by setBounds, stays where it was asked to be:
+ * test/e2e/window.spec.ts pins those places, and those tests do not hover.
+ * shortcut: no check while the pointer moves (a pointer moved onto a quiet window stays under it), redo
+ * with a poll of the pointer only if a hover test still fails and its pointer log shows such a move;
+ * moving the window in the middle of a test would itself send the page a mouseleave.
+ */
+function keepOffPointer(window: BrowserWindow, checkNow: boolean): { afterShow: () => void } {
+  let last = window.getBounds()
+  const check = (): void => {
+    if (window.isDestroyed()) return
+    const next = boundsOffPoint(
+      window.getBounds(),
+      screen.getCursorScreenPoint(),
+      screen.getAllDisplays().map((display) => display.workArea),
+    )
+    if (next) window.setBounds(next)
+    last = window.getBounds()
+  }
+  if (checkNow) check()
+  window.on('resize', () => {
+    const now = window.getBounds()
+    const sizeOnly = sizeOnlyChange(last, now)
+    last = now
+    if (sizeOnly) check()
+  })
+  return {
+    afterShow: () => {
+      if (checkNow) check()
+    },
+  }
+}
+
 export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
   const stateFile = windowStatePath()
   const bounds = initialBounds(
@@ -100,6 +140,9 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
     },
   })
   if (quiet.ignoreMouseEvents) window.setIgnoreMouseEvents(true)
+  // Quiet windows on macOS only. A place from the saved state is kept ('x' in bounds: initialBounds
+  // reused it); a window centred by the system is moved off the pointer.
+  const offPointer = quiet.avoidPointer ? keepOffPointer(window, !('x' in bounds)) : undefined
   // And again after every load, and on every change (settings/interface-scale.ts).
   followInterfaceScale(window)
 
@@ -113,7 +156,11 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
   // (window-show.ts); either way once, and the app's output names the path.
   const shower = windowShow({
     // show() makes worfy the active app on macOS; showInactive() puts the window on screen without that.
-    show: () => (quiet.show === 'showInactive' ? window.showInactive() : window.show()),
+    show: () => {
+      if (quiet.show === 'showInactive') window.showInactive()
+      else window.show()
+      offPointer?.afterShow()
+    },
     isDestroyed: () => window.isDestroyed(),
     log: (line) => console.info(line),
     setTimer: (callback, ms) => setTimeout(callback, ms),

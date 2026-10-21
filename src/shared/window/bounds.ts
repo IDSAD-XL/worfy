@@ -72,3 +72,59 @@ export function initialBounds(saved: Rect | undefined, workAreas: readonly Rect[
   }
   return { ...DEFAULT_SIZE }
 }
+
+export interface Point {
+  x: number
+  y: number
+}
+
+/** How far a window kept off the pointer stays from it, in DIP on each side. */
+export const POINTER_MARGIN = 8
+
+function holds(bounds: Rect, point: Point, margin: number): boolean {
+  return (
+    point.x >= bounds.x - margin &&
+    point.x < bounds.x + bounds.width + margin &&
+    point.y >= bounds.y - margin &&
+    point.y < bounds.y + bounds.height + margin
+  )
+}
+
+function visibleArea(bounds: Rect, workAreas: readonly Rect[]): number {
+  return workAreas.reduce((sum, area) => {
+    const shared = overlap(bounds, area)
+    return sum + Math.max(shared.width, 0) * Math.max(shared.height, 0)
+  }, 0)
+}
+
+/**
+ * Where a window goes so that it no longer contains the point (the mouse pointer) with a margin:
+ * the same size, moved just past the pointer to the left, right, below or above, whichever leaves
+ * most of the window on the displays, then whichever moves it least. undefined when the window
+ * already keeps clear of the point. A move up that would put the window's top above the top of the
+ * work area under the point (the menu bar) is not offered: macOS would push the window back down
+ * when it is shown. A window wider and taller than the display ends up partly off it; that is the
+ * price, since no place on the display keeps clear of the pointer.
+ */
+export function boundsOffPoint(bounds: Rect, point: Point, workAreas: readonly Rect[], margin: number = POINTER_MARGIN): Rect | undefined {
+  if (!holds(bounds, point, margin)) return undefined
+  const top = workAreas.find((area) => holds(area, point, 0))?.y
+  const candidates: Rect[] = [
+    { ...bounds, x: point.x - margin - bounds.width },
+    { ...bounds, x: point.x + margin + 1 },
+    { ...bounds, y: point.y + margin + 1 },
+    { ...bounds, y: point.y - margin - bounds.height },
+  ].filter((candidate) => top === undefined || candidate.y >= top)
+  const shift = (candidate: Rect): number => Math.abs(candidate.x - bounds.x) + Math.abs(candidate.y - bounds.y)
+  candidates.sort((a, b) => visibleArea(b, workAreas) - visibleArea(a, workAreas) || shift(a) - shift(b))
+  return candidates[0]
+}
+
+/**
+ * Whether a change of the window's bounds is a change of size alone, the top-left corner kept
+ * (BrowserWindow.setSize). A change that also moves the window (setBounds with a place, a drag)
+ * names the place it wants, and a window kept off the pointer leaves that place as it is.
+ */
+export function sizeOnlyChange(previous: Rect, next: Rect): boolean {
+  return previous.x === next.x && previous.y === next.y && (previous.width !== next.width || previous.height !== next.height)
+}
