@@ -188,8 +188,8 @@ export function gitCopy(dir, env, fail) {
     removeTree(dir)
     return fail(`cannot copy ${source} into ${core}: ${error instanceof Error ? error.message : String(error)}`)
   }
-  // shortcut: on Windows the check keeps the PATH of the runs (the copied git.exe loads its DLLs
-  // from mingw64/bin of the real one through it), redo when the paid runs go to Windows.
+  // shortcut: on Windows the check keeps the PATH of the runs, redo when the paid runs go to Windows
+  // (the copied git.exe loads its DLLs from mingw64/bin of the real one through that PATH).
   const check =
     process.platform === 'win32'
       ? spawnSync('sh', [wrapper, '--version'], { encoding: 'utf8', env: { PATH: env.PATH } })
