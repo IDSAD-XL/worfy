@@ -843,7 +843,7 @@ test('long names: the Ticket title, blocked reason and blockers line are whole o
   const launched = await launch()
   try {
     const { window } = launched
-    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 1000))
     const frame = window.locator(`[data-testid="epic-frame"][data-epic="${LONG_EPIC}"]`)
     await expect(frame).toBeVisible()
     const long = ticketNode(window, 40)

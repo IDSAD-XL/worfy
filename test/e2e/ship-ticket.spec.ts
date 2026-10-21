@@ -167,7 +167,7 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
   let sessionsOf07: string[] | undefined
   try {
     const { window, app } = launched
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 1000))
     // "Open PR" must not reach a browser: shell.openExternal only records the address.
     await app.evaluate(({ shell }) => {
       const opened: string[] = []
@@ -337,7 +337,7 @@ test('Ship ticket puts the Session right of the Epic frames\' column, by its Tic
   const launched = await launchApp({ env })
   try {
     const { window, app } = launched
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 1000))
     const ticket7 = window.locator(`[data-testid="ticket-node"][data-ticket="7"]`)
     await expect(ticket7).toBeVisible()
     // The Orchestrator goes under the tall Note, off the screen: wait for it in the Layout.

@@ -375,7 +375,7 @@ test('Settings → Machines in the smallest window: a refusal of main is shown a
       const { app, window } = launched
       await machineIdOf(window)
       // 800×520: the smallest window worfy allows.
-      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(800, 520))
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(800, 520))
       await expect.poll(() => window.evaluate(() => [(globalThis as unknown as { innerWidth: number }).innerWidth, (globalThis as unknown as { innerHeight: number }).innerHeight])).toStrictEqual([800, 520])
 
       const dialog = await openMachinesSettings(launched)

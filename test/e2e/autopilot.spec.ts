@@ -251,7 +251,7 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
   const launched = await launchApp({ env })
   try {
     const { window, app } = launched
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
     const power = await recordPower(app)
 
     const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
@@ -362,7 +362,7 @@ test('Autopilot waits for the Limits after a refusal: the status line says until
   const launched = await launchApp({ env })
   try {
     const { window, app } = launched
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
     const power = await recordPower(app)
 
     const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
@@ -434,7 +434,7 @@ test('Autopilot waits for the background tasks of the Wave; Force stop kills the
   const launched = await launchApp({ env })
   try {
     const { window, app } = launched
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
     const power = await recordPower(app)
 
     const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
@@ -496,7 +496,7 @@ test('Force stop during the Wave\'s turn: the button says Stopping… until the 
   const launched = await launchApp({ env })
   try {
     const { window, app } = launched
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
     const power = await recordPower(app)
     const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
     const header = frame.locator('header')

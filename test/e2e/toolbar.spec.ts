@@ -83,7 +83,7 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
     await expect
       .poll(async () => {
         const width = await innerWidth(window)
-        if (width !== WIDTH) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setSize(wanted, 800), WIDTH)
+        if (width !== WIDTH) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setContentSize(wanted, 800), WIDTH)
         return width
       })
       .toBe(WIDTH)

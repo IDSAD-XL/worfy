@@ -311,11 +311,14 @@ export async function canvasReady(launched: { window: Page; app?: ElectronApplic
   const size = options.size
   if (size) {
     if (!app) throw new Error('canvasReady: setting the window size needs the app')
+    // The content size, as innerWidth measures it: on Windows setSize would count the frame too (14 px
+    // narrower inside); on macOS the window has no frame of its own (titleBarStyle hiddenInset), so the two agree.
+    // Every e2e spec sizes the window this way.
     await expect
       .poll(
         async () => {
           const width = await window.evaluate(() => (globalThis as unknown as PageDom).innerWidth)
-          if (width !== size.width) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setSize(wanted.width, wanted.height), size)
+          if (width !== size.width) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setContentSize(wanted.width, wanted.height), size)
           return width
         },
         { timeout: left(), message: `the window is ${size.width} px wide` },

@@ -96,7 +96,7 @@ async function resize(app: ElectronApplication, bar: Locator, width: number, hei
       async () => {
         // Reading a box lays the page out for the width it has now.
         const now = await bar.evaluate((element) => element.ownerDocument.documentElement.clientWidth)
-        if (now !== width) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setSize(wanted.width, wanted.height), { width, height })
+        if (now !== width) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setContentSize(wanted.width, wanted.height), { width, height })
         return now
       },
       { message: `the window is ${width} px wide` },

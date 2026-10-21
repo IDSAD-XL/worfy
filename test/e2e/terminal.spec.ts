@@ -549,7 +549,7 @@ async function setNewestWindowSize(launched: LaunchedApp, width: number, height:
   await launched.app.evaluate(
     ({ BrowserWindow }, size) => {
       const newest = BrowserWindow.getAllWindows().reduce((a, b) => (a.id > b.id ? a : b))
-      newest.setSize(size.width, size.height)
+      newest.setContentSize(size.width, size.height)
     },
     { width, height },
   )

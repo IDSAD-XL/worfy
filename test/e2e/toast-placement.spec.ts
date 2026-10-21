@@ -120,7 +120,7 @@ async function expectClear(window: Page, selector: string, what: string, withRoo
 }
 
 async function resize(app: ElectronApplication, window: Page, size: { width: number; height: number }): Promise<void> {
-  await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setSize(wanted.width, wanted.height), size)
+  await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setContentSize(wanted.width, wanted.height), size)
   await expect.poll(() => window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)).toBe(size.width)
 }
 

@@ -189,7 +189,7 @@ test('the View switch shows its icons alone in a window under 1400 px and keeps 
       await expect
         .poll(async () => {
           const inner = await window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)
-          if (inner !== width) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setSize(wanted, 800), width)
+          if (inner !== width) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setContentSize(wanted, 800), width)
           return inner
         })
         .toBe(width)

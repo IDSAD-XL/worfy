@@ -491,7 +491,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
       const launched = await launchApp({ executablePath: executableOf(stableApp), env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: epicStatusHome(dir) } })
       try {
         const { window } = launched
-        await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
+        await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
         const frame = window.locator(`[data-testid="epic-frame"][data-epic="${HARNESS_EPIC}"]`)
         const chip = frame.getByTestId('autopilot-harness-behind')
         await expect(frame.getByTestId('action-autopilot')).toBeVisible({ timeout: 20_000 })

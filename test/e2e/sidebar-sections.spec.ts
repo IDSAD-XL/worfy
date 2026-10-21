@@ -155,7 +155,7 @@ const region = (window: Page, name: string): Locator => window.getByRole('region
 const heading = (window: Page, name: string): Locator => region(window, name).getByRole('button', { name, exact: true })
 
 async function setWindowSize(launched: LaunchedApp, size: { width: number; height: number }): Promise<void> {
-  await launched.app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setSize(wanted.width, wanted.height), size)
+  await launched.app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setContentSize(wanted.width, wanted.height), size)
   await expect
     .poll(() => launched.window.evaluate(() => [(globalThis as unknown as { innerWidth: number }).innerWidth, (globalThis as unknown as { innerHeight: number }).innerHeight]))
     .toStrictEqual([size.width, size.height])
