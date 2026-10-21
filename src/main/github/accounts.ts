@@ -18,7 +18,7 @@ import { spawn as spawnNodePty } from 'node-pty'
 import { z } from 'zod'
 import type { GithubAccount, GithubAccountsStep, WorkflowFinish } from '../../shared/ipc/projects'
 import { fileOrAlias, findOnPath, type Env, type FileExists } from '../agent/env'
-import { windowsProgramPath } from '../program'
+import { programStart, windowsProgramPath } from '../program'
 import type { GitRunner } from '../projects/store'
 import { TerminalRegistry, type SpawnPty } from '../terminal/pty'
 import { accountAuth, appGhOverride, type GhRunner } from './prs'
@@ -208,7 +208,19 @@ export async function readGithubAccounts(repos: readonly FolderRepo[], deps: Acc
  * when it has no extension; a relative one (`tools\gh.exe`, `\opt\gh`) is refused rather than looked
  * up in every Path entry. Throws, with what to do, when there is no such file.
  */
-export function signInCommand(gh: string, platform: NodeJS.Platform = process.platform, env: Readonly<Env> = {}, exists?: FileExists): { file: string; args: string[] } {
+export function signInCommand(gh: string, platform: NodeJS.Platform = process.platform, env: Readonly<Env> = {}, exists?: FileExists): { file: string; args: string[]; env?: Record<string, string> } {
+  // A `.mjs` stand-in (tests). Off Windows under worfy's own Node, as every other start of WORFY_GH
+  // (programStart). On Windows under node.exe of the Path: worfy's own executable is a GUI program,
+  // and in a pseudo-terminal it prints nothing and reads nothing (worfy-windows ticket 82).
+  if (gh.endsWith('.mjs')) {
+    if (platform === 'win32') {
+      const node = findOnPath('node', env, exists)
+      if (node === null) throw new Error(`node.exe was not found in the Path: a .mjs WORFY_GH (${gh}) needs it on Windows`)
+      return { file: node, args: [gh, 'auth', 'login'] }
+    }
+    const start = programStart(gh, 'gh')
+    return { file: start.file, args: [...start.args, 'auth', 'login'], env: start.env }
+  }
   if (platform !== 'win32') return { file: '/bin/sh', args: ['-c', 'exec "$0" auth login', gh] }
   // The rule the first-run checks read WORFY_GH by too (src/main/program.ts).
   const path = windowsProgramPath(gh, exists ?? fileOrAlias)
@@ -247,7 +259,7 @@ export function signInRegistry(
     spawn: (_shell, _args, options) => {
       // No program of its own: WORFY_GH, as ghRunner takes it, so a caller that forgets it still runs the stand-in.
       const command = signInCommand(gh.command ?? appGhOverride() ?? 'gh', platform, options.env, system.exists)
-      return spawn(command.file, command.args, options)
+      return spawn(command.file, command.args, command.env === undefined ? options : { ...options, env: { ...options.env, ...command.env } })
     },
   })
 }

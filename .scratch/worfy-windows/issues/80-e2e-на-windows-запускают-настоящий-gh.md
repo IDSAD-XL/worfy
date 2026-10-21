@@ -91,7 +91,10 @@ Guard test `test/unit/e2e-gh-stub.test.ts`:
 - Одна функция `appGh()` для всех четырёх мест, что читают `WORFY_GH` (`src/main/ipc/checks.ts`,
   `projects.ts`, `gate-queue.ts`, `first-run.ts`).
 - «Sign in with gh» (`src/main/github/accounts.ts`, `signInCommand`) отдаёт `.mjs` из `WORFY_GH` прямо
-  в node-pty, без `programStart`. Так было и до тикета 80.
+  в node-pty, без `programStart`. Так было и до тикета 80. Закрыто тикетом 82.
+- Fallback «Sign in with gh» на `WORFY_GH` (`src/main/github/accounts.ts`, `signInRegistry`) закреплён
+  только regex-ом по исходнику. Передавать `processEnv` в `signInRegistry` через `system` и добавить
+  unit test поведения (ревью Mac, раунд 3, low).
 - Guard читает текст исходников. Он не видит: программу в константе (`const GH = 'gh'; execFile(GH)`),
   импорт `spawn` под другим именем, запуск приложения через launcher с литеральным именем
   (`npx electron .`, `open`, `sh -c`); `env` в сокращённой записи засчитывается по последнему

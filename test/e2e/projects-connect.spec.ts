@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator } from '@playwright/test'
+import { claudePluginStub } from './claude-plugin-stub'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 
 // worfy-harness ticket 24: "Add project" on a repository the Harness does not know opens the dialog
@@ -23,13 +24,6 @@ import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const bundle = join(repoRoot, 'out', 'harness')
 const bundledVersion = (): string => (JSON.parse(readFileSync(join(bundle, '.claude-plugin', 'plugin.json'), 'utf8')) as { version: string }).version
-
-const STUB = `#!/bin/sh
-case "$*" in
-  "plugin list --json") printf '[{"id":"worfy@worfy-harness","version":"%s","scope":"user","enabled":true,"errors":[]},{"id":"mattpocock-skills@claude-plugins-official","version":"1.0.0","scope":"user","enabled":true,"errors":[]}]\\n' "$STUB_PLUGIN_VERSION" ;;
-esac
-exit 0
-`
 
 function git(cwd: string, ...args: string[]): string {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
@@ -72,13 +66,9 @@ test.afterEach(async () => {
 
 test('Add project connects a new repository: Silent by default, the draft, the form, Connect, then "No epics yet"', async () => {
   const shop = makeRepo(join(scratch, 'shop'))
-  const stubDir = join(scratch, 'stub-bin')
-  mkdirSync(stubDir)
-  writeFileSync(join(stubDir, 'claude'), STUB)
-  chmodSync(join(stubDir, 'claude'), 0o755)
   const agentLog = join(scratch, 'agent.jsonl')
 
-  const launched = await launchApp({ env: { WORFY_CLAUDE: join(stubDir, 'claude'), STUB_PLUGIN_VERSION: bundledVersion(), WORFY_AGENT_LOG: agentLog } })
+  const launched = await launchApp({ env: { WORFY_CLAUDE: claudeStub(), STUB_PLUGIN_VERSION: bundledVersion(), WORFY_AGENT_LOG: agentLog } })
   try {
     const { app, window, claudeHome } = launched
     const harnessHome = join(claudeHome, 'worfy-harness')
@@ -118,7 +108,8 @@ test('Add project connects a new repository: Silent by default, the draft, the f
     expect(messages).toHaveLength(1)
     const first = messages[0]?.text ?? ''
     expect(first.startsWith(`/worfy:connect-project ${shop} silent --draft-only\n`)).toBe(true)
-    expect(first).toContain(`"path": "${shop}"`)
+    // As JSON writes it: a Windows path has its backslashes doubled.
+    expect(first).toContain(`"path": ${JSON.stringify(shop)}`)
     expect(first).toContain('"origin": null')
 
     // The form: the commands of the draft; the mode and the Workflow folder only shown.
@@ -201,11 +192,7 @@ function harnessFor(launched: LaunchedApp): string {
 }
 
 function claudeStub(): string {
-  const stubDir = join(scratch, 'stub-bin')
-  mkdirSync(stubDir, { recursive: true })
-  writeFileSync(join(stubDir, 'claude'), STUB)
-  chmodSync(join(stubDir, 'claude'), 0o755)
-  return join(stubDir, 'claude')
+  return claudePluginStub(join(scratch, 'stub-bin'))
 }
 
 const ghAccount = (login: string, active = false) => ({ active, gitProtocol: 'https', host: 'github.com', login, scopes: 'repo', state: 'success', tokenSource: 'keyring' })
@@ -278,7 +265,8 @@ test('the GitHub account: the active account with access by default, "Sign in wi
     // The sandbox Harness only: the gate exports CLAUDE_GATE_CONFIG (its own registry) to the tests it runs.
     const outside = /^(CLAUDE_GATE_|CLAUDE_PROFILES_DIR$|PROJECT_CONNECT_|ELECTRON_RUN_AS_NODE$)/
     const env = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !outside.test(key))), HOME: join(scratch, 'home'), HARNESS_HOME: harnessHome, CLAUDE_CONFIG_DIR: launched.claudeHome }
-    const field = (name: string): string => execFileSync(join(harnessHome, 'plugin', 'bin', 'profile'), ['-C', shop, '--field', name], { env, encoding: 'utf8' }).trim()
+    // bin/profile is a Node script; through Node itself, since Windows does not start a `#!` script.
+    const field = (name: string): string => execFileSync(process.execPath, [join(harnessHome, 'plugin', 'bin', 'profile'), '-C', shop, '--field', name], { env, encoding: 'utf8' }).trim()
     expect(field('github.account')).toBe('bob')
     expect(field('workflow.finish')).toBe('local-green')
     // gh was asked only to read; no token was written into the Harness home.

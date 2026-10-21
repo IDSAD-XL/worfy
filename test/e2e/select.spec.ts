@@ -1,9 +1,10 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator } from '@playwright/test'
+import { claudePluginStub } from './claude-plugin-stub'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 
 // The shared Select (src/renderer/theme/Select.tsx) in the two forms that had a native select:
@@ -17,13 +18,6 @@ import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const bundle = join(repoRoot, 'out', 'harness')
 const bundledVersion = (): string => (JSON.parse(readFileSync(join(bundle, '.claude-plugin', 'plugin.json'), 'utf8')) as { version: string }).version
-
-const STUB = `#!/bin/sh
-case "$*" in
-  "plugin list --json") printf '[{"id":"worfy@worfy-harness","version":"%s","scope":"user","enabled":true,"errors":[]},{"id":"mattpocock-skills@claude-plugins-official","version":"1.0.0","scope":"user","enabled":true,"errors":[]}]\\n' "$STUB_PLUGIN_VERSION" ;;
-esac
-exit 0
-`
 
 let scratch: string
 
@@ -50,11 +44,7 @@ function makeRepo(path: string): string {
 }
 
 function claudeStub(): string {
-  const stubDir = join(scratch, 'stub-bin')
-  mkdirSync(stubDir, { recursive: true })
-  writeFileSync(join(stubDir, 'claude'), STUB)
-  chmodSync(join(stubDir, 'claude'), 0o755)
-  return join(stubDir, 'claude')
+  return claudePluginStub(join(scratch, 'stub-bin'))
 }
 
 /** Screenshots of the window region that holds every one of `locators`, in both themes. */

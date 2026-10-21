@@ -56,6 +56,26 @@ The kind of a Node shows in its header (worfy-canvas ticket 05, ADR-0077). Only 
 - **Orchestrator border** applies on the Canvas; a focus tile draws its own frame.
 - **Finished Session**: on the Canvas the whole Node at 60 % opacity, the chip says "finished" (done); no change of hue. Hovering the Node or selecting it gives it full opacity back; a focus tile shows it at full opacity. No other Node changes opacity on hover.
 
+## Zoom levels
+A Node is drawn in one of three views by the Canvas zoom (worfy-canvas ticket 06, semantic zoom). Only roles of the Tokens table. Built in `src/renderer/canvas/zoom-level.ts` (levels and `useZoomLevel()`), `overlays/ZoomLevel.tsx` (the marks on the React Flow root), `node-chrome.css` and `epic-frame.css`; reference look in both themes: the e2e `test/e2e/semantic-zoom.spec.ts` shoots the same Canvas as `zoom-full`, `zoom-compact` and `zoom-far` (test output, not committed).
+
+| level | zoom | Orchestrator, Session, Subagent, Note, HANDOFF, Card, Terminal | Epic frame and Ticket |
+|---|---|---|---|
+| full | ≥ 0.6 | as described elsewhere in this spec | as described elsewhere |
+| compact | 0.3 to < 0.6 | the header only, with its title and status chip; the body is empty surface, the Node keeps its size | as in full |
+| far | < 0.3 (lowest zoom 0.2) | a block: the kind's `tint` with a 4px border in its `band`, drawn by the kind band spread over the Node (neutral kinds: surface raised with a 4px border strong outline; Subagent: dashed `kind-subagent` border round surface raised); the title alone, 15px semibold text on a surface raised label, radius 4px, 2px × 4px padding, centred, one line, at most 200px, ending with "…" | the frame's header at a constant screen size; Tickets are blocks without text |
+
+- **Constant screen size**: at the far level a title and the Epic frame's header text keep their size on the screen at any zoom (scaled by 1/zoom). A title wider than its block reaches past it, centred, on its own surface raised label.
+- **Nothing in a Node's flow changes size** at any level: the hidden parts keep their place, the header keeps its height, and the far block and title are laid over the Node. A Terminal keeps its rows and columns, so its shell gets no resize.
+- **Selection at far**: a selected Node keeps a 3px `accent` outline, 2px outside its block, at a constant screen size.
+- **Epic frame at far**: a header on `kind-epic` tint, a 3px `kind-epic` band along its top, border strong, radius chip, 5px 8px 4px padding. Row 1: the Epic's name (12px mono, 16px line, never cut: it wraps to more lines when longer than the header) and the Collapse / Expand chevron (18px) at the right end. Row 2: the progress bar and the done/total count. The tag, the subtitle and the actions are not shown. The header stays inside its frame: as wide as the frame, from the frame's top edge downwards, drawn over the frame's Tickets (they show no text at this level), so it never reaches the frame above it or the next one in its row. Only the header takes the mouse; a Ticket outside it still does. A frame shorter than its header on the screen (a collapsed one) has the header reach below its bottom edge. Column labels and the done stack's text are not shown; Tickets keep their surface and border, with no text.
+- **Status** never takes a kind colour at any level: at compact the chip keeps its word; at far there is no status, only the kind and the title.
+- **A pinned Node** keeps its screen size and is always drawn in full. A Browser frame and a Node type that does not mark its header stay full at every level: the done shelf's chips (placed by position, no header) and the anchor of a Binding; `test/unit/zoom-level.test.tsx` lists them.
+- **A Card runs its page at full**, and when it is pinned or shown in a focus tile at any level; otherwise its title and frame. A long Card title ends with "…" on one line at every level; the whole title is in its tooltip.
+- **Keyboard focus**: a field or button that a level hides gives up the focus when the level changes (a Note's text at compact, the header's buttons at far), so typing never goes into a hidden field.
+- **Finished Session** keeps its 60 % opacity at every level, and full opacity on hover or selection.
+- Text hidden at compact and far is the point of the level; at full nothing is cut (ticket cards: worfy-canvas ticket 18).
+
 ## Autopilot (Epic frame)
 Describes what is built (worfy-daily tickets 04, 05, 29, 32; worfy-week tickets 17, 18; worfy-link ticket 15). Reference look in both themes: the e2e `test/e2e/autopilot.spec.ts` shoots the Epic frame's header as `autopilot-idle`, `autopilot-running`, `autopilot-stopping`, `autopilot-stopped`, `autopilot-waiting`, `autopilot-waiting-stopping`, `autopilot-background-tasks`, `autopilot-stopped-tasks`, `stop-before`, `stop-stopping` and `stop-stopped`, and the header with the open "⋯" menu as `autopilot-menu` and `force-stop-pending-menu`, each as `-light` and `-dark` (test output, not committed; kept as `.scratch/worfy-week/evidence/17-*.png` for Force stop and `18-*.png` for the graceful Stop and the menu). The e2e `test/e2e/linked-autopilot.spec.ts` shoots the header with the chips under it as `15-this-machine`, `15-other-machine` and `15-start-anyway`, `-light` and `-dark` (kept as `.scratch/worfy-link/evidence/15-*.png`).
 

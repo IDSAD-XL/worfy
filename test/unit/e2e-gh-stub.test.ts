@@ -117,8 +117,6 @@ const KNOWN_TOOLS = [
   'test/e2e/packaged.spec.ts: binary',
   // The Limits bridge script of the packaged app.
   'test/e2e/packaged.spec.ts: bridge',
-  // The Harness's bin/profile in the sandbox Harness.
-  "test/e2e/projects-connect.spec.ts: join(harnessHome, 'plugin', 'bin', 'profile')",
 ]
 
 /** The starts that may be the app and do not take the env of directStartEnv. */
@@ -243,6 +241,8 @@ describe('worfy starts gh only through WORFY_GH', () => {
       "src/main/first-run/checks.ts: programStart(deps.gh?.command, 'gh')",
       // "Sign in with gh": signInCommand with WORFY_GH, or gh from the Path.
       "src/main/github/accounts.ts: ?? 'gh'",
+      // signInCommand: a `.mjs` WORFY_GH under worfy's own Node.
+      "src/main/github/accounts.ts: programStart(gh, 'gh')",
       // ghRunner: the name for its error messages, and the program.
       "src/main/github/prs.ts: ?? 'gh'",
       "src/main/github/prs.ts: programStart(program, 'gh')",
