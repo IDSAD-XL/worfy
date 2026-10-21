@@ -316,4 +316,35 @@ primary outcome; остальное — с поправкой Holm или как
 
 ## Итог
 
-—
+Ticket не закрыт. Влита только инфраструктура; задачи и grader-ы ждут владельца, платные run-ы — тоже.
+
+### Инфраструктура — PR [#697](https://github.com/IDSAD-XL/worfy/pull/697), merge 945ab65e (2026-10-21)
+
+Gate full Mac зелёный; check/windows — runner и ПК зелёные. Платформенный PR (ADR-0056).
+
+- **Слот задач.** `harness/evals-outcome/` — пустой слот: формат папки задачи в `README.md`, нейтральная фикстура
+  `lib/fixture.sh` (локальный bare `origin`, временный HOME, guard от записи в настоящий HOME — `lib/home-guard.cjs`),
+  состояние plugin-а worfy отдельно — `lib/plugin-state/worfy.sh`.
+- **Вызов.** `pnpm eval:outcome` (`scripts/eval-outcome.mjs`) собирает один вызов `claude plugin eval` с
+  `--ablation with-without`, закреплёнными моделями и бюджетом. Проверено против stub-а `claude`, без платных вызовов.
+- **Подсчёт.** `scripts/eval-outcome-score.mjs` после run-а запускает проверки spec-а задачи (скрытые test-ы, `origin`,
+  сохранность файлов, `tests-intact`, judge), пишет `outcome.json`; `eval-outcome-stats.mjs` — Wilson, Newcombe, Fisher,
+  Holm для непервичных метрик. Проверка, которая не дала ответа, — `null` и `problems`, scorer выходит с кодом 1.
+- **Бесплатная проверка эталонов.** `scripts/eval-outcome-check.mjs` прогоняет проверки на эталонных решениях без
+  модели. Контракт подсчёта — `scripts/eval-outcome/README.md`; скрытые spec-и — `scripts/eval-outcome/hidden/<задача>/`.
+- **Защита копии агента.** git в копии — только plumbing (`ls-tree`, `cat-file`, `merge-base`, `rev-parse`), без
+  system/global config, filter, fsmonitor, lazy fetch и replace objects.
+- **Windows.** Git for Windows не читает `\\.\nul` как config: `GIT_CONFIG_GLOBAL` указывает на пустой файл scorer-а
+  в его временной папке. Фикстура ставит `core.autocrlf false`. На Windows пропущены только проверки сигналов.
+- **Test-ы.** `test/contract/harness-evals-outcome.test.ts` — 87 test-ов, на Windows 86 + 5 пропусков с причиной.
+
+Ревью: три круга; затем, по слову Session-оркестратора, круг исправлений med по `tests-intact` с проверкой на medium и
+круг Windows с ревью на medium. Остаток — четыре low — в [Ticket 65](65-tests-intact-добавленные-строки.md).
+
+### Что ждёт владельца
+
+- Четыре задачи и grader-ы пишет обычная session Claude Code без plugin-а worfy — бриф
+  [brief-52-plain-session.md](brief-52-plain-session.md). Слово владельца 2026-10-21: «Отложи задачи ticket 52 в мой
+  список, сейчас делайте только инфраструктуру.»
+- Шаги 2б, 4 и 5 (судья на эталонах, 8 run-ов, пилот) — платные, только по слову владельца.
+- До заморозки задач закрыть Ticket 65.
