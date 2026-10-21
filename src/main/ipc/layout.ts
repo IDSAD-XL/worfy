@@ -1,6 +1,7 @@
 import { app } from 'electron'
-import { layoutApply, layoutChanged, layoutGet } from '../../shared/ipc/layout'
+import { layoutApply, layoutArchiveCandidates, layoutChanged, layoutGet } from '../../shared/ipc/layout'
 import { toEveryWindow } from '../broadcast'
+import { runningArchiver } from '../layout/archive'
 import { layoutStore } from '../layout/store'
 import { defineHandler, emit, type HandlerModule } from './index'
 
@@ -20,4 +21,10 @@ app.on('will-quit', () => store.flushAll())
 export default [
   defineHandler(layoutGet, ({ projectId }) => store.get(projectId)),
   defineHandler(layoutApply, ({ projectId, op, screen }) => store.apply(projectId, op, screen ?? null)),
+  // The candidates of «Archive finished sessions now», read by the app's archiver (src/main/index.ts).
+  defineHandler(layoutArchiveCandidates, ({ projectId }) => {
+    const archiver = runningArchiver()
+    if (archiver === null) throw new Error('the automatic archive is not running')
+    return archiver.candidatesNow(projectId)
+  }),
 ] satisfies HandlerModule

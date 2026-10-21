@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { bindingWorkflowOf } from '../shared/binding/resolve'
 import { browserPartitions } from '../shared/browser/partition'
+import { sessionArchiveOf } from '../shared/settings/app-settings'
 import { startOrchestrators } from './agent/app-orchestrators'
 import { sharedRegistry } from './agent/app-registry'
 import { installLimitsRefresh } from './agent/limits-usage'
@@ -19,12 +20,13 @@ import { appNoteLink } from './link/notes'
 import { startAppLink, stopLinkOnQuit } from './link/service'
 import { installAppMenu } from './menu'
 import { workflowHub } from './ipc/workflow'
-import { archiveRegistry, archiveSettings, AutoArchiver, sessionBindings } from './layout/archive'
+import { archiveRegistry, archiveSettings, archiveTickMs, AutoArchiver, sessionBindings, startAppArchiver } from './layout/archive'
 import { bindingStore } from './layout/bindings'
 import { layoutStore } from './layout/store'
 import { appWaitsSources, electronNotifyDeps, installGateQueueNotifications, installNotifications } from './notify'
 import { projectStore } from './projects/store'
 import { quietWindows } from './quiet-windows'
+import { appSettingsStore } from './settings/store'
 import { checkDataFolder, inStep, reportStartupFailure } from './startup-failure'
 import { claudeHome, dataRoot, setBuildKind } from './storage/paths'
 import { createMainWindow, installWebPolicy, rendererEntry } from './window'
@@ -192,8 +194,10 @@ const ARCHIVE_WORKFLOW_SUBSCRIBER = 'auto-archive'
 /**
  * Starts the automatic archive (src/main/layout/archive.ts) over the app's stores: the Layouts, the
  * Projects of this Machine, the registry under the Claude home, the Sessions worfy runs, the
- * workflow models and the Bindings. The registry watchers' reads of live Sessions bring a resumed
- * Session back at once. Returns the function that stops it.
+ * workflow models, the Bindings and the Setting of Settings → Canvas, read at every run. The
+ * registry watchers' reads of live Sessions bring a resumed Session back at once. It is the app's
+ * archiver, which «Archive finished sessions now» asks (runningArchiver). Returns the function that
+ * stops it.
  */
 function installAutoArchive(): () => void {
   const registry = archiveRegistry({ home: claudeHome() })
@@ -213,13 +217,13 @@ function installAutoArchive(): () => void {
         transcriptPath: (root, sessionId) => registry.transcriptPath(local(root), sessionId),
         signals: (path) => reader.file(path, false),
       }),
-    settings: () => archiveSettings(),
+    settings: () => archiveSettings(sessionArchiveOf(appSettingsStore().get())),
     now: Date.now,
     batchId: randomUUID,
   })
   const onLive: LiveSessionsListener = (projectRoot, live) => archiver.noteLive(projectRoot, live)
   liveSessionListeners.add(onLive)
-  const stop = archiver.start()
+  const stop = startAppArchiver(archiver, archiveTickMs(process.env))
   return () => {
     stop()
     liveSessionListeners.delete(onLive)

@@ -11,8 +11,12 @@
 // - A Session that came back to life (`claude --resume`) is restored by main, also without a
 //   screen (point 6): whenever main sees the Project's live Sessions — on its own runs and on every
 //   read of a registry watcher (src/main/ipc/claude-home.ts, liveSessionListeners).
-// - The threshold comes from archiveSettings(). Until the Setting exists (worfy-canvas ticket 08)
-//   it is «Never»: the timer runs and restores, but archives nothing (point 10).
+// - The threshold comes from archiveSettings(), over the Setting of Settings → Canvas of this
+//   Machine (`sessionArchive`, worfy-canvas ticket 08, point 7), read at every run. Its default is
+//   «Never» until ticket 10: the timer runs and restores, but archives nothing (point 10).
+// - «Archive finished sessions now» (point 9) asks main for the candidates of one Project
+//   (AutoArchiver.candidatesNow, channel `layout.archiveCandidates`) by the same rule, with 24 h
+//   under «Never»; the screen archives them itself, as one step of its undo history.
 import { resolve } from 'node:path'
 import type { AgentSignals, BindingTarget, BindingWorkflow } from '../../shared/binding/resolve'
 import { resolveBinding } from '../../shared/binding/resolve'
@@ -20,6 +24,7 @@ import type { ManualBinding } from '../../shared/ipc/bindings'
 import { isLaunchBinding } from '../../shared/ipc/bindings'
 import { SESSION_NODE_KIND } from '../../shared/ipc/sessions'
 import { isArchived, type ArchiveRule, type LayoutNode } from '../../shared/layout/types'
+import type { SessionArchive, SessionArchiveAfter } from '../../shared/settings/app-settings'
 import { ClaudeHomeRegistry, processState, type RegistryOptions } from '../claude-home/registry'
 import { samePath } from '../harness/status-line'
 import type { LayoutStore } from './store'
@@ -41,13 +46,31 @@ export interface ArchiveSettings {
 /** «Never»: the archive is off. */
 export const ARCHIVE_NEVER: ArchiveSettings = { idleMs: null, ticketDone: false }
 
+const HOUR_MS = 60 * 60_000
+
+/** The idle time of each threshold of Settings → Canvas; null — «Never». */
+const IDLE_MS: Readonly<Record<SessionArchiveAfter, number | null>> = { never: null, '6h': 6 * HOUR_MS, '24h': 24 * HOUR_MS, '3d': 72 * HOUR_MS, '7d': 168 * HOUR_MS }
+
+/** The archive settings of this Machine, from its Setting (sessionArchiveOf); they apply to its Projects (ADR-0076, point 7). */
+export function archiveSettings(setting: SessionArchive): ArchiveSettings {
+  return { idleMs: IDLE_MS[setting.after], ticketDone: setting.ticketDone }
+}
+
+/** The idle time «Archive finished sessions now» takes while the Setting is «Never» (worfy-canvas ticket 08). */
+export const ARCHIVE_NOW_IDLE_MS = 24 * HOUR_MS
+
+/** The settings of «Archive finished sessions now»: the Machine's, with ARCHIVE_NOW_IDLE_MS under «Never». */
+export function archiveNowSettings(settings: ArchiveSettings): ArchiveSettings {
+  return settings.idleMs === null ? { ...settings, idleMs: ARCHIVE_NOW_IDLE_MS } : settings
+}
+
 /**
- * The archive settings of this Machine; they apply to its Projects (ADR-0076, point 7).
- * shortcut: always «Never» (ADR-0076, point 10), until worfy-canvas ticket 08 adds the Setting and
- * ticket 10 makes 24 h the default.
+ * How often the timer runs: ARCHIVE_TICK_MS, or WORFY_ARCHIVE_TICK_MS when it is a whole number of
+ * ms above zero — the e2e tests speed the timer up with it.
  */
-export function archiveSettings(): ArchiveSettings {
-  return ARCHIVE_NEVER
+export function archiveTickMs(env: NodeJS.ProcessEnv): number {
+  const given = env.WORFY_ARCHIVE_TICK_MS
+  return given !== undefined && /^[1-9]\d*$/.test(given) ? Number(given) : ARCHIVE_TICK_MS
 }
 
 /** A Session in the registry of live Sessions; any status counts, `unknown` too. */
@@ -192,6 +215,13 @@ const archivedSessionNodes = (nodes: readonly LayoutNode[]): LayoutNode[] => nod
 
 const sameRoot = (a: string, b: string): boolean => samePath(process.platform, resolve(a), resolve(b))
 
+/** What a run reads before the rule: the transcripts, and the workflow model and Bindings when the ticket-done rule needs them. */
+interface RuleReads {
+  history: readonly HistoryLike[]
+  workflow: BindingWorkflow | undefined
+  bindings: ReadonlyMap<string, BindingTarget | null>
+}
+
 /** Runs the archive of every Project of this Machine and brings resumed Sessions back. */
 export class AutoArchiver {
   /** The latest live Sessions main saw, by Project id: its own reads and the registry watchers'. */
@@ -230,6 +260,31 @@ export class AutoArchiver {
       if (held !== undefined && archivedSessionNodes(held.layout.nodes).length > 0) await this.readLive(project)
       return 0
     }
+    const reads = await this.read(project, settings)
+    // From here to the write nothing waits: the Layout and the live Sessions are the latest main knows.
+    const found = this.candidatesOf(project.id, reads, settings)
+    if (found.length === 0) return 0
+    this.deps.store.apply(project.id, { op: 'archive', batch: this.deps.batchId(), nodes: found.map(({ id, rule }) => ({ id, rule })) }, null)
+    return found.length
+  }
+
+  /**
+   * The candidates of «Archive finished sessions now» in one Project of this Machine (ADR-0076,
+   * point 9): the same reads and rule as a run, with archiveNowSettings(); nothing is archived here
+   * — the screen sends the `archive` itself, as a step of its undo history.
+   */
+  async candidatesNow(projectId: string): Promise<ArchiveCandidate[]> {
+    const project = this.deps.projects().find((each) => each.id === projectId)
+    if (project === undefined) throw new Error(`${projectId} is not a Project of this Machine`)
+    const settings = archiveNowSettings(this.deps.settings(project.id))
+    return this.candidatesOf(project.id, await this.read(project, settings), settings)
+  }
+
+  /**
+   * Reads what the rule needs, the live Sessions last; the caller runs the rule (candidatesOf) with
+   * no wait after it, on the Layout as it is then.
+   */
+  private async read(project: ArchiveProject, settings: ArchiveSettings): Promise<RuleReads> {
     const history = await this.deps.history(project)
     let workflow: BindingWorkflow | undefined
     let bindings: ReadonlyMap<string, BindingTarget | null> = new Map()
@@ -239,11 +294,12 @@ export class AutoArchiver {
       bindings = await this.deps.bindings(project, needed, workflow)
     }
     await this.readLive(project)
-    // From here to the write nothing waits: the Layout and the live Sessions are the latest main knows.
-    const found = archiveCandidates(this.deps.store.get(project.id).layout.nodes, this.liveOf(project.id), history, workflow, bindings, this.deps.now(), settings)
-    if (found.length === 0) return 0
-    this.deps.store.apply(project.id, { op: 'archive', batch: this.deps.batchId(), nodes: found.map(({ id, rule }) => ({ id, rule })) }, null)
-    return found.length
+    return { history, workflow, bindings }
+  }
+
+  /** The rule on the Project's Layout and live Sessions as main knows them now. */
+  private candidatesOf(projectId: string, { history, workflow, bindings }: RuleReads, settings: ArchiveSettings): ArchiveCandidate[] {
+    return archiveCandidates(this.deps.store.get(projectId).layout.nodes, this.liveOf(projectId), history, workflow, bindings, this.deps.now(), settings)
   }
 
   /** What a registry watcher read (liveSessionListeners): the root names a Project of this Machine, or nothing happens. */
@@ -289,6 +345,24 @@ export class AutoArchiver {
     void this.runAll()
     const timer = setInterval(() => void this.runAll(), everyMs)
     return () => clearInterval(timer)
+  }
+}
+
+/** The archiver of the running app, set by its start (src/main/index.ts); null before it and after it stops. */
+let appArchiver: AutoArchiver | null = null
+
+/** The archiver «Archive finished sessions now» asks (src/main/ipc/layout.ts). */
+export function runningArchiver(): AutoArchiver | null {
+  return appArchiver
+}
+
+/** Starts `archiver` as the app's: it runs now and every `everyMs`. Returns the function that stops it. */
+export function startAppArchiver(archiver: AutoArchiver, everyMs: number): () => void {
+  appArchiver = archiver
+  const stop = archiver.start(everyMs)
+  return () => {
+    stop()
+    if (appArchiver === archiver) appArchiver = null
   }
 }
 

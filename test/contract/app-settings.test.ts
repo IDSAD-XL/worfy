@@ -13,7 +13,7 @@ import { createLinkIpc, LinkPeer, LinkSender } from '../../src/main/link/ipc-ada
 import { APP_SETTINGS_FILE, AppSettingsStore } from '../../src/main/settings/store'
 import { appSettingsChanged, appSettingsGet, appSettingsSet } from '../../src/shared/ipc/app-settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { autoCompactWindowChosen, clampScale, DEFAULT_APP_SETTINGS, type AppSettings } from '../../src/shared/settings/app-settings'
+import { autoCompactWindowChosen, clampScale, DEFAULT_APP_SETTINGS, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
 import { removeTestTree } from '../remove'
 
 /** The path of every readFileSync call, by the test and by the code under test. */
@@ -267,6 +267,43 @@ describe('AppSettingsStore', () => {
     expect(store.set({ memoryIndicator: true }).memoryIndicator).toBe(true)
   })
 
+  it('the archive of finished Sessions (worfy-canvas ticket 08): a file without the field gives the defaults; a choice is written, read back and kept apart from the defaults', () => {
+    expect(SESSION_ARCHIVE_DEFAULTS).toEqual({ after: 'never', ticketDone: true })
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.1, revision: 2 }))
+    const store = new AppSettingsStore(file)
+    expect(store.get().sessionArchive).toBeUndefined()
+    expect(sessionArchiveOf(store.get())).toEqual(SESSION_ARCHIVE_DEFAULTS)
+
+    // One field chosen: only it is written, the other stays the default's.
+    expect(store.set({ sessionArchive: { after: '3d' } })).toMatchObject({ sessionArchive: { after: '3d' }, revision: 3 })
+    expect(JSON.parse(readFileSync(file, 'utf8')).sessionArchive).toStrictEqual({ after: '3d' })
+    expect(sessionArchiveOf(new AppSettingsStore(file).get())).toEqual({ after: '3d', ticketDone: true })
+
+    // The other field merges in; the first stays.
+    expect(store.set({ sessionArchive: { ticketDone: false } }).sessionArchive).toStrictEqual({ after: '3d', ticketDone: false })
+    expect(new AppSettingsStore(file).get().sessionArchive).toStrictEqual({ after: '3d', ticketDone: false })
+
+    // The default value chosen is kept as chosen: a later default does not move it.
+    expect(store.set({ sessionArchive: { after: 'never' } }).sessionArchive).toStrictEqual({ after: 'never', ticketDone: false })
+    expect(JSON.parse(readFileSync(file, 'utf8')).sessionArchive).toStrictEqual({ after: 'never', ticketDone: false })
+
+    // The same choice again writes nothing; another setting keeps the choice.
+    expect(store.set({ sessionArchive: { after: 'never' } }).revision).toBe(5)
+    expect(store.set({ interfaceScale: 1.2 }).sessionArchive).toStrictEqual({ after: 'never', ticketDone: false })
+  })
+
+  it('an archive threshold this version does not know (a newer one wrote it) reads as not chosen; the rest of the file stays', () => {
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.3, sessionArchive: { after: '12h', ticketDone: false } }))
+    const read = new AppSettingsStore(file).get()
+    expect(read.interfaceScale).toBe(1.3)
+    expect(read.sessionArchive).toStrictEqual({ ticketDone: false })
+    expect(sessionArchiveOf(read)).toEqual({ after: 'never', ticketDone: false })
+  })
+
   it.each([
     ['not JSON', '{ "interfaceScale": '],
     ['a wrong type', JSON.stringify({ interfaceScale: 'big' })],
@@ -398,6 +435,13 @@ describe('appSettings channels', () => {
     const next = await call('appSettings.set', { interfaceScale: 3, sidebar: { collapsed: { ProjectsSection: true } } })
     expect(next).toMatchObject({ ok: true, value: { interfaceScale: 1.5, sidebar: { collapsed: { MachinesSection: true, ProjectsSection: true } }, revision: 2 } })
     expect(await call('appSettings.get')).toStrictEqual(next)
+  })
+
+  it('appSettings.set takes the archive choice and refuses a threshold outside the five (worfy-canvas ticket 08)', async () => {
+    const call = await windowCaller()
+    expect(await call('appSettings.set', { sessionArchive: { after: '7d', ticketDone: false } })).toMatchObject({ ok: true, value: { sessionArchive: { after: '7d', ticketDone: false } } })
+    expect((await call('appSettings.set', { sessionArchive: { after: '12h' } })).ok).toBe(false)
+    expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { sessionArchive: { after: '7d', ticketDone: false } } })
   })
 
   it('a change made in main (a menu item) reaches every window too', async () => {

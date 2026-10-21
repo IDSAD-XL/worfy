@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } fro
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { layoutChangeSchema } from '../../src/shared/ipc/layout'
 import { onThePlane } from '../../src/shared/layout/derived'
@@ -41,6 +41,7 @@ let repo: string
 let handlers: Map<string, Listener>
 let store: LayoutStore
 let AutoArchiver: typeof AutoArchiverClass
+let startAppArchiver: typeof import('../../src/main/layout/archive').startAppArchiver
 
 /** Loads src/main/ipc/layout.ts afresh, as an app start does, over the current data dir. */
 async function start(): Promise<void> {
@@ -54,7 +55,7 @@ async function start(): Promise<void> {
     { modules: { './layout.ts': () => import('../../src/main/ipc/layout').then((module) => module.default) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) },
   )
   store = (await import('../../src/main/layout/store')).layoutStore()
-  AutoArchiver = (await import('../../src/main/layout/archive')).AutoArchiver
+  ;({ AutoArchiver, startAppArchiver } = await import('../../src/main/layout/archive'))
 }
 
 /** Calls a handler as a window of this Machine does; with `sender`, as that client does (a string id: a Linked machine's). */
@@ -527,5 +528,65 @@ describe('the read-only screen of a Linked machine (ADR-0066)', () => {
     // What every client hears, a Linked machine's window too, parses with the channel's schema.
     expect(changes(1, 'archive')).toHaveLength(1)
     expect(changes(2, 'archive')).toHaveLength(1)
+  })
+})
+
+describe('«Archive finished sessions now» (worfy-canvas ticket 08, ADR-0076, point 9)', () => {
+  /** The app's archiver under `settings`; its run at start archives nothing under «Never». Stopped after the test. */
+  function appArchiver(settings: AutoArchiveDeps['settings']): void {
+    const stop = startAppArchiver(archiver({ settings }), 3_600_000)
+    onTestFinished(stop)
+  }
+
+  it('layout.archiveCandidates answers the rule\'s candidates with 24 h under «Never», and archives nothing itself', async () => {
+    apply(sessionNode('old'))
+    apply(sessionNode('day', 400, 0))
+    apply(sessionNode('kept', 800, 0))
+    apply({ op: 'keep', id: 'session:kept', keep: true })
+    world.history = transcripts(['old', 30 * HOUR], ['day', 20 * HOUR], ['kept', 300 * HOUR])
+    appArchiver(() => ({ idleMs: null, ticketDone: true }))
+    const answer = await call('layout.archiveCandidates', { projectId: PROJECT })
+    expect(answer).toEqual({ ok: true, value: [{ id: 'session:old', sessionId: 'old', rule: 'idle' }] })
+    expect(nodes().filter(isArchived)).toEqual([])
+    expect(changes(1, 'archive')).toEqual([])
+  })
+
+  it('takes the threshold of the Setting when it is not «Never»', async () => {
+    apply(sessionNode('day', 400, 0))
+    world.history = transcripts(['day', 20 * HOUR])
+    // «Never» while the archiver starts, so its run at start leaves the Node; then the person picks 6 h.
+    let idleMs: number | null = null
+    appArchiver(() => ({ idleMs, ticketDone: true }))
+    idleMs = 6 * HOUR
+    expect(await call('layout.archiveCandidates', { projectId: PROJECT })).toEqual({ ok: true, value: [{ id: 'session:day', sessionId: 'day', rule: 'idle' }] })
+  })
+
+  it('is refused while the app has no archiver, and for a Project that is not of this Machine', async () => {
+    expect(await call('layout.archiveCandidates', { projectId: PROJECT })).toMatchObject({ ok: false })
+    appArchiver(() => ({ idleMs: null, ticketDone: true }))
+    expect(await call('layout.archiveCandidates', { projectId: 'other-00000000' })).toMatchObject({ ok: false })
+  })
+
+  it('the screen\'s `archive` of the candidates is one step of ⌘Z: undo brings every Node back at its place, redo archives them again', async () => {
+    const { applyRecorded, historyOf, resetHistories } = await import('../../src/renderer/canvas/history')
+    resetHistories()
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    const channel = {
+      send: (op: LayoutOpInput) => Promise.resolve({ revision: apply(op, 'screen-1').revision }),
+      layout: () => store.get(PROJECT).layout,
+    }
+    const op: LayoutOpInput = { op: 'archive', batch: 'now-1', nodes: [{ id: 'session:a', rule: 'idle' }, { id: 'session:b', rule: 'idle' }] }
+    expect(await applyRecorded(PROJECT, op, channel)).toBeUndefined()
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:a', 'session:b'])
+    expect(historyOf(PROJECT).size).toBe(1)
+
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    expect(nodes().filter(isArchived)).toEqual([])
+    expect(nodeOf('session:a')).toMatchObject({ x: 0, y: 0 })
+    expect(nodeOf('session:b')).toMatchObject({ x: 400, y: 0 })
+
+    expect(await historyOf(PROJECT).redo()).toBe(true)
+    expect(nodes().filter(isArchived).map((node) => node.archived?.batch)).toEqual(['now-1', 'now-1'])
   })
 })

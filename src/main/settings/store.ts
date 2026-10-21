@@ -6,7 +6,9 @@
 // chose is kept apart from worfy's default (`autoCompactWindowChosen`, worfy-polish ticket 29): a
 // window named by a change is chosen, even at the default value; one not chosen stays at worfy's
 // default, and the mark is written only while a window is chosen. `memoryIndicator` (worfy-ui
-// ticket 20) is on in a file written before it existed.
+// ticket 20) is on in a file written before it existed. `sessionArchive` (worfy-canvas ticket 08)
+// keeps only the fields a change named, so a choice outlives a later change of the defaults; an
+// `after` this version does not know (written by a newer one) reads as not chosen.
 //
 // One file for the Machine: every window shares it. The store announces `changed` with each new
 // state; the IPC module (src/main/ipc/app-settings.ts) passes it on to every window, and the modules
@@ -24,6 +26,7 @@ import {
   defaultAppSettings,
   INTERFACE_SCALE_DEFAULT,
   sectionIdSchema,
+  sessionArchiveAfterSchema,
   type AppSettings,
   type AutoCompactRole,
   type AppSettingsPatch,
@@ -56,8 +59,19 @@ const appSettingsFileSchema = z.object({
     .default(() => ({ ...AUTO_COMPACT_WINDOW_DEFAULTS })),
   autoCompactWindowChosen: z.object({ orchestrator: z.boolean().default(false), other: z.boolean().default(false) }).optional(),
   memoryIndicator: z.boolean().default(true),
+  sessionArchive: z.object({ after: sessionArchiveAfterSchema.optional().catch(undefined), ticketDone: z.boolean().optional() }).optional(),
   revision: z.number().int().nonnegative().default(0),
 })
+
+type ArchiveChoice = AppSettings['sessionArchive']
+
+/** The archive choice after `patch`, with only its chosen fields, or nothing while none is chosen. */
+function archiveChoice(current: ArchiveChoice, patch?: ArchiveChoice): Pick<AppSettings, 'sessionArchive'> {
+  const after = patch?.after ?? current?.after
+  const ticketDone = patch?.ticketDone ?? current?.ticketDone
+  if (after === undefined && ticketDone === undefined) return {}
+  return { sessionArchive: { ...(after === undefined ? {} : { after }), ...(ticketDone === undefined ? {} : { ticketDone }) } }
+}
 
 /** One window and whether the person chose it. */
 interface RoleWindow {
@@ -89,6 +103,7 @@ function copy(settings: AppSettings): AppSettings {
     sidebar: { collapsed: { ...settings.sidebar.collapsed }, visible: { ...settings.sidebar.visible } },
     ...windows(roleWindow(settings, 'orchestrator'), roleWindow(settings, 'other')),
     memoryIndicator: settings.memoryIndicator,
+    ...archiveChoice(settings.sessionArchive),
     revision: settings.revision,
   }
 }
@@ -113,6 +128,7 @@ function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
     },
     ...windows(windowAfter(current, 'orchestrator', patch.autoCompactWindow?.orchestrator), windowAfter(current, 'other', patch.autoCompactWindow?.other)),
     memoryIndicator: patch.memoryIndicator ?? current.memoryIndicator,
+    ...archiveChoice(current.sessionArchive, patch.sessionArchive),
     revision: current.revision,
   }
 }
@@ -128,6 +144,8 @@ function same(a: AppSettings, b: AppSettings): boolean {
     a.sidebar.visible.normal === b.sidebar.visible.normal &&
     a.sidebar.visible.focus === b.sidebar.visible.focus &&
     a.memoryIndicator === b.memoryIndicator &&
+    a.sessionArchive?.after === b.sessionArchive?.after &&
+    a.sessionArchive?.ticketDone === b.sessionArchive?.ticketDone &&
     a.autoCompactWindow.orchestrator === b.autoCompactWindow.orchestrator &&
     a.autoCompactWindow.other === b.autoCompactWindow.other &&
     autoCompactWindowChosen(a, 'orchestrator') === autoCompactWindowChosen(b, 'orchestrator') &&

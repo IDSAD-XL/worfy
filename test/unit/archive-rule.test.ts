@@ -8,7 +8,20 @@ import type { BindingTarget, BindingWorkflow } from '../../src/shared/binding/re
 import { layoutNodeSchema, type LayoutNode } from '../../src/shared/layout/types'
 import { EMPTY_AGENT_SIGNALS } from '../../src/shared/binding/resolve'
 import type { ManualBinding } from '../../src/shared/ipc/bindings'
-import { ARCHIVE_NEVER, archiveCandidates, archiveSettings, bindingsNeeded, sessionBindings, TICKET_DONE_GRACE_MS, type ArchiveSettings } from '../../src/main/layout/archive'
+import {
+  ARCHIVE_NEVER,
+  ARCHIVE_NOW_IDLE_MS,
+  ARCHIVE_TICK_MS,
+  archiveCandidates,
+  archiveNowSettings,
+  archiveSettings,
+  archiveTickMs,
+  bindingsNeeded,
+  sessionBindings,
+  TICKET_DONE_GRACE_MS,
+  type ArchiveSettings,
+} from '../../src/main/layout/archive'
+import { SESSION_ARCHIVE_AFTER, SESSION_ARCHIVE_DEFAULTS } from '../../src/shared/settings/app-settings'
 
 const HOUR = 3_600_000
 const NOW = Date.parse('2026-10-19T12:00:00Z')
@@ -138,8 +151,43 @@ describe('several Nodes', () => {
 })
 
 describe('the settings', () => {
-  it('are «Never» until the Setting exists (ADR-0076, point 10)', () => {
-    expect(archiveSettings()).toEqual(ARCHIVE_NEVER)
+  it('«Never» gives the timer an empty list of candidates, with or without the ticket-done rule', () => {
+    const history = [last('a', 300 * HOUR), last('b', 2 * HOUR)]
+    const bindings = new Map([['b', ticket('e', 7)]])
+    for (const ticketDone of [true, false]) {
+      const settings = archiveSettings({ after: 'never', ticketDone })
+      expect(settings.idleMs).toBeNull()
+      expect(run({ nodes: [session('a'), session('b')], history, flow: workflow('done'), bindings, settings })).toEqual([])
+    }
+  })
+
+  it('each threshold of Settings → Canvas is its idle time; the default is «Never» with the ticket-done rule on (ADR-0076, point 10)', () => {
+    const idle = SESSION_ARCHIVE_AFTER.map((after) => archiveSettings({ after, ticketDone: true }).idleMs)
+    expect(idle).toEqual([null, 6 * HOUR, 24 * HOUR, 72 * HOUR, 168 * HOUR])
+    expect(SESSION_ARCHIVE_DEFAULTS).toEqual({ after: 'never', ticketDone: true })
+    expect(archiveSettings(SESSION_ARCHIVE_DEFAULTS)).toEqual({ idleMs: null, ticketDone: true })
+  })
+
+  it('the box «…and when their Ticket is done» off: the ticket-done rule takes nothing', () => {
+    const history = [last('a', 2 * HOUR)]
+    const bindings = new Map([['a', ticket('e', 7)]])
+    const on = archiveSettings({ after: '24h', ticketDone: true })
+    const off = archiveSettings({ after: '24h', ticketDone: false })
+    expect(run({ nodes: [session('a')], history, flow: workflow('done'), bindings, settings: on })).toEqual([{ id: 'session:a', rule: 'ticket-done' }])
+    expect(run({ nodes: [session('a')], history, flow: workflow('done'), bindings, settings: off })).toEqual([])
+  })
+
+  it('«Archive finished sessions now» under «Never» takes 24 h; any other threshold is its own', () => {
+    expect(ARCHIVE_NOW_IDLE_MS).toBe(24 * HOUR)
+    expect(archiveNowSettings(ARCHIVE_NEVER)).toEqual({ idleMs: 24 * HOUR, ticketDone: false })
+    expect(archiveNowSettings({ idleMs: null, ticketDone: true })).toEqual({ idleMs: 24 * HOUR, ticketDone: true })
+    expect(archiveNowSettings({ idleMs: 6 * HOUR, ticketDone: false })).toEqual({ idleMs: 6 * HOUR, ticketDone: false })
+  })
+
+  it('the timer ticks every 10 minutes; WORFY_ARCHIVE_TICK_MS, a whole number of ms, speeds it up for the e2e tests', () => {
+    expect(archiveTickMs({})).toBe(ARCHIVE_TICK_MS)
+    expect(archiveTickMs({ WORFY_ARCHIVE_TICK_MS: '500' })).toBe(500)
+    for (const bad of ['', '0', '-5', '1.5', 'soon']) expect(archiveTickMs({ WORFY_ARCHIVE_TICK_MS: bad })).toBe(ARCHIVE_TICK_MS)
   })
 })
 
