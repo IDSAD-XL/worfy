@@ -28,6 +28,8 @@ const S_FREE = 'cccccccc-3333-4333-8333-333333333333'
 const S_KEPT = 'dddddddd-4444-4444-8444-444444444444'
 /** The gap right of the strip (FRAME_GAP) and between two clusters (CLUSTER_GAP). */
 const FRAME_GAP = 48
+/** How long a command that sends nothing is watched for a late operation. */
+const SETTLE_MS = 2000
 
 /** git for the fixtures, without GIT_* variables of a surrounding hook. */
 function git(cwd: string, ...args: string[]): void {
@@ -109,6 +111,18 @@ const drawnAt = (page: Page, id: string): Promise<{ x: number; y: number; w: num
     return { x: Number(found?.[1]), y: Number(found?.[2]), w: el.offsetWidth, h: el.offsetHeight }
   })
 
+/**
+ * The Layout keeps `revision` for a while: a command that sends nothing leaves no signal of its own,
+ * so the revision is read again and again over SETTLE_MS, long past an operation still in flight.
+ */
+async function revisionStays(window: Page, revision: number): Promise<void> {
+  const until = Date.now() + SETTLE_MS
+  while (Date.now() < until) {
+    expect((await state(window)).revision, 'the Layout keeps its revision').toBe(revision)
+    await window.waitForTimeout(100)
+  }
+}
+
 /** The palette's "Arrange by Epic". */
 async function arrangeFromPalette(window: Page): Promise<void> {
   await window.keyboard.press('ControlOrMeta+k')
@@ -165,15 +179,19 @@ test('Arrange by Epic from ⌘K: the Sessions stand right of the strip at their 
     await canvasReady(launched)
     const arranged = await state(window)
     const at = (id: string) => arranged.nodes.find((node) => node.id === `session:${id}`)!
-    const alphaFrame = await drawnAt(window, `epic:${ALPHA}`)
-    const betaFrame = await drawnAt(window, `epic:${BETA}`)
-    const stripRight = Math.max(alphaFrame.x, betaFrame.x) + Math.max(alphaFrame.w, betaFrame.w)
-    const column = Math.ceil(stripRight + FRAME_GAP)
-    expect(at(S_ALPHA).x, 'the column stands FRAME_GAP right of the strip').toBe(column)
+    // The renderer has drawn the move: the Sessions where main put them, and the strip, which moves
+    // in the same render, where it settles. Only then are the frames read.
+    for (const id of [S_ALPHA, S_BETA, S_FREE]) {
+      await expect.poll(async () => { const drawn = await drawnAt(window, `session:${id}`); return [drawn.x, drawn.y] }, { message: `session ${id} drawn at its new place` }).toEqual([at(id).x, at(id).y])
+    }
+    const frames = async () => ({ alpha: await drawnAt(window, `epic:${ALPHA}`), beta: await drawnAt(window, `epic:${BETA}`) })
+    const columnOf = ({ alpha, beta }: Awaited<ReturnType<typeof frames>>) => Math.ceil(Math.max(alpha.x, beta.x) + Math.max(alpha.w, beta.w) + FRAME_GAP)
+    await expect.poll(async () => columnOf(await frames()), { message: 'the column stands FRAME_GAP right of the strip' }).toBe(at(S_ALPHA).x)
+    const { alpha: alphaFrame, beta: betaFrame } = await frames()
     expect(at(S_ALPHA).y, 'alpha’s Session at the height of its frame').toBe(Math.round(alphaFrame.y))
-    expect(at(S_BETA).x).toBe(column)
+    expect(at(S_BETA).x).toBe(at(S_ALPHA).x)
     expect(at(S_BETA).y, 'beta’s Session at its frame or under alpha’s cluster').toBe(Math.max(Math.round(betaFrame.y), at(S_ALPHA).y + 120 + FRAME_GAP))
-    expect(at(S_FREE).x).toBe(column)
+    expect(at(S_FREE).x).toBe(at(S_ALPHA).x)
     expect(at(S_FREE).y, 'the unbound Session under the other clusters').toBe(at(S_BETA).y + 120 + FRAME_GAP)
     // The kept Session and the note did not move.
     const stayed = (nodes: readonly StateNode[]) => placesOf(nodes.filter((node) => node.id === `session:${S_KEPT}` || node.id === 'note-1'))
@@ -191,8 +209,7 @@ test('Arrange by Epic from ⌘K: the Sessions stand right of the strip at their 
     // A second Arrange by Epic right away sends nothing: the Layout keeps its revision.
     await window.bringToFront()
     await arrangeFromPalette(window)
-    await canvasReady(launched)
-    expect((await state(window)).revision).toBe(arranged.revision)
+    await revisionStays(window, arranged.revision)
 
     // One ⌘Z puts every Session back; ⇧⌘Z arranges again.
     await window.locator('.react-flow__pane').click({ position: { x: 150, y: 700 } })
@@ -225,8 +242,7 @@ test('Arrange by Epic in the Canvas menu: under Tidy up, before Re-pack', async 
     // Without Epic frames there is nothing to arrange by: the command sends nothing.
     await menu.getByRole('menuitem', { name: 'Arrange by Epic' }).click()
     await expect(menu).toBeHidden()
-    await canvasReady(launched)
-    expect((await state(window)).revision).toBe(before.revision)
+    await revisionStays(window, before.revision)
   } finally {
     await launched.close()
     await removeDir(scratch)

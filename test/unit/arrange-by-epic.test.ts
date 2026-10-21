@@ -146,6 +146,44 @@ describe('Arrange by Epic', () => {
     expect(placesOf(movesOf({ nodes: stays, epics, drawn: drawn({ strip: { x: 348, right: 1148, top: 0, bottom: 1200 } }) }))['s3']).toEqual([1148 + FRAME_GAP, 0])
   })
 
+  it('keeps clear of the Subagent tree of a Session that stays (Keep): the tree is in the column', () => {
+    // The kept Session is far left; its tree hangs out into the column, 0..300 high.
+    const kept = session('kept', -700, 0, { keep: true })
+    const trees = new Map([['kept', { x: COLUMN + 700, y: 0, w: 400, h: 300 }]])
+    const places = placesOf(movesOf({ nodes: [...nodes, kept], epics, drawn: drawn(), trees }))
+    expect(places['kept']).toBeUndefined()
+    expect(places['s3']).toEqual([COLUMN, 300 + 16])
+  })
+
+  it('starts the "Unbound" cluster at the top of the strip when no Session is bound', () => {
+    const places = placesOf(movesOf({ nodes, epics: new Map(), drawn: drawn({ strip: { x: 0, right: 800, top: 40, bottom: 1200 } }) }))
+    // Reading order: s4 (y 300), s2 (1500), s3 (1800), s1 (2000).
+    expect(places['s4']).toEqual([COLUMN, 40])
+    expect(places['s2']).toEqual([COLUMN, 40 + 120 + ARRANGE_GAP])
+  })
+
+  it('moves a frame the user moved along with the strip when the strip comes back left', () => {
+    // The strip stands at 400 because s0 is in its band; it comes back to 0, and the moved frame with it.
+    const crowded = [session('s0', 0, 100), ...nodes]
+    const frame = { x: 400 + COLUMN, y: 0, w: 500, h: 400 }
+    const places = placesOf(movesOf({ nodes: crowded, epics: new Map([...epics, ['s0', 'alpha']]), drawn: drawn({ strip: { x: 400, right: 1200, top: 0, bottom: 1200 }, moved: [frame] }) }))
+    expect(places['s0']).toEqual([COLUMN, 400 + 16])
+  })
+
+  it('orders two clusters whose frames stand at the same height by the strip’s order, not by their Sessions', () => {
+    const side = drawn({
+      frames: [
+        { epic: 'alpha', y: 0, tickets: new Map() },
+        { epic: 'beta', y: 0, tickets: new Map() },
+      ],
+    })
+    // beta's Session reads first (it is higher); alpha's frame comes first in the strip.
+    const two = [session('a', -2000, 900), session('b', -2000, 100)]
+    const places = placesOf(movesOf({ nodes: two, epics: new Map([['a', 'alpha'], ['b', 'beta']]), drawn: side }))
+    expect(places['a']).toEqual([COLUMN, 0])
+    expect(places['b']).toEqual([COLUMN, 120 + CLUSTER_GAP])
+  })
+
   it('moves nothing without a strip of Epic frames', () => {
     expect(arrangeByEpic({ nodes, epics, drawn: { frames: [], strip: undefined, moved: [] } })).toBeUndefined()
   })
