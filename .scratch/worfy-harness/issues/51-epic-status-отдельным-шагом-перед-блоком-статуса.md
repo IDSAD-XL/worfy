@@ -1,7 +1,8 @@
 # 51 — Запуск `epic-status` — отдельный шаг перед блоком статуса в правилах Orchestrator-а
 
 Type: task
-Status: claimed 2026-10-21T12:17Z
+Status: done 2026-10-21T14:40Z
+PR: #688
 Blocked by: —
 Source: follow-up Ticket-а 27 (eval-кейсы Harness): платный круг 2026-10-18, кейс `status-block` — 0.50 при
 пороге 0.8 («Итог» Ticket-а 27, «Ниже порога — нарушения правил Harness», на ветке `worfy-harness/27-eval`,
@@ -61,4 +62,20 @@ PR #496); решение владельца 2026-10-19, Q-d: набор из 25 
 
 ## Итог
 
-Заполняется при закрытии.
+PR [#688](https://github.com/IDSAD-XL/worfy/pull/688), merge cb41c78d. Gate full на main 52ff0dab зелёный; Windows verdict
+зелёный. Платформенный PR (`harness/hooks`).
+
+- **Правило.** В «Phase 3» `harness/hooks/rules/orchestrator.md` запуск `epic-status` — отдельный абзац перед блоком
+  статуса: «Right before the block, run `epic-status` … after any ticket status change of this turn … only then write
+  the block». Без Ticket-ов строка Stage — одна фраза, как раньше. Пункт из «Rules that keep it honest» удалён — правило
+  записано один раз. Метки блока на main уже английские (`— Stage / Now / Next / Waiting`, epic worfy-neutral).
+- **Test** (`rules-hooks.test.sh`, три проверки внутри «Phase 3»): запуск `epic-status` стоит раньше строки `— Stage:`;
+  полный путь `bin/epic-status` — ровно один, и после `— Stage:` нет ни одного упоминания `epic-status`; фраза «only
+  then write the block» — между запуском и блоком. На тексте main — exit 1 (все три падают), с правкой — exit 0, 201
+  passed. Мутанты (старый пункт вместо шага; шаг плюс старый пункт; пункт без пути под блоком; фраза под блоком) —
+  красные. Размер правил с длинным путём plugin-а — 9827 из 10000.
+- **Ревью:** два круга, глубина medium. Круг 1 — correctness и tests PASS, 4 low; три исправлены во втором круге. Открыт
+  известный предел: test не проверяет смысл шага — это сторожит eval-кейс `status-block`.
+- **Не сделано — шаг владельца:** платный повтор кейса `status-block` (3 run-а, оценка ≥ 0.8;
+  `pnpm eval:harness -- --tag main --case status-block --runs 3 --max-cost-usd 1`, перед ним `~/.docker/bin` вынести
+  из `~/.docker`) и `pnpm install:stable` (ADR-0047).
