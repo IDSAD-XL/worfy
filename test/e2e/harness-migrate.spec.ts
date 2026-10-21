@@ -1,5 +1,4 @@
-import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,6 +7,7 @@ import { restoreCommand } from '../../src/main/harness/migrate/restore'
 import { claudePluginStub } from './claude-plugin-stub'
 import { writeSandbox } from './first-run-sandbox'
 import { launchApp, type LaunchedApp, repoRoot } from './helpers'
+import { legacyClaudeHome } from './legacy-claude-home'
 
 // worfy-harness ticket 14: the move form opens from the Harness item of the toolbar, shows the rows
 // by group and CLAUDE.md as a diff, its switches work, and after Move it shows the backup and the
@@ -21,32 +21,7 @@ import { launchApp, type LaunchedApp, repoRoot } from './helpers'
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const bundle = join(repoRoot, 'out', 'harness')
-const FIXTURE = join(repoRoot, 'test', 'fixtures', 'claude-home-legacy')
 const bundledVersion = (): string => (JSON.parse(readFileSync(join(bundle, '.claude-plugin', 'plugin.json'), 'utf8')) as { version: string }).version
-
-const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'Sandbox', GIT_AUTHOR_EMAIL: 'sandbox@example.com', GIT_COMMITTER_NAME: 'Sandbox', GIT_COMMITTER_EMAIL: 'sandbox@example.com' }
-
-// `__SANDBOX__` replaced by the root — JSON-escaped in a .json file, as test/contract/harness-migrate-harness.ts
-// does: a Windows path has backslashes, which a JSON string spells `\\`, and settings.json with a bare
-// one does not parse, so its hooks and status line had no rows (worfy-windows ticket 83).
-function substitute(dir: string, root: string): void {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory()) substitute(path, root)
-    else {
-      const text = readFileSync(path, 'utf8')
-      const value = entry.name.endsWith('.json') ? JSON.stringify(root).slice(1, -1) : root
-      if (text.includes('__SANDBOX__')) writeFileSync(path, text.replaceAll('__SANDBOX__', value))
-    }
-  }
-}
-
-function gitCommitAll(dir: string): void {
-  for (const args of [['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'fixture']]) {
-    const result = spawnSync('git', ['-C', dir, ...args], { env: GIT_ENV, encoding: 'utf8' })
-    if (result.status !== 0) throw new Error(`git ${args.join(' ')}: ${result.stderr}`)
-  }
-}
 
 let scratch: string
 let claudeHome: string
@@ -54,13 +29,7 @@ let env: Record<string, string>
 
 test.beforeEach(() => {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-migrate-')))
-  cpSync(FIXTURE, scratch, { recursive: true })
-  substitute(scratch, scratch)
-  claudeHome = join(scratch, 'home', '.claude')
-  renameSync(join(claudeHome, 'gitignore'), join(claudeHome, '.gitignore'))
-  gitCommitAll(claudeHome)
-  gitCommitAll(join(scratch, 'repos', 'worfy'))
-  cpSync(bundle, join(claudeHome, 'worfy-harness', 'plugin'), { recursive: true })
+  claudeHome = legacyClaudeHome(scratch)
   env = { WORFY_CLAUDE_HOME: claudeHome, WORFY_CLAUDE: claudePluginStub(join(scratch, 'stub-bin')), STUB_PLUGIN_VERSION: bundledVersion() }
 })
 

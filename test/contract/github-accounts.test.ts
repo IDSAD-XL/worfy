@@ -302,8 +302,9 @@ describe('"Sign in with gh"', () => {
 
   it('on Windows a relative WORFY_GH is refused, not looked up in every Path entry', () => {
     // Every candidate exists: a lookup would find one, so only the refusal passes.
-    for (const relative of ['tools\\gh.exe', '\\opt\\gh', 'bin/gh']) {
-      expect(() => signInCommand(relative, 'win32', WIN_PATH, () => true)).toThrow(`WORFY_GH must be a full path (C:\\… or \\\\…), not ${relative}`)
+    // `\\srv` names a server but no share: no file can be named so (isWindowsAbsolutePath, src/shared/paths.ts).
+    for (const relative of ['tools\\gh.exe', '\\opt\\gh', 'bin/gh', '\\\\srv']) {
+      expect(() => signInCommand(relative, 'win32', WIN_PATH, () => true)).toThrow(`WORFY_GH must be a full path (C:\\… or \\\\server\\share\\…), not ${relative}`)
     }
   })
 

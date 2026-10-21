@@ -25,7 +25,8 @@
 // flips them after packaging), so the mode is on in `pnpm dev` and in the packaged app.
 
 import { posix, resolve, win32 } from 'node:path'
-import { fileOrAlias, findOnPath, WINDOWS_FULL_PATH, type FileExists } from './agent/env'
+import { isWindowsAbsolutePath } from '../shared/paths'
+import { fileOrAlias, findOnPath, type FileExists } from './agent/env'
 
 /**
  * How Windows reads a program an override names (WORFY_GH) when it is not a `.mjs` stand-in, the
@@ -40,7 +41,7 @@ import { fileOrAlias, findOnPath, WINDOWS_FULL_PATH, type FileExists } from './a
 export type WindowsProgramPath = { kind: 'name' } | { kind: 'relative' } | { kind: 'full'; file: string | null }
 
 export function windowsProgramPath(program: string, exists: (path: string) => boolean): WindowsProgramPath {
-  if (WINDOWS_FULL_PATH.test(program)) {
+  if (isWindowsAbsolutePath(program)) {
     // Backslashes, as a lookup on the Path would give it (`C:/tools/gh` is `C:\tools\gh.exe`).
     const file = win32.normalize(win32.extname(program) === '' ? `${program}.exe` : program)
     return { kind: 'full', file: exists(file) ? file : null }

@@ -59,7 +59,8 @@ mt() { node -e 'try{process.stdout.write(String(Math.floor(require("fs").statSyn
 if [ -f "$GATE_DIR/kill$n" ]; then
   if [ -s "${STAND_IN_PARENTS:-}" ]; then /usr/bin/kill -f -W -"$(cat "$GATE_DIR/kill$n")" "$(tail -n 1 "$STAND_IN_PARENTS")"
   else kill -"$(cat "$GATE_DIR/kill$n")" "$PPID"; fi
-  sleep 1; exit 0
+  # a killed wave-gate's gate may outlive it: with $GATE_DIR/hold it goes on while that file exists (at most 30 s)
+  sleep 1; i=150; while [ -f "$GATE_DIR/hold" ] && [ "$i" -gt 0 ]; do sleep 0.2; i=$((i - 1)); done; exit 0
 fi
 i=150; while [ -f "$GATE_DIR/hold" ] && [ "$i" -gt 0 ]; do sleep 0.2; i=$((i - 1)); done
 # The verdict words: English, as the gate prints them; $GATE_DIR/old — the Russian words of the gate of the
@@ -616,7 +617,8 @@ fi
 new_world killed 1:a.txt
 S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
 echo KILL >"$GATE_DIR/kill1"
-"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+# STAND_IN_PARENTS: on Windows the gate stub finds wave-gate's pid there, as in the resume case
+STAND_IN_PARENTS="$GATE_DIR/parents" "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 rm -f "$GATE_DIR/kill1"
 kp="$(q "$L/holder.json" s.pid 2>&1)"
 [ "$rc" -ne 0 ] && [ -d "$L" ] && [ "$(q "$L/holder.json" 's.host===require("os").hostname()' 2>&1)" = true ] \
@@ -627,6 +629,63 @@ if until_ok 30 held_twice; then wait "$wg"; rc=$?; else kill "$wg" 2>/dev/null; 
 [ "$rc" = 0 ] && grep -q "held by pid $kp, which is not running" "$W/out" && [ ! -e "$L" ] \
     && ok "e2e lock: the lock of a killed wave-gate is taken at once by the next run" || bad "e2e lock of a killed run: $rc: $(tail -3 "$W/out")"
 rm -rf "$L"; unset GATE_LOCK
+# killed while its gate still runs (SIGKILL leaves the gate and its e2e running): holder.json names the gate as
+# `child`, and the lock is waited for until the gate has ended too. On Windows the gate ends with wave-gate (libuv
+# puts node's children in a job object that is closed with node), so the next run takes the lock at once there.
+new_world orphan 1:a.txt
+S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
+echo KILL >"$GATE_DIR/kill1"; touch "$GATE_DIR/hold"
+STAND_IN_PARENTS="$GATE_DIR/parents" "$WG" check "$S" >"$W/out" 2>&1; rc=$?
+rm -f "$GATE_DIR/kill1"
+[ "$rc" -ne 0 ] && [ "$(q "$L/holder.json" 'Number.isInteger(s.child)' 2>&1)" = true ] \
+    && ok "e2e lock: the holder.json of a killed run names its gate as child" || bad "e2e lock orphan: exit $rc, holder [$(cat "$L/holder.json" 2>&1)]"
+"$WG" check "$S" >"$W/out2" 2>&1 & wg=$!
+if on_windows; then
+    # `hold` stays: a gate that outlived wave-gate would keep the lock until it is removed
+    until_ok 30 held_twice && [ -f "$GATE_DIR/hold" ] \
+        && ok "e2e lock: on Windows the killed run's gate ended with it, and its lock is taken" || bad "e2e lock orphan on Windows: not taken while hold was there [$(tail -2 "$W/out2")]"
+    rm -f "$GATE_DIR/hold"
+else
+    until_ok 30 grep -q "waiting for the e2e lock" "$W/out2"; sleep 2
+    [ "$(gate_count)" = 1 ] && [ -d "$L" ] && ok "e2e lock: the lock of a killed run is kept while its gate runs" || bad "e2e lock orphan: taken while the gate ran [$(tail -2 "$W/out2")]"
+    rm -f "$GATE_DIR/hold"
+fi
+if until_ok 30 held_twice; then wait "$wg"; rc=$?; else kill "$wg" 2>/dev/null; wait "$wg" 2>/dev/null; rc="still waiting 30 s after the gate ended"; fi
+[ "$rc" = 0 ] && grep -q "which is not running" "$W/out2" && [ ! -e "$L" ] \
+    && ok "e2e lock: taken at once when the killed run's gate has ended" || bad "e2e lock orphan after the gate: $rc: $(tail -3 "$W/out2")"
+rm -rf "$L"; unset GATE_LOCK
+# two runs wait on the lock of a dead wave-gate: one takes it over, the other waits for that one's lock, both run
+# their gate, and no takeover token is left
+gone2="$(node -e 'process.stdout.write(String(process.pid))')"
+me="$(node -e 'process.stdout.write(require("os").hostname())')"
+L2="$T/shared-e2e.lock"; mkdir "$L2"
+printf '{"prs":[9],"what":"gate-full","pid":%s,"host":"%s","since":"x"}\n' "$gone2" "$me" >"$L2/holder.json"
+new_world twin1 1:a.txt; W1="$W"; state "$W1/state.json" "$L2" 1
+new_world twin2 1:a.txt; W2="$W"; state "$W2/state.json" "$L2" 1
+# exec: the background job is wave-gate itself, so a kill after the time limit ends it
+twin() { GATE_DIR="$1/gate" GATE_LOCK="$L2" GH_ORIGIN="$1/origin.git" GH_LOG="$1/gh/log" GH_TMP="$1/gh" SCREEN_DIR="$1/screen" exec "$WG" check "$1/state.json" >"$1/out" 2>&1; }
+twin "$W1" & t1=$!; twin "$W2" & t2=$!
+twins_done() { ! kill -0 "$t1" 2>/dev/null && ! kill -0 "$t2" 2>/dev/null; }
+if until_ok 60 twins_done; then wait "$t1"; r1=$?; wait "$t2"; r2=$?
+else kill "$t1" "$t2" 2>/dev/null; wait "$t1" "$t2" 2>/dev/null; r1="still waiting after 60 s"; r2="$r1"; fi
+n="$(cat "$W1/out" "$W2/out" | grep -c "which is not running")"
+[ "$r1" = 0 ] && [ "$r2" = 0 ] && [ "$n" = 1 ] && [ ! -e "$L2" ] && [ -z "$(ls -d "$L2".* 2>/dev/null)" ] \
+    && ok "e2e lock: of two runs waiting on a dead lock one takes it over, both run" || bad "e2e lock twins: exit $r1 $r2, takeovers $n, left [$(ls -d "$L2"* 2>/dev/null)], dead pid $gone2: $(grep -h "not running\|waiting\|taken over" "$W1/out" "$W2/out" | tr '\n' '|')"
+# a takeover token: a young one is another waiter taking the dead lock over right now, so the lock is waited for; an
+# old one was left by a waiter killed in those milliseconds and is removed, and the dead lock is taken
+new_world token 1:a.txt
+S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
+mkdir "$L" "$L.takeover"
+printf '{"prs":[9],"what":"gate-full","pid":%s,"host":"%s","since":"x"}\n' "$gone2" "$me" >"$L/holder.json"
+"$WG" check "$S" >"$W/out" 2>&1 & wg=$!
+until_ok 30 grep -q "waiting for the e2e lock" "$W/out"; sleep 2
+[ "$(gate_count)" = 0 ] && [ -f "$L/holder.json" ] && [ -d "$L.takeover" ] \
+    && ok "e2e lock: a dead lock under a young takeover token is waited for" || bad "e2e lock young token: [$(tail -2 "$W/out")]"
+touch -t 202001010000 "$L.takeover"
+if until_ok 30 grep -q "which is not running" "$W/out"; then wait "$wg"; rc=$?; else kill "$wg" 2>/dev/null; wait "$wg" 2>/dev/null; rc="not taken 30 s after the token aged"; fi
+[ "$rc" = 0 ] && [ ! -e "$L" ] && [ ! -e "$L.takeover" ] && [ "$(gate_count)" = 1 ] \
+    && ok "e2e lock: an old takeover token is removed and the dead lock taken" || bad "e2e lock old token: $rc, left [$(ls -d "$L"* 2>/dev/null)]: $(tail -3 "$W/out")"
+rm -rf "$L" "$L.takeover"; unset GATE_LOCK
 # a holder.json without this host is not judged by its pid: the one-PR block of skills/epic-wave writes no host, and
 # in Git Bash its pid is not a Windows pid; a pid of another host means nothing here. The young lock is waited for.
 gone="$(node -e 'process.stdout.write(String(process.pid))')"

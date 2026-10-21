@@ -11,6 +11,7 @@ import { afterEach, beforeEach } from 'vitest'
 import type { HarnessState } from '../../src/shared/ipc/harness'
 import type { MigrationChoice, MigrationPlan, MigrationSelection } from '../../src/shared/ipc/harness-migration'
 import type { ApplyOptions } from '../../src/main/harness/migrate/apply'
+import { substituteSandbox } from '../claude-home-legacy'
 import { NODE } from '../harness-node'
 import { removeTestTree } from '../remove'
 import { buildPlan, hookRecords, type PlanOptions } from '../../src/main/harness/migrate/plan'
@@ -44,22 +45,6 @@ interface Sandbox {
 // value of that moment.
 export let sandbox: Sandbox
 
-// The fixture's files with `__SANDBOX__` replaced by the root — JSON-escaped in a .json file: a
-// Windows path has backslashes, which a JSON string spells `\\`. Line ends go back to the LF the
-// fixture is committed with (every file of it is text): Git for Windows with core.autocrlf checks
-// it out with CRLF, and the cases compare bytes and lines.
-function substitute(dir: string, root: string): void {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory()) substitute(path, root)
-    else {
-      const text = readFileSync(path, 'utf8')
-      const value = entry.name.endsWith('.json') ? JSON.stringify(root).slice(1, -1) : root
-      const fixed = text.replaceAll('\r\n', '\n').replaceAll('__SANDBOX__', value)
-      if (fixed !== text) writeFileSync(path, fixed)
-    }
-  }
-}
 
 /**
  * `timeout` (ms) ends a command that does not return: its status is then null, and the test fails instead of hanging.
@@ -102,7 +87,7 @@ function installPlugin(target: string, withQmd: boolean): void {
 export function makeSandbox({ qmdInPlugin = false }: { qmdInPlugin?: boolean } = {}): Sandbox {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-migrate-')))
   cpSync(FIXTURE, root, { recursive: true })
-  substitute(root, root)
+  substituteSandbox(root, root)
   const home = join(root, 'home')
   const claudeHome = join(home, '.claude')
   renameSync(join(claudeHome, 'gitignore'), join(claudeHome, '.gitignore'))

@@ -1,7 +1,7 @@
 # 72 — `wave-gate` на Windows не снимает замок e2e, когда его останавливают сигналом
 
 Type: bug
-Status: open
+Status: claimed 2026-10-21T09:46Z
 Blocked by: —
 Source: Ticket [71](71-harness-test-sh-на-windows.md) (PR #555), 2026-10-20 — найдено при переносе
 `wave-gate.test.sh` на Git Bash; проверка «e2e lock on signal» на win32 пропущена с причиной. Правка `harness/` —
@@ -41,11 +41,12 @@ Source: Ticket [71](71-harness-test-sh-на-windows.md) (PR #555), 2026-10-20 �
 
 ## Готово, когда
 
-- [ ] `wave-gate`, убитый на Windows (`taskkill /F` или `kill` из Git Bash), не задерживает следующий запуск
+- [x] `wave-gate`, убитый на Windows (`taskkill /F` или `kill` из Git Bash), не задерживает следующий запуск
       дольше одного опроса замка (`WAVE_GATE_LOCK_POLL_S`).
-- [ ] `wave-gate.test.sh` — exit 0 в Git Bash на ПК и на Mac; новый случай красный до правки.
+- [x] `wave-gate.test.sh` — exit 0 в Git Bash на ПК; новый случай красный до правки.
+- [ ] `wave-gate.test.sh` — exit 0 на Mac. Не проверено на ПК: Mac checks в PR.
 - [ ] Mac gate (ADR-0056) зелёный.
-- [ ] «pid dead» и «pid live» в `wave-gate.test.sh` берут pid Windows; 5 прогонов файла подряд в Git Bash — без
+- [x] «pid dead» и «pid live» в `wave-gate.test.sh` берут pid Windows; 5 прогонов файла подряд в Git Bash — без
       красного.
 
 ## Где в коде
@@ -70,4 +71,76 @@ Wave на Windows пока не гоняют.
 
 ## Итог
 
-Заполняется при закрытии.
+`wave-gate` больше не ждёт 30 min замок e2e, брошенный убитым `wave-gate`.
+
+- В `holder.json` замка e2e `wave-gate` теперь пишет и `host` (`os.hostname()`), рядом с `pid` (свой
+  `process.pid`; на Windows это уже pid Windows). Пока работает его дочерний процесс (gate, который гоняет e2e),
+  в `holder.json` есть и `child` — pid этого процесса (`noteChild`).
+- Ждущий `wave-gate` до проверки возраста читает `holder.json` (`deadHolder` в `harness/bin/wave-gate`). Если
+  `host` — этой машины, процесса с этим `pid` нет и `child` тоже не работает, замок брошен, и его снимают сразу.
+  На macOS и Linux убитый SIGKILL-ом `wave-gate` оставляет свой gate живым: пока gate гоняет e2e, замок держится.
+  Не видно только внука — скрипта e2e, который пережил и `wave-gate`, и gate (shortcut в коде). На Windows дети
+  node умирают вместе с ним: libuv кладёт их в job object, который закрывается с node. Проверено на ПК: после
+  `taskkill /F` родителя-node его дочерний node мёртв.
+- Захват (`takeOver`): ждущий сначала создаёт рядом папку `<замок>.takeover` через `mkdir` — из двух ждущих
+  это удаётся одному. Под ней `holder.json` читается снова, и замок снимается, только если это всё ещё файл
+  мёртвого держателя. Проигравший ждёт, как живой замок. Переименование (первый вариант: папку замка в своё имя)
+  на Windows не исключает второго: libuv переименовывает через открытый handle, и два одновременных `renameSync`
+  одного пути оба успешны — второй переносит уже перенесённое. Probe на ПК: папка — 30 из 30 раундов, файл — 22
+  из 30; twins test падал 7 раз из 40 (два захвата одного мёртвого pid). С `mkdir`-маркером 40 из 40 зелёные.
+  Маркер старше 60 s оставлен ждущим, убитым в эти миллисекунды, — его удаляют. `rmdir` снятого замка на
+  Windows может упасть, пока другой ждущий читает удалённый `holder.json`; повтор до 1 s.
+  Та же схема с переименованием есть в `guardPid` (pid-файл `wave-gate check`) — отдельный ticket Mac, здесь
+  не трогаем.
+  Мёртвый замок, чей маркер занят, по возрасту не снимается: его снимет держатель маркера (иначе ветка
+  «по возрасту» обходила маркер — находка review).
+  Shortcut (review, low): старый маркер удаляется в два шага (`stat`, потом `rmdir`). При трёх-четырёх
+  одновременных ждущих один может удалить свежий маркер другого. Нужны и брошенный маркер, и толпа ждущих;
+  переделать, если такое увидят. Twins test ловит двойной захват по таймингу, а не детерминированно (до
+  исправления падал 7 раз из 40); пересечение двух прогонов gate по времени он не проверяет.
+- Замок main (`merge`) остаётся только по возрасту, `holder.json` в нём нет: этот замок делят блоки main-ветки
+  `harness/skills/epic-wave/SKILL.md` и `harness/skills/gate-queue/SKILL.md`, они снимают застрявший замок голым
+  `rmdir`, и файл внутри им бы помешал. Пункт 1 «Что делаем» про main не сделан, по этой причине.
+- По pid судят только `holder.json` с `host` этой машины. Блок gate full одного PR в
+  `harness/skills/epic-wave/SKILL.md` пишет `"pid": $$` без `host`. В Git Bash `$$` — pid MSYS, не pid Windows,
+  и `wave-gate` принял бы живой замок этого блока за брошенный. pid другой машины здесь ничего не значит. Такие
+  замки по-прежнему ждут порога возраста.
+- На win32 в `SIGNALS` добавлен SIGBREAK (Ctrl+Break), код выхода 149. Test-а нет: отправить Ctrl+Break
+  процессу из test-а нельзя без общей консоли. SIGTERM от другого процесса node на Windows не получает по-прежнему;
+  это закрывает пункт 1 выше, а не обработчик.
+
+Test-ы в `harness/bin/tests/wave-gate.test.sh`, на всех системах:
+- «killed»: gate stub убивает `wave-gate` SIGKILL-ом посреди прогона (на Windows — `kill -f -W` по pid Windows,
+  как в случае resume). Замок остаётся с `pid` и `host`; следующий запуск берёт его сразу, сообщение «held by
+  pid N, which is not running». Случай «e2e lock on signal» (SIGTERM) на win32 остаётся пропущенным с прежней
+  причиной: обработчик сигнала там не выполняется, это проверяет случай «killed».
+- «orphan»: убитый `wave-gate`, чей gate ещё работает (stub держит `hold`). `holder.json` называет gate как
+  `child`; следующий запуск ждёт, пока gate не кончится, и сразу после этого берёт замок. На Windows gate умирает
+  вместе с `wave-gate`, и test проверяет только, что замок берут сразу.
+- «twins»: два запуска ждут один замок мёртвого `wave-gate`. Перехватывает один (одно сообщение «which is not
+  running»), оба проходят gate, отложенных в сторону папок не остаётся.
+- `host` нет (запись блока SKILL.md) и `host` другой машины: молодой замок с мёртвым pid ждут.
+- «pid dead» берёт pid завершившегося node (`process.pid`), а не `$!` от `sleep 0`: в Git Bash `$!` — pid MSYS,
+  и он мог попасть рядом с живым процессом Windows (`process.kill(pid, 0)` на Windows не смотрит на два младших
+  бита pid). «pid live» уже брал pid Windows (`/proc/<pid>/winpid`).
+
+На ПК 2026-10-21, Git Bash: на `wave-gate` из origin/main (файл подменён на время прогона) — 135 passed, 2 failed:
+оба новых случая «killed» (замок без `host`; следующий запуск ждёт дольше 30 s). На новом `wave-gate` — 5 прогонов
+файла подряд, каждый 137 passed, 0 failed, EXIT=0.
+
+Low-ы ревью #678 (Mac, 2026-10-21; по выбору ПК — в этот тикет):
+- Полный путь Windows проверяет одна функция, `isWindowsAbsolutePath` (`src/shared/paths.ts`): `findOnPath`
+  (`src/main/agent/env.ts`), `windowsProgramPath` (`src/main/program.ts`) и `otherBuildBridge`
+  (`src/main/harness/migrate/plan.ts`); `WINDOWS_FULL_PATH` убран. Разница: `\\srv` без share теперь не полный
+  путь — `WORFY_GH=\\srv` отклоняется как относительный, запись Path `\\srv` пропускается. Текст отказа называет
+  `\\server\share\…`.
+- Песочница `~/.claude` старого Harness для e2e — один helper `test/e2e/legacy-claude-home.ts`
+  (`legacyClaudeHome`) вместо копий в `harness-migrate.spec.ts` и `select.spec.ts`. Замена `__SANDBOX__` (и
+  возврат концов строк к LF) — одна функция `substituteSandbox` в `test/claude-home-legacy.ts`, её берут и этот
+  helper, и contract-helper `test/contract/harness-migrate-harness.ts`.
+- Test строки диалога согласия (`test/contract/harness-migrate.test.ts`) — в своей группе «the consent dialog», с
+  фиксированной папкой: кавычка в пути репозитория не даёт ложного красного.
+
+На ПК: unit/contract (`program`, `github-accounts`, `agent-env`, `platform-paths`, `harness-migrate`,
+`first-run-windows`, `e2e-gh-stub`, `no-rmsync`) — 299 passed, 4 skipped, EXIT=0; e2e `harness-migrate` и `select`
+под watcher-ом `gh.exe` — 4 passed, gh.exe 0, EXIT=0. `pnpm typecheck`, `pnpm lint` — 0.

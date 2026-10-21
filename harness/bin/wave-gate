@@ -80,9 +80,10 @@
 // The e2e lock has the semantics of the shared one-command lock of the project rules: mkdir; a lock
 // older than 30 min counts as abandoned and is removed; a heartbeat `touch -c` every 5 min while it is
 // held; released on exit and on error. While wave-gate holds it, the lock directory has holder.json —
-// {"prs": [<numbers of the run>], "what": "gate-full", "pid", "host", "since"} — so whoever waits sees who holds it and
-// for which PRs; the file goes with the directory. A lock older than 30 min is removed with its holder.json, and so
-// is one whose holder.json names this host and a pid that is not running (a wave-gate killed without its handlers).
+// {"prs": [<numbers of the run>], "what": "gate-full", "pid", "host", "since", "child"} — so whoever waits sees who
+// holds it and for which PRs; the file goes with the directory (the main-branch lock has none, see merge()).
+// A lock older than 30 min is removed with its holder.json, and so is one whose holder.json names this host and a
+// pid that is not running, with no running "child" (the gate it runs): a wave-gate killed without its handlers.
 //
 // Exit codes. check: 0 green (or nothing to check), 2 red, 3 unverified, 1 error. merge: 0 merged
 // (or nothing to merge), 4 stopped (reason in the state file), 1 error or refused.
@@ -108,6 +109,7 @@ const seconds = (name, dflt) => {
     return Number.isFinite(v) && v > 0 ? v : dflt
 }
 const E2E = { poll: seconds("WAVE_GATE_LOCK_POLL_S", 20), stale: seconds("WAVE_GATE_LOCK_STALE_S", 1800), beat: seconds("WAVE_GATE_HEARTBEAT_S", 300) }
+const TAKEOVER_STALE_S = 60
 const MAIN = { poll: seconds("WAVE_GATE_MAIN_LOCK_POLL_S", 30), stale: seconds("WAVE_GATE_MAIN_LOCK_STALE_S", 5400), beat: seconds("WAVE_GATE_HEARTBEAT_S", 300) }
 const SCREEN = { poll: seconds("WAVE_GATE_SCREEN_POLL_S", 30) }
 const SCREEN_TRIES = 3
@@ -195,36 +197,15 @@ async function lock(dir, t, what, holder) {
             if (e.code !== "EEXIST") throw e
         }
         const dead = deadHolder(dir)
-        if (dead) {
-            // Renamed aside first, as the pid file is (guardPid): of two waiters only one gets it. The file it got is
-            // read again, and one that is not the dead holder's (the lock was taken over in between) is put back.
-            const aside = `${dir}.holder-${process.pid}`
-            try {
-                fs.renameSync(dead.file, aside)
-            } catch {
-                continue
-            }
-            if (fs.readFileSync(aside, "utf8") === dead.text) {
-                say(`${what} ${dir} is held by pid ${dead.pid}, which is not running — abandoned, removed`)
-                fs.rmSync(aside, { force: true })
-                try {
-                    fs.rmdirSync(dir)
-                } catch {}
-            } else {
-                try {
-                    fs.linkSync(aside, dead.file)
-                } catch {}
-                fs.rmSync(aside, { force: true })
-            }
-            continue
-        }
+        if (dead && takeOver(dir, dead, what)) continue
         let m
         try {
             m = fs.statSync(dir).mtimeMs
         } catch {
             continue // released between mkdir and stat
         }
-        if ((Date.now() - m) / 1000 > t.stale) {
+        // a dead lock whose takeover token is held is another waiter's to remove, however old it is
+        if (!dead && (Date.now() - m) / 1000 > t.stale) {
             say(`${what} ${dir} is older than ${t.stale} s — abandoned, removed`)
             try {
                 fs.rmSync(path.join(dir, HOLDER), { force: true })
@@ -257,21 +238,86 @@ async function lock(dir, t, what, holder) {
 }
 // The holder.json of a lock whose wave-gate is gone, or null. A wave-gate stopped without its signal handlers
 // (SIGKILL; on Windows a kill from any other process, taskkill /F or Git Bash's kill) leaves its lock, and waiting
-// for the lock to grow stale would hold every later run for half an hour. Only a holder.json with this machine's
-// host is judged by its pid: the pid of another machine means nothing here, and the one-PR block of
+// for the lock to grow stale would hold every later run for half an hour. Its child (the gate, which runs the e2e)
+// may outlive it off Windows (on Windows libuv's job object ends node's children with node), so a holder with a
+// `child` that runs is not dead either (noteChild). Only a holder.json with this
+// machine's host is judged by its pids: the pid of another machine means nothing here, and the one-PR block of
 // skills/epic-wave writes no host and the pid of its shell, which in Git Bash is not a Windows pid.
+// shortcut: a child of the gate (an e2e script) that outlives both is not seen; redo with the pids of the whole tree
+// when such an orphan is reported.
 function deadHolder(dir) {
-    const file = path.join(dir, HOLDER)
     let text, record
     try {
-        text = fs.readFileSync(file, "utf8")
+        text = fs.readFileSync(path.join(dir, HOLDER), "utf8")
         record = JSON.parse(text)
     } catch {
         return null
     }
-    const pid = record?.pid
-    if (record?.host !== os.hostname() || !Number.isInteger(pid) || pid <= 0 || pid === process.pid || pidAlive(pid)) return null
-    return { file, text, pid }
+    const gone = (pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid && !pidAlive(pid)
+    if (record?.host !== os.hostname() || !gone(record.pid)) return null
+    if (record.child !== undefined && !gone(record.child)) return null
+    return { text, pid: record.pid }
+}
+// Takes the lock of a dead holder. Of two waiters only one may remove it, or the second removes the lock the first
+// has just made. A rename does not decide that on Windows: libuv renames through a handle it opened, and two renames
+// of one path both succeed, the second moving what the first has moved. So a waiter first makes
+// `<lock>.takeover` with mkdir, and under it reads the holder.json again: the lock goes only while it is still the
+// dead holder's. A token older than TAKEOVER_STALE_S is left by a waiter killed in those milliseconds and is removed.
+// false — another waiter takes the lock over right now: the caller waits as for a live lock.
+function takeOver(dir, dead, what) {
+    const token = `${dir}.takeover`
+    try {
+        fs.mkdirSync(token)
+    } catch (e) {
+        if (e.code !== "EEXIST") throw e
+        try {
+            if ((Date.now() - fs.statSync(token).mtimeMs) / 1000 > TAKEOVER_STALE_S) fs.rmdirSync(token)
+        } catch {}
+        return false
+    }
+    try {
+        let got = null
+        try {
+            got = fs.readFileSync(path.join(dir, HOLDER), "utf8")
+        } catch {}
+        if (got !== dead.text) return true
+        say(`${what} ${dir} is held by pid ${dead.pid}, which is not running — abandoned, removed`)
+        fs.rmSync(path.join(dir, HOLDER), { force: true })
+        // A waiter that is reading the removed holder.json right now keeps it in the directory on Windows until
+        // it closes the file, and rmdir fails meanwhile.
+        for (let i = 0; ; i++) {
+            try {
+                fs.rmdirSync(dir)
+                break
+            } catch (e) {
+                if (e.code === "ENOENT") break
+                if (i === 50) {
+                    say(`${what} ${dir} could not be removed: ${e.message}`)
+                    break
+                }
+                Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
+            }
+        }
+        return true
+    } finally {
+        try {
+            fs.rmdirSync(token)
+        } catch {}
+    }
+}
+// The child a run starts while it holds a lock goes into the lock's holder.json (null — it has ended), so a
+// waiter does not take the lock of a killed wave-gate while its gate still runs the e2e (deadHolder).
+function noteChild(pid) {
+    for (const dir of held.locks.keys()) {
+        const file = path.join(dir, HOLDER)
+        try {
+            const record = JSON.parse(fs.readFileSync(file, "utf8"))
+            if (record.pid !== process.pid) continue
+            if (pid === null) delete record.child
+            else record.child = pid
+            fs.writeFileSync(file, JSON.stringify(record) + "\n")
+        } catch {}
+    }
 }
 function unlock(dir) {
     const beat = held.locks.get(dir)
@@ -455,6 +501,7 @@ function run(cmd, args, opts, logFile) {
             return resolve({ code: 127, text: e.message })
         }
         held.child = child
+        noteChild(child.pid ?? null)
         const take = (b) => {
             text += b
             log.write(b)
@@ -466,6 +513,7 @@ function run(cmd, args, opts, logFile) {
         })
         child.on("close", (code, signal) => {
             held.child = null
+            noteChild(null)
             log.end()
             resolve({ code: code ?? (signal ? 128 + (os.constants.signals[signal] || 0) : 127), text })
         })
@@ -742,6 +790,8 @@ async function merge(file) {
         return 4
     }
     const treeOf = (n) => st.prefixes.find((p) => p.number === n).tree
+    // No holder.json here: the main-branch blocks of skills/epic-wave and gate-queue share this lock and remove a stuck
+    // one with a bare rmdir, which a file inside would stop. So a killed merge's lock waits for its age.
     await lock(mainLock, MAIN, "the main-branch lock")
     try {
         const fetch = () => {
