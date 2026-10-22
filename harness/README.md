@@ -106,14 +106,17 @@ cases are chosen gets one call per chosen case. Every call passes `--scaffold --
 arguments go to every call, after the options of the call itself. Every `--` is dropped wherever it
 stands: pnpm passes the `--` of `pnpm eval:harness -- …` on to the script, and `claude` takes
 whatever follows a `--` for positional arguments, so a `--case` behind it would run every case of
-the tag. `--output-dir` is the script's own (exit 1). The cost ceiling is 30 USD for the whole run
+the tag. `--case` and `--tag` of the user choose the cases and do not reach `claude`: `claude`
+adds up every `--tag` it gets and keeps the last `--case`, so a tag whose cases they narrow gets
+one call per chosen case, each naming only its own `--tag` and `--case`. `--output-dir` is the
+script's own (exit 1). The cost ceiling is 30 USD for the whole run
 (`BUDGET_USD`); `--max-cost-usd <x>` (or `=<x>`, before or after `--`) lowers it to `x` and never
 raises it: the script takes the option itself, `claude` never sees it, a larger `x` keeps 30 USD
 with a line that says so, and a value that is not a number above 0, a missing value or a second
 `--max-cost-usd` is exit 1 with no call. Before the first call the script prints the budget and
 where it comes from, `eval:harness: budget 3 USD (--max-cost-usd 3)` or
 `eval:harness: budget 30 USD (BUDGET_USD)`. Each call gets
-`--max-cost-usd` with what the calls before it left (by the `costUsd` of their
+`--max-cost-usd` with what the calls before it left, rounded down to the cent (by the `costUsd` of their
 `aggregate-result.json`, partial runs included; a call whose report is missing, unreadable or has no
 `costUsd` counts its whole limit), and once nothing is left the remaining calls are not started and
 the run exits `2`. `HARNESS_DIR=<dir>` evaluates another copy of the Harness. The exit code is the worst of
@@ -174,7 +177,7 @@ for the PR description:
 
 `, partial` ends the line of a partial run; a call that wrote no report gets
 `eval:harness <tag>: no aggregate-result.json`. A report that ran more cases than the call chose,
-or a case it did not choose, ends its line with `, cases mismatch: report <n>, chosen <m>`, and the
+a case it did not choose, or (in a run that is not partial) lacks a chosen case, ends its line with `, cases mismatch: report <n>, chosen <m>`, and the
 run exits at least `1`: its numbers are not those of the chosen cases. Otherwise the lines do not
 change the exit code.
 
@@ -183,7 +186,8 @@ change the exit code.
 line of each call as the first call would get it (`<plugin-copy>` stands for the temporary copy of
 the plugin; later calls get what is left of the budget). It starts no `claude`, not even
 `claude --version`, copies neither the plugin nor git and creates no folder in `evals/results/`;
-exit 0, or exit 1 on the same refusals as without it.
+exit 0, or exit 1 on the same refusals as without it. `--dry-run=<value>` is exit 1: it is no dry
+run, and as an unknown option it would reach a paid call.
 
 ### When to run the evals
 

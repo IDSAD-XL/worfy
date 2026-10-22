@@ -15,15 +15,18 @@
 // dependency (mattpocock-skills) is missing — then no case sees a single rule of the Harness.
 // HARNESS_DIR=<dir> evaluates another copy of the Harness instead of harness/ (the mutation check of
 // the ticket); results go to <that dir>/evals/results/.
-// The other arguments go to every call as they are (`pnpm eval:harness -- --case status-block
-// --runs 1`); a call whose tag no case selected by --case/--tag carries is skipped. Every `--` is
+// --case and --tag of the user (`pnpm eval:harness -- --case status-block --runs 1`) choose the
+// cases and do not reach claude, which adds up every --tag it gets and keeps the last --case: a tag
+// whose cases they narrow gets one call per case, and a call whose tag no chosen case carries is
+// skipped. The other arguments go to every call as they are. Every `--` is
 // dropped, wherever it stands: pnpm passes the one of `pnpm eval:harness -- …` on to the script after
 // any argument before it, and claude takes whatever follows a `--` for positional arguments, so a
 // `--case` of this script behind it would run every case of the tag (ticket worfy-harness/70).
 // `--output-dir` is this script's own for each call: exit 1 without claude.
 // `--max-cost-usd <x>` (or `=<x>`) does not reach claude either: it lowers the budget of the run to
 // min(BUDGET_USD, x) and never raises it; not a number above 0, no value or given twice — exit 1
-// without claude. `--dry-run` does what costs nothing — the arguments, --changed, the plan of the calls,
+// without claude. Each call gets what is left of the budget, rounded down to the cent. `--dry-run`
+// (`--dry-run=<value>` is exit 1) does what costs nothing — the arguments, --changed, the plan of the calls,
 // the budget — prints the command line of each call as the first call would get it, and exits 0: no
 // claude (not even `claude --version`), no copy of the plugin or of git, no results folder.
 // `--changed <base>` (ticket worfy-harness/29) is this script's own and does not reach claude: it runs
@@ -154,6 +157,25 @@ function selected(tag, args) {
 
 const hasOption = (args, name) => args.some((arg) => arg === name || arg.startsWith(`${name}=`))
 
+/** Removes from `args` every `name`, with the values optionValues reads after it, and every `name=<value>`. */
+function dropOption(args, name) {
+  for (let i = 0; i < args.length; ) {
+    if (args[i] === name) {
+      let end = i + 1
+      while (end < args.length && !args[end].startsWith('-')) end++
+      args.splice(i, end - i)
+    } else if (args[i].startsWith(`${name}=`)) args.splice(i, 1)
+    else i++
+  }
+}
+
+/**
+ * The --max-cost-usd a call gets when the calls before it spent `spent` of `budget`: rounded down to
+ * the cent, never up, so the calls together stay within the budget. toFixed(6) first: 29.7 * 100 is
+ * 2969.9999999999995 in floating point, and the floor of that would take a cent off.
+ */
+const leftOf = (budget, spent) => Math.floor(Number(((budget - spent) * 100).toFixed(6))) / 100
+
 /**
  * The files changed since `base` in the repository of this script, relative to its root: what the
  * branch added on top of its merge-base with `base` (`git diff <base>...HEAD`), and what
@@ -196,8 +218,9 @@ function spentIn(outputDir, granted) {
 
 /**
  * The line of one call for the PR description, from the aggregate-result.json the call wrote, and
- * whether the report ran cases the call did not choose: more of them (its `cases`, else
- * `aggregates.casesTotal`) or one of another name.
+ * whether the report's cases differ from those the call chose: more of them (its `cases`, else
+ * `aggregates.casesTotal`), one of another name, or, in a run that is not partial, a chosen case
+ * missing from its `cases`.
  */
 function summary({ tag, outputDir, cases }) {
   let report = null
@@ -211,7 +234,10 @@ function summary({ tag, outputDir, cases }) {
   const number = (value) => (typeof value === 'number' ? Number(value.toFixed(2)) : 'unknown')
   const ran = Array.isArray(report.cases) ? report.cases : null
   const count = ran ? ran.length : aggregates.casesTotal
-  const mismatch = (typeof count === 'number' && count > cases.length) || (ran ?? []).some((one) => !cases.includes(one?.name))
+  const names = (ran ?? []).map((one) => one?.name)
+  // A partial run stops before some cases by itself, and says so with ", partial".
+  const missing = ran !== null && report.partial !== true && cases.some((name) => !names.includes(name))
+  const mismatch = (typeof count === 'number' && count > cases.length) || names.some((name) => !cases.includes(name)) || missing
   return {
     line:
       `eval:harness ${tag}: casesPassed ${aggregates.casesPassed ?? 'unknown'} of ${cases.length}, overallScore ${number(aggregates.overallScore)}, ` +
@@ -243,6 +269,8 @@ function takeOption(args, name) {
 // Every `--`, wherever it stands (see the top of this file).
 const passThrough = process.argv.slice(2).filter((arg) => arg !== '--')
 
+// `--dry-run=<anything>` is no dry run, and as an unknown option it would reach a paid call.
+if (passThrough.some((arg) => arg.startsWith('--dry-run='))) fail('--dry-run takes no value: --dry-run')
 const dryRun = passThrough.includes('--dry-run')
 if (dryRun) passThrough.splice(0, passThrough.length, ...passThrough.filter((arg) => arg !== '--dry-run'))
 if (hasOption(passThrough, '--output-dir')) fail('--output-dir is this script\'s own: each call writes its report into <evals>/results/<time>-<call>')
@@ -278,15 +306,20 @@ if (changedAt !== -1) {
   chosen = selection.cases
 }
 
-// The calls: { tag, name (of the call and its results folder), args (only this call's), cases }.
+// The calls: { tag, name (of the call and its results folder), args (only this call's), cases }. The
+// --case and --tag of the user choose the cases here and do not reach claude: claude adds up every
+// --tag it is given (`--tag main gui` after the call's own `--tag main` runs all cases in each call)
+// and takes the last --case, so each call names only its own tag and case.
 const calls = []
 for (const tag of ['main', 'gui']) {
-  const all = selected(tag, chosen ? [] : passThrough)
-  const cases = chosen ? all.filter((name) => chosen.includes(name)) : all
+  const all = selected(tag, [])
+  const filtered = selected(tag, passThrough)
+  const cases = chosen ? filtered.filter((name) => chosen.includes(name)) : filtered
   if (cases.length === 0) process.stdout.write(`eval:harness: no ${tag} case selected, the ${tag} call is skipped\n`)
   else if (cases.length === all.length) calls.push({ tag, name: tag, args: [], cases })
   else for (const name of cases) calls.push({ tag, name: `${tag}-${name}`, args: ['--case', name], cases: [name] })
 }
+for (const name of ['--case', '--tag']) dropOption(passThrough, name)
 
 if (limit !== null && limit > BUDGET_USD) {
   process.stdout.write(`eval:harness: --max-cost-usd ${limit} is above the ceiling of this script: the budget stays ${BUDGET_USD} USD\n`)
@@ -296,8 +329,8 @@ process.stdout.write(`eval:harness: budget ${budget} USD (${limit !== null && li
 /**
  * The arguments of one call. The target goes before --tag and --allow-tools: both take a list and
  * would swallow it. The options of the call itself come before the user's arguments, and those hold
- * no `--`, no --max-cost-usd and no --output-dir: nothing of the user's turns them into positional
- * arguments or stands in for them.
+ * no `--`, --max-cost-usd, --output-dir, --tag or --case: nothing of the user's turns them into
+ * positional arguments, stands in for them or adds to them.
  */
 const callArgs = (call, harness, outputDir, left) => [
   'plugin', 'eval', harness, ...COMMON, '--max-cost-usd', String(left), '--output-dir', outputDir,
@@ -310,7 +343,7 @@ if (dryRun) {
   const copy = '<plugin-copy>'
   process.stdout.write(`eval:harness: dry run, nothing is started: claude (${claude}) is not called; ${copy} stands for the temporary copy of ${SOURCE}\n`)
   for (const call of calls) {
-    process.stdout.write(`eval:harness: ${call.name} — claude ${callArgs(call, copy, join(EVALS, 'results', `${stamp}-${call.name}`), budget).join(' ')}\n`)
+    process.stdout.write(`eval:harness: ${call.name} — claude ${callArgs(call, copy, join(EVALS, 'results', `${stamp}-${call.name}`), leftOf(budget, 0)).join(' ')}\n`)
   }
   if (calls.length > 1) process.stdout.write(`eval:harness: dry run: each call after the first gets what the calls before it left of the ${budget} USD, not all of it\n`)
   process.exit(0)
@@ -344,7 +377,7 @@ try {
       break
     }
     const spent = outputs.reduce((sum, done) => sum + spentIn(done.outputDir, done.granted), 0)
-    const left = Number((budget - spent).toFixed(2))
+    const left = leftOf(budget, spent)
     if (left <= 0) {
       process.stdout.write(
         `eval:harness: the ${budget} USD of this run are spent (${Number(spent.toFixed(2))} USD), the ${call.name} call and any after it are skipped\n`,
