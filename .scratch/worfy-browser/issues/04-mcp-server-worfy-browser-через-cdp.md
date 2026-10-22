@@ -1,7 +1,8 @@
 # 04 — MCP server `worfy-browser` через CDP: инструменты Session, список origin-ов, плашка «Claude управляет», перехват
 
 Type: task
-Status: open
+Status: claimed 2026-10-22T03:23Z
+Branch: worfy-browser/04
 Blocked by: 03
 Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md) (Browser Node), пункт 4
 (свой MCP server через CDP, `webContents.debugger`; входит в список Profile), пункт 8 (Session
@@ -86,6 +87,15 @@ origin-ов отклоняется), «Последствия» (CDP-сесси�
 - `test/unit/agent-options.test.ts`
 - `test/contract/browser-tools.test.ts` (новый)
 - `test/e2e/browser-mcp.spec.ts` (новый)
+- Дописано исполнителем при работе: `src/main/ipc/browser.ts` (handler-ы `browser.page.live` и
+  `browser.control.*`), `src/renderer/browser/control.ts` (новый: кто ведёт Browser, в окне),
+  `src/renderer/canvas/overlays/BrowserLayer.tsx` (страница сообщает main свой web contents),
+  `src/renderer/canvas/nodes/BrowserNode.css` (вид рамки под управлением Session),
+  `test/unit/link-access.test.ts` (метки новых channel-ов), `test/contract/workflow-profile.test.ts`
+  (список Profile с `worfy-canvas` получает `worfy-browser`, решение 6).
+- Дописано в первом раунде доработки (PR #733): `test/unit/browser-page-live.test.ts` (новый:
+  `browser.page.live` берёт только guest `<webview>` своего окна), `test/unit/browser-node-control.test.tsx`
+  (новый: рамка на read-only Linked machine не перехватывает Browser).
 
 Только чтение: `src/main/mcp/canvas-server.ts` (`createCanvasServer` `:281`), `src/shared/canvas/tools.ts`
 (`:67`), `src/main/browser/profiles.ts`, `src/shared/layout/types.ts` (`create` `:126`).

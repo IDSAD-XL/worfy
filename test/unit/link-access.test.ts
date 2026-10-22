@@ -92,6 +92,9 @@ describe('the initial marks', () => {
     for (const name of ['projects.select', 'view.get', 'view.changed', 'notify.pending', 'notify.open', 'limits.open', 'limits.changed', 'app.version', 'viewport.get', 'viewport.set', 'shell.openExternal']) {
       expect(local, name).toContain(name)
     }
+    // A Browser's page is reached over CDP only on the Machine whose screen draws it (worfy-browser ticket 04, ADR-0078).
+    expect(local).toContain('browser.page.live')
+    expect(local).toContain('browser.pressing')
     // A Linked machine never switches access on, links or revokes machines for the owner.
     const linkChannels = channels.map((channel) => channel.name).filter((name) => name.startsWith('link.') && name !== 'link.ping')
     expect(linkChannels.length).toBeGreaterThan(0)
@@ -179,6 +182,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'bindings.signals',
     // The Browser profiles of a Project: a read-only screen shows a frame's profile name (worfy-browser ticket 03).
     'browser.profiles.list',
+    // Who drives each Browser (worfy-browser ticket 04): a read-only screen shows «Claude is driving» too.
+    'browser.control.list',
     'cardApi.dataGet',
     'cards.file',
     'cards.get',
@@ -250,6 +255,9 @@ describe('the read-or-write mark of `project` channels', () => {
     'browser.profiles.create',
     'browser.profiles.delete',
     'browser.profiles.update',
+    // Taking a Browser over from a Session and giving it back change what a Session may do (worfy-browser ticket 04).
+    'browser.control.return',
+    'browser.control.take',
     'cardApi.askFinish',
     'cardApi.askPrepare',
     'cardApi.dataSet',

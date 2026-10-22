@@ -16,8 +16,9 @@ import { app } from 'electron'
 import { agentEnv, type Env } from './env'
 import { fakeQueryFactory } from './fake-query'
 import { appLimits } from './limits'
-import { sessionHarnessPlugin, sessionOptions } from './options'
+import { sessionHarnessPlugin, sessionOptions, withBrowserServer } from './options'
 import { currentHarness } from '../harness/locate'
+import { browserForSession, exposeBrowserToolsToFakeAgent, type BrowserResolver, type BrowserSession } from '../mcp/browser-server'
 import { canvasForSession, type CanvasResolver, type CanvasSession } from '../mcp/canvas-server'
 import { readUserAutoCompactWindow } from '../claude-home/user-model'
 import { appSettingsStore } from '../settings/store'
@@ -32,6 +33,16 @@ async function canvasOrNull(canvas: CanvasResolver, request: QueryRequest): Prom
     return await canvas({ cwd: request.cwd, resume: request.resume })
   } catch (error) {
     console.warn(`[agent] no canvas tools for ${request.cwd}`, error)
+    return null
+  }
+}
+
+/** The Browser server of a Session (worfy-browser ticket 04); a failure leaves the Session without it rather than without a Session. */
+async function browserOrNull(browser: BrowserResolver, request: QueryRequest): Promise<BrowserSession | null> {
+  try {
+    return await browser({ cwd: request.cwd, resume: request.resume })
+  } catch (error) {
+    console.warn(`[agent] no Browser tools for ${request.cwd}`, error)
     return null
   }
 }
@@ -85,6 +96,8 @@ export interface SdkQueryFactoryOptions {
    * never imported there and no Claude Code process can start.
    */
   loadSdk?: () => Promise<AgentSdk>
+  /** The Browser server of a Session in a Project; browserForSession by default. */
+  browser?: BrowserResolver
 }
 
 /**
@@ -100,11 +113,18 @@ export interface SdkQueryFactoryOptions {
 export function sdkQueryFactory(
   canvas: CanvasResolver = canvasForSession,
   mcpAllowlist: McpAllowlistResolver = profileAllowlist,
-  { autoCompactWindow = appAutoCompactWindow, loadSdk = importSdk }: SdkQueryFactoryOptions = {},
+  { autoCompactWindow = appAutoCompactWindow, loadSdk = importSdk, browser = browserForSession }: SdkQueryFactoryOptions = {},
 ): QueryFactory {
   return async (request) => {
     const [{ query }, environment, attached] = await Promise.all([loadSdk(), agentEnv(), canvasOrNull(canvas, request)])
-    const allowlist = attached ? await mcpAllowlist(request.cwd, environment.env) : null
+    // The Browser goes with the canvas: a Session the canvas finds no Project for gets neither. Nor
+    // does an unattended one (Autopilot): it may use only the Browser profiles marked for Autopilot,
+    // which worfy-browser ticket 08 brings (ADR-0078 item 10).
+    const browsing = attached && request.unattended !== true ? browserOrNull(browser, request) : Promise.resolve(null)
+    const [listed, browserSession] = attached ? await Promise.all([mcpAllowlist(request.cwd, environment.env), browsing]) : [null, null]
+    // worfy-browser joins the Profile's list only with the server it names: not for an unattended
+    // Session, nor when the Browser server could not be made.
+    const allowlist = listed !== null && browserSession !== null ? withBrowserServer(listed) : listed
     const options = sessionOptions({
       cwd: request.cwd,
       env: environment.env,
@@ -114,6 +134,7 @@ export function sdkQueryFactory(
       stderr: request.stderr,
       spawned: request.spawned,
       canvas: attached?.attachment,
+      browser: browserSession?.attachment,
       settings: request.settings,
       canUseTool: request.canUseTool,
       unattended: request.unattended,
@@ -123,12 +144,15 @@ export function sdkQueryFactory(
       autoCompactWindow: autoCompactWindow(request.orchestrator === true),
     })
     const handle = query({ prompt: request.prompt, options }) as QueryHandle
-    return attached ? attached.observe(handle) : handle
+    const observed = attached ? attached.observe(handle) : handle
+    return browserSession ? browserSession.observe(observed) : observed
   }
 }
 
 export function queryFactoryFromEnv(env: NodeJS.ProcessEnv = process.env): QueryFactory {
   if (env.WORFY_AGENT !== 'fake') return sdkQueryFactory()
+  // The fake agent calls no MCP tool: an e2e run calls the Browser tools itself (test/e2e/browser-mcp.spec.ts).
+  exposeBrowserToolsToFakeAgent()
   const log = env.WORFY_AGENT_LOG
   return fakeQueryFactory({
     scriptsDir: env.WORFY_AGENT_SCRIPTS ?? join(app.getAppPath(), 'test', 'fixtures', 'agent-scripts'),

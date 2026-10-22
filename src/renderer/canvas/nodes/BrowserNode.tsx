@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { BrowserProfile } from '../../../shared/browser/profiles'
+import type { BrowserControlMode } from '../../../shared/browser/tools'
 import { BrowserProfiles } from '../../browser/BrowserProfiles'
+import { returnBrowserControl, takeOverBrowser, useBrowserControl } from '../../browser/control'
 import { useBrowserProfiles } from '../../browser/profiles'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
@@ -31,6 +33,10 @@ import './BrowserNode.css'
 // at browserPageRect() of the frame. The body is transparent and lets the mouse through, so the
 // page shows and takes the mouse through it, and any Node or menu over the frame covers the page.
 // The frame has the neutral colours of a surface: no minimapColor, no kind-* role (ADR-0077 item 2).
+// While a Session drives the Browser (worfy-browser ticket 04, ADR-0078 item 8) the frame has an
+// accent border and «Claude is driving» in its header; a click or a key of the user on the frame
+// takes the Browser over (on the page main sees it, src/main/browser/cdp.ts), and the header then
+// offers «Return control to Claude» (the owner's decision 3).
 // The same kind as BROWSER_KIND of browser-frame.ts: a literal here, as fast refresh wants.
 export const kind = 'browser'
 export const defaultWidth = 640
@@ -210,6 +216,30 @@ function OpenBar({ id, url }: { id: string; url: string | null }) {
   )
 }
 
+/**
+ * Who drives the Browser, at the right end of its header (worfy-browser ticket 04): «Claude is
+ * driving» while a Session does, and after the user took it over the button «Return control to
+ * Claude», which a read-only screen shows inactive. In the header it covers no part of the page.
+ */
+function DriveBadge({ projectId, id, mode }: { projectId: string; id: string; mode: BrowserControlMode }) {
+  const readOnly = useReadOnly()
+  if (mode === 'claude') {
+    return (
+      <span className="w-browser-frame__drive w-browser-frame__drive--claude" data-testid="browser-claude-drives" role="status" title="Click or type in this Browser to take over">
+        <span className="w-browser-frame__drive-dot" aria-hidden="true" />
+        Claude is driving
+      </span>
+    )
+  }
+  return (
+    <span className="w-browser-frame__drive" data-testid="browser-taken-over" role="status">
+      <button type="button" className="w-browser-frame__open-button nodrag" data-testid="browser-return-control" {...writeAction(readOnly, () => returnBrowserControl(projectId, id))}>
+        Return control to Claude
+      </button>
+    </span>
+  )
+}
+
 /** «Browser profiles…»: the window over the Canvas, opened from a frame; `selected` — the profile shown first. */
 function useProfilesWindow(): { open: (selected: string | null) => void; window: ReactNode } {
   const project = activeProject(useProjects())
@@ -290,8 +320,23 @@ export default function BrowserNode({ id, data }: CanvasNodeProps) {
   const choice = browserProfileChoice(data.node.data, profiles)
   const profile = choice.kind === 'use' ? profiles?.find((each) => each.id === choice.id) : undefined
   const profilesWindow = useProfilesWindow()
+  const control = useBrowserControl(projectId, id)
+  const readOnly = useReadOnly()
+  // A press or a key anywhere on the frame — its header, its bars — while a Session drives it. A
+  // read-only Linked machine takes nothing over: it is a write the Machine of the Project refuses.
+  const takeOver = () => {
+    if (readOnly === null && control === 'claude' && projectId !== undefined) takeOverBrowser(projectId, id)
+  }
   return (
-    <div className="w-node-surface w-browser-frame" data-testid="browser-frame" data-node-id={id} data-profile={choice.kind === 'use' ? choice.id : undefined}>
+    <div
+      className={`w-node-surface w-browser-frame${control === 'claude' ? ' w-browser-frame--driven' : ''}`}
+      data-testid="browser-frame"
+      data-node-id={id}
+      data-profile={choice.kind === 'use' ? choice.id : undefined}
+      data-control={control ?? undefined}
+      onPointerDownCapture={takeOver}
+      onKeyDownCapture={takeOver}
+    >
       <div className="w-browser-frame__header" style={{ height: BROWSER_HEADER_HEIGHT }}>
         {profile !== undefined ? (
           <button
@@ -308,6 +353,7 @@ export default function BrowserNode({ id, data }: CanvasNodeProps) {
         )}
         <NavButtons id={id} />
         <AddressBar id={id} url={url} noProfile={choice.kind !== 'use'} />
+        {control !== null && projectId !== undefined && choice.kind !== 'choose' ? <DriveBadge projectId={projectId} id={id} mode={control} /> : null}
       </div>
       <div className="w-browser-frame__body" data-testid="browser-frame-body">
         {choice.kind === 'choose' ? <ChooseProfile id={id} choice={choice} profiles={profiles ?? []} manage={() => profilesWindow.open(null)} /> : <OpenBar id={id} url={url} />}

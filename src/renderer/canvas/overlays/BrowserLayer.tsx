@@ -19,8 +19,12 @@
 // instead of opening a window (src/main/window.ts). A request main does not open by itself (from a
 // frame of another origin, or without a referrer) comes here as `browser.openRequest`, and the
 // frame offers its address in the Open bar (worfy-browser ticket 11).
+//
+// Each page that starts tells main which Browser it is (`browser.page.live`, worfy-browser ticket
+// 04): main then reaches it over CDP when a Session drives the Browser (src/main/browser/live.ts).
 import { createElement, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore, ViewportPortal } from '@xyflow/react'
+import { announceBrowserPage, keepWindowFocus } from '../../browser/control'
 import { useBrowserProfiles } from '../../browser/profiles'
 import { subscribe } from '../../ipc'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
@@ -60,7 +64,7 @@ type NavigationEvent = Event & { url: string; isMainFrame?: boolean }
  * changed `src` attribute would load the page again, and the attribute would change on every
  * navigation the page makes itself, since the address it reaches is written back into the Node.
  */
-function BrowserPage({ page, partition }: { page: BrowserLayerPage; partition: string }) {
+function BrowserPage({ page, partition, projectId }: { page: BrowserLayerPage; partition: string; projectId: string }) {
   const ops = useLayoutOps()
   const readOnly = useReadOnly()
   const view = useRef<WebviewElement>(null)
@@ -105,7 +109,17 @@ function BrowserPage({ page, partition }: { page: BrowserLayerPage; partition: s
     } catch (error) {
       console.error('browser.openRequest: cannot subscribe', error)
     }
+    // Every page the guest starts, the first one and one after a crash alike; main keeps one per guest.
+    const announce = () => {
+      try {
+        announceBrowserPage(projectId, page.id, element.getWebContentsId())
+      } catch (error) {
+        // No guest yet, or no preload bridge (a unit test of the Canvas): no page to tell of.
+        console.warn(`Browser ${page.id}: its page could not be told to main`, error)
+      }
+    }
     element.addEventListener('dom-ready', onReady, { once: true })
+    element.addEventListener('dom-ready', announce)
     element.addEventListener('did-navigate', report)
     element.addEventListener('did-navigate-in-page', report)
     element.addEventListener('did-navigate', onNavigated)
@@ -127,6 +141,7 @@ function BrowserPage({ page, partition }: { page: BrowserLayerPage; partition: s
     })
     return () => {
       element.removeEventListener('dom-ready', onReady)
+      element.removeEventListener('dom-ready', announce)
       element.removeEventListener('did-navigate', report)
       element.removeEventListener('did-navigate-in-page', report)
       element.removeEventListener('did-navigate', onNavigated)
@@ -134,7 +149,18 @@ function BrowserPage({ page, partition }: { page: BrowserLayerPage; partition: s
       stopRequests()
       unregister()
     }
-  }, [page.id])
+  }, [page.id, projectId])
+
+  // A Session's click on the page leaves the window's keyboard focus where the user has it.
+  useEffect(() => {
+    try {
+      return keepWindowFocus(projectId, page.id)
+    } catch (error) {
+      // Without the preload bridge (a unit test of the Canvas) there is nothing to subscribe to.
+      console.error('browser.pressing: cannot subscribe', error)
+      return undefined
+    }
+  }, [page.id, projectId])
 
   // The address the page reaches, by a link or by the address bar, goes into the Node: the address
   // bar shows it, and the Browser opens it again after a restart. Not a step of ⌘Z (history.ts).
@@ -196,12 +222,13 @@ export default function BrowserLayer() {
   }, [placed, ops, readOnly])
 
   const shown = placed.filter((each): each is PlacedBrowserPage & { partition: string } => each.partition !== null)
-  if (shown.length === 0) return null
+  // A page has a partition only with a Project (placeBrowserPages).
+  if (shown.length === 0 || project === undefined) return null
   return (
     <ViewportPortal>
       <div className="w-browser-layer" data-testid="browser-layer">
         {shown.map(({ page, partition }) => (
-          <BrowserPage key={`${partition} ${page.id}`} page={page} partition={partition} />
+          <BrowserPage key={`${partition} ${page.id}`} page={page} partition={partition} projectId={project.id} />
         ))}
       </div>
     </ViewportPortal>
