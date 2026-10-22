@@ -14,11 +14,14 @@ import { LayoutOpsContext } from '../../src/renderer/canvas/useLayout'
 import type { BrowserProfile } from '../../src/shared/browser/profiles'
 import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 
-// main: `browser.profiles.list` answers the profiles each Project has here; nothing else is asked.
+// main: `browser.profiles.list` answers the profiles each Project has here, and `browser.lives.list`
+// that the Browser b0 is Live (worfy-browser ticket 05: the layer draws a page only for a Live
+// Browser); nothing else is asked.
 const main = vi.hoisted(() => ({ profiles: {} as Record<string, string[]> }))
 vi.mock('../../src/renderer/ipc', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/renderer/ipc')>()),
   invoke: (channel: string, input: { projectId: string }) => {
+    if (channel === 'browser.lives.list') return Promise.resolve({ ok: true, value: { projectId: input.projectId, lives: [{ nodeId: 'b0', live: true, unsaved: false, overLimit: false, picture: null }] } })
     if (channel !== 'browser.profiles.list') return Promise.resolve({ ok: false, error: `${channel} is not faked` })
     const profiles = (main.profiles[input.projectId] ?? []).map((id): BrowserProfile => ({ id, name: id, origins: [], autopilot: false }))
     return Promise.resolve({ ok: true, value: { profiles } })

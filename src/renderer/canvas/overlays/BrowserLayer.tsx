@@ -22,9 +22,17 @@
 //
 // Each page that starts tells main which Browser it is (`browser.page.live`, worfy-browser ticket
 // 04): main then reaches it over CDP when a Session drives the Browser (src/main/browser/live.ts).
+//
+// Only a Live Browser has a page here (worfy-browser ticket 05, ADR-0078 items 6 and 7): main decides
+// which ones are Live for every window at once, and the layer tells it what this window shows — the
+// Browser frames inside the window and the zoom of the Canvas (`browser.screen`) — whenever that
+// changes. A window that is hidden (minimised, on another
+// Space) or shows another Project shows no Browser of this one. A page that goes to sleep is closed
+// here; its frame shows the picture main kept (BrowserNode.tsx).
 import { createElement, useEffect, useMemo, useRef, useState } from 'react'
-import { useStore, ViewportPortal } from '@xyflow/react'
+import { useStore, ViewportPortal, type ReactFlowState } from '@xyflow/react'
 import { announceBrowserPage, keepWindowFocus } from '../../browser/control'
+import { reportBrowserScreen, useFollowBrowserLives, useLiveBrowserIds } from '../../browser/lives'
 import { useBrowserProfiles } from '../../browser/profiles'
 import { subscribe } from '../../ipc'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
@@ -194,6 +202,45 @@ function BrowserPage({ page, partition, projectId }: { page: BrowserLayerPage; p
   )
 }
 
+/** How long what the window shows stays unchanged before the layer tells main. */
+const REPORT_REST_MS = 150
+
+/** The ids of the Browsers whose page lies at least partly inside the window, and the zoom, as one string: compared by value. */
+function screenKey(state: Pick<ReactFlowState, 'transform' | 'width' | 'height'>, pages: readonly BrowserLayerPage[]): string {
+  const [x, y, zoom] = state.transform
+  const left = -x / zoom
+  const top = -y / zoom
+  const right = left + state.width / zoom
+  const bottom = top + state.height / zoom
+  const visible = pages.filter((page) => page.x < right && page.x + page.w > left && page.y < bottom && page.y + page.h > top).map((page) => page.id)
+  return JSON.stringify({ visible, zoom })
+}
+
+/**
+ * Tells main what this window shows of Project `projectId` whenever it changes (`browser.screen`),
+ * and that it shows nothing of it once the layer goes (another Project, the window closes its Canvas).
+ */
+function useReportScreen(projectId: string | undefined, pages: readonly BrowserLayerPage[]): void {
+  const shown = useStore((state) => screenKey(state, pages))
+  const [hidden, setHidden] = useState(() => document.visibilityState === 'hidden')
+  useEffect(() => {
+    const visibility = () => setHidden(document.visibilityState === 'hidden')
+    document.addEventListener('visibilitychange', visibility)
+    return () => document.removeEventListener('visibilitychange', visibility)
+  }, [])
+  useEffect(() => {
+    if (projectId === undefined) return
+    const { visible, zoom } = JSON.parse(shown) as { visible: string[]; zoom: number }
+    // Once a pan or a zoom comes to rest: main's rules count in seconds, not in frames.
+    const timer = setTimeout(() => reportBrowserScreen({ projectId, visible: hidden ? [] : visible, zoom }), REPORT_REST_MS)
+    return () => clearTimeout(timer)
+  }, [projectId, shown, hidden])
+  useEffect(() => {
+    if (projectId === undefined) return
+    return () => reportBrowserScreen({ projectId, visible: [], zoom: 1 })
+  }, [projectId])
+}
+
 export default function BrowserLayer() {
   useFramesStepAsideWhilePressed(useStore((store) => store.domNode))
   const project = activeProject(useProjects())
@@ -206,6 +253,9 @@ export default function BrowserLayer() {
   // of a <webview> is fixed once it attaches, so a page whose profile changes is a new <webview>
   // (its key); the Canvas of another Project is a new Canvas (Canvas.tsx), and so a new layer.
   const placed = useMemo(() => placeBrowserPages(pages, profiles, project?.id), [pages, profiles, project])
+  useFollowBrowserLives(project?.id)
+  const live = useLiveBrowserIds(project?.id)
+  useReportScreen(project?.id, pages)
 
   // The profile the rule picked for a Node without one goes into the Node, as the address bar's
   // address does (not a step of ⌘Z): from then on the Node keeps it whatever profiles come later.
@@ -221,7 +271,7 @@ export default function BrowserLayer() {
     }
   }, [placed, ops, readOnly])
 
-  const shown = placed.filter((each): each is PlacedBrowserPage & { partition: string } => each.partition !== null)
+  const shown = placed.filter((each): each is PlacedBrowserPage & { partition: string } => each.partition !== null && live.has(each.page.id))
   // A page has a partition only with a Project (placeBrowserPages).
   if (shown.length === 0 || project === undefined) return null
   return (

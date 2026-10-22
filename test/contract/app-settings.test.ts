@@ -13,7 +13,7 @@ import { createLinkIpc, LinkPeer, LinkSender } from '../../src/main/link/ipc-ada
 import { APP_SETTINGS_FILE, AppSettingsStore } from '../../src/main/settings/store'
 import { appSettingsChanged, appSettingsGet, appSettingsSet } from '../../src/shared/ipc/app-settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { autoCompactWindowChosen, clampScale, DEFAULT_APP_SETTINGS, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
+import { autoCompactWindowChosen, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, DEFAULT_APP_SETTINGS, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
 import { removeTestTree } from '../remove'
 
 /** The path of every readFileSync call, by the test and by the code under test. */
@@ -305,6 +305,60 @@ describe('AppSettingsStore', () => {
     expect(sessionArchiveOf(read)).toEqual({ after: '24h', ticketDone: false })
   })
 
+  it('the Browser sleep settings (worfy-browser ticket 05): an older file without the field gives the defaults; a choice is written, read back and kept field by field', () => {
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.2, memoryIndicator: false, revision: 4 }))
+    const store = new AppSettingsStore(file)
+    expect(store.get().browserSleep).toBeUndefined()
+    expect(browserSleepOf(store.get())).toEqual({ maxLive: 3, offscreenSeconds: 30, idleMinutes: 5, zoom: 0.4 })
+    expect(BROWSER_SLEEP_DEFAULTS).toEqual({ maxLive: 3, offscreenSeconds: 30, idleMinutes: 5, zoom: 0.4 })
+
+    expect(store.set({ browserSleep: { maxLive: 5 } })).toMatchObject({ browserSleep: { maxLive: 5 }, revision: 5 })
+    expect(JSON.parse(readFileSync(file, 'utf8')).browserSleep).toStrictEqual({ maxLive: 5 })
+    // A second field keeps the first; the default value chosen is kept as chosen.
+    expect(store.set({ browserSleep: { offscreenSeconds: 30, idleMinutes: 15, zoom: 0.25 } }).browserSleep).toStrictEqual({ maxLive: 5, offscreenSeconds: 30, idleMinutes: 15, zoom: 0.25 })
+    const read = new AppSettingsStore(file).get()
+    expect(read.browserSleep).toStrictEqual({ maxLive: 5, offscreenSeconds: 30, idleMinutes: 15, zoom: 0.25 })
+    expect(read.interfaceScale).toBe(1.2)
+    // The same choice again changes nothing.
+    expect(store.set({ browserSleep: { maxLive: 5 } }).revision).toBe(6)
+    expect(store.set({ interfaceScale: 1 }).browserSleep).toStrictEqual({ maxLive: 5, offscreenSeconds: 30, idleMinutes: 15, zoom: 0.25 })
+  })
+
+  it.each([
+    ['N 0', { maxLive: 0 }, { maxLive: 1 }],
+    ['N 11', { maxLive: 11 }, { maxLive: 10 }],
+    ['N not whole', { maxLive: 2.5 }, { maxLive: 2 }],
+    ['0 s off screen', { offscreenSeconds: 0 }, { offscreenSeconds: 1 }],
+    ['an hour and a second off screen', { offscreenSeconds: 3601 }, { offscreenSeconds: 3600 }],
+    ['0 min unused', { idleMinutes: 0 }, { idleMinutes: 1 }],
+    ['241 min unused', { idleMinutes: 241 }, { idleMinutes: 240 }],
+    ['zoom 0.05', { zoom: 0.05 }, { zoom: 0.1 }],
+    ['zoom 1.5', { zoom: 1.5 }, { zoom: 1 }],
+  ])('a Browser sleep setting outside its bounds in the file reads as not chosen, the rest of the file stays; the bound itself is taken: %s', (_case, outside, bound) => {
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.3, browserSleep: { idleMinutes: 7, ...outside } }))
+    const read = new AppSettingsStore(file).get()
+    expect(read.interfaceScale).toBe(1.3)
+    const kept = 'idleMinutes' in outside ? {} : { idleMinutes: 7 }
+    expect(read.browserSleep).toStrictEqual(Object.keys(kept).length === 0 ? undefined : kept)
+    // At the bound it is a choice like any other.
+    const atBound = freshFile()
+    mkdirSync(join(atBound, '..'), { recursive: true })
+    writeFileSync(atBound, JSON.stringify({ browserSleep: bound }))
+    expect(new AppSettingsStore(atBound).get().browserSleep).toStrictEqual(bound)
+  })
+
+  it('a Browser sleep field of the wrong type reads as not chosen, and the file is not set aside', () => {
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.1, browserSleep: { maxLive: 'many', zoom: 0.5 } }))
+    expect(new AppSettingsStore(file).get()).toMatchObject({ interfaceScale: 1.1, browserSleep: { zoom: 0.5 } })
+    expect(readdirSync(join(file, '..'))).toEqual([APP_SETTINGS_FILE])
+  })
+
   it.each([
     ['not JSON', '{ "interfaceScale": '],
     ['a wrong type', JSON.stringify({ interfaceScale: 'big' })],
@@ -443,6 +497,18 @@ describe('appSettings channels', () => {
     expect(await call('appSettings.set', { sessionArchive: { after: '7d', ticketDone: false } })).toMatchObject({ ok: true, value: { sessionArchive: { after: '7d', ticketDone: false } } })
     expect((await call('appSettings.set', { sessionArchive: { after: '12h' } })).ok).toBe(false)
     expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { sessionArchive: { after: '7d', ticketDone: false } } })
+  })
+
+  it('appSettings.set takes the Browser sleep settings within their bounds and refuses one outside them (worfy-browser ticket 05)', async () => {
+    const call = await windowCaller()
+    expect(await call('appSettings.set', { browserSleep: { maxLive: 10, offscreenSeconds: 1, idleMinutes: 240, zoom: 0.1 } })).toMatchObject({
+      ok: true,
+      value: { browserSleep: { maxLive: 10, offscreenSeconds: 1, idleMinutes: 240, zoom: 0.1 } },
+    })
+    for (const outside of [{ maxLive: 0 }, { maxLive: 11 }, { maxLive: 1.5 }, { offscreenSeconds: 0 }, { offscreenSeconds: 3601 }, { idleMinutes: 0 }, { idleMinutes: 241 }, { zoom: 0.09 }, { zoom: 1.01 }]) {
+      expect((await call('appSettings.set', { browserSleep: outside })).ok, JSON.stringify(outside)).toBe(false)
+    }
+    expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { browserSleep: { maxLive: 10, offscreenSeconds: 1, idleMinutes: 240, zoom: 0.1 } } })
   })
 
   it('a change made in main (a menu item) reaches every window too', async () => {

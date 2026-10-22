@@ -13,7 +13,12 @@
 //   left the Browser on is not the Session's to read or use: only browser_navigate leaves it;
 // - never into a password field (the owner's decision 7);
 // - once the user took the Browser over, every call is refused until they give it back (decision 3;
-//   src/main/browser/live.ts).
+//   src/main/browser/live.ts);
+// - a call on an Asleep Browser wakes it, and browser_open opens one, under the limit of Live
+//   Browsers (worfy-browser ticket 05): while every Live Browser is busy the call is refused with
+//   ALL_LIVE_BUSY before anything changes — no Node is made, no Browser taken — and the Session
+//   calls again later. While a call runs, and for the idle threshold after it, the Browser does not
+//   sleep (`sessionDrives`, `sessionReleases`).
 // A refused call is a tool error with a message, never an exception.
 import { randomUUID } from 'node:crypto'
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
@@ -95,7 +100,11 @@ function outcome(result: PageOutcome): { url: string; title: string } {
   return { url: result.url, title: result.title }
 }
 
-function handlers(context: BrowserContext): Handlers {
+/**
+ * The tools of one call. `hold(id)` marks Browser `id` as worked on by this call, from then until the
+ * call ends (sessionDrives and sessionReleases of src/main/browser/live.ts).
+ */
+function handlers(context: BrowserContext, hold: (id: string) => void): Handlers {
   const { projectId, layout, live } = context
   const browsers = (): LayoutNode[] => layout.get(projectId).layout.nodes.filter((node) => node.kind === BROWSER_KIND && !isArchived(node))
   const profileNamed = (id: unknown): BrowserProfile | undefined => (typeof id === 'string' ? context.profiles().find((profile) => profile.id === id) : undefined)
@@ -124,6 +133,10 @@ function handlers(context: BrowserContext): Handlers {
     // Session takes the Browser, and a call that took it and then fails (the debugger could not
     // attach, the page went off the list meanwhile) gives it up again.
     live.mayDrive(projectId, id, session)
+    hold(id)
+    // An Asleep Browser wakes for the call; while every Live Browser is busy it stays Asleep and the
+    // call is refused (ControlError), before the Session takes anything.
+    await live.wake(projectId, id, 'session')
     const page = await live.whenLive(projectId, id, context.liveWaitMs ?? LIVE_WAIT_MS)
     if (page === undefined) throw new ToolError(`Browser ${id} has no live page: no window of worfy on this Machine shows this Project's canvas. Ask the user to open it.`)
     const offList = (): void => {
@@ -180,6 +193,9 @@ function handlers(context: BrowserContext): Handlers {
       }
       const sessionId = me()
       const id = freshId(layout, projectId)
+      // The new Browser is Live from the start: with every Live Browser busy no Node is made.
+      hold(id)
+      await live.wake(projectId, id, 'session')
       // Next to the Session's Node; main moves it off any Node it would cover (ADR-0038).
       const visible = layout.get(projectId).layout.nodes.filter(shownOnCanvas)
       const anchor = visible.find((node) => node.data.sessionId === sessionId) ?? null
@@ -232,10 +248,15 @@ export type BrowserToolCaller = (name: BrowserToolName, args: unknown) => Promis
 
 /** The tools of one context as one function: parse the arguments, act, answer. Never throws. */
 export function browserToolCaller(context: BrowserContext): BrowserToolCaller {
-  const table = handlers(context)
   return async (name, args) => {
     const parsed = parseBrowserToolArgs(name, args)
     if (!parsed.success) return text(`Invalid arguments for ${name}:\n${z.prettifyError(parsed.error)}`, true)
+    const held = new Set<string>()
+    const table = handlers(context, (id) => {
+      if (held.has(id)) return
+      held.add(id)
+      context.live.sessionDrives(context.projectId, id)
+    })
     try {
       const handler = table[name] as (input: unknown) => unknown
       const answer = await handler(parsed.data)
@@ -243,6 +264,8 @@ export function browserToolCaller(context: BrowserContext): BrowserToolCaller {
     } catch (error) {
       if (error instanceof ToolError || error instanceof ControlError || error instanceof PageError) return text(error.message, true)
       return text(`The Browser could not do it: ${error instanceof Error ? error.message : String(error)}`, true)
+    } finally {
+      for (const id of held) context.live.sessionReleases(context.projectId, id)
     }
   }
 }

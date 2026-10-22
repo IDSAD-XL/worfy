@@ -3,6 +3,7 @@ import type { BrowserProfile } from '../../../shared/browser/profiles'
 import type { BrowserControlMode } from '../../../shared/browser/tools'
 import { BrowserProfiles } from '../../browser/BrowserProfiles'
 import { returnBrowserControl, takeOverBrowser, useBrowserControl } from '../../browser/control'
+import { useBrowserLife, useBrowserPicture, wakeBrowser } from '../../browser/lives'
 import { useBrowserProfiles } from '../../browser/profiles'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
@@ -37,6 +38,10 @@ import './BrowserNode.css'
 // accent border and «Claude is driving» in its header; a click or a key of the user on the frame
 // takes the Browser over (on the page main sees it, src/main/browser/cdp.ts), and the header then
 // offers «Return control to Claude» (the owner's decision 3).
+// An Asleep Browser (worfy-browser ticket 05, ADR-0078 item 6) shows the picture of its page as it
+// went to sleep, under «Asleep · Click to wake»; a click anywhere on it wakes the Browser. A Live one
+// whose page has a beforeunload handler says «Unsaved changes» in its header (it does not sleep), and
+// one the user opened while every other Live Browser was busy says «Over the Live limit».
 // The same kind as BROWSER_KIND of browser-frame.ts: a literal here, as fast refresh wants.
 export const kind = 'browser'
 export const defaultWidth = 640
@@ -240,6 +245,60 @@ function DriveBadge({ projectId, id, mode }: { projectId: string; id: string; mo
   )
 }
 
+/**
+ * The body of an Asleep Browser: the picture main kept of its page, drawn on a canvas (the window's
+ * policy loads no image from a data address), and «Asleep · Click to wake» over it. A click wakes
+ * the Browser; its page is drawn again once main says it is Live.
+ */
+function Asleep({ projectId, id, picture }: { projectId: string; id: string; picture: number | null }) {
+  const bytes = useBrowserPicture(projectId, id, picture)
+  const canvas = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const target = canvas.current
+    if (bytes === null || target === null || typeof createImageBitmap !== 'function') return
+    let current = true
+    void createImageBitmap(new Blob([bytes as BlobPart], { type: 'image/jpeg' })).then(
+      (bitmap) => {
+        if (!current) return bitmap.close()
+        target.width = bitmap.width
+        target.height = bitmap.height
+        target.getContext('2d')?.drawImage(bitmap, 0, 0)
+        bitmap.close()
+      },
+      (error: unknown) => console.warn(`Browser ${id}: its picture could not be drawn`, error),
+    )
+    return () => {
+      current = false
+    }
+  }, [bytes, id])
+  return (
+    <button type="button" className="w-browser-frame__asleep nodrag" data-testid="browser-asleep" aria-label="Asleep. Click to wake" onClick={() => wakeBrowser(projectId, id)}>
+      {bytes !== null ? <canvas ref={canvas} className="w-browser-frame__picture" data-testid="browser-picture" aria-hidden="true" /> : null}
+      <span className="w-browser-frame__asleep-label">
+        <strong>Asleep</strong> · Click to wake
+      </span>
+    </button>
+  )
+}
+
+/** The marks of a Live Browser that main keeps awake or lets beyond the limit, in its header. */
+function LifeMarks({ unsaved, overLimit }: { unsaved: boolean; overLimit: boolean }) {
+  return (
+    <>
+      {unsaved ? (
+        <span className="w-browser-frame__mark" data-testid="browser-unsaved" role="status" title="The page asks before it is left, so this Browser does not sleep">
+          Unsaved changes
+        </span>
+      ) : null}
+      {overLimit ? (
+        <span className="w-browser-frame__mark" data-testid="browser-over-limit" role="status" title="The other Live Browsers are busy, so this one is Live beyond the limit of Settings → Browser">
+          Over the Live limit
+        </span>
+      ) : null}
+    </>
+  )
+}
+
 /** «Browser profiles…»: the window over the Canvas, opened from a frame; `selected` — the profile shown first. */
 function useProfilesWindow(): { open: (selected: string | null) => void; window: ReactNode } {
   const project = activeProject(useProjects())
@@ -321,6 +380,8 @@ export default function BrowserNode({ id, data }: CanvasNodeProps) {
   const profile = choice.kind === 'use' ? profiles?.find((each) => each.id === choice.id) : undefined
   const profilesWindow = useProfilesWindow()
   const control = useBrowserControl(projectId, id)
+  const life = useBrowserLife(projectId, id)
+  const asleep = life !== undefined && !life.live && choice.kind === 'use' && projectId !== undefined
   const readOnly = useReadOnly()
   // A press or a key anywhere on the frame — its header, its bars — while a Session drives it. A
   // read-only Linked machine takes nothing over: it is a write the Machine of the Project refuses.
@@ -334,6 +395,7 @@ export default function BrowserNode({ id, data }: CanvasNodeProps) {
       data-node-id={id}
       data-profile={choice.kind === 'use' ? choice.id : undefined}
       data-control={control ?? undefined}
+      data-life={life === undefined ? undefined : life.live ? 'live' : 'asleep'}
       onPointerDownCapture={takeOver}
       onKeyDownCapture={takeOver}
     >
@@ -353,10 +415,17 @@ export default function BrowserNode({ id, data }: CanvasNodeProps) {
         )}
         <NavButtons id={id} />
         <AddressBar id={id} url={url} noProfile={choice.kind !== 'use'} />
+        {life?.live === true ? <LifeMarks unsaved={life.unsaved} overLimit={life.overLimit} /> : null}
         {control !== null && projectId !== undefined && choice.kind !== 'choose' ? <DriveBadge projectId={projectId} id={id} mode={control} /> : null}
       </div>
       <div className="w-browser-frame__body" data-testid="browser-frame-body">
-        {choice.kind === 'choose' ? <ChooseProfile id={id} choice={choice} profiles={profiles ?? []} manage={() => profilesWindow.open(null)} /> : <OpenBar id={id} url={url} />}
+        {choice.kind === 'choose' ? (
+          <ChooseProfile id={id} choice={choice} profiles={profiles ?? []} manage={() => profilesWindow.open(null)} />
+        ) : asleep ? (
+          <Asleep projectId={projectId} id={id} picture={life.picture} />
+        ) : (
+          <OpenBar id={id} url={url} />
+        )}
       </div>
       {profilesWindow.window}
     </div>

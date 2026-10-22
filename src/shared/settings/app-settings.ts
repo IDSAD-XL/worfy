@@ -28,6 +28,13 @@
 //   only what the person chose in Settings → Canvas; sessionArchiveOf() fills the rest with
 //   SESSION_ARCHIVE_DEFAULTS, so a choice outlives a later change of the defaults. Main reads it at
 //   every run of the archive (src/main/layout/archive.ts);
+// - `browserSleep` — when a Live Browser goes to sleep (worfy-browser ticket 05, ADR-0078 items 6
+//   and 7): `maxLive` — how many Browsers of this Machine are Live at once; `offscreenSeconds` — how
+//   long a Browser no screen shows at a readable zoom stays Live; `idleMinutes` — how long one
+//   without the focus and without a Session's call stays Live; `zoom` — the zoom of the Canvas below
+//   which a page counts as unreadable. Like `sessionArchive`, it holds only what the person chose in
+//   Settings → Browser; browserSleepOf() fills the rest with BROWSER_SLEEP_DEFAULTS. Main reads it at
+//   every check of the sleep rules (src/main/browser/live.ts);
 // - `revision` — grows with every write, so a renderer keeps the newest of the states it hears.
 import { z } from 'zod'
 
@@ -118,6 +125,34 @@ export type SessionArchive = { [K in keyof SessionArchiveChoice]-?: NonNullable<
  */
 export const SESSION_ARCHIVE_DEFAULTS: Readonly<SessionArchive> = Object.freeze({ after: '24h', ticketDone: true })
 
+/** The bounds of each Browser sleep setting; a value outside them is refused in a change and read as not chosen from the file. */
+export const BROWSER_SLEEP_BOUNDS = Object.freeze({
+  maxLive: Object.freeze({ min: 1, max: 10 }),
+  offscreenSeconds: Object.freeze({ min: 1, max: 3600 }),
+  idleMinutes: Object.freeze({ min: 1, max: 240 }),
+  zoom: Object.freeze({ min: 0.1, max: 1 }),
+})
+
+/** What the person chose in Settings → Browser: each field only once chosen. */
+export const browserSleepChoiceSchema = z.object({
+  maxLive: z.number().int().min(BROWSER_SLEEP_BOUNDS.maxLive.min).max(BROWSER_SLEEP_BOUNDS.maxLive.max).optional(),
+  offscreenSeconds: z.number().int().min(BROWSER_SLEEP_BOUNDS.offscreenSeconds.min).max(BROWSER_SLEEP_BOUNDS.offscreenSeconds.max).optional(),
+  idleMinutes: z.number().int().min(BROWSER_SLEEP_BOUNDS.idleMinutes.min).max(BROWSER_SLEEP_BOUNDS.idleMinutes.max).optional(),
+  zoom: z.number().min(BROWSER_SLEEP_BOUNDS.zoom.min).max(BROWSER_SLEEP_BOUNDS.zoom.max).optional(),
+})
+export type BrowserSleepChoice = z.output<typeof browserSleepChoiceSchema>
+
+/** The sleep settings in force: the person's choice, else the default. */
+export type BrowserSleep = { [K in keyof BrowserSleepChoice]-?: NonNullable<BrowserSleepChoice[K]> }
+
+/**
+ * The sleep of a Machine whose person chose nothing (ADR-0078 items 6 and 7): 3 Live Browsers, 30 s
+ * off every screen, 5 min without the focus and without a Session's call, and zoom 0.4 — the zoom
+ * from which a Card shows its live page (LIVE_ZOOM_MIN, src/renderer/canvas/nodes/CardNode.tsx; the
+ * owner's answer of 2026-10-21 to question 1 of worfy-browser ticket 05).
+ */
+export const BROWSER_SLEEP_DEFAULTS: Readonly<BrowserSleep> = Object.freeze({ maxLive: 3, offscreenSeconds: 30, idleMinutes: 5, zoom: 0.4 })
+
 export const appSettingsSchema = z.object({
   interfaceScale: z.number().min(INTERFACE_SCALE_MIN).max(INTERFACE_SCALE_MAX),
   sidebar: z.object({
@@ -137,6 +172,8 @@ export const appSettingsSchema = z.object({
   memoryIndicator: z.boolean(),
   /** The archive settings the person chose; absent while none is (see sessionArchiveOf). */
   sessionArchive: sessionArchiveChoiceSchema.optional(),
+  /** The Browser sleep settings the person chose; absent while none is (see browserSleepOf). */
+  browserSleep: browserSleepChoiceSchema.optional(),
   revision: z.number().int().nonnegative(),
 })
 export type AppSettings = z.output<typeof appSettingsSchema>
@@ -165,6 +202,8 @@ export const appSettingsPatchSchema = z.object({
   memoryIndicator: z.boolean().optional(),
   /** Each field given is chosen, the default value too; the others stay as they are. */
   sessionArchive: sessionArchiveChoiceSchema.optional(),
+  /** Each field given is chosen, as in `sessionArchive`; a value outside BROWSER_SLEEP_BOUNDS is refused. */
+  browserSleep: browserSleepChoiceSchema.optional(),
 })
 export type AppSettingsPatch = z.input<typeof appSettingsPatchSchema>
 
@@ -193,6 +232,17 @@ export function sessionArchiveOf(settings: Pick<AppSettings, 'sessionArchive'>):
   return {
     after: settings.sessionArchive?.after ?? SESSION_ARCHIVE_DEFAULTS.after,
     ticketDone: settings.sessionArchive?.ticketDone ?? SESSION_ARCHIVE_DEFAULTS.ticketDone,
+  }
+}
+
+/** The Browser sleep settings in force: each field the person chose, else its default. */
+export function browserSleepOf(settings: Pick<AppSettings, 'browserSleep'>): BrowserSleep {
+  const chosen = settings.browserSleep
+  return {
+    maxLive: chosen?.maxLive ?? BROWSER_SLEEP_DEFAULTS.maxLive,
+    offscreenSeconds: chosen?.offscreenSeconds ?? BROWSER_SLEEP_DEFAULTS.offscreenSeconds,
+    idleMinutes: chosen?.idleMinutes ?? BROWSER_SLEEP_DEFAULTS.idleMinutes,
+    zoom: chosen?.zoom ?? BROWSER_SLEEP_DEFAULTS.zoom,
   }
 }
 

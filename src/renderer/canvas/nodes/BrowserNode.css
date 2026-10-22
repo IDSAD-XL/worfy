@@ -312,3 +312,64 @@
   border-radius: 50%;
   background: var(--accent);
 }
+
+/* An Asleep Browser (worfy-browser ticket 05): no page lies under its body, so the body shows the
+   picture of the page as it went to sleep, dimmed, with «Asleep · Click to wake» over it, and takes
+   the mouse: a click anywhere on it wakes the Browser. */
+.w-browser-frame__asleep {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 0 0 var(--radius-node) var(--radius-node);
+  overflow: hidden;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-12);
+  cursor: pointer;
+  pointer-events: all;
+}
+.w-browser-frame__asleep:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.w-browser-frame__picture {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.55;
+  filter: grayscale(0.4);
+}
+.w-browser-frame__asleep-label {
+  position: relative;
+  padding: var(--space-1) var(--space-3);
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-node);
+  color: var(--text);
+}
+
+/* «Unsaved changes» and «Over the Live limit»: why a Live Browser does not sleep, or is Live beyond
+   the limit — in the header, left of who drives it, in the colours of a blocked status. */
+.w-browser-frame__mark {
+  flex: none;
+  margin-left: auto;
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+  font-size: var(--text-12);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.w-browser-frame__mark + .w-browser-frame__mark,
+.w-browser-frame__mark + .w-browser-frame__drive {
+  margin-left: var(--space-1);
+}

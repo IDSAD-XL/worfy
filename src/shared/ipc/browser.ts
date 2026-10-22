@@ -18,6 +18,15 @@
 // — the frame shows «Claude is driving» while a Session does — and the frame tells main when the
 // user takes a Browser over by a click or a key on it (`browser.control.take`) and when they press
 // «Return control to Claude» (`browser.control.return`).
+//
+// Live and Asleep (worfy-browser ticket 05; src/main/browser/live.ts): each window tells main which
+// Browser frames it shows and at which zoom (`browser.screen`);
+// main answers every window with the life of each Browser — Live or Asleep, «Unsaved changes», over
+// the limit — (`browser.lives.changed`, read with `browser.lives.list`), and a window draws a page
+// only for a Live one. An Asleep frame shows the picture of its page (`browser.picture`), and a click
+// on it wakes the Browser (`browser.wake`). All `local`: they are about this Machine's screens and
+// pages, and a read-only Linked machine sees no picture of a sleeping page (ADR-0078 item 14); its
+// screens join the rules with worfy-browser ticket 07.
 import { z } from 'zod'
 import { browserProfileIdSchema, browserProfileNameSchema, browserProfileSchema, BROWSER_PROFILE_ORIGINS_MAX } from '../browser/profiles'
 import { browserControlModeSchema } from '../browser/tools'
@@ -90,6 +99,47 @@ export const browserPressing = eventChannel('browser.pressing', z.object({ proje
 /** Sent to every window after the control of a Browser changed; `mode` null when nobody drives it. */
 export const browserControlChanged = eventChannel('browser.control.changed', z.object({ projectId, nodeId: nodeIdSchema, mode: browserControlModeSchema.nullable() }), 'project', 'read')
 
+/** What a window shows: the Browser frames in it and the zoom of its Canvas. */
+export const browserScreen = invokeChannel(
+  'browser.screen',
+  z.object({ projectId, visible: z.array(nodeIdSchema).max(1000), zoom: z.number().positive() }),
+  z.object({}),
+  'local',
+)
+
+/** The life of one Browser as main keeps it. */
+export const browserLifeSchema = z.object({
+  nodeId: nodeIdSchema,
+  /** Live: a window draws its page. Asleep: its frame shows the picture of the page. */
+  live: z.boolean(),
+  /** Live because its page has a beforeunload handler: the frame says «Unsaved changes». */
+  unsaved: z.boolean(),
+  /** Live beyond the limit, since every other Live Browser was busy. */
+  overLimit: z.boolean(),
+  /** Grows with every new picture of the page; null while it has none. */
+  picture: z.number().int().nullable(),
+})
+export type BrowserLife = z.output<typeof browserLifeSchema>
+
+const browserLives = z.object({ projectId, lives: z.array(browserLifeSchema) })
+
+/** The lives of the Browsers of the Project that main knows of; a Browser without one is drawn as neither. */
+export const browserLivesList = invokeChannel('browser.lives.list', z.object({ projectId }), browserLives, 'local')
+
+/** Sent to every window of this Machine after a Browser of the Project woke, went to sleep or changed its marks. */
+export const browserLivesChanged = eventChannel('browser.lives.changed', browserLives, 'local')
+
+/** The user clicked an Asleep frame, or the frame of a Browser main has no life for: it wakes. */
+export const browserWake = invokeChannel('browser.wake', z.object({ projectId, nodeId: nodeIdSchema }), z.object({ overLimit: z.boolean() }), 'local')
+
+/** The picture an Asleep Browser shows (a JPEG, base64), and where its page was scrolled; null while it has none. */
+export const browserPicture = invokeChannel(
+  'browser.picture',
+  z.object({ projectId, nodeId: nodeIdSchema }),
+  z.object({ picture: z.object({ image: z.string(), scroll: z.object({ x: z.number(), y: z.number() }) }).nullable() }),
+  'local',
+)
+
 declare module './channels' {
   interface IpcContract {
     'browser.page.live': typeof browserPageLive
@@ -99,6 +149,11 @@ declare module './channels' {
     'browser.control.changed': typeof browserControlChanged
     'browser.pressing': typeof browserPressing
     'browser.openRequest': typeof browserOpenRequest
+    'browser.screen': typeof browserScreen
+    'browser.lives.list': typeof browserLivesList
+    'browser.lives.changed': typeof browserLivesChanged
+    'browser.wake': typeof browserWake
+    'browser.picture': typeof browserPicture
     'browser.profiles.list': typeof browserProfilesList
     'browser.profiles.create': typeof browserProfilesCreate
     'browser.profiles.update': typeof browserProfilesUpdate
