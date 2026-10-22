@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { REMOVE_RETRIES, removeFile, removeTree } from '../../src/main/storage/remove'
+import { builtCopy, COPIES } from './remove-tree-model'
 
 const WINDOWS = process.platform === 'win32'
 
@@ -312,8 +313,11 @@ describe('removeTree and removeFile over real folders', () => {
       } catch (error) {
         failure = error as NodeJS.ErrnoException
       }
-      // The error of the listing, not the "rm" of fs.rmSync: that call was not reached.
+      // The error of the listing, not the "rm" of fs.rmSync: that call was not reached. Its words
+      // name the path given and say that nothing of it was removed (worfy-windows ticket 47).
       expect(failure).toMatchObject({ code: 'EACCES', syscall: 'scandir', path: join(tree, 'closed') })
+      expect(failure?.message.startsWith('EACCES: ')).toBe(true)
+      expect(failure?.message.endsWith(`. Nothing of ${tree} was removed`)).toBe(true)
       expect(readdirSync(tree).sort()).toEqual(['a.txt', 'closed', 'z.txt'])
     } finally {
       chmodSync(join(tree, 'closed'), 0o755)
@@ -321,6 +325,44 @@ describe('removeTree and removeFile over real folders', () => {
     expect(readdirSync(join(tree, 'closed'))).toEqual(['inner.txt'])
     removeTree(tree)
     expect(existsSync(tree)).toBe(false)
+  })
+
+  // worfy-windows ticket 47, from the review of PR #293: no other test compares a real `dev`. /dev is
+  // a mount point on macOS (measured) and on Linux (devtmpfs; known, not measured in Linux CI). The
+  // look gets the real lstat and listing; every call that removes throws, so nothing can go.
+  it.skipIf(WINDOWS)('off Windows /dev, a mount point, is refused by the look with EXDEV — by the module and by each copy — and nothing that removes is called', () => {
+    const removing: string[] = []
+    const refuse = (call: string) => (path: string): never => {
+      removing.push(`${call} ${path}`)
+      throw new Error(`${call} is not for this test: ${path}`)
+    }
+    const lookOnly = { lstatSync: (path: string) => lstatSync(path), readdirSync: (path: string) => readdirSync(path), unlinkSync: refuse('unlink'), rmdirSync: refuse('rmdir'), rmSync: refuse('rmSync') }
+    let failure: NodeJS.ErrnoException | null = null
+    try {
+      removeTree('/dev', { fs: lookOnly })
+    } catch (error) {
+      failure = error as NodeJS.ErrnoException
+    }
+    expect(failure).toMatchObject({ code: 'EXDEV', path: '/dev' })
+    const asModel = {
+      fs: lookOnly,
+      calls: [],
+      waits: [],
+      names: () => [],
+      wait: (ms: number): never => {
+        throw new Error(`a removal that only looks does not wait: ${ms} ms asked`)
+      },
+    }
+    for (const [name, text] of Object.entries(COPIES)) {
+      let theirs: NodeJS.ErrnoException | null = null
+      try {
+        builtCopy(text, asModel, process.platform)('/dev')
+      } catch (error) {
+        theirs = error as NodeJS.ErrnoException
+      }
+      expect({ code: theirs?.code, path: theirs?.path, message: theirs?.message }, name).toEqual({ code: failure?.code, path: failure?.path, message: failure?.message })
+    }
+    expect(removing).toEqual([])
   })
 
   it('removeFile refuses a folder, as a removal without "recursive" did, and takes a path that is not there', () => {

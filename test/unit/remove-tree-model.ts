@@ -32,6 +32,11 @@ const REPO = join(import.meta.dirname, '..', '..')
  * /System/Volumes; expected, and not measured, for a bind mount of a folder of the same file
  * system on Linux. What rmdir and rmSync answer for such a mount point was not measured: the model
  * takes the answers of the disk image.
+ *
+ * A path is read as the system reads it (worfy-windows ticket 47): two separators in a row are one,
+ * and a separator at the end follows the last name when it is a link — `link/` is the folder the
+ * link leads to, as lstat, a listing and rmSync see it off Windows. A listing of a path that is not
+ * there answers ENOENT, and of a file ENOTDIR.
  */
 export type Entry = { kind: 'file' } | { kind: 'folder' } | { kind: 'link'; to: string } | { kind: 'mount'; to: string } | { kind: 'volume'; sameDev?: boolean }
 export interface Model {
@@ -49,17 +54,29 @@ export interface Model {
  * process for minutes.
  */
 const WAITS_BOUND = 100
-export function model(entries: Record<string, Entry>, failing: Record<string, string[]> = {}): Model {
+/** What another process does to the tree while a removal runs: a change made once, at a call, before the model answers it. */
+export type Meanwhile = Record<string, (tree: Map<string, Entry>) => void>
+/** Another process removes these paths, with everything below them. */
+export const removedMeanwhile =
+  (...paths: string[]) =>
+  (tree: Map<string, Entry>): void => {
+    for (const each of [...tree.keys()]) if (paths.some((path) => each === path || each.startsWith(`${path}/`))) tree.delete(each)
+  }
+export function model(entries: Record<string, Entry>, failing: Record<string, string[]> = {}, meanwhile: Meanwhile = {}): Model {
   const tree = new Map(Object.entries(entries))
   const calls: string[] = []
   const waits: number[] = []
   const fail = (code: string, what: string): Error => Object.assign(new Error(`${code}: ${what}`), { code })
-  /** The codes a call still has to fail with, first one next. */
+  /** The codes a call still has to fail with, first one next; '' — that time the call answers as the model does. */
   const failures = new Map(Object.entries(failing).map(([call, codes]) => [call, [...codes]]))
+  const changes = new Map(Object.entries(meanwhile))
   const step = (call: string): void => {
     calls.push(call)
+    const change = changes.get(call)
+    changes.delete(call)
+    change?.(tree)
     const code = failures.get(call)?.shift()
-    if (code !== undefined) throw fail(code, call)
+    if (code !== undefined && code !== '') throw fail(code, call)
   }
   const posixNames = (asked: RemoveFs): RemoveFs => ({
     lstatSync: (path) => asked.lstatSync(path.replace(/\\/g, '/')),
@@ -75,7 +92,13 @@ export function model(entries: Record<string, Entry>, failing: Record<string, st
    * folder the link lies in (worfy-windows ticket 44; only the removal off Windows asks so — the
    * walk of Windows gets its paths from `join`, which cuts a `..` by the text).
    */
-  const real = (path: string): string => {
+  const real = (given: string): string => {
+    const path = given.length > 1 ? given.replace(/\/{2,}/g, '/') : given
+    if (path.length > 1 && path.endsWith('/')) {
+      const named = real(path.slice(0, -1))
+      const entry = tree.get(named)
+      return entry?.kind === 'link' || entry?.kind === 'mount' ? real(`${entry.to}/`) : named
+    }
     for (let at = path.indexOf('/', 1); at > 0; at = path.indexOf('/', at + 1)) {
       const before = path.slice(0, at)
       const rest = path.slice(at)
@@ -131,6 +154,10 @@ export function model(entries: Record<string, Entry>, failing: Record<string, st
       // A walk that came here through a link or a mount would be reading what it leads to.
       const listed = entry?.kind === 'link' || entry?.kind === 'mount' ? real(entry.to) : path
       if (entry?.kind === 'mount' && !tree.has(listed)) throw fail('ENOENT', asked)
+      // The root is a folder of the first volume, whether the tree names it or not.
+      const there = tree.get(listed)
+      if (listed !== '/' && there === undefined) throw fail('ENOENT', asked)
+      if (there?.kind === 'file') throw fail('ENOTDIR', asked)
       return [...tree.keys()].filter((each) => posix.dirname(each) === listed).map((each) => posix.basename(each))
     },
     unlinkSync: (asked) => {

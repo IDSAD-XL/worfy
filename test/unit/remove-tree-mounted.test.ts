@@ -7,9 +7,10 @@
 //
 // Everything here runs over the model of test/unit/remove-tree-model.ts, with `platform` darwin
 // and linux: no test mounts a volume. The model's mount point answers as the real one did.
+import { constants } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import { REMOVE_RETRIES } from '../../src/main/storage/remove'
-import { BEHIND_A_LINK_TO_ANOTHER_VOLUME, CARD_HOLDS_A_VOLUME, COPIES, endViaCopy, endViaModule, model, rmSyncOver, WITH_A_LINK, type Entry, type Model } from './remove-tree-model'
+import { BEHIND_A_LINK_TO_ANOTHER_VOLUME, CARD_HOLDS_A_VOLUME, COPIES, endViaCopy, endViaModule, model, removedMeanwhile, rmSyncOver, WITH_A_LINK, type End, type Entry, type Meanwhile, type Model } from './remove-tree-model'
 
 /**
  * A folder with a mount point in it, and a link beside which that folder does not lie: the path
@@ -188,7 +189,9 @@ describe.each(['darwin', 'linux'] as const)('removeTree on %s and a volume mount
   })
 
   // Fail closed: a part of the tree that cannot be looked at may hold a mount point, and rmSync —
-  // which goes by open folders, not by full paths — may reach where a look by the path cannot.
+  // which goes by open folders, not by full paths — may reach where a look by the path cannot. The
+  // error keeps its code and its path, and its words say that nothing was removed (worfy-windows
+  // ticket 47: the words of the look named a path the caller did not give, `path/..`, and nothing more).
   it.each([
     ['the look at an entry is refused', 'lstat /data/card/assets', 'EACCES'],
     ['a folder cannot be listed', 'readdir /data/card/assets', 'EACCES'],
@@ -201,16 +204,35 @@ describe.each(['darwin', 'linux'] as const)('removeTree on %s and a volume mount
     ['a look answers a code nobody has heard of', 'lstat /data/card/assets/app.js', 'EWHATEVER'],
   ])('when %s, the removal ends with that error and removes nothing', (_what, call, code) => {
     const m = model(CARD_HOLDS_A_VOLUME, { [call]: [code] })
-    expect(endViaModule(m, '/data/card', platform)).toMatchObject({ code })
+    expect(endViaModule(m, '/data/card', platform)).toEqual({ code, path: undefined, message: `${code}: ${call}. Nothing of /data/card was removed` })
     expect(m.calls.at(-1)).toBe(call)
     expect(removals(m)).toEqual([])
     expect(m.names()).toEqual(UNTOUCHED)
   })
 
+  // Review round 1 of PR #293, second reviewer: rows of single codes do not close the gap. A look
+  // that throws exactly the codes of the table above and takes any other for "nothing is there"
+  // passes the table. So every code the system names, and one it does not, are tried — for the
+  // module and for each copy.
+  it('every code of os.constants.errno but "nothing is there", and a code nobody has heard of, ends the removal with nothing removed: the module and each copy', () => {
+    const codes = [...Object.keys(constants.errno).filter((code) => !['ENOENT', 'ENOTDIR'].includes(code)), 'EWHATEVER']
+    expect(codes.length).toBeGreaterThan(40)
+    const removers: [string, (m: Model) => End | null][] = [
+      ['the module', (m) => endViaModule(m, '/data/card', platform)],
+      ...Object.entries(COPIES).map(([name, text]): [string, (m: Model) => End | null] => [name, (m) => endViaCopy(text, m, '/data/card', platform)]),
+    ]
+    for (const code of codes) {
+      for (const [who, remove] of removers) {
+        const m = model(CARD_HOLDS_A_VOLUME, { 'readdir /data/card/assets': [code] })
+        expect(remove(m), `${who}, ${code}`).toMatchObject({ code })
+        expect(removals(m), `${who}, ${code}`).toEqual([])
+        expect(m.names(), `${who}, ${code}`).toEqual(UNTOUCHED)
+      }
+    }
+  })
+
   it.each([
-    ['an entry gone between the listing and the look', 'lstat /data/card/index.html', 'ENOENT'],
     ['a folder gone between the look and the listing', 'readdir /data/card/assets', 'ENOENT'],
-    ['a name on the way that is no folder any more', 'lstat /data/card/assets/app.js', 'ENOTDIR'],
   ])('%s is nothing to refuse: the look goes on, and rmSync removes the tree', (_what, call, code) => {
     const m = model(WITH_A_LINK, { [call]: [code] })
     expect(endViaModule(m, '/data/card', platform)).toBeNull()
@@ -219,10 +241,111 @@ describe.each(['darwin', 'linux'] as const)('removeTree on %s and a volume mount
     expect(m.names()).toEqual(['/data', '/home', '/home/notes', '/home/notes/keep.txt'])
   })
 
+  // worfy-windows ticket 47. An entry its folder has just listed and lstat does not see is asked
+  // about once more: the folder is listed again. Gone from that listing, it was gone meanwhile.
+  it('an entry gone between the listing and the look: the folder is listed again, the entry is not in it, and the look goes on', () => {
+    const m = model(WITH_A_LINK, {}, { 'lstat /data/card/index.html': removedMeanwhile('/data/card/index.html') })
+    expect(endViaModule(m, '/data/card', platform)).toBeNull()
+    expect(m.calls).toEqual([
+      'lstat /data/card',
+      'lstat /data/card/..',
+      'readdir /data/card',
+      'lstat /data/card/index.html',
+      'readdir /data/card',
+      'lstat /data/card/assets',
+      'readdir /data/card/assets',
+      'lstat /data/card/assets/app.js',
+      'lstat /data/card/linked',
+      'rmSync /data/card recursive force',
+    ])
+    expect(m.names()).toEqual(['/data', '/home', '/home/notes', '/home/notes/keep.txt'])
+  })
+
+  it('a name on the way that is no folder any more: the folder listed is a file now, its new listing answers ENOTDIR, and the look goes on', () => {
+    const m = model(WITH_A_LINK, { 'lstat /data/card/assets/app.js': ['ENOTDIR'] }, {
+      'lstat /data/card/assets/app.js': (tree) => {
+        removedMeanwhile('/data/card/assets')(tree)
+        tree.set('/data/card/assets', { kind: 'file' })
+      },
+    })
+    expect(endViaModule(m, '/data/card', platform)).toBeNull()
+    expect(m.calls.slice(6, 9)).toEqual(['lstat /data/card/assets/app.js', 'readdir /data/card/assets', 'lstat /data/card/linked'])
+    expect(m.calls.at(-1)).toBe('rmSync /data/card recursive force')
+    expect(m.names()).toEqual(['/data', '/home', '/home/notes', '/home/notes/keep.txt'])
+  })
+
+  // Review round 1 of PR #293, second reviewer, run on Linux: a folder whose name is not valid UTF-8
+  // is listed with U+FFFD in its name, and lstat by that name answers ENOENT at every call. The look
+  // took it for gone and rmSync removed it with all it held. Its listing still names it, so now the
+  // removal ends there, and nothing is removed — a mount point below it would have been lost.
+  it('a name its folder still lists when lstat does not see it — a name that is not UTF-8, on Linux — ends the removal: what it holds cannot be looked at', () => {
+    const name = 'card-��'
+    const tree: Record<string, Entry> = {
+      '/t': { kind: 'folder' },
+      '/t/first.txt': { kind: 'file' },
+      [`/t/${name}`]: { kind: 'folder' },
+      [`/t/${name}/vol`]: { kind: 'volume' },
+      [`/t/${name}/vol/keep.txt`]: { kind: 'file' },
+    }
+    const m = model(tree, { [`lstat /t/${name}`]: ['ENOENT'] })
+    expect(endViaModule(m, '/t', platform)).toEqual({
+      code: 'ENOENT',
+      path: `/t/${name}`,
+      message: `ENOENT: lstat /t/${name}: the folder it lies in still lists it, so what it holds cannot be looked at. Nothing of /t was removed`,
+    })
+    expect(m.calls).toEqual(['lstat /t', 'lstat /t/..', 'readdir /t', 'lstat /t/first.txt', `lstat /t/${name}`, 'readdir /t'])
+    expect(removals(m)).toEqual([])
+    expect(m.names()).toEqual(Object.keys(tree).sort())
+  })
+
+  it('the second listing of the folder fails: the removal ends with its error, and nothing is removed', () => {
+    const m = model(WITH_A_LINK, { 'lstat /data/card/index.html': ['ENOENT'], 'readdir /data/card': ['', 'EACCES'] })
+    expect(endViaModule(m, '/data/card', platform)).toMatchObject({ code: 'EACCES', message: 'EACCES: readdir /data/card. Nothing of /data/card was removed' })
+    expect(m.calls.slice(3)).toEqual(['lstat /data/card/index.html', 'readdir /data/card'])
+    expect(removals(m)).toEqual([])
+  })
+
+  it('the second listing finds the folder gone as well: nothing is there, and the look goes on', () => {
+    const m = model(WITH_A_LINK, {}, { 'lstat /data/card/assets/app.js': removedMeanwhile('/data/card/assets') })
+    expect(endViaModule(m, '/data/card', platform)).toBeNull()
+    expect(m.calls.slice(6, 9)).toEqual(['lstat /data/card/assets/app.js', 'readdir /data/card/assets', 'lstat /data/card/linked'])
+    expect(m.calls.at(-1)).toBe('rmSync /data/card recursive force')
+  })
+
+  // worfy-windows ticket 47: the folder the given path lies in, gone between the look at the path and
+  // the look at its `..`. Only a change of the tree by another process answers so: the look holds
+  // for a tree nobody else changes (the header of src/main/storage/remove.ts).
+  it('the folder the path lies in gone between the two looks: nothing is there to refuse, and rmSync is called as before', () => {
+    const m = model(WITH_A_LINK, {}, { 'lstat /data/card/..': removedMeanwhile('/data/card') })
+    expect(endViaModule(m, '/data/card', platform)).toBeNull()
+    expect(m.calls).toEqual(['lstat /data/card', 'lstat /data/card/..', 'rmSync /data/card recursive force'])
+    expect(m.names()).toEqual(['/data', '/home', '/home/notes', '/home/notes/keep.txt'])
+  })
+
   it('an entry gone meanwhile does not hide a mount point listed after it', () => {
-    const m = model(CARD_HOLDS_A_VOLUME, { 'lstat /data/card/index.html': ['ENOENT'], 'readdir /data/card/assets': ['ENOENT'] })
+    const m = model(CARD_HOLDS_A_VOLUME, { 'readdir /data/card/assets': ['ENOENT'] }, { 'lstat /data/card/index.html': removedMeanwhile('/data/card/index.html') })
     expect(endViaModule(m, '/data/card', platform)).toEqual(refusal('/data/card/vol', '/data/card'))
-    expect(m.names()).toEqual(UNTOUCHED)
+    expect(m.names()).toEqual(UNTOUCHED.filter((name) => name !== '/data/card/index.html'))
+  })
+
+  // Review round 2 of PR #293: off Windows the module does not cut a separator at the end of the
+  // path, and the system reads `link/` as the folder the link leads to. That is what rmSync removes
+  // — the folder behind the link with all it holds, the link stays — and so it is what the look
+  // asks about. Entries below are asked about as `link//name`, under the text given.
+  it('a link given with a separator at its end is the folder it leads to: the look asks about what rmSync removes there, and a mount point in it is refused', () => {
+    const tree: Record<string, Entry> = {
+      ...WITH_A_LINK,
+      '/home/notes/vol': { kind: 'volume' },
+      '/home/notes/vol/x.txt': { kind: 'file' },
+    }
+    const m = model(tree)
+    expect(endViaModule(m, '/data/card/linked/', platform)).toEqual(refusal('/data/card/linked//vol', '/data/card/linked/'))
+    expect(m.calls).toEqual(['lstat /data/card/linked/', 'lstat /data/card/linked//..', 'readdir /data/card/linked/', 'lstat /data/card/linked//keep.txt', 'lstat /data/card/linked//vol'])
+    expect(m.names()).toEqual(Object.keys(tree).sort())
+    const plain = model(WITH_A_LINK)
+    expect(endViaModule(plain, '/data/card/linked/', platform)).toBeNull()
+    expect(plain.calls).toEqual(['lstat /data/card/linked/', 'lstat /data/card/linked//..', 'readdir /data/card/linked/', 'lstat /data/card/linked//keep.txt', 'rmSync /data/card/linked/ recursive force'])
+    expect(plain.names()).toEqual(['/data', '/data/card', '/data/card/assets', '/data/card/assets/app.js', '/data/card/index.html', '/data/card/linked', '/home'])
   })
 
   // The limit of the rule, written down. A mount point with the `dev` of the folder it lies in
@@ -237,15 +360,25 @@ describe.each(['darwin', 'linux'] as const)('removeTree on %s and a volume mount
   })
 
   it.each(Object.keys(COPIES))('%s refuses with the same error as the module — its code, its words, the path it names — after the same calls', (name) => {
-    const cases: [Record<string, Entry>, string][] = [
-      [CARD_HOLDS_A_VOLUME, '/data/card'],
-      [CARD_HOLDS_A_VOLUME, '/data/card/vol'],
-      [CARD_HOLDS_A_VOLUME, '/data'],
-      [WITH_A_LINK, '/data/card'],
-      [UP_FROM_A_LINK, '/t/to-private/../Volumes'],
+    const cases: [Record<string, Entry>, string, Record<string, string[]>, Meanwhile][] = [
+      [CARD_HOLDS_A_VOLUME, '/data/card', {}, {}],
+      [CARD_HOLDS_A_VOLUME, '/data/card/vol', {}, {}],
+      [CARD_HOLDS_A_VOLUME, '/data', {}, {}],
+      [WITH_A_LINK, '/data/card', {}, {}],
+      [UP_FROM_A_LINK, '/t/to-private/../Volumes', {}, {}],
+      // worfy-windows ticket 47: a code the look names nowhere, an entry still listed that lstat does
+      // not see, one gone meanwhile, a second listing that fails, and a link given with a separator.
+      [CARD_HOLDS_A_VOLUME, '/data/card', { 'readdir /data/card/assets': ['EPERM'] }, {}],
+      [CARD_HOLDS_A_VOLUME, '/data/card', { 'lstat /data/card/assets': ['ENOENT'] }, {}],
+      [CARD_HOLDS_A_VOLUME, '/data/card', {}, { 'lstat /data/card/index.html': removedMeanwhile('/data/card/index.html') }],
+      [WITH_A_LINK, '/data/card', { 'lstat /data/card/index.html': ['ENOENT'], 'readdir /data/card': ['', 'EACCES'] }, {}],
+      [WITH_A_LINK, '/data/card', {}, { 'lstat /data/card/..': removedMeanwhile('/data/card') }],
+      [WITH_A_LINK, '/data/card', {}, { 'lstat /data/card/assets/app.js': removedMeanwhile('/data/card/assets') }],
+      [WITH_A_LINK, '/data/card', { 'lstat /data/card/assets/app.js': ['ENOTDIR'] }, { 'lstat /data/card/assets/app.js': (tree) => void tree.set('/data/card/assets', { kind: 'file' }) }],
+      [{ ...WITH_A_LINK, '/home/notes/vol': { kind: 'volume' } }, '/data/card/linked/', {}, {}],
     ]
-    for (const [tree, path] of cases) {
-      const [ours, theirs] = [model(tree), model(tree)]
+    for (const [tree, path, failing, meanwhile] of cases) {
+      const [ours, theirs] = [model(tree, failing, meanwhile), model(tree, failing, meanwhile)]
       const [ourEnd, theirEnd] = [endViaModule(ours, path, platform), endViaCopy(COPIES[name]!, theirs, path, platform)]
       expect(theirEnd, path).toEqual(ourEnd)
       expect(theirs.calls, path).toEqual(ours.calls)
@@ -253,6 +386,10 @@ describe.each(['darwin', 'linux'] as const)('removeTree on %s and a volume mount
     }
     // And the refusal is one: not the error rmSync would have ended with.
     expect(endViaCopy(COPIES[name]!, model(CARD_HOLDS_A_VOLUME), '/data/card', platform)).toEqual(refusal('/data/card/vol', '/data/card'))
+    // A code the look names nowhere ends the copy too, whatever the module does (review round 2 of PR #293).
+    const unlisted = model(CARD_HOLDS_A_VOLUME, { 'readdir /data/card/assets': ['EPERM'] })
+    expect(endViaCopy(COPIES[name]!, unlisted, '/data/card', platform)).toEqual({ code: 'EPERM', path: undefined, message: 'EPERM: readdir /data/card/assets. Nothing of /data/card was removed' })
+    expect(removals(unlisted)).toEqual([])
   })
 })
 

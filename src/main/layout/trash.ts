@@ -321,8 +321,11 @@ export class TrashStore {
    * that cannot be looked at is refused before anything of it is removed: it is whole, and can
    * still be restored. An entry that fs.rmSync itself could not finish (a folder nothing may be
    * removed from) is as that call left it, as before. On Windows an entry the walk could not
-   * finish is half removed, and every such entry spends the five waits of its own removal — half
-   * a second of the main process each, at every start, where the first one used to end the loop.
+   * finish is half removed, or whole when its own folder is busy (the walk asks a folder to go
+   * before it lists it); and every such entry spends up to the five waits of its own removal —
+   * half a second of the main process each, at every start, where the first one used to end the
+   * loop — when the answer is "busy" (EBUSY, EPERM, ENOTEMPTY, EACCES). Any other answer ends its
+   * removal at once.
    */
   purge(projectId: string): TrashPurge {
     const oldest = this.now() - TRASH_KEEP_MS

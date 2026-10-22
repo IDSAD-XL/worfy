@@ -99,7 +99,8 @@ describe('the copies of the walk that cannot import the module', () => {
     ['a mount point of macOS inside the folder', CARD_HOLDS_A_VOLUME, '/data/card', {}],
     ['a mount point of macOS as the path itself', CARD_HOLDS_A_VOLUME, '/data/card/vol', {}],
     ['a mount point of macOS two folders down', CARD_HOLDS_A_VOLUME, '/data', {}],
-    ['a mount point of macOS after an entry gone meanwhile', CARD_HOLDS_A_VOLUME, '/data/card', { 'lstat /data/card/index.html': ['ENOENT'] }],
+    // worfy-windows ticket 47: an entry lstat does not see is asked about once more, by a second listing of its folder.
+    ['a mount point of macOS after an entry that lstat does not see and its folder still lists', CARD_HOLDS_A_VOLUME, '/data/card', { 'lstat /data/card/index.html': ['ENOENT'] }],
     ['the folder the path lies in cannot be asked', WITH_A_LINK, '/data/card', { 'lstat /data/card/..': ['EACCES'], 'lstat /data': ['EACCES'] }],
     ['the folder the path lies in is gone meanwhile', WITH_A_LINK, '/data/card', { 'lstat /data/card/..': ['ENOENT'], 'lstat /data': ['ENOENT'] }],
     ['a path too long to look at', WITH_A_LINK, '/data/card', { 'lstat /data/card/assets/app.js': ['ENAMETOOLONG'] }],

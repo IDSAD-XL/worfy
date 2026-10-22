@@ -82,16 +82,41 @@
 //   - a part of the tree that cannot be looked at — a folder that cannot be listed, a path longer
 //     than one call takes — ends the removal with that error and nothing removed, where rmSync
 //     alone removed the rest of the tree, or all of it. rmSync reaches where a look by the full
-//     path cannot (the tree of 1693 bytes above), so what is not seen is not removed;
+//     path cannot (the tree of 1693 bytes above), so what is not seen is not removed. The error
+//     keeps its code and its path, and its words end with "Nothing of <path given> was removed";
+//   - an entry a listing names and lstat does not see (ENOENT, ENOTDIR) is gone meanwhile — or a
+//     name the system does not read back: on Linux a name that is not valid UTF-8 is listed with
+//     U+FFFD in it, and lstat by that name answers ENOENT at every call (measured on Linux by the
+//     review of PR #293; APFS refuses such a name, `mkdir` answers EILSEQ). So the folder is
+//     listed once more (worfy-windows ticket 47): still named there, the entry ends the removal
+//     with the error of its lstat, since what it holds cannot be seen. Such a tree, which rmSync
+//     alone removed, is now refused;
 //   - a mount point with the `dev` of the folder it lies in is not seen. Measured on the same Mac:
 //     /System/Volumes/Data, the data volume the system mounts itself, answers with the `dev` of
 //     /System/Volumes, a folder of the system volume. A disk image attached on a folder did not
 //     (16777245 against 16777233). Expected, and not measured, for a bind mount of a folder of the
 //     same file system on Linux. Only the answer of rmdir would tell, and rmSync does not ask
-//     before it removes;
-//   - a volume mounted between the look and the removal is not seen;
+//     before it removes. No second sign was found in node:fs for macOS (the review of PR #293): the
+//     `ino` of the root of a volume tells only that system volume, and the numbers of statfs
+//     change. On Linux /proc/self/mountinfo names every mount point; it is not read, as worfy is
+//     not built for Linux;
+//   - a volume mounted on a file is not seen: only folders are compared. On Linux, by reading of
+//     the review and not measured, rmSync removes what lies beside such a file and stops at it;
+//   - `dev` is compared as a Number. A `dev` with its high bit set — /dev on macOS, devfs: -1896451623
+//     as a bigint — comes rounded, to steps of 2048 near 2^64, so two such `dev` closer than that
+//     compare equal. It takes a volume of that kind mounted straight into a folder of another;
+//     of the 13 mount points of the owner's Mac only /dev has such a `dev` (measured), and it lies
+//     in the system volume, whose `dev` is small;
+//   - a folder on another `dev` that is no mount point is refused all the same: a subvolume of
+//     btrfs on Linux has a `dev` of its own (known to the review, not measured), and its tree,
+//     which rmSync alone removed, ends the removal with EXDEV and nothing removed;
+//   - the look holds for a tree nobody else changes while it runs and until rmSync: a volume
+//     mounted between the look and the removal is not seen, nor a folder with a mount point moved
+//     into a folder the look has passed, nor a folder that was gone for a moment — ENOENT to
+//     lstat of the folder or of its `..`, or to its listing — and is back for rmSync;
 //   - one more pass over the tree: 12 to 20 ms for 4000 files on that Mac, where their removal
-//     takes about 200 ms.
+//     takes about 200 ms. On a network volume it was not measured: each lstat and listing is a
+//     call over the network there.
 // The walk of Windows was not taken for the other systems. It goes by full paths: measured on
 // macOS, it leaves the tree of 1693 bytes with ENAMETOOLONG. Over the model of the tests it
 // removes what lies beside a mount point before it fails. And it waits half a second on EACCES
@@ -99,7 +124,8 @@
 //
 // The text of scripts that cannot import anything keeps a copy of both functions: the restore
 // script of src/main/harness/migrate/restore.ts, scripts/remove-tree.mjs and
-// scripts/install-stable.mjs. test/unit/remove-tree-copies.test.ts compares the copies.
+// scripts/install-stable.mjs. test/unit/remove-tree-copies.test.ts compares the copies, and
+// test/unit/remove-tree-mounted.test.ts compares their look before rmSync off Windows.
 import { lstatSync, readdirSync, rmdirSync, rmSync, unlinkSync, type Stats } from 'node:fs'
 import { join } from 'node:path'
 
@@ -128,7 +154,10 @@ export interface RemoveFs {
 }
 
 export interface RemoveOptions {
-  /** The system worfy runs on; that of this process by default. Only Windows walks the tree itself. */
+  /**
+   * The system worfy runs on; that of this process by default. Only Windows removes the tree by a
+   * walk of its own; every other system looks through it, then calls fs.rmSync.
+   */
   platform?: NodeJS.Platform
   fs?: RemoveFs
   /** Waits between two tries; by default the thread sleeps. */
@@ -287,15 +316,26 @@ export const MOUNTED_VOLUME = 'EXDEV'
  * Throws what lstat or a listing throws for any other reason: what cannot be looked at may hold a
  * mount point. `outer` is the volume of the folder the path lies in; the path the caller gave has
  * none yet, and `path/..` is asked — the folder the system reaches the path in, also through a link.
+ * `folder` is the folder whose listing named the path; the path the caller gave has none.
  */
-function mountedIn(path: string, fs: RemoveFs, outer?: number): string | null {
-  let volume: number
+function mountedIn(path: string, fs: RemoveFs, outer?: number, folder?: string): string | null {
+  let seen: Pick<Stats, 'isDirectory' | 'dev'>
+  try {
+    seen = fs.lstatSync(path)
+  } catch (error) {
+    if (!GONE.includes(codeOf(error) ?? '')) throw error
+    // An entry its folder has just listed, not there to lstat: gone meanwhile, or a name the system
+    // does not read back — a name that is not UTF-8, on Linux, answers ENOENT at every look. The
+    // folder is listed once more; while it still names the entry, what that holds cannot be seen.
+    if (folder !== undefined && listedIn(folder, path.slice(folder.length + 1), fs)) {
+      throw Object.assign(new Error(`${(error as Error).message}: the folder it lies in still lists it, so what it holds cannot be looked at`), { code: codeOf(error), path })
+    }
+    return null
+  }
+  if (!seen.isDirectory()) return null
   let names: string[]
   try {
-    const seen = fs.lstatSync(path)
-    if (!seen.isDirectory()) return null
-    volume = seen.dev
-    if (volume !== (outer ?? fs.lstatSync(`${path}/..`).dev)) return path
+    if (seen.dev !== (outer ?? fs.lstatSync(`${path}/..`).dev)) return path
     names = fs.readdirSync(path)
   } catch (error) {
     // Gone meanwhile: nothing is there to be removed, or to be kept from it.
@@ -305,10 +345,20 @@ function mountedIn(path: string, fs: RemoveFs, outer?: number): string | null {
   for (const name of names) {
     // Under the text of the path given, as the folder itself, its `..` and rmSync are asked: join
     // would cut a `..` in that text, which the system resolves through a link.
-    const found = mountedIn(`${path}/${name}`, fs, volume)
+    const found = mountedIn(`${path}/${name}`, fs, seen.dev, path)
     if (found !== null) return found
   }
   return null
+}
+
+/** Whether a folder lists a name; false when the folder is not there any more. */
+function listedIn(folder: string, name: string, fs: RemoveFs): boolean {
+  try {
+    return fs.readdirSync(folder).includes(name)
+  } catch (error) {
+    if (GONE.includes(codeOf(error) ?? '')) return false
+    throw error
+  }
 }
 
 /**
@@ -316,15 +366,28 @@ function mountedIn(path: string, fs: RemoveFs, outer?: number): string | null {
  * there is not an error. A link — a symlink or a junction, at the path itself or anywhere below —
  * is removed as a link: what it leads to is neither entered nor touched, as long as nobody else
  * changes the tree meanwhile. Takes the place of `rmSync(path, { recursive: true, force: true })`.
+ * One exception off Windows: a link given with a separator at its end, `link/`, is read by the
+ * system as the folder it leads to — that folder is emptied and removed, and the link stays
+ * (measured on macOS by the review of PR #293). Only Windows cuts the separator; no caller
+ * writes one.
  *
  * Off Windows it is that call, after a look through the tree: when a folder in it is on another
  * volume than the folder it lies in — a volume is mounted there, and rmSync would remove its
  * files — nothing is removed, and the error has the code MOUNTED_VOLUME and that folder as `path`.
+ * A part of the tree the look cannot see ends the removal the same way, with the error of the look.
  */
 export function removeTree(path: string, options: RemoveOptions = {}): void {
   const fs = options.fs ?? nodeFs
   if (!onWindows(options)) {
-    const mounted = mountedIn(path, fs)
+    let mounted: string | null
+    try {
+      mounted = mountedIn(path, fs)
+    } catch (error) {
+      // What the look could not see ends the removal before rmSync: its error, with its code and
+      // its path, and words that name the path given and say so.
+      const { message, code, errno, syscall, path: where } = error as NodeJS.ErrnoException
+      throw Object.assign(new Error(`${message}. Nothing of ${path} was removed`), { code, errno, syscall, path: where, cause: error })
+    }
     if (mounted !== null) {
       throw Object.assign(new Error(`${MOUNTED_VOLUME}: ${mounted} is on another volume than the folder it lies in: a volume is mounted there. Nothing of ${path} was removed`), { code: MOUNTED_VOLUME, path: mounted })
     }
