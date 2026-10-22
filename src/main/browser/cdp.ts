@@ -5,8 +5,11 @@
 // an address, click, type, take a screenshot, read the accessibility tree, and the last console
 // messages and network requests (BROWSER_LOG_LIMIT each, no bodies; the owner's decision 4).
 //
-// The debugger is attached on the first call of a Session, not when the page appears: a Browser no
-// Session ever drives has none. From then on it keeps two walls:
+// The debugger is attached on the first call of a Session, not when the page appears, or when main
+// is about to put the Browser to sleep (worfy-browser ticket 05): then it asks the page whether it has
+// a `beforeunload` handler and where it is scrolled, takes its picture, and turns no domain on. A
+// Browser no Session drives and main never tried to put to sleep has none. Once a Session's call
+// attached it, it keeps two walls:
 // - **Origins** (the owner's decision 2). While a Session drives the Browser (`guard.driving()`),
 //   every request for a whole new page of the main frame — a link the Session clicked, a redirect, a
 //   script, a form, a window.open main turns into a navigation (src/main/window.ts) — is paused by
@@ -46,6 +49,8 @@ export interface CdpContents {
   isDestroyed(): boolean
   getURL(): string
   getTitle(): string
+  /** Whether the page has the keyboard focus (worfy-browser ticket 05); a page without it never has. */
+  isFocused?(): boolean
   on(event: 'input-event', listener: (event: unknown, input: CdpInputEvent) => void): unknown
   once(event: 'destroyed', listener: () => void): unknown
 }
@@ -58,8 +63,17 @@ export interface PageGuard {
   refusal(url: string): string | null
   /** The user pressed a mouse button or a key on the page, or touched it. */
   onUserInput(): void
+  /** The user pressed, typed, touched or scrolled the page: the Browser is used (worfy-browser ticket 05). */
+  used?(): void
   /** A click of the Session starts or ends: the window keeps its keyboard focus where the user has it. */
   pressing(phase: 'start' | 'end'): void
+}
+
+/** What an Asleep Browser keeps of its page (ADR-0078 item 6): a picture of it and where it was scrolled. */
+export interface PagePicture {
+  /** A JPEG of the page, base64. */
+  image: string
+  scroll: { x: number; y: number }
 }
 
 /** A call refused by the page or by a wall: its message is the tool's answer. */
@@ -97,6 +111,9 @@ export type PageTarget = { selector: string } | { ref: number }
 
 /** The input events that are the user's taking over (the owner's decision 3): a press, not a move or a scroll. */
 const TAKEOVER_INPUT = new Set(['mouseDown', 'rawKeyDown', 'keyDown', 'touchStart', 'gestureTapDown'])
+
+/** The input events that count as the user's use of the page: a press, a key, a touch or a scroll. */
+const USE_INPUT = new Set([...TAKEOVER_INPUT, 'mouseWheel'])
 
 /** How long one CDP command may take before the call gives up. */
 const COMMAND_MS = 20_000
@@ -241,7 +258,9 @@ export class CdpPage {
     private readonly guard: PageGuard,
   ) {
     contents.on('input-event', (_event, input) => {
-      if (this.synthetic === 0 && TAKEOVER_INPUT.has(input.type)) guard.onUserInput()
+      if (this.synthetic !== 0) return
+      if (USE_INPUT.has(input.type)) guard.used?.()
+      if (TAKEOVER_INPUT.has(input.type)) guard.onUserInput()
     })
     contents.debugger.on('message', (_event, method, params) => this.onMessage(method, isRecord(params) ? params : {}))
     contents.debugger.on('detach', () => {
@@ -528,6 +547,68 @@ export class CdpPage {
   /** The last network requests, oldest first, without bodies. */
   network(): NetworkEntry[] {
     return this.networkLog.items.map((entry) => ({ ...entry }))
+  }
+
+  /**
+   * Runs `act` with the debugger attached, without turning any domain on: what main asks of a page
+   * before it sleeps and after it wakes. The debugger stays attached after: detaching it could come
+   * in the middle of a Session's attach().
+   */
+  private async quietly<T>(act: () => Promise<T>): Promise<T> {
+    const { contents } = this
+    if (contents.isDestroyed()) throw new PageError('The page of this Browser is closed.')
+    if (!contents.debugger.isAttached()) {
+      try {
+        contents.debugger.attach('1.3')
+      } catch (error) {
+        throw new PageError(`Could not reach the page of this Browser (is its DevTools open?): ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    return act()
+  }
+
+  /**
+   * Whether the page has a `beforeunload` handler («Leave site?», ADR-0078 item 15) — added with
+   * addEventListener or set as `onbeforeunload` — on its window. Its own frames are not asked: the
+   * handler of a frame does not stop the Browser's page from closing without a question.
+   */
+  async hasBeforeUnload(): Promise<boolean> {
+    return this.quietly(async () => {
+      const window = (await this.send('Runtime.evaluate', { expression: 'window' })) as { result?: RemoteObject }
+      const objectId = window.result?.objectId
+      if (objectId === undefined) throw new PageError('The page has no window to ask.')
+      try {
+        const answer = await this.send('DOMDebugger.getEventListeners', { objectId })
+        const listeners = isRecord(answer) && Array.isArray(answer.listeners) ? (answer.listeners as unknown[]) : []
+        return listeners.some((listener) => isRecord(listener) && listener.type === 'beforeunload')
+      } finally {
+        void this.send('Runtime.releaseObject', { objectId }).catch(() => undefined)
+      }
+    })
+  }
+
+  /** The picture an Asleep Browser shows, and where the page is scrolled. */
+  async picture(): Promise<PagePicture> {
+    return this.quietly(async () => {
+      const scrolled = (await this.send('Runtime.evaluate', { expression: '[scrollX, scrollY]', returnByValue: true })) as { result?: RemoteObject }
+      const [x, y] = Array.isArray(scrolled.result?.value) ? (scrolled.result.value as unknown[]) : []
+      const at = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0)
+      const shot = await this.send('Page.captureScreenshot', { format: 'jpeg', quality: 70 })
+      if (!isRecord(shot) || typeof shot.data !== 'string') throw new PageError('The page gave no screenshot.')
+      return { image: shot.data, scroll: { x: at(x), y: at(y) } }
+    })
+  }
+
+  /** Scrolls the page to where it was when it went to sleep, once it has loaded. */
+  async restoreScroll(scroll: { x: number; y: number }): Promise<void> {
+    const x = Math.max(0, Math.round(scroll.x))
+    const y = Math.max(0, Math.round(scroll.y))
+    await this.quietly(() =>
+      this.send('Runtime.evaluate', {
+        expression: `new Promise((done) => { const go = () => { window.scrollTo(${x}, ${y}); done(true) }; if (document.readyState === 'complete') go(); else addEventListener('load', go, { once: true }) })`,
+        awaitPromise: true,
+      }),
+    )
   }
 }
 

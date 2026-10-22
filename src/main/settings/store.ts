@@ -8,7 +8,9 @@
 // default, and the mark is written only while a window is chosen. `memoryIndicator` (worfy-ui
 // ticket 20) is on in a file written before it existed. `sessionArchive` (worfy-canvas ticket 08)
 // keeps only the fields a change named, so a choice outlives a later change of the defaults; an
-// `after` this version does not know (written by a newer one) reads as not chosen.
+// `after` this version does not know (written by a newer one) reads as not chosen. `browserSleep`
+// (worfy-browser ticket 05) keeps only the fields a change named too; a value outside its bounds —
+// a file edited by hand — reads as not chosen, and the rest of the file stays.
 //
 // One file for the Machine: every window shares it. The store announces `changed` with each new
 // state; the IPC module (src/main/ipc/app-settings.ts) passes it on to every window, and the modules
@@ -27,6 +29,7 @@ import {
   INTERFACE_SCALE_DEFAULT,
   sectionIdSchema,
   sessionArchiveAfterSchema,
+  browserSleepChoiceSchema,
   type AppSettings,
   type AutoCompactRole,
   type AppSettingsPatch,
@@ -60,6 +63,15 @@ const appSettingsFileSchema = z.object({
   autoCompactWindowChosen: z.object({ orchestrator: z.boolean().default(false), other: z.boolean().default(false) }).optional(),
   memoryIndicator: z.boolean().default(true),
   sessionArchive: z.object({ after: sessionArchiveAfterSchema.optional().catch(undefined), ticketDone: z.boolean().optional() }).optional(),
+  browserSleep: z
+    .object({
+      maxLive: browserSleepChoiceSchema.shape.maxLive.catch(undefined),
+      offscreenSeconds: browserSleepChoiceSchema.shape.offscreenSeconds.catch(undefined),
+      idleMinutes: browserSleepChoiceSchema.shape.idleMinutes.catch(undefined),
+      zoom: browserSleepChoiceSchema.shape.zoom.catch(undefined),
+    })
+    .optional()
+    .catch(undefined),
   revision: z.number().int().nonnegative().default(0),
 })
 
@@ -71,6 +83,19 @@ function archiveChoice(current: ArchiveChoice, patch?: ArchiveChoice): Pick<AppS
   const ticketDone = patch?.ticketDone ?? current?.ticketDone
   if (after === undefined && ticketDone === undefined) return {}
   return { sessionArchive: { ...(after === undefined ? {} : { after }), ...(ticketDone === undefined ? {} : { ticketDone }) } }
+}
+
+type SleepChoice = AppSettings['browserSleep']
+const SLEEP_FIELDS = ['maxLive', 'offscreenSeconds', 'idleMinutes', 'zoom'] as const
+
+/** The Browser sleep choice after `patch`, with only its chosen fields, or nothing while none is chosen. */
+function sleepChoice(current: SleepChoice, patch?: SleepChoice): Pick<AppSettings, 'browserSleep'> {
+  const chosen: NonNullable<SleepChoice> = {}
+  for (const field of SLEEP_FIELDS) {
+    const value = patch?.[field] ?? current?.[field]
+    if (value !== undefined) chosen[field] = value
+  }
+  return Object.keys(chosen).length === 0 ? {} : { browserSleep: chosen }
 }
 
 /** One window and whether the person chose it. */
@@ -104,6 +129,7 @@ function copy(settings: AppSettings): AppSettings {
     ...windows(roleWindow(settings, 'orchestrator'), roleWindow(settings, 'other')),
     memoryIndicator: settings.memoryIndicator,
     ...archiveChoice(settings.sessionArchive),
+    ...sleepChoice(settings.browserSleep),
     revision: settings.revision,
   }
 }
@@ -129,6 +155,7 @@ function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
     ...windows(windowAfter(current, 'orchestrator', patch.autoCompactWindow?.orchestrator), windowAfter(current, 'other', patch.autoCompactWindow?.other)),
     memoryIndicator: patch.memoryIndicator ?? current.memoryIndicator,
     ...archiveChoice(current.sessionArchive, patch.sessionArchive),
+    ...sleepChoice(current.browserSleep, patch.browserSleep),
     revision: current.revision,
   }
 }
@@ -146,6 +173,7 @@ function same(a: AppSettings, b: AppSettings): boolean {
     a.memoryIndicator === b.memoryIndicator &&
     a.sessionArchive?.after === b.sessionArchive?.after &&
     a.sessionArchive?.ticketDone === b.sessionArchive?.ticketDone &&
+    SLEEP_FIELDS.every((field) => a.browserSleep?.[field] === b.browserSleep?.[field]) &&
     a.autoCompactWindow.orchestrator === b.autoCompactWindow.orchestrator &&
     a.autoCompactWindow.other === b.autoCompactWindow.other &&
     autoCompactWindowChosen(a, 'orchestrator') === autoCompactWindowChosen(b, 'orchestrator') &&

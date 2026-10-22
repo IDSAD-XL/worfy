@@ -1,7 +1,8 @@
 # 05 — Live и Asleep: правила сна, предел N = 3, проверка `beforeunload`, пороги в Settings
 
 Type: task
-Status: open
+Status: claimed 2026-10-22T06:05Z
+Branch: worfy-browser/05
 Blocked by: 04
 Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md) (Browser Node), пункт 6
 (Live и Asleep, правила сна и пробуждения, пороги в Settings), пункт 7 (предел Live, вытесняется тот,
@@ -112,4 +113,59 @@ Browser (Live, Asleep) — `CONTEXT.md`. Код перечитан по main `dd
 
 ## Итог
 
-Заполняется при закрытии.
+**Сделано** (ветка `worfy-browser/05`):
+
+1. **Правила сна** — `src/main/browser/sleep.ts`: чистые функции `sleepReason`, `browsersToSleep`, `admit`.
+   Browser засыпает, если ни один экран не показывает его на читаемом zoom дольше порога вне экрана
+   (вне экрана или zoom ниже порога на всех экранах, где он виден), или если его не трогали (фокус,
+   нажатие, прокрутка, вызов Session) дольше порога без фокуса. Не засыпает, пока его ведёт Session
+   (идёт вызов или последний вызов был меньше порога без фокуса назад) и пока у страницы есть
+   `beforeunload`. При N+1 засыпают самые давние из тех, кому можно; все заняты — пользователь
+   открывает сверх предела с пометкой, вызов Session получает «All Live Browsers are busy».
+2. **Жизни Browser-ов в main** — `src/main/browser/live.ts`: Live или Asleep, снимок (JPEG через CDP
+   `Page.captureScreenshot`) и прокрутка, проверка правил раз в секунду, `wake`, `sessionDrives`,
+   `sessionReleases`. Перед сном и перед вытеснением main спрашивает страницу через CDP
+   (`DOMDebugger.getEventListeners` на `window`, `src/main/browser/cdp.ts`); после пробуждения
+   прокручивает страницу обратно. Фокус и использование main видит сам (`isFocused` guest-а,
+   `input-event`): у окна `activeElement` остаётся на первом `<webview>`, когда кликают во второй
+   (так упал первый e2e-прогон).
+3. **Каналы** `browser.screen`, `browser.lives.list`, `browser.lives.changed`, `browser.wake`,
+   `browser.picture` — все `local`. Слой рисует страницу только Live Browser-а и сообщает main, какие
+   рамки видны и zoom; рамка Asleep показывает снимок под «Asleep · Click to wake», клик будит;
+   метки «Unsaved changes» и «Over the Live limit» — в шапке.
+4. **Session** — `browser-server.ts`: вызов будит Asleep Browser, `browser_open` занимает место до
+   создания Node-а; «все заняты» — ошибка до того, как Session что-либо взяла.
+5. **Settings → Browser** — N (1–10), вне экрана (1–3600 с), без фокуса (1–240 мин), zoom (0,1–1),
+   поле `browserSleep` app settings, как `sessionArchive`: хранится только выбранное.
+
+**Решения без владельца** (вопросы 2–4 и одно своё):
+
+- Вопрос 2: снимок — в памяти main, не в Layout и не на диске; после перезапуска его нет.
+- Вопрос 3: после перезапуска до N Browser-ов просыпаются сами — сначала видимые; остальные Asleep
+  без снимка. «Все Asleep» оставляли бы после перезапуска пустые рамки и ломали проверку «тот же URL
+  после перезапуска» Ticket-ов 02 и 03.
+- Вопрос 4: очереди в main нет; Session получает ошибку и повторяет вызов сама.
+- Дальний zoom засыпает по тому же порогу, что и «вне экрана», а не сразу: короткий взгляд на весь
+  Canvas не перезагружает все страницы.
+
+**Проверки.** `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (8394 теста); gate fast —
+«[gate] green (fast)». e2e под `/tmp/worfy-e2e.lock`: `browser-sleep.spec.ts` и все остальные
+`browser*.spec.ts` — 32 passed. Мутанты (в своём worktree, восстановлены из копии):
+
+| Мутант | unit `browser-sleep` | e2e `browser-sleep.spec.ts` |
+| --- | --- | --- |
+| вытесняется самый новый, а не самый давний | exit 1, 2 теста | exit 1 |
+| Browser под Session засыпает | exit 1, 1 тест | — |
+| видимость только по первому окну | exit 1, 2 теста | — |
+| `beforeunload` не находится | — | exit 1 |
+| Session берёт Browser до пробуждения | exit 1, 1 тест | — |
+| `browser_open` создаёт Node до проверки предела | exit 1, 1 тест | — |
+
+Снимки: [Asleep, светлая](../evidence/05-browser-asleep-light.png),
+[тёмная](../evidence/05-browser-asleep-dark.png); [«Unsaved changes», светлая](../evidence/05-browser-unsaved-light.png),
+[тёмная](../evidence/05-browser-unsaved-dark.png).
+
+**Вне следа:** `src/main/settings/store.ts` (хранение `browserSleep`), `src/main/browser/cdp.ts`
+(вопросы странице перед сном), `src/main/ipc/browser.ts` (handler-ы), `src/renderer/browser/lives.ts`
+(новый: жизни Browser-ов в окне), `src/renderer/canvas/nodes/BrowserNode.css`,
+`test/unit/browser-layer.test.tsx` (fake `browser.lives.list`: слой рисует только Live).
