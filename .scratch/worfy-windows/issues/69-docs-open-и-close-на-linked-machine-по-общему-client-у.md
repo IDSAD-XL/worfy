@@ -1,7 +1,8 @@
 # 69 — Linked machine: `docs.close` одного окна снимает документы Project-а у всех окон той же Machine
 
 Type: bug
-Status: open
+Status: claimed 2026-10-22T02:01Z
+Branch: worfy-windows/69
 Blocked by: —
 Source: ревью PR #513 ([Ticket 64](64-закрытие-project-а-в-одном-окне-linked-machine-снимает-watcher-claude-home.md)),
 2026-10-19: «Итог» Ticket-а 64, абзац про `docs.open` / `docs.close` перед подразделом «Мерж (2026-10-19)». Ревью нашло это чтением кода; запуском не проверено.
@@ -48,4 +49,15 @@ Source: ревью PR #513 ([Ticket 64](64-закрытие-project-а-в-одн
 
 ## Итог
 
-Заполняется при закрытии.
+Гипотеза верна. Test `docs: one window closes, the other still gets docs.changed` в
+`test/contract/linked-shared-subscriptions.test.ts` на main красный: после `docs.close` первого окна
+у Project-а на Linked machine B не осталось подписчика (`expected +0 to be 1`). Docs-handler-ы B идут
+настоящие (`src/main/ipc/docs.ts`), DocsHub и список Project-ов B — stand-in-ы.
+
+Правка — строка `'docs.open': { close: 'docs.close', key: 'projectId', spelling: 'as-sent' }` в
+`SUBSCRIBING` (`src/main/ipc/linked.ts`): окна считаются на Machine A, close уходит на B только от
+последнего окна. Ключ сравнивается как прислан: `projectId` — id, не путь.
+
+Mutation testing (оба test-файла): без строки `docs.open` — 2 test-а красные; `spelling: 'resolved'`
+— красный test о регистре id в `test/contract/linked-ipc.test.ts`; `close: 'docs.read'` — 2 красных.
+`pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast green. Gate full на Mac — за Orchestrator-ом.

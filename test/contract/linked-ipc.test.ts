@@ -161,6 +161,24 @@ describe('subscriptions of several windows on one Linked machine (worfy-windows 
     expect(closes()).toHaveLength(2)
   })
 
+  it('docs: counts the windows on one Project id, and passes on the close of the last (worfy-windows ticket 69)', async () => {
+    const [first, second] = [new Contents(74), new Contents(75)]
+    await invoke(first, 'docs.open', { projectId: 'demo-1' })
+    await invoke(second, 'docs.open', { projectId: 'demo-1' })
+    expect(await invoke(first, 'docs.close', { projectId: 'demo-1' })).toEqual({ ok: true, value: { ok: true, value: { closed: true } } })
+    expect(closes()).toEqual([])
+    await invoke(second, 'docs.close', { projectId: 'demo-1' })
+    expect(closes()).toEqual([{ machine: M, channel: 'docs.close', input: { projectId: 'demo-1' } }])
+  })
+
+  it('docs: a Project id is compared as sent: ids that differ in case are two subscriptions', async () => {
+    const [first, second] = [new Contents(76), new Contents(77)]
+    await invoke(first, 'docs.open', { projectId: 'Demo-2' })
+    await invoke(second, 'docs.open', { projectId: 'demo-2' })
+    await invoke(first, 'docs.close', { projectId: 'Demo-2' })
+    expect(closes()).toEqual([{ machine: M, channel: 'docs.close', input: { projectId: 'Demo-2' } }])
+  })
+
   it('claudeHome: each spelling is a subscription of its own, as on the Linked machine', async () => {
     const [first, second] = [new Contents(63), new Contents(64)]
     await invoke(first, 'claudeHome.sessions', { projectRoot: '/h' })

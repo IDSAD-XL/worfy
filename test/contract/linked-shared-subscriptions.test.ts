@@ -2,8 +2,9 @@
 // windows of Machine A that show Projects of Linked machine B all call B over one connection, and B
 // serves that connection with one `project` client (src/main/link/ipc-adapter.ts, LinkPeer). B keys
 // the subscriptions of `claudeHome.sessions`, `workflow.open` and `pipeline.get` by client and root,
-// so the close of one window ended the subscription of every window of A: the other window got no
-// `claudeHome.changed`, `workflow.changed` or `pipeline.changed` any more.
+// and those of `docs.open` by client and Project id (worfy-windows ticket 69), so the close of one
+// window ended the subscription of every window of A: the other window got no `claudeHome.changed`,
+// `workflow.changed`, `pipeline.changed` or `docs.changed` any more.
 //
 // End to end over a real link connection (test/contract/link-bench.ts): the windows call
 // `linked.invoke` on A's main (src/main/ipc/linked.ts), A's RemoteCalls passes the call to B, B's
@@ -41,6 +42,45 @@ vi.mock('electron', () => ({
 }))
 vi.mock('../../src/main/harness/script-env', () => ({ harnessScriptEnv: () => Promise.resolve(process.env) }))
 
+/** B's Project, by id: what B's `docs` handlers (src/main/ipc/docs.ts) find in its Project list. */
+const project = vi.hoisted(() => ({ id: 'beta-project', path: '' }))
+vi.mock('../../src/main/projects/store', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/main/projects/store')>()),
+  projectStore: () => ({
+    get: (id: string) => {
+      if (id !== project.id) throw new Error(`no Project ${id}`)
+      return { id, path: project.path }
+    },
+    active: () => undefined,
+    list: () => [],
+    onChange: () => () => undefined,
+  }),
+}))
+
+/**
+ * B's docs hub (src/main/docs/watch.ts): a stand-in that keys a Project by its id, as the real one
+ * does, and watches no files. Each subscriber is kept by id, open until closed.
+ */
+const docs = vi.hoisted(() => ({ subscribers: new Map<string, Map<number | string, { id: number | string; send(state: unknown): void }>>() }))
+vi.mock('../../src/main/docs/watch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/main/docs/watch')>()),
+  DocsHub: class {
+    async open(projectId: string, _root: string, subscriber: { id: number | string; send(state: unknown): void }) {
+      docs.subscribers.set(projectId, (docs.subscribers.get(projectId) ?? new Map()).set(subscriber.id, subscriber))
+      return { projectId, handoff: null, adrs: [] }
+    }
+    async close(projectId: string, id: number | string) {
+      return docs.subscribers.get(projectId)?.delete(id) ?? false
+    }
+    async drop(id: number | string) {
+      for (const each of docs.subscribers.values()) each.delete(id)
+    }
+    async closeAll() {
+      docs.subscribers.clear()
+    }
+  },
+}))
+
 /** A's RemoteCalls: over the bench service of A, made fresh for each test. */
 const app = vi.hoisted(() => ({ calls: undefined as unknown }))
 vi.mock('../../src/main/link/remote-calls', async (importOriginal) => ({
@@ -58,6 +98,7 @@ const { RemoteCalls } = await import('../../src/main/link/remote-calls')
 /** B's Project. */
 const PROJECT = join(env.scratch, 'project')
 mkdirSync(PROJECT, { recursive: true })
+project.path = PROJECT
 const projects = () => [{ path: PROJECT }]
 
 // ---- B's side: the real handlers over stand-ins -----------------------------------------------
@@ -122,6 +163,7 @@ const modules: Record<string, ModuleLoader> = {
   './claude-home.ts': asLoader(claudeHomeHandlers(registry, claudeHomeSubscriptions, undefined, projects)),
   './workflow.ts': asLoader(workflowHandlers({ hub: workflow.hub as never, projects })),
   './pipeline.ts': asLoader(pipelineHandlers({ hub: pipeline.hub as never, projects })),
+  './docs.ts': () => import('../../src/main/ipc/docs').then((module) => module.default),
 }
 
 // ---- A's side: the `linked` handlers and two windows -------------------------------------------
@@ -203,6 +245,7 @@ afterEach(async () => {
   screens.windows = []
   await current?.close()
   await claudeHomeSubscriptions.closeAll()
+  docs.subscribers.clear()
 })
 
 afterAll(() => {
@@ -265,6 +308,31 @@ describe('two windows of A on one Project of B', () => {
     expect(await windowCall(second, 'pipeline.close', { root: PROJECT })).toEqual({ ok: true, value: { closed: true } })
     await settle()
     expect(pipeline.subscribed()).toBe(0)
+  })
+
+  it('docs: one window closes, the other still gets docs.changed; the last close lets go on B', async () => {
+    let version = 0
+    const subscribed = () => docs.subscribers.get(project.id)?.size ?? 0
+    const fire = () => {
+      version += 1
+      for (const subscriber of docs.subscribers.get(project.id)?.values() ?? []) subscriber.send({ projectId: project.id, handoff: { path: 'HANDOFF.md', version: `v${String(version)}` }, adrs: [] })
+    }
+    expect(await windowCall(first, 'docs.open', { projectId: project.id })).toEqual({ ok: true, value: { projectId: project.id, handoff: null, adrs: [] } })
+    expect(await windowCall(second, 'docs.open', { projectId: project.id })).toMatchObject({ ok: true })
+    // Both windows share one client on B, so B has one subscriber, and its events reach both.
+    expect(subscribed()).toBe(1)
+    await bothHear('docs.changed', fire, 1)
+
+    expect(await windowCall(first, 'docs.close', { projectId: project.id })).toEqual({ ok: true, value: { closed: true } })
+    await settle()
+    expect(subscribed()).toBe(1)
+    await bothHear('docs.changed', fire, 2)
+    expect(second.heard('docs.changed').at(-1)).toEqual({ projectId: project.id, handoff: { path: 'HANDOFF.md', version: 'v2' }, adrs: [] })
+
+    // The last window's close ends the subscription on B.
+    expect(await windowCall(second, 'docs.close', { projectId: project.id })).toEqual({ ok: true, value: { closed: true } })
+    await settle()
+    expect(subscribed()).toBe(0)
   })
 
   it('workflow: windows that spell the root apart (`P` and `P/`) share one subscription on B; the last close ends it', async () => {
