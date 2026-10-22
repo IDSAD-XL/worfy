@@ -206,7 +206,7 @@ export type FileExists = (path: string) => boolean
 export const MAX_VAR_LENGTH = 32_767
 
 /** Variable names on Windows are case-insensitive: the value of `name` under any case. */
-function getVar(env: SourceEnv, name: string): string | undefined {
+export function getVar(env: SourceEnv, name: string): string | undefined {
   const upper = name.toUpperCase()
   for (const [key, value] of Object.entries(env)) if (key.toUpperCase() === upper) return value
   return undefined

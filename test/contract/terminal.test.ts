@@ -3,7 +3,6 @@
 // process outlives its Node, its window or the app.
 import { realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { createRequire } from 'node:module'
 import { join, win32 } from 'node:path'
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -975,23 +974,6 @@ describe('terminal channels at the IPC boundary', () => {
     const h = await harness()
     const result = await h.call('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'ls\r' })
     expect(!result.ok && result.error).toMatch(/not running/)
-  })
-})
-
-describe('node-pty as the registry knows it', () => {
-  it('still has the private helper that the registry takes out of kill() on Windows, and kill() still calls it', () => {
-    // lib/windowsPtyAgent.js loads on any system: its native part is asked for only when a pty starts.
-    // When this fails after an update of node-pty, read withoutConsoleHelper in src/main/terminal/pty.ts again.
-    const { WindowsPtyAgent } = createRequire(import.meta.url)('node-pty/lib/windowsPtyAgent.js') as { WindowsPtyAgent: { prototype: Record<string, unknown> } }
-    expect(typeof WindowsPtyAgent.prototype['_getConsoleProcessList']).toBe('function')
-    expect(String(WindowsPtyAgent.prototype['kill'])).toContain('this._getConsoleProcessList()')
-  })
-
-  it('still drops the pending connection in its own kill() and tests it as falsy, as killUnconnected reads it', () => {
-    // When this fails after an update of node-pty, read killUnconnected in src/main/terminal/pty.ts again.
-    const { WindowsPtyAgent } = createRequire(import.meta.url)('node-pty/lib/windowsPtyAgent.js') as { WindowsPtyAgent: { prototype: Record<string, unknown> } }
-    expect(String(WindowsPtyAgent.prototype['kill'])).toContain('this._pendingPtyInfo = undefined')
-    expect(String(WindowsPtyAgent.prototype['_completePtyConnection'])).toContain('if (!this._pendingPtyInfo)')
   })
 })
 

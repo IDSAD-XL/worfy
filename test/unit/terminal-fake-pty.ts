@@ -31,8 +31,10 @@ export function fakePty(pid: number, options: FakeOptions = {}) {
   let onData: (data: string) => void = () => undefined
   /** How many times kill() had been called when the thread that reads the output was asked to stop. */
   const stops: number[] = []
-  const agent: { _getConsoleProcessList: unknown; _conoutSocketWorker?: { dispose: unknown }; exitCode?: number } = {
+  const agent: { _getConsoleProcessList: unknown; _conoutSocketWorker?: { dispose: unknown }; exitCode?: number | undefined } = {
     _getConsoleProcessList: (): Promise<unknown> => Promise.resolve('ran'),
+    // As node-pty's agent: the field is there, undefined while the shell runs (readsExitCode).
+    exitCode: undefined,
     ...(options.noWorker ? {} : { _conoutSocketWorker: { dispose: () => void stops.push(kills.length) } }),
   }
   const pty: PtyProcess = {
