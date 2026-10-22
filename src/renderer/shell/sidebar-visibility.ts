@@ -69,11 +69,10 @@ export function useSidebarVisibility(): SidebarVisibility {
 /**
  * Calls `toggle` when the app menu says so (`menu.command` with `toggleSidebar`, src/main/menu.ts):
  * main sends it to the one window the item was chosen for, and holds it until this subscribed
- * (src/renderer/menu-command.ts). Returns the function that unsubscribes;
- * without the preload bridge (a unit test of the shell) it subscribes to nothing.
+ * (src/renderer/menu-command.ts). Returns the function that unsubscribes; without the preload
+ * bridge (a unit test of the shell) followMenuCommand subscribes to nothing and shows no toast.
  */
 export function followSidebarCommand(toggle: () => void): () => void {
-  if ((globalThis as { worfy?: WorfyBridge }).worfy === undefined) return () => undefined
   return followMenuCommand('toggleSidebar', toggle)
 }
 

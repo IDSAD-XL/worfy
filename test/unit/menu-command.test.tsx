@@ -3,7 +3,11 @@
 // `menu.ready`, that it follows the command, so a command main held for it finds the listener.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
+import type { MenuCommand } from '../../src/shared/ipc/menu'
 import { followMenuCommand } from '../../src/renderer/menu-command'
+import { followMenuCommands } from '../../src/renderer/settings/settings-window'
+import { followSidebarCommand } from '../../src/renderer/shell/sidebar-visibility'
+import { followShortcutsCommands } from '../../src/renderer/shortcuts/shortcuts-window'
 import { toasts } from '../../src/renderer/toast/toasts'
 
 const globals = globalThis as { worfy?: WorfyBridge }
@@ -72,12 +76,55 @@ describe('followMenuCommand', () => {
     expect(run).toHaveBeenCalledTimes(1)
   })
 
-  it('without the preload bridge subscribes to nothing and calls nothing, and says so as other subscribers do', () => {
+  it('without the preload bridge subscribes to nothing, calls nothing and shows no toast', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const unsubscribe = followMenuCommand('settings', () => undefined)
+    expect(error).not.toHaveBeenCalled()
+    expect(toasts.getState().toasts).toEqual([])
+    expect(() => unsubscribe()).not.toThrow()
+  })
+
+  it('with the bridge in place, a subscription that fails shows the error toast and calls nothing', () => {
+    const bridge = recordingBridge()
+    const bridgeOf = globals.worfy as unknown as { on: () => number }
+    bridgeOf.on = () => {
+      throw new Error('on: channel refused')
+    }
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const unsubscribe = followMenuCommand('settings', () => undefined)
     expect(error).toHaveBeenCalledWith('menu.command: cannot subscribe', expect.any(Error))
     // showSubscribeError of src/renderer/ipc.ts: one error toast keyed by the channel.
     expect(toasts.getState().toasts).toEqual([expect.objectContaining({ kind: 'error', key: 'ipc:menu.command' })])
+    expect(bridge.log).toEqual([])
     expect(() => unsubscribe()).not.toThrow()
+  })
+})
+
+// The three subscribers of the app (worfy-windows ticket 103). Each must go through
+// followMenuCommand, so that main hears `menu.ready` and sends the command it held for the window.
+const subscribers: { command: MenuCommand; follow: () => () => void }[] = [
+  { command: 'settings', follow: followMenuCommands },
+  { command: 'toggleSidebar', follow: () => followSidebarCommand(() => undefined) },
+  { command: 'shortcuts', follow: followShortcutsCommands },
+]
+
+describe.each(subscribers)('the $command subscriber', ({ command, follow }) => {
+  it(`subscribes to menu.command, then calls menu.ready with '${command}'`, () => {
+    const bridge = recordingBridge()
+    const unsubscribe = follow()
+    expect(bridge.log).toEqual(['on menu.command', `invoke menu.ready ${command}`])
+    unsubscribe()
+    expect(bridge.log).toEqual(['on menu.command', `invoke menu.ready ${command}`, 'off'])
+  })
+
+  it('without the preload bridge shows no toast and does not throw', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    let unsubscribe: () => void = () => undefined
+    expect(() => {
+      unsubscribe = follow()
+    }).not.toThrow()
+    expect(() => unsubscribe()).not.toThrow()
+    expect(toasts.getState().toasts).toEqual([])
+    expect(error).not.toHaveBeenCalled()
   })
 })

@@ -45,7 +45,8 @@ export function selectSection(sectionId: string): void {
 /**
  * Opens the window when the app menu says so (`menu.command`, src/main/menu.ts), a "Settings…"
  * chosen before this subscribed included (src/renderer/menu-command.ts). Returns the function that
- * unsubscribes; without the preload bridge (a unit test of the shell) it subscribes to nothing.
+ * unsubscribes; without the preload bridge (a unit test of the shell) followMenuCommand subscribes
+ * to nothing and shows no toast.
  */
 export function followMenuCommands(): () => void {
   return followMenuCommand('settings', openSettings)
