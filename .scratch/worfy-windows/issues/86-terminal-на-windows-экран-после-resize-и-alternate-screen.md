@@ -1,7 +1,8 @@
 # 86 — Terminal на Windows: строки экрана после resize и reload, стрелки колеса в alternate screen
 
 Type: task
-Status: open
+Status: done 2026-10-22T06:05Z
+PR: #736
 Blocked by: —
 Source: прогон e2e PR #710 (Terminal e2e под PowerShell) на ПК 2026-10-22,
 [комментарий](https://github.com/IDSAD-XL/worfy/pull/710#issuecomment-6329031641); решение Session на Mac
@@ -47,8 +48,8 @@ Source: прогон e2e PR #710 (Terminal e2e под PowerShell) на ПК 2026
 ## Готово, когда
 
 - [ ] Три test-а выше зелёные на ПК 3 прогона из 3, без skip и без `test.fail`.
-- [ ] Поведение на macOS не меняется: те же три test-а зелёные на Mac.
-- [ ] `pnpm typecheck`, `pnpm lint` — exit 0.
+- [x] Поведение на macOS не меняется: те же три test-а зелёные на Mac.
+- [x] `pnpm typecheck`, `pnpm lint` — exit 0.
 
 ## Результат
 
@@ -126,3 +127,16 @@ pty, а xterm.js без экрана (`@xterm/headless`) играл роль mai
 | С правкой, `--repeat-each=3` для трёх test-ов | test 3 — 3 из 3; 1 и 2 — 0 из 3 |
 | После rebase на `1d739e6c` (PR #729), три spec-а целиком | 17 passed, 2 failed: 1 (`:273`), 2 (`:396`) |
 | После rebase, `--repeat-each=3` для трёх test-ов | test 3 — 3 из 3; 1 и 2 — 0 из 3 |
+
+### Мерж (2026-10-22)
+
+PR #736 влит 2026-10-22, merge commit `021ac754`. Gate full на Mac зелёный на дереве merge PR с main `b9a64940`
+(родитель `021ac754`): lint, typecheck, test, e2e.
+
+- Мой review корректности (глубина high) дефектов в коде не нашёл. Low-замечания — в долге
+  [worfy-polish 36](../../worfy-polish/issues/36-долг-после-review-pr-530.md).
+- Первый пункт «Готово, когда» не выполнен, поэтому не отмечен. Test 3 (`test/e2e/wheel-over-nodes.spec.ts:326`)
+  на ПК зелёный 3 из 3. Test-ы 1 и 2 — `test/e2e/terminal.spec.ts:211` и `test/e2e/focus.spec.ts:342` — остаются
+  красными на Windows до [Ticket 89](89-replay-вывода-terminal-а-при-размерах-pty.md) (replay сохранённого вывода
+  Terminal-а с размерами pty, при которых он рисовался).
+- Пункты 2 и 3 закрыты gate full на Mac: три test-а зелёные на Mac, `pnpm lint` и `pnpm typecheck` — exit 0.

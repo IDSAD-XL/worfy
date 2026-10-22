@@ -114,6 +114,29 @@ mode), круг 1: линза «корректность» и линза «те�
     нет — мутант M5 выжил.
   - Session может вести любой Browser своего Project-а, чей бы `openedBy` у него ни был. Решить в
     [worfy-browser Ticket 06](../../worfy-browser/issues/06-browser-и-жизнь-session.md).
+- [ ] **Ревью #736 (worfy-windows 86), два low.** Строки — по main `90cb2fff`.
+  - `test/e2e/wheel-over-nodes.spec.ts:326` — комментарий test-а говорит, что без правки он красный «on every
+    system». На Mac это не так: проводку доказывает только Windows. Чтобы test был красным и на Mac, напечатать
+    больше строк, чем помещается на экране (например, `seq 40`).
+  - `test/unit/terminal-alt-buffer.test.tsx:3` — canary идёт на `@xterm/headless`, а приложение рисует
+    `@xterm/xterm`. Добавить test, что версии двух пакетов в `package.json` совпадают.
+- [ ] **Ревью #733 (worfy-browser 04), пять low.** Строки — по main `90cb2fff`.
+  - `src/main/browser/cdp.ts:282` — debugger никогда не отключается (`detach`), поэтому обход service worker-а
+    (`Network.setBypassServiceWorker`) действует, пока жива страница.
+  - `keepWindowFocus` (`src/renderer/browser/control.ts:80`) — нет unit test-а.
+  - `src/main/browser/cdp.ts:203` — в полях `email` и `number` курсор остаётся в начале: `setSelectionRange` для
+    них бросает исключение.
+  - `src/main/browser/cdp.ts:213` — синтетический Enter имеет `isTrusted: false` и не добавляет перевод строки в
+    `textarea`.
+  - Между нажатием Session и возвратом фокуса (`src/renderer/browser/control.ts:80`) есть окно в несколько ms.
+  - Мутант M5 (после detach состояние сбрасывается не полностью) — уже записан выше, в пункте «Ревью PR #733».
+- [ ] **Ревью #737 (worfy-windows 42), low.** Строки — по main `90cb2fff`.
+  - `src/main/first-run/checks.ts:162` — `variable` держит свою копию `getVar` (`src/main/agent/env.ts:209`).
+    Заменить на `getVar`.
+- [ ] **Ревью #738 (worfy-windows 85), low.** PR #738 ещё не влит; строки — по main `90cb2fff`.
+  - `harness/bin/tests/wave-gate-heartbeat.test.sh:111` — под zsh случай «40 запусков» иногда находит один
+    оставшийся `sleep`: гонка между `pkill -P` и `sleep`, который только запускается. Красный в 1 из 3 прогонов;
+    не регрессия.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты

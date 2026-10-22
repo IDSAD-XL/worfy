@@ -1,7 +1,8 @@
 # 04 — MCP server `worfy-browser` через CDP: инструменты Session, список origin-ов, плашка «Claude управляет», перехват
 
 Type: task
-Status: claimed 2026-10-22T03:23Z
+Status: done 2026-10-22T06:05Z
+PR: #733
 Branch: worfy-browser/04
 Blocked by: 03
 Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md) (Browser Node), пункт 4
@@ -44,26 +45,26 @@ origin-ов отклоняется), «Последствия» (CDP-сесси�
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/browser-origins.test.ts`: URL в списке, вне списка, другой порт, другая схема,
+- [x] Unit `test/unit/browser-origins.test.ts`: URL в списке, вне списка, другой порт, другая схема,
       `about:blank`, `data:`, `javascript:`; пустой список — Session никуда не ходит.
-- [ ] Unit `test/unit/agent-options.test.ts` (`mcpAllowlist`, `src/main/agent/options.ts:349`), три
+- [x] Unit `test/unit/agent-options.test.ts` (`mcpAllowlist`, `src/main/agent/options.ts:349`), три
       случая: `null` — фильтра нет, разрешено всё, `worfy-browser` есть; `[]` — запрещено всё,
       `worfy-browser` нет; список называет `worfy-browser` — есть, не называет — нет.
-- [ ] Contract `test/contract/browser-tools.test.ts` (как `test/contract/canvas-tools.test.ts`): схемы
+- [x] Contract `test/contract/browser-tools.test.ts` (как `test/contract/canvas-tools.test.ts`): схемы
       инструментов; «открыть» под несуществующим Browser profile — ошибка.
-- [ ] e2e `test/e2e/browser-mcp.spec.ts` на fixture-страницах: Session открывает Browser, переходит,
+- [x] e2e `test/e2e/browser-mcp.spec.ts` на fixture-страницах: Session открывает Browser, переходит,
       кликает, печатает, получает screenshot, текст страницы, сообщение консоли и запрос сети;
       переход вне списка — ошибка, страница не сменилась; плашка «Claude управляет» видна, клик
       пользователя её снимает, следующий вызов — «пользователь перехватил»; снимок
       `browser-claude-drives` в обеих темах.
-- [ ] По решениям владельца 2026-10-22: e2e — redirect и клик по ссылке на origin вне списка
+- [x] По решениям владельца 2026-10-22: e2e — redirect и клик по ссылке на origin вне списка
       отклоняются, страница не сменилась, ошибка называет origin; после перехвата вызовы получают
       ошибку до «Return control to Claude», после него Session снова ведёт Browser; «напечатать» в
       `input[type=password]` — ошибка «вход делает человек»; Browser, открытый Session, стоит рядом с
       её Node-ом без перекрытий.
-- [ ] Мутанты красные: проверка origin-а только по host (без порта); перехват не сбрасывает
+- [x] Мутанты красные: проверка origin-а только по host (без порта); перехват не сбрасывает
       управление; server добавлен мимо `allowed(name)`.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
 
@@ -147,3 +148,14 @@ Claude».
 ## Итог
 
 Заполняется при закрытии.
+
+### Мерж (2026-10-22)
+
+PR #733 влит 2026-10-22, merge commit `90cb2fff`.
+
+- Три круга review и последние мелкие правки; мутанты каждого круга — в описании PR #733, каждый красный.
+- Gate full на Mac зелёный на дереве main `cacdafe6` + head PR `021d9045`: lint, typecheck, test, e2e.
+- Windows runner (`windows-tests.yml`), run 39731382125: 6 файлов, 196 passed.
+- Отказ инструментов Session, когда текущая страница Browser-а вне списка origin-ов, добавлен по ADR-0078
+  (пункт 5). Владелец об этом знает и может возразить.
+- Low-замечания review — в долге [worfy-polish 36](../../worfy-polish/issues/36-долг-после-review-pr-530.md).
