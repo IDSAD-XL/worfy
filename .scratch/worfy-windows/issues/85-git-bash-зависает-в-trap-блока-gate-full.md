@@ -1,7 +1,8 @@
 # 85 — Git Bash зависает в EXIT trap блока gate full из `epic-wave`: `wait $HB` без предела
 
 Type: bug
-Status: open
+Status: done 2026-10-22T17:53Z
+PR: #738
 Blocked by: —
 Source: Session на ПК владельца, 2026-10-21: зависание на 2 часа в одном прогоне из семи. Номер 84 занят PR #710.
 
