@@ -147,3 +147,22 @@ user. Проверить Ticket глазами каждой роли сейча�
   же Browser-ы.
   (3) Session, которую снова показали, продолжает вызов Browser-а, начатый до Hide, как после
   «Return control to Claude»; так и остаётся.
+- **2026-10-22, решение владельца — кадры для других экранов и Linked machine** (worfy-browser
+  Ticket 07, PR #748). Дополняет пункты 9, 14 и 16. Шесть решений, которые Ticket принял без
+  владельца, приняты:
+  (1) окно-владелец страницы — то, где с Browser-ом работали последним; Linked machine владельцем не
+  бывает;
+  (2) переезд страницы в другое окно пересоздаёт её и перезагружает после 1,5 с покоя ввода в том
+  окне, но не пока Browser-ом управляет Session и не при обработчике `beforeunload`;
+  (3) кадры — JPEG качества 60, не больше 1280 × 1280, не чаще 10 в секунду;
+  (4) вход в аккаунт через кадры с Linked machine с полным доступом разрешён;
+  (5) «назад», «вперёд» и «обновить» в кадрах неактивны;
+  (6) Linked machine не держит Browser Live, если Project не открыт ни в одном окне Machine
+  Project-а.
+- **2026-10-22, решение владельца — что Linked machine с Read only видит о Browser-е** (worfy-browser
+  Ticket 07, PR #748). Дополняет пункт 16 и [ADR-0066](0066-read-only-access-for-a-linked-machine.md).
+  Адресов Browser Node в Layout Linked machine с Read only не получает, но адреса из транскрипта
+  Session (`agent.event`, `claudeHome.search`) и origins Browser profile-ов
+  (`browser.profiles.list`) она видит. Так и остаётся, отдельного Ticket-а нет.
+  `browser.lives.list` и `browser.lives.changed` помечены `write`: список показывает, где работает
+  Session, — это исключение из пункта 3 ADR-0066, записанное там же.

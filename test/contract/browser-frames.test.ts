@@ -437,6 +437,41 @@ describe('a move of the page to another window loses nothing', () => {
     await scrollInSecondWindow()
     expect(browsers.ownerOf(PROJECT, NODE)).toBe(2)
   })
+
+  it('a takeover and a hold outlive the move, and the ask before a Session leaves reaches the page the new window draws', async () => {
+    const page = await twoWindows()
+    const browsers = live.liveBrowsers()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    // A click in the frames of window 2 takes the Browser over from the Session; the user drives
+    // it no more, so the page moves there once the input rests, and the takeover goes with it.
+    browsers.drive(PROJECT, NODE, 'session-1')
+    await browsers.input(PROJECT, NODE, click, 2)
+    await vi.advanceTimersByTimeAsync(live.MOVE_REST_MS + 100)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(browsers.ownerOf(PROJECT, NODE)).toBe(2)
+    expect(browsers.control(PROJECT, NODE)).toEqual({ mode: 'user', sessionId: 'session-1' })
+    expect(browsers.staysWithUser(PROJECT, NODE)).toBe(true)
+    page.close()
+    const moved = draws(2)
+    // Nobody drives it now; a form the user has not sent in the moved page keeps the Browser with
+    // the user when its Session leaves: the ask goes to the new page, not the closed one.
+    browsers.release(PROJECT, NODE)
+    moved.beforeunload = true
+    await browsers.askUnsaved(PROJECT, [NODE])
+    expect(moved.methods()).toContain('DOMDebugger.getEventListeners')
+    expect(browsers.staysWithUser(PROJECT, NODE)).toBe(true)
+    moved.beforeunload = false
+    await browsers.askUnsaved(PROJECT, [NODE])
+    expect(browsers.staysWithUser(PROJECT, NODE)).toBe(false)
+    // The ⌘Z of the Session's Hide gives the user the takeover again; a move back to window 1 keeps it.
+    expect(browsers.holdForUser(PROJECT, NODE, 'session-1')).toBe(true)
+    await browsers.input(PROJECT, NODE, wheel, 1)
+    await vi.advanceTimersByTimeAsync(live.MOVE_REST_MS + 100)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(browsers.ownerOf(PROJECT, NODE)).toBe(1)
+    expect(browsers.control(PROJECT, NODE)).toEqual({ mode: 'user', sessionId: 'session-1' })
+    moved.close()
+  })
 })
 
 describe('the input and the address of another screen', () => {
