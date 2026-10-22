@@ -822,6 +822,30 @@ the old way or one after another — every Check of the Pipeline has its mark on
   with a Russian word in place of `green`: the same verdict, for one release); red — `failure`: the PR is not merged and goes
   back to its implementer as a rework round with that report; "could not verify", or a report on
   another commit — no new mark, and the PR waits.
+- A check a GitHub runner may answer (worfy: `windows` of a platform PR — the project's rules say
+  which PR is a platform one; an ordinary PR stays `skipped`). A script decides, not judgement: on a
+  fresh checkout of the main branch — never the PR's branch, so a PR cannot change its own verdict —
+  `git fetch -q origin <main branch> <branch>` and
+  `node scripts/windows-verdict-scope.mjs origin/<main branch> "$sha"; echo "EXIT=$?"`.
+  - `runner`, `EXIT=0` — dispatch `gh workflow run windows-tests.yml --ref <branch> -f mode=full` and
+    mark `pending`. Find the run with
+    `gh run list --workflow windows-tests.yml --branch <branch> --event workflow_dispatch --json databaseId,headSha,status,conclusion`:
+    only a run whose `headSha` equals the PR's head counts. Wait for it as for the batch CI run
+    (`gh run watch "$id" --exit-status`, below), then read its job of the whole suite:
+    `gh run view "$id" --json jobs --jq '.jobs[] | select(.name == "full-suite") | .conclusion'` — a
+    run of the list mode on the same commit also ends `success`, with that job skipped, and is no
+    verdict. `success` — `check/windows success --sha "$sha"`; `failure` or `timed_out` — `failure`,
+    a rework round with the failing tests (`gh run view "$id" --log-failed`); cancelled, not
+    found, or no `full-suite` job — no new mark, dispatch again. A new head needs a new run.
+  - `pc`, `EXIT=1` (the matching files follow) — the PR touches what the runner cannot check (the
+    Terminal, windows, menus and notifications, e2e, packaging): the session on the Windows PC
+    answers with gate full, as above.
+  - Any other exit code — no verdict: the PR waits; never read it as `runner`.
+  - The main branch gets the same run with each batch CI run of a wave (below): right after
+    `wave-gate ci` dispatches, `gh workflow run windows-tests.yml --ref <main branch> -f mode=full`,
+    and the wait and the read of `full-suite` as above. A red run there is handled like a red batch CI
+    run: the Autopilot run stops after the wave, a new ticket or a `blocked` line, the fix goes
+    forward, no revert.
 - A mark is bound to its commit: after a push or a rebase the new head has no marks, and the PR waits again.
   So a PR merged the old way (a rebase and its own gate full) is rebased before its check is asked for,
   and the block below runs again right before its `gh pr merge`.
