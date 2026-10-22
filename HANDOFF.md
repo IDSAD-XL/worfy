@@ -6,8 +6,8 @@
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26, 28, 34, 35 (#722); приёмка 16; 32 закрыт (#508); 33 открыт. Вне LAN через Tailscale (ADR-0070) — 27, 29–31, после очереди `worfy-windows`.
-- `worfy-windows` (порт под Windows; ADR 0054–0057, 0062, 0063, 0069, 0071): 78/90. Влиты 2026-10-22 ночью: 84 (#729), 87 (#732), 88 (#735), 86 (#736), 42 (#737), #730 (corepack); раньше — 47, 61, 69, 72. 14: группы 1, 2; 06 — `preflight` на ПК; 07 — Q31.
-- `worfy-windows`: 85 в PR #738 ждёт «да» владельца на платный `eval --changed` (3 случая, ≈ $1, Q-H29). ПК: 89 (replay Terminal-а с размерами pty) и 91. 90 (клавиша Git Bash после resize) и 60 (release node-pty) ждут upstream.
+- `worfy-windows` (порт под Windows; ADR 0054–0057, 0062, 0063, 0069, 0071): 80/93. Влиты 2026-10-22: 84, 86–89, 91, 42, #730 (corepack); 92 (#745): утечка handle pseudo-console закреплена, ждёт node-pty. 14: группы 1, 2; 06 — `preflight` на ПК; 07 — Q31.
+- `worfy-windows`: 85 в PR #738 ждёт «да» владельца на платный `eval --changed` (≈ $1, Q-H29). ПК: в работе 93 (история Git Bash при закрытии). 90 (клавиша Git Bash после resize) и 60 (release node-pty) ждут upstream.
 - `worfy-windows` 39 влит (#512): main отвечает на `ESC[6n`, ответы view — не ввод. Цена — скорость flood-а (один worker разбора), владелец принял; ускорить — 67.
 - `worfy-windows` 65, 66, ADR-0071 (2026-10-19): сначала main зелёный на Windows (65, 14), затем 66 — полный `pnpm test` на Windows-runner-е; его зелёный run — `check/windows` для платформенных PR без Terminal, окон, e2e и упаковки.
 - `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) — **отложен владельцем 2026-10-21**: влиты 01–08, 10–14; 09 — приёмка; 15 (low) — связь у программ prompt-а. Долги — «Итог» 11–13.
