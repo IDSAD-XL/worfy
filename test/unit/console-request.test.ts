@@ -433,10 +433,11 @@ describe('TerminalRegistry on Windows and the request of the console', () => {
       await registry.open('a', OPEN, {}, sink(screens[1]))
       const { tokens, expected, requests } = randomStream(random)
       // Without the lone ESC at the end: what is held back at the end is the subject of another test.
-      const text = tokens.join('').replace(/\x1b$/, '')
-      for (const chunk of cutAtRandom(text, random)) fake.print(chunk)
+      const withoutLoneEsc = (stream: string) => (stream.endsWith(ESC) ? stream.slice(0, -1) : stream)
+      for (const chunk of cutAtRandom(withoutLoneEsc(tokens.join('')), random)) fake.print(chunk)
       const kept = (await registry.open('a', OPEN, {}, sink([]))).replay
-      expect([screens[0].join(''), screens[1].join(''), kept, fake.written.length], `stream ${stream}`).toEqual([expected.replace(/\x1b$/, ''), expected.replace(/\x1b$/, ''), expected.replace(/\x1b$/, ''), requests])
+      const shown = withoutLoneEsc(expected)
+      expect([screens[0].join(''), screens[1].join(''), kept, fake.written.length], `stream ${stream}`).toEqual([shown, shown, shown, requests])
       await registry.closeAll()
     }
   })

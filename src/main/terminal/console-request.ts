@@ -52,7 +52,7 @@ export const HOLD_LIMIT = 256
 type State = 'text' | 'escape' | 'first' | 'more'
 
 /** The next character that may start a request. */
-const START = /[\x1b\x9b]/g
+const START = new RegExp(`[${ESC}${CSI}]`, 'g')
 
 /** Takes the device attributes requests out of the output of one shell, whole or cut between chunks. */
 export class ConsoleRequests {
