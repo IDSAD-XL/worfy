@@ -1,7 +1,8 @@
 # 102 — Unpin после перезапуска на Windows сохраняет Node на Canvas на 7.6 px выше места на экране
 
 Type: task
-Status: open
+Status: done 2026-10-22T14:54Z
+PR: #761
 Blocked by: —
 Source: направление Session на Mac 2026-10-22, пересчёт красных e2e [Ticket-а 14](14-gate-full-на-windows.md);
 замер на ПК 2026-10-22, main `d06d2c2d`, масштаб экрана 150 %.

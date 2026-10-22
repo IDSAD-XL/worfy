@@ -1,7 +1,8 @@
 # 94 — Чип состояния «open» на карточке Ticket-а на Windows выше своей рамки на 1 px
 
 Type: task
-Status: open
+Status: done 2026-10-22T14:54Z
+PR: #766
 Blocked by: —
 Source: [Ticket 14](14-gate-full-на-windows.md), e2e группы 4 (stub `epic-status` делит путь по `/`); замер на ПК
 2026-10-22, ветка `worfy-windows/14-paths` поверх main `8f5238c8`, масштаб экрана 150 %.
