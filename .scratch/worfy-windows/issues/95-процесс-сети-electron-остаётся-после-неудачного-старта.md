@@ -162,16 +162,20 @@ sleep 5; ps -axo pid,ppid,lstart,command | grep -F "$D" | grep -v grep
 **Test-ы.** `test/contract/startup-failure.test.ts`: у mock-а `app` появились `isReady()` (true после
 `whenReady()`); новые test-ы — до `ready` выход сразу; после `ready` выход не из того же callback-а и не из
 microtask, а на следующем ходу цикла, один раз, с кодом 1; окно — до выхода; в старте `src/main/index.ts` шаг
-`loadURL` не выходит в том же job-е. 38 из 38, три прогона подряд. Mutant-ы `exitWithFailure`: старый голый
-`app.exit(1)` — 3 красных; всегда отложенный (и до `ready`) — 14; отложенный microtask-ом — 1; отложенный с кодом 0 —
-4. `test/e2e/packaged.spec.ts`, test «with an ELECTRON_RENDERER_URL that is not a URL stops with exit code 1»: через
+`loadURL` не выходит в том же job-е. 38 из 38, три прогона подряд; mutant-ы — в «Круг ревью 2». `test/e2e/packaged.spec.ts`, test «with an ELECTRON_RENDERER_URL that is not a URL stops with exit code 1»: через
 5 s после выхода главного нет процесса с `--user-data-dir` и папкой данных запуска (helper `processesWith` в
 `test/e2e/helpers.ts`: Windows — `Get-CimInstance Win32_Process`, macOS — `ps -axo pid=,command=`); найденные
 снимаются в `finally`. Lint и typecheck — код 0.
 
-**Скрипт замера** на потом: `C:\Users\Alexey\AppData\Local\Temp\wt95-verify.ps1` (10 dev-запусков, временные
-профиль и папки, код выхода и живые через 5 s, снимает только записанные им процессы по pid, времени создания и
-командной строке). Только разобран парсером PowerShell, не запускался.
+**Скрипт замера** на потом: `.scratch/worfy-windows/wt95-verify.ps1` (корень репозитория берёт из своего
+места, другой tree — `-Repo`; 10 dev-запусков, временные профиль и папки, код выхода и живые через 5 s, снимает
+только записанные им процессы по pid, времени создания и командной строке). Только разобран парсером PowerShell, не
+запускался.
+
+**Круг ревью 2.** Проверка «не из microtask» теперь подделывает только `setTimeout` и ждёт настоящего следующего
+хода (`setImmediate`): mutant-ы `process.nextTick` и цепочка `Promise.then` красные (по 3 test-а), как и прежние
+(голый `app.exit(1)` — 5, всегда отложенный — 12, `queueMicrotask` — 3, код 0 — 8). Второй провал — до хода
+таймера. test-ы загрузки окна идут с `ready` = true и проверяют отложенный выход.
 
 **«Готово, когда» — что не проверено и почему:**
 

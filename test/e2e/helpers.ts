@@ -48,7 +48,9 @@ export function processesWith(text: string): ListedProcess[] {
 function listProcesses(): ListedProcess[] {
   if (process.platform === 'win32') {
     const powershell = win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
-    const script = 'ConvertTo-Json -Compress -InputObject @(Get-CimInstance Win32_Process | ForEach-Object { @{ pid = [int]$_.ProcessId; commandLine = [string]$_.CommandLine } })'
+    // Windows PowerShell prints in the console code page unless told otherwise: a path with letters
+    // outside it would not match (as in scripts/install-stable.mjs).
+    const script = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ConvertTo-Json -Compress -InputObject @(Get-CimInstance Win32_Process | ForEach-Object { @{ pid = [int]$_.ProcessId; commandLine = [string]$_.CommandLine } })'
     const out = execFileSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true, maxBuffer: 64 * 1024 * 1024 })
     return JSON.parse(out.trim() || '[]') as ListedProcess[]
   }

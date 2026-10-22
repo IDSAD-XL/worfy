@@ -108,10 +108,10 @@ function icoImages(file: string): Buffer[] {
  */
 const QUITS_WITH_LAST_WINDOW = process.platform !== 'darwin'
 
-/** Waits for a process to exit; past the deadline it is killed, and its exit is still awaited. */
 /** The processes Chromium started for the run over `dataDir`: their command line names it as --user-data-dir. */
 const childrenOfRun = (dataDir: string): ListedProcess[] => processesWith(dataDir).filter((listed) => listed.commandLine.includes('--user-data-dir='))
 
+/** Waits for a process to exit; past the deadline it is killed, and its exit is still awaited. */
 async function exitWithin(child: ChildProcess, ms: number): Promise<{ exited: boolean; code: number | null }> {
   if (child.exitCode !== null || child.signalCode !== null) return { exited: true, code: child.exitCode }
   const exit = new Promise<number | null>((done) => child.once('exit', (code) => done(code)))
