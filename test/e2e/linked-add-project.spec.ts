@@ -16,7 +16,7 @@ import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { canvasReady, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, type LaunchedApp } from './helpers'
+import { canvasReady, icacls, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, thisUser, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { windowsProfileEnv } from './terminal-shell'
 import { loginProfileWithNode, printScript, profileJsonScript } from '../harness-node'
@@ -107,13 +107,6 @@ const homeEnv = (home: string): Record<string, string> => ({ HOME: home, ...wind
 // Pins today's product: src/main/projects/browse.ts:131 hides only dot-folders, so Windows AppData shows.
 const PROFILE_FOLDERS = process.platform === 'win32' ? ['AppData'] : []
 
-/** The user running the tests as icacls names a user: DOMAIN\name (the computer's name for a local account). */
-const thisUser = (): string => `${process.env.USERDOMAIN ?? ''}\\${process.env.USERNAME ?? ''}`
-/** icacls of Windows, by its name: Git Bash on PATH has no program of that name. */
-const icacls = (...args: string[]): void => {
-  execFileSync('icacls', args, { stdio: 'ignore' })
-}
-
 /**
  * Takes away this user's right to list `folder` (`readable` false) or gives it back. Off Windows the
  * mode bits do it. On Windows they do not: NTFS keeps read access by the folder's ACL whatever the
@@ -170,10 +163,14 @@ async function launchPair(scratch: string, run: (pair: Pair) => Promise<void>): 
     await linkThroughUi(a.window, b.window)
     await run({ a, b, bId: await machineIdOf(b.window), aData, bData, bHome: realpathSync(bHome), shop })
   } finally {
-    // First, so that a close that throws cannot leave the folder locked.
-    setReadable(join(bHome, 'locked'), true)
-    await a?.close()
-    await b?.close()
+    // First, so that a close that throws cannot leave the folder locked; and a give-back that throws
+    // still closes both apps.
+    try {
+      setReadable(join(bHome, 'locked'), true)
+    } finally {
+      await a?.close()
+      await b?.close()
+    }
   }
 }
 
@@ -191,7 +188,17 @@ test.beforeEach(async () => {
 })
 
 test.afterEach(async () => {
-  await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  try {
+    // A test stopped by its timeout may not have reached launchPair's finally, and a folder under a
+    // deny entry fails rm with EPERM: put back the inherited ACL of the whole scratch folder first.
+    if (process.platform === 'win32') icacls(scratch, '/reset', '/t', '/c', '/q')
+  } catch (error) {
+    // With /c icacls goes on past a file it cannot reset (one an Electron child still holds) but
+    // still exits non-zero: a cleanup step, so a warning, not a red test.
+    console.warn(`icacls /reset of ${scratch} failed:`, error)
+  } finally {
+    await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
 })
 
 test('in A: Add project → Machine B → B\'s folders → a repository: the Project is added on B, B\'s active one stays, A opens it; no system picker anywhere', async () => {

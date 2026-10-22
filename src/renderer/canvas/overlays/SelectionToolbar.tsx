@@ -20,7 +20,7 @@
 // fits this window's camera to the whole Family, as focusEpic does for a frame — but for the members
 // the tag filter leaves undrawn (find/CanvasFind.tsx). It writes nothing, so it works on the
 // read-only screen too.
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ComponentType, type KeyboardEvent } from 'react'
 import { useNodes, useReactFlow, useStore, useStoreApi, ViewportPortal, type ReactFlowState } from '@xyflow/react'
 import { create } from 'zustand'
 import type { LayoutNode } from '../../../shared/layout/types'
@@ -51,6 +51,7 @@ import {
 import { escapeFoldsDoneStack, foldLastDoneStack } from '../sources/epics'
 import { BINDING_ANCHOR_KIND } from '../sources/workflow-bindings'
 import { addTagOps, normalizeTag, removeTagOps, selectionTags } from '../tags'
+import { useElementSize } from '../use-element-size'
 import { useLayoutOps, type LayoutOps } from '../useLayout'
 import './selection-toolbar.css'
 
@@ -337,24 +338,14 @@ function keepOutKey(state: ReactFlowState): string {
   return selected ? JSON.stringify({ bands, nodes }) : ''
 }
 
-/** The toolbar element's size on the screen, followed while it changes (tags added, a refusal shown); DEFAULT_SIZE until measured. */
+/**
+ * The toolbar element's size on the screen, followed while it changes (tags added, a refusal shown);
+ * DEFAULT_SIZE until measured. Rounded up to whole pixels, as the Focus button's (useElementSize()).
+ */
 function useToolbarSize(): [ToolbarSize, (element: HTMLDivElement | null) => void] {
   const [size, setSize] = useState<ToolbarSize>(DEFAULT_SIZE)
-  const observer = useRef<ResizeObserver | null>(null)
-  const ref = useCallback((element: HTMLDivElement | null) => {
-    observer.current?.disconnect()
-    observer.current = null
-    if (element === null || typeof ResizeObserver === 'undefined') return
-    const measure = () => {
-      // Layout sizes ignore the toolbar's scale(1 / zoom), which cancels the viewport's zoom: screen pixels.
-      const width = element.offsetWidth
-      const height = element.offsetHeight
-      if (width > 0 && height > 0) setSize((old) => (old.width === width && old.height === height ? old : { width, height }))
-    }
-    observer.current = new ResizeObserver(measure)
-    observer.current.observe(element)
-  }, [])
-  return [size, ref]
+  const keep = useCallback((next: ToolbarSize) => setSize((old) => (old.width === next.width && old.height === next.height ? old : next)), [])
+  return [size, useElementSize<HTMLDivElement>(keep)]
 }
 
 export default function SelectionToolbar() {
