@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { _electron, expect, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import type { Reporter, TestCase, TestResult } from '@playwright/test/reporter'
 import { MIN_SIZE } from '../../src/shared/window/bounds'
@@ -18,29 +18,22 @@ const mainEntry = join(repoRoot, 'out', 'main', 'index.js')
 export { GH_STUB } from './launch-env'
 export { START_DIAGNOSTICS } from './start-diagnostics-run'
 
+/** builtApp of scripts/install-stable.mjs: where `pnpm package` leaves the app (test/unit/install-stable-functions.test.ts). */
+const { builtApp } = (await import(pathToFileURL(join(repoRoot, 'scripts', 'install-stable.mjs')).href)) as {
+  builtApp: (platform: string, dist: string, names: string[], exists: (path: string) => boolean) => string
+}
+
 /**
- * The unpacked build `pnpm package` leaves in dist/ for this system (electron-builder.yml): on
- * macOS the one worfy.app in dist/mac-arm64/ or dist/mac/ (depending on the arch), on
- * Windows the folder dist/win-unpacked with worfy.exe in it.
+ * The unpacked build `pnpm package` leaves in dist/ for this system, found as install-stable.mjs
+ * finds it: the one worfy.app in dist/mac-arm64/ or dist/mac/ on macOS, dist\win-unpacked on Windows.
  */
 export function packagedBuild(): string {
-  const distDir = join(repoRoot, 'dist')
-  if (process.platform === 'win32') {
-    const unpacked = join(distDir, 'win-unpacked')
-    if (!existsSync(packagedExecutable(unpacked))) throw new Error(`Expected ${packagedExecutable(unpacked)}. Run \`pnpm test:package\`.`)
-    return unpacked
+  const dist = join(repoRoot, 'dist')
+  try {
+    return builtApp(process.platform, dist, existsSync(dist) ? readdirSync(dist) : [], existsSync)
+  } catch (error) {
+    throw new Error(`${error instanceof Error ? error.message : String(error)}. Run \`pnpm test:package\`.`, { cause: error })
   }
-  const apps = existsSync(distDir)
-    ? readdirSync(distDir)
-        .filter((name) => name.startsWith('mac'))
-        .map((name) => join(distDir, name, 'worfy.app'))
-        .filter((app) => existsSync(app))
-    : []
-  const [app, ...others] = apps
-  if (app === undefined || others.length > 0) {
-    throw new Error(`Expected exactly one dist/mac*/worfy.app, found ${apps.length}. Run \`pnpm test:package\`.`)
-  }
-  return app
 }
 
 /** The program of a packaged build or a stable copy of one: Contents/MacOS/worfy of a .app, worfy.exe of a Windows folder. */

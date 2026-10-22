@@ -676,7 +676,7 @@ test('on Windows, Git Bash chosen in the settings starts in the Project root; cl
   }
 })
 
-test('the Terminal works in the packaged worfy.app (node-pty unpacked from app.asar)', { tag: '@packaged' }, async () => {
+test(`the Terminal works in the packaged ${WINDOWS ? 'worfy.exe' : 'worfy.app'} (node-pty unpacked from app.asar)`, { tag: '@packaged' }, async () => {
   const launched = await launch({ executablePath: packagedExecutable(packagedBuild()) })
   try {
     const { window } = launched
