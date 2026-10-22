@@ -11,7 +11,7 @@ import { createElement, useCallback, type ReactElement } from 'react'
 import { create } from 'zustand'
 import type { WorfyBridge } from '../../shared/ipc/channels'
 import { focusModeActive, useFocusState } from '../focus/focus-state'
-import { subscribe } from '../ipc'
+import { followMenuCommand } from '../menu-command'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { setAppSettings, useAppSettings } from '../settings/useAppSettings'
 import { ariaKeys, label } from '../shortcuts/match'
@@ -68,19 +68,13 @@ export function useSidebarVisibility(): SidebarVisibility {
 
 /**
  * Calls `toggle` when the app menu says so (`menu.command` with `toggleSidebar`, src/main/menu.ts):
- * main sends it to the one window the item was chosen for. Returns the function that unsubscribes;
+ * main sends it to the one window the item was chosen for, and holds it until this subscribed
+ * (src/renderer/menu-command.ts). Returns the function that unsubscribes;
  * without the preload bridge (a unit test of the shell) it subscribes to nothing.
  */
 export function followSidebarCommand(toggle: () => void): () => void {
   if ((globalThis as { worfy?: WorfyBridge }).worfy === undefined) return () => undefined
-  try {
-    return subscribe('menu.command', (command) => {
-      if (command === 'toggleSidebar') toggle()
-    })
-  } catch (error) {
-    console.error('menu.command: cannot subscribe', error)
-    return () => undefined
-  }
+  return followMenuCommand('toggleSidebar', toggle)
 }
 
 export interface SidebarToggleProps {
