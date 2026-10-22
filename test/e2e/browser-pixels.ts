@@ -217,12 +217,14 @@ export const NEAR_BAND = 3
 /**
  * Single pixels of the page in a band NEAR_BAND device px wide just outside `inside` (CSS px,
  * widened by one device pixel, as in pagePixelsOutside), on all four sides and at the corners. What
- * it catches: a visible leak of the page 2 device px or more past an edge of `inside`: past the
- * Node's border around the frame's body, or past the Canvas's edge where the frame crosses it (the
- * 2 px the 3 × 3 count misses included). At the body's edge the Node's own opaque 1 px border
- * (1.5 to 3 device px at 150 %, on which the test draws its green outline) lies over the page layer,
- * so a leak under it is hidden from the user too. What neither measure catches: a leak of 1 device
- * px, the widening. Every pixel of the page's colour counts here, so ClearType fringes would too; the
+ * it catches: a leak of the page 2 device px or more past the Canvas's edge where the frame crosses
+ * it (the 2 px the 3 × 3 count misses included). It does not catch a narrow leak past the Node's
+ * border around the frame's body: there the band lies on that border (the Node's opaque 1 px border
+ * plus the test's green outline, up to 4 device px at zoom 2 and DPR 2) and on the Node's shadow,
+ * which tints the cream out of isCream's tolerance. The Mac measured this: with the page shifted
+ * 30×20 px the band read only its corners. The old count was just as blind there, and the border
+ * covers the page layer (which lies under the Nodes) for the user too. What neither measure
+ * catches: a leak of 1 device px, the widening. Every pixel of the page's colour counts here, so ClearType fringes would too; the
  * ones seen on Windows are far from the frame (the top bar, the Trash button).
  */
 export function pagePixelsNear(image: Image, scale: number, inside: Box): number {
