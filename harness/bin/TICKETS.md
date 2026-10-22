@@ -41,6 +41,10 @@ Source: …
   remove it together with `Blocked reason:`.
 - `PR: #<N>` — `ticket done … --pr N` (Full mode; Silent mode has no `--pr`).
 - `Branch:`, `Repo:`, `Type:`, `Blocked by:`, `Source:` — as before.
+- `Roles: <role>, <role>` — optional: the roles whose Browser checks the ticket needs (for example
+  `Roles: admin, user`); a role is the name of a Browser profile. No script reads it: skill
+  `epic-wave` copies it into the brief's `Browser roles` line, and without it the brief says
+  `Default`.
 `Blocked reason:`, `Waits:` and `PR:` are read only in the header: up to the first `## ` heading after
 the Status line. A `PR: <url>` line of a result section is not the ticket's PR.
 

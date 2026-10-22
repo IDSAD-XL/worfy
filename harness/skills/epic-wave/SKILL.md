@@ -369,7 +369,9 @@ tests for them, not a Browser run in CI. The "Browser roles" line copies the tic
 ticket without the field gets `Default` — one check under the profile named `Default`. Never infer
 roles from the ticket's list of what "done" means. An agent in Autopilot sees only the profiles the
 user marked "Available to Autopilot", and never signs in: a role it cannot check comes back in its
-report's `sign_in_needed`. Browser checks are not the manual GUI checks above: they need no person's
+report's `sign_in_needed`. The agent opens each Browser for its ticket (`browser_open` with
+`ticket: "<epic>/<NN>"`, required in Autopilot), so the Browser is in that ticket's Family. Browser
+checks are not the manual GUI checks above: they need no person's
 screen and no one-agent-at-a-time queue; worfy's limit of Live Browsers bounds them.
 
 The verifier's brief (section 3) carries the same

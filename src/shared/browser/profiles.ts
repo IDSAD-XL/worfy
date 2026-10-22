@@ -63,8 +63,12 @@ export const browserOriginSchema = z.string().refine((value) => {
 /** The longest sign-in page address. */
 export const BROWSER_SIGN_IN_MAX = 2000
 
-/** Whether `value` is an http or https address. */
-const isWebAddress = (value: string): boolean => URL.canParse(value) && /^https?:$/.test(new URL(value).protocol)
+/** Whether `value` is an http or https address without a user name or password in it. */
+const isWebAddress = (value: string): boolean => {
+  if (!URL.canParse(value)) return false
+  const url = new URL(value)
+  return /^https?:$/.test(url.protocol) && url.username === '' && url.password === ''
+}
 
 /**
  * Reads `text` as the sign-in page of a profile (worfy-browser ticket 08, the owner's answer
@@ -77,6 +81,10 @@ export function readSignIn(text: string, origins: readonly string[]): { signIn: 
   const typed = text.trim()
   if (typed === '') return { signIn: undefined, error: undefined }
   if (typed.length > BROWSER_SIGN_IN_MAX) return { signIn: undefined, error: `The sign-in page address is longer than ${BROWSER_SIGN_IN_MAX} characters` }
+  if (URL.canParse(typed) && (new URL(typed).username !== '' || new URL(typed).password !== '')) {
+    // Not echoed: the text holds a password.
+    return { signIn: undefined, error: 'The sign-in page address must not carry a user name or password' }
+  }
   if (!isWebAddress(typed)) return { signIn: undefined, error: `${typed}: write the sign-in page as an http or https address, e.g. http://localhost:3000/login` }
   const url = new URL(typed)
   if (!origins.includes(url.origin)) return { signIn: undefined, error: `${typed}: the sign-in page must be on one of the origins of this profile` }
@@ -98,7 +106,8 @@ export const browserProfileSchema = z.object({
    * The page the site sends a visitor who is not signed in to (readSignIn); absent — none. A Session
    * that lands on it, like one whose page answers 401, hears that the sign-in expired (ticket 08).
    */
-  signIn: z.string().max(BROWSER_SIGN_IN_MAX).refine(isWebAddress, 'a sign-in page is an http or https address').optional(),
+  // A file edited by hand with a bad one (a password in it) loses only this field, not its profiles.
+  signIn: z.string().max(BROWSER_SIGN_IN_MAX).refine(isWebAddress, 'a sign-in page is an http or https address without a user or password').optional().catch(undefined),
 })
 export type BrowserProfile = z.output<typeof browserProfileSchema>
 

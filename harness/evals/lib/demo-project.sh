@@ -242,7 +242,8 @@ EOF
   ],
   "removed": [],
   "not_verified": [],
-  "out_of_scope": []
+  "out_of_scope": [],
+  "sign_in_needed": []
 }
 EOF
 fi

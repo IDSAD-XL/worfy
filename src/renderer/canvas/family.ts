@@ -6,13 +6,17 @@
 //   Ticket     → it, its Epic frame, the agents bound to it with their Subagents
 //   Session    → it, its Subagents, its Browsers, its Ticket and that Ticket's Epic frame (or its Epic frame)
 //   Subagent   → its Session's Family, and what the Subagent is bound to itself
-//   Browser    → its Session's Family (worfy-browser ticket 06, ADR-0078 item 13)
+//   Browser    → its Session's Family (worfy-browser ticket 06, ADR-0078 item 13), and the Ticket
+//                it was opened for with that Ticket's Epic frame (`ticket`, worfy-browser ticket 08)
 //   Epic frame → it, its Tickets, the agents bound to the Epic or to its Tickets with their Subagents
 //
 // "An agent with its Subagents": a bound Session brings its whole Subagent tree; a Subagent bound
 // by itself (a wave's implementer) brings only itself and its Session, not its siblings. A bound
 // Session also brings the Browsers it opened (`openedBy` of the Browser Node,
-// src/main/mcp/browser-server.ts); a Browser the user opened has no `openedBy` and no Family.
+// src/main/mcp/browser-server.ts); a Browser the user opened has no `openedBy` and no Family. A
+// Browser a Session opened for a Ticket (`ticket` of the Node: in Autopilot the Orchestrator's
+// Session opens it for the Ticket its implementer checks) is in that Ticket's Family too, and so in
+// its Epic frame's.
 import type { BindingTarget } from '../../shared/binding/resolve'
 import { EPIC_FRAME_KIND, epicNodeId, SOURCE_NODE_KINDS, SUBAGENT_KIND, TICKET_KIND, ticketNodeId } from '../../shared/layout/derived'
 
@@ -35,8 +39,8 @@ export interface FamilyLinks {
   subagents: readonly { nodeId: string; sessionNodeId: string }[]
   /** Each bound agent's Node — a Session's or a Subagent's — with what it is bound to. */
   bindings: readonly { agentNodeId: string; target: BindingTarget }[]
-  /** Each Browser Node a Session opened, with that Session's Node. Absent — none. */
-  browsers?: readonly { nodeId: string; sessionNodeId: string }[]
+  /** Each Browser Node a Session opened, with that Session's Node and the Ticket it was opened for. Absent — none. */
+  browsers?: readonly { nodeId: string; sessionNodeId: string; ticket?: { epic: string; num: number } | undefined }[]
 }
 
 /**
@@ -64,6 +68,10 @@ interface FamilyIndex {
   openerOf: ReadonlyMap<string, string>
   /** Session Node id → the Browser Nodes it opened. */
   browsersOf: ReadonlyMap<string, readonly string[]>
+  /** Ticket Node id → the Browser Nodes opened for it. */
+  browsersOfTicket: ReadonlyMap<string, readonly string[]>
+  /** Browser Node id → the Ticket it was opened for. */
+  ticketOfBrowser: ReadonlyMap<string, { epic: string; num: number }>
   /** Epic → the agents bound to it or to one of its Tickets. */
   agentsOfEpic: ReadonlyMap<string, readonly string[]>
   /** Ticket Node id → the agents bound to it. */
@@ -90,8 +98,15 @@ function indexOf(links: FamilyLinks): FamilyIndex {
   const agentsOfTicket = new Map<string, string[]>()
   const targetsOf = new Map<string, BindingTarget[]>()
   const browsersOf = new Map<string, string[]>()
+  const browsersOfTicket = new Map<string, string[]>()
+  const ticketOfBrowser = new Map<string, { epic: string; num: number }>()
   for (const { epic, num } of links.tickets) push(ticketsOf, epic, ticketNodeId(epic, num))
-  for (const { nodeId, sessionNodeId } of links.browsers ?? []) push(browsersOf, sessionNodeId, nodeId)
+  for (const { nodeId, sessionNodeId, ticket } of links.browsers ?? []) {
+    push(browsersOf, sessionNodeId, nodeId)
+    if (ticket === undefined) continue
+    push(browsersOfTicket, ticketNodeId(ticket.epic, ticket.num), nodeId)
+    ticketOfBrowser.set(nodeId, ticket)
+  }
   for (const { nodeId, sessionNodeId } of links.subagents) push(subagentsOf, sessionNodeId, nodeId)
   for (const { agentNodeId, target } of links.bindings) {
     push(agentsOfEpic, target.epic, agentNodeId)
@@ -107,6 +122,8 @@ function indexOf(links: FamilyLinks): FamilyIndex {
     subagentsOf,
     openerOf: new Map((links.browsers ?? []).map(({ nodeId, sessionNodeId }) => [nodeId, sessionNodeId])),
     browsersOf,
+    browsersOfTicket,
+    ticketOfBrowser,
     agentsOfEpic,
     agentsOfTicket,
     targetsOf,
@@ -140,17 +157,23 @@ export function familyOf(nodeId: string, links: FamilyLinks): ReadonlySet<string
   const epic = index.epicOfFrame.get(nodeId)
   const ticketEpic = index.epicOfTicket.get(nodeId)
   if (epic !== undefined) {
-    for (const ticket of index.ticketsOf.get(epic) ?? []) family.add(ticket)
+    for (const ticket of index.ticketsOf.get(epic) ?? []) {
+      family.add(ticket)
+      for (const browser of index.browsersOfTicket.get(ticket) ?? []) family.add(browser)
+    }
     for (const agent of index.agentsOfEpic.get(epic) ?? []) addAgent(agent)
   } else if (ticketEpic !== undefined) {
     family.add(epicNodeId(ticketEpic))
     for (const agent of index.agentsOfTicket.get(nodeId) ?? []) addAgent(agent)
+    for (const browser of index.browsersOfTicket.get(nodeId) ?? []) family.add(browser)
   } else {
     const session = index.sessionOf.get(nodeId) ?? index.openerOf.get(nodeId) ?? (index.sessions.has(nodeId) ? nodeId : undefined)
     if (session === undefined) return null
     addSession(session)
     addTargets(session)
     if (nodeId !== session) addTargets(nodeId)
+    const ticket = index.ticketOfBrowser.get(nodeId)
+    if (ticket !== undefined) family.add(ticketNodeId(ticket.epic, ticket.num)).add(epicNodeId(ticket.epic))
   }
   return family.size > 1 ? family : null
 }
@@ -169,14 +192,16 @@ const layoutData = (node: FlowNodeLike): Record<string, unknown> => {
 
 /** The links of a Family, read from the Nodes React Flow has now (a Node of each source carries its facts in `data.node.data`). */
 export function familyLinksOf(nodes: Iterable<FlowNodeLike>): FamilyLinks {
-  const links = { epics: [] as string[], tickets: [] as { epic: string; num: number }[], sessions: [] as string[], subagents: [] as { nodeId: string; sessionNodeId: string }[], bindings: [] as { agentNodeId: string; target: BindingTarget }[], browsers: [] as { nodeId: string; sessionNodeId: string }[] }
+  const links = { epics: [] as string[], tickets: [] as { epic: string; num: number }[], sessions: [] as string[], subagents: [] as { nodeId: string; sessionNodeId: string }[], bindings: [] as { agentNodeId: string; target: BindingTarget }[], browsers: [] as { nodeId: string; sessionNodeId: string; ticket?: { epic: string; num: number } }[] }
   /** The Session Node of each Session, by its id: the first Node that shows it. */
   const sessionNodes = new Map<string, string>()
-  const opened: { nodeId: string; sessionId: string }[] = []
+  const opened: { nodeId: string; sessionId: string; ticket?: { epic: string; num: number } }[] = []
   for (const node of nodes) {
     const data = layoutData(node)
     if (node.type === BROWSER_KIND) {
-      if (typeof data.openedBy === 'string' && data.openedBy !== '') opened.push({ nodeId: node.id, sessionId: data.openedBy })
+      const ticket = data.ticket as { epic?: unknown; num?: unknown } | undefined
+      const forTicket = typeof ticket?.epic === 'string' && typeof ticket.num === 'number' ? { ticket: { epic: ticket.epic, num: ticket.num } } : {}
+      if (typeof data.openedBy === 'string' && data.openedBy !== '') opened.push({ nodeId: node.id, sessionId: data.openedBy, ...forTicket })
     } else if (node.type === EPIC_FRAME_KIND) {
       const epic = (data.epic as { epic?: unknown } | undefined)?.epic
       if (typeof epic === 'string') links.epics.push(epic)
@@ -194,9 +219,9 @@ export function familyLinksOf(nodes: Iterable<FlowNodeLike>): FamilyLinks {
     }
   }
   // A Browser whose Session has no Node on the Canvas has no Family.
-  for (const { nodeId, sessionId } of opened) {
+  for (const { nodeId, sessionId, ticket } of opened) {
     const sessionNodeId = sessionNodes.get(sessionId)
-    if (sessionNodeId !== undefined) links.browsers.push({ nodeId, sessionNodeId })
+    if (sessionNodeId !== undefined) links.browsers.push({ nodeId, sessionNodeId, ...(ticket === undefined ? {} : { ticket }) })
   }
   return links
 }

@@ -4,11 +4,13 @@
 // interrupted, so its Session stays unattended for the whole test. As that Session:
 // - browser_list names only the Browser profile marked «Available to Autopilot» («user»);
 // - browser_open under «admin», not marked, answers an error naming «admin», and makes no Browser;
-// - browser_open under «user» opens a Browser, opened by the Session;
+// - browser_open needs the Ticket in Autopilot, one of the Epic the run works on;
+// - browser_open under «user» for Ticket demo/01 opens a Browser, opened by the Session;
 // - a page that redirects to the profile's sign-in page answers «Sign-in expired in Browser profile
 //   "user"» (the owner's answer 2026-10-23), and on that sign-in page the password field stays
 //   empty: browser_type into it is refused, and no call filled it;
-// - the Browser is in the Family of the Ticket the Session works on: hovering Ticket 01 lights it.
+// - the Browser is in the Family of the Ticket it was opened for: hovering Ticket 01 lights it, with
+//   no Binding of the Session to that Ticket (the Orchestrator of a Wave is bound to the Epic).
 //
 // The fake agent calls no MCP tool, so the test calls the tools in main as the Session would
 // (globalThis.worfyBrowserTool, src/main/mcp/browser-server.ts); main tells an unattended Session by
@@ -62,7 +64,8 @@ function git(cwd: string, ...args: string[]): void {
 
 /**
  * The Project in a temporary folder: a git repository with the Epic `demo` (Ticket 01 with
- * `Roles: user`, Ticket 02), an epic-status that answers them, and worfy's data folder with the
+ * `Roles: user`, which only the Harness text reads — the fake agent and worfy do not; Ticket 02),
+ * an epic-status that answers them, and worfy's data folder with the
  * Project and its two Browser profiles: «user», marked for Autopilot with its sign-in page, and
  * «admin», not marked.
  */
@@ -141,7 +144,7 @@ const frameOf = (window: Page, id: string): Locator => window.locator(`[data-tes
 const expectLit = (window: Page, ids: readonly string[]): Promise<void> =>
   expect.poll(() => window.locator('[data-testid="browser-frame"][data-family="lit"]').evaluateAll((frames) => frames.map((frame) => frame.getAttribute('data-node-id')))).toEqual(ids)
 
-test('the Session Autopilot runs uses only the Browser profiles marked for it, is told an expired sign-in, never fills the password, and its Browser is in the Ticket’s Family', async () => {
+test('the Session Autopilot runs uses only the Browser profiles marked for it, opens a Browser for a Ticket of its Epic, is told an expired sign-in, never fills the password, and its Browser is in the Ticket’s Family', async () => {
   test.setTimeout(120_000)
   const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-browser-autopilot-')))
   const { dataDir, claudeHome, repo } = prepare(scratch)
@@ -152,7 +155,7 @@ test('the Session Autopilot runs uses only the Browser profiles marked for it, i
     const { app, window } = launched
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 900))
     const ticket = window.locator('[data-testid="ticket-node"][data-ticket="1"]')
-    await canvasReady(launched, { visible: [ticket] })
+    await canvasReady(launched, { visible: [ticket, window.locator('[data-testid="ticket-node"][data-ticket="2"]')] })
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
 
     // Autopilot takes the Orchestrator: its Session runs unattended while the Wave's turn holds.
@@ -176,29 +179,39 @@ test('the Session Autopilot runs uses only the Browser profiles marked for it, i
     expect(admin).toContain('is not available to Autopilot')
     await expect(window.locator('[data-testid="browser-frame"]')).toHaveCount(0)
 
-    // «user» opens, as the Session's own Browser.
-    const opened = ok<{ id: string; url: string }>(await tool(app, session, 'browser_open', { profile: USER, url: `${origin}/` }), 'browser_open user')
-    expect(opened.url).toBe(`${origin}/`)
+    // In Autopilot a Browser is opened for a Ticket of the run's Epic, and only then.
+    expect(refusal(await tool(app, session, 'browser_open', { profile: USER, url: `${origin}/` }), 'browser_open without ticket')).toContain('needs `ticket`')
+    expect(refusal(await tool(app, session, 'browser_open', { profile: USER, ticket: 'other/01' }), 'browser_open other epic')).toContain('not of Epic demo')
+    expect(refusal(await tool(app, session, 'browser_open', { profile: USER, ticket: 'demo/07' }), 'browser_open unknown ticket')).toContain('Epic demo has no Ticket 07')
+    await expect(window.locator('[data-testid="browser-frame"]')).toHaveCount(0)
+
+    // «user» opens for Ticket 01, as the Session's own Browser.
+    const opened = ok<{ id: string; url: string; ticket: string }>(await tool(app, session, 'browser_open', { profile: USER, url: `${origin}/`, ticket: 'demo/01' }), 'browser_open user')
+    expect(opened).toMatchObject({ url: `${origin}/`, ticket: 'demo/01' })
     await expect(frameOf(window, opened.id)).toBeVisible({ timeout: 20_000 })
     const saved = (): { id: string; data: { openedBy?: string } }[] => (JSON.parse(readFileSync(join(dataDir, PROJECT, 'layout.json'), 'utf8')) as { nodes: { id: string; data: { openedBy?: string } }[] }).nodes
     await expect.poll(() => saved().find((node) => node.id === opened.id)?.data.openedBy, { timeout: 10_000 }).toBe(session)
+    expect(saved().find((node) => node.id === opened.id)?.data).toMatchObject({ ticket: { epic: EPIC, num: 1 } })
 
     // The site sends it to the sign-in page: the sign-in expired, and the Session is told so.
     const expired = refusal(await tool(app, session, 'browser_navigate', { id: opened.id, url: `${origin}/account` }), 'browser_navigate /account')
     expect(expired).toContain('Sign-in expired in Browser profile "user"')
     expect(expired).toContain(`${origin}/login`)
-    // On the sign-in page no call fills the password: typing into it is refused.
-    expect(refusal(await tool(app, session, 'browser_type', { id: opened.id, selector: '#password', text: 'hunter2' }), 'browser_type #password')).toContain('This is a password field')
+    // On the sign-in page the Session in Autopilot may only navigate away: no typing, no click.
+    const typing = refusal(await tool(app, session, 'browser_type', { id: opened.id, selector: '#password', text: 'hunter2' }), 'browser_type #password')
+    expect(typing).toContain('only browser_navigate away is allowed')
+    expect(refusal(await tool(app, session, 'browser_click', { id: opened.id, selector: 'button' }), 'browser_click Sign in')).toContain('only browser_navigate away is allowed')
     await expect.poll(() => passwords(app, '/login'), { timeout: 10_000 }).toEqual([''])
 
-    // The Session works on Ticket 01 (as the user binds it by dropping its Node there): the Browser
-    // it opened is in that Ticket's Family.
-    expect(await bridgeCall(window, 'bindings.set', { projectId: PROJECT, sessionId: session, agentId: null, target: { kind: 'ticket', epic: EPIC, num: 1 } })).toMatchObject({ ok: true })
+    // The Browser is in the Family of Ticket 01, which it was opened for; not in Ticket 02's.
     await canvasReady(launched, { visible: [ticket, frameOf(window, opened.id)] })
     await parkPointer(window)
     await expectLit(window, [])
     await ticket.hover()
     await expectLit(window, [opened.id])
+    await parkPointer(window)
+    await window.locator('[data-testid="ticket-node"][data-ticket="2"]').hover()
+    await expectLit(window, [])
     await parkPointer(window)
 
     expect(await bridgeCall(window, 'autopilot.forceStop', { projectId: PROJECT })).toMatchObject({ ok: true })

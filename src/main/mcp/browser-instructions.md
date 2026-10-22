@@ -15,7 +15,9 @@ login of one role of the Project's web app (admin, moderator, user…). Drive it
   profile's sign-in page or the site answered 401. Stop working under that profile: do not sign
   in, do not guess from the page's text, and say which profile needs the user.
 - Unattended (Autopilot), you see only the Browser profiles the user marked «Available to
-  Autopilot»; the others do not exist for you. A role without such a profile, or one whose sign-in
+  Autopilot»; the others do not exist for you. `browser_open` then needs `ticket`: the
+  `<epic>/<NN>` of the Ticket you check, one of the Epic the run works on. While a Browser is on
+  its sign-in page you may only `browser_navigate` away from it. A role without such a profile, or one whose sign-in
   expired, goes into your report as `sign-in needed as <role>` or
   `sign-in expired in Browser profile <name>`, and the work goes on without that check.
 - A page outside the profile's origins is refused, whatever leads there: your URL, a link you

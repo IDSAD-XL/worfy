@@ -222,7 +222,9 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
 `browser_open`, …). Acceptance criteria that a person would check in the project's web pages are
 checked in a Browser, once under each role of the brief's line `Browser roles` (no line — `Default`).
 A role is the name of a Browser profile, as `browser_list` lists it; never guess a role from the
-ticket's list of what "done" means. A Browser profile holds a sign-in the user made by hand: never
+ticket's list of what "done" means. Open each Browser with `browser_open` and `ticket` set to your
+ticket as `<epic>/<NN>` (from the brief's `Ticket:` line): the Browser then joins that ticket's
+Family, and in Autopilot `browser_open` refuses a call without it. A Browser profile holds a sign-in the user made by hand: never
 sign in yourself and never type a password, not even one from a fixture, a seed file or the chat.
 - A role with no profile of that name in `browser_list` (in Autopilot the list holds only the
   profiles marked "Available to Autopilot") goes into `sign_in_needed` as

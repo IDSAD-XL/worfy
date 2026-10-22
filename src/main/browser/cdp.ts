@@ -322,6 +322,8 @@ export class CdpPage {
     contents.debugger.on('detach', () => {
       this.attaching = null
       this.mainFrame = null
+      // What loads while nothing listens is unknown: a 401 seen before must not stand for the page after.
+      this.mainDocumentStatus = null
       for (const listener of [...this.detached]) listener()
     })
   }

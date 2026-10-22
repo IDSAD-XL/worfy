@@ -121,6 +121,41 @@ describe('familyOf: the Browsers a Session opened (worfy-browser ticket 06, ADR-
   })
 })
 
+describe('familyOf: a Browser opened for a Ticket (worfy-browser ticket 08)', () => {
+  // Session B (bound to Epic e, as the Orchestrator of a Wave) opened Browser t for Ticket e/2 and
+  // Browser b for none.
+  const forTicket: FamilyLinks = {
+    ...links,
+    browsers: [
+      { nodeId: 'browser-t', sessionNodeId: S('B'), ticket: { epic: 'e', num: 2 } },
+      { nodeId: 'browser-b', sessionNodeId: S('B') },
+    ],
+  }
+  const ofT = (nodeId: string): string[] | null => sorted(familyOf(nodeId, forTicket))
+
+  it('is in that Ticket’s Family and its Epic frame’s; the other Tickets of the Epic do not have it', () => {
+    expect(ofT(ticketNodeId('e', 2))).toContain('browser-t')
+    expect(ofT(ticketNodeId('e', 2))).not.toContain('browser-b')
+    expect(ofT(ticketNodeId('e', 1))).not.toContain('browser-t')
+    expect(ofT(epicNodeId('e'))).toEqual(expect.arrayContaining(['browser-t', 'browser-b']))
+    expect(ofT(epicNodeId('f'))).not.toContain('browser-t')
+  })
+
+  it('hovering it gives its Session’s Family with that Ticket', () => {
+    expect(ofT('browser-t')).toEqual([...(ofT(S('B')) ?? []), ticketNodeId('e', 2)].sort())
+    expect(ofT('browser-b')).toEqual(ofT(S('B')))
+  })
+
+  it('is read from the Node’s `ticket`', () => {
+    const flow = (id: string, type: string, data: Record<string, unknown>) => ({ id, type, data: { node: { id, kind: type, x: 0, y: 0, w: 1, h: 1, hidden: false, locked: false, pinned: false, tags: [], data } } })
+    const nodes = [flow(S('O'), 'orchestrator', { sessionId: 'O' }), flow('browser-t', 'browser', { profile: 'p', openedBy: 'O', ticket: { epic: 'e', num: 2 } }), flow('browser-x', 'browser', { profile: 'p', openedBy: 'O', ticket: 'e/2' })]
+    expect(familyLinksOf(nodes).browsers).toEqual([
+      { nodeId: 'browser-t', sessionNodeId: S('O'), ticket: { epic: 'e', num: 2 } },
+      { nodeId: 'browser-x', sessionNodeId: S('O') },
+    ])
+  })
+})
+
 describe('familyLinksOf', () => {
   const layoutNode = (id: string, kind: string, data: Record<string, unknown>) => ({ id, kind, x: 0, y: 0, w: 1, h: 1, hidden: false, locked: false, pinned: false, tags: [], data })
   const flowNode = (id: string, type: string, data: Record<string, unknown>) => ({ id, type, data: { node: layoutNode(id, type, data) } })

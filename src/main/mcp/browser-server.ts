@@ -31,7 +31,10 @@
 // A Session never signs in (ADR-0078 item 5). When the page of a call lands on the profile's sign-in
 // page, or its main document answers 401 (the owner's answer 2026-10-23), the sign-in expired: a
 // Session in Autopilot gets the call refused with SIGN_IN_EXPIRED, any other Session the usual answer
-// with a note to ask the user.
+// with a note to ask the user. While the page is there, a Session in Autopilot may only navigate
+// away: a click could press a "Sign in as…" button or a single sign-on (ADR-0078 item 10).
+// A Browser is opened for a Ticket (`ticket`, required in Autopilot): main checks the Ticket is in
+// the Project — and in Autopilot of the Epic the run works on — and the Browser joins its Family.
 // A refused call is a tool error with a message, never an exception.
 import { randomUUID } from 'node:crypto'
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
@@ -63,7 +66,7 @@ import { browserProfileStore } from '../browser/profiles'
 import { layoutStore } from '../layout/store'
 import { projectStore, type StoredProject } from '../projects/store'
 import instructions from './browser-instructions.md?raw'
-import { observeMessages, projectForCwd, repositoryRoot, type CanvasLayout } from './canvas-server'
+import { appDeps as canvasAppDeps, observeMessages, projectForCwd, repositoryRoot, type CanvasLayout, type CanvasWorkflow } from './canvas-server'
 
 /** The kind of a Browser Node (BROWSER_KIND, src/renderer/canvas/nodes/browser-frame.ts). */
 const BROWSER_KIND = 'browser'
@@ -84,6 +87,10 @@ export interface BrowserContext {
   liveWaitMs?: number
   /** The Session runs unattended (Autopilot): only the profiles marked «Available to Autopilot» exist for it. */
   autopilot?: boolean
+  /** The Project's Epics and Tickets, read when a Browser is opened for a Ticket. */
+  workflow?: () => Promise<CanvasWorkflow>
+  /** The Epic of the Project's Autopilot run, or null when none runs. */
+  runningEpic?: () => Promise<string | null>
 }
 
 export type BrowserToolContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
@@ -130,7 +137,14 @@ export function signInExpiry(profile: BrowserProfile, url: string, status: numbe
   if (status === 401) return `${head}: the page answered 401 Unauthorized.`
   if (profile.signIn === undefined || !URL.canParse(url) || !URL.canParse(profile.signIn)) return null
   const [here, signIn] = [new URL(url), new URL(profile.signIn)]
-  return here.origin === signIn.origin && here.pathname === signIn.pathname ? `${head}: the page went to its sign-in page ${profile.signIn}.` : null
+  // Only the origin and path are named: the stored address is the user's, and its query is not ours to show.
+  return here.origin === signIn.origin && here.pathname === signIn.pathname ? `${head}: the page went to its sign-in page ${signIn.origin}${signIn.pathname}.` : null
+}
+
+/** A Ticket a Browser is opened for. */
+interface BrowserTicket {
+  epic: string
+  num: number
 }
 
 /**
@@ -156,11 +170,35 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
    * sign-in refuses the call — nobody is there to sign in, and the Session never does; otherwise the
    * answer carries the note.
    */
-  const arrived = <T extends { url: string }>(page: CdpPage, profile: BrowserProfile, answer: T): T | (T & { signIn: string }) => {
+  const arrived = <T extends { url: string }>(id: string, page: CdpPage, profile: BrowserProfile, answer: T): T | (T & { signIn: string }) => {
     const expired = signInExpiry(profile, answer.url, page.documentStatus())
     if (expired === null) return answer
-    if (autopilot) throw new ToolError(`${expired} Do not sign in yourself: stop the checks under this profile and report "sign-in expired in Browser profile ${profile.name}". The page is at ${answer.url}.`)
+    if (autopilot) throw new ToolError(`${expired} Do not sign in yourself: stop the checks under this profile and report "sign-in expired in Browser profile ${profile.name}". Browser ${id} is at ${answer.url}.`)
     return { ...answer, signIn: `${expired} Do not sign in yourself: ask the user to sign in in this Browser.` }
+  }
+  /**
+   * The Ticket `text` names, checked before a Browser is made for it: one of the Project's Tickets,
+   * and in Autopilot one of the Epic the run works on. In Autopilot it must be given.
+   */
+  const ticketFor = async (text: string | undefined): Promise<BrowserTicket | null> => {
+    if (text === undefined) {
+      if (autopilot) throw new ToolError('In Autopilot, browser_open needs `ticket`: the "<epic>/<NN>" of the Ticket you check, from your brief.')
+      return null
+    }
+    const [, epic = '', digits = ''] = /^(.+)\/([0-9]+)$/.exec(text) ?? []
+    const num = Number(digits)
+    const name = `${epic}/${String(num).padStart(2, '0')}`
+    if (autopilot) {
+      const running = context.runningEpic === undefined ? null : await context.runningEpic()
+      if (running === null) throw new ToolError(`No Autopilot run works on an Epic of this Project now, so no Browser is opened for Ticket ${name}.`)
+      if (running !== epic) throw new ToolError(`Ticket ${name} is not of Epic ${running}, the one this Autopilot run works on.`)
+    }
+    if (context.workflow === undefined) throw new ToolError(`The Tickets of this Project cannot be read here, so ${name} cannot be checked.`)
+    const model = await context.workflow()
+    if (model.error) throw new ToolError(`Could not read the Tickets of this Project to check ${name}: ${model.error.message}`)
+    if (!model.epics.some((each) => each.epic === epic) && !model.tickets.some((each) => each.epic === epic)) throw new ToolError(`This Project has no Epic ${epic}.`)
+    if (!model.tickets.some((each) => each.epic === epic && each.num === num)) throw new ToolError(`Epic ${epic} has no Ticket ${String(num).padStart(2, '0')}.`)
+    return { epic, num }
   }
   const me = (): string => {
     const id = context.sessionId()
@@ -200,7 +238,17 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
    */
   const drive = async (id: string, leaves = false) => {
     const session = me()
-    const { profile } = browserOf(id, session)
+    const { node, profile } = browserOf(id, session)
+    // In Autopilot, on its sign-in page (or a 401 page) only a way out is left: no click, no typing,
+    // not even a look, which could lead to one. Checked before the Session takes or wakes anything,
+    // on the page as it is now (or as it was left, when Asleep), and again once it is live.
+    const onSignIn = (url: string, status: number | null): void => {
+      if (!autopilot || leaves) return
+      const expired = signInExpiry(profile, url, status)
+      if (expired !== null) throw new ToolError(`${expired} Browser ${id} is there: only browser_navigate away is allowed. Do not sign in yourself; report "sign-in expired in Browser profile ${profile.name}".`)
+    }
+    const before = live.page(projectId, id)
+    onSignIn(before?.contents.getURL() ?? (typeof node.data.url === 'string' ? node.data.url : ''), before?.documentStatus() ?? null)
     // A refused call leaves no «Claude is driving» behind: what can refuse is checked before the
     // Session takes the Browser, and a call that took it and then fails (the debugger could not
     // attach, the page went off the list meanwhile) gives it up again.
@@ -218,6 +266,7 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
       }
     }
     offList()
+    onSignIn(page.contents.getURL(), page.documentStatus())
     // The Session may have left the Canvas while the Browser woke: main dropped its control then,
     // and nothing would drop one taken now.
     mayStillDrive(session)
@@ -240,7 +289,7 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
     const result = await page.navigate(url)
     const where = outcome(result)
     if (result.error !== null) throw new ToolError(`The page could not be opened: ${result.error}. It is at ${where.url}.`)
-    return arrived(page, profile, where)
+    return arrived(id, page, profile, where)
   }
 
   return {
@@ -252,6 +301,7 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
         profile: typeof node.data.profile === 'string' ? node.data.profile : null,
         url: typeof node.data.url === 'string' ? node.data.url : null,
         openedBy: typeof node.data.openedBy === 'string' ? node.data.openedBy : null,
+        ticket: ticketOfNode(node),
         live: live.page(projectId, node.id) !== undefined,
         control: live.control(projectId, node.id)?.mode ?? null,
       })),
@@ -268,6 +318,7 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
         const refusal = originRefusal(args.url, profile.name, profile.origins)
         if (refusal !== null) throw new ToolError(refusal)
       }
+      const ticket = await ticketFor(args.ticket)
       const sessionId = me()
       // Off the Canvas, the Session opens no Browser: one opened now would stay after it, since
       // nothing takes the Session off the Canvas again.
@@ -285,11 +336,22 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
       const spot = placeNear(visible, anchor, BROWSER_SIZE.w, BROWSER_SIZE.h)
       // The address comes after the page exists, through the Session's own navigation: so a
       // redirect of the first page is checked as any other.
-      layout.apply(projectId, { op: 'create', node: { id, kind: BROWSER_KIND, ...spot, ...BROWSER_SIZE, data: { profile: profile.id, openedBy: sessionId } } })
+      layout.apply(projectId, { op: 'create', node: { id, kind: BROWSER_KIND, ...spot, ...BROWSER_SIZE, data: { profile: profile.id, openedBy: sessionId, ...(ticket === null ? {} : { ticket }) } } })
       // The Session drives it from the start: the frame shows so, and the origin wall stands before the first page.
       const where = args.url === undefined ? (await drive(id), null) : await go(id, args.url)
       const node = layout.get(projectId).layout.nodes.find((each) => each.id === id)
-      return { id, profile: profile.id, x: node?.x, y: node?.y, w: node?.w, h: node?.h, url: where?.url ?? null, title: where?.title ?? null }
+      return {
+        id,
+        profile: profile.id,
+        ticket: ticket === null ? null : `${ticket.epic}/${String(ticket.num).padStart(2, '0')}`,
+        x: node?.x,
+        y: node?.y,
+        w: node?.w,
+        h: node?.h,
+        url: where?.url ?? null,
+        title: where?.title ?? null,
+        ...(where !== null && 'signIn' in where ? { signIn: where.signIn } : {}),
+      }
     },
 
     browser_navigate: (args) => go(args.id, args.url),
@@ -297,13 +359,13 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
     browser_click: async (args) => {
       const target = targetOf(args)
       const { page, profile } = await drive(args.id)
-      return arrived(page, profile, outcome(await page.click(target)))
+      return arrived(args.id, page, profile, outcome(await page.click(target)))
     },
 
     browser_type: async (args) => {
       const target = targetOf(args)
       const { page, profile } = await drive(args.id)
-      return arrived(page, profile, outcome(await page.type(target, args.text, args.submit)))
+      return arrived(args.id, page, profile, outcome(await page.type(target, args.text, args.submit)))
     },
 
     browser_screenshot: async (args): Promise<BrowserToolResult> => {
@@ -317,6 +379,12 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
 
     browser_network: async (args) => ({ requests: (await drive(args.id)).page.network() }),
   }
+}
+
+/** The Ticket a Browser Node was opened for, as `<epic>/<NN>`, or null. */
+function ticketOfNode(node: LayoutNode): string | null {
+  const ticket = node.data.ticket as { epic?: unknown; num?: unknown } | undefined
+  return typeof ticket?.epic === 'string' && typeof ticket.num === 'number' ? `${ticket.epic}/${String(ticket.num).padStart(2, '0')}` : null
 }
 
 /** A Browser Node id no Node of the Layout has, an archived one included. */
@@ -380,6 +448,10 @@ export interface BrowserDeps {
   profiles: (projectId: string) => readonly BrowserProfile[]
   live: LiveBrowsers
   repositoryRoot?: (folder: string) => Promise<string | null>
+  /** The Epics and Tickets of Project `projectId`. */
+  workflow?: (projectId: string) => Promise<CanvasWorkflow>
+  /** The Epic the Autopilot run of Project `projectId` works on, or null. */
+  runningEpic?: (projectId: string) => Promise<string | null>
 }
 
 export const browserAppDeps = (): BrowserDeps => ({
@@ -387,6 +459,9 @@ export const browserAppDeps = (): BrowserDeps => ({
   layout: layoutStore(),
   profiles: (projectId) => browserProfileStore().list(projectId),
   live: liveBrowsers(),
+  workflow: (projectId) => canvasAppDeps().workflow(projectStore().get(projectId).path),
+  // Loaded when asked: the Autopilot module brings the Session registry, which loads this module.
+  runningEpic: async (projectId) => (await import('../ipc/autopilot')).sharedAutopilot().state(projectId).epic,
 })
 
 /** What a Browser server is made for: where the Session starts, the session it resumes, and whether it runs unattended (Autopilot). */
@@ -394,7 +469,17 @@ export type BrowserResolver = (request: { cwd: string; resume: string | undefine
 
 /** The context of Session `sessionId` in Project `projectId`, with the app's stores; `autopilot` for a Session that runs unattended. */
 export function appBrowserContext(projectId: string, sessionId: () => string | null, deps: BrowserDeps = browserAppDeps(), autopilot = false): BrowserContext {
-  return { projectId, layout: deps.layout, profiles: () => deps.profiles(projectId), live: deps.live, sessionId, autopilot }
+  const { workflow, runningEpic } = deps
+  return {
+    projectId,
+    layout: deps.layout,
+    profiles: () => deps.profiles(projectId),
+    live: deps.live,
+    sessionId,
+    autopilot,
+    ...(workflow === undefined ? {} : { workflow: () => workflow(projectId) }),
+    ...(runningEpic === undefined ? {} : { runningEpic: () => runningEpic(projectId) }),
+  }
 }
 
 /**
