@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { creamInside, decodePng, edgeErrors, pagePixelsOutside, type Box, type Edge, type Image } from './browser-pixels'
+import { creamInside, decodePng, edgeBound, edgeErrors, pagePixelsNear, pagePixelsOutside, type Box, type Edge, type Image } from './browser-pixels'
 import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 
@@ -381,14 +381,18 @@ for (const { zoom, viewport, edges } of ZOOMS) {
     if (zoom !== 0.25) evidence(file, `browser-layer-clip-zoom-${zoom}`)
     const errors = edgeErrors(image, scale, body!, zoom, edges)
     // Clipped: no pixel of the page outside the part of the frame's body that is on the Canvas.
+    // Anywhere in the window in 3 × 3 blocks (pagePixelsOutside), and pixel by pixel in a band just
+    // outside that part, on all four sides, the Canvas's edge included (pagePixelsNear).
     const canvas = (await window.getByTestId('canvas').boundingBox())!
     const visible = intersect(body!, canvas)
     const outside = pagePixelsOutside(image, scale, visible)
+    const near = pagePixelsNear(image, scale, visible)
     const sidebar = canvas.x > 0 ? pagePixelsOutside(image, scale, { x: canvas.x, y: 0, width: image.width / scale, height: image.height / scale }) : 0
     const guest = (await guestState())!
-    report(`zoom ${zoom}`, { guestViewport: [guest.innerWidth, guest.innerHeight, guest.devicePixelRatio], edgeErrorsPx: Object.fromEntries(Object.entries(errors).map(([edge, value]) => [edge, round(value)])), pagePixelsOutsideFrame: outside, pagePixelsLeftOfCanvas: sidebar, pageWidthPx: round(page!.width) })
-    for (const edge of edges) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(1)
+    report(`zoom ${zoom}`, { guestViewport: [guest.innerWidth, guest.innerHeight, guest.devicePixelRatio], edgeErrorsPx: Object.fromEntries(Object.entries(errors).map(([edge, value]) => [edge, round(value)])), pagePixelsOutsideFrame: outside, pagePixelsNearFrame: near, pagePixelsLeftOfCanvas: sidebar, pageWidthPx: round(page!.width) })
+    for (const edge of edges) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(edgeBound(scale))
     expect(outside, 'page pixels outside the frame').toBe(0)
+    expect(near, 'page pixels just outside the frame').toBe(0)
     expect(sidebar, 'page pixels left of the Canvas').toBe(0)
     if (zoom !== 1) return
 
@@ -423,6 +427,9 @@ const intersect = (a: Box, b: Box): Box => {
 async function plainWindowShot(width: number, height: number): Promise<Buffer> {
   const base64 = await launched!.app.evaluate(async ({ BrowserWindow }, { url, width: w, height: h }) => {
     const plain = new BrowserWindow({ width: w, height: h, useContentSize: true, show: false, paintWhenInitiallyHidden: true, frame: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } })
+    // On Windows at 150 % the window is created 2 CSS px taller than asked (638 × 410 comes out as
+    // 638 × 412); setting the content size again gives the size asked. A no-op where it already is.
+    plain.setContentSize(w, h)
     try {
       await plain.loadURL(url)
       await plain.webContents.executeJavaScript('new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))')

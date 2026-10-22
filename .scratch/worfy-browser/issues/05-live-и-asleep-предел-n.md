@@ -1,7 +1,8 @@
 # 05 — Live и Asleep: правила сна, предел N = 3, проверка `beforeunload`, пороги в Settings
 
 Type: task
-Status: claimed 2026-10-22T06:05Z
+Status: done 2026-10-22T22:48Z
+PR: #741
 Branch: worfy-browser/05
 Blocked by: 04
 Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md) (Browser Node), пункт 6
