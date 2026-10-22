@@ -112,7 +112,8 @@ describe('terminalShell on Windows', () => {
 
   it('is Git Bash with --login -i when the Project asks for it and it is there', () => {
     disk.files.add('C:\\Tools\\pwsh.exe').add('C:\\Program Files\\Git\\cmd\\git.exe').add(GIT_BASH)
-    expect(win('git-bash')).toEqual({ file: GIT_BASH, args: ['--login', '-i'], name: 'bash.exe', note: null })
+    // With kill.exe of the same Git for Windows, for the SIGHUP of a close (worfy-windows ticket 93).
+    expect(win('git-bash')).toEqual({ file: GIT_BASH, args: ['--login', '-i'], name: 'bash.exe', note: null, hangup: 'C:\\Program Files\\Git\\usr\\bin\\kill.exe' })
   })
 
   it('finds a 32-bit Git for Windows in %ProgramFiles(x86)% when Git is not on the Path', () => {

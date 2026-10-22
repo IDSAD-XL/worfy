@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { findGitBash, findOnPath } from '../../src/main/agent/env'
 import { terminalKey } from '../../src/main/ipc/terminal'
 import { endDescendants, spawnShellPty, type SpawnPty } from '../../src/main/terminal/pty'
-import { alive, consoleHosts, folderLine, handleCount, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, root, say, SAY_THE_FOLDER, SYSTEM_ROOT, threads, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
+import { alive, consoleHosts, folderLine, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, root, say, SAY_THE_FOLDER, settledHandleCount, SYSTEM_ROOT, threads, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
 
@@ -49,7 +49,7 @@ describe('terminal channels on a real pty', () => {
     })
 
     it('Git Bash is the shell when the settings of the Project ask for it', async (context) => {
-      if (findGitBash(process.env) === null) context.skip('this machine has no Git for Windows')
+      if (findGitBash(windowsEnv(home)) === null) context.skip('this machine has no Git for Windows')
       const h = await harness({ shell: 'git-bash' })
       const opened = await h.open()
       expect(opened.shell).toBe('bash.exe')
@@ -339,22 +339,6 @@ describe.runIf(WINDOWS)('the handles a shell leaves in this process on Windows, 
         }),
       )
     }
-  }
-
-  /**
-   * The handle count once it stops changing: node-pty disposes of the thread that reads a shell's
-   * output 1000 ms after kill(), so wait that out, then until two readings half a second apart agree.
-   */
-  async function settledHandleCount(): Promise<number> {
-    await new Promise((resolve) => setTimeout(resolve, 1500))
-    let last = handleCount()
-    for (let reading = 0; reading < 16; reading++) {
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      const now = handleCount()
-      if (now === last) return now
-      last = now
-    }
-    throw new Error(`the handle count of this process did not settle: last ${last}`)
   }
 
   it(`PowerShell, ended by exit: ${SHELLS} shells leave ${LEAK_PER_SHELL} handles each in this process, give or take a few`, async (context) => {

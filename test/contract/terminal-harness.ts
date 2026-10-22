@@ -318,6 +318,22 @@ export function handleCount(): number {
   return Number(execFileSync(win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${process.pid}).HandleCount`], { encoding: 'utf8' }))
 }
 
+/**
+ * The handle count once it stops changing: node-pty disposes of the thread that reads a shell's
+ * output 1000 ms after kill(), so wait that out, then until two readings half a second apart agree.
+ */
+export async function settledHandleCount(): Promise<number> {
+  await new Promise((resolve) => setTimeout(resolve, 1500))
+  let last = handleCount()
+  for (let reading = 0; reading < 16; reading++) {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const now = handleCount()
+    if (now === last) return now
+    last = now
+  }
+  throw new Error(`the handle count of this process did not settle: last ${last}`)
+}
+
 /** The threads of this process, as Windows counts them. */
 export function threads(): number {
   return Number(execFileSync(win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${process.pid}).Threads.Count`], { encoding: 'utf8' }))

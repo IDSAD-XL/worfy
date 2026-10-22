@@ -4,7 +4,6 @@
 // ticket 42) to keep that file under the gate's 1000-line bound; pty.ts exports
 // these names as before.
 import { execFile } from 'node:child_process'
-import { win32 } from 'node:path'
 import { spawn as spawnNodePty } from 'node-pty'
 import { getVar, powershellScriptCommand } from '../agent/env'
 import type { PtyProcess, SpawnPty } from './pty-types'
@@ -34,24 +33,23 @@ export interface StartedShell {
   /** A moment (ms since 1970) by which the shell was running: taken right after its start. */
   startedBy: number
   /**
-   * Git Bash only: kill.exe of the same Git for Windows (gitBashKill). The helper then holds the
+   * Git Bash only: kill.exe of the same Git for Windows (gitBashKill in agent/env.ts, given by
+   * terminalShell as ShellChoice.hangup). The helper then holds the
    * launcher and sends SIGHUP to the bash under it before it ends anything (descendantsScript).
    */
   hangup?: string | undefined
 }
 
 /**
- * kill.exe of the Git for Windows a shell file belongs to, `<root>\usr\bin\kill.exe` for
- * `<root>\bin\bash.exe` — the launcher terminalShell starts for Git Bash; null for any other shell.
- * It sends a signal through the runtime of MSYS2 (`kill -HUP -W <Windows pid>`): a bash of Git for
- * Windows takes no signal any other way.
+ * How long kill.exe may take to deliver the SIGHUP before the helper ends it and goes on: it took
+ * 48–103 ms on the owner's PC. kill.exe gets pipes of its own for its input and output, so a hung
+ * kill.exe holds no pipe of this process, and the helper does not wait past this bound for it.
  */
-export function gitBashKill(file: string): string | null {
-  const folder = win32.dirname(file)
-  const root = win32.dirname(folder)
-  // usr\bin\bash.exe is bash itself, with no launcher above it to hold.
-  if (win32.basename(file).toLowerCase() !== 'bash.exe' || win32.basename(folder).toLowerCase() !== 'bin' || win32.basename(root).toLowerCase() === 'usr') return null
-  return win32.join(root, 'usr', 'bin', 'kill.exe')
+export const HANGUP_SIGNAL_BOUND_MS = 500
+
+/** A literal of PowerShell in single quotes: PowerShell takes U+2018–U+201B for a single quote as well, and a doubled one for one of it. */
+function quoted(text: string): string {
+  return `'${text.replace(/['\u2018-\u201B]/g, (quote) => quote + quote)}'`
 }
 
 /**
@@ -65,34 +63,58 @@ export function gitBashKill(file: string): string | null {
  * closing it: two handles of this process per closed Git Bash (node-pty 1.2.0-beta.15,
  * microsoft/node-pty#965). A suspended launcher cannot exit, so node-pty still knows the console
  * when the registry calls kill(), and kill() closes it and ends the launcher with TerminateProcess.
- * A launcher that could not be held is said with the line `not held`; bash gets its SIGHUP all
- * the same.
+ * The launcher and each bash are taken only when their start time is the one the walk read, so a
+ * pid given out again is neither held nor signalled. A running launcher that could not be held is
+ * said with the line `not held` (one that has exited by itself leaks nothing more and is not said);
+ * bash gets its SIGHUP all the same.
  */
 function hangupLines(shell: StartedShell, kill: string): string[] {
   const pid = Math.trunc(shell.pid)
+  // shortcut: the launcher is suspended only because node-pty 1.2.0-beta.15 never closes the pseudo-console of a shell that exits by itself (microsoft/node-pty#965), when node-pty is upgraded past that fix drop the hold and let the launcher exit after bash.
   return [
     '$held = $false',
+    '$running = $false',
+    `$launcher = Get-Process -Id ${pid} -ErrorAction SilentlyContinue`,
     'try {',
-    `  $launcher = Get-Process -Id ${pid}`,
-    '  $started = $launcher.StartTime.ToUniversalTime()',
-    '  $born = $shell.CreationDate.ToUniversalTime()',
-    '  if ($started.AddMilliseconds(1) -ge $born -and $started.AddMilliseconds(-1) -le $born) {',
-    "    $type = [AppDomain]::CurrentDomain.DefineDynamicAssembly((New-Object Reflection.AssemblyName 'WorfyHangup'), 'Run').DefineDynamicModule('WorfyHangup').DefineType('WorfyHangup', 'Public,Class')",
-    "    [void]$type.DefinePInvokeMethod('NtSuspendProcess', 'ntdll.dll', 'Public,Static,PinvokeImpl', 'Standard', [int], [Type[]]@([IntPtr]), 'Winapi', 'Auto')",
-    '    $native = $type.CreateType()',
-    '    $held = $native::NtSuspendProcess($launcher.Handle) -eq 0',
+    '  if ($null -ne $launcher -and -not $launcher.HasExited) {',
+    '    $started = $launcher.StartTime.ToUniversalTime()',
+    '    $born = $shell.CreationDate.ToUniversalTime()',
+    '    if ($started.AddMilliseconds(1) -ge $born -and $started.AddMilliseconds(-1) -le $born) {',
+    '      $running = $true',
+    "      $type = [AppDomain]::CurrentDomain.DefineDynamicAssembly((New-Object Reflection.AssemblyName 'WorfyHangup'), 'Run').DefineDynamicModule('WorfyHangup').DefineType('WorfyHangup', 'Public,Class')",
+    "      $method = $type.DefinePInvokeMethod('NtSuspendProcess', 'ntdll.dll', 'Public,Static,PinvokeImpl', 'Standard', [int], [Type[]]@([IntPtr]), 'Winapi', 'Auto')",
+    "      $method.SetImplementationFlags('PreserveSig')",
+    '      $native = $type.CreateType()',
+    '      $held = $native::NtSuspendProcess($launcher.Handle) -eq 0',
+    '    }',
     '  }',
     '} catch { }',
-    "if (-not $held) { 'not held' }",
+    "try { if ($running -and -not $held -and -not $launcher.HasExited) { 'not held' } } catch { }",
     '$bashes = New-Object System.Collections.ArrayList',
     'foreach ($child in $found) {',
     '  if ($child.ParentProcessId -ne $shell.ProcessId) { continue }',
     '  $process = Get-Process -Id $child.ProcessId -ErrorAction SilentlyContinue',
-    "  if ($null -ne $process -and $process.ProcessName -eq 'bash') { [void]$bashes.Add($process) }",
+    "  if ($null -eq $process -or $process.ProcessName -ne 'bash') { continue }",
+    '  try {',
+    '    $started = $process.StartTime.ToUniversalTime()',
+    '    $born = $child.CreationDate.ToUniversalTime()',
+    '    if ($started.AddMilliseconds(1) -ge $born -and $started.AddMilliseconds(-1) -le $born) { [void]$bashes.Add($process) }',
+    '  } catch { }',
     '}',
-    `$kill = '${kill.replace(/'/g, "''")}'`,
+    `$kill = ${quoted(kill)}`,
     'if (Test-Path -LiteralPath $kill) {',
-    '  foreach ($bash in $bashes) { try { & $kill -HUP -W $bash.Id 2>&1 | Out-Null } catch { } }',
+    '  foreach ($bash in $bashes) {',
+    '    try {',
+    "      $info = New-Object System.Diagnostics.ProcessStartInfo -ArgumentList $kill, ('-HUP -W ' + $bash.Id)",
+    '      $info.UseShellExecute = $false',
+    '      $info.CreateNoWindow = $true',
+    '      $info.RedirectStandardInput = $true',
+    '      $info.RedirectStandardOutput = $true',
+    '      $info.RedirectStandardError = $true',
+    '      $signal = [System.Diagnostics.Process]::Start($info)',
+    `      if (-not $signal.WaitForExit(${HANGUP_SIGNAL_BOUND_MS})) { $signal.Kill() }`,
+    '    } catch { }',
+    '  }',
     `  $deadline = [DateTime]::UtcNow.AddMilliseconds(${HANGUP_GRACE_MS})`,
     '  foreach ($bash in $bashes) {',
     '    $wait = [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds',

@@ -12,8 +12,10 @@ const run = vi.hoisted(() => ({ execFile: vi.fn() }))
 vi.mock('node:child_process', async (original) => ({ ...(await original<typeof import('node:child_process')>()), execFile: run.execFile }))
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
 
-const { DESCENDANTS_TIMEOUT_MS, descendantsScript, endDescendants, gitBashKill, HANGUP_GRACE_MS, KILL_GRACE_MS, TerminalRegistry } = await import('../../src/main/terminal/pty')
-type StartedShell = import('../../src/main/terminal/pty').StartedShell
+const { descendantsScript, endDescendants, HANGUP_GRACE_MS, HANGUP_SIGNAL_BOUND_MS } = await import('../../src/main/terminal/windows-pty')
+const { gitBashKill } = await import('../../src/main/agent/env')
+const { TerminalRegistry } = await import('../../src/main/terminal/pty')
+type StartedShell = import('../../src/main/terminal/windows-pty').StartedShell
 
 afterEach(() => {
   run.execFile.mockReset()
@@ -29,9 +31,9 @@ describe('gitBashKill: kill.exe of the Git for Windows of a shell', () => {
     expect(gitBashKill('D:\\Tools\\PortableGit\\BIN\\Bash.EXE')).toBe('D:\\Tools\\PortableGit\\usr\\bin\\kill.exe')
   })
 
-  it('is null for any other shell: PowerShell, pwsh, a bash.exe outside a bin folder', () => {
+  it('is undefined for any other shell: PowerShell, pwsh, a bash.exe outside a bin folder', () => {
     for (const file of ['C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', 'C:\\Program Files\\PowerShell\\7\\pwsh.exe', 'C:\\Program Files\\Git\\usr\\bin\\bash.exe', 'C:\\Windows\\System32\\bash.exe']) {
-      expect(gitBashKill(file), file).toBeNull()
+      expect(gitBashKill(file), file).toBeUndefined()
     }
   })
 })
@@ -47,35 +49,73 @@ describe('descendantsScript with hangup: the order of a Git Bash close', () => {
   it('walks the tree, holds the launcher, sends SIGHUP to bash, waits, and only then ends what is left', () => {
     const walked = at('$queue.Enqueue($child)')
     const held = at('NtSuspendProcess($launcher.Handle)')
-    const hungUp = at('& $kill -HUP -W $bash.Id')
+    const hungUp = at('$signal = [System.Diagnostics.Process]::Start($info)')
     const waited = at('$bash.WaitForExit($wait)')
     const stopped = at('Stop-Process -InputObject $process -Force')
     expect(walked).toBeLessThan(held)
     expect(held).toBeLessThan(hungUp)
     expect(hungUp).toBeLessThan(waited)
     expect(waited).toBeLessThan(stopped)
-    // The launcher is the shell the walk took for the one that was started, by its start time.
-    expect(lines[at('$launcher = Get-Process')]).toBe('  $launcher = Get-Process -Id 4242')
-    // Only the bash right under the launcher gets the signal; the rest is ended as before.
-    expect(lines.slice(at('foreach ($child in $found)'), hungUp).join('\n')).toContain("$process.ProcessName -eq 'bash'")
+    // The launcher is the shell the walk took for the one that was started, by its start time:
+    // a process that got its pid since is never suspended.
+    expect(lines[at('$launcher = Get-Process')]).toBe('$launcher = Get-Process -Id 4242 -ErrorAction SilentlyContinue')
+    const guard = lines.indexOf('    if ($started.AddMilliseconds(1) -ge $born -and $started.AddMilliseconds(-1) -le $born) {')
+    expect(guard).toBeGreaterThan(at('$born = $shell.CreationDate.ToUniversalTime()'))
+    expect(guard).toBeLessThan(held)
+    // NtSuspendProcess answers an NTSTATUS, not an HRESULT: the int comes back as it is.
+    expect(lines[at('SetImplementationFlags')]).toBe("      $method.SetImplementationFlags('PreserveSig')")
+    expect(at('SetImplementationFlags')).toBeLessThan(at('$native = $type.CreateType()'))
   })
 
-  it('waits at most HANGUP_GRACE_MS from the signal, and that leaves the helper time inside its own limit', () => {
+  it('signals only the bash right under the launcher, and only while its start time is the one the walk read', () => {
+    expect(lines.slice(at('$bashes = New-Object'), at('$kill = '))).toEqual([
+      '$bashes = New-Object System.Collections.ArrayList',
+      'foreach ($child in $found) {',
+      '  if ($child.ParentProcessId -ne $shell.ProcessId) { continue }',
+      '  $process = Get-Process -Id $child.ProcessId -ErrorAction SilentlyContinue',
+      "  if ($null -eq $process -or $process.ProcessName -ne 'bash') { continue }",
+      '  try {',
+      '    $started = $process.StartTime.ToUniversalTime()',
+      '    $born = $child.CreationDate.ToUniversalTime()',
+      '    if ($started.AddMilliseconds(1) -ge $born -and $started.AddMilliseconds(-1) -le $born) { [void]$bashes.Add($process) }',
+      '  } catch { }',
+      '}',
+    ])
+  })
+
+  it('runs kill.exe with pipes of its own and ends it after HANGUP_SIGNAL_BOUND_MS', () => {
+    const start = at('$info = New-Object System.Diagnostics.ProcessStartInfo')
+    expect(lines.slice(start, at('$signal = [System.Diagnostics.Process]::Start($info)') + 2)).toEqual([
+      "      $info = New-Object System.Diagnostics.ProcessStartInfo -ArgumentList $kill, ('-HUP -W ' + $bash.Id)",
+      '      $info.UseShellExecute = $false',
+      '      $info.CreateNoWindow = $true',
+      '      $info.RedirectStandardInput = $true',
+      '      $info.RedirectStandardOutput = $true',
+      '      $info.RedirectStandardError = $true',
+      '      $signal = [System.Diagnostics.Process]::Start($info)',
+      `      if (-not $signal.WaitForExit(${HANGUP_SIGNAL_BOUND_MS})) { $signal.Kill() }`,
+    ])
+  })
+
+  it('waits at most HANGUP_GRACE_MS from the signal', () => {
     expect(lines[at('$deadline =')]).toBe(`  $deadline = [DateTime]::UtcNow.AddMilliseconds(${HANGUP_GRACE_MS})`)
-    expect(HANGUP_GRACE_MS).toBe(KILL_GRACE_MS)
-    // Windows PowerShell starts in about 0.45 s on the owner's PC, kill.exe in about 0.05 s.
-    expect(DESCENDANTS_TIMEOUT_MS - HANGUP_GRACE_MS).toBeGreaterThanOrEqual(2000)
   })
 
-  it('names kill.exe as a literal: a single quote in its path is doubled, and the script has no double quote', () => {
+  it('names kill.exe as a literal: every quote PowerShell takes for a single quote is doubled, and the script has no double quote', () => {
+    // U+2018-U+201B end a single-quoted string of PowerShell as well (checked on the PC with Windows PowerShell 5.1).
+    expect(descendantsScript({ ...SHELL, hangup: 'C:\\Git o\u2019Brien\\a\u2018b\u201Ac\u201Bd\\kill.exe' })).toContain(
+      "$kill = 'C:\\Git o\u2019\u2019Brien\\a\u2018\u2018b\u201A\u201Ac\u201B\u201Bd\\kill.exe'",
+    )
     const script = descendantsScript({ ...SHELL, hangup: "C:\\Git o'Brien\\usr\\bin\\kill.exe" })
     expect(script).toContain("$kill = 'C:\\Git o''Brien\\usr\\bin\\kill.exe'")
     expect(script).toContain('if (Test-Path -LiteralPath $kill) {')
     expect(script).not.toContain('"')
   })
 
-  it('says `not held` when the launcher could not be suspended, and still ends with the answer line', () => {
-    expect(lines).toContain("if (-not $held) { 'not held' }")
+  it('says `not held` only for a running launcher that could not be suspended, and still ends with the answer line', () => {
+    // A launcher that has exited by itself (its shell exited as the close came) leaks nothing more.
+    expect(lines).toContain("try { if ($running -and -not $held -and -not $launcher.HasExited) { 'not held' } } catch { }")
+    expect(lines.indexOf('      $running = $true')).toBeLessThan(at('NtSuspendProcess($launcher.Handle)'))
     expect(lines.at(-1)).toBe("'ended ' + $ended + ' of ' + $found.Count + ' left ' + ($left -join ',')")
   })
 

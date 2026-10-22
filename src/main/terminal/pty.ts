@@ -55,7 +55,7 @@
 // that is not zsh gets neither.
 import { posix, win32 } from 'node:path'
 import { spawn as spawnNodePty } from 'node-pty'
-import { findGitBash, findOnPath, getVar, powershellScriptCommand, type Env, type FileExists } from '../agent/env'
+import { findGitBash, findOnPath, getVar, gitBashKill, powershellScriptCommand, type Env, type FileExists } from '../agent/env'
 import type { ReplaySize } from '../../shared/ipc/terminal'
 import type { TerminalShellSetting } from '../../shared/projects/action-templates'
 import { ConsoleRequests, DEVICE_ATTRIBUTES_ANSWER } from './console-request'
@@ -64,11 +64,11 @@ import { ShellTracker, type ShellEvent, type ShellState } from './osc'
 import { REPLAY_LIMIT, ReplayBuffer } from './replay-buffer'
 import { integrationEnv, isZsh, newNonce, type AssistAdmission, type AssistDoor, type ShellIntegration } from './shell-integration'
 import type { PtyProcess, SpawnPty } from './pty-types'
-import { endDescendants, exitCodeKnown, gitBashKill, killUnconnected, readsExitCode, spawnWindowsPty, stopOutputWorker, withoutConsoleHelper, type DescendantsVerdict, type StartedShell } from './windows-pty'
+import { endDescendants, exitCodeKnown, killUnconnected, readsExitCode, spawnWindowsPty, stopOutputWorker, withoutConsoleHelper, type DescendantsVerdict, type StartedShell } from './windows-pty'
 
 export { REPLAY_LIMIT, ReplayBuffer } from './replay-buffer'
 export type { PtyProcess, SpawnPty } from './pty-types'
-export { DESCENDANTS_TIMEOUT_MS, descendantsScript, endDescendants, gitBashKill, HANGUP_GRACE_MS, SHELL_START_SLACK_MS, type DescendantsVerdict, type StartedShell } from './windows-pty'
+export { DESCENDANTS_TIMEOUT_MS, descendantsScript, endDescendants, SHELL_START_SLACK_MS, type DescendantsVerdict, type StartedShell } from './windows-pty'
 
 /** node-pty as the registry starts a shell with it: on Windows on the console of the node-pty package (spawnWindowsPty), elsewhere as it is. */
 export const spawnShellPty: SpawnPty = (file, args, options) => (process.platform === 'win32' ? spawnWindowsPty(file, args, options) : spawnNodePty(file, args, options))
@@ -124,6 +124,8 @@ export interface ShellChoice {
   name: string
   /** Why the shell asked for is not the one that starts; null otherwise. */
   note: string | null
+  /** Git Bash: kill.exe of its Git for Windows, for the SIGHUP of a close (StartedShell.hangup). */
+  hangup?: string | undefined
 }
 
 export interface ShellSearch {
@@ -151,7 +153,7 @@ export function terminalShell(env: Readonly<Env>, setting?: TerminalShellSetting
   let note: string | null = null
   if (setting === 'git-bash') {
     const bash = findGitBash(env, search.exists)
-    if (bash !== null) return { file: bash, args: ['--login', '-i'], name: win32.basename(bash), note: null }
+    if (bash !== null) return { file: bash, args: ['--login', '-i'], name: win32.basename(bash), note: null, hangup: gitBashKill(bash) }
     note = 'Git Bash was not found on this machine: PowerShell runs instead'
   }
   const file = findOnPath('pwsh', env, search.exists) ?? powershellScriptCommand(getVar(env, 'SystemRoot'), '').file
@@ -269,8 +271,8 @@ interface Terminal {
   closing: boolean
   /** A moment by which the shell was running (StartedShell). */
   startedBy: number
-  /** Git Bash on Windows: kill.exe for its SIGHUP before a close (StartedShell.hangup); null otherwise. */
-  hangup: string | null
+  /** Git Bash on Windows: kill.exe for its SIGHUP before a close (ShellChoice.hangup). */
+  hangup: StartedShell['hangup']
   /**
    * Reports the exit to the registry and the subscribers. Called by node-pty's exit event, by the
    * read of the exit code on Windows, by the bound of a close and when the wait for a pid gives up;
@@ -583,7 +585,7 @@ export class TerminalRegistry {
       exited: new Promise((resolve) => (exitedResolve = resolve)),
       closing: false,
       startedBy,
-      hangup: this.platform === 'win32' ? gitBashKill(file) : null,
+      hangup: choice.hangup,
       finish: (exit) => {
         if (ended) return
         ended = true
@@ -908,7 +910,7 @@ export class TerminalRegistry {
     const { pid } = terminal.pty
     let verdict: DescendantsVerdict | void = undefined
     try {
-      verdict = await this.endDescendants({ pid, startedBy: terminal.startedBy, ...(terminal.hangup === null ? {} : { hangup: terminal.hangup }) })
+      verdict = await this.endDescendants({ pid, startedBy: terminal.startedBy, hangup: terminal.hangup })
     } catch (error) {
       console.warn(`[terminal] ending the processes under the shell ${pid} of ${key} failed`, error)
     }

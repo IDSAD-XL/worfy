@@ -10,7 +10,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { findGitBash } from '../../src/main/agent/env'
-import { consoleHosts, handleCount, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, useTerminalScratch, WINDOWS } from './terminal-harness'
+import { consoleHosts, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, settledHandleCount, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
 
@@ -18,7 +18,8 @@ useTerminalScratch()
 
 /** Skips a test without Git for Windows, and on the GitHub runner: the helper of the close is Windows PowerShell 5.1 there too. */
 function needsGitBash(context: { skip: (condition: boolean, note?: string) => void }): void {
-  context.skip(findGitBash(process.env) === null, 'this machine has no Git for Windows')
+  // The environment the harness gives its shells, as the registry searches it (windowsEnv).
+  context.skip(findGitBash(windowsEnv(home)) === null, 'this machine has no Git for Windows')
   needsWindowsPowerShellOffRunner(context)
 }
 
@@ -43,7 +44,8 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty',
 
   // node-pty 1.2.0-beta.15 forgets the pseudo-console of a shell that exits by itself and never
   // closes it: two handles of this process per shell (microsoft/node-pty#965). Before this ticket
-  // the launcher of Git Bash exited by itself once the close ended bash: +21 for 10 on the PC.
+  // the launcher of Git Bash exited by itself once the close ended bash: +20 for 10 in this test on
+  // the PC (+21 for 10 in the probe of the ticket, which reads the count the same way).
   it('10 Git Bash Terminals closed by terminal.close leave no handle in this process, give or take a few', async (context) => {
     needsGitBash(context)
     const NOISE = 5
@@ -76,18 +78,3 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty',
   }, 90_000)
 })
 
-/**
- * The handle count once it stops changing: node-pty disposes of the thread that reads a shell's
- * output 1000 ms after kill(), so wait that out, then until two readings half a second apart agree.
- */
-async function settledHandleCount(): Promise<number> {
-  await new Promise((resolve) => setTimeout(resolve, 1500))
-  let last = handleCount()
-  for (let reading = 0; reading < 16; reading++) {
-    await new Promise((resolve) => setTimeout(resolve, 500))
-    const now = handleCount()
-    if (now === last) return now
-    last = now
-  }
-  throw new Error(`the handle count of this process did not settle: last ${last}`)
-}
