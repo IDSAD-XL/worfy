@@ -1,13 +1,14 @@
-// The manual "Windows tests" workflow (.github/workflows/windows-tests.yml, worfy-windows ticket 25)
-// and the check of its input (scripts/windows-test-list.mjs). A Windows runner minute is paid, and
-// the whole suite is red on Windows, so every limit of the job is pinned here: loosening one turns
-// the Linux CI red. The project has no YAML parser, so the workflow is read as text: it is written
-// in block style, one key per line, with `#` only at the start of comment lines.
+// The manual "Windows tests" workflow (.github/workflows/windows-tests.yml, worfy-windows tickets 25
+// and 66) and the check of its input (scripts/windows-test-list.mjs). A Windows runner minute is
+// paid, so every limit of both modes is pinned here: loosening one turns the Linux CI red. The
+// project has no YAML parser, so the workflow is read as text: it is written in block style, one key
+// per line, with `#` only at the start of comment lines.
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { gitBash } from '../git-bash'
 import { removeTestTree } from '../remove'
 
 const REPO = join(__dirname, '..', '..')
@@ -39,23 +40,21 @@ function keys(block: string[]): string[] {
   return block.filter((line) => indent(line) === least).map((line) => line.trim().replace(/:.*$/, ''))
 }
 
-/** The one job of the workflow: its name and its lines. */
-function job(): { name: string; lines: string[] } {
-  const jobs = under(code(), 'jobs:')
-  const names = keys(jobs)
-  expect(names, 'jobs of the workflow').toHaveLength(1)
-  const name = names[0] ?? ''
-  return { name, lines: under(jobs, `  ${name}:`) }
-}
+/** The job of the mode `files` (a list of up to 12 test files) and the job of the mode `full` (`pnpm test`). */
+const FILES_JOB = 'listed-tests'
+const FULL_JOB = 'full-suite'
+
+/** The lines of one job of the workflow. */
+const job = (name: string): string[] => under(under(code(), 'jobs:'), `  ${name}:`)
 
 /** A step: a plain value is a string; a nested block (`env:`, `with:`, `run: |`) is its lines. */
 type Step = Record<string, string | string[]>
 
-function steps(): Step[] {
+function steps(name: string): Step[] {
   const parsed: Step[] = []
   let step: Step = {}
   let key = ''
-  for (const raw of under(job().lines, '    steps:')) {
+  for (const raw of under(job(name), '    steps:')) {
     const starts = raw.startsWith('      - ')
     const line = starts ? raw.replace('      - ', '        ') : raw
     if (starts) {
@@ -85,6 +84,8 @@ const CHECK = 'node scripts/windows-test-list.mjs'
 const PNPM = ['corepack enable pnpm', 'corepack install']
 const INSTALL = 'pnpm install --frozen-lockfile'
 const RUN = ['test -n "$TEST_FILES"', 'node scripts/vitest-electron.mjs $TEST_FILES']
+const REFUSE = ['test -z "$TEST_FILES" || { echo "::error::mode full runs the whole suite and takes no list of files; leave files empty or choose mode files"; exit 1; }']
+const SUITE = 'pnpm test'
 
 describe('.github/workflows/windows-tests.yml', () => {
   it('starts by hand only: workflow_dispatch is its one trigger', () => {
@@ -95,46 +96,63 @@ describe('.github/workflows/windows-tests.yml', () => {
     expect(lines.join('\n')).not.toMatch(/\b(push|pull_request|pull_request_target|schedule|workflow_run|workflow_call)\b/)
   })
 
-  it('takes one required input, the list of files, with no default list', () => {
+  it('takes two inputs: the mode, files or full, files by default, and the list of files, with no default list', () => {
     const inputs = under(under(under(code(), 'on:'), '  workflow_dispatch:'), '    inputs:')
-    expect(keys(inputs)).toEqual(['files'])
+    expect(keys(inputs)).toEqual(['mode', 'files'])
+    // A choice: GitHub refuses a dispatch with any other value, so one of the two jobs always runs.
+    const mode = under(inputs, '      mode:')
+    expect(keys(mode)).toEqual(['description', 'required', 'type', 'default', 'options'])
+    expect(mode).toContain('        required: true')
+    expect(mode).toContain('        type: choice')
+    expect(mode).toContain('        default: files')
+    expect(under(mode, '        options:')).toEqual(['          - files', '          - full'])
+    // Not required, so that a dispatch of the mode full can leave it out; an empty list in the
+    // mode files is refused by the check, as before.
     const files = under(inputs, '      files:')
     expect(keys(files)).toEqual(['description', 'required', 'type'])
-    expect(files).toContain('        required: true')
+    expect(files).toContain('        required: false')
     expect(files).toContain('        type: string')
   })
 
   it('may only read the repository: permissions are contents: read and nothing else', () => {
-    // `permissions: write-all` on one line and a `permissions` key of the job fail here too.
+    // `permissions: write-all` on one line and a `permissions` key of a job fail here too.
     expect(code().filter((line) => /permissions/.test(line))).toEqual(['permissions:'])
     expect(under(code(), 'permissions:')).toEqual(['  contents: read'])
   })
 
-  it('has one job, on windows-latest, with no matrix', () => {
-    const { lines } = job()
-    // Exactly these keys: no `strategy` (a matrix multiplies the paid minutes), no `if`, no
-    // `continue-on-error`, no job-level `env` or `defaults` that would change what the steps see.
-    expect(keys(lines)).toEqual(['runs-on', 'timeout-minutes', 'steps'])
-    expect(lines).toContain('    runs-on: windows-latest')
+  it('has two jobs, one per mode, each on windows-latest with no matrix', () => {
+    expect(keys(under(code(), 'jobs:'))).toEqual([FILES_JOB, FULL_JOB])
+    for (const name of [FILES_JOB, FULL_JOB]) {
+      // Exactly these keys: no `strategy` (a matrix multiplies the paid minutes), no
+      // `continue-on-error`, no job-level `env` or `defaults` that would change what the steps see.
+      expect(keys(job(name)), name).toEqual(['if', 'runs-on', 'timeout-minutes', 'steps'])
+      expect(job(name), name).toContain('    runs-on: windows-latest')
+    }
+    // The two conditions cover the two values of the choice, one each: one dispatch runs exactly one job.
+    expect(job(FILES_JOB)).toContain("    if: inputs.mode == 'files'")
+    expect(job(FULL_JOB)).toContain("    if: inputs.mode == 'full'")
+    expect(code().filter((line) => /^\s*if:/.test(line))).toEqual(["    if: inputs.mode == 'files'", "    if: inputs.mode == 'full'"])
     expect(code().join('\n')).not.toMatch(/matrix|strategy/)
-    expect(code().filter((line) => /runs-on/.test(line))).toEqual(['    runs-on: windows-latest'])
+    expect(code().filter((line) => /runs-on/.test(line))).toEqual(['    runs-on: windows-latest', '    runs-on: windows-latest'])
   })
 
-  it('stops the job after 10 minutes', () => {
+  it('stops the job of the list after 10 minutes and the job of the whole suite after 60', () => {
     // The limit is the job's own: a limit on a step alone would leave the install unbounded.
-    expect(code().filter((line) => /timeout-minutes/.test(line))).toEqual(['    timeout-minutes: 10'])
+    expect(job(FILES_JOB).filter((line) => /timeout-minutes/.test(line))).toEqual(['    timeout-minutes: 10'])
+    expect(job(FULL_JOB).filter((line) => /timeout-minutes/.test(line))).toEqual(['    timeout-minutes: 60'])
+    expect(code().filter((line) => /timeout-minutes/.test(line))).toEqual(['    timeout-minutes: 10', '    timeout-minutes: 60'])
   })
 
-  it('checks the list right after checkout, before anything is installed', () => {
-    const all = steps().map(does)
+  it('mode files: checks the list right after checkout, before anything is installed', () => {
+    const all = steps(FILES_JOB).map(does)
     expect(all).toEqual(['actions/checkout', CHECK, 'actions/setup-node', PNPM, 'actions/setup-node', INSTALL, RUN])
     expect(all.indexOf(CHECK)).toBe(1)
     expect(all.indexOf(CHECK)).toBeLessThan(all.indexOf(INSTALL))
   })
 
-  it('hands the input to the check through env, never as text of a command', () => {
+  it('hands the input to a check through env, never as text of a command', () => {
     // The whole step: no `if`, no `continue-on-error` — a refused list fails the job.
-    expect(steps()[1]).toEqual({
+    expect(steps(FILES_JOB)[1]).toEqual({
       name: 'Check the list of test files',
       id: 'list',
       shell: 'bash',
@@ -142,19 +160,22 @@ describe('.github/workflows/windows-tests.yml', () => {
       run: CHECK,
     })
     // An expression inside `run` is pasted into the script before the shell reads it: a list such
-    // as `x; rm -rf .` would run as a command. Expressions stand in the two `env` values only.
+    // as `x; rm -rf .` would run as a command. Expressions stand in the three `env` values only.
     expect(code().filter((line) => line.includes('${{'))).toEqual([
       '          TEST_FILES: ${{ inputs.files }}',
       '          TEST_FILES: ${{ steps.list.outputs.files }}',
+      '          TEST_FILES: ${{ inputs.files }}',
     ])
-    for (const step of steps()) expect([step.run ?? []].flat().join('\n')).not.toContain('${{')
+    for (const name of [FILES_JOB, FULL_JOB]) {
+      for (const step of steps(name)) expect([step.run ?? []].flat().join('\n')).not.toContain('${{')
+    }
   })
 
-  it('runs node scripts/vitest-electron.mjs with the checked list', () => {
+  it('mode files: runs node scripts/vitest-electron.mjs with the checked list', () => {
     // The whole step. The list comes from the output of the check, not from the input. bash, because
     // in PowerShell `$TEST_FILES` is an unset variable and the command would run the whole suite;
     // `test -n` stops the step for the same reason if the list is ever empty.
-    expect(steps()[6]).toEqual({
+    expect(steps(FILES_JOB)[6]).toEqual({
       name: 'Run the listed test files',
       shell: 'bash',
       env: ['TEST_FILES: ${{ steps.list.outputs.files }}'],
@@ -162,24 +183,62 @@ describe('.github/workflows/windows-tests.yml', () => {
     })
   })
 
-  it('installs pnpm with corepack from a tarball pinned by its sha512, not with pnpm/action-setup', () => {
+  it('installs pnpm with corepack from a tarball pinned by its sha512, not with pnpm/action-setup, in both jobs', () => {
     // pnpm/action-setup runs `npm ci` for a bootstrap pnpm, and npm's audit request hung for 3 to 7 minutes in
     // runs of 2026-10-22: the setup ate the 10-minute limit. Corepack checks the tarball against the
     // hash in "packageManager"; without the hash it asks the registry for the version's metadata
     // first, a request that can hang the same way.
-    const [, , node, pnpm, nodeWithCache] = steps()
-    expect(node).toEqual({ uses: 'actions/setup-node@v7', with: ['node-version: 24'] })
-    expect(pnpm).toEqual({ name: 'Install pnpm with corepack', shell: 'bash', run: PNPM })
-    expect(nodeWithCache).toEqual({ uses: 'actions/setup-node@v7', with: ['node-version: 24', 'cache: pnpm'] })
+    for (const name of [FILES_JOB, FULL_JOB]) {
+      const [, , node, pnpm, nodeWithCache] = steps(name)
+      expect(node, name).toEqual({ uses: 'actions/setup-node@v7', with: ['node-version: 24'] })
+      expect(pnpm, name).toEqual({ name: 'Install pnpm with corepack', shell: 'bash', run: PNPM })
+      expect(nodeWithCache, name).toEqual({ uses: 'actions/setup-node@v7', with: ['node-version: 24', 'cache: pnpm'] })
+    }
     expect(code().join('\n')).not.toContain('pnpm/action-setup')
     const manifest = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { packageManager?: string }
     expect(manifest.packageManager).toMatch(/^pnpm@\d+\.\d+\.\d+\+sha512\.[0-9a-f]{128}$/)
   })
 
-  it('never runs the whole suite: no pnpm test, no vitest without the list', () => {
-    const commands = steps().flatMap((step) => step.run ?? [])
+  it('mode files: never runs the whole suite: no pnpm test, no vitest without the list', () => {
+    const commands = steps(FILES_JOB).flatMap((step) => step.run ?? [])
     expect(commands).toEqual([CHECK, ...PNPM, INSTALL, ...RUN])
     for (const command of commands) expect(command).not.toMatch(/pnpm\s+(run\s+)?test|vitest(?!-electron\.mjs \$TEST_FILES$)/)
+  })
+
+  it('mode full: refuses a list of files first, then checkout, pnpm, node, install and pnpm test, nothing else', () => {
+    expect(steps(FULL_JOB).map(does)).toEqual([REFUSE, 'actions/checkout', 'actions/setup-node', PNPM, 'actions/setup-node', INSTALL, SUITE])
+    // The refusal comes before checkout: a dispatch with a list fails within seconds, not after the install.
+    expect(steps(FULL_JOB)[0]).toEqual({
+      name: 'Refuse a list of files',
+      shell: 'bash',
+      env: ['TEST_FILES: ${{ inputs.files }}'],
+      run: REFUSE,
+    })
+    expect(steps(FULL_JOB)[6]).toEqual({ name: 'Run the whole unit and contract suite', run: SUITE })
+    expect(steps(FULL_JOB).flatMap((step) => step.run ?? [])).toEqual([...REFUSE, ...PNPM, INSTALL, SUITE])
+  })
+
+  it('mode full: runs unit and contract tests only — no e2e, no packaged app, no acceptance', () => {
+    // vitest.config.ts excludes test/e2e/ and test/acceptance/ from `pnpm test`; the job names none of them either.
+    const text = job(FULL_JOB).join('\n')
+    expect(text).not.toMatch(/e2e|test:package|packaged|acceptance|playwright|electron-builder|pnpm\s+(run\s+)?package|pnpm\s+build/i)
+    const vitest = readFileSync(join(REPO, 'vitest.config.ts'), 'utf8')
+    expect(vitest).toMatch(/'test\/e2e\/\*\*'/)
+    expect(vitest).toMatch(/'test\/acceptance\/\*\*'/)
+    const manifest = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { scripts?: Record<string, string> }
+    expect(manifest.scripts?.test).toBe('node scripts/vitest-electron.mjs')
+  })
+
+  it.each([
+    ['refuses a list', 'test/unit/x.test.ts', 1],
+    ['refuses a list of spaces only', ' ', 1],
+    ['passes with no list', '', 0],
+  ])('mode full: the first step %s', (_name, files, status) => {
+    // The step's own commands under Git Bash, with TEST_FILES as GitHub sets it from the input.
+    const result = spawnSync(gitBash(), ['-c', REFUSE.join('\n')], { encoding: 'utf8', env: { ...process.env, TEST_FILES: files } })
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(status)
+    if (status === 1) expect(result.stdout).toMatch(/^::error::mode full runs the whole suite and takes no list of files/)
+    else expect(result.stdout).toBe('')
   })
 })
 
