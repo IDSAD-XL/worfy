@@ -20,16 +20,28 @@ const OUTLINE: Rgb = [0x00, 0xff, 0x00]
 const CREAM: Rgb = [0xfd, 0xf6, 0xe3]
 const LINE: Rgb = [0xff, 0x00, 0xff]
 const TRACK: Rgb = [0xf1, 0xf1, 0xf1]
+/** How far, per channel, the drawn cream strays from #fdf6e3: inside the measure's tolerance for the page's cream. */
+const CREAM_NOISE = 4
 
-/** Paints `box` (CSS px) in `color` over the image, each device pixel blended by how much of it the box covers. */
-function paint(image: Image, scale: number, box: Box, color: Rgb): void {
+/** A fixed offset in -`amplitude`..`amplitude` for channel `c` of the device pixel (x, y): the same on every run. */
+const noiseAt = (x: number, y: number, c: number, amplitude: number): number =>
+  amplitude === 0 ? 0 : (((x * 73856093) ^ (y * 19349663) ^ (c * 83492791)) >>> 0) % (2 * amplitude + 1) - amplitude
+
+/**
+ * Paints `box` (CSS px) in `color` over the image, each device pixel blended by how much of it the
+ * box covers, and its colour off by up to `noise` per channel, as a real capture's colours are.
+ */
+function paint(image: Image, scale: number, box: Box, color: Rgb, noise = 0): void {
   const [left, right, top, bottom] = [box.x * scale, (box.x + box.width) * scale, box.y * scale, (box.y + box.height) * scale]
   for (let y = Math.max(0, Math.floor(top)); y < Math.min(image.height, Math.ceil(bottom)); y += 1) {
     const cy = Math.min(bottom, y + 1) - Math.max(top, y)
     for (let x = Math.max(0, Math.floor(left)); x < Math.min(image.width, Math.ceil(right)); x += 1) {
       const cover = cy * (Math.min(right, x + 1) - Math.max(left, x))
       const i = (y * image.width + x) * 4
-      for (let c = 0; c < 3; c += 1) image.data[i + c] = Math.round(color[c]! * cover + image.data[i + c]! * (1 - cover))
+      for (let c = 0; c < 3; c += 1) {
+        const value = color[c]! + noiseAt(x, y, c, noise)
+        image.data[i + c] = Math.max(0, Math.min(255, Math.round(value * cover + image.data[i + c]! * (1 - cover))))
+      }
     }
   }
 }
@@ -38,16 +50,18 @@ function paint(image: Image, scale: number, box: Box, color: Rgb): void {
  * A capture of the window at `scale` with the frame's body at `body` (CSS px) and the page in it at
  * `zoom`, as the e2e test draws it: the green outline one line (`zoom` CSS px) outside the body,
  * the page's cream, a scrollbar of `scrollbar` page CSS px at its right, and the page's magenta
- * line (`position: fixed; inset: 0`), which stops at the scrollbar.
+ * line (`position: fixed; inset: 0`), which stops at the scrollbar; without `line`, no magenta line,
+ * as a minified page loses it on a real capture (zoom 0.25), so the edge is read from the cream alone.
  */
-function capture(scale: number, body: Box, zoom: number, scrollbar: number): Image {
+function capture(scale: number, body: Box, zoom: number, scrollbar: number, line = true): Image {
   const image: Image = { width: WINDOW.width * scale, height: WINDOW.height * scale, data: new Uint8Array(WINDOW.width * scale * WINDOW.height * scale * 4).fill(255) }
   paint(image, scale, { x: 0, y: 0, width: WINDOW.width, height: WINDOW.height }, CANVAS)
   paint(image, scale, { x: body.x - zoom, y: body.y - zoom, width: body.width + 2 * zoom, height: body.height + 2 * zoom }, OUTLINE)
-  paint(image, scale, body, CREAM)
+  paint(image, scale, body, CREAM, CREAM_NOISE)
   const bar = scrollbar * zoom
   if (bar > 0) paint(image, scale, { x: body.x + body.width - bar, y: body.y, width: bar, height: body.height }, TRACK)
   const inner = { ...body, width: body.width - bar }
+  if (!line) return image
   paint(image, scale, { ...inner, width: zoom }, LINE)
   paint(image, scale, { ...inner, x: inner.x + inner.width - zoom, width: zoom }, LINE)
   paint(image, scale, { ...inner, height: zoom }, LINE)
@@ -71,8 +85,8 @@ const ZOOMS: readonly { zoom: number; edges: readonly Edge[] }[] = [
 const bodyAt = (zoom: number): Box => ({ x: WINDOW.width - 80.3 - PAGE.width * zoom, y: 420.3, width: PAGE.width * zoom, height: PAGE.height * zoom })
 
 /** What edgeErrors reads on a capture at `scale`, the scale computed the way the e2e test does: capture width over window width. */
-function measure(scale: number, zoom: number, edges: readonly Edge[], scrollbar: number): Record<Edge, number> {
-  const image = capture(scale, bodyAt(zoom), zoom, scrollbar)
+function measure(scale: number, zoom: number, edges: readonly Edge[], scrollbar: number, line = true): Record<Edge, number> {
+  const image = capture(scale, bodyAt(zoom), zoom, scrollbar, line)
   expect([image.width, image.height]).toEqual([WINDOW.width * scale, WINDOW.height * scale])
   return edgeErrors(image, image.width / WINDOW.width, bodyAt(zoom), zoom, edges)
 }
@@ -80,8 +94,17 @@ function measure(scale: number, zoom: number, edges: readonly Edge[], scrollbar:
 describe('the edges of the fixture page against its frame on a capture (edgeErrors)', () => {
   for (const scale of [1.5, 2]) {
     for (const { zoom, edges } of ZOOMS) {
-      it(`a page without a scrollbar sits in its frame within 1 px on every edge read, at scale ${scale} and zoom ${zoom}`, () => {
+      // Drawn exactly, the page is on the frame's edge: the e2e test's 1 px bound is for real
+      // captures, here the reading must be within one device pixel.
+      it(`a page without a scrollbar sits in its frame within one device pixel on every edge read, at scale ${scale} and zoom ${zoom}`, () => {
         const errors = measure(scale, zoom, edges, 0)
+        for (const edge of edges) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(1 / scale)
+      })
+
+      it(`a page that lost its magenta line is read from its cream within 1 px, at scale ${scale} and zoom ${zoom}`, () => {
+        // Without the line, the pixel blended at the border is neither cream nor magenta, so the
+        // reading may be off by up to one more device pixel: the e2e test's own 1 px bound.
+        const errors = measure(scale, zoom, edges, 0, false)
         for (const edge of edges) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(1)
       })
     }
@@ -93,8 +116,9 @@ describe('the edges of the fixture page against its frame on a capture (edgeErro
   for (const { zoom, edges } of ZOOMS) {
     it(`Windows' scrollbar at the page's right hides its right edge, and only that one, at scale 1.5 and zoom ${zoom}`, () => {
       const errors = measure(1.5, zoom, edges, WINDOWS_SCROLLBAR)
-      for (const edge of edges.filter((edge) => edge !== 'right')) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(1)
-      expect(errors.right).toBe(Number.POSITIVE_INFINITY)
+      for (const edge of edges.filter((edge) => edge !== 'right')) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(1 / 1.5)
+      // Off by more than the e2e test's bound: not found (Infinity), or found past the scrollbar.
+      expect(errors.right).toBeGreaterThan(1)
     })
   }
 })
