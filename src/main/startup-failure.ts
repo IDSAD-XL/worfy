@@ -139,7 +139,9 @@ export function reportStartupFailure(error: unknown, step?: StartupStep): void {
  * from a promise callback of `ready` (the steps of src/main/index.ts up to their first await) comes
  * before that loop runs; a timer callback never does, since Electron's Node runs its timers from
  * tasks of that loop (NodeBindings::UvRunOnce). That is an order, not a length of time. On macOS
- * `ready` already comes from inside the loop, and the deferral changes nothing.
+ * `ready` already comes from inside the loop, and the deferral changes nothing. The Electron
+ * internals named here were read from Electron's main-branch sources, not checked against 44.5.1;
+ * the measured part is the ticket's: app.exit(1) 200 ms after `ready` left no orphan.
  *
  * Before `ready` (the data folder check) the exit stays immediate: nothing has started a child yet,
  * and deferring it would let Electron go on starting them before it exits the same way.
