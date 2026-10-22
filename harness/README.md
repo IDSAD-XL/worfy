@@ -94,6 +94,7 @@ Run, on a Mac, by hand, from the repository root:
     pnpm eval:harness                                       # all ten cases
     pnpm eval:harness -- --case status-block --runs 1       # one case, one run
     pnpm eval:harness -- --changed origin/main              # the cases of the rule files a branch changed
+    pnpm eval:harness -- --changed origin/main --dry-run    # the same calls printed, nothing started
 
 `scripts/eval-harness.mjs` evaluates a temporary copy of `harness/` without `dependencies` in
 `plugin.json` (a run installs nothing besides the plugin under test, and Claude Code does not load a
@@ -101,8 +102,17 @@ plugin with a missing dependency). It makes one call per tag: the cases tagged `
 `Write` and `Edit`, and `no-os-screen-capture` (tag `gui`) with `Bash` only for `git`, `node`, the
 Harness scripts, `echo` and `set -o pipefail`; with `--changed` (below) a tag of which only some
 cases are chosen gets one call per chosen case. Every call passes `--scaffold --trust-plugin
---ablation none --threshold 0.8 --no-publish` and pinned `--model` and `--judge-model`; arguments
-after `--` go to every call. The cost ceiling is 30 USD for the whole run: each call gets
+--ablation none --threshold 0.8 --no-publish` and pinned `--model` and `--judge-model`; the other
+arguments go to every call, after the options of the call itself. Every `--` is dropped wherever it
+stands: pnpm passes the `--` of `pnpm eval:harness -- …` on to the script, and `claude` takes
+whatever follows a `--` for positional arguments, so a `--case` behind it would run every case of
+the tag. `--output-dir` is the script's own (exit 1). The cost ceiling is 30 USD for the whole run
+(`BUDGET_USD`); `--max-cost-usd <x>` (or `=<x>`, before or after `--`) lowers it to `x` and never
+raises it: the script takes the option itself, `claude` never sees it, a larger `x` keeps 30 USD
+with a line that says so, and a value that is not a number above 0, a missing value or a second
+`--max-cost-usd` is exit 1 with no call. Before the first call the script prints the budget and
+where it comes from, `eval:harness: budget 3 USD (--max-cost-usd 3)` or
+`eval:harness: budget 30 USD (BUDGET_USD)`. Each call gets
 `--max-cost-usd` with what the calls before it left (by the `costUsd` of their
 `aggregate-result.json`, partial runs included; a call whose report is missing, unreadable or has no
 `costUsd` counts its whole limit), and once nothing is left the remaining calls are not started and
@@ -163,14 +173,27 @@ for the PR description:
     eval:harness main: casesPassed 1 of 1, overallScore 1, costUsd 0.3, claudeVersion 2.1.289, cases implementer-report
 
 `, partial` ends the line of a partial run; a call that wrote no report gets
-`eval:harness <tag>: no aggregate-result.json`. The lines do not change the exit code.
+`eval:harness <tag>: no aggregate-result.json`. A report that ran more cases than the call chose,
+or a case it did not choose, ends its line with `, cases mismatch: report <n>, chosen <m>`, and the
+run exits at least `1`: its numbers are not those of the chosen cases. Otherwise the lines do not
+change the exit code.
+
+`--dry-run` does everything that costs nothing — the arguments, `--changed` with its
+`file -> cases` lines, the plan of the calls, the budget — and prints the full `claude …` command
+line of each call as the first call would get it (`<plugin-copy>` stands for the temporary copy of
+the plugin; later calls get what is left of the budget). It starts no `claude`, not even
+`claude --version`, copies neither the plugin nor git and creates no folder in `evals/results/`;
+exit 0, or exit 1 on the same refusals as without it.
 
 ### When to run the evals
 
 - A PR that changes rule files (`harness/skills/`, `harness/agents/`, `harness/hooks/rules/`,
   `harness/hooks/hooks.json`, `harness/hooks/inject-rules.mjs`) or `harness/evals/`: before the merge,
-  on the branch after its rebase, `pnpm eval:harness -- --changed origin/main`, and the
-  `eval:harness …` lines go into the PR description. Check:
+  on the branch after its rebase, first `pnpm eval:harness -- --changed origin/main --dry-run` with
+  the same arguments as the paid run: in its output every call has exactly one `--case` (or is the
+  whole tag) and no `--`, and the budget line names the limit you expect. Then the paid
+  `pnpm eval:harness -- --changed origin/main`, and the `eval:harness …` lines go into the PR
+  description. Check:
   `gh pr view <N> --json body --jq .body | grep -c '^eval:harness '` — not 0.
 - A case below the threshold: compare it with the last full run. A case that failed there too does
   not hold the merge, but the PR description names it; a case that passed there is fixed before the
