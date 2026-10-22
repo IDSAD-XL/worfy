@@ -50,3 +50,24 @@ pnpm build && pnpm exec playwright test test/e2e/linked-notify.spec.ts --grep-in
 - `test/e2e/linked-notify.spec.ts`
 
 ## Итог
+
+Причина в test-е, не в продукте. Замер на ПК 2026-10-22 (main `b6f597ad`, временный spec-зонд, не в коммите;
+окно переднего плана — `GetForegroundWindow` через PowerShell):
+
+- Одно окно worfy: `blur()` снимает фокус, передний план уходит другому приложению (Telegram),
+  `getFocusedWindow()` — `null`.
+- Два worfy (как в spec-е): после `blur()` у B передний план переходит к окну A — следующему видимому окну
+  в z-order; у A `getFocusedWindow()` снова не `null`, и это настоящее окно переднего плана Windows.
+  `blur()` поочерёдно передаёт фокус между двумя окнами, «ни одно не в фокусе» не наступает.
+- `minimize()` обоих: передний план уходит другому приложению, у обоих `getFocusedWindow()` — `null` и
+  4 s спустя.
+
+Продукт (`src/main/notify.ts`, `focused: () => BrowserWindow.getFocusedWindow() !== null`) решает верно: окно A
+действительно в фокусе. На этом main spec падал уже не в helper-е `blur`, а на `:124` (A ничего не
+записал: `Received array: []`), 3 из 3.
+
+Исправление: helper `unfocusAll([a, b])` в `test/e2e/linked-notify.spec.ts` — на Windows `minimize()`, на
+macOS прежний `blur()`; ждёт, пока ни у одного из двух worfy нет окна в фокусе (раньше проверял каждый worfy
+отдельно и не видел, что фокус вернулся к первому). Клик по уведомлению разворачивает окно B
+(`window.restore()` в `src/main/notify.ts`). После: spec 3 из 3 код 0; мутант (`blur()` и на Windows) —
+красный в `unfocusAll` (`Expected: false, Received: true`).
