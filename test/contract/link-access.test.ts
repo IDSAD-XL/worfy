@@ -41,6 +41,7 @@ import { notifyOpen } from '../../src/shared/ipc/notify'
 import { trashList } from '../../src/shared/ipc/trash'
 import type { LayoutOpInput } from '../../src/shared/layout/types'
 import { LinkBench, type BenchMachine } from './link-bench'
+import { windowsProfileEnv } from '../e2e/terminal-shell'
 import { nodeScript } from '../harness-node'
 import { removeTestTree } from '../remove'
 
@@ -146,11 +147,14 @@ const realRepo = realpathSync.native(repo)
 /**
  * The Terminal of B: real shells (/bin/sh with an empty HOME; PowerShell on Windows), one per Node.
  * On Windows the environment keeps SystemRoot and windir: PowerShell does not start without them
- * (error 8009001d at loading its managed shell).
+ * (error 8009001d at loading its managed shell). It also names the empty HOME as the user's profile
+ * (windowsProfileEnv): without USERPROFILE and APPDATA PowerShell falls back to the profile of the
+ * signed-in user, read that user's $PROFILE and appended the typed commands to their PSReadLine
+ * history (worfy-windows ticket 84).
  */
 const windowsRoot: Record<string, string> = process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot ?? '', windir: process.env.windir ?? process.env.SystemRoot ?? '' } : {}
 const terminals = new TerminalRegistry({
-  env: () => Promise.resolve({ ...windowsRoot, SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ' }),
+  env: () => Promise.resolve({ ...windowsRoot, ...windowsProfileEnv(home), SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ' }),
   killGraceMs: 1000,
 })
 const claudeHome = new ClaudeHomeRegistry({ home: CLAUDE_HOME_FIXTURE, listWorktrees: async () => [], isAlive: async () => false })
