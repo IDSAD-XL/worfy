@@ -13,8 +13,10 @@ import { snapshotThemes } from './snapshots'
 // ADR-0078 items 4, 5 and 8): it opens a Browser under the Browser profile «admin» next to its
 // Node, goes to a page, clicks, types, takes a screenshot, reads the page, its console and its
 // network; a page outside the profile's origins is refused whatever leads there — the Session's
-// address, a link it clicks, a redirect — and the page stays where it was; a password field takes
-// no text from it. While it drives, the frame shows «Claude is driving»; a click of the user on the
+// address, a link it clicks, a redirect, a link whose site has a service worker — and the page stays
+// where it was; a password field takes no text from it, wherever it sits; a field takes text with
+// no click of the Session before; and a page of another site the user left it on is the Session's
+// only to leave. While it drives, the frame shows «Claude is driving»; a click of the user on the
 // page takes the Browser over, every call is refused until «Return control to Claude», and then the
 // Session drives again. The fake agent calls no MCP tool, so the test calls the tools in main as
 // the Session would (globalThis.worfyBrowserTool, src/main/mcp/browser-server.ts), over the same
@@ -42,11 +44,25 @@ function git(cwd: string, ...args: string[]): void {
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd, env })
 }
 
+const SERVICE_WORKER = `
+self.addEventListener('install', () => self.skipWaiting())
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()))
+self.addEventListener('fetch', (event) => {
+  if (event.request.mode === 'navigate') event.respondWith(new Response('<!doctype html><title>Worker</title><h1>From the worker</h1>', { headers: { 'content-type': 'text/html' } }))
+})`
+
 const page = (title: string, body: string): string => `<!doctype html><title>${title}</title><body style="margin:0;padding:16px;font:16px sans-serif;background:#fdf6e3" data-ready="yes">${body}</body>`
 
 test.beforeAll(async () => {
-  elsewhere = createServer((_request, response) => {
-    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(page('Elsewhere', '<h1>Another site</h1>'))
+  elsewhere = createServer((request, response) => {
+    const path = request.url ?? '/'
+    const html = (title: string, body: string) => void response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(page(title, body))
+    // A service worker that answers every page of this site itself.
+    if (path === '/sw.js') return void response.writeHead(200, { 'content-type': 'text/javascript' }).end(SERVICE_WORKER)
+    if (path === '/sw') return html('Worker setup', `<h1>Worker setup</h1><script>navigator.serviceWorker.register('/sw.js', { scope: '/' })</script>`)
+    // A sign-in form of another site, its password field focused: the page of a frame.
+    if (path === '/form') return html('Sign in', `<input id="pw" type="password"><script>document.getElementById('pw').focus()</script>`)
+    html('Elsewhere', '<h1>Another site</h1>')
   })
   await new Promise<void>((done) => elsewhere.listen(0, '127.0.0.1', done))
   away = `http://127.0.0.1:${(elsewhere.address() as AddressInfo).port}`
@@ -61,6 +77,13 @@ test.beforeAll(async () => {
         `<h1>Home</h1>
          <p><a id="next" href="/next">Next</a> <a id="away" href="${away}/">Away</a></p>
          <p><label>Search <input id="q"></label> <label>Password <input id="pw" type="password"></label></p>
+         <form id="login"><label>Password in a form <input id="pw-form" type="password" name="password"></label></form>
+         <p><label>Moves the focus <input id="sneaky" onfocus="document.querySelector('#pw').focus()"></label>
+            <label>Moves it to a field <input id="moves" onfocus="document.querySelector('#q').focus()"></label></p>
+         <p id="pw-host" tabindex="-1"></p>
+         <script>document.querySelector('#pw-host').attachShadow({ mode: 'open', delegatesFocus: true }).innerHTML = '<input id="inner-pw" type="password">'</script>
+         <iframe id="frame-pw" width="160" height="40" srcdoc="<input id=&quot;p&quot; type=&quot;password&quot;><script>const p = document.getElementById(&quot;p&quot;); p.focus(); addEventListener(&quot;focus&quot;, () => p.focus())</script>"></iframe>
+         <iframe id="frame-away" width="160" height="40" src="${away}/form"></iframe>
          <button id="log" onclick="console.log('clicked log'); fetch('/api/ping')">Log</button>`,
       ),
     )
@@ -243,9 +266,53 @@ test('a page outside the origins is refused whoever leads there, and the page st
   expect(await pageUrl()).toEqual([`${origin}/`])
   expect(await inPage("document.querySelector('h1').textContent")).toBe('Home')
 
-  // A password: the user logs in.
-  expect(await refused('browser_type', { id, selector: '#pw', text: 'hunter2' })).toMatch(/This is a password field: the user logs in/)
-  expect(await inPage("document.querySelector('#pw').value")).toBe('')
+  // A password: the user logs in. Wherever the text would go — the field itself, one in a form, a
+  // field the page moves the focus to, one in a shadow root the element hands its focus to, or one
+  // in a frame — and a frame of another site, whose focus cannot be seen, is refused too.
+  for (const selector of ['#pw', '#pw-form', '#sneaky', '#pw-host', '#frame-pw']) {
+    expect(await refused('browser_type', { id, selector, text: 'hunter2' }), selector).toMatch(/This is a password field: the user logs in/)
+  }
+  expect(await refused('browser_type', { id, selector: '#frame-away', text: 'hunter2' })).toMatch(/a frame of another site/)
+  const typed = `[...document.querySelectorAll('input')].map((e) => e.value).join('')
+    + document.querySelector('#pw-host').shadowRoot.querySelector('input').value
+    + document.querySelector('#frame-pw').contentDocument.querySelector('input').value`
+  expect(await inPage(typed)).toBe('')
+  // The text goes into the element asked for or nowhere: not into the field focused before it, nor
+  // into one the page moves the focus to.
+  await ok('browser_type', { id, selector: '#q', text: 'kept' })
+  expect(await refused('browser_type', { id, selector: 'h1', text: 'lost' })).toMatch(/does not take text/)
+  expect(await refused('browser_type', { id, selector: '#moves', text: 'lost' })).toMatch(/moves the focus away from it/)
+  expect(await inPage("document.querySelector('#q').value + document.querySelector('#moves').value")).toBe('kept')
+})
+
+test('a field takes text as the first call on a new page, with no click before it', async () => {
+  await start()
+  const { id } = await ok<{ id: string }>('browser_open', { profile: PROFILE, url: `${origin}/` })
+  await ok('browser_type', { id, selector: '#q', text: 'first' })
+  expect(await inPage("document.querySelector('#q').value")).toBe('first')
+})
+
+test("a service worker of another site does not let the Session's navigation past the origins", async () => {
+  const window = await start()
+  const { id } = await ok<{ id: string }>('browser_open', { profile: PROFILE, url: `${origin}/` })
+  const frame = window.locator(`[data-testid="browser-frame"][data-node-id="${id}"]`)
+  // The user, by hand, visits the other site, which installs a worker answering its pages, and comes back.
+  const body = (await frame.getByTestId('browser-frame-body').boundingBox())!
+  await window.mouse.click(body.x + body.width / 2, body.y + 60)
+  await expect(frame.getByTestId('browser-taken-over')).toBeVisible()
+  await inPage(`location.href = ${JSON.stringify(`${away}/sw`)}`)
+  await expect.poll(pageUrl).toEqual([`${away}/sw`])
+  await expect.poll(() => inPage('navigator.serviceWorker.ready.then((registration) => registration.active?.state ?? null)'), { message: 'the worker of the other site' }).toBe('activated')
+  await inPage(`location.href = ${JSON.stringify(`${origin}/`)}`)
+  await expect.poll(pageUrl).toEqual([`${origin}/`])
+  await frame.getByTestId('browser-return-control').click()
+  await expect(frame.getByTestId('browser-claude-drives')).toBeVisible()
+
+  // The worker would answer the page of the other site itself, before any request leaves the page.
+  const link = await refused('browser_click', { id, selector: '#away' })
+  expect(link).toContain(`${away} is outside the origins`)
+  expect(await pageUrl()).toEqual([`${origin}/`])
+  expect(await inPage("document.querySelector('h1').textContent")).toBe('Home')
 })
 
 test('«Claude is driving» goes at a click of the user on the page; calls are refused until «Return control to Claude»', async () => {
@@ -269,12 +336,12 @@ test('«Claude is driving» goes at a click of the user on the page; calls are r
   // While the user has it, they go anywhere: the origins hold the Session only.
   await inPage("document.querySelector('#away').click()")
   await expect.poll(pageUrl).toEqual([`${away}/`])
-  await inPage('history.back()')
-  await expect.poll(pageUrl).toEqual([`${origin}/`])
 
-  // «Return control to Claude»: the Session drives again.
+  // «Return control to Claude»: the Session drives again — but not on the page of the other site
+  // the user left it on; it may only go back to a page in the list.
   await frame.getByTestId('browser-return-control').click()
   await expect(frame.getByTestId('browser-claude-drives')).toBeVisible()
+  expect(await refused('browser_read', { id })).toContain(`shows a page of ${away}, outside the origins`)
   expect((await ok<{ url: string }>('browser_navigate', { id, url: `${origin}/next` })).url).toBe(`${origin}/next`)
 
   // A click on the frame's own header takes it over too.

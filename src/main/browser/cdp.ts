@@ -12,8 +12,10 @@
 //   script, a form, a window.open main turns into a navigation (src/main/window.ts) — is paused by
 //   the Fetch domain and checked against the origins of the Browser's profile (`guard.refusal`). A
 //   refused one is failed as `Aborted`, which Chromium treats as a cancelled navigation: the page
-//   stays as it was, and the call that led there answers with the refusal. Frames inside the page
-//   and the requests of its resources are not checked: they do not change the page.
+//   stays as it was, and the call that led there answers with the refusal. Service workers are
+//   bypassed while the debugger is attached, so none answers such a request before the wall sees it.
+//   Frames inside the page and the requests of its resources are not checked: they do not change
+//   the page.
 // - **Takeover** (ADR-0078 item 8). A mouse button pressed, a key pressed or a touch on the page by
 //   the user is reported (`onUserInput`), and the Browser stops being the Session's
 //   (src/main/browser/live.ts). The Session's own clicks and keys go through the same input path, so
@@ -21,7 +23,7 @@
 //
 // The page is reached through CdpContents, the part of Electron's WebContents used here, so the
 // contract test drives a fake debugger (test/contract/browser-tools.test.ts).
-import { BROWSER_LOG_LIMIT, BROWSER_SNAPSHOT_MAX, PASSWORD_REFUSED } from '../../shared/browser/tools'
+import { BROWSER_LOG_LIMIT, BROWSER_SNAPSHOT_MAX, PASSWORD_REFUSED, TAKEN_OVER } from '../../shared/browser/tools'
 
 /** The part of Electron's Debugger used here. */
 export interface CdpDebugger {
@@ -156,6 +158,36 @@ function argumentText(argument: unknown): string {
   return typeof argument.type === 'string' ? argument.type : ''
 }
 
+/**
+ * Run on the element of browser_type: focuses it and answers where its text would go — `password`,
+ * `frame` (the focus is in a frame of another site), `none` (no field takes it: the element is no
+ * field, or the page moves the focus away from it) or `ok`. Elements of a frame are of that frame's window, so they are told by their tag, not by `instanceof`.
+ */
+const FOCUS_FOR_TEXT = `function () {
+  const isPassword = (e) => e.localName === "input" && e.type === "password";
+  if (isPassword(this)) return "password";
+  if (typeof this.focus !== "function") return "none";
+  this.focus();
+  const way = [];
+  for (let e = document.activeElement; e !== null && way.length < 64; ) {
+    way.push(e);
+    if (isPassword(e)) return "password";
+    if (e.shadowRoot && e.shadowRoot.activeElement) { e = e.shadowRoot.activeElement; continue; }
+    if (e.localName === "iframe" || e.localName === "frame") {
+      let inner = null;
+      try { inner = e.contentDocument; } catch (error) { inner = null; }
+      if (inner === null) return "frame";
+      e = inner.activeElement;
+      continue;
+    }
+    break;
+  }
+  if (!way.includes(this)) return "none";
+  const last = way[way.length - 1];
+  const field = last.isContentEditable || last.localName === "textarea" || (last.localName === "input" && !["button", "checkbox", "color", "file", "hidden", "image", "radio", "range", "reset", "submit"].includes(last.type));
+  return field ? "ok" : "none";
+}`
+
 export class CdpPage {
   private attaching: Promise<void> | null = null
   private mainFrame: string | null = null
@@ -208,6 +240,9 @@ export class CdpPage {
     await this.send('Runtime.enable')
     await this.send('Log.enable')
     await this.send('Network.enable')
+    // A service worker answers a navigation of its scope itself, before the Fetch domain sees the
+    // request: with it bypassed every whole-page request reaches the origin wall below.
+    await this.send('Network.setBypassServiceWorker', { bypass: true })
     // Only the requests for a document: a whole page or a frame. A frame's is let through at once.
     await this.send('Fetch.enable', { patterns: [{ urlPattern: '*', resourceType: 'Document', requestStage: 'Request' }] })
   }
@@ -219,6 +254,8 @@ export class CdpPage {
 
   /** Sends one of the Session's own input events: the takeover check does not count it. */
   private async input(method: string, params: unknown): Promise<void> {
+    // The user may take the Browser over between two events of one call: none is sent after that.
+    if (!this.guard.driving()) throw new PageError(`${TAKEN_OVER} in the middle of this call; nothing more was sent to the page. Wait until they press «Return control to Claude».`)
     this.synthetic += 1
     try {
       await this.send(method, params)
@@ -351,35 +388,57 @@ export class CdpPage {
     return answer.result?.value as T
   }
 
-  /** Clicks the middle of the element, as the user's mouse would, after scrolling it into view. */
-  async click(target: PageTarget): Promise<PageOutcome> {
-    const element = await this.element(target)
+  /** The middle of the element, scrolled into view; throws when it is not shown. */
+  private async middleOf(element: string): Promise<{ x: number; y: number }> {
     const box = await this.call<{ x: number; y: number; w: number; h: number } | null>(
       element,
       'function () { if (!(this instanceof Element)) return null; this.scrollIntoView({ block: "center", inline: "center" }); const r = this.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height } }',
     )
     if (box === null || box.w === 0 || box.h === 0) throw new PageError('The element is not shown on the page, so it cannot be clicked.')
-    const at = { x: box.x, y: box.y }
-    return this.settle(async () => {
-      await this.input('Input.dispatchMouseEvent', { type: 'mouseMoved', ...at })
-      await this.input('Input.dispatchMouseEvent', { type: 'mousePressed', ...at, button: 'left', buttons: 1, clickCount: 1 })
-      await this.input('Input.dispatchMouseEvent', { type: 'mouseReleased', ...at, button: 'left', buttons: 0, clickCount: 1 })
-    })
+    return { x: box.x, y: box.y }
+  }
+
+  /** A press and a release of the left mouse button at `at`, as the user's mouse would. */
+  private async press(at: { x: number; y: number }): Promise<void> {
+    await this.input('Input.dispatchMouseEvent', { type: 'mouseMoved', ...at })
+    await this.input('Input.dispatchMouseEvent', { type: 'mousePressed', ...at, button: 'left', buttons: 1, clickCount: 1 })
+    await this.input('Input.dispatchMouseEvent', { type: 'mouseReleased', ...at, button: 'left', buttons: 0, clickCount: 1 })
+  }
+
+  /** Clicks the middle of the element, as the user's mouse would, after scrolling it into view. */
+  async click(target: PageTarget): Promise<PageOutcome> {
+    const at = await this.middleOf(await this.element(target))
+    return this.settle(() => this.press(at))
   }
 
   /**
-   * Types `text` into the element at its caret, and presses Enter after it with `submit`. Refused
-   * for a password field (the owner's decision 7): the user logs in, a Session never sees or types a
-   * password. The field is checked where the text goes — the element, and the focused element once
-   * it has the focus — so a page that moves the focus elsewhere does not get it there either.
+   * Clicks the element, as the user would, types `text` into it at the caret the click left, and
+   * presses Enter after it with `submit`. Refused for a password field (the owner's decision 7): the
+   * user logs in, a Session never sees or types a password. The element is focused before the click
+   * and checked again after it, and the check is on where the text then goes: the
+   * focused element of the page, followed down through open shadow roots (a host that delegates its
+   * focus) and frames to the deepest one — the element the keys reach. A password field anywhere on
+   * that way refuses; so does a frame of another site, whose focus cannot be seen; and so does a
+   * focus that left the element (a page that moves it elsewhere). Only an input, a text area or an
+   * editable element at the end takes the text: a closed shadow root, which hides its focus, too is
+   * refused.
    */
   async type(target: PageTarget, text: string, submit: boolean): Promise<PageOutcome> {
     const element = await this.element(target)
-    const password = 'function () { const isPassword = (e) => e instanceof HTMLInputElement && e.type === "password"; if (isPassword(this)) return "password"; if (!(this instanceof HTMLElement)) return "none"; this.focus(); return isPassword(document.activeElement) ? "password" : document.activeElement === this ? "ok" : "none" }'
-    const state = await this.call<string>(element, password)
-    if (state === 'password') throw new PageError(`${PASSWORD_REFUSED}: the user logs in by hand, a Session never types a password. Ask the user to log in.`)
-    if (state !== 'ok') throw new PageError('The element does not take the focus, so nothing can be typed into it.')
+    const check = async (): Promise<void> => {
+      const state = await this.call<string>(element, FOCUS_FOR_TEXT)
+      if (state === 'password') throw new PageError(`${PASSWORD_REFUSED}: the user logs in by hand, a Session never types a password. Ask the user to log in.`)
+      if (state === 'frame') throw new PageError('The focus is inside a frame of another site, which cannot be checked for a password field, so nothing is typed there.')
+      if (state !== 'ok') throw new PageError('The element does not take text — it is no input, text area or editable element, or the page moves the focus away from it — so nothing is typed.')
+    }
+    await check()
+    const at = await this.middleOf(element)
     return this.settle(async () => {
+      // Chromium drops the keys and the text of a page nobody clicked since it last lost the focus:
+      // the Session clicks the field first, as the user would, and checks where the text goes again
+      // after the click, which the page may answer by moving the focus.
+      await this.press(at)
+      await check()
       if (text !== '') await this.input('Input.insertText', { text })
       if (submit) {
         const enter = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 }

@@ -121,7 +121,10 @@ export function sdkQueryFactory(
     // does an unattended one (Autopilot): it may use only the Browser profiles marked for Autopilot,
     // which worfy-browser ticket 08 brings (ADR-0078 item 10).
     const browsing = attached && request.unattended !== true ? browserOrNull(browser, request) : Promise.resolve(null)
-    const [allowlist, browserSession] = attached ? await Promise.all([mcpAllowlist(request.cwd, environment.env).then(withBrowserServer), browsing]) : [null, null]
+    const [listed, browserSession] = attached ? await Promise.all([mcpAllowlist(request.cwd, environment.env), browsing]) : [null, null]
+    // worfy-browser joins the Profile's list only with the server it names: not for an unattended
+    // Session, nor when the Browser server could not be made.
+    const allowlist = listed !== null && browserSession !== null ? withBrowserServer(listed) : listed
     const options = sessionOptions({
       cwd: request.cwd,
       env: environment.env,

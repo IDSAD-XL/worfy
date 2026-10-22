@@ -7,12 +7,13 @@
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QueryRequest } from '../../src/main/agent/session'
 import type { CdpContents, CdpDebugger, CdpInputEvent } from '../../src/main/browser/cdp'
 import type { LiveBrowsers } from '../../src/main/browser/live'
 import type { LayoutStore } from '../../src/main/layout/store'
-import type { BrowserContext, BrowserToolResult } from '../../src/main/mcp/browser-server'
+import type { BrowserContext, BrowserResolver, BrowserToolResult } from '../../src/main/mcp/browser-server'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import type { BrowserProfile } from '../../src/shared/browser/profiles'
 import { BROWSER_LOG_LIMIT, BROWSER_SERVER_NAME, BROWSER_TOOL_NAMES, PASSWORD_REFUSED, TAKEN_OVER } from '../../src/shared/browser/tools'
@@ -105,16 +106,20 @@ class FakePage implements CdpContents {
     return this.sent.filter((each) => each.method === method).map((each) => each.params)
   }
 
-  /** A whole-page request of the main frame for `url`, as the Fetch domain pauses it; resolves with how the page answered it. */
-  async pauseRequest(url: string, frameId = 'main'): Promise<'continued' | 'failed'> {
+  /**
+   * A whole-page request of the main frame for `url`, as the Fetch domain pauses it; resolves with how
+   * the page answered it. A continued one commits the page unless a redirect follows it (`commits`
+   * false); `redirectedFrom` is the paused request whose redirect this is.
+   */
+  async pauseRequest(url: string, frameId = 'main', { commits = true, redirectedFrom }: { commits?: boolean; redirectedFrom?: string } = {}): Promise<'continued' | 'failed'> {
     this.paused += 1
     const requestId = `paused-${this.paused}`
     const before = this.sent.length
-    this.emit('Fetch.requestPaused', { requestId, request: { url, method: 'GET' }, frameId, resourceType: 'Document' })
+    this.emit('Fetch.requestPaused', { requestId, request: { url, method: 'GET' }, frameId, resourceType: 'Document', ...(redirectedFrom === undefined ? {} : { redirectedRequestId: redirectedFrom }) })
     for (let wait = 0; wait < 100; wait += 1) {
       const answer = this.sent.slice(before).find((each) => each.params.requestId === requestId)
       if (answer?.method === 'Fetch.continueRequest') {
-        if (frameId === 'main') this.url = url
+        if (frameId === 'main' && commits) this.url = url
         return 'continued'
       }
       if (answer?.method === 'Fetch.failRequest') return 'failed'
@@ -123,8 +128,12 @@ class FakePage implements CdpContents {
     throw new Error(`the paused request ${url} was never answered`)
   }
 
+  /** Called with every command the page gets, after it is logged. */
+  onCommand: ((method: string, params: Record<string, unknown>) => void) | undefined
+
   private async command(method: string, params: Record<string, unknown>): Promise<unknown> {
     this.sent.push({ method, params })
+    this.onCommand?.(method, params)
     const element = (key: string | number): FakeElement | undefined => this.elements.get(String(key))
     switch (method) {
       case 'Page.getFrameTree':
@@ -132,16 +141,12 @@ class FakePage implements CdpContents {
       case 'Page.navigate': {
         const target = String(params.url)
         this.emit('Page.frameStartedLoading', { frameId: 'main' })
-        const first = await this.pauseRequest(target)
+        // Chromium commits the page only after the last hop of a redirect: a refused hop leaves the old page.
+        const hop = this.redirectTo
+        this.redirectTo = null
+        const first = await this.pauseRequest(target, 'main', { commits: hop === null })
         let errorText: string | undefined = first === 'failed' ? 'net::ERR_ABORTED' : undefined
-        if (first === 'continued' && this.redirectTo !== null) {
-          const hop = this.redirectTo
-          this.redirectTo = null
-          if ((await this.pauseRequest(hop)) === 'failed') {
-            this.url = 'about:blank'
-            errorText = 'net::ERR_ABORTED'
-          }
-        }
+        if (first === 'continued' && hop !== null && (await this.pauseRequest(hop, 'main', { redirectedFrom: `paused-${this.paused}` })) === 'failed') errorText = 'net::ERR_ABORTED'
         this.emit('Page.frameStoppedLoading', { frameId: 'main' })
         return { frameId: 'main', loaderId: 'l1', ...(errorText === undefined ? {} : { errorText }) }
       }
@@ -197,6 +202,8 @@ let live: LiveBrowsers
 let server: typeof import('../../src/main/mcp/browser-server')
 let profiles: BrowserProfile[]
 let changes: [string, string | null][]
+/** The Browser profiles cannot be read: the origin check of the page throws. */
+let profilesBroken: boolean
 /** The pages the "window" draws, by Browser Node id: each new Browser Node gets one at once. */
 let pages: Map<string, FakePage>
 
@@ -215,9 +222,11 @@ beforeEach(async () => {
     { id: 'none-bbbbbb', name: 'nobody', origins: [], autopilot: false },
   ]
   changes = []
+  profilesBroken = false
   pages = new Map()
   live = new LiveBrowsers({
     profileOf: (projectId, nodeId) => {
+      if (profilesBroken) throw new Error('browser-profiles.json: unexpected end of input')
       const id = store.get(projectId).layout.nodes.find((node) => node.id === nodeId)?.data.profile
       const profile = profiles.find((each) => each.id === id)
       return profile === undefined ? null : { name: profile.name, origins: profile.origins }
@@ -270,7 +279,11 @@ interface Rpc {
 
 /** Connects to a server for `ctx` as Claude Code would: initialize, then requests. */
 async function connect(ctx: BrowserContext = context()): Promise<Rpc> {
-  const config = await server.createBrowserServer(ctx)
+  return connectTo(await server.createBrowserServer(ctx))
+}
+
+/** Connects to the server `config` as Claude Code would. */
+async function connectTo(config: McpSdkServerConfigWithInstance): Promise<Rpc> {
   expect(config).toMatchObject({ type: 'sdk', name: BROWSER_SERVER_NAME })
   type Message = { id?: number; result?: unknown; error?: unknown }
   const pending = new Map<number, (message: Message) => void>()
@@ -427,11 +440,51 @@ describe('the origins of the Browser profile', () => {
   it('stop a redirect to another origin: the navigation is cancelled, and the answer names the origin', async () => {
     const rpc = await connect()
     const { id, page } = await opened(rpc)
+    json(await rpc.call('browser_navigate', { id, url: `${SITE}/before` }))
     page.redirectTo = `${ELSEWHERE}/landing`
     const text = refused(await rpc.call('browser_navigate', { id, url: `${SITE}/redirect` }))
     expect(text).toContain(ELSEWHERE)
-    expect(text).toContain('The page was not changed')
-    expect(page.commands('Fetch.failRequest')).toEqual([{ requestId: 'paused-2', errorReason: 'Aborted' }])
+    expect(text).toContain(`The page was not changed: it is still ${SITE}/before.`)
+    // The hop of the redirect is the request Chromium paused after the first one, and only it is failed.
+    expect(page.commands('Fetch.continueRequest')).toEqual([{ requestId: 'paused-1' }, { requestId: 'paused-2' }])
+    expect(page.commands('Fetch.failRequest')).toEqual([{ requestId: 'paused-3', errorReason: 'Aborted' }])
+    expect(page.url).toBe(`${SITE}/before`)
+  })
+
+  it('stop a whole-page request when the origins cannot be read: the wall does not open on an error', async () => {
+    const rpc = await connect()
+    const { page } = await opened(rpc)
+    profilesBroken = true
+    expect(await page.pauseRequest(`${SITE}/in-the-list`)).toBe('failed')
+    profilesBroken = false
+    expect(await page.pauseRequest(`${SITE}/in-the-list`)).toBe('continued')
+  })
+
+  it('keep a Session off a page outside the origins the user left the Browser on: only browser_navigate leaves it', async () => {
+    const rpc = await connect()
+    const { id, page } = await opened(rpc)
+    page.elements.set('#field', {})
+    expect(live.takeOver(PROJECT, id)).toBe(true)
+    // The user goes elsewhere by hand, then gives the Browser back.
+    expect(await page.pauseRequest(`${ELSEWHERE}/private`)).toBe('continued')
+    expect(live.giveBack(PROJECT, id)).toBe(true)
+    for (const [name, args] of [
+      ['browser_read', { id }],
+      ['browser_screenshot', { id }],
+      ['browser_console', { id }],
+      ['browser_network', { id }],
+      ['browser_click', { id, selector: '#field' }],
+      ['browser_type', { id, selector: '#field', text: 'x' }],
+    ] as const) {
+      const text = refused(await rpc.call(name, args))
+      expect(text, name).toContain(`shows a page of ${ELSEWHERE}, outside the origins`)
+    }
+    expect(page.commands('Accessibility.getFullAXTree')).toEqual([])
+    expect(page.commands('Page.captureScreenshot')).toEqual([])
+    expect(page.commands('Input.dispatchMouseEvent')).toEqual([])
+    expect(page.commands('Input.insertText')).toEqual([])
+    expect(json<{ url: string }>(await rpc.call('browser_navigate', { id, url: `${SITE}/back` })).url).toBe(`${SITE}/back`)
+    expect(textOf(await rpc.call('browser_read', { id }))).toContain(`Page: Fixture — ${SITE}/back`)
   })
 
   it('stop a link the Session clicks to another origin, and let one in the list through', async () => {
@@ -454,6 +507,13 @@ describe('the origins of the Browser profile', () => {
     expect(live.takeOver(PROJECT, id)).toBe(true)
     // The user goes anywhere by hand.
     expect(await page.pauseRequest(`${ELSEWHERE}/by-hand`)).toBe('continued')
+  })
+
+  it('are not passed by a service worker: the page bypasses them before the first page', async () => {
+    const { page } = await opened(await connect())
+    const order = page.sent.map((each) => each.method)
+    expect(page.commands('Network.setBypassServiceWorker')).toEqual([{ bypass: true }])
+    expect(order.indexOf('Network.setBypassServiceWorker')).toBeLessThan(order.indexOf('Fetch.enable'))
   })
 
   it('with an empty list let the Session open no page at all', async () => {
@@ -486,6 +546,10 @@ describe('browser_click, browser_type and the page', () => {
     const { id, page } = await opened(rpc)
     page.elements.set('#email', {})
     json(await rpc.call('browser_type', { id, selector: '#email', text: 'a@b.c', submit: true }))
+    // Clicked first, as the user would: Chromium drops the text of a page nobody clicked.
+    const order = page.sent.map((each) => (each.method === 'Input.dispatchMouseEvent' ? String(each.params.type) : each.method))
+    expect(order.indexOf('mouseReleased')).toBeGreaterThan(-1)
+    expect(order.indexOf('mouseReleased')).toBeLessThan(order.indexOf('Input.insertText'))
     expect(page.commands('Input.insertText')).toEqual([{ text: 'a@b.c' }])
     expect(page.commands('Input.dispatchKeyEvent').map((each) => [each.type, each.key])).toEqual([
       ['keyDown', 'Enter'],
@@ -502,6 +566,7 @@ describe('browser_click, browser_type and the page', () => {
     expect(text).toMatch(/the user logs in/)
     expect(page.commands('Input.insertText')).toEqual([])
     expect(page.commands('Input.dispatchKeyEvent')).toEqual([])
+    expect(page.commands('Input.dispatchMouseEvent')).toEqual([])
   })
 
   it('answer a screenshot as a PNG image, and the page as an accessibility snapshot with refs', async () => {
@@ -572,6 +637,34 @@ describe('taking a Browser over', () => {
     expect(live.control(PROJECT, id)?.mode).toBe('claude')
   })
 
+  it("a click of the user right after the Session's click answered takes it over", async () => {
+    const rpc = await connect()
+    const { id, page } = await opened(rpc)
+    page.elements.set('#field', {})
+    json(await rpc.call('browser_click', { id, selector: '#field' }))
+    page.input('mouseDown')
+    expect(live.control(PROJECT, id)?.mode).toBe('user')
+  })
+
+  it('the user taking it over in the middle of a call stops the events the call has not sent yet', async () => {
+    const rpc = await connect()
+    const { id, page } = await opened(rpc)
+    page.elements.set('#field', {})
+    // The user presses the frame's header (browser.control.take) while the Session's mouse moves.
+    page.onCommand = (method, params) => {
+      if (method === 'Input.dispatchMouseEvent' && params.type === 'mouseMoved') live.takeOver(PROJECT, id)
+    }
+    expect(refused(await rpc.call('browser_click', { id, selector: '#field' }))).toContain(TAKEN_OVER)
+    expect(page.commands('Input.dispatchMouseEvent').map((each) => each.type)).toEqual(['mouseMoved'])
+    page.onCommand = undefined
+    expect(live.giveBack(PROJECT, id)).toBe(true)
+    page.onCommand = (method) => {
+      if (method === 'Input.insertText') live.takeOver(PROJECT, id)
+    }
+    expect(refused(await rpc.call('browser_type', { id, selector: '#field', text: 'x', submit: true }))).toContain(TAKEN_OVER)
+    expect(page.commands('Input.dispatchKeyEvent')).toEqual([])
+  })
+
   it('another Session may not drive a Browser one drives', async () => {
     const { id } = await opened(await connect())
     const other = await connect(context({ sessionId: () => 'sess-b' }))
@@ -607,10 +700,48 @@ describe('the Browser server of a Session', () => {
     expect((options().systemPrompt as { append: string }).append).toMatch(/^canvas\n[\s\S]*worfy-browser/)
   })
 
+  const allowedServers = (): string[] => ((options().managedSettings as { allowedMcpServers: { serverName: string }[] }).allowedMcpServers ?? []).map((each) => each.serverName)
+
+  it('lets worfy-browser into the managed list of allowed servers next to the server itself', async () => {
+    const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+    await sdkQueryFactory(() => Promise.resolve(canvas), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]))(request(join(scratch, 'repo')))
+    expect(allowedServers()).toEqual(['qmd', CANVAS_SERVER_NAME, BROWSER_SERVER_NAME])
+  })
+
   it('is not passed to an unattended Session: Autopilot uses only the profiles marked for it (worfy-browser ticket 08)', async () => {
     const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
     await sdkQueryFactory(() => Promise.resolve(canvas), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]))(request(join(scratch, 'repo'), { unattended: true }))
     expect(options().mcpServers).toEqual({ [CANVAS_SERVER_NAME]: canvas.attachment.server })
+    expect(allowedServers()).toEqual(['qmd', CANVAS_SERVER_NAME])
+  })
+
+  it('leaves worfy-browser out of the allowed servers when its server could not be made', async () => {
+    const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+    const failing = () => Promise.reject(new Error('no Browser today'))
+    await sdkQueryFactory(() => Promise.resolve(canvas), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]), { browser: failing })(request(join(scratch, 'repo')))
+    expect(options().mcpServers).toEqual({ [CANVAS_SERVER_NAME]: canvas.attachment.server })
+    expect(allowedServers()).toEqual(['qmd', CANVAS_SERVER_NAME])
+  })
+
+  it("drives as the Session Claude Code names in its init message: the Browser it opens is that Session's", async () => {
+    const init = { type: 'system', subtype: 'init', cwd: join(scratch, 'repo'), session_id: 'sdk-from-init', tools: [], mcp_servers: [], model: 'm', permissionMode: 'default', slash_commands: [], apiKeySource: 'none', uuid: '00000000-0000-4000-8000-000000000b04' }
+    mocks.query.mockReset().mockImplementation(() => {
+      const messages = [init]
+      return { [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve(messages.length > 0 ? { done: false, value: messages.shift() } : { done: true, value: undefined }) }) }
+    })
+    const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+    const ctx = context()
+    // The app's own resolver, with this test's Live Browsers and a Layout a window draws.
+    const { projectStore } = await import('../../src/main/projects/store')
+    const browser: BrowserResolver = (req) => server.browserForSession(req, { projects: () => projectStore().list(), layout: ctx.layout, profiles: () => profiles, live })
+    const handle = (await sdkQueryFactory(() => Promise.resolve(canvas), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]), { browser })(request(join(scratch, 'repo')))) as AsyncIterable<unknown>
+    const rpc = await connectTo((options().mcpServers as Record<string, McpSdkServerConfigWithInstance>)[BROWSER_SERVER_NAME]!)
+    // Before Claude Code said who the Session is, there is no Session to open a Browser for.
+    expect(refused(await rpc.call('browser_open', { profile: 'admin-aaaaaa' }))).toMatch(/no id yet/)
+    for await (const message of handle) expect(message).toBe(init)
+    const { id } = json<{ id: string }>(await rpc.call('browser_open', { profile: 'admin-aaaaaa' }))
+    expect(browserNodes().find((node) => node.id === id)?.data.openedBy).toBe('sdk-from-init')
+    expect(live.control(PROJECT, id)).toEqual({ mode: 'claude', sessionId: 'sdk-from-init' })
   })
 
   it('is not passed when the list leaves worfy-browser out', async () => {

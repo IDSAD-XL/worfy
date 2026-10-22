@@ -537,8 +537,10 @@ describe('sdkQueryFactory and the Profile list', () => {
     const options = sdkOptions()
     expect(options.managedSettings).toEqual({
       allowManagedMcpServersOnly: true,
-      // A list that names worfy-canvas lets the built-in Browser in too (worfy-browser ticket 04, the owner's decision 6).
-      allowedMcpServers: [{ serverName: 'qmd' }, { serverName: 'worfy-canvas' }, { serverName: 'github' }, { serverName: 'worfy-browser' }],
+      // A list that names worfy-canvas lets the built-in Browser in too (worfy-browser ticket 04, the
+      // owner's decision 6), but only next to its server: no Project of the app holds this folder, so
+      // the Session has none (test/contract/browser-tools.test.ts has a Session with it).
+      allowedMcpServers: [{ serverName: 'qmd' }, { serverName: 'worfy-canvas' }, { serverName: 'github' }],
     })
     expect(options.mcpServers).toEqual({ [CANVAS_SERVER_NAME]: canvasServer })
     expect(snapshot(home)).toEqual(before)

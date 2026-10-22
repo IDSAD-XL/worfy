@@ -93,6 +93,9 @@ origin-ов отклоняется), «Последствия» (CDP-сесси�
   `src/renderer/canvas/nodes/BrowserNode.css` (вид рамки под управлением Session),
   `test/unit/link-access.test.ts` (метки новых channel-ов), `test/contract/workflow-profile.test.ts`
   (список Profile с `worfy-canvas` получает `worfy-browser`, решение 6).
+- Дописано в первом раунде доработки (PR #733): `test/unit/browser-page-live.test.ts` (новый:
+  `browser.page.live` берёт только guest `<webview>` своего окна), `test/unit/browser-node-control.test.tsx`
+  (новый: рамка на read-only Linked machine не перехватывает Browser).
 
 Только чтение: `src/main/mcp/canvas-server.ts` (`createCanvasServer` `:281`), `src/shared/canvas/tools.ts`
 (`:67`), `src/main/browser/profiles.ts`, `src/shared/layout/types.ts` (`create` `:126`).

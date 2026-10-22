@@ -321,9 +321,11 @@ export default function BrowserNode({ id, data }: CanvasNodeProps) {
   const profile = choice.kind === 'use' ? profiles?.find((each) => each.id === choice.id) : undefined
   const profilesWindow = useProfilesWindow()
   const control = useBrowserControl(projectId, id)
-  // A press or a key anywhere on the frame — its header, its bars — while a Session drives it.
+  const readOnly = useReadOnly()
+  // A press or a key anywhere on the frame — its header, its bars — while a Session drives it. A
+  // read-only Linked machine takes nothing over: it is a write the Machine of the Project refuses.
   const takeOver = () => {
-    if (control === 'claude' && projectId !== undefined) takeOverBrowser(projectId, id)
+    if (readOnly === null && control === 'claude' && projectId !== undefined) takeOverBrowser(projectId, id)
   }
   return (
     <div

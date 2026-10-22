@@ -9,7 +9,8 @@
 // - only the origins of the Browser's profile (src/main/browser/origins.ts): the address of
 //   browser_open and browser_navigate is checked before the page moves, and every other whole-page
 //   navigation is stopped by the Fetch domain while the Session drives the Browser (the owner's
-//   decision 2); the call that led there answers with the refusal;
+//   decision 2); the call that led there answers with the refusal; and a page outside them the user
+//   left the Browser on is not the Session's to read or use: only browser_navigate leaves it;
 // - never into a password field (the owner's decision 7);
 // - once the user took the Browser over, every call is refused until they give it back (decision 3;
 //   src/main/browser/live.ts).
@@ -35,7 +36,7 @@ import { isArchived, type LayoutNode } from '../../shared/layout/types'
 import type { BrowserAttachment } from '../agent/options'
 import { PageError, type PageOutcome, type PageTarget } from '../browser/cdp'
 import { ControlError, liveBrowsers, type LiveBrowsers } from '../browser/live'
-import { originRefusal } from '../browser/origins'
+import { originOf, originRefusal, sessionMayGo } from '../browser/origins'
 import { browserProfileStore } from '../browser/profiles'
 import { layoutStore } from '../layout/store'
 import { projectStore, type StoredProject } from '../projects/store'
@@ -110,17 +111,26 @@ function handlers(context: BrowserContext): Handlers {
     if (profile === undefined) throw new ToolError(`Browser ${id} has no Browser profile now (it was deleted, or the user has not chosen one): a Session may not drive it.`)
     return { node, profile }
   }
-  /** The Live page of Browser `id`, driven by this Session from now on. */
-  const drive = async (id: string) => {
+  /**
+   * The Live page of Browser `id`, driven by this Session from now on. A page outside the origins of
+   * its profile — where the user went by hand before giving the Browser back — is not the Session's
+   * to read or use: only a call that `leaves` it (browser_navigate) gets it. An empty page
+   * (about:blank, a new Browser's) is no site's.
+   */
+  const drive = async (id: string, leaves = false) => {
     const { profile } = browserOf(id)
     live.drive(projectId, id, me())
     const page = await live.whenLive(projectId, id, context.liveWaitMs ?? LIVE_WAIT_MS)
     if (page === undefined) throw new ToolError(`Browser ${id} has no live page: no window of worfy on this Machine shows this Project's canvas. Ask the user to open it.`)
     await page.attach()
+    const here = page.contents.getURL()
+    if (!leaves && here !== '' && here !== 'about:blank' && !sessionMayGo(here, profile.origins)) {
+      throw new ToolError(`Browser ${id} shows a page of ${originOf(here)}, outside the origins of its Browser profile "${profile.name}": a Session may not use it. Go to a page in the list with browser_navigate, or ask the user.`)
+    }
     return { page, profile }
   }
   const go = async (id: string, url: string) => {
-    const { page, profile } = await drive(id)
+    const { page, profile } = await drive(id, true)
     const refusal = originRefusal(url, profile.name, profile.origins)
     if (refusal !== null) throw new ToolError(refusal)
     const result = await page.navigate(url)
@@ -267,7 +277,7 @@ export function appBrowserContext(projectId: string, sessionId: () => string | n
  * The Browser for a Session starting in `cwd` — found as the canvas finds its Project
  * (canvasForSession) — or null when `cwd` is in no Project.
  */
-export const browserForSession: BrowserResolver = async (request, deps = browserAppDeps()) => {
+export async function browserForSession(request: Parameters<BrowserResolver>[0], deps: BrowserDeps = browserAppDeps()): Promise<BrowserSession | null> {
   let project = projectForCwd(deps.projects(), request.cwd)
   if (project === undefined) {
     const root = await (deps.repositoryRoot ?? repositoryRoot)(request.cwd)
