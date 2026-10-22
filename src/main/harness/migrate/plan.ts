@@ -10,8 +10,9 @@
 // 13) through the caller.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join, relative, resolve, sep, win32 } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { HarnessState } from '../../../shared/ipc/harness'
+import { isWindowsAbsolutePath } from '../../../shared/paths'
 import type { ClaudeMdSection, MigrationChoice, MigrationGroup, MigrationPlan, MigrationProfile, MigrationRow } from '../../../shared/ipc/harness-migration'
 import { BRIDGE_ENTRY, bridgeCommand, bridgeOf, samePath, splitCommand } from '../status-line'
 import { jsonText, profileToSchema2, readLegacyProfiles, rewriteHarnessPaths, type LegacyProfile } from './profiles'
@@ -189,7 +190,7 @@ export function otherBuildBridge(command: string, { platform, bridgeScript, user
     return target === bridgeScript ? null : found
   }
   // A Windows path is read as one on any host (tests run on macOS and Linux too).
-  const windowsTarget = win32.isAbsolute(found.bridge) && /^(?:[A-Za-z]:|[\\/]{2})/.test(found.bridge) ? found.bridge : target
+  const windowsTarget = isWindowsAbsolutePath(found.bridge) ? found.bridge : target
   const ours = windowsTarget !== null && bridgeScript !== null && samePath(platform, windowsTarget, bridgeScript)
   return ours ? null : found
 }

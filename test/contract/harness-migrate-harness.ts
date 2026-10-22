@@ -4,27 +4,25 @@
 // longer than 1000 lines.
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join, relative, sep } from 'node:path'
 import { afterEach, beforeEach } from 'vitest'
 import type { HarnessState } from '../../src/shared/ipc/harness'
 import type { MigrationChoice, MigrationPlan, MigrationSelection } from '../../src/shared/ipc/harness-migration'
 import type { ApplyOptions } from '../../src/main/harness/migrate/apply'
+import { copyLegacyFixture, SANDBOX_GIT_IDENTITY } from '../claude-home-legacy'
 import { NODE } from '../harness-node'
 import { removeTestTree } from '../remove'
 import { buildPlan, hookRecords, type PlanOptions } from '../../src/main/harness/migrate/plan'
 
 export const REPO = join(__dirname, '..', '..')
-const FIXTURE = join(REPO, 'test', 'fixtures', 'claude-home-legacy')
 const INSTALLED: HarnessState = { kind: 'installed', version: '0.2.0+aaaaaaa', enabled: true }
 
 const STUB = `#!/bin/sh
 printf '%s\\n' "$*" >> "$STUB_CLAUDE_LOG"
 exit 0
 `
-
-const GIT_IDENTITY = { GIT_AUTHOR_NAME: 'Sandbox', GIT_AUTHOR_EMAIL: 'sandbox@example.com', GIT_COMMITTER_NAME: 'Sandbox', GIT_COMMITTER_EMAIL: 'sandbox@example.com' }
 
 interface Sandbox {
   root: string
@@ -44,22 +42,6 @@ interface Sandbox {
 // value of that moment.
 export let sandbox: Sandbox
 
-// The fixture's files with `__SANDBOX__` replaced by the root — JSON-escaped in a .json file: a
-// Windows path has backslashes, which a JSON string spells `\\`. Line ends go back to the LF the
-// fixture is committed with (every file of it is text): Git for Windows with core.autocrlf checks
-// it out with CRLF, and the cases compare bytes and lines.
-function substitute(dir: string, root: string): void {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory()) substitute(path, root)
-    else {
-      const text = readFileSync(path, 'utf8')
-      const value = entry.name.endsWith('.json') ? JSON.stringify(root).slice(1, -1) : root
-      const fixed = text.replaceAll('\r\n', '\n').replaceAll('__SANDBOX__', value)
-      if (fixed !== text) writeFileSync(path, fixed)
-    }
-  }
-}
 
 /**
  * `timeout` (ms) ends a command that does not return: its status is then null, and the test fails instead of hanging.
@@ -101,11 +83,8 @@ function installPlugin(target: string, withQmd: boolean): void {
 
 export function makeSandbox({ qmdInPlugin = false }: { qmdInPlugin?: boolean } = {}): Sandbox {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-migrate-')))
-  cpSync(FIXTURE, root, { recursive: true })
-  substitute(root, root)
+  const claudeHome = copyLegacyFixture(REPO, root)
   const home = join(root, 'home')
-  const claudeHome = join(home, '.claude')
-  renameSync(join(claudeHome, 'gitignore'), join(claudeHome, '.gitignore'))
   const harnessHome = join(claudeHome, 'worfy-harness')
   const pluginDir = join(harnessHome, 'plugin')
   const stubDir = join(root, 'stub-bin')
@@ -123,7 +102,7 @@ export function makeSandbox({ qmdInPlugin = false }: { qmdInPlugin?: boolean } =
     TMPDIR: process.env.TMPDIR ?? tmpdir(),
     LANG: process.env.LANG ?? 'C.UTF-8',
     GIT_CONFIG_NOSYSTEM: '1',
-    ...GIT_IDENTITY,
+    ...SANDBOX_GIT_IDENTITY,
   }
   const repos = {
     worfy: join(root, 'repos', 'worfy'),

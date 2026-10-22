@@ -32,7 +32,9 @@ const WINDOWS = process.platform === 'win32'
 // The limit is for a test that hangs (a script waiting on stdin). On Windows every process start is
 // slow: alone on the owner's PC wave-gate.test.sh takes 269-317 s, profile and skill-blocks 140-170 s,
 // and five files at once take longer, so 300 s cut off wave-gate.test.sh there (2026-10-21).
-const FILE_TIMEOUT_MS = WINDOWS ? 600_000 : 120_000
+// With the lock-takeover cases wave-gate.test.sh takes 348 s alone and went past 600 s in a full
+// run (2026-10-22), hence 900 s. The cost: a hanging .test.sh on Windows is cut off 5 min later.
+const FILE_TIMEOUT_MS = WINDOWS ? 900_000 : 120_000
 
 const testFiles = TEST_DIRS.flatMap((dir) =>
   existsSync(dir)
@@ -54,6 +56,7 @@ const relative = (file: string): string => file.slice(HARNESS.length + 1).replac
 // when this file runs longer than the longest single shell test plus a few seconds.
 const RUN_FIRST = [
   'bin/tests/wave-gate.test.sh',
+  'bin/tests/wave-gate-lock.test.sh',
   'hooks/tests/guard-silent.test.sh',
   'bin/tests/skill-blocks.test.sh',
   'bin/tests/profile.test.sh',

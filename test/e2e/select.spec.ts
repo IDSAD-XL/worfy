@@ -1,11 +1,12 @@
-import { execFileSync, spawnSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator } from '@playwright/test'
 import { claudePluginStub } from './claude-plugin-stub'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { legacyClaudeHome } from './legacy-claude-home'
 
 // The shared Select (src/renderer/theme/Select.tsx) in the two forms that had a native select:
 // the Profile form of "Add project" (the same path as test/e2e/projects-connect.spec.ts: a
@@ -146,38 +147,8 @@ test('the Profile form of "Add project": a field opens from the keyboard, letter
 
 // ── the form that moves the old Harness ─────────────────────────────────────
 
-const FIXTURE = join(repoRoot, 'test', 'fixtures', 'claude-home-legacy')
-const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'Sandbox', GIT_AUTHOR_EMAIL: 'sandbox@example.com', GIT_COMMITTER_NAME: 'Sandbox', GIT_COMMITTER_EMAIL: 'sandbox@example.com' }
-
-// `__SANDBOX__` replaced by the root, JSON-escaped in a .json file: a Windows path has backslashes
-// (harness-migrate.spec.ts, worfy-windows ticket 83).
-function substitute(dir: string, root: string): void {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory()) substitute(path, root)
-    else {
-      const text = readFileSync(path, 'utf8')
-      const value = entry.name.endsWith('.json') ? JSON.stringify(root).slice(1, -1) : root
-      if (text.includes('__SANDBOX__')) writeFileSync(path, text.replaceAll('__SANDBOX__', value))
-    }
-  }
-}
-
-function gitCommitAll(dir: string): void {
-  for (const args of [['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'fixture']]) {
-    const result = spawnSync('git', ['-C', dir, ...args], { env: GIT_ENV, encoding: 'utf8' })
-    if (result.status !== 0) throw new Error(`git ${args.join(' ')}: ${result.stderr}`)
-  }
-}
-
 test('the Profile fields of the move form: chosen through the Select, inactive while the Profile is kept', async () => {
-  cpSync(FIXTURE, scratch, { recursive: true })
-  substitute(scratch, scratch)
-  const claudeHome = join(scratch, 'home', '.claude')
-  renameSync(join(claudeHome, 'gitignore'), join(claudeHome, '.gitignore'))
-  gitCommitAll(claudeHome)
-  gitCommitAll(join(scratch, 'repos', 'worfy'))
-  cpSync(bundle, join(claudeHome, 'worfy-harness', 'plugin'), { recursive: true })
+  const claudeHome = legacyClaudeHome(scratch)
   const launched = await launchApp({ env: { WORFY_CLAUDE_HOME: claudeHome, WORFY_CLAUDE: claudeStub(), STUB_PLUGIN_VERSION: bundledVersion() } })
   try {
     const { window } = launched

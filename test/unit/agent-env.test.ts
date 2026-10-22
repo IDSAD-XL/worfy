@@ -593,7 +593,7 @@ describe('findOnPath and the registry reader', () => {
   it('passes by an entry of the Path that is not a full path: it would be looked for in the folder worfy runs in', () => {
     // Every one of these "has" the program; only the entry with a drive or a server is asked.
     const everywhere = () => true
-    for (const entry of ['.', 'tools', '..\\bin', '\\bin', 'C:tools', '%NOPE%\\bin']) {
+    for (const entry of ['.', 'tools', '..\\bin', '\\bin', 'C:tools', '%NOPE%\\bin', '\\\\srv']) {
       expect(findOnPath('node', { Path: `${entry};D:\\last` }, everywhere), entry).toBe('D:\\last\\node.exe')
       expect(findOnPath('node', { Path: entry }, everywhere), entry).toBeNull()
     }

@@ -203,7 +203,7 @@ export async function readGithubAccounts(repos: readonly FolderRepo[], deps: Acc
  * by worfy. Outside Windows `/bin/sh` execs gh (`gh` from the login shell's PATH, or WORFY_GH).
  * Windows has no `/bin/sh`, and node-pty there looks a bare name up only in worfy's own Path, without
  * adding `.exe`: gh starts by its full path, the first gh.exe in the Path of `env` (the environment
- * the pseudo-terminal gets). A full-path WORFY_GH (`C:\…`, `\\…`) is that file, with `.exe` added
+ * the pseudo-terminal gets). A full-path WORFY_GH (`C:\…`, `\\server\share\…`) is that file, with `.exe` added
  * when it has no extension; a relative one (`tools\gh.exe`, `\opt\gh`) is refused rather than looked
  * up in every Path entry. Throws, with what to do, when there is no such file.
  */
@@ -224,7 +224,7 @@ export function signInCommand(gh: string, platform: NodeJS.Platform = process.pl
     if (path.file === null) throw new Error(`${gh} was not found: WORFY_GH must name gh.exe by its full path`)
     return { file: path.file, args: ['auth', 'login'] }
   }
-  if (path.kind === 'relative') throw new Error(`WORFY_GH must be a full path (C:\\… or \\\\…), not ${gh}`)
+  if (path.kind === 'relative') throw new Error(`WORFY_GH must be a full path (C:\\… or \\\\server\\share\\…), not ${gh}`)
   const file = findOnPath(gh, env, exists)
   if (file === null) throw new Error(`${gh} was not found in the Path: install GitHub CLI or add its folder to the Path, then restart worfy`)
   return { file, args: ['auth', 'login'] }
