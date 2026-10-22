@@ -153,10 +153,16 @@ describe('the strip’s lower edge: open done stacks and the done shelf (ADR-007
   })
 
   it('takes in the done shelf under the strip, and its width when it is wider than the strip', () => {
-    const frame = { epic: 'a', width: 300, height: 400, reserve: 600 }
-    const placed = placeStrip([frame], [], 1, 100, 500)
-    const nodes = [frameNode('a', placed.frames.get('a')!.auto, { w: 300, h: 400 }), shelfNode(placed.shelf, 500, 100)]
-    expect(spotInputs(nodes, new Map([['a', 600]])).strip).toEqual({ x: 0, right: 500, top: 0, bottom: 600 + FRAME_GAP + 100 })
+    // The shelf stands FRAME_GAP under the frame as drawn (ADR-0082), but the strip ends where the
+    // room placeStrip finds for it ends: the reserve, FRAME_GAP, and the shelf. The room does not
+    // change with the frame's drawn height.
+    for (const height of [400, 500]) {
+      const frame = { epic: 'a', width: 300, height, reserve: 600 }
+      const placed = placeStrip([frame], [], 1, 100, 500)
+      expect(placed.shelf.y).toBe(height + FRAME_GAP)
+      const nodes = [frameNode('a', placed.frames.get('a')!.auto, { w: 300, h: height }), shelfNode(placed.shelf, 500, 100)]
+      expect(spotInputs(nodes, new Map([['a', 600]])).strip).toEqual({ x: 0, right: 500, top: 0, bottom: 600 + FRAME_GAP + 100 })
+    }
   })
 
   it('never lets a Node placed from the spot land on the shelf or in the room the strip keeps', () => {
@@ -174,7 +180,7 @@ describe('the strip’s lower edge: open done stacks and the done shelf (ADR-007
     const shelf = { ...placed.shelf, w: 500, h: 100 }
     expect(crowds(place, shelf)).toBe(false)
     const width = 500
-    const bottom = placed.shelf.y + 100
+    const bottom = 600 + FRAME_GAP + 100
     expect(frameColumnX(width, bottom, [right, above, place])).toBe(frameColumnX(width, bottom, [right, above]))
   })
 })
