@@ -1,7 +1,8 @@
 # 34 — Flaky test-ы gate full 2026-10-18/19: harness-evals PATH, install-stable, family.spec, terminal, first-run-windows
 
 Type: task
-Status: claimed 2026-10-22T19:54Z
+Status: done 2026-10-22T22:45Z
+PR: #786
 Branch: worfy-polish/34
 Blocked by: —
 Source: заметки оркестратора на Mac 2026-10-18/19 — gate full PR #496, #501, #522, #530, #533, #539 и
