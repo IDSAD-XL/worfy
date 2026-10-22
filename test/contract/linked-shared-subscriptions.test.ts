@@ -12,7 +12,7 @@
 // `linked.event`. The hubs and the Claude home watcher are stand-ins the test drives by hand: no
 // watcher of files, no git.
 import { EventEmitter } from 'node:events'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, realpathSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -126,6 +126,14 @@ interface Subscriber {
   send(payload: unknown): void
 }
 
+/**
+ * The root B's handlers give the hub for a Linked machine's call: the native real path that
+ * insideProjects (src/main/link/caller.ts) answers. On Windows it can spell PROJECT apart:
+ * fs.realpathSync keeps an 8.3 short name of %TEMP% (`C:\Users\RUNNER~1\…` on a GitHub runner) and
+ * the case the path was written in, the native one gives the long names and the disk's case.
+ */
+const WATCHED = resolve(realpathSync.native(PROJECT))
+
 /** A hub that keys a Project by path.resolve, as the real ones do (src/main/workflow/watch.ts, stages.ts). */
 function standInHub(first: (root: string) => unknown) {
   const subscribers = new Map<string, Map<number | string, Subscriber>>()
@@ -141,12 +149,11 @@ function standInHub(first: (root: string) => unknown) {
         for (const each of subscribers.values()) each.delete(id)
       },
     },
-    /** How many subscribers the Project has. */
-    subscribed: () => subscribers.get(resolve(PROJECT))?.size ?? 0,
+    /** How many subscribers the Project has, under the root B's handlers watch. */
+    subscribed: () => subscribers.get(WATCHED)?.size ?? 0,
     /** Sends every subscriber of the Project what `make` builds of its root. */
     change(make: (root: string) => unknown): void {
-      const key = resolve(PROJECT)
-      for (const subscriber of subscribers.get(key)?.values() ?? []) subscriber.send(make(key))
+      for (const subscriber of subscribers.get(WATCHED)?.values() ?? []) subscriber.send(make(WATCHED))
     },
   }
 }
