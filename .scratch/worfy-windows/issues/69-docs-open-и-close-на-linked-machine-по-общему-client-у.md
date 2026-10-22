@@ -1,7 +1,8 @@
 # 69 — Linked machine: `docs.close` одного окна снимает документы Project-а у всех окон той же Machine
 
 Type: bug
-Status: claimed 2026-10-22T02:01Z
+Status: done 2026-10-22T03:24Z
+PR: #726
 Branch: worfy-windows/69
 Blocked by: —
 Source: ревью PR #513 ([Ticket 64](64-закрытие-project-а-в-одном-окне-linked-machine-снимает-watcher-claude-home.md)),
@@ -32,9 +33,9 @@ Source: ревью PR #513 ([Ticket 64](64-закрытие-project-а-в-одн
 
 ## Готово, когда
 
-- [ ] Test пункта 1 красный до правки и зелёный после; мутант без строки `docs.open` в `SUBSCRIBING` —
+- [x] Test пункта 1 красный до правки и зелёный после; мутант без строки `docs.open` в `SUBSCRIBING` —
       красный.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full на Mac.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full на Mac.
 
 ## Тесты
 
@@ -60,4 +61,17 @@ Source: ревью PR #513 ([Ticket 64](64-закрытие-project-а-в-одн
 
 Mutation testing (оба test-файла): без строки `docs.open` — 2 test-а красные; `spelling: 'resolved'`
 — красный test о регистре id в `test/contract/linked-ipc.test.ts`; `close: 'docs.read'` — 2 красных.
-`pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast green. Gate full на Mac — за Orchestrator-ом.
+`pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast green.
+
+### Мерж (2026-10-22)
+
+PR #726 влит 2026-10-22, merge commit `a72c76e6`. Gate full на Mac (дерево head `8666561c` с main, `fcac461a`)
+— зелёный: lint, typecheck, test, e2e, package — exit 0. Linux CI — batch CI на main.
+
+- На Windows новый test `docs: …` в `test/contract/linked-shared-subscriptions.test.ts` зелёный. Красные в
+  том же файле три test-а `workflow` и `pipeline` — красные и до PR (Windows runner на main `54c1c59a`, run
+  39710383134), на Mac зелёные:
+  [Ticket 87](87-linked-shared-subscriptions-3-test-а-workflow-pipeline-красные-на-windows.md).
+- Вопрос для worfy-link, не найденный дефект: после переподключения link счётчики окон в
+  `src/main/ipc/linked.ts:159` не сбрасываются, и окна не шлют `docs.open` заново. Это общее для всех строк
+  `SUBSCRIBING`; записано в долг [worfy-polish 36](../../worfy-polish/issues/36-долг-после-review-pr-530.md).

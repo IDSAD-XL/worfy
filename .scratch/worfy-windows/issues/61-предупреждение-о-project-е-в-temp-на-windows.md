@@ -1,7 +1,8 @@
 # 61 — Windows: предупреждение, когда папка Project-а или его worktree лежит внутри `%TEMP%`
 
 Type: task
-Status: claimed 2026-10-22T02:01Z
+Status: done 2026-10-22T03:24Z
+PR: #728
 Branch: worfy-windows/61
 Blocked by: —
 Source: «Итог» [Ticket-а 52](52-из-node_modules-соседних-worktree-пропадают-пакеты.md) (PR #495, вопрос 2
@@ -42,12 +43,12 @@ Source: «Итог» [Ticket-а 52](52-из-node_modules-соседних-worktr
 
 ## Готово, когда
 
-- [ ] Unit test helper-а: таблица путей — внутри `%TEMP%`, вне его, короткое имя 8.3, `C:/` против
+- [x] Unit test helper-а: таблица путей — внутри `%TEMP%`, вне его, короткое имя 8.3, `C:/` против
       `C:\`, другой регистр буквы диска, сам `%TEMP%`, соседняя папка с тем же началом имени
       (`Temp2`). На не-Windows — всегда «нет».
-- [ ] Test формы «Add project»: папка в `%TEMP%` даёт предупреждение на шаге «Folder», добавить её
+- [x] Test формы «Add project»: папка в `%TEMP%` даёт предупреждение на шаге «Folder», добавить её
       можно; папка вне `%TEMP%` — без предупреждения.
-- [ ] Test списка worktree-ов: worktree в `%TEMP%` помечен, остальные — нет.
+- [x] Test списка worktree-ов: worktree в `%TEMP%` помечен, остальные — нет.
 - [ ] Windows-ПК: `pnpm lint`, `pnpm typecheck` — exit 0; test-файлы PR — exit 0. Mac: gate full
       зелёный (по правилу needs-mac-gate).
 
@@ -116,3 +117,14 @@ Session на Mac 2026-10-22, ветка `worfy-windows/61` от main `54c1c59a`.
   корни лежат во временной папке системы (на Windows это `%TEMP%`), а snapshot сравнивается целиком.
   Mutant «всё внутри %TEMP%» в значении по умолчанию у `readChecks` до этой правки ронял два test-а
   файла, после неё — ни одного.
+
+### Мерж (2026-10-22)
+
+PR #728 влит 2026-10-22, merge commit `a451d4be`. Head `719a4200`: gate full на Mac — зелёный (lint, typecheck,
+test, e2e, package — exit 0); до этого запуска gate full падал только на shell-test-ах под нагрузкой Mac
+([worfy-polish 37](../../worfy-polish/issues/37-предел-120-s-у-shell-test-ов-на-загруженном-mac.md)).
+
+- Windows runner (`windows-tests.yml`, run 39714307426, head `719a4200`): шаг test-ов — 6 файлов PR, 194 passed,
+  5 skipped. Сам job кончился `cancelled`: он упёрся в предел 10 min во время уборки после test-ов
+  (post-шаги `actions/checkout`). На настоящем `%TEMP%` runner-а `test/unit/temp-folder.test.ts` прошёл.
+- Последний пункт «Готово, когда» закрыт не весь: `pnpm lint` и `pnpm typecheck` на Windows-ПК не запускались.

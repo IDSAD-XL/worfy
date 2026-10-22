@@ -147,8 +147,9 @@ Source: решение владельца 2026-10-10 по второму воп�
 - [ ] (вручную, владелец или Orchestrator вне PR) В `~/.claude/worfy-harness/projects/worfy/rules.md`
   рядом со строкой про полный Gate — строка: PR, который правит файлы правил Harness, перед мержем
   проходит `pnpm eval:harness -- --changed origin/main`, строки `eval:harness …` — в описании PR;
-  подробности — `harness/README.md`, раздел «Evals». Как проверить:
-  `harness/bin/profile -C <репозиторий worfy> --rules | grep -c 'eval:harness'` — не 0.
+  подробности — `harness/README.md`, раздел «Evals». Правило записано 2026-10-22 словами Q-H29 («Платный
+  `eval --changed` …», см. «Итог»), слова `eval:harness` в нём нет. Как проверить:
+  `harness/bin/profile -C <репозиторий worfy> --rules | grep -c 'eval --changed'` — не 0 (2026-10-22: 1).
 
 ## Тесты
 
