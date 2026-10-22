@@ -57,9 +57,9 @@ Source: Ticket [71](71-harness-test-sh-на-windows.md) (PR #555), 2026-10-20 �
   (`takeOver`: маркер `<lock>.takeover`, повторное чтение `holder.json`, повтор `rmdir`), `:310` (`noteChild`, поле
   `child`), `:482` (`releasePid`), `:947-960` (обработчик сигналов: на Windows gate завершается `kill()` без
   сигнала, замки снимаются в любом случае).
-- `harness/bin/tests/wave-gate.test.sh`: `:246` (`finish` — предел ожидания фонового запуска), `:629` (сигнал, который
-  нельзя переслать: SIGHUP везде, SIGBREAK на Windows), `:654` («killed»), `:672` («orphan»), `:703` («twins»),
-  `:714` («token», со старым замком), `:730` (`holder.json` без `host` и с чужим `host`).
+- `harness/bin/tests/wave-gate.test.sh`: `:246` (`finish` — предел ожидания фонового запуска), `:631` (сигнал, который
+  нельзя переслать: SIGHUP везде, SIGBREAK на Windows), `:656` («killed»), `:674` («orphan»), `:705` («twins»),
+  `:716` («token», со старым замком), `:733` (`holder.json` без `host` и с чужим `host`).
 - `harness/profiles/README.md`: `:184` (`workflow.e2e_lock`: для `bin/wave-gate` замок убитого прогона забирается
   сразу).
 - Полный путь Windows проверяет одна функция `isWindowsAbsolutePath` (`src/shared/paths.ts:26`) вместо
