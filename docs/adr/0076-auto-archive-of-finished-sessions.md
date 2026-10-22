@@ -143,3 +143,10 @@ Ticket-ами», вопросы 4–6 исследования; Epic [worfy-canv
   следующая партия заменяет его. Undo — `layout.restoreBatch`: `restore` без экрана только тех Node-ов
   партии, что ещё в архиве, мимо ⌘Z. Toast закрывается сам, когда в архиве не осталось ни одного Node-а
   его партии. На read-only экране toast без Undo.
+- **2026-10-22, первым читателем Layout бывает и сам main** (worfy-canvas Ticket 19, ревью PR #686;
+  записано по PR #754). Поправка к записи «архив при первом чтении Layout» от 2026-10-21: там первыми
+  читателями названы только окно и Linked machine. Архив запускает любое первое чтение Layout-а в main
+  (`LayoutStore.onFirstRead`), в том числе собственные чтения main: MCP-инструменты Canvas
+  (`src/main/mcp/canvas-server.ts`), docs (`src/main/ipc/docs.ts`), корзина (`src/main/layout/trash.ts`) и
+  Session-ы Node-ов (`src/main/agent/node-sessions.ts`). Читать ту запись так: «окно открыло Project,
+  Linked machine его запросила или сам main его прочитал».

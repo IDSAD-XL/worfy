@@ -1,7 +1,8 @@
 # 19 — Долг после review Wave 3: PR #654, #656, #657, #659, #662, #664, #668
 
 Type: task
-Status: claimed 2026-10-21T09:59Z
+Status: done 2026-10-22T13:43Z
+PR: #754
 Branch: worfy-canvas/19-d
 Blocked by: —
 Source: ревью PR [#654](https://github.com/IDSAD-XL/worfy/pull/654) (Ticket 14, архивные Node-ы вне Find,
@@ -151,21 +152,22 @@ Session-ов и popover Archive, круги 1–3), [#657](https://github.com/ID
       чтение мимо общей копии.
 - [x] (#682, вне diff-а) `overlays/ArchivePopover.tsx:51-74,95` — ещё одна копия цикла сигналов и
       `resolveAgentBindings`.
-- [ ] (#686) `docs/adr/0076-auto-archive-of-finished-sessions.md:138`, Amendment: первыми читателями названы окно
+- [x] (#686) `docs/adr/0076-auto-archive-of-finished-sessions.md:138`, Amendment: первыми читателями названы окно
       и Linked machine; собственные чтения main (MCP-инструменты Canvas, docs, корзина, API карточек) тоже
-      запускают архив — дописать «или сам main».
+      запускают архив — дописать «или сам main». Сделано: Amendment 2026-10-22, PR #759.
 - [x] (#686) `test/contract/layout-archive.test.ts`: нет test-а, что прогон при первом чтении, совпавший с тиком
       того же Project-а, даёт ровно одну партию и одно `layout.archived`.
 - [x] (#686) `src/renderer/settings/CanvasSection.tsx:7`: устаревший комментарий «defaults (ticket 10)».
-- [ ] (#689) `docs/adr/0077-node-kind-tokens.md:99`, Amendment: Card — «единственное исключение старше semantic
+- [x] (#689) `docs/adr/0077-node-kind-tokens.md:99`, Amendment: Card — «единственное исключение старше semantic
       zoom»; старше только порог 0.4, исключение для закреплённой Card и focus tile пришло из #668.
+      Сделано: Amendment 2026-10-22, PR #759.
 - [x] (#689) `.scratch/worfy-canvas/spec.md:154`: ссылка `Canvas.tsx:542` устарела —
       `onlyRenderVisibleElements` стоит на `Canvas.tsx:537`.
 
 ## Готово, когда
 
-- [ ] Каждый пункт выше исправлен или осознанно закрыт с причиной в «Итог».
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [x] Каждый пункт выше исправлен или осознанно закрыт с причиной в «Итог».
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (PR #754, раздел «Checks»; Amendment-ы — только docs).
 
 ## Где в коде
 
@@ -330,5 +332,10 @@ PR первой части (2026-10-21, ветка `worfy-canvas/19`): ошиб�
   (`watchTicketsRoot`), корень удалён и создан снова, stub сообщает только об удалении файла внутри.
   Mutant без вызова `checkRootReplaced` — red 5 из 5; без mutant-а оба test-а — 10 из 10 green.
 
-Осталось (Orchestrator-у): Amendment-ы ADR-0076 и ADR-0077 — implementer ADR не правит.
+Осталось (Orchestrator-у): Amendment-ы ADR-0076 и ADR-0077 — implementer ADR не правит. Сделано в PR #759.
+
+Закрыт 2026-10-22 (PR #754, часть 4): цвет каждого типа Node-а — одна константа `KIND`, у обёртки
+каждого Node-а React Flow есть `aria-label`; flaky test `workflow-reader` вылечен в watcher-е
+(`checkRootReplaced`); Arrange by Epic после 5 s ожидания Binding-ов ставит Session-ы по известным, если
+main ответил на `bindings.get`. Долг ревью #754 — Ticket [39](../../worfy-polish/issues/39-долг-после-review-pr-754.md) Epic-а worfy-polish.
 
