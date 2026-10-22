@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { canvasReady, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
@@ -275,8 +275,8 @@ test('in a window of A on a Project of B: "+" picks with A\'s dialog and B keeps
     expect(match, sent).not.toBeNull()
     const copy = match?.[1] ?? ''
     // B's copy, in B's data folder of the Project, with the bytes from A.
-    expect(copy.startsWith(`${join(bSetup.dataDir, BETA, 'attachments')}/`)).toBe(true)
-    expect(copy.endsWith('/notes-of-a.txt')).toBe(true)
+    expect(copy.startsWith(`${join(bSetup.dataDir, BETA, 'attachments')}${sep}`), copy).toBe(true)
+    expect(copy.endsWith(`${sep}notes-of-a.txt`), copy).toBe(true)
     expect(readFileSync(copy, 'utf8')).toBe('notes written on A')
     // Nothing was written into B's repository.
     expect(execFileSync('git', ['-C', bSetup.repo, 'status', '--porcelain'], { encoding: 'utf8' })).toBe('')

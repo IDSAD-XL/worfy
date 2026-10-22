@@ -67,3 +67,19 @@ pnpm build && pnpm exec playwright test test/e2e/linked-system-actions.spec.ts -
 - `test/e2e/linked-system-actions.spec.ts`
 
 ## Итог
+
+2026-10-22, ПК, ветка `worfy-windows/98` от main `b6f597ad`. Причина — в test-ах, не в `src/`; догадка из
+«Что происходит» подтвердилась запуском.
+
+- `subagent-tree.spec.ts`: helper `inJson` (`JSON.stringify(path).slice(1, -1)`, как `repoInJson` в
+  `binding.spec.ts`); `fixture()` и `linesOf()` подставляют путь Project-а экранированным.
+- `linked-system-actions.spec.ts`: путь копии сравнивается через `path.sep`; у обеих проверок —
+  сообщение с самим путём. На macOS `sep` — `/`, проверка там та же.
+- Пункт 3 (поиск): `git grep -n "/Users/test" test/e2e` — подстановка пути в JSON есть только в
+  `binding.spec.ts` (уже экранирована) и в двух местах `subagent-tree` (исправлены). Ожиданий пути
+  через `/` в `startsWith`/`endsWith`/`toBe` среди e2e больше нет: остальные совпадения — URL
+  (`browser-mcp`, `card-*`, `linked-cards`). Поиск шёл по всем e2e, но `linked-add-project`,
+  `linked-machines`, `linked-notify` не правились — это Ticket-ы 99 и 100; другие виды сравнения путей
+  (`toContain`, регулярные выражения) поиск не ловит.
+- До: оба spec-а — 3 красных из 7 (те же, что в описании), код 1. После: 7 из 7, код 0, 2 прогона из 2.
+- На Mac не проверено.

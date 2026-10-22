@@ -80,8 +80,11 @@ function write(path: string, text: string, mode: 'create' | 'append' = 'create')
   expected[relative(claudeHome, path)] = `${stats.size}:${stats.mtimeMs}`
 }
 
+/** A path as it stands inside a JSON string: the backslashes of a Windows path escaped. */
+const inJson = (path: string): string => JSON.stringify(path).slice(1, -1)
+
 /** A fixture file of Session 7777 as if it had been written in this Project. */
-const fixture = (path: string): string => readFileSync(join(FIXTURE, path), 'utf8').replaceAll('/Users/test/projects/agents', projectPath)
+const fixture = (path: string): string => readFileSync(join(FIXTURE, path), 'utf8').replaceAll('/Users/test/projects/agents', inJson(projectPath))
 const fixtureLines = (path: string): string[] => fixture(path).split('\n').filter((line) => line !== '')
 
 async function sendToOrchestrator(window: Page, text: string): Promise<void> {
@@ -446,7 +449,7 @@ test('a Session that runs a workflow script: its agents hang under the run and e
   const source = join(repoRoot, 'test', 'fixtures', 'claude-home', 'projects', '-Users-test-projects-workflow')
   const linesOf = (path: string): string[] =>
     readFileSync(join(source, path), 'utf8')
-      .replaceAll('/Users/test/projects/workflow', projectPath)
+      .replaceAll('/Users/test/projects/workflow', inJson(projectPath))
       .split('\n')
       .filter((line) => line !== '')
   const dir = transcriptDir(projectPath)
