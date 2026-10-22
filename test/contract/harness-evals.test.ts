@@ -611,7 +611,9 @@ describe('harness/evals: reviewer-simplification is the diff the case describes'
 // (comma-separated, one per call). STUB_LOCK: the first call makes the plugin copy read-only.
 // STUB_HANG: the first call writes its pid there and waits a minute before it exits; with
 // STUB_CATCH it exits 0 on a signal instead of being ended by it. STUB_AGGREGATE: every call writes
-// this text as aggregate-result.json into its --output-dir, as claude plugin eval does.
+// this text as aggregate-result.json into its --output-dir, as claude plugin eval does; a JSON report
+// that names neither its cases nor aggregates.casesTotal gets both, from the cases the call would run.
+// The stub parses its arguments as claude does: nothing after a `--` is an option.
 // STUB_VERSION_LOG: every `claude --version` appends a line there.
 const STUB = `#!/usr/bin/env node
 const { spawnSync } = require('node:child_process')
@@ -647,10 +649,67 @@ appendFileSync(log, JSON.stringify({
   args, manifest, evals, path: process.env.PATH, evalGit, evalHarnessHome: process.env.EVAL_HARNESS_HOME ?? null,
   gitVersion: version ? { status: version.status, stdout: version.stdout } : null, execPath, systemConfig, gitFiles,
 }) + '\\n')
+// As claude parses its arguments: whatever follows a '--' is a positional argument, no option.
+const dash = args.indexOf('--')
+const options = dash === -1 ? args : args.slice(0, dash)
+// As claude does: every --tag adds its values; --case takes one name glob, and the last one counts.
+const tagsOf = () => {
+  const values = []
+  options.forEach((arg, at) => {
+    if (arg === '--tag') for (let i = at + 1; i < options.length && !options[i].startsWith('-'); i++) values.push(options[i])
+    else if (arg.startsWith('--tag=')) values.push(arg.slice('--tag='.length))
+  })
+  return values
+}
+const lastCase = () => {
+  let value
+  options.forEach((arg, at) => {
+    if (arg === '--case') value = options[at + 1]
+    else if (arg.startsWith('--case=')) value = arg.slice('--case='.length)
+  })
+  return value
+}
+// A name glob with * only, which is all these tests use.
+const globMatch = (glob, name) => {
+  const parts = glob.split('*')
+  if (parts.length === 1) return glob === name
+  if (!name.startsWith(parts[0])) return false
+  let at = parts[0].length
+  for (const part of parts.slice(1, -1)) {
+    const found = name.indexOf(part, at)
+    if (found === -1) return false
+    at = found + part.length
+  }
+  const last = parts[parts.length - 1]
+  return name.length - last.length >= at && name.endsWith(last)
+}
+// The cases claude would run: those of the target whose tags meet a --tag, and that the last --case matches.
+const casesRun = () => {
+  const tags = tagsOf()
+  const only = lastCase()
+  return evals
+    .filter((name) => existsSync(join(args[2], 'evals', name, 'prompt.md')))
+    .filter((name) => {
+      const own = (/^tags:\\s*\\[([^\\]]*)\\]/m.exec(readFileSync(join(args[2], 'evals', name, 'prompt.md'), 'utf8'))?.[1] ?? '').split(',').map((tag) => tag.trim())
+      return (tags.length === 0 || tags.some((tag) => own.includes(tag))) && (only === undefined || globMatch(only, name))
+    })
+    .sort()
+}
 if (process.env.STUB_AGGREGATE) {
-  const outputDir = args[args.indexOf('--output-dir') + 1]
+  const outputDir = options[options.indexOf('--output-dir') + 1]
   mkdirSync(outputDir, { recursive: true })
-  writeFileSync(join(outputDir, 'aggregate-result.json'), process.env.STUB_AGGREGATE)
+  // A report that names neither its cases nor their number gets the cases this call ran, as claude's does.
+  let report = process.env.STUB_AGGREGATE
+  try {
+    const parsed = JSON.parse(report)
+    if (!('cases' in parsed) && parsed.aggregates?.casesTotal === undefined) {
+      const ran = casesRun()
+      report = JSON.stringify({ ...parsed, cases: ran.map((name) => ({ name })), aggregates: { ...parsed.aggregates, casesTotal: ran.length } })
+    }
+  } catch {
+    // Not a JSON object: written as it is.
+  }
+  writeFileSync(join(outputDir, 'aggregate-result.json'), report)
 }
 if (process.env.STUB_LOCK && calls === 0) chmodSync(args[2], 0o555)
 const code = Number((process.env.STUB_CODES || '0').split(',')[calls] || 0)
@@ -782,11 +841,17 @@ const permissionsHold = process.platform !== 'win32' && process.getuid?.() !== 0
 const readManifestOf = (dir: string): Record<string, unknown> =>
   JSON.parse(readFileSync(join(dir, '.claude-plugin', 'plugin.json'), 'utf8')) as Record<string, unknown>
 
-/** The values of a variadic option: everything after it up to the next option. */
+/**
+ * The values of a variadic option: everything after it up to the next option; none when it is absent.
+ * As claude parses its arguments, nothing after a `--` is an option.
+ */
 const listAfter = (args: string[], option: string): string[] => {
-  const from = args.indexOf(option) + 1
-  const end = args.findIndex((arg, i) => i >= from && arg.startsWith('--'))
-  return args.slice(from, end === -1 ? undefined : end)
+  const dash = args.indexOf('--')
+  const options = dash === -1 ? args : args.slice(0, dash)
+  const at = options.indexOf(option)
+  if (at === -1) return []
+  const end = options.findIndex((arg, i) => i > at && arg.startsWith('--'))
+  return options.slice(at + 1, end === -1 ? undefined : end)
 }
 
 // Every child of this file that runs a scaffold script, a Harness script, git in a fixture or
@@ -1153,7 +1218,10 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(calls).toHaveLength(1)
     const args = calls[0]?.args ?? []
     expect(listAfter(args, '--tag')).toEqual(['main'])
-    expect(args.slice(-4)).toEqual(['--case', 'status-block', '--runs', '1'])
+    // The --case of the user chooses the case; the call names it once, as its own option.
+    expect(listAfter(args, '--case')).toEqual(['status-block'])
+    expect(args.filter((arg) => arg === '--case')).toHaveLength(1)
+    expect(args.slice(-2)).toEqual(['--runs', '1'])
     expect(run.stdout).toMatch(/no gui case selected/)
   })
 
@@ -1601,13 +1669,239 @@ describe('pnpm eval:harness: one line per call for the PR description, from aggr
   })
 
   it('prints the lines without --changed too, counting the cases each call selects', () => {
-    const report = aggregate({ costUsd: 1.4120472000000002, aggregates: { casesTotal: 9, casesPassed: 8, overallScore: 0.8888888888888888 } })
+    const report = aggregate({ costUsd: 1.4120472000000002, aggregates: { casesPassed: 8, overallScore: 0.8888888888888888 } })
     const { run, calls } = evalHarness('2.1.289', '0,0', [], undefined, { STUB_AGGREGATE: report })
     expect(run.status, run.stderr).toBe(0)
     expect(calls).toHaveLength(2)
     const main = CASES.filter(([, tag]) => tag === 'main').map(([name]) => name).sort()
     expect(lines(run.stdout)).toContain(`eval:harness main: casesPassed 8 of ${main.length}, overallScore 0.89, costUsd 1.41, claudeVersion 2.1.289, cases ${main.join(',')}`)
     expect(lines(run.stdout)).toContain('eval:harness gui: casesPassed 8 of 1, overallScore 0.89, costUsd 1.41, claudeVersion 2.1.289, cases no-os-screen-capture')
+  })
+})
+
+// pnpm passes the `--` of `pnpm eval:harness -- …` on to the script as it is, after any argument
+// before it; claude takes whatever follows a `--` for positional arguments (worfy-harness ticket 70).
+describe('pnpm eval:harness: a `--` anywhere, the cost limit of the user, --dry-run (claude replaced by a stub)', () => {
+  /** A branch whose change to the epic-wave skill chooses three cases of the main tag, three calls. */
+  const threeCalls = (): string => {
+    const { repo, git } = changedRepo()
+    expect(git('checkout', '-q', '-b', 'topic').status).toBe(0)
+    appendFileSync(join(repo, 'harness', 'skills', 'epic-wave', 'SKILL.md'), '\nOne more rule.\n')
+    expect(git('commit', '-q', '-am', 'change epic-wave').status).toBe(0)
+    return repo
+  }
+  const limits = (calls: StubCall[]): string[][] => calls.map((call) => listAfter(call.args, '--max-cost-usd'))
+  const count = (args: string[], option: string): number => args.filter((arg) => arg === option || arg.startsWith(`${option}=`)).length
+  const THREE = [['epic-wave-old-form'], ['epic-wave-tickets'], ['reviewer-verdict']]
+
+  it('gives each call only its chosen case when `--` follows --changed, and no call a `--`', () => {
+    const { run, calls } = evalIn(threeCalls(), ['--changed', 'main', '--', '--runs', '1'])
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(caseArgs(calls)).toEqual(THREE)
+    for (const call of calls) {
+      expect(call.args).not.toContain('--')
+      expect(count(call.args, '--case')).toBe(1)
+      expect(listAfter(call.args, '--runs')).toEqual(['1'])
+    }
+    expect(run.stdout).not.toMatch(/cases mismatch/)
+  })
+
+  it('drops a `--` that stands between the options of the script and those for claude', () => {
+    const { run, calls } = evalIn(threeCalls(), ['--runs', '1', '--', '--changed', 'main'])
+    expect(run.status, run.stderr).toBe(0)
+    expect(caseArgs(calls)).toEqual(THREE)
+    for (const call of calls) expect(call.args).not.toContain('--')
+  })
+
+  it('ends the line of a call whose report has more cases than the script chose with "cases mismatch", exit not 0', () => {
+    const repo = changedRepo().repo
+    appendFileSync(join(repo, 'harness', 'agents', 'implementer.md'), '\nOne more rule.\n')
+    const { run } = evalIn(repo, ['--changed', 'HEAD'], { STUB_AGGREGATE: aggregate({ aggregates: { casesTotal: 3, casesPassed: 3, overallScore: 1 } }) })
+    expect(run.status).not.toBe(0)
+    expect(lines(run.stdout)).toContain(
+      'eval:harness main: casesPassed 3 of 1, overallScore 1, costUsd 0.3, claudeVersion 2.1.289, cases implementer-report, cases mismatch: report 3, chosen 1',
+    )
+  })
+
+  it('says "cases mismatch" for a report that ran another case than the chosen one', () => {
+    const repo = changedRepo().repo
+    appendFileSync(join(repo, 'harness', 'agents', 'implementer.md'), '\nOne more rule.\n')
+    const { run } = evalIn(repo, ['--changed', 'HEAD'], { STUB_AGGREGATE: aggregate({ cases: [{ name: 'status-block' }] }) })
+    expect(run.status).not.toBe(0)
+    expect(run.stdout).toMatch(/cases implementer-report, cases mismatch: report 1, chosen 1\n/)
+  })
+
+  it('lowers the budget of the run to the --max-cost-usd after `--`: 3, then what is left, then no call (exit 2)', () => {
+    const { run, calls } = evalIn(threeCalls(), ['--changed', 'main', '--', '--max-cost-usd', '3'], { STUB_AGGREGATE: aggregate({ costUsd: 1.5 }) })
+    expect(caseArgs(calls)).toEqual(THREE.slice(0, 2))
+    expect(limits(calls)).toEqual([['3'], ['1.5']])
+    for (const call of calls) expect(count(call.args, '--max-cost-usd')).toBe(1)
+    expect(run.status).toBe(2)
+    expect(lines(run.stdout)).toContain('eval:harness: budget 3 USD (--max-cost-usd 3)')
+    expect(run.stdout).toMatch(/the 3 USD of this run are spent .*main-reviewer-verdict call and any after it are skipped/)
+  })
+
+  const forms: [name: string, args: string[]][] = [
+    ['--max-cost-usd=3 after `--`', ['--', '--max-cost-usd=3']],
+    ['--max-cost-usd 3 without `--`', ['--max-cost-usd', '3']],
+    ['--max-cost-usd=3 without `--`', ['--max-cost-usd=3']],
+    ['--max-cost-usd 3 before `--`', ['--max-cost-usd', '3', '--', '--runs', '1']],
+  ]
+  it.each(forms)('takes %s without --changed: one --max-cost-usd per call, the budget is 3', (_, args) => {
+    const { run, calls } = evalHarness('2.1.289', '0,0', args, undefined, { STUB_AGGREGATE: aggregate({ costUsd: 1.5, aggregates: { casesPassed: 1, overallScore: 1 } }) })
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(limits(calls)).toEqual([['3'], ['1.5']])
+    for (const call of calls) {
+      expect(count(call.args, '--max-cost-usd')).toBe(1)
+      expect(call.args).not.toContain('--')
+    }
+    expect(lines(run.stdout)).toContain('eval:harness: budget 3 USD (--max-cost-usd 3)')
+  })
+
+  it('keeps the ceiling of 30 USD under a larger --max-cost-usd, and says so', () => {
+    const { run, calls } = evalHarness('2.1.289', '0,0', ['--', '--max-cost-usd', '50'])
+    expect(run.status, run.stderr).toBe(0)
+    expect(limits(calls)).toEqual([['30'], ['30']])
+    expect(run.stdout).toMatch(/--max-cost-usd 50 is above the ceiling of this script: the budget stays 30 USD/)
+    expect(lines(run.stdout)).toContain('eval:harness: budget 30 USD (BUDGET_USD)')
+  })
+
+  it('names BUDGET_USD as the budget without a --max-cost-usd', () => {
+    const { run } = evalHarness('2.1.289', '0,0')
+    expect(run.status, run.stderr).toBe(0)
+    expect(lines(run.stdout)).toContain('eval:harness: budget 30 USD (BUDGET_USD)')
+  })
+
+  const badLimits: [name: string, args: string[]][] = [
+    ['0', ['--', '--max-cost-usd', '0']],
+    ['a negative number', ['--max-cost-usd', '-1']],
+    ['abc', ['--', '--max-cost-usd', 'abc']],
+    ['no value at the end', ['--', '--max-cost-usd']],
+    ['no value before another option', ['--max-cost-usd', '--runs', '1']],
+    ['an empty --max-cost-usd=', ['--max-cost-usd=']],
+    ['two of them', ['--max-cost-usd', '3', '--', '--max-cost-usd=2']],
+  ]
+  it.each(badLimits)('exits 1 and calls no claude on --max-cost-usd %s', (_, args) => {
+    const repo = changedRepo().repo
+    const { run, calls, versionCalls } = evalIn(repo, args)
+    expect(run.status, run.stdout).toBe(1)
+    expect(run.stderr).toMatch(/--max-cost-usd/)
+    expect(calls).toEqual([])
+    expect(versionCalls).toBe(0)
+  })
+
+  it('exits 1 and calls no claude on an --output-dir of the user: each call writes its own', () => {
+    const { run, calls } = evalHarness('2.1.289', '0,0', ['--', '--output-dir', tempDir('worfy-eval-out-')])
+    expect(run.status, run.stdout).toBe(1)
+    expect(run.stderr).toMatch(/--output-dir/)
+    expect(calls).toEqual([])
+  })
+
+  // claude adds up every --tag it gets and keeps the last --case: an option of the user next to the
+  // call's own would widen the call or replace its case.
+  it('gives each call only its own --tag when the user names tags: no call runs the cases of the other tag', () => {
+    const { run, calls } = evalHarness('2.1.289', '0,0', ['--', '--tag', 'main', 'gui', '--runs', '1'])
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(calls.map((call) => listAfter(call.args, '--tag'))).toEqual([['main'], ['gui']])
+    for (const call of calls) {
+      expect(count(call.args, '--tag')).toBe(1)
+      expect(count(call.args, '--case')).toBe(0)
+      expect(listAfter(call.args, '--runs')).toEqual(['1'])
+    }
+    expect(run.stdout).not.toMatch(/cases mismatch/)
+  })
+
+  it('turns the --case globs of the user into one call per chosen case, each with its one --case', () => {
+    const { run, calls } = evalHarness('2.1.289', '0,0', ['--', '--case', 'epic-wave-*', '--case', 'status-block', '--tag', 'main'])
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(calls.map((call) => listAfter(call.args, '--case'))).toEqual([['epic-wave-old-form'], ['epic-wave-tickets'], ['status-block']])
+    for (const call of calls) {
+      expect(count(call.args, '--case')).toBe(1)
+      expect(count(call.args, '--tag')).toBe(1)
+    }
+    expect(run.stdout).not.toMatch(/cases mismatch/)
+  })
+
+  it('says "cases mismatch" when a chosen case is missing from the report, but not for a partial run', () => {
+    const repo = changedRepo().repo
+    appendFileSync(join(repo, 'harness', 'agents', 'implementer.md'), '\nOne more rule.\n')
+    const missing = evalIn(repo, ['--changed', 'HEAD'], { STUB_AGGREGATE: aggregate({ cases: [] }) })
+    expect(missing.run.status).not.toBe(0)
+    expect(missing.run.stdout).toMatch(/cases implementer-report, cases mismatch: report 0, chosen 1\n/)
+    const partial = evalIn(repo, ['--changed', 'HEAD'], { STUB_AGGREGATE: aggregate({ cases: [], partial: true }) })
+    expect(partial.run.status, partial.run.stderr).toBe(0)
+    expect(partial.run.stdout).toMatch(/cases implementer-report, partial\n/)
+  })
+
+  it('rounds what is left of the budget down to the cent, never up', () => {
+    const { run, calls } = evalIn(threeCalls(), ['--changed', 'main'], { STUB_AGGREGATE: aggregate({ costUsd: 0.004 }) })
+    expect(run.status, run.stderr).toBe(0)
+    // 30 - 0.004 is 29.996: toFixed(2) would give the second call 30, more than is left.
+    expect(limits(calls)).toEqual([['30'], ['29.99'], ['29.99']])
+    // 3 - 0.7 is 2.3, whose hundredfold is 229.99999999999997 in floating point: still 2.3, not 2.29.
+    const tenths = evalIn(threeCalls(), ['--changed', 'main', '--', '--max-cost-usd', '3'], { STUB_AGGREGATE: aggregate({ costUsd: 0.7 }) })
+    expect(limits(tenths.calls)).toEqual([['3'], ['2.3'], ['1.6']])
+  })
+
+  const dryValues: [name: string, args: string[]][] = [
+    ['--dry-run=1', ['--dry-run=1']],
+    ['an empty --dry-run=', ['--dry-run=']],
+    ['--dry-run=true after `--`', ['--', '--dry-run=true']],
+  ]
+  it.each(dryValues)('exits 1 and calls no claude on %s: a dry run takes no value', (_, args) => {
+    const repo = changedRepo().repo
+    const { run, calls, versionCalls } = evalIn(repo, args)
+    expect(run.status, run.stdout).toBe(1)
+    expect(run.stderr).toMatch(/--dry-run takes no value/)
+    expect(calls).toEqual([])
+    expect(versionCalls).toBe(0)
+  })
+
+  /** The command lines --dry-run prints, and those a real run gave the stub, with the copy and the time made alike. */
+  const PLUGIN = '<plugin-copy>'
+  const stamp = (text: string): string => text.replace(/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z/g, '<time>')
+  const printed = (stdout: string): string[] =>
+    lines(stdout)
+      .map((line) => /^eval:harness: \S+ — claude (.*)$/.exec(line)?.[1])
+      .filter((line): line is string => line !== undefined)
+      .map(stamp)
+  const given = (calls: StubCall[]): string[] => calls.map((call) => stamp(call.args.join(' ').split(call.args[2] ?? '').join(PLUGIN)))
+
+  it.each([
+    ['with --changed', ['--changed', 'main', '--', '--max-cost-usd', '3'], 3],
+    ['without --changed', ['--', '--max-cost-usd', '3', '--runs', '1'], 2],
+  ])('--dry-run %s starts nothing and prints the command line of each call that a real run gives claude', (_, args, n) => {
+    const repo = threeCalls()
+    const dry = evalIn(repo, ['--dry-run', ...args])
+    expect(dry.run.status, `${dry.run.stdout}\n${dry.run.stderr}`).toBe(0)
+    expect(dry.calls).toEqual([])
+    expect(dry.versionCalls).toBe(0)
+    expect(existsSync(join(repo, 'harness', 'evals', 'results'))).toBe(false)
+    expect(lines(dry.run.stdout)).toContain('eval:harness: budget 3 USD (--max-cost-usd 3)')
+    const real = evalIn(repo, args)
+    expect(real.run.status, real.run.stderr).toBe(0)
+    expect(real.calls).toHaveLength(n)
+    expect(printed(dry.run.stdout)).toEqual(given(real.calls))
+    for (const line of printed(dry.run.stdout)) expect(line.split(' ')).not.toContain('--')
+  })
+
+  it('--dry-run prints the limit the first real call gets, rounded down to the cent', () => {
+    const repo = threeCalls()
+    const dry = evalIn(repo, ['--dry-run', '--', '--max-cost-usd', '2.999'])
+    expect(dry.run.status, dry.run.stderr).toBe(0)
+    expect(dry.calls).toEqual([])
+    const real = evalIn(repo, ['--', '--max-cost-usd', '2.999'])
+    expect(limits(real.calls)[0]).toEqual(['2.99'])
+    expect(printed(dry.run.stdout)).toEqual(given(real.calls))
+  })
+
+  it('--dry-run keeps the refusals of --changed: an unknown base exits 1', () => {
+    const repo = changedRepo().repo
+    const { run, calls, versionCalls } = evalIn(repo, ['--dry-run', '--changed', 'no-such-branch'])
+    expect(run.status, run.stdout).toBe(1)
+    expect(run.stderr).toMatch(/no-such-branch/)
+    expect(calls).toEqual([])
+    expect(versionCalls).toBe(0)
   })
 })
 

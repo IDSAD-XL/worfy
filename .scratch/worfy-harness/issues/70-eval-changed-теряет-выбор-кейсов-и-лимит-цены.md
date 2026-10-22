@@ -1,7 +1,7 @@
 # 70 — `pnpm eval:harness --changed` гонит все кейсы тега и глотает `--max-cost-usd` пользователя; `--dry-run`
 
 Type: bug
-Status: open
+Status: claimed 2026-10-22T17:27Z
 Blocked by: —
 Source: платный run на PR #738 (2026-10-22): `pnpm eval:harness --changed origin/main -- --max-cost-usd 3`
 стоил 30.29 USD вместо ожидаемых ~1 USD; log run-а — в scratchpad сессии Orchestrator-а (`eval-738.log`), выдержки ниже.
@@ -128,3 +128,16 @@ Source: платный run на PR #738 (2026-10-22): `pnpm eval:harness --chang
 - `scripts/eval-harness.mjs`
 - `test/contract/harness-evals.test.ts`
 - `harness/README.md`
+
+## Итог
+
+- Падающий test сначала: на коде до правки 21 новый test в `test/contract/harness-evals.test.ts` (describe
+  «a `--` anywhere, the cost limit of the user, --dry-run») красные. `['--changed', 'main', '--', '--runs', '1']` —
+  `expected [ [], [], [] ] to deeply equal [ [ 'epic-wave-old-form' ], …]`: stub разбирает `--` как `claude`, и
+  `--case` за `--` не опция; `--max-cost-usd 3` пользователя — первый вызов получал `30`.
+- Правка: `scripts/eval-harness.mjs` убирает каждый `--`; `--case` вызова стоит до `--allow-tools` и аргументов
+  пользователя; `--max-cost-usd` пользователя забирает сам скрипт (бюджет `min(30, x)`, плохое значение или два раза —
+  exit 1); `--output-dir` пользователя — exit 1; `--dry-run` печатает командные строки и бюджет, ничего не запускает;
+  `summary` дописывает `, cases mismatch: report <n>, chosen <m>` и поднимает код выхода до 1.
+- Мутанты (свой worktree): `--` только первым; `...passThrough` перед `...call.args` с `--`; бюджет без `min`;
+  `--max-cost-usd` оставлен для `claude`; `--dry-run` с `claude --version`; mismatch без влияния на код — все красные.
