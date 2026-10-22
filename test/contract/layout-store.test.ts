@@ -1016,6 +1016,14 @@ describe('layout store: a Session’s Browsers are asked for unsaved changes bef
     expect(nodeOf(layout, 'a2')).toBeUndefined()
   })
 
+  it('trash.put hands its `keep` on to the Layout: the Browsers it names stay with the user though no page holds changes', async () => {
+    store.setBrowserKeeper(() => false)
+    expect(await call('trash.put', { projectId: PROJECT, nodeId: 'session:a', keep: ['a2'] })).toMatchObject({ ok: true })
+    const { layout } = store.get(PROJECT)
+    expect(nodeOf(layout, 'a1')).toBeUndefined()
+    expect(nodeOf(layout, 'a2')?.data).not.toHaveProperty('openedBy')
+  })
+
   it('a `keep` of a Hide leaves its Browsers with the user though no page holds changes (the ⇧⌘Z of a step that kept them)', async () => {
     store.setBrowserKeeper(() => false)
     const after = await applied({ op: 'hide', id: 'session:a', hidden: true, keep: ['a2'] })

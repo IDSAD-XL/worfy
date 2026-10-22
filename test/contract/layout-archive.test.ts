@@ -1131,6 +1131,27 @@ describe('the Browsers of an archived Session (worfy-browser ticket 06, ADR-0078
     expect(nodeOf('browser-b')).toMatchObject({ data: { openedBy: 'b' } })
   })
 
+  it('a Session Node that becomes a candidate only while the pages are asked waits for the next run: its Browsers were not asked', async () => {
+    apply(sessionNode('a'))
+    apply(browserNode('browser-a', 'a'))
+    world.history = transcripts(['a', 30 * HOUR], ['late', 30 * HOUR])
+    const asked: string[][] = []
+    store.setBrowserKeeper(
+      () => false,
+      async (_projectId, nodeIds) => {
+        asked.push([...nodeIds])
+        // The Node of an old Session lands on the Canvas while the pages answer.
+        apply(sessionNode('late', 400, 0))
+        apply(browserNode('browser-late', 'late', 3000))
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      },
+    )
+    expect(await archiver().run({ id: PROJECT, path: repo })).toBe(1)
+    expect(asked).toEqual([['browser-a']])
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:a'])
+    expect(nodeOf('browser-late')).toMatchObject({ data: { openedBy: 'late' } })
+  })
+
   it('a Session brought back — by the toast’s Undo, by a `claude --resume` — comes back without its Browsers', async () => {
     apply(sessionNode('a'))
     apply(sessionNode('b', 400, 0))

@@ -660,6 +660,29 @@ describe('⌘Z (ADR-0016): the user’s Hide and Remove are steps; the archive i
     expect(nodeOf(a2)).toBeUndefined()
   })
 
+  it('a page that does not answer within 3 s stays with the user: the Hide applies after the time limit, without the Browser leaving', async () => {
+    const a1 = await opens(A)
+    const a2 = await opens(A)
+    await Promise.resolve()
+    // a1's page never answers whether it has a beforeunload handler (its DevTools may be open).
+    pages.get(a1)!.onCommand = (method) => (method === 'Runtime.evaluate' ? new Promise<void>(() => undefined) : undefined)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      let done = false
+      const hiding = user({ op: 'hide', id: NODE_A, hidden: true }).then((answer) => ((done = true), answer))
+      await vi.advanceTimersByTimeAsync(2_900)
+      expect(done).toBe(false)
+      expect(nodeOf(NODE_A)?.hidden).toBe(false)
+      await vi.advanceTimersByTimeAsync(200)
+      expect(await hiding).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(nodeOf(NODE_A)?.hidden).toBe(true)
+    expect(nodeOf(a1)?.data).not.toHaveProperty('openedBy')
+    expect(nodeOf(a2)).toBeUndefined()
+  })
+
   it('a page the user typed into is asked right before the Hide: its Browser stays though main never asked it before', async () => {
     const a1 = await opens(A)
     const a2 = await opens(A)

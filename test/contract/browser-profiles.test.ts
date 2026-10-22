@@ -519,3 +519,20 @@ describe('installWebPolicy over the partitions of the Browser profiles', () => {
     expect(adminSession?.request).not.toBe(userSession?.request)
   })
 })
+
+describe('browser.control.hold: the ⌘Z of a taken-over Browser (worfy-browser ticket 06, ADR-0078 Amendments 2026-10-22)', () => {
+  it('gives the takeover back only for the Session that opened the Browser, and only while nobody drives it', async () => {
+    const { layoutStore } = await import('../../src/main/layout/store')
+    const { liveBrowsers } = await import('../../src/main/browser/live')
+    layoutStore().apply(ALPHA, { op: 'create', node: { id: 'browser-held', kind: 'browser', x: 0, y: 9000, w: 640, h: 440, data: { profile: 'admin', openedBy: 'sess-a' } } })
+    const hold = (sessionId: string) => value<{ held: boolean }>('browser.control.hold', { projectId: ALPHA, nodeId: 'browser-held', sessionId })
+    // A screen that names another Session locks nobody out.
+    expect(await hold('sess-b')).toEqual({ held: false })
+    expect(liveBrowsers().control(ALPHA, 'browser-held')).toBeNull()
+    expect(await hold('sess-a')).toEqual({ held: true })
+    expect(liveBrowsers().control(ALPHA, 'browser-held')).toEqual({ mode: 'user', sessionId: 'sess-a' })
+    // Somebody has it by now (the user): nothing changes.
+    expect(await hold('sess-a')).toEqual({ held: false })
+    liveBrowsers().release(ALPHA, 'browser-held')
+  })
+})

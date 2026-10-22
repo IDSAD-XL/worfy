@@ -37,7 +37,10 @@
 // changes (a `beforeunload` handler), stays too, as the user's own: it loses its `openedBy` and with
 // it its Family (setBrowserKeeper, which src/main/browser/live.ts answers; owner decision 2026-10-22).
 // main knows of unsaved changes only from asking the page, so whoever sends such an operation calls
-// askBrowsersFirst() before it (the IPC of layout.apply and trash.put, the archive's timer); an
+// askBrowsersFirst() before it — the IPC of layout.apply (a window's or a Linked machine's) and of
+// trash.put (src/main/ipc/layout.ts, src/main/ipc/trash.ts), the archive's timer
+// (src/main/layout/archive.ts) and the canvas MCP tool hide_node (src/main/mcp/canvas-server.ts);
+// the swap of a read-only Session Node for a live one is no leave (`sessionStays`); an
 // operation's `keep` names Browsers to leave with the user whatever main finds (the ⇧⌘Z of a step
 // that kept them).
 //
