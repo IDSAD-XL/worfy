@@ -940,6 +940,48 @@ test('long names: the Ticket title, blocked reason and blockers line are whole o
   }
 })
 
+test('the bordered state chip of an open Ticket holds its line inside its border, whatever the font and the device pixel ratio', async () => {
+  // The open chip shows on a card only until the Pipeline snapshot puts the stepper in its place,
+  // so the test does not wait for the app's own chip: it puts one with the same classes in the
+  // card's top row and measures it there, under the card's own styles.
+  makeClaudeHome()
+  makeProject((dir) => {
+    const issues = join(dir, 'demo-epic', 'issues')
+    mkdirSync(issues, { recursive: true })
+    writeFileSync(join(dir, 'demo-epic', 'spec.md'), '# Demo\n')
+    writeFileSync(join(issues, '01-open.md'), ticketText(1, 'open', '—'))
+  })
+  const launched = await launch()
+  try {
+    const card = ticketNode(launched.window, 1)
+    await expect(card).toBeVisible()
+    const chip = await card.evaluate((node) => {
+      // The e2e typecheck has no DOM library: the few page types used here.
+      type Element = { className: string; textContent: string | null; clientHeight: number; scrollHeight: number; getBoundingClientRect(): { height: number }; appendChild(child: Element): void; remove(): void }
+      type Style = { lineHeight: string; borderTopWidth: string; borderBottomWidth: string; fontFamily: string }
+      const page = globalThis as unknown as { document: { createElement(tag: string): Element }; getComputedStyle(element: Element): Style }
+      const row = (node as unknown as { querySelector(selector: string): Element | null }).querySelector('.w-ticket__top')
+      if (row === null) throw new Error('the card has no top row')
+      const probe = page.document.createElement('span')
+      probe.className = 'w-chip w-chip--open'
+      probe.textContent = 'open'
+      row.appendChild(probe)
+      const style = page.getComputedStyle(probe)
+      const inner = probe.getBoundingClientRect().height - parseFloat(style.borderTopWidth) - parseFloat(style.borderBottomWidth)
+      const read = { lineHeight: style.lineHeight, inner, scrollHeight: probe.scrollHeight, clientHeight: probe.clientHeight, font: style.fontFamily }
+      probe.remove()
+      return read
+    })
+    // An explicit length: `normal` takes the height of whatever font the system falls back to.
+    expect(chip.lineHeight, `the chip's line height (${JSON.stringify(chip)})`).toMatch(/^\d+(\.\d+)?px$/)
+    // Its line fits the box inside the border, measured as laid out and not rounded to whole pixels.
+    expect(parseFloat(chip.lineHeight), `the chip's line inside its border (${JSON.stringify(chip)})`).toBeLessThanOrEqual(chip.inner + 0.05)
+    expect(chip.scrollHeight, `the chip's content inside its box (${JSON.stringify(chip)})`).toBeLessThanOrEqual(chip.clientHeight)
+  } finally {
+    await launched.close()
+  }
+})
+
 // ── an Auction-sized Project ────────────────────────────────────────────────
 
 /** 42 Epics, 682 Tickets, the biggest Epic 97 Tickets; returns the epic-status answer. */
