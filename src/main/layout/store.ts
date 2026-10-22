@@ -36,6 +36,10 @@
 // locked Node does under every Remove. A Browser the user took over, or whose page has unsaved
 // changes (a `beforeunload` handler), stays too, as the user's own: it loses its `openedBy` and with
 // it its Family (setBrowserKeeper, which src/main/browser/live.ts answers; owner decision 2026-10-22).
+// main knows of unsaved changes only from asking the page, so whoever sends such an operation calls
+// askBrowsersFirst() before it (the IPC of layout.apply and trash.put, the archive's timer); an
+// operation's `keep` names Browsers to leave with the user whatever main finds (the ⇧⌘Z of a step
+// that kept them).
 //
 // Operations change the Layout in memory at once; the file is written after a quiet period
 // (LAYOUT_SAVE_DELAY_MS since the last operation) or, while operations keep coming with no quiet
@@ -284,7 +288,7 @@ function sessionOfNode(node: LayoutNode): string | null {
 }
 
 /** The Nodes an operation takes off the Canvas, by id. */
-function takenOff(op: LayoutOp): string[] {
+function takenOff(op: LayoutOp | LayoutOpInput): string[] {
   if (op.op === 'hide') return op.hidden ? [op.id] : []
   if (op.op === 'remove') return [op.id]
   if (op.op === 'archive') return op.nodes.map((node) => node.id)
@@ -293,6 +297,8 @@ function takenOff(op: LayoutOp): string[] {
 
 /** True when Browser Node `nodeId` of Project `projectId` stays with the user as its Session leaves: taken over, or unsaved changes. */
 export type BrowserKeeper = (projectId: string, nodeId: string) => boolean
+/** Asks the pages of Browsers `nodeIds` whether they hold unsaved changes; resolves once they answered. */
+export type BrowserAsker = (projectId: string, nodeIds: readonly string[]) => Promise<void>
 
 /**
  * `after`, the Layout `op` made of `before`, without the Browsers of the Sessions it took off the
@@ -309,11 +315,12 @@ function leaveWithSessions(before: Layout, after: Layout, op: LayoutOp, keeps: (
     if (session !== null && shownOnCanvas(node)) taken.delete(session)
   }
   if (taken.size === 0) return { layout: after, sessionsLeft: [] }
+  const keep = op.op === 'hide' || op.op === 'remove' || op.op === 'archive' ? op.keep : undefined
   const goes = (node: LayoutNode): boolean => node.kind === BROWSER_KIND && !node.locked && typeof node.data.openedBy === 'string' && taken.has(node.data.openedBy)
   if (!after.nodes.some(goes)) return { layout: after, sessionsLeft: [...taken] }
   const nodes = after.nodes.flatMap((node): LayoutNode[] => {
     if (!goes(node)) return [node]
-    if (!keeps(node.id)) return []
+    if (!keeps(node.id) && !(keep?.includes(node.id) ?? false)) return []
     const data = { ...node.data }
     delete data.openedBy
     return [{ ...node, data }]
@@ -337,6 +344,8 @@ export class LayoutStore {
   private readonly now: () => number
   /** Which Browsers of a Session that leaves the Canvas stay with the user; none until setBrowserKeeper. */
   private keepsBrowser: BrowserKeeper = () => false
+  /** Asks the pages of Browsers whether they hold unsaved changes; nothing to ask until setBrowserKeeper. */
+  private askBrowsers: BrowserAsker | undefined
 
   /**
    * `dirOf` gives a Project's data folder and throws for a Project that is not in the list.
@@ -444,11 +453,36 @@ export class LayoutStore {
    * From now on `keeper` tells which Browsers of a Session that leaves the Canvas stay with the user
    * (src/main/browser/live.ts answers it); returns what puts the default back: none stays.
    */
-  setBrowserKeeper(keeper: BrowserKeeper): () => void {
+  setBrowserKeeper(keeper: BrowserKeeper, ask?: BrowserAsker): () => void {
     this.keepsBrowser = keeper
+    this.askBrowsers = ask
     return () => {
-      if (this.keepsBrowser === keeper) this.keepsBrowser = () => false
+      if (this.keepsBrowser !== keeper) return
+      this.keepsBrowser = () => false
+      this.askBrowsers = undefined
     }
+  }
+
+  /**
+   * Before `op` — an operation that may take Sessions off the Canvas — asks the pages of the
+   * Browsers those Sessions opened whether they hold unsaved changes, so that the keeper answers
+   * from what the pages hold now. Resolves when they answered (each within its time limit); does
+   * nothing for any other operation.
+   */
+  askBrowsersFirst(projectId: string, op: LayoutOp | LayoutOpInput): Promise<void> {
+    return this.askBrowsersFor(projectId, takenOff(op))
+  }
+
+  /** askBrowsersFirst() for an operation that takes Nodes `ids` off the Canvas. */
+  async askBrowsersFor(projectId: string, ids: readonly string[]): Promise<void> {
+    const ask = this.askBrowsers
+    const named = new Set(ids)
+    if (ask === undefined || named.size === 0) return
+    const { nodes } = this.entry(projectId).layout
+    const sessions = new Set(nodes.filter((node) => named.has(node.id)).flatMap((node) => sessionOfNode(node) ?? []))
+    if (sessions.size === 0) return
+    const browsers = nodes.filter((node) => node.kind === BROWSER_KIND && !node.locked && typeof node.data.openedBy === 'string' && sessions.has(node.data.openedBy)).map((node) => node.id)
+    if (browsers.length > 0) await ask(projectId, browsers)
   }
 
   private schedule(projectId: string, entry: Entry): void {

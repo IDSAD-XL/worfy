@@ -1104,6 +1104,33 @@ describe('the Browsers of an archived Session (worfy-browser ticket 06, ADR-0078
     expect(nodes().filter((node) => node.kind === 'browser').map((node) => node.id)).toEqual(['browser-pinned', 'browser-kept'])
   })
 
+  it('the timer asks the pages of its candidates’ Browsers for unsaved changes first: one that holds them stays as the user’s; a Session given Keep meanwhile is not archived', async () => {
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    apply(browserNode('browser-a', 'a'))
+    apply(browserNode('browser-a2', 'a', 3000))
+    apply(browserNode('browser-b', 'b', 4000))
+    world.history = transcripts(['a', 30 * HOUR], ['b', 30 * HOUR])
+    const unsaved = new Set<string>()
+    const asked: string[][] = []
+    store.setBrowserKeeper(
+      (_projectId, nodeId) => unsaved.has(nodeId),
+      async (_projectId, nodeIds) => {
+        asked.push([...nodeIds].sort())
+        // While the pages answer, the user gives Session b Keep: the candidates are read again.
+        apply({ op: 'keep', id: 'session:b', keep: true }, 'screen-1')
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        unsaved.add('browser-a')
+      },
+    )
+    expect(await archiver().run({ id: PROJECT, path: repo })).toBe(1)
+    expect(asked).toEqual([['browser-a', 'browser-a2', 'browser-b']])
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:a'])
+    expect(nodeOf('browser-a')?.data).not.toHaveProperty('openedBy')
+    expect(nodeOf('browser-a2')).toBeUndefined()
+    expect(nodeOf('browser-b')).toMatchObject({ data: { openedBy: 'b' } })
+  })
+
   it('a Session brought back — by the toast’s Undo, by a `claude --resume` — comes back without its Browsers', async () => {
     apply(sessionNode('a'))
     apply(sessionNode('b', 400, 0))

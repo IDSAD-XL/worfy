@@ -10,6 +10,7 @@
 // contents until it reports again or closes.
 import { webContents, type WebContents } from 'electron'
 import {
+  browserControlHold,
   browserControlList,
   browserLivesList,
   browserPicture,
@@ -81,5 +82,6 @@ export default [
   defineHandler(browserPicture, ({ projectId, nodeId }) => ({ picture: liveBrowsers().pictureOf(projectId, nodeId) })),
   defineHandler(browserControlList, ({ projectId }) => ({ controls: liveBrowsers().controlsOf(projectId) })),
   defineHandler(browserControlTake, ({ projectId, nodeId }) => ({ taken: liveBrowsers().takeOver(projectId, nodeId) })),
+  defineHandler(browserControlHold, ({ projectId, nodeId, sessionId }) => ({ held: liveBrowsers().holdForUser(projectId, nodeId, sessionId) })),
   defineHandler(browserControlReturn, ({ projectId, nodeId }) => ({ returned: liveBrowsers().giveBack(projectId, nodeId) })),
 ] satisfies HandlerModule

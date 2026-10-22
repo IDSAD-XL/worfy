@@ -99,9 +99,9 @@ export interface LiveBrowsersDeps {
   layoutChanges?(listener: (change: Pick<LayoutChange, 'projectId' | 'sessionsLeft'>) => void): () => void
   /**
    * Gives the Layout the rule of which Browsers stay with the user when their Session leaves the
-   * Canvas (LayoutStore.setBrowserKeeper); returns what takes it back.
+   * Canvas, and how to ask their pages first (LayoutStore.setBrowserKeeper); returns what takes it back.
    */
-  browserKeeper?(keeps: (projectId: string, nodeId: string) => boolean): () => void
+  browserKeeper?(keeps: (projectId: string, nodeId: string) => boolean, ask: (projectId: string, nodeIds: readonly string[]) => Promise<void>): () => void
 }
 
 /** What main keeps of one Browser between its pages (worfy-browser ticket 05). */
@@ -190,19 +190,51 @@ export class LiveBrowsers {
 
   constructor(private readonly deps: LiveBrowsersDeps) {
     this.unsubscribe = deps.layoutChanges?.((change) => this.sessionsLeft(change.projectId, change.sessionsLeft ?? []))
-    this.unkeep = deps.browserKeeper?.((projectId, nodeId) => this.staysWithUser(projectId, nodeId))
+    this.unkeep = deps.browserKeeper?.(
+      (projectId, nodeId) => this.staysWithUser(projectId, nodeId),
+      (projectId, nodeIds) => this.askUnsaved(projectId, nodeIds),
+    )
   }
 
   /**
    * True when Browser Node `nodeId` stays on the Canvas as the user's own when the Session that opened
    * it leaves (owner decision 2026-10-22, ADR-0078 Amendments): the user took it over and has not
-   * given it back, or its page has unsaved changes — a `beforeunload` handler the last time main asked.
+   * given it back, or its page has unsaved changes — a `beforeunload` handler the last time main asked
+   * (askUnsaved asks just before such an operation). A page that could not answer is kept too, as
+   * sleep keeps it: what it holds is not known.
    */
   staysWithUser(projectId: string, nodeId: string): boolean {
     const key = keyOf(projectId, nodeId)
     if (this.controls.get(key)?.mode === 'user') return true
     const life = this.lifes.get(key)
-    return life !== undefined && life.live && life.unsaved
+    return life !== undefined && life.live && (life.unsaved || life.unasked)
+  }
+
+  /**
+   * Asks every page of the Live Browsers `nodeIds` whether it has a `beforeunload` handler, right
+   * before an operation that may take them off the Canvas with their Session: the user may be typing
+   * in a page main never asked (it asks before sleep only). Each page answers within ASK_MS.
+   */
+  async askUnsaved(projectId: string, nodeIds: readonly string[]): Promise<void> {
+    await Promise.all(
+      nodeIds.map((nodeId) => {
+        const life = this.lifes.get(keyOf(projectId, nodeId))
+        return life?.live === true ? this.ask(life) : undefined
+      }),
+    )
+  }
+
+  /**
+   * The ⌘Z of a step that took Session `sessionId` off the Canvas while the user had Browser
+   * `nodeId` taken over from it: the user has it taken over from that Session again, so the Session
+   * waits for «Return control to Claude». False when somebody drives it by now.
+   */
+  holdForUser(projectId: string, nodeId: string, sessionId: string): boolean {
+    const key = keyOf(projectId, nodeId)
+    if (this.controls.has(key)) return false
+    this.controls.set(key, { mode: 'user', sessionId })
+    this.deps.changed(projectId, nodeId, 'user')
+    return true
   }
 
   /** Sessions of Project `projectId` left the Canvas: nobody drives what they drove. */
@@ -771,7 +803,7 @@ export function liveBrowsers(): LiveBrowsers {
     },
     livesChanged: (projectId, lives) => toEveryWindow((client) => emit(client, browserLivesChanged, { projectId, lives })),
     layoutChanges: (listener) => layoutStore().onChange(listener),
-    browserKeeper: (keeps) => layoutStore().setBrowserKeeper(keeps),
+    browserKeeper: (keeps, ask) => layoutStore().setBrowserKeeper(keeps, ask),
   })
   return shared
 }

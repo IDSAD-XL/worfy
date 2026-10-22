@@ -256,6 +256,7 @@ describe('the read-or-write mark of `project` channels', () => {
     'browser.profiles.delete',
     'browser.profiles.update',
     // Taking a Browser over from a Session and giving it back change what a Session may do (worfy-browser ticket 04).
+    'browser.control.hold',
     'browser.control.return',
     'browser.control.take',
     'cardApi.askFinish',

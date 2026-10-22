@@ -4,7 +4,7 @@
 // Node's Layout entry, so Restore puts the Node back where it was. Handled in src/main/ipc/trash.ts
 // (ADR-0006), the files are moved by src/main/layout/trash.ts.
 import { z } from 'zod'
-import type { LayoutNode } from '../layout/types'
+import { keepBrowsersSchema, type LayoutNode } from '../layout/types'
 import { eventChannel, invokeChannel } from './channels'
 import { screenIdSchema } from './layout'
 
@@ -53,8 +53,9 @@ export type TrashEntry = z.output<typeof trashEntrySchema>
  * Moves a Node to the trash: its Layout entry, and for a Card its files and data. Refused for a Node
  * the user may not delete. `screen` is the screen whose recorded gesture or undo this is
  * (src/shared/ipc/layout.ts screenIdSchema); the Layout change carries it in `layout.changed`.
+ * `keep`: of a Session Node, the Browsers it opened that stay with the user (keepBrowsersSchema).
  */
-export const trashPut = invokeChannel('trash.put', z.object({ projectId, nodeId, screen: screenIdSchema.optional() }), trashEntrySchema, 'project', 'write')
+export const trashPut = invokeChannel('trash.put', z.object({ projectId, nodeId, screen: screenIdSchema.optional(), keep: keepBrowsersSchema }), trashEntrySchema, 'project', 'write')
 
 /**
  * Puts an entry back: the Card's files and data, then the Node at its old place. Refused when its id

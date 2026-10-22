@@ -12,7 +12,7 @@
 // "window" draws each Browser Node on the Canvas with a fake guest page whose debugger answers the
 // few CDP commands the tools send, and closes the page of one that left the Canvas, as the Browser
 // layer does. The user's steps go through the undo history of a screen (src/renderer/canvas/history.ts).
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -23,6 +23,7 @@ import type { BrowserContext, BrowserToolResult } from '../../src/main/mcp/brows
 import type { BrowserProfile } from '../../src/shared/browser/profiles'
 import { shownOnCanvas } from '../../src/shared/layout/derived'
 import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
+import { removeTestTree } from '../remove'
 
 vi.mock('electron', () => ({
   app: { on: () => undefined, isPackaged: false, getAppPath: () => '/nowhere' },
@@ -159,7 +160,7 @@ beforeEach(async () => {
     browsersOf: () => shownBrowsers(),
     sleepSettings: () => sleep,
     layoutChanges: (listener) => store.onChange(listener),
-    browserKeeper: (keeps) => store.setBrowserKeeper(keeps),
+    browserKeeper: (keeps, ask) => store.setBrowserKeeper(keeps, ask),
   })
   await live.screen(1, { projectId: PROJECT, visible: [], zoom: 1 })
   const session = (sessionId: string, x: number): LayoutOpInput => ({
@@ -204,10 +205,21 @@ async function drives(sessionId: string, id: string): Promise<void> {
   expect(answer.isError, textOf(answer)).toBeFalsy()
 }
 
-/** The screen of the user: its Canvas sends through main and records each step. */
-const channel = { send: (op: LayoutOpInput) => Promise.resolve(apply(op)), layout: () => store.get(PROJECT).layout }
-function apply(op: LayoutOpInput): string | undefined {
+/** main's Layout and the Browsers the user has taken over, as mainNowOf (history.ts) reads them over IPC. */
+const mainNow = () => Promise.resolve({ layout: store.get(PROJECT).layout, takenOver: new Set(live.controlsOf(PROJECT).filter((control) => control.mode === 'user').map((control) => control.nodeId)) })
+/**
+ * The screen of the user: its Canvas sends through main as the layout.apply handler does — the
+ * pages of a leaving Session's Browsers asked first (src/main/ipc/layout.ts) — and records each step.
+ */
+const channel = {
+  send: (op: LayoutOpInput) => apply(op),
+  layout: () => store.get(PROJECT).layout,
+  mainNow,
+  hold: (nodeId: string, sessionId: string) => Promise.resolve(void live.holdForUser(PROJECT, nodeId, sessionId)),
+}
+async function apply(op: LayoutOpInput): Promise<string | undefined> {
   try {
+    await store.askBrowsersFirst(PROJECT, op)
     store.apply(PROJECT, op, SCREEN)
     return undefined
   } catch (error) {
@@ -629,19 +641,39 @@ describe('⌘Z (ADR-0016): the user’s Hide and Remove are steps; the archive i
     expect(browserIds()).toEqual([a1, USER].sort())
   })
 
-  it('⌘Z gives a Browser left with the user its Session back: the whole step is undone', async () => {
+  it('⌘Z gives a taken-over Browser its Session and the user’s takeover back: the Session waits for «Return control to Claude»; ⇧⌘Z keeps it with the user again', async () => {
     const a1 = await opens(A)
     const a2 = await opens(A)
     await drives(A, a1)
     pages.get(a1)!.click()
     await user({ op: 'hide', id: NODE_A, hidden: true })
     expect(nodeOf(a1)?.data).not.toHaveProperty('openedBy')
+    expect(live.control(PROJECT, a1)).toBeNull()
     expect(await undo()).toBe(true)
     expect(nodeOf(a1)?.data).toMatchObject({ openedBy: A })
     expect(nodeOf(a2)).toMatchObject({ data: { openedBy: A } })
+    expect(live.control(PROJECT, a1)).toEqual({ mode: 'user', sessionId: A })
+    expect(controls.at(-1)).toEqual([a1, 'user'])
+    expect(textOf(await call(A, 'browser_screenshot', { id: a1 }))).toMatch(/the user is using it now/)
+    expect(await redo()).toBe(true)
+    expect(nodeOf(a1)?.data).not.toHaveProperty('openedBy')
+    expect(nodeOf(a2)).toBeUndefined()
   })
 
-  it('⌘Z of the user’s Delete to the trash restores the Session Node with its Browsers; a taken-over one stays the user’s until then', async () => {
+  it('a page the user typed into is asked right before the Hide: its Browser stays though main never asked it before', async () => {
+    const a1 = await opens(A)
+    const a2 = await opens(A)
+    await Promise.resolve()
+    // No check() ran: main has not asked a1's page anything yet.
+    expect(live.lives(PROJECT).find((life) => life.nodeId === a1)).toMatchObject({ unsaved: false })
+    pages.get(a1)!.unsaved = true
+    await user({ op: 'hide', id: NODE_A, hidden: true })
+    expect(nodeOf(a1)?.data).not.toHaveProperty('openedBy')
+    expect(nodeOf(a2)).toBeUndefined()
+    expect(pages.get(a1)?.sent).toContain('DOMDebugger.getEventListeners')
+  })
+
+  it('⌘Z of the user’s Delete to the trash restores the Session Node with its Browsers and the user’s takeover; ⇧⌘Z keeps the taken-over one again', async () => {
     const { TrashStore } = await import('../../src/main/layout/trash')
     const dataDir = mkdtempSync(join(tmpdir(), 'worfy-browser-lifecycle-trash-'))
     try {
@@ -654,11 +686,16 @@ describe('⌘Z (ADR-0016): the user’s Hide and Remove are steps; the archive i
         }
       }
       // The screen's trash client, as ipcTrash reaches main: the trash, main's Layout, the Layout's operations.
+      // trash.put asks the pages first, as its handler does (src/main/ipc/trash.ts).
       const trash = {
-        put: (projectId: string, nodeId: string) => asked(() => trashStore.put(projectId, nodeId, SCREEN)),
+        put: async (projectId: string, nodeId: string, keep?: readonly string[]) => {
+          await store.askBrowsersFirst(projectId, { op: 'remove', id: nodeId })
+          return asked(() => trashStore.put(projectId, nodeId, SCREEN, keep))
+        },
         restore: (projectId: string, label: string) => asked(() => trashStore.restore(projectId, label, SCREEN)),
-        layout: (projectId: string) => Promise.resolve(store.get(projectId).layout),
-        send: (_projectId: string, op: LayoutOpInput) => Promise.resolve(apply(op)),
+        mainNow: () => mainNow(),
+        send: (_projectId: string, op: LayoutOpInput) => apply(op),
+        hold: (projectId: string, nodeId: string, sessionId: string) => Promise.resolve(void live.holdForUser(projectId, nodeId, sessionId)),
       }
       const a1 = await opens(A)
       const a2 = await opens(A)
@@ -673,12 +710,13 @@ describe('⌘Z (ADR-0016): the user’s Hide and Remove are steps; the archive i
       expect(nodeOf(NODE_A)).toMatchObject({ kind: 'session', data: { sessionId: A } })
       expect(nodeOf(a2)).toMatchObject({ x: place.x, y: place.y, w: place.w, h: place.h, data: { openedBy: A } })
       expect(nodeOf(a1)?.data).toMatchObject({ openedBy: A })
-      // The takeover ended when the Session first left: ⇧⌘Z deletes it with both Browsers.
-      expect(live.control(PROJECT, a1)).toBeNull()
+      // The takeover is the user's again, and ⇧⌘Z keeps the Browser with the user as the step did.
+      expect(live.control(PROJECT, a1)).toEqual({ mode: 'user', sessionId: A })
       expect(await redo()).toBe(true)
-      expect(browserIds()).toEqual([USER])
+      expect(browserIds()).toEqual([a1, USER].sort())
+      expect(nodeOf(a1)?.data).not.toHaveProperty('openedBy')
     } finally {
-      rmSync(dataDir, { recursive: true, force: true })
+      removeTestTree(dataDir)
     }
   })
 
