@@ -58,6 +58,8 @@ export interface PageGuard {
   refusal(url: string): string | null
   /** The user pressed a mouse button or a key on the page, or touched it. */
   onUserInput(): void
+  /** A click of the Session starts or ends: the window keeps its keyboard focus where the user has it. */
+  pressing(phase: 'start' | 'end'): void
 }
 
 /** A call refused by the page or by a wall: its message is the tool's answer. */
@@ -439,7 +441,16 @@ export class CdpPage {
   /** Clicks the middle of the element, as the user's mouse would, after scrolling it into view. */
   async click(target: PageTarget): Promise<PageOutcome> {
     const at = await this.middleOf(await this.element(target))
-    return this.settle(() => this.press(at))
+    // The click is Chromium's own, trusted, as the page expects; it moves the window's keyboard
+    // focus onto the Browser, and the window puts it back after the release.
+    return this.settle(async () => {
+      this.guard.pressing('start')
+      try {
+        await this.press(at)
+      } finally {
+        this.guard.pressing('end')
+      }
+    })
   }
 
   /**

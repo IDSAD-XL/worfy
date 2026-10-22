@@ -80,6 +80,13 @@ export const browserControlTake = invokeChannel('browser.control.take', z.object
 /** «Return control to Claude»: the Session that drove Browser `nodeId` drives it again. */
 export const browserControlReturn = invokeChannel('browser.control.return', z.object({ projectId, nodeId: nodeIdSchema }), z.object({ returned: z.boolean() }), 'project', 'write')
 
+/**
+ * A Session's click on the page of Browser `nodeId` starts and ends: Chromium moves the window's
+ * keyboard focus onto the <webview> at the press, and the window that draws the page gives it back
+ * to where the user had it (src/renderer/browser/control.ts). Only this Machine's windows draw Live pages.
+ */
+export const browserPressing = eventChannel('browser.pressing', z.object({ projectId, nodeId: nodeIdSchema, phase: z.enum(['start', 'end']) }), 'local')
+
 /** Sent to every window after the control of a Browser changed; `mode` null when nobody drives it. */
 export const browserControlChanged = eventChannel('browser.control.changed', z.object({ projectId, nodeId: nodeIdSchema, mode: browserControlModeSchema.nullable() }), 'project', 'read')
 
@@ -90,6 +97,7 @@ declare module './channels' {
     'browser.control.take': typeof browserControlTake
     'browser.control.return': typeof browserControlReturn
     'browser.control.changed': typeof browserControlChanged
+    'browser.pressing': typeof browserPressing
     'browser.openRequest': typeof browserOpenRequest
     'browser.profiles.list': typeof browserProfilesList
     'browser.profiles.create': typeof browserProfilesCreate

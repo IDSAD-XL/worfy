@@ -22,7 +22,7 @@ import { toEveryWindow } from '../broadcast'
 import { emit } from '../ipc'
 import { layoutStore } from '../layout/store'
 import { TAKEN_OVER, type BrowserControlMode } from '../../shared/browser/tools'
-import { browserControlChanged } from '../../shared/ipc/browser'
+import { browserControlChanged, browserPressing } from '../../shared/ipc/browser'
 
 /** Who drives a Browser, and which Session drove it last. */
 export interface BrowserControl {
@@ -35,6 +35,8 @@ export interface LiveBrowsersDeps {
   profileOf(projectId: string, nodeId: string): { name: string; origins: readonly string[] } | null
   /** Told after the control of a Browser changed: null when nobody drives it any more. */
   changed(projectId: string, nodeId: string, mode: BrowserControlMode | null): void
+  /** Told when a click of the Session on Browser Node `nodeId` starts and ends. */
+  pressing(projectId: string, nodeId: string, phase: 'start' | 'end'): void
 }
 
 /** A call a Session may not make on a Browser now; its message is the tool's answer. */
@@ -61,6 +63,7 @@ export class LiveBrowsers {
         return profile === null ? 'This Browser has no Browser profile any more, so a Session may open no page in it.' : originRefusal(url, profile.name, profile.origins)
       },
       onUserInput: () => this.takeOver(projectId, nodeId),
+      pressing: (phase) => this.deps.pressing(projectId, nodeId, phase),
     })
     this.pages.set(key, page)
     contents.once('destroyed', () => {
@@ -158,6 +161,7 @@ export function liveBrowsers(): LiveBrowsers {
       return profile === undefined ? null : { name: profile.name, origins: profile.origins }
     },
     changed: (projectId, nodeId, mode) => toEveryWindow((client) => emit(client, browserControlChanged, { projectId, nodeId, mode })),
+    pressing: (projectId, nodeId, phase) => toEveryWindow((client) => emit(client, browserPressing, { projectId, nodeId, phase })),
   })
   return shared
 }

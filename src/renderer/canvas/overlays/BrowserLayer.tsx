@@ -24,7 +24,7 @@
 // 04): main then reaches it over CDP when a Session drives the Browser (src/main/browser/live.ts).
 import { createElement, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore, ViewportPortal } from '@xyflow/react'
-import { announceBrowserPage } from '../../browser/control'
+import { announceBrowserPage, keepWindowFocus } from '../../browser/control'
 import { useBrowserProfiles } from '../../browser/profiles'
 import { subscribe } from '../../ipc'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
@@ -148,6 +148,19 @@ function BrowserPage({ page, partition, projectId }: { page: BrowserLayerPage; p
       element.removeEventListener('did-navigate-in-page', onNavigated)
       stopRequests()
       unregister()
+    }
+  }, [page.id, projectId])
+
+  // A Session's click on the page leaves the window's keyboard focus where the user has it.
+  useEffect(() => {
+    const element = view.current
+    if (element === null) return
+    try {
+      return keepWindowFocus(projectId, page.id, element)
+    } catch (error) {
+      // Without the preload bridge (a unit test of the Canvas) there is nothing to subscribe to.
+      console.error('browser.pressing: cannot subscribe', error)
+      return undefined
     }
   }, [page.id, projectId])
 

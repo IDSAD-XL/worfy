@@ -14,8 +14,8 @@ import { snapshotThemes } from './snapshots'
 // Node, goes to a page, clicks, types, takes a screenshot, reads the page, its console and its
 // network; a page outside the profile's origins is refused whatever leads there — the Session's
 // address, a link it clicks, a redirect, a link whose site has a service worker — and the page stays
-// where it was; a password field takes no text from it, wherever it sits; typing goes into the page
-// and never moves the keyboard focus of the window; and a page of another site the user left it on
+// where it was; a password field takes no text from it, wherever it sits; typing and clicking go
+// into the page and leave the keyboard focus of the window where the user has it; and a page of another site the user left it on
 // is the Session's only to leave. While it drives, the frame shows «Claude is driving»; a click of the user on the
 // page takes the Browser over, every call is refused until «Return control to Claude», and then the
 // Session drives again. The fake agent calls no MCP tool, so the test calls the tools in main as
@@ -89,6 +89,7 @@ test.beforeAll(async () => {
          <script>document.querySelector('#pw-host').attachShadow({ mode: 'open', delegatesFocus: true }).innerHTML = '<input id="inner-pw" type="password">'</script>
          <iframe id="frame-pw" width="160" height="40" srcdoc="<input id=&quot;p&quot; type=&quot;password&quot;><script>const p = document.getElementById(&quot;p&quot;); p.focus(); addEventListener(&quot;focus&quot;, () => p.focus())</script>"></iframe>
          <iframe id="frame-away" width="160" height="40" src="${away}/form"></iframe>
+         <button id="mark" onclick="this.dataset.clicked = 'yes'">Mark</button>
          <button id="log" onclick="console.log('clicked log'); fetch('/api/ping')">Log</button>`,
       ),
     )
@@ -180,6 +181,21 @@ function inPage(code: string): Promise<unknown> {
     return guest.executeJavaScript(code, true)
   }, code)
 }
+
+/** A field of the worfy window the user types in — as a chat or a Terminal — focused. */
+async function userTyping(window: Page): Promise<void> {
+  await window.evaluate(`(() => {
+    const field = document.createElement('textarea')
+    field.id = 'user-typing'
+    Object.assign(field.style, { position: 'fixed', right: '8px', bottom: '8px', zIndex: '9999' })
+    document.body.append(field)
+    field.focus()
+  })()`)
+}
+/** The id of the element of the worfy window that has the keyboard focus. */
+const focusedIn = (window: Page): Promise<unknown> => window.evaluate('document.activeElement && document.activeElement.id')
+/** What the user typed into their field. */
+const typedByUser = (window: Page): Promise<unknown> => window.evaluate("document.querySelector('#user-typing').value")
 
 /** The Nodes main saved, by id. */
 function savedNodes(): Record<string, { kind: string; x: number; y: number; w: number; h: number; data: Record<string, unknown> }> {
@@ -304,27 +320,37 @@ test('typing goes into the page and leaves the keyboard focus of the window wher
   const { id } = await ok<{ id: string }>('browser_open', { profile: PROFILE, url: `${origin}/` })
   const frame = window.locator(`[data-testid="browser-frame"][data-node-id="${id}"]`)
   // The user types somewhere else in the window — a chat, a Terminal — while the Session types.
-  await window.evaluate(`(() => {
-    const field = document.createElement('textarea')
-    field.id = 'user-typing'
-    Object.assign(field.style, { position: 'fixed', right: '8px', bottom: '8px', zIndex: '9999' })
-    document.body.append(field)
-    field.focus()
-  })()`)
-  const focused = (): Promise<unknown> => window.evaluate('document.activeElement && document.activeElement.id')
+  await userTyping(window)
+  const focused = () => focusedIn(window)
   // The first call on a new page, with no click before it.
   await ok('browser_type', { id, selector: '#q', text: 'first' })
   expect(await inPage("document.querySelector('#q').value")).toBe('first')
   expect(await focused()).toBe('user-typing')
   // The user's next keys stay theirs: in their field, not in the page, and no takeover.
   await window.keyboard.type('mine')
-  expect(await window.evaluate("document.querySelector('#user-typing').value")).toBe('mine')
+  expect(await typedByUser(window)).toBe('mine')
   expect(await inPage("document.querySelector('#q').value")).toBe('first')
   await expect(frame).toHaveAttribute('data-control', 'claude')
 
   // submit presses Enter in the field: its form is sent.
   expect((await ok<{ url: string }>('browser_type', { id, selector: '#s', text: 'roles', submit: true })).url).toBe(`${origin}/next?s=roles`)
   expect(await focused()).toBe('user-typing')
+})
+
+test('a click of the Session leaves the keyboard focus of the window where the user has it', async () => {
+  const window = await start()
+  const { id } = await ok<{ id: string }>('browser_open', { profile: PROFILE, url: `${origin}/` })
+  const frame = window.locator(`[data-testid="browser-frame"][data-node-id="${id}"]`)
+  await userTyping(window)
+  // Chromium's own click, trusted: the page's handler runs.
+  await ok('browser_click', { id, selector: '#mark' })
+  expect(await inPage("document.querySelector('#mark').dataset.clicked")).toBe('yes')
+  expect(await focusedIn(window)).toBe('user-typing')
+  // The user's next keys stay theirs: in their field, not in the page, and no takeover.
+  await window.keyboard.type('mine')
+  expect(await typedByUser(window)).toBe('mine')
+  await expect(frame).toHaveAttribute('data-control', 'claude')
+  await expect(frame.getByTestId('browser-claude-drives')).toBeVisible()
 })
 
 test("a service worker of another site does not let the Session's navigation past the origins", async () => {

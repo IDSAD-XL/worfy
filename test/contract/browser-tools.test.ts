@@ -216,6 +216,8 @@ let live: LiveBrowsers
 let server: typeof import('../../src/main/mcp/browser-server')
 let profiles: BrowserProfile[]
 let changes: [string, string | null][]
+/** Each start and end of a Session's click: the Browser, the phase, and how many mouse events the page had got by then. */
+let presses: [string, string, number][]
 /** The Browser profiles cannot be read: the origin check of the page throws. */
 let profilesBroken: boolean
 /** The pages the "window" draws, by Browser Node id: each new Browser Node gets one at once. */
@@ -236,6 +238,7 @@ beforeEach(async () => {
     { id: 'none-bbbbbb', name: 'nobody', origins: [], autopilot: false },
   ]
   changes = []
+  presses = []
   profilesBroken = false
   pages = new Map()
   live = new LiveBrowsers({
@@ -246,6 +249,7 @@ beforeEach(async () => {
       return profile === undefined ? null : { name: profile.name, origins: profile.origins }
     },
     changed: (_projectId, nodeId, mode) => changes.push([nodeId, mode]),
+    pressing: (_projectId, nodeId, phase) => presses.push([nodeId, phase, pages.get(nodeId)?.commands('Input.dispatchMouseEvent').length ?? -1]),
   })
   server = await import('../../src/main/mcp/browser-server')
   mocks.query.mockReset().mockImplementation(() => ({ [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ done: true, value: undefined }) }) }))
@@ -559,6 +563,13 @@ describe('browser_click, browser_type and the page', () => {
     expect(page.commands('Input.dispatchMouseEvent').filter((each) => each.type === 'mousePressed')).toEqual([
       { type: 'mousePressed', x: 50, y: 20, button: 'left', buttons: 1, clickCount: 1 },
       { type: 'mousePressed', x: 50, y: 20, button: 'left', buttons: 1, clickCount: 1 },
+    ])
+    // The window is told around each click, so it keeps its keyboard focus where the user has it.
+    expect(presses).toEqual([
+      [id, 'start', 0],
+      [id, 'end', 3],
+      [id, 'start', 3],
+      [id, 'end', 6],
     ])
     expect(refused(await rpc.call('browser_click', { id, selector: '#missing' }))).toContain('no element "#missing"')
     expect(refused(await rpc.call('browser_click', { id, ref: 99 }))).toContain('[ref=99]')
