@@ -12,9 +12,8 @@
 import { Panel } from '@xyflow/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { create } from 'zustand'
-import { bindingWorkflowOf, type BindingTarget } from '../../../shared/binding/resolve'
-import type { SessionBindingSignals } from '../../../shared/ipc/bindings'
-import { manualRead, refreshSessionSignals, resolveAgentBindings, sessionSignalsOf, useBindingsStore, useManualBindings } from '../../binding/store'
+import type { BindingTarget } from '../../../shared/binding/resolve'
+import { manualRead, refreshSessionSignals, sessionSignalsOf, storedBindings, useBindingsStore, useManualBindings } from '../../binding/store'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
@@ -42,13 +41,14 @@ const useSignalsRead = create<{ done: Readonly<Record<string, true>> }>(() => ({
 const readKey = (root: string, sessionId: string): string => `${root}\0${sessionId}`
 
 /**
- * The transcript signals of these archived Sessions, and which of them are read (or failed to
- * read). Each Session's are asked for once per window, however often the archived set changes: an
- * archived Session is over, its transcript does not change. A Session that comes back to life is
- * restored by main and leaves the archive. A read that failed counts as read — the Session is then
- * without a Binding — and is asked again the next time the archived set changes.
+ * Reads the transcript signals of these archived Sessions into the Bindings' store, and says which
+ * of them are read (or failed to read); a new function whenever the store's signals change. Each
+ * Session's are asked for once per window, however often the archived set changes: an archived
+ * Session is over, its transcript does not change. A Session that comes back to life is restored by
+ * main and leaves the archive. A read that failed counts as read — the Session is then without a
+ * Binding — and is asked again the next time the archived set changes.
  */
-function useArchivedSignals(root: string, sessionIds: readonly string[]): { signals: ReadonlyMap<string, SessionBindingSignals>; read: (sessionId: string) => boolean } {
+function useArchivedSignals(root: string, sessionIds: readonly string[]): (sessionId: string) => boolean {
   useEffect(() => {
     for (const sessionId of sessionIds) {
       const key = readKey(root, sessionId)
@@ -66,13 +66,8 @@ function useArchivedSignals(root: string, sessionIds: readonly string[]): { sign
   return useMemo(() => {
     // `all` only says when to read again: the store's keys are its own, sessionSignalsOf reads them.
     void all
-    const signals = new Map<string, SessionBindingSignals>()
-    for (const sessionId of sessionIds) {
-      const found = sessionSignalsOf(root, sessionId)
-      if (found !== undefined) signals.set(sessionId, found)
-    }
-    return { signals, read: (sessionId: string) => signals.has(sessionId) || done[readKey(root, sessionId)] === true }
-  }, [all, done, root, sessionIds])
+    return (sessionId: string) => sessionSignalsOf(root, sessionId) !== undefined || done[readKey(root, sessionId)] === true
+  }, [all, done, root])
 }
 
 /** Builds the Project's archive list from its Layout, the Sessions' history and their Bindings, and publishes it. */
@@ -92,15 +87,17 @@ function useArchiveFeed(projectId: string, root: string): void {
   const sessionIds = useMemo(() => (sessionKey === '' ? [] : sessionKey.split('\0')), [sessionKey])
   // shortcut: the transcript of every archived Session is read once per window to find its Binding;
   // redo when the archive grows to thousands of Sessions, by keeping the Binding in the archive record.
-  const { signals, read } = useArchivedSignals(root, sessionIds)
+  const read = useArchivedSignals(root, sessionIds)
   const list = useMemo(() => {
     if (layout === undefined) return undefined
-    const bindings = resolveAgentBindings({ sessionIds, signals, manual, workflow: bindingWorkflowOf(model) })
+    // `manual` and `read` only say when to resolve again: storedBindings reads the store's Bindings and signals.
+    void manual
+    const bindings = storedBindings(projectId, root, sessionIds, model)
     const targets = new Map<string, BindingTarget>(sessionIds.flatMap((id) => (bindings.has(id) ? [[id, bindings.get(id)!.target] as const] : [])))
     // A branch or a worktree folder binds only through the workflow model: it must be read (or have failed) too.
     const workflowRead = model !== undefined || workflowError !== undefined
     return archiveList(layout, history, targets, (sessionId) => bindingsGot && workflowRead && read(sessionId))
-  }, [layout, history, model, workflowError, manual, bindingsGot, signals, read, sessionIds])
+  }, [projectId, root, layout, history, model, workflowError, manual, bindingsGot, read, sessionIds])
   useEffect(() => {
     if (list !== undefined) publishArchive(projectId, list)
   }, [projectId, list])

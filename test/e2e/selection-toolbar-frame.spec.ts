@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, launchApp, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, settledBoxes, settledBoxLists, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
 
@@ -109,38 +109,61 @@ test.afterEach(async () => {
 
 const launch = (): Promise<LaunchedApp> => launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome } })
 
-async function box(locator: Locator): Promise<Box> {
-  const found = await locator.boundingBox()
-  if (!found) throw new Error('the element has no box')
-  return found
-}
-
 const overlaps = (a: Box, b: Box): boolean => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 
-const ticketNode = (window: Page, num: number): Locator => window.locator(`[data-testid="ticket-node"][data-epic="demo"][data-ticket="${num}"]`)
+const ticketSelector = (num: number): string => `[data-testid="ticket-node"][data-epic="demo"][data-ticket="${num}"]`
+const ticketNode = (window: Page, num: number): Locator => window.locator(ticketSelector(num))
+const FRAME = '[data-testid="epic-frame"][data-epic="demo"]'
+const TOOLBAR = '[data-testid="selection-toolbar"]'
 
 /**
- * Selects the Ticket by a click on its title and waits for the toolbar to stand still. A click on
+ * Selects the Ticket by a click on its title and waits for the Canvas to come to rest. A click on
  * an empty spot of the Canvas clears the selection first, so the toolbar of the last selection is
  * gone before the new one is measured.
  */
-async function selectTicket(launched: LaunchedApp, num: number): Promise<Box> {
+async function selectTicket(launched: LaunchedApp, num: number): Promise<void> {
   await launched.window.locator('.react-flow__pane').click({ position: { x: 20, y: 760 } })
   await expect(launched.window.getByTestId('selection-toolbar')).toHaveCount(0)
   await ticketNode(launched.window, num).locator('.w-ticket__title').click()
   await expect(launched.window.locator(`.react-flow__node.selected:has([data-testid="ticket-node"][data-ticket="${num}"])`)).toHaveCount(1)
   await canvasReady(launched)
-  return box(launched.window.getByTestId('selection-toolbar'))
 }
 
-/** The rectangles of all the elements `locator` finds, as the page has them. */
-function boxesOf(locator: Locator): Promise<Box[]> {
-  return locator.evaluateAll((elements) =>
-    elements.map((element) => {
-      const rect = (element as unknown as { getBoundingClientRect(): Box }).getBoundingClientRect()
-      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
-    }),
+/**
+ * The toolbar of the selected Ticket `selected` and everything it must keep clear of, all read in
+ * one pass once the layout is still (helpers.ts): boxes read one by one could come from two layouts.
+ */
+async function toolbarAndAround(window: Page, selected: number, neighbour: number) {
+  const neighbourCard = ticketSelector(neighbour)
+  const lists = await settledBoxLists(
+    window,
+    {
+      toolbar: TOOLBAR,
+      selected: ticketSelector(selected),
+      header: `${FRAME} .w-epic__header`,
+      labels: `${FRAME} .w-epic__column-label`,
+      title: `${neighbourCard} .w-ticket__title`,
+      'no blockers': `${neighbourCard} .w-ticket__meta`,
+      'Ship ticket': `${neighbourCard} [data-testid="action-ship-ticket"]`,
+      focus: '.w-focus-entry',
+      tickets: '[data-testid="ticket-node"]',
+    },
+    `the boxes around the toolbar of Ticket ${selected}`,
   )
+  const one = (name: keyof typeof lists): Box => {
+    const found = lists[name]
+    expect(found, `exactly one element for ${name}`).toHaveLength(1)
+    return found[0]!
+  }
+  return {
+    toolbar: one('toolbar'),
+    selected: one('selected'),
+    header: one('header'),
+    labels: lists.labels,
+    neighbourParts: { title: one('title'), 'no blockers': one('no blockers'), 'Ship ticket': one('Ship ticket') },
+    focus: one('focus'),
+    tickets: lists.tickets,
+  }
 }
 
 /** The Focus button's width that SelectionToolbar keeps off (FOCUS_ENTRY_SIZE in src/renderer/canvas/pinning.ts). */
@@ -160,22 +183,20 @@ for (const zoom of ZOOMS) {
       await canvasReady(launched, { size: { width: 1440, height: 900 } })
 
       // 02 and 03 share a column; the one higher up is in the top row, the other is its neighbour below.
-      const [top, lower] = (await Promise.all([2, 3].map(async (num) => ({ num, box: await box(ticketNode(window, num)) })))).sort((a, b) => a.box.y - b.box.y)
+      const pair = await settledBoxes(window, { two: ticketSelector(2), three: ticketSelector(3) }, 'the boxes of Tickets 02 and 03')
+      const [top, lower] = [
+        { num: 2, box: pair.two },
+        { num: 3, box: pair.three },
+      ].sort((a, b) => a.box.y - b.box.y)
       expect(Math.round(top!.box.x)).toBe(Math.round(lower!.box.x))
       expect(lower!.box.y).toBeGreaterThan(top!.box.y + top!.box.height)
-
-      const header = await box(frame.locator('.w-epic__header'))
-      const labels = await boxesOf(frame.locator('.w-epic__column-label'))
-      expect(labels.length).toBeGreaterThan(0)
-      const neighbour = ticketNode(window, lower!.num)
-      const neighbourParts = {
-        title: await box(neighbour.locator('.w-ticket__title')),
-        'no blockers': await box(neighbour.getByText('no blockers')),
-        'Ship ticket': await box(neighbour.getByTestId('action-ship-ticket')),
-      }
+      // The line under the neighbour's title, whose box is read below with the toolbar's.
+      await expect(ticketNode(window, lower!.num).locator('.w-ticket__meta')).toContainText('no blockers')
 
       // A Ticket of the top row with a neighbour below: beside it, clear of everything.
-      const toolbar = await selectTicket(launched, top!.num)
+      await selectTicket(launched, top!.num)
+      const { toolbar, selected, header, labels, neighbourParts, focus, tickets } = await toolbarAndAround(window, top!.num, lower!.num)
+      expect(labels.length).toBeGreaterThan(0)
       const name = `selection-toolbar-frame-zoom-${String(zoom).replace('.', '_')}`
       const shots = await snapshotThemes(window, name)
       if (EVIDENCE_DIR !== undefined) {
@@ -185,28 +206,34 @@ for (const zoom of ZOOMS) {
       }
       expect(overlaps(toolbar, header), 'the toolbar covers the frame header').toBe(false)
       for (const label of labels) expect(overlaps(toolbar, label), 'the toolbar covers a column label').toBe(false)
-      const focus = await box(window.locator('.w-focus-entry'))
       expect(focus.width, 'the Focus button is wider than SelectionToolbar keeps off').toBeLessThanOrEqual(FOCUS_ENTRY_WIDTH)
       expect(overlaps(toolbar, focus), 'the toolbar covers the Focus button').toBe(false)
       for (const [part, rect] of Object.entries(neighbourParts)) expect(overlaps(toolbar, rect), `the toolbar covers the neighbour's ${part}`).toBe(false)
-      for (const ticket of await boxesOf(window.locator('[data-testid="ticket-node"]'))) expect(overlaps(toolbar, ticket), 'the toolbar covers a Ticket').toBe(false)
+      for (const ticket of tickets) expect(overlaps(toolbar, ticket), 'the toolbar covers a Ticket').toBe(false)
       // Beside it on the right, level with its top edge.
-      expect(toolbar.x).toBeGreaterThan(top!.box.x + top!.box.width)
-      expect(Math.abs(toolbar.y - top!.box.y)).toBeLessThan(2)
+      expect(toolbar.x).toBeGreaterThan(selected.x + selected.width)
+      expect(Math.abs(toolbar.y - selected.y)).toBeLessThan(2)
 
       // The neighbour below: on top it would cover the Ticket above, so it goes beside it too.
-      const second = await selectTicket(launched, lower!.num)
-      expect(overlaps(second, top!.box), 'the toolbar covers the Ticket above').toBe(false)
-      expect(overlaps(second, header)).toBe(false)
-      for (const ticket of await boxesOf(window.locator('[data-testid="ticket-node"]'))) expect(overlaps(second, ticket), 'the toolbar covers a Ticket').toBe(false)
+      await selectTicket(launched, lower!.num)
+      const around = await settledBoxLists(
+        window,
+        { second: TOOLBAR, above: ticketSelector(top!.num), header: `${FRAME} .w-epic__header`, tickets: '[data-testid="ticket-node"]' },
+        `the boxes around the toolbar of Ticket ${lower!.num}`,
+      )
+      for (const name of ['second', 'above', 'header'] as const) expect(around[name], `exactly one element for ${name}`).toHaveLength(1)
+      const second = around.second[0]!
+      expect(overlaps(second, around.above[0]!), 'the toolbar covers the Ticket above').toBe(false)
+      expect(overlaps(second, around.header[0]!)).toBe(false)
+      for (const ticket of around.tickets) expect(overlaps(second, ticket), 'the toolbar covers a Ticket').toBe(false)
 
       // A Node outside the frame with nothing above it: the toolbar is above it.
       const note = window.locator('.react-flow__node[data-id="outside"]')
       await note.locator('.w-note__header').click()
       await expect(window.locator('.react-flow__node.selected[data-id="outside"]')).toHaveCount(1)
       await canvasReady(launched)
-      const noteToolbar = await box(window.getByTestId('selection-toolbar'))
-      expect(noteToolbar.y + noteToolbar.height).toBeLessThan((await box(note)).y)
+      const { noteToolbar, noteBox } = await settledBoxes(window, { noteToolbar: TOOLBAR, noteBox: '.react-flow__node[data-id="outside"]' }, 'the boxes of the Note and its toolbar')
+      expect(noteToolbar.y + noteToolbar.height).toBeLessThan(noteBox.y)
     } finally {
       await launched.close()
     }

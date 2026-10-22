@@ -56,6 +56,13 @@ describe('collectNodeTypes', () => {
     expect(types.get('epic-frame')).toEqual({ kind: 'epic-frame', Component: Dummy, defaultWidth: 240, defaultHeight: 140 })
   })
 
+  it('names a React Flow wrapper by the name its node source gave, else by its kind in words (review of PR #657)', async () => {
+    const { flowNodeLabel } = await import('../../src/renderer/canvas/nodes/index')
+    expect(flowNodeLabel('ticket', true, 'Ticket 05')).toBe('Ticket 05')
+    expect(flowNodeLabel('done-shelf', true)).toBe('Done shelf')
+    expect(flowNodeLabel('from-the-future', false)).toBe('Unknown node: from-the-future')
+  })
+
   it('takes a type\'s minimap colour from its file, and leaves it undefined when the file declares none (ticket 29)', async () => {
     const { collectNodeTypes } = await import('../../src/renderer/canvas/nodes/index')
     const types = collectNodeTypes({
@@ -210,6 +217,11 @@ describe('Canvas', () => {
       expect(screen.getByTestId('unknown-node').textContent).toBe('Unknown node: from-the-future')
       expect((screen.getByRole('textbox', { name: 'Note text' }) as HTMLTextAreaElement).value).toBe('a note')
       expect(screen.queryByTestId('ticket-node')).toBeNull()
+      // Tab moves the focus to a Node's React Flow wrapper: it is named by the Node's kind, not a bare "node".
+      const wrapperName = (id: string) => screen.getByTestId(`rf__node-${id}`).getAttribute('aria-label')
+      expect(wrapperName('p')).toBe('Zz vitest probe')
+      expect(wrapperName('n')).toBe('Note')
+      expect(wrapperName('u')).toBe('Unknown node: from-the-future')
     } finally {
       for (const undo of restore) undo()
       if (!hadObserver) delete globals.ResizeObserver

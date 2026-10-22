@@ -17,6 +17,7 @@
     "src/renderer/canvas/family.ts",
     "src/renderer/canvas/session-spot.ts",
     "src/renderer/canvas/arrange-by-epic.ts",
+    "src/renderer/canvas/tidy-items.ts",
     "src/renderer/canvas/archive-list.ts",
     "src/renderer/canvas/layout-ops.ts",
     "src/renderer/canvas/show-ops.ts",

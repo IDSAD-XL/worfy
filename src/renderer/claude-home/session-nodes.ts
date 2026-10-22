@@ -76,6 +76,13 @@ export function worfySessionTitle(savedSessionId: string | undefined, history: r
   return history.find((each) => each.sessionId === savedSessionId)?.title ?? `Session ${savedSessionId.slice(0, 8)}`
 }
 
+/**
+ * The id of the element that names a Session Node by its title. The Node's React Flow wrapper is
+ * labelled by it (Canvas.tsx), so the wrapper's name carries the title, which only the Node itself
+ * reads (the transcripts of useClaudeHome).
+ */
+export const sessionTitleElementId = (nodeId: string): string => `session-title-${nodeId}`
+
 /** «terminal · <cwd>» or «Claude desktop». */
 export function sessionSourceLabel(data: SessionNodeData): string {
   return data.source === 'desktop' ? 'Claude desktop' : `terminal · ${data.cwd}`

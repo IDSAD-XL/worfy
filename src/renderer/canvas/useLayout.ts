@@ -105,7 +105,7 @@ export async function sendLayoutOp(projectId: string, op: LayoutOpInput, screen?
 }
 
 /** What the Canvas adds to a screen channel: its own answer to a refusal, and its Layout before main's first answer. */
-export interface ScreenChannelOptions {
+interface ScreenChannelOptions {
   /** Called when main refuses an operation, before the refusal goes back to the history. */
   onRefused?: () => void
   /** The Layout until main has answered; an empty one when absent. */

@@ -2,7 +2,7 @@
 
 Type: task
 Status: claimed 2026-10-21T09:59Z
-Branch: worfy-canvas/19-c
+Branch: worfy-canvas/19-d
 Blocked by: —
 Source: ревью PR [#654](https://github.com/IDSAD-XL/worfy/pull/654) (Ticket 14, архивные Node-ы вне Find,
 истории и canvas MCP, круги 1–2), [#656](https://github.com/IDSAD-XL/worfy/pull/656) (Ticket 09, история
@@ -44,12 +44,12 @@ Session-ов и popover Archive, круги 1–3), [#657](https://github.com/ID
 
 **#657 (Ticket 05), low:**
 
-- [ ] Цвет типа объявлен трижды в файле каждого Node-а (`minimapColor`, литерал в `KindBand`, литерал
+- [x] Цвет типа объявлен трижды в файле каждого Node-а (`minimapColor`, литерал в `KindBand`, литерал
       tint); свести в одну константу KIND.
-- [ ] У Node-ов React Flow нет `ariaLabel`, поэтому фокус по Tab попадает на безымянный «node»; ставить
+- [x] У Node-ов React Flow нет `ariaLabel`, поэтому фокус по Tab попадает на безымянный «node»; ставить
       `node.ariaLabel` там, где строятся Node-ы React Flow.
 - [x] Комментарий в шапке `src/renderer/canvas/node-chrome.css` устарел.
-- [ ] Test-ы: случаи regex `sessionLabel` (session не в начале, «Sessions…»); состояние, когда registry ещё
+- [x] Test-ы: случаи regex `sessionLabel` (session не в начале, «Sessions…»); состояние, когда registry ещё
       не прочитан (`live === undefined`); сброс при уходе указателя ловит только e2e; порядок загрузки CSS
       в unit test-е — соглашение, к bundle-у не привязан.
 
@@ -72,7 +72,7 @@ Session-ов и popover Archive, круги 1–3), [#657](https://github.com/ID
 - [x] `expectSettledWithoutOverlaps` (`test/e2e/helpers.ts:820`) без своего test-а и проходит на пустом
       списке и на прямоугольниках нулевого размера; добавить guard-ы.
 - [x] `helpers.ts:801`: `querySelector` молча берёт первое совпадение; требовать ровно одно.
-- [ ] Другие e2e всё ещё читают несколько прямоугольников по одному: `epic-frame.spec.ts:888-898` и `:523`,
+- [x] Другие e2e всё ещё читают несколько прямоугольников по одному: `epic-frame.spec.ts:888-898` и `:523`,
       `tidy-up.spec.ts:112`, `no-overlap.spec.ts:128/140/196/258`, `selection-toolbar-frame.spec.ts:163`
       и `:186-201`, `done-stack.spec.ts:96`.
 
@@ -120,46 +120,46 @@ Session-ов и popover Archive, круги 1–3), [#657](https://github.com/ID
 
 **Flaky test в полных прогонах:**
 
-- [ ] `test/contract/workflow-reader.test.ts` (test file watcher-а) дважды упал в полном `pnpm test` у
+- [x] `test/contract/workflow-reader.test.ts` (test file watcher-а) дважды упал в полном `pnpm test` у
       implementer-ов под нагрузкой и прошёл отдельно.
 
 **Ревью 2026-10-21: #676 (Ticket 12, Arrange by Epic), #682 (Ticket 19, часть 3), #686 (Ticket 10, toast архива),
 #689 (Ticket 20, без semantic zoom), low.** Строки перечитаны по main `81ea31cd`.
 
-- [ ] (#676) `src/renderer/canvas/arrange-by-epic.ts:32,56` повторяет `tidyItems`, порядок чтения и `TIDY_GAP`
+- [x] (#676) `src/renderer/canvas/arrange-by-epic.ts:32,56` повторяет `tidyItems`, порядок чтения и `TIDY_GAP`
       (`ARRANGE_GAP`) из `tidy.ts:30,53`, а `tidy.ts` импортирует React. Вынести `tidyItems` и `TIDY_GAP` в
       `tidy-items.ts` без React для обоих.
-- [ ] (#676) `arrange-by-epic-command.ts:121-125` повторяет цепочку `useLayout` → `sessionParents` →
+- [x] (#676) `arrange-by-epic-command.ts:121-125` повторяет цепочку `useLayout` → `sessionParents` →
       `useSubagentTrees` из `useTidyUp` (`tidy.ts:152-156`); оба hook-а живут в `ProjectCanvasMenu` — две подписки.
-- [ ] (#676) `arrange-by-epic-command.ts:28-32,146-149` — третий канал «палитра → Canvas» со своим `seq` (Tidy —
+- [x] (#676) `arrange-by-epic-command.ts:28-32,146-149` — третий канал «палитра → Canvas» со своим `seq` (Tidy —
       `src/renderer/find/canvas-requests.ts`, Re-pack — `sources/epics.ts`). Перенести `arrange` в `useCanvasRequests`.
-- [ ] (#676, вопрос) `arrange-by-epic.ts:80` предсказывает полосу по `naturalTreeBlocks`, а `placeStrip`
+- [x] (#676, вопрос) `arrange-by-epic.ts:80` предсказывает полосу по `naturalTreeBlocks`, а `placeStrip`
       (`sources/epics.ts:629`) — по нарисованным `subagentPlaneRects`: два правила для одной позиции.
-- [ ] (#676, круг 2) `arrange-by-epic-command.ts:95-96`: если `bindings.signals` одной Session-а падает (EACCES,
+- [x] (#676, круг 2) `arrange-by-epic-command.ts:95-96`: если `bindings.signals` одной Session-а падает (EACCES,
       проверка Linked git), каждый Arrange by Epic ждёт 5 s и ничего не двигает, только console warning. Первое
       открытие дня после таймаута идёт с известными Binding-ами (`arrangement-record.ts:213`) — сделать так же.
-- [ ] (#676, круг 2) `test/unit/arrange-by-epic-command.test.tsx:116-123`: нет test-ов — замок на Project
+- [x] (#676, круг 2) `test/unit/arrange-by-epic-command.test.tsx:116-123`: нет test-ов — замок на Project
       снимается после таймаута и исключения; Session, пришедшая во время ожидания; read-only во время ожидания.
-- [ ] (#682) `arrange-by-epic-command.ts:66` и `arrangement-record.ts` сами читают
+- [x] (#682) `arrange-by-epic-command.ts:66` и `arrangement-record.ts` сами читают
       `useBindingsStore.getState().manual[projectId]` перед `storedBindings()` (`binding/store.ts:253`); дать
       `storedBindings` `projectId`, пусть store читает `manual` сам.
-- [ ] (#682) `arrangement-record.ts:123` `activityNow` и `:148` `saveArrangement` экспортированы только для
+- [x] (#682) `arrangement-record.ts:123` `activityNow` и `:148` `saveArrangement` экспортированы только для
       `test/unit/epic-arrangement-record.test.tsx`: проверять через `useRepack`/upkeep или оставить нарочно.
-- [ ] (#682) `binding/store.ts:263` `SessionsToRead` и `useLayout.ts:108` `ScreenChannelOptions` экспортированы без
+- [x] (#682) `binding/store.ts:263` `SessionsToRead` и `useLayout.ts:108` `ScreenChannelOptions` экспортированы без
       внешних импортов.
-- [ ] (#682) `claude-home/useClaudeHome.ts:1-22`, шапка: сказать, что `liveSessionsNow()` (`:292`) — разовое
+- [x] (#682) `claude-home/useClaudeHome.ts:1-22`, шапка: сказать, что `liveSessionsNow()` (`:292`) — разовое
       чтение мимо общей копии.
-- [ ] (#682, вне diff-а) `overlays/ArchivePopover.tsx:51-74,95` — ещё одна копия цикла сигналов и
+- [x] (#682, вне diff-а) `overlays/ArchivePopover.tsx:51-74,95` — ещё одна копия цикла сигналов и
       `resolveAgentBindings`.
 - [ ] (#686) `docs/adr/0076-auto-archive-of-finished-sessions.md:138`, Amendment: первыми читателями названы окно
       и Linked machine; собственные чтения main (MCP-инструменты Canvas, docs, корзина, API карточек) тоже
       запускают архив — дописать «или сам main».
-- [ ] (#686) `test/contract/layout-archive.test.ts`: нет test-а, что прогон при первом чтении, совпавший с тиком
+- [x] (#686) `test/contract/layout-archive.test.ts`: нет test-а, что прогон при первом чтении, совпавший с тиком
       того же Project-а, даёт ровно одну партию и одно `layout.archived`.
-- [ ] (#686) `src/renderer/settings/CanvasSection.tsx:7`: устаревший комментарий «defaults (ticket 10)».
+- [x] (#686) `src/renderer/settings/CanvasSection.tsx:7`: устаревший комментарий «defaults (ticket 10)».
 - [ ] (#689) `docs/adr/0077-node-kind-tokens.md:99`, Amendment: Card — «единственное исключение старше semantic
       zoom»; старше только порог 0.4, исключение для закреплённой Card и focus tile пришло из #668.
-- [ ] (#689) `.scratch/worfy-canvas/spec.md:154`: ссылка `Canvas.tsx:542` устарела —
+- [x] (#689) `.scratch/worfy-canvas/spec.md:154`: ссылка `Canvas.tsx:542` устарела —
       `onlyRenderVisibleElements` стоит на `Canvas.tsx:537`.
 
 ## Готово, когда
@@ -272,3 +272,63 @@ PR первой части (2026-10-21, ветка `worfy-canvas/19`): ошиб�
   каждого типа Node-а); `shortcut:` в `epic-frame.css` — нужен выбор дизайна (прогресс в строке имени у
   короткой рамки). Оба пункта сняты Ticket-ом 20: semantic zoom удалён вместе с этими файлами.
 - Flaky test `workflow-reader`.
+
+Четвёртая часть (ветка `worfy-canvas/19-d`): всё, что оставалось, кроме двух Amendment-ов ADR.
+
+- #657: цвет типа — одна константа `KIND` в `src/renderer/canvas/kind-colours.ts` (полоса, иконка,
+  minimap, tint). Файл Node-а называет только свой тип (`export const kindColour: NodeKindColour =
+  'session'`), registry (`nodes/index.ts`) берёт из него цвет на minimap; `kindColour` вместе с
+  `minimapColor` или неизвестный тип — ошибка программиста. Test: ни один файл в `nodes/` не пишет
+  `var(--kind-…)` сам. Литерал в `minimapColor` пришлось заменить именем типа: правило lint
+  `react-refresh/only-export-components` не пускает в файле компонента экспорт не-литерала.
+- #657: у обёртки React Flow каждого Node-а есть `aria-label` (`flowNodeLabel`, `nodes/index.ts`):
+  имя от node source («Ticket demo/05» — с Epic-ом, «Epic demo») или тип словами («Note», «Done shelf»,
+  «Unknown node: <kind>»). Обёртку Session Node-а называет её заголовок: `aria-labelledby` на
+  элемент Node-а с `sessionLabel` (`sessionTitleElementId`), без него — «Session». Сборка Node-ов
+  React Flow — `flow-nodes.ts` (вынесена из `Canvas.tsx`, чтобы test звал её напрямую). Test-ы —
+  `canvas.test.tsx`, `epic-canvas.test.tsx`, `node-kind-header.test.tsx`, e2e `epic-frame.spec.ts`.
+- #657: порядок CSS: последний describe `node-kind-header.test.tsx` грузит `node-chrome.css` и
+  `focus.css` в обратном порядке и проверяет то же — листы не зависят от порядка в bundle.
+- #659: остальные e2e читают прямоугольники за один проход (`boxesInOnePass`, `settledBoxes`,
+  `settledBoxLists`, `flowPositionsInOnePass` в `test/e2e/helpers.ts`; чистая логика — в
+  `test/e2e/box-checks.ts` с unit test-ом).
+- #676: `tidyItems` и `TIDY_GAP` — в `tidy-items.ts` без React, им пользуются и Tidy up, и Arrange by
+  Epic (`ARRANGE_GAP = TIDY_GAP`). Одна подписка на деревья Subagent-ов — `useTreeBlocks` (`tidy.ts`):
+  Canvas menu передаёт её в `useTidyUp` и `useArrangeByEpic`. Запрос палитры Arrange by Epic — поле
+  `arrange` в `useCanvasRequests` (`find/canvas-requests.ts`), focus mode уходит по нему, как по Tidy up.
+- #676, вопрос про два правила места полосы: Arrange by Epic теперь считает дерево Session-а, который
+  остаётся, там, где Canvas рисует его Node-ы (`drawnTrees`, как `placeStrip`), а дерево Session-а,
+  который едет, — как оно висит без помех. Test-ы — `arrange-by-epic.test.ts` и
+  `arrange-by-epic-command.test.tsx`.
+- #676, круг 2: Binding-и, не прочитанные за 5 s, больше не отменяют команду: Session-ы ставятся по
+  известным Binding-ам, одна строка в log (как первое открытие дня). Но только когда main ответил на
+  `bindings.get` (`manualRead`): без ручных Binding-ов Session, привязанная руками, ушла бы по
+  transcript-у, поэтому тогда команда ничего не двигает и пишет строку в log. Test-ы: таймаут, замок Project-а
+  снят после таймаута и исключения, Session, пришедшая во время ожидания, read-only во время ожидания.
+- #682: `storedBindings(projectId, …)` сам читает `manual` из store; `bindingSpots` больше не берёт
+  `manual`; `ArchivePopover` разрешает Binding-и через `storedBindings` (копия цикла сигналов убрана).
+  `SessionsToRead` и `ScreenChannelOptions` не экспортируются. `activityNow` и `saveArrangement`
+  оставлены экспортом нарочно, с комментарием: через `useRepack` и upkeep их случаи требуют React
+  Flow, таймеров дня и ответов ELK. Шапка `useClaudeHome.ts` говорит, что `liveSessionsNow()` — разовое
+  чтение мимо общей копии.
+- #686: test — прогон при первом чтении Layout-а и тик того же Project-а, идущие одновременно, дают одну
+  партию и одно `layout.archived` (`test/contract/layout-archive.test.ts`, describe «the timer»).
+  Комментарий в `CanvasSection.tsx` обновлён.
+- #689: ссылка в `spec.md` — на проп в `Canvas.tsx` без номера строки (номера уезжают).
+- Flaky test `workflow-reader`: падал test «a Tickets root removed and made again with another Epic
+  before the watcher read (12 ms)» (`no matching workflow delta within 5000 ms; got []`, два полных
+  прогона 2026-10-21). Причина в watcher-е, не в test-е: корень Ticket-ов, удалённый и созданный снова
+  раньше, чем chokidar посмотрел на него после событий удаления (под нагрузкой — позже 12 ms), —
+  уже другая папка; chokidar сообщает об удалении её содержимого, но не самого корня, и watch остаётся
+  на удалённой папке, так что следующая правка Ticket-а не приходит до перезапуска. Исправление —
+  `checkRootReplaced` в `src/main/workflow/watch.ts`: каждое чтение сравнивает папку корня (device,
+  inode, birth time) с той, что держит watch, и при отличии делает watch заново. Новый test с паузой
+  0 ms. Замеры: без исправления новый test упал 9 раз из 20 без нагрузки; с исправлением весь файл —
+  20 из 20 green под нагрузкой (24 процесса `yes`) и 20 из 20 без неё; mutant (без вызова
+  `checkRootReplaced`) под той же нагрузкой — 4 падения из 10, каждый раз новый test.
+  Этот test остаётся вероятностным, поэтому рядом — детерминированный: watch заменён stub-ом
+  (`watchTicketsRoot`), корень удалён и создан снова, stub сообщает только об удалении файла внутри.
+  Mutant без вызова `checkRootReplaced` — red 5 из 5; без mutant-а оба test-а — 10 из 10 green.
+
+Осталось (Orchestrator-у): Amendment-ы ADR-0076 и ADR-0077 — implementer ADR не правит.
+

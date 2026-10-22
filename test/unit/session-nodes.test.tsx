@@ -13,6 +13,7 @@ import {
   worfySessions,
   worfySessionTitle,
 } from '../../src/renderer/claude-home/session-nodes'
+import { useBindingsStore } from '../../src/renderer/binding/store'
 import { answerReadOnly } from '../../src/renderer/projects/read-only-now'
 import { bindingSpots, frameReserves } from '../../src/renderer/canvas/overlays/session-spots'
 import { buildEpicNodes } from '../../src/renderer/canvas/sources/epics'
@@ -331,7 +332,9 @@ describe('a new Session with a Binding (worfy-canvas ticket 11)', () => {
         data: { node: { data: { epic: { epic: 'beta' }, auto: { x: 0, y: 988 } } } },
       } satisfies DrawnNode & { id: string }
       const epicBound = { sessionId: 'S-epic', target: { kind: 'epic' as const, epic: 'alpha' }, agentId: null }
-      const { near, keepOut: kept } = await bindingSpots({ root: '/p', sessionIds: ['S-claimed', 'S-epic', 'S-none'], manual: [epicBound], model: undefined, nodes: () => [frameNode, ticketNode, movedFrame], projectId: 'never-built' })
+      // The Project's manual Bindings, as main answered `bindings.get`: bindingSpots reads them from the store.
+      useBindingsStore.setState(({ manual }) => ({ manual: { ...manual, 'never-built': [epicBound] } }))
+      const { near, keepOut: kept } = await bindingSpots({ root: '/p', sessionIds: ['S-claimed', 'S-epic', 'S-none'], model: undefined, nodes: () => [frameNode, ticketNode, movedFrame], projectId: 'never-built' })
       expect(ipc.invoke).toHaveBeenCalledWith('bindings.signals', { projectRoot: '/p', sessionId: 'S-claimed' })
       // `ticket claim alpha 03` in its transcript: by its Ticket. A manual Binding to the Epic: by the frame's header.
       expect([...near]).toEqual([
@@ -340,14 +343,15 @@ describe('a new Session with a Binding (worfy-canvas ticket 11)', () => {
       ])
       // The strip's band (a Project never built: the frames as drawn), and the frame the user moved off it, as drawn.
       expect(kept).toEqual([stripKeepOut({ x: 0, right: 600, top: 40, bottom: 40 + 900 + FRAME_GAP + 200 }), { x: 700, y: 300, w: 400, h: 200 }])
+      useBindingsStore.setState(({ manual }) => ({ manual: { ...manual, 'never-built': [] } }))
     })
 
     it('asks nothing without a strip on the Canvas, and gives no spot when the signals cannot be read', async () => {
       ipc.invoke.mockImplementation(() => Promise.reject(new Error('main is gone')))
-      expect(await bindingSpots({ projectId: 'never-built', root: '/p', sessionIds: ['S-claimed'], manual: [], model: undefined, nodes: () => [] })).toEqual({ near: new Map(), keepOut: [] })
+      expect(await bindingSpots({ projectId: 'never-built', root: '/p', sessionIds: ['S-claimed'], model: undefined, nodes: () => [] })).toEqual({ near: new Map(), keepOut: [] })
       expect(ipc.invoke).not.toHaveBeenCalled()
       const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-      const { near } = await bindingSpots({ projectId: 'never-built', root: '/q', sessionIds: ['S-claimed'], manual: [], model: undefined, nodes: () => [frameNode] })
+      const { near } = await bindingSpots({ projectId: 'never-built', root: '/q', sessionIds: ['S-claimed'], model: undefined, nodes: () => [frameNode] })
       expect(near.size).toBe(0)
       expect(error).toHaveBeenCalled()
       error.mockRestore()
@@ -381,7 +385,7 @@ describe('a new Session with a Binding (worfy-canvas ticket 11)', () => {
       expect(reserve).toBeGreaterThan(frame.height!)
       ipc.invoke.mockImplementation(() => Promise.resolve({ ok: true, value: { found: false, session: EMPTY_AGENT_SIGNALS, subagents: [] } }))
       const drawn = built.map((each) => ({ ...each, internals: { positionAbsolute: each.position } }))
-      const { keepOut: kept } = await bindingSpots({ projectId, root: '/repo', sessionIds: ['S-1'], manual: [], model: undefined, nodes: () => drawn })
+      const { keepOut: kept } = await bindingSpots({ projectId, root: '/repo', sessionIds: ['S-1'], model: undefined, nodes: () => drawn })
       const { x, y } = frame.position
       expect(kept[0]).toEqual(stripKeepOut({ x, right: x + frame.width!, top: y, bottom: y + reserve! }))
       expect(frameReserves('never-built')).toBeUndefined()

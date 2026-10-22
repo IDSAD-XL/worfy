@@ -1,7 +1,7 @@
 // What the e2e check "settled, without overlaps" (test/e2e/helpers.ts expectSettledWithoutOverlaps)
 // finds in one pass of boxes: test/e2e/box-checks.ts.
 import { describe, expect, it } from 'vitest'
-import { checkTargets, overlaps, passOf, passProblems } from '../e2e/box-checks'
+import { checkTargets, listProblems, overlaps, passOf, passProblems, translateOf } from '../e2e/box-checks'
 
 const box = (name: string, x: number, y: number, width = 10, height = 10) => ({ name, x, y, width, height })
 
@@ -33,5 +33,34 @@ describe('one pass of boxes (expectSettledWithoutOverlaps)', () => {
   it('an element not found, a selector with several matches and an empty box are problems', () => {
     const pass = { boxes: [box('flat', 0, 0, 10, 0), box('thin', 20, 0, 0, 10), box('whole', 40, 0)], missing: ['gone'], ambiguous: ['twice'] }
     expect(passProblems(pass)).toEqual(['gone: not found', 'twice: the selector finds several elements', 'flat: an empty box', 'thin: an empty box'])
+  })
+})
+
+describe('one pass of box lists (settledBoxLists, settledBoxes)', () => {
+  const at = { x: 0, y: 0, width: 10, height: 10 }
+  const lists = { none: [], one: [at], two: [at, at] }
+
+  it('`one` wants exactly one element per selector', () => {
+    expect(listProblems(lists, 'one')).toEqual(['none: not found', 'two: the selector finds 2 elements'])
+  })
+
+  it('`some` wants at least one', () => {
+    expect(listProblems(lists, 'some')).toEqual(['none: not found'])
+  })
+
+  it('`any` takes any number, none included', () => {
+    expect(listProblems(lists, 'any')).toEqual([])
+  })
+})
+
+describe("a Node's place from its transform (flowPositionsInOnePass)", () => {
+  it('reads the translate React Flow writes, negative and fractional too', () => {
+    expect(translateOf('translate(120px, 40px)')).toEqual({ x: 120, y: 40 })
+    expect(translateOf('translate(-12.5px,-3px) scale(1)')).toEqual({ x: -12.5, y: -3 })
+  })
+
+  it('a transform without a translate has no place', () => {
+    expect(translateOf('')).toBeNull()
+    expect(translateOf('scale(2)')).toBeNull()
   })
 })

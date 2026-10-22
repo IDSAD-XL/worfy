@@ -25,8 +25,10 @@
 // a Workflow folder removed or on a disk not mounted), or removed later — is looked for every
 // TICKETS_ROOT_RETRY_MS (worfy-harness ticket 41). Once it is a folder again, its watch is made
 // anew and the Project is read. chokidar alone does not cover it: see `ticketsIgnored`. While the
-// root is a folder there are no such looks. This is the chokidar path's rule; on Windows
-// link-safe-watch.ts follows a root that comes and goes itself.
+// root is a folder there are no such looks. A root removed and made again before chokidar saw it
+// gone is another folder at the same path: each read compares it with the one the watch holds and
+// makes the watch anew when they differ (`checkRootReplaced`). This is the chokidar path's rule;
+// on Windows link-safe-watch.ts follows a root that comes and goes itself.
 //
 // On Windows the Tickets root is not watched by chokidar (worfy-windows ticket 20): chokidar calls
 // realpath and stat on every link in a folder it watches, and a link to a share in a checked-out
@@ -217,6 +219,18 @@ function gitCommonDir(root: string): Promise<string | null> {
 }
 
 /**
+ * Which folder is at `path` now: device, inode and birth time, or null when it is not a folder or
+ * cannot be looked at. A folder removed and made again at the same path gets another one; the
+ * birth time tells them apart where the system gives the inode number of the removed folder again.
+ */
+function folderIdentity(path: string): Promise<string | null> {
+  return stat(path).then(
+    (stats) => (stats.isDirectory() ? `${stats.dev}:${stats.ino}:${stats.birthtimeMs}` : null),
+    () => null,
+  )
+}
+
+/**
  * Calls `fire` once `quietMs` pass without a new `trigger`, but no later than `maxWaitMs` after the
  * first `trigger` of a series. Without the cap, events closer together than `quietMs` would put
  * the call off for as long as they keep coming. Timers are the global ones, so fake timers in
@@ -283,6 +297,11 @@ export class WorkflowWatcher {
   private ticketsFirstReady: () => void = () => undefined
   /** Watches made anew in a row because chokidar did not hold a root that is a folder. */
   private unheldRemakes = 0
+  /**
+   * Which folder the chokidar watch of the Tickets root holds (`folderIdentity`), taken as the
+   * watch is made; null while it is not known (no watch, the root not a folder then).
+   */
+  private ticketsRootId: string | null = null
   /** Whether a failed look at the Tickets root other than "not there" has been logged. */
   private rootErrorSaid = false
   private readonly debounce: Debounce
@@ -482,8 +501,14 @@ export class WorkflowWatcher {
    */
   private watchTickets(ticketsRoot: string, ready: () => void): FSWatcher {
     const make = this.options.watchTicketsRoot ?? ((path, ignored) => watch(path, { ignoreInitial: true, ignored }))
+    // The folder is asked before chokidar looks at it: a root replaced in between is then seen as
+    // another folder by the next read, which makes the watch anew once more, rather than missed.
+    const identity = folderIdentity(ticketsRoot)
     // No `depth`: see `ticketsIgnored`.
     const watcher = make(ticketsRoot, ticketsIgnored(ticketsRoot))
+    void identity.then((id) => {
+      if (this.ticketsWatcher === watcher) this.ticketsRootId = id
+    })
     watcher.on('unlinkDir', (path: string) => {
       if (resolve(path) === resolve(ticketsRoot) && this.ticketsWatcher === watcher) this.rewatchTickets()
     })
@@ -516,6 +541,24 @@ export class WorkflowWatcher {
     // ever seen in a log.
     if (this.unheldRemakes > 0) return console.warn(`[workflow] chokidar does not hold the Tickets root ${ticketsRoot}, though it is a folder`)
     this.unheldRemakes += 1
+    this.rewatchTickets()
+  }
+
+  /**
+   * After a read finds the Tickets root a folder: when it is another folder than the one the watch
+   * holds, the watch is made anew. A root removed and made again before chokidar looks at it after
+   * the removal events (a few ms; tens under load) is a folder again by then, so chokidar reports
+   * the removal of what was in it but never of the root itself (`unlinkDir` of the root above never
+   * comes), and its watch of the root stays on the removed folder: the read those events ask for
+   * shows the new Epics, and nothing in them was seen again (measured on macOS, chokidar 5.0.0). A
+   * watch being made anew is left alone: its read comes here after it with a new identity.
+   */
+  private async checkRootReplaced(ticketsRoot: string): Promise<void> {
+    const held = this.ticketsRootId
+    if (held === null || this.rewatching) return
+    const now = await folderIdentity(ticketsRoot)
+    if (this.closed || now === null || now === held || this.ticketsRootId !== held || this.rewatching) return
+    console.warn(`[workflow] the Tickets root ${ticketsRoot} is another folder than the one watched: the watch is made anew`)
     this.rewatchTickets()
   }
 
@@ -572,6 +615,7 @@ export class WorkflowWatcher {
 
   private async remakeTicketsWatch(): Promise<void> {
     const previous = this.ticketsWatcher
+    this.ticketsRootId = null
     if (previous) {
       this.ticketsWatcher = null
       const at = this.watchers.indexOf(previous)
@@ -720,6 +764,7 @@ export class WorkflowWatcher {
         // A root removed without an event about the root itself (it was lost; only events about
         // what was in it came) is looked for from here.
         if (this.chokidarTickets && !(await this.ticketsRootThere(layout.ticketsRoot)) && !this.closed) this.awaitTicketsRoot(layout.ticketsRoot)
+        else if (this.chokidarTickets) await this.checkRootReplaced(layout.ticketsRoot)
       }
       if (checkout.error || layout.mode === 'silent') this.branches = new Map()
       else if (checkoutChanged || branchesChanged) {

@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { _electron, expect, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import type { Reporter, TestCase, TestResult } from '@playwright/test/reporter'
 import { MIN_SIZE } from '../../src/shared/window/bounds'
-import { checkTargets, overlaps, passOf, passProblems, type BoxPass } from './box-checks'
+import { checkTargets, listProblems, overlaps, passOf, passProblems, translateOf, type BoxPass, type ListRule, type Rect } from './box-checks'
 import { endApp, exited, killThenClean } from './end-app'
 import { SHOW_POLL_MS, waitForFirstWindowShown } from './first-window-shown'
 import { launchEnv } from './launch-env'
@@ -914,3 +914,104 @@ export async function expectSettledWithoutOverlaps(page: Page, targets: readonly
     )
     .toEqual({ settled: true, problems: [], overlaps: [] })
 }
+
+/**
+ * Reads `read` until two reads in a row give the same value and `problems` finds nothing in it,
+ * and returns that value: a value read while the layout was still moving is not compared.
+ */
+export async function settledRead<T>(read: () => Promise<T>, message: string, options: { problems?: (value: T) => string[]; timeout?: number } = {}): Promise<T> {
+  const seen: { key?: string; value?: T } = {}
+  await expect
+    .poll(
+      async () => {
+        const value = await read()
+        const key = JSON.stringify(value)
+        const settled = key === seen.key
+        seen.key = key
+        seen.value = value
+        return { settled, problems: options.problems?.(value) ?? [] }
+      },
+      { message, timeout: options.timeout ?? 10_000, intervals: [100, 250, 500] },
+    )
+    .toEqual({ settled: true, problems: [] })
+  return seen.value as T
+}
+
+/**
+ * The boxes of every element each selector finds, in document order, all read in one pass inside
+ * the page with no await between two reads, so they all come from one layout.
+ */
+export async function boxListsInOnePass<N extends string>(page: Page, selectors: Readonly<Record<N, string>>): Promise<Record<N, Rect[]>> {
+  const lists = await page.evaluate((entries) => {
+    type Read = { x: number; y: number; width: number; height: number }
+    const doc = (globalThis as unknown as { document: { querySelectorAll(selector: string): ArrayLike<{ getBoundingClientRect(): Read }> } }).document
+    const rectOf = (element: { getBoundingClientRect(): Read }): Read => {
+      const { x, y, width, height } = element.getBoundingClientRect()
+      return { x, y, width, height }
+    }
+    return entries.map(([name, selector]) => [name, Array.from(doc.querySelectorAll(selector), rectOf)] as const)
+  }, Object.entries<string>(selectors))
+  return Object.fromEntries(lists) as Record<N, Rect[]>
+}
+
+/**
+ * One pass of boxListsInOnePass taken once the layout has settled — two passes in a row read the
+ * same boxes — with every selector finding at least one element (`rule` `some`, the default),
+ * exactly one (`one`) or any number (`any`). Boxes compared with each other come from that pass.
+ */
+export async function settledBoxLists<N extends string>(
+  page: Page,
+  selectors: Readonly<Record<N, string>>,
+  message: string,
+  options: { rule?: ListRule; timeout?: number } = {},
+): Promise<Record<N, Rect[]>> {
+  const rule = options.rule ?? 'some'
+  return settledRead(() => boxListsInOnePass(page, selectors), message, { problems: (lists) => listProblems(lists, rule), timeout: options.timeout })
+}
+
+/** settledBoxLists for selectors that each find exactly one element: the box of each, by name. */
+export async function settledBoxes<N extends string>(page: Page, selectors: Readonly<Record<N, string>>, message: string, timeout?: number): Promise<Record<N, Rect>> {
+  const lists: Record<string, Rect[]> = await settledBoxLists(page, selectors, message, { rule: 'one', timeout })
+  return firstOfEach(lists) as Record<N, Rect>
+}
+
+/**
+ * The places of React Flow Nodes on the Canvas (their `rf__node-<id>` element's translate), all
+ * read in one pass inside the page, once each element is there. Places compared with each other
+ * then come from one layout.
+ */
+export async function flowPositionsInOnePass<N extends string>(page: Page, ids: readonly N[]): Promise<Record<N, { x: number; y: number }>> {
+  const selector = (id: string) => `[data-testid="rf__node-${id}"]`
+  for (const id of ids) await page.locator(selector(id)).waitFor({ state: 'attached' })
+  const reads = await page.evaluate(
+    (list) => {
+      type Styled = { style: { transform: string } }
+      const doc = (globalThis as unknown as { document: { querySelectorAll(selector: string): ArrayLike<Styled> } }).document
+      return list.map(([id, css]) => {
+        const found = doc.querySelectorAll(css)
+        return { id, count: found.length, transform: found.length === 1 ? found[0]!.style.transform : '' }
+      })
+    },
+    ids.map((id) => [id, selector(id)] as const),
+  )
+  const places: Partial<Record<N, { x: number; y: number }>> = {}
+  for (const { id, count, transform } of reads) {
+    if (count !== 1) throw new Error(`Node ${id}: ${count} elements in the pass`)
+    const place = translateOf(transform)
+    if (!place) throw new Error(`Node ${id}: no translate in ${transform}`)
+    places[id as N] = place
+  }
+  return places as Record<N, { x: number; y: number }>
+}
+
+/**
+ * The box of each selector's one element, all read in one pass (boxListsInOnePass), for a check
+ * that polls on its own; null when a selector finds no element or several in this pass.
+ */
+export async function oneBoxEachInOnePass<N extends string>(page: Page, selectors: Readonly<Record<N, string>>): Promise<Record<N, Rect> | null> {
+  const lists: Record<string, Rect[]> = await boxListsInOnePass(page, selectors)
+  if (listProblems(lists, 'one').length) return null
+  return firstOfEach(lists) as Record<N, Rect>
+}
+
+const firstOfEach = (lists: Record<string, Rect[]>): Record<string, Rect> => Object.fromEntries(Object.entries(lists).map(([name, list]) => [name, list[0]!]))

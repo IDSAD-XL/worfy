@@ -7,10 +7,11 @@
 //
 // Both are decoration (`aria-hidden`); the Node names its kind in its own `aria-label`.
 import type { CSSProperties } from 'react'
+import { KIND, type NodeKindColour } from './kind-colours'
 
-export type NodeKindColour = 'orchestrator' | 'session' | 'subagent' | 'epic'
+export type { NodeKindColour } from './kind-colours'
 
-const colourOf = (kind: NodeKindColour): string => `var(--kind-${kind})`
+const colourOf = (kind: NodeKindColour): string => KIND[kind].band
 
 const ICON_PATHS: Record<NodeKindColour, readonly string[]> = {
   // A hub with three spokes: the Session that runs the others.

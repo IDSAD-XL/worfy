@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useStoreApi } from '@xyflow/react'
 import { EPIC_ARRANGEMENT_ID, EPIC_ARRANGEMENT_KIND } from '../../shared/layout/derived'
 import type { Ticket, WorkflowModel } from '../../shared/workflow/types'
-import { storedBindings, useBindingsStore, whenBindingsRead } from '../binding/store'
+import { storedBindings, whenBindingsRead } from '../binding/store'
 import { liveSessionsNow } from '../claude-home/useClaudeHome'
 import { invoke } from '../ipc'
 import { readOnlyNow } from '../projects/read-only-now'
@@ -103,7 +103,7 @@ type ActivityInput = Pick<ArrangementState, 'model' | 'sessions'>
  */
 async function liveBoundSessions(projectId: string, { model, sessions }: ActivityInput): Promise<string[]> {
   const { root } = model
-  const bindings = storedBindings(root, sessions, useBindingsStore.getState().manual[projectId] ?? [], model)
+  const bindings = storedBindings(projectId, root, sessions, model)
   const bound = sessions.filter((sessionId) => bindings.has(sessionId))
   if (bound.length === 0) return []
   const found = await liveSessionsNow(root)
@@ -119,6 +119,9 @@ async function liveBoundSessions(projectId: string, { model, sessions }: Activit
  * its anchor on the Canvas.
  * A Subagent's status is known only to the Subagent tree's Nodes (sources/subagents.ts), so:
  * shortcut: a live Subagent counts only once its Binding anchor is drawn, redo when the Subagents' status gets a store this source can read without React Flow.
+ *
+ * Exported for its unit test only (test/unit/epic-arrangement-record.test.tsx), on purpose: through
+ * useRepack or the upkeep each case would need React Flow, the day's timers and ELK's answers.
  */
 export async function activityNow(projectId: string, input: ActivityInput, nodes: AnchorLookup): Promise<Set<string>> {
   const live: string[] = []
@@ -144,6 +147,8 @@ export async function activityNow(projectId: string, input: ActivityInput, nodes
  * step of ⌘Z, after a `create` of an empty record that is no step of its own (as saveEpicChange
  * does). Without `ops` it is automatic and goes past the history (ADR-0016): a `create` with the
  * data, or a `patchData` when the record is there.
+ *
+ * Exported for its unit test only, on purpose, as activityNow is.
  */
 export async function saveArrangement(projectId: string, record: ArrangementRecord, ops?: LayoutOps): Promise<void> {
   const exists = currentLayout(projectId)?.nodes.some((node) => node.id === EPIC_ARRANGEMENT_ID) ?? false

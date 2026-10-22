@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { FRAME_GAP, ROW_GAP, TICKETS_TOP } from '../../src/renderer/canvas/epic-layout'
 import { ORCHESTRATOR_WIDTH } from '../../src/shared/ipc/orchestrator'
-import { canvasReady, launchApp } from './helpers'
+import { canvasReady, flowPositionsInOnePass, launchApp, settledRead } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
@@ -80,20 +80,17 @@ function makeFixture(): { dataDir: string; claudeHome: string } {
   return { dataDir, claudeHome }
 }
 
-/** The node's place on the Canvas, from React Flow's transform. */
-async function flowPosition(window: Page, id: string): Promise<{ x: number; y: number }> {
-  const transform = await window.getByTestId(`rf__node-${id}`).evaluate((element) => (element as unknown as { style: { transform: string } }).style.transform)
-  const match = /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(transform)
-  if (!match) throw new Error(`no translate in ${transform}`)
-  return { x: Number(match[1]), y: Number(match[2]) }
-}
-
-/** The open Tickets' places relative to the frame. */
+/**
+ * The open Tickets' places relative to the frame, from React Flow's transforms: the frame and the
+ * Tickets read in one pass, once two passes in a row agree (helpers.ts).
+ */
 async function openPlaces(window: Page): Promise<Record<number, { x: number; y: number }>> {
-  const frame = await flowPosition(window, `epic:${EPIC}`)
+  const ids = [`epic:${EPIC}`, ...OPEN.map((num) => `ticket:${EPIC}/${num}`)]
+  const read = await settledRead(() => flowPositionsInOnePass(window, ids), 'the places of the frame and its open Tickets')
+  const frame = read[`epic:${EPIC}`]!
   const places: Record<number, { x: number; y: number }> = {}
   for (const num of OPEN) {
-    const ticket = await flowPosition(window, `ticket:${EPIC}/${num}`)
+    const ticket = read[`ticket:${EPIC}/${num}`]!
     places[num] = { x: Math.round(ticket.x - frame.x), y: Math.round(ticket.y - frame.y) }
   }
   return places

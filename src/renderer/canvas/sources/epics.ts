@@ -64,7 +64,7 @@ import {
 import type { NodeDrop, NodeSource, NodeSourceContext } from '../extensions'
 import { grouped, type Group } from '../history'
 import type { CanvasFlowNode } from '../nodes'
-import { waitingOnOf } from '../ticket-card'
+import { pad, waitingOnOf } from '../ticket-card'
 import { applyLayoutOp, currentLayout, type LayoutOps } from '../useLayout'
 import { agentNodes } from './workflow-bindings'
 
@@ -449,6 +449,8 @@ function ticketNodes(projectId: string, root: string, epic: string, tickets: rea
     return {
       id,
       type: TICKET_KIND,
+      // With its Epic: two Epics on one Canvas both have a Ticket 01.
+      ariaLabel: `Ticket ${epic}/${pad(placed.num)}`,
       parentId,
       position: { x: placed.x, y: placed.y },
       width: TICKET_WIDTH,
@@ -672,6 +674,7 @@ export function buildEpicNodes(
       entry.frame = {
         id,
         type: EPIC_FRAME_KIND,
+        ariaLabel: `Epic ${epic.epic}`,
         position: { x: place.x, y: place.y },
         width: entry.layout.width,
         height: entry.layout.height,

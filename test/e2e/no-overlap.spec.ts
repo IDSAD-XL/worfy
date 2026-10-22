@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { FRAME_GAP } from '../../src/renderer/canvas/epic-layout'
 import { ORCHESTRATOR_WIDTH } from '../../src/shared/ipc/orchestrator'
-import { canvasReady, launchApp } from './helpers'
+import { canvasReady, launchApp, settledBoxes } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
 
@@ -107,6 +107,12 @@ async function drag(window: Page, from: Locator, to: { x: number; y: number } | 
 }
 
 const nodeElement = (window: Page, id: string) => window.getByTestId(`rf__node-${id}`)
+
+/** How far apart the elements of two Nodes are on the screen, both boxes from one pass once the layout is still (helpers.ts). */
+async function apartOnScreen(window: Page, a: string, b: string): Promise<number> {
+  const boxes = await settledBoxes(window, { a: `[data-testid="rf__node-${a}"]`, b: `[data-testid="rf__node-${b}"]` }, `the boxes of ${a} and ${b}`)
+  return apart(boxes.a, boxes.b)
+}
 const projectButton = (window: Page, name: string) => window.getByTestId('project-row').filter({ hasText: name }).getByRole('button')
 
 test('a Note dropped onto a Card goes next to it and the Card stays, also after a restart', async () => {
@@ -125,7 +131,7 @@ test('a Note dropped onto a Card goes next to it and the Card stays, also after 
     // On the screen too: the Note stands next to the Card, which has not moved.
     await canvasReady(first)
     expect(await box(nodeElement(window, 'c1'))).toEqual(cardBefore)
-    expect(apart(await box(nodeElement(window, 'n1')), await box(nodeElement(window, 'c1')))).toBeGreaterThanOrEqual(GAP - 1)
+    expect(await apartOnScreen(window, 'n1', 'c1')).toBeGreaterThanOrEqual(GAP - 1)
     await snapshotThemes(window, '04-note-dropped-on-card')
   } finally {
     await first.close()
@@ -137,7 +143,7 @@ test('a Note dropped onto a Card goes next to it and the Card stays, also after 
     await canvasReady(second, { size: { width: 1600, height: 1000 }, visible: [nodeElement(window, 'c1'), nodeElement(window, 'n1')] })
     expect(await byId(window, ALPHA, 'n1')).toMatchObject({ x: dropped.x, y: dropped.y })
     expect(await byId(window, ALPHA, 'c1')).toMatchObject({ x: 500, y: 300 })
-    expect(apart(await box(nodeElement(window, 'n1')), await box(nodeElement(window, 'c1')))).toBeGreaterThanOrEqual(GAP - 1)
+    expect(await apartOnScreen(window, 'n1', 'c1')).toBeGreaterThanOrEqual(GAP - 1)
   } finally {
     await second.close()
   }
@@ -193,7 +199,7 @@ test('a saved Layout with two overlapping Nodes: on its first read the later Nod
     await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [nodeElement(window, 'A'), nodeElement(window, 'B')] })
     expect(await byId(window, BETA, 'A')).toMatchObject({ x: 500, y: 300 })
     expect(separation(await byId(window, BETA, 'B'), await byId(window, BETA, 'A'))).toBeGreaterThanOrEqual(GAP)
-    expect(apart(await box(nodeElement(window, 'B')), await box(nodeElement(window, 'A')))).toBeGreaterThanOrEqual(GAP - 1)
+    expect(await apartOnScreen(window, 'B', 'A')).toBeGreaterThanOrEqual(GAP - 1)
   } finally {
     await launched.close()
   }
@@ -255,7 +261,7 @@ test('an Epic frame whose saved offset puts it on a Card is drawn next to the Ca
     const frame = nodeElement(window, 'epic:demo')
     await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [frame, nodeElement(window, 'c1')] })
     // The gap on the screen at zoom 0.6, less a pixel of rounding.
-    expect(apart(await box(frame), await box(nodeElement(window, 'c1')))).toBeGreaterThanOrEqual(GAP * 0.6 - 1)
+    expect(await apartOnScreen(window, 'epic:demo', 'c1')).toBeGreaterThanOrEqual(GAP * 0.6 - 1)
     expect(await byId(window, DEMO, 'c1')).toMatchObject({ x: column + 40, y: 700 })
     expect(await byId(window, DEMO, 'epic:demo')).toMatchObject({ x: offset.x, y: offset.y })
     await snapshotThemes(window, '04-frame-next-to-card')

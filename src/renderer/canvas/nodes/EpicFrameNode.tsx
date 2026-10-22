@@ -2,6 +2,7 @@ import { memo, useEffect, useRef } from 'react'
 import { writeAction } from '../../projects/read-only'
 import { useReadOnly } from '../../projects/useProjects'
 import { actions, type SlotSubject } from '../badges'
+import type { NodeKindColour } from '../kind-colours'
 import { KindBand, KindIcon } from '../kind-icons'
 import { onDoneShelf, PROGRESS_SEGMENTS, TICKET_WIDTH, type EpicLayout, type Progress, type TicketColumn } from '../epic-layout'
 import { setDoneStack, toggleFrame, type EpicFrameData } from '../sources/epics'
@@ -18,7 +19,8 @@ import '../epic-frame.css'
 export const kind = 'epic-frame'
 export const defaultWidth = 520
 export const defaultHeight = 56
-export const minimapColor = 'var(--kind-epic)'
+/** Its kind colour on the band, the icon and the minimap (kind-colours.ts). */
+export const kindColour: NodeKindColour = 'epic'
 
 const pad = (num: number) => String(num).padStart(2, '0')
 

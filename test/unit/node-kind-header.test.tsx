@@ -6,8 +6,10 @@
 //
 // The finished look and the Orchestrator's double border are CSS of the Canvas (node-chrome.css):
 // the tests load focus.css and then that file, in the order of the app's built bundle, and draw each Node the
-// way the app holds it — in a React Flow wrapper on the Canvas, or in a focus tile.
-import { readFileSync } from 'node:fs'
+// way the app holds it — in a React Flow wrapper on the Canvas, or in a focus tile. Nothing ties that
+// order to the bundle, so the last describe loads the two sheets the other way round: they must not
+// depend on it.
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { render, screen, within } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
@@ -19,7 +21,7 @@ import { FocusTileContext } from '../../src/renderer/focus/focus-tile'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { LiveSession } from '../../src/shared/ipc/claude-home'
 import type { SessionNodeView } from '../../src/shared/ipc/sessions'
-import type { Layout } from '../../src/shared/layout/types'
+import type { Layout, LayoutNode } from '../../src/shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
 vi.mock('../../src/renderer/canvas/badges', () => ({ badges: [], actions: [] }))
@@ -246,6 +248,25 @@ describe('live Session Node (a Session worfy runs)', () => {
     expectChipWithoutKind(node)
   })
 
+  it('names its React Flow wrapper by its title: the wrapper is labelled by the Node (flow-nodes.ts)', async () => {
+    views = [liveView('idle')]
+    const { toFlowNodes } = await import('../../src/renderer/canvas/flow-nodes')
+    const { default: SessionNode } = await import('../../src/renderer/canvas/nodes/SessionNode')
+    const node = { id: LIVE_NODE, kind: 'session', x: 0, y: 0, w: 480, h: 320, data: { origin: 'worfy', sessionId: SESSION } } as unknown as LayoutNode
+    const [flow] = toFlowNodes([node], [], [])
+    // Without the title element (a Node not drawn yet) the wrapper keeps the kind word.
+    expect(flow!.ariaLabel).toBe('Session')
+    render(
+      <ReactFlowProvider>
+        <div role="group" aria-label={flow!.ariaLabel} {...flow!.domAttributes} data-testid="wrapper">
+          <SessionNode {...propsOf(LIVE_NODE, { node })} />
+        </div>
+      </ReactFlowProvider>,
+    )
+    await vi.waitFor(() => expect(screen.getByTestId('session-node').getAttribute('data-status')).toBe('idle'))
+    expect(screen.getAllByRole('group', { name: 'Session dddddddd' })).toContain(screen.getByTestId('wrapper'))
+  })
+
   it('a new Node whose Session never ran is not finished', async () => {
     const node = await liveSessionNode('new', undefined)
     expect(node.getAttribute('aria-label')).toBe('New session')
@@ -390,5 +411,70 @@ describe('neutral kinds', () => {
     const { container } = inFlow(<CardNode {...propsOf('card', { node: { id: 'card', kind: 'card', data: { cardId: 'c0000001' } } })} />)
     await vi.waitFor(() => expect(container.firstElementChild).not.toBeNull())
     expectNoKind(container as HTMLElement)
+  })
+})
+
+describe('the kind colours of the Node files', () => {
+  it('no Node file names a kind-* colour itself: each takes its band and tint from KIND (kind-colours.ts)', () => {
+    const dir = join(process.cwd(), 'src/renderer/canvas/nodes')
+    const files = readdirSync(dir).filter((file) => file.endsWith('.tsx'))
+    expect(files.length).toBeGreaterThan(5)
+    for (const file of files) expect(readFileSync(join(dir, file), 'utf8'), file).not.toMatch(/var\(--kind-/)
+  })
+
+  it('each kind with a colour shows on the minimap in its band colour', async () => {
+    const { collectNodeTypes } = await import('../../src/renderer/canvas/nodes/index')
+    const types = collectNodeTypes({
+      'OrchestratorNode.tsx': await import('../../src/renderer/canvas/nodes/OrchestratorNode'),
+      'SessionNode.tsx': await import('../../src/renderer/canvas/nodes/SessionNode'),
+      'SubagentNode.tsx': await import('../../src/renderer/canvas/nodes/SubagentNode'),
+      'EpicFrameNode.tsx': await import('../../src/renderer/canvas/nodes/EpicFrameNode'),
+    })
+    expect(Object.fromEntries([...types].map(([kind, type]) => [kind, type.minimapColor]))).toEqual({
+      orchestrator: 'var(--kind-orchestrator)',
+      session: 'var(--kind-session)',
+      subagent: 'var(--kind-subagent)',
+      'epic-frame': 'var(--kind-epic)',
+    })
+  })
+
+  it('a type file with a kind colour that is not one, or with a minimap colour of its own too, is a programming error', async () => {
+    const { collectNodeTypes } = await import('../../src/renderer/canvas/nodes/index')
+    const Component = () => null
+    expect(() => collectNodeTypes({ 'XNode.tsx': { default: Component, kind: 'x', kindColour: 'teal' } })).toThrow(/kindColour/)
+    expect(() => collectNodeTypes({ 'XNode.tsx': { default: Component, kind: 'x', kindColour: 'session', minimapColor: 'red' } })).toThrow(/minimapColor/)
+  })
+})
+
+// The tests above load focus.css before node-chrome.css, as the built bundle has them. Nothing ties
+// that order to the bundle, so the two sheets must not depend on it: here node-chrome.css comes first.
+describe('node-chrome.css and focus.css in the other order', () => {
+  beforeAll(() => {
+    document.head.append(sheets[0]!)
+  })
+  afterAll(() => {
+    document.head.append(sheets[1]!)
+  })
+
+  it('the sheets are in the other order', () => {
+    const styles = Array.from(document.head.querySelectorAll('style'))
+    expect(styles.indexOf(sheets[1]!)).toBeLessThan(styles.indexOf(sheets[0]!))
+  })
+
+  it('the Orchestrator has its double border on the Canvas and none in a focus tile', async () => {
+    const { default: OrchestratorNode } = await import('../../src/renderer/canvas/nodes/OrchestratorNode')
+    inFlow(<OrchestratorNode {...propsOf('orch', { node: { data: {} } })} />)
+    expect(getComputedStyle(screen.getByTestId('orchestrator-node')).borderStyle).toBe('double')
+    inFlow(<OrchestratorNode {...propsOf('orch-tile', { node: { data: {} } })} />, 'focus')
+    const [, tile] = screen.getAllByTestId('orchestrator-node')
+    expect(getComputedStyle(tile!).borderStyle).not.toBe('double')
+  })
+
+  it('a finished Session is at 60 % opacity on the Canvas', async () => {
+    expect(opacityOf(await sessionNode('finished'))).toBe(0.6)
+  })
+
+  it('a finished Session in a focus tile is at full opacity', async () => {
+    expect(opacityOf(await sessionNode('finished', 'focus'))).toBe(1)
   })
 })

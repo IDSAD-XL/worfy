@@ -20,7 +20,7 @@ import { activeProject, useProjects, useReadOnly } from '../../projects/useProje
 import { nodeTypes, type NodeType } from '../nodes'
 import { useRepack } from '../arrangement-record'
 import { useRepackRequests } from '../sources/epics'
-import { useTidyUp } from '../tidy'
+import { useTidyUp, useTreeBlocks } from '../tidy'
 import { createItems, newNodeData } from './create-items'
 import { useLayoutOps } from '../useLayout'
 
@@ -55,8 +55,10 @@ export default function CanvasMenu() {
 function ProjectCanvasMenu({ projectId, root }: { projectId: string; root: string }) {
   const flow = useReactFlow()
   const ops = useLayoutOps()
-  const tidyUp = useTidyUp(projectId, root)
-  const arrangeByEpic = useArrangeByEpic(projectId, root)
+  // One subscription to the Subagent trees for both layout commands.
+  const trees = useTreeBlocks(projectId, root)
+  const tidyUp = useTidyUp(projectId, trees)
+  const arrangeByEpic = useArrangeByEpic(projectId, root, trees)
   useArrangeByEpicRequests(projectId, arrangeByEpic)
   const repack = useRepack(projectId)
   useRepackRequests(projectId, repack)

@@ -155,6 +155,18 @@ describe('Arrange by Epic', () => {
     expect(places['s3']).toEqual([COLUMN, 300 + 16])
   })
 
+  it('counts the tree of a Session that stays where the Canvas draws it, not where it would hang (as placeStrip does)', () => {
+    const kept = session('kept', -700, 0, { keep: true })
+    // Where the tree would hang is in the column; something was in its way, so it is drawn far below.
+    const trees = new Map([['kept', { x: COLUMN + 700, y: 0, w: 400, h: 300 }]])
+    const drawnTrees = new Map([['kept', [{ x: COLUMN, y: 5000, w: 400, h: 300 }]]])
+    const places = placesOf(movesOf({ nodes: [...nodes, kept], epics, drawn: drawn(), trees, drawnTrees }))
+    expect(places['s3']).toEqual([COLUMN, 0])
+    // A moving Session's tree goes with it as it hangs: its drawn place does not count.
+    const moving = placesOf(movesOf({ nodes, epics, drawn: drawn(), drawnTrees: new Map([['s1', [{ x: COLUMN, y: 0, w: 400, h: 300 }]]]) }))
+    expect(moving['s3']).toEqual([COLUMN, 0])
+  })
+
   it('starts the "Unbound" cluster at the top of the strip when no Session is bound', () => {
     const places = placesOf(movesOf({ nodes, epics: new Map(), drawn: drawn({ strip: { x: 0, right: 800, top: 40, bottom: 1200 } }) }))
     // Reading order: s4 (y 300), s2 (1500), s3 (1800), s1 (2000).

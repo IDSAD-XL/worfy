@@ -791,6 +791,38 @@ describe('the timer', () => {
     await vi.advanceTimersByTimeAsync(10)
     expect(changes(1, 'archive')).toHaveLength(1)
   })
+
+  it('the run at the first read of a Layout and a tick of the same Project that overlap make one batch and one layout.archived (review of PR #686)', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    // A Layout on disk that main has not read yet: the start's tick passes it by.
+    const node = { id: 'session:a', kind: 'session', x: 0, y: 0, w: 300, h: 120, data: { sessionId: 'a', origin: 'external', source: 'terminal', cwd: '/p' } }
+    writeFileSync(layoutFile(), JSON.stringify({ nodes: [node] }))
+    world.history = transcripts(['a', 30 * HOUR])
+    const read = deferred<readonly LiveSessionLike[]>()
+    let reads = 0
+    world.live = () => {
+      reads += 1
+      return read.promise
+    }
+    const stop = archiver().start(10)
+    onTestFinished(stop)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(reads).toBe(0)
+    // A window opens the Project (the first read runs it), and the timer ticks while that run reads.
+    expect(nodeOf('session:a')).toBeDefined()
+    await vi.advanceTimersByTimeAsync(10)
+    await vi.waitFor(() => expect(reads).toBe(2))
+    read.resolve([])
+    await vi.waitFor(() => expect(isArchived(nodeOf('session:a')!)).toBe(true))
+    world.live = noneLive
+    await vi.advanceTimersByTimeAsync(10)
+    expect(changes(1, 'archive')).toHaveLength(1)
+    expect(batchEvents(1)).toEqual([{ projectId: PROJECT, batch: 'batch-1', count: 1 }])
+    expect(batchEvents(2)).toHaveLength(1)
+  })
 })
 
 describe('review debt of Wave 1 (worfy-canvas ticket 16; ADR-0076, Amendments)', () => {

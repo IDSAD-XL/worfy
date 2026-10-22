@@ -87,13 +87,14 @@ function SessionNodesSync({ projectId, root }: { projectId: string; root: string
   const { live } = useClaudeHome(root)
   const { state } = useLayout(projectId)
   const { model } = useWorkflow(root)
-  const manual = useManualBindings(projectId)
+  // Asks main for the Project's manual Bindings; bindingSpots reads them from the store.
+  useManualBindings(projectId)
   const store = useStoreApi<CanvasFlowNode>()
   const busy = useRef(false)
   const again = useRef(false)
-  const latest = useRef({ live, state, projectId, root, model, manual })
+  const latest = useRef({ live, state, projectId, root, model })
   useEffect(() => {
-    latest.current = { live, state, projectId, root, model, manual }
+    latest.current = { live, state, projectId, root, model }
   })
 
   useFocusRequests(projectId)
@@ -122,7 +123,6 @@ function SessionNodesSync({ projectId, root }: { projectId: string; root: string
           const spots = await bindingSpots({
             root: projectRoot,
             sessionIds: first.create.map((op) => String(op.node.data?.sessionId)).filter((id) => !worfyIds.has(id)),
-            manual: latest.current.manual,
             model: latest.current.model,
             nodes: () => store.getState().nodeLookup.values(),
             projectId: project,

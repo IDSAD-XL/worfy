@@ -20,7 +20,7 @@ import { SHORTCUTS } from '../../shared/shortcuts'
 import { requestCardText } from '../canvas/card-bridge'
 import { nodeTypes, type CanvasFlowNode } from '../canvas/nodes'
 import { createItems, newNodeData } from '../canvas/overlays/create-items'
-import { useTidyUp } from '../canvas/tidy'
+import { useTidyUp, useTreeBlocks } from '../canvas/tidy'
 import { useLayout, useLayoutOps } from '../canvas/useLayout'
 import { useDocs, useDocText } from '../docs/useDocs'
 import { activeProject, useProjects } from '../projects/useProjects'
@@ -126,7 +126,7 @@ function useCreateRequests(projectId: string): void {
 
 /** Carries out the palette's "Tidy up" (canvas/tidy.ts) through the Canvas's LayoutOps, as the Canvas menu item does. */
 function useTidyRequests(projectId: string, root: string): void {
-  const tidyUp = useTidyUp(projectId, root)
+  const tidyUp = useTidyUp(projectId, useTreeBlocks(projectId, root))
   const request = useCanvasRequests((state) => state.tidy)
   const handled = useRef(useCanvasRequests.getState().tidy?.seq ?? 0)
   useEffect(() => {

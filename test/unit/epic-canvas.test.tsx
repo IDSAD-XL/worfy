@@ -12,6 +12,7 @@ import blockingEdges from '../../src/renderer/canvas/edges/blocking'
 import { setElkEngine, useElkAnswers } from '../../src/renderer/canvas/elk/client'
 import { layoutEpicElk, type ElkEngine } from '../../src/renderer/canvas/elk/layout'
 import { collectEdgeTypes, dropNodes, edgeTypes } from '../../src/renderer/canvas/extensions'
+import { toFlowNodes } from '../../src/renderer/canvas/flow-nodes'
 import EpicFrameNode from '../../src/renderer/canvas/nodes/EpicFrameNode'
 import TicketNode from '../../src/renderer/canvas/nodes/TicketNode'
 import type { CanvasFlowNode, CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
@@ -173,6 +174,21 @@ describe('the Epic node source', () => {
     for (const n of nodes) expect(n.deletable).toBe(false)
     expect(nodes[1]!.parentId).toBe(epicNodeId('a'))
     expect((nodes[2]!.data.node.data as TicketNodeData).waitingOn).toEqual([1])
+    // The names Tab focus reads on the React Flow wrappers (Canvas.tsx keeps a source's own name).
+    expect(nodes.map((n) => n.ariaLabel)).toEqual(['Epic a', 'Ticket a/01', 'Ticket a/02', 'Epic b', 'Ticket b/01'])
+  })
+
+  it('gives the React Flow wrappers of its frames and Tickets their own names, not the kind word', () => {
+    const nodes = buildEpicNodes(freshProject(), '/repo', model([ticket('a', 1), ticket('b', 1)]), layoutWith(), {})
+    const drawn = toFlowNodes([], nodes, [])
+    expect(drawn.map((n) => [n.id, n.ariaLabel])).toEqual([
+      [epicNodeId('a'), 'Epic a'],
+      [ticketNodeId('a', 1), 'Ticket a/01'],
+      [epicNodeId('b'), 'Epic b'],
+      [ticketNodeId('b', 1), 'Ticket b/01'],
+    ])
+    // A Node drawn again keeps its name: the one React Flow already has, when nothing changed.
+    expect(toFlowNodes([], nodes, drawn)).toEqual(drawn)
   })
 
   it('keeps the objects of an Epic that did not change and returns the same array when nothing changed', () => {

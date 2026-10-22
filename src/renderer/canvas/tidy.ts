@@ -11,11 +11,10 @@
 // tree's own place is clear of every neighbour, so it does not move off them.
 //
 // How: the rectangles go in reading order of their places now (top to bottom, then left to
-// right), TIDY_GAP apart, from the top-left corner of the rectangle around them now. Sizes do not
+// right; tidy-items.ts), TIDY_GAP apart, from the top-left corner of the rectangle around them now. Sizes do not
 // change; the corners go on the GRID. A second "Tidy up" right after the first finds every Node
 // in place and sends nothing; so does a Canvas with fewer than two such Nodes.
 import { useCallback, useEffect, useMemo, useRef } from 'react'
-import { onThePlane } from '../../shared/layout/derived'
 import type { Layout, LayoutNode, LayoutOpInput } from '../../shared/layout/types'
 import type { SubagentInfo } from '../../shared/transcript/subagents'
 import { useSubagentTrees } from '../claude-home/subagents'
@@ -24,43 +23,14 @@ import type { ElkEngine } from './elk/layout'
 import { packRects } from './elk/pack'
 import type { Rect } from './epic-layout'
 import { doneExpanded, placeSubagents, sessionParents, treeBlock } from './sources/subagents'
+import { TIDY_GAP, tidyItems } from './tidy-items'
 import { currentLayout, useLayout, useLayoutOps } from './useLayout'
 
-/** Room between two tidied rectangles: three steps of the 8 px grid, more than the 16 px gap of ADR-0038. */
-export const TIDY_GAP = 24
 /** The grid the tidied corners go on. */
 export const TIDY_GRID = 8
 
-/** One rectangle of the packing: a Node, with its Subagent tree when it has one. */
-export interface TidyItem {
-  /** The Layout Node that moves. */
-  id: string
-  /** The rectangle around the Node and its tree, on the plane. */
-  rect: Rect
-  /** Where the Node's corner is inside `rect`. */
-  dx: number
-  dy: number
-}
-
 const onGrid = (value: number): number => Math.round(value / TIDY_GRID) * TIDY_GRID
 const upToGrid = (value: number): number => Math.ceil(value / TIDY_GRID) * TIDY_GRID
-
-/**
- * The rectangles "Tidy up" packs, in reading order of their places now: one per Layout Node on the
- * plane, the Subagent tree's block (relative to its Session's Node, as `treeBlock` gives it) inside
- * its Session's rectangle.
- */
-export function tidyItems(nodes: readonly LayoutNode[], trees: ReadonlyMap<string, Rect> = new Map()): TidyItem[] {
-  const items = nodes.filter(onThePlane).map((node): TidyItem => {
-    const tree = trees.get(node.id)
-    if (tree === undefined || tree.w <= 0 || tree.h <= 0) return { id: node.id, rect: { x: node.x, y: node.y, w: node.w, h: node.h }, dx: 0, dy: 0 }
-    const left = Math.min(0, tree.x)
-    const top = Math.min(0, tree.y)
-    const rect = { x: node.x + left, y: node.y + top, w: Math.max(node.w, tree.x + tree.w) - left, h: Math.max(node.h, tree.y + tree.h) - top }
-    return { id: node.id, rect, dx: -left, dy: -top }
-  })
-  return items.sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-}
 
 /**
  * The operation "Tidy up" sends for these Nodes: one `moveMany` with the new place of every Node on
@@ -145,12 +115,15 @@ export async function runTidyUp(
   }
 }
 
+/** The block of each Session's Subagent tree, by its Node id, for the Layout given: what a layout command reads when it runs. */
+export type TreeBlocks = (layout: Layout) => ReadonlyMap<string, Rect>
+
 /**
- * "Tidy up" for the Canvas of `projectId`: the command the Canvas menu and the palette's request
- * call. The new places go through the Canvas's LayoutOps, so the whole layout is one step of ⌘Z.
+ * The Subagent trees of the Project's Sessions for the layout commands ("Tidy up", "Arrange by
+ * Epic"): one subscription to the trees, read as they are when the command runs (naturalTreeBlocks).
+ * The function stays the same while the Project does.
  */
-export function useTidyUp(projectId: string, root: string | undefined): () => Promise<void> {
-  const ops = useLayoutOps()
+export function useTreeBlocks(projectId: string, root: string | undefined): TreeBlocks {
   const layout = useLayout(projectId).state?.layout
   const sessionIds = useMemo(() => (layout ? sessionParents(layout).map((node) => node.data.sessionId as string) : []), [layout])
   const trees = useSubagentTrees(root, sessionIds)
@@ -158,12 +131,17 @@ export function useTidyUp(projectId: string, root: string | undefined): () => Pr
   useEffect(() => {
     treesNow.current = trees
   }, [trees])
+  return useCallback((now: Layout) => naturalTreeBlocks(projectId, now, treesNow.current), [projectId])
+}
 
+/**
+ * "Tidy up" for the Canvas of `projectId`: the command the Canvas menu and the palette's request
+ * call, with the Subagent trees of useTreeBlocks. The new places go through the Canvas's LayoutOps,
+ * so the whole layout is one step of ⌘Z.
+ */
+export function useTidyUp(projectId: string, trees: TreeBlocks): () => Promise<void> {
+  const ops = useLayoutOps()
   return useCallback(async () => {
-    await runTidyUp(
-      projectId,
-      (now) => naturalTreeBlocks(projectId, now, treesNow.current),
-      (op) => ops.apply(op),
-    )
-  }, [projectId, ops])
+    await runTidyUp(projectId, trees, (op) => ops.apply(op))
+  }, [projectId, trees, ops])
 }
