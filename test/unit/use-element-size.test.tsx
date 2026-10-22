@@ -36,15 +36,19 @@ function Measured({ onSize }: { onSize: (size: { width: number; height: number }
 }
 
 let hadObserver = false
+let original: unknown
 beforeEach(() => {
   const globals = globalThis as { ResizeObserver?: unknown }
   hadObserver = 'ResizeObserver' in globals
+  original = globals.ResizeObserver
   globals.ResizeObserver = StandInObserver
   observers.length = 0
 })
 afterEach(() => {
   cleanup()
-  if (!hadObserver) delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver
+  const globals = globalThis as { ResizeObserver?: unknown }
+  if (hadObserver) globals.ResizeObserver = original
+  else delete globals.ResizeObserver
 })
 
 describe('useElementSize', () => {

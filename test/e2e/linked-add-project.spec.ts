@@ -192,6 +192,10 @@ test.afterEach(async () => {
     // A test stopped by its timeout may not have reached launchPair's finally, and a folder under a
     // deny entry fails rm with EPERM: put back the inherited ACL of the whole scratch folder first.
     if (process.platform === 'win32') icacls(scratch, '/reset', '/t', '/c', '/q')
+  } catch (error) {
+    // With /c icacls goes on past a file it cannot reset (one an Electron child still holds) but
+    // still exits non-zero: a cleanup step, so a warning, not a red test.
+    console.warn(`icacls /reset of ${scratch} failed:`, error)
   } finally {
     await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
