@@ -20,7 +20,7 @@ import { useFocusState } from '../../focus/focus-state'
 import { buildPreset, type TileTree } from '../../focus/split-tree'
 import { useNavigation } from '../../session/navigation'
 import { ariaKeys, isTextTarget, label, matches } from '../../shortcuts/match'
-import { FOCUS_ENTRY_OFFSET, usePlaneToolbar } from '../pinning'
+import { FOCUS_ENTRY_OFFSET, useFocusEntryMeasure, usePlaneToolbar } from '../pinning'
 import { onEpicFocusRequest } from '../sources/epics'
 import '../../focus/focus.css'
 
@@ -109,13 +109,15 @@ export default function FocusEntry() {
   // (clearToolbarPlacement() in pinning.ts).
   // Among the Nodes, not over all of them: a pinned Node stays above it (pinning.ts).
   const style = usePlaneToolbar(selected, 'bottom', FOCUS_ENTRY_OFFSET)
+  // The selection toolbar keeps off the size measured here, not a fixed one (useFocusEntrySize).
+  const measure = useFocusEntryMeasure()
 
   if (tree !== null) return <FocusMode tree={tree} onChange={setTree} onExit={leave} />
   if (selected.length === 0 || style === null) return null
   return (
     <ViewportPortal>
       <div style={style} className="react-flow__node-toolbar">
-        <button type="button" className="w-focus-entry nodrag" onClick={enter} aria-keyshortcuts={ariaKeys(SHORTCUTS.focusEnter)}>
+        <button ref={measure} type="button" className="w-focus-entry nodrag" onClick={enter} aria-keyshortcuts={ariaKeys(SHORTCUTS.focusEnter)}>
           Focus <kbd>{label(SHORTCUTS.focusEnter)}</kbd>
         </button>
       </div>

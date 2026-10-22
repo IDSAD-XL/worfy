@@ -38,9 +38,9 @@ import {
   clearToolbarPlacement,
   epicHeaderBand,
   FOCUS_ENTRY_OFFSET,
-  FOCUS_ENTRY_SIZE,
   pinOp,
   unpinOp,
+  useFocusEntrySize,
   usePlaneToolbar,
   type PlaceToolbar,
   type PlaneRect,
@@ -299,11 +299,11 @@ const SELECTION_SECTIONS: readonly ComponentType<SelectionSectionProps>[] = [Pin
 /** Screen pixels between the selection and the toolbar above it or beside it. */
 const TOP_OFFSET = 12
 /**
- * Screen pixels between the selection and the toolbar below it: the Focus button stands 12 px
- * below the selection and is --row-height (28 px) tall, then a gap of --space-2 (8 px).
+ * Screen pixels between the selection and its toolbar on top, beside it and below it. Below, the
+ * Focus button stands 12 px under the selection and is `focus.height` tall (--row-height, 28 px, as
+ * measured), then a gap of --space-2 (8 px).
  */
-const BOTTOM_OFFSET = FOCUS_ENTRY_OFFSET + FOCUS_ENTRY_SIZE.height + 8
-const OFFSETS: ToolbarOffsets = { top: TOP_OFFSET, side: TOP_OFFSET, bottom: BOTTOM_OFFSET }
+const offsetsFor = (focus: ToolbarSize): ToolbarOffsets => ({ top: TOP_OFFSET, side: TOP_OFFSET, bottom: FOCUS_ENTRY_OFFSET + focus.height + 8 })
 /** The toolbar's size until it is measured: Pin, Add tag and Delete in a row. */
 const DEFAULT_SIZE: ToolbarSize = { width: 200, height: 34 }
 
@@ -362,12 +362,15 @@ export default function SelectionToolbar() {
   const selected = useNodes<CanvasFlowNode>().filter((node) => node.selected && !node.hidden)
   useCanvasKeys(projectId)
   const zonesKey = useStore(keepOutKey)
+  // The Focus button as FocusEntry.tsx measured it: its label and font differ by platform. The
+  // toolbar shows the width it keeps off as data-focus-entry-width (test/e2e/selection-toolbar-frame.spec.ts).
+  const focusSize = useFocusEntrySize()
   const keepOut = useMemo<ToolbarKeepOut>(() => {
     const zones = zonesKey === '' ? { bands: [], nodes: [] } : (JSON.parse(zonesKey) as Omit<ToolbarKeepOut, 'focus'>)
-    return { ...zones, focus: { size: FOCUS_ENTRY_SIZE, offset: FOCUS_ENTRY_OFFSET } }
-  }, [zonesKey])
+    return { ...zones, focus: { size: focusSize, offset: FOCUS_ENTRY_OFFSET } }
+  }, [zonesKey, focusSize])
   const [size, measure] = useToolbarSize()
-  const place = useCallback<PlaceToolbar>((nodes, zoom) => clearToolbarPlacement(nodes, keepOut, zoom, size, OFFSETS), [keepOut, size])
+  const place = useCallback<PlaceToolbar>((nodes, zoom) => clearToolbarPlacement(nodes, keepOut, zoom, size, offsetsFor(focusSize)), [keepOut, size, focusSize])
   // Among the Nodes, not over all of them: a pinned Node stays above another Node's toolbar (pinning.ts).
   const style = usePlaneToolbar(
     selected.map((node) => node.id),
@@ -379,7 +382,7 @@ export default function SelectionToolbar() {
   return (
     <ViewportPortal>
       <div style={style} className="react-flow__node-toolbar">
-        <div ref={measure} className="w-selection-toolbar nodrag nopan nowheel" role="toolbar" aria-label="Selection" data-testid="selection-toolbar">
+        <div ref={measure} className="w-selection-toolbar nodrag nopan nowheel" role="toolbar" aria-label="Selection" data-testid="selection-toolbar" data-focus-entry-width={keepOut.focus?.size.width}>
           {SELECTION_SECTIONS.map((Section, index) => (
             <Section key={Section.displayName ?? Section.name ?? index} nodes={nodes} />
           ))}
