@@ -497,4 +497,64 @@ describe('LiveBrowsers and the Session\'s calls under the limit', () => {
     expect(liveOf(['b1', 'b2', 'b3'])).toEqual([true, false, true])
     expect(live.lives(PROJECT).filter((each) => each.overLimit).map((each) => each.nodeId)).toHaveLength(1)
   })
+
+  /** b3 sleeps off screen, keeping a picture: one place is free, b4 is still Asleep without a picture. */
+  async function freeOnePlace(): Promise<void> {
+    await live.screen(1, { projectId: PROJECT, visible: ['b1', 'b2'], zoom: 1 })
+    clock += 31_000
+    await live.check()
+    expect(liveOf(['b1', 'b2', 'b3', 'b4'])).toEqual([true, true, false, false])
+    expect(lifeOf('b3')?.picture).not.toBeNull()
+    expect(lifeOf('b4')?.picture).toBeNull()
+  }
+
+  it('an Asleep Browser without a picture wakes by itself once a screen shows it at a readable zoom and a place is free; not at a far zoom', async () => {
+    await freeOnePlace()
+    await live.screen(1, { projectId: PROJECT, visible: ['b1', 'b2', 'b4'], zoom: 0.2 })
+    expect(lifeOf('b4')?.live).toBe(false)
+    await live.screen(1, { projectId: PROJECT, visible: ['b1', 'b2', 'b4'], zoom: 1 })
+    expect(lifeOf('b4')?.live).toBe(true)
+    await vi.waitFor(() => expect(pages.get('b4')).toBeDefined())
+  })
+
+  it('an Asleep Browser with a picture stays Asleep when a screen shows it, though a place is free: a move of the Canvas reloads no page', async () => {
+    await freeOnePlace()
+    await live.screen(1, { projectId: PROJECT, visible: ['b1', 'b2', 'b3'], zoom: 1 })
+    await live.screen(1, { projectId: PROJECT, visible: ['b2', 'b3'], zoom: 0.8 })
+    expect(lifeOf('b3')).toMatchObject({ live: false })
+    expect(lifeOf('b3')?.picture).not.toBeNull()
+  })
+
+  it('the user\'s Browser opened over the limit evicts no Live page that could not be asked (its DevTools open)', async () => {
+    pages.get('b1')!.devtools = true
+    pages.get('b2')!.unsaved = true
+    pages.get('b3')!.unsaved = true
+    expect(await live.wake(PROJECT, 'b4', 'user')).toEqual({ overLimit: true })
+    expect(liveOf(['b1', 'b2', 'b3', 'b4'])).toEqual([true, true, true, true])
+    // The page of b1 is not closed, and its frame does not claim unsaved changes.
+    await Promise.resolve()
+    expect(pages.get('b1')!.destroyed).toBe(false)
+    expect(lifeOf('b1')?.unsaved).toBe(false)
+  })
+
+  it('a Project no window shows keeps its records while one of its Browsers is Live', async () => {
+    otherProjects.set('other-0a1b2c3d', [])
+    // b1 stays Live by its beforeunload handler: no Session's call runs on any Browser of the Project.
+    pages.get('b1')!.unsaved = true
+    await live.screen(1, { projectId: 'other-0a1b2c3d', visible: [], zoom: 1 })
+    clock += 31_000
+    await live.check()
+    expect(liveOf(['b1', 'b2', 'b3', 'b4'])).toEqual([true, false, false, false])
+    expect(live.lives(PROJECT)).toHaveLength(4)
+  })
+
+  it('a refused call leaves no record of its Browser behind: browser_open with every Live Browser busy', async () => {
+    allBusy()
+    const answer = await call('browser_open', { profile: 'admin-aaaaaa' })
+    expect(textOf(answer)).toContain(ALL_LIVE_BUSY)
+    expect(textOf(answer)).toContain('could not be asked')
+    // The calls of main are private: read them for this one check.
+    const calls = (live as unknown as { calls: Map<string, unknown> }).calls
+    expect([...calls.keys()].map((key) => key.split('\n')[1])).toEqual(['b3'])
+  })
 })

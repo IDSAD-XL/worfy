@@ -223,3 +223,24 @@ Browser (Live, Asleep) — `CONTEXT.md`. Код перечитан по main `dd
 **Вне следа (раунд 1):** `src/main/index.ts` (`stopLiveBrowsers` на `will-quit`),
 `test/contract/browser-tools.test.ts` (окно сообщает экран Project-а, как слой Browser-ов),
 `test/unit/browser-node-life.test.tsx` (новый).
+
+**Раунд правок 2** (дельта-ревью: дефектов кода нет, закрыты пробелы тестов):
+
+- Новые тесты в `test/unit/browser-sleep.test.ts`:
+  - Asleep Browser без снимка просыпается сам на читаемом zoom, если есть место. На дальнем zoom не просыпается.
+  - Asleep Browser со снимком остаётся Asleep, даже если место есть. Движение Canvas не перезагружает страницу.
+  - Пользователь открывает Browser сверх предела. Страница, которую нельзя спросить (открыт DevTools), не вытесняется.
+  - Записи Project-а без окна остаются, пока хоть один его Browser Live.
+  - Отказанный вызов не оставляет записи о вызовах.
+- Текст ALL_LIVE_BUSY теперь называет и страницы, которые не ответили: «…or has a page that could not be asked (its DevTools may be open)».
+- `sessionReleases` удаляет запись о вызовах Browser-а, у которого нет жизни. Отказанный `browser_open` не оставляет её навсегда.
+
+Мутанты раунда 2: каждый дал exit 1 на `test/unit/browser-sleep.test.ts`, по одному красному тесту. Файлы восстановлены из копии, `cmp` совпал.
+
+- Блок самостоятельного пробуждения убран.
+- Будится и Browser со снимком.
+- Условие zoom убрано.
+- `unasked` не считается занятым при вытеснении.
+- Записи удаляются и при Live Browser-е.
+- Старый текст ALL_LIVE_BUSY.
+- Запись о вызовах остаётся.

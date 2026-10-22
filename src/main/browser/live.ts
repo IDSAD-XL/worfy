@@ -452,10 +452,12 @@ export class LiveBrowsers {
     this.calls.set(key, { running: (this.calls.get(key)?.running ?? 0) + 1, lastCallAt: this.now() })
   }
 
-  /** The call of a Session on Browser `nodeId` ended. */
+  /** The call of a Session on Browser `nodeId` ended. A refused call leaves nothing of it: a Browser it never woke has no life. */
   sessionReleases(projectId: string, nodeId: string): void {
     const key = keyOf(projectId, nodeId)
-    this.calls.set(key, { running: Math.max(0, (this.calls.get(key)?.running ?? 0) - 1), lastCallAt: this.now() })
+    const running = Math.max(0, (this.calls.get(key)?.running ?? 0) - 1)
+    if (running === 0 && !this.lifes.has(key)) this.calls.delete(key)
+    else this.calls.set(key, { running, lastCallAt: this.now() })
   }
 
   /**
@@ -484,7 +486,7 @@ export class LiveBrowsers {
     const rules = [...this.lifes].map(([each, state]) => this.asRule(each, state))
     const admission = admit(rules, key, by, now, settings)
     if (admission.kind === 'busy') {
-      throw new ControlError(`${ALL_LIVE_BUSY}: each of the ${settings.maxLive} Live Browsers is driven by a Session or has unsaved changes. Call again in a minute, or ask the user to close one.`)
+      throw new ControlError(`${ALL_LIVE_BUSY}: each of the ${settings.maxLive} Live Browsers is driven by a Session, has unsaved changes, or has a page that could not be asked (its DevTools may be open). Call again in a minute, or ask the user to close one.`)
     }
     for (const evicted of admission.evict) {
       const each = this.lifes.get(evicted)
