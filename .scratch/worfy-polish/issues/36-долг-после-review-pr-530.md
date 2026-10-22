@@ -98,6 +98,22 @@ mode), круг 1: линза «корректность» и линза «те�
   - `test/e2e/launch-env.ts:119-125` — `DIRECT_START_PROFILE` — одна папка на все запуски без Playwright, и её
     никто не удаляет. `afterAll` в `test/contract/terminal-profile-isolation.test.ts:27` может удалить её, пока
     другой запуск ещё ею пользуется. Когда запуск без Playwright откроет Terminal — дать каждому запуску свою папку.
+- [ ] **Ревью #732 (worfy-windows 87), low.** Строки — по main `206b8aea`.
+  - `test/contract/linked-shared-subscriptions.test.ts:30` — папка test-а берётся из `os.tmpdir()` как есть. Сведение
+    разных написаний корня к одному проверяется только на runner-ах, где у `%TEMP%` есть короткое имя 8.3. На win32
+    писать папку test-а в другом регистре, чтобы эту проверку проходила каждая машина Windows.
+- [ ] **Ревью PR #733 (worfy-browser 04), четыре low.** PR #733 ещё не влит; строки — по head PR `9743baa8`.
+  - `src/main/ipc/browser.ts:50-56` — handler `browser.page.live` не проверяет, что partition гостевой страницы
+    совпадает с профилем Browser-а `nodeId`.
+  - Литерал вида Node `'browser'` записан трижды: `src/main/mcp/browser-server.ts:46` (новый файл PR #733),
+    `src/renderer/canvas/nodes/browser-frame.ts:9`, `src/renderer/canvas/nodes/BrowserNode.tsx:41`. Размер 640×440
+    тоже дважды: `src/shared/browser/tools.ts:16` (новый файл PR #733) и `BrowserNode.tsx:42-43`. Перенести оба
+    в `src/shared/browser`.
+  - `src/main/browser/cdp.ts:178-181` (новый файл PR #733) — после detach debugger-а состояние CDP сбрасывается не
+    полностью: handler обнуляет только `attaching` и `mainFrame`, а `requests` и журналы остаются. Test-а на detach
+    нет — мутант M5 выжил.
+  - Session может вести любой Browser своего Project-а, чей бы `openedBy` у него ни был. Решить в
+    [worfy-browser Ticket 06](../../worfy-browser/issues/06-browser-и-жизнь-session.md).
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
