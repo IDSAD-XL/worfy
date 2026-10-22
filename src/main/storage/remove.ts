@@ -328,7 +328,8 @@ function mountedIn(path: string, fs: RemoveFs, outer?: number, folder?: string):
     // does not read back — a name that is not UTF-8, on Linux, answers ENOENT at every look. The
     // folder is listed once more; while it still names the entry, what that holds cannot be seen.
     if (folder !== undefined && listedIn(folder, path.slice(folder.length + 1), fs)) {
-      throw Object.assign(new Error(`${(error as Error).message}: the folder it lies in still lists it, so what it holds cannot be looked at`), { code: codeOf(error), path })
+      const { message, code, errno, syscall } = error as NodeJS.ErrnoException
+      throw Object.assign(new Error(`${message}: the folder it lies in still lists it, so what it holds cannot be looked at`), { code, errno, syscall, path })
     }
     return null
   }

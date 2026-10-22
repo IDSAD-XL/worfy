@@ -106,7 +106,9 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // Removes a file, a link, or a folder with everything in it; a path that is not there is not an
-// error. A link is removed as a link: what it leads to is not entered. On Windows fs.rmSync is not
+// error. A link is removed as a link: what it leads to is not entered — but off Windows a link
+// written with a separator at its end, "link/", is the folder it leads to, which is emptied and
+// removed, and the link stays (measured on macOS, the review of PR #293). On Windows fs.rmSync is not
 // used: under the Node of Electron 44 its "recursive" goes through a junction and empties the
 // folder behind it, and it refuses a read-only file. A junction whose target is written with the
 // GUID of a volume is a folder to lstat (worfy-windows ticket 35): a folder is first asked to go
@@ -118,7 +120,11 @@ import { fileURLToPath } from 'node:url'
 // used, and it goes into a folder a volume is mounted on (worfy-windows ticket 44; measured on
 // macOS: the files of the volume were removed). So a folder is looked through first, and with a
 // folder on another volume than the folder it lies in the removal ends with the code EXDEV and
-// nothing removed. A copy of removeTree of src/main/storage/remove.ts, since this script imports
+// nothing removed. A part of the tree that cannot be looked at ends it the same way, with the error
+// of the look, which keeps its code, errno, syscall and path and says that nothing was removed; so
+// does an entry a listing names and lstat does not see, when a second listing still names it (on
+// Linux a name that is not valid UTF-8; worfy-windows ticket 47). A copy of removeTree of
+// src/main/storage/remove.ts, since this script imports
 // nothing of worfy; test/unit/remove-tree-copies.test.ts runs both over the same trees.
 // <remove-tree>
 function removeTree(given) {
@@ -153,7 +159,7 @@ function removeMounted(path, outer, folder) {
       if (!gone(again)) throw again
       listed = false
     }
-    if (listed) throw Object.assign(new Error(error.message + ': the folder it lies in still lists it, so what it holds cannot be looked at'), { code: error.code, path })
+    if (listed) throw Object.assign(new Error(error.message + ': the folder it lies in still lists it, so what it holds cannot be looked at'), { code: error.code, errno: error.errno, syscall: error.syscall, path })
     return null
   }
   if (!seen.isDirectory()) return null

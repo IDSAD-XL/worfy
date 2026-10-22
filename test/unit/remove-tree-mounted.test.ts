@@ -9,8 +9,8 @@
 // and linux: no test mounts a volume. The model's mount point answers as the real one did.
 import { constants } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import { REMOVE_RETRIES } from '../../src/main/storage/remove'
-import { BEHIND_A_LINK_TO_ANOTHER_VOLUME, CARD_HOLDS_A_VOLUME, COPIES, endViaCopy, endViaModule, model, removedMeanwhile, rmSyncOver, WITH_A_LINK, type End, type Entry, type Meanwhile, type Model } from './remove-tree-model'
+import { REMOVE_RETRIES, removeTree } from '../../src/main/storage/remove'
+import { BEHIND_A_LINK_TO_ANOTHER_VOLUME, builtCopy, CARD_HOLDS_A_VOLUME, COPIES, endViaCopy, endViaModule, model, removedMeanwhile, rmSyncOver, WITH_A_LINK, type End, type Entry, type Meanwhile, type Model } from './remove-tree-model'
 
 /**
  * A folder with a mount point in it, and a link beside which that folder does not lie: the path
@@ -296,6 +296,36 @@ describe.each(['darwin', 'linux'] as const)('removeTree on %s and a volume mount
     expect(m.calls).toEqual(['lstat /t', 'lstat /t/..', 'readdir /t', 'lstat /t/first.txt', `lstat /t/${name}`, 'readdir /t'])
     expect(removals(m)).toEqual([])
     expect(m.names()).toEqual(Object.keys(tree).sort())
+  })
+
+  // Review of PR #727: the refusal of a name still listed kept `code` and `path` of the error of
+  // lstat, and lost its `errno` and `syscall`, which every other error of the look keeps. Here
+  // lstat throws as Node does, with all four.
+  it('the refusal of a name still listed keeps the errno and the syscall of the lstat that did not see it: the module and each copy', () => {
+    const hidden = '/data/card/assets'
+    const removers: [string, (m: Model) => void][] = [
+      ['the module', (m) => removeTree('/data/card', { fs: m.fs, platform, wait: m.wait })],
+      ...Object.entries(COPIES).map(([who, text]): [string, (m: Model) => void] => [who, (m) => builtCopy(text, m, platform)('/data/card')]),
+    ]
+    for (const [who, remove] of removers) {
+      const m = model(CARD_HOLDS_A_VOLUME)
+      const lstat = m.fs.lstatSync
+      m.fs.lstatSync = (path) => {
+        if (path !== hidden) return lstat(path)
+        m.calls.push(`lstat ${path}`)
+        throw Object.assign(new Error(`ENOENT: no such file or directory, lstat '${path}'`), { code: 'ENOENT', errno: -2, syscall: 'lstat', path })
+      }
+      let thrown: NodeJS.ErrnoException | null = null
+      try {
+        remove(m)
+      } catch (error) {
+        thrown = error as NodeJS.ErrnoException
+      }
+      expect({ code: thrown?.code, errno: thrown?.errno, syscall: thrown?.syscall, path: thrown?.path }, who).toEqual({ code: 'ENOENT', errno: -2, syscall: 'lstat', path: hidden })
+      expect(thrown?.message, who).toBe(`ENOENT: no such file or directory, lstat '${hidden}': the folder it lies in still lists it, so what it holds cannot be looked at. Nothing of /data/card was removed`)
+      expect(removals(m), who).toEqual([])
+      expect(m.names(), who).toEqual(UNTOUCHED)
+    }
   })
 
   it('the second listing of the folder fails: the removal ends with its error, and nothing is removed', () => {

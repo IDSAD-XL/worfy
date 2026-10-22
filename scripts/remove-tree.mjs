@@ -12,8 +12,15 @@
 // only its `dev` differs from that of the folder it lies in. So off Windows the tree is looked
 // through before rmSync is called, and with a folder on another volume in it the removal ends
 // with the code EXDEV and nothing removed. A part of the tree that cannot be looked at ends it
-// the same way, with the error of the look. A mount point with the `dev` of its folder (a bind
-// mount on Linux) is not seen.
+// the same way, with the error of the look: it keeps its code, errno, syscall and path, and its
+// words say that nothing was removed. So does an entry a listing names and lstat does not see,
+// when a second listing still names it — on Linux a name that is not valid UTF-8 answers so at
+// every lstat (worfy-windows ticket 47); gone from the second listing, it was gone meanwhile. A
+// mount point with the `dev` of its folder (a bind mount on Linux) is not seen.
+//
+// Off Windows the path is given to rmSync as it is written, so a link given with a separator at
+// its end, `link/`, is the folder it leads to: that folder is emptied and removed, and the link
+// stays (measured on macOS, the review of PR #293). Only Windows cuts the separator.
 //
 // One junction is a folder to lstat: the one whose target is written with the GUID of a volume
 // (worfy-windows ticket 35; the walk as it was listed it and removed the files of that volume).
@@ -34,9 +41,12 @@ import process from 'node:process'
 
 /**
  * Removes a file, a link, or a folder with everything in it; a path that is not there is not an
- * error. A link is removed as a link: what it leads to is neither entered nor touched. Off Windows,
- * a folder with a volume mounted in it is not removed: the error has the code EXDEV and the mount
- * point as its `path`.
+ * error. A link is removed as a link: what it leads to is neither entered nor touched — but off
+ * Windows `link/`, a link written with a separator at its end, is the folder it leads to, which is
+ * emptied and removed. Off Windows, a folder with a volume mounted in it is not removed: the error
+ * has the code EXDEV and the mount point as its `path`; a part of the tree that cannot be looked
+ * at, or a name still listed that lstat does not see, ends the removal with the error of the look
+ * and nothing removed.
  */
 // <remove-tree>
 export function removeTree(given) {
@@ -71,7 +81,7 @@ function removeMounted(path, outer, folder) {
       if (!gone(again)) throw again
       listed = false
     }
-    if (listed) throw Object.assign(new Error(error.message + ': the folder it lies in still lists it, so what it holds cannot be looked at'), { code: error.code, path })
+    if (listed) throw Object.assign(new Error(error.message + ': the folder it lies in still lists it, so what it holds cannot be looked at'), { code: error.code, errno: error.errno, syscall: error.syscall, path })
     return null
   }
   if (!seen.isDirectory()) return null

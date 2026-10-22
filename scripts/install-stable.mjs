@@ -458,7 +458,13 @@ export function removeInRounds(path, remove, wait = pause) {
  * Off Windows the folder goes with rmSync, which never went through a link there. It does go into
  * a folder a volume is mounted on (worfy-windows ticket 44; measured on macOS: the files of the
  * volume were removed). So the folder is looked through first, and with a folder on another
- * volume than the folder it lies in the removal ends with the code EXDEV and nothing removed.
+ * volume than the folder it lies in the removal ends with the code EXDEV and nothing removed. A
+ * part of the tree that cannot be looked at ends it the same way, with the error of the look,
+ * which keeps its code, errno, syscall and path and says that nothing was removed; so does an
+ * entry a listing names and lstat does not see, when a second listing still names it (on Linux a
+ * name that is not valid UTF-8; worfy-windows ticket 47). A link given with a separator at its
+ * end, `link/`, is the folder it leads to off Windows: that folder is emptied and removed, and the
+ * link stays. The copy is given only the paths this script builds, with no such separator.
  */
 // A copy of removeTree of src/main/storage/remove.ts (worfy-windows ticket 23): this script is one
 // file with no import of its own. test/unit/remove-tree-copies.test.ts runs the copies and the module
@@ -496,7 +502,7 @@ function removeMounted(path, outer, folder) {
       if (!gone(again)) throw again
       listed = false
     }
-    if (listed) throw Object.assign(new Error(error.message + ': the folder it lies in still lists it, so what it holds cannot be looked at'), { code: error.code, path })
+    if (listed) throw Object.assign(new Error(error.message + ': the folder it lies in still lists it, so what it holds cannot be looked at'), { code: error.code, errno: error.errno, syscall: error.syscall, path })
     return null
   }
   if (!seen.isDirectory()) return null
