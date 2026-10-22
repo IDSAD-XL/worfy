@@ -1,39 +1,60 @@
 name: Windows tests
 
-# Runs a given list of unit and contract test files on a clean Windows machine, by hand only.
+# Runs unit and contract tests on a clean Windows machine, by hand only, in one of two modes:
+# - `files` (the default): a given list of 1 to 12 test files, job "listed-tests";
+# - `full`: the whole `pnpm test` (unit and contract, no e2e), job "full-suite".
 #
 # Why a workflow of its own and not a job in ci.yml: "Run workflow" on CI starts the full macOS
-# job, at six times the price of a Windows minute. A separate file has one trigger and one job, so
-# starting it can never start macOS, and ci.yml stays as it is.
+# job, at six times the price of a Windows minute. A separate file has one trigger, so starting it
+# can never start macOS, and ci.yml stays as it is.
 #
 # The limits, all inside this file and scripts/windows-test-list.mjs. A Windows runner minute costs
-# $0.010, so one run costs $0.10 at most:
+# $0.010:
 # - it starts only from "Run workflow" (workflow_dispatch): never on a push, a pull request or a timer;
-# - the input is an explicit list of 1 to 12 test files; an empty list is refused;
-# - every element is an existing *.test.ts or *.test.tsx file under test/unit/ or test/contract/;
-#   a name with "e2e", "packaged" or "acceptance", a pattern, a folder and an option are refused;
-# - the job runs `node scripts/vitest-electron.mjs <files>` and never `pnpm test`: the whole suite
-#   is red on Windows (about 700 failing tests on 2026-10-12) and must not reach the runner;
-# - one job, no matrix, stopped after 10 minutes.
+# - one dispatch runs exactly one job: "mode" is a choice of `files` and `full`, and each job runs
+#   only under its own value; two jobs, no matrix;
+# - mode files, $0.10 at most: the input "files" is an explicit list of 1 to 12 test files, and an
+#   empty list is refused; every element is an existing *.test.ts or *.test.tsx file under
+#   test/unit/ or test/contract/; a name with "e2e", "packaged" or "acceptance", a pattern, a folder
+#   and an option are refused; the job runs `node scripts/vitest-electron.mjs <files>` and never
+#   `pnpm test`; stopped after 10 minutes;
+# - mode full, $0.45 at most: a list of files is refused, not ignored; the job runs `pnpm test` and
+#   nothing else of the suite (no `test:e2e`, `test:package` or acceptance); stopped after 45
+#   minutes. The length of one run is measured by the first run on main (worfy-windows ticket 66):
+#   until then 45 minutes is a temporary ceiling, not a measured one: the Harness shell tests alone
+#   take about 26 minutes on the owner's PC, and the install comes on top.
 # test/contract/windows-tests-workflow.test.ts pins each of them: loosening one turns the Linux CI red.
 #
-# The input "files": paths from the repository root with forward slashes, spelled as git lists
-# them, separated by spaces, commas or line breaks. For example:
+# The input "files" (mode files only): paths from the repository root with forward slashes, spelled
+# as git lists them, separated by spaces, commas or line breaks. For example:
 #   gh workflow run windows-tests.yml --ref <branch> \
 #     -f files="test/unit/remote-links.test.ts test/unit/shell-resolve.test.ts"
+#   gh workflow run windows-tests.yml --ref <branch> -f mode=full
 # With --ref the run takes this file, the check script and the tests from that branch.
 #
-# Who runs it: the owner, and — by the owner's permission of 2026-10-12 — the orchestrator Session
-# on the Mac, before it merges a pull request with code for Windows. This is the only exception to
-# the project rule that agents never start paid runs: no other agent starts this workflow, and no
-# agent starts the full macOS job of ci.yml. The run does not replace gate full on the owner's
-# Windows PC (ADR-0056).
+# Who runs it: the owner, and — by the owner's permission of 2026-10-12 and 2026-10-19 — the
+# orchestrator Session on the Mac: the mode files before it merges a pull request with code for
+# Windows; the mode full on the head of a platform pull request for which
+# `node scripts/windows-verdict-scope.mjs <base> <head>` prints `runner`, and on main with each
+# batch CI run of a wave (ADR-0071). This is the only exception to the project rule that agents
+# never start paid runs: no other agent starts this workflow, and no agent starts the full macOS job
+# of ci.yml. Neither mode replaces gate full on the owner's Windows PC for a pull request for which
+# the script prints `pc` — one that touches the Terminal, windows, menus and notifications, e2e or
+# packaging (ADR-0056, ADR-0071).
 on:
   workflow_dispatch:
     inputs:
-      files:
-        description: 'Test files under test/unit/ or test/contract/, separated by spaces or commas, 12 at most'
+      mode:
+        description: 'files: the listed test files; full: the whole pnpm test (unit and contract, no e2e)'
         required: true
+        type: choice
+        default: files
+        options:
+          - files
+          - full
+      files:
+        description: 'Mode files: test files under test/unit/ or test/contract/, separated by spaces or commas, 12 at most; empty in mode full'
+        required: false
         type: string
 
 permissions:
@@ -41,6 +62,7 @@ permissions:
 
 jobs:
   listed-tests:
+    if: inputs.mode == 'files'
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
@@ -91,3 +113,41 @@ jobs:
         run: |
           test -n "$TEST_FILES"
           node scripts/vitest-electron.mjs $TEST_FILES
+
+  # The whole unit and contract suite. Its result is the Windows verdict of a platform pull request
+  # for which scripts/windows-verdict-scope.mjs prints `runner` (ADR-0071).
+  full-suite:
+    if: inputs.mode == 'full'
+    # shortcut: 45 minutes is a temporary ceiling for the first run, not a measured length; set it to the measured run × 1.5, rounded up to 5 minutes, once the first run on main is measured.
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      # Before checkout: a dispatch that names files in this mode is a mistake of the caller, and
+      # it fails within seconds instead of running the whole suite in place of the list it meant.
+      # The input reaches the shell through env, as in the job of the list.
+      - name: Refuse a list of files
+        shell: bash
+        env:
+          TEST_FILES: ${{ inputs.files }}
+        run: |
+          test -z "$TEST_FILES" || { echo "::error::mode full runs the whole suite and takes no list of files; leave files empty or choose mode files"; exit 1; }
+      - uses: actions/checkout@v7
+      # pnpm from corepack, then Node with the pnpm store cache: the same three steps as in the job
+      # of the list, for the same reasons.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Install pnpm with corepack
+        shell: bash
+        run: |
+          corepack enable pnpm
+          corepack install
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # `pnpm test` is `node scripts/vitest-electron.mjs`: vitest under Electron's Node, test/unit and
+      # test/contract; vitest.config.ts leaves test/e2e and test/acceptance out.
+      - name: Run the whole unit and contract suite
+        run: pnpm test
