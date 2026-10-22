@@ -169,3 +169,57 @@ Browser (Live, Asleep) — `CONTEXT.md`. Код перечитан по main `dd
 (вопросы странице перед сном), `src/main/ipc/browser.ts` (handler-ы), `src/renderer/browser/lives.ts`
 (новый: жизни Browser-ов в окне), `src/renderer/canvas/nodes/BrowserNode.css`,
 `test/unit/browser-layer.test.tsx` (fake `browser.lives.list`: слой рисует только Live).
+
+**Раунд правок 1** (ревью correctness и tests PR #741):
+
+1. Удалённый Project (или Project Linked machine в окне) больше не ломает проверку: `browsersOf`
+   отвечает `null` для Project-а, которого на этой Machine нет, ошибка чтения ловится по Project-у и
+   пишется в log один раз, `check()` по таймеру ловит отказ. Записи такого Project-а забываются;
+   Browser-ы остальных Project-ов засыпают как прежде.
+2. Browser в двух окнах одного Project-а: main хранит все его страницы. `beforeunload` спрашивается у
+   каждой, фокус любой из них считается использованием; когда закрывается окно, которое ведёт
+   Session, ведёт страница другого окна. Shortcut «ведёт окно, сообщившее последним» остаётся до
+   тикета 07.
+3. Первый экран Project-а освобождает места через `admit`: вытесняются Live Browser-ы без страницы,
+   которых не показывает ни один экран (Browser-ы прошлого Project-а окна). То же для Asleep
+   Browser-а без снимка, видимого на читаемом zoom: он просыпается сам, если такое место есть.
+4. Вызов Session будит Browser, только пока какое-то окно показывает его Project; иначе отказ «No
+   window of worfy on this Machine shows this Project's Canvas…» до того, как что-либо уснуло.
+5. Низкие: уменьшение N в Settings действует на ближайшей проверке (`fitLimit`: лишние, кому можно,
+   засыпают, остальные помечены «Over the Live limit»); страница, которую нельзя спросить (открыт
+   DevTools), держит Browser Live без метки «Unsaved changes»; Browser без страницы при сне теряет
+   старый снимок и прокрутку; записи Project-а, которого не показывает ни одно окно и чьи Browser-ы
+   все Asleep, удаляются (его следующий экран — снова первый), так что таймер не читает его файлы;
+   `stopLiveBrowsers` на `will-quit`.
+
+**Решение без владельца (раунд 1):** Asleep Browser без снимка, видимый на читаемом zoom, просыпается
+сам, если для него есть место без закрытия страницы. Иначе после возврата к Project-у его рамки
+оставались бы пустыми — тот же дефект, что в пункте 3, только в обратную сторону.
+
+**Проверки раунда 1.** `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (8409 тестов); gate fast —
+«[gate] green (fast)»; все `browser*.spec.ts` под `/tmp/worfy-e2e.lock` — 32 passed. Мутанты
+(восстановлены из копии, `cmp` совпал): каждый — exit 1 на `test/unit/browser-sleep.test.ts` или
+`test/unit/browser-node-life.test.tsx`:
+
+| Мутант | Красных тестов |
+| --- | --- |
+| чтение Browser-ов Project-а без `catch` | 1 |
+| `beforeunload` спрашивается только у ведомой страницы | 1 |
+| фокус только ведомой страницы | 1 |
+| первый экран без освобождения мест | 1 |
+| нет отказа для Project-а без окна | 1 |
+| нет `sessionDrives` в `browserToolCaller` | 1 |
+| нет `sessionReleases` в `browserToolCaller` | 1 |
+| видимость только по последнему окну (`.slice(-1)`) | 1 |
+| порог без фокуса `idleMinutes * 1000` | 1 |
+| уменьшение N не действует | 1 |
+| страница без ответа = «Unsaved changes» | 1 |
+| страница без ответа засыпает | 1 |
+| старый снимок у Browser-а без страницы | 1 |
+| записи закрытого Project-а не удаляются | 1 |
+| метки «Over the Live limit» нет | 1 |
+| метки остаются на Asleep рамке | 1 |
+
+**Вне следа (раунд 1):** `src/main/index.ts` (`stopLiveBrowsers` на `will-quit`),
+`test/contract/browser-tools.test.ts` (окно сообщает экран Project-а, как слой Browser-ов),
+`test/unit/browser-node-life.test.tsx` (новый).

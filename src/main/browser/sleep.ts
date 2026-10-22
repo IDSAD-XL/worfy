@@ -122,3 +122,21 @@ export function admit(browsers: readonly BrowserNow[], id: string, by: Waker, no
   if (by === 'session') return { kind: 'busy' }
   return { kind: 'live', evict: free.map((browser) => browser.id), overLimit: true }
 }
+
+/**
+ * The limit was lowered (Settings → Browser): which Live Browsers go to sleep now, longest unused
+ * first among those that may, and which stay Live over the limit because no other one may sleep —
+ * the ones used last.
+ */
+export function fitLimit(browsers: readonly BrowserNow[], now: number, settings: SleepSettings): { evict: string[]; over: string[] } {
+  const live = browsers.filter((browser) => browser.live)
+  const need = live.length - settings.maxLive
+  if (need <= 0) return { evict: [], over: [] }
+  const evict = live
+    .filter((browser) => !browser.unsaved && !drivenNow(browser, now, settings))
+    .sort(longestUnused)
+    .slice(0, need)
+    .map((browser) => browser.id)
+  const left = live.filter((browser) => !evict.includes(browser.id)).sort(longestUnused)
+  return { evict, over: left.slice(left.length - (need - evict.length)).map((browser) => browser.id) }
+}

@@ -291,7 +291,7 @@ function LifeMarks({ unsaved, overLimit }: { unsaved: boolean; overLimit: boolea
         </span>
       ) : null}
       {overLimit ? (
-        <span className="w-browser-frame__mark" data-testid="browser-over-limit" role="status" title="Every other Live Browser is busy, so this one is open beyond the limit of Settings → Browser">
+        <span className="w-browser-frame__mark" data-testid="browser-over-limit" role="status" title="The other Live Browsers are busy, so this one is Live beyond the limit of Settings → Browser">
           Over the Live limit
         </span>
       ) : null}

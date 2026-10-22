@@ -12,9 +12,10 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CdpContents, CdpDebugger } from '../../src/main/browser/cdp'
 import type { LiveBrowsers } from '../../src/main/browser/live'
-import { admit, ALL_LIVE_BUSY, browsersToSleep, drivenNow, sleepReason, type BrowserNow, type ScreenNow, type SleepSettings } from '../../src/main/browser/sleep'
+import { admit, ALL_LIVE_BUSY, browsersToSleep, drivenNow, fitLimit, sleepReason, type BrowserNow, type ScreenNow, type SleepSettings } from '../../src/main/browser/sleep'
 import type { LayoutStore } from '../../src/main/layout/store'
 import type { BrowserLife } from '../../src/shared/ipc/browser'
+import { BROWSER_SLEEP_DEFAULTS } from '../../src/shared/settings/app-settings'
 import type { LayoutNode } from '../../src/shared/layout/types'
 import { removeTestTree, saveLayoutNow } from '../remove'
 
@@ -127,6 +128,19 @@ describe('admit: the limit of Live Browsers', () => {
   })
 })
 
+describe('fitLimit: a limit lowered in Settings', () => {
+  it('puts to sleep the Browsers beyond it that may sleep, longest unused first', () => {
+    const live = [browser('a', { usedAt: NOW - 1 }), browser('b', { usedAt: NOW - 3 }), browser('c', { usedAt: NOW - 2 })]
+    expect(fitLimit(live, NOW, { ...SETTINGS, maxLive: 1 })).toEqual({ evict: ['b', 'c'], over: [] })
+    expect(fitLimit(live, NOW, SETTINGS)).toEqual({ evict: [], over: [] })
+  })
+
+  it('marks over it the ones used last when the others may not sleep', () => {
+    const live = [browser('a', { usedAt: NOW - 3, unsaved: true }), browser('b', { usedAt: NOW - 1, unsaved: true }), browser('c', { usedAt: NOW - 2 })]
+    expect(fitLimit(live, NOW, { ...SETTINGS, maxLive: 1 })).toEqual({ evict: ['c'], over: ['b'] })
+  })
+})
+
 describe('LiveBrowsers and the Session\'s calls under the limit', () => {
   const PROJECT = 'sleep-0a1b2c3d'
   const SESSION = 'sess-a'
@@ -139,11 +153,17 @@ describe('LiveBrowsers and the Session\'s calls under the limit', () => {
     readonly id = FakePage.next++
     unsaved = false
     destroyed = false
+    focused = false
+    /** The debugger cannot attach: its DevTools are open. */
+    devtools = false
+    /** A screenshot of a Session's call waits for it, while set. */
+    shot: Promise<void> | null = null
     private attached = false
     readonly sent: string[] = []
     private readonly on_ = new Map<string, Set<Listener>>()
     readonly debugger: CdpDebugger = {
       attach: () => {
+        if (this.devtools) throw new Error('Another debugger is already attached')
         this.attached = true
       },
       isAttached: () => this.attached,
@@ -153,6 +173,7 @@ describe('LiveBrowsers and the Session\'s calls under the limit', () => {
         if (method === 'Runtime.evaluate' && expression === 'window') return Promise.resolve({ result: { type: 'object', objectId: 'window' } })
         if (method === 'Runtime.evaluate' && expression === '[scrollX, scrollY]') return Promise.resolve({ result: { type: 'object', value: [0, 240] } })
         if (method === 'DOMDebugger.getEventListeners') return Promise.resolve({ listeners: this.unsaved ? [{ type: 'beforeunload' }] : [{ type: 'click' }] })
+        if (method === 'Page.captureScreenshot' && (params as { format?: string } | undefined)?.format !== 'jpeg' && this.shot !== null) return this.shot.then(() => ({ data: 'iVBORw0K' }))
         if (method === 'Page.captureScreenshot') return Promise.resolve({ data: '/9j/4AAQ' })
         if (method === 'Page.getFrameTree') return Promise.resolve({ frameTree: { frame: { id: 'main' } } })
         return Promise.resolve({})
@@ -160,6 +181,7 @@ describe('LiveBrowsers and the Session\'s calls under the limit', () => {
       on: ((event: string, listener: Listener) => this.listen(`debugger:${event}`, listener)) as CdpDebugger['on'],
     }
     isDestroyed = (): boolean => this.destroyed
+    isFocused = (): boolean => this.focused
     getURL = (): string => `${SITE}/`
     getTitle = (): string => 'Fixture'
     readonly on = ((event: string, listener: Listener) => this.listen(event, listener)) as CdpContents['on']
@@ -183,6 +205,11 @@ describe('LiveBrowsers and the Session\'s calls under the limit', () => {
   let pages: Map<string, FakePage>
   let lives: BrowserLife[]
   let clock: number
+  let settings: SleepSettings
+  let sleepSettingsOf: typeof import('../../src/main/browser/live').sleepSettingsOf
+  /** The Browsers of the other Projects of the Machine; a Project not here is gone, one in `unreadable` cannot be read. */
+  let otherProjects: Map<string, string[]>
+  let unreadable: Set<string>
 
   const browserNode = (id: string): LayoutNode => ({ id, kind: 'browser', x: 0, y: 0, w: 640, h: 440, hidden: false, locked: false, pinned: false, tags: [], data: { profile: 'admin-aaaaaa' } })
 
@@ -211,18 +238,28 @@ describe('LiveBrowsers and the Session\'s calls under the limit', () => {
     process.env.WORFY_DATA_DIR = dataDir
     store = (await import('../../src/main/layout/store')).layoutStore()
     for (const id of ['b1', 'b2', 'b3', 'b4']) store.apply(PROJECT, { op: 'create', node: browserNode(id) })
-    const { LiveBrowsers } = await import('../../src/main/browser/live')
+    const liveModule = await import('../../src/main/browser/live')
+    sleepSettingsOf = liveModule.sleepSettingsOf
     pages = new Map()
     lives = []
     clock = 1_000_000
-    live = new LiveBrowsers({
+    settings = SETTINGS
+    otherProjects = new Map()
+    unreadable = new Set()
+    live = new liveModule.LiveBrowsers({
       profileOf: () => ({ name: 'admin', origins: [SITE] }),
       changed: () => undefined,
       pressing: () => undefined,
-      sleepSettings: () => SETTINGS,
+      sleepSettings: () => settings,
       now: () => clock,
-      browsersOf: (projectId) => store.get(projectId).layout.nodes.filter((node) => node.kind === 'browser').map((node) => node.id),
-      livesChanged: (_projectId, next) => {
+      browsersOf: (projectId) => {
+        if (unreadable.has(projectId)) throw new Error(`browser-profiles.json of ${projectId}: unexpected end of input`)
+        if (projectId !== PROJECT) return otherProjects.get(projectId) ?? null
+        return store.get(projectId).layout.nodes.filter((node) => node.kind === 'browser').map((node) => node.id)
+      },
+      // The window draws the pages of this Project; the other Projects' are never drawn here.
+      livesChanged: (projectId, next) => {
+        if (projectId !== PROJECT) return
         lives = next
         queueMicrotask(draw)
       },
@@ -314,5 +351,150 @@ describe('LiveBrowsers and the Session\'s calls under the limit', () => {
     await live.check()
     expect(lifeOf('b1')?.live).toBe(true)
     expect(['b2', 'b3'].map((id) => lifeOf(id)?.live)).toEqual([false, false])
+  })
+
+  const liveOf = (ids: string[], projectId = PROJECT): (boolean | undefined)[] => ids.map((id) => live.lives(projectId).find((each) => each.nodeId === id)?.live)
+  /** The window shows the Canvas with no Browser frame in it, and the time goes past the off-screen threshold. */
+  async function offScreenFor(ms: number): Promise<void> {
+    await live.screen(1, { projectId: PROJECT, visible: [], zoom: 1 })
+    clock += ms
+    await live.check()
+  }
+
+  it('the idle threshold of Settings is minutes: a Browser on screen without use stays Live 4 minutes and sleeps after 5', async () => {
+    expect(sleepSettingsOf(BROWSER_SLEEP_DEFAULTS)).toEqual({ maxLive: 3, offscreenMs: 30_000, idleMs: 300_000, minZoom: 0.4 })
+    settings = sleepSettingsOf(BROWSER_SLEEP_DEFAULTS)
+    await live.screen(1, { projectId: PROJECT, visible: ['b1', 'b2', 'b3'], zoom: 1 })
+    clock += 4 * 60_000
+    await live.check()
+    expect(liveOf(['b1', 'b2', 'b3'])).toEqual([true, true, true])
+    clock += 61_000
+    await live.check()
+    expect(liveOf(['b1', 'b2', 'b3'])).toEqual([false, false, false])
+  })
+
+  it('a Browser shown in the second window only stays Live past the off-screen threshold; one shown in neither sleeps', async () => {
+    await live.screen(1, { projectId: PROJECT, visible: ['b1'], zoom: 1 })
+    await live.screen(2, { projectId: PROJECT, visible: ['b2'], zoom: 1 })
+    clock += 31_000
+    await live.check()
+    expect(liveOf(['b1', 'b2', 'b3'])).toEqual([true, true, false])
+  })
+
+  it('a Session\'s call that runs keeps its Browser Live past both thresholds; after it the Browser stays Live for the idle threshold, then sleeps', async () => {
+    await live.screen(1, { projectId: PROJECT, visible: [], zoom: 1 })
+    let release: () => void = () => undefined
+    pages.get('b1')!.shot = new Promise((resolve) => (release = resolve))
+    const answer = call('browser_screenshot', { id: 'b1' })
+    await vi.waitFor(() => expect(pages.get('b1')!.sent).toContain('Page.captureScreenshot'))
+    clock += SETTINGS.idleMs + SETTINGS.offscreenMs
+    await live.check()
+    expect(liveOf(['b1', 'b2', 'b3'])).toEqual([true, false, false])
+    release()
+    const done = await answer
+    expect(done.isError, textOf(done)).toBeFalsy()
+    clock += SETTINGS.offscreenMs + 1_000
+    await live.check()
+    expect(lifeOf('b1')?.live).toBe(true)
+    clock += SETTINGS.idleMs
+    await live.check()
+    expect(lifeOf('b1')?.live).toBe(false)
+  })
+
+  it('a Browser drawn by two windows: a beforeunload handler in the page of the window that told main first keeps it Live', async () => {
+    const first = pages.get('b1')!
+    live.register(PROJECT, 'b1', new FakePage())
+    first.unsaved = true
+    await offScreenFor(31_000)
+    expect(lifeOf('b1')).toMatchObject({ live: true, unsaved: true })
+    expect(liveOf(['b2', 'b3'])).toEqual([false, false])
+  })
+
+  it('a Browser drawn by two windows: the focus of the page in the first window uses it; once the second closes, the first page is the one a Session drives', async () => {
+    const first = pages.get('b1')!
+    const second = new FakePage()
+    live.register(PROJECT, 'b1', second)
+    first.focused = true
+    await live.screen(1, { projectId: PROJECT, visible: ['b1', 'b2', 'b3'], zoom: 1 })
+    clock += SETTINGS.idleMs + 1_000
+    await live.check()
+    expect(liveOf(['b1', 'b2', 'b3'])).toEqual([true, false, false])
+    // The second window closes: the first one's page is the one a Session drives.
+    second.close()
+    expect(live.page(PROJECT, 'b1')?.contents).toBe(first)
+  })
+
+  it('a page that cannot be asked (its DevTools open) keeps its Browser Live without «Unsaved changes»', async () => {
+    pages.get('b1')!.devtools = true
+    await offScreenFor(31_000)
+    expect(lifeOf('b1')).toMatchObject({ live: true, unsaved: false })
+    expect(liveOf(['b2', 'b3'])).toEqual([false, false])
+  })
+
+  it('a Browser that has no page when it goes to sleep keeps no picture from an older sleep', async () => {
+    await offScreenFor(31_000)
+    expect(live.pictureOf(PROJECT, 'b1')).not.toBeNull()
+    await live.wake(PROJECT, 'b1', 'user')
+    await vi.waitFor(() => expect(pages.get('b1')).toBeDefined())
+    // The window shows another Canvas now: the page is closed, though main keeps the Browser Live.
+    pages.get('b1')!.close()
+    clock += 31_000
+    await live.check()
+    expect(lifeOf('b1')).toMatchObject({ live: false, picture: null })
+    expect(live.pictureOf(PROJECT, 'b1')).toBeNull()
+  })
+
+  it('a Session\'s call on a Browser of a Project no window shows is refused, and no Browser goes to sleep for it', async () => {
+    live.dropScreen(1)
+    const answer = await call('browser_screenshot', { id: 'b4' })
+    expect(answer.isError).toBe(true)
+    expect(textOf(answer)).toContain("No window of worfy on this Machine shows this Project's Canvas")
+    expect(liveOf(['b1', 'b2', 'b3', 'b4'])).toEqual([true, true, true, false])
+    expect(live.control(PROJECT, 'b4')).toBeNull()
+    const opened = await call('browser_open', { profile: 'admin-aaaaaa' })
+    expect(textOf(opened)).toContain("No window of worfy on this Machine shows this Project's Canvas")
+    expect(store.get(PROJECT).layout.nodes.map((node) => node.id)).toEqual(['b1', 'b2', 'b3', 'b4'])
+  })
+
+  it('the first screen of another Project takes the places of the Browsers whose pages the window closed; the closed Project is forgotten once they sleep', async () => {
+    otherProjects.set('other-0a1b2c3d', ['q1', 'q2'])
+    // The window shows the other Project now: it closed this Project's pages first.
+    for (const page of pages.values()) page.close()
+    await live.screen(1, { projectId: 'other-0a1b2c3d', visible: ['q1', 'q2'], zoom: 1 })
+    expect(liveOf(['b1', 'b2', 'b3'])).toEqual([false, false, true])
+    expect(liveOf(['q1', 'q2'], 'other-0a1b2c3d')).toEqual([true, true])
+    clock += 31_000
+    await live.check()
+    expect(live.lives(PROJECT)).toEqual([])
+    // Back to this Project: a first screen again, its Browsers wake in the places of the other's pageless ones.
+    await live.screen(1, { projectId: PROJECT, visible: ['b1', 'b2', 'b3', 'b4'], zoom: 1 })
+    expect(liveOf(['b1', 'b2', 'b3', 'b4'])).toEqual([true, true, true, false])
+    expect(liveOf(['q1', 'q2'], 'other-0a1b2c3d')).toEqual([false, false])
+  })
+
+  it('a Project deleted since, or one whose Browsers cannot be read, stops no check: the Browsers of this Project still sleep', async () => {
+    otherProjects.set('gone-0a1b2c3d', ['g1'])
+    otherProjects.set('broken-0a1b2c3d', ['k1'])
+    await live.screen(2, { projectId: 'gone-0a1b2c3d', visible: ['g1'], zoom: 1 })
+    await live.screen(3, { projectId: 'broken-0a1b2c3d', visible: ['k1'], zoom: 1 })
+    otherProjects.delete('gone-0a1b2c3d')
+    unreadable.add('broken-0a1b2c3d')
+    await offScreenFor(31_000)
+    expect(liveOf(['b1', 'b2', 'b3'])).toEqual([false, false, false])
+    expect(live.lives('gone-0a1b2c3d')).toEqual([])
+    expect(live.lives('broken-0a1b2c3d').map((each) => each.nodeId)).toEqual(['k1'])
+  })
+
+  it('a limit lowered in Settings holds at the next check: the Browsers beyond it that may sleep do, the rest are marked over it', async () => {
+    await live.check()
+    pages.get('b1')!.unsaved = true
+    settings = { ...SETTINGS, maxLive: 2 }
+    await live.check()
+    expect(liveOf(['b1', 'b2', 'b3'])).toEqual([true, false, true])
+    pages.get('b3')!.unsaved = true
+    settings = { ...SETTINGS, maxLive: 1 }
+    await live.check()
+    expect(liveOf(['b1', 'b2', 'b3'])).toEqual([true, false, true])
+    expect(live.lives(PROJECT).filter((each) => each.overLimit).map((each) => each.nodeId)).toHaveLength(1)
   })
 })

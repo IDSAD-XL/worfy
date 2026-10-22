@@ -15,6 +15,8 @@
 // window, a Browser moved back from the Trash) keeps it.
 // shortcut: control outlives the Session that drove the Browser (the banner stays after it ends), redo when worfy-browser ticket 06 ties a Browser to its Session's life.
 // shortcut: a Browser drawn by two windows of one Project is driven in the window that told main last, redo with worfy-browser ticket 07 (one Live page for every screen).
+// Until then sleep reads every page of such a Browser: the focus or the input of any of them uses it,
+// and a beforeunload handler in any of them keeps it Live.
 //
 // Live and Asleep (worfy-browser ticket 05, ADR-0078 items 6, 7, 15 and 16): main keeps the life of
 // every Browser of the Machine — Live or Asleep — and makes the one decision for all windows by the
@@ -30,18 +32,26 @@
 // sleep the Live Browser used longest ago that may sleep; when none may, the user's opens over the
 // limit, flagged so, and the Session's call is refused with ALL_LIVE_BUSY and repeated later by the
 // Session itself (the answer to question 4 of the ticket, taken without the owner).
-// When main first hears of a Project's screen (after a start of worfy) the Browsers it shows, then
-// the others, wake by themselves up to the limit; the rest are Asleep without a picture (question
-// 3). Pictures are kept in main's memory only, never in the Layout a Linked machine reads (question 2).
+// When main first hears of a Project's screen (after a start of worfy, or after the Project was
+// closed) the Browsers it shows, then the others, wake by themselves up to the limit; the rest are
+// Asleep without a picture (question 3). A place counts as free then when its Browser has no page
+// and no screen shows it (the Browsers of the Project the window showed before): giving it up loses
+// nothing. The same holds for an Asleep Browser without a picture that a screen shows readable: it
+// wakes by itself when such a place is there. Pictures are kept in main's memory only, never in the
+// Layout a Linked machine reads (question 2); the records of a Project no window shows are dropped
+// once all its Browsers sleep.
+// A Session's call wakes a Browser only while a window of this Machine shows its Project: no other
+// window would draw its page (NOT_SHOWN).
 // shortcut: a picture does not outlive a restart of worfy (an Asleep Browser shows an empty frame after it), redo if the owner wants the pictures kept in the Project's data folder.
 // A Browser whose frame asks for a profile has no page and no life: it is opened once it has one.
 import { originRefusal } from './origins'
 import { CdpPage, type CdpContents, type PagePicture } from './cdp'
 import { browserProfileStore } from './profiles'
-import { admit, ALL_LIVE_BUSY, browsersToSleep, drivenNow, readableNow, type BrowserNow, type ScreenNow, type SleepSettings, type Waker } from './sleep'
+import { admit, ALL_LIVE_BUSY, browsersToSleep, drivenNow, fitLimit, readableNow, type BrowserNow, type ScreenNow, type SleepSettings, type Waker } from './sleep'
 import { toEveryWindow } from '../broadcast'
 import { emit } from '../ipc'
 import { layoutStore } from '../layout/store'
+import { projectStore } from '../projects/store'
 import { appSettingsStore } from '../settings/store'
 import { TAKEN_OVER, type BrowserControlMode } from '../../shared/browser/tools'
 import { browserControlChanged, browserLivesChanged, browserPressing, type BrowserLife } from '../../shared/ipc/browser'
@@ -65,8 +75,11 @@ export interface LiveBrowsersDeps {
   sleepSettings?(): SleepSettings
   /** The clock; Date.now without it. */
   now?(): number
-  /** The Browser Nodes of the Project shown on its Canvas that have a page (a profile); without it, every Browser main knows of. */
-  browsersOf?(projectId: string): readonly string[]
+  /**
+   * The Browser Nodes of the Project shown on its Canvas that have a page (a profile); null when this
+   * Machine has no such Project (deleted, or a Linked machine's). Without it, every Browser main knows of.
+   */
+  browsersOf?(projectId: string): readonly string[] | null
   /** Told after a Browser of the Project woke, went to sleep or changed its marks. */
   livesChanged?(projectId: string, lives: BrowserLife[]): void
 }
@@ -78,8 +91,10 @@ interface Life {
   live: boolean
   usedAt: number
   seenAt: number
-  /** Its page had a `beforeunload` handler (or could not be asked) the last time main asked. */
+  /** A page of it had a `beforeunload` handler the last time main asked. */
   unsaved: boolean
+  /** A page of it could not be asked (its DevTools open, no answer in time): it stays Live, without the «Unsaved changes» mark. */
+  unasked: boolean
   /** When main asked last, to ask a page with a handler again a few seconds later. */
   askedAt: number
   /** Live beyond the limit, opened by the user while every other Live Browser was busy. */
@@ -109,10 +124,19 @@ function soon<T>(promise: Promise<T>, ms: number): Promise<T> {
 /** A call a Session may not make on a Browser now; its message is the tool's answer. */
 export class ControlError extends Error {}
 
+/** The answer of a Session's call on a Browser of a Project no window of this Machine shows. */
+export const NOT_SHOWN = "No window of worfy on this Machine shows this Project's Canvas, so none of its Browsers can be Live. Ask the user to open the Project, then call again."
+
+/** What main knows of a Project's Browsers: their ids; 'any' — no list, every one; 'gone' — no such Project here; 'unknown' — the list could not be read now. */
+type BrowsersNow = readonly string[] | 'any' | 'gone' | 'unknown'
+
 const keyOf = (projectId: string, nodeId: string): string => `${projectId}\n${nodeId}`
 
 export class LiveBrowsers {
+  /** The page a Session drives, of each Live Browser: the one a window told main of last. */
   private readonly pages = new Map<string, CdpPage>()
+  /** Every page of each Live Browser, by the id of its web contents: one per window that draws it. */
+  private readonly drawn = new Map<string, Map<number, CdpPage>>()
   private readonly controls = new Map<string, BrowserControl>()
   private readonly waiting = new Map<string, Set<(page: CdpPage) => void>>()
   private readonly lifes = new Map<string, Life>()
@@ -127,6 +151,10 @@ export class LiveBrowsers {
   private checking = false
   private timer: ReturnType<typeof setInterval> | undefined
   private pictures = 0
+  /** The limit of the last check: a lower one puts Browsers to sleep at once. */
+  private lastMaxLive: number | undefined
+  /** The Projects whose Browsers could not be read, told to the log once until they can again. */
+  private readonly unread = new Set<string>()
 
   constructor(private readonly deps: LiveBrowsersDeps) {}
 
@@ -139,8 +167,13 @@ export class LiveBrowsers {
     const life = this.lifes.get(key)
     if (life !== undefined && !life.live) return null
     if (life === undefined) this.lifes.set(key, this.born(projectId, nodeId, true))
-    const current = this.pages.get(key)
-    if (current !== undefined && current.contents.id === contents.id && !contents.isDestroyed()) return current
+    const drawn = this.drawn.get(key) ?? new Map<number, CdpPage>()
+    this.drawn.set(key, drawn)
+    const known = drawn.get(contents.id)
+    if (known !== undefined && !contents.isDestroyed()) {
+      this.pages.set(key, known)
+      return known
+    }
     const page = new CdpPage(contents, {
       driving: () => this.controls.get(key)?.mode === 'claude',
       refusal: (url) => {
@@ -155,8 +188,15 @@ export class LiveBrowsers {
       pressing: (phase) => this.deps.pressing(projectId, nodeId, phase),
     })
     this.pages.set(key, page)
+    drawn.set(contents.id, page)
     contents.once('destroyed', () => {
-      if (this.pages.get(key) === page) this.pages.delete(key)
+      const still = this.drawn.get(key)
+      if (still?.get(contents.id) === page) still.delete(contents.id)
+      if (this.pages.get(key) !== page) return
+      // The page of another window that draws the Browser is the one a Session drives from now on.
+      const other = this.pagesOf(key)[0]
+      if (other === undefined) this.pages.delete(key)
+      else this.pages.set(key, other)
     })
     const waiters = this.waiting.get(key)
     this.waiting.delete(key)
@@ -167,6 +207,11 @@ export class LiveBrowsers {
       page.restoreScroll(restore).catch((error: unknown) => console.warn(`Browser ${nodeId}: could not scroll the woken page back`, error))
     }
     return page
+  }
+
+  /** Every page of Browser `key` a window draws now. */
+  private pagesOf(key: string): CdpPage[] {
+    return [...(this.drawn.get(key)?.values() ?? [])].filter((page) => !page.contents.isDestroyed())
   }
 
   /** The page of Browser Node `nodeId` while it is Live. */
@@ -257,7 +302,7 @@ export class LiveBrowsers {
 
   private born(projectId: string, nodeId: string, live: boolean): Life {
     const now = this.now()
-    return { projectId, nodeId, live, usedAt: now, seenAt: now, unsaved: false, askedAt: 0, overLimit: false, picture: null, restore: null }
+    return { projectId, nodeId, live, usedAt: now, seenAt: now, unsaved: false, unasked: false, askedAt: 0, overLimit: false, picture: null, restore: null }
   }
 
   /** Runs `act` after every change of lives queued before it. */
@@ -267,6 +312,20 @@ export class LiveBrowsers {
     return run
   }
 
+  /** The Browsers of Project `projectId` now; a list that cannot be read is told to the log once. */
+  private browsersNow(projectId: string): BrowsersNow {
+    if (this.deps.browsersOf === undefined) return 'any'
+    try {
+      const ids = this.deps.browsersOf(projectId)
+      this.unread.delete(projectId)
+      return ids ?? 'gone'
+    } catch (error) {
+      if (!this.unread.has(projectId)) console.warn(`Browser sleep: the Browsers of Project ${projectId} could not be read`, error)
+      this.unread.add(projectId)
+      return 'unknown'
+    }
+  }
+
   /** The life of a Browser as the rules of sleep.ts read it. */
   private asRule(key: string, life: Life): BrowserNow {
     const control = this.controls.get(key)
@@ -274,13 +333,18 @@ export class LiveBrowsers {
     const running = calls?.running ?? 0
     // A call that has not taken the Browser yet (browser_open, a wake before drive) drives it too.
     const session = control === undefined && running === 0 ? null : { driving: control === undefined || control.mode === 'claude', calls: running, lastCallAt: calls?.lastCallAt ?? 0 }
-    const page = this.pages.get(key)
-    const focused = page !== undefined && !page.contents.isDestroyed() && page.contents.isFocused?.() === true
-    return { id: key, live: life.live, usedAt: Math.max(life.usedAt, calls?.lastCallAt ?? 0), seenAt: life.seenAt, focused, unsaved: life.unsaved, session }
+    const focused = this.pagesOf(key).some((page) => page.contents.isFocused?.() === true)
+    // A page that could not be asked may not lose its page either.
+    return { id: key, live: life.live, usedAt: Math.max(life.usedAt, calls?.lastCallAt ?? 0), seenAt: life.seenAt, focused, unsaved: life.unsaved || life.unasked, session }
   }
 
   private allScreens(): ScreenNow[] {
     return [...this.screens.values()].map((each) => each.screen)
+  }
+
+  /** Some window of this Machine shows the Canvas of Project `projectId`. */
+  private shown(projectId: string): boolean {
+    return [...this.screens.values()].some((each) => each.projectId === projectId)
   }
 
   private announce(projectId: string): void {
@@ -302,40 +366,78 @@ export class LiveBrowsers {
 
   /**
    * What window `windowId` of this Machine shows now: the Browser frames in it and its zoom. The
-   * first screen of a Project since worfy started wakes its Browsers up to the limit, the shown ones
-   * first; a Browser main has not heard of that a screen shows is one the user has just opened, and
-   * wakes as by a click.
+   * first screen of a Project wakes its Browsers up to the limit, the shown ones first; a Browser main
+   * has not heard of that a screen shows is one the user has just opened, and wakes as by a click; an
+   * Asleep one without a picture that it shows readable wakes when a place is free.
    */
   screen(windowId: number, report: { projectId: string; visible: readonly string[]; zoom: number }): Promise<void> {
     const { projectId } = report
     this.screens.set(windowId, { projectId, screen: { visible: report.visible.map((id) => keyOf(projectId, id)), zoom: report.zoom } })
-    this.timer ??= setInterval(() => void this.check(), CHECK_MS)
+    this.timer ??= setInterval(() => {
+      this.check().catch((error: unknown) => console.warn('Browser sleep: a check of the rules failed', error))
+    }, CHECK_MS)
     this.timer.unref?.()
     return this.serial(async () => {
+      const all = this.browsersNow(projectId)
+      // A Project this Machine does not have (a Linked machine's) has no Browsers of its own here.
+      if (all === 'gone' || all === 'unknown') return
+      const changed = new Set<string>([projectId])
       if (!this.seen.has(projectId)) {
         this.seen.add(projectId)
-        const all = this.deps.browsersOf?.(projectId) ?? []
-        const first = [...report.visible.filter((id) => all.includes(id)), ...all.filter((id) => !report.visible.includes(id))]
+        const ids = all === 'any' ? report.visible : all
+        const first = [...report.visible.filter((id) => ids.includes(id)), ...ids.filter((id) => !report.visible.includes(id))]
         for (const nodeId of first) {
           const key = keyOf(projectId, nodeId)
           if (this.lifes.has(key)) continue
-          const live = [...this.lifes.values()].filter((life) => life.live).length < this.settings().maxLive
-          this.lifes.set(key, this.born(projectId, nodeId, live))
+          this.lifes.set(key, this.born(projectId, nodeId, await this.freePlace(key, changed)))
         }
-        this.announce(projectId)
-        return
+      } else {
+        await this.openShown(projectId, report.visible, all)
+        if (report.zoom >= this.settings().minZoom) {
+          for (const nodeId of report.visible) {
+            const key = keyOf(projectId, nodeId)
+            const life = this.lifes.get(key)
+            if (life === undefined || life.live || life.picture !== null || !(await this.freePlace(key, changed))) continue
+            Object.assign(life, { live: true, usedAt: this.now(), seenAt: this.now(), unsaved: false, unasked: false, askedAt: 0, overLimit: false, restore: null })
+          }
+        }
       }
-      await this.openShown(projectId, report.visible, this.deps.browsersOf?.(projectId))
+      for (const each of changed) this.announce(each)
     })
+  }
+
+  /**
+   * Whether Browser `key` can be Live without closing a page: a place under the limit is free, or one
+   * is held by a Live Browser that has no page and that no screen shows — that one goes to sleep.
+   */
+  private async freePlace(key: string, changed: Set<string>): Promise<boolean> {
+    const settings = this.settings()
+    if ([...this.lifes].filter(([other, life]) => other !== key && life.live).length < settings.maxLive) return true
+    const onScreen = new Set(this.allScreens().flatMap((screen) => screen.visible))
+    // admit evicts only Browsers that may sleep: one with a page or on a screen is counted as one that may not.
+    const rules = [...this.lifes].map(([each, life]) => {
+      const rule = this.asRule(each, life)
+      return this.pagesOf(each).length > 0 || onScreen.has(each) ? { ...rule, unsaved: true } : rule
+    })
+    const admission = admit(rules, key, 'session', this.now(), settings)
+    if (admission.kind === 'busy') return false
+    for (const evicted of admission.evict) {
+      const life = this.lifes.get(evicted)
+      if (life === undefined) continue
+      await this.sleep(evicted, life)
+      changed.add(life.projectId)
+    }
+    return true
   }
 
   /**
    * Opens, as the user's, each Browser of `visible` that main has no life for and that has a page
    * (`all`): a Browser just made, or one whose profile was just chosen.
    */
-  private async openShown(projectId: string, visible: readonly string[], all: readonly string[] | undefined): Promise<void> {
+  private async openShown(projectId: string, visible: readonly string[], all: BrowsersNow): Promise<void> {
+    if (all === 'gone' || all === 'unknown') return
     for (const nodeId of visible) {
-      if (!this.lifes.has(keyOf(projectId, nodeId)) && (all === undefined || all.includes(nodeId))) await this.admitNow(projectId, nodeId, 'user')
+      if (!this.lifes.has(keyOf(projectId, nodeId)) && (all === 'any' || all.includes(nodeId))) await this.admitNow(projectId, nodeId, 'user')
     }
   }
 
@@ -359,7 +461,8 @@ export class LiveBrowsers {
   /**
    * Browser `nodeId` is Live from now on, woken or opened by `by`: a click of the user on its frame, a
    * Session's call or its browser_open. Answers whether it is Live over the limit. A Session's call
-   * while every Live Browser is busy throws ControlError(ALL_LIVE_BUSY) and changes nothing.
+   * throws ControlError and changes nothing while every Live Browser is busy (ALL_LIVE_BUSY), or while
+   * no window shows the Project to draw the page (NOT_SHOWN).
    */
   wake(projectId: string, nodeId: string, by: Waker): Promise<{ overLimit: boolean }> {
     return this.serial(() => this.admitNow(projectId, nodeId, by))
@@ -367,6 +470,7 @@ export class LiveBrowsers {
 
   private async admitNow(projectId: string, nodeId: string, by: Waker): Promise<{ overLimit: boolean }> {
     const key = keyOf(projectId, nodeId)
+    if (by === 'session' && this.page(projectId, nodeId) === undefined && !this.shown(projectId)) throw new ControlError(NOT_SHOWN)
     const life = this.lifes.get(key)
     if (life?.live === true) {
       life.usedAt = this.now()
@@ -387,20 +491,24 @@ export class LiveBrowsers {
       if (each !== undefined) await this.sleep(evicted, each)
     }
     const woken = life ?? this.born(projectId, nodeId, true)
-    if (woken.picture !== null) woken.restore = woken.picture.scroll
-    Object.assign(woken, { live: true, usedAt: now, seenAt: now, unsaved: false, askedAt: 0, overLimit: admission.overLimit })
+    woken.restore = woken.picture?.scroll ?? null
+    Object.assign(woken, { live: true, usedAt: now, seenAt: now, unsaved: false, unasked: false, askedAt: 0, overLimit: admission.overLimit })
     this.lifes.set(key, woken)
     this.announce(projectId)
     for (const projectOf of new Set(admission.evict.map((each) => this.lifes.get(each)?.projectId))) if (projectOf !== undefined && projectOf !== projectId) this.announce(projectOf)
     return { overLimit: admission.overLimit }
   }
 
-  /** Asks the page of Live Browser `life` whether it has a beforeunload handler; one that cannot answer counts as having one. */
+  /**
+   * Asks every page of Live Browser `life` whether it has a beforeunload handler. A handler in any of
+   * them marks it unsaved; a page that cannot answer keeps it Live without that mark (`unasked`).
+   */
   private async ask(life: Life): Promise<void> {
-    const page = this.page(life.projectId, life.nodeId)
+    const pages = this.pagesOf(keyOf(life.projectId, life.nodeId))
     const before = life.unsaved
-    if (page === undefined) life.unsaved = false
-    else life.unsaved = await soon(page.hasBeforeUnload(), ASK_MS).catch(() => true)
+    const answers = await Promise.all(pages.map((page) => soon(page.hasBeforeUnload(), ASK_MS).catch(() => null)))
+    life.unsaved = answers.includes(true)
+    life.unasked = !life.unsaved && answers.includes(null)
     life.askedAt = this.now()
     if (life.unsaved !== before) this.announce(life.projectId)
   }
@@ -408,19 +516,23 @@ export class LiveBrowsers {
   /** Puts Live Browser `key` to sleep: keeps a picture of its page, then the window closes the page. */
   private async sleep(key: string, life: Life): Promise<void> {
     const page = this.page(life.projectId, life.nodeId)
-    if (page !== undefined) {
-      const picture = await soon(page.picture(), ASK_MS).catch((error: unknown) => {
-        console.warn(`Browser ${life.nodeId}: no picture of its page before sleep`, error)
-        return null
-      })
-      if (picture !== null) {
-        this.pictures += 1
-        life.picture = { ...picture, version: this.pictures }
-      }
+    // Without a page now, or without a picture of it, an older picture would show the wrong place.
+    const picture =
+      page === undefined
+        ? null
+        : await soon(page.picture(), ASK_MS).catch((error: unknown) => {
+            console.warn(`Browser ${life.nodeId}: no picture of its page before sleep`, error)
+            return null
+          })
+    if (picture === null) life.picture = null
+    else {
+      this.pictures += 1
+      life.picture = { ...picture, version: this.pictures }
     }
-    Object.assign(life, { live: false, unsaved: false, overLimit: false, restore: null })
+    Object.assign(life, { live: false, unsaved: false, unasked: false, overLimit: false, restore: null })
     // A Session's next call waits for the page the window draws when it wakes, not for this one.
     this.pages.delete(key)
+    this.drawn.delete(key)
   }
 
   /**
@@ -444,20 +556,26 @@ export class LiveBrowsers {
     const settings = this.settings()
     const screens = this.allScreens()
     const changed = new Set<string>()
-    const browsers = new Map<string, readonly string[] | undefined>()
-    const browsersOf = (projectId: string): readonly string[] | undefined => {
-      if (!browsers.has(projectId)) browsers.set(projectId, this.deps.browsersOf?.(projectId))
-      return browsers.get(projectId)
+    const onScreen = new Set([...this.screens.values()].map((each) => each.projectId))
+    const browsers = new Map<string, BrowsersNow>()
+    const browsersOf = (projectId: string): BrowsersNow => {
+      if (!browsers.has(projectId)) browsers.set(projectId, this.browsersNow(projectId))
+      return browsers.get(projectId)!
     }
+    // Only the Projects a window shows are read: the Browsers of the others sleep off screen and are
+    // dropped below, with no read of their files every second.
     for (const [key, life] of [...this.lifes]) {
+      if (!onScreen.has(life.projectId) || !this.seen.has(life.projectId)) continue
       const shown = browsersOf(life.projectId)
+      if (shown === 'any' || shown === 'unknown') continue
       // Not one a running call works on: browser_open wakes its Browser before it puts the Node on the Canvas.
-      if (shown !== undefined && this.seen.has(life.projectId) && !shown.includes(life.nodeId) && (this.calls.get(key)?.running ?? 0) === 0) {
+      if ((shown === 'gone' || !shown.includes(life.nodeId)) && (this.calls.get(key)?.running ?? 0) === 0) {
         this.lifes.delete(key)
         this.calls.delete(key)
         changed.add(life.projectId)
       }
     }
+    for (const [projectId, shown] of browsers) if (shown === 'gone') this.seen.delete(projectId)
     // A shown Browser that has just got a page — its profile chosen in its frame — opens as by a click.
     for (const { projectId, screen } of [...this.screens.values()]) {
       if (!this.seen.has(projectId)) continue
@@ -470,17 +588,21 @@ export class LiveBrowsers {
       if (!life.live) continue
       if (readableNow(key, screens, settings)) life.seenAt = now
       if (this.asRule(key, life).focused) life.usedAt = now
-      if (life.unsaved && now - life.askedAt >= ASK_AGAIN_MS) await this.ask(life)
+      if ((life.unsaved || life.unasked) && now - life.askedAt >= ASK_AGAIN_MS) await this.ask(life)
     }
     const rules = [...this.lifes].map(([key, life]) => this.asRule(key, life))
     for (const { id } of browsersToSleep(rules, screens, this.now(), settings)) {
       const life = this.lifes.get(id)
       if (life === undefined || !life.live || drivenNow(this.asRule(id, life), this.now(), settings)) continue
       await this.ask(life)
-      if (life.unsaved) continue
+      if (life.unsaved || life.unasked) continue
       await this.sleep(id, life)
       changed.add(life.projectId)
     }
+    // A limit lowered in Settings → Browser holds at once: the Browsers beyond it that may sleep do,
+    // the rest are marked over it.
+    if (this.lastMaxLive !== undefined && settings.maxLive < this.lastMaxLive) await this.fitLowerLimit(settings, changed)
+    this.lastMaxLive = settings.maxLive
     // The Browsers over the limit are within it again once enough of the others sleep.
     const live = [...this.lifes.values()].filter((life) => life.live)
     if (live.length <= settings.maxLive) {
@@ -490,7 +612,38 @@ export class LiveBrowsers {
         changed.add(life.projectId)
       }
     }
+    // A Project no window shows, all of whose Browsers sleep, is forgotten: its next screen is a first one.
+    for (const projectId of new Set([...this.lifes.values()].map((life) => life.projectId))) {
+      if (onScreen.has(projectId)) continue
+      const its = [...this.lifes].filter(([, life]) => life.projectId === projectId)
+      if (its.some(([key, life]) => life.live || (this.calls.get(key)?.running ?? 0) > 0)) continue
+      for (const [key] of its) {
+        this.lifes.delete(key)
+        this.calls.delete(key)
+      }
+      this.seen.delete(projectId)
+      changed.add(projectId)
+    }
     for (const projectId of changed) this.announce(projectId)
+  }
+
+  private async fitLowerLimit(settings: SleepSettings, changed: Set<string>): Promise<void> {
+    const live = [...this.lifes.values()].filter((life) => life.live)
+    if (live.length <= settings.maxLive) return
+    for (const life of live) await this.ask(life)
+    const fit = fitLimit([...this.lifes].map(([key, life]) => this.asRule(key, life)), this.now(), settings)
+    for (const id of fit.evict) {
+      const life = this.lifes.get(id)
+      if (life === undefined) continue
+      await this.sleep(id, life)
+      changed.add(life.projectId)
+    }
+    for (const id of fit.over) {
+      const life = this.lifes.get(id)
+      if (life === undefined || life.overLimit) continue
+      life.overLimit = true
+      changed.add(life.projectId)
+    }
   }
 
   /** Stops the checks of the rules: the app quits. */
@@ -515,6 +668,8 @@ export function liveBrowsers(): LiveBrowsers {
     pressing: (projectId, nodeId, phase) => toEveryWindow((client) => emit(client, browserPressing, { projectId, nodeId, phase })),
     sleepSettings: () => sleepSettingsOf(browserSleepOf(appSettingsStore().get())),
     browsersOf: (projectId) => {
+      // A Project deleted since, or a Linked machine's shown in a window here: none of its Browsers is this Machine's.
+      if (projectStore().find(projectId) === undefined) return null
       const profiles = new Set(browserProfileStore().list(projectId).map((profile) => profile.id))
       // A page is drawn for a Browser whose profile the Project has, or for one saved before profiles
       // existed (no `profile` key; browserProfileChoice keeps it on Default); not while its frame asks
@@ -528,4 +683,9 @@ export function liveBrowsers(): LiveBrowsers {
     livesChanged: (projectId, lives) => toEveryWindow((client) => emit(client, browserLivesChanged, { projectId, lives })),
   })
   return shared
+}
+
+/** The app quits: the checks of sleep stop. */
+export function stopLiveBrowsers(): void {
+  shared?.stop()
 }

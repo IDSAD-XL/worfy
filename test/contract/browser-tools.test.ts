@@ -254,12 +254,16 @@ beforeEach(async () => {
     changed: (_projectId, nodeId, mode) => changes.push([nodeId, mode]),
     pressing: (_projectId, nodeId, phase) => presses.push([nodeId, phase, pages.get(nodeId)?.commands('Input.dispatchMouseEvent').length ?? -1]),
   })
+  // A window shows the Project's Canvas, as the Browser layer tells main (worfy-browser ticket 05):
+  // without one a Session's call wakes no Browser.
+  await live.screen(1, { projectId: PROJECT, visible: [], zoom: 1 })
   server = await import('../../src/main/mcp/browser-server')
   mocks.query.mockReset().mockImplementation(() => ({ [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ done: true, value: undefined }) }) }))
   mocks.agentEnv.mockReset().mockResolvedValue({ env: { HOME: '/Users/tester', PATH: '/usr/bin' }, from: 'login-shell' })
 })
 
 afterEach(async () => {
+  live.stop()
   await saveLayoutNow()
   delete process.env.WORFY_DATA_DIR
   removeTestTree(scratch)
