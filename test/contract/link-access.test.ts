@@ -386,6 +386,15 @@ const SHELL_TEST_MS = 120_000
  * is typed only after it: the shell then reads what it is given.
  */
 const PROMPT = /[$#] |PS [^\r\n]*> /
+/**
+ * A typed line that prints `text` with its `$((a+b))` worked out, and Enter. /bin/sh runs `echo`. In
+ * PowerShell `echo` is Write-Output, and the first one a fresh shell runs auto-loads its module only
+ * after PowerShell has analysed every module installed for all users: with the empty analysis cache of
+ * the temporary profile that took longer than SHELL_WAIT_MS on the GitHub Windows runner (Az,
+ * Microsoft.Graph, AWSPowerShell…). A quoted string is printed by PowerShell itself, with no command
+ * to look up (worfy-windows ticket 88).
+ */
+const printLine = (text: string): string => (process.platform === 'win32' ? `"${text}"\r` : `echo ${text}\r`)
 /** The end of a shell's output, escapes written out, for a failure message: vitest cuts the value it shows. */
 const tail = (output: string): string => JSON.stringify(output.slice(-1000))
 
@@ -520,7 +529,7 @@ describe('access on', () => {
     // Enter is `\r`, as a terminal sends it: the pty turns it into a line end for /bin/sh, and
     // PowerShell's line editor takes only `\r` as Enter. `$((40+2))` is 42 in both shells, so the
     // output has `link-42` while the echoed input does not.
-    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo link-$((40+2))\r' })).toEqual({ ok: true, value: undefined })
+    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: printLine('link-$((40+2))') })).toEqual({ ok: true, value: undefined })
 
     const wanted = ['workflow.changed', 'docs.changed', 'bindings.changed', 'claudeHome.changed', 'terminal.output']
     await until(() => wanted.every((channel) => channelsReceived().includes(channel)) && outputOfA().includes('link-42'), SHELL_WAIT_MS)
@@ -551,7 +560,7 @@ describe('switching access off', () => {
 
     await until(() => PROMPT.test(windowEvents.join('')), SHELL_WAIT_MS)
     expect(windowEvents.join(''), `the prompt of the shell, in ${tail(windowEvents.join(''))}`).toMatch(PROMPT)
-    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo before-$((1+1))\r' })).toMatchObject({ ok: true })
+    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: printLine('before-$((1+1))') })).toMatchObject({ ok: true })
     await until(() => outputOfA().includes('before-2'), SHELL_WAIT_MS)
     expect(outputOfA(), tail(outputOfA())).toContain('before-2')
 
@@ -562,7 +571,7 @@ describe('switching access off', () => {
     expect(claudeHomeSubscriptions.size).toBe(0)
 
     expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo sneaky\r' })).toEqual(accessOff)
-    expect(await windowCall('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo after-$((2+1))\r' }, window)).toMatchObject({ ok: true })
+    expect(await windowCall('terminal.input', { projectId: PROJECT, nodeId: NODE, data: printLine('after-$((2+1))') }, window)).toMatchObject({ ok: true })
     await until(() => windowEvents.join('').includes('after-3'), SHELL_WAIT_MS)
     expect(windowEvents.join(''), tail(windowEvents.join(''))).toContain('after-3')
     // The shell kept running for B's window; nothing of it went to A, and A's input never reached it.
@@ -680,7 +689,7 @@ describe('read-only access', () => {
     expect(await callB('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 })).toMatchObject({ ok: true, value: { started: false } })
     await until(() => PROMPT.test(windowEvents.join('')), SHELL_WAIT_MS)
     expect(windowEvents.join(''), `the prompt of the shell, in ${tail(windowEvents.join(''))}`).toMatch(PROMPT)
-    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo before-$((3+4))\r' })).toMatchObject({ ok: true })
+    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: printLine('before-$((3+4))') })).toMatchObject({ ok: true })
     await until(() => outputOfA().includes('before-7'), SHELL_WAIT_MS)
     expect(outputOfA(), tail(outputOfA())).toContain('before-7')
 
@@ -694,7 +703,7 @@ describe('read-only access', () => {
     expect(await callB('projects.list')).toMatchObject({ ok: true })
 
     // The shell runs on for B's window; its output does not reach A any more.
-    expect(await windowCall('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo after-$((4+5))\r' }, window)).toMatchObject({ ok: true })
+    expect(await windowCall('terminal.input', { projectId: PROJECT, nodeId: NODE, data: printLine('after-$((4+5))') }, window)).toMatchObject({ ok: true })
     await until(() => windowEvents.join('').includes('after-9'), SHELL_WAIT_MS)
     expect(windowEvents.join(''), tail(windowEvents.join(''))).toContain('after-9')
     expect(outputOfA(), tail(outputOfA())).not.toContain('after-9')
