@@ -324,3 +324,33 @@ job-ом, который не `skipped`; 4 — run на main рядом с batch
 `plugin-neutral` (31 из 31), `epic-wave-ship-ticket` (336), `review-depth` (105), `max-review` (80),
 `agents-text` (202) — код 0; `pnpm lint`, `pnpm typecheck` — код 0; gate fast — код 0,
 `[gate] green (fast)`. `test/e2e` не тронут, `test/unit/e2e-*.test.ts` не нужны.
+
+## Круг 2 ревью (Mac, high)
+
+Ветка запушена как PR #784: коммит workflow от Mac `53e7ee59` и merge origin/main `d52922f2`. Правки
+этого круга — новыми коммитами поверх, `.github/workflows/` не тронут.
+
+- MED 1 — dispatch на head PR больше не повторяется. Перед dispatch skill смотрит отметку
+  `check/<name>` на `$sha` и run-ы на этом `headSha`, у которых названный job не `skipped`. Есть run —
+  ждать его. Есть только `pending` без run-а — не проверено, без dispatch. Нет ни того, ни другого —
+  один dispatch. Правило общее, plugin-neutral зелёный.
+- MED 2 — Browser считается кодом окон (решение Mac, ADR-0071): в `PC_ONLY` добавлены
+  `src/main/browser/**`, `src/main/ipc/browser.ts`, `src/renderer/browser/**`, `src/shared/browser/**`.
+  Все есть в `git ls-files` (9, 1, 5 и 3 файла, вложенных папок нет). Новый contract-случай: diff
+  только Browser даёт `pc` и все четыре пути. Проверка истории из первого раздела писалась до этого:
+  #741 теперь даёт `pc` и по `src/main/browser/*`, а не только по `test/e2e/browser-sleep.spec.ts`.
+- LOW 3 — в группу «правила самого run-а» добавлены `test/setup-contract.ts`, `test/setup-dom.ts`,
+  `test/windows-runner.ts`.
+- LOW 4 — job не прочитать из `gh run list`: для каждого кандидата skill даёт команду
+  `gh run view <id> --json jobs --jq '[.jobs[] | select(.name == "<job>") | .conclusion]'`.
+- LOW 5 — блок run-а на main перед dispatch сверяет вершину main (`git fetch`, `rev-parse`) с
+  `ci_run.commit`. Если они разные — `EXTRA_RUN=main-moved`, dispatch нет, сначала снова `wave-gate ci`.
+  Проверено руками с временным origin: dispatch; `recorded`; `main-moved` без dispatch; новый dispatch
+  после новой записи. Ровно два вызова stand-in-а.
+- LOW 6 — команда dispatch сама вернула не 0 (например, 422: у workflow ветки нет такого input-а):
+  без отметки, без повтора, причина — в отчёте. Для run-а на main это `EXTRA_RUN=dispatch-failed`,
+  тоже без повтора.
+
+Проверки круга 2 (идёт cod.exe, shell-test-ы по одному): два contract-файла — 146 из 146, код 0;
+`plugin-neutral` 31, `epic-wave-ship-ticket` 336, `skill-blocks` 100, `decision-log` 125, `silent-mode` 89,
+`agents-text` 202, `review-depth` 105, `max-review` 80 — код 0 каждый; `pnpm lint`, `pnpm typecheck` — код 0.

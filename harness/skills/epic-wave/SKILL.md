@@ -829,15 +829,28 @@ the old way or one after another — every Check of the Pipeline has its mark on
   fresh checkout of the main branch — never the PR's branch, so that a PR cannot change its own
   verdict — with the main branch and the PR's head: `git fetch -q origin <main branch> <branch>`,
   then `<scope command> origin/<main branch> "$sha"; echo "EXIT=$?"`.
-  - `EXIT=0` — the run answers. Dispatch once (the dispatch command with `$ref` = the PR's branch),
-    mark `pending`, and write the dispatch time to the decision log. Every dispatch is a paid run:
-    never dispatch again because the run is not listed yet. Find it with
-    `gh run list --workflow <workflow> --branch <branch> --event workflow_dispatch --limit 10 --json databaseId,url,headSha,createdAt,status,conclusion`:
-    the newest run whose `headSha` is the PR's head and whose named job is not `skipped` (a run of
-    another mode on the same commit skips it, and may end `success` all the same). Not listed yet —
-    list again a minute later, up to six times; still none — the check is not verified, the PR
-    waits, and the report says so. Wait for the run as for the batch CI run (below:
-    `gh run watch "$id" --exit-status`), then read the job:
+  - `EXIT=0` — the run answers. Every dispatch is a paid run, and a session break, an earlier wave
+    or a lookup that gave up may have left one on this head: look before dispatching.
+    1. The mark `check/<name>` on `$sha`, read as the block below reads marks (Full mode —
+       `gh api "repos/{owner}/{repo}/commits/$sha/status" --jq '[.statuses[] | select(.context == "check/<name>") | .state]'`;
+       Silent mode — the marks file of the PR's ticket).
+    2. The runs on this head: `gh run list --workflow <workflow> --branch <branch> --event workflow_dispatch --limit 20 --json databaseId,url,headSha,createdAt,status,conclusion --jq "[.[] | select(.headSha == \"$sha\")]"`.
+       `gh run list` shows no jobs, so read each candidate, newest first:
+       `gh run view <id> --json jobs --jq '[.jobs[] | select(.name == "<job>") | .conclusion]'` —
+       `["skipped"]` or `[]` is a run of another mode on the same commit (it may end `success` all
+       the same) and is not this check; anything else, an empty conclusion of a running job
+       included, is the check's run.
+    The check's run exists — no dispatch: wait for that run and read it (below). No such run, but a
+    `pending` mark — no dispatch either: an earlier dispatch is not listed; the check is not
+    verified, the PR waits, and the report says so. Neither — dispatch once (the dispatch command
+    with `$ref` = the PR's branch), mark `pending`, and write the dispatch time to the decision log.
+    The dispatch command itself exits non-zero (a 422 for an input the branch's workflow does not
+    have, a workflow the branch lacks) — no mark, no retry: the report names the reason, and the PR
+    waits. After the dispatch, find its run the same way (2), created after the dispatch time. Not
+    listed yet — look again a minute later, up to six times, and never dispatch again because the
+    run is not listed; still none — the check is not verified, the PR waits, and the report says so.
+    Wait for the run as for the batch CI run (below: `gh run watch "$id" --exit-status`), then read
+    the job:
     `gh run view "$id" --json jobs --jq '.jobs[] | select(.name == "<job>") | {conclusion, startedAt, completedAt, failed: [.steps[] | select(.conclusion == "failure") | .name]}'`.
   - The job `success` — mark `success --sha "$sha"`.
   - The job `failure` with the test step among `failed` — mark `failure`: a rework round with the
@@ -1122,6 +1135,11 @@ const commit = st.ci_run && st.ci_run.dispatched_at && st.ci_run.commit
 if (!commit) { console.log("EXTRA_RUN=no-batch-run: run wave-gate ci first"); process.exit(1) }
 const runs = st.extra_runs || (st.extra_runs = {}), prev = runs[name]
 if (prev && prev.commit === commit) { console.log(`EXTRA_RUN=recorded ${commit} ${prev.run_id || "(id not recorded yet)"}`); process.exit(0) }
+// The dispatch runs on the tip of the main branch, and the run is looked up by the batch CI commit: both must be one commit.
+const remote = st.remote || "origin", git = (...a) => spawnSync("git", a, { cwd: st.repo, encoding: "utf8" })
+const fetched = git("fetch", "-q", remote, `+refs/heads/${st.branch}:refs/remotes/${remote}/${st.branch}`)
+const tip = fetched.status === 0 ? git("rev-parse", `refs/remotes/${remote}/${st.branch}^{commit}`).stdout.trim() : ""
+if (tip !== commit) { console.log(`EXTRA_RUN=main-moved ${tip || "(git fetch failed)"}: run wave-gate ci again, then this block`); process.exit(1) }
 const command = template.split("${ref}").join(st.branch).split("$ref").join(st.branch)
 const r = spawnSync(command, { cwd: st.repo, shell: true, encoding: "utf8", windowsHide: true, timeout: 120000 })
 if (r.error || r.status !== 0) { console.log(`EXTRA_RUN=dispatch-failed ${((r.stderr || "") + (r.error ? r.error.message : "")).trim().split("\n")[0]}`); process.exit(1) }
@@ -1134,12 +1152,17 @@ echo "EXIT=$?"
 
 - `EXTRA_RUN=dispatched` — write a decision-log row (`'<name> run dispatched for <main branch>
   <commit>'`). Find the run as for a check a CI runner may answer (the newest run of the workflow on
-  the main branch whose `headSha` is the commit, created after `dispatched_at`, whose job is not
-  `skipped`; list again a minute later, up to six times, never dispatch again), and record its id:
+  the main branch whose `headSha` is the commit, created after `dispatched_at`, whose job — read per
+  candidate with `gh run view <id> --json jobs` — is not `skipped`; list again a minute later, up to six times, never dispatch again), and record its id:
   `jq --arg n <name> --argjson id <run id> --arg url <url> '.extra_runs[$n] += {run_id: $id, url: $url}' "$C" > "$C.tmp" && mv "$C.tmp" "$C"`.
 - `EXTRA_RUN=recorded` — no dispatch: with an id, wait for that run; without one, find it as above.
-- `EXTRA_RUN=no-batch-run` or `dispatch-failed` — nothing is recorded as dispatched: fix the cause and
-  run the block again.
+- `EXTRA_RUN=main-moved` — the main branch is no longer at the commit of the recorded batch CI run:
+  nothing is dispatched. Run `wave-gate ci` again (it dispatches anew for the new tip), then this
+  block.
+- `EXTRA_RUN=no-batch-run` — nothing is recorded as dispatched: run `wave-gate ci`, then this block.
+- `EXTRA_RUN=dispatch-failed` (the reason follows: a refused input, a workflow the branch does not
+  have) — nothing is recorded as dispatched and nothing is retried: the run is not verified, and the
+  report names the reason. The block runs again only once the cause is fixed.
 
 Wait for it with the batch CI block (`gh run watch`) and read the named job as above. The job
 `success` — the report says so with the URL. The test step failed — red, handled like a red batch CI

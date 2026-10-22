@@ -58,6 +58,11 @@ const PC_ONLY = [
   // src/main/index.ts, which wires every module of the main process, is left out on purpose: almost
   // every pull request with main-process code touches it, and its own Windows behaviour lives in the
   // modules above.
+  // The Browser layer: web pages in windows of the app, counted as window code (ADR-0071)
+  'src/main/browser/**',
+  'src/main/ipc/browser.ts',
+  'src/renderer/browser/**',
+  'src/shared/browser/**',
   // e2e and acceptance
   'test/e2e/**',
   'test/acceptance/**',
@@ -81,6 +86,9 @@ const PC_ONLY = [
   'scripts/windows-verdict-scope.mjs',
   'scripts/vitest-electron.mjs',
   'vitest.config.ts',
+  'test/setup-contract.ts',
+  'test/setup-dom.ts',
+  'test/windows-runner.ts',
 ]
 
 const escape = (text) => text.replace(/[.+^${}()|[\]\\?]/g, '\\$&')

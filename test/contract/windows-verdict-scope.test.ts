@@ -131,6 +131,10 @@ describe('scripts/windows-verdict-scope.mjs', () => {
     ['src/main/ipc/notify.ts', 'src/main/ipc/notify.ts'],
     ['src/shared/ipc/notify.ts', 'src/shared/ipc/notify.ts'],
     ['src/main/dock-icon.ts', 'src/main/dock-icon.ts'],
+    ['src/main/browser/**', 'src/main/browser/screencast.ts'],
+    ['src/main/ipc/browser.ts', 'src/main/ipc/browser.ts'],
+    ['src/renderer/browser/**', 'src/renderer/browser/BrowserProfiles.tsx'],
+    ['src/shared/browser/**', 'src/shared/browser/partition.ts'],
     ['test/e2e/**', 'test/e2e/browser-sleep.spec.ts'],
     ['test/acceptance/**', 'test/acceptance/fixtures/silent-repo/src/index.js'],
     ['playwright.config.ts', 'playwright.config.ts'],
@@ -151,6 +155,9 @@ describe('scripts/windows-verdict-scope.mjs', () => {
     ['scripts/windows-verdict-scope.mjs', 'scripts/windows-verdict-scope.mjs'],
     ['scripts/vitest-electron.mjs', 'scripts/vitest-electron.mjs'],
     ['vitest.config.ts', 'vitest.config.ts'],
+    ['test/setup-contract.ts', 'test/setup-contract.ts'],
+    ['test/setup-dom.ts', 'test/setup-dom.ts'],
+    ['test/windows-runner.ts', 'test/windows-runner.ts'],
   ]
 
   it('lists exactly the entries pinned here, in this order', () => {
@@ -193,6 +200,20 @@ describe('scripts/windows-verdict-scope.mjs', () => {
       put(path, `${path} changed\n`)
     })
     expect(scope('main', head)).toEqual({ status: 1, lines: ['pc', path], stderr: '' })
+  })
+
+  it('prints pc for a diff of the Browser layer alone: its pages live in windows of the app', () => {
+    const head = branch(() => {
+      put('src/main/browser/live.ts')
+      put('src/main/ipc/browser.ts')
+      put('src/renderer/browser/control.ts')
+      put('src/shared/browser/tools.ts')
+    })
+    expect(scope('main', head)).toEqual({
+      status: 1,
+      lines: ['pc', 'src/main/browser/live.ts', 'src/main/ipc/browser.ts', 'src/renderer/browser/control.ts', 'src/shared/browser/tools.ts'],
+      stderr: '',
+    })
   })
 
   it('names every matching file once, in the order of git, and no other', () => {
