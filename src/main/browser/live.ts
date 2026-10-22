@@ -13,7 +13,12 @@
 // - One Session at a time: another Session's call is refused while one drives it.
 // Control is kept by Browser Node, not by page: a page the window draws again (a reload of the
 // window, a Browser moved back from the Trash) keeps it.
-// shortcut: control outlives the Session that drove the Browser (the banner stays after it ends), redo when worfy-browser ticket 06 ties a Browser to its Session's life.
+// - Control ends with the Session's place on the Canvas (worfy-browser ticket 06, ADR-0078 item
+//   11): once an operation takes the last Node of a Session off it — Hide, Remove, the archive —
+//   main drops every control of that Session (`sessionsLeft` of the Layout change). Its own
+//   Browsers left the Canvas in the same operation (src/main/layout/store.ts); a Browser of the
+//   user it drove stays, its banner — «Claude is driving» or «Return control to Claude» — goes, and
+//   the user has it to themselves.
 // shortcut: a Browser drawn by two windows of one Project is driven in the window that told main last, redo with worfy-browser ticket 07 (one Live page for every screen).
 // Until then sleep reads every page of such a Browser: the focus or the input of any of them uses it,
 // and a beforeunload handler in any of them keeps it Live.
@@ -50,7 +55,7 @@ import { browserProfileStore } from './profiles'
 import { admit, ALL_LIVE_BUSY, browsersToSleep, drivenNow, fitLimit, readableNow, type BrowserNow, type ScreenNow, type SleepSettings, type Waker } from './sleep'
 import { toEveryWindow } from '../broadcast'
 import { emit } from '../ipc'
-import { layoutStore } from '../layout/store'
+import { layoutStore, type LayoutChange } from '../layout/store'
 import { projectStore } from '../projects/store'
 import { appSettingsStore } from '../settings/store'
 import { TAKEN_OVER, type BrowserControlMode } from '../../shared/browser/tools'
@@ -82,6 +87,8 @@ export interface LiveBrowsersDeps {
   browsersOf?(projectId: string): readonly string[] | null
   /** Told after a Browser of the Project woke, went to sleep or changed its marks. */
   livesChanged?(projectId: string, lives: BrowserLife[]): void
+  /** Subscribes to every change of a Layout (LayoutStore.onChange); returns the unsubscribe. */
+  layoutChanges?(listener: (change: Pick<LayoutChange, 'projectId' | 'sessionsLeft'>) => void): () => void
 }
 
 /** What main keeps of one Browser between its pages (worfy-browser ticket 05). */
@@ -156,7 +163,22 @@ export class LiveBrowsers {
   /** The Projects whose Browsers could not be read, told to the log once until they can again. */
   private readonly unread = new Set<string>()
 
-  constructor(private readonly deps: LiveBrowsersDeps) {}
+  private readonly unsubscribe: (() => void) | undefined
+
+  constructor(private readonly deps: LiveBrowsersDeps) {
+    this.unsubscribe = deps.layoutChanges?.((change) => this.sessionsLeft(change.projectId, change.sessionsLeft ?? []))
+  }
+
+  /** Sessions of Project `projectId` left the Canvas: nobody drives what they drove. */
+  private sessionsLeft(projectId: string, sessions: readonly string[]): void {
+    if (sessions.length === 0) return
+    const prefix = keyOf(projectId, '')
+    for (const [key, control] of [...this.controls]) {
+      if (!key.startsWith(prefix) || !sessions.includes(control.sessionId)) continue
+      this.controls.delete(key)
+      this.deps.changed(projectId, key.slice(prefix.length), null)
+    }
+  }
 
   /**
    * The page of Browser Node `nodeId` is `contents` from now on, until it is closed. Null — refused —
@@ -652,6 +674,7 @@ export class LiveBrowsers {
   stop(): void {
     clearInterval(this.timer)
     this.timer = undefined
+    this.unsubscribe?.()
   }
 }
 
@@ -683,6 +706,7 @@ export function liveBrowsers(): LiveBrowsers {
         .map((node) => node.id)
     },
     livesChanged: (projectId, lives) => toEveryWindow((client) => emit(client, browserLivesChanged, { projectId, lives })),
+    layoutChanges: (listener) => layoutStore().onChange(listener),
   })
   return shared
 }

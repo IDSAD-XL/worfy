@@ -17,5 +17,8 @@ login of one role of the Project's web app (admin, moderator, user…). Drive it
 - While you drive a Browser it shows «Claude is driving». A click or a key of the user in it takes
   it over: every call then answers that the user took over, until they press «Return control to
   Claude». Wait or ask in the chat; do not retry in a loop.
+- You drive the Browsers you opened and those the user opened (`openedBy` null in `browser_list`),
+  not one another Session opened. The Browsers you open leave the canvas with your Session's Node:
+  when it is hidden, removed or archived, they are gone; open a new one when you need it again.
 - What you find goes to the user and into Playwright tests you write; the Browser is not a test
   suite.

@@ -24,6 +24,16 @@
 // The archive runs a Project when main first reads its Layout (onFirstRead), so the first archive
 // of a Project comes when it is opened, not one timer tick later (ADR-0076, Amendments).
 //
+// A Browser a Session opened (`data.openedBy`, src/main/mcp/browser-server.ts) leaves the Canvas
+// with that Session (ADR-0078, item 11; worfy-browser ticket 06): an operation that takes the last
+// Node of a Session off the Canvas — `hide`, `remove` or `archive`, whoever sends it — also removes
+// the Session's Browser Nodes from the Layout, in the same operation and the same revision, and the
+// change names the Session (`sessionsLeft`). Nothing brings them back: not showing the Session again,
+// not a `restore`, not ⌘Z of the user's step (it sends the Session's own inverse only). A Session
+// that the archive leaves alone (pinned, Keep) keeps its Browsers from it, but not from a Hide or a
+// Remove. A Browser the user opened has no `openedBy` and stays; so does a locked Browser, as a
+// locked Node does under every Remove.
+//
 // Operations change the Layout in memory at once; the file is written after a quiet period
 // (LAYOUT_SAVE_DELAY_MS since the last operation) or, while operations keep coming with no quiet
 // period, LAYOUT_SAVE_MAX_DELAY_MS after the first unsaved one; and right away by flush() — the IPC
@@ -34,6 +44,9 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { freePlace, freeShift, isParticipant, obstaclesFor, stopResize } from '../../shared/layout/free-place'
+import { ORCHESTRATOR_KIND } from '../../shared/ipc/orchestrator'
+import { SESSION_NODE_KIND } from '../../shared/ipc/sessions'
+import { shownOnCanvas } from '../../shared/layout/derived'
 import { EMPTY_LAYOUT, isArchived, layoutOpSchema, layoutSchema, type Layout, type LayoutNode, type LayoutOp, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
 import { projectStore } from '../projects/store'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
@@ -58,6 +71,8 @@ export interface LayoutChange extends LayoutState {
    * one: main itself, an agent, an automatic writer of the renderer (worfy-link ticket 07).
    */
   screen: string | null
+  /** The Sessions whose last Node on the Canvas this operation took off it; their Browsers went with them. Absent — none. */
+  sessionsLeft?: readonly string[]
 }
 
 export interface LayoutStoreOptions {
@@ -255,6 +270,42 @@ function applyOp(layout: Layout, op: LayoutOp, now: number): Layout {
   return { ...layout, nodes }
 }
 
+/** The kind of a Browser Node (BROWSER_KIND of src/main/mcp/browser-server.ts and src/renderer/canvas/nodes/browser-frame.ts). */
+const BROWSER_KIND = 'browser'
+
+/** The Session a Session Node or the Orchestrator's Node shows; null for any other Node. */
+function sessionOfNode(node: LayoutNode): string | null {
+  if (node.kind !== SESSION_NODE_KIND && node.kind !== ORCHESTRATOR_KIND) return null
+  const id = node.data.sessionId
+  return typeof id === 'string' && id !== '' ? id : null
+}
+
+/** The Nodes an operation takes off the Canvas, by id. */
+function takenOff(op: LayoutOp): string[] {
+  if (op.op === 'hide') return op.hidden ? [op.id] : []
+  if (op.op === 'remove') return [op.id]
+  if (op.op === 'archive') return op.nodes.map((node) => node.id)
+  return []
+}
+
+/**
+ * `after`, the Layout `op` made of `before`, without the Browsers of the Sessions it took off the
+ * Canvas (ADR-0078, item 11): those named by the Session Nodes it hides, removes or archives, once no
+ * other Node of theirs is on the Canvas. A locked Browser stays.
+ */
+function leaveWithSessions(before: Layout, after: Layout, op: LayoutOp): { layout: Layout; sessionsLeft: string[] } {
+  const named = new Set(takenOff(op))
+  if (named.size === 0) return { layout: after, sessionsLeft: [] }
+  const taken = new Set(before.nodes.filter((node) => named.has(node.id)).flatMap((node) => sessionOfNode(node) ?? []))
+  for (const node of after.nodes) {
+    const session = sessionOfNode(node)
+    if (session !== null && shownOnCanvas(node)) taken.delete(session)
+  }
+  if (taken.size === 0) return { layout: after, sessionsLeft: [] }
+  const leaves = (node: LayoutNode): boolean => node.kind === BROWSER_KIND && !node.locked && typeof node.data.openedBy === 'string' && taken.has(node.data.openedBy)
+  return { layout: after.nodes.some(leaves) ? { ...after, nodes: after.nodes.filter((node) => !leaves(node)) } : after, sessionsLeft: [...taken] }
+}
+
 export class LayoutStore {
   private readonly entries = new Map<string, Entry>()
   /**
@@ -340,7 +391,8 @@ export class LayoutStore {
     if (!parsed.success) throw new Error(`invalid layout operation\n${z.prettifyError(parsed.error)}`)
     const entry = this.entry(projectId)
     const now = this.now()
-    entry.layout = touch(applyOp(entry.layout, parsed.data, now), touchedBy(parsed.data, screen), now)
+    const { layout, sessionsLeft } = leaveWithSessions(entry.layout, applyOp(entry.layout, parsed.data, now), parsed.data)
+    entry.layout = touch(layout, touchedBy(parsed.data, screen), now)
     entry.revision += 1
     entry.dirty = true
     this.schedule(projectId, entry)
@@ -348,7 +400,7 @@ export class LayoutStore {
     const state = { projectId, layout: entry.layout, revision: entry.revision }
     for (const listener of this.listeners) {
       try {
-        listener({ ...state, op: parsed.data, screen })
+        listener({ ...state, op: parsed.data, screen, sessionsLeft })
       } catch (error) {
         console.error('[layout] a change listener threw', error)
       }

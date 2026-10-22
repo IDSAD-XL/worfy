@@ -84,6 +84,43 @@ describe('familyOf', () => {
   })
 })
 
+describe('familyOf: the Browsers a Session opened (worfy-browser ticket 06, ADR-0078 item 13)', () => {
+  // Session A (bound to Ticket e/1) opened Browsers a and a2; Session C (no Binding) opened c; the
+  // user opened u, which is in no list.
+  const withBrowsers: FamilyLinks = {
+    ...links,
+    browsers: [
+      { nodeId: 'browser-a', sessionNodeId: S('A') },
+      { nodeId: 'browser-a2', sessionNodeId: S('A') },
+      { nodeId: 'browser-c', sessionNodeId: S('C') },
+    ],
+  }
+  const ofB = (nodeId: string): string[] | null => sorted(familyOf(nodeId, withBrowsers))
+  const familyOfA = [epicNodeId('e'), S('A'), SUB('A', 'a1'), SUB('A', 'a2'), ticketNodeId('e', 1), 'browser-a', 'browser-a2'].sort()
+
+  it('a Session brings its Browsers, and so do its Ticket and that Ticket’s Epic frame', () => {
+    expect(ofB(S('A'))).toEqual(familyOfA)
+    expect(ofB(ticketNodeId('e', 1))).toEqual(familyOfA)
+    expect(ofB(epicNodeId('e'))).toEqual(expect.arrayContaining(['browser-a', 'browser-a2']))
+    expect(ofB(epicNodeId('e'))).not.toContain('browser-c')
+    expect(ofB(S('C'))).toEqual([S('C'), SUB('C', 'c1'), 'browser-c'].sort())
+  })
+
+  it('hovering a Browser gives the Family of its Session; a Subagent of the Session lights its Browsers too', () => {
+    expect(ofB('browser-a')).toEqual(familyOfA)
+    expect(ofB('browser-a2')).toEqual(familyOfA)
+    expect(ofB(SUB('A', 'a1'))).toEqual(familyOfA)
+    expect(ofB('browser-c')).toEqual(ofB(S('C')))
+  })
+
+  it('a Browser the user opened has no Family, and is in none', () => {
+    expect(ofB('browser-u')).toBeNull()
+    for (const node of [S('A'), S('B'), ticketNodeId('e', 1), epicNodeId('e'), epicNodeId('f')]) expect(ofB(node)).not.toContain('browser-u')
+    // Another Session's Family has none of A's Browsers.
+    expect(ofB(S('B'))).toEqual([epicNodeId('e'), S('B'), SUB('B', 'b1')].sort())
+  })
+})
+
 describe('familyLinksOf', () => {
   const layoutNode = (id: string, kind: string, data: Record<string, unknown>) => ({ id, kind, x: 0, y: 0, w: 1, h: 1, hidden: false, locked: false, pinned: false, tags: [], data })
   const flowNode = (id: string, type: string, data: Record<string, unknown>) => ({ id, type, data: { node: layoutNode(id, type, data) } })
@@ -104,6 +141,26 @@ describe('familyLinksOf', () => {
       sessions: [S('A')],
       subagents: [{ nodeId: SUB('A', 'a1'), sessionNodeId: S('A') }],
       bindings: [{ agentNodeId: S('A'), target: { kind: 'ticket', epic: 'e', num: 1 } }],
+      browsers: [],
     })
+  })
+
+  it('reads which Session opened each Browser: by `openedBy`, to the Node of that Session; none for the user’s or a Session without a Node', () => {
+    const nodes = [
+      flowNode('browser-1', 'browser', { profile: 'p', openedBy: 'A' }),
+      flowNode(S('A'), 'session', { sessionId: 'A' }),
+      flowNode('orchestrator', 'orchestrator', { sessionId: 'O' }),
+      flowNode('browser-2', 'browser', { profile: 'p', openedBy: 'O' }),
+      flowNode('browser-user', 'browser', { profile: 'p' }),
+      flowNode('browser-gone', 'browser', { profile: 'p', openedBy: 'nobody' }),
+      flowNode('browser-empty', 'browser', { profile: 'p', openedBy: '' }),
+    ]
+    expect(familyLinksOf(nodes).browsers).toEqual([
+      { nodeId: 'browser-1', sessionNodeId: S('A') },
+      { nodeId: 'browser-2', sessionNodeId: 'orchestrator' },
+    ])
+    expect(familyOf('browser-1', familyLinksOf(nodes))).toEqual(new Set(['browser-1', S('A')]))
+    expect(familyOf('browser-user', familyLinksOf(nodes))).toBeNull()
+    expect(familyOf('browser-gone', familyLinksOf(nodes))).toBeNull()
   })
 })

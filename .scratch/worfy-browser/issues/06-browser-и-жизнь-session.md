@@ -1,7 +1,8 @@
 # 06 — Browser и жизнь Session: связь «открыт этой Session» в Family, уход вместе с Session
 
 Type: task
-Status: open
+Status: claimed 2026-10-22T08:00Z
+Branch: worfy-browser/06
 Blocked by: 04
 Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md) (Browser Node), пункт 11
 (Browser Session-ы уходит с ней при автоархиве, Hide, Remove; pinned и Keep держат; Restore не
@@ -38,23 +39,23 @@ Browser пользователя — вне Family); [ADR-0076](../../../docs/ad
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/family.test.ts`: Browser с `openedBy` — в Family Session, её Ticket-а и Epic
+- [x] Unit `test/unit/family.test.ts`: Browser с `openedBy` — в Family Session, её Ticket-а и Epic
       frame-а; наведение на Browser даёт Family его Session; Browser без `openedBy` — `null`.
-- [ ] Contract `test/contract/browser-lifecycle.test.ts` (новый): Hide и Remove Session Node-а
+- [x] Contract `test/contract/browser-lifecycle.test.ts` (новый): Hide и Remove Session Node-а
       убирают её Browser-ы в той же операции; Hide и Remove pinned Session (и Session с Keep) тоже
       убирают её Browser-ы; Browser пользователя и Browser другой Session остаются; Restore Session
       Browser не возвращает.
-- [ ] Contract `test/contract/layout-archive.test.ts`: партия автоархива уносит Browser-ы своих
+- [x] Contract `test/contract/layout-archive.test.ts`: партия автоархива уносит Browser-ы своих
       Session-ов; Session с `pinned` или `keep` их держит.
-- [ ] e2e `test/e2e/browser-family.spec.ts`: Session открывает Browser через `worfy-browser`,
+- [x] e2e `test/e2e/browser-family.spec.ts`: Session открывает Browser через `worfy-browser`,
       наведение на Ticket подсвечивает и Browser; Hide Session — Browser ушёл, Browser пользователя
       на месте; два окна одного Project-а видят одно и то же (ADR-0053); read-only экран
       (ADR-0066) — подсветка работает.
-- [ ] Contract `test/contract/browser-lifecycle.test.ts`: Hide и Remove пользователя — шаг ⌘Z
+- [x] Contract `test/contract/browser-lifecycle.test.ts`: Hide и Remove пользователя — шаг ⌘Z
       (что он возвращает — по ответу на вопрос 1), партия автоархива — мимо ⌘Z (ADR-0016).
-- [ ] Мутанты красные: Browser пользователя уходит с Session; Restore возвращает Browser; Keep не
+- [x] Мутанты красные: Browser пользователя уходит с Session; Restore возвращает Browser; Keep не
       держит Browser.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
 
@@ -92,4 +93,31 @@ Browser пользователя — вне Family); [ADR-0076](../../../docs/ad
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-browser/06`. Решения без владельца (вопросы 1–3 и то, что из них следует):
+
+- ⌘Z Hide или Remove Session возвращает только Session, без её Browser-ов (как Restore, ADR-0078
+  п. 11). Показать скрытую Session снова — Browser-ы тоже не возвращаются. Вопрос 3: `openedBy` —
+  Session; вызовы Subagent-а идут через MCP server его Session с её id.
+- Browser-ы Session удаляются из Layout (не архивируются и не скрываются) в той же операции `apply`,
+  что убрала с Canvas последний показанный Node Session (Session Node или Orchestrator): Hide,
+  Remove, партия автоархива. Пока на Canvas остаётся другой Node той же Session, Browser-ы стоят.
+  Browser, который пользователь заблокировал (`locked`), остаётся.
+- Session водит свои Browser-ы и Browser-ы пользователя, но не Browser другой Session (долг из
+  worfy-polish 36); отказ — до того, как что-то взято или разбужено. Session, все Node-ы которой
+  скрыты или в архиве, `browser_open` не открывает.
+- Когда Session уходит с Canvas, её управление Browser-ами кончается, и перехват пользователя тоже:
+  плашка «Claude is driving» и «Return control to Claude» исчезают (`LayoutChange.sessionsLeft`,
+  `src/main/browser/live.ts`). По пути исправлено: окно не снимало плашку при отпускании управления
+  (zustand сливал state, `src/renderer/browser/control.ts`).
+- Подсветка Family для Browser — пунктирная рамка вокруг frame-а (`data-family="lit"`): линию к
+  Session Node провести нельзя, у Session Node нет React Flow Handle-ов.
+
+Тесты: `test/contract/browser-lifecycle.test.ts` (15), `test/unit/family.test.ts`,
+`test/contract/layout-archive.test.ts`, `test/contract/browser-tools.test.ts`,
+`test/unit/browser-frame-session.test.tsx`, e2e `test/e2e/browser-family.spec.ts` (2). Двенадцать
+мутантов, три из списка тикета в том числе, — красные. `pnpm lint && pnpm typecheck && pnpm test` —
+exit 0; gate fast — green; e2e Browser-ов, Family и автоархива — 39 passed.
+
+Осталось вне тикета: Session, которую скрыли во время `browser_open` (пока Browser будится), всё же
+получает Browser; Session, скрытая, но ещё работающая, может снова взять Browser пользователя;
+наведение на страницу внутри webview (не на заголовок frame-а) Family не подсвечивает.
