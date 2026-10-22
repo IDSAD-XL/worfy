@@ -9,7 +9,7 @@ import { spawn as spawnNodePty } from 'node-pty'
 import { describe, expect, it, vi } from 'vitest'
 import { findGitBash, findOnPath } from '../../src/main/agent/env'
 import { terminalKey } from '../../src/main/ipc/terminal'
-import { endDescendants } from '../../src/main/terminal/pty'
+import { endDescendants, spawnShellPty, type SpawnPty } from '../../src/main/terminal/pty'
 import { alive, consoleHosts, folderLine, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, root, say, SAY_THE_FOLDER, SYSTEM_ROOT, threads, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
@@ -101,16 +101,21 @@ describe('terminal channels on a real pty', () => {
 // What closing a Terminal on Windows leaves behind, and whom it may end (worfy-windows ticket 10,
 // review round 1): real pseudo-consoles and real processes, so only there.
 describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
-  it('node-pty is the one the registry knows: its kill() has the helper process that the registry takes out', () => {
-    const pty = spawnNodePty(win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoLogo', '-NoProfile'], { name: 'xterm-256color', cols: 80, rows: 24, cwd: root, env: windowsEnv(home) })
-    const agent = (pty as unknown as { _agent?: { _getConsoleProcessList?: unknown } })._agent
+  // Review of PR #280 (ticket 42 of worfy-windows, item 5): this ran node-pty on the console of the
+  // system, which the app no longer uses.
+  it('node-pty as the app starts it (spawnShellPty) is the one the registry knows: the helper of kill(), the exit code, the input socket and the thread that reads the output', () => {
+    const pty = spawnShellPty(win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoLogo', '-NoProfile'], { name: 'xterm-256color', cols: 80, rows: 24, cwd: root, env: windowsEnv(home) })
+    const agent = (pty as unknown as { _agent?: { _getConsoleProcessList?: unknown; _conoutSocketWorker?: { dispose?: unknown }; inSocket?: { on?: unknown } } })._agent
     try {
-      // When this fails after an update of node-pty, read withoutConsoleHelper in src/main/terminal/pty.ts again.
+      // When this fails after an update of node-pty, read src/main/terminal/windows-pty.ts again.
       expect(typeof agent?._getConsoleProcessList).toBe('function')
+      expect(typeof agent?._conoutSocketWorker?.dispose).toBe('function')
+      expect(typeof agent?.inSocket?.on).toBe('function')
+      expect(agent !== undefined && 'exitCode' in agent).toBe(true)
     } finally {
-      // Without the helper here too: it would end this pid 5 s from now.
-      if (agent !== undefined) agent._getConsoleProcessList = () => Promise.resolve([])
       pty.kill()
+      // As the registry does after kill() (stopOutputWorker): else the thread stays.
+      if (typeof agent?._conoutSocketWorker?.dispose === 'function') (agent._conoutSocketWorker as { dispose: () => void }).dispose()
     }
   })
 
@@ -150,26 +155,27 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     }
   }, 60_000)
 
-  it('close leaves no conhost.exe behind and starts no helper process; it is done well inside its bound', async (context) => {
+  // Review of PR #280 (item 5): the count of hosts was compared, not their pids, and nothing showed
+  // that the host of the package's console (OpenConsole.exe) was counted at all.
+  it('close leaves no console host behind, neither conhost.exe nor OpenConsole.exe; it is done well inside its bound', async (context) => {
     needsWindowsPowerShellOffRunner(context)
-    const fork = vi.spyOn(childProcess, 'fork')
     const h = await harness({ nodes: ['n1', 'n2', 'n3'] })
-    const before = consoleHosts()
+    const before = new Set(consoleHosts())
+    const seen = new Set<number>()
     const took: number[] = []
     for (const nodeId of ['n1', 'n2', 'n3']) {
       await h.open(nodeId)
       await h.run(say('rea', 'dy'), /ready\r?\n/, nodeId)
+      expect(newHosts(before, seen).length, 'the host of the console of a running shell is counted').toBeGreaterThanOrEqual(1)
       const started = performance.now()
       await h.ok('terminal.close', { projectId: PROJECT, nodeId })
       took.push(performance.now() - started)
     }
     expect(Math.max(...took)).toBeLessThan(3000)
     expect(h.registry.size).toBe(0)
-    // Not more than before: the count before may still hold a console of an earlier test that is closing.
-    // Three Terminals closed the old way would leave three more.
-    await vi.waitFor(() => expect(consoleHosts()).toBeLessThanOrEqual(before), { timeout: 5000, interval: 500 })
-    // node-pty's helper lists the console and, when it fails, ends the pid of the shell 5 s later.
-    expect(fork).not.toHaveBeenCalled()
+    // None that was not there before: the set before may still hold a console of an earlier test
+    // that is closing. Three Terminals closed the old way would leave three.
+    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !before.has(pid))).toEqual([]), { timeout: 5000, interval: 500 })
   }, 60_000)
 
   // worfy-windows ticket 22. Under the console of the system each such shell left its conhost.exe
@@ -177,15 +183,17 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
   it('a shell that exited on its own leaves no console host behind', async (context) => {
     needsWindowsPowerShellOffRunner(context)
     const h = await harness({ nodes: ['n1', 'n2', 'n3'] })
-    const before = consoleHosts()
+    const before = new Set(consoleHosts())
+    const seen = new Set<number>()
     for (const nodeId of ['n1', 'n2', 'n3']) {
       await h.open(nodeId)
       await h.run(say('rea', 'dy'), /ready\r?\n/, nodeId)
+      expect(newHosts(before, seen).length, 'the host of the console of a running shell is counted').toBeGreaterThanOrEqual(1)
       await h.type('exit\r', nodeId)
       await vi.waitFor(() => expect(h.exits.map((exit) => exit.nodeId)).toContain(nodeId), { timeout: 5000 })
     }
-    // Not more than before: the count before may still hold a console of an earlier test that is closing.
-    await vi.waitFor(() => expect(consoleHosts()).toBeLessThanOrEqual(before), { timeout: 5000, interval: 500 })
+    // None that was not there before: the set before may still hold a console of an earlier test that is closing.
+    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !before.has(pid))).toEqual([]), { timeout: 5000, interval: 500 })
   }, 60_000)
 
   // Review of PR #280. On the console of the package node-pty reports an exit only when the console
@@ -226,11 +234,15 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     await vi.waitFor(() => expect(threads() - before).toBeLessThan(6), { timeout: 8000, interval: 500 })
   }, 120_000)
 
-  it('a shell that exited on its own is asked nothing by its pid afterwards: no helper process is started', async (context) => {
+  // Review of PR #280 (item 5): on the console of the package kill() starts no helper at all, so
+  // this ran on that console without proving anything. On the console of the system — a spawn of
+  // its own given to the registry — kill() does start one, and the registry takes it out.
+  it('a shell on the console of the system that exited on its own is asked nothing by its pid afterwards: no helper process is started', async (context) => {
     needsWindowsPowerShellOffRunner(context)
     const fork = vi.spyOn(childProcess, 'fork')
     const signals = vi.spyOn(process, 'kill')
-    const h = await harness()
+    const onTheSystemConsole: SpawnPty = (shell, args, options) => spawnNodePty(shell, [...args, '-NoProfile'], options)
+    const h = await harness({ spawn: onTheSystemConsole })
     const { pid } = await h.open()
     await h.run(say('rea', 'dy'), /ready\r?\n/)
     await h.type('exit 3\r')
@@ -239,6 +251,13 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     expect(fork).not.toHaveBeenCalled()
     expect(signals.mock.calls.filter(([target]) => target === pid)).toEqual([])
   })
+
+  /** The console hosts that are in neither set, added to `seen`. */
+  function newHosts(before: ReadonlySet<number>, seen: Set<number>): number[] {
+    const fresh = consoleHosts().filter((pid) => !before.has(pid) && !seen.has(pid))
+    for (const pid of fresh) seen.add(pid)
+    return fresh
+  }
 
   /** A PowerShell that starts a hidden node under itself, prints its pid and waits. */
   async function shellWithChild(): Promise<{ shell: number; child: number; startedBy: number; end: () => void }> {

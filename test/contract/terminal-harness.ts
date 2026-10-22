@@ -297,12 +297,16 @@ export async function harness(options: HarnessOptions = {}) {
 }
 
 /**
- * The console hosts this process started: one per pseudo-console that is still open. conhost.exe
- * is the one of the system; OpenConsole.exe the one of the node-pty package (useConptyDll).
+ * The pids of the console hosts this process started: one per pseudo-console that is still open.
+ * conhost.exe is the one of the system; OpenConsole.exe the one of the node-pty package (useConptyDll).
  */
-export function consoleHosts(): number {
-  const script = `@(Get-CimInstance -Query "SELECT ProcessId FROM Win32_Process WHERE ParentProcessId = ${process.pid} AND (Name = 'conhost.exe' OR Name = 'OpenConsole.exe')").Count`
-  return Number(execFileSync(win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' }))
+export function consoleHosts(): number[] {
+  const script = `Get-CimInstance -Query "SELECT ProcessId FROM Win32_Process WHERE ParentProcessId = ${process.pid} AND (Name = 'conhost.exe' OR Name = 'OpenConsole.exe')" | ForEach-Object { $_.ProcessId }`
+  const output = execFileSync(win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' })
+  return output
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== '')
+    .map(Number)
 }
 
 /** The threads of this process, as Windows counts them. */
