@@ -158,3 +158,57 @@ worfy. Плато нет: 100 оболочек дали ровно +200. Пре�
 
 - История Git Bash при закрытии Terminal-а — [Ticket 93](93-git-bash-теряет-историю-при-закрытии-terminal-а.md).
 - Консоль системы (`useConptyDll: false`) приложение не использует. Её утечку `conhost.exe` закрыл Ticket 22.
+
+## Итог
+
+Обход в `release()` (`src/main/terminal/pty.ts`) не сделан: из JavaScript его сделать нельзя. Есть test, который
+меряет утечку и сторожит её размер.
+
+**Почему обхода через `_agent` нет.** После выхода оболочки до pseudo-console не дотянуться ничем, что node-pty
+отдаёт JavaScript:
+
+- `startProcess` возвращает JavaScript-у только номер записи (`pty`), `fd` = −1 и имена двух pipe (`conin`,
+  `conout`; `conpty.cc:295-321`). Сам `HPCON` есть только в `pty_baton` на стороне C++.
+- Нативный модуль экспортирует пять функций: `startProcess`, `connect`, `resize`, `clear`, `kill`
+  (`conpty.cc:608-612`). Все, кроме `startProcess`, ищут запись по номеру (`get_pty_baton`). Поток выхода её
+  уже удалил (`std::erase_if`, `conpty.cc:95-104`), и `unique_ptr` освободил `pty_baton`.
+- В `windowsPtyAgent.js` и `windowsConoutConnection.js` нет ничего, что держит `HPCON` или его handle:
+  сокеты `conin`/`conout`, поток чтения вывода и номер записи.
+- Upstream: issue [microsoft/node-pty#965](https://github.com/microsoft/node-pty/issues/965) «ConPTY: the
+  pseudoconsole is never closed on a natural shell exit» открыт. PR #990 и #991 к нему открыты, ответа
+  сопровождающих нет. Автор issue пишет, что обхода для пользователя библиотеки нет; комментатор проверил,
+  что `kill()` и `destroy()` после выхода хосты не убирают. В `main` upstream (`src/win/conpty.cc`) поток выхода
+  по-прежнему не зовёт `ClosePseudoConsole`. Новее 1.2.0-beta.15 (2026-08-03) на npm нет. Проверено через
+  веб, без `gh`, 2026-10-22.
+
+Что остаётся (решение — Session на Mac и владелец):
+
+1. Патч `conpty.cc` (закрыть `hpc` в потоке выхода под тем же mutex, до `erase_if`) и сборка `conpty.node`
+   под ABI Electron на Windows. На ПК есть Visual Studio 2022 (есть ли в нём C++ build tools, не проверено).
+   Двойного закрытия нет: запись удаляется в той же критической секции, и `PtyKill` её уже не найдёт.
+2. Ждать PR #990 или #991 и обновить node-pty.
+3. Только Git Bash при закрытии: позвать `kill()` раньше, чем запускатель выйдет сам. Это порядок
+   `endWindowsShell()`, его меняет Ticket 93.
+4. Закрыть два handle из другого процесса (`DuplicateHandle` с `DUPLICATE_CLOSE_SOURCE`). Отклонено: pipe
+   `hSignal` нельзя надёжно отличить от других анонимных pipe процесса, а ошибка закрывает чужой живой handle
+   в main. Каждый прогон — PowerShell с `Add-Type`, 1–2 с.
+
+**Test.** `test/contract/terminal-windows.test.ts`, describe «the handles a shell leaves in this process on
+Windows, on a real pty»: настоящий `TerminalRegistry` через каналы IPC, оболочки по четыре сразу, прогрев из
+четырёх, потом счёт `(Get-Process -Id <pid>).HandleCount` (`handleCount()` в `terminal-harness.ts`). Ожидание —
+`LEAK_PER_SHELL` × число оболочек ± 5. Сейчас `LEAK_PER_SHELL` = 2 (комментарий `shortcut:`): test ловит рост
+утечки и краснеет, когда node-pty её исправит, — тогда поставить 0. Без Windows test не запускается; Git Bash
+без Git for Windows — skip.
+
+Замер на ПК 2026-10-22, этот test, ветка `worfy-windows/92` от `origin/main` 79f66f69:
+
+| Как кончается оболочка | Оболочек | Прирост handle | На оболочку |
+| --- | --- | --- | --- |
+| PowerShell, `exit` | 20 | +40 | 2 |
+| PowerShell, убита снаружи (`process.kill`) | 12 | +24…+25 | 2 |
+| PowerShell, `terminal.close` | 12 | 0 ± 5 (прошёл с ожиданием 0) | 0 |
+| Git Bash, `terminal.close` | 12 | +24 | 2 |
+
+С ожиданием 0 (цель «Готово, когда») красные три строки — `exit`, убийство снаружи и Git Bash: «added 40 handles»,
+«added 25 handles», «added 24 handles». «После» правки нет: правки нет. Время всего describe — 45 с.
+`OpenConsole.exe` под процессом после каждого test-а — 0.
