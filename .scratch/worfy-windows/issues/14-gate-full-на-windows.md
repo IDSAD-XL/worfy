@@ -644,3 +644,12 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
 без skip — причина в приложении, не в test-ах, и вынесена в Ticket 86 (экран Terminal-а после resize и
 reload, стрелки колеса в alternate screen): `terminal.spec.ts:218`, `focus.spec.ts:341`,
 `wheel-over-nodes.spec.ts:321` (строки по main `30031d93`).
+
+**Ход работы (Session на Mac, 2026-10-22).** Ticket открыт: группы 3–8 таблицы e2e и цель «полный `pnpm test`
+с exit code 0» ещё впереди.
+- Группа 1 влита — PR #708 (merge `08c07b9d`): e2e задают размер окна по содержимому (`setContentSize`), а не по
+  внешнему размеру. Красных e2e на Windows: на main 136, с PR — 55.
+- Группа 2 влита — PR #710 (merge `a9314e92`): e2e Terminal-а печатают команды той оболочки, которая запущена.
+  Три test-а красные и на main: `terminal.spec.ts:273`, `focus.spec.ts:314`, `wheel-over-nodes.spec.ts:346`
+  (строки по main `b1e7ce39`). Причина в приложении: xterm.js работает без опции `windowsPty`, хотя под ним
+  ConPTY. Разбор — в [Ticket 86](86-terminal-на-windows-экран-после-resize-и-alternate-screen.md).

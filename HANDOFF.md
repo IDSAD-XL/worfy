@@ -2,11 +2,11 @@
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 63/69; влиты 62, 64, инфраструктура 52, 63 (#713); задачи 52, Q-H29 — у владельца; 65 открыт; новые 66–69 (69 — долг #685); 31, 36, 47, 48, 50, 51 — шаг владельца («Итог»).
+- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 64/69; влиты 62, 64, 65 (#719), инфраструктура 52, 63 (#713); задачи 52, Q-H29 — у владельца; новые 66–69 (69 — долг #685); 31, 36, 47, 48, 50, 51 — шаг владельца («Итог»).
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
-- `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26; приёмка 16; 32 закрыт (#508); 28 влит (#695), долг — 34. Вне LAN через Tailscale (ADR-0070) — 27–31, код после очереди `worfy-windows`.
-- `worfy-windows` (порт под Windows; spec, ADR 0054–0057, 0062, 0063, 0069, 0071): `epic-status` — 55/74; 2026-10-20 влиты 70 (#562) и 71 (#555); дальше 43 (#557); 73 открыт; 06 (#456) ждёт живой `preflight` на ПК, 07 — Q31 и запуск worfy на ПК.
+- `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26, 28, 34, 35 (#722); приёмка 16; 32 закрыт (#508); 33 открыт. Вне LAN через Tailscale (ADR-0070) — 27, 29–31, после очереди `worfy-windows`.
+- `worfy-windows` (порт под Windows; ADR 0054–0057, 0062, 0063, 0069, 0071): 68/86; 14: влиты группы 1 (#708, красных e2e 136 → 55) и 2 (#710), 3 test-а Terminal-а — в 86; 72 (#705) ждёт правку import-а в `agent/env.ts` (красный `login-shell-capture` на Mac); 06 (#456) — `preflight` на ПК; 07 — Q31.
 - `worfy-windows`, ПК: gate fast — lint и typecheck до закрытия 14; worktree-ы — в `C:/Users/Alexey/worfy-wt`, вне `%TEMP%` (Q25, 52). Новые 67–69 — follow-up-ы 39 и 64; 85 — зависание trap-а gate full под Git Bash.
 - `worfy-windows` 39 влит (#512): main отвечает на `ESC[6n`, ответы view — не ввод. Цена — скорость flood-а (один worker разбора), владелец принял; ускорить — 67.
 - `worfy-windows` 65, 66, ADR-0071 (2026-10-19): сначала main зелёный на Windows (65, 14), затем 66 — полный `pnpm test` на Windows-runner-е; его зелёный run — `check/windows` для платформенных PR без Terminal, окон, e2e и упаковки.

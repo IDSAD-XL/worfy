@@ -70,6 +70,13 @@ mode), круг 1: линза «корректность» и линза «те�
     путь в форме 8.3 (`C:/Users/RUNNER~1` против `runneradmin`), test строит пути от `os.tmpdir()` без
     `realpath.native`; на main те же 4 старых (run 39637861605). Поля логики совпадают. Правка: `realpath.native`
     временного корня в `shell.test.ts`.
+- [ ] **Ревью #716 (worfy-ui 24), остаток low.** Строки — по main `b1e7ce39`.
+  - `src/renderer/claude-home/useClaudeHome.ts:432` (`readFromStart`) — мутант «собрать все события файла, обрезать
+    до `KEEP_EVENTS` в конце» вместо `keepNewest` на каждом chunk-е проходит test-ы: что между chunk-ами держатся
+    только новейшие события, не проверено.
+- [ ] **Ревью #705 (worfy-windows 72), находка вне диффа, low.** Строки — по head PR `8fd99b9f`.
+  - `harness/bin/tests/wave-gate.test.sh:246-253` — `finish` по timeout останавливает только процесс `wave-gate`;
+    его дочерние процессы остаются без родителя. Останавливать группу процессов или дерево целиком.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
