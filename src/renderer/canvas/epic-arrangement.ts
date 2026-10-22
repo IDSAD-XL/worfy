@@ -1,4 +1,6 @@
 // How the Epic frames share their strip of K columns (ADR-0075): the order of the frames and K.
+// K is the candidate of 1 … the number of frames whose strip is closest to 16:10, held by a
+// hysteresis (ADR-0075, point 3, and its Amendments of 2026-10-22).
 // Pure functions: no React, no IPC, no clock, no window size or camera. Every screen of a Project
 // computes the same answer from the same Layout record (ADR-0053), so the frames stand at the same
 // places on a small window and on a large one.
@@ -81,20 +83,37 @@ export function offAspect(frames: readonly ArrangedFrame[], columns: number): nu
 }
 
 /**
- * K for the frames in their order (ADR-0075, point 3). Without a previous K:
- * `max(1, round(sqrt(S × 1.6) / W))`, where S is the sum of the frames' areas (each with its done
- * stack open) and W the widest frame plus FRAME_GAP, and never more columns than frames. With a
- * previous K the strip keeps it while its aspect ratio stays within 30 % of 16:10 (hysteresis), so
- * a new Ticket or a frame that grew rarely moves the frames to other columns. Past that the K
- * computed afresh takes over when its strip is within 30 %, or else when it is clearly closer to
- * 16:10 (SWITCH_MARGIN): with frames of very different widths neither K may be within 30 %, and
- * comparing the two keeps K from flipping on every small change of a frame.
+ * The K among 1 … the number of frames whose strip is closest to 16:10; the smaller K on a tie.
+ * shortcut: tries every K, O(n²) over n frames, well under a millisecond for tens of frames; limit the
+ * candidates (for example to the neighbours of round(sqrt(n))) if a Project ever has hundreds of Epics.
+ */
+function closestColumns(frames: readonly ArrangedFrame[]): number {
+  let best = 1
+  let bestOff = offAspect(frames, 1)
+  for (let k = 2; k <= frames.length; k += 1) {
+    const off = offAspect(frames, k)
+    if (off < bestOff) {
+      best = k
+      bestOff = off
+    }
+  }
+  return best
+}
+
+/**
+ * K for the frames in their order (ADR-0075, point 3, and its Amendments of 2026-10-22). Without a
+ * previous K: every K from 1 to the number of frames is a candidate, and the one whose strip is
+ * closest to 16:10 (`offAspect`) wins; on a tie the smaller K. A formula from the frames' areas
+ * missed with frames of very different widths, where every column is as wide as the widest frame.
+ * With a previous K the strip keeps it while its aspect ratio stays within 30 % of 16:10
+ * (hysteresis), so a new Ticket or a frame that grew rarely moves the frames to other columns. Past
+ * that the K computed afresh takes over when its strip is within 30 %, or else when it is clearly
+ * closer to 16:10 (SWITCH_MARGIN): with frames of very different widths neither K may be within
+ * 30 %, and comparing the two keeps K from flipping on every small change of a frame.
  */
 export function columnsFor(frames: readonly ArrangedFrame[], previous: number | null): number {
   if (frames.length === 0) return 1
-  const column = Math.max(...frames.map((frame) => frame.width)) + FRAME_GAP
-  const area = frames.reduce((sum, frame) => sum + frame.width * reservedHeight(frame), 0)
-  const fresh = usableColumns(Math.max(1, Math.round(Math.sqrt(area * TARGET_ASPECT) / column)), frames.length)
+  const fresh = closestColumns(frames)
   if (previous !== null && Number.isInteger(previous) && previous >= 1) {
     const kept = usableColumns(previous, frames.length)
     if (holdsAspect(frames, kept)) return kept
