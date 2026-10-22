@@ -27,7 +27,7 @@
 // (clearToolbarPlacement()). Pinned Nodes are out of that rule on both ends: a pinned selection
 // keeps its toolbar on top, and the toolbar of a selection on the plane does not avoid a pinned
 // Node, which is drawn above it.
-import { useMemo, type CSSProperties } from 'react'
+import { useCallback, useMemo, useRef, type CSSProperties } from 'react'
 import { useStore, type InternalNode, type ReactFlowState, type XYPosition } from '@xyflow/react'
 import { create } from 'zustand'
 import type { LayoutNode, LayoutOpInput, Viewport } from '../../shared/layout/types'
@@ -388,10 +388,43 @@ export function planeToolbarStyle(nodes: readonly ToolbarNode[], zoom: number, s
 /** Screen pixels between the selection and the Focus button below it (overlays/FocusEntry.tsx). */
 export const FOCUS_ENTRY_OFFSET = 12
 /**
- * The Focus button's size on the screen, for keeping the selection toolbar off it: "Focus ⌘↩" in a
- * --row-height (28 px) button is about 80 px wide; the width has some slack for the font.
+ * The Focus button's size on the screen until FocusEntry.tsx has measured it: "Focus ⌘↩" in a
+ * --row-height (28 px) button is about 80 px wide on macOS; the width has some slack for the font.
  */
 export const FOCUS_ENTRY_SIZE: ToolbarSize = { width: 96, height: 28 }
+
+/**
+ * The Focus button's size on the screen as last measured (useFocusEntryMeasure()), for keeping the
+ * selection toolbar off it; FOCUS_ENTRY_SIZE until then. Not a constant: the label differs by
+ * platform ("Focus ⌘↩" on macOS, "Focus Ctrl+Enter" elsewhere) and by the font the system has, so
+ * on Windows the button came out 104.5 px wide against a fixed 96. Kept when the button goes away
+ * with the selection: the next selection's button has the same label.
+ */
+export const useFocusEntrySize = create<ToolbarSize>(() => FOCUS_ENTRY_SIZE)
+
+/**
+ * A ref callback for the Focus button that keeps useFocusEntrySize at its border box, rounded up to
+ * whole pixels so a fractional width (104.5) is never kept off short. The layout size ignores the
+ * button's scale(1 / zoom), which cancels the viewport's zoom: screen pixels. A zero size (the
+ * button not laid out) leaves the last one.
+ */
+export function useFocusEntryMeasure(): (element: HTMLElement | null) => void {
+  const observer = useRef<ResizeObserver | null>(null)
+  return useCallback((element: HTMLElement | null) => {
+    observer.current?.disconnect()
+    observer.current = null
+    if (element === null || typeof ResizeObserver === 'undefined') return
+    observer.current = new ResizeObserver((entries) => {
+      const box = entries[entries.length - 1]?.borderBoxSize?.[0]
+      const width = Math.ceil(box?.inlineSize ?? element.offsetWidth)
+      const height = Math.ceil(box?.blockSize ?? element.offsetHeight)
+      if (!(width > 0 && height > 0)) return
+      const old = useFocusEntrySize.getState()
+      if (old.width !== width || old.height !== height) useFocusEntrySize.setState({ width, height }, true)
+    })
+    observer.current.observe(element)
+  }, [])
+}
 
 /** A selected Node as placing its toolbar needs it; null while React Flow has not measured it. */
 function toolbarNodeOf(node: InternalNode): ToolbarNode | null {

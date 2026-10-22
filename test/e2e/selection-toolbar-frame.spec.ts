@@ -22,8 +22,18 @@ const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, for
 
 const PROJECT_ID = 'demo-0000000d'
 
-/** The zooms the Canvas is opened at: the Orchestrator Node at (40, 40), the frames' column right of it, the note under it. */
-const ZOOMS = [1, 0.6] as const
+/**
+ * The Canvas zooms and interface scales (webContents zoom, src/main/settings/interface-scale.ts) the
+ * app is opened at: the Orchestrator Node at (40, 40), the frames' column right of it, the note under
+ * it. The Focus button's width depends on its label and font, and text does not always scale in
+ * step with the window zoom, so the button is measured at more than one interface scale.
+ */
+const CASES = [
+  { zoom: 1, scale: 1 },
+  { zoom: 0.6, scale: 1 },
+  { zoom: 1, scale: 0.8 },
+  { zoom: 1, scale: 1.2 },
+] as const
 
 interface Box {
   x: number
@@ -122,7 +132,11 @@ const TOOLBAR = '[data-testid="selection-toolbar"]'
  * gone before the new one is measured.
  */
 async function selectTicket(launched: LaunchedApp, num: number): Promise<void> {
-  await launched.window.locator('.react-flow__pane').click({ position: { x: 20, y: 760 } })
+  // Near the pane's bottom left, under the note: the pane is shorter at a larger interface scale.
+  const pane = launched.window.locator('.react-flow__pane')
+  const paneBox = await pane.boundingBox()
+  if (!paneBox) throw new Error('the Canvas pane has no box')
+  await pane.click({ position: { x: 20, y: paneBox.height - 40 } })
   await expect(launched.window.getByTestId('selection-toolbar')).toHaveCount(0)
   await ticketNode(launched.window, num).locator('.w-ticket__title').click()
   await expect(launched.window.locator(`.react-flow__node.selected:has([data-testid="ticket-node"][data-ticket="${num}"])`)).toHaveCount(1)
@@ -166,21 +180,43 @@ async function toolbarAndAround(window: Page, selected: number, neighbour: numbe
   }
 }
 
-/** The Focus button's width that SelectionToolbar keeps off (FOCUS_ENTRY_SIZE in src/renderer/canvas/pinning.ts). */
-const FOCUS_ENTRY_WIDTH = 96
+/** The interface scale of app-settings.json in the data folder; 1 writes no file. */
+function writeScale(scale: number): void {
+  if (scale !== 1) writeFileSync(join(dataDir, 'app-settings.json'), JSON.stringify({ interfaceScale: scale }))
+}
 
-for (const zoom of ZOOMS) {
-  test(`the selection toolbar covers neither the Epic frame header nor the Tickets around it (zoom ${zoom})`, async () => {
+/** The window's content size, in pixels of the window, at every interface scale. */
+const WINDOW = { width: 1440, height: 900 }
+
+/**
+ * Waits for the Canvas with the window at WINDOW and the page at `scale`. canvasReady() sizes the
+ * window by the page's innerWidth, which the interface scale divides, so at another scale the
+ * window is sized here and the page is expected WINDOW.width / scale wide.
+ */
+async function windowReady(launched: LaunchedApp, scale: number): Promise<void> {
+  if (scale === 1) return canvasReady(launched, { size: WINDOW })
+  const { app, window } = launched
+  await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.getZoomFactor()), { message: 'the interface scale' }).toBeCloseTo(scale, 5)
+  await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]?.setContentSize(size.width, size.height), WINDOW)
+  await expect.poll(() => window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)).toBe(Math.round(WINDOW.width / scale))
+  await canvasReady(launched)
+}
+
+for (const { zoom, scale } of CASES) {
+  const scaled = scale === 1 ? '' : `, interface scale ${scale}`
+  test(`the selection toolbar covers neither the Epic frame header nor the Tickets around it (zoom ${zoom}${scaled})`, async () => {
     writeLayout(zoom)
+    writeScale(scale)
     const launched = await launch()
     try {
       const { window } = launched
       const frame = window.locator('[data-testid="epic-frame"][data-epic="demo"]')
       // The first read of the Project's Tickets can take longer than the default 5 s.
       await expect(frame).toBeVisible({ timeout: 20_000 })
+      // Sized first: at a larger interface scale the Tickets are outside the window's first size, and React Flow draws only what is on screen.
+      await windowReady(launched, scale)
       await expect(ticketNode(window, 2)).toBeVisible()
       await expect(ticketNode(window, 3)).toBeVisible()
-      await canvasReady(launched, { size: { width: 1440, height: 900 } })
 
       // 02 and 03 share a column; the one higher up is in the top row, the other is its neighbour below.
       const pair = await settledBoxes(window, { two: ticketSelector(2), three: ticketSelector(3) }, 'the boxes of Tickets 02 and 03')
@@ -197,7 +233,7 @@ for (const zoom of ZOOMS) {
       await selectTicket(launched, top!.num)
       const { toolbar, selected, header, labels, neighbourParts, focus, tickets } = await toolbarAndAround(window, top!.num, lower!.num)
       expect(labels.length).toBeGreaterThan(0)
-      const name = `selection-toolbar-frame-zoom-${String(zoom).replace('.', '_')}`
+      const name = `selection-toolbar-frame-zoom-${String(zoom).replace('.', '_')}${scale === 1 ? '' : `-scale-${String(scale).replace('.', '_')}`}`
       const shots = await snapshotThemes(window, name)
       if (EVIDENCE_DIR !== undefined) {
         mkdirSync(EVIDENCE_DIR, { recursive: true })
@@ -206,7 +242,18 @@ for (const zoom of ZOOMS) {
       }
       expect(overlaps(toolbar, header), 'the toolbar covers the frame header').toBe(false)
       for (const label of labels) expect(overlaps(toolbar, label), 'the toolbar covers a column label').toBe(false)
-      expect(focus.width, 'the Focus button is wider than SelectionToolbar keeps off').toBeLessThanOrEqual(FOCUS_ENTRY_WIDTH)
+      // What SelectionToolbar keeps off is the button's measured width, rounded up (useFocusEntrySize in
+      // src/renderer/canvas/pinning.ts). Polled: until the button is measured the toolbar keeps off the
+      // 96 px default, which must not decide the check, so it waits for a width within a pixel above the button's.
+      await expect
+        .poll(
+          async () => {
+            const keptOff = Number(await window.getByTestId('selection-toolbar').getAttribute('data-focus-entry-width'))
+            return { keptOff, notNarrower: keptOff >= focus.width, measured: keptOff - focus.width < 1.01 }
+          },
+          { message: `SelectionToolbar keeps off the Focus button's measured width (${focus.width} px, rounded up)` },
+        )
+        .toMatchObject({ notNarrower: true, measured: true })
       expect(overlaps(toolbar, focus), 'the toolbar covers the Focus button').toBe(false)
       for (const [part, rect] of Object.entries(neighbourParts)) expect(overlaps(toolbar, rect), `the toolbar covers the neighbour's ${part}`).toBe(false)
       for (const ticket of tickets) expect(overlaps(toolbar, ticket), 'the toolbar covers a Ticket').toBe(false)
