@@ -1,7 +1,8 @@
 # 16 — Долг после review Wave 1: PR #536, #537, #538, #539
 
 Type: task
-Status: claimed 2026-10-21T09:15Z
+Status: done 2026-10-22T11:06Z
+PR: #680
 Branch: worfy-canvas/16
 Blocked by: 01
 Source: ревью PR [#536](https://github.com/IDSAD-XL/worfy/pull/536) (Ticket 07, правило автоархива,
@@ -108,6 +109,11 @@ focus mode (#539, круг 2).
 - Новое поведение архива, кроме решений по пунктам выше — Ticket-ы 08–10.
 
 ## Итог
+
+Влит PR #680 (`c2716a1c`). Session без transcript-а снова уходит в архив: простой считается от
+`touchedAt` Node-а, а без него таймер ставит часы сам. «Tidy up» и «Arrange by Epic» шлют `moveMany` с
+`arrange: true` и часы архива не сбрасывают. Show family берёт только членов Family, видимых под
+фильтром по тегу; оба правила записаны в Amendments ADR-0076.
 
 Ветка `worfy-canvas/16`. Решения — в ADR-0076, раздел «Amendments» (владелец был в отъезде и
 просил не ждать).
