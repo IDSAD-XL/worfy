@@ -11,8 +11,8 @@ export const WINDOWS = process.platform === 'win32'
 /**
  * Chooses Git Bash for the Terminals of the Project whose data folder is `projectDataDir`, as the
  * settings window would: settings.json, written before worfy starts. The action templates have no
- * placeholder, which is valid. Git Bash reads no HOME of the test: its HOME is USERPROFILE, a
- * temporary folder when the spec launches with windowsProfileEnv. A spec still types `unset HISTFILE`
+ * placeholder, which is valid. Git Bash reads no HOME of the test: its HOME comes from HOMEDRIVE and
+ * HOMEPATH, a temporary folder in every launch (windowsProfileEnv, launch-env.ts). A spec still types `unset HISTFILE`
  * before anything else, so no history is written even where it does not.
  */
 export function chooseGitBash(projectDataDir: string): void {
@@ -20,8 +20,9 @@ export function chooseGitBash(projectDataDir: string): void {
 }
 
 /**
- * On Windows, the profile variables for the app's process that put the Terminal's shell in `dir`, a
- * temporary folder of the test; {} elsewhere. worfy passes USERPROFILE, APPDATA and LOCALAPPDATA of
+ * On Windows (`platform`), the profile variables for the app's process that put the Terminal's shell
+ * in `dir`, a temporary folder of the test; {} elsewhere. Every start of the app in a test gets them
+ * (isolation in launch-env.ts); a spec that passes its own wins. worfy passes USERPROFILE, APPDATA and LOCALAPPDATA of
  * its own process to the shell (WINDOWS_SESSION_VARS, src/main/agent/env.ts), so without this the
  * shell would get the owner's: PSReadLine would append every typed command to the owner's
  * history, pwsh would run the owner's $PROFILE, and Git Bash would read the owner's rc files from
@@ -43,15 +44,26 @@ export function chooseGitBash(projectDataDir: string): void {
  * %LOCALAPPDATA%\Microsoft\WindowsApps are not found. On such a machine these specs run Windows
  * PowerShell, and the Git Bash ones need a machine-wide Git or one on the Path.
  */
-export function windowsProfileEnv(dir: string): Record<string, string> {
-  if (!WINDOWS) return {}
-  const appData = join(dir, 'AppData', 'Roaming')
-  const localAppData = join(dir, 'AppData', 'Local')
-  mkdirSync(appData, { recursive: true })
-  mkdirSync(join(localAppData, 'Temp'), { recursive: true })
+export function windowsProfileEnv(dir: string, platform: NodeJS.Platform = process.platform): Record<string, string> {
+  if (platform !== 'win32') return {}
+  const vars = profileVars(dir)
+  mkdirSync(vars.APPDATA, { recursive: true })
+  mkdirSync(join(vars.LOCALAPPDATA, 'Temp'), { recursive: true })
+  return vars
+}
+
+/** The names windowsProfileEnv moves: every variable a Windows shell finds its profile, history and rc files by. */
+export const PROFILE_VARS = ['USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'HOMEDRIVE', 'HOMEPATH'] as const
+
+/**
+ * The PROFILE_VARS that name `dir` as the user's profile folder, on any system and without making a
+ * folder: windowsProfileEnv on Windows, and the Windows environment of the Terminal contract tests
+ * (test/contract/terminal-harness.ts), which also runs with a stand-in Windows on macOS and Linux.
+ */
+export function profileVars(dir: string): Record<(typeof PROFILE_VARS)[number], string> {
   // shortcut: a drive-letter path only (C:\...), not a UNC one; redo if tmpdir() is ever on a share.
   const drive = win32.parse(dir).root.replace(/\\$/, '')
-  return { USERPROFILE: dir, APPDATA: appData, LOCALAPPDATA: localAppData, HOMEDRIVE: drive, HOMEPATH: dir.slice(drive.length) }
+  return { USERPROFILE: dir, APPDATA: join(dir, 'AppData', 'Roaming'), LOCALAPPDATA: join(dir, 'AppData', 'Local'), HOMEDRIVE: drive, HOMEPATH: dir.slice(drive.length) }
 }
 
 /**

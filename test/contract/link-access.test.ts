@@ -31,7 +31,7 @@ import { LinkSender, readOnlyRefusal } from '../../src/main/link/ipc-adapter'
 import { LINK_PROTOCOL_VERSION } from '../../src/main/link/messages'
 import { projectStore } from '../../src/main/projects/store'
 import { HarnessScriptStartError, type ProfileRun } from '../../src/main/workflow/profile'
-import { TerminalRegistry } from '../../src/main/terminal/pty'
+import { spawnShellPty, TerminalRegistry } from '../../src/main/terminal/pty'
 import { autopilotStart } from '../../src/shared/ipc/autopilot'
 import { cardApiConfirm } from '../../src/shared/ipc/card-api'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -41,6 +41,7 @@ import { notifyOpen } from '../../src/shared/ipc/notify'
 import { trashList } from '../../src/shared/ipc/trash'
 import type { LayoutOpInput } from '../../src/shared/layout/types'
 import { LinkBench, type BenchMachine } from './link-bench'
+import { PROFILE_VARS, windowsProfileEnv } from '../e2e/terminal-shell'
 import { nodeScript } from '../harness-node'
 import { removeTestTree } from '../remove'
 
@@ -146,11 +147,24 @@ const realRepo = realpathSync.native(repo)
 /**
  * The Terminal of B: real shells (/bin/sh with an empty HOME; PowerShell on Windows), one per Node.
  * On Windows the environment keeps SystemRoot and windir: PowerShell does not start without them
- * (error 8009001d at loading its managed shell).
+ * (error 8009001d at loading its managed shell). It also names the empty HOME as the user's profile
+ * (windowsProfileEnv): without USERPROFILE and APPDATA PowerShell falls back to the profile of the
+ * signed-in user, read that user's $PROFILE and appended the typed commands to their PSReadLine
+ * history (worfy-windows ticket 84). The last test of this file pins that.
  */
 const windowsRoot: Record<string, string> = process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot ?? '', windir: process.env.windir ?? process.env.SystemRoot ?? '' } : {}
+/** The environment of every shell of B's Terminal. */
+function shellEnv(): Record<string, string> {
+  return { ...windowsRoot, ...windowsProfileEnv(home), SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ' }
+}
+/** The environment of each shell B's Terminal started, as its pty got it. */
+const spawnedEnvs: Record<string, string>[] = []
 const terminals = new TerminalRegistry({
-  env: () => Promise.resolve({ ...windowsRoot, SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ' }),
+  env: () => Promise.resolve(shellEnv()),
+  spawn: (file, args, options) => {
+    spawnedEnvs.push(options.env)
+    return spawnShellPty(file, args, options)
+  },
   killGraceMs: 1000,
 })
 const claudeHome = new ClaudeHomeRegistry({ home: CLAUDE_HOME_FIXTURE, listWorktrees: async () => [], isAlive: async () => false })
@@ -940,3 +954,28 @@ async function windowIpc(names: readonly string[] = ['./terminal.ts']) {
     return (await listener(event, input)) as IpcResult<unknown>
   }
 }
+
+describe('the Terminal of B', () => {
+  // A shell of B's own registry is started and its pty's environment checked. Nothing is typed into
+  // it: a shell typed into with the wrong environment would append the typed line to the history
+  // this test guards, and PSReadLine writes only the lines typed.
+  it.runIf(process.platform === 'win32')("on Windows its shells have the temporary home as the user's profile, never the test process's", async () => {
+    const terminalKey = JSON.stringify([PROJECT, 'profile-check'])
+    const before = spawnedEnvs.length
+    const sink = { output: () => undefined, exit: () => undefined, started: () => undefined }
+    try {
+      await terminals.open(terminalKey, { cwd: home, cols: 80, rows: 24 }, {}, sink)
+    } finally {
+      await terminals.close(terminalKey)
+    }
+    expect(spawnedEnvs.length).toBe(before + 1)
+    const shell = spawnedEnvs[before]!
+    for (const key of PROFILE_VARS) expect(shell[key], key).toBeDefined()
+    expect(shell.USERPROFILE).toBe(home)
+    expect(shell.APPDATA).toBe(join(home, 'AppData', 'Roaming'))
+    expect(shell.LOCALAPPDATA).toBe(join(home, 'AppData', 'Local'))
+    // Git for Windows' HOME.
+    expect(`${shell.HOMEDRIVE}${shell.HOMEPATH}`).toBe(home)
+    for (const key of ['USERPROFILE', 'APPDATA', 'LOCALAPPDATA'] as const) expect(shell[key], key).not.toBe(process.env[key])
+  })
+})

@@ -6,12 +6,22 @@
 // files: a slow one slowed every start and failed tests with short waits (worfy-harness ticket 45).
 // So SHELL defaults to test/fixtures/e2e-shell/sh, which reads no rc file and hands the app the
 // test process's PATH. HOME stays the developer's: no rc file is read whatever HOME is, and the
-// app's other paths under HOME (git's identity among them) stay what the tests had before.
+// app's other paths under HOME (git's identity among them) stay what the tests had before. Not on
+// Windows: there the profile folders move (below), and the git the app runs takes its global config
+// from that temporary profile (HOMEDRIVE + HOMEPATH), so it has no identity of the developer's.
 //
 // A spec that is about the login shell sets SHELL (and its own HOME) through `env`, and its value
 // wins over the default, as every variable of `env` does.
+//
+// On Windows the user's profile folders move to a temporary folder of the launch (windowsProfileEnv,
+// terminal-shell.ts): worfy hands USERPROFILE, APPDATA and LOCALAPPDATA of its own process to the
+// shell of a Terminal, and with the test process's values that shell read the owner's $PROFILE and
+// rc files and appended every command a spec typed to the owner's PSReadLine history (worfy-windows
+// ticket 84). test/contract/terminal-profile-isolation.test.ts pins it.
 import { symlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { windowsProfileEnv } from './terminal-shell'
 
 const fixtures = join(import.meta.dirname, '..', 'fixtures')
 
@@ -35,6 +45,8 @@ export interface LaunchEnvOptions {
   source?: NodeJS.ProcessEnv
   /** The spec's own variables: each wins over the default of the same name, SHELL among them. */
   env?: Record<string, string> | undefined
+  /** The system the environment is for; process.platform by default. */
+  platform?: NodeJS.Platform
 }
 
 /**
@@ -57,9 +69,13 @@ function inherited(source: NodeJS.ProcessEnv): Record<string, string> {
   return env
 }
 
-/** What every start of the app in a test gets, whether Playwright starts it or the spec does. */
-function isolation(dataDir: string, claudeHome: string): Record<string, string> {
+/**
+ * What every start of the app in a test gets, whether Playwright starts it or the spec does. On
+ * Windows that includes the user's profile folders in `profileDir` (windowsProfileEnv).
+ */
+function isolation(dataDir: string, claudeHome: string, profileDir: string, platform: NodeJS.Platform): Record<string, string> {
   return {
+    ...windowsProfileEnv(profileDir, platform),
     WORFY_DATA_DIR: dataDir,
     WORFY_CLAUDE_HOME: claudeHome,
     WORFY_AGENT: 'fake',
@@ -83,9 +99,10 @@ function isolation(dataDir: string, claudeHome: string): Record<string, string> 
 /** The environment of the app process of one launch. */
 export async function launchEnv(options: LaunchEnvOptions): Promise<Record<string, string>> {
   const source = options.source ?? process.env
+  const platform = options.platform ?? process.platform
   // Off Windows only: there the environment comes from the registry, not from a login shell (ADR-0057).
-  const shell: Record<string, string> = process.platform === 'win32' || options.env?.SHELL !== undefined ? {} : { SHELL: await defaultShell(options.shellDir, source.PATH ?? '') }
-  return { ...inherited(source), ...isolation(options.dataDir, options.claudeHome), ...shell, ...options.env }
+  const shell: Record<string, string> = platform === 'win32' || options.env?.SHELL !== undefined ? {} : { SHELL: await defaultShell(options.shellDir, source.PATH ?? '') }
+  return { ...inherited(source), ...isolation(options.dataDir, options.claudeHome, join(options.shellDir, 'profile'), platform), ...shell, ...options.env }
 }
 
 export interface DirectStartEnvOptions {
@@ -95,7 +112,17 @@ export interface DirectStartEnvOptions {
   source?: NodeJS.ProcessEnv
   /** The spec's own variables: each wins over the default of the same name. */
   env?: Record<string, string>
+  /** The system the environment is for; process.platform by default. */
+  platform?: NodeJS.Platform
 }
+
+/**
+ * The profile folder of the starts without Playwright on Windows: one folder for all of them, not
+ * one per start, since nothing removes it after the start. Its history would mix across specs and
+ * grow from run to run, but no such start opens a Terminal.
+ * shortcut: shared by every direct start and never removed, redo when a direct start types into a Terminal.
+ */
+export const DIRECT_START_PROFILE = join(tmpdir(), 'worfy-e2e-direct-start-profile')
 
 /**
  * The environment of an app process a spec starts itself, without Playwright (a start that must
@@ -103,5 +130,5 @@ export interface DirectStartEnvOptions {
  * process's own login shell. test/unit/e2e-gh-stub.test.ts checks that every such start uses it.
  */
 export function directStartEnv(options: DirectStartEnvOptions): Record<string, string> {
-  return { ...inherited(options.source ?? process.env), ...isolation(options.dataDir, options.claudeHome), ...options.env }
+  return { ...inherited(options.source ?? process.env), ...isolation(options.dataDir, options.claudeHome, DIRECT_START_PROFILE, options.platform ?? process.platform), ...options.env }
 }

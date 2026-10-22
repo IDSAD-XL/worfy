@@ -15,6 +15,7 @@ import { terminalHandlers } from '../../src/main/ipc/terminal'
 import { spawnShellPty, TerminalRegistry, terminalShellOptions, type SpawnPty } from '../../src/main/terminal/pty'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL } from '../app-url'
+import { profileVars } from '../e2e/terminal-shell'
 
 export const PROJECT = 'demo-00000001'
 export const NODE = 'node-1'
@@ -40,6 +41,9 @@ export const IGNORE_HANGUP = `${WINDOWS ? '' : "trap '' HUP; "}${say('trap', 'pe
  * The environment of a shell of Windows in the tests: the system folders on the Path, so the shell
  * is Windows PowerShell, and every folder of the user in the temporary home, so no profile,
  * history or cache of the machine running the tests takes part. `path` goes first on the Path.
+ * The profile variables are the ones the e2e launches move (profileVars, test/e2e/terminal-shell.ts),
+ * HOMEDRIVE and HOMEPATH among them, which Git for Windows takes HOME from when HOME is unset;
+ * test/contract/terminal-profile-isolation.test.ts pins that none of them is the test process's own.
  */
 export function windowsEnv(home: string, path: readonly string[] = []): Record<string, string> {
   return {
@@ -51,10 +55,8 @@ export function windowsEnv(home: string, path: readonly string[] = []): Record<s
     Path: [...path, win32.join(SYSTEM_ROOT, 'System32'), SYSTEM_ROOT, win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0')].join(';'),
     ProgramFiles: process.env['ProgramFiles'] ?? 'C:\\Program Files',
     ProgramData: process.env['ProgramData'] ?? 'C:\\ProgramData',
-    USERPROFILE: home,
+    ...profileVars(home),
     HOME: home,
-    APPDATA: join(home, 'AppData', 'Roaming'),
-    LOCALAPPDATA: join(home, 'AppData', 'Local'),
     TEMP: home,
     TMP: home,
     PWD: '/somewhere/else',
