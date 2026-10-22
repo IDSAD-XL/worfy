@@ -104,6 +104,7 @@ async function countDialogs(app: ElectronApplication): Promise<void> {
 const homeEnv = (home: string): Record<string, string> => ({ HOME: home, ...windowsProfileEnv(home) })
 
 /** The folders of B's home folder that are not the test's: AppData on Windows (homeEnv). */
+// Pins today's product: src/main/projects/browse.ts:131 hides only dot-folders, so Windows AppData shows.
 const PROFILE_FOLDERS = process.platform === 'win32' ? ['AppData'] : []
 
 /** The user running the tests as icacls names a user: DOMAIN\name (the computer's name for a local account). */
@@ -151,14 +152,16 @@ async function launchPair(scratch: string, run: (pair: Pair) => Promise<void>): 
   mkdirSync(join(bHome, '.config'), { recursive: true })
   mkdirSync(join(bHome, 'Documents'), { recursive: true })
   mkdirSync(join(bHome, 'locked'), { recursive: true })
-  setReadable(join(bHome, 'locked'), false)
   writeFileSync(join(bHome, 'todo.txt'), 'a file, not listed\n')
   // B's login shell is /bin/sh with this HOME: its .profile puts node on PATH, for the Node stubs.
   loginProfileWithNode(bHome)
 
-  const a = await launchApp({ env: { WORFY_DATA_DIR: aData, WORFY_CLAUDE_HOME: claudeHomeAt(join(scratch, 'a-claude')) } })
+  let a: LaunchedApp | undefined
   let b: LaunchedApp | undefined
   try {
+    // Inside the try: the finally gives the right back whatever fails after this.
+    setReadable(join(bHome, 'locked'), false)
+    a = await launchApp({ env: { WORFY_DATA_DIR: aData, WORFY_CLAUDE_HOME: claudeHomeAt(join(scratch, 'a-claude')) } })
     b = await launchApp({ env: { WORFY_DATA_DIR: bData, WORFY_CLAUDE_HOME: claudeHomeAt(join(scratch, 'b-claude')), ...homeEnv(bHome), SHELL: '/bin/sh' } })
     await countDialogs(a.app)
     await countDialogs(b.app)
@@ -167,9 +170,10 @@ async function launchPair(scratch: string, run: (pair: Pair) => Promise<void>): 
     await linkThroughUi(a.window, b.window)
     await run({ a, b, bId: await machineIdOf(b.window), aData, bData, bHome: realpathSync(bHome), shop })
   } finally {
-    await a.close()
-    await b?.close()
+    // First, so that a close that throws cannot leave the folder locked.
     setReadable(join(bHome, 'locked'), true)
+    await a?.close()
+    await b?.close()
   }
 }
 
