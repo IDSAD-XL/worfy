@@ -73,6 +73,16 @@ test-а) — тоже исправлены.
   literal без флагов.
 - Связь import-а из `base`, переехавшая в другой модуль (`add` из `../src/fixed.mjs`), — test `moved-binding`.
 
+Windows-прогон 5fbfa851 (run 39694646775) был красным на случае с одиночным `\r`. Причина: bash из Git for
+Windows выбрасывает сырой `\r` из текста скрипта, поэтому stub-агент записывал строку без него, и проверка видела
+одну целую assertion. Это не `core.autocrlf`: kept run идёт с `GIT_CONFIG_NOSYSTEM=1` и временным HOME, а blob-ы
+читаются через `git cat-file` байт в байт. Исправлен test: скрипт stub-агента остаётся ASCII, байты `\r` и
+U+2028 появляются при запуске через `$'…'`; имя случая выводится в сообщении assertion.
+
+Круг ревью 2 (PASS, три low), исправлено: test-вызов внутри строки или template literal больше не считается
+test-ом (удалённый test, вставленный в template, — `removed_tests`); `.fails`, `.failing` и `{ fails: true }` —
+пропуск; JSDoc `testsIntact` стоит над функцией.
+
 Test-ы — `test/contract/harness-evals-outcome.test.ts`, describe «the tests-intact check»: красные до правки,
 зелёные после; каждое новое правило проверено мутантом (правило снято — test красный). В базовом файле
 синтетической задачи test `add 0 0` получил выражение на две строки и цепочку `expect(…)` / `.toBe(0)`.

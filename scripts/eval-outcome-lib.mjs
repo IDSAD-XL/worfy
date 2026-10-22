@@ -469,10 +469,24 @@ function closing(text, open) {
 
 /** A test call with a quoted name: test(, it(, describe(, with .skip, .only and the like, and the x/f forms. */
 const TEST_CALL = /\b(x|f)?(?:it|test|describe)((?:\.\w+)*)\s*\(\s*(['"`])((?:\\.|(?!\3)[^\\\n])*)\3/g
-/** A skip, todo or only modifier of a test call. */
-const SKIP_MODIFIER = /\.(?:skip|only|todo)\b/
-/** A skip, todo or only key in the options argument of a test call. */
-const SKIP_OPTION = /\b(?:skip|only|todo)\s*:\s*(?:true|['"`])/
+/**
+ * A skip, todo, only or fails modifier of a test call: vitest passes a `.fails` test (jest a
+ * `.failing` one) exactly when its assertion fails.
+ */
+const SKIP_MODIFIER = /\.(?:skip|only|todo|fails|failing)\b/
+/** A skip, todo, only or fails key in the options argument of a test call. */
+const SKIP_OPTION = /\b(?:skip|only|todo|fails)\s*:\s*(?:true|['"`])/
+
+/** Whether `index` lies inside a string or regular expression literal of `code` (not at its start). */
+function inLiteral(code) {
+  const ranges = []
+  for (let i = 0; i < code.length; ) {
+    const end = literalEnd(code, i)
+    if (end >= 0) ranges.push([i, end])
+    i = end >= 0 ? end : i + 1
+  }
+  return (index) => ranges.some(([from, to]) => index > from && index < to)
+}
 
 /** `text` as its lines with spaces collapsed, empty lines dropped. */
 const codeLines = (text) =>
@@ -483,14 +497,15 @@ const codeLines = (text) =>
 
 /**
  * A test file without its comments, read as { calls, outside }. `calls` are its test calls, in
- * order: { name, lines, skipped }. `lines` is the body: everything after the name up to the closing
+ * order: { name, lines, skipped }; a call written inside a string or template literal is not one. `lines` is the body: everything after the name up to the closing
  * `)` of the call, without the test calls nested in it (they are compared on their own), as its
  * lines. `skipped` is an x/f form, a skip, todo or only modifier, or such a key in an options object
  * right after the name: `test(name, { skip: true }, fn)`; `start` and `end` are where the call is in
  * `code`. `outside` is the code of the file around its top-level test calls.
  */
 function testFile(code) {
-  const spans = [...code.matchAll(TEST_CALL)].map((call) => {
+  const literal = inLiteral(code)
+  const spans = [...code.matchAll(TEST_CALL)].filter((call) => !literal(call.index)).map((call) => {
     const after = call.index + call[0].length
     const options = /^\s*,\s*\{/.exec(code.slice(after))
     const optionsOpen = options ? after + options[0].length - 1 : -1
@@ -621,13 +636,6 @@ function outsideIntact(base, now) {
   return before.lines.length === after.lines.length && before.lines.every((line, i) => line === after.lines[i])
 }
 
-/**
- * Compares the test files of `base` with the files on disk, comments left out on both sides: a file
- * deleted, a test name gone, an existing test whose body changed other than by whole assertions
- * added, a skip, todo or only marker added to a test call, a file whose code outside the test calls
- * changed other than by imports added or grown. New tests (also inside an existing describe), new
- * assertions in a test, new imports and new files are fine.
- */
 /** Line breaks as `\n`: JavaScript also ends a line (and a `//` comment) at `\r`, U+2028 and U+2029. */
 const lf = (text) => text.replace(/\r\n?|[\u2028\u2029]/g, '\n')
 
@@ -635,6 +643,13 @@ const lf = (text) => text.replace(/\r\n?|[\u2028\u2029]/g, '\n')
 const WRAPPER_HEAD = /^,\s*(?:async\s*)?(?:\(\s*\)\s*=>|function\s*\(\s*\))\s*\{$/
 const bareWrapper = (lines) => lines.length === 2 && WRAPPER_HEAD.test(lines[0]) && /^\}\s*\)$/.test(lines[1])
 
+/**
+ * Compares the test files of `base` with the files on disk, comments left out on both sides: a file
+ * deleted, a test name gone, an existing test whose body changed other than by whole assertions
+ * added, a skip, todo, only or fails marker added to a test call, a file whose code outside the
+ * test calls changed other than by imports added or grown. New tests (also inside an existing
+ * describe), new assertions in a test, new imports and new files are fine.
+ */
 function testsIntact(work, base, paths, env) {
   const values = { deleted_files: 0, removed_tests: 0, altered_tests: 0, added_skips: 0, altered_outside: 0 }
   for (const [path, blob] of Object.entries(filesAt(work, base, paths, env))) {
