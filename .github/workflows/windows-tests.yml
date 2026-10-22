@@ -57,8 +57,23 @@ jobs:
         env:
           TEST_FILES: ${{ inputs.files }}
         run: node scripts/windows-test-list.mjs
-      # Installs the pnpm version pinned by "packageManager" in package.json.
-      - uses: pnpm/action-setup@v6
+      # pnpm comes from corepack, which ships with Node 24, not from pnpm/action-setup. The action
+      # installs a bootstrap pnpm with `npm ci` and then runs `pnpm self-update`. On 2026-10-22 npm's
+      # audit request to the registry hung for 3 to 7 minutes in the runs started while several were
+      # queued: the job hit its 10-minute limit before or just after the tests. "packageManager" in
+      # package.json pins the version and the sha512 of its tarball, so `corepack install` downloads
+      # that one tarball, checks it against the hash and asks the registry nothing else: 9 to 14 s
+      # on the runner, most of it unpacking.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Install pnpm with corepack
+        shell: bash
+        run: |
+          corepack enable pnpm
+          corepack install
+      # Node 24 again, now with the pnpm store cache: the cache asks pnpm where its store is, so it
+      # works only once pnpm is installed. The Node is already on the machine and is not downloaded.
       - uses: actions/setup-node@v7
         with:
           node-version: 24
