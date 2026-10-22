@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { edgeErrors, type Box, type Edge, type Image } from '../e2e/browser-pixels'
+import { edgeBound, edgeErrors, pagePixelsOutside, type Box, type Edge, type Image } from '../e2e/browser-pixels'
 
 const WINDOW = { width: 1400, height: 900 }
 /** The page's viewport in its own CSS px, as the e2e test reports it (`guestViewport`). */
@@ -133,5 +133,61 @@ describe('the fixture page (test/fixtures/browser/page.html)', () => {
   it('still scrolls: it is taller than any frame', () => {
     expect(html).toMatch(/\.tall\s*\{[^}]*height:\s*2400px/)
     expect(html).toContain('<div class="tall"></div>')
+  })
+})
+
+/** An image of `width` × `height` device px of the Canvas's dark grey, with `cream` device pixels painted cream. */
+function blank(width: number, height: number, cream: readonly (readonly [number, number])[] = []): Image {
+  const image: Image = { width, height, data: new Uint8Array(width * height * 4) }
+  for (let i = 0; i < width * height; i += 1) image.data.set([...CANVAS, 255], i * 4)
+  for (const [x, y] of cream) image.data.set([...CREAM, 255], (y * width + x) * 4)
+  return image
+}
+const block = (x0: number, y0: number, size: number): [number, number][] =>
+  Array.from({ length: size * size }, (_, i) => [x0 + (i % size), y0 + Math.floor(i / size)])
+/** A frame's body at the image's far corner, so the whole rest of the image is outside it. */
+const FAR: Box = { x: 30, y: 30, width: 1, height: 1 }
+
+describe('page pixels outside the frame, counted in 3 x 3 blocks (pagePixelsOutside)', () => {
+  it('a lone cream pixel, a ClearType fringe on the app\'s text, is not the page', () => {
+    expect(pagePixelsOutside(blank(20, 20, [[10, 10]]), 1, FAR)).toBe(0)
+  })
+
+  it('a stroke of cream two pixels wide is not the page either', () => {
+    const stroke = Array.from({ length: 10 }, (_, i): [number, number] => [5 + (i % 2), 5 + Math.floor(i / 2)])
+    expect(pagePixelsOutside(blank(20, 20, stroke), 1, FAR)).toBe(0)
+  })
+
+  it('a 3 x 3 block of cream counts its centre, a 5 x 5 block its inner 3 x 3', () => {
+    expect(pagePixelsOutside(blank(20, 20, block(5, 5, 3)), 1, FAR)).toBe(1)
+    expect(pagePixelsOutside(blank(20, 20, block(5, 5, 5)), 1, FAR)).toBe(9)
+  })
+
+  it('a block of the magenta line and the cream next to it counts as the page', () => {
+    const image = blank(20, 20, block(5, 5, 3))
+    image.data.set([...LINE, 255], (5 * 20 + 5) * 4)
+    expect(pagePixelsOutside(image, 1, FAR)).toBe(1)
+  })
+
+  it('at the image\'s edge only the neighbours inside the image are checked: a leak cut by the window\'s edge still counts', () => {
+    expect(pagePixelsOutside(blank(20, 20, [[0, 0]]), 1, FAR)).toBe(0)
+    expect(pagePixelsOutside(blank(20, 20, block(9, 9, 2)), 1, FAR)).toBe(0)
+    expect(pagePixelsOutside(blank(20, 20, block(0, 0, 2)), 1, FAR)).toBe(1)
+    expect(pagePixelsOutside(blank(20, 20, block(18, 18, 2)), 1, FAR)).toBe(1)
+  })
+
+  it('the page inside the frame\'s body, widened by one device pixel, is not counted', () => {
+    const image = blank(20, 20, block(4, 4, 8))
+    expect(pagePixelsOutside(image, 1, { x: 5, y: 5, width: 6, height: 6 })).toBe(0)
+    expect(pagePixelsOutside(image, 1, { x: 7, y: 7, width: 2, height: 2 })).toBe(6 * 6 - 4 * 4)
+  })
+})
+
+describe('the bound on edgeErrors (edgeBound)', () => {
+  it('is 1 px at a whole device scale and 1.5 px at a fractional one', () => {
+    expect(edgeBound(1)).toBe(1)
+    expect(edgeBound(2)).toBe(1)
+    expect(edgeBound(2100 / 1400)).toBe(1.5)
+    expect(edgeBound(1.25)).toBe(1.5)
   })
 })

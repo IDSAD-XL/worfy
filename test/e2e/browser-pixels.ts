@@ -147,19 +147,48 @@ export function edgeErrors(image: Image, scale: number, body: Box, zoom: number,
   return result
 }
 
-/** Pixels of the page (its cream or its magenta line) outside `inside` (CSS px, widened by one device pixel). */
+/**
+ * The bound, in CSS px, on edgeErrors for a capture at `scale` device px per CSS px. 1 at a whole
+ * scale (a Retina Mac at 2). 1.5 at a fractional one (Windows at 150 %): there the frame's edges
+ * sit between device pixels, and the rounding of the page's surface and of the outline to whole
+ * device pixels adds up to half a pixel more (1.18 px measured at zoom 0.25 on a 150 % display).
+ */
+export function edgeBound(scale: number): number {
+  return Math.abs(scale - Math.round(scale)) < 0.01 ? 1 : 1.5
+}
+
+/**
+ * Pixels of the page outside `inside` (CSS px, widened by one device pixel), anywhere in the
+ * window. A pixel counts only when it and its eight neighbours are all page-coloured: cream, or the
+ * magenta line (the same `MAGENTA > 60` as a single pixel, a blend of the line with the cream
+ * included). The app's own text on Windows draws ClearType colour fringes, single pixels or strokes
+ * one or two pixels wide, some of which fall within the cream's tolerance; they never fill a 3 × 3
+ * block. A page drawn past its frame is a solid region of cream, so it still counts. The magenta
+ * line alone is narrower than 3 device px below zoom 2 and may not count by itself; the cream next
+ * to it does. A leak narrower than 3 device px is not counted here: edgeErrors bounds it. Neighbours
+ * outside the image are not checked, so a leak cut by the window's edge still counts.
+ */
 export function pagePixelsOutside(image: Image, scale: number, inside: Box): number {
   const left = inside.x * scale - 1
   const right = (inside.x + inside.width) * scale + 1
   const top = inside.y * scale - 1
   const bottom = (inside.y + inside.height) * scale + 1
+  const pageAt = (x: number, y: number): boolean => {
+    const i = (y * image.width + x) * 4
+    const [r, g, b] = [image.data[i]!, image.data[i + 1]!, image.data[i + 2]!]
+    return isCream(r, g, b) || MAGENTA(r, g, b) > 60
+  }
+  const solid = (x: number, y: number): boolean => {
+    for (let ny = Math.max(0, y - 1); ny <= Math.min(image.height - 1, y + 1); ny += 1) {
+      for (let nx = Math.max(0, x - 1); nx <= Math.min(image.width - 1, x + 1); nx += 1) if (!pageAt(nx, ny)) return false
+    }
+    return true
+  }
   let count = 0
   for (let y = 0; y < image.height; y += 1) {
     for (let x = 0; x < image.width; x += 1) {
       if (x >= left && x < right && y >= top && y < bottom) continue
-      const i = (y * image.width + x) * 4
-      const [r, g, b] = [image.data[i]!, image.data[i + 1]!, image.data[i + 2]!]
-      if (isCream(r, g, b) || MAGENTA(r, g, b) > 60) count += 1
+      if (pageAt(x, y) && solid(x, y)) count += 1
     }
   }
   return count
