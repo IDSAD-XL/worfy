@@ -13,24 +13,38 @@
 // another: on Windows the script takes a worfy.exe whose path Windows does not give for a running
 // copy, and some cases here start a worfy.exe.
 import { execFileSync, spawn } from 'node:child_process'
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 import { build, checkTarget, dir, head, installerDir, installStable, junction, leftoverName, links, local, onDisk, registrations, REMOVE_ROUNDS, REPO, run, stamp, targetIn, useStandInBuild, WIN_HOME, WINDOWS } from './install-stable-harness'
 
 /**
- * A copy of /bin/sleep at `program` that keeps running. A plain copy of an Apple binary
- * fails the code-signature check and the kernel kills it with SIGKILL within moments of its start;
- * the refusal tests then passed only when the script listed processes before the kill, and went
- * red under a loaded gate. An ad-hoc signature makes the copy a program of its own that runs.
+ * One copy of /bin/sleep for every test of this file. A plain copy of an Apple binary fails the
+ * code-signature check and the kernel kills it with SIGKILL within moments of its start; the
+ * refusal tests then passed only when the script listed processes before the kill, and went red
+ * under a loaded gate. An ad-hoc signature makes the copy a program of its own that runs.
+ * macOS also checks each new executable before its first start (XprotectService, one file at a
+ * time, seconds under a loaded gate): one copy, made once, waits in that queue once per run.
  */
+let signedSleep = ''
+afterAll(() => {
+  if (signedSleep !== '') removeTestTree(dirname(signedSleep))
+})
+
+/** At `program`, a link to the one copy of sleep: `ps` lists the program under the link's path. */
 const sleepCopyAt = (program: string): void => {
+  if (signedSleep === '') {
+    const copy = join(realpathSync(mkdtempSync(join(tmpdir(), 'worfy-install-stable-sleep-'))), 'sleep')
+    copyFileSync('/bin/sleep', copy)
+    chmodSync(copy, 0o755)
+    // Linux (CI) runs these cases too: it has no codesign and does not kill the copy.
+    if (process.platform === 'darwin') execFileSync('codesign', ['--sign', '-', '--force', copy], { stdio: 'ignore' })
+    signedSleep = copy
+  }
   mkdirSync(dirname(program), { recursive: true })
-  copyFileSync('/bin/sleep', program)
-  chmodSync(program, 0o755)
-  // Linux (CI) runs these cases too: it has no codesign and does not kill the copy.
-  if (process.platform === 'darwin') execFileSync('codesign', ['--sign', '-', '--force', program], { stdio: 'ignore' })
+  symlinkSync(signedSleep, program)
 }
 
 /**

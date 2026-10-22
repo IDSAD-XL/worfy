@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator } from '@playwright/test'
-import { canvasReady, launchApp } from './helpers'
+import { canvasReady, launchApp, parkPointer } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
 
@@ -161,6 +161,8 @@ test('node headers carry the band and the ground of their kind; a finished Sessi
     claude.kill('SIGTERM')
     await expect(nodes.session).toHaveAttribute('data-status', 'finished', { timeout: 15_000 })
     const opacity = () => nodes.session.evaluate((element) => Number((globalThis as unknown as { getComputedStyle(target: unknown): { opacity: string } }).getComputedStyle(element).opacity))
+    // The machine's own cursor may rest over the Node and give it the full opacity: the test's pointer goes away first.
+    await parkPointer(window)
     await expect.poll(opacity).toBeCloseTo(0.6, 2)
     await nodes.session.getByTestId('session-node-title').hover()
     await expect.poll(opacity).toBe(1)

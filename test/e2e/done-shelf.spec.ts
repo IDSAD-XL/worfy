@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { canvasReady, launchApp, openSecondWindow, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, openSecondWindow, parkPointer, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
@@ -146,15 +146,6 @@ async function launch(): Promise<LaunchedApp> {
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome } })
   await expect(launched.window.getByTestId('canvas')).toHaveAttribute('data-project-id', PROJECT_ID)
   return launched
-}
-
-/**
- * The machine's own cursor may rest over the window, and a Node that comes to lie under it is
- * hovered for real (its Family dims the rest): the test's pointer goes to an empty corner first.
- */
-async function parkPointer(window: Page): Promise<void> {
-  const canvas = (await window.locator('.react-flow').boundingBox())!
-  await window.mouse.move(canvas.x + 8, canvas.y + canvas.height - 8)
 }
 
 /** Waits until the strip and the shelf are drawn as `frames` and `chips` say and the Canvas is at rest. */

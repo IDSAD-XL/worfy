@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, inJson, launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { canvasReady, inJson, launchApp, parkPointer, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
 
@@ -172,13 +172,6 @@ const sessionEdge = (window: Page, sessionId: string): Locator => window.getByTe
 /** The line an Edge draws; an Edge whose line is hidden (worfy-week ticket 05) draws none. */
 const drawnLine = (edge: Locator): Locator => edge.locator('path.react-flow__edge-path')
 
-/** The pointer on the empty plane, at the Canvas's bottom-left corner, off every Node. */
-async function awayFromNodes(window: Page): Promise<void> {
-  const pane = await window.locator('.react-flow').boundingBox()
-  if (!pane) throw new Error('the Canvas has no box')
-  await window.mouse.move(pane.x + 8, pane.y + pane.height - 8)
-}
-
 const subagentNode = (window: Page, agentId: string): Locator => window.locator(`[data-testid="subagent-node"][data-subagent-id="${agentId}"]`)
 
 async function subagentEdge(window: Page, agentId: string): Promise<Locator> {
@@ -324,7 +317,7 @@ test('agents are bound by claim, worktree folder, /epic-wave and their task; a m
     // Only the lines of working agents are drawn (worfy-week ticket 05): the wave Session's process
     // runs, and so do its running Subagents; the other Sessions' lines wait for a hover. The pointer
     // leaves the fold row it clicked, which is on a Node.
-    await awayFromNodes(window)
+    await parkPointer(window)
     await expect(drawnLine(sessionEdge(window, WAVE))).toHaveAttribute('data-shape', 'orthogonal')
     for (const id of [CLAIM, FOLDER, SLUG]) await expect(drawnLine(sessionEdge(window, id))).toHaveCount(0)
     for (const agentId of [IMPLEMENTER, REVIEWER]) {
@@ -348,12 +341,12 @@ test('agents are bound by claim, worktree folder, /epic-wave and their task; a m
     await expect(drawnLine(sessionEdge(window, FOLDER))).toHaveCount(0)
     const hoveredShots = await snapshotThemes(window, 'binding-hovered')
     console.log(`binding lines, live Session and a hovered one: ${hoveredShots.light} ${hoveredShots.dark}`)
-    await awayFromNodes(window)
+    await parkPointer(window)
     await expect(drawnLine(sessionEdge(window, CLAIM))).toHaveCount(0)
     await window.locator('[data-testid="ticket-node"][data-ticket="12"]').hover()
     await expect(drawnLine(sessionEdge(window, FOLDER))).toHaveCount(1)
     await expect(drawnLine(sessionEdge(window, CLAIM))).toHaveCount(0)
-    await awayFromNodes(window)
+    await parkPointer(window)
     await expect(drawnLine(sessionEdge(window, FOLDER))).toHaveCount(0)
 
     // The rail says why.

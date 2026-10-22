@@ -20,7 +20,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
-import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, openSecondWindow, PROJECTS_ACCESS_LABEL, type LaunchedApp } from './helpers'
+import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, openSecondWindow, parkPointer, PROJECTS_ACCESS_LABEL, type LaunchedApp } from './helpers'
 import { catScript, loginProfileWithNode } from '../harness-node'
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -151,13 +151,6 @@ const lit = (window: Page): Locator => window.locator('[data-testid="browser-fra
 const expectLit = (window: Page, ids: readonly string[]): Promise<void> =>
   expect.poll(() => lit(window).evaluateAll((frames) => frames.map((frame) => frame.getAttribute('data-node-id')))).toEqual(ids)
 
-/** Puts the test's pointer on an empty corner of the Canvas, so only the test's own moves hover anything. */
-async function pointerAway(window: Page): Promise<void> {
-  const canvas = await window.locator('.react-flow').boundingBox()
-  if (!canvas) throw new Error('no Canvas')
-  await window.mouse.move(canvas.x + 8, canvas.y + canvas.height - 8)
-}
-
 test('a Session’s Browser is in its Ticket’s Family and leaves the Canvas with the Session; the user’s Browsers stay, in both windows', async () => {
   test.setTimeout(120_000)
   const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-browser-family-')))
@@ -170,7 +163,7 @@ test('a Session’s Browser is in its Ticket’s Family and leaves the Canvas wi
     await canvasReady(launched, { size: { width: 1600, height: 900 }, visible: [ticket, frameOf(window, USER_BROWSER)] })
     const second = await openSecondWindow(launched, { size: { width: 1400, height: 860 } })
     await canvasReady({ window: second }, { visible: [second.locator('[data-testid="ticket-node"][data-ticket="7"]')] })
-    for (const page of [window, second]) await pointerAway(page)
+    for (const page of [window, second]) await parkPointer(page)
 
     // The Session opens a Browser of its own and drives one of the user's.
     const opened = await tool<{ id: string }>(app, projectId, 'browser_open', { profile: PROFILE, url: `${origin}/` })
@@ -189,7 +182,7 @@ test('a Session’s Browser is in its Ticket’s Family and leaves the Canvas wi
     await expectLit(window, [opened.id])
     // The highlight is the window's own: the second window marks nothing.
     await expectLit(second, [])
-    await pointerAway(window)
+    await parkPointer(window)
     await expectLit(window, [])
     // Hovering the Browser's frame lights the same Family, the Ticket's Binding line too.
     await frameOf(window, opened.id).locator('.w-browser-frame__header').hover()
@@ -199,7 +192,7 @@ test('a Session’s Browser is in its Ticket’s Family and leaves the Canvas wi
     await frameOf(window, USER_BROWSER).locator('.w-browser-frame__header').hover()
     await expectLit(window, [])
     await expect(line(window, `binding:session:${CLAIM}`)).toHaveCount(0)
-    await pointerAway(window)
+    await parkPointer(window)
 
     // Where the Session's Browser stands, as main saves it.
     const saved = (): string => readFileSync(join(dataDir, projectId, 'layout.json'), 'utf8')
@@ -278,7 +271,7 @@ test.describe('on a read-only screen', () => {
       await expect(a.window.getByTestId('canvas-read-only')).toBeVisible()
       const ticket = a.window.locator('[data-testid="ticket-node"][data-ticket="7"]')
       await canvasReady(a, { visible: [ticket, frameOf(a.window, opened.id)] })
-      await pointerAway(a.window)
+      await parkPointer(a.window)
       await expectLit(a.window, [])
 
       await ticket.hover()

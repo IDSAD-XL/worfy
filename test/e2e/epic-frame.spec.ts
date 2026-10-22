@@ -13,7 +13,7 @@ import { ORCHESTRATOR_WIDTH } from '../../src/shared/ipc/orchestrator'
 import { onThePlane } from '../../src/shared/layout/derived'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
-import { canvasReady, expectSettledWithoutOverlaps, flowPositionsInOnePass, launchApp, oneBoxEachInOnePass, repoRoot, settledBoxes, settledRead, ticketCardCuts, type LaunchedApp } from './helpers'
+import { canvasReady, expectSettledWithoutOverlaps, flowPositionsInOnePass, launchApp, oneBoxEachInOnePass, parkPointer, repoRoot, settledBoxes, settledRead, ticketCardCuts, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
@@ -1144,7 +1144,7 @@ test('an Auction-sized Project is interactive within 3 s and pans and zooms smoo
     // the pointer's arrival to the frame that shows it is printed, and checked with WORFY_PERF=1.
     await window.locator(`[data-testid="sidebar-epic"][data-epic="${generated!.biggest}"]`).click()
     await canvasReady({ window })
-    await window.mouse.move(pane.x + 8, pane.y + pane.height - 8)
+    await parkPointer(window)
     const hoverMs = await hoverUntilLit(window, generated!.biggest, pane)
     console.log(`auction-size: hover on a Ticket of ${generated!.biggest} to its lit chain ${hoverMs} ms`)
     test.info().annotations.push({ type: 'perf', description: `hoverToLit=${hoverMs}ms` })

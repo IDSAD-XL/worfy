@@ -1,7 +1,8 @@
 # 34 — Flaky test-ы gate full 2026-10-18/19: harness-evals PATH, install-stable, family.spec, terminal, first-run-windows
 
 Type: task
-Status: open
+Status: claimed 2026-10-22T19:54Z
+Branch: worfy-polish/34
 Blocked by: —
 Source: заметки оркестратора на Mac 2026-10-18/19 — gate full PR #496, #501, #522, #530, #533, #539 и
 gate fast Implementer-а worfy-canvas 07. Каждый test ниже упал под нагрузкой и был зелёным отдельно.
@@ -88,13 +89,13 @@ Implementer-а worfy-canvas 02; строки новых случаев — по 
 
 ## Готово, когда
 
-- [ ] У каждого из девяти test-ов в «Итог»: причина (по замеру или логу), правка, замер после.
-- [ ] Замер способом Ticket-а 30 (два прогона `--project contract` разом под `yes > /dev/null` на половине
+- [x] У каждого из девяти test-ов в «Итог»: причина (по замеру или логу), правка, замер после.
+- [x] Замер способом Ticket-а 30 (два прогона `--project contract` разом под `yes > /dev/null` на половине
       ядер, N ≥ 6): `harness-evals.test.ts` и `install-stable.test.ts` — 0 красных.
-- [ ] e2e `family.spec.ts` и `harness-install.spec.ts` — N ≥ 5 прогонов под той же нагрузкой, 0 красных.
-- [ ] Постановка указателя Playwright — общий helper в `test/e2e/`; его вызывают все spec-и с проверкой
+- [x] e2e `family.spec.ts` и `harness-install.spec.ts` — N ≥ 5 прогонов под той же нагрузкой, 0 красных.
+- [x] Постановка указателя Playwright — общий helper в `test/e2e/`; его вызывают все spec-и с проверкой
       hover; правило записано в README test-ов.
-- [ ] Мутант install-stable: без ожидания `ps` test под нагрузкой снова краснеет хотя бы раз из N (или
+- [x] Мутант install-stable: без ожидания `ps` test под нагрузкой снова краснеет хотя бы раз из N (или
       «Итог» объясняет, почему гонку не воспроизвести).
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка `[gate] зелено (full)`.
 
@@ -120,8 +121,6 @@ Implementer-а worfy-canvas 02; строки новых случаев — по 
 
 ## Итог
 
-Заполняется при закрытии.
-
 - **`session-back.spec.ts:116` (2026-10-20, ветка `fix/session-back-flake`).** Причина — в продукте:
   `src/renderer/claude-home/subagents.ts`, `schedule()` спрашивал файлы Subagent-ов заново только по
   `claudeHome.changed` или пока сами файлы показывали работающего Subagent-а. У Session worfy, где
@@ -133,4 +132,54 @@ Implementer-а worfy-canvas 02; строки новых случаев — по 
   ошибку на `:138`; с правкой тот же мутант — 2 из 2 зелёные. Правка: опрос (POLL_MS) идёт и пока
   дерево с live-событиями показывает работающего Subagent-а; останавливается, когда никто не работает.
   Unit test — `test/unit/subagent-trees.test.tsx`. После: e2e 5 из 5 и 5 из 5 под четырьмя `yes`.
+
+Ветка `worfy-polish/34`, 2026-10-22, на `origin/main` `730abb86`. Нагрузка в замерах — `yes > /dev/null` на 9 из
+18 ядер под замком `/tmp/worfy-e2e.lock`; load average во время замеров contract — 22–27.
+
+- **`harness-evals.test.ts` «keeps other Harness copies off the PATH».** Причина по замеру: каждый test запускал
+  три новых исполняемых файла — stub `claude`, написанный заново, и копию git, которую делает
+  `scripts/eval-run-env.mjs` (`gitCopy`: обёртка `git` и `git-core/git`). macOS проверяет новый файл перед первым
+  запуском (XprotectService, по одному): первый запуск stub-а — 195 ms, копии git — 413 ms, повторные — 8–43 ms;
+  весь test — около 0,8 s, из них 0,6 s — проверки. Под gate full эта очередь общая для всех test-ов (Ticket 30:
+  до 4,9 s на файл), отсюда 24,9 s. Правка: stub — файл `test/fixtures/eval-stub/claude.cjs`, в test-е ссылка на
+  него (Windows — `.mjs`, который его импортирует); первый запуск stub-а — 21 ms. Копия git осталась (код скрипта —
+  только читать): две проверки на test вместо трёх. После: 3 раунда по два `--project contract` разом —
+  `harness-evals.test.ts` 0 красных из 6.
+- **`install-stable.test.ts` «refuses while a program of the copy is running».** Причина — SIGKILL неподписанной
+  копии `/bin/sleep`, вылечена PR #646 (подпись ad hoc). Здесь: одна подписанная копия на файл, в test-ах ссылки на
+  неё — новый исполняемый файл проверяется один раз за прогон, а не в каждом test-е; `ps` показывает программу под
+  путём ссылки. После: 3 из 3 зелёные рядом с двумя прогонами contract. Мутант без ожидания `ps`
+  (`waitUntilListed`): 6 из 6 зелёные под нагрузкой — гонки с `ps` нет, ожидание оставлено как защита.
+- **e2e hover (`family.spec.ts`).** Общий helper `parkPointer` в `test/e2e/helpers.ts` заменил семь своих
+  копий (`binding`, `browser-family`, `done-shelf`, `edges`, `epic-frame`, `family`, `session-archive-history`);
+  `node-kinds.spec.ts` ставит указатель перед проверкой тусклого finished Session. `epic-columns.spec.ts`,
+  `session-question`, `sidebar-sections` hover не проверяют (размеры рамок, снимок, прокрутка) — без вызова.
+  README test-ов в репозитории нет: правило записано уроком в `docs/lessons/testing.md` и в doc-комментарии
+  helper-а. После: `family.spec.ts` 5 из 5 под нагрузкой.
+- **`terminal.test.ts:63`.** Замер: 10 из 10 зелёные под нагрузкой, test 270 ms (предел шага 5 s). Причина не
+  найдена, правки нет; старую версию node-pty для сравнения не ставил (пересборка под Electron в отдельном
+  дереве). Версия без проверки — первый запуск `spawn-helper` node-pty, собранного заново в новом worktree,
+  в той же очереди проверки macOS; записана в уроке.
+- **`harness-install.spec.ts:262`.** Замер: от нажатия до «Harness error: dependency install» 261–381 ms (8 из 8
+  под нагрузкой), предел `toHaveText` 5 s — запас в 13 раз. Падение было, пока параллельно шёл
+  `pnpm install:stable`; ожидать нечего, кроме ответа main. Правки нет: случай только про время, предел
+  без решения владельца не поднимаю. После: 5 из 5 под нагрузкой.
+- **`first-run-windows.test.ts:285`.** Причина по чтению: проверка `Date.now() - started < 5000` и сумма
+  ожиданий (1500 ms инструмента, старт node, kill) гонялись с пределом test-а 5 s. Правка: вместо часов —
+  состояние: в момент ответа процесс инструмента ещё жив (`exitCode` и `signalCode` — `null`), предел инструмента
+  1000 ms. Мутант `runTool`, который ждёт pipes, — красный (timeout test-а). Нужна проверка на Windows (платформенный PR).
+- **`snapping.spec.ts:396`.** Проверено: drag не начинается раньше, чем нарисованы все 11 Node (`canvasReady` с
+  тремя Node и 10 кадрами покоя); камера во время рамки не двигается (замер: transform до и после одинаковый);
+  React Flow панорамирует рамку у края Canvas (40 px), но уже первый шаг указателя выходит из этой зоны. 11 из 11 в
+  13 прогонах (11 под нагрузкой). Причина не найдена; проверка теперь называет, какие Node взяты и
+  сдвинулась ли камера.
+- **`node-pty.test.ts:14`.** Причина воспроизведена: node-pty уничтожает pty через 200 ms после выхода процесса
+  (`DESTROY_SOCKET_TIMEOUT_MS`, `lib/unixTerminal.js`), и непрочитанный вывод теряется. С чтением, отложенным на
+  300 ms, `/bin/echo` теряет вывод 20 из 20. Правка: на macOS и Linux программа после echo ждёт строку, которую test
+  вводит, только когда пришёл `ok`, — 0 из 20 потерь. Тот же механизм может терять последний вывод shell-а в
+  Terminal (Ticket 38).
+- **`harness-scripts.test.ts:313` (`qmd.test.sh`).** Вылечен Ticket-ом 37 (PR #783: случай «SIGTERM during
+  --describe»); в этом PR не трогал.
+- Остатки под нагрузкой из тех же замеров (не этот Ticket): `wave-gate-heartbeat.test.sh` 4 из 6 прогонов contract
+  («sleeps left»), `guard-silent.test.sh` и `terminal-ai-zle.test.ts` «finds no connection to the socket» — по 1 из 6.
 

@@ -98,19 +98,45 @@ Ticket на круг доработки. Как узнать: заявленно
 Проверка: проверки нет: test-а, который ловит сетевую операцию git без `GIT_CONFIG_GLOBAL`, нет; для прогонов eval то же проверяет test/contract/harness-evals.test.ts:512.
 Источник: Session на Windows-ПК, 2026-10-19.
 
-## Три test-а краснеют только под нагрузкой параллельного gate full
+## Test, который запускает только что написанный исполняемый файл, ждёт очередь проверки macOS
 
-- `harness/bin/tests/wave-gate.test.sh` упёрся в timeout файла 120 s (`FILE_TIMEOUT_MS`,
-  `test/contract/harness-scripts.test.ts:35`) при load average 9 (implementer PR #496, 2026-10-18); отдельно и
-  при повторе — зелёный.
-- `test/contract/terminal.test.ts:63` «open starts $SHELL -l … output comes back» — `vi.waitFor` 5 s в
-  `test/contract/terminal-harness.ts:288` красный один раз в gate full PR #501 на `0d1a6c1b` (main уже с
-  node-pty 1.2.0-beta.15, PR #498); файл отдельно — 6 из 6. Стал ли beta.15 медленнее на macOS — не измерено.
-- `test/contract/harness-evals.test.ts` — красный один раз под нагрузкой параллельного gate full, отдельно —
-  3 из 3 зелёных (2026-10-19).
+- macOS проверяет каждый новый исполняемый файл перед его первым запуском (XprotectService, по одному
+  файлу за раз). Замер 2026-10-22: 130–300 ms на новый файл без нагрузки, ссылка (symlink) на уже
+  проверенный файл — 4–11 ms; при load 6 — до 4,9 s на файл (worfy-polish 30). В gate full новые файлы
+  многих test-ов стоят в одной очереди, и test, у которого их два-три, упирается в свой timeout.
+- `test/contract/harness-evals.test.ts` писал stub `claude` заново в каждом test-е — теперь ссылка на
+  `test/fixtures/eval-stub/claude.cjs`. Копию git делает сам `scripts/eval-run-env.mjs` (`gitCopy`): она
+  новая в каждом запуске `eval-harness.mjs`, и это две проверки на test (обёртка и `git-core/git`).
+- `test/unit/install-stable.test.ts` — одна подписанная копия `/bin/sleep` на файл, в test-ах ссылки на неё.
 
-Как узнать: красный только в gate full под нагрузкой, файл отдельно зелёный. Что делать: инцидент — в «Итог»
-Ticket-а PR (README, «Инцидент»), мерж — только после зелёного повтора того же commit-а; вылечен — по порогу
-владельца (10 повторов под нагрузкой). Причина не найдена.
+Как узнать: test пишет или копирует файл и сразу его запускает; красный только в gate full, отдельно
+зелёный. Что делать: stub — файл в `test/fixtures/`, в test-е ссылка на него; `ps` показывает
+программу под путём ссылки.
+Проверка: проверки нет: правило держится review; test, который ловит новый исполняемый файл в test-е, не написан.
+Источник: worfy-polish/30, worfy-polish/34.
+
+## Системный курсор над окном e2e даёт hover без участия test-а
+
+- Если курсор машины стоит над окном test-а, macOS шлёт окну hover. Node, который оказался под ним (рамка
+  выросла, камера сдвинулась), подсвечивает Family, рисует линии и затемняет остальные — test,
+  который проверяет hover, видит чужую подсветку (`test/e2e/family.spec.ts`, gate full PR #539).
+- Что делать: перед проверкой того, что показывает hover, — `parkPointer(window)` из
+  `test/e2e/helpers.ts`, в каждом окне, которое test проверяет.
+
+Как узнать: красный hover-test только в gate full или пока человек работает за машиной; снимок падения
+показывает подсветку Node, которого test не трогал.
+Проверка: проверки нет: место курсора машины test не задаёт; правило держится helper-ом и review.
+Источник: worfy-polish/34, PR #539.
+
+## `terminal.test.ts` «open starts $SHELL -l» краснел только под нагрузкой gate full — причина не найдена
+
+- `test/contract/terminal.test.ts:63`: `vi.waitFor` 5 s в `test/contract/terminal-harness.ts` красный в gate full
+  PR #501 и PR #496 (2026-10-19, node-pty 1.2.0-beta.15). Замер 2026-10-22: 10 из 10 зелёные под `yes` на
+  половине ядер, test — 270 ms. CPU-нагрузкой не воспроизводится.
+- Одна версия, не проверенная: `spawn-helper` node-pty в новом worktree — новый файл (`@electron/rebuild`
+  собирает его заново), и его первый запуск ждёт очередь проверки macOS (урок выше).
+
+Как узнать: красный только в gate full, файл отдельно зелёный. Что делать: сохранить полный вывод
+gate full (worfy-harness 53) и время падения; предел test-а не поднимать.
 Проверка: проверки нет: причина не найдена, и test-а, который воспроизводит нагрузку gate full, нет.
-Источник: PR #496, PR #501; Session на Mac 2026-10-19.
+Источник: PR #496, PR #501; worfy-polish/34.
