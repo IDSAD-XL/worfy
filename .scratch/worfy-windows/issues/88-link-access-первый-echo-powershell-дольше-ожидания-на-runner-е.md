@@ -1,7 +1,8 @@
 # 88 — link-access: первый `echo` PowerShell-а дольше ожидания на Windows runner-е
 
 Type: task
-Status: open
+Status: done 2026-10-22T06:05Z
+PR: #735
 Blocked by: —
 Source: Windows runner (`windows-tests.yml`) на main до PR #729 (`12414df9`, run 39719315567) и после него
 (run 39719318138), 2026-10-22. Строки — по main `206b8aea`.
@@ -29,9 +30,9 @@ PowerShell, который запускает `TerminalRegistry` (`src/main/term
 
 ## Готово, когда
 
-- [ ] Причина найдена и записана в «Итог».
-- [ ] Три test-а выше зелёные на Windows runner-е (`windows-tests.yml` с этим файлом), без skip.
-- [ ] На ПК и на Mac файл зелёный; `pnpm lint`, `pnpm typecheck` — exit 0.
+- [x] Причина найдена и записана в «Итог».
+- [x] Три test-а выше зелёные на Windows runner-е (`windows-tests.yml` с этим файлом), без skip.
+- [x] На ПК и на Mac файл зелёный; `pnpm lint`, `pnpm typecheck` — exit 0.
 
 ## Где в коде
 
@@ -78,3 +79,14 @@ PSReadLine и перерисовка не виноваты.
 - История PSReadLine владельца (`ConsoleHost_history.txt`) не менялась: размер 190084 и SHA256
   `856228…148E` до и после каждого прогона.
 - Не проверено: прогон на самом runner-е (нужен `windows-tests.yml` с этим файлом) и на Mac.
+
+### Мерж (2026-10-22)
+
+PR #735 влит 2026-10-22, merge commit `b9a64940`.
+
+- Windows runner (`windows-tests.yml` с `test/contract/link-access.test.ts`), run 39722365848: link-access — 26 из
+  26, без skip. Три test-а из «Что происходит» (`:528`, `:556`, `:685` по main `206b8aea`) зелёные.
+- Mac, дерево merge PR с main: `pnpm lint`, `pnpm typecheck` и `test/contract/link-access.test.ts` прошли. Gate full
+  не запускался: PR меняет один test-файл. На ПК файл зелёный 3 раза подряд (см. «Итог»).
+- Причина: первый `echo` в свежем Windows PowerShell ждёт, пока PowerShell проанализирует каждый модуль из
+  `PSModulePath`. На `win32` test теперь печатает строку в кавычках, без `echo`.
