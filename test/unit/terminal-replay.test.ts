@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { REPLAY_LIMIT, ReplayBuffer, TerminalRegistry } from '../../src/main/terminal/pty'
 import { RESIZE_RUN_MS, SIZES_LIMIT } from '../../src/main/terminal/replay-buffer'
 import { writeReplay } from '../../src/renderer/canvas/nodes/terminal-replay'
-import type { ReplaySize } from '../../src/shared/ipc/terminal'
+import { terminalOpen, type ReplaySize } from '../../src/shared/ipc/terminal'
 import { fakePty, SINK } from './terminal-fake-pty'
 
 afterEach(() => {
@@ -115,6 +115,52 @@ describe('ReplayBuffer: the sizes of the pty', () => {
     expect(buffer.sizes()).toEqual([{ at: 0, cols: 80, rows: 24 }])
   })
 
+  // A shell starts and prints its prompt well within RESIZE_RUN_MS on macOS (the Mac's contract run).
+  it('the size the pty was made with is no part of a run: output, then a resize at once, keeps both', () => {
+    const buffer = new ReplayBuffer({ cols: 80, rows: 24 }, () => 0)
+    buffer.push('PS> ')
+    buffer.resize(132, 40)
+    expect(buffer.sizes()).toEqual([
+      { at: 0, cols: 80, rows: 24 },
+      { at: 4, cols: 132, rows: 40 },
+    ])
+  })
+
+  it('a resize before any output, however soon, replaces the size the pty was made with', () => {
+    const buffer = new ReplayBuffer({ cols: 80, rows: 24 }, () => 0)
+    buffer.resize(132, 40)
+    buffer.push('PS> ')
+    expect(buffer.sizes()).toEqual([{ at: 0, cols: 132, rows: 40 }])
+  })
+
+  it.each([
+    ['the size the pty was made with', false],
+    ['a size of an earlier resize', true],
+  ])('a run that comes back to %s leaves what came at it there: a resize right after begins a size of its own', (_name, resizedFirst) => {
+    let now = 0
+    const buffer = new ReplayBuffer({ cols: 80, rows: 24 }, () => now)
+    if (resizedFirst) {
+      buffer.push('start ')
+      now = 500
+      buffer.resize(90, 24)
+    }
+    const base = buffer.end
+    const size = resizedFirst ? { cols: 90, rows: 24 } : { cols: 80, rows: 24 }
+    buffer.push('prompt')
+    now += 1000
+    buffer.resize(70, 24)
+    buffer.push('redraw')
+    now += 10
+    buffer.resize(size.cols, size.rows)
+    buffer.push('redraw')
+    now += 10
+    buffer.resize(60, 24)
+    expect(buffer.sizes().slice(-2)).toEqual([
+      { at: resizedFirst ? 6 : 0, ...size },
+      { at: base + 18, cols: 60, rows: 24 },
+    ])
+  })
+
   it('keeps at most SIZES_LIMIT sizes: past it the two oldest become one, at the later size', () => {
     const buffer = new ReplayBuffer({ cols: 20, rows: 10 }, slowClock())
     for (let index = 1; index <= SIZES_LIMIT + 2; index++) {
@@ -126,6 +172,21 @@ describe('ReplayBuffer: the sizes of the pty', () => {
     expect(sizes[0]).toEqual({ at: 0, cols: 23, rows: 10 })
     expect(sizes[1]).toEqual({ at: 4, cols: 24, rows: 10 })
     expect(sizes.at(-1)).toEqual({ at: SIZES_LIMIT + 2, cols: 22 + SIZES_LIMIT, rows: 10 })
+  })
+
+  it('a shell that starts and prints at once, then a resize within RESIZE_RUN_MS: open gives both sizes', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    const fake = fakePty(999_995_892, { deaf: true })
+    const registry = new TerminalRegistry({ env: () => Promise.resolve({ SHELL: '/bin/sh' }), spawn: () => fake.pty, platform: 'linux' })
+    const client = {}
+    await registry.open('a', { cwd: '/p/repo', cols: 80, rows: 24 }, client, SINK)
+    fake.print('$ marker-one\r\n$ ')
+    registry.resize('a', 132, 40, client)
+    const attached = await registry.open('a', { cwd: '/p/repo', cols: 132, rows: 40 }, client, SINK)
+    expect(attached.sizes).toEqual([
+      { at: 0, cols: 80, rows: 24 },
+      { at: 16, cols: 132, rows: 40 },
+    ])
   })
 
   it('the registry records the resizes of the pty, not those that failed, and open gives the sizes', async () => {
@@ -320,10 +381,71 @@ describe('writeReplay: a new view writes the kept output at the sizes it came at
     expect(lines(view)).toEqual(lines(shown))
   })
 
+  it('sizes out of order or past the end (from a main of another version) write no output twice', () => {
+    const writes: string[] = []
+    const resizes: string[] = []
+    const terminal = {
+      cols: 80,
+      rows: 24,
+      resize(cols: number, rows: number) {
+        Object.assign(this, { cols, rows })
+        resizes.push(`${cols}x${rows}`)
+      },
+      write: (data: string, callback?: () => void) => {
+        writes.push(data)
+        callback?.()
+      },
+    }
+    const replay = 'abcdefghijklmno'
+    let done = 0
+    writeReplay(terminal, { replay, end: 115, sizes: [
+      { at: 100, cols: 40, rows: 10 },
+      { at: 110, cols: 20, rows: 5 },
+      { at: 105, cols: 30, rows: 8 },
+      { at: 900, cols: 50, rows: 9 },
+    ] }, () => done++)
+    expect(writes.join('')).toBe(replay)
+    expect(writes).toEqual(['abcdefghij', 'klmno'])
+    expect(resizes).toEqual(['40x10', '20x5', '30x8', '50x9'])
+    expect(done).toBe(1)
+  })
+
+  it('a throw of xterm.js during the replay stops it and still calls done, once', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const terminal = {
+      cols: 80,
+      rows: 24,
+      resize(cols: number) {
+        if (cols === 20) throw new Error('disposed')
+      },
+      write: (_data: string, callback?: () => void) => callback?.(),
+    }
+    let done = 0
+    writeReplay(terminal, { replay: 'abcdef', end: 6, sizes: [
+      { at: 0, cols: 40, rows: 10 },
+      { at: 3, cols: 20, rows: 5 },
+    ] }, () => done++)
+    expect(done).toBe(1)
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
   it('an empty replay with no sizes is done at once', () => {
     const view = newView()
     let done = false
     writeReplay(view, { replay: '', end: 0, sizes: [] }, () => (done = true))
     expect(done).toBe(true)
+  })
+})
+
+describe('the answer of terminal.open: its sizes', () => {
+  const answer = (sizes: ReplaySize[] | undefined) => ({ pid: 1, shell: 'zsh', replay: 'abc', end: 10, ...(sizes === undefined ? {} : { sizes }), started: false, exited: null })
+  it.each([
+    ['none', undefined, true],
+    ['going up, the last at the end', [{ at: 7, cols: 80, rows: 24 }, { at: 9, cols: 90, rows: 24 }, { at: 10, cols: 70, rows: 20 }], true],
+    ['two at one place', [{ at: 7, cols: 80, rows: 24 }, { at: 7, cols: 90, rows: 24 }], true],
+    ['going down', [{ at: 9, cols: 80, rows: 24 }, { at: 8, cols: 90, rows: 24 }], false],
+    ['past the end', [{ at: 7, cols: 80, rows: 24 }, { at: 11, cols: 90, rows: 24 }], false],
+  ] as const)('sizes %s', (_name, sizes, valid) => {
+    expect(terminalOpen.output.safeParse(answer(sizes === undefined ? undefined : [...sizes])).success).toBe(valid)
   })
 })

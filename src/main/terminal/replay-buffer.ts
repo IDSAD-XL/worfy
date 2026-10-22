@@ -17,7 +17,10 @@ export const REPLAY_LIMIT = 256 * 1024
  * the run keeps one size, the last, from where it began. No one resizes a Node and runs a command
  * within 0.1 s, so the output of a command is not merged this way; within a run it is the shell's
  * redraw after each resize, which the live view, too, mostly wrote at a later size than the pty's
- * (the view resizes before main does, and the redraw comes after main's resize).
+ * (the view resizes before main does, and the redraw comes after main's resize). A run begins only
+ * with a resize: the size the pty was made with, and a size a run came back to, never take a run's
+ * later size, since what the shell printed at them was printed at them (a shell starts and prints
+ * its prompt well within 0.1 s on macOS).
  */
 export const RESIZE_RUN_MS = 100
 
@@ -28,7 +31,10 @@ export const RESIZE_RUN_MS = 100
  */
 export const SIZES_LIMIT = 64
 
-/** A size and when the pty took it (for the runs of resizes). */
+/**
+ * A size and when the pty took it, for the runs of resizes; -Infinity for a size no run may take
+ * over (RESIZE_RUN_MS).
+ */
 type KeptSize = ReplaySize & { when: number }
 
 /**
@@ -55,7 +61,7 @@ export class ReplayBuffer {
     size?: { cols: number; rows: number },
     private readonly now: () => number = () => Date.now(),
   ) {
-    if (size !== undefined) this.resizes.push({ at: 0, cols: size.cols, rows: size.rows, when: this.now() })
+    if (size !== undefined) this.resizes.push({ at: 0, cols: size.cols, rows: size.rows, when: -Infinity })
   }
 
   get end(): number {
@@ -85,12 +91,10 @@ export class ReplayBuffer {
     // run's last (RESIZE_RUN_MS).
     if (last !== undefined && (last.at === this.total || when - last.when < RESIZE_RUN_MS)) Object.assign(last, { cols, rows, when })
     else if (last === undefined || last.cols !== cols || last.rows !== rows) this.resizes.push({ at: this.total, cols, rows, when })
-    // Back to the size before: one size covers both.
+    // Back to the size before: one size covers both. The size before keeps its time: a resize after
+    // this one, however soon, begins a size of its own, and what came at the size before stays there.
     const [before, merged] = this.resizes.slice(-2)
-    if (before !== undefined && merged !== undefined && before.cols === merged.cols && before.rows === merged.rows) {
-      before.when = merged.when
-      this.resizes.pop()
-    }
+    if (before !== undefined && merged !== undefined && before.cols === merged.cols && before.rows === merged.rows) this.resizes.pop()
     // shortcut: past SIZES_LIMIT the oldest output is replayed at the size that came after it, which
     // can draw the first lines of the scrollback wrong; redo when a replay must be exact that far back.
     if (this.resizes.length > SIZES_LIMIT) {
