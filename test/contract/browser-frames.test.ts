@@ -63,6 +63,8 @@ class FakePage implements CdpContents {
   destroyed = false
   /** Whether its window has a `beforeunload` handler: a form the user has not sent. */
   beforeunload = false
+  /** While set, the page answers where it is scrolled only once this settles. */
+  scrollHeld: Promise<void> | undefined
   /** The CDP commands that fail. */
   readonly failing = new Set<string>()
   private attached = false
@@ -74,7 +76,11 @@ class FakePage implements CdpContents {
     sendCommand: (method, params) => {
       this.sent.push({ method, params })
       if (this.failing.has(method)) return Promise.reject(new Error(`${method} failed`))
-      if (method === 'Runtime.evaluate') return Promise.resolve({ result: { value: [0, 0], objectId: 'window-1' } })
+      if (method === 'Runtime.evaluate') {
+        const answer = { result: { value: [0, 0], objectId: 'window-1' } }
+        const expression = (params as { expression?: string } | undefined)?.expression
+        return expression === '[scrollX, scrollY]' && this.scrollHeld !== undefined ? this.scrollHeld.then(() => answer) : Promise.resolve(answer)
+      }
       if (method === 'DOMDebugger.getEventListeners') return Promise.resolve({ listeners: this.beforeunload ? [{ type: 'beforeunload' }] : [] })
       if (method === 'Page.captureScreenshot') return Promise.resolve({ data: '/9j/picture' })
       return Promise.resolve({})
@@ -246,6 +252,37 @@ async function scrollInSecondWindow(): Promise<void> {
   await live.liveBrowsers().input(PROJECT, NODE, wheel, 2)
   await vi.advanceTimersByTimeAsync(live.MOVE_REST_MS + 100)
   await vi.advanceTimersByTimeAsync(5_000)
+}
+
+/** A window of this Machine as the `browser` handlers get it: a webContents that reports the documents it commits. */
+interface FakeSender {
+  id: number
+  send(channel: string, payload: unknown): void
+  isDestroyed(): boolean
+  once(event: string, listener: Listener): void
+  on(event: string, listener: Listener): void
+  /** Emits a webContents event, as Electron does. */
+  fire(event: string, ...args: unknown[]): void
+}
+
+function sender(id: number): FakeSender {
+  const listeners = new Map<string, Listener[]>()
+  const add = (event: string, listener: Listener) => void listeners.set(event, [...(listeners.get(event) ?? []), listener])
+  return { id, send: () => undefined, isDestroyed: () => false, once: add, on: add, fire: (event, ...args) => listeners.get(event)?.forEach((listener) => listener(...args)) }
+}
+
+/** Window `from` reports what it shows through the real `browser.screen` handler (src/main/ipc/browser.ts). */
+async function reportScreen(from: FakeSender, projectId: string, visible: string[]): Promise<void> {
+  const handlers = (await import('../../src/main/ipc/browser')).default
+  const screen = handlers.find((each) => each.channel.name === 'browser.screen')
+  if (screen === undefined) throw new Error('browser.screen has no handler')
+  await screen.handle({ projectId, visible, zoom: 1 } as never, { event: { sender: from } as never })
+}
+
+/** Whether the last `browser.lives.changed` of Project `projectId` that `window` got says it draws the page. */
+function hereIn(window: FakeWindow, projectId = PROJECT): boolean | undefined {
+  const last = window.sent.filter(([channel, payload]) => channel === 'browser.lives.changed' && (payload as { projectId: string }).projectId === projectId).at(-1)?.[1] as { lives: { nodeId: string; here: boolean }[] } | undefined
+  return last?.lives.find((each) => each.nodeId === NODE)?.here
 }
 
 const click = { kind: 'mouse', type: 'mousePressed', x: 12, y: 30, button: 'left', clickCount: 1, modifiers: 0 } as const
@@ -438,6 +475,27 @@ describe('a move of the page to another window loses nothing', () => {
     expect(browsers.ownerOf(PROJECT, NODE)).toBe(2)
   })
 
+  it('a call that begins while main reads where the page is scrolled keeps the page where it is', async () => {
+    const page = await twoWindows()
+    const browsers = live.liveBrowsers()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    let answer = (): void => undefined
+    page.scrollHeld = new Promise<void>((resolve) => (answer = resolve))
+    const scrollAsked = () => page.sent.some((each) => (each.params as { expression?: string } | undefined)?.expression === '[scrollX, scrollY]')
+    await browsers.input(PROJECT, NODE, wheel, 2)
+    await vi.advanceTimersByTimeAsync(live.MOVE_REST_MS + 100)
+    for (let turn = 0; turn < 50 && !scrollAsked(); turn += 1) await vi.advanceTimersByTimeAsync(0)
+    expect(scrollAsked()).toBe(true)
+    // A Session's call begins before the page answers.
+    browsers.sessionDrives(PROJECT, NODE)
+    answer()
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(browsers.ownerOf(PROJECT, NODE)).toBe(1)
+    expect(browsers.page(PROJECT, NODE)?.contents).toBe(page)
+    browsers.sessionReleases(PROJECT, NODE)
+    page.scrollHeld = undefined
+  })
+
   it('a takeover and a hold outlive the move, and the ask before a Session leaves reaches the page the new window draws', async () => {
     const page = await twoWindows()
     const browsers = live.liveBrowsers()
@@ -471,6 +529,39 @@ describe('a move of the page to another window loses nothing', () => {
     expect(browsers.ownerOf(PROJECT, NODE)).toBe(1)
     expect(browsers.control(PROJECT, NODE)).toEqual({ mode: 'user', sessionId: 'session-1' })
     moved.close()
+  })
+})
+
+describe('the owner window shows something else', () => {
+  it('a new document in the owner window (a reload, a Linked machine\'s Project) hands the page to the other window', async () => {
+    oneWindow()
+    const page = await livePage()
+    const first = sender(1)
+    await reportScreen(first, PROJECT, [NODE])
+    const second = await windowShows(2, [NODE])
+    expect(live.liveBrowsers().ownerOf(PROJECT, NODE)).toBe(1)
+    // Its new document reports to a Linked machine, not here: only the commit tells main.
+    first.fire('did-navigate', {}, 'app://index.html', -1, '')
+    expect(live.liveBrowsers().ownerOf(PROJECT, NODE)).toBe(2)
+    expect(hereIn(second)).toBe(true)
+    page.close()
+    expect(live.liveBrowsers().register(PROJECT, NODE, new FakePage(), 2)).not.toBeNull()
+    oneWindow()
+    await windowShows(1, [NODE])
+  })
+
+  it('a window that moves to a Project main has no Browsers of tells the other windows of the old Project who draws the page now', async () => {
+    oneWindow()
+    const page = await livePage()
+    const second = await windowShows(2, [NODE])
+    expect(live.liveBrowsers().ownerOf(PROJECT, NODE)).toBe(1)
+    second.sent.length = 0
+    await live.liveBrowsers().screen(1, { projectId: 'linked-0a1b2c3d', visible: [], zoom: 1 })
+    expect(live.liveBrowsers().ownerOf(PROJECT, NODE)).toBe(2)
+    expect(hereIn(second)).toBe(true)
+    page.close()
+    oneWindow()
+    await windowShows(1, [NODE])
   })
 })
 

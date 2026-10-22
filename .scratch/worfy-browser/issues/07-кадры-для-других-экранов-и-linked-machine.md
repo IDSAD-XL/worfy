@@ -126,8 +126,7 @@ CDP-сессии); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md),
 machine с Read only по-прежнему видит адреса в транскрипте Session (`agent.event`,
 `claudeHome.search`) и origins Browser profile-ов (`browser.profiles.list`) — так и остаётся, Ticket-а
 нет; `browser.lives.list` и `browser.lives.changed` остаются `write` — исключение из пункта 3
-ADR-0066, записано в его Amendments. Кнопки «назад/вперёд/обновить» в кадрах неактивны, и Linked
-machine не держит Browser Live без окна Machine Project-а с этим Project-ом — тоже приняты.
+ADR-0066, записано в его Amendments. Решения абзаца ниже тоже приняты.
 
 Ещё: экран Linked machine сообщает, что видит, раз в 20 с, отчёт действует 60 с; он считается в
 правилах сна, только пока Project открыт в окне Machine Project-а (иначе страницы нет и кадров

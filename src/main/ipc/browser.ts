@@ -38,7 +38,7 @@ import { ControlError, liveBrowsers, NOT_SHOWN, screenKey } from '../browser/liv
 import { webAddress } from '../browser/origins'
 import { browserProfileStore } from '../browser/profiles'
 import { browserScreencasts } from '../browser/screencast'
-import { clientOf, isWindowId, type Client, type ClientId } from '../clients'
+import { clientOf, isWindowId, onNewDocument, type Client, type ClientId, type NavigatingClient } from '../clients'
 import { toEveryWindow } from '../broadcast'
 import { layoutStore } from '../layout/store'
 import { defineHandler, emit, type HandlerModule } from './index'
@@ -102,6 +102,10 @@ export default [
         if (isWindowId(id)) liveBrowsers().dropScreen(id)
         else liveBrowsers().dropScreensOf(id)
       })
+      // A reload of the window (or its move to a Linked machine's Project, whose reports go to that
+      // machine) leaves the webContents: what it showed is stale, and the pages it owned go to
+      // another window until its new document reports. The listener stays for the client's life.
+      if (isWindowId(id)) onNewDocument(client as NavigatingClient, () => liveBrowsers().dropScreen(id))
     }
     await liveBrowsers().screen(screenKey(id, screen), { projectId, visible, zoom })
     return {}

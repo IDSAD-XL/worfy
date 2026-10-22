@@ -470,6 +470,11 @@ export class LiveBrowsers {
         console.warn(`Browser ${nodeId}: where its page is scrolled could not be read before it moved`, error)
         return null
       })
+      // Asked again after the scroll, which may take ASK_MS: a call may have begun meanwhile.
+      if (stays()) {
+        life.restore = null
+        return
+      }
     }
     this.owners.set(key, nextOwners(this.owners.get(key) ?? NO_OWNER, { kind: 'work', window }))
     // A Session's next call waits for the page the new window draws, not for the one that closes.
@@ -677,8 +682,14 @@ export class LiveBrowsers {
     if (linked) return Promise.resolve()
     return this.serial(async () => {
       const all = this.browsersNow(projectId)
+      // The window left another Project: that Project's Browsers may have another owner now. Told
+      // before the return below, which a window that moved to a Linked machine's Project takes.
+      const left = before !== undefined && before !== projectId ? before : undefined
       // A Project this Machine does not have (a Linked machine's) has no Browsers of its own here.
-      if (all === 'gone' || all === 'unknown') return
+      if (all === 'gone' || all === 'unknown') {
+        if (left !== undefined) this.announce(left)
+        return
+      }
       const changed = new Set<string>([projectId])
       if (!this.seen.has(projectId)) {
         this.seen.add(projectId)
@@ -700,8 +711,7 @@ export class LiveBrowsers {
           }
         }
       }
-      // The window left another Project: that Project's Browsers may have another owner now.
-      if (before !== undefined && before !== projectId) changed.add(before)
+      if (left !== undefined) changed.add(left)
       for (const each of changed) this.announce(each)
     })
   }
