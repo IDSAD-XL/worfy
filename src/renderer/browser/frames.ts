@@ -3,9 +3,11 @@
 // Linked machine's Project. While its frame is on screen the window watches it
 // (`browser.frames.watch`) and draws every `browser.frame` main sends; the user's click, scroll and
 // keys go to the page (`browser.input`), in the page's CSS pixels, and an address typed in the bar
-// goes there (`browser.navigate`). A read-only screen never watches: it shows the frame alone.
+// goes there (`browser.navigate`). A read-only screen never watches: it shows the frame alone. The
+// watch is told again every BROWSER_SCREEN_RENEW_MS, and ends on `pagehide`: main ends one it is not
+// told again of, as a reload or a closed window of a Linked machine tells it nothing.
 import { useEffect, useState } from 'react'
-import type { BrowserInput } from '../../shared/ipc/browser'
+import { BROWSER_SCREEN_RENEW_MS, type BrowserInput } from '../../shared/ipc/browser'
 import { screenId } from '../canvas/screen'
 import { invoke, subscribe } from '../ipc'
 
@@ -42,8 +44,15 @@ export function useBrowserFrames(projectId: string, nodeId: string, on: boolean)
       return undefined
     }
     watch(projectId, nodeId, true)
+    // main ends a watch it is not told again of (FRAMES_WATCH_MS, src/main/browser/screencast.ts).
+    const renew = setInterval(() => watch(projectId, nodeId, true), BROWSER_SCREEN_RENEW_MS)
+    // A reload or a close of the window runs no cleanup of React: the watch ends here, or by itself.
+    const hide = () => watch(projectId, nodeId, false)
+    window.addEventListener('pagehide', hide)
     return () => {
       stop()
+      clearInterval(renew)
+      window.removeEventListener('pagehide', hide)
       watch(projectId, nodeId, false)
     }
   }, [projectId, nodeId, on])

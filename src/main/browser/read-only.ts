@@ -7,11 +7,10 @@
 // size, its profile — stays: the frame is drawn from it.
 import type { Client } from '../clients'
 import { LinkSender } from '../link/ipc-adapter'
+import { BROWSER_KIND as BROWSER } from '../../shared/browser/tools'
 import type { LayoutChangeEvent } from '../../shared/ipc/layout'
 import type { LayoutNode, LayoutOp, LayoutState } from '../../shared/layout/types'
 
-/** The kind of a Browser Node (BROWSER_KIND of src/renderer/canvas/nodes/browser-frame.ts). */
-const BROWSER = 'browser'
 
 /** Whether `client` is the client of a Linked machine with read-only access. */
 export function readOnlyClient(client: Client | undefined): boolean {

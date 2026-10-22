@@ -34,16 +34,17 @@ import {
   browserProfilesList,
   browserProfilesUpdate,
 } from '../../shared/ipc/browser'
-import { ControlError, liveBrowsers, NOT_SHOWN } from '../browser/live'
+import { ControlError, liveBrowsers, NOT_SHOWN, screenKey } from '../browser/live'
+import { webAddress } from '../browser/origins'
 import { browserProfileStore } from '../browser/profiles'
 import { browserScreencasts } from '../browser/screencast'
-import { clientOf, type Client } from '../clients'
+import { clientOf, isWindowId, type Client, type ClientId } from '../clients'
 import { toEveryWindow } from '../broadcast'
 import { layoutStore } from '../layout/store'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 /** The windows and the Linked machines' clients whose closing main already listens for. */
-const screens = new Set<number | string>()
+const screens = new Set<ClientId>()
 
 /** The client of a call; a call without one is refused. */
 function callerOf(event: { sender?: unknown }): Client {
@@ -54,9 +55,8 @@ function callerOf(event: { sender?: unknown }): Client {
 
 /** The address of `url` when it is an http or https address the page may go to; throws otherwise. */
 function webUrl(url: string): string {
-  if (!URL.canParse(url)) throw new Error('not an address')
-  const parsed = new URL(url)
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('only an http or https address opens in a Browser')
+  const parsed = webAddress(url)
+  if (parsed === null) throw new Error('only an http or https address opens in a Browser')
   return parsed.href
 }
 
@@ -99,18 +99,17 @@ export default [
       screens.add(id)
       client.once('destroyed', () => {
         screens.delete(id)
-        if (typeof id === 'number') liveBrowsers().dropScreen(id)
+        if (isWindowId(id)) liveBrowsers().dropScreen(id)
         else liveBrowsers().dropScreensOf(id)
       })
     }
-    // A Linked machine's windows share one client: each is told apart by its screen id.
-    await liveBrowsers().screen(typeof id === 'number' ? id : `${id} ${screen ?? ''}`, { projectId, visible, zoom })
+    await liveBrowsers().screen(screenKey(id, screen), { projectId, visible, zoom })
     return {}
   }),
   defineHandler(browserLivesList, ({ projectId }, { event }) => ({ projectId, lives: liveBrowsers().lives(projectId, callerOf(event).id) })),
   defineHandler(browserWake, ({ projectId, nodeId }, { event }) => {
     // From a Linked machine: only a window of this Machine can draw the page it wakes.
-    if (typeof callerOf(event).id !== 'number' && !liveBrowsers().shownHere(projectId)) throw new ControlError(NOT_SHOWN)
+    if (!isWindowId(callerOf(event).id) && !liveBrowsers().shownHere(projectId)) throw new ControlError(NOT_SHOWN)
     return liveBrowsers().wake(projectId, nodeId, 'user')
   }),
   defineHandler(browserFramesWatch, async ({ projectId, nodeId, screen, watch }, { event }) => {

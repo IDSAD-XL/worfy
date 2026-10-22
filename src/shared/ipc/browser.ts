@@ -130,7 +130,7 @@ export const browserScreen = invokeChannel(
   'write',
 )
 
-/** How often a window of a Linked machine tells the Machine of the Project again what it shows. */
+/** How often a window of a Linked machine tells the Machine of the Project again what it shows, and every screen again which frames it watches. */
 export const BROWSER_SCREEN_RENEW_MS = 20_000
 
 /** The life of one Browser as main keeps it. */
@@ -169,7 +169,11 @@ export const browserPicture = invokeChannel(
   'write',
 )
 
-/** A screen starts or stops showing the frames of Live Browser `nodeId`; `screen` tells the windows of one Linked machine apart. */
+/**
+ * A screen starts or stops showing the frames of Live Browser `nodeId`; `screen` tells the windows of
+ * one Linked machine apart. A watch is told again every BROWSER_SCREEN_RENEW_MS; main ends one that is
+ * not (src/main/browser/screencast.ts).
+ */
 export const browserFramesWatch = invokeChannel(
   'browser.frames.watch',
   z.object({ projectId, nodeId: nodeIdSchema, screen: screenIdSchema, watch: z.boolean() }),

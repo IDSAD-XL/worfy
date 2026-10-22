@@ -109,6 +109,25 @@ export interface ScreencastOptions {
 /** The `buttons` of Input.dispatchMouseEvent while a button is held. */
 const BUTTON_BITS = { none: 0, left: 1, right: 2, middle: 4 } as const
 
+/** The `modifiers` bits of CDP Input events. */
+const MODIFIER = { alt: 1, ctrl: 2, meta: 4, shift: 8 } as const
+
+/** The editing command of each ⌘ shortcut, by the key's `code` (the same on every keyboard layout). */
+const COMMAND_SHORTCUTS: Readonly<Record<string, string>> = { KeyA: 'selectAll', KeyC: 'copy', KeyV: 'paste', KeyX: 'cut', KeyZ: 'undo' }
+
+/**
+ * The editing commands of a key press from the frames (`commands` of Input.dispatchKeyEvent). On
+ * macOS Chromium runs ⌘A, ⌘C, ⌘V, ⌘X, ⌘Z and ⌘⇧Z from the menu of the app, not from the key, so a
+ * key sent over CDP alone does nothing; elsewhere Ctrl and the key are enough. Copy and paste use
+ * the clipboard of this Machine, also for a Linked machine's input.
+ */
+export function editingCommands(code: string, modifiers: number, platform: string = process.platform): string[] | undefined {
+  if (platform !== 'darwin' || (modifiers & (MODIFIER.meta | MODIFIER.ctrl | MODIFIER.alt)) !== MODIFIER.meta) return undefined
+  const command = COMMAND_SHORTCUTS[code]
+  if (command === undefined) return undefined
+  return [command === 'undo' && (modifiers & MODIFIER.shift) !== 0 ? 'redo' : command]
+}
+
 export interface ConsoleEntry {
   /** log, info, warning, error, debug…; `exception` for an error the page did not catch. */
   level: string
@@ -285,6 +304,8 @@ export class CdpPage {
   private readonly networkLog = new Ring<NetworkEntry>(BROWSER_LOG_LIMIT)
   private readonly requests = new Map<string, NetworkEntry>()
   private readonly listeners = new Set<(method: string, params: Record<string, unknown>) => void>()
+  /** Told when the debugger detaches: something else (DevTools) took the page, and what ran on it stopped. */
+  private readonly detached = new Set<() => void>()
 
   constructor(
     readonly contents: CdpContents,
@@ -299,6 +320,7 @@ export class CdpPage {
     contents.debugger.on('detach', () => {
       this.attaching = null
       this.mainFrame = null
+      for (const listener of [...this.detached]) listener()
     })
   }
 
@@ -646,12 +668,21 @@ export class CdpPage {
   /**
    * Starts the screencast of the page (CDP `Page.startScreencast`, worfy-browser ticket 07): every
    * frame goes to `onFrame`, and is acknowledged no sooner than `frameMs` after the one before, so
-   * Chromium sends at most one frame per `frameMs`. Answers the stop.
+   * Chromium sends at most one frame per `frameMs`. Answers the stop. `onEnd` is told once when the
+   * screencast ended by itself: the debugger detached, or an acknowledgement failed — Chromium sends
+   * no frame after either.
    */
-  async screencast(onFrame: (frame: ScreencastFrame) => void, options: ScreencastOptions): Promise<() => Promise<void>> {
+  async screencast(onFrame: (frame: ScreencastFrame) => void, options: ScreencastOptions, onEnd?: () => void): Promise<() => Promise<void>> {
     let stopped = false
     let lastAt = 0
-    const stop = this.listen((method, params) => {
+    const end = () => {
+      if (stopped) return
+      stopped = true
+      stopListening()
+      this.detached.delete(end)
+      onEnd?.()
+    }
+    const stopListening = this.listen((method, params) => {
       if (method !== 'Page.screencastFrame' || stopped) return
       const metadata = isRecord(params.metadata) ? params.metadata : {}
       const width = typeof metadata.deviceWidth === 'number' && metadata.deviceWidth > 0 ? metadata.deviceWidth : 1
@@ -660,7 +691,7 @@ export class CdpPage {
       const wait = Math.max(0, lastAt + options.frameMs - Date.now())
       const ack = () => {
         lastAt = Date.now()
-        if (!stopped) this.send('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => undefined)
+        if (!stopped) this.send('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(end)
       }
       if (wait === 0) ack()
       else setTimeout(ack, wait)
@@ -671,13 +702,16 @@ export class CdpPage {
         await this.send('Page.startScreencast', { format: 'jpeg', quality: options.quality, maxWidth: options.maxWidth, maxHeight: options.maxHeight, everyNthFrame: 1 })
       })
     } catch (error) {
-      stop()
+      stopped = true
+      stopListening()
       throw error
     }
+    this.detached.add(end)
     return async () => {
       if (stopped) return
       stopped = true
-      stop()
+      stopListening()
+      this.detached.delete(end)
       if (!this.contents.isDestroyed()) await this.send('Page.stopScreencast')
     }
   }
@@ -699,7 +733,8 @@ export class CdpPage {
         await this.send('Input.dispatchKeyEvent', { type: 'keyDown', key, code, text, unmodifiedText: text, windowsVirtualKeyCode: keyCode, modifiers })
       } else {
         const { key, code, keyCode, modifiers } = input
-        await this.send('Input.dispatchKeyEvent', { type: input.type === 'keyDown' ? 'rawKeyDown' : 'keyUp', key, code, windowsVirtualKeyCode: keyCode, modifiers })
+        const commands = input.type === 'keyDown' ? editingCommands(code, modifiers) : undefined
+        await this.send('Input.dispatchKeyEvent', { type: input.type === 'keyDown' ? 'rawKeyDown' : 'keyUp', key, code, windowsVirtualKeyCode: keyCode, modifiers, ...(commands === undefined ? {} : { commands }) })
       }
     })
   }

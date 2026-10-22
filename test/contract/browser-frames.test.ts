@@ -61,6 +61,10 @@ class FakePage implements CdpContents {
   private static next = 100
   readonly id = FakePage.next++
   destroyed = false
+  /** Whether its window has a `beforeunload` handler: a form the user has not sent. */
+  beforeunload = false
+  /** The CDP commands that fail. */
+  readonly failing = new Set<string>()
   private attached = false
   private readonly listeners = new Map<string, Set<Listener>>()
   readonly sent: { method: string; params: unknown }[] = []
@@ -69,8 +73,9 @@ class FakePage implements CdpContents {
     isAttached: () => this.attached,
     sendCommand: (method, params) => {
       this.sent.push({ method, params })
+      if (this.failing.has(method)) return Promise.reject(new Error(`${method} failed`))
       if (method === 'Runtime.evaluate') return Promise.resolve({ result: { value: [0, 0], objectId: 'window-1' } })
-      if (method === 'DOMDebugger.getEventListeners') return Promise.resolve({ listeners: [] })
+      if (method === 'DOMDebugger.getEventListeners') return Promise.resolve({ listeners: this.beforeunload ? [{ type: 'beforeunload' }] : [] })
       if (method === 'Page.captureScreenshot') return Promise.resolve({ data: '/9j/picture' })
       return Promise.resolve({})
     },
@@ -86,6 +91,15 @@ class FakePage implements CdpContents {
   /** One frame of the screencast. */
   frame(data: string, sessionId: number): void {
     this.event('Page.screencastFrame', { data, sessionId, metadata: { deviceWidth: 640, deviceHeight: 400, offsetTop: 0, pageScaleFactor: 1, scrollOffsetX: 0, scrollOffsetY: 0 } })
+  }
+  /** How many listeners of `event` the page has. */
+  listenersOf(event: string): number {
+    return this.listeners.get(event)?.size ?? 0
+  }
+  /** Something else took the debugger (DevTools): it detaches. */
+  detach(): void {
+    this.attached = false
+    for (const listener of this.listeners.get('debugger:detach') ?? []) listener({}, 'target closed')
   }
   isDestroyed(): boolean {
     return this.destroyed
@@ -124,6 +138,7 @@ interface Linked {
 
 let adapter: LinkIpcAdapter
 let live: typeof import('../../src/main/browser/live')
+let screencast: typeof import('../../src/main/browser/screencast')
 let layout: typeof import('../../src/main/layout/store')
 const peers: LinkPeer[] = []
 
@@ -148,6 +163,7 @@ beforeAll(async () => {
   mkdirSync(join(env.scratch, 'repo'), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'demo', path: join(env.scratch, 'repo') }], activeId: PROJECT }))
   live = await import('../../src/main/browser/live')
+  screencast = await import('../../src/main/browser/screencast')
   layout = await import('../../src/main/layout/store')
   adapter = await createLinkIpc({
     modules: {
@@ -168,6 +184,8 @@ afterAll(async () => {
 afterEach(() => {
   vi.useRealTimers()
   for (const peer of peers.splice(0)) peer.close()
+  // A test that let a Session drive the Browser leaves it to nobody.
+  live.liveBrowsers().release(PROJECT, NODE)
 })
 
 /** Window `id` of this Machine shows the Project, with the Browser on screen or not. */
@@ -188,12 +206,54 @@ function draws(id: number): FakePage {
   return page
 }
 
-let page: FakePage
+let current: FakePage | undefined
+
+/**
+ * The page of the Browser now, drawn by the window that owns it: window 1 shows the Browser, and the
+ * Browser is woken and its page drawn when it has none. Each test takes it anew, so any one runs alone.
+ */
+async function livePage(): Promise<FakePage> {
+  await windowShows(1, [NODE])
+  const browsers = live.liveBrowsers()
+  if (current !== undefined && browsers.page(PROJECT, NODE)?.contents === current) return current
+  if (browsers.lives(PROJECT).find((each) => each.nodeId === NODE)?.live !== true) await browsers.wake(PROJECT, NODE, 'user')
+  const owner = browsers.ownerOf(PROJECT, NODE)
+  if (owner === null) throw new Error('no window owns the page')
+  current = new FakePage()
+  expect(browsers.register(PROJECT, NODE, current, owner)).not.toBeNull()
+  return current
+}
+
+/** Only window 1 of this Machine shows the Project: window 2 closed, and the page drawn before is gone. */
+function oneWindow(): void {
+  const second = windows.findIndex((each) => each.id === 2)
+  if (second >= 0) windows.splice(second, 1)
+  live.liveBrowsers().dropScreen(2)
+  current?.close()
+}
+
+/** Windows 1 and 2 show the Browser, and window 1 draws its page. */
+async function twoWindows(): Promise<FakePage> {
+  oneWindow()
+  const page = await livePage()
+  await windowShows(2, [NODE])
+  expect(live.liveBrowsers().ownerOf(PROJECT, NODE)).toBe(1)
+  return page
+}
+
+/** The user scrolls the frames of the Browser in window 2, then lets them rest past MOVE_REST_MS (fake timers). */
+async function scrollInSecondWindow(): Promise<void> {
+  await live.liveBrowsers().input(PROJECT, NODE, wheel, 2)
+  await vi.advanceTimersByTimeAsync(live.MOVE_REST_MS + 100)
+  await vi.advanceTimersByTimeAsync(5_000)
+}
+
+const click = { kind: 'mouse', type: 'mousePressed', x: 12, y: 30, button: 'left', clickCount: 1, modifiers: 0 } as const
+const wheel = { kind: 'wheel', x: 5, y: 6, deltaX: 0, deltaY: 120, modifiers: 0 } as const
 
 describe('frames and input of a Live Browser for a Linked machine', () => {
   it('a read-only Linked machine gets no frames: its watch is refused, and the frames a full one gets never reach it', async () => {
-    await windowShows(1, [NODE])
-    page = draws(1)
+    const page = await livePage()
     const full = linked('mac-full', 'all')
     const readOnly = linked('mac-ro', 'read')
     // Nobody watches yet: the screencast is off.
@@ -215,9 +275,9 @@ describe('frames and input of a Live Browser for a Linked machine', () => {
   })
 
   it('a full Linked machine sends input to the page; a read-only one is refused before anything reaches it', async () => {
+    const page = await livePage()
     const full = linked('mac-full', 'all')
     const readOnly = linked('mac-ro', 'read')
-    const click = { kind: 'mouse', type: 'mousePressed', x: 12, y: 30, button: 'left', clickCount: 1, modifiers: 0 }
     const before = page.sent.length
     expect(await readOnly.call('browser.input', { projectId: PROJECT, nodeId: NODE, input: click })).toEqual({ ok: false, error: readOnlyRefusal(MACHINE) })
     expect(await readOnly.call('browser.navigate', { projectId: PROJECT, nodeId: NODE, url: 'https://example.com/' })).toEqual({ ok: false, error: readOnlyRefusal(MACHINE) })
@@ -228,7 +288,6 @@ describe('frames and input of a Live Browser for a Linked machine', () => {
     const key = { kind: 'key', type: 'keyDown', key: 'a', code: 'KeyA', text: 'a', keyCode: 65, modifiers: 0 }
     expect(await full.call('browser.input', { projectId: PROJECT, nodeId: NODE, input: key })).toEqual({ ok: true, value: {} })
     expect(page.sent).toContainEqual({ method: 'Input.dispatchKeyEvent', params: { type: 'keyDown', key: 'a', code: 'KeyA', text: 'a', unmodifiedText: 'a', windowsVirtualKeyCode: 65, modifiers: 0 } })
-    const wheel = { kind: 'wheel', x: 5, y: 6, deltaX: 0, deltaY: 120, modifiers: 0 }
     expect(await full.call('browser.input', { projectId: PROJECT, nodeId: NODE, input: wheel })).toEqual({ ok: true, value: {} })
     expect(page.sent).toContainEqual({ method: 'Input.dispatchMouseEvent', params: { type: 'mouseWheel', x: 5, y: 6, deltaX: 0, deltaY: 120, modifiers: 0 } })
   })
@@ -273,6 +332,7 @@ describe('frames and input of a Live Browser for a Linked machine', () => {
   })
 
   it('no frames while nobody watches: the last watcher stops the screencast, and a frame after it goes nowhere', async () => {
+    const page = await livePage()
     const full = linked('mac-full', 'all')
     expect(await full.call('browser.frames.watch', { projectId: PROJECT, nodeId: NODE, screen: 'screen-full', watch: true })).toEqual({ ok: true, value: {} })
     expect(await full.call('browser.frames.watch', { projectId: PROJECT, nodeId: NODE, screen: 'screen-full', watch: false })).toEqual({ ok: true, value: {} })
@@ -288,6 +348,7 @@ describe('frames and input of a Live Browser for a Linked machine', () => {
   })
 
   it('a Browser seen on a Linked machine does not sleep while this Machine\'s window does not show it; it sleeps once no screen does', async () => {
+    await livePage()
     vi.useFakeTimers({ toFake: ['Date'] })
     const full = linked('mac-full', 'all')
     await windowShows(1, [])
@@ -305,6 +366,7 @@ describe('frames and input of a Live Browser for a Linked machine', () => {
 
 describe('one Live page of a Browser for every window of this Machine', () => {
   it('only the window that works with it last draws the page; the others are told to show frames, and a page of another window is refused', async () => {
+    oneWindow()
     // Woken again by a click on the frame of window 1.
     await live.liveBrowsers().wake(PROJECT, NODE, 'user')
     const first = await windowShows(1, [NODE])
@@ -319,9 +381,14 @@ describe('one Live page of a Browser for every window of this Machine', () => {
     // Window 2 cannot hand main a second page of the Browser.
     expect(live.liveBrowsers().register(PROJECT, NODE, new FakePage(), 2)).toBeNull()
     // The user works in the frames of window 2: once that rests, the page moves there.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     await live.liveBrowsers().input(PROJECT, NODE, { kind: 'mouse', type: 'mousePressed', x: 1, y: 1, button: 'left', clickCount: 1, modifiers: 0 }, 2)
     await live.liveBrowsers().input(PROJECT, NODE, { kind: 'mouse', type: 'mouseReleased', x: 1, y: 1, button: 'left', clickCount: 1, modifiers: 0 }, 2)
-    await vi.waitFor(() => expect(here(second)).toBe(true), { timeout: 5_000 })
+    await vi.advanceTimersByTimeAsync(live.MOVE_REST_MS - 100)
+    expect(here(second)).toBe(false)
+    await vi.advanceTimersByTimeAsync(200)
+    await vi.waitFor(() => expect(here(second)).toBe(true))
+    vi.useRealTimers()
     expect(here(first)).toBe(false)
     expect(live.liveBrowsers().register(PROJECT, NODE, new FakePage(), 1)).toBeNull()
     drawn.close()
@@ -330,5 +397,172 @@ describe('one Live page of a Browser for every window of this Machine', () => {
     windows.splice(windows.indexOf(second), 1)
     live.liveBrowsers().dropScreen(2)
     await vi.waitFor(() => expect(here(first)).toBe(true))
+  })
+})
+
+describe('a move of the page to another window loses nothing', () => {
+  it('the page does not move while a Session drives the Browser or a call of one runs on it; it moves once nobody does', async () => {
+    const page = await twoWindows()
+    const browsers = live.liveBrowsers()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    // A scroll is no takeover: the Session keeps driving, and the page it works on stays.
+    browsers.drive(PROJECT, NODE, 'session-1')
+    await scrollInSecondWindow()
+    expect(browsers.control(PROJECT, NODE)?.mode).toBe('claude')
+    expect(browsers.ownerOf(PROJECT, NODE)).toBe(1)
+    expect(browsers.page(PROJECT, NODE)?.contents).toBe(page)
+    // The Session let go, but a call of it still runs.
+    browsers.release(PROJECT, NODE)
+    browsers.sessionDrives(PROJECT, NODE)
+    await scrollInSecondWindow()
+    expect(browsers.ownerOf(PROJECT, NODE)).toBe(1)
+    expect(browsers.page(PROJECT, NODE)?.contents).toBe(page)
+    // The call ended: the next scroll moves the page.
+    browsers.sessionReleases(PROJECT, NODE)
+    await scrollInSecondWindow()
+    expect(browsers.ownerOf(PROJECT, NODE)).toBe(2)
+    expect(browsers.page(PROJECT, NODE)).toBeUndefined()
+  })
+
+  it('a page with a beforeunload handler (a form the user has not sent) does not move; it moves once it has none', async () => {
+    const page = await twoWindows()
+    const browsers = live.liveBrowsers()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    page.beforeunload = true
+    await scrollInSecondWindow()
+    expect(page.methods()).toContain('DOMDebugger.getEventListeners')
+    expect(browsers.ownerOf(PROJECT, NODE)).toBe(1)
+    expect(browsers.page(PROJECT, NODE)?.contents).toBe(page)
+    page.beforeunload = false
+    await scrollInSecondWindow()
+    expect(browsers.ownerOf(PROJECT, NODE)).toBe(2)
+  })
+})
+
+describe('the input and the address of another screen', () => {
+  it('a click in the frames of a Linked machine takes the Browser over from a Session; a scroll does not', async () => {
+    const page = await livePage()
+    const full = linked('mac-full', 'all')
+    const browsers = live.liveBrowsers()
+    const window = windows.find((each) => each.id === 1)
+    browsers.drive(PROJECT, NODE, 'session-1')
+    expect(await full.call('browser.input', { projectId: PROJECT, nodeId: NODE, input: wheel })).toEqual({ ok: true, value: {} })
+    expect(browsers.control(PROJECT, NODE)?.mode).toBe('claude')
+    const before = window?.sent.length ?? 0
+    expect(await full.call('browser.input', { projectId: PROJECT, nodeId: NODE, input: click })).toEqual({ ok: true, value: {} })
+    expect(page.methods().at(-1)).toBe('Input.dispatchMouseEvent')
+    expect(browsers.control(PROJECT, NODE)).toEqual({ mode: 'user', sessionId: 'session-1' })
+    // Every window shows the banner «Return control to Claude».
+    expect(window?.sent.slice(before)).toContainEqual(['browser.control.changed', { projectId: PROJECT, nodeId: NODE, mode: 'user' }])
+  })
+
+  it('the address bar of another screen opens only an http or https address', async () => {
+    const page = await livePage()
+    const full = linked('mac-full', 'all')
+    for (const url of ['file:///etc/passwd', 'javascript:alert(1)', 'data:text/html,<p>hi</p>', 'about:blank', 'not an address']) {
+      const result = await full.call('browser.navigate', { projectId: PROJECT, nodeId: NODE, url })
+      expect(result.ok, url).toBe(false)
+    }
+    expect(page.methods()).not.toContain('Page.navigate')
+    expect(await full.call('browser.navigate', { projectId: PROJECT, nodeId: NODE, url: 'https://example.com/a?b=1' })).toEqual({ ok: true, value: {} })
+    expect(page.sent).toContainEqual({ method: 'Page.navigate', params: { url: 'https://example.com/a?b=1' } })
+  })
+
+  it('a Linked machine cannot wake a Browser while no window of this Machine shows its Project', async () => {
+    await livePage()
+    const full = linked('mac-full', 'all')
+    live.liveBrowsers().dropScreen(1)
+    live.liveBrowsers().dropScreen(2)
+    const answer = await full.call('browser.wake', { projectId: PROJECT, nodeId: NODE })
+    expect(answer.ok).toBe(false)
+    expect(answer.ok ? '' : answer.error).toContain(live.NOT_SHOWN)
+    await windowShows(1, [NODE])
+    expect(await full.call('browser.wake', { projectId: PROJECT, nodeId: NODE })).toMatchObject({ ok: true })
+  })
+})
+
+describe('a watch of the frames ends without its screen', () => {
+  it('a watch not told again within FRAMES_WATCH_MS ends; a screen that tells it again keeps the frames', async () => {
+    const page = await livePage()
+    const full = linked('mac-full', 'all')
+    const frames = screencast.browserScreencasts()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const watch = (screen: string) => full.call('browser.frames.watch', { projectId: PROJECT, nodeId: NODE, screen, watch: true })
+    // Two windows of one Linked machine watch; one of them closes without a word.
+    expect(await watch('screen-a')).toEqual({ ok: true, value: {} })
+    expect(await watch('screen-b')).toEqual({ ok: true, value: {} })
+    expect(page.methods().at(-1)).toBe('Page.startScreencast')
+    expect(frames.watching(PROJECT, NODE)).toBe(2)
+    await vi.advanceTimersByTimeAsync(screencast.FRAMES_WATCH_MS - 20_000)
+    expect(await watch('screen-a')).toEqual({ ok: true, value: {} })
+    await vi.advanceTimersByTimeAsync(20_000 + 100)
+    await frames.sync(PROJECT, NODE)
+    expect(frames.watching(PROJECT, NODE)).toBe(1)
+    expect(page.methods().at(-1)).not.toBe('Page.stopScreencast')
+    // The other stops telling it too: the screencast stops.
+    await vi.advanceTimersByTimeAsync(screencast.FRAMES_WATCH_MS)
+    await frames.sync(PROJECT, NODE)
+    expect(frames.watching(PROJECT, NODE)).toBe(0)
+    expect(page.methods().at(-1)).toBe('Page.stopScreencast')
+  })
+
+  it('the screencast starts again after the debugger detached, on the next page of the Browser, and after a start that failed', async () => {
+    const page = await livePage()
+    const full = linked('mac-full', 'all')
+    const starts =(of: FakePage) => of.methods().filter((method) => method === 'Page.startScreencast').length
+    const watch = () => full.call('browser.frames.watch', { projectId: PROJECT, nodeId: NODE, screen: 'screen-full', watch: true })
+    expect(await watch()).toEqual({ ok: true, value: {} })
+    const before = starts(page)
+    // DevTools took the page: Chromium sends no frame any more, so main starts it again.
+    page.detach()
+    await vi.waitFor(() => expect(starts(page)).toBe(before + 1))
+    page.frame('/9j/after-detach', 11)
+    await vi.waitFor(() => expect(full.events('browser.frame')).toContainEqual(expect.objectContaining({ image: '/9j/after-detach' })))
+    // A lost acknowledgement ends it the same way.
+    page.failing.add('Page.screencastFrameAck')
+    page.frame('/9j/unacked', 12)
+    await vi.waitFor(() => expect(starts(page)).toBe(before + 2))
+    page.failing.delete('Page.screencastFrameAck')
+    // The window draws a new page: the screencast goes on there.
+    page.close()
+    const next = await livePage()
+    await vi.waitFor(() => expect(starts(next)).toBe(1))
+    const listening = next.listenersOf('destroyed')
+    // A start that fails is not kept: the watch told again starts it.
+    next.failing.add('Page.startScreencast')
+    next.detach()
+    await vi.waitFor(() => expect(starts(next)).toBe(2))
+    next.failing.delete('Page.startScreencast')
+    expect(await watch()).toEqual({ ok: true, value: {} })
+    expect(starts(next)).toBe(3)
+    // The page is listened to for its close once, however often its screencast started.
+    expect(next.listenersOf('destroyed')).toBe(listening)
+  })
+})
+
+describe('the screens of a Linked machine for the rules of sleep', () => {
+  it('a report not told again counts no more after LINKED_SCREEN_MS, and none counts once the connection closes', async () => {
+    await livePage()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const browsers = live.liveBrowsers()
+    const liveNow = () => browsers.lives(PROJECT).find((each) => each.nodeId === NODE)?.live
+    const full = linked('mac-full', 'all')
+    await windowShows(1, [])
+    expect(await full.call('browser.screen', { projectId: PROJECT, visible: [NODE], zoom: 1, screen: 'screen-full' })).toEqual({ ok: true, value: {} })
+    vi.setSystemTime(Date.now() + 40_000)
+    await browsers.check()
+    expect(liveNow()).toBe(true)
+    // Not told again: past LINKED_SCREEN_MS it counts no more, and the Browser is off every screen.
+    vi.setSystemTime(Date.now() + 35_000)
+    await browsers.check()
+    expect(liveNow()).toBe(false)
+
+    await browsers.wake(PROJECT, NODE, 'user')
+    const other = linked('mac-other', 'all')
+    expect(await other.call('browser.screen', { projectId: PROJECT, visible: [NODE], zoom: 1, screen: 'screen-other' })).toEqual({ ok: true, value: {} })
+    other.peer.close()
+    vi.setSystemTime(Date.now() + 40_000)
+    await browsers.check()
+    expect(liveNow()).toBe(false)
   })
 })

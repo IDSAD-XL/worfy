@@ -36,7 +36,8 @@
 // MOVE_REST_MS, the page moves there: main keeps where it is scrolled, the old window closes the page,
 // and the new one opens the Node's address again — a reload, as a wake is (question 2 of the ticket).
 // A page with a `beforeunload` handler does not move, so an unsaved form is not lost by the move;
-// that window keeps showing frames (the answer to question 2, taken without the owner).
+// nor does a page a Session drives or has a call running on, so the call does not fail on a closed
+// page; that window keeps showing frames (the answer to question 2, taken without the owner).
 // A Linked machine never owns the page. Its screens (`screen` with a string id) count for the rules
 // of sleep, as a window does, for LINKED_SCREEN_MS after each report; they do not open a Project's
 // Browsers, since no window of this Machine would draw their pages.
@@ -74,7 +75,7 @@ import { browserProfileStore } from './profiles'
 import { NO_OWNER, nextOwners, ownersAmong, type Owners, type WindowId } from './owner'
 import { admit, ALL_LIVE_BUSY, browsersToSleep, drivenNow, fitLimit, readableNow, screensNow, type BrowserNow, type ScreenNow, type SleepSettings, type Waker } from './sleep'
 import { toEveryWindow } from '../broadcast'
-import type { ClientId } from '../clients'
+import { isWindowId, type ClientId } from '../clients'
 import { emit } from '../ipc'
 import { layoutStore, type LayoutChange } from '../layout/store'
 import { projectStore } from '../projects/store'
@@ -170,6 +171,20 @@ type BrowsersNow = readonly string[] | 'any' | 'gone' | 'unknown'
 
 const keyOf = (projectId: string, nodeId: string): string => `${projectId}\n${nodeId}`
 
+/**
+ * A screen main counts for the rules of sleep: a window of this Machine, by its id, or one window of a
+ * Linked machine, "<client id> <screen id>" — the windows of a Linked machine share one client.
+ */
+export type ScreenKey = WindowId | `${string} ${string}`
+
+/** The key of the screen `screen` of client `client` (a window's own id for a window here). */
+export function screenKey(client: ClientId, screen: string | undefined): ScreenKey {
+  return isWindowId(client) ? client : `${client} ${screen ?? ''}`
+}
+
+/** Whether screen `key` is one of Linked machine client `client`. */
+const screenOfClient = (key: ScreenKey, client: string): boolean => !isWindowId(key) && key.startsWith(`${client} `)
+
 /** The Session whose tool call runs now, for each command that call sends to a page. */
 const callingSession = new AsyncLocalStorage<string>()
 
@@ -187,7 +202,7 @@ export class LiveBrowsers {
    * What each screen shows: a window of this Machine by the id of its web contents, a window of a
    * Linked machine by `<client id> <screen id>` (a string). A Map keeps the order the screens came in.
    */
-  private readonly screens = new Map<number | string, { projectId: string; screen: ScreenNow }>()
+  private readonly screens = new Map<ScreenKey, { projectId: string; screen: ScreenNow }>()
   /** Which window of this Machine draws the page of each Browser (owner.ts). */
   private readonly owners = new Map<string, Owners>()
   /** The window of the user's latest input in the frames of each Browser, until it rests and the page moves there. */
@@ -362,7 +377,7 @@ export class LiveBrowsers {
 
   /** The windows of this Machine that show Project `projectId`, in the order they came. */
   private showing(projectId: string): WindowId[] {
-    return [...this.screens].filter(([id, each]) => typeof id === 'number' && each.projectId === projectId).map(([id]) => id as WindowId)
+    return [...this.screens].flatMap(([id, each]) => (isWindowId(id) && each.projectId === projectId ? [id] : []))
   }
 
   /** The window of this Machine that draws the page of Browser `nodeId`; null while no window shows its Project. */
@@ -416,7 +431,7 @@ export class LiveBrowsers {
 
   /** The user worked with Browser `nodeId` in window `from`: once that rests, the page moves there. */
   private workedIn(projectId: string, nodeId: string, from: ClientId | undefined): void {
-    if (typeof from !== 'number') return
+    if (from === undefined || !isWindowId(from)) return
     const key = keyOf(projectId, nodeId)
     const before = this.moving.get(key)
     if (before !== undefined) clearTimeout(before.timer)
@@ -434,13 +449,21 @@ export class LiveBrowsers {
     this.moving.set(key, { window: from, timer })
   }
 
-  /** The page of Browser `nodeId` moves to window `window`, unless its page has a beforeunload handler. */
+  /**
+   * The page of Browser `nodeId` moves to window `window`, unless its page has a beforeunload handler,
+   * or a Session drives it or has a call running on it: the move reloads the page, so the call would
+   * fail on a closed page and the Session would go on with a page that lost what it typed. Then the
+   * window keeps the frames; its next input after that tries again.
+   */
   private async moveTo(projectId: string, nodeId: string, window: WindowId): Promise<void> {
     const key = keyOf(projectId, nodeId)
     const life = this.lifes.get(key)
-    if (life === undefined || !life.live || !this.showing(projectId).includes(window) || this.ownerOf(projectId, nodeId) === window) return
+    if (life === undefined) return
+    const stays = () => !life.live || this.sessionOn(key) || !this.showing(projectId).includes(window) || this.ownerOf(projectId, nodeId) === window
+    if (stays()) return
     await this.ask(life)
-    if (life.unsaved || life.unasked) return
+    // Asked again after the question: a call may have begun while the page answered.
+    if (life.unsaved || life.unasked || stays()) return
     const page = this.page(projectId, nodeId)
     if (page !== undefined) {
       life.restore = await soon(page.scroll(), ASK_MS).catch((error: unknown) => {
@@ -453,6 +476,11 @@ export class LiveBrowsers {
     this.pages.delete(key)
     this.drawn.delete(key)
     this.announce(projectId)
+  }
+
+  /** A Session drives Browser `key`, or a call of one runs on it. */
+  private sessionOn(key: string): boolean {
+    return this.controls.get(key)?.mode === 'claude' || (this.calls.get(key)?.running ?? 0) > 0
   }
 
   /** Every page of Browser `key` a window draws now. */
@@ -593,14 +621,14 @@ export class LiveBrowsers {
    */
   private allScreens(): ScreenNow[] {
     return screensNow(
-      [...this.screens].filter(([id, each]) => typeof id === 'number' || this.shown(each.projectId)).map(([, each]) => each.screen),
+      [...this.screens].filter(([id, each]) => isWindowId(id) || this.shown(each.projectId)).map(([, each]) => each.screen),
       this.now(),
     )
   }
 
   /** Some window of this Machine shows the Canvas of Project `projectId`. */
   private shown(projectId: string): boolean {
-    return [...this.screens].some(([id, each]) => typeof id === 'number' && each.projectId === projectId)
+    return [...this.screens].some(([id, each]) => isWindowId(id) && each.projectId === projectId)
   }
 
   private announce(projectId: string): void {
@@ -620,7 +648,7 @@ export class LiveBrowsers {
         unsaved: life.live && life.unsaved,
         overLimit: life.live && life.overLimit,
         picture: life.picture?.version ?? null,
-        here: life.live && typeof client === 'number' && this.ownerOf(projectId, life.nodeId) === client,
+        here: life.live && client !== undefined && isWindowId(client) && this.ownerOf(projectId, life.nodeId) === client,
       }))
   }
 
@@ -636,10 +664,10 @@ export class LiveBrowsers {
    * has not heard of that a screen shows is one the user has just opened, and wakes as by a click; an
    * Asleep one without a picture that it shows readable wakes when a place is free.
    */
-  screen(windowId: number | string, report: { projectId: string; visible: readonly string[]; zoom: number }): Promise<void> {
+  screen(windowId: ScreenKey, report: { projectId: string; visible: readonly string[]; zoom: number }): Promise<void> {
     const { projectId } = report
     const before = this.screens.get(windowId)?.projectId
-    const linked = typeof windowId === 'string'
+    const linked = !isWindowId(windowId)
     this.screens.set(windowId, { projectId, screen: { visible: report.visible.map((id) => keyOf(projectId, id)), zoom: report.zoom, ...(linked ? { toldAt: this.now() } : {}) } })
     this.timer ??= setInterval(() => {
       this.check().catch((error: unknown) => console.warn('Browser sleep: a check of the rules failed', error))
@@ -717,15 +745,15 @@ export class LiveBrowsers {
    * Window `windowId` closed, or shows no Canvas: it shows no Browser any more, and the pages it drew
    * go to another window of their Project (owner.ts). A string — the screen of a Linked machine.
    */
-  dropScreen(windowId: number | string): void {
+  dropScreen(windowId: ScreenKey): void {
     const projectId = this.screens.get(windowId)?.projectId
     this.screens.delete(windowId)
-    if (projectId !== undefined && typeof windowId === 'number') this.announce(projectId)
+    if (projectId !== undefined && isWindowId(windowId)) this.announce(projectId)
   }
 
   /** The connection of Linked machine client `client` closed: none of its screens counts any more. */
   dropScreensOf(client: string): void {
-    for (const id of [...this.screens.keys()]) if (typeof id === 'string' && id.startsWith(`${client} `)) this.screens.delete(id)
+    for (const id of [...this.screens.keys()]) if (screenOfClient(id, client)) this.screens.delete(id)
   }
 
   /** A call of a Session on Browser `nodeId` begins: while it runs, and for the idle threshold after it, the Browser does not sleep. */
@@ -842,7 +870,7 @@ export class LiveBrowsers {
     const screens = this.allScreens()
     const changed = new Set<string>()
     // The Projects a window of this Machine shows: a Linked machine's screen draws no page here.
-    const onScreen = new Set([...this.screens].filter(([id]) => typeof id === 'number').map(([, each]) => each.projectId))
+    const onScreen = new Set([...this.screens].filter(([id]) => isWindowId(id)).map(([, each]) => each.projectId))
     const browsers = new Map<string, BrowsersNow>()
     const browsersOf = (projectId: string): BrowsersNow => {
       if (!browsers.has(projectId)) browsers.set(projectId, this.browsersNow(projectId))
@@ -864,7 +892,7 @@ export class LiveBrowsers {
     for (const [projectId, shown] of browsers) if (shown === 'gone') this.seen.delete(projectId)
     // A shown Browser that has just got a page — its profile chosen in its frame — opens as by a click.
     for (const [id, { projectId, screen }] of [...this.screens]) {
-      if (typeof id !== 'number' || !this.seen.has(projectId)) continue
+      if (!isWindowId(id) || !this.seen.has(projectId)) continue
       const prefix = keyOf(projectId, '')
       const visible = screen.visible.filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length))
       if (visible.some((nodeId) => !this.lifes.has(keyOf(projectId, nodeId)))) await this.openShown(projectId, visible, browsersOf(projectId))
