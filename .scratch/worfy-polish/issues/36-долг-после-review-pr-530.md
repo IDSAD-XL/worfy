@@ -137,6 +137,15 @@ mode), круг 1: линза «корректность» и линза «те�
   - `harness/bin/tests/wave-gate-heartbeat.test.sh:111` — под zsh случай «40 запусков» иногда находит один
     оставшийся `sleep`: гонка между `pkill -P` и `sleep`, который только запускается. Красный в 1 из 3 прогонов;
     не регрессия.
+- [ ] **Ревью #740 (worfy-windows 89), два low.** Строки — по main `a371aa41`.
+  - `src/renderer/projects/GithubAccount.tsx:327` — вид `gh auth login` («Sign in with gh») пишет replay
+    одним `terminal.write` и не берёт `sizes`, историю размеров pty из worfy-windows 89. Перевести его на
+    `writeReplay`, как `TerminalNode`.
+  - `src/renderer/canvas/nodes/terminal-replay.ts:61` — `console.warn` в `writeReplay` (replay остановлен
+    броском xterm.js) остаётся в консоли renderer-а и не доходит до log-а main.
+- [ ] **Ревью #741 (worfy-browser 05), low.** Строки — по main `a371aa41`.
+  - `src/main/browser/live.ts:316-326` — когда `browsersOf` бросает, `browsersNow` отвечает `'unknown'`, и
+    запись Asleep Browser-а этого Project-а остаётся, пока ошибка не пройдёт.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты

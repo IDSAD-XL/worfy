@@ -1,7 +1,8 @@
 # 91 — e3-sandbox `lock-run`: trap heartbeat-а может зависнуть в Git Bash
 
 Type: task
-Status: open
+Status: done 2026-10-22T09:26Z
+PR: #742
 Blocked by: —
 Source: Ticket 85 (trap блока gate full в `harness/skills/epic-wave/SKILL.md`, ветка `worfy-windows/85`, ещё
 не влита), его вопрос ревьюеру про `scripts/e3-sandbox.sh:399`, 2026-10-22. Строки — по main `021ac754`.
@@ -56,6 +57,10 @@ subshell, который раз в 5 минут делает `touch -c` замк
   `e3-sandbox.sh lock-run`; новый describe в конце файла).
 
 ## Итог
+
+Влит PR #742 (merge `69322261`, 2026-10-22). Trap `lock_run` в `scripts/e3-sandbox.sh` в Git Bash кончает
+heartbeat без `kill -STOP`: `kill -KILL` и `/usr/bin/kill -f -9`, ожидание не дольше 2 с; на macOS и Linux
+команды прежние. Ожидания новых test-ов в `test/contract/e3-sandbox.test.ts` — `10_000` мс.
 
 Причина подтверждена настоящим trap-ом `e3-sandbox.sh`: это та же глухота процесса после `kill -STOP` и
 `kill -KILL` в Git Bash, что в Ticket-е 85, только реже.

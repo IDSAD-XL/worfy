@@ -1,7 +1,8 @@
 # 89 — Terminal: replay сохранённого вывода при тех размерах pty, при которых он рисовался
 
 Type: task
-Status: open
+Status: done 2026-10-22T09:26Z
+PR: #740
 Blocked by: 42
 Source: «Результат» [Ticket-а 86](86-terminal-на-windows-экран-после-resize-и-alternate-screen.md) (PR #736),
 ответ Session на Mac на вопросы PR #736, 2026-10-22. Строки — по main `b9a64940`.
@@ -76,7 +77,10 @@ xterm.js отвечает на `ESC[6n` строкой приглашения (�
 
 ## Результат
 
-Ветка `worfy-windows/89` (от main `cacdafe6`), PR не открыт: коммит готов, push и PR — за оркестратором.
+Влит PR #740 (merge `343be106`, 2026-10-22). `ReplayBuffer` хранит размеры pty `{ at, cols, rows }`;
+размер, с которым pty создан, записан с `when: -Infinity` и в серию не сливается. Resize-ы, между которыми
+меньше 100 мс, — одна серия; хранится не больше 64 размеров. Вид пишет replay кусками при этих размерах.
+Ниже — отчёт ветки `worfy-windows/89` (от main `cacdafe6`) по кругам ревью.
 
 **Что сделано.**
 
