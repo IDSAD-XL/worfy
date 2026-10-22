@@ -12,8 +12,15 @@
 // only its `dev` differs from that of the folder it lies in. So off Windows the tree is looked
 // through before rmSync is called, and with a folder on another volume in it the removal ends
 // with the code EXDEV and nothing removed. A part of the tree that cannot be looked at ends it
-// the same way, with the error of the look. A mount point with the `dev` of its folder (a bind
-// mount on Linux) is not seen.
+// the same way, with the error of the look: it keeps its code, errno, syscall and path, and its
+// words say that nothing was removed. So does an entry a listing names and lstat does not see,
+// when a second listing still names it — on Linux a name that is not valid UTF-8 answers so at
+// every lstat (worfy-windows ticket 47); gone from the second listing, it was gone meanwhile. A
+// mount point with the `dev` of its folder (a bind mount on Linux) is not seen.
+//
+// Off Windows the path is given to rmSync as it is written, so a link given with a separator at
+// its end, `link/`, is the folder it leads to: that folder is emptied and removed, and the link
+// stays (measured on macOS, the review of PR #293). Only Windows cuts the separator.
 //
 // One junction is a folder to lstat: the one whose target is written with the GUID of a volume
 // (worfy-windows ticket 35; the walk as it was listed it and removed the files of that volume).
@@ -34,9 +41,12 @@ import process from 'node:process'
 
 /**
  * Removes a file, a link, or a folder with everything in it; a path that is not there is not an
- * error. A link is removed as a link: what it leads to is neither entered nor touched. Off Windows,
- * a folder with a volume mounted in it is not removed: the error has the code EXDEV and the mount
- * point as its `path`.
+ * error. A link is removed as a link: what it leads to is neither entered nor touched — but off
+ * Windows `link/`, a link written with a separator at its end, is the folder it leads to, which is
+ * emptied and removed. Off Windows, a folder with a volume mounted in it is not removed: the error
+ * has the code EXDEV and the mount point as its `path`; a part of the tree that cannot be looked
+ * at, or a name still listed that lstat does not see, ends the removal with the error of the look
+ * and nothing removed.
  */
 // <remove-tree>
 export function removeTree(given) {
@@ -52,24 +62,42 @@ export function removeTree(given) {
 // worfy-windows ticket 44). Reads and removes nothing; a link is not followed. What cannot be
 // looked at is thrown: it may hold a mount point. "outer" is the volume of the folder the path
 // lies in; for the path the caller gave it is asked as "path/..", which the system resolves.
-function removeMounted(path, outer) {
-  let volume
+// "folder" is the folder whose listing named the path; the path the caller gave has none.
+function removeMounted(path, outer, folder) {
+  const gone = (error) => Boolean(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+  let seen
+  try {
+    seen = lstatSync(path)
+  } catch (error) {
+    if (!gone(error)) throw error
+    // An entry its folder has just listed, not there to lstat: gone meanwhile, or a name the
+    // system does not read back (a name that is not UTF-8, on Linux, worfy-windows ticket 47).
+    // The folder is listed once more; while it still names the entry, what that holds cannot be
+    // seen.
+    let listed
+    try {
+      listed = folder !== undefined && readdirSync(folder).includes(path.slice(folder.length + 1))
+    } catch (again) {
+      if (!gone(again)) throw again
+      listed = false
+    }
+    if (listed) throw Object.assign(new Error(error.message + ': the folder it lies in still lists it, so what it holds cannot be looked at'), { code: error.code, errno: error.errno, syscall: error.syscall, path })
+    return null
+  }
+  if (!seen.isDirectory()) return null
   let names
   try {
-    const seen = lstatSync(path)
-    if (!seen.isDirectory()) return null
-    volume = seen.dev
-    if (volume !== (outer === undefined ? lstatSync(path + '/..').dev : outer)) return path
+    if (seen.dev !== (outer === undefined ? lstatSync(path + '/..').dev : outer)) return path
     names = readdirSync(path)
   } catch (error) {
     // Gone meanwhile: nothing is there to be removed, or to be kept from it.
-    if (Boolean(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) return null
+    if (gone(error)) return null
     throw error
   }
   for (const name of names) {
     // Under the text of the path given, as the folder itself, its ".." and rmSync are asked: join
     // would cut a ".." in that text, which the system resolves through a link.
-    const found = removeMounted(path + '/' + name, volume)
+    const found = removeMounted(path + '/' + name, seen.dev, path)
     if (found !== null) return found
   }
   return null
@@ -81,7 +109,14 @@ function removeWalk(given, patience, outer) {
   // so the tree is looked through first, and with a mounted volume in it nothing is removed. The
   // walk is for Windows alone, and holds for a tree nobody else changes meanwhile.
   if (process.platform !== 'win32') {
-    const mounted = removeMounted(given)
+    let mounted
+    try {
+      mounted = removeMounted(given)
+    } catch (error) {
+      // What the look could not see ends the removal before rmSync: its error, with its code and
+      // its path, and words that name the path given and say so.
+      throw Object.assign(new Error(error.message + '. Nothing of ' + given + ' was removed'), { code: error.code, errno: error.errno, syscall: error.syscall, path: error.path, cause: error })
+    }
     if (mounted !== null) throw Object.assign(new Error('EXDEV: ' + mounted + ' is on another volume than the folder it lies in: a volume is mounted there. Nothing of ' + given + ' was removed'), { code: 'EXDEV', path: mounted })
     return rmSync(given, { recursive: true, force: true })
   }

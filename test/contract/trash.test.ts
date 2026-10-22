@@ -343,8 +343,13 @@ describe('trash: three days', () => {
     const said = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     try {
       vi.setSystemTime(now)
+      electron.sent.length = 0
       await start()
       await vi.waitFor(() => expect(readdirSync(trashDir())).toEqual([held.label]))
+      // Every window is told once that the trash of the Project changed: two entries went, one
+      // stayed (worfy-windows ticket 47; a refusal does not keep the notice from the others).
+      const notices = electron.sent.filter((message) => message.channel === `${IPC_CHANNEL_PREFIX}trash.changed`)
+      expect(notices.map((message) => message.payload)).toEqual([{ projectId: PROJECT }])
       expect(existsSync(join(trashDir(), before.label))).toBe(false)
       expect(existsSync(join(trashDir(), after.label))).toBe(false)
       // Nothing of the entry is gone: it is still listed, and can still be restored.

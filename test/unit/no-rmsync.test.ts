@@ -1,8 +1,8 @@
 // fs.rmSync has one place in src/ and in scripts/ (worfy-windows ticket 23). Under the Node of
 // Electron 44 on Windows its `recursive` goes through a junction and empties the folder behind it,
 // and without `recursive` it refuses a read-only file and a junction. Removals go through
-// src/main/storage/remove.ts, which calls rmSync only where it is safe: on every system but
-// Windows. The scripts that cannot import the module carry a copy between marks, and the same rule
+// src/main/storage/remove.ts, which calls rmSync only off Windows, and there only after a look
+// through the tree for a mounted volume, which rmSync would enter (worfy-windows ticket 44). The scripts that cannot import the module carry a copy between marks, and the same rule
 // holds inside it (test/unit/remove-tree-copies.test.ts compares the copies with the module).
 //
 // The search is by text, not by an ESLint rule: one of the places is JavaScript inside a string —
@@ -207,10 +207,21 @@ describe('fs.rmSync with "recursive" in test/', () => {
   })
 
   // Review round 1 of PR #293: test/unit/remove-tree-model.ts is passed by as a whole file above.
-  // It can call no fs.rmSync: of node:fs it has readFileSync and nothing else.
+  // It can call no fs.rmSync: of node:fs it has readFileSync and nothing else. Review round 2 of PR
+  // #293: a search for the names of node:fs alone let `import { rmSync } from 'original-fs'` through
+  // (the Node of Electron has that module), so every line that imports is compared (worfy-windows
+  // ticket 47).
   it('the model of the removal tests, which the search passes by, takes readFileSync alone from node:fs and loads no module any other way', () => {
     const text = readFileSync(join(REPO, 'test', 'unit', 'remove-tree-model.ts'), 'utf8')
     const lines = text.split(/\r?\n/)
+    // A line that names a module: `… from '…'` (the last line of an import over several lines too, and
+    // an export from another module), or an import for its side effects alone.
+    expect(lines.filter((line) => /\bfrom\s*['"]/.test(line) || /^\s*import\s*['"]/.test(line))).toEqual([
+      "import { readFileSync } from 'node:fs'",
+      "import { join, posix } from 'node:path'",
+      "import { restoreScriptSource } from '../../src/main/harness/migrate/restore'",
+      "import { removeTree, type RemoveFs } from '../../src/main/storage/remove'",
+    ])
     expect(lines.filter((line) => /['"](node:)?fs(\/promises)?['"]/.test(line))).toEqual(["import { readFileSync } from 'node:fs'"])
     expect(lines.filter((line) => /\b(require|import)\s*\(/.test(line) || /\bprocess\.binding\b/.test(line))).toEqual([])
   })
