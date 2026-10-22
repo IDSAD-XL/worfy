@@ -127,9 +127,10 @@ async function greyText(node: Locator): Promise<string> {
 
 /** Opens Settings → Terminal AI the way a person does: "Settings…" of the app menu, then the row of the section list. */
 async function openTerminalAi(launched: Pick<LaunchedApp, 'app' | 'window'>): Promise<Locator> {
-  // The app shell first: the Settings window listens for the menu command once it is mounted, and
-  // a click right after the window shows reached a page that was not listening yet (half the runs
-  // on a Windows PC, 2026-10-22). A person cannot click the menu that early.
+  // The app shell first. The Settings window starts listening for the menu command only when React
+  // has mounted it, and the window can show before that: a click right after the window showed was
+  // lost in half the runs on a Windows PC (2026-10-22). This test does not check a click before the
+  // mount; that race is in the app and is worfy-windows ticket 96.
   await expect(launched.window.getByRole('banner')).toBeVisible()
   await clickMenuItem(launched.app, SETTINGS_MENU_ITEM_ID)
   const dialog = launched.window.getByRole('dialog', { name: 'Settings' })

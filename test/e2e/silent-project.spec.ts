@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
@@ -143,13 +143,9 @@ if (head !== -1) prs = prs.filter((pr) => pr.headRefName === args[head + 1])
 process.stdout.write(JSON.stringify(prs))
 `,
   )
-  // Windows cannot start a `#!/bin/sh` wrapper as a program; worfy starts a `.mjs` WORFY_GH as a
-  // Node script there (src/main/program.ts). macOS and Linux keep the wrapper, as launch-env's GH_STUB does.
-  if (process.platform === 'win32') return { command: js, log }
-  const command = join(dir, 'gh')
-  writeFileSync(command, `#!/bin/sh\nexec node '${js}' "$@"\n`)
-  chmodSync(command, 0o755)
-  return { command, log }
+  // worfy starts a `.mjs` WORFY_GH as a Node script under its own Node on every system
+  // (src/main/program.ts), as test/e2e/claude-plugin-stub.ts does for WORFY_CLAUDE.
+  return { command: js, log }
 }
 
 const pr = (number: number, headRefName: string, conclusion: 'SUCCESS' | 'FAILURE' | null) => ({

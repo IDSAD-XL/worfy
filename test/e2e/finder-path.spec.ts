@@ -96,6 +96,10 @@ const launch = (at: Fixture): ReturnType<typeof launchApp> =>
   })
 
 test('started with the PATH of Finder, a Silent Project shows its Epic: the Harness scripts get the login shell environment', async () => {
+  // Windows has no Finder PATH and no /bin/sh: the premise below would pass only because /bin/sh is
+  // missing, and node would come from the registry Path (captureWindowsEnv in src/main/agent/env.ts),
+  // not from a login shell. macOS runs this test as before.
+  test.skip(process.platform === 'win32', 'Finder and its PATH exist only on macOS; on Windows the PATH comes from the registry')
   const launched = await launch(fixture({ node: true }))
   try {
     const { window } = launched
