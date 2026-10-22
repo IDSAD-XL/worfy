@@ -18,6 +18,7 @@ import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { canvasReady, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { windowsProfileEnv } from './terminal-shell'
 import { loginProfileWithNode, printScript, profileJsonScript } from '../harness-node'
 
 test.setTimeout(240_000)
@@ -42,9 +43,9 @@ async function evidence(window: Page, name: string): Promise<void> {
   await copyFile(shots.dark, join(EVIDENCE, `11-${name}-dark.png`))
 }
 
-function git(cwd: string, ...args: string[]): void {
+function git(cwd: string, ...args: string[]): string {
   const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
-  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd, env: gitEnv })
+  return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd, env: gitEnv, encoding: 'utf8' })
 }
 
 function makeRepo(dir: string): string {
@@ -92,6 +93,38 @@ async function countDialogs(app: ElectronApplication): Promise<void> {
   })
 }
 
+/**
+ * The variables that make `home` B's home folder. HOME everywhere, and B's login shell /bin/sh reads
+ * its .profile there. On Windows the home folder node's os.homedir() gives, and so the folder the
+ * browser starts in, is USERPROFILE, which launchEnv moves to a temporary profile of the launch: here
+ * the whole profile is `home` (windowsProfileEnv). Its AppData folder is there as in every Windows
+ * home folder (PROFILE_FOLDERS). APPDATA elsewhere would not keep it out: B's process made an empty
+ * %USERPROFILE%\AppData\Roaming even with APPDATA in another folder (Windows PC, 2026-10-22).
+ */
+const homeEnv = (home: string): Record<string, string> => ({ HOME: home, ...windowsProfileEnv(home) })
+
+/** The folders of B's home folder that are not the test's: AppData on Windows (homeEnv). */
+const PROFILE_FOLDERS = process.platform === 'win32' ? ['AppData'] : []
+
+/** The user running the tests as icacls names a user: DOMAIN\name (the computer's name for a local account). */
+const thisUser = (): string => `${process.env.USERDOMAIN ?? ''}\\${process.env.USERNAME ?? ''}`
+/** icacls of Windows, by its name: Git Bash on PATH has no program of that name. */
+const icacls = (...args: string[]): void => {
+  execFileSync('icacls', args, { stdio: 'ignore' })
+}
+
+/**
+ * Takes away this user's right to list `folder` (`readable` false) or gives it back. Off Windows the
+ * mode bits do it. On Windows they do not: NTFS keeps read access by the folder's ACL whatever the
+ * mode, so an entry of the ACL denies this user listing the folder (icacls /deny, right RD), and
+ * readdir fails with EPERM; removing the deny entry gives the right back. `folder` is always inside
+ * the test's temporary folder.
+ */
+function setReadable(folder: string, readable: boolean): void {
+  if (process.platform !== 'win32') return chmodSync(folder, readable ? 0o755 : 0o000)
+  icacls(folder, readable ? '/remove:d' : '/deny', readable ? thisUser() : `${thisUser()}:(RD)`)
+}
+
 const dialogsOf = (app: ElectronApplication): Promise<number> => app.evaluate(() => (globalThis as unknown as { pickerCalls: { dialogs: number } }).pickerCalls.dialogs)
 
 interface Pair {
@@ -118,7 +151,7 @@ async function launchPair(scratch: string, run: (pair: Pair) => Promise<void>): 
   mkdirSync(join(bHome, '.config'), { recursive: true })
   mkdirSync(join(bHome, 'Documents'), { recursive: true })
   mkdirSync(join(bHome, 'locked'), { recursive: true })
-  chmodSync(join(bHome, 'locked'), 0o000)
+  setReadable(join(bHome, 'locked'), false)
   writeFileSync(join(bHome, 'todo.txt'), 'a file, not listed\n')
   // B's login shell is /bin/sh with this HOME: its .profile puts node on PATH, for the Node stubs.
   loginProfileWithNode(bHome)
@@ -126,7 +159,7 @@ async function launchPair(scratch: string, run: (pair: Pair) => Promise<void>): 
   const a = await launchApp({ env: { WORFY_DATA_DIR: aData, WORFY_CLAUDE_HOME: claudeHomeAt(join(scratch, 'a-claude')) } })
   let b: LaunchedApp | undefined
   try {
-    b = await launchApp({ env: { WORFY_DATA_DIR: bData, WORFY_CLAUDE_HOME: claudeHomeAt(join(scratch, 'b-claude')), HOME: bHome, SHELL: '/bin/sh' } })
+    b = await launchApp({ env: { WORFY_DATA_DIR: bData, WORFY_CLAUDE_HOME: claudeHomeAt(join(scratch, 'b-claude')), ...homeEnv(bHome), SHELL: '/bin/sh' } })
     await countDialogs(a.app)
     await countDialogs(b.app)
     await canvasReady(b, { size: SIZE })
@@ -136,7 +169,7 @@ async function launchPair(scratch: string, run: (pair: Pair) => Promise<void>): 
   } finally {
     await a.close()
     await b?.close()
-    chmodSync(join(bHome, 'locked'), 0o755)
+    setReadable(join(bHome, 'locked'), true)
   }
 }
 
@@ -175,10 +208,10 @@ test('in A: Add project → Machine B → B\'s folders → a repository: the Pro
     // B's folders, from B's home folder.
     const browser = a.window.getByTestId('folder-browser')
     await expect(browser.getByTestId('folder-browser-path')).toHaveText(bHome)
-    await expect(browser.getByTestId('folder-row')).toHaveText(['code', 'Documents', 'locked'])
+    await expect(browser.getByTestId('folder-row')).toHaveText([...PROFILE_FOLDERS, 'code', 'Documents', 'locked'])
     await evidence(a.window, 'folder-browser')
     await browser.getByRole('checkbox', { name: 'Show hidden folders' }).check()
-    await expect(browser.getByTestId('folder-row')).toHaveText(['.config', 'code', 'Documents', 'locked'])
+    await expect(browser.getByTestId('folder-row')).toHaveText(['.config', ...PROFILE_FOLDERS, 'code', 'Documents', 'locked'])
     await evidence(a.window, 'folder-browser-hidden')
     await browser.getByRole('checkbox', { name: 'Show hidden folders' }).uncheck()
 
@@ -198,7 +231,8 @@ test('in A: Add project → Machine B → B\'s folders → a repository: the Pro
     await browser.getByRole('button', { name: 'Choose' }).click()
 
     // A's window opens the new Project on B.
-    const shopId = `shop-${createHash('sha256').update(shop).digest('hex').slice(0, 8)}`
+    // The id hashes the root as git spells it (projectId, src/main/projects/store.ts): C:/… on Windows.
+    const shopId = `shop-${createHash('sha256').update(git(shop, 'rev-parse', '--show-toplevel').trim()).digest('hex').slice(0, 8)}`
     await expect(a.window).toHaveURL(new RegExp(`[?&]machine=${bId}.*[?&]project=${shopId}|[?&]project=${shopId}.*[?&]machine=${bId}`), { timeout: 20_000 })
     await expect(a.window.getByTestId('canvas')).toHaveAttribute('data-project-id', shopId, { timeout: 20_000 })
     const shopRow = groupOf(a.window, bId).locator(`[data-testid="project-row"][data-project-id="${shopId}"]`)

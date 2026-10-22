@@ -69,3 +69,24 @@ pnpm build && pnpm exec playwright test test/e2e/linked-machines.spec.ts --grep-
 - `test/e2e/launch-env.ts`
 
 ## Итог
+
+Ветка `worfy-windows/99`. Правка только в двух spec-ах; `launch-env.ts` и `src/` не менялись (переменные
+spec-а и так побеждают значения `launchEnv`).
+
+- `linked-add-project.spec.ts`: домашняя папка B на Windows — весь профиль запуска в `b-home`
+  (`windowsProfileEnv(bHome)`: `USERPROFILE`, `HOMEDRIVE` + `HOMEPATH`, `APPDATA`, `LOCALAPPDATA`), `HOME` остаётся.
+  В списке `b-home` на Windows есть `AppData`, как в любой домашней папке Windows: процесс B создал пустую
+  `%USERPROFILE%\AppData\Roaming` и при `APPDATA` в другой папке (замер на ПК 2026-10-22), поэтому ожидаемый список
+  на win32 — с `AppData`. Папка `locked`: на Windows — запрет ACL `icacls locked /deny <DOMAIN>\<user>:(RD)`
+  (readdir падает с EPERM, приложение пишет «No permission to read …»), возврат — `icacls /remove:d` в `finally`.
+  Третья причина красного, найденная после первых двух: id Project-а хеширует корень так, как его пишет git
+  (`projectId`, `src/main/projects/store.ts`, `C:/…` на Windows), а test хешировал `C:\…`; теперь test берёт
+  корень у `git rev-parse --show-toplevel`.
+- `linked-machines.spec.ts`: папка `link` «только для чтения» на Windows — `icacls link /deny <user>:(WD,AD)`
+  (создать файл в ней нельзя, EPERM), возврат — `icacls /remove:d`. Код в сообщении main на Windows — `EPERM`,
+  на macOS и Linux — `EACCES`.
+- Проверка на ПК: до правки (main `b6f597ad`) — 2 красных из 11, код 1; после — 11 из 11 зелёные в 4 прогонах,
+  код 0. Мутант «запрет ACL не ставится» — оба test-а красные. Всё во временных папках test-ов; файлы истории
+  владельца не изменились.
+- На Mac не проверено: ветка off-Windows та же, что была (`chmod` 0o000 / 0o555, `EACCES`); новый только расчёт id
+  через `git rev-parse` (на macOS он даёт тот же realpath).
