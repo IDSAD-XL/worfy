@@ -201,8 +201,10 @@ test('Arrange by Epic from ⌘K: the Sessions stand right of the strip at their 
     expect(stayed(arranged.nodes)).toEqual(stayed(before.nodes))
     await snapshotThemes(window, 'arrange-by-epic')
 
-    // A second window of the same Project draws every Session where the first one put it.
-    const second = await openSecondWindow(launched, { size: { width: 1200, height: 800 } })
+    // A second window of the same Project draws every Session where the first one put it. The two
+    // frames stand side by side (K = 2 is closer to 16:10 than one column), so the Sessions right of
+    // them need a wide window: React Flow draws only the Nodes in view.
+    const second = await openSecondWindow(launched, { size: { width: 1700, height: 900 } })
     await canvasReady({ window: second }, { visible: [second.locator(`[data-testid="epic-frame"][data-epic="${ALPHA}"]`)], timeout: 20_000 })
     for (const id of [S_ALPHA, S_BETA, S_FREE, S_KEPT]) {
       const drawn = await drawnAt(second, `session:${id}`)

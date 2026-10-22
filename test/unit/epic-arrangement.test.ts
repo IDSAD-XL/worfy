@@ -26,33 +26,60 @@ const aspect = (frames: readonly ArrangedFrame[], columns: number): number => {
   return width / height
 }
 
+/** True when `columns` is the K a fresh pick must give: no K of 1 … n closer to 16:10, every smaller K farther. */
+const isClosest = (frames: readonly ArrangedFrame[], columns: number): boolean =>
+  Array.from({ length: frames.length }, (_, index) => index + 1).every((k) =>
+    k < columns ? offAspect(frames, k) > offAspect(frames, columns) : offAspect(frames, k) >= offAspect(frames, columns),
+  )
+
 describe('columnsFor', () => {
-  it('without a previous K: max(1, round(sqrt(S × 1.6) / W)), S the frames\' areas with the open done stack, W the widest frame plus the gap', () => {
-    // S = n × 900 × 500, W = 948: sqrt(n × 720000) / 948 = 0.895 × sqrt(n).
+  it('without a previous K: the K of 1 … n whose strip is closest to 16:10', () => {
     expect(columnsFor(usual(1), null)).toBe(1)
     expect(columnsFor(usual(4), null)).toBe(2)
     expect(columnsFor(usual(11), null)).toBe(3)
     expect(columnsFor(usual(30), null)).toBe(5)
-    const formula = (n: number) => Math.max(1, Math.round(Math.sqrt(n * 900 * 500 * TARGET_ASPECT) / (900 + FRAME_GAP)))
-    for (const n of [1, 4, 11, 30]) expect(columnsFor(usual(n), null)).toBe(formula(n))
   })
 
-  it('W counts the gap between columns: narrow frames, where the gap is half a frame, get fewer columns than without it (review of PR #539)', () => {
-    // S = 10 × 100 × 400, sqrt(S × 1.6) = 800: 800 / (100 + 48) = 5.4 gives 5; without the gap 800 / 100 would give 8.
+  it('checked against every K on several sets of frames: equal ones, narrow ones with one wide, with the done stack open', () => {
+    const sets: ArrangedFrame[][] = [
+      ...[1, 2, 3, 5, 8, 12, 20].map(usual),
+      [...Array.from({ length: 10 }, (_, index) => ({ width: 700, height: 400 + index * 60 })), { width: 2400, height: 400 }],
+      [...Array.from({ length: 6 }, () => ({ width: 300, height: 900 })), { width: 1800, height: 200 }],
+      Array.from({ length: 9 }, (_, index) => ({ width: 900, height: 300, reserve: index % 3 === 0 ? 1500 : 300 })),
+      Array.from({ length: 11 }, () => ({ width: 900, height: 200, reserve: 900 })),
+    ]
+    for (const frames of sets) expect(isClosest(frames, columnsFor(frames, null))).toBe(true)
+  })
+
+  it('on a tie takes the smaller K', () => {
+    // Two frames 128 × 76: one column is 128 × 200, two are 304 × 76; both strips are 2.5 times off 16:10.
+    const frames = [
+      { width: 128, height: 76 },
+      { width: 128, height: 76 },
+    ]
+    expect(offAspect(frames, 1)).toBe(2.5)
+    expect(offAspect(frames, 2)).toBe(2.5)
+    expect(columnsFor(frames, null)).toBe(1)
+  })
+
+  it('the gap between columns counts in the strip\'s width: ten frames 100 wide get 9 columns, not the 5 the old formula gave (review of PR #539)', () => {
+    // 9 columns: 9 × 100 + 8 × 48 = 1284 wide, two frames and a gap tall (848); 10 columns are one frame tall.
     const narrow = Array.from({ length: 10 }, () => ({ width: 100, height: 400 }))
     expect(FRAME_GAP).toBe(48)
-    expect(columnsFor(narrow, null)).toBe(5)
+    expect(stripSize(narrow, 9)).toEqual({ width: 1284, height: 848 })
+    expect(columnsFor(narrow, null)).toBe(9)
+    expect(offAspect(narrow, 5)).toBeGreaterThan(1.9)
   })
 
   it('counts a frame with its done stack open (`reserve`), not the folded height', () => {
     const folded = Array.from({ length: 11 }, () => ({ width: 900, height: 200 }))
     const reserved = folded.map((frame) => ({ ...frame, reserve: 900 }))
     expect(columnsFor(folded, null)).toBe(2)
-    expect(columnsFor(reserved, null)).toBe(4)
+    expect(columnsFor(reserved, null)).toBe(5)
   })
 
   it('never has more columns than frames, and one for no frames', () => {
-    // One very wide and short frame: the formula alone would give 0, a narrow tall pair more than 2.
+    // One very wide and short frame: K = 1 although the strip is far too wide; a narrow tall pair: 2 although still too tall.
     expect(columnsFor([{ width: 3000, height: 56 }], null)).toBe(1)
     expect(columnsFor([{ width: 100, height: 5000 }, { width: 100, height: 5000 }], null)).toBe(2)
     expect(columnsFor([], null)).toBe(1)
@@ -60,18 +87,19 @@ describe('columnsFor', () => {
   })
 
   it('keeps the previous K while the strip\'s aspect ratio is within 30 % of 16:10, and computes it again past that', () => {
-    // 11 frames 580 tall with the open done stack: 3 and 4 columns are both near 16:10.
+    // 11 frames 580 tall with the open done stack: 3 and 4 columns are both within 30 %, 4 is closer.
     const frames = Array.from({ length: 11 }, () => ({ width: 900, height: 550, reserve: 580 }))
-    expect(columnsFor(frames, null)).toBe(3)
-    // K = 4 is within the tolerance: kept although the formula says 3; so is K = 3.
-    expect(Math.abs(aspect(frames, 4) / TARGET_ASPECT - 1)).toBeLessThanOrEqual(ASPECT_TOLERANCE)
-    expect(columnsFor(frames, 4)).toBe(4)
+    expect(columnsFor(frames, null)).toBe(4)
+    // K = 3 is within the tolerance: kept although K = 4 is closer; so is K = 4.
+    expect(offAspect(frames, 3)).toBeGreaterThan(offAspect(frames, 4))
+    expect(Math.abs(aspect(frames, 3) / TARGET_ASPECT - 1)).toBeLessThanOrEqual(ASPECT_TOLERANCE)
     expect(columnsFor(frames, 3)).toBe(3)
+    expect(columnsFor(frames, 4)).toBe(4)
     // K = 2 is not: 2 × 900 + 48 wide, 6 frames tall; K = 5 neither.
     expect(Math.abs(aspect(frames, 2) / TARGET_ASPECT - 1)).toBeGreaterThan(ASPECT_TOLERANCE)
-    expect(columnsFor(frames, 2)).toBe(3)
+    expect(columnsFor(frames, 2)).toBe(4)
     expect(Math.abs(aspect(frames, 5) / TARGET_ASPECT - 1)).toBeGreaterThan(ASPECT_TOLERANCE)
-    expect(columnsFor(frames, 5)).toBe(3)
+    expect(columnsFor(frames, 5)).toBe(4)
   })
 
   it('keeps K while a frame grows a little, and lets it go once the strip is far from 16:10', () => {
@@ -87,16 +115,20 @@ describe('columnsFor', () => {
   })
 
   it('the boundary of the hysteresis is the 30 % itself', () => {
-    // 11 frames 900 wide in 4 columns: 4 × 900 + 3 × 48 = 3744 wide, three frames and two gaps tall;
-    // the frames' height sets the aspect ratio of that strip. Above 30 % the K afresh, 3, is within it.
-    const at = (ratio: number): ArrangedFrame[] => {
-      const height = (3744 / (TARGET_ASPECT * ratio) - 2 * FRAME_GAP) / 3
+    // 11 frames 900 wide: 4 and 5 columns are both three frames and two gaps tall, so the frames'
+    // height sets the aspect ratio of both strips. `at(ratio, k)`: the strip with k columns is `ratio` × 16:10.
+    const at = (ratio: number, k: number): ArrangedFrame[] => {
+      const height = ((k * 900 + (k - 1) * FRAME_GAP) / (TARGET_ASPECT * ratio) - 2 * FRAME_GAP) / 3
       return Array.from({ length: 11 }, () => ({ width: 900, height }))
     }
-    for (const ratio of [1.299, 1.31]) expect(columnsFor(at(ratio), null)).toBe(3)
-    expect(columnsFor(at(1 + ASPECT_TOLERANCE - 0.001), 4)).toBe(4)
-    expect(columnsFor(at(1 - ASPECT_TOLERANCE + 0.001), 4)).toBe(4)
-    expect(columnsFor(at(1 + ASPECT_TOLERANCE + 0.01), 4)).toBe(3)
+    // Too tall with 4 columns: 5 columns are closer, 4 stay up to 30 %.
+    for (const ratio of [1 - ASPECT_TOLERANCE + 0.001, 1 - ASPECT_TOLERANCE - 0.001]) expect(columnsFor(at(ratio, 4), null)).toBe(5)
+    expect(columnsFor(at(1 - ASPECT_TOLERANCE + 0.001, 4), 4)).toBe(4)
+    expect(columnsFor(at(1 - ASPECT_TOLERANCE - 0.001, 4), 4)).toBe(5)
+    // Too wide with 5 columns: 4 columns are closer, 5 stay up to 30 %.
+    for (const ratio of [1 + ASPECT_TOLERANCE - 0.001, 1 + ASPECT_TOLERANCE + 0.01]) expect(columnsFor(at(ratio, 5), null)).toBe(4)
+    expect(columnsFor(at(1 + ASPECT_TOLERANCE - 0.001, 5), 5)).toBe(5)
+    expect(columnsFor(at(1 + ASPECT_TOLERANCE + 0.01, 5), 5)).toBe(4)
   })
 
   it('the tolerance is 30 % of 16:10, and a K outside it gives way only to one 1.3 times closer', () => {
@@ -105,53 +137,76 @@ describe('columnsFor', () => {
     expect(SWITCH_MARGIN).toBe(1.3)
   })
 
-  describe('frames of very different widths, where no K the formula gives is within 30 %', () => {
-    // Ten frames 700 wide and one 2400 wide: every column is 2400 wide, so the formula's K = 1
-    // makes a strip five times too tall, and K = 2 a strip still twice too tall.
+  describe('frames of very different widths: ten 700 wide and one 2400 wide', () => {
+    // Every column is 2400 wide, so the old formula, which counted each frame with its own width,
+    // gave too few columns.
     const frames = (grow: number): ArrangedFrame[] =>
       [700, 700, 700, 700, 700, 700, 700, 700, 700, 700, 2400].map((width, index) => ({ width, height: 400 + index * 60 + (index === 0 ? grow : 0) }))
-    const small = frames(47 * 40)
-    const grown = frames(48 * 40)
+    const formula = (set: readonly ArrangedFrame[]): number =>
+      Math.max(1, Math.round(Math.sqrt(set.reduce((sum, frame) => sum + frame.width * frame.height, 0) * TARGET_ASPECT) / (2400 + FRAME_GAP)))
+    const review = frames(47 * 40)
 
-    it('the formula alone flips between 1 and 2 columns as one frame grows by 40 and shrinks back', () => {
-      expect(columnsFor(small, null)).toBe(1)
-      expect(columnsFor(grown, null)).toBe(2)
-      expect(offAspect(small, 1)).toBeGreaterThan(1 + ASPECT_TOLERANCE)
-      expect(offAspect(grown, 2)).toBeGreaterThan(1 + ASPECT_TOLERANCE)
+    it('the review example gets K = 3: one column is more than 5 times off 16:10, three are within 30 %', () => {
+      expect(columnsFor(review, null)).toBe(3)
+      expect(offAspect(review, 1)).toBeGreaterThan(5)
+      expect(Math.abs(aspect(review, 3) / TARGET_ASPECT - 1)).toBeLessThanOrEqual(ASPECT_TOLERANCE)
+      expect([1, 2, 3, 4, 5].map((k) => Number(offAspect(review, k).toFixed(2)))).toEqual([6.71, 2.09, 1.03, 1.56, 1.87])
     })
 
-    it('a kept K does not flip as the frame grows and shrinks back', () => {
-      let k = 2
-      for (const step of [small, grown, small, grown, small]) {
+    it('the old formula flipped between 1 and 2 as the first frame grew by 40 and shrank back; the candidates stay at 3', () => {
+      const grown = frames(48 * 40)
+      expect([formula(review), formula(grown)]).toEqual([1, 2])
+      expect([review, grown, review, grown].map((step) => columnsFor(step, null))).toEqual([3, 3, 3, 3])
+      let k = 3
+      for (const step of [grown, review, grown, review]) {
         k = columnsFor(step, k)
-        expect(k).toBe(2)
+        expect(k).toBe(3)
       }
     })
 
-    it('K = 1 gives way once to the clearly closer K = 2 and does not come back', () => {
-      expect(columnsFor(small, 1)).toBe(1)
-      const seen = [grown, small, grown, small].map((step) => columnsFor(step, 1))
-      expect(seen).toEqual([2, 1, 2, 1])
-      let k = 1
-      const kept = [grown, small, grown, small].map((step) => (k = columnsFor(step, k)))
-      expect(kept).toEqual([2, 2, 2, 2])
+    it('a previous K outside 30 % gives way to the K afresh within it', () => {
+      expect(offAspect(review, 2)).toBeGreaterThan(1 + ASPECT_TOLERANCE)
+      expect(columnsFor(review, 2)).toBe(3)
+      expect(columnsFor(review, 4)).toBe(3)
     })
 
-    it('the fresh K replaces a K outside 30 % only past the margin: 1.37 times closer does, 1.12 times does not', () => {
-      const close = frames(60 * 40)
-      expect(columnsFor(close, null)).toBe(2)
-      expect(offAspect(close, 6) / offAspect(close, 2)).toBeCloseTo(1.12, 2)
-      expect(columnsFor(close, 6)).toBe(6)
-      const far = frames(49 * 40)
-      expect(columnsFor(far, null)).toBe(2)
-      expect(offAspect(far, 6) / offAspect(far, 2)).toBeCloseTo(1.37, 2)
-      expect(columnsFor(far, 6)).toBe(2)
+    describe('shorter frames, where no K is within 30 %', () => {
+      const short = frames(1 * 40)
+      const taller = frames(2 * 40)
+      const noneHolds = (set: readonly ArrangedFrame[]) =>
+        Array.from({ length: set.length }, (_, index) => Math.abs(aspect(set, index + 1) / TARGET_ASPECT - 1)).every((off) => off > ASPECT_TOLERANCE)
+
+      it('the K afresh flips between 2 and 3 as the first frame grows by 40 and shrinks back; a kept K does not', () => {
+        expect(noneHolds(short) && noneHolds(taller)).toBe(true)
+        expect([short, taller, short, taller].map((step) => columnsFor(step, null))).toEqual([2, 3, 2, 3])
+        for (const start of [2, 3]) {
+          let k = start
+          const kept = [short, taller, short, taller].map((step) => (k = columnsFor(step, k)))
+          expect(kept).toEqual([start, start, start, start])
+        }
+      })
+
+      it('K = 1 gives way once to the clearly closer K afresh and does not come back', () => {
+        expect([taller, short, taller, short].map((step) => columnsFor(step, 1))).toEqual([3, 2, 3, 2])
+        let k = 1
+        expect([taller, short, taller, short].map((step) => (k = columnsFor(step, k)))).toEqual([3, 3, 3, 3])
+      })
+
+      it('the K afresh replaces a K outside 30 % only past the margin: 1.74 times closer does, 1.30 times does not', () => {
+        const set = frames(17 * 40)
+        expect(noneHolds(set)).toBe(true)
+        expect(columnsFor(set, null)).toBe(3)
+        expect(offAspect(set, 2) / offAspect(set, 3)).toBeCloseTo(1.298, 3)
+        expect(columnsFor(set, 2)).toBe(2)
+        expect(offAspect(set, 4) / offAspect(set, 3)).toBeCloseTo(1.736, 3)
+        expect(columnsFor(set, 4)).toBe(3)
+      })
     })
   })
 
   it('ignores a previous K that is not a whole number of columns', () => {
     const frames = Array.from({ length: 11 }, () => ({ width: 900, height: 550, reserve: 580 }))
-    for (const bad of [0, -2, 2.5, Number.NaN]) expect(columnsFor(frames, bad)).toBe(3)
+    for (const bad of [0, -2, 2.5, Number.NaN]) expect(columnsFor(frames, bad)).toBe(4)
   })
 })
 
@@ -205,11 +260,23 @@ describe('arrange and repack', () => {
     expect(arrange(['d', 'c', 'b', 'a'], frames, { ...record, columns: 2 }).columns).toBe(2)
   })
 
-  it('passes the record\'s K to the hysteresis: 4 columns are kept for 11 frames where afresh it is 3', () => {
+  it('passes the record\'s K to the hysteresis: 3 columns are kept for 11 frames where afresh it is 4', () => {
     const eleven = 'abcdefghijk'.split('')
     const even = new Map(eleven.map((epic) => [epic, { width: 900, height: 550, reserve: 580 }]))
-    expect(arrange(eleven, even, null).columns).toBe(3)
-    expect(arrange(eleven, even, { order: eleven, columns: 4, at: '2026-10-19T08:00:00.000Z' }).columns).toBe(4)
+    expect(arrange(eleven, even, null).columns).toBe(4)
+    expect(arrange(eleven, even, { order: eleven, columns: 3, at: '2026-10-19T08:00:00.000Z' }).columns).toBe(3)
+  })
+
+  it('the same frames give the same arrangement, whatever order the Map was filled in', () => {
+    const wide = new Map<string, ArrangedFrame>([
+      ...'abcdefghij'.split('').map((epic, index): [string, ArrangedFrame] => [epic, { width: 700, height: 400 + index * 60 }]),
+      ['k', { width: 2400, height: 1000 }],
+    ])
+    const backwards = new Map([...wide].reverse())
+    const epics = [...wide.keys()]
+    expect(arrange(epics, backwards, null)).toEqual(arrange(epics, wide, null))
+    expect(arrange([...epics].reverse(), backwards, null)).toEqual(arrange(epics, wide, null))
+    expect(repack(epics, backwards, new Set(['k']))).toEqual(repack(epics, wide, new Set(['k'])))
   })
 
   it('repack puts the Epics with work first and computes K without the hysteresis', () => {

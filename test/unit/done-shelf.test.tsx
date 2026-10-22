@@ -266,7 +266,9 @@ describe('where the shelf stands', () => {
     expect(shelf.position.x).toBe(left)
     // Every frame of the strip ends at least FRAME_GAP above the shelf.
     for (const frame of strip) expect(frame.position.y + frame.height!).toBeLessThanOrEqual(shelf.position.y - FRAME_GAP)
-    expect(shelf.width).toBe(Math.max(SHELF_MIN_WIDTH, stripSize(strip.map((n) => ({ width: n.width!, height: n.height! })), 1).width))
+    // As wide as the strip, with as many columns as the build placed the frames in.
+    const columns = new Set(strip.map((n) => n.position.x)).size
+    expect(shelf.width).toBe(Math.max(SHELF_MIN_WIDTH, stripSize(strip.map((n) => ({ width: n.width!, height: n.height! })), columns).width))
   })
 
   it('the Nodes of a build end at the shelf, FRAME_GAP under the lowest frame drawn, so the minimap bounds are the frames\' (ADR-0082)', () => {
