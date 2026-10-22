@@ -26,6 +26,7 @@
     "src/renderer/canvas/screen.ts",
     "src/renderer/canvas/snapping.ts",
     "src/renderer/canvas/wheel-router.ts",
+    "src/renderer/canvas/nodes/terminal-replay.ts",
     "src/renderer/find/search-index.ts",
     "src/renderer/ipc.ts",
     "src/renderer/machines/machines-dot.ts",

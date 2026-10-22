@@ -12,6 +12,7 @@ import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
 import { keepAltBufferFitted } from './terminal-alt-buffer'
 import { watchTypedLine, type TypedLineWatch } from './terminal-line'
+import { writeReplay } from './terminal-replay'
 import { unscaleMouse } from './terminal-mouse'
 import { watchUserInput } from './terminal-user-input'
 import { addView, isLastView, type ShellView } from './terminal-views'
@@ -26,7 +27,8 @@ import { NODE_HEADER } from '../node-header'
 // The agent does not use it. main runs the shell (src/main/terminal/pty.ts); this Node draws it
 // with xterm.js. The shell outlives the Node's component: the Canvas hidden behind the Session
 // view, the Node scrolled out of sight or the window reloaded only detach the view, and the next
-// mount attaches again and redraws the output main kept. A shell that exited stays exited across
+// mount attaches again and redraws the output main kept, at the sizes of the pty it came at
+// (terminal-replay.ts). A shell that exited stays exited across
 // remounts (main keeps its exit and output); only Restart starts a new one. Closing the Node ends
 // the shell. After a
 // restart of worfy the Node starts a new shell in the same folder; the old output is gone.
@@ -284,6 +286,9 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     // While xterm.js parses the kept output: output waits in `queued` too, what the user types or
     // clicks waits in `pending`, and the answers xterm.js gives meanwhile go nowhere.
     let replaying = false
+    // While the kept output is written at the sizes of the pty it came at (terminal-replay.ts): the
+    // terminal is not fitted to the Node meanwhile, and is fitted once it is all written.
+    let sizing = false
     const pending: (() => void)[] = []
     // The shell of the open answer: an exit during the parse shows it in the header.
     let shellName = ''
@@ -306,11 +311,10 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     const offExit = subscribe('terminal.exit', (payload) => {
       if (payload.projectId !== projectId || payload.nodeId !== id) return
       attached = false
-      // The shell exited while the kept output was parsed: what it printed last is shown, and the
-      // view does not attach.
+      // The shell exited while the kept output was parsed: what it printed last is shown once the
+      // kept output is written (attach), and the view does not attach.
       if (replaying) {
         replaying = false
-        for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
         // Typed for a shell that is gone.
         pending.length = 0
       }
@@ -335,6 +339,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     })
     // Fits the terminal to the Node: xterm.js resizes only when the size differs.
     const refit = () => {
+      if (sizing) return
       const size = fittedSize(element, fit)
       if (size !== undefined && (size.cols !== terminal.cols || size.rows !== terminal.rows)) terminal.resize(size.cols, size.rows)
     }
@@ -387,17 +392,40 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
         setStatus({ state: 'failed', message: result.error })
         return
       }
-      const { replay, end, shell, pid, exited } = result.value
+      const { replay, end, sizes, shell, pid, exited } = result.value
       written = end
+      // The kept output at the sizes it came at, ending at the size the pty has now; then the
+      // terminal takes its own size again, as before: the Node's, or while the Node has no layout
+      // the size it had before the replay. For the view that sets the size of the pty, that is
+      // the size the pty has now (open gave the pty that size before main read the sizes).
+      const replayed = (then: () => void) => {
+        const own = { cols: terminal.cols, rows: terminal.rows }
+        sizing = true
+        writeReplay(
+          terminal,
+          { replay, end, sizes },
+          () => {
+            sizing = false
+            const size = fittedSize(element, fit) ?? own
+            if (size.cols !== terminal.cols || size.rows !== terminal.rows) terminal.resize(size.cols, size.rows)
+            then()
+          },
+          () => active,
+        )
+      }
       if (exited !== null) {
-        if (replay !== '') terminal.write(replay)
+        replayed(() => undefined)
         queued.length = 0
         setStatus({ state: 'exited', shell, exitCode: exited.exitCode })
         return
       }
       const attach = () => {
-        // The view went, or the shell exited while the kept output was parsed.
-        if (!active || !replaying) return
+        if (!active) return
+        // The shell exited while the kept output was parsed: what came before the exit is shown.
+        if (!replaying) {
+          for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
+          return
+        }
         replaying = false
         attached = true
         for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
@@ -410,8 +438,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       shellName = shell
       // Attached in the callback, once xterm.js has parsed the kept output, not before: what it
       // answers to the requests in it goes nowhere. The end of the parse, not a timer, is the line.
-      if (replay === '') attach()
-      else terminal.write(replay, attach)
+      replayed(attach)
     })
 
     return () => {

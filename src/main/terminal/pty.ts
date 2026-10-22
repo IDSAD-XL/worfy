@@ -56,6 +56,7 @@
 import { posix, win32 } from 'node:path'
 import { spawn as spawnNodePty } from 'node-pty'
 import { findGitBash, findOnPath, getVar, powershellScriptCommand, type Env, type FileExists } from '../agent/env'
+import type { ReplaySize } from '../../shared/ipc/terminal'
 import type { TerminalShellSetting } from '../../shared/projects/action-templates'
 import { ConsoleRequests, DEVICE_ATTRIBUTES_ANSWER } from './console-request'
 import { CursorAnswers, isCursorAnswer } from './cursor-answers'
@@ -239,6 +240,8 @@ export interface OpenResult {
   shell: string
   replay: string
   end: number
+  /** The sizes of the pty `replay` came at (ReplayBuffer.sizes); empty when this call started the shell. */
+  sizes: ReplaySize[]
   started: boolean
   /** Set when the shell exited on its own and no new one was asked for: nothing runs. */
   exited: ShellExit | null
@@ -406,7 +409,7 @@ export class TerminalRegistry {
         audience.owner = client
         this.applySize(running, size)
       }
-      return { pid: running.pty.pid, shell: running.shell, replay: running.buffer.text(), end: running.buffer.end, started: false, exited: null }
+      return { pid: running.pty.pid, shell: running.shell, replay: running.buffer.text(), end: running.buffer.end, sizes: running.buffer.sizes(), started: false, exited: null }
     }
     // A shell still exiting after close: wait for it, then open again (another call may have
     // started the new shell meanwhile).
@@ -417,7 +420,7 @@ export class TerminalRegistry {
 
     const ended = this.ended.get(key)
     if (ended !== undefined && request.restart !== true) {
-      return { pid: ended.pid, shell: ended.shell, replay: ended.buffer.text(), end: ended.buffer.end, started: false, exited: ended.exit }
+      return { pid: ended.pid, shell: ended.shell, replay: ended.buffer.text(), end: ended.buffer.end, sizes: ended.buffer.sizes(), started: false, exited: ended.exit }
     }
     this.ended.delete(key)
 
@@ -429,7 +432,7 @@ export class TerminalRegistry {
       this.terminals.set(key, terminal)
       const { pid } = terminal.pty
       this.broadcast(key, 'reporting the start', (each) => each.started(pid))
-      return { pid, shell: terminal.shell, replay: '', end: 0, started: true, exited: null }
+      return { pid, shell: terminal.shell, replay: '', end: 0, sizes: [], started: true, exited: null }
     } finally {
       this.starting.delete(key)
       this.closedWhileStarting.delete(key)
@@ -476,6 +479,7 @@ export class TerminalRegistry {
       return
     }
     terminal.size = size
+    terminal.buffer.resize(size.cols, size.rows)
     terminal.cursor.resize(size.cols, size.rows)
   }
 
@@ -546,7 +550,7 @@ export class TerminalRegistry {
     const terminal: Terminal = {
       pty,
       shell: choice.name,
-      buffer: new ReplayBuffer(),
+      buffer: new ReplayBuffer({ cols, rows }),
       tracker,
       size: { cols, rows },
       cursor: new CursorAnswers({ cols, rows }, (answer) => {

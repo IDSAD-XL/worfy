@@ -39,6 +39,13 @@ export const TERMINAL_COMMANDS = ['gh auth login'] as const
 export const terminalCommandSchema = z.enum(TERMINAL_COMMANDS)
 export type TerminalCommand = z.infer<typeof terminalCommandSchema>
 
+/**
+ * A size of the pty and where in the output it began: `at` counts as `end` does. The output from
+ * `at` to the next size's `at` came at `cols`×`rows` (worfy-windows ticket 89).
+ */
+export const replaySizeSchema = z.object({ at: z.number().int().nonnegative(), cols: cells, rows: cells })
+export type ReplaySize = z.infer<typeof replaySizeSchema>
+
 const terminalRef = {
   projectId: z.string().min(1),
   nodeId: z.string().min(1).max(200),
@@ -63,6 +70,12 @@ export const terminalOpen = invokeChannel(
     replay: z.string(),
     /** Length of all output so far; `replay` ends there. */
     end: z.number().int().nonnegative(),
+    /**
+     * The sizes of the pty `replay` came at: the size at its start, then one per resize; the last is
+     * the size the pty has now. A view writes `replay` with these resizes in their places. Optional:
+     * without it a view writes `replay` at its own size, as before.
+     */
+    sizes: z.array(replaySizeSchema).optional(),
     /** True when this call started the shell, false when it attached to a running one. */
     started: z.boolean(),
     /** The exit of a shell that ended on its own and was not restarted; nothing runs then. */

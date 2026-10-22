@@ -62,7 +62,7 @@ describe('terminal channels on a real pty', () => {
   it.skipIf(process.platform !== 'darwin')('open starts $SHELL -l in the Project root with TERM_PROGRAM=worfy; input reaches it, output comes back', async () => {
     const h = await harness()
     const opened = await h.open()
-    expect(opened).toStrictEqual({ pid: opened.pid, shell: 'sh', replay: '', end: 0, started: true, exited: null })
+    expect(opened).toStrictEqual({ pid: opened.pid, shell: 'sh', replay: '', end: 0, sizes: [], started: true, exited: null })
 
     await h.run('echo "cwd=$(pwd)"', new RegExp(`cwd=${root}\\r?\\n`))
     await h.run('echo "tp=$TERM_PROGRAM term=$TERM"', /tp=worfy term=xterm-256color\r?\n/)
@@ -108,6 +108,28 @@ describe('terminal channels on a real pty', () => {
     expect(second.end).toBe(h.outputs.at(-1)?.end)
     expect(second.replay).toBe(h.text())
     expect(second.exited).toBeNull()
+  })
+
+  // The replay is right only at the sizes it came at (worfy-windows ticket 89): open gives them.
+  it('a second open gets the sizes of the pty its replay came at: the first size, then each resize', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
+    const h = await harness()
+    await h.open()
+    await h.run(say('mark', 'er-one'), /marker-one\r?\n/)
+    const before = h.outputs.at(-1)?.end ?? 0
+    await h.ok('terminal.resize', { projectId: PROJECT, nodeId: NODE, cols: 132, rows: 40 })
+    await h.run(say('mark', 'er-two'), /marker-two\r?\n/)
+
+    // The first window owns the size: the second one's open leaves the pty at 132x40.
+    const second = await h.open(NODE, { cols: 100, rows: 30 }, h.makeWindow())
+    expect(second.sizes).toHaveLength(2)
+    const [first, resized] = second.sizes as [OpenResult['sizes'][number], OpenResult['sizes'][number]]
+    expect(first).toEqual({ at: 0, cols: 80, rows: 24 })
+    expect({ cols: resized.cols, rows: resized.rows }).toEqual({ cols: 132, rows: 40 })
+    expect(resized.at).toBeGreaterThanOrEqual(before)
+    expect(resized.at).toBeLessThanOrEqual(second.end)
+    expect(second.replay.slice(0, resized.at)).toContain('marker-one')
+    expect(second.replay.slice(resized.at)).toContain('marker-two')
   })
 
   it('the only client that opened a terminal going away ends its shell (the last subscriber left)', async () => {
@@ -183,7 +205,7 @@ describe('terminal channels on a real pty', () => {
 
     // A view coming back (remount, reload) sees the exit and the last output; nothing is started.
     const back = await h.open()
-    expect(back).toStrictEqual({ pid, shell: SHELL_NAME, replay: h.text(), end: h.outputs.at(-1)?.end, started: false, exited: { exitCode: 3, signal: null } })
+    expect(back).toStrictEqual({ pid, shell: SHELL_NAME, replay: h.text(), end: h.outputs.at(-1)?.end, sizes: [{ at: 0, cols: 80, rows: 24 }], started: false, exited: { exitCode: 3, signal: null } })
     expect(back.replay).toContain('before-exit')
     expect(h.registry.size).toBe(0)
     // A plain open with restart: false is the same.
@@ -924,7 +946,7 @@ describe('terminal channels at the IPC boundary', () => {
     const h = await harness()
     const elsewhere = await realpath(tmpdir())
     const opened = await h.ok<OpenResult>('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24, cwd: elsewhere, shell: '/bin/bash' })
-    expect(Object.keys(opened).sort()).toEqual(['end', 'exited', 'pid', 'replay', 'shell', 'started'])
+    expect(Object.keys(opened).sort()).toEqual(['end', 'exited', 'pid', 'replay', 'shell', 'sizes', 'started'])
     expect(opened.shell).toBe(SHELL_NAME)
     await h.run(SAY_THE_FOLDER, folderLine(root))
     for (const output of h.outputs) expect(Object.keys(output).sort()).toEqual(['data', 'end', 'nodeId', 'projectId'])
