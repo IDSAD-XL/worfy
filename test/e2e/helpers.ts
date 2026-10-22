@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, win32 } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { _electron, expect, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import type { Reporter, TestCase, TestResult } from '@playwright/test/reporter'
@@ -28,6 +28,38 @@ export const thisUser = (): string => `${process.env.USERDOMAIN ?? ''}\\${proces
 /** icacls of Windows, by its name: Git Bash on PATH has no program of that name. Throws when it fails. */
 export function icacls(...args: string[]): void {
   execFileSync('icacls', args, { stdio: 'ignore' })
+}
+
+/** A process as the system lists it: its pid and its whole command line. */
+export interface ListedProcess {
+  pid: number
+  commandLine: string
+}
+
+/**
+ * Every process of the system whose command line contains `text`: on Windows from CIM
+ * (Win32_Process, through Windows PowerShell), elsewhere from `ps -axo pid=,command=`. The match is
+ * made here, not in the query, so `text` (a path) needs no quoting for either tool.
+ */
+export function processesWith(text: string): ListedProcess[] {
+  return listProcesses().filter((listed) => listed.pid !== process.pid && listed.commandLine.includes(text))
+}
+
+function listProcesses(): ListedProcess[] {
+  if (process.platform === 'win32') {
+    const powershell = win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    // Windows PowerShell prints in the console code page unless told otherwise: a path with letters
+    // outside it would not match (as in scripts/install-stable.mjs).
+    const script = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ConvertTo-Json -Compress -InputObject @(Get-CimInstance Win32_Process | ForEach-Object { @{ pid = [int]$_.ProcessId; commandLine = [string]$_.CommandLine } })'
+    const out = execFileSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true, maxBuffer: 64 * 1024 * 1024 })
+    return JSON.parse(out.trim() || '[]') as ListedProcess[]
+  }
+  const out = execFileSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+  return out
+    .split('\n')
+    .map((line) => /^\s*(\d+)\s+(.*)$/.exec(line))
+    .filter((match) => match !== null)
+    .map((match) => ({ pid: Number(match[1]), commandLine: match[2] ?? '' }))
 }
 
 /** builtApp of scripts/install-stable.mjs: where `pnpm package` leaves the app (test/unit/install-stable-functions.test.ts). */

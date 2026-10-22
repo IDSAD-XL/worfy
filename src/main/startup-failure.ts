@@ -111,7 +111,8 @@ let reported = false
  * app.exit(1), not app.quit(): quit() has no exit code, so the failure would look like a normal
  * quit to whatever started worfy, and its `before-quit` / `will-quit` handlers (stores flushing,
  * Sessions closing, terminals waiting for their shells) were written for an app that started,
- * not for one that stopped halfway. Nothing worth saving exists yet when the start fails.
+ * not for one that stopped halfway. Nothing worth saving exists yet when the start fails. When
+ * the call comes after `ready`, exitWithFailure() makes it on the next turn of the event loop.
  */
 export function reportStartupFailure(error: unknown, step?: StartupStep): void {
   const failedStep = error instanceof StartupError ? error.step : step
@@ -122,7 +123,35 @@ export function reportStartupFailure(error: unknown, step?: StartupStep): void {
   if (reported) return
   reported = true
   if (process.env[STARTUP_DIALOG_ENV] !== 'off') dialog.showErrorBox(STARTUP_FAILURE_TITLE, text)
-  app.exit(1)
+  exitWithFailure()
+}
+
+/**
+ * Ends the process with exit code 1 through app.exit(1), timed so that Electron stops the child
+ * processes it has started.
+ *
+ * Off macOS, Electron emits `ready` (and so resolves whenReady()) from inside
+ * ElectronBrowserMainParts::PreMainMessageLoopRun, before its main message loop runs. Until that
+ * loop runs, Browser::ExitWithCode cannot set an exit code and calls the C exit() at once: no
+ * orderly shutdown, and a network utility process that is still starting outlives worfy
+ * (worfy-windows ticket 95: 8 of 9 dev runs of a failed loadURL step on Windows). Once the loop
+ * runs, app.exit(1) shuts Chromium down in order, and its children go with it. A failure reported
+ * from a promise callback of `ready` (the steps of src/main/index.ts up to their first await) comes
+ * before that loop runs; a timer callback never does, since Electron's Node runs its timers from
+ * tasks of that loop (NodeBindings::UvRunOnce). That is an order, not a length of time. On macOS
+ * `ready` already comes from inside the loop, and the deferral changes nothing. The Electron
+ * internals named here were read from Electron's main-branch sources, not checked against 44.5.1;
+ * the measured part is the ticket's: app.exit(1) 200 ms after `ready` left no orphan.
+ *
+ * Before `ready` (the data folder check) the exit stays immediate: nothing has started a child yet,
+ * and deferring it would let Electron go on starting them before it exits the same way.
+ */
+function exitWithFailure(): void {
+  if (!app.isReady()) {
+    app.exit(1)
+    return
+  }
+  setTimeout(() => app.exit(1), 0)
 }
 
 /**

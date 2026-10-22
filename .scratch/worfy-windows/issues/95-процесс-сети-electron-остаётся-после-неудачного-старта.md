@@ -139,3 +139,71 @@ sleep 5; ps -axo pid,ppid,lstart,command | grep -F "$D" | grep -v grep
 - Почему именно процесс сети не узнаёт о смерти родителя — исходники Electron и Chromium не разбирались.
 
 ## Итог
+
+2026-10-22, ветка `worfy-windows/95` (Session на Windows-ПК; пауза владельца на окна и фокус — Electron не
+запускался ни разу).
+
+**Причина (по исходникам Electron, ветка `main` на GitHub; что в 44.5.1 то же — не сверено).** Вне macOS Electron
+шлёт `ready` изнутри `ElectronBrowserMainParts::PreMainMessageLoopRun`, до того как пошёл главный цикл сообщений;
+`exit_code_` заводится только в `WillRunMainMessageLoop`. Пока его нет, `Browser::ExitWithCode` не может задать код
+и зовёт C-шный `exit(code)` сразу — без упорядоченного завершения Chromium, и процесс сети, который в этот момент
+запускается, переживает главный. Шаг `loadURL` проваливается в promise-callback-е `whenReady()`, то есть ровно в
+этом окне. `app.quit()` в то же время не оставляет сироту, потому что `Browser::Shutdown` ждёт замыкания выхода из
+цикла («exiting now would leave defunct processes behind»), а `app.exit(1)` через 200 ms — потому что цикл уже идёт.
+Это объясняет все строки таблицы замера; на macOS `ready` приходит изнутри цикла, и случая там быть не должно.
+
+**Выбор.** Из вариантов тикета: `app.quit()` + код 1 отпал — `quit` срабатывает внутри того же раннего
+`Shutdown`, и `app.exit(1)` из него снова попал бы в C-шный `exit()`; кроме того, `before-quit` / `will-quit`
+написаны для запущенного приложения. Снятие детей через `app.getAppMetrics()` ненадёжно: процесс, который ещё
+запускается, может в метриках не появиться. Сделано: `app.exit(1)` после `ready` — в таймере (`setTimeout(…, 0)`),
+до `ready` — сразу, как было (`src/main/startup-failure.ts`, `exitWithFailure`). Это не пауза по времени, а порядок:
+после `ready` Node в Electron гоняет таймеры только из задач главного цикла (`NodeBindings::UvRunOnce` через
+`PostTask`; синхронный `UvRunOnce` из `StartPolling` идёт раньше `DidFinishLaunching`). Код выхода 1, текст stderr,
+отказ от окна при `WORFY_STARTUP_DIALOG=off` и обход `before-quit` / `will-quit` — прежние.
+
+**Test-ы.** `test/contract/startup-failure.test.ts`: у mock-а `app` появились `isReady()` (true после
+`whenReady()`); новые test-ы — до `ready` выход сразу; после `ready` выход не из того же callback-а и не из
+microtask, а на следующем ходу цикла, один раз, с кодом 1; окно — до выхода; в старте `src/main/index.ts` шаг
+`loadURL` не выходит в том же job-е. 38 из 38, три прогона подряд; mutant-ы — в «Круг ревью 2». `test/e2e/packaged.spec.ts`, test «with an ELECTRON_RENDERER_URL that is not a URL stops with exit code 1»: через
+5 s после выхода главного нет процесса с `--user-data-dir` и папкой данных запуска (helper `processesWith` в
+`test/e2e/helpers.ts`: Windows — `Get-CimInstance Win32_Process`, macOS — `ps -axo pid=,command=`); найденные
+снимаются в `finally`. Lint и typecheck — код 0.
+
+**Скрипт замера** на потом: `.scratch/worfy-windows/evidence/95-verify.ps1` (корень репозитория берёт из своего
+места, другой tree — `-Repo`; 10 dev-запусков, временные профиль и папки, код выхода и живые через 5 s, снимает
+только записанные им процессы по pid, времени создания и командной строке). Запущен 2026-10-23 (см. «Проверка на
+Windows»); проверку игры пришлось сузить до `^(cod|payday.*)$`: старое `^(cod|payday)` ловило `codex.exe`.
+
+**Круг ревью 2.** Проверка «не из microtask» теперь подделывает только `setTimeout` и ждёт настоящего следующего
+хода (`setImmediate`): mutant-ы `process.nextTick` и цепочка `Promise.then` красные (по 3 test-а), как и прежние
+(голый `app.exit(1)` — 5, всегда отложенный — 12, `queueMicrotask` — 3, код 0 — 8). Второй провал — до хода
+таймера. test-ы загрузки окна идут с `ready` = true и проверяют отложенный выход.
+
+**Круг ревью 3 (ревью Mac).** На macOS проверка процессов в `packaged.spec.ts` не отличает старый код от нового:
+там `ready` уже приходит изнутри цикла сообщений (комментарий в `src/main/startup-failure.ts`), и голый
+`app.exit(1)` там тоже завершает Chromium по порядку. Красный на main и зелёный с правкой может показать только
+Windows; PR #777 ждёт этой проверки после снятия паузы на окна и фокус. Тот же круг: `childrenOfRun` ищет флаг
+`--user-data-dir=<папка>` целиком (с кавычками Windows или без), сбой уборки в `finally` — предупреждение, папка
+удаляется всегда; скрипт замера перенесён в `.scratch/worfy-windows/evidence/95-verify.ps1`.
+
+**Проверка на Windows (2026-10-23, ПК владельца, Electron 44.5.1, после снятия паузы).** Под замком e2e,
+временные профили, история оболочек владельца до и после — 189977 / 9730 байт, хэши прежние; сирот не осталось.
+
+| Что | main `730abb86` | правка (ветка, `b40f8179` + скрипт) |
+|---|---|---|
+| `95-verify.ps1`, 10 dev-запусков: код 1 и `Step: loadURL` | 10 из 10 | 10 из 10 |
+| `95-verify.ps1`: живой процесс через 5 s после выхода | **7 из 10** (`network.mojom.NetworkService`) | **0 из 10** |
+| `packaged.spec.ts` test «ELECTRON_RENDERER_URL that is not a URL», `--repeat-each 10 --workers=1` | **8 failed, 2 passed** («processes of this run alive 5 s after the main process exited», `--type=utility` NetworkService) | **10 passed** (1.3m) |
+
+Красный на main — test и helper-ы ветки поверх кода main (`out` собран из main в отдельном worktree, файлы test-а
+скопированы и после прогона возвращены). Причина подтверждена замером на Windows, а не только чтением исходников:
+выход из того же callback-а после `ready` оставляет процесс сети, выход в таймере — нет.
+
+**«Готово, когда» — что не проверено и почему:**
+
+- [x] e2e-проверка процессов в `packaged.spec.ts` — красный на main (8 из 10) и зелёный в 10 запусках подряд с
+  правкой, Windows, 2026-10-23.
+- [x] Код выхода 1 и `Step: loadURL` в stderr — 10 из 10 запусков `95-verify.ps1` и 10 из 10 e2e с правкой.
+- [ ] Полный `pnpm test:e2e` на ПК без сироты — не запускался; войдёт в полный пересчёт e2e на Windows.
+- [ ] macOS — не проверено: нужен Mac («Mac checks» и test `packaged.spec.ts`).
+- Что поведение Electron 44.5.1 совпадает с `main` на GitHub, — чтение, не сверка с исходником 44.5.1.
