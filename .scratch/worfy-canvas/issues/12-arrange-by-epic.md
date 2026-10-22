@@ -67,4 +67,8 @@ Source: [spec.md](../spec.md), решения владельца 9 и 10; исс
 
 ## Итог
 
-Заполняется при закрытии.
+Влит PR #676 (`3dffec27`). Команда «Arrange by Epic» — в палитре (⌘K) и в меню Canvas под «Tidy up».
+Session-ы встают одной колонкой справа от полосы рамок Epic-ов, у высоты рамки своего Epic-а; Session-ы
+без Binding-а и с Epic-ом на done shelf — кластер «Unbound» внизу. Не двигаются закреплённые, с Keep,
+Orchestrator, Card, Note, Terminal, HANDOFF; вся раскладка — один шаг ⌘Z. Правило — чистая функция
+`src/renderer/canvas/arrange-by-epic.ts`, hook — `arrange-by-epic-command.ts`; e2e `arrange-by-epic.spec.ts`.

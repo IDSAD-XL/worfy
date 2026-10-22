@@ -6,8 +6,8 @@
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26, 28, 34, 35 (#722); приёмка 16; 32 закрыт (#508); 33 открыт. Вне LAN через Tailscale (ADR-0070) — 27, 29–31, после очереди `worfy-windows`.
-- `worfy-windows` (порт под Windows; ADR 0054–0057, 0062, 0063, 0069, 0071): 80/93. Влиты 2026-10-22: 84, 86–89, 91, 42, #730 (corepack); 92 (#745): утечка handle pseudo-console закреплена, ждёт node-pty. 14: группы 1, 2; 06 — `preflight` на ПК; 07 — Q31.
-- `worfy-windows`: 85 в PR #738 ждёт «да» владельца на платный `eval --changed` (≈ $1, Q-H29). ПК: в работе 93 (история Git Bash при закрытии). 90 (клавиша Git Bash после resize) и 60 (release node-pty) ждут upstream.
+- `worfy-windows` (порт под Windows; ADR 0054–0057, 0062, 0063, 0069, 0071): 81/93. Влиты 2026-10-22: 84, 86–89, 91, 42, #730 (corepack), 93 (#747); 92 (#745, утечка handle) ждёт node-pty. ПК: 14 — packaged/`install-stable` на win32, группы 4, 5, 7, 8 e2e (1, 2 влиты); 06 — `preflight`; 07 — Q31.
+- `worfy-windows`: 85 в PR #738 ждёт «да» владельца на платный `eval --changed` (≈ $1, Q-H29). 90 (клавиша Git Bash после resize) и 60 (release node-pty) ждут upstream.
 - `worfy-windows` 39 влит (#512): main отвечает на `ESC[6n`, ответы view — не ввод. Цена — скорость flood-а (один worker разбора), владелец принял; ускорить — 67.
 - `worfy-windows` 65, 66, ADR-0071 (2026-10-19): сначала main зелёный на Windows (65, 14), затем 66 — полный `pnpm test` на Windows-runner-е; его зелёный run — `check/windows` для платформенных PR без Terminal, окон, e2e и упаковки.
 - `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) — **отложен владельцем 2026-10-21**: влиты 01–08, 10–14; 09 — приёмка; 15 (low) — связь у программ prompt-а. Долги — «Итог» 11–13.
@@ -18,7 +18,7 @@
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 9/18, влиты 01–03, 06, 08, 10, 16–18 (gate full 18,5 → 8,4 min); 07, 09 — `wave-gate`; 04, 05 — Orchestrator; 11–15 — скорость test-ов (ADR-0081).
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
-- `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 18/21; влиты 01–12, 14, 15, 17, 18, 20, 21 (#725, Done shelf); 16, 19 в работе; 13 — решение владельца.
+- `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 19/21; влиты 01–12, 14–18, 20, 21; 19: части 1–3 влиты (#682), остаток открыт; 13 — решение владельца.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 12/16; влиты 15, 16 (#707, #715) и 04 (#733, MCP server через CDP); отказ на странице вне списка origin-ов — по ADR-0078, владелец может возразить.
 
 ## Ждёт владельца

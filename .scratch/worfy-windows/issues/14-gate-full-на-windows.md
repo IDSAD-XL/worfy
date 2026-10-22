@@ -653,6 +653,24 @@ reload, стрелки колеса в alternate screen): `terminal.spec.ts:218`
   Три test-а красные и на main: `terminal.spec.ts:273`, `focus.spec.ts:314`, `wheel-over-nodes.spec.ts:346`
   (строки по main `b1e7ce39`). Причина в приложении: xterm.js работает без опции `windowsPty`, хотя под ним
   ConPTY. Разбор — в [Ticket 86](86-terminal-на-windows-экран-после-resize-и-alternate-screen.md).
+- Группа 3 (Session на Windows-ПК, 2026-10-22, ветка `worfy-windows/14-packaged`, commit `e3664e39`, PR не открыт):
+  test-ы собранного приложения идут на win32. Один helper в `test/e2e/helpers.ts` (`packagedBuild`,
+  `packagedExecutable`, `packagedResources`) отдаёт `dist\win-unpacked\worfy.exe` и `resources\`; им пользуются
+  `packaged.spec.ts` и `terminal.spec.ts`. Папки данных — `%APPDATA%\worfy` и `worfy-dev`; иконка — картинки
+  `build/icon.ico` внутри `worfy.exe`; node-pty — `echo` из `cmd.exe` через ConPTY и `prebuilds/win32-x64/conpty.node`;
+  `claude.exe`; мост — `node statusline-bridge.mjs`; бит исполнения проверяется только вне Windows. Каждый запуск
+  `install-stable.mjs` в test-ах получает временные `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, цель — только во
+  временной папке; Stable copy, установка и данные владельца не тронуты (размер, хеш и время до и после совпали).
+  Пропуски на win32, с причиной: подпись `codesign` (сборка Windows не подписана до E4), правило «цель — `.app`»
+  (на Windows цель — папка; новый test проверяет отказ для цели в папке установщика), второй запуск в приложение
+  без окна (вне macOS приложение выходит с последним окном). Было на main `8f5238c8`: `pnpm test:package` — 6 failed,
+  11 did not run; без тега `@packaged` — 6 failed из 8 (`:624`, `:650`, `:696`, `:717`, `:730`, `:738`; test `.app`
+  на Windows не запускался — он собрал бы и поставил приложение). Стало: `pnpm test:package` — exit 0 (16 passed,
+  1 skipped), без тега — exit 0 два прогона (8 passed, 2 skipped). После test-а `:662` (теперь `:777`,
+  `ELECTRON_RENDERER_URL` не URL) остаётся процесс сети `electron.exe` без родителя — по одному на прогон, снят
+  `Stop-Process`. Test только запускает Electron и ждёт его выхода; главный процесс выходит сам через
+  `app.exit(1)` (`src/main/startup-failure.ts`), так что процесс сети, переживший его, — поведение приложения или
+  Electron, не test-а. Не правилось и не разобрано: вопрос владельцу и Session на Mac.
 - Группы 4, 5, 7 и 8 — ветка `worfy-windows/14-paths` поверх main `8f5238c8` (ПК 2026-10-22, масштаб 150 %): правки только в
   e2e. Stub `epic-status` в `epic-frame` делит путь по `/` и `\`, строки — по `\r?\n` (файлы fixture на Windows с CRLF);
   `checks-badges` считает тег Gate от `git rev-parse --show-toplevel`; `binding` вставляет путь в JSON экранированным;
