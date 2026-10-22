@@ -167,9 +167,137 @@ describe('ConsoleRequests: the scanner', () => {
       expect([read.out.join('') + read.rest, read.requests], `stream ${stream}: ${JSON.stringify(chunks)}`).toEqual([expected, requests])
     }
   })
+
+  // Review of PR #736 (ticket 42 of worfy-windows): in the raw stream the ESC of the request ended a
+  // sequence of another program that had not ended yet; with the request cut out nothing ended it,
+  // and the next character became its end.
+  // null stands for rest() between chunks, as the registry calls it after HELD_OUTPUT_MS.
+  it.each<[string, (string | null)[]]>([
+    ['an unfinished CSI', [`${ESC}[1;3`, REQUEST, 'Hello']],
+    ['an unfinished CSI with a prefix', [`${ESC}[?`, REQUEST, 'Hello']],
+    ['an ESC with an intermediate', [`${ESC} `, REQUEST, 'Hello']],
+    ['an OSC title without its end', [`${ESC}]0;title`, REQUEST, 'text']],
+    ['a DCS string', [`${ESC}P1$r`, REQUEST, 'text']],
+    ['an unfinished CSI, with the request given out by rest()', [`${ESC}[1;3`, `${ESC}[`, null, 'c', 'Hello']],
+    ['an OSC title, with a request cut off by the next one and a control inside it', [`${ESC}]0;title`, `${ESC}[\n`, REQUEST, 'text']],
+    ['an OSC title, with the C1 CSI of a request', [`${ESC}]0;title`, '\x9bc', 'text']],
+  ])('a request that ends %s leaves the screen as the raw stream does', async (_name, chunks) => {
+    const scanner = new ConsoleRequests()
+    let text = ''
+    let requests = 0
+    for (const chunk of chunks) {
+      if (chunk === null) {
+        text += scanner.rest()
+        continue
+      }
+      const read = scanner.feed(chunk)
+      text += read.text
+      requests += read.requests
+    }
+    text += scanner.rest()
+    const raw = await xtermShows(chunks.join(''))
+    expect(requests).toBe(raw.answers)
+    expect(await xtermShows(text)).toEqual({ ...raw, answers: 0 })
+  })
+
+  it('the Hello case of the review: the screen shows Hello, at the start of the line', async () => {
+    const read = fed(`${ESC}[1;3`, REQUEST, 'Hello')
+    expect(read.requests).toBe(1)
+    expect((await xtermShows(read.out.join(''))).screen.split('\n')[0]).toBe('HelloZ')
+  })
+
+  it('the OSC case of the review: the text is not taken into the title of the window', async () => {
+    const read = fed(`${ESC}]0;title`, REQUEST, 'text')
+    expect(read.requests).toBe(1)
+    const shown = await xtermShows(read.out.join(''))
+    expect([shown.title, shown.screen.split('\n')[0]]).toEqual(['title', 'textZ'])
+  })
+
+  it('a request at the start of the console still leaves nothing but its controls behind', () => {
+    expect(fed(`${ESC}[1t`, `${ESC}[\n`, 'c').out.join('')).toBe(`${ESC}[1t\n`)
+  })
+
+  // The differential check of the review, with a fixed seed: random pieces — every form of the
+  // request, foreign sequences cut anywhere (CSI, OSC, DCS, ESC with intermediates), controls, C1 —
+  // cut into random chunks, with rest() between chunks at random. xterm.js must show the same
+  // screen, cursor and title and give the same other answers for the raw and for the filtered
+  // stream, answer no device attributes request of the filtered one, and as many of the raw one as
+  // the scanner counted.
+  it('2000 random streams with foreign sequences and rest() between chunks: xterm.js reads the filtered stream as the raw one, without the requests', async () => {
+    const random = seeded(4242)
+    const pieces = [ESC, '\x9b', '[', '0', '1', ';', ':', 'c', 'c', 'x', '?', '>', ' ', '\n', '\r', '\x18', '\x1a', '\x7f', '\x85', ']', '\x07', '\x90', '\\', 'P', '_', '6', 'n', `${ESC}[`, REQUEST, '\x9bc', `${ESC}[0;0c`, `${ESC}[;c`, `${ESC}]0;t`, '\x9c', 'é']
+    const streams: { chunks: string[]; text: string; requests: number }[] = []
+    for (let stream = 0; stream < 2000; stream++) {
+      let raw = ''
+      for (let count = 1 + Math.floor(random() * 14); count > 0; count--) raw += pieces[Math.floor(random() * pieces.length)]
+      const scanner = new ConsoleRequests()
+      let text = ''
+      let requests = 0
+      const chunks = cutAtRandom(raw, random)
+      for (const chunk of chunks) {
+        const read = scanner.feed(chunk)
+        text += read.text
+        requests += read.requests
+        if (scanner.holds && random() < 0.5) text += scanner.rest()
+      }
+      streams.push({ chunks, text: text + scanner.rest(), requests })
+    }
+    const [before, after] = await Promise.all([xtermShowsAll(streams.map((one) => one.chunks.join(''))), xtermShowsAll(streams.map((one) => one.text))])
+    const failures = streams.flatMap((one, index) => {
+      const same = one.requests === before[index]?.answers && JSON.stringify({ ...before[index], answers: 0 }) === JSON.stringify(after[index])
+      // C1 characters are invisible in a terminal: the report spells them out.
+      const report = JSON.stringify({ ...one, before: before[index], after: after[index] }).replace(/[\x7f-￿]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
+      return same ? [] : [report]
+    })
+    expect(failures.slice(0, 3)).toEqual([])
+  })
 })
 
 const CAN = '\x18'
+
+type Shown = { screen: string; title: string; answers: number; others: string[] }
+
+/** What xterm.js shows for `data` followed by `Z`: the screen with the cursor, the title, its device attributes answers and its other answers. */
+async function xtermShows(data: string): Promise<Shown> {
+  const [shown] = await xtermShowsAll([data])
+  if (shown === undefined) throw new Error('xterm.js showed nothing')
+  return shown
+}
+
+/**
+ * xtermShows for many streams at once, in one terminal: each one after a full reset (`ESC c`, which
+ * ends any sequence first), read in the callback of its write, before the next one is parsed.
+ */
+async function xtermShowsAll(streams: string[]): Promise<Shown[]> {
+  const { Terminal } = createRequire(import.meta.url)('@xterm/headless') as typeof import('@xterm/headless')
+  // DEL outside a sequence is a parsing error to xterm.js: it says so on the console, and reads on.
+  const terminal = new Terminal({ cols: 40, rows: 6, allowProposedApi: true, logLevel: 'off' })
+  let answers = 0
+  let others: string[] = []
+  let title = ''
+  terminal.onData((answer) => {
+    if (answer === DEVICE_ATTRIBUTES_ANSWER) answers += 1
+    else others.push(answer)
+  })
+  terminal.onTitleChange((next) => (title = next))
+  const shown: Shown[] = []
+  await new Promise<void>((resolve) => {
+    for (const data of streams) {
+      terminal.write(`${ESC}c${data}Z`, () => {
+        const buffer = terminal.buffer.active
+        const lines: string[] = []
+        for (let row = 0; row < buffer.length; row++) lines.push(buffer.getLine(row)?.translateToString(true) ?? '')
+        shown.push({ screen: `${lines.join('\n')}|${buffer.cursorX},${buffer.cursorY}`, title, answers, others })
+        answers = 0
+        others = []
+        title = ''
+        if (shown.length === streams.length) resolve()
+      })
+    }
+  })
+  terminal.dispose()
+  return shown
+}
 
 /** What xterm.js makes of `data`: how many device attributes answers it gives, and the first line it shows. */
 async function xtermReads(data: string): Promise<{ answers: number; line: string }> {
