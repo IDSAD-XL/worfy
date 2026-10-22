@@ -18,7 +18,7 @@
 //   the page.
 // - **Takeover** (ADR-0078 item 8). A mouse button pressed, a key pressed or a touch on the page by
 //   the user is reported (`onUserInput`), and the Browser stops being the Session's
-//   (src/main/browser/live.ts). The Session's own clicks and keys go through the same input path, so
+//   (src/main/browser/live.ts). The Session's own clicks go through the same input path, so
 //   the events that come while one of them is being sent are the Session's and are not reported.
 //
 // The page is reached through CdpContents, the part of Electron's WebContents used here, so the
@@ -159,11 +159,19 @@ function argumentText(argument: unknown): string {
 }
 
 /**
- * Run on the element of browser_type: focuses it and answers where its text would go — `password`,
- * `frame` (the focus is in a frame of another site), `none` (no field takes it: the element is no
- * field, or the page moves the focus away from it) or `ok`. Elements of a frame are of that frame's window, so they are told by their tag, not by `instanceof`.
+ * Run on the element of browser_type, twice. It focuses the element and follows the focus from the
+ * page's active element down through open shadow roots and frames to the element the text reaches.
+ * Elements of a frame are of that frame's window, so they are told by their tag, not by `instanceof`.
+ * With `text` null (the first run) it answers that element, or why there is none: `password`,
+ * `frame` (the focus is in a frame of another site), `none` (no field takes the text: the element is
+ * no field, or the page moves the focus away from it). The second run, with the text and the element
+ * of the first, does it all again and types in the same synchronous turn, so no timer of the page
+ * runs between the check and the text: `moved` when the focus ends elsewhere this time, `unchanged`
+ * when the field took no text, `typed` when it did. The text is inserted by the page's own editing
+ * command and Enter is sent as page events: neither goes through the window's input, so the
+ * keyboard focus of the worfy window stays where the user has it.
  */
-const FOCUS_FOR_TEXT = `function () {
+const TYPE_IN_PAGE = `function (text, submit, expected) {
   const isPassword = (e) => e.localName === "input" && e.type === "password";
   if (isPassword(this)) return "password";
   if (typeof this.focus !== "function") return "none";
@@ -185,7 +193,19 @@ const FOCUS_FOR_TEXT = `function () {
   if (!way.includes(this)) return "none";
   const last = way[way.length - 1];
   const field = last.isContentEditable || last.localName === "textarea" || (last.localName === "input" && !["button", "checkbox", "color", "file", "hidden", "image", "radio", "range", "reset", "submit"].includes(last.type));
-  return field ? "ok" : "none";
+  if (!field) return "none";
+  if (text === null) return last;
+  if (last !== expected) return "moved";
+  if (text !== "" && !last.ownerDocument.execCommand("insertText", false, text)) return "unchanged";
+  if (submit) {
+    const view = last.ownerDocument.defaultView;
+    const key = (type) => last.dispatchEvent(new view.KeyboardEvent(type, { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true }));
+    const go = key("keydown");
+    if (go) key("keypress");
+    key("keyup");
+    if (go && last.localName === "input" && last.form) last.form.requestSubmit();
+  }
+  return "typed";
 }`
 
 export class CdpPage {
@@ -253,9 +273,13 @@ export class CdpPage {
   }
 
   /** Sends one of the Session's own input events: the takeover check does not count it. */
-  private async input(method: string, params: unknown): Promise<void> {
-    // The user may take the Browser over between two events of one call: none is sent after that.
+  /** The user may take the Browser over in the middle of a call: nothing is done to the page after that. */
+  private assertDriving(): void {
     if (!this.guard.driving()) throw new PageError(`${TAKEN_OVER} in the middle of this call; nothing more was sent to the page. Wait until they press «Return control to Claude».`)
+  }
+
+  private async input(method: string, params: unknown): Promise<void> {
+    this.assertDriving()
     this.synthetic += 1
     try {
       await this.send(method, params)
@@ -382,6 +406,13 @@ export class CdpPage {
     throw new PageError(`The page has no element [ref=${target.ref}] any more; call browser_read again.`)
   }
 
+  /** Runs `functionDeclaration` on the element with `args`, and answers its result as a remote object. */
+  private async callRaw(objectId: string, functionDeclaration: string, args: unknown[]): Promise<RemoteObject> {
+    const answer = (await this.send('Runtime.callFunctionOn', { objectId, functionDeclaration, arguments: args, returnByValue: false })) as { result?: RemoteObject; exceptionDetails?: unknown }
+    if (answer.exceptionDetails !== undefined) throw new PageError('The page could not do it: the element threw.')
+    return answer.result ?? {}
+  }
+
   private async call<T>(objectId: string, functionDeclaration: string): Promise<T> {
     const answer = (await this.send('Runtime.callFunctionOn', { objectId, functionDeclaration, returnByValue: true, awaitPromise: true })) as { result?: RemoteObject; exceptionDetails?: unknown }
     if (answer.exceptionDetails !== undefined) throw new PageError('The page could not do it: the element threw.')
@@ -412,39 +443,39 @@ export class CdpPage {
   }
 
   /**
-   * Clicks the element, as the user would, types `text` into it at the caret the click left, and
-   * presses Enter after it with `submit`. Refused for a password field (the owner's decision 7): the
-   * user logs in, a Session never sees or types a password. The element is focused before the click
-   * and checked again after it, and the check is on where the text then goes: the
-   * focused element of the page, followed down through open shadow roots (a host that delegates its
-   * focus) and frames to the deepest one — the element the keys reach. A password field anywhere on
-   * that way refuses; so does a frame of another site, whose focus cannot be seen; and so does a
-   * focus that left the element (a page that moves it elsewhere). Only an input, a text area or an
-   * editable element at the end takes the text: a closed shadow root, which hides its focus, too is
-   * refused.
+   * Types `text` into the element, and presses Enter after it with `submit` (a form the field is in
+   * is submitted, as Enter would). Refused for a password field (the owner's decision 7): the user
+   * logs in, a Session never sees or types a password. The check is on where the text goes once the
+   * element has the focus: the focused element of the page, followed down through open shadow roots
+   * (a host that delegates its focus) and frames to the deepest one. A password field anywhere on
+   * that way refuses; so does a frame of another site, whose focus cannot be seen; so does a focus
+   * the page moves away from the element; and so does a field that hosts a closed shadow root, whose
+   * focus the page hides (a contenteditable host may delegate it to a password field inside). Only an
+   * input, a text area or an editable element at the end takes the text (TYPE_IN_PAGE).
+   *
+   * Nothing goes through Chromium's input here: a click, a key or Input.insertText of the guest
+   * moves the worfy window's keyboard focus to the Browser, or lands in whatever the user is typing
+   * into in the window.
    */
   async type(target: PageTarget, text: string, submit: boolean): Promise<PageOutcome> {
     const element = await this.element(target)
-    const check = async (): Promise<void> => {
-      const state = await this.call<string>(element, FOCUS_FOR_TEXT)
+    const refuse = (state: unknown): never => {
       if (state === 'password') throw new PageError(`${PASSWORD_REFUSED}: the user logs in by hand, a Session never types a password. Ask the user to log in.`)
       if (state === 'frame') throw new PageError('The focus is inside a frame of another site, which cannot be checked for a password field, so nothing is typed there.')
-      if (state !== 'ok') throw new PageError('The element does not take text — it is no input, text area or editable element, or the page moves the focus away from it — so nothing is typed.')
+      if (state === 'closed') throw new PageError('The field hides its focus in a closed shadow root, which cannot be checked for a password field, so nothing is typed there.')
+      if (state === 'unchanged') throw new PageError('The field took no text.')
+      throw new PageError('The element does not take text — it is no input, text area or editable element, or the page moves the focus away from it — so nothing is typed.')
     }
-    await check()
-    const at = await this.middleOf(element)
+    const first = await this.callRaw(element, TYPE_IN_PAGE, [{ value: null }, { value: false }, { value: null }])
+    if (first.subtype !== 'node' || first.objectId === undefined) return refuse(first.value)
+    const field = first.objectId
+    // A closed shadow root is seen only from here: the page's own code cannot tell it from none.
+    const described = (await this.send('DOM.describeNode', { objectId: field, depth: 0 })) as { node?: { shadowRoots?: { shadowRootType?: string }[] } }
+    if ((described.node?.shadowRoots ?? []).some((root) => root.shadowRootType === 'closed')) return refuse('closed')
     return this.settle(async () => {
-      // Chromium drops the keys and the text of a page nobody clicked since it last lost the focus:
-      // the Session clicks the field first, as the user would, and checks where the text goes again
-      // after the click, which the page may answer by moving the focus.
-      await this.press(at)
-      await check()
-      if (text !== '') await this.input('Input.insertText', { text })
-      if (submit) {
-        const enter = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 }
-        await this.input('Input.dispatchKeyEvent', { type: 'keyDown', ...enter, text: '\r' })
-        await this.input('Input.dispatchKeyEvent', { type: 'keyUp', ...enter })
-      }
+      this.assertDriving()
+      const done = await this.callRaw(element, TYPE_IN_PAGE, [{ value: text }, { value: submit }, { objectId: field }])
+      if (done.value !== 'typed') refuse(done.value)
     })
   }
 

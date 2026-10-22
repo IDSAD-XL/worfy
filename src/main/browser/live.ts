@@ -106,16 +106,21 @@ export class LiveBrowsers {
     return [...this.controls].filter(([key]) => key.startsWith(prefix)).map(([key, control]) => ({ nodeId: key.slice(prefix.length), mode: control.mode }))
   }
 
+  /** Throws ControlError, as `drive` would, when Session `sessionId` may not drive Browser Node `nodeId` now; changes nothing. */
+  mayDrive(projectId: string, nodeId: string, sessionId: string): void {
+    const control = this.controls.get(keyOf(projectId, nodeId))
+    if (control?.mode === 'user') throw new ControlError(`${TAKEN_OVER}: the user is using it now. Wait until they press «Return control to Claude» in it, or ask them in the chat.`)
+    if (control !== undefined && control.sessionId !== sessionId) throw new ControlError('Another Session drives this Browser now. Open a Browser of your own with browser_open.')
+  }
+
   /**
    * Session `sessionId` drives Browser Node `nodeId` from now on. Throws ControlError when the user
    * took it over and has not given it back, or when another Session drives it.
    */
   drive(projectId: string, nodeId: string, sessionId: string): void {
+    this.mayDrive(projectId, nodeId, sessionId)
     const key = keyOf(projectId, nodeId)
-    const control = this.controls.get(key)
-    if (control?.mode === 'user') throw new ControlError(`${TAKEN_OVER}: the user is using it now. Wait until they press «Return control to Claude» in it, or ask them in the chat.`)
-    if (control !== undefined && control.sessionId !== sessionId) throw new ControlError('Another Session drives this Browser now. Open a Browser of your own with browser_open.')
-    if (control !== undefined) return
+    if (this.controls.has(key)) return
     this.controls.set(key, { mode: 'claude', sessionId })
     this.deps.changed(projectId, nodeId, 'claude')
   }

@@ -14,9 +14,9 @@ import { snapshotThemes } from './snapshots'
 // Node, goes to a page, clicks, types, takes a screenshot, reads the page, its console and its
 // network; a page outside the profile's origins is refused whatever leads there — the Session's
 // address, a link it clicks, a redirect, a link whose site has a service worker — and the page stays
-// where it was; a password field takes no text from it, wherever it sits; a field takes text with
-// no click of the Session before; and a page of another site the user left it on is the Session's
-// only to leave. While it drives, the frame shows «Claude is driving»; a click of the user on the
+// where it was; a password field takes no text from it, wherever it sits; typing goes into the page
+// and never moves the keyboard focus of the window; and a page of another site the user left it on
+// is the Session's only to leave. While it drives, the frame shows «Claude is driving»; a click of the user on the
 // page takes the Browser over, every call is refused until «Return control to Claude», and then the
 // Session drives again. The fake agent calls no MCP tool, so the test calls the tools in main as
 // the Session would (globalThis.worfyBrowserTool, src/main/mcp/browser-server.ts), over the same
@@ -80,6 +80,11 @@ test.beforeAll(async () => {
          <form id="login"><label>Password in a form <input id="pw-form" type="password" name="password"></label></form>
          <p><label>Moves the focus <input id="sneaky" onfocus="document.querySelector('#pw').focus()"></label>
             <label>Moves it to a field <input id="moves" onfocus="document.querySelector('#q').focus()"></label></p>
+         <p><label>Moves it later <input id="later" onfocus="if (this.dataset.seen) document.querySelector('#pw').focus(); else setTimeout(() => document.querySelector('#pw').focus(), 0); this.dataset.seen = '1'"></label>
+            <label>Only by a timer <input id="later-only" onfocus="setTimeout(() => document.querySelector('#pw').focus(), 0)"></label></p>
+         <div id="closed-host" contenteditable="true"></div>
+         <script>window.closedRoot = document.querySelector('#closed-host').attachShadow({ mode: 'closed', delegatesFocus: true }); window.closedRoot.innerHTML = '<input type="password">'</script>
+         <form id="search" action="/next"><input id="s" name="s"></form>
          <p id="pw-host" tabindex="-1"></p>
          <script>document.querySelector('#pw-host').attachShadow({ mode: 'open', delegatesFocus: true }).innerHTML = '<input id="inner-pw" type="password">'</script>
          <iframe id="frame-pw" width="160" height="40" srcdoc="<input id=&quot;p&quot; type=&quot;password&quot;><script>const p = document.getElementById(&quot;p&quot;); p.focus(); addEventListener(&quot;focus&quot;, () => p.focus())</script>"></iframe>
@@ -269,14 +274,23 @@ test('a page outside the origins is refused whoever leads there, and the page st
   // A password: the user logs in. Wherever the text would go — the field itself, one in a form, a
   // field the page moves the focus to, one in a shadow root the element hands its focus to, or one
   // in a frame — and a frame of another site, whose focus cannot be seen, is refused too.
-  for (const selector of ['#pw', '#pw-form', '#sneaky', '#pw-host', '#frame-pw']) {
+  // A field that moves the focus to the password field on its second focus — after a timer moved
+  // it there between the check and the typing — is refused too.
+  for (const selector of ['#pw', '#pw-form', '#sneaky', '#pw-host', '#frame-pw', '#later']) {
     expect(await refused('browser_type', { id, selector, text: 'hunter2' }), selector).toMatch(/This is a password field: the user logs in/)
   }
   expect(await refused('browser_type', { id, selector: '#frame-away', text: 'hunter2' })).toMatch(/a frame of another site/)
+  // A contenteditable host whose closed shadow root takes the focus into a password field.
+  expect(await refused('browser_type', { id, selector: '#closed-host', text: 'LEAK' })).toMatch(/closed shadow root/)
   const typed = `[...document.querySelectorAll('input')].map((e) => e.value).join('')
     + document.querySelector('#pw-host').shadowRoot.querySelector('input').value
-    + document.querySelector('#frame-pw').contentDocument.querySelector('input').value`
+    + document.querySelector('#frame-pw').contentDocument.querySelector('input').value
+    + window.closedRoot.querySelector('input').value + document.querySelector('#closed-host').textContent`
   expect(await inPage(typed)).toBe('')
+  // A timer that moves the focus to the password field only later never gets the text there.
+  await tool('browser_type', { id, selector: '#later-only', text: 'hunter2' })
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  expect(await inPage("document.querySelector('#pw').value")).toBe('')
   // The text goes into the element asked for or nowhere: not into the field focused before it, nor
   // into one the page moves the focus to.
   await ok('browser_type', { id, selector: '#q', text: 'kept' })
@@ -285,11 +299,32 @@ test('a page outside the origins is refused whoever leads there, and the page st
   expect(await inPage("document.querySelector('#q').value + document.querySelector('#moves').value")).toBe('kept')
 })
 
-test('a field takes text as the first call on a new page, with no click before it', async () => {
-  await start()
+test('typing goes into the page and leaves the keyboard focus of the window where the user has it', async () => {
+  const window = await start()
   const { id } = await ok<{ id: string }>('browser_open', { profile: PROFILE, url: `${origin}/` })
+  const frame = window.locator(`[data-testid="browser-frame"][data-node-id="${id}"]`)
+  // The user types somewhere else in the window — a chat, a Terminal — while the Session types.
+  await window.evaluate(`(() => {
+    const field = document.createElement('textarea')
+    field.id = 'user-typing'
+    Object.assign(field.style, { position: 'fixed', right: '8px', bottom: '8px', zIndex: '9999' })
+    document.body.append(field)
+    field.focus()
+  })()`)
+  const focused = (): Promise<unknown> => window.evaluate('document.activeElement && document.activeElement.id')
+  // The first call on a new page, with no click before it.
   await ok('browser_type', { id, selector: '#q', text: 'first' })
   expect(await inPage("document.querySelector('#q').value")).toBe('first')
+  expect(await focused()).toBe('user-typing')
+  // The user's next keys stay theirs: in their field, not in the page, and no takeover.
+  await window.keyboard.type('mine')
+  expect(await window.evaluate("document.querySelector('#user-typing').value")).toBe('mine')
+  expect(await inPage("document.querySelector('#q').value")).toBe('first')
+  await expect(frame).toHaveAttribute('data-control', 'claude')
+
+  // submit presses Enter in the field: its form is sent.
+  expect((await ok<{ url: string }>('browser_type', { id, selector: '#s', text: 'roles', submit: true })).url).toBe(`${origin}/next?s=roles`)
+  expect(await focused()).toBe('user-typing')
 })
 
 test("a service worker of another site does not let the Session's navigation past the origins", async () => {

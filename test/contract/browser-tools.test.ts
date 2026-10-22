@@ -42,6 +42,10 @@ interface FakeElement {
   focusable?: boolean
   /** Where a click on it sends the main frame: a paused request of that address. */
   navigatesTo?: string
+  /** It hosts a closed shadow root, which only CDP sees. */
+  closedShadow?: boolean
+  /** What browser_type put into it, and whether it pressed Enter after. */
+  typed?: { text: string; submit: boolean }[]
 }
 
 type Listener = (...args: unknown[]) => void
@@ -155,6 +159,8 @@ class FakePage implements CdpContents {
         const key = selector === undefined ? '' : (JSON.parse(selector) as string)
         return this.elements.has(key) ? { result: { type: 'object', objectId: `obj:${key}` } } : { result: { type: 'object', subtype: 'null', value: null } }
       }
+      case 'DOM.describeNode':
+        return { node: { nodeName: 'INPUT', ...(element(String(params.objectId).slice('obj:'.length))?.closedShadow === true ? { shadowRoots: [{ shadowRootType: 'closed' }] } : {}) } }
       case 'DOM.resolveNode':
         if (!this.elements.has(String(params.backendNodeId))) throw new Error('No node with given id found')
         return { object: { type: 'object', objectId: `obj:${String(params.backendNodeId)}` } }
@@ -162,7 +168,15 @@ class FakePage implements CdpContents {
         const found = element(String(params.objectId).slice('obj:'.length))
         const code = String(params.functionDeclaration)
         if (code.includes('getBoundingClientRect')) return { result: { type: 'object', value: { x: 50, y: 20, w: 100, h: 30 } } }
-        if (code.includes('isPassword')) return { result: { type: 'string', value: found?.password === true ? 'password' : found?.focusable === false ? 'none' : 'ok' } }
+        if (code.includes('isPassword')) {
+          // TYPE_IN_PAGE: the first run answers the field, the second types into it.
+          const [text, submit] = (params.arguments as { value?: unknown }[]).map((each) => each.value)
+          if (found?.password === true) return { result: { type: 'string', value: 'password' } }
+          if (found === undefined || found.focusable === false) return { result: { type: 'string', value: 'none' } }
+          if (text === null) return { result: { type: 'object', subtype: 'node', objectId: String(params.objectId) } }
+          found.typed = [...(found.typed ?? []), { text: String(text), submit: submit === true }]
+          return { result: { type: 'string', value: 'typed' } }
+        }
         return { result: { type: 'undefined' } }
       }
       case 'Input.dispatchMouseEvent':
@@ -460,6 +474,17 @@ describe('the origins of the Browser profile', () => {
     expect(await page.pauseRequest(`${SITE}/in-the-list`)).toBe('continued')
   })
 
+  it('refuse a page outside the origins before the Session takes the Browser: no «Claude is driving», no wall left behind', async () => {
+    store.apply(PROJECT, { op: 'create', node: { id: 'browser-user', kind: 'browser', x: 0, y: 400, w: 640, h: 440, data: { profile: 'admin-aaaaaa' } } })
+    drawBrowsers()
+    const page = pages.get('browser-user')!
+    page.url = `${ELSEWHERE}/mail`
+    expect(refused(await (await connect()).call('browser_read', { id: 'browser-user' }))).toContain(`shows a page of ${ELSEWHERE}`)
+    expect(live.control(PROJECT, 'browser-user')).toBeNull()
+    expect(changes).toEqual([])
+    expect(page.sent).toEqual([])
+  })
+
   it('keep a Session off a page outside the origins the user left the Browser on: only browser_navigate leaves it', async () => {
     const rpc = await connect()
     const { id, page } = await opened(rpc)
@@ -546,15 +571,18 @@ describe('browser_click, browser_type and the page', () => {
     const { id, page } = await opened(rpc)
     page.elements.set('#email', {})
     json(await rpc.call('browser_type', { id, selector: '#email', text: 'a@b.c', submit: true }))
-    // Clicked first, as the user would: Chromium drops the text of a page nobody clicked.
-    const order = page.sent.map((each) => (each.method === 'Input.dispatchMouseEvent' ? String(each.params.type) : each.method))
-    expect(order.indexOf('mouseReleased')).toBeGreaterThan(-1)
-    expect(order.indexOf('mouseReleased')).toBeLessThan(order.indexOf('Input.insertText'))
-    expect(page.commands('Input.insertText')).toEqual([{ text: 'a@b.c' }])
-    expect(page.commands('Input.dispatchKeyEvent').map((each) => [each.type, each.key])).toEqual([
-      ['keyDown', 'Enter'],
-      ['keyUp', 'Enter'],
-    ])
+    expect(page.elements.get('#email')!.typed).toEqual([{ text: 'a@b.c', submit: true }])
+    // Through the page, never through Chromium's input: a click, a key or Input.insertText of the
+    // guest would take the worfy window's keyboard focus, or land where the user types in it.
+    expect(page.sent.filter((each) => each.method.startsWith('Input.'))).toEqual([])
+  })
+
+  it('never type into a field that hides its focus in a closed shadow root', async () => {
+    const rpc = await connect()
+    const { id, page } = await opened(rpc)
+    page.elements.set('#editable-host', { closedShadow: true })
+    expect(refused(await rpc.call('browser_type', { id, selector: '#editable-host', text: 'LEAK' }))).toMatch(/closed shadow root/)
+    expect(page.elements.get('#editable-host')!.typed).toBeUndefined()
   })
 
   it('never type into a password field: the user logs in', async () => {
@@ -564,9 +592,8 @@ describe('browser_click, browser_type and the page', () => {
     const text = refused(await rpc.call('browser_type', { id, selector: '#password', text: 'hunter2' }))
     expect(text).toContain(PASSWORD_REFUSED)
     expect(text).toMatch(/the user logs in/)
-    expect(page.commands('Input.insertText')).toEqual([])
-    expect(page.commands('Input.dispatchKeyEvent')).toEqual([])
-    expect(page.commands('Input.dispatchMouseEvent')).toEqual([])
+    expect(page.elements.get('#password')!.typed).toBeUndefined()
+    expect(page.sent.filter((each) => each.method.startsWith('Input.'))).toEqual([])
   })
 
   it('answer a screenshot as a PNG image, and the page as an accessibility snapshot with refs', async () => {
@@ -658,11 +685,12 @@ describe('taking a Browser over', () => {
     expect(page.commands('Input.dispatchMouseEvent').map((each) => each.type)).toEqual(['mouseMoved'])
     page.onCommand = undefined
     expect(live.giveBack(PROJECT, id)).toBe(true)
+    // Between the check of the field and the typing.
     page.onCommand = (method) => {
-      if (method === 'Input.insertText') live.takeOver(PROJECT, id)
+      if (method === 'DOM.describeNode') live.takeOver(PROJECT, id)
     }
     expect(refused(await rpc.call('browser_type', { id, selector: '#field', text: 'x', submit: true }))).toContain(TAKEN_OVER)
-    expect(page.commands('Input.dispatchKeyEvent')).toEqual([])
+    expect(page.elements.get('#field')!.typed).toBeUndefined()
   })
 
   it('another Session may not drive a Browser one drives', async () => {

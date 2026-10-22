@@ -119,14 +119,18 @@ function handlers(context: BrowserContext): Handlers {
    */
   const drive = async (id: string, leaves = false) => {
     const { profile } = browserOf(id)
-    live.drive(projectId, id, me())
+    const session = me()
+    // Everything that refuses comes before the Session takes the Browser: a refused call leaves no
+    // «Claude is driving» and no origin wall behind it.
+    live.mayDrive(projectId, id, session)
     const page = await live.whenLive(projectId, id, context.liveWaitMs ?? LIVE_WAIT_MS)
     if (page === undefined) throw new ToolError(`Browser ${id} has no live page: no window of worfy on this Machine shows this Project's canvas. Ask the user to open it.`)
-    await page.attach()
     const here = page.contents.getURL()
     if (!leaves && here !== '' && here !== 'about:blank' && !sessionMayGo(here, profile.origins)) {
       throw new ToolError(`Browser ${id} shows a page of ${originOf(here)}, outside the origins of its Browser profile "${profile.name}": a Session may not use it. Go to a page in the list with browser_navigate, or ask the user.`)
     }
+    live.drive(projectId, id, session)
+    await page.attach()
     return { page, profile }
   }
   const go = async (id: string, url: string) => {
