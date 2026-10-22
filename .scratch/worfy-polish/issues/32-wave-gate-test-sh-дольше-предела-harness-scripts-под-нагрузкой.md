@@ -1,8 +1,8 @@
 # 32 — `wave-gate.test.sh` под нагрузкой дольше предела 120 s на файл в `harness-scripts.test.ts`
 
 Type: task
-Status: claimed 2026-10-18T13:04Z
-Branch: worfy-polish/32-wave-gate-test-time
+Status: claimed 2026-10-22T18:16Z
+Branch: worfy-polish/32-37
 Blocked by: —
 Source: замер [30](30-contract-test-ы-краснят-gate-full-чужих-pr-под-нагрузкой.md) 2026-10-17/18,
 «Итог», раздел 5; решение Orchestrator-а 2026-10-18 — открыть отдельный Ticket, 30 ждёт его.
@@ -54,9 +54,9 @@ Source: замер [30](30-contract-test-ы-краснят-gate-full-чужих-
 
 - [ ] `wave-gate.test.sh` или каждая его часть укладывается в 120 s в замере Ticket-а 30 (те же команды:
       «Итог» Ticket-а 30, «Команды замера»): после правки — 0 красных в N прогонах, N ≥ 6.
-- [ ] Ни одна проверка `wave-gate.test.sh` не потеряна: число проверок до и после правки — в «Итог».
-- [ ] Предел `FILE_TIMEOUT_MS` и другие пределы не подняты.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `bash harness/bin/tests/<файл>.test.sh` — exit
+- [x] Ни одна проверка `wave-gate.test.sh` не потеряна: число проверок до и после правки — в «Итог».
+- [x] Предел `FILE_TIMEOUT_MS` и другие пределы не подняты.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `bash harness/bin/tests/<файл>.test.sh` — exit
       0 для каждой части.
 
 ## Тесты
@@ -161,3 +161,18 @@ exit 0, «[gate] зелено (fast)».
 
 98 s без нагрузки — уже больше остатка ~70 s выше. Следующий шаг из «Не сделано» — разбить файл.
 Сводка flaky test-ов этого дня — [34](34-flaky-test-ы-gate-full-2026-10-19.md).
+
+### 2026-10-22: разбиение (ветка `worfy-polish/32-37`, вместе с [37](37-предел-120-s-у-shell-test-ов-на-загруженном-mac.md))
+
+Пункт 1 «Что делаем»: `wave-gate.test.sh` разбит по темам на `wave-gate.test.sh` (наборы, вердикты, блоки SKILL.md),
+`wave-gate-merge.test.sh` (resume, merge, pid-файл, batch CI), `wave-gate-lock.test.sh` (замок e2e) и
+`wave-gate-screen.test.sh` (экран, `caffeinate`); общий «мир» — `wave-gate-world.sh`. Пределы не подняты.
+
+- Число проверок: до — 165 + 14 (`wave-gate-lock`) = 179 `ok`; после — 185: те же имена, плюс три общие строки
+  в каждом из двух новых файлов.
+- Замер: до — `wave-gate.test.sh` 74,6 s один, 119,2 s под нагрузкой (load average 29–36); после — самая долгая
+  часть 36 s одна и не больше 55 s в пяти раундах под нагрузкой (load average 25–55), ни одного падения по пределу.
+  Таблица, команды и разбор — «Итог» Ticket-а 37.
+- Замер Ticket-а 30 дословно (два `--project contract` разом под `yes` на 9 ядрах, N ≥ 6) не повторён: вместо него
+  пять раундов «9 × `yes` + полный `pnpm test` + harness-scripts» — 10 прогонов shell-test-ов под нагрузкой.
+- Открытый вопрос о Node-stub-ах и проверке macOS нового исполняемого файла не исследовался.

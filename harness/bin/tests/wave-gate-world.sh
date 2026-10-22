@@ -1,4 +1,5 @@
-# The world of the wave-gate tests, sourced by wave-gate.test.sh and wave-gate-lock.test.sh after `set -u` and HERE:
+# The world of the wave-gate tests, sourced by wave-gate.test.sh, wave-gate-merge.test.sh, wave-gate-lock.test.sh and
+# wave-gate-screen.test.sh after `set -u` and HERE:
 # the temporary folder, ok/bad, the stub gate, gh, ioreg and caffeinate, the Windows stand-ins and skips, and
 # new_world, state and the other helpers of the cases. Not a test of its own (no .test.sh).
 HARNESS="$(cd "$HERE/../.." && pwd)"
@@ -243,8 +244,9 @@ finish() {
     wait "$1" 2>/dev/null
     return 1
 }
-# caf_gone <caf.log>…: every stub caffeinate those logs name has ended (within 3 s)
+# caf_gone <caf.log>…: every stub caffeinate those logs name has ended (within 15 s, polling every 0.2 s). The stub notices
+# the end of the pid it watches by polling too, and at load average 54 one took more than the 3 s this once allowed.
 caf_alive() { local f p; for f in "$@"; do [ -f "$f" ] || continue; for p in $(awk '{print $1}' "$f"); do kill -0 "$p" 2>/dev/null && return 0; done; done; return 1; }
-caf_gone() { local n=15; while caf_alive "$@"; do n=$((n - 1)); [ "$n" -le 0 ] && return 1; sleep 0.2; done; return 0; }
+caf_gone() { local n=75; while caf_alive "$@"; do n=$((n - 1)); [ "$n" -le 0 ] && return 1; sleep 0.2; done; return 0; }
 TMPW_OF() { echo "$(cd "$W/repo/.git" && pwd -P)/worfy-wave-gate"; }
 prefix_tree() { git -C "$W/seed" rev-parse "$1^{tree}"; }

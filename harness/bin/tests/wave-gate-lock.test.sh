@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Tests of harness/bin/wave-gate: the e2e lock of a wave-gate that got a signal it cannot forward, or was killed
-# without its signal handlers. The lock is released, or taken over at once by the next run when its holder (and
+# Tests of harness/bin/wave-gate: the e2e lock. A live lock of another holder is waited for, holder.json names the
+# set, a stale lock is taken over and a young one is not, the heartbeat moves its mtime, and a SIGTERM releases it.
+# Then the e2e lock of a wave-gate that got a signal it cannot forward, or was killed without its signal handlers. The lock is released, or taken over at once by the next run when its holder (and
 # the holder's gate) no longer runs; two waiting runs and a takeover token; a holder.json of another host or with
 # no host. The world of wave-gate.test.sh (wave-gate-world.sh): temporary git repositories, a stub gate and gh. No
 # network, no real gate, no real gh, no real /tmp/worfy-e2e.lock.
@@ -8,6 +9,79 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/wave-gate-world.sh"
+
+# --- the e2e lock ---------------------------------------------------------------------------
+new_world lock 1:a.txt
+S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1
+export GATE_LOCK="$L"
+mkdir "$L"
+( while [ -d "$L" ]; do touch -c "$L"; sleep 1; done ) & toucher=$!
+"$WG" check "$S" >"$W/out" 2>&1 & wg=$!
+# 3 s from the moment it says it waits, not from its start: a late start left no time to wait in
+until_ok 30 grep -q "waiting for the e2e lock" "$W/out"; sleep 3
+[ "$(gate_count)" = 0 ] && kill -0 "$wg" 2>/dev/null && ok "e2e lock: a live lock held by another -> waits" || bad "e2e lock: did not wait ($(gate_count) runs)"
+rmdir "$L"; wait "$toucher" 2>/dev/null
+finish "$wg" 120
+[ "$rc" -eq 0 ] && [ "$(gate_count)" = 1 ] && grep -q "lock=held" "$GATE_DIR/log" && ok "e2e lock: taken after release, the gate runs under it" || bad "e2e lock: exit $rc runs $(gate_count) $(cat "$GATE_DIR/log")"
+[ ! -e "$L" ] && ok "e2e lock: released after the run" || bad "e2e lock: left after the run"
+# the holder of the lock: holder.json with the numbers of the set while the gate runs, gone with the lock
+new_world holder 1:a.txt 2:b.txt 3:c.txt
+S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1 2 3; export GATE_LOCK="$L"
+STAND_IN_PARENTS="$GATE_DIR/parents" "$WG" check "$S" >"$W/out" 2>&1 & wg=$!; finish "$wg" 120
+# wave-gate's pid as node sees it: in Git Bash its Windows pid, which the gate stand-in recorded as its parent
+on_windows && wg="$(head -n 1 "$GATE_DIR/parents" 2>/dev/null)"
+h="$GATE_DIR/holder.1.json"
+[ "$rc" -eq 0 ] && [ -f "$h" ] && [ "$(q "$h" 's.prs.join(",")+" "+s.what+" "+s.pid')" = "1,2,3 gate-full $wg" ] \
+    && ok "e2e lock: holder.json names the set (prs 1,2,3), gate-full and the pid of wave-gate while the gate runs" || bad "e2e lock holder: exit $rc, holder $(cat "$h" 2>/dev/null)"
+[ "$(q "$h" '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(s.since)')" = true ] && ok "e2e lock: holder.json has since (ISO 8601 UTC)" || bad "e2e lock holder: since $(q "$h" s.since 2>&1)"
+[ ! -e "$L" ] && ok "e2e lock: holder.json goes with the lock when it is released" || bad "e2e lock holder: left $(ls -A "$L" 2>/dev/null)"
+# a red set: each run of the bisection names the PRs it checks
+new_world holderbis 1:a.txt 2:RED 3:c.txt
+S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1 2 3; export GATE_LOCK="$L"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+got="$(for f in "$GATE_DIR"/holder.*.json; do q "$f" 's.prs.join(",")'; echo; done | sort -u | tr '\n' ' ')"
+[ "$rc" -eq 2 ] && [[ " $got" == *" 1,2,3 "* ]] && [[ " $got" == *" 1 "* || " $got" == *" 1,2 "* ]] && [ ! -e "$L" ] \
+    && ok "e2e lock: each run of the bisection names its own prefix in holder.json ($got)" || bad "e2e lock holder bisection: exit $rc [$got]"
+# stale: older than 30 minutes (the default) — removed with the holder.json of whoever left it, and taken
+new_world stale 1:a.txt
+S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
+mkdir "$L"; printf '{"prs":[9],"what":"gate-full","pid":1,"since":"2020-01-01T00:00:00Z"}\n' >"$L/holder.json"; touch -t 202001010000 "$L"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && grep -q "lock=held" "$GATE_DIR/log" && [ ! -e "$L" ] && ok "e2e lock: a lock older than 30 min is taken over and released" || bad "e2e lock stale: exit $rc $(tail -3 "$W/out")"
+[ "$(q "$GATE_DIR/holder.1.json" 's.prs.join(",")' 2>&1)" = 1 ] && ok "e2e lock: the abandoned holder.json is replaced by ours" || bad "e2e lock stale holder: $(cat "$GATE_DIR/holder.1.json" 2>/dev/null)"
+# ours was removed as abandoned during the run and another agent holds the lock now: on release its holder.json
+# and its lock stay
+new_world foreign 1:a.txt
+S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
+printf '%s\n' "rm -f '$L/holder.json'; rmdir '$L'; mkdir '$L'; echo '{\"prs\":[7],\"what\":\"gate-full\",\"pid\":1,\"since\":\"x\"}' >'$L/holder.json'" >"$GATE_DIR/takeover"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$L/holder.json" 's.prs.join(",")' 2>&1)" = 7 ] && ok "e2e lock: on release, a lock someone else holds now keeps its holder.json and stays" || bad "e2e lock foreign: exit $rc, lock [$(ls -A "$L" 2>&1)]"
+rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null; rm -f "$GATE_DIR/takeover"
+new_world young 1:a.txt
+S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
+mkdir "$L"; touch -t "$(date -r $(( $(date +%s) - 1500 )) +%Y%m%d%H%M.%S 2>/dev/null || date -d @$(( $(date +%s) - 1500 )) +%Y%m%d%H%M.%S)" "$L"
+"$WG" check "$S" >"$W/out" 2>&1 & wg=$!
+until_ok 30 grep -q "waiting for the e2e lock" "$W/out"; sleep 2
+[ "$(gate_count)" = 0 ] && grep -q "waiting for the e2e lock" "$W/out" && ok "e2e lock: a lock 25 min old is not taken over" || bad "e2e lock: a 25-min lock was taken"
+rmdir "$L"; finish "$wg" 120 || bad "young lock: the run did not end: $rc"
+# heartbeat: the lock's mtime moves during a run
+new_world beat 1:a.txt
+S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
+touch "$GATE_DIR/lockwatch"
+WAVE_GATE_HEARTBEAT_S=1 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
+s=$(awk '$1=="start"{print $2}' "$GATE_DIR/lockwatch"); e=$(awk '$1=="end"{print $2}' "$GATE_DIR/lockwatch")
+[ "$rc" -eq 0 ] && [ -n "$s" ] && [ -n "$e" ] && [ "$e" != gone ] && [ "$e" -gt "$s" ] && ok "e2e lock: the heartbeat moves the mtime during the run ($s -> $e)" || bad "e2e lock heartbeat: exit $rc start $s end $e"
+# an error (a signal) in the middle of a run: the lock is released
+if $RUN_SIGTERM; then
+    new_world sig 1:a.txt
+    S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
+    echo TERM >"$GATE_DIR/kill1"
+    "$WG" check "$S" >"$W/out" 2>&1; rc=$?
+    [ "$rc" -eq 143 ] && [ ! -e "$L" ] && ok "e2e lock: released when wave-gate is stopped (exit 143)" || bad "e2e lock on signal: exit $rc, lock $( [ -e "$L" ] && echo left || echo gone)"
+    [ -s "$SCREEN_DIR/caf.log" ] && caf_gone "$SCREEN_DIR/caf.log" && ok "signal: no caffeinate left after SIGTERM" || bad "signal: caffeinate left or not started: $(cat "$SCREEN_DIR/caf.log" 2>/dev/null)"
+    unset GATE_LOCK
+fi
+
 
 # --- the e2e lock of a wave-gate stopped by a signal or killed ------------------------------------
 # a signal that cannot be forwarded to the gate as such (on Windows libuv sends no SIGHUP or SIGBREAK, and kill

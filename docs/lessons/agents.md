@@ -50,7 +50,7 @@ Orchestrator-а, не может править файлы в `.claude/worktrees
 (`firstWindow` timeout), хотя код ни при чём. Такой таймаут сначала повторить в одиночку, потом
 чинить. Копия `Electron.app` в `/tmp` ради изоляции тоже замедляет первый запуск — не делать её.
 Правило и путь общего замка для e2e и `gate full` — `rules.md` Profile-а worfy.
-Проверка: harness/bin/tests/wave-gate.test.sh:383 — gate full `wave-gate` ждёт чужой живой замок e2e;
+Проверка: harness/bin/tests/wave-gate-lock.test.sh:22 — gate full `wave-gate` ждёт чужой живой замок e2e;
 e2e агента без замка не ловит никто.
 Источник: worfy-daily Wave 6.
 
@@ -61,7 +61,7 @@ shown within 30 s» (`test/e2e/helpers.ts:167`) — даже на чистом m
 test, хотя код ни при чём. Вторая известная причина того же таймаута — параллельные e2e (урок
 выше). Перед e2e и `gate full` проверить `ioreg -n Root -d1 | grep -o '"IOConsoleLocked" = [A-Za-z]*'`:
 при `Yes` прогон не запускать, а уже упавший — не считать красным и повторить после разблокировки.
-Проверка: harness/bin/tests/wave-gate.test.sh:438 — при `IOConsoleLocked = Yes` `wave-gate check` не
+Проверка: harness/bin/tests/wave-gate-screen.test.sh:21 — при `IOConsoleLocked = Yes` `wave-gate check` не
 запускает gate и пишет одну строку «screen locked»; ручной прогон e2e эту проверку не делает.
 Источник: worfy-daily/11, PR #64 (при доработке экран был заблокирован, `launch.spec.ts` падал на main).
 
@@ -101,7 +101,7 @@ test-запусков один — `com.github.Electron`; test-ы убивают
 (`caffeinate -d -w <свой pid>`); между ними экран может погаснуть, и `check` перед gate full ждёт
 разблокировки строкой `screen locked: gate full waits`. Ручную блокировку и закрытую крышку не обходит никто: на ночь Mac разблокирован, крышка открыта (README, «Stable copy»).
 Код: `src/main/autopilot/power.ts`, `harness/bin/wave-gate`.
-Проверка: harness/bin/tests/wave-gate.test.sh:522 — `wave-gate check` держит `caffeinate -d -w <свой pid>`;
+Проверка: harness/bin/tests/wave-gate-screen.test.sh:111 — `wave-gate check` держит `caffeinate -d -w <свой pid>`;
 `merge` — тот же блок test-а, `prevent-display-sleep` прогона — `test/unit/autopilot-power.test.ts`.
 Источник: worfy-daily/32, PR #70; ночь 2026-10-16 — мержи вне прогона стояли с 04:39 до 10:09 (worfy-throughput/02).
 

@@ -198,28 +198,32 @@ out="$(HOME="$H" PATH="$T/fakebin:$PATH" QMD_INDEX_YML="$T/index-warn.yml" QMD_R
     zsh "$BIN/qmd-refresh" --wait --force --quiet 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [ -z "$out" ] && ok "refresh --quiet: a profile warning is not printed" || bad "refresh --quiet with a profile warning: rc=$rc out='${out:0:200}'"
 # SIGTERM while --describe runs: qmd-refresh removes its temporary file and exits.
+# The stand-in of --describe writes its pid and then waits for $T/sync-slow.go (at most 30 s), so the SIGTERM lands
+# while it runs however late qmd-refresh reaches it. The test waits up to 30 s for the pid, polling: on a loaded
+# machine qmd-refresh took more than the 2 s the test once gave it, and the check failed with nothing left behind.
 mkdir -p "$T/tmp-term"
 cat >"$T/sync-slow" <<EOF
 #!/bin/sh
 [ "\$1" = --describe ] || exit 0
 echo \$\$ >"$T/sync-slow.pid"
-sleep 2
+n=0; while [ ! -e "$T/sync-slow.go" ] && [ "\$n" -lt 300 ]; do sleep 0.1; n=\$((n + 1)); done
 printf '%s\tmain\t\n' "$T/outer"
 EOF
 chmod +x "$T/sync-slow"
-rm -f "$T/sync-slow.pid"
+rm -f "$T/sync-slow.pid" "$T/sync-slow.go"
 HOME="$H" TMPDIR="$T/tmp-term" PATH="$T/fakebin:$PATH" QMD_INDEX_YML="$T/index-warn.yml" QMD_REFRESH_SYNC="$T/sync-slow" \
     zsh "$BIN/qmd-refresh" --wait --force --quiet >/dev/null 2>&1 &
 refresh_pid=$!
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -s "$T/sync-slow.pid" ] && break; sleep 0.1; done
+n=0; while [ ! -s "$T/sync-slow.pid" ] && [ "$n" -lt 300 ] && kill -0 "$refresh_pid" 2>/dev/null; do sleep 0.1; n=$((n + 1)); done
+described=no; [ -s "$T/sync-slow.pid" ] && kill -0 "$(cat "$T/sync-slow.pid")" 2>/dev/null && described=yes
 kill -TERM "$refresh_pid" 2>/dev/null
 wait "$refresh_pid" 2>/dev/null
-# the stand-in finishes its sleep on its own; wait for it so nothing is left running
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
-    kill -0 "$(cat "$T/sync-slow.pid" 2>/dev/null)" 2>/dev/null || break; sleep 0.1
-done
-[ -s "$T/sync-slow.pid" ] && [ -z "$(ls -A "$T/tmp-term")" ] \
-    && ok "refresh: SIGTERM during --describe leaves no temporary file" || bad "refresh: SIGTERM during --describe left: $(ls -A "$T/tmp-term" | head -n 3 | tr '\n' ' ')"
+# release the stand-in and wait for it (at most 30 s) so nothing is left running
+: >"$T/sync-slow.go"
+n=0; while [ "$n" -lt 300 ] && kill -0 "$(cat "$T/sync-slow.pid" 2>/dev/null)" 2>/dev/null; do sleep 0.1; n=$((n + 1)); done
+[ "$described" = yes ] && [ -z "$(ls -A "$T/tmp-term")" ] \
+    && ok "refresh: SIGTERM during --describe leaves no temporary file" \
+    || bad "refresh: SIGTERM during --describe: the stand-in was running at the signal: $described; left: $(ls -A "$T/tmp-term" | head -n 3 | tr '\n' ' ')"
 
 # --- 6b. qmd-refresh: qmd embed only with the consent to the models -----------------------
 HH="$T/hh"; mkdir -p "$HH"
