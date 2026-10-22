@@ -173,6 +173,8 @@ describe('the Epic node source', () => {
     for (const n of nodes) expect(n.deletable).toBe(false)
     expect(nodes[1]!.parentId).toBe(epicNodeId('a'))
     expect((nodes[2]!.data.node.data as TicketNodeData).waitingOn).toEqual([1])
+    // The names Tab focus reads on the React Flow wrappers (Canvas.tsx keeps a source's own name).
+    expect(nodes.map((n) => n.ariaLabel)).toEqual(['Epic a', 'Ticket 01', 'Ticket 02', 'Epic b', 'Ticket 01'])
   })
 
   it('keeps the objects of an Epic that did not change and returns the same array when nothing changed', () => {

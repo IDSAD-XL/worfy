@@ -4,7 +4,8 @@
 // their Ticket is done" — also archive a finished Session of a done Ticket, an hour after its last
 // record. Both are app settings of this Machine (`sessionArchive`, src/shared/settings/app-settings.ts)
 // and act on its Projects: main reads them at every run of the archive (src/main/layout/archive.ts).
-// A choice is kept as the person's own, so a later change of the defaults (ticket 10) leaves it.
+// A choice is kept as the person's own: a change of the defaults (SESSION_ARCHIVE_DEFAULTS, ticket 10
+// turned the timer on at 24 h) leaves it, and only a setting never chosen follows the defaults.
 import { useState } from 'react'
 import { sessionArchiveOf, type SessionArchiveAfter, type SessionArchiveChoice } from '../../shared/settings/app-settings'
 import { Select, type SelectOption } from '../theme/Select'

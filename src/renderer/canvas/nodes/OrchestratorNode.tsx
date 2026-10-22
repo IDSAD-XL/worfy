@@ -6,6 +6,7 @@ import { useReadOnly } from '../../projects/useProjects'
 import { openSession } from '../../session/navigation'
 import { formatCost, STATE_CHIPS } from '../../session/format'
 import { StatusChip } from '../../theme/primitives'
+import { KIND, type NodeKindColour } from '../kind-colours'
 import { KindBand, KindIcon } from '../kind-icons'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { NODE_HEADER } from '../node-header'
@@ -27,7 +28,8 @@ import { useOrchestratorView } from './orchestrator-view'
 export const kind = 'orchestrator' satisfies typeof ORCHESTRATOR_KIND
 export const defaultWidth = 360 satisfies typeof ORCHESTRATOR_WIDTH
 export const defaultHeight = 200 satisfies typeof ORCHESTRATOR_HEIGHT
-export const minimapColor = 'var(--kind-orchestrator)'
+/** Its kind colour on the band, the icon and the minimap (kind-colours.ts). */
+export const kindColour: NodeKindColour = 'orchestrator'
 
 const styles = {
   root: { width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
@@ -42,7 +44,7 @@ const styles = {
     gap: 'var(--space-2)',
     padding: '0 var(--space-3)',
     borderBottom: '1px solid var(--border)',
-    background: 'var(--kind-orchestrator-tint)',
+    background: KIND.orchestrator.tint,
     cursor: 'grab',
   },
   title: { fontSize: 'var(--text-15)', fontWeight: 600, color: 'var(--text)', marginRight: 'auto' },

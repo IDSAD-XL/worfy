@@ -11,20 +11,25 @@ import { LayoutOpsContext, type LayoutOps } from '../../src/renderer/canvas/useL
 import { TERMINAL_NODE_KIND } from '../../src/shared/ipc/terminal'
 import type { LayoutOpInput } from '../../src/shared/layout/types'
 
-const tidyUp = vi.hoisted(() => ({ run: vi.fn(() => Promise.resolve()), projects: [] as [string, string | undefined][] }))
+/** What useTreeBlocks gives: a new object on every call, so a second subscription in one render shows as a second object. */
+type FakeTrees = (() => Map<string, never>) & { root: string | undefined }
+const tidyUp = vi.hoisted(() => ({ run: vi.fn(() => Promise.resolve()), projects: [] as [string, string | undefined][], trees: undefined as unknown }))
 
 vi.mock('../../src/renderer/canvas/tidy', () => ({
-  useTidyUp: (projectId: string, root: string | undefined) => {
-    if (!tidyUp.projects.some(([id]) => id === projectId)) tidyUp.projects.push([projectId, root])
+  useTreeBlocks: (_projectId: string, root: string | undefined): FakeTrees => Object.assign(() => new Map<string, never>(), { root }),
+  useTidyUp: (projectId: string, trees: FakeTrees) => {
+    if (!tidyUp.projects.some(([id]) => id === projectId)) tidyUp.projects.push([projectId, trees.root])
+    tidyUp.trees = trees
     return tidyUp.run
   },
 }))
 
-const arrange = vi.hoisted(() => ({ run: vi.fn(() => Promise.resolve()), projects: [] as [string, string | undefined][], requests: [] as string[] }))
+const arrange = vi.hoisted(() => ({ run: vi.fn(() => Promise.resolve()), projects: [] as [string, string | undefined][], requests: [] as string[], trees: undefined as unknown }))
 
 vi.mock('../../src/renderer/canvas/arrange-by-epic-command', () => ({
-  useArrangeByEpic: (projectId: string, root: string | undefined) => {
+  useArrangeByEpic: (projectId: string, root: string | undefined, trees: unknown) => {
     if (!arrange.projects.some(([id]) => id === projectId)) arrange.projects.push([projectId, root])
+    arrange.trees = trees
     return arrange.run
   },
   useArrangeByEpicRequests: (projectId: string, run: unknown) => {
@@ -205,6 +210,9 @@ describe('the Canvas menu', () => {
   it('has Arrange by Epic under Tidy up, which runs the Canvas’s Arrange by Epic and carries out the palette’s requests (worfy-canvas/12)', async () => {
     await openMenu()
     expect(arrange.projects).toEqual([['p1', '/repo/one']])
+    // Tidy up and Arrange by Epic read the same Subagent trees: one subscription, not one each.
+    expect(arrange.trees).toBeDefined()
+    expect(arrange.trees).toBe(tidyUp.trees)
     expect(arrange.requests).toEqual(['p1'])
     fireEvent.click(screen.getByRole('menuitem', { name: 'Arrange by Epic' }))
     expect(arrange.run).toHaveBeenCalledTimes(1)

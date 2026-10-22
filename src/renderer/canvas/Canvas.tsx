@@ -62,7 +62,7 @@ import { isMac } from '../platform'
 import { useReadOnly } from '../projects/useProjects'
 import { held, matches } from '../shortcuts/match'
 import { dropNodes, edgeSources, edgesOf, edgeTypes, nodeSources, overlays, type NodeSource } from './extensions'
-import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
+import { flowNodeLabel, nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
 import { applyRecorded, type Group, type LayoutChannel, type RecordOptions } from './history'
 import { lockedForReadOnly } from './read-only-nodes'
@@ -98,6 +98,7 @@ function mergeFlowNode(next: CanvasFlowNode, before: CanvasFlowNode | undefined)
     before.type === next.type &&
     before.parentId === next.parentId &&
     before.hidden === next.hidden &&
+    before.ariaLabel === next.ariaLabel &&
     before.position.x === next.position.x &&
     before.position.y === next.position.y &&
     before.width === next.width &&
@@ -125,6 +126,7 @@ function toFlowNodes(layoutNodes: readonly LayoutNode[], derived: readonly Canva
     .map((node) => ({
       id: node.id,
       type: registeredNodeTypes.has(node.kind) ? node.kind : UNKNOWN_NODE_TYPE,
+      ariaLabel: flowNodeLabel(node.kind, registeredNodeTypes.has(node.kind)),
       position: { x: node.x, y: node.y },
       width: node.w,
       height: node.h,
@@ -135,10 +137,10 @@ function toFlowNodes(layoutNodes: readonly LayoutNode[], derived: readonly Canva
       resizing: false,
       data: { node },
     }))
-  const fromSources = derived.map((node) => ({
-    ...node,
-    type: node.type !== undefined && registeredNodeTypes.has(node.type) ? node.type : UNKNOWN_NODE_TYPE,
-  }))
+  const fromSources = derived.map((node) => {
+    const known = node.type !== undefined && registeredNodeTypes.has(node.type)
+    return { ...node, type: known ? node.type : UNKNOWN_NODE_TYPE, ariaLabel: flowNodeLabel(node.data.node.kind, known, node.ariaLabel) }
+  })
   return [...own, ...fromSources].map((node) => mergeFlowNode(node, previous.get(node.id)))
 }
 

@@ -1326,6 +1326,27 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     expect(edited.delta.tickets.map((t) => [t.epic, t.num, t.state])).toEqual([['next', 1, 'blocked']])
   }, 20_000)
 
+  // The case the 12 ms test above falls into on a loaded machine (it failed so twice in a full run
+  // on 2026-10-21): the root is a folder again before chokidar looks at it after the removal
+  // events, so chokidar reports the removal of what was in it but never of the root itself, and
+  // its watch of the root stays on the removed folder. Measured with no pause before the watcher
+  // compared the folder (`checkRootReplaced`): the read the removal events ask for showed the new
+  // Epic, and the edit of its Ticket never came in 9 runs of 20 on an idle Mac.
+  it('a Tickets root removed and made again at once, before chokidar looks at it: an edit of its Ticket comes as a new model within 5 s', async () => {
+    const { repo, folder, scratch } = makeSilent(dir)
+    const deltas: WorkflowDelta[] = []
+    const { watcher } = await startSilent(repo, folder, scratch, deltas)
+
+    removeTestTree(scratch)
+    putEpic(scratch, 'next', [1])
+    await nextDelta(deltas, hasEpic('next'), 5000)
+    await watcher.idle()
+
+    setStatus(scratch, 'next', 1, 'blocked')
+    const edited = await nextDelta(deltas, (d) => d.tickets.length > 0, 5000)
+    expect(edited.delta.tickets.map((t) => [t.epic, t.num, t.state])).toEqual([['next', 1, 'blocked']])
+  }, 20_000)
+
   it('the removal of an Epic folder, not of the root, does not make the watch anew', async () => {
     const { repo, folder, scratch } = makeSilent(dir)
     const deltas: WorkflowDelta[] = []

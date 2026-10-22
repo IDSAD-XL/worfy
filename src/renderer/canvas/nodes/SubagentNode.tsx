@@ -4,6 +4,7 @@ import { subagentTypeLabel } from '../../../shared/agent/subagent-type'
 import { statusLabel, useTick } from '../../claude-home/subagents'
 import { openSession } from '../../session/navigation'
 import { StatusChip, type Status } from '../../theme/primitives'
+import type { NodeKindColour } from '../kind-colours'
 import { KindBand, KindIcon } from '../kind-icons'
 import { NODE_HEADER } from '../node-header'
 import { SUBAGENT_HEIGHT, SUBAGENT_WIDTH, toggleDoneSubagents, type SubagentNodeData, type SubagentSummary, type SUBAGENT_KIND } from '../sources/subagents'
@@ -22,7 +23,8 @@ export const kind = 'subagent' satisfies typeof SUBAGENT_KIND
 export const defaultWidth = 260 satisfies typeof SUBAGENT_WIDTH
 export const defaultHeight = 84 satisfies typeof SUBAGENT_HEIGHT
 // Drawn as an outline in this colour, without a fill (overlays/minimap-paint.ts, OUTLINED_KINDS; ADR-0077).
-export const minimapColor = 'var(--kind-subagent)'
+/** Its kind colour on the band, the icon and the minimap (kind-colours.ts). */
+export const kindColour: NodeKindColour = 'subagent'
 
 const styles = {
   root: { width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' },

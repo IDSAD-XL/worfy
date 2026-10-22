@@ -1,7 +1,6 @@
 // Where the new Session Nodes of SessionNodes.tsx go when their Sessions are bound (worfy-canvas
 // ticket 11): each Session's Binding at the moment its Node is made, turned into a spot right of
 // the strip of Epic frames (../session-spot.ts). A Binding that shows up later moves nothing.
-import type { ManualBinding } from '../../../shared/ipc/bindings'
 import type { Rect } from '../../../shared/layout/free-place'
 import type { WorkflowModel } from '../../../shared/workflow/types'
 import { refreshSessionSignals, storedBindings } from '../../binding/store'
@@ -12,7 +11,6 @@ export interface BindingSpotsInput {
   root: string
   /** The Sessions that get a new Node now. */
   sessionIds: readonly string[]
-  manual: readonly ManualBinding[]
   model: WorkflowModel | undefined
   /** React Flow's Nodes, read after the signals arrived: where the frames and Tickets are drawn now. */
   nodes: () => Iterable<DrawnNode>
@@ -31,7 +29,7 @@ export function frameReserves(projectId: string): ReadonlyMap<string, number> | 
  * Binding or what its transcript says (claim, `/epic-wave`, branch, …). Empty without a strip of
  * Epic frames on the Canvas; a Session whose signals cannot be read gets no spot.
  */
-export async function bindingSpots({ projectId, root, sessionIds, manual, model, nodes }: BindingSpotsInput): Promise<{ near: Map<string, { x: number; y: number }>; keepOut: Rect[] }> {
+export async function bindingSpots({ projectId, root, sessionIds, model, nodes }: BindingSpotsInput): Promise<{ near: Map<string, { x: number; y: number }>; keepOut: Rect[] }> {
   const near = new Map<string, { x: number; y: number }>()
   if (sessionIds.length === 0 || spotInputs(nodes()).strip === undefined) return { near, keepOut: [] }
   // Read through the Bindings' store: one read per Session at a time, shared with the Canvas's anchors.
@@ -43,7 +41,7 @@ export async function bindingSpots({ projectId, root, sessionIds, manual, model,
       }),
     ),
   )
-  const bindings = storedBindings(root, sessionIds, manual, model)
+  const bindings = storedBindings(projectId, root, sessionIds, model)
   const drawn = spotInputs(nodes(), frameReserves(projectId))
   if (drawn.strip === undefined) return { near, keepOut: [] }
   for (const sessionId of sessionIds) {

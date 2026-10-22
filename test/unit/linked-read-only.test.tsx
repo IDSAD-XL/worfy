@@ -45,6 +45,7 @@ vi.mock('../../src/renderer/canvas/nodes/TerminalNode', async (importOriginal) =
     ...actual,
     // The registry reads it whether the file declares it or not; a mock throws on an export it lacks.
     minimapColor: (actual as { minimapColor?: string }).minimapColor,
+    kindColour: (actual as { kindColour?: string }).kindColour,
     default: () => {
       terminal.mounted += 1
       return <div data-testid="terminal-node" />

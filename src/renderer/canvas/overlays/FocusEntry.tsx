@@ -15,7 +15,6 @@ import { useStore, ViewportPortal, type ReactFlowState } from '@xyflow/react'
 import { SHORTCUTS } from '../../../shared/shortcuts'
 import { useSessionFocus } from '../../claude-home/focus'
 import { useCanvasRequests } from '../../find/canvas-requests'
-import { onArrangeByEpicRequest } from '../arrange-by-epic-command'
 import { FocusMode } from '../../focus/FocusMode'
 import { useFocusState } from '../../focus/focus-state'
 import { buildPreset, type TileTree } from '../../focus/split-tree'
@@ -33,9 +32,8 @@ const selectedKey = (state: ReactFlowState): string => JSON.stringify(state.node
 /**
  * While `open`, calls `leave` when something asks the main area to show something else: the view
  * leaves the Canvas, or a request to the Canvas arrives — from the sidebar's Epics and Sessions
- * sections (focusEpic, focusSessionNode), the palette's "Re-pack" (requestRepack) and "Arrange by
- * Epic" (requestArrangeByEpic) or through
- * find/canvas-requests.ts ("Go to", a new Node, "Tidy up", a tag filter, an ADR). Only what happens from now on counts: a request made before
+ * sections (focusEpic, focusSessionNode), the palette's "Re-pack" (requestRepack) or through
+ * find/canvas-requests.ts ("Go to", a new Node, "Tidy up", "Arrange by Epic", a tag filter, an ADR). Only what happens from now on counts: a request made before
  * focus mode opened was carried out then. The find bar is not such a request.
  */
 function useLeaveOnRequest(open: boolean, leave: () => void): void {
@@ -46,12 +44,11 @@ function useLeaveOnRequest(open: boolean, leave: () => void): void {
         if (state.view !== 'canvas') leave()
       }),
       onEpicFocusRequest(leave),
-      onArrangeByEpicRequest(leave),
       useSessionFocus.subscribe((state, previous) => {
         if (state.request !== previous.request) leave()
       }),
       useCanvasRequests.subscribe((state, previous) => {
-        if (state.focus !== previous.focus || state.create !== previous.create || state.tidy !== previous.tidy || state.tagFilter !== previous.tagFilter || state.adr !== previous.adr) leave()
+        if (state.focus !== previous.focus || state.create !== previous.create || state.tidy !== previous.tidy || state.arrange !== previous.arrange || state.tagFilter !== previous.tagFilter || state.adr !== previous.adr) leave()
       }),
     ]
     return () => {

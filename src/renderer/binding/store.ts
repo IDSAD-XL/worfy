@@ -247,20 +247,22 @@ export const manualRead = (state: Pick<BindingsStore, 'manual' | 'manualError'>,
   state.manual[projectId] !== undefined || state.manualError[projectId] !== undefined
 
 /**
- * The Bindings of these Sessions from what the store has now: `manual`, and the transcript signals
- * read so far (a Session whose signals are not read binds only by hand), against the workflow model.
+ * The Bindings of these Sessions of the Project from what the store has now: the Project's manual
+ * Bindings (none before main answered `bindings.get`), and the transcript signals read so far (a
+ * Session whose signals are not read binds only by hand), against the workflow model.
  */
-export function storedBindings(root: string, sessionIds: readonly string[], manual: readonly ManualBinding[], model: WorkflowModel | undefined): Map<string, Binding> {
+export function storedBindings(projectId: string, root: string, sessionIds: readonly string[], model: WorkflowModel | undefined): Map<string, Binding> {
   const signals = new Map<string, SessionBindingSignals>()
   for (const sessionId of sessionIds) {
     const found = sessionSignalsOf(root, sessionId)
     if (found !== undefined) signals.set(sessionId, found)
   }
+  const manual = useBindingsStore.getState().manual[projectId] ?? NO_MANUAL
   return resolveAgentBindings({ sessionIds, signals, manual, workflow: bindingWorkflowOf(model) })
 }
 
 /** The Sessions on a Project's plane whose Bindings are waited for, and the folder their transcript signals are read for. */
-export interface SessionsToRead {
+interface SessionsToRead {
   root: string
   sessions: readonly string[]
 }

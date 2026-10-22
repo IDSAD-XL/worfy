@@ -41,7 +41,7 @@ vi.mock('../../src/renderer/projects/useProjects', async (importOriginal) => ({
   useProjects: () => ({ activeId: shown.projectId, projects: [{ id: shown.projectId, name: 'one', path: '/repo/one', branch: 'main' }] }),
 }))
 
-vi.mock('../../src/renderer/canvas/tidy', () => ({ useTidyUp: () => () => Promise.resolve() }))
+vi.mock('../../src/renderer/canvas/tidy', () => ({ useTreeBlocks: () => () => new Map(), useTidyUp: () => () => Promise.resolve() }))
 
 const profile = (id: string): BrowserProfile => ({ id, name: id, origins: [], autopilot: false })
 

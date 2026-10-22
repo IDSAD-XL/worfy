@@ -13,7 +13,7 @@ import { ORCHESTRATOR_WIDTH } from '../../src/shared/ipc/orchestrator'
 import { onThePlane } from '../../src/shared/layout/derived'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
-import { canvasReady, expectSettledWithoutOverlaps, launchApp, repoRoot, ticketCardCuts, type LaunchedApp } from './helpers'
+import { canvasReady, expectSettledWithoutOverlaps, flowPositionsInOnePass, launchApp, oneBoxEachInOnePass, repoRoot, settledBoxes, settledRead, ticketCardCuts, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
@@ -150,11 +150,21 @@ async function flowPosition(window: Page, id: string): Promise<{ x: number; y: n
   return { x: Number(match[1]), y: Number(match[2]) }
 }
 
-/** A Ticket's place relative to its frame. */
+/** A Ticket's place relative to its frame, the two read in one pass (helpers.ts). */
 async function inFrame(window: Page, epic: string, num: number): Promise<{ x: number; y: number }> {
-  const frame = await flowPosition(window, `epic:${epic}`)
-  const ticket = await flowPosition(window, `ticket:${epic}/${num}`)
-  return { x: Math.round(ticket.x - frame.x), y: Math.round(ticket.y - frame.y) }
+  return (await inFrameAll(window, epic, [num]))[num]!
+}
+
+/** The places of several Tickets relative to their frame, the frame and all the Tickets read in one pass. */
+async function inFrameAll(window: Page, epic: string, nums: readonly number[]): Promise<Record<number, { x: number; y: number }>> {
+  const read = await flowPositionsInOnePass(window, [`epic:${epic}`, ...nums.map((num) => `ticket:${epic}/${num}`)])
+  const frame = read[`epic:${epic}`]!
+  const places: Record<number, { x: number; y: number }> = {}
+  for (const num of nums) {
+    const ticket = read[`ticket:${epic}/${num}`]!
+    places[num] = { x: Math.round(ticket.x - frame.x), y: Math.round(ticket.y - frame.y) }
+  }
+  return places
 }
 
 interface StateNode {
@@ -248,10 +258,11 @@ test('the worfy-mvp Epic: columns by level, places and routes by ELK in a worker
     // Columns: one x per dependency level, left to right in level order.
     const levels = ticketLevels(tickets, 'worfy-mvp')
     const xByLevel = new Map<number, number>()
+    const placed = await settledRead(() => inFrameAll(window, 'worfy-mvp', tickets.map((ticket) => ticket.num)), 'the places of the Tickets in the frame')
     for (const ticket of tickets) {
       const level = levels.get(ticket.num)
       if (level?.kind !== 'level') throw new Error(`ticket ${ticket.num} has no level`)
-      const { x } = await inFrame(window, 'worfy-mvp', ticket.num)
+      const { x } = placed[ticket.num]!
       const known = xByLevel.get(level.level)
       if (known === undefined) xByLevel.set(level.level, x)
       else expect(x, `ticket ${ticket.num}`).toBe(known)
@@ -283,11 +294,7 @@ test('the worfy-mvp Epic: columns by level, places and routes by ELK in a worker
     expect(layoutWorkers.some((url) => url.includes('elk-worker')), layoutWorkers.join(', ')).toBe(true)
     const elkLayout = await layoutEpicElk({ tickets, doneExpanded: false, name: 'worfy-mvp' }, new ELK())
     await expect
-      .poll(async () => {
-        const shown: Record<number, { x: number; y: number }> = {}
-        for (const t of elkLayout.tickets) shown[t.num] = await inFrame(window, 'worfy-mvp', t.num)
-        return shown
-      })
+      .poll(() => inFrameAll(window, 'worfy-mvp', elkLayout.tickets.map((t) => t.num)))
       .toEqual(Object.fromEntries(elkLayout.tickets.map((t) => [t.num, { x: Math.round(t.x), y: Math.round(t.y) }])))
     await expect.poll(() => window.locator('[data-testid^="rf__edge-blocks:"] path.react-flow__edge-path[data-routed="true"]').count()).toBe(expected.length)
     // Rounded corners: every route ELK bent has a quadratic curve at each corner.
@@ -520,10 +527,12 @@ async function mainNodes(window: Page): Promise<StateNode[]> {
   return (await layoutNodes(window)).filter((node) => node.kind === 'orchestrator' || node.kind === 'handoff')
 }
 
-/** The area the demo frame covers of each of `nodes`, measured on the screen. */
+/** The area the demo frame covers of each of `nodes`, measured on the screen: the frame and the Nodes in one pass, once the layout is still (helpers.ts). */
 async function underFrame(window: Page, nodes: readonly StateNode[]): Promise<number[]> {
-  const frame = await box(window.getByTestId('rf__node-epic:demo'))
-  return Promise.all(nodes.map(async (node) => area(frame, await box(window.getByTestId(`rf__node-${node.id}`)))))
+  const selectors: Record<string, string> = { 'epic:demo': '[data-testid="rf__node-epic:demo"]' }
+  for (const node of nodes) selectors[node.id] = `[data-testid="rf__node-${node.id}"]`
+  const boxes = await settledBoxes(window, selectors, 'the boxes of the demo frame and the Nodes')
+  return nodes.map((node) => area(boxes['epic:demo']!, boxes[node.id]!))
 }
 
 test('Tickets that arrive after main placed the Orchestrator and HANDOFF Nodes keep their frame off both, also with the done stack open', async () => {
@@ -537,6 +546,9 @@ test('Tickets that arrive after main placed the Orchestrator and HANDOFF Nodes k
     expect(placed.find((node) => node.kind === 'orchestrator')).toMatchObject({ x: 40, y: 40 })
     await expect(window.getByTestId('rf__node-epic:demo')).toBeVisible({ timeout: 15_000 })
     for (const node of placed) await expect(window.getByTestId(`rf__node-${node.id}`)).toBeVisible()
+    // Tab moves the focus to a Node's React Flow wrapper: it has its node source's name, or its kind's.
+    await expect(window.getByTestId('rf__node-epic:demo')).toHaveAttribute('aria-label', 'Epic demo')
+    await expect(window.getByTestId(`rf__node-${placed.find((node) => node.kind === 'orchestrator')!.id}`)).toHaveAttribute('aria-label', 'Orchestrator')
     expect(await underFrame(window, placed)).toEqual([0, 0])
     const column = await flowPosition(window, 'epic:demo')
     expect(column).toEqual(
@@ -669,14 +681,20 @@ test('the steppers use the F tokens in both themes and always carry a label; the
     // Panned so the frame starts left of the Canvas but is still partly on screen (an off-screen
     // Node is not drawn at all).
     await window.mouse.wheel(400, 0)
-    await expect.poll(async () => (await box(frame)).x).toBeLessThan(pane.x)
+    const frameAndPane = () => oneBoxEachInOnePass(window, { frame: '[data-testid="epic-frame"][data-epic="demo"]', pane: '.react-flow' })
+    await expect.poll(async () => {
+      const boxes = await frameAndPane()
+      return boxes ? boxes.pane.x - boxes.frame.x : 0
+    }).toBeGreaterThan(0)
     // The pan has ended (React Flow ends a wheel pan after a pause) before the centering starts.
     await canvasReady({ window })
     await row.click()
     await expect
       .poll(async () => {
-        const b = await box(frame)
-        return Math.abs(b.x + b.width / 2 - (pane.x + pane.width / 2)) < 4 && Math.abs(b.y + b.height / 2 - (pane.y + pane.height / 2)) < 4
+        const boxes = await frameAndPane()
+        if (!boxes) return false
+        const { frame: b, pane: p } = boxes
+        return Math.abs(b.x + b.width / 2 - (p.x + p.width / 2)) < 4 && Math.abs(b.y + b.height / 2 - (p.y + p.height / 2)) < 4
       })
       .toBe(true)
 
@@ -887,8 +905,8 @@ test('long names: the Ticket title, blocked reason and blockers line are whole o
       // The frame title: the Epic's whole name, the spec title whole or in the tooltip.
       const heading = frame.locator('.w-epic__title')
       await expectWholeOrTitled(heading, `${LONG_EPIC} — ${LONG_SPEC_TITLE}`, 'the frame title')
-      const headingBox = await box(heading)
-      const nameBox = await box(heading.locator('.w-mono'))
+      const titleSelector = `[data-testid="epic-frame"][data-epic="${LONG_EPIC}"] .w-epic__title`
+      const { heading: headingBox, name: nameBox } = await settledBoxes(window, { heading: titleSelector, name: `${titleSelector} .w-mono` }, 'the boxes of the frame title and the Epic name')
       expect(nameBox.x + nameBox.width, 'the Epic name ends inside the frame title').toBeLessThanOrEqual(headingBox.x + headingBox.width + 0.5)
       expect(nameBox.y + nameBox.height, 'the Epic name is on the first line').toBeLessThanOrEqual(headingBox.y + headingBox.height + 0.5)
 
@@ -896,8 +914,11 @@ test('long names: the Ticket title, blocked reason and blockers line are whole o
       const stack = window.getByTestId('done-stack')
       await expectWhole(stack.locator('.w-epic__stack-title'), 'the done stack label')
       await expect(stack.locator('.w-epic__stack-title')).toHaveText('33 done')
-      const stackBox = await box(stack)
-      const listBox = await box(stack.locator('.w-epic__stack-list'))
+      const { stack: stackBox, list: listBox } = await settledBoxes(
+        window,
+        { stack: '[data-testid="done-stack"]', list: '[data-testid="done-stack"] .w-epic__stack-list' },
+        'the boxes of the done stack and its list',
+      )
       expect(listBox.y + listBox.height, 'the done list ends inside the stack').toBeLessThanOrEqual(stackBox.y + stackBox.height + 0.5)
       await expectWholeOrTitled(
         stack.locator('.w-epic__stack-list'),

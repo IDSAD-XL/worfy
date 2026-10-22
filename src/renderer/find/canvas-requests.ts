@@ -4,8 +4,8 @@
 // carries it out. `seq` makes a repeated request a new one.
 //
 // Nothing here is saved: the tag filter and the find bar belong to this window's view only. The
-// requests that change the Layout (a new Node, "Tidy up") go through the Canvas's own LayoutOps,
-// so they are recorded for ⌘Z like a click in the Canvas menu.
+// requests that change the Layout (a new Node, "Tidy up", "Arrange by Epic") go through the
+// Canvas's own LayoutOps, so they are recorded for ⌘Z like a click in the Canvas menu.
 import { create } from 'zustand'
 
 export interface NodeFocusRequest {
@@ -25,6 +25,12 @@ export interface CreateRequest {
 
 /** "Tidy up" (worfy-week/07): lay out the Nodes of the Project's Canvas, as the Canvas menu item does. */
 export interface TidyRequest {
+  projectId: string
+  seq: number
+}
+
+/** "Arrange by Epic" (worfy-canvas ticket 12): the Canvas menu of the Project's Canvas carries it out (canvas/arrange-by-epic-command.ts). */
+export interface ArrangeRequest {
   projectId: string
   seq: number
 }
@@ -50,6 +56,7 @@ interface CanvasRequests {
   focus: NodeFocusRequest | null
   create: CreateRequest | null
   tidy: TidyRequest | null
+  arrange: ArrangeRequest | null
   tagFilter: TagFilter | null
   /** The find bar is open; `findSeq` grows on every ⌘F, so a second ⌘F focuses the field again. */
   findOpen: boolean
@@ -68,7 +75,7 @@ interface CanvasRequests {
   createItems: readonly CreateItemInfo[]
 }
 
-export const useCanvasRequests = create<CanvasRequests>(() => ({ focus: null, create: null, tidy: null, tagFilter: null, findOpen: false, findSeq: 0, adr: null, adrHandled: 0, createItems: [] }))
+export const useCanvasRequests = create<CanvasRequests>(() => ({ focus: null, create: null, tidy: null, arrange: null, tagFilter: null, findOpen: false, findSeq: 0, adr: null, adrHandled: 0, createItems: [] }))
 
 /** Shows the Canvas centered on a Node; the selection stays as it is. */
 export function focusCanvasNode(projectId: string, nodeId: string, fallbackId?: string): void {
@@ -83,6 +90,11 @@ export function createCanvasNode(projectId: string, kind: string): void {
 /** Lays out the Nodes of the Project's Canvas ("Tidy up"), as the Canvas menu item does. */
 export function requestTidyUp(projectId: string): void {
   useCanvasRequests.setState(({ tidy }) => ({ tidy: { projectId, seq: (tidy?.seq ?? 0) + 1 } }))
+}
+
+/** Arranges the Sessions of the Project's Canvas by Epic, as the Canvas menu item does. */
+export function requestArrangeByEpic(projectId: string): void {
+  useCanvasRequests.setState(({ arrange }) => ({ arrange: { projectId, seq: (arrange?.seq ?? 0) + 1 } }))
 }
 
 /**

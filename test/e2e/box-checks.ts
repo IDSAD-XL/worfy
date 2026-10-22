@@ -62,3 +62,28 @@ export function passProblems({ boxes, missing, ambiguous }: BoxPass): string[] {
     ...boxes.filter((box) => box.width <= 0 || box.height <= 0).map((box) => `${box.name}: an empty box`),
   ]
 }
+
+/** A box as the page reads it, without a name. */
+export type Rect = Omit<Box, 'name'>
+
+/**
+ * How many elements each selector of a pass of box lists must find: `one` exactly one, `some` at
+ * least one, `any` any number, none included.
+ */
+export type ListRule = 'one' | 'some' | 'any'
+
+/** What makes a pass of box lists unusable under `rule`: a selector that found no element, or several where one is meant. */
+export function listProblems(lists: Readonly<Record<string, readonly Rect[]>>, rule: ListRule): string[] {
+  const problems: string[] = []
+  for (const [name, list] of Object.entries(lists)) {
+    if (list.length === 0 && rule !== 'any') problems.push(`${name}: not found`)
+    else if (list.length > 1 && rule === 'one') problems.push(`${name}: the selector finds ${list.length} elements`)
+  }
+  return problems
+}
+
+/** A Node's place on the Canvas from its element's style `transform`, as React Flow writes it; null without a translate. */
+export function translateOf(transform: string): { x: number; y: number } | null {
+  const match = /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(transform)
+  return match ? { x: Number(match[1]), y: Number(match[2]) } : null
+}

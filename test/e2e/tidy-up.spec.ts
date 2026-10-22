@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { canvasReady, launchApp } from './helpers'
+import { canvasReady, launchApp, settledBoxLists } from './helpers'
 import { snapshotThemes } from './snapshots'
 
 // "Tidy up" (worfy-week/07) against the built app: from ⌘K and from the Canvas menu the Nodes of
@@ -106,14 +106,19 @@ function expectTidy(before: readonly StateNode[], after: readonly StateNode[]): 
   for (const id of ['p', 'h']) expect(after.find((node) => node.id === id)).toEqual(before.find((node) => node.id === id))
 }
 
-/** The Node elements on the screen do not overlap, at the Canvas's zoom. */
+/**
+ * The Node elements on the screen do not overlap, at the Canvas's zoom. A Node not drawn is left
+ * out; the boxes of the others come from one pass once the layout is still (helpers.ts).
+ */
 async function expectApartOnScreen(window: Page, ids: readonly string[], zoom: number): Promise<void> {
+  const lists = await settledBoxLists(window, Object.fromEntries(ids.map((id) => [id, `[data-testid="rf__node-${id}"]`])), 'the boxes of the Nodes', { rule: 'any' })
   const boxes: [string, Box][] = []
   for (const id of ids) {
-    const element = window.getByTestId(`rf__node-${id}`)
-    if ((await element.count()) === 0) continue
-    const found = await element.boundingBox()
-    if (found) boxes.push([id, found])
+    const found = lists[id] ?? []
+    expect(found.length, `elements of Node ${id}`).toBeLessThanOrEqual(1)
+    // boundingBox() gave no box for an element without a layout box (display: none); its rectangle is all zero.
+    const [one] = found
+    if (one && (one.width > 0 || one.height > 0)) boxes.push([id, one])
   }
   expect(boxes.length).toBeGreaterThan(1)
   for (const [a, boxA] of boxes) for (const [b, boxB] of boxes) if (a < b) expect(apart(boxA, boxB), `${a} and ${b} on the screen`).toBeGreaterThanOrEqual(GAP * zoom - 1)

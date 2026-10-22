@@ -20,6 +20,9 @@
 // Answers can arrive out of order (a slow history read, then a quick live one). Each request takes
 // a number; an answer older than the one already shown for its part (live list or history) is
 // dropped. worfy never writes under ~/.claude.
+//
+// One read goes past the shared copy: liveSessionsNow() asks main for the live list once, for a
+// decision that cannot wait for the next poll, and neither reads nor updates the copy.
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { AgentEvent } from '../../shared/agent/events'

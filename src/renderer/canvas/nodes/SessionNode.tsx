@@ -25,6 +25,7 @@ import { isRunning, useSessionNodeView } from '../../session/node-sessions'
 import { useSessionLog } from '../../session/store'
 import { StatusChip, type Status } from '../../theme/primitives'
 import { badges, type SlotSubject } from '../badges'
+import { KIND, type NodeKindColour } from '../kind-colours'
 import { KindBand, KindIcon } from '../kind-icons'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { NODE_HEADER } from '../node-header'
@@ -56,7 +57,8 @@ import type { CanvasNodeProps } from './index'
 export const kind = 'session' satisfies typeof SESSION_KIND
 export const defaultWidth = 300 satisfies typeof SESSION_WIDTH
 export const defaultHeight = 120 satisfies typeof SESSION_HEIGHT
-export const minimapColor = 'var(--kind-session)'
+/** Its kind colour on the band, the icon and the minimap (kind-colours.ts). */
+export const kindColour: NodeKindColour = 'session'
 
 const styles = {
   root: { width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
@@ -70,7 +72,7 @@ const styles = {
     gap: 'var(--space-2)',
     padding: '0 var(--space-3)',
     borderBottom: '1px solid var(--border)',
-    background: 'var(--kind-session-tint)',
+    background: KIND.session.tint,
     cursor: 'grab',
   },
   title: { flex: 1, minWidth: 0, fontSize: 'var(--text-13)', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },

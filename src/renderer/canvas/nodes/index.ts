@@ -6,6 +6,8 @@
 //   export const defaultWidth = 220       // optional: size of a new Node of this kind
 //   export const defaultHeight = 120
 //   export const minimapColor = 'var(--border-strong)'  // optional: its colour on the minimap
+//   export const kindColour: NodeKindColour = 'session'  // or instead: the kind colour (../kind-colours.ts)
+//                                                         // of its band, icon and minimap
 //   export default function NoteNode(props: CanvasNodeProps) { … }
 //
 // This file finds them itself (import.meta.glob), so adding a Node type never edits it or
@@ -13,6 +15,7 @@
 import type { ComponentType } from 'react'
 import type { Node, NodeProps } from '@xyflow/react'
 import type { LayoutNode } from '../../../shared/layout/types'
+import { isNodeKindColour, KIND } from '../kind-colours'
 
 /** What a Node component gets in `data`: its entry in the Layout. */
 export type CanvasNodeData = { node: LayoutNode }
@@ -53,6 +56,14 @@ function colorOrUndefined(value: unknown, path: string): string | undefined {
   return value
 }
 
+/** The minimap colour of a type: its kind colour's band (kind-colours.ts), else its own `minimapColor`. */
+function minimapColorOf(minimapColor: unknown, kindColour: unknown, path: string): string | undefined {
+  if (kindColour === undefined) return colorOrUndefined(minimapColor, path)
+  if (!isNodeKindColour(kindColour)) throw new Error(`${path}: \`kindColour\` must be one of ${Object.keys(KIND).join(', ')}`)
+  if (minimapColor !== undefined) throw new Error(`${path}: a type with a \`kindColour\` takes its minimap colour from it; drop \`minimapColor\``)
+  return KIND[kindColour].band
+}
+
 /**
  * Turns the result of an eager import.meta.glob into Node types by kind. A module without a
  * component or a valid `kind`, or two modules with the same kind, is a programming error and
@@ -63,7 +74,7 @@ export function collectNodeTypes(modules: Record<string, unknown>): Map<string, 
   const types = new Map<string, NodeType>()
   const declaredIn = new Map<string, string>()
   for (const [path, module] of Object.entries(modules).sort(([a], [b]) => a.localeCompare(b))) {
-    const { default: Component, kind, defaultWidth, defaultHeight, minimapColor } = (module ?? {}) as Record<string, unknown>
+    const { default: Component, kind, defaultWidth, defaultHeight, minimapColor, kindColour } = (module ?? {}) as Record<string, unknown>
     if (!isComponentType(Component)) throw new Error(`${path} must default-export the Node's React component`)
     if (typeof kind !== 'string' || !KIND_PATTERN.test(kind)) {
       throw new Error(`${path} must export a \`kind\` of lower-case words joined by dashes, e.g. export const kind = 'note'`)
@@ -76,10 +87,22 @@ export function collectNodeTypes(modules: Record<string, unknown>): Map<string, 
       Component,
       defaultWidth: positiveOr(defaultWidth, FALLBACK_WIDTH, path, 'defaultWidth'),
       defaultHeight: positiveOr(defaultHeight, FALLBACK_HEIGHT, path, 'defaultHeight'),
-      minimapColor: colorOrUndefined(minimapColor, path),
+      minimapColor: minimapColorOf(minimapColor, kindColour, path),
     })
   }
   return types
+}
+
+/**
+ * The accessible name of a Node's React Flow wrapper, the element Tab moves the focus to: the name
+ * a node source gave it (`own`, e.g. "Ticket 05"), else its kind in words ('done-shelf' → "Done
+ * shelf"), or "Unknown node: <kind>" for a kind this build has no file for.
+ */
+export function flowNodeLabel(kind: string, known: boolean, own?: string): string {
+  if (own !== undefined) return own
+  if (!known) return `Unknown node: ${kind}`
+  const words = kind.replace(/-/g, ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 /** Every src/renderer/canvas/nodes/*Node.tsx of this build. */
