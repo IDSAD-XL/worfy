@@ -131,6 +131,22 @@ describe('linked.open', () => {
       { screen: '43', projectId: null },
     ])
   })
+
+  it('lets go when the main frame shows an error page, not on an aborted load or a failure inside a frame', async () => {
+    const window = new Contents(44)
+    await call('linked.open', { machine: M, projectId: 'demo-1' }, window)
+    window.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://nowhere.invalid/', false, 1, 2)
+    window.emit('did-fail-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true, 1, 1)
+    expect(holds()).toEqual([{ screen: '44', projectId: 'demo-1' }])
+    // View > Reload with the dev server down: an error page commits, with did-fail-load and no
+    // did-navigate.
+    window.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    window.emit('did-fail-load', {}, -102, 'ERR_CONNECTION_REFUSED', 'http://localhost:5173/', true, 1, 1)
+    expect(holds()).toEqual([
+      { screen: '44', projectId: 'demo-1' },
+      { screen: '44', projectId: null },
+    ])
+  })
 })
 
 describe('subscriptions of several windows on one Linked machine (worfy-windows ticket 64)', () => {
@@ -270,6 +286,16 @@ describe('subscriptions of several windows on one Linked machine (worfy-windows 
     expect(closes()).toEqual([])
     expect(await invoke(second, 'workflow.close', { root: '/r' })).toEqual({ ok: true, value: { ok: true, value: { from: M } } })
     expect(closes()).toEqual([{ machine: M, channel: 'workflow.close', input: { root: '/r' } }])
+  })
+
+  it('an error page in the main frame lets go of the subscription; the close goes when it was the last', async () => {
+    const window = new Contents(60)
+    await invoke(window, 'docs.open', { projectId: 'error-page' })
+    window.emit('did-fail-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true, 1, 1)
+    window.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://nowhere.invalid/', false, 1, 2)
+    expect(closes()).toEqual([])
+    window.emit('did-fail-load', {}, -102, 'ERR_CONNECTION_REFUSED', 'http://localhost:5173/', true, 1, 1)
+    expect(closes()).toEqual([{ machine: M, channel: 'docs.close', input: { projectId: 'error-page' } }])
   })
 
   it('a close without a subscription counted here passes on unchanged', async () => {

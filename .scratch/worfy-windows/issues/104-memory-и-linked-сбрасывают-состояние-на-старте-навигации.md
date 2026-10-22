@@ -71,6 +71,16 @@ Electron 44.5.1.
   `did-navigate-in-page` — 4 красных (memory, linked и test меню Ticket-а 96).
 - Проверки: новые test-ы 3 прогона — exit 0; contract и unit test-ы memory, linked, menu, clients,
   `no-rmsync`, `check-cyrillic` — exit 0; `pnpm lint`, `pnpm typecheck` — exit 0; gate fast — в отчёте.
+- Ревью, второй коммит: страница ошибки. Если загрузка главного frame падает (View ▸ Reload при
+  остановленном dev server, ERR_CONNECTION_REFUSED), Electron показывает страницу ошибки и шлёт
+  `did-fail-load` без `did-navigate`; старый код сбрасывал здесь на старте навигации. `onNewDocument`
+  теперь сбрасывает и на `did-fail-load` главного frame с кодом, отличным от -3 (ERR_ABORTED): отказ,
+  204 и загрузка файла дают -3 или не дают `did-fail-load`. Сигнатура — по `electron.d.ts` Electron
+  44.5.1; `NavigatingClient.on` типизирован для обоих событий; параметр помощника сужен до
+  `Pick<NavigatingClient, 'on'>` (id не нужен), а memory берёт клиента как `NavigatingClient`.
+  Test-ы: по одному в memory и view-menu, два в linked (Project и подписка). Красные до правки — 3
+  (memory, linked); мутанты: без ветки `did-fail-load` — 4 красных, без проверки -3 — 7, без
+  проверки главного frame — 4.
 - e2e не запускался: ни один spec не проверяет сброс memory или linked при навигации
   (`test/e2e/memory.spec.ts` не перезагружает окно). Не проверено в живом Electron, что IPC новой
   страницы приходит после `did-navigate`; на этом же порядке уже стоит меню Ticket-а 96.

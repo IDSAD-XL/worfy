@@ -241,8 +241,9 @@ function watch(screen: Screen): void {
     unsubscribe(screen)
   }
   screen.once('destroyed', leave)
-  // On the commit of a new document, not the start of a navigation: one that never commits leaves
-  // the page up, and it keeps its Project and its subscriptions (src/main/clients.ts).
+  // On the commit of a new document or an error page, not the start of a navigation: one that
+  // never commits leaves the page up, and it keeps its Project and its subscriptions
+  // (src/main/clients.ts).
   onNewDocument(screen, leave)
 }
 

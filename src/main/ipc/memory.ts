@@ -4,11 +4,11 @@
 // open, the sampler stops (src/main/diagnostics/memory.ts).
 //
 // A reload keeps the webContents and the old page sends no `memory.close`: React's cleanup does not
-// run on unload. So its opens are dropped when the new document commits (onNewDocument,
-// src/main/clients.ts), and the new page opens the figure again. A navigation that never commits
+// run on unload. So its opens are dropped when the new document or an error page commits
+// (onNewDocument, src/main/clients.ts), and the new page opens the figure again. A navigation that never commits
 // leaves the old page and its figure as they were.
 import { appMemory, type MemorySampler } from '../diagnostics/memory'
-import { clientOf, onNewDocument, type Client } from '../clients'
+import { clientOf, onNewDocument, type Client, type NavigatingClient } from '../clients'
 import { memoryChanged, memoryClose, memoryOpen } from '../../shared/ipc/memory'
 import { defineHandler, emit, type HandlerModule } from './index'
 
@@ -33,7 +33,7 @@ export function memoryHandlers(sampler: () => MemorySampler): HandlerModule {
 
   return [
     defineHandler(memoryOpen, (_input, { event }) => {
-      const client = clientOf(event)
+      const client: NavigatingClient | undefined = clientOf(event)
       if (client !== undefined && !client.isDestroyed()) {
         const entry = open.get(client)
         if (entry !== undefined) entry.views += 1
