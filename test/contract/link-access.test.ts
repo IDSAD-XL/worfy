@@ -41,7 +41,7 @@ import { notifyOpen } from '../../src/shared/ipc/notify'
 import { trashList } from '../../src/shared/ipc/trash'
 import type { LayoutOpInput } from '../../src/shared/layout/types'
 import { LinkBench, type BenchMachine } from './link-bench'
-import { windowsProfileEnv } from '../e2e/terminal-shell'
+import { PROFILE_VARS, windowsProfileEnv } from '../e2e/terminal-shell'
 import { nodeScript } from '../harness-node'
 import { removeTestTree } from '../remove'
 
@@ -150,11 +150,15 @@ const realRepo = realpathSync.native(repo)
  * (error 8009001d at loading its managed shell). It also names the empty HOME as the user's profile
  * (windowsProfileEnv): without USERPROFILE and APPDATA PowerShell falls back to the profile of the
  * signed-in user, read that user's $PROFILE and appended the typed commands to their PSReadLine
- * history (worfy-windows ticket 84).
+ * history (worfy-windows ticket 84). The last test of this file pins that.
  */
 const windowsRoot: Record<string, string> = process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot ?? '', windir: process.env.windir ?? process.env.SystemRoot ?? '' } : {}
+/** The environment of every shell of B's Terminal. */
+function shellEnv(): Record<string, string> {
+  return { ...windowsRoot, ...windowsProfileEnv(home), SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ' }
+}
 const terminals = new TerminalRegistry({
-  env: () => Promise.resolve({ ...windowsRoot, ...windowsProfileEnv(home), SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ' }),
+  env: () => Promise.resolve(shellEnv()),
   killGraceMs: 1000,
 })
 const claudeHome = new ClaudeHomeRegistry({ home: CLAUDE_HOME_FIXTURE, listWorktrees: async () => [], isAlive: async () => false })
@@ -944,3 +948,18 @@ async function windowIpc(names: readonly string[] = ['./terminal.ts']) {
     return (await listener(event, input)) as IpcResult<unknown>
   }
 }
+
+describe('the Terminal of B', () => {
+  // Checked on the environment, not by typing into a shell: a shell typed into with the wrong
+  // environment would append the typed line to the history this test guards.
+  it.runIf(process.platform === 'win32')("on Windows its shells have the temporary home as the user's profile, never the test process's", () => {
+    const shell = shellEnv()
+    for (const key of PROFILE_VARS) expect(shell[key], key).toBeDefined()
+    expect(shell.USERPROFILE).toBe(home)
+    expect(shell.APPDATA).toBe(join(home, 'AppData', 'Roaming'))
+    expect(shell.LOCALAPPDATA).toBe(join(home, 'AppData', 'Local'))
+    // Git for Windows' HOME.
+    expect(`${shell.HOMEDRIVE}${shell.HOMEPATH}`).toBe(home)
+    for (const key of ['USERPROFILE', 'APPDATA', 'LOCALAPPDATA'] as const) expect(shell[key], key).not.toBe(process.env[key])
+  })
+})

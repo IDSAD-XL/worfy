@@ -19,7 +19,13 @@ vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindow
 useTerminalScratch()
 
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-profile-isolation-')))
-afterAll(() => removeTestTree(scratch))
+// The shared folder of the direct starts is made by the directStartEnv test; removed again only when
+// this file made it, since the e2e runs on this machine use it too.
+const directStartProfileWasThere = existsSync(DIRECT_START_PROFILE)
+afterAll(() => {
+  removeTestTree(scratch)
+  if (!directStartProfileWasThere) removeTestTree(DIRECT_START_PROFILE)
+})
 
 /** The profile of the person running the tests: the real one on Windows, a made-up one elsewhere. */
 const OWNER: Record<(typeof PROFILE_VARS)[number], string> = WINDOWS
@@ -69,7 +75,9 @@ describe('the profile of a test shell on Windows', () => {
   })
 
   it.each(['darwin', 'linux'] as const)('on %s the launches keep the profile variables of the test process, as before', async (platform) => {
-    const launched = await launchEnv({ dataDir: 'd', claudeHome: 'c', shellDir: mkdtempSync(join(scratch, 'shell-')), source: ownerSource, platform })
+    // A SHELL of the spec: without it launchEnv links the default shell, which Windows allows only
+    // with Developer Mode or as an administrator.
+    const launched = await launchEnv({ dataDir: 'd', claudeHome: 'c', shellDir: mkdtempSync(join(scratch, 'shell-')), source: ownerSource, platform, env: { SHELL: '/bin/sh' } })
     const direct = directStartEnv({ dataDir: 'd', claudeHome: 'c', source: ownerSource, platform })
     for (const key of PROFILE_VARS) {
       expect(launched[key], key).toBe(OWNER[key])

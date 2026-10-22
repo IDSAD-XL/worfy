@@ -6,7 +6,9 @@
 // files: a slow one slowed every start and failed tests with short waits (worfy-harness ticket 45).
 // So SHELL defaults to test/fixtures/e2e-shell/sh, which reads no rc file and hands the app the
 // test process's PATH. HOME stays the developer's: no rc file is read whatever HOME is, and the
-// app's other paths under HOME (git's identity among them) stay what the tests had before.
+// app's other paths under HOME (git's identity among them) stay what the tests had before. Not on
+// Windows: there the profile folders move (below), and the git the app runs takes its global config
+// from that temporary profile (HOMEDRIVE + HOMEPATH), so it has no identity of the developer's.
 //
 // A spec that is about the login shell sets SHELL (and its own HOME) through `env`, and its value
 // wins over the default, as every variable of `env` does.
