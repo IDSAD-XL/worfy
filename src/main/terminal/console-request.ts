@@ -1,6 +1,6 @@
 // The one question the console of Windows asks its terminal (worfy-windows ticket 22).
 //
-// The console of the node-pty package (OpenConsole.exe, spawnShellPty in windows-pty.ts) asks the
+// The console of the node-pty package (OpenConsole.exe, spawnWindowsPty in windows-pty.ts) asks the
 // terminal for its device attributes when a shell starts — `ESC [ c` — and holds the output of the
 // shell for three seconds when nobody answers (measured on the owner's PC: the prompt after 3275 ms
 // without an answer, after 276 ms with one).

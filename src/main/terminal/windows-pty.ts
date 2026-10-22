@@ -5,7 +5,8 @@
 // these names as before.
 import { execFile } from 'node:child_process'
 import { spawn as spawnNodePty } from 'node-pty'
-import { powershellScriptCommand, type Env } from '../agent/env'
+import { getVar, powershellScriptCommand } from '../agent/env'
+import type { PtyProcess, SpawnPty } from './pty-types'
 
 /** How long the helper that ends the processes under a shell of Windows may run. */
 export const DESCENDANTS_TIMEOUT_MS = 3000
@@ -18,12 +19,6 @@ export const DESCENDANTS_TIMEOUT_MS = 3000
  */
 export const SHELL_START_SLACK_MS = 100
 
-/** Variable names on Windows are case-insensitive: the value of `name` under any case. */
-export function envVar(env: Readonly<Env>, name: string): string | undefined {
-  const upper = name.toUpperCase()
-  for (const [key, value] of Object.entries(env)) if (key.toUpperCase() === upper) return value
-  return undefined
-}
 
 /** A shell of Windows as the registry started it. */
 export interface StartedShell {
@@ -119,7 +114,7 @@ export function descendantsScript(shell: StartedShell): string {
  * this script differs in every call by the pid and the time.
  */
 export function endDescendants(shell: StartedShell): Promise<DescendantsVerdict> {
-  const { file } = powershellScriptCommand(envVar(process.env as Env, 'SystemRoot'), '')
+  const { file } = powershellScriptCommand(getVar(process.env, 'SystemRoot'), '')
   const args = ['-NoProfile', '-NonInteractive', '-Command', descendantsScript(shell)]
   return new Promise((resolve, reject) => {
     execFile(file, args, { encoding: 'utf8', timeout: DESCENDANTS_TIMEOUT_MS, windowsHide: true }, (error, stdout) => {
@@ -142,7 +137,7 @@ export function endDescendants(shell: StartedShell): Promise<DescendantsVerdict>
  *
  * This is for a pty on the console of the system (a spawn of its own given to the registry; the
  * app itself starts shells on the console of the node-pty package, where kill() starts no helper —
- * spawnShellPty). On the console of the system kill() closes the pseudo-console — that ends the
+ * spawnWindowsPty). On the console of the system kill() closes the pseudo-console — that ends the
  * shell and what is on its console, by their handles — and stops node-pty's worker thread. It also
  * starts a helper that lists the processes of the console, to end them by pid. The console is
  * closed before the helper attaches to it (10 of 10 on the owner's PC): the helper fails with
@@ -156,24 +151,9 @@ export function withoutConsoleHelper(pty: PtyProcess): boolean {
   return true
 }
 
-/** The part of node-pty's IPty the registry uses; tests may pass their own. */
-export interface PtyProcess {
-  readonly pid: number
-  onData(listener: (data: string) => void): unknown
-  onExit(listener: (event: { exitCode: number; signal?: number }) => void): unknown
-  write(data: string): void
-  resize(cols: number, rows: number): void
-  kill(signal?: string): void
-  /** Stops and restarts reading the output (node-pty: its socket); main's screen holds a flood back with it (cursor-answers.ts). */
-  pause?(): void
-  resume?(): void
-}
-
-export type SpawnPty = (file: string, args: string[], options: { name: string; cols: number; rows: number; cwd: string; env: Env }) => PtyProcess
-
 /**
- * node-pty as the registry starts a shell with it. On Windows the console is the one of the
- * node-pty package — conpty.dll and OpenConsole.exe in the folder `conpty` next to conpty.node,
+ * node-pty as the registry starts a shell with it on Windows (spawnShellPty in pty.ts calls it
+ * there, and node-pty as it is elsewhere). The console is the one of the node-pty package — conpty.dll and OpenConsole.exe in the folder `conpty` next to conpty.node,
  * both signed by Microsoft; without conpty.dll the start throws "Cannot find conpty.dll" —
  * and not the one of the system (worfy-windows ticket 22). With the console of the system node-pty
  * forgets a pseudo-console the moment its shell exits and never closes it: every shell that ended
@@ -193,12 +173,11 @@ export type SpawnPty = (file: string, args: string[], options: { name: string; c
  *     the system. It is logged here, once for a shell. A pty without that socket is said at the
  *     start: a later version of node-pty may have moved it.
  */
-export const spawnShellPty: SpawnPty = (file, args, options) => {
-  if (process.platform !== 'win32') return spawnNodePty(file, args, options)
+export const spawnWindowsPty: SpawnPty = (file, args, options) => {
   const pty = spawnNodePty(file, args, { ...options, useConptyDll: true })
   const input = (pty as { _agent?: { inSocket?: { on?: unknown } } })._agent?.inSocket
   if (input === undefined || input === null || typeof input.on !== 'function') {
-    console.warn(`[terminal] the pty of the shell ${pty.pid} has no _agent.inSocket to listen on: a write after the shell has gone may end as an uncaught exception (spawnShellPty)`)
+    console.warn(`[terminal] the pty of the shell ${pty.pid} has no _agent.inSocket to listen on: a write after the shell has gone may end as an uncaught exception (spawnWindowsPty)`)
     return pty
   }
   let said = false
@@ -240,7 +219,7 @@ export function readsExitCode(pty: PtyProcess): boolean {
  * Stops the thread in which node-pty reads the output of a console of Windows; false when this is
  * not a pty of node-pty as 1.1.0 and 1.2.0-beta.15 build it.
  *
- * With the console of the package (spawnShellPty) kill() stops that thread only when output comes
+ * With the console of the package (spawnWindowsPty) kill() stops that thread only when output comes
  * after it, and none does once the shell is gone: one thread per Terminal stayed until worfy quit
  * (measured: 20 Terminals, 20 threads). node-pty's dispose() sets a timer of 1000 ms (a second
  * call moves it on) and closes the socket of the thread when it fires; whether everything on the

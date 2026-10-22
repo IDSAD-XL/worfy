@@ -95,7 +95,7 @@ describe('TerminalRegistry without a spawn of its own: node-pty as the app start
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const registry = new TerminalRegistry({ env: winEnv, platform: 'win32', endDescendants: () => undefined })
     const { pid } = await registry.open('a', OPEN, {}, SINK)
-    expect(warn.mock.calls[0]).toEqual([`[terminal] the pty of the shell ${pid} has no _agent.inSocket to listen on: a write after the shell has gone may end as an uncaught exception (spawnShellPty)`])
+    expect(warn.mock.calls[0]).toEqual([`[terminal] the pty of the shell ${pid} has no _agent.inSocket to listen on: a write after the shell has gone may end as an uncaught exception (spawnWindowsPty)`])
     await registry.closeAll()
   })
 

@@ -54,17 +54,23 @@
 // own (worfy-terminal-ai ticket 03); the token is given back when the shell has exited. A shell
 // that is not zsh gets neither.
 import { posix, win32 } from 'node:path'
-import { findGitBash, findOnPath, powershellScriptCommand, type Env, type FileExists } from '../agent/env'
+import { spawn as spawnNodePty } from 'node-pty'
+import { findGitBash, findOnPath, getVar, powershellScriptCommand, type Env, type FileExists } from '../agent/env'
 import type { TerminalShellSetting } from '../../shared/projects/action-templates'
 import { ConsoleRequests, DEVICE_ATTRIBUTES_ANSWER } from './console-request'
 import { CursorAnswers, isCursorAnswer } from './cursor-answers'
 import { ShellTracker, type ShellEvent, type ShellState } from './osc'
 import { REPLAY_LIMIT, ReplayBuffer } from './replay-buffer'
 import { integrationEnv, isZsh, newNonce, type AssistAdmission, type AssistDoor, type ShellIntegration } from './shell-integration'
-import { endDescendants, envVar, exitCodeKnown, killUnconnected, readsExitCode, spawnShellPty, stopOutputWorker, withoutConsoleHelper, type DescendantsVerdict, type PtyProcess, type SpawnPty, type StartedShell } from './windows-pty'
+import type { PtyProcess, SpawnPty } from './pty-types'
+import { endDescendants, exitCodeKnown, killUnconnected, readsExitCode, spawnWindowsPty, stopOutputWorker, withoutConsoleHelper, type DescendantsVerdict, type StartedShell } from './windows-pty'
 
 export { REPLAY_LIMIT, ReplayBuffer } from './replay-buffer'
-export { DESCENDANTS_TIMEOUT_MS, descendantsScript, endDescendants, SHELL_START_SLACK_MS, spawnShellPty, type DescendantsVerdict, type PtyProcess, type SpawnPty, type StartedShell } from './windows-pty'
+export type { PtyProcess, SpawnPty } from './pty-types'
+export { DESCENDANTS_TIMEOUT_MS, descendantsScript, endDescendants, SHELL_START_SLACK_MS, type DescendantsVerdict, type StartedShell } from './windows-pty'
+
+/** node-pty as the registry starts a shell with it: on Windows on the console of the node-pty package (spawnWindowsPty), elsewhere as it is. */
+export const spawnShellPty: SpawnPty = (file, args, options) => (process.platform === 'win32' ? spawnWindowsPty(file, args, options) : spawnNodePty(file, args, options))
 
 export const COLS_MIN = 20
 export const COLS_MAX = 500
@@ -147,7 +153,7 @@ export function terminalShell(env: Readonly<Env>, setting?: TerminalShellSetting
     if (bash !== null) return { file: bash, args: ['--login', '-i'], name: win32.basename(bash), note: null }
     note = 'Git Bash was not found on this machine: PowerShell runs instead'
   }
-  const file = findOnPath('pwsh', env, search.exists) ?? powershellScriptCommand(envVar(env, 'SystemRoot'), '').file
+  const file = findOnPath('pwsh', env, search.exists) ?? powershellScriptCommand(getVar(env, 'SystemRoot'), '').file
   return { file, args: ['-NoLogo'], name: win32.basename(file), note }
 }
 
