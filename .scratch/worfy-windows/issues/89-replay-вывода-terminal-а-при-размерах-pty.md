@@ -122,3 +122,34 @@ xterm.js отвечает на `ESC[6n` строкой приглашения (�
 **Не проверено.** На Mac прогона нет: `terminal.spec.ts`, `focus.spec.ts` и `wheel-over-nodes.spec.ts` там —
 пункт для Mac (раздел «Mac checks» PR). Экран «Sign in with gh» (`projects.connect.signIn`) тоже делает
 replay, но размеров не получает: его вид — вне следа тикета.
+
+**Ревью, круг 1** (одна находка med в test-ах, три low; коммиты `a8211e50`, `efa6e775` поверх `0112005b`,
+ветка на origin/main `1cee90d1`).
+
+- Число размеров ограничено (`replay-buffer.ts`). Resize-ы, между которыми меньше 100 мс (`RESIZE_RUN_MS`), —
+  одна серия, как при протягивании угла Node: серия хранит свой последний размер с того места, где она
+  началась. Предел по числу символов не взят: в сценарии тикета между resize-ами стоит короткая команда
+  (`'mark'+'er-one'`, около 150 символов), и такое слияние вернуло бы ошибку. Больше 64 размеров
+  (`SIZES_LIMIT`) не хранится: два самых старых сливаются в один, это помечено `shortcut:`. Один resize
+  `@xterm/headless` при полном scrollback (5000 строк) на ПК занимает 2,3 мс, значит 64 resize-а —
+  около 0,15 с.
+- Новые test-ы: серия resize-ов, возврат к прежнему размеру, предел 64. «Шторм» из 68 resize-ов по кадру
+  с перерисовкой приглашения даёт 3 размера и тот же экран, что у живого вида.
+- `terminal-replies.test.tsx`: вид, смонтированный после вывода и resize-ов через registry, рисует экран
+  живого вида. Вызов ResizeObserver посреди replay подгоняет вид только после конца replay.
+- Contract-test размеров считает `at` в счёте всего потока: вычитает `end - replay.length` и ограничивает
+  `at` выводом до и после resize.
+
+| Проверка | Код | Итог |
+| --- | --- | --- |
+| мутант: без флага `sizing` (refit во время replay) | 1 | 1 из 31 красный |
+| мутант: `TerminalNode` не передаёт `sizes` | 1 | 2 из 31 красные |
+| мутант: нет серий resize-ов | 1 | 3 из 31 красные |
+| мутант: нет предела 64 | 1 | 1 из 31 красный |
+| `terminal-replies.test.tsx` + `terminal-replay.test.ts` | 0 | 31 passed |
+| contract Terminal + `node-pty` + `terminal-replay` + `no-rmsync` | 0 | 15 файлов, 212 passed, 140 skipped |
+| unit-test-ы Terminal | 0 | 436 passed |
+| e2e `terminal.spec.ts:211`, `focus.spec.ts:342`, `--repeat-each=3` | 0 | 6 passed |
+| `pnpm lint`, `pnpm typecheck` | 0 / 0 | |
+
+История PowerShell владельца до и после — 190084 байт, `856228828BFC…C148E`, без изменений.
