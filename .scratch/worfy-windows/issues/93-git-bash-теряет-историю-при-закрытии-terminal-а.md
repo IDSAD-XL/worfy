@@ -134,3 +134,78 @@ Ticket 42 видел то же на консоли пакета и на конс
 - Утечка handle pseudo-console — [Ticket 92](92-утечка-handle-pseudo-console-после-выхода-оболочки.md).
 - Замер истории zsh и bash при закрытии Terminal-а на macOS и Linux — здесь не делался. Если нужен, он для
   Session на Mac.
+
+## Итог
+
+Сделан вариант 1 (SIGHUP через MSYS) вместе с вариантом 3 Ticket-а 92 (`kill()` до выхода запускателя).
+Коммит `ff47f5b0` на ветке `worfy-windows/93` от `origin/main` a371aa41.
+
+**Новый порядок закрытия Git Bash** — в помощнике `endDescendants` (`src/main/terminal/windows-pty.ts`,
+`hangupLines`), один процесс Windows PowerShell, как раньше:
+
+1. обход дерева под оболочкой, как раньше;
+2. запускатель `bin\bash.exe` приостанавливается (`NtSuspendProcess` через динамический P/Invoke, без
+   `Add-Type`); не вышло — строка `not held` и предупреждение в лог;
+3. настоящий `usr\bin\bash.exe` — ребёнок запускателя — получает `kill.exe -HUP -W <pid>` из того же Git for
+   Windows (`gitBashKill`: `<корень>\bin\bash.exe` → `<корень>\usr\bin\kill.exe`);
+4. ожидание выхода bash до `HANGUP_GRACE_MS` = 1000 мс;
+5. `Stop-Process -Force` того, что осталось (bash с `trap '' HUP`, его задания);
+6. `release()` → `kill()` node-pty: запускатель приостановлен и не мог выйти сам, запись node-pty о
+   pseudo-console жива, `kill()` её закрывает и делает `TerminateProcess` запускателя.
+
+Ожидание 1000 мс: bash выходил через 14–670 мс после сигнала (30 закрытий, большинство до 60 мс); ожидание
+кончается, как только bash вышел, целиком его тратит только bash, который сигнал не берёт. 1000 мс — это
+`KILL_GRACE_MS` macOS и Linux, и помощник остаётся внутри `DESCENDANTS_TIMEOUT_MS` = 3000 мс. PowerShell,
+macOS и Linux не меняются: без `hangup` текст скрипта прежний (закреплён в `test/unit/terminal-shell.test.ts`).
+
+**Почему нужна приостановка.** Замер порядков (probe на настоящем `TerminalRegistry`, Git Bash, свой
+временный профиль у каждой оболочки, ПК 2026-10-22):
+
+| Порядок | История | Прирост handle |
+| --- | --- | --- |
+| как в main: `Stop-Process`, потом `kill()` | нет файла, 0 из 10 | +21 на 10 |
+| `Stop-Process`, ждать выхода запускателя, `kill()` | нет файла | +21 на 10 |
+| SIGHUP, ждать выхода bash (опрос 5 мс), сразу `kill()` | 10 из 10 | +1 на 10 |
+| SIGHUP, ждать выхода bash, `kill()` через 1,5 с | 6 из 6 | +12 на 6 |
+| SIGHUP и сразу `kill()`, без ожидания | 5 из 5 | 0 на 5 |
+| приостановка запускателя, SIGHUP, ждать выхода bash, `kill()` | 5 из 5 | 0 на 5 |
+
+Без приостановки `kill()` успевает только в гонке: запускатель выходит через миллисекунды после bash, и опрос
+`GetExitCodeProcess` из JavaScript иногда видит выход раньше, чем поток выхода node-pty стирает запись
+(`conpty.cc:95-104`). Ожидание внутри помощника видит выход только по сигналу объекта процесса — тогда же,
+когда его видит поток выхода, — и проигрывает всегда: мутант «SIGHUP без приостановки» даёт +20 на 10.
+SIGHUP и сразу `kill()` — тоже гонка: консоль закрывается, пока bash пишет историю.
+
+**До и после** (contract test-ы ниже, 10 Git Bash, `terminal.close`):
+
+| | История после `terminal.close` | Handle на 10 закрытий |
+| --- | --- | --- |
+| main a371aa41 | нет `.bash_history` | +20 |
+| эта ветка | команда в `.bash_history` | 0 ± 5 (3 прогона подряд зелёные) |
+
+Probe `92-probe.ts history` после правки: `close` — 50 байт, обе команды (861 мс; было «нет файла», 739 мс);
+`exit` — 55 байт, как раньше. Случай `system-console-close` (консоль системы, `useConptyDll: false`) теперь тоже
+пишет историю: `ClosePseudoConsole` системы завершает и приостановленный запускатель. Закрытие Git Bash
+длиннее примерно на 0,1 с (`kill.exe` и ожидание bash): 0,76–0,84 с против 0,69–0,75 с.
+
+**Test-ы.**
+
+- `test/contract/terminal-git-bash-close.test.ts` (новый файл; только Windows с Git for Windows, на GitHub
+  runner пропуск, как у test-ов с Windows PowerShell 5.1):
+  - история: уникальная команда, `terminal.close`, `.bash_history` во временном HOME содержит её;
+  - handle: 4 оболочки прогрева, 10 Git Bash по четыре, `terminal.close`, прирост 0 ± 5 по устоявшемуся
+    счёту (`handleCount()` из `terminal-harness.ts`, как в test-е Ticket-а 92), консольных хостов не осталось.
+- `test/unit/terminal-git-bash-close.test.ts`: `gitBashKill`, порядок строк скрипта (обход → приостановка →
+  SIGHUP → ожидание → `Stop-Process`), граница ожидания, экранирование пути `kill.exe`, строка `not held`,
+  что registry даёт `hangup` только Git Bash и до `kill()`.
+
+Мутанты: без SIGHUP — красный test истории («.bash_history after the close: expected false to be true»),
+handle зелёный; старый порядок (без `hangup`) — красные оба, «added 20 handles»; без приостановки — красный
+test handle, «added 20 handles»; unit test registry краснеет на старом порядке.
+
+Проверки: `pnpm lint` 0, `pnpm typecheck` 0, contract test-ы Terminal (`test/contract/terminal*.test.ts`,
+`node-pty.test.ts`) 0, unit test-ы Terminal и `no-rmsync` 0, gate fast 0 («[gate] green (fast)»). Файлы истории
+владельца (`~\.bash_history`, `ConsoleHost_history.txt`) до и после каждого прогона — те же размер и SHA256.
+
+Не проверено: macOS и Linux (код не менялся); bash, который при закрытии ещё пишет большой HISTFILE дольше
+1000 мс, — его доделывает `Stop-Process`, как раньше; Git Bash не из Git for Windows (другой launcher).
