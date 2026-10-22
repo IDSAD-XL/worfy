@@ -18,11 +18,11 @@ name: Windows tests
 #   test/unit/ or test/contract/; a name with "e2e", "packaged" or "acceptance", a pattern, a folder
 #   and an option are refused; the job runs `node scripts/vitest-electron.mjs <files>` and never
 #   `pnpm test`; stopped after 10 minutes;
-# - mode full, $0.45 at most: a list of files is refused, not ignored; the job runs `pnpm test` and
-#   nothing else of the suite (no `test:e2e`, `test:package` or acceptance); stopped after 45
-#   minutes. The length of one run is measured by the first run on main (worfy-windows ticket 66):
-#   until then 45 minutes is a temporary ceiling, not a measured one: the Harness shell tests alone
-#   take about 26 minutes on the owner's PC, and the install comes on top.
+# - mode full, $0.60 at most: a list of files is refused, not ignored; the job runs `pnpm test` and
+#   nothing else of the suite (no `test:e2e`, `test:package` or acceptance); stopped after 60
+#   minutes. The limit is the measured run × 1.5, rounded up to 5 minutes: the first full run
+#   (39841670369, 2026-10-22, main with this job) took 39.5 minutes, of it 38.4 minutes of vitest
+#   (worfy-windows ticket 66).
 # test/contract/windows-tests-workflow.test.ts pins each of them: loosening one turns the Linux CI red.
 #
 # The input "files" (mode files only): paths from the repository root with forward slashes, spelled
@@ -118,9 +118,9 @@ jobs:
   # for which scripts/windows-verdict-scope.mjs prints `runner` (ADR-0071).
   full-suite:
     if: inputs.mode == 'full'
-    # shortcut: 45 minutes is a temporary ceiling for the first run, not a measured length; set it to the measured run × 1.5, rounded up to 5 minutes, once the first run on main is measured.
+    # The measured run × 1.5, rounded up to 5 minutes: 39.5 minutes on 2026-10-22 (run 39841670369).
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       # Before checkout: a dispatch that names files in this mode is a mistake of the caller, and
       # it fails within seconds instead of running the whole suite in place of the list it meant.

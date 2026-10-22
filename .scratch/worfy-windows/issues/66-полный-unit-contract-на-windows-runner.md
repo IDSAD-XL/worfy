@@ -297,7 +297,7 @@ test-е — без системного и пользовательского к
 - «Workflow «Windows tests» (`.github/workflows/windows-tests.yml`) — два режима. `files`: от 1 до 12
   файлов из `test/unit/` и `test/contract/`, job `listed-tests`, 10 минут:
   `gh workflow run windows-tests.yml --ref <ветка> -f files="…"`. `full`: весь `pnpm test`, job
-  `full-suite`, предел по замеру (до замера 45 минут): `gh workflow run windows-tests.yml --ref $ref -f mode=full`.»
+  `full-suite`, 60 минут (замер 39,5 минуты × 1,5, с округлением вверх до 5): `gh workflow run windows-tests.yml --ref $ref -f mode=full`.»
 - «Check `windows` может ответить run (ADR-0071). Команда scope —
   `node scripts/windows-verdict-scope.mjs <base> <head>` (код 0 — `runner`, 1 — `pc`, 2 — нет
   вердикта); команда dispatch — `gh workflow run windows-tests.yml --ref $ref -f mode=full`; workflow —
@@ -361,3 +361,8 @@ job-ом, который не `skipped`; 4 — run на main рядом с batch
 - LOW — `[]` (job-ы ещё не показаны) у run-а со `status` не `completed` теперь считается run-ом этой проверки; `[]` у `completed` run-а (`startup_failure`) — нет.
 - LOW — отметка `pending`, которую никакой run не закроет, снимается новым push в PR или `gh run rerun <id>` от Orchestrator-а после исправления причины; в отчёте владельцу — какой run и почему.
 - Проверки круга 3: два contract-файла — 155 из 155, `plugin-neutral` 31, `epic-wave-ship-ticket` 336, `pnpm lint`, `pnpm typecheck` — код 0; gate fast — код 0.
+
+## Замер полного run-а (Mac)
+
+- Первый run `mode=full` — 39841670369, 2026-10-22, на 53e7ee59 (main и этот PR): 39,5 минуты всего, из них vitest 2304 s. Предел `full-suite` поднят с 45 до 60 минут (× 1,5, с округлением вверх до 5), потолок цены — $0.60; contract test закрепляет 60.
+- Run красный: 8 файлов из 417, 66 test-ов (`test/unit/canvas.test.tsx` 41, `test/contract/shell.test.ts` 12, `test/contract/tickets-read.test.ts` 4, по 2 — `harness-evals`, `harness-script-command`, `session-rail-discovery`, `shell-discovery`, 1 — `rules-hooks.test.sh` через `harness-scripts`). Пока main красный на runner-е, вердикт `runner` не работает; разбор — отдельным Ticket-ом.
