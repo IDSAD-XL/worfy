@@ -352,6 +352,48 @@ describe('ChecksBadges on a Session', () => {
   })
 })
 
+// worfy-windows ticket 61: a worktree inside %TEMP% of Windows carries the sign of the Folder step, with a tooltip.
+describe('a worktree inside %TEMP%', () => {
+  const inTemp = () => {
+    snapshot = { ...snapshot, worktrees: [snapshot.worktrees[0]!, { ...snapshot.worktrees[1]!, insideTemp: true }] }
+  }
+
+  it('is marked on its Ticket and its Session, with the reason and the path in the tooltip; the checkout outside is not', async () => {
+    inTemp()
+    const { default: ChecksBadges } = await load()
+    render(
+      <>
+        <div data-testid="t7">
+          <ChecksBadges subject={ticketSubject(7)} />
+        </div>
+        <div data-testid="s7">
+          <ChecksBadges subject={{ kind: 'session', projectId: 'p', root: ROOT, sessionId: S7 }} />
+        </div>
+        <div data-testid="sroot">
+          <ChecksBadges subject={{ kind: 'session', projectId: 'p', root: ROOT, sessionId: SROOT }} />
+        </div>
+      </>,
+    )
+    await vi.waitFor(() => expect(screen.getByTestId('sroot').querySelector('[data-testid="checks-gate"]')).not.toBeNull())
+    for (const holder of ['t7', 's7']) {
+      const sign = screen.getByTestId(holder).querySelector<HTMLElement>('[data-testid="checks-temp"]')
+      expect(sign?.textContent).toBe('in %TEMP%')
+      expect(sign?.querySelector('[data-status]')?.getAttribute('data-status')).toBe('working')
+      expect(sign?.getAttribute('title')).toContain('Storage Sense may delete files from it')
+      expect(sign?.getAttribute('title')).toContain(WT07)
+    }
+    expect(screen.getByTestId('t7').querySelector('[data-testid="checks-badges"]')?.getAttribute('title')).toBe('gate red · in %TEMP%')
+    expect(screen.getByTestId('sroot').querySelector('[data-testid="checks-temp"]')).toBeNull()
+  })
+
+  it('no worktree marked: no sign anywhere', async () => {
+    const { default: ChecksBadges } = await load()
+    render(<ChecksBadges subject={ticketSubject(7)} />)
+    await screen.findByTestId('checks-gate')
+    expect(screen.queryByTestId('checks-temp')).toBeNull()
+  })
+})
+
 describe('when the renderer asks', () => {
   it('asks every POLL_MS only while the window has focus, and at once when it gets focus', async () => {
     const { default: ChecksBadges, POLL_MS } = await load()

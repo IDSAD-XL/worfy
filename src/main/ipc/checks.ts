@@ -16,6 +16,7 @@ import { accountAuth, ghRunner, PrTracker } from '../github/prs'
 import { harnessScriptEnv, type HarnessScriptEnv, type HarnessScriptEnvSource } from '../harness/script-env'
 import { insideProjects } from '../link/caller'
 import { projectStore } from '../projects/store'
+import { insideUserTemp } from '../projects/temp-folder'
 import { claudeHome } from '../storage/paths'
 import { projectLayouts, type ProjectLayout, type ProjectRepo } from '../workflow/folder'
 import { readGithubAccount } from '../workflow/profile'
@@ -27,6 +28,8 @@ export interface ChecksService {
   prs: PrTracker
   /** Lists the Project's worktrees, the checkout first; `git worktree list` by default. */
   worktrees?: (root: string) => Promise<Worktree[]>
+  /** Whether a worktree lies inside %TEMP% of Windows (worfy-windows ticket 61); insideUserTemp by default. */
+  insideTemp?: (path: string) => boolean
 }
 
 /**
@@ -37,7 +40,9 @@ export async function readChecks(service: ChecksService, root: string, branches:
   const worktrees = await (service.worktrees ?? listWorktrees)(root)
   const worktreeBranches = worktrees.flatMap((worktree) => (worktree.branch !== null && (parseTicketBranch(worktree.branch) || isTicketBranch(worktree.branch)) ? [worktree.branch] : []))
   const [gated, prs] = await Promise.all([service.gate.read(root, worktrees), service.prs.read(root, [...new Set([...branches, ...worktreeBranches])])])
-  return { root, worktrees: gated, pulls: prs.pulls, gh: prs.gh }
+  // A worktree in %TEMP% carries a sign on its gate badge: Storage Sense may delete its files.
+  const insideTemp = service.insideTemp ?? insideUserTemp
+  return { root, worktrees: gated.map((worktree) => (insideTemp(worktree.path) ? { ...worktree, insideTemp: true as const } : worktree)), pulls: prs.pulls, gh: prs.gh }
 }
 
 /** What main asks about a Project to know where its checks may run. */

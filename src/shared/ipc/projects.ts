@@ -164,6 +164,11 @@ export const connectFolderSchema = z.object({
   /** The repositories: the one of a git folder, every one of a multi-repo folder, by name. */
   repos: z.array(connectRepoSchema),
   notice: z.string().nullable(),
+  /**
+   * The root lies inside %TEMP% of Windows, where Storage Sense may delete files (worfy-windows
+   * ticket 61): the Folder step warns. Set only by step 1, and only when true; adding stays allowed.
+   */
+  insideTemp: z.literal(true).optional(),
 })
 export type ConnectFolder = z.output<typeof connectFolderSchema>
 

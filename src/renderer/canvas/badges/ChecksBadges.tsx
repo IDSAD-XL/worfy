@@ -1,4 +1,5 @@
-import { pullOfTicket, worktreeOfCwd, worktreeOfTicket, type GateOutcome, type PullRequest } from '../../../shared/ipc/checks'
+import { pullOfTicket, worktreeOfCwd, worktreeOfTicket, type GateOutcome, type PullRequest, type WorktreeChecks } from '../../../shared/ipc/checks'
+import { TEMP_FOLDER_LABEL, TEMP_FOLDER_WARNING } from '../../../shared/temp-folder'
 import type { Ticket } from '../../../shared/workflow/types'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { useWorkflow } from '../../workflow/useWorkflow'
@@ -49,6 +50,15 @@ function GateBadge({ outcome, path }: { outcome: GateOutcome; path: string }) {
   return <Chip status={status} label={label} testId="checks-gate" value={outcome} title={`${label} — ${path}`} />
 }
 
+/** The worktree lies inside %TEMP% of Windows (worfy-windows ticket 61): the sign of the "Add project" Folder step. */
+function TempBadge({ path }: { path: string }) {
+  return (
+    <span data-testid="checks-temp" title={`${TEMP_FOLDER_WARNING} — ${path}`}>
+      <StatusChip status="working" label={TEMP_FOLDER_LABEL} />
+    </span>
+  )
+}
+
 const CI: Record<NonNullable<PullRequest['ci']>, Status> = { passing: 'ready', failing: 'blocked', running: 'working' }
 
 function PullBadges({ pull }: { pull: PullRequest }) {
@@ -65,9 +75,10 @@ function PullBadges({ pull }: { pull: PullRequest }) {
 }
 
 /** Everything the row shows, in one line for its tooltip. */
-function summary(worktree: { gate: { outcome: GateOutcome } } | null, pull: PullRequest | null, unavailable: boolean): string {
+function summary(worktree: WorktreeChecks | null, pull: PullRequest | null, unavailable: boolean): string {
   const parts: string[] = []
   if (worktree) parts.push(worktree.gate.outcome === 'none' ? 'gate: no data' : GATE[worktree.gate.outcome].label)
+  if (worktree?.insideTemp) parts.push(TEMP_FOLDER_LABEL)
   if (pull) parts.push(`PR #${pull.number} ${pull.state.toLowerCase()}`, ...(pull.ci ? [`CI ${pull.ci}`] : []), ...(pull.verdict ? [pull.verdict] : []))
   if (unavailable) parts.push('gh unavailable')
   return parts.join(' · ')
@@ -85,6 +96,7 @@ function TicketChecks({ root, ticket }: { root: string; ticket: Ticket }) {
   return (
     <span className="w-checks" data-testid="checks-badges" title={summary(worktree, pull, unavailable)}>
       {worktree ? <GateBadge outcome={worktree.gate.outcome} path={worktree.path} /> : null}
+      {worktree?.insideTemp ? <TempBadge path={worktree.path} /> : null}
       {pull ? <PullBadges pull={pull} /> : null}
       {unavailable ? <Neutral label="gh unavailable" title={snapshot.gh.error ?? undefined} testId="checks-gh-unavailable" /> : null}
     </span>
@@ -101,6 +113,7 @@ function SessionChecks({ root, sessionId }: { root: string; sessionId: string })
   return (
     <span className="w-checks" data-testid="checks-badges">
       <GateBadge outcome={worktree.gate.outcome} path={worktree.path} />
+      {worktree.insideTemp ? <TempBadge path={worktree.path} /> : null}
     </span>
   )
 }

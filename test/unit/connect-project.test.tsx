@@ -49,6 +49,33 @@ describe('the mode cards', () => {
   })
 })
 
+// worfy-windows ticket 61: a folder inside %TEMP% of Windows gets a warning on the Folder step, not an error.
+describe('the Folder step', () => {
+  const inTemp: ConnectFolder = { ...folder, root: 'C:/Users/a/AppData/Local/Temp/shop', insideTemp: true }
+
+  it('a folder inside %TEMP% shows the warning with its reason and advice, and the draft can still be written', async () => {
+    ipc.invoke.mockImplementation(() => new Promise(() => undefined))
+    render(<ConnectProject folder={inTemp} harnessHome="/h" onClose={() => undefined} onConnected={() => undefined} onPickAnother={() => undefined} onFirstRun={() => undefined} />)
+    const warning = screen.getByTestId('connect-temp-warning')
+    expect(warning.closest('section')?.getAttribute('aria-label')).toBe('Folder')
+    expect(warning.textContent).toContain('in %TEMP%')
+    expect(warning.textContent).toContain('Storage Sense may delete files from it')
+    expect(warning.textContent).toContain('Move the checkout to a folder outside %TEMP%')
+    expect(warning.querySelector('[data-status]')?.getAttribute('data-status')).toBe('working')
+    expect(screen.queryByTestId('connect-message')).toBeNull()
+    const write = screen.getByRole('button', { name: 'Write draft' }) as HTMLButtonElement
+    expect(write.disabled).toBe(false)
+    fireEvent.click(write)
+    await waitFor(() => expect(ipc.invoke.mock.calls.some(([channel, input]) => channel === 'projects.connect.draft' && (input as { root: string }).root === inTemp.root)).toBe(true))
+  })
+
+  it('a folder outside %TEMP% (no mark) shows no warning', () => {
+    open()
+    expect(screen.getByTestId('connect-folder').textContent).toBe('/repos/shop')
+    expect(screen.queryByTestId('connect-temp-warning')).toBeNull()
+  })
+})
+
 const NO_ORIGIN: GithubAccountsStep = { status: 'no-origin', reason: 'No GitHub origin: shop has no origin remote.' }
 
 /** The dialog in its form: the draft, the account step's answer, and the check that answer started. */
