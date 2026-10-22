@@ -57,10 +57,9 @@ function capture(scale: number, body: Box, zoom: number, scrollbar: number): Ima
 
 /**
  * The zooms of the e2e test; at 2 the frame runs past the window's bottom, so only its right and top
- * edges are read.
- * shortcut: no zoom 0.25 and no scale 1: there the outline and the page's line are under one device
- * pixel, and what the capture shows depends on how Chromium rasterises them, which `paint` does not
- * model; redo when a capture of the real window at those settings is at hand to model them on.
+ * edges are read. Zoom 0.25 and scale 1 are not drawn. There the outline and the page's line are under one device pixel, and what the capture shows
+ * depends on how Chromium rasterises them, which `paint` does not model:
+ * shortcut: no zoom 0.25 and no scale 1, redo when a real capture at those settings is at hand to model.
  */
 const ZOOMS: readonly { zoom: number; edges: readonly Edge[] }[] = [
   { zoom: 0.5, edges: ['left', 'right', 'top', 'bottom'] },
