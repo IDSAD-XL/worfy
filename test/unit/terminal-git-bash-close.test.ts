@@ -291,9 +291,11 @@ describe('TerminalRegistry on Windows: what the close of Git Bash asks of the he
     helper?: 'quiet' | 'gone' | 'rejects'
     /** kill() of the pty throws, and the pty reports no exit. */
     killThrows?: boolean
+    /** The clock of this process moves on by this many ms between the open and the close. */
+    clockMovesMs?: number
   }
 
-  async function closeWith(setting: 'git-bash' | 'powershell', failure: Failure = {}): Promise<{ shells: StartedShell[]; killsAtHelper: number[]; kills: number; ended: StartedShell[] }> {
+  async function closeWith(setting: 'git-bash' | 'powershell', failure: Failure = {}): Promise<{ shells: StartedShell[]; killsAtHelper: number[]; kills: number; ended: StartedShell[]; openedAt: number }> {
     const fake = fakePty(999_993_093)
     if (failure.killThrows === true) {
       fake.pty.kill = (signal) => {
@@ -323,9 +325,17 @@ describe('TerminalRegistry on Windows: what the close of Git Bash asks of the he
         fake.exit(1)
       },
     })
-    await registry.open('a', { ...OPEN, shell: () => setting }, {}, SINK)
-    await registry.close('a')
-    return { shells, killsAtHelper, kills: fake.kills.length, ended }
+    // Only Date is replaced: the timers of the registry run as they do.
+    if (failure.clockMovesMs !== undefined) vi.useFakeTimers({ toFake: ['Date'], now: 1_760_000_000_000 })
+    try {
+      const openedAt = Date.now()
+      await registry.open('a', { ...OPEN, shell: () => setting }, {}, SINK)
+      if (failure.clockMovesMs !== undefined) vi.setSystemTime(openedAt + failure.clockMovesMs)
+      await registry.close('a')
+      return { shells, killsAtHelper, kills: fake.kills.length, ended, openedAt }
+    } finally {
+      if (failure.clockMovesMs !== undefined) vi.useRealTimers()
+    }
   }
 
   it('Git Bash, the helper fails: the close still calls kill(), which ends the launcher it suspended', async () => {
@@ -347,6 +357,30 @@ describe('TerminalRegistry on Windows: what the close of Git Bash asks of the he
     expect(kills).toBe(1)
     expect(ended).toEqual(shells)
     expect(ended).toEqual([{ pid: 999_993_093, startedBy: expect.any(Number) as number, hangup: KILL }])
+  })
+
+  it('Git Bash, kill() throws: the launcher is ended by the moment it was started, not the moment of the close', async () => {
+    const { shells, ended, openedAt } = await closeWith('git-bash', { killThrows: true, clockMovesMs: 30_000 })
+    expect(ended.map((shell) => shell.startedBy)).toEqual([openedAt])
+    expect(shells.map((shell) => shell.startedBy)).toEqual([openedAt])
+  })
+
+  it('Git Bash that exited by itself, kill() throws: nothing is ended by its pid, as its launcher was never held', () => {
+    const fake = fakePty(999_993_094)
+    fake.pty.kill = (signal) => {
+      fake.kills.push(signal)
+      throw new Error('kill() failed (stand-in)')
+    }
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const ended: StartedShell[] = []
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => fake.pty, platform: 'win32', exists, endDescendants: () => undefined, endShell: (shell) => void ended.push(shell) })
+    return registry.open('a', { ...OPEN, shell: () => 'git-bash' }, {}, SINK).then(() => {
+      fake.exit(0)
+      // The exit releases the pty at once: kill() was asked, and it threw.
+      expect(fake.kills).toHaveLength(1)
+      expect(registry.hasExited('a')).toBe(true)
+      expect(ended).toEqual([])
+    })
   })
 
   it('PowerShell, kill() throws: nothing is ended by its pid, as before (the launcher of Git Bash alone is held)', async () => {

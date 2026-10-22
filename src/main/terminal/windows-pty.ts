@@ -22,8 +22,8 @@ export const SHELL_START_SLACK_MS = 100
  * How long the helper waits for the bash of Git Bash to exit after its SIGHUP before it ends what
  * is left. The wait ends as soon as bash exits; the whole of it is spent only by a bash that ignores
  * the signal (`trap '' HUP`) or is stuck. On the owner's PC bash exited 14–670 ms after the
- * signal (30 closes, most under 60 ms); 1000 ms is KILL_GRACE_MS of macOS and Linux, and keeps the
- * helper well inside DESCENDANTS_TIMEOUT_MS.
+ * signal (30 closes, most under 60 ms); 1000 ms is KILL_GRACE_MS of macOS and Linux. The helper of
+ * Git Bash gets it on top of DESCENDANTS_TIMEOUT_MS (HANGUP_TIMEOUT_MS).
  */
 export const HANGUP_GRACE_MS = 1000
 
