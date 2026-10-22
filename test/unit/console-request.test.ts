@@ -1,8 +1,9 @@
 // The request the console of Windows sends its terminal, taken out of the output of a shell and
 // answered by main (worfy-windows ticket 22, src/main/terminal/console-request.ts): the scanner by
 // itself, and the registry over a stand-in pty under the rules of each system.
+import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ConsoleRequests, DEVICE_ATTRIBUTES_ANSWER } from '../../src/main/terminal/console-request'
+import { ConsoleRequests, DEVICE_ATTRIBUTES_ANSWER, HOLD_LIMIT } from '../../src/main/terminal/console-request'
 import { HELD_OUTPUT_MS, TerminalRegistry, type PtyProcess, type TerminalSink } from '../../src/main/terminal/pty'
 
 const ESC = '\x1b'
@@ -78,7 +79,164 @@ describe('ConsoleRequests: the scanner', () => {
     expect(scanner.holds).toBe(false)
     expect(scanner.rest()).toBe('')
   })
+
+  // Review of PR #280 (ticket 42 of worfy-windows, item 1): a request inside the start of another
+  // stayed in the text, in one chunk as in two.
+  it('a request inside the start of another sequence is taken out, and the start is dropped as xterm.js drops it', async () => {
+    expect(fed(`${ESC}[${ESC}[cc`)).toEqual({ out: ['c'], requests: 1, rest: '' })
+    const cut = fed(`${ESC}[${ESC}[c`, 'c')
+    expect([cut.out.join(''), cut.requests, cut.rest]).toEqual(['c', 1, ''])
+    // xterm.js reads the original stream so: one answer, and the letter c on the screen.
+    expect(await xtermReads(`${ESC}[${ESC}[cc`)).toEqual({ answers: 1, line: 'c' })
+    expect(await xtermReads(cut.out.join(''))).toEqual({ answers: 0, line: 'c' })
+  })
+
+  // Review of PR #280 (item 1): forms xterm.js answers that the scanner did not know.
+  it.each([
+    ['ESC [ c', `${ESC}[c`],
+    ['ESC [ 0 c', `${ESC}[0c`],
+    ['ESC [ 0 0 c', `${ESC}[00c`],
+    ['ESC [ ; c', `${ESC}[;c`],
+    ['ESC [ 0 ; 0 c', `${ESC}[0;0c`],
+    ['ESC [ 0 ; 1 c', `${ESC}[0;1c`],
+    ['CSI c', '\x9bc'],
+    ['CSI 0 c', '\x9b0c'],
+    ['ESC [ CR c', `${ESC}[\rc`],
+    ['ESC CR [ c', `${ESC}\r[c`],
+    ['ESC [ 1 c', `${ESC}[1c`],
+    ['ESC [ > c', `${ESC}[>c`],
+    ['ESC [ = c', `${ESC}[=c`],
+    ['ESC [ ? c', `${ESC}[?c`],
+    ['ESC [ 0 > c', `${ESC}[0>c`],
+    ['ESC [ SP c', `${ESC}[ c`],
+    ['ESC [ CAN c', `${ESC}[${'\x18'}c`],
+    ['ESC [ 6 n', `${ESC}[6n`],
+  ])('%s: taken out exactly when xterm.js answers it with the device attributes', async (_name, form) => {
+    const asked = await xtermReads(`a${form}b`)
+    const read = fed(`a${form}b`)
+    expect(read.requests).toBe(asked.answers)
+    // What is left reads on a screen as the original does, without the answer.
+    expect(await xtermReads(read.out.join(''))).toEqual({ answers: 0, line: asked.line })
+  })
+
+  it('the forms that are requests are known as such cut at any point between two chunks', () => {
+    for (const form of [`${ESC}[00c`, `${ESC}[;c`, `${ESC}[0;0c`, '\x9bc', `${ESC}[\rc`]) {
+      for (let cut = 0; cut <= form.length; cut++) {
+        const read = fed(`one${form.slice(0, cut)}`, `${form.slice(cut)}two`)
+        expect([read.out.join(''), read.requests], JSON.stringify(form) + ' cut at ' + cut).toEqual([form.includes('\r') ? 'one\rtwo' : 'onetwo', 1])
+      }
+    }
+  })
+
+  it('a start given up as text before its end came (rest) ends on the screens with CAN, not with an answer, when it was a request', async () => {
+    const scanner = new ConsoleRequests()
+    expect(scanner.feed(`one${ESC}[`)).toEqual({ text: 'one', requests: 0 })
+    expect(scanner.rest()).toBe(`${ESC}[`)
+    expect(scanner.holds).toBe(false)
+    expect(scanner.feed('0')).toEqual({ text: '0', requests: 0 })
+    expect(scanner.feed('ctwo')).toEqual({ text: `${CAN}two`, requests: 1 })
+    expect(await xtermReads(`one${ESC}[0${CAN}two`)).toEqual({ answers: 0, line: 'onetwo' })
+    // What turned out no request goes on as the text it is.
+    expect(scanner.feed(`x${ESC}[`)).toEqual({ text: 'x', requests: 0 })
+    expect(scanner.rest()).toBe(`${ESC}[`)
+    expect(scanner.feed('32mgreen')).toEqual({ text: '32mgreen', requests: 0 })
+    // Another sequence that starts before the end: the one given out is ended with CAN first.
+    expect(scanner.feed(`y${ESC}`)).toEqual({ text: 'y', requests: 0 })
+    expect(scanner.rest()).toBe(ESC)
+    expect(scanner.feed(`[${ESC}[ctail`)).toEqual({ text: `[${CAN}tail`, requests: 1 })
+    expect(await xtermReads(`y${ESC}[${CAN}tail`)).toEqual({ answers: 0, line: 'ytail' })
+  })
+
+  it(`holds back no more than HOLD_LIMIT (${HOLD_LIMIT}) characters, and still knows the request past them`, () => {
+    const scanner = new ConsoleRequests()
+    const long = `${ESC}[${';'.repeat(HOLD_LIMIT)}`
+    const read = scanner.feed(long)
+    expect(read.text).toBe(long)
+    expect(scanner.holds).toBe(false)
+    expect(scanner.feed('c')).toEqual({ text: CAN, requests: 1 })
+  })
+
+  // The risk of item 1: the scanner is on the way of all the output of the shells of Windows. The
+  // review checked 20 000 random streams on the Mac; this is that check, with a fixed seed.
+  it('20 000 streams of the start of the console and of programs, cut at random: no loss, no repeat, no change of order', () => {
+    const random = seeded(42)
+    for (let stream = 0; stream < 20_000; stream++) {
+      const { tokens, expected, requests } = randomStream(random)
+      const chunks = cutAtRandom(tokens.join(''), random)
+      const read = fed(...chunks)
+      expect([read.out.join('') + read.rest, read.requests], `stream ${stream}: ${JSON.stringify(chunks)}`).toEqual([expected, requests])
+    }
+  })
 })
+
+const CAN = '\x18'
+
+/** What xterm.js makes of `data`: how many device attributes answers it gives, and the first line it shows. */
+async function xtermReads(data: string): Promise<{ answers: number; line: string }> {
+  const { Terminal } = createRequire(import.meta.url)('@xterm/headless') as typeof import('@xterm/headless')
+  const terminal = new Terminal({ cols: 80, rows: 5, allowProposedApi: true })
+  let answers = 0
+  terminal.onData((answer) => {
+    if (answer === DEVICE_ATTRIBUTES_ANSWER) answers += 1
+  })
+  await new Promise<void>((resolve) => terminal.write(data, resolve))
+  const line = terminal.buffer.active.getLine(0)?.translateToString(true) ?? ''
+  terminal.dispose()
+  return { answers, line }
+}
+
+/** A generator of numbers in [0, 1) that gives the same row for the same seed (mulberry32). */
+function seeded(seed: number): () => number {
+  let state = seed >>> 0
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0
+    let t = state
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/** Pieces of what a shell of Windows prints; the requests are the ones the scanner knew before ticket 42 as well. */
+const TOKENS: { text: string; shown: string; requests: number }[] = [
+  { text: AT_START, shown: WITHOUT_THE_REQUEST, requests: 1 },
+  { text: REQUEST, shown: '', requests: 1 },
+  { text: `${ESC}[0c`, shown: '', requests: 1 },
+  { text: 'PS C:\\p> ', shown: 'PS C:\\p> ', requests: 0 },
+  { text: `${ESC}[32mgreen${ESC}[0m`, shown: `${ESC}[32mgreen${ESC}[0m`, requests: 0 },
+  { text: `${ESC}[?25l${ESC}[?25h`, shown: `${ESC}[?25l${ESC}[?25h`, requests: 0 },
+  { text: `${ESC}]0;title\x07`, shown: `${ESC}]0;title\x07`, requests: 0 },
+  { text: `${ESC}[>c${ESC}[1c`, shown: `${ESC}[>c${ESC}[1c`, requests: 0 },
+  { text: 'cc\r\n', shown: 'cc\r\n', requests: 0 },
+  { text: ESC, shown: ESC, requests: 0 },
+]
+
+function randomStream(random: () => number): { tokens: string[]; expected: string; requests: number } {
+  const tokens: string[] = []
+  let expected = ''
+  let requests = 0
+  const count = 1 + Math.floor(random() * 12)
+  for (let index = 0; index < count; index++) {
+    let token = TOKENS[Math.floor(random() * TOKENS.length)] ?? TOKENS[0]!
+    // A lone ESC only at the very end: anywhere else it would start a sequence with the next piece.
+    if (token.text === ESC && index !== count - 1) token = TOKENS[3]!
+    tokens.push(token.text)
+    expected += token.shown
+    requests += token.requests
+  }
+  return { tokens, expected, requests }
+}
+
+function cutAtRandom(stream: string, random: () => number): string[] {
+  const chunks: string[] = []
+  let at = 0
+  while (at < stream.length) {
+    const size = 1 + Math.floor(random() * 8)
+    chunks.push(stream.slice(at, at + size))
+    at += size
+  }
+  return chunks
+}
 
 /** A pty that records what is written to it and prints what the test says. */
 function fakePty(pid: number) {
@@ -207,6 +365,80 @@ describe('TerminalRegistry on Windows and the request of the console', () => {
     const closing = registry.closeAll()
     await vi.advanceTimersByTimeAsync(10_000)
     await closing
+  })
+
+  // Review of PR #280 (item 1): a request cut in two with more than HELD_OUTPUT_MS between the
+  // pieces. Its start went out as text, the rest was not taken for a request, and every screen
+  // answered it — once more when the kept output was replayed.
+  it('a request whose second piece comes after the wait is answered by main, and the screens get CAN in place of its end', async () => {
+    vi.useFakeTimers()
+    const fake = fakePty(999_993_008)
+    const registry = windowsRegistry(fake)
+    const output: string[] = []
+    await registry.open('a', OPEN, {}, sink(output))
+    fake.print(`one${ESC}[`)
+    await vi.advanceTimersByTimeAsync(80)
+    expect(output).toEqual(['one', `${ESC}[`])
+    fake.print('ctwo')
+    expect(fake.written).toEqual([DEVICE_ATTRIBUTES_ANSWER])
+    expect(output.join('')).toBe(`one${ESC}[${CAN}two`)
+    const replay = (await registry.open('a', OPEN, {}, sink([]))).replay
+    expect(replay).toBe(output.join(''))
+    const closing = registry.closeAll()
+    await vi.advanceTimersByTimeAsync(10_000)
+    await closing
+    // xterm.js parses on a timer of its own.
+    vi.useRealTimers()
+    expect(await xtermReads(replay)).toEqual({ answers: 0, line: 'onetwo' })
+  })
+
+  it('each shell has a scanner of its own: the start of a request in one is not ended by the output of another', async () => {
+    const first = fakePty(999_993_009)
+    const second = fakePty(999_993_010)
+    const ptys = [first.pty, second.pty]
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const registry = new TerminalRegistry({ env: () => Promise.resolve({ ...WIN_ENV }), spawn: () => ptys.shift()!, platform: 'win32', endDescendants: () => undefined })
+    const outputs: [string[], string[]] = [[], []]
+    await registry.open('a', OPEN, {}, sink(outputs[0]))
+    await registry.open('b', OPEN, {}, sink(outputs[1]))
+    first.print(`one${ESC}[`)
+    second.print('cats')
+    expect([first.written, second.written]).toEqual([[], []])
+    expect(outputs).toEqual([['one'], ['cats']])
+    first.print('c')
+    expect(first.written).toEqual([DEVICE_ATTRIBUTES_ANSWER])
+    await registry.closeAll()
+  })
+
+  it('the answer goes to the console before the text of the same chunk goes to the screens', async () => {
+    const fake = fakePty(999_993_012)
+    const registry = windowsRegistry(fake)
+    const told: string[] = []
+    fake.pty.write = (data) => void told.push(`pty ${JSON.stringify(data)}`)
+    await registry.open('a', OPEN, {}, { ...sink([]), output: (data) => void told.push(`screen ${JSON.stringify(data)}`) })
+    fake.print(`${REQUEST}PS> `)
+    expect(told).toEqual([`pty ${JSON.stringify(DEVICE_ATTRIBUTES_ANSWER)}`, 'screen "PS> "'])
+    await registry.closeAll()
+  })
+
+  // The same check as the scanner's, through the registry: two screens and the kept output.
+  it('200 random streams through the registry: both screens and the kept output get the same bytes, in order, and every request is answered once', async () => {
+    const random = seeded(7)
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    for (let stream = 0; stream < 200; stream++) {
+      const fake = fakePty(999_993_100 + stream)
+      const registry = new TerminalRegistry({ env: () => Promise.resolve({ ...WIN_ENV }), spawn: () => fake.pty, platform: 'win32', endDescendants: () => undefined })
+      const screens: [string[], string[]] = [[], []]
+      await registry.open('a', OPEN, {}, sink(screens[0]))
+      await registry.open('a', OPEN, {}, sink(screens[1]))
+      const { tokens, expected, requests } = randomStream(random)
+      // Without the lone ESC at the end: what is held back at the end is the subject of another test.
+      const text = tokens.join('').replace(/\x1b$/, '')
+      for (const chunk of cutAtRandom(text, random)) fake.print(chunk)
+      const kept = (await registry.open('a', OPEN, {}, sink([]))).replay
+      expect([screens[0].join(''), screens[1].join(''), kept, fake.written.length], `stream ${stream}`).toEqual([expected.replace(/\x1b$/, ''), expected.replace(/\x1b$/, ''), expected.replace(/\x1b$/, ''), requests])
+      await registry.closeAll()
+    }
   })
 
   it('what is held back when the shell exits is kept with the rest of its output', async () => {
