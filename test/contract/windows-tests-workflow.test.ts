@@ -163,7 +163,7 @@ describe('.github/workflows/windows-tests.yml', () => {
   })
 
   it('installs pnpm with corepack from a tarball pinned by its sha512, not with pnpm/action-setup', () => {
-    // pnpm/action-setup runs `npm install pnpm`, and npm's audit request hung for 3 to 7 minutes in
+    // pnpm/action-setup runs `npm ci` for a bootstrap pnpm, and npm's audit request hung for 3 to 7 minutes in
     // runs of 2026-10-22: the setup ate the 10-minute limit. Corepack checks the tarball against the
     // hash in "packageManager"; without the hash it asks the registry for the version's metadata
     // first, a request that can hang the same way.
