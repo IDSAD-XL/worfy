@@ -22,6 +22,11 @@ const electron = vi.hoisted(() => ({
    * tests of the dev server load set it to false.
    */
   isPackaged: true,
+  /**
+   * app.isReady(): false until whenReady() is called, as before Electron's `ready`. A failure
+   * after it exits on a later turn of the event loop (exitWithFailure, worfy-windows ticket 95).
+   */
+  ready: false,
 }))
 
 vi.mock('electron', () => {
@@ -62,7 +67,11 @@ vi.mock('electron', () => {
       // On Windows the start sets the AppUserModelId (worfy-windows ticket 11).
       setAppUserModelId: vi.fn(),
       getPath: () => DATA_DIR,
-      whenReady: () => Promise.resolve(),
+      isReady: () => electron.ready,
+      whenReady: () => {
+        electron.ready = true
+        return Promise.resolve()
+      },
       getVersion: () => '1.2.3',
     },
     Menu: { buildFromTemplate: (template: unknown) => ({ template }), setApplicationMenu: vi.fn() },
@@ -98,6 +107,7 @@ beforeEach(() => {
   electron.destroyed = false
   electron.startNavigation = () => undefined
   electron.isPackaged = true
+  electron.ready = false
   unhandled.length = 0
   process.on('unhandledRejection', onUnhandled)
   vi.stubEnv('WORFY_DATA_DIR', DATA_DIR)
@@ -189,6 +199,50 @@ describe('reportStartupFailure', () => {
     expect(electron.exit).toHaveBeenCalledTimes(1)
   })
 
+  it('before ready (the data folder check) exits at once, with code 1', async () => {
+    const { reportStartupFailure } = await load()
+    reportStartupFailure(new Error('ENOTDIR'), 'checkDataFolder')
+    expect(electron.exit).toHaveBeenCalledTimes(1)
+    expect(electron.exit).toHaveBeenCalledWith(1)
+  })
+
+  it('after ready exits with code 1 on a later turn of the event loop, not from the failing callback', async () => {
+    vi.stubEnv('WORFY_STARTUP_DIALOG', 'off')
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    vi.useFakeTimers()
+    try {
+      electron.ready = true
+      const { reportStartupFailure } = await load()
+      reportStartupFailure(new Error('ELECTRON_RENDERER_URL is not an http(s) URL'), 'loadURL')
+      // The text and the refusal of the window come at once; only the exit waits.
+      expect(stderr.mock.calls.map((call) => call.join(' ')).join('\n')).toContain('Step: loadURL (loading the window from the dev server) failed.')
+      expect(electron.showErrorBox).not.toHaveBeenCalled()
+      expect(electron.exit).not.toHaveBeenCalled()
+      await Promise.resolve()
+      expect(electron.exit).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(electron.exit).toHaveBeenCalledTimes(1)
+      expect(electron.exit).toHaveBeenCalledWith(1)
+      // A second failure before that turn neither exits again nor schedules a second exit.
+      reportStartupFailure(new Error('second'), 'loadFile')
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(electron.exit).toHaveBeenCalledTimes(1)
+    } finally {
+      stderr.mockRestore()
+    }
+  })
+
+  it('after ready with the window on, the window comes first and the exit after it', async () => {
+    vi.useFakeTimers()
+    electron.ready = true
+    const { reportStartupFailure } = await load()
+    reportStartupFailure(new Error('boom'), 'loadFile')
+    expect(electron.showErrorBox).toHaveBeenCalledTimes(1)
+    expect(electron.exit).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(electron.exit).toHaveBeenCalledWith(1)
+  })
+
   it('writes the text with the step to stderr, also when the window is turned off', async () => {
     vi.stubEnv('WORFY_STARTUP_DIALOG', 'off')
     const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined)
@@ -261,6 +315,9 @@ describe('the start in src/main/index.ts', () => {
       // Windows, more than waitFor's default of 1 s. A start still running after a timed-out test
       // would show its window in the next one.
       await vi.waitFor(() => expect(electron.showErrorBox).toHaveBeenCalled(), { timeout: 10_000 })
+      // After ready the exit comes on a later turn of the event loop (exitWithFailure): waited for
+      // here, so it never lands in the next test.
+      await vi.waitFor(() => expect(electron.exit).toHaveBeenCalled())
       return shownWindow().text
     } finally {
       for (const path of Object.keys(mocks)) vi.doUnmock(path)
@@ -281,7 +338,7 @@ describe('the start in src/main/index.ts', () => {
     })
     expect(text).toContain('Step: registerIpc')
     expect(text).toContain('channel app.version handled twice')
-    expect(electron.exit).toHaveBeenCalledWith(1)
+    await vi.waitFor(() => expect(electron.exit).toHaveBeenCalledWith(1))
   })
 
   it('an installWebPolicy that throws is named in the window', async () => {
@@ -310,12 +367,21 @@ describe('the start in src/main/index.ts', () => {
     vi.stubEnv('ELECTRON_RENDERER_URL', 'not a url')
     const { ipcMain } = await import('electron')
     vi.mocked(ipcMain.handle).mockClear()
+    // How many exits had come by the end of the job that showed the window: the failure comes from
+    // a promise callback of `ready`, before Electron's main message loop runs, and an app.exit(1)
+    // there leaves the network utility process behind (worfy-windows ticket 95).
+    let exitsInTheSameJob: number | undefined
+    electron.showErrorBox.mockImplementationOnce(() => {
+      queueMicrotask(() => (exitsInTheSameJob = electron.exit.mock.calls.length))
+    })
     const text = await start({})
     expect(text).toContain('Step: loadURL (loading the window from the dev server) failed.')
     expect(text).toContain('ELECTRON_RENDERER_URL is not an http(s) URL: "not a url"')
     expect(ipcMain.handle).not.toHaveBeenCalled()
     expect(unhandled).toEqual([])
-    expect(electron.exit).toHaveBeenCalledWith(1)
+    expect(exitsInTheSameJob).toBe(0)
+    await vi.waitFor(() => expect(electron.exit).toHaveBeenCalledWith(1))
+    expect(electron.exit).toHaveBeenCalledTimes(1)
   })
 
   it('a packaged app ignores an ELECTRON_RENDERER_URL that is not a URL and starts', async () => {

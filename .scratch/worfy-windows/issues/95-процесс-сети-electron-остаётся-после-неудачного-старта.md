@@ -137,3 +137,49 @@ sleep 5; ps -axo pid,ppid,lstart,command | grep -F "$D" | grep -v grep
 - Почему именно процесс сети не узнаёт о смерти родителя — исходники Electron и Chromium не разбирались.
 
 ## Итог
+
+2026-10-22, ветка `worfy-windows/95` (Session на Windows-ПК; пауза владельца на окна и фокус — Electron не
+запускался ни разу).
+
+**Причина (по исходникам Electron, ветка `main` на GitHub; что в 44.5.1 то же — не сверено).** Вне macOS Electron
+шлёт `ready` изнутри `ElectronBrowserMainParts::PreMainMessageLoopRun`, до того как пошёл главный цикл сообщений;
+`exit_code_` заводится только в `WillRunMainMessageLoop`. Пока его нет, `Browser::ExitWithCode` не может задать код
+и зовёт C-шный `exit(code)` сразу — без упорядоченного завершения Chromium, и процесс сети, который в этот момент
+запускается, переживает главный. Шаг `loadURL` проваливается в promise-callback-е `whenReady()`, то есть ровно в
+этом окне. `app.quit()` в то же время не оставляет сироту, потому что `Browser::Shutdown` ждёт замыкания выхода из
+цикла («exiting now would leave defunct processes behind»), а `app.exit(1)` через 200 ms — потому что цикл уже идёт.
+Это объясняет все строки таблицы замера; на macOS `ready` приходит изнутри цикла, и случая там быть не должно.
+
+**Выбор.** Из вариантов тикета: `app.quit()` + код 1 отпал — `quit` срабатывает внутри того же раннего
+`Shutdown`, и `app.exit(1)` из него снова попал бы в C-шный `exit()`; кроме того, `before-quit` / `will-quit`
+написаны для запущенного приложения. Снятие детей через `app.getAppMetrics()` ненадёжно: процесс, который ещё
+запускается, может в метриках не появиться. Сделано: `app.exit(1)` после `ready` — в таймере (`setTimeout(…, 0)`),
+до `ready` — сразу, как было (`src/main/startup-failure.ts`, `exitWithFailure`). Это не пауза по времени, а порядок:
+после `ready` Node в Electron гоняет таймеры только из задач главного цикла (`NodeBindings::UvRunOnce` через
+`PostTask`; синхронный `UvRunOnce` из `StartPolling` идёт раньше `DidFinishLaunching`). Код выхода 1, текст stderr,
+отказ от окна при `WORFY_STARTUP_DIALOG=off` и обход `before-quit` / `will-quit` — прежние.
+
+**Test-ы.** `test/contract/startup-failure.test.ts`: у mock-а `app` появились `isReady()` (true после
+`whenReady()`); новые test-ы — до `ready` выход сразу; после `ready` выход не из того же callback-а и не из
+microtask, а на следующем ходу цикла, один раз, с кодом 1; окно — до выхода; в старте `src/main/index.ts` шаг
+`loadURL` не выходит в том же job-е. 38 из 38, три прогона подряд. Mutant-ы `exitWithFailure`: старый голый
+`app.exit(1)` — 3 красных; всегда отложенный (и до `ready`) — 14; отложенный microtask-ом — 1; отложенный с кодом 0 —
+4. `test/e2e/packaged.spec.ts`, test «with an ELECTRON_RENDERER_URL that is not a URL stops with exit code 1»: через
+5 s после выхода главного нет процесса с `--user-data-dir` и папкой данных запуска (helper `processesWith` в
+`test/e2e/helpers.ts`: Windows — `Get-CimInstance Win32_Process`, macOS — `ps -axo pid=,command=`); найденные
+снимаются в `finally`. Lint и typecheck — код 0.
+
+**Скрипт замера** на потом: `C:\Users\Alexey\AppData\Local\Temp\wt95-verify.ps1` (10 dev-запусков, временные
+профиль и папки, код выхода и живые через 5 s, снимает только записанные им процессы по pid, времени создания и
+командной строке). Только разобран парсером PowerShell, не запускался.
+
+**«Готово, когда» — что не проверено и почему:**
+
+- [ ] e2e-проверка процессов в `packaged.spec.ts` — написана, не запускалась: нужен запуск Electron (пауза на
+  окна и фокус). Красный на main и зелёный в 10 запусках подряд (`--repeat-each 10`) не показаны;
+  `windows-tests.yml` e2e не гоняет.
+- [ ] Код выхода 1, stderr и отказ без окна — проверены только contract-test-ами с mock-ом `app`; e2e test `:790`
+  (в тикете — `:662`) с правкой не запускался.
+- [ ] Полный `pnpm test:e2e` на ПК без сироты — не запускался (пауза, и полный e2e не дело implementer-а).
+- [ ] macOS — не проверено: нужен Mac («Mac checks» и test `packaged.spec.ts`).
+- Что поведение Electron 44.5.1 совпадает с `main` на GitHub, — чтение, не сверка с исходником 44.5.1.

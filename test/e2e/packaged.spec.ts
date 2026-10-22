@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { BUILD_VERSION, buildVersion } from '../../scripts/build-version'
-import { launchApp, type LaunchedApp, NO_WINDOW_RESTORE, packagedBuild, packagedExecutable as executableOf, packagedResources as resourcesOf, repoRoot } from './helpers'
+import { launchApp, type LaunchedApp, type ListedProcess, NO_WINDOW_RESTORE, packagedBuild, packagedExecutable as executableOf, packagedResources as resourcesOf, processesWith, repoRoot } from './helpers'
 import { DIRECT_START_PROFILE, directStartEnv } from './launch-env'
 import { profileVars, WINDOWS, windowsProfileEnv } from './terminal-shell'
 import { catScript } from '../harness-node'
@@ -109,6 +109,9 @@ function icoImages(file: string): Buffer[] {
 const QUITS_WITH_LAST_WINDOW = process.platform !== 'darwin'
 
 /** Waits for a process to exit; past the deadline it is killed, and its exit is still awaited. */
+/** The processes Chromium started for the run over `dataDir`: their command line names it as --user-data-dir. */
+const childrenOfRun = (dataDir: string): ListedProcess[] => processesWith(dataDir).filter((listed) => listed.commandLine.includes('--user-data-dir='))
+
 async function exitWithin(child: ChildProcess, ms: number): Promise<{ exited: boolean; code: number | null }> {
   if (child.exitCode !== null || child.signalCode !== null) return { exited: true, code: child.exitCode }
   const exit = new Promise<number | null>((done) => child.once('exit', (code) => done(code)))
@@ -786,8 +789,9 @@ test.describe('dev run of the unpacked build', () => {
   // URL fails the start with the error window's text, not with an unhandled exception.
   test('with an ELECTRON_RENDERER_URL that is not a URL stops with exit code 1 and names step loadURL', async () => {
     const root = await mkdtemp(join(tmpdir(), 'worfy-bad-renderer-url-'))
+    const dataDir = join(root, 'data')
     const env = directStartEnv({
-      dataDir: join(root, 'data'),
+      dataDir,
       claudeHome: root,
       // The native error window is modal and would hold the process until someone dismisses it.
       env: { ELECTRON_RENDERER_URL: 'not a url', WORFY_STARTUP_DIALOG: 'off' },
@@ -808,7 +812,21 @@ test.describe('dev run of the unpacked build', () => {
       expect(stderr).toContain('Step: loadURL (loading the window from the dev server) failed.')
       expect(stderr).toContain('ELECTRON_RENDERER_URL is not an http(s) URL: "not a url"')
       expect(stderr).not.toContain('Uncaught Exception')
+      // No child of Chromium outlives the main process (worfy-windows ticket 95): an app.exit(1)
+      // made before Electron's main message loop runs left the network utility process alive on
+      // Windows. Each child carries the run's data folder as --user-data-dir (quoted on Windows).
+      await new Promise((done) => setTimeout(done, 5_000))
+      expect(childrenOfRun(dataDir), 'processes of this run alive 5 s after the main process exited').toEqual([])
     } finally {
+      // Only the processes of this run's data folder (a fresh temporary one); a failed run must not
+      // leave them for the next test.
+      for (const { pid } of childrenOfRun(dataDir)) {
+        try {
+          process.kill(pid)
+        } catch {
+          // Already gone.
+        }
+      }
       await removeDir(root)
     }
   })
