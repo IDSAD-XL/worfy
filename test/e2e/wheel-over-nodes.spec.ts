@@ -323,8 +323,17 @@ test('Esc ends the activity of HANDOFF and Note but not of a Terminal; a click o
 
 test('a Terminal running a program in the alternate screen gets no arrow keys from the wheel until it is active', async () => {
   const window = await start()
+  // Fewer rows than the 24 xterm.js is made with, on every system: an alternate screen that kept the
+  // room for 24 would scroll under the wheel instead of sending arrow keys (terminal-alt-buffer.ts).
+  expect((await invoke(window, 'layout.apply', { projectId: PROJECT, op: { op: 'resize', id: 'term', w: 560, h: 240 } })).ok).toBe(true)
+  const rows = () => terminalRows(window).locator(':scope > div').count()
+  await expect.poll(rows).toBeLessThan(20)
+  expect(await rows()).toBeGreaterThan(5)
+  // Git Bash on the console of Windows sometimes loses the first key typed after a resize of its pty
+  // (measured with node-pty on 2026-10-22, also 600 ms after the resize). The command starts with a
+  // space, which the shell ignores whether it arrives or not.
   await clickOn(window, terminalScreen(window))
-  await window.keyboard.type("printf '\\033[?1049h'; cat -v")
+  await window.keyboard.type(" printf '\\033[?1049h'; cat -v")
   await window.keyboard.press('Enter')
   // In the alternate screen the earlier output is gone.
   await expect.poll(() => terminalRows(window).innerText(), { timeout: 10_000 }).not.toMatch(/\b200\b/)
@@ -334,15 +343,20 @@ test('a Terminal running a program in the alternate screen gets no arrow keys fr
   await expectCanvasMoves(window, terminalScreen(window), -NOTCH)
   await expectCanvasMoves(window, terminalScreen(window), NOTCH)
 
-  // Typed once the Terminal is active, a mark reaches the program after anything the wheel sent it
-  // before: by the time cat echoes the mark, it has echoed every arrow key, and there is none.
+  // Typed once the Terminal is active, a line with a mark reaches the program after anything the
+  // wheel sent it before: cat -v prints the line it reads, every arrow key in it as `^[[A`, so once
+  // the mark is on the screen twice (the echo and cat's copy) there is no arrow key in it. The
+  // test reads cat's copy, not the echo: the echo shows `^[[A` on macOS (echoctl), but the console
+  // of Windows echoes ESC[A as it is, and xterm.js moves the cursor up instead of printing it.
   await clickOn(window, terminalScreen(window))
   await expectActive(window, 'term')
   await window.keyboard.type('MARK')
-  await expect.poll(() => terminalRows(window).innerText(), { timeout: 5_000 }).toContain('MARK')
+  await window.keyboard.press('Enter')
+  await expect.poll(async () => (await terminalRows(window).innerText()).split('MARK').length - 1, { timeout: 5_000 }).toBeGreaterThanOrEqual(2)
   expect(await terminalRows(window).innerText()).not.toMatch(/\^\[\[[AB]/)
 
   await wheelOver(window, terminalScreen(window), -NOTCH)
+  await window.keyboard.press('Enter')
   await expect.poll(() => terminalRows(window).innerText(), { timeout: 5_000 }).toMatch(/\^\[\[A/)
   await window.keyboard.press('Control+C')
 })
