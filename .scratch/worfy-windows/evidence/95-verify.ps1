@@ -28,7 +28,7 @@ foreach ($needed in @($electron, $ghStub, $mainEntry)) {
   if (-not (Test-Path -LiteralPath $needed)) { throw "missing $needed (run pnpm install and pnpm build in $Repo first)" }
 }
 
-$games = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '^(cod|payday)' }
+$games = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '^(cod|payday.*)$' }
 if ($games) { throw "a game is running ($($games.ProcessName -join ', ')): not starting Electron" }
 
 # The owner's shell histories must not change (read only: size and SHA256, before and after).
