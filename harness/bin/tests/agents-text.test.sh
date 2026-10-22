@@ -106,13 +106,28 @@ has reviewer '<commands.verify>; echo "EXIT=$?"' && ok "reviewer: verify prints 
 
 # --- 5. JSON report of the implementer and its steps 1-6 --------------------------------------
 awk '/^## Report/{r=1} r && /^```json$/{j=1; next} j && /^```$/{exit} j' "$AGENTS/implementer.md" >"$T/report.json"
-want='["branch","claims","commands","files_changed","not_verified","out_of_scope","pr","removed","ticket","worktree"]'
+want='["branch","claims","commands","files_changed","not_verified","out_of_scope","pr","removed","sign_in_needed","ticket","worktree"]'
 got="$(jq -c 'keys' "$T/report.json" 2>&1)"
-[ "$got" = "$want" ] && ok "implementer: JSON report example parses with jq and has the ten keys" \
+[ "$got" = "$want" ] && ok "implementer: JSON report example parses with jq and has the eleven keys" \
     || bad "implementer: JSON report example: got [$got] want [$want]"
 got="$(jq -c '[(.commands[0] | keys), (.claims[0] | keys)]' "$T/report.json" 2>&1)"
 [ "$got" = '[["cmd","exit_code"],["evidence","text"]]' ] && ok "implementer: commands[] and claims[] keep their keys" \
     || bad "implementer: commands[]/claims[] keys: [$got]"
+# Browser checks: the field sign_in_needed holds entries in exactly two forms, the ones the
+# worfy-browser server and its instructions name (worfy checks its side in its own tests); the wave
+# report copies them as "<NN>: <entry>"; the brief's line "Browser roles" comes from the ticket's
+# Roles: field.
+NEEDED='sign-in needed as <role>'
+EXPIRED='sign-in expired in Browser profile <name>'
+got="$(jq -c '.sign_in_needed' "$T/report.json" 2>&1)"
+[ "$got" = "[\"$NEEDED\",\"$EXPIRED\"]" ] && ok "implementer: sign_in_needed shows its two forms" \
+    || bad "implementer: sign_in_needed example: [$got]"
+for f in "$NEEDED" "$EXPIRED" 'Sign-in expired in Browser profile "<name>"' '`Browser roles`' 'never sign in yourself'; do
+    flat_has "$AGENTS/implementer.md" "$f" && ok "implementer: Browser checks name '$f'" || bad "implementer: Browser checks lack '$f'"
+done
+for f in "\`<NN>: $NEEDED\`" "\`<NN>: $EXPIRED\`" 'Browser roles: <the ticket'"'"'s Roles: line> | Default' '`Roles: admin, user`' 'Never infer'; do
+    flat_has "$EW_REF" "$f" && ok "epic-wave: Browser checks name '$f'" || bad "epic-wave: Browser checks lack '$f'"
+done
 steps="$(awk '/^## Order/{o=1; next} o && /^## /{exit} o && /^[1-6]\. /{print substr($0,1,2)}' "$AGENTS/implementer.md" | tr -d '\n')"
 [ "$steps" = "1.2.3.4.5.6." ] && ok "implementer: steps 1. to 6. in section Order" || bad "implementer: steps in Order: [$steps]"
 

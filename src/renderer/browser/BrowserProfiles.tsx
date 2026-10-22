@@ -1,6 +1,6 @@
 // The window «Browser profiles…» (worfy-browser ticket 03, the owner's decision 1): the Browser
-// profiles of one Project — create, rename, delete, the list of origins and the flag «Available to
-// Autopilot». It opens from the profile's name in a Browser frame's header, and from «Choose a
+// profiles of one Project — create, rename, delete, the list of origins, the sign-in page and the
+// flag «Available to Autopilot». It opens from the profile's name in a Browser frame's header, and from «Choose a
 // profile». The profiles live in main (src/main/browser/profiles.ts); only the user changes them,
 // and only here.
 //
@@ -9,7 +9,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore, type InternalNode, type ReactFlowState } from '@xyflow/react'
-import { readOrigins, type BrowserProfile } from '../../shared/browser/profiles'
+import { readOrigins, readSignIn, type BrowserProfile } from '../../shared/browser/profiles'
 import { BROWSER_KIND, browserProfileUsage } from '../canvas/nodes/browser-frame'
 import type { CanvasFlowNode } from '../canvas/nodes'
 import { invoke } from '../ipc'
@@ -112,25 +112,29 @@ function usageKey(profiles: readonly BrowserProfile[] | undefined): (state: Reac
 
 const browsers = (count: number): string => (count === 1 ? '1 Browser' : `${count} Browsers`)
 
-/** The editor of one profile: its name, origins and flag, Save, and Delete with its question. */
+/** The editor of one profile: its name, origins, sign-in page and flag, Save, and Delete with its question. */
 function ProfileEditor({ projectId, profile, usedBy, readOnly, onDeleted }: { projectId: string; profile: BrowserProfile; usedBy: number; readOnly: string | null; onDeleted: () => void }) {
   const [name, setName] = useState(profile.name)
   const [originsText, setOriginsText] = useState(profile.origins.join('\n'))
   const [autopilot, setAutopilot] = useState(profile.autopilot)
+  const [signInText, setSignInText] = useState(profile.signIn ?? '')
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string>()
   const nameId = useId()
   const originsId = useId()
+  const signInId = useId()
   const { origins, error } = readOrigins(originsText.split('\n'))
+  // Read against the origins as typed now: main refuses a sign-in page off the origins it keeps.
+  const signIn = readSignIn(signInText, origins)
   const nameError = name.trim() === '' ? 'A Browser profile needs a name' : undefined
-  const changed = name.trim() !== profile.name || origins.join('\n') !== profile.origins.join('\n') || autopilot !== profile.autopilot
+  const changed = name.trim() !== profile.name || origins.join('\n') !== profile.origins.join('\n') || autopilot !== profile.autopilot || (signIn.signIn ?? '') !== (profile.signIn ?? '')
   const locked = readOnly !== null || busy
 
   const save = async (): Promise<void> => {
-    if (locked || error !== undefined || nameError !== undefined || !changed) return
+    if (locked || error !== undefined || signIn.error !== undefined || nameError !== undefined || !changed) return
     setBusy(true)
-    const result = await invoke('browser.profiles.update', { projectId, id: profile.id, name: name.trim(), origins, autopilot })
+    const result = await invoke('browser.profiles.update', { projectId, id: profile.id, name: name.trim(), origins, autopilot, signIn: signIn.signIn ?? '' })
     setBusy(false)
     setFailure(result.ok ? undefined : result.error)
   }
@@ -191,6 +195,31 @@ function ProfileEditor({ projectId, profile, usedBy, readOnly, onDeleted }: { pr
           <span style={styles.muted}>One per line, exactly scheme://host:port. The sites a Session may take this Browser profile to; empty is allowed.</span>
         )}
       </div>
+      <div style={styles.field}>
+        <label htmlFor={signInId} style={styles.label}>
+          Sign-in page
+        </label>
+        <input
+          id={signInId}
+          type="text"
+          style={styles.input}
+          value={signInText}
+          spellCheck={false}
+          autoComplete="off"
+          placeholder="http://localhost:3000/login"
+          readOnly={readOnly !== null}
+          aria-invalid={signIn.error !== undefined}
+          data-testid="browser-profile-sign-in"
+          onChange={(event) => setSignInText(event.target.value)}
+        />
+        {signIn.error ? (
+          <span role="alert" style={styles.error} data-testid="browser-profile-sign-in-error">
+            {signIn.error}
+          </span>
+        ) : (
+          <span style={styles.muted}>Where the site sends a visitor who is not signed in. A Session that lands there, or gets 401, is told the sign-in expired; it never signs in.</span>
+        )}
+      </div>
       <label style={styles.check}>
         <input type="checkbox" checked={autopilot} disabled={readOnly !== null} data-testid="browser-profile-autopilot" onChange={(event) => setAutopilot(event.target.checked)} />
         Available to Autopilot
@@ -205,7 +234,7 @@ function ProfileEditor({ projectId, profile, usedBy, readOnly, onDeleted }: { pr
           Delete…
         </button>
         <span style={{ flex: 1 }} />
-        <PrimaryButton disabled={locked || !changed || error !== undefined || nameError !== undefined} onClick={() => void save()}>
+        <PrimaryButton disabled={locked || !changed || error !== undefined || signIn.error !== undefined || nameError !== undefined} onClick={() => void save()}>
           Save
         </PrimaryButton>
       </div>
@@ -342,7 +371,7 @@ export function BrowserProfiles({ project, selected, onClose }: BrowserProfilesP
 
         {shown !== undefined ? (
           <ProfileEditor
-            key={`${shown.id} ${shown.name} ${shown.origins.join(' ')} ${String(shown.autopilot)}`}
+            key={`${shown.id} ${shown.name} ${shown.origins.join(' ')} ${String(shown.autopilot)} ${shown.signIn ?? ''}`}
             projectId={project.id}
             profile={shown}
             usedBy={usage[shown.id] ?? 0}

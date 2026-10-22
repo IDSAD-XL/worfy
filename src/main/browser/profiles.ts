@@ -1,7 +1,8 @@
 // The Browser profiles of each Project (ADR-0078 item 5, worfy-browser ticket 03):
 // browser-profiles.json in the Project's data folder on this Machine (ProjectStore.dataDir), never in
 // its repository (ADR-0005). A profile is an id, a name, the origins a Session may take it to
-// (ticket 04 checks them) and the flag «available to Autopilot» (ticket 08 reads it). Each one has
+// (ticket 04 checks them), the flag «available to Autopilot» and the page of its site's sign-in form
+// (ticket 08 reads both). Each one has
 // its own `persist:` partition, named by its id (src/shared/browser/partition.ts), so renaming one
 // keeps its logins, and deleting one erases them.
 //
@@ -13,7 +14,7 @@ import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import type { WebContents } from 'electron'
 import { browserPartition, browserPartitions, DEFAULT_BROWSER_PROFILE } from '../../shared/browser/partition'
-import { browserProfilesFileSchema, defaultBrowserProfile, readOrigins, type BrowserProfile } from '../../shared/browser/profiles'
+import { browserProfilesFileSchema, defaultBrowserProfile, readOrigins, readSignIn, type BrowserProfile } from '../../shared/browser/profiles'
 import { projectStore } from '../projects/store'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 
@@ -32,6 +33,8 @@ export interface BrowserProfileInput {
   name: string
   origins?: readonly string[] | undefined
   autopilot?: boolean | undefined
+  /** The sign-in page as typed: on one of the profile's origins; empty — none. */
+  signIn?: string | undefined
 }
 
 export type BrowserProfileChange = Partial<BrowserProfileInput>
@@ -53,6 +56,18 @@ function originsOf(typed: readonly string[]): string[] {
   const { origins, error } = readOrigins(typed)
   if (error !== undefined) throw new Error(error)
   return origins
+}
+
+/** The sign-in page as the user typed it, on one of `origins` (readSignIn); throws saying why it is not one. */
+function signInOf(typed: string, origins: readonly string[]): string | undefined {
+  const { signIn, error } = readSignIn(typed, origins)
+  if (error !== undefined) throw new Error(error)
+  return signIn
+}
+
+/** `profile` with its sign-in page, or without the field when it has none. */
+function withSignIn(profile: Omit<BrowserProfile, 'signIn'>, signIn: string | undefined): BrowserProfile {
+  return signIn === undefined ? profile : { ...profile, signIn }
 }
 
 export class BrowserProfileStore {
@@ -97,24 +112,25 @@ export class BrowserProfileStore {
     let id: string
     do id = `${slugOf(name)}-${(this.deps.randomHex ?? (() => randomBytes(3).toString('hex')))()}`
     while (taken.has(id) || id === DEFAULT_BROWSER_PROFILE)
-    const profile: BrowserProfile = { id, name, origins: originsOf(input.origins ?? []), autopilot: input.autopilot ?? false }
+    const origins = originsOf(input.origins ?? [])
+    const profile = withSignIn({ id, name, origins, autopilot: input.autopilot ?? false }, signInOf(input.signIn ?? '', origins))
     this.write(projectId, [...profiles, profile])
     return profile
   }
 
-  /** Renames profile `id` or changes its origins or flag; its id, and so its partition, stay. */
+  /**
+   * Renames profile `id` or changes its origins, flag or sign-in page; its id, and so its partition,
+   * stay. The sign-in page kept must be on the origins kept: a change of origins that leaves it off
+   * them is refused, as is a page typed off them; an empty one clears it.
+   */
   update(projectId: string, id: string, change: BrowserProfileChange): BrowserProfile {
     const profiles = this.list(projectId)
     const current = profiles.find((profile) => profile.id === id)
     if (current === undefined) throw new Error(`no Browser profile ${id} in this Project`)
     const name = change.name === undefined ? current.name : change.name.trim()
     this.refuseTakenName(profiles, name, id)
-    const next: BrowserProfile = {
-      id,
-      name,
-      origins: change.origins === undefined ? current.origins : originsOf(change.origins),
-      autopilot: change.autopilot ?? current.autopilot,
-    }
+    const origins = change.origins === undefined ? current.origins : originsOf(change.origins)
+    const next = withSignIn({ id, name, origins, autopilot: change.autopilot ?? current.autopilot }, signInOf(change.signIn ?? current.signIn ?? '', origins))
     this.write(
       projectId,
       profiles.map((profile) => (profile.id === id ? next : profile)),

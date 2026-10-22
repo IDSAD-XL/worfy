@@ -60,6 +60,29 @@ export const browserOriginSchema = z.string().refine((value) => {
   return 'origin' in parsed && parsed.origin === value
 }, 'an origin is scheme://host:port, http or https, as the browser writes it')
 
+/** The longest sign-in page address. */
+export const BROWSER_SIGN_IN_MAX = 2000
+
+/** Whether `value` is an http or https address. */
+const isWebAddress = (value: string): boolean => URL.canParse(value) && /^https?:$/.test(new URL(value).protocol)
+
+/**
+ * Reads `text` as the sign-in page of a profile (worfy-browser ticket 08, the owner's answer
+ * 2026-10-23): one http or https address whose origin is one of the profile's `origins`, kept as the
+ * browser writes it. It is data, not a pattern: a page is that sign-in page when its origin and path
+ * are the same (src/main/mcp/browser-server.ts). Blank — the profile has none. `error` says why the
+ * text is not one; the window shows it as the user types, and main refuses the change with it.
+ */
+export function readSignIn(text: string, origins: readonly string[]): { signIn: string | undefined; error: undefined } | { signIn: undefined; error: string } {
+  const typed = text.trim()
+  if (typed === '') return { signIn: undefined, error: undefined }
+  if (typed.length > BROWSER_SIGN_IN_MAX) return { signIn: undefined, error: `The sign-in page address is longer than ${BROWSER_SIGN_IN_MAX} characters` }
+  if (!isWebAddress(typed)) return { signIn: undefined, error: `${typed}: write the sign-in page as an http or https address, e.g. http://localhost:3000/login` }
+  const url = new URL(typed)
+  if (!origins.includes(url.origin)) return { signIn: undefined, error: `${typed}: the sign-in page must be on one of the origins of this profile` }
+  return { signIn: url.href, error: undefined }
+}
+
 export const browserProfileIdSchema = z.string().regex(BROWSER_PROFILE_ID, 'a Browser profile id is lowercase letters, digits and dashes')
 export const browserProfileNameSchema = z.string().trim().min(1, 'a Browser profile needs a name').max(BROWSER_PROFILE_NAME_MAX)
 
@@ -71,6 +94,11 @@ export const browserProfileSchema = z.object({
   origins: z.array(browserOriginSchema).max(BROWSER_PROFILE_ORIGINS_MAX),
   /** Whether an Autopilot run may use it (read by worfy-browser ticket 08); off unless the user turns it on. */
   autopilot: z.boolean().default(false),
+  /**
+   * The page the site sends a visitor who is not signed in to (readSignIn); absent — none. A Session
+   * that lands on it, like one whose page answers 401, hears that the sign-in expired (ticket 08).
+   */
+  signIn: z.string().max(BROWSER_SIGN_IN_MAX).refine(isWebAddress, 'a sign-in page is an http or https address').optional(),
 })
 export type BrowserProfile = z.output<typeof browserProfileSchema>
 

@@ -218,6 +218,24 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
    yours — when the orchestrator sends the branch back, rebase it onto the main branch in your own
    tree, resolve conflicts there and run step 5 again. The merge itself is the orchestrator's.
 
+**Browser checks** (a session in worfy with the `worfy-browser` MCP tools: `browser_list`,
+`browser_open`, …). Acceptance criteria that a person would check in the project's web pages are
+checked in a Browser, once under each role of the brief's line `Browser roles` (no line — `Default`).
+A role is the name of a Browser profile, as `browser_list` lists it; never guess a role from the
+ticket's list of what "done" means. A Browser profile holds a sign-in the user made by hand: never
+sign in yourself and never type a password, not even one from a fixture, a seed file or the chat.
+- A role with no profile of that name in `browser_list` (in Autopilot the list holds only the
+  profiles marked "Available to Autopilot") goes into `sign_in_needed` as
+  `sign-in needed as <role>`.
+- A call that answers `Sign-in expired in Browser profile "<name>"` (the page went to the profile's
+  sign-in page, or the site answered 401) ends the checks under that profile; it goes into
+  `sign_in_needed` as `sign-in expired in Browser profile <name>`. No other signal counts: do not
+  judge the sign-in by the page's text.
+- Either way the work goes on without that check; it is not a red step 5.
+- What a check finds is a problem with a Playwright test for it in the project's e2e suite — red
+  first, then fixed — not a Browser run in CI. Without the `worfy-browser` tools these criteria go
+  into `not_verified`.
+
 **A rework round** (the orchestrator returned `REJECTED` with a list of findings) is new code just
 like the first round: rework rounds have introduced defects themselves. Fix exactly what is on the
 list. Cover every new behaviour of the rework with a test and make sure it goes red on a mutant of
@@ -275,7 +293,8 @@ SOFTWARE.
   "claims": [{"text": "...", "evidence": "path:line | the command and its output"}],
   "removed": ["what the change removed or replaced in existing behaviour"],
   "not_verified": ["..."],
-  "out_of_scope": ["path:line — what you noticed outside the ticket"]
+  "out_of_scope": ["path:line — what you noticed outside the ticket"],
+  "sign_in_needed": ["sign-in needed as <role>", "sign-in expired in Browser profile <name>"]
 }
 ```
 `pr` is the PR number. Fields the project does not have (`pr` with `local-green`, `worktree` with
@@ -283,6 +302,9 @@ SOFTWARE.
 `not_verified` — only real gaps: what is not verified and why; the first line is a false premise of
 the brief, if there was one. Things noticed outside the ticket do not go there — they go to
 `out_of_scope` (empty — `[]`).
+`sign_in_needed` — the Browser checks that did not run for want of a sign-in, one entry per role or
+profile in exactly one of the two forms above (section Order, "Browser checks"); `[]` when every
+check ran or the ticket has none. The orchestrator copies each entry into the wave report.
 Which tests now cover the change — separate claims in `claims`, with the path to the test.
 Every claim in `claims` will be re-checked by a separate agent: a claim without evidence is
 rejected, and the ticket comes back for rework.

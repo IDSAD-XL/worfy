@@ -4,7 +4,7 @@
 // through the app's LayoutStore; the page of a Browser is a fake guest whose debugger answers the
 // CDP commands the page sends (src/main/browser/cdp.ts) and plays the events a test asks for: a
 // paused request of a navigation the origin wall must stop, a click of the user.
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
@@ -16,7 +16,7 @@ import type { LayoutStore } from '../../src/main/layout/store'
 import type { BrowserContext, BrowserResolver, BrowserToolResult } from '../../src/main/mcp/browser-server'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import type { BrowserProfile } from '../../src/shared/browser/profiles'
-import { BROWSER_LOG_LIMIT, BROWSER_SERVER_NAME, BROWSER_TOOL_NAMES, PASSWORD_REFUSED, TAKEN_OVER } from '../../src/shared/browser/tools'
+import { AUTOPILOT_ONLY, BROWSER_LOG_LIMIT, BROWSER_SERVER_NAME, BROWSER_TOOL_NAMES, PASSWORD_REFUSED, SIGN_IN_EXPIRED, TAKEN_OVER } from '../../src/shared/browser/tools'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
 import type { LayoutNode } from '../../src/shared/layout/types'
 import { removeTestTree, saveLayoutNow } from '../remove'
@@ -65,6 +65,8 @@ class FakePage implements CdpContents {
   redirectTo: string | null = null
   /** The debugger cannot attach, as when the page's DevTools are open. */
   attachFails = false
+  /** The HTTP status the site answers each address with, as a document of the main frame; 200 for any other. */
+  readonly statusOf = new Map<string, number>()
 
   readonly debugger: CdpDebugger = {
     attach: () => {
@@ -100,6 +102,10 @@ class FakePage implements CdpContents {
   /** A CDP event of the page. */
   emit(method: string, params: Record<string, unknown>): void {
     this.fire('debugger:message', {}, method, params)
+  }
+  /** The answer to a request of frame `frameId`, as the Network domain reports it. */
+  respond(status: number, frameId = 'main', type = 'Document'): void {
+    this.emit('Network.responseReceived', { requestId: `answer-${this.id}-${this.sent.length}`, frameId, type, response: { url: this.url, status } })
   }
   /** An input event as Electron's `input-event` reports it. */
   input(type: CdpInputEvent['type']): void {
@@ -154,6 +160,8 @@ class FakePage implements CdpContents {
         const first = await this.pauseRequest(target, 'main', { commits: hop === null })
         let errorText: string | undefined = first === 'failed' ? 'net::ERR_ABORTED' : undefined
         if (first === 'continued' && hop !== null && (await this.pauseRequest(hop, 'main', { redirectedFrom: `paused-${this.paused}` })) === 'failed') errorText = 'net::ERR_ABORTED'
+        // The document that loaded answers, as Chromium reports it once the Network domain is on.
+        if (errorText === undefined) this.respond(this.statusOf.get(this.url) ?? 200)
         this.emit('Page.frameStoppedLoading', { frameId: 'main' })
         return { frameId: 'main', loaderId: 'l1', ...(errorText === undefined ? {} : { errorText }) }
       }
@@ -581,6 +589,126 @@ describe('the origins of the Browser profile', () => {
   })
 })
 
+describe('in Autopilot (worfy-browser ticket 08, ADR-0078 item 10)', () => {
+  const USER = 'user-cccccc'
+  beforeEach(() => {
+    profiles = [
+      { id: 'admin-aaaaaa', name: 'admin', origins: [SITE], autopilot: false },
+      { id: USER, name: 'user', origins: [SITE], autopilot: true, signIn: `${SITE}/login` },
+    ]
+  })
+  const autopilot = (): BrowserContext => context({ autopilot: true })
+
+  it('browser_list names only the Browser profiles available to Autopilot, and only the Browsers under them', async () => {
+    store.apply(PROJECT, { op: 'create', node: { id: 'browser-admin', kind: 'browser', x: 0, y: 400, w: 640, h: 440, data: { profile: 'admin-aaaaaa' } } })
+    store.apply(PROJECT, { op: 'create', node: { id: 'browser-user', kind: 'browser', x: 700, y: 400, w: 640, h: 440, data: { profile: USER } } })
+    const listed = json<{ profiles: { id: string }[]; browsers: { id: string }[] }>(await (await connect(autopilot())).call('browser_list'))
+    expect(listed.profiles).toEqual([{ id: USER, name: 'user', origins: [SITE] }])
+    expect(listed.browsers.map((each) => each.id)).toEqual(['browser-user'])
+  })
+
+  it('browser_open under a Browser profile not available to Autopilot is refused, naming it, before anything is made, woken or driven', async () => {
+    sessionAndNeighbour()
+    const rpc = await connect(autopilot())
+    const text = refused(await rpc.call('browser_open', { profile: 'admin-aaaaaa', url: `${SITE}/` }))
+    expect(text).toContain('"admin"')
+    expect(text).toContain(AUTOPILOT_ONLY)
+    expect(browserNodes()).toEqual([])
+    expect(changes).toEqual([])
+    expect(json<{ id: string }>(await rpc.call('browser_open', { profile: USER, url: `${SITE}/home` }))).toMatchObject({ profile: USER, url: `${SITE}/home` })
+    expect(browserNodes()).toEqual([expect.objectContaining({ data: expect.objectContaining({ profile: USER, openedBy: SESSION }) as unknown })])
+  })
+
+  it('with no profile available to Autopilot says the user marks them, and names none of the others', async () => {
+    profiles = [{ id: 'admin-aaaaaa', name: 'admin', origins: [SITE], autopilot: false }]
+    const text = refused(await (await connect(autopilot())).call('browser_open', { profile: USER }))
+    expect(text).toMatch(/none available to Autopilot/)
+    expect(text).not.toContain('admin')
+  })
+
+  it('a Browser under a profile not available to Autopilot is not driven: refused before the Session takes or wakes it', async () => {
+    store.apply(PROJECT, { op: 'create', node: { id: 'browser-admin', kind: 'browser', x: 0, y: 400, w: 640, h: 440, data: { profile: 'admin-aaaaaa' } } })
+    drawBrowsers()
+    const page = pages.get('browser-admin')!
+    const rpc = await connect(autopilot())
+    for (const [name, args] of [
+      ['browser_read', { id: 'browser-admin' }],
+      ['browser_navigate', { id: 'browser-admin', url: `${SITE}/` }],
+      ['browser_click', { id: 'browser-admin', selector: '#a' }],
+    ] as const) {
+      const text = refused(await rpc.call(name, args))
+      expect(text, name).toContain('"admin"')
+      expect(text, name).toContain(AUTOPILOT_ONLY)
+    }
+    expect(page.sent).toEqual([])
+    expect(live.control(PROJECT, 'browser-admin')).toBeNull()
+    expect(changes).toEqual([])
+  })
+
+  it('outside Autopilot every profile is listed and opened, as before', async () => {
+    const rpc = await connect()
+    expect(json<{ profiles: { id: string }[] }>(await rpc.call('browser_list')).profiles.map((each) => each.id)).toEqual(['admin-aaaaaa', USER])
+    expect(json<{ profile: string }>(await rpc.call('browser_open', { profile: 'admin-aaaaaa' })).profile).toBe('admin-aaaaaa')
+  })
+})
+
+describe("a sign-in that expired (worfy-browser ticket 08, the owner's answer 2026-10-23)", () => {
+  const USER = 'user-cccccc'
+  beforeEach(() => {
+    profiles = [
+      { id: 'admin-aaaaaa', name: 'admin', origins: [SITE], autopilot: true },
+      { id: USER, name: 'user', origins: [SITE], autopilot: true, signIn: `${SITE}/login` },
+    ]
+  })
+  const openUser = async (rpc: Rpc): Promise<{ id: string; page: FakePage }> => {
+    const { id } = json<{ id: string }>(await rpc.call('browser_open', { profile: USER }))
+    return { id, page: pages.get(id)! }
+  }
+
+  it("in Autopilot: a redirect to the profile's sign-in page ends the call with «sign-in expired», naming the profile; the Session typed nothing", async () => {
+    const rpc = await connect(context({ autopilot: true }))
+    const { id, page } = await openUser(rpc)
+    page.redirectTo = `${SITE}/login?next=%2Faccount`
+    const text = refused(await rpc.call('browser_navigate', { id, url: `${SITE}/account` }))
+    expect(text).toContain(`${SIGN_IN_EXPIRED} "user"`)
+    expect(text).toContain(`${SITE}/login`)
+    expect(text).toMatch(/do not sign in/i)
+    expect(page.sent.filter((each) => each.method.startsWith('Input.'))).toEqual([])
+  })
+
+  it('in Autopilot: a 401 of the main document ends the call too; a 401 of a frame inside the page or of a script does not', async () => {
+    const rpc = await connect(context({ autopilot: true }))
+    const { id, page } = await openUser(rpc)
+    page.statusOf.set(`${SITE}/private`, 401)
+    expect(refused(await rpc.call('browser_navigate', { id, url: `${SITE}/private` }))).toMatch(new RegExp(`${SIGN_IN_EXPIRED} "user".*401`))
+    json(await rpc.call('browser_navigate', { id, url: `${SITE}/open` }))
+    page.respond(401, 'child-frame')
+    page.respond(401, 'main', 'XHR')
+    page.elements.set('#save', {})
+    expect(json<{ url: string }>(await rpc.call('browser_click', { id, selector: '#save' })).url).toBe(`${SITE}/open`)
+  })
+
+  it('a profile without a sign-in page relies on 401 alone: its /login is an ordinary page', async () => {
+    const rpc = await connect(context({ autopilot: true }))
+    const { id } = await opened(rpc)
+    expect(json<{ url: string }>(await rpc.call('browser_navigate', { id, url: `${SITE}/login` })).url).toBe(`${SITE}/login`)
+    pages.get(id)!.statusOf.set(`${SITE}/gone`, 401)
+    expect(refused(await rpc.call('browser_navigate', { id, url: `${SITE}/gone` }))).toContain(`${SIGN_IN_EXPIRED} "admin"`)
+  })
+
+  it('outside Autopilot the call answers as before, with a note that the sign-in expired', async () => {
+    const rpc = await connect()
+    const { id, page } = await openUser(rpc)
+    page.redirectTo = `${SITE}/login`
+    const answer = json<{ url: string; signIn: string }>(await rpc.call('browser_navigate', { id, url: `${SITE}/account` }))
+    expect(answer.url).toBe(`${SITE}/login`)
+    expect(answer.signIn).toContain(`${SIGN_IN_EXPIRED} "user"`)
+    expect(answer.signIn).toMatch(/ask the user/)
+    // A page that is not the sign-in page answers no note.
+    expect(json<object>(await rpc.call('browser_navigate', { id, url: `${SITE}/home` }))).not.toHaveProperty('signIn')
+  })
+})
+
 describe('browser_click, browser_type and the page', () => {
   it('click the middle of the element, by selector or by a ref of browser_read', async () => {
     const rpc = await connect()
@@ -754,6 +882,17 @@ describe('taking a Browser over', () => {
   })
 })
 
+describe('the words of a check that could not sign in', () => {
+  it('are the same in the server, its instructions and the report of the Harness implementer', () => {
+    const instructions = server.browserInstructions().replace(/\s+/g, ' ')
+    const implementer = readFileSync(new URL('../../harness/agents/implementer.md', import.meta.url), 'utf8').replace(/\s+/g, ' ')
+    for (const words of ['sign-in needed as <role>', 'sign-in expired in Browser profile <name>', `${SIGN_IN_EXPIRED} "<name>"`]) {
+      expect(implementer, words).toContain(words)
+      expect(instructions, words).toContain(words)
+    }
+  })
+})
+
 describe('the Browser server of a Session', () => {
   const request = (cwd: string, more: Partial<QueryRequest> = {}): QueryRequest => ({
     prompt: (async function* () {})(),
@@ -782,11 +921,25 @@ describe('the Browser server of a Session', () => {
     expect(allowedServers()).toEqual(['qmd', CANVAS_SERVER_NAME, BROWSER_SERVER_NAME])
   })
 
-  it('is not passed to an unattended Session: Autopilot uses only the profiles marked for it (worfy-browser ticket 08)', async () => {
+  it('is passed to an unattended Session in Autopilot mode: only the profiles available to Autopilot exist for it (worfy-browser ticket 08)', async () => {
+    profiles = [...profiles, { id: 'user-cccccc', name: 'user', origins: [SITE], autopilot: true }]
     const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
-    await sdkQueryFactory(() => Promise.resolve(canvas), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]))(request(join(scratch, 'repo'), { unattended: true }))
-    expect(options().mcpServers).toEqual({ [CANVAS_SERVER_NAME]: canvas.attachment.server })
-    expect(allowedServers()).toEqual(['qmd', CANVAS_SERVER_NAME])
+    const { projectStore } = await import('../../src/main/projects/store')
+    const asked: { autopilot?: boolean | undefined }[] = []
+    const browser: BrowserResolver = (req) => {
+      asked.push(req)
+      return server.browserForSession(req, { projects: () => projectStore().list(), layout: context().layout, profiles: () => profiles, live })
+    }
+    await sdkQueryFactory(() => Promise.resolve(canvas), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]), { browser })(request(join(scratch, 'repo'), { unattended: true }))
+    expect(asked.map((each) => each.autopilot)).toEqual([true])
+    expect(allowedServers()).toEqual(['qmd', CANVAS_SERVER_NAME, BROWSER_SERVER_NAME])
+    const rpc = await connectTo((options().mcpServers as Record<string, McpSdkServerConfigWithInstance>)[BROWSER_SERVER_NAME]!)
+    expect(json<{ profiles: { id: string }[] }>(await rpc.call('browser_list')).profiles.map((each) => each.id)).toEqual(['user-cccccc'])
+    // An attended Session of the same Project sees them all, as before.
+    await sdkQueryFactory(() => Promise.resolve(canvas), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]), { browser })(request(join(scratch, 'repo')))
+    expect(asked.map((each) => each.autopilot)).toEqual([true, false])
+    const attended = await connectTo((options().mcpServers as Record<string, McpSdkServerConfigWithInstance>)[BROWSER_SERVER_NAME]!)
+    expect(json<{ profiles: { id: string }[] }>(await attended.call('browser_list')).profiles.map((each) => each.id)).toEqual(['admin-aaaaaa', 'none-bbbbbb', 'user-cccccc'])
   })
 
   it('leaves worfy-browser out of the allowed servers when its server could not be made', async () => {

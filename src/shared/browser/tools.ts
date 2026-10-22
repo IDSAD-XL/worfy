@@ -30,6 +30,19 @@ export const TAKEN_OVER = 'The user took over this Browser'
 /** The first words of the answer to «type» into a password field (the owner's decision 7). */
 export const PASSWORD_REFUSED = 'This is a password field'
 
+/**
+ * Words of the answer to a Session in Autopilot about a Browser profile without the flag «Available
+ * to Autopilot» (worfy-browser ticket 08, ADR-0078 item 10): for it such a profile does not exist.
+ */
+export const AUTOPILOT_ONLY = 'is not available to Autopilot'
+
+/**
+ * The first words of the note that a Browser's sign-in expired (worfy-browser ticket 08, the owner's
+ * answer 2026-10-23): its page went to the profile's sign-in page, or its document answered 401.
+ * Followed by the profile's name in quotes.
+ */
+export const SIGN_IN_EXPIRED = 'Sign-in expired in Browser profile'
+
 const url = z.string().trim().min(1).max(4000)
 const selector = z.string().trim().min(1).max(2000)
 /** A ref of browser_read: the backend DOM node id it prints as [ref=…]. */

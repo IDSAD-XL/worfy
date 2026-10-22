@@ -350,6 +350,7 @@ Scratchpad: only your own subdirectory <scratchpad>/impl-<NN>/; do not run other
 Write to ~/.claude: allowed | forbidden   # real Claude Code / Agent SDK writes transcripts to ~/.claude/projects
 Temporary HOME: yes | no                    # yes — the checks and the gate run with HOME in a temporary folder, by the recipe below
 GUI checks: yours | not yours                  # "yours" — to at most one agent of the wave at a time
+Browser roles: <the ticket's Roles: line> | Default   # Browser profile names; Default without the field
 ```
 
 The brief always fills the "Write to ~/.claude" line: running real Claude Code or the Agent SDK in a
@@ -358,7 +359,20 @@ without an explicit answer the implementer either breaks the ban or silently ski
 runners run once only, never in watch mode (vitest — `vitest run`): a watch process never exits,
 and the agent hangs. Manual GUI checks (rules — skill `/worfy:ship-ticket`, step 6) — at most one
 agent at a time across the whole wave: the next agent gets "yours" in the "GUI checks" line only
-after the previous one has reported. The verifier's brief (section 3) carries the same
+after the previous one has reported.
+
+**Browser checks** (worfy: a session with the `worfy-browser` MCP tools). The agent checks the
+acceptance criteria a person would check in the project's web pages in a Browser, once under each
+role (agent `worfy:implementer`, "Browser checks"); the result is the problems found and Playwright
+tests for them, not a Browser run in CI. The "Browser roles" line copies the ticket's header field
+`Roles:` (for example `Roles: admin, user`) as it is: a role is the name of a Browser profile. A
+ticket without the field gets `Default` — one check under the profile named `Default`. Never infer
+roles from the ticket's list of what "done" means. An agent in Autopilot sees only the profiles the
+user marked "Available to Autopilot", and never signs in: a role it cannot check comes back in its
+report's `sign_in_needed`. Browser checks are not the manual GUI checks above: they need no person's
+screen and no one-agent-at-a-time queue; worfy's limit of Live Browsers bounds them.
+
+The verifier's brief (section 3) carries the same
 "Scratchpad", "Write to ~/.claude" and "Temporary HOME" lines: the gate runs tests and `gh` too.
 
 The brief always fills the "Temporary HOME" line too. `yes` when the tests or checks of the ticket
@@ -1344,6 +1358,10 @@ the verifier's answer yourself before quoting it.
 | 07 | #341 | REJECTED → VERIFIED | 1 round | 1a2b3c4 |
 | 09 | — | REJECTED ×2 | blocked | — |
 | 11 | #344 | REJECTED ×2 → NARROW: VERIFIED | 1 round + narrow | 5e6f7a8 |
+
+Every entry of an implementer's `sign_in_needed` goes under the table as one line, word for word:
+`<NN>: sign-in needed as <role>` or `<NN>: sign-in expired in Browser profile <name>`; a wave
+without such entries has no such line. The ticket is not `blocked` for it.
 
 With `F workflow.ci` `batch` one line goes under the table: `CI on <main branch>: <URL> — green`,
 `— red: <failing jobs and tests>`, `— not verified: <why>`, or `— none: the wave merged no code`.

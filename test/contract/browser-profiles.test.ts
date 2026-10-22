@@ -286,6 +286,25 @@ describe('the Browser profiles of a Project, over the channels', () => {
     expect(await call('browser.profiles.list', { projectId: 'gamma-12345678' })).toMatchObject({ ok: false })
   })
 
+  it('keeps a sign-in page on one of the profile\'s origins, as data; refuses one off them or not http(s), and a change of origins that leaves it off; an empty one clears it (worfy-browser ticket 08)', async () => {
+    const user = await value('browser.profiles.create', { projectId: ALPHA, name: 'user', origins: ['http://localhost:3000'], signIn: ' http://LOCALHOST:3000/login?next=/a ' })
+    expect(user).toMatchObject({ origins: ['http://localhost:3000'], signIn: 'http://localhost:3000/login?next=/a' })
+    expect(onDisk(ALPHA).find((profile) => profile.id === user.id)?.signIn).toBe('http://localhost:3000/login?next=/a')
+    const before = readFileSync(fileOf(ALPHA), 'utf8')
+    for (const signIn of ['http://localhost:4000/login', 'https://localhost:3000/login', 'ftp://localhost:3000/login', 'javascript:alert(1)', 'login', '*://localhost:3000/login']) {
+      expect(await call('browser.profiles.update', { projectId: ALPHA, id: user.id, signIn }), signIn).toMatchObject({ ok: false })
+      expect(await call('browser.profiles.create', { projectId: ALPHA, name: `x${signIn.length}`, origins: ['http://localhost:3000'], signIn }), signIn).toMatchObject({ ok: false })
+    }
+    // A change of origins alone that leaves the kept page off them.
+    expect(await call('browser.profiles.update', { projectId: ALPHA, id: user.id, origins: ['http://localhost:4000'] })).toMatchObject({ ok: false, error: expect.stringMatching(/sign-in page must be on one of the origins/) })
+    expect(readFileSync(fileOf(ALPHA), 'utf8')).toBe(before)
+    // A change that names something else keeps it; an empty one clears it, and the field goes.
+    expect(await value('browser.profiles.update', { projectId: ALPHA, id: user.id, autopilot: true })).toMatchObject({ autopilot: true, signIn: 'http://localhost:3000/login?next=/a' })
+    const cleared = await value('browser.profiles.update', { projectId: ALPHA, id: user.id, signIn: '' })
+    expect(cleared).toEqual({ id: user.id, name: 'user', origins: ['http://localhost:3000'], autopilot: true })
+    expect(onDisk(ALPHA).find((profile) => profile.id === user.id)).toEqual(cleared)
+  })
+
   it('deleting a profile drops it from the file and erases its partition\'s storage, and only its', async () => {
     const admin = await value('browser.profiles.create', { projectId: ALPHA, name: 'admin' })
     const user = await value('browser.profiles.create', { projectId: ALPHA, name: 'user' })

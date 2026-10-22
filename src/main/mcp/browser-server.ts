@@ -24,7 +24,14 @@
 //   Browsers (worfy-browser ticket 05): while every Live Browser is busy the call is refused with
 //   ALL_LIVE_BUSY before anything changes — no Node is made, no Browser taken — and the Session
 //   calls again later. While a call runs, and for the idle threshold after it, the Browser does not
-//   sleep (`sessionDrives`, `sessionReleases`).
+//   sleep (`sessionDrives`, `sessionReleases`);
+// - a Session in Autopilot (worfy-browser ticket 08, ADR-0078 item 10) knows only the profiles marked
+//   «Available to Autopilot»: the others, and the Browsers under them, are not in its list, and a call
+//   on one is refused naming the profile, before anything is made, woken or driven.
+// A Session never signs in (ADR-0078 item 5). When the page of a call lands on the profile's sign-in
+// page, or its main document answers 401 (the owner's answer 2026-10-23), the sign-in expired: a
+// Session in Autopilot gets the call refused with SIGN_IN_EXPIRED, any other Session the usual answer
+// with a note to ask the user.
 // A refused call is a tool error with a message, never an exception.
 import { randomUUID } from 'node:crypto'
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
@@ -32,6 +39,7 @@ import { z } from 'zod'
 import { sdkMessageToEvents } from '../../shared/agent/events'
 import type { BrowserProfile } from '../../shared/browser/profiles'
 import {
+  AUTOPILOT_ONLY,
   BROWSER_SERVER_NAME,
   BROWSER_SIZE,
   BROWSER_TOOL_NAMES,
@@ -40,6 +48,7 @@ import {
   parseBrowserToolArgs,
   type BrowserToolArgs,
   type BrowserToolName,
+  SIGN_IN_EXPIRED,
 } from '../../shared/browser/tools'
 import { placeNear } from '../../shared/canvas/tools'
 import { ORCHESTRATOR_KIND } from '../../shared/ipc/orchestrator'
@@ -47,7 +56,7 @@ import { SESSION_NODE_KIND } from '../../shared/ipc/sessions'
 import { shownOnCanvas } from '../../shared/layout/derived'
 import { isArchived, type LayoutNode } from '../../shared/layout/types'
 import type { BrowserAttachment } from '../agent/options'
-import { PageError, type PageOutcome, type PageTarget } from '../browser/cdp'
+import { PageError, type CdpPage, type PageOutcome, type PageTarget } from '../browser/cdp'
 import { ControlError, liveBrowsers, type LiveBrowsers } from '../browser/live'
 import { originOf, originRefusal, sessionMayGo } from '../browser/origins'
 import { browserProfileStore } from '../browser/profiles'
@@ -73,6 +82,8 @@ export interface BrowserContext {
   sessionId: () => string | null
   /** How long a call waits for a window to draw a page; LIVE_WAIT_MS by default. */
   liveWaitMs?: number
+  /** The Session runs unattended (Autopilot): only the profiles marked «Available to Autopilot» exist for it. */
+  autopilot?: boolean
 }
 
 export type BrowserToolContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
@@ -109,13 +120,48 @@ function outcome(result: PageOutcome): { url: string; title: string } {
 }
 
 /**
+ * Why the sign-in of `profile` expired on the page at `url` whose main document answered `status`,
+ * or null when it did not: the page is the profile's sign-in page — the same origin and path; the
+ * query (a `next=` back) is not compared — or the document answered 401. A profile without a sign-in
+ * page relies on 401 alone. Nothing is read from the page's text.
+ */
+export function signInExpiry(profile: BrowserProfile, url: string, status: number | null): string | null {
+  const head = `${SIGN_IN_EXPIRED} "${profile.name}"`
+  if (status === 401) return `${head}: the page answered 401 Unauthorized.`
+  if (profile.signIn === undefined || !URL.canParse(url) || !URL.canParse(profile.signIn)) return null
+  const [here, signIn] = [new URL(url), new URL(profile.signIn)]
+  return here.origin === signIn.origin && here.pathname === signIn.pathname ? `${head}: the page went to its sign-in page ${profile.signIn}.` : null
+}
+
+/**
  * The tools of one call. `hold(id)` marks Browser `id` as worked on by this call, from then until the
  * call ends (sessionDrives and sessionReleases of src/main/browser/live.ts).
  */
 function handlers(context: BrowserContext, hold: (id: string) => void): Handlers {
   const { projectId, layout, live } = context
+  const autopilot = context.autopilot === true
+  /** The profiles this Session may use: in Autopilot only those marked for it. */
+  const usable = (): BrowserProfile[] => context.profiles().filter((profile) => !autopilot || profile.autopilot)
   const browsers = (): LayoutNode[] => layout.get(projectId).layout.nodes.filter((node) => node.kind === BROWSER_KIND && !isArchived(node))
-  const profileNamed = (id: unknown): BrowserProfile | undefined => (typeof id === 'string' ? context.profiles().find((profile) => profile.id === id) : undefined)
+  /** Profile `id` of the Project; in Autopilot one not marked for it is refused, naming it. */
+  const profileNamed = (id: unknown): BrowserProfile | undefined => {
+    const profile = typeof id === 'string' ? context.profiles().find((each) => each.id === id) : undefined
+    if (profile !== undefined && autopilot && !profile.autopilot) {
+      throw new ToolError(`Browser profile ${profile.id} ("${profile.name}") ${AUTOPILOT_ONLY}: a Session in Autopilot uses only the profiles the user marked so. Report "sign-in needed as ${profile.name}" and go on without this check.`)
+    }
+    return profile
+  }
+  /**
+   * The answer of a call that may have moved the page, with the sign-in check: in Autopilot an expired
+   * sign-in refuses the call — nobody is there to sign in, and the Session never does; otherwise the
+   * answer carries the note.
+   */
+  const arrived = <T extends { url: string }>(page: CdpPage, profile: BrowserProfile, answer: T): T | (T & { signIn: string }) => {
+    const expired = signInExpiry(profile, answer.url, page.documentStatus())
+    if (expired === null) return answer
+    if (autopilot) throw new ToolError(`${expired} Do not sign in yourself: stop the checks under this profile and report "sign-in expired in Browser profile ${profile.name}". The page is at ${answer.url}.`)
+    return { ...answer, signIn: `${expired} Do not sign in yourself: ask the user to sign in in this Browser.` }
+  }
   const me = (): string => {
     const id = context.sessionId()
     if (id === null) throw new ToolError('This Session has no id yet; call again in a moment.')
@@ -194,13 +240,14 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
     const result = await page.navigate(url)
     const where = outcome(result)
     if (result.error !== null) throw new ToolError(`The page could not be opened: ${result.error}. It is at ${where.url}.`)
-    return where
+    return arrived(page, profile, where)
   }
 
   return {
     browser_list: () => ({
-      profiles: context.profiles().map(({ id, name, origins }) => ({ id, name, origins })),
-      browsers: browsers().map((node) => ({
+      profiles: usable().map(({ id, name, origins }) => ({ id, name, origins })),
+      // In Autopilot a Browser under a profile not marked for it is not there either.
+      browsers: browsers().filter((node) => !autopilot || usable().some((profile) => profile.id === node.data.profile)).map((node) => ({
         id: node.id,
         profile: typeof node.data.profile === 'string' ? node.data.profile : null,
         url: typeof node.data.url === 'string' ? node.data.url : null,
@@ -213,8 +260,9 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
     browser_open: async (args) => {
       const profile = profileNamed(args.profile)
       if (profile === undefined) {
-        const known = context.profiles().map((each) => `${each.id} (${each.name})`)
-        throw new ToolError(`This Project has no Browser profile ${args.profile}${known.length === 0 ? '; it has none: only the user creates them' : `; it has ${known.join(', ')}`}.`)
+        const known = usable().map((each) => `${each.id} (${each.name})`)
+        const none = autopilot ? '; it has none available to Autopilot: only the user creates them and marks them so' : '; it has none: only the user creates them'
+        throw new ToolError(`This Project has no Browser profile ${args.profile}${known.length === 0 ? none : `; it has ${known.join(', ')}`}.`)
       }
       if (args.url !== undefined) {
         const refusal = originRefusal(args.url, profile.name, profile.origins)
@@ -248,14 +296,14 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
 
     browser_click: async (args) => {
       const target = targetOf(args)
-      const { page } = await drive(args.id)
-      return outcome(await page.click(target))
+      const { page, profile } = await drive(args.id)
+      return arrived(page, profile, outcome(await page.click(target)))
     },
 
     browser_type: async (args) => {
       const target = targetOf(args)
-      const { page } = await drive(args.id)
-      return outcome(await page.type(target, args.text, args.submit))
+      const { page, profile } = await drive(args.id)
+      return arrived(page, profile, outcome(await page.type(target, args.text, args.submit)))
     },
 
     browser_screenshot: async (args): Promise<BrowserToolResult> => {
@@ -341,11 +389,12 @@ export const browserAppDeps = (): BrowserDeps => ({
   live: liveBrowsers(),
 })
 
-export type BrowserResolver = (request: { cwd: string; resume: string | undefined }) => Promise<BrowserSession | null>
+/** What a Browser server is made for: where the Session starts, the session it resumes, and whether it runs unattended (Autopilot). */
+export type BrowserResolver = (request: { cwd: string; resume: string | undefined; autopilot?: boolean | undefined }) => Promise<BrowserSession | null>
 
-/** The context of Session `sessionId` in Project `projectId`, with the app's stores. */
-export function appBrowserContext(projectId: string, sessionId: () => string | null, deps: BrowserDeps = browserAppDeps()): BrowserContext {
-  return { projectId, layout: deps.layout, profiles: () => deps.profiles(projectId), live: deps.live, sessionId }
+/** The context of Session `sessionId` in Project `projectId`, with the app's stores; `autopilot` for a Session that runs unattended. */
+export function appBrowserContext(projectId: string, sessionId: () => string | null, deps: BrowserDeps = browserAppDeps(), autopilot = false): BrowserContext {
+  return { projectId, layout: deps.layout, profiles: () => deps.profiles(projectId), live: deps.live, sessionId, autopilot }
 }
 
 /**
@@ -360,7 +409,7 @@ export async function browserForSession(request: Parameters<BrowserResolver>[0],
   }
   if (project === undefined) return null
   let sessionId: string | null = request.resume ?? null
-  const server = await createBrowserServer(appBrowserContext(project.id, () => sessionId, deps))
+  const server = await createBrowserServer(appBrowserContext(project.id, () => sessionId, deps, request.autopilot === true))
   return {
     attachment: { server, instructions: browserInstructions() },
     observe: (query) =>
@@ -372,9 +421,11 @@ export async function browserForSession(request: Parameters<BrowserResolver>[0],
 
 /**
  * Lets an e2e run call the tools as Session `sessionId` of Project `projectId` would
- * (`globalThis.worfyBrowserTool`), for the fake agent, which calls no MCP tool itself.
+ * (`globalThis.worfyBrowserTool`), for the fake agent, which calls no MCP tool itself. `unattended`
+ * answers whether that Session runs unattended now, as its launch says (the Session registry): a
+ * real Session's server is made in Autopilot mode from the same launch (src/main/agent/app-registry.ts).
  */
-export function exposeBrowserToolsToFakeAgent(): void {
+export function exposeBrowserToolsToFakeAgent(unattended: (sessionId: string) => boolean = () => false): void {
   ;(globalThis as { worfyBrowserTool?: (projectId: string, sessionId: string, name: BrowserToolName, args: unknown) => Promise<BrowserToolResult> }).worfyBrowserTool = (projectId, sessionId, name, args) =>
-    browserToolCaller(appBrowserContext(projectId, () => sessionId))(name, args)
+    browserToolCaller(appBrowserContext(projectId, () => sessionId, browserAppDeps(), unattended(sessionId)))(name, args)
 }

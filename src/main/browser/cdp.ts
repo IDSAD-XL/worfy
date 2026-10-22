@@ -303,6 +303,8 @@ export class CdpPage {
   private readonly consoleLog = new Ring<ConsoleEntry>(BROWSER_LOG_LIMIT)
   private readonly networkLog = new Ring<NetworkEntry>(BROWSER_LOG_LIMIT)
   private readonly requests = new Map<string, NetworkEntry>()
+  /** The HTTP status of the main frame's last document; null before one answered. */
+  private mainDocumentStatus: number | null = null
   private readonly listeners = new Set<(method: string, params: Record<string, unknown>) => void>()
   /** Told when the debugger detaches: something else (DevTools) took the page, and what ran on it stopped. */
   private readonly detached = new Set<() => void>()
@@ -429,6 +431,8 @@ export class CdpPage {
       const entry = this.requests.get(String(params.requestId))
       const response = isRecord(params.response) ? params.response : {}
       if (entry !== undefined && typeof response.status === 'number') entry.status = response.status
+      // Only the page's own document: a frame inside it, a script or an XHR answering 401 is not the page's sign-in.
+      if (params.type === 'Document' && this.mainFrame !== null && params.frameId === this.mainFrame && typeof response.status === 'number') this.mainDocumentStatus = response.status
     } else if (method === 'Network.loadingFailed') {
       const entry = this.requests.get(String(params.requestId))
       if (entry !== undefined) entry.failed = String(params.errorText ?? 'failed')
@@ -598,6 +602,14 @@ export class CdpPage {
   /** The last console messages and page errors, oldest first. */
   console(): ConsoleEntry[] {
     return [...this.consoleLog.items]
+  }
+
+  /**
+   * The HTTP status of the document the main frame shows, as far as the debugger saw it load; null
+   * when it saw none (a page loaded before the Session first attached).
+   */
+  documentStatus(): number | null {
+    return this.mainDocumentStatus
   }
 
   /** The last network requests, oldest first, without bodies. */

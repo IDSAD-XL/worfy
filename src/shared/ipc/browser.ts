@@ -57,6 +57,8 @@ export const browserOpenRequest = eventChannel('browser.openRequest', browserOpe
 const projectId = z.string().min(1)
 /** Origins as the user typed them: main reads each one again (parseOrigin) and refuses the change when one is not an origin. */
 const typedOrigins = z.array(z.string().max(400)).max(BROWSER_PROFILE_ORIGINS_MAX)
+/** The sign-in page as the user typed it: main reads it again (readSignIn) against the profile's origins; empty — none. */
+const typedSignIn = z.string().max(4000)
 
 /** The Browser profiles of the Project; one without a file has "Default". Reading writes nothing (a read channel, ADR-0066). */
 export const browserProfilesList = invokeChannel('browser.profiles.list', z.object({ projectId }), z.object({ profiles: z.array(browserProfileSchema) }), 'project', 'read')
@@ -64,16 +66,16 @@ export const browserProfilesList = invokeChannel('browser.profiles.list', z.obje
 /** Makes a Browser profile; main picks its id from the name. Refused for a name the Project already has. */
 export const browserProfilesCreate = invokeChannel(
   'browser.profiles.create',
-  z.object({ projectId, name: browserProfileNameSchema, origins: typedOrigins.optional(), autopilot: z.boolean().optional() }),
+  z.object({ projectId, name: browserProfileNameSchema, origins: typedOrigins.optional(), autopilot: z.boolean().optional(), signIn: typedSignIn.optional() }),
   browserProfileSchema,
   'project',
   'write',
 )
 
-/** Renames a Browser profile, or changes its origins or its Autopilot flag; its id and partition stay. */
+/** Renames a Browser profile, or changes its origins, its Autopilot flag or its sign-in page (an empty one clears it); its id and partition stay. */
 export const browserProfilesUpdate = invokeChannel(
   'browser.profiles.update',
-  z.object({ projectId, id: browserProfileIdSchema, name: browserProfileNameSchema.optional(), origins: typedOrigins.optional(), autopilot: z.boolean().optional() }),
+  z.object({ projectId, id: browserProfileIdSchema, name: browserProfileNameSchema.optional(), origins: typedOrigins.optional(), autopilot: z.boolean().optional(), signIn: typedSignIn.optional() }),
   browserProfileSchema,
   'project',
   'write',
