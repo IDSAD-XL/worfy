@@ -19,9 +19,12 @@
 //   Browsers left the Canvas in the same operation (src/main/layout/store.ts); a Browser of the
 //   user it drove stays, its banner — «Claude is driving» or «Return control to Claude» — goes, and
 //   the user has it to themselves. A call of that Session still running on it stops before its next
-//   command to the page, with an answer that the Session left (`left` of the page's guard), and
-//   until it ends the pages it leads to are still checked against the origins; and the Session
-//   takes no Browser again while it is off the Canvas (src/main/mcp/browser-server.ts).
+//   command to the page, with an answer that the Session left (`left` of the page's guard), even
+//   when another Session or the user has the Browser by then: the mark is kept by Browser and
+//   Session, and each command asks it for the Session of its own call (`asSession`, an
+//   AsyncLocalStorage around the call). Until the calls on it end and the user has not used the
+//   page, the pages such a call leads to are still checked against the origins (`walled`); and the
+//   Session takes no Browser again while it is off the Canvas (src/main/mcp/browser-server.ts).
 // shortcut: a Browser drawn by two windows of one Project is driven in the window that told main last, redo with worfy-browser ticket 07 (one Live page for every screen).
 // Until then sleep reads every page of such a Browser: the focus or the input of any of them uses it,
 // and a beforeunload handler in any of them keeps it Live.
@@ -52,6 +55,7 @@
 // window would draw its page (NOT_SHOWN).
 // shortcut: a picture does not outlive a restart of worfy (an Asleep Browser shows an empty frame after it), redo if the owner wants the pictures kept in the Project's data folder.
 // A Browser whose frame asks for a profile has no page and no life: it is opened once it has one.
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { originRefusal } from './origins'
 import { CdpPage, type CdpContents, type PagePicture } from './cdp'
 import { browserProfileStore } from './profiles'
@@ -142,6 +146,9 @@ type BrowsersNow = readonly string[] | 'any' | 'gone' | 'unknown'
 
 const keyOf = (projectId: string, nodeId: string): string => `${projectId}\n${nodeId}`
 
+/** The Session whose tool call runs now, for each command that call sends to a page. */
+const callingSession = new AsyncLocalStorage<string>()
+
 export class LiveBrowsers {
   /** The page a Session drives, of each Live Browser: the one a window told main of last. */
   private readonly pages = new Map<string, CdpPage>()
@@ -167,8 +174,12 @@ export class LiveBrowsers {
   private readonly unread = new Set<string>()
 
   private readonly unsubscribe: (() => void) | undefined
-  /** The Browsers whose driving Session left the Canvas while a call of it was running on them, until that call ends. */
-  private readonly leftMidCall = new Set<string>()
+  /**
+   * The Browsers whose driving Session left the Canvas while a call of it was running on them, until
+   * the calls on them end: which Sessions left, and whether their pages are still checked against
+   * the origins (until the user uses the page).
+   */
+  private readonly leftMidCall = new Map<string, { sessions: Set<string>; walled: boolean }>()
 
   constructor(private readonly deps: LiveBrowsersDeps) {
     this.unsubscribe = deps.layoutChanges?.((change) => this.sessionsLeft(change.projectId, change.sessionsLeft ?? []))
@@ -180,7 +191,12 @@ export class LiveBrowsers {
     const prefix = keyOf(projectId, '')
     for (const [key, control] of [...this.controls]) {
       if (!key.startsWith(prefix) || !sessions.includes(control.sessionId)) continue
-      if (control.mode === 'claude' && (this.calls.get(key)?.running ?? 0) > 0) this.leftMidCall.add(key)
+      if (control.mode === 'claude' && (this.calls.get(key)?.running ?? 0) > 0) {
+        const mark = this.leftMidCall.get(key) ?? { sessions: new Set<string>(), walled: true }
+        mark.sessions.add(control.sessionId)
+        mark.walled = true
+        this.leftMidCall.set(key, mark)
+      }
       this.controls.delete(key)
       this.deps.changed(projectId, key.slice(prefix.length), null)
     }
@@ -204,14 +220,22 @@ export class LiveBrowsers {
     }
     const page = new CdpPage(contents, {
       driving: () => this.controls.get(key)?.mode === 'claude',
-      left: () => this.leftMidCall.has(key),
+      left: () => {
+        const mark = this.leftMidCall.get(key)
+        const caller = callingSession.getStore()
+        // Outside a call (an event of the page) any Session that left counts.
+        return mark !== undefined && (caller === undefined ? mark.sessions.size > 0 : mark.sessions.has(caller))
+      },
+      walled: () => this.leftMidCall.get(key)?.walled === true,
       refusal: (url) => {
         const profile = this.deps.profileOf(projectId, nodeId)
         return profile === null ? 'This Browser has no Browser profile any more, so a Session may open no page in it.' : originRefusal(url, profile.name, profile.origins)
       },
       onUserInput: () => {
-        // The user's own browsing is not held to the origins of a call that is ending.
-        this.leftMidCall.delete(key)
+        // The user's own browsing is not held to the origins of a call that is ending; that call
+        // still answers that its Session left.
+        const mark = this.leftMidCall.get(key)
+        if (mark !== undefined) mark.walled = false
         this.takeOver(projectId, nodeId)
       },
       used: () => {
@@ -296,7 +320,8 @@ export class LiveBrowsers {
     this.mayDrive(projectId, nodeId, sessionId)
     const key = keyOf(projectId, nodeId)
     if (this.controls.has(key)) return
-    this.leftMidCall.delete(key)
+    // Back on the Canvas and driving again, the Session's own calls go on; another Session's mark stays.
+    this.leftMidCall.get(key)?.sessions.delete(sessionId)
     this.controls.set(key, { mode: 'claude', sessionId })
     this.deps.changed(projectId, nodeId, 'claude')
   }
@@ -681,6 +706,11 @@ export class LiveBrowsers {
       life.overLimit = true
       changed.add(life.projectId)
     }
+  }
+
+  /** Runs the tool call `act` of Session `sessionId`: the commands it sends to pages know whose they are. */
+  asSession<T>(sessionId: string | null, act: () => Promise<T>): Promise<T> {
+    return sessionId === null ? act() : callingSession.run(sessionId, act)
   }
 
   /** Stops the checks of the rules: the app quits. */

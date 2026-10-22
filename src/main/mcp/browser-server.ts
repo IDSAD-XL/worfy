@@ -294,7 +294,8 @@ export function browserToolCaller(context: BrowserContext): BrowserToolCaller {
     })
     try {
       const handler = table[name] as (input: unknown) => unknown
-      const answer = await handler(parsed.data)
+      // The commands of this call know their Session: one that left the Canvas meanwhile stops its own call only.
+      const answer = await context.live.asSession(context.sessionId(), () => Promise.resolve(handler(parsed.data)))
       return typeof answer === 'object' && answer !== null && 'content' in answer ? (answer as BrowserToolResult) : text(answer)
     } catch (error) {
       if (error instanceof ToolError || error instanceof ControlError || error instanceof PageError) return text(error.message, true)

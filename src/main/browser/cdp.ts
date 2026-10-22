@@ -11,7 +11,7 @@
 // Browser no Session drives and main never tried to put to sleep has none. Once a Session's call
 // attached it, it keeps two walls:
 // - **Origins** (the owner's decision 2). While a Session drives the Browser (`guard.driving()`),
-//   and until a call ends whose Session left the Canvas while it ran (`guard.left()`), every request for a whole new page of the main frame — a link the Session clicked, a redirect, a
+//   and until a call ends whose Session left the Canvas while it ran (`guard.walled()`), every request for a whole new page of the main frame — a link the Session clicked, a redirect, a
 //   script, a form, a window.open main turns into a navigation (src/main/window.ts) — is paused by
 //   the Fetch domain and checked against the origins of the Browser's profile (`guard.refusal`). A
 //   refused one is failed as `Aborted`, which Chromium treats as a cancelled navigation: the page
@@ -60,11 +60,15 @@ export interface PageGuard {
   /** Whether a Session drives the Browser now: the origin check holds only then. */
   driving(): boolean
   /**
-   * Whether the Session that drove the Browser left the Canvas in the middle of a call that still
-   * runs (worfy-browser ticket 06): that call sends nothing more, and the pages it leads to are still
-   * checked against the origins until it ends.
+   * Whether the Session of the call that sends a command now left the Canvas in the middle of that
+   * call (worfy-browser ticket 06): the call sends nothing more, whoever has the Browser by then.
    */
   left?(): boolean
+  /**
+   * Whether the pages are still checked against the origins though no Session drives: a call of a
+   * Session that left still runs, and the user has not used the page since.
+   */
+  walled?(): boolean
   /** Why a Session may not take the Browser to `url` (originRefusal); null when it may. */
   refusal(url: string): string | null
   /** The user pressed a mouse button or a key on the page, or touched it. */
@@ -349,7 +353,7 @@ export class CdpPage {
     const wholePage = this.mainFrame !== null && params.frameId === this.mainFrame
     let refusal: string | null
     try {
-      refusal = wholePage && (this.guard.driving() || this.guard.left?.() === true) ? this.guard.refusal(url) : null
+      refusal = wholePage && (this.guard.driving() || this.guard.walled?.() === true) ? this.guard.refusal(url) : null
     } catch (error) {
       // A guard that cannot answer refuses: the wall must not open by an error.
       refusal = `The origins of this Browser could not be read: ${error instanceof Error ? error.message : String(error)}`

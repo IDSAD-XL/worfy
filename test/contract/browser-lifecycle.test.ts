@@ -48,18 +48,18 @@ class FakePage implements CdpContents {
   private attached = false
   private readonly listeners = new Map<string, Set<Listener>>()
   readonly sent: string[] = []
-  onCommand: ((method: string) => void) | undefined
+  onCommand: ((method: string) => void | Promise<void>) | undefined
   readonly debugger: CdpDebugger = {
     attach: () => void (this.attached = true),
     isAttached: () => this.attached,
-    sendCommand: (method) => {
+    sendCommand: async (method) => {
       this.sent.push(method)
-      this.onCommand?.(method)
-      if (method === 'Page.getFrameTree') return Promise.resolve({ frameTree: { frame: { id: 'main' } } })
-      if (method === 'Page.captureScreenshot') return Promise.resolve({ data: 'iVBORw0KGgo=' })
-      if (method === 'Runtime.evaluate') return Promise.resolve({ result: { objectId: 'button-1' } })
-      if (method === 'Runtime.callFunctionOn') return Promise.resolve({ result: { value: { x: 10, y: 10, w: 20, h: 20 } } })
-      return Promise.resolve({})
+      await this.onCommand?.(method)
+      if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'main' } } }
+      if (method === 'Page.captureScreenshot') return { data: 'iVBORw0KGgo=' }
+      if (method === 'Runtime.evaluate') return { result: { objectId: 'button-1' } }
+      if (method === 'Runtime.callFunctionOn') return { result: { value: { x: 10, y: 10, w: 20, h: 20 } } }
+      return {}
     },
     on: ((event: string, listener: Listener) => this.listen(`debugger:${event}`, listener)) as CdpDebugger['on'],
   }
@@ -364,9 +364,55 @@ describe('a call running while its Session leaves the Canvas', () => {
       page.pausesNavigation('http://elsewhere.test/')
     }
     page.sent.length = 0
-    expect((await call(A, 'browser_click', { id: USER, selector: '#go' })).isError).toBe(true)
+    const answer = await call(A, 'browser_click', { id: USER, selector: '#go' })
     expect(page.sent.filter((each) => each === 'Fetch.failRequest')).toEqual([])
     expect(page.sent.filter((each) => each === 'Fetch.continueRequest')).toHaveLength(1)
+    // The call still answers that its Session left: no «Return control to Claude» to wait for.
+    expect(answer.isError).toBe(true)
+    expect(textOf(answer)).toMatch(/^This Session left the Canvas/)
+    expect(textOf(answer)).not.toMatch(/Return control to Claude/)
+    expect(page.sent.filter((each) => each.startsWith('Input.'))).toEqual([])
+  })
+
+  it('another Session that takes the Browser meanwhile drives it, and the call of the Session that left still sends nothing', async () => {
+    await drives(A, USER)
+    const page = pages.get(USER)!
+    let byB: BrowserToolResult | undefined
+    page.onCommand = async (method) => {
+      if (method !== 'Runtime.callFunctionOn') return
+      page.onCommand = undefined
+      store.apply(PROJECT, { op: 'hide', id: NODE_A, hidden: true }, SCREEN)
+      // Session B clicks on the user's Browser while A's click is still in flight.
+      byB = await call(B, 'browser_click', { id: USER, selector: '#go' })
+    }
+    page.sent.length = 0
+    const answer = await call(A, 'browser_click', { id: USER, selector: '#go' })
+    expect(byB?.isError, byB && textOf(byB)).toBeFalsy()
+    expect(live.control(PROJECT, USER)).toEqual({ mode: 'claude', sessionId: B })
+    expect(answer.isError).toBe(true)
+    expect(textOf(answer)).toMatch(/^This Session left the Canvas/)
+    // Three mouse events: B's press and release, none of A's.
+    expect(page.sent.filter((each) => each === 'Input.dispatchMouseEvent')).toHaveLength(3)
+    page.sent.length = 0
+    await drives(B, USER)
+    expect((await call(B, 'browser_click', { id: USER, selector: '#go' })).isError).toBeFalsy()
+    expect(page.sent.filter((each) => each === 'Input.dispatchMouseEvent')).toHaveLength(3)
+  })
+
+  it('a Session shown again drives again at once, though its call from before is still in flight', async () => {
+    await drives(A, USER)
+    const page = pages.get(USER)!
+    let again: BrowserToolResult | undefined
+    page.onCommand = async (method) => {
+      if (method !== 'Runtime.callFunctionOn') return
+      page.onCommand = undefined
+      store.apply(PROJECT, { op: 'hide', id: NODE_A, hidden: true }, SCREEN)
+      store.apply(PROJECT, { op: 'hide', id: NODE_A, hidden: false }, SCREEN)
+      again = await call(A, 'browser_click', { id: USER, selector: '#go' })
+    }
+    await call(A, 'browser_click', { id: USER, selector: '#go' })
+    expect(again?.isError, again && textOf(again)).toBeFalsy()
+    expect(live.control(PROJECT, USER)).toEqual({ mode: 'claude', sessionId: A })
   })
 })
 
