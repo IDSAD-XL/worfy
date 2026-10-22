@@ -7,6 +7,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
+import { generate } from 'selfsigned'
 import { canvasReady, launchApp, openSecondWindow, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 
@@ -62,21 +63,21 @@ function fixtureServer(): Server {
   return createServer(serveFixture)
 }
 
-/** The same server over https, with a self-signed certificate for 127.0.0.1 made by openssl in `dir`. */
-function secureFixtureServer(dir: string): Server {
-  const key = join(dir, 'key.pem')
-  const cert = join(dir, 'cert.pem')
-  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=127.0.0.1'], { stdio: 'ignore' })
-  return createHttpsServer({ key: readFileSync(key), cert: readFileSync(cert) }, serveFixture)
+/**
+ * The same server over https, with a self-signed certificate for 127.0.0.1 made by `selfsigned`, the
+ * pure-JS library the app makes its Machine certificate with (src/main/link/identity.ts). Not the
+ * `openssl` binary: whether it exists and which config it reads differ by machine — on a Windows PC
+ * with a stale machine-wide OPENSSL_CONF, `openssl req` failed before any test ran.
+ */
+async function secureFixtureServer(): Promise<Server> {
+  const pems = await generate([{ name: 'commonName', value: '127.0.0.1' }], { keyType: 'ec', algorithm: 'sha256' })
+  return createHttpsServer({ key: pems.private, cert: pems.cert }, serveFixture)
 }
 
-let certDir: string
-
 test.beforeAll(async () => {
-  certDir = mkdtempSync(join(tmpdir(), 'worfy-e2e-browser-cert-'))
   server = fixtureServer()
   otherServer = fixtureServer()
-  secureServer = secureFixtureServer(certDir)
+  secureServer = await secureFixtureServer()
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
   await new Promise<void>((done) => otherServer.listen(0, '127.0.0.1', done))
   await new Promise<void>((done) => secureServer.listen(0, '127.0.0.1', done))
@@ -89,7 +90,6 @@ test.afterAll(async () => {
   await new Promise<void>((done) => server.close(() => done()))
   await new Promise<void>((done) => otherServer.close(() => done()))
   await new Promise<void>((done) => secureServer.close(() => done()))
-  await removeDir(certDir)
 })
 
 test.beforeEach(() => {

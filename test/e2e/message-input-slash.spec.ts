@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
 
@@ -30,7 +30,7 @@ let log: string
 /** Every file under `dir` with its size and mtime, .git aside. */
 const snapshot = (dir: string): string[] =>
   (readdirSync(dir, { recursive: true }) as string[])
-    .filter((path) => path !== '.git' && !path.startsWith('.git/'))
+    .filter((path) => path !== '.git' && !path.startsWith(`.git${sep}`))
     .sort()
     .map((path) => `${path}:${statSync(join(dir, path)).size}:${statSync(join(dir, path)).mtimeMs}`)
 
@@ -162,16 +162,17 @@ test('the slash menu lists the skills, Tab puts one in; a pasted image, a droppe
     expect(typeof sent).toBe('string')
     const match = /^read these\n\nAttached files: (\S+), (\S+)$/.exec(String(sent))
     expect(match).not.toBeNull()
+    // The paths are the platform's own: `\` between folders on Windows, `/` on macOS.
     const attachments = join(dataDir, PROJECT, 'attachments')
     for (const [path, body] of [
       [match?.[1] ?? '', 'meeting notes'],
       [match?.[2] ?? '', 'dropped log'],
     ] as const) {
-      expect(path.startsWith(`${attachments}/`)).toBe(true)
+      expect(path.startsWith(`${attachments}${sep}`)).toBe(true)
       expect(readFileSync(path, 'utf8')).toBe(body)
     }
-    expect(match?.[1]?.endsWith('/notes.txt')).toBe(true)
-    expect(match?.[2]?.endsWith('/build.log')).toBe(true)
+    expect(match?.[1]?.endsWith(`${sep}notes.txt`)).toBe(true)
+    expect(match?.[2]?.endsWith(`${sep}build.log`)).toBe(true)
     await expect(view.getByTestId('transcript-turn-done')).toHaveCount(2)
 
     // worfy wrote nothing into the Project, nor into the Claude home.

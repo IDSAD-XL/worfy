@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
@@ -128,11 +128,11 @@ function stubGh(dir: string): { command: string; log: string } {
   mkdirSync(dir, { recursive: true })
   const log = join(dir, 'gh.log')
   writeFileSync(log, '')
-  const js = join(dir, 'gh.cjs')
+  const js = join(dir, 'gh.mjs')
   writeFileSync(
     js,
-    `const { appendFileSync, existsSync, readFileSync } = require('node:fs')
-const { basename, join } = require('node:path')
+    `import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 const args = process.argv.slice(2)
 appendFileSync(${JSON.stringify(log)}, JSON.stringify({ cwd: process.cwd(), args }) + '\\n')
 if (args[0] !== 'pr' || args[1] !== 'list') { process.stderr.write('stub: only pr list\\n'); process.exit(1) }
@@ -143,10 +143,9 @@ if (head !== -1) prs = prs.filter((pr) => pr.headRefName === args[head + 1])
 process.stdout.write(JSON.stringify(prs))
 `,
   )
-  const command = join(dir, 'gh')
-  writeFileSync(command, `#!/bin/sh\nexec node '${js}' "$@"\n`)
-  chmodSync(command, 0o755)
-  return { command, log }
+  // worfy starts a `.mjs` WORFY_GH as a Node script under its own Node on every system
+  // (src/main/program.ts), as test/e2e/claude-plugin-stub.ts does for WORFY_CLAUDE.
+  return { command: js, log }
 }
 
 const pr = (number: number, headRefName: string, conclusion: 'SUCCESS' | 'FAILURE' | null) => ({

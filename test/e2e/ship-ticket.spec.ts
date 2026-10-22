@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { FRAME_GAP } from '../../src/renderer/canvas/epic-layout'
 import { launchedHint } from '../../src/shared/actions/render-template'
@@ -158,7 +158,8 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
   const { dataDir, claudeHome, ghDir, log, repo } = makeProject()
 
   const scratchBefore = listing(join(repo, '.scratch'))
-  const repoBefore = listing(repo, (path) => path.endsWith('/.git'))
+  // The .git folder is left out: git status refreshes its index. The path has the platform's separator.
+  const repoBefore = listing(repo, (path) => path.endsWith(`${sep}.git`))
   const statusBefore = git(repo, 'status', '--porcelain')
   const claudeBefore = listing(claudeHome)
 
@@ -286,7 +287,7 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
 
   // Nothing in the repository changed: not a file of .scratch, nor anything else.
   expect(listing(join(repo, '.scratch'))).toEqual(scratchBefore)
-  expect(listing(repo, (path) => path.endsWith('/.git'))).toEqual(repoBefore)
+  expect(listing(repo, (path) => path.endsWith(`${sep}.git`))).toEqual(repoBefore)
   expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
   // Nor anything under the Claude home.
   expect(listing(claudeHome)).toEqual(claudeBefore)

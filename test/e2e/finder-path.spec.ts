@@ -96,6 +96,10 @@ const launch = (at: Fixture): ReturnType<typeof launchApp> =>
   })
 
 test('started with the PATH of Finder, a Silent Project shows its Epic: the Harness scripts get the login shell environment', async () => {
+  // Windows has no Finder PATH and no /bin/sh: the premise below would pass only because /bin/sh is
+  // missing, and node would come from the registry Path (captureWindowsEnv in src/main/agent/env.ts),
+  // not from a login shell. macOS runs this test as before.
+  test.skip(process.platform === 'win32', 'Finder and its PATH exist only on macOS; on Windows the PATH comes from the registry')
   const launched = await launch(fixture({ node: true }))
   try {
     const { window } = launched
@@ -120,6 +124,12 @@ test('started with the PATH of Finder, a Silent Project shows its Epic: the Harn
 })
 
 test('started with the PATH of Finder and no node in the login shell either, the sidebar says why, with the word node, and no "No epics yet" panel', async () => {
+  // Windows has no Finder PATH and no login shell .profile to take node away: worfy builds the
+  // scripts' environment from the session and the registry there (captureWindowsEnv in
+  // src/main/agent/env.ts), whose Path has the machine's node. macOS runs this test as before; the
+  // reason text itself is checked on every system by test/contract/workflow-profile.test.ts
+  // ("readWorkflow: no node on the PATH of the environment").
+  test.skip(process.platform === 'win32', 'Finder and its PATH exist only on macOS; on Windows the PATH comes from the registry')
   const launched = await launch(fixture({ node: false }))
   try {
     const { window } = launched
