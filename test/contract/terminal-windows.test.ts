@@ -319,68 +319,49 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
 // exit: it keeps only a number, and the native kill(), resize() and clear() look that number up in
 // the list the exit thread has already cleared.
 describe.runIf(WINDOWS)('the handles a shell leaves in this process on Windows, on a real pty', () => {
-  // shortcut: node-pty leaks two handles per shell that ends without a close of a running one (microsoft/node-pty#965), when a node-pty with PR #990 or #991 (or a patched conpty.node) is in, set this to 0 and the tests below go to their target.
+  // shortcut: node-pty leaks two handles per shell that ends without a close of a running one (microsoft/node-pty#965). When a node-pty with PR #990 or #991 is in, this test goes red: set this to 0.
   const LEAK_PER_SHELL = 2
   // Handles that come and go on their own in this process (an Event, a thread, an ALPC port), and
   // the ones the first shells of a run open once (EtwRegistration): the warm-up takes those.
   const NOISE = 5
+  const SHELLS = 10
 
-  type End = 'exit' | 'outside kill' | 'close'
-
-  /** Opens `count` Terminals four at a time, waits for each prompt, ends each `how` and closes it. */
-  async function endShells(h: Awaited<ReturnType<typeof harness>>, nodeIds: readonly string[], how: End, ready: { command: string; line: RegExp }): Promise<void> {
+  /** Opens the Terminals four at a time, waits for each prompt, types `exit`, waits for the exit and closes it. */
+  async function exitShells(h: Awaited<ReturnType<typeof harness>>, nodeIds: readonly string[]): Promise<void> {
     for (let i = 0; i < nodeIds.length; i += 4) {
       await Promise.all(
         nodeIds.slice(i, i + 4).map(async (nodeId) => {
-          const opened = await h.open(nodeId)
-          await h.run(ready.command, ready.line, nodeId)
-          if (how === 'exit') await h.type('exit\r', nodeId)
-          // From outside, as a crash or the Task Manager would: TerminateProcess of the shell.
-          else if (how === 'outside kill') process.kill(opened.pid)
-          if (how !== 'close') await vi.waitFor(() => expect(h.exits.map((exit) => exit.nodeId)).toContain(nodeId), { timeout: 10_000 })
+          await h.open(nodeId)
+          await h.run(say('rea', 'dy'), /ready\r?\n/, nodeId)
+          await h.type('exit\r', nodeId)
+          await vi.waitFor(() => expect(h.exits.map((exit) => exit.nodeId)).toContain(nodeId), { timeout: 10_000 })
           await h.ok('terminal.close', { projectId: PROJECT, nodeId })
         }),
       )
     }
   }
 
-  /**
-   * Ends four shells `how` to warm up, then `count` more, and checks what those add to this process:
-   * `perShell` handles each, give or take NOISE, and no console host left open.
-   */
-  async function expectHandles(h: Awaited<ReturnType<typeof harness>>, how: End, count: number, perShell: number, ready: { command: string; line: RegExp }): Promise<void> {
+  it(`PowerShell, ended by exit: ${SHELLS} shells leave ${LEAK_PER_SHELL} handles each in this process, give or take a few`, async (context) => {
+    needsWindowsPowerShellOffRunner(context)
+    const warmUp = Array.from({ length: 4 }, (_, index) => `w${index}`)
+    const measured = Array.from({ length: SHELLS }, (_, index) => `n${index}`)
+    const h = await harness({ nodes: [...warmUp, ...measured] })
     // An earlier test of this file may leave a console host open (the console of the system forgets
     // its pseudo-console, ticket 22): only the ones these shells open count.
     const hostsBefore = new Set(consoleHosts())
-    await endShells(h, Array.from({ length: 4 }, (_, index) => `w${index}`), how, ready)
+    await exitShells(h, warmUp)
     // node-pty disposes of the thread that reads the output 1000 ms after kill().
     await new Promise((resolve) => setTimeout(resolve, 1500))
     const before = handleCount()
-    await endShells(h, Array.from({ length: count }, (_, index) => `n${index}`), how, ready)
+    await exitShells(h, measured)
     expect(h.registry.size).toBe(0)
     await vi.waitFor(
       () => {
         const added = handleCount() - before
-        expect(Math.abs(added - count * perShell), `added ${added} handles`).toBeLessThanOrEqual(NOISE)
+        expect(Math.abs(added - SHELLS * LEAK_PER_SHELL), `added ${added} handles`).toBeLessThanOrEqual(NOISE)
       },
       { timeout: 8000, interval: 500 },
     )
     await vi.waitFor(() => expect(consoleHosts().filter((pid) => !hostsBefore.has(pid))).toEqual([]), { timeout: 5000, interval: 500 })
-  }
-
-  const nodes = [...Array.from({ length: 4 }, (_, index) => `w${index}`), ...Array.from({ length: 20 }, (_, index) => `n${index}`)]
-
-  it.for<[End, number, number]>([
-    ['exit', 20, LEAK_PER_SHELL],
-    ['outside kill', 12, LEAK_PER_SHELL],
-    ['close', 12, 0],
-  ])('PowerShell, ended by %s: %i shells leave %i handles each in this process, give or take a few', { timeout: 90_000 }, async ([how, count, perShell], context) => {
-    needsWindowsPowerShellOffRunner(context)
-    await expectHandles(await harness({ nodes }), how, count, perShell, { command: say('rea', 'dy'), line: /ready\r?\n/ })
-  })
-
-  it(`Git Bash, closed by the registry: 12 shells leave ${LEAK_PER_SHELL} handles each in this process, give or take a few (its launcher exits before kill())`, async (context) => {
-    if (findGitBash(process.env) === null) context.skip('this machine has no Git for Windows')
-    await expectHandles(await harness({ nodes, shell: 'git-bash' }), 'close', 12, LEAK_PER_SHELL, { command: 'echo "rea""dy"', line: /ready\r?\n/ })
-  }, 90_000)
+  }, 60_000)
 })

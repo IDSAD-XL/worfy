@@ -1,7 +1,9 @@
 # 92 — Terminal на Windows: два handle на каждую оболочку, которая кончилась не через close Terminal-а
 
 Type: task
-Status: open
+Status: blocked 2026-10-22T08:49Z
+Blocked reason: waits on upstream node-pty#965
+Waits: team
 Blocked by: —
 Source: «Итог» [Ticket-а 42](42-остатки-ревью-pr-280.md), пункт 8 (PR #737); направление Session на Mac
 2026-10-22: сначала замер, потом Ticket. Замер на ПК 2026-10-22, строки — по main `343be106`.
@@ -193,14 +195,21 @@ worfy. Плато нет: 100 оболочек дали ровно +200. Пре�
    `hSignal` нельзя надёжно отличить от других анонимных pipe процесса, а ошибка закрывает чужой живой handle
    в main. Каждый прогон — PowerShell с `Add-Type`, 1–2 с.
 
+**Решение Session на Mac (2026-10-22): вариант 2.** Утечка остаётся и ждёт upstream, как Ticket 60. Патч и
+сборка `conpty.node` (вариант 1) отклонены: нативная сборка в упаковке и CI не стоит двух handle на оболочку.
+Вариант 3 (Git Bash при закрытии) переходит в Ticket 93: тот же порядок `endWindowsShell()`, что и пауза после
+SIGHUP; test Ticket-а 93 должен показать +0 handle при закрытии Git Bash.
+
 **Test.** `test/contract/terminal-windows.test.ts`, describe «the handles a shell leaves in this process on
 Windows, on a real pty»: настоящий `TerminalRegistry` через каналы IPC, оболочки по четыре сразу, прогрев из
-четырёх, потом счёт `(Get-Process -Id <pid>).HandleCount` (`handleCount()` в `terminal-harness.ts`). Ожидание —
-`LEAK_PER_SHELL` × число оболочек ± 5. Сейчас `LEAK_PER_SHELL` = 2 (комментарий `shortcut:`): test ловит рост
-утечки и краснеет, когда node-pty её исправит, — тогда поставить 0. Без Windows test не запускается; Git Bash
-без Git for Windows — skip.
+четырёх, потом 10 PowerShell с `exit` и счёт `(Get-Process -Id <pid>).HandleCount` (`handleCount()` в
+`terminal-harness.ts`). Ожидание — `LEAK_PER_SHELL` × 10 ± 5. Сейчас `LEAK_PER_SHELL` = 2 (комментарий
+`shortcut:`): test ловит рост утечки и краснеет, когда node-pty её исправит, — тогда поставить 0. Без Windows test
+не запускается. Время — около 9,5 с; 3 прогона подряд зелёные; с `LEAK_PER_SHELL` = 0 красный («added 20
+handles»).
 
-Замер на ПК 2026-10-22, этот test, ветка `worfy-windows/92` от `origin/main` 79f66f69:
+Замер на ПК 2026-10-22, более длинная версия этого test-а (до сокращения), ветка `worfy-windows/92` от
+`origin/main` 79f66f69:
 
 | Как кончается оболочка | Оболочек | Прирост handle | На оболочку |
 | --- | --- | --- | --- |
