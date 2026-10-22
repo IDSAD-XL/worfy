@@ -124,3 +124,5 @@ pty, а xterm.js без экрана (`@xterm/headless`) играл роль mai
 | Правка test-а без правки приложения, три spec-а | 16 passed, 3 failed: test 3 на `:351` (`MARK`, `MARK`, стрелок нет) |
 | С правкой, три spec-а целиком | 17 passed, 2 failed: 1 (`:273`), 2 (`:396`) |
 | С правкой, `--repeat-each=3` для трёх test-ов | test 3 — 3 из 3; 1 и 2 — 0 из 3 |
+| После rebase на `1d739e6c` (PR #729), три spec-а целиком | 17 passed, 2 failed: 1 (`:273`), 2 (`:396`) |
+| После rebase, `--repeat-each=3` для трёх test-ов | test 3 — 3 из 3; 1 и 2 — 0 из 3 |
