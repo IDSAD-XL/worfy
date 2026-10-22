@@ -1,7 +1,8 @@
 # 32 — `wave-gate.test.sh` под нагрузкой дольше предела 120 s на файл в `harness-scripts.test.ts`
 
 Type: task
-Status: claimed 2026-10-22T18:16Z
+Status: done 2026-10-22T19:52Z
+PR: #783
 Branch: worfy-polish/32-37
 Blocked by: —
 Source: замер [30](30-contract-test-ы-краснят-gate-full-чужих-pr-под-нагрузкой.md) 2026-10-17/18,

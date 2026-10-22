@@ -1,7 +1,8 @@
 # 37 — Предел 120 s у shell-test-ов на загруженном Mac
 
 Type: task
-Status: claimed 2026-10-22T18:16Z
+Status: done 2026-10-22T19:52Z
+PR: #783
 Branch: worfy-polish/32-37
 Blocked by: —
 Source: gate full на Mac перед мержем PR #725, #705, #727, #728 (2026-10-22, ночь): красный только на
