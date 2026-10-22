@@ -639,3 +639,8 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
 **Цель тикета (полный `pnpm test` с exit code 0 на Windows) пока заблокирована:**
 - Ticket 71 — `.test.sh` Harness-а, 8 красных в каждом полном прогоне;
 - контрольный полный прогон с ×3 сделан: `main` `2af91b51`, свободный ПК, 2026-10-20 00:29–00:54 — 9 failed: 8 = Ticket 71, 1 — разовый сбой `terminal-windows` (не timeout, worfy-polish 30); timeout-ов vitest нет; `wave-gate.test.sh` — по пределу файла, Ticket 71.
+
+**Terminal e2e под PowerShell (PR #710, ПК 2026-10-22):** три test-а остаются красными на Windows и на main,
+без skip — причина в приложении, не в test-ах, и вынесена в Ticket 86 (экран Terminal-а после resize и
+reload, стрелки колеса в alternate screen): `terminal.spec.ts:218`, `focus.spec.ts:341`,
+`wheel-over-nodes.spec.ts:321` (строки по main `30031d93`).

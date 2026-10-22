@@ -1,17 +1,22 @@
-import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, openSecondWindow, repoRoot, type LaunchedApp, type LaunchOptions } from './helpers'
+import { childrenOf, chooseGitBash, printJoined, shellsOf, SIZE_EXPRESSION, WINDOWS, windowsProcessName, windowsProfileEnv } from './terminal-shell'
 
 // The Terminal Node against the built app: "New terminal" in the Canvas context menu starts the
 // user's shell in the Project root on a real pty; the Node's size is the pty's size; the output
 // survives the Session view, a reload of the window and the Node scrolling away; closing the Node
 // and quitting worfy leave no shell process behind. The shell is /bin/sh (SHELL below) with HOME
 // in a temporary folder, so no rc file of the machine running the tests decides what the terminal
-// prints, and no shell history of the machine is written.
+// prints, and no shell history of the machine is written. On Windows the shell is PowerShell, the
+// default there (Q20), and one test runs Git Bash, chosen in the Project's settings; the commands
+// typed are the ones of the shell that runs (terminal-shell.ts). There SHELL and HOME do nothing:
+// the shell gets worfy's session variables, and the app is launched with USERPROFILE, APPDATA and
+// LOCALAPPDATA in the test's temporary folder (windowsProfileEnv), so PowerShell reads no $PROFILE
+// of the machine, PSReadLine writes its history there, and Git Bash's HOME is there.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -37,7 +42,8 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
-const launch = (options: LaunchOptions = {}) => launchApp({ ...options, env: { WORFY_DATA_DIR: dataDir, SHELL: '/bin/sh', HOME: home, ...options.env } })
+const launch = (options: LaunchOptions = {}) =>
+  launchApp({ ...options, env: { WORFY_DATA_DIR: dataDir, SHELL: '/bin/sh', HOME: home, ...windowsProfileEnv(join(scratch, 'profile')), ...options.env } })
 
 /** True while a process with this pid exists. */
 function alive(pid: number): boolean {
@@ -46,24 +52,6 @@ function alive(pid: number): boolean {
     return true
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === 'EPERM'
-  }
-}
-
-/** The pids of the processes whose parent is `pid`. */
-function childrenOf(pid: number): number[] {
-  try {
-    return execFileSync('pgrep', ['-P', String(pid)], { encoding: 'utf8' }).split('\n').filter(Boolean).map(Number)
-  } catch {
-    return []
-  }
-}
-
-/** The pids of the `sh` processes whose parent is `pid`: the shells worfy's main process runs. */
-function shellsOf(pid: number): number[] {
-  try {
-    return execFileSync('pgrep', ['-x', '-P', String(pid), 'sh'], { encoding: 'utf8' }).split('\n').filter(Boolean).map(Number)
-  } catch {
-    return []
   }
 }
 
@@ -168,20 +156,25 @@ async function pidOf(node: Locator): Promise<number> {
 
 /** What the terminal shows; xterm.js draws spaces as no-break spaces. */
 async function screenText(node: Locator): Promise<string> {
-  return (await node.locator('.xterm-rows').innerText()).replace(/\u00a0/g, ' ')
+  // ConPTY fills the rest of a row it writes with spaces: they are dropped, so `$` in a regex is the end of the text.
+  return (await node.locator('.xterm-rows').innerText()).replace(/\u00a0/g, ' ').replace(/ +$/gm, '')
 }
 
 /**
  * Runs `pwd` and waits for the Project root. A long path wraps over several rows of the screen,
  * so the rows are joined first; the prompt of /bin/sh does not show the folder, so the root
- * appears only in the output of pwd.
+ * appears only in the output of pwd. The prompt of PowerShell does show it: there the output is
+ * marked, and the mark is not in the typed line.
  */
 async function expectPwdIsRoot(window: Page, node: Locator): Promise<void> {
   await node.getByTestId('terminal-screen').click()
-  await window.keyboard.type('pwd')
+  await window.keyboard.type(WINDOWS ? 'echo "cwd=$($PWD.Path)"' : 'pwd')
   await window.keyboard.press('Enter')
-  await expect.poll(async () => (await screenText(node)).replace(/\n/g, ''), { timeout: 10_000 }).toContain(root)
+  await expect.poll(async () => (await screenText(node)).replace(/\n/g, ''), { timeout: 10_000 }).toContain(WINDOWS ? `cwd=${root}` : root)
 }
+
+/** Prints TERM_PROGRAM in the shell's own syntax. */
+const PRINT_TERM_PROGRAM = WINDOWS ? 'echo "tp=$env:TERM_PROGRAM"' : 'echo "tp=$TERM_PROGRAM"'
 
 /** Types a command into the terminal and waits until the screen matches `expected`. */
 async function run(window: Page, node: Locator, command: string, expected: RegExp): Promise<void> {
@@ -201,7 +194,7 @@ async function lastSize(node: Locator): Promise<{ cols: number; rows: number }> 
 
 async function printSize(window: Page, node: Locator, tag: string): Promise<{ cols: number; rows: number }> {
   // The output differs from the echoed command line (`$(…)`), so the regex matches only the output.
-  await run(window, node, `echo "${tag}-size=$(tput cols)x$(tput lines)"`, new RegExp(`${tag}-size=\\d+x\\d+`))
+  await run(window, node, `echo "${tag}-size=${SIZE_EXPRESSION}"`, new RegExp(`${tag}-size=\\d+x\\d+`))
   return lastSize(node)
 }
 
@@ -226,7 +219,7 @@ test('New terminal starts the shell in the Project root; resize, Session view an
 
     // `pwd` prints the Project root; TERM_PROGRAM is worfy.
     await expectPwdIsRoot(window, node)
-    await run(window, node, 'echo "tp=$TERM_PROGRAM"', /^tp=worfy$/m)
+    await run(window, node, PRINT_TERM_PROGRAM, /^tp=worfy$/m)
 
     // The pty has the size the Node shows, and follows a resize of the Node.
     const before = await printSize(window, node, 'a')
@@ -240,7 +233,7 @@ test('New terminal starts the shell in the Project root; resize, Session view an
 
     // Session view and back: the output is still there and the terminal is fitted to the Node
     // again (xterm.js cannot measure itself while the Canvas is display:none).
-    await run(window, node, 'echo mark""er-one', /^marker-one$/m)
+    await run(window, node, printJoined('mark', 'er-one'), /^marker-one$/m)
     const view = window.getByRole('group', { name: 'View', exact: true })
     await view.getByRole('button', { name: 'Session' }).click()
     await expect(node).toBeHidden()
@@ -278,7 +271,7 @@ test('New terminal starts the shell in the Project root; resize, Session view an
     await expect(reloaded).toHaveAttribute('data-state', 'running')
     expect(await pidOf(reloaded)).toBe(pid)
     await expect.poll(() => screenText(reloaded)).toMatch(/^marker-one$/m)
-    await run(window, reloaded, 'echo mark""er-two', /^marker-two$/m)
+    await run(window, reloaded, printJoined('mark', 'er-two'), /^marker-two$/m)
 
     // Closing the Node removes it from the Layout and ends the shell.
     await reloaded.getByRole('button', { name: 'Close terminal' }).click()
@@ -326,7 +319,7 @@ for (const zoom of [0.5, 1.5]) {
       const { cols } = await printSize(window, node, 'z')
       const line = 'sel-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
       // Split by quotes, so only the output row holds the line in one piece.
-      await run(window, node, `echo "sel-""${line.slice(4)}"`, new RegExp(`^${line}`, 'm'))
+      await run(window, node, printJoined('sel-', line.slice(4)), new RegExp(`^${line}`, 'm'))
       const screen = await node.locator('.xterm-screen').boundingBox()
       const row = await node.locator('.xterm-rows > div').filter({ hasText: new RegExp(`^${line}`) }).boundingBox()
       if (!screen || !row) throw new Error('no terminal screen or output row')
@@ -370,7 +363,8 @@ test('at Canvas zoom 50% a drag that began in one terminal and goes over another
     await expect(b).toHaveAttribute('data-state', 'running')
 
     const { cols } = await printSize(window, a, 'z')
-    await run(window, a, 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do echo "L$i-row"; done', /^L15-row$/m)
+    const rows = WINDOWS ? '1..15 | % { "L$_-row" }' : 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do echo "L$i-row"; done'
+    await run(window, a, rows, /^L15-row$/m)
     const screen = await a.locator('.xterm-screen').boundingBox()
     const row = await a.locator('.xterm-rows > div').filter({ hasText: /^L12-row/ }).boundingBox()
     const overB = await b.getByTestId('terminal-screen').boundingBox()
@@ -391,14 +385,15 @@ test('at Canvas zoom 50% a drag that began in one terminal and goes over another
 
 test('quitting worfy ends every shell; after a restart the Node starts a new shell in the same folder', async () => {
   const first = await launch()
-  const mainPid = first.app.process().pid ?? 0
+  // From main itself: on Windows app.process() is the cmd.exe that starts electron.exe.
+  const mainPid = await first.app.evaluate(() => process.pid)
   let pids: number[] = []
   const jobs: number[] = []
   let closing: Promise<void> | undefined
   try {
     const { window } = first
     const node = await newTerminal(window)
-    await run(window, node, 'echo old""-output', /^old-output$/m)
+    await run(window, node, printJoined('old', '-output'), /^old-output$/m)
     // A second terminal, with a job running in it.
     await newTerminalAt(window, { x: 700, y: 60 })
     const nodes = window.getByTestId('terminal-node')
@@ -406,9 +401,13 @@ test('quitting worfy ends every shell; after a restart the Node starts a new she
     await expect(nodes.nth(1)).toHaveAttribute('data-state', 'running')
     pids = [await pidOf(nodes.nth(0)), await pidOf(nodes.nth(1))]
     // The second shell ignores SIGHUP and waits for a job that ignores it too: the pty closing
-    // with the app's process does not end it, only worfy's SIGKILL before it quits does.
-    await run(window, nodes.nth(1), `trap '' HUP; sleep 30`, /sleep 30/)
-    await expect.poll(() => childrenOf(pids[1] ?? 0).length).toBe(1)
+    // with the app's process does not end it, only worfy's SIGKILL before it quits does. Windows has
+    // no SIGHUP; the job there is a program (Start-Sleep would run inside PowerShell, no child).
+    // On Windows this test proves less: closing the pseudo-console with the app already ends
+    // PowerShell and ping, so it passes whether or not worfy ends them itself before it exits.
+    if (WINDOWS) await run(window, nodes.nth(1), 'ping -n 31 127.0.0.1 > $null', /ping -n 31/)
+    else await run(window, nodes.nth(1), `trap '' HUP; sleep 30`, /sleep 30/)
+    await expect.poll(() => childrenOf(pids[1] ?? 0).length, { timeout: 15_000 }).toBe(1)
     jobs.push(...childrenOf(pids[1] ?? 0))
     expect(pids.every(alive)).toBe(true)
 
@@ -467,10 +466,11 @@ test('a shell that exited stays exited across a reload of the window; Restart st
     const { window } = launched
     const node = await newTerminal(window)
     const pid = await pidOf(node)
-    const mainPid = launched.app.process().pid ?? 0
+    // From main itself: on Windows app.process() is the cmd.exe that starts electron.exe.
+    const mainPid = await launched.app.evaluate(() => process.pid)
     // The shells run as children of main, so a shell started behind the user's back would show here.
     expect(shellsOf(mainPid)).toEqual([pid])
-    await run(window, node, 'echo be""fore-exit', /^before-exit$/m)
+    await run(window, node, printJoined('be', 'fore-exit'), /^before-exit$/m)
     await node.getByTestId('terminal-screen').click()
     await window.keyboard.type('exit 3')
     await window.keyboard.press('Enter')
@@ -532,7 +532,7 @@ const MEASURED_BYTES = 10_000_000
 async function timeToMarker(window: Page, node: Locator, views: Locator[], tag: string): Promise<number> {
   const marker = new RegExp(`^${tag}-DONE$`, 'm')
   await node.getByTestId('terminal-screen').click()
-  await window.keyboard.type(`head -c ${MEASURED_BYTES} /dev/zero | tr '\\0' a; echo; echo "${tag}-""DONE"`)
+  await window.keyboard.type(WINDOWS ? `'a' * ${MEASURED_BYTES}; ${printJoined(`${tag}-`, 'DONE')}` : `head -c ${MEASURED_BYTES} /dev/zero | tr '\\0' a; echo; echo "${tag}-""DONE"`)
   const started = Date.now()
   await window.keyboard.press('Enter')
   const seen = await Promise.all(
@@ -557,6 +557,9 @@ async function setNewestWindowSize(launched: LaunchedApp, width: number, height:
 
 test('one Terminal on two windows: both show the output, the second gets the replay, the pty has the size of the window that typed or clicked last; Restart and closing a window', async () => {
   test.setTimeout(240_000)
+  // On Windows ConPTY does not pass every byte on: it repaints the console screen, so the 10 MB
+  // timing there measures the repaint rather than worfy's output path. Hold it to the limit only
+  // with WORFY_PERF=1, as on the Mac.
   const enforce = process.env.WORFY_PERF === '1'
   const launched = await launch()
   try {
@@ -566,7 +569,7 @@ test('one Terminal on two windows: both show the output, the second gets the rep
 
     // The output with one window, measured before the second window opens.
     const oneWindowMs = await timeToMarker(window, node, [node], 'one')
-    await run(window, node, 'clear; echo be""fore-second', /^before-second$/m)
+    await run(window, node, `clear; ${printJoined('be', 'fore-second')}`, /^before-second$/m)
 
     // The second window, of another size, opened after the output: it attaches and shows the replay.
     const second = await openSecondWindow(launched)
@@ -577,7 +580,7 @@ test('one Terminal on two windows: both show the output, the second gets the rep
     await expect.poll(() => screenText(onCanvas2)).toMatch(/^before-second$/m)
 
     // Output typed in window 1 shows in window 2.
-    await run(window, node, 'echo from""-one', /^from-one$/m)
+    await run(window, node, printJoined('from', '-one'), /^from-one$/m)
     await expect.poll(() => screenText(onCanvas2)).toMatch(/^from-one$/m)
 
     // Window 2 shows the terminal in focus mode: its view fills the window, so it has another size.
@@ -598,7 +601,7 @@ test('one Terminal on two windows: both show the output, the second gets the rep
     // and window 1 is clicked meanwhile, without typing.
     expect(await printSize(second, tile, 'w2again')).toEqual(sizeTwo)
     await tile.getByTestId('terminal-screen').click()
-    await second.keyboard.type('sleep 2; echo "late-size=$(tput cols)x$(tput lines)"')
+    await second.keyboard.type(`${WINDOWS ? 'Start-Sleep 2' : 'sleep 2'}; echo "late-size=${SIZE_EXPRESSION}"`)
     await second.keyboard.press('Enter')
     await node.getByTestId('terminal-screen').click()
     await expect.poll(() => screenText(tile), { timeout: 10_000 }).toMatch(/^late-size=\d+x\d+$/m)
@@ -627,7 +630,7 @@ test('one Terminal on two windows: both show the output, the second gets the rep
     await expect(tile).toHaveAttribute('data-state', 'running')
     expect(await pidOf(tile)).toBe(restarted)
     await expect(onCanvas2).toHaveAttribute('data-state', 'running')
-    await run(second, tile, 'echo after""-restart', /^after-restart$/m)
+    await run(second, tile, printJoined('after', '-restart'), /^after-restart$/m)
     await expect.poll(() => screenText(node)).toMatch(/^after-restart$/m)
 
     // Window 1 closes: the shell lives on in window 2.
@@ -636,7 +639,38 @@ test('one Terminal on two windows: both show the output, the second gets the rep
     await new Promise((resolve) => setTimeout(resolve, 500))
     expect(alive(restarted)).toBe(true)
     expect(await pidOf(tile)).toBe(restarted)
-    await run(second, tile, 'echo still""-here', /^still-here$/m)
+    await run(second, tile, printJoined('still', '-here'), /^still-here$/m)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('on Windows, Git Bash chosen in the settings starts in the Project root; closing the Node ends it', async () => {
+  test.skip(!WINDOWS, 'the shell setting is read on Windows only')
+  chooseGitBash(join(dataDir, PROJECT))
+  const launched = await launch()
+  try {
+    const { window } = launched
+    const node = await newTerminal(window)
+    const pid = await pidOf(node)
+    const mainPid = await launched.app.evaluate(() => process.pid)
+    expect(shellsOf(mainPid)).toEqual([pid])
+    expect(windowsProcessName(pid)).toBe('bash.exe')
+    // PowerShell would print an empty tp= here: $TERM_PROGRAM is no variable of its own.
+    await run(window, node, 'unset HISTFILE; echo "tp=$TERM_PROGRAM"', /^tp=worfy$/m)
+    // A long path wraps over several rows: they are joined, as in expectPwdIsRoot.
+    await run(window, node, 'echo "cwd=$(cygpath -w "$PWD")"', /^cwd=/m)
+    await expect.poll(async () => (await screenText(node)).replace(/\n/g, '')).toContain(`cwd=${root}`)
+    // Git for Windows' bin\bash.exe, the one worfy starts, is a launcher: the interactive shell is
+    // its child, usr\bin\bash.exe (seen on the Windows PC on 2026-10-21: bin\bash.exe -c "sleep 25"
+    // had one child besides conhost.exe, <Git>\bin\..\usr\bin\bash.exe). Closing the Node has to end
+    // that one too, not only the pid worfy holds.
+    const inner = childrenOf(pid)
+    expect(inner).toHaveLength(1)
+    await node.getByRole('button', { name: 'Close terminal' }).click()
+    await expect(node).toHaveCount(0)
+    await expect.poll(() => [pid, ...inner].filter(alive), { timeout: 10_000 }).toEqual([])
+    expect(shellsOf(mainPid)).toEqual([])
   } finally {
     await launched.close()
   }
@@ -663,7 +697,7 @@ test('the Terminal works in the packaged worfy.app (node-pty unpacked from app.a
     expect(await launched.app.evaluate(({ app }) => app.isPackaged)).toBe(true)
     const node = await newTerminal(window)
     await expectPwdIsRoot(window, node)
-    await run(window, node, 'echo "tp=$TERM_PROGRAM"', /^tp=worfy$/m)
+    await run(window, node, PRINT_TERM_PROGRAM, /^tp=worfy$/m)
     await window.screenshot({ path: test.info().outputPath('packaged-terminal.png') })
     const pid = await pidOf(node)
     await node.getByRole('button', { name: 'Close terminal' }).click()
