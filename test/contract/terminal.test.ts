@@ -118,6 +118,8 @@ describe('terminal channels on a real pty', () => {
     await h.run(say('mark', 'er-one'), /marker-one\r?\n/)
     const before = h.outputs.at(-1)?.end ?? 0
     await h.ok('terminal.resize', { projectId: PROJECT, nodeId: NODE, cols: 132, rows: 40 })
+    // main took the resize between these two ends of the output.
+    const after = h.outputs.at(-1)?.end ?? 0
     await h.run(say('mark', 'er-two'), /marker-two\r?\n/)
 
     // The first window owns the size: the second one's open leaves the pty at 132x40.
@@ -127,9 +129,11 @@ describe('terminal channels on a real pty', () => {
     expect(first).toEqual({ at: 0, cols: 80, rows: 24 })
     expect({ cols: resized.cols, rows: resized.rows }).toEqual({ cols: 132, rows: 40 })
     expect(resized.at).toBeGreaterThanOrEqual(before)
-    expect(resized.at).toBeLessThanOrEqual(second.end)
-    expect(second.replay.slice(0, resized.at)).toContain('marker-one')
-    expect(second.replay.slice(resized.at)).toContain('marker-two')
+    expect(resized.at).toBeLessThanOrEqual(after)
+    // `at` counts in the whole output, as `end` does; `replay` is its last part.
+    const offset = resized.at - (second.end - second.replay.length)
+    expect(second.replay.slice(0, offset)).toContain('marker-one')
+    expect(second.replay.slice(offset)).toContain('marker-two')
   })
 
   it('the only client that opened a terminal going away ends its shell (the last subscriber left)', async () => {

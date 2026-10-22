@@ -17,8 +17,12 @@
 // part of its interface this test calls (Registry). tsc does not compare that part with pty.ts: a
 // change there shows here when the test runs. The handler's own call of `write` with `reply` is
 // typed against the registry (src/main/ipc/terminal.ts) and tested in test/contract/terminal.test.ts.
+//
+// The last part: a new view writes the kept output at the pty sizes it came at, and is not fitted
+// to its Node until it is all written (worfy-windows ticket 89).
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Terminal as HeadlessTerminal } from '@xterm/headless'
 import type { Terminal as XtermTerminal } from '@xterm/xterm'
 import { watchUserInput } from '../../src/renderer/canvas/nodes/terminal-user-input'
 import { terminalInput, terminalOpen, terminalResize, terminalTakeSize } from '../../src/shared/ipc/terminal'
@@ -61,6 +65,10 @@ const xterms = vi.hoisted(() => [] as XtermTerminal[])
  * `parsed` is that write's callback: a test may call it itself, to end the parse at a moment it picks.
  */
 const whileReplaying = vi.hoisted(() => ({ run: null as ((xterm: XtermTerminal, parsed: () => void) => void) | null }))
+/** What FitAddon proposes: nothing (jsdom cannot measure), unless a test sets a size. */
+const fitted = vi.hoisted(() => ({ size: undefined as { cols: number; rows: number } | undefined }))
+/** The callbacks of the ResizeObservers made: a test calls them as a new layout of the Node would. */
+const observers = vi.hoisted(() => [] as (() => void)[])
 /** The renderer IPC client as the Node sees it; each test points it at its registry. */
 const wire = vi.hoisted(() => {
   const invoke: (channel: string, input: unknown) => Promise<unknown> = () => Promise.reject(new Error('no registry'))
@@ -92,7 +100,7 @@ vi.mock('@xterm/addon-fit', () => ({
     activate() {}
     dispose() {}
     proposeDimensions() {
-      return undefined
+      return fitted.size
     }
   },
 }))
@@ -217,7 +225,7 @@ async function terminal(options: { otherScreen: boolean; duringOpen?: (pty: Stan
       return { ok: false, error: String(error) }
     }
   }
-  return { registry, pty, other }
+  return { registry, pty, other, view }
 }
 
 /** Mounts the Node and waits until it shows the shell in `state` and xterm.js has parsed all it was given. */
@@ -244,9 +252,14 @@ async function print(pty: StandInPty, xterm: XtermTerminal, text: string): Promi
 beforeEach(() => {
   xterms.length = 0
   whileReplaying.run = null
+  fitted.size = undefined
+  observers.length = 0
   vi.stubGlobal(
     'ResizeObserver',
     class {
+      constructor(callback: () => void) {
+        observers.push(callback)
+      }
       observe() {}
       disconnect() {}
     },
@@ -444,3 +457,83 @@ describe('watchUserInput', () => {
 function firstLine(xterm: XtermTerminal): string | undefined {
   return xterm.buffer.active.getLine(0)?.translateToString(true)
 }
+
+/** Every line of a terminal, the scrollback too, with the trailing blanks cut. */
+function allLines(terminal: { buffer: { active: { length: number; getLine(index: number): { translateToString(trim: boolean): string } | undefined } } }): string[] {
+  const buffer = terminal.buffer.active
+  return Array.from({ length: buffer.length }, (_, index) => buffer.getLine(index)?.translateToString(true) ?? '')
+}
+
+describe('the replay at the sizes of the pty (worfy-windows ticket 89)', () => {
+  /** The size of the Node the view fills. */
+  const NODE_SIZE = { cols: 30, rows: 8 }
+  /** Output right only at its size, as ConPTY's after a resize: a mark at column 35 of 40, then a line at the last row of 20x5. */
+  const AT_40X10 = 'one\r\n\x1b[35Gx\r\ntwo\r\n'
+  const AT_20X5 = '\x1b[5;1Hmarker-one\x1b[K'
+  let now = 0
+
+  beforeEach(() => {
+    now = 0
+    // The clock of main's runs of resizes: each resize below is a second after the one before.
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    // The Node has a layout, and FitAddon proposes NODE_SIZE for it.
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(640)
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(320)
+    fitted.size = { ...NODE_SIZE }
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  /**
+   * A shell that drew output at 40x10 and at 20x5, through main, and the screen of a view that got
+   * it live: xterm.js without a display, given the same output and resizes as they came, then the
+   * size of the new view, which main gives the pty when the view opens.
+   */
+  async function drawn() {
+    const shell = await terminal({ otherScreen: false })
+    const live = new HeadlessTerminal({ cols: 40, rows: 10, scrollback: 5000, allowProposedApi: true })
+    const write = (data: string) => new Promise<void>((resolve) => live.write(data, resolve))
+    now += 1000
+    shell.registry.resize(KEY, 40, 10, shell.view)
+    shell.pty.print(AT_40X10)
+    await write(AT_40X10)
+    now += 1000
+    shell.registry.resize(KEY, 20, 5, shell.view)
+    live.resize(20, 5)
+    shell.pty.print(AT_20X5)
+    await write(AT_20X5)
+    now += 1000
+    live.resize(NODE_SIZE.cols, NODE_SIZE.rows)
+    shell.pty.calls.length = 0
+    return { ...shell, live }
+  }
+
+  it('a new view draws the screen the live view has', async () => {
+    const { pty, live } = await drawn()
+
+    const { xterm } = await mount()
+
+    expect({ cols: xterm.cols, rows: xterm.rows }).toEqual(NODE_SIZE)
+    expect(allLines(xterm)).toEqual(allLines(live))
+    expect(allLines(xterm).join('\n')).toContain('marker-one')
+    // The pty took the view's size when it opened, and nothing after.
+    expect(pty.resizes).toEqual([[NODE_SIZE.cols, NODE_SIZE.rows]])
+  })
+
+  it('a new layout of the Node while the kept output is written fits the view only once it is all written', async () => {
+    const { pty, live } = await drawn()
+    // Right after the first piece is handed to xterm.js, before it is parsed: as the ResizeObserver
+    // fires on the frame after it observes, racing the answer to terminal.open.
+    whileReplaying.run = () => {
+      for (const callback of observers) callback()
+    }
+
+    const { xterm } = await mount()
+
+    expect(whileReplaying.run).toBeNull()
+    expect({ cols: xterm.cols, rows: xterm.rows }).toEqual(NODE_SIZE)
+    expect(allLines(xterm)).toEqual(allLines(live))
+    expect(pty.resizes).toEqual([[NODE_SIZE.cols, NODE_SIZE.rows]])
+  })
+})
