@@ -490,15 +490,25 @@ export interface PlacedStrip {
   frames: Map<string, PlacedFrame>
   /** The strip's width: K columns with the gaps between them (0 without frames). */
   width: number
-  /** The shelf's top-left corner: the strip's left edge, FRAME_GAP under its tallest column (0 without frames). */
+  /**
+   * The shelf's top-left corner: the strip's left edge, FRAME_GAP under its tallest column of the
+   * frames as drawn (ADR-0082; 0 without frames).
+   */
   shelf: { x: number; y: number }
+  /**
+   * How tall the room is that the strip's place was found for (`frameColumnX`): its tallest column
+   * of reserved heights, or the shelf's bottom when that is lower.
+   */
+  height: number
 }
 
 /**
  * stackFrames, with the done shelf (ADR-0075, point 5) under the strip: a shelf `shelfHeight` tall
- * stands at the strip's left edge, FRAME_GAP under the tallest column of reserved heights, and the
- * strip's place is found for the frames and the shelf together, so no Node on the plane is under
- * the shelf either. A frame with an offset yields to the shelf as to the frames of the strip. A
+ * stands at the strip's left edge, FRAME_GAP under the tallest column of the frames as drawn
+ * (ADR-0082): a frame whose done stack is open counts with its open height, so the stack moves the
+ * shelf down only when its column reaches the shelf. The strip's place is found for the tallest
+ * column of reserved heights and for the shelf, whichever ends lower, so no Node on the plane is
+ * under the shelf or in the room kept for an open done stack. A frame with an offset yields to the shelf as to the frames of the strip. A
  * shelf height of 0 is no shelf: the strip is placed as stackFrames places it.
  */
 export function placeStrip(frames: readonly StackedFrame[], plane: readonly Rect[] = [], columns = 1, shelfHeight = 0, shelfWidth = 0): PlacedStrip {
@@ -506,14 +516,18 @@ export function placeStrip(frames: readonly StackedFrame[], plane: readonly Rect
   const k = Math.max(1, Math.min(Math.floor(columns) || 1, frames.length || 1))
   const columnWidth = Math.max(0, ...frames.map((frame) => frame.width))
   const reserved = Array<number>(k).fill(0)
+  const drawn = Array<number>(k).fill(0)
   frames.forEach((frame, index) => {
-    reserved[index % k]! += (index >= k ? FRAME_GAP : 0) + Math.max(frame.height, frame.reserve ?? frame.height)
+    const gap = index >= k ? FRAME_GAP : 0
+    reserved[index % k]! += gap + Math.max(frame.height, frame.reserve ?? frame.height)
+    drawn[index % k]! += gap + frame.height
   })
   const stripWidth = frames.length === 0 ? 0 : k * columnWidth + (k - 1) * FRAME_GAP
   const tallest = Math.max(0, ...reserved)
-  const shelfTop = frames.length === 0 ? 0 : tallest + FRAME_GAP
+  const shelfTop = frames.length === 0 ? 0 : Math.max(0, ...drawn) + FRAME_GAP
   const shelved = shelfHeight > 0
-  const x = frameColumnX(Math.max(stripWidth, shelved ? shelfWidth : 0), shelved ? shelfTop + shelfHeight : tallest, plane)
+  const height = shelved ? Math.max(tallest, shelfTop + shelfHeight) : tallest
+  const x = frameColumnX(Math.max(stripWidth, shelved ? shelfWidth : 0), height, plane)
   const taken: Rect[] = [...plane]
   if (shelved) taken.push({ x, y: shelfTop, w: shelfWidth, h: shelfHeight })
   const moved: { frame: StackedFrame; index: number; auto: { x: number; y: number } }[] = []
@@ -536,7 +550,7 @@ export function placeStrip(frames: readonly StackedFrame[], plane: readonly Rect
     result.set(frame.epic, { x: place.x, y: place.y, auto })
     taken.push({ ...wanted, ...place })
   }
-  return { frames: result, width: stripWidth, shelf: { x, y: shelfTop } }
+  return { frames: result, width: stripWidth, shelf: { x, y: shelfTop }, height }
 }
 
 // ── the done shelf (ADR-0075, point 5) ──────────────────────────────────────

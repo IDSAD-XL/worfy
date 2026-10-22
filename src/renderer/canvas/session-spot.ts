@@ -86,8 +86,8 @@ export interface SpotInputs {
  * automatic places (`auto`). Its size is the one placeStrip gives the same frames, K and done shelf
  * (epic-layout.ts), so a Node kept off it never stands where frameColumnX would move the strip
  * away: each column as wide as the widest frame, each frame as tall as the strip keeps it
- * (`reserves`, by Epic: with its done stack open; without one, as drawn), the shelf FRAME_GAP under
- * the tallest column. No frames: no strip.
+ * (`reserves`, by Epic: with its done stack open; without one, as drawn), and down to the done
+ * shelf's bottom when the shelf, FRAME_GAP under the frames as drawn, ends lower. No frames: no strip.
  */
 export function spotInputs(nodes: Iterable<DrawnNode>, reserves?: ReadonlyMap<string, number>): SpotInputs {
   const frames = new Map<string, { epic: string; y: number; tickets: Map<number, number> }>()
@@ -140,9 +140,8 @@ function stripOf(
   const left = lefts[0]!
   const top = Math.min(...frames.map((frame) => frame.auto.y))
   const shelved = shelf.h > 0
-  // placeStrip puts the shelf FRAME_GAP under the tallest column (there are frames: no frames, no strip).
-  const bottom = shelved ? placed.shelf.y + shelf.h : placed.shelf.y - FRAME_GAP
-  return { x: left, right: left + Math.max(placed.width, shelved ? shelf.w : 0), top, bottom: top + bottom }
+  // The room placeStrip found the strip's place for: the reserved column or the shelf, whichever ends lower.
+  return { x: left, right: left + Math.max(placed.width, shelved ? shelf.w : 0), top, bottom: top + placed.height }
 }
 
 /**

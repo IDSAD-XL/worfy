@@ -1,7 +1,8 @@
 # 21 — Done shelf под видимыми рамками: minimap не уменьшает Canvas из-за полки
 
 Type: task
-Status: open
+Status: claimed 2026-10-22T01:34Z
+Branch: worfy-canvas/21
 Blocked by: —
 Source: решение владельца 2026-10-22, [ADR-0082](../../../docs/adr/0082-done-shelf-under-visible-frames.md).
 Код перечитан по main `e08465ff`.
@@ -34,16 +35,16 @@ Minimap Canvas уменьшает всё очень сильно: рамки Epi
 
 ## Готово, когда
 
-- [ ] Unit на `placeStrip`: у рамки с `reserve` больше `height` полка стоит на `FRAME_GAP` под самой
+- [x] Unit на `placeStrip`: у рамки с `reserve` больше `height` полка стоит на `FRAME_GAP` под самой
       высокой колонкой по `height`, а не по `reserve`.
-- [ ] Unit: рамка с открытой стопкой done (её `height` равен открытой высоте), чья колонка стала ниже
+- [x] Unit: рамка с открытой стопкой done (её `height` равен открытой высоте), чья колонка стала ниже
       полки, опускает полку на `FRAME_GAP` под эту колонку; закрытая стопка возвращает полку наверх.
-- [ ] Unit: запас на открытую стопку по-прежнему входит в поиск `x` полосы — Node под видимыми рамками,
+- [x] Unit: запас на открытую стопку по-прежнему входит в поиск `x` полосы — Node под видимыми рамками,
       но в пределах запаса, сдвигает полосу вправо, как сейчас.
-- [ ] Если проверяется: границы minimap (или границы всех Node-ов, по которым MiniMap их считает) не
+- [x] Если проверяется: границы minimap (или границы всех Node-ов, по которым MiniMap их считает) не
       тянутся до прежнего места полки. Если test-а без e2e не получается — строка в «Итог» с причиной.
-- [ ] Мутант красный: вернуть `shelfTop` от суммы по `reserve`.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [x] Мутант красный: вернуть `shelfTop` от суммы по `reserve`.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
 
@@ -55,3 +56,20 @@ Minimap Canvas уменьшает всё очень сильно: рамки Epi
 
 - Фильтр Node-ов в minimap — в `@xyflow/react` 12.12 его нет (ADR-0082, Considered Options).
 - Предел запаса на открытую стопку done — отвергнут (ADR-0082).
+
+## Итог
+
+- `placeStrip` (`src/renderer/canvas/epic-layout.ts`) считает по колонкам две суммы: по запасу
+  (`reserve`) и по видимой высоте рамки (`height`). `shelf.y` — `FRAME_GAP` под самой высокой
+  колонкой по видимым высотам. Высота, для которой `frameColumnX` ищет место полосе, — большее из
+  колонки по запасу и низа полки; её отдаёт новое поле `PlacedStrip.height`.
+- Вне следа тикета: `src/renderer/canvas/session-spot.ts`. `stripOf` брал низ полосы из `shelf.y`
+  (без полки — `shelf.y - FRAME_GAP`, то есть колонка по запасу). После правки `shelf.y` это уже не
+  так, и место новой Session могло попасть в запас под полосой. Теперь низ полосы — `placed.height`.
+  Test-ы `test/unit/session-spot.test.ts` о полке переписаны под новое правило.
+- Границы minimap: unit в `test/unit/done-shelf.test.tsx` («the Nodes of a build end at the shelf…»)
+  проверяет на `buildEpicNodes`, что ниже всех Node-ов полосы стоит полка, `FRAME_GAP` под самой
+  нижней видимой рамкой, со свёрнутой и с открытой стопкой done. MiniMap `@xyflow/react` берёт
+  границы из этих Node-ов; сам MiniMap в test-е не рисуется.
+- Мутанты (все красные): `shelfTop` от суммы по `reserve`; видимая высота без рамки с открытой
+  стопкой; поиск `x` без запаса; поиск `x` без полки; прежний низ полосы в `session-spot.ts`.

@@ -170,14 +170,43 @@ describe('where the shelf stands', () => {
     { epic: 'z', width: 500, height: 200, reserve: 400 },
   ]
 
-  it('at the strip\'s left edge, FRAME_GAP under its tallest column of reserved heights', () => {
-    // Two columns 600 wide: x then z (300 + 48 + 400 reserved), y (600).
+  it('at the strip\'s left edge, FRAME_GAP under its tallest column of visible heights, not of reserved ones (ADR-0082)', () => {
+    // Two columns 600 wide: x then z (300 + 48 + 200 visible, 300 + 48 + 400 reserved), y (600).
     const placed = placeStrip(strip, [], 2, 100, 1248)
     expect(placed.width).toBe(2 * 600 + FRAME_GAP)
-    expect(placed.shelf).toEqual({ x: 0, y: 300 + FRAME_GAP + 400 + FRAME_GAP })
+    expect(placed.shelf).toEqual({ x: 0, y: 600 + FRAME_GAP })
     expect(placed.frames.get('x')!.auto).toEqual({ x: 0, y: 0 })
     // Without a shelf it is stackFrames.
     expect(placeStrip(strip, [], 2).frames).toEqual(stackFrames(strip, [], 2))
+  })
+
+  it('an open done stack whose column reaches the shelf moves it down under the column; folded, the shelf is back up', () => {
+    // z with its done stack open is as tall as its reserve: x then z, 300 + 48 + 400, is the tallest column.
+    const open = strip.map((frame) => (frame.epic === 'z' ? { ...frame, height: 400 } : frame))
+    expect(placeStrip(open, [], 2, 100, 1248).shelf).toEqual({ x: 0, y: 300 + FRAME_GAP + 400 + FRAME_GAP })
+    expect(placeStrip(strip, [], 2, 100, 1248).shelf).toEqual({ x: 0, y: 600 + FRAME_GAP })
+    // An open stack whose column stays above y's leaves the shelf where it is.
+    const short = strip.map((frame) => (frame.epic === 'z' ? { ...frame, height: 250 } : frame))
+    expect(placeStrip(short, [], 2, 100, 1248).shelf).toEqual({ x: 0, y: 600 + FRAME_GAP })
+  })
+
+  it('the strip\'s x is still found for the reserve: a Node under the visible frames, within the reserve, moves the strip', () => {
+    // Column x then z: 548 visible, 748 reserved. A shelf 50 tall at 648 ends at 698, above the reserve.
+    const room = placeStrip(strip, [], 2, 50, 1248)
+    expect(room.shelf.y + 50).toBeLessThan(300 + FRAME_GAP + 400)
+    expect(room.height).toBe(300 + FRAME_GAP + 400)
+    // Clear of the shelf and of the visible frames, but within FRAME_GAP of the reserved room.
+    const within = { x: 0, y: 300 + FRAME_GAP + 400 + FRAME_GAP - 1, w: 100, h: 50 }
+    expect(within.y).toBeGreaterThanOrEqual(room.shelf.y + 50 + FRAME_GAP)
+    const moved = placeStrip(strip, [within], 2, 50, 1248)
+    expect(moved.shelf.x).toBe(within.x + within.w + FRAME_GAP)
+    expect(moved.frames.get('x')!.auto.x).toBe(moved.shelf.x)
+    // Just past it the strip stays at x = 0.
+    expect(placeStrip(strip, [{ ...within, y: within.y + 1 }], 2, 50, 1248).shelf.x).toBe(0)
+    // A shelf lower than the reserve: the room ends at the shelf's bottom.
+    expect(placeStrip(strip, [], 2, 300, 1248).height).toBe(600 + FRAME_GAP + 300)
+    // No shelf: the room is the reserve alone.
+    expect(placeStrip(strip, [], 2).height).toBe(300 + FRAME_GAP + 400)
   })
 
   it('its height counts in the strip\'s height for frameColumnX: a Node under the strip, clear of it alone, moves the strip', () => {
@@ -218,6 +247,26 @@ describe('where the shelf stands', () => {
     // Every frame of the strip ends at least FRAME_GAP above the shelf.
     for (const frame of strip) expect(frame.position.y + frame.height!).toBeLessThanOrEqual(shelf.position.y - FRAME_GAP)
     expect(shelf.width).toBe(Math.max(SHELF_MIN_WIDTH, stripSize(strip.map((n) => ({ width: n.width!, height: n.height! })), 1).width))
+  })
+
+  it('the Nodes of a build end at the shelf, FRAME_GAP under the lowest frame drawn, so the minimap bounds are the frames\' (ADR-0082)', () => {
+    // b has five done Tickets: its folded done stack keeps room for the open one under the frame.
+    const id = freshProject()
+    const tickets = [ticket('a', 1, done), ...[1, 2, 3, 4, 5].map((num) => ticket('b', num, done)), ticket('b', 6), ticket('d', 1)]
+    const build = (doneExpanded: Record<string, boolean>) => buildEpicNodes(id, '/repo', model(tickets, EPICS), layoutWith(), doneExpanded)
+    const bottomOf = (nodes: readonly CanvasFlowNode[]) => Math.max(...nodes.filter((n) => n.type === 'epic-frame').map((n) => n.position.y + n.height!))
+    const folded = build({})
+    const open = build({ [`${id}|b`]: true })
+    expect(bottomOf(open)).toBeGreaterThan(bottomOf(folded))
+    expect(shelfOf(open)!.position.y).toBeGreaterThan(shelfOf(folded)!.position.y)
+    for (const nodes of [folded, open, build({})]) {
+      const shelf = shelfOf(nodes)!
+      expect(shelf.position.y).toBe(bottomOf(nodes) + FRAME_GAP)
+      // Nothing of the Epic source stands lower than the shelf: React Flow's MiniMap takes its bounds from these Nodes.
+      // Ticket Nodes stand inside their frames (parentId), so the Nodes on the plane are the frames and the shelf.
+      const onPlane = nodes.filter((n) => n.parentId === undefined)
+      expect(Math.max(...onPlane.map((n) => n.position.y + (n.height ?? 0)))).toBe(shelf.position.y + shelf.height!)
+    }
   })
 })
 
