@@ -323,8 +323,17 @@ test('Esc ends the activity of HANDOFF and Note but not of a Terminal; a click o
 
 test('a Terminal running a program in the alternate screen gets no arrow keys from the wheel until it is active', async () => {
   const window = await start()
+  // Fewer rows than the 24 xterm.js is made with, on every system: an alternate screen that kept the
+  // room for 24 would scroll under the wheel instead of sending arrow keys (terminal-alt-buffer.ts).
+  expect((await invoke(window, 'layout.apply', { projectId: PROJECT, op: { op: 'resize', id: 'term', w: 560, h: 240 } })).ok).toBe(true)
+  const rows = () => terminalRows(window).locator(':scope > div').count()
+  await expect.poll(rows).toBeLessThan(20)
+  expect(await rows()).toBeGreaterThan(5)
+  // Git Bash on the console of Windows sometimes loses the first key typed after a resize of its pty
+  // (measured with node-pty on 2026-10-22, also 600 ms after the resize). The command starts with a
+  // space, which the shell ignores whether it arrives or not.
   await clickOn(window, terminalScreen(window))
-  await window.keyboard.type("printf '\\033[?1049h'; cat -v")
+  await window.keyboard.type(" printf '\\033[?1049h'; cat -v")
   await window.keyboard.press('Enter')
   // In the alternate screen the earlier output is gone.
   await expect.poll(() => terminalRows(window).innerText(), { timeout: 10_000 }).not.toMatch(/\b200\b/)

@@ -58,16 +58,26 @@ describe('the alternate screen after the rows shrink', () => {
     terminal.dispose()
   })
 
-  it('the normal screen keeps its scrollback', async () => {
-    const terminal = fittedTerminal(true)
-    await write(terminal, 'line\r\n'.repeat(40))
-    expect(terminal.buffer.active.type).toBe('normal')
-    expect(terminal.buffer.active.baseY).toBe(20)
+  it('once disposed, it stops fitting: a later shrink leaves the room to xterm.js again', async () => {
+    const terminal = new Terminal({ cols: 81, rows: 21, scrollback: 5000, allowProposedApi: true })
+    keepAltBufferFitted(terminal as unknown as AltBufferTerminal).dispose()
+    terminal.resize(81, 18)
+    await write(terminal, ALT_SCREEN_LINES)
+    expect({ length: terminal.buffer.active.length, baseY: terminal.buffer.active.baseY }).toEqual({ length: 21, baseY: 3 })
     terminal.dispose()
   })
 
-  it('does nothing to a terminal without the internals it reaches', () => {
-    const bare: AltBufferTerminal = { rows: 21, onResize: () => ({ dispose: () => undefined }) }
-    expect(fitAltBuffer(bare)).toBe(false)
+  const onResize = (): { dispose: () => void } => ({ dispose: () => undefined })
+  const clear = (): void => undefined
+  it.each([
+    ['no internals at all', {}],
+    ['an alternate buffer of another shape', { _core: { buffers: { alt: {} } } }],
+    ['an alternate buffer without its lines', { _core: { buffers: { alt: { clear } } } }],
+    ['lines without a maximum length', { _core: { buffers: { alt: { clear, lines: { length: 0 } } } } }],
+    ['no clear()', { _core: { buffers: { alt: { lines: { length: 0, maxLength: 24 } } } } }],
+  ])('does nothing to a terminal with %s', (_name, internals) => {
+    const terminal = { rows: 21, onResize, ...internals } as AltBufferTerminal
+    expect(() => fitAltBuffer(terminal)).not.toThrow()
+    expect(fitAltBuffer(terminal)).toBe(false)
   })
 })
