@@ -407,11 +407,17 @@ test('a group of 10 Notes and a Card dragged over 250 Layout Nodes for 2 s makes
     const first = await box(nodeElement(window, 'g0'))
     const card = await box(nodeElement(window, 'gc'))
     const last = await box(nodeElement(window, 'g9'))
+    const camera = (): Promise<string | null> => window.locator('.react-flow__viewport').getAttribute('style')
+    const cameraBefore = await camera()
     await window.mouse.move(first.x - 10, first.y - 10)
     await window.mouse.down()
     await window.mouse.move(card.x + card.width + 10, last.y + last.height + 10, { steps: 10 })
     await window.mouse.up()
-    await expect(window.locator('.react-flow__node.selected')).toHaveCount(11)
+    // Once, in a loaded gate full, the box took 6 Nodes of the 11 (PR #550, 2026-10-20), and 13 runs
+    // (11 under load) since took all 11. A red run names the Nodes it took and whether the camera moved
+    // under the box (React Flow pans while the pointer of a box is near the edge of the Canvas).
+    const selected = (): Promise<string[]> => window.locator('.react-flow__node.selected').evaluateAll((elements) => elements.map((element) => element.getAttribute('data-id') ?? '').sort())
+    await expect.poll(async () => ({ selected: await selected(), camera: await camera() })).toEqual({ selected: group.map((node) => node.id).sort(), camera: cameraBefore })
 
     const from = await startDrag(window, header(window, 'g0'))
     await window.evaluate(() => {

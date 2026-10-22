@@ -297,17 +297,20 @@ describe('a tool that does not answer', () => {
     env.PATH = `${dir}${delimiter}${process.env.PATH ?? process.env.Path ?? ''}`
     env.PATHEXT = '.CMD;.EXE'
     const killed: { child: ChildProcess; platform: NodeJS.Platform }[] = []
-    const started = Date.now()
-    // The kill is held back: the answer must come while the tool still runs.
-    const run = await runTool('hang', ['--version'], env, 1500, {
+    // The kill is held back: the answer must come while the tool still runs. A run that waited for
+    // the pipes would never answer, and the test would fail at its own time limit. What the test
+    // checks is the state of the tool at the answer, not a clock: under load the start of node
+    // alone took seconds, and a check of the answer's time raced the 5 s limit of the test.
+    const run = await runTool('hang', ['--version'], env, 1000, {
       kill: (child, platform) => {
         killed.push({ child, platform })
       },
     })
     try {
-      expect(run).toEqual({ code: null, stdout: '', stderr: 'hang did not answer within 2 s', missing: false })
-      expect(Date.now() - started).toBeLessThan(5000)
+      expect(run).toEqual({ code: null, stdout: '', stderr: 'hang did not answer within 1 s', missing: false })
       expect(killed).toHaveLength(1)
+      expect(killed[0]?.child.exitCode).toBeNull()
+      expect(killed[0]?.child.signalCode).toBeNull()
       await until(() => existsSync(pidFile))
       const pid = Number(readFileSync(pidFile, 'utf8'))
       expect(alive(pid)).toBe(true)

@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, launchApp, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, parkPointer, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
 
@@ -109,12 +109,6 @@ async function box(locator: Locator): Promise<{ x: number; y: number; width: num
   const found = await locator.boundingBox()
   if (!found) throw new Error('the element has no box')
   return found
-}
-
-/** The machine's own cursor may rest over the window: the test's pointer goes to an empty corner first. */
-async function parkPointer(window: Page): Promise<void> {
-  const canvas = await box(window.locator('.react-flow'))
-  await window.mouse.move(canvas.x + 8, canvas.y + canvas.height - 8)
 }
 
 async function launch(): Promise<LaunchedApp> {

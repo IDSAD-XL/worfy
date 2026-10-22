@@ -14,7 +14,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, openSecondWindow, PROJECTS_ACCESS_LABEL, type LaunchedApp } from './helpers'
+import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, openSecondWindow, parkPointer, PROJECTS_ACCESS_LABEL, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript, loginProfileWithNode } from '../harness-node'
 
@@ -147,10 +147,7 @@ test('hovering a Session draws its Binding line and fades no Node; "Show family"
     // the Canvas settles (a frame that grows, a camera that moves) is hovered for real, and its
     // Family's lines are drawn. Each window first gets the test's pointer at an empty corner of its
     // Canvas, so only the test's own moves hover anything.
-    for (const page of [window, second]) {
-      const canvas = await box(page.locator('.react-flow'))
-      await page.mouse.move(canvas.x + 8, canvas.y + canvas.height - 8)
-    }
+    for (const page of [window, second]) await parkPointer(page)
 
     const claim = `session:${CLAIM}`
     const folder = `session:${FOLDER}`
@@ -174,8 +171,7 @@ test('hovering a Session draws its Binding line and fades no Node; "Show family"
     await snapshotThemes(window, 'family-hover')
 
     // Away from the Nodes: the line goes, and the Nodes are as they were.
-    const pane = await box(window.locator('.react-flow'))
-    await window.mouse.move(pane.x + 8, pane.y + pane.height - 8)
+    await parkPointer(window)
     await expect(window.getByTestId(`rf__edge-binding:${claim}`).locator('path.react-flow__edge-path')).toHaveCount(0)
     await expectOpacities(window, { [folder]: '1', [ticket12]: '1', 'note-1': '1' })
 
@@ -184,7 +180,7 @@ test('hovering a Session draws its Binding line and fades no Node; "Show family"
     await claimNode.click()
     const showFamily = window.getByTestId('selection-toolbar').getByRole('button', { name: 'Show family' })
     await expect(showFamily).toBeVisible()
-    await window.mouse.move(pane.x + 8, pane.y + pane.height - 8)
+    await parkPointer(window)
     for (let step = 0; step < 20 && (await allOnCanvas(window, [epicFrame, ticket7, claim])); step += 1) {
       await window.mouse.wheel(-80, 0)
       await canvasReady(launched)

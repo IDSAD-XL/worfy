@@ -373,6 +373,21 @@ export interface CanvasReadyOptions {
   timeout?: number
 }
 
+
+/**
+ * Puts the test's pointer on the empty Canvas of `window`, at its bottom-left corner, off every Node.
+ * The machine's own cursor may rest over a test's window: macOS then sends the window hover, and a
+ * Node that comes to lie under that cursor (a frame that grows, a camera that moves) is hovered for
+ * real — its Family lit, its lines drawn, the rest dimmed — without the test doing anything
+ * (family.spec.ts, 2026-10-19). A spec that checks what hover shows calls this before the check, in
+ * every window it checks, so only the test's own moves hover anything.
+ */
+export async function parkPointer(window: Page): Promise<void> {
+  const pane = await window.locator('.react-flow').boundingBox()
+  if (!pane) throw new Error('the Canvas has no box')
+  await window.mouse.move(pane.x + 8, pane.y + pane.height - 8)
+}
+
 /**
  * Waits until the Canvas is at rest: the window is on screen (when `app` is given; at `size` when
  * given), the `visible` elements are there, and then for `frames` animation frames in a row the

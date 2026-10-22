@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { epicStatusSchema } from '../../src/shared/workflow/types'
-import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, parkPointer, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
 
@@ -134,10 +134,8 @@ async function paleToken(window: Page): Promise<string> {
 
 /** The pointer on the empty plane, at the Canvas's bottom-left corner, off every Node. */
 async function awayFromNodes(window: Page): Promise<void> {
-  const pane = await window.locator('.react-flow').boundingBox()
-  if (!pane) throw new Error('the Canvas has no box')
   await mark(window, 'move away from the Nodes')
-  await window.mouse.move(pane.x + 8, pane.y + pane.height - 8)
+  await parkPointer(window)
 }
 
 // Diagnostics for a flaky failure: in full e2e runs at 3 workers the chain of the hovered Ticket

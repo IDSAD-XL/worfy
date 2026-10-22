@@ -7,18 +7,27 @@ import { describe, expect, it } from 'vitest'
 
 // Windows has no /bin/echo: echo is built into cmd.exe there, and cmd.exe needs SystemRoot to start.
 // ConPTY also draws the screen with escape sequences around the output, so those are stripped.
+// On macOS and Linux the program waits for a line after its echo: node-pty destroys the pty 200 ms
+// after the process exits (DESTROY_SOCKET_TIMEOUT_MS in lib/unixTerminal.js), and output not yet
+// read by then is lost. Under load the read came later than that, and the test saw '' (2026-10-20).
+// The line is typed only after 'ok' has come back, so the exit cannot overtake the output.
 const windows = process.platform === 'win32'
 const systemRoot = process.env['SystemRoot'] ?? 'C:\\Windows'
 const [file, args, env] = windows
   ? [process.env['ComSpec'] ?? `${systemRoot}\\System32\\cmd.exe`, ['/c', 'echo ok'], { SystemRoot: systemRoot }]
-  : ['/bin/echo', ['ok'], {}]
+  : ['/bin/sh', ['-c', 'echo ok; read line'], {}]
 
 describe('node-pty under the Electron runtime', () => {
   it('spawns echo in a pseudo-terminal, reads its output and sees it exit', async () => {
     const pty = spawn(file, args, { name: 'xterm-color', cols: 80, rows: 24, env })
     let output = ''
+    let answered = false
     pty.onData((chunk) => {
       output += chunk
+      if (!windows && !answered && stripVTControlCharacters(output).includes('ok')) {
+        answered = true
+        pty.write('\r')
+      }
     })
     const exitCode = await new Promise<number>((resolve) => {
       pty.onExit(({ exitCode: code }) => resolve(code))
