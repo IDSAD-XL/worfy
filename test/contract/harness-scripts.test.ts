@@ -56,6 +56,7 @@ const relative = (file: string): string => file.slice(HARNESS.length + 1).replac
 // when this file runs longer than the longest single shell test plus a few seconds.
 const RUN_FIRST = [
   'bin/tests/wave-gate.test.sh',
+  'bin/tests/wave-gate-lock.test.sh',
   'hooks/tests/guard-silent.test.sh',
   'bin/tests/skill-blocks.test.sh',
   'bin/tests/profile.test.sh',

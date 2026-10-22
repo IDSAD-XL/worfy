@@ -57,9 +57,14 @@ Source: Ticket [71](71-harness-test-sh-на-windows.md) (PR #555), 2026-10-20 �
   (`takeOver`: маркер `<lock>.takeover`, повторное чтение `holder.json`, повтор `rmdir`), `:310` (`noteChild`, поле
   `child`), `:482` (`releasePid`), `:947-960` (обработчик сигналов: на Windows gate завершается `kill()` без
   сигнала, замки снимаются в любом случае).
-- `harness/bin/tests/wave-gate.test.sh`: `:246` (`finish` — предел ожидания фонового запуска), `:631` (сигнал, который
-  нельзя переслать: SIGHUP везде, SIGBREAK на Windows), `:656` («killed»), `:674` («orphan»), `:705` («twins»),
-  `:716` («token», со старым замком), `:733` (`holder.json` без `host` и с чужим `host`).
+- `harness/bin/tests/wave-gate-lock.test.sh` (новые случаи замка вынесены из `wave-gate.test.sh`, чтобы у каждого
+  файла был свой предел времени в `test/contract/harness-scripts.test.ts`): `:13` (сигнал, который нельзя
+  переслать: SIGHUP везде, SIGBREAK на Windows), `:39` («killed»), `:57` («orphan»), `:82` («twins»), `:99`
+  («token», со старым замком), `:116` (`holder.json` без `host` и с чужим `host`).
+- `harness/bin/tests/wave-gate-world.sh`: общая подготовка обоих файлов (stub-ы gate, gh, ioreg, caffeinate,
+  `new_world`, `state`), `:238` (`finish` — предел ожидания фонового запуска).
+- `test/contract/harness-scripts.test.ts`: `:37` (предел одного `.test.sh` на Windows 900 s), `:59`
+  (`wave-gate-lock.test.sh` в `RUN_FIRST`).
 - `harness/profiles/README.md`: `:184` (`workflow.e2e_lock`: для `bin/wave-gate` замок убитого прогона забирается
   сразу).
 - Полный путь Windows проверяет одна функция `isWindowsAbsolutePath` (`src/shared/paths.ts:26`) вместо
@@ -130,7 +135,8 @@ Wave на Windows пока не гоняют.
   процессу из test-а нельзя без общей консоли. SIGTERM от другого процесса node на Windows не получает по-прежнему;
   это закрывает пункт 1 выше, а не обработчик.
 
-Test-ы в `harness/bin/tests/wave-gate.test.sh`, на всех системах:
+Test-ы в `harness/bin/tests/wave-gate-lock.test.sh` («pid dead» и «pid live» — в `wave-gate.test.sh`), на всех
+системах:
 - «killed»: gate stub убивает `wave-gate` SIGKILL-ом посреди прогона (на Windows — `kill -f -W` по pid Windows,
   как в случае resume). Замок остаётся с `pid` и `host`; следующий запуск берёт его сразу, сообщение «held by
   pid N, which is not running». Случай «e2e lock on signal» (SIGTERM) на win32 остаётся пропущенным с прежней
