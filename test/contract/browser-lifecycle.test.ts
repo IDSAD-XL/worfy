@@ -1,8 +1,10 @@
 // A Browser and the life of the Session that opened it (worfy-browser ticket 06, ADR-0078 item 11):
 // the Browsers a Session opened leave the Canvas with it — Hide, Remove — in the same Layout
-// operation, pinned and Keep or not; nothing brings them back (showing the Session again, Restore,
-// ⌘Z of the user's step); a Browser the user opened and another Session's stay; the Session's
-// control of the user's Browser ends with it; a Session drives no Browser another Session opened.
+// operation, pinned and Keep or not; showing the Session again and Restore do not bring them back,
+// ⌘Z of the user's step does, at their former places (owner decision 2026-10-22); a Browser the user
+// opened and another Session's stay, and so does one the user took over or whose page has unsaved
+// changes, as the user's own (owner decision 2026-10-22); the Session's control of the user's
+// Browser ends with it; a Session drives no Browser another Session opened.
 //
 // The Browsers are opened the way a Session opens them — the tools of `worfy-browser` through
 // browserToolCaller (src/main/mcp/browser-server.ts) — over main's LayoutStore and LiveBrowsers
@@ -48,6 +50,8 @@ class FakePage implements CdpContents {
   private attached = false
   private readonly listeners = new Map<string, Set<Listener>>()
   readonly sent: string[] = []
+  /** The page has a `beforeunload` handler: unsaved changes. */
+  unsaved = false
   onCommand: ((method: string) => void | Promise<void>) | undefined
   readonly debugger: CdpDebugger = {
     attach: () => void (this.attached = true),
@@ -59,6 +63,7 @@ class FakePage implements CdpContents {
       if (method === 'Page.captureScreenshot') return { data: 'iVBORw0KGgo=' }
       if (method === 'Runtime.evaluate') return { result: { objectId: 'button-1' } }
       if (method === 'Runtime.callFunctionOn') return { result: { value: { x: 10, y: 10, w: 20, h: 20 } } }
+      if (method === 'DOMDebugger.getEventListeners') return { listeners: this.unsaved ? [{ type: 'beforeunload' }] : [] }
       return {}
     },
     on: ((event: string, listener: Listener) => this.listen(`debugger:${event}`, listener)) as CdpDebugger['on'],
@@ -104,6 +109,8 @@ let controls: [string, string | null][]
 let changes: LayoutChange[]
 /** The pages the "window" draws, by Browser Node id. */
 let pages: Map<string, FakePage>
+/** The rules of sleep the Live Browsers read; a test may change them. */
+let sleep: { maxLive: number; offscreenMs: number; idleMs: number; minZoom: number }
 
 const nodes = (): LayoutNode[] => store.get(PROJECT).layout.nodes
 const nodeOf = (id: string): LayoutNode | undefined => nodes().find((node) => node.id === id)
@@ -137,6 +144,8 @@ beforeEach(async () => {
   controls = []
   changes = []
   pages = new Map()
+  // Room for every Browser of a test, and no sleep while it runs: this file is not about sleep.
+  sleep = { maxLive: 10, offscreenMs: 3_600_000, idleMs: 3_600_000, minZoom: 0 }
   store.onChange((change) => changes.push(change))
   // Each change is drawn at once, as an open window draws it.
   store.onChange(() => queueMicrotask(draw))
@@ -145,9 +154,9 @@ beforeEach(async () => {
     changed: (_projectId, nodeId, mode) => controls.push([nodeId, mode]),
     pressing: () => undefined,
     browsersOf: () => shownBrowsers(),
-    // Room for every Browser of a test, and no sleep while it runs: this file is not about sleep.
-    sleepSettings: () => ({ maxLive: 10, offscreenMs: 3_600_000, idleMs: 3_600_000, minZoom: 0 }),
+    sleepSettings: () => sleep,
     layoutChanges: (listener) => store.onChange(listener),
+    browserKeeper: (keeps) => store.setBrowserKeeper(keeps),
   })
   await live.screen(1, { projectId: PROJECT, visible: [], zoom: 1 })
   const session = (sessionId: string, x: number): LayoutOpInput => ({
@@ -535,27 +544,98 @@ describe('the Live Browsers stopped', () => {
   })
 })
 
-describe('⌘Z (ADR-0016): the user’s Hide and Remove are steps; the archive is none', () => {
-  it('⌘Z of the user’s Hide shows the Session again without its Browsers; ⇧⌘Z hides it again', async () => {
+describe('a Browser the user took over or with unsaved changes stays as the user’s own (owner decision 2026-10-22)', () => {
+  it('taken over: Hide of its Session leaves it on the Canvas without its Session, and any Session may drive it as the user’s', async () => {
     const a1 = await opens(A)
+    const a2 = await opens(A)
+    await drives(A, a1)
+    pages.get(a1)!.click()
+    expect(live.control(PROJECT, a1)?.mode).toBe('user')
+    expect(textOf(await call(B, 'browser_screenshot', { id: a1 }))).toMatch(/opened by another Session/)
+    const place = nodeOf(a1)!
+    expect(await user({ op: 'hide', id: NODE_A, hidden: true })).toBeUndefined()
+    expect(nodeOf(a1)).toMatchObject({ x: place.x, y: place.y })
+    expect(nodeOf(a1)?.data).not.toHaveProperty('openedBy')
+    expect(nodeOf(a2)).toBeUndefined()
+    // The Session's control went with it: no banner, and the Browser is the user's for any Session.
+    expect(live.control(PROJECT, a1)).toBeNull()
+    await drives(B, a1)
+  })
+
+  it('unsaved changes: a page with a beforeunload handler keeps its Browser on the Canvas when the archive takes the Session', async () => {
+    const a1 = await opens(A)
+    const a2 = await opens(A)
+    await Promise.resolve()
+    pages.get(a1)!.unsaved = true
+    // Off every screen and idle: main asks the pages before they sleep and marks a1 unsaved.
+    sleep = { ...sleep, offscreenMs: -1, idleMs: -1 }
+    await live.check()
+    expect(live.lives(PROJECT).find((life) => life.nodeId === a1)).toMatchObject({ live: true, unsaved: true })
+    expect(live.staysWithUser(PROJECT, a1)).toBe(true)
+    expect(live.staysWithUser(PROJECT, a2)).toBe(false)
+    store.apply(PROJECT, { op: 'archive', batch: 'batch-1', nodes: [{ id: NODE_A, rule: 'idle' }] }, null)
+    expect(nodeOf(a1)?.data).not.toHaveProperty('openedBy')
+    expect(nodeOf(a2)).toBeUndefined()
+  })
+
+  it('a Browser given back with «Return control to Claude» leaves with its Session again', async () => {
+    const a1 = await opens(A)
+    await drives(A, a1)
+    pages.get(a1)!.click()
+    expect(live.giveBack(PROJECT, a1)).toBe(true)
+    await user({ op: 'remove', id: NODE_A })
+    expect(nodeOf(a1)).toBeUndefined()
+  })
+
+  it('the Live Browsers stopped give the rule back: a Browser taken over then leaves with its Session', async () => {
+    const a1 = await opens(A)
+    await drives(A, a1)
+    pages.get(a1)!.click()
+    live.stop()
     await user({ op: 'hide', id: NODE_A, hidden: true })
+    expect(nodeOf(a1)).toBeUndefined()
+  })
+})
+
+describe('⌘Z (ADR-0016): the user’s Hide and Remove are steps; the archive is none', () => {
+  it('⌘Z of the user’s Hide shows the Session again with its Browsers at their former places; ⇧⌘Z hides it and takes them again', async () => {
+    const a1 = await opens(A)
+    const a2 = await opens(A)
+    const places = [nodeOf(a1)!, nodeOf(a2)!]
+    await user({ op: 'hide', id: NODE_A, hidden: true })
+    expect(browserIds()).toEqual([USER])
     expect(await undo()).toBe(true)
     expect(nodeOf(NODE_A)?.hidden).toBe(false)
-    expect(nodeOf(a1)).toBeUndefined()
-    const a2 = await opens(A)
+    for (const node of places) expect(nodeOf(node.id)).toMatchObject({ x: node.x, y: node.y, w: node.w, h: node.h, data: { openedBy: A, profile: PROFILE.id } })
+    // The window draws them again: their pages open, and the Session drives them as before.
+    await Promise.resolve()
+    expect(pages.has(a1) && pages.has(a2)).toBe(true)
+    await drives(A, a1)
     expect(await redo()).toBe(true)
     expect(nodeOf(NODE_A)?.hidden).toBe(true)
-    expect(nodeOf(a2)).toBeUndefined()
     expect(browserIds()).toEqual([USER])
   })
 
-  it('⌘Z of the user’s Remove brings the Session Node back without its Browsers', async () => {
+  it('⌘Z of the user’s Remove brings the Session Node back with its Browsers', async () => {
     const a1 = await opens(A)
+    const place = nodeOf(a1)!
     await user({ op: 'remove', id: NODE_A })
     expect(await undo()).toBe(true)
     expect(nodeOf(NODE_A)).toMatchObject({ kind: 'session', data: { sessionId: A } })
-    expect(nodeOf(a1)).toBeUndefined()
-    expect(browserIds()).toEqual([USER])
+    expect(nodeOf(a1)).toMatchObject({ x: place.x, y: place.y, data: { openedBy: A } })
+    expect(browserIds()).toEqual([a1, USER].sort())
+  })
+
+  it('⌘Z gives a Browser left with the user its Session back: the whole step is undone', async () => {
+    const a1 = await opens(A)
+    const a2 = await opens(A)
+    await drives(A, a1)
+    pages.get(a1)!.click()
+    await user({ op: 'hide', id: NODE_A, hidden: true })
+    expect(nodeOf(a1)?.data).not.toHaveProperty('openedBy')
+    expect(await undo()).toBe(true)
+    expect(nodeOf(a1)?.data).toMatchObject({ openedBy: A })
+    expect(nodeOf(a2)).toMatchObject({ data: { openedBy: A } })
   })
 
   it('the archive’s batch is no step: ⌘Z after it undoes the user’s own move, and the Session and its Browsers stay off the Canvas', async () => {

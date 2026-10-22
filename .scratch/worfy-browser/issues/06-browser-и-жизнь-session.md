@@ -83,6 +83,8 @@ Browser пользователя — вне Family); [ADR-0076](../../../docs/ad
 
 ## Открытые вопросы
 
+Отвечены владельцем 2026-10-22 — см. «Итог», «Ответы владельца».
+
 1. **⌘Z после Hide или Remove Session.** Hide и Remove пользователя — шаги ⌘Z (ADR-0016). Возвращает
    ли ⌘Z вместе с Session и её Browser-ы — ADR не говорит (п. 11 называет только Restore из архива).
    Решает владелец до claim.
@@ -95,9 +97,10 @@ Browser пользователя — вне Family); [ADR-0076](../../../docs/ad
 
 Ветка `worfy-browser/06`. Решения без владельца (вопросы 1–3 и то, что из них следует):
 
-- ⌘Z Hide или Remove Session возвращает только Session, без её Browser-ов (как Restore, ADR-0078
-  п. 11). Показать скрытую Session снова — Browser-ы тоже не возвращаются. Вопрос 3: `openedBy` —
-  Session; вызовы Subagent-а идут через MCP server его Session с её id.
+- ~~⌘Z Hide или Remove Session возвращает только Session, без её Browser-ов~~ — заменено ответом
+  владельца 2026-10-22, см. «Ответы владельца» ниже. Показать скрытую Session снова — Browser-ы не
+  возвращаются. Вопрос 3: `openedBy` — Session; вызовы Subagent-а идут через MCP server его Session
+  с её id.
 - Browser-ы Session удаляются из Layout (не архивируются и не скрываются) в той же операции `apply`,
   что убрала с Canvas последний показанный Node Session (Session Node или Orchestrator): Hide,
   Remove, партия автоархива. Пока на Canvas остаётся другой Node той же Session, Browser-ы стоят.
@@ -123,9 +126,29 @@ exit 0; gate fast — green; e2e Browser-ов, Family и автоархива �
 ничего не шлёт странице и отвечает «This Session left the Canvas»; пока он не кончился, страницы, куда
 он ведёт, проверяются по origins профиля. Orchestrator Node — тоже Node Session (тест).
 
-Ждёт владельца (сейчас — как выше, не менялось): вернуть ли Browser-ы на ⌘Z Hide/Remove Session; и
-оставлять ли пользователю Browser с «Unsaved changes» или перехваченный пользователем, вместо того
-чтобы убирать его с Session.
+Ответы владельца 2026-10-22 (ADR-0078, раздел Amendments):
+
+1. **⌘Z после Hide или Remove Session** возвращает и Session, и её Browser-ы, на прежние места;
+   один ⌘Z — весь шаг. Сделано в истории ⌘Z (`src/renderer/canvas/history.ts`, `browsersBack`):
+   шаг помнит, какие Browser-ы main убрал вместе с Session, и undo после обратной операции Session
+   создаёт их снова такими, какими они были; redo шлёт операцию снова, и main решает заново.
+   То же для «Archive finished sessions now» пользователя (решено без владельца: это тот же шаг ⌘Z).
+   Restore из архива Browser-ы по-прежнему не возвращает.
+2. **Browser с «Unsaved changes» или перехваченный пользователем** с Session не уходит: остаётся
+   на Canvas как Browser пользователя — main снимает с него `openedBy`, и он выходит из Family
+   (`LiveBrowsers.staysWithUser`, `LayoutStore.setBrowserKeeper`). Остальные Browser-ы Session
+   уходят, как раньше. Правило действует для Hide, Remove и партии автоархива. ⌘Z возвращает
+   такому Browser-у `openedBy` (весь шаг отменяется; решено без владельца).
+3. **Session, которую снова показали,** продолжает вызов Browser-а, начатый до Hide (как после
+   «Return control to Claude»), — оставлено как есть, кода нет.
+
+Тесты круга: `test/unit/history.test.ts` (5 новых), `test/contract/browser-lifecycle.test.ts`
+(4 новых, 2 переписаны), e2e `test/e2e/browser-family.spec.ts` (⌘Z возвращает Browser на прежнее
+место в обоих окнах). Мутанты (undo только Session; правило пользователя выключено; unsaved и
+перехват не учитываются; `openedBy` не возвращается) — красные; e2e на мутанте undo — красный.
+
+Вне круга: Delete (⌫) Session Node в Trash тоже уносит её Browser-ы (Trash идёт через ту же
+операцию `remove`), а ⌘Z этого шага (восстановление из Trash) возвращает только Session.
 
 Осталось вне тикета: наведение на страницу внутри webview (не на заголовок frame-а) Family не
 подсвечивает.

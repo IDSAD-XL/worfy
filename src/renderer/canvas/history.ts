@@ -25,6 +25,14 @@
 // changes the same side of the same Node puts the step out of date; ⌘Z on such a step drops it
 // without sending anything and raises the notice (a toast, toast/toasts.ts). Changes without a
 // screen — main, agents, the automatic writers — leave steps alone, as before.
+//
+// A Hide, Remove or Archive that takes a Session's last Node off the Canvas takes the Browsers that
+// Session opened with it, in the same operation (src/main/layout/store.ts, ADR-0078 item 11), and
+// leaves those the user took over or with unsaved changes as the user's own, without `openedBy`.
+// ⌘Z of such a step brings all of it back (owner decision 2026-10-22, ADR-0078 Amendments): the
+// Session's own inverse first, then each Browser main removed, at its former place, and `openedBy`
+// for each it left with the user (browsersBack). ⇧⌘Z sends the operation again, and main decides
+// afresh which Browsers go.
 import { stillInBatch } from '../../shared/layout/derived'
 import type { ArchiveRule, Layout, LayoutNode, LayoutOpInput } from '../../shared/layout/types'
 import { trashRefusal, type TrashEntry } from '../../shared/ipc/trash'
@@ -383,6 +391,70 @@ function marked(mark: Mark, step: { undo(): Promise<SendAnswer>; redo(): Promise
 
 const nodeOf = (layout: Layout, id: string): LayoutNode | undefined => layout.nodes.find((node) => node.id === id)
 
+/** The kind of a Browser Node (BROWSER_KIND of nodes/browser-frame.ts and of src/main/layout/store.ts). */
+const BROWSER_KIND = 'browser'
+
+/** The Nodes `op` takes off the Canvas, by id: those it hides, removes or archives. */
+function takenOff(op: LayoutOpInput): string[] {
+  if (op.op === 'hide') return op.hidden ? [op.id] : []
+  if (op.op === 'remove') return [op.id]
+  if (op.op === 'archive') return op.nodes.map(({ id }) => id)
+  return []
+}
+
+/**
+ * What brings back the Browsers of the Sessions `sent` took off the Canvas, read from the Layout
+ * `before` main applied it and `after`: a `create` of each Browser main removed with its Session, as
+ * it was before — at its former place —, and a `patchData` that gives `openedBy` back to each one
+ * main left with the user (src/main/layout/store.ts). Empty for an operation that takes no Session
+ * off the Canvas or took no Browser with it.
+ */
+export function browsersBack(before: Layout, after: Layout, sent: LayoutOpInput): LayoutOpInput[] {
+  const sessions = new Set(
+    takenOff(sent).flatMap((id) => {
+      const session = nodeOf(before, id)?.data.sessionId
+      return typeof session === 'string' && session !== '' ? [session] : []
+    }),
+  )
+  if (sessions.size === 0) return []
+  return before.nodes.flatMap((node): LayoutOpInput[] => {
+    const session = node.data.openedBy
+    if (node.kind !== BROWSER_KIND || typeof session !== 'string' || !sessions.has(session)) return []
+    const now = nodeOf(after, node.id)
+    if (now === undefined) return [{ op: 'create', node }]
+    return typeof now.data.openedBy === 'string' ? [] : [{ op: 'patchData', id: node.id, data: { openedBy: session } }]
+  })
+}
+
+/**
+ * `both` of a step whose operation `sent` may take a Session's Browsers with it: undo sends
+ * `first` — browsersBack() of the operation as it was applied — after the Session's own inverse;
+ * redo sends the operation again and reads afresh what then went. A Browser main refuses to bring
+ * back (it is there again) is told to the log and does not undo the rest: the Session is back.
+ */
+function withBrowsers(channel: LayoutChannel, sent: LayoutOpInput, first: LayoutOpInput[], both: { undo(): Promise<SendAnswer>; redo(): Promise<SendAnswer> }): { undo(): Promise<SendAnswer>; redo(): Promise<SendAnswer> } {
+  let back = first
+  return {
+    async undo() {
+      const answer = await both.undo()
+      if (refusalOf(answer) !== undefined) return answer
+      const ops = back
+      back = []
+      for (const op of ops) {
+        const refusal = refusalOf(await channel.send(op))
+        if (refusal !== undefined) console.error(`undo could not bring back Browser ${op.op === 'create' ? op.node.id : op.op === 'patchData' ? op.id : ''}:`, refusal)
+      }
+      return answer
+    },
+    async redo() {
+      const before = channel.layout()
+      const answer = await both.redo()
+      if (refusalOf(answer) === undefined) back = browsersBack(before, channel.layout(), sent)
+      return answer
+    },
+  }
+}
+
 /** How an operation is recorded. */
 export interface RecordOptions {
   /**
@@ -637,7 +709,8 @@ async function sendInOrder(channel: LayoutChannel, ops: readonly LayoutOpInput[]
  */
 export async function applyRecorded(projectId: string, op: LayoutOpInput, channel: LayoutChannel, group?: Group, options?: RecordOptions): Promise<string | undefined> {
   const sent: LayoutOpInput = op.op === 'create' && op.node.id === undefined ? { ...op, node: { ...op.node, id: newNodeId() } } : op
-  const inverse = inverseOf(channel.layout(), sent, options)
+  const before = channel.layout()
+  const inverse = inverseOf(before, sent, options)
   const answer = await channel.send(sent)
   const error = refusalOf(answer)
   if (error !== undefined || inverse === undefined) return error
@@ -655,6 +728,7 @@ export async function applyRecorded(projectId: string, op: LayoutOpInput, channe
   } else {
     both = { undo: () => channel.send(inverse), redo: () => channel.send(sent) }
   }
+  if (takenOff(sent).length > 0) both = withBrowsers(channel, sent, browsersBack(before, channel.layout(), sent), both)
   record(projectId, marked(new Mark(watchOf(projectId), footprintOf(sent), revisionOf(answer)), both), group)
   return undefined
 }

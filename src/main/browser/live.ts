@@ -16,8 +16,9 @@
 // - Control ends with the Session's place on the Canvas (worfy-browser ticket 06, ADR-0078 item
 //   11): once an operation takes the last Node of a Session off it — Hide, Remove, the archive —
 //   main drops every control of that Session (`sessionsLeft` of the Layout change). Its own
-//   Browsers left the Canvas in the same operation (src/main/layout/store.ts); a Browser of the
-//   user it drove stays, its banner — «Claude is driving» or «Return control to Claude» — goes, and
+//   Browsers left the Canvas in the same operation (src/main/layout/store.ts), all but those the
+//   user took over or whose page has unsaved changes (`staysWithUser`): these stay as the user's
+//   own, like a Browser of the user it drove. Such a Browser stays, its banner — «Claude is driving» or «Return control to Claude» — goes, and
 //   the user has it to themselves. A call of that Session still running on it stops before its next
 //   command to the page, with an answer that the Session left (`left` of the page's guard), even
 //   when another Session or the user has the Browser by then: the mark is kept by Browser and
@@ -96,6 +97,11 @@ export interface LiveBrowsersDeps {
   livesChanged?(projectId: string, lives: BrowserLife[]): void
   /** Subscribes to every change of a Layout (LayoutStore.onChange); returns the unsubscribe. */
   layoutChanges?(listener: (change: Pick<LayoutChange, 'projectId' | 'sessionsLeft'>) => void): () => void
+  /**
+   * Gives the Layout the rule of which Browsers stay with the user when their Session leaves the
+   * Canvas (LayoutStore.setBrowserKeeper); returns what takes it back.
+   */
+  browserKeeper?(keeps: (projectId: string, nodeId: string) => boolean): () => void
 }
 
 /** What main keeps of one Browser between its pages (worfy-browser ticket 05). */
@@ -174,6 +180,7 @@ export class LiveBrowsers {
   private readonly unread = new Set<string>()
 
   private readonly unsubscribe: (() => void) | undefined
+  private readonly unkeep: (() => void) | undefined
   /**
    * The Browsers whose driving Session left the Canvas while a call of it was running on them, until
    * the calls on them end: which Sessions left, and whether their pages are still checked against
@@ -183,6 +190,19 @@ export class LiveBrowsers {
 
   constructor(private readonly deps: LiveBrowsersDeps) {
     this.unsubscribe = deps.layoutChanges?.((change) => this.sessionsLeft(change.projectId, change.sessionsLeft ?? []))
+    this.unkeep = deps.browserKeeper?.((projectId, nodeId) => this.staysWithUser(projectId, nodeId))
+  }
+
+  /**
+   * True when Browser Node `nodeId` stays on the Canvas as the user's own when the Session that opened
+   * it leaves (owner decision 2026-10-22, ADR-0078 Amendments): the user took it over and has not
+   * given it back, or its page has unsaved changes — a `beforeunload` handler the last time main asked.
+   */
+  staysWithUser(projectId: string, nodeId: string): boolean {
+    const key = keyOf(projectId, nodeId)
+    if (this.controls.get(key)?.mode === 'user') return true
+    const life = this.lifes.get(key)
+    return life !== undefined && life.live && life.unsaved
   }
 
   /** Sessions of Project `projectId` left the Canvas: nobody drives what they drove. */
@@ -718,6 +738,7 @@ export class LiveBrowsers {
     clearInterval(this.timer)
     this.timer = undefined
     this.unsubscribe?.()
+    this.unkeep?.()
   }
 }
 
@@ -750,6 +771,7 @@ export function liveBrowsers(): LiveBrowsers {
     },
     livesChanged: (projectId, lives) => toEveryWindow((client) => emit(client, browserLivesChanged, { projectId, lives })),
     layoutChanges: (listener) => layoutStore().onChange(listener),
+    browserKeeper: (keeps) => layoutStore().setBrowserKeeper(keeps),
   })
   return shared
 }

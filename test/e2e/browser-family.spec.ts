@@ -4,7 +4,8 @@
 // `worfy-browser`; hovering the Ticket lights its Family — the Binding line, and the Browser's frame
 // is marked (`data-family="lit"`) — and so does hovering the Browser; the user's Browser has none. Hide of
 // the Session takes its Browser off the Canvas and closes its page; the user's Browser stays, and so
-// does the user's Browser the Session drove, without «Claude is driving». A second window of the
+// does the user's Browser the Session drove, without «Claude is driving»; ⌘Z brings the Session back
+// with its Browser at its former place (owner decision 2026-10-22). A second window of the
 // Project sees the same Canvas (ADR-0053); a read-only screen of a Linked machine (ADR-0066) lights
 // the Family too.
 //
@@ -200,6 +201,12 @@ test('a Session’s Browser is in its Ticket’s Family and leaves the Canvas wi
     await expect(line(window, `binding:session:${CLAIM}`)).toHaveCount(0)
     await pointerAway(window)
 
+    // Where the Session's Browser stands, as main saves it.
+    const saved = (): string => readFileSync(join(dataDir, projectId, 'layout.json'), 'utf8')
+    const placeOf = (id: string): { x: number; y: number } | undefined => (JSON.parse(saved()) as { nodes: { id: string; x: number; y: number }[] }).nodes.find((node) => node.id === id)
+    await expect.poll(() => placeOf(opened.id), { timeout: 10_000 }).toBeDefined()
+    const place = placeOf(opened.id)!
+
     // Hide the Session: its Browser leaves the Canvas of both windows and its page is closed.
     await window.locator(`[data-testid="session-node"][data-session-id="${CLAIM}"]`).getByRole('button', { name: 'Hide', exact: true }).click()
     for (const page of [window, second]) {
@@ -212,15 +219,18 @@ test('a Session’s Browser is in its Ticket’s Family and leaves the Canvas wi
     }
     await expect.poll(() => pageUrls(app), { timeout: 20_000 }).not.toContain(`${origin}/`)
     // And layout.json has it no more, once main writes it.
-    const saved = (): string => readFileSync(join(dataDir, projectId, 'layout.json'), 'utf8')
     await expect.poll(saved, { timeout: 10_000 }).not.toContain(opened.id)
     expect(saved()).toContain(USER_BROWSER)
-    // ⌘Z brings the Session back, not its Browser.
+    // One ⌘Z brings the Session back with its Browser, at its former place, in both windows, and
+    // the Browser's page opens again.
     await window.locator('.react-flow__pane').click({ position: { x: 8, y: 8 } })
     await window.keyboard.press('ControlOrMeta+z')
-    for (const page of [window, second]) await expect(page.locator(`[data-testid="session-node"][data-session-id="${CLAIM}"]`)).toBeVisible()
-    await expect(frameOf(window, opened.id)).toHaveCount(0)
-    await expect(frameOf(second, opened.id)).toHaveCount(0)
+    for (const page of [window, second]) {
+      await expect(page.locator(`[data-testid="session-node"][data-session-id="${CLAIM}"]`)).toBeVisible()
+      await expect(frameOf(page, opened.id)).toHaveCount(1)
+    }
+    await expect.poll(() => placeOf(opened.id), { timeout: 10_000 }).toEqual(place)
+    await expect.poll(() => pageUrls(app), { timeout: 20_000 }).toContain(`${origin}/`)
   } finally {
     await launched.close()
     await removeDir(scratch)

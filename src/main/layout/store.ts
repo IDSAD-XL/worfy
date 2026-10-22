@@ -28,11 +28,14 @@
 // with that Session (ADR-0078, item 11; worfy-browser ticket 06): an operation that takes the last
 // Node of a Session off the Canvas — `hide`, `remove` or `archive`, whoever sends it — also removes
 // the Session's Browser Nodes from the Layout, in the same operation and the same revision, and the
-// change names the Session (`sessionsLeft`). Nothing brings them back: not showing the Session again,
-// not a `restore`, not ⌘Z of the user's step (it sends the Session's own inverse only). A Session
-// that the archive leaves alone (pinned, Keep) keeps its Browsers from it, but not from a Hide or a
+// change names the Session (`sessionsLeft`). Showing the Session again and a `restore` do not bring
+// them back; ⌘Z of the user's step does: the undo history sends them again, at their former places
+// (src/renderer/canvas/history.ts; owner decision 2026-10-22, ADR-0078 Amendments). A Session that
+// the archive leaves alone (pinned, Keep) keeps its Browsers from it, but not from a Hide or a
 // Remove. A Browser the user opened has no `openedBy` and stays; so does a locked Browser, as a
-// locked Node does under every Remove.
+// locked Node does under every Remove. A Browser the user took over, or whose page has unsaved
+// changes (a `beforeunload` handler), stays too, as the user's own: it loses its `openedBy` and with
+// it its Family (setBrowserKeeper, which src/main/browser/live.ts answers; owner decision 2026-10-22).
 //
 // Operations change the Layout in memory at once; the file is written after a quiet period
 // (LAYOUT_SAVE_DELAY_MS since the last operation) or, while operations keep coming with no quiet
@@ -288,12 +291,16 @@ function takenOff(op: LayoutOp): string[] {
   return []
 }
 
+/** True when Browser Node `nodeId` of Project `projectId` stays with the user as its Session leaves: taken over, or unsaved changes. */
+export type BrowserKeeper = (projectId: string, nodeId: string) => boolean
+
 /**
  * `after`, the Layout `op` made of `before`, without the Browsers of the Sessions it took off the
  * Canvas (ADR-0078, item 11): those named by the Session Nodes it hides, removes or archives, once no
- * other Node of theirs is on the Canvas. A locked Browser stays.
+ * other Node of theirs is on the Canvas. A locked Browser stays. A Browser `keeps` names stays as
+ * the user's own: without its `openedBy`, so in no Family and driven as the user's.
  */
-function leaveWithSessions(before: Layout, after: Layout, op: LayoutOp): { layout: Layout; sessionsLeft: string[] } {
+function leaveWithSessions(before: Layout, after: Layout, op: LayoutOp, keeps: (nodeId: string) => boolean): { layout: Layout; sessionsLeft: string[] } {
   const named = new Set(takenOff(op))
   if (named.size === 0) return { layout: after, sessionsLeft: [] }
   const taken = new Set(before.nodes.filter((node) => named.has(node.id)).flatMap((node) => sessionOfNode(node) ?? []))
@@ -302,8 +309,16 @@ function leaveWithSessions(before: Layout, after: Layout, op: LayoutOp): { layou
     if (session !== null && shownOnCanvas(node)) taken.delete(session)
   }
   if (taken.size === 0) return { layout: after, sessionsLeft: [] }
-  const leaves = (node: LayoutNode): boolean => node.kind === BROWSER_KIND && !node.locked && typeof node.data.openedBy === 'string' && taken.has(node.data.openedBy)
-  return { layout: after.nodes.some(leaves) ? { ...after, nodes: after.nodes.filter((node) => !leaves(node)) } : after, sessionsLeft: [...taken] }
+  const goes = (node: LayoutNode): boolean => node.kind === BROWSER_KIND && !node.locked && typeof node.data.openedBy === 'string' && taken.has(node.data.openedBy)
+  if (!after.nodes.some(goes)) return { layout: after, sessionsLeft: [...taken] }
+  const nodes = after.nodes.flatMap((node): LayoutNode[] => {
+    if (!goes(node)) return [node]
+    if (!keeps(node.id)) return []
+    const data = { ...node.data }
+    delete data.openedBy
+    return [{ ...node, data }]
+  })
+  return { layout: { ...after, nodes }, sessionsLeft: [...taken] }
 }
 
 export class LayoutStore {
@@ -320,6 +335,8 @@ export class LayoutStore {
   private readonly delayMs: number
   private readonly maxDelayMs: number
   private readonly now: () => number
+  /** Which Browsers of a Session that leaves the Canvas stay with the user; none until setBrowserKeeper. */
+  private keepsBrowser: BrowserKeeper = () => false
 
   /**
    * `dirOf` gives a Project's data folder and throws for a Project that is not in the list.
@@ -391,7 +408,7 @@ export class LayoutStore {
     if (!parsed.success) throw new Error(`invalid layout operation\n${z.prettifyError(parsed.error)}`)
     const entry = this.entry(projectId)
     const now = this.now()
-    const { layout, sessionsLeft } = leaveWithSessions(entry.layout, applyOp(entry.layout, parsed.data, now), parsed.data)
+    const { layout, sessionsLeft } = leaveWithSessions(entry.layout, applyOp(entry.layout, parsed.data, now), parsed.data, (nodeId) => this.keepsBrowser(projectId, nodeId))
     entry.layout = touch(layout, touchedBy(parsed.data, screen), now)
     entry.revision += 1
     entry.dirty = true
@@ -421,6 +438,17 @@ export class LayoutStore {
   onChange(listener: (change: LayoutChange) => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
+  }
+
+  /**
+   * From now on `keeper` tells which Browsers of a Session that leaves the Canvas stay with the user
+   * (src/main/browser/live.ts answers it); returns what puts the default back: none stays.
+   */
+  setBrowserKeeper(keeper: BrowserKeeper): () => void {
+    this.keepsBrowser = keeper
+    return () => {
+      if (this.keepsBrowser === keeper) this.keepsBrowser = () => false
+    }
   }
 
   private schedule(projectId: string, entry: Entry): void {
