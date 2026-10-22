@@ -55,14 +55,15 @@ import '@xyflow/react/dist/style.css'
 import './canvas.css'
 import { EPIC_FRAME_KIND, SUBAGENT_KIND } from '../../shared/layout/derived'
 import { isParticipant, obstaclesFor, type Rect } from '../../shared/layout/free-place'
-import { isArchived, ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState, type Viewport } from '../../shared/layout/types'
+import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutOpInput, type LayoutState, type Viewport } from '../../shared/layout/types'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { invoke, windowMachine } from '../ipc'
 import { isMac } from '../platform'
 import { useReadOnly } from '../projects/useProjects'
 import { held, matches } from '../shortcuts/match'
 import { dropNodes, edgeSources, edgesOf, edgeTypes, nodeSources, overlays, type NodeSource } from './extensions'
-import { flowNodeLabel, nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
+import { ownedKinds, toFlowNodes } from './flow-nodes'
+import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
 import { applyRecorded, type Group, type LayoutChannel, type RecordOptions } from './history'
 import { lockedForReadOnly } from './read-only-nodes'
@@ -81,68 +82,6 @@ const flowNodeTypes: NodeTypes = {
 
 /** The kind a double click creates. */
 const NOTE_KIND = 'note'
-
-/** Kinds whose Layout Nodes are a source's saved state and are not drawn themselves. */
-const ownedKinds = new Set(nodeSources.flatMap(({ source }) => source.owns))
-
-/**
- * Keeps the Node React Flow already has when nothing about it changed, so an unchanged Node is not
- * drawn again; otherwise keeps its selection and, during a gesture, its local geometry.
- */
-function mergeFlowNode(next: CanvasFlowNode, before: CanvasFlowNode | undefined): CanvasFlowNode {
-  if (before === undefined) return next
-  const busy = before.dragging === true || before.resizing === true
-  if (
-    !busy &&
-    before.data.node === next.data.node &&
-    before.type === next.type &&
-    before.parentId === next.parentId &&
-    before.hidden === next.hidden &&
-    before.ariaLabel === next.ariaLabel &&
-    before.position.x === next.position.x &&
-    before.position.y === next.position.y &&
-    before.width === next.width &&
-    before.height === next.height
-  ) {
-    return before
-  }
-  return {
-    ...next,
-    position: busy ? before.position : next.position,
-    width: busy ? before.width : next.width,
-    height: busy ? before.height : next.height,
-    selected: before.selected ?? false,
-    dragging: before.dragging ?? false,
-    resizing: before.resizing ?? false,
-  }
-}
-
-/** React Flow Nodes for the Layout and the node sources; keeps selection, and the local geometry of a Node in a gesture. */
-function toFlowNodes(layoutNodes: readonly LayoutNode[], derived: readonly CanvasFlowNode[], current: readonly CanvasFlowNode[]): CanvasFlowNode[] {
-  const previous = new Map(current.map((node) => [node.id, node]))
-  // An archived Node stays in the Layout but is not drawn (ADR-0076).
-  const own: CanvasFlowNode[] = layoutNodes
-    .filter((node) => !ownedKinds.has(node.kind) && !isArchived(node))
-    .map((node) => ({
-      id: node.id,
-      type: registeredNodeTypes.has(node.kind) ? node.kind : UNKNOWN_NODE_TYPE,
-      ariaLabel: flowNodeLabel(node.kind, registeredNodeTypes.has(node.kind)),
-      position: { x: node.x, y: node.y },
-      width: node.w,
-      height: node.h,
-      hidden: node.hidden,
-      deletable: !node.locked,
-      selected: false,
-      dragging: false,
-      resizing: false,
-      data: { node },
-    }))
-  const fromSources = derived.map((node) => {
-    const known = node.type !== undefined && registeredNodeTypes.has(node.type)
-    return { ...node, type: known ? node.type : UNKNOWN_NODE_TYPE, ariaLabel: flowNodeLabel(node.data.node.kind, known, node.ariaLabel) }
-  })
-  return [...own, ...fromSources].map((node) => mergeFlowNode(node, previous.get(node.id)))
-}
 
 /** The Nodes of every node source, and which source each Node came from. */
 interface SourceNodes {

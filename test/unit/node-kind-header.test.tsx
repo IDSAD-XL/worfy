@@ -21,7 +21,7 @@ import { FocusTileContext } from '../../src/renderer/focus/focus-tile'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { LiveSession } from '../../src/shared/ipc/claude-home'
 import type { SessionNodeView } from '../../src/shared/ipc/sessions'
-import type { Layout } from '../../src/shared/layout/types'
+import type { Layout, LayoutNode } from '../../src/shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
 vi.mock('../../src/renderer/canvas/badges', () => ({ badges: [], actions: [] }))
@@ -246,6 +246,25 @@ describe('live Session Node (a Session worfy runs)', () => {
     expect(node.dataset.finished).toBeUndefined()
     expect(opacityOf(node)).toBe(1)
     expectChipWithoutKind(node)
+  })
+
+  it('names its React Flow wrapper by its title: the wrapper is labelled by the Node (flow-nodes.ts)', async () => {
+    views = [liveView('idle')]
+    const { toFlowNodes } = await import('../../src/renderer/canvas/flow-nodes')
+    const { default: SessionNode } = await import('../../src/renderer/canvas/nodes/SessionNode')
+    const node = { id: LIVE_NODE, kind: 'session', x: 0, y: 0, w: 480, h: 320, data: { origin: 'worfy', sessionId: SESSION } } as unknown as LayoutNode
+    const [flow] = toFlowNodes([node], [], [])
+    // Without the title element (a Node not drawn yet) the wrapper keeps the kind word.
+    expect(flow!.ariaLabel).toBe('Session')
+    render(
+      <ReactFlowProvider>
+        <div role="group" aria-label={flow!.ariaLabel} {...flow!.domAttributes} data-testid="wrapper">
+          <SessionNode {...propsOf(LIVE_NODE, { node })} />
+        </div>
+      </ReactFlowProvider>,
+    )
+    await vi.waitFor(() => expect(screen.getByTestId('session-node').getAttribute('data-status')).toBe('idle'))
+    expect(screen.getAllByRole('group', { name: 'Session dddddddd' })).toContain(screen.getByTestId('wrapper'))
   })
 
   it('a new Node whose Session never ran is not finished', async () => {

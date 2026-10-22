@@ -8,6 +8,7 @@ import {
   readWorfySessionNodeData,
   sessionSourceLabel,
   sessionStatus,
+  sessionTitleElementId,
   worfySessionTitle,
   type SESSION_HEIGHT,
   type SESSION_KIND,
@@ -351,6 +352,7 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
       className="w-node-surface"
       style={dragging ? { ...styles.root, ...styles.dragging } : styles.root}
       role="group"
+      id={sessionTitleElementId(id)}
       aria-label={sessionLabel(title)}
       data-testid="session-node"
       data-live="true"
@@ -513,6 +515,7 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
       className="w-node-surface"
       style={styles.root}
       role="group"
+      id={sessionTitleElementId(id)}
       aria-label={sessionLabel(title)}
       data-testid="session-node"
       data-node-id={id}

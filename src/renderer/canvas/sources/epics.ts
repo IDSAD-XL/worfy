@@ -449,7 +449,8 @@ function ticketNodes(projectId: string, root: string, epic: string, tickets: rea
     return {
       id,
       type: TICKET_KIND,
-      ariaLabel: `Ticket ${pad(placed.num)}`,
+      // With its Epic: two Epics on one Canvas both have a Ticket 01.
+      ariaLabel: `Ticket ${epic}/${pad(placed.num)}`,
       parentId,
       position: { x: placed.x, y: placed.y },
       width: TICKET_WIDTH,

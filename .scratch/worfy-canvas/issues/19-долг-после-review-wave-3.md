@@ -282,8 +282,11 @@ PR первой части (2026-10-21, ветка `worfy-canvas/19`): ошиб�
   `var(--kind-…)` сам. Литерал в `minimapColor` пришлось заменить именем типа: правило lint
   `react-refresh/only-export-components` не пускает в файле компонента экспорт не-литерала.
 - #657: у обёртки React Flow каждого Node-а есть `aria-label` (`flowNodeLabel`, `nodes/index.ts`):
-  имя от node source («Ticket 05», «Epic demo») или тип словами («Note», «Done shelf»,
-  «Unknown node: <kind>»). Test-ы — `canvas.test.tsx`, `epic-canvas.test.tsx`, e2e `epic-frame.spec.ts`.
+  имя от node source («Ticket demo/05» — с Epic-ом, «Epic demo») или тип словами («Note», «Done shelf»,
+  «Unknown node: <kind>»). Обёртку Session Node-а называет её заголовок: `aria-labelledby` на
+  элемент Node-а с `sessionLabel` (`sessionTitleElementId`), без него — «Session». Сборка Node-ов
+  React Flow — `flow-nodes.ts` (вынесена из `Canvas.tsx`, чтобы test звал её напрямую). Test-ы —
+  `canvas.test.tsx`, `epic-canvas.test.tsx`, `node-kind-header.test.tsx`, e2e `epic-frame.spec.ts`.
 - #657: порядок CSS: последний describe `node-kind-header.test.tsx` грузит `node-chrome.css` и
   `focus.css` в обратном порядке и проверяет то же — листы не зависят от порядка в bundle.
 - #659: остальные e2e читают прямоугольники за один проход (`boxesInOnePass`, `settledBoxes`,
@@ -298,7 +301,9 @@ PR первой части (2026-10-21, ветка `worfy-canvas/19`): ошиб�
   который едет, — как оно висит без помех. Test-ы — `arrange-by-epic.test.ts` и
   `arrange-by-epic-command.test.tsx`.
 - #676, круг 2: Binding-и, не прочитанные за 5 s, больше не отменяют команду: Session-ы ставятся по
-  известным Binding-ам, одна строка в log (как первое открытие дня). Test-ы: таймаут, замок Project-а
+  известным Binding-ам, одна строка в log (как первое открытие дня). Но только когда main ответил на
+  `bindings.get` (`manualRead`): без ручных Binding-ов Session, привязанная руками, ушла бы по
+  transcript-у, поэтому тогда команда ничего не двигает и пишет строку в log. Test-ы: таймаут, замок Project-а
   снят после таймаута и исключения, Session, пришедшая во время ожидания, read-only во время ожидания.
 - #682: `storedBindings(projectId, …)` сам читает `manual` из store; `bindingSpots` больше не берёт
   `manual`; `ArchivePopover` разрешает Binding-и через `storedBindings` (копия цикла сигналов убрана).
@@ -321,6 +326,9 @@ PR первой части (2026-10-21, ветка `worfy-canvas/19`): ошиб�
   0 ms. Замеры: без исправления новый test упал 9 раз из 20 без нагрузки; с исправлением весь файл —
   20 из 20 green под нагрузкой (24 процесса `yes`) и 20 из 20 без неё; mutant (без вызова
   `checkRootReplaced`) под той же нагрузкой — 4 падения из 10, каждый раз новый test.
+  Этот test остаётся вероятностным, поэтому рядом — детерминированный: watch заменён stub-ом
+  (`watchTicketsRoot`), корень удалён и создан снова, stub сообщает только об удалении файла внутри.
+  Mutant без вызова `checkRootReplaced` — red 5 из 5; без mutant-а оба test-а — 10 из 10 green.
 
 Осталось (Orchestrator-у): Amendment-ы ADR-0076 и ADR-0077 — implementer ADR не правит.
 

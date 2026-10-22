@@ -1347,6 +1347,35 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     expect(edited.delta.tickets.map((t) => [t.epic, t.num, t.state])).toEqual([['next', 1, 'blocked']])
   }, 20_000)
 
+  it('the same Tickets root removed and made again, the watch told only of what was in it (a stubbed watch): the read sees another folder and makes the watch anew', async () => {
+    // The real race above, with the order fixed: chokidar's look at the root is replaced by a
+    // watch that reports only what a test emits.
+    const { repo, folder, scratch } = makeSilent(dir)
+    const deltas: WorkflowDelta[] = []
+    const made: string[] = []
+    const watches: EventEmitter[] = []
+    const { watcher } = await startSilent(repo, folder, scratch, deltas, { watchTicketsRoot: deafWatch(made, 0, (watch) => watches.push(watch)) })
+    await watcher.idle()
+
+    // The same folder: a read leaves the watch alone.
+    putEpic(scratch, 'more', [1])
+    watches[0]!.emit('all', 'add', join(scratch, 'more', 'issues', '01-t.md'))
+    await nextDelta(deltas, hasEpic('more'), 5000)
+    await watcher.idle()
+    expect(made).toEqual([scratch])
+
+    removeTestTree(scratch)
+    // Another folder at the path: its birth time differs even where the system gives the inode number again.
+    await pause(20)
+    putEpic(scratch, 'next', [1])
+    // What chokidar reports when it looks too late: the removal of what was in the root, not of the root.
+    watches[0]!.emit('all', 'unlink', join(scratch, 'more', 'issues', '01-t.md'))
+    await nextDelta(deltas, hasEpic('next'), 5000)
+    await until('the watch made anew', () => made.length === 2)
+    expect(made).toEqual([scratch, scratch])
+    await watcher.idle()
+  }, 20_000)
+
   it('the removal of an Epic folder, not of the root, does not make the watch anew', async () => {
     const { repo, folder, scratch } = makeSilent(dir)
     const deltas: WorkflowDelta[] = []

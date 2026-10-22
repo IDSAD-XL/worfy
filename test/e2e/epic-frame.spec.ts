@@ -548,6 +548,7 @@ test('Tickets that arrive after main placed the Orchestrator and HANDOFF Nodes k
     for (const node of placed) await expect(window.getByTestId(`rf__node-${node.id}`)).toBeVisible()
     // Tab moves the focus to a Node's React Flow wrapper: it has its node source's name, or its kind's.
     await expect(window.getByTestId('rf__node-epic:demo')).toHaveAttribute('aria-label', 'Epic demo')
+    await expect(window.getByTestId('rf__node-ticket:demo/4')).toHaveAttribute('aria-label', 'Ticket demo/04')
     await expect(window.getByTestId(`rf__node-${placed.find((node) => node.kind === 'orchestrator')!.id}`)).toHaveAttribute('aria-label', 'Orchestrator')
     expect(await underFrame(window, placed)).toEqual([0, 0])
     const column = await flowPosition(window, 'epic:demo')

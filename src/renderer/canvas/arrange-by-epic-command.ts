@@ -14,7 +14,7 @@ import { useStoreApi } from '@xyflow/react'
 import { SUBAGENT_KIND } from '../../shared/layout/derived'
 import type { Rect } from '../../shared/layout/free-place'
 import type { Layout, LayoutOpInput } from '../../shared/layout/types'
-import { storedBindings, whenBindingsRead } from '../binding/store'
+import { manualRead, storedBindings, useBindingsStore, whenBindingsRead } from '../binding/store'
 import { useCanvasRequests } from '../find/canvas-requests'
 import { readOnlyNow } from '../projects/read-only-now'
 import { arrangementOf } from './arrangement-record'
@@ -29,7 +29,8 @@ import { currentLayout, useLayoutOps } from './useLayout'
 /**
  * How long the command waits for the Sessions' Bindings to be read. After it the Sessions are
  * placed by the Bindings known by then, as the first opening of the day does (arrangement-record.ts):
- * a Session whose transcript cannot be read must not keep the command from moving anything.
+ * a Session whose transcript cannot be read must not keep the command from moving anything. The
+ * manual Bindings must be read, though: without them nothing is moved.
  */
 export const BINDINGS_WAIT_MS = 5000
 
@@ -82,8 +83,9 @@ const running = new Set<string>()
  * waits for the Bindings of every Session on the plane to be read (whenBindingsRead, as Re-pack's
  * first opening does): right after the window opens, a Session whose Binding comes from its
  * transcript would otherwise count as unbound. When they are not read within `waitMs`, the
- * Sessions are placed by the Bindings known by then, with one line in the log. Nothing is sent on
- * a read-only screen. Resolves to the operation sent, if any.
+ * Sessions are placed by the Bindings known by then, with one line in the log — once main has
+ * answered `bindings.get`: without the manual Bindings nothing is sent. Nothing is sent on a
+ * read-only screen either. Resolves to the operation sent, if any.
  */
 export async function runArrangeByEpic({ projectId, root, drawn, trees, apply, waitMs = BINDINGS_WAIT_MS }: ArrangeRun): Promise<LayoutOpInput | undefined> {
   if (running.has(projectId)) return undefined
@@ -99,7 +101,12 @@ export async function runArrangeByEpic({ projectId, root, drawn, trees, apply, w
       if (now === undefined || readOnlyNow() !== null) return undefined
       layout = now
       if (!read) {
-        console.warn(`Arrange by Epic: the Bindings of the Sessions were not read in ${waitMs} ms; the Sessions are placed by the Bindings known by then`)
+        // Without main's manual Bindings a Session bound by hand would go by its transcript alone.
+        if (!manualRead(useBindingsStore.getState(), projectId)) {
+          console.warn(`Arrange by Epic: main did not answer bindings.get in ${waitMs} ms; nothing was moved`)
+          return undefined
+        }
+        console.warn(`Arrange by Epic: the transcripts of the Sessions were not read in ${waitMs} ms; the Sessions are placed by the Bindings known by then`)
         break
       }
       if (sessionIdsOf(now).every((sessionId) => sessions.includes(sessionId))) break

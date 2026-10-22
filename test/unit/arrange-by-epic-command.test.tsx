@@ -129,6 +129,18 @@ describe('the command Arrange by Epic', () => {
     expect(warn).toHaveBeenCalledTimes(1)
   })
 
+  it('moves nothing after the wait when main has not answered bindings.get: a Session bound by hand would go by its transcript', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    // Every transcript is read; the manual Bindings never come.
+    readBindings()
+    useBindingsStore.setState(({ manual }) => ({ manual: Object.fromEntries(Object.entries(manual).filter(([id]) => id !== PROJECT)) }))
+    const apply = vi.fn<(op: LayoutOpInput) => Promise<void>>(() => Promise.resolve())
+    expect(await run(apply, 30)).toBeUndefined()
+    expect(apply).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]?.[0])).toContain('nothing was moved')
+  })
+
   it('releases the Project after a timeout and after an exception: the next command runs', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
