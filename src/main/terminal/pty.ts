@@ -64,11 +64,11 @@ import { ShellTracker, type ShellEvent, type ShellState } from './osc'
 import { REPLAY_LIMIT, ReplayBuffer } from './replay-buffer'
 import { integrationEnv, isZsh, newNonce, type AssistAdmission, type AssistDoor, type ShellIntegration } from './shell-integration'
 import type { PtyProcess, SpawnPty } from './pty-types'
-import { endDescendants, exitCodeKnown, killUnconnected, readsExitCode, spawnWindowsPty, stopOutputWorker, withoutConsoleHelper, type DescendantsVerdict, type StartedShell } from './windows-pty'
+import { endDescendants, exitCodeKnown, gitBashKill, killUnconnected, readsExitCode, spawnWindowsPty, stopOutputWorker, withoutConsoleHelper, type DescendantsVerdict, type StartedShell } from './windows-pty'
 
 export { REPLAY_LIMIT, ReplayBuffer } from './replay-buffer'
 export type { PtyProcess, SpawnPty } from './pty-types'
-export { DESCENDANTS_TIMEOUT_MS, descendantsScript, endDescendants, SHELL_START_SLACK_MS, type DescendantsVerdict, type StartedShell } from './windows-pty'
+export { DESCENDANTS_TIMEOUT_MS, descendantsScript, endDescendants, gitBashKill, HANGUP_GRACE_MS, SHELL_START_SLACK_MS, type DescendantsVerdict, type StartedShell } from './windows-pty'
 
 /** node-pty as the registry starts a shell with it: on Windows on the console of the node-pty package (spawnWindowsPty), elsewhere as it is. */
 export const spawnShellPty: SpawnPty = (file, args, options) => (process.platform === 'win32' ? spawnWindowsPty(file, args, options) : spawnNodePty(file, args, options))
@@ -269,6 +269,8 @@ interface Terminal {
   closing: boolean
   /** A moment by which the shell was running (StartedShell). */
   startedBy: number
+  /** Git Bash on Windows: kill.exe for its SIGHUP before a close (StartedShell.hangup); null otherwise. */
+  hangup: string | null
   /**
    * Reports the exit to the registry and the subscribers. Called by node-pty's exit event, by the
    * read of the exit code on Windows, by the bound of a close and when the wait for a pid gives up;
@@ -581,6 +583,7 @@ export class TerminalRegistry {
       exited: new Promise((resolve) => (exitedResolve = resolve)),
       closing: false,
       startedBy,
+      hangup: this.platform === 'win32' ? gitBashKill(file) : null,
       finish: (exit) => {
         if (ended) return
         ended = true
@@ -898,12 +901,14 @@ export class TerminalRegistry {
    * the pseudo-console and ends the shell at once with TerminateProcess; what else is on the
    * console is ended by the close. The shell is not ended before the pty is asked: node-pty
    * forgets a pseudo-console the moment its shell exits, and kill() then has nothing to close.
+   * Git Bash: the helper first holds its launcher and gives bash SIGHUP, so bash writes its
+   * history (StartedShell.hangup); PowerShell writes its history after every command.
    */
   private async endWindowsShell(key: string, terminal: Terminal): Promise<void> {
     const { pid } = terminal.pty
     let verdict: DescendantsVerdict | void = undefined
     try {
-      verdict = await this.endDescendants({ pid, startedBy: terminal.startedBy })
+      verdict = await this.endDescendants({ pid, startedBy: terminal.startedBy, ...(terminal.hangup === null ? {} : { hangup: terminal.hangup }) })
     } catch (error) {
       console.warn(`[terminal] ending the processes under the shell ${pid} of ${key} failed`, error)
     }

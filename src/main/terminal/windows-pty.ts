@@ -4,6 +4,7 @@
 // ticket 42) to keep that file under the gate's 1000-line bound; pty.ts exports
 // these names as before.
 import { execFile } from 'node:child_process'
+import { win32 } from 'node:path'
 import { spawn as spawnNodePty } from 'node-pty'
 import { getVar, powershellScriptCommand } from '../agent/env'
 import type { PtyProcess, SpawnPty } from './pty-types'
@@ -18,13 +19,87 @@ export const DESCENDANTS_TIMEOUT_MS = 3000
  * 200 starts. A pid given out again within this time of the start is not a realistic case.
  */
 export const SHELL_START_SLACK_MS = 100
-
+/**
+ * How long the helper waits for the bash of Git Bash to exit after its SIGHUP before it ends what
+ * is left. The wait ends as soon as bash exits; the whole of it is spent only by a bash that ignores
+ * the signal (`trap '' HUP`) or is stuck. On the owner's PC bash exited 14–670 ms after the
+ * signal (30 closes, most under 60 ms); 1000 ms is KILL_GRACE_MS of macOS and Linux, and keeps the
+ * helper well inside DESCENDANTS_TIMEOUT_MS.
+ */
+export const HANGUP_GRACE_MS = 1000
 
 /** A shell of Windows as the registry started it. */
 export interface StartedShell {
   pid: number
   /** A moment (ms since 1970) by which the shell was running: taken right after its start. */
   startedBy: number
+  /**
+   * Git Bash only: kill.exe of the same Git for Windows (gitBashKill). The helper then holds the
+   * launcher and sends SIGHUP to the bash under it before it ends anything (descendantsScript).
+   */
+  hangup?: string | undefined
+}
+
+/**
+ * kill.exe of the Git for Windows a shell file belongs to, `<root>\usr\bin\kill.exe` for
+ * `<root>\bin\bash.exe` — the launcher terminalShell starts for Git Bash; null for any other shell.
+ * It sends a signal through the runtime of MSYS2 (`kill -HUP -W <Windows pid>`): a bash of Git for
+ * Windows takes no signal any other way.
+ */
+export function gitBashKill(file: string): string | null {
+  const folder = win32.dirname(file)
+  const root = win32.dirname(folder)
+  // usr\bin\bash.exe is bash itself, with no launcher above it to hold.
+  if (win32.basename(file).toLowerCase() !== 'bash.exe' || win32.basename(folder).toLowerCase() !== 'bin' || win32.basename(root).toLowerCase() === 'usr') return null
+  return win32.join(root, 'usr', 'bin', 'kill.exe')
+}
+
+/**
+ * The lines of descendantsScript that close Git Bash so that bash writes its history: bash writes
+ * it only when it exits by itself, and SIGHUP makes it do that (on the owner's PC: Stop-Process of
+ * bash, as for any other shell, left no history file; SIGHUP, then the rest, left both commands).
+ *
+ * First the launcher (bin\bash.exe, the shell node-pty started) is suspended, then bash under it
+ * gets SIGHUP, and the helper waits up to HANGUP_GRACE_MS for it to exit. The launcher exits as soon
+ * as bash does, and node-pty forgets the pseudo-console of a shell that exits by itself without
+ * closing it: two handles of this process per closed Git Bash (node-pty 1.2.0-beta.15,
+ * microsoft/node-pty#965). A suspended launcher cannot exit, so node-pty still knows the console
+ * when the registry calls kill(), and kill() closes it and ends the launcher with TerminateProcess.
+ * A launcher that could not be held is said with the line `not held`; bash gets its SIGHUP all
+ * the same.
+ */
+function hangupLines(shell: StartedShell, kill: string): string[] {
+  const pid = Math.trunc(shell.pid)
+  return [
+    '$held = $false',
+    'try {',
+    `  $launcher = Get-Process -Id ${pid}`,
+    '  $started = $launcher.StartTime.ToUniversalTime()',
+    '  $born = $shell.CreationDate.ToUniversalTime()',
+    '  if ($started.AddMilliseconds(1) -ge $born -and $started.AddMilliseconds(-1) -le $born) {',
+    "    $type = [AppDomain]::CurrentDomain.DefineDynamicAssembly((New-Object Reflection.AssemblyName 'WorfyHangup'), 'Run').DefineDynamicModule('WorfyHangup').DefineType('WorfyHangup', 'Public,Class')",
+    "    [void]$type.DefinePInvokeMethod('NtSuspendProcess', 'ntdll.dll', 'Public,Static,PinvokeImpl', 'Standard', [int], [Type[]]@([IntPtr]), 'Winapi', 'Auto')",
+    '    $native = $type.CreateType()',
+    '    $held = $native::NtSuspendProcess($launcher.Handle) -eq 0',
+    '  }',
+    '} catch { }',
+    "if (-not $held) { 'not held' }",
+    '$bashes = New-Object System.Collections.ArrayList',
+    'foreach ($child in $found) {',
+    '  if ($child.ParentProcessId -ne $shell.ProcessId) { continue }',
+    '  $process = Get-Process -Id $child.ProcessId -ErrorAction SilentlyContinue',
+    "  if ($null -ne $process -and $process.ProcessName -eq 'bash') { [void]$bashes.Add($process) }",
+    '}',
+    `$kill = '${kill.replace(/'/g, "''")}'`,
+    'if (Test-Path -LiteralPath $kill) {',
+    '  foreach ($bash in $bashes) { try { & $kill -HUP -W $bash.Id 2>&1 | Out-Null } catch { } }',
+    `  $deadline = [DateTime]::UtcNow.AddMilliseconds(${HANGUP_GRACE_MS})`,
+    '  foreach ($bash in $bashes) {',
+    '    $wait = [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds',
+    '    if ($wait -gt 0) { [void]$bash.WaitForExit($wait) }',
+    '  }',
+    '}',
+  ]
 }
 
 /**
@@ -49,7 +124,9 @@ const DOTNET_EPOCH_MS = 62135596800000n
  * Then it ends what it found and prints `ended <n> of <found> left <pids>`: the pids, separated by
  * commas, of what could not be ended — an elevated program, for example. A process that ended by
  * itself meanwhile counts as ended. Every time is compared in UTC: local times of the hour after
- * the autumn clock change would put a child before its parent.
+ * the autumn clock change would put a child before its parent. With `hangup` (Git Bash), between
+ * the walk and the ending, it holds the launcher and sends SIGHUP to bash (hangupLines); a bash
+ * that exited by then counts as ended.
  *
  * The script has no double quote: it goes to PowerShell as one argument of the command line. Its
  * whole text for one shell is pinned in test/unit/terminal-shell.test.ts, since only tests on
@@ -83,6 +160,7 @@ export function descendantsScript(shell: StartedShell): string {
     '    $queue.Enqueue($child)',
     '  }',
     '}',
+    ...(shell.hangup === undefined ? [] : hangupLines(shell, shell.hangup)),
     '$ended = 0',
     '$left = New-Object System.Collections.ArrayList',
     'foreach ($child in $found) {',
@@ -119,7 +197,9 @@ export function endDescendants(shell: StartedShell): Promise<DescendantsVerdict>
   return new Promise((resolve, reject) => {
     execFile(file, args, { encoding: 'utf8', timeout: DESCENDANTS_TIMEOUT_MS, windowsHide: true }, (error, stdout) => {
       if (error !== null) return reject(error)
-      const answer = String(stdout).trim().split(/\r?\n/).at(-1) ?? ''
+      const lines = String(stdout).trim().split(/\r?\n/)
+      if (lines.includes('not held')) console.warn(`[terminal] the launcher ${shell.pid} of Git Bash could not be suspended: closing it may leave two handles of its pseudo-console in this process`)
+      const answer = lines.at(-1) ?? ''
       if (answer === 'gone') return resolve('gone')
       const counts = /^ended (\d+) of (\d+) left( \d+(?:,\d+)*)?$/.exec(answer)
       if (counts === null) return reject(new Error(`the helper answered ${JSON.stringify(answer)}`))
