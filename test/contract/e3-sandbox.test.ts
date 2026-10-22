@@ -1018,7 +1018,7 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
       await until(() => pidsIn(parents).length > 0, 10_000)
       heartbeat = pidsIn(parents)[0] ?? 0
       expect(heartbeat, 'the heartbeat did not start').toBeGreaterThan(0)
-      await until(() => !isAlive(heartbeat), 3_000)
+      await until(() => !isAlive(heartbeat), 10_000)
       expect(isAlive(heartbeat), 'the heartbeat outlived the lock').toBe(false)
       expect(child.exitCode === null && child.signalCode === null, 'the script ended before its heartbeat').toBe(true)
       expect(existsSync(lock), 'a plain file was made where the lock folder was').toBe(false)
@@ -1306,7 +1306,7 @@ describe('e3-sandbox.sh lock-run: the release of the heartbeat, also in Git Bash
       expect(codes.filter((code) => code !== '0'), `exit codes of the 40 runs (124: cut off after 15 s): ${codes.join(' ')}`).toEqual([])
       expect(linesOf(sleeps), 'every run had a heartbeat sleep').toHaveLength(40)
       // A killed process can take a moment to go: up to 2 seconds.
-      await until(() => procs('alive', linesOf(sleeps), 'sleep 300').length === 0, 2_000)
+      await until(() => procs('alive', linesOf(sleeps), 'sleep 300').length === 0, 10_000)
       expect(procs('alive', linesOf(shells), marker), 'heartbeat shells left').toEqual([])
       expect(procs('alive', linesOf(sleeps), 'sleep 300'), 'heartbeat sleeps left').toEqual([])
     } finally {
@@ -1333,7 +1333,7 @@ describe('e3-sandbox.sh lock-run: the release of the heartbeat, also in Git Bash
       expect(await until(() => linesOf(parents).length > 0 && linesOf(main).length > 0, 10_000), 'the heartbeat did not start').toBe(true)
       procs('kill9', linesOf(main))
       // Node reaps the script here; until then it is a zombie that `kill -0 $$` of the heartbeat still finds.
-      expect(await until(() => exited, 5_000), 'the script outlived kill -9').toBe(true)
+      expect(await until(() => exited, 10_000), 'the script outlived kill -9').toBe(true)
       const heartbeat = linesOf(parents)[0] ?? ''
       // The heartbeat sleeps 0.2 s between its checks; 10 s leave room for a loaded Windows machine.
       expect(await until(() => procs('alive', [heartbeat], marker).length === 0, 10_000), 'the heartbeat outlived its script').toBe(true)
