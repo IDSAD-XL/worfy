@@ -12,6 +12,9 @@
 // "window" draws each Browser Node on the Canvas with a fake guest page whose debugger answers the
 // few CDP commands the tools send, and closes the page of one that left the Canvas, as the Browser
 // layer does. The user's steps go through the undo history of a screen (src/renderer/canvas/history.ts).
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CdpContents, CdpDebugger } from '../../src/main/browser/cdp'
 import type { LiveBrowsers as LiveBrowsersClass } from '../../src/main/browser/live'
@@ -636,6 +639,47 @@ describe('⌘Z (ADR-0016): the user’s Hide and Remove are steps; the archive i
     expect(await undo()).toBe(true)
     expect(nodeOf(a1)?.data).toMatchObject({ openedBy: A })
     expect(nodeOf(a2)).toMatchObject({ data: { openedBy: A } })
+  })
+
+  it('⌘Z of the user’s Delete to the trash restores the Session Node with its Browsers; a taken-over one stays the user’s until then', async () => {
+    const { TrashStore } = await import('../../src/main/layout/trash')
+    const dataDir = mkdtempSync(join(tmpdir(), 'worfy-browser-lifecycle-trash-'))
+    try {
+      const trashStore = new TrashStore({ dataDirOf: () => dataDir, cardPaths: () => ({ folder: join(dataDir, 'cards'), data: join(dataDir, 'card.json') }), layout: store })
+      const asked = <T>(act: () => T): Promise<{ ok: true; value: T } | { ok: false; error: string }> => {
+        try {
+          return Promise.resolve({ ok: true, value: act() })
+        } catch (error) {
+          return Promise.resolve({ ok: false, error: error instanceof Error ? error.message : String(error) })
+        }
+      }
+      // The screen's trash client, as ipcTrash reaches main: the trash, main's Layout, the Layout's operations.
+      const trash = {
+        put: (projectId: string, nodeId: string) => asked(() => trashStore.put(projectId, nodeId, SCREEN)),
+        restore: (projectId: string, label: string) => asked(() => trashStore.restore(projectId, label, SCREEN)),
+        layout: (projectId: string) => Promise.resolve(store.get(projectId).layout),
+        send: (_projectId: string, op: LayoutOpInput) => Promise.resolve(apply(op)),
+      }
+      const a1 = await opens(A)
+      const a2 = await opens(A)
+      const place = nodeOf(a2)!
+      await drives(A, a1)
+      pages.get(a1)!.click()
+      expect(await history.deleteToTrash(PROJECT, [nodeOf(NODE_A)!], trash)).toEqual([])
+      expect(nodeOf(NODE_A)).toBeUndefined()
+      expect(nodeOf(a2)).toBeUndefined()
+      expect(nodeOf(a1)?.data).not.toHaveProperty('openedBy')
+      expect(await undo()).toBe(true)
+      expect(nodeOf(NODE_A)).toMatchObject({ kind: 'session', data: { sessionId: A } })
+      expect(nodeOf(a2)).toMatchObject({ x: place.x, y: place.y, w: place.w, h: place.h, data: { openedBy: A } })
+      expect(nodeOf(a1)?.data).toMatchObject({ openedBy: A })
+      // The takeover ended when the Session first left: ⇧⌘Z deletes it with both Browsers.
+      expect(live.control(PROJECT, a1)).toBeNull()
+      expect(await redo()).toBe(true)
+      expect(browserIds()).toEqual([USER])
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
   })
 
   it('the archive’s batch is no step: ⌘Z after it undoes the user’s own move, and the Session and its Browsers stay off the Canvas', async () => {

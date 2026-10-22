@@ -147,8 +147,13 @@ exit 0; gate fast — green; e2e Browser-ов, Family и автоархива �
 место в обоих окнах). Мутанты (undo только Session; правило пользователя выключено; unsaved и
 перехват не учитываются; `openedBy` не возвращается) — красные; e2e на мутанте undo — красный.
 
-Вне круга: Delete (⌫) Session Node в Trash тоже уносит её Browser-ы (Trash идёт через ту же
-операцию `remove`), а ⌘Z этого шага (восстановление из Trash) возвращает только Session.
+Второй круг того же дня (по слову Orchestrator-а, то же правило владельца): Delete (⌫) Session
+Node в Trash тоже уносит её Browser-ы — Trash идёт через ту же операцию `remove`, и правило
+перехваченного или несохранённого Browser-а действует и здесь. ⌘Z этого шага (восстановление из
+Trash) возвращает Session и её Browser-ы на прежние места (`trashRecorded`: шаг читает Layout main
+до и после удаления, `TrashClient.layout` и `send`). Тесты — `test/unit/history.test.ts` (3 новых),
+`test/contract/browser-lifecycle.test.ts` (1 новый, на настоящем `TrashStore`); три мутанта —
+красные.
 
 Осталось вне тикета: наведение на страницу внутри webview (не на заголовок frame-а) Family не
 подсвечивает.

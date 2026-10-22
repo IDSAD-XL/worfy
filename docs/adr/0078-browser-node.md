@@ -134,8 +134,8 @@ user. Проверить Ticket глазами каждой роли сейча�
 ## Amendments
 
 - **2026-10-22, решение владельца — Browser-ы Session-а при ⌘Z, перехвате и «Unsaved changes»**
-  (worfy-browser Ticket 06, PR #744). Дополняет пункт 11. (1) ⌘Z пользователя после Hide, Remove
-  или «Archive finished sessions now» Session — один шаг: возвращает и Session, и Browser-ы,
+  (worfy-browser Ticket 06, PR #744). Дополняет пункт 11. (1) ⌘Z пользователя после Hide, Remove,
+  Delete в Trash или «Archive finished sessions now» Session — один шаг: возвращает и Session, и Browser-ы,
   которые ушли с ней, на их прежние места; ⇧⌘Z снова убирает их по тем же правилам. Restore из
   архива и показ скрытой Session другим способом Browser-ы по-прежнему не возвращают. (2) Browser,
   который пользователь перехватил и не вернул («Return control to Claude» не нажат), или страница

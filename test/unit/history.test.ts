@@ -330,6 +330,64 @@ describe('history: a Session’s Browsers come back with it (owner decision 2026
     expect(nodeOf('a2')).toMatchObject({ data: { openedBy: 'a' } })
   })
 
+  /** The trash as main keeps it, over the same Layout: an entry holds the Node it took off. */
+  const trashOverStore = (): TrashClient => {
+    const entries = new Map<string, LayoutNode>()
+    let count = 0
+    const entry = (label: string, node: LayoutNode): TrashEntry => ({ label, trashedAt: 1, nodeId: node.id, kind: node.kind, title: null, hasFiles: false })
+    return {
+      put: (_projectId, nodeId) => {
+        const node = nodeOf(nodeId)!
+        count += 1
+        const label = `${count}-0000000${count}`
+        entries.set(label, node)
+        agent({ op: 'remove', id: nodeId })
+        return Promise.resolve({ ok: true, value: entry(label, node) })
+      },
+      restore: (_projectId, label) => {
+        const node = entries.get(label)!
+        agent({ op: 'create', node })
+        return Promise.resolve({ ok: true, value: entry(label, node) })
+      },
+      layout: () => Promise.resolve(layout()),
+      send: (_projectId, op) => send(op),
+    }
+  }
+
+  it('Delete of the Session Node to the trash: one ⌘Z restores it with its Browsers at their former places; ⇧⌘Z deletes them again', async () => {
+    const trash = trashOverStore()
+    const before = layout().nodes.filter((node) => node.id === 'a1' || node.id === 'a2')
+    expect(await deleteToTrash(PROJECT, [nodeOf('session:a')!], trash)).toEqual([])
+    expect(browsers()).toEqual(['b1', 'mine'])
+    expect(history().size).toBe(1)
+
+    expect(await history().undo()).toBe(true)
+    expect(nodeOf('session:a')).toBeDefined()
+    for (const node of before) expect(nodeOf(node.id)).toMatchObject({ x: node.x, y: node.y, w: node.w, h: node.h, data: { openedBy: 'a' } })
+    expect(await history().redo()).toBe(true)
+    expect(browsers()).toEqual(['b1', 'mine'])
+    expect(await history().undo()).toBe(true)
+    expect(browsers()).toEqual(['a1', 'a2', 'b1', 'mine'])
+  })
+
+  it('Delete to the trash leaves a Browser main keeps with the user; ⌘Z gives it its Session back', async () => {
+    store.setBrowserKeeper((_projectId, nodeId) => nodeId === 'a1')
+    await deleteToTrash(PROJECT, [nodeOf('session:a')!], trashOverStore())
+    expect(nodeOf('a1')?.data).not.toHaveProperty('openedBy')
+    expect(nodeOf('a2')).toBeUndefined()
+    expect(await history().undo()).toBe(true)
+    expect(nodeOf('a1')?.data).toMatchObject({ openedBy: 'a' })
+    expect(nodeOf('a2')).toMatchObject({ x: 1000, y: 600, data: { openedBy: 'a' } })
+  })
+
+  it('a trash without a Layout to read brings no Browser back: the Session alone comes back, as before', async () => {
+    const blind: TrashClient = { ...trashOverStore(), layout: undefined }
+    await trashRecorded(PROJECT, 'session:a', blind)
+    expect(await history().undo()).toBe(true)
+    expect(nodeOf('session:a')).toBeDefined()
+    expect(browsers()).toEqual(['b1', 'mine'])
+  })
+
   it('browsersBack: nothing for an operation that takes no Session off the Canvas, nor for a Session that keeps another Node there', () => {
     const now = layout()
     expect(browsersBack(now, now, { op: 'hide', id: 'session:a', hidden: false })).toEqual([])

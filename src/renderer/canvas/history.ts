@@ -32,7 +32,8 @@
 // ⌘Z of such a step brings all of it back (owner decision 2026-10-22, ADR-0078 Amendments): the
 // Session's own inverse first, then each Browser main removed, at its former place, and `openedBy`
 // for each it left with the user (browsersBack). ⇧⌘Z sends the operation again, and main decides
-// afresh which Browsers go.
+// afresh which Browsers go. Deleting a Session Node to the trash is the same `remove` in main, and
+// its ⌘Z — restoring the entry — brings the Browsers back the same way (trashRecorded).
 import { stillInBatch } from '../../shared/layout/derived'
 import type { ArchiveRule, Layout, LayoutNode, LayoutOpInput } from '../../shared/layout/types'
 import { trashRefusal, type TrashEntry } from '../../shared/ipc/trash'
@@ -426,6 +427,14 @@ export function browsersBack(before: Layout, after: Layout, sent: LayoutOpInput)
   })
 }
 
+/** Sends what browsersBack() gave, one after another; a refusal is told to the log and does not stop the rest. */
+async function bringBack(send: Send, ops: readonly LayoutOpInput[]): Promise<void> {
+  for (const op of ops) {
+    const refusal = refusalOf(await send(op))
+    if (refusal !== undefined) console.error(`undo could not bring back Browser ${op.op === 'create' ? op.node.id : op.op === 'patchData' ? op.id : ''}:`, refusal)
+  }
+}
+
 /**
  * `both` of a step whose operation `sent` may take a Session's Browsers with it: undo sends
  * `first` — browsersBack() of the operation as it was applied — after the Session's own inverse;
@@ -440,10 +449,7 @@ function withBrowsers(channel: LayoutChannel, sent: LayoutOpInput, first: Layout
       if (refusalOf(answer) !== undefined) return answer
       const ops = back
       back = []
-      for (const op of ops) {
-        const refusal = refusalOf(await channel.send(op))
-        if (refusal !== undefined) console.error(`undo could not bring back Browser ${op.op === 'create' ? op.node.id : op.op === 'patchData' ? op.id : ''}:`, refusal)
-      }
+      await bringBack(channel.send, ops)
       return answer
     },
     async redo() {
@@ -737,12 +743,30 @@ export async function applyRecorded(projectId: string, op: LayoutOpInput, channe
 export interface TrashClient {
   put(projectId: string, nodeId: string): Promise<{ ok: true; value: TrashEntry } | { ok: false; error: string }>
   restore(projectId: string, label: string): Promise<{ ok: true; value: TrashEntry } | { ok: false; error: string }>
+  /**
+   * The Project's Layout as main has it now, read around a deletion to see which Browsers left
+   * with a Session (browsersBack); undefined when it cannot be read. Absent — the step brings back
+   * no Browser.
+   */
+  layout?(projectId: string): Promise<Layout | undefined>
+  /** Sends one Layout operation of this screen's undo: a Browser brought back. */
+  send?(projectId: string, op: LayoutOpInput): Promise<SendAnswer>
 }
 
 /** Deleting and restoring as the Canvas's gestures and their undo do it: with this screen's id. */
 export const ipcTrash: TrashClient = {
   put: (projectId, nodeId) => invoke('trash.put', { projectId, nodeId, screen: screenId() }),
   restore: (projectId, label) => invoke('trash.restore', { projectId, label, screen: screenId() }),
+  // main's own Layout, not the window's copy: the deletion's change may not have arrived yet.
+  layout: async (projectId) => {
+    const result = await invoke('layout.get', { projectId })
+    return result.ok ? result.value.layout : undefined
+  },
+  // The window takes the change from `layout.changed`, which main sends to every window.
+  send: async (projectId, op) => {
+    const result = await invoke('layout.apply', { projectId, op, screen: screenId() })
+    return result.ok ? { revision: result.value.revision } : result.error
+  },
 }
 
 /**
@@ -763,10 +787,18 @@ export async function trashRecorded(projectId: string, nodeId: string, trash: Tr
     const revision = watch.ownRevision(footprint, since)
     return revision === undefined ? undefined : { revision }
   }
+  /** Deletes the Node to a new entry; what brings back the Browsers its Session took with it (browsersBack). */
+  const put = async (): Promise<{ ok: true; label: string; back: LayoutOpInput[] } | { ok: false; error: string }> => {
+    const before = await trash.layout?.(projectId)
+    const result = await trash.put(projectId, nodeId)
+    if (!result.ok) return result
+    const after = before === undefined ? undefined : await trash.layout?.(projectId)
+    return { ok: true, label: result.value.label, back: before === undefined || after === undefined ? [] : browsersBack(before, after, { op: 'remove', id: nodeId }) }
+  }
   const since = watch.latest()
-  const first = await trash.put(projectId, nodeId)
+  const first = await put()
   if (!first.ok) return first.error
-  let label = first.value.label
+  let { label, back } = first
   const mark = new Mark(watch, footprint, revisionOf(answerSince(since)))
   record(
     projectId,
@@ -774,13 +806,20 @@ export async function trashRecorded(projectId: string, nodeId: string, trash: Tr
       undo: async () => {
         const since = watch.latest()
         const result = await trash.restore(projectId, label)
-        return result.ok ? answerSince(since) : result.error
+        if (!result.ok) return result.error
+        const answer = answerSince(since)
+        const ops = back
+        back = []
+        const send = trash.send?.bind(trash)
+        if (send !== undefined) await bringBack((op) => send(projectId, op), ops)
+        return answer
       },
       redo: async () => {
         const since = watch.latest()
-        const result = await trash.put(projectId, nodeId)
+        const result = await put()
         if (!result.ok) return result.error
-        label = result.value.label
+        label = result.label
+        back = result.back
         return answerSince(since)
       },
     }),
