@@ -1,7 +1,8 @@
 # 104 — `memory` и `linked` сбрасывают состояние на старте навигации, а не на её коммите
 
 Type: task
-Status: open
+Status: done 2026-10-22T14:54Z
+PR: #763
 Blocked by: —
 Source: пункт 3 [Ticket-а 103](103-остатки-ревью-pr-753-подписчики-меню-и-сброс-на-навигации.md) (ревью Session
 на Mac PR #753), выделен Session на Mac 2026-10-22. Строки — по main `26b926f4`. Замеры — Session на Mac,
