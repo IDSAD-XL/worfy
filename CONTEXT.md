@@ -51,7 +51,7 @@ _Avoid_: карточка-браузер, браузерная карточка 
 _Avoid_: профиль (это Profile), профиль браузера, аккаунт, persona
 
 **Done shelf**:
-Ряд chip-ов под рамками Epic-ов: Epic, у которого все Ticket-ы done и рамка свёрнута, стоит здесь chip-ом с именем и счётом, а не рамкой ([ADR-0075](docs/adr/0075-epic-frames-in-columns-and-done-shelf.md)).
+Ряд chip-ов под видимыми рамками Epic-ов: Epic, у которого все Ticket-ы done и рамка свёрнута, стоит здесь chip-ом с именем и счётом, а не рамкой ([ADR-0075](docs/adr/0075-epic-frames-in-columns-and-done-shelf.md), [ADR-0082](docs/adr/0082-done-shelf-under-visible-frames.md)).
 _Avoid_: архив Epic-ов, список готовых
 
 **Archive**:
