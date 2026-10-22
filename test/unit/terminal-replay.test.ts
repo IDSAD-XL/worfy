@@ -5,6 +5,7 @@
 import { Terminal } from '@xterm/headless'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { REPLAY_LIMIT, ReplayBuffer, TerminalRegistry } from '../../src/main/terminal/pty'
+import { RESIZE_RUN_MS, SIZES_LIMIT } from '../../src/main/terminal/replay-buffer'
 import { writeReplay } from '../../src/renderer/canvas/nodes/terminal-replay'
 import type { ReplaySize } from '../../src/shared/ipc/terminal'
 import { fakePty, SINK } from './terminal-fake-pty'
@@ -13,9 +14,15 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+/** A clock a second further on at each look: no two resizes are one run (RESIZE_RUN_MS). */
+function slowClock(): () => number {
+  let now = 0
+  return () => (now += 1000)
+}
+
 describe('ReplayBuffer: the sizes of the pty', () => {
   it('starts with the size the pty was made with and adds each resize where the output stood', () => {
-    const buffer = new ReplayBuffer({ cols: 117, rows: 30 })
+    const buffer = new ReplayBuffer({ cols: 117, rows: 30 }, slowClock())
     buffer.push('a'.repeat(10))
     buffer.resize(160, 40)
     buffer.push('b'.repeat(5))
@@ -28,7 +35,7 @@ describe('ReplayBuffer: the sizes of the pty', () => {
   })
 
   it('a resize with no output since the last one replaces it; a resize to the same size adds nothing', () => {
-    const buffer = new ReplayBuffer({ cols: 80, rows: 24 })
+    const buffer = new ReplayBuffer({ cols: 80, rows: 24 }, slowClock())
     buffer.resize(100, 30)
     expect(buffer.sizes()).toEqual([{ at: 0, cols: 100, rows: 30 }])
     buffer.push('x')
@@ -39,7 +46,7 @@ describe('ReplayBuffer: the sizes of the pty', () => {
   })
 
   it('when old output is dropped, the first size is the one in force at the new start, and moves there', () => {
-    const buffer = new ReplayBuffer({ cols: 117, rows: 30 })
+    const buffer = new ReplayBuffer({ cols: 117, rows: 30 }, slowClock())
     buffer.push('a'.repeat(100))
     buffer.resize(160, 40)
     buffer.push('b'.repeat(100))
@@ -57,7 +64,7 @@ describe('ReplayBuffer: the sizes of the pty', () => {
   })
 
   it('a cut that reaches past a resize drops the size before it', () => {
-    const buffer = new ReplayBuffer({ cols: 117, rows: 30 })
+    const buffer = new ReplayBuffer({ cols: 117, rows: 30 }, slowClock())
     buffer.push('a'.repeat(100))
     buffer.resize(160, 40)
     buffer.push('b'.repeat(REPLAY_LIMIT))
@@ -67,7 +74,7 @@ describe('ReplayBuffer: the sizes of the pty', () => {
   })
 
   it('a cut inside an OSC sequence moves the first size to the end of the sequence, where the kept output starts', () => {
-    const buffer = new ReplayBuffer({ cols: 80, rows: 24 })
+    const buffer = new ReplayBuffer({ cols: 80, rows: 24 }, slowClock())
     buffer.push(`\x1b]633;E;${'q'.repeat(20)}`)
     buffer.push('\x07after')
     buffer.push('z'.repeat(REPLAY_LIMIT - 'after'.length - 2))
@@ -76,10 +83,57 @@ describe('ReplayBuffer: the sizes of the pty', () => {
     expect(buffer.sizes()).toEqual([{ at: buffer.end - text.length, cols: 80, rows: 24 }])
   })
 
+  it('resizes closer together than RESIZE_RUN_MS are one run: it keeps the last size from where the run began', () => {
+    let now = 0
+    const buffer = new ReplayBuffer({ cols: 80, rows: 24 }, () => now)
+    buffer.push('prompt')
+    now = 1000
+    for (const cols of [79, 78, 77, 76]) {
+      buffer.resize(cols, 24)
+      buffer.push('redraw')
+      now += RESIZE_RUN_MS - 1
+    }
+    expect(buffer.sizes()).toEqual([
+      { at: 0, cols: 80, rows: 24 },
+      { at: 6, cols: 76, rows: 24 },
+    ])
+    // A resize after a pause is a size of its own.
+    now += 1
+    buffer.resize(90, 30)
+    expect(buffer.sizes().at(-1)).toEqual({ at: 30, cols: 90, rows: 30 })
+  })
+
+  it('a run that ends at the size before it leaves one size', () => {
+    let now = 0
+    const buffer = new ReplayBuffer({ cols: 80, rows: 24 }, () => now)
+    buffer.push('prompt')
+    now = 1000
+    buffer.resize(70, 24)
+    buffer.push('redraw')
+    now += 10
+    buffer.resize(80, 24)
+    expect(buffer.sizes()).toEqual([{ at: 0, cols: 80, rows: 24 }])
+  })
+
+  it('keeps at most SIZES_LIMIT sizes: past it the two oldest become one, at the later size', () => {
+    const buffer = new ReplayBuffer({ cols: 20, rows: 10 }, slowClock())
+    for (let index = 1; index <= SIZES_LIMIT + 2; index++) {
+      buffer.push('x')
+      buffer.resize(20 + index, 10)
+    }
+    const sizes = buffer.sizes()
+    expect(sizes).toHaveLength(SIZES_LIMIT)
+    expect(sizes[0]).toEqual({ at: 0, cols: 23, rows: 10 })
+    expect(sizes[1]).toEqual({ at: 4, cols: 24, rows: 10 })
+    expect(sizes.at(-1)).toEqual({ at: SIZES_LIMIT + 2, cols: 22 + SIZES_LIMIT, rows: 10 })
+  })
+
   it('the registry records the resizes of the pty, not those that failed, and open gives the sizes', async () => {
     const fake = fakePty(999_995_891, { deaf: true })
     let refuse = false
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const clock = slowClock()
+    vi.spyOn(Date, 'now').mockImplementation(clock)
     fake.pty.resize = () => {
       if (refuse) throw new Error('the pty is gone')
     }
@@ -134,7 +188,7 @@ const START = { cols: 40, rows: 10 }
 /** The live view: it got the output and the resizes as they came. Also the replay and sizes main keeps. */
 async function live(): Promise<{ terminal: Terminal; replay: string; sizes: ReplaySize[] }> {
   const terminal = new Terminal({ ...START, scrollback: 5000, allowProposedApi: true })
-  const buffer = new ReplayBuffer(START)
+  const buffer = new ReplayBuffer(START, slowClock())
   for (const step of STEPS) {
     if ('data' in step) {
       buffer.push(step.data)
@@ -227,6 +281,43 @@ describe('writeReplay: a new view writes the kept output at the sizes it came at
     })
     expect(done).toBe(false)
     expect({ cols: view.cols, rows: view.rows }).toEqual({ cols: 40, rows: 10 })
+  })
+
+  it('a drag of the Node corner (a resize per frame, a redraw of the prompt after each) keeps one size per run and draws the live screen', async () => {
+    let now = 0
+    const start = { cols: 80, rows: 24 }
+    const shown = new Terminal({ ...start, scrollback: 5000, allowProposedApi: true })
+    const buffer = new ReplayBuffer(start, () => now)
+    const print = async (data: string) => {
+      buffer.push(data)
+      await parsed(shown, data)
+    }
+    const resize = (cols: number, rows: number) => {
+      buffer.resize(cols, rows)
+      shown.resize(cols, rows)
+    }
+    // As PSReadLine redraws its line after a resize: at the absolute position of the prompt.
+    const redraw = `\x1b[3;1HPS C:\\p> \x1b[K`
+    await print('one\r\ntwo\r\nPS C:\\p> ')
+    for (const [from, to] of [[80, 41], [41, 70]] as const) {
+      now += 1000
+      const step = from < to ? 1 : -1
+      for (let cols = from + step; cols !== to + step; cols += step) {
+        resize(cols, 20 + (cols % 5))
+        await print(redraw)
+        now += 16
+      }
+      now += 1000
+      await print('echo hi\r\nhi\r\nPS C:\\p> ')
+    }
+    const sizes = buffer.sizes()
+    expect(sizes).toHaveLength(3)
+    expect(sizes.at(-1)).toEqual({ at: expect.any(Number), cols: 70, rows: 20 })
+    const view = newView()
+    const replay = buffer.text()
+    await replayed(view, replay, buffer.end, sizes)
+    expect({ cols: view.cols, rows: view.rows }).toEqual({ cols: shown.cols, rows: shown.rows })
+    expect(lines(view)).toEqual(lines(shown))
   })
 
   it('an empty replay with no sizes is done at once', () => {
