@@ -155,6 +155,8 @@ worfy. Плато нет: 100 оболочек дали ровно +200. Пре�
 - `src/main/terminal/windows-pty.ts:95`, `:116` — `endDescendants`, `Stop-Process -Force` всего под оболочкой
   (у Git Bash это настоящий `usr\bin\bash.exe`).
 - `src/main/terminal/pty.ts:154` — Git Bash стартует как `bin\bash.exe --login -i`.
+- Test-ы: `test/contract/terminal-windows.test.ts`, describe «the handles a shell leaves in this process on
+  Windows, on a real pty» (`LEAK_PER_SHELL`); `handleCount()` в `test/contract/terminal-harness.ts`.
 
 ## Вне скоупа
 
@@ -205,7 +207,8 @@ Windows, on a real pty»: настоящий `TerminalRegistry` через ка�
 четырёх, потом 10 PowerShell с `exit` и счёт `(Get-Process -Id <pid>).HandleCount` (`handleCount()` в
 `terminal-harness.ts`). Ожидание — `LEAK_PER_SHELL` × 10 ± 5. Сейчас `LEAK_PER_SHELL` = 2 (комментарий
 `shortcut:`): test ловит рост утечки и краснеет, когда node-pty её исправит, — тогда поставить 0. Без Windows test
-не запускается. Время — около 9,5 с; 3 прогона подряд зелёные; с `LEAK_PER_SHELL` = 0 красный («added 20
+не запускается. Счёт до и после берётся, когда он устоялся: через 1,5 с после оболочек, потом пока два
+чтения через 0,5 с не совпадут. Время — около 11 с; 3 прогона подряд зелёные; с `LEAK_PER_SHELL` = 0 красный («added 20
 handles»).
 
 Замер на ПК 2026-10-22, более длинная версия этого test-а (до сокращения), ветка `worfy-windows/92` от

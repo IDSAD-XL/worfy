@@ -341,6 +341,22 @@ describe.runIf(WINDOWS)('the handles a shell leaves in this process on Windows, 
     }
   }
 
+  /**
+   * The handle count once it stops changing: node-pty disposes of the thread that reads a shell's
+   * output 1000 ms after kill(), so wait that out, then until two readings half a second apart agree.
+   */
+  async function settledHandleCount(): Promise<number> {
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    let last = handleCount()
+    for (let reading = 0; reading < 16; reading++) {
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      const now = handleCount()
+      if (now === last) return now
+      last = now
+    }
+    throw new Error(`the handle count of this process did not settle: last ${last}`)
+  }
+
   it(`PowerShell, ended by exit: ${SHELLS} shells leave ${LEAK_PER_SHELL} handles each in this process, give or take a few`, async (context) => {
     needsWindowsPowerShellOffRunner(context)
     const warmUp = Array.from({ length: 4 }, (_, index) => `w${index}`)
@@ -350,18 +366,13 @@ describe.runIf(WINDOWS)('the handles a shell leaves in this process on Windows, 
     // its pseudo-console, ticket 22): only the ones these shells open count.
     const hostsBefore = new Set(consoleHosts())
     await exitShells(h, warmUp)
-    // node-pty disposes of the thread that reads the output 1000 ms after kill().
-    await new Promise((resolve) => setTimeout(resolve, 1500))
-    const before = handleCount()
+    const before = await settledHandleCount()
     await exitShells(h, measured)
     expect(h.registry.size).toBe(0)
-    await vi.waitFor(
-      () => {
-        const added = handleCount() - before
-        expect(Math.abs(added - SHELLS * LEAK_PER_SHELL), `added ${added} handles`).toBeLessThanOrEqual(NOISE)
-      },
-      { timeout: 8000, interval: 500 },
-    )
+    // One reading of a settled count: a reading taken while the output threads still close could
+    // land inside the range by chance after node-pty is fixed.
+    const added = (await settledHandleCount()) - before
+    expect(Math.abs(added - SHELLS * LEAK_PER_SHELL), `added ${added} handles`).toBeLessThanOrEqual(NOISE)
     await vi.waitFor(() => expect(consoleHosts().filter((pid) => !hostsBefore.has(pid))).toEqual([]), { timeout: 5000, interval: 500 })
   }, 60_000)
 })
