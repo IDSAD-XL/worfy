@@ -242,10 +242,18 @@ for (const { zoom, scale } of CASES) {
       }
       expect(overlaps(toolbar, header), 'the toolbar covers the frame header').toBe(false)
       for (const label of labels) expect(overlaps(toolbar, label), 'the toolbar covers a column label').toBe(false)
-      // What SelectionToolbar keeps off is the button's measured width (useFocusEntrySize in src/renderer/canvas/pinning.ts).
-      const keptOff = Number(await window.getByTestId('selection-toolbar').getAttribute('data-focus-entry-width'))
-      expect(keptOff, 'the selection toolbar reports no Focus button width').toBeGreaterThan(0)
-      expect(focus.width, 'the Focus button is wider than SelectionToolbar keeps off').toBeLessThanOrEqual(keptOff)
+      // What SelectionToolbar keeps off is the button's measured width, rounded up (useFocusEntrySize in
+      // src/renderer/canvas/pinning.ts). Polled: until the button is measured the toolbar keeps off the
+      // 96 px default, which must not decide the check, so it waits for a width within a pixel above the button's.
+      await expect
+        .poll(
+          async () => {
+            const keptOff = Number(await window.getByTestId('selection-toolbar').getAttribute('data-focus-entry-width'))
+            return { keptOff, notNarrower: keptOff >= focus.width, measured: keptOff - focus.width < 1.01 }
+          },
+          { message: `SelectionToolbar keeps off the Focus button's measured width (${focus.width} px, rounded up)` },
+        )
+        .toMatchObject({ notNarrower: true, measured: true })
       expect(overlaps(toolbar, focus), 'the toolbar covers the Focus button').toBe(false)
       for (const [part, rect] of Object.entries(neighbourParts)) expect(overlaps(toolbar, rect), `the toolbar covers the neighbour's ${part}`).toBe(false)
       for (const ticket of tickets) expect(overlaps(toolbar, ticket), 'the toolbar covers a Ticket').toBe(false)
