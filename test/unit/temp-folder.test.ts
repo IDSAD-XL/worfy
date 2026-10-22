@@ -3,11 +3,12 @@
 // Windows on any machine: win32 paths, TEMP/TMP of a stand-in environment, and a realpath that gives
 // the long name of a short 8.3 one, as realpathSync.native does on Windows. On Windows itself the
 // last block checks the real %TEMP%.
-import { mkdtempSync, mkdirSync, realpathSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { insideUserTemp, type TempPlace } from '../../src/main/projects/temp-folder'
+import { removeTestTree } from '../remove'
 
 const TEMP = 'C:\\Users\\Alexey\\AppData\\Local\\Temp'
 /** The short 8.3 spelling of the same folder, as Windows often puts it into TEMP. */
@@ -72,7 +73,7 @@ describe.runIf(process.platform === 'win32')('insideUserTemp on this Windows mac
     expect(insideUserTemp(join(made, 'wt'))).toBe(true)
     expect(insideUserTemp(realpathSync.native(made).replaceAll('\\', '/'))).toBe(true)
     expect(insideUserTemp(process.cwd())).toBe(realpathSync.native(process.cwd()).toLowerCase().startsWith(`${realpathSync.native(tmpdir()).toLowerCase()}\\`))
-    rmSync(made, { recursive: true, force: true })
+    removeTestTree(made)
   })
 })
 
@@ -80,6 +81,6 @@ describe.runIf(process.platform !== 'win32')('insideUserTemp on this machine (no
   it('the real temporary folder is never reported', () => {
     const made = mkdtempSync(join(tmpdir(), 'worfy-temp-'))
     expect(insideUserTemp(made)).toBe(false)
-    rmSync(made, { recursive: true, force: true })
+    removeTestTree(made)
   })
 })
