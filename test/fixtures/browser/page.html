@@ -17,6 +17,12 @@
       body {
         margin: 0;
       }
+      /* No scrollbar of its own: Windows draws a classic one, 15 px wide, at the right of the page,
+         over its cream and inside its edge, so a screenshot there would not find the page's right edge
+         (worfy-windows ticket 97); macOS overlays its own. The page still scrolls. */
+      html {
+        scrollbar-width: none;
+      }
       body {
         background: #fdf6e3;
         color: #111111;
