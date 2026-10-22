@@ -38,6 +38,28 @@ import { catScript, loginProfileWithNode } from '../harness-node'
 
 test.setTimeout(120_000)
 
+/** The user running the tests as icacls names a user: DOMAIN\name (the computer's name for a local account). */
+const thisUser = (): string => `${process.env.USERDOMAIN ?? ''}\\${process.env.USERNAME ?? ''}`
+/** icacls of Windows, by its name: Git Bash on PATH has no program of that name. */
+const icacls = (...args: string[]): void => {
+  execFileSync('icacls', args, { stdio: 'ignore' })
+}
+
+/**
+ * Takes away this user's right to add files to `folder` (`writable` false) or gives it back. Off
+ * Windows the mode bits do it. On Windows they do not: a folder's read-only mode does not stop
+ * writing into it, so an entry of the ACL denies this user adding a file or a folder to it (icacls
+ * /deny, rights WD and AD), and creating a file there fails with EPERM; removing the deny entry gives
+ * the rights back. `folder` is always inside the test's temporary folder.
+ */
+function setWritable(folder: string, writable: boolean): void {
+  if (process.platform !== 'win32') return chmodSync(folder, writable ? 0o755 : 0o555)
+  icacls(folder, writable ? '/remove:d' : '/deny', writable ? thisUser() : `${thisUser()}:(WD,AD)`)
+}
+
+/** The code main's refusal names: Windows maps a denied access to EPERM, macOS and Linux to EACCES. */
+const DENIED = process.platform === 'win32' ? 'EPERM' : 'EACCES'
+
 const row = (window: Page, machineId: string) => window.locator(`[data-testid="machine-row"][data-machine-id="${machineId}"]`)
 
 /** Revokes `machineId` from its row's context menu in `window`; the row is in the body of the Machines section. */
@@ -397,14 +419,14 @@ test('Settings → Machines in the smallest window: a refusal of main is shown a
       // main cannot write link/settings.json: the folder is read-only.
       const error = dialog.getByTestId('settings-machines-error')
       await expect(error).toHaveCount(0)
-      chmodSync(linkDir, 0o555)
+      setWritable(linkDir, false)
       try {
         await access.click()
         await expect(error).toBeVisible()
         await expect(error).toHaveAttribute('role', 'alert')
         // The message of main itself: the channel, the reason and the temporary file it could not
         // write next to link/settings.json.
-        await expect(error).toContainText('link.setAccess failed: EACCES')
+        await expect(error).toContainText(`link.setAccess failed: ${DENIED}`)
         await expect(error).toContainText(join(linkDir, '.settings.json.'))
         await expect(error).toBeInViewport({ ratio: 1 })
         // The long path wraps inside the section: the window gets no horizontal scroll.
@@ -415,7 +437,7 @@ test('Settings → Machines in the smallest window: a refusal of main is shown a
         expect(savedLinkSettings(dataDir)?.projectsAccess ?? false).toBe(false)
         await snapshotThemes(window, 'settings-machines-error')
       } finally {
-        chmodSync(linkDir, 0o755)
+        setWritable(linkDir, true)
       }
 
       // A click on the text of a label switches nothing, and leaves the keyboard in the window:
@@ -451,7 +473,7 @@ test('Settings → Machines in the smallest window: a refusal of main is shown a
       await window.keyboard.press('Escape')
       await expect(dialog).toHaveCount(0)
     } finally {
-      if (existsSync(linkDir)) chmodSync(linkDir, 0o755)
+      if (existsSync(linkDir)) setWritable(linkDir, true)
       await launched.close()
     }
   } finally {
