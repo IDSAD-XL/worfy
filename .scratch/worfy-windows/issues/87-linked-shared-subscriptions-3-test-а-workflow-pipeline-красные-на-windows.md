@@ -58,3 +58,26 @@ stand-in hub (`standInHub`, `:130`) считает подписчиков и ш�
 - `src/main/ipc/workflow.ts:48`, `src/main/ipc/pipeline.ts:141`.
 
 ## Итог
+
+Причина — дефект test-а, не продукта.
+
+- B для вызова Linked machine отдаёт hub-у настоящий путь, который ответил `insideProjects`
+  (`src/main/link/caller.ts`, `realpathSync.native`): длинные имена и регистр, как на диске. Stand-in
+  hub test-а считал подписчиков и слал изменения по `resolve(PROJECT)`, а `PROJECT` собран из
+  `fs.realpathSync` (не `.native`) папки в `os.tmpdir()`. JS-версия `realpathSync` оставляет короткое
+  имя 8.3 (`C:\Users\RUNNER~1\…` на GitHub runner-е) и регистр, каким путь написан. Под этим ключом у
+  stand-in-а 0 подписчиков, отсюда `[0, 0]` и `expected 0 to be 1`.
+- На ПК владельца короткого имени у `%TEMP%` нет (`C:\Users\Alexey\AppData\Local\Temp`, `realpathSync`
+  и `.native` совпадают), поэтому файл здесь зелёный. Тот же механизм воспроизводится другим
+  написанием `%TEMP%` — регистром: `TEMP=TMP=C:\USERS\ALEXEY\WORFY-WT\TMP87-LONGFOLDERNAME`. Напечатано
+  из `hub.open` stand-in-а: `asked=C:\Users\Alexey\worfy-wt\tmp87-longfoldername\worfy-64-yL5fb6\project`,
+  `resolve(PROJECT)=C:\USERS\ALEXEY\WORFY-WT\TMP87-LONGFOLDERNAME\worfy-64-yL5fb6\project`; красные
+  ровно три test-а тикета (3 failed | 3 passed).
+- Продукт ключует корень одинаково для всех написаний: оба окна A приходят через одного client-а
+  link-а, и `insideProjects` сводит `P`, `P/`, короткое имя и другой регистр к одному настоящему пути.
+  Настоящий hub шлёт изменения подписчикам того ключа, который смотрит, так что окна получают
+  `…changed` при любом написании.
+- Правка: stand-in считает подписчиков и шлёт изменения по `resolve(realpathSync.native(PROJECT))` —
+  корню, который handler-ы B отдают hub-у. `PROJECT` остался в написании `os.tmpdir()`, так что на
+  runner-е окна по-прежнему шлют корень с коротким именем. После правки файл зелёный 3 раза подряд и
+  с обычным `%TEMP%`, и с `%TEMP%` в другом регистре (6 passed каждый раз).
