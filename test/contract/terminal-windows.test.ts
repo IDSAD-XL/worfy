@@ -312,10 +312,10 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
 // worfy-windows ticket 92. In node-pty 1.2.0-beta.15 the thread that waits for the shell forgets
 // the pseudo-console when the shell exits and never closes it (src/win/conpty.cc, SetupExitCallback;
 // upstream microsoft/node-pty#965). kill() closes it only while node-pty still knows it: after a
-// close of a running PowerShell. Every other end leaves two handles in this process until it quits:
-// a Process handle to the finished OpenConsole.exe and the pipe of the pseudo-console. Git Bash
-// leaves them on a close as well: its launcher (bin\bash.exe) exits on its own once the bash under
-// it is ended, before kill(). Nothing node-pty gives JavaScript reaches the pseudo-console after the
+// close of a running shell. Every other end leaves two handles in this process until it quits:
+// a Process handle to the finished OpenConsole.exe and the pipe of the pseudo-console. A close of
+// Git Bash leaves none: the helper suspends its launcher (bin\bash.exe) so it cannot exit before
+// kill() (ticket 93, test/contract/terminal-git-bash-close.test.ts). Nothing node-pty gives JavaScript reaches the pseudo-console after the
 // exit: it keeps only a number, and the native kill(), resize() and clear() look that number up in
 // the list the exit thread has already cleared.
 describe.runIf(WINDOWS)('the handles a shell leaves in this process on Windows, on a real pty', () => {

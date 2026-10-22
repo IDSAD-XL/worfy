@@ -12,9 +12,9 @@ const run = vi.hoisted(() => ({ execFile: vi.fn() }))
 vi.mock('node:child_process', async (original) => ({ ...(await original<typeof import('node:child_process')>()), execFile: run.execFile }))
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
 
-const { descendantsScript, endDescendants, HANGUP_GRACE_MS, HANGUP_SIGNAL_BOUND_MS } = await import('../../src/main/terminal/windows-pty')
+const { DESCENDANTS_TIMEOUT_MS, descendantsScript, endDescendants, endShell, endShellScript, HANGUP_GRACE_MS, HANGUP_SIGNAL_BOUND_MS, HANGUP_TIMEOUT_MS } = await import('../../src/main/terminal/windows-pty')
 const { gitBashKill } = await import('../../src/main/agent/env')
-const { TerminalRegistry } = await import('../../src/main/terminal/pty')
+const { TerminalRegistry, WINDOWS_CLOSE_BOUND_MS } = await import('../../src/main/terminal/pty')
 type StartedShell = import('../../src/main/terminal/windows-pty').StartedShell
 
 afterEach(() => {
@@ -127,15 +127,151 @@ describe('descendantsScript with hangup: the order of a Git Bash close', () => {
   })
 })
 
+describe('descendantsScript with hangup, as a whole', () => {
+  it('is this text for one Git Bash, byte for byte: only tests on Windows run it', () => {
+    expect(descendantsScript({ ...SHELL, hangup: KILL }).split('\n')).toEqual([
+      "$ErrorActionPreference = 'Stop'",
+      "$all = @(Get-CimInstance -Query 'SELECT ProcessId, ParentProcessId, CreationDate FROM Win32_Process')",
+      '$shell = $all | Where-Object { $_.ProcessId -eq 4242 } | Select-Object -First 1',
+      "if ($null -eq $shell -or $null -eq $shell.CreationDate -or $shell.CreationDate.ToUniversalTime().Ticks -gt 638955968002230000) { 'gone'; exit 0 }",
+      '$under = @{}',
+      'foreach ($each in $all) {',
+      '  $key = [string]$each.ParentProcessId',
+      '  if (-not $under.ContainsKey($key)) { $under[$key] = New-Object System.Collections.ArrayList }',
+      '  [void]$under[$key].Add($each)',
+      '}',
+      '$found = New-Object System.Collections.ArrayList',
+      '$seen = @{ [string]$shell.ProcessId = $true }',
+      '$queue = New-Object System.Collections.Queue',
+      '$queue.Enqueue($shell)',
+      'while ($queue.Count -gt 0) {',
+      '  $parent = $queue.Dequeue()',
+      '  foreach ($child in @($under[[string]$parent.ProcessId])) {',
+      '    if ($null -eq $child -or $seen.ContainsKey([string]$child.ProcessId)) { continue }',
+      '    if ($null -eq $child.CreationDate -or $child.CreationDate.ToUniversalTime() -lt $parent.CreationDate.ToUniversalTime()) { continue }',
+      '    $seen[[string]$child.ProcessId] = $true',
+      '    [void]$found.Add($child)',
+      '    $queue.Enqueue($child)',
+      '  }',
+      '}',
+      '$held = $false',
+      '$running = $false',
+      '$launcher = Get-Process -Id 4242 -ErrorAction SilentlyContinue',
+      'try {',
+      '  if ($null -ne $launcher -and -not $launcher.HasExited) {',
+      '    $started = $launcher.StartTime.ToUniversalTime()',
+      '    $born = $shell.CreationDate.ToUniversalTime()',
+      '    if ($started.AddMilliseconds(1) -ge $born -and $started.AddMilliseconds(-1) -le $born) {',
+      '      $running = $true',
+      "      $type = [AppDomain]::CurrentDomain.DefineDynamicAssembly((New-Object Reflection.AssemblyName 'WorfyHangup'), 'Run').DefineDynamicModule('WorfyHangup').DefineType('WorfyHangup', 'Public,Class')",
+      "      $method = $type.DefinePInvokeMethod('NtSuspendProcess', 'ntdll.dll', 'Public,Static,PinvokeImpl', 'Standard', [int], [Type[]]@([IntPtr]), 'Winapi', 'Auto')",
+      "      $method.SetImplementationFlags('PreserveSig')",
+      '      $native = $type.CreateType()',
+      '      $held = $native::NtSuspendProcess($launcher.Handle) -eq 0',
+      '    }',
+      '  }',
+      '} catch { }',
+      "try { if ($running -and -not $held -and -not $launcher.HasExited) { 'not held' } } catch { }",
+      '$bashes = New-Object System.Collections.ArrayList',
+      'foreach ($child in $found) {',
+      '  if ($child.ParentProcessId -ne $shell.ProcessId) { continue }',
+      '  $process = Get-Process -Id $child.ProcessId -ErrorAction SilentlyContinue',
+      "  if ($null -eq $process -or $process.ProcessName -ne 'bash') { continue }",
+      '  try {',
+      '    $started = $process.StartTime.ToUniversalTime()',
+      '    $born = $child.CreationDate.ToUniversalTime()',
+      '    if ($started.AddMilliseconds(1) -ge $born -and $started.AddMilliseconds(-1) -le $born) { [void]$bashes.Add($process) }',
+      '  } catch { }',
+      '}',
+      "$kill = 'C:\\Program Files\\Git\\usr\\bin\\kill.exe'",
+      'if (Test-Path -LiteralPath $kill) {',
+      '  foreach ($bash in $bashes) {',
+      '    try {',
+      "      $info = New-Object System.Diagnostics.ProcessStartInfo -ArgumentList $kill, ('-HUP -W ' + $bash.Id)",
+      '      $info.UseShellExecute = $false',
+      '      $info.CreateNoWindow = $true',
+      '      $info.RedirectStandardInput = $true',
+      '      $info.RedirectStandardOutput = $true',
+      '      $info.RedirectStandardError = $true',
+      '      $signal = [System.Diagnostics.Process]::Start($info)',
+      '      if (-not $signal.WaitForExit(500)) { $signal.Kill() }',
+      '    } catch { }',
+      '  }',
+      '  $deadline = [DateTime]::UtcNow.AddMilliseconds(1000)',
+      '  foreach ($bash in $bashes) {',
+      '    $wait = [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds',
+      '    if ($wait -gt 0) { [void]$bash.WaitForExit($wait) }',
+      '  }',
+      '}',
+      '$ended = 0',
+      '$left = New-Object System.Collections.ArrayList',
+      'foreach ($child in $found) {',
+      '  $process = Get-Process -Id $child.ProcessId -ErrorAction SilentlyContinue',
+      '  if ($null -eq $process) { $ended++; continue }',
+      '  try {',
+      '    $started = $process.StartTime.ToUniversalTime()',
+      '    $born = $child.CreationDate.ToUniversalTime()',
+      '    if ($started.AddMilliseconds(-1) -gt $born -or $started.AddMilliseconds(1) -lt $born) { $ended++; continue }',
+      '    Stop-Process -InputObject $process -Force',
+      '    $ended++',
+      '  } catch {',
+      '    if ($null -eq (Get-Process -Id $child.ProcessId -ErrorAction SilentlyContinue)) { $ended++ } else { [void]$left.Add($child.ProcessId) }',
+      '  }',
+      '}',
+      "'ended ' + $ended + ' of ' + $found.Count + ' left ' + ($left -join ',')",
+    ])
+  })
+})
+
+describe('endShellScript and endShell: a launcher of Git Bash ended by its pid', () => {
+  type Callback = (error: Error | null, stdout: string, stderr: string) => void
+  const answer = (stdout: string) => run.execFile.mockImplementation((_file: string, _args: string[], _options: unknown, done: Callback) => done(null, stdout, ''))
+
+  it('is this text, byte for byte: the process with the pid only when it was created by startedBy and its start time is the one CIM reads', () => {
+    expect(endShellScript({ ...SHELL, hangup: KILL }).split('\n')).toEqual([
+      "$ErrorActionPreference = 'Stop'",
+      "$shell = Get-CimInstance -Query 'SELECT ProcessId, CreationDate FROM Win32_Process WHERE ProcessId = 4242' | Select-Object -First 1",
+      "if ($null -eq $shell -or $null -eq $shell.CreationDate -or $shell.CreationDate.ToUniversalTime().Ticks -gt 638955968002230000) { 'gone'; exit 0 }",
+      '$process = Get-Process -Id 4242 -ErrorAction SilentlyContinue',
+      "if ($null -eq $process) { 'gone'; exit 0 }",
+      '$started = $process.StartTime.ToUniversalTime()',
+      '$born = $shell.CreationDate.ToUniversalTime()',
+      "if ($started.AddMilliseconds(-1) -gt $born -or $started.AddMilliseconds(1) -lt $born) { 'gone'; exit 0 }",
+      'Stop-Process -InputObject $process -Force',
+      "'ended'",
+    ])
+    expect(endShellScript(SHELL)).not.toContain('"')
+  })
+
+  it('runs Windows PowerShell with the script and DESCENDANTS_TIMEOUT_MS, and answers ended or gone', async () => {
+    answer('ended\r\n')
+    await expect(endShell(SHELL)).resolves.toBe('ended')
+    const [, args, options] = run.execFile.mock.calls[0] as [string, string[], { timeout: number }]
+    expect(args).toEqual(['-NoProfile', '-NonInteractive', '-Command', endShellScript(SHELL)])
+    expect(options.timeout).toBe(DESCENDANTS_TIMEOUT_MS)
+    answer('gone\r\n')
+    await expect(endShell(SHELL)).resolves.toBe('gone')
+    answer('something else')
+    await expect(endShell(SHELL)).rejects.toThrow('the helper answered "something else"')
+  })
+})
+
 describe('endDescendants with hangup', () => {
   type Callback = (error: Error | null, stdout: string, stderr: string) => void
   const answer = (stdout: string) => run.execFile.mockImplementation((_file: string, _args: string[], _options: unknown, done: Callback) => done(null, stdout, ''))
 
-  it('passes the script with the hold and the signal to Windows PowerShell', async () => {
+  it('passes the script with the hold and the signal to Windows PowerShell, with the longer limit of Git Bash', async () => {
     answer('ended 1 of 1 left \r\n')
     await expect(endDescendants({ ...SHELL, hangup: KILL })).resolves.toBe('ended')
-    const [, args] = run.execFile.mock.calls[0] as [string, string[]]
+    const [, args, options] = run.execFile.mock.calls[0] as [string, string[], { timeout: number }]
     expect(args).toEqual(['-NoProfile', '-NonInteractive', '-Command', descendantsScript({ ...SHELL, hangup: KILL })])
+    // The waits of the hangup come on top of the limit of every other shell.
+    expect(options.timeout).toBe(DESCENDANTS_TIMEOUT_MS + HANGUP_GRACE_MS + HANGUP_SIGNAL_BOUND_MS)
+    // The pty of Git Bash is still released by the close itself, before the bound of the close.
+    expect(HANGUP_TIMEOUT_MS).toBeLessThan(WINDOWS_CLOSE_BOUND_MS)
+    run.execFile.mockClear()
+    await endDescendants(SHELL)
+    expect((run.execFile.mock.calls[0] as [string, string[], { timeout: number }])[2].timeout).toBe(DESCENDANTS_TIMEOUT_MS)
   })
 
   it('warns once when the launcher was not held, and still answers by the last line', async () => {
@@ -150,24 +286,81 @@ describe('TerminalRegistry on Windows: what the close of Git Bash asks of the he
   const GIT_BASH = 'C:\\Program Files\\Git\\bin\\bash.exe'
   const exists = (path: string): boolean => path === GIT_BASH
 
-  async function closeWith(setting: 'git-bash' | 'powershell'): Promise<{ shells: StartedShell[]; killsAtHelper: number[]; kills: number }> {
+  interface Failure {
+    /** What the helper does: answers nothing, answers `gone`, or fails. */
+    helper?: 'quiet' | 'gone' | 'rejects'
+    /** kill() of the pty throws, and the pty reports no exit. */
+    killThrows?: boolean
+  }
+
+  async function closeWith(setting: 'git-bash' | 'powershell', failure: Failure = {}): Promise<{ shells: StartedShell[]; killsAtHelper: number[]; kills: number; ended: StartedShell[] }> {
     const fake = fakePty(999_993_093)
+    if (failure.killThrows === true) {
+      fake.pty.kill = (signal) => {
+        fake.kills.push(signal)
+        throw new Error('kill() failed (stand-in)')
+      }
+    }
     const shells: StartedShell[] = []
     const killsAtHelper: number[] = []
+    const ended: StartedShell[] = []
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const registry = new TerminalRegistry({
       env: winEnv,
       spawn: () => fake.pty,
       platform: 'win32',
       exists,
+      closeBoundMs: 60_000,
       endDescendants: (shell) => {
         shells.push(shell)
         killsAtHelper.push(fake.kills.length)
+        if (failure.helper === 'rejects') return Promise.reject(new Error('the helper failed (stand-in)'))
+        return failure.helper === 'gone' ? 'gone' : undefined
+      },
+      endShell: (shell) => {
+        ended.push(shell)
+        // As the real one does: the launcher is gone, so node-pty reports its exit.
+        fake.exit(1)
       },
     })
     await registry.open('a', { ...OPEN, shell: () => setting }, {}, SINK)
     await registry.close('a')
-    return { shells, killsAtHelper, kills: fake.kills.length }
+    return { shells, killsAtHelper, kills: fake.kills.length, ended }
   }
+
+  it('Git Bash, the helper fails: the close still calls kill(), which ends the launcher it suspended', async () => {
+    const { shells, kills, ended } = await closeWith('git-bash', { helper: 'rejects' })
+    expect(shells).toHaveLength(1)
+    expect(kills).toBe(1)
+    expect(ended).toEqual([])
+  })
+
+  it('Git Bash, the helper answers gone: the close still calls kill(), which ends the launcher it suspended', async () => {
+    const { shells, kills, ended } = await closeWith('git-bash', { helper: 'gone' })
+    expect(shells).toHaveLength(1)
+    expect(kills).toBe(1)
+    expect(ended).toEqual([])
+  })
+
+  it('Git Bash, kill() throws: the launcher is ended by its pid, by the shell the helper was given', async () => {
+    const { shells, kills, ended } = await closeWith('git-bash', { killThrows: true })
+    expect(kills).toBe(1)
+    expect(ended).toEqual(shells)
+    expect(ended).toEqual([{ pid: 999_993_093, startedBy: expect.any(Number) as number, hangup: KILL }])
+  })
+
+  it('PowerShell, kill() throws: nothing is ended by its pid, as before (the launcher of Git Bash alone is held)', async () => {
+    vi.useFakeTimers()
+    try {
+      const closing = closeWith('powershell', { killThrows: true })
+      await vi.advanceTimersByTimeAsync(60_000)
+      const { kills, ended } = await closing
+      expect(kills).toBe(1)
+      expect(ended).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 
   it('Git Bash: the helper gets kill.exe of its Git for Windows, before kill() of the pty', async () => {
     const { shells, killsAtHelper, kills } = await closeWith('git-bash')

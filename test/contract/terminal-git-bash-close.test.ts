@@ -10,7 +10,9 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { findGitBash } from '../../src/main/agent/env'
-import { consoleHosts, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, settledHandleCount, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
+import { spawnShellPty, type SpawnPty } from '../../src/main/terminal/pty'
+import { endDescendants, endShell } from '../../src/main/terminal/windows-pty'
+import { alive, consoleHosts, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, settledHandleCount, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
 
@@ -27,19 +29,24 @@ function needsGitBash(context: { skip: (condition: boolean, note?: string) => vo
 const unique = (word: string): { command: string; output: RegExp } => ({ command: `echo ${word}-$((40+2))`, output: new RegExp(`${word}-42\\r?\\n`) })
 
 describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty', () => {
-  it('terminal.close of a running Git Bash leaves its history: the command typed before the close is in HISTFILE of the home', async (context) => {
+  it('terminal.close of a running Git Bash leaves its history: both commands typed before the close are in HISTFILE of the home', async (context) => {
     needsGitBash(context)
     const h = await harness({ shell: 'git-bash' })
     expect((await h.open()).shell).toBe('bash.exe')
     const word = `worfy-history-${process.pid}-${Date.now()}`
-    const { command, output } = unique(word)
-    await h.run(command, output)
+    const first = unique(`${word}-one`)
+    const second = unique(`${word}-two`)
+    await h.run(first.command, first.output)
+    await h.run(second.command, second.output)
     await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
     expect(h.registry.size).toBe(0)
-    // bash writes the file before it exits, and the close resolves after the exit.
+    // bash writes the file only when it exits by itself, on the SIGHUP: after Stop-Process there is
+    // none. The close resolves after the exit.
     const file = join(home, '.bash_history')
     expect(existsSync(file), `${file} after the close`).toBe(true)
-    expect((await readFile(file, 'utf8')).split(/\r?\n/)).toContain(command)
+    const lines = (await readFile(file, 'utf8')).split(/\r?\n/)
+    expect(lines).toContain(first.command)
+    expect(lines).toContain(second.command)
   }, 30_000)
 
   // node-pty 1.2.0-beta.15 forgets the pseudo-console of a shell that exits by itself and never
@@ -78,3 +85,91 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty',
   }, 90_000)
 })
 
+// The launcher of Git Bash the helper suspended cannot exit by itself: whatever fails on the way,
+// the close must still end it. The bound of the close is put out of reach (60 s), so only the
+// release of the close itself can end the launcher within the test.
+describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows when a step fails: the suspended launcher is ended', () => {
+  const FAR_BOUND_MS = 60_000
+
+  /** Opens Git Bash, runs a command, closes it; answers the launcher pid and how long the close took. */
+  async function openAndClose(h: Awaited<ReturnType<typeof harness>>): Promise<{ launcher: number; ms: number }> {
+    const { pid: launcher } = await h.open()
+    const { command, output } = unique('ready')
+    await h.run(command, output)
+    const started = Date.now()
+    await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+    return { launcher, ms: Date.now() - started }
+  }
+
+  async function expectNothingLeft(launcher: number, hostsBefore: Set<number>): Promise<void> {
+    expect(alive(launcher), `the launcher ${launcher}`).toBe(false)
+    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !hostsBefore.has(pid))).toEqual([]), { timeout: 5000, interval: 500 })
+  }
+
+  it('the helper fails after it held the launcher: the close still calls kill(), and the launcher is ended', async (context) => {
+    needsGitBash(context)
+    const hostsBefore = new Set(consoleHosts())
+    const h = await harness({
+      shell: 'git-bash',
+      closeBoundMs: FAR_BOUND_MS,
+      endDescendants: async (shell) => {
+        await endDescendants(shell)
+        throw new Error('the helper failed (stand-in)')
+      },
+    })
+    const { launcher, ms } = await openAndClose(h)
+    expect(ms).toBeLessThan(10_000)
+    await expectNothingLeft(launcher, hostsBefore)
+  }, 40_000)
+
+  it('the helper answers gone after it held the launcher: the close still calls kill(), and the launcher is ended', async (context) => {
+    needsGitBash(context)
+    const hostsBefore = new Set(consoleHosts())
+    const h = await harness({
+      shell: 'git-bash',
+      closeBoundMs: FAR_BOUND_MS,
+      endDescendants: async (shell) => {
+        await endDescendants(shell)
+        return 'gone' as const
+      },
+    })
+    const { launcher, ms } = await openAndClose(h)
+    expect(ms).toBeLessThan(10_000)
+    await expectNothingLeft(launcher, hostsBefore)
+  }, 40_000)
+
+  it('kill() of the pty throws: the launcher is ended by its pid', async (context) => {
+    needsGitBash(context)
+    const hostsBefore = new Set(consoleHosts())
+    const spawn: SpawnPty = (file, args, options) => {
+      const pty = spawnShellPty(file, args, options)
+      pty.kill = () => {
+        throw new Error('kill() failed (stand-in)')
+      }
+      return pty
+    }
+    const h = await harness({ shell: 'git-bash', closeBoundMs: FAR_BOUND_MS, spawn, endDescendants, endShell })
+    const { launcher, ms } = await openAndClose(h)
+    expect(ms).toBeLessThan(10_000)
+    await expectNothingLeft(launcher, hostsBefore)
+  }, 40_000)
+
+  it('closeAll with six Git Bash Terminals open, as quitting the app does, leaves no launcher, bash or console host', async (context) => {
+    needsGitBash(context)
+    const hostsBefore = new Set(consoleHosts())
+    const nodeIds = Array.from({ length: 6 }, (_, index) => `q${index}`)
+    const h = await harness({ shell: 'git-bash', nodes: nodeIds })
+    const launchers = await Promise.all(
+      nodeIds.map(async (nodeId) => {
+        const { pid } = await h.open(nodeId)
+        const { command, output } = unique(`open-${nodeId}`)
+        await h.run(command, output, nodeId)
+        return pid
+      }),
+    )
+    await h.registry.closeAll()
+    expect(h.registry.size).toBe(0)
+    expect(launchers.filter((pid) => alive(pid))).toEqual([])
+    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !hostsBefore.has(pid))).toEqual([]), { timeout: 5000, interval: 500 })
+  }, 60_000)
+})

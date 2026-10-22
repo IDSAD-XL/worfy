@@ -64,7 +64,7 @@ import { ShellTracker, type ShellEvent, type ShellState } from './osc'
 import { REPLAY_LIMIT, ReplayBuffer } from './replay-buffer'
 import { integrationEnv, isZsh, newNonce, type AssistAdmission, type AssistDoor, type ShellIntegration } from './shell-integration'
 import type { PtyProcess, SpawnPty } from './pty-types'
-import { endDescendants, exitCodeKnown, killUnconnected, readsExitCode, spawnWindowsPty, stopOutputWorker, withoutConsoleHelper, type DescendantsVerdict, type StartedShell } from './windows-pty'
+import { endDescendants, endShell, exitCodeKnown, killUnconnected, readsExitCode, spawnWindowsPty, stopOutputWorker, withoutConsoleHelper, type DescendantsVerdict, type StartedShell } from './windows-pty'
 
 export { REPLAY_LIMIT, ReplayBuffer } from './replay-buffer'
 export type { PtyProcess, SpawnPty } from './pty-types'
@@ -301,6 +301,8 @@ export interface TerminalRegistryOptions {
   platform?: NodeJS.Platform
   /** Ends every process under a shell of Windows, not the shell; endDescendants by default. Not called elsewhere. */
   endDescendants?: (shell: StartedShell) => Promise<DescendantsVerdict | void> | DescendantsVerdict | void
+  /** Ends a launcher of Git Bash by its pid when kill() of its pty failed; endShell by default. */
+  endShell?: (shell: StartedShell) => Promise<unknown> | unknown
   /** The upper bound of closing a Terminal on Windows; WINDOWS_CLOSE_BOUND_MS by default. */
   closeBoundMs?: number
   /** Whether a file is there, for the search of the shell on Windows (terminalShell). */
@@ -337,6 +339,7 @@ export class TerminalRegistry {
   private readonly commandDelayMs: number
   private readonly platform: NodeJS.Platform
   private readonly endDescendants: (shell: StartedShell) => Promise<DescendantsVerdict | void> | DescendantsVerdict | void
+  private readonly endShell: (shell: StartedShell) => Promise<unknown> | unknown
   private readonly closeBoundMs: number
   private readonly shellListeners = new Set<ShellEventListener>()
   /** Shells of Windows waiting for their pid (pidKnown), by key: what a close calls to take one apart at once. */
@@ -350,6 +353,7 @@ export class TerminalRegistry {
     this.commandDelayMs = options.commandDelayMs ?? COMMAND_DELAY_MS
     this.platform = options.platform ?? process.platform
     this.endDescendants = options.endDescendants ?? endDescendants
+    this.endShell = options.endShell ?? endShell
     this.closeBoundMs = options.closeBoundMs ?? WINDOWS_CLOSE_BOUND_MS
   }
 
@@ -948,6 +952,10 @@ export class TerminalRegistry {
       terminal.pty.kill()
     } catch (error) {
       console.warn(`[terminal] closing the pty of the shell ${pid} failed`, error)
+      // A launcher of Git Bash the helper suspended cannot exit by itself: it is ended by its pid.
+      if (!exited && terminal.hangup !== undefined) {
+        void (async () => this.endShell({ pid, startedBy: terminal.startedBy, hangup: terminal.hangup }))().catch((failure: unknown) => console.warn(`[terminal] ending the launcher ${pid} of Git Bash failed`, failure))
+      }
     }
     this.stopOutputThread(terminal, quiet)
   }

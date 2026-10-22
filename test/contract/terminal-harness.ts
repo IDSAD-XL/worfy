@@ -12,7 +12,7 @@ import { afterEach, beforeEach, expect, vi } from 'vitest'
 import { SYSTEM_PATH } from '../../src/main/agent/env'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { terminalHandlers } from '../../src/main/ipc/terminal'
-import { spawnShellPty, TerminalRegistry, terminalShellOptions, type SpawnPty } from '../../src/main/terminal/pty'
+import { spawnShellPty, TerminalRegistry, terminalShellOptions, type SpawnPty, type TerminalRegistryOptions } from '../../src/main/terminal/pty'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL } from '../app-url'
 import { profileVars } from '../e2e/terminal-shell'
@@ -164,6 +164,12 @@ export function cursorRequests(): (data: string) => number {
 
 export interface HarnessOptions {
   killGraceMs?: number
+  /** The helper that ends the processes under a shell of Windows, for the registry; with `spawn`, none by default. */
+  endDescendants?: TerminalRegistryOptions['endDescendants']
+  /** What ends a launcher of Git Bash by its pid, for the registry; with `spawn`, none by default. */
+  endShell?: TerminalRegistryOptions['endShell']
+  /** The upper bound of a close on Windows, for the registry. */
+  closeBoundMs?: number
   nodes?: string[]
   spawn?: SpawnPty
   path?: readonly string[]
@@ -188,7 +194,10 @@ export async function harness(options: HarnessOptions = {}) {
     env,
     killGraceMs: options.killGraceMs ?? 1000,
     // A stand-in pty has a pid of no process: nothing of the system is asked to end it.
-    ...(options.spawn === undefined ? (WINDOWS ? { spawn: spawnWithoutProfile } : {}) : { spawn: options.spawn, endDescendants: () => undefined }),
+    ...(options.spawn === undefined ? (WINDOWS ? { spawn: spawnWithoutProfile } : {}) : { spawn: options.spawn, endDescendants: () => undefined, endShell: () => undefined }),
+    ...(options.endDescendants === undefined ? {} : { endDescendants: options.endDescendants }),
+    ...(options.endShell === undefined ? {} : { endShell: options.endShell }),
+    ...(options.closeBoundMs === undefined ? {} : { closeBoundMs: options.closeBoundMs }),
     ...(options.platform === undefined ? {} : { platform: options.platform }),
     ...(options.exists === undefined ? {} : { exists: options.exists }),
   })
