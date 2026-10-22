@@ -43,19 +43,19 @@ const ERR_ABORTED = -3
  *
  * The reset waits for the commit, not the start of the navigation: a navigation that never commits
  * (a URL main refuses in 'will-frame-navigate', src/main/window.ts; a 204; a download) leaves the
- * old page up, and it keeps what main holds for it. Those, and stop() before the commit, a
- * preventDefault in 'will-frame-navigate' and a load replaced by a newer one, send no fail event at
- * all, only 'did-stop-loading'; ERR_ABORTED is skipped all the same, as a safety check. A load of
- * the main frame that fails before the commit shows an error page (View ▸ Reload with the dev server
- * down: ERR_CONNECTION_REFUSED; also -312, -6, -20, a failed redirect): it sends
- * 'did-fail-provisional-load' and then 'did-fail-load' in the same millisecond, and no
- * 'did-navigate', and the old page is gone then too. 'did-fail-load' alone is not a new document: a
- * failure after the commit (the main document's body breaking off, -354 or -355; stop() after the
- * commit, -3) sends 'did-navigate' and then 'did-fail-load' only, after the new page's first calls
- * and with no error page, and a reset on it would drop what the new page holds (all measured on
- * macOS, Electron 44.5.1). A call the old page sends during a reload arrives before the commit, so the commit clears
- * it too. Nothing happens for a client without a window. Call it once per client object: each call
- * adds listeners. `reset` may run twice for one navigation and must not mind.
+ * old page up, and it keeps what main holds for it. Those, stop() before the commit and a load
+ * replaced by a newer one send no fail event at all, only 'did-stop-loading'; ERR_ABORTED is
+ * skipped all the same, as a safety check. A load of the main frame that fails before the commit
+ * shows an error page (View ▸ Reload with the dev server down: ERR_CONNECTION_REFUSED; also -312,
+ * -6, -20, a failed redirect): it sends 'did-fail-provisional-load' and then 'did-fail-load' in the
+ * same millisecond, and no 'did-navigate', and the old page is gone then too. 'did-fail-load' alone
+ * is not a new document: a failure after the commit (the main document's body breaking off, -354
+ * or -355; stop() after the commit, -3) sends 'did-navigate' and then 'did-fail-load' only, after
+ * the new page's first calls and with no error page, and a reset on it would drop what the new
+ * page holds (all measured on macOS, Electron 44.5.1). A call the old page sends during a reload
+ * arrives before the commit, so the commit clears it too. Nothing happens for a client without a
+ * window. Call it once per client object: each call adds listeners. `reset` may run twice for one
+ * navigation and must not mind.
  */
 export function onNewDocument(client: Pick<NavigatingClient, 'on'>, reset: () => void): void {
   client.on?.('did-navigate', () => reset())
