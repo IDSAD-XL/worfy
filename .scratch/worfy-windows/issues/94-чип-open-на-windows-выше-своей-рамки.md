@@ -76,12 +76,18 @@ Error: nothing is cut on Ticket 40
   ни разу.
 - Другие `.w-chip` на этом холсте, включая «Ready», «blocked» и чип готовой Wave, — 18 в 18. 17 в 16
   только у `.w-chip--open`. У `.w-checks .w-chip` своя строка 14 px, у `.w-ticket__repo` — 16 px.
+- Вне этой правки остаются другие чипы с рамкой 1 px. Своей высоты строки у них нет:
+  `src/renderer/shell/FirstRunChecks.tsx:71` и `:441` (`borderWidth: 1`), `src/renderer/projects/GithubAccount.tsx:54-55`,
+  `ConnectProject.tsx:146-147` и `FolderBrowser.tsx:60`. Внутри у них те же 16 px. Если унаследованная
+  строка выше 16 px, будет тот же выход 17 в 16. Для этих экранов высота строки не замерялась.
+  Перенести 16 px в базовый `.w-chip` нельзя: чипы без рамки (18 px внутри) сдвинулись бы на 0.5 px,
+  и снимки изменились бы. Нужен отдельный Ticket или общее правило для чипа с рамкой.
 
 **Почему не вариант (б).** Целый `scrollHeight` здесь не ошибается: при масштабе 1 он точный, и
 строка действительно выше коробки. Если сравнивать нарисованные коробки, выход строки скроется
 только потому, что глифы Arial ниже строки. А при 150 % целая проверка и так зелёная.
 
-**Test.** Новый e2e `the bordered state chip of an open Ticket holds its line inside its border…`
+**Test.** Новый e2e `the bordered state chip of an open Ticket has an explicit px line height that fits inside its border`
 в `test/e2e/epic-frame.spec.ts` не ждёт чип приложения: на него нельзя рассчитывать из-за
 stepper-а. Test ставит в верхний ряд карточки чип с теми же классами и сравнивает дробные значения.
 Высота строки должна быть длиной в px, а не `normal`, и не больше коробки внутри рамки. Ещё он

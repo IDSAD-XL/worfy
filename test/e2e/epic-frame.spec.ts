@@ -940,7 +940,8 @@ test('long names: the Ticket title, blocked reason and blockers line are whole o
   }
 })
 
-test('the bordered state chip of an open Ticket holds its line inside its border, whatever the font and the device pixel ratio', async () => {
+// Checked by hand at --force-device-scale-factor 1, 1.25, 1.5 and 2 (worfy-windows 94).
+test('the bordered state chip of an open Ticket has an explicit px line height that fits inside its border', async () => {
   // The open chip shows on a card only until the Pipeline snapshot puts the stepper in its place,
   // so the test does not wait for the app's own chip: it puts one with the same classes in the
   // card's top row and measures it there, under the card's own styles.
