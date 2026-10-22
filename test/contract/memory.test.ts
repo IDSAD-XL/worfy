@@ -23,11 +23,12 @@ interface FakeWindow {
   sent: { channel: string; payload: unknown }[]
   destroyed: boolean
   onDestroyed: (() => void)[]
-  onNavigation: ((details: { isMainFrame: boolean; isSameDocument: boolean }) => void)[]
+  /** The listeners of the other events of a webContents, by event name. */
+  listeners: Map<string, ((...args: unknown[]) => void)[]>
   send(channel: string, payload: unknown): void
   isDestroyed(): boolean
   once(event: 'destroyed', listener: () => void): void
-  on(event: 'did-start-navigation', listener: (details: { isMainFrame: boolean; isSameDocument: boolean }) => void): void
+  on(event: string, listener: (...args: unknown[]) => void): void
 }
 
 function fakeWindow(): FakeWindow {
@@ -35,7 +36,7 @@ function fakeWindow(): FakeWindow {
     sent: [],
     destroyed: false,
     onDestroyed: [],
-    onNavigation: [],
+    listeners: new Map(),
     send(channel, payload) {
       this.sent.push({ channel, payload })
     },
@@ -45,14 +46,21 @@ function fakeWindow(): FakeWindow {
     once(_event, listener) {
       this.onDestroyed.push(listener)
     },
-    on(_event, listener) {
-      this.onNavigation.push(listener)
+    on(event, listener) {
+      this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener])
     },
   }
 }
 
-function navigate(window: FakeWindow, details: { isMainFrame: boolean; isSameDocument: boolean }): void {
-  for (const listener of window.onNavigation) listener(details)
+/** Emits a webContents event to the window's listeners, as Electron does. */
+function fire(window: FakeWindow, event: string, ...args: unknown[]): void {
+  for (const listener of window.listeners.get(event) ?? []) listener(...args)
+}
+
+/** A main-frame navigation to a new document that commits: View > Reload, a dev server reload. */
+function reload(window: FakeWindow): void {
+  fire(window, 'did-start-navigation', { isMainFrame: true, isSameDocument: false })
+  fire(window, 'did-navigate', {}, APP_URL, -1, '')
 }
 
 function destroy(window: FakeWindow): void {
@@ -225,19 +233,38 @@ describe('MemorySampler and the memoryIndicator setting', () => {
     const window = fakeWindow()
     await open(window)
     // A same-document navigation and one of a frame inside the page keep the figure open.
-    navigate(window, { isMainFrame: true, isSameDocument: true })
-    navigate(window, { isMainFrame: false, isSameDocument: false })
+    fire(window, 'did-start-navigation', { isMainFrame: true, isSameDocument: true })
+    fire(window, 'did-navigate-in-page', {}, `${APP_URL}#x`, true)
+    fire(window, 'did-start-navigation', { isMainFrame: false, isSameDocument: false })
+    fire(window, 'did-frame-navigate', {}, 'about:blank', -1, '', false, 1, 1)
     expect(sampler.running).toBe(true)
 
     // The reload: the old page sends no memory.close.
-    navigate(window, { isMainFrame: true, isSameDocument: false })
+    reload(window)
     expect(sampler.running).toBe(false)
     await open(window)
     expect(sampler.running).toBe(true)
     await close(window)
     expect(sampler.running).toBe(false)
     expect(vi.getTimerCount()).toBe(0)
-    expect(window.onNavigation).toHaveLength(1)
+    expect(window.listeners.get('did-navigate')).toHaveLength(1)
+  })
+
+  it('a navigation that starts but never commits keeps the figure of the page that stays', async () => {
+    const { open, close } = await register()
+    const window = fakeWindow()
+    await open(window)
+    // A refused URL (will-frame-navigate, src/main/window.ts), a 204, a download: the start comes,
+    // the commit does not, and the old page stays up with its figure open.
+    fire(window, 'did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    fire(window, 'did-fail-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true)
+    fire(window, 'did-stop-loading')
+    expect(sampler.running).toBe(true)
+    vi.advanceTimersByTime(MEMORY_SAMPLE_MS)
+    expect(changes(window)).toHaveLength(2)
+    // The page that stayed closes the figure as usual, and that stops the sampler.
+    await close(window)
+    expect(sampler.running).toBe(false)
   })
 
   it('an open from a window already destroyed subscribes nothing', async () => {

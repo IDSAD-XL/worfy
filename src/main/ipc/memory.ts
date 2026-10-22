@@ -1,22 +1,16 @@
 // Handlers of the `memory` domain (src/shared/ipc/memory.ts). A client (src/main/clients.ts) that
 // opens the figure gets every new sample on `memory.changed` until it closes it as many times as it
-// opened it, or is destroyed, or its page is reloaded; while no client has it open, the sampler
-// stops (src/main/diagnostics/memory.ts).
+// opened it, or is destroyed, or a new document commits in its main frame; while no client has it
+// open, the sampler stops (src/main/diagnostics/memory.ts).
+//
+// A reload keeps the webContents and the old page sends no `memory.close`: React's cleanup does not
+// run on unload. So its opens are dropped when the new document commits (onNewDocument,
+// src/main/clients.ts), and the new page opens the figure again. A navigation that never commits
+// leaves the old page and its figure as they were.
 import { appMemory, type MemorySampler } from '../diagnostics/memory'
-import { clientOf, type Client } from '../clients'
+import { clientOf, onNewDocument, type Client } from '../clients'
 import { memoryChanged, memoryClose, memoryOpen } from '../../shared/ipc/memory'
 import { defineHandler, emit, type HandlerModule } from './index'
-
-/**
- * A window's webContents also reports navigations. A reload (View ▸ Reload, a full reload of the
- * dev server) keeps the webContents, so `destroyed` does not fire, and the old page sends no
- * `memory.close`: React's cleanup does not run on unload. Its opens are dropped when the main frame
- * starts to navigate, as src/main/ipc/linked.ts does, and the new page opens the figure again.
- * A client without a window has no `on`.
- */
-type Navigating = Client & {
-  on?(event: 'did-start-navigation', listener: (details: { isMainFrame: boolean; isSameDocument: boolean }) => void): unknown
-}
 
 /** The handlers over a sampler; tests pass their own. */
 export function memoryHandlers(sampler: () => MemorySampler): HandlerModule {
@@ -47,9 +41,7 @@ export function memoryHandlers(sampler: () => MemorySampler): HandlerModule {
           if (!held.has(client)) {
             held.add(client)
             client.once('destroyed', () => drop(client))
-            ;(client as Navigating).on?.('did-start-navigation', (details) => {
-              if (details.isMainFrame && !details.isSameDocument) drop(client)
-            })
+            onNewDocument(client, () => drop(client))
           }
           open.set(client, {
             views: 1,

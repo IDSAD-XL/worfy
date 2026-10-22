@@ -83,11 +83,16 @@ describe('linked.open', () => {
     const window = new Contents(41)
     expect(await call('linked.open', { machine: M, projectId: 'demo-1' }, window)).toEqual({ ok: true, value: { projectId: 'demo-1' } })
     expect(holds()).toEqual([{ screen: '41', projectId: 'demo-1' }])
-    // A fragment or history change is no new page.
+    // A fragment or history change, or a navigation of a frame inside the page, is no new page.
     window.emit('did-start-navigation', { isMainFrame: true, isSameDocument: true })
+    window.emit('did-navigate-in-page', {}, 'file:///index.html#x', true)
     window.emit('did-start-navigation', { isMainFrame: false, isSameDocument: false })
+    window.emit('did-frame-navigate', {}, 'about:blank', -1, '', false, 1, 1)
     expect(holds()).toHaveLength(1)
+    // The new document commits in the main frame: the old page is gone.
     window.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    expect(holds()).toHaveLength(1)
+    window.emit('did-navigate', {}, 'file:///index.html', -1, '')
     expect(holds()).toEqual([
       { screen: '41', projectId: 'demo-1' },
       { screen: '41', projectId: null },
@@ -107,6 +112,23 @@ describe('linked.open', () => {
       { screen: '42', projectId: 'demo-1' },
       { screen: '42', projectId: 'demo-2' },
       { screen: '42', projectId: null },
+    ])
+  })
+
+  it('keeps the Project held when a navigation starts but never commits: the page stays', async () => {
+    const window = new Contents(43)
+    await call('linked.open', { machine: M, projectId: 'demo-1' }, window)
+    // A refused URL (will-frame-navigate, src/main/window.ts), a 204, a download: the start comes,
+    // the commit does not.
+    window.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    window.emit('did-fail-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true)
+    window.emit('did-stop-loading')
+    expect(holds()).toEqual([{ screen: '43', projectId: 'demo-1' }])
+    // The page that stayed is still the holder: its close lets go.
+    window.emit('destroyed')
+    expect(holds()).toEqual([
+      { screen: '43', projectId: 'demo-1' },
+      { screen: '43', projectId: null },
     ])
   })
 })
@@ -226,12 +248,28 @@ describe('subscriptions of several windows on one Linked machine (worfy-windows 
     first.emit('destroyed')
     expect(closes()).toEqual([])
     second.emit('did-start-navigation', { isMainFrame: true, isSameDocument: true })
+    second.emit('did-navigate-in-page', {}, 'file:///index.html#x', true)
     expect(closes()).toEqual([])
     second.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    second.emit('did-navigate', {}, 'file:///index.html', -1, '')
     expect(closes()).toEqual([{ machine: M, channel: 'pipeline.close', input: { root: '/q' } }])
     // Let go once: a close the window sends after its page went passes on as before.
     await invoke(second, 'pipeline.close', { root: '/q' })
     expect(closes()).toHaveLength(2)
+  })
+
+  it('a navigation that starts but never commits keeps the window counted: its subscription and its events stay', async () => {
+    const [first, second] = [new Contents(58), new Contents(59)]
+    await invoke(first, 'workflow.open', { root: '/r' })
+    await invoke(second, 'workflow.open', { root: '/r' })
+    second.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    second.emit('did-fail-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true)
+    second.emit('did-stop-loading')
+    first.emit('destroyed')
+    // The second window is still counted in: the subscription stays on the Linked machine.
+    expect(closes()).toEqual([])
+    expect(await invoke(second, 'workflow.close', { root: '/r' })).toEqual({ ok: true, value: { ok: true, value: { from: M } } })
+    expect(closes()).toEqual([{ machine: M, channel: 'workflow.close', input: { root: '/r' } }])
   })
 
   it('a close without a subscription counted here passes on unchanged', async () => {

@@ -22,7 +22,7 @@
 // The order of delivery is kept within one command, not across commands: held commands go out
 // when the page becomes ready for their kind, so a held `toggleSidebar` may arrive after a
 // `settings` chosen later, when the page said it follows `settings` first.
-import { clientOf, type Client } from '../clients'
+import { clientOf, onNewDocument, type NavigatingClient } from '../clients'
 import { menuCommand, menuReady, type MenuCommand } from '../../shared/ipc/menu'
 import { defineHandler, emit, type HandlerModule } from './index'
 
@@ -30,11 +30,6 @@ import { defineHandler, emit, type HandlerModule } from './index'
 export const HELD_FOR_MS = 10_000
 /** How many commands one window may hold at once. */
 export const HELD_AT_MOST = 8
-
-/** A window's webContents: a client that also reports the documents its main frame commits. */
-export type MenuTarget = Client & {
-  on?(event: 'did-navigate', listener: () => void): unknown
-}
 
 interface TargetState {
   /**
@@ -49,17 +44,16 @@ interface TargetState {
   held: { command: MenuCommand; at: number }[]
 }
 
-const states = new WeakMap<MenuTarget, TargetState>()
+const states = new WeakMap<NavigatingClient, TargetState>()
 
 /** The state of `target`, made on first use; a new document of the main frame starts it anew. */
-function stateOf(target: MenuTarget): TargetState {
+function stateOf(target: NavigatingClient): TargetState {
   let state = states.get(target)
   if (state === undefined) {
     const fresh: TargetState = { ready: new Set(), held: [] }
     state = fresh
     states.set(target, fresh)
-    // Main frame only, and never for a navigation inside the document ('did-navigate-in-page').
-    target.on?.('did-navigate', () => {
+    onNewDocument(target, () => {
       fresh.ready.clear()
       fresh.held = []
     })
@@ -68,7 +62,7 @@ function stateOf(target: MenuTarget): TargetState {
 }
 
 /** Sends `command` to the page of `target` now if it follows it, else holds it until it does. */
-export function deliverMenuCommand(target: MenuTarget, command: MenuCommand): void {
+export function deliverMenuCommand(target: NavigatingClient, command: MenuCommand): void {
   if (target.isDestroyed()) return
   const state = stateOf(target)
   if (state.ready.has(command)) {
@@ -80,7 +74,7 @@ export function deliverMenuCommand(target: MenuTarget, command: MenuCommand): vo
 }
 
 /** The page of `target` follows `command` from now on: it gets the held ones of that kind, in order. */
-export function menuCommandReady(target: MenuTarget, command: MenuCommand): void {
+export function menuCommandReady(target: NavigatingClient, command: MenuCommand): void {
   if (target.isDestroyed()) return
   const state = stateOf(target)
   state.ready.add(command)
@@ -96,6 +90,6 @@ export function menuCommandReady(target: MenuTarget, command: MenuCommand): void
 export default [
   defineHandler(menuReady, (command, { event }) => {
     const target = clientOf(event)
-    if (target !== undefined) menuCommandReady(target as MenuTarget, command)
+    if (target !== undefined) menuCommandReady(target, command)
   }),
 ] satisfies HandlerModule

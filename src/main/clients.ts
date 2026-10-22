@@ -22,6 +22,30 @@ export interface Client {
   once(event: 'destroyed', listener: () => void): unknown
 }
 
+/**
+ * A client that may report the documents its main frame commits: a window's webContents does, a
+ * client without a window has no `on`. Electron emits 'did-navigate' for the main frame only, and
+ * never for a navigation inside the document ('did-navigate-in-page').
+ */
+export type NavigatingClient = Client & {
+  on?(event: 'did-navigate', listener: () => void): unknown
+}
+
+/**
+ * Calls `reset` each time a new document commits in the main frame of `client` (View ▸ Reload, a
+ * dev server reload, another page): what main keeps for the old page is then stale. A reload keeps
+ * the webContents, so `destroyed` does not fire, and the old page's cleanup does not reach main.
+ *
+ * The reset waits for the commit, not the start of the navigation: a navigation that never commits
+ * (a URL main refuses in 'will-frame-navigate', src/main/window.ts; a 204; a download) leaves the
+ * old page up, and it keeps what main holds for it. A call the old page sends during a reload
+ * arrives before the commit, so the commit clears it too. Nothing happens for a client without a
+ * window. Call it once per client object: each call adds a listener.
+ */
+export function onNewDocument(client: Pick<NavigatingClient, 'id' | 'on'>, reset: () => void): void {
+  client.on?.('did-navigate', () => reset())
+}
+
 /** The id rule of a client without a window: "<kind>:<name>", kind in lower case, no spaces. */
 const WINDOWLESS_ID = /^[a-z][a-z0-9-]*:\S+$/
 

@@ -11,7 +11,7 @@
 import { posix } from 'node:path'
 import { IPC_CHANNEL_PREFIX, type InvokeInput, type InvokeName, type IpcResult } from '../../shared/ipc/channels'
 import { linkedChanged, linkedEvent, linkedInvoke, linkedOpen, linkedState, type LinkedState } from '../../shared/ipc/linked'
-import type { Client } from '../clients'
+import { onNewDocument, type Client, type NavigatingClient } from '../clients'
 import { appRemoteCalls, type RemoteCalls } from '../link/remote-calls'
 import { appLinkProblem, onAppLinkStart } from '../link/service'
 import { defineHandler, emit, type HandlerModule } from './index'
@@ -73,12 +73,7 @@ async function toWindows(send: (target: Client) => void): Promise<void> {
 }
 
 /** What a window that shows a Project of a Linked machine needs from Electron's webContents. */
-interface Screen {
-  id: number | string
-  once(event: 'destroyed', listener: () => void): unknown
-  isDestroyed?(): boolean
-  on?(event: 'did-start-navigation', listener: (details: { isMainFrame: boolean; isSameDocument: boolean }) => void): unknown
-}
+type Screen = Pick<NavigatingClient, 'id' | 'once' | 'on'> & Partial<Pick<NavigatingClient, 'isDestroyed'>>
 
 /** The Linked machine each window holds a Project on, by window id. */
 const holding = new Map<number | string, string>()
@@ -200,8 +195,8 @@ interface Counted {
 /**
  * Counts the window in or out of the subscription that `channel` opens or closes. A close is
  * answered here while other windows still hold the subscription: `closed: true` for a window
- * counted in, `closed: false` for one that was not (it let go already, say on a navigation that was
- * then cancelled). The last close goes on, and after it the closes of the other spellings sent.
+ * counted in, `closed: false` for one that was not (it never subscribed, or let go already when a
+ * new document committed in it). The last close goes on, and after it the closes of the other spellings sent.
  */
 function countWindow(screen: Screen | undefined, machine: string, channel: string, input: unknown): Counted {
   if (typeof screen?.once !== 'function') return {}
@@ -241,15 +236,14 @@ const watched = new WeakSet<object>()
 function watch(screen: Screen): void {
   if (watched.has(screen)) return
   watched.add(screen)
-  screen.once('destroyed', () => {
+  const leave = (): void => {
     release(screen)
     unsubscribe(screen)
-  })
-  screen.on?.('did-start-navigation', (details) => {
-    if (!details.isMainFrame || details.isSameDocument) return
-    release(screen)
-    unsubscribe(screen)
-  })
+  }
+  screen.once('destroyed', leave)
+  // On the commit of a new document, not the start of a navigation: one that never commits leaves
+  // the page up, and it keeps its Project and its subscriptions (src/main/clients.ts).
+  onNewDocument(screen, leave)
 }
 
 export default [
