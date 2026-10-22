@@ -1,7 +1,8 @@
 # 07 — Кадры для других экранов и Linked machine: `Page.startScreencast`, пересылка ввода, одна живая страница
 
 Type: task
-Status: claimed 2026-10-22T09:33Z
+Status: done 2026-10-22T22:48Z
+PR: #748
 Branch: worfy-browser/07
 Blocked by: 05
 Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md) (Browser Node), пункт 9

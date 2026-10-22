@@ -1,7 +1,8 @@
 # 06 — Browser и жизнь Session: связь «открыт этой Session» в Family, уход вместе с Session
 
 Type: task
-Status: claimed 2026-10-22T08:00Z
+Status: done 2026-10-22T22:48Z
+PR: #744
 Branch: worfy-browser/06
 Blocked by: 04
 Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md) (Browser Node), пункт 11

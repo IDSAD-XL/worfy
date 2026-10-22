@@ -19,7 +19,7 @@
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 21/22; влиты 01–12, 14–21; 13 (ELK) не нужен, его заменяет 22 — K из кандидатов по 16:10 (владелец 2026-10-22).
-- `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 12/16; влиты 15, 16, 04 (#733, MCP через CDP); 08 — после polish 32, 34, 37; отказ вне списка origin-ов — ADR-0078, владелец может возразить.
+- `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 15/16; влиты 04 (#733, MCP через CDP), 05 (#741, Live и Asleep), 06 (#744, Browser в Family Session), 07 (#748, кадры для других экранов); polish 32, 34, 37 влиты — следующий 08 (Autopilot); отказ вне списка origin-ов — ADR-0078, владелец может возразить.
 
 ## Ждёт владельца
 
