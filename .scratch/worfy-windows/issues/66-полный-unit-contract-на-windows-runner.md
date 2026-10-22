@@ -125,10 +125,10 @@ input-а `mode` на неизменённом workflow.
 
 ## Итог
 
-Ветка `worfy-windows/66` от main `0437d084`, два коммита: первый — скрипт, test-ы, текст Harness и
-этот Итог; второй, последний, — только `.github/workflows/windows-tests.yml` (токен ПК не пушит
-`.github/workflows/*`, патч этого коммита — `C:/Users/Alexey/worfy-wt/pr66-workflow.patch`, его пушит
-Mac). PR не открыт, push не делался.
+Ветка `worfy-windows/66` от main `0437d084`. Правка `.github/workflows/windows-tests.yml` — ровно в
+одном коммите, последнем в ветке (токен ПК не пушит `.github/workflows/*`); её патч —
+`C:/Users/Alexey/worfy-wt/pr66-workflow.patch`, его пушит Mac. Все остальные правки — в коммитах
+раньше. PR не открыт, push не делался. Круг 1 ревью (замечания Mac) — в последнем разделе.
 
 **Что сделано.**
 
@@ -136,37 +136,75 @@ Mac). PR не открыт, push не делался.
   input `files` стал `required: false` (иначе dispatch `-f mode=full` без списка GitHub отклоняет);
   пустой список в режиме `files` по-прежнему отказывает `scripts/windows-test-list.mjs`. Два job-а:
   `listed-tests` (`if: inputs.mode == 'files'`, шаги и 10 минут — без изменений) и `full-suite`
-  (`if: inputs.mode == 'full'`, `windows-latest`, без matrix, 30 минут). Шаги `full-suite`: отказ от
+  (`if: inputs.mode == 'full'`, `windows-latest`, без matrix, 45 минут). Шаги `full-suite`: отказ от
   списка (первым, до checkout: непустой `files` — `::error::` и код 1; вход через `env`), checkout,
-  setup-node, corepack, setup-node с кэшем pnpm, `pnpm install --frozen-lockfile`, `pnpm test`.
-  Комментарий в начале описывает оба режима, кто запускает, цену и что run не заменяет.
-  `scripts/windows-test-list.mjs` не менялся: отказ списка в режиме `full` — шаг самого job-а.
-- **Предел 30 минут — временный.** Окончательный — замер первого run-а `full` на main × 1,5, с
-  округлением вверх до 5 минут (в workflow — комментарий `shortcut:` с этим условием). Замер ещё не
-  сделан: run запускает Mac после открытия PR. Риск: `test/contract/harness-scripts.test.ts` идёт
-  на ПК около 26 минут (`scripts/windows-test-list.mjs`, `RUNS_ON_THE_PC`), и вместе с install run
-  может упереться в 30 минут — тогда первый run не даёт замера, и предел для второго run-а нужно
-  поднять (например, до 45) отдельной правкой.
+  setup-node, corepack, setup-node с кэшем pnpm, `pnpm install --frozen-lockfile`, `pnpm test`
+  (шаг «Run the whole unit and contract suite»). Комментарий в начале описывает оба режима, кто
+  запускает, цену ($0.10 и $0.45 потолок) и что run не заменяет. `scripts/windows-test-list.mjs` не
+  менялся: отказ списка в режиме `full` — шаг самого job-а.
+- **Предел 45 минут — временный** (в круге 1 поднят с 30: `test/contract/harness-scripts.test.ts`
+  один идёт на ПК около 26 минут, `RUNS_ON_THE_PC` в `scripts/windows-test-list.mjs`, и сверху
+  install). Окончательный — замер первого run-а `full` на main × 1,5, с округлением вверх до 5 минут
+  (в workflow — комментарий `shortcut:` с этим условием). Замер ещё не сделан: run запускает Mac после
+  открытия PR.
 - `scripts/windows-verdict-scope.mjs <base> <head>`: `git diff --name-only --no-renames -z
   <base>...<head>` (переименование — обе стороны), сверка со списком `PC_ONLY`; совпадение — `pc` и
   пути, код 1; нет — `runner`, код 0; пустой diff — `runner`; неверные аргументы или ошибка git —
   код 2, без вердикта. `**/` — любое число папок, в том числе ноль; `*` — без `/`.
-- `harness/skills/epic-wave/SKILL.md`, раздел 4, «Checks before merge»: новый пункт — скрипт на
-  свежем checkout main (не ветки PR), dispatch `gh workflow run windows-tests.yml --ref <branch> -f
-  mode=full`, поиск run-а с `headSha` = head PR, чтение `conclusion` job-а `full-suite` (run режима
-  `files` на том же коммите тоже `success`, но с пропущенным `full-suite`), отметки `success` /
-  `failure`, `pc` — gate full на ПК, другой код — ждать; main — dispatch режима `full` сразу после
-  `wave-gate ci`, красный run — как красный batch CI run.
+- `harness/skills/epic-wave/SKILL.md` — общее правило без внутренностей worfy (см. «Отступление от
+  Ticket-а»): в разделе 4, «Checks before merge», пункт «A check a CI runner may answer»; рядом с
+  batch CI — абзац «A run that goes with the batch CI run» с блоком, который пишет dispatch в CI-файл.
+- `harness/bin/tests/plugin-neutral.test.sh` (по просьбе Mac, больше ничего в `harness/bin/tests`):
+  новый запрещённый шаблон — файлы `scripts/*.{mjs,cjs,js,ts,sh}` и `.github/workflows/*.y(a)ml`.
+  Исключения для того, что уже было в дереве: скрипт фикстуры `shortcut-ledger.test.sh`
+  (`scripts/make.sh`), `harness/README.md` (`scripts/eval-harness.mjs`,
+  `scripts/eval-harness-coverage.mjs`) и `harness/bin/ticket:138` (`scripts/install-stable.mjs`) —
+  известные утечки, их убирать отдельно. Дерево проходит; мутант — строка `` `node scripts/x.mjs` ``
+  или `` `.github/workflows/ci.yml` `` в `harness/skills/qmd/SKILL.md` — красный (код 1, строка
+  названа).
+
+**Отступление от Ticket-а, пункт 5, — по ADR-0074 (решение Mac в круге 1).** Пункт 5 просил назвать в
+тексте Harness скрипт, команду dispatch и job. ADR-0074, пункт 1: plugin не говорит о внутренностях
+репозитория worfy. Поэтому `SKILL.md` не называет ни `scripts/windows-verdict-scope.mjs`, ни
+`windows-tests.yml`, ни job `full-suite`, ни Windows-ПК: правила проекта (`rules.md`) называют команду
+scope, команду dispatch, workflow, job и шаг test-ов; skill говорит, что с ними делать. Конкретные
+команды worfy — в `rules.md` обеих машин (ниже). Цена: без правки `rules.md` после мержа Orchestrator
+не знает команд, и правило skill-а не срабатывает (до правки всё идёт по-старому, gate full на ПК).
+
+**Что говорит skill** (общее правило). PR: scope-команда на свежем checkout main, не ветки PR. Код 0 —
+один dispatch, отметка `pending`, строка в журнале решений. Run ищется по `headSha` = head PR:
+самый новый, у которого названный job не `skipped`. Не нашёлся — искать снова раз в минуту до
+шести раз, но никогда не dispatch повторно: каждый dispatch — платный run. Дальше `gh run watch`
+и чтение job-а. `success` — `success`. `failure` только при упавшем шаге test-ов — `failure`.
+Run упёрся в предел (`timed_out` или `cancelled` примерно через `timeout-minutes`) — без отметки и
+без нового dispatch, в отчёте run, минуты и предел, чтобы предел подняли. Любой другой конец
+(checkout, install, отказ input-а, отмена руками) — без отметки, без dispatch. Код 1 — путь из правил
+(gate full на ПК). Другой код — нет вердикта. main: блок сразу после `wave-gate ci`. Он берёт коммит
+записанного batch CI run-а, делает один dispatch и пишет его в CI-файл (`extra_runs.<имя>`:
+команда, коммит, время, `superseded`). Повторный вызов на том же коммите не делает dispatch. Id run-а
+записывается тем же CI-файлом (`jq … '.extra_runs[$n] += {run_id, url}'`). Строка в журнале решений и
+в отчёте Wave — как у batch CI. Красный — как красный batch CI. Упёрся в предел — не проверено, без
+dispatch.
+
+**`bin/wave-gate` не менялся, и правка не нужна:** `wave-gate ci` читает CI-файл целиком и пишет его
+обратно целиком (`save`), чужой ключ `extra_runs` не теряется. Пробел: `wave-gate` сам не знает о
+втором run-е — dispatch, поиск id и ожидание делает Orchestrator по skill-у, а не `wave-gate ci`
+(вопрос в PR body). Блок проверен руками во временной папке (не test-ом: `harness/bin/tests` трогать
+нельзя): первый вызов — dispatch, второй на том же коммите — `EXTRA_RUN=recorded`, без dispatch;
+новый коммит `ci_run` — новый dispatch, старая запись в `superseded`; два вызова stand-in-а dispatch
+на два коммита; без batch run-а и при упавшем dispatch — код 1, ничего не записано.
 
 **Список путей скрипта сверен с `git ls-files` на `0437d084`.** Все пути начального списка есть в
-дереве. Добавлено (ошибка в сторону `pc` стоит лишнего gate full, в сторону `runner` — пропущенной
-регрессии):
+дереве; `src/main/menu.ts`, `src/main/notify.ts` и `src/main/notify-pending.ts` — в списке. Добавлено
+(ошибка в сторону `pc` стоит лишнего gate full, в сторону `runner` — пропущенной регрессии):
 
 - Terminal: `src/shared/ipc/terminal*.ts` (пара к `src/main/ipc/terminal*.ts`),
   `src/shared/terminal/**` (ответы курсора терминала), `src/renderer/canvas/ReadOnlyTerminal.tsx`
   (xterm-вид вне `nodes/`);
 - окна, меню, уведомления: `src/main/window-show.ts`, `src/shared/window/**` (границы окна),
-  `src/main/ipc/menu.ts`, `src/main/ipc/notify.ts`;
+  `src/main/ipc/menu.ts`, `src/main/ipc/notify.ts`; в круге 1 по решению Mac —
+  `src/main/broadcast.ts`, `src/main/settings/interface-scale.ts`, `src/shared/ipc/menu.ts`,
+  `src/shared/ipc/notify.ts`;
 - e2e: `test/acceptance/**` (Playwright-приёмка, на runner-е не идёт);
 - упаковка и установка: `pnpm-workspace.yaml` (`allowBuilds` для node-pty и electron, `engineStrict`),
   `scripts/build-version.ts`, `scripts/dev-bundle.ts` (их читает `electron.vite.config.ts`);
@@ -175,11 +213,13 @@ Mac). PR не открыт, push не делался.
   `scripts/windows-verdict-scope.mjs`, `scripts/vitest-electron.mjs`, `vitest.config.ts`. Этот PR
   поэтому сам — `pc`.
 
-Не добавлено: `src/shared/terminal-ai/**` и `src/renderer/settings/*TerminalAi*` (чистая логика и UI
-настроек, их полностью гоняют unit-test-ы), `src/main/autopilot/power.ts` (`powerSaveBlocker`, не
-окна/меню/уведомления), `src/main/workflow/waits-notify.ts` (без Electron API),
+Не добавлено: `src/main/index.ts` (по решению Mac: связывает все модули main process, его трогает
+почти каждый PR с кодом main; поведение на Windows живёт в модулях списка — комментарий в скрипте);
+`src/shared/terminal-ai/**` и `src/renderer/settings/*TerminalAi*` (чистая логика и UI настроек, их
+полностью гоняют unit-test-ы); `src/main/autopilot/power.ts` (`powerSaveBlocker`, не
+окна/меню/уведомления); `src/main/workflow/waits-notify.ts` (без Electron API);
 `src/renderer/settings/settings-window.ts` и `src/renderer/shortcuts/shortcuts-window.ts` (модули
-renderer-а, окон не создают), `test/unit/e2e-*.test.ts` (unit-test-ы, на runner-е идут). Удалено
+renderer-а, окон не создают); `test/unit/e2e-*.test.ts` (unit-test-ы, на runner-е идут). Удалено
 ничего.
 
 **Три PR из истории main** (локальный `git log origin/main --first-parent`, squash-коммиты с
@@ -194,7 +234,15 @@ renderer-а, окон не создают), `test/unit/e2e-*.test.ts` (unit-test
 - #741 (`1ba05450`, Browser с e2e) — `pc`, код 1: `test/e2e/browser-sleep.spec.ts` (остальные
   файлы — `src/main/browser/*`, не в списке).
 
-Из 60 последних PR main 32 — `runner`, 28 — `pc` (по одному прогону скрипта на коммит).
+Из 60 последних PR main 32 — `runner`, 28 — `pc` (список до круга 1).
+
+**Test скрипта закрепляет каждый пункт `PC_ONLY`:** список в скрипте равен списку в test-е, в том
+же порядке; файл каждого пункта есть в `git ls-files` репозитория (только чтение); каждый файл в
+временном репозитории даёт `pc`. Вложенные случаи: `src/main/terminal/zsh/rc.d/10-assist.zsh`,
+`src/main/terminal-ai/features/suggest.ts`, `build/brand/icon.svg`, `src/shared/window/bounds.ts`,
+`src/shared/window/deep/frame.ts`, `test/acceptance/fixtures/silent-repo/src/index.js`. git в
+test-е — без системного и пользовательского конфига (`GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL` —
+пустой временный файл) и без унаследованных `GIT_*`; так же запускается git самого скрипта.
 
 **Мутанты** (каждый — правка файла в worktree, прогон одного test-файла, восстановление из копии в
 памяти; после прогона sha1 обоих файлов совпал с исходным):
@@ -204,7 +252,7 @@ renderer-а, окон не создают), `test/unit/e2e-*.test.ts` (unit-test
 | лишний триггер `push` | starts by hand only |
 | matrix в `full-suite` | has two jobs … no matrix |
 | нет `if` у `full-suite` / у `listed-tests`; `full-suite` с `if` на `files` | has two jobs … |
-| `timeout-minutes` 45 у `full-suite`; 30 у `listed-tests` | stops the job … after 10 … after 30 |
+| `timeout-minutes` 30 у `full-suite`; 45 у `listed-tests` | stops the job … after 10 … after 45 |
 | `pnpm test` в режиме `files` | mode files: steps, run step, never the whole suite (3) |
 | `pnpm test:e2e` в `run` режима `full`; отдельный шаг e2e | mode full: steps; no e2e (2) |
 | лишний шаг в режиме `full` / в режиме `files` | mode full: steps / mode files: steps (3) |
@@ -213,37 +261,57 @@ renderer-а, окон не создают), `test/unit/e2e-*.test.ts` (unit-test
 | `contents: write` | may only read the repository |
 | скрипт: без `--no-renames` | rename out of the list is pc |
 | скрипт: `..` вместо `...` | a later change on the base does not count |
-| скрипт: группа `test/e2e/**` убрана | e2e helper in a subfolder; every matching file (2) |
+| скрипт: пункт `test/e2e/**` убран | список; файл пункта; e2e helper in a subfolder (4) |
 | скрипт: `**/` требует папку | a Terminal helper right under test/ |
-| скрипт: `pc` с кодом 0 | 29 test-ов |
+| скрипт: `src/main/terminal/**` → `/*` | список; `rc.d/10-assist.zsh` (2) |
+| скрипт: `src/main/terminal-ai/**` → `/*` | список; `features/suggest.ts` (2) |
+| скрипт: `build/**` → `build/*` | список; `build/brand/icon.svg` (2) |
+| скрипт: пункт `src/shared/window/**` убран | список; `bounds.ts`; `deep/frame.ts` (3) |
+| скрипт: `pc` с кодом 0 | 55 test-ов |
 | скрипт: ошибка git читается как `runner` | no verdict when git cannot compute the diff |
+| `plugin-neutral`: `` `node scripts/x.mjs` `` / `` `.github/workflows/ci.yml` `` в skill-е | код 1, строка названа |
 
-Мутант «`**/` требует папку» сначала выжил; добавлен случай `test/terminal-helper.ts`, после — красный.
+Мутант «`**/` требует папку» в первом круге выжил; добавлен случай `test/terminal-helper.ts`, после —
+красный.
 
-**Проверки на ПК** (идёт cod.exe: только лёгкие прогоны, без полного `pnpm test`):
-`test/contract/windows-tests-workflow.test.ts` до правки workflow — 7 упало, 65 прошло (красный, как
-требует «Тесты»); после — три прогона `windows-tests-workflow`, `windows-verdict-scope` и
-`test/unit/no-rmsync.test.ts` — 125 из 125, код 0 каждый; `test/contract/ci-workflow.test.ts` — код 0;
-`pnpm lint` — код 0; `pnpm typecheck` — код 0; Harness: `plugin-neutral`, `epic-wave-ship-ticket`,
-`review-depth`, `max-review`, `agents-text` (`.test.sh`) — код 0.
+**Проверки на ПК** (идёт cod.exe: только лёгкие прогоны, без полного `pnpm test`) — в последнем
+разделе, по кругам.
 
 **Не проверено.**
 
 - Пункты «Готово, когда» «Один run режима `full` на main» и «Один run режима `files` после
-  правки» — not verified: the run is dispatched by the Mac after the PR opens.
-  Run режима `full` на main и run режима `files` после правки: их запускает Mac после открытия PR
-  (с согласия владельца, минута Windows — $0.010). Ссылки, минуты (install и `pnpm test` отдельно),
-  цена и окончательный предел — после этих run-ов.
+  правки» — не проверено: run запускает Mac после открытия PR (с согласия владельца, минута Windows —
+  $0.010). Ссылки, минуты (install и `pnpm test` отдельно), цена и окончательный предел — после этих
+  run-ов.
 - `pnpm test` на Mac — код 0 (пункт «Готово, когда» для Mac).
-- Остальные shell-test-ы Harness, которые режут блоки `epic-wave/SKILL.md` (`skill-blocks`,
-  `wave-gate`, `decision-log`, `silent-mode`): новый текст — без bash-блока, якоря их блоков не
-  тронуты, но на ПК они не запускались (весь набор — около 26 минут).
+- Shell-test-ы Harness, которые режут блоки `epic-wave/SKILL.md` (`skill-blocks`, `wave-gate`,
+  `decision-log`, `silent-mode`): новый блок не содержит их якорей, но на ПК они не запускались
+  (весь набор — около 26 минут). Новый блок `extra_runs` test-ом не покрыт — только ручная проверка
+  выше.
 
-**После мержа — шаг Orchestrator-а (Profile на машине, вне PR).** `workflow.ci_batch_run` не
-менять: `wave-gate ci` ищет run по имени workflow после `gh workflow run`, и вторая команда в той же
-строке его бы сбила; dispatch режима `full` на main описан в skill отдельной командой. В `rules.md`
-обеих машин абзац «Исключения из правила о платных прогонах» заменить на два режима: «`files` — от 1
-до 12 файлов из `test/unit/` и `test/contract/`, 10 минут; `full` — весь `pnpm test`, предел по
-замеру; `full` Orchestrator Session на Mac запускает на head платформенного PR, для которого
-`node scripts/windows-verdict-scope.mjs origin/main <head>` печатает `runner`, и на `main` вместе с
-batch CI; `pc` — gate full на ПК (ADR-0071)».
+**После мержа — шаг Orchestrator-а на обеих машинах (вне PR).** `workflow.ci_batch_run` не менять:
+`wave-gate ci` ищет run по имени workflow после `gh workflow run`, и вторая команда в той же строке
+его бы сбила. В `rules.md` абзац «Исключения из правила о платных прогонах» заменить на два режима и
+добавить правила для skill-а:
+
+- «Workflow «Windows tests» (`.github/workflows/windows-tests.yml`) — два режима. `files`: от 1 до 12
+  файлов из `test/unit/` и `test/contract/`, job `listed-tests`, 10 минут:
+  `gh workflow run windows-tests.yml --ref <ветка> -f files="…"`. `full`: весь `pnpm test`, job
+  `full-suite`, предел по замеру (до замера 45 минут): `gh workflow run windows-tests.yml --ref $ref -f mode=full`.»
+- «Check `windows` может ответить run (ADR-0071). Команда scope —
+  `node scripts/windows-verdict-scope.mjs <base> <head>` (код 0 — `runner`, 1 — `pc`, 2 — нет
+  вердикта); команда dispatch — `gh workflow run windows-tests.yml --ref $ref -f mode=full`; workflow —
+  `windows-tests.yml`; job — `full-suite`; шаг test-ов — `Run the whole unit and contract suite`.
+  `pc` — gate full на Windows-ПК (ADR-0056).»
+- «Run вместе с batch CI: имя `windows-full`, та же команда dispatch с `$ref` = `main`, тот же job и шаг.»
+
+## Круг 1 ревью (Mac)
+
+Решения Mac: A — skill нейтральный по ADR-0074, шаблон в `plugin-neutral.test.sh`; B —
+`src/main/index.ts` вне списка, четыре файла в список. Исправления: 1 — предел 45 минут; 2 —
+отдельный исход «упёрся в предел» (без отметки и без dispatch), `failure` только при упавшем шаге
+test-ов; 3 — искать run повторно, никогда не повторять dispatch, самый новый run на `headSha` с
+job-ом, который не `skipped`; 4 — run на main рядом с batch CI, id в CI-файле, без второго dispatch при
+возобновлении, строка в журнале и отчёте; 5 — test закрепляет каждый пункт `PC_ONLY` и вложенные
+пути, мутанты красные; 6 — git в test-е без системного и глобального конфига и `GIT_*`; 7 — убрана
+повторная строка «Не проверено» на английском.

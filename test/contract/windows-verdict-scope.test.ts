@@ -4,21 +4,34 @@
 // Each test builds branches in a temporary git repository and runs the script there, as the
 // orchestrator does with the base and the head of a pull request.
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 
-const SCRIPT = join(__dirname, '..', '..', 'scripts', 'windows-verdict-scope.mjs')
+const REPO = join(__dirname, '..', '..')
+const SCRIPT = join(REPO, 'scripts', 'windows-verdict-scope.mjs')
 const SETTINGS = ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0']
 
 let scratch = ''
 let repo = ''
 let branches = 0
+let emptyConfig = ''
+
+/**
+ * The environment of every git this file starts, the script's own git included: no system and no
+ * user configuration (an empty file stands for the global one), and no inherited GIT_* variable —
+ * a GIT_DIR or GIT_INDEX_FILE of the run around the tests would point git at another repository.
+ */
+function gitEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(process.env)) if (!key.toUpperCase().startsWith('GIT_')) env[key] = value
+  return { ...env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: emptyConfig }
+}
 
 function git(...args: string[]): string {
-  const result = spawnSync('git', [...SETTINGS, ...args], { cwd: repo, encoding: 'utf8' })
+  const result = spawnSync('git', [...SETTINGS, ...args], { cwd: repo, encoding: 'utf8', env: gitEnv() })
   expect(result.status, `git ${args.join(' ')}: ${result.stderr}`).toBe(0)
   return result.stdout
 }
@@ -46,12 +59,14 @@ function branch(change: () => void): string {
 }
 
 const scope = (...args: string[]) => {
-  const result = spawnSync(process.execPath, [SCRIPT, ...args], { cwd: repo, encoding: 'utf8' })
+  const result = spawnSync(process.execPath, [SCRIPT, ...args], { cwd: repo, encoding: 'utf8', env: gitEnv() })
   return { status: result.status, lines: result.stdout.split('\n').filter((line) => line !== ''), stderr: result.stderr }
 }
 
 beforeAll(() => {
   scratch = mkdtempSync(join(tmpdir(), 'worfy-verdict-scope-'))
+  emptyConfig = join(scratch, 'empty-gitconfig')
+  writeFileSync(emptyConfig, '')
   repo = join(scratch, 'repo')
   mkdirSync(repo)
   git('init', '-q')
@@ -86,34 +101,92 @@ describe('scripts/windows-verdict-scope.mjs', () => {
     expect(scope('main', head)).toEqual({ status: 0, lines: ['runner'], stderr: '' })
   })
 
+  /**
+   * Every entry of PC_ONLY with a file of this repository it matches, nested where the pattern
+   * reaches into subfolders. A missing, extra or narrowed entry turns a test below red.
+   */
+  const ENTRIES: [pattern: string, file: string][] = [
+    ['src/main/terminal/**', 'src/main/terminal/zsh/rc.d/10-assist.zsh'],
+    ['src/main/terminal-ai/**', 'src/main/terminal-ai/features/suggest.ts'],
+    ['src/main/ipc/terminal*.ts', 'src/main/ipc/terminal-ai-fix.ts'],
+    ['src/main/ipc/shell.ts', 'src/main/ipc/shell.ts'],
+    ['src/shared/ipc/terminal*.ts', 'src/shared/ipc/terminal.ts'],
+    ['src/shared/terminal/**', 'src/shared/terminal/cursor-answer.ts'],
+    ['src/renderer/canvas/nodes/Terminal*', 'src/renderer/canvas/nodes/TerminalNode.css'],
+    ['src/renderer/canvas/nodes/terminal-*', 'src/renderer/canvas/nodes/terminal-views.ts'],
+    ['src/renderer/canvas/ReadOnlyTerminal.tsx', 'src/renderer/canvas/ReadOnlyTerminal.tsx'],
+    ['test/**/terminal*', 'test/contract/terminal-harness.ts'],
+    ['src/main/window.ts', 'src/main/window.ts'],
+    ['src/main/window-frame.ts', 'src/main/window-frame.ts'],
+    ['src/main/window-show.ts', 'src/main/window-show.ts'],
+    ['src/shared/window/**', 'src/shared/window/bounds.ts'],
+    ['src/main/quiet-windows.ts', 'src/main/quiet-windows.ts'],
+    ['src/main/broadcast.ts', 'src/main/broadcast.ts'],
+    ['src/main/settings/interface-scale.ts', 'src/main/settings/interface-scale.ts'],
+    ['src/main/menu.ts', 'src/main/menu.ts'],
+    ['src/main/ipc/menu.ts', 'src/main/ipc/menu.ts'],
+    ['src/shared/ipc/menu.ts', 'src/shared/ipc/menu.ts'],
+    ['src/main/notify.ts', 'src/main/notify.ts'],
+    ['src/main/notify-pending.ts', 'src/main/notify-pending.ts'],
+    ['src/main/ipc/notify.ts', 'src/main/ipc/notify.ts'],
+    ['src/shared/ipc/notify.ts', 'src/shared/ipc/notify.ts'],
+    ['src/main/dock-icon.ts', 'src/main/dock-icon.ts'],
+    ['test/e2e/**', 'test/e2e/browser-sleep.spec.ts'],
+    ['test/acceptance/**', 'test/acceptance/fixtures/silent-repo/src/index.js'],
+    ['playwright.config.ts', 'playwright.config.ts'],
+    ['playwright.acceptance.config.ts', 'playwright.acceptance.config.ts'],
+    ['electron-builder.yml', 'electron-builder.yml'],
+    ['build/**', 'build/brand/icon.svg'],
+    ['electron.vite.config.ts', 'electron.vite.config.ts'],
+    ['scripts/build-version.ts', 'scripts/build-version.ts'],
+    ['scripts/dev-bundle.ts', 'scripts/dev-bundle.ts'],
+    ['package.json', 'package.json'],
+    ['pnpm-lock.yaml', 'pnpm-lock.yaml'],
+    ['pnpm-workspace.yaml', 'pnpm-workspace.yaml'],
+    ['scripts/install-stable.mjs', 'scripts/install-stable.mjs'],
+    ['scripts/make-icons.mjs', 'scripts/make-icons.mjs'],
+    ['scripts/ico.mjs', 'scripts/ico.mjs'],
+    ['scripts/postinstall.mjs', 'scripts/postinstall.mjs'],
+    ['.github/workflows/windows-tests.yml', '.github/workflows/windows-tests.yml'],
+    ['scripts/windows-verdict-scope.mjs', 'scripts/windows-verdict-scope.mjs'],
+    ['scripts/vitest-electron.mjs', 'scripts/vitest-electron.mjs'],
+    ['vitest.config.ts', 'vitest.config.ts'],
+  ]
+
+  it('lists exactly the entries pinned here, in this order', () => {
+    // The list as the script spells it: one quoted pattern per line of the PC_ONLY array.
+    const text = readFileSync(SCRIPT, 'utf8').replace(/\r\n/g, '\n')
+    const list = /^const PC_ONLY = \[\n([\s\S]*?)^\]$/m.exec(text)?.[1] ?? ''
+    const patterns = [...list.matchAll(/^ {2}'([^']+)',$/gm)].map((match) => match[1])
+    expect(patterns).toEqual(ENTRIES.map(([pattern]) => pattern))
+  })
+
+  it('matches a file of this repository with every entry: each file pinned above is tracked by git', () => {
+    // Read-only: git ls-files in the repository root. An entry whose files are all gone matches
+    // nothing and protects nothing.
+    const listed = spawnSync('git', ['-c', 'core.quotepath=off', 'ls-files', '-z'], { cwd: REPO, encoding: 'utf8', env: gitEnv() })
+    expect(listed.status, listed.stderr).toBe(0)
+    const tracked = new Set(listed.stdout.split('\0'))
+    for (const [pattern, file] of ENTRIES) expect(tracked.has(file), `${pattern}: ${file}`).toBe(true)
+  })
+
+  it.each(ENTRIES)('prints pc, exit code 1, and the path for the entry %s (%s)', (_pattern, path) => {
+    const head = branch(() => {
+      put('docs/notes.md')
+      put(path, `${path} changed\n`)
+    })
+    expect(scope('main', head)).toEqual({ status: 1, lines: ['pc', path], stderr: '' })
+  })
+
   it.each([
-    ['the Terminal', 'src/main/terminal/windows-pty.ts'],
-    ['the Terminal AI', 'src/main/terminal-ai/socket.ts'],
-    ['the Terminal IPC', 'src/main/ipc/terminal-ai.ts'],
-    ['the shell IPC', 'src/main/ipc/shell.ts'],
-    ['the Terminal node', 'src/renderer/canvas/nodes/TerminalNode.tsx'],
-    ['a Terminal module of the renderer', 'src/renderer/canvas/nodes/terminal-replay.ts'],
-    ['a Terminal test in a folder of test/', 'test/contract/terminal-windows.test.ts'],
+    ['a file right under the Terminal folder', 'src/main/terminal/windows-pty.ts'],
+    ['a file right under the Terminal AI folder', 'src/main/terminal-ai/socket.ts'],
     ['a Terminal test deeper in test/', 'test/unit/nested/terminal-x.test.ts'],
     // `**/` is any number of folders, none too.
     ['a Terminal helper right under test/', 'test/terminal-helper.ts'],
-    ['the window', 'src/main/window.ts'],
-    ['the window frame', 'src/main/window-frame.ts'],
-    ['the menu', 'src/main/menu.ts'],
-    ['the notifications', 'src/main/notify.ts'],
-    ['the Dock icon', 'src/main/dock-icon.ts'],
-    ['an e2e spec', 'test/e2e/terminal.spec.ts'],
     ['an e2e helper in a subfolder', 'test/e2e/helpers/launch.ts'],
-    ['the acceptance test', 'test/acceptance/e3.spec.ts'],
-    ['the Playwright config', 'playwright.config.ts'],
-    ['the packaging config', 'electron-builder.yml'],
-    ['an icon', 'build/icon.ico'],
-    ['the manifest', 'package.json'],
-    ['the lockfile', 'pnpm-lock.yaml'],
-    ['the install script', 'scripts/postinstall.mjs'],
-    ['the workflow of the run', '.github/workflows/windows-tests.yml'],
-    ['the script itself', 'scripts/windows-verdict-scope.mjs'],
-    ['the vitest config', 'vitest.config.ts'],
+    ['an icon right under build/', 'build/icon.ico'],
+    ['a file nested in src/shared/window/', 'src/shared/window/deep/frame.ts'],
   ])('prints pc, exit code 1, and the path for %s', (_name, path) => {
     const head = branch(() => {
       put('docs/notes.md')

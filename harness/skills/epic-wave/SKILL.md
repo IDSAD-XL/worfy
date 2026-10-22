@@ -822,30 +822,36 @@ the old way or one after another — every Check of the Pipeline has its mark on
   with a Russian word in place of `green`: the same verdict, for one release); red — `failure`: the PR is not merged and goes
   back to its implementer as a rework round with that report; "could not verify", or a report on
   another commit — no new mark, and the PR waits.
-- A check a GitHub runner may answer (worfy: `windows` of a platform PR — the project's rules say
-  which PR is a platform one; an ordinary PR stays `skipped`). A script decides, not judgement: on a
-  fresh checkout of the main branch — never the PR's branch, so a PR cannot change its own verdict —
-  `git fetch -q origin <main branch> <branch>` and
-  `node scripts/windows-verdict-scope.mjs origin/<main branch> "$sha"; echo "EXIT=$?"`.
-  - `runner`, `EXIT=0` — dispatch `gh workflow run windows-tests.yml --ref <branch> -f mode=full` and
-    mark `pending`. Find the run with
-    `gh run list --workflow windows-tests.yml --branch <branch> --event workflow_dispatch --json databaseId,headSha,status,conclusion`:
-    only a run whose `headSha` equals the PR's head counts. Wait for it as for the batch CI run
-    (`gh run watch "$id" --exit-status`, below), then read its job of the whole suite:
-    `gh run view "$id" --json jobs --jq '.jobs[] | select(.name == "full-suite") | .conclusion'` — a
-    run of the list mode on the same commit also ends `success`, with that job skipped, and is no
-    verdict. `success` — `check/windows success --sha "$sha"`; `failure` or `timed_out` — `failure`,
-    a rework round with the failing tests (`gh run view "$id" --log-failed`); cancelled, not
-    found, or no `full-suite` job — no new mark, dispatch again. A new head needs a new run.
-  - `pc`, `EXIT=1` (the matching files follow) — the PR touches what the runner cannot check (the
-    Terminal, windows, menus and notifications, e2e, packaging): the session on the Windows PC
-    answers with gate full, as above.
-  - Any other exit code — no verdict: the PR waits; never read it as `runner`.
-  - The main branch gets the same run with each batch CI run of a wave (below): right after
-    `wave-gate ci` dispatches, `gh workflow run windows-tests.yml --ref <main branch> -f mode=full`,
-    and the wait and the read of `full-suite` as above. A red run there is handled like a red batch CI
-    run: the Autopilot run stops after the wave, a new ticket or a `blocked` line, the fix goes
-    forward, no revert.
+- A check a CI runner may answer. The project's rules (`rules.md`) may name, for a Check, a scope
+  command, a dispatch command (with `$ref` for the branch), the workflow of that dispatch, the job
+  whose conclusion is the verdict and the step of that job that runs the tests. No such rules — skip
+  this item. For each PR that needs the check (the rules say which), run the scope command on a
+  fresh checkout of the main branch — never the PR's branch, so that a PR cannot change its own
+  verdict — with the main branch and the PR's head: `git fetch -q origin <main branch> <branch>`,
+  then `<scope command> origin/<main branch> "$sha"; echo "EXIT=$?"`.
+  - `EXIT=0` — the run answers. Dispatch once (the dispatch command with `$ref` = the PR's branch),
+    mark `pending`, and write the dispatch time to the decision log. Every dispatch is a paid run:
+    never dispatch again because the run is not listed yet. Find it with
+    `gh run list --workflow <workflow> --branch <branch> --event workflow_dispatch --limit 10 --json databaseId,url,headSha,createdAt,status,conclusion`:
+    the newest run whose `headSha` is the PR's head and whose named job is not `skipped` (a run of
+    another mode on the same commit skips it, and may end `success` all the same). Not listed yet —
+    list again a minute later, up to six times; still none — the check is not verified, the PR
+    waits, and the report says so. Wait for the run as for the batch CI run (below:
+    `gh run watch "$id" --exit-status`), then read the job:
+    `gh run view "$id" --json jobs --jq '.jobs[] | select(.name == "<job>") | {conclusion, startedAt, completedAt, failed: [.steps[] | select(.conclusion == "failure") | .name]}'`.
+  - The job `success` — mark `success --sha "$sha"`.
+  - The job `failure` with the test step among `failed` — mark `failure`: a rework round with the
+    failing tests (`gh run view "$id" --log-failed`).
+  - The run hit the limit — the job `timed_out`, or `cancelled` after about as long as its
+    `timeout-minutes` (from `startedAt` to `completedAt`): no mark and no new dispatch. The limit is
+    wrong, not the code: the report names the run, its minutes and the limit, so that the limit is
+    raised. The PR waits.
+  - Any other end — another step failed (checkout, install, a refused input), a cancel by hand, no
+    job of that name: no mark, no new dispatch; the report names the run and the step.
+  - A new head needs a new dispatch; a mark on the old head does not move.
+  - `EXIT=1` (the files that keep the check off the runner follow) — the check is answered the
+    other way the rules name, as in the item above.
+  - Any other exit code — no verdict: the PR waits; never read it as `EXIT=0`.
 - A mark is bound to its commit: after a push or a rebase the new head has no marks, and the PR waits again.
   So a PR merged the old way (a rebase and its own gate full) is rebased before its check is asked for,
   and the block below runs again right before its `gh pr merge`.
@@ -1096,6 +1102,52 @@ one, with the reason instead of failing jobs. Neither is reverted — the fix go
 - no new merges in this wave, and the run stops after it: in a session without a human (worfy
   Autopilot) no next wave starts. The report's `— Waiting:` line names the CI run URL and the failing jobs
   and tests. A session with a human reports the same and asks.
+
+**A run that goes with the batch CI run.** The project's rules may name a run on the main branch
+that goes with each batch CI run (a name for it, a dispatch command with `$ref`, its workflow, the
+job to read and its test step — the same rules as for a check a CI runner may answer, above). No
+such rule — skip this paragraph. Right after `wave-gate ci` printed `CI_RUN=`, run the block below
+with the same CI file. It dispatches once for the commit of the recorded batch CI run and records
+the dispatch in the CI file under `extra_runs.<name>`; run again — after a session break too — it
+finds the record for that commit and does not dispatch a second time. When the main branch moved
+and `wave-gate ci` dispatched anew, the block dispatches anew too and keeps the old record in
+`superseded`.
+
+```bash
+C=<CI file>; N=<name of the run, from the rules>; D='<its dispatch command, from the rules>'
+node - "$C" "$N" "$D" <<'NODE'
+const fs = require("fs"), { spawnSync } = require("child_process")
+const [file, name, template] = process.argv.slice(2), st = JSON.parse(fs.readFileSync(file, "utf8"))
+const commit = st.ci_run && st.ci_run.dispatched_at && st.ci_run.commit
+if (!commit) { console.log("EXTRA_RUN=no-batch-run: run wave-gate ci first"); process.exit(1) }
+const runs = st.extra_runs || (st.extra_runs = {}), prev = runs[name]
+if (prev && prev.commit === commit) { console.log(`EXTRA_RUN=recorded ${commit} ${prev.run_id || "(id not recorded yet)"}`); process.exit(0) }
+const command = template.split("${ref}").join(st.branch).split("$ref").join(st.branch)
+const r = spawnSync(command, { cwd: st.repo, shell: true, encoding: "utf8", windowsHide: true, timeout: 120000 })
+if (r.error || r.status !== 0) { console.log(`EXTRA_RUN=dispatch-failed ${((r.stderr || "") + (r.error ? r.error.message : "")).trim().split("\n")[0]}`); process.exit(1) }
+runs[name] = { command, commit, dispatched_at: new Date().toISOString(), superseded: prev ? [...(prev.superseded || []), { ...prev, superseded: undefined }] : [] }
+fs.writeFileSync(file, JSON.stringify(st, null, 2) + "\n")
+console.log(`EXTRA_RUN=dispatched ${commit}`)
+NODE
+echo "EXIT=$?"
+```
+
+- `EXTRA_RUN=dispatched` — write a decision-log row (`'<name> run dispatched for <main branch>
+  <commit>'`). Find the run as for a check a CI runner may answer (the newest run of the workflow on
+  the main branch whose `headSha` is the commit, created after `dispatched_at`, whose job is not
+  `skipped`; list again a minute later, up to six times, never dispatch again), and record its id:
+  `jq --arg n <name> --argjson id <run id> --arg url <url> '.extra_runs[$n] += {run_id: $id, url: $url}' "$C" > "$C.tmp" && mv "$C.tmp" "$C"`.
+- `EXTRA_RUN=recorded` — no dispatch: with an id, wait for that run; without one, find it as above.
+- `EXTRA_RUN=no-batch-run` or `dispatch-failed` — nothing is recorded as dispatched: fix the cause and
+  run the block again.
+
+Wait for it with the batch CI block (`gh run watch`) and read the named job as above. The job
+`success` — the report says so with the URL. The test step failed — red, handled like a red batch CI
+run (the list above: a new ticket or a `blocked` line, the Autopilot run stops after the wave, the fix
+goes forward, no revert). The run hit its limit (`timed_out`, or `cancelled` after about its
+`timeout-minutes`) — not verified, with no new dispatch: the report names the run and its minutes so
+that the limit is raised, and the Autopilot run stops after the wave as for a not verified CI run.
+Any other end — not verified the same way. The report's line for the batch CI run names this run too.
 
 1. Ordinary PRs with code — with `merge_gate: "wave"` as a set (above); otherwise one after another,
    as `VERIFIED` verdicts arrive.

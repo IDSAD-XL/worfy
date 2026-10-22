@@ -21,6 +21,7 @@ PATTERNS=(
     'names or accounts of the owner|alexey|oleksii|idsad|canvasforai'
     'decision record numbers|adr-[0-9]{4}'
     'paths inside the worfy app sources|src/main/'
+    'script and workflow files of the worfy repository|scripts/[a-z0-9_.-]+\.(mjs|cjs|js|ts|sh)|\.github/workflows/[a-z0-9_.-]+\.ya?ml'
     'ticket numbers and waves of worfy epics|worfy-[a-z]+(/| ticket | )[0-9]{2}|worfy-[a-z]+, waves? [0-9]'
     'bare ticket numbers|(^|[^a-z0-9/_-])tickets? [0-9]{2}([^0-9]|$)'
 )
@@ -57,6 +58,13 @@ ALLOWED=(
     'bin/tests/epic-wave-ship-ticket.test.sh|tickets 05, 06'
     'bin/tests/review-depth.test.sh|tickets 05, 06'
     'bin/tests/skill-blocks.test.sh|tickets 02, 02'
+    # A script of the tests' own fixture project.
+    'bin/tests/shortcut-ledger.test.sh|scripts/make.sh'
+    # Script files of the worfy repository named before the pattern was added; each is a known leak
+    # to remove, kept here so that a new one is caught.
+    'README.md|scripts/eval-harness.mjs'
+    'README.md|scripts/eval-harness-coverage.mjs'
+    'bin/ticket|scripts/install-stable.mjs'
 )
 # The files of the plugin: in a git checkout the tracked ones and the new ones git does not ignore
 # (git ls-files run in harness/ prints paths from there, quotepath off keeps non-ASCII names as they

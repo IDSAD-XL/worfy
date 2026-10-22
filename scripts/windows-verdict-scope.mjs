@@ -45,12 +45,19 @@ const PC_ONLY = [
   'src/main/window-show.ts',
   'src/shared/window/**',
   'src/main/quiet-windows.ts',
+  'src/main/broadcast.ts',
+  'src/main/settings/interface-scale.ts',
   'src/main/menu.ts',
   'src/main/ipc/menu.ts',
+  'src/shared/ipc/menu.ts',
   'src/main/notify.ts',
   'src/main/notify-pending.ts',
   'src/main/ipc/notify.ts',
+  'src/shared/ipc/notify.ts',
   'src/main/dock-icon.ts',
+  // src/main/index.ts, which wires every module of the main process, is left out on purpose: almost
+  // every pull request with main-process code touches it, and its own Windows behaviour lives in the
+  // modules above.
   // e2e and acceptance
   'test/e2e/**',
   'test/acceptance/**',

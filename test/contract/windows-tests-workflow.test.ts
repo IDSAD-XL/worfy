@@ -136,11 +136,11 @@ describe('.github/workflows/windows-tests.yml', () => {
     expect(code().filter((line) => /runs-on/.test(line))).toEqual(['    runs-on: windows-latest', '    runs-on: windows-latest'])
   })
 
-  it('stops the job of the list after 10 minutes and the job of the whole suite after 30', () => {
+  it('stops the job of the list after 10 minutes and the job of the whole suite after 45', () => {
     // The limit is the job's own: a limit on a step alone would leave the install unbounded.
     expect(job(FILES_JOB).filter((line) => /timeout-minutes/.test(line))).toEqual(['    timeout-minutes: 10'])
-    expect(job(FULL_JOB).filter((line) => /timeout-minutes/.test(line))).toEqual(['    timeout-minutes: 30'])
-    expect(code().filter((line) => /timeout-minutes/.test(line))).toEqual(['    timeout-minutes: 10', '    timeout-minutes: 30'])
+    expect(job(FULL_JOB).filter((line) => /timeout-minutes/.test(line))).toEqual(['    timeout-minutes: 45'])
+    expect(code().filter((line) => /timeout-minutes/.test(line))).toEqual(['    timeout-minutes: 10', '    timeout-minutes: 45'])
   })
 
   it('mode files: checks the list right after checkout, before anything is installed', () => {
