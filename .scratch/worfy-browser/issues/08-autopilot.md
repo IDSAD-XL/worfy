@@ -153,8 +153,7 @@ Playwright-тесты), пункт 5 (агент не входит сам). Те
 `test/contract/browser-profiles.test.ts`, `test/e2e/browser-profile.spec.ts`,
 `harness/bin/tests/agents-text.test.sh`; раунд ревью 1 (решение Orchestrator-а):
 `src/renderer/canvas/family.ts`, `test/unit/family.test.ts`, `harness/bin/TICKETS.md` (описано поле
-`Roles:` — его не читает ни один script, epic-wave копирует его в бриф),
-`harness/evals/lib/demo-project.sh` (отчёт fixture-а получил `sign_in_needed`).
+`Roles:` — его не читает ни один script, epic-wave копирует его в бриф).
 
 **Тесты.** Contract `test/contract/browser-tools.test.ts` (17 новых, 1 переписан: unattended Session
 теперь получает server), `test/contract/browser-profiles.test.ts` (2 новых), unit
@@ -178,6 +177,7 @@ Family не знает `ticket`.
 
 **Не сделано и почему.**
 
+- fixture report in demo-project.sh:245 has no sign_in_needed — nothing checks it; left on purpose so the eval of this PR stays at its 4 cases.
 - Ручной прогон Wave на fixture-странице входа (пункт «Готово, когда» про отчёт Wave) — не сделан:
   нужен настоящий Autopilot с моделью и установленный новый plugin; формат отчёта проверен
   shell-тестом. Ждёт владельца.
