@@ -10,8 +10,18 @@
 // item 14) — and creating, changing and deleting one are `write`. Only the user does them, from the
 // window «Browser profiles…» (src/renderer/browser/BrowserProfiles.tsx); a Session has no such
 // action.
+//
+// A Session driving a Browser (worfy-browser ticket 04; src/main/browser/live.ts): the Browser layer
+// of the window that draws a page tells main its web contents (`browser.page.live`, `local`: the
+// page is on this machine's screen, and main opens its CDP session only here, ADR-0078). main tells
+// every window who drives each Browser (`browser.control.changed`, read with `browser.control.list`)
+// — the frame shows «Claude is driving» while a Session does — and the frame tells main when the
+// user takes a Browser over by a click or a key on it (`browser.control.take`) and when they press
+// «Return control to Claude» (`browser.control.return`).
 import { z } from 'zod'
 import { browserProfileIdSchema, browserProfileNameSchema, browserProfileSchema, BROWSER_PROFILE_ORIGINS_MAX } from '../browser/profiles'
+import { browserControlModeSchema } from '../browser/tools'
+import { nodeIdSchema } from '../layout/types'
 import { eventChannel, invokeChannel } from './channels'
 
 export const browserOpenRequestSchema = z.object({
@@ -56,8 +66,30 @@ export const browserProfilesDelete = invokeChannel('browser.profiles.delete', z.
 /** Sent to every window after the Browser profiles of a Project changed. */
 export const browserProfilesChanged = eventChannel('browser.profiles.changed', z.object({ projectId }), 'project', 'read')
 
+/** The page of Browser Node `nodeId` is the guest `webContentsId` of a <webview> of the calling window. */
+export const browserPageLive = invokeChannel('browser.page.live', z.object({ projectId, nodeId: nodeIdSchema, webContentsId: z.number().int() }), z.object({ live: z.boolean() }), 'local')
+
+const browserControlSchema = z.object({ nodeId: nodeIdSchema, mode: browserControlModeSchema })
+
+/** Who drives each Browser of the Project that somebody drives. */
+export const browserControlList = invokeChannel('browser.control.list', z.object({ projectId }), z.object({ controls: z.array(browserControlSchema) }), 'project', 'read')
+
+/** The user took Browser `nodeId` over by a click or a key on its frame; `taken` is false when no Session was driving it. */
+export const browserControlTake = invokeChannel('browser.control.take', z.object({ projectId, nodeId: nodeIdSchema }), z.object({ taken: z.boolean() }), 'project', 'write')
+
+/** «Return control to Claude»: the Session that drove Browser `nodeId` drives it again. */
+export const browserControlReturn = invokeChannel('browser.control.return', z.object({ projectId, nodeId: nodeIdSchema }), z.object({ returned: z.boolean() }), 'project', 'write')
+
+/** Sent to every window after the control of a Browser changed; `mode` null when nobody drives it. */
+export const browserControlChanged = eventChannel('browser.control.changed', z.object({ projectId, nodeId: nodeIdSchema, mode: browserControlModeSchema.nullable() }), 'project', 'read')
+
 declare module './channels' {
   interface IpcContract {
+    'browser.page.live': typeof browserPageLive
+    'browser.control.list': typeof browserControlList
+    'browser.control.take': typeof browserControlTake
+    'browser.control.return': typeof browserControlReturn
+    'browser.control.changed': typeof browserControlChanged
     'browser.openRequest': typeof browserOpenRequest
     'browser.profiles.list': typeof browserProfilesList
     'browser.profiles.create': typeof browserProfilesCreate

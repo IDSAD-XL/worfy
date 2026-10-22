@@ -287,3 +287,28 @@
 .w-browser-frame__choose .w-browser-frame__open-button {
   margin-left: 0;
 }
+
+/* A Browser a Session drives (worfy-browser ticket 04): an accent border, and «Claude is driving»
+   at the right end of the header, where it covers no part of the page; after the user took the
+   Browser over, the same place offers «Return control to Claude». */
+.w-browser-frame--driven.w-node-surface {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.w-browser-frame__drive {
+  flex: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.w-browser-frame__drive--claude {
+  color: var(--accent);
+  font-weight: 600;
+}
+.w-browser-frame__drive-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}

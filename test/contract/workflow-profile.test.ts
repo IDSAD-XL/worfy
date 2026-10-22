@@ -537,7 +537,8 @@ describe('sdkQueryFactory and the Profile list', () => {
     const options = sdkOptions()
     expect(options.managedSettings).toEqual({
       allowManagedMcpServersOnly: true,
-      allowedMcpServers: [{ serverName: 'qmd' }, { serverName: 'worfy-canvas' }, { serverName: 'github' }],
+      // A list that names worfy-canvas lets the built-in Browser in too (worfy-browser ticket 04, the owner's decision 6).
+      allowedMcpServers: [{ serverName: 'qmd' }, { serverName: 'worfy-canvas' }, { serverName: 'github' }, { serverName: 'worfy-browser' }],
     })
     expect(options.mcpServers).toEqual({ [CANVAS_SERVER_NAME]: canvasServer })
     expect(snapshot(home)).toEqual(before)

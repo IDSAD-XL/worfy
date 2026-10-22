@@ -7,11 +7,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { sessionHarnessPlugin, sessionOptions, type CanvasAttachment, type RuntimeInfo, type SessionOptionsInput } from '../../src/main/agent/options'
+import { sessionHarnessPlugin, sessionOptions, withBrowserServer, type BrowserAttachment, type CanvasAttachment, type RuntimeInfo, type SessionOptionsInput } from '../../src/main/agent/options'
 import * as bundled from '../../src/main/harness/bundled'
 import type { CanUseToolHandler } from '../../src/main/agent/permissions'
 import { DEFAULT_MCP_SERVERS } from '../../src/main/workflow/profile'
 import { PERMISSION_MODES, type SessionSettings } from '../../src/shared/agent/settings'
+import { BROWSER_SERVER_NAME } from '../../src/shared/browser/tools'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
 import { removeTestTree } from '../remove'
 
@@ -121,6 +122,57 @@ describe('MCP servers of a Session in a Project', () => {
     const options = sessionOptions(input({ canvas }))
     expect(options).not.toHaveProperty('managedSettings')
     expect(options.mcpServers).toEqual({ [CANVAS_SERVER_NAME]: canvasServer })
+  })
+})
+
+// worfy-browser ticket 04 (ADR-0021, ADR-0078 item 4): the Browser server goes through the same
+// allowlist as worfy-canvas, and its instructions follow the canvas ones in the system prompt.
+describe('the worfy-browser server of a Session in a Project', () => {
+  const browserServer = { type: 'sdk', name: BROWSER_SERVER_NAME } as unknown as McpServerConfig
+  const browser: BrowserAttachment = { server: browserServer, instructions: 'Use the worfy-browser tools.' }
+
+  it('without a list (null) is there: nothing is filtered', () => {
+    const options = sessionOptions(input({ canvas, browser, mcpAllowlist: null }))
+    expect(options.mcpServers).toEqual({ [CANVAS_SERVER_NAME]: canvasServer, [BROWSER_SERVER_NAME]: browserServer })
+    expect(options.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code', append: `${canvas.instructions}\n${browser.instructions}` })
+  })
+
+  it('with an empty list is not there: every server is refused', () => {
+    const options = sessionOptions(input({ canvas, browser, mcpAllowlist: [] }))
+    expect(options).not.toHaveProperty('mcpServers')
+    expect(options.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code' })
+  })
+
+  it('is there when the list names it, alone or next to worfy-canvas', () => {
+    expect(sessionOptions(input({ canvas, browser, mcpAllowlist: [BROWSER_SERVER_NAME] })).mcpServers).toEqual({ [BROWSER_SERVER_NAME]: browserServer })
+    const both = sessionOptions(input({ canvas, browser, mcpAllowlist: ['qmd', CANVAS_SERVER_NAME, BROWSER_SERVER_NAME] }))
+    expect(both.mcpServers).toEqual({ [CANVAS_SERVER_NAME]: canvasServer, [BROWSER_SERVER_NAME]: browserServer })
+    expect(both.managedSettings?.allowedMcpServers).toContainEqual({ serverName: BROWSER_SERVER_NAME })
+  })
+
+  it('is not there when the list does not name it, worfy-canvas listed or not', () => {
+    const canvasOnly = sessionOptions(input({ canvas, browser, mcpAllowlist: ['qmd', CANVAS_SERVER_NAME] }))
+    expect(canvasOnly.mcpServers).toEqual({ [CANVAS_SERVER_NAME]: canvasServer })
+    expect(canvasOnly.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code', append: canvas.instructions })
+    expect(sessionOptions(input({ canvas, browser, mcpAllowlist: ['qmd'] }))).not.toHaveProperty('mcpServers')
+  })
+
+  it('is never there without a Browser attachment (a Session outside a Project)', () => {
+    expect(sessionOptions(input({ canvas: null, browser: null, mcpAllowlist: null }))).not.toHaveProperty('mcpServers')
+  })
+})
+
+// The owner's decision 6 of worfy-browser ticket 04: the lists Profiles already have get
+// worfy-browser without an edit, next to worfy-canvas.
+describe('withBrowserServer', () => {
+  it('adds worfy-browser to a list that names worfy-canvas, once', () => {
+    expect(withBrowserServer(DEFAULT_MCP_SERVERS)).toEqual([...DEFAULT_MCP_SERVERS, BROWSER_SERVER_NAME])
+    expect(withBrowserServer(['qmd', CANVAS_SERVER_NAME, BROWSER_SERVER_NAME])).toEqual(['qmd', CANVAS_SERVER_NAME, BROWSER_SERVER_NAME])
+  })
+
+  it('leaves a list without worfy-canvas as it is: the empty list allows nothing still', () => {
+    expect(withBrowserServer([])).toEqual([])
+    expect(withBrowserServer(['qmd', 'github'])).toEqual(['qmd', 'github'])
   })
 })
 

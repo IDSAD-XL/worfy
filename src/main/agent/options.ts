@@ -23,6 +23,9 @@
 // covers the whole Claude Code process, so the Session's Subagents get the same set. It does not
 // cover servers passed in `mcpServers`, so `worfy-canvas` is passed only when the list names it.
 // Checked against Claude Code 2.1.289 / SDK 0.3.289 (the ticket's summary).
+// The Browser server `worfy-browser` (worfy-browser ticket 04, src/main/mcp/browser-server.ts) is
+// passed the same way, only when the list names it; a Profile list that names `worfy-canvas` names
+// it too (withBrowserServer, the owner's decision 6: the existing lists get it without an edit).
 //
 // The Harness (ADR-0040, ADR-0049, worfy-harness ticket 12): unless the old Harness is on the
 // machine, a Session gets the Harness copy of this build inline (`plugins`, sessionHarnessPlugin).
@@ -57,6 +60,7 @@ import { dirname, join, posix, win32 } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import type { McpServerConfig, McpStdioServerConfig, Options, OutputFormat, SettingSource, SpawnedProcess, SpawnOptions } from '@anthropic-ai/claude-agent-sdk'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../shared/agent/settings'
+import { BROWSER_SERVER_NAME } from '../../shared/browser/tools'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
 import type { HarnessKind } from '../../shared/projects/action-templates'
 import { bundledHarnessDir } from '../harness/bundled'
@@ -186,6 +190,24 @@ export interface CanvasAttachment {
   instructions: string
 }
 
+/** The Browser server a Session in a Project drives Browsers with. */
+export interface BrowserAttachment {
+  /** The `worfy-browser` MCP server bound to the Project. */
+  server: McpServerConfig
+  /** Appended to the claude_code system prompt after the canvas instructions (src/main/mcp/browser-instructions.md). */
+  instructions: string
+}
+
+/**
+ * A Profile's list of MCP servers with `worfy-browser` in it when it names `worfy-canvas` (the
+ * owner's decision 6 of worfy-browser ticket 04): the lists Profiles already have — written before
+ * the Browser existed — let the built-in Browser in next to the built-in canvas without an edit. A
+ * list without `worfy-canvas` (the user took the built-in servers out, or `[]`) stays as it is.
+ */
+export function withBrowserServer(allowlist: readonly string[]): readonly string[] {
+  return allowlist.includes(CANVAS_SERVER_NAME) && !allowlist.includes(BROWSER_SERVER_NAME) ? [...allowlist, BROWSER_SERVER_NAME] : allowlist
+}
+
 export interface SessionOptionsInput {
   /** Root of the Project the Session works in. */
   cwd: string
@@ -206,6 +228,8 @@ export interface SessionOptionsInput {
   spawned?: ((child: ChildProcess) => void) | undefined
   /** Absent when the Session's cwd is in no Project: it then runs without canvas tools. */
   canvas?: CanvasAttachment | null | undefined
+  /** The Browser server of the Session's Project; absent outside a Project. */
+  browser?: BrowserAttachment | null | undefined
   /** The model, effort and permission mode to start with; DEFAULT_SETTINGS when absent. */
   settings?: SessionSettings | undefined
   /** Answers permission requests outside bypassPermissions; without it Claude Code's own default applies. */
@@ -246,7 +270,7 @@ export interface SessionOptionsInput {
 }
 
 /** The options of the draft Session of a Project's connection; see the header. */
-export type DraftSessionOptionsInput = Omit<SessionOptionsInput, 'settingSources' | 'permissionRulesFromPolicyOnly' | 'canvas' | 'mcpAllowlist' | 'outputFormat' | 'disallowedTools' | 'allowedTools'> & {
+export type DraftSessionOptionsInput = Omit<SessionOptionsInput, 'settingSources' | 'permissionRulesFromPolicyOnly' | 'canvas' | 'browser' | 'mcpAllowlist' | 'outputFormat' | 'disallowedTools' | 'allowedTools'> & {
   outputFormat: OutputFormat
   allowedTools: readonly string[]
   disallowedTools: readonly string[]
@@ -353,13 +377,19 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   if (input.permissionRulesFromPolicyOnly === true) options.managedSettings = { ...options.managedSettings, allowManagedPermissionRulesOnly: true }
   // Added to the user's own MCP servers from settingSources, not instead of them.
   const servers: Record<string, McpServerConfig> = {}
+  const appended: string[] = []
   if (input.canvas) {
     options.additionalDirectories = [input.canvas.cardsDir]
     if (allowed(CANVAS_SERVER_NAME)) {
       servers[CANVAS_SERVER_NAME] = input.canvas.server
-      options.systemPrompt = { type: 'preset', preset: 'claude_code', append: input.canvas.instructions }
+      appended.push(input.canvas.instructions)
     }
   }
+  if (input.browser && allowed(BROWSER_SERVER_NAME)) {
+    servers[BROWSER_SERVER_NAME] = input.browser.server
+    appended.push(input.browser.instructions)
+  }
+  if (appended.length > 0) options.systemPrompt = { type: 'preset', preset: 'claude_code', append: appended.join('\n') }
   if (input.harnessPlugin != null) {
     options.plugins = [{ type: 'local', path: input.harnessPlugin, skipMcpDiscovery: true }]
     const warn = input.warn ?? ((message: string) => console.warn(message))
