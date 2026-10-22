@@ -83,3 +83,15 @@ Terminal уходит в tile focus mode. Первая клавиша после
 
 - `test/e2e/wheel-over-nodes.spec.ts:332`–`:336` — обход.
 - `src/main/terminal/pty.ts` — resize pty (не меняется).
+
+## Заметка: `terminal.spec.ts:648` (2026-10-22)
+
+`test/e2e/terminal.spec.ts:648` (Git Bash выбран оболочкой Terminal-а) может иметь другую причину, чем этот
+Ticket: здесь теряется первая клавиша после resize, а там набранная клавиша встала не на своё место — на экране
+`cecho … ygpath`.
+
+- Красный: ПК 2026-10-22, main `8f5238c8` (ветка `worfy-windows/14-paths`, один прогон `terminal`, `focus`,
+  `wheel-over-nodes`): 18 зелёных, 1 красный — `:648`.
+- Зелёный: ПК 2026-10-22, полный e2e на main `d06d2c2d` (пересчёт Ticket-а 14, PR #755): `:648` прошёл, 1 из 1.
+
+Решение Session на Mac: новый Ticket — только если `:648` снова покраснеет; тогда записать прогон и экран.
