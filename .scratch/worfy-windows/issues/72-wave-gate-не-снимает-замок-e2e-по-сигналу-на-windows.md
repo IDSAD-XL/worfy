@@ -1,7 +1,7 @@
 # 72 — `wave-gate` на Windows не снимает замок e2e, когда его останавливают сигналом
 
 Type: bug
-Status: done 2026-10-21T17:06Z
+Status: done 2026-10-22T03:24Z
 PR: #705
 Blocked by: —
 Source: Ticket [71](71-harness-test-sh-на-windows.md) (PR #555), 2026-10-20 — найдено при переносе
@@ -45,7 +45,7 @@ Source: Ticket [71](71-harness-test-sh-на-windows.md) (PR #555), 2026-10-20 �
 - [x] `wave-gate`, убитый на Windows (`taskkill /F` или `kill` из Git Bash), не задерживает следующий запуск
       дольше одного опроса замка (`WAVE_GATE_LOCK_POLL_S`).
 - [x] `wave-gate.test.sh` — exit 0 в Git Bash на ПК; новый случай красный до правки.
-- [ ] `wave-gate.test.sh` — exit 0 на Mac. Не проверено на ПК: Mac checks в PR.
+- [x] `wave-gate.test.sh` — exit 0 на Mac. Не проверено на ПК: Mac checks в PR.
 - [ ] Mac gate (ADR-0056) зелёный.
 - [x] «pid dead» и «pid live» в `wave-gate.test.sh` берут pid Windows; 5 прогонов файла подряд в Git Bash — без
       красного.
@@ -176,3 +176,20 @@ Low-ы ревью #678 (Mac, 2026-10-21; по выбору ПК — в этот 
 347 passed, 4 skipped, EXIT=0. typecheck сначала упал TS6307: новый `test/claude-home-legacy.ts` не был в
 `tsconfig.test.node.json`, добавлен. e2e `harness-migrate` и `select` под watcher-ом `gh.exe` до merge — 4 passed,
 gh.exe 0, EXIT=0; на этом head — после игры владельца (окна e2e забирают фокус). `pnpm typecheck`, `pnpm lint` — 0.
+
+### Мерж (2026-10-22)
+
+PR #705 влит 2026-10-22, merge commit `3a6b008c`. Head `ae77071d`.
+
+- Перед мержем `wave-gate.test.sh` разделён на три файла: `harness/bin/tests/wave-gate.test.sh` (resume, «pid dead» и
+  «pid live»), `harness/bin/tests/wave-gate-lock.test.sh` (12 случаев замка этого Ticket-а) и
+  `harness/bin/tests/wave-gate-world.sh` (общая подготовка, которую берут оба файла; сам не test). Строки случаев
+  не менялись: старый файл, собранный из трёх новых, совпадает побайтно.
+- Предел одного shell-test-а на Windows (`FILE_TIMEOUT_MS` в `test/contract/harness-scripts.test.ts`) поднят с
+  600 до 900 s. Цена записана в комментарии рядом: зависший `.test.sh` на Windows обрывается на 5 min позже.
+- `check/windows` — `success` на `ae77071d` (вердикт ПК): `wave-gate.test.sh`, `wave-gate-lock.test.sh`,
+  `wave-gate-heartbeat.test.sh` — 3 passed, EXIT=0, 290 s.
+- Gate full на Mac (дерево `58986051`): lint, typecheck, e2e, package — exit 0; `pnpm test` красный только на
+  `wave-gate.test.sh`, убитом пределом 120 s под нагрузкой Mac, и на test-е скорости `search-index` («at most
+  100 ms»). Один `wave-gate.test.sh` на Mac проходит за 68–93 s. Поэтому пункт «Mac gate зелёный» не отмечен:
+  PR влит с этим красным, предел 120 s разбирает [worfy-polish 37](../../worfy-polish/issues/37-предел-120-s-у-shell-test-ов-на-загруженном-mac.md).

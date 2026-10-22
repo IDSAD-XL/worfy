@@ -1,7 +1,8 @@
 # 21 — Done shelf под видимыми рамками: minimap не уменьшает Canvas из-за полки
 
 Type: task
-Status: claimed 2026-10-22T01:34Z
+Status: done 2026-10-22T03:24Z
+PR: #725
 Branch: worfy-canvas/21
 Blocked by: —
 Source: решение владельца 2026-10-22, [ADR-0082](../../../docs/adr/0082-done-shelf-under-visible-frames.md).
@@ -77,3 +78,11 @@ Minimap Canvas уменьшает всё очень сильно: рамки Epi
 - Мутанты (все красные): `shelfTop` от суммы по `reserve`; видимая высота без рамки с открытой
   стопкой; место без запаса; место без полки; прежний низ полосы в `session-spot.ts`; место как
   «большее из запаса и низа полки» (формула первой версии).
+- Глазами в живом приложении minimap не проверен: проверка границ — только unit на Node-ах сборки.
+
+### Мерж (2026-10-22)
+
+PR #725 влит 2026-10-22, merge commit `942428e2`. Head `66d3a846`: gate full на Mac — lint, typecheck,
+e2e, package — exit 0; `pnpm test` красный только на `wave-gate-heartbeat.test.sh` (shell-test под нагрузкой Mac,
+[worfy-polish 37](../../worfy-polish/issues/37-предел-120-s-у-shell-test-ов-на-загруженном-mac.md)); код PR этот
+test не трогает. Не платформенный PR: `check/windows` нет. Linux CI — batch CI на main.

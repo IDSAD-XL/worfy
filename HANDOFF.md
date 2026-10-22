@@ -6,19 +6,19 @@
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26, 28, 34, 35 (#722); приёмка 16; 32 закрыт (#508); 33 открыт. Вне LAN через Tailscale (ADR-0070) — 27, 29–31, после очереди `worfy-windows`.
-- `worfy-windows` (порт под Windows; ADR 0054–0057, 0062, 0063, 0069, 0071): 69/86; 43 влит (#557); 14: влиты группы 1 (#708) и 2 (#710), 3 test-а Terminal-а — в 86; 72 (#705) ждёт правку import-а в `agent/env.ts` (красный `login-shell-capture` на Mac); 06 (#456) — `preflight` на ПК; 07 — Q31.
-- `worfy-windows`, ПК: gate fast — lint и typecheck до закрытия 14; worktree-ы — в `C:/Users/Alexey/worfy-wt`, вне `%TEMP%` (Q25, 52). Новые 67–69 — follow-up-ы 39 и 64; 85 — зависание trap-а gate full под Git Bash.
+- `worfy-windows` (порт под Windows; ADR 0054–0057, 0062, 0063, 0069, 0071): 73/87; 2026-10-22 влиты 47 (#727), 61 (#728), 69 (#726), 72 (#705); 14: влиты группы 1, 2; 87 — 3 test-а linked-subscriptions красные на Windows; 06 — `preflight` на ПК; 07 — Q31.
+- `worfy-windows`, ПК: в работе 84 (утечка истории e2e/contract, правка `link-access.test.ts`), 85 (зависание trap-а в Git Bash), 86 (Terminal после resize); 60 ждёт upstream (у node-pty нет стабильного release с правкой: 1.1.0, beta 1.2.0-beta.15); 42 — после 84.
 - `worfy-windows` 39 влит (#512): main отвечает на `ESC[6n`, ответы view — не ввод. Цена — скорость flood-а (один worker разбора), владелец принял; ускорить — 67.
 - `worfy-windows` 65, 66, ADR-0071 (2026-10-19): сначала main зелёный на Windows (65, 14), затем 66 — полный `pnpm test` на Windows-runner-е; его зелёный run — `check/windows` для платформенных PR без Terminal, окон, e2e и упаковки.
 - `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) — **отложен владельцем 2026-10-21**: влиты 01–08, 10–14; 09 — приёмка; 15 (low) — связь у программ prompt-а. Долги — «Итог» 11–13.
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–15, 17–21, 24 (#716); остался 12 — приёмка; 22, 23 открыты.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
-- `worfy-polish`: 32/36 — 01–29, 31, 33, 35 влиты (12 — отчёт; 20, 26 — узкий круг; 19 — после `pnpm test` на ПК). 32: PR #497 влит, до закрытия — замер 30 (N ≥ 6) Orchestrator-ом; 30 (#401) ждёт 32. 34 — flaky; 36 — долг #530 и #692.
+- `worfy-polish`: 32/37 — 01–29, 31, 33, 35 влиты (12 — отчёт; 20, 26 — узкий круг; 19 — после `pnpm test` на ПК). 32 — замер 30 Orchestrator-ом, 30 ждёт 32; 34 — flaky; 36 — долг ревью; 37 — предел 120 s shell-test-ов на Mac.
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 9/18, влиты 01–03, 06, 08, 10, 16–18 (gate full 18,5 → 8,4 min); 07, 09 — `wave-gate`; 04, 05 — Orchestrator; 11–15 — скорость test-ов (ADR-0081).
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
-- `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 17/21; влиты 01–12, 14, 15, 17, 18, 20 (#689); 16, 19 в работе; 13 — решение владельца; 21 (Done shelf, ADR-0082) открыт.
+- `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 18/21; влиты 01–12, 14, 15, 17, 18, 20, 21 (#725, Done shelf); 16, 19 в работе; 13 — решение владельца.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 11/16; 15, 16 влиты (#707, #715); 04 — Q-B1–Q-B7 решены, можно брать.
 
 ## Ждёт владельца

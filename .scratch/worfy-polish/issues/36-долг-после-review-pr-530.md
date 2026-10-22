@@ -77,6 +77,27 @@ mode), круг 1: линза «корректность» и линза «те�
 - [ ] **Ревью #705 (worfy-windows 72), находка вне диффа, low.** Строки — по head PR `8fd99b9f`.
   - `harness/bin/tests/wave-gate.test.sh:246-253` — `finish` по timeout останавливает только процесс `wave-gate`;
     его дочерние процессы остаются без родителя. Останавливать группу процессов или дерево целиком.
+- [ ] **Ревью #727 (worfy-windows 47), low.** Строки — по main `b1700b18`.
+  - `src/main/storage/remove.ts:86` — шапка модуля говорит, что ошибка просмотра хранит только code и path. После
+    #727 она хранит ещё `errno` и `syscall`, исходная ошибка — в `cause`. Поправить фразу.
+- [ ] **Ревью #705 (worfy-windows 72), low.** Строки — по main `b1700b18`.
+  - `test/contract/login-shell-capture.test.ts:96` — resolve hook дописывает `.ts` к каждому относительному
+    specifier-у без расширения и не проверяет, что такой файл есть. Сломается, если `env.ts` когда-нибудь
+    импортирует CJS-пакет с внутренним `require('./x')`. Дописывать `.ts` только когда файл `.ts` существует.
+- [ ] **Ревью #726 (worfy-windows 69), вопрос для worfy-link, не найденный дефект.** Строки — по main `b1700b18`.
+  - `src/main/ipc/linked.ts:159` — после переподключения link счётчики окон подписок не сбрасываются, и окна не
+    шлют `docs.open` заново. Это общее для всех строк `SUBSCRIBING` (`claudeHome`, `workflow`, `pipeline`, `docs`).
+    Спросить в worfy-link, что должно быть после переподключения; правка — только по ответу.
+- [ ] **Ревью #729 (worfy-windows 84), три low.** Строки — по head PR `73ea9833`.
+  - `PROFILE_VARS` и `profileVars` лежат в `test/e2e/terminal-shell.ts:56-63`, а берут их и contract-test-ы
+    (`test/contract/link-access.test.ts:44`, `test/contract/terminal-profile-isolation.test.ts:13`). Перенести в
+    общий `test/windows-profile.ts`.
+  - `test/e2e/launch-env.ts:9-11` — комментарий говорит, что у git приложения нет глобального config-а. Это верно,
+    только когда `HOME` не задан. Под Git Bash `HOME` задан, и git читает глобальный config владельца. Поправить
+    комментарий (или задать git свой `HOME`).
+  - `test/e2e/launch-env.ts:119-125` — `DIRECT_START_PROFILE` — одна папка на все запуски без Playwright, и её
+    никто не удаляет. `afterAll` в `test/contract/terminal-profile-isolation.test.ts:27` может удалить её, пока
+    другой запуск ещё ею пользуется. Когда запуск без Playwright откроет Terminal — дать каждому запуску свою папку.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
