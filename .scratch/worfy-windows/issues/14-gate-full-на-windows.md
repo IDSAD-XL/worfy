@@ -149,31 +149,51 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
     их причина этим замером не названа.
 - e2e и `test:package` на ПК владельца 2026-10-21, main `c2716a1c` (Playwright JSON-отчёт,
   группы по первой строке ошибки и по месту в коде): 130 e2e красных и 6 `test:package`. Ошибок в
-  `src/` среди них не найдено — все причины в test-ах:
+  `src/` среди них не найдено — все причины в test-ах. Строки в столбце «Где» — по main `c2716a1c`. Все восемь
+  групп закрыты; столбец «Состояние» — по пересчёту на main `d06d2c2d` (ПК 2026-10-22, «Ход работы»):
 
-  | # | Причина | Падений | Где | Что делаем |
+  | # | Причина | Падений 2026-10-21 | Где | Состояние |
   |---|---|---|---|---|
-  | 1 | Окно задаётся `setSize` (внешний размер), а test меряет `innerWidth` (содержимое). На Windows рамка забирает 14 px ширины и 64 px высоты (при 150 % окно с минимумом 800×520 выходит 800×522 снаружи, страница 786×458); на macOS у окна нет своей рамки (`titleBarStyle: 'hiddenInset'`) | 92 | `helpers.ts:316` и свои ожидания в `sidebar-sections`, `linked-machines`, `pipeline`, `toolbar`; вероятно `pin-tags`, `epic-frame-undo` | `setContentSize` во всех e2e — PR группы 1 |
-  | 2 | Test-ы Terminal печатают команды bash в PowerShell (`SHELL=/bin/sh` на Windows не действует) | 12 | `terminal.spec.ts:40`, `wheel-over-nodes.spec.ts:106`; `src/main/pty.ts:196` | `terminal.spec` проверяет PowerShell (пункт 2 Ticket-а 16); остальным годится любая оболочка |
-  | 3 | Test-ы собранного приложения знают только macOS | 6 package + 5 e2e | `packaged.spec.ts:40-52`, `:631` (путь `Library`), `:650`, `:696` (бит исполнения); `install-stable.mjs:93-95` | `packaged.spec` идёт на win32: `win-unpacked\worfy.exe`, `%APPDATA%`, install-stable для Windows |
-  | 4 | Stub `epic-status` делит путь по `/` | 6 | `epic-frame.spec.ts:52` | одним PR с 5, 7 и одиночными |
-  | 5 | Test ждёт путь в POSIX-виде | 4 | `checks-badges:31` (против `gate/state.ts:68`), `binding:133`, `message-input-slash:170`, `ship-ticket:289` | там же |
-  | 6 | `pgrep` нет на Windows | 2 | `terminal.spec.ts:53-67` | helper дерева процессов Windows, PR группы 2 |
-  | 7 | Stub `gh` на sh | 1 | `silent-project:147` | PR групп 4, 5, 7 |
-  | 8 | Одиночные: высота 562 против 560, путь в Finder, `openssl`, настройки AI Terminal | 4 | `window.spec:179`, `finder-path:122`, `browser.spec:212`, `terminal-ai-settings:384` | там же; без ясной причины — свой Ticket, не skip |
+  | 1 | Окно задаётся `setSize` (внешний размер), а test меряет `innerWidth` (содержимое). На Windows рамка забирает 14 px ширины и 64 px высоты (при 150 % окно с минимумом 800×520 выходит 800×522 снаружи, страница 786×458); на macOS у окна нет своей рамки (`titleBarStyle: 'hiddenInset'`) | 92 | `helpers.ts:316` и свои ожидания в `sidebar-sections`, `linked-machines`, `pipeline`, `toolbar`; вероятно `pin-tags`, `epic-frame-undo` | готово — PR #708 (`setContentSize` во всех e2e). `pin-tags.spec.ts:179` после него красный по другой причине — Ticket 102 |
+  | 2 | Test-ы Terminal печатают команды bash в PowerShell (`SHELL=/bin/sh` на Windows не действует) | 12 | `terminal.spec.ts:40`, `wheel-over-nodes.spec.ts:106`; `src/main/pty.ts:196` | готово — PR #710; три test-а, красные и после него, закрыл Ticket 86 |
+  | 3 | Test-ы собранного приложения знают только macOS | 6 package + 5 e2e | `packaged.spec.ts:40-52`, `:631` (путь `Library`), `:650`, `:696` (бит исполнения); `install-stable.mjs:93-95` | готово — PR #750 |
+  | 4 | Stub `epic-status` делит путь по `/` | 6 | `epic-frame.spec.ts:52` | готово — PR #751. `epic-frame.spec.ts:832` после него падает на высоте чипа «open» — Ticket 94 |
+  | 5 | Test ждёт путь в POSIX-виде | 4 | `checks-badges:31` (против `gate/state.ts:68`), `binding:133`, `message-input-slash:170`, `ship-ticket:289` | готово — PR #751. Ещё три места той же причины вне списка группы — Ticket 98 |
+  | 6 | `pgrep` нет на Windows | 2 | `terminal.spec.ts:53-67` | готово — PR #710: `childrenOf` и `shellsOf` (`test/e2e/terminal-shell.ts`) на Windows читают дерево процессов через CIM, `pgrep` зовут только вне Windows; их test-ы `terminal.spec.ts:386` и `:463` зелёные |
+  | 7 | Stub `gh` на sh | 1 | `silent-project:147` | готово — PR #751 |
+  | 8 | Одиночные: высота 562 против 560, путь в Finder, `openssl`, настройки AI Terminal | 4 | `window.spec:179`, `finder-path:122`, `browser.spec:212`, `terminal-ai-settings:384` | готово — PR #751 (`window.spec:179` — уже PR #708); оба `finder-path` пропущены на win32 с причиной; гонка клика «Settings…» до монтирования React — Ticket 96 |
 
-  Сумма e2e по группам — 126 из 130: 4 test-а в группы не вошли. Их разбор — после повторного
-  прогона e2e с PR группы 1.
+  Сумма e2e по группам — 126 из 130: 4 test-а в группы не вошли; отдельно их не называли.
+- **Красные e2e сейчас** — main `d06d2c2d`, ПК 2026-10-22, масштаб экрана 150 % (пересчёт, «Ход работы»): 16
+  красных в 9 spec-файлах. Каждый красный spec-файл повторён один раз отдельно: все 16 красные снова (2 из 2) —
+  стойкие, нестабильных нет. Ни один не входит в группы 1–8:
+
+  | spec:строка | Test-ов | Первая строка ошибки | Группа или Ticket |
+  |---|---|---|---|
+  | `browser-layer.spec.ts:506`, `:519`, `:547` (×4, масштабы 0.25–2) | 6 | `edge of the page against the edge of the frame on a screenshot` / `right edge`: `Received: Infinity` (при 0.25 — `3.65`) | без группы — [Ticket 97](97-browser-layer-правый-край-страницы-не-найден-на-windows.md) |
+  | `epic-frame.spec.ts:832` | 1 | `nothing is cut on Ticket 40`: «open»: 17 px tall in 16 px | [Ticket 94](94-чип-open-на-windows-выше-своей-рамки.md) (там 3 из 4; здесь 2 из 2) |
+  | `subagent-tree.spec.ts:224`, `:440` | 2 | `Expected: "implementer · claude-sonnet-5"`, `Received: "implementer"`; Node workflow-а не найден | без группы (причина рода группы 5) — [Ticket 98](98-e2e-путь-windows-в-json-fixture-и-в-ожиданиях.md) |
+  | `linked-system-actions.spec.ts:175` | 1 | путь копии через `/`: `Expected: true`, `Received: false` (`:278`) | без группы — Ticket 98 |
+  | `linked-add-project.spec.ts:160` | 1 | `folder-browser-path`: ждёт `…\b-home`, видит временный профиль `…\worfy-shell-…\profile` | без группы — [Ticket 99](99-e2e-linked-machines-home-и-chmod-на-windows.md) |
+  | `linked-machines.spec.ts:370` | 1 | `settings-machines-error`: `element(s) not found` (`chmod 0o555` на Windows запись не запрещает) | без группы — Ticket 99 |
+  | `linked-notify.spec.ts:90` | 1 | `Timeout 5000ms exceeded while waiting on the predicate` в `blur` (`:87`) | без группы — [Ticket 100](100-linked-notify-blur-на-windows-не-снимает-фокус.md) |
+  | `selection-toolbar-frame.spec.ts:150` (×2, zoom 1 и 0.6) | 2 | `the Focus button is wider than SelectionToolbar keeps off`: `104.515625` против `<= 96` | без группы — [Ticket 101](101-кнопка-focus-на-windows-шире-места-панели-выделения.md) |
+  | `pin-tags.spec.ts:179` | 1 | `toBeCloseTo`: `Expected: 204.75`, `Received: 197.1458…` (`:250`) | без группы — [Ticket 102](102-unpin-после-перезапуска-на-windows-сдвигает-node-по-вертикали.md) |
+
+  `terminal.spec.ts:648` (Git Bash: набранная клавиша встала не на своё место, `cecho … ygpath`) в этом прогоне
+  зелёный (1 из 1); он остаётся за [Ticket-ом 90](90-git-bash-теряет-первую-клавишу-после-resize-pty.md) — Git Bash
+  на ConPTY портит набранный ввод. Ticket 90 записывает потерю первой клавиши после resize pty и называет только
+  `wheel-over-nodes.spec.ts`, ни `terminal.spec.ts:648`, ни перестановки клавиши.
 - Повторный прогон e2e на ПК 2026-10-22 (масштаб экрана 150 %), main `30031d93` против PR группы 1,
   слитого с ним локально: красных 136 → 55 (зелёных 144 → 225, всего 301: ещё 21 пропущены или не запускались), новых красных нет, 81
   починено. В 20 spec-файлах, которые меняет PR: 37 → 24 красных из 71. На 150 % окно с `minHeight`
   520 после `setSize(800, 520)` получается 800×522 снаружи (страница 786×458), без минимума — 800×520:
   `smallestWindow` допускает внешний размер на 2 px больше `MIN_SIZE`.
 - После каждого полного e2e на ПК остаётся один `electron.exe` без родителя (три прогона из трёх
-  2026-10-22): процесс сети Chromium (`--utility-sub-type=network.mojom.NetworkService`) test-а
-  `packaged.spec.ts:662` (`ELECTRON_RENDERER_URL` не URL, главный процесс выходит с кодом 1; папка
-  `worfy-bad-renderer-url-*`). Он снимается `Stop-Process`. Почему процесс сети переживает главный —
-  не разобрано.
+  2026-10-22, и в пересчёте на main `d06d2c2d` — тоже один): процесс сети Chromium
+  (`--utility-sub-type=network.mojom.NetworkService`) test-а `packaged.spec.ts:787` (строка по main `d06d2c2d`, раньше `:662`;
+  `ELECTRON_RENDERER_URL` не URL, главный процесс выходит с кодом 1; папка `worfy-bad-renderer-url-*`). Он
+  снимается `Stop-Process`. Разбор — [Ticket 95](95-процесс-сети-electron-остаётся-после-неудачного-старта.md).
 
 ## Что делаем
 
@@ -687,3 +707,15 @@ reload, стрелки колеса в alternate screen): `terminal.spec.ts:218`
   16 px — [Ticket 94](94-чип-open-на-windows-выше-своей-рамки.md). e2e Terminal (`terminal`, `focus`, `wheel-over-nodes`)
   после Ticket-а 86: 18 зелёных, 1 красный — `terminal.spec.ts:648` (Git Bash: набранная клавиша встала не на своё место,
   `cecho … ygpath`), не чинился.
+- Пересчёт красных e2e (Session на Windows-ПК, 2026-10-22, по направлению Session на Mac): main `d06d2c2d` (после
+  PR #708, #710, #750, #751), масштаб экрана 150 %, Windows 11 Pro 10.0.26200, один worker, временный профиль
+  запуска (`test/e2e/launch-env.ts`). `pnpm test:e2e` целиком, 20,6 мин, exit 1: **311 test-ов — 279 прошли,
+  16 упали, 0 нестабильных, 16 пропущены, 0 не запускались** (повторов в конфиге нет, поэтому нестабильные
+  отделены повтором: каждый из 9 красных spec-файлов ещё раз один, `pnpm exec playwright test <файл>
+  --grep-invert @packaged` — все 16 красные снова, 2 из 2). Пропущены — test-ы с условием на систему (рамка окна
+  только macOS, zsh, login shell, Finder) и пропуски собранного приложения на win32, все с причиной в `test.skip`. Группы 1–8 таблицы e2e закрыты, группа 6 — PR #710. Новых
+  красных вне групп — 15 test-ов, Ticket-ы 97–102; `epic-frame.spec.ts:832` — Ticket 94. `terminal.spec.ts:648`
+  (Ticket 90) — зелёный 1 из 1. После прогона остался один процесс сети `electron.exe` без родителя (Ticket 95),
+  снят `Stop-Process`; после повторов — ни одного. История PowerShell (PSReadLine) и `.bash_history` владельца до
+  и после прогонов не изменились (размер и SHA256). Таблица «Красные e2e сейчас» в «Что происходит» — по этому
+  пересчёту.
