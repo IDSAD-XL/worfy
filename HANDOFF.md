@@ -14,11 +14,11 @@
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–15, 17–21, 24 (#716); остался 12 — приёмка; 22, 23 открыты.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
-- `worfy-polish`: 32/37 — 01–29, 31, 33, 35 влиты (12 — отчёт; 20, 26 — узкий круг; 19 — после `pnpm test` на ПК). 32 — замер 30 Orchestrator-ом, 30 ждёт 32; 34 — flaky; 36 — долг ревью; 37 — предел 120 s shell-test-ов на Mac.
+- `worfy-polish`: 32/39 — 01–29, 31, 33, 35 влиты (12 — отчёт; 20, 26 — узкий круг; 19 — после `pnpm test` на ПК). 32 — замер 30 Orchestrator-ом, 30 ждёт 32; 34 — flaky; 36, 39 (#754) — долг ревью; 37 — предел 120 s shell-test-ов на Mac; 38 — вывод после выхода shell.
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 9/18, влиты 01–03, 06, 08, 10, 16–18 (gate full 18,5 → 8,4 min); 07, 09 — `wave-gate`; 04, 05 — Orchestrator; 11–15 — скорость test-ов (ADR-0081).
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
-- `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 19/21; влиты 01–12, 14–18, 20, 21; 19: части 1–3 влиты (#682), остаток открыт; 13 — решение владельца.
+- `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 20/21; влиты 01–12, 14–21 (19 — #754, долг — polish 39); 13 — решение владельца.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 12/16; влиты 15, 16 (#707, #715) и 04 (#733, MCP server через CDP); отказ на странице вне списка origin-ов — по ADR-0078, владелец может возразить.
 
 ## Ждёт владельца
