@@ -83,6 +83,21 @@ const BACKGROUND = 'sleep 30 & echo $! > "$HOME/background.pid"\n'
 const LATE_WRITER =
   '( while [ ! -e "$HOME/go" ]; do sleep 0.05; done; echo late; echo late >&2; echo survived > "$HOME/after" ) & echo $! > "$HOME/probe.pid"\n'
 
+/**
+ * The lines of a script of its own that give it `captureLoginShellEnv`. Electron's Node strips the types of env.ts
+ * but resolves no import without an extension, as env.ts has (`'../../shared/paths'`): a resolve hook adds `.ts`
+ * to such a relative import. env.ts is imported dynamically, after the hook is registered.
+ */
+function importCapture(): string[] {
+  const envUrl = pathToFileURL(join(__dirname, '..', '..', 'src', 'main', 'agent', 'env.ts')).href
+  return [
+    "import { registerHooks } from 'node:module'",
+    'registerHooks({ resolve: (specifier: string, context: unknown, next: (specifier: string, context: unknown) => unknown) =>',
+    "  next(/^\\.\\.?\\//.test(specifier) && !/\\.[a-z]+$/.test(specifier) ? specifier + '.ts' : specifier, context) })",
+    `const { captureLoginShellEnv } = await import(${JSON.stringify(envUrl)})`,
+  ]
+}
+
 /** `.profile` of HOME, which /bin/sh as a login shell reads. */
 function profile(content: string): void {
   writeFileSync(join(home, '.profile'), content)
@@ -130,9 +145,12 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
     const script = join(home, 'capture.mts')
     writeFileSync(
       script,
-      `import { captureLoginShellEnv } from ${JSON.stringify(pathToFileURL(join(__dirname, '..', '..', 'src', 'main', 'agent', 'env.ts')).href)}\n` +
-        `const result = await captureLoginShellEnv({ shell: '/bin/sh', source: { HOME: ${JSON.stringify(home)}, SHELL: '/bin/sh' } })\n` +
-        'console.log(result.from)\n',
+      [
+        ...importCapture(),
+        `const result = await captureLoginShellEnv({ shell: '/bin/sh', source: { HOME: ${JSON.stringify(home)}, SHELL: '/bin/sh' } })`,
+        'console.log(result.from)',
+        '',
+      ].join('\n'),
     )
     const started = Date.now()
     const run = spawnSync(process.execPath, [script], { env: { PATH: SYSTEM_PATH, HOME: home, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: 20_000 })
@@ -154,7 +172,7 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
       script,
       [
         "import { existsSync, readFileSync, writeFileSync } from 'node:fs'",
-        `import { captureLoginShellEnv } from ${JSON.stringify(pathToFileURL(join(__dirname, '..', '..', 'src', 'main', 'agent', 'env.ts')).href)}`,
+        ...importCapture(),
         `const home = ${JSON.stringify(home)}`,
         "const gc = (globalThis as { gc?: () => void }).gc!",
         "const result = await captureLoginShellEnv({ shell: '/bin/sh', source: { HOME: home, SHELL: '/bin/sh' } })",
