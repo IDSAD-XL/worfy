@@ -32,10 +32,10 @@ Electron 44.5.1.
 
 ## Готово, когда
 
-- [ ] Contract test-ы `memory` и `linked`: навигация без коммита (старт без `did-navigate`) не сбрасывает
+- [x] Contract test-ы `memory` и `linked`: навигация без коммита (старт без `did-navigate`) не сбрасывает
       подписку и не отпускает Project; коммит нового документа — сбрасывает. На main первые — красные.
-- [ ] `menu`, `memory` и `linked` пользуются одним помощником; отдельных копий типа клиента нет.
-- [ ] `pnpm lint`, `pnpm typecheck` — exit 0; test-ы меню из Ticket-а 96 зелёные.
+- [x] `menu`, `memory` и `linked` пользуются одним помощником; отдельных копий типа клиента нет.
+- [x] `pnpm lint`, `pnpm typecheck` — exit 0; test-ы меню из Ticket-а 96 зелёные.
 
 ## Где в коде
 
@@ -44,3 +44,43 @@ Electron 44.5.1.
 - `src/main/ipc/linked.ts:80`, `:248-252` — `Screen.on` и сброс на старте навигации.
 - `src/main/clients.ts` — место для общего помощника.
 - `src/main/window.ts:368` — `will-frame-navigate`, отказ навигации главного frame.
+
+## Итог
+
+Ветка `worfy-windows/104` от main `2eac77ec`, только коммит (без push и PR); текст PR —
+`C:/Users/Alexey/worfy-wt/pr104-body.md`.
+
+- `src/main/clients.ts`: общий тип `NavigatingClient` (Client, у которого может быть
+  `on('did-navigate')`) и помощник `onNewDocument(client, reset)` — сброс на коммите нового документа
+  главного frame. Electron не шлёт `did-navigate` для навигации внутри документа и для вложенных
+  frame. Модуль по-прежнему не трогает Electron во время работы.
+- `src/main/ipc/menu.ts`: `MenuTarget` убран, вместо него `NavigatingClient` и `onNewDocument`;
+  поведение Ticket-а 96 не изменилось.
+- `src/main/ipc/memory.ts`: тип `Navigating` убран; подписка на память сбрасывается на коммите, а не на
+  `did-start-navigation`.
+- `src/main/ipc/linked.ts`: `Screen` собран из `NavigatingClient`; `release` и `unsubscribe` окна —
+  на коммите. Навигация без коммита (отказ в `will-frame-navigate`, 204, загрузка файла) больше не
+  отпускает Project и не закрывает подписки окна на Linked machine.
+- Test-ы: `test/contract/memory.test.ts` — новый «a navigation that starts but never commits keeps
+  the figure of the page that stays», тест перезагрузки переведён на `did-navigate` и проверяет, что
+  `did-navigate-in-page` и навигация вложенного frame подписку не сбрасывают.
+  `test/contract/linked-ipc.test.ts` — два новых (Project остаётся у окна; окно остаётся в счёте
+  подписки, close на Linked machine не уходит), два прежних переведены на `did-navigate`.
+- Красные на исходном коде: 5 test-ов (2 в memory, 3 в linked). Мутанты: memory назад на
+  `did-start-navigation` — 2 красных; linked назад — 3 красных; помощник со сбросом и на
+  `did-navigate-in-page` — 4 красных (memory, linked и test меню Ticket-а 96).
+- Проверки: новые test-ы 3 прогона — exit 0; contract и unit test-ы memory, linked, menu, clients,
+  `no-rmsync`, `check-cyrillic` — exit 0; `pnpm lint`, `pnpm typecheck` — exit 0; gate fast — в отчёте.
+- Ревью, второй коммит: страница ошибки. Если загрузка главного frame падает (View ▸ Reload при
+  остановленном dev server, ERR_CONNECTION_REFUSED), Electron показывает страницу ошибки и шлёт
+  `did-fail-load` без `did-navigate`; старый код сбрасывал здесь на старте навигации. `onNewDocument`
+  теперь сбрасывает и на `did-fail-load` главного frame с кодом, отличным от -3 (ERR_ABORTED): отказ,
+  204 и загрузка файла дают -3 или не дают `did-fail-load`. Сигнатура — по `electron.d.ts` Electron
+  44.5.1; `NavigatingClient.on` типизирован для обоих событий; параметр помощника сужен до
+  `Pick<NavigatingClient, 'on'>` (id не нужен), а memory берёт клиента как `NavigatingClient`.
+  Test-ы: по одному в memory и view-menu, два в linked (Project и подписка). Красные до правки — 3
+  (memory, linked); мутанты: без ветки `did-fail-load` — 4 красных, без проверки -3 — 7, без
+  проверки главного frame — 4.
+- e2e не запускался: ни один spec не проверяет сброс memory или linked при навигации
+  (`test/e2e/memory.spec.ts` не перезагружает окно). Не проверено в живом Electron, что IPC новой
+  страницы приходит после `did-navigate`; на этом же порядке уже стоит меню Ticket-а 96.

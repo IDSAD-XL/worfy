@@ -878,6 +878,19 @@ describe('a menu command chosen before the page follows it (worfy-windows ticket
     expect(electron.sent.map((each) => each.payload)).toEqual(['settings', 'toggleSidebar'])
   })
 
+  it('an error page in the main frame drops what the old page followed; a failure inside a frame does not', async () => {
+    const { choose } = await menuItems()
+    await pageFollows(electron.window, ['settings'])
+    electron.window.fire('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://nowhere.invalid/', false, 1, 2)
+    choose.settings(electron.window)
+    expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'settings' }])
+    // View > Reload with the dev server down: an error page commits, with did-fail-load and no did-navigate.
+    electron.window.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    electron.window.fire('did-fail-load', {}, -102, 'ERR_CONNECTION_REFUSED', 'http://localhost:5173/', true, 1, 1)
+    choose.settings(electron.window)
+    expect(electron.sent).toHaveLength(1)
+  })
+
   it("an old page's menu.ready that arrives during a reload, before the commit, does not make the new page ready", async () => {
     const { choose } = await menuItems()
     electron.window.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false })
