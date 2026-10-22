@@ -386,17 +386,26 @@ lock_run() {
     echo "e3-sandbox: waiting for $LOCK" >&2
     sleep "$pause"
   done
-  # Its output goes nowhere, so no `sleep` of it can hold the caller's pipe open. It ends once the
-  # lock folder is gone (also when this script was killed without its trap), and `touch -c` never
-  # makes a plain file where the folder was.
-  (while sleep 300; do [ -d "$LOCK" ] || exit 0; touch -c "$LOCK" 2>/dev/null || true; done) >/dev/null 2>&1 &
+  # Its output goes nowhere, so no `sleep` of it can hold the caller's pipe open. It ends once this
+  # script is gone (`kill -0 $$`: killed without its trap, by kill -9 or a timeout), so it does not
+  # keep an abandoned lock fresh for ever, and once the lock folder is gone; `touch -c` never makes a
+  # plain file where the folder was. The lock names no holder, so the heartbeat cannot tell its own
+  # lock from one another run made in its place; it only stops when the folder is gone.
+  (while sleep 300; do kill -0 $$ 2>/dev/null || exit 0; [ -d "$LOCK" ] || exit 0; touch -c "$LOCK" 2>/dev/null || true; done) >/dev/null 2>&1 &
   hb=$!
   # Every step of the release is guarded: under `set -e` a failing step would end the trap before rmdir.
-  # The heartbeat is stopped first, and pkill runs only once ps shows it stopped (STOP is delivered
-  # asynchronously), so it starts no new `sleep` after pkill has killed its current one. CONT after
-  # KILL, so a stopped process that KILL did not end (seen under MSYS) cannot hang `wait`.
-  # shortcut: kills by pid, so a pid reused after the heartbeat already ended gets the signals, and where ps has no -o (Git Bash) or the 2 s wait runs out pkill does not wait for the stop; redo with a process group if either is ever seen.
-  trap 'kill -STOP '"$hb"' 2>/dev/null || true; w=0; while [ "$w" -lt 200 ] && ps -o stat= -p '"$hb"' 2>/dev/null | grep -qv T; do w=$((w + 1)); sleep 0.01; done; pkill -P '"$hb"' 2>/dev/null || true; kill -KILL '"$hb"' 2>/dev/null || true; kill -CONT '"$hb"' 2>/dev/null || true; wait '"$hb"' 2>/dev/null || true; rmdir "'"$LOCK"'" 2>/dev/null || true' EXIT
+  # Git Bash and Cygwin (the heartbeat has a /proc/<pid>/winpid): no kill -STOP. There a kill -KILL
+  # right after a kill -STOP can leave the heartbeat alive and deaf to every signal, CONT and KILL
+  # from outside included, and `wait` for it never returns (measured on the Windows PC: STOP; KILL;
+  # CONT; wait hung 16 runs of 40, KILL; wait 0 of 40; this trap's old form, with ps and pkill
+  # between STOP and KILL, 7 of 390). Git Bash has no pkill either: the children of the heartbeat are
+  # found by /proc/<pid>/ppid before it is killed and ended through Windows (`/usr/bin/kill -f`,
+  # TerminateProcess). The heartbeat gets 2 s, is ended through Windows too after 1 s, and `wait`
+  # runs only once it is gone. Elsewhere the heartbeat is stopped first, and pkill runs only once ps
+  # shows it stopped (STOP is delivered asynchronously), so it starts no new `sleep` after pkill has
+  # killed its current one; CONT after KILL.
+  # shortcut: kills by pid, so a pid reused after the heartbeat already ended gets the signals, and where the 2 s wait for the stop runs out (macOS, Linux) pkill does not wait for it; in Git Bash a `sleep` the heartbeat is still starting is not in /proc yet and runs out its 300 s on /dev/null; and a heartbeat whose script's pid went to another process keeps a lock left by kill -9 fresh while that process lives; redo with a process group (and a holder in the lock) if any of these is ever seen.
+  trap 'if [ -e /proc/'"$hb"'/winpid ]; then { c=; for f in /proc/[0-9]*/ppid; do read -r p 2>/dev/null <"$f" && [ "$p" = '"$hb"' ] && { f=${f%/ppid}; c="$c ${f#/proc/}"; }; done; kill -KILL '"$hb"'; [ -z "$c" ] || /usr/bin/kill -f -9 $c; w=0; while [ "$w" -lt 20 ] && kill -0 '"$hb"'; do w=$((w + 1)); [ "$w" != 10 ] || /usr/bin/kill -f -9 '"$hb"'; sleep 0.1; done; kill -0 '"$hb"' || wait '"$hb"'; } 2>/dev/null || true; else kill -STOP '"$hb"' 2>/dev/null || true; w=0; while [ "$w" -lt 200 ] && ps -o stat= -p '"$hb"' 2>/dev/null | grep -qv T; do w=$((w + 1)); sleep 0.01; done; pkill -P '"$hb"' 2>/dev/null || true; kill -KILL '"$hb"' 2>/dev/null || true; kill -CONT '"$hb"' 2>/dev/null || true; wait '"$hb"' 2>/dev/null || true; fi; rmdir "'"$LOCK"'" 2>/dev/null || true' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
   E3_LOCK_HELD=1 "$@"
