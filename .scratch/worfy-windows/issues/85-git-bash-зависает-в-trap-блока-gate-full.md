@@ -72,8 +72,13 @@ heartbeat через `/proc/*/ppid`, шлёт `kill -KILL` heartbeat-у и за�
 Ограничение: `sleep`, который ещё стартует, когда trap работает, может быть ещё не виден в `/proc` и доспать свои 5
 минут, вывод — в `/dev/null`. До правки в Git Bash так оставался каждый `sleep` heartbeat.
 
-Heartbeat теперь трогает замок, только пока `holder.json` называет pid его shell: heartbeat, переживший свой shell
-(например, если не сработал и `kill -f`), больше не держит живым новый замок другого агента.
+Heartbeat теперь трогает замок, только пока `holder.json` называет pid его shell, и кончается, когда этого shell
+нет (`kill -0 $$`). Heartbeat, переживший свой shell (`kill -9`, вызов Bash, оборванный по timeout, не сработавший
+`kill -f`), больше не держит живым ни свой брошенный замок, ни новый замок другого агента. Пока shell жив, heartbeat
+сам не кончается, даже если замок перехватили: он только перестаёт его трогать. Поэтому pid heartbeat остаётся его
+pid-ом до trap-а, и trap не шлёт сигналы освободившемуся pid. Сам trap от этого не менялся ни на одной платформе.
+Ограничение: если pid умершего shell за 5 минут займёт другой процесс, heartbeat будет трогать свой брошенный замок,
+пока этот процесс жив.
 
 **Test-ы.**
 - `wave-gate-heartbeat.test.sh`, случай «40 runs»: теперь идёт и в Git Bash, раньше пропускался (нет `pkill`). Там
@@ -86,6 +91,27 @@ Heartbeat теперь трогает замок, только пока `holder.
   только пока его командная строка — процесс test-а (pid-ы в Git Bash переиспользуются).
 - `wave-gate.test.sh`: два прогона блока одного PR ограничены 60 s через `finish`; оставшийся живой heartbeat или
   пустая запись pid heartbeat — FAIL.
+- Третий круг, `wave-gate-heartbeat.test.sh`. После `kill -9` shell со своим замком heartbeat кончается за 3 s и
+  замок больше не трогает. Heartbeat живого блока трогает свой замок: mtime сдвигается, так что формат `holder.json`
+  закреплён поведением. После перехвата замка heartbeat его не трогает, но живёт, пока жив shell. Trap в конце его
+  завершает и оставляет чужой замок на месте.
+- Мутанты третьего круга, все exit 1:
+  - без `kill -0 $$` — 4 FAIL, heartbeat держит свой брошенный замок;
+  - `holder.json` с `"pid": %s` — 2 FAIL: heartbeat не тронул свой замок, и 0 из 40 прогонов зелёные;
+  - heartbeat кончается при перехвате (код второго круга) — 2 FAIL, heartbeat умер, пока shell жив.
+  Новый код — exit 0, 13 passed.
+
+Проверки третьего круга на `origin/main` 021ac754 (свежий HOME, GitHub CLI вне PATH):
+
+| Проверка | Exit | Итог |
+| --- | --- | --- |
+| `wave-gate-heartbeat` | 0 | 13 passed |
+| `wave-gate` | 0 | 133 passed |
+| `wave-gate-lock` | 0 | 14 passed |
+| `agents-text` | 0 | 202 passed |
+| `skill-blocks` | 0 | 100 passed |
+| `harness-scripts.test.ts -t "wave-gate\|agents-text\|skill-blocks"` | 0 | 5 passed |
+| gate fast | 0 | `[gate] green (fast)`: только lint и typecheck, unit-тесты не шли |
 
 Красный на старом коде (`SKILL_FILE`, свежий HOME): старый `SKILL.md` — exit 1, 4 FAIL (обе проверки текста; heartbeat
 тронул чужой замок, mtime 1577829600 → 1792644438; «40 of 40 runs green», но 40 `sleep` из 40 остались). Мутант без
