@@ -52,6 +52,8 @@ export const worktreeChecksSchema = z.object({
   /** Checked-out branch; null for a detached HEAD. */
   branch: z.string().nullable(),
   gate: gateStateSchema,
+  /** The worktree lies inside %TEMP% of Windows, where Storage Sense may delete files (worfy-windows ticket 61); set only when true. */
+  insideTemp: z.literal(true).optional(),
 })
 export type WorktreeChecks = z.infer<typeof worktreeChecksSchema>
 

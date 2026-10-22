@@ -47,6 +47,7 @@ import { scriptEnv, type HarnessLocation } from '../harness/locate'
 import type { HarnessScriptEnv } from '../harness/script-env'
 import { environmentExit, runHarnessScript, scriptFailureDetail, type ProfileRun, type ProfileRunner, type SpawnProcess } from '../workflow/profile'
 import { realpathOrSelf } from './real-path'
+import { insideUserTemp } from './temp-folder'
 import type { GitRunner } from './store'
 
 /** The only tools the draft Session uses: it reads files and answers with its structured output. */
@@ -179,6 +180,8 @@ export interface ConnectDeps {
   add: (root: string, options: { keepActive: boolean }) => Promise<AddOutcome>
   /** Where a reason goes besides the answer; console.warn by default. */
   log?: (message: string) => void
+  /** Whether a folder lies inside %TEMP% of Windows (worfy-windows ticket 61); insideUserTemp by default. */
+  insideTemp?: (path: string) => boolean
 }
 
 // ── step 1: the folder ─────────────────────────────────────────────────────────
@@ -510,11 +513,19 @@ export class ProjectConnector {
     } catch (error) {
       // No profile script because no Harness is installed (or it is one the Harness step stops at):
       // the folder goes on to the dialog as before, and its Harness step says what to do.
-      if (missingScript(error) && (await this.harnessStops())) return { status: 'new', folder: inspected.folder }
+      if (missingScript(error) && (await this.harnessStops())) return this.newFolder(inspected.folder)
       // Not "new": the form would draft a Profile the Harness may already have (worfy-windows ticket 30).
       return { status: 'rejected', reason: `The Harness could not tell whether it knows ${inspected.folder.root}: ${error instanceof Error ? error.message : String(error)}` }
     }
-    return { status: known ? 'known' : 'new', folder: inspected.folder }
+    return known ? { status: 'known', folder: inspected.folder } : this.newFolder(inspected.folder)
+  }
+
+  /**
+   * A folder for the dialog, marked when its root lies inside %TEMP% of Windows: the Folder step
+   * warns (worfy-windows ticket 61). A known folder skips the dialog; its gate badge carries the sign.
+   */
+  private newFolder(folder: ConnectFolder): InspectOutcome {
+    return { status: 'new', folder: (this.deps.insideTemp ?? insideUserTemp)(folder.root) ? { ...folder, insideTemp: true } : folder }
   }
 
   /** The GitHub account step: the accounts of the hosts of the folder's origins and their write access. */

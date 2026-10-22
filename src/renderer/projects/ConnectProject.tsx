@@ -22,7 +22,9 @@ import '../canvas/actions/actions.css'
 import './connect-project.css'
 import { failureReason } from '../../shared/ipc/channels'
 import { withGithubAccount, type ConnectFolder, type ConnectMode, type DraftIssue, type GithubChoice, type ProfileDraft, type ProjectsState, type ProjectView } from '../../shared/ipc/projects'
+import { TEMP_FOLDER_LABEL, TEMP_FOLDER_WARNING } from '../../shared/temp-folder'
 import { invoke, invokeOn, subscribe, subscribeOn } from '../ipc'
+import { StatusChip } from '../theme/primitives'
 import { Select } from '../theme/Select'
 import { FolderBrowser } from './FolderBrowser'
 import { GithubAccount } from './GithubAccount'
@@ -418,6 +420,11 @@ export function ConnectProject({ folder, machine, machineName, harnessHome, onCl
         </ul>
       ) : null}
       {folder.notice ? <p style={{ ...styles.secondary, margin: 'var(--space-1) 0 0' }}>{folder.notice}</p> : null}
+      {folder.insideTemp ? (
+        <p role="note" data-testid="connect-temp-warning" style={{ ...styles.secondary, margin: 'var(--space-1) 0 0' }}>
+          <StatusChip status="working" label={TEMP_FOLDER_LABEL} /> {TEMP_FOLDER_WARNING}
+        </p>
+      ) : null}
     </section>
   )
 

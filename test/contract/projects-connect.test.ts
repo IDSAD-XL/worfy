@@ -223,6 +223,8 @@ function connectorWith(overrides: Partial<ConnectDeps> & { script?: string; scri
       return result.status === 'added' ? { status: 'added', projectId: result.project.id, notice: result.notice } : result
     },
     log: () => undefined,
+    // The sandbox lies in the system's temporary folder, which is %TEMP% on Windows: no warning unless a test asks.
+    insideTemp: () => false,
     ...overrides,
   }
   return { connector: new ProjectConnector(deps), requests, calls, added, activity: [] }
@@ -360,6 +362,45 @@ describe('the kind of the folder (step 1)', () => {
     const single = await inspectFolder(plain, runGit)
     expect(single).toEqual({ ok: false, reason: `${plain} is not a git repository and holds only one: choose the repository ${one} itself.` })
     expect(await inspectFolder(join(scratch, 'missing'), runGit)).toEqual({ ok: false, reason: `${join(scratch, 'missing')} does not exist.` })
+  })
+})
+
+// worfy-windows ticket 61: a folder inside %TEMP% of Windows, where Storage Sense may delete files.
+describe('a new folder inside %TEMP%', () => {
+  it('is marked for the Folder step and still goes on to the dialog; a folder outside is not marked', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    mkdirSync(join(repo, 'src'))
+    const asked: string[] = []
+    const unknown: ProfileRunner = () => Promise.resolve({ code: 3, stdout: '', stderr: 'not registered' })
+    const inTemp = connectorWith({ profile: unknown, insideTemp: (path) => (asked.push(path), path === repo) })
+    expect(await inTemp.connector.inspect(join(repo, 'src'))).toEqual({
+      status: 'new',
+      folder: { kind: 'git', root: repo, repos: [{ name: 'shop', path: repo }], notice: `${join(repo, 'src')} is inside the repository ${repo}; the repository root is connected instead.`, insideTemp: true },
+    })
+    // The root that is connected is checked, not the subfolder picked.
+    expect(asked).toEqual([repo])
+
+    const outside = connectorWith({ profile: unknown, insideTemp: () => false })
+    const answer = await outside.connector.inspect(repo)
+    expect(answer).toEqual({ status: 'new', folder: { kind: 'git', root: repo, repos: [{ name: 'shop', path: repo }], notice: null } })
+    expect(answer.status === 'new' && 'insideTemp' in answer.folder).toBe(false)
+  })
+
+  it('no profile script while the Harness is not installed: the new folder is marked too', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const missing: ProfileRunner = () => Promise.reject(new HarnessScriptStartError('ENOENT', `no Harness script at ${join(home, '.claude', 'bin', 'profile')}`))
+    const { connector } = connectorWith({ profile: missing, harness: () => Promise.resolve({ ...installed, state: { kind: 'not-installed' } }), insideTemp: (path) => path === repo })
+    expect(await connector.inspect(repo)).toEqual({ status: 'new', folder: { kind: 'git', root: repo, repos: [{ name: 'shop', path: repo }], notice: null, insideTemp: true } })
+  })
+
+  it('a multi-repo folder inside %TEMP% is marked by its own root', async () => {
+    const workspace = join(scratch, 'ws')
+    makeRepo(join(workspace, 'api'))
+    makeRepo(join(workspace, 'web'))
+    const { connector } = connectorWith({ profile: () => Promise.resolve({ code: 0, stdout: '{"_resolved":{"workspace":null}}', stderr: '' }), insideTemp: (path) => path === workspace })
+    const answer = await connector.inspect(workspace)
+    expect(answer.status).toBe('new')
+    expect(answer.status === 'new' ? answer.folder.insideTemp : undefined).toBe(true)
   })
 })
 
