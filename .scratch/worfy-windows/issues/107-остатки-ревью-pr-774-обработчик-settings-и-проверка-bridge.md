@@ -55,16 +55,21 @@ Source: ревью PR #774 ([Ticket 103](103-остатки-ревью-pr-753-п
 
 1. **Test обработчика `settings`.** `test/unit/menu-command.test.tsx`, describe «the settings subscriber»: после
    `followMenuCommands()` команда `toggleSidebar` окно не открывает, команда `settings` открывает его на первом
-   разделе (`{ open: true, section: null }`). Мутант «пустая функция вместо `openSettings`» в
-   `src/renderer/settings/settings-window.ts` — красный (1 failed: этот test).
+   разделе (`{ open: true, section: null }`), а открытое на `GeneralSection` окно оставляет на этом разделе (по
+   контракту `openSettings` без id). Мутанты в `src/renderer/settings/settings-window.ts`, все красные: пустая
+   функция вместо `openSettings` — 1 (этот test); рукописный обработчик
+   `() => useSettingsWindow.setState({ open: true, section: null })` — 1 (этот test); подписка на `toggleSidebar`
+   вместо `settings` — 5 (menu-command 2, shell 3); `() => openSettings('GeneralSection')` — 1 (этот test).
 2. **Одна проверка bridge.** `src/renderer/ipc.ts`: закрытая `lookUpPreloadBridge()` — единственное чтение
    `globalThis.worfy`; экспортирована `hasPreloadBridge(): boolean` (`!== undefined`, как в трёх копиях);
    `preloadBridge()` берёт bridge через тот же поиск и, как прежде, падает на любом ложном значении.
    `menu-command.ts`, `shell/sidebar-visibility.ts`, `settings/useAppSettings.ts` зовут `hasPreloadBridge()`;
    импорт типа `WorfyBridge` в них больше не нужен. Цикла импорта нет: `ipc.ts` импортирует только
    `shared/ipc/channels` и `toast/toasts` (а тот — только `zustand/vanilla`).
-   Мутант «всегда true» — красные 7 test-ов (menu-command, settings-dialog, shell, use-app-settings); «всегда
-   false» — красные 20 (menu-command, use-app-settings, sidebar-section, shortcuts-overlay).
+   Мутант «всегда true» — красные 7 test-ов в 4 файлах (menu-command 4, settings-dialog 1, shell 1,
+   use-app-settings 1); «всегда false» — красные 34 в 5 файлах (menu-command 8, shell 14, use-app-settings 7,
+   sidebar-section 3, shortcuts-overlay 2). Первое число «20» было неверным: скрипт прогона обрезал список
+   упавших test-ов до 20 строк.
 
 Проверки (все с кодом): оба grep-а «Готово, когда» находят совпадения только в `src/renderer/ipc.ts`;
 `menu-command`, `settings-dialog`, `shell`, `shortcuts-overlay`, `use-app-settings`, `sidebar-section` и

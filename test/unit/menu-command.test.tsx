@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { MenuCommand } from '../../src/shared/ipc/menu'
 import { followMenuCommand } from '../../src/renderer/menu-command'
-import { closeSettings, followMenuCommands, useSettingsWindow } from '../../src/renderer/settings/settings-window'
+import { closeSettings, followMenuCommands, openSettings, useSettingsWindow } from '../../src/renderer/settings/settings-window'
 import { followSidebarCommand } from '../../src/renderer/shell/sidebar-visibility'
 import { followShortcutsCommands } from '../../src/renderer/shortcuts/shortcuts-window'
 import { toasts } from '../../src/renderer/toast/toasts'
@@ -123,6 +123,10 @@ describe('the settings subscriber', () => {
     expect(useSettingsWindow.getState().open).toBe(false)
     bridge.emit('menu.command', 'settings')
     expect(useSettingsWindow.getState()).toEqual({ open: true, section: null })
+    // openSettings without an id leaves an open window on the section it shows.
+    openSettings('GeneralSection')
+    bridge.emit('menu.command', 'settings')
+    expect(useSettingsWindow.getState()).toEqual({ open: true, section: 'GeneralSection' })
     unsubscribe()
   })
 })
