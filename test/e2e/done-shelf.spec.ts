@@ -58,8 +58,8 @@ function epicStatus(): unknown {
 
 /**
  * The Project's files; `nodes` are the Layout's Nodes, the camera at the smallest zoom (0.2) so the
- * strip and the shelf under it are on screen: the shelf stands under each frame's height with its
- * done stack open, and a Node off screen is not drawn at all.
+ * strip and the shelf under it are on screen: the shelf stands FRAME_GAP under the frames as drawn
+ * (ADR-0082), and a Node off screen is not drawn at all.
  */
 function makeProject(nodes: unknown[]): void {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-done-shelf-')))

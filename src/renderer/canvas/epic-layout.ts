@@ -496,20 +496,23 @@ export interface PlacedStrip {
    */
   shelf: { x: number; y: number }
   /**
-   * How tall the room is that the strip's place was found for (`frameColumnX`): its tallest column
-   * of reserved heights, or the shelf's bottom when that is lower.
+   * The height of the room the strip's place was found for (`frameColumnX`), from the strip's top:
+   * the tallest column of reserved heights, and with a shelf FRAME_GAP and the shelf's height more.
+   * It does not depend on whether a done stack is open, so opening or folding one never moves the
+   * strip (ADR-0032, ADR-0082, point 3). The shelf, under the frames as drawn, stays inside it.
    */
-  height: number
+  roomHeight: number
 }
 
 /**
  * stackFrames, with the done shelf (ADR-0075, point 5) under the strip: a shelf `shelfHeight` tall
  * stands at the strip's left edge, FRAME_GAP under the tallest column of the frames as drawn
  * (ADR-0082): a frame whose done stack is open counts with its open height, so the stack moves the
- * shelf down only when its column reaches the shelf. The strip's place is found for the tallest
- * column of reserved heights and for the shelf, whichever ends lower, so no Node on the plane is
- * under the shelf or in the room kept for an open done stack. A frame with an offset yields to the shelf as to the frames of the strip. A
- * shelf height of 0 is no shelf: the strip is placed as stackFrames places it.
+ * shelf down only when its column reaches the shelf. The strip's place is found for a room as tall
+ * as the tallest column of reserved heights with the shelf FRAME_GAP under it (`roomHeight`), so no
+ * Node on the plane is under the shelf or in the room kept for an open done stack, and opening a
+ * done stack never moves the strip. A frame with an offset yields to the shelf as to the frames of
+ * the strip. A shelf height of 0 is no shelf: the strip is placed as stackFrames places it.
  */
 export function placeStrip(frames: readonly StackedFrame[], plane: readonly Rect[] = [], columns = 1, shelfHeight = 0, shelfWidth = 0): PlacedStrip {
   const result = new Map<string, PlacedFrame>()
@@ -526,8 +529,9 @@ export function placeStrip(frames: readonly StackedFrame[], plane: readonly Rect
   const tallest = Math.max(0, ...reserved)
   const shelfTop = frames.length === 0 ? 0 : Math.max(0, ...drawn) + FRAME_GAP
   const shelved = shelfHeight > 0
-  const height = shelved ? Math.max(tallest, shelfTop + shelfHeight) : tallest
-  const x = frameColumnX(Math.max(stripWidth, shelved ? shelfWidth : 0), height, plane)
+  // Drawn heights are never above reserved ones, so the shelf at shelfTop is inside this room.
+  const roomHeight = shelved ? (frames.length === 0 ? 0 : tallest + FRAME_GAP) + shelfHeight : tallest
+  const x = frameColumnX(Math.max(stripWidth, shelved ? shelfWidth : 0), roomHeight, plane)
   const taken: Rect[] = [...plane]
   if (shelved) taken.push({ x, y: shelfTop, w: shelfWidth, h: shelfHeight })
   const moved: { frame: StackedFrame; index: number; auto: { x: number; y: number } }[] = []
@@ -550,7 +554,7 @@ export function placeStrip(frames: readonly StackedFrame[], plane: readonly Rect
     result.set(frame.epic, { x: place.x, y: place.y, auto })
     taken.push({ ...wanted, ...place })
   }
-  return { frames: result, width: stripWidth, shelf: { x, y: shelfTop }, height }
+  return { frames: result, width: stripWidth, shelf: { x, y: shelfTop }, roomHeight }
 }
 
 // ── the done shelf (ADR-0075, point 5) ──────────────────────────────────────

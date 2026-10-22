@@ -190,23 +190,43 @@ describe('where the shelf stands', () => {
     expect(placeStrip(short, [], 2, 100, 1248).shelf).toEqual({ x: 0, y: 600 + FRAME_GAP })
   })
 
-  it('the strip\'s x is still found for the reserve: a Node under the visible frames, within the reserve, moves the strip', () => {
-    // Column x then z: 548 visible, 748 reserved. A shelf 50 tall at 648 ends at 698, above the reserve.
-    const room = placeStrip(strip, [], 2, 50, 1248)
-    expect(room.shelf.y + 50).toBeLessThan(300 + FRAME_GAP + 400)
-    expect(room.height).toBe(300 + FRAME_GAP + 400)
-    // Clear of the shelf and of the visible frames, but within FRAME_GAP of the reserved room.
-    const within = { x: 0, y: 300 + FRAME_GAP + 400 + FRAME_GAP - 1, w: 100, h: 50 }
-    expect(within.y).toBeGreaterThanOrEqual(room.shelf.y + 50 + FRAME_GAP)
+  it('the strip\'s x is still found for the reserve and the shelf under it: a Node under the visible frames, within that room, moves the strip', () => {
+    // Column x then z: 548 visible, 748 reserved; the room is the reserve, FRAME_GAP, and the shelf's 50.
+    // The shelf itself stands at 648-698, under the frames as drawn.
+    const room = 300 + FRAME_GAP + 400 + FRAME_GAP + 50
+    const placed = placeStrip(strip, [], 2, 50, 1248)
+    expect(placed.roomHeight).toBe(room)
+    expect(placed.shelf.y + 50).toBeLessThan(room)
+    // Clear of the shelf and of the visible frames, but within FRAME_GAP of the room.
+    const within = { x: 0, y: room + FRAME_GAP - 1, w: 100, h: 50 }
     const moved = placeStrip(strip, [within], 2, 50, 1248)
     expect(moved.shelf.x).toBe(within.x + within.w + FRAME_GAP)
     expect(moved.frames.get('x')!.auto.x).toBe(moved.shelf.x)
     // Just past it the strip stays at x = 0.
     expect(placeStrip(strip, [{ ...within, y: within.y + 1 }], 2, 50, 1248).shelf.x).toBe(0)
-    // A shelf lower than the reserve: the room ends at the shelf's bottom.
-    expect(placeStrip(strip, [], 2, 300, 1248).height).toBe(600 + FRAME_GAP + 300)
     // No shelf: the room is the reserve alone.
-    expect(placeStrip(strip, [], 2).height).toBe(300 + FRAME_GAP + 400)
+    expect(placeStrip(strip, [], 2).roomHeight).toBe(300 + FRAME_GAP + 400)
+  })
+
+  it('opening a done stack moves the shelf only: the room and the strip\'s x stay (ADR-0032, ADR-0082, point 3)', () => {
+    // One frame 500 tall as drawn, 3000 with its done stack open; a shelf 100 tall; a Node 300 wide
+    // under the reserve, within FRAME_GAP of the room (3000 + 48 + 100).
+    const folded = { epic: 'a', width: 500, height: 500, reserve: 3000 }
+    const open = { ...folded, height: 3000 }
+    const node = { x: 0, y: 3049, w: 300, h: 50 }
+    const before = placeStrip([folded], [node], 1, 100, 500)
+    const after = placeStrip([open], [node], 1, 100, 500)
+    expect(before.shelf.y).toBe(500 + FRAME_GAP)
+    expect(after.shelf.y).toBe(3000 + FRAME_GAP)
+    expect(before.roomHeight).toBe(3000 + FRAME_GAP + 100)
+    expect(after.roomHeight).toBe(before.roomHeight)
+    expect(before.shelf.x).toBe(300 + FRAME_GAP)
+    expect(after.shelf.x).toBe(before.shelf.x)
+    expect(after.frames.get('a')!.auto.x).toBe(before.frames.get('a')!.auto.x)
+    // A Node past the room moves the strip neither way.
+    const past = { ...node, y: 3000 + FRAME_GAP + 100 + FRAME_GAP }
+    expect(placeStrip([folded], [past], 1, 100, 500).shelf.x).toBe(0)
+    expect(placeStrip([open], [past], 1, 100, 500).shelf.x).toBe(0)
   })
 
   it('its height counts in the strip\'s height for frameColumnX: a Node under the strip, clear of it alone, moves the strip', () => {
@@ -259,7 +279,10 @@ describe('where the shelf stands', () => {
     const open = build({ [`${id}|b`]: true })
     expect(bottomOf(open)).toBeGreaterThan(bottomOf(folded))
     expect(shelfOf(open)!.position.y).toBeGreaterThan(shelfOf(folded)!.position.y)
-    for (const nodes of [folded, open, build({})]) {
+    // Folded again after the open build: the shelf is back where it stood.
+    const refolded = build({})
+    expect(shelfOf(refolded)!.position).toEqual(shelfOf(folded)!.position)
+    for (const nodes of [folded, open, refolded]) {
       const shelf = shelfOf(nodes)!
       expect(shelf.position.y).toBe(bottomOf(nodes) + FRAME_GAP)
       // Nothing of the Epic source stands lower than the shelf: React Flow's MiniMap takes its bounds from these Nodes.
