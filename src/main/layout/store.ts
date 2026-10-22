@@ -297,6 +297,12 @@ function takenOff(op: LayoutOp | LayoutOpInput): string[] {
 
 /** True when Browser Node `nodeId` of Project `projectId` stays with the user as its Session leaves: taken over, or unsaved changes. */
 export type BrowserKeeper = (projectId: string, nodeId: string) => boolean
+
+/** How LayoutStore.apply applies one operation. */
+export interface ApplyOptions {
+  /** The operation takes a Node off only to put it back at once (see apply): its Session stays, with its Browsers. */
+  sessionStays?: boolean
+}
 /** Asks the pages of Browsers `nodeIds` whether they hold unsaved changes; resolves once they answered. */
 export type BrowserAsker = (projectId: string, nodeIds: readonly string[]) => Promise<void>
 
@@ -411,13 +417,17 @@ export class LayoutStore {
    * Parses `op`, applies it and schedules the write. Keys the schema does not declare are
    * dropped; an invalid or refused operation throws and changes nothing. `screen` is the screen
    * that sent it, handed on to the listeners; null for a change made without one.
+   * `options.sessionStays`: the Node is removed only to be created again at once with the same id
+   * and Session (a read-only Session Node turned live, src/main/agent/node-sessions.ts), so its
+   * Session does not leave the Canvas and keeps its Browsers.
    */
-  apply(projectId: string, op: LayoutOpInput, screen: string | null = null): LayoutState {
+  apply(projectId: string, op: LayoutOpInput, screen: string | null = null, options: ApplyOptions = {}): LayoutState {
     const parsed = layoutOpSchema.safeParse(op)
     if (!parsed.success) throw new Error(`invalid layout operation\n${z.prettifyError(parsed.error)}`)
     const entry = this.entry(projectId)
     const now = this.now()
-    const { layout, sessionsLeft } = leaveWithSessions(entry.layout, applyOp(entry.layout, parsed.data, now), parsed.data, (nodeId) => this.keepsBrowser(projectId, nodeId))
+    const after = applyOp(entry.layout, parsed.data, now)
+    const { layout, sessionsLeft } = options.sessionStays === true ? { layout: after, sessionsLeft: [] } : leaveWithSessions(entry.layout, after, parsed.data, (nodeId) => this.keepsBrowser(projectId, nodeId))
     entry.layout = touch(layout, touchedBy(parsed.data, screen), now)
     entry.revision += 1
     entry.dirty = true

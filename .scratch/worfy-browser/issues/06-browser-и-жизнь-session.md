@@ -163,6 +163,10 @@ exit 0; gate fast — green; e2e Browser-ов, Family и автоархива �
   пользователю те же Browser-ы, что и в первый раз (`keepBrowsersSchema`; у `trash.put` тоже).
 - Шаг ⌘Z читает Layout main (`layout.get`), а не копию окна: Browser, открытый за миг до Hide, тоже
   возвращается.
+- Регрессия этого PR: read-only Session Node становится live через `remove` и `create` того же id
+  (`src/main/agent/node-sessions.ts`), и `remove` уносил Browser-ы Session. Теперь этот `remove`
+  идёт с `sessionStays` (`LayoutStore.apply`): Session не уходит с Canvas, её Browser-ы остаются в
+  её Family, управление ими не сбрасывается. Тест — `test/contract/node-sessions.test.ts`.
 
 Второй круг того же дня (по слову Orchestrator-а, то же правило владельца): Delete (⌫) Session
 Node в Trash тоже уносит её Browser-ы — Trash идёт через ту же операцию `remove`, и правило
