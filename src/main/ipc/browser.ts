@@ -8,6 +8,12 @@
 //
 // And Live and Asleep (worfy-browser ticket 05): what each window shows is kept by the id of its web
 // contents until it reports again or closes.
+//
+// And the other screens (worfy-browser ticket 07): a window of a Linked machine reports what it shows
+// under its connection's client and its own screen id, until the connection closes; it watches the
+// frames of a Browser, sends its input and its address to the page. Only the window that owns a
+// Browser hands main its page (src/main/browser/owner.ts), and each client reads whether it is that
+// window (`here`). A read-only Linked machine reaches none of these: they are `write`.
 import { webContents, type WebContents } from 'electron'
 import {
   browserControlHold,
@@ -18,6 +24,9 @@ import {
   browserWake,
   browserControlReturn,
   browserControlTake,
+  browserFramesWatch,
+  browserInput,
+  browserNavigate,
   browserPageLive,
   browserProfilesChanged,
   browserProfilesCreate,
@@ -25,14 +34,31 @@ import {
   browserProfilesList,
   browserProfilesUpdate,
 } from '../../shared/ipc/browser'
-import { liveBrowsers } from '../browser/live'
+import { ControlError, liveBrowsers, NOT_SHOWN } from '../browser/live'
 import { browserProfileStore } from '../browser/profiles'
+import { browserScreencasts } from '../browser/screencast'
+import { clientOf, type Client } from '../clients'
 import { toEveryWindow } from '../broadcast'
 import { layoutStore } from '../layout/store'
 import { defineHandler, emit, type HandlerModule } from './index'
 
-/** The windows whose closing main already listens for. */
-const screens = new Set<number>()
+/** The windows and the Linked machines' clients whose closing main already listens for. */
+const screens = new Set<number | string>()
+
+/** The client of a call; a call without one is refused. */
+function callerOf(event: { sender?: unknown }): Client {
+  const client = clientOf(event)
+  if (client === undefined) throw new Error('the call has no sender')
+  return client
+}
+
+/** The address of `url` when it is an http or https address the page may go to; throws otherwise. */
+function webUrl(url: string): string {
+  if (!URL.canParse(url)) throw new Error('not an address')
+  const parsed = new URL(url)
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('only an http or https address opens in a Browser')
+  return parsed.href
+}
 
 function changed(projectId: string): void {
   toEveryWindow((client) => emit(client, browserProfilesChanged, { projectId }))
@@ -64,22 +90,41 @@ export default [
     // Electron's types say a WebContents, but a guest whose embedder has gone has none.
     const host = guest?.hostWebContents as WebContents | null | undefined
     if (guest === undefined || guest.isDestroyed() || guest.getType() !== 'webview' || host !== event.sender) return { live: false }
-    return { live: liveBrowsers().register(projectId, nodeId, guest) !== null }
+    return { live: liveBrowsers().register(projectId, nodeId, guest, host.id) !== null }
   }),
-  defineHandler(browserScreen, async (report, { event }) => {
-    const window = event.sender
-    if (!screens.has(window.id)) {
-      screens.add(window.id)
-      window.once('destroyed', () => {
-        screens.delete(window.id)
-        liveBrowsers().dropScreen(window.id)
+  defineHandler(browserScreen, async ({ projectId, visible, zoom, screen }, { event }) => {
+    const client = callerOf(event)
+    const id = client.id
+    if (!screens.has(id)) {
+      screens.add(id)
+      client.once('destroyed', () => {
+        screens.delete(id)
+        if (typeof id === 'number') liveBrowsers().dropScreen(id)
+        else liveBrowsers().dropScreensOf(id)
       })
     }
-    await liveBrowsers().screen(window.id, report)
+    // A Linked machine's windows share one client: each is told apart by its screen id.
+    await liveBrowsers().screen(typeof id === 'number' ? id : `${id} ${screen ?? ''}`, { projectId, visible, zoom })
     return {}
   }),
-  defineHandler(browserLivesList, ({ projectId }) => ({ projectId, lives: liveBrowsers().lives(projectId) })),
-  defineHandler(browserWake, ({ projectId, nodeId }) => liveBrowsers().wake(projectId, nodeId, 'user')),
+  defineHandler(browserLivesList, ({ projectId }, { event }) => ({ projectId, lives: liveBrowsers().lives(projectId, callerOf(event).id) })),
+  defineHandler(browserWake, ({ projectId, nodeId }, { event }) => {
+    // From a Linked machine: only a window of this Machine can draw the page it wakes.
+    if (typeof callerOf(event).id !== 'number' && !liveBrowsers().shownHere(projectId)) throw new ControlError(NOT_SHOWN)
+    return liveBrowsers().wake(projectId, nodeId, 'user')
+  }),
+  defineHandler(browserFramesWatch, async ({ projectId, nodeId, screen, watch }, { event }) => {
+    await browserScreencasts().watch(callerOf(event), screen, projectId, nodeId, watch)
+    return {}
+  }),
+  defineHandler(browserInput, async ({ projectId, nodeId, input }, { event }) => {
+    await liveBrowsers().input(projectId, nodeId, input, callerOf(event).id)
+    return {}
+  }),
+  defineHandler(browserNavigate, async ({ projectId, nodeId, url }, { event }) => {
+    await liveBrowsers().navigate(projectId, nodeId, webUrl(url), callerOf(event).id)
+    return {}
+  }),
   defineHandler(browserPicture, ({ projectId, nodeId }) => ({ picture: liveBrowsers().pictureOf(projectId, nodeId) })),
   defineHandler(browserControlList, ({ projectId }) => ({ controls: liveBrowsers().controlsOf(projectId) })),
   defineHandler(browserControlTake, ({ projectId, nodeId }) => ({ taken: liveBrowsers().takeOver(projectId, nodeId) })),

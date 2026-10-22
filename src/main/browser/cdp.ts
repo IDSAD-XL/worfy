@@ -27,6 +27,7 @@
 // The page is reached through CdpContents, the part of Electron's WebContents used here, so the
 // contract test drives a fake debugger (test/contract/browser-tools.test.ts).
 import { BROWSER_LOG_LIMIT, BROWSER_SNAPSHOT_MAX, PASSWORD_REFUSED, TAKEN_OVER } from '../../shared/browser/tools'
+import type { BrowserInput } from '../../shared/ipc/browser'
 
 /** The part of Electron's Debugger used here. */
 export interface CdpDebugger {
@@ -88,6 +89,25 @@ export interface PagePicture {
 
 /** A call refused by the page or by a wall: its message is the tool's answer. */
 export class PageError extends Error {}
+
+/** One frame of a page's screencast (worfy-browser ticket 07): a JPEG, base64, and the page's viewport in CSS pixels. */
+export interface ScreencastFrame {
+  image: string
+  width: number
+  height: number
+}
+
+/** How a screencast is asked of Chromium: the size it is cut to and the JPEG quality. */
+export interface ScreencastOptions {
+  maxWidth: number
+  maxHeight: number
+  quality: number
+  /** The least time between two frames: Chromium sends the next one only after the last is acknowledged. */
+  frameMs: number
+}
+
+/** The `buttons` of Input.dispatchMouseEvent while a button is held. */
+const BUTTON_BITS = { none: 0, left: 1, right: 2, middle: 4 } as const
 
 export interface ConsoleEntry {
   /** log, info, warning, error, debug…; `exception` for an error the page did not catch. */
@@ -611,6 +631,82 @@ export class CdpPage {
       if (!isRecord(shot) || typeof shot.data !== 'string') throw new PageError('The page gave no screenshot.')
       return { image: shot.data, scroll: { x: at(x), y: at(y) } }
     })
+  }
+
+  /** Where the page is scrolled now. */
+  async scroll(): Promise<{ x: number; y: number }> {
+    return this.quietly(async () => {
+      const scrolled = (await this.send('Runtime.evaluate', { expression: '[scrollX, scrollY]', returnByValue: true })) as { result?: RemoteObject }
+      const [x, y] = Array.isArray(scrolled.result?.value) ? (scrolled.result.value as unknown[]) : []
+      const at = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0)
+      return { x: at(x), y: at(y) }
+    })
+  }
+
+  /**
+   * Starts the screencast of the page (CDP `Page.startScreencast`, worfy-browser ticket 07): every
+   * frame goes to `onFrame`, and is acknowledged no sooner than `frameMs` after the one before, so
+   * Chromium sends at most one frame per `frameMs`. Answers the stop.
+   */
+  async screencast(onFrame: (frame: ScreencastFrame) => void, options: ScreencastOptions): Promise<() => Promise<void>> {
+    let stopped = false
+    let lastAt = 0
+    const stop = this.listen((method, params) => {
+      if (method !== 'Page.screencastFrame' || stopped) return
+      const metadata = isRecord(params.metadata) ? params.metadata : {}
+      const width = typeof metadata.deviceWidth === 'number' && metadata.deviceWidth > 0 ? metadata.deviceWidth : 1
+      const height = typeof metadata.deviceHeight === 'number' && metadata.deviceHeight > 0 ? metadata.deviceHeight : 1
+      if (typeof params.data === 'string') onFrame({ image: params.data, width, height })
+      const wait = Math.max(0, lastAt + options.frameMs - Date.now())
+      const ack = () => {
+        lastAt = Date.now()
+        if (!stopped) this.send('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => undefined)
+      }
+      if (wait === 0) ack()
+      else setTimeout(ack, wait)
+    })
+    try {
+      await this.quietly(async () => {
+        await this.send('Page.enable')
+        await this.send('Page.startScreencast', { format: 'jpeg', quality: options.quality, maxWidth: options.maxWidth, maxHeight: options.maxHeight, everyNthFrame: 1 })
+      })
+    } catch (error) {
+      stop()
+      throw error
+    }
+    return async () => {
+      if (stopped) return
+      stopped = true
+      stop()
+      if (!this.contents.isDestroyed()) await this.send('Page.stopScreencast')
+    }
+  }
+
+  /**
+   * The user's input from the frames of another screen, sent to the page as the user's own: it is
+   * not one of the Session's events, so the page reports it (`input-event`) like a click on it.
+   */
+  async userInput(input: BrowserInput): Promise<void> {
+    await this.quietly(async () => {
+      if (input.kind === 'mouse') {
+        const { type, x, y, button, clickCount, modifiers } = input
+        await this.send('Input.dispatchMouseEvent', { type, x, y, button, buttons: type === 'mouseReleased' ? 0 : BUTTON_BITS[button], clickCount, modifiers })
+      } else if (input.kind === 'wheel') {
+        const { x, y, deltaX, deltaY, modifiers } = input
+        await this.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX, deltaY, modifiers })
+      } else if (input.type === 'keyDown' && input.text !== undefined) {
+        const { key, code, text, keyCode, modifiers } = input
+        await this.send('Input.dispatchKeyEvent', { type: 'keyDown', key, code, text, unmodifiedText: text, windowsVirtualKeyCode: keyCode, modifiers })
+      } else {
+        const { key, code, keyCode, modifiers } = input
+        await this.send('Input.dispatchKeyEvent', { type: input.type === 'keyDown' ? 'rawKeyDown' : 'keyUp', key, code, windowsVirtualKeyCode: keyCode, modifiers })
+      }
+    })
+  }
+
+  /** The user typed `url` in the address bar of another screen: the page goes there, as by its own address bar. */
+  async userNavigate(url: string): Promise<void> {
+    await this.quietly(() => this.send('Page.navigate', { url }))
   }
 
   /** Scrolls the page to where it was when it went to sleep, once it has loaded. */

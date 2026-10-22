@@ -57,7 +57,7 @@ function drawBrowser(): void {
   )
 }
 
-const life = (over: Partial<BrowserLife>): BrowserLife => ({ nodeId: 'browser-1', live: true, unsaved: false, overLimit: false, picture: null, ...over })
+const life = (over: Partial<BrowserLife>): BrowserLife => ({ nodeId: 'browser-1', live: true, unsaved: false, overLimit: false, picture: null, here: true, ...over })
 
 describe('the marks on the frame of a Live Browser', () => {
   let hadObserver = false

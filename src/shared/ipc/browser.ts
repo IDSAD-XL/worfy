@@ -24,13 +24,23 @@
 // main answers every window with the life of each Browser — Live or Asleep, «Unsaved changes», over
 // the limit — (`browser.lives.changed`, read with `browser.lives.list`), and a window draws a page
 // only for a Live one. An Asleep frame shows the picture of its page (`browser.picture`), and a click
-// on it wakes the Browser (`browser.wake`). All `local`: they are about this Machine's screens and
-// pages, and a read-only Linked machine sees no picture of a sleeping page (ADR-0078 item 14); its
-// screens join the rules with worfy-browser ticket 07.
+// on it wakes the Browser (`browser.wake`).
+//
+// Other screens (worfy-browser ticket 07; ADR-0078 items 9, 14 and 16): a Browser has one Live page,
+// in the window of this Machine where the user worked with it last (`here` of its life, for that
+// window only). Every other screen — another window here, a window of a Linked machine — shows the
+// frames of that page (`browser.frames.watch`, then `browser.frame`), and sends it the user's click,
+// scroll and keys (`browser.input`) and the address typed in its bar (`browser.navigate`). The
+// screens of a Linked machine tell main what they show too (`browser.screen` with their `screen`):
+// a Browser seen there does not sleep. Frames, input, the lives, the picture of an Asleep page,
+// a wake and a screen's report are `project` and `write`, as the output of a Terminal is: a
+// read-only Linked machine sees only the frame with the name of the Browser profile (ADR-0078 item
+// 14, ADR-0066), and the Layout it gets carries no address of a Browser (src/main/browser/read-only.ts).
 import { z } from 'zod'
 import { browserProfileIdSchema, browserProfileNameSchema, browserProfileSchema, BROWSER_PROFILE_ORIGINS_MAX } from '../browser/profiles'
 import { browserControlModeSchema } from '../browser/tools'
 import { nodeIdSchema } from '../layout/types'
+import { screenIdSchema } from './layout'
 import { eventChannel, invokeChannel } from './channels'
 
 export const browserOpenRequestSchema = z.object({
@@ -106,13 +116,22 @@ export const browserPressing = eventChannel('browser.pressing', z.object({ proje
 /** Sent to every window after the control of a Browser changed; `mode` null when nobody drives it. */
 export const browserControlChanged = eventChannel('browser.control.changed', z.object({ projectId, nodeId: nodeIdSchema, mode: browserControlModeSchema.nullable() }), 'project', 'read')
 
-/** What a window shows: the Browser frames in it and the zoom of its Canvas. */
+/**
+ * What a screen shows: the Browser frames in it and the zoom of its Canvas. A window of a Linked
+ * machine names itself (`screen`, src/renderer/canvas/screen.ts) and says it again every
+ * BROWSER_SCREEN_RENEW_MS: one connection carries all its windows, and a report not renewed in
+ * time counts no more (src/main/browser/sleep.ts).
+ */
 export const browserScreen = invokeChannel(
   'browser.screen',
-  z.object({ projectId, visible: z.array(nodeIdSchema).max(1000), zoom: z.number().positive() }),
+  z.object({ projectId, visible: z.array(nodeIdSchema).max(1000), zoom: z.number().positive(), screen: screenIdSchema.optional() }),
   z.object({}),
-  'local',
+  'project',
+  'write',
 )
+
+/** How often a window of a Linked machine tells the Machine of the Project again what it shows. */
+export const BROWSER_SCREEN_RENEW_MS = 20_000
 
 /** The life of one Browser as main keeps it. */
 export const browserLifeSchema = z.object({
@@ -125,27 +144,83 @@ export const browserLifeSchema = z.object({
   overLimit: z.boolean(),
   /** Grows with every new picture of the page; null while it has none. */
   picture: z.number().int().nullable(),
+  /** The window that reads it draws the page; every other screen shows its frames (ADR-0078 item 16). */
+  here: z.boolean(),
 })
 export type BrowserLife = z.output<typeof browserLifeSchema>
 
 const browserLives = z.object({ projectId, lives: z.array(browserLifeSchema) })
 
 /** The lives of the Browsers of the Project that main knows of; a Browser without one is drawn as neither. */
-export const browserLivesList = invokeChannel('browser.lives.list', z.object({ projectId }), browserLives, 'local')
+export const browserLivesList = invokeChannel('browser.lives.list', z.object({ projectId }), browserLives, 'project', 'write')
 
-/** Sent to every window of this Machine after a Browser of the Project woke, went to sleep or changed its marks. */
-export const browserLivesChanged = eventChannel('browser.lives.changed', browserLives, 'local')
+/** Sent to every screen after a Browser of the Project woke, went to sleep, changed its marks or the window that draws it. */
+export const browserLivesChanged = eventChannel('browser.lives.changed', browserLives, 'project', 'write')
 
 /** The user clicked an Asleep frame, or the frame of a Browser main has no life for: it wakes. */
-export const browserWake = invokeChannel('browser.wake', z.object({ projectId, nodeId: nodeIdSchema }), z.object({ overLimit: z.boolean() }), 'local')
+export const browserWake = invokeChannel('browser.wake', z.object({ projectId, nodeId: nodeIdSchema }), z.object({ overLimit: z.boolean() }), 'project', 'write')
 
 /** The picture an Asleep Browser shows (a JPEG, base64), and where its page was scrolled; null while it has none. */
 export const browserPicture = invokeChannel(
   'browser.picture',
   z.object({ projectId, nodeId: nodeIdSchema }),
   z.object({ picture: z.object({ image: z.string(), scroll: z.object({ x: z.number(), y: z.number() }) }).nullable() }),
-  'local',
+  'project',
+  'write',
 )
+
+/** A screen starts or stops showing the frames of Live Browser `nodeId`; `screen` tells the windows of one Linked machine apart. */
+export const browserFramesWatch = invokeChannel(
+  'browser.frames.watch',
+  z.object({ projectId, nodeId: nodeIdSchema, screen: screenIdSchema, watch: z.boolean() }),
+  z.object({}),
+  'project',
+  'write',
+)
+
+/** A frame of the page of a Live Browser (a JPEG, base64), sent only to the screens that watch it; `width` and `height` — the page's viewport in CSS pixels. */
+export const browserFrame = eventChannel(
+  'browser.frame',
+  z.object({ projectId, nodeId: nodeIdSchema, image: z.string().max(8_000_000), width: z.number().positive(), height: z.number().positive() }),
+  'project',
+  'write',
+)
+
+const modifiers = z.number().int().min(0).max(15)
+const point = { x: z.number().finite(), y: z.number().finite() }
+
+/**
+ * The user's input in the frames of a Browser, in the page's CSS pixels: a press, a release or a move
+ * of the mouse, a scroll, a key down or up (`text` — what a printable key types). main sends it to the
+ * page over CDP (`Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`).
+ */
+export const browserInputSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('mouse'),
+    type: z.enum(['mousePressed', 'mouseReleased', 'mouseMoved']),
+    ...point,
+    button: z.enum(['none', 'left', 'middle', 'right']),
+    clickCount: z.number().int().min(0).max(3),
+    modifiers,
+  }),
+  z.object({ kind: z.literal('wheel'), ...point, deltaX: z.number().finite(), deltaY: z.number().finite(), modifiers }),
+  z.object({
+    kind: z.literal('key'),
+    type: z.enum(['keyDown', 'keyUp']),
+    key: z.string().min(1).max(40),
+    code: z.string().max(40),
+    text: z.string().max(4).optional(),
+    keyCode: z.number().int().min(0).max(255),
+    modifiers,
+  }),
+])
+export type BrowserInput = z.output<typeof browserInputSchema>
+
+/** The user's input in the frames of Browser `nodeId`, for its page; it takes the Browser over from a Session, as on the page itself. */
+export const browserInput = invokeChannel('browser.input', z.object({ projectId, nodeId: nodeIdSchema, input: browserInputSchema }), z.object({}), 'project', 'write')
+
+/** The address bar of a screen that shows frames: the page of Browser `nodeId` goes to `url` (http or https). */
+export const browserNavigate = invokeChannel('browser.navigate', z.object({ projectId, nodeId: nodeIdSchema, url: z.string().min(1).max(4000) }), z.object({}), 'project', 'write')
 
 declare module './channels' {
   interface IpcContract {
@@ -162,6 +237,10 @@ declare module './channels' {
     'browser.lives.changed': typeof browserLivesChanged
     'browser.wake': typeof browserWake
     'browser.picture': typeof browserPicture
+    'browser.frames.watch': typeof browserFramesWatch
+    'browser.frame': typeof browserFrame
+    'browser.input': typeof browserInput
+    'browser.navigate': typeof browserNavigate
     'browser.profiles.list': typeof browserProfilesList
     'browser.profiles.create': typeof browserProfilesCreate
     'browser.profiles.update': typeof browserProfilesUpdate

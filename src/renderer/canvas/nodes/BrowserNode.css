@@ -379,3 +379,20 @@
 .w-browser-frame__mark + .w-browser-frame__drive {
   margin-left: var(--space-1);
 }
+
+/* The frames of a Live Browser whose page another window or another Machine draws (worfy-browser
+   ticket 07): the whole body, taking the mouse and, once clicked, the keys for that page. */
+.w-browser-frame__frames {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 0 0 var(--radius-node) var(--radius-node);
+  background: var(--surface-raised);
+  pointer-events: all;
+  cursor: default;
+}
+.w-browser-frame__frames:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

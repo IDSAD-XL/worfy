@@ -1,6 +1,8 @@
 import { app } from 'electron'
 import { layoutApply, layoutArchiveCandidates, layoutArchived, layoutChanged, layoutGet, layoutRestoreBatch } from '../../shared/ipc/layout'
+import { changeWithoutUrls, layoutWithoutUrls, readOnlyClient } from '../browser/read-only'
 import { toEveryWindow } from '../broadcast'
+import { clientOf } from '../clients'
 import { onArchiveBatch, restoreBatch, runningArchiver, type AutoArchiver } from '../layout/archive'
 import { layoutStore } from '../layout/store'
 import { defineHandler, emit, type HandlerModule } from './index'
@@ -11,8 +13,10 @@ const store = layoutStore()
 // another one, a client without a window, or a later part of main (the MCP tools) calling the
 // store directly. The change carries its operation and the screen that sent it, so a screen's undo
 // history can tell when another screen changed a Node it would undo (worfy-link ticket 07).
+// A read-only Linked machine gets it without the address of any Browser (src/main/browser/read-only.ts).
 store.onChange(({ projectId, layout, revision, op, screen }) => {
-  toEveryWindow((client) => emit(client, layoutChanged, { projectId, layout, revision, op, screen }))
+  const change = { projectId, layout, revision, op, screen }
+  toEveryWindow((client) => emit(client, layoutChanged, readOnlyClient(client) ? changeWithoutUrls(change) : change))
 })
 
 // Each batch of main's archive timer: every window of its Project shows the toast with Undo
@@ -32,7 +36,7 @@ function appArchiver(): AutoArchiver {
 }
 
 export default [
-  defineHandler(layoutGet, ({ projectId }) => store.get(projectId)),
+  defineHandler(layoutGet, ({ projectId }, { event }) => (readOnlyClient(clientOf(event)) ? layoutWithoutUrls(store.get(projectId)) : store.get(projectId))),
   // An `archive` from a window or a Linked machine keeps the archive rule's exceptions, checked by
   // the app's archiver at the write (ADR-0076); main's own timer applies to the store directly.
   // An operation that may take a Session off the Canvas first asks the pages of its Browsers for

@@ -29,12 +29,21 @@
 // changes. A window that is hidden (minimised, on another
 // Space) or shows another Project shows no Browser of this one. A page that goes to sleep is closed
 // here; its frame shows the picture main kept (BrowserNode.tsx).
+//
+// Of all the windows that show a Live Browser, only one draws its page (worfy-browser ticket 07,
+// ADR-0078 item 16): the one main names its owner (`here`). In the others its frame shows the frames
+// of that page (BrowserNode.tsx, ../../browser/frames.ts), and the page moves here once the user has
+// worked in them; a page that moves away is closed here and opens there on the Node's address. A
+// window of a Linked machine never draws a page: the Browser runs on the Machine of its Project. It
+// tells that Machine what it shows all the same, again every BROWSER_SCREEN_RENEW_MS — a Browser seen
+// there does not sleep — except on a read-only screen, which shows the frame alone.
 import { createElement, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore, ViewportPortal, type ReactFlowState } from '@xyflow/react'
 import { announceBrowserPage, keepWindowFocus } from '../../browser/control'
 import { reportBrowserScreen, useFollowBrowserLives, useLiveBrowserIds } from '../../browser/lives'
+import { BROWSER_SCREEN_RENEW_MS } from '../../../shared/ipc/browser'
 import { useBrowserProfiles } from '../../browser/profiles'
-import { subscribe } from '../../ipc'
+import { subscribe, windowMachine } from '../../ipc'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import {
   dismissBrowserOpenRequest,
@@ -172,7 +181,6 @@ function BrowserPage({ page, partition, projectId }: { page: BrowserLayerPage; p
 
   // The address the page reaches, by a link or by the address bar, goes into the Node: the address
   // bar shows it, and the Browser opens it again after a restart. Not a step of ⌘Z (history.ts).
-  // shortcut: a second window of the Project keeps its page where it is, only its bar follows, redo when two windows must show one page.
   useEffect(() => {
     const element = view.current
     if (element === null || readOnly !== null) return
@@ -220,7 +228,7 @@ function screenKey(state: Pick<ReactFlowState, 'transform' | 'width' | 'height'>
  * Tells main what this window shows of Project `projectId` whenever it changes (`browser.screen`),
  * and that it shows nothing of it once the layer goes (another Project, the window closes its Canvas).
  */
-function useReportScreen(projectId: string | undefined, pages: readonly BrowserLayerPage[]): void {
+function useReportScreen(projectId: string | undefined, pages: readonly BrowserLayerPage[], readOnly: boolean): void {
   const shown = useStore((state) => screenKey(state, pages))
   const [hidden, setHidden] = useState(() => document.visibilityState === 'hidden')
   useEffect(() => {
@@ -229,16 +237,22 @@ function useReportScreen(projectId: string | undefined, pages: readonly BrowserL
     return () => document.removeEventListener('visibilitychange', visibility)
   }, [])
   useEffect(() => {
-    if (projectId === undefined) return
+    if (projectId === undefined || readOnly) return
     const { visible, zoom } = JSON.parse(shown) as { visible: string[]; zoom: number }
+    const report = () => reportBrowserScreen({ projectId, visible: hidden ? [] : visible, zoom })
     // Once a pan or a zoom comes to rest: main's rules count in seconds, not in frames.
-    const timer = setTimeout(() => reportBrowserScreen({ projectId, visible: hidden ? [] : visible, zoom }), REPORT_REST_MS)
-    return () => clearTimeout(timer)
-  }, [projectId, shown, hidden])
+    const timer = setTimeout(report, REPORT_REST_MS)
+    // A Linked machine's report counts only for a while on the Machine of the Project (sleep.ts there).
+    const renew = windowMachine() === null ? undefined : setInterval(report, BROWSER_SCREEN_RENEW_MS)
+    return () => {
+      clearTimeout(timer)
+      clearInterval(renew)
+    }
+  }, [projectId, shown, hidden, readOnly])
   useEffect(() => {
-    if (projectId === undefined) return
+    if (projectId === undefined || readOnly) return
     return () => reportBrowserScreen({ projectId, visible: [], zoom: 1 })
-  }, [projectId])
+  }, [projectId, readOnly])
 }
 
 export default function BrowserLayer() {
@@ -253,9 +267,10 @@ export default function BrowserLayer() {
   // of a <webview> is fixed once it attaches, so a page whose profile changes is a new <webview>
   // (its key); the Canvas of another Project is a new Canvas (Canvas.tsx), and so a new layer.
   const placed = useMemo(() => placeBrowserPages(pages, profiles, project?.id), [pages, profiles, project])
-  useFollowBrowserLives(project?.id)
+  useFollowBrowserLives(project?.id, readOnly !== null)
+  // The Browsers whose page this window draws: their owner is this window (`here`).
   const live = useLiveBrowserIds(project?.id)
-  useReportScreen(project?.id, pages)
+  useReportScreen(project?.id, pages, readOnly !== null)
 
   // The profile the rule picked for a Node without one goes into the Node, as the address bar's
   // address does (not a step of ⌘Z): from then on the Node keeps it whatever profiles come later.

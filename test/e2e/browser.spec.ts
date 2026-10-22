@@ -260,15 +260,15 @@ test('New browser from the Canvas menu opens the typed address; the address the 
   await expect(window.getByTestId('browser-frame').getByTestId('browser-address')).toHaveValue(nextUrl)
   await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: 15_000, message: 'the page after the restart' }).toEqual([[nextUrl, 'yes']])
 
-  // A second window of the Project (ADR-0053) shows the same Node, with its page.
+  // A second window of the Project (ADR-0053) shows the same Node, with the frames of its one page
+  // (worfy-browser ticket 07, ADR-0078 item 16): the first window keeps the page.
   const second = await openSecondWindow(launched!)
   const secondFrame = second.locator(`[data-testid="browser-frame"][data-node-id="${id}"]`)
   await expect(secondFrame).toBeVisible({ timeout: 15_000 })
   await expect(secondFrame.getByTestId('browser-address')).toHaveValue(nextUrl)
-  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: 15_000, message: 'a page in each window' }).toEqual([
-    [nextUrl, 'yes'],
-    [nextUrl, 'yes'],
-  ])
+  await expect(secondFrame).toHaveAttribute('data-page', 'frames', { timeout: 15_000 })
+  await expect(secondFrame.getByTestId('browser-frames')).toHaveAttribute('data-frame', 'shown', { timeout: 15_000 })
+  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: 15_000, message: 'one page, in the first window' }).toEqual([[nextUrl, 'yes']])
 })
 
 // worfy-browser ticket 01 found that a press begun outside a Browser frame did not keep the page

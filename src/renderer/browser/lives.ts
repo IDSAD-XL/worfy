@@ -4,10 +4,16 @@
 // follows every `browser.lives.changed`. The Browser layer draws a page only for a Live Browser and
 // tells main what this window shows (`browser.screen`); an Asleep frame shows the picture of its page
 // (`browser.picture`) and wakes the Browser on a click (`browser.wake`).
+// A Live Browser's page is drawn in one window only, its owner (worfy-browser ticket 07, ADR-0078 item
+// 16): `here` of its life says this window is it; every other screen shows its frames (frames.ts).
+// The screen of a Linked machine reads the lives from the Machine of the Project, and tells it what
+// it shows under its screen id, again every BROWSER_SCREEN_RENEW_MS; a read-only one does neither:
+// they are `write`, and it shows the frame alone.
 import { useEffect, useMemo, useState } from 'react'
 import { create } from 'zustand'
 import type { BrowserLife } from '../../shared/ipc/browser'
-import { invoke, subscribe } from '../ipc'
+import { screenId } from '../canvas/screen'
+import { invoke, subscribe, windowMachine } from '../ipc'
 
 /** The lives of each Project's Browsers, by Project id, then by Node id. */
 const useLives = create<Record<string, Record<string, BrowserLife>>>(() => ({}))
@@ -16,10 +22,10 @@ function put(projectId: string, lives: readonly BrowserLife[]): void {
   useLives.setState((all) => ({ ...all, [projectId]: Object.fromEntries(lives.map((life) => [life.nodeId, life])) }))
 }
 
-/** Reads the lives of Project `projectId` and follows their changes while mounted. */
-export function useFollowBrowserLives(projectId: string | undefined): void {
+/** Reads the lives of Project `projectId` and follows their changes while mounted; nothing while `readOnly`. */
+export function useFollowBrowserLives(projectId: string | undefined, readOnly = false): void {
   useEffect(() => {
-    if (projectId === undefined) return
+    if (projectId === undefined || readOnly) return
     let stop: () => void
     try {
       stop = subscribe('browser.lives.changed', (change) => {
@@ -38,7 +44,7 @@ export function useFollowBrowserLives(projectId: string | undefined): void {
       (error: unknown) => console.error('browser.lives.list failed:', error),
     )
     return stop
-  }, [projectId])
+  }, [projectId, readOnly])
 }
 
 /** The life of Browser `nodeId`; undefined while main has none for it (before the first screen of the Project, or a Linked machine's window). */
@@ -46,14 +52,14 @@ export function useBrowserLife(projectId: string | undefined, nodeId: string): B
   return useLives((all) => (projectId === undefined ? undefined : all[projectId]?.[nodeId]))
 }
 
-/** The Node ids of the Live Browsers of Project `projectId`. */
+/** The Node ids of the Live Browsers of Project `projectId` whose page this window draws (`here`). */
 export function useLiveBrowserIds(projectId: string | undefined): ReadonlySet<string> {
   // One string, so the hook gives a new set only when the Live Browsers change.
   const key = useLives((all) =>
     projectId === undefined
       ? ''
       : Object.values(all[projectId] ?? {})
-          .filter((life) => life.live)
+          .filter((life) => life.live && life.here)
           .map((life) => life.nodeId)
           .sort()
           .join('\n'),
@@ -71,9 +77,9 @@ export function wakeBrowser(projectId: string, nodeId: string): void {
   )
 }
 
-/** Tells main what this window shows: the Browser frames in it and the zoom of its Canvas. */
+/** Tells main what this window shows: the Browser frames in it and the zoom of its Canvas; a Linked machine's window names itself. */
 export function reportBrowserScreen(report: { projectId: string; visible: string[]; zoom: number }): void {
-  void invoke('browser.screen', report).then(
+  void invoke('browser.screen', windowMachine() === null ? report : { ...report, screen: screenId() }).then(
     (result) => {
       if (!result.ok) console.warn('browser.screen failed:', result.error)
     },

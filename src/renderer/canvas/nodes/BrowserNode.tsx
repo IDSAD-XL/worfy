@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import type { BrowserProfile } from '../../../shared/browser/profiles'
 import type { BrowserControlMode } from '../../../shared/browser/tools'
 import { BrowserProfiles } from '../../browser/BrowserProfiles'
 import { returnBrowserControl, takeOverBrowser, useBrowserControl } from '../../browser/control'
+import { buttonOf, keyText, modifiersOf, navigateBrowserFrames, sendBrowserInput, useBrowserFrames } from '../../browser/frames'
 import { useBrowserLife, useBrowserPicture, wakeBrowser } from '../../browser/lives'
 import { useBrowserProfiles } from '../../browser/profiles'
 import { writeAction } from '../../projects/read-only'
@@ -43,6 +44,11 @@ import './BrowserNode.css'
 // went to sleep, under «Asleep · Click to wake»; a click anywhere on it wakes the Browser. A Live one
 // whose page has a beforeunload handler says «Unsaved changes» in its header (it does not sleep), and
 // one the user opened while every other Live Browser was busy says «Over the Live limit».
+// A Live Browser whose page another window draws, or the Machine of a Linked machine's Project
+// (worfy-browser ticket 07, ADR-0078 items 9 and 16), shows the frames of that page in its body and
+// sends it the user's click, scroll and keys; its address bar sends the page there through main.
+// A read-only screen of a Linked machine (ADR-0078 item 14) shows the frame with the name of the
+// Browser profile alone: no address bar, no buttons, no frames, no picture of an Asleep page.
 // The same kind as BROWSER_KIND of browser-frame.ts: a literal here, as fast refresh wants.
 export const kind = 'browser'
 export const defaultWidth = 640
@@ -55,7 +61,7 @@ export const createLabel = 'New browser'
  * that is not a step of ⌘Z (history.ts): typing an address is not a gesture over the Node. A new
  * Browser has no address and shows an empty page.
  */
-function AddressBar({ id, url, noProfile }: { id: string; url: string | null; noProfile: boolean }) {
+function AddressBar({ id, url, noProfile, framesOf }: { id: string; url: string | null; noProfile: boolean; framesOf: string | null }) {
   const ops = useLayoutOps()
   // On a read-only screen (worfy-link ticket 25) the address is shown and cannot be changed. Nor
   // while the Browser has no profile: there is no page to send, and an address kept in the Node
@@ -78,7 +84,9 @@ function AddressBar({ id, url, noProfile }: { id: string; url: string | null; no
     setSent({ address: next, over: url })
     setDraft(null)
     input.blur()
-    navigateBrowserPage(id, next)
+    // The page is drawn elsewhere: main sends it there (`framesOf` — its Project).
+    if (framesOf !== null) navigateBrowserFrames(framesOf, id, next)
+    else navigateBrowserPage(id, next)
     if (next !== url) void ops.apply({ op: 'patchData', id, data: { url: next } })
   }
 
@@ -282,6 +290,95 @@ function Asleep({ projectId, id, picture }: { projectId: string; id: string; pic
   )
 }
 
+/**
+ * The body of a Live Browser whose page is drawn elsewhere: the last frame of the page, and the
+ * user's input on it for the page — a press, a drag, a release and a scroll of the mouse in the
+ * page's CSS pixels, and every key while it has the focus (a click gives it). The keys stop here:
+ * the Canvas's own shortcuts do not see them.
+ */
+function Frames({ projectId, id }: { projectId: string; id: string }) {
+  const frame = useBrowserFrames(projectId, id, true)
+  const canvas = useRef<HTMLCanvasElement>(null)
+  const pressed = useRef<'left' | 'middle' | 'right' | null>(null)
+  useEffect(() => {
+    const target = canvas.current
+    if (frame === null || target === null || typeof createImageBitmap !== 'function') return
+    let current = true
+    void createImageBitmap(new Blob([frame.bytes as BlobPart], { type: 'image/jpeg' })).then(
+      (bitmap) => {
+        if (!current) return bitmap.close()
+        target.width = bitmap.width
+        target.height = bitmap.height
+        target.getContext('2d')?.drawImage(bitmap, 0, 0)
+        bitmap.close()
+      },
+      (error: unknown) => console.warn(`Browser ${id}: a frame could not be drawn`, error),
+    )
+    return () => {
+      current = false
+    }
+  }, [frame, id])
+  /** Where `event` is on the page, in its CSS pixels; null before the first frame. */
+  const at = (event: { clientX: number; clientY: number }): { x: number; y: number } | null => {
+    const target = canvas.current
+    if (frame === null || target === null) return null
+    const box = target.getBoundingClientRect()
+    if (box.width === 0 || box.height === 0) return null
+    return { x: ((event.clientX - box.left) / box.width) * frame.width, y: ((event.clientY - box.top) / box.height) * frame.height }
+  }
+  // The scroll is the page's, not the Canvas's: a passive React listener could not stop the Canvas's zoom.
+  useEffect(() => {
+    const target = canvas.current
+    if (target === null) return
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const point = at(event)
+      if (point !== null) sendBrowserInput(projectId, id, { kind: 'wheel', ...point, deltaX: event.deltaX, deltaY: event.deltaY, modifiers: modifiersOf(event) })
+    }
+    target.addEventListener('wheel', onWheel, { passive: false })
+    return () => target.removeEventListener('wheel', onWheel)
+  })
+  const mouse = (type: 'mousePressed' | 'mouseReleased' | 'mouseMoved', event: ReactPointerEvent<HTMLCanvasElement>, button: 'none' | 'left' | 'middle' | 'right') => {
+    const point = at(event)
+    if (point !== null) sendBrowserInput(projectId, id, { kind: 'mouse', type, ...point, button, clickCount: type === 'mouseMoved' ? 0 : Math.min(3, Math.max(1, event.detail)), modifiers: modifiersOf(event) })
+  }
+  const key = (type: 'keyDown' | 'keyUp', event: ReactKeyboardEvent<HTMLCanvasElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const text = type === 'keyDown' ? keyText(event) : undefined
+    sendBrowserInput(projectId, id, { kind: 'key', type, key: event.key, code: event.code, ...(text === undefined ? {} : { text }), keyCode: event.keyCode, modifiers: modifiersOf(event) })
+  }
+  return (
+    <canvas
+      ref={canvas}
+      className="w-browser-frame__frames nodrag nowheel nopan"
+      data-testid="browser-frames"
+      data-frame={frame === null ? 'none' : 'shown'}
+      tabIndex={0}
+      aria-label="The page of this Browser, shown from the window that runs it"
+      onPointerDown={(event) => {
+        event.currentTarget.focus()
+        event.currentTarget.setPointerCapture(event.pointerId)
+        pressed.current = buttonOf(event.button)
+        mouse('mousePressed', event, pressed.current)
+      }}
+      onPointerMove={(event) => {
+        // A drag only: a move without a button would send every hover over the network.
+        if (pressed.current !== null) mouse('mouseMoved', event, pressed.current)
+      }}
+      onPointerUp={(event) => {
+        const button = pressed.current ?? buttonOf(event.button)
+        pressed.current = null
+        mouse('mouseReleased', event, button)
+      }}
+      onContextMenu={(event) => event.preventDefault()}
+      onKeyDown={(event) => key('keyDown', event)}
+      onKeyUp={(event) => key('keyUp', event)}
+    />
+  )
+}
+
 /** The marks of a Live Browser that main keeps awake or lets beyond the limit, in its header. */
 function LifeMarks({ unsaved, overLimit }: { unsaved: boolean; overLimit: boolean }) {
   return (
@@ -382,8 +479,10 @@ export default function BrowserNode({ id, data }: CanvasNodeProps) {
   const profilesWindow = useProfilesWindow()
   const control = useBrowserControl(projectId, id)
   const life = useBrowserLife(projectId, id)
-  const asleep = life !== undefined && !life.live && choice.kind === 'use' && projectId !== undefined
   const readOnly = useReadOnly()
+  const asleep = life !== undefined && !life.live && choice.kind === 'use' && projectId !== undefined
+  // Live, and drawn by another window or another Machine: its body shows the frames of the page.
+  const frames = life?.live === true && !life.here && choice.kind === 'use' && projectId !== undefined && readOnly === null
   // In the lit Family of a hovered or selected Node — its Session's, its Ticket's (family.ts,
   // worfy-browser ticket 06): a Browser has no line of its own to draw, so its frame is marked.
   const inFamily = useEdgeFocus((state) => state.family !== null && state.family.has(id))
@@ -400,6 +499,7 @@ export default function BrowserNode({ id, data }: CanvasNodeProps) {
       data-profile={choice.kind === 'use' ? choice.id : undefined}
       data-control={control ?? undefined}
       data-life={life === undefined ? undefined : life.live ? 'live' : 'asleep'}
+      data-page={life?.live === true ? (life.here ? 'here' : 'frames') : undefined}
       data-family={inFamily ? 'lit' : undefined}
       onPointerDownCapture={takeOver}
       onKeyDownCapture={takeOver}
@@ -418,16 +518,22 @@ export default function BrowserNode({ id, data }: CanvasNodeProps) {
         ) : (
           <span className="w-browser-frame__title">Browser</span>
         )}
-        <NavButtons id={id} />
-        <AddressBar id={id} url={url} noProfile={choice.kind !== 'use'} />
-        {life?.live === true ? <LifeMarks unsaved={life.unsaved} overLimit={life.overLimit} /> : null}
-        {control !== null && projectId !== undefined && choice.kind !== 'choose' ? <DriveBadge projectId={projectId} id={id} mode={control} /> : null}
+        {readOnly !== null ? null : (
+          <>
+            <NavButtons id={id} />
+            <AddressBar id={id} url={url} noProfile={choice.kind !== 'use'} framesOf={frames ? projectId : null} />
+            {life?.live === true ? <LifeMarks unsaved={life.unsaved} overLimit={life.overLimit} /> : null}
+            {control !== null && projectId !== undefined && choice.kind !== 'choose' ? <DriveBadge projectId={projectId} id={id} mode={control} /> : null}
+          </>
+        )}
       </div>
       <div className="w-browser-frame__body" data-testid="browser-frame-body">
-        {choice.kind === 'choose' ? (
+        {readOnly !== null ? null : choice.kind === 'choose' ? (
           <ChooseProfile id={id} choice={choice} profiles={profiles ?? []} manage={() => profilesWindow.open(null)} />
         ) : asleep ? (
           <Asleep projectId={projectId} id={id} picture={life.picture} />
+        ) : frames ? (
+          <Frames projectId={projectId} id={id} />
         ) : (
           <OpenBar id={id} url={url} />
         )}
