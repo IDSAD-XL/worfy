@@ -5,8 +5,7 @@ import { create } from 'zustand'
 import { DEFAULT_BROWSER_PROFILE } from '../../../shared/browser/partition'
 import type { LayoutNode } from '../../../shared/layout/types'
 
-/** The `kind` of a Browser Node in the Layout. */
-export const BROWSER_KIND = 'browser'
+export { BROWSER_KIND } from '../../../shared/browser/tools'
 /** Height of the frame's header, in Canvas units. */
 export const BROWSER_HEADER_HEIGHT = 28
 /** Width of the frame's border, in Canvas units. */

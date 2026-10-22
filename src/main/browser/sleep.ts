@@ -3,6 +3,13 @@
 // the one decision for every window from them (src/main/browser/live.ts); each window only tells
 // main what it shows (`browser.screen`, src/shared/ipc/browser.ts).
 //
+// The screens are every screen of the Project (worfy-browser ticket 07): the windows of this
+// Machine, and the windows of the Linked machines with full access, which see the Browser's frames.
+// A Browser one of them shows at a readable zoom does not sleep for being off screen. A window here
+// says when it closes; a Linked machine's screen may vanish with its connection or its window
+// without a word, so its report counts for LINKED_SCREEN_MS after it came (screensNow), and the
+// screen renews it sooner than that (BROWSER_SCREEN_RENEW_MS, src/shared/ipc/browser.ts).
+//
 // A Live Browser goes to sleep when
 // - no screen shows it at a readable zoom for longer than `offscreenMs`: off every screen, or shown
 //   only where the Canvas is zoomed out below `minZoom` (on every screen that shows it; one screen
@@ -57,12 +64,22 @@ export interface BrowserNow {
   session: SessionUse | null
 }
 
-/** What one screen — a window of this Machine — shows now. */
+/** What one screen — a window of this Machine or of a Linked machine — shows now. */
 export interface ScreenNow {
   /** The keys of the Browsers whose frame is in the window. */
   visible: readonly string[]
   /** The zoom of its Canvas. */
   zoom: number
+  /** When a Linked machine's screen told it; absent for a window of this Machine, which counts until it closes. */
+  toldAt?: number
+}
+
+/** How long the report of a Linked machine's screen counts. */
+export const LINKED_SCREEN_MS = 60_000
+
+/** The screens whose reports count at `now`: every window here, and each Linked machine's screen told within LINKED_SCREEN_MS. */
+export function screensNow(screens: readonly ScreenNow[], now: number): ScreenNow[] {
+  return screens.filter((screen) => screen.toldAt === undefined || now - screen.toldAt <= LINKED_SCREEN_MS)
 }
 
 export type SleepReason = 'offscreen' | 'far' | 'idle'

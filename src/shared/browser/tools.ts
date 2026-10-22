@@ -12,6 +12,9 @@ import { nodeIdSchema } from '../layout/types'
 
 export const BROWSER_SERVER_NAME = 'worfy-browser'
 
+/** The `kind` of a Browser Node in the Layout. */
+export const BROWSER_KIND = 'browser'
+
 /** The size of a Browser a Session opens: that of «New browser» (src/renderer/canvas/nodes/BrowserNode.tsx). */
 export const BROWSER_SIZE = { w: 640, h: 440 }
 

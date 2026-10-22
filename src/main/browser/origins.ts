@@ -14,12 +14,17 @@ export function originOf(url: string): string {
   return parsed.protocol
 }
 
+/** `url` parsed when it is the address of an http(s) page; null for anything else (about:, data:, javascript:, file:, no URL). */
+export function webAddress(url: string): URL | null {
+  if (!URL.canParse(url)) return null
+  const parsed = new URL(url)
+  return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed : null
+}
+
 /** Whether a Session may take a Browser to `url`, by the origins of its profile. */
 export function sessionMayGo(url: string, origins: readonly string[]): boolean {
-  if (!URL.canParse(url)) return false
-  const parsed = new URL(url)
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
-  return origins.includes(parsed.origin)
+  const parsed = webAddress(url)
+  return parsed !== null && origins.includes(parsed.origin)
 }
 
 /** Why a Session may not take a Browser of profile `profile` to `url`, naming the origin and the list; null when it may. */

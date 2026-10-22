@@ -259,6 +259,16 @@ describe('the read-or-write mark of `project` channels', () => {
     'browser.control.hold',
     'browser.control.return',
     'browser.control.take',
+    // What a read-only Linked machine may not see or touch of a Browser: only its frame with the
+    // profile's name (worfy-browser ticket 07, ADR-0078 item 14) — no frames, no input, no address,
+    // no lives, no picture of an Asleep page, no wake, no report of a screen.
+    'browser.frames.watch',
+    'browser.input',
+    'browser.lives.list',
+    'browser.navigate',
+    'browser.picture',
+    'browser.screen',
+    'browser.wake',
     'cardApi.askFinish',
     'cardApi.askPrepare',
     'cardApi.dataSet',
@@ -298,8 +308,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'trash.put',
     'trash.restore',
   ]
-  /** Every event is reading but the output of a Terminal (answer 2). */
-  const WRITE_EVENTS = ['terminal.output']
+  /** Every event is reading but the output of a Terminal (answer 2), and the frames and lives of a Browser (worfy-browser ticket 07, ADR-0078 item 14). */
+  const WRITE_EVENTS = ['browser.frame', 'browser.lives.changed', 'terminal.output']
 
   const project = channels.filter((channel) => channel.access === 'project')
   const named = (kind: 'invoke' | 'event', use: string): string[] =>
@@ -327,7 +337,7 @@ describe('the read-or-write mark of `project` channels', () => {
     expect(named('invoke', 'write')).toEqual([...WRITE_CALLS].sort())
   })
 
-  it('every `project` event is `read` but Terminal output', () => {
+  it('every `project` event is `read` but Terminal output and a Browser\'s frames and lives', () => {
     expect(named('event', 'write')).toEqual(WRITE_EVENTS)
     expect(named('event', 'read').length).toBe(project.filter((channel) => channel.kind === 'event').length - WRITE_EVENTS.length)
   })

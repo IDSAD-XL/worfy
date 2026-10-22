@@ -21,7 +21,7 @@ const main = vi.hoisted(() => ({ profiles: {} as Record<string, string[]> }))
 vi.mock('../../src/renderer/ipc', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/renderer/ipc')>()),
   invoke: (channel: string, input: { projectId: string }) => {
-    if (channel === 'browser.lives.list') return Promise.resolve({ ok: true, value: { projectId: input.projectId, lives: [{ nodeId: 'b0', live: true, unsaved: false, overLimit: false, picture: null }] } })
+    if (channel === 'browser.lives.list') return Promise.resolve({ ok: true, value: { projectId: input.projectId, lives: [{ nodeId: 'b0', live: true, unsaved: false, overLimit: false, picture: null, here: true }] } })
     if (channel !== 'browser.profiles.list') return Promise.resolve({ ok: false, error: `${channel} is not faked` })
     const profiles = (main.profiles[input.projectId] ?? []).map((id): BrowserProfile => ({ id, name: id, origins: [], autopilot: false }))
     return Promise.resolve({ ok: true, value: { profiles } })

@@ -64,6 +64,11 @@ export function onNewDocument(client: Pick<NavigatingClient, 'on'>, reset: () =>
   })
 }
 
+/** Whether `id` is a window's: its webContents id, a number. A string is a client without a window. */
+export function isWindowId(id: ClientId): id is number {
+  return typeof id === 'number'
+}
+
 /** The id rule of a client without a window: "<kind>:<name>", kind in lower case, no spaces. */
 const WINDOWLESS_ID = /^[a-z][a-z0-9-]*:\S+$/
 
