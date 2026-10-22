@@ -82,6 +82,9 @@ const styles = {
 
 type Target = { name: string | null; address: string }
 
+/** The shortest wait before the window asks main again whether the pause is over. */
+const PAUSE_RECHECK_MS = 1000
+
 const checkIcon = (
   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M3.5 8.5l3 3 6-7" />
@@ -154,18 +157,27 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
   // When the pause ends, linking opens again by itself: the window asks main once more and shows the code.
   // Timers stand still while the Mac sleeps, so main may end the pause first: its next state has no
   // pause and no code, cancels the timer, and linking opens from here instead.
+  // main may answer that call with the same pause (its clock a moment behind): every answer that is not
+  // an error counts as an ask, so the timer is set again, never sooner than PAUSE_RECHECK_MS, and main is not asked in a loop.
   const wasPaused = useRef(false)
+  const [asks, setAsks] = useState(0)
   const shownCode = linking?.code ?? null
   useEffect(() => {
     if (pausedUntil !== undefined) {
       wasPaused.current = true
-      const timer = setTimeout(() => void openLinking().then(setOpenError), Math.max(0, pausedUntil - Date.now()))
+      const ask = (): void =>
+        void openLinking().then((error) => {
+          setOpenError(error)
+          // A failed call is shown once: asking again would only repeat it and restart main's discovery.
+          if (error === undefined) setAsks((count) => count + 1)
+        })
+      const timer = setTimeout(ask, Math.max(PAUSE_RECHECK_MS, pausedUntil - Date.now()))
       return () => clearTimeout(timer)
     }
     if (!wasPaused.current) return
     wasPaused.current = false
     if (shownCode === null) void openLinking().then(setOpenError)
-  }, [pausedUntil, shownCode])
+  }, [pausedUntil, shownCode, asks])
 
   const problem = openError ?? state?.problem ?? null
   const targetLabel = target ? (target.name === null ? target.address : `${target.name} (${target.address})`) : ''
