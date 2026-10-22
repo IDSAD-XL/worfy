@@ -4,7 +4,7 @@
 // sends them on that call (src/main/ipc/menu.ts). The order matters: a command main sends after the
 // call finds the listener in place.
 import type { MenuCommand } from '../shared/ipc/menu'
-import { invoke, subscribe } from './ipc'
+import { invoke, showSubscribeError, subscribe } from './ipc'
 
 /**
  * Calls `run` each time the app menu sends this window `command`, the ones main held included.
@@ -17,7 +17,7 @@ export function followMenuCommand(command: MenuCommand, run: () => void): () => 
       if (sent === command) run()
     })
   } catch (error) {
-    console.error('menu.command: cannot subscribe', error)
+    showSubscribeError('menu.command', error)
     return () => undefined
   }
   void invoke('menu.ready', command).then((result) => {

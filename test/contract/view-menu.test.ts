@@ -55,6 +55,7 @@ const electron = vi.hoisted(() => {
     /** The listeners of the web contents, by event. */
     readonly listeners = new Map<string, ((...args: unknown[]) => void)[]>()
     readonly webContents: {
+      id: string
       send: (channel: string, payload: unknown) => void
       setZoomFactor: (factor: number) => void
       on: (event: string, listener: (...args: unknown[]) => void) => void
@@ -68,6 +69,7 @@ const electron = vi.hoisted(() => {
       this.name = name
       this.options = typeof made === 'string' ? undefined : made
       this.webContents = {
+        id: name,
         send: (channel, payload) => sent.push({ to: name, channel, payload }),
         setZoomFactor: (factor) => zooms.push({ to: name, factor }),
         on: (event, listener) => this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]),
@@ -717,6 +719,7 @@ describe('a menu command chosen before the page follows it (worfy-windows ticket
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   /** The menu of a fresh main and a click on each command's item with a window, as Electron makes it. */
@@ -776,8 +779,23 @@ describe('a menu command chosen before the page follows it (worfy-windows ticket
     expect(electron.sent).toEqual([{ to: 'other', channel: PREFIXED, payload: 'settings' }])
   })
 
-  it('a command held longer than HELD_FOR_MS is dropped, not sent late', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
+  it('pins the bounds: a held command waits 10 s at most, and a window holds 8 at most', async () => {
+    const { held } = await menuItems()
+    expect(held.HELD_FOR_MS).toBe(10_000)
+    expect(held.HELD_AT_MOST).toBe(8)
+  })
+
+  it('a command sent at once to a ready page is not held as well: a second menu.ready sends nothing more', async () => {
+    const { choose } = await menuItems()
+    await pageFollows(electron.window, ['settings'])
+    choose.settings(electron.window)
+    await pageFollows(electron.window, ['settings'])
+    expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'settings' }])
+  })
+
+  it('a command held longer than HELD_FOR_MS is dropped with a warning that names it and the window, not sent late', async () => {
+    vi.useFakeTimers({ toFake: ['performance'] })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const { choose, held } = await menuItems()
     choose.settings(electron.window)
     vi.advanceTimersByTime(held.HELD_FOR_MS)
@@ -786,15 +804,28 @@ describe('a menu command chosen before the page follows it (worfy-windows ticket
     await pageFollows(electron.window)
     // The settings command is HELD_FOR_MS + 1 ms old by now; the sidebar one, 1 ms.
     expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'toggleSidebar' }])
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0]?.[0]).toMatch(/'settings' for window main dropped/)
   })
 
-  it('a command at exactly HELD_FOR_MS still arrives', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
+  it('a command at exactly HELD_FOR_MS still arrives, without a warning', async () => {
+    vi.useFakeTimers({ toFake: ['performance'] })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const { choose, held } = await menuItems()
     choose.shortcuts(electron.window)
     vi.advanceTimersByTime(held.HELD_FOR_MS)
     await pageFollows(electron.window)
     expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'shortcuts' }])
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('the wait is measured on the monotonic clock: a jump of the system clock drops nothing', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const { choose, held } = await menuItems()
+    choose.settings(electron.window)
+    vi.setSystemTime(Date.now() + 10 * held.HELD_FOR_MS)
+    await pageFollows(electron.window)
+    expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'settings' }])
   })
 
   it('a window holds at most HELD_AT_MOST commands, the latest ones', async () => {
@@ -807,12 +838,13 @@ describe('a menu command chosen before the page follows it (worfy-windows ticket
     expect(payloads.at(-1)).toBe('toggleSidebar')
   })
 
-  it('a new document in the main frame drops what is held and what the old page followed', async () => {
+  it('a new document that commits in the main frame drops what is held and what the old page followed', async () => {
     const { choose } = await menuItems()
     await pageFollows(electron.window, ['shortcuts'])
     choose.settings(electron.window)
-    // View ▸ Reload: the main frame starts to load a new document.
+    // View ▸ Reload: the new document commits.
     electron.window.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    electron.window.fire('did-navigate', {}, 'file:///index.html', -1, '')
     choose.shortcuts(electron.window)
     expect(electron.sent).toEqual([])
     // The new page follows settings: the command chosen for the old page is gone.
@@ -823,12 +855,47 @@ describe('a menu command chosen before the page follows it (worfy-windows ticket
     expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'shortcuts' }])
   })
 
-  it('a navigation inside the document or of a frame keeps what is held and what the page follows', async () => {
+  it('a command chosen before the page was ever ready, then a reload, then menu.ready: nothing is sent', async () => {
+    const { choose } = await menuItems()
+    choose.settings(electron.window)
+    electron.window.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    electron.window.fire('did-navigate', {}, 'file:///index.html', -1, '')
+    await pageFollows(electron.window)
+    expect(electron.sent).toEqual([])
+  })
+
+  it('a navigation that starts but never commits leaves the old page ready and what it holds in place', async () => {
+    const { choose } = await menuItems()
+    await pageFollows(electron.window, ['settings'])
+    choose.toggleSidebar(electron.window)
+    // A link that turns into a download, a 204, a refused URL: the start comes, the commit does not.
+    electron.window.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    electron.window.fire('did-fail-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true)
+    electron.window.fire('did-stop-loading')
+    choose.settings(electron.window)
+    expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'settings' }])
+    await pageFollows(electron.window, ['toggleSidebar'])
+    expect(electron.sent.map((each) => each.payload)).toEqual(['settings', 'toggleSidebar'])
+  })
+
+  it("an old page's menu.ready that arrives during a reload, before the commit, does not make the new page ready", async () => {
+    const { choose } = await menuItems()
+    electron.window.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    // Sent by the old page before it unloaded.
+    await pageFollows(electron.window, ['settings'])
+    electron.window.fire('did-navigate', {}, 'file:///index.html', -1, '')
+    choose.settings(electron.window)
+    expect(electron.sent).toEqual([])
+    await pageFollows(electron.window, ['settings'])
+    expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'settings' }])
+  })
+
+  it('a navigation inside the document keeps what is held and what the page follows', async () => {
     const { choose } = await menuItems()
     await pageFollows(electron.window, ['shortcuts'])
     choose.settings(electron.window)
     electron.window.fire('did-start-navigation', { isMainFrame: true, isSameDocument: true })
-    electron.window.fire('did-start-navigation', { isMainFrame: false, isSameDocument: false })
+    electron.window.fire('did-navigate-in-page', {}, 'file:///index.html#x', true)
     choose.shortcuts(electron.window)
     expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'shortcuts' }])
     await pageFollows(electron.window, ['settings'])
@@ -841,6 +908,15 @@ describe('a menu command chosen before the page follows it (worfy-windows ticket
     choose.settings(gone)
     gone.destroyed = true
     await pageFollows(gone)
+    expect(electron.sent).toEqual([])
+  })
+
+  it('deliverMenuCommand sends nothing to a destroyed window, even one whose page was ready', async () => {
+    const { held } = await menuItems()
+    const gone = new electron.FakeBrowserWindow('gone')
+    await pageFollows(gone)
+    gone.destroyed = true
+    held.deliverMenuCommand(gone.webContents as never, 'settings')
     expect(electron.sent).toEqual([])
   })
 

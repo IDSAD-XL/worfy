@@ -9,11 +9,19 @@
 // it holds the command and sends it on that call.
 //
 // What is held is bounded, so a command never fires long after it was chosen:
-// - a held command older than HELD_FOR_MS when the page becomes ready is dropped;
+// - a held command older than HELD_FOR_MS when the page becomes ready is dropped, with a warning;
 // - at most HELD_AT_MOST commands per window, the oldest dropped first;
-// - a new document in the main frame (View ▸ Reload, a dev server reload) drops what is held and
-//   what the old page said it follows: the new page subscribes and says so again;
+// - when a new document of the main frame commits ('did-navigate': View ▸ Reload, a dev server
+//   reload), what is held and what the old page said it follows are dropped: the new page
+//   subscribes and says so again. The reset waits for the commit, not the start of the navigation:
+//   a navigation that never commits (a download, a 204, a refused URL) leaves the old page up, and
+//   it keeps getting its commands. A `menu.ready` of the old page sent during a reload arrives
+//   before the commit, so the commit clears it too;
 // - a destroyed window gets nothing.
+//
+// The order of delivery is kept within one command, not across commands: held commands go out
+// when the page becomes ready for their kind, so a held `toggleSidebar` may arrive after a
+// `settings` chosen later, when the page said it follows `settings` first.
 import { clientOf, type Client } from '../clients'
 import { menuCommand, menuReady, type MenuCommand } from '../../shared/ipc/menu'
 import { defineHandler, emit, type HandlerModule } from './index'
@@ -23,17 +31,18 @@ export const HELD_FOR_MS = 10_000
 /** How many commands one window may hold at once. */
 export const HELD_AT_MOST = 8
 
-/** A window's webContents: a client that also reports the navigations of its frames. */
+/** A window's webContents: a client that also reports the documents its main frame commits. */
 export type MenuTarget = Client & {
-  on?(event: 'did-start-navigation', listener: (details: { isMainFrame: boolean; isSameDocument: boolean }) => void): unknown
+  on?(event: 'did-navigate', listener: () => void): unknown
 }
 
 interface TargetState {
   /**
    * The commands the page of the current document said it follows.
    * shortcut: an unsubscribed follower still counts as ready, redo with a `menu.unready` call when one can unmount before its page unloads.
-   * Until then a command sent while its follower is unmounted is lost; today all three followers
-   * live in the app shell for the whole life of the page.
+   * Until then a command sent while its follower is unmounted is lost. Today all three followers
+   * live in the app shell for the whole life of the page; an error boundary that replaced the shell
+   * while the page stays up would unmount all three and make this real.
    */
   readonly ready: Set<MenuCommand>
   /** The commands chosen before the page followed them, oldest first, with the time they were chosen. */
@@ -49,8 +58,8 @@ function stateOf(target: MenuTarget): TargetState {
     const fresh: TargetState = { ready: new Set(), held: [] }
     state = fresh
     states.set(target, fresh)
-    target.on?.('did-start-navigation', (details) => {
-      if (!details.isMainFrame || details.isSameDocument) return
+    // Main frame only, and never for a navigation inside the document ('did-navigate-in-page').
+    target.on?.('did-navigate', () => {
       fresh.ready.clear()
       fresh.held = []
     })
@@ -66,8 +75,8 @@ export function deliverMenuCommand(target: MenuTarget, command: MenuCommand): vo
     emit(target, menuCommand, command)
     return
   }
-  const now = Date.now()
-  state.held = [...state.held.filter((entry) => now - entry.at <= HELD_FOR_MS), { command, at: now }].slice(-HELD_AT_MOST)
+  // performance.now(): a jump of the system clock does not change how long a command waited.
+  state.held = [...state.held, { command, at: performance.now() }].slice(-HELD_AT_MOST)
 }
 
 /** The page of `target` follows `command` from now on: it gets the held ones of that kind, in order. */
@@ -75,10 +84,13 @@ export function menuCommandReady(target: MenuTarget, command: MenuCommand): void
   if (target.isDestroyed()) return
   const state = stateOf(target)
   state.ready.add(command)
-  const now = Date.now()
-  const due = state.held.filter((entry) => entry.command === command && now - entry.at <= HELD_FOR_MS)
-  state.held = state.held.filter((entry) => entry.command !== command && now - entry.at <= HELD_FOR_MS)
-  for (const entry of due) emit(target, menuCommand, entry.command)
+  const now = performance.now()
+  const mine = state.held.filter((entry) => entry.command === command)
+  state.held = state.held.filter((entry) => entry.command !== command)
+  for (const entry of mine) {
+    if (now - entry.at <= HELD_FOR_MS) emit(target, menuCommand, entry.command)
+    else console.warn(`[menu] '${entry.command}' for window ${String(target.id)} dropped: the page was not ready within ${HELD_FOR_MS} ms`)
+  }
 }
 
 export default [

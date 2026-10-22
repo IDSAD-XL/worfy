@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { followMenuCommand } from '../../src/renderer/menu-command'
+import { toasts } from '../../src/renderer/toast/toasts'
 
 const globals = globalThis as { worfy?: WorfyBridge }
 
@@ -36,6 +37,7 @@ function recordingBridge(answer: { ok: true; value: undefined } | { ok: false; e
 }
 
 afterEach(() => {
+  toasts.setState({ toasts: [] })
   delete globals.worfy
   vi.restoreAllMocks()
 })
@@ -70,10 +72,12 @@ describe('followMenuCommand', () => {
     expect(run).toHaveBeenCalledTimes(1)
   })
 
-  it('without the preload bridge subscribes to nothing and calls nothing', () => {
+  it('without the preload bridge subscribes to nothing and calls nothing, and says so as other subscribers do', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const unsubscribe = followMenuCommand('settings', () => undefined)
     expect(error).toHaveBeenCalledWith('menu.command: cannot subscribe', expect.any(Error))
+    // showSubscribeError of src/renderer/ipc.ts: one error toast keyed by the channel.
+    expect(toasts.getState().toasts).toEqual([expect.objectContaining({ kind: 'error', key: 'ipc:menu.command' })])
     expect(() => unsubscribe()).not.toThrow()
   })
 })
