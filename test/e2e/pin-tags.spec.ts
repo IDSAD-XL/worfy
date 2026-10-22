@@ -33,8 +33,14 @@ interface Layout {
 let scratch: string
 let dataDir: string
 
-function writeLayout(nodes: { id: string; x: number; y: number; pinned?: boolean }[]): void {
-  const layout = { nodes: nodes.map((node) => ({ ...node, kind: 'note', w: 220, h: 120, data: { text: node.id } })), viewport: { x: 0, y: 0, zoom: 1 } }
+/**
+ * Writes the notes as the Layout; with `orchestrator`, also the Orchestrator Node at that point,
+ * otherwise main places it itself at the first free spot (under the notes).
+ */
+function writeLayout(nodes: { id: string; x: number; y: number; pinned?: boolean }[], orchestrator?: { x: number; y: number }): void {
+  const notes = nodes.map((node) => ({ ...node, kind: 'note', w: 220, h: 120, data: { text: node.id } }))
+  const orch = orchestrator === undefined ? [] : [{ id: 'orch', kind: 'orchestrator', ...orchestrator, w: 360, h: 200, locked: true, data: {} }]
+  const layout = { nodes: [...notes, ...orch], viewport: { x: 0, y: 0, zoom: 1 } }
   writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify(layout))
 }
 
@@ -177,10 +183,14 @@ async function zoomOut(window: Page): Promise<number> {
 const visibleMinimapNodes = (window: Page) => window.locator('.react-flow__minimap-node:visible')
 
 test('a pinned Node stays at its place on the screen while the Canvas pans and zooms, after a restart too; Pin and Unpin do not move it on the screen', async () => {
-  writeLayout([
-    { id: 'pinme', x: 120, y: 100 },
-    { id: 'other', x: 520, y: 100 },
-  ])
+  // The Orchestrator Node stays far below: next to the Node it would make main's no-overlap settle (ADR-0038) move the Node on Unpin.
+  writeLayout(
+    [
+      { id: 'pinme', x: 120, y: 100 },
+      { id: 'other', x: 520, y: 100 },
+    ],
+    { x: 120, y: 1400 },
+  )
   let pinnedBox: Awaited<ReturnType<typeof box>>
   const first = await launch()
   try {
