@@ -31,7 +31,7 @@ import { LinkSender, readOnlyRefusal } from '../../src/main/link/ipc-adapter'
 import { LINK_PROTOCOL_VERSION } from '../../src/main/link/messages'
 import { projectStore } from '../../src/main/projects/store'
 import { HarnessScriptStartError, type ProfileRun } from '../../src/main/workflow/profile'
-import { TerminalRegistry } from '../../src/main/terminal/pty'
+import { spawnShellPty, TerminalRegistry } from '../../src/main/terminal/pty'
 import { autopilotStart } from '../../src/shared/ipc/autopilot'
 import { cardApiConfirm } from '../../src/shared/ipc/card-api'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -157,8 +157,14 @@ const windowsRoot: Record<string, string> = process.platform === 'win32' ? { Sys
 function shellEnv(): Record<string, string> {
   return { ...windowsRoot, ...windowsProfileEnv(home), SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ' }
 }
+/** The environment of each shell B's Terminal started, as its pty got it. */
+const spawnedEnvs: Record<string, string>[] = []
 const terminals = new TerminalRegistry({
   env: () => Promise.resolve(shellEnv()),
+  spawn: (file, args, options) => {
+    spawnedEnvs.push(options.env)
+    return spawnShellPty(file, args, options)
+  },
   killGraceMs: 1000,
 })
 const claudeHome = new ClaudeHomeRegistry({ home: CLAUDE_HOME_FIXTURE, listWorktrees: async () => [], isAlive: async () => false })
@@ -950,10 +956,20 @@ async function windowIpc(names: readonly string[] = ['./terminal.ts']) {
 }
 
 describe('the Terminal of B', () => {
-  // Checked on the environment, not by typing into a shell: a shell typed into with the wrong
-  // environment would append the typed line to the history this test guards.
-  it.runIf(process.platform === 'win32')("on Windows its shells have the temporary home as the user's profile, never the test process's", () => {
-    const shell = shellEnv()
+  // A shell of B's own registry is started and its pty's environment checked. Nothing is typed into
+  // it: a shell typed into with the wrong environment would append the typed line to the history
+  // this test guards, and PSReadLine writes only the lines typed.
+  it.runIf(process.platform === 'win32')("on Windows its shells have the temporary home as the user's profile, never the test process's", async () => {
+    const terminalKey = JSON.stringify([PROJECT, 'profile-check'])
+    const before = spawnedEnvs.length
+    const sink = { output: () => undefined, exit: () => undefined, started: () => undefined }
+    try {
+      await terminals.open(terminalKey, { cwd: home, cols: 80, rows: 24 }, {}, sink)
+    } finally {
+      await terminals.close(terminalKey)
+    }
+    expect(spawnedEnvs.length).toBe(before + 1)
+    const shell = spawnedEnvs[before]!
     for (const key of PROFILE_VARS) expect(shell[key], key).toBeDefined()
     expect(shell.USERPROFILE).toBe(home)
     expect(shell.APPDATA).toBe(join(home, 'AppData', 'Roaming'))
