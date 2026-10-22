@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { MenuCommand } from '../../src/shared/ipc/menu'
 import { followMenuCommand } from '../../src/renderer/menu-command'
-import { followMenuCommands } from '../../src/renderer/settings/settings-window'
+import { closeSettings, followMenuCommands, useSettingsWindow } from '../../src/renderer/settings/settings-window'
 import { followSidebarCommand } from '../../src/renderer/shell/sidebar-visibility'
 import { followShortcutsCommands } from '../../src/renderer/shortcuts/shortcuts-window'
 import { toasts } from '../../src/renderer/toast/toasts'
@@ -107,6 +107,25 @@ const subscribers: { command: MenuCommand; follow: () => () => void }[] = [
   { command: 'toggleSidebar', follow: () => followSidebarCommand(() => undefined) },
   { command: 'shortcuts', follow: followShortcutsCommands },
 ]
+
+describe('the settings subscriber', () => {
+  afterEach(() => {
+    closeSettings()
+    useSettingsWindow.setState({ section: null })
+  })
+
+  // The Sidebar and Shortcuts subscribers are pinned by shell.test.tsx and
+  // shortcuts-overlay.test.tsx; this one only by e2e until now.
+  it("opens the Settings window when the app menu sends 'settings', and only then", () => {
+    const bridge = recordingBridge()
+    const unsubscribe = followMenuCommands()
+    bridge.emit('menu.command', 'toggleSidebar')
+    expect(useSettingsWindow.getState().open).toBe(false)
+    bridge.emit('menu.command', 'settings')
+    expect(useSettingsWindow.getState()).toEqual({ open: true, section: null })
+    unsubscribe()
+  })
+})
 
 describe.each(subscribers)('the $command subscriber', ({ command, follow }) => {
   it(`subscribes to menu.command, then calls menu.ready with '${command}'`, () => {

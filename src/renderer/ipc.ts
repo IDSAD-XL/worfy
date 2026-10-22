@@ -158,8 +158,21 @@ export function windowMachine(): string | null {
   return machine === null || machine === '' ? null : machine
 }
 
+/** The one lookup of the global object the preload exposes; undefined without the preload. */
+function lookUpPreloadBridge(): WorfyBridge | undefined {
+  return (globalThis as { worfy?: WorfyBridge }).worfy
+}
+
+/**
+ * Whether the preload bridge is in place. It is not in a unit test of a component that sets none;
+ * the modules that then do nothing (no subscription, no call to main) ask this instead of the global.
+ */
+export function hasPreloadBridge(): boolean {
+  return lookUpPreloadBridge() !== undefined
+}
+
 function preloadBridge(): WorfyBridge {
-  const bridge = (globalThis as { worfy?: WorfyBridge }).worfy
+  const bridge = lookUpPreloadBridge()
   if (!bridge) throw new Error('window.worfy is missing: the preload did not run')
   return bridge
 }

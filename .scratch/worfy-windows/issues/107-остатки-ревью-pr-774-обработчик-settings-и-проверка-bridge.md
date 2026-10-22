@@ -50,3 +50,23 @@ Source: ревью PR #774 ([Ticket 103](103-остатки-ревью-pr-753-п
 - `test/unit/menu-command.test.tsx` — test-ы подписчиков из PR #774.
 
 ## Итог
+
+2026-10-22, ветка `worfy-windows/107` от `main` `0437d084`, Windows-ПК.
+
+1. **Test обработчика `settings`.** `test/unit/menu-command.test.tsx`, describe «the settings subscriber»: после
+   `followMenuCommands()` команда `toggleSidebar` окно не открывает, команда `settings` открывает его на первом
+   разделе (`{ open: true, section: null }`). Мутант «пустая функция вместо `openSettings`» в
+   `src/renderer/settings/settings-window.ts` — красный (1 failed: этот test).
+2. **Одна проверка bridge.** `src/renderer/ipc.ts`: закрытая `lookUpPreloadBridge()` — единственное чтение
+   `globalThis.worfy`; экспортирована `hasPreloadBridge(): boolean` (`!== undefined`, как в трёх копиях);
+   `preloadBridge()` берёт bridge через тот же поиск и, как прежде, падает на любом ложном значении.
+   `menu-command.ts`, `shell/sidebar-visibility.ts`, `settings/useAppSettings.ts` зовут `hasPreloadBridge()`;
+   импорт типа `WorfyBridge` в них больше не нужен. Цикла импорта нет: `ipc.ts` импортирует только
+   `shared/ipc/channels` и `toast/toasts` (а тот — только `zustand/vanilla`).
+   Мутант «всегда true» — красные 7 test-ов (menu-command, settings-dialog, shell, use-app-settings); «всегда
+   false» — красные 20 (menu-command, use-app-settings, sidebar-section, shortcuts-overlay).
+
+Проверки (все с кодом): оба grep-а «Готово, когда» находят совпадения только в `src/renderer/ipc.ts`;
+`menu-command`, `settings-dialog`, `shell`, `shortcuts-overlay`, `use-app-settings`, `sidebar-section` и
+`test/contract/ipc-renderer.test.tsx` — 3 прогона, 121/121, EXIT=0; `no-rmsync` EXIT=0; `pnpm lint` EXIT=0;
+`pnpm typecheck` EXIT=0; gate fast — в отчёте PR. e2e не запускались (пауза владельца на окна; правка их не касается).
