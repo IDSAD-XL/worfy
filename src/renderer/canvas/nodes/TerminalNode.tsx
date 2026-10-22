@@ -10,6 +10,7 @@ import { matches } from '../../shortcuts/match'
 import type { CanvasNodeProps } from './index'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
+import { keepAltBufferFitted } from './terminal-alt-buffer'
 import { watchTypedLine, type TypedLineWatch } from './terminal-line'
 import { unscaleMouse } from './terminal-mouse'
 import { watchUserInput } from './terminal-user-input'
@@ -259,6 +260,8 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     // Before any output: the replay holds the mark of the prompt that waits now.
     const line = watchTypedLine(terminal)
     typedLine.current = line
+    // The alternate screen gets no scrollback when the rows shrink (terminal-alt-buffer.ts).
+    const altBuffer = keepAltBufferFitted(terminal)
     // ⌘I opens the Command request panel instead of reaching the shell: keydown, keypress and keyup alike.
     terminal.attachCustomKeyEventHandler((event) => {
       if (!opensRequestPanel(event, requestAvailable.current)) return true
@@ -430,6 +433,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       if (xterm.current === terminal) xterm.current = null
       if (typedLine.current === line) typedLine.current = null
       line.dispose()
+      altBuffer.dispose()
       terminal.dispose()
     }
   }, [projectId, id, run])

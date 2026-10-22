@@ -334,15 +334,20 @@ test('a Terminal running a program in the alternate screen gets no arrow keys fr
   await expectCanvasMoves(window, terminalScreen(window), -NOTCH)
   await expectCanvasMoves(window, terminalScreen(window), NOTCH)
 
-  // Typed once the Terminal is active, a mark reaches the program after anything the wheel sent it
-  // before: by the time cat echoes the mark, it has echoed every arrow key, and there is none.
+  // Typed once the Terminal is active, a line with a mark reaches the program after anything the
+  // wheel sent it before: cat -v prints the line it reads, every arrow key in it as `^[[A`, so once
+  // the mark is on the screen twice (the echo and cat's copy) there is no arrow key in it. The
+  // test reads cat's copy, not the echo: the echo shows `^[[A` on macOS (echoctl), but the console
+  // of Windows echoes ESC[A as it is, and xterm.js moves the cursor up instead of printing it.
   await clickOn(window, terminalScreen(window))
   await expectActive(window, 'term')
   await window.keyboard.type('MARK')
-  await expect.poll(() => terminalRows(window).innerText(), { timeout: 5_000 }).toContain('MARK')
+  await window.keyboard.press('Enter')
+  await expect.poll(async () => (await terminalRows(window).innerText()).split('MARK').length - 1, { timeout: 5_000 }).toBeGreaterThanOrEqual(2)
   expect(await terminalRows(window).innerText()).not.toMatch(/\^\[\[[AB]/)
 
   await wheelOver(window, terminalScreen(window), -NOTCH)
+  await window.keyboard.press('Enter')
   await expect.poll(() => terminalRows(window).innerText(), { timeout: 5_000 }).toMatch(/\^\[\[A/)
   await window.keyboard.press('Control+C')
 })
