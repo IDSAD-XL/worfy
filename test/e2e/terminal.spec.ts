@@ -1,9 +1,9 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, openSecondWindow, repoRoot, type LaunchedApp, type LaunchOptions } from './helpers'
+import { launchApp, openSecondWindow, packagedBuild, packagedExecutable, type LaunchedApp, type LaunchOptions } from './helpers'
 import { childrenOf, chooseGitBash, printJoined, shellsOf, SIZE_EXPRESSION, WINDOWS, windowsProcessName, windowsProfileEnv } from './terminal-shell'
 
 // The Terminal Node against the built app: "New terminal" in the Canvas context menu starts the
@@ -676,22 +676,8 @@ test('on Windows, Git Bash chosen in the settings starts in the Project root; cl
   }
 })
 
-/** electron-builder writes the .app to dist/mac-arm64/ or dist/mac/, depending on the arch. */
-function packagedExecutable(): string {
-  const distDir = join(repoRoot, 'dist')
-  const apps = existsSync(distDir)
-    ? readdirSync(distDir)
-        .filter((name) => name.startsWith('mac'))
-        .map((name) => join(distDir, name, 'worfy.app'))
-        .filter((app) => existsSync(app))
-    : []
-  const [app, ...others] = apps
-  if (app === undefined || others.length > 0) throw new Error(`Expected exactly one dist/mac*/worfy.app, found ${apps.length}. Run \`pnpm test:package\`.`)
-  return join(app, 'Contents', 'MacOS', 'worfy')
-}
-
 test('the Terminal works in the packaged worfy.app (node-pty unpacked from app.asar)', { tag: '@packaged' }, async () => {
-  const launched = await launch({ executablePath: packagedExecutable() })
+  const launched = await launch({ executablePath: packagedExecutable(packagedBuild()) })
   try {
     const { window } = launched
     expect(await launched.app.evaluate(({ app }) => app.isPackaged)).toBe(true)

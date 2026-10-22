@@ -3,20 +3,25 @@ import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, re
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { BUILD_VERSION, buildVersion } from '../../scripts/build-version'
-import { launchApp, type LaunchedApp, NO_WINDOW_RESTORE, repoRoot } from './helpers'
-import { directStartEnv } from './launch-env'
+import { launchApp, type LaunchedApp, NO_WINDOW_RESTORE, packagedBuild, packagedExecutable as executableOf, packagedResources as resourcesOf, repoRoot } from './helpers'
+import { DIRECT_START_PROFILE, directStartEnv } from './launch-env'
+import { profileVars, windowsProfileEnv } from './terminal-shell'
 import { catScript } from '../harness-node'
 
-// The packaged tests drive the stable copy of worfy.app that scripts/install-stable.mjs installs:
+// The packaged tests drive the stable copy of worfy that scripts/install-stable.mjs installs:
 // into a temporary folder from the dist/ build of `pnpm test:package`, or the copy named by
 // WORFY_PACKAGED_APP (for example ~/Applications/worfy-stable.app after `pnpm install:stable`).
+// On macOS the build and the copy are .app bundles; on Windows they are folders with worfy.exe in
+// them (dist\win-unpacked, and a copy such as %LOCALAPPDATA%\worfy-stable).
 // They carry the @packaged tag: `pnpm test:e2e` leaves them out, `pnpm test:package` runs only them.
 // The untagged tests at the end run in `pnpm test:e2e` against the unpacked out/ build.
 
-const distDir = join(repoRoot, 'dist')
+const WINDOWS = process.platform === 'win32'
+/** The name of a stable copy: a .app on macOS, a folder on Windows (scripts/install-stable.mjs). */
+const STABLE = WINDOWS ? 'worfy-stable' : 'worfy-stable.app'
 const installScript = join(repoRoot, 'scripts', 'install-stable.mjs')
 const bridgeScript = join(repoRoot, 'scripts', 'statusline-bridge.sh')
 /** The work of the bridge, in Node, next to its entry (worfy-windows ticket 08). */
@@ -36,30 +41,69 @@ const STATUS = {
 }
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
-/** electron-builder writes the .app to dist/mac-arm64/ or dist/mac/, depending on the arch. */
-function builtApp(): string {
-  const apps = existsSync(distDir)
-    ? readdirSync(distDir)
-        .filter((name) => name.startsWith('mac'))
-        .map((name) => join(distDir, name, 'worfy.app'))
-        .filter((app) => existsSync(app))
-    : []
-  const [app, ...others] = apps
-  if (app === undefined || others.length > 0) {
-    throw new Error(`Expected exactly one dist/mac*/worfy.app, found ${apps.length}. Run \`pnpm test:package\`.`)
-  }
-  return app
-}
+/**
+ * The profile folders every run of scripts/install-stable.mjs here gets on Windows: the temporary
+ * ones of direct starts (launch-env.ts), so the folder of worfy's installer it reads,
+ * %LOCALAPPDATA%\Programs\worfy, and its default target, %LOCALAPPDATA%\worfy-stable, lie in a
+ * temporary folder and never in the user's own profile. Nothing off Windows.
+ */
+const installProfile = (): Record<string, string> => windowsProfileEnv(DIRECT_START_PROFILE)
 
-/** Runs scripts/install-stable.mjs with the dist/ build as the app to copy, so it does not build again. */
+/**
+ * Runs scripts/install-stable.mjs with the dist/ build as the app to copy, so it does not build
+ * again. The target is always a temporary folder of the test: the script swaps out whatever copy
+ * is there.
+ */
 function install(target: string): ReturnType<typeof spawnSync> & { stdout: string; stderr: string } {
-  const env = { ...process.env, WORFY_STABLE_PREBUILT: builtApp() }
+  if (!target.startsWith(tmpdir())) throw new Error(`install-stable in a test installs into a temporary folder only, not ${target}`)
+  const env = { ...process.env, ...installProfile(), WORFY_STABLE_PREBUILT: packagedBuild() }
   return spawnSync(process.execPath, [installScript, target], { encoding: 'utf8', env })
 }
 
-function executableOf(app: string): string {
-  return join(app, 'Contents', 'MacOS', 'worfy')
+/**
+ * The paths under `a` and `b` that differ, as `diff -rq` finds them: on one side only, a file on
+ * one side and a folder on the other, or a file whose bytes differ. For Windows, which has no
+ * diff of its own (Git Bash brings one, but not every shell the tests run from has it on PATH).
+ */
+function treeDifferences(a: string, b: string, below = ''): string[] {
+  const others = new Map(readdirSync(join(b, below), { withFileTypes: true }).map((entry) => [entry.name, entry]))
+  const found: string[] = []
+  for (const entry of readdirSync(join(a, below), { withFileTypes: true })) {
+    const path = join(below, entry.name)
+    const other = others.get(entry.name)
+    others.delete(entry.name)
+    if (other === undefined || other.isDirectory() !== entry.isDirectory()) found.push(path)
+    else if (entry.isDirectory()) found.push(...treeDifferences(a, b, path))
+    else if (!readFileSync(join(a, path)).equals(readFileSync(join(b, path)))) found.push(path)
+  }
+  return [...found, ...[...others.keys()].map((name) => join(below, name))]
 }
+
+/**
+ * The variables that put the app's default data folder under `home` (dataRoot of
+ * src/main/storage/paths.ts): HOME on macOS, APPDATA on Windows. And that folder.
+ */
+const dataHomeEnv = (home: string): Record<string, string> => (WINDOWS ? { APPDATA: join(home, 'AppData', 'Roaming') } : { HOME: home })
+const defaultDataDir = (home: string, name: string): string => (WINDOWS ? join(home, 'AppData', 'Roaming', name) : join(home, 'Library', 'Application Support', name))
+
+/**
+ * The images of an .ico file: the ICONDIR header holds their count at byte 4, then one 16-byte
+ * entry each, with the image's size at +8 and its offset at +12.
+ */
+function icoImages(file: string): Buffer[] {
+  const ico = readFileSync(file)
+  return Array.from({ length: ico.readUInt16LE(4) }, (_, index) => {
+    const entry = 6 + 16 * index
+    const offset = ico.readUInt32LE(entry + 12)
+    return ico.subarray(offset, offset + ico.readUInt32LE(entry + 8))
+  })
+}
+
+/**
+ * Off macOS the app quits when its last window closes (window-all-closed in src/main/index.ts), so
+ * a running app with no window, which a second start would bring a window back to, does not exist.
+ */
+const QUITS_WITH_LAST_WINDOW = process.platform !== 'darwin'
 
 /** Waits for a process to exit; past the deadline it is killed, and its exit is still awaited. */
 async function exitWithin(child: ChildProcess, ms: number): Promise<{ exited: boolean; code: number | null }> {
@@ -119,11 +163,22 @@ async function expectSecondStartOpensWindow(first: LaunchedApp, command: string,
   await expect.poll(() => windowStates(first), { timeout: 10_000 }).toEqual([{ minimized: false, visible: true }])
 }
 
+/** The file of a stand-in app (standInApp) whose time install-stable takes for the build time. */
+const standInMarker = (app: string): string => (WINDOWS ? join(app, 'worfy.exe') : join(app, 'Contents', 'Info.plist'))
+
 /**
  * A folder shaped like worfy.app, enough for scripts/install-stable.mjs: it copies the folder and
- * reads the modification time of Contents/Info.plist. The tests below need no packaged build.
+ * reads the modification time of Contents/Info.plist. On Windows a folder shaped like
+ * dist\win-unpacked, whose worfy.exe the script looks for and reads the time of. The tests below
+ * need no packaged build.
  */
 function standInApp(dir: string): string {
+  if (WINDOWS) {
+    const unpacked = join(dir, 'stand-in', 'win-unpacked')
+    mkdirSync(unpacked, { recursive: true })
+    writeFileSync(standInMarker(unpacked), '')
+    return unpacked
+  }
   const app = join(dir, 'stand-in', 'worfy.app')
   mkdirSync(join(app, 'Contents', 'MacOS'), { recursive: true })
   writeFileSync(join(app, 'Contents', 'Info.plist'), '<plist version="1.0"><dict/></plist>\n')
@@ -134,10 +189,11 @@ function standInApp(dir: string): string {
 /**
  * Runs a script over a stand-in app. Its registration with Launch Services (install-stable on macOS)
  * runs /usr/bin/true instead of lsregister: the stand-in is no app, and every `pnpm test:e2e` would
- * otherwise leave a record of a deleted temporary copy in the Launch Services of the Mac.
+ * otherwise leave a record of a deleted temporary copy in the Launch Services of the Mac. On
+ * Windows the script gets the temporary profile folders of installProfile; `env` wins over them.
  */
 function runScript(script: string, args: string[], env: Record<string, string>): ReturnType<typeof spawnSync> & { stdout: string; stderr: string } {
-  return spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', env: { ...process.env, WORFY_STABLE_LSREGISTER: '/usr/bin/true', ...env } })
+  return spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', env: { ...process.env, WORFY_STABLE_LSREGISTER: '/usr/bin/true', ...installProfile(), ...env } })
 }
 
 const readJson = (path: string): Record<string, unknown> => JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
@@ -183,8 +239,12 @@ function expectHarnessCopy(copy: string): string {
   expect(version).toEqual(expect.stringMatching(BUILD_VERSION))
   const scripts = harnessScripts(copy)
   expect(scripts).toEqual(harnessScripts(join(repoRoot, 'harness')))
-  expect(scripts['bin/profile']).toBe(true)
-  expect(scripts['hooks/gate.mjs']).toBe(true)
+  // Windows has no executable bit (Node reports none for any file there); its Harness scripts
+  // run through node or Git Bash, not by their mode.
+  if (!WINDOWS) {
+    expect(scripts['bin/profile']).toBe(true)
+    expect(scripts['hooks/gate.mjs']).toBe(true)
+  }
   expect(existsSync(join(copy, 'bin', 'tests'))).toBe(false)
   expect(existsSync(join(copy, 'hooks', 'tests'))).toBe(false)
   return version as string
@@ -252,7 +312,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
       stableApp = fromEnv
       return
     }
-    stableApp = join(installDir, 'worfy-stable.app')
+    stableApp = join(installDir, STABLE)
     const result = install(stableApp)
     expect(result.stderr).toBe('')
     expect(result.status).toBe(0)
@@ -263,6 +323,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
   })
 
   test('the copy is ad-hoc signed by electron-builder with the worfy bundle id, untouched by the install', () => {
+    test.skip(WINDOWS, 'the Windows build is not signed (no certificate until E4, electron-builder.yml): there is no signature to check')
     // codesign prints the signature details to stderr.
     const details = spawnSync('codesign', ['-dv', stableApp], { encoding: 'utf8' })
     expect(details.status).toBe(0)
@@ -277,8 +338,24 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
   })
 
   test('the dist/ build and the copy carry the worfy icon, build/icon.icns, not the Electron one', () => {
+    if (WINDOWS) {
+      // On Windows the icon is build/icon.ico (electron-builder.yml), set into worfy.exe as its
+      // icon resources: each of its images, PNG data, is in worfy.exe byte for byte, and none is
+      // in the Electron program the build starts from.
+      const images = icoImages(join(repoRoot, 'build', 'icon.ico'))
+      expect(images.length).toBeGreaterThan(0)
+      const electron = readFileSync(createRequire(import.meta.url)('electron') as string)
+      for (const app of [packagedBuild(), stableApp]) {
+        const program = readFileSync(executableOf(app))
+        images.forEach((image, index) => {
+          expect(program.includes(image), `${executableOf(app)} holds image ${index} of build/icon.ico`).toBe(true)
+          expect(electron.includes(image), `electron.exe does not hold image ${index} of build/icon.ico`).toBe(false)
+        })
+      }
+      return
+    }
     const committed = readFileSync(join(repoRoot, 'build', 'icon.icns'))
-    for (const app of [builtApp(), stableApp]) {
+    for (const app of [packagedBuild(), stableApp]) {
       const plist = join(app, 'Contents', 'Info.plist')
       const iconFile = spawnSync('plutil', ['-extract', 'CFBundleIconFile', 'raw', '-o', '-', plist], { encoding: 'utf8' })
       expect(iconFile.status, app).toBe(0)
@@ -308,7 +385,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
       expect(await launched.app.evaluate(() => process.env.ELECTRON_RENDERER_URL)).toBe('http://127.0.0.1:1')
       const url = new URL(launched.window.url())
       expect(url.protocol).toBe('file:')
-      expect(decodeURIComponent(url.pathname)).toMatch(/\/Contents\/Resources\/app\.asar\/out\/renderer\/index\.html$/)
+      expect(decodeURIComponent(url.pathname)).toMatch(WINDOWS ? /\/resources\/app\.asar\/out\/renderer\/index\.html$/ : /\/Contents\/Resources\/app\.asar\/out\/renderer\/index\.html$/)
       await expect(launched.window.getByText('worfy', { exact: true })).toBeVisible()
       expect(await appVersionFromPage(launched)).toMatchObject({ ok: true })
     } finally {
@@ -319,14 +396,19 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
   test('node-pty loads from the copy and runs a command', async () => {
     const launched = await launchApp({ executablePath: executableOf(stableApp) })
     try {
-      const result = await launched.app.evaluate(async ({ app }) => {
+      // On Windows: cmd.exe's echo through ConPTY, and the binary node-pty ships for win32 in
+      // prebuilds/ (scripts/postinstall.mjs rebuilds nothing there).
+      const command = WINDOWS
+        ? { file: 'cmd.exe', args: ['/d', '/c', 'echo ok'], binary: `prebuilds/win32-${process.arch}/conpty.node` }
+        : { file: '/bin/echo', args: ['ok'], binary: 'build/Release/pty.node' }
+      const result = await launched.app.evaluate(async ({ app }, { file, args, binary }) => {
         // The main bundle does not import node-pty yet, so resolve it the way the app will:
         // from the app's own node_modules inside app.asar.
         const { createRequire: requireFrom } = process.getBuiltinModule('node:module')
         const requireFromApp = requireFrom(`${app.getAppPath()}/package.json`)
         const pty = requireFromApp('node-pty') as typeof import('node-pty')
         const resolved = requireFromApp.resolve('node-pty')
-        const proc = pty.spawn('/bin/echo', ['ok'], { name: 'xterm-color', cols: 80, rows: 24, env: {} })
+        const proc = pty.spawn(file, args, { name: 'xterm-color', cols: 80, rows: 24, env: {} })
         let output = ''
         proc.onData((chunk) => {
           output += chunk
@@ -336,13 +418,20 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
         })
         // The binary rebuilt for Electron by postinstall, outside the archive.
         const { existsSync: exists } = process.getBuiltinModule('node:fs')
-        const unpackedBinary = `${process.resourcesPath}/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node`
+        const unpackedBinary = `${process.resourcesPath}/app.asar.unpacked/node_modules/node-pty/${binary}`
         return { resolved, output: output.trim(), exitCode, unpacked: exists(unpackedBinary) }
-      })
+      }, command)
       expect(result.resolved).toContain('app.asar')
       expect(result.unpacked).toBe(true)
       expect(result.exitCode).toBe(0)
-      expect(result.output).toBe('ok')
+      if (WINDOWS) {
+        // ConPTY draws the screen with escape sequences around the text: the lines without them.
+        // eslint-disable-next-line no-control-regex
+        const lines = result.output.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07/g, '').split(/\r?\n/).map((line) => line.trim())
+        expect(lines, JSON.stringify(result.output)).toContain('ok')
+      } else {
+        expect(result.output).toBe('ok')
+      }
     } finally {
       await launched.close()
     }
@@ -353,11 +442,16 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
     try {
       // The path src/main/agent/options.ts builds in the packaged app (ADR-0008); the unit test
       // test/unit/agent-executable.test.ts pins options.ts to this same layout.
+      // On Windows the binary is claude.exe (ADR-0057).
       const binary = await launched.app.evaluate(
-        () => `${process.resourcesPath}/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/claude`,
+        () => `${process.resourcesPath}/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/${process.platform === 'win32' ? 'claude.exe' : 'claude'}`,
       )
+      // On Windows the system folder alone on PATH, and temporary profile folders: whatever the
+      // binary reads or writes at start stays out of the user's profile.
+      const systemRoot = process.env.SystemRoot ?? 'C:\\Windows'
+      const env = WINDOWS ? { ...installProfile(), SystemRoot: systemRoot, PATH: join(systemRoot, 'System32') } : { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' }
       // Running it with --version starts no session and calls no model.
-      const version = spawnSync(binary, ['--version'], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' } })
+      const version = spawnSync(binary, ['--version'], { encoding: 'utf8', env })
       expect(version.error).toBeUndefined()
       expect(version.status).toBe(0)
       expect(version.stdout).toMatch(/\d+\.\d+\.\d+/)
@@ -369,10 +463,11 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
   test('the copy keeps its state in Application Support/worfy, not in the dev folder', async () => {
     const home = await mkdtemp(join(tmpdir(), 'worfy-home-'))
     try {
-      // An empty WORFY_DATA_DIR is ignored, so the app picks its own folder under the temporary HOME.
-      const launched = await launchApp({ executablePath: executableOf(stableApp), env: { HOME: home, WORFY_DATA_DIR: '' } })
+      // An empty WORFY_DATA_DIR is ignored, so the app picks its own folder under the temporary
+      // HOME (on Windows: under the temporary APPDATA, %APPDATA%\worfy).
+      const launched = await launchApp({ executablePath: executableOf(stableApp), env: { ...dataHomeEnv(home), WORFY_DATA_DIR: '' } })
       try {
-        expect(await userData(launched)).toBe(join(home, 'Library', 'Application Support', 'worfy'))
+        expect(await userData(launched)).toBe(defaultDataDir(home, 'worfy'))
       } finally {
         await launched.close()
       }
@@ -385,14 +480,14 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
     const first = await launchApp({ executablePath: executableOf(stableApp) })
     try {
       await expectSecondStartRestoresWindow(first, executableOf(stableApp), [])
-      await expectSecondStartOpensWindow(first, executableOf(stableApp), [])
+      if (!QUITS_WITH_LAST_WINDOW) await expectSecondStartOpensWindow(first, executableOf(stableApp), [])
     } finally {
       await first.close()
     }
   })
 
   test('the copy carries the Harness of its build in Contents/Resources/harness, outside app.asar, and shows its version', async () => {
-    const resources = join(stableApp, 'Contents', 'Resources')
+    const resources = resourcesOf(stableApp)
     const version = expectHarnessCopy(join(resources, 'harness'))
     // The plugin worfy's Sessions get inline (worfy-harness ticket 12, src/main/agent/options.ts):
     // named worfy, the name it replaces an installed copy by.
@@ -403,7 +498,8 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
     // Packaged from this build (not a WORFY_PACKAGED_APP copy): the same files as out/harness,
     // plugin.json with its version included, none dropped by electron-builder.
     if (!process.env.WORFY_PACKAGED_APP) {
-      expect(spawnSync('diff', ['-rq', join(repoRoot, 'out', 'harness'), join(resources, 'harness')], { encoding: 'utf8' }).stdout).toBe('')
+      if (WINDOWS) expect(treeDifferences(join(repoRoot, 'out', 'harness'), join(resources, 'harness'))).toEqual([])
+      else expect(spawnSync('diff', ['-rq', join(repoRoot, 'out', 'harness'), join(resources, 'harness')], { encoding: 'utf8' }).stdout).toBe('')
     }
     // Not a second time inside the archive: electron-builder.yml excludes out/harness/** from `files`.
     const inArchive = asarPaths(join(resources, 'app.asar'))
@@ -425,10 +521,12 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
   // Harness migration form of ticket 14 proposes, <process.resourcesPath>/statusline-bridge.sh,
   // does not depend on a checkout of the repository.
   test('the copy carries scripts/statusline-bridge.sh as Contents/Resources/statusline-bridge.sh, executable, with statusline-bridge.mjs next to it', () => {
-    const bridge = join(stableApp, 'Contents', 'Resources', 'statusline-bridge.sh')
-    const module = join(stableApp, 'Contents', 'Resources', 'statusline-bridge.mjs')
+    const bridge = join(resourcesOf(stableApp), 'statusline-bridge.sh')
+    const module = join(resourcesOf(stableApp), 'statusline-bridge.mjs')
     expect(existsSync(bridge)).toBe(true)
-    expect(isExecutable(bridge)).toBe(true)
+    // Windows has no executable bit; a Windows `statusLine` runs `node <resources>/statusline-bridge.mjs`
+    // (src/main/harness/status-line.ts), not the sh entry.
+    if (!WINDOWS) expect(isExecutable(bridge)).toBe(true)
     expect(existsSync(module)).toBe(true)
     // Packaged from this build (not a WORFY_PACKAGED_APP copy): the very files of the repository.
     if (!process.env.WORFY_PACKAGED_APP) {
@@ -438,15 +536,25 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
   })
 
   test('the bridge in the copy writes rate_limits to Application Support/worfy and passes stdin to the wrapped command', async () => {
-    const bridge = join(stableApp, 'Contents', 'Resources', 'statusline-bridge.sh')
+    const bridge = join(resourcesOf(stableApp), 'statusline-bridge.sh')
     const home = await mkdtemp(join(tmpdir(), 'worfy-bridge-home-'))
     try {
-      const dataDir = join(home, 'Library', 'Application Support', 'worfy')
+      const dataDir = defaultDataDir(home, 'worfy')
       mkdirSync(dataDir, { recursive: true })
       const input = JSON.stringify(STATUS)
       // Run as Claude Code runs a status line command: the script itself, not `sh <script>`, from
       // a folder that is not the repository, with a HOME of its own and no WORFY_DATA_DIR.
-      const result = spawnSync(bridge, ['cat'], { input, encoding: 'utf8', cwd: home, env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home } })
+      // On Windows the command is `node <resources>/statusline-bridge.mjs '<command>'`
+      // (src/main/harness/status-line.ts), with a profile of its own (USERPROFILE and APPDATA); the
+      // bridge runs `cat` through Git Bash, which it finds by the git.exe on PATH or in Program Files.
+      const result = WINDOWS
+        ? spawnSync(process.execPath, [join(resourcesOf(stableApp), 'statusline-bridge.mjs'), 'cat'], {
+            input,
+            encoding: 'utf8',
+            cwd: home,
+            env: { PATH: process.env.PATH ?? '', SystemRoot: process.env.SystemRoot ?? 'C:\\Windows', ProgramFiles: process.env.ProgramFiles ?? 'C:\\Program Files', USERPROFILE: home, ...dataHomeEnv(home) },
+          })
+        : spawnSync(bridge, ['cat'], { input, encoding: 'utf8', cwd: home, env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home } })
       expect(result.error).toBeUndefined()
       expect(result.stderr).toBe('')
       expect(result.status).toBe(0)
@@ -454,7 +562,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
       expect(readJson(join(dataDir, 'statusline-limits.json'))).toEqual(RATE_LIMITS)
       expect(readdirSync(dataDir)).toEqual(['statusline-limits.json'])
       // The dev data folder does not exist under this HOME, and the bridge does not create it.
-      expect(readdirSync(join(home, 'Library', 'Application Support'))).toEqual(['worfy'])
+      expect(readdirSync(dirname(dataDir))).toEqual(['worfy'])
     } finally {
       await removeDir(home)
     }
@@ -464,7 +572,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
   // Autopilot action; a clone whose origin/main is the build commit does not. Nothing is fetched:
   // the clones' refs are as the test set them.
   test('the Autopilot action shows "Harness in main is newer than the Stable copy" when origin/main has a lesson in harness/ after the build', async () => {
-    const version = readJson(join(stableApp, 'Contents', 'Resources', 'harness', '.claude-plugin', 'plugin.json')).version as string
+    const version = readJson(join(resourcesOf(stableApp), 'harness', '.claude-plugin', 'plugin.json')).version as string
     const sha = /\+([0-9a-f]+)/.exec(version)?.[1]
     expect(sha, version).toBeDefined()
     const dir = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-harness-behind-')))
@@ -551,7 +659,7 @@ test.describe('scripts/install-stable.mjs', { tag: '@packaged' }, () => {
   })
 
   test('installs the copy at the given path and writes the commit and build time next to it', () => {
-    const target = join(dir, 'Apps', 'worfy-stable.app')
+    const target = join(dir, 'Apps', STABLE)
     const result = install(target)
     expect(result.stderr).toBe('')
     expect(result.status).toBe(0)
@@ -564,13 +672,14 @@ test.describe('scripts/install-stable.mjs', { tag: '@packaged' }, () => {
     expect(metadata.builtAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
     expect(metadata.installedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
     // Nothing is written inside the .app: the copy holds exactly the files of the build.
-    expect(spawnSync('diff', ['-rq', builtApp(), target]).status).toBe(0)
+    if (WINDOWS) expect(treeDifferences(packagedBuild(), target)).toEqual([])
+    else expect(spawnSync('diff', ['-rq', packagedBuild(), target]).status).toBe(0)
   })
 
   test('a second run replaces the previous copy', () => {
-    const target = join(dir, 'worfy-stable.app')
+    const target = join(dir, STABLE)
     expect(install(target).status).toBe(0)
-    const leftover = join(target, 'Contents', 'leftover-from-the-old-copy')
+    const leftover = WINDOWS ? join(target, 'leftover-from-the-old-copy') : join(target, 'Contents', 'leftover-from-the-old-copy')
     writeFileSync(leftover, 'old')
 
     const again = install(target)
@@ -579,28 +688,32 @@ test.describe('scripts/install-stable.mjs', { tag: '@packaged' }, () => {
     expect(existsSync(leftover)).toBe(false)
     expect(existsSync(executableOf(target))).toBe(true)
     // No staging folder is left next to the copy.
-    expect(readdirSync(dir).sort()).toEqual(['worfy-stable.app', 'worfy-stable.json'])
+    expect(readdirSync(dir).sort()).toEqual([STABLE, 'worfy-stable.json'])
   })
 
   // A `statusLine` that points at the bridge of the stable copy keeps working when the copy is
-  // replaced: the path stays the same and the file stays executable.
+  // replaced: the path stays the same and the file stays executable. On Windows the `statusLine`
+  // names statusline-bridge.mjs, run by node (src/main/harness/status-line.ts), and there is no
+  // executable bit: the path and the file stay the same.
   test('a second run leaves the status line bridge at the same path, executable', () => {
-    const target = join(dir, 'worfy-stable.app')
-    const bridge = join(target, 'Contents', 'Resources', 'statusline-bridge.sh')
+    const target = join(dir, STABLE)
+    const bridge = join(resourcesOf(target), 'statusline-bridge.sh')
+    const module = join(resourcesOf(target), 'statusline-bridge.mjs')
     expect(install(target).status).toBe(0)
-    expect(isExecutable(bridge)).toBe(true)
+    if (WINDOWS) expect(existsSync(module)).toBe(true)
+    else expect(isExecutable(bridge)).toBe(true)
 
     const again = install(target)
     expect(again.stderr).toBe('')
     expect(again.status).toBe(0)
     expect(existsSync(bridge)).toBe(true)
-    expect(isExecutable(bridge)).toBe(true)
+    if (!WINDOWS) expect(isExecutable(bridge)).toBe(true)
     expect(readFileSync(bridge).equals(readFileSync(bridgeScript))).toBe(true)
-    expect(readFileSync(join(target, 'Contents', 'Resources', 'statusline-bridge.mjs')).equals(readFileSync(bridgeModule))).toBe(true)
+    expect(readFileSync(module).equals(readFileSync(bridgeModule))).toBe(true)
   })
 
   test('refuses with a non-zero exit code while the copy is running, and leaves it in place', async () => {
-    const target = join(dir, 'worfy-stable.app')
+    const target = join(dir, STABLE)
     expect(install(target).status).toBe(0)
     const before = readFileSync(join(dir, 'worfy-stable.json'), 'utf8')
 
@@ -624,11 +737,12 @@ test.describe('dev run of the unpacked build', () => {
   test('keeps its state in Application Support/worfy-dev, apart from the stable copy', async () => {
     const home = await mkdtemp(join(tmpdir(), 'worfy-home-'))
     try {
-      // An empty WORFY_DATA_DIR is ignored, so the app picks its own folder under the temporary HOME.
-      const launched = await launchApp({ env: { HOME: home, WORFY_DATA_DIR: '' } })
+      // An empty WORFY_DATA_DIR is ignored, so the app picks its own folder under the temporary
+      // HOME (on Windows: under the temporary APPDATA, %APPDATA%\worfy-dev).
+      const launched = await launchApp({ env: { ...dataHomeEnv(home), WORFY_DATA_DIR: '' } })
       try {
         expect(await launched.app.evaluate(({ app }) => app.isPackaged)).toBe(false)
-        expect(await userData(launched)).toBe(join(home, 'Library', 'Application Support', 'worfy-dev'))
+        expect(await userData(launched)).toBe(defaultDataDir(home, 'worfy-dev'))
       } finally {
         await launched.close()
       }
@@ -648,6 +762,7 @@ test.describe('dev run of the unpacked build', () => {
   })
 
   test('a second dev run over the same data folder opens a window in the first one when it has none', async () => {
+    test.skip(QUITS_WITH_LAST_WINDOW, 'off macOS the app quits when its last window closes (window-all-closed, src/main/index.ts): no running app is left without a window')
     const electron = createRequire(import.meta.url)('electron') as string
     const first = await launchApp()
     try {
@@ -689,9 +804,29 @@ test.describe('dev run of the unpacked build', () => {
   })
 
   test('install-stable.mjs refuses a target that is not a .app, before building anything', () => {
+    // On Windows a target is any folder (the test below has the Windows refusal): a run there
+    // would build the app and install it.
+    test.skip(WINDOWS, 'a Windows stable copy is a folder, not a .app: the rule does not exist there')
     const result = spawnSync(process.execPath, [installScript, join(tmpdir(), 'not-an-app')], { encoding: 'utf8' })
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain('must be a path ending in .app')
+  })
+
+  test('install-stable.mjs on Windows refuses a target whose path starts with the folder of worfy\'s installer, before building anything', async () => {
+    test.skip(!WINDOWS, 'the folder of the installer is a Windows rule; the macOS rule is the .app one above')
+    const profile = await mkdtemp(join(tmpdir(), 'worfy-install-profile-'))
+    try {
+      const vars = profileVars(profile)
+      const target = join(vars.LOCALAPPDATA, 'Programs', 'worfy-stable')
+      // A prebuilt app that is not there: were the target taken, the run would end at it, not build.
+      const env = { ...process.env, ...vars, WORFY_STABLE_PREBUILT: join(profile, 'no-build') }
+      const result = spawnSync(process.execPath, [installScript, target], { encoding: 'utf8', env })
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).toContain(`the target cannot start with the path of the folder the installer of worfy uses (${join(vars.LOCALAPPDATA, 'Programs', 'worfy')})`)
+      expect(existsSync(join(vars.LOCALAPPDATA, 'Programs'))).toBe(false)
+    } finally {
+      await removeDir(profile)
+    }
   })
   test('pnpm build copies harness/ into out/harness with the build version, and leaves harness/ untouched', () => {
     const version = expectHarnessCopy(join(repoRoot, 'out', 'harness'))
@@ -717,21 +852,24 @@ test.describe('scripts/install-stable.mjs with a stand-in app', () => {
   test('without an argument installs into ~/Applications/worfy-stable.app, with worfy-stable.json next to it', () => {
     const home = join(dir, 'home')
     mkdirSync(home)
-    const result = runScript(installScript, [], { HOME: home, WORFY_STABLE_PREBUILT: standInApp(dir) })
+    // On Windows the default is %LOCALAPPDATA%\worfy-stable: the profile folders of this test's home.
+    const result = runScript(installScript, [], { HOME: home, ...(WINDOWS ? profileVars(home) : {}), WORFY_STABLE_PREBUILT: standInApp(dir) })
     expect(result.stderr).toBe('')
     expect(result.status).toBe(0)
-    const applications = join(home, 'Applications')
-    expect(readdirSync(applications).sort()).toEqual(['worfy-stable.app', 'worfy-stable.json'])
-    expect(existsSync(join(applications, 'worfy-stable.app', 'Contents', 'Info.plist'))).toBe(true)
+    const applications = WINDOWS ? join(home, 'AppData', 'Local') : join(home, 'Applications')
+    // On Windows the PowerShell that lists the processes keeps its caches in %LOCALAPPDATA%\Microsoft.
+    expect(readdirSync(applications).filter((name) => !(WINDOWS && name === 'Microsoft')).sort()).toEqual([STABLE, 'worfy-stable.json'])
+    expect(existsSync(standInMarker(join(applications, STABLE)))).toBe(true)
     const head = spawnSync('git', ['-C', repoRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim()
     expect(readJson(join(applications, 'worfy-stable.json')).commit).toBe(head)
   })
 
   test('accepts a target path with a trailing slash, as shell completion writes it', () => {
-    const result = runScript(installScript, [`${join(dir, 'worfy-stable.app')}/`], { WORFY_STABLE_PREBUILT: standInApp(dir) })
+    // PowerShell and cmd.exe complete a folder on Windows with a backslash.
+    const result = runScript(installScript, [`${join(dir, STABLE)}${WINDOWS ? '\\' : '/'}`], { WORFY_STABLE_PREBUILT: standInApp(dir) })
     expect(result.stderr).toBe('')
     expect(result.status).toBe(0)
-    expect(existsSync(join(dir, 'worfy-stable.app', 'Contents', 'Info.plist'))).toBe(true)
+    expect(existsSync(standInMarker(join(dir, STABLE)))).toBe(true)
     expect(existsSync(join(dir, 'worfy-stable.json'))).toBe(true)
   })
 
@@ -750,7 +888,7 @@ test.describe('scripts/install-stable.mjs with a stand-in app', () => {
     git('add', '.')
     git('commit', '-q', '-m', 'install script')
     const script = join(repo, 'scripts', 'install-stable.mjs')
-    const target = join(dir, 'Apps', 'worfy-stable.app')
+    const target = join(dir, 'Apps', STABLE)
     const env = { WORFY_STABLE_PREBUILT: standInApp(dir) }
 
     expect(runScript(script, [target], env).status).toBe(0)

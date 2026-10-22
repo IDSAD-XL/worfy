@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -17,6 +17,41 @@ export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '
 const mainEntry = join(repoRoot, 'out', 'main', 'index.js')
 export { GH_STUB } from './launch-env'
 export { START_DIAGNOSTICS } from './start-diagnostics-run'
+
+/**
+ * The unpacked build `pnpm package` leaves in dist/ for this system (electron-builder.yml): on
+ * macOS the one worfy.app in dist/mac-arm64/ or dist/mac/ (depending on the arch), on
+ * Windows the folder dist/win-unpacked with worfy.exe in it.
+ */
+export function packagedBuild(): string {
+  const distDir = join(repoRoot, 'dist')
+  if (process.platform === 'win32') {
+    const unpacked = join(distDir, 'win-unpacked')
+    if (!existsSync(packagedExecutable(unpacked))) throw new Error(`Expected ${packagedExecutable(unpacked)}. Run \`pnpm test:package\`.`)
+    return unpacked
+  }
+  const apps = existsSync(distDir)
+    ? readdirSync(distDir)
+        .filter((name) => name.startsWith('mac'))
+        .map((name) => join(distDir, name, 'worfy.app'))
+        .filter((app) => existsSync(app))
+    : []
+  const [app, ...others] = apps
+  if (app === undefined || others.length > 0) {
+    throw new Error(`Expected exactly one dist/mac*/worfy.app, found ${apps.length}. Run \`pnpm test:package\`.`)
+  }
+  return app
+}
+
+/** The program of a packaged build or a stable copy of one: Contents/MacOS/worfy of a .app, worfy.exe of a Windows folder. */
+export function packagedExecutable(app: string): string {
+  return process.platform === 'win32' ? join(app, 'worfy.exe') : join(app, 'Contents', 'MacOS', 'worfy')
+}
+
+/** The folder process.resourcesPath names in a packaged build: Contents/Resources of a .app, resources on Windows. */
+export function packagedResources(app: string): string {
+  return process.platform === 'win32' ? join(app, 'resources') : join(app, 'Contents', 'Resources')
+}
 
 /**
  * How long the app may take to open its first window and show it, both steps together. A start
