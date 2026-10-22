@@ -1,7 +1,8 @@
 # 66 — Полный `pnpm test` на Windows-runner-е GitHub: второй режим «Windows tests», его run — вердикт Windows для части платформенных PR
 
 Type: task
-Status: open
+Status: done 2026-10-22T22:45Z
+PR: #784
 Blocked by: 14 (часть unit/contract), 65
 Source: решение владельца 2026-10-19 (пункты 2–3: полный unit/contract на `windows-latest`, run на head платформенного PR и на main вместе с batch CI); [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md) «Windows runner counts as the Windows verdict»; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), пункт 2; [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md) (отметка `check/windows` на SHA); [ADR-0068](../../../docs/adr/0068-batch-ci-on-main-once-per-wave.md) (batch CI); [Ticket 25](25-ручной-job-windows-для-списка-test-файлов.md) (workflow «Windows tests»).
 

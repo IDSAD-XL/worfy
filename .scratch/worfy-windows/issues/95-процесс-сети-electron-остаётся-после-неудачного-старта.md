@@ -1,9 +1,8 @@
 # 95 — После неудачного старта на Windows остаётся процесс сети Electron
 
 Type: task
-Status: blocked 2026-10-22T17:53Z
-Blocked reason: проверка на Windows (замер до и после, packaged --repeat-each 10) ждёт снятия паузы фокуса; PR #777 не мержится до неё
-Waits: owner
+Status: done 2026-10-22T22:45Z
+PR: #777
 Blocked by: —
 Source: направление Session на Mac 2026-10-22, PR #750 (группа 3 Ticket-а 14: test-ы собранного приложения на
 Windows). Замер на ПК 2026-10-22, строки — по main `5b099be9`; сборка и `node_modules` — из worktree PR #750
