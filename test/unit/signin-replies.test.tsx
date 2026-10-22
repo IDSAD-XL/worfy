@@ -61,6 +61,7 @@ vi.mock('../../src/renderer/ipc', () => ({
     wire.handlers.set(channel, handler)
     return () => wire.handlers.delete(channel)
   },
+  hasPreloadBridge: () => (globalThis as { worfy?: unknown }).worfy !== undefined,
 }))
 
 const { SignInTerminal } = await import('../../src/renderer/projects/GithubAccount')

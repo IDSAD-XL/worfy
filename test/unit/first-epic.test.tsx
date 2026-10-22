@@ -27,7 +27,10 @@ vi.mock('../../src/renderer/workflow/useWorkflow', () => ({
     return state.entry
   },
 }))
-vi.mock('../../src/renderer/ipc', () => ({ invoke: state.invoke }))
+vi.mock('../../src/renderer/ipc', () => ({
+  invoke: state.invoke,
+  hasPreloadBridge: () => (globalThis as { worfy?: unknown }).worfy !== undefined,
+}))
 vi.mock('../../src/renderer/session/navigation', () => ({ openSession: state.openSession }))
 
 const { default: FirstEpic } = await import('../../src/renderer/canvas/overlays/FirstEpic')

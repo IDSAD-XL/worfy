@@ -24,6 +24,7 @@ vi.mock('../../src/renderer/ipc', () => ({
   invoke: (channel: string, input?: unknown) => answer(undefined, channel, input),
   invokeOn: (machine: string | null, channel: string, input?: unknown) => answer(machine, channel, input),
   windowMachine: () => null,
+  hasPreloadBridge: () => (globalThis as { worfy?: unknown }).worfy !== undefined,
 }))
 vi.mock('../../src/renderer/projects/useProjects', () => ({
   useReadOnly: (machine: string | null) => main.readOnly[machine ?? ''] ?? null,

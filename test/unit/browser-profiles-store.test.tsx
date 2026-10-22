@@ -11,6 +11,7 @@ const main = vi.hoisted(() => ({ answers: [] as ((answer: Answer) => void)[] }))
 vi.mock('../../src/renderer/ipc', () => ({
   invoke: () => new Promise<Answer>((resolve) => main.answers.push(resolve)),
   subscribe: () => () => undefined,
+  hasPreloadBridge: () => (globalThis as { worfy?: unknown }).worfy !== undefined,
 }))
 
 const { browserProfilesNow, reloadBrowserProfiles } = await import('../../src/renderer/browser/profiles')

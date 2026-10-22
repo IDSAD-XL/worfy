@@ -8,9 +8,8 @@
 // is asked.
 import { useEffect } from 'react'
 import { create } from 'zustand'
-import type { WorfyBridge } from '../../shared/ipc/channels'
 import { defaultAppSettings, type AppSettings, type AppSettingsPatch } from '../../shared/settings/app-settings'
-import { invoke, subscribe } from '../ipc'
+import { hasPreloadBridge, invoke, subscribe } from '../ipc'
 
 interface AppSettingsStore {
   settings: AppSettings
@@ -37,7 +36,7 @@ let started = false
 
 function start(): void {
   if (started) return
-  if ((globalThis as { worfy?: WorfyBridge }).worfy === undefined) return
+  if (!hasPreloadBridge()) return
   started = true
   subscribe('appSettings.changed', acceptAppSettings)
   void refreshAppSettings()

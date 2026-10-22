@@ -29,7 +29,11 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock('../../src/renderer/ipc', () => ({ invoke: mocks.invoke, subscribe: () => () => undefined }))
+vi.mock('../../src/renderer/ipc', () => ({
+  invoke: mocks.invoke,
+  subscribe: () => () => undefined,
+  hasPreloadBridge: () => (globalThis as { worfy?: unknown }).worfy !== undefined,
+}))
 vi.mock('../../src/renderer/projects/useProjects', () => ({
   useProjects: () => ({ projects: [{ id: 'alpha', path: '/repo' }], activeId: 'alpha' }),
   activeProject: () => ({ id: 'alpha', path: '/repo' }),

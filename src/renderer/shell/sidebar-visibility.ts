@@ -9,8 +9,8 @@
 // window as `menu.command`.
 import { createElement, useCallback, type ReactElement } from 'react'
 import { create } from 'zustand'
-import type { WorfyBridge } from '../../shared/ipc/channels'
 import { focusModeActive, useFocusState } from '../focus/focus-state'
+import { hasPreloadBridge } from '../ipc'
 import { followMenuCommand } from '../menu-command'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { setAppSettings, useAppSettings } from '../settings/useAppSettings'
@@ -36,7 +36,7 @@ function ask(mode: SidebarMode, visible: boolean): void {
   const mine = ++asks[mode]
   useAsked.setState({ [mode]: visible })
   // No main to save it in (a unit test of the shell): the switch works in this window only.
-  if ((globalThis as { worfy?: WorfyBridge }).worfy === undefined) return
+  if (!hasPreloadBridge()) return
   void setAppSettings({ sidebar: { visible: { [mode]: visible } } }).then((refused) => {
     // The answer to an earlier switch: a later one decides.
     if (mine !== asks[mode]) return
