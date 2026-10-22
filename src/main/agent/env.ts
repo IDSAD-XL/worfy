@@ -480,6 +480,19 @@ export function findOnPath(name: string, env: SourceEnv, exists: FileExists = fi
 }
 
 /**
+ * kill.exe of the Git for Windows a Git Bash belongs to: `<root>\usr\bin\kill.exe` for the
+ * launcher `<root>\bin\bash.exe` that findGitBash finds; undefined for any other file, bash itself
+ * (`usr\bin\bash.exe`, with no launcher above it) among them. It sends a signal through the runtime
+ * of MSYS2 (`kill -HUP -W <Windows pid>`): a bash of Git for Windows takes no signal any other way.
+ */
+export function gitBashKill(bash: string): string | undefined {
+  const folder = win32.dirname(bash)
+  const root = win32.dirname(folder)
+  if (win32.basename(bash).toLowerCase() !== 'bash.exe' || win32.basename(folder).toLowerCase() !== 'bin' || win32.basename(root).toLowerCase() === 'usr') return undefined
+  return win32.join(root, 'usr', 'bin', 'kill.exe')
+}
+
+/**
  * Git Bash of Git for Windows, or null. First from git.exe on the Path: the root of Git for Windows
  * is the folder above `cmd`, `bin` or `mingw64\bin`, and Git Bash is <root>\bin\bash.exe. Then
  * %ProgramFiles%\Git, %ProgramFiles(x86)%\Git (a 32-bit Git) and %LOCALAPPDATA%\Programs\Git (a

@@ -55,7 +55,7 @@
 // that is not zsh gets neither.
 import { posix, win32 } from 'node:path'
 import { spawn as spawnNodePty } from 'node-pty'
-import { findGitBash, findOnPath, getVar, powershellScriptCommand, type Env, type FileExists } from '../agent/env'
+import { findGitBash, findOnPath, getVar, gitBashKill, powershellScriptCommand, type Env, type FileExists } from '../agent/env'
 import type { ReplaySize } from '../../shared/ipc/terminal'
 import type { TerminalShellSetting } from '../../shared/projects/action-templates'
 import { ConsoleRequests, DEVICE_ATTRIBUTES_ANSWER } from './console-request'
@@ -64,7 +64,7 @@ import { ShellTracker, type ShellEvent, type ShellState } from './osc'
 import { REPLAY_LIMIT, ReplayBuffer } from './replay-buffer'
 import { integrationEnv, isZsh, newNonce, type AssistAdmission, type AssistDoor, type ShellIntegration } from './shell-integration'
 import type { PtyProcess, SpawnPty } from './pty-types'
-import { endDescendants, exitCodeKnown, killUnconnected, readsExitCode, spawnWindowsPty, stopOutputWorker, withoutConsoleHelper, type DescendantsVerdict, type StartedShell } from './windows-pty'
+import { endDescendants, endShell, exitCodeKnown, killUnconnected, readsExitCode, spawnWindowsPty, stopOutputWorker, withoutConsoleHelper, type DescendantsVerdict, type StartedShell } from './windows-pty'
 
 export { REPLAY_LIMIT, ReplayBuffer } from './replay-buffer'
 export type { PtyProcess, SpawnPty } from './pty-types'
@@ -124,6 +124,8 @@ export interface ShellChoice {
   name: string
   /** Why the shell asked for is not the one that starts; null otherwise. */
   note: string | null
+  /** Git Bash: kill.exe of its Git for Windows, for the SIGHUP of a close (StartedShell.hangup). */
+  hangup?: string | undefined
 }
 
 export interface ShellSearch {
@@ -151,7 +153,7 @@ export function terminalShell(env: Readonly<Env>, setting?: TerminalShellSetting
   let note: string | null = null
   if (setting === 'git-bash') {
     const bash = findGitBash(env, search.exists)
-    if (bash !== null) return { file: bash, args: ['--login', '-i'], name: win32.basename(bash), note: null }
+    if (bash !== null) return { file: bash, args: ['--login', '-i'], name: win32.basename(bash), note: null, hangup: gitBashKill(bash) }
     note = 'Git Bash was not found on this machine: PowerShell runs instead'
   }
   const file = findOnPath('pwsh', env, search.exists) ?? powershellScriptCommand(getVar(env, 'SystemRoot'), '').file
@@ -269,6 +271,8 @@ interface Terminal {
   closing: boolean
   /** A moment by which the shell was running (StartedShell). */
   startedBy: number
+  /** Git Bash on Windows: kill.exe for its SIGHUP before a close (ShellChoice.hangup). */
+  hangup: StartedShell['hangup']
   /**
    * Reports the exit to the registry and the subscribers. Called by node-pty's exit event, by the
    * read of the exit code on Windows, by the bound of a close and when the wait for a pid gives up;
@@ -297,6 +301,8 @@ export interface TerminalRegistryOptions {
   platform?: NodeJS.Platform
   /** Ends every process under a shell of Windows, not the shell; endDescendants by default. Not called elsewhere. */
   endDescendants?: (shell: StartedShell) => Promise<DescendantsVerdict | void> | DescendantsVerdict | void
+  /** Ends a launcher of Git Bash by its pid when kill() of its pty failed; endShell by default. */
+  endShell?: (shell: StartedShell) => Promise<unknown> | unknown
   /** The upper bound of closing a Terminal on Windows; WINDOWS_CLOSE_BOUND_MS by default. */
   closeBoundMs?: number
   /** Whether a file is there, for the search of the shell on Windows (terminalShell). */
@@ -333,6 +339,7 @@ export class TerminalRegistry {
   private readonly commandDelayMs: number
   private readonly platform: NodeJS.Platform
   private readonly endDescendants: (shell: StartedShell) => Promise<DescendantsVerdict | void> | DescendantsVerdict | void
+  private readonly endShell: (shell: StartedShell) => Promise<unknown> | unknown
   private readonly closeBoundMs: number
   private readonly shellListeners = new Set<ShellEventListener>()
   /** Shells of Windows waiting for their pid (pidKnown), by key: what a close calls to take one apart at once. */
@@ -346,6 +353,7 @@ export class TerminalRegistry {
     this.commandDelayMs = options.commandDelayMs ?? COMMAND_DELAY_MS
     this.platform = options.platform ?? process.platform
     this.endDescendants = options.endDescendants ?? endDescendants
+    this.endShell = options.endShell ?? endShell
     this.closeBoundMs = options.closeBoundMs ?? WINDOWS_CLOSE_BOUND_MS
   }
 
@@ -581,6 +589,7 @@ export class TerminalRegistry {
       exited: new Promise((resolve) => (exitedResolve = resolve)),
       closing: false,
       startedBy,
+      hangup: choice.hangup,
       finish: (exit) => {
         if (ended) return
         ended = true
@@ -898,12 +907,14 @@ export class TerminalRegistry {
    * the pseudo-console and ends the shell at once with TerminateProcess; what else is on the
    * console is ended by the close. The shell is not ended before the pty is asked: node-pty
    * forgets a pseudo-console the moment its shell exits, and kill() then has nothing to close.
+   * Git Bash: the helper first holds its launcher and gives bash SIGHUP, so bash writes its
+   * history (StartedShell.hangup); PowerShell writes its history after every command.
    */
   private async endWindowsShell(key: string, terminal: Terminal): Promise<void> {
     const { pid } = terminal.pty
     let verdict: DescendantsVerdict | void = undefined
     try {
-      verdict = await this.endDescendants({ pid, startedBy: terminal.startedBy })
+      verdict = await this.endDescendants({ pid, startedBy: terminal.startedBy, hangup: terminal.hangup })
     } catch (error) {
       console.warn(`[terminal] ending the processes under the shell ${pid} of ${key} failed`, error)
     }
@@ -941,6 +952,10 @@ export class TerminalRegistry {
       terminal.pty.kill()
     } catch (error) {
       console.warn(`[terminal] closing the pty of the shell ${pid} failed`, error)
+      // A launcher of Git Bash the helper suspended cannot exit by itself: it is ended by its pid.
+      if (!exited && terminal.hangup !== undefined) {
+        void (async () => this.endShell({ pid, startedBy: terminal.startedBy, hangup: terminal.hangup }))().catch((failure: unknown) => console.warn(`[terminal] ending the launcher ${pid} of Git Bash failed`, failure))
+      }
     }
     this.stopOutputThread(terminal, quiet)
   }

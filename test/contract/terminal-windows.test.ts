@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { findGitBash, findOnPath } from '../../src/main/agent/env'
 import { terminalKey } from '../../src/main/ipc/terminal'
 import { endDescendants, spawnShellPty, type SpawnPty } from '../../src/main/terminal/pty'
-import { alive, consoleHosts, folderLine, handleCount, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, root, say, SAY_THE_FOLDER, SYSTEM_ROOT, threads, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
+import { alive, consoleHosts, folderLine, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, root, say, SAY_THE_FOLDER, settledHandleCount, SYSTEM_ROOT, threads, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
 
@@ -49,7 +49,7 @@ describe('terminal channels on a real pty', () => {
     })
 
     it('Git Bash is the shell when the settings of the Project ask for it', async (context) => {
-      if (findGitBash(process.env) === null) context.skip('this machine has no Git for Windows')
+      if (findGitBash(windowsEnv(home)) === null) context.skip('this machine has no Git for Windows')
       const h = await harness({ shell: 'git-bash' })
       const opened = await h.open()
       expect(opened.shell).toBe('bash.exe')
@@ -312,10 +312,10 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
 // worfy-windows ticket 92. In node-pty 1.2.0-beta.15 the thread that waits for the shell forgets
 // the pseudo-console when the shell exits and never closes it (src/win/conpty.cc, SetupExitCallback;
 // upstream microsoft/node-pty#965). kill() closes it only while node-pty still knows it: after a
-// close of a running PowerShell. Every other end leaves two handles in this process until it quits:
-// a Process handle to the finished OpenConsole.exe and the pipe of the pseudo-console. Git Bash
-// leaves them on a close as well: its launcher (bin\bash.exe) exits on its own once the bash under
-// it is ended, before kill(). Nothing node-pty gives JavaScript reaches the pseudo-console after the
+// close of a running shell. Every other end leaves two handles in this process until it quits:
+// a Process handle to the finished OpenConsole.exe and the pipe of the pseudo-console. A close of
+// Git Bash leaves none: the helper suspends its launcher (bin\bash.exe) so it cannot exit before
+// kill() (ticket 93, test/contract/terminal-git-bash-close.test.ts). Nothing node-pty gives JavaScript reaches the pseudo-console after the
 // exit: it keeps only a number, and the native kill(), resize() and clear() look that number up in
 // the list the exit thread has already cleared.
 describe.runIf(WINDOWS)('the handles a shell leaves in this process on Windows, on a real pty', () => {
@@ -339,22 +339,6 @@ describe.runIf(WINDOWS)('the handles a shell leaves in this process on Windows, 
         }),
       )
     }
-  }
-
-  /**
-   * The handle count once it stops changing: node-pty disposes of the thread that reads a shell's
-   * output 1000 ms after kill(), so wait that out, then until two readings half a second apart agree.
-   */
-  async function settledHandleCount(): Promise<number> {
-    await new Promise((resolve) => setTimeout(resolve, 1500))
-    let last = handleCount()
-    for (let reading = 0; reading < 16; reading++) {
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      const now = handleCount()
-      if (now === last) return now
-      last = now
-    }
-    throw new Error(`the handle count of this process did not settle: last ${last}`)
   }
 
   it(`PowerShell, ended by exit: ${SHELLS} shells leave ${LEAK_PER_SHELL} handles each in this process, give or take a few`, async (context) => {
