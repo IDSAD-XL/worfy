@@ -736,7 +736,25 @@ LOCK_POLL=$'\n    sleep 20\n' LOCK_FAST=$'\n    sleep 0.2; polls=$(( ${polls:-0}
 [[ "$BE" == *"until mkdir \"\$L\""*"$LOCK_POLL"*"  done"* ]] && ok "skill blocks: the one-PR gate full block polls the e2e lock every 20 s" \
     || bad "skill blocks: the one-PR gate full block has no 'sleep 20' in its until mkdir loop"
 # The exit code of a run of the block, for a failed check. Exit 98 is the fast poll giving up: the lock was never taken.
-why() { [ "$1" -eq 98 ] && echo "exit 98, the lock was never taken" || echo "exit $1"; }
+why() { [ "$1" = 98 ] && echo "exit 98, the lock was never taken" || echo "exit $1"; }
+# run_each: one run of the block $b under $sh, its output in $got and its exit code in $rc, at most 60 s: in Git Bash
+# a trap that stopped the heartbeat with kill -STOP and then killed it hung in `wait` (1 run in 7, 2 hours), and a
+# run cut off by finish fails its check instead of hanging the file. A heartbeat still alive after the run (one
+# deaf to every signal) is ended through Windows (kill -f) or with SIGKILL, so it outlives no test.
+# A recorded pid counts as that heartbeat only while its command line carries the block ($W): pids are reused, in
+# Git Bash within minutes. A run that started no heartbeat (the pid record could not be put in the block) fails too.
+cmd_of() { if [ -r "/proc/$1/cmdline" ]; then tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null; else ps -ww -o command= -p "$1" 2>/dev/null; fi; }
+run_each() {
+    local p rb="${b/HB=\$!/HB=\$!; echo \$HB >>\"$W/hb.pids\"}"
+    : >"$W/hb.pids"; $sh -c "$STUB"$'\n'"$rb" >"$W/each.out" 2>&1 &
+    finish $! 60; got="$(cat "$W/each.out")"
+    [ "$rb" != "$b" ] && [ -s "$W/hb.pids" ] || rc="$rc, no heartbeat pid recorded"
+    for p in $(cat "$W/hb.pids"); do
+        kill -0 "$p" 2>/dev/null && [[ "$(cmd_of "$p")" == *"$W"* ]] || continue
+        rc="$rc, heartbeat $p left alive"
+        if [ -e "/proc/$p/winpid" ]; then /usr/bin/kill -f -9 "$p" 2>/dev/null; else kill -KILL "$p" 2>/dev/null; fi
+    done
+}
 for sh in "${SHELLS[@]}"; do
     new_world "each-$sh" 1:a.txt
     L="$W/e2e.lock"; export GATE_LOCK="$L"
@@ -749,15 +767,15 @@ for sh in "${SHELLS[@]}"; do
         bad "$sh: the one-PR gate full block: the fast lock poll could not be put in place of 'sleep 20', the block is not run"
         unset GATE_LOCK; continue
     fi
-    got="$($sh -c "$STUB"$'\n'"$b" 2>&1)"; rc=$?
+    run_each
     h="$GATE_DIR/holder.1.json"
-    [[ "$got" == *"EXIT=0"* ]] && [ "$(gate_count)" = 1 ] && grep -q "lock=held" "$GATE_DIR/log" && [ "$(q "$h" 's.prs.join(",")+" "+s.what+" "+(typeof s.pid)')" = "5 gate-full number" ] \
+    [[ "$rc" =~ ^[0-9]+$ ]] && [[ "$got" == *"EXIT=0"* ]] && [ "$(gate_count)" = 1 ] && grep -q "lock=held" "$GATE_DIR/log" && [ "$(q "$h" 's.prs.join(",")+" "+s.what+" "+(typeof s.pid)')" = "5 gate-full number" ] \
         && ok "$sh: the one-PR gate full block: holder.json names PR 5 and gate-full while the gate runs" || bad "$sh: the one-PR block, $(why "$rc"): [$got] holder $(cat "$h" 2>/dev/null)"
     [ ! -e "$L" ] && ok "$sh: the one-PR gate full block: the lock and its holder.json are gone after it" || bad "$sh: the one-PR block left [$(ls -A "$L" 2>&1)]"
     # an abandoned lock with someone's holder.json is taken over
     mkdir "$L"; printf '{"prs":[9],"what":"gate-full","pid":1,"since":"x"}\n' >"$L/holder.json"; touch -t 202001010000 "$L"
-    got="$($sh -c "$STUB"$'\n'"$b" 2>&1)"; rc=$?
-    [[ "$got" == *"EXIT=0"* ]] && [ "$(q "$GATE_DIR/holder.2.json" 's.prs.join(",")' 2>&1)" = 5 ] && [ ! -e "$L" ] \
+    run_each
+    [[ "$rc" =~ ^[0-9]+$ ]] && [[ "$got" == *"EXIT=0"* ]] && [ "$(q "$GATE_DIR/holder.2.json" 's.prs.join(",")' 2>&1)" = 5 ] && [ ! -e "$L" ] \
         && ok "$sh: the one-PR gate full block: an abandoned lock is removed with its holder.json and taken" || bad "$sh: the one-PR block, abandoned lock, $(why "$rc"): [$got]"
     unset GATE_LOCK
 done
