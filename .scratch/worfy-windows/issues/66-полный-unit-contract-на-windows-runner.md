@@ -315,3 +315,12 @@ job-ом, который не `skipped`; 4 — run на main рядом с batch
 возобновлении, строка в журнале и отчёте; 5 — test закрепляет каждый пункт `PC_ONLY` и вложенные
 пути, мутанты красные; 6 — git в test-е без системного и глобального конфига и `GIT_*`; 7 — убрана
 повторная строка «Не проверено» на английском.
+
+Проверки на ПК (идёт cod.exe: только лёгкие прогоны). Первый круг: `windows-tests-workflow.test.ts`
+до правки workflow — 7 упало, 65 прошло (красный первым); три прогона двух contract-файлов и
+`test/unit/no-rmsync.test.ts` — 125 из 125, код 0; `ci-workflow.test.ts`, `pnpm lint`,
+`pnpm typecheck`, gate fast — код 0. Круг 1: три прогона `windows-tests-workflow.test.ts`,
+`windows-verdict-scope.test.ts` и `no-rmsync.test.ts` — 153 из 153, код 0 каждый;
+`plugin-neutral` (31 из 31), `epic-wave-ship-ticket` (336), `review-depth` (105), `max-review` (80),
+`agents-text` (202) — код 0; `pnpm lint`, `pnpm typecheck` — код 0; gate fast — код 0,
+`[gate] green (fast)`. `test/e2e` не тронут, `test/unit/e2e-*.test.ts` не нужны.
