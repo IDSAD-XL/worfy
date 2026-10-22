@@ -108,6 +108,7 @@ vi.mock('@xterm/xterm/css/xterm.css', () => ({}))
 vi.mock('../../src/renderer/ipc', () => ({
   invoke: (channel: string, input: unknown) => wire.invoke(channel, input),
   subscribe: (channel: string, handler: (payload: never) => void) => wire.subscribe(channel, handler),
+  hasPreloadBridge: () => (globalThis as { worfy?: unknown }).worfy !== undefined,
 }))
 vi.mock('../../src/renderer/projects/useProjects', () => ({
   useProjects: () => undefined,

@@ -29,7 +29,11 @@ const state = vi.hoisted(() => ({
   invoke: vi.fn(),
 }))
 
-vi.mock('../../src/renderer/ipc', () => ({ invoke: state.invoke, subscribe: () => () => undefined }))
+vi.mock('../../src/renderer/ipc', () => ({
+  invoke: state.invoke,
+  subscribe: () => () => undefined,
+  hasPreloadBridge: () => (globalThis as { worfy?: unknown }).worfy !== undefined,
+}))
 vi.mock('../../src/renderer/projects/useProjects', () => ({
   useProjects: () => null,
   activeProject: () => state.project,

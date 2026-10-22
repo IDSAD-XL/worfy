@@ -36,7 +36,11 @@ vi.mock('../../src/renderer/markdown/Markdown', () => ({ Markdown: ({ text }: { 
 const shown: { machine: string | null } = { machine: null }
 // shell.openInEditor answers with the path it opened, as main does; other outcomes when a test sets one.
 const invoke = vi.hoisted(() => vi.fn<(channel: string, input?: unknown) => Promise<{ ok: true; value: unknown }>>(() => Promise.resolve({ ok: true, value: { path: 'opened', outcome: 'opened' } })))
-vi.mock('../../src/renderer/ipc', () => ({ invoke, windowMachine: () => shown.machine }))
+vi.mock('../../src/renderer/ipc', () => ({
+  invoke,
+  windowMachine: () => shown.machine,
+  hasPreloadBridge: () => (globalThis as { worfy?: unknown }).worfy !== undefined,
+}))
 vi.mock('../../src/renderer/machines/useMachines', () => ({
   useMachines: () => ({ linked: [{ id: 'machine-m', name: 'Mini' }] }),
   linkStateNow: () => ({ linked: [{ id: 'machine-m', name: 'Mini' }] }),

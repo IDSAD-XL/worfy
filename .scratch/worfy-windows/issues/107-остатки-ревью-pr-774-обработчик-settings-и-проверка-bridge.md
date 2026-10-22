@@ -75,3 +75,16 @@ Source: ревью PR #774 ([Ticket 103](103-остатки-ревью-pr-753-п
 `menu-command`, `settings-dialog`, `shell`, `shortcuts-overlay`, `use-app-settings`, `sidebar-section` и
 `test/contract/ipc-renderer.test.tsx` — 3 прогона, 121/121, EXIT=0; `no-rmsync` EXIT=0; `pnpm lint` EXIT=0;
 `pnpm typecheck` EXIT=0; gate fast — в отчёте PR. e2e не запускались (пауза владельца на окна; правка их не касается).
+
+**Круг 3 (gate full на Mac красный).** `test/unit/adr-section.test.tsx` падал 7/7: «No "hasPreloadBridge" export
+is defined on the "../../src/renderer/ipc" mock». Модуль `src/renderer/ipc` подменяют 24 файла `test/unit`
+(23 через `vi.mock`, `session-node-drop.test.tsx` через `vi.doMock`); 15 из них разворачивают `importOriginal` и
+получают настоящую функцию. В фабрики остальных 9 (`adr-section`, `browser-profiles-store`, `card-bridge-overlay`,
+`connect-project`, `epics-section-reading`, `first-epic`, `project-settings-shell`, `signin-replies`,
+`terminal-replies`) добавлено `hasPreloadBridge: () => (globalThis as { worfy?: unknown }).worfy !== undefined` —
+та же проверка, что стояла в заменённых приведениях. В `test/contract` подмен этого модуля нет. Мой gate fast
+этого не поймал: по diff он сузился до lint и typecheck.
+
+Проверки: до правки `adr-section` — 7 failed, EXIT=1; 24 файла с подменой и 7 файлов тикета одним прогоном —
+31 файл, 361/361, EXIT=0; все 118 файлов `test/unit/*.test.tsx`, что импортируют `src/renderer`, — 1747/1747,
+EXIT=0 (весь `pnpm test` не запускался: владелец играет).

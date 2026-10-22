@@ -11,7 +11,12 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ConnectFolder, GithubAccountsStep, ProfileDraft } from '../../src/shared/ipc/projects'
 
-const ipc = vi.hoisted(() => ({ invoke: vi.fn(), invokeOn: vi.fn(), subscribe: vi.fn(() => () => undefined) }))
+const ipc = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  invokeOn: vi.fn(),
+  subscribe: vi.fn(() => () => undefined),
+  hasPreloadBridge: () => (globalThis as { worfy?: unknown }).worfy !== undefined,
+}))
 vi.mock('../../src/renderer/ipc', () => ipc)
 
 const { ConnectProject } = await import('../../src/renderer/projects/ConnectProject')
