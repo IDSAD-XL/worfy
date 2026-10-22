@@ -67,6 +67,13 @@ Unit test-ы helper-а и формы на Mac и Linux (через подмен�
 - Перенос папок или запрет добавлять их — решает пользователь.
 - Изменение настроек Storage Sense из worfy — это настройки системы пользователя.
 - Папки evidence и временные папки test-ов (они и должны лежать в `%TEMP%`).
+- Project в `%TEMP%`, который Harness уже знает, без worktree-ов и без Session: предупреждения нет
+  нигде. Форма его не показывает (диалог пропускается), а badge-ей без worktree-а Ticket-а и без
+  Session нет.
+- Follow-up: перенести сравнение путей (`isInsidePath`, сейчас в `src/main/claude-home/registry.ts`)
+  в `src/shared/paths.ts`, где по решению Ticket-а 49 живут helper-ы путей. Сейчас
+  `src/main/projects/temp-folder.ts` импортирует его из `registry.ts` и тянет за собой chokidar и
+  `child_process`. В этом PR не перенесено: импорты `src/shared/paths.ts` держит PR #705.
 
 ## Риски
 
@@ -92,8 +99,10 @@ Session на Mac 2026-10-22, ветка `worfy-windows/61` от main `54c1c59a`.
 - **Форма «Add project»:** `ProjectConnector.inspect` помечает новую папку (`insideTemp: true` в
   `ConnectFolder`). Проверяется корень, который будет подключён, а не выбранная подпапка. Шаг
   «Folder» показывает знак «in %TEMP%» и текст: причина и совет перенести checkout. Это не ошибка:
-  «Write draft» работает как обычно. Папка, которую Harness уже знает, диалог пропускает; у неё знак
-  есть на gate badge checkout-а.
+  «Write draft» работает как обычно. Папку, которую Harness уже знает, диалог пропускает, и
+  предупреждения в форме у неё нет. Знак у её checkout-а виден только на badge Session, которая
+  работает в checkout-е (`worktreeOfCwd`). Badge Ticket-а находит worktree по ветке Ticket-а
+  (`worktreeOfTicket`), а checkout на `main` по ней не находится.
 - **Список worktree-ов:** в UI он виден только через snapshot `checks.get` (gate badge на Ticket-е и
   на Session). Пометку ставит `readChecks` в `src/main/ipc/checks.ts` (`insideTemp: true` в
   `WorktreeChecks`). Знак тот же, tooltip — текст предупреждения и путь worktree-а.
@@ -103,3 +112,7 @@ Session на Mac 2026-10-22, ветка `worfy-windows/61` от main `54c1c59a`.
 - Test-ы: `test/unit/temp-folder.test.ts`, `test/unit/read-checks.test.ts`,
   `test/unit/connect-project.test.tsx`, `test/unit/checks-badges.test.tsx`,
   `test/contract/projects-connect.test.ts`. Mutation testing: 14 mutant-ов, все убиты.
+- В `test/contract/github-prs.test.ts` у двух `checksHandlers` стоит `insideTemp: () => false`: их
+  корни лежат во временной папке системы (на Windows это `%TEMP%`), а snapshot сравнивается целиком.
+  Mutant «всё внутри %TEMP%» в значении по умолчанию у `readChecks` до этой правки ронял два test-а
+  файла, после неё — ни одного.

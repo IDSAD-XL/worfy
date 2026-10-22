@@ -486,7 +486,8 @@ describe('PrTracker over the gh stub', () => {
 async function ipcOver(run: GhRunner, home: string, worktrees: (root: string) => Worktree[] = (root) => [{ path: root, branch: 'main' }]) {
   const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>()
   const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
-  const module = checksHandlers({ gate: new GateReader({ home }), prs: new PrTracker({ run }), worktrees: async (root) => worktrees(root) }, anyProject, fullScope)
+  // The roots lie in the system's temporary folder, which is %TEMP% on Windows: no %TEMP% mark in these snapshots.
+  const module = checksHandlers({ gate: new GateReader({ home }), prs: new PrTracker({ run }), worktrees: async (root) => worktrees(root), insideTemp: () => false }, anyProject, fullScope)
   await registerIpc(ipc, { modules: { './checks.ts': async () => module }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
   return async (input: unknown): Promise<IpcResult<unknown>> => {
     const listener = handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!
@@ -570,6 +571,8 @@ describe('checks.get', () => {
       gate: { read: async (_root: string, worktrees: { path: string; branch: string | null }[]) => worktrees.map((each) => ({ ...each, gate: { outcome: 'green', source: 'marker', at: null, file: '/secret' } })) } as unknown as GateReader,
       prs: { read: async () => ({ pulls: [], gh: { available: true, error: null, intervalMs: 60_000, token: 't' } }) } as unknown as PrTracker,
       worktrees: async (root) => [{ path: root, branch: 'main', head: 'abc' } as { path: string; branch: string }],
+      // No %TEMP% mark, whatever the user's %TEMP% is: the snapshot is compared whole.
+      insideTemp: () => false,
     }, anyProject, fullScope)
     await registerIpc(ipc, { modules: { './checks.ts': async () => leaky }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
     const result = (await handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, { root: '/r', branches: [] })) as IpcResult<ChecksSnapshot>

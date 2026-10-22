@@ -29,7 +29,7 @@ function Neutral({ label, title, testId }: { label: string; title?: string; test
   )
 }
 
-function Chip({ status, label, testId, value, title }: { status: Status; label: string; testId: string; value: string; title?: string }) {
+function Chip({ status, label, testId, value, title }: { status: Status; label: string; testId: string; value?: string; title?: string }) {
   return (
     <span data-testid={testId} data-value={value} title={title}>
       <StatusChip status={status} label={label} />
@@ -52,11 +52,7 @@ function GateBadge({ outcome, path }: { outcome: GateOutcome; path: string }) {
 
 /** The worktree lies inside %TEMP% of Windows (worfy-windows ticket 61): the sign of the "Add project" Folder step. */
 function TempBadge({ path }: { path: string }) {
-  return (
-    <span data-testid="checks-temp" title={`${TEMP_FOLDER_WARNING} — ${path}`}>
-      <StatusChip status="working" label={TEMP_FOLDER_LABEL} />
-    </span>
-  )
+  return <Chip status="working" label={TEMP_FOLDER_LABEL} testId="checks-temp" title={`${TEMP_FOLDER_WARNING} — ${path}`} />
 }
 
 const CI: Record<NonNullable<PullRequest['ci']>, Status> = { passing: 'ready', failing: 'blocked', running: 'working' }
