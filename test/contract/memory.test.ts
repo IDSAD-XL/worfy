@@ -255,9 +255,8 @@ describe('MemorySampler and the memoryIndicator setting', () => {
     const window = fakeWindow()
     await open(window)
     // A refused URL (will-frame-navigate, src/main/window.ts), a 204, a download: the start comes,
-    // the commit does not, and the old page stays up with its figure open.
+    // then the stop and no fail event (Electron 44.5.1); the old page stays up with its figure open.
     fire(window, 'did-start-navigation', { isMainFrame: true, isSameDocument: false })
-    fire(window, 'did-fail-provisional-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true, 1, 1)
     fire(window, 'did-stop-loading')
     expect(sampler.running).toBe(true)
     vi.advanceTimersByTime(MEMORY_SAMPLE_MS)
@@ -267,15 +266,13 @@ describe('MemorySampler and the memoryIndicator setting', () => {
     expect(sampler.running).toBe(false)
   })
 
-  it('an error page in the main frame drops the opens; an aborted load or a failure inside a frame does not', async () => {
+  it('an error page in the main frame drops the opens; a failure inside a frame does not', async () => {
     const { open } = await register()
     const window = fakeWindow()
     await open(window)
     // A frame inside the page fails: the page stays.
     fire(window, 'did-fail-provisional-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://nowhere.invalid/', false, 1, 2)
     fire(window, 'did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://nowhere.invalid/', false, 1, 2)
-    // An aborted main-frame load (a refused URL, a 204, a download): the page stays.
-    fire(window, 'did-fail-provisional-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true, 1, 1)
     expect(sampler.running).toBe(true)
     // View > Reload with the dev server down: Electron commits an error page and emits no
     // did-navigate, only did-fail-provisional-load and then did-fail-load. The old page is gone.

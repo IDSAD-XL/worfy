@@ -118,10 +118,10 @@ describe('linked.open', () => {
   it('keeps the Project held when a navigation starts but never commits: the page stays', async () => {
     const window = new Contents(43)
     await call('linked.open', { machine: M, projectId: 'demo-1' }, window)
-    // A refused URL (will-frame-navigate, src/main/window.ts), a 204, a download: the start comes,
-    // the commit does not.
+    // A refused URL (will-frame-navigate, src/main/window.ts), a 204, a download, stop() before the
+    // commit, a load replaced by a newer one: the start comes, then the stop, and no fail event at
+    // all (measured on Electron 44.5.1).
     window.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
-    window.emit('did-fail-provisional-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true, 1, 1)
     window.emit('did-stop-loading')
     expect(holds()).toEqual([{ screen: '43', projectId: 'demo-1' }])
     // The page that stayed is still the holder: its close lets go.
@@ -132,12 +132,22 @@ describe('linked.open', () => {
     ])
   })
 
-  it('lets go when the main frame shows an error page, not on an aborted load or a failure inside a frame', async () => {
+  it('safety check: a main-frame did-fail-provisional-load with ERR_ABORTED keeps the Project held', async () => {
+    // Electron 44.5.1 sends no fail event for an aborted load; should a later Electron send -3 for
+    // one, the page still stays up, and so does what it holds.
+    const window = new Contents(46)
+    await call('linked.open', { machine: M, projectId: 'demo-1' }, window)
+    window.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    window.emit('did-fail-provisional-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true, 1, 1)
+    window.emit('did-stop-loading')
+    expect(holds()).toEqual([{ screen: '46', projectId: 'demo-1' }])
+  })
+
+  it('lets go when the main frame shows an error page, not on a failure inside a frame', async () => {
     const window = new Contents(44)
     await call('linked.open', { machine: M, projectId: 'demo-1' }, window)
     window.emit('did-fail-provisional-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://nowhere.invalid/', false, 1, 2)
     window.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://nowhere.invalid/', false, 1, 2)
-    window.emit('did-fail-provisional-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true, 1, 1)
     expect(holds()).toEqual([{ screen: '44', projectId: 'demo-1' }])
     // View > Reload with the dev server down: an error page commits, with did-fail-provisional-load,
     // then did-fail-load, and no did-navigate.
@@ -296,8 +306,8 @@ describe('subscriptions of several windows on one Linked machine (worfy-windows 
     const [first, second] = [new Contents(58), new Contents(59)]
     await invoke(first, 'workflow.open', { root: '/r' })
     await invoke(second, 'workflow.open', { root: '/r' })
+    // An aborted load: the start and the stop, no fail event (Electron 44.5.1).
     second.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
-    second.emit('did-fail-provisional-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true, 1, 1)
     second.emit('did-stop-loading')
     first.emit('destroyed')
     // The second window is still counted in: the subscription stays on the Linked machine.
@@ -309,7 +319,6 @@ describe('subscriptions of several windows on one Linked machine (worfy-windows 
   it('an error page in the main frame lets go of the subscription; the close goes when it was the last', async () => {
     const window = new Contents(60)
     await invoke(window, 'docs.open', { projectId: 'error-page' })
-    window.emit('did-fail-provisional-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true, 1, 1)
     window.emit('did-fail-provisional-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://nowhere.invalid/', false, 1, 2)
     window.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://nowhere.invalid/', false, 1, 2)
     expect(closes()).toEqual([])

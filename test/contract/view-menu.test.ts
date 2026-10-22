@@ -868,9 +868,9 @@ describe('a menu command chosen before the page follows it (worfy-windows ticket
     const { choose } = await menuItems()
     await pageFollows(electron.window, ['settings'])
     choose.toggleSidebar(electron.window)
-    // A link that turns into a download, a 204, a refused URL: the start comes, the commit does not.
+    // A link that turns into a download, a 204, a refused URL: the start comes, then the stop, and
+    // no fail event (Electron 44.5.1).
     electron.window.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false })
-    electron.window.fire('did-fail-provisional-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true, 1, 1)
     electron.window.fire('did-stop-loading')
     choose.settings(electron.window)
     expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'settings' }])
