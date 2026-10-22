@@ -43,8 +43,8 @@ useSettingsWindow.subscribe((state, previous) => {
 /**
  * Opens the window when the app menu says so (`menu.command` `shortcuts`, src/main/menu.ts), one
  * chosen before this subscribed included (src/renderer/menu-command.ts).
- * Returns the function that unsubscribes; without the preload bridge (a unit test of the shell) it
- * subscribes to nothing.
+ * Returns the function that unsubscribes; without the preload bridge (a unit test of the shell)
+ * followMenuCommand subscribes to nothing and shows no toast.
  */
 export function followShortcutsCommands(): () => void {
   return followMenuCommand('shortcuts', openShortcuts)
