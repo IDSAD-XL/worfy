@@ -6,7 +6,7 @@
 // open (the listeners at the end): the app's shortcuts listen on `window` (⌘K, ⌘F, ⌘↩, Esc of focus
 // mode, the Canvas's keys), where a handler on the dialog itself cannot stop them.
 import { create } from 'zustand'
-import { subscribe } from '../ipc'
+import { followMenuCommand } from '../menu-command'
 
 export interface SettingsWindowState {
   open: boolean
@@ -43,19 +43,12 @@ export function selectSection(sectionId: string): void {
 }
 
 /**
- * Opens the window when the app menu says so (`menu.command`, src/main/menu.ts). Returns the
- * function that unsubscribes; without the preload bridge (a unit test of the shell) it subscribes
- * to nothing.
+ * Opens the window when the app menu says so (`menu.command`, src/main/menu.ts), a "Settings…"
+ * chosen before this subscribed included (src/renderer/menu-command.ts). Returns the function that
+ * unsubscribes; without the preload bridge (a unit test of the shell) it subscribes to nothing.
  */
 export function followMenuCommands(): () => void {
-  try {
-    return subscribe('menu.command', (command) => {
-      if (command === 'settings') openSettings()
-    })
-  } catch (error) {
-    console.error('menu.command: cannot subscribe', error)
-    return () => undefined
-  }
+  return followMenuCommand('settings', openSettings)
 }
 
 // The modal guard. While the window is on screen:

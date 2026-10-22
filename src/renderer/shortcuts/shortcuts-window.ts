@@ -10,7 +10,7 @@
 // some of them in the capture phase, so the guard sits there too, added when this file loads —
 // before every listener a component adds.
 import { create } from 'zustand'
-import { subscribe } from '../ipc'
+import { followMenuCommand } from '../menu-command'
 import { selectSection, useSettingsWindow } from '../settings/settings-window'
 
 export interface ShortcutsWindowState {
@@ -41,19 +41,13 @@ useSettingsWindow.subscribe((state, previous) => {
 })
 
 /**
- * Opens the window when the app menu says so (`menu.command` `shortcuts`, src/main/menu.ts).
+ * Opens the window when the app menu says so (`menu.command` `shortcuts`, src/main/menu.ts), one
+ * chosen before this subscribed included (src/renderer/menu-command.ts).
  * Returns the function that unsubscribes; without the preload bridge (a unit test of the shell) it
  * subscribes to nothing.
  */
 export function followShortcutsCommands(): () => void {
-  try {
-    return subscribe('menu.command', (command) => {
-      if (command === 'shortcuts') openShortcuts()
-    })
-  } catch (error) {
-    console.error('menu.command: cannot subscribe', error)
-    return () => undefined
-  }
+  return followMenuCommand('shortcuts', openShortcuts)
 }
 
 let dialogElement: HTMLElement | null = null

@@ -7,12 +7,14 @@
 // View ▸ Toggle Sidebar (worfy-ui ticket 10) carries Cmd/Ctrl+B and tells one window to hide or show
 // its sidebar; what is saved, the window decides. Help ▸ Keyboard Shortcuts (worfy-ui ticket 11)
 // carries Cmd/Ctrl+/ and tells one window to open its Keyboard shortcuts window; every accelerator
-// above is the one of the registry of shortcuts (src/shared/shortcuts.ts).
+// above is the one of the registry of shortcuts (src/shared/shortcuts.ts). A command for a window
+// whose page does not follow it yet waits in main until the page says it does, with `menu.ready`
+// (worfy-windows ticket 96; src/main/ipc/menu.ts).
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX } from '../../src/shared/ipc/channels'
-import { menuCommand } from '../../src/shared/ipc/menu'
+import { MENU_COMMANDS, menuCommand, menuReady, type MenuCommand } from '../../src/shared/ipc/menu'
 import { accelerator, SHORTCUTS } from '../../src/shared/shortcuts'
 import { viewChanged, viewGet } from '../../src/shared/ipc/view'
 import { removeTestTree } from '../remove'
@@ -51,11 +53,13 @@ const electron = vi.hoisted(() => {
     static getAllWindows = () => FakeBrowserWindow.all
     static getFocusedWindow = () => FakeBrowserWindow.focused
     /** The listeners of the web contents, by event. */
-    readonly listeners = new Map<string, (() => void)[]>()
+    readonly listeners = new Map<string, ((...args: unknown[]) => void)[]>()
     readonly webContents: {
+      id: string
       send: (channel: string, payload: unknown) => void
       setZoomFactor: (factor: number) => void
-      on: (event: string, listener: () => void) => void
+      on: (event: string, listener: (...args: unknown[]) => void) => void
+      isDestroyed: () => boolean
     }
     readonly name: string
     /** The options of a window main made itself (createMainWindow); a test names its windows instead. */
@@ -65,14 +69,16 @@ const electron = vi.hoisted(() => {
       this.name = name
       this.options = typeof made === 'string' ? undefined : made
       this.webContents = {
+        id: name,
         send: (channel, payload) => sent.push({ to: name, channel, payload }),
         setZoomFactor: (factor) => zooms.push({ to: name, factor }),
         on: (event, listener) => this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]),
+        isDestroyed: () => this.destroyed,
       }
     }
     /** Fires an event of the web contents. */
-    fire(event: string): void {
-      for (const listener of this.listeners.get(event) ?? []) listener()
+    fire(event: string, ...args: unknown[]): void {
+      for (const listener of this.listeners.get(event) ?? []) listener(...args)
     }
     destroyed = false
     isDestroyed = () => this.destroyed
@@ -197,6 +203,21 @@ describe('view contract', () => {
 /** Every item of the template, submenus included. */
 function items(template: TemplateItem[]): TemplateItem[] {
   return template.flatMap((item) => [item, ...items(item.submenu ?? [])])
+}
+
+type FakeWindow = InstanceType<typeof electron.FakeBrowserWindow>
+
+/**
+ * The page of `window` calls `menu.ready` for `commands` (every one by default), as the app shell
+ * does once React has mounted it (src/renderer/menu-command.ts): through the handler of the channel,
+ * with the window's web contents as the sender. Imported after the test's vi.resetModules, so it
+ * reaches the same module as the menu of that test.
+ */
+async function pageFollows(window: FakeWindow, commands: readonly MenuCommand[] = MENU_COMMANDS): Promise<void> {
+  const handlers = (await import('../../src/main/ipc/menu')).default
+  const ready = handlers.find((handler) => handler.channel.name === menuReady.name)
+  if (ready === undefined) throw new Error('menu.ready has no handler')
+  for (const command of commands) await ready.handle(command as never, { event: { sender: window.webContents } as never })
 }
 
 describe('View ▸ Bigger / Smaller / Actual size', () => {
@@ -492,6 +513,8 @@ describe('Settings…', () => {
   it('a click with a window tells that window, not the focused one', async () => {
     const { settings } = await templateFor('darwin')
     const other = new electron.FakeBrowserWindow('other')
+    await pageFollows(other)
+    await pageFollows(electron.window)
     electron.FakeBrowserWindow.focused = electron.window
     settings.click?.({ checked: false }, other)
     expect(electron.sent).toEqual([{ to: 'other', channel: `${IPC_CHANNEL_PREFIX}menu.command`, payload: 'settings' }])
@@ -499,6 +522,7 @@ describe('Settings…', () => {
 
   it('a click without a window tells the focused one; with no window in focus, nobody', async () => {
     const { settings } = await templateFor('win32')
+    await pageFollows(electron.window)
     electron.FakeBrowserWindow.focused = electron.window
     settings.click?.({ checked: false }, undefined)
     expect(electron.sent).toEqual([{ to: 'main', channel: `${IPC_CHANNEL_PREFIX}menu.command`, payload: 'settings' }])
@@ -511,6 +535,8 @@ describe('Settings…', () => {
   it('a destroyed window gets no command, whether it came with the click or has the focus', async () => {
     const { settings } = await templateFor('darwin')
     const gone = new electron.FakeBrowserWindow('gone')
+    await pageFollows(gone)
+    await pageFollows(electron.window)
     gone.destroyed = true
     electron.FakeBrowserWindow.focused = electron.window
     // The window of the click was closed meanwhile: the command is not passed on to another one.
@@ -554,6 +580,8 @@ describe('View ▸ Toggle Sidebar', () => {
   it('a click with a window tells that window `toggleSidebar`, not the focused one and not every window', async () => {
     const { sidebar } = await templateFor('darwin')
     const other = new electron.FakeBrowserWindow('other')
+    await pageFollows(other)
+    await pageFollows(electron.window)
     electron.FakeBrowserWindow.all = [electron.window, other]
     electron.FakeBrowserWindow.focused = electron.window
     sidebar.click?.({ checked: false }, other)
@@ -562,6 +590,7 @@ describe('View ▸ Toggle Sidebar', () => {
 
   it('a click without a window tells the focused one; with no window in focus, nobody', async () => {
     const { sidebar } = await templateFor('win32')
+    await pageFollows(electron.window)
     electron.FakeBrowserWindow.focused = electron.window
     sidebar.click?.({ checked: false }, undefined)
     expect(electron.sent).toEqual([{ to: 'main', channel: `${IPC_CHANNEL_PREFIX}menu.command`, payload: 'toggleSidebar' }])
@@ -574,6 +603,7 @@ describe('View ▸ Toggle Sidebar', () => {
   it('a destroyed window gets no command', async () => {
     const { sidebar } = await templateFor('darwin')
     const gone = new electron.FakeBrowserWindow('gone')
+    await pageFollows(gone)
     gone.destroyed = true
     electron.FakeBrowserWindow.focused = electron.window
     sidebar.click?.({ checked: false }, gone)
@@ -634,6 +664,8 @@ describe('Help ▸ Keyboard Shortcuts', () => {
   it('a click with a window tells that window `shortcuts`, not the focused one and not every window', async () => {
     const { shortcuts } = await templateFor('darwin')
     const other = new electron.FakeBrowserWindow('other')
+    await pageFollows(other)
+    await pageFollows(electron.window)
     electron.FakeBrowserWindow.all = [electron.window, other]
     electron.FakeBrowserWindow.focused = electron.window
     shortcuts.click?.({ checked: false }, other)
@@ -642,6 +674,7 @@ describe('Help ▸ Keyboard Shortcuts', () => {
 
   it('a click without a window tells the focused one; with no window in focus, nobody', async () => {
     const { shortcuts } = await templateFor('win32')
+    await pageFollows(electron.window)
     electron.FakeBrowserWindow.focused = electron.window
     shortcuts.click?.({ checked: false }, undefined)
     expect(electron.sent).toEqual([{ to: 'main', channel: `${IPC_CHANNEL_PREFIX}menu.command`, payload: 'shortcuts' }])
@@ -678,6 +711,223 @@ describe('the accelerators of the menu', () => {
       'CmdOrCtrl+B',
       'CmdOrCtrl+/',
     ])
+  })
+})
+
+describe('a menu command chosen before the page follows it (worfy-windows ticket 96)', () => {
+  const PREFIXED = `${IPC_CHANNEL_PREFIX}menu.command`
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  /** The menu of a fresh main and a click on each command's item with a window, as Electron makes it. */
+  async function menuItems() {
+    vi.resetModules()
+    const menu = await import('../../src/main/menu')
+    const template = menu.menuTemplate(() => undefined, 'win32') as TemplateItem[]
+    const clickOf = (id: string) => {
+      const click = items(template).find((candidate) => candidate.id === id)?.click
+      if (click === undefined) throw new Error(`${id} is missing`)
+      return (window: FakeWindow) => click({ checked: false }, window)
+    }
+    const held = await import('../../src/main/ipc/menu')
+    const choose: Record<MenuCommand, (window: FakeWindow) => void> = {
+      settings: clickOf(menu.SETTINGS_MENU_ITEM_ID),
+      toggleSidebar: clickOf(menu.SIDEBAR_MENU_ITEM_ID),
+      shortcuts: clickOf(menu.SHORTCUTS_MENU_ITEM_ID),
+    }
+    return { held, choose }
+  }
+
+  it.each(MENU_COMMANDS)('`%s` sent before the page subscribed is held, and arrives once the page says it follows it', async (command) => {
+    const { choose } = await menuItems()
+    choose[command](electron.window)
+    expect(electron.sent).toEqual([])
+    await pageFollows(electron.window, [command])
+    expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: command }])
+    // Once only: a second menu.ready of the page sends nothing again.
+    await pageFollows(electron.window, [command])
+    expect(electron.sent).toHaveLength(1)
+    // And from then on a command goes at once.
+    choose[command](electron.window)
+    expect(electron.sent).toEqual([
+      { to: 'main', channel: PREFIXED, payload: command },
+      { to: 'main', channel: PREFIXED, payload: command },
+    ])
+  })
+
+  it('the page that follows one command gets only that one; the others wait for their own menu.ready', async () => {
+    const { choose } = await menuItems()
+    choose.settings(electron.window)
+    choose.toggleSidebar(electron.window)
+    choose.settings(electron.window)
+    await pageFollows(electron.window, ['settings'])
+    expect(electron.sent.map((each) => each.payload)).toEqual(['settings', 'settings'])
+    await pageFollows(electron.window, ['toggleSidebar'])
+    expect(electron.sent.map((each) => each.payload)).toEqual(['settings', 'settings', 'toggleSidebar'])
+  })
+
+  it('each window holds its own: the page of another window being ready sends nothing of this one', async () => {
+    const { choose } = await menuItems()
+    const other = new electron.FakeBrowserWindow('other')
+    choose.settings(electron.window)
+    await pageFollows(other)
+    expect(electron.sent).toEqual([])
+    choose.settings(other)
+    expect(electron.sent).toEqual([{ to: 'other', channel: PREFIXED, payload: 'settings' }])
+  })
+
+  it('pins the bounds: a held command waits 10 s at most, and a window holds 8 at most', async () => {
+    const { held } = await menuItems()
+    expect(held.HELD_FOR_MS).toBe(10_000)
+    expect(held.HELD_AT_MOST).toBe(8)
+  })
+
+  it('a command sent at once to a ready page is not held as well: a second menu.ready sends nothing more', async () => {
+    const { choose } = await menuItems()
+    await pageFollows(electron.window, ['settings'])
+    choose.settings(electron.window)
+    await pageFollows(electron.window, ['settings'])
+    expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'settings' }])
+  })
+
+  it('a command held longer than HELD_FOR_MS is dropped with a warning that names it and the window, not sent late', async () => {
+    vi.useFakeTimers({ toFake: ['performance'] })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { choose, held } = await menuItems()
+    choose.settings(electron.window)
+    vi.advanceTimersByTime(held.HELD_FOR_MS)
+    choose.toggleSidebar(electron.window)
+    vi.advanceTimersByTime(1)
+    await pageFollows(electron.window)
+    // The settings command is HELD_FOR_MS + 1 ms old by now; the sidebar one, 1 ms.
+    expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'toggleSidebar' }])
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0]?.[0]).toMatch(/'settings' for window main dropped/)
+  })
+
+  it('a command at exactly HELD_FOR_MS still arrives, without a warning', async () => {
+    vi.useFakeTimers({ toFake: ['performance'] })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { choose, held } = await menuItems()
+    choose.shortcuts(electron.window)
+    vi.advanceTimersByTime(held.HELD_FOR_MS)
+    await pageFollows(electron.window)
+    expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'shortcuts' }])
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('the wait is measured on the monotonic clock: a jump of the system clock drops nothing', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const { choose, held } = await menuItems()
+    choose.settings(electron.window)
+    vi.setSystemTime(Date.now() + 10 * held.HELD_FOR_MS)
+    await pageFollows(electron.window)
+    expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'settings' }])
+  })
+
+  it('a window holds at most HELD_AT_MOST commands, the latest ones', async () => {
+    const { choose, held } = await menuItems()
+    for (let index = 0; index < held.HELD_AT_MOST + 3; index += 1) choose.settings(electron.window)
+    choose.toggleSidebar(electron.window)
+    await pageFollows(electron.window)
+    const payloads = electron.sent.map((each) => each.payload)
+    expect(payloads).toHaveLength(held.HELD_AT_MOST)
+    expect(payloads.at(-1)).toBe('toggleSidebar')
+  })
+
+  it('a new document that commits in the main frame drops what is held and what the old page followed', async () => {
+    const { choose } = await menuItems()
+    await pageFollows(electron.window, ['shortcuts'])
+    choose.settings(electron.window)
+    // View ▸ Reload: the new document commits.
+    electron.window.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    electron.window.fire('did-navigate', {}, 'file:///index.html', -1, '')
+    choose.shortcuts(electron.window)
+    expect(electron.sent).toEqual([])
+    // The new page follows settings: the command chosen for the old page is gone.
+    await pageFollows(electron.window, ['settings'])
+    expect(electron.sent).toEqual([])
+    // The shortcuts one, chosen after the reload, waited for the new page and arrives now.
+    await pageFollows(electron.window, ['shortcuts'])
+    expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'shortcuts' }])
+  })
+
+  it('a command chosen before the page was ever ready, then a reload, then menu.ready: nothing is sent', async () => {
+    const { choose } = await menuItems()
+    choose.settings(electron.window)
+    electron.window.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    electron.window.fire('did-navigate', {}, 'file:///index.html', -1, '')
+    await pageFollows(electron.window)
+    expect(electron.sent).toEqual([])
+  })
+
+  it('a navigation that starts but never commits leaves the old page ready and what it holds in place', async () => {
+    const { choose } = await menuItems()
+    await pageFollows(electron.window, ['settings'])
+    choose.toggleSidebar(electron.window)
+    // A link that turns into a download, a 204, a refused URL: the start comes, the commit does not.
+    electron.window.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    electron.window.fire('did-fail-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true)
+    electron.window.fire('did-stop-loading')
+    choose.settings(electron.window)
+    expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'settings' }])
+    await pageFollows(electron.window, ['toggleSidebar'])
+    expect(electron.sent.map((each) => each.payload)).toEqual(['settings', 'toggleSidebar'])
+  })
+
+  it("an old page's menu.ready that arrives during a reload, before the commit, does not make the new page ready", async () => {
+    const { choose } = await menuItems()
+    electron.window.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    // Sent by the old page before it unloaded.
+    await pageFollows(electron.window, ['settings'])
+    electron.window.fire('did-navigate', {}, 'file:///index.html', -1, '')
+    choose.settings(electron.window)
+    expect(electron.sent).toEqual([])
+    await pageFollows(electron.window, ['settings'])
+    expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'settings' }])
+  })
+
+  it('a navigation inside the document keeps what is held and what the page follows', async () => {
+    const { choose } = await menuItems()
+    await pageFollows(electron.window, ['shortcuts'])
+    choose.settings(electron.window)
+    electron.window.fire('did-start-navigation', { isMainFrame: true, isSameDocument: true })
+    electron.window.fire('did-navigate-in-page', {}, 'file:///index.html#x', true)
+    choose.shortcuts(electron.window)
+    expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'shortcuts' }])
+    await pageFollows(electron.window, ['settings'])
+    expect(electron.sent.map((each) => each.payload)).toEqual(['shortcuts', 'settings'])
+  })
+
+  it('a window destroyed while its command is held gets nothing', async () => {
+    const { choose } = await menuItems()
+    const gone = new electron.FakeBrowserWindow('gone')
+    choose.settings(gone)
+    gone.destroyed = true
+    await pageFollows(gone)
+    expect(electron.sent).toEqual([])
+  })
+
+  it('deliverMenuCommand sends nothing to a destroyed window, even one whose page was ready', async () => {
+    const { held } = await menuItems()
+    const gone = new electron.FakeBrowserWindow('gone')
+    await pageFollows(gone)
+    gone.destroyed = true
+    held.deliverMenuCommand(gone.webContents as never, 'settings')
+    expect(electron.sent).toEqual([])
+  })
+
+  it('menu.ready is local, takes one of the menu commands and nothing else', () => {
+    expect(menuReady.access).toBe('local')
+    expect(menuReady.use).toBeNull()
+    for (const command of MENU_COMMANDS) expect(menuReady.input.parse(command)).toBe(command)
+    expect(menuReady.input.safeParse('quit').success).toBe(false)
+    expect(menuReady.input.safeParse(undefined).success).toBe(false)
+    expect(menuReady.input.safeParse({ command: 'settings' }).success).toBe(false)
+    expect(menuReady.output.safeParse(undefined).success).toBe(true)
   })
 })
 

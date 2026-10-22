@@ -17,6 +17,9 @@
 // answers changes — the normal view's or focus mode's — only that window knows, so the item sends
 // it `menu.command` and the renderer does the rest (src/renderer/shell/sidebar-visibility.ts).
 //
+// A command for a window whose page does not follow it yet (the window is on screen before React has
+// mounted) waits in main until the page says it does (`menu.ready`, src/main/ipc/menu.ts).
+//
 // Help ▸ Keyboard Shortcuts (Cmd/Ctrl+/) asks the window to open its Keyboard shortcuts window
 // (src/renderer/shortcuts/ShortcutsOverlay.tsx). Help has the `help` role: on macOS it gets the
 // system's search field. On Windows and Linux the item shows Ctrl+/ but does not take it: the
@@ -27,9 +30,9 @@
 // Every accelerator comes from the registry of shortcuts (src/shared/shortcuts.ts), which the
 // labels and the Keyboard shortcuts window of the renderer read too.
 import { app, BrowserWindow, Menu, type BaseWindow, type MenuItem, type MenuItemConstructorOptions } from 'electron'
-import { menuCommand, type MenuCommand } from '../shared/ipc/menu'
+import type { MenuCommand } from '../shared/ipc/menu'
 import { menuKeys, SHORTCUTS } from '../shared/shortcuts'
-import { emit } from './ipc/index'
+import { deliverMenuCommand } from './ipc/menu'
 import { setViewState, viewState } from './ipc/view'
 import { canGrow, canShrink, interfaceScale, resetInterfaceScale, stepInterfaceScale } from './settings/interface-scale'
 import { appSettingsStore } from './settings/store'
@@ -50,12 +53,13 @@ export const SHORTCUTS_MENU_ITEM_ID = 'help.shortcuts'
 /**
  * Tells one window's renderer to carry out `command`: the window the item was clicked for, else the
  * focused one, else nobody. The window comes from the click handler: a test that clicks the item
- * without one would otherwise depend on which window has the focus.
+ * without one would otherwise depend on which window has the focus. Until the window's page follows
+ * the command, main holds it (deliverMenuCommand).
  */
 export function sendMenuCommand(command: MenuCommand, window: BaseWindow | undefined): void {
   const target = window instanceof BrowserWindow ? window : BrowserWindow.getFocusedWindow()
   if (target === null || target.isDestroyed()) return
-  emit(target.webContents, menuCommand, command)
+  deliverMenuCommand(target.webContents, command)
 }
 
 function settingsItem(platform: NodeJS.Platform): MenuItemConstructorOptions {
