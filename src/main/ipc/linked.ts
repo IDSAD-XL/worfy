@@ -97,7 +97,8 @@ function release(screen: Screen): void {
 
 /**
  * How a subscription's root is told apart on the Linked machine. `as-sent`: by the string the
- * window sent (claudeHome, src/main/ipc/claude-home.ts keys by client and root as sent). `resolved`:
+ * window sent (claudeHome, src/main/ipc/claude-home.ts keys by client and root as sent; docs, whose
+ * root is a Project id, not a path: src/main/docs/watch.ts keys by Project id and client). `resolved`:
  * by the folder it names (workflow and pipeline: their hubs key by client and path.resolve of the
  * real path, src/main/workflow/watch.ts, stages.ts), so `P` and `P/`, or `C:/p` and `C:\p`, are one
  * subscription there.
@@ -114,13 +115,14 @@ type SubscribingRules = {
  * machine serves every window of this Machine with one client (LinkPeer,
  * src/main/link/ipc-adapter.ts) and keys these subscriptions by client and root, so it cannot tell
  * two windows apart: the close of one window would end the subscription of every window
- * (worfy-windows ticket 64). So the windows are counted here, and a close goes to the Linked machine
+ * (worfy-windows tickets 64 and 69). So the windows are counted here, and a close goes to the Linked machine
  * only when the last window lets go.
  */
 const SUBSCRIBING = {
   'claudeHome.sessions': { close: 'claudeHome.close', key: 'projectRoot', spelling: 'as-sent' },
   'workflow.open': { close: 'workflow.close', key: 'root', spelling: 'resolved' },
   'pipeline.get': { close: 'pipeline.close', key: 'root', spelling: 'resolved' },
+  'docs.open': { close: 'docs.close', key: 'projectId', spelling: 'as-sent' },
 } as const satisfies SubscribingRules
 
 interface Rule {
