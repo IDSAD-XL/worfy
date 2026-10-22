@@ -37,18 +37,35 @@ const PROFILE: BrowserProfile = { id: 'admin-aaaaaa', name: 'admin', origins: ['
 
 type Listener = (...args: unknown[]) => void
 
-/** A guest page whose debugger answers the commands of attach() and of a screenshot. */
+/**
+ * A guest page whose debugger answers the commands of attach(), of a screenshot and of a click on a
+ * selector; it keeps every command sent, and `onCommand` lets a test act as a command arrives.
+ */
 class FakePage implements CdpContents {
   private static next = 1
   readonly id = FakePage.next++
   destroyed = false
   private attached = false
   private readonly listeners = new Map<string, Set<Listener>>()
+  readonly sent: string[] = []
+  onCommand: ((method: string) => void) | undefined
   readonly debugger: CdpDebugger = {
     attach: () => void (this.attached = true),
     isAttached: () => this.attached,
-    sendCommand: (method) => Promise.resolve(method === 'Page.getFrameTree' ? { frameTree: { frame: { id: 'main' } } } : method === 'Page.captureScreenshot' ? { data: 'iVBORw0KGgo=' } : {}),
+    sendCommand: (method) => {
+      this.sent.push(method)
+      this.onCommand?.(method)
+      if (method === 'Page.getFrameTree') return Promise.resolve({ frameTree: { frame: { id: 'main' } } })
+      if (method === 'Page.captureScreenshot') return Promise.resolve({ data: 'iVBORw0KGgo=' })
+      if (method === 'Runtime.evaluate') return Promise.resolve({ result: { objectId: 'button-1' } })
+      if (method === 'Runtime.callFunctionOn') return Promise.resolve({ result: { value: { x: 10, y: 10, w: 20, h: 20 } } })
+      return Promise.resolve({})
+    },
     on: ((event: string, listener: Listener) => this.listen(`debugger:${event}`, listener)) as CdpDebugger['on'],
+  }
+  /** Chromium pauses the request for a whole new page of the main frame (the Fetch domain). */
+  pausesNavigation(url: string): void {
+    for (const listener of this.listeners.get('debugger:message') ?? []) listener({}, 'Fetch.requestPaused', { requestId: `request-${this.sent.length}`, frameId: 'main', request: { url } })
   }
   isDestroyed(): boolean {
     return this.destroyed
@@ -309,6 +326,50 @@ describe('control ends with the Session’s place on the Canvas', () => {
   })
 })
 
+describe('a call running while its Session leaves the Canvas', () => {
+  it('stops before its next command with an answer that the Session left, and the page it leads to is still checked until it ends', async () => {
+    await drives(A, USER)
+    const page = pages.get(USER)!
+    page.sent.length = 0
+    let failedWhileLeaving = 0
+    page.onCommand = (method) => {
+      // The Session's click has found its element: the user hides the Session now, and a redirect of
+      // the page arrives before the call ends.
+      if (method !== 'Runtime.callFunctionOn') return
+      page.onCommand = undefined
+      store.apply(PROJECT, { op: 'hide', id: NODE_A, hidden: true }, SCREEN)
+      page.pausesNavigation('http://elsewhere.test/')
+      failedWhileLeaving = page.sent.filter((each) => each === 'Fetch.failRequest').length
+    }
+    const answer = await call(A, 'browser_click', { id: USER, selector: '#go' })
+    expect(answer.isError).toBe(true)
+    expect(textOf(answer)).toMatch(/^This Session left the Canvas: its Node was hidden/)
+    expect(textOf(answer)).not.toMatch(/Return control to Claude/)
+    expect(page.sent.filter((each) => each.startsWith('Input.'))).toEqual([])
+    expect(failedWhileLeaving).toBe(1)
+    expect(live.control(PROJECT, USER)).toBeNull()
+    // The call is over: the Browser is the user's, and their pages are not the Session's to check.
+    page.pausesNavigation('http://elsewhere.test/')
+    expect(page.sent.filter((each) => each === 'Fetch.continueRequest')).toHaveLength(1)
+  })
+
+  it('a click of the user on the page while that call ends is not held to the origins', async () => {
+    await drives(A, USER)
+    const page = pages.get(USER)!
+    page.onCommand = (method) => {
+      if (method !== 'Runtime.callFunctionOn') return
+      page.onCommand = undefined
+      store.apply(PROJECT, { op: 'hide', id: NODE_A, hidden: true }, SCREEN)
+      page.click()
+      page.pausesNavigation('http://elsewhere.test/')
+    }
+    page.sent.length = 0
+    expect((await call(A, 'browser_click', { id: USER, selector: '#go' })).isError).toBe(true)
+    expect(page.sent.filter((each) => each === 'Fetch.failRequest')).toEqual([])
+    expect(page.sent.filter((each) => each === 'Fetch.continueRequest')).toHaveLength(1)
+  })
+})
+
 describe('whose Browsers a Session drives (worfy-polish 36: a Session drove any Browser of its Project)', () => {
   it('another Session’s Browser is refused before anything is taken or woken; its own and the user’s are not', async () => {
     const a1 = await opens(A)
@@ -342,6 +403,89 @@ describe('whose Browsers a Session drives (worfy-polish 36: a Session drove any 
     wake.mockRestore()
     const loose = await opens('sess-no-node')
     expect(nodeOf(loose)?.data.openedBy).toBe('sess-no-node')
+  })
+
+  it('a Session whose Node is hidden drives no Browser, the user’s included, before anything is taken or woken', async () => {
+    await user({ op: 'hide', id: NODE_A, hidden: true })
+    const wake = vi.spyOn(live, 'wake')
+    const holds = vi.spyOn(live, 'sessionDrives')
+    controls.length = 0
+    for (const name of ['browser_screenshot', 'browser_read', 'browser_navigate', 'browser_click'] as const) {
+      const answer = await call(A, name, { id: USER, url: 'http://127.0.0.1:4100/', selector: '#x' })
+      expect(answer.isError).toBe(true)
+      expect(textOf(answer)).toMatch(/not on the Canvas .* so it drives no Browser/)
+    }
+    expect(wake).not.toHaveBeenCalled()
+    expect(holds).not.toHaveBeenCalled()
+    expect(controls).toEqual([])
+    expect(live.control(PROJECT, USER)).toBeNull()
+    wake.mockRestore()
+    holds.mockRestore()
+    // Shown again, it drives as before.
+    await user({ op: 'hide', id: NODE_A, hidden: false })
+    await drives(A, USER)
+  })
+
+  it('a Session hidden while the Browser wakes for its call takes no control: no banner is left that nothing would take away', async () => {
+    const wake = live.wake.bind(live)
+    vi.spyOn(live, 'wake').mockImplementationOnce(async (...args) => {
+      const woken = await wake(...args)
+      store.apply(PROJECT, { op: 'hide', id: NODE_A, hidden: true }, SCREEN)
+      return woken
+    })
+    controls.length = 0
+    const answer = await call(A, 'browser_screenshot', { id: USER })
+    expect(answer.isError).toBe(true)
+    expect(textOf(answer)).toMatch(/so it drives no Browser/)
+    expect(live.control(PROJECT, USER)).toBeNull()
+    expect(controls).toEqual([])
+  })
+
+  it('a Session hidden while its new Browser wakes gets no Browser Node, and main forgets the woken life', async () => {
+    const wake = live.wake.bind(live)
+    vi.spyOn(live, 'wake').mockImplementationOnce(async (...args) => {
+      const woken = await wake(...args)
+      store.apply(PROJECT, { op: 'hide', id: NODE_A, hidden: true }, SCREEN)
+      return woken
+    })
+    const answer = await call(A, 'browser_open', { profile: PROFILE.id })
+    expect(answer.isError).toBe(true)
+    expect(textOf(answer)).toMatch(/not on the Canvas .* so it opens no Browser/)
+    expect(browserIds()).toEqual([USER])
+    await live.check()
+    expect(live.lives(PROJECT).map((life) => life.nodeId)).toEqual([USER])
+  })
+})
+
+describe('the Orchestrator’s Node is a Session Node too', () => {
+  const ORCH = 'sess-orch'
+  beforeEach(() => {
+    store.apply(PROJECT, { op: 'create', node: { id: 'orch', kind: 'orchestrator', x: 0, y: 6000, w: 300, h: 200, data: { sessionId: ORCH } } })
+  })
+
+  it('its Browsers leave with it, and off the Canvas it opens none', async () => {
+    const o1 = await opens(ORCH)
+    changes.length = 0
+    expect(await user({ op: 'hide', id: 'orch', hidden: true })).toBeUndefined()
+    expect(changes[0]).toMatchObject({ sessionsLeft: [ORCH] })
+    expect(nodeOf(o1)).toBeUndefined()
+    expect(browserIds()).toEqual([USER])
+    const wake = vi.spyOn(live, 'wake')
+    const answer = await call(ORCH, 'browser_open', { profile: PROFILE.id })
+    expect(textOf(answer)).toMatch(/not on the Canvas/)
+    expect(wake).not.toHaveBeenCalled()
+    wake.mockRestore()
+  })
+})
+
+describe('the Live Browsers stopped', () => {
+  it('no longer hear the Layout: stop() unsubscribes from its changes', async () => {
+    const { LiveBrowsers } = await import('../../src/main/browser/live')
+    const unsubscribe = vi.fn()
+    const other = new LiveBrowsers({ profileOf: () => null, changed: () => undefined, pressing: () => undefined, browsersOf: () => [], layoutChanges: () => unsubscribe })
+    expect(unsubscribe).not.toHaveBeenCalled()
+    other.stop()
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
   })
 })
 

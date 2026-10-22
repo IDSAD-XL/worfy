@@ -19,6 +19,7 @@ login of one role of the Project's web app (admin, moderator, user…). Drive it
   Claude». Wait or ask in the chat; do not retry in a loop.
 - You drive the Browsers you opened and those the user opened (`openedBy` null in `browser_list`),
   not one another Session opened. The Browsers you open leave the canvas with your Session's Node:
-  when it is hidden, removed or archived, they are gone; open a new one when you need it again.
+  when it is hidden, removed or archived, they are gone, and until it is shown again you open and
+  drive no Browser (a call running then stops with that answer); open a new one when you need it.
 - What you find goes to the user and into Playwright tests you write; the Browser is not a test
   suite.

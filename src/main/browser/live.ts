@@ -18,7 +18,10 @@
 //   main drops every control of that Session (`sessionsLeft` of the Layout change). Its own
 //   Browsers left the Canvas in the same operation (src/main/layout/store.ts); a Browser of the
 //   user it drove stays, its banner — «Claude is driving» or «Return control to Claude» — goes, and
-//   the user has it to themselves.
+//   the user has it to themselves. A call of that Session still running on it stops before its next
+//   command to the page, with an answer that the Session left (`left` of the page's guard), and
+//   until it ends the pages it leads to are still checked against the origins; and the Session
+//   takes no Browser again while it is off the Canvas (src/main/mcp/browser-server.ts).
 // shortcut: a Browser drawn by two windows of one Project is driven in the window that told main last, redo with worfy-browser ticket 07 (one Live page for every screen).
 // Until then sleep reads every page of such a Browser: the focus or the input of any of them uses it,
 // and a beforeunload handler in any of them keeps it Live.
@@ -164,6 +167,8 @@ export class LiveBrowsers {
   private readonly unread = new Set<string>()
 
   private readonly unsubscribe: (() => void) | undefined
+  /** The Browsers whose driving Session left the Canvas while a call of it was running on them, until that call ends. */
+  private readonly leftMidCall = new Set<string>()
 
   constructor(private readonly deps: LiveBrowsersDeps) {
     this.unsubscribe = deps.layoutChanges?.((change) => this.sessionsLeft(change.projectId, change.sessionsLeft ?? []))
@@ -175,6 +180,7 @@ export class LiveBrowsers {
     const prefix = keyOf(projectId, '')
     for (const [key, control] of [...this.controls]) {
       if (!key.startsWith(prefix) || !sessions.includes(control.sessionId)) continue
+      if (control.mode === 'claude' && (this.calls.get(key)?.running ?? 0) > 0) this.leftMidCall.add(key)
       this.controls.delete(key)
       this.deps.changed(projectId, key.slice(prefix.length), null)
     }
@@ -198,11 +204,16 @@ export class LiveBrowsers {
     }
     const page = new CdpPage(contents, {
       driving: () => this.controls.get(key)?.mode === 'claude',
+      left: () => this.leftMidCall.has(key),
       refusal: (url) => {
         const profile = this.deps.profileOf(projectId, nodeId)
         return profile === null ? 'This Browser has no Browser profile any more, so a Session may open no page in it.' : originRefusal(url, profile.name, profile.origins)
       },
-      onUserInput: () => this.takeOver(projectId, nodeId),
+      onUserInput: () => {
+        // The user's own browsing is not held to the origins of a call that is ending.
+        this.leftMidCall.delete(key)
+        this.takeOver(projectId, nodeId)
+      },
       used: () => {
         const life = this.lifes.get(key)
         if (life !== undefined) life.usedAt = this.now()
@@ -285,6 +296,7 @@ export class LiveBrowsers {
     this.mayDrive(projectId, nodeId, sessionId)
     const key = keyOf(projectId, nodeId)
     if (this.controls.has(key)) return
+    this.leftMidCall.delete(key)
     this.controls.set(key, { mode: 'claude', sessionId })
     this.deps.changed(projectId, nodeId, 'claude')
   }
@@ -478,6 +490,7 @@ export class LiveBrowsers {
   sessionReleases(projectId: string, nodeId: string): void {
     const key = keyOf(projectId, nodeId)
     const running = Math.max(0, (this.calls.get(key)?.running ?? 0) - 1)
+    if (running === 0) this.leftMidCall.delete(key)
     if (running === 0 && !this.lifes.has(key)) this.calls.delete(key)
     else this.calls.set(key, { running, lastCallAt: this.now() })
   }

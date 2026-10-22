@@ -11,7 +11,7 @@
 // Browser no Session drives and main never tried to put to sleep has none. Once a Session's call
 // attached it, it keeps two walls:
 // - **Origins** (the owner's decision 2). While a Session drives the Browser (`guard.driving()`),
-//   every request for a whole new page of the main frame — a link the Session clicked, a redirect, a
+//   and until a call ends whose Session left the Canvas while it ran (`guard.left()`), every request for a whole new page of the main frame — a link the Session clicked, a redirect, a
 //   script, a form, a window.open main turns into a navigation (src/main/window.ts) — is paused by
 //   the Fetch domain and checked against the origins of the Browser's profile (`guard.refusal`). A
 //   refused one is failed as `Aborted`, which Chromium treats as a cancelled navigation: the page
@@ -59,6 +59,12 @@ export interface CdpContents {
 export interface PageGuard {
   /** Whether a Session drives the Browser now: the origin check holds only then. */
   driving(): boolean
+  /**
+   * Whether the Session that drove the Browser left the Canvas in the middle of a call that still
+   * runs (worfy-browser ticket 06): that call sends nothing more, and the pages it leads to are still
+   * checked against the origins until it ends.
+   */
+  left?(): boolean
   /** Why a Session may not take the Browser to `url` (originRefusal); null when it may. */
   refusal(url: string): string | null
   /** The user pressed a mouse button or a key on the page, or touched it. */
@@ -116,6 +122,9 @@ const TAKEOVER_INPUT = new Set(['mouseDown', 'rawKeyDown', 'keyDown', 'touchStar
 const USE_INPUT = new Set([...TAKEOVER_INPUT, 'mouseWheel'])
 
 /** How long one CDP command may take before the call gives up. */
+/** The start of the answer of a call whose Session left the Canvas while it ran. */
+export const SESSION_LEFT = 'This Session left the Canvas'
+
 const COMMAND_MS = 20_000
 /** How long a navigation may take to load. */
 const LOAD_MS = 20_000
@@ -311,6 +320,7 @@ export class CdpPage {
   /** Sends one of the Session's own input events: the takeover check does not count it. */
   /** The user may take the Browser over in the middle of a call: nothing is done to the page after that. */
   private assertDriving(): void {
+    if (this.guard.left?.() === true) throw new PageError(`${SESSION_LEFT}: its Node was hidden, removed or archived in the middle of this call, and its control of this Browser ended; nothing more was sent to the page.`)
     if (!this.guard.driving()) throw new PageError(`${TAKEN_OVER} in the middle of this call; nothing more was sent to the page. Wait until they press «Return control to Claude».`)
   }
 
@@ -339,7 +349,7 @@ export class CdpPage {
     const wholePage = this.mainFrame !== null && params.frameId === this.mainFrame
     let refusal: string | null
     try {
-      refusal = wholePage && this.guard.driving() ? this.guard.refusal(url) : null
+      refusal = wholePage && (this.guard.driving() || this.guard.left?.() === true) ? this.guard.refusal(url) : null
     } catch (error) {
       // A guard that cannot answer refuses: the wall must not open by an error.
       refusal = `The origins of this Browser could not be read: ${error instanceof Error ? error.message : String(error)}`
