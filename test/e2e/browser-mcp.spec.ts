@@ -85,6 +85,11 @@ test.beforeAll(async () => {
          <div id="closed-host" contenteditable="true"></div>
          <script>window.closedRoot = document.querySelector('#closed-host').attachShadow({ mode: 'closed', delegatesFocus: true }); window.closedRoot.innerHTML = '<input type="password">'</script>
          <form id="search" action="/next"><input id="s" name="s"></form>
+         <p><input id="filled" value="hello"> <span id="filled-editable" contenteditable="true">hello</span></p>
+         <form id="two" action="/next"><input id="two-a" name="a"><input id="two-b" name="b"></form>
+         <form id="guarded" action="/next" onkeydown="if (event.key === 'Enter') event.preventDefault()"><input id="g" name="g"></form>
+         <form id="guarded-press" action="/next" onkeypress="if (event.key === 'Enter') event.preventDefault()"><input id="gp" name="g"></form>
+         <form id="with-button" action="/next"><input id="wb" name="q"><button id="go" name="via" value="button" onclick="this.form.action = '/clicked'">Go</button></form>
          <p id="pw-host" tabindex="-1"></p>
          <script>document.querySelector('#pw-host').attachShadow({ mode: 'open', delegatesFocus: true }).innerHTML = '<input id="inner-pw" type="password">'</script>
          <iframe id="frame-pw" width="160" height="40" srcdoc="<input id=&quot;p&quot; type=&quot;password&quot;><script>const p = document.getElementById(&quot;p&quot;); p.focus(); addEventListener(&quot;focus&quot;, () => p.focus())</script>"></iframe>
@@ -298,7 +303,7 @@ test('a page outside the origins is refused whoever leads there, and the page st
   expect(await refused('browser_type', { id, selector: '#frame-away', text: 'hunter2' })).toMatch(/a frame of another site/)
   // A contenteditable host whose closed shadow root takes the focus into a password field.
   expect(await refused('browser_type', { id, selector: '#closed-host', text: 'LEAK' })).toMatch(/closed shadow root/)
-  const typed = `[...document.querySelectorAll('input')].map((e) => e.value).join('')
+  const typed = `[...document.querySelectorAll('input:not(#filled)')].map((e) => e.value).join('')
     + document.querySelector('#pw-host').shadowRoot.querySelector('input').value
     + document.querySelector('#frame-pw').contentDocument.querySelector('input').value
     + window.closedRoot.querySelector('input').value + document.querySelector('#closed-host').textContent`
@@ -335,6 +340,20 @@ test('typing goes into the page and leaves the keyboard focus of the window wher
   // submit presses Enter in the field: its form is sent.
   expect((await ok<{ url: string }>('browser_type', { id, selector: '#s', text: 'roles', submit: true })).url).toBe(`${origin}/next?s=roles`)
   expect(await focused()).toBe('user-typing')
+  await ok('browser_navigate', { id, url: `${origin}/` })
+
+  // The text goes after what a field holds, as after a click.
+  await ok('browser_type', { id, selector: '#filled', text: 'X' })
+  await ok('browser_type', { id, selector: '#filled-editable', text: 'X' })
+  expect(await inPage("document.querySelector('#filled').value + '|' + document.querySelector('#filled-editable').textContent")).toBe('helloX|helloX')
+
+  // Enter does what a real one does: a form of two text fields and no button is not sent, nor one
+  // whose page stops the key; a form's default button is clicked — its handler runs, its name and
+  // value go with the form.
+  for (const selector of ['#two-a', '#g', '#gp']) {
+    expect((await ok<{ url: string }>('browser_type', { id, selector, text: 'x', submit: true })).url, selector).toBe(`${origin}/`)
+  }
+  expect((await ok<{ url: string }>('browser_type', { id, selector: '#wb', text: 'x', submit: true })).url).toBe(`${origin}/clicked?q=x&via=button`)
 })
 
 test('a click of the Session leaves the keyboard focus of the window where the user has it', async () => {
@@ -351,6 +370,13 @@ test('a click of the Session leaves the keyboard focus of the window where the u
   expect(await typedByUser(window)).toBe('mine')
   await expect(frame).toHaveAttribute('data-control', 'claude')
   await expect(frame.getByTestId('browser-claude-drives')).toBeVisible()
+
+  // Focus in another Browser — its address bar — never goes back there: a click of a Session on a
+  // second Browser never puts the focus into the first one.
+  const second = await ok<{ id: string }>('browser_open', { profile: PROFILE, url: `${origin}/` })
+  await frame.getByTestId('browser-address').focus()
+  await ok('browser_click', { id: second.id, selector: '#mark' })
+  expect(await window.evaluate('document.activeElement && document.activeElement.localName')).toBe('webview')
 })
 
 test("a service worker of another site does not let the Session's navigation past the origins", async () => {

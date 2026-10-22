@@ -120,17 +120,29 @@ function handlers(context: BrowserContext): Handlers {
   const drive = async (id: string, leaves = false) => {
     const { profile } = browserOf(id)
     const session = me()
-    // Everything that refuses comes before the Session takes the Browser: a refused call leaves no
-    // «Claude is driving» and no origin wall behind it.
+    // A refused call leaves no «Claude is driving» behind: what can refuse is checked before the
+    // Session takes the Browser, and a call that took it and then fails (the debugger could not
+    // attach, the page went off the list meanwhile) gives it up again.
     live.mayDrive(projectId, id, session)
     const page = await live.whenLive(projectId, id, context.liveWaitMs ?? LIVE_WAIT_MS)
     if (page === undefined) throw new ToolError(`Browser ${id} has no live page: no window of worfy on this Machine shows this Project's canvas. Ask the user to open it.`)
-    const here = page.contents.getURL()
-    if (!leaves && here !== '' && here !== 'about:blank' && !sessionMayGo(here, profile.origins)) {
-      throw new ToolError(`Browser ${id} shows a page of ${originOf(here)}, outside the origins of its Browser profile "${profile.name}": a Session may not use it. Go to a page in the list with browser_navigate, or ask the user.`)
+    const offList = (): void => {
+      const here = page.contents.getURL()
+      if (!leaves && here !== '' && here !== 'about:blank' && !sessionMayGo(here, profile.origins)) {
+        throw new ToolError(`Browser ${id} shows a page of ${originOf(here)}, outside the origins of its Browser profile "${profile.name}": a Session may not use it. Go to a page in the list with browser_navigate, or ask the user.`)
+      }
     }
+    offList()
+    const took = live.control(projectId, id) === null
     live.drive(projectId, id, session)
-    await page.attach()
+    try {
+      await page.attach()
+      // The page may have moved before the origin wall stood.
+      offList()
+    } catch (error) {
+      if (took) live.release(projectId, id)
+      throw error
+    }
     return { page, profile }
   }
   const go = async (id: string, url: string) => {

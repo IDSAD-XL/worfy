@@ -94,6 +94,7 @@ describe('the initial marks', () => {
     }
     // A Browser's page is reached over CDP only on the Machine whose screen draws it (worfy-browser ticket 04, ADR-0078).
     expect(local).toContain('browser.page.live')
+    expect(local).toContain('browser.pressing')
     // A Linked machine never switches access on, links or revokes machines for the owner.
     const linkChannels = channels.map((channel) => channel.name).filter((name) => name.startsWith('link.') && name !== 'link.ping')
     expect(linkChannels.length).toBeGreaterThan(0)

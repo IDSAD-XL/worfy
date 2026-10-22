@@ -63,9 +63,12 @@ class FakePage implements CdpContents {
   private paused = 0
   /** A redirect of the next navigation to this address, through a paused request. */
   redirectTo: string | null = null
+  /** The debugger cannot attach, as when the page's DevTools are open. */
+  attachFails = false
 
   readonly debugger: CdpDebugger = {
     attach: () => {
+      if (this.attachFails) throw new Error('Another debugger is already attached')
       this.attached = true
     },
     isAttached: () => this.attached,
@@ -487,6 +490,28 @@ describe('the origins of the Browser profile', () => {
     expect(live.control(PROJECT, 'browser-user')).toBeNull()
     expect(changes).toEqual([])
     expect(page.sent).toEqual([])
+  })
+
+  it('give the Browser up again when the call that took it fails: the debugger could not attach, or the page left the list meanwhile', async () => {
+    store.apply(PROJECT, { op: 'create', node: { id: 'browser-user', kind: 'browser', x: 0, y: 400, w: 640, h: 440, data: { profile: 'admin-aaaaaa' } } })
+    drawBrowsers()
+    const page = pages.get('browser-user')!
+    const rpc = await connect()
+    page.attachFails = true
+    expect(refused(await rpc.call('browser_read', { id: 'browser-user' }))).toMatch(/DevTools/)
+    expect(live.control(PROJECT, 'browser-user')).toBeNull()
+    expect(changes).toEqual([
+      ['browser-user', 'claude'],
+      ['browser-user', null],
+    ])
+    page.attachFails = false
+    // A redirect off the list while the origin wall is being set up.
+    page.onCommand = (method) => {
+      if (method === 'Fetch.enable') page.url = `${ELSEWHERE}/landing`
+    }
+    expect(refused(await rpc.call('browser_read', { id: 'browser-user' }))).toContain(`shows a page of ${ELSEWHERE}`)
+    expect(live.control(PROJECT, 'browser-user')).toBeNull()
+    expect(page.commands('Accessibility.getFullAXTree')).toEqual([])
   })
 
   it('keep a Session off a page outside the origins the user left the Browser on: only browser_navigate leaves it', async () => {

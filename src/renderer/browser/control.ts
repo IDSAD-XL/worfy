@@ -74,12 +74,13 @@ export function returnBrowserControl(projectId: string, nodeId: string): void {
  * Keeps the keyboard focus of this window where the user has it while a Session clicks the page of
  * Browser `nodeId`, drawn by `webview` (`browser.pressing`). Chromium moves the focus onto the
  * <webview> at the press; at the end of the click it goes back to the element that had it at the
- * start — unless that was nothing (the page's body), the <webview> itself or a part of the
- * Browser's frame: then the focus stays where the click put it. Answers the unsubscribe.
+ * start — unless that was nothing (the page's body), a <webview> or a part of a Browser's frame:
+ * then the focus stays where the click put it. Answers the unsubscribe.
  */
-export function keepWindowFocus(projectId: string, nodeId: string, webview: HTMLElement): () => void {
+export function keepWindowFocus(projectId: string, nodeId: string): () => void {
   let before: Element | null = null
-  const ownFrame = (element: Element): boolean => element === webview || element.closest(`[data-testid="browser-frame"][data-node-id="${CSS.escape(nodeId)}"]`) !== null
+  // Any Browser: with two Sessions clicking two Browsers, the focus never goes back into one of them.
+  const inBrowser = (element: Element): boolean => element.localName === 'webview' || element.closest('[data-testid="browser-frame"]') !== null
   return subscribe('browser.pressing', (press) => {
     if (press.projectId !== projectId || press.nodeId !== nodeId) return
     if (press.phase === 'start') {
@@ -88,7 +89,7 @@ export function keepWindowFocus(projectId: string, nodeId: string, webview: HTML
     }
     const back = before
     before = null
-    if (!(back instanceof HTMLElement) || back === document.body || !back.isConnected || ownFrame(back)) return
+    if (!(back instanceof HTMLElement) || back === document.body || !back.isConnected || inBrowser(back)) return
     if (document.activeElement !== back) back.focus({ preventScroll: true })
   })
 }

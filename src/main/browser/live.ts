@@ -128,6 +128,11 @@ export class LiveBrowsers {
     this.deps.changed(projectId, nodeId, 'claude')
   }
 
+  /** Nobody drives Browser Node `nodeId` any more: the call that took it could not go on. */
+  release(projectId: string, nodeId: string): void {
+    if (this.controls.delete(keyOf(projectId, nodeId))) this.deps.changed(projectId, nodeId, null)
+  }
+
   /** The user took Browser Node `nodeId` over: true when a Session was driving it. */
   takeOver(projectId: string, nodeId: string): boolean {
     const key = keyOf(projectId, nodeId)

@@ -153,10 +153,8 @@ function BrowserPage({ page, partition, projectId }: { page: BrowserLayerPage; p
 
   // A Session's click on the page leaves the window's keyboard focus where the user has it.
   useEffect(() => {
-    const element = view.current
-    if (element === null) return
     try {
-      return keepWindowFocus(projectId, page.id, element)
+      return keepWindowFocus(projectId, page.id)
     } catch (error) {
       // Without the preload bridge (a unit test of the Canvas) there is nothing to subscribe to.
       console.error('browser.pressing: cannot subscribe', error)

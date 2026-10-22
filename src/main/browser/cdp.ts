@@ -198,14 +198,29 @@ const TYPE_IN_PAGE = `function (text, submit, expected) {
   if (!field) return "none";
   if (text === null) return last;
   if (last !== expected) return "moved";
+  // focus() leaves the caret at the start: the text goes after what the field holds, as after a click.
+  if (last.localName === "input" || last.localName === "textarea") {
+    try { last.setSelectionRange(last.value.length, last.value.length); } catch (error) { /* a type without a caret (email, number) */ }
+  } else {
+    last.ownerDocument.getSelection().selectAllChildren(last);
+    last.ownerDocument.getSelection().collapseToEnd();
+  }
   if (text !== "" && !last.ownerDocument.execCommand("insertText", false, text)) return "unchanged";
   if (submit) {
+    // Enter as HTML's implicit submission: nothing when the page stopped the key; else the form's
+    // default button is clicked, or a form without one is sent only when this is its one text field.
     const view = last.ownerDocument.defaultView;
     const key = (type) => last.dispatchEvent(new view.KeyboardEvent(type, { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true }));
-    const go = key("keydown");
-    if (go) key("keypress");
+    const go = key("keydown") && key("keypress");
     key("keyup");
-    if (go && last.localName === "input" && last.form) last.form.requestSubmit();
+    const form = last.localName === "input" ? last.form : null;
+    if (go && form !== null) {
+      const fields = [...form.elements];
+      const button = fields.find((e) => (e.localName === "button" && e.type === "submit") || (e.localName === "input" && (e.type === "submit" || e.type === "image")));
+      const blocking = ["text", "search", "url", "tel", "email", "password", "date", "month", "week", "time", "datetime-local", "number"];
+      if (button !== undefined) { if (!button.disabled) button.click(); }
+      else if (fields.filter((e) => e.localName === "input" && blocking.includes(e.type)).length === 1) form.requestSubmit();
+    }
   }
   return "typed";
 }`
