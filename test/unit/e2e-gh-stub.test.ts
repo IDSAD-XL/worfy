@@ -119,6 +119,8 @@ const KNOWN_TOOLS = [
   'test/e2e/packaged.spec.ts: bridge',
   // Windows PowerShell 5.1, which reads the process list from CIM on Windows (both starts of the file).
   "test/e2e/terminal-shell.ts: win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')",
+  // Windows PowerShell 5.1 again, which lists every process from CIM for processesWith (worfy-windows ticket 95).
+  'test/e2e/helpers.ts: powershell',
 ]
 
 /** The starts that may be the app and do not take the env of directStartEnv. */
