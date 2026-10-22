@@ -218,9 +218,14 @@ const shellWord = (text) => `'${text.replaceAll("'", `'\\''`)}'`
 export function gitCopy(dir, env, fail) {
   // Windows starts no `#!/bin/sh` script by its path, and its PATH lookup of `git` finds only
   // git.exe. There `sh` (Git for Windows; `bash` may be the one of WSL) looks git up on PATH, as the
-  // shell of a run does, and runs the wrapper.
+  // shell of a run does, and runs the wrapper. Inside sh the PATH of the runs is set again, in sh's
+  // spelling (cygpath): the sh.exe of Git's bin/ folder (first on PATH on the GitHub Windows runner)
+  // is a launcher that puts Git's own mingw64/bin and usr/bin before PATH, and then the git of Git
+  // answered instead of the first git on the PATH of the runs. No cygpath — exit 127, a failure.
   const exec =
-    process.platform === 'win32' ? spawnSync('sh', ['-c', 'git --exec-path'], { encoding: 'utf8', env }) : spawnSync('git', ['--exec-path'], { encoding: 'utf8', env })
+    process.platform === 'win32'
+      ? spawnSync('sh', ['-c', 'PATH="$(cygpath -u -p "$1")" && exec git --exec-path', 'sh', env.PATH ?? ''], { encoding: 'utf8', env })
+      : spawnSync('git', ['--exec-path'], { encoding: 'utf8', env })
   const source = exec.status === 0 ? exec.stdout.trim() : ''
   if (source === '' || !existsSync(source) || !statSync(source).isDirectory()) return fail(`\`git --exec-path\` gave no folder (exit ${exec.status ?? exec.error?.code}): the runs need a copy of git`)
   const core = join(dir, 'git-core')

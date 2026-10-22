@@ -56,7 +56,9 @@ async function refused(channel: string, input: unknown, reason: RegExp): Promise
 }
 
 beforeEach(async () => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-shell-')))
+  // .native: the answer is the path realpath(3) gives, and a temporary folder under an 8.3 short
+  // name (C:\Users\RUNNER~1 on the GitHub Windows runner) keeps that name in the JavaScript realpath.
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-shell-')))
   repo = join(scratch, 'repo')
   mkdirSync(join(repo, '.scratch', 'e', 'issues'), { recursive: true })
   git(repo, 'init', '-q')

@@ -17,7 +17,9 @@ const exclude = [...configDefaults.exclude, '.claude/worktrees/**', 'out/**', 't
 // hold a junction, and under the Node of Electron on Windows fs.rmSync with `recursive` empties the
 // folder behind it (worfy-windows ticket 51).
 removeStaleProbes(join(import.meta.dirname, 'src'))
-const tempDir = realpathSync(tmpdir())
+// realpath(3), as Vite spells the files it checks against server.fs.allow: the JavaScript realpath
+// keeps an 8.3 short name (C:\Users\RUNNER~1 on the GitHub Windows runner).
+const tempDir = realpathSync.native(tmpdir())
 removeStaleTempFolders(tempDir, Date.now())
 
 // On Windows every time limit is three times the default: see test/time-scale.ts.

@@ -196,7 +196,10 @@ rmdir "$USER_RULES"
 # A file longer than the limit: the whole additionalContext stays within LIMIT, the file is cut
 # after a whole line, and a closing line names the file.
 node -e 'for (let i = 1; i <= 600; i++) process.stdout.write(`Rule ${i}: keep the Klingon words as they are in every report.\n`)' >"$USER_RULES"
-HH_N="$(cd "$HARNESS_HOME" && { pwd -W 2>/dev/null || pwd -P; })" # node's spelling of the folder
+# node's spelling of the folder, as the hook gets it from the environment, with "/". Not `pwd -W`:
+# under a temporary folder with an 8.3 short name (C:\Users\RUNNER~1 on the GitHub Windows runner)
+# it gives the long name, and node keeps the short one.
+HH_N="$(node -e 'process.stdout.write(process.env.HARNESS_HOME.split("\\").join("/"))')"
 for ev in SessionStart SubagentStart; do
     run_inject common "{\"hook_event_name\":\"$ev\"}" CLAUDE_PLUGIN_ROOT="$LONG_ROOT"
     c="$(ctx)"
