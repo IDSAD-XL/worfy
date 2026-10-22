@@ -1,13 +1,10 @@
-# Measures whether a dev start of worfy that fails right after `ready` (step loadURL, through
-# ELECTRON_RENDERER_URL='not a url') leaves a Chromium child process behind on Windows.
-#
-# Written for worfy-windows ticket 95. NOT RUN when written (2026-10-22): the owner's focus pause
-# forbids starting Electron. Run it only once that pause is lifted and no game is running.
-#
-# Usage (Windows PowerShell or pwsh) from the repository root, after `pnpm build` in the tree it
-# measures:
-#   powershell -NoProfile -ExecutionPolicy Bypass -File .scratch\worfy-windows\wt95-verify.ps1 [-Repo <tree>] [-Runs 10]
-# -Repo defaults to the repository this script lies in (two folders up). For the "before" numbers
+# Measurement of worfy-windows 95 (not product code): whether a dev start of worfy that fails right
+# after `ready` (step loadURL, through ELECTRON_RENDERER_URL='not a url') leaves a Chromium child
+# process behind on Windows. NOT RUN when written (2026-10-22): the owner's focus pause forbids
+# starting Electron. Run it only once that pause is lifted and no game is running.
+# Usage (from the repository root, after `pnpm build` in the tree it measures):
+#   powershell -NoProfile -ExecutionPolicy Bypass -File .scratch\worfy-windows\evidence\95-verify.ps1 [-Repo <tree>] [-Runs 10]
+# -Repo defaults to the repository this script lies in (three folders up). For the "before" numbers
 # point -Repo at a tree on main; for "after", leave it at the tree of the fix.
 #
 # Each run gets fresh temporary USERPROFILE, APPDATA, LOCALAPPDATA, HOME, HOMEDRIVE, HOMEPATH,
@@ -18,7 +15,7 @@
 # process this script recorded itself.
 
 param(
-  [string]$Repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path,
+  [string]$Repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..\..')).Path,
   [int]$Runs = 10
 )
 

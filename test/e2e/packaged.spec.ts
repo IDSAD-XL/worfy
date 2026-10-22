@@ -108,8 +108,18 @@ function icoImages(file: string): Buffer[] {
  */
 const QUITS_WITH_LAST_WINDOW = process.platform !== 'darwin'
 
-/** The processes Chromium started for the run over `dataDir`: their command line names it as --user-data-dir. */
-const childrenOfRun = (dataDir: string): ListedProcess[] => processesWith(dataDir).filter((listed) => listed.commandLine.includes('--user-data-dir='))
+/**
+ * The processes Chromium started for the run over `dataDir`: their command line has the flag
+ * `--user-data-dir=<dataDir>` as one argument, quoted (Windows) or not. A process that only
+ * mentions the path elsewhere, or names a folder that merely starts with it, is not one.
+ */
+function childrenOfRun(dataDir: string): ListedProcess[] {
+  const quoted = `--user-data-dir="${dataDir}"`
+  const bare = `--user-data-dir=${dataDir}`
+  const hasFlag = (commandLine: string): boolean =>
+    commandLine.includes(quoted) || commandLine.endsWith(bare) || commandLine.includes(`${bare} `)
+  return processesWith(dataDir).filter((listed) => hasFlag(listed.commandLine))
+}
 
 /** Waits for a process to exit; past the deadline it is killed, and its exit is still awaited. */
 async function exitWithin(child: ChildProcess, ms: number): Promise<{ exited: boolean; code: number | null }> {
@@ -819,13 +829,18 @@ test.describe('dev run of the unpacked build', () => {
       expect(childrenOfRun(dataDir), 'processes of this run alive 5 s after the main process exited').toEqual([])
     } finally {
       // Only the processes of this run's data folder (a fresh temporary one); a failed run must not
-      // leave them for the next test.
-      for (const { pid } of childrenOfRun(dataDir)) {
-        try {
-          process.kill(pid)
-        } catch {
-          // Already gone.
+      // leave them for the next test. A failure here is only a warning: it must neither hide the
+      // test's own failure nor keep the temporary folder.
+      try {
+        for (const { pid } of childrenOfRun(dataDir)) {
+          try {
+            process.kill(pid)
+          } catch {
+            // Already gone.
+          }
         }
+      } catch (error) {
+        console.warn(`[packaged.spec] could not stop the processes of ${dataDir}`, error)
       }
       await removeDir(root)
     }
