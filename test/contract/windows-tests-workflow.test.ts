@@ -82,6 +82,7 @@ const does = (step: Step): string | string[] | undefined =>
   typeof step.uses === 'string' ? step.uses.replace(/@.*$/, '') : step.run
 
 const CHECK = 'node scripts/windows-test-list.mjs'
+const PNPM = ['corepack enable pnpm', 'corepack install']
 const INSTALL = 'pnpm install --frozen-lockfile'
 const RUN = ['test -n "$TEST_FILES"', 'node scripts/vitest-electron.mjs $TEST_FILES']
 
@@ -126,7 +127,7 @@ describe('.github/workflows/windows-tests.yml', () => {
 
   it('checks the list right after checkout, before anything is installed', () => {
     const all = steps().map(does)
-    expect(all).toEqual(['actions/checkout', CHECK, 'pnpm/action-setup', 'actions/setup-node', INSTALL, RUN])
+    expect(all).toEqual(['actions/checkout', CHECK, 'actions/setup-node', PNPM, 'actions/setup-node', INSTALL, RUN])
     expect(all.indexOf(CHECK)).toBe(1)
     expect(all.indexOf(CHECK)).toBeLessThan(all.indexOf(INSTALL))
   })
@@ -153,7 +154,7 @@ describe('.github/workflows/windows-tests.yml', () => {
     // The whole step. The list comes from the output of the check, not from the input. bash, because
     // in PowerShell `$TEST_FILES` is an unset variable and the command would run the whole suite;
     // `test -n` stops the step for the same reason if the list is ever empty.
-    expect(steps()[5]).toEqual({
+    expect(steps()[6]).toEqual({
       name: 'Run the listed test files',
       shell: 'bash',
       env: ['TEST_FILES: ${{ steps.list.outputs.files }}'],
@@ -161,9 +162,23 @@ describe('.github/workflows/windows-tests.yml', () => {
     })
   })
 
+  it('installs pnpm with corepack from a tarball pinned by its sha512, not with pnpm/action-setup', () => {
+    // pnpm/action-setup runs `npm install pnpm`, and npm's audit request hung for 3 to 7 minutes in
+    // runs of 2026-10-22: the setup ate the 10-minute limit. Corepack checks the tarball against the
+    // hash in "packageManager"; without the hash it asks the registry for the version's metadata
+    // first, a request that can hang the same way.
+    const [, , node, pnpm, nodeWithCache] = steps()
+    expect(node).toEqual({ uses: 'actions/setup-node@v7', with: ['node-version: 24'] })
+    expect(pnpm).toEqual({ name: 'Install pnpm with corepack', shell: 'bash', run: PNPM })
+    expect(nodeWithCache).toEqual({ uses: 'actions/setup-node@v7', with: ['node-version: 24', 'cache: pnpm'] })
+    expect(code().join('\n')).not.toContain('pnpm/action-setup')
+    const manifest = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { packageManager?: string }
+    expect(manifest.packageManager).toMatch(/^pnpm@\d+\.\d+\.\d+\+sha512\.[0-9a-f]{128}$/)
+  })
+
   it('never runs the whole suite: no pnpm test, no vitest without the list', () => {
     const commands = steps().flatMap((step) => step.run ?? [])
-    expect(commands).toEqual([CHECK, INSTALL, ...RUN])
+    expect(commands).toEqual([CHECK, ...PNPM, INSTALL, ...RUN])
     for (const command of commands) expect(command).not.toMatch(/pnpm\s+(run\s+)?test|vitest(?!-electron\.mjs \$TEST_FILES$)/)
   })
 })
