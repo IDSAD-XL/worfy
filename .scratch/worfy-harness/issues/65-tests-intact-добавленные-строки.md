@@ -1,7 +1,8 @@
 # 65 — `tests-intact` в outcome eval: добавленные строки обезвреживают test незаметно
 
 Type: bug
-Status: claimed 2026-10-21T22:43Z
+Status: done 2026-10-22T00:31Z
+PR: #719
 Branch: worfy-harness/65
 Blocked by: 52
 Source: проверка третьего круга ревью PR #697 (инфраструктура worfy-harness 52), линза корректности, 2026-10-21.
@@ -34,7 +35,7 @@ test-а) — тоже исправлены.
 - [x] Пункты 1, 2 и 4 — красные test-ы до правки, зелёные после; честные правки (новая assertion, новый test, import)
       чистые.
 - [x] Пункт 3 — описан в README или снят расширением правила, с test-ом.
-- [ ] `harness-evals-outcome.test.ts` (на Windows тоже — платформенный PR), `plugin-neutral.test.sh`, lint,
+- [x] `harness-evals-outcome.test.ts` (на Windows тоже — платформенный PR), `plugin-neutral.test.sh`, lint,
       typecheck — exit 0.
 
 ## Где в коде
@@ -87,3 +88,18 @@ Test-ы — `test/contract/harness-evals-outcome.test.ts`, describe «the tests-
 зелёные после; каждое новое правило проверено мутантом (правило снято — test красный). В базовом файле
 синтетической задачи test `add 0 0` получил выражение на две строки и цепочку `expect(…)` / `.toBe(0)`.
 Windows-прогон `harness-evals-outcome.test.ts` — за Orchestrator-ом (платформенный PR).
+
+**Результат (PR #719, merge `b1e7ce39`):**
+
+- `tests-intact` видит строку из нескольких statement-ов, разорванную цепочку `expect(…)` / `.toBe(…)` и код вне
+  тел test-ов (`altered_outside`).
+- Test-вызов внутри string, template или regular expression literal — не test. `.fails`, `.failing` и
+  `{ fails: true }` считаются пропуском.
+- Windows: скрипт stub-агента — только ASCII, байты `\r` и U+2028 встают на место меток `@CR@` и `@LS@` при запуске.
+  Windows-runner, run 39697679240 — зелёный.
+- gate full — зелёный; 17 мутантов убиты.
+- Долг (low):
+  - JSDoc `inLiteral` (`scripts/eval-outcome-lib.mjs:480`) описывает `inLiteral(code, index)`, а функция
+    принимает только `code` и возвращает предикат от `index`.
+  - `literalEnd` (`:408`) заканчивает template literal на первой обратной кавычке и не видит вложенный template
+    внутри `${…}`. Способа подменить через это test не найдено.
