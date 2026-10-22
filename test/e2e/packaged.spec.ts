@@ -400,18 +400,20 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
     const launched = await launchApp({ executablePath: executableOf(stableApp) })
     try {
       // On Windows: cmd.exe's echo through ConPTY, and the binary node-pty ships for win32 in
-      // prebuilds/ (scripts/postinstall.mjs rebuilds nothing there).
+      // prebuilds/ (scripts/postinstall.mjs rebuilds nothing there). With an empty environment
+      // cmd.exe exited with 87 (ERROR_INVALID_PARAMETER) in 4 of 6 runs on the PC; with SystemRoot
+      // in it, 6 of 6 printed ok.
       const command = WINDOWS
-        ? { file: 'cmd.exe', args: ['/d', '/c', 'echo ok'], binary: `prebuilds/win32-${process.arch}/conpty.node` }
-        : { file: '/bin/echo', args: ['ok'], binary: 'build/Release/pty.node' }
-      const result = await launched.app.evaluate(async ({ app }, { file, args, binary }) => {
+        ? { file: 'cmd.exe', args: ['/d', '/c', 'echo ok'], binary: `prebuilds/win32-${process.arch}/conpty.node`, env: { SystemRoot: process.env.SystemRoot ?? 'C:\\Windows' } }
+        : { file: '/bin/echo', args: ['ok'], binary: 'build/Release/pty.node', env: {} }
+      const result = await launched.app.evaluate(async ({ app }, { file, args, binary, env }) => {
         // The main bundle does not import node-pty yet, so resolve it the way the app will:
         // from the app's own node_modules inside app.asar.
         const { createRequire: requireFrom } = process.getBuiltinModule('node:module')
         const requireFromApp = requireFrom(`${app.getAppPath()}/package.json`)
         const pty = requireFromApp('node-pty') as typeof import('node-pty')
         const resolved = requireFromApp.resolve('node-pty')
-        const proc = pty.spawn(file, args, { name: 'xterm-color', cols: 80, rows: 24, env: {} })
+        const proc = pty.spawn(file, args, { name: 'xterm-color', cols: 80, rows: 24, env })
         let output = ''
         proc.onData((chunk) => {
           output += chunk
