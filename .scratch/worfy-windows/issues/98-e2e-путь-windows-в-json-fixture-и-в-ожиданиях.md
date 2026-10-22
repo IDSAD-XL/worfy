@@ -1,7 +1,8 @@
 # 98 — e2e: путь Windows вставляется в JSON fixture без экранирования и сравнивается с `/`
 
 Type: task
-Status: open
+Status: done 2026-10-22T14:54Z
+PR: #758
 Blocked by: —
 Source: направление Session на Mac 2026-10-22, пересчёт красных e2e [Ticket-а 14](14-gate-full-на-windows.md);
 замер на ПК 2026-10-22, main `d06d2c2d`, масштаб экрана 150 %.

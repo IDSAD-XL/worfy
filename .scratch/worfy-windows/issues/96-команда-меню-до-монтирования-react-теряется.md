@@ -1,7 +1,8 @@
 # 96 — Команда меню, пришедшая до монтирования React, теряется: «Settings…» сразу после показа окна не открывает Settings
 
 Type: task
-Status: open
+Status: done 2026-10-22T14:54Z
+PR: #753
 Blocked by: —
 Source: [Ticket 14](14-gate-full-на-windows.md), e2e группы 8 (`terminal-ai-settings.spec.ts`); ревью ветки
 `worfy-windows/14-paths` 2026-10-22. Замер на ПК 2026-10-22, main `8f5238c8`, масштаб экрана 150 %; строки — по
