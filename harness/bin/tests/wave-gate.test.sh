@@ -741,11 +741,16 @@ why() { [ "$1" = 98 ] && echo "exit 98, the lock was never taken" || echo "exit 
 # a trap that stopped the heartbeat with kill -STOP and then killed it hung in `wait` (1 run in 7, 2 hours), and a
 # run cut off by finish fails its check instead of hanging the file. A heartbeat still alive after the run (one
 # deaf to every signal) is ended through Windows (kill -f) or with SIGKILL, so it outlives no test.
+# A recorded pid counts as that heartbeat only while its command line carries the block ($W): pids are reused, in
+# Git Bash within minutes. A run that started no heartbeat (the pid record could not be put in the block) fails too.
+cmd_of() { if [ -r "/proc/$1/cmdline" ]; then tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null; else ps -ww -o command= -p "$1" 2>/dev/null; fi; }
 run_each() {
-    : >"$W/hb.pids"; $sh -c "$STUB"$'\n'"${b/HB=\$!/HB=\$!; echo \$HB >>\"$W/hb.pids\"}" >"$W/each.out" 2>&1 &
+    local p rb="${b/HB=\$!/HB=\$!; echo \$HB >>\"$W/hb.pids\"}"
+    : >"$W/hb.pids"; $sh -c "$STUB"$'\n'"$rb" >"$W/each.out" 2>&1 &
     finish $! 60; got="$(cat "$W/each.out")"
-    local p; for p in $(cat "$W/hb.pids"); do
-        kill -0 "$p" 2>/dev/null || continue
+    [ "$rb" != "$b" ] && [ -s "$W/hb.pids" ] || rc="$rc, no heartbeat pid recorded"
+    for p in $(cat "$W/hb.pids"); do
+        kill -0 "$p" 2>/dev/null && [[ "$(cmd_of "$p")" == *"$W"* ]] || continue
         rc="$rc, heartbeat $p left alive"
         if [ -e "/proc/$p/winpid" ]; then /usr/bin/kill -f -9 "$p" 2>/dev/null; else kill -KILL "$p" 2>/dev/null; fi
     done

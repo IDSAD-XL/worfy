@@ -46,19 +46,32 @@ chmod +x "$HBBIN/ioreg" "$HBBIN/hbsleep" "$HBBIN/waitgo"
 HB_LOOP='while sleep 300;'
 [[ "$BE" == *"$HB_LOOP"* ]] && ok "skill blocks: the one-PR gate full block's heartbeat sleeps 300 s between touches" \
     || bad "skill blocks: the one-PR gate full block has no '$HB_LOOP' heartbeat"
-# alive_of <pid file> <duration>: the pids of the file still running `sleep <duration>` (ps without -o: any live pid;
-# the ps of Git Bash on Windows has no -o, so there every live pid of the file counts)
+# The Git Bash branch of the trap (the heartbeat has /proc/<pid>/winpid) sends no kill -STOP: there a kill -KILL after
+# it can leave the heartbeat deaf to every signal. The 40 runs below show that only on Windows; this check runs
+# everywhere.
+WIN_IF='if [ -e /proc/$HB/winpid ]; then'
+TRAP_WIN="${BE#*"$WIN_IF"}"; TRAP_WIN="${TRAP_WIN%%; else *}"
+[ "$TRAP_WIN" != "$BE" ] && [[ "$TRAP_WIN" == *'kill -KILL $HB'* ]] && [[ "$TRAP_WIN" == *'/usr/bin/kill -f -9 $HB'* ]] && [[ "$TRAP_WIN" != *STOP* ]] \
+    && ok "skill blocks: the Git Bash branch of the one-PR block's trap kills the heartbeat without kill -STOP" \
+    || bad "skill blocks: the one-PR block's trap has no Git Bash branch ('$WIN_IF') without kill -STOP: [${TRAP_WIN:0:300}]"
+# The heartbeat touches the lock only while holder.json names the block's shell.
+HB_OURS='grep -q "\"pid\":$$," "$L/holder.json" 2>/dev/null || exit 0; touch -c "$L"'
+[[ "$BE" == *"$HB_OURS"* ]] && ok "skill blocks: the one-PR block's heartbeat touches the lock only while holder.json names its shell" \
+    || bad "skill blocks: the one-PR block's heartbeat has no '$HB_OURS'"
+# cmd_of <pid>: the command line of <pid>, empty when it is gone (/proc/<pid>/cmdline in Git Bash and on Linux, ps on
+# macOS). A pid counts as the test's process only by its command line: pids are reused, in Git Bash within minutes.
+cmd_of() { if [ -r "/proc/$1/cmdline" ]; then tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null; else ps -ww -o command= -p "$1" 2>/dev/null; fi; }
+# ours <pid> <text>: <pid> is alive and its command line has <text> (a heartbeat shell carries the block, so $W)
+ours() { kill -0 "$1" 2>/dev/null && [[ "$(cmd_of "$1")" == *"$2"* ]]; }
+# alive_of <pid file> <duration>: the pids of the file still running `sleep <duration>`
 alive_of() {
-    local p cmd
-    for p in $(cat "$1" 2>/dev/null); do
-        kill -0 "$p" 2>/dev/null || continue
-        cmd="$(ps -o command= -p "$p" 2>/dev/null)" || cmd="sleep $2"
-        case "$cmd" in *"sleep $2"*) printf '%s ' "$p" ;; esac
-    done
+    local p
+    for p in $(cat "$1" 2>/dev/null); do ours "$p" "sleep $2" && printf '%s ' "$p"; done
     return 0
 }
 none_alive() { [ -z "$(alive_of "$@")" ]; }
 gone_pid() { ! kill -0 "$1" 2>/dev/null; }
+mtime_of() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }   # GNU stat (Git Bash, Linux), else BSD stat (macOS)
 # stop_tree <pid>: ends the heartbeat <pid>, as the block's trap does. In Git Bash (the pid has /proc/<pid>/winpid) no
 # kill -STOP: there a kill -KILL after it can leave the process alive and deaf to every signal; a heartbeat still
 # alive 1 s after kill -KILL is ended through Windows (kill -f).
@@ -126,20 +139,44 @@ for sh in "${SHELLS[@]}"; do
         kill -KILL "$bp" 2>/dev/null; wait "$bp" 2>/dev/null
         bad "$sh: the one-PR block under kill -9: the lock and the gate were not reached [$(cat "$W/out")]"
     fi
-    [ -s "$W/hb.pid" ] && stop_tree "$(cat "$W/hb.pid")"
+    [ -s "$W/hb.pid" ] && ours "$(cat "$W/hb.pid")" "$W" && stop_tree "$(cat "$W/hb.pid")"
     : >"$W/go"; until_ok 5 test -e "$W/go.done" || bad "$sh: the one-PR block under kill -9: the stub gate did not end"
+    rm -f "$L/holder.json" "$W/hb.pid" "$W/go" "$W/go.started" "$W/go.done"; rmdir "$L" 2>/dev/null
+    # The same kill -9, but then another agent holds the lock (its own holder.json, an old mtime): the heartbeat that
+    # outlived its shell (as one that kill -f also failed to end would) does not touch that lock and ends within 3 s,
+    # so the other agent's lock can still go stale. The other holder.json is written first and the old mtime 0.5 s
+    # later: a heartbeat step already past its holder.json check when the file changed has touched by then.
+    PATH="$HBBIN:$PATH" $sh -c "$STUB"$'\n'"$b" >"$W/out" 2>&1 & bp=$!
+    if until_ok 10 test -s "$W/hb.pid" && until_ok 10 test -e "$W/go.started"; then
+        hb="$(cat "$W/hb.pid")"
+        kill -KILL "$bp" 2>/dev/null; wait "$bp" 2>/dev/null
+        printf '{"prs":[9],"what":"gate-full","pid":1,"since":"x"}\n' >"$L/holder.json"; sleep 0.5; touch -t 202001010000 "$L"
+        m0="$(mtime_of "$L")"; until_ok 3 gone_pid "$hb"; ended=$?; sleep 0.5; m1="$(mtime_of "$L")"
+        [ "$ended" = 0 ] && [ "$m0" = "$m1" ] && [ "$(q "$L/holder.json" 's.prs.join(",")' 2>&1)" = 9 ] \
+            && ok "$sh: the one-PR gate full block: a heartbeat that outlived its shell leaves another agent's lock untouched and ends within 3 s" \
+            || bad "$sh: the one-PR block: the heartbeat $hb with another agent's lock: ended $([ "$ended" = 0 ] && echo yes || echo no), mtime $m0 -> $m1"
+    else
+        kill -KILL "$bp" 2>/dev/null; wait "$bp" 2>/dev/null
+        bad "$sh: the one-PR block under kill -9, another agent's lock: the lock and the gate were not reached [$(cat "$W/out")]"
+    fi
+    [ -s "$W/hb.pid" ] && ours "$(cat "$W/hb.pid")" "$W" && stop_tree "$(cat "$W/hb.pid")"
+    : >"$W/go"; until_ok 5 test -e "$W/go.done" || bad "$sh: the one-PR block under kill -9, another agent's lock: the stub gate did not end"
     rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null
     for p in $(alive_of "$HB_PIDS" "$FAST"); do kill "$p" 2>/dev/null; done
-    # 40 normal runs, the gate an instant `true`, so the trap often fires while the heartbeat is still starting its
-    # first sleep. Each run has 15 s: a trap that never returns (in Git Bash a heartbeat stopped with kill -STOP and
+    # 40 normal runs. Each run has 15 s: a trap that never returns (in Git Bash a heartbeat stopped with kill -STOP and
     # then killed stays alive and deaf to every signal, and `wait` for it hangs) fails the case instead of hanging
-    # the file. No run is cut off, no heartbeat shell outlives its run, and no run prints a job notice ("Killed").
-    # Off Windows no heartbeat sleep is left either; that needs pkill, as the block's trap does. In Git Bash a sleep
-    # the trap catches while it is still starting can miss its signal and run on, its output on /dev/null; the test
-    # ends it below.
+    # the file. No run is cut off, every run starts a heartbeat, none of them outlives its run, no heartbeat sleep
+    # is left, and no run prints a job notice ("Killed"). Off Windows the gate is an instant `true`, so the trap often
+    # fires while the heartbeat is still starting its first sleep; that needs pkill, as the block's trap does. In Git
+    # Bash the gate takes 0.3 s, as a real gate takes minutes: the heartbeat is in its sleep when the trap runs. A sleep
+    # still starting there may not be visible to the trap yet (see the block's text); and with the old trap 6 runs of
+    # 30 of this kind hung, so a trap with kill -STOP fails here almost surely, not by chance.
     if on_windows || command -v pkill >/dev/null 2>&1; then
+        if on_windows; then gate_cmd="sleep 0.3"; else gate_cmd=true; fi
         HBS="$W/hb.shells"; : >"$HB_PIDS"; : >"$HBS"
-        b="${b0/"$HB_LOOP"/while \"$HBBIN/hbsleep\" $LONG;}"; b="${b//@GATE@/true}"; b="${b/HB=\$!/HB=\$!; echo \$HB >>\"$HBS\"}"
+        b="${b0/"$HB_LOOP"/while \"$HBBIN/hbsleep\" $LONG;}"; b="${b//@GATE@/$gate_cmd}"; b="${b/HB=\$!/HB=\$!; echo \$HB >>\"$HBS\"}"
+        [[ "$b" == *"hbsleep\" $LONG;"* && "$b" == *"echo \$HB >>\"$HBS\""* && "$b" != *@GATE@* ]] \
+            || bad "$sh: the one-PR block: the heartbeat sleep, its pid record or the gate could not be put in the block"
         runs=0 notices=0 hung=0
         for i in $(seq 1 40); do
             run_limited 15 "$W/run.out" env PATH="$HBBIN:$PATH" $sh -c "$STUB"$'\n'"$b" || hung=$((hung + 1))
@@ -148,11 +185,11 @@ for sh in "${SHELLS[@]}"; do
             rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null
         done
         until_ok 2 none_alive "$HB_PIDS" "$LONG"; left="$(alive_of "$HB_PIDS" "$LONG")"
-        shells=; for p in $(cat "$HBS"); do kill -0 "$p" 2>/dev/null && shells="$shells$p "; done
-        if on_windows; then sleeps="" what="no heartbeat shell"; else sleeps="$left" what="no heartbeat shell or sleep"; fi
-        [ "$runs" = 40 ] && [ "$hung" = 0 ] && [ "$notices" = 0 ] && [ -z "$shells" ] && [ -z "$sleeps" ] \
-            && ok "$sh: the one-PR gate full block: 40 runs, each within 15 s, leave $what and print no job notice" \
-            || bad "$sh: the one-PR block: $runs of 40 runs green, $hung cut off after 15 s, $notices with a job notice, heartbeat shells left: [$shells], sleeps left: [$sleeps]"
+        started="$(wc -l <"$HBS" | tr -d ' ')"
+        shells=; for p in $(cat "$HBS"); do ours "$p" "$W" && shells="$shells$p "; done
+        [ "$runs" = 40 ] && [ "$hung" = 0 ] && [ "$started" = 40 ] && [ "$notices" = 0 ] && [ -z "$shells" ] && [ -z "$left" ] \
+            && ok "$sh: the one-PR gate full block: 40 runs (gate: $gate_cmd), each within 15 s, leave no heartbeat shell or sleep and print no job notice" \
+            || bad "$sh: the one-PR block (gate: $gate_cmd): $runs of 40 runs green, $hung cut off after 15 s, $started heartbeats started, $notices with a job notice, heartbeat shells left: [$shells], sleeps left: [$left]"
         for p in $shells; do stop_tree "$p"; done
         for p in $left; do kill "$p" 2>/dev/null; done
     else
