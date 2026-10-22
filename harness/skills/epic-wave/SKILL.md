@@ -910,7 +910,20 @@ That gate full of one PR (`"each"`, and a PR merged the old way) runs under the 
 (`F workflow.e2e_lock`) with the lock's semantics unchanged — older than 30 min is abandoned, a
 heartbeat `touch -c` every 5 min — and, like `wave-gate`, says who holds it: `holder.json` in the
 lock directory names the PR, `gate-full`, the shell's pid and the start time; it goes with the
-lock. One Bash call with timeout 600000 (if it ended while waiting for the lock, run it again):
+lock. The heartbeat touches the lock only while its `holder.json` still names this shell's pid,
+and it ends once that shell is gone (`kill -0 $$`): a heartbeat that outlived its shell (`kill -9`,
+a Bash call cut off by its timeout) keeps neither its own abandoned lock nor another agent's new
+one alive. While the shell lives the heartbeat does not end on its own, even when the lock was
+taken over, so the trap never signals a pid that is already free. In Git Bash
+on Windows (the heartbeat has a `/proc/<pid>/winpid`) the EXIT trap does not stop the heartbeat
+with `kill -STOP`: there a `kill -KILL` after a `kill -STOP` can leave the process alive and deaf
+to every signal, and a `wait` for it never returns (one run in seven hung for 2 hours). The trap
+kills the heartbeat, ends its `sleep` through Windows (`/usr/bin/kill -f`), waits for the
+heartbeat at most 2 s, ends it through Windows too after 1 s, and waits for it only once it is
+gone. A `sleep` that is still starting when the trap runs may not be visible yet and run out its
+5 min, its output on `/dev/null`; before this trap every heartbeat `sleep` there did, because Git
+Bash has no `pkill`. One Bash call with timeout 600000 (if it ended while waiting for the lock,
+run it again):
 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
@@ -922,8 +935,8 @@ if [ -n "$L" ]; then
     sleep 20
   done
   printf '{"prs":[%s],"what":"gate-full","pid":%s,"since":"%s"}\n' <N> "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$L/holder.json"
-  ( while sleep 300; do [ -d "$L" ] || exit 0; touch -c "$L" 2>/dev/null; done ) >/dev/null 2>&1 & HB=$!   # its sleep holds no output open; ends once the lock is gone
-  trap 'kill -STOP $HB 2>/dev/null; w=0; while [ $w -lt 200 ] && ps -o stat= -p $HB 2>/dev/null | grep -qv T; do w=$((w + 1)); sleep 0.01; done; pkill -P $HB 2>/dev/null; kill -KILL $HB 2>/dev/null; kill -CONT $HB 2>/dev/null; wait $HB 2>/dev/null; grep -q "\"pid\":$$," "$L/holder.json" 2>/dev/null && rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null' EXIT   # pkill once ps shows it stopped: it starts no sleep pkill misses; only our holder.json
+  ( while sleep 300; do kill -0 $$ 2>/dev/null || exit 0; grep -q "\"pid\":$$," "$L/holder.json" 2>/dev/null && touch -c "$L" 2>/dev/null; done ) >/dev/null 2>&1 & HB=$!   # its sleep holds no output open; ends with its shell, so the trap never signals a freed pid; touches only our lock
+  trap 'if [ -e /proc/$HB/winpid ]; then { c=; for f in /proc/[0-9]*/ppid; do read -r p 2>/dev/null <"$f" && [ "$p" = "$HB" ] && { f=${f%/ppid}; c="$c ${f#/proc/}"; }; done; kill -KILL $HB 2>/dev/null; [ -n "$c" ] && /usr/bin/kill -f -9 $c 2>/dev/null; w=0; while [ $w -lt 20 ] && kill -0 $HB 2>/dev/null; do w=$((w + 1)); [ $w = 10 ] && /usr/bin/kill -f -9 $HB; sleep 0.1; done; kill -0 $HB || wait $HB; } 2>/dev/null; else kill -STOP $HB 2>/dev/null; w=0; while [ $w -lt 200 ] && ps -o stat= -p $HB 2>/dev/null | grep -qv T; do w=$((w + 1)); sleep 0.01; done; pkill -P $HB 2>/dev/null; kill -KILL $HB 2>/dev/null; kill -CONT $HB 2>/dev/null; wait $HB 2>/dev/null; fi; grep -q "\"pid\":$$," "$L/holder.json" 2>/dev/null && rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null' EXIT   # Git Bash: no STOP, the wait is bounded; elsewhere pkill once ps shows it stopped: it starts no sleep pkill misses; only our holder.json
 fi
 (cd <PR worktree> && GATE_SCOPE=all node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" full </dev/null); echo "EXIT=$?"
 ```
