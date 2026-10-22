@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { creamInside, decodePng, edgeBound, edgeErrors, pagePixelsOutside, type Box, type Edge, type Image } from './browser-pixels'
+import { creamInside, decodePng, edgeBound, edgeErrors, pagePixelsNear, pagePixelsOutside, type Box, type Edge, type Image } from './browser-pixels'
 import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 
@@ -298,10 +298,9 @@ const ALL_EDGES: readonly Edge[] = ['left', 'right', 'top', 'bottom']
 /**
  * Moves the mouse from `from` by STEPS steps of STEP_PX right and half of it down (`up`: up) with `button` held, recording
  * every animation frame and taking a screenshot after the steps in SHOT_AT without waiting for
- * anything. Returns the frame record's report, the largest edge error of each screenshot and the
- * screenshots' device px per CSS px.
+ * anything. Returns the frame record's report and the largest edge error of each screenshot.
  */
-async function measureGesture(window: Page, name: string, from: { x: number; y: number }, button: 'left' | 'middle', up = false): Promise<{ frames: ReturnType<typeof frameReport>; shotsPx: number[]; scale: number }> {
+async function measureGesture(window: Page, name: string, from: { x: number; y: number }, button: 'left' | 'middle', up = false): Promise<{ frames: ReturnType<typeof frameReport>; shotsPx: number[] }> {
   await window.addStyleTag({ content: GREEN_OUTLINE })
   await window.mouse.move(from.x, from.y)
   await recordFrames(window)
@@ -317,16 +316,14 @@ async function measureGesture(window: Page, name: string, from: { x: number; y: 
   await window.mouse.up({ button })
   const frames = frameReport(await stopFrames(window))
   const innerWidth = await window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)
-  let scale = 1
   const shotsPx = shots.map(({ png, body, zoom }, index) => {
     const image = decodePng(png)
-    scale = image.width / innerWidth
     const file = savePng(png, `browser-layer-${name}`, `point-${index + 1}`)
     if (index === 2) evidence(file, `browser-layer-${name}-point-3`)
-    const errors = edgeErrors(image, scale, body, zoom, ALL_EDGES)
+    const errors = edgeErrors(image, image.width / innerWidth, body, zoom, ALL_EDGES)
     return round(Math.max(...Object.values(errors)))
   })
-  return { frames, shotsPx, scale }
+  return { frames, shotsPx }
 }
 
 test('pan: the page stays in its frame, within one frame and one pixel', async () => {
@@ -339,7 +336,7 @@ test('pan: the page stays in its frame, within one frame and one pixel', async (
   expect(result.frames.moving, 'the Canvas moved during the pan').toBeGreaterThan(10)
   expect(result.frames.maxLagFrames).toBeLessThanOrEqual(1)
   expect(result.frames.maxGapPx).toBeLessThanOrEqual(1)
-  for (const error of result.shotsPx) expect(error, 'edge of the page against the edge of the frame on a screenshot').toBeLessThanOrEqual(edgeBound(result.scale))
+  for (const error of result.shotsPx) expect(error, 'edge of the page against the edge of the frame on a screenshot').toBeLessThanOrEqual(1)
 })
 
 test('drag of the frame: the page follows within one frame and one pixel', async () => {
@@ -355,7 +352,7 @@ test('drag of the frame: the page follows within one frame and one pixel', async
   expect(result.frames.moving, 'the frame moved during the drag').toBeGreaterThan(10)
   expect(result.frames.maxLagFrames).toBeLessThanOrEqual(1)
   expect(result.frames.maxGapPx).toBeLessThanOrEqual(1)
-  for (const error of result.shotsPx) expect(error, 'edge of the page against the edge of the frame on a screenshot').toBeLessThanOrEqual(edgeBound(result.scale))
+  for (const error of result.shotsPx) expect(error, 'edge of the page against the edge of the frame on a screenshot').toBeLessThanOrEqual(1)
 })
 
 /**
@@ -384,14 +381,18 @@ for (const { zoom, viewport, edges } of ZOOMS) {
     if (zoom !== 0.25) evidence(file, `browser-layer-clip-zoom-${zoom}`)
     const errors = edgeErrors(image, scale, body!, zoom, edges)
     // Clipped: no pixel of the page outside the part of the frame's body that is on the Canvas.
+    // Anywhere in the window in 3 × 3 blocks (pagePixelsOutside), and pixel by pixel in a band just
+    // outside that part, on all four sides, the Canvas's edge included (pagePixelsNear).
     const canvas = (await window.getByTestId('canvas').boundingBox())!
     const visible = intersect(body!, canvas)
     const outside = pagePixelsOutside(image, scale, visible)
+    const near = pagePixelsNear(image, scale, visible)
     const sidebar = canvas.x > 0 ? pagePixelsOutside(image, scale, { x: canvas.x, y: 0, width: image.width / scale, height: image.height / scale }) : 0
     const guest = (await guestState())!
-    report(`zoom ${zoom}`, { guestViewport: [guest.innerWidth, guest.innerHeight, guest.devicePixelRatio], edgeErrorsPx: Object.fromEntries(Object.entries(errors).map(([edge, value]) => [edge, round(value)])), pagePixelsOutsideFrame: outside, pagePixelsLeftOfCanvas: sidebar, pageWidthPx: round(page!.width) })
+    report(`zoom ${zoom}`, { guestViewport: [guest.innerWidth, guest.innerHeight, guest.devicePixelRatio], edgeErrorsPx: Object.fromEntries(Object.entries(errors).map(([edge, value]) => [edge, round(value)])), pagePixelsOutsideFrame: outside, pagePixelsNearFrame: near, pagePixelsLeftOfCanvas: sidebar, pageWidthPx: round(page!.width) })
     for (const edge of edges) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(edgeBound(scale))
     expect(outside, 'page pixels outside the frame').toBe(0)
+    expect(near, 'page pixels just outside the frame').toBe(0)
     expect(sidebar, 'page pixels left of the Canvas').toBe(0)
     if (zoom !== 1) return
 

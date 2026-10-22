@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { edgeBound, edgeErrors, pagePixelsOutside, type Box, type Edge, type Image } from '../e2e/browser-pixels'
+import { edgeBound, edgeErrors, NEAR_BAND, pagePixelsNear, pagePixelsOutside, type Box, type Edge, type Image } from '../e2e/browser-pixels'
 
 const WINDOW = { width: 1400, height: 900 }
 /** The page's viewport in its own CSS px, as the e2e test reports it (`guestViewport`). */
@@ -94,16 +94,16 @@ function measure(scale: number, zoom: number, edges: readonly Edge[], scrollbar:
 describe('the edges of the fixture page against its frame on a capture (edgeErrors)', () => {
   for (const scale of [1.5, 2]) {
     for (const { zoom, edges } of ZOOMS) {
-      // Drawn exactly, the page is on the frame's edge: the e2e test's 1 px bound is for real
-      // captures, here the reading must be within one device pixel.
+      // Drawn exactly, the page is on the frame's edge: the e2e test's bound (edgeBound: 1 px at a whole
+      // scale, 1.5 at a fractional one) is for real captures, here the reading must be within one device pixel.
       it(`a page without a scrollbar sits in its frame within one device pixel on every edge read, at scale ${scale} and zoom ${zoom}`, () => {
         const errors = measure(scale, zoom, edges, 0)
         for (const edge of edges) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(1 / scale)
       })
 
       it(`a page that lost its magenta line is read from its cream within 1 px, at scale ${scale} and zoom ${zoom}`, () => {
-        // Without the line, the pixel blended at the border is neither cream nor magenta, so the
-        // reading may be off by up to one more device pixel: the e2e test's own 1 px bound.
+        // Without the line, the pixel blended at the border is neither cream nor magenta, so the reading
+        // may be off by up to one more device pixel: still within 1 px, edgeBound at a whole scale.
         const errors = measure(scale, zoom, edges, 0, false)
         for (const edge of edges) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(1)
       })
@@ -117,8 +117,8 @@ describe('the edges of the fixture page against its frame on a capture (edgeErro
     it(`Windows' scrollbar at the page's right hides its right edge, and only that one, at scale 1.5 and zoom ${zoom}`, () => {
       const errors = measure(1.5, zoom, edges, WINDOWS_SCROLLBAR)
       for (const edge of edges.filter((edge) => edge !== 'right')) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(1 / 1.5)
-      // Off by more than the e2e test's bound: not found (Infinity), or found past the scrollbar.
-      expect(errors.right).toBeGreaterThan(1)
+      // Off by more than the e2e test's bound at this scale (edgeBound): not found (Infinity), or found past the scrollbar.
+      expect(errors.right).toBeGreaterThan(edgeBound(1.5))
     })
   }
 })
@@ -180,6 +180,55 @@ describe('page pixels outside the frame, counted in 3 x 3 blocks (pagePixelsOuts
     const image = blank(20, 20, block(4, 4, 8))
     expect(pagePixelsOutside(image, 1, { x: 5, y: 5, width: 6, height: 6 })).toBe(0)
     expect(pagePixelsOutside(image, 1, { x: 7, y: 7, width: 2, height: 2 })).toBe(6 * 6 - 4 * 4)
+  })
+})
+
+describe('page pixels outside the frame: the blocks are whole 3 x 3 squares, in an image of any shape', () => {
+  it('a 3 x 3 block missing one corner is not the page: the corners are neighbours too', () => {
+    const corner = block(5, 5, 3).filter(([x, y]) => !(x === 7 && y === 7))
+    expect(pagePixelsOutside(blank(20, 20, corner), 1, FAR)).toBe(0)
+  })
+
+  it('in an image wider than tall, blocks at the bottom-right corner are read with the right width and height', () => {
+    // The block touches the right and bottom edges: its centre and the three pixels on the edges count.
+    expect(pagePixelsOutside(blank(20, 12, block(17, 9, 3)), 1, FAR)).toBe(4)
+    expect(pagePixelsOutside(blank(20, 12, block(18, 10, 2)), 1, FAR)).toBe(1)
+  })
+})
+
+describe('page pixels in the band just outside the frame, one by one (pagePixelsNear)', () => {
+  /** A frame's body of 10 × 6 device px at (5, 4), in CSS px at scale 1; widened by one pixel it covers x 4..15, y 3..10. */
+  const BODY: Box = { x: 5, y: 4, width: 10, height: 6 }
+
+  it('a lone pixel of the page in the band counts, on every side and at a corner', () => {
+    for (const at of [[2, 6], [17, 6], [9, 1], [9, 12], [1, 0]] as const) {
+      expect(pagePixelsNear(blank(24, 16, [at]), 1, BODY), `pixel at ${at.join(', ')}`).toBe(1)
+    }
+  })
+
+  it(`the band is ${NEAR_BAND} device px wide past the widened body: a pixel further out and a pixel in the widening do not count`, () => {
+    expect(pagePixelsNear(blank(24, 16, [[0, 6]]), 1, BODY)).toBe(0)
+    expect(pagePixelsNear(blank(24, 16, [[19, 6]]), 1, BODY)).toBe(0)
+    expect(pagePixelsNear(blank(24, 16, [[4, 6]]), 1, BODY)).toBe(0)
+  })
+
+  it('a lone pixel far from the frame is left to the 3 x 3 count, and that count ignores it', () => {
+    const image = blank(40, 30, [[35, 25]])
+    expect(pagePixelsNear(image, 1, BODY)).toBe(0)
+    expect(pagePixelsOutside(image, 1, BODY)).toBe(0)
+  })
+
+  it('a leak 2 device px past the body: the 3 x 3 count misses it, the band does not', () => {
+    // The page covers the body and two more columns to its left (x 3 and 4).
+    const image = blank(24, 16, block(3, 4, 12).filter(([, y]) => y < 10))
+    expect(pagePixelsOutside(image, 1, BODY)).toBe(0)
+    expect(pagePixelsNear(image, 1, BODY)).toBe(6)
+  })
+
+  it('reads the band in device px at a fractional scale', () => {
+    // At 1.5 the body (CSS 5, 4, 10 × 6) covers device x 7.5..22.5; widened, 6.5..23.5; the band 3.5..6.5.
+    expect(pagePixelsNear(blank(40, 24, [[4, 10]]), 1.5, BODY)).toBe(1)
+    expect(pagePixelsNear(blank(40, 24, [[3, 10]]), 1.5, BODY)).toBe(0)
   })
 })
 
