@@ -54,8 +54,10 @@ setTimeout(() => {
 export default [
   // `screen`: the screen whose recorded gesture or undo this is; the Layout change carries it in
   // `layout.changed` (worfy-link ticket 07).
-  defineHandler(trashPut, ({ projectId, nodeId, screen }) => {
-    const entry = store.put(projectId, nodeId, screen ?? null)
+  defineHandler(trashPut, async ({ projectId, nodeId, screen, keep }) => {
+    // The pages of a Session's Browsers are asked for unsaved changes first (src/main/layout/store.ts).
+    await layoutStore().askBrowsersFirst(projectId, { op: 'remove', id: nodeId })
+    const entry = store.put(projectId, nodeId, screen ?? null, keep)
     changed(projectId)
     return entry
   }),

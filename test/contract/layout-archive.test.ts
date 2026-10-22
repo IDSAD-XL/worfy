@@ -1086,3 +1086,119 @@ describe('the toast of a batch and its Undo (worfy-canvas ticket 10; ADR-0076, p
     expect(await one.run({ id: PROJECT, path: repo })).toBe(1)
   })
 })
+
+describe('the Browsers of an archived Session (worfy-browser ticket 06, ADR-0078 item 11)', () => {
+  /** A Browser as browser_open writes it for Session `openedBy` (src/main/mcp/browser-server.ts); the user's has none. */
+  const browserNode = (id: string, openedBy?: string, y = 2000): LayoutOpInput => ({
+    op: 'create',
+    node: { id, kind: 'browser', x: 0, y, w: 640, h: 440, data: { profile: 'admin-aaaaaa', ...(openedBy === undefined ? {} : { openedBy }) } },
+  })
+
+  it('a batch of the archive takes the Browsers of its Sessions off the Canvas in the same operation; the user’s Browser and a fresh Session’s stay', async () => {
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    apply(sessionNode('fresh', 800, 0))
+    apply(browserNode('browser-a', 'a'))
+    apply(browserNode('browser-a2', 'a', 3000))
+    apply(browserNode('browser-b', 'b', 4000))
+    apply(browserNode('browser-fresh', 'fresh', 5000))
+    apply(browserNode('browser-user', undefined, 6000), 'screen-1')
+    world.history = transcripts(['a', 30 * HOUR], ['b', 25 * HOUR], ['fresh', HOUR])
+    const revision = store.get(PROJECT).revision
+    expect(await archiver().run({ id: PROJECT, path: repo })).toBe(2)
+    // One operation: the batch, and the Browsers gone in it; no step of ⌘Z — without a screen.
+    expect(store.get(PROJECT).revision).toBe(revision + 1)
+    const [change, ...more] = changes(1, 'archive')
+    expect(more).toEqual([])
+    expect(change?.screen).toBeNull()
+    expect(change?.layout.nodes.filter((node) => node.kind === 'browser').map((node) => node.id)).toEqual(['browser-fresh', 'browser-user'])
+    expect(nodes().filter((node) => node.kind === 'browser').map((node) => node.id)).toEqual(['browser-fresh', 'browser-user'])
+    // Nothing of them is left in the archive either, and layout.json has none of them.
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:a', 'session:b'])
+    store.flush(PROJECT)
+    expect(onDisk().nodes.map((node) => node.id)).not.toContain('browser-a')
+  })
+
+  it('a Session with `pinned` or `keep` keeps its Browsers from the archive', async () => {
+    apply(sessionNode('pinned'))
+    apply(sessionNode('kept', 400, 0))
+    apply(sessionNode('gone', 800, 0))
+    apply({ op: 'pin', id: 'session:pinned', pinned: true, x: 20, y: 20, w: 300, h: 120 }, 'screen-1')
+    apply({ op: 'keep', id: 'session:kept', keep: true }, 'screen-1')
+    apply(browserNode('browser-pinned', 'pinned'))
+    apply(browserNode('browser-kept', 'kept', 3000))
+    apply(browserNode('browser-gone', 'gone', 4000))
+    // The user's touches are old: only pinned and Keep keep the two from the rule.
+    world.now += 48 * HOUR
+    world.history = transcripts(['pinned', 30 * HOUR], ['kept', 30 * HOUR], ['gone', 30 * HOUR])
+    expect(await archiver({ now: () => world.now }).run({ id: PROJECT, path: repo })).toBe(1)
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:gone'])
+    expect(nodes().filter((node) => node.kind === 'browser').map((node) => node.id)).toEqual(['browser-pinned', 'browser-kept'])
+  })
+
+  it('the timer asks the pages of its candidates’ Browsers for unsaved changes first: one that holds them stays as the user’s; a Session given Keep meanwhile is not archived', async () => {
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    apply(browserNode('browser-a', 'a'))
+    apply(browserNode('browser-a2', 'a', 3000))
+    apply(browserNode('browser-b', 'b', 4000))
+    world.history = transcripts(['a', 30 * HOUR], ['b', 30 * HOUR])
+    const unsaved = new Set<string>()
+    const asked: string[][] = []
+    store.setBrowserKeeper(
+      (_projectId, nodeId) => unsaved.has(nodeId),
+      async (_projectId, nodeIds) => {
+        asked.push([...nodeIds].sort())
+        // While the pages answer, the user gives Session b Keep: the candidates are read again.
+        apply({ op: 'keep', id: 'session:b', keep: true }, 'screen-1')
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        unsaved.add('browser-a')
+      },
+    )
+    expect(await archiver().run({ id: PROJECT, path: repo })).toBe(1)
+    expect(asked).toEqual([['browser-a', 'browser-a2', 'browser-b']])
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:a'])
+    expect(nodeOf('browser-a')?.data).not.toHaveProperty('openedBy')
+    expect(nodeOf('browser-a2')).toBeUndefined()
+    expect(nodeOf('browser-b')).toMatchObject({ data: { openedBy: 'b' } })
+  })
+
+  it('a Session Node that becomes a candidate only while the pages are asked waits for the next run: its Browsers were not asked', async () => {
+    apply(sessionNode('a'))
+    apply(browserNode('browser-a', 'a'))
+    world.history = transcripts(['a', 30 * HOUR], ['late', 30 * HOUR])
+    const asked: string[][] = []
+    store.setBrowserKeeper(
+      () => false,
+      async (_projectId, nodeIds) => {
+        asked.push([...nodeIds])
+        // The Node of an old Session lands on the Canvas while the pages answer.
+        apply(sessionNode('late', 400, 0))
+        apply(browserNode('browser-late', 'late', 3000))
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      },
+    )
+    expect(await archiver().run({ id: PROJECT, path: repo })).toBe(1)
+    expect(asked).toEqual([['browser-a']])
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:a'])
+    expect(nodeOf('browser-late')).toMatchObject({ data: { openedBy: 'late' } })
+  })
+
+  it('a Session brought back — by the toast’s Undo, by a `claude --resume` — comes back without its Browsers', async () => {
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    apply(browserNode('browser-a', 'a'))
+    apply(browserNode('browser-b', 'b', 3000))
+    world.history = transcripts(['a', 30 * HOUR], ['b', 30 * HOUR])
+    const one = archiver()
+    expect(await one.run({ id: PROJECT, path: repo })).toBe(2)
+    expect((await call('layout.restoreBatch', { projectId: PROJECT, batch: 'batch-1' })).ok).toBe(true)
+    expect(nodes().filter(isArchived)).toEqual([])
+    expect(nodes().filter((node) => node.kind === 'browser')).toEqual([])
+    // The same for a Session main restores because it is live again.
+    apply({ op: 'archive', batch: 'b2', nodes: [{ id: 'session:a', rule: 'idle' }] })
+    one.noteLive(repo, [{ sessionId: 'a', status: 'busy' }])
+    expect(isArchived(nodeOf('session:a')!)).toBe(false)
+    expect(nodes().filter((node) => node.kind === 'browser')).toEqual([])
+  })
+})

@@ -491,6 +491,33 @@ describe('canvas tools: the agent cannot remove Nodes or hide locked ones', () =
   })
 })
 
+describe('canvas tools: hide_node of a Session Node (worfy-browser ticket 06, ADR-0078 Amendments 2026-10-22)', () => {
+  it('asks the pages of the Session’s Browsers for unsaved changes first: the Browser the user typed into stays as the user’s', async () => {
+    store.apply(PROJECT, { op: 'create', node: { id: 'session:a', kind: 'session', x: 0, y: 0, w: 300, h: 120, data: { sessionId: 'a', origin: 'external', source: 'terminal', cwd: '/p' } } })
+    store.apply(PROJECT, { op: 'create', node: { id: 'browser-a1', kind: 'browser', x: 0, y: 600, w: 640, h: 440, data: { profile: 'p', openedBy: 'a' } } })
+    store.apply(PROJECT, { op: 'create', node: { id: 'browser-a2', kind: 'browser', x: 1000, y: 600, w: 640, h: 440, data: { profile: 'p', openedBy: 'a' } } })
+    const unsaved = new Set<string>()
+    const asked: string[][] = []
+    const unset = store.setBrowserKeeper(
+      (_projectId, nodeId) => unsaved.has(nodeId),
+      async (_projectId, nodeIds) => {
+        asked.push([...nodeIds])
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        unsaved.add('browser-a1')
+      },
+    )
+    try {
+      const rpc = await connect()
+      expect(json<ListedNode>(await rpc.call('hide_node', { id: 'session:a' }))).toMatchObject({ id: 'session:a', hidden: true })
+      expect(asked).toEqual([['browser-a1', 'browser-a2']])
+      expect(nodeOf('browser-a1')?.data).not.toHaveProperty('openedBy')
+      expect(nodeOf('browser-a2')).toBeUndefined()
+    } finally {
+      unset()
+    }
+  })
+})
+
 describe('canvas tools: Epic frames and Tickets', () => {
   // The renderer keeps, per Epic, a Layout Node of kind epic-frame: its x/y are the frame's offset
   // from its automatic place and data.collapsed whether the user collapsed it, nothing else

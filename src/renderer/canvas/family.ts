@@ -4,12 +4,15 @@
 // fits the camera to it (overlays/SelectionToolbar.tsx). Nothing here moves a Node or writes anything.
 //
 //   Ticket     → it, its Epic frame, the agents bound to it with their Subagents
-//   Session    → it, its Subagents, its Ticket and that Ticket's Epic frame (or its Epic frame)
+//   Session    → it, its Subagents, its Browsers, its Ticket and that Ticket's Epic frame (or its Epic frame)
 //   Subagent   → its Session's Family, and what the Subagent is bound to itself
+//   Browser    → its Session's Family (worfy-browser ticket 06, ADR-0078 item 13)
 //   Epic frame → it, its Tickets, the agents bound to the Epic or to its Tickets with their Subagents
 //
 // "An agent with its Subagents": a bound Session brings its whole Subagent tree; a Subagent bound
-// by itself (a wave's implementer) brings only itself and its Session, not its siblings.
+// by itself (a wave's implementer) brings only itself and its Session, not its siblings. A bound
+// Session also brings the Browsers it opened (`openedBy` of the Browser Node,
+// src/main/mcp/browser-server.ts); a Browser the user opened has no `openedBy` and no Family.
 import type { BindingTarget } from '../../shared/binding/resolve'
 import { EPIC_FRAME_KIND, epicNodeId, SOURCE_NODE_KINDS, SUBAGENT_KIND, TICKET_KIND, ticketNodeId } from '../../shared/layout/derived'
 
@@ -32,9 +35,17 @@ export interface FamilyLinks {
   subagents: readonly { nodeId: string; sessionNodeId: string }[]
   /** Each bound agent's Node — a Session's or a Subagent's — with what it is bound to. */
   bindings: readonly { agentNodeId: string; target: BindingTarget }[]
+  /** Each Browser Node a Session opened, with that Session's Node. Absent — none. */
+  browsers?: readonly { nodeId: string; sessionNodeId: string }[]
 }
 
-export const NO_LINKS: FamilyLinks = { epics: [], tickets: [], sessions: [], subagents: [], bindings: [] }
+/**
+ * BROWSER_KIND of nodes/browser-frame.ts, which this file does not import: the unit tests read this
+ * file under Node with a fixed file list (tsconfig.test.node.json), as for FAMILY_ANCHOR_KIND.
+ */
+const BROWSER_KIND = 'browser'
+
+export const NO_LINKS: FamilyLinks = { epics: [], tickets: [], sessions: [], subagents: [], bindings: [], browsers: [] }
 
 /** FamilyLinks as lookups by Node id, so a Family costs its own size, not the Canvas's. */
 interface FamilyIndex {
@@ -49,6 +60,10 @@ interface FamilyIndex {
   sessionOf: ReadonlyMap<string, string>
   /** Session Node id → its Subagent Node ids. */
   subagentsOf: ReadonlyMap<string, readonly string[]>
+  /** Browser Node id → the Node of the Session that opened it. */
+  openerOf: ReadonlyMap<string, string>
+  /** Session Node id → the Browser Nodes it opened. */
+  browsersOf: ReadonlyMap<string, readonly string[]>
   /** Epic → the agents bound to it or to one of its Tickets. */
   agentsOfEpic: ReadonlyMap<string, readonly string[]>
   /** Ticket Node id → the agents bound to it. */
@@ -74,7 +89,9 @@ function indexOf(links: FamilyLinks): FamilyIndex {
   const agentsOfEpic = new Map<string, string[]>()
   const agentsOfTicket = new Map<string, string[]>()
   const targetsOf = new Map<string, BindingTarget[]>()
+  const browsersOf = new Map<string, string[]>()
   for (const { epic, num } of links.tickets) push(ticketsOf, epic, ticketNodeId(epic, num))
+  for (const { nodeId, sessionNodeId } of links.browsers ?? []) push(browsersOf, sessionNodeId, nodeId)
   for (const { nodeId, sessionNodeId } of links.subagents) push(subagentsOf, sessionNodeId, nodeId)
   for (const { agentNodeId, target } of links.bindings) {
     push(agentsOfEpic, target.epic, agentNodeId)
@@ -88,6 +105,8 @@ function indexOf(links: FamilyLinks): FamilyIndex {
     sessions: new Set(links.sessions),
     sessionOf: new Map(links.subagents.map(({ nodeId, sessionNodeId }) => [nodeId, sessionNodeId])),
     subagentsOf,
+    openerOf: new Map((links.browsers ?? []).map(({ nodeId, sessionNodeId }) => [nodeId, sessionNodeId])),
+    browsersOf,
     agentsOfEpic,
     agentsOfTicket,
     targetsOf,
@@ -103,6 +122,7 @@ export function familyOf(nodeId: string, links: FamilyLinks): ReadonlySet<string
   const addSession = (session: string) => {
     family.add(session)
     for (const subagent of index.subagentsOf.get(session) ?? []) family.add(subagent)
+    for (const browser of index.browsersOf.get(session) ?? []) family.add(browser)
   }
   /** A bound agent: a Session with its tree, a Subagent with its Session. */
   const addAgent = (agentNodeId: string) => {
@@ -126,7 +146,7 @@ export function familyOf(nodeId: string, links: FamilyLinks): ReadonlySet<string
     family.add(epicNodeId(ticketEpic))
     for (const agent of index.agentsOfTicket.get(nodeId) ?? []) addAgent(agent)
   } else {
-    const session = index.sessionOf.get(nodeId) ?? (index.sessions.has(nodeId) ? nodeId : undefined)
+    const session = index.sessionOf.get(nodeId) ?? index.openerOf.get(nodeId) ?? (index.sessions.has(nodeId) ? nodeId : undefined)
     if (session === undefined) return null
     addSession(session)
     addTargets(session)
@@ -149,10 +169,15 @@ const layoutData = (node: FlowNodeLike): Record<string, unknown> => {
 
 /** The links of a Family, read from the Nodes React Flow has now (a Node of each source carries its facts in `data.node.data`). */
 export function familyLinksOf(nodes: Iterable<FlowNodeLike>): FamilyLinks {
-  const links = { epics: [] as string[], tickets: [] as { epic: string; num: number }[], sessions: [] as string[], subagents: [] as { nodeId: string; sessionNodeId: string }[], bindings: [] as { agentNodeId: string; target: BindingTarget }[] }
+  const links = { epics: [] as string[], tickets: [] as { epic: string; num: number }[], sessions: [] as string[], subagents: [] as { nodeId: string; sessionNodeId: string }[], bindings: [] as { agentNodeId: string; target: BindingTarget }[], browsers: [] as { nodeId: string; sessionNodeId: string }[] }
+  /** The Session Node of each Session, by its id: the first Node that shows it. */
+  const sessionNodes = new Map<string, string>()
+  const opened: { nodeId: string; sessionId: string }[] = []
   for (const node of nodes) {
     const data = layoutData(node)
-    if (node.type === EPIC_FRAME_KIND) {
+    if (node.type === BROWSER_KIND) {
+      if (typeof data.openedBy === 'string' && data.openedBy !== '') opened.push({ nodeId: node.id, sessionId: data.openedBy })
+    } else if (node.type === EPIC_FRAME_KIND) {
       const epic = (data.epic as { epic?: unknown } | undefined)?.epic
       if (typeof epic === 'string') links.epics.push(epic)
     } else if (node.type === TICKET_KIND) {
@@ -165,7 +190,13 @@ export function familyLinksOf(nodes: Iterable<FlowNodeLike>): FamilyLinks {
       if (data.variant === 'agent' && typeof data.agentNodeId === 'string' && target !== undefined) links.bindings.push({ agentNodeId: data.agentNodeId, target })
     } else if (typeof data.sessionId === 'string' && data.sessionId !== '' && !SOURCE_NODE_KINDS.includes(node.type ?? '')) {
       links.sessions.push(node.id)
+      if (!sessionNodes.has(data.sessionId)) sessionNodes.set(data.sessionId, node.id)
     }
+  }
+  // A Browser whose Session has no Node on the Canvas has no Family.
+  for (const { nodeId, sessionId } of opened) {
+    const sessionNodeId = sessionNodes.get(sessionId)
+    if (sessionNodeId !== undefined) links.browsers.push({ nodeId, sessionNodeId })
   }
   return links
 }

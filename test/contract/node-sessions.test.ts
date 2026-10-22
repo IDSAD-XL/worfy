@@ -16,7 +16,8 @@ import { NodeSessions } from '../../src/main/agent/node-sessions'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
-import { LayoutStore } from '../../src/main/layout/store'
+import { LayoutStore, type LayoutChange } from '../../src/main/layout/store'
+import { familyLinksOf, familyOf } from '../../src/renderer/canvas/family'
 import type { AgentEventEnvelope } from '../../src/shared/agent/events'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -189,6 +190,24 @@ describe('Resume', () => {
     // Claude Code reports the resumed session and the worktree as its cwd: the new turn goes into that transcript.
     expect(h.view(resumed.nodeId)).toMatchObject({ sdkSessionId: FINISHED, cwd: worktree })
     expect(h.node(resumed.nodeId).data).toStrictEqual({ origin: 'worfy', sessionId: FINISHED })
+  })
+
+  it('a read-only Node turned live keeps the Browsers its Session opened, in its Family: the Session never left the Canvas (worfy-browser ticket 06)', async () => {
+    const browser = { id: 'browser-1', kind: 'browser', x: 700, y: 900, w: 640, h: 440, data: { profile: 'admin-aaaaaa', openedBy: FINISHED } }
+    savedLayout([externalNode(FINISHED, worktree), browser])
+    const h = harness({ claude: { live: [], history: [{ sessionId: FINISHED, cwd: worktree }] } })
+    const changes: LayoutChange[] = []
+    h.layout.onChange((change) => changes.push(change))
+    const resumed = await h.sessions.resume(PROJECT, FINISHED)
+    expect(h.node(resumed.nodeId).data).toStrictEqual({ origin: 'worfy', sessionId: FINISHED })
+    expect(h.node('browser-1')).toMatchObject({ x: 700, y: 900, data: { openedBy: FINISHED } })
+    // No change of the swap names the Session as one that left: nobody drops its control of the Browser.
+    expect(changes.map((change) => change.op.op)).toEqual(expect.arrayContaining(['remove', 'create']))
+    expect(changes.flatMap((change) => change.sessionsLeft ?? [])).toEqual([])
+    // The Browser is in the Family of the live Session Node, as the Canvas builds it.
+    const flow = h.nodes().map((node) => ({ id: node.id, type: node.kind, data: { node } }))
+    expect(familyOf('browser-1', familyLinksOf(flow))).toEqual(new Set(['browser-1', resumed.nodeId]))
+    await h.until(resumed.nodeId, 'idle')
   })
 
   it('a read-only Node turned live keeps Keep and when it was last touched (review of PR #654)', async () => {

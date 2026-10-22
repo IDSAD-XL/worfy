@@ -14,6 +14,12 @@
 // - never into a password field (the owner's decision 7);
 // - once the user took the Browser over, every call is refused until they give it back (decision 3;
 //   src/main/browser/live.ts);
+// - a Session drives the Browsers it opened and those the user opened, never one another Session
+//   opened (`openedBy`, worfy-browser ticket 06): that one is in the other Session's Family and leaves
+//   the Canvas with it; and a Session whose Nodes are all off the Canvas (hidden, archived) neither
+//   opens a Browser, which would outlive the Session's place there (ADR-0078, item 11), nor drives
+//   one, whose control ended when it left (src/main/browser/live.ts). Both are checked before
+//   anything is taken or woken, and again after the wake, since the Session may leave meanwhile;
 // - a call on an Asleep Browser wakes it, and browser_open opens one, under the limit of Live
 //   Browsers (worfy-browser ticket 05): while every Live Browser is busy the call is refused with
 //   ALL_LIVE_BUSY before anything changes — no Node is made, no Browser taken — and the Session
@@ -36,6 +42,8 @@ import {
   type BrowserToolName,
 } from '../../shared/browser/tools'
 import { placeNear } from '../../shared/canvas/tools'
+import { ORCHESTRATOR_KIND } from '../../shared/ipc/orchestrator'
+import { SESSION_NODE_KIND } from '../../shared/ipc/sessions'
 import { shownOnCanvas } from '../../shared/layout/derived'
 import { isArchived, type LayoutNode } from '../../shared/layout/types'
 import type { BrowserAttachment } from '../agent/options'
@@ -113,9 +121,27 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
     if (id === null) throw new ToolError('This Session has no id yet; call again in a moment.')
     return id
   }
-  const browserOf = (id: string): { node: LayoutNode; profile: BrowserProfile } => {
+  /**
+   * Hidden or archived everywhere, Session `session` is off the Canvas. A Session with no Node at all
+   * (an agent the Canvas does not show) is not: it opens and drives Browsers as before.
+   */
+  const offCanvas = (session: string): boolean => {
+    const mine = layout.get(projectId).layout.nodes.filter((node) => node.data.sessionId === session && (node.kind === SESSION_NODE_KIND || node.kind === ORCHESTRATOR_KIND))
+    return mine.length > 0 && !mine.some(shownOnCanvas)
+  }
+  const OFF_CANVAS = "This Session's Node is not on the Canvas (it is hidden or archived)"
+  const mayStillDrive = (session: string): void => {
+    if (offCanvas(session)) throw new ToolError(`${OFF_CANVAS}, so it drives no Browser: its control of the Browsers ended when it left. Ask the user to show the Session's Node.`)
+  }
+  const mayStillOpen = (session: string): void => {
+    if (offCanvas(session)) throw new ToolError(`${OFF_CANVAS}, so it opens no Browser: a Browser leaves the Canvas with its Session. Ask the user to show the Session's Node.`)
+  }
+  const browserOf = (id: string, session: string): { node: LayoutNode; profile: BrowserProfile } => {
     const node = browsers().find((each) => each.id === id)
     if (node === undefined) throw new ToolError(`This Project's canvas has no Browser ${id}. Call browser_list for the ids.`)
+    const opener = node.data.openedBy
+    if (typeof opener === 'string' && opener !== session) throw new ToolError(`Browser ${id} was opened by another Session, so only that Session drives it. Open a Browser of your own with browser_open.`)
+    mayStillDrive(session)
     const profile = profileNamed(node.data.profile)
     if (profile === undefined) throw new ToolError(`Browser ${id} has no Browser profile now (it was deleted, or the user has not chosen one): a Session may not drive it.`)
     return { node, profile }
@@ -127,8 +153,8 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
    * (about:blank, a new Browser's) is no site's.
    */
   const drive = async (id: string, leaves = false) => {
-    const { profile } = browserOf(id)
     const session = me()
+    const { profile } = browserOf(id, session)
     // A refused call leaves no «Claude is driving» behind: what can refuse is checked before the
     // Session takes the Browser, and a call that took it and then fails (the debugger could not
     // attach, the page went off the list meanwhile) gives it up again.
@@ -146,6 +172,9 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
       }
     }
     offList()
+    // The Session may have left the Canvas while the Browser woke: main dropped its control then,
+    // and nothing would drop one taken now.
+    mayStillDrive(session)
     const took = live.control(projectId, id) === null
     live.drive(projectId, id, session)
     try {
@@ -192,10 +221,16 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
         if (refusal !== null) throw new ToolError(refusal)
       }
       const sessionId = me()
+      // Off the Canvas, the Session opens no Browser: one opened now would stay after it, since
+      // nothing takes the Session off the Canvas again.
+      mayStillOpen(sessionId)
       const id = freshId(layout, projectId)
       // The new Browser is Live from the start: with every Live Browser busy no Node is made.
       hold(id)
       await live.wake(projectId, id, 'session')
+      // The Session may have left while the Browser woke: no Node is made, and main forgets the
+      // life of the woken Browser at its next check (no Node, no call on it).
+      mayStillOpen(sessionId)
       // Next to the Session's Node; main moves it off any Node it would cover (ADR-0038).
       const visible = layout.get(projectId).layout.nodes.filter(shownOnCanvas)
       const anchor = visible.find((node) => node.data.sessionId === sessionId) ?? null
@@ -259,7 +294,8 @@ export function browserToolCaller(context: BrowserContext): BrowserToolCaller {
     })
     try {
       const handler = table[name] as (input: unknown) => unknown
-      const answer = await handler(parsed.data)
+      // The commands of this call know their Session: one that left the Canvas meanwhile stops its own call only.
+      const answer = await context.live.asSession(context.sessionId(), () => Promise.resolve(handler(parsed.data)))
       return typeof answer === 'object' && answer !== null && 'content' in answer ? (answer as BrowserToolResult) : text(answer)
     } catch (error) {
       if (error instanceof ToolError || error instanceof ControlError || error instanceof PageError) return text(error.message, true)

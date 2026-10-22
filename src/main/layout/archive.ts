@@ -251,7 +251,7 @@ export interface ArchiveProject {
 
 /** What the archive reads and writes; the app passes the real ones (src/main/index.ts), tests their own. */
 export interface AutoArchiveDeps {
-  store: Pick<LayoutStore, 'get' | 'peek' | 'apply' | 'onFirstRead'>
+  store: Pick<LayoutStore, 'get' | 'peek' | 'apply' | 'onFirstRead'> & Partial<Pick<LayoutStore, 'askBrowsersFor'>>
   /** The Projects of this Machine. */
   projects(): readonly ArchiveProject[]
   /** The Project's live Sessions, from the registry under the Claude home. */
@@ -332,8 +332,17 @@ export class AutoArchiver {
       return 0
     }
     const reads = await this.read(project, settings)
-    // From here to the write nothing waits: the Layout and the live Sessions are the latest main knows.
-    const found = this.candidatesOf(project.id, reads, settings)
+    // From here to the write nothing waits but the question to the Browsers' pages, after which the
+    // candidates are read again: the Layout and the live Sessions are the latest main knows.
+    let found = this.candidatesOf(project.id, reads, settings)
+    if (found.length > 0 && this.deps.store.askBrowsersFor !== undefined) {
+      // The pages of their Sessions' Browsers are asked for unsaved changes first (ADR-0078,
+      // Amendments 2026-10-22); then the candidates are read again, as the Layout may have changed
+      // meanwhile. A Node found only now waits for the next run: its Browsers were not asked.
+      const asked = new Set(found.map(({ id }) => id))
+      await this.deps.store.askBrowsersFor(project.id, [...asked])
+      found = this.candidatesOf(project.id, reads, settings).filter(({ id }) => asked.has(id))
+    }
     if (found.length > 0) {
       const batch = this.deps.batchId()
       this.deps.store.apply(project.id, { op: 'archive', batch, nodes: found.map(({ id, rule }) => ({ id, rule })) }, null)

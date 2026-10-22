@@ -2,7 +2,7 @@
 // store: every operation and every inverse goes through LayoutStore.apply, the code that applies
 // them in the app, so an inverse that main would read differently fails here.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { applyRecorded, deleteToTrash, grouped, History, historyOf, HISTORY_DEPTH, inverseOf, resetHistories, trashRecorded, type Group, type LayoutChannel, type Send, type StepOutcome, type TrashClient } from '../../src/renderer/canvas/history'
+import { applyRecorded, browsersBack, deleteToTrash, grouped, History, historyOf, HISTORY_DEPTH, inverseOf, resetHistories, trashRecorded, type Group, type LayoutChannel, type Send, type StepOutcome, type TrashClient } from '../../src/renderer/canvas/history'
 import { resetToasts, TOAST_MS, toasts } from '../../src/renderer/toast/toasts'
 import { screenId } from '../../src/renderer/canvas/screen'
 import { LayoutStore, type LayoutChange } from '../../src/main/layout/store'
@@ -262,6 +262,211 @@ describe('history: the undo of a Restore (review of PR #654)', () => {
     expect(sent).toHaveLength(1)
     expect(sent[0]).toMatchObject({ op: 'archive', batch: 'b1' })
     expect(nodeOf('b')?.archived ?? null).toBeNull()
+  })
+})
+
+describe('history: a Session’s Browsers come back with it (owner decision 2026-10-22, ADR-0078 Amendments)', () => {
+  const session = (id: string, sessionId: string, x: number) => agent({ op: 'create', node: { id, kind: 'session', x, y: 0, w: 300, h: 120, data: { sessionId } } })
+  const browser = (id: string, openedBy: string | undefined, x: number, y: number) =>
+    agent({ op: 'create', node: { id, kind: 'browser', x, y, w: 640, h: 440, data: openedBy === undefined ? { profile: 'p' } : { profile: 'p', openedBy } } })
+  const browsers = () => layout().nodes.filter((node) => node.kind === 'browser').map((node) => node.id).sort()
+  /** The Browsers main has taken over by the user, as browser.control.list tells them. */
+  let takenOver: Set<string>
+  /** The takeovers an undo gave back (browser.control.hold). */
+  let held: [string, string][]
+  /** The Canvas's channel as screenChannel makes it: main's own Layout and its takeovers, and the takeover given back. */
+  const mainChannel: LayoutChannel = {
+    ...channel,
+    mainNow: () => Promise.resolve({ layout: layout(), takenOver: new Set(takenOver) }),
+    hold: (nodeId, sessionId) => {
+      held.push([nodeId, sessionId])
+      takenOver.add(nodeId)
+      return Promise.resolve()
+    },
+  }
+  const userOnMain = (op: LayoutOpInput) => applyRecorded(PROJECT, op, mainChannel)
+
+  beforeEach(() => {
+    takenOver = new Set()
+    held = []
+    session('session:a', 'a', 0)
+    session('session:b', 'b', 4000)
+    browser('a1', 'a', 0, 600)
+    browser('a2', 'a', 1000, 600)
+    browser('b1', 'b', 4000, 600)
+    browser('mine', undefined, 0, 2000)
+  })
+
+  const ops: [string, LayoutOpInput][] = [
+    ['Hide', { op: 'hide', id: 'session:a', hidden: true }],
+    ['Remove', { op: 'remove', id: 'session:a' }],
+    ['Archive', { op: 'archive', batch: 'batch-1', nodes: [{ id: 'session:a', rule: 'idle' }] }],
+  ]
+  for (const [what, op] of ops) {
+    it(`one ⌘Z of the user’s ${what} brings back the Session and its Browsers at their former places; ⇧⌘Z takes them again`, async () => {
+      const before = layout().nodes.filter((node) => node.id === 'a1' || node.id === 'a2')
+      expect(await user(op)).toBeUndefined()
+      expect(browsers()).toEqual(['b1', 'mine'])
+      expect(history().size).toBe(1)
+
+      expect(await history().undo()).toBe(true)
+      expect(nodeOf('session:a')).toMatchObject({ hidden: false })
+      expect(nodeOf('session:a')?.archived ?? null).toBeNull()
+      for (const node of before) expect(nodeOf(node.id)).toMatchObject({ x: node.x, y: node.y, w: node.w, h: node.h, data: { openedBy: 'a' } })
+      expect(browsers()).toEqual(['a1', 'a2', 'b1', 'mine'])
+      expect(history().canUndo).toBe(false)
+
+      expect(await history().redo()).toBe(true)
+      expect(browsers()).toEqual(['b1', 'mine'])
+      expect(await history().undo()).toBe(true)
+      expect(browsers()).toEqual(['a1', 'a2', 'b1', 'mine'])
+    })
+  }
+
+  it('a Browser main leaves with the user (unsaved changes) loses its Session there; ⌘Z gives it back; ⇧⌘Z keeps the same one though main would not now', async () => {
+    let unsaved = true
+    store.setBrowserKeeper((_projectId, nodeId) => nodeId === 'a1' && unsaved)
+    expect(await userOnMain({ op: 'hide', id: 'session:a', hidden: true })).toBeUndefined()
+    expect(nodeOf('a1')).toMatchObject({ x: 0, y: 600 })
+    expect(nodeOf('a1')?.data).not.toHaveProperty('openedBy')
+    expect(nodeOf('a2')).toBeUndefined()
+
+    expect(await history().undo()).toBe(true)
+    expect(nodeOf('a1')?.data).toMatchObject({ openedBy: 'a' })
+    expect(nodeOf('a2')).toMatchObject({ x: 1000, y: 600, data: { openedBy: 'a' } })
+    // Not taken over: no takeover is given back.
+    expect(held).toEqual([])
+
+    // The page is saved meanwhile: main alone would take it now; the redo keeps it, as the step did.
+    unsaved = false
+    sent = []
+    expect(await history().redo()).toBe(true)
+    expect(sent[0]).toMatchObject({ op: 'hide', id: 'session:a', hidden: true, keep: ['a1'] })
+    expect(nodeOf('a1')?.data).not.toHaveProperty('openedBy')
+    expect(nodeOf('a2')).toBeUndefined()
+  })
+
+  it('⌘Z gives a taken-over Browser back its Session and the user’s takeover; ⇧⌘Z keeps it with the user again', async () => {
+    takenOver.add('a1')
+    let keeps = true
+    store.setBrowserKeeper((_projectId, nodeId) => nodeId === 'a1' && keeps)
+    await userOnMain({ op: 'remove', id: 'session:a' })
+    // main drops the takeover with the Session (src/main/browser/live.ts): the user has the Browser to themselves.
+    takenOver.delete('a1')
+    expect(nodeOf('a1')?.data).not.toHaveProperty('openedBy')
+
+    expect(await history().undo()).toBe(true)
+    expect(nodeOf('a1')?.data).toMatchObject({ openedBy: 'a' })
+    expect(held).toEqual([['a1', 'a']])
+
+    keeps = false
+    expect(await history().redo()).toBe(true)
+    expect(nodeOf('a1')?.data).not.toHaveProperty('openedBy')
+    expect(nodeOf('session:a')).toBeUndefined()
+  })
+
+  it('reads main’s Layout, not the window’s copy: a Browser the window has not heard of yet comes back too', async () => {
+    // The window's copy lags: it has not got a3 yet, which main opened a moment before the Hide.
+    const lagging = layout()
+    browser('a3', 'a', 2000, 600)
+    const stale: LayoutChannel = { ...mainChannel, layout: () => (nodeOf('session:a')?.hidden === true ? layout() : lagging) }
+    expect(await applyRecorded(PROJECT, { op: 'hide', id: 'session:a', hidden: true }, stale)).toBeUndefined()
+    expect(nodeOf('a3')).toBeUndefined()
+    expect(await history().undo()).toBe(true)
+    expect(nodeOf('a3')).toMatchObject({ x: 2000, y: 600, data: { openedBy: 'a' } })
+  })
+
+  it('a Browser main refuses to bring back does not fail the undo: the Session and the other Browsers are back', async () => {
+    expect(await user({ op: 'hide', id: 'session:a', hidden: true })).toBeUndefined()
+    // An agent puts a Node with a1's id on the Canvas meanwhile: its create is refused.
+    agent({ op: 'create', node: { id: 'a1', kind: 'note', x: 9000, y: 9000, w: 220, h: 120, data: {} } })
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    expect(await history().undo()).toBe(true)
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('a1'), expect.stringMatching(/already has a Node/))
+    error.mockRestore()
+    expect(nodeOf('session:a')?.hidden).toBe(false)
+    expect(nodeOf('a2')).toMatchObject({ data: { openedBy: 'a' } })
+  })
+
+  /** The trash as main keeps it, over the same Layout: an entry holds the Node it took off. */
+  const trashOverStore = (): TrashClient => {
+    const entries = new Map<string, LayoutNode>()
+    let count = 0
+    const entry = (label: string, node: LayoutNode): TrashEntry => ({ label, trashedAt: 1, nodeId: node.id, kind: node.kind, title: null, hasFiles: false })
+    return {
+      put: (_projectId, nodeId, keep) => {
+        const node = nodeOf(nodeId)!
+        count += 1
+        const label = `${count}-0000000${count}`
+        entries.set(label, node)
+        agent(keep === undefined ? { op: 'remove', id: nodeId } : { op: 'remove', id: nodeId, keep: [...keep] })
+        return Promise.resolve({ ok: true, value: entry(label, node) })
+      },
+      restore: (_projectId, label) => {
+        const node = entries.get(label)!
+        agent({ op: 'create', node })
+        return Promise.resolve({ ok: true, value: entry(label, node) })
+      },
+      mainNow: () => Promise.resolve({ layout: layout(), takenOver: new Set(takenOver) }),
+      send: (_projectId, op) => send(op),
+      hold: (_projectId, nodeId, sessionId) => {
+        held.push([nodeId, sessionId])
+        return Promise.resolve()
+      },
+    }
+  }
+
+  it('Delete of the Session Node to the trash: one ⌘Z restores it with its Browsers at their former places; ⇧⌘Z deletes them again', async () => {
+    const trash = trashOverStore()
+    const before = layout().nodes.filter((node) => node.id === 'a1' || node.id === 'a2')
+    expect(await deleteToTrash(PROJECT, [nodeOf('session:a')!], trash)).toEqual([])
+    expect(browsers()).toEqual(['b1', 'mine'])
+    expect(history().size).toBe(1)
+
+    expect(await history().undo()).toBe(true)
+    expect(nodeOf('session:a')).toBeDefined()
+    for (const node of before) expect(nodeOf(node.id)).toMatchObject({ x: node.x, y: node.y, w: node.w, h: node.h, data: { openedBy: 'a' } })
+    expect(await history().redo()).toBe(true)
+    expect(browsers()).toEqual(['b1', 'mine'])
+    expect(await history().undo()).toBe(true)
+    expect(browsers()).toEqual(['a1', 'a2', 'b1', 'mine'])
+  })
+
+  it('Delete to the trash leaves a taken-over Browser with the user; ⌘Z gives it its Session and the takeover back; ⇧⌘Z keeps it again', async () => {
+    takenOver.add('a1')
+    let keeps = true
+    store.setBrowserKeeper((_projectId, nodeId) => nodeId === 'a1' && keeps)
+    await deleteToTrash(PROJECT, [nodeOf('session:a')!], trashOverStore())
+    expect(nodeOf('a1')?.data).not.toHaveProperty('openedBy')
+    expect(nodeOf('a2')).toBeUndefined()
+    expect(await history().undo()).toBe(true)
+    expect(nodeOf('a1')?.data).toMatchObject({ openedBy: 'a' })
+    expect(nodeOf('a2')).toMatchObject({ x: 1000, y: 600, data: { openedBy: 'a' } })
+    expect(held).toEqual([['a1', 'a']])
+    keeps = false
+    expect(await history().redo()).toBe(true)
+    expect(nodeOf('a1')?.data).not.toHaveProperty('openedBy')
+    expect(nodeOf('a2')).toBeUndefined()
+  })
+
+  it('a trash without a Layout to read brings no Browser back: the Session alone comes back, as before', async () => {
+    const blind: TrashClient = { ...trashOverStore(), mainNow: undefined }
+    await trashRecorded(PROJECT, 'session:a', blind)
+    expect(await history().undo()).toBe(true)
+    expect(nodeOf('session:a')).toBeDefined()
+    expect(browsers()).toEqual(['b1', 'mine'])
+  })
+
+  it('browsersBack: nothing for an operation that takes no Session off the Canvas, nor for a Session that keeps another Node there', () => {
+    const now = layout()
+    const none = { removed: [], kept: [] }
+    expect(browsersBack(now, now, { op: 'hide', id: 'session:a', hidden: false })).toEqual(none)
+    expect(browsersBack(now, now, { op: 'move', id: 'session:a', x: 1, y: 1 })).toEqual(none)
+    // main took nothing (another Node of the Session is still on the Canvas): nothing to bring back.
+    expect(browsersBack(now, now, { op: 'hide', id: 'session:a', hidden: true })).toEqual(none)
+    // Another Session's Browser that went meanwhile is not this step's.
+    const after = { ...now, nodes: now.nodes.filter((node) => node.id !== 'b1' && node.id !== 'a1') }
+    expect(browsersBack(now, after, { op: 'hide', id: 'session:a', hidden: true })).toEqual({ removed: [now.nodes.find((node) => node.id === 'a1')], kept: [] })
   })
 })
 

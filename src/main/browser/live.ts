@@ -13,7 +13,19 @@
 // - One Session at a time: another Session's call is refused while one drives it.
 // Control is kept by Browser Node, not by page: a page the window draws again (a reload of the
 // window, a Browser moved back from the Trash) keeps it.
-// shortcut: control outlives the Session that drove the Browser (the banner stays after it ends), redo when worfy-browser ticket 06 ties a Browser to its Session's life.
+// - Control ends with the Session's place on the Canvas (worfy-browser ticket 06, ADR-0078 item
+//   11): once an operation takes the last Node of a Session off it — Hide, Remove, the archive —
+//   main drops every control of that Session (`sessionsLeft` of the Layout change). Its own
+//   Browsers left the Canvas in the same operation (src/main/layout/store.ts), all but those the
+//   user took over or whose page has unsaved changes (`staysWithUser`): these stay as the user's
+//   own, like a Browser of the user it drove. Such a Browser stays, its banner — «Claude is driving» or «Return control to Claude» — goes, and
+//   the user has it to themselves. A call of that Session still running on it stops before its next
+//   command to the page, with an answer that the Session left (`left` of the page's guard), even
+//   when another Session or the user has the Browser by then: the mark is kept by Browser and
+//   Session, and each command asks it for the Session of its own call (`asSession`, an
+//   AsyncLocalStorage around the call). Until the calls on it end and the user has not used the
+//   page, the pages such a call leads to are still checked against the origins (`walled`); and the
+//   Session takes no Browser again while it is off the Canvas (src/main/mcp/browser-server.ts).
 // shortcut: a Browser drawn by two windows of one Project is driven in the window that told main last, redo with worfy-browser ticket 07 (one Live page for every screen).
 // Until then sleep reads every page of such a Browser: the focus or the input of any of them uses it,
 // and a beforeunload handler in any of them keeps it Live.
@@ -44,13 +56,14 @@
 // window would draw its page (NOT_SHOWN).
 // shortcut: a picture does not outlive a restart of worfy (an Asleep Browser shows an empty frame after it), redo if the owner wants the pictures kept in the Project's data folder.
 // A Browser whose frame asks for a profile has no page and no life: it is opened once it has one.
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { originRefusal } from './origins'
 import { CdpPage, type CdpContents, type PagePicture } from './cdp'
 import { browserProfileStore } from './profiles'
 import { admit, ALL_LIVE_BUSY, browsersToSleep, drivenNow, fitLimit, readableNow, type BrowserNow, type ScreenNow, type SleepSettings, type Waker } from './sleep'
 import { toEveryWindow } from '../broadcast'
 import { emit } from '../ipc'
-import { layoutStore } from '../layout/store'
+import { layoutStore, type LayoutChange } from '../layout/store'
 import { projectStore } from '../projects/store'
 import { appSettingsStore } from '../settings/store'
 import { TAKEN_OVER, type BrowserControlMode } from '../../shared/browser/tools'
@@ -82,6 +95,13 @@ export interface LiveBrowsersDeps {
   browsersOf?(projectId: string): readonly string[] | null
   /** Told after a Browser of the Project woke, went to sleep or changed its marks. */
   livesChanged?(projectId: string, lives: BrowserLife[]): void
+  /** Subscribes to every change of a Layout (LayoutStore.onChange); returns the unsubscribe. */
+  layoutChanges?(listener: (change: Pick<LayoutChange, 'projectId' | 'sessionsLeft'>) => void): () => void
+  /**
+   * Gives the Layout the rule of which Browsers stay with the user when their Session leaves the
+   * Canvas, and how to ask their pages first (LayoutStore.setBrowserKeeper); returns what takes it back.
+   */
+  browserKeeper?(keeps: (projectId: string, nodeId: string) => boolean, ask: (projectId: string, nodeIds: readonly string[]) => Promise<void>): () => void
 }
 
 /** What main keeps of one Browser between its pages (worfy-browser ticket 05). */
@@ -132,6 +152,9 @@ type BrowsersNow = readonly string[] | 'any' | 'gone' | 'unknown'
 
 const keyOf = (projectId: string, nodeId: string): string => `${projectId}\n${nodeId}`
 
+/** The Session whose tool call runs now, for each command that call sends to a page. */
+const callingSession = new AsyncLocalStorage<string>()
+
 export class LiveBrowsers {
   /** The page a Session drives, of each Live Browser: the one a window told main of last. */
   private readonly pages = new Map<string, CdpPage>()
@@ -156,7 +179,80 @@ export class LiveBrowsers {
   /** The Projects whose Browsers could not be read, told to the log once until they can again. */
   private readonly unread = new Set<string>()
 
-  constructor(private readonly deps: LiveBrowsersDeps) {}
+  private readonly unsubscribe: (() => void) | undefined
+  private readonly unkeep: (() => void) | undefined
+  /**
+   * The Browsers whose driving Session left the Canvas while a call of it was running on them, until
+   * the calls on them end: which Sessions left, and whether their pages are still checked against
+   * the origins (until the user uses the page).
+   */
+  private readonly leftMidCall = new Map<string, { sessions: Set<string>; walled: boolean }>()
+
+  constructor(private readonly deps: LiveBrowsersDeps) {
+    this.unsubscribe = deps.layoutChanges?.((change) => this.sessionsLeft(change.projectId, change.sessionsLeft ?? []))
+    this.unkeep = deps.browserKeeper?.(
+      (projectId, nodeId) => this.staysWithUser(projectId, nodeId),
+      (projectId, nodeIds) => this.askUnsaved(projectId, nodeIds),
+    )
+  }
+
+  /**
+   * True when Browser Node `nodeId` stays on the Canvas as the user's own when the Session that opened
+   * it leaves (owner decision 2026-10-22, ADR-0078 Amendments): the user took it over and has not
+   * given it back, or its page has unsaved changes — a `beforeunload` handler the last time main asked
+   * (askUnsaved asks just before such an operation). A page that could not answer is kept too, as
+   * sleep keeps it: what it holds is not known.
+   */
+  staysWithUser(projectId: string, nodeId: string): boolean {
+    const key = keyOf(projectId, nodeId)
+    if (this.controls.get(key)?.mode === 'user') return true
+    const life = this.lifes.get(key)
+    return life !== undefined && life.live && (life.unsaved || life.unasked)
+  }
+
+  /**
+   * Asks every page of the Live Browsers `nodeIds` whether it has a `beforeunload` handler, right
+   * before an operation that may take them off the Canvas with their Session: the user may be typing
+   * in a page main never asked (it asks before sleep only). Each page answers within ASK_MS.
+   */
+  async askUnsaved(projectId: string, nodeIds: readonly string[]): Promise<void> {
+    await Promise.all(
+      nodeIds.map((nodeId) => {
+        const life = this.lifes.get(keyOf(projectId, nodeId))
+        return life?.live === true ? this.ask(life) : undefined
+      }),
+    )
+  }
+
+  /**
+   * The ⌘Z of a step that took Session `sessionId` off the Canvas while the user had Browser
+   * `nodeId` taken over from it: the user has it taken over from that Session again, so the Session
+   * waits for «Return control to Claude». False when somebody drives it by now.
+   */
+  holdForUser(projectId: string, nodeId: string, sessionId: string): boolean {
+    const key = keyOf(projectId, nodeId)
+    if (this.controls.has(key)) return false
+    this.controls.set(key, { mode: 'user', sessionId })
+    this.deps.changed(projectId, nodeId, 'user')
+    return true
+  }
+
+  /** Sessions of Project `projectId` left the Canvas: nobody drives what they drove. */
+  private sessionsLeft(projectId: string, sessions: readonly string[]): void {
+    if (sessions.length === 0) return
+    const prefix = keyOf(projectId, '')
+    for (const [key, control] of [...this.controls]) {
+      if (!key.startsWith(prefix) || !sessions.includes(control.sessionId)) continue
+      if (control.mode === 'claude' && (this.calls.get(key)?.running ?? 0) > 0) {
+        const mark = this.leftMidCall.get(key) ?? { sessions: new Set<string>(), walled: true }
+        mark.sessions.add(control.sessionId)
+        mark.walled = true
+        this.leftMidCall.set(key, mark)
+      }
+      this.controls.delete(key)
+      this.deps.changed(projectId, key.slice(prefix.length), null)
+    }
+  }
 
   /**
    * The page of Browser Node `nodeId` is `contents` from now on, until it is closed. Null — refused —
@@ -176,11 +272,24 @@ export class LiveBrowsers {
     }
     const page = new CdpPage(contents, {
       driving: () => this.controls.get(key)?.mode === 'claude',
+      left: () => {
+        const mark = this.leftMidCall.get(key)
+        const caller = callingSession.getStore()
+        // Outside a call (an event of the page) any Session that left counts.
+        return mark !== undefined && (caller === undefined ? mark.sessions.size > 0 : mark.sessions.has(caller))
+      },
+      walled: () => this.leftMidCall.get(key)?.walled === true,
       refusal: (url) => {
         const profile = this.deps.profileOf(projectId, nodeId)
         return profile === null ? 'This Browser has no Browser profile any more, so a Session may open no page in it.' : originRefusal(url, profile.name, profile.origins)
       },
-      onUserInput: () => this.takeOver(projectId, nodeId),
+      onUserInput: () => {
+        // The user's own browsing is not held to the origins of a call that is ending; that call
+        // still answers that its Session left.
+        const mark = this.leftMidCall.get(key)
+        if (mark !== undefined) mark.walled = false
+        this.takeOver(projectId, nodeId)
+      },
       used: () => {
         const life = this.lifes.get(key)
         if (life !== undefined) life.usedAt = this.now()
@@ -263,6 +372,8 @@ export class LiveBrowsers {
     this.mayDrive(projectId, nodeId, sessionId)
     const key = keyOf(projectId, nodeId)
     if (this.controls.has(key)) return
+    // Back on the Canvas and driving again, the Session's own calls go on; another Session's mark stays.
+    this.leftMidCall.get(key)?.sessions.delete(sessionId)
     this.controls.set(key, { mode: 'claude', sessionId })
     this.deps.changed(projectId, nodeId, 'claude')
   }
@@ -456,6 +567,7 @@ export class LiveBrowsers {
   sessionReleases(projectId: string, nodeId: string): void {
     const key = keyOf(projectId, nodeId)
     const running = Math.max(0, (this.calls.get(key)?.running ?? 0) - 1)
+    if (running === 0) this.leftMidCall.delete(key)
     if (running === 0 && !this.lifes.has(key)) this.calls.delete(key)
     else this.calls.set(key, { running, lastCallAt: this.now() })
   }
@@ -648,10 +760,17 @@ export class LiveBrowsers {
     }
   }
 
+  /** Runs the tool call `act` of Session `sessionId`: the commands it sends to pages know whose they are. */
+  asSession<T>(sessionId: string | null, act: () => Promise<T>): Promise<T> {
+    return sessionId === null ? act() : callingSession.run(sessionId, act)
+  }
+
   /** Stops the checks of the rules: the app quits. */
   stop(): void {
     clearInterval(this.timer)
     this.timer = undefined
+    this.unsubscribe?.()
+    this.unkeep?.()
   }
 }
 
@@ -683,6 +802,8 @@ export function liveBrowsers(): LiveBrowsers {
         .map((node) => node.id)
     },
     livesChanged: (projectId, lives) => toEveryWindow((client) => emit(client, browserLivesChanged, { projectId, lives })),
+    layoutChanges: (listener) => layoutStore().onChange(listener),
+    browserKeeper: (keeps, ask) => layoutStore().setBrowserKeeper(keeps, ask),
   })
   return shared
 }

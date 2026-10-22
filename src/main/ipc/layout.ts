@@ -35,7 +35,12 @@ export default [
   defineHandler(layoutGet, ({ projectId }) => store.get(projectId)),
   // An `archive` from a window or a Linked machine keeps the archive rule's exceptions, checked by
   // the app's archiver at the write (ADR-0076); main's own timer applies to the store directly.
-  defineHandler(layoutApply, ({ projectId, op, screen }) => (op.op === 'archive' ? appArchiver().archiveFromScreen(projectId, op, screen ?? null) : store.apply(projectId, op, screen ?? null))),
+  // An operation that may take a Session off the Canvas first asks the pages of its Browsers for
+  // unsaved changes (src/main/layout/store.ts, askBrowsersFirst).
+  defineHandler(layoutApply, async ({ projectId, op, screen }) => {
+    await store.askBrowsersFirst(projectId, op)
+    return op.op === 'archive' ? appArchiver().archiveFromScreen(projectId, op, screen ?? null) : store.apply(projectId, op, screen ?? null)
+  }),
   // The candidates of «Archive finished sessions now», read by the app's archiver (src/main/index.ts).
   defineHandler(layoutArchiveCandidates, ({ projectId }) => appArchiver().candidatesNow(projectId)),
   // The Undo of a batch's toast: that batch alone, without a screen (src/main/layout/archive.ts).

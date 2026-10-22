@@ -7,6 +7,7 @@ import { useBrowserLife, useBrowserPicture, wakeBrowser } from '../../browser/li
 import { useBrowserProfiles } from '../../browser/profiles'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
+import { useEdgeFocus } from '../edge-focus'
 import { useLayoutOps } from '../useLayout'
 import {
   BROWSER_HEADER_HEIGHT,
@@ -383,6 +384,9 @@ export default function BrowserNode({ id, data }: CanvasNodeProps) {
   const life = useBrowserLife(projectId, id)
   const asleep = life !== undefined && !life.live && choice.kind === 'use' && projectId !== undefined
   const readOnly = useReadOnly()
+  // In the lit Family of a hovered or selected Node — its Session's, its Ticket's (family.ts,
+  // worfy-browser ticket 06): a Browser has no line of its own to draw, so its frame is marked.
+  const inFamily = useEdgeFocus((state) => state.family !== null && state.family.has(id))
   // A press or a key anywhere on the frame — its header, its bars — while a Session drives it. A
   // read-only Linked machine takes nothing over: it is a write the Machine of the Project refuses.
   const takeOver = () => {
@@ -396,6 +400,7 @@ export default function BrowserNode({ id, data }: CanvasNodeProps) {
       data-profile={choice.kind === 'use' ? choice.id : undefined}
       data-control={control ?? undefined}
       data-life={life === undefined ? undefined : life.live ? 'live' : 'asleep'}
+      data-family={inFamily ? 'lit' : undefined}
       onPointerDownCapture={takeOver}
       onKeyDownCapture={takeOver}
     >

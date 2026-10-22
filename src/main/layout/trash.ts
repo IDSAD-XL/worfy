@@ -64,7 +64,7 @@ type StoredEntry = z.output<typeof storedEntrySchema>
 export interface TrashLayout {
   get(projectId: string): LayoutState
   /** `screen`: the screen whose gesture or undo this is, handed on in `layout.changed`; null without one. */
-  apply(projectId: string, op: { op: 'remove'; id: string } | { op: 'create'; node: LayoutNode }, screen: string | null): LayoutState
+  apply(projectId: string, op: { op: 'remove'; id: string; keep?: string[] } | { op: 'create'; node: LayoutNode }, screen: string | null): LayoutState
 }
 
 export interface TrashDeps {
@@ -214,9 +214,10 @@ export class TrashStore {
   /**
    * Moves a Node to the trash: for a Card that no other Node shows, its folder and its data too;
    * then removes the Node from the Layout. Throws, having moved nothing, for a Node the user may
-   * not delete. `screen` is the screen that asked, carried by the Layout change.
+   * not delete. `screen` is the screen that asked, carried by the Layout change. `keep`: the
+   * Browsers its Session opened that stay with the user (keepBrowsersSchema of the Layout's `remove`).
    */
-  put(projectId: string, nodeId: string, screen: string | null = null): TrashEntry {
+  put(projectId: string, nodeId: string, screen: string | null = null, keep?: readonly string[]): TrashEntry {
     const { layout } = this.deps.layout.get(projectId)
     const node = layout.nodes.find((each) => each.id === nodeId)
     if (!node) throw new Error(`The Layout has no Node with id ${nodeId}`)
@@ -248,7 +249,7 @@ export class TrashStore {
       }
       const entry: StoredEntry = { trashedAt, node, card }
       writeJsonFile(join(dir, ENTRY_FILE), storedEntrySchema, entry)
-      this.deps.layout.apply(projectId, { op: 'remove', id: nodeId }, screen)
+      this.deps.layout.apply(projectId, keep === undefined ? { op: 'remove', id: nodeId } : { op: 'remove', id: nodeId, keep: [...keep] }, screen)
       return summaryOf(label, entry)
     } catch (error) {
       // Put back what moved, newest first, and drop the half-made entry.

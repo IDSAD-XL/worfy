@@ -965,3 +965,69 @@ describe('layout store: the screen a change comes from', () => {
     ])
   })
 })
+
+describe('layout store: a Session’s Browsers are asked for unsaved changes before it leaves (ADR-0078, Amendments 2026-10-22)', () => {
+  const session = { op: 'create', node: { id: 'session:a', kind: 'session', x: 0, y: 0, w: 300, h: 120, data: { sessionId: 'a', origin: 'external', source: 'terminal', cwd: '/p' } } } as LayoutOpInput
+  const browser = (id: string, x: number) => ({ op: 'create', node: { id, kind: 'browser', x, y: 600, w: 640, h: 440, data: { profile: 'p', openedBy: 'a' } } }) as LayoutOpInput
+  /** The Browsers whose page answered that it has a beforeunload handler. */
+  let unsaved: Set<string>
+  let asked: string[][]
+
+  beforeEach(async () => {
+    await start({ trash: true })
+    await applied(session)
+    await applied(browser('a1', 0))
+    await applied(browser('a2', 1000))
+    unsaved = new Set()
+    asked = []
+    // As src/main/browser/live.ts answers: a page is asked over CDP, which takes a moment; the
+    // user typed into a1, and nobody asked it before.
+    store.setBrowserKeeper(
+      (_projectId, nodeId) => unsaved.has(nodeId),
+      async (_projectId, nodeIds) => {
+        asked.push([...nodeIds])
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        if (nodeIds.includes('a1')) unsaved.add('a1')
+      },
+    )
+  })
+
+  it('layout.apply of a Hide asks the pages first: a page never asked before keeps its Browser', async () => {
+    const after = await applied({ op: 'hide', id: 'session:a', hidden: true })
+    expect(asked).toEqual([['a1', 'a2']])
+    expect(nodeOf(after.layout, 'a1')?.data).not.toHaveProperty('openedBy')
+    expect(nodeOf(after.layout, 'a2')).toBeUndefined()
+  })
+
+  it('layout.apply of a Remove asks first too; an operation that takes no Session off the Canvas asks nothing', async () => {
+    await applied({ op: 'move', id: 'session:a', x: 0, y: 200 })
+    await applied({ op: 'hide', id: 'a2', hidden: true })
+    expect(asked).toEqual([])
+    const after = await applied({ op: 'remove', id: 'session:a' })
+    expect(asked).toEqual([['a1', 'a2']])
+    expect(nodeOf(after.layout, 'a1')).toBeDefined()
+  })
+
+  it('trash.put of the Session Node asks first; its `keep` leaves the Browsers it names whatever the pages say', async () => {
+    expect(await call('trash.put', { projectId: PROJECT, nodeId: 'session:a' })).toMatchObject({ ok: true })
+    expect(asked).toEqual([['a1', 'a2']])
+    const { layout } = store.get(PROJECT)
+    expect(nodeOf(layout, 'a1')?.data).not.toHaveProperty('openedBy')
+    expect(nodeOf(layout, 'a2')).toBeUndefined()
+  })
+
+  it('trash.put hands its `keep` on to the Layout: the Browsers it names stay with the user though no page holds changes', async () => {
+    store.setBrowserKeeper(() => false)
+    expect(await call('trash.put', { projectId: PROJECT, nodeId: 'session:a', keep: ['a2'] })).toMatchObject({ ok: true })
+    const { layout } = store.get(PROJECT)
+    expect(nodeOf(layout, 'a1')).toBeUndefined()
+    expect(nodeOf(layout, 'a2')?.data).not.toHaveProperty('openedBy')
+  })
+
+  it('a `keep` of a Hide leaves its Browsers with the user though no page holds changes (the ⇧⌘Z of a step that kept them)', async () => {
+    store.setBrowserKeeper(() => false)
+    const after = await applied({ op: 'hide', id: 'session:a', hidden: true, keep: ['a2'] })
+    expect(nodeOf(after.layout, 'a1')).toBeUndefined()
+    expect(nodeOf(after.layout, 'a2')?.data).not.toHaveProperty('openedBy')
+  })
+})

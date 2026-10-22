@@ -90,6 +90,8 @@ export function cardIdTaken(cardsDir: string, id: string, options: CardsFolderOp
 export interface CanvasLayout {
   get(projectId: string): LayoutState
   apply(projectId: string, op: LayoutOpInput): LayoutState
+  /** Asks the pages of a leaving Session's Browsers for unsaved changes first (LayoutStore.askBrowsersFirst). */
+  askBrowsersFirst?(projectId: string, op: LayoutOpInput): Promise<void>
 }
 
 export type CanvasWorkflow = Pick<WorkflowModel, 'epics' | 'tickets' | 'error'>
@@ -236,10 +238,17 @@ function handlers(context: CanvasContext): Handlers {
 
     resize_node: (args) => apply({ op: 'resize', id: nodeOf(args.id).id, w: args.w, h: args.h }, args.id),
 
-    hide_node: (args) => {
-      const node = nodeOf(args.id)
-      if (args.hidden && node.locked) throw new ToolError(`Node ${node.id} (${node.kind}) is locked: it can be moved and resized, not hidden.`)
-      return apply({ op: 'hide', id: node.id, hidden: args.hidden }, node.id)
+    hide_node: async (args) => {
+      const checked = (): LayoutNode => {
+        const node = nodeOf(args.id)
+        if (args.hidden && node.locked) throw new ToolError(`Node ${node.id} (${node.kind}) is locked: it can be moved and resized, not hidden.`)
+        return node
+      }
+      const op: LayoutOpInput = { op: 'hide', id: checked().id, hidden: args.hidden }
+      // Hiding a Session Node may take its Browsers with it: their pages are asked for unsaved
+      // changes first (src/main/layout/store.ts); the Node is read again after the wait.
+      await layout.askBrowsersFirst?.(projectId, op)
+      return apply({ ...op, id: checked().id }, args.id)
     },
 
     link_card: async (args) => {

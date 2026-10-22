@@ -7,7 +7,7 @@ import type { LayoutChangeEvent } from '../../shared/ipc/layout'
 import { EMPTY_LAYOUT, type Layout, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
 import { invoke, showSubscribeError, subscribe } from '../ipc'
 import { readOnlyNow } from '../projects/read-only-now'
-import { noteLayoutChange, type LayoutChannel, type SendAnswer } from './history'
+import { holdTakeover, mainNowOf, noteLayoutChange, type LayoutChannel, type SendAnswer } from './history'
 import type { LayoutOps } from './layout-ops'
 import { screenId } from './screen'
 
@@ -127,6 +127,8 @@ export function screenChannel(projectId: string, { onRefused, fallback }: Screen
         return answer
       }),
     layout: () => currentLayout(projectId) ?? fallback?.() ?? EMPTY_LAYOUT,
+    mainNow: () => mainNowOf(projectId),
+    hold: (nodeId, sessionId) => holdTakeover(projectId, nodeId, sessionId),
   }
 }
 

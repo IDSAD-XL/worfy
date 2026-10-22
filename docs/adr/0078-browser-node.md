@@ -130,3 +130,20 @@ user. Проверить Ticket глазами каждой роли сейча�
   попали бы в транскрипт, а на production Claude учётные данные не вводит.
 - **Без предела Live, только сон по таймеру.** Отвергнуто: пять Browser-ов на экране — пять
   процессов Chromium одновременно, Canvas тормозит.
+
+## Amendments
+
+- **2026-10-22, решение владельца — Browser-ы Session-а при ⌘Z, перехвате и «Unsaved changes»**
+  (worfy-browser Ticket 06, PR #744). Дополняет пункт 11. (1) ⌘Z пользователя после Hide, Remove,
+  Delete в Trash или «Archive finished sessions now» Session — один шаг: возвращает и Session, и Browser-ы,
+  которые ушли с ней, на их прежние места; ⇧⌘Z снова убирает их по тем же правилам. Restore из
+  архива и показ скрытой Session другим способом Browser-ы по-прежнему не возвращают. (2) Browser,
+  который пользователь перехватил и не вернул («Return control to Claude» не нажат), или страница
+  которого держит «Unsaved changes» (обработчик `beforeunload`), с Session не уходит: он остаётся
+  на Canvas как Browser пользователя — выходит из Family Session и больше не считается открытым ею.
+  Остальные Browser-ы Session уходят, как раньше. Перед такой операцией main спрашивает страницы
+  Browser-ов Session о `beforeunload`, а не полагается на ответ перед сном. ⌘Z возвращает такому
+  Browser-у его Session, а перехваченному — и перехват пользователя; ⇧⌘Z оставляет пользователю те
+  же Browser-ы.
+  (3) Session, которую снова показали, продолжает вызов Browser-а, начатый до Hide, как после
+  «Return control to Claude»; так и остаётся.

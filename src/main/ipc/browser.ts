@@ -10,6 +10,7 @@
 // contents until it reports again or closes.
 import { webContents, type WebContents } from 'electron'
 import {
+  browserControlHold,
   browserControlList,
   browserLivesList,
   browserPicture,
@@ -27,6 +28,7 @@ import {
 import { liveBrowsers } from '../browser/live'
 import { browserProfileStore } from '../browser/profiles'
 import { toEveryWindow } from '../broadcast'
+import { layoutStore } from '../layout/store'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 /** The windows whose closing main already listens for. */
@@ -81,5 +83,11 @@ export default [
   defineHandler(browserPicture, ({ projectId, nodeId }) => ({ picture: liveBrowsers().pictureOf(projectId, nodeId) })),
   defineHandler(browserControlList, ({ projectId }) => ({ controls: liveBrowsers().controlsOf(projectId) })),
   defineHandler(browserControlTake, ({ projectId, nodeId }) => ({ taken: liveBrowsers().takeOver(projectId, nodeId) })),
+  // A window or a Linked machine names the Session: refused unless it is the one that opened the
+  // Browser (`openedBy`), so no screen can lock a Session out of a Browser it never had.
+  defineHandler(browserControlHold, ({ projectId, nodeId, sessionId }) => {
+    const node = layoutStore().get(projectId).layout.nodes.find((each) => each.id === nodeId)
+    return { held: node?.data.openedBy === sessionId && liveBrowsers().holdForUser(projectId, nodeId, sessionId) }
+  }),
   defineHandler(browserControlReturn, ({ projectId, nodeId }) => ({ returned: liveBrowsers().giveBack(projectId, nodeId) })),
 ] satisfies HandlerModule

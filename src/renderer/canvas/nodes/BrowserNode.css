@@ -295,6 +295,12 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
 }
+/* In the lit Family of a hovered or selected Node (worfy-browser ticket 06): a dashed ring outside the
+   frame, apart from the solid border of a Browser a Session drives. */
+.w-browser-frame[data-family='lit'] {
+  outline: 1.5px dashed var(--accent);
+  outline-offset: 4px;
+}
 .w-browser-frame__drive {
   flex: none;
   margin-left: auto;

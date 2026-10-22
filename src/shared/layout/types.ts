@@ -121,6 +121,14 @@ export type Layout = z.output<typeof layoutSchema>
 export const EMPTY_LAYOUT: Layout = { nodes: [], viewport: DEFAULT_VIEWPORT }
 
 /** The operations that change a Layout. Each names one Node, except moveMany. */
+/**
+ * Of the Browsers a Session opened, those an operation that takes the Session off the Canvas leaves
+ * there as the user's own whatever main finds now (src/main/layout/store.ts): the ⇧⌘Z of a step that
+ * kept them (taken over, unsaved changes) keeps the same ones (src/renderer/canvas/history.ts).
+ * Absent — main decides by itself.
+ */
+export const keepBrowsersSchema = z.array(nodeIdSchema).max(ARCHIVE_PER_OP_MAX).optional()
+
 export const layoutOpSchema = z.discriminatedUnion('op', [
   /** Adds a Node; main makes up the id when there is none. A taken id is refused. */
   z.object({ op: z.literal('create'), node: layoutNodeSchema.extend({ id: nodeIdSchema.optional() }) }),
@@ -131,9 +139,10 @@ export const layoutOpSchema = z.discriminatedUnion('op', [
    * for a pinned Node, like `move`.
    */
   z.object({ op: z.literal('resize'), id: nodeIdSchema, w: size, h: size, x: coordinate.optional(), y: coordinate.optional() }),
-  z.object({ op: z.literal('hide'), id: nodeIdSchema, hidden: z.boolean() }),
-  /** Refused for a locked Node. */
-  z.object({ op: z.literal('remove'), id: nodeIdSchema }),
+  /** `keep`: see keepBrowsersSchema. */
+  z.object({ op: z.literal('hide'), id: nodeIdSchema, hidden: z.boolean(), keep: keepBrowsersSchema }),
+  /** Refused for a locked Node. `keep`: see keepBrowsersSchema. */
+  z.object({ op: z.literal('remove'), id: nodeIdSchema, keep: keepBrowsersSchema }),
   /** Merges the given keys into the Node's data, one level deep. */
   z.object({ op: z.literal('patchData'), id: nodeIdSchema, data: nodeDataSchema }),
   /**
@@ -182,6 +191,8 @@ export const layoutOpSchema = z.discriminatedUnion('op', [
       .min(1)
       .max(ARCHIVE_PER_OP_MAX)
       .refine((nodes) => new Set(nodes.map((node) => node.id)).size === nodes.length, 'each Node may be archived once'),
+    /** See keepBrowsersSchema. */
+    keep: keepBrowsersSchema,
   }),
   /**
    * Brings archived Nodes back onto the Canvas: at their old place when it is clear, else at the

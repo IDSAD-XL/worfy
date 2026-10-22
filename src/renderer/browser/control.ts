@@ -14,12 +14,14 @@ const useControls = create<Record<string, BrowserControlMode>>(() => ({}))
 const keyOf = (projectId: string, nodeId: string): string => `${projectId}\n${nodeId}`
 
 function put(projectId: string, nodeId: string, mode: BrowserControlMode | null): void {
+  // Replaced, not merged: zustand merges a partial state into the old one, which would keep the key
+  // a release (mode null) deletes, and the banner with it.
   useControls.setState((controls) => {
     const next = { ...controls }
     if (mode === null) delete next[keyOf(projectId, nodeId)]
     else next[keyOf(projectId, nodeId)] = mode
     return next
-  })
+  }, true)
 }
 
 /** Who drives Browser `nodeId` of Project `projectId`: `claude`, `user` after a takeover, null for nobody. */

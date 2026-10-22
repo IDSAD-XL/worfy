@@ -734,9 +734,15 @@ describe('taking a Browser over', () => {
   })
 
   it('another Session may not drive a Browser one drives', async () => {
-    const { id } = await opened(await connect())
+    // A Browser of the user's: one Session may drive it, then no other while it does.
+    store.apply(PROJECT, { op: 'create', node: { id: 'browser-users', kind: 'browser', x: 0, y: 0, w: 640, h: 440, data: { profile: 'admin-aaaaaa' } } })
+    drawBrowsers()
+    expect((await (await connect()).call('browser_screenshot', { id: 'browser-users' })).isError).toBeFalsy()
     const other = await connect(context({ sessionId: () => 'sess-b' }))
-    expect(refused(await other.call('browser_screenshot', { id }))).toMatch(/Another Session drives this Browser/)
+    expect(refused(await other.call('browser_screenshot', { id: 'browser-users' }))).toMatch(/Another Session drives this Browser/)
+    // A Browser one Session opened is never another Session's to drive (worfy-browser ticket 06).
+    const { id } = await opened(await connect())
+    expect(refused(await other.call('browser_screenshot', { id }))).toMatch(/opened by another Session/)
   })
 
   it('a Browser nobody drives is not taken over by a click', async () => {

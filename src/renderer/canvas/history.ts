@@ -25,6 +25,16 @@
 // changes the same side of the same Node puts the step out of date; ⌘Z on such a step drops it
 // without sending anything and raises the notice (a toast, toast/toasts.ts). Changes without a
 // screen — main, agents, the automatic writers — leave steps alone, as before.
+//
+// A Hide, Remove or Archive that takes a Session's last Node off the Canvas takes the Browsers that
+// Session opened with it, in the same operation (src/main/layout/store.ts, ADR-0078 item 11), and
+// leaves those the user took over or with unsaved changes as the user's own, without `openedBy`.
+// ⌘Z of such a step brings all of it back (owner decision 2026-10-22, ADR-0078 Amendments): the
+// Session's own inverse first, then each Browser main removed, at its former place, and `openedBy`
+// for each it left with the user, with the user's takeover when they had one (browsersBack). ⇧⌘Z
+// sends the operation again with `keep`, so the same Browsers stay with the user. The step reads
+// main's own Layout and takeovers before the operation (MainNow), not the window's copy. Deleting a Session Node to the trash is the same `remove` in main, and
+// its ⌘Z — restoring the entry — brings the Browsers back the same way (trashRecorded).
 import { stillInBatch } from '../../shared/layout/derived'
 import type { ArchiveRule, Layout, LayoutNode, LayoutOpInput } from '../../shared/layout/types'
 import { trashRefusal, type TrashEntry } from '../../shared/ipc/trash'
@@ -383,6 +393,135 @@ function marked(mark: Mark, step: { undo(): Promise<SendAnswer>; redo(): Promise
 
 const nodeOf = (layout: Layout, id: string): LayoutNode | undefined => layout.nodes.find((node) => node.id === id)
 
+/** The kind of a Browser Node (BROWSER_KIND of nodes/browser-frame.ts and of src/main/layout/store.ts). */
+const BROWSER_KIND = 'browser'
+
+/** The Nodes `op` takes off the Canvas, by id: those it hides, removes or archives. */
+function takenOff(op: LayoutOpInput): string[] {
+  if (op.op === 'hide') return op.hidden ? [op.id] : []
+  if (op.op === 'remove') return [op.id]
+  if (op.op === 'archive') return op.nodes.map(({ id }) => id)
+  return []
+}
+
+/** What main has now, read before an operation that may take a Session's Browsers off the Canvas. */
+export interface MainNow {
+  layout: Layout
+  /** The Browsers the user has taken over from the Session that drove them («Return control to Claude» not pressed). */
+  takenOver: ReadonlySet<string>
+}
+
+/**
+ * main's own Layout of the Project and its taken-over Browsers now — not the window's copy, which a
+ * Browser opened a moment ago may not have reached yet; undefined when either cannot be read.
+ */
+export async function mainNowOf(projectId: string): Promise<MainNow | undefined> {
+  const [layout, controls] = await Promise.all([invoke('layout.get', { projectId }), invoke('browser.control.list', { projectId })])
+  if (!layout.ok || !controls.ok) return undefined
+  return { layout: layout.value.layout, takenOver: new Set(controls.value.controls.filter((control) => control.mode === 'user').map((control) => control.nodeId)) }
+}
+
+/** The user has Browser `nodeId` taken over from Session `sessionId` again (browser.control.hold). */
+export async function holdTakeover(projectId: string, nodeId: string, sessionId: string): Promise<void> {
+  const result = await invoke('browser.control.hold', { projectId, nodeId, sessionId })
+  if (!result.ok) console.error(`undo could not give the takeover of Browser ${nodeId} back to the user:`, result.error)
+}
+
+/** The Browsers an operation took off the Canvas with their Session, and those main left with the user. */
+export interface BrowsersBack {
+  /** Each Browser main removed, as it was before: at its former place. */
+  removed: LayoutNode[]
+  /** Each Browser main left with the user without its Session: that Session, and whether the user had it taken over. */
+  kept: { id: string; session: string; takenOver: boolean }[]
+}
+
+/**
+ * What `sent` did to the Browsers of the Sessions it took off the Canvas, read from main's Layout
+ * `before` it applied it and the Layout `after`; `takenOver` — the Browsers the user had taken over
+ * before it (MainNow). Empty for an operation that takes no Session off the Canvas or took no
+ * Browser with it.
+ */
+export function browsersBack(before: Layout, after: Layout, sent: LayoutOpInput, takenOver: ReadonlySet<string> = new Set()): BrowsersBack {
+  const back: BrowsersBack = { removed: [], kept: [] }
+  const sessions = new Set(
+    takenOff(sent).flatMap((id) => {
+      const session = nodeOf(before, id)?.data.sessionId
+      return typeof session === 'string' && session !== '' ? [session] : []
+    }),
+  )
+  if (sessions.size === 0) return back
+  for (const node of before.nodes) {
+    const session = node.data.openedBy
+    if (node.kind !== BROWSER_KIND || typeof session !== 'string' || !sessions.has(session)) continue
+    const now = nodeOf(after, node.id)
+    if (now === undefined) back.removed.push(node)
+    else if (typeof now.data.openedBy !== 'string') back.kept.push({ id: node.id, session, takenOver: takenOver.has(node.id) })
+  }
+  return back
+}
+
+/** Where the Browsers of a step are brought back: main's Layout, and the takeover of Browsers. */
+interface BringBackTo {
+  send: Send
+  hold?(nodeId: string, sessionId: string): Promise<void>
+}
+
+/**
+ * The undo of what `back` tells: each removed Browser created again as it was, each kept one given
+ * its Session back and, when the user had it taken over, the takeover too. A refusal is told to the
+ * log and does not stop the rest: the Session is back by then.
+ */
+async function bringBack(back: BrowsersBack, to: BringBackTo): Promise<void> {
+  const refused = (id: string, refusal: string | undefined): boolean => {
+    if (refusal !== undefined) console.error(`undo could not bring back Browser ${id}:`, refusal)
+    return refusal !== undefined
+  }
+  for (const node of back.removed) refused(node.id, refusalOf(await to.send({ op: 'create', node })))
+  for (const { id, session, takenOver } of back.kept) {
+    if (refused(id, refusalOf(await to.send({ op: 'patchData', id, data: { openedBy: session } })))) continue
+    if (takenOver) await to.hold?.(id, session)
+  }
+}
+
+/** `op` leaving Browsers `keep` with the user (keepBrowsersSchema); `op` itself when there are none. */
+export function keeping(op: LayoutOpInput, keep: readonly string[] = []): LayoutOpInput {
+  if (keep.length === 0) return op
+  return op.op === 'hide' || op.op === 'remove' || op.op === 'archive' ? { ...op, keep: [...keep] } : op
+}
+
+/** Both directions of a recorded operation; redo may name the Browsers its Session leaves with the user. */
+interface Both {
+  undo(): Promise<SendAnswer>
+  redo(keep?: readonly string[]): Promise<SendAnswer>
+}
+
+const keptIds = (back: BrowsersBack): string[] => back.kept.map(({ id }) => id)
+
+/**
+ * `both` of a step whose operation `sent` may take a Session's Browsers with it: undo brings back
+ * `first` — browsersBack() of the operation as it was applied — after the Session's own inverse;
+ * redo sends the operation again with the same Browsers left with the user (`keep`), and reads
+ * afresh what then went.
+ */
+function withBrowsers(channel: LayoutChannel, sent: LayoutOpInput, first: BrowsersBack, both: Both): Both {
+  let back = first
+  return {
+    async undo() {
+      const answer = await both.undo()
+      if (refusalOf(answer) !== undefined) return answer
+      await bringBack(back, { send: channel.send, hold: channel.hold })
+      return answer
+    },
+    async redo() {
+      const now = await channel.mainNow?.()
+      const before = now?.layout ?? channel.layout()
+      const answer = await both.redo(keptIds(back))
+      if (refusalOf(answer) === undefined) back = browsersBack(before, channel.layout(), sent, now?.takenOver)
+      return answer
+    },
+  }
+}
+
 /** How an operation is recorded. */
 export interface RecordOptions {
   /**
@@ -588,6 +727,10 @@ export interface LayoutChannel {
   send: Send
   /** The Project's Layout as the renderer has it now (main's latest answer). */
   layout(): Layout
+  /** main's own Layout and taken-over Browsers now (mainNowOf); absent — the window's copy stands in, and no takeover is known. */
+  mainNow?(): Promise<MainNow | undefined>
+  /** The user has Browser `nodeId` taken over from Session `sessionId` again (holdTakeover). */
+  hold?(nodeId: string, sessionId: string): Promise<void>
 }
 
 type NodeInput = Extract<LayoutOpInput, { op: 'create' }>['node']
@@ -597,13 +740,13 @@ type NodeInput = Extract<LayoutOpInput, { op: 'create' }>['node']
  * taken away, read from the Layout at that moment: the text typed into a note after it was created
  * (patchData, not a step of its own) comes back with it.
  */
-function takeAndBring(id: string, first: NodeInput, channel: LayoutChannel): { take(): Promise<SendAnswer>; bring(): Promise<SendAnswer> } {
+function takeAndBring(id: string, first: NodeInput, channel: LayoutChannel): { take(keep?: readonly string[]): Promise<SendAnswer>; bring(): Promise<SendAnswer> } {
   let kept: NodeInput = first
   return {
-    take() {
+    take(keep) {
       const now = nodeOf(channel.layout(), id)
       if (now !== undefined) kept = now
-      return channel.send({ op: 'remove', id })
+      return channel.send(keeping({ op: 'remove', id }, keep))
     },
     bring: () => channel.send({ op: 'create', node: kept }),
   }
@@ -637,11 +780,15 @@ async function sendInOrder(channel: LayoutChannel, ops: readonly LayoutOpInput[]
  */
 export async function applyRecorded(projectId: string, op: LayoutOpInput, channel: LayoutChannel, group?: Group, options?: RecordOptions): Promise<string | undefined> {
   const sent: LayoutOpInput = op.op === 'create' && op.node.id === undefined ? { ...op, node: { ...op.node, id: newNodeId() } } : op
-  const inverse = inverseOf(channel.layout(), sent, options)
+  // An operation that may take a Session's Browsers with it reads main's own Layout first (MainNow).
+  const takes = takenOff(sent).length > 0
+  const now = takes ? await channel.mainNow?.() : undefined
+  const before = channel.layout()
+  const inverse = inverseOf(before, sent, options)
   const answer = await channel.send(sent)
   const error = refusalOf(answer)
   if (error !== undefined || inverse === undefined) return error
-  let both: { undo(): Promise<SendAnswer>; redo(): Promise<SendAnswer> }
+  let both: Both
   if (Array.isArray(inverse)) {
     both = { undo: () => sendInOrder(channel, inverse), redo: () => channel.send(sent) }
   } else if (sent.op === 'create' && inverse.op === 'remove') {
@@ -651,24 +798,44 @@ export async function applyRecorded(projectId: string, op: LayoutOpInput, channe
     const node = takeAndBring(sent.id, inverse.node, channel)
     both = { undo: node.bring, redo: node.take }
   } else if (sent.op === 'archive') {
-    both = { undo: () => restoreBatch(channel, sent), redo: () => channel.send(sent) }
+    both = { undo: () => restoreBatch(channel, sent), redo: (keep) => channel.send(keeping(sent, keep)) }
   } else {
-    both = { undo: () => channel.send(inverse), redo: () => channel.send(sent) }
+    both = { undo: () => channel.send(inverse), redo: (keep) => channel.send(keeping(sent, keep)) }
   }
+  if (takes) both = withBrowsers(channel, sent, browsersBack(now?.layout ?? before, channel.layout(), sent, now?.takenOver), both)
   record(projectId, marked(new Mark(watchOf(projectId), footprintOf(sent), revisionOf(answer)), both), group)
   return undefined
 }
 
 /** What deleting to the trash and restoring from it go through; tests pass a fake. */
 export interface TrashClient {
-  put(projectId: string, nodeId: string): Promise<{ ok: true; value: TrashEntry } | { ok: false; error: string }>
+  /** `keep`: of a Session Node, the Browsers its Session opened that stay with the user (keepBrowsersSchema). */
+  put(projectId: string, nodeId: string, keep?: readonly string[]): Promise<{ ok: true; value: TrashEntry } | { ok: false; error: string }>
   restore(projectId: string, label: string): Promise<{ ok: true; value: TrashEntry } | { ok: false; error: string }>
+  /**
+   * main's own Layout and taken-over Browsers now (mainNowOf), read around a deletion to see which
+   * Browsers left with a Session (browsersBack); undefined when it cannot be read. Absent — the step
+   * brings back no Browser.
+   */
+  mainNow?(projectId: string): Promise<MainNow | undefined>
+  /** Sends one Layout operation of this screen's undo: a Browser brought back. */
+  send?(projectId: string, op: LayoutOpInput): Promise<SendAnswer>
+  /** The user has Browser `nodeId` taken over from Session `sessionId` again (holdTakeover). */
+  hold?(projectId: string, nodeId: string, sessionId: string): Promise<void>
 }
 
 /** Deleting and restoring as the Canvas's gestures and their undo do it: with this screen's id. */
 export const ipcTrash: TrashClient = {
-  put: (projectId, nodeId) => invoke('trash.put', { projectId, nodeId, screen: screenId() }),
+  put: (projectId, nodeId, keep) => invoke('trash.put', keep === undefined || keep.length === 0 ? { projectId, nodeId, screen: screenId() } : { projectId, nodeId, screen: screenId(), keep: [...keep] }),
   restore: (projectId, label) => invoke('trash.restore', { projectId, label, screen: screenId() }),
+  // main's own Layout, not the window's copy: the deletion's change may not have arrived yet.
+  mainNow: (projectId) => mainNowOf(projectId),
+  hold: (projectId, nodeId, sessionId) => holdTakeover(projectId, nodeId, sessionId),
+  // The window takes the change from `layout.changed`, which main sends to every window.
+  send: async (projectId, op) => {
+    const result = await invoke('layout.apply', { projectId, op, screen: screenId() })
+    return result.ok ? { revision: result.value.revision } : result.error
+  },
 }
 
 /**
@@ -689,10 +856,19 @@ export async function trashRecorded(projectId: string, nodeId: string, trash: Tr
     const revision = watch.ownRevision(footprint, since)
     return revision === undefined ? undefined : { revision }
   }
+  /** Deletes the Node to a new entry; what brings back the Browsers its Session took with it (browsersBack). */
+  const put = async (keep?: readonly string[]): Promise<{ ok: true; label: string; back: BrowsersBack } | { ok: false; error: string }> => {
+    const before = await trash.mainNow?.(projectId)
+    const result = await trash.put(projectId, nodeId, keep)
+    if (!result.ok) return result
+    const after = before === undefined ? undefined : await trash.mainNow?.(projectId)
+    const back = before === undefined || after === undefined ? { removed: [], kept: [] } : browsersBack(before.layout, after.layout, { op: 'remove', id: nodeId }, before.takenOver)
+    return { ok: true, label: result.value.label, back }
+  }
   const since = watch.latest()
-  const first = await trash.put(projectId, nodeId)
+  const first = await put()
   if (!first.ok) return first.error
-  let label = first.value.label
+  let { label, back } = first
   const mark = new Mark(watch, footprint, revisionOf(answerSince(since)))
   record(
     projectId,
@@ -700,13 +876,20 @@ export async function trashRecorded(projectId: string, nodeId: string, trash: Tr
       undo: async () => {
         const since = watch.latest()
         const result = await trash.restore(projectId, label)
-        return result.ok ? answerSince(since) : result.error
+        if (!result.ok) return result.error
+        const answer = answerSince(since)
+        const send = trash.send?.bind(trash)
+        const hold = trash.hold?.bind(trash)
+        if (send !== undefined) await bringBack(back, { send: (op) => send(projectId, op), hold: hold === undefined ? undefined : (id, session) => hold(projectId, id, session) })
+        return answer
       },
       redo: async () => {
         const since = watch.latest()
-        const result = await trash.put(projectId, nodeId)
+        // The same Browsers stay with the user as when the step was done.
+        const result = await put(keptIds(back))
         if (!result.ok) return result.error
-        label = result.value.label
+        label = result.label
+        back = result.back
         return answerSince(since)
       },
     }),

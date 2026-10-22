@@ -86,6 +86,13 @@ export const browserControlList = invokeChannel('browser.control.list', z.object
 /** The user took Browser `nodeId` over by a click or a key on its frame; `taken` is false when no Session was driving it. */
 export const browserControlTake = invokeChannel('browser.control.take', z.object({ projectId, nodeId: nodeIdSchema }), z.object({ taken: z.boolean() }), 'project', 'write')
 
+/**
+ * The ⌘Z of a step that took Session `sessionId` off the Canvas while the user had Browser `nodeId`
+ * taken over from it: the takeover is the user's again (src/renderer/canvas/history.ts). `held` is
+ * false when somebody drives the Browser by now.
+ */
+export const browserControlHold = invokeChannel('browser.control.hold', z.object({ projectId, nodeId: nodeIdSchema, sessionId: z.string().min(1) }), z.object({ held: z.boolean() }), 'project', 'write')
+
 /** «Return control to Claude»: the Session that drove Browser `nodeId` drives it again. */
 export const browserControlReturn = invokeChannel('browser.control.return', z.object({ projectId, nodeId: nodeIdSchema }), z.object({ returned: z.boolean() }), 'project', 'write')
 
@@ -145,6 +152,7 @@ declare module './channels' {
     'browser.page.live': typeof browserPageLive
     'browser.control.list': typeof browserControlList
     'browser.control.take': typeof browserControlTake
+    'browser.control.hold': typeof browserControlHold
     'browser.control.return': typeof browserControlReturn
     'browser.control.changed': typeof browserControlChanged
     'browser.pressing': typeof browserPressing

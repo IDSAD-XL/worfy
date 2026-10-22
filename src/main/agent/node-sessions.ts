@@ -33,7 +33,8 @@ import type { EventSink, Session, SessionRegistry } from './session'
 export interface NodeSessionsDeps {
   layout: {
     get(projectId: string): LayoutState
-    apply(projectId: string, op: LayoutOpInput): LayoutState
+    /** `options.sessionStays`: see LayoutStore.apply. */
+    apply(projectId: string, op: LayoutOpInput, screen?: string | null, options?: { sessionStays?: boolean }): LayoutState
   }
   /** The Project's repository root; throws for a Project that is not in the list. */
   projectPath(projectId: string): string
@@ -228,7 +229,9 @@ export class NodeSessions {
     const node = found && isArchived(found) ? this.restored(projectId, found.id) : found
     if (node && isWorfyNode(node)) return node.id
     if (node) {
-      this.deps.layout.apply(projectId, { op: 'remove', id: node.id })
+      // The Session stays on the Canvas through the swap: its Browsers stay too, in its Family
+      // (they name the Session, not the Node), and its control of them goes on.
+      this.deps.layout.apply(projectId, { op: 'remove', id: node.id }, null, { sessionStays: true })
       this.deps.layout.apply(projectId, {
         op: 'create',
         node: {
