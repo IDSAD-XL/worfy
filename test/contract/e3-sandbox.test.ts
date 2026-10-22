@@ -1000,11 +1000,12 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
     expect(started.filter(isAlive)).toEqual([])
   })
 
-  it('a heartbeat left by a lock-run killed with kill -9 ends once the lock is gone, and makes no plain file in its place', async () => {
+  it('the heartbeat of a running lock-run ends once the lock folder is gone, and makes no plain file in its place', async () => {
     // The heartbeat sleeps 0.2 s here and its sleep records the heartbeat's pid. The stand-in
     // `touch` removes the lock folder just before the heartbeat's touch, as a run that took the lock
     // for abandoned would: `touch -c` must not make a plain file there, and the next step must see
-    // the folder gone and end the heartbeat.
+    // the folder gone and end the heartbeat. The script stays alive meanwhile, so the folder check
+    // ends the heartbeat, not the check of its script (the last describe kills the script).
     const parents = join(scratch, 'heartbeat-parents')
     const go = join(scratch, 'go')
     stubCommand('sleep', [`if [ "$1" = 300 ]; then echo "$PPID" >> '${parents}'; set -- 0.2; fi`, `PATH='${process.env.PATH ?? ''}' exec sleep "$@"`])
@@ -1017,11 +1018,13 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
       await until(() => pidsIn(parents).length > 0, 10_000)
       heartbeat = pidsIn(parents)[0] ?? 0
       expect(heartbeat, 'the heartbeat did not start').toBeGreaterThan(0)
-      child.kill('SIGKILL')
-      await exited
       await until(() => !isAlive(heartbeat), 3_000)
       expect(isAlive(heartbeat), 'the heartbeat outlived the lock').toBe(false)
+      expect(child.exitCode === null && child.signalCode === null, 'the script ended before its heartbeat').toBe(true)
       expect(existsSync(lock), 'a plain file was made where the lock folder was').toBe(false)
+      writeFileSync(go, '')
+      await exited
+      expect(child.exitCode).toBe(0)
     } finally {
       writeFileSync(go, '')
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
@@ -1198,15 +1201,16 @@ describe('e3-sandbox.sh lock-run: the release of the heartbeat, also in Git Bash
   const boundedScript = (): string => join(scratch, 'bin', 'bounded.sh')
   beforeEach(() => {
     stubCommand('procs.sh', [
-      '# procs.sh alive <pid>...: prints the pids that are alive and whose command line has $TEXT (from the',
-      '#   environment, so the command line of this script never has it).',
+      '# procs.sh alive <pid>...: prints the pids (all recorded by the test) that are alive and whose command',
+      '#   line has $TEXT (from the environment, so the command line of this script never has it), or cannot be',
+      '#   read: in Git Bash that is a process deaf to signals, such as a heartbeat stopped and then killed.',
       '# procs.sh end <pid>...: ends each pid, through Windows (kill -f) where it has /proc/<pid>/winpid.',
       '# procs.sh kill9 <pid>...: kill -KILL, a signal: the trap of the process does not run.',
       'cmd_of() { if [ -r "/proc/$1/cmdline" ]; then tr "\\0" " " <"/proc/$1/cmdline" 2>/dev/null; else ps -ww -o command= -p "$1" 2>/dev/null; fi; }',
       'mode=$1; shift',
       'for p in "$@"; do',
       '  case $mode in',
-      '    alive) kill -0 "$p" 2>/dev/null && case "$(cmd_of "$p")" in *"$TEXT"*) echo "$p" ;; esac ;;',
+      '    alive) kill -0 "$p" 2>/dev/null && case "$(cmd_of "$p")" in "" | *"$TEXT"*) echo "$p" ;; esac ;;',
       '    end) if [ -e "/proc/$p/winpid" ]; then /usr/bin/kill -f -9 "$p"; else kill -KILL "$p"; fi 2>/dev/null ;;',
       '    kill9) kill -KILL "$p" 2>/dev/null ;;',
       '  esac',
@@ -1216,7 +1220,8 @@ describe('e3-sandbox.sh lock-run: the release of the heartbeat, also in Git Bash
     stubCommand('bounded.sh', [
       '# bounded.sh <seconds> <out file> <command>...: runs the command, its output in <out file>, and waits',
       '# at most <seconds> for it. Exits with its code, or 124 when it was still running: then its children',
-      '# (by their parent pid) and the command itself are ended, through Windows where they have a winpid.',
+      '# (by /proc/<pid>/ppid in Git Bash, else pgrep -P: Linux has no such file) and the command itself are',
+      '# ended, through Windows where they have a winpid.',
       '# The launcher of Git Bash puts /usr/bin first on the PATH, in front of the stand-ins: put them back first.',
       FRONT,
       's=$1 out=$2; shift 2',
@@ -1225,10 +1230,18 @@ describe('e3-sandbox.sh lock-run: the release of the heartbeat, also in Git Bash
       'end=$((SECONDS + s))',
       'while [ "$SECONDS" -lt "$end" ] && kill -0 "$p" 2>/dev/null; do /bin/sleep 0.05; done',
       'kill -0 "$p" 2>/dev/null || { wait "$p"; exit $?; }',
-      'if [ -d /proc/self ]; then kids=; for f in /proc/[0-9]*/ppid; do read -r pp 2>/dev/null <"$f" && [ "$pp" = "$p" ] && { f=${f%/ppid}; kids="$kids ${f#/proc/}"; }; done; else kids=$(pgrep -P "$p"); fi',
+      'if [ -e "/proc/$$/ppid" ]; then kids=; for f in /proc/[0-9]*/ppid; do read -r pp 2>/dev/null <"$f" && [ "$pp" = "$p" ] && { f=${f%/ppid}; kids="$kids ${f#/proc/}"; }; done; else kids=$(pgrep -P "$p"); fi',
       `sh '${procsScript()}' end $kids "$p"`,
       'wait "$p" 2>/dev/null',
       'exit 124',
+    ])
+    stubCommand('started.sh', [
+      '# started.sh <pid file>: exit 0 once the pid in the file runs the real `sleep`. The stand-in `sleep`',
+      '# records its pid before it execs the real one; a trap that comes in between finds a process in the',
+      '# middle of its exec, which in Git Bash can leave the new sleep.exe behind.',
+      'p=$(cat "$1" 2>/dev/null) && [ -n "$p" ] || exit 1',
+      'e=$({ cat "/proc/$p/exename" || readlink "/proc/$p/exe" || ps -o comm= -p "$p"; } 2>/dev/null)',
+      'case $e in *sleep | *sleep.exe) exit 0 ;; *) exit 1 ;; esac',
     ])
   })
 
@@ -1239,12 +1252,13 @@ describe('e3-sandbox.sh lock-run: the release of the heartbeat, also in Git Bash
   }
   /** The lines of a file, none when there is no file. */
   const linesOf = (file: string): string[] => (existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean) : [])
-  const pause = (ms: number): void => {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
-  }
-  /** Polls `done` every 100 ms for at most `ms`; true as soon as it holds. */
-  const until = (done: () => boolean, ms: number): boolean => {
-    for (const end = Date.now() + ms; Date.now() < end; pause(100)) if (done()) return true
+  /**
+   * Polls `done` every 100 ms for at most `ms`; true as soon as it holds. It waits with setTimeout,
+   * so the event loop runs: Node reaps a killed child only then, and a child it has not reaped is a
+   * zombie, which `kill -0` still finds alive on macOS and Linux.
+   */
+  const until = async (done: () => boolean, ms: number): Promise<boolean> => {
+    for (const end = Date.now() + ms; Date.now() < end; await new Promise((resolve) => setTimeout(resolve, 100))) if (done()) return true
     return done()
   }
 
@@ -1259,26 +1273,27 @@ describe('e3-sandbox.sh lock-run: the release of the heartbeat, also in Git Bash
     expect(branch).toContain(`kill -KILL '"$hb"'`)
     expect(branch).toContain('/usr/bin/kill -f -9 $c')
     expect(branch).toContain(`/usr/bin/kill -f -9 '"$hb"'`)
-    expect(branch).not.toContain('STOP')
+    // STOP by name or by number: SIGSTOP is 17 in Cygwin and on macOS, 19 on Linux.
+    expect(branch).not.toMatch(/STOP|kill +-(s +)?(17|19)\b/)
   })
 
-  it('40 runs each end within 15 s and leave no heartbeat shell or sleep behind', () => {
+  it('40 runs each end within 15 s and leave no heartbeat shell or sleep behind', async () => {
     // The stand-in `sleep` records, for the heartbeat's `sleep 300`, its own pid and its parent's (the
-    // heartbeat shell). The command under the lock waits until the heartbeat's sleep has started and
-    // then runs 0.3 s more, as a real command runs minutes: the trap finds the heartbeat waiting for
-    // its sleep. The marker is an argument of the script, so every heartbeat shell (a fork of it)
+    // heartbeat shell). The command under the lock waits until the heartbeat runs the real sleep
+    // (started.sh) and then 0.3 s more, as a real command runs minutes: the trap finds the heartbeat
+    // waiting for its sleep. The marker is an argument of the script, so every heartbeat shell (a fork of it)
     // carries it in its command line. Each run has 15 s; a trap that never returns fails here.
     const marker = `hb-marker-${process.pid}-${Date.now()}`
     const sleeps = join(scratch, 'hb-sleeps')
     const shells = join(scratch, 'hb-shells')
     stubCommand('sleep', [`if [ "$1" = 300 ]; then echo "$$" >> "$HB_PIDS"; echo "$$" >> '${sleeps}'; echo "$PPID" >> '${shells}'; fi`, 'exec /bin/sleep "$@"'])
-    const waitThenWork = ['sh', '-c', 'n=0; until [ -s "$HB_PIDS" ]; do n=$((n + 1)); [ "$n" -le 200 ] || exit 9; /bin/sleep 0.05; done; /bin/sleep 0.3', marker]
+    const waitThenWork = ['sh', '-c', 'n=0; until sh "$STARTED" "$HB_PIDS"; do n=$((n + 1)); [ "$n" -le 200 ] || exit 9; /bin/sleep 0.05; done; /bin/sleep 0.3', marker]
     const codes: string[] = []
     try {
       for (let i = 1; i <= 40; i++) {
         const run = spawnSync(gitBash(), [boundedScript(), '15', join(scratch, 'run.out'), ON_WINDOWS ? '/usr/bin/bash' : 'bash', SCRIPT, 'lock-run', ...waitThenWork], {
           cwd: scratch,
-          env: sandboxEnv({ HB_PIDS: join(scratch, `hb-${i}`), STUBS: join(scratch, 'bin') }),
+          env: sandboxEnv({ HB_PIDS: join(scratch, `hb-${i}`), STUBS: join(scratch, 'bin'), STARTED: join(scratch, 'bin', 'started.sh') }),
           // No pipes: in Git Bash a `sleep` the trap left behind holds the pipes of the whole run open.
           stdio: 'ignore',
           timeout: 60_000,
@@ -1291,7 +1306,7 @@ describe('e3-sandbox.sh lock-run: the release of the heartbeat, also in Git Bash
       expect(codes.filter((code) => code !== '0'), `exit codes of the 40 runs (124: cut off after 15 s): ${codes.join(' ')}`).toEqual([])
       expect(linesOf(sleeps), 'every run had a heartbeat sleep').toHaveLength(40)
       // A killed process can take a moment to go: up to 2 seconds.
-      until(() => procs('alive', linesOf(sleeps), 'sleep 300').length === 0, 2_000)
+      await until(() => procs('alive', linesOf(sleeps), 'sleep 300').length === 0, 2_000)
       expect(procs('alive', linesOf(shells), marker), 'heartbeat shells left').toEqual([])
       expect(procs('alive', linesOf(sleeps), 'sleep 300'), 'heartbeat sleeps left').toEqual([])
     } finally {
@@ -1300,7 +1315,7 @@ describe('e3-sandbox.sh lock-run: the release of the heartbeat, also in Git Bash
     }
   }, 900_000 * timeScale)
 
-  it('a heartbeat whose script was killed with kill -9 ends with that script, though the lock stays', () => {
+  it('a heartbeat whose script was killed with kill -9 ends with that script, though the lock stays', async () => {
     // The trap did not run, so the lock folder stays until it goes stale; the heartbeat must not keep
     // it fresh for ever. Here the heartbeat sleeps 0.2 s, and its sleep records the heartbeat's pid.
     const parents = join(scratch, 'heartbeat-parents')
@@ -1315,10 +1330,13 @@ describe('e3-sandbox.sh lock-run: the release of the heartbeat, also in Git Bash
     let exited = false
     child.on('exit', () => (exited = true))
     try {
-      expect(until(() => linesOf(parents).length > 0 && linesOf(main).length > 0, 10_000), 'the heartbeat did not start').toBe(true)
+      expect(await until(() => linesOf(parents).length > 0 && linesOf(main).length > 0, 10_000), 'the heartbeat did not start').toBe(true)
       procs('kill9', linesOf(main))
+      // Node reaps the script here; until then it is a zombie that `kill -0 $$` of the heartbeat still finds.
+      expect(await until(() => exited, 5_000), 'the script outlived kill -9').toBe(true)
       const heartbeat = linesOf(parents)[0] ?? ''
-      expect(until(() => procs('alive', [heartbeat], marker).length === 0, 3_000), 'the heartbeat outlived its script').toBe(true)
+      // The heartbeat sleeps 0.2 s between its checks; 10 s leave room for a loaded Windows machine.
+      expect(await until(() => procs('alive', [heartbeat], marker).length === 0, 10_000), 'the heartbeat outlived its script').toBe(true)
       expect(existsSync(lock), 'the lock was removed: this run shows nothing').toBe(true)
     } finally {
       writeFileSync(go, '')
@@ -1326,5 +1344,5 @@ describe('e3-sandbox.sh lock-run: the release of the heartbeat, also in Git Bash
       procs('end', procs('alive', linesOf(command), marker))
       if (!exited) child.kill('SIGKILL')
     }
-  })
+  }, 60_000 * timeScale)
 })
