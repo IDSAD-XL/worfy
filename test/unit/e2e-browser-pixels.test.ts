@@ -206,11 +206,15 @@ describe('page pixels in the band just outside the frame, one by one (pagePixels
     }
   })
 
-  it(`the band is ${NEAR_BAND} device px wide past the widened body: a pixel further out and a pixel in the widening do not count`, () => {
-    expect(pagePixelsNear(blank(24, 16, [[0, 6]]), 1, BODY)).toBe(0)
-    expect(pagePixelsNear(blank(24, 16, [[19, 6]]), 1, BODY)).toBe(0)
-    expect(pagePixelsNear(blank(24, 16, [[4, 6]]), 1, BODY)).toBe(0)
+  it(`the band is ${NEAR_BAND} device px wide past the widened body on every side: a pixel further out and a pixel in the widening do not count`, () => {
+    // Left: band x 1..3, widening 4. Right: widening 15, band 16..18. Top: band y 0..2, widening 3. Bottom: widening 10, band 11..13.
+    const at = (x: number, y: number): number => pagePixelsNear(blank(24, 16, [[x, y]]), 1, BODY)
+    expect([at(0, 6), at(1, 6), at(3, 6), at(4, 6)]).toEqual([0, 1, 1, 0])
+    expect([at(15, 6), at(16, 6), at(18, 6), at(19, 6)]).toEqual([0, 1, 1, 0])
+    expect([at(9, 3), at(9, 2), at(9, 0)]).toEqual([0, 1, 1])
+    expect([at(9, 10), at(9, 11), at(9, 13), at(9, 14)]).toEqual([0, 1, 1, 0])
   })
+
 
   it('a lone pixel far from the frame is left to the 3 x 3 count, and that count ignores it', () => {
     const image = blank(40, 30, [[35, 25]])
@@ -225,10 +229,25 @@ describe('page pixels in the band just outside the frame, one by one (pagePixels
     expect(pagePixelsNear(image, 1, BODY)).toBe(6)
   })
 
-  it('reads the band in device px at a fractional scale', () => {
-    // At 1.5 the body (CSS 5, 4, 10 × 6) covers device x 7.5..22.5; widened, 6.5..23.5; the band 3.5..6.5.
-    expect(pagePixelsNear(blank(40, 24, [[4, 10]]), 1.5, BODY)).toBe(1)
-    expect(pagePixelsNear(blank(40, 24, [[3, 10]]), 1.5, BODY)).toBe(0)
+
+  it('reads the band in whole device pixels at a fractional scale, the same on every side', () => {
+    // At 1.5 the body (CSS 5, 4, 10 × 5) covers device x 7.5..22.5 and y 6..13.5. Widened to whole
+    // pixels: x 7..22 (the pixels its edges cut), y 5..13 (the pixel past the top edge, the one the
+    // bottom edge cuts). The band: x 4..6 and 23..25, y 2..4 and 14..16.
+    const body: Box = { x: 5, y: 4, width: 10, height: 5 }
+    const at = (x: number, y: number): number => pagePixelsNear(blank(40, 24, [[x, y]]), 1.5, body)
+    expect([at(3, 10), at(4, 10), at(6, 10), at(7, 10)]).toEqual([0, 1, 1, 0])
+    expect([at(22, 10), at(23, 10), at(25, 10), at(26, 10)]).toEqual([0, 1, 1, 0])
+    expect([at(15, 1), at(15, 2), at(15, 4), at(15, 5)]).toEqual([0, 1, 1, 0])
+    expect([at(15, 13), at(15, 14), at(15, 16), at(15, 17)]).toEqual([0, 1, 1, 0])
+  })
+
+  it('a leak 2 device px past the right edge at a fractional scale is caught, as one past the left edge is', () => {
+    // The body's right edge at 22.5 device px, the page drawn on to 24.5: pixel 23 is the page's
+    // whole, pixel 24 a blend. Only the pixel the edge cuts (22) is the widening.
+    const body: Box = { x: 5, y: 4, width: 10, height: 5 }
+    const leak = Array.from({ length: 6 }, (_, i): [number, number] => [23, 7 + i])
+    expect(pagePixelsNear(blank(40, 24, leak), 1.5, body)).toBe(6)
   })
 })
 

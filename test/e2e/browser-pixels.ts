@@ -165,12 +165,20 @@ const pageAt = (image: Image, x: number, y: number): boolean => {
   return isCream(r, g, b) || MAGENTA(r, g, b) > 60
 }
 
-/** `inside` (CSS px) in device px, widened by one device pixel for the pixel blended at its border. */
+/** Rounding slack, so an edge computed a hair off a whole device pixel is read as on it. */
+const EPSILON = 1e-6
+
+/**
+ * `inside` (CSS px) as whole device pixels, widened by one device pixel for the pixel blended at its
+ * border, the same on every side: the pixels from `left` up to, not including, `right` (and `top` to
+ * `bottom`). An edge between two pixels widens it to the pixel it cuts; an edge on a pixel boundary,
+ * to the pixel just past it.
+ */
 const deviceBox = (scale: number, inside: Box): { left: number; right: number; top: number; bottom: number } => ({
-  left: inside.x * scale - 1,
-  right: (inside.x + inside.width) * scale + 1,
-  top: inside.y * scale - 1,
-  bottom: (inside.y + inside.height) * scale + 1,
+  left: Math.ceil(inside.x * scale - EPSILON) - 1,
+  right: Math.floor((inside.x + inside.width) * scale + EPSILON) + 1,
+  top: Math.ceil(inside.y * scale - EPSILON) - 1,
+  bottom: Math.floor((inside.y + inside.height) * scale + EPSILON) + 1,
 })
 
 /**
@@ -209,17 +217,19 @@ export const NEAR_BAND = 3
 /**
  * Single pixels of the page in a band NEAR_BAND device px wide just outside `inside` (CSS px,
  * widened by one device pixel, as in pagePixelsOutside), on all four sides and at the corners. What
- * it catches: a leak of the page 2 device px or more past any edge of `inside` (the frame's body, or
- * the Canvas's edge where the frame crosses it), the 2 px the 3 × 3 count misses included. What
- * neither catches: a leak of 1 device px, the widening. Every pixel of the page's colour counts here,
- * so ClearType fringes would too; the ones seen on Windows are far from the frame (the top bar, the
- * Trash button).
+ * it catches: a visible leak of the page 2 device px or more past an edge of `inside`: past the
+ * Node's border around the frame's body, or past the Canvas's edge where the frame crosses it (the
+ * 2 px the 3 × 3 count misses included). At the body's edge the Node's own opaque 1 px border
+ * (1.5 to 3 device px at 150 %, on which the test draws its green outline) lies over the page layer,
+ * so a leak under it is hidden from the user too. What neither measure catches: a leak of 1 device
+ * px, the widening. Every pixel of the page's colour counts here, so ClearType fringes would too; the
+ * ones seen on Windows are far from the frame (the top bar, the Trash button).
  */
 export function pagePixelsNear(image: Image, scale: number, inside: Box): number {
   const { left, right, top, bottom } = deviceBox(scale, inside)
   let count = 0
-  for (let y = Math.max(0, Math.ceil(top - NEAR_BAND)); y < Math.min(image.height, bottom + NEAR_BAND); y += 1) {
-    for (let x = Math.max(0, Math.ceil(left - NEAR_BAND)); x < Math.min(image.width, right + NEAR_BAND); x += 1) {
+  for (let y = Math.max(0, top - NEAR_BAND); y < Math.min(image.height, bottom + NEAR_BAND); y += 1) {
+    for (let x = Math.max(0, left - NEAR_BAND); x < Math.min(image.width, right + NEAR_BAND); x += 1) {
       if (x >= left && x < right && y >= top && y < bottom) continue
       if (pageAt(image, x, y)) count += 1
     }
