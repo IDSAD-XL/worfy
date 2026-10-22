@@ -52,18 +52,22 @@ const relative = (file: string): string => file.slice(HARNESS.length + 1).replac
 // 80, 59, 54, 45, 37, 27, 25 and 23 s; the 30 others took 19 s or less, 478 s for all 38. Five at a
 // time in this order the 38 files take about 98 s, in name order about 120 s. A file not listed
 // starts after them in name order; a name listed here must exist (a case below checks it).
+// wave-gate.test.sh is split by theme since (75 s alone, 105 s in this file at load average 19-25,
+// and cut off at 120 s in full runs): in this file at load average 14-19 (2026-10-22) skill-blocks
+// took 75 s, guard-silent 67, profile 55, gate-verdict 49, wave-gate-lock 45, wave-gate 44,
+// silent-mode 29, preflight 27 and qmd-collections 24 s; wave-gate-screen and wave-gate-merge 20-22 s.
 // shortcut: the list is a measured snapshot and does not follow a file that grows slower, redo it
 // when this file runs longer than the longest single shell test plus a few seconds.
 const RUN_FIRST = [
-  'bin/tests/wave-gate.test.sh',
-  'bin/tests/wave-gate-lock.test.sh',
-  'hooks/tests/guard-silent.test.sh',
   'bin/tests/skill-blocks.test.sh',
+  'hooks/tests/guard-silent.test.sh',
   'bin/tests/profile.test.sh',
   'hooks/tests/gate-verdict.test.sh',
+  'bin/tests/wave-gate-lock.test.sh',
+  'bin/tests/wave-gate.test.sh',
   'bin/tests/silent-mode.test.sh',
-  'bin/tests/qmd-collections.test.sh',
   'bin/tests/preflight.test.sh',
+  'bin/tests/qmd-collections.test.sh',
 ]
 
 /** The files in the order they start: the names of `first` that are among them, then the rest. */
