@@ -34,10 +34,13 @@ export function writeReplay(terminal: ReplayTerminal, kept: KeptOutput, done: ()
   // Each piece: the size to take first (none for output before the first size), and its output.
   const pieces: { size?: ReplaySize; data: string }[] = []
   const sizes = kept.sizes ?? []
-  const offset = (size: ReplaySize | undefined) => (size === undefined ? kept.replay.length : Math.min(Math.max(size.at - start, 0), kept.replay.length))
-  const first = sizes[0]
-  if (first === undefined || offset(first) > 0) pieces.push({ data: kept.replay.slice(0, offset(first)) })
-  sizes.forEach((size, index) => pieces.push({ size, data: kept.replay.slice(offset(size), offset(sizes[index + 1])) }))
+  // Where each size begins in `replay`, held within it and never before the size before it: sizes
+  // out of order (from a main of another version) cannot write any output twice.
+  const offsets: number[] = []
+  for (const size of sizes) offsets.push(Math.max(offsets.at(-1) ?? 0, Math.min(Math.max(size.at - start, 0), kept.replay.length)))
+  const first = offsets[0] ?? kept.replay.length
+  if (sizes.length === 0 || first > 0) pieces.push({ data: kept.replay.slice(0, first) })
+  sizes.forEach((size, index) => pieces.push({ size, data: kept.replay.slice(offsets[index], offsets[index + 1] ?? kept.replay.length) }))
 
   const next = (index: number): void => {
     if (!live()) return
@@ -46,10 +49,20 @@ export function writeReplay(terminal: ReplayTerminal, kept: KeptOutput, done: ()
       done()
       return
     }
-    // xterm.js resizes at once, before the output still waiting to be parsed: so only between pieces.
-    if (piece.size !== undefined && (piece.size.cols !== terminal.cols || piece.size.rows !== terminal.rows)) terminal.resize(piece.size.cols, piece.size.rows)
-    if (piece.data === '') next(index + 1)
-    else terminal.write(piece.data, () => next(index + 1))
+    try {
+      // xterm.js resizes at once, before the output still waiting to be parsed: so only between pieces.
+      if (piece.size !== undefined && (piece.size.cols !== terminal.cols || piece.size.rows !== terminal.rows)) terminal.resize(piece.size.cols, piece.size.rows)
+      if (piece.data !== '') {
+        terminal.write(piece.data, () => next(index + 1))
+        return
+      }
+    } catch (error) {
+      // The view still attaches: what was written stays, the rest of the kept output is not drawn.
+      console.warn('[terminal] the replay of the kept output stopped', error)
+      done()
+      return
+    }
+    next(index + 1)
   }
   next(0)
 }

@@ -521,6 +521,35 @@ describe('the replay at the sizes of the pty (worfy-windows ticket 89)', () => {
     expect(pty.resizes).toEqual([[NODE_SIZE.cols, NODE_SIZE.rows]])
   })
 
+  it('after the replay a new layout of the Node fits the view again, and the pty takes its size', async () => {
+    const { pty } = await drawn()
+    const { xterm } = await mount()
+    fitted.size = { cols: 40, rows: 12 }
+
+    act(() => {
+      for (const callback of observers) callback()
+    })
+
+    expect({ cols: xterm.cols, rows: xterm.rows }).toEqual({ cols: 40, rows: 12 })
+    expect(pty.resizes.at(-1)).toEqual([40, 12])
+  })
+
+  it('a layout that changes while the kept output is written is taken once it is all written', async () => {
+    const { pty } = await drawn()
+    whileReplaying.run = () => {
+      fitted.size = { cols: 40, rows: 12 }
+      for (const callback of observers) callback()
+    }
+
+    const { xterm } = await mount()
+
+    expect({ cols: xterm.cols, rows: xterm.rows }).toEqual({ cols: 40, rows: 12 })
+    expect(pty.resizes).toEqual([
+      [NODE_SIZE.cols, NODE_SIZE.rows],
+      [40, 12],
+    ])
+  })
+
   it('a new layout of the Node while the kept output is written fits the view only once it is all written', async () => {
     const { pty, live } = await drawn()
     // Right after the first piece is handed to xterm.js, before it is parsed: as the ResizeObserver

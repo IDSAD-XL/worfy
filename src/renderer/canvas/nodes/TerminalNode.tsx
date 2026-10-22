@@ -400,18 +400,25 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       // the size the pty has now (open gave the pty that size before main read the sizes).
       const replayed = (then: () => void) => {
         const own = { cols: terminal.cols, rows: terminal.rows }
-        sizing = true
-        writeReplay(
-          terminal,
-          { replay, end, sizes },
-          () => {
-            sizing = false
+        // However the replay ends, the terminal is fitted again and `then` runs.
+        const finish = () => {
+          sizing = false
+          try {
             const size = fittedSize(element, fit) ?? own
             if (size.cols !== terminal.cols || size.rows !== terminal.rows) terminal.resize(size.cols, size.rows)
+          } finally {
             then()
-          },
-          () => active,
-        )
+          }
+        }
+        sizing = true
+        try {
+          writeReplay(terminal, { replay, end, sizes }, finish, () => active)
+        } catch (error) {
+          // A throw before the replay ended (writeReplay catches what xterm.js throws in it); one from
+          // `finish` itself has already turned `sizing` off.
+          if (sizing) finish()
+          throw error
+        }
       }
       if (exited !== null) {
         replayed(() => undefined)
