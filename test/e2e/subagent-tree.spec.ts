@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { canvasReady, launchApp, marksOf, repoRoot, startTimeline } from './helpers'
+import { canvasReady, inJson, launchApp, marksOf, repoRoot, startTimeline } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
@@ -79,9 +79,6 @@ function write(path: string, text: string, mode: 'create' | 'append' = 'create')
   const stats = statSync(path)
   expected[relative(claudeHome, path)] = `${stats.size}:${stats.mtimeMs}`
 }
-
-/** A path as it stands inside a JSON string: the backslashes of a Windows path escaped. */
-const inJson = (path: string): string => JSON.stringify(path).slice(1, -1)
 
 /** A fixture file of Session 7777 as if it had been written in this Project. */
 const fixture = (path: string): string => readFileSync(join(FIXTURE, path), 'utf8').replaceAll('/Users/test/projects/agents', inJson(projectPath))

@@ -945,6 +945,7 @@ test('the bordered state chip of an open Ticket has an explicit px line height t
   // The open chip shows on a card only until the Pipeline snapshot puts the stepper in its place,
   // so the test does not wait for the app's own chip: it puts one with the same classes in the
   // card's top row and measures it there, under the card's own styles.
+  // So it measures that inserted span, not the real StateChip (its svg icon is absent): enough, since the line height comes from the same classes under the same parent cascade.
   makeClaudeHome()
   makeProject((dir) => {
     const issues = join(dir, 'demo-epic', 'issues')

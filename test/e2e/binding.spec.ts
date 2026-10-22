@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { canvasReady, inJson, launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
 
@@ -136,14 +136,13 @@ function writeWaveSession(): void {
   const subagents = join(dir, WAVE, 'subagents')
   mkdirSync(subagents, { recursive: true })
   // The fixture is JSON text: a Windows path goes in with its backslashes escaped (on macOS it is the same text).
-  const repoInJson = JSON.stringify(repo).slice(1, -1)
-  const onBranch = (text: string): string => text.replaceAll('/Users/test/projects/agents', repoInJson).replaceAll('"gitBranch":"main"', `"gitBranch":${JSON.stringify(WAVE_BRANCH)}`)
+  const onBranch = (text: string): string => text.replaceAll('/Users/test/projects/agents', inJson(repo)).replaceAll('"gitBranch":"main"', `"gitBranch":${JSON.stringify(WAVE_BRANCH)}`)
   const lines = onBranch(readFileSync(join(FIXTURE, `${WAVE}.jsonl`), 'utf8')).split('\n').filter((line) => line !== '')
   const first = JSON.parse(lines[0]!) as Record<string, unknown>
   first.message = { role: 'user', content: `<command-name>/epic-wave</command-name>\n<command-args>волна 1 эпика ${EPIC}</command-args>` }
   writeFileSync(join(dir, `${WAVE}.jsonl`), [JSON.stringify(first), ...lines.slice(1)].join('\n') + '\n')
   const briefs: Record<string, string> = {
-    'Synthetic implementer brief.': `Тикет: ${repoInJson}/.scratch/${EPIC}/issues/16-привязка.md (один файл).`,
+    'Synthetic implementer brief.': `Тикет: ${inJson(repo)}/.scratch/${EPIC}/issues/16-привязка.md (один файл).`,
     'Synthetic reviewer brief.': `Ревью тикета .scratch/${EPIC}/issues/12-рамка.md, линза: тесты.`,
   }
   for (const name of readdirSync(join(FIXTURE, WAVE, 'subagents'))) {

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -17,6 +18,17 @@ export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '
 const mainEntry = join(repoRoot, 'out', 'main', 'index.js')
 export { GH_STUB } from './launch-env'
 export { START_DIAGNOSTICS } from './start-diagnostics-run'
+
+/** A path as it stands inside a JSON string: the backslashes of a Windows path escaped (on macOS it is the same text). */
+export const inJson = (path: string): string => JSON.stringify(path).slice(1, -1)
+
+/** The user running the tests as icacls names a user: DOMAIN\name (the computer's name for a local account). */
+export const thisUser = (): string => `${process.env.USERDOMAIN ?? ''}\\${process.env.USERNAME ?? ''}`
+
+/** icacls of Windows, by its name: Git Bash on PATH has no program of that name. Throws when it fails. */
+export function icacls(...args: string[]): void {
+  execFileSync('icacls', args, { stdio: 'ignore' })
+}
 
 /** builtApp of scripts/install-stable.mjs: where `pnpm package` leaves the app (test/unit/install-stable-functions.test.ts). */
 const { builtApp } = (await import(pathToFileURL(join(repoRoot, 'scripts', 'install-stable.mjs')).href)) as {

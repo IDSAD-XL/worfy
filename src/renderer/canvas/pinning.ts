@@ -27,11 +27,12 @@
 // (clearToolbarPlacement()). Pinned Nodes are out of that rule on both ends: a pinned selection
 // keeps its toolbar on top, and the toolbar of a selection on the plane does not avoid a pinned
 // Node, which is drawn above it.
-import { useCallback, useMemo, useRef, type CSSProperties } from 'react'
+import { useMemo, type CSSProperties } from 'react'
 import { useStore, type InternalNode, type ReactFlowState, type XYPosition } from '@xyflow/react'
 import { create } from 'zustand'
 import type { LayoutNode, LayoutOpInput, Viewport } from '../../shared/layout/types'
 import { TICKETS_TOP } from './epic-layout'
+import { useElementSize } from './use-element-size'
 
 /** Pinned Nodes are drawn above the rest of the plane. */
 export const PINNED_Z_INDEX = 1000
@@ -404,26 +405,17 @@ export const useFocusEntrySize = create<ToolbarSize>(() => FOCUS_ENTRY_SIZE)
 
 /**
  * A ref callback for the Focus button that keeps useFocusEntrySize at its border box, rounded up to
- * whole pixels so a fractional width (104.5) is never kept off short. The layout size ignores the
- * button's scale(1 / zoom), which cancels the viewport's zoom: screen pixels. A zero size (the
- * button not laid out) leaves the last one.
+ * whole pixels so a fractional width (104.5) is never kept off short (useElementSize()). The layout
+ * size ignores the button's scale(1 / zoom), which cancels the viewport's zoom: screen pixels. A
+ * zero size (the button not laid out) leaves the last one.
  */
 export function useFocusEntryMeasure(): (element: HTMLElement | null) => void {
-  const observer = useRef<ResizeObserver | null>(null)
-  return useCallback((element: HTMLElement | null) => {
-    observer.current?.disconnect()
-    observer.current = null
-    if (element === null || typeof ResizeObserver === 'undefined') return
-    observer.current = new ResizeObserver((entries) => {
-      const box = entries[entries.length - 1]?.borderBoxSize?.[0]
-      const width = Math.ceil(box?.inlineSize ?? element.offsetWidth)
-      const height = Math.ceil(box?.blockSize ?? element.offsetHeight)
-      if (!(width > 0 && height > 0)) return
-      const old = useFocusEntrySize.getState()
-      if (old.width !== width || old.height !== height) useFocusEntrySize.setState({ width, height }, true)
-    })
-    observer.current.observe(element)
-  }, [])
+  return useElementSize(keepFocusEntrySize)
+}
+
+function keepFocusEntrySize({ width, height }: ToolbarSize): void {
+  const old = useFocusEntrySize.getState()
+  if (old.width !== width || old.height !== height) useFocusEntrySize.setState({ width, height }, true)
 }
 
 /** A selected Node as placing its toolbar needs it; null while React Flow has not measured it. */

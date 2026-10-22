@@ -152,7 +152,8 @@ interface NavigationRecord {
  * Starts recording, in main of `app`, every frame navigation of every web contents by its target
  * address. The listeners are added after the app's own will-frame-navigate handler (installed when
  * the contents were created), so `defaultPrevented` is main's verdict. The end comes from
- * did-frame-navigate (committed) or did-fail-provisional-load (a navigation that never committed).
+ * did-frame-navigate (committed) or did-fail-provisional-load (a failed navigation: one that never
+ * committed, and, as measured on Electron 44.5.1, one that committed an error page too).
  */
 async function recordNavigations(app: LaunchedApp['app']): Promise<void> {
   await app.evaluate(({ webContents }) => {

@@ -41,7 +41,8 @@ Error: nothing is cut on Ticket 40
 ## Готово, когда
 
 - [ ] На ПК `pnpm build && pnpm exec playwright test test/e2e/epic-frame.spec.ts --grep-invert @packaged --repeat-each=5` — код 0.
-- [ ] На Mac тот же spec — код 0; снимки карточек `epic-frame` не изменились, если менялся CSS.
+- [x] На Mac тот же spec — код 0; снимки карточек `epic-frame` не изменились, если менялся CSS.
+      (Mac gate PR #766: снимки `epic-frame` совпали с main.)
 
 ## Где в коде
 

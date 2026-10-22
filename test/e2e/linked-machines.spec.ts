@@ -19,6 +19,7 @@ import {
   closeSettings,
   collapseMachines,
   expandMachines,
+  icacls,
   KEEP_AWAKE_LABEL,
   launchApp,
   launchLinkedPair,
@@ -31,19 +32,13 @@ import {
   setProjectsAccess,
   shownCode,
   smallestWindow,
+  thisUser,
   type LaunchedApp,
 } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript, loginProfileWithNode } from '../harness-node'
 
 test.setTimeout(120_000)
-
-/** The user running the tests as icacls names a user: DOMAIN\name (the computer's name for a local account). */
-const thisUser = (): string => `${process.env.USERDOMAIN ?? ''}\\${process.env.USERNAME ?? ''}`
-/** icacls of Windows, by its name: Git Bash on PATH has no program of that name. */
-const icacls = (...args: string[]): void => {
-  execFileSync('icacls', args, { stdio: 'ignore' })
-}
 
 /**
  * Takes away this user's right to add files to `folder` (`writable` false) or gives it back. Off
@@ -473,8 +468,12 @@ test('Settings → Machines in the smallest window: a refusal of main is shown a
       await window.keyboard.press('Escape')
       await expect(dialog).toHaveCount(0)
     } finally {
-      if (existsSync(linkDir)) setWritable(linkDir, true)
-      await launched.close()
+      // A give-back that throws still closes the app.
+      try {
+        if (existsSync(linkDir)) setWritable(linkDir, true)
+      } finally {
+        await launched.close()
+      }
     }
   } finally {
     await rm(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
