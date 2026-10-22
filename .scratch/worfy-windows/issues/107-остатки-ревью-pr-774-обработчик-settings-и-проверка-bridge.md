@@ -2,8 +2,9 @@
 
 Type: task
 Status: open
-Blocked by: 103 — PR #774; строки ниже есть только на его ветке
-Source: ревью PR #774 ([Ticket 103](103-остатки-ревью-pr-753-подписчики-меню-и-сброс-на-навигации.md)) на ПК (линзы «тесты» и «границы модулей»), направление Session на Mac 2026-10-22: оба
+Blocked by: 103 — PR #774
+Source: ревью PR #774 ([Ticket 103](103-остатки-ревью-pr-753-подписчики-меню-и-сброс-на-навигации.md)) на ПК
+(строки ниже есть только на его ветке) (линзы «тесты» и «границы модулей»), направление Session на Mac 2026-10-22: оба
 пункта — в один тикет, низкий приоритет. Строки — по `worfy-windows/103` `6e622d47`.
 
 ## Что происходит
@@ -35,7 +36,9 @@ Source: ревью PR #774 ([Ticket 103](103-остатки-ревью-pr-753-п
 ## Готово, когда
 
 - [ ] Test пункта 1 зелёный, мутант пункта 1 красный.
-- [ ] `grep -rn "worfy?: WorfyBridge" src/renderer` находит одно место — `ipc.ts`.
+- [ ] Глобальный объект preload в `src/renderer` читает только `ipc.ts`: и
+  `grep -rn "worfy?: WorfyBridge" src/renderer`, и `grep -rnE "(globalThis|window)\.worfy" src/renderer`
+  находят совпадения только в `src/renderer/ipc.ts`.
 - [ ] `test/unit/menu-command.test.tsx`, `settings-dialog.test.tsx`, `shell.test.tsx`, `shortcuts-overlay.test.tsx`
   зелёные; `pnpm lint`, `pnpm typecheck` — exit 0.
 
