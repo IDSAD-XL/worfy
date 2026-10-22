@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { findGitBash, findOnPath } from '../../src/main/agent/env'
 import { terminalKey } from '../../src/main/ipc/terminal'
 import { endDescendants, spawnShellPty, type SpawnPty } from '../../src/main/terminal/pty'
-import { alive, consoleHosts, folderLine, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, root, say, SAY_THE_FOLDER, SYSTEM_ROOT, threads, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
+import { alive, consoleHosts, folderLine, handleCount, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, root, say, SAY_THE_FOLDER, SYSTEM_ROOT, threads, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
 
@@ -307,4 +307,72 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
       started.end()
     }
   })
+})
+
+// worfy-windows ticket 92. In node-pty 1.2.0-beta.15 the thread that waits for the shell forgets
+// the pseudo-console when the shell exits and never closes it (src/win/conpty.cc, SetupExitCallback;
+// upstream microsoft/node-pty#965). kill() closes it only while node-pty still knows it: after a
+// close of a running PowerShell. Every other end leaves two handles in this process until it quits:
+// a Process handle to the finished OpenConsole.exe and the pipe of the pseudo-console. Git Bash
+// leaves them on a close as well: its launcher (bin\bash.exe) exits on its own once the bash under
+// it is ended, before kill(). Nothing node-pty gives JavaScript reaches the pseudo-console after the
+// exit: it keeps only a number, and the native kill(), resize() and clear() look that number up in
+// the list the exit thread has already cleared.
+describe.runIf(WINDOWS)('the handles a shell leaves in this process on Windows, on a real pty', () => {
+  // shortcut: node-pty leaks two handles per shell that ends without a close of a running one (microsoft/node-pty#965). When a node-pty with PR #990 or #991 is in, this test goes red: set this to 0.
+  const LEAK_PER_SHELL = 2
+  // Handles that come and go on their own in this process (an Event, a thread, an ALPC port), and
+  // the ones the first shells of a run open once (EtwRegistration): the warm-up takes those.
+  const NOISE = 5
+  const SHELLS = 10
+
+  /** Opens the Terminals four at a time, waits for each prompt, types `exit`, waits for the exit and closes it. */
+  async function exitShells(h: Awaited<ReturnType<typeof harness>>, nodeIds: readonly string[]): Promise<void> {
+    for (let i = 0; i < nodeIds.length; i += 4) {
+      await Promise.all(
+        nodeIds.slice(i, i + 4).map(async (nodeId) => {
+          await h.open(nodeId)
+          await h.run(say('rea', 'dy'), /ready\r?\n/, nodeId)
+          await h.type('exit\r', nodeId)
+          await vi.waitFor(() => expect(h.exits.map((exit) => exit.nodeId)).toContain(nodeId), { timeout: 10_000 })
+          await h.ok('terminal.close', { projectId: PROJECT, nodeId })
+        }),
+      )
+    }
+  }
+
+  /**
+   * The handle count once it stops changing: node-pty disposes of the thread that reads a shell's
+   * output 1000 ms after kill(), so wait that out, then until two readings half a second apart agree.
+   */
+  async function settledHandleCount(): Promise<number> {
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    let last = handleCount()
+    for (let reading = 0; reading < 16; reading++) {
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      const now = handleCount()
+      if (now === last) return now
+      last = now
+    }
+    throw new Error(`the handle count of this process did not settle: last ${last}`)
+  }
+
+  it(`PowerShell, ended by exit: ${SHELLS} shells leave ${LEAK_PER_SHELL} handles each in this process, give or take a few`, async (context) => {
+    needsWindowsPowerShellOffRunner(context)
+    const warmUp = Array.from({ length: 4 }, (_, index) => `w${index}`)
+    const measured = Array.from({ length: SHELLS }, (_, index) => `n${index}`)
+    const h = await harness({ nodes: [...warmUp, ...measured] })
+    // An earlier test of this file may leave a console host open (the console of the system forgets
+    // its pseudo-console, ticket 22): only the ones these shells open count.
+    const hostsBefore = new Set(consoleHosts())
+    await exitShells(h, warmUp)
+    const before = await settledHandleCount()
+    await exitShells(h, measured)
+    expect(h.registry.size).toBe(0)
+    // One reading of a settled count: a reading taken while the output threads still close could
+    // land inside the range by chance after node-pty is fixed.
+    const added = (await settledHandleCount()) - before
+    expect(Math.abs(added - SHELLS * LEAK_PER_SHELL), `added ${added} handles`).toBeLessThanOrEqual(NOISE)
+    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !hostsBefore.has(pid))).toEqual([]), { timeout: 5000, interval: 500 })
+  }, 60_000)
 })

@@ -310,6 +310,14 @@ export function consoleHosts(): number[] {
     .map(Number)
 }
 
+/**
+ * The handles of this process, as Windows counts them. On the PC this agreed every time with the
+ * count by object type through NtQuerySystemInformation (worfy-windows ticket 92).
+ */
+export function handleCount(): number {
+  return Number(execFileSync(win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${process.pid}).HandleCount`], { encoding: 'utf8' }))
+}
+
 /** The threads of this process, as Windows counts them. */
 export function threads(): number {
   return Number(execFileSync(win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${process.pid}).Threads.Count`], { encoding: 'utf8' }))
