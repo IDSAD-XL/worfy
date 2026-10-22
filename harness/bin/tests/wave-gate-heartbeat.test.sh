@@ -2,8 +2,9 @@
 # Tests of the e2e lock heartbeat in the gate full block of one PR of skills/epic-wave/SKILL.md (the block cut out
 # of the file, as wave-gate.test.sh does, and run under bash and zsh): the heartbeat ends once the lock folder is
 # gone, also when the block's shell was killed without its trap (kill -9); on a normal exit no heartbeat `sleep` is
-# left behind and no job notice is printed; a live lock of someone else stays. Temporary folders only, not the
-# e2e lock of the machine, no real gate.
+# left behind and no job notice is printed; a live lock of someone else stays; in Git Bash too the trap returns
+# within its time limit (it once hung in `wait` after kill -STOP). Temporary folders only, not the e2e lock of the
+# machine, no real gate.
 # Run: bash harness/bin/tests/wave-gate-heartbeat.test.sh; exit code 0 — everything passed.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -58,7 +59,28 @@ alive_of() {
 }
 none_alive() { [ -z "$(alive_of "$@")" ]; }
 gone_pid() { ! kill -0 "$1" 2>/dev/null; }
-stop_tree() { kill -STOP "$1" 2>/dev/null; pkill -P "$1" 2>/dev/null; kill -KILL "$1" 2>/dev/null; kill -CONT "$1" 2>/dev/null; return 0; }
+# stop_tree <pid>: ends the heartbeat <pid>, as the block's trap does. In Git Bash (the pid has /proc/<pid>/winpid) no
+# kill -STOP: there a kill -KILL after it can leave the process alive and deaf to every signal; a heartbeat still
+# alive 1 s after kill -KILL is ended through Windows (kill -f).
+stop_tree() {
+    if [ -e "/proc/$1/winpid" ]; then
+        kill -KILL "$1" 2>/dev/null; until_ok 1 gone_pid "$1" || /usr/bin/kill -f -9 "$1" 2>/dev/null
+    else
+        kill -STOP "$1" 2>/dev/null; pkill -P "$1" 2>/dev/null; kill -KILL "$1" 2>/dev/null; kill -CONT "$1" 2>/dev/null
+    fi
+    return 0
+}
+# run_limited <seconds> <out file> <command…>: runs the command in the background, its output to <out file>, and
+# waits at most <seconds> for it; sets rc to its exit code, or to "hung" when it was still running then (it is
+# stopped with SIGTERM, then SIGKILL). A trap that never returns fails its case instead of hanging the file.
+run_limited() {
+    local n=$(( $1 * 20 )) out="$2" pid; shift 2
+    "$@" >"$out" 2>&1 & pid=$!
+    while [ "$n" -gt 0 ] && ! gone_pid "$pid"; do sleep 0.05; n=$((n - 1)); done   # 0.05 s steps: 80 runs, little added
+    if gone_pid "$pid"; then wait "$pid"; rc=$?; return 0; fi
+    kill "$pid" 2>/dev/null; until_ok 2 gone_pid "$pid" || kill -KILL "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null; rc=hung; return 1
+}
 FAST=0.2 LONG="300.$$"
 # zsh is skipped, with one line, on Windows (Git Bash has none) and on a machine without zsh in PATH. Off Windows
 # a skip fails the file below: the zsh cases must not drop out while the file stays green.
@@ -109,17 +131,29 @@ for sh in "${SHELLS[@]}"; do
     rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null
     for p in $(alive_of "$HB_PIDS" "$FAST"); do kill "$p" 2>/dev/null; done
     # 40 normal runs, the gate an instant `true`, so the trap often fires while the heartbeat is still starting its
-    # first sleep: no heartbeat sleep is left after any of them, and no run prints a job notice ("Killed") of the
-    # heartbeat. Needs pkill, as the block's trap does.
-    if command -v pkill >/dev/null 2>&1; then
-        : >"$HB_PIDS"; b="${b0/"$HB_LOOP"/while \"$HBBIN/hbsleep\" $LONG;}"; b="${b//@GATE@/true}"; runs=0 notices=0
+    # first sleep. Each run has 15 s: a trap that never returns (in Git Bash a heartbeat stopped with kill -STOP and
+    # then killed stays alive and deaf to every signal, and `wait` for it hangs) fails the case instead of hanging
+    # the file. No run is cut off, no heartbeat shell outlives its run, and no run prints a job notice ("Killed").
+    # Off Windows no heartbeat sleep is left either; that needs pkill, as the block's trap does. In Git Bash a sleep
+    # the trap catches while it is still starting can miss its signal and run on, its output on /dev/null; the test
+    # ends it below.
+    if on_windows || command -v pkill >/dev/null 2>&1; then
+        HBS="$W/hb.shells"; : >"$HB_PIDS"; : >"$HBS"
+        b="${b0/"$HB_LOOP"/while \"$HBBIN/hbsleep\" $LONG;}"; b="${b//@GATE@/true}"; b="${b/HB=\$!/HB=\$!; echo \$HB >>\"$HBS\"}"
+        runs=0 notices=0 hung=0
         for i in $(seq 1 40); do
-            got="$(PATH="$HBBIN:$PATH" $sh -c "$STUB"$'\n'"$b" 2>&1)"; [[ "$got" == *"EXIT=0"* ]] && [ ! -e "$L" ] && runs=$((runs + 1))
+            run_limited 15 "$W/run.out" env PATH="$HBBIN:$PATH" $sh -c "$STUB"$'\n'"$b" || hung=$((hung + 1))
+            got="$(cat "$W/run.out")"; [[ "$got" == *"EXIT=0"* ]] && [ ! -e "$L" ] && runs=$((runs + 1))
             [[ "$got" == *Killed* ]] && notices=$((notices + 1))
+            rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null
         done
         until_ok 2 none_alive "$HB_PIDS" "$LONG"; left="$(alive_of "$HB_PIDS" "$LONG")"
-        [ "$runs" = 40 ] && [ "$notices" = 0 ] && [ -z "$left" ] && ok "$sh: the one-PR gate full block: 40 runs leave no heartbeat sleep and print no job notice" \
-            || bad "$sh: the one-PR block: $runs of 40 runs green, $notices with a job notice, heartbeat sleeps left: [$left]"
+        shells=; for p in $(cat "$HBS"); do kill -0 "$p" 2>/dev/null && shells="$shells$p "; done
+        if on_windows; then sleeps="" what="no heartbeat shell"; else sleeps="$left" what="no heartbeat shell or sleep"; fi
+        [ "$runs" = 40 ] && [ "$hung" = 0 ] && [ "$notices" = 0 ] && [ -z "$shells" ] && [ -z "$sleeps" ] \
+            && ok "$sh: the one-PR gate full block: 40 runs, each within 15 s, leave $what and print no job notice" \
+            || bad "$sh: the one-PR block: $runs of 40 runs green, $hung cut off after 15 s, $notices with a job notice, heartbeat shells left: [$shells], sleeps left: [$sleeps]"
+        for p in $shells; do stop_tree "$p"; done
         for p in $left; do kill "$p" 2>/dev/null; done
     else
         echo "skip $sh: no pkill on this machine: the 40-run heartbeat test is not run"
