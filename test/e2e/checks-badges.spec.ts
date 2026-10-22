@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { expect, test, type Locator } from '@playwright/test'
 import { expectSettledWithoutOverlaps, launchApp, ticketCardCuts } from './helpers'
 import { catScript, profileJsonScript } from '../harness-node'
@@ -158,7 +158,9 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
   // last gate line in a transcript of that worktree is green.
   mkdirSync(join(claudeHome, 'gate', 'state'), { recursive: true })
   writeFileSync(join(claudeHome, 'gate', 'config.json'), JSON.stringify({ repos: [{ key: 'worfy', match: repo, profile: 'worfy', pm: 'pnpm' }] }))
-  const marker = join(claudeHome, 'gate', 'state', `red-worfy-${tag(worktree07)}`)
+  // The Gate tags a worktree by the path `git rev-parse --show-toplevel` prints: on Windows that is
+  // `C:/a/b`, not the `C:\a\b` of join(); on macOS it is the same path.
+  const marker = join(claudeHome, 'gate', 'state', `red-worfy-${tag(git(worktree07, 'rev-parse', '--show-toplevel'))}`)
   writeFileSync(marker, '')
   const transcripts = join(claudeHome, 'projects', dirName(worktree07))
   mkdirSync(transcripts, { recursive: true })
@@ -226,7 +228,8 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
   const homeBefore = listing(claudeHome, (path) => path === ghDir)
   const repoStatus = git(repo, 'status', '--porcelain')
   const worktreeStatus = git(worktree07, 'status', '--porcelain')
-  const repoFiles = listing(repo, (path) => path.endsWith('/.git'))
+  // The .git folders are left out (git status refreshes their index); the paths have the platform's separator.
+  const repoFiles = listing(repo, (path) => path.endsWith(`${sep}.git`))
 
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, GH_STUB_DIR: ghDir, GH_STUB_LOG: ghLog } })
   try {
@@ -326,7 +329,7 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
     expect(homeAfter).toEqual(expectedHome)
     expect(git(repo, 'status', '--porcelain')).toBe(repoStatus)
     expect(git(worktree07, 'status', '--porcelain')).toBe(worktreeStatus)
-    expect(listing(repo, (path) => path.endsWith('/.git'))).toEqual(repoFiles)
+    expect(listing(repo, (path) => path.endsWith(`${sep}.git`))).toEqual(repoFiles)
   } finally {
     await launched.close()
   }

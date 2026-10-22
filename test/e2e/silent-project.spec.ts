@@ -128,11 +128,11 @@ function stubGh(dir: string): { command: string; log: string } {
   mkdirSync(dir, { recursive: true })
   const log = join(dir, 'gh.log')
   writeFileSync(log, '')
-  const js = join(dir, 'gh.cjs')
+  const js = join(dir, 'gh.mjs')
   writeFileSync(
     js,
-    `const { appendFileSync, existsSync, readFileSync } = require('node:fs')
-const { basename, join } = require('node:path')
+    `import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 const args = process.argv.slice(2)
 appendFileSync(${JSON.stringify(log)}, JSON.stringify({ cwd: process.cwd(), args }) + '\\n')
 if (args[0] !== 'pr' || args[1] !== 'list') { process.stderr.write('stub: only pr list\\n'); process.exit(1) }
@@ -143,6 +143,9 @@ if (head !== -1) prs = prs.filter((pr) => pr.headRefName === args[head + 1])
 process.stdout.write(JSON.stringify(prs))
 `,
   )
+  // Windows cannot start a `#!/bin/sh` wrapper as a program; worfy starts a `.mjs` WORFY_GH as a
+  // Node script there (src/main/program.ts). macOS and Linux keep the wrapper, as launch-env's GH_STUB does.
+  if (process.platform === 'win32') return { command: js, log }
   const command = join(dir, 'gh')
   writeFileSync(command, `#!/bin/sh\nexec node '${js}' "$@"\n`)
   chmodSync(command, 0o755)

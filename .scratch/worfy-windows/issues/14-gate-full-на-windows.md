@@ -653,3 +653,16 @@ reload, стрелки колеса в alternate screen): `terminal.spec.ts:218`
   Три test-а красные и на main: `terminal.spec.ts:273`, `focus.spec.ts:314`, `wheel-over-nodes.spec.ts:346`
   (строки по main `b1e7ce39`). Причина в приложении: xterm.js работает без опции `windowsPty`, хотя под ним
   ConPTY. Разбор — в [Ticket 86](86-terminal-на-windows-экран-после-resize-и-alternate-screen.md).
+- Группы 4, 5, 7 и 8 — ветка `worfy-windows/14-paths` поверх main `8f5238c8` (ПК 2026-10-22, масштаб 150 %): правки только в
+  e2e. Stub `epic-status` в `epic-frame` делит путь по `/` и `\`, строки — по `\r?\n` (файлы fixture на Windows с CRLF);
+  `checks-badges` считает тег Gate от `git rev-parse --show-toplevel`; `binding` вставляет путь в JSON экранированным;
+  `message-input-slash`, `ship-ticket`, `checks-badges` сравнивают пути через `path.sep`; `silent-project` отдаёт
+  `WORFY_GH` подмену `.mjs` на Windows; `browser` делает сертификат через `selfsigned` вместо `openssl` (на ПК машинный
+  `OPENSSL_CONF` указывает на несуществующий файл); `terminal-ai-settings` ждёт оболочку приложения перед «Settings…» (клик
+  сразу после показа окна терялся в 4 прогонах из 8); второй test `finder-path` пропущен на win32 — Finder-а и
+  `.profile` login shell на Windows нет, текст причины проверяет `test/contract/workflow-profile.test.ts`.
+  `window.spec:179` (562 против 560) уже зелёный после PR #708. В 10 spec-файлах групп: было 14 красных и 9 не
+  запускались; в 9 изменённых из них стало 1 красный в первом из двух итоговых прогонов и 0 во втором (32 и 33 зелёных, 2 пропущены: второй `finder-path` и zsh-test `terminal-ai-settings`). Нестабилен `epic-frame.spec.ts:832` (long names, красный в 3 прогонах из 4): чип «open» на Windows 17 px в
+  16 px — [Ticket 94](94-чип-open-на-windows-выше-своей-рамки.md). e2e Terminal (`terminal`, `focus`, `wheel-over-nodes`)
+  после Ticket-а 86: 18 зелёных, 1 красный — `terminal.spec.ts:648` (Git Bash: набранная клавиша встала не на своё место,
+  `cecho … ygpath`), не чинился.

@@ -54,17 +54,19 @@ if (ref) {
 const epics = new Map()
 const tickets = []
 for (const [path, read] of files) {
-  const parts = path.split('/')
+  // join() writes backslashes on Windows, git ls-tree writes slashes: split on both.
+  const parts = path.split(/[\\/]/)
   const epic = parts[1]
   if (!epics.has(epic)) epics.set(epic, { epic, hasSpec: false, hasMap: false })
   if (parts.length === 3 && parts[2] === 'spec.md') epics.get(epic).hasSpec = true
   if (parts.length !== 4 || parts[2] !== 'issues' || !parts[3].endsWith('.md')) continue
   const m = /^(\d+)-(.*)\.md$/.exec(parts[3])
   if (!m) continue
+  // A checkout with CRLF line ends (core.autocrlf on Windows) reads as lines all the same.
   const text = read()
-  const last = (name) => { let v = null; for (const l of text.split('\n')) { const x = new RegExp('^' + name + ':\\s*(.*)$', 'i').exec(l); if (x) v = x[1] } return v }
-  const first = (name) => { for (const l of text.split('\n')) { const x = new RegExp('^' + name + ':\\s*(.*)$').exec(l); if (x) return x[1].trim() } return null }
-  const line = text.split('\n').find((l) => /^\**status\**\s*:/i.test(l)) ?? null
+  const last = (name) => { let v = null; for (const l of text.split(/\r?\n/)) { const x = new RegExp('^' + name + ':\\s*(.*)$', 'i').exec(l); if (x) v = x[1] } return v }
+  const first = (name) => { for (const l of text.split(/\r?\n/)) { const x = new RegExp('^' + name + ':\\s*(.*)$').exec(l); if (x) return x[1].trim() } return null }
+  const line = text.split(/\r?\n/).find((l) => /^\**status\**\s*:/i.test(l)) ?? null
   const status = line === null ? null : line.replace(/^[^:]*:\s*/, '')
   const fmt = line === null ? null : /^Status: (open|claimed|blocked|done)(?: (\S+))?$/.exec(line)
   const state = fmt === null ? 'none' : fmt[1] === 'claimed' ? 'work' : fmt[1]
@@ -73,7 +75,7 @@ for (const [path, read] of files) {
     blockedReason: fmt ? first('Blocked reason') : null, waits: fmt ? first('Waits') : null, pr: pr ? Number(pr[1]) : null }
   const blocked = last('Blocked by')
   const nums = blocked && !/^[—-]$/.test(blocked.trim()) ? blocked.split(',').map((s) => Number(s.trim())) : []
-  tickets.push({ epic, num: Number(m[1]), slug: m[2], title: (text.split('\n')[0] || '').replace(/^#\s*/, ''), statusRaw: status, state, ...facts,
+  tickets.push({ epic, num: Number(m[1]), slug: m[2], title: (text.split(/\r?\n/)[0] || '').replace(/^#\s*/, ''), statusRaw: status, state, ...facts,
     blockedRaw: blocked, blockedNums: nums.filter((n) => !Number.isNaN(n)), blockedParsed: nums.every((n) => !Number.isNaN(n)) })
 }
 process.stdout.write(JSON.stringify({ ref: ref ?? 'main', epics: [...epics.values()], tickets }))
