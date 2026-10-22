@@ -11,6 +11,8 @@ const nodePty = vi.hoisted(() => ({
   exits: [] as (() => void)[],
   /** The input socket of each pty made, as node-pty has it: an emitter with no listener of its own. */
   inputs: [] as { emit: (event: string, ...args: unknown[]) => boolean; listenerCount: (event: string) => number }[],
+  /** What the next ptys have of node-pty's agent: all of it, none, or an input socket without `on`. */
+  agent: 'full' as 'full' | 'none' | 'no-on',
 }))
 vi.mock('node-pty', async () => {
   const { EventEmitter } = await import('node:events')
@@ -29,7 +31,7 @@ vi.mock('node-pty', async () => {
         write: () => undefined,
         resize: () => undefined,
         kill: () => exited({ exitCode: 0 }),
-        _agent: { inSocket },
+        ...(nodePty.agent === 'none' ? {} : { _agent: { inSocket: nodePty.agent === 'no-on' ? {} : inSocket, exitCode: undefined } }),
       }
     },
   }
@@ -53,6 +55,7 @@ describe('TerminalRegistry without a spawn of its own: node-pty as the app start
     nodePty.calls.length = 0
     nodePty.exits.length = 0
     nodePty.inputs.length = 0
+    nodePty.agent = 'full'
   })
 
   it('on Windows asks node-pty for the console of its package (useConptyDll), with the size, the folder and the name of the terminal', async () => {
@@ -82,6 +85,17 @@ describe('TerminalRegistry without a spawn of its own: node-pty as the app start
     expect(() => input.emit('error', failure)).not.toThrow()
     input.emit('error', failure)
     expect(warn.mock.calls).toEqual([[`[terminal] a write to the shell ${pid} failed: the shell is going or gone`, failure]])
+    await registry.closeAll()
+  })
+
+  // Review of PR #280 (ticket 42 of worfy-windows, item 2): the socket was passed over in silence.
+  it.each(['none', 'no-on'] as const)('on Windows a pty of node-pty without an input socket to listen on (agent: %s) still starts, and that is said', async (agent) => {
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    nodePty.agent = agent
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const registry = new TerminalRegistry({ env: winEnv, platform: 'win32', endDescendants: () => undefined })
+    const { pid } = await registry.open('a', OPEN, {}, SINK)
+    expect(warn.mock.calls[0]).toEqual([`[terminal] the pty of the shell ${pid} has no _agent.inSocket to listen on: a write after the shell has gone may end as an uncaught exception (spawnShellPty)`])
     await registry.closeAll()
   })
 
@@ -157,7 +171,8 @@ describe('TerminalRegistry on Windows: an exit that node-pty knows of and has no
     const looks = asked
     await vi.advanceTimersByTimeAsync(60_000)
     expect(asked).toBe(looks)
-    // The program that held the console ends half a minute later: node-pty's own event.
+    // node-pty's own event, whenever it comes: the kill() above destroyed the input socket, which
+    // closes the console and ends a program the shell left on it (release in pty.ts).
     fake.exit(3)
     expect(exits).toEqual([[3, null]])
     expect({ EXIT_POLL_MS, EXIT_GRACE_MS }).toEqual({ EXIT_POLL_MS: 500, EXIT_GRACE_MS: 1000 })
@@ -249,18 +264,66 @@ describe('TerminalRegistry on Windows: an exit that node-pty knows of and has no
     await other.closeAll()
   })
 
-  it('an exit code that is not a number — not node-pty as 1.1.0 builds it — is no exit', async () => {
+  it('an exit code that is not a number — not node-pty as 1.1.0 builds it — is no exit; that is said once, and nothing looks any more', async () => {
     vi.useFakeTimers()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const fake = fakePty(999_994_286, { deaf: true })
-    Object.assign(fake.agent, { exitCode: 'gone' })
+    let asked = 0
+    Object.defineProperty(fake.agent, 'exitCode', {
+      get: () => {
+        asked += 1
+        return 'gone'
+      },
+    })
     const exits: [number, number | null][] = []
     const registry = windows(() => fake.pty)
     await registry.open('a', OPEN, {}, { ...SINK, exit: (exitCode, signal) => exits.push([exitCode, signal]) })
     await vi.advanceTimersByTimeAsync(10_000)
     expect(exits).toEqual([])
     expect(registry.has('a')).toBe(true)
+    expect(asked).toBe(1)
+    expect(warn.mock.calls).toEqual([["[terminal] a: the exit code of the shell 999994286 is not a number: its exit is reported only by node-pty's exit event (exitCodeKnown)"]])
     fake.exit(2)
     expect(exits).toEqual([[2, null]])
+  })
+
+  // Review of PR #280 (item 2): a pty without the field was looked at every 500 ms in silence.
+  it('a pty with no exit code to read is said at the start, and is not looked at', async () => {
+    vi.useFakeTimers()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const fake = fakePty(999_994_289, { deaf: true })
+    delete fake.agent.exitCode
+    const plain = fakePty(999_994_290, { deaf: true, plain: true })
+    const ptys = [fake.pty, plain.pty]
+    const registry = windows(() => ptys.shift()!)
+    await registry.open('a', OPEN, {}, SINK)
+    await registry.open('b', OPEN, {}, SINK)
+    expect(warn.mock.calls).toEqual([
+      ["[terminal] a: the pty of the shell 999994289 has no _agent.exitCode to read: its exit is reported only by node-pty's exit event (exitCodeKnown)"],
+      ["[terminal] b: the pty of the shell 999994290 has no _agent.exitCode to read: its exit is reported only by node-pty's exit event (exitCodeKnown)"],
+    ])
+    // No look, and so no timer, runs for either.
+    expect(vi.getTimerCount()).toBe(0)
+    fake.exit(1)
+    plain.exit(1)
+    expect([registry.hasExited('a'), registry.hasExited('b')]).toEqual([true, true])
+  })
+
+  it('the look for the exit code does not keep the app from quitting (unref)', async () => {
+    const intervals: { ms: number | undefined; unref: { mock: { calls: unknown[] } } }[] = []
+    const real = globalThis.setInterval
+    vi.spyOn(globalThis, 'setInterval').mockImplementation(((handler: () => void, ms?: number) => {
+      const timer = real(handler, ms)
+      intervals.push({ ms, unref: vi.spyOn(timer, 'unref') })
+      return timer
+    }) as typeof setInterval)
+    const fake = fakePty(999_994_291)
+    const registry = windows(() => fake.pty)
+    await registry.open('a', OPEN, {}, SINK)
+    const looks = intervals.filter((each) => each.ms === EXIT_POLL_MS)
+    expect(looks).toHaveLength(1)
+    expect(looks[0]?.unref.mock.calls).toHaveLength(1)
+    await registry.closeAll()
   })
 
   it('a close does not wait for node-pty\'s event either: the exit it knows of ends the close', async () => {
@@ -282,28 +345,42 @@ describe('TerminalRegistry on Windows: an exit that node-pty knows of and has no
     expect(EXIT_POLL_MS + EXIT_GRACE_MS).toBeLessThan(WINDOWS_CLOSE_BOUND_MS)
   })
 
-  it('a resize that node-pty refuses — it knows the shell is gone — does not throw, and is said with the pid and the size', async () => {
+  // Review of PR #280 (item 3): the catch is on every system and takes any error; it is said once for a Terminal.
+  it.each([
+    ['win32', 'Cannot resize a pty that has already exited'],
+    ['darwin', 'ioctl(2) failed, EBADF'],
+  ] as const)('on %s a resize that node-pty refuses (%s) does not throw, is said once with the pid and the size, and typed input still reaches the shell', async (platform, message) => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    vi.spyOn(process, 'kill').mockImplementation(() => true)
     const fake = fakePty(999_994_285)
-    const refused = new Error('Cannot resize a pty that has already exited')
+    const refused = new Error(message)
     const sizes: [number, number][] = []
+    const typed: string[] = []
     fake.pty.resize = (cols, rows) => {
       sizes.push([cols, rows])
       throw refused
     }
-    const registry = windows(() => fake.pty)
+    fake.pty.write = (data) => void typed.push(data)
+    const env = platform === 'win32' ? winEnv : () => Promise.resolve({ SHELL: '/bin/sh' })
+    const registry = new TerminalRegistry({ env, spawn: () => fake.pty, platform, endDescendants: () => undefined })
     const client = {}
     await registry.open('a', OPEN, client, SINK)
     expect(() => registry.resize('a', 100, 30, client)).not.toThrow()
     expect(sizes).toEqual([[100, 30]])
-    expect(warn.mock.calls).toEqual([['[terminal] the pty of the shell 999994285 could not be resized to 100x30', refused]])
-    // The size was not taken: the same size is asked of the pty again.
+    // The size was not taken: the same size is asked of the pty again, by a resize and by typing.
     registry.resize('a', 100, 30, client)
+    expect(() => registry.write('a', 'ls\r', client)).not.toThrow()
     expect(sizes).toEqual([
       [100, 30],
       [100, 30],
+      [100, 30],
     ])
-    await registry.closeAll()
+    expect(typed).toEqual(['ls\r'])
+    expect(warn.mock.calls).toEqual([['[terminal] the pty of the shell 999994285 could not be resized to 100x30', refused]])
+    // Off Windows a close signals the shell and waits for its exit.
+    const closed = registry.closeAll()
+    fake.exit()
+    await closed
   })
 
   it.each(['darwin', 'linux'] as const)('on %s node-pty is never asked for an exit code: the exit is its event, as before', async (platform) => {

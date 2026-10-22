@@ -528,6 +528,7 @@ describe('TerminalRegistry: closing a Terminal on Windows', () => {
     expect([plain.kills, odd.kills]).toEqual([[undefined], [undefined]])
     expect(odd.agent._getConsoleProcessList).toBe('not a function')
     expect(warn.mock.calls.map(([line]) => line)).toEqual([
+      "[terminal] a: the pty of the shell 999994264 has no _agent.exitCode to read: its exit is reported only by node-pty's exit event (exitCodeKnown)",
       '[terminal] the pty of the shell 999994264 has no _getConsoleProcessList to take out of kill(): on the console of the system its helper process may end that pid 5 s from now (withoutConsoleHelper)',
       '[terminal] the pty of the shell 999994265 has no _getConsoleProcessList to take out of kill(): on the console of the system its helper process may end that pid 5 s from now (withoutConsoleHelper)',
     ])
@@ -630,12 +631,29 @@ describe('TerminalRegistry: closing a Terminal on Windows', () => {
     expect(await Promise.all(withAgent.helper)).toEqual([[]])
     // Not node-pty as 1.1.0 builds it: its kill() might end the pid of the shell that is gone.
     expect(plain.kills).toEqual([])
-    expect(warn.mock.calls).toEqual([['[terminal] the pty of the shell 999994252 has no _getConsoleProcessList to take out of kill(): kill() is not called, and the thread that reads its output stays (withoutConsoleHelper)']])
+    expect(warn.mock.calls).toEqual([
+      ["[terminal] b: the pty of the shell 999994252 has no _agent.exitCode to read: its exit is reported only by node-pty's exit event (exitCodeKnown)"],
+      ['[terminal] the pty of the shell 999994252 has no _getConsoleProcessList to take out of kill(): kill() is not called (withoutConsoleHelper)'],
+    ])
     expect([registry.hasExited('a'), registry.hasExited('b')]).toEqual([true, true])
     // Closing the Node of an exited shell asks nothing more.
     await registry.closeAll()
     expect(withAgent.kills).toEqual([undefined])
     expect(plain.kills).toEqual([])
+  })
+
+  // Review of PR #280 (ticket 42 of worfy-windows, item 2): release() returned before it stopped
+  // the thread when the helper could not be taken out. That stop does not need kill().
+  it('a shell that exited on its own whose helper cannot be taken out gets no kill(), and the thread that reads its output is stopped all the same', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const odd = fakePty(999_994_253, { deaf: true })
+    odd.agent._getConsoleProcessList = 'not a function'
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => odd.pty, platform: 'win32', endDescendants: () => undefined })
+    await registry.open('a', OPEN, {}, SINK)
+    odd.exit(3)
+    expect(odd.kills).toEqual([])
+    expect(odd.stops).toEqual([0])
+    await registry.closeAll()
   })
 })
 

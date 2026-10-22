@@ -29,7 +29,10 @@
 // window closes, and SIGKILL after a grace period when the shell ignores it; closeAll() does that
 // for every terminal and resolves once all of them have exited. Windows has neither process groups
 // nor SIGHUP: there close() ends every process under the shell, then closes the pseudo-console,
-// which takes the shell and what is left on its console (worfy-windows ticket 10). A program
+// which takes the shell and what is left on its console (worfy-windows ticket 10). A shell of
+// Windows that exits on its own and leaves a program on its console takes that program with it
+// when the registry reports the exit: the pty is taken apart then (release), which closes the
+// console (worfy-windows ticket 22). A program
 // started from the shell with Start-Process is under the shell and ends with it; on macOS an app
 // started with `open` is not a child of the shell and stays. A close there has an upper bound: when
 // node-pty has not reported the exit by then, the Terminal is closed without it.
@@ -58,7 +61,7 @@ import { CursorAnswers, isCursorAnswer } from './cursor-answers'
 import { ShellTracker, type ShellEvent, type ShellState } from './osc'
 import { REPLAY_LIMIT, ReplayBuffer } from './replay-buffer'
 import { integrationEnv, isZsh, newNonce, type AssistAdmission, type AssistDoor, type ShellIntegration } from './shell-integration'
-import { endDescendants, envVar, exitCodeKnown, killUnconnected, spawnShellPty, stopOutputWorker, withoutConsoleHelper, type DescendantsVerdict, type PtyProcess, type SpawnPty, type StartedShell } from './windows-pty'
+import { endDescendants, envVar, exitCodeKnown, killUnconnected, readsExitCode, spawnShellPty, stopOutputWorker, withoutConsoleHelper, type DescendantsVerdict, type PtyProcess, type SpawnPty, type StartedShell } from './windows-pty'
 
 export { REPLAY_LIMIT, ReplayBuffer } from './replay-buffer'
 export { DESCENDANTS_TIMEOUT_MS, descendantsScript, endDescendants, SHELL_START_SLACK_MS, spawnShellPty, type DescendantsVerdict, type PtyProcess, type SpawnPty, type StartedShell } from './windows-pty'
@@ -70,7 +73,7 @@ export const ROWS_MAX = 300
 export const KILL_GRACE_MS = 1000
 /** How often node-pty is asked on Windows whether a shell has exited (exitCodeKnown). */
 export const EXIT_POLL_MS = 500
-/** How long after node-pty knew the exit code of a shell of Windows its exit is reported without node-pty's own event: time for the last output. */
+/** How long after the read that found the exit code of a shell of Windows its exit is reported without node-pty's own event: time for the last output. */
 export const EXIT_GRACE_MS = 1000
 /** How long the end of a chunk that may be the start of a request of the console waits for the next chunk (console-request.ts). */
 export const HELD_OUTPUT_MS = 50
@@ -257,12 +260,18 @@ interface Terminal {
   closing: boolean
   /** A moment by which the shell was running (StartedShell). */
   startedBy: number
-  /** Reports the exit to the registry and the subscribers; node-pty's exit event calls it, once. */
+  /**
+   * Reports the exit to the registry and the subscribers. Called by node-pty's exit event, by the
+   * read of the exit code on Windows, by the bound of a close and when the wait for a pid gives up;
+   * only the first call counts.
+   */
   finish: (exit: ShellExit) => void
   /** True once the exit was reported (finish). */
   finished: boolean
   /** True once the pty was asked to close (release). */
   released: boolean
+  /** True once a resize of the pty failed: said once (applySize). */
+  resizeFailed: boolean
 }
 
 export interface TerminalRegistryOptions {
@@ -281,10 +290,6 @@ export interface TerminalRegistryOptions {
   endDescendants?: (shell: StartedShell) => Promise<DescendantsVerdict | void> | DescendantsVerdict | void
   /** The upper bound of closing a Terminal on Windows; WINDOWS_CLOSE_BOUND_MS by default. */
   closeBoundMs?: number
-  /** How often node-pty is asked on Windows whether a shell has exited (default EXIT_POLL_MS). */
-  exitPollMs?: number
-  /** How long after node-pty knew of an exit it is reported without node-pty's event (default EXIT_GRACE_MS). */
-  exitGraceMs?: number
   /** Whether a file is there, for the search of the shell on Windows (terminalShell). */
   exists?: FileExists
 }
@@ -320,8 +325,6 @@ export class TerminalRegistry {
   private readonly platform: NodeJS.Platform
   private readonly endDescendants: (shell: StartedShell) => Promise<DescendantsVerdict | void> | DescendantsVerdict | void
   private readonly closeBoundMs: number
-  private readonly exitPollMs: number
-  private readonly exitGraceMs: number
   private readonly shellListeners = new Set<ShellEventListener>()
   /** Shells of Windows waiting for their pid (pidKnown), by key: what a close calls to take one apart at once. */
   private readonly awaitingPid = new Map<string, () => void>()
@@ -335,8 +338,6 @@ export class TerminalRegistry {
     this.platform = options.platform ?? process.platform
     this.endDescendants = options.endDescendants ?? endDescendants
     this.closeBoundMs = options.closeBoundMs ?? WINDOWS_CLOSE_BOUND_MS
-    this.exitPollMs = options.exitPollMs ?? EXIT_POLL_MS
-    this.exitGraceMs = options.exitGraceMs ?? EXIT_GRACE_MS
   }
 
   /** Running terminals, including those still exiting (not those kept as exited). */
@@ -451,15 +452,21 @@ export class TerminalRegistry {
     }
   }
 
-  /** Resizes the pty, unless it already has this size. */
+  /**
+   * Resizes the pty, unless it already has this size. Any error of node-pty's resize is caught, on
+   * every system, and said once for a Terminal; the size stays what the pty has. The case it is
+   * for: on Windows node-pty refuses to resize a pty whose shell has exited, and it knows of the
+   * exit up to EXIT_POLL_MS + EXIT_GRACE_MS before the registry reports it. Its callers — a resize,
+   * the typing and clicks that take the size (touch), a leave — go on: typed input still reaches
+   * the shell.
+   */
   private applySize(terminal: Terminal, size: Size): void {
     if (terminal.size.cols === size.cols && terminal.size.rows === size.rows) return
     try {
       terminal.pty.resize(size.cols, size.rows)
     } catch (error) {
-      // On Windows node-pty refuses to resize a pty whose shell has exited, and it knows of the
-      // exit a moment before the registry reports it. The size stays what the pty has.
-      console.warn(`[terminal] the pty of the shell ${terminal.pty.pid} could not be resized to ${size.cols}x${size.rows}`, error)
+      if (!terminal.resizeFailed) console.warn(`[terminal] the pty of the shell ${terminal.pty.pid} could not be resized to ${size.cols}x${size.rows}`, error)
+      terminal.resizeFailed = true
       return
     }
     terminal.size = size
@@ -584,6 +591,7 @@ export class TerminalRegistry {
       },
       finished: false,
       released: false,
+      resizeFailed: false,
     }
     // On Windows the console asks its terminal for the device attributes; main answers, and the
     // request reaches neither the kept output nor a screen (console-request.ts).
@@ -608,7 +616,9 @@ export class TerminalRegistry {
       firstOutput = undefined
     }
     // The end of a chunk that may be the start of a request is kept back for the next chunk. When
-    // none comes it is sent on as the text it is: output never waits for more than HELD_OUTPUT_MS.
+    // none comes within HELD_OUTPUT_MS it is sent on as the text it is. The wait starts again with
+    // each chunk that keeps the start going (`ESC`, then `[`, then `0`), so a held end can wait
+    // longer in all, up to HOLD_LIMIT characters (console-request.ts).
     let held: ReturnType<typeof setTimeout> | null = null
     const sendHeld = (): void => {
       if (held !== null) clearTimeout(held)
@@ -638,19 +648,25 @@ export class TerminalRegistry {
       sendHeld()
       terminal.finish({ exitCode: (exitCode as number | undefined) ?? 1, signal: signal === undefined || signal === 0 ? null : signal })
     })
-    if (this.platform === 'win32') {
+    if (this.platform === 'win32' && !readsExitCode(pty)) {
+      console.warn(`[terminal] ${key}: the pty of the shell ${pty.pid} has no _agent.exitCode to read: its exit is reported only by node-pty's exit event (exitCodeKnown)`)
+    } else if (this.platform === 'win32') {
       exitPoll = setInterval(() => {
         const exitCode = exitCodeKnown(pty)
         if (exitCode === undefined || exitPoll === null) return
         clearInterval(exitPoll)
         exitPoll = null
+        if (exitCode === null) {
+          console.warn(`[terminal] ${key}: the exit code of the shell ${pty.pid} is not a number: its exit is reported only by node-pty's exit event (exitCodeKnown)`)
+          return
+        }
         // When node-pty's own event comes first, this finds the Terminal ended and does nothing.
         setTimeout(() => {
           // As at the event: what was read and held back goes out before the exit is told.
           if (!ended) sendHeld()
           terminal.finish({ exitCode, signal: null })
-        }, this.exitGraceMs)
-      }, this.exitPollMs)
+        }, EXIT_GRACE_MS)
+      }, EXIT_POLL_MS)
       // The looks do not keep the app from quitting.
       exitPoll.unref?.()
     }
@@ -836,8 +852,10 @@ export class TerminalRegistry {
       const { pid } = terminal.pty
       if (this.platform === 'win32') {
         void this.endWindowsShell(key, terminal)
-        // node-pty reports the exit a second after the last output of the console, and something
-        // may keep printing; the helper has its own limit. Past the bound nobody waits any more.
+        // node-pty reports the exit when the output of the console closes (on the console of the
+        // system: a second after its last output), and something may keep printing; the read of the
+        // exit code (exitCodeKnown) and the helper have limits of their own. Past the bound nobody
+        // waits any more.
         const bound = setTimeout(() => {
           console.warn(`[terminal] ${key} did not report its exit in ${this.closeBoundMs} ms: closed without it`)
           this.release(terminal, false)
@@ -903,9 +921,10 @@ export class TerminalRegistry {
     const { pid } = terminal.pty
     const quiet = withoutConsoleHelper(terminal.pty)
     if (!quiet) {
-      console.warn(`[terminal] the pty of the shell ${pid} has no _getConsoleProcessList to take out of kill(): ${exited ? 'kill() is not called, and the thread that reads its output stays' : 'on the console of the system its helper process may end that pid 5 s from now'} (withoutConsoleHelper)`)
+      console.warn(`[terminal] the pty of the shell ${pid} has no _getConsoleProcessList to take out of kill(): ${exited ? 'kill() is not called' : 'on the console of the system its helper process may end that pid 5 s from now'} (withoutConsoleHelper)`)
     }
-    if (exited && !quiet) return
+    // Without kill() the thread that reads the output is still stopped: that does not need kill().
+    if (exited && !quiet) return this.stopOutputThread(terminal, quiet)
     terminal.released = true
     terminal.cursor.letOutputFlow()
     try {
@@ -913,8 +932,14 @@ export class TerminalRegistry {
     } catch (error) {
       console.warn(`[terminal] closing the pty of the shell ${pid} failed`, error)
     }
+    this.stopOutputThread(terminal, quiet)
+  }
+
+  /** Stops the thread that reads the output of a pty of Windows (stopOutputWorker); `quiet`: the pty is node-pty's. */
+  private stopOutputThread(terminal: Terminal, quiet: boolean): void {
+    const { pid } = terminal.pty
     try {
-      // A pty that is not node-pty's (no helper to take out either) has no such thread: said above.
+      // A pty that is not node-pty's (no helper to take out either) has no such thread: said in release().
       if (!stopOutputWorker(terminal.pty) && quiet) console.warn(`[terminal] the pty of the shell ${pid} has no _conoutSocketWorker to stop: its thread may stay until worfy quits (stopOutputWorker)`)
     } catch (error) {
       console.warn(`[terminal] stopping the output thread of the shell ${pid} failed`, error)

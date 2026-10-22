@@ -1,7 +1,7 @@
 // node-pty on Windows as the Terminal registry (pty.ts) uses it: how a shell is started on the
 // console of the node-pty package, what the registry reads of node-pty's private agent and calls on
-// it, and the helper that ends the processes under a shell. Moved out of pty.ts unchanged
-// (worfy-windows ticket 42) to keep that file under the gate's 1000-line bound; pty.ts exports
+// it, and the helper that ends the processes under a shell. Moved out of pty.ts (worfy-windows
+// ticket 42) to keep that file under the gate's 1000-line bound; pty.ts exports
 // these names as before.
 import { execFile } from 'node:child_process'
 import { spawn as spawnNodePty } from 'node-pty'
@@ -173,7 +173,8 @@ export type SpawnPty = (file: string, args: string[], options: { name: string; c
 
 /**
  * node-pty as the registry starts a shell with it. On Windows the console is the one of the
- * node-pty package — conpty.dll and OpenConsole.exe next to conpty.node, both signed by Microsoft —
+ * node-pty package — conpty.dll and OpenConsole.exe in the folder `conpty` next to conpty.node,
+ * both signed by Microsoft; without conpty.dll the start throws "Cannot find conpty.dll" —
  * and not the one of the system (worfy-windows ticket 22). With the console of the system node-pty
  * forgets a pseudo-console the moment its shell exits and never closes it: every shell that ended
  * with `exit` left its conhost.exe until worfy quit (20 of 20 on the owner's PC). The console of
@@ -189,38 +190,50 @@ export type SpawnPty = (file: string, args: string[], options: { name: string; c
  *   - a write after the shell has gone ends as an `error` of node-pty's input socket, which has no
  *     listener: in the main process that would be an uncaught exception. One write a millisecond
  *     across an exit gave that error (EAGAIN) in 10 of 10 shells, and in none on the console of
- *     the system. It is logged here, once for a shell.
+ *     the system. It is logged here, once for a shell. A pty without that socket is said at the
+ *     start: a later version of node-pty may have moved it.
  */
 export const spawnShellPty: SpawnPty = (file, args, options) => {
   if (process.platform !== 'win32') return spawnNodePty(file, args, options)
   const pty = spawnNodePty(file, args, { ...options, useConptyDll: true })
   const input = (pty as { _agent?: { inSocket?: { on?: unknown } } })._agent?.inSocket
-  if (input !== undefined && input !== null && typeof input.on === 'function') {
-    let said = false
-    ;(input as { on: (event: 'error', listener: (error: unknown) => void) => void }).on('error', (error) => {
-      if (said) return
-      said = true
-      console.warn(`[terminal] a write to the shell ${pty.pid} failed: the shell is going or gone`, error)
-    })
+  if (input === undefined || input === null || typeof input.on !== 'function') {
+    console.warn(`[terminal] the pty of the shell ${pty.pid} has no _agent.inSocket to listen on: a write after the shell has gone may end as an uncaught exception (spawnShellPty)`)
+    return pty
   }
+  let said = false
+  ;(input as { on: (event: 'error', listener: (error: unknown) => void) => void }).on('error', (error) => {
+    if (said) return
+    said = true
+    console.warn(`[terminal] a write to the shell ${pty.pid} failed: the shell is going or gone`, error)
+  })
   return pty
 }
 
 /**
  * The exit code node-pty already has for a shell of Windows, before its exit event; undefined
- * while the shell runs, and for a pty that is not node-pty's as 1.1.0 and 1.2.0-beta.15 build it.
+ * while the shell runs; null when what is there is not a number — not a pty of node-pty as 1.1.0
+ * and 1.2.0-beta.15 build it (readsExitCode tells the pty that has no such field at all).
  *
  * node-pty sends the exit event when the output of the console closes. The console of the package
  * lives while any process is attached to it, so a shell that left a program behind
  * (`Start-Process -NoNewWindow …; exit`, `sleep 30 & exit` in Git Bash) was reported as exited when
  * that program ended: 30 s later, measured, against 1.1 s on the console of the system. Meanwhile
- * the Terminal counted as running, and a resize of it threw. node-pty knows the exit code half a
- * second after the shell is gone; the registry asks for it (EXIT_POLL_MS) and reports the exit
- * itself a moment later (EXIT_GRACE_MS), as node-pty does on the console of the system.
+ * the Terminal counted as running, and a resize of it threw. node-pty has the exit code as soon as
+ * the shell is gone (its native exit callback, src/win/conpty.cc); the registry reads it every
+ * EXIT_POLL_MS and reports the exit EXIT_GRACE_MS after the read that found it: 1.0–1.5 s after
+ * the exit. (On the console of the system node-pty itself counts a second from the last output.)
  */
-export function exitCodeKnown(pty: PtyProcess): number | undefined {
+export function exitCodeKnown(pty: PtyProcess): number | undefined | null {
   const code = (pty as { _agent?: { exitCode?: unknown } })._agent?.exitCode
-  return typeof code === 'number' ? code : undefined
+  if (code === undefined) return undefined
+  return typeof code === 'number' ? code : null
+}
+
+/** Whether node-pty's agent of the pty has the field exitCodeKnown reads; its getter is not called. */
+export function readsExitCode(pty: PtyProcess): boolean {
+  const agent = (pty as { _agent?: unknown })._agent
+  return typeof agent === 'object' && agent !== null && 'exitCode' in agent
 }
 
 /**
@@ -229,8 +242,9 @@ export function exitCodeKnown(pty: PtyProcess): number | undefined {
  *
  * With the console of the package (spawnShellPty) kill() stops that thread only when output comes
  * after it, and none does once the shell is gone: one thread per Terminal stayed until worfy quit
- * (measured: 20 Terminals, 20 threads). The thread ends a second after it is asked, when what was
- * still on the way has been read.
+ * (measured: 20 Terminals, 20 threads). node-pty's dispose() sets a timer of 1000 ms (a second
+ * call moves it on) and closes the socket of the thread when it fires; whether everything on the
+ * way has been read by then is not checked.
  */
 export function stopOutputWorker(pty: PtyProcess): boolean {
   const worker = (pty as { _agent?: { _conoutSocketWorker?: { dispose?: unknown } } })._agent?._conoutSocketWorker
