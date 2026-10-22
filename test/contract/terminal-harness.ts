@@ -77,6 +77,7 @@ export interface OpenResult {
   shell: string
   replay: string
   end: number
+  sizes: { at: number; cols: number; rows: number }[]
   started: boolean
   exited: { exitCode: number; signal: number | null } | null
 }

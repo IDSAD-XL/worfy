@@ -23,7 +23,7 @@ describe('terminal channels on a real pty', () => {
       needsWindowsPowerShellOffRunner(context)
       const h = await harness()
       const opened = await h.open()
-      expect(opened).toStrictEqual({ pid: opened.pid, shell: 'powershell.exe', replay: '', end: 0, started: true, exited: null })
+      expect(opened).toStrictEqual({ pid: opened.pid, shell: 'powershell.exe', replay: '', end: 0, sizes: [], started: true, exited: null })
 
       await h.run(SAY_THE_FOLDER, folderLine(root))
       // The typed line holds the expression, the output its value.
