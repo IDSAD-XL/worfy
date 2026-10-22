@@ -25,12 +25,12 @@ export interface Client {
 /**
  * A client that may report the documents its main frame commits: a window's webContents does, a
  * client without a window has no `on`. Electron emits 'did-navigate' for the main frame only, and
- * never for a navigation inside the document ('did-navigate-in-page'). 'did-fail-load' is typed as
- * Electron 44's webContents emits it; the frame ids after `isMainFrame` are not used.
+ * never for a navigation inside the document ('did-navigate-in-page'). 'did-fail-provisional-load'
+ * is typed as Electron 44's webContents emits it; the frame ids after `isMainFrame` are not used.
  */
 export type NavigatingClient = Client & {
   on?(event: 'did-navigate', listener: () => void): unknown
-  on?(event: 'did-fail-load', listener: (event: unknown, errorCode: number, errorDescription: string, validatedURL: string, isMainFrame: boolean) => void): unknown
+  on?(event: 'did-fail-provisional-load', listener: (event: unknown, errorCode: number, errorDescription: string, validatedURL: string, isMainFrame: boolean) => void): unknown
 }
 
 /** Chromium's net::ERR_ABORTED: the load stopped and no error page replaced the document. */
@@ -43,17 +43,21 @@ const ERR_ABORTED = -3
  *
  * The reset waits for the commit, not the start of the navigation: a navigation that never commits
  * (a URL main refuses in 'will-frame-navigate', src/main/window.ts; a 204; a download) leaves the
- * old page up, and it keeps what main holds for it. Those end in no 'did-fail-load' or in one with
- * ERR_ABORTED. A load of the main frame that fails otherwise commits an error page (View ▸ Reload
- * with the dev server down: ERR_CONNECTION_REFUSED), and Electron reports it with 'did-fail-load'
- * and no 'did-navigate': the old page is gone then too. A call the old page sends during a reload
- * arrives before the commit, so the commit clears it too. Nothing happens for a client without a
- * window. Call it once per client object: each call adds listeners. `reset` may run twice for one
- * navigation and must not mind.
+ * old page up, and it keeps what main holds for it. Those end in no 'did-fail-provisional-load' or
+ * in one with ERR_ABORTED. A load of the main frame that fails otherwise before the commit shows an
+ * error page (View ▸ Reload with the dev server down: ERR_CONNECTION_REFUSED; also -6, -20, a failed
+ * redirect), and Electron 44 reports it with 'did-fail-provisional-load', then 'did-fail-load', and
+ * no 'did-navigate': the old page is gone then too. 'did-fail-load' alone is not a new document: when
+ * the main document's body breaks off after the commit (-354, -355), it comes after 'did-navigate'
+ * and after the new page's first calls, with no error page, and a reset then would drop what the
+ * new page holds; 'did-fail-provisional-load' does not come then (measured on macOS, Electron
+ * 44.5.1). A call the old page sends during a reload arrives before the commit, so the commit clears
+ * it too. Nothing happens for a client without a window. Call it once per client object: each call
+ * adds listeners. `reset` may run twice for one navigation and must not mind.
  */
 export function onNewDocument(client: Pick<NavigatingClient, 'on'>, reset: () => void): void {
   client.on?.('did-navigate', () => reset())
-  client.on?.('did-fail-load', (_event, errorCode, _errorDescription, _validatedURL, isMainFrame) => {
+  client.on?.('did-fail-provisional-load', (_event, errorCode, _errorDescription, _validatedURL, isMainFrame) => {
     if (isMainFrame && errorCode !== ERR_ABORTED) reset()
   })
 }

@@ -870,7 +870,7 @@ describe('a menu command chosen before the page follows it (worfy-windows ticket
     choose.toggleSidebar(electron.window)
     // A link that turns into a download, a 204, a refused URL: the start comes, the commit does not.
     electron.window.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false })
-    electron.window.fire('did-fail-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true)
+    electron.window.fire('did-fail-provisional-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true, 1, 1)
     electron.window.fire('did-stop-loading')
     choose.settings(electron.window)
     expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'settings' }])
@@ -881,14 +881,30 @@ describe('a menu command chosen before the page follows it (worfy-windows ticket
   it('an error page in the main frame drops what the old page followed; a failure inside a frame does not', async () => {
     const { choose } = await menuItems()
     await pageFollows(electron.window, ['settings'])
+    electron.window.fire('did-fail-provisional-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://nowhere.invalid/', false, 1, 2)
     electron.window.fire('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://nowhere.invalid/', false, 1, 2)
     choose.settings(electron.window)
     expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'settings' }])
-    // View > Reload with the dev server down: an error page commits, with did-fail-load and no did-navigate.
+    // View > Reload with the dev server down: an error page commits, with did-fail-provisional-load,
+    // then did-fail-load, and no did-navigate.
     electron.window.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    electron.window.fire('did-fail-provisional-load', {}, -102, 'ERR_CONNECTION_REFUSED', 'http://localhost:5173/', true, 1, 1)
     electron.window.fire('did-fail-load', {}, -102, 'ERR_CONNECTION_REFUSED', 'http://localhost:5173/', true, 1, 1)
     choose.settings(electron.window)
     expect(electron.sent).toHaveLength(1)
+  })
+
+  it('a main-frame load that fails after the commit keeps what the new page follows', async () => {
+    const { choose } = await menuItems()
+    await pageFollows(electron.window, ['settings'])
+    electron.window.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    electron.window.fire('did-navigate', {}, 'file:///index.html', -1, '')
+    // The new page follows settings, then the rest of its body never arrives: Electron 44 emits
+    // did-fail-load -354 for the main frame after did-navigate and shows no error page.
+    await pageFollows(electron.window, ['settings'])
+    electron.window.fire('did-fail-load', {}, -354, 'ERR_CONTENT_LENGTH_MISMATCH', 'file:///index.html', true, 1, 1)
+    choose.settings(electron.window)
+    expect(electron.sent).toEqual([{ to: 'main', channel: PREFIXED, payload: 'settings' }])
   })
 
   it("an old page's menu.ready that arrives during a reload, before the commit, does not make the new page ready", async () => {

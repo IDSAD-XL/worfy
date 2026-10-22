@@ -257,7 +257,7 @@ describe('MemorySampler and the memoryIndicator setting', () => {
     // A refused URL (will-frame-navigate, src/main/window.ts), a 204, a download: the start comes,
     // the commit does not, and the old page stays up with its figure open.
     fire(window, 'did-start-navigation', { isMainFrame: true, isSameDocument: false })
-    fire(window, 'did-fail-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true)
+    fire(window, 'did-fail-provisional-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true, 1, 1)
     fire(window, 'did-stop-loading')
     expect(sampler.running).toBe(true)
     vi.advanceTimersByTime(MEMORY_SAMPLE_MS)
@@ -272,14 +272,32 @@ describe('MemorySampler and the memoryIndicator setting', () => {
     const window = fakeWindow()
     await open(window)
     // A frame inside the page fails: the page stays.
+    fire(window, 'did-fail-provisional-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://nowhere.invalid/', false, 1, 2)
     fire(window, 'did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://nowhere.invalid/', false, 1, 2)
     // An aborted main-frame load (a refused URL, a 204, a download): the page stays.
-    fire(window, 'did-fail-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true, 1, 1)
+    fire(window, 'did-fail-provisional-load', {}, -3, 'ERR_ABORTED', 'worfy-card://refused', true, 1, 1)
     expect(sampler.running).toBe(true)
     // View > Reload with the dev server down: Electron commits an error page and emits no
-    // did-navigate, only did-fail-load. The old page is gone.
+    // did-navigate, only did-fail-provisional-load and then did-fail-load. The old page is gone.
     fire(window, 'did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    fire(window, 'did-fail-provisional-load', {}, -102, 'ERR_CONNECTION_REFUSED', 'http://localhost:5173/', true, 1, 1)
+    expect(sampler.running).toBe(false)
     fire(window, 'did-fail-load', {}, -102, 'ERR_CONNECTION_REFUSED', 'http://localhost:5173/', true, 1, 1)
+    expect(sampler.running).toBe(false)
+  })
+
+  it('a main-frame load that fails after the commit keeps the opens of the new page', async () => {
+    const { open, close } = await register()
+    const window = fakeWindow()
+    await open(window)
+    reload(window)
+    expect(sampler.running).toBe(false)
+    // The new page opens the figure, then the rest of its body never arrives: Electron 44 emits
+    // did-fail-load -354 for the main frame after did-navigate and shows no error page.
+    await open(window)
+    fire(window, 'did-fail-load', {}, -354, 'ERR_CONTENT_LENGTH_MISMATCH', APP_URL, true, 1, 1)
+    expect(sampler.running).toBe(true)
+    await close(window)
     expect(sampler.running).toBe(false)
   })
 
