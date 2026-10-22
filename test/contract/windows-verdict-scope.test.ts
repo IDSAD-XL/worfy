@@ -135,6 +135,13 @@ describe('scripts/windows-verdict-scope.mjs', () => {
     ['src/main/ipc/browser.ts', 'src/main/ipc/browser.ts'],
     ['src/renderer/browser/**', 'src/renderer/browser/BrowserProfiles.tsx'],
     ['src/shared/browser/**', 'src/shared/browser/partition.ts'],
+    ['src/renderer/canvas/overlays/BrowserLayer.tsx', 'src/renderer/canvas/overlays/BrowserLayer.tsx'],
+    ['src/renderer/canvas/overlays/browser-pages.ts', 'src/renderer/canvas/overlays/browser-pages.ts'],
+    ['src/renderer/canvas/nodes/BrowserNode.tsx', 'src/renderer/canvas/nodes/BrowserNode.tsx'],
+    ['src/renderer/canvas/nodes/BrowserNode.css', 'src/renderer/canvas/nodes/BrowserNode.css'],
+    ['src/renderer/canvas/nodes/browser-frame.ts', 'src/renderer/canvas/nodes/browser-frame.ts'],
+    ['src/shared/ipc/browser.ts', 'src/shared/ipc/browser.ts'],
+    ['src/main/mcp/browser-server.ts', 'src/main/mcp/browser-server.ts'],
     ['test/e2e/**', 'test/e2e/browser-sleep.spec.ts'],
     ['test/acceptance/**', 'test/acceptance/fixtures/silent-repo/src/index.js'],
     ['playwright.config.ts', 'playwright.config.ts'],
@@ -214,6 +221,19 @@ describe('scripts/windows-verdict-scope.mjs', () => {
       lines: ['pc', 'src/main/browser/live.ts', 'src/main/ipc/browser.ts', 'src/renderer/browser/control.ts', 'src/shared/browser/tools.ts'],
       stderr: '',
     })
+  })
+
+  it('prints pc for a diff of the Browser layer overlay alone', () => {
+    const head = branch(() => put('src/renderer/canvas/overlays/BrowserLayer.tsx'))
+    expect(scope('main', head)).toEqual({ status: 1, lines: ['pc', 'src/renderer/canvas/overlays/BrowserLayer.tsx'], stderr: '' })
+  })
+
+  it('prints runner for the folder picker and the Browser section of the settings: not the Browser layer', () => {
+    const head = branch(() => {
+      put('src/renderer/projects/FolderBrowser.tsx')
+      put('src/renderer/settings/BrowserSection.tsx')
+    })
+    expect(scope('main', head)).toEqual({ status: 0, lines: ['runner'], stderr: '' })
   })
 
   it('names every matching file once, in the order of git, and no other', () => {

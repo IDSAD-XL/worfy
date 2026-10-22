@@ -837,9 +837,11 @@ the old way or one after another — every Check of the Pipeline has its mark on
     2. The runs on this head: `gh run list --workflow <workflow> --branch <branch> --event workflow_dispatch --limit 20 --json databaseId,url,headSha,createdAt,status,conclusion --jq "[.[] | select(.headSha == \"$sha\")]"`.
        `gh run list` shows no jobs, so read each candidate, newest first:
        `gh run view <id> --json jobs --jq '[.jobs[] | select(.name == "<job>") | .conclusion]'` —
-       `["skipped"]` or `[]` is a run of another mode on the same commit (it may end `success` all
-       the same) and is not this check; anything else, an empty conclusion of a running job
-       included, is the check's run.
+       `["skipped"]` is a run of another mode on the same commit (it may end `success` all the
+       same) and is not this check. `[]` on a run whose `status` (from the list) is not `completed`
+       is a run just created, its jobs not listed yet: the check's run. `[]` on a `completed` run
+       (a `startup_failure`) is not. Anything else, an empty conclusion of a running job included,
+       is the check's run.
     The check's run exists — no dispatch: wait for that run and read it (below). No such run, but a
     `pending` mark — no dispatch either: an earlier dispatch is not listed; the check is not
     verified, the PR waits, and the report says so. Neither — dispatch once (the dispatch command
@@ -862,6 +864,12 @@ the old way or one after another — every Check of the Pipeline has its mark on
   - Any other end — another step failed (checkout, install, a refused input), a cancel by hand, no
     job of that name: no mark, no new dispatch; the report names the run and the step.
   - A new head needs a new dispatch; a mark on the old head does not move.
+  - A `pending` mark that no run will settle — the check's run ended with no mark (another step
+    failed, a cancel, the limit), or the scope command now gives another answer for a head marked
+    `pending` the other way — does not clear by itself: every wave would find the same run and
+    wait. It clears by a new push to the PR (a new head, a new check), or by the orchestrator's
+    `gh run rerun <id>` of that run once the cause is fixed; either way the report tells the owner
+    which run and why.
   - `EXIT=1` (the files that keep the check off the runner follow) — the check is answered the
     other way the rules name, as in the item above.
   - Any other exit code — no verdict: the PR waits; never read it as `EXIT=0`.

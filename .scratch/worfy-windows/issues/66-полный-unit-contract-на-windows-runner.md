@@ -354,3 +354,10 @@ job-ом, который не `skipped`; 4 — run на main рядом с batch
 Проверки круга 2 (идёт cod.exe, shell-test-ы по одному): два contract-файла — 146 из 146, код 0;
 `plugin-neutral` 31, `epic-wave-ship-ticket` 336, `skill-blocks` 100, `decision-log` 125, `silent-mode` 89,
 `agents-text` 202, `review-depth` 105, `max-review` 80 — код 0 каждый; `pnpm lint`, `pnpm typecheck` — код 0.
+
+## Круг 3 ревью (Mac)
+
+- MED — файлы Browser вне четырёх папок добавлены точными путями, без шаблона (шаблон по имени поймал бы `FolderBrowser.tsx`): `src/renderer/canvas/overlays/BrowserLayer.tsx`, `src/renderer/canvas/overlays/browser-pages.ts`, `src/renderer/canvas/nodes/BrowserNode.tsx`, `src/renderer/canvas/nodes/BrowserNode.css`, `src/renderer/canvas/nodes/browser-frame.ts`, `src/shared/ipc/browser.ts`, `src/main/mcp/browser-server.ts`. Все семь есть в `git ls-files`. Новые случаи: только `BrowserLayer.tsx` — `pc`; `src/renderer/projects/FolderBrowser.tsx` и `src/renderer/settings/BrowserSection.tsx` — `runner`.
+- LOW — `[]` (job-ы ещё не показаны) у run-а со `status` не `completed` теперь считается run-ом этой проверки; `[]` у `completed` run-а (`startup_failure`) — нет.
+- LOW — отметка `pending`, которую никакой run не закроет, снимается новым push в PR или `gh run rerun <id>` от Orchestrator-а после исправления причины; в отчёте владельцу — какой run и почему.
+- Проверки круга 3: два contract-файла — 155 из 155, `plugin-neutral` 31, `epic-wave-ship-ticket` 336, `pnpm lint`, `pnpm typecheck` — код 0; gate fast — код 0.

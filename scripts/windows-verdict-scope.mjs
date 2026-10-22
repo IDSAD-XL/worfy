@@ -63,6 +63,15 @@ const PC_ONLY = [
   'src/main/ipc/browser.ts',
   'src/renderer/browser/**',
   'src/shared/browser/**',
+  // Its files outside those folders, by exact path: a name pattern would also catch
+  // src/renderer/projects/FolderBrowser.tsx and the Browser section of the settings.
+  'src/renderer/canvas/overlays/BrowserLayer.tsx',
+  'src/renderer/canvas/overlays/browser-pages.ts',
+  'src/renderer/canvas/nodes/BrowserNode.tsx',
+  'src/renderer/canvas/nodes/BrowserNode.css',
+  'src/renderer/canvas/nodes/browser-frame.ts',
+  'src/shared/ipc/browser.ts',
+  'src/main/mcp/browser-server.ts',
   // e2e and acceptance
   'test/e2e/**',
   'test/acceptance/**',
