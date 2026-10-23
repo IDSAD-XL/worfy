@@ -1,9 +1,7 @@
 # 92 — Terminal на Windows: два handle на каждую оболочку, которая кончилась не через close Terminal-а
 
 Type: task
-Status: blocked 2026-10-22T08:49Z
-Blocked reason: waits on upstream node-pty#965
-Waits: team
+Status: done 2026-10-23T00:14Z
 Blocked by: —
 Source: «Итог» [Ticket-а 42](42-остатки-ревью-pr-280.md), пункт 8 (PR #737); направление Session на Mac
 2026-10-22: сначала замер, потом Ticket. Замер на ПК 2026-10-22, строки — по main `343be106`.
@@ -224,3 +222,5 @@ handles»).
 С ожиданием 0 (цель «Готово, когда») красные три строки — `exit`, убийство снаружи и Git Bash: «added 40 handles»,
 «added 25 handles», «added 24 handles». «После» правки нет: правки нет. Время всего describe — 45 с.
 `OpenConsole.exe` под процессом после каждого test-а — 0.
+
+**Решение владельца 2026-10-23:** вынесен из Epic-а — приёмку (16) не блокирует, ждёт upstream node-pty#965 (приложение на `useConptyDll: true`, где брошенных консолей нет). Ticket закрыт без правок; вернуться — новым Ticket-ом после исправления #965.

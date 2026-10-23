@@ -7,10 +7,10 @@
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26, 28, 34, 35 (#722); приёмка 16; 32 закрыт (#508); 33 открыт. Вне LAN через Tailscale (ADR-0070) — 27, 29–31, после очереди `worfy-windows`.
 - `worfy-windows` (порт под Windows; ADR 0054–0057, 0062, 0063, 0069, 0071): 81/93. Влиты 2026-10-22: 84, 86–89, 91, 42, #730 (corepack), 93 (#747); 92 (#745, утечка handle) ждёт node-pty. ПК: 14 — packaged/`install-stable` на win32, группы 4, 5, 7, 8 e2e (1, 2 влиты); 06 — `preflight`; 07 — Q31.
-- `worfy-windows`: 85 в PR #738 ждёт «да» владельца на платный `eval --changed` (≈ $1, Q-H29). 90 (клавиша Git Bash после resize) и 60 (release node-pty) ждут upstream.
+- `worfy-windows`: 60 не нужен — остаёмся на `node-pty@1.2.0-beta.15`; 90 и 92 вынесены из Epic-а (upstream, приёмку не блокируют) — владелец 2026-10-23.
 - `worfy-windows` 39 влит (#512): main отвечает на `ESC[6n`, ответы view — не ввод. Цена — скорость flood-а (один worker разбора), владелец принял; ускорить — 67.
 - `worfy-windows` 65, 66, ADR-0071 (2026-10-19): сначала main зелёный на Windows (65, 14), затем 66 — полный `pnpm test` на Windows-runner-е; его зелёный run — `check/windows` для платформенных PR без Terminal, окон, e2e и упаковки.
-- `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) — **отложен владельцем 2026-10-21**: влиты 01–08, 10–14; 09 — приёмка; 15 (low) — связь у программ prompt-а. Долги — «Итог» 11–13.
+- `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) — **добиваем, владелец 2026-10-23**: влиты 01–08, 10–14; 15 (вариант (б) по замеру) и 16 (вариант (а)) в работе; затем приёмка 09.
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–15, 17–21, 24 (#716); остался 12 — приёмка; 22, 23 открыты.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
