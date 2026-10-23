@@ -46,40 +46,60 @@ function walk(node: HastNode, out: string[]): void {
   }
 }
 
+/** What markdown shows (markdownText), read once and kept for the next keystrokes. */
+export interface TextCache {
+  /** The text `markdown` shows: kept from an earlier call, or read now with `read`. */
+  get: (markdown: string, read: (markdown: string) => string) => string
+  /** Characters held now, keys and values. */
+  chars: () => number
+}
+
 /**
  * Texts kept, the last ones used: a transcript asks for the same answers on each keystroke. Bounded
- * by characters, keys and values both — an answer can be 100 KB — and a text over a tenth of the
- * bound is not kept at all.
+ * by `bound` characters, keys and values both — an answer can be 100 KB — and a text over a tenth of
+ * the bound is not kept at all.
  */
-export const CACHED_CHARS = 4_000_000
-const cache = new Map<string, string>()
-let cachedChars = 0
+export function textCache(bound: number): TextCache {
+  const cache = new Map<string, string>()
+  let held = 0
+  return {
+    get: (markdown, read) => {
+      const known = cache.get(markdown)
+      if (known !== undefined) {
+        // Used again: it goes to the end, away from the next eviction.
+        cache.delete(markdown)
+        cache.set(markdown, known)
+        return known
+      }
+      const text = read(markdown)
+      const size = markdown.length + text.length
+      if (size > bound / 10) return text
+      for (const [oldest, value] of cache) {
+        if (held + size <= bound) break
+        cache.delete(oldest)
+        held -= oldest.length + value.length
+      }
+      cache.set(markdown, text)
+      held += size
+      return text
+    },
+    chars: () => held,
+  }
+}
 
-/** Characters the cache holds now, keys and values; for tests. */
-export const markdownCacheChars = (): number => cachedChars
+/** The bound of the cache behind markdownText. */
+export const CACHED_CHARS = 4_000_000
+const cache = textCache(CACHED_CHARS)
+
+function read(markdown: string): string {
+  const out: string[] = []
+  walk(processor.runSync(processor.parse(markdown)) as HastNode, out)
+  return out.join('')
+}
 
 /** The text `markdown` shows in the transcript (Markdown with `breaks`). */
 export function markdownText(markdown: string): string {
-  const known = cache.get(markdown)
-  if (known !== undefined) {
-    // Used again: it goes to the end, away from the next eviction.
-    cache.delete(markdown)
-    cache.set(markdown, known)
-    return known
-  }
-  const out: string[] = []
-  walk(processor.runSync(processor.parse(markdown)) as HastNode, out)
-  const text = out.join('')
-  const size = markdown.length + text.length
-  if (size > CACHED_CHARS / 10) return text
-  for (const [oldest, value] of cache) {
-    if (cachedChars + size <= CACHED_CHARS) break
-    cache.delete(oldest)
-    cachedChars -= oldest.length + value.length
-  }
-  cache.set(markdown, text)
-  cachedChars += size
-  return text
+  return cache.get(markdown, read)
 }
 
 /**

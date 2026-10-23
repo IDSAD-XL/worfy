@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { TRANSCRIPT_FIND } from '../../src/shared/ipc/claude-home'
-import { CACHED_CHARS, markdownCacheChars, markdownText } from '../../src/shared/markdown/visible-text'
+import { CACHED_CHARS, markdownText, textCache } from '../../src/shared/markdown/visible-text'
 import { eventMatches, findNeedle } from '../../src/shared/transcript/find'
 import { Markdown } from '../../src/renderer/markdown/Markdown'
 import { foldTranscript } from '../../src/renderer/session/fold'
@@ -305,16 +305,31 @@ describe('what is counted is what is drawn', () => {
   })
 
   it('keeps the read answers within a bound of characters, and no long answer at all', () => {
-    // 5 answers of 240 000 characters (480 000 with their text): each over a tenth of the bound, none kept.
-    const before = markdownCacheChars()
-    for (let index = 0; index < 5; index += 1) expect(markdownText(`${index} ${'long '.repeat(48_000)}`)).toHaveLength(2 + 5 * 48_000 - 1)
-    expect(markdownCacheChars()).toBe(before)
-    // 150 answers of 20 000 characters (40 000 with their text): the oldest go, the bound holds.
-    for (let index = 0; index < 150; index += 1) markdownText(`${index} ${'word '.repeat(4_000)}`)
-    expect(markdownCacheChars()).toBeLessThanOrEqual(CACHED_CHARS)
-    expect(markdownCacheChars()).toBeGreaterThan(CACHED_CHARS / 2)
-    // Read again, an answer gives the same text.
-    expect(markdownText('**foo** bar')).toBe('foo bar')
+    // A cache as markdownText's (bound CACHED_CHARS), 100 times smaller: the same rules, kilobytes parsed.
+    const bound = CACHED_CHARS / 100
+    const cache = textCache(bound)
+    const reads: string[] = []
+    const read = (markdown: string) => {
+      reads.push(markdown)
+      return markdownText(markdown)
+    }
+    // 5 answers of 2 400 characters (4 800 with their text): each over a tenth of the bound, none kept.
+    for (let index = 0; index < 5; index += 1) expect(cache.get(`${index} ${'long '.repeat(480)}`, read)).toHaveLength(2 + 5 * 480 - 1)
+    expect(cache.chars()).toBe(0)
+    // 150 answers of 200 characters (400 with their text): the oldest go, the bound holds.
+    const answers = Array.from({ length: 150 }, (_, index) => `${String(index).padStart(3, '0')} ${'word '.repeat(39)}`)
+    for (const one of answers) cache.get(one, read)
+    expect(cache.chars()).toBeLessThanOrEqual(bound)
+    expect(cache.chars()).toBeGreaterThan(bound / 2)
+    // The newest is kept, the oldest went: read again only that one.
+    reads.length = 0
+    expect(cache.get(answers.at(-1)!, read)).toBe(markdownText(answers.at(-1)!))
+    expect(reads).toEqual([])
+    cache.get(answers[0]!, read)
+    expect(reads).toEqual([answers[0]])
+    // Read again, an answer gives the same text; markdownText's own cache too.
+    expect(cache.get('**foo** bar', read)).toBe('foo bar')
+    expect(cache.get('**foo** bar', read)).toBe('foo bar')
     expect(markdownText('**foo** bar')).toBe('foo bar')
   })
 
