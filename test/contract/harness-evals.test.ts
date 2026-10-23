@@ -773,17 +773,26 @@ function evalHarness(
   args: string[] = [],
   path: (home: string) => string = () => process.env.PATH ?? '',
   extra: NodeJS.ProcessEnv = {},
-): { run: SpawnSyncReturns<string>; calls: StubCall[] } {
-  const { log, env } = stubSetup(version, codes, path, extra)
+): { run: SpawnSyncReturns<string>; calls: StubCall[]; home: string } {
+  const { dir, log, env } = stubSetup(version, codes, path, extra)
   const run = spawnSync(process.execPath, [EVAL_HARNESS, ...args], { env, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
-  return { run, calls: loggedCalls(log) }
+  return { run, calls: loggedCalls(log), home: dir }
 }
 
-/** The copies of git eval-harness.mjs has left in the results folder of the Harness it evaluates. */
-const gitCopies = (): string[] => {
-  const results = join(evaluated(), 'evals', 'results')
-  return existsSync(results) ? readdirSync(results).filter((dir) => dir.endsWith('-git')) : []
-}
+/**
+ * Where eval-harness.mjs puts its copy of git: on macOS under the home folder of the run (HOME is the
+ * stub folder), whatever folder the checkout is in; elsewhere in the results folder of the Harness it
+ * evaluates. The sandbox of a run on macOS re-opened the PATH folders under the home folder for
+ * reading and not one under /private/tmp.
+ */
+const gitParent = (home: string): string =>
+  process.platform === 'darwin' ? join(home, 'Library', 'Caches', 'worfy-eval') : join(evaluated(), 'evals', 'results')
+
+/** The copies of git eval-harness.mjs has left, in the results folder and under the home folder `home`. */
+const gitCopies = (home = ''): string[] =>
+  [join(evaluated(), 'evals', 'results'), ...(home ? [join(home, 'Library', 'Caches', 'worfy-eval')] : [])].flatMap((parent) =>
+    existsSync(parent) ? readdirSync(parent).filter((dir) => dir.endsWith('-git')).map((dir) => join(parent, dir)) : [],
+  )
 
 /**
  * A folder first on PATH whose `git` prints `core` for --exec-path and fails for anything else. On
@@ -1015,14 +1024,14 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
       env: { PATH: process.env.PATH, GIT_CONFIG_SYSTEM: systemConfig, GIT_CONFIG_GLOBAL: '/dev/null' },
     })
     expect(control.stdout.trim(), control.stderr).toBe('system')
-    const { run, calls } = evalHarness('2.1.289', '0,0', [], undefined, { STUB_SYSTEM_CONFIG: systemConfig })
+    const { run, calls, home } = evalHarness('2.1.289', '0,0', [], undefined, { STUB_SYSTEM_CONFIG: systemConfig })
     expect(run.status, run.stderr).toBe(0)
     expect(calls).toHaveLength(2)
     const [first, second] = calls
     if (!first || !second) throw new Error(`expected two eval calls, got ${calls.length}`)
     expect(first.evalGit).not.toBe('')
     expect(first.path.split(delimiter)[0]).toBe(dirname(first.evalGit))
-    expect(first.evalGit.startsWith(join(evaluated(), 'evals', 'results') + sep)).toBe(true)
+    expect(dirname(dirname(first.evalGit))).toBe(gitParent(home))
     expect(first.gitVersion?.status, JSON.stringify(first.gitVersion)).toBe(0)
     expect(first.gitVersion?.stdout).toMatch(/^git version /)
     expect(first.execPath).toBe(join(dirname(first.evalGit), 'git-core'))
@@ -1037,7 +1046,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
 
   it('exits 1 and calls no claude when `git --exec-path` gives no folder', () => {
     const before = gitCopies()
-    const { run, calls } = evalHarness('2.1.289', '0,0', [], (dir) => {
+    const { run, calls, home } = evalHarness('2.1.289', '0,0', [], (dir) => {
       const gitStubDir = join(dir, 'failing-git')
       mkdirSync(gitStubDir)
       writeFileSync(join(gitStubDir, 'git'), '#!/bin/sh\nexit 1\n')
@@ -1049,7 +1058,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     // on PATH) would stop at ENOENT and make this test pass for that wrong reason.
     expect(run.stderr).toMatch(/git --exec-path.*exit 1\)/)
     expect(calls).toEqual([])
-    expect(gitCopies()).toEqual(before)
+    expect(gitCopies(home)).toEqual(before)
   })
 
   it('exits 1, calls no claude and removes the copy when the copy of git does not answer --version', () => {
@@ -1058,13 +1067,13 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     mkdirSync(core)
     writeFileSync(join(core, 'git'), '#!/bin/sh\nexit 1\n')
     chmodSync(join(core, 'git'), 0o755)
-    const { run, calls } = evalHarness('2.1.289', '0,0', [], (dir) => fakeGitPath(dir, core))
+    const { run, calls, home } = evalHarness('2.1.289', '0,0', [], (dir) => fakeGitPath(dir, core))
     expect(run.status).toBe(1)
     // Exit 1 is the copy's own answer; on Windows, a check that started the `#!/bin/sh` wrapper by
     // its path, not through sh, would stop at ENOENT and make this test pass for that wrong reason.
     expect(run.stderr).toMatch(/the copy of git does not run \(.* --version, exit 1\)/)
     expect(calls).toEqual([])
-    expect(gitCopies()).toEqual(before)
+    expect(gitCopies(home)).toEqual(before)
   })
 
   it.skipIf(!permissionsHold)('exits 1, calls no claude and removes the copy when a file of git cannot be copied', () => {
@@ -1076,11 +1085,11 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     writeFileSync(join(core, 'git-unreadable'), 'x')
     chmodSync(join(core, 'git-unreadable'), 0o000)
     try {
-      const { run, calls } = evalHarness('2.1.289', '0,0', [], (dir) => fakeGitPath(dir, core))
+      const { run, calls, home } = evalHarness('2.1.289', '0,0', [], (dir) => fakeGitPath(dir, core))
       expect(run.status).toBe(1)
       expect(run.stderr).toMatch(/cannot copy/)
       expect(calls).toEqual([])
-      expect(gitCopies()).toEqual(before)
+      expect(gitCopies(home)).toEqual(before)
     } finally {
       chmodSync(join(core, 'git-unreadable'), 0o644)
     }
@@ -1088,7 +1097,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
 
   it.skipIf(!permissionsHold)('removes the copy of git when removing the copy of the plugin throws', () => {
     const before = gitCopies()
-    const { run, calls } = evalHarness('2.1.289', '0,0', [], undefined, { STUB_LOCK: '1' })
+    const { run, calls, home } = evalHarness('2.1.289', '0,0', [], undefined, { STUB_LOCK: '1' })
     const target = calls[0]?.args[2] ?? ''
     try {
       expect(calls).toHaveLength(2)
@@ -1096,7 +1105,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
       expect(run.stderr).toMatch(/ENOTEMPTY|EACCES|EPERM/)
       expect(existsSync(target)).toBe(true)
       expect(existsSync(dirname(calls[0]?.evalGit ?? ''))).toBe(false)
-      expect(gitCopies()).toEqual(before)
+      expect(gitCopies(home)).toEqual(before)
     } finally {
       if (target && existsSync(target)) {
         chmodSync(target, 0o755)

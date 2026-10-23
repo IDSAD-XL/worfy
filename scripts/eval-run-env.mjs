@@ -129,6 +129,23 @@ export function pluginCopy(source) {
 }
 
 /**
+ * The folder of the copy of git of one eval run, named by the run's `stamp`. On macOS it is
+ * ~/Library/Caches/worfy-eval/<stamp>-git, whatever folder the checkout is in; elsewhere it is
+ * <results>/<stamp>-git, as before. The sandbox of a `claude plugin eval` run on macOS denies reading
+ * /Users, /tmp, /private/tmp and the user's /var/folders/…/T; it re-opened every PATH folder under the
+ * home folder and not the one under /private/tmp: a copy under <results> of a checkout in a temporary
+ * folder (an Orchestrator's scratchpad) stayed unreadable
+ * ("Operation not permitted"), `git` fell through to the xcrun shim /usr/bin/git, which exits 72
+ * there, and the Harness scripts answered "not a git repository" (allowRead of
+ * <run>/config/settings.json, claude 2.1.289, 2026-10-23).
+ */
+// shortcut: relies on the sandbox re-opening the PATH folders under the home folder (seen in allowRead,
+// not documented), redo when a run's settings.json stops listing such a PATH folder in allowRead.
+export function gitFolder(results, stamp, platform = process.platform) {
+  return platform === 'darwin' ? join(homedir(), 'Library', 'Caches', 'worfy-eval', `${stamp}-git`) : join(results, `${stamp}-git`)
+}
+
+/**
  * Gives the runs their copy of git: `gitCopy` into `dir`, that folder first on the PATH of `env`, and
  * the two variables `harness/hooks/eval-env.cjs` reads — `EVAL_GIT` (the wrapper) and
  * `EVAL_HARNESS_HOME`. Changes `env` in place and returns the wrapper; `fail` as `gitCopy`.

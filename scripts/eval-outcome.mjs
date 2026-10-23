@@ -33,7 +33,7 @@ import process from 'node:process'
 import { setImmediate } from 'node:timers'
 import { fileURLToPath } from 'node:url'
 import { judgeCommand, scoreResults, taskFolders } from './eval-outcome-lib.mjs'
-import { checkVersion, claudeBinary, cleanEnv, gitForRuns, JUDGE_MODEL, MODEL, pluginCopy, runClaude } from './eval-run-env.mjs'
+import { checkVersion, claudeBinary, cleanEnv, gitFolder, gitForRuns, JUDGE_MODEL, MODEL, pluginCopy, runClaude } from './eval-run-env.mjs'
 import { removeTree } from './remove-tree.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -84,7 +84,7 @@ const exitStopped = () => {
 }
 
 const RESULTS = process.env.EVAL_OUTCOME_RESULTS ? resolve(process.env.EVAL_OUTCOME_RESULTS) : join(REPO, 'scripts', 'eval-outcome', 'results')
-const gitDir = join(RESULTS, `${stamp}-git`)
+const gitDir = gitFolder(RESULTS, stamp)
 const evalGit = gitForRuns(gitDir, childEnv, fail)
 const outputDir = join(RESULTS, stamp)
 let harness = ''

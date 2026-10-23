@@ -56,6 +56,8 @@ interface RunEnv {
   SESSION_VARIABLES: string[]
   cleanEnv: (env: NodeJS.ProcessEnv) => NodeJS.ProcessEnv
   pluginCopy: (source: string) => string
+  gitFolder: (results: string, stamp: string, platform?: NodeJS.Platform) => string
+  gitForRuns: (dir: string, env: NodeJS.ProcessEnv, fail: (message: string) => void) => string
 }
 interface Lib {
   stripArmMarkers: (text: string) => string
@@ -374,6 +376,9 @@ describe('scripts/eval-outcome-stats.mjs: known values', () => {
 
 // --- the pinned models and the environment ------------------------------------------------------
 
+/** A sandbox profile that closes the cache of xcrun (xcrun_db in the user's temporary folder), as the sandbox of an eval run does. */
+const XCRUN_CACHE_CLOSED = '(version 1)(allow default)(deny file-read* file-write* (regex #"/xcrun_db"))'
+
 describe('the run environment both evals share (scripts/eval-run-env.mjs)', () => {
   it('takes the session variables out and drops other plugin copies from PATH', () => {
     const others = [join(homedir(), '.claude', 'bin'), join(tmpdir(), '.claude', 'worfy-harness', 'plugin', 'bin'), join(tmpdir(), 'elsewhere', 'harness', 'hooks')]
@@ -397,6 +402,56 @@ describe('the run environment both evals share (scripts/eval-run-env.mjs)', () =
     expect(filesOf(copy).sort()).toEqual(['.claude-plugin/plugin.json', 'evals-outcome/lib/fixture.sh', 'evals-outcome/results-notes.md', 'evals/case/prompt.md'])
     expect(JSON.parse(readFileSync(join(copy, '.claude-plugin', 'plugin.json'), 'utf8'))).toEqual({ name: 'worfy' })
     expect(readFileSync(join(source, '.claude-plugin', 'plugin.json'), 'utf8')).toContain('dependencies')
+  })
+
+  // The sandbox of a `claude plugin eval` run on macOS denies reading /Users, /tmp, /private/tmp and the
+  // user's /var/folders/…/T, and re-opened the PATH folders under the home folder, not one under
+  // /private/tmp (allowRead of a run's settings.json, claude 2.1.289): a copy of git in the results
+  // folder of a checkout in /tmp stayed unreadable, and `git` fell through to the xcrun shim.
+  it('puts the copy of git of a macOS run under the home folder, whatever folder the checkout is in, and elsewhere into the results folder', () => {
+    const results = join(tmpdir(), 'checkout', 'harness', 'evals', 'results')
+    expect(runEnv.gitFolder(results, 'STAMP', 'darwin')).toBe(join(homedir(), 'Library', 'Caches', 'worfy-eval', 'STAMP-git'))
+    expect(runEnv.gitFolder(results, 'STAMP', 'linux')).toBe(join(results, 'STAMP-git'))
+    expect(runEnv.gitFolder(results, 'STAMP', 'win32')).toBe(join(results, 'STAMP-git'))
+  })
+
+  // xcrun, behind /usr/bin/git, keeps its cache (xcrun_db) in the user's temporary folder; the sandbox
+  // of a run lets it neither read nor write there, and /usr/bin/git exits 72. The git the runs get is a
+  // copy of the binary itself, first on PATH: plain `git` needs neither xcrun nor a writable TMPDIR.
+  // The profile closes only the cache: with Command Line Tools closed too, /usr/bin/git asks macOS to
+  // install them, a dialog on the screen of whoever runs the tests.
+  it.skipIf(process.platform !== 'darwin')('gives the runs a plain `git` on PATH that works with the cache of xcrun closed and TMPDIR unwritable', (context) => {
+    // sandbox-exec refuses to start inside another sandbox (a sandboxed Bash of Claude Code).
+    if (spawnSync('/usr/bin/sandbox-exec', ['-p', XCRUN_CACHE_CLOSED, '/usr/bin/true'], { stdio: 'ignore' }).status !== 0) context.skip('sandbox-exec cannot start here')
+    const dir = join(tempDir('outcome-git-copy-'), 'STAMP-git')
+    const env: NodeJS.ProcessEnv = { PATH: process.env.PATH }
+    const failures: string[] = []
+    const wrapper = runEnv.gitForRuns(dir, env, (message) => {
+      failures.push(message)
+    })
+    expect(failures).toEqual([])
+    expect(wrapper).toBe(join(dir, 'git'))
+    expect(env.PATH?.split(delimiter)[0]).toBe(dir)
+    expect(env.EVAL_GIT).toBe(wrapper)
+    const closedTmp = tempDir('outcome-closed-tmp-')
+    chmodSync(closedTmp, 0o555)
+    const work = tempDir('outcome-git-work-')
+    // The repository comes from outside the sandbox, as a scaffold makes it; the run only works in it.
+    const init = spawnSync('git', ['-c', 'init.defaultBranch=main', 'init', '-q', join(work, 'repo')], { encoding: 'utf8', env: childEnv(work, { PATH: process.env.PATH }) })
+    expect(init.status, init.stderr).toBe(0)
+    const script = 'command -v git && git --version && git -C repo rev-parse --is-inside-work-tree && git -C repo status --porcelain && echo done'
+    const run = spawnSync('/usr/bin/sandbox-exec', ['-p', XCRUN_CACHE_CLOSED, '/bin/sh', '-c', script], {
+      cwd: work,
+      encoding: 'utf8',
+      env: childEnv(work, { PATH: env.PATH, TMPDIR: closedTmp, GIT_CONFIG_NOSYSTEM: '1' }),
+    })
+    expect(run.status, run.stderr).toBe(0)
+    expect(run.stdout.split('\n')[0]).toBe(wrapper)
+    expect(run.stdout).toMatch(/^git version /m)
+    expect(run.stdout).toMatch(/^true$/m)
+    expect(run.stdout).toMatch(/^done$/m)
+    // /usr/bin/git under this profile still runs, but complains on stderr that it cannot create the cache.
+    expect(run.stderr).toBe('')
   })
 
   it('the default judge runs on the pinned model without tools, MCP servers, user settings or a saved session', () => {
