@@ -192,39 +192,68 @@ describe('harness/evals: the cases', () => {
   // The demo profile runs a wave one ticket at a time, so ticket 04 starts only after 02 is merged,
   // and a ticket's Status changes only when its implementer reaches the claim: graders on those lines
   // failed runs that took exactly the named tickets (2026-10-22 and 2026-10-23, both cases).
+  // The synthetic briefs are built from the brief template of the skill, the neighbours line included:
+  // the brief of 04 names 02's files there, and a scout brief for 02 may name 02's ticket file.
   it.each([
-    ['epic-wave-old-form', 'alpha|charlie'],
-    ['epic-wave-tickets', 'alpha|charlie|delta'],
-  ])('%s: the dispatch grader matches the brief of skills/epic-wave for ticket 02 only', (name, unnamed) => {
+    ['epic-wave-old-form', 'alpha|charlie', ['02', '04']],
+    ['epic-wave-tickets', 'alpha|charlie|delta', ['02']],
+  ])('%s: the dispatch grader matches the implementer brief of skills/epic-wave for ticket 02 only', (name, unnamed, wave) => {
     const skill = readFileSync(join(HARNESS, 'skills', 'epic-wave', 'SKILL.md'), 'utf8')
-    expect(skill).toContain('Ticket: <F tickets.path for NN>; spec: <F tickets.spec>')
-    expect(skill).toContain('Files: <exact list>')
-    const input = (nn: string, slug: string): string =>
-      JSON.stringify({
-        description: `impl-${nn}`,
-        subagent_type: 'worfy:implementer',
-        name: `impl-${nn}`,
-        run_in_background: true,
-        prompt: [
-          `Ticket: .scratch/demo/issues/${nn}-${slug}.md; spec: .scratch/demo/spec.md`,
-          `Files: src/${slug}.mjs, test/${slug}.test.mjs`,
-        ].join('\n'),
-      })
+    const line = (start: string): string => {
+      const found = skill.split('\n').find((text) => text.startsWith(start)) ?? ''
+      expect(found, start).not.toBe('')
+      return found
+    }
+    const ticketLine = line('Ticket: <F tickets.path for NN>')
+    const filesLine = line('Files: <exact list>')
+    const neighboursLine = line("Wave neighbours' files (do not touch): <NN>: <files>")
+    const slugs: Record<string, string> = { '01': 'alpha', '02': 'bravo', '03': 'charlie', '04': 'delta' }
+    const path = (nn: string): string => `.scratch/demo/issues/${nn}-${slugs[nn]}.md`
+    const files = (nn: string): string => `src/${slugs[nn]}.mjs, test/${slugs[nn]}.test.mjs`
+    const brief = (nn: string, neighbours: string[]): string =>
+      [
+        ticketLine.replace('<F tickets.path for NN>', path(nn)).replace('<F tickets.spec>', '.scratch/demo/spec.md'),
+        filesLine.replace('<exact list>', files(nn)),
+        neighbours.length === 0
+          ? null
+          : `${neighboursLine.slice(0, neighboursLine.indexOf('<NN>'))}${neighbours.map((n) => `${n}: ${files(n)}`).join('; ')}`,
+      ]
+        .filter((text) => text !== null)
+        .join('\n')
+    const call = (agent: string, prompt: string, agentFirst = true): string =>
+      agentFirst
+        ? JSON.stringify({ description: 'dispatch', subagent_type: agent, run_in_background: true, prompt })
+        : JSON.stringify({ description: 'dispatch', prompt, run_in_background: true, subagent_type: agent })
+
     const dispatched = frontMatter(join(EVALS, name, 'graders', '02-dispatched.md'))
     expect(field(dispatched, 'type')).toBe('tool_used')
     expect(field(dispatched, 'tool')).toBe('Agent')
     expect(field(dispatched, 'min')).toBe('1')
     const pattern = new RegExp(field(dispatched, 'input_match') ?? '<none>')
-    expect(input('02', 'bravo')).toMatch(pattern)
-    const others: [nn: string, slug: string][] = [['01', 'alpha'], ['03', 'charlie'], ['04', 'delta']]
-    for (const [nn, slug] of others) expect(input(nn, slug)).not.toMatch(pattern)
+    const own = brief('02', wave.filter((nn) => nn !== '02'))
+    expect(call('worfy:implementer', own)).toMatch(pattern)
+    expect(call('worfy:implementer', own, false)).toMatch(pattern)
+    for (const nn of ['01', '03', '04']) {
+      const others = brief(nn, ['01', '02', '03', '04'].filter((n) => n !== nn))
+      expect(others).toContain('src/bravo.mjs')
+      expect(call('worfy:implementer', others)).not.toMatch(pattern)
+      expect(call('worfy:implementer', `${others}\nTicket 02 (${path('02')}) goes first.`)).not.toMatch(pattern)
+    }
+    expect(call('worfy:scout', `Repository: /tmp/demo\n${own}\nMap the ticket with file:line.`)).not.toMatch(pattern)
+
     const guard = frontMatter(join(EVALS, name, 'graders', 'no-agent-for-unnamed.md'))
     expect(field(guard, 'input_match')).toBe(unnamed)
-    expect(input('02', 'bravo')).not.toMatch(new RegExp(unnamed))
+    expect(call('worfy:implementer', own)).not.toMatch(new RegExp(unnamed))
     for (const file of graderFiles(name)) {
       const grader = frontMatter(file)
       if (field(grader, 'match') === 'not_contains') expect(field(grader, 'pattern'), file).not.toContain('Status')
     }
+  })
+
+  it('epic-wave-old-form: ticket 04 is graded on the reply by the llm judge', () => {
+    const grader = join(EVALS, 'epic-wave-old-form', 'graders', '04-in-the-wave.md')
+    expect(existsSync(grader)).toBe(true)
+    expect(field(frontMatter(grader), 'type')).toBe('llm')
   })
 
   // The status-block grader and the app read the same four lines: a reply whose closing block
