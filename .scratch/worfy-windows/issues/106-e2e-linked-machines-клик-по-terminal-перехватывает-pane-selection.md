@@ -1,7 +1,8 @@
 # 106 — e2e linked-machines на Windows: клик по Terminal перехватывает `react-flow__pane selection`
 
 Type: task
-Status: claimed 2026-10-23T18:45Z
+Status: done 2026-10-23T21:53Z
+PR: #814
 Branch: worfy-windows/106
 Blocked by: —
 Source: прогоны на ПК 2026-10-22 (Ticket-ы 99 и 105), направление Session на Mac 2026-10-22: новый красный
@@ -91,3 +92,5 @@ Layout. Перед кликом — `toBeInViewport({ ratio: 1 })` на экра
 - Весь `linked-machines.spec.ts --grep-invert @packaged`, три прогона подряд: 9 passed, 0 failed, 0 flaky в каждом,
   код 0. Во время прогонов ПК был свободен для владельца (курсор больше не требовался); работал ли он за ПК в это
   время — не проверено.
+
+Пункт «в том числе когда владелец работает за ПК»: владелец 2026-10-23 — во время трёх прогонов он, скорее всего, работал за ПК, CPU грузили другие процессы. Mac: весь `linked-machines.spec.ts` — 9 passed, код 0; gate full на Mac — зелёный (#814).
