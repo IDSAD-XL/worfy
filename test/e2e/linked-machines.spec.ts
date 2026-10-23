@@ -802,6 +802,18 @@ test('A opens a Project of B: its Canvas, Node moves, Session, Terminal and Auto
     const moved = await drawnAt(a.window, 'note-b')
     await expect.poll(() => drawnAt(bWindow, 'note-b'), { timeout: 1_000 }).toBe(moved)
 
+    // What A types into the Terminal runs in B's shell, and its output is in B's window. Before the
+    // Session below: a new Session moves the camera to itself, and at 1400×900 that leaves the
+    // Terminal past the right edge of the window.
+    const termA = a.window.locator('.react-flow__node[data-id="term"]').getByTestId('terminal-node')
+    const termB = bWindow.locator('.react-flow__node[data-id="term"]').getByTestId('terminal-node')
+    await expect(termA).toHaveAttribute('data-state', 'running', { timeout: 15_000 })
+    await expect(termA.getByTestId('terminal-screen')).toBeInViewport({ ratio: 1 })
+    await termA.getByTestId('terminal-screen').click()
+    await a.window.keyboard.type('echo from""-a-$((6*7))')
+    await a.window.keyboard.press('Enter')
+    await expect.poll(() => screenText(termB), { timeout: 10_000 }).toMatch(/^from-a-42$/m)
+
     // A Session started in A runs on B and is live in B's window.
     const live = (window: Page) => window.locator('[data-testid="session-node"][data-live="true"]')
     await a.window.getByTestId('sidebar-new-session').click()
@@ -809,15 +821,6 @@ test('A opens a Project of B: its Canvas, Node moves, Session, Terminal and Auto
     const sessionNode = await live(a.window).getAttribute('data-node-id')
     await expect(bWindow.locator(`[data-testid="session-node"][data-live="true"][data-node-id="${sessionNode}"]`)).toHaveCount(1)
     await expect(bWindow.locator(`[data-testid="session-node"][data-live="true"][data-node-id="${sessionNode}"]`).getByTestId('session-node-status')).toHaveText('idle')
-
-    // What A types into the Terminal runs in B's shell, and its output is in B's window.
-    const termA = a.window.locator('.react-flow__node[data-id="term"]').getByTestId('terminal-node')
-    const termB = bWindow.locator('.react-flow__node[data-id="term"]').getByTestId('terminal-node')
-    await expect(termA).toHaveAttribute('data-state', 'running', { timeout: 15_000 })
-    await termA.getByTestId('terminal-screen').click()
-    await a.window.keyboard.type('echo from""-a-$((6*7))')
-    await a.window.keyboard.press('Enter')
-    await expect.poll(() => screenText(termB), { timeout: 10_000 }).toMatch(/^from-a-42$/m)
 
     // B quits while A shows its Project: a line over the Canvas, the window stays.
     await b.close()

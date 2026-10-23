@@ -1,7 +1,8 @@
 # 106 — e2e linked-machines на Windows: клик по Terminal перехватывает `react-flow__pane selection`
 
 Type: task
-Status: open
+Status: claimed 2026-10-23T18:45Z
+Branch: worfy-windows/106
 Blocked by: —
 Source: прогоны на ПК 2026-10-22 (Ticket-ы 99 и 105), направление Session на Mac 2026-10-22: новый красный
 в счёте e2e Windows ([Ticket 14](14-gate-full-на-windows.md)). Строки — по main `1e1027f2`.
@@ -42,13 +43,51 @@ Terminal почти целиком за правым краем окна — Can
 
 ## Готово, когда
 
-- [ ] Причина подтверждена замером; запись в «Итог».
+- [x] Причина подтверждена замером; запись в «Итог».
 - [ ] На ПК `pnpm build && pnpm exec playwright test test/e2e/linked-machines.spec.ts --grep-invert @packaged` —
-      код 0 в 3 прогонах подряд, в том числе когда владелец работает за ПК.
+      код 0 в 3 прогонах подряд, в том числе когда владелец работает за ПК. Три прогона подряд — код 0 (см. «Итог»);
+      не проверено, работал ли владелец за ПК в это время.
 - [ ] На Mac тот же spec — код 0.
 
 ## Где в коде
 
-- `test/e2e/linked-machines.spec.ts:757`, `:818` — test и падающий клик.
-- `test/e2e/linked-machines.spec.ts:674` — `drag` синтетической мышью.
-- `test/e2e/linked-machines.spec.ts:581` — размер окна.
+- Строки ниже — по ветке `worfy-windows/106` (main `a371f5fe` с правкой). На `a371f5fe` до правки клик по Terminal
+  стоял на `:817`.
+- `test/e2e/linked-machines.spec.ts:756` — test; `:811` — проверка, что Terminal в окне; `:812` — клик по
+  Terminal; `:819` — новая Session, теперь после Terminal.
+- `test/e2e/linked-machines.spec.ts:673` — `drag` синтетической мышью.
+- `test/e2e/linked-machines.spec.ts:580` — размер окна.
+- `src/renderer/canvas/overlays/SessionNodes.tsx:68` — камера к новой Session (`setCenter`, 250 мс).
+
+## Итог
+
+**Курсор в окне для падения не нужен.** Прогон `:756` с `--repeat-each 3`, пока физический курсор все три
+повтора стоял на другом мониторе (DISPLAY3, точка 4363,1346 до и после; окна теста — на основном): 1 passed,
+2 failed с тем же текстом (`element is not stable`, затем `react-flow__pane selection intercepts pointer events`).
+Что курсор совсем не влияет, этот замер не доказывает.
+
+**Причина — камера после новой Session.** Перед кликом по Terminal test создаёт Session (`sidebar-new-session`).
+`SessionNodes.tsx:68` плавно (250 мс) ставит камеру по центру новой Session. Замер (временный код в spec, в коммит
+не вошёл), три повтора, окно 1400×900:
+
+- сразу перед кликом камера ещё едет: `scale` 0.462 / 0.477 / 0.478, сдвиг меняется;
+- через 1 с камера стоит: `translate(475px, 69px) scale(0.5)` во всех трёх; экран Terminal начинается с x = 1365
+  при ширине окна 1400, его центр (куда кликает Playwright) — за правым краем.
+
+Дальше — вывод, не замер. Playwright, вероятно, прокручивает к Terminal контейнер Canvas (`overflow: hidden`),
+Canvas сдвигается, и клик ловит pane. Чем это кончается, по замеру не предсказать: в одном из трёх повторов клик
+прошёл, хотя камера к тому моменту уже стояла так же.
+
+Не объяснено: почему до 14:00 test был зелёным 4 раза из 4, а с 14:07 — красным 6 раз из 6, и почему на Mac он
+зелёный при тех же `SIZE` и `setCenter`.
+
+**Правка (только test).** Шаг с Terminal перенесён до шага с Session: пока камера стоит там, где её открывает
+Layout. Перед кликом — `toBeInViewport({ ratio: 1 })` на экране Terminal, чтобы при новом сдвиге камеры test падал
+с понятной причиной, а не на клике. Код продукта не меняли: камера к новой Session — задуманное поведение.
+
+**Проверки на ПК**, ветка `worfy-windows/106` поверх main `a371f5fe`, Windows 11, масштаб 150 %:
+
+- `:756` с `--repeat-each 3`: 3 passed, код 0.
+- Весь `linked-machines.spec.ts --grep-invert @packaged`, три прогона подряд: 9 passed, 0 failed, 0 flaky в каждом,
+  код 0. Во время прогонов ПК был свободен для владельца (курсор больше не требовался); работал ли он за ПК в это
+  время — не проверено.
