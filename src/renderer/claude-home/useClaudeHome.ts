@@ -595,6 +595,14 @@ export function sessionTranscriptNow(root: string, sessionId: string): Transcrip
 }
 
 /**
+ * The state of a transcript's view now, outside React, a Subagent's too: find in the Session view
+ * (worfy-ui ticket 26) loads windows until the one with the match it goes to.
+ */
+export function transcriptStateNow(root: string, sessionId: string, agentId?: string): TranscriptState {
+  return transcriptNow(transcriptKey(root, sessionId, agentId))
+}
+
+/**
  * «Load earlier» for a view of a transcript read from its end (src/renderer/session/Transcript.tsx,
  * `earlier`): none before the first read and none once the shown events start at the beginning of
  * the file. `load` replaces the plain press (the Session view reads on past its live turns).

@@ -198,6 +198,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'claudeHome.subagents',
     // Transcripts, Session events and notifications are reading (answer 2): they may show a secret.
     'claudeHome.transcript',
+    // Find in the part of a transcript a view has not read yet (worfy-ui ticket 26): reading, as the transcript itself.
+    'claudeHome.transcriptFind',
     'docs.close',
     // Opening the watcher of a Project's docs lets main sync the HANDOFF Node with the file, as it
     // does for its own active Project: the caller changes nothing.

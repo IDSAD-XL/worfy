@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentEvent } from '../../shared/agent/events'
 import { ORCHESTRATOR_KIND, readOrchestratorData } from '../../shared/ipc/orchestrator'
 import { useOrchestratorView } from '../canvas/nodes/orchestrator-view'
 import { useLayout } from '../canvas/useLayout'
-import { earlierControl, loadEarlierUntil, sessionTranscriptNow, useSessionTranscript } from '../claude-home/useClaudeHome'
+import { earlierControl, loadEarlierTranscript, loadEarlierUntil, sessionTranscriptNow, useSessionTranscript } from '../claude-home/useClaudeHome'
 import { invoke } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useProjects, useReadOnly } from '../projects/useProjects'
@@ -19,6 +19,8 @@ import { useShowSession } from './shown-session'
 import { ensureAgentEvents, joinPastAndLive, useSessionControls, useSessionLog } from './store'
 import { Transcript } from './Transcript'
 import { HideToolsButton } from './HideToolsButton'
+import { SessionFind } from './SessionFind'
+import { useTranscriptFind } from './transcript-find'
 import { useSessionToolsHidden } from './transcript-view'
 import './session.css'
 
@@ -172,6 +174,18 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const claudeSessionId = sessionId !== null && !sessionId.startsWith('pending-') ? sessionId : (transcriptId ?? null)
   // A view choice of this screen, kept per Session (worfy-ui ticket 25), not one of the agent's picks above.
   const [hideTools, setHideTools] = useSessionToolsHidden({ projectId, nodeId, liveId: sessionId, sessionId: claudeSessionId })
+  // ⌘F (worfy-ui ticket 26): the live events and the transcript before them; main searches the part of the file not read yet.
+  const logRef = useRef<HTMLDivElement>(null)
+  const find = useTranscriptFind({
+    events,
+    firstIndex,
+    hideTools,
+    log: logRef,
+    source:
+      root === undefined || transcriptId === undefined
+        ? undefined
+        : { root, sessionId: transcriptId, earlier: past.earlier, loadEarlier: () => loadEarlierTranscript(root, transcriptId), earlierNow: () => sessionTranscriptNow(root, transcriptId).earlier },
+  })
   // A model picked since the last system/init shows at once, as the picker shows it; the next
   // init names the model it runs (store.ts, modelPick; worfy-week ticket 12). Claude Code's
   // default model is «default» until then: only init says which model it stands for.
@@ -263,10 +277,20 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
       </header>
       <div className="w-session__body">
         <section className="w-session__main" aria-label="Session">
+          <SessionFind find={find} />
           {/* Another Session gets a fresh log: no row stays opened from the one shown before (rows are keyed by position). */}
           <Transcript
             key={claudeSessionId ?? `node:${nodeId}`}
-            events={events} firstIndex={firstIndex} sessionId={sessionId} projectId={projectId} assistantLabel={assistantLabel} earlier={earlier} hideTools={hideTools} />
+            events={events}
+            firstIndex={firstIndex}
+            sessionId={sessionId}
+            projectId={projectId}
+            assistantLabel={assistantLabel}
+            earlier={earlier}
+            hideTools={hideTools}
+            find={find.transcript}
+            logRef={logRef}
+          />
           <MessageInput key={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} onSend={send} onInterrupt={interrupt} />
         </section>
         <SessionRail blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={sessionId} />

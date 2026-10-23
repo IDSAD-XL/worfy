@@ -114,6 +114,7 @@ const asked = (root: string) =>
     ['claudeHome.subagents', { projectRoot: root, sessionId: EVIL }],
     ['claudeHome.subagentTranscript', { projectRoot: root, sessionId: EVIL, agentId: 'a1' }],
     ['claudeHome.search', { projectRoot: root, query: 'beside the Project' }],
+    ['claudeHome.transcriptFind', { projectRoot: root, sessionId: EVIL, query: 'beside the Project', before: 1_000_000 }],
     ['bindings.signals', { projectRoot: root, sessionId: EVIL }],
   ] as const
 

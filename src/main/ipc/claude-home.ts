@@ -11,6 +11,7 @@ import { ClaudeHomeRegistry, rootPath, type ClaudeHomeWatch, type RegistryRoot }
 import { TranscriptSearch } from '../claude-home/search'
 import { SubagentReader, subagentTranscriptPath } from '../claude-home/subagents'
 import { readLinesBefore, readNewLines, type TailCursor } from '../claude-home/tail'
+import { findInTranscript } from '../claude-home/transcript-find'
 import { ClientHolders, clientOf, type Client, type ClientId } from '../clients'
 import { isRemoteCall, projectRootOf } from '../link/caller'
 import { projectStore } from '../projects/store'
@@ -24,9 +25,11 @@ import {
   claudeHomeSubagents,
   claudeHomeSubagentTranscript,
   claudeHomeTranscript,
+  claudeHomeTranscriptFind,
   type LiveSession,
 } from '../../shared/ipc/claude-home'
 import type { AgentEvent } from '../../shared/agent/events'
+import { findNeedle } from '../../shared/transcript/find'
 import { mainThreadEvents, parseTranscriptLine, timedEvent, type TranscriptEntry } from '../../shared/transcript/parse'
 import { defineHandler, emit, type HandlerModule } from './index'
 
@@ -231,6 +234,13 @@ export function claudeHomeHandlers(
       return readTranscript(path, { cursor, maxBytes, back }, (entries) => entries.map(timedEvent))
     }),
     defineHandler(claudeHomeSearch, async ({ projectRoot, query }, { event }) => search.search(await rootOf(projectRoot, event), query)),
+    defineHandler(claudeHomeTranscriptFind, async ({ projectRoot, sessionId, agentId, query, before }, { event }) => {
+      const session = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
+      const path = session === null || agentId === undefined ? session : await subagentTranscriptPath(session, agentId)
+      if (path === null) return { found: false, hits: [], total: 0, skipped: 0 }
+      // The same events as the reads above: the Session's own thread, or every record of a Subagent's file.
+      return findInTranscript(path, findNeedle(query), before, agentId === undefined ? mainThreadEvents : (entries) => entries.map(timedEvent))
+    }),
   ]
 }
 
