@@ -124,15 +124,20 @@ Live-проверка 09 записала два дефекта. Разбор п
   (`void taken.then((orphan) => orphan?.close(), () => undefined)`). Если `take()` увидел отмену сам, он
   возвращает `null` и оставляет spare в слоте — следующему запросу, как раньше.
 - **Test-ы** (`test/contract/terminal-ai-assist.test.ts`, раздел «races and shutdown»):
-  - «closes a spare handed out just before a cancel…» — отмена проходит по каждому из 16 microtask-ов
-    между стартом spare и claim; после каждой живых spare не больше одного, после `dispose()` — ни
-    одного. Красный на коде до правки.
+  - «closes a spare handed out just before a cancel, and keeps one a cancel finds still in the slot» —
+    отмена проходит microtask за microtask-ом от старта spare до claim. У каждой точки один из трёх
+    исходов, строго по порядку: spare ещё в слоте и остаётся следующему запросу (`kept`); `take()` уже
+    выдал его — он закрыт без claim, в слоте новый spare (`orphan`); он уже claimed и закрыт полётом
+    (`claimed`). Test требует, чтобы были все три, `orphan` в том числе, и чтобы в каждом исходе живым
+    оставался ровно один spare в слоте, а после `dispose()` — ни одного. Красный на коде до правки.
   - «leaves at most the spare alive after Suggestions with cancels, Next command, Command request and
     Fix…» — после последовательности живой только spare, после `IDLE_MS` — ни одного, после нового
     запроса и `dispose()` — ни одного.
 - **Mutation testing** (mutant-ы в своём worktree, восстановление из копии): без закрытия
   `taken` — красный первый новый test; закрытие и spare в слоте (`dropSpare()`) — красные он же и
-  «keeps the spare a cancelled Suggestion was waiting for…»; без `spare.close()` в `finally` — красные
+  «keeps the spare a cancelled Suggestion was waiting for…»; `take()` при отмене отдаёт spare из слота,
+  а `fly()` его закрывает — красный первый новый test (после замечания ревью: раньше его ловили
+  только два старых); без `spare.close()` в `finally` — красные
   новый test и «stops before claim()…»; `warm()` без повторного использования слота — красные 7 test-ов,
   среди них оба новых; idle-timer без закрытия spare — красные 3, среди них test времени жизни.
 - **Пункт 2 — вариант (а), принятый риск.** Ответ записан в spec, «Риски», пункт 4: Claude Code пишет

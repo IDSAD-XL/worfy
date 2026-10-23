@@ -286,8 +286,9 @@ Epic готов, когда:
    `sessions/<pid>.json` (поля `cwd`, `kind`, `name`, `messagingSocketPath`) живёт от claim до выхода
    процесса; ключ messaging socket `sessions/<pid>.<hash>.key` spare публикует ещё до claim и убирает
    на выходе; сам socket — `/tmp/cc-socks/<pid>.sock`. `cwd` записи — `<WORFY_DATA_DIR>/terminal-ai`,
-   вне Project-ов, поэтому worfy её не показывает. Пока процесс жив, другие Session-ы Claude Code
-   видят его как живую сессию и могут прислать сообщение в socket — это и есть принятый риск. Тот же
+   вне Project-ов, поэтому worfy её не показывает. От claim до выхода другие Session-ы Claude Code
+   видят процесс как живую сессию и могут прислать сообщение в socket — это и есть принятый риск. До
+   claim записи `<pid>.json` нет: в `sessions/` лежит только ключ socket-а. Тот же
    ответ — для процесса Limits (`src/main/agent/limits-usage.ts`, `usageOptions()`): та же папка
    `cwd`, та же запись на время запуска (около 0,3 с, до 48 раз в сутки). Отдельный
    `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_CHILD_SESSION` и просьба к Claude Code об опции не берутся.
