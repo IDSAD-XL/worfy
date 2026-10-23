@@ -1,7 +1,7 @@
 # 113 — Уведомления молчат на Windows, если окно worfy «в фокусе» без переднего плана
 
 Type: task
-Status: open
+Status: claimed 2026-10-23T21:54Z
 Branch: worfy-windows/113
 Blocked by: —
 Source: решение владельца 2026-10-23 («да, заводи тикет») по находке review PR #809 (Ticket 110,
