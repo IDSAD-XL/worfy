@@ -104,6 +104,8 @@ function recordingFeature(feature: string) {
 
 interface StartOptions {
   env?: Env
+  /** The settings as a new install has them (Next command on), instead of the Suggestion from history alone. */
+  defaults?: boolean
   settings?: Partial<TerminalAiSettings>
   /** The tests' own script, read after rc.d/10-assist.zsh and 20-suggest-ai.zsh. */
   script?: string
@@ -116,11 +118,14 @@ async function start(options: StartOptions = {}) {
   const integration = new ShellIntegration()
   integrations.push(integration)
   const feature = recordingFeature(PROBE)
+  // Next command's asks come to the test, not to a model.
+  const next = recordingFeature('next')
+  // Of the real features only the Suggestion from history is on unless a test says otherwise.
+  const off: Partial<TerminalAiSettings> = options.defaults === true ? {} : { suggestionAsksModel: false, nextCommand: false, commandRequest: false, fix: false }
   const link = new ShellLink({
-    // Of the real features only the Suggestion from history is on unless a test says otherwise.
-    settings: () => Promise.resolve(settingsSource({ suggestionAsksModel: false, nextCommand: false, commandRequest: false, fix: false, ...options.settings })),
+    settings: () => Promise.resolve(settingsSource({ ...off, ...options.settings })),
     context: { shellState: (terminal) => registry.shellState(terminal), assist: () => Promise.reject(new Error('no assist service in this test')) },
-    features: { [`./features/${PROBE}.ts`]: feature.loader },
+    features: { [`./features/${PROBE}.ts`]: feature.loader, './features/next.ts': next.loader },
   })
   links.push(link)
   const envs: Env[] = []
@@ -154,6 +159,7 @@ async function start(options: StartOptions = {}) {
   return {
     link,
     feature,
+    next,
     envs,
     text,
     type,
@@ -273,22 +279,75 @@ describe('what runs at the prompt does not get the connection', () => {
     expect(await checkedIn(file, before + 3)).not.toMatch(/socket:\d/)
   })
 
-  it('a widget of the user while an ask waits leaves the link and the ask as they are: the answer is drawn', async () => {
+  it('with the settings of a new install (Next command on) the ask of a new prompt goes with the link around a widget and comes again under its id; its answer is drawn', async () => {
+    const file = join(root, 'next.txt')
+    const t = await start({ defaults: true, script: widgetScript(`  ${descriptorsInto(file)}`) })
+    // Next command asks at the first prompt after a command, and waits.
+    await t.run('true')
+    await vi.waitFor(() => expect(t.next.asks).toHaveLength(1), WAIT)
+    const first = t.next.asks[0]
+    t.type(WIDGET_KEY)
+    expect(await checkedIn(file)).not.toMatch(/socket:\d/)
+    await vi.waitFor(() => expect(t.next.asks).toHaveLength(2), WAIT)
+    const again = t.next.asks[1]
+    expect(first?.ask.signal.aborted).toBe(true)
+    expect(again?.ask).toMatchObject({ id: first?.ask.id, line: '' })
+    expect(again?.reply.show('echo worfy-next-answer')).toBe(true)
+    await vi.waitFor(() => expect(t.text()).toContain('echo worfy-next-answer'), WAIT)
+  })
+
+  it('a zle-line-pre-redraw hook of the user (zsh-syntax-highlighting has one) is left alone: no new connection at every key, the ask that waits is asked once and its answer is drawn', async () => {
+    await userZshrc(['autoload -Uz add-zle-hook-widget', '__test_redraw() { : }', 'zle -N __test_redraw', 'add-zle-hook-widget line-pre-redraw __test_redraw'].join('\n'))
+    const t = await start({ defaults: true })
+    await t.run('true')
+    await vi.waitFor(() => expect(t.next.asks).toHaveLength(1), WAIT)
+    expect(await t.run('print -r -- "${functions[__test_redraw]}"')).not.toContain('_worfy_assist_guard_enter')
+    await vi.waitFor(() => expect(t.next.asks).toHaveLength(2), WAIT)
+    // Every key and every message of main redraws the line: the hook does not give the link or the ask up.
+    expect(t.next.asks[1]?.reply.show('echo worfy-redrawn')).toBe(true)
+    await vi.waitFor(() => expect(t.text()).toContain('echo worfy-redrawn'), WAIT)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(t.next.asks).toHaveLength(2)
+    expect(t.next.asks[1]?.ask.signal.aborted).toBe(false)
+  })
+
+  it('a plugin that keeps the wrapped text of a completion function and wraps it itself (fzf-tab, loaded late or toggled) leaves Tab working, with no loop', async () => {
+    const file = join(root, 'tab.txt')
     const t = await start({
       script: [
-        `__test_ask() { [[ -z $1 && -n $BUFFER ]] && _worfy_assist_ask ${PROBE} "$BUFFER" }`,
-        '__worfy_assist_line_hooks+=(__test_ask)',
-        widgetScript('  : nothing'),
+        `__test_completer() { builtin print -r -- "depth:\${#funcstack}" >> ${file}; compadd worfy-completed }`,
+        'zle -C __test_complete complete-word __test_completer',
+        "bindkey '^Xc' __test_complete",
+        // As fzf-tab does with _main_complete: the text as it is now goes to a name of the plugin's,
+        // and the function calls that name; turned off, the function gets that text back.
+        '__test_plugin_on() { builtin functions -c __test_completer __test_saved; functions[__test_completer]=\'__test_saved "$@"\' }',
+        '__test_plugin_off() { builtin functions -c __test_saved __test_completer }',
       ].join('\n'),
     })
-    await t.probeOn()
-    t.type('x')
-    const { reply } = await t.askAbout('x')
+    const tab = async (round: number) => {
+      t.type('echo ')
+      t.type(COMPLETE_KEY)
+      await vi.waitFor(() => expect(existsSync(file) ? (readFileSync(file, 'utf8').match(/depth:/g) ?? []).length : 0).toBe(round), WAIT)
+      expect(await t.run('')).toContain('worfy-completed')
+    }
+    await tab(1)
+    for (const [round, step] of [[2, '__test_plugin_on'], [3, '__test_plugin_off'], [4, '__test_plugin_on'], [5, '__test_plugin_off']] as const) {
+      await t.run(step)
+      await tab(round)
+    }
+    const depths = [...readFileSync(file, 'utf8').matchAll(/depth:(\d+)/g)].map((match) => Number(match[1]))
+    expect(Math.max(...depths)).toBeLessThan(20)
+    expect(t.text()).not.toMatch(/maximum nested function level|FUNCNEST/i)
+  })
+
+  it('a function whose name starts with a dash (as fzf-tab names its own) is wrapped too', async () => {
+    const file = join(root, 'dash.txt')
+    const t = await start({
+      script: [`__test_body() { ${descriptorsInto(file)} }`, 'builtin functions -c -- __test_body -test-widget', 'zle -N test-dash -test-widget', "bindkey '^Xz' test-dash"].join('\n'),
+    })
     t.type(WIDGET_KEY)
-    // The widget ran, and the shell holds the same link: the answer to the ask reaches it.
-    await vi.waitFor(() => expect(reply.show(' worfy-answer')).toBe(true), WAIT)
-    await vi.waitFor(() => expect(t.text()).toContain('worfy-answer'), WAIT)
-    expect(t.feature.asks.map((each) => each.ask.signal.aborted)).toEqual([false])
+    expect(await checkedIn(file)).not.toMatch(/socket:\d/)
+    expect(await t.run('print -r -- "${functions[-test-widget]}"')).toContain('_worfy_assist_guard_enter')
   })
 
   it('what main sent before it read the bye of a widget is not lost: the insert lands once the link is open again', async () => {

@@ -298,7 +298,12 @@ async function testScript(integration: ShellIntegration, script: string) {
 const WIDGET_KEY = '\x18z'
 
 /** A widget of the tests' own script on WIDGET_KEY that runs `body`. */
-const widgetScript = (body: string) => ['__test_widget() {', body, '}', 'zle -N __test_widget', "bindkey '^Xz' __test_widget"].join('\n')
+const widgetScript = (body: string, name = '__test_widget') => [`${name}() {`, body, '}', `zle -N ${name}`, `bindkey '^Xz' ${name}`].join('\n')
+/**
+ * A widget named as worfy's own: rc.d/10-assist.zsh gives the link up around the widgets of the user
+ * only (terminal-ai-zle-prompt.test.ts), so what this one starts still gets it.
+ */
+const OWN_WIDGET = '_worfy_test_widget'
 
 /**
  * A program that looks at every descriptor from 3 to 255 it was given: `open:<n>` for one that is
@@ -860,7 +865,7 @@ describe('the connection while a command runs', () => {
     expect(await t.redrawn()).toMatch(lineAlone('echo finish-replaced'))
   })
 
-  it('a program a widget started while an ask waited keeps a copy of the descriptor: after the next command the shell is connected again, and the copy reaches main no more', async () => {
+  it('a program worfy\'s own widget started at the prompt keeps a copy of the descriptor: after the next command the shell is connected again, and the copy reaches main no more', async () => {
     const pidFile = join(root, 'holder.pid')
     const wroteFile = join(root, 'holder.wrote')
     const hadFile = join(root, 'holder.had')
@@ -872,17 +877,15 @@ describe('the connection while a command runs', () => {
           `  ${program()} "[ -S /dev/fd/$__worfy_assist_fd ] && : > ${hadFile}; trap '' PIPE; sleep 3; printf 'ask\\t998\\t${PROBE}\\tworfy-holder-ask\\n' >&$__worfy_assist_fd 2>/dev/null; : > ${wroteFile}; exec sleep 30" &!`,
           `  print -r -- $! >| ${pidFile}`,
         ].join('\n'),
+        OWN_WIDGET,
       ),
     )
-    // While an ask waits for its answer the link stays at the prompt: a widget's program gets a copy.
-    t.type('x')
-    await askAbout('x')
     t.type(WIDGET_KEY)
     await vi.waitFor(() => expect(existsSync(pidFile) && readFileSync(pidFile, 'utf8')).toMatch(/^\d+\n$/), WAIT)
     holders.push(Number(readFileSync(pidFile, 'utf8')))
     await vi.waitFor(() => expect(existsSync(hadFile)).toBe(true), WAIT)
 
-    await t.run('\x15true')
+    await t.run('true')
     // The ask of the program comes after the command: else this test proves nothing.
     expect(existsSync(wroteFile)).toBe(false)
     await vi.waitFor(() => expect(link.push(KEY, { type: 'insert', text: 'echo past-the-holder' })).toBe(true), WAIT)
@@ -1172,15 +1175,16 @@ describe('what does not leak and where the widget is not', () => {
     expect(shown(t.text())).not.toContain(token)
   })
 
-  it('the connection is not on a descriptor programs use by convention: what a widget starts while an ask waits finds 3 to 9 closed', async () => {
+  it('the connection is not on a descriptor programs use by convention: what worfy\'s own widget starts at the prompt finds 3 to 9 closed', async () => {
+    const started = start()
     const file = join(root, 'descriptors.txt')
     // zsh has no way to keep a descriptor it opened from the programs it starts. A command finds the
     // connection closed (the tests above), and so does a widget of the user's at the prompt
-    // (terminal-ai-zle-prompt.test.ts), unless an ask waits for its answer: then the program the
-    // widget starts gets the connection, above 9, where zsh keeps its own.
-    const { t, askAbout } = await withAskingScript({}, widgetScript(`  { print -r -- "shell-fd:$__worfy_assist_fd"; ${descriptors()} } >| ${file}`))
-    t.type('x')
-    await askAbout('x')
+    // (terminal-ai-zle-prompt.test.ts); a program worfy's own code starts gets it, above 9, where
+    // zsh keeps its own.
+    await testScript(started.integration, widgetScript(`  { print -r -- "shell-fd:$__worfy_assist_fd"; ${descriptors()} } >| ${file}`, OWN_WIDGET))
+    const t = await started.open()
+    await t.connected()
     t.type(WIDGET_KEY)
     await vi.waitFor(() => expect(existsSync(file) && readFileSync(file, 'utf8')).toContain('checked'), WAIT)
     const fds = readFileSync(file, 'utf8')
@@ -1233,9 +1237,10 @@ describe('what does not leak and where the widget is not', () => {
     const dir = await started.integration.prepare()
     await mkdir(join(dir, 'rc.d'), { recursive: true })
     // Asks at the start of every line: once the socket is gone, the ask finds no link to write to.
+    // Named as a feature's own script: rc.d/10-assist.zsh gives the link up around the user's hooks.
     await writeFile(
       join(dir, 'rc.d', '20-test.zsh'),
-      '__test_ask_at_once() { _worfy_assist_ask suggest "at-line-init"; __test_asked=$? }\nzle -N __test_ask_at_once\nadd-zle-hook-widget line-init __test_ask_at_once\n',
+      '_worfy_test_ask_at_once() { _worfy_assist_ask suggest "at-line-init"; __test_asked=$? }\nzle -N _worfy_test_ask_at_once\nadd-zle-hook-widget line-init _worfy_test_ask_at_once\n',
     )
     const t = await started.open()
     await t.connected()
@@ -1269,7 +1274,7 @@ describe('what does not leak and where the widget is not', () => {
     }
     const { t, envs, integration, askAbout, link } = await withAskingScript(
       { helloTimeoutMs: 300 },
-      widgetScript('  print -r -u $__worfy_assist_fd -- "garbage worfy-line-marker"'),
+      widgetScript('  print -r -u $__worfy_assist_fd -- "garbage worfy-line-marker"', OWN_WIDGET),
     )
     const token = envs[0]?.WORFY_ASSIST_TOKEN ?? ''
     const nonce = envs[0]?.WORFY_SHELL_NONCE ?? ''
