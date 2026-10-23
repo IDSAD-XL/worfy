@@ -199,9 +199,10 @@ async function start(w: World = world()) {
   const dir = await integration.prepare()
   await mkdir(join(dir, 'rc.d'), { recursive: true })
   const probeFile = join(scratch, 'probe.txt')
+  // Named as worfy's own: rc.d/10-assist.zsh does not give the link up around it while it looks.
   await writeFile(
     join(dir, 'rc.d', '90-test.zsh'),
-    ['__test_probe() {', `  builtin print -r -- "line:[$BUFFER]" >| ${probeFile}`, '}', 'zle -N __test_probe', "bindkey '^Xg' __test_probe", ''].join('\n'),
+    ['_worfy_test_probe() {', `  builtin print -r -- "line:[$BUFFER]" >| ${probeFile}`, '}', 'zle -N _worfy_test_probe', "bindkey '^Xg' _worfy_test_probe", ''].join('\n'),
   )
 
   // The channels, as main registers them; the Node asks for the state when it mounts, before its shell runs anything.

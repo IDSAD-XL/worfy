@@ -191,18 +191,20 @@ const PROBE_KEY = '\x18g'
 /**
  * A script of the tests' own, read after the feature's: Ctrl+X g writes what zsh holds into `file`,
  * without changing the line. To rc.d/40-command-request.zsh the probe is not a key of the user's: it
- * marks its own redraw the way Enter that asked does, so a request that waits goes on waiting.
+ * marks its own redraw the way Enter that asked does, so a request that waits goes on waiting. Its
+ * name starts with _worfy_: rc.d/10-assist.zsh leaves the link open around it, as around its own
+ * widgets, so looking does not give the link up for a moment.
  */
 const testKeys = (file: string) =>
   [
-    '__test_probe() {',
+    '_worfy_test_probe() {',
     '  __worfy_request_fresh=1',
     '  builtin local features=-',
     '  (( __worfy_assist_configured )) && features="${(okj: :)__worfy_assist_features}"',
     `  builtin print -r -- "line:[$BUFFER] grey:[$POSTDISPLAY] asked:[$__worfy_assist_asked] given:[\${__worfy_suggest_given-}] features:[$features]" >| ${file}`,
     '}',
-    'zle -N __test_probe',
-    "bindkey '^Xg' __test_probe",
+    'zle -N _worfy_test_probe',
+    "bindkey '^Xg' _worfy_test_probe",
   ].join('\n')
 
 /**

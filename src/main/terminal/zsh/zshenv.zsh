@@ -6,22 +6,22 @@
 # there. The user's files are only read, never changed.
 #
 # This first file takes worfy's variables out of the environment into shell variables that are not
-# exported: programs started from the shell do not see the nonce.
-__worfy_dir=$ZDOTDIR
-__worfy_nonce=$WORFY_SHELL_NONCE
-# The socket of Terminal AI and this shell's token for it, when worfy gave them (rc.d/10-assist.zsh).
-__worfy_assist_socket=$WORFY_ASSIST_SOCKET
-__worfy_assist_token=$WORFY_ASSIST_TOKEN
-# WORFY_USER_ZDOTDIR is there only when the user's environment had a ZDOTDIR.
-if (( ${+WORFY_USER_ZDOTDIR} )); then
-  __worfy_user_zdotdir_set=1
-  __worfy_user_zdotdir_export=1
-  __worfy_user_zdotdir=$WORFY_USER_ZDOTDIR
-else
-  __worfy_user_zdotdir_set=0
-  __worfy_user_zdotdir_export=0
-  __worfy_user_zdotdir=$HOME
-fi
+# exported: programs started from the shell do not see the nonce. They are made inside a function
+# under `emulate -L zsh`: with `allexport` on (/etc/zshenv may turn it on) an assignment at the top
+# level exports the variable, `typeset +x` included, and the programs of the user's .zshenv,
+# .zprofile and .zshrc would see the token before zshrc.zsh takes the export off.
+() {
+  builtin emulate -L zsh
+  builtin typeset -g __worfy_dir=$ZDOTDIR __worfy_nonce=$WORFY_SHELL_NONCE
+  # The socket of Terminal AI and this shell's token for it, when worfy gave them (rc.d/10-assist.zsh).
+  builtin typeset -g __worfy_assist_socket=$WORFY_ASSIST_SOCKET __worfy_assist_token=$WORFY_ASSIST_TOKEN
+  # WORFY_USER_ZDOTDIR is there only when the user's environment had a ZDOTDIR.
+  if (( ${+WORFY_USER_ZDOTDIR} )); then
+    builtin typeset -g __worfy_user_zdotdir_set=1 __worfy_user_zdotdir_export=1 __worfy_user_zdotdir=$WORFY_USER_ZDOTDIR
+  else
+    builtin typeset -g __worfy_user_zdotdir_set=0 __worfy_user_zdotdir_export=0 __worfy_user_zdotdir=$HOME
+  fi
+}
 builtin unset WORFY_USER_ZDOTDIR WORFY_SHELL_NONCE WORFY_ASSIST_SOCKET WORFY_ASSIST_TOKEN
 
 # Gives the shell the user's ZDOTDIR as it stands: their value, exported or not, or none.

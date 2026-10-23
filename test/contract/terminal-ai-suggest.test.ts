@@ -201,15 +201,16 @@ const PUT_LINE = 'ls -la put-by-a-script'
  * A script of the tests' own, read after the widget's. Ctrl+X g writes what the widget holds into
  * `file`, without changing the line: the line it holds as given, and the pipe and the subshell of
  * its timer. Ctrl+X p puts a line the way the widget's header tells a script of another feature to.
+ * Their names start with _worfy_, as worfy's own: rc.d/10-assist.zsh does not give the link up around them.
  */
 const testKeys = (file: string) =>
   [
-    `__test_probe() { builtin print -r -- "given:[$__worfy_suggest_given] timer:[$__worfy_suggest_fd] pid:[$__worfy_suggest_pid]" >| ${file} }`,
-    'zle -N __test_probe',
-    "bindkey '^Xg' __test_probe",
-    `__test_put() { BUFFER='${PUT_LINE}'; CURSOR=$#BUFFER; __worfy_suggest_given=$BUFFER; _worfy_assist_changed }`,
-    'zle -N __test_put',
-    "bindkey '^Xp' __test_put",
+    `_worfy_test_probe() { builtin print -r -- "given:[$__worfy_suggest_given] timer:[$__worfy_suggest_fd] pid:[$__worfy_suggest_pid]" >| ${file} }`,
+    'zle -N _worfy_test_probe',
+    "bindkey '^Xg' _worfy_test_probe",
+    `_worfy_test_put() { BUFFER='${PUT_LINE}'; CURSOR=$#BUFFER; __worfy_suggest_given=$BUFFER; _worfy_assist_changed }`,
+    'zle -N _worfy_test_put',
+    "bindkey '^Xp' _worfy_test_put",
   ].join('\n')
 
 /** A registry of Terminals with the shell integration over the temporary HOME, the link to their shells and the assist service. */

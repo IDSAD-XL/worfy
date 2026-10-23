@@ -65,7 +65,9 @@ _worfy_suggest_timer() {
   builtin local fd pid
   # zselect counts in hundredths of a second; one more, so the timer does not end before the moment.
   builtin local -i wait=$(( (__worfy_suggest_due - EPOCHREALTIME) * 100 + 1 ))
-  { builtin exec {fd}< <(builtin print -r -- $sysparams[pid]; builtin zselect -t $wait) } 2>/dev/null || builtin return 0
+  # The subshell holds a copy of every descriptor of the shell; the link's goes first, so the copy
+  # neither keeps the connection to main nor can be written to.
+  { builtin exec {fd}< <([[ -z $__worfy_assist_fd ]] || { builtin exec {__worfy_assist_fd}>&- } 2>/dev/null; builtin print -r -- $sysparams[pid]; builtin zselect -t $wait) } 2>/dev/null || builtin return 0
   builtin read -r -u $fd pid 2>/dev/null
   __worfy_suggest_fd=$fd __worfy_suggest_pid=$pid
   builtin zle -F -w $fd _worfy_suggest_timer_end
