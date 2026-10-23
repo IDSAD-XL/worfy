@@ -143,6 +143,13 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
       webviewTag: true,
     },
   })
+  // At a fractional display scale the constructor misses the size it is given: at 150 % on Windows
+  // a saved 900 × 560 came out 900 × 562 (the outer size, frame included), with or without the
+  // minimum size, while setBounds on the window it made is exact. So the bounds are set once more
+  // when they came out different. Before the listeners below: this is no move or resize to save.
+  const made = window.getBounds()
+  const asked = { ...made, ...bounds }
+  if (made.x !== asked.x || made.y !== asked.y || made.width !== asked.width || made.height !== asked.height) window.setBounds(asked)
   if (quiet.ignoreMouseEvents) window.setIgnoreMouseEvents(true)
   // Quiet windows on macOS only. A place from the saved state is not checked at creation or show
   // ('x' in bounds: initialBounds reused it), only after a change of size; a window centred by the
