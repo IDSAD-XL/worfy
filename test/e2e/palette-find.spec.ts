@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { basename, join, relative } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp } from './helpers'
 import { snapshotThemes } from './snapshots'
@@ -42,6 +42,12 @@ function ticketFile({ num, title, status, blocked }: (typeof TICKETS)[number]): 
   const blockers = blocked.length ? blocked.map(nn).join(', ') : '—'
   return [`# ${nn(num)} — ${title}`, '', 'Type: task', `Status: ${status}`, `Blocked by: ${blockers}`, '', '## Где в коде', '', `- \`src/f${num}.ts\``, ''].join('\n')
 }
+
+/**
+ * The repository's .git folder, skipped by the listings: `git status` itself may rewrite .git/index.
+ * By its name, not by a '/' in the path: on Windows join() gives '\'.
+ */
+const isGitFolder = (path: string): boolean => basename(path) === '.git'
 
 /** Every file under `dir` with its size and modification time. */
 function listing(dir: string, skip: (path: string) => boolean = () => false): Record<string, string> {
@@ -156,7 +162,7 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
   )
 
   const scratchBefore = listing(join(repo, '.scratch'))
-  const repoBefore = listing(repo, (path) => path.endsWith('/.git'))
+  const repoBefore = listing(repo, isGitFolder)
   const statusBefore = git(repo, 'status', '--porcelain')
   const claudeBefore = listing(claudeHome)
 
@@ -181,10 +187,15 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     // With the empty query the list holds every command and scrolls: a flex column squeezed the
     // field below a row's height there (ticket worfy-week/13).
     const field = window.getByTestId('palette-field')
+    // The layout height the page itself reports. Not boundingBox(): Playwright takes it from the
+    // element's quad in device pixels over CDP, and at a fractional display scale (150 %) a 28 px row
+    // comes back as 28.000003 or 28.000008 px depending on where it sits.
+    const layoutHeight = (locator: Locator): Promise<number> =>
+      locator.evaluate((element) => (element as unknown as { getBoundingClientRect(): { height: number } }).getBoundingClientRect().height)
     const heights = async (): Promise<{ field: number; input: number; row: number; scrolls: boolean }> => ({
       field: await field.evaluate((element) => element.clientHeight),
-      input: (await input.boundingBox())?.height ?? -1,
-      row: (await options.first().boundingBox())?.height ?? -1,
+      input: await layoutHeight(input),
+      row: await layoutHeight(options.first()),
       scrolls: await palette.getByRole('listbox').evaluate((list) => list.scrollHeight > list.clientHeight),
     })
     await expect(field).toBeVisible()
@@ -357,7 +368,7 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
 
   // Nothing in the repository changed, nor under the Claude home.
   expect(listing(join(repo, '.scratch'))).toEqual(scratchBefore)
-  expect(listing(repo, (path) => path.endsWith('/.git'))).toEqual(repoBefore)
+  expect(listing(repo, isGitFolder)).toEqual(repoBefore)
   expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
   expect(listing(claudeHome)).toEqual(claudeBefore)
 })

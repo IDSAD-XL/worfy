@@ -44,6 +44,11 @@ vi.mock('electron', () => {
     getNormalBounds() {
       return { x: 0, y: 0, width: 1280, height: 800 }
     }
+    // createMainWindow reads the bounds the window came out at, and sets them again if they differ.
+    getBounds() {
+      return { x: 0, y: 0, width: 1280, height: 800 }
+    }
+    setBounds(): void {}
     isDestroyed(): boolean {
       return electron.destroyed
     }

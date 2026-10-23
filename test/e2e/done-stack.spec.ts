@@ -166,7 +166,15 @@ test('the open done stack folds by Collapse in the place of Expand, and by Esc o
     await expect(toggle).toHaveAttribute('aria-expanded', 'true')
     await expect(toggle).toBeVisible()
     expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(9.5)
-    await expect(toggle).toHaveCSS('border-top-width', '1px')
+    // A 1 px border. Chromium paints a border in whole device pixels, at least one (floor of width ×
+    // devicePixelRatio), and getComputedStyle reports that painted width: 1 px is 1 device px, which
+    // is 0.666667px at a 150 % display and 1px at 100 % and 200 %.
+    const border = await toggle.evaluate((element) => {
+      const page = globalThis as unknown as { devicePixelRatio: number; getComputedStyle(element: unknown): { borderTopWidth: string } }
+      return { width: page.getComputedStyle(element).borderTopWidth, scale: page.devicePixelRatio }
+    })
+    expect(border.width).toMatch(/^[\d.]+px$/)
+    expect(Number.parseFloat(border.width)).toBeCloseTo(Math.max(1, Math.floor(border.scale)) / border.scale, 5)
     await expect(toggle.locator('svg')).toHaveCount(1)
     await expect(window.getByTestId('done-stack-region')).toBeVisible()
     const openShots = await snapshotThemes(window, 'done-stack-toggle-open')

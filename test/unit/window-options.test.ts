@@ -55,6 +55,8 @@ const electron = vi.hoisted(() => {
     /** The real mouse pointer and the displays' work areas, as `screen` reports them. */
     cursor: { x: 0, y: 0 },
     cursorReads: 0,
+    /** How many DIP taller than asked the constructor makes the window (Windows at a 150 % display). */
+    growOnCreate: 0,
     workAreas: [{ x: 0, y: 25, width: 1440, height: 875 }],
     /** The window made last, for the tests that resize or place it. */
     last: undefined as { setBounds(bounds: { x: number; y: number; width: number; height: number }): void; setSize(width: number, height: number): void } | undefined,
@@ -75,7 +77,7 @@ vi.mock('electron', () => {
       electron.last = this
       // Saved bounds as given; otherwise the system centres the window on the first display.
       const width = options.width as number
-      const height = options.height as number
+      const height = (options.height as number) + electron.growOnCreate
       const area = electron.workAreas[0]!
       electron.bounds =
         typeof options.x === 'number'
@@ -212,6 +214,7 @@ describe('createMainWindow', () => {
     electron.windowOn.length = 0
     electron.setBounds.length = 0
     electron.boundsOnShow = undefined
+    electron.growOnCreate = 0
     electron.cursorReads = 0
     // Far from any window: only the tests of keepOffPointer put the pointer on the window.
     electron.cursor = { x: 5_000, y: 5_000 }
@@ -233,6 +236,43 @@ describe('createMainWindow', () => {
 
   it('on macOS makes the window of design F', async () => {
     expect(await optionsOn('darwin', true)).toMatchObject({ ...frameOptions('darwin', true), title: 'worfy', show: false })
+  })
+
+  // worfy-windows ticket 109: at a 150 % display on Windows the constructor made a saved 900 × 560
+  // window 900 × 562; setBounds on the made window is exact.
+  describe('gives the window exactly the bounds it asked for', () => {
+    const saved = { x: 60, y: 100, width: 900, height: 560 }
+    async function withSaved(grow: number): Promise<void> {
+      const dataDir = mkdtempSync(join(tmpdir(), 'worfy-window-options-exact-'))
+      try {
+        writeFileSync(join(dataDir, 'window-state.json'), JSON.stringify({ bounds: saved }))
+        await optionsOn('win32', false, dataDir, () => {
+          electron.growOnCreate = grow
+        })
+      } finally {
+        removeTestTree(dataDir)
+      }
+    }
+
+    it('sets the saved bounds again when the constructor made the window larger', async () => {
+      await withSaved(2)
+      expect(electron.setBounds).toEqual([saved])
+      expect(electron.bounds).toEqual(saved)
+    })
+
+    it('keeps the place the system centred a window without a saved state on, at the asked size', async () => {
+      await optionsOn('win32', false, undefined, () => {
+        electron.growOnCreate = 2
+      })
+      // 1280 × 802 centred on the 1440 × 875 work area at y 25 → (80, 62).
+      expect(electron.setBounds).toEqual([{ x: 80, y: 62, width: 1280, height: 800 }])
+    })
+
+    it('leaves a window the constructor made at the asked bounds alone', async () => {
+      await withSaved(0)
+      expect(electron.setBounds).toEqual([])
+      expect(electron.bounds).toEqual(saved)
+    })
   })
 
   // When the window is put on screen (src/main/window-show.ts, test/unit/window-show.test.ts): the

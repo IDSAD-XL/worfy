@@ -85,6 +85,8 @@ const electron = vi.hoisted(() => {
     // What createMainWindow asks of a window besides its web contents.
     on(): void {}
     once(): void {}
+    getBounds = (): { x: number; y: number; width: number; height: number } => ({ x: 0, y: 0, width: 1280, height: 800 })
+    setBounds(): void {}
     loadFile = (): Promise<void> => Promise.resolve()
     loadURL = (): Promise<void> => Promise.resolve()
   }
