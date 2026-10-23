@@ -1,9 +1,7 @@
 # 90 — Git Bash на консоли Windows иногда теряет первую клавишу после resize pty
 
 Type: task
-Status: blocked 2026-10-22T04:51Z
-Blocked reason: ждёт исправления вне worfy (Git for Windows / MSYS2 или ConPTY из node-pty); правки продукта сейчас нет
-Waits: team
+Status: done 2026-10-23T00:14Z
 Blocked by: —
 Source: работа над [Ticket-ом 86](86-terminal-на-windows-экран-после-resize-и-alternate-screen.md) (PR #736) на ПК,
 2026-10-22; ответ Session на Mac на вопросы PR #736. Строки `wheel-over-nodes.spec.ts` — по ветке PR #736
@@ -95,3 +93,5 @@ Ticket: здесь теряется первая клавиша после resiz
 - Зелёный: ПК 2026-10-22, полный e2e на main `d06d2c2d` (пересчёт Ticket-а 14, PR #755): `:648` прошёл, 1 из 1.
 
 Решение Session на Mac: новый Ticket — только если `:648` снова покраснеет; тогда записать прогон и экран.
+
+**Решение владельца 2026-10-23:** вынесен из Epic-а — приёмку (16) не блокирует, причина вне worfy (Git for Windows / MSYS2 или ConPTY). Ticket закрыт без правок; если `:648` снова покраснеет — новый Ticket с прогоном и экраном.
