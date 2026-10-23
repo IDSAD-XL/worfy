@@ -188,6 +188,45 @@ describe('harness/evals: the cases', () => {
     expect('node /tmp/plugin/harness/hooks/gate.mjs full </dev/null').not.toMatch(pattern)
   })
 
+  // The epic-wave cases grade which tickets the wave takes by the dispatch, not by a Status line.
+  // The demo profile runs a wave one ticket at a time, so ticket 04 starts only after 02 is merged,
+  // and a ticket's Status changes only when its implementer reaches the claim: graders on those lines
+  // failed runs that took exactly the named tickets (2026-10-22 and 2026-10-23, both cases).
+  it.each([
+    ['epic-wave-old-form', 'alpha|charlie'],
+    ['epic-wave-tickets', 'alpha|charlie|delta'],
+  ])('%s: the dispatch grader matches the brief of skills/epic-wave for ticket 02 only', (name, unnamed) => {
+    const skill = readFileSync(join(HARNESS, 'skills', 'epic-wave', 'SKILL.md'), 'utf8')
+    expect(skill).toContain('Ticket: <F tickets.path for NN>; spec: <F tickets.spec>')
+    expect(skill).toContain('Files: <exact list>')
+    const input = (nn: string, slug: string): string =>
+      JSON.stringify({
+        description: `impl-${nn}`,
+        subagent_type: 'worfy:implementer',
+        name: `impl-${nn}`,
+        run_in_background: true,
+        prompt: [
+          `Ticket: .scratch/demo/issues/${nn}-${slug}.md; spec: .scratch/demo/spec.md`,
+          `Files: src/${slug}.mjs, test/${slug}.test.mjs`,
+        ].join('\n'),
+      })
+    const dispatched = frontMatter(join(EVALS, name, 'graders', '02-dispatched.md'))
+    expect(field(dispatched, 'type')).toBe('tool_used')
+    expect(field(dispatched, 'tool')).toBe('Agent')
+    expect(field(dispatched, 'min')).toBe('1')
+    const pattern = new RegExp(field(dispatched, 'input_match') ?? '<none>')
+    expect(input('02', 'bravo')).toMatch(pattern)
+    const others: [nn: string, slug: string][] = [['01', 'alpha'], ['03', 'charlie'], ['04', 'delta']]
+    for (const [nn, slug] of others) expect(input(nn, slug)).not.toMatch(pattern)
+    const guard = frontMatter(join(EVALS, name, 'graders', 'no-agent-for-unnamed.md'))
+    expect(field(guard, 'input_match')).toBe(unnamed)
+    expect(input('02', 'bravo')).not.toMatch(new RegExp(unnamed))
+    for (const file of graderFiles(name)) {
+      const grader = frontMatter(file)
+      if (field(grader, 'match') === 'not_contains') expect(field(grader, 'pattern'), file).not.toContain('Status')
+    }
+  })
+
   // The status-block grader and the app read the same four lines: a reply whose closing block
   // worfy shows must pass the grader, indented as in the example of hooks/rules/orchestrator.md or
   // not, and a reply that closes with the old Russian labels must fail it.
