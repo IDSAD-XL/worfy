@@ -742,6 +742,9 @@ describe('the connection while a command runs', () => {
     await vi.waitFor(() => expect(link.push(KEY, STALE)).toBe(false), WAIT)
     expect(link.connected(KEY)).toBe(true)
     await vi.waitFor(() => expect(hellos).toEqual([true, true]), WAIT)
+    // The hello comes over the socket, the end of `sleep` over the pty: the commands below start
+    // only after the pty showed the prompt after it.
+    await t.prompt(2)
 
     // Commands one after another, builtins among them: each next prompt says hello again.
     for (let index = 0; index < 20; index++) await t.run(index % 2 === 0 ? 'true' : ':')
@@ -753,6 +756,31 @@ describe('the connection while a command runs', () => {
     await t.exit()
     await vi.waitFor(() => expect(hellos).toEqual([...Array<boolean>(22).fill(true), false]), WAIT)
     expect(link.connected(KEY)).toBe(false)
+  })
+
+  it('a zle-line-finish widget of the user (Ubuntu\'s /etc/zsh/zshrc and oh-my-zsh define one) does not open the link again after Enter: one hello per command, at the next prompt', async () => {
+    // What Debian's and Ubuntu's /etc/zsh/zshrc define when the terminal has smkx and rmkx; the
+    // widgets exist before 10-assist.zsh, so add-zle-hook-widget runs them as the first hooks.
+    await userZshrc(
+      [
+        "zle-line-init() { emulate -L zsh; printf '%s' ${terminfo[smkx]} }",
+        "zle-line-finish() { emulate -L zsh; printf '%s' ${terminfo[rmkx]} }",
+        'zle -N zle-line-init',
+        'zle -N zle-line-finish',
+      ].join('\n'),
+    )
+    const { open, link } = start()
+    const hellos: boolean[] = []
+    link.onConnection((key, connected) => {
+      if (key === KEY) hellos.push(connected)
+    })
+    const t = await open()
+    await t.connected()
+    for (let index = 0; index < 3; index++) await t.run('true')
+    // At the last prompt the link is open again (main can write to it): its hello is in.
+    await vi.waitFor(() => expect(link.push(KEY, { type: 'insert', text: 'echo after-three' })).toBe(true), WAIT)
+    expect(await t.redrawn()).toMatch(lineAlone('echo after-three'))
+    expect(hellos).toEqual(Array<boolean>(4).fill(true))
   })
 
   it('the token says hello again once its connection is closed; while that one is open, a second hello is refused', async () => {
@@ -864,6 +892,26 @@ describe('the connection while a command runs', () => {
     expect(found).not.toMatch(/socket:\d/)
     await vi.waitFor(() => expect(started.link.push(KEY, { type: 'insert', text: 'echo finish-replaced' })).toBe(true), WAIT)
     expect(await t.redrawn()).toMatch(lineAlone('echo finish-replaced'))
+  })
+
+  it('with zle-line-finish taken over after worfy loaded, the link does not open again after it: zshaddhistory finds no socket, one hello per command', async () => {
+    const started = start()
+    const hellos: boolean[] = []
+    started.link.onConnection((key, connected) => {
+      if (key === KEY) hellos.push(connected)
+    })
+    const file = join(root, 'taken-over.txt')
+    // rc.d/20-test.zsh runs after 10-assist.zsh, as a plugin loaded late would: no dispatcher of add-zle-hook-widget calls the widget.
+    await testScript(started.integration, [`zshaddhistory() { ${descriptors()} >> ${file}; builtin return 0 }`, '__test_finish() { : }', 'zle -N zle-line-finish __test_finish'].join('\n'))
+    const t = await started.open()
+    await t.connected()
+    for (let index = 0; index < 3; index++) await t.run('true')
+    const found = readFileSync(file, 'utf8')
+    expect(found.match(/checked/g)).toHaveLength(3)
+    expect(found).not.toMatch(/socket:\d/)
+    await vi.waitFor(() => expect(started.link.push(KEY, { type: 'insert', text: 'echo taken-over' })).toBe(true), WAIT)
+    expect(await t.redrawn()).toMatch(lineAlone('echo taken-over'))
+    expect(hellos).toEqual(Array<boolean>(4).fill(true))
   })
 
   it('a program worfy\'s own widget started at the prompt keeps a copy of the descriptor: after the next command the shell is connected again, and the copy reaches main no more', async () => {
