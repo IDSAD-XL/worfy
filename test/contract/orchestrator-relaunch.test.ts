@@ -144,9 +144,9 @@ describe('Orchestrator relaunch waits for the old Claude Code process', () => {
     const untilTerm = (h.stub.terminated.get(1) ?? Infinity) - asked
     const added = (spawn?.at ?? Infinity) - (exit?.at ?? -Infinity)
     expect(added).toBeGreaterThanOrEqual(0)
-    // A fifth of the limit: a relaunch that waited it out, before the close or after the exit, would be far past this.
-    expect(untilTerm).toBeLessThan(LIMIT_MS / 5)
-    expect(added).toBeLessThan(LIMIT_MS / 5)
+    // A fifth of the limit for both sides together: a relaunch that waited it out, before the close,
+    // after the exit or split between them, would be far past this.
+    expect(untilTerm + added).toBeLessThan(LIMIT_MS / 5)
   })
 
   it('a message sent during the wait waits in the new Session and reaches the new process; the old Session takes none', async () => {

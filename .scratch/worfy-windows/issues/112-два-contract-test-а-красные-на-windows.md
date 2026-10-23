@@ -157,3 +157,8 @@ PowerShell и `.bash_history` до и после круга — без изме�
 Попутно: под нагрузкой 16 процессов в `orchestrator-relaunch` краснели и другие test-ы (порядок
 `exit 1 SIGTERM` против `SIGKILL`, `spawn 2` раньше `exit 1` в `ignore-term`). Это не test `:131` и
 в тихих прогонах не воспроизводится — для worfy-polish 41.
+
+**Ревью, круг 2** (Session на Mac, high, correctness: блокирующих нет). Low: две проверки по отдельности (запрос → SIGTERM и
+exit → spawn, каждая < `LIMIT_MS / 5`) пропускали 600 ms до закрытия плюс 600 ms после exit. Теперь с порогом сравнивается их
+сумма. Мутант «600 ms до `close()` и 600 ms после exit» в `relaunch` — красный (`expected 1235 to be less than 1000`).
+`orchestrator-relaunch` 3 прогона — EXIT 0; lint, typecheck, gate fast — EXIT 0.
