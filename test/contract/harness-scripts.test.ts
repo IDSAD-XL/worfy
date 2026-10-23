@@ -14,7 +14,7 @@
 // the `maxConcurrency` of the contract project (vitest.config.ts); a waiting case has not started,
 // so its time limit counts from its own start, not from the start of the file.
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
@@ -250,6 +250,54 @@ function failure(file: string, run: Run, timeoutMs: number): string | null {
   return null
 }
 
+// How long a case waits for the process group of a killed run to end. The kill is a SIGKILL to the
+// group: it cannot be caught, so the wait is for the kernel, not for the script.
+const GROUP_END_MS = 2_000
+
+/** The members of process group `pgid` that still run: their pid and state from /proc (Linux only). */
+function runningMembers(pgid: number): string[] {
+  const running: string[] = []
+  for (const entry of readdirSync('/proc')) {
+    if (!/^\d+$/.test(entry)) continue
+    let stat: string
+    try {
+      stat = readFileSync(`/proc/${entry}/stat`, 'utf8')
+    } catch {
+      continue // The process ended between the listing and the read.
+    }
+    // After the command name in parentheses: state, ppid, pgrp, ...
+    const [state, , pgrp] = stat.slice(stat.lastIndexOf(')') + 2).split(' ')
+    if (Number(pgrp) === pgid && state !== 'Z') running.push(`${entry} (${state})`)
+  }
+  return running
+}
+
+/**
+ * Waits until no process of the run's group runs any more (macOS and Linux); fails naming what
+ * still runs. Signal 0 to the group fails with ESRCH once every member is gone. Right after the
+ * SIGKILL it can still succeed: on Linux a killed member keeps running until the kernel schedules
+ * its exit, and then stays a zombie until its new parent (pid 1 or a subreaper) reaps it. Under
+ * load either takes long enough for an immediate probe to see the group (CI runs 39867148919).
+ * A zombie runs nothing, so on Linux a group of zombies alone has ended too.
+ */
+async function expectGroupEnded(pgid: number): Promise<void> {
+  // Group 0 is the caller's own group: a run without a pid has no group to check.
+  expect(pgid).toBeGreaterThan(0)
+  await vi.waitFor(
+    () => {
+      try {
+        process.kill(-pgid, 0)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ESRCH') return
+        throw error
+      }
+      const running = process.platform === 'linux' ? runningMembers(pgid) : ['the group answers signal 0']
+      expect(running, `processes of the run's group ${pgid} still run`).toEqual([])
+    },
+    { timeout: GROUP_END_MS * timeScale, interval: 10 },
+  )
+}
+
 // How many times each file started in this run: every file once, and a retry counts as a second
 // start (afterAll below fails on it).
 const starts = new Map<string, number>()
@@ -333,8 +381,8 @@ describe('harness shell tests', () => {
       expect(failure(script, run, 1_000)).toMatch(/did not finish: it was killed after 1 s\nstarted/)
       expect(existsSync(home)).toBe(false)
       expect(run.pid).toBeDefined()
-      // No process of the run's group is left: signal 0 to the group fails with ESRCH.
-      if (!WINDOWS) expect(() => process.kill(-(run.pid ?? 0), 0)).toThrow()
+      // No process of the run's group is left running.
+      if (!WINDOWS) await expectGroupEnded(run.pid ?? 0)
     } finally {
       removeTestTree(dir)
     }
@@ -354,7 +402,7 @@ describe('harness shell tests', () => {
       expect(took).toBeLessThan((CLOSE_GRACE_MS + 3_000) * timeScale)
       expect(failure(script, run, 1_000)).toBeNull()
       expect(run.output).toContain('done')
-      if (!WINDOWS) expect(() => process.kill(-(run.pid ?? 0), 0)).toThrow()
+      if (!WINDOWS) await expectGroupEnded(run.pid ?? 0)
     } finally {
       removeTestTree(dir)
     }
@@ -378,7 +426,7 @@ describe('harness shell tests', () => {
       expect(run.status).not.toBe(0)
       expect(liveRuns.size).toBe(0)
       expect(existsSync(home)).toBe(false)
-      if (!WINDOWS) expect(() => process.kill(-(run.pid ?? 0), 0)).toThrow()
+      if (!WINDOWS) await expectGroupEnded(run.pid ?? 0)
     } finally {
       removeTestTree(dir)
     }
