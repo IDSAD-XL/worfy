@@ -50,6 +50,8 @@ const electron = vi.hoisted(() => {
     bounds: { x: 0, y: 0, width: 0, height: 0 },
     windowOn: [] as { event: string; handler: Listener }[],
     setBounds: [] as { x: number; y: number; width: number; height: number }[],
+    /** For each setBounds, the events the window had on() listeners for at that moment. */
+    subscribedAtSetBounds: [] as string[][],
     /** Where macOS puts the window as it shows it, when it moves it then; undefined leaves it. */
     boundsOnShow: undefined as { x: number; y: number; width: number; height: number } | undefined,
     /** The real mouse pointer and the displays' work areas, as `screen` reports them. */
@@ -106,6 +108,7 @@ vi.mock('electron', () => {
     /** Like macOS for a programmatic setFrame: 'resize' only when the size changes. */
     setBounds(bounds: { x: number; y: number; width: number; height: number }): void {
       electron.setBounds.push({ ...bounds })
+      electron.subscribedAtSetBounds.push(electron.windowOn.map((entry) => entry.event))
       const resized = bounds.width !== electron.bounds.width || bounds.height !== electron.bounds.height
       electron.bounds = { ...bounds }
       if (resized) for (const each of electron.windowOn.filter((entry) => entry.event === 'resize')) each.handler()
@@ -213,6 +216,7 @@ describe('createMainWindow', () => {
     electron.dark = dark
     electron.windowOn.length = 0
     electron.setBounds.length = 0
+    electron.subscribedAtSetBounds.length = 0
     electron.boundsOnShow = undefined
     electron.growOnCreate = 0
     electron.cursorReads = 0
@@ -258,6 +262,14 @@ describe('createMainWindow', () => {
       await withSaved(2)
       expect(electron.setBounds).toEqual([saved])
       expect(electron.bounds).toEqual(saved)
+    })
+
+    it('sets them before it listens for moves and resizes, so the correction is not saved as a change', async () => {
+      await withSaved(2)
+      expect(electron.windowOn.map((entry) => entry.event)).toEqual(expect.arrayContaining(['resized', 'moved']))
+      expect(electron.subscribedAtSetBounds).toHaveLength(1)
+      expect(electron.subscribedAtSetBounds[0]).not.toContain('resized')
+      expect(electron.subscribedAtSetBounds[0]).not.toContain('moved')
     })
 
     it('keeps the place the system centred a window without a saved state on, at the asked size', async () => {
