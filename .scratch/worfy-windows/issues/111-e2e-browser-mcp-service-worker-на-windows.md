@@ -1,7 +1,8 @@
 # 111 — e2e `browser-mcp`: test про service worker другого сайта красный на Windows
 
 Type: task
-Status: open
+Status: claimed 2026-10-23T18:24Z
+Branch: worfy-windows/111
 Blocked by: —
 Source: пересчёт e2e на ПК владельца 2026-10-23 (main `f8ada2a3`, масштаб 150 %;
 `C:/Users/Alexey/worfy-wt/recount/e2e.json` на ПК), решение владельца 2026-10-23 по отсечке Epic-а. На Mac
