@@ -1,7 +1,8 @@
 # 08 — Autopilot: агенты Wave проверяют acceptance criteria в Browser под Browser profile-ами «доступен Autopilot»
 
 Type: task
-Status: claimed 2026-10-22T23:17Z
+Status: done 2026-10-23T04:11Z
+PR: #791
 Blocked by: 05, 06
 Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md) (Browser Node), пункт 10
 (Autopilot — только Browser profile-ы с флажком «доступен Autopilot»; Browser в пределе Live и в Family
