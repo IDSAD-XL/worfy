@@ -280,9 +280,14 @@ test('«Hide tools» folds the ordinary tool calls around an error, per Session:
   const seen = { session: '' }
   const first = await launchApp({ env })
   try {
-    const { window } = first
-    // The window the e2e test-s run at: 1280 px wide.
-    expect(await window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)).toBe(1280)
+    const { app, window } = first
+    // The default window, 1280 px wide (src/shared/window/bounds.ts). Its content is set to that width:
+    // on Windows the 1280 px are the outer width and the frame takes some of them.
+    await app.evaluate(({ BrowserWindow }) => {
+      const [win] = BrowserWindow.getAllWindows()
+      win?.setContentSize(1280, win.getContentSize()[1] ?? 800)
+    })
+    await expect.poll(() => window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)).toBe(1280)
     const view = await open(window)
     await turn(view, 1)
     seen.session = (await view.getAttribute('data-session-id')) ?? ''
