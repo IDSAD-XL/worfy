@@ -437,9 +437,19 @@ export class AssistService {
     const { feature, controller } = flight
     const settings = this.options.settings.get()
     const branch = input.branch !== undefined ? Promise.resolve(input.branch) : this.branchOf(input.cwd).catch(() => null)
-    const spare = await this.abortable(this.take(controller.signal), controller.signal)
+    const taken = this.take(controller.signal)
+    const spare = await this.abortable(taken, controller.signal)
     if (spare === null) return { ok: false, reason: 'failed', detail: 'no_process' }
-    if (spare === ABORTED) return { ok: false, reason: reasonOf(controller.signal) }
+    if (spare === ABORTED) {
+      // A cancel that lands after take() emptied the slot but before this await got the spare
+      // leaves that spare with no owner: close it. A spare take() left in the slot (null here)
+      // stays for the next request.
+      void taken.then(
+        (orphan) => orphan?.close(),
+        () => undefined,
+      )
+      return { ok: false, reason: reasonOf(controller.signal) }
+    }
 
     let attempt: Attempt
     const model = featureModel(feature, settings)

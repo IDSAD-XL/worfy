@@ -696,6 +696,93 @@ describe('races and shutdown', () => {
     expect(sdk.spares[0]?.closed).toBe(true)
     expect(sdk.spares[0]?.query).toBeNull()
   })
+
+  it('closes a spare handed out just before a cancel, and keeps one a cancel finds still in the slot', async () => {
+    // The cancel walks microtask by microtask from the spare finishing its start to the claim. Each
+    // landing has one of three outcomes, in this order: the spare is still in the slot and stays
+    // for the next request ('kept'); take() already handed it out, so it is closed unclaimed and a
+    // new spare is parked ('orphan'); it was claimed, so the flight closes it ('claimed').
+    type Outcome = 'kept' | 'orphan' | 'claimed' | 'other'
+    const outcomes: Outcome[] = []
+    for (let ticks = 0; !outcomes.includes('claimed') && ticks < 100; ticks++) {
+      const { service, sdk } = world()
+      sdk.hold = true
+      const controller = new AbortController()
+      const answer = service.request('request', input({ request: 'x' }), controller.signal)
+      await settle()
+      sdk.release()
+      for (let tick = 0; tick < ticks; tick++) await Promise.resolve()
+      controller.abort()
+      expect(await answer).toEqual({ ok: false, reason: 'cancelled' })
+      await settle()
+      const [first, second, ...rest] = sdk.spares
+      const parked = (spare: FakeSpare | undefined): boolean => spare !== undefined && !spare.closed && spare.query === null
+      outcomes.push(
+        rest.length > 0 || first === undefined
+          ? 'other'
+          : second === undefined
+            ? parked(first) ? 'kept' : 'other'
+            : !parked(second) || !first.closed
+              ? 'other'
+              : first.query === null ? 'orphan' : 'claimed',
+      )
+      // In every outcome the one live spare is parked in the slot, so dispose() reaches it.
+      service.dispose()
+      expect(sdk.spares.filter((spare) => !spare.closed)).toEqual([])
+    }
+    // Every landing has a known outcome; each outcome happens, the orphan window included.
+    expect(outcomes.join(' ')).toMatch(/^(kept )+(orphan )+claimed$/)
+  })
+
+  it('leaves at most the spare alive after Suggestions with cancels, Next command, Command request and Fix, none after IDLE_MS or dispose()', async () => {
+    const { service, sdk } = world()
+    const alive = (): number => sdk.spares.filter((spare) => !spare.closed).length
+
+    // Suggestions, each cancelled by the next one; the last one answers.
+    const first = await start(service, 'suggest', { line: 'g' })
+    const second = await start(service, 'suggest', { line: 'gi' })
+    const third = await start(service, 'suggest', { line: 'git' })
+    sdk.claimedSpare.query?.answer('git status')
+    expect(await first.answer).toEqual({ ok: false, reason: 'cancelled' })
+    expect(await second.answer).toEqual({ ok: false, reason: 'cancelled' })
+    expect(await third.answer).toMatchObject({ ok: true })
+    await settle()
+
+    // A Suggestion its caller cancels while it flies.
+    const controller = new AbortController()
+    const dropped = service.request('suggest', input({ line: 'np' }), controller.signal)
+    await settle()
+    controller.abort()
+    expect(await dropped).toEqual({ ok: false, reason: 'cancelled' })
+    await settle()
+
+    const onDemand: [TerminalAiFeature, Partial<TerminalAiInput>, string][] = [
+      ['next', { line: '' }, 'git push'],
+      ['request', { request: 'list files' }, 'ls'],
+      ['fix', { exitCode: 1, output: ['boom'] }, 'make'],
+    ]
+    for (const [feature, over, text] of onDemand) {
+      const { answer } = await start(service, feature, over)
+      sdk.claimedSpare.query?.answer(text)
+      expect(await answer).toMatchObject({ ok: true, command: text })
+      await settle()
+    }
+    expect(service.state().process).toBe('warm')
+    expect(alive()).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(IDLE_MS)
+    expect(alive()).toBe(0)
+    expect(service.state().process).toBe('idle')
+
+    // A new request after the idle close starts one spare again; dispose() closes it.
+    const { answer } = await start(service, 'next', { line: '' })
+    sdk.claimedSpare.query?.answer('ls')
+    await answer
+    await settle()
+    expect(alive()).toBe(1)
+    service.dispose()
+    expect(alive()).toBe(0)
+  })
 })
 
 // ---- WORFY_AGENT=fake and the real backend under vitest ---------------------------------------------

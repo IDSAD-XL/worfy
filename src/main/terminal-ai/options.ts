@@ -66,6 +66,9 @@ export function prewarmOptions(input: PrewarmOptionsInput): Options {
     tools: [],
     permissionMode: 'dontAsk',
     maxTurns: 1,
+    // No transcript in ~/.claude/projects. Claude Code still writes ~/.claude/sessions/<pid>.json (cwd
+    // here, outside every Project, so worfy never shows it) from the claim to the exit, with a
+    // messaging socket other sessions can see: an accepted risk (owner, 2026-10-23).
     persistSession: false,
     includePartialMessages: true,
     // Every hook that runs in the process sends hook_started (not only SessionStart and Setup), so the
