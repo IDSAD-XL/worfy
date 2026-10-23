@@ -187,6 +187,13 @@ function inPage(code: string): Promise<unknown> {
   }, code)
 }
 
+/**
+ * Waits until the Browser's page has painted two frames. Right after `browser_open` the window does not
+ * yet pass a click on to the page: on Windows the page saw no `mousedown` of a click made at once, and saw the
+ * next one 1 s later.
+ */
+const pagePainted = (): Promise<unknown> => inPage('new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))')
+
 /** A field of the worfy window the user types in — as a chat or a Terminal — focused. */
 async function userTyping(window: Page): Promise<void> {
   await window.evaluate(`(() => {
@@ -385,6 +392,7 @@ test("a service worker of another site does not let the Session's navigation pas
   const frame = window.locator(`[data-testid="browser-frame"][data-node-id="${id}"]`)
   // The user, by hand, visits the other site, which installs a worker answering its pages, and comes back.
   const body = (await frame.getByTestId('browser-frame-body').boundingBox())!
+  await pagePainted()
   await window.mouse.click(body.x + body.width / 2, body.y + 60)
   await expect(frame.getByTestId('browser-taken-over')).toBeVisible()
   await inPage(`location.href = ${JSON.stringify(`${away}/sw`)}`)
@@ -414,6 +422,7 @@ test('«Claude is driving» goes at a click of the user on the page; calls are r
 
   // The user clicks into the page.
   const body = (await frame.getByTestId('browser-frame-body').boundingBox())!
+  await pagePainted()
   await window.mouse.click(body.x + body.width / 2, body.y + 60)
   await expect(frame.getByTestId('browser-claude-drives')).toHaveCount(0)
   await expect(frame.getByTestId('browser-taken-over')).toBeVisible()
