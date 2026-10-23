@@ -1,7 +1,8 @@
 # 108 — Полный прогон unit и contract на GitHub Windows runner красный: 8 файлов, 66 test-ов
 
 Type: bug
-Status: open
+Status: done 2026-10-23T14:59Z
+PR: #802
 Blocked by: —
 Source: run 39841670369 workflow `windows-tests.yml` в режиме `full` из PR #784 (коммит `53e7ee59` = `main` + #784,
 `windows-latest`), направление Session на Mac 2026-10-23. Журнал упавшего шага — `C:/Users/Alexey/worfy-wt/run-39841670369-failed.log`
