@@ -626,9 +626,8 @@ export class TerminalRegistry {
       // that one. On Windows so does every Terminal that has reported its exit, whichever way the
       // exit came: after the look below node-pty still reads the console, and a program left on it
       // may print while the user restarts the shell. Off Windows what comes after an exit that
-      // was not a close is kept for the next open, as before, and sent to the screens, which show
-      // it (TerminalNode.tsx) — until a new shell starts on the Node or the exit is forgotten
-      // (close): from then on it is not this Node's output any more.
+      // was not a close is kept for the next open and shown on the screens (TerminalNode.tsx), until
+      // a restart or a close forgets that exit: from then on it is not this Node's output.
       if (ended && (terminal.closing || this.platform === 'win32' || this.ended.get(key)?.buffer !== terminal.buffer)) return
       terminal.buffer.push(data)
       const { end } = terminal.buffer
