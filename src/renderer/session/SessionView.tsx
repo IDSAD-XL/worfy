@@ -16,7 +16,7 @@ import { useNavigation } from './navigation'
 import { useSessionNodeView } from './node-sessions'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
 import { useShowSession } from './shown-session'
-import { ensureAgentEvents, joinPastAndLive, useSessionControls, useSessionLog } from './store'
+import { ensureAgentEvents, joinPastAndLive, keepsTurnBeforeResume, useSessionControls, useSessionLog } from './store'
 import { Transcript } from './Transcript'
 import { HideToolsButton } from './HideToolsButton'
 import { SessionFind } from './SessionFind'
@@ -177,6 +177,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   // ⌘F (worfy-ui ticket 26): the live events and the transcript before them; main searches the part
   // of the file not read yet — only once the window shows a turn from before Resume (pastSettled).
   const logRef = useRef<HTMLDivElement>(null)
+  const beforeResume = useMemo(() => keepsTurnBeforeResume(events.slice(0, events.length - live.length)), [events, live])
   const find = useTranscriptFind({
     events,
     firstIndex,
@@ -189,9 +190,10 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
             root,
             sessionId: transcriptId,
             earlier: past.earlier,
+            opening: past.opening,
             loadEarlier: () => loadEarlierTranscript(root, transcriptId),
             earlierNow: () => sessionTranscriptNow(root, transcriptId).earlier,
-            settled: pastSettled(events.length - live.length, live.length, past.earlier),
+            settled: pastSettled(beforeResume, live.length, past.earlier),
             settle: loadPast,
           },
   })

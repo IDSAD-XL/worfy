@@ -46,9 +46,17 @@ function walk(node: HastNode, out: string[]): void {
   }
 }
 
-/** Texts kept, the last ones used: a transcript asks for the same answers on each keystroke. */
-const CACHED = 4096
+/**
+ * Texts kept, the last ones used: a transcript asks for the same answers on each keystroke. Bounded
+ * by characters, keys and values both — an answer can be 100 KB — and a text over a tenth of the
+ * bound is not kept at all.
+ */
+export const CACHED_CHARS = 4_000_000
 const cache = new Map<string, string>()
+let cachedChars = 0
+
+/** Characters the cache holds now, keys and values; for tests. */
+export const markdownCacheChars = (): number => cachedChars
 
 /** The text `markdown` shows in the transcript (Markdown with `breaks`). */
 export function markdownText(markdown: string): string {
@@ -62,8 +70,15 @@ export function markdownText(markdown: string): string {
   const out: string[] = []
   walk(processor.runSync(processor.parse(markdown)) as HastNode, out)
   const text = out.join('')
-  if (cache.size >= CACHED) cache.delete(cache.keys().next().value as string)
+  const size = markdown.length + text.length
+  if (size > CACHED_CHARS / 10) return text
+  for (const [oldest, value] of cache) {
+    if (cachedChars + size <= CACHED_CHARS) break
+    cache.delete(oldest)
+    cachedChars -= oldest.length + value.length
+  }
   cache.set(markdown, text)
+  cachedChars += size
   return text
 }
 

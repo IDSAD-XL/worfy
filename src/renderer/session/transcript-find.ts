@@ -130,6 +130,8 @@ export interface FindSource {
   loadEarlier: () => Promise<void>
   /** `earlier` now, outside React. */
   earlierNow: () => number | null
+  /** TranscriptState.opening: a new one is a new file, and what main said of the old one is dropped. */
+  opening?: number | undefined
   /**
    * False while the part before `earlier` may hold turns the view shows from other events: a
    * resumed Session whose window holds only turns since Resume (its live events show them, and
@@ -143,13 +145,13 @@ export interface FindSource {
 
 /**
  * FindSource.settled of a resumed Session's view (SessionView.tsx): the file before the window
- * holds only turns from before Resume once the window shows one of those (`shown`, the events of
- * the file joinPastAndLive keeps), or starts at the file's start, or there are no live events.
- * A window that shows none may lie wholly after Resume: the live part starts before it then, at a
- * byte not known, and main would count its turns a second time.
+ * holds only turns from before Resume once the window shows one of those for sure (`beforeResume`,
+ * store.ts keepsTurnBeforeResume of the events joinPastAndLive keeps), or starts at the file's
+ * start, or there are no live events. Otherwise the window may lie wholly after Resume: the live
+ * part starts before it then, at a byte not known, and main would count its turns a second time.
  */
-export function pastSettled(shown: number, live: number, earlier: number | null): boolean {
-  return live === 0 || shown > 0 || (earlier ?? 0) === 0
+export function pastSettled(beforeResume: boolean, live: number, earlier: number | null): boolean {
+  return live === 0 || beforeResume || (earlier ?? 0) === 0
 }
 
 interface EarlierAnswer {
@@ -302,7 +304,7 @@ export function useTranscriptFind({ events, firstIndex, hideTools, source, log }
   }, [view, begin])
 
   // ── main, for the part of the file before the rows ──
-  const sourceKey = source === undefined ? '' : `${source.root}\0${source.sessionId}\0${source.agentId ?? ''}`
+  const sourceKey = source === undefined ? '' : `${source.root}\0${source.sessionId}\0${source.agentId ?? ''}\0${source.opening ?? ''}`
   const earlier = source?.earlier ?? null
   const settled = source?.settled !== false
   const searchable = needle !== '' && source !== undefined && earlier !== null && earlier > 0

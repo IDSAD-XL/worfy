@@ -221,6 +221,7 @@ describe('Load earlier', () => {
     const module = await import('../../src/renderer/claude-home/useClaudeHome')
     answers.push(() => ok({ ...lines(10, 20), earlier: 1000, cursor: { offset: 2000, fileId: FILE } }))
     const { hook } = await openTranscript()
+    const opened = hook.result.current.opening
     answers.push(() => ok({ reset: true }))
     answers.push((request) => {
       expect(request.back).toStrictEqual({ bytes: WINDOW })
@@ -230,6 +231,9 @@ describe('Load earlier', () => {
       await module.loadEarlierTranscript(ROOT, S)
     })
     await vi.waitFor(() => expect(texts(hook.result.current.events)).toEqual(['answer 0', 'answer 1', 'answer 2']))
+    // A new `opening`: find in the Session view drops what main said of the old file (worfy-ui ticket 26).
+    expect(opened).toEqual(expect.any(Number))
+    expect(hook.result.current.opening).toBeGreaterThan(opened ?? Number.POSITIVE_INFINITY)
   })
 
   it('an answer from the old file is dropped when the file was opened again at the same start', async () => {

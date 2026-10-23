@@ -96,7 +96,7 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
     source:
       root === undefined
         ? undefined
-        : { root, sessionId, agentId, earlier: transcript.earlier, loadEarlier: () => loadEarlierTranscript(root, sessionId, agentId), earlierNow: () => transcriptStateNow(root, sessionId, agentId).earlier },
+        : { root, sessionId, agentId, earlier: transcript.earlier, opening: transcript.opening, loadEarlier: () => loadEarlierTranscript(root, sessionId, agentId), earlierNow: () => transcriptStateNow(root, sessionId, agentId).earlier },
   })
   const tree = useSubagentTree(root, agentId === undefined ? null : sessionId)
   const subagent = agentId === undefined ? undefined : flattenSubagents(tree).find((info) => info.agentId === agentId)

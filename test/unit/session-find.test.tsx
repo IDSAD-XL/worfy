@@ -14,10 +14,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { TRANSCRIPT_FIND } from '../../src/shared/ipc/claude-home'
-import { markdownText } from '../../src/shared/markdown/visible-text'
+import { CACHED_CHARS, markdownCacheChars, markdownText } from '../../src/shared/markdown/visible-text'
 import { eventMatches, findNeedle } from '../../src/shared/transcript/find'
 import { Markdown } from '../../src/renderer/markdown/Markdown'
 import { foldTranscript } from '../../src/renderer/session/fold'
+import { joinPastAndLive, keepsTurnBeforeResume } from '../../src/renderer/session/store'
 import { setView } from '../../src/renderer/session/navigation'
 import { SessionFind } from '../../src/renderer/session/SessionFind'
 import { Transcript } from '../../src/renderer/session/Transcript'
@@ -27,6 +28,7 @@ const prompt = (text: string): AgentEvent => ({ type: 'notice', kind: 'user', te
 const answer = (text: string): AgentEvent => ({ type: 'text', text, messageId: 'm', parentToolUseId: null, synthetic: false })
 const toolUse = (id: string, name: string, input: unknown): AgentEvent => ({ type: 'tool_use', id, name, input, parentToolUseId: null })
 const toolResult = (toolUseId: string, content = 'ok', isError = false): AgentEvent => ({ type: 'tool_result', toolUseId, content, isError, parentToolUseId: null })
+const answerOf = (messageId: string, text: string): AgentEvent => ({ type: 'text', text, messageId, parentToolUseId: null, synthetic: false })
 const thinking = (text: string): AgentEvent => ({ type: 'thinking', text, messageId: 'm', parentToolUseId: null })
 
 type FindRequest = { projectRoot: string; sessionId: string; agentId?: string; query: string; before: number; from?: number }
@@ -302,6 +304,20 @@ describe('what is counted is what is drawn', () => {
     expect(eventMatches(events[0]!, 'more characters')).toBe(1)
   })
 
+  it('keeps the read answers within a bound of characters, and no long answer at all', () => {
+    // 5 answers of 240 000 characters (480 000 with their text): each over a tenth of the bound, none kept.
+    const before = markdownCacheChars()
+    for (let index = 0; index < 5; index += 1) expect(markdownText(`${index} ${'long '.repeat(48_000)}`)).toHaveLength(2 + 5 * 48_000 - 1)
+    expect(markdownCacheChars()).toBe(before)
+    // 150 answers of 20 000 characters (40 000 with their text): the oldest go, the bound holds.
+    for (let index = 0; index < 150; index += 1) markdownText(`${index} ${'word '.repeat(4_000)}`)
+    expect(markdownCacheChars()).toBeLessThanOrEqual(CACHED_CHARS)
+    expect(markdownCacheChars()).toBeGreaterThan(CACHED_CHARS / 2)
+    // Read again, an answer gives the same text.
+    expect(markdownText('**foo** bar')).toBe('foo bar')
+    expect(markdownText('**foo** bar')).toBe('foo bar')
+  })
+
   it.each([
     ['a link', 'See [the docs](https://example.com/docs).'],
     ['emphasis and code', '**bold** _it_ ~~gone~~ `code` and\n\n```ts\nconst a = 1\n```'],
@@ -444,6 +460,38 @@ describe('the matches before the rows', () => {
     expect(count()).toBe('4 of 4')
   })
 
+  it('drops what main said of a file opened again from its end (replaced or cut), and asks about the new one from its start', async () => {
+    function Reopened() {
+      const [state, setState] = useState({ opening: 1, earlier: 1000 })
+      const source: FindSource = { root: '/repo', sessionId: 'session-1', earlier: state.earlier, opening: state.opening, earlierNow: () => state.earlier, loadEarlier: async () => undefined }
+      return (
+        <>
+          {/* The new file is longer: its window starts later, as if the old one had only grown. */}
+          <button type="button" onClick={() => setState({ opening: 2, earlier: 1500 })}>
+            replace
+          </button>
+          <View events={[prompt('zebra here')]} source={source} />
+        </>
+      )
+    }
+    let file = 'old'
+    reply = () => ({ ok: true, value: { found: true, hits: file === 'old' ? [{ offset: 200, count: 2 }] : [{ offset: 700, count: 1 }], total: 0, skipped: 0 } })
+    render(<Reopened />)
+    await press({ key: 'f', metaKey: true })
+    await type('zebra')
+    await wait(FIND_DEBOUNCE_MS + 50)
+    expect(count()).toBe('3 of 3')
+    file = 'new'
+    fireEvent.click(screen.getByText('replace'))
+    await wait(FIND_DEBOUNCE_MS + 50)
+    expect(requests.map(({ from, before }) => [from, before])).toEqual([
+      [undefined, 1000],
+      [undefined, 1500],
+    ])
+    // The old file's two matches are gone.
+    expect(count()).toBe('2 of 2')
+  })
+
   it('keeps the latest lines when a part is added, as main does, and counts the older in `skipped`', () => {
     const many = Array.from({ length: TRANSCRIPT_FIND.hits }, (_, index) => ({ offset: index * 10, count: 1 }))
     const known = { key: 'k', needle: 'zebra', before: 1_000_000, hits: many, skipped: 5 }
@@ -455,13 +503,31 @@ describe('the matches before the rows', () => {
     expect(grown.skipped).toBe(6)
   })
 
+  it('tells a window that surely holds a turn from before Resume from one that may lie wholly after it', () => {
+    const added: AgentEvent = { type: 'notice', kind: 'synthetic', text: 'a skill body' }
+    const m1 = answerOf('m1', 'one')
+    const m2 = answerOf('m2', 'two')
+    /** pastSettled as SessionView.tsx computes it, for a window `past` and the live events. */
+    const settledFor = (past: AgentEvent[], live: AgentEvent[], earlier: number | null = 4000) => {
+      const joined = joinPastAndLive(past, live)
+      return pastSettled(keepsTurnBeforeResume(joined.slice(0, joined.length - live.length)), live.length, earlier)
+    }
+    // The window starts with an event without an id (an added notice): kept before the live part,
+    // though the whole window is after Resume.
+    expect(joinPastAndLive([added, m1, m2], [added, m1, m2])).toHaveLength(4)
+    expect(settledFor([added, m1, m2], [added, m1, m2])).toBe(false)
+    expect(settledFor([m1, m2], [m1, m2])).toBe(false)
+    // A prompt that opens the live part is not kept; one from before Resume is, and settles.
+    expect(settledFor([prompt('go'), m1], [prompt('go'), m1])).toBe(false)
+    expect(settledFor([prompt('earlier question'), added, m1], [prompt('go'), m1])).toBe(true)
+    // An answer from before Resume, before the added notice.
+    expect(settledFor([answerOf('m0', 'zero'), added, m1], [m1])).toBe(true)
+    // The file's start, or no live events: nothing to count twice.
+    expect(settledFor([added, m1], [added, m1], 0)).toBe(true)
+    expect(settledFor([added, m1], [])).toBe(true)
+  })
+
   it("does not ask main while a resumed Session's window may lie after Resume: reads on first", async () => {
-    // The window shows none of the file's turns (the live events show them all): not settled.
-    expect(pastSettled(0, 3, 4000)).toBe(false)
-    expect(pastSettled(2, 3, 4000)).toBe(true)
-    expect(pastSettled(0, 0, 4000)).toBe(true)
-    expect(pastSettled(0, 3, 0)).toBe(true)
-    expect(pastSettled(0, 3, null)).toBe(true)
     let settles = 0
     function Resumed() {
       const [settled, setSettled] = useState(false)

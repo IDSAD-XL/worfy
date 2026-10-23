@@ -71,6 +71,12 @@ export interface TranscriptState {
   offsets: readonly number[]
   /** For the reader: true once «Load earlier» brought events, which KEEP_EVENTS then never drops. */
   pinned: boolean
+  /**
+   * Grows each time the file is opened again from its end (it was replaced or cut): byte offsets
+   * from before belong to the old file. Find in the Session view (worfy-ui ticket 26) drops what main
+   * answered about it then. Absent before the first read.
+   */
+  opening?: number
 }
 
 interface ClaudeHomeStore {
@@ -83,6 +89,8 @@ const useClaudeHomeStore = create<ClaudeHomeStore>(() => ({ byRoot: {}, transcri
 
 const EMPTY: ClaudeHomeEntry = { live: undefined, history: [], error: undefined }
 const EMPTY_TRANSCRIPT: TranscriptState = { events: [], first: 0, loaded: false, found: false, error: undefined, earlier: null, loadingEarlier: false, offsets: [], pinned: false }
+/** The last `opening` given, over every transcript: each read of a file's end gets a new one. */
+let openings = 0
 const transcriptKey = (root: string, sessionId: string, agentId?: string): string => (agentId === undefined ? `${root}\0${sessionId}` : `${root}\0${sessionId}\0${agentId}`)
 /** How often a Subagent's transcript is read again while it is shown: its file is not watched. */
 export const SUBAGENT_POLL_MS = 2000
@@ -422,7 +430,7 @@ function transcriptReader(root: string, sessionId: string, agentId?: string): Tr
     // Without a file the next read looks at the end again; with one, it follows from this window.
     cursor = found ? result.value.cursor : undefined
     const offsets = offsetsOf(events, result.value.offsets)
-    setTranscript(key, { ...capped({ ...EMPTY_TRANSCRIPT, events, offsets, earlier: found ? (result.value.earlier ?? 0) : null }), loaded: true, found })
+    setTranscript(key, { ...capped({ ...EMPTY_TRANSCRIPT, events, offsets, earlier: found ? (result.value.earlier ?? 0) : null }), loaded: true, found, opening: (openings += 1) })
   }
 
   /**
@@ -451,7 +459,7 @@ function transcriptReader(root: string, sessionId: string, agentId?: string): Tr
     cursor = answer.cursor
     const { events, dropped } = held
     // Rows stay counted from the start of the file: the first one shown follows the dropped ones.
-    setTranscript(key, { ...EMPTY_TRANSCRIPT, events, offsets: events.map(() => -1), first: dropped, loaded: true, found: true })
+    setTranscript(key, { ...EMPTY_TRANSCRIPT, events, offsets: events.map(() => -1), first: dropped, loaded: true, found: true, opening: (openings += 1) })
   }
 
   /** Everything written after `cursor`, read forward and drawn once. */

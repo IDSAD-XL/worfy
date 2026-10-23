@@ -257,6 +257,17 @@ export function joinPastAndLive(past: readonly AgentEvent[], live: readonly Agen
   return [...past.slice(0, start), ...live]
 }
 
+/**
+ * Whether `kept`, the events joinPastAndLive keeps of the file before the live ones, holds a turn
+ * from before Resume for sure: an event with an id (none of the live events has it: the live part
+ * starts at the first that has), or a prompt (one that opened the live part would not be kept). Events
+ * without an id — an added notice, a hook's output, a local command — may be from after Resume:
+ * joinPastAndLive keeps those that come before the first live event with an id.
+ */
+export function keepsTurnBeforeResume(kept: readonly AgentEvent[]): boolean {
+  return kept.some((event) => identity(event) !== null || typed(event) !== null)
+}
+
 /** A Session's queue, settings and model pick; asks main for the first two when no event has brought them yet. */
 export function useSessionControls(sessionId: string | null): Pick<SessionLog, 'queue' | 'settings' | 'modelPick'> {
   useEffect(ensureAgentEvents, [])
