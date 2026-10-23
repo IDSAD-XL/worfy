@@ -894,6 +894,26 @@ describe('the connection while a command runs', () => {
     expect(await t.redrawn()).toMatch(lineAlone('echo finish-replaced'))
   })
 
+  it('with zle-line-finish taken over after worfy loaded, the link does not open again after it: zshaddhistory finds no socket, one hello per command', async () => {
+    const started = start()
+    const hellos: boolean[] = []
+    started.link.onConnection((key, connected) => {
+      if (key === KEY) hellos.push(connected)
+    })
+    const file = join(root, 'taken-over.txt')
+    // rc.d/20-test.zsh runs after 10-assist.zsh, as a plugin loaded late would: no dispatcher of add-zle-hook-widget calls the widget.
+    await testScript(started.integration, [`zshaddhistory() { ${descriptors()} >> ${file}; builtin return 0 }`, '__test_finish() { : }', 'zle -N zle-line-finish __test_finish'].join('\n'))
+    const t = await started.open()
+    await t.connected()
+    for (let index = 0; index < 3; index++) await t.run('true')
+    const found = readFileSync(file, 'utf8')
+    expect(found.match(/checked/g)).toHaveLength(3)
+    expect(found).not.toMatch(/socket:\d/)
+    await vi.waitFor(() => expect(started.link.push(KEY, { type: 'insert', text: 'echo taken-over' })).toBe(true), WAIT)
+    expect(await t.redrawn()).toMatch(lineAlone('echo taken-over'))
+    expect(hellos).toEqual(Array<boolean>(4).fill(true))
+  })
+
   it('a program worfy\'s own widget started at the prompt keeps a copy of the descriptor: after the next command the shell is connected again, and the copy reaches main no more', async () => {
     const pidFile = join(root, 'holder.pid')
     const wroteFile = join(root, 'holder.wrote')
