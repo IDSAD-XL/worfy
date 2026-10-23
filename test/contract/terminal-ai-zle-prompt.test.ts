@@ -3,8 +3,8 @@
 // integration. zsh has no close-on-exec for a descriptor it opened, so every program the shell
 // starts inherits what the shell holds. The line editor gives the link up before a command
 // (terminal-ai-zle.test.ts); here it is what runs at the prompt: the widgets, `zle -F` handlers
-// and completion functions worfy did not write, the subshell of Suggest AI's timer, and the
-// startup files under `allexport`.
+// and completion functions worfy did not write, the subshell of Suggest AI's timer, the startup
+// files under `allexport`, and main keeping an ask whose connection ended for the shell to ask again.
 //
 // HOME and the user's files are in a temporary folder: the real ~/.zshrc and ~/.zsh_history of the
 // machine running the tests are never read or written.
@@ -12,13 +12,14 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, readdirSync, readFileSync, readlinkSync } from 'node:fs'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { createConnection, type Socket } from 'node:net'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SYSTEM_PATH, type Env } from '../../src/main/agent/env'
 import type { ShellEvent } from '../../src/main/terminal/osc'
 import { spawnShellPty, TerminalRegistry, type SpawnPty, type TerminalSink } from '../../src/main/terminal/pty'
 import { ShellIntegration } from '../../src/main/terminal/shell-integration'
-import { HISTORY_FEATURE, ShellLink, type FeatureLoader, type ShellAsk, type ShellFeature, type ShellReply } from '../../src/main/terminal-ai/shell-link'
+import { ASK_KEPT_MS, HISTORY_FEATURE, ShellLink, type FeatureLoader, type ShellAsk, type ShellFeature, type ShellReply } from '../../src/main/terminal-ai/shell-link'
 import { DEFAULT_TERMINAL_AI_SETTINGS, type TerminalAiSettings } from '../../src/shared/terminal-ai/settings'
 import { needsZsh, zshPath } from '../zsh'
 
@@ -37,6 +38,7 @@ let root: string
 const registries: TerminalRegistry[] = []
 const integrations: ShellIntegration[] = []
 const links: ShellLink[] = []
+const sockets: Socket[] = []
 
 beforeEach(async () => {
   home = await realpath(await mkdtemp(join(tmpdir(), 'worfy-zle-prompt-home-')))
@@ -45,6 +47,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  for (const socket of sockets.splice(0)) socket.destroy()
   await Promise.all(registries.splice(0).map((registry) => registry.closeAll()))
   for (const link of links.splice(0)) link.closeSync()
   for (const integration of integrations.splice(0)) integration.disposeSync()
@@ -111,6 +114,8 @@ interface StartOptions {
   script?: string
   /** Read before every script of rc.d/ (rc.d/00-test.zsh): what the tests set for the real features. */
   before?: string
+  /** main reads the settings once this is resolved: until then no shell is sent a config. */
+  settingsRead?: Promise<void>
 }
 
 /** One Terminal of a registry with the shell integration over the temporary HOME and the link to its shell. */
@@ -118,14 +123,15 @@ async function start(options: StartOptions = {}) {
   const integration = new ShellIntegration()
   integrations.push(integration)
   const feature = recordingFeature(PROBE)
-  // Next command's asks come to the test, not to a model.
+  // Next command's and Command request's asks come to the test, not to a model.
   const next = recordingFeature('next')
+  const request = recordingFeature('request')
   // Of the real features only the Suggestion from history is on unless a test says otherwise.
   const off: Partial<TerminalAiSettings> = options.defaults === true ? {} : { suggestionAsksModel: false, nextCommand: false, commandRequest: false, fix: false }
   const link = new ShellLink({
-    settings: () => Promise.resolve(settingsSource({ ...off, ...options.settings })),
+    settings: () => (options.settingsRead ?? Promise.resolve()).then(() => settingsSource({ ...off, ...options.settings })),
     context: { shellState: (terminal) => registry.shellState(terminal), assist: () => Promise.reject(new Error('no assist service in this test')) },
-    features: { [`./features/${PROBE}.ts`]: feature.loader, './features/next.ts': next.loader },
+    features: { [`./features/${PROBE}.ts`]: feature.loader, './features/next.ts': next.loader, './features/request.ts': request.loader },
   })
   links.push(link)
   const envs: Env[] = []
@@ -160,6 +166,7 @@ async function start(options: StartOptions = {}) {
     link,
     feature,
     next,
+    request,
     envs,
     text,
     type,
@@ -183,6 +190,11 @@ async function start(options: StartOptions = {}) {
       return found
     },
   }
+}
+
+/** Waits until the shell has read the settings main sent it: the features they turn on can ask then. */
+async function configured(t: { run: (line: string) => Promise<string> }): Promise<void> {
+  await vi.waitFor(async () => expect(await t.run('print -r -- configured=$__worfy_assist_configured')).toContain('configured=1'), WAIT)
 }
 
 /** Waits until `file` holds `checked` `times` times, and answers it. */
@@ -279,21 +291,118 @@ describe('what runs at the prompt does not get the connection', () => {
     expect(await checkedIn(file, before + 3)).not.toMatch(/socket:\d/)
   })
 
-  it('with the settings of a new install (Next command on) the ask of a new prompt goes with the link around a widget and comes again under its id; its answer is drawn', async () => {
+  it('with the settings of a new install (Next command on) a widget that leaves the line as it is, pressed five times (as zsh-autosuggestions wraps ← and Ctrl+L), keeps the one ask that waits: main asks the feature once and does not abort it; its answer is drawn', async () => {
     const file = join(root, 'next.txt')
     const t = await start({ defaults: true, script: widgetScript(`  ${descriptorsInto(file)}`) })
     // Next command asks at the first prompt after a command, and waits.
     await t.run('true')
     await vi.waitFor(() => expect(t.next.asks).toHaveLength(1), WAIT)
     const first = t.next.asks[0]
-    t.type(WIDGET_KEY)
-    expect(await checkedIn(file)).not.toMatch(/socket:\d/)
-    await vi.waitFor(() => expect(t.next.asks).toHaveLength(2), WAIT)
-    const again = t.next.asks[1]
-    expect(first?.ask.signal.aborted).toBe(true)
-    expect(again?.ask).toMatchObject({ id: first?.ask.id, line: '' })
-    expect(again?.reply.show('echo worfy-next-answer')).toBe(true)
+    for (let press = 1; press <= 5; press++) {
+      t.type(WIDGET_KEY)
+      expect(await checkedIn(file, press)).not.toMatch(/socket:\d/)
+    }
+    // main sends what the feature answers once the shell asked the same again over its new link.
+    expect(first?.reply.show('echo worfy-next-answer')).toBe(true)
     await vi.waitFor(() => expect(t.text()).toContain('echo worfy-next-answer'), WAIT)
+    expect(t.next.asks).toHaveLength(1)
+    expect(first?.ask.signal.aborted).toBe(false)
+  })
+
+  it('a widget that changes the line while an ask waits gives that ask up in main, and asks nothing again', async () => {
+    const t = await start({ defaults: true, script: widgetScript('  BUFFER=changed-by-the-widget') })
+    await t.run('true')
+    await vi.waitFor(() => expect(t.next.asks).toHaveLength(1), WAIT)
+    t.type(WIDGET_KEY)
+    await vi.waitFor(() => expect(t.next.asks[0]?.ask.signal.aborted).toBe(true), { timeout: ASK_KEPT_MS / 2, interval: 20 })
+    expect(t.next.asks).toHaveLength(1)
+  })
+
+  it('worfy\'s own widget that cancels the ask inside a widget of the user (Esc under a plugin\'s wrapper) gives it up in main at once, and the ask does not go again', async () => {
+    const t = await start({
+      defaults: true,
+      script: ['_worfy_test_cancel() { _worfy_assist_cancel }', 'zle -N _worfy_test_cancel', widgetScript('  zle _worfy_test_cancel')].join('\n'),
+    })
+    await t.run('true')
+    await vi.waitFor(() => expect(t.next.asks).toHaveLength(1), WAIT)
+    t.type(WIDGET_KEY)
+    await vi.waitFor(() => expect(t.next.asks[0]?.ask.signal.aborted).toBe(true), { timeout: ASK_KEPT_MS / 2, interval: 20 })
+    expect(t.next.asks).toHaveLength(1)
+  })
+
+  it('a `zle -F` handler of the user that runs while an ask about a typed line waits: the ask goes again for that line, main keeps it, and its answer is drawn', async () => {
+    const file = join(root, 'handler-ask.txt')
+    const fifo = join(root, 'handler-ask.fifo')
+    execFileSync('/usr/bin/mkfifo', [fifo])
+    const t = await start({
+      settings: { nextCommand: true },
+      script: [
+        `exec {__test_fd}<>${fifo}`,
+        `__test_handler() { builtin read -r -u $1 __test_line; ${descriptorsInto(file)} }`,
+        'zle -F $__test_fd __test_handler',
+        // An ask about the line as it is typed, as Suggest AI makes one; a widget named as worfy's, so not wrapped.
+        '_worfy_test_ask() { _worfy_assist_ask next "$BUFFER" }',
+        'zle -N _worfy_test_ask',
+        "bindkey '^Xa' _worfy_test_ask",
+      ].join('\n'),
+    })
+    await configured(t)
+    t.type('git sta\x18a')
+    await vi.waitFor(() => expect(t.next.lines()).toContain('git sta'), WAIT)
+    const asks = t.next.asks.length
+    const asked = t.next.asks.at(-1)
+    await writeFile(fifo, 'go\n')
+    expect(await checkedIn(file)).not.toMatch(/socket:\d/)
+    expect(asked?.reply.show(' worfy-handler-answer')).toBe(true)
+    await vi.waitFor(() => expect(t.text()).toContain('worfy-handler-answer'), WAIT)
+    expect(t.next.asks).toHaveLength(asks)
+    expect(asked?.ask.signal.aborted).toBe(false)
+  })
+
+  it('Enter on a Command request inside a widget that wraps accept-line (as zsh-autosuggestions binds it) asks main and shows the note; the answer becomes the line', async () => {
+    const file = join(root, 'line.txt')
+    const t = await start({
+      settings: { commandRequest: true },
+      script: [
+        // zsh-autosuggestions binds its widgets at the first prompt, over what the scripts of worfy put there.
+        '__test_bound_accept_line() { zle __test_orig-accept-line -- "$@" }',
+        '__test_bind() {',
+        '  precmd_functions=(${precmd_functions:#__test_bind})',
+        '  zle -N __test_orig-accept-line ${widgets[accept-line]#user:}',
+        '  zle -N accept-line __test_bound_accept_line',
+        '}',
+        'precmd_functions+=(__test_bind)',
+        // Ctrl+X l writes the line into the file; to Command request it is the redraw of Enter, not a key of the user's.
+        `_worfy_test_line() { __worfy_request_fresh=1; builtin print -r -- "line:[$BUFFER]" >| ${file} }`,
+        'zle -N _worfy_test_line',
+        "bindkey '^Xl' _worfy_test_line",
+      ].join('\n'),
+    })
+    await configured(t)
+    expect(await t.run('print -r -- ${widgets[accept-line]} ${functions[__test_bound_accept_line]}')).toMatch(/user:__test_bound_accept_line[\s\S]*_worfy_assist_guard_enter/)
+    t.type('# list big files\r')
+    await vi.waitFor(() => expect(t.request.lines()).toEqual(['# list big files']), WAIT)
+    await vi.waitFor(() => expect(t.text()).toContain('asking Claude…'), WAIT)
+    const asked = t.request.asks[0]
+    expect(asked?.ask.signal.aborted).toBe(false)
+    expect(asked?.reply.status('')).toBe(true)
+    expect(asked?.reply.insert('echo worfy-requested')).toBe(true)
+    await vi.waitFor(() => {
+      t.type('\x18l')
+      expect(existsSync(file) && readFileSync(file, 'utf8')).toBe('line:[echo worfy-requested]\n')
+    }, WAIT)
+    expect(await t.run('')).toContain('worfy-requested')
+  })
+
+  it('a first command typed before the shell read the settings: Next command asks at the prompt after it, once they come', async () => {
+    let read: () => void = () => undefined
+    const settingsRead = new Promise<void>((resolve) => (read = resolve))
+    const t = await start({ settings: { nextCommand: true }, settingsRead })
+    await t.run('true')
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(t.next.asks).toHaveLength(0)
+    read()
+    await vi.waitFor(() => expect(t.next.lines()).toEqual(['']), WAIT)
   })
 
   it('a zle-line-pre-redraw hook of the user (zsh-syntax-highlighting has one) is left alone: no new connection at every key, the ask that waits is asked once and its answer is drawn', async () => {
@@ -422,5 +531,83 @@ describe('the subshell of the Suggest AI timer and the startup files', () => {
       expect(found).not.toMatch(/__worfy_assist_(token|socket)=/)
       expect(found).not.toMatch(/__worfy_nonce=/)
     }
+  })
+})
+
+/** A shell the test plays over the socket of `link`: it writes the lines and sees exactly what main sends. */
+async function playedShell(link: ShellLink) {
+  const integration = new ShellIntegration()
+  integrations.push(integration)
+  const admission = await link.admit('played', await integration.prepare())
+  return async () => {
+    const socket = createConnection(admission.socket)
+    sockets.push(socket)
+    let received = ''
+    let closed = false
+    socket.on('data', (chunk: Buffer) => (received += chunk.toString('utf8')))
+    socket.on('error', () => undefined)
+    socket.on('close', () => (closed = true))
+    socket.write(`hello\t${admission.token}\n`)
+    await vi.waitFor(() => expect(received).toMatch(/^config\t/), WAIT)
+    return {
+      write: (line: string) => socket.write(`${line}\n`),
+      received: () => received,
+      /** Says bye and waits for main to close the connection. */
+      bye: async () => {
+        socket.write('bye\n')
+        await vi.waitFor(() => expect(closed).toBe(true), WAIT)
+      },
+    }
+  }
+}
+
+describe('an ask whose connection ended without a cancel', () => {
+  function linkWithProbe() {
+    const feature = recordingFeature(PROBE)
+    const link = new ShellLink({
+      settings: () => Promise.resolve(settingsSource()),
+      context: { shellState: () => null, assist: () => Promise.reject(new Error('no assist service in this test')) },
+      features: { [`./features/${PROBE}.ts`]: feature.loader },
+    })
+    links.push(link)
+    return { link, feature }
+  }
+
+  it(`the same ask over the next connection within ${ASK_KEPT_MS} ms takes it up: the feature is asked once, what it answered meanwhile arrives, a cancel then gives it up`, async () => {
+    const { link, feature } = linkWithProbe()
+    const connect = await playedShell(link)
+    const first = await connect()
+    first.write(`ask\t7\t${PROBE}\tgit sta`)
+    await vi.waitFor(() => expect(feature.lines()).toEqual(['git sta']), WAIT)
+    const [open] = feature.asks
+    await first.bye()
+    // The answer comes while the shell has no connection: it waits for the same ask.
+    expect(open?.reply.show('sh')).toBe(true)
+    const second = await connect()
+    second.write(`ask\t7\t${PROBE}\tgit sta`)
+    await vi.waitFor(() => expect(second.received()).toContain('show\t7\tsh\n'), WAIT)
+    expect(feature.asks).toHaveLength(1)
+    expect(open?.ask.signal.aborted).toBe(false)
+    second.write('cancel\t7')
+    await vi.waitFor(() => expect(open?.ask.signal.aborted).toBe(true), WAIT)
+  })
+
+  it(`another line under the same id takes its place; with no ask again it is given up after ${ASK_KEPT_MS} ms`, async () => {
+    const { link, feature } = linkWithProbe()
+    const connect = await playedShell(link)
+    const first = await connect()
+    first.write(`ask\t7\t${PROBE}\tgit sta`)
+    await vi.waitFor(() => expect(feature.asks).toHaveLength(1), WAIT)
+    await first.bye()
+    const second = await connect()
+    second.write(`ask\t7\t${PROBE}\tgit stash`)
+    await vi.waitFor(() => expect(feature.lines()).toEqual(['git sta', 'git stash']), WAIT)
+    expect(feature.asks[0]?.ask.signal.aborted).toBe(true)
+    const kept = feature.asks[1]
+    const ended = Date.now()
+    await second.bye()
+    await vi.waitFor(() => expect(kept?.ask.signal.aborted).toBe(true), { timeout: ASK_KEPT_MS + WAIT.timeout, interval: 20 })
+    expect(Date.now() - ended).toBeGreaterThanOrEqual(ASK_KEPT_MS - 50)
+    expect(kept?.reply.show('late')).toBe(false)
   })
 })

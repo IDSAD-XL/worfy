@@ -37,6 +37,10 @@ _worfy_next_preexec() {
 # later change of the line on this prompt finds none and asks nothing.
 _worfy_next_line() {
   builtin emulate -L zsh
+  # Before the shell has read the settings (the first command can be typed before the config of the
+  # first prompt is read, and a wrapped widget gives that link up) the mark stays: the config, once
+  # read, calls the line hooks again.
+  (( __worfy_assist_configured )) || builtin return 0
   builtin local -i ran=$__worfy_next_ran
   __worfy_next_ran=0
   (( ran )) && [[ -z $BUFFER ]] || builtin return 0

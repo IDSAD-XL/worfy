@@ -10,6 +10,11 @@
 //     change.
 //   - onConnection(listener) hears a shell connect and disconnect: the Command request panel is
 //     there only while the shell of its Terminal is connected.
+//   - An ask whose connection ended without a cancel stays open for ASK_KEPT_MS. A widget of the
+//     user's makes the shell give its link up and open it again (rc.d/10-assist.zsh); the shell then
+//     asks the same again, under the same id, and that ask takes the open one up: the feature is not
+//     asked again (Next command's pause does not start anew, a call to the model goes on), and what
+//     it answered in between is sent then.
 //
 // A Terminal here is the key of its shell in the registry of Terminal Nodes (terminalKey of
 // src/main/ipc/terminal.ts). Nothing in this file runs a command or types into a Terminal: what a
@@ -24,13 +29,19 @@ import { AssistSocket, errorName, type ShellRequest } from './socket'
 /** The Suggestion from the history of commands in `config`: the shell makes it itself, without main. */
 export const HISTORY_FEATURE = 'history'
 
+/** How long an ask whose connection ended stays open for the shell to ask the same again. */
+export const ASK_KEPT_MS = 2000
+
 /** One `ask` of a shell. */
 export interface ShellAsk {
   terminal: string
   id: number
   /** The line being edited, as the shell sent it. */
   line: string
-  /** Aborted when the shell cancels the ask, asks again or disconnects. */
+  /**
+   * Aborted when the shell cancels the ask, asks something else, disconnects, or its connection ended
+   * and the same ask did not come again within ASK_KEPT_MS.
+   */
   signal: AbortSignal
 }
 
@@ -100,6 +111,16 @@ export interface ShellLinkOptions {
   helloTimeoutMs?: number
 }
 
+/** The ask that is open for a Terminal. */
+interface OpenAsk {
+  id: number
+  feature: string
+  line: string
+  abort: AbortController
+  /** Set while its connection is gone: the answers wait here for the same ask to come again. */
+  kept: { timer: ReturnType<typeof setTimeout>; answers: MainMessage[] } | null
+}
+
 export class ShellLink {
   private readonly socket: AssistSocket
   private features: Promise<Map<string, ShellFeature>> | null = null
@@ -108,7 +129,7 @@ export class ShellLink {
   /** The `config` last sent to every shell. */
   private config: string | null = null
   /** The open ask of each Terminal. */
-  private readonly open = new Map<string, { id: number; abort: AbortController }>()
+  private readonly open = new Map<string, OpenAsk>()
   private readonly connectionListeners = new Set<ConnectionListener>()
   private closed = false
 
@@ -119,6 +140,7 @@ export class ShellLink {
         this.announce(terminal, true)
       },
       message: (terminal, message) => this.receive(terminal, message),
+      ended: (terminal, id) => this.keep(terminal, id),
       disconnected: (terminal) => {
         this.abort(terminal)
         this.announce(terminal, false)
@@ -237,7 +259,18 @@ export class ShellLink {
     const open = this.open.get(terminal)
     if (open === undefined) return
     this.open.delete(terminal)
+    if (open.kept !== null) clearTimeout(open.kept.timer)
     open.abort.abort()
+  }
+
+  /** The connection of `terminal` ended with the ask `id` open: it waits ASK_KEPT_MS for the same ask. */
+  private keep(terminal: string, id: number): void {
+    const open = this.open.get(terminal)
+    if (open === undefined || open.id !== id || open.kept !== null) return
+    const timer = setTimeout(() => {
+      if (this.open.get(terminal) === open) this.abort(terminal)
+    }, ASK_KEPT_MS)
+    open.kept = { timer, answers: [] }
   }
 
   private receive(terminal: string, message: ShellRequest): void {
@@ -245,16 +278,31 @@ export class ShellLink {
       if (this.open.get(terminal)?.id === message.id) this.abort(terminal)
       return
     }
+    const before = this.open.get(terminal)
+    const kept = before?.kept ?? null
+    if (before !== undefined && kept !== null && before.id === message.id && before.feature === message.feature && before.line === message.line) {
+      // The same ask over the next connection: the one that is open goes on.
+      clearTimeout(kept.timer)
+      before.kept = null
+      for (const answer of kept.answers) this.push(terminal, answer)
+      return
+    }
     // One ask per shell: a new one takes the place of the one before it.
     this.abort(terminal)
-    const abort = new AbortController()
-    this.open.set(terminal, { id: message.id, abort })
-    void this.ask(terminal, message, abort.signal)
+    const open: OpenAsk = { id: message.id, feature: message.feature, line: message.line, abort: new AbortController(), kept: null }
+    this.open.set(terminal, open)
+    void this.ask(terminal, message, open)
   }
 
-  private async ask(terminal: string, message: Extract<ShellRequest, { type: 'ask' }>, signal: AbortSignal): Promise<void> {
+  private async ask(terminal: string, message: Extract<ShellRequest, { type: 'ask' }>, open: OpenAsk): Promise<void> {
     const { id, feature } = message
-    const send = (answer: MainMessage): boolean => !signal.aborted && this.push(terminal, answer)
+    const { signal } = open.abort
+    const send = (answer: MainMessage): boolean => {
+      if (signal.aborted) return false
+      if (open.kept === null) return this.push(terminal, answer)
+      open.kept.answers.push(answer)
+      return true
+    }
     const reply: ShellReply = {
       show: (text) => send({ type: 'show', id, text }),
       status: (text) => send({ type: 'status', id, text }),

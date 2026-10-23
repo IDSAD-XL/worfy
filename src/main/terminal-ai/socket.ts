@@ -14,7 +14,8 @@
 // may hold a copy of the descriptor. The shell says hello with the same token again at the next
 // prompt (rc.d/10-assist.zsh). From its first hello
 // until its token dies the shell counts as connected, also while a command runs; main has nothing
-// to write to then, and an ask its connection carried is given up. A token dies with its shell
+// to write to then, and an ask its connection carried is handed to `ended` (shell-link.ts keeps it
+// for a moment: a widget of the user's gives the link up and asks the same again). A token dies with its shell
 // (revoke), and its connection is closed with it. Neither a token nor a line a shell sent is ever
 // logged or put into an error.
 import { randomBytes } from 'node:crypto'
@@ -36,6 +37,11 @@ export interface AssistSocketHandlers {
   /** The shell of `terminal` said hello with its token: the first time, and again after every command. */
   connected?: (terminal: string) => void
   message?: (terminal: string, message: ShellRequest) => void
+  /**
+   * The connection of `terminal` ended (bye, or the end of the stream) with the ask `id` open and not
+   * cancelled. Without this handler that is a cancel of the ask.
+   */
+  ended?: (terminal: string, id: number) => void
   /** The shell of `terminal` is gone: its token died, or the socket closed. */
   disconnected?: (terminal: string) => void
 }
@@ -203,7 +209,7 @@ export class AssistSocket {
 
     // The shell is done with its connection: it said bye (before a command), or the connection
     // ended — it broke, the shell closed it without a bye, or main closed it. The token says hello
-    // again; the ask that was open is given up, as a cancel gives it up. On the end of the stream,
+    // again; the ask that was open goes to `ended` (a cancel without that handler). On the end of the stream,
     // not on `close`: that comes a turn of the event loop later, and the hello of the next prompt
     // may be read before it.
     const release = (): void => {
@@ -211,7 +217,10 @@ export class AssistSocket {
       shell.connection = null
       const { terminal, asked } = shell
       shell.asked = 0
-      if (asked !== 0) this.call('cancel', terminal, () => this.options.message?.(terminal, { type: 'cancel', id: asked }))
+      if (asked !== 0) {
+        const { ended, message } = this.options
+        this.call('cancel', terminal, () => (ended !== undefined ? ended(terminal, asked) : message?.(terminal, { type: 'cancel', id: asked })))
+      }
       this.relisten()
     }
 

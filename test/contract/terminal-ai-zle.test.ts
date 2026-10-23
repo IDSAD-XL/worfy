@@ -794,7 +794,8 @@ describe('the connection while a command runs', () => {
     const [before] = feature.asks
     if (before === undefined) throw new Error('unreachable')
 
-    // The shell closes its connection, as before a command, without a cancel.
+    // The shell closes its connection, as before a command, without a cancel: main keeps the ask for
+    // ASK_KEPT_MS (shell-link.ts) for the same ask to come again, then gives it up.
     shell.socket.end()
     await vi.waitFor(() => expect(before.ask.signal.aborted).toBe(true), WAIT)
     expect(before.reply.show(' LATE')).toBe(false)
@@ -909,7 +910,8 @@ describe('the connection while a command runs', () => {
     await vi.waitFor(() => expect(first.received()).toMatch(/^config\t/), WAIT)
     first.socket.write(`ask\t3\t${PROBE}\tbefore bye\n`)
     await vi.waitFor(() => expect(feature.lines()).toEqual(['before bye']), WAIT)
-    // bye gives the open ask up, as a cancel does, and the ask behind it in the same chunk is not read.
+    // bye gives the open ask up once ASK_KEPT_MS passed with no same ask, and the ask behind it in the
+    // same chunk is not read.
     first.socket.write(`bye\nask\t4\t${PROBE}\tafter bye\n`)
     await first.untilClosed()
     await vi.waitFor(() => expect(feature.asks[0]?.ask.signal.aborted).toBe(true), WAIT)

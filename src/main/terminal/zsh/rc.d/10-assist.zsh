@@ -22,9 +22,12 @@
 # Ctrl+T, atuin), of completion widgets (compinit's _main_complete runs git and the like), the
 # handlers of `zle -F`, hooks of zle-line-finish added before worfy, and whatever they start with
 # `zle reset-prompt`. At every new prompt, before the link opens, worfy wraps each such function: the
-# link goes before it (cancel, bye, close) and opens again after it, so what it starts gets no copy.
-# An ask that waits for its answer (Next command asks at every prompt after a command) goes with the
-# link and is sent again, under the same id, once the link is open. Not covered: traps (a resize
+# link goes before it (bye, close) and opens again after it, so what it starts gets no copy. An ask
+# that waits for its answer (Next command asks at every prompt after a command) is sent again, under
+# the same id, once the link is open, and main takes the ask it kept open up (shell-link.ts): its
+# pause and its call to the model go on. An ask or a cancel of worfy's own widget that a wrapped one
+# runs (zsh-autosuggestions wraps accept-line, and Enter reaches Command request inside it) goes
+# out once the link is open again. Not covered: traps (a resize
 # that expands $(…) in the prompt again), the hooks of zle-line-pre-redraw, and a widget or handler
 # that is defined while the prompt is on (it is wrapped at the next prompt).
 #
@@ -83,6 +86,8 @@ builtin typeset -gi __worfy_assist_copies=0     # how many copies were made: eac
 builtin typeset -gi __worfy_assist_guard_ask=0  # the ask that waited when the link went for them
 builtin typeset -g __worfy_assist_waiting_feature='' # the feature and the line of the ask that waits
 builtin typeset -g __worfy_assist_waiting_line=''
+builtin typeset -gi __worfy_assist_guard_cancel=0 # the ask cancelled while the link was gone for them
+builtin typeset -gi __worfy_assist_guard_widget=0 # 1: the outermost of them runs as a widget, with a line
 
 # ---- the grey text ------------------------------------------------------------------------------
 
@@ -206,11 +211,24 @@ _worfy_assist_send() {
   fi
 }
 
+# True while the link is gone for a wrapped function and opens again after it: what worfy sends then
+# waits for _worfy_assist_guard_leave.
+_worfy_assist_deferred() {
+  [[ -z $__worfy_assist_fd ]] && (( __worfy_assist_guard_reopen ))
+}
+
 _worfy_assist_cancel() {
   builtin emulate -L zsh
   (( __worfy_assist_asked )) || builtin return 0
   builtin local id=$__worfy_assist_asked
   __worfy_assist_asked=0 __worfy_assist_waiting=0
+  if _worfy_assist_deferred; then
+    # The ask that waited is not sent again, and main hears the cancel once the link is open. One
+    # cancel is kept: an ask main kept open and no cancel reached is given up by main after a while.
+    (( id == __worfy_assist_guard_ask )) && __worfy_assist_guard_ask=0
+    __worfy_assist_guard_cancel=$id
+    builtin return 0
+  fi
   _worfy_assist_send cancel $id
   builtin return 0
 }
@@ -222,7 +240,12 @@ _worfy_assist_ask() {
   _worfy_assist_enabled "$1" || builtin return 1
   _worfy_assist_cancel
   __worfy_assist_id+=1
-  _worfy_assist_send ask $__worfy_assist_id "$1" "$2" || builtin return 1
+  # Inside a wrapped function the ask goes once the link is open again, for the line it is about.
+  if _worfy_assist_deferred; then
+    __worfy_assist_guard_ask=$__worfy_assist_id
+  else
+    _worfy_assist_send ask $__worfy_assist_id "$1" "$2" || builtin return 1
+  fi
   __worfy_assist_asked=$__worfy_assist_id __worfy_assist_waiting=$__worfy_assist_id
   __worfy_assist_waiting_feature=$1 __worfy_assist_waiting_line=$2
   REPLY=$__worfy_assist_id
@@ -306,9 +329,9 @@ _worfy_assist_on_config() {
 
 # ---- what worfy did not write ---------------------------------------------------------------------
 
-# Before a wrapped function: the link goes (cancel, bye, close), unless it went for a wrapped
-# function this one runs inside. An ask that waits for its answer is given up with it and goes again
-# once the link is open (_worfy_assist_guard_leave).
+# Before a wrapped function: the link goes (bye, close), unless it went for a wrapped function this
+# one runs inside. The ask that is open is not cancelled: main keeps it for a while, and one that
+# waits for its answer goes again under its id once the link is open (_worfy_assist_guard_leave).
 _worfy_assist_guard_enter() {
   builtin emulate -L zsh
   (( __worfy_assist_guard_depth++ )) && builtin return 0
@@ -317,8 +340,10 @@ _worfy_assist_guard_enter() {
   # refusal of Command request still takes its note away.
   builtin local -i asked=$__worfy_assist_asked closed=0
   builtin local fd=$__worfy_assist_fd inbox
-  __worfy_assist_guard_reopen=1 __worfy_assist_guard_ask=$__worfy_assist_waiting
-  _worfy_assist_cancel
+  __worfy_assist_guard_reopen=1 __worfy_assist_guard_ask=$__worfy_assist_waiting __worfy_assist_guard_cancel=0
+  # A `zle -F` handler without -w is no widget: it has no line ($BUFFER is empty there), and zle
+  # still answers 0 in it.
+  __worfy_assist_guard_widget=${+WIDGET}
   # What main sent before it read the bye (an insert of Fix or of the ⌘I panel) is read to the end
   # of the connection, which main closes on bye, and handled once the link is open again. Only
   # after that end may the next hello go: main refuses one while the old connection is alive.
@@ -347,22 +372,30 @@ _worfy_assist_drain() {
   (( code != 4 ))
 }
 
-# After it: the link opens again once the outermost one is done, and the ask that waited goes again
-# under its id, for the line it was about, while that is still the line.
+# After it: the link opens again once the outermost one is done. The cancel made meanwhile goes, and
+# the ask that waits (the one that waited before, or one worfy's own widget made inside) goes under
+# its id, for the line it is about, while that is still the line. A changed line sends no ask: the
+# redraw after the widget sees the change and cancels it.
 _worfy_assist_guard_leave() {
   builtin emulate -L zsh
   (( __worfy_assist_guard_depth > 1 )) && { (( __worfy_assist_guard_depth-- )); builtin return 0 }
   __worfy_assist_guard_depth=0
   (( __worfy_assist_guard_reopen )) || builtin return 0
-  builtin local -i id=$__worfy_assist_guard_ask
-  __worfy_assist_guard_reopen=0 __worfy_assist_guard_ask=0
+  builtin local -i id=$__worfy_assist_guard_ask cancel=$__worfy_assist_guard_cancel widget=$__worfy_assist_guard_widget
+  __worfy_assist_guard_reopen=0 __worfy_assist_guard_ask=0 __worfy_assist_guard_cancel=0
   # The new link's first message (config) has the drained lines read before it; without a link they go.
   if ! _worfy_assist_connect; then
     __worfy_assist_inbox=''
+    # No answer can come to the ask that waits: its note ("asking Claude…") goes too.
+    if (( id )); then
+      __worfy_assist_asked=0 __worfy_assist_waiting=0
+      (( widget )) && [[ $__worfy_assist_kind == status ]] && _worfy_assist_hide
+    fi
     builtin return 0
   fi
-  # Outside a widget (a `zle -F` handler) the line cannot have changed.
-  (( id )) && { ! builtin zle || [[ $BUFFER == "$__worfy_assist_waiting_line" ]] } || builtin return 0
+  (( cancel )) && _worfy_assist_send cancel $cancel
+  (( id )) || builtin return 0
+  (( widget )) && [[ $BUFFER != "$__worfy_assist_waiting_line" ]] && builtin return 0
   _worfy_assist_send ask $id "$__worfy_assist_waiting_feature" "$__worfy_assist_waiting_line" || builtin return 0
   __worfy_assist_asked=$id __worfy_assist_waiting=$id
   builtin return 0
@@ -457,7 +490,7 @@ builtin zle -N _worfy_assist_pre_redraw
 # first key.
 _worfy_assist_line_init() {
   builtin emulate -L zsh
-  __worfy_assist_guard_depth=0 __worfy_assist_guard_reopen=0 __worfy_assist_guard_ask=0
+  __worfy_assist_guard_depth=0 __worfy_assist_guard_reopen=0 __worfy_assist_guard_ask=0 __worfy_assist_guard_cancel=0
   if [[ $CONTEXT == (start|cont) ]]; then
     _worfy_assist_guard
     _worfy_assist_connect
@@ -478,7 +511,7 @@ _worfy_assist_line_finish() {
   _worfy_assist_hide
   [[ $CONTEXT == (start|cont) ]] && _worfy_assist_close
   # A link a wrapped function gave up does not open again after the line.
-  __worfy_assist_guard_reopen=0 __worfy_assist_guard_ask=0
+  __worfy_assist_guard_reopen=0 __worfy_assist_guard_ask=0 __worfy_assist_guard_cancel=0
   builtin return 0
 }
 builtin zle -N _worfy_assist_line_finish
