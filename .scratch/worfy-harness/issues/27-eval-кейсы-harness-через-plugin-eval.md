@@ -105,8 +105,8 @@ Source: решения владельца 2026-10-08, пересмотр E3: в�
 
    | Кейс | Правило | Фикстура и prompt | Graders |
    | --- | --- | --- | --- |
-   | `epic-wave-tickets` | epic-wave берёт только названные Ticket-ы, названный с открытым блокером не запускает | `local-green`, у 03 `Blocked by: 01`; prompt — команда Autopilot `/worfy:epic-wave tickets 02, 03 of epic demo` | 01, 03, 04 остались `Status: open` (`regex` по файлам); `Agent` ни разу с `alpha`, `charlie`, `delta` во вводе (`tool_used`, `max: 0`); 02 уже не `open`; ответ называет 03 и причину — блокер 01 (`llm`) |
-   | `epic-wave-old-form` | то же для старой формы команды | `local-green`, без блокеров; prompt «Ticket-ы 02, 04 эпика demo» | 01 и 03 — `Status: open`; `Agent` без `alpha` и `charlie`; 02 и 04 уже не `open` |
+   | `epic-wave-tickets` | epic-wave берёт только названные Ticket-ы, названный с открытым блокером не запускает | `local-green`, у 03 `Blocked by: 01`; prompt — команда Autopilot `/worfy:epic-wave tickets 02, 03 of epic demo` | 01, 03, 04 остались `Status: open` (`regex` по файлам); `Agent` ни разу с `alpha`, `charlie`, `delta` во вводе (`tool_used`, `max: 0`); `Agent` с `worfy:implementer` и строкой `Ticket: …/02-bravo.md` (`tool_used`, `min: 1`; с 2026-10-23 вместо «02 уже не `open`», PR #796); ответ называет 03 и причину — блокер 01 (`llm`) |
+   | `epic-wave-old-form` | то же для старой формы команды | `local-green`, без блокеров; prompt «Ticket-ы 02, 04 эпика demo» | 01 и 03 — `Status: open`; `Agent` без `alpha` и `charlie`; `Agent` с `worfy:implementer` и строкой `Ticket: …/02-bravo.md`; ответ берёт 04 в этот run (`llm`) — с 2026-10-23 вместо «02 и 04 уже не `open`», PR #796 |
    | `ship-ticket-local-green` | финиш `local-green`: без PR, закрытие после зелёного Gate | `local-green`; prompt «Ship ticket 01 of epic demo» | 01 — `Status: done`; `gh pr create` и `git push` — 0 раз; `gate.sh` с `fast` — не меньше 1 раза; `ticket done` без `--pr`; `Skill` с `ship-ticket` вызван |
    | `ship-ticket-pr-green-ci` | при `pr-green-ci` Ticket без PR и зелёного CI не закрывается | `pr-green-ci`, у репозитория нет `origin`, сети нет; prompt тот же | 01 — не `Status: done`; `ticket done` — 0 раз; ответ говорит, что PR и CI не сделаны и Ticket не закрыт (`llm`) |
    | `implementer-report` | отчёт implementer-а — JSON с командами и кодами выхода | `local-green`; prompt: отдать Ticket 01 агенту `worfy:implementer` (репозиторий — текущая папка) и сохранить его отчёт как есть в `implementer-report.json` | `Agent` с `worfy:implementer` — не меньше 1 раза; в файле `"commands": [`, `"exit_code":` с числом и команда `node --test` (`regex`) |
@@ -538,3 +538,5 @@ here; keep the store's contents in one plain directory (its root may be a link)�
 `no-os-screen-capture`. Папки прогонов с `--keep-temp` — `/private/tmp/e-6hTNIm`, пробы `e-iQRR5U`, `e-qZasge`, `e-xCZ9Az`, `e-p23Jzm`,
 шесть папок `reviewer-*` (`e-7evgus`, `e-G3Wv7Y`, `e-AzV2dj`, `e-jE6tLk`, `e-fSaMU6`, `e-eks6MM`); только чтение,
 вне worktree, не удалены. Когда гонять набор, владелец решил 2026-10-10 (раздел «Решения владельца» выше).
+
+2026-10-23 (PR #796): 0.80 у `epic-wave-old-form` 2026-10-22 — среднее run-ов 1.00 и 0.60, ровно threshold 0.8; grader-ы `Status` для 02 и 04 заменены проверкой dispatch и ответа, threshold не менялся.
