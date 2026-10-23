@@ -562,6 +562,10 @@ async function playedShell(link: ShellLink) {
 }
 
 describe('an ask whose connection ended without a cancel', () => {
+  // The link listens on a Unix socket, which the shell integration opens only for zsh; Windows has
+  // neither, and Node listens there on named pipes only.
+  beforeEach(needsZsh)
+
   function linkWithProbe() {
     const feature = recordingFeature(PROBE)
     const link = new ShellLink({
