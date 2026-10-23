@@ -290,6 +290,34 @@ describe('what runs at the prompt does not get the connection', () => {
     await vi.waitFor(() => expect(t.text()).toContain('worfy-answer'), WAIT)
     expect(t.feature.asks.map((each) => each.ask.signal.aborted)).toEqual([false])
   })
+
+  it('what main sent before it read the bye of a widget is not lost: the insert lands once the link is open again', async () => {
+    const waiting = join(root, 'slow.waiting')
+    const go = join(root, 'slow.go')
+    // A widget named as worfy's own, so the link stays while it waits: main's insert reaches the
+    // shell's side of the connection first, then a widget of the user's gives the link up.
+    const t = await start({
+      script: [
+        'zmodload zsh/zselect',
+        '__test_noop() { : }',
+        'zle -N __test_noop',
+        '_worfy_test_slow() {',
+        `  builtin print -r -- waiting >| ${waiting}`,
+        '  builtin local -i n=0',
+        `  while [[ ! -e ${go} ]] && (( n++ < 500 )); do zselect -t 2; done`,
+        '  zle __test_noop',
+        '}',
+        'zle -N _worfy_test_slow',
+        "bindkey '^Xz' _worfy_test_slow",
+      ].join('\n'),
+    })
+    t.type(WIDGET_KEY)
+    await vi.waitFor(() => expect(existsSync(waiting)).toBe(true), WAIT)
+    expect(t.link.push(KEY, { type: 'insert', text: 'echo drained-insert' })).toBe(true)
+    await writeFile(go, '')
+    await vi.waitFor(() => expect(t.text()).toContain('echo drained-insert'), WAIT)
+    expect(await t.run('')).toContain('drained-insert')
+  })
 })
 
 describe('the subshell of the Suggest AI timer and the startup files', () => {

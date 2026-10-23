@@ -309,9 +309,26 @@ _worfy_assist_guard_enter() {
   # The ask that was answered stays the open one for the scripts of the features: a key after a
   # refusal of Command request still takes its note away.
   builtin local -i asked=$__worfy_assist_asked
+  builtin local fd=$__worfy_assist_fd inbox
   __worfy_assist_guard_reopen=1
-  _worfy_assist_close
-  __worfy_assist_asked=$asked
+  _worfy_assist_cancel
+  # What main sent before it read the bye (an insert of Fix or of the ⌘I panel) is read to the end
+  # of the connection, which main closes on bye, and handled once the link is open again.
+  _worfy_assist_send bye && _worfy_assist_drain $fd
+  inbox=$__worfy_assist_inbox
+  _worfy_assist_disconnect
+  __worfy_assist_asked=$asked __worfy_assist_inbox=$inbox
+  builtin return 0
+}
+
+# Reads the link $1 into the inbox until main closes it, or until it sends nothing for 0.2 s.
+_worfy_assist_drain() {
+  builtin emulate -L zsh
+  builtin local chunk
+  builtin local -i reads=0
+  while (( reads++ < 64 && $#__worfy_assist_inbox <= 262144 )) && builtin sysread -i $1 -t 0.2 chunk 2>/dev/null; do
+    __worfy_assist_inbox+=$chunk
+  done
   builtin return 0
 }
 
@@ -322,7 +339,8 @@ _worfy_assist_guard_leave() {
   __worfy_assist_guard_depth=0
   (( __worfy_assist_guard_reopen )) || builtin return 0
   __worfy_assist_guard_reopen=0
-  _worfy_assist_connect
+  # The new link's first message (config) has the drained lines read before it; without a link they go.
+  _worfy_assist_connect || __worfy_assist_inbox=''
   builtin return 0
 }
 
