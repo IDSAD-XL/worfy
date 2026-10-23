@@ -10,7 +10,8 @@ import type { AgentEvent } from '../../src/shared/agent/events'
 import { toolSegments, type ToolCall } from '../../src/renderer/session/fold'
 import { Transcript } from '../../src/renderer/session/Transcript'
 import { HideToolsButton } from '../../src/renderer/session/HideToolsButton'
-import { hideToolsKey, useToolsHidden } from '../../src/renderer/session/transcript-view'
+import { hideToolsKey, toolsHiddenRenamed, useSessionToolsHidden, useToolsHidden } from '../../src/renderer/session/transcript-view'
+import { acceptAgentEvent } from '../../src/renderer/session/store'
 
 const toolUse = (id: string, name: string, input: unknown = {}): AgentEvent => ({ type: 'tool_use', id, name, input, parentToolUseId: null })
 const toolResult = (toolUseId: string, content = 'ok', isError = false): AgentEvent => ({ type: 'tool_result', toolUseId, content, isError, parentToolUseId: null })
@@ -256,5 +257,55 @@ describe('the choice, per Session', () => {
     expect(pressed()).toBe('false')
     fireEvent.click(button())
     expect(pressed()).toBe('true')
+  })
+})
+
+describe('the choice follows its Session to a new id', () => {
+  const projectId = 'alpha-0000000a'
+  const stored = () =>
+    Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
+      .filter((name): name is string => name !== null)
+      .sort()
+  function Live({ nodeId, liveId, sessionId }: { nodeId: string; liveId: string | null; sessionId: string | null }) {
+    const [hidden, setHidden] = useSessionToolsHidden({ projectId, nodeId, liveId, sessionId })
+    return <HideToolsButton hidden={hidden} onChange={setHidden} />
+  }
+  const pressed = () => screen.getByTestId('session-hide-tools').getAttribute('aria-pressed')
+
+  it('a rename by main (the `renamed` event) moves the choice and its Subagents\' to the new id, and the view follows', () => {
+    localStorage.setItem('worfy.transcript.hideTools:session:old-1/agent-7', '1')
+    const { rerender } = render(<Live nodeId="node-1" liveId="old-1" sessionId="old-1" />)
+    fireEvent.click(screen.getByTestId('session-hide-tools'))
+    // main's view names the new id before the `renamed` event arrives.
+    rerender(<Live nodeId="node-1" liveId="new-1" sessionId="new-1" />)
+    act(() => acceptAgentEvent({ sessionId: 'new-1', event: { type: 'renamed', from: 'old-1' } }))
+    expect(pressed()).toBe('true')
+    expect(stored()).toEqual(['worfy.transcript.hideTools:session:new-1', 'worfy.transcript.hideTools:session:new-1/agent-7'])
+  })
+
+  it('a resumed Session keyed by the id it resumes keeps its choice when Claude Code answers with another id', () => {
+    const { rerender } = render(<Live nodeId="node-1" liveId="pending-1" sessionId="resumed-1" />)
+    fireEvent.click(screen.getByTestId('session-hide-tools'))
+    rerender(<Live nodeId="node-1" liveId="other-1" sessionId="other-1" />)
+    act(() => toolsHiddenRenamed('pending-1', 'other-1'))
+    expect(pressed()).toBe('true')
+    expect(stored()).toEqual(['worfy.transcript.hideTools:session:other-1'])
+  })
+
+  it('a choice made before the Session had an id moves from the Node to the Session once the id appears', () => {
+    const { rerender } = render(<Live nodeId="node-1" liveId={null} sessionId={null} />)
+    fireEvent.click(screen.getByTestId('session-hide-tools'))
+    expect(stored()).toEqual([`worfy.transcript.hideTools:node:${projectId}/node-1`])
+    rerender(<Live nodeId="node-1" liveId="s-1" sessionId="s-1" />)
+    expect(pressed()).toBe('true')
+    expect(stored()).toEqual(['worfy.transcript.hideTools:session:s-1'])
+  })
+
+  it('another Session shown on the same view does not take the choice: only a rename or a new id moves it', () => {
+    const { rerender } = render(<Live nodeId="node-1" liveId="s-1" sessionId="s-1" />)
+    fireEvent.click(screen.getByTestId('session-hide-tools'))
+    rerender(<Live nodeId="node-1" liveId="s-2" sessionId="s-2" />)
+    expect(pressed()).toBe('false')
+    expect(stored()).toEqual(['worfy.transcript.hideTools:session:s-1'])
   })
 })

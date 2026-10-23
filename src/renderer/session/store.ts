@@ -28,6 +28,7 @@ import { typedText } from '../../shared/agent/attachments'
 import type { AgentEvent, AgentEventEnvelope, ContextUsage, QueueSnapshot } from '../../shared/agent/events'
 import type { SessionSettings } from '../../shared/agent/settings'
 import { invoke, subscribe } from '../ipc'
+import { toolsHiddenRenamed } from './transcript-view'
 
 /** Events kept per Session; older ones are dropped first. */
 export const KEEP_EVENTS = 5000
@@ -88,6 +89,8 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
   // A live event carries no time of its own: the row shows when it arrived (ticket 14).
   const event: AgentEvent = received.at === undefined ? { ...received, at: Date.now() } : received
   if (event.type === 'renamed') {
+    // The Session view's «Hide tools» choice goes with the Session to its new id (worfy-ui ticket 25).
+    toolsHiddenRenamed(event.from, sessionId)
     useSessionLogs.setState(({ logs }) => {
       const before = logs[event.from]
       if (before === undefined) return { logs }

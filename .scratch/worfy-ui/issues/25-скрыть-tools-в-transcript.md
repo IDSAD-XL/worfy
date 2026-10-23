@@ -42,7 +42,10 @@ Source: просьба владельца 2026-10-23: «когда модель 
      открыли (живой на Node, read-only, из Command palette с Node `session:<id>`), а «New
      conversation» на том же Node — новая Session, у неё tools снова видны. У живой Session это её
      id, а пока он временный (`pending-…` у возобновлённой, до system/init) — id, который она
-     возобновляет. Чтение и запись — в
+     возобновляет. Выбор, сделанный, пока id ещё нет (ключ Node), переезжает на ключ Session, когда
+     id появляется. Если main переименует Session (событие `renamed`: процесс умер до первого хода,
+     или Claude Code ответил на resume другим id), выбор переезжает на новый id вместе с выбором её
+     Subagent-ов. Чтение и запись — в
      `try/catch`: недоступное хранилище даёт «показано» и не ломает view.
 2. **Что видно, когда tools спрятаны.** Tool call с ошибкой остаётся как есть, на своём месте в серии
    (элемент `tools` из `fold.ts` — calls подряд, без других строк между ними). Он делит серию на
@@ -83,6 +86,7 @@ Source: просьба владельца 2026-10-23: «когда модель 
 - `src/renderer/session/HideToolsButton.tsx` (новый)
 - `src/renderer/session/SessionView.tsx`
 - `src/renderer/session/ExternalSessionPanel.tsx`
+- `src/renderer/session/store.ts` (событие `renamed` переносит выбор)
 - `src/renderer/session/session.css`
 - `src/shared/transcript/subagents.ts` (экспорт имён tool, который запускает Subagent)
 - `test/fixtures/agent-scripts/hide-tools.jsonl` (новый)
@@ -99,7 +103,8 @@ Source: просьба владельца 2026-10-23: «когда модель 
   Subagent-ом остаются видны на своём месте, каждый участок обычных calls между ними — своя строка
   «N tools» (`FoldedTools` в `Transcript.tsx`) с общим «running».
 - Выбор — `localStorage`, ключ по SDK session id, у Subagent-а ещё `agentId`
-  (`transcript-view.ts`). Другие окна worfy узнают о смене по событию `storage`; при ошибке записи
+  (`transcript-view.ts`). Выбор под ключом Node переезжает на ключ Session, когда появляется id
+  (`useSessionToolsHidden`); при `renamed` (`store.ts` → `toolsHiddenRenamed`) — на новый id. Другие окна worfy узнают о смене по событию `storage`; при ошибке записи
   выбор держится в окне.
 - `Transcript` в `SessionPanel` получил `key` по id Session: при показе другой Session раскрытые
   строки «N tools» не остаются раскрытыми. Это же чинит прежнюю ошибку `Disclosure` (thinking, hook,
@@ -107,8 +112,15 @@ Source: просьба владельца 2026-10-23: «когда модель 
   строки с той же позицией в другой.
 - Шапка при нехватке места: первым обрезается имя модели (полное — в tooltip), заголовок — только
   если этого мало. При окне 1280 px «Orchestrator · alpha» виден целиком, Interrupt — внутри шапки.
-- Test-ы: 13 unit в `test/unit/transcript-hide-tools.test.tsx`; e2e ««Hide tools» folds…» в
+- Известные пределы:
+  - Строка «N tools» ключена по id своего первого call. Если этот call, пока строка раскрыта,
+    получит ошибку, остальные calls станут новой, свёрнутой строкой.
+  - При переименовании Session `Transcript` пересоздаётся один раз: его `key` — id Session, а view
+    узнаёт новый id раньше события `renamed`. Выбор при этом сохраняется.
+  - E2e после перезапуска не отправляет ход: ключ возобновлённой Session после её system/init
+    проверен unit test-ами, а не e2e.
+- Test-ы: 17 unit в `test/unit/transcript-hide-tools.test.tsx`; e2e ««Hide tools» folds…» в
   `test/e2e/session-view.spec.ts` на скрипте `hide-tools.jsonl` (Bash ✓, Edit ✗, Grep ✓): порядок
   «1 tool», Edit, «1 tool», раскрытие, заголовок и Interrupt при 1280 px, выбор после перезапуска у
-  той же Session, «New conversation» начинает с видимыми tools. Mutation testing: 12 мутантов unit и
-  6 мутантов e2e за два круга — все красные.
+  той же Session, «New conversation» начинает с видимыми tools. Mutation testing: 17 мутантов unit и
+  6 мутантов e2e за три круга — все красные.

@@ -19,7 +19,7 @@ import { useShowSession } from './shown-session'
 import { ensureAgentEvents, joinPastAndLive, useSessionControls, useSessionLog } from './store'
 import { Transcript } from './Transcript'
 import { HideToolsButton } from './HideToolsButton'
-import { hideToolsKey, useToolsHidden } from './transcript-view'
+import { useSessionToolsHidden } from './transcript-view'
 import './session.css'
 
 // The Session view (the Session side of the toolbar's Canvas / Session switch): one Session in
@@ -171,7 +171,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   // `pending-…` until system/init (src/main/agent/session.ts) — else the one the Session resumes.
   const claudeSessionId = sessionId !== null && !sessionId.startsWith('pending-') ? sessionId : (transcriptId ?? null)
   // A view choice of this screen, kept per Session (worfy-ui ticket 25), not one of the agent's picks above.
-  const [hideTools, setHideTools] = useToolsHidden(hideToolsKey({ projectId, nodeId, sessionId: claudeSessionId }))
+  const [hideTools, setHideTools] = useSessionToolsHidden({ projectId, nodeId, liveId: sessionId, sessionId: claudeSessionId })
   // A model picked since the last system/init shows at once, as the picker shows it; the next
   // init names the model it runs (store.ts, modelPick; worfy-week ticket 12). Claude Code's
   // default model is «default» until then: only init says which model it stands for.
