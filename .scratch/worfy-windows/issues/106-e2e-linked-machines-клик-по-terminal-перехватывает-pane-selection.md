@@ -1,7 +1,8 @@
 # 106 — e2e linked-machines на Windows: клик по Terminal перехватывает `react-flow__pane selection`
 
 Type: task
-Status: open
+Status: claimed 2026-10-23T18:45Z
+Branch: worfy-windows/106
 Blocked by: —
 Source: прогоны на ПК 2026-10-22 (Ticket-ы 99 и 105), направление Session на Mac 2026-10-22: новый красный
 в счёте e2e Windows ([Ticket 14](14-gate-full-на-windows.md)). Строки — по main `1e1027f2`.
