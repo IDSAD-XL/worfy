@@ -91,6 +91,9 @@ export function textCache(bound: number): TextCache {
 export const CACHED_CHARS = 4_000_000
 const cache = textCache(CACHED_CHARS)
 
+/** Characters the cache behind markdownText holds now, keys and values; read only, for tests. */
+export const markdownCacheChars = (): number => cache.chars()
+
 function read(markdown: string): string {
   const out: string[] = []
   walk(processor.runSync(processor.parse(markdown)) as HastNode, out)

@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { TRANSCRIPT_FIND } from '../../src/shared/ipc/claude-home'
-import { CACHED_CHARS, markdownText, textCache } from '../../src/shared/markdown/visible-text'
+import { CACHED_CHARS, markdownCacheChars, markdownText, textCache } from '../../src/shared/markdown/visible-text'
 import { eventMatches, findNeedle } from '../../src/shared/transcript/find'
 import { Markdown } from '../../src/renderer/markdown/Markdown'
 import { foldTranscript } from '../../src/renderer/session/fold'
@@ -327,10 +327,19 @@ describe('what is counted is what is drawn', () => {
     expect(reads).toEqual([])
     cache.get(answers[0]!, read)
     expect(reads).toEqual([answers[0]])
-    // Read again, an answer gives the same text; markdownText's own cache too.
+    // Read again, an answer gives the same text.
     expect(cache.get('**foo** bar', read)).toBe('foo bar')
     expect(cache.get('**foo** bar', read)).toBe('foo bar')
-    expect(markdownText('**foo** bar')).toBe('foo bar')
+    // markdownText keeps what it read in its own cache: a short answer, not one over a tenth of CACHED_CHARS.
+    const held = markdownCacheChars()
+    const short = `**kept** ${held} answer`
+    expect(markdownText(short)).toBe(`kept ${held} answer`)
+    expect(markdownCacheChars()).toBe(held + short.length + `kept ${held} answer`.length)
+    expect(markdownText(short)).toBe(`kept ${held} answer`)
+    expect(markdownCacheChars()).toBe(held + short.length + `kept ${held} answer`.length)
+    const long = 'x'.repeat(CACHED_CHARS / 20 + 1)
+    expect(markdownText(long)).toHaveLength(long.length)
+    expect(markdownCacheChars()).toBe(held + short.length + `kept ${held} answer`.length)
   })
 
   it.each([
