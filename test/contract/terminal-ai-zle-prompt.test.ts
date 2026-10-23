@@ -9,7 +9,7 @@
 // HOME and the user's files are in a temporary folder: the real ~/.zshrc and ~/.zsh_history of the
 // machine running the tests are never read or written.
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, readdirSync, readFileSync, readlinkSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, readlinkSync } from 'node:fs'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { createConnection, type Socket } from 'node:net'
@@ -21,6 +21,7 @@ import { spawnShellPty, TerminalRegistry, type SpawnPty, type TerminalSink } fro
 import { ShellIntegration } from '../../src/main/terminal/shell-integration'
 import { ASK_KEPT_MS, HISTORY_FEATURE, ShellLink, type FeatureLoader, type ShellAsk, type ShellFeature, type ShellReply } from '../../src/main/terminal-ai/shell-link'
 import { DEFAULT_TERMINAL_AI_SETTINGS, type TerminalAiSettings } from '../../src/shared/terminal-ai/settings'
+import { shellStub } from '../shell-stub'
 import { needsZsh, zshPath } from '../zsh'
 
 const KEY = 'terminal-1'
@@ -515,8 +516,7 @@ describe('the subshell of the Suggest AI timer and the startup files', () => {
     await mkdir(bin)
     // A zsh whose `allexport` is on before any startup file is read; its name is zsh, so worfy treats it as one.
     const wrapper = join(bin, 'zsh')
-    await writeFile(wrapper, `#!/bin/sh\nexec ${zshPath()} -o allexport "$@"\n`)
-    chmodSync(wrapper, 0o755)
+    shellStub(wrapper, [`exec ${zshPath()} -o allexport "$@"`])
     const zshenvFile = join(root, 'zshenv-env.txt')
     const zshrcFile = join(root, 'zshrc-env.txt')
     await writeFile(join(home, '.zshenv'), `[[ -o allexport ]] && echo allexport-on >| ${zshenvFile}; /usr/bin/env >> ${zshenvFile}\n`)

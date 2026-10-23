@@ -32,6 +32,7 @@ import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
 import { ABORTED, hasSh, NODE_DIR, nodeScript, OUT_OF_MEMORY, scriptsEnv } from '../harness-node'
 import { removeTestTree } from '../remove'
+import { shellStub } from '../shell-stub'
 
 const mocks = vi.hoisted(() => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -336,8 +337,7 @@ describe('readMcpAllowlist with the real runner', () => {
     mkdirSync(join(home, 'bin'), { recursive: true })
     const script = join(home, 'bin', 'profile')
     const expected = `[ "$#" -eq 4 ] && [ "$1" = -C ] && [ -n "$2" ] && [ "$3" = --field ] && [ "$4" = ${MCP_ALLOWED_FIELD} ]`
-    writeFileSync(script, `#!/bin/sh\nif ! { ${expected}; }; then echo "profile stand-in: unexpected arguments: $*" >&2; exit 2; fi\necho '["github"]'\n`)
-    chmodSync(script, 0o755)
+    shellStub(script, [`if ! { ${expected}; }; then echo "profile stand-in: unexpected arguments: $*" >&2; exit 2; fi`, `echo '["github"]'`])
     return { home, script }
   }
 

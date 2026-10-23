@@ -14,6 +14,7 @@ import { MODELS_ANSWER_FILE } from '../../src/main/harness/qmd'
 import type { Check, CheckId, CheckStatus, FirstRunReport } from '../../src/shared/ipc/first-run'
 import { NODE, nodeScript, OUT_OF_MEMORY, scriptsEnv } from '../harness-node'
 import { removeTestTree } from '../remove'
+import { shellStub } from '../shell-stub'
 
 // The real runner of the Harness scripts, with the time limit each call asked for recorded: the
 // limit of the Harness scripts row is otherwise seen only after a 15 s wait.
@@ -670,17 +671,11 @@ describe('first-run actions', () => {
     const dir = join(harnessHome, 'plugin', 'bin')
     mkdirSync(dir, { recursive: true })
     const script = join(dir, 'qmd-collections')
-    writeFileSync(
-      script,
-      [
-        '#!/bin/sh',
-        'printf \'qmd-collections %s home=%s\\n\' "$*" "$HARNESS_HOME" >>"$FIRST_RUN_TOOLS_LOG"',
-        'if [ -n "$FAKE_COLLECTIONS_FAIL" ]; then printf \'%s\\n\' "$FAKE_COLLECTIONS_FAIL" >&2; exit 1; fi',
-        "printf 'qmd-collections: alpha-docs, alpha-tickets, alpha-memory\\n'",
-        '',
-      ].join('\n'),
-    )
-    chmodSync(script, 0o755)
+    shellStub(script, [
+      'printf \'qmd-collections %s home=%s\\n\' "$*" "$HARNESS_HOME" >>"$FIRST_RUN_TOOLS_LOG"',
+      'if [ -n "$FAKE_COLLECTIONS_FAIL" ]; then printf \'%s\\n\' "$FAKE_COLLECTIONS_FAIL" >&2; exit 1; fi',
+      "printf 'qmd-collections: alpha-docs, alpha-tickets, alpha-memory\\n'",
+    ])
     return script
   }
   const ALPHA: ProjectProfile = { name: 'alpha', profile: 'alpha', collections: [] }

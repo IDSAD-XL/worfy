@@ -7,7 +7,7 @@
 // ticket 13), on a Harness copy without dependencies, so that binary runs only local commands.
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
@@ -32,6 +32,7 @@ import { harnessHome } from '../../src/main/storage/paths'
 import { accessOf, LINKED_MACHINE_ACCESS } from '../../src/shared/ipc/channels'
 import { firstRunRun } from '../../src/shared/ipc/first-run'
 import { removeTestTree } from '../remove'
+import { shellStub } from '../shell-stub'
 import { harnessInstall, type HarnessStatus } from '../../src/shared/ipc/harness'
 
 const REPO = join(__dirname, '..', '..')
@@ -187,10 +188,7 @@ beforeEach(() => {
   // Windows cannot start a `#!/bin/sh` script as a program: there the stand-in is the Node script
   // itself, which the installer starts under worfy's own Node (src/main/program.ts).
   const stub = process.platform === 'win32' ? join(stubDir, 'claude-stub.mjs') : join(stubDir, 'claude')
-  if (process.platform !== 'win32') {
-    writeFileSync(stub, `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec "${process.execPath}" "${join(stubDir, 'claude-stub.mjs')}" "$@"\n`)
-    chmodSync(stub, 0o755)
-  }
+  if (process.platform !== 'win32') shellStub(stub, [`ELECTRON_RUN_AS_NODE=1 exec "${process.execPath}" "${join(stubDir, 'claude-stub.mjs')}" "$@"`])
   const hHome = harnessHome({ WORFY_CLAUDE_HOME: claudeHome })
   sb = {
     root,

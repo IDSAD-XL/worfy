@@ -12,6 +12,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type BuildKind, dataRoot } from '../../src/main/storage/paths'
 import { removeTestTree } from '../remove'
+import { shellStub } from '../shell-stub'
 
 const MJS = join(__dirname, '..', '..', 'scripts', 'statusline-bridge.mjs')
 const SH = join(__dirname, '..', '..', 'scripts', 'statusline-bridge.sh')
@@ -253,11 +254,11 @@ describe.skipIf(WINDOWS)('statusline-bridge.sh without a working node', () => {
   const JQ = tool('jq')
   const STUBS = {
     // An asdf or mise shim with no version selected.
-    fails: '#!/bin/sh\necho "No version is set for command node" >&2\nexit 126\n',
+    fails: ['echo "No version is set for command node" >&2', 'exit 126'],
     // A Node too old for `?.`.
-    old: "#!/bin/sh\necho \"SyntaxError: Unexpected token '.'\" >&2\nexit 1\n",
+    old: ["echo \"SyntaxError: Unexpected token '.'\" >&2", 'exit 1'],
     // A `node` that exits 0 without running the script.
-    silent: '#!/bin/sh\nexit 0\n',
+    silent: ['exit 0'],
   }
 
   /** `node`: a stub, the real one, or none. */
@@ -269,7 +270,7 @@ describe.skipIf(WINDOWS)('statusline-bridge.sh without a working node', () => {
       if (found) symlinkSync(found, join(dir, name))
     }
     if (node === 'real') symlinkSync(NODE, join(dir, 'node'))
-    else if (node !== null) writeFileSync(join(dir, 'node'), STUBS[node], { mode: 0o755 })
+    else if (node !== null) shellStub(join(dir, 'node'), STUBS[node])
     return dir
   }
 
@@ -330,7 +331,7 @@ describe.skipIf(WINDOWS)('statusline-bridge.sh without a working node', () => {
     const bin = binDir(null)
     // A `node` that records that it ran, and claims the Limits are written.
     const ran = join(scratch, 'node-ran')
-    writeFileSync(join(bin, 'node'), `#!/bin/sh\n: >'${ran}'\necho written\n`, { mode: 0o755 })
+    shellStub(join(bin, 'node'), [`: >'${ran}'`, 'echo written'])
     const env = { PATH: `${bin}:${pathEntry === 'app' ? app : '.'}`, HOME: home, WORFY_DATA_DIR: dataDir }
     const result = spawnSync('/bin/sh', ['statusline-bridge.sh', 'cat >/dev/null; echo ok'], { cwd: cwdName === 'app' ? app : project, input: JSON.stringify(STATUS), encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, env })
     expect(existsSync(ran)).toBe(false)
