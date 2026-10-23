@@ -137,7 +137,8 @@ git and the Harness state in a run. The sandbox settings `claude plugin
 eval` writes for a run list the Command Line Tools `git` binary among denied credential files, next
 to the `git-credential-*` helpers, and let a run write only into its working folder. So
 `scripts/eval-harness.mjs` copies the folder `git --exec-path` names, without `git-credential-*`,
-into `evals/results/<time>-git/` (removed at the end, also after Ctrl-C, SIGTERM or SIGHUP), puts that folder first on the runs' `PATH`
+into `~/Library/Caches/worfy-eval/<time>-git/` on macOS and `evals/results/<time>-git/` elsewhere
+(removed at the end, also after Ctrl-C, SIGTERM or SIGHUP), puts that folder first on the runs' `PATH`
 and sets two variables, which every Harness script reads through `hooks/eval-env.cjs`:
 
 - `EVAL_GIT` — the git the scripts start instead of `git` from `PATH`;
@@ -146,8 +147,13 @@ and sets two variables, which every Harness script reads through `hooks/eval-env
   run goes to `.git/worfy-harness` of its working folder.
 
 Without both variables the scripts start `git` from `PATH` and keep the state in `HARNESS_HOME` or
-`~/.claude/worfy-harness`, as before. Whether the copy of git runs inside a real sandbox is checked
-by the first paid run of the eval set.
+`~/.claude/worfy-harness`, as before. On macOS the copy lives under the home folder: the sandbox
+of a run re-opens for reading the `PATH` folders under the home folder, and it did not re-open one
+under `/private/tmp` — from a checkout there a copy under `evals/results/` stayed unreadable, and
+`git` fell through to the xcrun shim `/usr/bin/git`, which exits 72 in the sandbox. A run there first
+removes the copies older than a day that killed runs left, and fails rather than reuse a folder of
+the same name. Whether the copy
+of git runs inside a real sandbox is checked by a paid run of the eval set.
 
 ### Which cases check which rule file
 

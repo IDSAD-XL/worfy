@@ -12,6 +12,7 @@ import {
   copyFileSync,
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -129,11 +130,71 @@ export function pluginCopy(source) {
 }
 
 /**
+ * The folder of the copy of git of one eval run, named by the run's `stamp`. On macOS it is
+ * ~/Library/Caches/worfy-eval/<stamp>-git, whatever folder the checkout is in; elsewhere it is
+ * <results>/<stamp>-git, as before. The sandbox of a `claude plugin eval` run on macOS denies reading
+ * /Users, /tmp, /private/tmp and the user's /var/folders/…/T; it re-opened every PATH folder under the
+ * home folder and not the one under /private/tmp: a copy under <results> of a checkout in a temporary
+ * folder (an Orchestrator's scratchpad) stayed unreadable
+ * ("Operation not permitted"), `git` fell through to the xcrun shim /usr/bin/git, which exits 72
+ * there, and the Harness scripts answered "not a git repository" (allowRead of
+ * <run>/config/settings.json, claude 2.1.289, 2026-10-23).
+ */
+// shortcut: relies on the sandbox re-opening the PATH folders under the home folder (seen in allowRead,
+// not documented), redo when a run's settings.json stops listing such a PATH folder in allowRead.
+export function gitFolder(results, stamp, platform = process.platform) {
+  return platform === 'darwin' ? join(homedir(), 'Library', 'Caches', 'worfy-eval', `${stamp}-git`) : join(results, `${stamp}-git`)
+}
+
+/** The name of a copy of git: the stamp of its run (`new Date().toISOString()` with `:` and `.` as `-`), then `-git`. */
+const COPY_NAME = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z-git$/
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Removes the copies of git in `parent` that runs left behind (a run ended by SIGKILL, out of memory
+ * or a reboot never removes its own): a folder named like a copy whose stamp and modification time
+ * are both more than a day before `now`. A younger one may belong to a run still going, and anything
+ * else in `parent` (a file, a link, another name) stays. Returns the removed paths and, for each one
+ * that could not go, its path and the error.
+ */
+export function pruneGitCopies(parent, now = Date.now()) {
+  const removed = []
+  const failed = []
+  let names
+  try {
+    names = readdirSync(parent)
+  } catch {
+    return { removed, failed }
+  }
+  for (const name of names) {
+    const match = COPY_NAME.exec(name)
+    if (!match) continue
+    const path = join(parent, name)
+    const [, day, hours, minutes, seconds, ms] = match
+    const started = Date.parse(`${day}T${hours}:${minutes}:${seconds}.${ms}Z`)
+    try {
+      const stat = lstatSync(path)
+      if (!stat.isDirectory() || !(now - started > DAY_MS) || !(now - stat.mtimeMs > DAY_MS)) continue
+      removeTree(path)
+      removed.push(path)
+    } catch (error) {
+      failed.push({ path, error: error instanceof Error ? error.message : String(error) })
+    }
+  }
+  return { removed, failed }
+}
+
+/**
  * Gives the runs their copy of git: `gitCopy` into `dir`, that folder first on the PATH of `env`, and
  * the two variables `harness/hooks/eval-env.cjs` reads — `EVAL_GIT` (the wrapper) and
  * `EVAL_HARNESS_HOME`. Changes `env` in place and returns the wrapper; `fail` as `gitCopy`.
  */
 export function gitForRuns(dir, env, fail) {
+  // On macOS the copies of every checkout share ~/Library/Caches/worfy-eval (gitFolder), and nothing
+  // else removes the ones a killed run left there; elsewhere they lie in the results folder, as before.
+  if (process.platform === 'darwin') {
+    for (const { path, error } of pruneGitCopies(dirname(dir)).failed) process.stderr.write(`eval: cannot remove an old copy of git ${path}: ${error}\n`)
+  }
   const git = gitCopy(dir, env, fail)
   env.PATH = [dir, env.PATH].filter(Boolean).join(delimiter)
   env.EVAL_GIT = git
@@ -150,8 +211,9 @@ const shellWord = (text) => `'${text.replaceAll("'", `'\\''`)}'`
  * Command Line Tools (it lies next to git-credential-*) and reads every PATH folder. Each file is
  * copied once: a second name of the same file (git-add and the rest are links to the git binary)
  * becomes a symlink inside the copy, so the copy holds a few binaries and not a hundred copies of
- * one. `env` is the environment of the runs. `fail` when git names no folder or the copy does not
- * answer `--version`; a copy that was started is removed before `fail`.
+ * one. `env` is the environment of the runs. `fail` when git names no folder, when `dir` already
+ * exists (another run with the same stamp: its copy is left alone), or when the copy does not answer
+ * `--version`; a copy that was started is removed before `fail`.
  */
 export function gitCopy(dir, env, fail) {
   // Windows starts no `#!/bin/sh` script by its path, and its PATH lookup of `git` finds only
@@ -163,6 +225,14 @@ export function gitCopy(dir, env, fail) {
   if (source === '' || !existsSync(source) || !statSync(source).isDirectory()) return fail(`\`git --exec-path\` gave no folder (exit ${exec.status ?? exec.error?.code}): the runs need a copy of git`)
   const core = join(dir, 'git-core')
   const wrapper = join(dir, 'git')
+  // Not `recursive` for `dir` itself: two runs started in the same millisecond name the same folder,
+  // and the second must not copy into the first one's copy or remove it.
+  try {
+    mkdirSync(dirname(dir), { recursive: true })
+    mkdirSync(dir)
+  } catch (error) {
+    return fail(`cannot create ${dir} for the copy of git: ${error instanceof Error ? error.message : String(error)}`)
+  }
   try {
     const copied = new Map() // device:inode of a file -> its path in the copy
     const copyFolder = (from, to) => {

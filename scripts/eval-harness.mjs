@@ -38,9 +38,10 @@
 // `claude plugin eval --case` takes one name glob, so when the change chooses some cases of a tag but
 // not all of them, each chosen case of that tag is a call of its own.
 // git for the runs (ticket worfy-harness/28): the sandbox of a run refuses the git of Xcode Command
-// Line Tools (it lies next to git-credential-*), and it reads every folder of PATH. So the folder
-// `git --exec-path` names is copied, without git-credential-*, into <evals>/results/<time>-git/, and a
-// wrapper <…>-git/git runs the copy. The runs get that folder first on PATH, EVAL_GIT=<…>-git/git
+// Line Tools (it lies next to git-credential-*), and it reads the folders of PATH under the home folder.
+// So the folder `git --exec-path` names is copied, without git-credential-*, into
+// ~/Library/Caches/worfy-eval/<time>-git/ on macOS and <evals>/results/<time>-git/ elsewhere
+// (gitFolder of scripts/eval-run-env.mjs), and a wrapper <…>-git/git runs the copy. The runs get that folder first on PATH, EVAL_GIT=<…>-git/git
 // (the git every Harness script starts) and EVAL_HARNESS_HOME=worfy-harness: the Harness state goes
 // to .git/worfy-harness of the run's working folder, the one place a run may write
 // (harness/hooks/eval-env.cjs). No folder from `git --exec-path`, or a copy that does not run — exit 1
@@ -69,7 +70,7 @@ import process from 'node:process'
 import { setImmediate } from 'node:timers'
 import { fileURLToPath } from 'node:url'
 import { casesFor, coverageProblems, readCoverage } from './eval-harness-coverage.mjs'
-import { checkVersion, claudeBinary, cleanEnv, gitForRuns, JUDGE_MODEL, MODEL, pluginCopy, runClaude } from './eval-run-env.mjs'
+import { checkVersion, claudeBinary, cleanEnv, gitFolder, gitForRuns, JUDGE_MODEL, MODEL, pluginCopy, runClaude } from './eval-run-env.mjs'
 import { removeTree } from './remove-tree.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -359,7 +360,7 @@ for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => (
 // A signal handler runs only when the event loop gets a turn, and spawnSync does not give it one.
 const signalsHandled = () => new Promise((resolve) => setImmediate(resolve))
 
-const gitDir = join(EVALS, 'results', `${stamp}-git`)
+const gitDir = gitFolder(join(EVALS, 'results'), stamp)
 const evalGit = gitForRuns(gitDir, childEnv, fail)
 process.stdout.write(`eval:harness: git for the runs — ${evalGit}\n`)
 let harness = ''
