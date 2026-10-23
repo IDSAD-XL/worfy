@@ -135,7 +135,11 @@ Playwright-тесты), пункт 5 (агент не входит сам). Те
   до того, как Session берёт или будит Browser; разрешён только `browser_navigate` прочь — так агент
   не может нажать «Sign in as admin» или SSO. Sign-in page с user name или паролем в адресе — отказ
   (текст не повторяется); в ответах Session-у адрес — только origin и путь. 401 после отсоединения
-  debugger-а (DevTools, перехват) сбрасывается.
+  debugger-а (DevTools, перехват) сбрасывается — так и задумано: после повторного attach проверка
+  текущего URL на sign-in page по-прежнему действует, теряется только старый 401. Epic run-а
+  берётся только у идущего run-а (`running` или `waiting`): остановленный run хранит свой Epic в
+  snapshot-е, но ни один Ticket по нему не принимается (`autopilotEpicAtWork`,
+  `src/shared/ipc/autopilot.ts`, тест на настоящем состоянии run-а в `test/contract/autopilot.test.ts`; оба файла вне следа, раунд ревью 2).
 - **Инструкции server-а** — правило «не входить самому» для любой Session, оба признака и две строки
   отчёта.
 - **Harness.** `harness/agents/implementer.md`: раздел «Browser checks» и поле отчёта
@@ -170,7 +174,7 @@ origins, поле отчёта убрано из implementer-а, строка б
 `readSignIn` и схема принимают user/пароль, проверка sign-in page до `mayDrive` снята, `browser_open`
 теряет `signIn`, ошибка без id Browser-а, сравнение только по пути, в ответе полный адрес, detach не
 сбрасывает 401, Autopilot без `ticket` разрешён, Epic run-а не сверяется, неизвестный Ticket принят,
-Family не знает `ticket`.
+Family не знает `ticket`. Раунд 2, все красные: вторая проверка sign-in page (после пробуждения) снята; Epic frame выпал из Family Browser-а; Browser выпал из Family Epic frame-а; остановленный run всё ещё называет свой Epic; run, ждущий Limits, Epic не называет.
 
 Снимки окна «Browser profiles…» с полем «Sign-in page»:
 [светлая](../evidence/08-browser-profile-sign-in-light.png), [тёмная](../evidence/08-browser-profile-sign-in-dark.png).

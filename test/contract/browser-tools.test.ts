@@ -834,6 +834,26 @@ describe("a sign-in that expired (worfy-browser ticket 08, the owner's answer 20
     expect(outside.isError, textOf(outside)).toBeFalsy()
   })
 
+  it('in Autopilot, an Asleep Browser saved on another page that wakes onto the sign-in page is refused once live: read and screenshot', async () => {
+    const rpc = await connect(context({ autopilot: true }))
+    for (const [id, name] of [
+      ['browser-read', 'browser_read'],
+      ['browser-shot', 'browser_screenshot'],
+    ] as const) {
+      store.apply(PROJECT, { op: 'create', node: { id, kind: 'browser', x: 0, y: 400, w: 640, h: 440, data: { profile: USER, url: `${SITE}/account` } } })
+      // The window draws the woken Browser; its saved page sends it to the sign-in page.
+      setTimeout(() => {
+        const page = new FakePage()
+        page.url = `${SITE}/login?next=%2Faccount`
+        pages.set(id, page)
+        live.register(PROJECT, id, page)
+      }, 20)
+      expect(refused(await rpc.call(name, { id })), name).toContain('only browser_navigate away is allowed')
+      expect(pages.get(id)?.commands('Page.captureScreenshot') ?? []).toEqual([])
+      expect(live.control(PROJECT, id)).toBeNull()
+    }
+  })
+
   it('a 401 seen before the debugger was taken away does not stand after it: the next call is not refused', async () => {
     const rpc = await connect(context({ autopilot: true }))
     const { id, page } = await openUser(rpc)

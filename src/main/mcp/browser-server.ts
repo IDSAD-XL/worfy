@@ -54,6 +54,7 @@ import {
   SIGN_IN_EXPIRED,
 } from '../../shared/browser/tools'
 import { placeNear } from '../../shared/canvas/tools'
+import { autopilotEpicAtWork } from '../../shared/ipc/autopilot'
 import { ORCHESTRATOR_KIND } from '../../shared/ipc/orchestrator'
 import { SESSION_NODE_KIND } from '../../shared/ipc/sessions'
 import { shownOnCanvas } from '../../shared/layout/derived'
@@ -461,7 +462,7 @@ export const browserAppDeps = (): BrowserDeps => ({
   live: liveBrowsers(),
   workflow: (projectId) => canvasAppDeps().workflow(projectStore().get(projectId).path),
   // Loaded when asked: the Autopilot module brings the Session registry, which loads this module.
-  runningEpic: async (projectId) => (await import('../ipc/autopilot')).sharedAutopilot().state(projectId).epic,
+  runningEpic: async (projectId) => autopilotEpicAtWork((await import('../ipc/autopilot')).sharedAutopilot().state(projectId)),
 })
 
 /** What a Browser server is made for: where the Session starts, the session it resumes, and whether it runs unattended (Autopilot). */

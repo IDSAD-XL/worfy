@@ -146,6 +146,13 @@ describe('familyOf: a Browser opened for a Ticket (worfy-browser ticket 08)', ()
     expect(ofT('browser-b')).toEqual(ofT(S('B')))
   })
 
+  it('brings the Epic frame by its Ticket alone: a Session bound to nothing opened it', () => {
+    const unbound: FamilyLinks = { ...links, browsers: [{ nodeId: 'browser-c', sessionNodeId: S('C'), ticket: { epic: 'e', num: 2 } }] }
+    expect(sorted(familyOf('browser-c', unbound))).toEqual([S('C'), SUB('C', 'c1'), 'browser-c', ticketNodeId('e', 2), epicNodeId('e')].sort())
+    expect(sorted(familyOf(epicNodeId('e'), unbound))).toContain('browser-c')
+    expect(sorted(familyOf(epicNodeId('f'), unbound))).not.toContain('browser-c')
+  })
+
   it('is read from the Node’s `ticket`', () => {
     const flow = (id: string, type: string, data: Record<string, unknown>) => ({ id, type, data: { node: { id, kind: type, x: 0, y: 0, w: 1, h: 1, hidden: false, locked: false, pinned: false, tags: [], data } } })
     const nodes = [flow(S('O'), 'orchestrator', { sessionId: 'O' }), flow('browser-t', 'browser', { profile: 'p', openedBy: 'O', ticket: { epic: 'e', num: 2 } }), flow('browser-x', 'browser', { profile: 'p', openedBy: 'O', ticket: 'e/2' })]
