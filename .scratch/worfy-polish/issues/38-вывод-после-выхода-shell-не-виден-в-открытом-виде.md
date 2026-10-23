@@ -1,7 +1,8 @@
 # 38 — Вывод после выхода shell не виден в открытом виде Terminal-а
 
 Type: task
-Status: open
+Status: claimed 2026-10-23T17:36Z
+Branch: worfy-polish/38
 Blocked by: —
 Source: ревью корректности PR #740 (worfy-windows 89, replay при размерах pty), 2026-10-22; решение
 Mac — завести тикетом в worfy-polish, это не только Windows. Строки — по main `343be106`.
