@@ -1,7 +1,7 @@
 // The Terminal through the `terminal.*` IPC channels, on a real pseudo-terminal (node-pty under
 // Electron's Node, ELECTRON_RUN_AS_NODE=1): open, input, output, resize, close, and that no shell
 // process outlives its Node, its window or the app.
-import { realpath, writeFile } from 'node:fs/promises'
+import { readFile, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks'
@@ -223,6 +223,51 @@ describe('terminal channels on a real pty', () => {
     expect(alive(again.pid)).toBe(true)
   })
 
+  // worfy-polish ticket 38: what reaches the pty after the shell exited on its own goes to the open
+  // screens and into the kept output, and a view opened again shows it once. On a real shell that
+  // output does not come after the exit event: on macOS the shell's exit takes its terminal away from
+  // the processes left on it, and their writes fail; on Linux node-pty reports the exit only once it
+  // stopped reading the pty (node-pty's unixTerminal waits up to 200 ms for that). Either way the
+  // open screen and a view opened again show the same. Windows drops that output (pty.ts, deliver).
+  // The line comes from /bin/echo: the builtin echo of bash keeps a write that failed in its buffer
+  // and writes it into the next redirection, the file that records whether the write went through.
+  // It writes once the shell is gone ($$ in a subshell is the shell's pid), not after a fixed wait.
+  it.skipIf(WINDOWS)('a process left on the pty writing after the shell exited: the open screen and a view opened again show the same, the line at most once', async () => {
+    const h = await harness()
+    const { pid } = await h.open()
+    await h.run(say('be', 'fore-exit'), /before-exit\r?\n/)
+    const done = join(root, 'late-write')
+    await h.type(`(trap '' HUP; while kill -0 $$ 2>/dev/null; do sleep 0.01; done; if /bin/echo la""te-line; then w=wrote; else w=failed; fi; echo $w > '${done}') & exit 0\r`)
+    await vi.waitFor(() => expect(h.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 0, signal: null }]), { timeout: 5000 })
+    expect(alive(pid)).toBe(false)
+    const written = await vi.waitFor(async () => (await readFile(done, 'utf8')).trim(), { timeout: 5000 })
+
+    const back = await h.open()
+    expect(back).toMatchObject({ pid, exited: { exitCode: 0, signal: null }, replay: h.text() })
+    const lines = (text: string) => text.split('late-line').length - 1
+    expect(lines(back.replay)).toBe(lines(h.text()))
+    expect(lines(h.text())).toBeLessThanOrEqual(1)
+    if (process.platform === 'darwin') expect([written, lines(h.text())]).toEqual(['failed', 0])
+  })
+
+  it('output that comes after the exit (a stand-in pty): the open screen gets it after the exit event, and a view opened again gets it once', async () => {
+    const pty = new LatePty()
+    const h = await harness({ spawn: () => pty, platform: 'linux' })
+    await h.open()
+    pty.print('before-exit|')
+    pty.exit(3)
+    await vi.waitFor(() => expect(h.exits).toHaveLength(1))
+    const atExit = h.outputs.length
+    pty.print('after-exit|')
+
+    expect(h.outputs.slice(atExit)).toEqual([{ projectId: PROJECT, nodeId: NODE, data: 'after-exit|', end: 'before-exit|after-exit|'.length }])
+    const back = await h.open()
+    expect(back).toMatchObject({ replay: 'before-exit|after-exit|', end: 'before-exit|after-exit|'.length, started: false, exited: { exitCode: 3, signal: null } })
+    // The screen opened again counts from the end it was given: nothing it gets after repeats a line.
+    pty.print('later|')
+    expect(h.outputs.at(-1)).toMatchObject({ data: 'later|', end: back.end + 'later|'.length })
+  })
+
   it('closing a Node whose shell exited forgets the exit: the next open starts a new shell', async () => {
     const h = await harness({ nodes: [NODE, 'node-2'] })
     const { pid } = await h.open()
@@ -420,6 +465,35 @@ describe('the output of one Terminal on one and on two screens, measured (worfy-
     }
   })
 })
+
+/** A pty that prints what the test gives it, before and after it reports its exit. */
+class LatePty implements PtyProcess {
+  // No process has this pid: closing the registry signals it, and the signal must reach nobody.
+  readonly pid = 999_999_998
+  private data: ((data: string) => void)[] = []
+  private exits: ((event: { exitCode: number; signal?: number }) => void)[] = []
+  private ended = false
+  onData(listener: (data: string) => void): void {
+    this.data.push(listener)
+  }
+  onExit(listener: (event: { exitCode: number; signal?: number }) => void): void {
+    this.exits.push(listener)
+  }
+  write(): void {}
+  resize(): void {}
+  kill(): void {
+    this.exit(0)
+  }
+  print(text: string): void {
+    for (const listener of this.data) listener(text)
+  }
+  /** The shell exits, once. */
+  exit(exitCode: number): void {
+    if (this.ended) return
+    this.ended = true
+    for (const listener of this.exits) listener({ exitCode })
+  }
+}
 
 /** A pty that records its resizes and writes in one list, in the order they came. */
 class SizePty implements PtyProcess {

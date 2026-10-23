@@ -287,8 +287,13 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     // clicks waits in `pending`, and the answers xterm.js gives meanwhile go nowhere.
     let replaying = false
     // While the kept output is written at the sizes of the pty it came at (terminal-replay.ts): the
-    // terminal is not fitted to the Node meanwhile, and is fitted once it is all written.
+    // terminal is not fitted to the Node meanwhile, and is fitted once it is all written. Output
+    // waits in `queued` meanwhile, also after an exit: it is written once, after the kept output.
     let sizing = false
+    // The shell this view shows has exited, and no new one has started on the Node: off Windows
+    // main still sends what reaches its pty after the exit (pty.ts, deliver) and keeps it for the
+    // next open, so this view writes it too, counted in `written` as before the exit.
+    let afterExit = false
     const pending: (() => void)[] = []
     // The shell of the open answer: an exit during the parse shows it in the header.
     let shellName = ''
@@ -306,11 +311,13 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     const offOutput = subscribe('terminal.output', (payload) => {
       if (payload.projectId !== projectId || payload.nodeId !== id) return
       if (attached) write(payload.data, payload.end)
-      else if (opening || replaying) queued.push(payload)
+      else if (opening || replaying || sizing) queued.push(payload)
+      else if (afterExit) write(payload.data, payload.end)
     })
     const offExit = subscribe('terminal.exit', (payload) => {
       if (payload.projectId !== projectId || payload.nodeId !== id) return
       attached = false
+      afterExit = true
       // The shell exited while the kept output was parsed: what it printed last is shown once the
       // kept output is written (attach), and the view does not attach.
       if (replaying) {
@@ -325,6 +332,8 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     // starts from zero. A view still opening gets the new shell from its own open.
     const offStarted = subscribe('terminal.started', (payload) => {
       if (payload.projectId !== projectId || payload.nodeId !== id) return
+      // What comes from now on is the new shell's: the next run of the effect shows it.
+      afterExit = false
       if (active && !opening && !attached) setRun((current) => ({ count: current.count + 1, restart: false }))
     })
 
@@ -421,14 +430,17 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
         }
       }
       if (exited !== null) {
-        replayed(() => undefined)
-        queued.length = 0
+        afterExit = true
+        // What came after the kept output while it was written: once, after it.
+        replayed(() => {
+          for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
+        })
         setStatus({ state: 'exited', shell, exitCode: exited.exitCode })
         return
       }
       const attach = () => {
         if (!active) return
-        // The shell exited while the kept output was parsed: what came before the exit is shown.
+        // The shell exited while the kept output was parsed: what came before the exit and after it is shown, once.
         if (!replaying) {
           for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
           return

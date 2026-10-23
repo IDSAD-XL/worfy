@@ -445,6 +445,82 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
   })
 })
 
+// Off Windows main keeps what reaches the pty after the shell exited on its own and sends it to the
+// screens (pty.ts, deliver); the open view shows it too, until a new shell starts on the Node
+// (worfy-polish ticket 38). The registry here runs as on Linux.
+describe('output after the shell exited on its own (worfy-polish ticket 38)', () => {
+  const state = () => screen.getByTestId('terminal-node').dataset.state
+
+  it('an open view writes what comes after the exit; a view mounted again shows it once', async () => {
+    const { pty } = await terminal()
+    const { xterm, shown } = await mount()
+    await print(pty, xterm, 'first|')
+    act(() => pty.kill())
+    await waitFor(() => expect(state()).toBe('exited'))
+
+    await print(pty, xterm, 'late|')
+
+    expect(firstLine(xterm)).toBe('first|late|')
+    shown.unmount()
+    const again = await mount('exited')
+    expect(firstLine(again.xterm)).toBe('first|late|')
+  })
+
+  it('what comes after an exit while the kept output is parsed is written once, after it', async () => {
+    const { pty } = await terminal()
+    pty.print('first|')
+    whileReplaying.run = () => {
+      pty.print('bye|')
+      pty.kill()
+      pty.print('late|')
+    }
+
+    const { xterm } = await mount('exited')
+    await print(pty, xterm, 'later|')
+
+    expect(firstLine(xterm)).toBe('first|bye|late|later|')
+  })
+
+  it('a view of a shell that had exited writes what comes while it redraws the kept output and after, once', async () => {
+    const { pty } = await terminal()
+    pty.print('first|')
+    pty.kill()
+    pty.print('kept|')
+    whileReplaying.run = () => pty.print('during|')
+
+    const { xterm } = await mount('exited')
+    await print(pty, xterm, 'after|')
+
+    expect(firstLine(xterm)).toBe('first|kept|during|after|')
+  })
+
+  it('once a new shell starts on the Node, the view shows that one: what the old shell prints after it does not reach the new screen', async () => {
+    const { pty, registry, other } = await terminal()
+    const { xterm } = await mount()
+    await print(pty, xterm, 'old|')
+    act(() => pty.kill())
+    await waitFor(() => expect(state()).toBe('exited'))
+
+    // Restart on the other screen: the view opens again, on the new shell.
+    const nothing: Sink = { output: () => undefined, exit: () => undefined, started: () => undefined }
+    await act(async () => {
+      await registry.open(KEY, { cwd: '/', ...OTHER_SIZE, restart: true }, other, nothing)
+      // Before React runs the view again: the old view, still subscribed, leaves it alone.
+      ptys.at(-1)?.print('early|')
+    })
+    const fresh = ptys.at(-1)
+    await waitFor(() => expect([xterms.length, state()]).toEqual([2, 'running']))
+    const next = xterms[1]
+    if (fresh === undefined || fresh === pty || next === undefined) throw new Error('no new shell')
+    await parsed(next)
+    pty.print('stale|')
+    await print(fresh, next, 'new|')
+
+    expect(firstLine(xterm)).toBe('old|')
+    expect(firstLine(next)).toBe('early|new|')
+  })
+})
+
 describe('watchUserInput', () => {
   it('an xterm.js that does not say which data is the user’s: a cursor-position answer counts as an answer (main answers those), the rest as typed', () => {
     const watch = watchUserInput({} as XtermTerminal)
