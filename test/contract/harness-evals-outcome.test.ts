@@ -1377,6 +1377,18 @@ const pluginForStub = (source: string, target: string): void =>
     },
   })
 
+// macOS checks every new executable before its first start (XprotectService, one file at a time,
+// seconds under a loaded gate; test/shell-stub.ts): the stub is written once for this file, and each
+// run links to it.
+let stubFile = ''
+const claudeStub = (): string => {
+  if (stubFile === '') {
+    stubFile = join(tempDir('outcome-claude-stub-'), 'claude')
+    writeFileSync(stubFile, STUB, { mode: 0o755 })
+  }
+  return stubFile
+}
+
 describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub)', () => {
   ownTmp()
   /** Runs the wrapper on a copy of `source` (HARNESS_DIR), with `withTask` the synthetic task in its slot. */
@@ -1409,8 +1421,7 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
       writeFileSync(join(bin, 'claude.cjs'), STUB)
       writeFileSync(claude, "import './claude.cjs'\n")
     } else {
-      writeFileSync(claude, STUB)
-      chmodSync(claude, 0o755)
+      symlinkSync(claudeStub(), claude)
     }
     const keep = join(root, 'keep')
     mkdirSync(keep)

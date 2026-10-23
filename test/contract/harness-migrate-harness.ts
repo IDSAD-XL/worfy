@@ -4,7 +4,7 @@
 // longer than 1000 lines.
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join, relative, sep } from 'node:path'
 import { afterEach, beforeEach } from 'vitest'
@@ -14,15 +14,14 @@ import type { ApplyOptions } from '../../src/main/harness/migrate/apply'
 import { copyLegacyFixture, SANDBOX_GIT_IDENTITY } from '../claude-home-legacy'
 import { NODE } from '../harness-node'
 import { removeTestTree } from '../remove'
+import { shellStub } from '../shell-stub'
 import { buildPlan, hookRecords, type PlanOptions } from '../../src/main/harness/migrate/plan'
 
 export const REPO = join(__dirname, '..', '..')
 const INSTALLED: HarnessState = { kind: 'installed', version: '0.2.0+aaaaaaa', enabled: true }
 
-const STUB = `#!/bin/sh
-printf '%s\\n' "$*" >> "$STUB_CLAUDE_LOG"
-exit 0
-`
+/** The body of the stand-in claude (test/shell-stub.ts): its arguments, a line a call, in $STUB_CLAUDE_LOG. */
+const STUB = [`printf '%s\\n' "$*" >> "$STUB_CLAUDE_LOG"`, 'exit 0']
 
 interface Sandbox {
   root: string
@@ -89,8 +88,7 @@ export function makeSandbox({ qmdInPlugin = false }: { qmdInPlugin?: boolean } =
   const pluginDir = join(harnessHome, 'plugin')
   const stubDir = join(root, 'stub-bin')
   mkdirSync(stubDir)
-  writeFileSync(join(stubDir, 'claude'), STUB)
-  chmodSync(join(stubDir, 'claude'), 0o755)
+  shellStub(join(stubDir, 'claude'), STUB)
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
     HOME: home,

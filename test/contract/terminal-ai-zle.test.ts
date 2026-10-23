@@ -223,10 +223,14 @@ async function openTerminal(registry: TerminalRegistry, link: ShellLink, allEven
     run: async (line: string) => {
       const finished = count('command-finished')
       const prompts = count('prompt')
+      const typedAt = Date.now()
       type(`${line}\r`)
       await vi.waitFor(() => {
-        expect(count('command-finished')).toBe(finished + 1)
-        expect(count('prompt')).toBeGreaterThan(prompts)
+        // The time and the output in the message: a red run under load then says which of the two
+        // did not come, and what the shell had printed by then.
+        const seen = `${Date.now() - typedAt} ms after the line, in ${JSON.stringify(text().slice(-1500))}`
+        expect(count('command-finished'), `the end of the command ${seen}`).toBe(finished + 1)
+        expect(count('prompt'), `the next prompt ${seen}`).toBeGreaterThan(prompts)
       }, WAIT)
       return registry.shellState(key)?.lastOutput ?? ''
     },
@@ -307,9 +311,11 @@ const OWN_WIDGET = '_worfy_test_widget'
 
 /**
  * A program that looks at every descriptor from 3 to 255 it was given: `open:<n>` for one that is
- * open, `socket:<n>` for one that is a socket, then `checked`.
+ * open, `socket:<n>` for one that is a socket, then `checked`. Both checks are `test` on /dev/fd/<n>
+ * inside the one zsh: a check by `( : >&$n )` started a subshell for each descriptor, 253 processes a
+ * program, and under a loaded gate the second of two such programs did not end within WAIT.
  */
-const descriptors = (): string => `${program()} 'n=3; while [ $n -le 255 ]; do if ( : >&$n ) 2>/dev/null; then echo "open:$n"; fi; if [ -S /dev/fd/$n ]; then echo "socket:$n"; fi; n=$((n + 1)); done; echo checked'`
+const descriptors = (): string => `${program()} 'n=3; while [ $n -le 255 ]; do if [ -e /dev/fd/$n ]; then echo "open:$n"; fi; if [ -S /dev/fd/$n ]; then echo "socket:$n"; fi; n=$((n + 1)); done; echo checked'`
 
 /** A message with an id the shell never asked under: the shell drops it, and main sends it only while it holds a connection. */
 const STALE = { type: 'show', id: 99_999, text: ' STALE' } as const
@@ -1241,6 +1247,8 @@ describe('what does not leak and where the widget is not', () => {
     const fd = Number(/shell-fd:(\d+)/.exec(fds)?.[1])
     expect(fd).toBeGreaterThanOrEqual(10)
     expect(fds).not.toMatch(/open:[3-9]\n/)
+    // The check sees an open descriptor as open, so "no open:[3-9]" in the other tests means something.
+    expect(fds).toContain(`open:${fd}\n`)
     expect(fds).toContain(`socket:${fd}`)
   })
 

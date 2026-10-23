@@ -1,0 +1,16 @@
+#!/bin/sh
+# A /bin/sh stand-in whose body is the file <link>.sh next to the link it was started by
+# (test/shell-stub.ts writes both). The body is read by this shell (`.`), not started as a program,
+# so "$0", "$@", $$ and $PPID are the stand-in's own, as in a script written with that body. Started
+# through a further link to that link (a tools/ link of scripts/e3-sandbox.sh), it follows the links
+# back to the first one that has a body.
+#
+# macOS checks every new executable before its first start (XprotectService, one file at a time
+# for the whole machine; seconds per file under a loaded gate). A stand-in written anew in each test
+# waited in that queue every time; this one file is checked once per checkout.
+self=$0
+while [ ! -e "$self.sh" ] && [ -L "$self" ]; do
+  next=$(readlink "$self")
+  case $next in /*) self=$next ;; *) self=${self%/*}/$next ;; esac
+done
+. "$self.sh"

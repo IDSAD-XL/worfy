@@ -27,6 +27,7 @@ import { pathToFileURL } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { findStatusBlock } from '../../src/shared/agent/status-block'
 import { removeTestTree } from '../remove'
+import { shellStub } from '../shell-stub'
 
 const REPO = join(__dirname, '..', '..')
 const HARNESS = join(REPO, 'harness')
@@ -802,8 +803,7 @@ const gitCopies = (home = ''): string[] =>
 const fakeGitPath = (dir: string, core: string): string => {
   const bin = join(dir, 'fake-git')
   mkdirSync(bin)
-  writeFileSync(join(bin, 'git'), `#!/bin/sh\nif [ "$1" = --exec-path ]; then echo '${core}'; exit 0; fi\nexit 1\n`)
-  chmodSync(join(bin, 'git'), 0o755)
+  shellStub(join(bin, 'git'), [`if [ "$1" = --exec-path ]; then echo '${core}'; exit 0; fi`, 'exit 1'])
   return [bin, process.env.PATH ?? ''].join(delimiter)
 }
 
@@ -1075,8 +1075,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     const { run, calls, home } = evalHarness('2.1.289', '0,0', [], (dir) => {
       const gitStubDir = join(dir, 'failing-git')
       mkdirSync(gitStubDir)
-      writeFileSync(join(gitStubDir, 'git'), '#!/bin/sh\nexit 1\n')
-      chmodSync(join(gitStubDir, 'git'), 0o755)
+      shellStub(join(gitStubDir, 'git'), ['exit 1'])
       return [gitStubDir, process.env.PATH ?? ''].join(delimiter)
     })
     expect(run.status).toBe(1)
@@ -1239,8 +1238,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
   it.skipIf(process.platform === 'win32')('outside Windows starts a .mjs CLAUDE_BIN by its path', () => {
     const { dir, log, env } = stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', {})
     const claude = join(dir, 'claude-by-path.mjs')
-    writeFileSync(claude, `#!/bin/sh\nexec '${join(dir, 'claude')}' "$@"\n`)
-    chmodSync(claude, 0o755)
+    shellStub(claude, [`exec '${join(dir, 'claude')}' "$@"`])
     const run = spawnSync(process.execPath, [EVAL_HARNESS], { env: { ...env, CLAUDE_BIN: claude }, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
     expect(run.status, run.stderr).toBe(0)
     expect(loggedCalls(log)).toHaveLength(2)

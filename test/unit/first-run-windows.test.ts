@@ -16,6 +16,7 @@ import { bridgeCommand, bridgeFile, bridgeOf, limitsBridgeState, splitCommand, s
 import type { Check, CheckId, FirstRunReport } from '../../src/shared/ipc/first-run'
 import type { HarnessStatus } from '../../src/shared/ipc/harness'
 import { removeTestTree } from '../remove'
+import { shellStub } from '../shell-stub'
 
 // qmd's own state runs `qmd --version` and `node --version`: its rows are not what this file checks.
 vi.mock('../../src/main/harness/qmd', async (original) => {
@@ -291,7 +292,9 @@ describe('a tool that does not answer', () => {
     // A node that keeps its pipes open, started the way claude.cmd starts node on Windows (cmd.exe → node.exe).
     writeFileSync(join(dir, 'hang.js'), `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)\n`)
     writeFileSync(join(dir, 'hang.cmd'), '@node "%~dp0hang.js"\r\n')
-    writeFileSync(join(dir, 'hang'), `#!/bin/sh\nexec node "$(dirname "$0")/hang.js"\n`, { mode: 0o755 })
+    // A link to the one stub file, not a new script: macOS checks each new executable before its
+    // first start, seconds under a loaded gate (test/shell-stub.ts).
+    shellStub(join(dir, 'hang'), ['exec node "$(dirname "$0")/hang.js"'])
     // The PATH of this process (Path on Windows) with the tool's folder first, under one key.
     const env: Record<string, string | undefined> = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== 'PATH'))
     env.PATH = `${dir}${delimiter}${process.env.PATH ?? process.env.Path ?? ''}`

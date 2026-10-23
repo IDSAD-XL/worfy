@@ -43,6 +43,7 @@
     "test/harness-node.ts",
     "test/remove.ts",
     "test/setup-contract.ts",
+    "test/shell-stub.ts",
     "test/stale-leftovers.ts",
     "test/timings-reporter.ts",
     "test/time-scale.ts",

@@ -2,11 +2,12 @@
 // on macOS and Linux and does nothing on Windows, where node-pty's prebuilt win32 binary loads as is.
 // The platform is replaced with --platform and --dry-run prints the decision, so nothing is rebuilt here.
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
+import { shellStub } from '../shell-stub'
 
 const REPO = join(__dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'postinstall.mjs')
@@ -50,8 +51,7 @@ describe('scripts/postinstall.mjs', () => {
     const bin = mkdtempSync(join(tmpdir(), 'worfy-postinstall-bin-'))
     try {
       const args = join(bin, 'args.txt')
-      writeFileSync(join(bin, 'electron-rebuild'), `#!/bin/sh\necho "$@" > '${args}'\nexit 3\n`)
-      chmodSync(join(bin, 'electron-rebuild'), 0o755)
+      shellStub(join(bin, 'electron-rebuild'), [`echo "$@" > '${args}'`, 'exit 3'])
       const result = spawnSync(process.execPath, [SCRIPT, '--platform', 'linux'], {
         cwd: REPO,
         encoding: 'utf8',

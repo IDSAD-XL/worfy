@@ -20,6 +20,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { gitBash } from '../git-bash'
+import { shellStub } from '../shell-stub'
 import { removeTestTree } from '../remove'
 import { timeScale } from '../time-scale'
 
@@ -60,17 +61,15 @@ afterEach(() => {
 function ghStub(code: number): void {
   const bin = join(scratch, 'bin')
   mkdirSync(bin, { recursive: true })
-  const lines = ['#!/bin/sh', `printf '%s|HOME=%s|CLAUDE_CONFIG_DIR=%s|GH_CONFIG_DIR=%s\\n' "$*" "$HOME" "$CLAUDE_CONFIG_DIR" "$GH_CONFIG_DIR" >> '${ghLog}'`, `echo '${TOKEN}'`]
+  const lines = [`printf '%s|HOME=%s|CLAUDE_CONFIG_DIR=%s|GH_CONFIG_DIR=%s\\n' "$*" "$HOME" "$CLAUDE_CONFIG_DIR" "$GH_CONFIG_DIR" >> '${ghLog}'`, `echo '${TOKEN}'`]
   if (code !== 0) lines.push("echo 'no oauth token found for github.com account IDSAD-XL' >&2")
   lines.push(`exit ${code}`)
-  writeFileSync(join(bin, 'gh'), `${lines.join('\n')}\n`)
-  chmodSync(join(bin, 'gh'), 0o755)
+  shellStub(join(bin, 'gh'), lines)
 }
 
 /** A stand-in for a command the script calls by name, in <scratch>/bin: first on the script's PATH. */
 function stubCommand(name: string, lines: string[]): void {
-  writeFileSync(join(scratch, 'bin', name), `${['#!/bin/sh', ...lines].join('\n')}\n`)
-  chmodSync(join(scratch, 'bin', name), 0o755)
+  shellStub(join(scratch, 'bin', name), lines)
 }
 
 interface Run {
@@ -223,6 +222,8 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh tools', () => {
   function machineTools(folder: string, names: string[]): string {
     const dir = join(scratch, folder)
     mkdirSync(dir, { recursive: true })
+    // Files of their own, not links to test/shell-stub.ts's one stub: e3-sandbox.sh leaves a link
+    // alone when the tool found is the same file (`-ef`), and links to one file all are.
     for (const name of names) {
       writeFileSync(join(dir, name), `#!/bin/sh\necho '${name} of ${folder}'\n`)
       chmodSync(join(dir, name), 0o755)
