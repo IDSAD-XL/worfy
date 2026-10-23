@@ -231,12 +231,13 @@ describe('terminal channels on a real pty', () => {
   // open screen and a view opened again show the same. Windows drops that output (pty.ts, deliver).
   // The line comes from /bin/echo: the builtin echo of bash keeps a write that failed in its buffer
   // and writes it into the next redirection, the file that records whether the write went through.
+  // It writes once the shell is gone ($$ in a subshell is the shell's pid), not after a fixed wait.
   it.skipIf(WINDOWS)('a process left on the pty writing after the shell exited: the open screen and a view opened again show the same, the line at most once', async () => {
     const h = await harness()
     const { pid } = await h.open()
     await h.run(say('be', 'fore-exit'), /before-exit\r?\n/)
     const done = join(root, 'late-write')
-    await h.type(`(trap '' HUP; sleep 0.05; if /bin/echo la""te-line; then w=wrote; else w=failed; fi; echo $w > '${done}') & exit 0\r`)
+    await h.type(`(trap '' HUP; while kill -0 $$ 2>/dev/null; do sleep 0.01; done; if /bin/echo la""te-line; then w=wrote; else w=failed; fi; echo $w > '${done}') & exit 0\r`)
     await vi.waitFor(() => expect(h.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 0, signal: null }]), { timeout: 5000 })
     expect(alive(pid)).toBe(false)
     const written = await vi.waitFor(async () => (await readFile(done, 'utf8')).trim(), { timeout: 5000 })
