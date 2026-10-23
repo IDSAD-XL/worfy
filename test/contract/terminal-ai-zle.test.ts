@@ -860,24 +860,29 @@ describe('the connection while a command runs', () => {
     expect(await t.redrawn()).toMatch(lineAlone('echo finish-replaced'))
   })
 
-  it('a program a widget started at the prompt keeps a copy of the descriptor: after the next command the shell is connected again, and the copy reaches main no more', async () => {
+  it('a program a widget started while an ask waited keeps a copy of the descriptor: after the next command the shell is connected again, and the copy reaches main no more', async () => {
     const pidFile = join(root, 'holder.pid')
     const wroteFile = join(root, 'holder.wrote')
-    // The program waits, writes an ask into its copy of the connection (a closed one does not kill it), and stays.
+    const hadFile = join(root, 'holder.had')
+    // The program notes that it got the connection, waits, writes an ask into its copy of the connection (a closed one does not kill it), and stays.
     const { t, link, feature, probeOn, askAbout } = await withAskingScript(
       {},
       widgetScript(
         [
-          `  ${program()} "trap '' PIPE; sleep 3; printf 'ask\\t998\\t${PROBE}\\tworfy-holder-ask\\n' >&$__worfy_assist_fd 2>/dev/null; : > ${wroteFile}; exec sleep 30" &!`,
+          `  ${program()} "[ -S /dev/fd/$__worfy_assist_fd ] && : > ${hadFile}; trap '' PIPE; sleep 3; printf 'ask\\t998\\t${PROBE}\\tworfy-holder-ask\\n' >&$__worfy_assist_fd 2>/dev/null; : > ${wroteFile}; exec sleep 30" &!`,
           `  print -r -- $! >| ${pidFile}`,
         ].join('\n'),
       ),
     )
+    // While an ask waits for its answer the link stays at the prompt: a widget's program gets a copy.
+    t.type('x')
+    await askAbout('x')
     t.type(WIDGET_KEY)
     await vi.waitFor(() => expect(existsSync(pidFile) && readFileSync(pidFile, 'utf8')).toMatch(/^\d+\n$/), WAIT)
     holders.push(Number(readFileSync(pidFile, 'utf8')))
+    await vi.waitFor(() => expect(existsSync(hadFile)).toBe(true), WAIT)
 
-    await t.run('true')
+    await t.run('\x15true')
     // The ask of the program comes after the command: else this test proves nothing.
     expect(existsSync(wroteFile)).toBe(false)
     await vi.waitFor(() => expect(link.push(KEY, { type: 'insert', text: 'echo past-the-holder' })).toBe(true), WAIT)
@@ -1167,15 +1172,15 @@ describe('what does not leak and where the widget is not', () => {
     expect(shown(t.text())).not.toContain(token)
   })
 
-  it('the connection is not on a descriptor programs use by convention: what a widget starts at the prompt finds 3 to 9 closed', async () => {
-    const started = start()
+  it('the connection is not on a descriptor programs use by convention: what a widget starts while an ask waits finds 3 to 9 closed', async () => {
     const file = join(root, 'descriptors.txt')
     // zsh has no way to keep a descriptor it opened from the programs it starts. A command finds the
-    // connection closed (the tests above); a program a widget starts while zsh waits for a key gets
-    // it, above 9, where zsh keeps its own.
-    await testScript(started.integration, widgetScript(`  { print -r -- "shell-fd:$__worfy_assist_fd"; ${descriptors()} } >| ${file}`))
-    const t = await started.open()
-    await t.connected()
+    // connection closed (the tests above), and so does a widget of the user's at the prompt
+    // (terminal-ai-zle-prompt.test.ts), unless an ask waits for its answer: then the program the
+    // widget starts gets the connection, above 9, where zsh keeps its own.
+    const { t, askAbout } = await withAskingScript({}, widgetScript(`  { print -r -- "shell-fd:$__worfy_assist_fd"; ${descriptors()} } >| ${file}`))
+    t.type('x')
+    await askAbout('x')
     t.type(WIDGET_KEY)
     await vi.waitFor(() => expect(existsSync(file) && readFileSync(file, 'utf8')).toContain('checked'), WAIT)
     const fds = readFileSync(file, 'utf8')

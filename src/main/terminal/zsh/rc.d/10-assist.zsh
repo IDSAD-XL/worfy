@@ -18,6 +18,16 @@
 # the next prompt starts the line editor, the link opens again with a new hello. The token for the
 # hello stays in a shell variable that is not exported, so no program the shell starts sees it.
 #
+# At the prompt zsh runs code worfy did not write: the functions of the user's widgets (fzf on
+# Ctrl+T, atuin), of completion widgets (compinit's _main_complete runs git and the like), the
+# handlers of `zle -F`, hooks of zle-line-finish added before worfy, and whatever they start with
+# `zle reset-prompt`. At every new prompt, before the link opens, worfy wraps each such function: the
+# link goes before it (cancel, bye, close) and opens again after it, so what it starts gets no copy.
+# The link stays while an ask of worfy's waits for its answer: giving it up would give the ask up,
+# and a plugin that runs on every redraw (zsh-syntax-highlighting) or after every prompt (gitstatus
+# of powerlevel10k) would leave no ask alive. Not covered: traps, and a widget or handler that is
+# defined while the prompt is on (it is wrapped at the next prompt).
+#
 #   to worfy:    hello <token> · ask <id> <feature> <line> · cancel <id> · bye
 #   from worfy:  show <id> <text> · status <id> <text> · insert <text> · config <features>
 #
@@ -40,8 +50,9 @@
 # Without the socket, or once it is closed, the Suggestion from history goes on and the rest is
 # silent: nothing is ever printed into the Terminal.
 
-# Only where a line is edited. Elsewhere the token goes from the shell's variables.
-if ! [[ -o interactive && -o zle ]] || ! builtin autoload -Uz +X add-zle-hook-widget 2>/dev/null; then
+# Only where a line is edited. Elsewhere the token goes from the shell's variables. autoload +X fails
+# on a function that is loaded already: the user's .zshrc (or a plugin) may have used it.
+if ! [[ -o interactive && -o zle ]] || ! { (( ${+functions[add-zle-hook-widget]} )) || builtin autoload -Uz +X add-zle-hook-widget 2>/dev/null }; then
   builtin unset __worfy_assist_socket __worfy_assist_token
   builtin return 0
 fi
@@ -62,6 +73,11 @@ builtin typeset -gA __worfy_assist_features     # the features the settings have
 builtin typeset -gi __worfy_assist_own=1        # 0: the user has zsh-autosuggestions, worfy suggests nothing
 builtin typeset -ga __worfy_assist_line_hooks
 builtin typeset -gA __worfy_assist_then         # what a key worfy took did before, by widget
+builtin typeset -gi __worfy_assist_waiting=0    # the id of the ask with no answer yet; 0 without one
+builtin typeset -gA __worfy_assist_guarded      # the functions worfy wrapped, by name: their body as wrapped
+builtin typeset -gi __worfy_assist_guard_depth=0  # how many wrapped functions run, one inside another
+builtin typeset -gi __worfy_assist_guard_reopen=0 # 1: the link went for them and opens again after
+builtin typeset -gi __worfy_assist_guarding=0   # 1 where zsh copies functions (functions -c, zsh 5.8)
 
 # ---- the grey text ------------------------------------------------------------------------------
 
@@ -122,12 +138,13 @@ _worfy_assist_disconnect() {
   builtin emulate -L zsh
   builtin local fd=$__worfy_assist_fd
   [[ -n $fd ]] || builtin return 0
-  __worfy_assist_fd='' __worfy_assist_inbox='' __worfy_assist_asked=0
+  __worfy_assist_fd='' __worfy_assist_inbox='' __worfy_assist_asked=0 __worfy_assist_waiting=0
   builtin zle -F $fd 2>/dev/null
   { builtin exec {fd}>&- } 2>/dev/null
   # A note of worfy's ("asking Claude…") would wait for an answer that cannot come. Only from a
-  # widget: elsewhere the grey text is not there.
-  builtin zle && [[ $__worfy_assist_kind == status ]] && _worfy_assist_hide
+  # widget: elsewhere the grey text is not there. The link a wrapped function gives up for a moment
+  # leaves the note: no ask waits then, and the note is a whole answer (a refusal).
+  (( __worfy_assist_guard_reopen )) || { builtin zle && [[ $__worfy_assist_kind == status ]] && _worfy_assist_hide }
   builtin return 0
 }
 
@@ -188,7 +205,7 @@ _worfy_assist_cancel() {
   builtin emulate -L zsh
   (( __worfy_assist_asked )) || builtin return 0
   builtin local id=$__worfy_assist_asked
-  __worfy_assist_asked=0
+  __worfy_assist_asked=0 __worfy_assist_waiting=0
   _worfy_assist_send cancel $id
   builtin return 0
 }
@@ -201,7 +218,7 @@ _worfy_assist_ask() {
   _worfy_assist_cancel
   __worfy_assist_id+=1
   _worfy_assist_send ask $__worfy_assist_id "$1" "$2" || builtin return 1
-  __worfy_assist_asked=$__worfy_assist_id
+  __worfy_assist_asked=$__worfy_assist_id __worfy_assist_waiting=$__worfy_assist_id
   REPLY=$__worfy_assist_id
 }
 
@@ -242,6 +259,7 @@ builtin zle -N _worfy_assist_receive
 _worfy_assist_on_show() {
   builtin emulate -L zsh
   [[ $1 == <1-> ]] && (( $1 == __worfy_assist_asked )) || builtin return 0
+  (( $1 == __worfy_assist_waiting )) && __worfy_assist_waiting=0
   _worfy_assist_show "$2"
 }
 
@@ -249,12 +267,15 @@ _worfy_assist_on_show() {
 _worfy_assist_on_status() {
   builtin emulate -L zsh
   [[ $1 == <-> ]] && (( $1 == 0 || $1 == __worfy_assist_asked )) || builtin return 0
+  # A note with a text is the whole answer (a refusal); an empty one comes right before an insert.
+  [[ -n $2 ]] && (( $1 == __worfy_assist_waiting )) && __worfy_assist_waiting=0
   _worfy_assist_status "$2"
 }
 
 # insert <text>: the line becomes the text, the cursor goes to its end. Nothing runs: Enter is the user's.
 _worfy_assist_on_insert() {
   builtin emulate -L zsh
+  __worfy_assist_waiting=0
   BUFFER=$1
   CURSOR=$#BUFFER
   _worfy_assist_changed
@@ -275,6 +296,60 @@ _worfy_assist_on_config() {
   (( configured )) && [[ ${(okj: :)__worfy_assist_features} == "$before" ]] && builtin return 0
   # A Suggestion that was just turned off goes away now, one that was turned on shows.
   _worfy_assist_changed
+}
+
+# ---- what worfy did not write ---------------------------------------------------------------------
+
+# Before a wrapped function: the link goes, unless an ask waits for its answer or the link went for
+# a wrapped function this one runs inside.
+_worfy_assist_guard_enter() {
+  builtin emulate -L zsh
+  (( __worfy_assist_guard_depth++ )) && builtin return 0
+  [[ -n $__worfy_assist_fd ]] && (( ! __worfy_assist_waiting )) || builtin return 0
+  # The ask that was answered stays the open one for the scripts of the features: a key after a
+  # refusal of Command request still takes its note away.
+  builtin local -i asked=$__worfy_assist_asked
+  __worfy_assist_guard_reopen=1
+  _worfy_assist_close
+  __worfy_assist_asked=$asked
+  builtin return 0
+}
+
+# After it: the link opens again once the outermost one is done.
+_worfy_assist_guard_leave() {
+  builtin emulate -L zsh
+  (( __worfy_assist_guard_depth > 1 )) && { (( __worfy_assist_guard_depth-- )); builtin return 0 }
+  __worfy_assist_guard_depth=0
+  (( __worfy_assist_guard_reopen )) || builtin return 0
+  __worfy_assist_guard_reopen=0
+  _worfy_assist_connect
+  builtin return 0
+}
+
+# Wraps every function worfy did not write that zle runs at the prompt: the function of a widget, of
+# a completion widget, and a `zle -F` handler. The original goes to __worfy_assist_was:<name> (copied
+# as zsh holds it, so nothing is parsed again; an autoloaded one is loaded first) and runs from there,
+# with the user's options and its arguments. A function its plugin defined again (zsh-autosuggestions
+# does it before every prompt) is wrapped again; one wrapped and left as it was stays.
+# shortcut: the original runs under the name of its copy, so $0 inside it is __worfy_assist_was:<name>; redo when a widget is found that reads its own name.
+_worfy_assist_guard() {
+  builtin emulate -L zsh -o extended_glob
+  (( __worfy_assist_guarding )) || builtin return 0
+  builtin local fn handler
+  builtin local -a names
+  # `user:<function>` and `completion:<widget>:<function>`.
+  names=(${${(M)${(v)widgets}:#user:*}#user:} ${${(M)${(v)widgets}:#completion:*}##*:})
+  # zle -F -L prints `zle -F <fd> <function>`, or `zle -F -w <fd> <widget>` for a widget (its function is above).
+  for handler in ${(f)"$(builtin zle -F -L 2>/dev/null)"}; do
+    [[ $handler == 'zle -F '<->' '* ]] && names+=(${handler##* })
+  done
+  for fn in ${(u)names}; do
+    [[ -n $fn && $fn != ((_|__)worfy_*|azhw:*) ]] && (( ${+functions[$fn]} )) || builtin continue
+    [[ ${__worfy_assist_guarded[$fn]-} == "$functions[$fn]" ]] && builtin continue
+    builtin functions -c $fn "__worfy_assist_was:$fn" 2>/dev/null || builtin continue
+    functions[$fn]="_worfy_assist_guard_enter; { ${(q)${:-__worfy_assist_was:$fn}} \"\$@\" } always { _worfy_assist_guard_leave }"
+    __worfy_assist_guarded[$fn]=$functions[$fn]
+  done
 }
 
 # ---- the line -----------------------------------------------------------------------------------
@@ -326,7 +401,11 @@ builtin zle -N _worfy_assist_pre_redraw
 # first key.
 _worfy_assist_line_init() {
   builtin emulate -L zsh
-  [[ $CONTEXT == (start|cont) ]] && _worfy_assist_connect
+  __worfy_assist_guard_depth=0 __worfy_assist_guard_reopen=0
+  if [[ $CONTEXT == (start|cont) ]]; then
+    _worfy_assist_guard
+    _worfy_assist_connect
+  fi
   _worfy_assist_cancel
   _worfy_assist_hide
   __worfy_assist_line='' __worfy_assist_seen=0
@@ -342,6 +421,8 @@ _worfy_assist_line_finish() {
   _worfy_assist_cancel
   _worfy_assist_hide
   [[ $CONTEXT == (start|cont) ]] && _worfy_assist_close
+  # A link a wrapped function gave up does not open again after the line.
+  __worfy_assist_guard_reopen=0
   builtin return 0
 }
 builtin zle -N _worfy_assist_line_finish
@@ -441,6 +522,9 @@ _worfy_assist_escape() {
   # .zlogin runs after this file, and what it starts would inherit it.
   if [[ -n $__worfy_assist_socket && -n $__worfy_assist_token ]] && builtin zmodload zsh/net/socket zsh/system 2>/dev/null; then
     builtin typeset -g +x __worfy_assist_socket __worfy_assist_token
+    # zsh 5.8 and later copy a function as it is held (functions -c); an older zsh wraps nothing.
+    builtin functions -c _worfy_assist_guard __worfy_assist_was:_worfy_assist_guard 2>/dev/null && __worfy_assist_guarding=1
+    builtin unfunction __worfy_assist_was:_worfy_assist_guard 2>/dev/null
     # First of the preexec hooks: the ones before it would start their programs with the link.
     preexec_functions=(_worfy_assist_preexec ${preexec_functions:#_worfy_assist_preexec})
   else
