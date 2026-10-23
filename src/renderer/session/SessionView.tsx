@@ -18,6 +18,8 @@ import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
 import { useShowSession } from './shown-session'
 import { ensureAgentEvents, joinPastAndLive, useSessionControls, useSessionLog } from './store'
 import { Transcript } from './Transcript'
+import { HideToolsButton } from './HideToolsButton'
+import { useSessionToolsHidden } from './transcript-view'
 import './session.css'
 
 // The Session view (the Session side of the toolbar's Canvas / Session switch): one Session in
@@ -165,6 +167,11 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   // A turn waiting for a permission answer still runs: Interrupt refuses the request (ticket 21).
   const busy = state === 'busy' || state === 'needs_permission'
   const { settings, modelPick } = useSessionControls(sessionId)
+  // The SDK session id: the live id once it is Claude Code's own — a resumed Session's is a temporary
+  // `pending-…` until system/init (src/main/agent/session.ts) — else the one the Session resumes.
+  const claudeSessionId = sessionId !== null && !sessionId.startsWith('pending-') ? sessionId : (transcriptId ?? null)
+  // A view choice of this screen, kept per Session (worfy-ui ticket 25), not one of the agent's picks above.
+  const [hideTools, setHideTools] = useSessionToolsHidden({ projectId, nodeId, liveId: sessionId, sessionId: claudeSessionId })
   // A model picked since the last system/init shows at once, as the picker shows it; the next
   // init names the model it runs (store.ts, modelPick; worfy-week ticket 12). Claude Code's
   // default model is «default» until then: only init says which model it stands for.
@@ -198,7 +205,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
             <path d="M8 5.25v3M8 8.25L4.5 11M8 8.25l3.5 2.75" />
           </svg>
         </span>
-        <h1 className="w-session__title">
+        <h1 className="w-session__title" title={projectName ? `${heading} · ${projectName}` : heading}>
           {heading}
           {projectName ? (
             <>
@@ -211,12 +218,13 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
           <StatusChip status={chip.status} label={chip.label} />
         </span>
         <span className="w-session__divider" aria-hidden="true" />
-        <span className="w-session__fact">
+        {/* The model gives way first when the header is short of room: its value ends in «…», the whole name in the tooltip. */}
+        <span className="w-session__fact w-session__fact--model">
           <span className="w-session__fact-label">Model</span>
           <span
             className="w-mono w-session__fact-value"
             data-testid="session-model"
-            title={modelPick !== null ? 'Picked for the next turn: its system/init will name the model' : undefined}
+            title={modelPick !== null ? 'Picked for the next turn: its system/init will name the model' : (model ?? undefined)}
           >
             {model ?? '—'}
           </span>
@@ -250,11 +258,15 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
           <span className="w-session__fact-label">this session</span>
         </span>
         <span className="w-session__spacer" />
+        <HideToolsButton hidden={hideTools} onChange={setHideTools} />
         <Interrupt testId="session-interrupt" disabled={!busy} onClick={interrupt} />
       </header>
       <div className="w-session__body">
         <section className="w-session__main" aria-label="Session">
-          <Transcript events={events} firstIndex={firstIndex} sessionId={sessionId} projectId={projectId} assistantLabel={assistantLabel} earlier={earlier} />
+          {/* Another Session gets a fresh log: no row stays opened from the one shown before (rows are keyed by position). */}
+          <Transcript
+            key={claudeSessionId ?? `node:${nodeId}`}
+            events={events} firstIndex={firstIndex} sessionId={sessionId} projectId={projectId} assistantLabel={assistantLabel} earlier={earlier} hideTools={hideTools} />
           <MessageInput key={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} onSend={send} onInterrupt={interrupt} />
         </section>
         <SessionRail blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={sessionId} />

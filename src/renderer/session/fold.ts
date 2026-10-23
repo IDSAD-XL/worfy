@@ -7,6 +7,7 @@
 // (parentToolUseId set) belong to the subagent tree (ticket 15). Bookkeeping events (init,
 // status, commands, account, rate limits, unknown SDK messages) draw nothing.
 import type { AgentEvent } from '../../shared/agent/events'
+import { AGENT_TOOLS } from '../../shared/transcript/subagents'
 import { INTERRUPT_NOTICE } from './history'
 
 type EventOf<T extends AgentEvent['type']> = Extract<AgentEvent, { type: T }>
@@ -195,4 +196,27 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
     }
   })
   return items
+}
+
+/** A stretch of a run with tools hidden: calls folded into one «N tools» line, or calls drawn as they are. */
+export interface ToolSegment {
+  folded: boolean
+  calls: ToolCall[]
+}
+
+/**
+ * The calls of a `tools` row with tools hidden (worfy-ui ticket 25), in the order of the run. A
+ * call with an error and a call that starts a Subagent (the Subagent's row) stay in sight; they
+ * split the run, and each stretch of ordinary calls between them folds into its own «N tools» line
+ * at its place: Bash ✓, Edit ✗, Grep ✓ is «1 tool», Edit, «1 tool».
+ */
+export function toolSegments(calls: readonly ToolCall[]): ToolSegment[] {
+  const segments: ToolSegment[] = []
+  for (const call of calls) {
+    const folded = !(call.result?.isError === true || call.subagent !== null || AGENT_TOOLS.has(call.name))
+    const last = segments.at(-1)
+    if (last !== undefined && last.folded === folded) last.calls.push(call)
+    else segments.push({ folded, calls: [call] })
+  }
+  return segments
 }
