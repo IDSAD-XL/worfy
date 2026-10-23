@@ -60,13 +60,13 @@ EXIT=0; `rules-hooks.test.sh` — 201/201). Runner отличается от П�
 
 ## Где в коде
 
-- `vitest.config.ts:20` — `tempDir` для `server.fs.allow`.
+- `vitest.config.ts:22` — `tempDir` для `server.fs.allow`.
 - `test/unit/glob-probe.tsx:67` — корень копии (Vite сам разворачивает путь, правка не нужна).
 - `test/contract/shell.test.ts:59`, `test/contract/tickets-read.test.ts:69` — папка test-а.
 - `src/main/ipc/shell.ts:25` — `realOrNull` (`fs/promises` `realpath`), ответ `shell.openInEditor`.
 - `harness/hooks/tests/rules-hooks.test.sh:199` — `HH_N`; `harness/hooks/inject-rules.mjs:77`, `harness/hooks/eval-env.cjs:36`.
 - `test/contract/harness-script-command.test.ts:60-90` — test-ы `nodeOnPath`; `src/main/workflow/profile.ts:158`.
-- `scripts/eval-run-env.mjs:156-165` — `gitCopy`, поиск git на Windows.
+- `scripts/eval-run-env.mjs:164-174` — `gitCopy`, поиск git на Windows; `:69` — `pathKey`, ключ PATH в любом регистре.
 
 ## Итог
 
@@ -112,3 +112,37 @@ EXIT=0; `rules-hooks.test.sh` — 201/201). Runner отличается от П�
 «[gate] green (fast)» (по diff сузился до lint и typecheck). `test/contract/harness-scripts.test.ts` целиком (около 26 минут) не запускался:
 на ПК в это время под замком идут e2e оркестратора; его единственный упавший на runner-е test —
 `rules-hooks.test.sh`, он прогнан отдельно с пустым HOME (выше). e2e не запускались: `test/e2e` не тронут.
+
+**Ревью, круг 1.** Правки по четырём замечаниям, второй коммит.
+1. `scripts/eval-run-env.mjs`: ключ PATH ищется без учёта регистра (`pathKey`, только на Windows) в `cleanEnv`,
+   `gitForRuns` и в двух местах `gitCopy`. У PowerShell из меню «Пуск» ключ — `Path`. Раньше в этом случае
+   `gitCopy` отдавал cygpath пустой PATH и падал там, где старый поиск git находил. `cleanEnv` не убирал чужие копии
+   Harness. `gitForRuns` добавлял второй ключ `PATH`. Теперь ключ один, в написании вызывающего.
+2. Ограничение «только sh с cygpath» помечено `shortcut:`.
+3. Три новых test-а только для Windows в `test/contract/harness-evals.test.ts`:
+   - лаунчер Git `bin\sh.exe` первым `sh` на PATH. На ПК первый `sh` — `usr\bin\sh.exe`, поэтому прежние
+     test-ы со старым поиском оставались зелёными;
+   - `sh` без cygpath: копия `sh.exe` и `msys-2.0.dll` Git в своей папке, ожидается выход 127 и «gave no folder»;
+   - ключ `Path` через `cleanEnv` и `gitForRuns`.
+
+Мутанты (восстановление из копии):
+- поиск без повторной установки PATH — красные test лаунчера и test без cygpath;
+- `env.PATH` вместо найденного ключа, по отдельности в каждом из четырёх мест, — красный test `Path`.
+
+Для мутанта в проверке `--version` пришлось поменять test: стоящий git test-а отвечает, только если на его PATH
+есть папка `fake-git`.
+
+В `«Где в коде»` исправлены строки: `vitest.config.ts:22`, `scripts/eval-run-env.mjs:164-174` и `:69`.
+
+Проверки:
+- `harness-evals.test.ts` и `harness-evals-outcome.test.ts`, 3 прогона. `harness-evals.test.ts` зелёный во всех
+  трёх. Прогон 2 целиком зелёный: 490 passed, EXIT=0. Прогоны 1 и 3 — EXIT=1, только таймауты в
+  `harness-evals-outcome`: `beforeAll` блока «the tests-intact check» (hook 300 с), в прогоне 3 ещё один test
+  `eval-outcome-check.mjs` (60 с). Ни один из этих путей не вызывает `cleanEnv` и `gitCopy`. Со старым
+  `eval-run-env.mjs` тот же hook тоже вышел по таймауту (прогон 434 с). Всё это — когда ПК был нагружен e2e
+  другого агента.
+- `shell`, `tickets-read`, `harness-script-command`, `no-rmsync`: 264 passed, 15 skipped, EXIT=0.
+- `rules-hooks.test.sh` с пустым временным HOME: 201/201, EXIT=0.
+- При 8.3-TEMP оба eval-файла: 490 passed, 25 skipped, EXIT=0.
+- С `C:\Program Files\Git\bin` первым на PATH `harness-evals.test.ts`: 400 passed, 20 skipped, EXIT=0.
+- `pnpm lint` EXIT=0, `pnpm typecheck` EXIT=0.
