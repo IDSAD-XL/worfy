@@ -879,7 +879,9 @@ export class TerminalRegistry {
         // node-pty reports the exit when the output of the console closes (on the console of the
         // system: a second after its last output), and something may keep printing; the read of the
         // exit code (exitCodeKnown) and the helper have limits of their own. Past the bound nobody
-        // waits any more.
+        // waits for the exit any more; a Git Bash launcher ended by its pid because kill() failed
+        // is still waited for (launcherEnd), so a close lasts at most the bound plus
+        // DESCENDANTS_TIMEOUT_MS. Quitting cuts it at WINDOWS_QUIT_WAIT_MS (src/main/ipc/terminal.ts).
         const bound = setTimeout(() => {
           console.warn(`[terminal] ${key} did not report its exit in ${this.closeBoundMs} ms: closed without it`)
           this.release(terminal, false)
@@ -900,7 +902,8 @@ export class TerminalRegistry {
     }
     await terminal.exited
     // Set in release(), which comes before the exit on every way a close takes (endWindowsShell,
-    // the bound); bounded by the helper's own limit (DESCENDANTS_TIMEOUT_MS).
+    // the bound); bounded by the helper's own limit (DESCENDANTS_TIMEOUT_MS), which comes on top of
+    // the bound of the close.
     await terminal.launcherEnd
     // Its subscribers heard the exit; a shell started meanwhile keeps the ones it has.
     if (!this.has(key) && !this.ended.has(key)) this.audiences.delete(key)

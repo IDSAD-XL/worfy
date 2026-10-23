@@ -133,6 +133,27 @@ process`).
 - История PowerShell и `.bash_history` до и после — без изменений (192671 байт `840D3CB4…`, 9730 байт
   `64FF7999…`).
 
+### Ревью, круг 1
+
+1. (блокирующее) Мера «от exit старого процесса» не ловила перезапуск, который ждёт до закрытия
+   старой Session (например, SIGTERM на 4,9 s позже). Теперь stub (`test/contract/claude-process-stub.ts`)
+   в `close()` своего query пишет момент SIGTERM в отдельное поле `terminated`, не в `events`, —
+   `order()` тот же. Test проверяет два отрезка, каждый меньше прежнего `LIMIT_MS / 5`: запрос →
+   SIGTERM и exit старого → spawn нового; время SIGTERM → exit (система) не входит ни в один,
+   `added >= 0` остался. Замер (временная печать, в ветку не вошла): тихо, 3 прогона — запрос →
+   SIGTERM 0–1 ms, exit → spawn 11–12 ms, SIGTERM → exit 17–19 ms; под нагрузкой 16 процессов,
+   2 прогона — запрос → SIGTERM 0 ms, exit → spawn 18–24 ms, SIGTERM → exit 116–281 ms. Запрос →
+   SIGTERM под нагрузкой далеко от 1 s. Мутант «закрыть старую Session на 1,5 s позже»
+   (`src/main/agent/orchestrator.ts`, `relaunch`) — красный (`expected 1503 to be less than 1000`);
+   мутант «1 s в `Session.exited` после exit» — по-прежнему красный (`expected 1033 to be less than 1000`).
+2. (low) Комментарий у bound в `close()` (`src/main/terminal/pty.ts`) говорил, что после bound никто
+   не ждёт; теперь там сказано: close длится не дольше bound плюс `DESCENDANTS_TIMEOUT_MS`, выход из
+   приложения обрезает его на `WINDOWS_QUIT_WAIT_MS`. Пределы не менялись.
+
+После круга: `orchestrator-relaunch` 3 прогона — код 0, 0, 0; `terminal-git-bash-close` contract и
+unit с `no-rmsync` — код 0 (46 passed); `pnpm lint` 0, `pnpm typecheck` 0, gate fast 0. История
+PowerShell и `.bash_history` до и после круга — без изменений.
+
 Попутно: под нагрузкой 16 процессов в `orchestrator-relaunch` краснели и другие test-ы (порядок
 `exit 1 SIGTERM` против `SIGKILL`, `spawn 2` раньше `exit 1` в `ignore-term`). Это не test `:131` и
 в тихих прогонах не воспроизводится — для worfy-polish 41.
