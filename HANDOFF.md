@@ -12,7 +12,7 @@
 - `worfy-windows` 66, ADR-0071: полный `pnpm test` на Windows-runner-е; его зелёный run — `check/windows` для платформенных PR без Terminal, окон, e2e и упаковки. Baseline runner-а починил 108 (#802).
 - `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) — **добиваем, владелец 2026-10-23**: влиты 01–08, 10–16 (15 — #795, 16 — #793); осталась приёмка 09.
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
-- `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–21, 24 (#716), 25 (#799); 26 — PR #805; остался 12 — приёмка; 22, 23 открыты.
+- `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–21, 24 (#716), 25 (#799), 26 (#805); остался 12 — приёмка; 22, 23 открыты.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
 - `worfy-polish`: 35/41, влиты 01–29, 31–35, 37. 30 — следующий (`worfy-browser` 08 закрыт); 36, 39 (#754) — долг ревью; 38 — вывод после выхода shell; 40 — чипы с рамкой 1 px; 41 — flaky Windows (пересчёт 2026-10-23).
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 9/18, влиты 01–03, 06, 08, 10, 16–18 (gate full 18,5 → 8,4 min); 07, 09 — `wave-gate`; 04, 05 — Orchestrator; 11–15 — скорость test-ов (ADR-0081).

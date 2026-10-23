@@ -1,7 +1,8 @@
 # 26 — Поиск по Transcript в Session view (⌘F, Ctrl+F)
 
 Type: task
-Status: claimed 2026-10-23T15:16Z
+Status: done 2026-10-23T18:35Z
+PR: #805
 Blocked by: —
 Source: просьба владельца 2026-10-23: «нужен поиск по чату на ctrl + f». Владелец принял все пять
 пунктов (раздел «Что делаем»). Идёт раньше Ticket-а 22 (виртуализация Transcript): оба меняют
