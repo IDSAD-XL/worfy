@@ -6,7 +6,7 @@
 //
 // No system notification is shown: Notification.prototype.show in each main is replaced so that it
 // only records the instance, and the click is that instance's `click` event (src/main/notify.ts
-// listens to it with `on`). The windows lose focus by BrowserWindow.blur(), on Windows by minimize()
+// listens to it with `on`). The windows lose focus by BrowserWindow.blur(), on Windows by hide()
 // (see unfocusAll).
 //
 // Both worfy start without quiet windows (WORFY_QUIET_WINDOWS=0; src/main/quiet-windows.ts): in
@@ -79,20 +79,25 @@ function recorded(launched: LaunchedApp): Promise<Recorded[]> {
 /**
  * Takes the focus away from every window of every worfy in `apps`; resolves once none of them has it.
  * On Windows BrowserWindow.blur() hands the foreground to the next visible window in z-order, which is
- * the other worfy's window: blurring B focuses A again. Minimizing hands it past every minimized window,
- * so there each window is minimized instead; a click on a notification restores it (src/main/notify.ts).
+ * the other worfy's window: blurring B focuses A again. Electron's focus there is also the window its
+ * own thread calls active, not the system foreground: a window started while Windows keeps another
+ * app in front (the foreground lock) counts as focused although it never was in front, and neither
+ * blur() nor minimize() changes that, since the window is never deactivated (measured on a Windows 11
+ * PC, 2026-10-23, with the same worfy code as when minimize() was enough). hide() deactivates the window in that case too (measured the same
+ * way), and a hidden window is not the next in z-order, so on Windows each window is hidden instead; a
+ * click on a notification shows it again (openNote in src/main/notify.ts).
  */
 async function unfocusAll(apps: LaunchedApp[]): Promise<void> {
-  const minimize = process.platform === 'win32'
+  const hide = process.platform === 'win32'
   await expect
     .poll(async () => {
       for (const launched of apps) {
-        await launched.app.evaluate(({ BrowserWindow }, toTaskbar) => {
+        await launched.app.evaluate(({ BrowserWindow }, offScreen) => {
           for (const window of BrowserWindow.getAllWindows()) {
-            if (toTaskbar) window.minimize()
+            if (offScreen) window.hide()
             else window.blur()
           }
-        }, minimize)
+        }, hide)
       }
       const focused = await Promise.all(apps.map((launched) => launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow() !== null)))
       return focused.some(Boolean)
