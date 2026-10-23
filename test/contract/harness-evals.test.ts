@@ -1302,7 +1302,7 @@ describe.skipIf(process.platform !== 'win32')('pnpm eval:harness on Windows: the
     expect(run.status).toBe(1)
     // 127 is the shell's "command not found" for cygpath: an sh that did not start gives ENOENT or
     // the code of a missing DLL instead.
-    expect(run.stderr).toMatch(/git --exec-path.*exit 127\)/)
+    expect(run.stderr).toMatch(/git --exec-path.*exit 127: .*cygpath.*\): the runs need a copy of git/s)
     expect(calls).toEqual([])
   })
 

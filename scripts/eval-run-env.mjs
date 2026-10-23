@@ -236,7 +236,11 @@ export function gitCopy(dir, env, fail) {
       ? spawnSync('sh', ['-c', 'PATH="$(cygpath -u -p "$1")" && exec git --exec-path', 'sh', env[pathKey(env)] ?? ''], { encoding: 'utf8', env })
       : spawnSync('git', ['--exec-path'], { encoding: 'utf8', env })
   const source = exec.status === 0 ? exec.stdout.trim() : ''
-  if (source === '' || !existsSync(source) || !statSync(source).isDirectory()) return fail(`\`git --exec-path\` gave no folder (exit ${exec.status ?? exec.error?.code}): the runs need a copy of git`)
+  if (source === '' || !existsSync(source) || !statSync(source).isDirectory()) {
+    // sh's own words name what was missing, such as "cygpath: command not found".
+    const said = exec.stderr?.trim()
+    return fail(`\`git --exec-path\` gave no folder (exit ${exec.status ?? exec.error?.code}${said ? `: ${said}` : ''}): the runs need a copy of git`)
+  }
   const core = join(dir, 'git-core')
   const wrapper = join(dir, 'git')
   // Not `recursive` for `dir` itself: two runs started in the same millisecond name the same folder,

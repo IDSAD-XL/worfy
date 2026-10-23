@@ -66,7 +66,8 @@ EXIT=0; `rules-hooks.test.sh` — 201/201). Runner отличается от П�
 - `src/main/ipc/shell.ts:25` — `realOrNull` (`fs/promises` `realpath`), ответ `shell.openInEditor`.
 - `harness/hooks/tests/rules-hooks.test.sh:199` — `HH_N`; `harness/hooks/inject-rules.mjs:77`, `harness/hooks/eval-env.cjs:36`.
 - `test/contract/harness-script-command.test.ts:60-90` — test-ы `nodeOnPath`; `src/main/workflow/profile.ts:158`.
-- `scripts/eval-run-env.mjs:164-174` — `gitCopy`, поиск git на Windows; `:69` — `pathKey`, ключ PATH в любом регистре.
+- `scripts/eval-run-env.mjs:226` — `gitCopy`, `:234-237` — поиск git на Windows, `:70` — `pathKey`, ключ PATH в любом регистре.
+- `test/stale-leftovers.ts:38` — `STALE_PREFIXES`, папки прогонов, которые удаляются через час.
 
 ## Итог
 
@@ -146,3 +147,16 @@ EXIT=0; `rules-hooks.test.sh` — 201/201). Runner отличается от П�
 - При 8.3-TEMP оба eval-файла: 490 passed, 25 skipped, EXIT=0.
 - С `C:\Program Files\Git\bin` первым на PATH `harness-evals.test.ts`: 400 passed, 20 skipped, EXIT=0.
 - `pnpm lint` EXIT=0, `pnpm typecheck` EXIT=0.
+
+**Ревью, круг 2** (Session на Mac, high, correctness: блокирующих замечаний нет). Две мелочи и одна строка «Итог»:
+1. `scripts/eval-run-env.mjs:239-243`: при выходе без папки сообщение «gave no folder» теперь несёт stderr `sh`
+   (например «cygpath: command not found»). test без cygpath проверяет, что в сообщении есть `cygpath`.
+2. В `«Где в коде»` строки после #797: `gitCopy` — `:226`, поиск git — `:234-237`, `pathKey` — `:70`.
+3. `worfy-eval-stub-` добавлен в `STALE_PREFIXES` (`test/stale-leftovers.ts:38`): прерванный прогон
+   `harness-evals.test.ts` оставлял эти папки, одна из них с копией `sh.exe` Git (около 22 МБ). `vitest.config.ts`
+   удаляет их через час, как остальные папки прогонов.
+4. `test/unit/stale-leftovers.test.ts` (ошибка первого коммита, красный в gate full на Mac): test ждал в
+   `vitest.config.ts` строку `realpathSync(tmpdir())`, а она стала `realpathSync.native(tmpdir())`. Ожидание
+   обновлено, причина записана рядом: Vite сверяет `server.fs.allow` с написанием realpath(3), а JS `realpathSync`
+   оставляет 8.3-имя временной папки. Этот файл не входил в прежние проверки ПК. test про удаление старых папок
+   теперь проверяет и `worfy-eval-stub-`. Ожидание в test-е без cygpath допускает многострочный stderr.

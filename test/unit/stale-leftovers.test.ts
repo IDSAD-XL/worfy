@@ -54,12 +54,13 @@ describe('removeStaleTempFolders', () => {
     expect(readdirSync(outside)).toEqual(['keep.txt'])
   })
 
-  it('removes the old folders of both prefixes and leaves a young one and those of other names', () => {
+  it('removes the old folders of every prefix and leaves a young one and those of other names', () => {
     const now = Date.now()
     const temp = join(scratch, 'temp')
     mkdirSync(temp)
     folder(join(temp, 'worfy-glob-probe-old'), now, 2 * HOUR)
     folder(join(temp, 'worfy-contract-claude-homes-old'), now, 2 * HOUR, (path) => writeFileSync(join(path, 'settings.json'), '{}'))
+    folder(join(temp, 'worfy-eval-stub-old'), now, 2 * HOUR, (path) => writeFileSync(join(path, 'claude.mjs'), ''))
     // Fifty minutes: a run in another checkout may still use it.
     folder(join(temp, 'worfy-glob-probe-young'), now, 50 * 60_000)
     folder(join(temp, 'worfy-e2e-old'), now, 2 * HOUR)
@@ -75,7 +76,8 @@ describe('removeStaleTempFolders', () => {
 
   it('is old after an hour, and its prefixes are the names the runs make their folders with', () => {
     expect(STALE_AFTER_MS).toBe(HOUR)
-    expect(STALE_PREFIXES).toEqual(['worfy-glob-probe-', CONTRACT_HOMES_PREFIX])
+    expect(STALE_PREFIXES).toEqual(['worfy-glob-probe-', CONTRACT_HOMES_PREFIX, 'worfy-eval-stub-'])
+    expect(readFileSync(join(REPO, 'test', 'contract', 'harness-evals.test.ts'), 'utf8')).toContain("tempDir('worfy-eval-stub-')")
     // test/unit/glob-probe.tsx is type-checked without the types of Node and cannot import the constant.
     expect(readFileSync(join(REPO, 'test', 'unit', 'glob-probe.tsx'), 'utf8')).toContain('fs.mkdtempSync(`${tmpdir()}/worfy-glob-probe-`)')
   })
@@ -130,7 +132,9 @@ describe('vitest.config.ts', () => {
     const config = readFileSync(join(REPO, 'vitest.config.ts'), 'utf8')
     expect(config).toContain("import { removeStaleProbes, removeStaleTempFolders } from './test/stale-leftovers'")
     expect(config).toContain("removeStaleProbes(join(import.meta.dirname, 'src'))")
-    expect(config).toContain('const tempDir = realpathSync(tmpdir())')
+    // `.native`: Vite checks server.fs.allow against the realpath(3) spelling, and the JavaScript
+    // realpathSync keeps an 8.3 short name of the temporary folder (C:\Users\RUNNER~1 on the runner).
+    expect(config).toContain('const tempDir = realpathSync.native(tmpdir())')
     expect(config).toContain('removeStaleTempFolders(tempDir, Date.now())')
   })
 })
