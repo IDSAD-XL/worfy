@@ -1,7 +1,8 @@
 # 110 — e2e `linked-notify` на Windows снова красный: после сворачивания окно worfy остаётся в фокусе
 
 Type: task
-Status: claimed 2026-10-23T16:15Z
+Status: done 2026-10-23T21:53Z
+PR: #809
 Branch: worfy-windows/110
 Blocked by: —
 Source: пересчёт e2e на ПК владельца 2026-10-23 (main `f8ada2a3`, масштаб 150 %;
