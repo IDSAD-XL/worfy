@@ -6,7 +6,7 @@
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26, 28, 34, 35 (#722); приёмка 16; 32 закрыт (#508); 33 открыт. Вне LAN через Tailscale (ADR-0070) — 27, 29–31, после очереди `worfy-windows`.
-- `worfy-windows` (порт под Windows; ADR 0054–0057, 0062, 0063, 0069, 0071): 103/112. Отсечка владельца 2026-10-23 после пересчёта e2e на ПК: повторяющиеся красные — в Epic-е (106, 110, 111; 109 и 112 влиты), flaky — `worfy-polish` 41; планка 16 — gate full на Windows полностью зелёный.
+- `worfy-windows` (порт под Windows; ADR 0054–0057, 0062, 0063, 0069, 0071): 103/113. Отсечка владельца 2026-10-23 после пересчёта e2e на ПК: повторяющиеся красные — в Epic-е (106, 110, 111, 113), flaky — `worfy-polish` 41; планка 16 — gate full на Windows полностью зелёный.
 - `worfy-windows`: 60 не нужен — остаёмся на `node-pty@1.2.0-beta.15`; 90 и 92 вынесены из Epic-а (upstream, приёмку не блокируют) — владелец 2026-10-23.
 - `worfy-windows` 39 влит (#512): main отвечает на `ESC[6n`, ответы view — не ввод. Цена — скорость flood-а (один worker разбора), владелец принял; ускорить — 67.
 - `worfy-windows` 66, ADR-0071: полный `pnpm test` на Windows-runner-е; его зелёный run — `check/windows` для платформенных PR без Terminal, окон, e2e и упаковки. Baseline runner-а починил 108 (#802).
