@@ -9,9 +9,35 @@
 // notice and an error. Not searched: the whole input and result of a tool call — most of the bytes
 // of a transcript, and drawn only in a call's opened row, cut at 20 000 characters.
 //
+// Counted is the text the row shows, so every match counted is one painted: Claude's markdown as
+// it reads on screen (src/shared/markdown/visible-text.ts), a hook's output and an added notice cut
+// as their rows cut them (clipText).
+//
 // Pure: no DOM, no Node; main and the renderer both import it.
 import type { AgentEvent } from '../agent/events'
+import { markdownText, mayShow } from '../markdown/visible-text'
 import { INTERRUPT_NOTICE } from './parse'
+
+/** Characters a row shows of a long text (a tool's input or result, a hook's output, an added notice). */
+export const TEXT_LIMIT = 20_000
+
+/** A long text as its row shows it: the first TEXT_LIMIT characters and how many more there are. */
+export function clipText(text: string): string {
+  return text.length > TEXT_LIMIT ? `${text.slice(0, TEXT_LIMIT)}\n… (${text.length - TEXT_LIMIT} more characters)` : text
+}
+
+/** One text find looks in: shown as it is, or as markdown (Claude's answer). */
+export interface FindText {
+  text: string
+  markdown?: boolean
+}
+
+/** The matches of `needle` in one text, counted in what its row shows. */
+export function textMatches(field: FindText, needle: string): number {
+  if (field.markdown !== true) return countMatches(field.text, needle)
+  if (needle === '' || !mayShow(field.text, needle)) return 0
+  return countMatches(markdownText(field.text), needle)
+}
 
 /** Shortest query find searches for, as on the Canvas (src/renderer/find/search-index.ts). */
 export const MIN_TRANSCRIPT_FIND = 2
@@ -56,21 +82,24 @@ export function hookOutput(event: Extract<AgentEvent, { type: 'hook' }>): string
  * Session's own thread, no interruption notice, a Subagent's description on its own row only when
  * no tool call of the thread started it (the call's row shows it then, and the call counts).
  */
-export function eventFindTexts(event: AgentEvent): string[] {
+export function eventFindTexts(event: AgentEvent): FindText[] {
+  const plain = (...texts: string[]): FindText[] => texts.map((text) => ({ text }))
   switch (event.type) {
     case 'notice':
-      return event.kind === 'user' && INTERRUPT_NOTICE.test(event.text) ? [] : [event.text]
+      if (event.kind === 'user') return INTERRUPT_NOTICE.test(event.text) ? [] : plain(event.text)
+      return plain(event.kind === 'synthetic' ? clipText(event.text) : event.text)
     case 'text':
+      return event.parentToolUseId === null ? [{ text: event.text, markdown: true }] : []
     case 'thinking':
-      return event.parentToolUseId === null ? [event.text] : []
+      return event.parentToolUseId === null ? plain(event.text) : []
     case 'tool_use':
-      return event.parentToolUseId === null ? [event.name, toolSummary(event.input)] : []
+      return event.parentToolUseId === null ? plain(event.name, toolSummary(event.input)) : []
     case 'subagent':
-      return event.phase === 'started' && event.toolUseId === null && event.description !== null ? [event.description] : []
+      return event.phase === 'started' && event.toolUseId === null && event.description !== null ? plain(event.description) : []
     case 'hook':
-      return [event.hookName, hookOutput(event)]
+      return plain(event.hookName, clipText(hookOutput(event)))
     case 'state':
-      return event.state === 'error' ? [event.error ?? 'The Session stopped with an error'] : []
+      return event.state === 'error' ? plain(event.error ?? 'The Session stopped with an error') : []
     default:
       return []
   }
@@ -79,6 +108,6 @@ export function eventFindTexts(event: AgentEvent): string[] {
 /** The matches of `needle` in one event: what main counts for a line of the file it has not shown. */
 export function eventMatches(event: AgentEvent, needle: string): number {
   let count = 0
-  for (const text of eventFindTexts(event)) count += countMatches(text, needle)
+  for (const field of eventFindTexts(event)) count += textMatches(field, needle)
   return count
 }

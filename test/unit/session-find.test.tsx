@@ -3,19 +3,25 @@
 // a folded «N tools» line, which opens, and in closed thinking, which opens too — the keys of the
 // bar on each system and with a Russian layout, Esc, Enter and Shift+Enter, the paint of the matches
 // (the CSS Custom Highlight API, stubbed here: jsdom has none), and the matches main finds in the
-// part of the file before the rows, which the bar goes to by loading earlier windows. A fake bridge
-// answers `claudeHome.transcriptFind`; no main process.
+// part of the file before the rows, which the bar goes to by loading earlier windows. What is counted
+// is what the rows show — markdown as drawn, long outputs cut — so every match counted is painted;
+// main is asked only for the part of the file its last answer did not cover, and not at all while a
+// resumed Session's window may hold turns the live events show. A fake bridge answers
+// `claudeHome.transcriptFind`; no main process.
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useRef, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
+import { TRANSCRIPT_FIND } from '../../src/shared/ipc/claude-home'
+import { markdownText } from '../../src/shared/markdown/visible-text'
 import { eventMatches, findNeedle } from '../../src/shared/transcript/find'
+import { Markdown } from '../../src/renderer/markdown/Markdown'
 import { foldTranscript } from '../../src/renderer/session/fold'
 import { setView } from '../../src/renderer/session/navigation'
 import { SessionFind } from '../../src/renderer/session/SessionFind'
 import { Transcript } from '../../src/renderer/session/Transcript'
-import { extensionTypes, FIND_DEBOUNCE_MS, HIGHLIGHT, rowMatches, useTranscriptFind, type FindSource } from '../../src/renderer/session/transcript-find'
+import { extendAnswer, extensionTypes, FIND_DEBOUNCE_MS, HIGHLIGHT, pastSettled, rowMatches, useTranscriptFind, type FindSource } from '../../src/renderer/session/transcript-find'
 
 const prompt = (text: string): AgentEvent => ({ type: 'notice', kind: 'user', text })
 const answer = (text: string): AgentEvent => ({ type: 'text', text, messageId: 'm', parentToolUseId: null, synthetic: false })
@@ -23,7 +29,7 @@ const toolUse = (id: string, name: string, input: unknown): AgentEvent => ({ typ
 const toolResult = (toolUseId: string, content = 'ok', isError = false): AgentEvent => ({ type: 'tool_result', toolUseId, content, isError, parentToolUseId: null })
 const thinking = (text: string): AgentEvent => ({ type: 'thinking', text, messageId: 'm', parentToolUseId: null })
 
-type FindRequest = { projectRoot: string; sessionId: string; agentId?: string; query: string; before: number }
+type FindRequest = { projectRoot: string; sessionId: string; agentId?: string; query: string; before: number; from?: number }
 type FindAnswer = { found: boolean; hits: { offset: number; count: number }[]; total: number; skipped: number }
 let requests: FindRequest[]
 let reply: (request: FindRequest) => { ok: true; value: FindAnswer } | { ok: false; error: string }
@@ -240,11 +246,105 @@ describe('the find bar', () => {
     await key({ key: 'Enter' })
     expect(count()).toBe('1 of 2')
     expect(thought.getAttribute('aria-expanded')).toBe('true')
-    // A line the reader closes stays closed until another match in it becomes the current one.
+  })
+
+  it('opens the row again on each step and each ⌘F, even to the same match the reader closed it on', async () => {
+    render(<View events={[prompt('go'), thinking('the okapi is shy'), answer('done')]} />)
+    const thought = screen.getByRole('button', { name: /Thinking/ })
+    await press({ key: 'f', metaKey: true })
+    await type('okapi')
+    expect(count()).toBe('1 of 1')
+    expect(thought.getAttribute('aria-expanded')).toBe('true')
     fireEvent.click(thought)
     expect(thought.getAttribute('aria-expanded')).toBe('false')
+    // Enter at «1 of 1»: the same match, and its row opens again.
+    await key({ key: 'Enter' })
+    expect(count()).toBe('1 of 1')
+    expect(thought.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(thought)
+    await key({ key: 'Escape' })
+    expect(thought.getAttribute('aria-expanded')).toBe('false')
+    // ⌘F again on the same query: the row opens again too.
+    await press({ key: 'f', metaKey: true })
+    expect(count()).toBe('1 of 1')
+    expect(thought.getAttribute('aria-expanded')).toBe('true')
   })
 })
+
+describe('what is counted is what is drawn', () => {
+  const hook = (stdout: string): AgentEvent => ({ type: 'hook', hookEvent: 'Stop', hookName: 'gate', exitCode: 0, outcome: 'success', stdout, stderr: '' })
+
+  it('counts the text of links, emphasis and inline code as the markdown shows it, not its source, and every match counted is painted', async () => {
+    const events = [prompt('go'), answer('See [docs](https://example.com/docs) and `docs.ts`.'), answer('**foo** bar, and [x.ts](src/docs/x.ts)')]
+    render(<View events={events} />)
+    await press({ key: 'f', metaKey: true })
+    await type('docs')
+    // The link's address and the file link's path hold «docs» too: not shown, not counted.
+    expect(count()).toBe('2 of 2')
+    expect(painted(HIGHLIGHT.all)).toEqual(['docs', 'docs'])
+    await type('foo bar')
+    expect(count()).toBe('1 of 1')
+    expect(painted(HIGHLIGHT.all)).toEqual(['foo bar'])
+    // Main counts the same in the lines it reads.
+    for (const query of ['docs', 'foo bar', 'x.ts']) {
+      const main = events.reduce((sum, event) => sum + eventMatches(event, query), 0)
+      expect(rowMatches(foldTranscript(events, extensionTypes), query, false)).toHaveLength(main)
+    }
+    expect(eventMatches(events[2]!, 'x.ts')).toBe(1)
+  })
+
+  it("counts a hook's output and an added notice as far as their rows show them: cut at 20 000 characters", () => {
+    const long = `zebra ${'x'.repeat(20_000)} zebra`
+    const events: AgentEvent[] = [hook(long), { type: 'notice', kind: 'synthetic', text: long }]
+    expect(events.map((event) => eventMatches(event, 'zebra'))).toEqual([1, 1])
+    expect(rowMatches(foldTranscript(events, extensionTypes), 'zebra', false)).toHaveLength(2)
+    // The words the cut adds are on screen: they count.
+    expect(eventMatches(events[0]!, 'more characters')).toBe(1)
+  })
+
+  it.each([
+    ['a link', 'See [the docs](https://example.com/docs).'],
+    ['emphasis and code', '**bold** _it_ ~~gone~~ `code` and\n\n```ts\nconst a = 1\n```'],
+    ['lines and paragraphs', 'one\ntwo\n\nthree'],
+    ['a list and a task list', '- a\n- b\n\n1. one\n2. two\n\n- [x] done\n- [ ] not yet'],
+    ['a table', '| a | b |\n| - | - |\n| 1 | 2 |'],
+    ['HTML, shown as text', 'a <b>bold</b> tag <script>alert(1)</script>'],
+    ['images', '![a cat](cat.png) and ![](dog.png)'],
+    ['a quote, a heading, an autolink', '# Title\n\n> quoted\n\nsee www.example.com'],
+    ['entities and escapes', '&amp; &#65; \\*not em\\*'],
+  ])('reads %s as the page shows it', (_, source) => {
+    const { container } = render(<Markdown text={source} breaks />)
+    expect(markdownText(source)).toBe(container.querySelector('.w-md')?.textContent)
+  })
+})
+
+describe('a Subagent whose Agent call is before the rows', () => {
+  const started: AgentEvent = { type: 'subagent', phase: 'started', taskId: 'task', toolUseId: 'toolu_a', description: 'Find the zebra', subagentType: null, status: null, summary: null }
+
+  it('is counted once: by main, in the Agent call, and not again in its own row', async () => {
+    const items = foldTranscript([started, answer('done')], extensionTypes)
+    // Its own row is drawn, as the call is not among the events…
+    expect(items.map((item) => item.kind)).toEqual(['subagent', 'text'])
+    // …and counted only when the rows start at the start of the file.
+    expect(rowMatches(items, 'zebra', false, false)).toHaveLength(1)
+    expect(rowMatches(items, 'zebra', false, true)).toHaveLength(0)
+    expect(eventMatches(toolUse('toolu_a', 'Agent', { description: 'Find the zebra', prompt: 'go' }), 'zebra')).toBe(1)
+    expect(eventMatches(started, 'zebra')).toBe(0)
+    reply = () => ({ ok: true, value: { found: true, hits: [{ offset: 10, count: 1 }], total: 1, skipped: 0 } })
+    const source: FindSource = { root: '/repo', sessionId: 'session-1', earlier: 500, earlierNow: () => 500, loadEarlier: async () => undefined }
+    render(<View events={[started, answer('done')]} source={source} />)
+    await press({ key: 'f', metaKey: true })
+    await type('zebra')
+    await wait(FIND_DEBOUNCE_MS + 50)
+    expect(count()).toBe('1 match')
+  })
+})
+
+const wait = async (ms: number): Promise<void> => {
+  await act(async () => {
+    await new Promise((done) => setTimeout(done, ms))
+  })
+}
 
 describe('the matches before the rows', () => {
   /**
@@ -312,6 +412,82 @@ describe('the matches before the rows', () => {
       await new Promise((done) => setTimeout(done, FIND_DEBOUNCE_MS + 50))
     })
     expect(requests).toHaveLength(1)
+  })
+
+  it('asks main only for the part the window gave up since its last answer, and adds it', async () => {
+    // A live Session: the cap of the events drops its oldest rows, and the window starts later.
+    function Growing() {
+      const [state, setState] = useState({ events: [prompt('zebra one'), answer('zebra two'), prompt('three')], earlier: 1000 })
+      const source: FindSource = { root: '/repo', sessionId: 'session-1', earlier: state.earlier, earlierNow: () => state.earlier, loadEarlier: async () => undefined }
+      return (
+        <>
+          <button type="button" onClick={() => setState({ events: state.events.slice(1), earlier: 1500 })}>
+            drop
+          </button>
+          <View events={state.events} firstIndex={1000 - state.events.length} source={source} />
+        </>
+      )
+    }
+    reply = (request) => ({ ok: true, value: { found: true, hits: request.from === undefined ? [{ offset: 200, count: 2 }] : [{ offset: 1000, count: 1 }], total: 0, skipped: 0 } })
+    render(<Growing />)
+    await press({ key: 'f', metaKey: true })
+    await type('zebra')
+    await wait(FIND_DEBOUNCE_MS + 50)
+    expect(count()).toBe('4 of 4')
+    fireEvent.click(screen.getByText('drop'))
+    await wait(FIND_DEBOUNCE_MS + 50)
+    expect(requests.map(({ from, before }) => [from, before])).toEqual([
+      [undefined, 1000],
+      [1000, 1500],
+    ])
+    // The dropped prompt's match is now main's: still four in all.
+    expect(count()).toBe('4 of 4')
+  })
+
+  it('keeps the latest lines when a part is added, as main does, and counts the older in `skipped`', () => {
+    const many = Array.from({ length: TRANSCRIPT_FIND.hits }, (_, index) => ({ offset: index * 10, count: 1 }))
+    const known = { key: 'k', needle: 'zebra', before: 1_000_000, hits: many, skipped: 5 }
+    const grown = extendAnswer(known, 2_000_000, { hits: [{ offset: 1_500_000, count: 3 }], skipped: 0 })
+    expect(grown.before).toBe(2_000_000)
+    expect(grown.hits).toHaveLength(TRANSCRIPT_FIND.hits)
+    expect(grown.hits[0]).toEqual({ offset: 10, count: 1 })
+    expect(grown.hits.at(-1)).toEqual({ offset: 1_500_000, count: 3 })
+    expect(grown.skipped).toBe(6)
+  })
+
+  it("does not ask main while a resumed Session's window may lie after Resume: reads on first", async () => {
+    // The window shows none of the file's turns (the live events show them all): not settled.
+    expect(pastSettled(0, 3, 4000)).toBe(false)
+    expect(pastSettled(2, 3, 4000)).toBe(true)
+    expect(pastSettled(0, 0, 4000)).toBe(true)
+    expect(pastSettled(0, 3, 0)).toBe(true)
+    expect(pastSettled(0, 3, null)).toBe(true)
+    let settles = 0
+    function Resumed() {
+      const [settled, setSettled] = useState(false)
+      const source: FindSource = {
+        root: '/repo',
+        sessionId: 'session-1',
+        earlier: settled ? 3000 : 4000,
+        earlierNow: () => (settled ? 3000 : 4000),
+        loadEarlier: async () => undefined,
+        settled,
+        settle: () => {
+          settles += 1
+          setSettled(true)
+        },
+      }
+      return <View events={[prompt('zebra live')]} source={source} />
+    }
+    // Answered only for the bytes before 3000: lines before Resume.
+    reply = (request) => ({ ok: true, value: { found: true, hits: request.before === 3000 ? [{ offset: 100, count: 1 }] : [{ offset: 3500, count: 1 }], total: 1, skipped: 0 } })
+    render(<Resumed />)
+    await press({ key: 'f', metaKey: true })
+    await type('zebra')
+    await wait(FIND_DEBOUNCE_MS + 50)
+    expect(settles).toBe(1)
+    expect(requests.map((request) => request.before)).toEqual([3000])
+    expect(count()).toBe('2 of 2')
   })
 
   it('counts only the rows when main cannot answer, and says so', async () => {

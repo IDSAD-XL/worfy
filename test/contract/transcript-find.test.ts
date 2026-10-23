@@ -120,6 +120,14 @@ describe('claudeHome.transcriptFind', () => {
     console.info(`[transcript-find] ${(size / 1024 / 1024).toFixed(1)} MB, every line parsed: ${ms.toFixed(0)} ms, ${loop} turns of the event loop`)
   })
 
+  it("reads every answer as markdown when the query is in each of them, and still gives the event loop its turns", async () => {
+    // «number» is in every prompt and every answer: each answer is parsed as the markdown it shows.
+    const { value, turns: loop, ms } = await withTurns(() => call('claudeHome.transcriptFind', { projectRoot: project, sessionId: SESSION, query: 'number', before: size }))
+    expect((value as { ok: true; value: Found }).value.total).toBe(2 * turns)
+    expect(loop).toBeGreaterThanOrEqual(30)
+    console.info(`[transcript-find] ${(size / 1024 / 1024).toFixed(1)} MB, ${turns} answers read as markdown: ${ms.toFixed(0)} ms, ${loop} turns of the event loop`)
+  })
+
   it("searches a Subagent's own file with agentId, and answers found: false for a Session with no transcript", async () => {
     const subagent = (await call('claudeHome.transcriptFind', { projectRoot: project, sessionId: SESSION, agentId: 'a1', query: 'zebra', before: 1_000_000 })) as { ok: true; value: Found }
     expect(subagent.value).toEqual({ found: true, hits: [{ offset: 0, count: 1 }], total: 1, skipped: 0 })

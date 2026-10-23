@@ -11,7 +11,7 @@ import { ClaudeHomeRegistry, rootPath, type ClaudeHomeWatch, type RegistryRoot }
 import { TranscriptSearch } from '../claude-home/search'
 import { SubagentReader, subagentTranscriptPath } from '../claude-home/subagents'
 import { readLinesBefore, readNewLines, type TailCursor } from '../claude-home/tail'
-import { findInTranscript } from '../claude-home/transcript-find'
+import { FIND_LIMITS, findInTranscript } from '../claude-home/transcript-find'
 import { ClientHolders, clientOf, type Client, type ClientId } from '../clients'
 import { isRemoteCall, projectRootOf } from '../link/caller'
 import { projectStore } from '../projects/store'
@@ -234,12 +234,12 @@ export function claudeHomeHandlers(
       return readTranscript(path, { cursor, maxBytes, back }, (entries) => entries.map(timedEvent))
     }),
     defineHandler(claudeHomeSearch, async ({ projectRoot, query }, { event }) => search.search(await rootOf(projectRoot, event), query)),
-    defineHandler(claudeHomeTranscriptFind, async ({ projectRoot, sessionId, agentId, query, before }, { event }) => {
+    defineHandler(claudeHomeTranscriptFind, async ({ projectRoot, sessionId, agentId, query, before, from }, { event }) => {
       const session = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
       const path = session === null || agentId === undefined ? session : await subagentTranscriptPath(session, agentId)
       if (path === null) return { found: false, hits: [], total: 0, skipped: 0 }
       // The same events as the reads above: the Session's own thread, or every record of a Subagent's file.
-      return findInTranscript(path, findNeedle(query), before, agentId === undefined ? mainThreadEvents : (entries) => entries.map(timedEvent))
+      return findInTranscript(path, findNeedle(query), before, agentId === undefined ? mainThreadEvents : (entries) => entries.map(timedEvent), FIND_LIMITS, from)
     }),
   ]
 }

@@ -7,7 +7,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { findInTranscript } from '../../src/main/claude-home/transcript-find'
+import { FIND_LIMITS, findInTranscript } from '../../src/main/claude-home/transcript-find'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { countMatches, eventFindTexts, eventMatches, findNeedle } from '../../src/shared/transcript/find'
 import { mainThreadEvents, timedEvent } from '../../src/shared/transcript/parse'
@@ -56,7 +56,7 @@ describe('the fields find counts in', () => {
       { type: 'hook', hookEvent: 'Stop', hookName: 'zebra-hook', exitCode: 0, outcome: 'success', stdout: 'zebra out', stderr: '' },
     ]
     expect(events.map((event) => eventMatches(event, 'zebra'))).toEqual([1, 0, 1, 0, 1, 1, 0, 2])
-    expect(eventFindTexts(events[5]!)).toEqual(['Bash', 'grep zebra src'])
+    expect(eventFindTexts(events[5]!).map((field) => field.text)).toEqual(['Bash', 'grep zebra src'])
   })
 })
 
@@ -147,6 +147,22 @@ describe('findInTranscript', () => {
     expect(found.hits.at(-1)).toEqual({ offset: offsetOf(many, 40), count: 2 })
     // Each slice of 256 bytes ends with a turn: the file is over 6 KB.
     expect(turns).toBeGreaterThanOrEqual(10)
+  })
+
+  it('reads from `from` on only: the part a view searched before is not read again', async () => {
+    const path = file(lines.map((line) => `${line}\n`).join(''))
+    const found = await findInTranscript(path, 'zebra', 1e9, mainThreadEvents, FIND_LIMITS, offsetOf(lines, 3))
+    expect(found.hits.map((hit) => hit.offset)).toEqual([offsetOf(lines, 3), offsetOf(lines, 5)])
+    expect(found.total).toBe(3)
+  })
+
+  it("counts Claude's answer as its markdown shows it: a query split by markup is found, a link's address is not", async () => {
+    const path = file(`${assistant([{ type: 'text', text: '**foo** bar, see [docs](https://example.com/docs)' }])}\n`)
+    // The raw line holds neither «foo bar» side by side nor…
+    expect((await findInTranscript(path, 'foo bar', 1e9, mainThreadEvents)).total).toBe(1)
+    // …only the shown «docs» counts, not the one in the address.
+    expect((await findInTranscript(path, 'docs', 1e9, mainThreadEvents)).total).toBe(1)
+    expect((await findInTranscript(path, 'example', 1e9, mainThreadEvents)).total).toBe(0)
   })
 
   it('answers found: false for a missing file', async () => {

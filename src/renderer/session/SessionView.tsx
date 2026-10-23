@@ -20,7 +20,7 @@ import { ensureAgentEvents, joinPastAndLive, useSessionControls, useSessionLog }
 import { Transcript } from './Transcript'
 import { HideToolsButton } from './HideToolsButton'
 import { SessionFind } from './SessionFind'
-import { useTranscriptFind } from './transcript-find'
+import { pastSettled, useTranscriptFind } from './transcript-find'
 import { useSessionToolsHidden } from './transcript-view'
 import './session.css'
 
@@ -174,7 +174,8 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const claudeSessionId = sessionId !== null && !sessionId.startsWith('pending-') ? sessionId : (transcriptId ?? null)
   // A view choice of this screen, kept per Session (worfy-ui ticket 25), not one of the agent's picks above.
   const [hideTools, setHideTools] = useSessionToolsHidden({ projectId, nodeId, liveId: sessionId, sessionId: claudeSessionId })
-  // ⌘F (worfy-ui ticket 26): the live events and the transcript before them; main searches the part of the file not read yet.
+  // ⌘F (worfy-ui ticket 26): the live events and the transcript before them; main searches the part
+  // of the file not read yet — only once the window shows a turn from before Resume (pastSettled).
   const logRef = useRef<HTMLDivElement>(null)
   const find = useTranscriptFind({
     events,
@@ -184,7 +185,15 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
     source:
       root === undefined || transcriptId === undefined
         ? undefined
-        : { root, sessionId: transcriptId, earlier: past.earlier, loadEarlier: () => loadEarlierTranscript(root, transcriptId), earlierNow: () => sessionTranscriptNow(root, transcriptId).earlier },
+        : {
+            root,
+            sessionId: transcriptId,
+            earlier: past.earlier,
+            loadEarlier: () => loadEarlierTranscript(root, transcriptId),
+            earlierNow: () => sessionTranscriptNow(root, transcriptId).earlier,
+            settled: pastSettled(events.length - live.length, live.length, past.earlier),
+            settle: loadPast,
+          },
   })
   // A model picked since the last system/init shows at once, as the picker shows it; the next
   // init names the model it runs (store.ts, modelPick; worfy-week ticket 12). Claude Code's

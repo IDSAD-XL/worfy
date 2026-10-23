@@ -40,7 +40,10 @@
     "react-dom": "19.3.0",
     "react-markdown": "10.1.0",
     "remark-gfm": "4.0.1",
+    "remark-parse": "11.0.0",
+    "remark-rehype": "11.1.2",
     "selfsigned": "5.5.0",
+    "unified": "11.0.5",
     "ws": "8.22.0",
     "zod": "4.6.5",
     "zustand": "5.0.15"

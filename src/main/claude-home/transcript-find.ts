@@ -14,6 +14,7 @@
 import { open, type FileHandle } from 'node:fs/promises'
 import type { AgentEvent } from '../../shared/agent/events'
 import { TRANSCRIPT_FIND } from '../../shared/ipc/claude-home'
+import { mayShow } from '../../shared/markdown/visible-text'
 import { eventMatches } from '../../shared/transcript/find'
 import { parseTranscriptLine, type TranscriptEntry } from '../../shared/transcript/parse'
 
@@ -50,14 +51,14 @@ const escapedInJson = (needle: string): boolean => [...needle].some((char) => ch
 const nextTurn = (): Promise<void> => new Promise((done) => setImmediate(done))
 
 /**
- * Whether the raw JSON line may hold `needle` in its text. The line is the text JSON wrote, so a
- * character written as `\uXXXX`, or a `/` written as `\/`, would not be seen in it: such a line is
- * parsed anyway.
+ * Whether the raw JSON line may hold `needle` in its text. Claude's answers count as their markdown
+ * shows (`**foo** bar` shows «foo bar»), so the letters of the query need only be in the line in
+ * order (mayShow), not side by side. A character JSON writes as `\uXXXX` would not be seen in the
+ * line at all: such a line is parsed anyway; a `/` written as `\/` keeps its `/`.
  */
 function mayHold(line: string, needle: string, raw: boolean): boolean {
   if (!raw) return true
-  if (line.toLowerCase().includes(needle)) return true
-  return line.includes('\\u') || (needle.includes('/') && line.includes('\\/'))
+  return line.includes('\\u') || mayShow(line, needle)
 }
 
 async function readAt(handle: FileHandle, position: number, length: number): Promise<Buffer> {
@@ -73,7 +74,7 @@ async function readAt(handle: FileHandle, position: number, length: number): Pro
 
 /**
  * The matches of `needle` (src/shared/transcript/find.ts, findNeedle) in the complete lines of
- * `file` before byte `before`. `events` picks the events a line's entries give, as the reads of
+ * `file` from byte `from` (where a line starts: an `earlier` searched before) to byte `before`. `events` picks the events a line's entries give, as the reads of
  * the transcript pick them (the Session's own thread, or every record of a Subagent's file). A
  * line not ended before `before` is not counted. A missing file is `found: false`.
  */
@@ -83,6 +84,7 @@ export async function findInTranscript(
   before: number,
   events: (entries: TranscriptEntry[]) => AgentEvent[],
   limits: Readonly<FindLimits> = FIND_LIMITS,
+  from = 0,
 ): Promise<TranscriptFindResult> {
   let handle: FileHandle
   try {
@@ -95,7 +97,7 @@ export async function findInTranscript(
   try {
     const end = Math.min(before, (await handle.stat()).size)
     const raw = !escapedInJson(needle)
-    let position = 0
+    let position = Math.min(from, end)
     let carry: Buffer = Buffer.alloc(0)
     while (position < end) {
       const chunk = await readAt(handle, position, Math.min(limits.slice, end - position))

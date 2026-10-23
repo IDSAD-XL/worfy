@@ -1,7 +1,7 @@
 import { createContext, createElement, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import type { AgentEvent } from '../../shared/agent/events'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
-import { hookOutput, toolSummary } from '../../shared/transcript/find'
+import { clipText as clip, hookOutput, toolSummary } from '../../shared/transcript/find'
 import { Markdown } from '../markdown/Markdown'
 import { foldTranscript, toolSegments, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
 import { formatDuration } from './format'
@@ -57,8 +57,9 @@ export interface EarlierControl {
 const RowKey = createContext<string | undefined>(undefined)
 
 /**
- * Opens a closed line when find's current match is in it: `reveal` names that match, and a new one
- * opens the line again even after the reader closed it.
+ * Opens a closed line when find's current match is in it: `reveal` names that match and the step
+ * that went to it (TranscriptFind.seq), and a new one opens the line again even after the reader
+ * closed it — also a step back to the same match.
  */
 function useRevealed(reveal: string | null): [boolean, (open: boolean) => void] {
   const [open, setOpen] = useState(false)
@@ -182,8 +183,6 @@ function Row({
   )
 }
 
-const TEXT_LIMIT = 20_000
-
 /**
  * Hook outcomes that are an error (worfy-daily ticket 25): `error` and `cancelled` of a live
  * Session's hook_response, `blocked` of a Stop hook summary, and the attachment types of Claude
@@ -200,10 +199,6 @@ const HOOK_FAILURES: ReadonlySet<string> = new Set([
   'error_during_execution',
   'stopped_continuation',
 ])
-
-function clip(text: string): string {
-  return text.length > TEXT_LIMIT ? `${text.slice(0, TEXT_LIMIT)}\n… (${text.length - TEXT_LIMIT} more characters)` : text
-}
 
 function json(value: unknown): string {
   try {
@@ -358,7 +353,8 @@ function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps })
   const current = props.find?.current
   // What find's current match opens in this row: its line «N tools» or the row's closed line.
   const revealing = current !== undefined && current !== null && current.row === item.key ? current : null
-  const reveal = (what: string): string | null => (revealing !== null && revealing.reveal === what ? `${revealing.part}#${revealing.occurrence}` : null)
+  const seq = props.find?.seq ?? 0
+  const reveal = (what: string): string | null => (revealing !== null && revealing.reveal === what ? `${revealing.part}#${revealing.occurrence}#${seq}` : null)
   const find = (part: string): string => partId(item.key, part)
   switch (item.kind) {
     case 'prompt':
@@ -559,7 +555,7 @@ export function Transcript(props: TranscriptProps) {
       return
     }
     const painted = paintMatches(element, find)
-    const target = find.current === null ? null : `${find.current.part}#${find.current.occurrence}`
+    const target = find.current === null ? null : `${find.current.part}#${find.current.occurrence}#${find.seq}`
     if (target !== null && target !== scrolledTo.current) {
       scrolledTo.current = target
       scrollToMatch(element, painted)

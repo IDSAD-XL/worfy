@@ -14,7 +14,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type { AgentEvent } from '../../shared/agent/events'
 import { SHORTCUTS } from '../../shared/shortcuts'
-import { countMatches, findNeedle, hookOutput, toolSummary } from '../../shared/transcript/find'
+import { TRANSCRIPT_FIND } from '../../shared/ipc/claude-home'
+import { clipText, findNeedle, hookOutput, textMatches, toolSummary, type FindText } from '../../shared/transcript/find'
 import { stepMatch } from '../find/search-index'
 import { invoke } from '../ipc'
 import { matches as matchesShortcut } from '../shortcuts/match'
@@ -40,20 +41,24 @@ export const partId = (row: string, part: string): string => `${row}:${part}`
  */
 export type Reveal = 'fold' | `tools:${string}` | null
 
-export interface FindPart {
+export interface FindPart extends FindText {
   id: string
-  text: string
   reveal: Reveal
 }
 
-/** The parts of a row find looks in, in the order the row draws them. */
-export function findParts(item: TranscriptItem, hideTools: boolean): FindPart[] {
-  const part = (name: string, text: string, reveal: Reveal = null): FindPart => ({ id: partId(item.key, name), text, reveal })
+/**
+ * The parts of a row find looks in, in the order the row draws them, with the text the row shows
+ * (src/shared/transcript/find.ts). `partial`: the rows start after the beginning of the file, which
+ * main searches; a Subagent row whose Agent call lies there is left out then, as main counts the
+ * call and not the Subagent.
+ */
+export function findParts(item: TranscriptItem, hideTools: boolean, partial = false): FindPart[] {
+  const part = (name: string, text: string, reveal: Reveal = null, markdown = false): FindPart => ({ id: partId(item.key, name), text, reveal, ...(markdown ? { markdown } : {}) })
   switch (item.kind) {
     case 'prompt':
       return [part('prompt', item.text)]
     case 'text':
-      return [part('text', item.text)]
+      return [part('text', item.text, null, true)]
     case 'thinking':
       return [part('thinking', item.text, 'fold')]
     case 'tools': {
@@ -65,13 +70,13 @@ export function findParts(item: TranscriptItem, hideTools: boolean): FindPart[] 
       ])
     }
     case 'subagent':
-      return item.run.description === null ? [] : [part('subagent', item.run.description)]
+      return item.run.description === null || (partial && item.toolUseId !== undefined) ? [] : [part('subagent', item.run.description)]
     case 'hook': {
       const output = hookOutput(item.event)
-      return [part('hook-name', item.event.hookName), ...(output === '' ? [] : [part('hook-output', output, 'fold')])]
+      return [part('hook-name', item.event.hookName), ...(output === '' ? [] : [part('hook-output', clipText(output), 'fold')])]
     }
     case 'notice':
-      return [part('notice', item.text, item.noticeKind === 'synthetic' ? 'fold' : null)]
+      return item.noticeKind === 'synthetic' ? [part('notice', clipText(item.text), 'fold')] : [part('notice', item.text)]
     case 'error':
       return [part('error', item.text)]
     default:
@@ -87,13 +92,13 @@ export interface RowMatch {
   reveal: Reveal
 }
 
-/** Every match of `needle` (findNeedle) in the rows, oldest first. */
-export function rowMatches(items: readonly TranscriptItem[], needle: string, hideTools: boolean): RowMatch[] {
+/** Every match of `needle` (findNeedle) in the rows, oldest first; `partial` as for findParts. */
+export function rowMatches(items: readonly TranscriptItem[], needle: string, hideTools: boolean, partial = false): RowMatch[] {
   const found: RowMatch[] = []
   if (needle === '') return found
   for (const item of items) {
-    for (const each of findParts(item, hideTools)) {
-      const count = countMatches(each.text, needle)
+    for (const each of findParts(item, hideTools, partial)) {
+      const count = textMatches(each, needle)
       for (let occurrence = 0; occurrence < count; occurrence += 1) found.push({ row: item.key, part: each.id, occurrence, reveal: each.reveal })
     }
   }
@@ -105,6 +110,11 @@ export interface TranscriptFind {
   needle: string
   parts: ReadonlySet<string>
   current: RowMatch | null
+  /**
+   * Grows on each step and each ⌘F: the current match is scrolled to, and its folded line or closed
+   * row opens, again even when the match is the same one (the reader may have closed the row).
+   */
+  seq: number
 }
 
 // ── the part of the file the view has not read ──────────────────────────────
@@ -120,6 +130,26 @@ export interface FindSource {
   loadEarlier: () => Promise<void>
   /** `earlier` now, outside React. */
   earlierNow: () => number | null
+  /**
+   * False while the part before `earlier` may hold turns the view shows from other events: a
+   * resumed Session whose window holds only turns since Resume (its live events show them, and
+   * where they start in the file is not known yet). Main is not asked then; `settle` reads on.
+   * Absent: true.
+   */
+  settled?: boolean
+  /** Reads windows until `settled` (SessionView: until one shows a turn from before Resume). */
+  settle?: () => void
+}
+
+/**
+ * FindSource.settled of a resumed Session's view (SessionView.tsx): the file before the window
+ * holds only turns from before Resume once the window shows one of those (`shown`, the events of
+ * the file joinPastAndLive keeps), or starts at the file's start, or there are no live events.
+ * A window that shows none may lie wholly after Resume: the live part starts before it then, at a
+ * byte not known, and main would count its turns a second time.
+ */
+export function pastSettled(shown: number, live: number, earlier: number | null): boolean {
+  return live === 0 || shown > 0 || (earlier ?? 0) === 0
 }
 
 interface EarlierAnswer {
@@ -130,6 +160,17 @@ interface EarlierAnswer {
   before: number
   hits: readonly { offset: number; count: number }[]
   skipped: number
+}
+
+/**
+ * `answer` with the lines of [answer.before, before) added: the window gave them up since (the
+ * cap of the events dropped its oldest rows). The latest TRANSCRIPT_FIND.hits lines are kept, as
+ * main keeps them; the matches of the older ones go to `skipped`.
+ */
+export function extendAnswer<T extends EarlierAnswer>(answer: T, before: number, more: { hits: readonly { offset: number; count: number }[]; skipped: number }): T {
+  const hits = [...answer.hits, ...more.hits]
+  const dropped = hits.splice(0, Math.max(0, hits.length - TRANSCRIPT_FIND.hits))
+  return { ...answer, before, hits, skipped: answer.skipped + more.skipped + dropped.reduce((sum, hit) => sum + hit.count, 0) }
 }
 
 /** The answer for the part before `earlier`: lines past `earlier` are now rows of the view. */
@@ -214,12 +255,15 @@ export function useTranscriptFind({ events, firstIndex, hideTools, source, log }
   const [current, setCurrent] = useState<Current>(null)
   const [answer, setAnswer] = useState<EarlierAnswer | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
+  const [seq, setSeq] = useState(0)
   const needle = open ? findNeedle(query) : ''
   const view = useNavigation((store) => store.view)
+  // The rows start after the beginning of the file: main searches the part before them.
+  const partial = (source?.earlier ?? 0) > 0
 
   // The rows are folded only while the bar is open.
   const items = useMemo(() => (open ? foldTranscript(events, extensionTypes, firstIndex) : []), [open, events, firstIndex])
-  const found = useMemo(() => rowMatches(items, needle, hideTools), [items, needle, hideTools])
+  const found = useMemo(() => rowMatches(items, needle, hideTools, partial), [items, needle, hideTools, partial])
 
   // What the handlers and the effects read of the last render: the panel makes a new source each
   // render, so the effects follow its key and read the source here.
@@ -234,7 +278,7 @@ export function useTranscriptFind({ events, firstIndex, hideTools, source, log }
     const wanted = findNeedle(next)
     if (wanted === '') return setCurrent(null)
     const now = latest.current
-    const start = startingMatch(log.current, rowMatches(foldTranscript(now.events, extensionTypes, now.firstIndex), wanted, now.hideTools))
+    const start = startingMatch(log.current, rowMatches(foldTranscript(now.events, extensionTypes, now.firstIndex), wanted, now.hideTools, (now.source?.earlier ?? 0) > 0))
     setCurrent(start === null ? null : { kind: 'row', match: start })
     },
     [log],
@@ -251,6 +295,7 @@ export function useTranscriptFind({ events, firstIndex, hideTools, source, log }
       if (!latest.current.open) begin(latest.current.query)
       setOpen(true)
       setFocusSeq((seq) => seq + 1)
+      setSeq((seq) => seq + 1)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -259,18 +304,25 @@ export function useTranscriptFind({ events, firstIndex, hideTools, source, log }
   // ── main, for the part of the file before the rows ──
   const sourceKey = source === undefined ? '' : `${source.root}\0${source.sessionId}\0${source.agentId ?? ''}`
   const earlier = source?.earlier ?? null
+  const settled = source?.settled !== false
   const searchable = needle !== '' && source !== undefined && earlier !== null && earlier > 0
   const fresh = answer !== null && answer.key === sourceKey && answer.needle === needle
-  // Asked again when the part before the rows grew (the cap dropped old rows), or shrank past
-  // lines the answer left out (`skipped`).
-  const stale = searchable && (!fresh || earlier > answer.before || (answer.skipped > 0 && earlier < answer.before))
+  // Asked again from the start for a new query or file, or when the part before the rows shrank
+  // past lines the answer left out (`skipped`); asked only for the part it gave up when it grew
+  // (the cap of the events dropped old rows), so a live Session does not read its file again.
+  let from: number | null = null
+  if (searchable && settled) {
+    if (!fresh || (answer.skipped > 0 && earlier < answer.before)) from = 0
+    else if (earlier > answer.before) from = answer.before
+  }
   const asked = useRef(0)
   useEffect(() => {
     const source = latest.current.source
-    if (!stale || source === undefined || earlier === null) return
+    const start = from
+    if (start === null || source === undefined || earlier === null) return
     const ask = (asked.current += 1)
     const timer = setTimeout(() => {
-      const input = { projectRoot: source.root, sessionId: source.sessionId, query: needle, before: earlier, ...(source.agentId === undefined ? {} : { agentId: source.agentId }) }
+      const input = { projectRoot: source.root, sessionId: source.sessionId, query: needle, before: earlier, ...(start > 0 ? { from: start } : {}), ...(source.agentId === undefined ? {} : { agentId: source.agentId }) }
       void invoke('claudeHome.transcriptFind', input).then((result) => {
         if (ask !== asked.current) return
         if (!result.ok) {
@@ -279,12 +331,19 @@ export function useTranscriptFind({ events, firstIndex, hideTools, source, log }
           return
         }
         setFailed(null)
-        setAnswer({ key: sourceKey, needle, before: earlier, hits: result.value.found ? result.value.hits : [], skipped: result.value.found ? result.value.skipped : 0 })
+        const value = result.value.found ? result.value : { hits: [], skipped: 0 }
+        if (start === 0) setAnswer({ key: sourceKey, needle, before: earlier, hits: value.hits, skipped: value.skipped })
+        else setAnswer((known) => (known !== null && known.key === sourceKey && known.needle === needle && known.before === start ? extendAnswer(known, earlier, value) : known))
       })
     }, FIND_DEBOUNCE_MS)
     return () => clearTimeout(timer)
-  }, [stale, sourceKey, needle, earlier])
-  const before = fresh && searchable ? earlierCount(answer, earlier) : 0
+  }, [from, sourceKey, needle, earlier])
+  // A resumed Session whose window shows only turns since Resume: read on before main is asked.
+  const settling = searchable && !settled ? `${sourceKey}\0${earlier}` : null
+  useEffect(() => {
+    if (settling !== null) latest.current.source?.settle?.()
+  }, [settling])
+  const before = fresh && searchable && settled ? earlierCount(answer, earlier) : 0
   const total = before + found.length
 
   // The current match as an index from the oldest, and as a match of the rows once its row is read.
@@ -330,6 +389,7 @@ export function useTranscriptFind({ events, firstIndex, hideTools, source, log }
   const step = (back: boolean) => {
     const next = stepMatch(at, total, back)
     if (next < 0) return
+    setSeq((seq) => seq + 1)
     if (next >= before) setCurrent({ kind: 'row', match: found[next - before]! })
     else setCurrent({ kind: 'earlier', index: next })
   }
@@ -343,7 +403,7 @@ export function useTranscriptFind({ events, firstIndex, hideTools, source, log }
 
   let count = ''
   if (needle !== '') {
-    const more = searchable && !fresh && failed === null ? '+' : ''
+    const more = searchable && (from !== null || !settled) && failed === null ? '+' : ''
     if (total === 0) count = more === '' ? 'No matches' : 'Searching…'
     else if (at >= 0) count = `${at + 1} of ${total}${more}`
     else count = `${total}${more} ${total === 1 && more === '' ? 'match' : 'matches'}`
@@ -352,7 +412,7 @@ export function useTranscriptFind({ events, firstIndex, hideTools, source, log }
 
   const parts = useMemo(() => new Set(found.map((match) => match.part)), [found])
   // One object while nothing changed: the Transcript paints again only when it does.
-  const transcript = useMemo(() => (needle === '' ? undefined : { needle, parts, current: shown }), [needle, parts, shown])
+  const transcript = useMemo(() => (needle === '' ? undefined : { needle, parts, current: shown, seq }), [needle, parts, shown, seq])
   return { open, query, setQuery, focusSeq, close, step, count, note, loading: target !== null, transcript }
 }
 
