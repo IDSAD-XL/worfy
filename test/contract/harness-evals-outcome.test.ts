@@ -9,7 +9,7 @@
 // checker compares reference solutions with their expected verdicts on a synthetic task that lives
 // only in a temporary folder.
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -58,6 +58,7 @@ interface RunEnv {
   pluginCopy: (source: string) => string
   gitFolder: (results: string, stamp: string, platform?: NodeJS.Platform) => string
   gitForRuns: (dir: string, env: NodeJS.ProcessEnv, fail: (message: string) => void) => string
+  pruneGitCopies: (parent: string, now?: number) => { removed: string[]; failed: { path: string; error: string }[] }
 }
 interface Lib {
   stripArmMarkers: (text: string) => string
@@ -413,6 +414,57 @@ describe('the run environment both evals share (scripts/eval-run-env.mjs)', () =
     expect(runEnv.gitFolder(results, 'STAMP', 'darwin')).toBe(join(homedir(), 'Library', 'Caches', 'worfy-eval', 'STAMP-git'))
     expect(runEnv.gitFolder(results, 'STAMP', 'linux')).toBe(join(results, 'STAMP-git'))
     expect(runEnv.gitFolder(results, 'STAMP', 'win32')).toBe(join(results, 'STAMP-git'))
+  })
+
+  // A run ended by SIGKILL, out of memory or a reboot leaves its copy of git in the folder all
+  // checkouts share; a younger copy may belong to a run still going.
+  it('removes only the copies of git whose stamp and modification time are both more than a day old', () => {
+    const parent = tempDir('outcome-git-cache-')
+    const now = Date.parse('2026-10-23T12:00:00.000Z')
+    const day = 24 * 60 * 60 * 1000
+    const ago = (ms: number): Date => new Date(now - ms)
+    const folder = (name: string, mtime: Date): string => {
+      const path = join(parent, name)
+      mkdirSync(join(path, 'git-core'), { recursive: true })
+      writeFileSync(join(path, 'git'), '#!/bin/sh\n')
+      utimesSync(path, mtime, mtime)
+      return path
+    }
+    const old = folder('2026-10-21T11-00-00-000Z-git', ago(2 * day))
+    const young = folder('2026-10-23T11-00-00-000Z-git', ago(60 * 60 * 1000))
+    const oldNameFreshTime = folder('2026-10-20T00-00-00-000Z-git', ago(60 * 60 * 1000))
+    const freshNameOldTime = folder('2026-10-23T11-30-00-000Z-git', ago(3 * day))
+    const otherName = folder('2026-10-01T00-00-00-000Z-main', ago(10 * day))
+    const file = join(parent, '2026-10-01T00-00-00-000Z-git-file')
+    writeFileSync(file, 'x')
+    const target = folder('target', ago(10 * day))
+    const link = join(parent, '2026-10-02T00-00-00-000Z-git')
+    symlinkSync(target, link)
+    const { removed, failed } = runEnv.pruneGitCopies(parent, now)
+    expect(failed).toEqual([])
+    expect(removed).toEqual([old])
+    expect(existsSync(old)).toBe(false)
+    for (const kept of [young, oldNameFreshTime, freshNameOldTime, otherName, file, link]) expect(lstatSync(kept, { throwIfNoEntry: false }), kept).toBeDefined()
+    expect(existsSync(join(target, 'git'))).toBe(true)
+    expect(runEnv.pruneGitCopies(join(parent, 'missing'), now)).toEqual({ removed: [], failed: [] })
+  })
+
+  // Two runs started in the same millisecond name the same folder; on macOS every checkout and both
+  // scripts share its parent.
+  it('fails, and leaves the folder alone, when the folder of the copy of git already exists', () => {
+    const dir = join(tempDir('outcome-git-taken-'), 'STAMP-git')
+    mkdirSync(dir)
+    writeFileSync(join(dir, 'git'), 'the copy of the other run\n')
+    const env: NodeJS.ProcessEnv = { PATH: process.env.PATH }
+    expect(() =>
+      runEnv.gitForRuns(dir, env, (message) => {
+        throw new Error(message)
+      }),
+    ).toThrow(/cannot create .*STAMP-git for the copy of git: EEXIST/)
+    expect(readFileSync(join(dir, 'git'), 'utf8')).toBe('the copy of the other run\n')
+    expect(readdirSync(dir)).toEqual(['git'])
+    expect(env.PATH).toBe(process.env.PATH)
+    expect(env.EVAL_GIT).toBeUndefined()
   })
 
   // xcrun, behind /usr/bin/git, keeps its cache (xcrun_db) in the user's temporary folder; the sandbox

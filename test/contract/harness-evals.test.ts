@@ -18,6 +18,7 @@ import {
   realpathSync,
   symlinkSync,
   unlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs'
 import { constants, homedir, tmpdir, userInfo } from 'node:os'
@@ -1042,6 +1043,31 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(second.evalGit).toBe(first.evalGit)
     expect(existsSync(dirname(first.evalGit))).toBe(false)
     expect(existsSync(join(earlier, 'aggregate-result.json'))).toBe(true)
+  })
+
+  // On macOS the copies of every checkout share ~/Library/Caches/worfy-eval, and a run ended by SIGKILL,
+  // out of memory or a reboot leaves its copy there (about 54 MB).
+  it.skipIf(process.platform !== 'darwin')('removes copies of git older than a day that killed runs left under the home folder, and keeps a younger one', () => {
+    const stampOf = (ms: number): string => new Date(ms).toISOString().replace(/[:.]/g, '-')
+    const day = 24 * 60 * 60 * 1000
+    let old = ''
+    let young = ''
+    const { run, calls } = evalHarness('2.1.289', '0,0', [], (dir) => {
+      const parent = join(dir, 'Library', 'Caches', 'worfy-eval')
+      old = join(parent, `${stampOf(Date.now() - 2 * day)}-git`)
+      young = join(parent, `${stampOf(Date.now() - 60 * 60 * 1000)}-git`)
+      for (const copy of [old, young]) {
+        mkdirSync(join(copy, 'git-core'), { recursive: true })
+        writeFileSync(join(copy, 'git'), '#!/bin/sh\n')
+      }
+      const twoDaysAgo = new Date(Date.now() - 2 * day)
+      utimesSync(old, twoDaysAgo, twoDaysAgo)
+      return process.env.PATH ?? ''
+    })
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls).toHaveLength(2)
+    expect(existsSync(old)).toBe(false)
+    expect(existsSync(join(young, 'git'))).toBe(true)
   })
 
   it('exits 1 and calls no claude when `git --exec-path` gives no folder', () => {

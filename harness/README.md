@@ -150,7 +150,9 @@ Without both variables the scripts start `git` from `PATH` and keep the state in
 `~/.claude/worfy-harness`, as before. On macOS the copy lives under the home folder: the sandbox
 of a run re-opens for reading the `PATH` folders under the home folder, and it did not re-open one
 under `/private/tmp` — from a checkout there a copy under `evals/results/` stayed unreadable, and
-`git` fell through to the xcrun shim `/usr/bin/git`, which exits 72 in the sandbox. Whether the copy
+`git` fell through to the xcrun shim `/usr/bin/git`, which exits 72 in the sandbox. A run there first
+removes the copies older than a day that killed runs left, and fails rather than reuse a folder of
+the same name. Whether the copy
 of git runs inside a real sandbox is checked by a paid run of the eval set.
 
 ### Which cases check which rule file
