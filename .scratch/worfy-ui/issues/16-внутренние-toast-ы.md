@@ -1,7 +1,8 @@
 # 16 — Внутренние toast-ы: одно хранилище и один компонент для уведомлений в окне
 
 Type: task
-Status: claimed 2026-10-21T08:09Z
+Status: done 2026-10-23T17:34Z
+PR: #677
 Branch: worfy-ui/16
 Blocked by: —
 Source: отзыв владельца 2026-10-19 после ручной приёмки Ticket-а 12 на Stable copy: «внутренние

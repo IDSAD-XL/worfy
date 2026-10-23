@@ -1,7 +1,8 @@
 # 112 — Два contract test-а красные на Windows-ПК: закрытие Git Bash при ошибке `kill()` и быстрый перезапуск Orchestrator
 
 Type: task
-Status: claimed 2026-10-23T15:06Z
+Status: done 2026-10-23T17:34Z
+PR: #806
 Branch: worfy-windows/112
 Blocked by: —
 Source: пересчёт unit и contract на ПК владельца 2026-10-23 (main `bc19f2f7`; журналы
