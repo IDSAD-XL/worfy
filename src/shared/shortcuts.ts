@@ -91,8 +91,9 @@ export const SHORTCUTS = {
   focusEnter: { id: 'focus.enter', title: 'Open the selection in focus mode', group: 'Focus mode', scope: 'canvas', keys: primary('Enter', { macKey: '↩' }) },
   focusExit: { id: 'focus.exit', title: 'Leave focus mode', group: 'Focus mode', scope: 'focus mode', keys: { key: 'Escape', name: 'Esc' } },
 
-  // Find on the Canvas.
+  // Find on the Canvas, and in the transcript of the Session view (worfy-ui ticket 26); both bars step and close with the same keys.
   find: { id: 'find.open', title: 'Find on the Canvas', group: 'Find', scope: 'canvas', keys: primary('F') },
+  sessionFind: { id: 'session.find', title: 'Find in the Session', group: 'Find', scope: 'session view', keys: primary('F') },
   findNext: { id: 'find.next', title: 'Next match', group: 'Find', scope: 'find bar', keys: { key: 'Enter', macKey: 'Enter' } },
   findPrevious: { id: 'find.previous', title: 'Previous match', group: 'Find', scope: 'find bar', keys: { shift: true, key: 'Enter', macKey: 'Enter' } },
   findClose: { id: 'find.close', title: 'Close the find bar', group: 'Find', scope: 'find bar', keys: { key: 'Escape', name: 'Esc' } },

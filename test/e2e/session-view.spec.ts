@@ -3,6 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { writeMarkedTranscript } from '../big-transcript'
 import { launchApp } from './helpers'
 
 // The Session view against the built app, on the fake agent: the script
@@ -384,3 +385,101 @@ test('a prompt sent just before local midnight shows its date once the day has t
     await launched.close()
   }
 })
+
+test('⌘F finds in the whole history of a resumed Session: «N of M», Enter and Shift+Enter, a match behind «Load earlier» loaded and scrolled to, Esc (worfy-ui ticket 26)', async () => {
+  test.setTimeout(180_000)
+  // The Orchestrator saved the Session SAVED; its transcript is 10 MB, the view opens on the last 4 MiB.
+  const SAVED = 'f1d00000-0000-4000-8000-0000000000e2'
+  const cwd = join(scratch, 'alpha')
+  const dir = join(claudeHome, 'projects', cwd.normalize('NFC').replace(/[^a-zA-Z0-9]/g, '-'))
+  mkdirSync(dir, { recursive: true })
+  writeMarkedTranscript(join(dir, `${SAVED}.jsonl`), SAVED, cwd, 10 * 1024 * 1024)
+  const orchestrator = { id: 'orch', kind: 'orchestrator', x: 10, y: 20, w: 360, h: 200, hidden: false, locked: true, pinned: false, tags: [], data: { sessionId: SAVED } }
+  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [orchestrator], viewport: { x: 0, y: 0, zoom: 1 } }))
+
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view' } })
+  try {
+    const { app, window } = launched
+    // The default window, 1280 px wide: its content is set to that width (on Windows the frame takes some of the outer width).
+    await app.evaluate(({ BrowserWindow }) => {
+      const [win] = BrowserWindow.getAllWindows()
+      win?.setContentSize(1280, 800)
+    })
+    await expect.poll(() => window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)).toBe(1280)
+    const node = window.getByTestId('orchestrator-node')
+    await expect(node.getByTestId('orchestrator-state')).toHaveText('idle')
+    await node.locator('.w-orchestrator__header').dblclick()
+    const view = window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
+    await expect(view.getByTestId('transcript-text').last()).toContainText('in the garden')
+    await expect(view.getByTestId('transcript-load-earlier')).toBeVisible()
+    await expect(view.getByText('Answer number 2: the')).toHaveCount(0)
+
+    const bar = view.getByTestId('session-find')
+    const field = view.getByTestId('session-find-input')
+    const count = view.getByTestId('session-find-count')
+    type Box = { top: number; bottom: number; height: number }
+    type Painted = { toString(): string; getBoundingClientRect(): Box }
+    type InPage = { CSS: { highlights: Map<string, Iterable<Painted>> }; document: { querySelector(selector: string): { getBoundingClientRect(): Box } | null } }
+    /** The text of each painted match, and of the current one (the CSS Custom Highlight API). */
+    const painted = (name: string): Promise<string[]> =>
+      window.evaluate((which) => {
+        const registry = (globalThis as unknown as InPage).CSS.highlights
+        return [...(registry.get(which) ?? [])].map((range) => range.toString())
+      }, name)
+    /** Whether the current match is inside the visible part of the transcript. */
+    const currentInSight = (): Promise<boolean> =>
+      window.evaluate(() => {
+        const page = globalThis as unknown as InPage
+        const [range] = [...(page.CSS.highlights.get('worfy-find-current') ?? [])]
+        const log = page.document.querySelector('.w-shell__view[data-view="session"] [data-testid="transcript"]')
+        if (range === undefined || log === null) return false
+        const box = range.getBoundingClientRect()
+        const sight = log.getBoundingClientRect()
+        return box.height > 0 && box.top >= sight.top && box.bottom <= sight.bottom
+      })
+
+    await window.keyboard.press('ControlOrMeta+f')
+    await expect(bar).toBeVisible()
+    await expect(field).toBeFocused()
+    await field.fill('ЗЕБРА')
+    // Two matches in the rows, the newest current; main counts the one before them.
+    await expect(count).toHaveText('3 of 3')
+    expect(await painted('worfy-find')).toEqual(['Зебра', 'зебра'])
+    expect(await painted('worfy-find-current')).toEqual(['зебра'])
+    await shots(window, 'session-find')
+
+    await field.press('Shift+Enter')
+    await expect(count).toHaveText('2 of 3')
+    expect(await painted('worfy-find-current')).toEqual(['Зебра'])
+    // Back past the first row: windows are loaded until the line of turn 2, and the log scrolls to it.
+    await field.press('Shift+Enter')
+    await expect(count).toHaveText('1 of 3', { timeout: 30_000 })
+    await expect(view.getByText('Answer number 2: the')).toBeVisible()
+    await expect.poll(() => painted('worfy-find-current')).toEqual(['зебра'])
+    await expect.poll(currentInSight).toBe(true)
+    await expect(view.getByTestId('transcript-load-earlier')).toHaveCount(0)
+    // Around the end: Enter from the oldest goes to the newest.
+    await field.press('Enter')
+    await expect(count).toHaveText('2 of 3')
+    await field.press('Enter')
+    await expect(count).toHaveText('3 of 3')
+    await field.press('Enter')
+    await expect(count).toHaveText('1 of 3')
+
+    await field.press('Escape')
+    await expect(bar).toHaveCount(0)
+    expect(await painted('worfy-find')).toEqual([])
+    expect(await painted('worfy-find-current')).toEqual([])
+  } finally {
+    await launched.close()
+  }
+})
+
+/** Screenshots of the window in both themes, in the test's output folder. */
+async function shots(window: Page, name: string): Promise<void> {
+  for (const scheme of ['light', 'dark'] as const) {
+    await window.emulateMedia({ colorScheme: scheme })
+    await window.screenshot({ path: test.info().outputPath(`${name}-${scheme}.png`) })
+  }
+  await window.emulateMedia({ colorScheme: null })
+}

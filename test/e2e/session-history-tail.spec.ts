@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { writeBigTranscript } from '../big-transcript'
+import { writeBigTranscript, writeMarkedTranscript } from '../big-transcript'
 import { launchApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 
@@ -110,6 +110,45 @@ test('a 40 MB transcript opens on its newest turns; Load earlier brings the ones
     })
     await expect(load).toBeInViewport()
     await snapshotThemes(window, 'session-history-earlier')
+  } finally {
+    await launched.close()
+  }
+})
+
+test('⌘F in the read-only view of a terminal Session finds a match behind «Load earlier» and loads up to it (worfy-ui ticket 26)', async () => {
+  test.setTimeout(180_000)
+  mkdirSync(transcriptDir(projectPath), { recursive: true })
+  writeMarkedTranscript(join(transcriptDir(projectPath), `${SESSION}.jsonl`), SESSION, projectPath, 10 * 1024 * 1024)
+  const claude = spawn('sleep', ['600'], { stdio: 'ignore' })
+  processes.push(claude)
+  writeFileSync(
+    join(claudeHome, 'sessions', `${claude.pid}.json`),
+    JSON.stringify({ pid: claude.pid, sessionId: SESSION, cwd: projectPath, kind: 'interactive', entrypoint: 'cli', status: 'idle', version: '2.1.289', name: 'find-history' }),
+  )
+
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome } })
+  try {
+    const { window } = launched
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 800))
+    const node = window.locator(`[data-testid="session-node"][data-session-id="${SESSION}"]`)
+    await node.waitFor({ state: 'visible', timeout: 10_000 })
+    await node.getByTestId('session-node-title').dblclick()
+    const view = window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
+    await expect(view).toHaveAttribute('data-read-only', 'true')
+    await expect(view.getByTestId('transcript-text').last()).toContainText('in the garden', { timeout: 60_000 })
+    await expect(view.getByText('Answer number 2: the')).toHaveCount(0)
+
+    await window.keyboard.press('ControlOrMeta+f')
+    const field = view.getByTestId('session-find-input')
+    await expect(field).toBeFocused()
+    await field.fill('зебра')
+    const count = view.getByTestId('session-find-count')
+    await expect(count).toHaveText('3 of 3')
+    await field.press('Enter')
+    await expect(count).toHaveText('1 of 3', { timeout: 30_000 })
+    await expect(view.getByText('Answer number 2: the')).toBeInViewport()
+    await field.press('Escape')
+    await expect(view.getByTestId('session-find')).toHaveCount(0)
   } finally {
     await launched.close()
   }

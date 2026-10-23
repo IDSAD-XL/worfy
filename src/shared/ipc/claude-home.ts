@@ -4,6 +4,7 @@
 import { z } from 'zod'
 import { agentEvent } from '../agent/events'
 import { absolutePathSchema } from '../paths'
+import { findNeedle, MIN_TRANSCRIPT_FIND } from '../transcript/find'
 import { subagentFileSchema, subagentSignalSchema } from '../transcript/subagents'
 import { eventChannel, invokeChannel } from './channels'
 
@@ -200,6 +201,43 @@ export const claudeHomeSearch = invokeChannel(
   'read',
 )
 
+/** Bounds of `claudeHome.transcriptFind`: query length and lines given back. */
+export const TRANSCRIPT_FIND = { maxQuery: 200, hits: 20_000 } as const
+
+/**
+ * Find in the part of a Session's transcript before byte `before` (worfy-ui ticket 26): the part the
+ * Session view has not read yet, behind «Load earlier» (`earlier` of `claudeHome.transcript`). The
+ * matches are counted in what the view searches (src/shared/transcript/find.ts), case ignored, for
+ * `query` of at least 2 characters after trimming. `hits`: the lines with matches, the byte where
+ * each starts and its count, oldest first — the latest 20 000 of them; `skipped` counts the
+ * matches in the lines before those. With `from`, only the lines from that byte on: the view asks
+ * for the part its window gave up since its last answer. With `agentId`, in that Subagent's
+ * transcript. Reads only.
+ */
+export const claudeHomeTranscriptFind = invokeChannel(
+  'claudeHome.transcriptFind',
+  z.object({
+    projectRoot: absolutePath,
+    sessionId: sessionIdSchema,
+    agentId: agentIdSchema.optional(),
+    query: z
+      .string()
+      .max(TRANSCRIPT_FIND.maxQuery)
+      .refine((query) => findNeedle(query) !== '', `a query of at least ${MIN_TRANSCRIPT_FIND} characters`),
+    before: z.number().int().nonnegative(),
+    /** Where to start: a line start the view searched up to before (the part before it was searched then); 0 by default. */
+    from: z.number().int().nonnegative().optional(),
+  }),
+  z.object({
+    found: z.boolean(),
+    hits: z.array(z.object({ offset: z.number().int().nonnegative(), count: z.number().int().positive() })).max(TRANSCRIPT_FIND.hits),
+    total: z.number().int().nonnegative(),
+    skipped: z.number().int().nonnegative(),
+  }),
+  'project',
+  'read',
+)
+
 /**
  * Something changed under ~/.claude for a Project: the registry of live Sessions (`sessions`)
  * and/or the transcripts named in `transcripts` (Session ids). Debounced in main.
@@ -220,6 +258,7 @@ declare module './channels' {
     'claudeHome.subagents': typeof claudeHomeSubagents
     'claudeHome.subagentTranscript': typeof claudeHomeSubagentTranscript
     'claudeHome.search': typeof claudeHomeSearch
+    'claudeHome.transcriptFind': typeof claudeHomeTranscriptFind
     'claudeHome.changed': typeof claudeHomeChanged
   }
 }

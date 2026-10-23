@@ -691,6 +691,7 @@ describe('claudeHome IPC channels', () => {
       'worfy:claudeHome.subagentTranscript',
       'worfy:claudeHome.subagents',
       'worfy:claudeHome.transcript',
+      'worfy:claudeHome.transcriptFind',
     ])
   })
 
@@ -709,6 +710,12 @@ describe('claudeHome IPC channels', () => {
     ['claudeHome.search', { projectRoot: DEMO, query: 'ab' }],
     ['claudeHome.search', { projectRoot: 'relative/path', query: 'synthetic' }],
     ['claudeHome.search', { projectRoot: DEMO, query: 'x'.repeat(201) }],
+    ['claudeHome.transcriptFind', { projectRoot: DEMO, sessionId: S1, query: ' a ', before: 10 }],
+    ['claudeHome.transcriptFind', { projectRoot: DEMO, sessionId: S1, query: 'x'.repeat(201), before: 10 }],
+    ['claudeHome.transcriptFind', { projectRoot: DEMO, sessionId: S1, query: 'zebra', before: -1 }],
+    ['claudeHome.transcriptFind', { projectRoot: DEMO, sessionId: S1, query: 'zebra' }],
+    ['claudeHome.transcriptFind', { projectRoot: DEMO, sessionId: '../../etc/passwd', query: 'zebra', before: 10 }],
+    ['claudeHome.transcriptFind', { projectRoot: DEMO, sessionId: S1, agentId: '../a', query: 'zebra', before: 10 }],
   ])('rejects %s with input %j', async (channel, input) => {
     const { call } = await ipcOver(new ClaudeHomeRegistry({ home: FIXTURE, listWorktrees: noWorktrees, isAlive: alive() }))
     const result = await call(channel, input)

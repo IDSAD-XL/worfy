@@ -16,6 +16,9 @@
 import { z } from 'zod'
 import { agentEvent, hookSaidSomething, LOCAL_COMMAND, toolResultText, type AgentEvent } from '../agent/events'
 
+/** What Claude Code writes as a user message when a turn is interrupted; not a prompt. */
+export const INTERRUPT_NOTICE = /^\[Request interrupted by user/
+
 /** One event of a transcript and the record it came from. */
 export const transcriptEntrySchema = z.object({
   /** `uuid` of the record the event came from, when the record has one. */

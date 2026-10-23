@@ -202,10 +202,90 @@
 }
 
 .w-session__main {
+  position: relative;
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
+}
+
+/*
+ * The find bar (SessionFind.tsx, worfy-ui ticket 26): at the top right of the transcript, right under
+ * the header, over the first rows. The header itself has no room for it at the default window width.
+ */
+.w-session-find {
+  position: absolute;
+  top: var(--space-2);
+  right: 24px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  box-shadow: var(--shadow-node);
+  font-size: var(--text-12);
+}
+
+.w-session-find__input {
+  width: 200px;
+  min-width: 0;
+  height: 22px;
+  box-sizing: border-box;
+  padding: 0 var(--space-1);
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-13);
+}
+
+.w-session-find__count {
+  min-width: 64px;
+  color: var(--text-muted);
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.w-session-find__button {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-chip);
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.w-session-find__button:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.w-session-find__button:focus-visible,
+.w-session-find:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The matches of find, painted over the text (CSS Custom Highlight API); the current one in full. */
+::highlight(worfy-find) {
+  background-color: color-mix(in srgb, var(--blocked-ring) 30%, transparent);
+}
+
+::highlight(worfy-find-current) {
+  background-color: var(--blocked-ring);
+  color: var(--terminal-bg);
 }
 
 .w-session__rail {

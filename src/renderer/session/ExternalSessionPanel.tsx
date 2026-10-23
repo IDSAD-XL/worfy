@@ -1,4 +1,4 @@
-import { useEffect, type CSSProperties } from 'react'
+import { useEffect, useRef, type CSSProperties } from 'react'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { flattenSubagents } from '../../shared/transcript/subagents'
@@ -6,7 +6,7 @@ import { readSessionNodeData, sessionStatus } from '../claude-home/session-nodes
 import { useOrchestratorView } from '../canvas/nodes/orchestrator-view'
 import { useLayout } from '../canvas/useLayout'
 import { useSubagentTree } from '../claude-home/subagents'
-import { earlierControl, useClaudeHome, useSessionTranscript } from '../claude-home/useClaudeHome'
+import { earlierControl, loadEarlierTranscript, transcriptStateNow, useClaudeHome, useSessionTranscript } from '../claude-home/useClaudeHome'
 import { useProjects } from '../projects/useProjects'
 import { ariaKeys, label, matches } from '../shortcuts/match'
 import { StatusChip, type Status } from '../theme/primitives'
@@ -16,6 +16,8 @@ import type { RailBlock } from './rail/index'
 import { SessionRail } from './SessionRail'
 import { Transcript } from './Transcript'
 import { HideToolsButton } from './HideToolsButton'
+import { SessionFind } from './SessionFind'
+import { useTranscriptFind } from './transcript-find'
 import { hideToolsKey, useToolsHidden } from './transcript-view'
 import './session.css'
 
@@ -84,6 +86,18 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
   const transcript = useSessionTranscript(root, sessionId, agentId)
   // Kept per Session and per Subagent (worfy-ui ticket 25): the same choice as the Session's live view.
   const [hideTools, setHideTools] = useToolsHidden(hideToolsKey({ projectId, nodeId, sessionId, agentId }))
+  // ⌘F (worfy-ui ticket 26): over the events read, and in main over the part of the file before them.
+  const logRef = useRef<HTMLDivElement>(null)
+  const find = useTranscriptFind({
+    events: transcript.events,
+    firstIndex: transcript.first,
+    hideTools,
+    log: logRef,
+    source:
+      root === undefined
+        ? undefined
+        : { root, sessionId, agentId, earlier: transcript.earlier, opening: transcript.opening, loadEarlier: () => loadEarlierTranscript(root, sessionId, agentId), earlierNow: () => transcriptStateNow(root, sessionId, agentId).earlier },
+  })
   const tree = useSubagentTree(root, agentId === undefined ? null : sessionId)
   const subagent = agentId === undefined ? undefined : flattenSubagents(tree).find((info) => info.agentId === agentId)
   const orchestrator = useOrchestratorView(nodeId)
@@ -161,6 +175,7 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
       </header>
       <div className="w-session__body">
         <section className="w-session__main" aria-label="Session">
+          {empty === null ? <SessionFind find={find} /> : null}
           {empty !== null ? (
             <div className="w-session__empty" data-testid="session-transcript-missing">
               {empty}
@@ -174,6 +189,8 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
               assistantLabel="claude"
               earlier={earlierControl(transcript, root, sessionId, agentId)}
               hideTools={hideTools}
+              find={find.transcript}
+              logRef={logRef}
             />
           )}
           <div className="w-composer" data-testid="session-read-only" style={styles.readOnly}>

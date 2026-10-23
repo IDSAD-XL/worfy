@@ -1,9 +1,9 @@
 // The prompt history of the input field: ↑ and ↓ step through what the user sent to this Session.
 import { typedText } from '../../shared/agent/attachments'
 import type { AgentEvent } from '../../shared/agent/events'
+import { INTERRUPT_NOTICE } from '../../shared/transcript/parse'
 
-/** What Claude Code writes as a user message when a turn is interrupted; not a prompt. */
-export const INTERRUPT_NOTICE = /^\[Request interrupted by user/
+export { INTERRUPT_NOTICE }
 
 /**
  * The user's messages of a Session, oldest first, as the user typed them: without the lines naming

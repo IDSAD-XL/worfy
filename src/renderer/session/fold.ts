@@ -43,7 +43,8 @@ export type TranscriptItem = { at: number | null } & (
   | { kind: 'thinking'; key: string; text: string; streaming: boolean }
   /** Consecutive tool calls, drawn as one group. */
   | { kind: 'tools'; key: string; calls: ToolCall[] }
-  | { kind: 'subagent'; key: string; run: SubagentRun }
+  /** `toolUseId`: the Agent call that started it, when that call is not among the events (it is in the part of the file not read). */
+  | { kind: 'subagent'; key: string; run: SubagentRun; toolUseId?: string }
   | { kind: 'hook'; key: string; event: EventOf<'hook'> }
   | { kind: 'notice'; key: string; noticeKind: 'synthetic' | 'local_command' | 'notification'; text: string }
   | { kind: 'result'; key: string; event: EventOf<'result'> }
@@ -175,7 +176,7 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
         // A subagent started by an Agent tool call of this thread is shown on that call's row.
         const call = event.toolUseId === null ? undefined : calls.get(event.toolUseId)
         if (call) call.subagent = run
-        else push({ kind: 'subagent', key, at, run })
+        else push({ kind: 'subagent', key, at, run, ...(event.toolUseId === null ? {} : { toolUseId: event.toolUseId }) })
         return
       }
       case 'hook':

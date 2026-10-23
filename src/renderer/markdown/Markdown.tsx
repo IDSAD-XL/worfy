@@ -5,7 +5,7 @@ import { invoke } from '../ipc'
 import { useFileElsewhere } from '../machines/useFileElsewhere'
 import { revealedNote } from '../toast/revealed'
 import { classifyLink, isWindowsPathLink } from './links'
-import { remarkSoftBreaks } from './soft-breaks'
+import { remarkSoftBreaks } from '../../shared/markdown/soft-breaks'
 import './markdown.css'
 
 // The one markdown renderer of the app: the Session transcript (ticket 33), HANDOFF and ADRs
