@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { findGitBash } from '../../src/main/agent/env'
 import { spawnShellPty, type SpawnPty } from '../../src/main/terminal/pty'
-import { endDescendants, endShell } from '../../src/main/terminal/windows-pty'
+import { endDescendants, endShell, type StartedShell } from '../../src/main/terminal/windows-pty'
 import { alive, consoleHosts, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, settledHandleCount, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
@@ -149,6 +149,29 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows when a step fail
       return pty
     }
     const h = await harness({ shell: 'git-bash', closeBoundMs: FAR_BOUND_MS, spawn, endDescendants, endShell })
+    const { launcher, ms } = await openAndClose(h)
+    expect(ms).toBeLessThan(10_000)
+    await expectNothingLeft(launcher, hostsBefore)
+  }, 40_000)
+
+  // node-pty reports the exit 1 s after the close stops its output thread, whether or not the
+  // launcher is gone; the end by pid took 840-900 ms on the owner's PC, so a slower start of its
+  // PowerShell let the close resolve with the launcher alive. Here it starts 1.5 s late on purpose.
+  it('kill() of the pty throws and the end by pid comes after node-pty reported the exit: the close still waits for the launcher to end', async (context) => {
+    needsGitBash(context)
+    const hostsBefore = new Set(consoleHosts())
+    const spawn: SpawnPty = (file, args, options) => {
+      const pty = spawnShellPty(file, args, options)
+      pty.kill = () => {
+        throw new Error('kill() failed (stand-in)')
+      }
+      return pty
+    }
+    const lateEndShell = async (shell: StartedShell) => {
+      await new Promise((done) => setTimeout(done, 1500))
+      return endShell(shell)
+    }
+    const h = await harness({ shell: 'git-bash', closeBoundMs: FAR_BOUND_MS, spawn, endDescendants, endShell: lateEndShell })
     const { launcher, ms } = await openAndClose(h)
     expect(ms).toBeLessThan(10_000)
     await expectNothingLeft(launcher, hostsBefore)

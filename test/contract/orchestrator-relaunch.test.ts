@@ -132,14 +132,17 @@ describe('Orchestrator relaunch waits for the old Claude Code process', () => {
     const LIMIT_MS = 5000
     const h = harness('exit-at-once', LIMIT_MS)
     await h.opened()
-    const asked = Date.now()
     await h.orchestrators.setUnattended(PROJECT, true)
     expect(h.stub.order()).toEqual(['spawn 1', 'exit 1 SIGTERM', 'spawn 2'])
     const exit = h.stub.events.find((event) => event.kind === 'exit' && event.n === 1)
     const spawn = h.stub.events.find((event) => event.kind === 'spawn' && event.n === 2)
+    // What the relaunch adds is counted from the old process's exit, as worfy hears of it: before
+    // that the wait is for the system to end the process (on the owner's PC 20 ms quiet, 0.2-0.6 s
+    // under load, 1.8 s in a whole `pnpm test`), which the relaunch must wait for (ADR-0064).
+    const added = (spawn?.at ?? Infinity) - (exit?.at ?? -Infinity)
+    expect(added).toBeGreaterThanOrEqual(0)
     // A fifth of the limit: a relaunch that waited it out would be far past this.
-    expect((spawn?.at ?? Infinity) - asked).toBeLessThan(LIMIT_MS / 5)
-    expect((spawn?.at ?? Infinity) - (exit?.at ?? -Infinity)).toBeGreaterThanOrEqual(0)
+    expect(added).toBeLessThan(LIMIT_MS / 5)
   })
 
   it('a message sent during the wait waits in the new Session and reaches the new process; the old Session takes none', async () => {

@@ -283,6 +283,11 @@ interface Terminal {
   finished: boolean
   /** True once the pty was asked to close (release). */
   released: boolean
+  /**
+   * Git Bash on Windows: the end of its launcher by its pid after kill() of its pty failed
+   * (release). It settles once that end answered or failed; a close resolves only after it.
+   */
+  launcherEnd?: Promise<void>
   /** True once a resize of the pty failed: said once (applySize). */
   resizeFailed: boolean
 }
@@ -894,6 +899,9 @@ export class TerminalRegistry {
       }
     }
     await terminal.exited
+    // Set in release(), which comes before the exit on every way a close takes (endWindowsShell,
+    // the bound); bounded by the helper's own limit (DESCENDANTS_TIMEOUT_MS).
+    await terminal.launcherEnd
     // Its subscribers heard the exit; a shell started meanwhile keeps the ones it has.
     if (!this.has(key) && !this.ended.has(key)) this.audiences.delete(key)
   }
@@ -953,8 +961,13 @@ export class TerminalRegistry {
     } catch (error) {
       console.warn(`[terminal] closing the pty of the shell ${pid} failed`, error)
       // A launcher of Git Bash the helper suspended cannot exit by itself: it is ended by its pid.
+      // node-pty reports the exit 1 s after its output thread is stopped below, launcher or not,
+      // and the end by pid took 840-900 ms on the owner's PC: the close waits for it (close()).
       if (!exited && terminal.hangup !== undefined) {
-        void (async () => this.endShell({ pid, startedBy: terminal.startedBy, hangup: terminal.hangup }))().catch((failure: unknown) => console.warn(`[terminal] ending the launcher ${pid} of Git Bash failed`, failure))
+        terminal.launcherEnd = (async () => this.endShell({ pid, startedBy: terminal.startedBy, hangup: terminal.hangup }))().then(
+          () => undefined,
+          (failure: unknown) => console.warn(`[terminal] ending the launcher ${pid} of Git Bash failed`, failure),
+        )
       }
     }
     this.stopOutputThread(terminal, quiet)
