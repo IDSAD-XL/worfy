@@ -49,6 +49,8 @@ export class StubProcesses {
   readonly events: StubEvent[] = []
   /** What each process wrote to stderr, as its Session got it (QueryRequest.stderr), by process number. */
   readonly stderr = new Map<number, string>()
+  /** When its query's close() sent SIGTERM, by process number; kept out of `events`, so order() is unchanged. */
+  readonly terminated = new Map<number, number>()
   private readonly children: ChildProcess[] = []
 
   /** `kind` chooses what the process of the n-th query does. */
@@ -96,7 +98,10 @@ export class StubProcesses {
       handle.close = () => {
         close()
         sdkSide.stdin.end()
-        if (sdkSide.exitCode === null && sdkSide.signalCode == null) sdkSide.kill('SIGTERM')
+        if (sdkSide.exitCode === null && sdkSide.signalCode == null) {
+          this.terminated.set(n, Date.now())
+          sdkSide.kill('SIGTERM')
+        }
       }
       return handle
     }

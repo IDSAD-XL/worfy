@@ -137,9 +137,16 @@ describe('Orchestrator relaunch waits for the old Claude Code process', () => {
     expect(h.stub.order()).toEqual(['spawn 1', 'exit 1 SIGTERM', 'spawn 2'])
     const exit = h.stub.events.find((event) => event.kind === 'exit' && event.n === 1)
     const spawn = h.stub.events.find((event) => event.kind === 'spawn' && event.n === 2)
-    // A fifth of the limit: a relaunch that waited it out would be far past this.
-    expect((spawn?.at ?? Infinity) - asked).toBeLessThan(LIMIT_MS / 5)
-    expect((spawn?.at ?? Infinity) - (exit?.at ?? -Infinity)).toBeGreaterThanOrEqual(0)
+    // What the relaunch adds is counted on both sides of the system ending the old process: from
+    // the ask to the SIGTERM, and from the exit, as worfy hears of it, to the new start. The time
+    // from SIGTERM to exit (on the owner's PC 20 ms quiet, 0.2-0.6 s under load, 1.8 s in a whole
+    // `pnpm test`) is the system's, and the relaunch must wait for it (ADR-0064).
+    const untilTerm = (h.stub.terminated.get(1) ?? Infinity) - asked
+    const added = (spawn?.at ?? Infinity) - (exit?.at ?? -Infinity)
+    expect(added).toBeGreaterThanOrEqual(0)
+    // A fifth of the limit for both sides together: a relaunch that waited it out, before the close,
+    // after the exit or split between them, would be far past this.
+    expect(untilTerm + added).toBeLessThan(LIMIT_MS / 5)
   })
 
   it('a message sent during the wait waits in the new Session and reaches the new process; the old Session takes none', async () => {

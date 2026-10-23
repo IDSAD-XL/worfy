@@ -359,6 +359,49 @@ describe('TerminalRegistry on Windows: what the close of Git Bash asks of the he
     expect(ended).toEqual([{ pid: 999_993_093, startedBy: expect.any(Number) as number, hangup: KILL }])
   })
 
+  // node-pty reports the exit 1 s after the output thread is stopped (FLUSH_DATA_INTERVAL of its
+  // conout connection), whether or not the launcher is gone; ending the launcher by its pid took
+  // 840-900 ms on the owner's PC, and longer under load.
+  for (const outcome of ['answers', 'fails'] as const) {
+    it(`Git Bash, kill() throws and the exit is reported before the launcher is ended: the close resolves only once ending it by its pid ${outcome}`, async () => {
+      const fake = fakePty(999_993_095)
+      fake.pty.kill = (signal) => {
+        fake.kills.push(signal)
+        throw new Error('kill() failed (stand-in)')
+      }
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      let settle: () => void = () => undefined
+      const ended: StartedShell[] = []
+      const registry = new TerminalRegistry({
+        env: winEnv,
+        spawn: () => fake.pty,
+        platform: 'win32',
+        exists,
+        closeBoundMs: 60_000,
+        endDescendants: () => undefined,
+        endShell: (shell) => {
+          ended.push(shell)
+          fake.exit(1)
+          return new Promise<void>((done, fail) => {
+            settle = outcome === 'answers' ? done : () => fail(new Error('the helper failed (stand-in)'))
+          })
+        },
+      })
+      await registry.open('a', { ...OPEN, shell: () => 'git-bash' }, {}, SINK)
+      let closed = false
+      const closing = registry.close('a').then(() => {
+        closed = true
+      })
+      await vi.waitFor(() => expect(ended).toHaveLength(1))
+      expect(registry.has('a')).toBe(false)
+      await new Promise((done) => setTimeout(done, 20))
+      expect(closed).toBe(false)
+      settle()
+      await closing
+      expect(closed).toBe(true)
+    })
+  }
+
   it('Git Bash, kill() throws: the launcher is ended by the moment it was started, not the moment of the close', async () => {
     const { shells, ended, openedAt } = await closeWith('git-bash', { killThrows: true, clockMovesMs: 30_000 })
     expect(ended.map((shell) => shell.startedBy)).toEqual([openedAt])
