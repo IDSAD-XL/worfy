@@ -1,7 +1,8 @@
 # 16 — Assist-процесс регистрируется в `~/.claude/sessions`, и spare может остаться без закрытия при отмене
 
 Type: task
-Status: claimed 2026-10-23T00:14Z
+Status: done 2026-10-23T02:34Z
+PR: #793
 Branch: worfy-terminal-ai/16
 Blocked by: —
 Source: live-проверка Ticket-а [09](09-приёмка-worfy-terminal-ai.md) 2026-10-19, пункт 3 «Готово, когда» ([evidence](../evidence/09-live-проверка.md)); spec, «Риски», пункт 4 («Пишет ли Claude Code с `persistSession: false` файл в `sessions/` — не проверено»); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md), пункт 2
