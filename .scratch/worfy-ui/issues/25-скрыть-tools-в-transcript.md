@@ -1,7 +1,8 @@
 # 25 — Переключатель в Session view прячет tool calls в Transcript
 
 Type: task
-Status: claimed 2026-10-23T02:45Z
+Status: done 2026-10-23T05:10Z
+PR: #799
 Blocked by: —
 Source: просьба владельца 2026-10-23: «когда модель … выполняет, допустим, bash, есть небольшая
 сноска с event-ом … edit или bash или agent. Они довольно много спамят … переключатель, который
