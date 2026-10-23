@@ -696,6 +696,80 @@ describe('races and shutdown', () => {
     expect(sdk.spares[0]?.closed).toBe(true)
     expect(sdk.spares[0]?.query).toBeNull()
   })
+
+  it('closes a spare handed out just before a cancel: whatever microtask the cancel lands on, no process is left without an owner', async () => {
+    // The cancel walks through every microtask between the spare finishing its start and the
+    // claim, so one of them falls between take() emptying the slot and fly() getting the spare.
+    const counts: { cancelledAt: number; alive: number; answer: AssistAnswer }[] = []
+    for (let ticks = 0; ticks < 16; ticks++) {
+      const { service, sdk } = world()
+      sdk.hold = true
+      const controller = new AbortController()
+      const answer = service.request('request', input({ request: 'x' }), controller.signal)
+      await settle()
+      sdk.release()
+      for (let tick = 0; tick < ticks; tick++) await Promise.resolve()
+      controller.abort()
+      const result = await answer
+      await settle()
+      counts.push({ cancelledAt: ticks, alive: sdk.spares.filter((spare) => !spare.closed).length, answer: result })
+      // Every spare that is still alive is the one in the slot, so dispose() reaches it.
+      service.dispose()
+      expect(sdk.spares.filter((spare) => !spare.closed)).toEqual([])
+    }
+    expect(counts.every(({ alive }) => alive <= 1)).toBe(true)
+    expect(counts.every(({ answer }) => answer.ok === false && answer.reason === 'cancelled')).toBe(true)
+  })
+
+  it('leaves at most the spare alive after Suggestions with cancels, Next command, Command request and Fix, none after IDLE_MS or dispose()', async () => {
+    const { service, sdk } = world()
+    const alive = (): number => sdk.spares.filter((spare) => !spare.closed).length
+
+    // Suggestions, each cancelled by the next one; the last one answers.
+    const first = await start(service, 'suggest', { line: 'g' })
+    const second = await start(service, 'suggest', { line: 'gi' })
+    const third = await start(service, 'suggest', { line: 'git' })
+    sdk.claimedSpare.query?.answer('git status')
+    expect(await first.answer).toEqual({ ok: false, reason: 'cancelled' })
+    expect(await second.answer).toEqual({ ok: false, reason: 'cancelled' })
+    expect(await third.answer).toMatchObject({ ok: true })
+    await settle()
+
+    // A Suggestion its caller cancels while it flies.
+    const controller = new AbortController()
+    const dropped = service.request('suggest', input({ line: 'np' }), controller.signal)
+    await settle()
+    controller.abort()
+    expect(await dropped).toEqual({ ok: false, reason: 'cancelled' })
+    await settle()
+
+    const onDemand: [TerminalAiFeature, Partial<TerminalAiInput>, string][] = [
+      ['next', { line: '' }, 'git push'],
+      ['request', { request: 'list files' }, 'ls'],
+      ['fix', { exitCode: 1, output: ['boom'] }, 'make'],
+    ]
+    for (const [feature, over, text] of onDemand) {
+      const { answer } = await start(service, feature, over)
+      sdk.claimedSpare.query?.answer(text)
+      expect(await answer).toMatchObject({ ok: true, command: text })
+      await settle()
+    }
+    expect(service.state().process).toBe('warm')
+    expect(alive()).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(IDLE_MS)
+    expect(alive()).toBe(0)
+    expect(service.state().process).toBe('idle')
+
+    // A new request after the idle close starts one spare again; dispose() closes it.
+    const { answer } = await start(service, 'next', { line: '' })
+    sdk.claimedSpare.query?.answer('ls')
+    await answer
+    await settle()
+    expect(alive()).toBe(1)
+    service.dispose()
+    expect(alive()).toBe(0)
+  })
 })
 
 // ---- WORFY_AGENT=fake and the real backend under vitest ---------------------------------------------

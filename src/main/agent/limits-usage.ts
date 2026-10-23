@@ -10,6 +10,10 @@
 // limits come with the subscription sign-in, ADR-0007), in worfy's own empty folder outside every
 // Project (<WORFY_DATA_DIR>/terminal-ai, ADR-0058), so its ~/.claude/sessions entry, removed when
 // it closes, is never taken for a Session of a Project (src/main/claude-home/registry.ts).
+// `persistSession: false` does not stop that entry: Claude Code registers every session it starts,
+// with a messaging socket, so for the fraction of a second the process lives other Claude Code
+// sessions see it and could send it a message. That is an accepted risk (owner, 2026-10-23), the
+// same one as the assist processes take; no separate CLAUDE_CONFIG_DIR, no CLAUDE_CODE_CHILD_SESSION.
 //
 // The SDK method is experimental; its name is in one place, askUsage(). A missing method, an answer
 // without rate limits (an API key, Bedrock, Vertex) or a failure is logged once at debug level and

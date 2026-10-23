@@ -1,7 +1,8 @@
 # 16 — Assist-процесс регистрируется в `~/.claude/sessions`, и spare может остаться без закрытия при отмене
 
 Type: task
-Status: open
+Status: claimed 2026-10-23T00:14Z
+Branch: worfy-terminal-ai/16
 Blocked by: —
 Source: live-проверка Ticket-а [09](09-приёмка-worfy-terminal-ai.md) 2026-10-19, пункт 3 «Готово, когда» ([evidence](../evidence/09-live-проверка.md)); spec, «Риски», пункт 4 («Пишет ли Claude Code с `persistSession: false` файл в `sessions/` — не проверено»); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md), пункт 2
 
@@ -81,21 +82,32 @@ Live-проверка 09 записала два дефекта. Разбор п
 
 ## Готово, когда
 
-- [ ] Contract test (`test/contract/terminal-ai-assist.test.ts`, stand-in SDK из этого файла): отмена
+- [x] Contract test (`test/contract/terminal-ai-assist.test.ts`, stand-in SDK из этого файла): отмена
       запроса в момент, когда spare только что выдан, — этот spare закрыт (`closed === true`), в слоте
       не больше одного живого spare. Test красный на коде до правки пункта 1.
-- [ ] Contract test времени жизни spare на stand-in SDK и fake timers: последовательность Suggestion-ов
+- [x] Contract test времени жизни spare на stand-in SDK и fake timers: последовательность Suggestion-ов
       с отменами, Next command, Command request и Fix. После того как все запросы завершились, живых
       stand-in процессов не больше одного (spare); после `IDLE_MS` — ни одного; после `dispose()` —
       ни одного.
-- [ ] Ответ владельца по пункту 2 записан в «Итог». Если выбран (б): test запускает настоящий
+- [x] Ответ владельца по пункту 2 записан в «Итог». Если выбран (б): test запускает настоящий
       бинарник Claude Code с временными `CLAUDE_CONFIG_DIR` и `HOME`, без входа (prewarm и claim; модель
       не вызывается, подписка не тратится), и проверяет, что во временной `sessions/` нет `<pid>.json`
       и `<pid>.*.key` с `cwd` в Project-е. Обычный `~/.claude/sessions` до и после test-а одинаковый.
       Под vitest настоящая фабрика бросает: test запускает бинарник сам и стоит отдельно, вне `pnpm test`,
       либо явно разрешён. Если выбран (а): в spec, «Риски», пункт 4, записан ответ «пишет, от claim до
       выхода, `cwd` вне Project-а».
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+
+## Ответ владельца 2026-10-23
+
+- **Пункт 1, окно отмены** (`assist.ts:440-442`): исправить. Spare, который `take()` вернул после того,
+  как `abortable()` ответил `ABORTED`, закрывается. Spare, который при отмене остался в слоте, остаётся
+  следующему запросу, как сейчас. Test — с mutant-ом.
+- **Пункт 2, запись в `~/.claude/sessions`**: вариант (а). Принять и записать в spec («Риски», пункт 4)
+  и в «Итог»: запись живёт от claim до выхода, `cwd` — вне Project-ов, worfy её не показывает. Тот же
+  выбор — для процесса Limits (`src/main/agent/limits-usage.ts`), записать и там. Без (б) отдельного
+  `CLAUDE_CONFIG_DIR`, без (в) `CLAUDE_CODE_CHILD_SESSION` и без (г): просьбу к Claude Code владелец
+  не хочет, черновик не пишется.
 
 ## Где в коде
 
@@ -104,3 +116,35 @@ Live-проверка 09 записала два дефекта. Разбор п
 - `src/main/agent/limits-usage.ts` (`usageOptions()`; файл приходит с PR #543) — только при варианте (б).
 - `test/contract/terminal-ai-assist.test.ts`
 - `.scratch/worfy-terminal-ai/spec.md` — «Риски», пункт 4.
+
+## Итог
+
+- **Окно отмены закрыто.** `fly()` (`src/main/terminal-ai/assist.ts:440-455`) держит promise `take()`;
+  если `abortable()` ответил `ABORTED`, spare, который `take()` вернёт позже, закрывается
+  (`void taken.then((orphan) => orphan?.close(), () => undefined)`). Если `take()` увидел отмену сам, он
+  возвращает `null` и оставляет spare в слоте — следующему запросу, как раньше.
+- **Test-ы** (`test/contract/terminal-ai-assist.test.ts`, раздел «races and shutdown»):
+  - «closes a spare handed out just before a cancel…» — отмена проходит по каждому из 16 microtask-ов
+    между стартом spare и claim; после каждой живых spare не больше одного, после `dispose()` — ни
+    одного. Красный на коде до правки.
+  - «leaves at most the spare alive after Suggestions with cancels, Next command, Command request and
+    Fix…» — после последовательности живой только spare, после `IDLE_MS` — ни одного, после нового
+    запроса и `dispose()` — ни одного.
+- **Mutation testing** (mutant-ы в своём worktree, восстановление из копии): без закрытия
+  `taken` — красный первый новый test; закрытие и spare в слоте (`dropSpare()`) — красные он же и
+  «keeps the spare a cancelled Suggestion was waiting for…»; без `spare.close()` в `finally` — красные
+  новый test и «stops before claim()…»; `warm()` без повторного использования слота — красные 7 test-ов,
+  среди них оба новых; idle-timer без закрытия spare — красные 3, среди них test времени жизни.
+- **Пункт 2 — вариант (а), принятый риск.** Ответ записан в spec, «Риски», пункт 4: Claude Code пишет
+  `sessions/<pid>.json` от claim до выхода процесса, `cwd` — `<WORFY_DATA_DIR>/terminal-ai`, вне
+  Project-ов, worfy запись не показывает. Тот же ответ — для процесса Limits. Комментарии в коде у
+  `persistSession: false`: `src/main/terminal-ai/options.ts` и шапка `src/main/agent/limits-usage.ts`.
+  Отдельного `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_CHILD_SESSION` и просьбы к Claude Code нет.
+- **Low, принято без правки:** ключ messaging socket (`sessions/<pid>.<hash>.key`) spare публикует ещё
+  до claim, поэтому он лежит в `~/.claude/sessions`, пока spare ждёт запроса, — до `IDLE_MS` (10 минут)
+  после последнего запроса. Это часть того же принятого риска (а); в spec записано.
+- **Low, принято без правки:** обработчик отказа у `taken.then(…, () => undefined)` защитный: `take()`
+  сейчас не бросает (`warm()` ловит ошибки старта), он нужен, чтобы будущий отказ не стал unhandled
+  rejection.
+- Проверка: `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (410 файлов, 8798 test-ов); gate fast —
+  exit 0, `[gate] green (fast)`.
