@@ -332,10 +332,19 @@ _worfy_assist_on_config() {
 # Before a wrapped function: the link goes (bye, close), unless it went for a wrapped function this
 # one runs inside. The ask that is open is not cancelled: main keeps it for a while, and one that
 # waits for its answer goes again under its id once the link is open (_worfy_assist_guard_leave).
+# A hook of zle-line-finish that runs before worfy's (add-zle-hook-widget runs a zle-line-finish
+# widget defined before it first: Debian's and Ubuntu's /etc/zsh/zshrc and oh-my-zsh define one)
+# ends the line: the link goes for good, as _worfy_assist_line_finish would close it right after,
+# and opens at the next prompt. Opened again here, it said hello for every command it then said
+# bye to in _worfy_assist_line_finish.
 _worfy_assist_guard_enter() {
   builtin emulate -L zsh
   (( __worfy_assist_guard_depth++ )) && builtin return 0
   [[ -n $__worfy_assist_fd ]] || builtin return 0
+  if (( ${funcstack[(Ie)azhw:zle-line-finish]} )) && [[ $CONTEXT == (start|cont) ]]; then
+    _worfy_assist_close
+    builtin return 0
+  fi
   # The ask that was answered stays the open one for the scripts of the features: a key after a
   # refusal of Command request still takes its note away.
   builtin local -i asked=$__worfy_assist_asked closed=0
