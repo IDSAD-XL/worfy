@@ -41,6 +41,22 @@ function nodeDir(name: string, mode = 0o755): string {
 
 const pathOf = (...dirs: string[]): { PATH: string } => ({ PATH: dirs.join(delimiter) })
 
+/**
+ * Runs `body` with the test's folder as the working folder, then goes back. A relative or driveless
+ * PATH entry has to lead to a real node from the working folder; the repository may lie on another
+ * drive than the temporary folder (D: and C: on the GitHub Windows runner), and between drives there
+ * is no relative path.
+ */
+async function inScratch(body: () => Promise<void>): Promise<void> {
+  const before = process.cwd()
+  process.chdir(scratch)
+  try {
+    await body()
+  } finally {
+    process.chdir(before)
+  }
+}
+
 /** A script under the test's folder with `text`. */
 function script(name: string, text: string | Buffer): string {
   const path = join(scratch, 'bin', name)
@@ -60,11 +76,12 @@ describe('nodeOnPath', () => {
   it('skips a relative PATH entry, even one that leads to a node from worfy\'s working folder', async () => {
     const near = nodeDir('near')
     const far = nodeDir('far')
-    const rel = relative(process.cwd(), near)
-    // On another drive than the working folder there is no relative path to it.
-    expect(isAbsolute(rel)).toBe(false)
-    expect(await nodeOnPath(pathOf(rel, far))).toBe(join(far, NODE_NAME))
-    expect(await nodeOnPath(pathOf(rel))).toBeNull()
+    await inScratch(async () => {
+      const rel = relative(process.cwd(), near)
+      expect(isAbsolute(rel)).toBe(false)
+      expect(await nodeOnPath(pathOf(rel, far))).toBe(join(far, NODE_NAME))
+      expect(await nodeOnPath(pathOf(rel))).toBeNull()
+    })
   })
 
   // `\tools` is the root of the current drive: checked on worfy's drive, started on the drive of the
@@ -72,12 +89,14 @@ describe('nodeOnPath', () => {
   it.runIf(WINDOWS)('on Windows skips an entry rooted at the current drive (\\tools), as findOnPath does', async () => {
     const rooted = nodeDir('rooted')
     const good = nodeDir('good')
-    // The same folder without its drive: on the drive of the working folder it is that folder.
-    expect(process.cwd().slice(0, 2).toLowerCase()).toBe(rooted.slice(0, 2).toLowerCase())
-    const driveless = rooted.slice(2)
-    expect(driveless.startsWith('\\')).toBe(true)
-    expect(await nodeOnPath(pathOf(driveless, good))).toBe(join(good, NODE_NAME))
-    expect(await nodeOnPath(pathOf(`/${driveless.slice(1).replaceAll('\\', '/')}`))).toBeNull()
+    await inScratch(async () => {
+      // The same folder without its drive: on the drive of the working folder it is that folder.
+      expect(process.cwd().slice(0, 2).toLowerCase()).toBe(rooted.slice(0, 2).toLowerCase())
+      const driveless = rooted.slice(2)
+      expect(driveless.startsWith('\\')).toBe(true)
+      expect(await nodeOnPath(pathOf(driveless, good))).toBe(join(good, NODE_NAME))
+      expect(await nodeOnPath(pathOf(`/${driveless.slice(1).replaceAll('\\', '/')}`))).toBeNull()
+    })
   })
 
   it('skips a folder named node', async () => {

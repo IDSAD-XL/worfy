@@ -66,7 +66,9 @@ function writeTicket(ticketsRoot: string, epic: string, file: string, text: stri
 }
 
 beforeEach(async () => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-tickets-')))
+  // .native: the answer is the path realpath(3) gives, and a temporary folder under an 8.3 short
+  // name (C:\Users\RUNNER~1 on the GitHub Windows runner) keeps that name in the JavaScript realpath.
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-tickets-')))
   repo = join(scratch, 'repo')
   workflow = join(scratch, 'workflow')
   outside = join(scratch, 'outside')

@@ -1247,6 +1247,87 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
   })
 })
 
+// On Windows scripts/eval-run-env.mjs looks git up through `sh`, which sets the PATH of the runs again
+// with cygpath before it runs `git --exec-path`.
+describe.skipIf(process.platform !== 'win32')('pnpm eval:harness on Windows: the git that sh finds for the runs', () => {
+  const pathDirs = (process.env.PATH ?? '').split(delimiter).filter(Boolean)
+  /**
+   * The folder of Git for Windows, from the first sh.exe on PATH: <Git>\usr\bin\sh.exe (the PC) or
+   * the launcher <Git>\bin\sh.exe (the GitHub Windows runner).
+   */
+  const gitRoot = (): string => {
+    const first = pathDirs.find((dir) => existsSync(join(dir, 'sh.exe')))
+    if (!first) throw new Error('no sh.exe on PATH')
+    return /[\\/]usr[\\/]bin[\\/]?$/i.test(first) ? dirname(dirname(first)) : dirname(first)
+  }
+  /** A git that answers --version only with the folder of fakeGitPath on its PATH, as the copied git.exe needs the PATH of the runs. */
+  const versionCore = (): string => {
+    const core = join(tempDir('worfy-eval-core-'), 'git-core')
+    mkdirSync(core)
+    writeFileSync(join(core, 'git'), '#!/bin/sh\ncase "$PATH" in *fake-git*) echo git version 0 ;; *) exit 1 ;; esac\n')
+    chmodSync(join(core, 'git'), 0o755)
+    return core
+  }
+
+  // Git's bin\sh.exe is a launcher that puts Git's own mingw64\bin and usr\bin before PATH: a lookup
+  // of git that kept that PATH found the git of Git, not the first git on the PATH of the runs.
+  it("takes git from the PATH of the runs when Git's sh launcher is the first sh on it", () => {
+    const launcher = join(gitRoot(), 'bin')
+    expect(existsSync(join(launcher, 'sh.exe')), launcher).toBe(true)
+    const core = join(tempDir('worfy-eval-core-'), 'git-core')
+    mkdirSync(core)
+    writeFileSync(join(core, 'git'), '#!/bin/sh\nexit 1\n')
+    chmodSync(join(core, 'git'), 0o755)
+    const { run, calls } = evalHarness('2.1.289', '0,0', [], (dir) => {
+      // fake-git first, then the launcher: Windows finds `sh` in the launcher's folder.
+      const path = fakeGitPath(dir, core).split(delimiter)
+      path.splice(1, 0, launcher)
+      return path.join(delimiter)
+    })
+    // The fake git named `core`, whose git exits 1; the git of Git would have given a working copy.
+    expect(run.stderr).toMatch(/the copy of git does not run \(.* --version, exit 1\)/)
+    expect(run.status).toBe(1)
+    expect(calls).toEqual([])
+  })
+
+  it('fails with exit 127 when the first sh on PATH has no cygpath', () => {
+    // sh.exe of Git with its one DLL, in a folder of its own: its /usr/bin has no cygpath.
+    const usrBin = join(gitRoot(), 'usr', 'bin')
+    const { run, calls } = evalHarness('2.1.289', '0,0', [], (dir) => {
+      const stub = join(dir, 'sh-without-cygpath', 'usr', 'bin')
+      mkdirSync(stub, { recursive: true })
+      for (const file of ['sh.exe', 'msys-2.0.dll']) copyFileSync(join(usrBin, file), join(stub, file))
+      return [stub, ...pathDirs.filter((folder) => !existsSync(join(folder, 'cygpath.exe')))].join(delimiter)
+    })
+    expect(run.status).toBe(1)
+    // 127 is the shell's "command not found" for cygpath: an sh that did not start gives ENOENT or
+    // the code of a missing DLL instead.
+    expect(run.stderr).toMatch(/git --exec-path.*exit 127: .*cygpath.*\): the runs need a copy of git/s)
+    expect(calls).toEqual([])
+  })
+
+  it('reads a PATH whose key is spelled Path, and leaves one PATH key', async () => {
+    const runEnv = (await import(pathToFileURL(join(REPO, 'scripts', 'eval-run-env.mjs')).href)) as {
+      cleanEnv: (env: NodeJS.ProcessEnv) => NodeJS.ProcessEnv
+      gitForRuns: (dir: string, env: NodeJS.ProcessEnv, fail: (message: string) => never) => string
+    }
+    const home = tempDir('worfy-eval-path-key-')
+    const other = join(homedir(), '.claude', 'bin')
+    // The key a PowerShell started from the Start menu has.
+    const env = runEnv.cleanEnv(childEnv(home, { Path: [other, fakeGitPath(home, versionCore())].join(delimiter) }))
+    const pathKeys = (): string[] => Object.keys(env).filter((key) => key.toUpperCase() === 'PATH')
+    expect(pathKeys()).toEqual(['Path'])
+    expect((env.Path ?? '').split(delimiter)).not.toContain(other)
+    const dir = join(home, 'git-for-runs')
+    const git = runEnv.gitForRuns(dir, env, (message) => {
+      throw new Error(message)
+    })
+    expect(git).toBe(join(dir, 'git'))
+    expect(pathKeys()).toEqual(['Path'])
+    expect((env.Path ?? '').split(delimiter)[0]).toBe(dir)
+  })
+})
+
 // The map "eval case -> Harness rule files" (harness/evals/lib/coverage.json) and the pure functions
 // over it (scripts/eval-harness-coverage.mjs), ticket worfy-harness/29. Paths in the map are relative
 // to harness/; the changed paths casesFor takes are relative to the repository root, as git gives them.

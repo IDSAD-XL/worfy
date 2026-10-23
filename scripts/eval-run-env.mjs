@@ -62,10 +62,18 @@ export const SESSION_VARIABLES = [
 const otherHarness = (dir) =>
   dir === join(homedir(), '.claude', 'bin') || dir.includes(`${sep}.claude${sep}worfy-harness${sep}`) || /[\\/]harness[\\/](bin|hooks)[\\/]?$/.test(dir)
 
+/**
+ * The key of PATH in a plain object `env`. Windows names variables in any case (a PowerShell started
+ * from the Start menu has `Path`), and a copy of process.env made with Object.entries keeps that
+ * spelling, so `env.PATH` of the copy is undefined there and a second key PATH would be a second PATH.
+ */
+const pathKey = (env) => (process.platform === 'win32' && Object.keys(env).find((key) => key.toUpperCase() === 'PATH')) || 'PATH'
+
 /** `env` without the session variables and with no other plugin copy on PATH; a new object. */
 export function cleanEnv(env = process.env) {
   const clean = Object.fromEntries(Object.entries(env).filter(([key]) => !SESSION_VARIABLES.includes(key)))
-  if (clean.PATH) clean.PATH = clean.PATH.split(delimiter).filter((dir) => dir && !otherHarness(dir)).join(delimiter)
+  const key = pathKey(clean)
+  if (clean[key]) clean[key] = clean[key].split(delimiter).filter((dir) => dir && !otherHarness(dir)).join(delimiter)
   return clean
 }
 
@@ -196,7 +204,7 @@ export function gitForRuns(dir, env, fail) {
     for (const { path, error } of pruneGitCopies(dirname(dir)).failed) process.stderr.write(`eval: cannot remove an old copy of git ${path}: ${error}\n`)
   }
   const git = gitCopy(dir, env, fail)
-  env.PATH = [dir, env.PATH].filter(Boolean).join(delimiter)
+  env[pathKey(env)] = [dir, env[pathKey(env)]].filter(Boolean).join(delimiter)
   env.EVAL_GIT = git
   env.EVAL_HARNESS_HOME = 'worfy-harness'
   return git
@@ -218,11 +226,21 @@ const shellWord = (text) => `'${text.replaceAll("'", `'\\''`)}'`
 export function gitCopy(dir, env, fail) {
   // Windows starts no `#!/bin/sh` script by its path, and its PATH lookup of `git` finds only
   // git.exe. There `sh` (Git for Windows; `bash` may be the one of WSL) looks git up on PATH, as the
-  // shell of a run does, and runs the wrapper.
+  // shell of a run does, and runs the wrapper. Inside sh the PATH of the runs is set again, in sh's
+  // spelling (cygpath): the sh.exe of Git's bin/ folder (first on PATH on the GitHub Windows runner)
+  // is a launcher that puts Git's own mingw64/bin and usr/bin before PATH, and then the git of Git
+  // answered instead of the first git on the PATH of the runs. No cygpath — exit 127, a failure.
+  // shortcut: only an sh with cygpath (Git for Windows, MSYS2, Cygwin); redo when the runs need another sh
   const exec =
-    process.platform === 'win32' ? spawnSync('sh', ['-c', 'git --exec-path'], { encoding: 'utf8', env }) : spawnSync('git', ['--exec-path'], { encoding: 'utf8', env })
+    process.platform === 'win32'
+      ? spawnSync('sh', ['-c', 'PATH="$(cygpath -u -p "$1")" && exec git --exec-path', 'sh', env[pathKey(env)] ?? ''], { encoding: 'utf8', env })
+      : spawnSync('git', ['--exec-path'], { encoding: 'utf8', env })
   const source = exec.status === 0 ? exec.stdout.trim() : ''
-  if (source === '' || !existsSync(source) || !statSync(source).isDirectory()) return fail(`\`git --exec-path\` gave no folder (exit ${exec.status ?? exec.error?.code}): the runs need a copy of git`)
+  if (source === '' || !existsSync(source) || !statSync(source).isDirectory()) {
+    // sh's own words name what was missing, such as "cygpath: command not found".
+    const said = exec.stderr?.trim()
+    return fail(`\`git --exec-path\` gave no folder (exit ${exec.status ?? exec.error?.code}${said ? `: ${said}` : ''}): the runs need a copy of git`)
+  }
   const core = join(dir, 'git-core')
   const wrapper = join(dir, 'git')
   // Not `recursive` for `dir` itself: two runs started in the same millisecond name the same folder,
@@ -275,7 +293,7 @@ export function gitCopy(dir, env, fail) {
   // (the copied git.exe loads its DLLs from mingw64/bin of the real one through that PATH).
   const check =
     process.platform === 'win32'
-      ? spawnSync('sh', [wrapper, '--version'], { encoding: 'utf8', env: { PATH: env.PATH } })
+      ? spawnSync('sh', [wrapper, '--version'], { encoding: 'utf8', env: { PATH: env[pathKey(env)] } })
       : spawnSync(wrapper, ['--version'], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin' } })
   if (check.status !== 0) {
     removeTree(dir)
