@@ -2,7 +2,7 @@ import { createContext, createElement, useContext, useEffect, useLayoutEffect, u
 import type { AgentEvent } from '../../shared/agent/events'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { Markdown } from '../markdown/Markdown'
-import { foldTranscript, splitTools, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
+import { foldTranscript, toolSegments, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
 import { formatDuration } from './format'
 import { rowTypes } from './rows/index'
 
@@ -32,7 +32,7 @@ export interface TranscriptProps {
   /**
    * Tool calls folded (worfy-ui ticket 25): the ordinary calls of each run are one «N tools» line
    * that opens on a click; a call with an error and a call that started a Subagent stay as they are
-   * (fold.ts, splitTools). Every other row is drawn the same either way.
+   * (fold.ts, toolSegments). Every other row is drawn the same either way.
    */
   hideTools?: boolean | undefined
 }
@@ -369,18 +369,21 @@ function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps })
       )
     case 'tools': {
       if (props.hideTools === true) {
-        const { folded, shown } = splitTools(item.calls)
+        // A segment is keyed by its first call: a line keeps its open state while the run grows.
         return (
           <Row testId="transcript-tools">
             <div className="w-tr__tool-run">
-              {folded.length > 0 ? <FoldedTools calls={folded} /> : null}
-              {shown.length > 0 ? (
-                <div className="w-tr__tools">
-                  {shown.map((call) => (
-                    <ToolRow key={call.id} call={call} />
-                  ))}
-                </div>
-              ) : null}
+              {toolSegments(item.calls).map((segment) =>
+                segment.folded ? (
+                  <FoldedTools key={segment.calls[0]?.id} calls={segment.calls} />
+                ) : (
+                  <div key={segment.calls[0]?.id} className="w-tr__tools">
+                    {segment.calls.map((call) => (
+                      <ToolRow key={call.id} call={call} />
+                    ))}
+                  </div>
+                ),
+              )}
             </div>
           </Row>
         )

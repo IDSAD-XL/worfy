@@ -198,17 +198,25 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
   return items
 }
 
+/** A stretch of a run with tools hidden: calls folded into one «N tools» line, or calls drawn as they are. */
+export interface ToolSegment {
+  folded: boolean
+  calls: ToolCall[]
+}
+
 /**
- * The calls of a `tools` row with tools hidden (worfy-ui ticket 25): `shown` stay in sight as they
- * are — a call with an error, and a call that starts a Subagent (the Subagent's row); `folded` go
- * into the one «N tools» line. Both keep the order of the run.
+ * The calls of a `tools` row with tools hidden (worfy-ui ticket 25), in the order of the run. A
+ * call with an error and a call that starts a Subagent (the Subagent's row) stay in sight; they
+ * split the run, and each stretch of ordinary calls between them folds into its own «N tools» line
+ * at its place: Bash ✓, Edit ✗, Grep ✓ is «1 tool», Edit, «1 tool».
  */
-export function splitTools(calls: readonly ToolCall[]): { folded: ToolCall[]; shown: ToolCall[] } {
-  const folded: ToolCall[] = []
-  const shown: ToolCall[] = []
+export function toolSegments(calls: readonly ToolCall[]): ToolSegment[] {
+  const segments: ToolSegment[] = []
   for (const call of calls) {
-    if (call.result?.isError === true || call.subagent !== null || AGENT_TOOLS.has(call.name)) shown.push(call)
-    else folded.push(call)
+    const folded = !(call.result?.isError === true || call.subagent !== null || AGENT_TOOLS.has(call.name))
+    const last = segments.at(-1)
+    if (last !== undefined && last.folded === folded) last.calls.push(call)
+    else segments.push({ folded, calls: [call] })
   }
-  return { folded, shown }
+  return segments
 }

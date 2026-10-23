@@ -7,7 +7,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
-import { splitTools, type ToolCall } from '../../src/renderer/session/fold'
+import { toolSegments, type ToolCall } from '../../src/renderer/session/fold'
 import { Transcript } from '../../src/renderer/session/Transcript'
 import { HideToolsButton } from '../../src/renderer/session/HideToolsButton'
 import { hideToolsKey, useToolsHidden } from '../../src/renderer/session/transcript-view'
@@ -59,49 +59,74 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('splitTools', () => {
+describe('toolSegments', () => {
   const call = (overrides: Partial<ToolCall>): ToolCall => ({ id: 'c', name: 'Bash', input: {}, result: null, subagent: null, ...overrides })
 
-  it('keeps a call with an error and a call that starts a Subagent in sight, and folds the rest in order', () => {
+  it('keeps a call with an error and a call that starts a Subagent in sight, and folds each stretch between them at its place', () => {
     const ok = call({ id: 'ok', result: { content: '', isError: false } })
     const failed = call({ id: 'failed', result: { content: 'boom', isError: true } })
     const running = call({ id: 'running' })
     const agent = call({ id: 'agent', name: 'Agent' })
     const task = call({ id: 'task', name: 'Task' })
+    const later = call({ id: 'later', result: { content: '', isError: false } })
     const withSubagent = call({ id: 'sub', name: 'Workflow', subagent: { taskId: 't', description: null, subagentType: null, status: null, summary: null } })
-    expect(splitTools([ok, failed, running, agent, task, withSubagent])).toEqual({ folded: [ok, running], shown: [failed, agent, task, withSubagent] })
+    expect(toolSegments([ok, failed, running, agent, task, later, withSubagent])).toEqual([
+      { folded: true, calls: [ok] },
+      { folded: false, calls: [failed] },
+      { folded: true, calls: [running] },
+      { folded: false, calls: [agent, task] },
+      { folded: true, calls: [later] },
+      { folded: false, calls: [withSubagent] },
+    ])
+    expect(toolSegments([])).toEqual([])
   })
 })
 
+/** What the run shows, top to bottom: «N tools» lines by their label, other calls by their tool. */
+const shownOrder = () =>
+  Array.from(document.querySelectorAll('[data-testid="tools-folded"] > button, [data-testid="tool-call"]')).map((element) =>
+    element.closest('[data-testid="tool-call"]') ? element.getAttribute('data-tool') : (element.textContent ?? '').replace('running', '').trim(),
+  )
+
 describe('the Transcript with tools hidden', () => {
-  it('folds the ordinary calls of a run into one «N tools» line and keeps the call with an error as it is', () => {
+  it('folds the ordinary calls around a call with an error into lines at their places, the error call as it is', () => {
     render(<Transcript events={run} hideTools />)
-    expect(folded()).toHaveLength(1)
-    expect(folded()[0]?.textContent).toContain('3 tools')
-    // Only the call with an error is drawn, with its own status.
-    expect(calls().map((each) => each.getAttribute('data-tool'))).toEqual(['Edit'])
+    // Bash ✓, Read ✓, Edit ✗, Grep running: «2 tools», Edit, «1 tool».
+    expect(shownOrder()).toEqual(['2 tools', 'Edit', '1 tool'])
     expect(within(calls()[0] as HTMLElement).getByTestId('tool-error')).toBeTruthy()
     expect(screen.queryAllByTestId('tool-ok')).toHaveLength(0)
   })
 
-  it('opens the line on a click: the folded calls with their own statuses; a second click folds them again', () => {
+  it('opens a line on a click into its calls with their own statuses, in the order of the run; a second click folds them again', () => {
     render(<Transcript events={run} hideTools />)
-    const line = within(folded()[0] as HTMLElement).getByRole('button', { name: /3 tools/ })
+    const line = within(folded()[0] as HTMLElement).getByRole('button', { name: /2 tools/ })
     expect(line.getAttribute('aria-expanded')).toBe('false')
     fireEvent.click(line)
     expect(line.getAttribute('aria-expanded')).toBe('true')
-    expect(calls().map((each) => each.getAttribute('data-tool'))).toEqual(['Bash', 'Read', 'Grep', 'Edit'])
+    expect(shownOrder()).toEqual(['2 tools', 'Bash', 'Read', 'Edit', '1 tool'])
     expect(screen.getAllByTestId('tool-ok')).toHaveLength(2)
+    fireEvent.click(within(folded()[1] as HTMLElement).getByRole('button', { name: /1 tool/ }))
+    expect(shownOrder()).toEqual(['2 tools', 'Bash', 'Read', 'Edit', '1 tool', 'Grep'])
     expect(screen.getAllByTestId('tool-running')).toHaveLength(1)
     fireEvent.click(line)
-    expect(calls().map((each) => each.getAttribute('data-tool'))).toEqual(['Edit'])
+    expect(shownOrder()).toEqual(['2 tools', 'Edit', '1 tool', 'Grep'])
   })
 
-  it('shows one «running» on the line while a folded call runs, and none once every call has its result', () => {
+  it('shows one «running» on a line while one of its calls runs, and none once every call has its result', () => {
     const { rerender } = render(<Transcript events={run} hideTools />)
-    expect(within(folded()[0] as HTMLElement).getByTestId('tools-running').textContent).toContain('running')
-    rerender(<Transcript events={[...run, toolResult('t4')]} hideTools />)
     expect(within(folded()[0] as HTMLElement).queryByTestId('tools-running')).toBeNull()
+    expect(within(folded()[1] as HTMLElement).getByTestId('tools-running').textContent).toContain('running')
+    rerender(<Transcript events={[...run, toolResult('t4')]} hideTools />)
+    expect(screen.queryAllByTestId('tools-running')).toHaveLength(0)
+  })
+
+  it('takes a call out of its line once its result comes back with an error: the line counts one call less', () => {
+    const calls3: AgentEvent[] = [toolUse('t1', 'Bash'), toolResult('t1'), toolUse('t2', 'Read'), toolUse('t3', 'Grep'), toolResult('t3')]
+    const { rerender } = render(<Transcript events={calls3} hideTools />)
+    expect(shownOrder()).toEqual(['3 tools'])
+    rerender(<Transcript events={[...calls3, toolResult('t2', 'no such file', true)]} hideTools />)
+    expect(shownOrder()).toEqual(['1 tool', 'Read', '1 tool'])
+    expect(within(calls()[0] as HTMLElement).getByTestId('tool-error')).toBeTruthy()
   })
 
   it('names a run of one call «1 tool», and draws no line for a run of errors alone', () => {
@@ -136,6 +161,7 @@ describe('the Transcript with tools hidden', () => {
 })
 
 describe('the choice, per Session', () => {
+  const key = (nodeId: string, sessionId: string | null, agentId?: string) => hideToolsKey({ projectId: 'alpha-0000000a', nodeId, sessionId, agentId })
   function Header({ storeKey }: { storeKey: string }) {
     const [hidden, setHidden] = useToolsHidden(storeKey)
     return <HideToolsButton hidden={hidden} onChange={setHidden} />
@@ -144,7 +170,7 @@ describe('the choice, per Session', () => {
   const pressed = () => button().getAttribute('aria-pressed')
 
   it('is off by default, has a tooltip, and is remembered for its Session after the view is mounted again', () => {
-    const a = hideToolsKey('alpha-0000000a', 'node-1')
+    const a = key('node-1', 's-1')
     const view = render(<Header storeKey={a} />)
     expect(pressed()).toBe('false')
     expect(button().getAttribute('title')).toMatch(/Remembered for this Session/)
@@ -160,10 +186,16 @@ describe('the choice, per Session', () => {
   })
 
   it('keeps each Session and each Subagent apart', () => {
-    const session = hideToolsKey('alpha-0000000a', 'node-1')
-    const subagent = hideToolsKey('alpha-0000000a', 'node-1', 'agent-7')
-    const other = hideToolsKey('alpha-0000000a', 'node-2')
+    const session = key('node-1', 's-1')
+    const subagent = key('node-1', 's-1', 'agent-7')
+    // A new conversation on the same Node is another Session.
+    const other = key('node-1', 's-2')
     expect(new Set([session, subagent, other]).size).toBe(3)
+    // The same Session opened from the Command palette (a `session:<id>` Node) or read-only keeps its key.
+    expect(key('session:s-1', 's-1')).toBe(session)
+    // While no Session id is known, the Node stands in: one per Node.
+    expect(key('node-1', null)).not.toBe(key('node-2', null))
+    expect(key('node-1', null)).not.toBe(session)
     const view = render(<Header storeKey={subagent} />)
     fireEvent.click(button())
     view.unmount()
@@ -179,8 +211,8 @@ describe('the choice, per Session', () => {
   })
 
   it('follows a change of the key without a remount, as the Session view does when it shows another Session', () => {
-    const a = hideToolsKey('alpha-0000000a', 'node-1')
-    const b = hideToolsKey('alpha-0000000a', 'node-2')
+    const a = key('node-1', 's-1')
+    const b = key('node-1', 's-2')
     function Switching() {
       const [key, setKey] = useState(a)
       return (
@@ -200,7 +232,7 @@ describe('the choice, per Session', () => {
   })
 
   it('follows a change another window of worfy made', () => {
-    const a = hideToolsKey('alpha-0000000a', 'node-1')
+    const a = key('node-1', 's-1')
     render(<Header storeKey={a} />)
     // Another window wrote the choice: this window hears it as a `storage` event.
     const fresh = new Map<string, string>()
@@ -220,7 +252,7 @@ describe('the choice, per Session', () => {
       throw new Error('quota')
     })
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    render(<Header storeKey={hideToolsKey('alpha-0000000a', 'node-3')} />)
+    render(<Header storeKey={key('node-3', null)} />)
     expect(pressed()).toBe('false')
     fireEvent.click(button())
     expect(pressed()).toBe('true')

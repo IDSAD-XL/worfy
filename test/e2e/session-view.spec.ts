@@ -40,6 +40,30 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
+/**
+ * The transcript Claude Code writes for a turn of test/fixtures/agent-scripts/hide-tools.jsonl:
+ * the prompt, Bash ✓, Edit ✗, Grep ✓ and the answer.
+ */
+function sessionTranscript(sessionId: string, cwd: string): void {
+  let n = 0
+  const record = (type: 'user' | 'assistant', content: unknown) =>
+    JSON.stringify({ type, isSidechain: false, timestamp: '2026-10-23T10:00:00.000Z', cwd, sessionId, entrypoint: 'sdk-ts', uuid: `${sessionId}-${(n += 1)}`, message: { role: type, content, ...(type === 'assistant' ? { id: `msg_${n}`, model: 'claude-haiku-4-5-20251001' } : {}) } })
+  const call = (id: string, name: string, input: unknown, result: string, isError: boolean) => [
+    record('assistant', [{ type: 'tool_use', id, name, input }]),
+    record('user', [{ type: 'tool_result', tool_use_id: id, content: result, is_error: isError }]),
+  ]
+  const lines = [
+    record('user', 'lint and fix'),
+    ...call('toolu_hide_1', 'Bash', { command: 'pnpm lint' }, '0 problems', false),
+    ...call('toolu_hide_2', 'Edit', { file_path: 'src/renderer/session/fold.ts' }, 'String to replace not found in file.', true),
+    ...call('toolu_hide_3', 'Grep', { pattern: 'hideTools' }, 'src/renderer/session/Transcript.tsx', false),
+    record('assistant', [{ type: 'text', text: 'The lint is clean; the edit missed, so the old line stays.' }]),
+  ]
+  const dir = join(claudeHome, 'projects', cwd.normalize('NFC').replace(/[^a-zA-Z0-9]/g, '-'))
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, `${sessionId}.jsonl`), `${lines.join('\n')}\n`)
+}
+
 /** Starts recording the state events the window receives, to read back with states(). */
 async function record(window: Page): Promise<void> {
   await window.evaluate(() => {
@@ -218,65 +242,106 @@ test('the Session view: opened from the Orchestrator Node, a turn, an interrupte
   }
 })
 
-test('«Hide tools» folds the tool calls into one line that opens, and the Session keeps the choice after a restart (worfy-ui ticket 25)', async () => {
-  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view' }
-  /** Opens the Orchestrator's Session view and plays turn 1: one Bash call, then the answer. */
-  const firstTurn = async (window: Page): Promise<Locator> => {
+test('«Hide tools» folds the ordinary tool calls around an error, per Session: kept after a restart, not for a new conversation (worfy-ui ticket 25)', async () => {
+  // test/fixtures/agent-scripts/hide-tools.jsonl: one turn of Bash ✓, Edit ✗, Grep ✓, then the answer.
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'hide-tools' }
+  const sessionViewOf = (window: Page): Locator => window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
+  /** Opens the Orchestrator's Session view from its Node. */
+  const open = async (window: Page): Promise<Locator> => {
     const node = window.getByTestId('orchestrator-node')
     await expect(node.getByTestId('orchestrator-state')).toHaveText('idle')
     await node.locator('.w-orchestrator__header').dblclick()
-    const view = window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
+    const view = sessionViewOf(window)
     await expect(view.getByTestId('session-state')).toHaveText('idle')
-    const field = view.getByRole('textbox', { name: 'Message Orchestrator' })
-    await field.fill('first prompt')
-    await field.press('Enter')
-    await expect(view.getByTestId('transcript-turn-done')).toHaveCount(1)
-    await expect(view.getByTestId('transcript-text').first()).toContainText('Wave 6')
     return view
   }
+  /** Plays the turn and waits for its end. */
+  const turn = async (view: Locator, turns: number): Promise<void> => {
+    const field = view.getByRole('textbox', { name: 'Message Orchestrator' })
+    await field.fill('lint and fix')
+    await field.press('Enter')
+    await expect(view.getByTestId('transcript-turn-done')).toHaveCount(turns)
+    await expect(view.getByTestId('transcript-text').last()).toContainText('the edit missed')
+  }
+  /** The run top to bottom: «N tools» lines by their label, other calls by their tool. */
+  const runOrder = (view: Locator): Promise<string[]> =>
+    view.locator('[data-testid="tools-folded"] > button, [data-testid="tool-call"]').evaluateAll((elements) =>
+      elements.map((element) => (element.closest('[data-testid="tool-call"]') ? (element.getAttribute('data-tool') ?? '') : (element.textContent ?? '').trim())),
+    )
+  const shots = async (window: Page, name: string): Promise<void> => {
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await window.screenshot({ path: test.info().outputPath(`${name}-${scheme}.png`) })
+    }
+    await window.emulateMedia({ colorScheme: null })
+  }
 
+  // The Session of the first start, as the window names it.
+  const seen = { session: '' }
   const first = await launchApp({ env })
   try {
-    const view = await firstTurn(first.window)
-    const toggle = view.getByTestId('session-hide-tools')
+    const { window } = first
+    // The window the e2e test-s run at: 1280 px wide.
+    expect(await window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)).toBe(1280)
+    const view = await open(window)
+    await turn(view, 1)
+    seen.session = (await view.getAttribute('data-session-id')) ?? ''
+    expect(seen.session).toMatch(/^[0-9a-f-]{36}$/)
+    const toggle = view.getByRole('button', { name: 'Hide tools' })
     await expect(toggle).toHaveAttribute('aria-pressed', 'false')
     await expect(toggle).toHaveAttribute('title', /Remembered for this Session/)
-    await expect(view.getByRole('button', { name: 'Hide tools' })).toHaveCount(1)
-    // The header still has room for Interrupt next to the button: it is not cut off at its right edge.
+    expect(await runOrder(view)).toEqual(['Bash', 'Edit', 'Grep'])
+
+    // On: the ordinary calls fold at their places, the call with an error stays as it is; the answer stays.
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await expect.poll(() => runOrder(view)).toEqual(['1 tool', 'Edit', '1 tool'])
+    await expect(view.getByTestId('tool-error')).toHaveCount(1)
+    await expect(view.getByTestId('tool-ok')).toHaveCount(0)
+    await expect(view.getByTestId('transcript-text').last()).toContainText('the edit missed')
+    // At 1280 px the header keeps the title whole and Interrupt inside it; the model's name gives way.
+    const title = view.locator('.w-session__title')
+    await expect(title).toHaveText('Orchestrator · alpha')
+    expect(await title.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
     const header = await view.locator('.w-session__header').boundingBox()
     const interrupt = await view.getByTestId('session-interrupt').boundingBox()
     if (header === null || interrupt === null) throw new Error('the header or Interrupt has no box')
     expect(interrupt.x + interrupt.width).toBeLessThanOrEqual(header.x + header.width)
-    await expect(view.getByTestId('tool-call')).toHaveCount(1)
-    await expect(view.getByTestId('tools-folded')).toHaveCount(0)
+    await shots(window, 'hide-tools-folded')
 
-    // On: the Bash row goes, one «1 tool» line stands for it; the answer stays.
-    await toggle.click()
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
-    await expect(view.getByTestId('tool-call')).toHaveCount(0)
-    const line = view.getByTestId('tools-folded')
-    await expect(line).toHaveCount(1)
-    await expect(line).toContainText('1 tool')
-    await expect(view.getByTestId('transcript-text').first()).toContainText('Wave 6')
-    await first.window.screenshot({ path: test.info().outputPath('hide-tools-folded.png') })
-
-    // A click opens the line into the call's own row, with its status.
-    await line.getByRole('button', { name: /1 tool/ }).click()
-    await expect(view.getByTestId('tool-call')).toHaveCount(1)
-    await expect(view.getByTestId('tool-call')).toContainText('epic-status worfy-mvp --json')
+    // A click opens a line into its call, with its status, at its place.
+    await view.locator('[data-testid="tools-folded"]').first().getByRole('button', { name: '1 tool' }).click()
+    await expect.poll(() => runOrder(view)).toEqual(['1 tool', 'Bash', 'Edit', '1 tool'])
     await expect(view.getByTestId('tool-ok')).toHaveCount(1)
-    await first.window.screenshot({ path: test.info().outputPath('hide-tools-opened.png') })
+    await shots(window, 'hide-tools-opened')
   } finally {
     await first.close()
   }
 
-  // worfy starts again over the same data folder: the Orchestrator's Session still folds its tools.
+  // Claude Code would have written the Session's transcript (the fake agent writes none): without it
+  // the Orchestrator starts a new Session instead of resuming this one.
+  sessionTranscript(seen.session, join(scratch, 'alpha'))
+
+  // worfy starts again over the same data folder: the Orchestrator resumes the same Session, whose
+  // turn read from its transcript still folds its tools.
   const second = await launchApp({ env })
   try {
-    const view = await firstTurn(second.window)
-    await expect(view.getByTestId('session-hide-tools')).toHaveAttribute('aria-pressed', 'true')
-    await expect(view.getByTestId('tool-call')).toHaveCount(0)
-    await expect(view.getByTestId('tools-folded')).toContainText('1 tool')
+    const { window } = second
+    const view = await open(window)
+    await expect(view.getByTestId('transcript-text').last()).toContainText('the edit missed')
+    await expect(view.getByRole('button', { name: 'Hide tools' })).toHaveAttribute('aria-pressed', 'true')
+    await expect.poll(() => runOrder(view)).toEqual(['1 tool', 'Edit', '1 tool'])
+
+    // New conversation on the same Node: another Session, which shows its tools.
+    await window.getByRole('button', { name: /Canvas/ }).click()
+    await window.getByTestId('orchestrator-new-conversation').click()
+    await expect(window.getByTestId('orchestrator-state')).toHaveText('idle')
+    const renewed = await open(window)
+    await expect(renewed.getByRole('button', { name: 'Hide tools' })).toHaveAttribute('aria-pressed', 'false')
+    await turn(renewed, 1)
+    await expect.poll(() => renewed.getAttribute('data-session-id')).not.toBe(seen.session)
+    expect(await runOrder(renewed)).toEqual(['Bash', 'Edit', 'Grep'])
+    await expect(renewed.getByRole('button', { name: 'Hide tools' })).toHaveAttribute('aria-pressed', 'false')
   } finally {
     await second.close()
   }

@@ -9,17 +9,22 @@ import { useCallback, useSyncExternalStore } from 'react'
 // userData, which main sets to worfy's data folder (src/main/index.ts), so it stays within ADR-0005,
 // survives a restart and is shared by every window of worfy on this Machine.
 //
-// A Session is keyed by its Node (one Session — one Node, CONTEXT.md), as session-settings.json is:
-// the key exists before Claude Code names its session, and one Session opened live or read-only
-// keeps one choice. A Subagent is keyed under its Session's Node by its agent id. Only "hidden" is
-// written; "shown" is the key's absence. A storage that cannot be read reads as "shown"; a choice
+// A Session is keyed by its SDK session id: one Session keeps one choice wherever it is opened — live
+// on its Node, read-only, from the Command palette — and a new conversation on the same Node starts
+// with tools shown. Only while no id is known yet (a Node whose Session has not started) the key is
+// the Node. A Subagent is keyed under its Session by its agent id. Only "hidden" is written; "shown"
+// is the key's absence. A storage that cannot be read reads as "shown"; a choice
 // that cannot be written holds in this window alone, for as long as it is open.
 
 const PREFIX = 'worfy.transcript.hideTools:'
 
-/** The key of a Session's choice: its Project and Node; a Subagent's adds its agent id. */
-export function hideToolsKey(projectId: string, nodeId: string, agentId?: string): string {
-  return agentId === undefined ? `${projectId}/${nodeId}` : `${projectId}/${nodeId}/${agentId}`
+/**
+ * The key of a Session's choice: `session:<SDK session id>`, a Subagent's with `/<agent id>` after
+ * it; `node:<Project>/<Node>` while the Session's id is not known yet.
+ */
+export function hideToolsKey(where: { projectId: string; nodeId: string; sessionId: string | null; agentId?: string | undefined }): string {
+  const session = where.sessionId === null ? `node:${where.projectId}/${where.nodeId}` : `session:${where.sessionId}`
+  return where.agentId === undefined ? session : `${session}/${where.agentId}`
 }
 
 /** Choices this window could not write: they stand over the storage, so the view still switches. */

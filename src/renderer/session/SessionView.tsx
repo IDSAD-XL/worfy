@@ -167,8 +167,11 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   // A turn waiting for a permission answer still runs: Interrupt refuses the request (ticket 21).
   const busy = state === 'busy' || state === 'needs_permission'
   const { settings, modelPick } = useSessionControls(sessionId)
+  // The SDK session id: the live id once it is Claude Code's own — a resumed Session's is a temporary
+  // `pending-…` until system/init (src/main/agent/session.ts) — else the one the Session resumes.
+  const claudeSessionId = sessionId !== null && !sessionId.startsWith('pending-') ? sessionId : (transcriptId ?? null)
   // A view choice of this screen, kept per Session (worfy-ui ticket 25), not one of the agent's picks above.
-  const [hideTools, setHideTools] = useToolsHidden(hideToolsKey(projectId, nodeId))
+  const [hideTools, setHideTools] = useToolsHidden(hideToolsKey({ projectId, nodeId, sessionId: claudeSessionId }))
   // A model picked since the last system/init shows at once, as the picker shows it; the next
   // init names the model it runs (store.ts, modelPick; worfy-week ticket 12). Claude Code's
   // default model is «default» until then: only init says which model it stands for.
@@ -215,12 +218,13 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
           <StatusChip status={chip.status} label={chip.label} />
         </span>
         <span className="w-session__divider" aria-hidden="true" />
-        <span className="w-session__fact">
+        {/* The model gives way first when the header is short of room: its value ends in «…», the whole name in the tooltip. */}
+        <span className="w-session__fact w-session__fact--model">
           <span className="w-session__fact-label">Model</span>
           <span
             className="w-mono w-session__fact-value"
             data-testid="session-model"
-            title={modelPick !== null ? 'Picked for the next turn: its system/init will name the model' : undefined}
+            title={modelPick !== null ? 'Picked for the next turn: its system/init will name the model' : (model ?? undefined)}
           >
             {model ?? '—'}
           </span>
@@ -259,7 +263,10 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
       </header>
       <div className="w-session__body">
         <section className="w-session__main" aria-label="Session">
-          <Transcript events={events} firstIndex={firstIndex} sessionId={sessionId} projectId={projectId} assistantLabel={assistantLabel} earlier={earlier} hideTools={hideTools} />
+          {/* Another Session gets a fresh log: no row stays opened from the one shown before (rows are keyed by position). */}
+          <Transcript
+            key={claudeSessionId ?? `node:${nodeId}`}
+            events={events} firstIndex={firstIndex} sessionId={sessionId} projectId={projectId} assistantLabel={assistantLabel} earlier={earlier} hideTools={hideTools} />
           <MessageInput key={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} onSend={send} onInterrupt={interrupt} />
         </section>
         <SessionRail blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={sessionId} />

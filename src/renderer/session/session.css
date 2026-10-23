@@ -55,7 +55,13 @@
   line-height: 19px;
   font-weight: 600;
   white-space: nowrap;
-  /* A header short of room cuts the title, not the buttons at its right end (Hide tools, Interrupt). */
+  /*
+   * A header short of room never cuts the buttons at its right end (Hide tools, Interrupt): the
+   * model's value gives way first (.w-session__fact--model), the title only once that is not enough.
+   * Shrink is weighed by size, so the title's weight is tiny: a few pixels of overflow round to none
+   * on the title.
+   */
+  flex-shrink: 0.0001;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -81,6 +87,18 @@
   flex: none;
   font-size: var(--text-12);
   white-space: nowrap;
+}
+
+.w-session__fact--model {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.w-session__fact--model .w-session__fact-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .w-session__fact-label {
@@ -146,7 +164,9 @@
 }
 
 .w-session__toggle[aria-pressed='true'] {
+  border-color: var(--accent);
   background: var(--selected);
+  color: var(--accent);
   box-shadow: none;
 }
 

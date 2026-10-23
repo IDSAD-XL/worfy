@@ -26,25 +26,30 @@ Source: просьба владельца 2026-10-23: «когда модель 
 
 1. **Кнопка в шапке Session view** — «Hide tools»: кнопка-иконка с этим именем в `aria-label` и
    tooltip, нажата (`aria-pressed`), пока tools спрятаны. Иконка, а не слово: при ширине окна по
-   умолчанию слово выталкивало Interrupt за край шапки. Заголовок шапки теперь обрезается
-   многоточием, когда места мало, а кнопки справа — нет. Выбор запоминается
+   умолчанию слово выталкивало Interrupt за край шапки. Когда места в шапке мало, первым
+   обрезается многоточием имя модели, заголовок — только если и этого мало; кнопки справа — никогда.
+   Выбор запоминается
    для каждой Session отдельно и переживает повторное открытие Session и перезапуск worfy.
-   - **Где хранится:** `localStorage` окна worfy, ключ `worfy.transcript.hideTools:<projectId>/<nodeId>`,
-     для Subagent-а — `…/<nodeId>/<agentId>`. Хранится только «спрятано»; «показано» — отсутствие ключа.
+   - **Где хранится:** `localStorage` окна worfy, ключ `worfy.transcript.hideTools:session:<SDK session id>`,
+     для Subagent-а — `…/<agentId>`; пока id Session не известен — `…:node:<projectId>/<nodeId>`. Хранится только «спрятано»; «показано» — отсутствие ключа.
    - **Почему так.** Это вид экрана, а не настройка агента: Claude Code его не читает, другим
      экранам он не нужен. Поэтому не `session-settings.json` через `useSessionControls` — там модель,
      effort и permission mode, которые main передаёт Claude Code. Не `app-settings.json` — там
      настройки всего Machine, а не одной Session. Не Layout — он общий для всех экранов Project, и на
      read-only экране (worfy-link) запись в него закрыта. `localStorage` renderer-а лежит в userData,
      а userData — папка данных worfy (`src/main/index.ts`, `app.setPath('userData', dataRoot())`),
-     так что ADR-0005 соблюдён. Ключ — Node Session (одна Session — один Node, `CONTEXT.md`), как
-     у `session-settings.json`: ключ есть сразу, до того как Claude Code назовёт id своей Session, и
-     одна и та же Session, открытая живой и read-only, помнит один выбор. Чтение и запись — в
+     так что ADR-0005 соблюдён. Ключ — SDK session id: одна Session помнит один выбор, где бы её ни
+     открыли (живой на Node, read-only, из Command palette с Node `session:<id>`), а «New
+     conversation» на том же Node — новая Session, у неё tools снова видны. У живой Session это её
+     id, а пока он временный (`pending-…` у возобновлённой, до system/init) — id, который она
+     возобновляет. Чтение и запись — в
      `try/catch`: недоступное хранилище даёт «показано» и не ломает view.
-2. **Что видно, когда tools спрятаны.** Tool call с ошибкой остаётся как есть. Обычные calls одной
-   серии (элемент `tools` из `fold.ts` — calls подряд, без других строк между ними) сворачиваются в
-   одну тонкую строку «N tools»; клик раскрывает их обычными строками. Пока хоть один call серии
-   ещё идёт, строка «N tools» показывает общий «running» вместо статуса каждого call.
+2. **Что видно, когда tools спрятаны.** Tool call с ошибкой остаётся как есть, на своём месте в серии
+   (элемент `tools` из `fold.ts` — calls подряд, без других строк между ними). Он делит серию на
+   участки: каждый участок обычных calls — своя тонкая строка «N tools» на своём месте (Bash ✓,
+   Edit ✗, Grep ✓ — «1 tool», Edit, «1 tool»); клик раскрывает её обычными строками. Пока хоть один
+   call участка ещё идёт, строка показывает общий «running» вместо статуса каждого call. Call, чей
+   результат пришёл с ошибкой, выходит из строки, и N уменьшается.
 3. **Прячутся только tools.** Строки Subagent-ов — и отдельная строка `subagent`, и tool call
    Agent/Task, который запустил Subagent, — hook-и, thinking, permission requests и вопросы
    (строки `extension`, `src/renderer/session/rows/`) остаются как есть.
@@ -80,6 +85,7 @@ Source: просьба владельца 2026-10-23: «когда модель 
 - `src/renderer/session/ExternalSessionPanel.tsx`
 - `src/renderer/session/session.css`
 - `src/shared/transcript/subagents.ts` (экспорт имён tool, который запускает Subagent)
+- `test/fixtures/agent-scripts/hide-tools.jsonl` (новый)
 - `test/unit/transcript-hide-tools.test.tsx` (новый)
 - `test/e2e/session-view.spec.ts`
 
@@ -87,17 +93,22 @@ Source: просьба владельца 2026-10-23: «когда модель 
 
 - Кнопка-иконка «Hide tools» (`HideToolsButton.tsx`) стоит в шапке живой Session
   (`SessionView.tsx`, перед Interrupt) и в шапке внешней Session и Subagent-а
-  (`ExternalSessionPanel.tsx`); `Transcript` получает `hideTools`.
-- `splitTools` (`fold.ts`) делит серию: call с ошибкой и call Agent/Task или с Subagent-ом остаются
-  видны; остальные — одна строка «N tools» (`FoldedTools` в `Transcript.tsx`) с общим «running».
-- Выбор — `localStorage`, ключ по Project и Node, у Subagent-а ещё `agentId` (`transcript-view.ts`).
-  Другие окна worfy узнают о смене по событию `storage`; при ошибке записи выбор держится в окне.
-- Заголовок шапки Session view обрезается многоточием (полный текст — в tooltip), когда места мало:
-  при окне 1280 px шапка Orchestrator-а показывает «Orchestrator · …», зато Interrupt не
-  уходит за край.
-- Test-ы: 12 unit в `test/unit/transcript-hide-tools.test.tsx`, e2e ««Hide tools» folds…» в
-  `test/e2e/session-view.spec.ts` (прячет, раскрывает, выбор переживает перезапуск, Interrupt не
-  обрезан). Mutation testing: 9 мутантов unit и 3 мутанта e2e — все красные.
-- Проверки: `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; e2e `session-view`,
-  `own-sessions`, `new-session`, `session-back` — 10 passed; gate fast — `[gate] green (fast)`.
-
+  (`ExternalSessionPanel.tsx`); `Transcript` получает `hideTools`. Нажатая кнопка — с рамкой и иконкой
+  цвета `--accent` в обеих темах.
+- `toolSegments` (`fold.ts`) делит серию по порядку: call с ошибкой и call Agent/Task или с
+  Subagent-ом остаются видны на своём месте, каждый участок обычных calls между ними — своя строка
+  «N tools» (`FoldedTools` в `Transcript.tsx`) с общим «running».
+- Выбор — `localStorage`, ключ по SDK session id, у Subagent-а ещё `agentId`
+  (`transcript-view.ts`). Другие окна worfy узнают о смене по событию `storage`; при ошибке записи
+  выбор держится в окне.
+- `Transcript` в `SessionPanel` получил `key` по id Session: при показе другой Session раскрытые
+  строки «N tools» не остаются раскрытыми. Это же чинит прежнюю ошибку `Disclosure` (thinking, hook,
+  notice): строки ключены по позиции `e<N>`, и раскрытая строка одной Session оставалась раскрытой у
+  строки с той же позицией в другой.
+- Шапка при нехватке места: первым обрезается имя модели (полное — в tooltip), заголовок — только
+  если этого мало. При окне 1280 px «Orchestrator · alpha» виден целиком, Interrupt — внутри шапки.
+- Test-ы: 13 unit в `test/unit/transcript-hide-tools.test.tsx`; e2e ««Hide tools» folds…» в
+  `test/e2e/session-view.spec.ts` на скрипте `hide-tools.jsonl` (Bash ✓, Edit ✗, Grep ✓): порядок
+  «1 tool», Edit, «1 tool», раскрытие, заголовок и Interrupt при 1280 px, выбор после перезапуска у
+  той же Session, «New conversation» начинает с видимыми tools. Mutation testing: 12 мутантов unit и
+  6 мутантов e2e за два круга — все красные.

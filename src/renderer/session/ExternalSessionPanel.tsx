@@ -82,8 +82,8 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
   const root = useProjects()?.projects.find((project) => project.id === projectId)?.path
   const { live, history } = useClaudeHome(root)
   const transcript = useSessionTranscript(root, sessionId, agentId)
-  // Kept per Session and per Subagent (worfy-ui ticket 25); the same Node's choice as its live Session view.
-  const [hideTools, setHideTools] = useToolsHidden(hideToolsKey(projectId, nodeId, agentId))
+  // Kept per Session and per Subagent (worfy-ui ticket 25): the same choice as the Session's live view.
+  const [hideTools, setHideTools] = useToolsHidden(hideToolsKey({ projectId, nodeId, sessionId, agentId }))
   const tree = useSubagentTree(root, agentId === undefined ? null : sessionId)
   const subagent = agentId === undefined ? undefined : flattenSubagents(tree).find((info) => info.agentId === agentId)
   const orchestrator = useOrchestratorView(nodeId)
