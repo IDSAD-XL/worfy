@@ -86,9 +86,9 @@ function savedBrowsers(): Record<string, { url?: string; profile?: string | null
 }
 
 /** The profiles main saved in the Project's data folder. */
-function savedProfiles(): { id: string; name: string }[] {
+function savedProfiles(): { id: string; name: string; signIn?: string }[] {
   const file = join(dataDir(), PROJECT, 'browser-profiles.json')
-  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as { profiles: { id: string; name: string }[] }).profiles : []
+  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as { profiles: { id: string; name: string; signIn?: string }[] }).profiles : []
 }
 
 /** The Browser pages as [address, ready, partition], read in main; sorted by address. */
@@ -155,8 +155,16 @@ test('a cookie of one Browser profile is seen by its other Browser, not by a Bro
   await expect(profiles.getByTestId('browser-profile-name-input')).toHaveValue('admin')
   await profiles.getByTestId('browser-profile-origins').fill(`${origin}\nhttps://staging.example.com`)
   await expect(profiles.getByTestId('browser-profile-origins-error')).toHaveCount(0)
+  // The sign-in page (worfy-browser ticket 08) is an address on one of the origins, or nothing.
+  const signIn = profiles.getByTestId('browser-profile-sign-in')
+  await signIn.fill('http://elsewhere.test/login')
+  await expect(profiles.getByTestId('browser-profile-sign-in-error')).toContainText('one of the origins')
+  await expect(profiles.getByRole('button', { name: 'Save' })).toBeDisabled()
+  await signIn.fill(`${origin}/login`)
+  await expect(profiles.getByTestId('browser-profile-sign-in-error')).toHaveCount(0)
   await profiles.getByRole('button', { name: 'Save' }).click()
   await expect.poll(() => savedProfiles().map((profile) => profile.name)).toEqual(['Default', 'admin'])
+  expect(savedProfiles()[1]!.signIn).toBe(`${origin}/login`)
   const admin = savedProfiles()[1]!.id
   const shots = await snapshotThemes(window, 'browser-profile')
   evidence(shots.light, '03-browser-profile-light')

@@ -40,7 +40,7 @@ async function canvasOrNull(canvas: CanvasResolver, request: QueryRequest): Prom
 /** The Browser server of a Session (worfy-browser ticket 04); a failure leaves the Session without it rather than without a Session. */
 async function browserOrNull(browser: BrowserResolver, request: QueryRequest): Promise<BrowserSession | null> {
   try {
-    return await browser({ cwd: request.cwd, resume: request.resume })
+    return await browser({ cwd: request.cwd, resume: request.resume, autopilot: request.unattended === true })
   } catch (error) {
     console.warn(`[agent] no Browser tools for ${request.cwd}`, error)
     return null
@@ -117,13 +117,13 @@ export function sdkQueryFactory(
 ): QueryFactory {
   return async (request) => {
     const [{ query }, environment, attached] = await Promise.all([loadSdk(), agentEnv(), canvasOrNull(canvas, request)])
-    // The Browser goes with the canvas: a Session the canvas finds no Project for gets neither. Nor
-    // does an unattended one (Autopilot): it may use only the Browser profiles marked for Autopilot,
-    // which worfy-browser ticket 08 brings (ADR-0078 item 10).
-    const browsing = attached && request.unattended !== true ? browserOrNull(browser, request) : Promise.resolve(null)
+    // The Browser goes with the canvas: a Session the canvas finds no Project for gets neither. An
+    // unattended one (Autopilot) gets it in Autopilot mode: only the Browser profiles marked
+    // «Available to Autopilot» exist for it (worfy-browser ticket 08, ADR-0078 item 10).
+    const browsing = attached ? browserOrNull(browser, request) : Promise.resolve(null)
     const [listed, browserSession] = attached ? await Promise.all([mcpAllowlist(request.cwd, environment.env), browsing]) : [null, null]
-    // worfy-browser joins the Profile's list only with the server it names: not for an unattended
-    // Session, nor when the Browser server could not be made.
+    // worfy-browser joins the Profile's list only with the server it names: not when the Browser
+    // server could not be made.
     const allowlist = listed !== null && browserSession !== null ? withBrowserServer(listed) : listed
     const options = sessionOptions({
       cwd: request.cwd,
@@ -152,7 +152,13 @@ export function sdkQueryFactory(
 export function queryFactoryFromEnv(env: NodeJS.ProcessEnv = process.env): QueryFactory {
   if (env.WORFY_AGENT !== 'fake') return sdkQueryFactory()
   // The fake agent calls no MCP tool: an e2e run calls the Browser tools itself (test/e2e/browser-mcp.spec.ts).
-  exposeBrowserToolsToFakeAgent()
+  exposeBrowserToolsToFakeAgent((sessionId) => {
+    try {
+      return sharedRegistry().get(sessionId).unattended
+    } catch {
+      return false
+    }
+  })
   const log = env.WORFY_AGENT_LOG
   return fakeQueryFactory({
     scriptsDir: env.WORFY_AGENT_SCRIPTS ?? join(app.getAppPath(), 'test', 'fixtures', 'agent-scripts'),

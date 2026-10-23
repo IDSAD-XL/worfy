@@ -27,7 +27,7 @@ import { LayoutStore } from '../../src/main/layout/store'
 import { applyBranches, readCheckout, readWorkflow, type BranchCache, type EpicStatusRunner } from '../../src/main/workflow/reader'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { REASON_MAX, type JournalEvent } from '../../src/shared/autopilot/journal'
-import { autopilotChanged, autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
+import { autopilotChanged, autopilotEpicAtWork, autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE } from '../../src/shared/projects/action-templates'
 import { APP_URL, INDEX_HTML } from '../app-url'
@@ -309,6 +309,18 @@ describe('an Autopilot run on the fake agent', () => {
     expect(h.power).toEqual(['start', 'stop'])
     expect(h.states.at(-1)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave' })
     expect(h.states.filter((state) => state.status === 'stopped')).toHaveLength(1)
+  })
+
+  it('names the Epic at work while the run goes on, and none once it stopped, though the stopped state keeps the Epic (worfy-browser ticket 08: a Browser is opened for a Ticket of the running Epic only)', async () => {
+    const h = harness()
+    expect(autopilotEpicAtWork(h.autopilot.state(PROJECT))).toBeNull()
+    expect(autopilotEpicAtWork(await h.autopilot.start(PROJECT, EPIC))).toBe(EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.states.filter((state) => state.status === 'running').map(autopilotEpicAtWork)).toContain(EPIC)
+    const stopped = h.autopilot.state(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', epic: EPIC })
+    expect(autopilotEpicAtWork(stopped)).toBeNull()
+    expect(autopilotEpicAtWork({ ...stopped, status: 'waiting' })).toBe(EPIC)
   })
 
   it('runs the Orchestrator unattended, continuing its SDK session, and gives it back attended after the run', async () => {

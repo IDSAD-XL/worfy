@@ -30,6 +30,25 @@ export const TAKEN_OVER = 'The user took over this Browser'
 /** The first words of the answer to «type» into a password field (the owner's decision 7). */
 export const PASSWORD_REFUSED = 'This is a password field'
 
+/**
+ * Words of the answer to a Session in Autopilot about a Browser profile without the flag «Available
+ * to Autopilot» (worfy-browser ticket 08, ADR-0078 item 10): for it such a profile does not exist.
+ */
+export const AUTOPILOT_ONLY = 'is not available to Autopilot'
+
+/**
+ * The first words of the note that a Browser's sign-in expired (worfy-browser ticket 08, the owner's
+ * answer 2026-10-23): its page went to the profile's sign-in page, or its document answered 401.
+ * Followed by the profile's name in quotes.
+ */
+export const SIGN_IN_EXPIRED = 'Sign-in expired in Browser profile'
+
+/**
+ * The Ticket a Browser is opened for, as `<epic>/<NN>` (worfy-browser ticket 08): the Browser joins
+ * that Ticket's Family. Required in Autopilot.
+ */
+export const BROWSER_TICKET = /^([A-Za-z0-9][A-Za-z0-9._-]{0,127})\/([0-9]{1,5})$/
+
 const url = z.string().trim().min(1).max(4000)
 const selector = z.string().trim().min(1).max(2000)
 /** A ref of browser_read: the backend DOM node id it prints as [ref=…]. */
@@ -37,7 +56,7 @@ const ref = z.number().int().positive()
 
 export const browserToolShapes = {
   browser_list: {},
-  browser_open: { profile: browserProfileIdSchema, url: url.optional() },
+  browser_open: { profile: browserProfileIdSchema, url: url.optional(), ticket: z.string().trim().regex(BROWSER_TICKET, 'a Ticket is <epic>/<NN>, e.g. worfy-browser/08').optional() },
   browser_navigate: { id: nodeIdSchema, url },
   browser_click: { id: nodeIdSchema, selector: selector.optional(), ref: ref.optional() },
   browser_type: { id: nodeIdSchema, selector: selector.optional(), ref: ref.optional(), text: z.string().max(10_000), submit: z.boolean().default(false) },
@@ -63,7 +82,7 @@ const ORIGINS = ' A page outside the origins of the Browser\'s profile is refuse
 
 export const browserToolDescriptions: Record<BrowserToolName, string> = {
   browser_list: "List this Project's Browser profiles (id, name, origins a Session may open) and its Browsers (id, profile, address, who drives it).",
-  browser_open: 'Open a new Browser under an existing Browser profile, next to your Session\'s Node, optionally at a URL. Returns its id. Only the user creates profiles and logs in.' + ORIGINS,
+  browser_open: 'Open a new Browser under an existing Browser profile, next to your Session\'s Node, optionally at a URL, for a Ticket (`ticket`: "<epic>/<NN>", required when unattended). Returns its id. Only the user creates profiles and logs in.' + ORIGINS,
   browser_navigate: 'Send a Browser to a URL and wait for the page to load.' + ORIGINS,
   browser_click: 'Click an element of the page, as a user would.' + TARGET + ORIGINS,
   browser_type: 'Type text into a field of the page; submit=true presses Enter after it. Never into a password field: the user logs in.' + TARGET,

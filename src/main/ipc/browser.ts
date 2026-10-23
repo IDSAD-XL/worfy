@@ -66,13 +66,13 @@ function changed(projectId: string): void {
 
 export default [
   defineHandler(browserProfilesList, ({ projectId }) => ({ profiles: browserProfileStore().list(projectId) })),
-  defineHandler(browserProfilesCreate, ({ projectId, name, origins, autopilot }) => {
-    const profile = browserProfileStore().create(projectId, { name, origins, autopilot })
+  defineHandler(browserProfilesCreate, ({ projectId, name, origins, autopilot, signIn }) => {
+    const profile = browserProfileStore().create(projectId, { name, origins, autopilot, signIn })
     changed(projectId)
     return profile
   }),
-  defineHandler(browserProfilesUpdate, ({ projectId, id, name, origins, autopilot }) => {
-    const profile = browserProfileStore().update(projectId, id, { name, origins, autopilot })
+  defineHandler(browserProfilesUpdate, ({ projectId, id, name, origins, autopilot, signIn }) => {
+    const profile = browserProfileStore().update(projectId, id, { name, origins, autopilot, signIn })
     changed(projectId)
     return profile
   }),

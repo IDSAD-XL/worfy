@@ -286,6 +286,36 @@ describe('the Browser profiles of a Project, over the channels', () => {
     expect(await call('browser.profiles.list', { projectId: 'gamma-12345678' })).toMatchObject({ ok: false })
   })
 
+  it('keeps a sign-in page on one of the profile\'s origins, as data; refuses one off them or not http(s), and a change of origins that leaves it off; an empty one clears it (worfy-browser ticket 08)', async () => {
+    const user = await value('browser.profiles.create', { projectId: ALPHA, name: 'user', origins: ['http://localhost:3000'], signIn: ' http://LOCALHOST:3000/login?next=/a ' })
+    expect(user).toMatchObject({ origins: ['http://localhost:3000'], signIn: 'http://localhost:3000/login?next=/a' })
+    expect(onDisk(ALPHA).find((profile) => profile.id === user.id)?.signIn).toBe('http://localhost:3000/login?next=/a')
+    const before = readFileSync(fileOf(ALPHA), 'utf8')
+    for (const signIn of ['http://localhost:4000/login', 'https://localhost:3000/login', 'ftp://localhost:3000/login', 'javascript:alert(1)', 'login', '*://localhost:3000/login']) {
+      expect(await call('browser.profiles.update', { projectId: ALPHA, id: user.id, signIn }), signIn).toMatchObject({ ok: false })
+      expect(await call('browser.profiles.create', { projectId: ALPHA, name: `x${signIn.length}`, origins: ['http://localhost:3000'], signIn }), signIn).toMatchObject({ ok: false })
+    }
+    // A user name or password in it is refused, and the answer does not repeat the password.
+    const secret = await call('browser.profiles.update', { projectId: ALPHA, id: user.id, signIn: 'http://admin:pa55@localhost:3000/login' })
+    expect(secret).toMatchObject({ ok: false, error: expect.stringMatching(/user name or password/) })
+    expect(JSON.stringify(secret)).not.toContain('pa55')
+    // A change of origins alone that leaves the kept page off them.
+    expect(await call('browser.profiles.update', { projectId: ALPHA, id: user.id, origins: ['http://localhost:4000'] })).toMatchObject({ ok: false, error: expect.stringMatching(/sign-in page must be on one of the origins/) })
+    expect(readFileSync(fileOf(ALPHA), 'utf8')).toBe(before)
+    // A change that names something else keeps it; an empty one clears it, and the field goes.
+    expect(await value('browser.profiles.update', { projectId: ALPHA, id: user.id, autopilot: true })).toMatchObject({ autopilot: true, signIn: 'http://localhost:3000/login?next=/a' })
+    const cleared = await value('browser.profiles.update', { projectId: ALPHA, id: user.id, signIn: '' })
+    expect(cleared).toEqual({ id: user.id, name: 'user', origins: ['http://localhost:3000'], autopilot: true })
+    expect(onDisk(ALPHA).find((profile) => profile.id === user.id)).toEqual(cleared)
+  })
+
+  it('reads a sign-in page with a user or password, written by hand into the file, as none: the read channel never answers it, and the profile stays', async () => {
+    mkdirSync(join(dataDir, ALPHA), { recursive: true })
+    writeFileSync(fileOf(ALPHA), JSON.stringify({ profiles: [{ id: 'user-aaaaaa', name: 'user', origins: ['http://localhost:3000'], autopilot: true, signIn: 'http://admin:pa55@localhost:3000/login' }] }))
+    const { profiles } = await value<{ profiles: BrowserProfile[] }>('browser.profiles.list', { projectId: ALPHA })
+    expect(profiles).toEqual([{ id: 'user-aaaaaa', name: 'user', origins: ['http://localhost:3000'], autopilot: true }])
+  })
+
   it('deleting a profile drops it from the file and erases its partition\'s storage, and only its', async () => {
     const admin = await value('browser.profiles.create', { projectId: ALPHA, name: 'admin' })
     const user = await value('browser.profiles.create', { projectId: ALPHA, name: 'user' })

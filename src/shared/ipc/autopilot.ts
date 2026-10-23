@@ -75,6 +75,12 @@ export const autopilotStateSchema = z.object({
 export type AutopilotState = z.infer<typeof autopilotStateSchema>
 
 /**
+ * The Epic a run works on now: running or waiting for the Limits. A stopped run's state keeps its
+ * Epic (the last run's snapshot), which is no run at work.
+ */
+export const autopilotEpicAtWork = (state: Pick<AutopilotState, 'epic' | 'status'>): string | null => (state.status === 'stopped' ? null : state.epic)
+
+/**
  * A start refused because a run of the same Epic and origin goes on, or starts, on another Machine
  * (worfy-link ticket 15, ADR-0053, Q13): `machine` names it, `message` says it in words. Its own
  * field of the answer, not an error, so the button tells it from other refusals and offers "Start

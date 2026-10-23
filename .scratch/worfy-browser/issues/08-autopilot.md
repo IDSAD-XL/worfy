@@ -1,7 +1,7 @@
 # 08 — Autopilot: агенты Wave проверяют acceptance criteria в Browser под Browser profile-ами «доступен Autopilot»
 
 Type: task
-Status: open
+Status: claimed 2026-10-22T23:17Z
 Blocked by: 05, 06
 Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md) (Browser Node), пункт 10
 (Autopilot — только Browser profile-ы с флажком «доступен Autopilot»; Browser в пределе Live и в Family
@@ -37,9 +37,9 @@ Playwright-тесты), пункт 5 (агент не входит сам). Те
 
 ## Готово, когда
 
-- [ ] Contract `test/contract/browser-tools.test.ts`: в Autopilot список Browser profile-ов — только с
+- [x] Contract `test/contract/browser-tools.test.ts`: в Autopilot список Browser profile-ов — только с
       флажком; «открыть» под Browser profile без флажка — ошибка; вне Autopilot видны все.
-- [ ] e2e `test/e2e/browser-autopilot.spec.ts` проверяет ответ инструмента `worfy-browser`, не отчёт
+- [x] e2e `test/e2e/browser-autopilot.spec.ts` проверяет ответ инструмента `worfy-browser`, не отчёт
       Harness: Session в Autopilot открывает Browser под «user» с флажком — успех; под «admin» без
       флажка — ответ-ошибка, её текст называет Browser profile «admin» (код ошибки — как задаст
       Ticket 04); на fixture-странице входа поле пароля пустое — ни один вызов инструмента его не
@@ -47,10 +47,10 @@ Playwright-тесты), пункт 5 (агент не входит сам). Те
 - [ ] Строка «нужен вход под user» в отчёте implementer-а и в отчёте Wave проверяется отдельно:
       shell-тестом Harness на формат отчёта (пункт ниже) и вручную — одним прогоном Wave на
       fixture-странице входа; итог прогона — в «Итог» Ticket-а.
-- [ ] Harness: бриф `epic-wave` и отчёт implementer-а описывают проверку в Browser и поле «нужен вход
+- [x] Harness: бриф `epic-wave` и отчёт implementer-а описывают проверку в Browser и поле «нужен вход
       под <роль>»; `pnpm test` гоняет shell-тесты Harness (`harness/README.md`, раздел Tests) — exit 0.
-- [ ] Мутант красный: фильтр по флажку снят в Autopilot.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [x] Мутант красный: фильтр по флажку снят в Autopilot.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
 
@@ -85,6 +85,107 @@ Playwright-тесты), пункт 5 (агент не входит сам). Те
 4. **«GUI checks: yours»** — проверка в Browser идёт без экрана человека; нужна ли ей очередь «не
    больше одного агента за раз» — ADR не говорит. Предел Live (Ticket 05) уже ограничивает их число.
 
+### Ответы владельца 2026-10-23
+
+1. **Роли** — из явного поля шапки Ticket-а `Roles: admin, user`; имена ролей — имена Browser
+   profile-ов с флажком «доступен Autopilot». Нет поля — одна проверка под Browser profile по
+   умолчанию (`Default`). Агент никогда не угадывает роли по «Готово, когда».
+2. **Вход протух** — только два признака: страница ушла на sign-in URL Browser profile-а (из его
+   настроек) или цель ответила 401. Тогда агент останавливается и пишет в отчёт «вход протух в
+   профиле X». По тексту страницы не гадать.
+3. **Очередь** — никакой отдельной очереди «один агент за раз» для проверок в Browser; предел —
+   предел Live (Ticket 05).
+4. (Факт, не вопрос) PR правит skill и agent Harness — перед мержем нужен платный eval; его
+   спрашивает у владельца и запускает Orchestrator, не исполнитель. Нужна ли проверка на Windows —
+   ответ `node scripts/windows-verdict-scope.mjs origin/main HEAD` в PR.
+
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-browser/08`.
+
+**Сделано.**
+
+- **Фильтр в server-е** (`src/main/mcp/browser-server.ts`). Server Session-а в Autopilot (`autopilot`
+  в контексте) видит в `browser_list` только Browser profile-ы с флажком и только Browser-ы под ними.
+  `browser_open` под Browser profile без флажка и любой вызов на Browser под ним — ошибка с id и
+  именем Browser profile-а (`… ("admin") is not available to Autopilot …`), до того как что-то
+  создано, разбужено или взято под управление. Вне Autopilot всё как было.
+- **Autopilot получает server.** До этого Ticket-а Session без человека (`unattended`) не получала
+  `worfy-browser` вовсе (`src/main/agent/app-registry.ts`); теперь получает, в режиме Autopilot.
+  Fake agent в e2e узнаёт режим по launch Session-а в registry.
+- **Предел** — без нового кода: Browser Autopilot открывается тем же `browser_open`, в пределе Live
+  (Ticket 05), с `openedBy` = Session (Ticket 06).
+- **Family Ticket-а** (раунд ревью 1). У `browser_open` необязательный аргумент `ticket`
+  (`"<epic>/<NN>"`). main проверяет, что такой Ticket есть в Project-е Session-а, а в Autopilot —
+  что он из Epic, над которым идёт run (`sharedAutopilot().state(projectId).epic`); иначе отказ с
+  причиной, до того как Browser создан. В Autopilot аргумент обязателен. Node Browser-а хранит
+  `ticket`, `browser_list` и ответ `browser_open` его называют, а `src/renderer/canvas/family.ts`
+  кладёт такой Browser в Family этого Ticket-а и его Epic frame-а (и Ticket — в Family Browser-а).
+  `openedBy` остаётся Session. Implementer и epic-wave передают Ticket из строки `Ticket:` брифа.
+- **Вход протух** (ответ владельца 2). У Browser profile-а новое необязательное поле «Sign-in page»:
+  http(s)-адрес на одном из его origins, хранится как данные, не шаблон; адрес вне origins или смена
+  origins, после которой он вне их, — отказ. Совпадение — тот же origin и путь (query не
+  сравнивается: `?next=`). Второй признак — 401 основного документа страницы (`documentStatus` в
+  `src/main/browser/cdp.ts`, только main frame и тип `Document`). Browser profile без sign-in page
+  полагается только на 401. После `browser_open` с адресом, `browser_navigate`, `browser_click`,
+  `browser_type`: в Autopilot вызов — ошибка `Sign-in expired in Browser profile "<имя>"` с id
+  Browser-а, вне Autopilot — обычный ответ с полем `signIn` (просьба позвать пользователя). Если
+  страница уже на sign-in page (или последний ответ основного документа — 401), в Autopilot
+  `browser_read`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_console` отказывают
+  до того, как Session берёт или будит Browser; разрешён только `browser_navigate` прочь — так агент
+  не может нажать «Sign in as admin» или SSO. Sign-in page с user name или паролем в адресе — отказ
+  (текст не повторяется); в ответах Session-у адрес — только origin и путь. 401 после отсоединения
+  debugger-а (DevTools, перехват) сбрасывается — так и задумано: после повторного attach проверка
+  текущего URL на sign-in page по-прежнему действует, теряется только старый 401. Epic run-а
+  берётся только у идущего run-а (`running` или `waiting`): остановленный run хранит свой Epic в
+  snapshot-е, но ни один Ticket по нему не принимается (`autopilotEpicAtWork`,
+  `src/shared/ipc/autopilot.ts`, тест на настоящем состоянии run-а в `test/contract/autopilot.test.ts`; оба файла вне следа, раунд ревью 2).
+- **Инструкции server-а** — правило «не входить самому» для любой Session, оба признака и две строки
+  отчёта.
+- **Harness.** `harness/agents/implementer.md`: раздел «Browser checks» и поле отчёта
+  `sign_in_needed` в двух формах — `sign-in needed as <role>` и
+  `sign-in expired in Browser profile <name>`. `harness/skills/epic-wave/SKILL.md`: строка брифа
+  `Browser roles` (из поля `Roles:`, без поля — `Default`), правило без очереди, перенос каждой
+  записи `sign_in_needed` в отчёт Wave строкой `<NN>: <запись>`. Shell-тест
+  `harness/bin/tests/agents-text.test.sh` проверяет формат; contract-тест сверяет слова server-а,
+  его инструкций и отчёта implementer-а.
+
+**Вне следа** (с согласия Orchestrator-а 2026-10-23): `src/main/agent/app-registry.ts` (меняет, что
+доступно Session без человека — отметить в ревью как security-relevant), `src/main/browser/cdp.ts`,
+`src/shared/browser/profiles.ts`, `src/shared/browser/tools.ts`, `src/shared/ipc/browser.ts`,
+`src/main/ipc/browser.ts`, `src/main/browser/profiles.ts`, `src/renderer/browser/BrowserProfiles.tsx`,
+`test/contract/browser-profiles.test.ts`, `test/e2e/browser-profile.spec.ts`,
+`harness/bin/tests/agents-text.test.sh`; раунд ревью 1 (решение Orchestrator-а):
+`src/renderer/canvas/family.ts`, `test/unit/family.test.ts`, `harness/bin/TICKETS.md` (описано поле
+`Roles:` — его не читает ни один script, epic-wave копирует его в бриф).
+
+**Тесты.** Contract `test/contract/browser-tools.test.ts` (17 новых, 1 переписан: unattended Session
+теперь получает server), `test/contract/browser-profiles.test.ts` (2 новых), unit
+`test/unit/family.test.ts` (3 новых), e2e
+`test/e2e/browser-autopilot.spec.ts` (новый: настоящий Autopilot на fake agent; «user» — успех,
+«admin» — ошибка с именем, redirect на sign-in page — «Sign-in expired…», на sign-in page click и type
+отказаны, поле пароля пустое, `browser_open` без `ticket`, с чужим Epic и с неизвестным NN — отказ,
+Browser с `ticket: 'demo/01'` в Family Ticket-а 01 и не в Family 02; Session больше не привязывается
+к Ticket-у вручную), `test/e2e/browser-profile.spec.ts` (поле «Sign-in page»). Мутанты — все
+красные: фильтр снят, проверка `browser_open` снята, registry не передаёт Autopilot, сравнение с
+sign-in page снято, 401 любого frame-а, протухший вход не отказ в Autopilot, store принимает адрес вне
+origins, поле отчёта убрано из implementer-а, строка брифа убрана из epic-wave; e2e — fake path не
+видит Autopilot. Раунд 1, все красные: проверка входа снята с click и type (вместе и по одному),
+`readSignIn` и схема принимают user/пароль, проверка sign-in page до `mayDrive` снята, `browser_open`
+теряет `signIn`, ошибка без id Browser-а, сравнение только по пути, в ответе полный адрес, detach не
+сбрасывает 401, Autopilot без `ticket` разрешён, Epic run-а не сверяется, неизвестный Ticket принят,
+Family не знает `ticket`. Раунд 2, все красные: вторая проверка sign-in page (после пробуждения) снята; Epic frame выпал из Family Browser-а; Browser выпал из Family Epic frame-а; остановленный run всё ещё называет свой Epic; run, ждущий Limits, Epic не называет.
+
+Снимки окна «Browser profiles…» с полем «Sign-in page»:
+[светлая](../evidence/08-browser-profile-sign-in-light.png), [тёмная](../evidence/08-browser-profile-sign-in-dark.png).
+
+**Не сделано и почему.**
+
+- fixture report in demo-project.sh:245 has no sign_in_needed — nothing checks it; left on purpose so the eval of this PR stays at its 4 cases.
+- Ручной прогон Wave на fixture-странице входа (пункт «Готово, когда» про отчёт Wave) — не сделан:
+  нужен настоящий Autopilot с моделью и установленный новый plugin; формат отчёта проверен
+  shell-тестом. Ждёт владельца.
+- `ticket` у `browser_open` агент берёт из брифа; что он передал верный Ticket своего Epic, main
+  проверяет, а что это именно его Ticket, а не соседний того же Epic, — нет (вызов MCP не несёт, какой
+  Subagent его сделал).
+- Правка Harness действует после установки plugin-а из Stable copy (вопрос 3 тикета).
