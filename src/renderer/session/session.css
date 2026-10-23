@@ -55,6 +55,10 @@
   line-height: 19px;
   font-weight: 600;
   white-space: nowrap;
+  /* A header short of room cuts the title, not the buttons at its right end (Hide tools, Interrupt). */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .w-session__dot {
@@ -132,6 +136,18 @@
   font-weight: 600;
   box-shadow: var(--shadow-control);
   cursor: default;
+}
+
+/* A toggle in the header (Hide tools): a square icon button, pressed while on. */
+.w-session__toggle {
+  width: 26px;
+  padding: 0;
+  justify-content: center;
+}
+
+.w-session__toggle[aria-pressed='true'] {
+  background: var(--selected);
+  box-shadow: none;
 }
 
 .w-session__button:disabled {
@@ -327,6 +343,18 @@
 
 .w-tr__tool + .w-tr__tool {
   border-top: 1px solid var(--border);
+}
+
+/* Tools hidden (worfy-ui ticket 25): the folded line of a run, then the calls that stay in sight. */
+.w-tr__tool-run,
+.w-tr__folded-tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.w-tr__folded-line {
+  min-height: 20px;
 }
 
 .w-tr__tool-line,

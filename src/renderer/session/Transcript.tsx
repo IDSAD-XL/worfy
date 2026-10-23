@@ -2,7 +2,7 @@ import { createContext, createElement, useContext, useEffect, useLayoutEffect, u
 import type { AgentEvent } from '../../shared/agent/events'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { Markdown } from '../markdown/Markdown'
-import { foldTranscript, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
+import { foldTranscript, splitTools, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
 import { formatDuration } from './format'
 import { rowTypes } from './rows/index'
 
@@ -11,7 +11,8 @@ import { rowTypes } from './rows/index'
 // the Session started, and how each turn ended. It gets the Session's events and does not know
 // where they come from (fold.ts); a new kind of row is a file in rows/ (rows/index.ts). The
 // prompt, hook, subagent and notice rows show when they happened under the label; the answer
-// keeps its time in the label's tooltip, as the F mockups draw it (ticket 14).
+// keeps its time in the label's tooltip, as the F mockups draw it (ticket 14). With `hideTools`
+// (the header's «Hide tools», worfy-ui ticket 25) the ordinary calls of a run fold into one line.
 
 export interface TranscriptProps {
   events: readonly AgentEvent[]
@@ -28,6 +29,12 @@ export interface TranscriptProps {
    * without it, or once the events start at the beginning of the file.
    */
   earlier?: EarlierControl | undefined
+  /**
+   * Tool calls folded (worfy-ui ticket 25): the ordinary calls of each run are one «N tools» line
+   * that opens on a click; a call with an error and a call that started a Subagent stay as they are
+   * (fold.ts, splitTools). Every other row is drawn the same either way.
+   */
+  hideTools?: boolean | undefined
 }
 
 export interface EarlierControl {
@@ -260,6 +267,36 @@ function ToolRow({ call }: { call: ToolCall }) {
   )
 }
 
+/**
+ * The ordinary calls of a run with tools hidden: one thin line «N tools» that opens on a click into
+ * their own rows. While one of them runs, the line shows one «running» for all of them.
+ */
+function FoldedTools({ calls }: { calls: readonly ToolCall[] }) {
+  const [open, setOpen] = useState(false)
+  const running = calls.some((call) => call.result === null)
+  return (
+    <div className="w-tr__folded-tools" data-testid="tools-folded">
+      <button type="button" className="w-tr__fold-line w-tr__folded-line" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <Chevron open={open} />
+        <span className="w-tr__muted">{calls.length === 1 ? '1 tool' : `${calls.length} tools`}</span>
+        {running ? (
+          <span className="w-tr__status w-tr__status--working" data-testid="tools-running">
+            <Spinner />
+            running
+          </span>
+        ) : null}
+      </button>
+      {open ? (
+        <div className="w-tr__tools">
+          {calls.map((call) => (
+            <ToolRow key={call.id} call={call} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function Disclosure({ summary, children, testId }: { summary: ReactNode; children: ReactNode; testId: string }) {
   const [open, setOpen] = useState(false)
   return (
@@ -330,7 +367,24 @@ function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps })
           </Disclosure>
         </Row>
       )
-    case 'tools':
+    case 'tools': {
+      if (props.hideTools === true) {
+        const { folded, shown } = splitTools(item.calls)
+        return (
+          <Row testId="transcript-tools">
+            <div className="w-tr__tool-run">
+              {folded.length > 0 ? <FoldedTools calls={folded} /> : null}
+              {shown.length > 0 ? (
+                <div className="w-tr__tools">
+                  {shown.map((call) => (
+                    <ToolRow key={call.id} call={call} />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </Row>
+        )
+      }
       return (
         <Row testId="transcript-tools">
           <div className="w-tr__tools">
@@ -340,6 +394,7 @@ function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps })
           </div>
         </Row>
       )
+    }
     case 'subagent':
       return (
         <Row at={item.at} testId="transcript-subagent">
@@ -422,7 +477,7 @@ function firstVisibleRow(log: HTMLElement): { row: Element; offset: number } | n
 }
 
 export function Transcript(props: TranscriptProps) {
-  const { events, firstIndex = 0, earlier } = props
+  const { events, firstIndex = 0, earlier, hideTools } = props
   const items = useMemo(() => foldTranscript(events, extensionTypes, firstIndex), [events, firstIndex])
   const now = useToday()
   const log = useRef<HTMLDivElement>(null)
@@ -455,8 +510,9 @@ export function Transcript(props: TranscriptProps) {
       }
       return
     }
+    // Folding or unfolding the tool calls (hideTools) changes the height too: a reader at the bottom stays there.
     if (atBottom.current) element.scrollTop = element.scrollHeight
-  }, [items, firstIndex, earlier?.loading])
+  }, [items, firstIndex, earlier?.loading, hideTools])
 
   const loadEarlier = () => {
     const element = log.current

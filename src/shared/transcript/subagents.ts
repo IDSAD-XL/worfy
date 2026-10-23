@@ -25,7 +25,7 @@ import { lastPathSegment } from '../paths'
 import { parseTranscriptRecord, type TranscriptEntry } from './parse'
 
 /** Names of the tool that starts a Subagent: `Agent` since 2.1.222; `Task` in older versions. */
-const AGENT_TOOLS = new Set(['Agent', 'Task'])
+export const AGENT_TOOLS: ReadonlySet<string> = new Set(['Agent', 'Task'])
 /** The tool that runs a workflow script; its agents are in `subagents/workflows/<runId>/`. */
 const WORKFLOW_TOOL = 'Workflow'
 /** The type of the tree entry that stands for one run of a workflow script. */

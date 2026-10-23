@@ -7,6 +7,7 @@
 // (parentToolUseId set) belong to the subagent tree (ticket 15). Bookkeeping events (init,
 // status, commands, account, rate limits, unknown SDK messages) draw nothing.
 import type { AgentEvent } from '../../shared/agent/events'
+import { AGENT_TOOLS } from '../../shared/transcript/subagents'
 import { INTERRUPT_NOTICE } from './history'
 
 type EventOf<T extends AgentEvent['type']> = Extract<AgentEvent, { type: T }>
@@ -195,4 +196,19 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
     }
   })
   return items
+}
+
+/**
+ * The calls of a `tools` row with tools hidden (worfy-ui ticket 25): `shown` stay in sight as they
+ * are — a call with an error, and a call that starts a Subagent (the Subagent's row); `folded` go
+ * into the one «N tools» line. Both keep the order of the run.
+ */
+export function splitTools(calls: readonly ToolCall[]): { folded: ToolCall[]; shown: ToolCall[] } {
+  const folded: ToolCall[] = []
+  const shown: ToolCall[] = []
+  for (const call of calls) {
+    if (call.result?.isError === true || call.subagent !== null || AGENT_TOOLS.has(call.name)) shown.push(call)
+    else folded.push(call)
+  }
+  return { folded, shown }
 }

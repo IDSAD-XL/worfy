@@ -15,6 +15,8 @@ import { isRunning, useSessionNodeView } from './node-sessions'
 import type { RailBlock } from './rail/index'
 import { SessionRail } from './SessionRail'
 import { Transcript } from './Transcript'
+import { HideToolsButton } from './HideToolsButton'
+import { hideToolsKey, useToolsHidden } from './transcript-view'
 import './session.css'
 
 // The Session view of a Session started outside worfy (a terminal, Claude desktop): the same
@@ -80,6 +82,8 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
   const root = useProjects()?.projects.find((project) => project.id === projectId)?.path
   const { live, history } = useClaudeHome(root)
   const transcript = useSessionTranscript(root, sessionId, agentId)
+  // Kept per Session and per Subagent (worfy-ui ticket 25); the same Node's choice as its live Session view.
+  const [hideTools, setHideTools] = useToolsHidden(hideToolsKey(projectId, nodeId, agentId))
   const tree = useSubagentTree(root, agentId === undefined ? null : sessionId)
   const subagent = agentId === undefined ? undefined : flattenSubagents(tree).find((info) => info.agentId === agentId)
   const orchestrator = useOrchestratorView(nodeId)
@@ -153,6 +157,7 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
           ) : null}
         </span>
         <span className="w-session__spacer" />
+        <HideToolsButton hidden={hideTools} onChange={setHideTools} />
       </header>
       <div className="w-session__body">
         <section className="w-session__main" aria-label="Session">
@@ -168,6 +173,7 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
               projectId={projectId}
               assistantLabel="claude"
               earlier={earlierControl(transcript, root, sessionId, agentId)}
+              hideTools={hideTools}
             />
           )}
           <div className="w-composer" data-testid="session-read-only" style={styles.readOnly}>

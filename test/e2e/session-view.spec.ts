@@ -218,6 +218,70 @@ test('the Session view: opened from the Orchestrator Node, a turn, an interrupte
   }
 })
 
+test('«Hide tools» folds the tool calls into one line that opens, and the Session keeps the choice after a restart (worfy-ui ticket 25)', async () => {
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view' }
+  /** Opens the Orchestrator's Session view and plays turn 1: one Bash call, then the answer. */
+  const firstTurn = async (window: Page): Promise<Locator> => {
+    const node = window.getByTestId('orchestrator-node')
+    await expect(node.getByTestId('orchestrator-state')).toHaveText('idle')
+    await node.locator('.w-orchestrator__header').dblclick()
+    const view = window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
+    await expect(view.getByTestId('session-state')).toHaveText('idle')
+    const field = view.getByRole('textbox', { name: 'Message Orchestrator' })
+    await field.fill('first prompt')
+    await field.press('Enter')
+    await expect(view.getByTestId('transcript-turn-done')).toHaveCount(1)
+    await expect(view.getByTestId('transcript-text').first()).toContainText('Wave 6')
+    return view
+  }
+
+  const first = await launchApp({ env })
+  try {
+    const view = await firstTurn(first.window)
+    const toggle = view.getByTestId('session-hide-tools')
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await expect(toggle).toHaveAttribute('title', /Remembered for this Session/)
+    await expect(view.getByRole('button', { name: 'Hide tools' })).toHaveCount(1)
+    // The header still has room for Interrupt next to the button: it is not cut off at its right edge.
+    const header = await view.locator('.w-session__header').boundingBox()
+    const interrupt = await view.getByTestId('session-interrupt').boundingBox()
+    if (header === null || interrupt === null) throw new Error('the header or Interrupt has no box')
+    expect(interrupt.x + interrupt.width).toBeLessThanOrEqual(header.x + header.width)
+    await expect(view.getByTestId('tool-call')).toHaveCount(1)
+    await expect(view.getByTestId('tools-folded')).toHaveCount(0)
+
+    // On: the Bash row goes, one «1 tool» line stands for it; the answer stays.
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await expect(view.getByTestId('tool-call')).toHaveCount(0)
+    const line = view.getByTestId('tools-folded')
+    await expect(line).toHaveCount(1)
+    await expect(line).toContainText('1 tool')
+    await expect(view.getByTestId('transcript-text').first()).toContainText('Wave 6')
+    await first.window.screenshot({ path: test.info().outputPath('hide-tools-folded.png') })
+
+    // A click opens the line into the call's own row, with its status.
+    await line.getByRole('button', { name: /1 tool/ }).click()
+    await expect(view.getByTestId('tool-call')).toHaveCount(1)
+    await expect(view.getByTestId('tool-call')).toContainText('epic-status worfy-mvp --json')
+    await expect(view.getByTestId('tool-ok')).toHaveCount(1)
+    await first.window.screenshot({ path: test.info().outputPath('hide-tools-opened.png') })
+  } finally {
+    await first.close()
+  }
+
+  // worfy starts again over the same data folder: the Orchestrator's Session still folds its tools.
+  const second = await launchApp({ env })
+  try {
+    const view = await firstTurn(second.window)
+    await expect(view.getByTestId('session-hide-tools')).toHaveAttribute('aria-pressed', 'true')
+    await expect(view.getByTestId('tool-call')).toHaveCount(0)
+    await expect(view.getByTestId('tools-folded')).toContainText('1 tool')
+  } finally {
+    await second.close()
+  }
+})
+
 test('a prompt sent just before local midnight shows its date once the day has turned', async () => {
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view' } })
   try {
