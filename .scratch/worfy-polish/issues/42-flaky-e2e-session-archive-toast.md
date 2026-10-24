@@ -1,7 +1,8 @@
 # 42 — Flaky e2e на Mac: `session-archive-toast.spec.ts:95` — Sessions в архиве, а toast нет
 
 Type: task
-Status: claimed 2026-10-24T01:35Z
+Status: done 2026-10-24T02:15Z
+PR: #822
 Branch: worfy-polish/42
 Blocked by: —
 Source: gate full PR #816 на Mac 2026-10-23 (main `a371f5fe` + #816) и повторы того же вечера.
