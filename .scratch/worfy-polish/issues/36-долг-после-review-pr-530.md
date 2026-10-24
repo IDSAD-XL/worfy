@@ -1,7 +1,8 @@
 # 36 — Долг после review PR #530: Ticket в focus mode
 
 Type: task
-Status: claimed 2026-10-24T02:16Z
+Status: done 2026-10-24T23:28Z
+PR: #826
 Branch: worfy-polish/36
 Blocked by: —
 Source: ревью PR [#530](https://github.com/IDSAD-XL/worfy/pull/530) (Ticket 33, Ticket целиком в focus
