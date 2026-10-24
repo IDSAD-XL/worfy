@@ -80,7 +80,6 @@
   color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 2px;
-  cursor: pointer;
 }
 
 .w-md__inert-link {

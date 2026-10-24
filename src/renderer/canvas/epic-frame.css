@@ -113,7 +113,7 @@
   background: transparent;
   color: var(--text-secondary);
 }
-.w-epic__button:hover {
+.w-epic__button:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--surface-raised);
 }
 
@@ -208,7 +208,13 @@
   color: var(--done-text);
   font: inherit;
   text-align: left;
-  cursor: pointer;
+}
+.w-epic__stack:hover:not([aria-disabled='true']) {
+  box-shadow:
+    4px 4px 0 -1px var(--done-bg),
+    4px 4px 0 0 var(--border),
+    var(--shadow-node),
+    var(--hover-shadow);
 }
 .w-epic__stack-title {
   flex: none;

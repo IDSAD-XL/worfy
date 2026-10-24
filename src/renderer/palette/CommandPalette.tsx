@@ -48,7 +48,7 @@ const WRAPPED_TITLE_LINES = 3
 
 const styles = {
   // The toolbar's CSS draws the field (.w-toolbar__palette-hint); a button only needs its own font reset.
-  trigger: { fontFamily: 'inherit', fontSize: 'var(--text-12)', lineHeight: '16px', whiteSpace: 'nowrap', textAlign: 'left', cursor: 'pointer' },
+  trigger: { fontFamily: 'inherit', fontSize: 'var(--text-12)', lineHeight: '16px', whiteSpace: 'nowrap', textAlign: 'left' },
   backdrop: { position: 'fixed', inset: 0, zIndex: 100 },
   panel: {
     position: 'fixed',
@@ -108,10 +108,9 @@ const styles = {
     font: 'inherit',
     fontSize: 'var(--text-13)',
     textAlign: 'left',
-    cursor: 'pointer',
   },
   active: { background: 'var(--selected)' },
-  inactive: { color: 'var(--text-muted)', cursor: 'default' },
+  inactive: { color: 'var(--text-muted)' },
   title: { flex: 'none', maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   // A row without a detail: its title has the whole row.
   wholeTitle: { flex: 1, minWidth: 0, maxWidth: 'none' },

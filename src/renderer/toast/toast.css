@@ -79,7 +79,6 @@
   color: var(--accent);
   font: inherit;
   font-weight: 600;
-  cursor: pointer;
 }
 .w-toast__action:hover {
   background: var(--selected);
@@ -97,7 +96,6 @@
   border-radius: var(--radius-chip);
   background: transparent;
   color: var(--text-muted);
-  cursor: pointer;
 }
 .w-toast__close:hover {
   background: var(--surface-raised);

@@ -11,6 +11,8 @@
   font-family: var(--font-ui);
   font-size: var(--text-12);
   color: var(--text);
+  /* Not the pointer the Canvas pane passes down in selection mode: only the buttons act on a click. */
+  cursor: default;
 }
 .w-selection-toolbar__button {
   height: 24px;
@@ -20,7 +22,6 @@
   background: var(--surface-raised);
   color: var(--text);
   font: inherit;
-  cursor: pointer;
 }
 .w-selection-toolbar__button[aria-pressed='true'] {
   border-color: var(--accent);
@@ -53,7 +54,6 @@
   background: none;
   color: var(--text-muted);
   font: inherit;
-  cursor: pointer;
 }
 .w-selection-toolbar__tag-input {
   width: 120px;
@@ -67,7 +67,6 @@
 }
 .w-selection-toolbar__button:disabled {
   color: var(--text-muted);
-  cursor: default;
 }
 .w-selection-toolbar__refusal {
   max-width: 280px;

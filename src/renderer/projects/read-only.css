@@ -1,7 +1,6 @@
 /* A write action on a read-only screen (read-only.ts): visibly inactive, the tooltip says why. */
 [data-read-only] {
   opacity: 0.5;
-  cursor: not-allowed;
 }
 
 /* The "Read only" mark beside a Machine's state, and the line that explains a read-only screen. */

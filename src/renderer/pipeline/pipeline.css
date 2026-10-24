@@ -82,7 +82,6 @@
   color: var(--text-secondary);
   font: inherit;
   font-size: var(--text-12);
-  cursor: pointer;
 }
 .w-pipeline-column__fold:hover {
   border-color: var(--text-secondary);
@@ -118,7 +117,6 @@
   color: var(--text);
   font: inherit;
   text-align: left;
-  cursor: pointer;
 }
 .w-pipeline-card:hover {
   border-color: var(--border-strong);
@@ -233,7 +231,6 @@
   min-height: var(--row-height);
   padding: 5px 8px 6px;
   box-sizing: border-box;
-  cursor: pointer;
 }
 .w-pipeline-row__line {
   display: flex;

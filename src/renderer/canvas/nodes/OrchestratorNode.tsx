@@ -83,7 +83,6 @@ const styles = {
     color: 'var(--text-muted)',
     font: 'inherit',
     fontSize: 'var(--text-11)',
-    cursor: 'pointer',
   },
   problem: { padding: '0 var(--space-3)', fontSize: 'var(--text-11)', color: 'var(--text-secondary)', overflowWrap: 'anywhere' },
 } satisfies Record<string, CSSProperties>

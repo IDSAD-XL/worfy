@@ -35,7 +35,6 @@ const styles = {
     font: 'inherit',
     fontSize: 'var(--text-13)',
     textAlign: 'left',
-    cursor: 'pointer',
   },
   name: { display: 'block', fontSize: 'var(--text-12)', lineHeight: '16px', fontWeight: 600, overflowWrap: 'anywhere' },
   progress: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 },

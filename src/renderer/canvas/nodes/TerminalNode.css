@@ -66,9 +66,8 @@
   color: var(--terminal-muted);
   font: inherit;
   font-size: var(--text-12);
-  cursor: default;
 }
-.w-terminal__button:hover {
+.w-terminal__button:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--terminal-line);
   color: var(--terminal-text);
 }

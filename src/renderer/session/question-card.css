@@ -19,10 +19,6 @@
   font-size: var(--text-11);
 }
 
-button.w-question__chip {
-  cursor: pointer;
-}
-
 .w-question__chip[data-answered='true'] {
   color: var(--done-text);
   background: var(--done-bg);
@@ -74,10 +70,9 @@ button.w-question__chip {
   color: var(--text);
   font: inherit;
   text-align: left;
-  cursor: pointer;
 }
 
-.w-question__option:hover {
+.w-question__option:hover:where(:not(:disabled, [aria-disabled='true'])) {
   border-color: var(--border-strong);
 }
 
@@ -93,7 +88,6 @@ button.w-question__chip {
 
 .w-question__option:disabled,
 .w-question__option[aria-disabled='true'] {
-  cursor: default;
   opacity: 0.6;
 }
 

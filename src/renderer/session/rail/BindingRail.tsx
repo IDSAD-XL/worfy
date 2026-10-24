@@ -19,7 +19,7 @@ export const order = 10
 const styles = {
   header: { height: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
   heading: { margin: 0, fontSize: 'var(--text-11)', lineHeight: '14px', fontWeight: 600, color: 'var(--text-muted)' },
-  link: { padding: 0, border: 0, background: 'transparent', color: 'var(--accent)', font: 'inherit', fontSize: 'var(--text-11)', cursor: 'pointer' },
+  link: { padding: 0, border: 0, background: 'transparent', color: 'var(--accent)', font: 'inherit', fontSize: 'var(--text-11)' },
   card: { marginTop: 6, padding: 10, border: '1px solid var(--border)', borderRadius: 'var(--radius-node)', background: 'var(--surface)' },
   row: { display: 'flex', alignItems: 'center', gap: 6 },
   target: { fontSize: 'var(--text-12)', fontWeight: 600 },
@@ -36,7 +36,6 @@ const styles = {
     color: 'var(--text-secondary)',
     font: 'inherit',
     fontSize: 'var(--text-11)',
-    cursor: 'pointer',
   },
 } satisfies Record<string, CSSProperties>
 

@@ -47,20 +47,16 @@
   font-size: var(--text-12);
   line-height: 16px;
   white-space: nowrap;
-  cursor: pointer;
 }
 .w-shelf__chip > svg {
   flex: none;
 }
-.w-shelf__chip:hover {
+.w-shelf__chip:hover:where(:not(:disabled, [aria-disabled='true'])) {
   border-color: var(--text-secondary);
 }
 .w-shelf__chip:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
-}
-.w-shelf__chip[aria-disabled='true'] {
-  cursor: default;
 }
 .w-shelf__name {
   min-width: 0;

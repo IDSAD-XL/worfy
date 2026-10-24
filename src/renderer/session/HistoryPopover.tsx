@@ -66,7 +66,6 @@ const styles = {
     font: 'inherit',
     fontSize: 'var(--text-11)',
     lineHeight: '18px',
-    cursor: 'pointer',
   },
   message: { margin: 4, fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
 } satisfies Record<string, CSSProperties>
@@ -193,7 +192,7 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
                 </button>
                 <button
                   type="button"
-                  style={verdict?.resumable === true ? styles.button : { ...styles.button, opacity: 0.45, cursor: 'default' }}
+                  style={verdict?.resumable === true ? styles.button : { ...styles.button, opacity: 0.45 }}
                   data-testid="history-resume"
                   disabled={verdict === undefined || !verdict.resumable}
                   {...writeAction(readOnly, () => void resume(session), refused ?? 'Continue this Session in worfy')}

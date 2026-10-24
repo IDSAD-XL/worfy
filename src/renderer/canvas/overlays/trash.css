@@ -16,7 +16,9 @@
   box-shadow: var(--shadow-control);
   color: var(--text-secondary);
   font: inherit;
-  cursor: pointer;
+}
+.w-trash__button:hover {
+  box-shadow: var(--shadow-control), var(--hover-shadow);
 }
 .w-trash__button[aria-expanded='true'] {
   border-color: var(--accent);
@@ -62,9 +64,6 @@
   padding: 0 var(--space-1);
   border-radius: var(--radius-button);
 }
-.w-trash__entry:hover {
-  background: var(--surface-raised);
-}
 .w-trash__kind {
   flex: none;
   color: var(--text-muted);
@@ -91,7 +90,6 @@
   background: var(--surface-raised);
   color: var(--text);
   font: inherit;
-  cursor: pointer;
 }
 .w-trash__error {
   padding: var(--space-1);

@@ -1,7 +1,8 @@
 # 27 — Курсор pointer и понятное состояние hover у всех кликабельных элементов
 
 Type: bug
-Status: open 2026-10-24T22:34Z
+Status: claimed 2026-10-24T22:42Z
+Branch: worfy-ui/27
 Blocked by: —
 Source: владелец, 2026-10-25 (чат Mac-оркестратора). Код перечитан по main `d089cfea`.
 
@@ -69,3 +70,83 @@ Windows нет.
 - [ ] Тест из раздела «Тесты» зелёный и краснеет, если убрать общее правило.
 
 ## Итог
+
+Ветка `worfy-ui/27`. Аудит сделан двумя способами: чтением CSS и inline-стилей renderer-а и временным
+e2e-обходом собранного приложения (светлая и тёмная тема): в каждом состоянии — Canvas, выделенная
+Note, Focus mode, Pipeline, Command palette, все разделы Settings, Session view — для каждого
+видимого элемента-контрола записаны computed `cursor` и вид до и под указателем. Обход в репозиторий
+не вошёл; охраняющий test — `test/e2e/controls.spec.ts`.
+
+### Аудит: что было до изменения
+
+**Нет pointer** (явный `cursor: default` у кнопки или курсор от `body`):
+- Sidebar: «Add project», строки `.w-row` (проекты, разделы Settings, пункты меню).
+- Toolbar: `.w-toolbar__icon-button` (Hide sidebar, Install Harness), `.w-segmented__item` (Canvas / Pipeline).
+- Шапка Node-а: `.w-terminal__button` (явный `default`).
+- Шапка Browser-а: `.w-browser-frame__nav-button`, `__open-button`, `__profile` (явный `default`).
+- Selection toolbar: кнопка Focus (`.w-focus-entry`).
+- Settings: `.w-setting-switch`, все `.w-action` (явный `default`: Close, Sign in…, действия Epic frame, Run wave и др.), `.w-select` и строки списка `.w-select-option` (явный `default`).
+- Session view: `.w-session__button` (явный `default`; Back, Hide tools), `.w-composer__attach`, pickers (`.w-select`), `.w-tr__earlier-button`, `.w-tr__fold-line` (явный `default`), `.w-tr__tool-line`, `.w-slash__item` (явный `default`), `.w-permission__button`, `.w-primary`.
+- Epic frame и Focus mode: `.w-epic__button`, `.w-focus__button`, `.w-focus__icon-button`.
+
+**Отключённые**: курсор был разный — `default` (done shelf chip, Resume в архиве, вариант вопроса,
+selection toolbar, Transcript у Subagent, строка Subagents rail, Resume в истории, неактивная строка
+palette) или `not-allowed` (действия на read-only экране, F-SPEC). Теперь у всех `not-allowed`.
+
+**Нет видимого hover**: toggle разделов sidebar, «Add project», текущая строка проекта, текущий
+segment, palette trigger, New conversation у Orchestrator, Trash, Pin и Delete selection toolbar,
+строки Command palette, switch в Settings, Hide tools и Attach files в Session view; по чтению CSS —
+`.w-archive__button`, `.w-archive__action`, `.w-badge-button`, `.w-browser-frame__asleep`,
+`.w-composer__send`, `.w-epic__stack`, `.w-permission__button`, `.w-primary`, кнопка-chip вопроса,
+`.w-queue__chip`, `.w-select-option`, `.w-selection-toolbar__tag-remove`, `.w-session__button`,
+`.w-tr__fold-line`, `.w-tr__tool-line`, `.w-trash__restore`; строки sidebar с inline `background`
+(Sessions, Epics, ADR) — inline-стиль перебивал `.w-row:hover`.
+
+**Hover-правило без исключения для отключённых** (отключённая кнопка меняла бы вид под указателем): `.w-row` (неактивные пункты Canvas menu), `.w-shelf__chip`,
+`.w-question__option`, `.w-epic__button`, `.w-focus__button`, `.w-focus-entry`, `.w-focus__icon-button`,
+`.w-terminal__button`, `.w-toolbar__icon-button`, `.w-session-find__button`,
+`.w-browser-frame__open-button`, `.w-browser-frame__profile`.
+
+**Hover или pointer у некликабельного**: строки архива (`.w-archive__row`) и корзины
+(`.w-trash__entry`) — `li` с фоном при наведении, нажимается только кнопка в строке; панель ADR
+(`section role=dialog`) целиком с `cursor: pointer`; фон selection toolbar между кнопками — pointer,
+унаследованный от pane React Flow.
+
+**Нет своего `:focus-visible`** (было только кольцо браузера): `.w-action`, `.w-epic__button`,
+`.w-focus__*`, `.w-terminal__button`, `.w-toolbar__icon-button`, `.w-trash__*`,
+`.w-selection-toolbar__*`, `.w-select-option`, palette trigger и все кнопки с inline-стилями.
+
+### Что сделано
+
+- `src/renderer/theme/tokens.css` — правила контролов (`:where(...)`, нулевая специфичность): pointer;
+  hover — полупрозрачная вуаль `--hover-veil` (inset box-shadow `--hover-shadow`, видна и поверх
+  inline `background`); `:focus-visible` — кольцо `2px var(--accent)`; отключённые
+  (`:disabled`, `[aria-disabled=true]`) — `not-allowed` и без вуали. Поля ввода текста в список не
+  входят и держат курсор браузера (text).
+- Ручных `cursor: pointer` в `src/renderer` было **44** (25 в CSS, 19 inline в `.tsx`), стало **1** —
+  общее правило; плюс `cursor: pointer` миникарты (`minimap.css`, это `div` React Flow, не контрол из
+  списка). Убраны и явные `cursor: default` у кнопок, и дубли курсора у отключённых.
+- Компоненты со своим box-shadow получили hover «своя тень + вуаль»: `.w-primary`, текущий segment,
+  Trash, Archive, `.w-session__button`, `.w-composer__send`, done stack Epic frame.
+- Hover-правила компонентов не срабатывают на отключённых (`:where(:not(:disabled, [aria-disabled='true']))`).
+- У строк архива и корзины hover убран; у панели ADR — pointer; фон selection toolbar — `default`.
+- Контраст вуали: `test/unit/contrast.test.ts` — фон под вуалью отличается от фона не меньше 1,07:1,
+  текст на нём держит 4,5:1, в обеих темах (светлая — 4 % чёрного, тёмная — 6 % белого).
+
+### Canvas
+
+Пустое место Canvas до изменения — **не grab, а pointer**: Canvas работает в режиме выделения
+перетаскиванием (`selectionOnDrag`, `panOnDrag={[1]}`), и React Flow ставит pane-у
+`.react-flow__pane.selection { cursor: pointer }`. Курсоры Canvas не тронуты: test проверяет, что
+pane остался pointer, заголовок Note — grab, текст Note — text. Вопрос владельцу: оставить pointer на
+пустом Canvas или поставить `default` (pointer там — тот же «ложный» сигнал, на который жалоба).
+
+### Проверки
+
+- `test/e2e/controls.spec.ts` (светлая и тёмная тема): pointer и смена вида под указателем у
+  контролов sidebar, toolbar, шапки Node-а, шапки Browser-а, selection toolbar, Settings, Session view;
+  Back Browser-а без истории — `not-allowed` и без смены вида; статус Orchestrator и заголовок раздела
+  Settings — без pointer и без смены вида; поле palette, текст Note и поле сообщения — text; кольцо
+  фокуса с клавиатуры; обход всех видимых контролов в каждой области — pointer или `not-allowed`.
+- Mutation testing: удалить правило pointer, вуаль, правило `not-allowed` или кольцо фокуса — test
+  красный в каждом случае.
