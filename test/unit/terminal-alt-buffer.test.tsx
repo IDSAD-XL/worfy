@@ -1,5 +1,7 @@
 // The alternate screen of a Terminal keeps exactly its rows (src/renderer/canvas/nodes/terminal-alt-buffer.ts),
 // on xterm.js without a display: the same buffers as the views' xterm.js.
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { Terminal } from '@xterm/headless'
 import { describe, expect, it } from 'vitest'
 import { fitAltBuffer, keepAltBufferFitted, type AltBufferTerminal } from '../../src/renderer/canvas/nodes/terminal-alt-buffer'
@@ -79,5 +81,15 @@ describe('the alternate screen after the rows shrink', () => {
     const terminal = { rows: 21, onResize, ...internals } as AltBufferTerminal
     expect(() => fitAltBuffer(terminal)).not.toThrow()
     expect(fitAltBuffer(terminal)).toBe(false)
+  })
+})
+
+describe('the xterm.js these tests run on', () => {
+  it('is the version the app draws with: @xterm/headless and @xterm/xterm are pinned alike in package.json', () => {
+    // The canary above runs on @xterm/headless; the views draw with @xterm/xterm. Of two versions, it
+    // would tell what the headless one does, not what the views do.
+    const manifest = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8')) as { dependencies: Record<string, string> }
+    expect(manifest.dependencies['@xterm/xterm']).toBeDefined()
+    expect(manifest.dependencies['@xterm/headless']).toBe(manifest.dependencies['@xterm/xterm'])
   })
 })
