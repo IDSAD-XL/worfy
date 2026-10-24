@@ -2,7 +2,7 @@
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 64/69; влиты 62, 64, 65 (#719), инфраструктура 52, 63 (#713); задачи 52 — у владельца; Q-H29 решён; новые 66–69 (69 — долг #685); 31, 36, 47, 48, 50, 51 — шаг владельца («Итог»).
+- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): 64/71; влиты 62, 64, 65 (#719), инфраструктура 52, 63 (#713); задачи 52 — у владельца; Q-H29 решён; новые 66–69 (69 — долг #685), 70 взят; 71 — нет заголовка, если шапка выше `# `; 31, 36, 47, 48, 50, 51 — шаг владельца.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26, 28, 34, 35 (#722); приёмка 16; 32 закрыт (#508); 33 открыт. Вне LAN через Tailscale (ADR-0070) — 27, 29–31, после очереди `worfy-windows`.
@@ -19,7 +19,7 @@
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 22/22, Epic закрыт 2026-10-23; 13 (ELK) не нужен, его заменил 22 (#771).
-- `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 16/16, Epic закрыт 2026-10-23: 08 (Autopilot проверяет acceptance criteria в Browser под отмеченными profile-ами) влит (#791); отказ вне списка origin-ов — ADR-0078.
+- `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 16/18; 08 (Autopilot в Browser) — #791, ADR-0078. Открыты: 17 — страница не видна в focus mode; 18 — resize и свой viewport, после 17.
 
 ## Ждёт владельца
 
