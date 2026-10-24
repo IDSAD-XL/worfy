@@ -86,26 +86,29 @@ const ROW = 100
 
 /**
  * Lays out the transcript log, which jsdom does not: the log is 300 px tall at the top of the
- * window, each row `height(row)` px (ROW by default) one under the other, and scrollTop keeps what
- * is set. `attach` gives the log its scroll geometry once it is rendered.
+ * window, each row `height(row)` px (ROW by default) one under the other, the space of the rows
+ * not drawn (worfy-ui ticket 22) as tall as its style says, and scrollTop keeps what is set.
+ * `attach` gives the log its scroll geometry once it is rendered.
  */
 function layOut(height: (row: Element) => number = () => ROW) {
   let log: HTMLElement | null = null
   let top = 0
-  const rows = () => Array.from(log?.children ?? []).filter((row) => !row.hasAttribute('data-transcript-earlier'))
+  const children = () => Array.from(log?.children ?? []).filter((row) => !row.hasAttribute('data-transcript-earlier'))
+  const rows = () => children().filter((row) => row.hasAttribute('data-item'))
+  const tall = (child: Element): number => (child.hasAttribute('data-item') ? height(child) : Number.parseFloat((child as HTMLElement).style.height) || 0)
   const measured = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
     if (this === log) return new DOMRect(0, 0, 800, 300)
-    const all = rows()
+    const all = children()
     const at = all.indexOf(this)
     if (at < 0) return new DOMRect(0, 0, 0, 0)
     let y = 0
-    for (let index = 0; index < at; index += 1) y += height(all[index]!)
-    return new DOMRect(0, y - top, 800, height(this))
+    for (let index = 0; index < at; index += 1) y += tall(all[index]!)
+    return new DOMRect(0, y - top, 800, tall(this))
   })
   return {
     attach(element: HTMLElement) {
       log = element
-      Object.defineProperty(element, 'scrollHeight', { configurable: true, get: () => rows().reduce((sum, row) => sum + height(row), 0) })
+      Object.defineProperty(element, 'scrollHeight', { configurable: true, get: () => children().reduce((sum, child) => sum + tall(child), 0) })
       Object.defineProperty(element, 'clientHeight', { configurable: true, get: () => 300 })
       Object.defineProperty(element, 'scrollTop', { configurable: true, get: () => top, set: (value: number) => (top = value) })
     },
@@ -114,6 +117,22 @@ function layOut(height: (row: Element) => number = () => ROW) {
     rowOf: (n: number) => rows().find((row) => new RegExp(`answer ${n}(?!\\d)`).test(row.textContent ?? '')),
     restore: () => measured.mockRestore(),
   }
+}
+
+/**
+ * Scrolls the log as a reader would until «answer n» is at its top: down a screen at a time while
+ * the row is not drawn (the Transcript draws only the rows around the visible part), then onto it.
+ */
+function scrollToAnswer(log: HTMLElement, layout: ReturnType<typeof layOut>, n: number): void {
+  log.scrollTop = 0
+  fireEvent.scroll(log)
+  for (let round = 0; round < 200; round += 1) {
+    const row = layout.rowOf(n)
+    if (row !== undefined && row.getBoundingClientRect().top === 0) return
+    log.scrollTop += row === undefined ? 300 : row.getBoundingClientRect().top
+    fireEvent.scroll(log)
+  }
+  throw new Error(`answer ${n} was not scrolled to`)
 }
 
 const transcriptChanged = () =>
@@ -434,14 +453,13 @@ describe('Load earlier', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     try {
       render(<ExternalSessionPanel projectId={PROJECT.id} nodeId="claude-session:dddd" sessionId={S} />)
-      await vi.waitFor(() => expect(screen.getByTestId('transcript').children.length).toBeGreaterThan(keep), { timeout: 20_000 })
+      await vi.waitFor(() => expect(screen.getByTestId('transcript').textContent).toContain(`answer ${99 + keep}`), { timeout: 20_000 })
       const log = screen.getByTestId('transcript')
       layout.attach(log)
+      // The reader scrolled up to «answer 120» and pressed Load earlier.
+      scrollToAnswer(log, layout, 120)
       // Every frame React draws counts from here on, as in the window: no act() batches them.
       actEnvironment.IS_REACT_ACT_ENVIRONMENT = false
-      // The reader scrolled up to «answer 120» and pressed Load earlier.
-      log.scrollTop = 20 * ROW
-      fireEvent.scroll(log)
       let release: (value: Answer) => void = () => undefined
       answers.push(() => new Promise<Answer>((done) => (release = done)))
       fireEvent.click(screen.getByRole('button', { name: 'Load earlier' }))
@@ -454,7 +472,11 @@ describe('Load earlier', () => {
       // The answer no longer joins the shown events: it is asked again from the new start.
       answers.push(() => ok({ ...lines(0, 110), earlier: 0, cursor: { offset: 110 * 100, fileId: FILE } }))
       release(ok({ ...lines(0, 100), earlier: 0, cursor: { offset: 100 * 100, fileId: FILE } }))
-      await vi.waitFor(() => expect(layout.rows()).toHaveLength(110 + keep), { timeout: 20_000 })
+      // All of the file is read: the rows just above the reader's are the ones of the second answer.
+      await vi.waitFor(() => expect(requests).toHaveLength(4), { timeout: 20_000 })
+      await vi.waitFor(() => expect(module.sessionTranscriptNow(ROOT, S).events).toHaveLength(110 + keep), { timeout: 20_000 })
+      await vi.waitFor(() => expect(log.querySelector('[data-space="above"]')).not.toBeNull())
+      expect(screen.queryByRole('button', { name: 'Load earlier' })).toBeNull()
       expect(requests).toHaveLength(4)
       expect(layout.rowOf(120)?.getBoundingClientRect().top).toBe(0)
     } finally {
@@ -488,7 +510,7 @@ describe('Load earlier', () => {
     }
   })
 
-  it('a row the cap dropped from under the anchor: the scroll moves by the height the rows on top added', async () => {
+  it('a row the cap dropped from under the anchor and Load earlier brought back stays where the reader saw it', async () => {
     const { Transcript } = await import('../../src/renderer/session/Transcript')
     // The records that come while it reads are taller: the height of the log changes before the rows on top come.
     const layout = layOut((row) => (Number(/answer (\d+)/.exec(row.textContent ?? '')?.[1]) >= 20 ? 3 * ROW : ROW))
@@ -504,9 +526,11 @@ describe('Load earlier', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Load earlier' }))
       rerender(shown(14, 24, true))
       expect(layout.rowOf(11)).toBeUndefined()
-      // Ten rows come on top: the scroll moves by their height, not by what the new records added.
+      // Ten rows come on top, «answer 11» among them: it is where the reader saw it (worfy-ui ticket 22),
+      // whatever height the new records added.
       rerender(shown(4, 24, false))
-      expect(log.scrollTop).toBe(1 * ROW + 10 * ROW)
+      expect(layout.rowOf(11)?.getBoundingClientRect().top).toBe(0)
+      expect(log.scrollTop).toBe(7 * ROW)
     } finally {
       layout.restore()
     }
@@ -647,5 +671,108 @@ describe('the last answer of a resumed Session Node', () => {
     )
     expect((await screen.findByTestId('session-node-answer')).textContent).toBe('answer 2')
     expect(requests).toStrictEqual([{ projectRoot: ROOT, sessionId: S, back: { bytes: WINDOW } }])
+  })
+})
+
+describe('drawing only the rows around the visible part (worfy-ui ticket 22)', () => {
+  it('chooses the rows that cover the visible part and OVERSCAN px around it, at most MAX_DRAWN', async () => {
+    const { MAX_DRAWN, OVERSCAN, rowWindow } = await import('../../src/renderer/session/fold')
+    const rows = (count: number, size: number) => Array.from({ length: count }, () => size)
+    // At the bottom: the last rows that fill 300 px and OVERSCAN more.
+    expect(rowWindow(rows(1000, 50), 0, -1, 0, 300)).toStrictEqual({ start: 1000 - (300 + OVERSCAN) / 50, end: 1000 })
+    // The gap between rows counts: 120 px a row.
+    expect(rowWindow(rows(1000, 100), 20, -1, 0, 300)).toStrictEqual({ start: 1000 - Math.ceil((300 + OVERSCAN) / 120), end: 1000 })
+    // Row 500 at the top: OVERSCAN px above it, the visible part and OVERSCAN px below.
+    expect(rowWindow(rows(1000, 100), 0, 500, 0, 300)).toStrictEqual({ start: 500 - OVERSCAN / 100, end: 500 + (300 + OVERSCAN) / 100 })
+    // Its top 200 px below the top of the log: 200 px more above it, 200 px less below.
+    expect(rowWindow(rows(1000, 100), 0, 500, 200, 300)).toStrictEqual({ start: 500 - (OVERSCAN + 200) / 100, end: 500 + (300 + OVERSCAN - 200) / 100 })
+    // Rows that draw nothing would all fit: no more than MAX_DRAWN of them, the reader's row among them.
+    expect(rowWindow(rows(1000, 0), 8, -1, 0, 300)).toStrictEqual({ start: 1000 - MAX_DRAWN, end: 1000 })
+    const around = rowWindow(rows(1000, 0), 8, 500, 0, 300)
+    expect(around.end - around.start).toBe(MAX_DRAWN)
+    expect(around.start).toBeLessThanOrEqual(500)
+    expect(around.end).toBeGreaterThan(500)
+  })
+
+  it('draws the rows in sight of a long transcript, the others as space, and follows the reader up the log', async () => {
+    const { Transcript } = await import('../../src/renderer/session/Transcript')
+    const { DRAW_ALL_UP_TO, MAX_DRAWN } = await import('../../src/renderer/session/fold')
+    const layout = layOut()
+    try {
+      const { rerender } = render(<Transcript events={range(0, 400).map(answer)} />)
+      const log = screen.getByTestId('transcript')
+      layout.attach(log)
+      rerender(<Transcript events={range(0, 401).map(answer)} />)
+      // At the bottom: the newest rows, not the oldest; the log is as tall as all of them.
+      expect(layout.rows().length).toBeLessThanOrEqual(MAX_DRAWN)
+      expect(layout.rows().length).toBeLessThan(DRAW_ALL_UP_TO)
+      expect(layout.rowOf(400)).toBeDefined()
+      expect(layout.rowOf(3)).toBeUndefined()
+      expect(log.scrollHeight).toBe(401 * ROW)
+      expect(log.scrollTop).toBe(log.scrollHeight)
+      // Up the log: the rows there are drawn in place of their space, the newest are space now.
+      scrollToAnswer(log, layout, 3)
+      expect(layout.rowOf(400)).toBeUndefined()
+      expect(log.scrollHeight).toBe(401 * ROW)
+      expect(log.scrollTop).toBe(3 * ROW)
+      // A row past the drawn ones, reached by a scroll into their space.
+      log.scrollTop = 250 * ROW
+      fireEvent.scroll(log)
+      expect(layout.rowOf(250)?.getBoundingClientRect().top).toBe(0)
+      // A short transcript is drawn whole.
+      rerender(<Transcript events={range(0, DRAW_ALL_UP_TO).map(answer)} />)
+      expect(layout.rows()).toHaveLength(DRAW_ALL_UP_TO)
+      expect(log.querySelector('[data-space]')).toBeNull()
+    } finally {
+      layout.restore()
+    }
+  })
+
+  it('a line the reader opened is open again when its row is drawn again', async () => {
+    const { Transcript } = await import('../../src/renderer/session/Transcript')
+    const thought: AgentEvent = { type: 'thinking', text: 'a plan', messageId: 'mt', parentToolUseId: null }
+    const events = [...range(0, 300).map(answer), thought, answer(300)]
+    const layout = layOut()
+    try {
+      const { rerender } = render(<Transcript events={events.slice(0, -1)} />)
+      const log = screen.getByTestId('transcript')
+      layout.attach(log)
+      rerender(<Transcript events={events} />)
+      const line = () => screen.queryByRole('button', { name: 'Thinking' })
+      fireEvent.click(line()!)
+      expect(line()?.getAttribute('aria-expanded')).toBe('true')
+      scrollToAnswer(log, layout, 3)
+      expect(line()).toBeNull()
+      log.scrollTop = log.scrollHeight - 300
+      fireEvent.scroll(log)
+      expect(line()?.getAttribute('aria-expanded')).toBe('true')
+      expect(screen.getByText('a plan')).toBeDefined()
+    } finally {
+      layout.restore()
+    }
+  })
+
+  it('draws the row of find’s current match when it is not drawn, and paints it', async () => {
+    const { Transcript } = await import('../../src/renderer/session/Transcript')
+    const { partId } = await import('../../src/renderer/session/transcript-find')
+    const layout = layOut()
+    try {
+      const events = range(0, 400).map(answer)
+      const { rerender } = render(<Transcript events={events} />)
+      const log = screen.getByTestId('transcript')
+      layout.attach(log)
+      rerender(<Transcript events={[...events, answer(400)]} />)
+      expect(layout.rowOf(3)).toBeUndefined()
+      const part = partId('e3', 'text')
+      rerender(<Transcript events={[...events, answer(400)]} find={{ needle: 'answer 3', parts: new Set([part]), current: { row: 'e3', part, occurrence: 0, reveal: null }, seq: 1 }} />)
+      const row = layout.rowOf(3)
+      expect(row).toBeDefined()
+      // In sight: the log scrolled to it.
+      const top = row!.getBoundingClientRect().top
+      expect(top).toBeGreaterThanOrEqual(0)
+      expect(top).toBeLessThan(300)
+    } finally {
+      layout.restore()
+    }
   })
 })

@@ -22,7 +22,7 @@ import { joinPastAndLive, keepsTurnBeforeResume } from '../../src/renderer/sessi
 import { setView } from '../../src/renderer/session/navigation'
 import { SessionFind } from '../../src/renderer/session/SessionFind'
 import { Transcript } from '../../src/renderer/session/Transcript'
-import { extendAnswer, extensionTypes, FIND_DEBOUNCE_MS, HIGHLIGHT, pastSettled, rowMatches, useTranscriptFind, type FindSource } from '../../src/renderer/session/transcript-find'
+import { extendAnswer, extensionTypes, FIND_DEBOUNCE_MS, HIGHLIGHT, pastSettled, rowMatches, startingMatch, useTranscriptFind, type FindSource, type RowMatch } from '../../src/renderer/session/transcript-find'
 
 const prompt = (text: string): AgentEvent => ({ type: 'notice', kind: 'user', text })
 const answer = (text: string): AgentEvent => ({ type: 'text', text, messageId: 'm', parentToolUseId: null, synthetic: false })
@@ -607,3 +607,29 @@ async function settled(check: () => void): Promise<void> {
     }
   }
 }
+
+describe('where a new query starts while only the rows around the visible part are drawn (worfy-ui ticket 22)', () => {
+  /** A 300 px log drawing rows e10, e11 and e12, 100 px each from its top. */
+  function drawnLog(): HTMLElement {
+    const log = document.createElement('div')
+    log.getBoundingClientRect = () => new DOMRect(0, 0, 800, 300)
+    ;[10, 11, 12].forEach((n, at) => {
+      const row = document.createElement('div')
+      row.setAttribute('data-row', `e${n}`)
+      row.getBoundingClientRect = () => new DOMRect(0, at * 100, 800, 100)
+      log.append(row)
+    })
+    return log
+  }
+  const match = (row: string): RowMatch => ({ row, part: `${row}:text`, occurrence: 0, reveal: null })
+
+  it('starts on the newest match above the reader, drawn or not, and on the oldest when all are below', () => {
+    const log = drawnLog()
+    // A row not drawn before the first drawn one is above the reader; one after the last, below.
+    expect(startingMatch(log, [match('e2'), match('e3'), match('e50')])).toStrictEqual(match('e3'))
+    // A drawn row in sight wins over an older one not drawn.
+    expect(startingMatch(log, [match('e3'), match('e11'), match('e50')])).toStrictEqual(match('e11'))
+    // Every match below the reader: the oldest.
+    expect(startingMatch(log, [match('e40'), match('e50')])).toStrictEqual(match('e40'))
+  })
+})
