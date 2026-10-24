@@ -49,6 +49,7 @@
     "test/time-scale.ts",
     "test/zsh.ts",
     "test/windows-runner.ts",
+    "test/windows-profile.ts",
     "test/unit/**/*.ts",
     "test/contract/**/*.ts",
     "test/e2e/**/*.ts",

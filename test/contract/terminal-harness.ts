@@ -15,7 +15,7 @@ import { terminalHandlers } from '../../src/main/ipc/terminal'
 import { spawnShellPty, TerminalRegistry, terminalShellOptions, type SpawnPty, type TerminalRegistryOptions } from '../../src/main/terminal/pty'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL } from '../app-url'
-import { profileVars } from '../e2e/terminal-shell'
+import { profileVars } from '../windows-profile'
 
 export const PROJECT = 'demo-00000001'
 export const NODE = 'node-1'
@@ -41,7 +41,7 @@ export const IGNORE_HANGUP = `${WINDOWS ? '' : "trap '' HUP; "}${say('trap', 'pe
  * The environment of a shell of Windows in the tests: the system folders on the Path, so the shell
  * is Windows PowerShell, and every folder of the user in the temporary home, so no profile,
  * history or cache of the machine running the tests takes part. `path` goes first on the Path.
- * The profile variables are the ones the e2e launches move (profileVars, test/e2e/terminal-shell.ts),
+ * The profile variables are the ones the e2e launches move (profileVars, test/windows-profile.ts),
  * HOMEDRIVE and HOMEPATH among them, which Git for Windows takes HOME from when HOME is unset;
  * test/contract/terminal-profile-isolation.test.ts pins that none of them is the test process's own.
  */

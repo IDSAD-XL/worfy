@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
-import { chooseGitBash, WINDOWS, windowsProfileEnv } from './terminal-shell'
+import { chooseGitBash, WINDOWS } from './terminal-shell'
+import { windowsProfileEnv } from '../windows-profile'
 
 // The wheel over a Node (worfy-week ticket 16). Until a Node is clicked, a wheel or a two-finger
 // swipe over it moves the Canvas, whatever the Node draws: a scrolling HANDOFF, a Note's textarea,

@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, openSecondWindow, packagedBuild, packagedExecutable, type LaunchedApp, type LaunchOptions } from './helpers'
-import { childrenOf, chooseGitBash, printJoined, shellsOf, SIZE_EXPRESSION, WINDOWS, windowsProcessName, windowsProfileEnv } from './terminal-shell'
+import { childrenOf, chooseGitBash, printJoined, shellsOf, SIZE_EXPRESSION, WINDOWS, windowsProcessName } from './terminal-shell'
+import { windowsProfileEnv } from '../windows-profile'
 
 // The Terminal Node against the built app: "New terminal" in the Canvas context menu starts the
 // user's shell in the Project root on a real pty; the Node's size is the pty's size; the output

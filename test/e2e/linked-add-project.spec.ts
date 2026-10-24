@@ -18,7 +18,7 @@ import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { canvasReady, icacls, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, thisUser, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
-import { windowsProfileEnv } from './terminal-shell'
+import { windowsProfileEnv } from '../windows-profile'
 import { loginProfileWithNode, printScript, profileJsonScript } from '../harness-node'
 
 test.setTimeout(240_000)

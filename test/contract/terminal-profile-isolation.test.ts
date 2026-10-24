@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { DIRECT_START_PROFILE, directStartEnv, launchEnv } from '../e2e/launch-env'
-import { PROFILE_VARS, windowsProfileEnv } from '../e2e/terminal-shell'
+import { PROFILE_VARS, windowsProfileEnv } from '../windows-profile'
 import { removeTestTree } from '../remove'
 import { harness, home, needsWindowsPowerShellOffRunner, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
 

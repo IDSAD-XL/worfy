@@ -41,7 +41,7 @@ import { notifyOpen } from '../../src/shared/ipc/notify'
 import { trashList } from '../../src/shared/ipc/trash'
 import type { LayoutOpInput } from '../../src/shared/layout/types'
 import { LinkBench, type BenchMachine } from './link-bench'
-import { PROFILE_VARS, windowsProfileEnv } from '../e2e/terminal-shell'
+import { PROFILE_VARS, windowsProfileEnv } from '../windows-profile'
 import { nodeScript } from '../harness-node'
 import { removeTestTree } from '../remove'
 

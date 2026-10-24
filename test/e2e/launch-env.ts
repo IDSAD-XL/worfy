@@ -6,22 +6,26 @@
 // files: a slow one slowed every start and failed tests with short waits (worfy-harness ticket 45).
 // So SHELL defaults to test/fixtures/e2e-shell/sh, which reads no rc file and hands the app the
 // test process's PATH. HOME stays the developer's: no rc file is read whatever HOME is, and the
-// app's other paths under HOME (git's identity among them) stay what the tests had before. Not on
-// Windows: there the profile folders move (below), and the git the app runs takes its global config
-// from that temporary profile (HOMEDRIVE + HOMEPATH), so it has no identity of the developer's.
+// app's other paths under HOME (git's identity among them) stay what the tests had before. On
+// Windows the profile folders move (below), and the git the app runs finds its global config in
+// that temporary profile (HOMEDRIVE + HOMEPATH) only while the app's process has no HOME: Git for
+// Windows takes HOME first. A run started from Git Bash, which sets HOME, or a spec that passes
+// HOME gives the app that HOME, and its git then reads the global config there (the developer's
+// own, from Git Bash). That git only reads (status, log), and the specs commit with their own -c
+// identity.
 //
 // A spec that is about the login shell sets SHELL (and its own HOME) through `env`, and its value
 // wins over the default, as every variable of `env` does.
 //
 // On Windows the user's profile folders move to a temporary folder of the launch (windowsProfileEnv,
-// terminal-shell.ts): worfy hands USERPROFILE, APPDATA and LOCALAPPDATA of its own process to the
+// test/windows-profile.ts): worfy hands USERPROFILE, APPDATA and LOCALAPPDATA of its own process to the
 // shell of a Terminal, and with the test process's values that shell read the owner's $PROFILE and
 // rc files and appended every command a spec typed to the owner's PSReadLine history (worfy-windows
 // ticket 84). test/contract/terminal-profile-isolation.test.ts pins it.
 import { symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { windowsProfileEnv } from './terminal-shell'
+import { windowsProfileEnv } from '../windows-profile'
 
 const fixtures = join(import.meta.dirname, '..', 'fixtures')
 
