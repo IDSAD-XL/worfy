@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import type { BrowserProfile } from '../../../shared/browser/profiles'
-import type { BrowserControlMode } from '../../../shared/browser/tools'
+import type { BROWSER_KIND, BROWSER_SIZE, BrowserControlMode } from '../../../shared/browser/tools'
 import { BrowserProfiles } from '../../browser/BrowserProfiles'
 import { returnBrowserControl, takeOverBrowser, useBrowserControl } from '../../browser/control'
 import { buttonOf, keyText, modifiersOf, navigateBrowserFrames, sendBrowserInput, useBrowserFrames } from '../../browser/frames'
@@ -49,10 +49,12 @@ import './BrowserNode.css'
 // sends it the user's click, scroll and keys; its address bar sends the page there through main.
 // A read-only screen of a Linked machine (ADR-0078 item 14) shows the frame with the name of the
 // Browser profile alone: no address bar, no buttons, no frames, no picture of an Asleep page.
-// The same kind as BROWSER_KIND of browser-frame.ts: a literal here, as fast refresh wants.
-export const kind = 'browser'
-export const defaultWidth = 640
-export const defaultHeight = 440
+// The kind and size of src/shared/browser/tools.ts. The registry (index.ts) needs them here as
+// literals (fast refresh accepts no other constant exports); `satisfies` fails the typecheck the
+// moment they differ from the shared ones.
+export const kind = 'browser' satisfies typeof BROWSER_KIND
+export const defaultWidth = 640 satisfies typeof BROWSER_SIZE.w
+export const defaultHeight = 440 satisfies typeof BROWSER_SIZE.h
 export const createLabel = 'New browser'
 
 /**
