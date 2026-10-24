@@ -1,7 +1,8 @@
 # 23 — факты Orchestrator-а читаются через `readLinesBefore`
 
 Type: task
-Status: claimed 2026-10-24T01:35Z
+Status: done 2026-10-24T02:05Z
+PR: #821
 Branch: worfy-ui/23
 Blocked by: 21
 Source: review PR #693 (worfy-ui 21), раунд 1, замечание уровня low: в коде два чтения транскрипта
