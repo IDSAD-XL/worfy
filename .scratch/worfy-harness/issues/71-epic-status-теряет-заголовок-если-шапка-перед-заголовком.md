@@ -79,7 +79,7 @@ Source: владелец, 2026-10-25 (чат Mac-оркестратора); за
 
 ## Итог
 
-Ветка `worfy-harness/71`, PR — в отчёте implementer-а (номер допишет Orchestrator при `ticket done`).
+Ветка `worfy-harness/71`, PR #829. `node scripts/windows-verdict-scope.mjs origin/main HEAD` — `runner` (код 0).
 
 - **`epic-status`** (`harness/bin/epic-status`, `parse()`): заголовок — первый H1 на любой строке вне
   блоков ```` ``` ```` и `~~~`: `#`, пробел или tab, текст; хвостовые пробелы и tab-ы отрезаются. Регулярка
