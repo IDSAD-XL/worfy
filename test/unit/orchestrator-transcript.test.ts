@@ -91,6 +91,28 @@ describe('readTranscriptFacts', () => {
     expect(await readTranscriptFacts(file, { chunkBytes: 100 })).toStrictEqual({ model: 'claude-opus-5-5', statusBlock: BLOCK_OWN })
   })
 
+  it('gives the answer of a whole read when a line longer than the window lies across the boundary of two windows', async () => {
+    // The answer with the block is ~1.5 KB: every window size below cuts it, and windows grow back over it.
+    const long = assistant('claude-opus-5-5', [text(`${'Длинный отчёт. '.repeat(50)}\n\n${BLOCK_OWN}`)])
+    const file = transcript([user('старт'), long, user('дальше'), assistant('claude-sonnet-5', [text('x'.repeat(700))]), user('конец')])
+    const whole = await readTranscriptFacts(file, { chunkBytes: 1024 * 1024 })
+    expect(whole).toStrictEqual({ model: 'claude-sonnet-5', statusBlock: BLOCK_OWN })
+    for (const chunkBytes of [1, 7, 64, 200, 777, 1500]) {
+      expect(await readTranscriptFacts(file, { chunkBytes }), `chunkBytes ${chunkBytes}`).toStrictEqual(whole)
+    }
+  })
+
+  it('takes a complete last line written without a line end', async () => {
+    const file = transcript([user('старт')], assistant('claude-opus-5-5', [text(BLOCK_OWN)]))
+    for (const chunkBytes of [undefined, 16]) {
+      expect(await readTranscriptFacts(file, chunkBytes === undefined ? {} : { chunkBytes })).toStrictEqual({ model: 'claude-opus-5-5', statusBlock: BLOCK_OWN })
+    }
+  })
+
+  it('rejects for a missing file, as before', async () => {
+    await expect(readTranscriptFacts(join(dir, 'missing.jsonl'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('writes nothing next to the transcript', async () => {
     const file = transcript(LINES)
     await readTranscriptFacts(file, { chunkBytes: 64 })
