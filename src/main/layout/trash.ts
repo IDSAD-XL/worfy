@@ -8,8 +8,12 @@
 // moved). The Node leaves the Layout through the Layout store like any other operation (main is
 // its only writer, ADR-0003), and comes back through it with the same id, place and fields.
 //
+// A Node of kind `image` (worfy-canvas ticket 23) takes its image file along the same way: the file
+// `<Project data folder>/images/<id>.<ext>` (images.ts) moves into the entry folder under its own
+// name, and comes back from there.
+//
 // A Card is moved only when no other Node shows it; otherwise only the deleted Node goes to the
-// trash. Entries older than TRASH_KEEP_MS are deleted by purge(), which the IPC module runs when
+// trash. The same holds for an image file. Entries older than TRASH_KEEP_MS are deleted by purge(), which the IPC module runs when
 // the app starts.
 //
 // On Windows a call through a link to `\\host\share\…` makes the system contact that host with
@@ -32,10 +36,12 @@ import { z } from 'zod'
 import { CARD_ID_PATTERN } from '../../shared/ipc/cards'
 import { TRASH_KEEP_MS, TRASH_LABEL_PATTERN, trashRefusal, type TrashEntry } from '../../shared/ipc/trash'
 import { layoutNodeSchema, type LayoutNode, type LayoutState } from '../../shared/layout/types'
+import { IMAGE_FILE_PATTERN } from '../../shared/ipc/canvas-images'
 import { titleOf } from '../cards/store'
 import { leadsToRemoteSync, type LinkFsSync, type PathRules } from '../remote-links'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { removeTree } from '../storage/remove'
+import { imageFileOf, imagesDirOf } from './images'
 
 /** The folder of a Project's trash, inside its data folder. */
 export const TRASH_DIR = 'trash'
@@ -57,6 +63,11 @@ const storedEntrySchema = z.object({
       title: z.string().nullable(),
     })
     .nullable(),
+  /** The image file of an `image` Node, and whether it moved here; absent or null for a Node of another kind. */
+  image: z
+    .object({ file: z.string().regex(IMAGE_FILE_PATTERN), moved: z.boolean() })
+    .nullable()
+    .optional(),
 })
 type StoredEntry = z.output<typeof storedEntrySchema>
 
@@ -185,7 +196,7 @@ const summaryOf = (label: string, entry: StoredEntry): TrashEntry => ({
   nodeId: entry.node.id,
   kind: entry.node.kind,
   title: entry.card ? entry.card.title : titleOfNode(entry.node),
-  hasFiles: entry.card !== null && (entry.card.files || entry.card.data),
+  hasFiles: (entry.card !== null && (entry.card.files || entry.card.data)) || entry.image?.moved === true,
 })
 
 /** The time a label was made at (its first part). */
@@ -247,7 +258,22 @@ export class TrashStore {
         const data = move(found.data, paths.data, join(dir, CARD_DATA_FILE))
         card = { cardId, files, data, title: found.title }
       }
-      const entry: StoredEntry = { trashedAt, node, card }
+      const imageFile = imageFileOf(node)
+      let image: StoredEntry['image'] = null
+      if (imageFile !== null) {
+        const dataDir = this.deps.dataDirOf(projectId)
+        const from = join(imagesDirOf(dataDir), imageFile)
+        const sharedImage = layout.nodes.some((each) => each.id !== nodeId && imageFileOf(each) === imageFile)
+        const there = placeOf(from, dataDir) === 'taken'
+        const imageMoved = !sharedImage && there
+        if (imageMoved) {
+          const to = join(dir, imageFile)
+          renameSync(from, to)
+          moved.push({ from, to })
+        }
+        image = { file: imageFile, moved: imageMoved }
+      }
+      const entry: StoredEntry = { trashedAt, node, card, image }
       writeJsonFile(join(dir, ENTRY_FILE), storedEntrySchema, entry)
       this.deps.layout.apply(projectId, keep === undefined ? { op: 'remove', id: nodeId } : { op: 'remove', id: nodeId, keep: [...keep] }, screen)
       return summaryOf(label, entry)
@@ -268,7 +294,7 @@ export class TrashStore {
     const dir = this.entryDir(projectId, label)
     const entry = readJsonFile(join(dir, ENTRY_FILE), storedEntrySchema)
     if (!entry) throw new Error(`The trash has no entry ${label}`)
-    const { node, card } = entry
+    const { node, card, image } = entry
     if (this.deps.layout.get(projectId).layout.nodes.some((each) => each.id === node.id)) {
       throw new Error(`The Layout has a Node with id ${node.id} again; remove it before restoring`)
     }
@@ -283,6 +309,13 @@ export class TrashStore {
         if (place === 'away') throw new Error(`The folder of Card ${card.cardId} leads off this machine, or cannot be checked; the Card is not put back`)
         if (place === 'taken') throw new Error(`A Card with id ${card.cardId} exists again; delete it before restoring`)
       }
+    }
+    if (image?.moved === true) {
+      const to = join(imagesDirOf(this.deps.dataDirOf(projectId)), image.file)
+      const place = placeOf(to, this.deps.dataDirOf(projectId))
+      if (place === 'away') throw new Error(`The images folder leads off this machine, or cannot be checked; the image ${image.file} is not put back`)
+      if (place === 'taken') throw new Error(`An image file ${image.file} exists again; delete it before restoring`)
+      back.push({ from: join(dir, image.file), to })
     }
 
     const done: { from: string; to: string }[] = []

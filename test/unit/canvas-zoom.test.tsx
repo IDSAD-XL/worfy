@@ -74,6 +74,7 @@ describe('every Node type marks its header row, or is a known exception', () => 
     'TicketNode.tsx': 'its card is its header; a focused Ticket has a view of its own',
     'EpicFrameNode.tsx': 'a frame, never in a focus tile',
     'BindingAnchorNode.tsx': 'an invisible anchor of a Binding',
+    'ImageNode.tsx': 'the image fills the card whole; there is no header row to keep clear of',
   }
   /** Node types with more than one header: a live Session and a Session read from its transcript. */
   const HEADERS: Record<string, number> = { 'SessionNode.tsx': 2 }

@@ -1,7 +1,8 @@
 // The `trash` domain (ticket 30): Nodes the user deleted from the Canvas, kept for TRASH_KEEP_MS in
 // <Project data folder>/trash/<label>/ — worfy's own data folder, never the Project's repository
-// (ADR-0005). A deleted Card moves there with its files and its data; every entry keeps the
-// Node's Layout entry, so Restore puts the Node back where it was. Handled in src/main/ipc/trash.ts
+// (ADR-0005). A deleted Card moves there with its files and its data, a deleted image with its
+// image file (worfy-canvas ticket 23); every entry keeps the Node's Layout entry, so Restore puts
+// the Node back where it was. Handled in src/main/ipc/trash.ts
 // (ADR-0006), the files are moved by src/main/layout/trash.ts.
 import { z } from 'zod'
 import { keepBrowsersSchema, type LayoutNode } from '../layout/types'
@@ -18,8 +19,8 @@ export const TRASH_KEEP_MS = 3 * 24 * 60 * 60 * 1000
 export const TRASH_LABEL_PATTERN = /^[0-9]{1,16}-[0-9a-f]{8}$/
 export const trashLabelSchema = z.string().regex(TRASH_LABEL_PATTERN, 'a trash label is <milliseconds>-<8 hex digits>')
 
-/** The kinds of Nodes the user may delete: Cards, notes, Terminals and Session Nodes. */
-export const TRASHABLE_KINDS: readonly string[] = ['card', 'note', 'terminal', 'session']
+/** The kinds of Nodes the user may delete: Cards, notes, Terminals, Session Nodes and images (worfy-canvas ticket 23). */
+export const TRASHABLE_KINDS: readonly string[] = ['card', 'note', 'terminal', 'session', 'image']
 
 /**
  * Why the user may not delete this Node, or null when they may. main asks the same question

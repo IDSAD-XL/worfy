@@ -98,6 +98,8 @@ const KIND_LABELS: Readonly<Record<string, string>> = {
   card: 'Card',
   orchestrator: 'Orchestrator',
   session: 'Session',
+  // An image has no title of its own (worfy-canvas ticket 23).
+  image: 'Image',
 }
 
 /** A kind's name for people: "Note" for `note`, the kind itself for one without a name. */
