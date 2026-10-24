@@ -88,6 +88,7 @@ test.beforeAll(async () => {
          <p><input id="filled" value="hello"> <span id="filled-editable" contenteditable="true">hello</span>
             <input id="filled-email" type="email" value="a@b.c"> <input id="filled-number" type="number" value="12"></p>
          <p><textarea id="area">line</textarea> <textarea id="area-guarded" onkeydown="if (event.key === 'Enter') event.preventDefault()">line</textarea></p>
+         <div id="editable-enter" contenteditable="true">line</div> <div id="editable-guarded" contenteditable="true" onkeydown="if (event.key === 'Enter') event.preventDefault()">line</div>
          <form id="two" action="/next"><input id="two-a" name="a"><input id="two-b" name="b"></form>
          <form id="guarded" action="/next" onkeydown="if (event.key === 'Enter') event.preventDefault()"><input id="g" name="g"></form>
          <form id="guarded-press" action="/next" onkeypress="if (event.key === 'Enter') event.preventDefault()"><input id="gp" name="g"></form>
@@ -364,6 +365,11 @@ test('typing goes into the page and leaves the keyboard focus of the window wher
   await ok('browser_type', { id, selector: '#area', text: 'Y' })
   await ok('browser_type', { id, selector: '#area-guarded', text: 'X', submit: true })
   expect(await inPage("JSON.stringify([document.querySelector('#area').value, document.querySelector('#area-guarded').value])")).toBe(JSON.stringify(['lineX\nY', 'lineX']))
+  // So does Enter in an editable element: a new paragraph, the next text in it.
+  await ok('browser_type', { id, selector: '#editable-enter', text: 'X', submit: true })
+  await ok('browser_type', { id, selector: '#editable-enter', text: 'Y' })
+  await ok('browser_type', { id, selector: '#editable-guarded', text: 'X', submit: true })
+  expect(await inPage("JSON.stringify([document.querySelector('#editable-enter').innerText, document.querySelector('#editable-guarded').innerText])")).toBe(JSON.stringify(['lineX\nY', 'lineX']))
 
   // Enter does what a real one does: a form of two text fields and no button is not sent, nor one
   // whose page stops the key; a form's default button is clicked — its handler runs, its name and

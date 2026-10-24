@@ -14,7 +14,7 @@ const SIGN_IN = 'signin-view-1'
 
 const xterms = vi.hoisted(() => [] as XtermTerminal[])
 /** What `projects.connect.signIn` answers: the kept output of the sign-in and the sizes of the pty it came at. */
-const opened = vi.hoisted(() => ({ replay: '', sizes: undefined as { at: number; cols: number; rows: number }[] | undefined }))
+const opened = vi.hoisted(() => ({ replay: '', sizes: undefined as { at: number; cols: number; rows: number }[] | undefined, exited: null as { exitCode: number } | null }))
 /** Every non-empty text handed to xterm.js, with the size the terminal had then. */
 const writes = vi.hoisted(() => [] as { data: string; cols: number; rows: number }[])
 /** Runs once, right after the next write of a non-empty text is handed to xterm.js and before xterm.js parses it. */
@@ -57,7 +57,7 @@ vi.mock('@xterm/xterm/css/xterm.css', () => ({}))
 vi.mock('../../src/renderer/ipc', () => ({
   invoke: (channel: string, input: unknown) => {
     wire.calls.push({ channel, input })
-    if (channel === 'projects.connect.signIn') return Promise.resolve({ ok: true, value: { replay: opened.replay, end: opened.replay.length, sizes: opened.sizes, exited: null } })
+    if (channel === 'projects.connect.signIn') return Promise.resolve({ ok: true, value: { replay: opened.replay, end: opened.replay.length, sizes: opened.sizes, exited: opened.exited } })
     return Promise.resolve({ ok: true, value: undefined })
   },
   invokeOn: () => Promise.resolve({ ok: false, error: 'not served here' }),
@@ -74,6 +74,7 @@ beforeEach(() => {
   xterms.length = 0
   opened.replay = ''
   opened.sizes = undefined
+  opened.exited = null
   writes.length = 0
   whileParsing.run = null
   wire.calls.length = 0
@@ -154,5 +155,31 @@ describe('the kept output of the sign-in view (worfy-windows ticket 89)', () => 
     await waitFor(() => expect(screen.getByTestId('connect-signin').dataset.state).toBe('exited'))
     await waitFor(() => expect(writes.map((write) => write.data)).toEqual(['first|', 'second', '|last']))
     expect(onExit).toHaveBeenCalledTimes(1)
+  })
+
+  it('gh had exited before the view opened: the kept output is written at its sizes, and the view says how gh ended', async () => {
+    opened.replay = 'first|second'
+    opened.sizes = [
+      { at: 0, cols: 40, rows: 10 },
+      { at: 'first|'.length, cols: 60, rows: 12 },
+    ]
+    opened.exited = { exitCode: 1 }
+    const onExit = vi.fn()
+    render(<SignInTerminal signInId={SIGN_IN} onExit={onExit} onClose={() => undefined} />)
+    await waitFor(() => expect(screen.getByTestId('connect-signin').dataset.state).toBe('exited'))
+    await waitFor(() =>
+      expect(writes).toEqual([
+        { data: 'first|', cols: 40, rows: 10 },
+        { data: 'second', cols: 60, rows: 12 },
+      ]),
+    )
+    expect(onExit).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('gh exited (1); the accounts were read again')).toBeTruthy()
+    // Nothing to attach to: a key typed now goes nowhere.
+    const xterm = xterms.at(-1)
+    if (xterm === undefined) throw new Error('no xterm.js')
+    act(() => xterm.input('x'))
+    await act(() => new Promise<void>((resolve) => xterm.write('', resolve)))
+    expect(inputs()).toEqual([])
   })
 })

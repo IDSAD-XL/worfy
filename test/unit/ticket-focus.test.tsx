@@ -7,6 +7,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { ReactFlow, ReactFlowProvider } from '@xyflow/react'
 import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ticketsRead } from '../../src/shared/ipc/tickets'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import TicketNode from '../../src/renderer/canvas/nodes/TicketNode'
 import { folderOf } from '../../src/renderer/canvas/nodes/ticket-text'
@@ -141,8 +142,11 @@ describe('the focused Ticket', () => {
     ['a Project on a share', '\\\\host\\share\\w\\.scratch\\demo\\issues\\07-rate-limit.md', RELATIVE, ['.scratch/demo/spec.md', 'docs/adr/0002-view.md']],
     ['a Silent Project, the Workflow folder next to it', '/wf/.scratch/demo/issues/07-rate-limit.md', '../wf/.scratch/demo/issues/07-rate-limit.md', ['../wf/.scratch/demo/spec.md', '../wf/docs/adr/0002-view.md']],
     ['a file with no path relative to the root, which keeps its absolute folder', 'D:\\wf\\.scratch\\demo\\issues\\07-rate-limit.md', null, ['D:/wf/.scratch/demo/spec.md', 'D:/wf/docs/adr/0002-view.md']],
+    // A Linked machine on an older worfy answers no `relative`; the schema takes that answer.
+    ['a Linked machine on an older worfy, which answers no relative path', FILE, undefined, ['/w/.scratch/demo/spec.md', '/w/docs/adr/0002-view.md']],
   ])('opens the relative links of %s by the path main answered', async (_, path, relative, opened) => {
-    ipc.reads = [{ ok: true, value: { path, relative, text: TEXT } }]
+    const value = ticketsRead.output.parse(relative === undefined ? { path, text: TEXT } : { path, relative, text: TEXT })
+    ipc.reads = [{ ok: true, value }]
     render(inTile(<TicketNode {...propsOf(nodeOf(ticket()))} />))
     fireEvent.click(await screen.findByRole('link', { name: 'the spec' }))
     fireEvent.click(screen.getByRole('link', { name: 'the ADR' }))

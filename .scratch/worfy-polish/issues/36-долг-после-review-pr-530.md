@@ -233,5 +233,20 @@ mode), круг 1: линза «корректность» и линза «те�
 - **Ревью #741** — test: запись Asleep Browser-а держится, пока список не читается, и уходит при
   первом чтении без него (`browser-sleep.test.ts`).
 
+Ревью PR #826, круг 1 (high), исправлено:
+
+- `relative` в ответе `tickets.read` необязателен: Linked machine на старом worfy отвечает без него,
+  и тело Ticket-а считает ссылки от абсолютной папки, как раньше.
+- Enter в contenteditable проверен e2e `browser-mcp.spec.ts`; вид «Sign in with gh», когда gh уже
+  вышел, — unit `signin-replies.test.tsx`.
+- Диалог открытия убирает из имени все управляющие символы (C0, DEL, C1), U+2028 и U+2029, а не только
+  bidi. `.jsx` больше не документ: на Mac с Adobe это ExtendScript, и открытие его запускает.
+- `workflowPlaces` не берёт корень диска и home folder; `tickets.read` берёт свои места из него же.
+  Правило «путь выходит из папки» — одна функция `leavesFolder` (`src/main/remote-links.ts`).
+- Test-ы: подписчик с `fieldsOnly` получает изменение Epic-а; Autopilot подписан с `fieldsOnly`
+  (`workflowWatch`, `src/main/ipc/autopilot.ts`); first-run читает `Path` и `systemroot`.
+- `descendants` в `wave-gate-world.sh` читает пары pid и ppid (`ps -A -o pid= -o ppid=`, в Git Bash —
+  `/proc/<pid>/ppid`), а не столбцы `ps -ef`, первый из которых — имя пользователя, иногда с пробелом.
+
 `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (418 файлов). e2e Browser-ов, focus mode,
-Terminal, колеса, `projects-connect`, Ticket-а и Linked machine — 62 passed.
+Terminal, колеса, `projects-connect`, Ticket-а, Linked machine и Autopilot — 67 passed.

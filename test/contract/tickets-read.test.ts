@@ -140,6 +140,14 @@ describe('tickets.read', () => {
     await refused(ticket('e', 2, 'b'), /outside the Project/)
   })
 
+  it('reads no Ticket from a Workflow folder and a Tickets root that are the home folder', async () => {
+    const { readTicketFile } = await import('../../src/main/ipc/tickets')
+    writeTicket(workflow, 'e', '01-a.md', 'the Workflow folder copy')
+    const layout = { ...silent(repo, workflow), ticketsRoot: workflow }
+    expect((await readTicketFile(layout, { epic: 'e', num: 1, slug: 'a' }, { home: scratch })).text).toBe('the Workflow folder copy')
+    await expect(readTicketFile(layout, { epic: 'e', num: 1, slug: 'a' }, { home: workflow })).rejects.toThrow(/outside the Project/)
+  })
+
   it('answers the path relative to the Project root that main resolves a link against, or null where there is none', async () => {
     const { relativeToRoot } = await import('../../src/main/ipc/tickets')
     const real = (path: string) => Promise.resolve(path)

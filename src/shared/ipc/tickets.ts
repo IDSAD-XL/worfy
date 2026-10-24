@@ -19,7 +19,9 @@ export const EPIC_NAME = /^(?!\.\.?$)[^/\\\0]+$/
  * between the parts (`../workflow/.scratch/…` for a Silent Project's Workflow folder next to it), as
  * `docs.read` answers: the file's relative links resolve against its folder, and main resolves them
  * against the root (worfy-polish ticket 36: an absolute folder lost the leading `\\` of a UNC path).
- * Null when the file has no path relative to the root: another drive or share on Windows.
+ * Null when the file has no path relative to the root: another drive or share on Windows. Absent
+ * in the answer of a Linked machine on an older worfy: its links then resolve against the absolute
+ * folder, as before.
  * `project`, `read`: a window on a Linked machine reads the file on that Machine.
  */
 export const ticketsRead = invokeChannel(
@@ -30,7 +32,7 @@ export const ticketsRead = invokeChannel(
     num: z.number().int().nonnegative(),
     slug: z.string().max(1024),
   }),
-  z.object({ path: z.string(), relative: z.string().nullable(), text: z.string() }),
+  z.object({ path: z.string(), relative: z.string().nullable().optional(), text: z.string() }),
   'project',
   'read',
 )

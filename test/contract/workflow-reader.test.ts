@@ -1662,6 +1662,12 @@ describe('workflow hub', () => {
     await nextDelta(all, (d) => d.tickets.some((t) => t.state === 'blocked'))
     // The hub sends one change to all its subscribers at once.
     expect(fields.map((d) => d.tickets.map((t) => [t.num, t.state]))).toEqual([[[2, 'blocked']]])
+
+    // A change outside the Tickets reaches it too: the Epic's title, from the first heading of spec.md.
+    const spec = join(repo, '.scratch/demo/spec.md')
+    writeFileSync(spec, readFileSync(spec, 'utf8').replace(/^# .*$/m, '# Renamed epic'))
+    await nextDelta(all, (d) => d.epics.some((epic) => epic.title === 'Renamed epic'))
+    expect(fields.at(-1)?.epics.map((epic) => epic.title)).toEqual(['Renamed epic'])
   })
 })
 

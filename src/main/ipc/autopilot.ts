@@ -24,7 +24,7 @@ import { harnessDriftWatch } from '../autopilot/harness-drift'
 import { openRun } from '../autopilot/journal'
 import { KeepAwake } from '../autopilot/power'
 import { readOriginKey } from '../autopilot/origin'
-import { Autopilot, RunningElsewhere, selfProjectRefusal } from '../autopilot/run'
+import { Autopilot, RunningElsewhere, selfProjectRefusal, type AutopilotDeps } from '../autopilot/run'
 import { toEveryWindow } from '../broadcast'
 import { bundledHarnessVersion } from '../harness/bundled'
 import { harnessScriptEnv } from '../harness/script-env'
@@ -33,6 +33,7 @@ import { appLinkService, onAppLinkStart, type LinkService } from '../link/servic
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { readWorkflow } from '../workflow/reader'
+import type { WorkflowHub } from '../workflow/watch'
 import { sharedLauncher } from './actions'
 import { sharedPrTracker } from './checks'
 import { defineHandler, emit, type HandlerModule } from './index'
@@ -73,6 +74,21 @@ const QUIT_WAIT_MS = 3000
 /** Subscribers of the workflow watch get ids of their own, apart from the windows' webContents ids. */
 let watchIds = 0
 
+/**
+ * Autopilot's watch of a Project's workflow over `hub` (the app's workflowHub). The cycle reads the
+ * Tickets' fields: an edit of a Ticket's text alone is no event of it, so it subscribes `fieldsOnly`.
+ */
+export function workflowWatch(hub: Pick<WorkflowHub, 'open' | 'close'>): AutopilotDeps['watchWorkflow'] {
+  return async (root, onChange) => {
+    watchIds -= 1
+    const id = watchIds
+    await hub.open(root, { id, fieldsOnly: true, send: () => onChange() })
+    return async () => {
+      await hub.close(root, id)
+    }
+  }
+}
+
 let shared: Autopilot | undefined
 
 /** The question about Autopilot runs on each link service (one per app; tests may start more). */
@@ -102,15 +118,7 @@ export function sharedAutopilot(): Autopilot {
     projectRoot: (projectId) => projectStore().get(projectId).path,
     selfRefusal: (root) => selfProjectRefusal({ packaged: app.isPackaged, appPath: app.getAppPath(), projectRoot: root, gitCommonDir }),
     workflow: async (root) => (await readWorkflow({ root, claudeHome: claudeHome(), env: harnessScriptEnv })).model,
-    watchWorkflow: async (root, onChange) => {
-      watchIds -= 1
-      const id = watchIds
-      // The cycle reads the Tickets' fields: an edit of a Ticket's text alone is no event of it.
-      await workflowHub.open(root, { id, fieldsOnly: true, send: () => onChange() })
-      return async () => {
-        await workflowHub.close(root, id)
-      }
-    },
+    watchWorkflow: workflowWatch(workflowHub),
     orchestrators: {
       setUnattended: (projectId, unattended) => sharedOrchestrators().setUnattended(projectId, unattended),
       giveBackNow: (projectId) => sharedOrchestrators().giveBackNow(projectId),

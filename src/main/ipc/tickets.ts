@@ -3,11 +3,11 @@ import * as nativePath from 'node:path'
 import { ticketsRead } from '../../shared/ipc/tickets'
 import { DOC_SIZE_MAX } from '../docs/watch'
 import { projectStore } from '../projects/store'
-import type { PathRules } from '../remote-links'
+import { isInside, type PathRules } from '../remote-links'
 import { layoutFailure, projectLayouts, type ProjectLayout } from '../workflow/folder'
 import { issueKey } from '../workflow/reader'
 import { defineHandler, type HandlerModule } from './index'
-import { resolveProjectFile, type ResolveOptions } from './shell'
+import { resolveProjectFile, workflowPlaces, type ResolveOptions } from './shell'
 
 // The `tickets` channel (src/shared/ipc/tickets.ts): the text of one Ticket file for the focused
 // Ticket. The file is looked up where the workflow reader looks (enrichSnapshot of
@@ -27,6 +27,8 @@ export interface TicketRef {
 }
 
 export interface TicketReadOptions extends ResolveOptions {
+  /** The user's home folder, never a place of the Tickets (workflowPlaces); os.homedir() by default. */
+  home?: string
   /** The names in a folder; replaced in tests. */
   readdir?: (dir: string) => Promise<string[]>
 }
@@ -38,10 +40,8 @@ export interface TicketReadOptions extends ResolveOptions {
  * as written, the way main resolves a link against it: path.resolve(root, relative) is the file again.
  */
 export async function relativeToRoot(root: string, file: string, paths: PathRules, options: ResolveOptions): Promise<string | null> {
-  const parts = (relative: string): string[] | null => (relative === '..' || relative.startsWith(`..${paths.sep}`) || paths.isAbsolute(relative) ? null : relative.split(paths.sep))
   const base = await (options.real ?? ((path: string) => realpath(path).catch(() => null)))(root)
-  const inside = base === null ? null : parts(paths.relative(base, file))
-  if (inside !== null) return inside.join('/')
+  if (base !== null && isInside(base, file, paths)) return paths.relative(base, file).split(paths.sep).join('/')
   const lexical = paths.relative(root, file)
   return paths.isAbsolute(lexical) ? null : lexical.split(paths.sep).join('/')
 }
@@ -51,7 +51,7 @@ export async function readTicketFile(layout: ProjectLayout, ref: TicketRef, opti
   // Where the Tickets live is unknown: the reason, not a guess (src/main/workflow/folder.ts).
   if (layout.failed) throw new Error(layoutFailure(layout))
   const paths: PathRules = options.paths ?? nativePath
-  const places = [layout.ticketsRoot, layout.workflowFolder]
+  const places = workflowPlaces(layout, { paths, home: options.home })
   const name = `${String(ref.num).padStart(2, '0')}-${ref.slug}.md`
   const dir = await resolveProjectFile(layout.root, paths.join(layout.ticketsRoot, ref.epic, 'issues'), places, options).catch((error: unknown) => {
     throw new Error(`the Ticket folder of ${ref.epic} cannot be read: ${error instanceof Error ? error.message : String(error)}`)

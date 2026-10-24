@@ -233,10 +233,18 @@ state() {
 gate_count() { cat "$GATE_DIR/count" 2>/dev/null || echo 0; }
 # until_ok <seconds> <command…>: polls the command every 0.2 s; exit 0 as soon as it succeeds, 1 after the time
 until_ok() { local n=$(( $1 * 5 )); shift; while [ "$n" -gt 0 ]; do "$@" && return 0; sleep 0.2; n=$((n - 1)); done; return 1; }
-# descendants <pid>: the pids of every process under <pid>, children before grandchildren, from one `ps -ef`, whose
-# second and third columns are PID and PPID on macOS, on Linux and in Git Bash.
+# descendants <pid>: the pids of every process under <pid>, children before grandchildren, from one list of "pid
+# ppid" pairs: `ps -A -o pid= -o ppid=` on macOS and Linux, /proc/<pid>/ppid in Git Bash, whose ps takes no -o. Not
+# the columns of `ps -ef`: its first one is the user's name, and a Windows user name may have a space in it.
 descendants() {
-    ps -ef 2>/dev/null | awk -v root="$1" 'NR > 1 { parent[$2] = $3 }
+    local f d pp
+    {
+        if [ -e "/proc/$$/winpid" ]; then
+            for f in /proc/[0-9]*/ppid; do read -r pp 2>/dev/null <"$f" && { d=${f%/ppid}; echo "${d#/proc/} $pp"; }; done
+        else
+            ps -A -o pid= -o ppid= 2>/dev/null
+        fi
+    } | awk -v root="$1" '{ parent[$1] = $2 }
         END { n = 1; queue[1] = root; for (i = 1; i <= n; i++) for (p in parent) if (parent[p] == queue[i]) { queue[++n] = p; print p } }'
 }
 # Waits at most $2 s for the background run $1 and sets rc to its exit code. A run still going then is stopped with

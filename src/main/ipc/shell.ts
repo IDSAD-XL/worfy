@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { open, realpath, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import * as nativePath from 'node:path'
 import { BrowserWindow, dialog, shell, type Dialog } from 'electron'
 import { shellOpenExternal, shellOpenInEditor, type RevealPlatform } from '../../shared/ipc/shell'
@@ -23,14 +24,29 @@ function worktreeFolders(root: string): Promise<string[]> {
   })
 }
 
+export interface PlaceOptions {
+  /** The path rules of the platform; path.win32 in tests on any system. */
+  paths?: Pick<PathRules, 'parse' | 'relative' | 'resolve'>
+  /** The user's home folder; os.homedir() by default. */
+  home?: string
+}
+
 /**
  * The places of the Project's workflow outside its root: in Silent mode the Ticket files lie in the
  * Workflow folder, and the Tickets root may lie elsewhere still. `tickets.read` reads a Ticket from
- * there (src/main/ipc/tickets.ts), so "Open in editor" and the links of its body open from there
- * too. None for a layout that could not be read: where the workflow lives is unknown then.
+ * there (src/main/ipc/tickets.ts), and "Open in editor" and the links of its body open from there.
+ * None for a layout that could not be read: where the workflow lives is unknown then. A place that
+ * is the root of a disk or the home folder is left out: a Profile naming one would open every file
+ * of the disk, or of the user, to a link in a Ticket.
  */
-export function workflowPlaces(layout: ProjectLayout | null): string[] {
-  return layout === null || layout.failed ? [] : [layout.workflowFolder, layout.ticketsRoot]
+export function workflowPlaces(layout: ProjectLayout | null, options: PlaceOptions = {}): string[] {
+  if (layout === null || layout.failed) return []
+  const paths = options.paths ?? nativePath
+  const home = paths.resolve(options.home ?? homedir())
+  return [layout.ticketsRoot, layout.workflowFolder].filter((place) => {
+    const folder = paths.resolve(place)
+    return folder !== paths.parse(folder).root && paths.relative(home, folder) !== ''
+  })
 }
 
 const realOrNull = (path: string): Promise<string | null> => realpath(path).catch(() => null)
@@ -87,8 +103,10 @@ export async function resolveProjectFile(root: string, path: string, worktrees: 
 const DOCUMENTS_EVERYWHERE = ['.md', '.markdown', '.txt', '.log', '.json', '.jsonc', '.yaml', '.yml', '.toml', '.ts', '.tsx', '.css', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf']
 
 // JavaScript sources open in an editor on macOS and Linux; on Windows Script Host runs `.js` and
-// `.jse`, and `.mjs` and `.cjs` have no editor by default, so there they are shown.
-const DOCUMENTS_POSIX = ['.js', '.mjs', '.cjs', '.jsx']
+// `.jse`, and `.mjs` and `.cjs` have no editor by default, so there they are shown. `.jsx` is not a
+// document anywhere: on a Mac with Adobe software it is an ExtendScript file, and opening it runs it
+// in the Adobe application (review of PR #826).
+const DOCUMENTS_POSIX = ['.js', '.mjs', '.cjs']
 
 /** The documents a link opens on `platform`, lower case. */
 export function documentKinds(platform: string): readonly string[] {
@@ -150,14 +168,18 @@ export async function isDocument(target: string, options: DocumentOptions = {}):
 }
 
 /**
- * The bidirectional controls (U+202A–U+202E, U+2066–U+2069) and the direction marks (U+200E, U+200F,
- * U+061C): in a name they reorder what is shown, and `setup<U+202E>dm.command` reads as `setupdm…`
- * ending in `.md`. The question about a file shows its name without them.
+ * What a name may carry that is not shown as itself: the control characters (C0, DEL, C1), the line
+ * and paragraph separators (U+2028, U+2029), the bidirectional controls (U+202A–U+202E,
+ * U+2066–U+2069) and the direction marks (U+200E, U+200F, U+061C). Line breaks push the end of a name
+ * out of the box (`invoice.md<LF><LF><LF>.command`), and the bidirectional controls reorder it
+ * (`setup<U+202E>dm.command` reads as ending in `.md`). The question about a file shows its name
+ * without them.
  */
-const BIDI_CONTROLS = /[\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/g
+// eslint-disable-next-line no-control-regex -- the control characters are what is taken out
+const HIDING = /[\u0000-\u001F\u007F-\u009F\u2028\u2029\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/g
 
-/** A file name as the question about it shows it: without bidirectional controls. */
-export const shownName = (name: string): string => name.replace(BIDI_CONTROLS, '')
+/** A file name as the question about it shows it: without what would hide or reorder a part of it. */
+export const shownName = (name: string): string => name.replace(HIDING, '')
 
 /** What the user chose for a file that is not a document. */
 export type OpenChoice = 'open' | 'show' | 'cancel'

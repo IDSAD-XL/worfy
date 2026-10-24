@@ -5,7 +5,7 @@
 import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectLayout } from '../../src/main/workflow/folder'
@@ -221,6 +221,18 @@ describe('shell.openInEditor in a Silent Project', () => {
     expect(electron.openPath).not.toHaveBeenCalled()
   })
 
+  it('never takes the root of a disk or the home folder as a place of the workflow', async () => {
+    const { workflowPlaces } = await import('../../src/main/ipc/shell')
+    const layout = (workflowFolder: string, ticketsRoot: string): ProjectLayout => ({ root: '/p', mode: 'silent', workflowFolder, ticketsRoot, repos: [], workspace: null, reason: null, failed: false })
+    expect(workflowPlaces(layout('/wf', '/wf/.scratch'), { paths: posix, home: '/Users/a' })).toEqual(['/wf/.scratch', '/wf'])
+    expect(workflowPlaces(layout('/', '/.scratch'), { paths: posix, home: '/Users/a' })).toEqual(['/.scratch'])
+    expect(workflowPlaces(layout('/Users/a', '/Users/a/'), { paths: posix, home: '/Users/a' })).toEqual([])
+    expect(workflowPlaces(layout('/Users/a/wf', '/Users/a/wf/.scratch'), { paths: posix, home: '/Users/a/' })).toEqual(['/Users/a/wf/.scratch', '/Users/a/wf'])
+    // On Windows the root of a drive and of a share, and the home folder in any letter case.
+    expect(workflowPlaces(layout('D:\\', '\\\\host\\share\\'), { paths: win32, home: 'C:\\Users\\a' })).toEqual([])
+    expect(workflowPlaces(layout('c:\\users\\A', 'D:\\wf\\.scratch'), { paths: win32, home: 'C:\\Users\\a' })).toEqual(['D:\\wf\\.scratch'])
+  })
+
   it('opens nothing from the Workflow folder when where the workflow lives is unknown: a failed layout, or one that could not be asked', async () => {
     const spec = join(workflow, '.scratch', 'e', 'spec.md')
     layouts.byRoot.set(repo, { root: repo, mode: 'full', workflowFolder: workflow, ticketsRoot, repos: [], workspace: null, reason: 'the profile script failed', failed: true })
@@ -431,7 +443,7 @@ describe('shell.openInEditor opens documents and asks about anything else', () =
   })
 
   it('opens JavaScript sources at once on macOS and Linux, and asks on Windows, where Script Host runs .js', async () => {
-    const files = ['scripts/a.js', 'scripts/b.mjs', 'scripts/c.cjs', 'scripts/d.jsx'].map((name) => projectFile(name))
+    const files = ['scripts/a.js', 'scripts/b.mjs', 'scripts/c.cjs'].map((name) => projectFile(name))
     for (const platform of ['darwin', 'linux'] as const) {
       await asPlatform(platform, async () => {
         for (const path of files) expect(await open(path)).toStrictEqual({ ok: true, value: { path, outcome: 'opened' } })
@@ -441,8 +453,16 @@ describe('shell.openInEditor opens documents and asks about anything else', () =
     await asPlatform('win32', async () => {
       for (const path of files) expect(outcome(await open(path))).toBe('cancelled')
     })
-    expect(boxes()).toHaveLength(4)
+    expect(boxes()).toHaveLength(3)
     expect(opened()).toStrictEqual([...files, ...files])
+  })
+
+  // On a Mac with Adobe software `.jsx` is ExtendScript, which its application runs on open.
+  it('asks about a .jsx file on every platform', async () => {
+    const file = projectFile('scripts/panel.jsx')
+    for (const platform of ['darwin', 'linux', 'win32'] as const) expect(outcome(await asPlatform(platform, () => open(file))), platform).toBe('cancelled')
+    expect(boxes()).toHaveLength(3)
+    expect(opened()).toStrictEqual([])
   })
 
   // worfy-polish ticket 36: U+202E (right-to-left override) makes `setup<U+202E>dm.command` read as a
@@ -457,6 +477,21 @@ describe('shell.openInEditor opens documents and asks about anything else', () =
       ['setupdm.command', 'ab.term', 'x.sh', 'plain.sh'].map((name) => [`Open ${name}?`, `Open ${name}?`]),
     )
     expect(opened()).toStrictEqual([])
+  })
+
+  // Line breaks would push the real extension out of the box: `invoice.md` and, three lines down, `.command`.
+  it.skipIf(process.platform === 'win32')('shows the name without line breaks and other control characters', async () => {
+    const file = projectFile('lines/invoice.md\n\n\n.command')
+    await asPlatform('darwin', async () => expect(outcome(await open(file))).toBe('cancelled'))
+    expect(boxes().map(([, options]) => options.message)).toStrictEqual(['Open invoice.md.command?'])
+  })
+
+  it('takes out of a shown name every control character, the line and paragraph separators, the bidirectional controls and the direction marks', async () => {
+    const { shownName } = await import('../../src/main/ipc/shell')
+    const hiding = [...Array.from({ length: 0x20 }, (_, code) => code), 0x7f, ...Array.from({ length: 0x20 }, (_, code) => 0x80 + code), 0x2028, 0x2029, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069, 0x200e, 0x200f, 0x061c]
+    for (const code of hiding) expect(shownName(`a${String.fromCharCode(code)}.command`), code.toString(16)).toBe('a.command')
+    // Letters of any script and plain spaces stay.
+    expect(shownName('Отчёт 2026 · résumé.md')).toBe('Отчёт 2026 · résumé.md')
   })
 
   // worfy-polish ticket 36: macOS opens what a Finder alias points at — the alias `x.md` of a

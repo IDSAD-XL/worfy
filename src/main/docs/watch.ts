@@ -16,7 +16,7 @@ import * as nativePath from 'node:path'
 import { resolve, sep } from 'node:path'
 import { ADR_DIR, ADR_FILE_PATTERN, HANDOFF_FILE, type AdrEntry, type DocsState } from '../../shared/ipc/docs'
 import { accepted, DEFAULT_DOC_HEADINGS, escapeRegExp, OLD_DOC_HEADINGS } from '../../shared/workflow/doc-headings'
-import { isInside, leadsToRemote, UNCHECKED, walkLinks, type LinkFs, type PathRules } from '../remote-links'
+import { isInside, leadsToRemote, leavesFolder, UNCHECKED, walkLinks, type LinkFs, type PathRules } from '../remote-links'
 import { namesTheFolder, notThere, watchWithNode } from '../watch-gone'
 
 /** A larger file is refused: HANDOFF and ADRs are short text. */
@@ -48,11 +48,6 @@ export interface DocOptions {
   fs?: DocFs
   /** The label of an ADR's status line, `docs.adr_status_label` of the Profile; `Status` by default. */
   adrStatusLabel?: string
-}
-
-/** True when `rel` (relative, any separator) leaves the folder it is relative to. */
-function leaves(rel: string, paths: PathRules): boolean {
-  return rel === '..' || rel.startsWith(`..${paths.sep}`) || paths.isAbsolute(rel)
 }
 
 /** True for HANDOFF.md at the root and for docs/adr/NNNN-*.md; `parts` are the segments of a relative path. */
@@ -87,11 +82,11 @@ export async function resolveDocPath(root: string, path: string, options: DocOpt
   if (verdict === 'unchecked') throw new Error(`${path} ${UNCHECKED}`)
   const real = await fs.realpath(lexical).catch(() => null)
   if (real === null) {
-    if (leaves(paths.relative(root, lexical), paths) && leaves(paths.relative(base, lexical), paths)) throw new Error(`${path} is outside the Project`)
+    if (leavesFolder(paths.relative(root, lexical), paths) && leavesFolder(paths.relative(base, lexical), paths)) throw new Error(`${path} is outside the Project`)
     throw new Error(`${path} does not exist`)
   }
   const rel = paths.relative(base, real)
-  if (rel === '' || leaves(rel, paths)) throw new Error(`${path} is outside the Project`)
+  if (rel === '' || leavesFolder(rel, paths)) throw new Error(`${path} is outside the Project`)
   const parts = rel.split(paths.sep)
   if (!isDocument(parts)) throw new Error(`${path}: only HANDOFF.md and docs/adr/NNNN-*.md of the Project are read`)
   return { real, rel: parts.join('/') }
