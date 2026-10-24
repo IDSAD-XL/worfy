@@ -272,7 +272,8 @@ class ProjectStages {
   }
 
   async start(): Promise<void> {
-    this.opened = this.sources.workflow.open(this.root, { id: this.watchId, send: () => void this.refresh() })
+    // The Stages come from the Tickets' fields: an edit of a Ticket's text alone changes none of them.
+    this.opened = this.sources.workflow.open(this.root, { id: this.watchId, fieldsOnly: true, send: () => void this.refresh() })
     await this.opened
     await this.refresh()
     if (this.closed) return

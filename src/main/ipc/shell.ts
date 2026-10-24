@@ -1,10 +1,11 @@
 import { execFile } from 'node:child_process'
-import { realpath, stat } from 'node:fs/promises'
+import { open, realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { BrowserWindow, dialog, shell, type Dialog } from 'electron'
 import { shellOpenExternal, shellOpenInEditor, type RevealPlatform } from '../../shared/ipc/shell'
 import { projectStore } from '../projects/store'
 import { isInside, UNCHECKED, walkLinks, type LinkFs, type PathRules } from '../remote-links'
+import { projectLayouts, type ProjectLayout } from '../workflow/folder'
 import { defineHandler, type HandlerModule } from './index'
 
 /** The folders of the Project's git worktrees (the main one included); empty when git cannot say. */
@@ -20,6 +21,16 @@ function worktreeFolders(root: string): Promise<string[]> {
       )
     })
   })
+}
+
+/**
+ * The places of the Project's workflow outside its root: in Silent mode the Ticket files lie in the
+ * Workflow folder, and the Tickets root may lie elsewhere still. `tickets.read` reads a Ticket from
+ * there (src/main/ipc/tickets.ts), so "Open in editor" and the links of its body open from there
+ * too. None for a layout that could not be read: where the workflow lives is unknown then.
+ */
+export function workflowPlaces(layout: ProjectLayout | null): string[] {
+  return layout === null || layout.failed ? [] : [layout.workflowFolder, layout.ticketsRoot]
 }
 
 const realOrNull = (path: string): Promise<string | null> => realpath(path).catch(() => null)
@@ -94,15 +105,36 @@ export interface DocumentOptions {
   platform?: string
   /** stat of the file; replaced in tests. */
   stat?: (path: string) => Promise<{ isFile(): boolean }>
+  /** The first bytes of the file (at most `length`); replaced in tests. */
+  head?: (path: string, length: number) => Promise<Buffer>
 }
+
+/** The first `length` bytes of a file, fewer when it is shorter. */
+async function headOf(path: string, length: number): Promise<Buffer> {
+  const file = await open(path, 'r')
+  try {
+    const buffer = Buffer.alloc(length)
+    const { bytesRead } = await file.read(buffer, 0, length, 0)
+    return buffer.subarray(0, bytesRead)
+  } finally {
+    await file.close()
+  }
+}
+
+// A Finder alias is a regular file whose data is bookmark data, and its name may end in `.md`. macOS
+// opens what it points at — the alias `x.md` of a `.command` opens in Terminal and runs it (checked
+// with NSWorkspace.urlForApplication on 2026-10-24) — and a zip keeps the extended attributes that
+// make the file an alias. Bookmark data starts with these bytes.
+const BOOKMARK_MAGIC = Buffer.from('book\0\0\0\0mark', 'latin1')
 
 /**
  * Whether `target` (a real path, symlinks resolved) is a document a link may open: a regular file
  * whose extension, in any letter case, is one of documentKinds. A folder (an `.app` bundle is one),
  * a name without an extension or with any other, and on Windows a name with `:` (a stream of a file)
- * are not. The execute bit is not looked at: the system types a file with an extension by the
- * extension, which is why a document copied from a FAT or SMB volume, every bit set, still opens in
- * its editor. Throws when the file cannot be read, so a file that cannot be checked is never opened.
+ * are not, and on macOS neither is a Finder alias, whatever its name. The execute bit is not looked
+ * at: the system types a file with an extension by the extension, which is why a document copied
+ * from a FAT or SMB volume, every bit set, still opens in its editor. Throws when the file cannot be
+ * read, so a file that cannot be checked is never opened.
  */
 export async function isDocument(target: string, options: DocumentOptions = {}): Promise<boolean> {
   const platform = options.platform ?? process.platform
@@ -110,8 +142,22 @@ export async function isDocument(target: string, options: DocumentOptions = {}):
   if (!info.isFile()) return false
   const name = nativePath.basename(target).toLowerCase()
   if (platform === 'win32' && name.includes(':')) return false
-  return documentKinds(platform).includes(nativePath.extname(name))
+  if (!documentKinds(platform).includes(nativePath.extname(name))) return false
+  // shortcut: an alias made before Mac OS X 10.6 keeps its record in the resource fork, not as
+  // bookmark data, and is not seen here, redo when such an alias turns up in a Project.
+  if (platform === 'darwin' && (await (options.head ?? headOf)(target, BOOKMARK_MAGIC.length)).equals(BOOKMARK_MAGIC)) return false
+  return true
 }
+
+/**
+ * The bidirectional controls (U+202A–U+202E, U+2066–U+2069) and the direction marks (U+200E, U+200F,
+ * U+061C): in a name they reorder what is shown, and `setup<U+202E>dm.command` reads as `setupdm…`
+ * ending in `.md`. The question about a file shows its name without them.
+ */
+const BIDI_CONTROLS = /[\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/g
+
+/** A file name as the question about it shows it: without bidirectional controls. */
+export const shownName = (name: string): string => name.replace(BIDI_CONTROLS, '')
 
 /** What the user chose for a file that is not a document. */
 export type OpenChoice = 'open' | 'show' | 'cancel'
@@ -130,7 +176,7 @@ export function openButtons(platform: string): readonly [string, string, string]
  * a program; a closed box is Cancel too.
  */
 export async function askToOpen(owner: BrowserWindow | null, target: string, platform: string, box: Pick<Dialog, 'showMessageBox'> = dialog): Promise<OpenChoice> {
-  const name = nativePath.basename(target)
+  const name = shownName(nativePath.basename(target))
   const options = {
     type: 'warning' as const,
     buttons: [...openButtons(platform)],
@@ -156,7 +202,8 @@ export function httpsUrl(url: string): string {
 export default [
   defineHandler(shellOpenInEditor, async ({ projectId, path }, { event }) => {
     const root = projectStore().get(projectId).path
-    const target = await resolveProjectFile(root, path, await worktreeFolders(root))
+    const [worktrees, layout] = await Promise.all([worktreeFolders(root), projectLayouts().get(root).catch(() => null)])
+    const target = await resolveProjectFile(root, path, [...worktrees, ...workflowPlaces(layout)])
     // A document opens at once; for anything else the user decides in a box of main, never the
     // window: the renderer is not trusted. `desktop`: a Linked machine never reaches this handler.
     if (!(await isDocument(target))) {

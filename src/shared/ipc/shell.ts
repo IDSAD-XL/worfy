@@ -11,7 +11,8 @@ export type RevealPlatform = z.infer<typeof revealedIn>
 /**
  * Opens a file of a Project in the app macOS assigns to it (a Ticket in the default editor).
  * `path` is absolute or relative to the Project root. After symlinks are resolved it must lie
- * inside the Project root or one of its git worktrees; anything else is refused. `desktop`: the
+ * inside the Project root, one of its git worktrees, or — for a Ticket of a Silent Project — its
+ * Workflow folder or Tickets root, the places `tickets.read` reads from; anything else is refused. `desktop`: the
  * file lies on the Project's Machine, so a window on a Linked machine does not call it and shows
  * "File is on <Machine>" instead (src/renderer/machines/useFileElsewhere.ts).
  *

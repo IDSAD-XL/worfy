@@ -14,8 +14,12 @@ export const EPIC_NAME = /^(?!\.\.?$)[^/\\\0]+$/
  * The text of a Ticket file, found the way the workflow reader finds it: in `<epic>/issues/` of
  * the Project's Tickets root (the Workflow folder's in Silent mode), by number and slug. After
  * symlinks are resolved the file must lie inside the Project root, its Tickets root or its
- * Workflow folder; a file over 1 MB is refused. `path` in the answer is the real file, absolute:
- * the renderer resolves the file's relative links against its folder and opens it in the editor.
+ * Workflow folder; a file over 1 MB is refused. `path` in the answer is the real file, absolute: the
+ * renderer opens it in the editor. `relative` is the same file relative to the Project root, `/`
+ * between the parts (`../workflow/.scratch/…` for a Silent Project's Workflow folder next to it), as
+ * `docs.read` answers: the file's relative links resolve against its folder, and main resolves them
+ * against the root (worfy-polish ticket 36: an absolute folder lost the leading `\\` of a UNC path).
+ * Null when the file has no path relative to the root: another drive or share on Windows.
  * `project`, `read`: a window on a Linked machine reads the file on that Machine.
  */
 export const ticketsRead = invokeChannel(
@@ -26,7 +30,7 @@ export const ticketsRead = invokeChannel(
     num: z.number().int().nonnegative(),
     slug: z.string().max(1024),
   }),
-  z.object({ path: z.string(), text: z.string() }),
+  z.object({ path: z.string(), relative: z.string().nullable(), text: z.string() }),
   'project',
   'read',
 )

@@ -518,6 +518,32 @@ describe('one computation per Project root, however it is spelled (worfy-pipelin
   })
 })
 
+// worfy-polish ticket 36: an edit of a Ticket's body changes its `version` alone, and the Stages are
+// computed from the Tickets' fields; a new computation would cost a `profile` run for nothing.
+describe('the Stages and an edit of a Ticket\'s text alone', () => {
+  it('watch the workflow as a subscriber of the Tickets\' fields only, so such an edit computes nothing', async () => {
+    const subscribers: { fieldsOnly?: boolean }[] = []
+    const sources: StageSources = {
+      workflow: {
+        open: async (_, subscriber) => {
+          subscribers.push(subscriber)
+          return null as never
+        },
+        close: async () => true,
+        model: async () => null,
+      },
+      prs: { read: async () => ({ pulls: [], gh: { state: 'ok' } }) as never },
+      profile: async () => ({ ok: false, reason: 'no Profile in this test' }),
+      deployments: { environment: async () => [], deployMarks: async () => [] },
+      harnessHome: dir,
+    }
+    const hub = new StageHub(sources)
+    cleanups.push(async () => hub.closeAll())
+    await hub.open(dir, { id: 1, send: () => undefined })
+    expect(subscribers.map((subscriber) => subscriber.fieldsOnly)).toEqual([true])
+  })
+})
+
 describe('readPipelineProfile', () => {
   const answer = (json: unknown, code = 0) => async () => ({ code, signal: null, stdout: typeof json === 'string' ? json : JSON.stringify(json), stderr: '' })
   const options = (json: unknown, code = 0) => ({ root: '/r', claudeHome: '/nowhere', env: {}, run: answer(json, code) })

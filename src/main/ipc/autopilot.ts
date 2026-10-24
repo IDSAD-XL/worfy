@@ -105,7 +105,8 @@ export function sharedAutopilot(): Autopilot {
     watchWorkflow: async (root, onChange) => {
       watchIds -= 1
       const id = watchIds
-      await workflowHub.open(root, { id, send: () => onChange() })
+      // The cycle reads the Tickets' fields: an edit of a Ticket's text alone is no event of it.
+      await workflowHub.open(root, { id, fieldsOnly: true, send: () => onChange() })
       return async () => {
         await workflowHub.close(root, id)
       }

@@ -1639,6 +1639,30 @@ describe('workflow hub', () => {
     expect(await hub.close(repo, 2)).toBe(true)
     expect(hub.roots).toEqual([])
   })
+
+  // worfy-polish ticket 36: an edit of a Ticket's body is a change of its `version` alone. The open
+  // Ticket reads its text again; the Stages and Autopilot, which read the Tickets' fields, are not told.
+  it('sends an edit of a Ticket\'s text alone to a window, and not to a subscriber of the Tickets\' fields only', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const hub = new WorkflowHub({ claudeHome: home, env: ownEnv })
+    cleanups.push(() => hub.closeAll())
+    const all: WorkflowDelta[] = []
+    const fields: WorkflowDelta[] = []
+    await hub.open(repo, { id: 1, send: (delta) => void all.push(delta) })
+    await hub.open(repo, { id: 2, fieldsOnly: true, send: (delta) => void fields.push(delta) })
+
+    const file = join(repo, '.scratch/demo/issues/02-second.md')
+    writeFileSync(file, `${readFileSync(file, 'utf8')}\n## Итог\n\nOnly the body changed.\n`)
+    const body = await nextDelta(all, (d) => d.tickets.length > 0)
+    expect(body.delta.tickets.map((t) => [t.num, t.state])).toEqual([[2, 'open']])
+    expect(fields).toEqual([])
+
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked'))
+    await nextDelta(all, (d) => d.tickets.some((t) => t.state === 'blocked'))
+    // The hub sends one change to all its subscribers at once.
+    expect(fields.map((d) => d.tickets.map((t) => [t.num, t.state]))).toEqual([[[2, 'blocked']]])
+  })
 })
 
 // ── size of an Auction-like Project ──────────────────────────────────────────
@@ -1738,6 +1762,18 @@ describe('workflow reader and the links on the way to the Tickets (Windows rules
     expect(fake.lstat.filter((path) => path === ISSUES)).toHaveLength(1)
     expect(fake.lstat.filter((path) => path === SCRATCH)).toHaveLength(1)
     expect(new Set(fake.lstat).size).toBe(fake.lstat.length)
+  })
+
+  // worfy-polish ticket 36: the version is the hash of the text read; with no text there is none.
+  it('gives no version to a Ticket whose file could not be read, and one to each Ticket read', async () => {
+    const fake = system()
+    const model = await enrichSnapshot(ROOT, SNAPSHOT, SCRATCH, { ...fake.options, fs: { ...fake.options.fs, readText: async (path: string) => (path.endsWith('02-second.md') ? null : fake.options.fs.readText(path)) } })
+    expect(model.tickets.map((each) => [each.num, 'version' in each])).toEqual([
+      [1, true],
+      [2, false],
+      [3, true],
+    ])
+    expect(model.tickets[0]?.version).toMatch(/^[0-9a-f]{16}$/)
   })
 
   it('sees a link to a share put in place between two reads: the second read does not read that Ticket', async () => {

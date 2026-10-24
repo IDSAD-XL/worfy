@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ProjectLayout } from '../../src/main/workflow/folder'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
@@ -28,6 +29,22 @@ vi.mock('electron', () => ({
   dialog: { showMessageBox: electron.showMessageBox },
   BrowserWindow: { fromWebContents: () => electron.owner },
 }))
+
+// The Project's layout (src/main/workflow/folder.ts) stands in for the `profile` call: Full mode
+// unless a test puts a Silent layout, with the Workflow folder outside the repository, in its place.
+const layouts = vi.hoisted(() => ({ byRoot: new Map<string, ProjectLayout | Error>() }))
+vi.mock('../../src/main/workflow/folder', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/main/workflow/folder')>()
+  return {
+    ...actual,
+    projectLayouts: () => ({
+      get: (root: string) => {
+        const layout = layouts.byRoot.get(root)
+        return layout instanceof Error ? Promise.reject(layout) : Promise.resolve(layout ?? actual.fullLayout(root))
+      },
+    }),
+  }
+})
 
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
 
@@ -79,6 +96,7 @@ beforeEach(async () => {
   mkdirSync(join(dataDir, PROJECT_ID), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT_ID, name: 'repo', path: repo }], activeId: PROJECT_ID }))
 
+  layouts.byRoot.clear()
   electron.openPath.mockReset().mockResolvedValue('')
   electron.openExternal.mockReset().mockResolvedValue(undefined)
   electron.showItemInFolder.mockReset()
@@ -164,6 +182,53 @@ describe('shell.openInEditor', () => {
   it('reports the reason macOS gives when it cannot open the file', async () => {
     electron.openPath.mockResolvedValue('No application knows how to open this file')
     await refused('shell.openInEditor', { projectId: PROJECT_ID, path: join(repo, 'README.md') }, /No application knows/)
+  })
+})
+
+// worfy-polish ticket 36: in Silent mode the Ticket files lie in the Workflow folder, outside the
+// Project. tickets.read reads them there, so "Open in editor" and the links of the Ticket body must
+// open them there too, and nothing else outside the Project.
+describe('shell.openInEditor in a Silent Project', () => {
+  let workflow: string
+  let ticketsRoot: string
+
+  beforeEach(() => {
+    workflow = join(scratch, 'workflow')
+    // A Tickets root apart from the Workflow folder, as `ticket root` may answer.
+    ticketsRoot = join(scratch, 'tickets-root')
+    mkdirSync(join(workflow, '.scratch', 'e', 'issues'), { recursive: true })
+    mkdirSync(join(ticketsRoot, 'e', 'issues'), { recursive: true })
+    writeFileSync(join(workflow, '.scratch', 'e', 'spec.md'), '# e\n')
+    writeFileSync(join(ticketsRoot, 'e', 'issues', '02-b.md'), '# 02 — b\n')
+    layouts.byRoot.set(repo, { root: repo, mode: 'silent', workflowFolder: workflow, ticketsRoot, repos: [], workspace: null, reason: null, failed: false })
+  })
+
+  it('opens a file of the Workflow folder and of the Tickets root, and the Project\'s own files as before', async () => {
+    for (const file of [join(workflow, '.scratch', 'e', 'spec.md'), join(ticketsRoot, 'e', 'issues', '02-b.md'), join(repo, 'README.md'), join(worktree, 'README.md')]) {
+      expect(await call('shell.openInEditor', { projectId: PROJECT_ID, path: file })).toStrictEqual({ ok: true, value: { path: file, outcome: 'opened' } })
+    }
+    // A link of the Ticket body, relative to the Project root, that leads into the Workflow folder.
+    expect(await call('shell.openInEditor', { projectId: PROJECT_ID, path: '../workflow/.scratch/e/spec.md' })).toStrictEqual({
+      ok: true,
+      value: { path: join(workflow, '.scratch', 'e', 'spec.md'), outcome: 'opened' },
+    })
+  })
+
+  it('still refuses a file outside the Project, its worktrees, the Workflow folder and the Tickets root', async () => {
+    await refused('shell.openInEditor', { projectId: PROJECT_ID, path: join(outside, 'secret.txt') }, /outside the Project/)
+    symlinkSync(join(outside, 'secret.txt'), join(workflow, '.scratch', 'e', 'link-out.md'))
+    await refused('shell.openInEditor', { projectId: PROJECT_ID, path: join(workflow, '.scratch', 'e', 'link-out.md') }, /outside the Project/)
+    expect(electron.openPath).not.toHaveBeenCalled()
+  })
+
+  it('opens nothing from the Workflow folder when where the workflow lives is unknown: a failed layout, or one that could not be asked', async () => {
+    const spec = join(workflow, '.scratch', 'e', 'spec.md')
+    layouts.byRoot.set(repo, { root: repo, mode: 'full', workflowFolder: workflow, ticketsRoot, repos: [], workspace: null, reason: 'the profile script failed', failed: true })
+    await refused('shell.openInEditor', { projectId: PROJECT_ID, path: spec }, /outside the Project/)
+    layouts.byRoot.set(repo, new Error('the scripts environment could not be read'))
+    await refused('shell.openInEditor', { projectId: PROJECT_ID, path: spec }, /outside the Project/)
+    // The Project's own files still open.
+    expect(await call('shell.openInEditor', { projectId: PROJECT_ID, path: join(repo, 'README.md') })).toStrictEqual({ ok: true, value: { path: join(repo, 'README.md'), outcome: 'opened' } })
   })
 })
 
@@ -366,7 +431,7 @@ describe('shell.openInEditor opens documents and asks about anything else', () =
   })
 
   it('opens JavaScript sources at once on macOS and Linux, and asks on Windows, where Script Host runs .js', async () => {
-    const files = ['scripts/a.js', 'scripts/b.mjs', 'scripts/c.cjs'].map((name) => projectFile(name))
+    const files = ['scripts/a.js', 'scripts/b.mjs', 'scripts/c.cjs', 'scripts/d.jsx'].map((name) => projectFile(name))
     for (const platform of ['darwin', 'linux'] as const) {
       await asPlatform(platform, async () => {
         for (const path of files) expect(await open(path)).toStrictEqual({ ok: true, value: { path, outcome: 'opened' } })
@@ -376,8 +441,45 @@ describe('shell.openInEditor opens documents and asks about anything else', () =
     await asPlatform('win32', async () => {
       for (const path of files) expect(outcome(await open(path))).toBe('cancelled')
     })
-    expect(boxes()).toHaveLength(3)
+    expect(boxes()).toHaveLength(4)
     expect(opened()).toStrictEqual([...files, ...files])
+  })
+
+  // worfy-polish ticket 36: U+202E (right-to-left override) makes `setup<U+202E>dm.command` read as a
+  // name ending in `.md`. The question shows the name without the bidirectional controls.
+  it('shows the name of the file it asks about without bidirectional controls, so it cannot pass for a document', async () => {
+    const names = ['setup\u202Edm.command', 'a\u2066b\u2069\u202A\u202B\u202C\u202D.term', 'x\u200E\u200F\u061C.sh', 'plain\u2067\u2068.sh']
+    const files = names.map((name) => projectFile(`bidi/${name}`))
+    await asPlatform('darwin', async () => {
+      for (const file of files) expect(outcome(await open(file))).toBe('cancelled')
+    })
+    expect(boxes().map(([, options]) => [options.title, options.message])).toStrictEqual(
+      ['setupdm.command', 'ab.term', 'x.sh', 'plain.sh'].map((name) => [`Open ${name}?`, `Open ${name}?`]),
+    )
+    expect(opened()).toStrictEqual([])
+  })
+
+  // worfy-polish ticket 36: macOS opens what a Finder alias points at — the alias `x.md` of a
+  // `.command` opens in Terminal — so on macOS an alias is asked about, whatever its name.
+  it('asks on macOS about a Finder alias named like a document, and opens such a file at once elsewhere', async () => {
+    const alias = join(repo, 'docs', 'alias.md')
+    mkdirSync(join(repo, 'docs'), { recursive: true })
+    // Bookmark data as Finder writes it: the magic, then the record.
+    writeFileSync(alias, Buffer.concat([Buffer.from('book\0\0\0\0mark\0\0\0\0', 'latin1'), Buffer.alloc(64, 7)]))
+    // A document that only mentions the word is one.
+    const notes = projectFile('docs/book.md')
+    writeFileSync(notes, 'book mark\n')
+    const empty = projectFile('docs/empty.md')
+    writeFileSync(empty, '')
+    const real = realpathSync(alias)
+    await asPlatform('darwin', async () => {
+      expect(outcome(await open(real))).toBe('cancelled')
+      expect(outcome(await open(notes))).toBe('opened')
+      expect(outcome(await open(empty))).toBe('opened')
+    })
+    for (const platform of ['win32', 'linux'] as const) expect(outcome(await asPlatform(platform, () => open(real)))).toBe('opened')
+    expect(boxes().map(([, options]) => options.message)).toStrictEqual(['Open alias.md?'])
+    expect(opened()).toStrictEqual([notes, empty, real, real])
   })
 })
 

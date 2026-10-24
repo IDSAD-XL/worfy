@@ -45,7 +45,7 @@ import { realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { watch, type FSWatcher } from 'chokidar'
-import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../shared/workflow/types'
+import { diffModels, onlyTextChanged, type WorkflowDelta, type WorkflowModel } from '../../shared/workflow/types'
 import type { HarnessScriptEnvRequest, HarnessScriptEnvSource } from '../harness/script-env'
 import { LinkSafeWatch, type WatchFs } from '../link-safe-watch'
 import { closeForGood } from '../chokidar-close'
@@ -87,8 +87,11 @@ export interface WatchOptions {
    * stream lasts, a read starts about once a second; reads never overlap.
    */
   maxWaitMs?: number
-  /** Called with what changed after every read that changed something. */
-  onChange: (delta: WorkflowDelta) => void
+  /**
+   * Called with what changed after every read that changed something; `textOnly` when only the text
+   * of Ticket files did (onlyTextChanged).
+   */
+  onChange: (delta: WorkflowDelta, textOnly: boolean) => void
   /** Replaces the real script, for tests. */
   run?: EpicStatusRunner
   /**
@@ -774,7 +777,7 @@ export class WorkflowWatcher {
       const next = applyBranches(checkout, this.branches)
       this.model = next
       const delta = previous ? diffModels(previous, next) : null
-      if (delta && !this.starting && !this.closed) this.options.onChange(delta)
+      if (delta && previous && !this.starting && !this.closed) this.options.onChange(delta, onlyTextChanged(previous, next))
     } catch (error) {
       // The reader never throws; a throw here is a bug in onChange. Keep watching.
       console.error('[workflow] read failed', error)
@@ -788,6 +791,12 @@ export class WorkflowWatcher {
  */
 export interface WorkflowSubscriber {
   readonly id: number | string
+  /**
+   * True for a subscriber that reads only the Tickets' fields, never their text (the Stages, Autopilot):
+   * a change of Ticket files' text alone is not sent to it. With hundreds of Tickets each such change
+   * would cost it a `profile` run or a fresh read of the whole workflow (worfy-polish ticket 36).
+   */
+  readonly fieldsOnly?: boolean
   send(delta: WorkflowDelta): void
 }
 
@@ -809,8 +818,8 @@ export class WorkflowHub {
       const watcher = WorkflowWatcher.start({
         ...this.options,
         root: key,
-        onChange: (delta) => {
-          for (const target of subscribers.values()) target.send(delta)
+        onChange: (delta, textOnly) => {
+          for (const target of subscribers.values()) if (!(textOnly && target.fieldsOnly === true)) target.send(delta)
         },
       })
       project = { watcher, subscribers }
