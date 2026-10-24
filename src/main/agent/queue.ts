@@ -8,9 +8,9 @@
 // Session hands it to the Session that replaces it when Autopilot gives the Orchestrator back.
 //
 // A queued message keeps its attachments (ticket 20); the snapshot the windows get shows the
-// message as the transcript will (messageLabel), without the bytes of its images.
+// message as Claude Code will get its text (messageText), without the bytes of its images.
 import { randomUUID } from 'node:crypto'
-import { messageLabel, type Attachment } from '../../shared/agent/attachments'
+import { messageText, type Attachment } from '../../shared/agent/attachments'
 import type { QueuedMessage, QueueSnapshot } from '../../shared/agent/events'
 
 export type { QueuedMessage, QueueSnapshot }
@@ -38,7 +38,7 @@ export class MessageQueue {
   }
 
   snapshot(): QueueSnapshot {
-    return { items: this.items.map((item) => ({ id: item.id, text: messageLabel(item.text, item.attachments) })), paused: this.held }
+    return { items: this.items.map((item) => ({ id: item.id, text: messageText(item.text, item.attachments) })), paused: this.held }
   }
 
   /** Puts a message at the end of the queue. */
@@ -46,7 +46,7 @@ export class MessageQueue {
     const item: QueueEntry = { id: randomUUID(), text, attachments: [...attachments] }
     this.items = [...this.items, item]
     this.changed()
-    return { id: item.id, text: messageLabel(text, attachments) }
+    return { id: item.id, text: messageText(text, attachments) }
   }
 
   /** Takes a message out before it is sent; false when it is not (or no longer) in the queue. */

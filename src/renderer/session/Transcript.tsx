@@ -5,6 +5,7 @@ import { clipText as clip, hookOutput, toolSummary } from '../../shared/transcri
 import { Markdown } from '../markdown/Markdown'
 import { DRAW_ALL_UP_TO, FIRST_DRAWN, foldTranscript, ROW_ESTIMATE, rowFor, rowOrder, rowWindow, spanOf, stepOf, toolSegments, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
 import { formatDuration } from './format'
+import { MessageAttachments } from './MessageAttachments'
 import { rowTypes } from './rows/index'
 import { clearMatches, extensionTypes, paintMatches, partId, scrollToMatch, type TranscriptFind } from './transcript-find'
 
@@ -377,9 +378,12 @@ function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps })
     case 'prompt':
       return (
         <Row label="you" labelKind="user" at={item.at} testId="transcript-prompt">
-          <div className="w-tr__prompt" data-find={find('prompt')}>
-            {item.text}
-          </div>
+          {item.text !== '' || item.attachments.length === 0 ? (
+            <div className="w-tr__prompt" data-find={find('prompt')}>
+              {item.text}
+            </div>
+          ) : null}
+          <MessageAttachments attachments={item.attachments} />
         </Row>
       )
     case 'text':

@@ -131,8 +131,9 @@ beforeAll(async () => {
   // Taken now: mock call records do not outlive this hook.
   startup.schemes = electron.protocol.registerSchemesAsPrivileged.mock.calls.map((args) => args[0])
   startup.served = electron.protocol.handle.mock.calls.map((args) => args[0])
+  // Every scheme is served before the first window: the last handle() comes before it.
   startup.servedBeforeWindow =
-    (electron.protocol.handle.mock.invocationCallOrder[0] ?? Infinity) < (electron.createMainWindow.mock.invocationCallOrder[0] ?? -Infinity)
+    (electron.protocol.handle.mock.invocationCallOrder.at(-1) ?? Infinity) < (electron.createMainWindow.mock.invocationCallOrder[0] ?? -Infinity)
   startup.linkStarts = link.startAppLink.mock.calls.map((args) => args[0])
   startup.pauseFollows = link.followAppLinkPauses.mock.calls
   startup.linkAfterWindow =
@@ -187,10 +188,15 @@ describe('app.version in src/main/index.ts', () => {
   })
 })
 
-describe('Card protocol wiring in src/main/index.ts', () => {
-  it('registers worfy-card:// as a standard, secure scheme and serves it before the first window', () => {
-    expect(startup.schemes).toEqual([[{ scheme: 'worfy-card', privileges: { standard: true, secure: true } }]])
-    expect(startup.served).toEqual(['worfy-card'])
+describe('Card and image protocol wiring in src/main/index.ts', () => {
+  it('registers worfy-card:// and worfy-image:// in one call as standard, secure schemes and serves both before the first window', () => {
+    expect(startup.schemes).toEqual([
+      [
+        { scheme: 'worfy-card', privileges: { standard: true, secure: true } },
+        { scheme: 'worfy-image', privileges: { standard: true, secure: true } },
+      ],
+    ])
+    expect(startup.served).toEqual(['worfy-card', 'worfy-image'])
     expect(startup.servedBeforeWindow).toBe(true)
   })
 })

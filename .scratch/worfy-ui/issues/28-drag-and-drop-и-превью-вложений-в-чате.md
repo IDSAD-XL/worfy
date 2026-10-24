@@ -1,7 +1,7 @@
 # 28 — Чат с Orchestrator: drag-and-drop файлов и превью вложений в отправленном сообщении
 
 Type: feature
-Status: open 2026-10-24T22:34Z
+Status: claimed 2026-10-24T22:42Z
 Blocked by: —
 Source: владелец, 2026-10-25 (чат Mac-оркестратора). Код перечитан по main `d089cfea`.
 
@@ -111,3 +111,70 @@ Drag-and-drop файлов и пути к ним ведут себя по-раз
 - [ ] Unit, contract и e2e из раздела «Тесты» зелёные; вердикт Windows по `windows-verdict-scope`.
 
 ## Итог
+
+**Drop на весь чат.** Зона приёма — вся секция `w-session__main` Session view (Transcript и поле
+ввода), `useChatDrop` в `src/renderer/session/chat-drop.tsx`; во время перетаскивания поверх чата
+видна рамка с подписью «Drop files to attach», у Session, которая не запущена или открыта только для
+чтения, — с причиной отказа. Брошенные файлы передаются в поле ввода через его `ref`
+(`MessageInputHandle.drop`) и становятся chips, как раньше. Окно не открывает брошенный файл ни в
+каком месте: `guardFileDrops` (`src/renderer/drop-guard.ts`) на `window` отменяет drop файлов, который
+никто не принял. Старый drop только на рамку поля ввода (`data-dragging`) убран.
+
+**Вложения — данные сообщения.** У событий `prompt` и `notice` (kind `user`) есть необязательный
+список `attachments`: `{ kind: 'image', name, mediaType, ref }` (`ref` — sha256 байтов или `null`,
+когда копии нет) или `{ kind: 'file', name, ext, size? }` (`messageAttachmentSchema`,
+`src/shared/agent/attachments.ts`). Строка «you» показывает только набранный текст; путей и строк
+`Attached files:` / `Attached images:` в Transcript нет. Агент по-прежнему получает строку
+`Attached files: <пути>`, а теперь ещё и `Attached images: <имена>` в конце текста: так имена картинок
+переживают перезапуск (в истории у блока image имени нет). `messageLabel` заменён на `messageText`.
+
+**Превью.** `MessageAttachments.tsx`: миниатюра до 160 px по длинной стороне (пропорции сохраняются),
+клик открывает overlay с картинкой целиком; Escape, клик или Close закрывают его, фокус
+возвращается, Escape не уходит к Session (ход не прерывается). Документ — chip с иконкой по типу
+(pdf, текст, код, таблица, архив, прочее; `attachment-format.ts`), форматом заглавными («PDF») и
+именем; размер — пока файл под рукой, в истории его нет. Картинка, которую окно не смогло загрузить
+(копии нет, ответ 404), превращается в chip «PNG имя» — битой картинки нет.
+
+**Копии картинок.** Перед отправкой main пишет каждую картинку в
+`<data>/attachments/images/<sha256>.<ext>` (`storeImages`, `src/main/agent/attachments.ts`): одна папка
+на всё приложение, одна копия на одни байты, запись во временный файл и rename. Ошибка записи не
+мешает отправке: она уходит в `console.error`, а строка сообщения показывает chip. Читатель истории
+(`parse.ts`) отдаёт блок image как вложение с hash-ем (hash считает main, `readTranscript` передаёт
+`imageRef`; base64 в renderer не идёт), строки `Attached files:` / `Attached images:` разбирает в
+chips. Картинка без строки имён (Session продолжена из терминала) получает имя `image-<n>.<ext>`.
+Удаления старых копий нет — вне скоупа.
+
+**Схема `worfy-image://` — общая с worfy-canvas 23.** Адрес — `worfy-image://<host>/<имя файла>`:
+host выбирает хранилище, путь — ровно одно имя. Сейчас хранилище одно: host `attachments` →
+`<data>/attachments/images/`, имена `^[0-9a-f]{64}\.(png|jpg|gif|webp)$`
+(`ATTACHMENT_IMAGES_HOST`, `attachmentImageUrl` в `src/shared/images.ts`; handler —
+`src/main/images/protocol.ts`). Handler отдаёт файл, только если: имя подходит под шаблон хранилища;
+расширение из списка типов; ни файл, ни папка хранилища не ссылка (сравнение realpath), и ссылка на
+сетевую папку Windows отсекается до realpath (`leadsToRemote`); размер не больше лимита копии.
+Всё прочее — 404, методы кроме GET/HEAD — 405; ответ с `nosniff`, `no-store` и
+`default-src 'none'`. Обе схемы (`worfy-card`, `worfy-image`) регистрируются одним вызовом
+`registerSchemesAsPrivileged` (`src/main/schemes.ts`): второй вызов заменил бы первый. CSP окна:
+`img-src 'self' worfy-image:`.
+
+Что делает ticket 23: добавляет host своего хранилища, например `canvas.<label Project-а>` →
+`<папка данных Project-а>/images/` со своим шаблоном имён — одна ветка в locator-е, который
+передаётся в `installImageProtocol` (`src/main/index.ts`), и функция адреса рядом с
+`attachmentImageUrl`. Проверки путей, заголовки и CSP уже общие.
+
+**Session Node на Canvas.** Node показывает только последний ответ, а Transcript Session (свой
+worfy и внешний) открывается в Session view — там те же миниатюры и chips (один компонент
+`Transcript`). Drop на сам Node — свой, прежний (`SessionNode.tsx`), не менялся.
+
+**Что ушло.** `messageLabel`, `registerCardScheme` (теперь `CARD_SCHEME_PRIVILEGES`), drop только на
+рамку поля ввода и атрибут `data-dragging`; пути вложений в тексте Transcript, а с ними и поиск по
+ним в истории. Текст к агенту для сообщения с картинкой теперь кончается строкой
+`Attached images: …`, а сообщение из одних картинок несёт текстовый блок с этой строкой. Chips
+очереди сообщений по-прежнему показывают текст с путями (не Transcript, вне скоупа).
+
+**Тесты.** unit `test/unit/chat-attachments.test.tsx` (fold, store, Transcript, chips, overlay, зона
+приёма, guard), `attachments.test.ts`, `session-view.test.tsx`; contract `image-protocol.test.ts`
+(обход `..`, ссылки, чужой host, лимит, Windows-ссылки, одна регистрация схем, CSP),
+`image-store.test.ts`, `agent-attachments.test.ts`, `transcript-parse.test.ts`,
+`claude-home-registry.test.ts`; e2e `test/e2e/chat-attachments.spec.ts` (png и pdf на Transcript →
+chips → миниатюра, которую окно действительно отрисовало, и chip «PDF»; overlay и Escape; перезапуск —
+то же; без копии — chip). Mutation testing: 36 мутантов новых строк, все убиты.

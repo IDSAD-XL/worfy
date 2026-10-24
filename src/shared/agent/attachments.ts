@@ -3,8 +3,8 @@
 // the renderer only shows chips and the message of a refused file.
 //
 // An image (png, jpeg, gif, webp, up to IMAGE_LIMIT_BYTES) goes to Claude Code as an image block of
-// the user message. Any other file goes as its path, in a line `Attached files: …` at the end of
-// the text. A file outside the Project is first copied into worfy's own data folder (ADR-0005):
+// the user message, and its name in a line `Attached images: …` at the end of the text. Any other
+// file goes as its path, in a line `Attached files: …` before it. A file outside the Project is first copied into worfy's own data folder (ADR-0005):
 // nothing is ever written into the Project's repository.
 import { z } from 'zod'
 import { absolutePathSchema } from '../paths'
@@ -84,36 +84,104 @@ export const attachResultSchema = z.discriminatedUnion('ok', [
 ])
 export type AttachResult = z.output<typeof attachResultSchema>
 
+// ── how a sent message shows its attachments (worfy-ui ticket 28) ─────────────────────────────
+
+/** The file extension each image type is stored under: the copy `<sha256>.<ext>` main keeps of a sent image. */
+export const IMAGE_EXTENSIONS: Readonly<Record<ImageMediaType, string>> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' }
+
+/** The file name of main's copy of an image: `<sha256>.<ext>`. */
+export const imageFileName = (ref: string, mediaType: ImageMediaType): string => `${ref}.${IMAGE_EXTENSIONS[mediaType]}`
+
+/** The sha256 of an image's bytes in lower-case hex: the name of main's copy of it, without the extension. */
+export const IMAGE_REF_PATTERN = /^[0-9a-f]{64}$/
+
+/**
+ * An attachment as a sent message shows it: no path and no bytes. An image is named by `ref`, the
+ * sha256 of its bytes (the copy main keeps, src/main/agent/attachments.ts); null when there is no
+ * copy to show. A file has its name, its extension (lower case, without the dot; '' when none) and,
+ * when known, its size.
+ */
+export const messageAttachmentSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('image'), name: z.string(), mediaType: imageMediaTypeSchema, ref: z.string().regex(IMAGE_REF_PATTERN).nullable() }),
+  z.object({ kind: z.literal('file'), name: z.string(), ext: z.string().max(32), size: z.number().int().nonnegative().optional() }),
+])
+export type MessageAttachment = z.output<typeof messageAttachmentSchema>
+
+/** The last segment of a path, `/` and `\` alike: a path from either platform. */
+export const baseName = (path: string): string => path.split(/[\\/]/).at(-1) ?? path
+
+/** The extension of a file name, lower case, without the dot; '' when it has none (`Makefile`, `.env`). */
+export function fileExtension(name: string): string {
+  const dot = name.lastIndexOf('.')
+  return dot <= 0 || dot === name.length - 1 ? '' : name.slice(dot + 1).toLowerCase()
+}
+
+/** A file attachment as a sent message shows it: by its name, never its path. */
+export const shownFile = (name: string, size?: number): MessageAttachment => ({ kind: 'file', name, ext: fileExtension(name), ...(size === undefined ? {} : { size }) })
+
+const FILES_LINE = 'Attached files: '
+const IMAGES_LINE = 'Attached images: '
+/** Paths and names in the lines are joined with this. */
+const LIST_SEPARATOR = ', '
+
 const fileLine = (attachments: readonly Attachment[]): string | null => {
   const paths = attachments.flatMap((each) => (each.kind === 'file' ? [each.path] : []))
-  return paths.length === 0 ? null : `Attached files: ${paths.join(', ')}`
+  return paths.length === 0 ? null : `${FILES_LINE}${paths.join(LIST_SEPARATOR)}`
+}
+
+const imageLine = (attachments: readonly Attachment[]): string | null => {
+  const names = attachments.flatMap((each) => (each.kind === 'image' ? [each.name] : []))
+  return names.length === 0 ? null : `${IMAGES_LINE}${names.join(LIST_SEPARATOR)}`
 }
 
 const joinParts = (parts: readonly (string | null)[]): string => parts.filter((part): part is string => part !== null && part !== '').join('\n\n')
 
-/** The text block of the message: the user's text, then the paths of the attached files. */
+/**
+ * The text block of the message: the user's text, then the paths of the attached files (Claude
+ * Code reads them), then the names of the images, which go as image blocks of their own. The
+ * transcript Claude Code writes keeps this text, so a restart finds the names again
+ * (src/shared/transcript/parse.ts).
+ */
 export function messageText(text: string, attachments: readonly Attachment[]): string {
-  return joinParts([text.trim() === '' ? null : text, fileLine(attachments)])
+  return joinParts([text.trim() === '' ? null : text, fileLine(attachments), imageLine(attachments)])
 }
 
-const ATTACHMENT_LINE = /^Attached (files|images): /
+/** The text of a message as the user typed it, its attachment lines split off. */
+export interface AttachmentLines {
+  /** What the user typed. */
+  typed: string
+  /** The paths of the `Attached files: …` line, in order. */
+  files: string[]
+  /** The names of the `Attached images: …` line, in order. */
+  images: string[]
+}
 
 /**
- * The user's own text of a message as the transcript shows it (messageLabel): without the
- * `Attached files: …` and `Attached images: …` lines at its end. ↑ in the input field brings back
- * this text; the attachments themselves are not brought back.
+ * Splits a message's text (messageText) into what the user typed and its attachment lines: the
+ * `Attached files: …` and `Attached images: …` paragraphs at its end. A paragraph that only starts
+ * the same way in the middle of the text is the user's own.
+ */
+// shortcut: a path or a name that holds ", " splits in two here, redo when such a chip shows up or the lines get a format that can be read back unambiguously.
+export function attachmentLines(text: string): AttachmentLines {
+  const parts = text.split('\n\n')
+  // The last paragraph, when it is the line `prefix` starts, with its list; nothing otherwise.
+  const take = (prefix: string): string[] => {
+    const last = parts.at(-1)
+    if (last === undefined || !last.startsWith(prefix) || last.length === prefix.length) return []
+    parts.pop()
+    return last.slice(prefix.length).split(LIST_SEPARATOR)
+  }
+  // messageText writes the files first, the images last.
+  const images = take(IMAGES_LINE)
+  const files = take(FILES_LINE)
+  return { typed: parts.join('\n\n'), files, images }
+}
+
+/**
+ * The user's own text of a message as the transcript shows it: without the `Attached files: …` and
+ * `Attached images: …` lines at its end. ↑ in the input field brings back this text; the
+ * attachments themselves are not brought back.
  */
 export function typedText(label: string): string {
-  const parts = label.split('\n\n')
-  while (parts.length > 0 && ATTACHMENT_LINE.test(parts.at(-1) ?? '')) parts.pop()
-  return parts.join('\n\n')
-}
-
-/**
- * How the message shows in the transcript and the queue: its text block, and the names of its
- * images, which go as image blocks rather than text.
- */
-export function messageLabel(text: string, attachments: readonly Attachment[]): string {
-  const images = attachments.flatMap((each) => (each.kind === 'image' ? [each.name] : []))
-  return joinParts([messageText(text, attachments), images.length === 0 ? null : `Attached images: ${images.join(', ')}`])
+  return attachmentLines(label).typed
 }

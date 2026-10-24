@@ -6,6 +6,7 @@
 // Only the main thread of the Session is folded: text, thinking and tool calls of a subagent
 // (parentToolUseId set) belong to the subagent tree (ticket 15). Bookkeeping events (init,
 // status, commands, account, rate limits, unknown SDK messages) draw nothing.
+import type { MessageAttachment } from '../../shared/agent/attachments'
 import type { AgentEvent } from '../../shared/agent/events'
 import { AGENT_TOOLS } from '../../shared/transcript/subagents'
 import { INTERRUPT_NOTICE } from './history'
@@ -37,7 +38,8 @@ export interface ToolCall {
  * ms since the epoch), the whole block's time for an answer; null when the event has none.
  */
 export type TranscriptItem = { at: number | null } & (
-  | { kind: 'prompt'; key: string; text: string }
+  /** The user's message: the text as typed, and what went with it (worfy-ui ticket 28). */
+  | { kind: 'prompt'; key: string; text: string; attachments: MessageAttachment[] }
   /** `streaming`: still being written (deltas), replaced by the whole block when it arrives. */
   | { kind: 'text'; key: string; text: string; synthetic: boolean; streaming: boolean }
   | { kind: 'thinking'; key: string; text: string; streaming: boolean }
@@ -98,7 +100,7 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
       case 'notice':
         if (event.kind === 'user') {
           // The interruption is shown once, by the turn's result.
-          if (!INTERRUPT_NOTICE.test(event.text)) push({ kind: 'prompt', key, at, text: event.text })
+          if (!INTERRUPT_NOTICE.test(event.text)) push({ kind: 'prompt', key, at, text: event.text, attachments: event.attachments ?? [] })
         } else {
           push({ kind: 'notice', key, at, noticeKind: event.kind, text: event.text })
         }

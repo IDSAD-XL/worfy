@@ -7,6 +7,7 @@
 // instead of an exception. Field names of the SDK messages are those recorded in ticket 06
 // (SDK 0.3.289, test/fixtures/sdk-messages/).
 import { z } from 'zod'
+import { messageAttachmentSchema } from './attachments'
 import { questionSchema } from './questions'
 import { sessionSettingsSchema } from './settings'
 
@@ -67,9 +68,10 @@ export const agentEvent = z.discriminatedUnion('type', [
   // Events of worfy itself, not of an SDK message (ticket 19).
   /**
    * worfy gave Claude Code a message of the user: sent at once, or taken from the queue when the
-   * turn before it ended. Not sent for a message that only went into the queue.
+   * turn before it ended. Not sent for a message that only went into the queue. `text` is what the
+   * user typed; `attachments`, what went with it, shown without paths or bytes (worfy-ui ticket 28).
    */
-  timed({ type: z.literal('prompt'), text: z.string() }),
+  timed({ type: z.literal('prompt'), text: z.string(), attachments: z.array(messageAttachmentSchema).optional() }),
   /** The Session's message queue (src/main/agent/queue.ts) changed; the whole queue, oldest first. */
   timed({ type: z.literal('queue'), items: z.array(queuedMessageSchema), paused: z.boolean() }),
   /** The model, effort and permission mode the Session now runs with, as worfy set them. */
@@ -166,8 +168,16 @@ export const agentEvent = z.discriminatedUnion('type', [
     stdout: z.string(),
     stderr: z.string(),
   }),
-  /** Text in the transcript that neither the user typed nor the model wrote. */
-  timed({ type: z.literal('notice'), kind: z.enum(['synthetic', 'user', 'local_command', 'notification']), text: z.string() }),
+  /**
+   * Text in the transcript that the model did not write. Of kind `user`: the user's message, its
+   * text as typed and, read from a transcript file, its attachments (src/shared/transcript/parse.ts).
+   */
+  timed({
+    type: z.literal('notice'),
+    kind: z.enum(['synthetic', 'user', 'local_command', 'notification']),
+    text: z.string(),
+    attachments: z.array(messageAttachmentSchema).optional(),
+  }),
   /**
    * A task of the Session started (task_started: a subagent of the Agent tool, a Bash or a workflow
    * script), or its task-notification arrived. The fields from `isBackgrounded` on come only from

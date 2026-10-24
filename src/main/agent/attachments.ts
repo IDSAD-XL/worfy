@@ -12,21 +12,31 @@
 // recheck() checks again, before a message is sent, an attachment the renderer hands back: main
 // does not take the renderer's word for what attach() made (ADR-0006).
 // userContent() builds the content of the SDK user message from the text and the attachments.
-import { randomUUID } from 'node:crypto'
-import { copyFile, mkdir, open, readFile, realpath, stat, writeFile } from 'node:fs/promises'
+//
+// worfy-ui ticket 28: a sent message shows its attachments (shownAttachments) without paths or
+// bytes, and main keeps a copy of each sent image, `<data root>/attachments/images/<sha256>.<ext>`
+// (storeImages), so the transcript shows it again after a restart: the window loads it by
+// worfy-image:// (src/main/images/protocol.ts), the history reader names it by the same hash
+// (imageRef, src/shared/transcript/parse.ts). The name is the hash of the bytes, so the same image
+// is kept once however often it is sent.
+import { createHash, randomUUID } from 'node:crypto'
+import { copyFile, mkdir, open, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, join, sep } from 'node:path'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import {
   FILE_COPY_LIMIT_BYTES,
   IMAGE_LIMIT_BYTES,
   fileTooLarge,
+  imageFileName,
   imageTooLarge,
   messageText,
+  shownFile,
   unsupportedImage,
   type Attachment,
   type AttachmentSource,
   type AttachResult,
   type ImageMediaType,
+  type MessageAttachment,
 } from '../../shared/agent/attachments'
 
 /** Where a Session's attachments come from and go to. */
@@ -176,4 +186,46 @@ export function userContent(text: string, attachments: readonly Attachment[]): S
     ...images.map((each) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: each.mediaType, data: each.data } })),
     ...(body === '' ? [] : [{ type: 'text' as const, text: body }]),
   ]
+}
+
+// ── the copies of sent images (worfy-ui ticket 28) ──────────────────────────────────────────────
+
+/** The folder of the copies of sent images: `<data root>/attachments/images`. */
+export const attachmentImagesDir = (dataRoot: string): string => join(dataRoot, 'attachments', 'images')
+
+/** The name of the copy of an image from its base64 data: the sha256 of its bytes, lower-case hex. */
+export function imageRef(data: string): string {
+  return createHash('sha256').update(Buffer.from(data, 'base64')).digest('hex')
+}
+
+/** The attachments of a message as its transcript row shows them: images by the hash of their copy, files by their name. */
+export function shownAttachments(attachments: readonly Attachment[]): MessageAttachment[] {
+  return attachments.map((each) => (each.kind === 'image' ? { kind: 'image', name: each.name, mediaType: each.mediaType, ref: imageRef(each.data) } : shownFile(each.name, each.size)))
+}
+
+/**
+ * Keeps a copy of each image of a message in `dir`, `<sha256>.<ext>`. A copy already there is left
+ * as it is: its name is the hash of the same bytes. Each copy is written to a temporary file and
+ * renamed into place, so a reader never sees half a file; two messages with one image may both
+ * rename, and the second puts the same bytes in place of the first. Never throws: a copy that could not be written is reported and the
+ * message goes all the same; its row then shows the image by its name (src/renderer/session/MessageAttachments.tsx).
+ */
+export async function storeImages(attachments: readonly Attachment[], dir: string, report: (error: unknown) => void = console.error): Promise<void> {
+  for (const each of attachments) {
+    if (each.kind !== 'image') continue
+    const path = join(dir, imageFileName(imageRef(each.data), each.mediaType))
+    const kept = () => stat(path).then((info) => info.isFile(), () => false)
+    const temporary = `${path}.${randomUUID()}.tmp`
+    try {
+      if (await kept()) continue
+      await mkdir(dir, { recursive: true })
+      await writeFile(temporary, Buffer.from(each.data, 'base64'), { flag: 'wx' })
+      await rename(temporary, path)
+    } catch (error) {
+      // Windows refuses to rename over a file another rename has just put there: that copy stays.
+      if (!(await kept())) report(error)
+    } finally {
+      await unlink(temporary).catch(() => undefined)
+    }
+  }
 }

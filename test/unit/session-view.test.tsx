@@ -656,6 +656,28 @@ describe('SessionPanel', () => {
     expect(screen.getByTestId('transcript-turn-done')).toBeTruthy()
   })
 
+  it('takes files dropped on the transcript into the input field, with the drop target shown meanwhile (worfy-ui ticket 28)', async () => {
+    answers['agent.attach'] = (input) => ({
+      results: (input as { sources: { name: string }[] }).sources.map((source) => ({
+        ok: true,
+        attachment: { kind: 'file', name: source.name, path: `/data/attachments/x/${source.name}`, size: 1, copied: true },
+      })),
+    })
+    await mountPanel()
+    emit('pending-1', { type: 'prompt', text: 'earlier' })
+    const row = screen.getByTestId('transcript-prompt')
+    const data = { types: ['Files'], files: [new File(['%PDF'], 'spec.pdf')], dropEffect: 'none' }
+    fireEvent.dragOver(row, { dataTransfer: data })
+    expect(screen.getByTestId('chat-drop-zone').textContent).toBe('Drop files to attach')
+    expect(data.dropEffect).toBe('copy')
+    await act(async () => {
+      fireEvent.drop(row, { dataTransfer: data })
+    })
+    await vi.waitFor(() => expect(screen.getAllByTestId('attachment-chip').map((chip) => chip.textContent)).toEqual(['spec.pdf1 B×']))
+    expect(asked).toContainEqual({ channel: 'agent.attach', input: { sessionId: 'pending-1', sources: [{ kind: 'dropped', name: 'spec.pdf', data: btoa('%PDF') }] } })
+    expect(screen.queryByTestId('chat-drop-zone')).toBeNull()
+  })
+
   it('takes the permission mode from a later system/status', async () => {
     await mountPanel()
     emit('pending-1', { type: 'init', sdkSessionId: 'sdk-1', model: 'claude-opus-5-5', permissionMode: 'bypassPermissions', apiKeySource: 'none', cwd: '/p', claudeCodeVersion: null, slashCommands: [] })

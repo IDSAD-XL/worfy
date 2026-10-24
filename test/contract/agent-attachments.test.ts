@@ -2,8 +2,11 @@
 // agent.attach, agent.attachPick, agent.send with attachments and agent.commands. The boundary
 // refuses a wrong shape and drops keys outside the contract; what reaches Claude Code is the
 // message whole, image blocks included; nothing is written into the Project or the Claude home.
+// worfy-ui ticket 28: the prompt event names the attachments without paths or bytes, and main keeps
+// one copy of each sent image, `<data>/attachments/images/<sha256>.<ext>`.
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { cpSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
@@ -31,6 +34,7 @@ let project: string
 let outside: string
 let claudeHome: string
 let attachmentsDir: string
+let imagesDir: string
 let registries: SessionRegistry[] = []
 
 /** Every file under `dir` with its size and mtime: a write anywhere changes it. */
@@ -51,6 +55,7 @@ beforeEach(async () => {
   outside = join(scratch, 'outside')
   claudeHome = join(scratch, 'claude-home')
   attachmentsDir = join(scratch, 'data', 'alpha', 'attachments')
+  imagesDir = join(scratch, 'data', 'attachments', 'images')
   await mkdir(project)
   await mkdir(outside)
   cpSync(join(testDir, 'fixtures', 'claude-home'), claudeHome, { recursive: true })
@@ -74,6 +79,7 @@ async function harness(script = 'message-input', picked: string[] = []) {
   const deps: AttachDeps = {
     target: (cwd) => ({ projectRoot: project, cwd, attachmentsDir }),
     pickFiles: vi.fn(() => Promise.resolve(picked)),
+    imagesDir: () => imagesDir,
   }
   const handlers = new Map<string, Listener>()
   const ipc: IpcMainLike = { handle: (channel, listener) => handlers.set(channel, listener) }
@@ -102,6 +108,8 @@ async function harness(script = 'message-input', picked: string[] = []) {
 }
 
 const image = { kind: 'image', name: 'shot.png', mediaType: 'image/png', size: PNG.length, data: PNG.toString('base64') } as const
+/** The name of main's copy of PNG: the sha256 of its bytes. */
+const PNG_REF = createHash('sha256').update(PNG).digest('hex')
 
 describe('agent.commands', () => {
   it('lists the commands Claude Code reports, with descriptions; after a turn, the names of system/init too, skills marked', async () => {
@@ -137,7 +145,7 @@ describe('agent.commands', () => {
 })
 
 describe('agent.send with attachments', () => {
-  it('gives Claude Code the image as an image block and the files as paths; the transcript names them', async () => {
+  it('gives Claude Code the image as an image block, the files as paths and the image names; the prompt shows them without paths or bytes', async () => {
     const h = await harness()
     const id = await h.start()
     await writeFile(join(project, 'a.ts'), 'a')
@@ -147,17 +155,69 @@ describe('agent.send with attachments', () => {
       attachments: [image, { kind: 'file', name: 'a.ts', path: join(project, 'a.ts'), size: 1, copied: false }],
     })
     await vi.waitFor(() => expect(h.results()).toBe(1))
+    const text = `what is this?\n\nAttached files: ${join(project, 'a.ts')}\n\nAttached images: shot.png`
     expect(h.messages()).toEqual([
       {
         kind: 'message',
-        text: `what is this?\n\nAttached files: ${join(project, 'a.ts')}`,
+        text,
         content: [
           { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG.toString('base64') } },
-          { type: 'text', text: `what is this?\n\nAttached files: ${join(project, 'a.ts')}` },
+          { type: 'text', text },
         ],
       },
     ])
-    expect(h.events().filter((event) => event.type === 'prompt')).toEqual([{ type: 'prompt', text: `what is this?\n\nAttached files: ${join(project, 'a.ts')}\n\nAttached images: shot.png` }])
+    const prompts = h.events().filter((event) => event.type === 'prompt')
+    expect(prompts).toEqual([
+      {
+        type: 'prompt',
+        text: 'what is this?',
+        attachments: [
+          { kind: 'image', name: 'shot.png', mediaType: 'image/png', ref: PNG_REF },
+          { kind: 'file', name: 'a.ts', ext: 'ts', size: 1 },
+        ],
+      },
+    ])
+    expect(JSON.stringify(prompts)).not.toContain(project)
+    expect(JSON.stringify(prompts)).not.toContain(PNG.toString('base64'))
+  })
+
+  it('keeps one copy of a sent image, named by the sha256 of its bytes, however often it is sent', async () => {
+    const h = await harness()
+    const id = await h.start()
+    await h.ok('agent.send', { sessionId: id, text: 'one', attachments: [image, { ...image, name: 'again.png' }] })
+    await vi.waitFor(() => expect(h.results()).toBe(1))
+    const copy = join(imagesDir, `${PNG_REF}.png`)
+    expect(readdirSync(imagesDir)).toEqual([`${PNG_REF}.png`])
+    expect(readFileSync(copy)).toEqual(PNG)
+    const written = statSync(copy).mtimeMs
+    await new Promise((settle) => setTimeout(settle, 20))
+    await h.ok('agent.send', { sessionId: id, text: 'two', attachments: [image] })
+    await vi.waitFor(() => expect(h.results()).toBe(2))
+    expect(readdirSync(imagesDir)).toEqual([`${PNG_REF}.png`])
+    // Left as it was: the same name holds the same bytes.
+    expect(statSync(copy).mtimeMs).toBe(written)
+  })
+
+  it('a copy that cannot be written is reported, and the message goes all the same', async () => {
+    const h = await harness()
+    const id = await h.start()
+    await mkdir(dirname(imagesDir), { recursive: true })
+    // A file where the folder should be: nothing can be written under it.
+    writeFileSync(imagesDir, 'not a folder')
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    await h.ok('agent.send', { sessionId: id, text: 'look', attachments: [image] })
+    await vi.waitFor(() => expect(h.results()).toBe(1))
+    expect(h.messages().map((each) => each.text)).toEqual(['look\n\nAttached images: shot.png'])
+    expect(reported).toHaveBeenCalledTimes(1)
+    expect(readFileSync(imagesDir, 'utf8')).toBe('not a folder')
+  })
+
+  it('a message without images writes no copy', async () => {
+    const h = await harness()
+    const id = await h.start()
+    await h.ok('agent.send', { sessionId: id, text: 'hello' })
+    await vi.waitFor(() => expect(h.results()).toBe(1))
+    expect(existsSync(imagesDir)).toBe(false)
   })
 
   it('a plain message stays a string, as before', async () => {
@@ -181,10 +241,10 @@ describe('agent.send with attachments', () => {
     await h.ok('agent.interrupt', { sessionId: id })
     await vi.waitFor(() => expect(h.registry.get(id).state).toBe('idle'))
     await h.ok('agent.queueSend', { sessionId: id })
-    await vi.waitFor(() => expect(h.messages().map((each) => each.text)).toEqual(['first', 'hold', 'later']))
+    await vi.waitFor(() => expect(h.messages().map((each) => each.text)).toEqual(['first', 'hold', 'later\n\nAttached images: shot.png']))
     expect(h.messages()[2]?.content).toEqual([
       { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG.toString('base64') } },
-      { type: 'text', text: 'later' },
+      { type: 'text', text: 'later\n\nAttached images: shot.png' },
     ])
   })
 

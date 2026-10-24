@@ -54,7 +54,7 @@
 // Only the calls change: the Session's settings keep `null`, so its header shows "no pick".
 import { randomUUID } from 'node:crypto'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import { messageLabel, type Attachment } from '../../shared/agent/attachments'
+import type { Attachment } from '../../shared/agent/attachments'
 import { emptyTaskFold, foldTaskEvent, isTaskEvent, liveTasks, sameTasks, type BackgroundTask, type TaskFold } from '../../shared/agent/background-tasks'
 import type { SlashCommand } from '../../shared/agent/commands'
 import type { QuestionPick } from '../../shared/agent/questions'
@@ -79,7 +79,7 @@ import {
   type SettingsChange,
 } from '../../shared/agent/settings'
 import { readUserEffort, readUserModel, type UserEffortReader, type UserModelReader } from '../claude-home/user-model'
-import { userContent } from './attachments'
+import { shownAttachments, userContent } from './attachments'
 import { CommandCatalog } from './commands'
 import { PermissionGate, unattendedCanUseTool, type CanUseToolHandler, type RefusalDetails } from './permissions'
 import { MessageQueue, type QueueEntry } from './queue'
@@ -471,7 +471,8 @@ export class Session {
       parent_tool_use_id: null,
       origin: { kind: 'human' },
     }
-    this.emit({ type: 'prompt', text: messageLabel(text, attachments) })
+    // The row shows the text as typed and the attachments by name (worfy-ui ticket 28).
+    this.emit({ type: 'prompt', text: text.trim() === '' ? '' : text, attachments: shownAttachments(attachments) })
     this.run?.input.push(message)
     this.setState('busy')
   }

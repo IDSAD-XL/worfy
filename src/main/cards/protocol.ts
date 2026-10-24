@@ -34,7 +34,7 @@
 import { open, readFile, realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { extname } from 'node:path'
-import { protocol } from 'electron'
+import { protocol, type CustomScheme } from 'electron'
 import { installWorfyCard } from '../../card-runtime/worfy-card'
 import { MACHINE_LABEL_PATTERN } from '../../shared/cards/bridge'
 import { CARD_FILE_CHUNK_BYTES, CARD_FILE_LIMIT_BYTES, CARD_ID_PATTERN, type CardFileAnswer } from '../../shared/ipc/cards'
@@ -378,10 +378,8 @@ export function allowFrameNavigation({ isMainFrame, frameUrl, targetUrl }: Frame
   )
 }
 
-/** Must run before the app is ready: a scheme gets its privileges only then. */
-export function registerCardScheme(): void {
-  protocol.registerSchemesAsPrivileged([{ scheme: CARD_SCHEME, privileges: { standard: true, secure: true } }])
-}
+/** The privileges the scheme gets before the app is ready, with the app's other schemes (src/main/schemes.ts). */
+export const CARD_SCHEME_PRIVILEGES: CustomScheme = { scheme: CARD_SCHEME, privileges: { standard: true, secure: true } }
 
 /**
  * Serves the protocol: the Cards of this Machine from `locate`, those of Linked machines from the
