@@ -1,9 +1,9 @@
 # 09 — Приёмка Epic-а worfy-terminal-ai по «Готово, когда» и live-проверка владельца на подписке
 
 Type: task
-Status: blocked 2026-10-19T15:38Z
-Blocked reason: live-проверка 2026-10-19 прошла не целиком: дефекты — Ticket 16; не измерены 10 замеров Suggestion и thinking Sonnet; не прогнаны приватность с fake и gate full
-Waits: agent
+Status: blocked 2026-10-24T01:38Z
+Blocked reason: live-проверка на Stable 46d53eb3 сделана 2026-10-24; открыты: Suggestion — набор во время ожидания не возвращает старый ответ; решение владельца об ответе по result (~0,6 s)
+Waits: owner
 Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 16
 Source: «Готово, когда» Epic-а worfy-terminal-ai ([spec.md](../spec.md)); решения владельца 2026-10-09, пункт 7 (test-ы без расхода подписки, одна live-проверка владельца в конце), пункты 1–5 ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md); [evidence spike-а](../evidence/spike-задержки-2026-10-09.md) — цифры, с которыми сравнивать
 
