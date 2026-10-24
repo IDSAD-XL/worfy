@@ -211,6 +211,8 @@ describe('the read-or-write mark of `project` channels', () => {
     // the screen sends the archive itself through layout.apply (worfy-canvas ticket 08).
     'layout.archiveCandidates',
     'layout.get',
+    // The batches of the archive timer a window missed while its page loaded: what layout.archived tells.
+    'layout.recentBatches',
     'orchestrator.view',
     // Read-only git and gh, the marks files and the e2e lock, as checks.get; subscribing and leaving count as reading.
     'pipeline.close',

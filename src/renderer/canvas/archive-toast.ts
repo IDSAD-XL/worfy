@@ -8,6 +8,10 @@
 // - Subscribed once per window, before the first render (main.tsx), so no batch is missed while the
 //   Canvas loads or another Project is shown; each toast carries its Project and shows only while
 //   that Project is active (src/renderer/toast/toasts.ts).
+// - A batch can come before the page listens: main's first read of the active Project's Layout, as
+//   the first window is created, runs the archive, and IPC drops a message the page does not listen
+//   to yet. So right after subscribing the window asks main once for the latest recent batches
+//   (`layout.recentBatches`); a batch that came as the event too is shown once.
 // - One toast per Project: a later batch replaces the toast of the one before, so the toasts that stay
 //   until closed never fill the stack. An earlier batch stays reachable in the Archive popover and
 //   the histories of its Tickets (worfy-canvas ticket 09).
@@ -36,6 +40,7 @@ async function undoBatch({ projectId, batch }: ArchiveBatchEvent): Promise<void>
 
 /** The toast of one batch, in place of the Project's toast before it: with Undo, or without it on a read-only screen. */
 function showBatch(event: ArchiveBatchEvent): void {
+  if (shownBatch.get(event.projectId) === event.batch) return
   shownBatch.set(event.projectId, event.batch)
   const toast = { key: archiveToastKey(event.projectId), projectId: event.projectId, text: archivedText(event.count), testId: 'archive-toast' }
   if (readOnlyNow() !== null) showToast({ ...toast, kind: 'info' })
@@ -50,9 +55,24 @@ function noteChange({ projectId, layout }: Pick<LayoutChangeEvent, 'projectId' |
   dismissToast(archiveToastKey(projectId))
 }
 
+/**
+ * Shows the batches main announced before this window listened. A Project that has shown a batch
+ * since the subscription keeps it: that one came later, or is the same batch.
+ */
+async function showMissedBatches(isCurrent: () => boolean): Promise<void> {
+  const answer = await invoke('layout.recentBatches')
+  if (!isCurrent()) return
+  if (!answer.ok) {
+    console.warn('layout.recentBatches: the batches announced before this window listened are not known', answer.error)
+    return
+  }
+  for (const event of answer.value) if (!shownBatch.has(event.projectId)) showBatch(event)
+}
+
 /** Subscribes the window to the archive's batches and to the changes that close their toasts; returns the unsubscribe. */
 export function installArchiveToasts(): () => void {
   const stops: (() => void)[] = []
+  let installed = true
   try {
     stops.push(subscribe('layout.archived', showBatch))
   } catch (error) {
@@ -63,7 +83,10 @@ export function installArchiveToasts(): () => void {
   } catch (error) {
     showSubscribeError('layout.changed', error)
   }
+  // After the subscriptions: a batch announced between the two still comes as the event.
+  void showMissedBatches(() => installed)
   return () => {
+    installed = false
     for (const stop of stops) stop()
     shownBatch.clear()
   }

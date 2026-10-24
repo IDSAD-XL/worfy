@@ -54,6 +54,15 @@ export type ArchiveBatchEvent = z.output<typeof archiveBatchEventSchema>
 export const layoutArchived = eventChannel('layout.archived', archiveBatchEventSchema, 'project', 'read')
 
 /**
+ * The batches of main's archive timer a window may have missed while its page loaded: the latest of
+ * each Project, of the last RECENT_BATCH_MS, while some of it is still archived
+ * (src/main/layout/archive.ts, recentBatches). The run at main's own first read of the active
+ * Project's Layout, as the first window is created, sends `layout.archived` before that window's
+ * page listens; the page asks once, right after it subscribes (src/renderer/canvas/archive-toast.ts).
+ */
+export const layoutRecentBatches = invokeChannel('layout.recentBatches', z.void(), z.array(archiveBatchEventSchema), 'project', 'read')
+
+/**
  * One change of a Project's Layout as every window hears of it: the Layout after it, the operation
  * that made it and the screen that sent the operation, null when it came without one (main, an
  * agent, an automatic writer). The undo history uses the last two (worfy-link ticket 07).
@@ -70,6 +79,7 @@ declare module './channels' {
     'layout.apply': typeof layoutApply
     'layout.archiveCandidates': typeof layoutArchiveCandidates
     'layout.restoreBatch': typeof layoutRestoreBatch
+    'layout.recentBatches': typeof layoutRecentBatches
     'layout.archived': typeof layoutArchived
     'layout.changed': typeof layoutChanged
   }

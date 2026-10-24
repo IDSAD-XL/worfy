@@ -1,9 +1,9 @@
 import { app } from 'electron'
-import { layoutApply, layoutArchiveCandidates, layoutArchived, layoutChanged, layoutGet, layoutRestoreBatch } from '../../shared/ipc/layout'
+import { layoutApply, layoutArchiveCandidates, layoutArchived, layoutChanged, layoutGet, layoutRecentBatches, layoutRestoreBatch } from '../../shared/ipc/layout'
 import { changeWithoutUrls, layoutWithoutUrls, readOnlyClient } from '../browser/read-only'
 import { toEveryWindow } from '../broadcast'
 import { clientOf } from '../clients'
-import { onArchiveBatch, restoreBatch, runningArchiver, type AutoArchiver } from '../layout/archive'
+import { onArchiveBatch, recentBatches, restoreBatch, runningArchiver, type AutoArchiver } from '../layout/archive'
 import { layoutStore } from '../layout/store'
 import { defineHandler, emit, type HandlerModule } from './index'
 
@@ -49,4 +49,6 @@ export default [
   defineHandler(layoutArchiveCandidates, ({ projectId }) => appArchiver().candidatesNow(projectId)),
   // The Undo of a batch's toast: that batch alone, without a screen (src/main/layout/archive.ts).
   defineHandler(layoutRestoreBatch, ({ projectId, batch }) => restoreBatch(store, projectId, batch)),
+  // The batches a window missed while its page loaded, asked once it listens (src/main/layout/archive.ts).
+  defineHandler(layoutRecentBatches, () => recentBatches(store, Date.now())),
 ] satisfies HandlerModule

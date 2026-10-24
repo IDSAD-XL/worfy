@@ -2,8 +2,9 @@
 // ADR-0076, point 8): main's `layout.archived` gives the Project one toast «Archived N finished
 // sessions» with Undo, which a later batch replaces; Undo asks main for `layout.restoreBatch` of that
 // batch alone; a read-only screen (ADR-0066), as it is when the batch comes, gets the toast without
-// Undo; the toast closes once its batch has left the archive. IPC is replaced; the toast store and its
-// component (ToastRegion.tsx) are real.
+// Undo; the toast closes once its batch has left the archive; a batch main announced before the
+// window listened comes from `layout.recentBatches`, asked once after subscribing. IPC is replaced;
+// the toast store and its component (ToastRegion.tsx) are real.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ArchiveBatchEvent } from '../../src/shared/ipc/layout'
@@ -69,6 +70,8 @@ const archiveToasts = () => screen.queryAllByTestId('archive-toast')
 beforeEach(() => {
   resetToasts()
   ipc.invoke.mockReset()
+  // main announced no batch before the window listened.
+  ipc.invoke.mockResolvedValue({ ok: true, value: [] })
   ipc.handlers.clear()
   answerReadOnly(() => null)
   uninstall = installArchiveToasts()
@@ -118,7 +121,7 @@ describe('the archive toast', () => {
     batch({ batch: 'b1' })
     batch({ batch: 'b2', count: 4 })
     fireEvent.click(within(archiveToasts()[0]!).getByRole('button', { name: 'Undo' }))
-    expect(ipc.invoke.mock.calls).toEqual([['layout.restoreBatch', { projectId: PROJECT, batch: 'b2' }]])
+    expect(ipc.invoke.mock.calls.filter(([channel]) => channel === 'layout.restoreBatch')).toEqual([['layout.restoreBatch', { projectId: PROJECT, batch: 'b2' }]])
     await waitFor(() => expect(archiveToasts()).toHaveLength(0))
   })
 
@@ -166,6 +169,85 @@ describe('the archive toast', () => {
     batch({ projectId: 'p2' })
     expect(archiveToasts()).toEqual([])
     expect(toasts.getState().toasts.map((toast) => toast.projectId)).toEqual(['p2'])
+  })
+
+  it('a batch main announced before the window listened — the run at main\'s first read of the Layout, at start — is asked for once listening, and shown', async () => {
+    uninstall()
+    ipc.handlers.clear()
+    ipc.invoke.mockReset()
+    // The ask goes after the subscription: a batch announced between the two still arrives as the event.
+    let listening: boolean | undefined
+    ipc.invoke.mockImplementation((channel: string) => {
+      if (channel === 'layout.recentBatches') listening = ipc.handlers.has('layout.archived')
+      return Promise.resolve({ ok: true, value: [{ projectId: PROJECT, batch: 'b1', count: 2 }] })
+    })
+    uninstall = installArchiveToasts()
+    mount()
+    await waitFor(() => expect(archiveToasts()).toHaveLength(1))
+    expect(listening).toBe(true)
+    expect(ipc.invoke.mock.calls).toEqual([['layout.recentBatches']])
+    expect(archiveToasts()[0]!.textContent).toContain('Archived 2 finished sessions')
+    expect(within(archiveToasts()[0]!).getByRole('button', { name: 'Undo' })).toBeTruthy()
+    // The toast of the batch asked for closes as the one of an event does.
+    changed([node('a', null), node('b', null)])
+    expect(archiveToasts()).toHaveLength(0)
+  })
+
+  it.each([
+    ['the same batch came as the event and in the answer: one toast, shown once', 'b1', 'b1', 'Archived 2 finished sessions'],
+    ['an older batch of the answer does not replace the newer one of an event', 'b1', 'b2', 'Archived 5 finished sessions'],
+  ] as const)('%s', async (_title, answered, sent, shown) => {
+    uninstall()
+    ipc.handlers.clear()
+    let answer!: (value: unknown) => void
+    ipc.invoke.mockReset()
+    ipc.invoke.mockReturnValue(new Promise((resolve) => (answer = resolve)))
+    uninstall = installArchiveToasts()
+    mount()
+    batch({ batch: sent, count: sent === 'b1' ? 2 : 5 })
+    await act(async () => answer({ ok: true, value: [{ projectId: PROJECT, batch: answered, count: 2 }] }))
+    expect(archiveToasts()).toHaveLength(1)
+    expect(archiveToasts()[0]!.textContent).toContain(shown)
+    expect(toasts.getState().toasts.map((toast) => toast.version)).toEqual([1])
+  })
+
+  it('the event of a batch the answer has shown already is the same toast, shown once', async () => {
+    uninstall()
+    ipc.handlers.clear()
+    ipc.invoke.mockReset()
+    ipc.invoke.mockResolvedValue({ ok: true, value: [{ projectId: PROJECT, batch: 'b1', count: 2 }] })
+    uninstall = installArchiveToasts()
+    mount()
+    await waitFor(() => expect(archiveToasts()).toHaveLength(1))
+    batch({ batch: 'b1' })
+    expect(toasts.getState().toasts.map((toast) => toast.version)).toEqual([1])
+  })
+
+  it('an ask main refuses shows no toast and is logged', async () => {
+    uninstall()
+    ipc.handlers.clear()
+    ipc.invoke.mockReset()
+    ipc.invoke.mockResolvedValue({ ok: false, error: 'layout.recentBatches: closed' })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    uninstall = installArchiveToasts()
+    mount()
+    await waitFor(() => expect(warn).toHaveBeenCalledWith('layout.recentBatches: the batches announced before this window listened are not known', 'layout.recentBatches: closed'))
+    warn.mockRestore()
+    expect(archiveToasts()).toEqual([])
+  })
+
+  it('an answer that comes after the window stopped listening shows nothing', async () => {
+    uninstall()
+    ipc.handlers.clear()
+    let answer!: (value: unknown) => void
+    ipc.invoke.mockReset()
+    ipc.invoke.mockReturnValue(new Promise((resolve) => (answer = resolve)))
+    const stop = installArchiveToasts()
+    mount()
+    stop()
+    await act(async () => answer({ ok: true, value: [{ projectId: PROJECT, batch: 'b1', count: 2 }] }))
+    expect(toasts.getState().toasts).toEqual([])
+    uninstall = () => undefined
   })
 
   it('listens before any Canvas is drawn, and stops when uninstalled', () => {

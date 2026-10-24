@@ -1046,6 +1046,34 @@ describe('the toast of a batch and its Undo (worfy-canvas ticket 10; ADR-0076, p
     const { useOf } = await import('../../src/shared/ipc/channels')
     expect(useOf('layout.restoreBatch')).toBe('write')
     expect(useOf('layout.archived')).toBe('read')
+    expect(useOf('layout.recentBatches')).toBe('read')
+  })
+
+  it('layout.recentBatches answers the batch a window that was not listening yet missed: the latest of each Project, while some of it is archived', async () => {
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    world.history = transcripts(['a', 30 * HOUR], ['b', HOUR])
+    expect(await call('layout.recentBatches')).toEqual({ ok: true, value: [] })
+    await archiver().run({ id: PROJECT, path: repo })
+    expect(await call('layout.recentBatches')).toEqual({ ok: true, value: [{ projectId: PROJECT, batch: 'batch-1', count: 1 }] })
+    // A later batch replaces it, as it replaces the toast.
+    world.history = transcripts(['a', 30 * HOUR], ['b', 30 * HOUR])
+    await archiver().run({ id: PROJECT, path: repo })
+    expect(await call('layout.recentBatches')).toEqual({ ok: true, value: [{ projectId: PROJECT, batch: 'batch-2', count: 1 }] })
+    // Asking changes nothing: a second window asks too.
+    expect(await call('layout.recentBatches')).toEqual({ ok: true, value: [{ projectId: PROJECT, batch: 'batch-2', count: 1 }] })
+    // Nothing of it archived any more (its Undo, a Restore): no toast to show.
+    expect((await call('layout.restoreBatch', { projectId: PROJECT, batch: 'batch-2' })).ok).toBe(true)
+    expect(await call('layout.recentBatches')).toEqual({ ok: true, value: [] })
+  })
+
+  it('layout.recentBatches keeps a batch for RECENT_BATCH_MS after its run: a much later reload or window shows no toast of it', async () => {
+    const { RECENT_BATCH_MS, recentBatches } = await import('../../src/main/layout/archive')
+    apply(sessionNode('a'))
+    world.history = transcripts(['a', 30 * HOUR])
+    await archiver().run({ id: PROJECT, path: repo })
+    expect(recentBatches(store, world.now + RECENT_BATCH_MS - 1)).toEqual([{ projectId: PROJECT, batch: 'batch-1', count: 1 }])
+    expect(recentBatches(store, world.now + RECENT_BATCH_MS)).toEqual([])
   })
 
   it('the app\'s archiver runs a Project the moment main first reads its Layout: an overdue Session goes without waiting for a tick', async () => {

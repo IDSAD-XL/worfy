@@ -9,9 +9,11 @@ import { snapshotThemes } from './snapshots'
 // The toast of a batch of the automatic archive in the built app (worfy-canvas ticket 10, ADR-0076,
 // point 8). The Machine chose nothing in Settings → Canvas, so the default threshold, 24 h, is in
 // force. The Project holds three external Session Nodes: OLD_A and OLD_B, finished, last record 30 h
-// ago, and FRESH, finished an hour ago. The timer runs every 250 ms (WORFY_ARCHIVE_TICK_MS): its
-// first run after the window opened the Project takes OLD_A and OLD_B as one batch, and the window
-// shows «Archived 2 finished sessions» with Undo (snapshots in both themes). Undo brings both back
+// ago, and FRESH, finished an hour ago. The timer runs every 250 ms (WORFY_ARCHIVE_TICK_MS): the run
+// at main's first read of the Layout, as the window is created, takes OLD_A and OLD_B as one batch,
+// and the window shows «Archived 2 finished sessions» with Undo (snapshots in both themes). That
+// batch can come before the page listens to `layout.archived` (in 3 of 24 runs under load); the page
+// then has it from `layout.recentBatches`, asked once it listens. Undo brings both back
 // to their places; ⌘Z after it does not take them again, nor do the next runs of the timer.
 
 const PROJECT_ID = 'archive-0000c010'
