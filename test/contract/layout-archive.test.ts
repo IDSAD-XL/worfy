@@ -1067,13 +1067,29 @@ describe('the toast of a batch and its Undo (worfy-canvas ticket 10; ADR-0076, p
     expect(await call('layout.recentBatches')).toEqual({ ok: true, value: [] })
   })
 
-  it('layout.recentBatches keeps a batch for RECENT_BATCH_MS after its run: a much later reload or window shows no toast of it', async () => {
+  it('layout.recentBatches counts the Nodes still archived in the batch: as many as its Undo brings back', async () => {
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    world.history = transcripts(['a', 30 * HOUR], ['b', 30 * HOUR])
+    await archiver().run({ id: PROJECT, path: repo })
+    expect(await call('layout.recentBatches')).toEqual({ ok: true, value: [{ projectId: PROJECT, batch: 'batch-1', count: 2 }] })
+    // The user brings one back by hand.
+    apply({ op: 'restore', ids: ['session:a'] }, 'screen-1')
+    expect(await call('layout.recentBatches')).toEqual({ ok: true, value: [{ projectId: PROJECT, batch: 'batch-1', count: 1 }] })
+    const undone = await call('layout.restoreBatch', { projectId: PROJECT, batch: 'batch-1' })
+    expect(changes(1, 'restore').at(-1)?.op).toEqual({ op: 'restore', ids: ['session:b'] })
+    expect(undone.ok).toBe(true)
+  })
+
+  it('layout.recentBatches keeps a batch for RECENT_BATCH_MS after its run, then forgets it: a much later reload or window shows no toast of it', async () => {
     const { RECENT_BATCH_MS, recentBatches } = await import('../../src/main/layout/archive')
     apply(sessionNode('a'))
     world.history = transcripts(['a', 30 * HOUR])
     await archiver().run({ id: PROJECT, path: repo })
     expect(recentBatches(store, world.now + RECENT_BATCH_MS - 1)).toEqual([{ projectId: PROJECT, batch: 'batch-1', count: 1 }])
     expect(recentBatches(store, world.now + RECENT_BATCH_MS)).toEqual([])
+    // Forgotten, not only hidden: an ask with an earlier clock finds nothing either.
+    expect(recentBatches(store, world.now)).toEqual([])
   })
 
   it('the app\'s archiver runs a Project the moment main first reads its Layout: an overdue Session goes without waiting for a tick', async () => {

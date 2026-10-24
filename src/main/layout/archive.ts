@@ -515,11 +515,20 @@ const latestBatches = new Map<string, { event: ArchiveBatchEvent; at: number }>(
 /**
  * The batches a window that has just begun to listen may have missed: the latest of each Project,
  * announced less than RECENT_BATCH_MS before `now`, while some of its Nodes are still archived in it.
+ * The count is of the Nodes still archived, as many as its Undo brings back. A batch past
+ * RECENT_BATCH_MS is forgotten.
  */
 export function recentBatches(store: Pick<LayoutStore, 'peek'>, now: number): ArchiveBatchEvent[] {
-  return [...latestBatches.values()]
-    .filter(({ event, at }) => now - at < RECENT_BATCH_MS && stillInBatch(store.peek(event.projectId)?.layout.nodes ?? [], event.batch).length > 0)
-    .map(({ event }) => event)
+  const found: ArchiveBatchEvent[] = []
+  for (const [projectId, { event, at }] of latestBatches) {
+    if (now - at >= RECENT_BATCH_MS) {
+      latestBatches.delete(projectId)
+      continue
+    }
+    const left = stillInBatch(store.peek(projectId)?.layout.nodes ?? [], event.batch).length
+    if (left > 0) found.push({ ...event, count: left })
+  }
+  return found
 }
 
 /** Tells every listener of a batch; one that throws is logged, the rest still hear. Keeps it for recentBatches(). */
