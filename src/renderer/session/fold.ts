@@ -53,6 +53,9 @@ export type TranscriptItem = { at: number | null } & (
   | { kind: 'extension'; key: string; event: AgentEvent }
 )
 
+/** The position in the Session of the event that opened a row (its key, foldTranscript): rows in order have growing positions. */
+export const rowOrder = (key: string): number => Number(key.slice(1))
+
 /**
  * Folds events into transcript rows. `extensionTypes` are the event types a row file draws; they
  * become `extension` items whatever else this file would do with them. `firstIndex` is the
@@ -220,4 +223,61 @@ export function toolSegments(calls: readonly ToolCall[]): ToolSegment[] {
     else segments.push({ folded, calls: [call] })
   }
   return segments
+}
+
+// ── the rows the Transcript draws (worfy-ui ticket 22) ──────────────────────────
+
+/** Up to this many rows every row is drawn; past it, only those in sight and OVERSCAN px around them (Transcript.tsx). */
+export const DRAW_ALL_UP_TO = 150
+/** How far above and below the visible part rows are drawn, in px. */
+export const OVERSCAN = 1000
+/** Rows drawn at most, whatever their heights. */
+export const MAX_DRAWN = 250
+/** The height a row not measured yet is taken to have, while no row is measured. */
+export const ROW_ESTIMATE = 60
+/** Rows drawn before the log is measured: the newest, where it opens. */
+export const FIRST_DRAWN = 40
+
+/** The room a row of height `size` takes in the log with the gap after it: none for a row that draws nothing (`.w-tr__item:empty`). */
+export const stepOf = (size: number, gap: number): number => (size > 0 ? size + gap : 0)
+
+/** The height of the space that stands for rows [from, to) of `sizes`: their room, without the gap after the last (the space has its own). */
+export function spanOf(sizes: readonly number[], gap: number, from: number, to: number): number {
+  let total = 0
+  for (let row = from; row < to; row += 1) total += stepOf(sizes[row] ?? 0, gap)
+  return Math.max(0, total - gap)
+}
+
+/**
+ * The rows to draw, [start, end) of `sizes` (each row's height, px, without the `gap` between
+ * rows): those that cover `height` px of the log from row `at` placed `offset` px below its top,
+ * or the last ones with `at` -1 (the reader at the bottom), with OVERSCAN px more on each side.
+ */
+export function rowWindow(sizes: readonly number[], gap: number, at: number, offset: number, height: number): { start: number; end: number } {
+  const n = sizes.length
+  const size = (row: number): number => stepOf(sizes[row] ?? 0, gap)
+  if (at < 0) {
+    let start = n
+    for (let space = height + OVERSCAN; start > 0 && space > 0; ) space -= size((start -= 1))
+    return { start: Math.max(start, n - MAX_DRAWN), end: n }
+  }
+  let start = at
+  for (let space = offset + OVERSCAN; start > 0 && space > 0; ) space -= size((start -= 1))
+  let end = at
+  for (let reach = offset; end < n && reach < height + OVERSCAN; end += 1) reach += size(end)
+  start = Math.max(start, at - Math.floor(MAX_DRAWN / 4))
+  return { start, end: Math.max(Math.min(end, start + MAX_DRAWN), at + 1) }
+}
+
+/**
+ * The row of `rows` that stands for row `key` when that row is gone: the last one whose key comes
+ * before it, which holds its event now (a run of tool calls that an earlier call, read later,
+ * joined starts at that call's key), else the first one (the cap of the events dropped it). -1
+ * without rows.
+ */
+export function rowFor(rows: readonly TranscriptItem[], key: string): number {
+  const order = rowOrder(key)
+  let holder = -1
+  for (let row = 0; row < rows.length && rowOrder(rows[row]!.key) <= order; row += 1) holder = row
+  return holder >= 0 ? holder : rows.length > 0 ? 0 : -1
 }

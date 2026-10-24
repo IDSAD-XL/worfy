@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -83,16 +83,37 @@ test('a 40 MB transcript opens on its newest turns; Load earlier brings the ones
     const load = view.getByRole('button', { name: 'Load earlier' })
     await expect(load).toBeVisible()
     await snapshotThemes(window, 'session-history-tail')
+    const log = view.getByTestId('transcript')
 
-    // The first prompt shown now; after Load earlier it stays where the reader sees it.
+    // Only the rows around the visible part are drawn (worfy-ui ticket 22): a few hundred at most.
+    const drawn = async (when: string): Promise<number> => {
+      const rows = await log.locator('[data-row]').count()
+      const elements = await log.evaluate((element) => element.querySelectorAll('*').length)
+      test.info().annotations.push({ type: 'measure', description: `${when}: ${rows} rows, ${elements} elements in the log` })
+      console.info(`[history-tail e2e] ${when}: ${rows} rows, ${elements} elements in the log`)
+      return rows
+    }
+    expect.soft(await drawn('opened'), 'rows in the DOM of the opened transcript').toBeLessThanOrEqual(300)
+
+    // A turn written to the file while the reader is at the bottom: the log follows it.
+    const base = { isSidechain: false, timestamp: '2026-10-24T10:00:00.000Z', cwd: projectPath, sessionId: SESSION }
+    const added = [
+      { ...base, type: 'user', uuid: 'u-new', message: { role: 'user', content: `Prompt number ${turns}` } },
+      { ...base, type: 'assistant', uuid: 'a-new', message: { id: 'msg_new', model: 'claude-opus-5-5', role: 'assistant', content: [{ type: 'text', text: `Answer number ${turns}` }] } },
+    ]
+    appendFileSync(join(transcriptDir(projectPath), `${SESSION}.jsonl`), added.map((record) => `${JSON.stringify(record)}\n`).join(''))
+    const latest = view.getByTestId('transcript-text').filter({ hasText: `Answer number ${turns}` })
+    await expect(latest).toBeInViewport({ timeout: 30_000 })
+
+    // The first prompt at the top of the log; after Load earlier it stays where the reader sees it.
+    await log.evaluate((element) => {
+      element.scrollTop = 0
+    })
+    await expect(prompts.first()).toBeInViewport()
     const firstText = (await prompts.first().textContent()) ?? ''
     const firstNumber = Number(/Prompt number (\d+)/.exec(firstText)?.[1])
     expect(firstNumber).toBeGreaterThan(0)
     const anchor = prompt(firstNumber)
-    const log = view.getByTestId('transcript')
-    await log.evaluate((element) => {
-      element.scrollTop = 0
-    })
     // The control above the first row, in both themes.
     await snapshotThemes(window, 'session-history-load-earlier')
     const top = async () => (await anchor.boundingBox())?.y ?? Number.NaN
@@ -102,6 +123,7 @@ test('a 40 MB transcript opens on its newest turns; Load earlier brings the ones
     await expect(earlier).toHaveCount(1)
     await expect(anchor).toBeInViewport()
     expect(Math.abs((await top()) - before), 'the row the reader looked at stays in place').toBeLessThanOrEqual(2)
+    expect.soft(await drawn('after Load earlier'), 'rows in the DOM after Load earlier').toBeLessThanOrEqual(300)
     // The earlier rows are above it, a scroll away.
     await earlier.scrollIntoViewIfNeeded()
     await expect(earlier).toBeInViewport()
@@ -147,6 +169,20 @@ test('⌘F in the read-only view of a terminal Session finds a match behind «Lo
     await field.press('Enter')
     await expect(count).toHaveText('1 of 3', { timeout: 30_000 })
     await expect(view.getByText('Answer number 2: the')).toBeInViewport()
+    // The match, far above the rows drawn before (worfy-ui ticket 22), is painted where the reader sees it.
+    type Box = { top: number; bottom: number; height: number }
+    type InPage = { CSS: { highlights: Map<string, Iterable<{ toString(): string; getBoundingClientRect(): Box }>> }; document: { querySelector(selector: string): { getBoundingClientRect(): Box } | null } }
+    const current = () =>
+      window.evaluate(() => {
+        const page = globalThis as unknown as InPage
+        const [range] = [...(page.CSS.highlights.get('worfy-find-current') ?? [])]
+        const log = page.document.querySelector('.w-shell__view[data-view="session"] [data-testid="transcript"]')
+        if (range === undefined || log === null) return null
+        const box = range.getBoundingClientRect()
+        const sight = log.getBoundingClientRect()
+        return { text: range.toString(), inSight: box.height > 0 && box.top >= sight.top && box.bottom <= sight.bottom }
+      })
+    await expect.poll(current).toEqual({ text: 'зебра', inSight: true })
     await field.press('Escape')
     await expect(view.getByTestId('session-find')).toHaveCount(0)
   } finally {

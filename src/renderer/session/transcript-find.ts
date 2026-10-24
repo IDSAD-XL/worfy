@@ -19,7 +19,7 @@ import { clipText, findNeedle, hookOutput, textMatches, toolSummary, type FindTe
 import { stepMatch } from '../find/search-index'
 import { invoke } from '../ipc'
 import { matches as matchesShortcut } from '../shortcuts/match'
-import { foldTranscript, toolSegments, type TranscriptItem } from './fold'
+import { foldTranscript, rowOrder, toolSegments, type TranscriptItem } from './fold'
 import { useNavigation } from './navigation'
 import { rowTypes } from './rows/index'
 
@@ -201,18 +201,23 @@ const sameMatch = (a: RowMatch, b: RowMatch): boolean => a.part === b.part && a.
  * The match a new query starts on: the last one whose row begins above the bottom of the log, so a
  * reader at the bottom starts on the newest; the first one when every row with a match is below.
  */
-function startingMatch(log: HTMLElement | null, found: readonly RowMatch[]): RowMatch | null {
+export function startingMatch(log: HTMLElement | null, found: readonly RowMatch[]): RowMatch | null {
   if (found.length === 0) return null
   // A log with no height (hidden, or not laid out) tells nothing of where the reader is: the newest.
   if (log !== null && log.getBoundingClientRect().height > 0) {
     const bottom = log.getBoundingClientRect().bottom
     const rows = new Map<string, Element>()
     for (const row of Array.from(log.querySelectorAll('[data-row]'))) rows.set(row.getAttribute('data-row') ?? '', row)
-    for (let index = found.length - 1; index >= 0; index -= 1) {
-      const row = rows.get(found[index]!.row)
-      if (row !== undefined && row.getBoundingClientRect().top < bottom) return found[index]!
+    if (rows.size > 0) {
+      // The Transcript draws only the rows around the visible part (worfy-ui ticket 22): a row not
+      // drawn is above the reader when it comes before the first drawn one, below otherwise.
+      const firstDrawn = Math.min(...Array.from(rows.keys(), rowOrder))
+      for (let index = found.length - 1; index >= 0; index -= 1) {
+        const row = rows.get(found[index]!.row)
+        if (row === undefined ? rowOrder(found[index]!.row) < firstDrawn : row.getBoundingClientRect().top < bottom) return found[index]!
+      }
+      return found[0]!
     }
-    if (found.some((match) => rows.has(match.row))) return found[0]!
   }
   return found.at(-1) ?? null
 }

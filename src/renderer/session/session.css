@@ -337,6 +337,24 @@
   color: var(--text-muted);
 }
 
+/*
+ * One row of the log, and the space of the rows not drawn above and below the drawn ones (worfy-ui
+ * ticket 22). Neither shrinks in the scrolled column; the space is never the element the browser
+ * keeps in place while rows change above it (the Transcript keeps the reader's row itself).
+ */
+.w-tr__item,
+.w-tr__space {
+  flex: none;
+}
+
+.w-tr__item:empty {
+  display: none;
+}
+
+.w-tr__space {
+  overflow-anchor: none;
+}
+
 /* «Load earlier» above the first row of a transcript read from its end (worfy-ui ticket 21). */
 .w-tr__earlier {
   display: flex;
