@@ -214,10 +214,22 @@ export function codeSection(markdown: string, heading: string = DEFAULT_DOC_HEAD
   return { listed, files }
 }
 
-/** The H1 of a markdown file, or null. */
+/**
+ * The H1 of a markdown file, or null: the first line outside ``` and ~~~ fences that is `#`, spaces or tabs, and text,
+ * with the trailing spaces and tabs dropped; a byte order mark at the start does not count. It is the rule of the Ticket
+ * title in the Harness's epic-status (harness/bin/TICKETS.md, "Header"): both readers are tested on the cases of
+ * harness/bin/tests/fixtures/ticket-title.
+ */
 export function firstHeading(markdown: string): string | null {
-  const match = /^#[ \t]+(.+?)\s*$/mu.exec(markdown)
-  return match ? match[1]! : null
+  let fence = false
+  for (const line of markdown.replace(/^\uFEFF/u, '').split(/\r?\n/u)) {
+    if (/^[ \t]*(```|~~~)/u.test(line)) fence = !fence
+    else if (!fence) {
+      const match = /^#[ \t]+([^ \t].*?)[ \t]*$/u.exec(line)
+      if (match) return match[1]!
+    }
+  }
+  return null
 }
 
 /** `NN-slug.md` → the key epic-status gives the Ticket: its number and slug (same rules as the script). */

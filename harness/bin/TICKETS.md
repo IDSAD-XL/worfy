@@ -48,6 +48,13 @@ Source: …
 `Blocked reason:`, `Waits:` and `PR:` are read only in the header: up to the first `## ` heading after
 the Status line. A `PR: <url>` line of a result section is not the ticket's PR.
 
+The header may stand before the title or after it. The title is the first H1 on any line: `#`, a space
+or a tab, then the text, with trailing spaces and tabs dropped. Lines inside ```` ``` ```` and `~~~`
+code blocks do not count, nor do `##` and `#word` lines; a byte order mark at the start of the file is
+skipped. A file without an H1 has an empty title, and worfy's card shows the slug of the file name
+instead. worfy reads the H1 of `spec.md` by the same rule; both readers are tested on the files of
+`bin/tests/fixtures/ticket-title`.
+
 **Old header**
 Any other Status line: `**Status:**`, a tail after the word (`done — 2026-08-27, [PR #N](…)`,
 `blocked — <reason>`), a second Status line in the footer. `epic-status` gives it `state: none` and

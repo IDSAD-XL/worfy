@@ -111,7 +111,7 @@ export interface EpicLayout {
 }
 
 /** What the layout reads of a Ticket: its blocking, and what its card shows, which sets the card's height. */
-export type LayoutTicket = Pick<Ticket, 'epic' | 'num' | 'title' | 'state' | 'blockedRaw' | 'blockedNums' | 'blockedParsed' | 'files' | 'filesListed'> &
+export type LayoutTicket = Pick<Ticket, 'epic' | 'num' | 'title' | 'slug' | 'state' | 'blockedRaw' | 'blockedNums' | 'blockedParsed' | 'files' | 'filesListed'> &
   Partial<Pick<Ticket, 'blockedReason' | 'waits' | 'repo'>>
 
 export interface EpicLayoutInput {
@@ -677,8 +677,12 @@ export function progressOf(tickets: readonly Pick<Ticket, 'state'>[]): Progress 
   return { ...counts, total, segments }
 }
 
-/** The title without the number it usually starts with ("07 — Rate-limit bids" → "Rate-limit bids"); the number is shown apart. */
-export function ticketTitle(ticket: Pick<Ticket, 'num' | 'title'>): string {
+/**
+ * The title without the number it usually starts with ("07 — Rate-limit bids" → "Rate-limit bids"); the number is shown apart.
+ * A Ticket file without an H1 gives no title, and the card then shows the slug of the file name
+ * (`07-rate-limit-bids.md` → "rate-limit-bids") rather than no text at all.
+ */
+export function ticketTitle(ticket: Pick<Ticket, 'num' | 'title' | 'slug'>): string {
   const stripped = ticket.title.replace(new RegExp(`^\\s*0*${ticket.num}\\s*[—–:.-]\\s*`), '').trim()
-  return stripped || ticket.title
+  return stripped || ticket.title.trim() || ticket.slug
 }

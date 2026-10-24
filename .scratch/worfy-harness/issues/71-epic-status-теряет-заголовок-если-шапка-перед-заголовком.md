@@ -1,7 +1,7 @@
 # 71 — epic-status теряет заголовок Ticket-а, если шапка стоит перед `# заголовком`
 
 Type: bug
-Status: open 2026-10-24T22:10Z
+Status: claimed 2026-10-24T21:56Z
 Branch: worfy-harness/71
 Blocked by: —
 Source: владелец, 2026-10-25 (чат Mac-оркестратора); замер файлов — Session на Windows-ПК, 2026-10-25
@@ -78,3 +78,37 @@ Source: владелец, 2026-10-25 (чат Mac-оркестратора); за
 - `harness/bin/TICKETS.md` — «Header».
 
 ## Итог
+
+Ветка `worfy-harness/71`, PR — в отчёте implementer-а (номер допишет Orchestrator при `ticket done`).
+
+- **`epic-status`** (`harness/bin/epic-status`, `parse()`): заголовок — первый H1 на любой строке вне
+  блоков ```` ``` ```` и `~~~`: `#`, пробел или tab, текст; хвостовые пробелы и tab-ы отрезаются. Регулярка
+  `/^#[ \t]+([^ \t].*?)[ \t]*$/`, без `\s`: в строке latin1 `\s` ловит байт `0xA0`, которым кончается
+  UTF-8 буква «Р» (`D0 A0`), и оставил бы полбуквы — на это есть случай `10-cyrillic.md`. BOM в начале файла
+  отбрасывается до разбора (пункт 5, дешёвая защита).
+- **`firstHeading`** (`src/main/workflow/reader.ts`) переписан на то же правило: построчно, `\r?\n`, блоки кода
+  пропускаются, BOM отбрасывается, `[ \t]` вместо `\s`. Раньше он брал `# ` и внутри блока кода.
+- **Общий test case**: `harness/bin/tests/fixtures/ticket-title/07-header-first.md` (шапка `Type`, `Status`,
+  `Branch`, `Blocked by`, `Source`, пустая строка, `# 07 — Header first`) и `08-fence-first.md` (`# ` внутри
+  ```` ``` ```` и `~~~`, строка `#not-a-heading`, второй H1 ниже первого). Файлы лежат в LF (`harness/**` в
+  `.gitattributes` — `eol=lf`); `epic-status.test.sh` пишет их в fixture с CRLF через `awk`,
+  `test/unit/first-heading.test.ts` проверяет и LF, и CRLF и сверяет список файлов папки со своим списком — новый
+  случай не останется непрочитанным одним из reader-ов.
+- **`epic-status.test.sh`**: в Epic `last` добавлены 07, 08 (из общей папки, CRLF), `09-bom.md`, `10-cyrillic.md`;
+  `want=` пересобран, и проверено скриптом, что он отличается от прежнего только четырьмя новыми Ticket-ами.
+  Списки `statusRaw`, `state`, `title` и строка «Этап» `last 0/10` обновлены. 47 проверок, exit 0 с пустым HOME.
+- **Карточка**: `ticketTitle` (`src/renderer/canvas/epic-layout.ts`) при пустом заголовке (или из одних пробелов)
+  отдаёт slug. `LayoutTicket` теперь несёт `slug`: высота карточки (`cardHeights`) считается от того же текста,
+  что карточка рисует. Unit test — `test/unit/epic-layout.test.ts`.
+- **Правило** записано в `harness/bin/TICKETS.md`, «Header»: шапка до или после H1, что считается H1, BOM, slug
+  на карточке, общий fixture.
+- **Mutation testing** (копии `harness/` во временных папках; TS-файлы — копия и восстановление из копии):
+  7 mutant-ов `epic-status` (правило строки 0 `n === 0`, без BOM, последний H1, `#word`, `\s` вместо `[ \t]`, без
+  обрезки хвоста, H1 внутри блока кода) — все красные; 7 mutant-ов `firstHeading` и 2 `ticketTitle` — все красные.
+- **На настоящих данных**: `epic-status --json` из `origin/main` и новой версии по `.scratch` worfy — 493 Ticket-а,
+  0 различий; `firstHeading` старый и новый по 17 `spec.md` — 0 различий.
+- **Пункт 6 (`--json` после имени Epic-а) не сделан**: `epic-status.test.sh` прямо проверяет, что
+  `epic-status fin --json` печатает строку «Этап» (case «--json after the epic name prints the line»), это
+  записанный контракт характеризующего test-а. Менять его — отдельное решение, не мелочь.
+- **Открыто**: вердикт Windows на ПК (PR платформенный — скрипт Harness, ADR-0056 пункт 2); проверка у владельца
+  после выпуска plugin-а — карточки `edge-bands`, `foundation`, `grooves` с заголовками.

@@ -724,9 +724,15 @@ describe('progressOf', () => {
 
 describe('Ticket text helpers', () => {
   it('drops the leading number from a title', () => {
-    expect(ticketTitle({ num: 7, title: '07 — Rate-limit the bid endpoint' })).toBe('Rate-limit the bid endpoint')
-    expect(ticketTitle({ num: 11, title: 'Эпик рамкой на Холсте' })).toBe('Эпик рамкой на Холсте')
-    expect(ticketTitle({ num: 3, title: '03 —' })).toBe('03 —')
+    expect(ticketTitle({ num: 7, title: '07 — Rate-limit the bid endpoint', slug: 'rate-limit-bids' })).toBe('Rate-limit the bid endpoint')
+    expect(ticketTitle({ num: 11, title: 'Эпик рамкой на Холсте', slug: 'epic-frame' })).toBe('Эпик рамкой на Холсте')
+    expect(ticketTitle({ num: 3, title: '03 —', slug: 'dash' })).toBe('03 —')
+  })
+
+  it('shows the slug of the file name when the Ticket has no title (worfy-harness ticket 71)', () => {
+    // epic-status gives "" for a file without an H1: the card showed no text at all.
+    expect(ticketTitle({ num: 7, title: '', slug: 'rate-limit-bids' })).toBe('rate-limit-bids')
+    expect(ticketTitle({ num: 7, title: ' \t', slug: 'rate-limit-bids' })).toBe('rate-limit-bids')
   })
 })
 
