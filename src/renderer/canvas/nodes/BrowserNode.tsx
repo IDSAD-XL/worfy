@@ -6,6 +6,7 @@ import { returnBrowserControl, takeOverBrowser, useBrowserControl } from '../../
 import { buttonOf, keyText, modifiersOf, navigateBrowserFrames, sendBrowserInput, useBrowserFrames } from '../../browser/frames'
 import { useBrowserLife, useBrowserPicture, wakeBrowser } from '../../browser/lives'
 import { useBrowserProfiles } from '../../browser/profiles'
+import { useInFocusTile } from '../../focus/focus-tile'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { useEdgeFocus } from '../edge-focus'
@@ -19,6 +20,7 @@ import {
   dismissBrowserOpenRequest,
   navigateBrowserPage,
   openBarAddress,
+  registerBrowserTileBody,
   stepBrowserPage,
   useBrowserHistory,
   useBrowserOpenRequest,
@@ -35,6 +37,8 @@ import './BrowserNode.css'
 // not drawn here but by the Browser layer (../overlays/BrowserLayer.tsx), under the frame's body,
 // at browserPageRect() of the frame. The body is transparent and lets the mouse through, so the
 // page shows and takes the mouse through it, and any Node or menu over the frame covers the page.
+// The copy of the frame in a focus tile registers its body (registerBrowserTileBody, worfy-browser
+// ticket 17), and the layer lays the page over that body while the tile is open.
 // The frame has the neutral colours of a surface: no minimapColor, no kind-* role (ADR-0077 item 2).
 // While a Session drives the Browser (worfy-browser ticket 04, ADR-0078 item 8) the frame has an
 // accent border and «Claude is driving» in its header; a click or a key of the user on the frame
@@ -493,6 +497,14 @@ export default function BrowserNode({ id, data }: CanvasNodeProps) {
   const takeOver = () => {
     if (readOnly === null && control === 'claude' && projectId !== undefined) takeOverBrowser(projectId, id)
   }
+  // In a focus tile the page is laid over this copy's body (worfy-browser ticket 17).
+  const inTile = useInFocusTile()
+  const body = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const element = body.current
+    if (!inTile || element === null) return undefined
+    return registerBrowserTileBody(id, element)
+  }, [id, inTile])
   return (
     <div
       className={`w-node-surface w-browser-frame${control === 'claude' ? ' w-browser-frame--driven' : ''}`}
@@ -529,7 +541,7 @@ export default function BrowserNode({ id, data }: CanvasNodeProps) {
           </>
         )}
       </div>
-      <div className="w-browser-frame__body" data-testid="browser-frame-body">
+      <div ref={body} className="w-browser-frame__body" data-testid="browser-frame-body">
         {readOnly !== null ? null : choice.kind === 'choose' ? (
           <ChooseProfile id={id} choice={choice} profiles={profiles ?? []} manage={() => profilesWindow.open(null)} />
         ) : asleep ? (

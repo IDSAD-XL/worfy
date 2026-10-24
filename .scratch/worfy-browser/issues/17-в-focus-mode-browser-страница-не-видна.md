@@ -1,7 +1,7 @@
 # 17 — В focus mode Browser страница не видна: `<webview>` остаётся на Canvas под слоем focus mode
 
 Type: bug
-Status: open 2026-10-24T21:55Z
+Status: claimed 2026-10-24T21:56Z
 Branch: worfy-browser/17
 Blocked by: —
 Source: владелец, 2026-10-25 (чат Mac-оркестратора)
@@ -52,13 +52,13 @@ Source: владелец, 2026-10-25 (чат Mac-оркестратора)
 
 ## Готово, когда
 
-- [ ] e2e: Browser в focus mode, переход из адресной строки tile-а — пиксели страницы видны в tile-е; на
+- [x] e2e: Browser в focus mode, переход из адресной строки tile-а — пиксели страницы видны в tile-е; на
       main до правки test красный.
-- [ ] e2e: после выхода из focus mode страница на Canvas та же — без перезагрузки, «назад» ведёт на прошлый
+- [x] e2e: после выхода из focus mode страница на Canvas та же — без перезагрузки, «назад» ведёт на прошлый
       адрес.
-- [ ] Unit test: Browser в focus mode не уходит в сон, даже если его рамка на Canvas вне экрана.
-- [ ] Проверки пикселей Browser на Canvas зелёные (`test/e2e/browser-layer.spec.ts`).
-- [ ] Mutant-ы: без правки п. 2 e2e пикселей в tile-е красный; без правки п. 3 unit test сна красный.
+- [x] Unit test: Browser в focus mode не уходит в сон, даже если его рамка на Canvas вне экрана.
+- [x] Проверки пикселей Browser на Canvas зелёные (`test/e2e/browser-layer.spec.ts`).
+- [x] Mutant-ы: без правки п. 2 e2e пикселей в tile-е красный; без правки п. 3 unit test сна красный.
 - [ ] gate full на Mac зелёный; вручную на Stable — страница видна в focus mode.
 
 ## Где в коде
@@ -73,3 +73,47 @@ Source: владелец, 2026-10-25 (чат Mac-оркестратора)
 - `test/e2e/browser-pixels.ts`, `test/e2e/browser-layer.spec.ts` — проверки пикселей.
 
 ## Итог
+
+Подтверждение на main до правки (`test/e2e/browser-focus.spec.ts`, оба zoom 1 и 0.5 красные): в tile-е
+пустой фон focus mode — доля кремового цвета страницы в теле tile-а 0, под курсором в середине tile-а
+`div` слоя focus mode, а `<webview>` стоит на месте карточки на Canvas (zoom 1: 638 × 410 в точке
+401, 181), под непрозрачным слоем. Страница грузилась, но видна не была.
+
+Выбран путь «тот же `<webview>` поверх tile-а», без переноса в DOM: `<webview>`, переставленный в DOM,
+грузит страницу заново, а отдельный показ для focus mode требует именно переноса. Простой подъём
+`z-index` над слоем focus mode не работает: страница внутри stacking context-а Canvas и `inert`.
+Поэтому страница остаётся в слое Browser на Canvas и кладётся на тело копии рамки в tile-е снизу,
+а focus mode пропускает её сквозь себя:
+
+- копия `BrowserNode` в tile-е регистрирует своё тело (`registerBrowserTileBody`,
+  `src/renderer/canvas/nodes/browser-frame.ts`); `BrowserLayer` каждый кадр анимации меряет это тело
+  и ставит туда страницу: место в единицах Canvas и `scale(1 / zoom)`, так что страница раскладывается
+  и рисуется в размер tile-а, один CSS px страницы на CSS px окна (`tilePlacement`,
+  `src/renderer/canvas/overlays/browser-pages.ts`). Меняется только `style` того же элемента;
+- пока tile показывает Browser, focus mode прячет то, что накрывает (`data-focus-covered`,
+  `visibility: hidden !important` у всех потомков — React Flow пишет `visibility: visible` в inline-стиль
+  каждого Node-а), вместо `inert`: страница под `inert` не получает ввода. Видна из спрятанного только
+  страница в tile-е. Фон слоя focus mode переходит на `.w-shell__main`, рамка tile-а Browser прозрачна,
+  мышь проходит сквозь слой и этот tile к странице, кроме панели, разделителей, других tile-ов, заголовка
+  tile-а и шапки рамки. Пока тянут заголовок tile-а или разделитель, страница мышь не берёт
+  (`frames-step-aside.ts` на слое focus mode);
+- сон: Browser в tile-е входит в `visible` отчёта `browser.screen`, где бы ни была его рамка на Canvas, а
+  zoom отчёта тогда не меньше 1 (`screenShown`). Ограничение — один zoom на экран: пока tile показывает
+  Browser, Browser-ы под слоем тоже считаются читаемыми (`shortcut:` в `browser-pages.ts`).
+
+Цифры e2e после правки: страница лежит на теле tile-а с точностью до 1 px (1150 × 787 при окне 1400 × 900,
+zoom 1 и 0.5), раскладка страницы 1150 × 787, кремовый в нижней части тела — 100 % (Note и копии Node-ов
+Canvas под слоем не видны), вне тела tile-а пикселей страницы 0. Колесо в tile-е прокручивает страницу
+(scrollY 300), клик ставит фокус в поле страницы, текст в поле, адрес, прокрутка и `load` страницы те же после
+выхода; «Back» на рамке ведёт на прошлый адрес. При смене раскладки (Rows, Columns) страница идёт за
+tile-ом; разделитель, протянутый над страницей, двигается, страница не видит ни одного движения мыши.
+
+Mutant-ы (все убиты): без раскладки в tile (`useTilePlacement(undefined)`) — e2e красный; без tile-ов в
+`screenShown` и без подъёма zoom — unit красный; `inert` вместо `data-focus-covered`, регистрация тела
+копией на Canvas, без снятия раскладки при выходе, без замера каждый кадр, CSS без `*`, слой с мышью, слой
+и рамка tile-а непрозрачные, без правила step-aside — красные e2e или unit.
+
+Клавиши: ни клавиатура Playwright, ни `sendInputEvent` окна не доходят до гостя `<webview>` даже на Canvas
+(проверено при написании test-а), поэтому test проверяет, что фокус окна на `<webview>` и поле страницы, а
+текст набирает через `sendInputEvent` самого гостя. Живой набор с клавиатуры в tile-е — в ручной проверке
+на Stable.

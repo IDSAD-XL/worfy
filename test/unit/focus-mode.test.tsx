@@ -366,6 +366,19 @@ describe('inside the window shell', () => {
         )
       })
 
+      it('a menu under the layer in what a Browser tile has hidden (not inert) is not outside: the press leaves at once (worfy-browser ticket 17)', () => {
+        const harness = openInShell()
+        // As focus mode covers the view while a tile shows a Browser: hidden, not inert.
+        const view = one('.w-shell__content')
+        view.removeAttribute('inert')
+        view.setAttribute('data-focus-covered', '')
+        undo.push(() => view.removeAttribute('data-focus-covered'))
+        openPopup('menu', view, 'does not react')
+        layer().focus()
+        expect(pressEscape().defaultPrevented).toBe(true)
+        expect(harness.exits()).toBe(1)
+      })
+
       it('one that takes the press (preventDefault) and stays open keeps it: a dialog that closed a list of its own', async () => {
         const harness = openInShell()
         const popup = openPopup('dialog', document.body, 'does not react')

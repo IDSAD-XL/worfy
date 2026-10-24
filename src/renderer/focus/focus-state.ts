@@ -23,6 +23,13 @@ export interface FocusState {
 
 export const useFocusState = create<FocusState>(() => ({ slot: null, active: false, request: null }))
 
+/**
+ * The attribute focus mode puts on what its layer covers instead of `inert` while a tile shows a
+ * Browser (FocusMode.tsx, worfy-browser ticket 17); focus.css hides what carries it. The shell asks
+ * for it as for `inert`: neither takes the focus.
+ */
+export const COVERED_ATTRIBUTE = 'data-focus-covered'
+
 /** Asks the Canvas on screen to open focus mode on these Nodes, as the Focus button opens it on the selection. */
 export function requestFocus(ids: readonly string[]): void {
   if (ids.length === 0) return

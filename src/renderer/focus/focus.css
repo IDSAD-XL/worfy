@@ -258,3 +258,33 @@ html[data-platform='linux'] .w-focus__bar[data-sidebar='hidden'] {
   font-size: var(--text-11);
   color: var(--text-muted);
 }
+
+/* A tile shows a Browser (worfy-browser ticket 17, FocusMode.tsx): its page is the <webview> of the
+   Browser layer on the Canvas, laid over the tile's body from under this layer. What the layer
+   covers is hidden instead of inert, all but that page (BrowserNode.css), and the layer lets the
+   page show through the Browser tile: the layer's background moves to the main area under it, the
+   Browser tile's frame has none, and the mouse goes through the layer and that tile to the page —
+   except over the bar, the dividers, the other tiles, the tile's title bar and the parts of the
+   frame that take it (the header, the Open bar; BrowserNode.css). */
+/* Everything in it, with !important: React Flow writes `visibility: visible` into each measured
+   Node's inline style, which would beat a visibility inherited from here. */
+[data-focus-covered],
+[data-focus-covered] * {
+  visibility: hidden !important;
+}
+.w-shell__main:has(> .w-focus[data-browser-tiles]) {
+  background: var(--canvas);
+}
+.w-focus[data-browser-tiles] {
+  background: transparent;
+  pointer-events: none;
+}
+.w-focus[data-browser-tiles] > .w-focus__bar,
+.w-focus[data-browser-tiles] .w-focus__divider,
+.w-focus[data-browser-tiles] .w-focus__tile:not(:has(.w-browser-frame)),
+.w-focus[data-browser-tiles] .w-focus__tile-title {
+  pointer-events: auto;
+}
+.w-focus__frame:has(.w-browser-frame) {
+  background: transparent;
+}

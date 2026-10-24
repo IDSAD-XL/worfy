@@ -4,23 +4,34 @@
 // Browser frame (BrowserNode) and the real profiles store; only main (ipc) and the Project are faked.
 // A Browser saved before profiles existed has a page address and no `profile` key: the layer must keep
 // the key absent, or the rule that keeps such a Browser on `default` never applies to it.
+// And a Browser in focus mode (worfy-browser ticket 17): the layer tells main it is on screen at a
+// readable zoom, though its frame on the Canvas is not — main's sleep rules then keep it Live
+// (test/unit/browser-sleep.test.ts); what focus mode covers is hidden, not inert, so the page under
+// it takes input.
 import { render, screen, waitFor } from '@testing-library/react'
 import { ReactFlow, ReactFlowProvider, type Node } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { browserProfilesNow } from '../../src/renderer/browser/profiles'
 import BrowserNode from '../../src/renderer/canvas/nodes/BrowserNode'
 import BrowserLayer from '../../src/renderer/canvas/overlays/BrowserLayer'
+import { FocusMode } from '../../src/renderer/focus/FocusMode'
+import { buildPreset, type TileTree } from '../../src/renderer/focus/split-tree'
 import { LayoutOpsContext } from '../../src/renderer/canvas/useLayout'
 import type { BrowserProfile } from '../../src/shared/browser/profiles'
+import { BROWSER_SLEEP_BOUNDS } from '../../src/shared/settings/app-settings'
 import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 
 // main: `browser.profiles.list` answers the profiles each Project has here, and `browser.lives.list`
 // that the Browser b0 is Live (worfy-browser ticket 05: the layer draws a page only for a Live
 // Browser); nothing else is asked.
-const main = vi.hoisted(() => ({ profiles: {} as Record<string, string[]> }))
+const main = vi.hoisted(() => ({ profiles: {} as Record<string, string[]>, screens: [] as { projectId: string; visible: string[]; zoom: number }[] }))
 vi.mock('../../src/renderer/ipc', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/renderer/ipc')>()),
   invoke: (channel: string, input: { projectId: string }) => {
+    if (channel === 'browser.screen') {
+      main.screens.push(input as unknown as { projectId: string; visible: string[]; zoom: number })
+      return Promise.resolve({ ok: true, value: null })
+    }
     if (channel === 'browser.lives.list') return Promise.resolve({ ok: true, value: { projectId: input.projectId, lives: [{ nodeId: 'b0', live: true, unsaved: false, overLimit: false, picture: null, here: true }] } })
     if (channel !== 'browser.profiles.list') return Promise.resolve({ ok: false, error: `${channel} is not faked` })
     const profiles = (main.profiles[input.projectId] ?? []).map((id): BrowserProfile => ({ id, name: id, origins: [], autopilot: false }))
@@ -45,7 +56,7 @@ function oldBrowser(id: string): Node {
   return { id, type: 'browser', position: { x: 0, y: 0 }, data: { node } }
 }
 
-function drawCanvas(nodes: Node[]) {
+function drawCanvas(nodes: Node[], focus?: TileTree) {
   const apply = vi.fn<(op: LayoutOpInput) => Promise<void>>(() => Promise.resolve())
   render(
     <div style={{ width: 800, height: 600 }}>
@@ -53,6 +64,7 @@ function drawCanvas(nodes: Node[]) {
         <ReactFlowProvider>
           <ReactFlow nodes={nodes} edges={[]} nodeTypes={{ browser: BrowserNode }}>
             <BrowserLayer />
+            {focus === undefined ? null : <FocusMode tree={focus} onChange={() => undefined} onExit={() => undefined} />}
           </ReactFlow>
         </ReactFlowProvider>
       </LayoutOpsContext.Provider>
@@ -105,5 +117,61 @@ describe('the Browser layer with an old Browser (a page address, no `profile` ke
     expect(screen.queryByTestId('browser-choose-profile')).toBeNull()
     await waitFor(() => expect(apply).toHaveBeenCalledWith({ op: 'patchData', id: 'b0', data: { profile: 'default' } }))
     expect(apply).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a Browser in focus mode (worfy-browser ticket 17)', () => {
+  let hadObserver = false
+  beforeEach(() => {
+    const globals = globalThis as { ResizeObserver?: unknown }
+    hadObserver = 'ResizeObserver' in globals
+    globals.ResizeObserver ??= class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    main.screens = []
+  })
+  afterEach(() => {
+    if (!hadObserver) delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver
+    main.profiles = {}
+  })
+
+  /** A Browser whose frame is far off the Canvas on screen (jsdom's Canvas has no size: every frame is off it). */
+  function farBrowser(id: string): Node {
+    const node: LayoutNode = { id, kind: 'browser', x: 9000, y: 9000, w: 640, h: 440, hidden: false, locked: false, pinned: false, tags: [], data: { url: page, profile: 'default' } }
+    return { id, type: 'browser', position: { x: 9000, y: 9000 }, data: { node } }
+  }
+
+  it('off the Canvas the window shows it nowhere', async () => {
+    shown.projectId = 'gamma-2a3b4c5d'
+    main.profiles = { [shown.projectId]: ['default'] }
+    drawCanvas([farBrowser('b0')])
+    await waitFor(() => expect(document.querySelector('webview[data-browser-id="b0"]')).not.toBeNull())
+    await waitFor(() => expect(main.screens.length).toBeGreaterThan(0))
+    expect(main.screens.at(-1)!.visible).toEqual([])
+  })
+
+  it('shown in a focus tile it is on screen, at a zoom readable under any setting of Settings → Browser', async () => {
+    shown.projectId = 'delta-3a4b5c6d'
+    main.profiles = { [shown.projectId]: ['default'] }
+    drawCanvas([farBrowser('b0')], buildPreset('columns', ['b0'])!)
+    // The tile draws the frame's second copy; its body is the one the page is laid over.
+    await waitFor(() => expect(document.querySelector('[data-testid="focus-tile"] [data-testid="browser-frame-body"]')).not.toBeNull())
+    await waitFor(() => expect(main.screens.at(-1)?.visible).toEqual(['b0']))
+    expect(main.screens.at(-1)!.zoom).toBeGreaterThanOrEqual(BROWSER_SLEEP_BOUNDS.zoom.max)
+  })
+
+  it('hides what focus mode covers instead of making it inert, so the page under the tile takes input', async () => {
+    shown.projectId = 'eps-4a5b6c7d'
+    main.profiles = { [shown.projectId]: ['default'] }
+    drawCanvas([farBrowser('b0')], buildPreset('columns', ['b0'])!)
+    await waitFor(() => expect(document.querySelector('webview[data-browser-id="b0"]')).not.toBeNull())
+    const layer = screen.getByTestId('focus-mode')
+    expect(layer.hasAttribute('data-browser-tiles')).toBe(true)
+    const page = document.querySelector('webview[data-browser-id="b0"]')!
+    expect(page.closest('[inert]')).toBeNull()
+    expect(page.closest('[data-focus-covered]')).not.toBeNull()
+    expect(layer.closest('[data-focus-covered]')).toBeNull()
   })
 })

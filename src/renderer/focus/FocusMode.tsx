@@ -27,19 +27,30 @@
 // is inert, so no key reaches a Canvas Node underneath (React Flow moves the selected Nodes on
 // arrow keys and unselects on Esc). On leaving, the focus goes back to where it was, unless it has
 // moved out of the layer meanwhile (to the sidebar): then it stays there.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+//
+// A Browser's page is no Node component but the <webview> of the Browser layer on the Canvas
+// (canvas/overlays/BrowserLayer.tsx), and a <webview> moved in the DOM loads its page again. While a
+// tile shows a Browser (worfy-browser ticket 17) the layer lays that page over the tile's body from
+// where it is, under this layer, and the layer lets it show through: its own background and the
+// Browser tile's are transparent, and the mouse goes through the tile to the page (focus.css). What
+// it covers is then hidden (`data-focus-covered`, visibility: hidden) instead of inert — an inert
+// page would take no input — and only the page in the tile is drawn of it. Hidden is as good as
+// inert for what is under the layer: nothing hidden takes the focus, the mouse, or a screen reader.
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useNodes } from '@xyflow/react'
+import { BROWSER_KIND } from '../../shared/browser/tools'
 import { TERMINAL_NODE_KIND } from '../../shared/ipc/terminal'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { nodeTypes, type CanvasFlowNode, type CanvasNodeProps } from '../canvas/nodes'
+import { useFramesStepAsideWhilePressed } from '../canvas/nodes/frames-step-aside'
 import { ReadOnlyTerminal } from '../canvas/ReadOnlyTerminal'
 import { UnknownNode } from '../canvas/UnknownNode'
 import { isPrimary } from '../platform'
 import { useReadOnly } from '../projects/useProjects'
 import { SidebarToggle, useSidebarVisibility } from '../shell/sidebar-visibility'
 import { label, matches } from '../shortcuts/match'
-import { setFocusActive, useFocusState } from './focus-state'
+import { COVERED_ATTRIBUTE, setFocusActive, useFocusState } from './focus-state'
 import { FocusTileContext } from './focus-tile'
 import {
   buildPreset,
@@ -128,7 +139,7 @@ function focusIsElsewhere(layer: HTMLElement): boolean {
  * the layer — what the layer covers is inert.
  */
 function isOpenOutside(popup: Element, layer: HTMLElement): boolean {
-  return popup.isConnected && !layer.contains(popup) && popup.closest('[inert], [hidden]') === null
+  return popup.isConnected && !layer.contains(popup) && popup.closest(`[inert], [hidden], [${COVERED_ATTRIBUTE}]`) === null
 }
 
 /** The menus and dialogs open outside `layer`: of the sidebar, the command palette, the Settings window. */
@@ -243,6 +254,13 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
   const nodes = useNodes<CanvasFlowNode>()
   const byId = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes])
   const layer = useRef<HTMLDivElement>(null)
+  // The layer as state, for the step-aside of Browser pages during a gesture (frames-step-aside.ts).
+  const [layerElement, setLayerElement] = useState<HTMLDivElement | null>(null)
+  useFramesStepAsideWhilePressed(layerElement)
+  const setLayer = useCallback((element: HTMLDivElement | null) => {
+    layer.current = element
+    setLayerElement(element)
+  }, [])
   const area = useRef<HTMLDivElement>(null)
   const geometry = useMemo(() => computeGeometry(tree), [tree])
   // The title-bar drag lives in a ref: a pointerup can arrive before React has rendered the
@@ -279,22 +297,36 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
   const slot = useFocusState((state) => state.slot)
   const sidebar = useSidebarVisibility()
 
-  // Keyboard focus: into the layer, what the layer covers inert, and back when the layer closes.
-  // What it covers is the other children of the element it is drawn in: the toolbar and the view in
-  // the shell — not the sidebar, which is next to that element — and the whole page on <body>.
+  // A tile shows a Browser: its page shows through the layer (see the top of this file).
+  const ids = useMemo(() => leafIds(tree), [tree])
+  const browserTiles = ids.some((id) => byId.get(id)?.data.node.kind === BROWSER_KIND)
+
+  // What the layer covers is the other children of the element it is drawn in: the toolbar and the
+  // view in the shell — not the sidebar, which is next to that element — and the whole page on
+  // <body>. Inert, or hidden while a tile shows a Browser; back as it was when the layer closes.
+  // Before the effect below, so that on closing the cover is off before the focus goes back.
   useLayoutEffect(() => {
     const root = layer.current
     const covered = root?.parentElement
     if (root === null || covered === null || covered === undefined) return undefined
+    const mark = browserTiles ? COVERED_ATTRIBUTE : 'inert'
+    const marked = Array.from(covered.children).filter((element) => element !== root && !element.hasAttribute(mark))
+    for (const element of marked) element.setAttribute(mark, '')
+    return () => {
+      for (const element of marked) element.removeAttribute(mark)
+    }
+  }, [slot, browserTiles])
+
+  // Keyboard focus: into the layer, and back when the layer closes.
+  useLayoutEffect(() => {
+    const root = layer.current
+    if (root === null) return undefined
     const previous = document.activeElement
-    const inerted = Array.from(covered.children).filter((element) => element !== root && !element.hasAttribute('inert'))
-    for (const element of inerted) element.setAttribute('inert', '')
     root.focus({ preventScroll: true })
     // The sidebar is shown or hidden apart for focus mode (shell/sidebar-visibility.ts).
     setFocusActive(true)
     return () => {
       setFocusActive(false)
-      for (const element of inerted) element.removeAttribute('inert')
       // Back to where the focus was, when it is still in the layer or nowhere. A focus that went to
       // the sidebar meanwhile stays there (a click on an Epic that ends focus mode must not lose it
       // to the Canvas): React puts the focus back on an element that had it before the layer was
@@ -304,7 +336,6 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
   }, [slot])
 
   // A Node that left the Canvas (removed or hidden) leaves its tile; with none left, focus mode ends.
-  const ids = useMemo(() => leafIds(tree), [tree])
   useEffect(() => {
     const gone = ids.filter((id) => {
       const node = byId.get(id)
@@ -452,7 +483,15 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
 
   return createPortal(
     // A region, not a modal dialog: the sidebar next to it stays in reach, for a screen reader too.
-    <div ref={layer} tabIndex={-1} className="w-focus" role="region" aria-label="Focus mode" data-testid="focus-mode">
+    <div
+      ref={setLayer}
+      tabIndex={-1}
+      className="w-focus"
+      role="region"
+      aria-label="Focus mode"
+      data-testid="focus-mode"
+      data-browser-tiles={browserTiles ? '' : undefined}
+    >
       <div className="w-focus__bar" data-toast-keep-out="" data-sidebar={sidebar.visible ? 'visible' : 'hidden'}>
         {/* The toolbar's button is under the layer: the same one here. */}
         <SidebarToggle className="w-focus__icon-button" visible={sidebar.visible} onToggle={sidebar.toggle} />
