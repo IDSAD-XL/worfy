@@ -26,7 +26,8 @@
 //   (point 10, worfy-canvas ticket 10).
 // - Every batch of a run is announced to the windows (onArchiveBatch, `layout.archived`); their
 //   toast «Archived N finished sessions» has Undo, which brings back that batch alone, without a
-//   screen (restoreBatch, `layout.restoreBatch`; point 8).
+//   screen (restoreBatch, `layout.restoreBatch`; point 8). A window whose page did not listen yet
+//   asks for the latest batches once it does (recentBatches, `layout.recentBatches`).
 // - «Archive finished sessions now» (point 9) asks main for the candidates of one Project
 //   (AutoArchiver.candidatesNow, channel `layout.archiveCandidates`) by the same rule, with 24 h
 //   under «Never»; the screen archives them itself, as one step of its undo history.
@@ -346,7 +347,7 @@ export class AutoArchiver {
     if (found.length > 0) {
       const batch = this.deps.batchId()
       this.deps.store.apply(project.id, { op: 'archive', batch, nodes: found.map(({ id, rule }) => ({ id, rule })) }, null)
-      announceBatch({ projectId: project.id, batch, count: found.length })
+      announceBatch({ projectId: project.id, batch, count: found.length }, this.deps.now())
     }
     // shortcut: one `touch` (and one layout.changed) per Node, only on the first run after an old Layout
     // is read; redo as one operation if a Layout with hundreds of such Nodes makes that run slow.
@@ -497,8 +498,42 @@ export function onArchiveBatch(listener: (event: ArchiveBatchEvent) => void): vo
   batchListeners.add(listener)
 }
 
-/** Tells every listener of a batch; one that throws is logged, the rest still hear. */
-function announceBatch(event: ArchiveBatchEvent): void {
+/**
+ * How long main keeps a batch for a window that was not listening when it was announced. The run at
+ * main's first read of the active Project's Layout starts as the first window is created, and its
+ * batch can come before that window's page subscribes: an Electron IPC message with no listener in
+ * the page is dropped (measured 2026-10-24: under load the batch came 50–180 ms before the page's
+ * subscription in 3 of 24 runs, and those windows showed no toast). The page asks for it once it
+ * listens (`layout.recentBatches`). Past this time a reload or a new window shows no toast of an
+ * old batch, as PendingOpens drops an old note (src/main/notify-pending.ts).
+ */
+export const RECENT_BATCH_MS = 30_000
+
+/** The latest batch of each Project and when it was announced, by Project id. */
+const latestBatches = new Map<string, { event: ArchiveBatchEvent; at: number }>()
+
+/**
+ * The batches a window that has just begun to listen may have missed: the latest of each Project,
+ * announced less than RECENT_BATCH_MS before `now`, while some of its Nodes are still archived in it.
+ * The count is of the Nodes still archived, as many as its Undo brings back. A batch past
+ * RECENT_BATCH_MS is forgotten.
+ */
+export function recentBatches(store: Pick<LayoutStore, 'peek'>, now: number): ArchiveBatchEvent[] {
+  const found: ArchiveBatchEvent[] = []
+  for (const [projectId, { event, at }] of latestBatches) {
+    if (now - at >= RECENT_BATCH_MS) {
+      latestBatches.delete(projectId)
+      continue
+    }
+    const left = stillInBatch(store.peek(projectId)?.layout.nodes ?? [], event.batch).length
+    if (left > 0) found.push({ ...event, count: left })
+  }
+  return found
+}
+
+/** Tells every listener of a batch; one that throws is logged, the rest still hear. Keeps it for recentBatches(). */
+function announceBatch(event: ArchiveBatchEvent, at: number): void {
+  latestBatches.set(event.projectId, { event, at })
   for (const listener of batchListeners) {
     try {
       listener(event)
