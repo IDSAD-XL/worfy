@@ -1,7 +1,8 @@
 # 22 — Transcript рисует только видимые строки
 
 Type: task
-Status: claimed 2026-10-24T02:06Z
+Status: done 2026-10-24T05:22Z
+PR: #825
 Branch: worfy-ui/22
 Blocked by: 21
 Source: жалоба владельца 2026-10-21: «при открытии истории сообщений в оркестраторе она очень долго
