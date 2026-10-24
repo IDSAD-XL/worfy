@@ -116,3 +116,26 @@ describe('the sign-in terminal answers each cursor request once (worfy-windows t
     expect(pty.writes).toEqual([`${ESC}[1;41R`, `${ESC}[1;2R`])
   })
 })
+
+describe('the sign-in terminal opened again (worfy-windows ticket 89)', () => {
+  it('answers the kept output with the sizes of the pty it came at, as terminal.open does', async () => {
+    const { call } = await signInHandlers()
+    await call('projects.connect.signIn', { signInId: 'signin-sizes-1', cols: 80, rows: 24 })
+    const pty = ptys.at(-1) as StandInPty | undefined
+    if (pty === undefined) throw new Error('no pty')
+    pty.print('at 80x24|')
+    await call('projects.connect.signInResize', { signInId: 'signin-sizes-1', cols: 100, rows: 30 })
+    pty.print('at 100x30')
+
+    const again = await call('projects.connect.signIn', { signInId: 'signin-sizes-1', cols: 100, rows: 30 })
+    expect(again).toEqual({
+      replay: 'at 80x24|at 100x30',
+      end: 'at 80x24|at 100x30'.length,
+      sizes: [
+        { at: 0, cols: 80, rows: 24 },
+        { at: 'at 80x24|'.length, cols: 100, rows: 30 },
+      ],
+      exited: null,
+    })
+  })
+})

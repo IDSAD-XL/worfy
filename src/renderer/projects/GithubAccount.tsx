@@ -16,6 +16,7 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { failureReason } from '../../shared/ipc/channels'
 import { githubChoice, type GithubAccountsStep, type GithubChoice } from '../../shared/ipc/projects'
+import { writeReplay } from '../canvas/nodes/terminal-replay'
 import { watchUserInput } from '../canvas/nodes/terminal-user-input'
 import { invoke, invokeOn, subscribe } from '../ipc'
 
@@ -289,8 +290,8 @@ export function SignInTerminal({ signInId, onExit, onClose }: { signInId: string
     }
     const finish = (exitCode: number): void => {
       attached = false
-      // Exited while the kept output was parsed: its last output is shown, the keys go nowhere.
-      if (replaying) for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
+      // Exited while the kept output was written: its last output is written after it (attach),
+      // the keys go nowhere.
       replaying = false
       pending.length = 0
       setStatus({ state: 'exited', exitCode })
@@ -321,16 +322,34 @@ export function SignInTerminal({ signInId, onExit, onClose }: { signInId: string
         setStatus({ state: 'failed', message: failureReason('projects.connect.signIn', result.error) })
         return
       }
-      const { replay, end, exited: ended } = result.value
+      const { replay, end, sizes, exited: ended } = result.value
       written = end
+      // The kept output at the sizes of the pty it came at (worfy-windows ticket 89), as a Terminal
+      // Node writes it; then the view takes its own size again.
+      const replayed = (then: () => void): void => {
+        const own = { cols: terminal.cols, rows: terminal.rows }
+        writeReplay(
+          terminal,
+          { replay, end, sizes },
+          () => {
+            if (terminal.cols !== own.cols || terminal.rows !== own.rows) terminal.resize(own.cols, own.rows)
+            then()
+          },
+          () => active,
+        )
+      }
       if (ended !== null) {
-        if (replay !== '') terminal.write(replay)
+        replayed(() => undefined)
         finish(ended.exitCode)
         return
       }
       const attach = (): void => {
-        // The view went, or gh exited while the kept output was parsed.
-        if (!active || !replaying) return
+        if (!active) return
+        // gh exited while the kept output was written: what it printed last comes after it, once.
+        if (!replaying) {
+          for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
+          return
+        }
         replaying = false
         attached = true
         for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
@@ -339,8 +358,7 @@ export function SignInTerminal({ signInId, onExit, onClose }: { signInId: string
         terminal.focus()
       }
       replaying = true
-      if (replay === '') attach()
-      else terminal.write(replay, attach)
+      replayed(attach)
     })
     return () => {
       active = false

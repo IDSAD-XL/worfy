@@ -47,7 +47,7 @@ export const replaySizeSchema = z.object({ at: z.number().int().nonnegative(), c
 export type ReplaySize = z.infer<typeof replaySizeSchema>
 
 /** The sizes of an answer to open go up and stay within its output: `at` from 0, never down, at most `end`. */
-function sizesInOrder(value: { end: number; sizes?: ReplaySize[] | undefined }, context: z.RefinementCtx): void {
+export function sizesInOrder(value: { end: number; sizes?: ReplaySize[] | undefined }, context: z.RefinementCtx): void {
   let previous = 0
   for (const [index, size] of (value.sizes ?? []).entries()) {
     if (size.at < previous || size.at > value.end) context.addIssue({ code: 'custom', path: ['sizes', index, 'at'], message: `${size.at} is not between ${previous} and the end ${value.end}` })
