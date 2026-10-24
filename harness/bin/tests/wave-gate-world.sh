@@ -233,14 +233,32 @@ state() {
 gate_count() { cat "$GATE_DIR/count" 2>/dev/null || echo 0; }
 # until_ok <seconds> <command…>: polls the command every 0.2 s; exit 0 as soon as it succeeds, 1 after the time
 until_ok() { local n=$(( $1 * 5 )); shift; while [ "$n" -gt 0 ]; do "$@" && return 0; sleep 0.2; n=$((n - 1)); done; return 1; }
+# descendants <pid>: the pids of every process under <pid>, children before grandchildren, from one `ps -ef`, whose
+# second and third columns are PID and PPID on macOS, on Linux and in Git Bash.
+descendants() {
+    ps -ef 2>/dev/null | awk -v root="$1" 'NR > 1 { parent[$2] = $3 }
+        END { n = 1; queue[1] = root; for (i = 1; i <= n; i++) for (p in parent) if (parent[p] == queue[i]) { queue[++n] = p; print p } }'
+}
 # Waits at most $2 s for the background run $1 and sets rc to its exit code. A run still going then is stopped with
-# SIGTERM, and with SIGKILL 2 s later; rc says which it took, and the case fails instead of hanging the file.
+# SIGTERM, and with SIGKILL 2 s later; rc says which it took, and the case fails instead of hanging the file. Its
+# whole tree goes with it (the gate, git, a heartbeat): the tree is read before the run is signalled, since its
+# children lose their parent once it ends, gets SIGTERM with it, and what of it still runs 2 s later gets SIGKILL
+# (in Git Bash through Windows, kill -f, as run_each in wave-gate.test.sh ends a heartbeat).
+# shortcut: a process the tree starts between the `ps` and the signal is not found; redo if a case leaves one behind.
 gone() { ! kill -0 "$1" 2>/dev/null; }
+all_gone() { local p; for p in "$@"; do gone "$p" || return 1; done; }
 finish() {
     if gone "$1" || until_ok "$2" gone "$1"; then wait "$1"; rc=$?; return 0; fi
-    kill "$1" 2>/dev/null
+    local tree p; tree="$(descendants "$1")"
+    kill "$1" $tree 2>/dev/null
     if until_ok 2 gone "$1"; then rc="still running after $2 s, stopped by SIGTERM"
     else kill -KILL "$1" 2>/dev/null; rc="still running after $2 s, SIGTERM ignored, killed"; fi
+    if [ -n "$tree" ] && ! until_ok 2 all_gone $tree; then
+        for p in $tree; do
+            gone "$p" && continue
+            if [ -e "/proc/$p/winpid" ]; then /usr/bin/kill -f -9 "$p" 2>/dev/null; else kill -KILL "$p" 2>/dev/null; fi
+        done
+    fi
     wait "$1" 2>/dev/null
     return 1
 }
