@@ -4,11 +4,13 @@
 // keeping a copy (ADR 0002, ADR 0005) — a Session continued from a terminal while worfy was closed
 // shows its newest block on the next start.
 //
-// The file is read from its end, a chunk at a time, and only as far back as needed: an
-// Orchestrator's transcript grows for as long as the Project lives. Nothing here writes.
-import { open } from 'node:fs/promises'
+// The file is read from its end, a window of whole lines at a time (readLinesBefore), and only as
+// far back as needed: an Orchestrator's transcript grows for as long as the Project lives. Nothing
+// here writes.
+import { open, type FileHandle } from 'node:fs/promises'
 import { findStatusBlock } from '../../shared/agent/status-block'
 import { parseTranscriptRecord } from '../../shared/transcript/parse'
+import { readLinesBefore, type TailCursor } from '../claude-home/tail'
 
 export interface TranscriptFacts {
   /** `message.model` of the Orchestrator's last answer. */
@@ -19,7 +21,6 @@ export interface TranscriptFacts {
 
 /** Claude Code marks text it wrote itself (an API error, an interruption notice) with this model. */
 const SYNTHETIC_MODEL = '<synthetic>'
-const NEWLINE = 0x0a
 const DEFAULT_CHUNK_BYTES = 256 * 1024
 
 type Json = Record<string, unknown>
@@ -54,46 +55,60 @@ function takeLine(line: string, facts: Partial<TranscriptFacts>): void {
 }
 
 export interface ReadFactsOptions {
-  /** Bytes read per step from the end; tests make it small to cut lines between chunks. */
+  /** Bytes of each window read back from the end; tests make it small to cut lines between windows. */
   chunkBytes?: number
+}
+
+const isMissing = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+
+/**
+ * The lines after `cursor`, the end of the last whole line of the first window: one still being
+ * written, or a last line written without a line end, which readLinesBefore leaves out. A file
+ * missing before that window too throws here. A file deleted or replaced by another one since the
+ * window has no tail of its own: the window's lines are the answer.
+ */
+async function readTail(file: string, cursor: TailCursor): Promise<string[]> {
+  let handle: FileHandle
+  try {
+    handle = await open(file, 'r')
+  } catch (error) {
+    if (cursor.fileId !== null && isMissing(error)) return []
+    throw error
+  }
+  try {
+    const stats = await handle.stat()
+    if (`${stats.dev}:${stats.ino}` !== cursor.fileId) return []
+    const { offset } = cursor
+    const length = Math.max(0, stats.size - offset)
+    const tail = Buffer.alloc(length)
+    const { bytesRead } = await handle.read(tail, 0, length, offset)
+    return tail.subarray(0, bytesRead).toString('utf8').split('\n')
+  } finally {
+    await handle.close()
+  }
 }
 
 /** The model and the last status block of the transcript at `file`, reading it from the end. */
 export async function readTranscriptFacts(file: string, options: ReadFactsOptions = {}): Promise<TranscriptFacts> {
-  const chunkBytes = options.chunkBytes ?? DEFAULT_CHUNK_BYTES
+  const windowBytes = options.chunkBytes ?? DEFAULT_CHUNK_BYTES
   const facts: Partial<TranscriptFacts> = {}
-  const handle = await open(file, 'r')
-  try {
-    let position = (await handle.stat()).size
-    // Bytes after `position` that do not start with a whole line yet: the head of a line whose
-    // beginning lies in an earlier chunk.
-    let carry: Buffer = Buffer.alloc(0)
-    while (position > 0 && (facts.model === undefined || facts.statusBlock === undefined)) {
-      const length = Math.min(chunkBytes, position)
-      position -= length
-      const chunk = Buffer.alloc(length)
-      const { bytesRead } = await handle.read(chunk, 0, length, position)
-      let data = Buffer.concat([chunk.subarray(0, bytesRead), carry])
-      if (position > 0) {
-        const first = data.indexOf(NEWLINE)
-        if (first === -1) {
-          carry = data
-          continue
-        }
-        carry = data.subarray(0, first)
-        data = data.subarray(first + 1)
-      } else {
-        carry = Buffer.alloc(0)
-      }
-      const lines = data.toString('utf8').split('\n')
-      for (let index = lines.length - 1; index >= 0; index -= 1) {
-        const line = lines[index]?.trim()
-        if (line) takeLine(line, facts)
-        if (facts.model !== undefined && facts.statusBlock !== undefined) break
-      }
+  const found = (): boolean => facts.model !== undefined && facts.statusBlock !== undefined
+  // The last line first: an earlier line counts only for what the later ones did not tell.
+  const take = (lines: string[]): void => {
+    for (let index = lines.length - 1; index >= 0 && !found(); index -= 1) {
+      const line = lines[index]?.trim()
+      if (line) takeLine(line, facts)
     }
-  } finally {
-    await handle.close()
+  }
+  let window = await readLinesBefore(file, { windowBytes })
+  take(await readTail(file, window.cursor))
+  take(window.lines)
+  // `reset`: the file was truncated or replaced since the window after this one; what was read
+  // so far stays the answer.
+  while (!found() && window.start > 0 && !window.reset) {
+    window = await readLinesBefore(file, { windowBytes, before: { offset: window.start, fileId: window.cursor.fileId } })
+    take(window.lines)
   }
   return { model: facts.model ?? null, statusBlock: facts.statusBlock ?? null }
 }
