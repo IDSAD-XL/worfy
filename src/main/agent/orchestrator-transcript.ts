@@ -7,10 +7,10 @@
 // The file is read from its end, a window of whole lines at a time (readLinesBefore), and only as
 // far back as needed: an Orchestrator's transcript grows for as long as the Project lives. Nothing
 // here writes.
-import { open } from 'node:fs/promises'
+import { open, type FileHandle } from 'node:fs/promises'
 import { findStatusBlock } from '../../shared/agent/status-block'
 import { parseTranscriptRecord } from '../../shared/transcript/parse'
-import { readLinesBefore } from '../claude-home/tail'
+import { readLinesBefore, type TailCursor } from '../claude-home/tail'
 
 export interface TranscriptFacts {
   /** `message.model` of the Orchestrator's last answer. */
@@ -59,14 +59,28 @@ export interface ReadFactsOptions {
   chunkBytes?: number
 }
 
+const isMissing = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+
 /**
- * The lines after `offset`, the end of the last whole line: one still being written, or a last line
- * written without a line end, which readLinesBefore leaves out. A missing file throws here.
+ * The lines after `cursor`, the end of the last whole line of the first window: one still being
+ * written, or a last line written without a line end, which readLinesBefore leaves out. A file
+ * missing before that window too throws here. A file deleted or replaced by another one since the
+ * window has no tail of its own: the window's lines are the answer.
  */
-async function readTail(file: string, offset: number): Promise<string[]> {
-  const handle = await open(file, 'r')
+async function readTail(file: string, cursor: TailCursor): Promise<string[]> {
+  let handle: FileHandle
   try {
-    const length = Math.max(0, (await handle.stat()).size - offset)
+    handle = await open(file, 'r')
+  } catch (error) {
+    if (cursor.fileId !== null && isMissing(error)) return []
+    throw error
+  }
+  try {
+    const stats = await handle.stat()
+    if (`${stats.dev}:${stats.ino}` !== cursor.fileId) return []
+    const { offset } = cursor
+    const length = Math.max(0, stats.size - offset)
     const tail = Buffer.alloc(length)
     const { bytesRead } = await handle.read(tail, 0, length, offset)
     return tail.subarray(0, bytesRead).toString('utf8').split('\n')
@@ -88,7 +102,7 @@ export async function readTranscriptFacts(file: string, options: ReadFactsOption
     }
   }
   let window = await readLinesBefore(file, { windowBytes })
-  take(await readTail(file, window.cursor.offset))
+  take(await readTail(file, window.cursor))
   take(window.lines)
   // `reset`: the file was truncated or replaced since the window after this one; what was read
   // so far stays the answer.

@@ -1,12 +1,29 @@
 // The model and the last status block of an Orchestrator's transcript, read from the end of the
 // file (src/main/agent/orchestrator-transcript.ts). Records follow the shape of real transcripts
 // (test/fixtures/claude-home/README.md); a small chunk size cuts lines between chunks.
-import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readTranscriptFacts } from '../../src/main/agent/orchestrator-transcript'
+
+// readLinesBefore as it is, with a hook a test sets to change the file right after the next window
+// is read: a Session that deletes or replaces its transcript between two reads.
+const afterWindow = vi.hoisted(() => ({ hook: null as ((file: string) => void) | null }))
+vi.mock('../../src/main/claude-home/tail', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/main/claude-home/tail')>()
+  return {
+    ...actual,
+    readLinesBefore: async (...args: Parameters<typeof actual.readLinesBefore>) => {
+      const window = await actual.readLinesBefore(...args)
+      const { hook } = afterWindow
+      afterWindow.hook = null
+      hook?.(args[0])
+      return window
+    },
+  }
+})
 
 const BLOCK_OWN = ['— Этап: worfy-mvp · волна 5', '— Сейчас: тикет 08 в работе', '— Дальше: PR', '— Жду: ничего'].join('\n')
 const BLOCK_OLDER = ['— Этап: worfy-mvp · волна 4', '— Сейчас: старое', '— Дальше: старое', '— Жду: ничего'].join('\n')
@@ -20,6 +37,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  afterWindow.hook = null
   await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
@@ -111,6 +129,25 @@ describe('readTranscriptFacts', () => {
 
   it('rejects for a missing file, as before', async () => {
     await expect(readTranscriptFacts(join(dir, 'missing.jsonl'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('keeps the answer of the window when the file is replaced by another one before its tail is read', async () => {
+    const lines = [user('старт'), assistant('claude-opus-5-5', [text(BLOCK_OWN)])]
+    const file = transcript(lines)
+    const other = assistant('claude-other', [text(BLOCK_OLDER)])
+    afterWindow.hook = (path) => {
+      // The new file holds the old bytes and one more line after them: its tail from the old offset is that line.
+      const next = join(dir, 'next.jsonl')
+      writeFileSync(next, `${lines.join('\n')}\n${other}\n`)
+      renameSync(next, path)
+    }
+    expect(await readTranscriptFacts(file)).toStrictEqual({ model: 'claude-opus-5-5', statusBlock: BLOCK_OWN })
+  })
+
+  it('keeps the answer of the window when the file is deleted before its tail is read', async () => {
+    const file = transcript([user('старт'), assistant('claude-opus-5-5', [text(BLOCK_OWN)])])
+    afterWindow.hook = (path) => rmSync(path)
+    expect(await readTranscriptFacts(file)).toStrictEqual({ model: 'claude-opus-5-5', statusBlock: BLOCK_OWN })
   })
 
   it('writes nothing next to the transcript', async () => {
