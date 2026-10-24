@@ -485,6 +485,19 @@ describe('LiveBrowsers and the Session\'s calls under the limit', () => {
     expect(live.lives('broken-0a1b2c3d').map((each) => each.nodeId)).toEqual(['k1'])
   })
 
+  it("keeps the Asleep record of a Browser while its Project's Browsers cannot be read, and drops it at the first check that reads them without it", async () => {
+    await freeOnePlace()
+    // An unreadable list is no news that the Browser is gone: its picture is all the Asleep Browser shows.
+    unreadable.add(PROJECT)
+    store.apply(PROJECT, { op: 'remove', id: 'b3' })
+    await live.check()
+    expect(lifeOf('b3')).toMatchObject({ live: false })
+    expect(lifeOf('b3')?.picture).not.toBeNull()
+    unreadable.delete(PROJECT)
+    await live.check()
+    expect(lifeOf('b3')).toBeUndefined()
+  })
+
   it('a limit lowered in Settings holds at the next check: the Browsers beyond it that may sleep do, the rest are marked over it', async () => {
     await live.check()
     pages.get('b1')!.unsaved = true

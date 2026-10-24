@@ -80,7 +80,7 @@ import { emit } from '../ipc'
 import { layoutStore, type LayoutChange } from '../layout/store'
 import { projectStore } from '../projects/store'
 import { appSettingsStore } from '../settings/store'
-import { TAKEN_OVER, type BrowserControlMode } from '../../shared/browser/tools'
+import { BROWSER_KIND, TAKEN_OVER, type BrowserControlMode } from '../../shared/browser/tools'
 import { browserControlChanged, browserLivesChanged, browserPressing, type BrowserInput, type BrowserLife } from '../../shared/ipc/browser'
 import { shownOnCanvas } from '../../shared/layout/derived'
 import { BROWSER_SLEEP_DEFAULTS, browserSleepOf, type BrowserSleep } from '../../shared/settings/app-settings'
@@ -891,6 +891,8 @@ export class LiveBrowsers {
     for (const [key, life] of [...this.lifes]) {
       if (!onScreen.has(life.projectId) || !this.seen.has(life.projectId)) continue
       const shown = browsersOf(life.projectId)
+      // A list that cannot be read keeps every record until it can: a Browser it would drop may still
+      // be on the Canvas, and an Asleep one would lose the picture it shows.
       if (shown === 'any' || shown === 'unknown') continue
       // Not one a running call works on: browser_open wakes its Browser before it puts the Node on the Canvas.
       if ((shown === 'gone' || !shown.includes(life.nodeId)) && (this.calls.get(key)?.running ?? 0) === 0) {
@@ -1010,7 +1012,7 @@ export function liveBrowsers(): LiveBrowsers {
       const hasPage = (profile: unknown): boolean => (typeof profile === 'string' ? profiles.has(profile) : profile === undefined)
       return layoutStore()
         .get(projectId)
-        .layout.nodes.filter((node) => node.kind === 'browser' && shownOnCanvas(node) && hasPage(node.data.profile))
+        .layout.nodes.filter((node) => node.kind === BROWSER_KIND && shownOnCanvas(node) && hasPage(node.data.profile))
         .map((node) => node.id)
     },
     // Each client reads whether it draws the page itself (`here`).
