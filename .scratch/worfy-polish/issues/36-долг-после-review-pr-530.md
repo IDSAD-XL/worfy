@@ -250,3 +250,13 @@ mode), круг 1: линза «корректность» и линза «те�
 
 `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (418 файлов). e2e Browser-ов, focus mode,
 Terminal, колеса, `projects-connect`, Ticket-а, Linked machine и Autopilot — 67 passed.
+
+Ревью PR #826, круг 2 (medium), исправлено:
+
+- `workflowPlaces` судит место и по пути как написан, и по realpath, и сравнивает с realpath home
+  folder: место, которое содержит home folder (папка выше, symlink на него, тот же путь в другом
+  регистре на APFS), или корень диска либо share не берётся. Несуществующее место тоже не берётся.
+  Раньше сравнение шло по тексту, и Workflow folder `/Users` или symlink на home открывал `~/.ssh/id`.
+  Test-ы — `shell.test.ts`: и на `workflowPlaces`, и через `shell.openInEditor` с подменённым HOME.
+- Диалог «Open?» показывает U+FFFD на месте каждого управляющего символа, а не убирает его:
+  `notes.md<BEL>` не выглядит как `notes.md`, имя из одних управляющих символов не пустое.

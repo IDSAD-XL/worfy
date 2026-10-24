@@ -51,7 +51,7 @@ export async function readTicketFile(layout: ProjectLayout, ref: TicketRef, opti
   // Where the Tickets live is unknown: the reason, not a guess (src/main/workflow/folder.ts).
   if (layout.failed) throw new Error(layoutFailure(layout))
   const paths: PathRules = options.paths ?? nativePath
-  const places = workflowPlaces(layout, { paths, home: options.home })
+  const places = await workflowPlaces(layout, { paths, home: options.home, real: options.real })
   const name = `${String(ref.num).padStart(2, '0')}-${ref.slug}.md`
   const dir = await resolveProjectFile(layout.root, paths.join(layout.ticketsRoot, ref.epic, 'issues'), places, options).catch((error: unknown) => {
     throw new Error(`the Ticket folder of ${ref.epic} cannot be read: ${error instanceof Error ? error.message : String(error)}`)

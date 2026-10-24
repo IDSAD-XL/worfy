@@ -24,11 +24,15 @@ function worktreeFolders(root: string): Promise<string[]> {
   })
 }
 
+const realOrNull = (path: string): Promise<string | null> => realpath(path).catch(() => null)
+
 export interface PlaceOptions {
   /** The path rules of the platform; path.win32 in tests on any system. */
-  paths?: Pick<PathRules, 'parse' | 'relative' | 'resolve'>
+  paths?: Pick<PathRules, 'isAbsolute' | 'parse' | 'relative' | 'resolve' | 'sep'>
   /** The user's home folder; os.homedir() by default. */
   home?: string
+  /** realpath, or null when there is no such folder; replaced in tests. */
+  real?: (path: string) => Promise<string | null>
 }
 
 /**
@@ -36,20 +40,30 @@ export interface PlaceOptions {
  * Workflow folder, and the Tickets root may lie elsewhere still. `tickets.read` reads a Ticket from
  * there (src/main/ipc/tickets.ts), and "Open in editor" and the links of its body open from there.
  * None for a layout that could not be read: where the workflow lives is unknown then. A place that
- * is the root of a disk or the home folder is left out: a Profile naming one would open every file
- * of the disk, or of the user, to a link in a Ticket.
+ * is the root of a disk or a share, or holds the home folder, is left out: a Profile naming one would
+ * open every file of the disk, or of the user (`~/.ssh`), to a link in a Ticket. resolveProjectFile
+ * checks a file against the real path of a place, so the place is judged by its real path too, and
+ * by its path as written: a symlink to the home folder, a folder above it and the home folder in
+ * another letter case (realpath gives the case the disk keeps) are all left out. So is a place that
+ * does not exist: no file lies inside it.
  */
-export function workflowPlaces(layout: ProjectLayout | null, options: PlaceOptions = {}): string[] {
+export async function workflowPlaces(layout: ProjectLayout | null, options: PlaceOptions = {}): Promise<string[]> {
   if (layout === null || layout.failed) return []
   const paths = options.paths ?? nativePath
+  const real = options.real ?? realOrNull
   const home = paths.resolve(options.home ?? homedir())
-  return [layout.ticketsRoot, layout.workflowFolder].filter((place) => {
-    const folder = paths.resolve(place)
-    return folder !== paths.parse(folder).root && paths.relative(home, folder) !== ''
-  })
+  const homes = [home, (await real(home)) ?? home]
+  const places = [layout.ticketsRoot, layout.workflowFolder]
+  const kept = await Promise.all(
+    places.map(async (place) => {
+      const folder = paths.resolve(place)
+      const realFolder = await real(folder)
+      if (realFolder === null) return false
+      return [folder, realFolder].every((form) => form !== paths.parse(form).root && !homes.some((each) => isInside(form, each, paths)))
+    }),
+  )
+  return places.filter((_, index) => kept[index])
 }
-
-const realOrNull = (path: string): Promise<string | null> => realpath(path).catch(() => null)
 
 export interface ResolveOptions {
   /** realpath, or null when there is no such file; replaced in tests. */
@@ -172,14 +186,15 @@ export async function isDocument(target: string, options: DocumentOptions = {}):
  * and paragraph separators (U+2028, U+2029), the bidirectional controls (U+202A–U+202E,
  * U+2066–U+2069) and the direction marks (U+200E, U+200F, U+061C). Line breaks push the end of a name
  * out of the box (`invoice.md<LF><LF><LF>.command`), and the bidirectional controls reorder it
- * (`setup<U+202E>dm.command` reads as ending in `.md`). The question about a file shows its name
- * without them.
+ * (`setup<U+202E>dm.command` reads as ending in `.md`). The question about a file shows each of them
+ * as U+FFFD, the replacement character, rather than dropping it: `notes.md<BEL>` must not read as
+ * `notes.md`, and a name of control characters alone must not read as an empty one.
  */
-// eslint-disable-next-line no-control-regex -- the control characters are what is taken out
+// eslint-disable-next-line no-control-regex -- the control characters are what is replaced
 const HIDING = /[\u0000-\u001F\u007F-\u009F\u2028\u2029\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/g
 
-/** A file name as the question about it shows it: without what would hide or reorder a part of it. */
-export const shownName = (name: string): string => name.replace(HIDING, '')
+/** A file name as the question about it shows it: a visible mark for what would hide or reorder a part of it. */
+export const shownName = (name: string): string => name.replace(HIDING, '\uFFFD')
 
 /** What the user chose for a file that is not a document. */
 export type OpenChoice = 'open' | 'show' | 'cancel'
@@ -225,7 +240,7 @@ export default [
   defineHandler(shellOpenInEditor, async ({ projectId, path }, { event }) => {
     const root = projectStore().get(projectId).path
     const [worktrees, layout] = await Promise.all([worktreeFolders(root), projectLayouts().get(root).catch(() => null)])
-    const target = await resolveProjectFile(root, path, [...worktrees, ...workflowPlaces(layout)])
+    const target = await resolveProjectFile(root, path, [...worktrees, ...(await workflowPlaces(layout))])
     // A document opens at once; for anything else the user decides in a box of main, never the
     // window: the renderer is not trusted. `desktop`: a Linked machine never reaches this handler.
     if (!(await isDocument(target))) {

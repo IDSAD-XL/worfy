@@ -3,7 +3,7 @@
 // worktree in a temporary folder. Nothing reaches macOS: shell.openPath, shell.showItemInFolder,
 // shell.openExternal and dialog.showMessageBox are recorders; the box answers what a test sets.
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -221,16 +221,69 @@ describe('shell.openInEditor in a Silent Project', () => {
     expect(electron.openPath).not.toHaveBeenCalled()
   })
 
-  it('never takes the root of a disk or the home folder as a place of the workflow', async () => {
+  it('never takes the root of a disk or a share, or a folder that holds the home folder, as a place of the workflow', async () => {
     const { workflowPlaces } = await import('../../src/main/ipc/shell')
     const layout = (workflowFolder: string, ticketsRoot: string): ProjectLayout => ({ root: '/p', mode: 'silent', workflowFolder, ticketsRoot, repos: [], workspace: null, reason: null, failed: false })
-    expect(workflowPlaces(layout('/wf', '/wf/.scratch'), { paths: posix, home: '/Users/a' })).toEqual(['/wf/.scratch', '/wf'])
-    expect(workflowPlaces(layout('/', '/.scratch'), { paths: posix, home: '/Users/a' })).toEqual(['/.scratch'])
-    expect(workflowPlaces(layout('/Users/a', '/Users/a/'), { paths: posix, home: '/Users/a' })).toEqual([])
-    expect(workflowPlaces(layout('/Users/a/wf', '/Users/a/wf/.scratch'), { paths: posix, home: '/Users/a/' })).toEqual(['/Users/a/wf/.scratch', '/Users/a/wf'])
+    // realpath of the places: the folders as written unless a test names their real path.
+    const real =
+      (links: Record<string, string | null> = {}) =>
+      async (path: string): Promise<string | null> =>
+        path in links ? links[path]! : path
+    const places = (workflowFolder: string, ticketsRoot: string, home: string, links?: Record<string, string | null>) => workflowPlaces(layout(workflowFolder, ticketsRoot), { paths: posix, home, real: real(links) })
+    expect(await places('/wf', '/wf/.scratch', '/Users/a')).toEqual(['/wf/.scratch', '/wf'])
+    expect(await places('/', '/.scratch', '/Users/a')).toEqual(['/.scratch'])
+    expect(await places('/Users/a', '/Users/a/', '/Users/a')).toEqual([])
+    expect(await places('/Users/a/wf', '/Users/a/wf/.scratch', '/Users/a/')).toEqual(['/Users/a/wf/.scratch', '/Users/a/wf'])
+    // A folder above the home folder holds it, and so does a path that only reads as another folder.
+    expect(await places('/Users', '/wf/../Users/a/../a/wf', '/Users/a')).toEqual(['/wf/../Users/a/../a/wf'])
+    // review of PR #826: a symlink to the home folder, and the home folder in another letter case,
+    // which realpath gives as the disk keeps it, pass a check of the text alone.
+    expect(await places('/tmp/x/link', '/tmp/x/link/.scratch', '/Users/a', { '/tmp/x/link': '/Users/a', '/tmp/x/link/.scratch': '/Users/a/.scratch' })).toEqual(['/tmp/x/link/.scratch'])
+    expect(await places('/users/a', '/users/a/wf', '/Users/a', { '/users/a': '/Users/a', '/users/a/wf': '/Users/a/wf' })).toEqual(['/users/a/wf'])
+    expect(await places('/tmp/up', '/wf', '/Users/a', { '/tmp/up': '/' })).toEqual(['/wf'])
+    // The home folder that is a symlink itself: the place is compared with where it leads.
+    expect(await places('/data/a', '/data/a/wf', '/home/a', { '/home/a': '/data/a' })).toEqual(['/data/a/wf'])
+    // A place that does not exist holds no file.
+    expect(await places('/gone', '/wf', '/Users/a', { '/gone': null })).toEqual(['/wf'])
     // On Windows the root of a drive and of a share, and the home folder in any letter case.
-    expect(workflowPlaces(layout('D:\\', '\\\\host\\share\\'), { paths: win32, home: 'C:\\Users\\a' })).toEqual([])
-    expect(workflowPlaces(layout('c:\\users\\A', 'D:\\wf\\.scratch'), { paths: win32, home: 'C:\\Users\\a' })).toEqual(['D:\\wf\\.scratch'])
+    const windows = (workflowFolder: string, ticketsRoot: string) => workflowPlaces(layout(workflowFolder, ticketsRoot), { paths: win32, home: 'C:\\Users\\a', real: real() })
+    expect(await windows('D:\\', '\\\\host\\share\\')).toEqual([])
+    expect(await windows('c:\\users\\A', 'D:\\wf\\.scratch')).toEqual(['D:\\wf\\.scratch'])
+    expect(await windows('C:\\Users', '\\\\host\\share\\wf')).toEqual(['\\\\host\\share\\wf'])
+    // The path as written is judged too: `D:\wf\..` is the root of the drive.
+    expect(await windows('D:\\wf\\..', 'D:\\wf')).toEqual(['D:\\wf'])
+  })
+
+  // review of PR #826: a Workflow folder that is a symlink to the home folder, a folder above it, or
+  // the home folder in another letter case opened `~/.ssh/id`.
+  it('opens no file of the home folder through a Workflow folder that leads to it', async () => {
+    const home = join(scratch, 'people', 'a')
+    mkdirSync(join(home, '.ssh'), { recursive: true })
+    writeFileSync(join(home, '.ssh', 'id'), 'key\n')
+    vi.stubEnv('HOME', home)
+    vi.stubEnv('USERPROFILE', home)
+    try {
+      const link = join(scratch, 'link-home')
+      symlinkSync(home, link, 'junction')
+      const upper = join(scratch, 'people', 'A')
+      const ways: Array<[string, string]> = [
+        [link, join(link, '.ssh', 'id')],
+        [join(scratch, 'people'), join(home, '.ssh', 'id')],
+        [home, join(home, '.ssh', 'id')],
+        // Only on a disk that ignores the letter case, as macOS and Windows have by default.
+        ...(existsSync(upper) ? [[upper, join(upper, '.ssh', 'id')] as [string, string]] : []),
+      ]
+      for (const [workflowFolder, path] of ways) {
+        layouts.byRoot.set(repo, { root: repo, mode: 'silent', workflowFolder, ticketsRoot, repos: [], workspace: null, reason: null, failed: false })
+        await refused('shell.openInEditor', { projectId: PROJECT_ID, path }, /outside the Project/)
+      }
+      expect(electron.openPath).not.toHaveBeenCalled()
+      // The Tickets root of the same layout still opens.
+      const ticket = join(ticketsRoot, 'e', 'issues', '02-b.md')
+      expect(await call('shell.openInEditor', { projectId: PROJECT_ID, path: ticket })).toStrictEqual({ ok: true, value: { path: ticket, outcome: 'opened' } })
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('opens nothing from the Workflow folder when where the workflow lives is unknown: a failed layout, or one that could not be asked', async () => {
@@ -467,29 +520,32 @@ describe('shell.openInEditor opens documents and asks about anything else', () =
 
   // worfy-polish ticket 36: U+202E (right-to-left override) makes `setup<U+202E>dm.command` read as a
   // name ending in `.md`. The question shows the name without the bidirectional controls.
-  it('shows the name of the file it asks about without bidirectional controls, so it cannot pass for a document', async () => {
+  it('shows the name of the file it asks about with a mark for each bidirectional control, so it cannot pass for a document', async () => {
     const names = ['setup\u202Edm.command', 'a\u2066b\u2069\u202A\u202B\u202C\u202D.term', 'x\u200E\u200F\u061C.sh', 'plain\u2067\u2068.sh']
     const files = names.map((name) => projectFile(`bidi/${name}`))
     await asPlatform('darwin', async () => {
       for (const file of files) expect(outcome(await open(file))).toBe('cancelled')
     })
     expect(boxes().map(([, options]) => [options.title, options.message])).toStrictEqual(
-      ['setupdm.command', 'ab.term', 'x.sh', 'plain.sh'].map((name) => [`Open ${name}?`, `Open ${name}?`]),
+      ['setup\uFFFDdm.command', 'a\uFFFDb\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD.term', 'x\uFFFD\uFFFD\uFFFD.sh', 'plain\uFFFD\uFFFD.sh'].map((name) => [`Open ${name}?`, `Open ${name}?`]),
     )
     expect(opened()).toStrictEqual([])
   })
 
   // Line breaks would push the real extension out of the box: `invoice.md` and, three lines down, `.command`.
-  it.skipIf(process.platform === 'win32')('shows the name without line breaks and other control characters', async () => {
+  it.skipIf(process.platform === 'win32')('shows a mark in place of each line break of the name', async () => {
     const file = projectFile('lines/invoice.md\n\n\n.command')
     await asPlatform('darwin', async () => expect(outcome(await open(file))).toBe('cancelled'))
-    expect(boxes().map(([, options]) => options.message)).toStrictEqual(['Open invoice.md.command?'])
+    expect(boxes().map(([, options]) => options.message)).toStrictEqual(['Open invoice.md\uFFFD\uFFFD\uFFFD.command?'])
   })
 
-  it('takes out of a shown name every control character, the line and paragraph separators, the bidirectional controls and the direction marks', async () => {
+  it('shows U+FFFD in a name for every control character, the line and paragraph separators, the bidirectional controls and the direction marks', async () => {
     const { shownName } = await import('../../src/main/ipc/shell')
     const hiding = [...Array.from({ length: 0x20 }, (_, code) => code), 0x7f, ...Array.from({ length: 0x20 }, (_, code) => 0x80 + code), 0x2028, 0x2029, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069, 0x200e, 0x200f, 0x061c]
-    for (const code of hiding) expect(shownName(`a${String.fromCharCode(code)}.command`), code.toString(16)).toBe('a.command')
+    for (const code of hiding) expect(shownName(`a${String.fromCharCode(code)}.command`), code.toString(16)).toBe('a\uFFFD.command')
+    // review of PR #826: a bell at the end must not leave `notes.md`, nor a name of controls alone an empty one.
+    expect(shownName('notes.md\u0007')).toBe('notes.md\uFFFD')
+    expect(shownName('\u0007\u202E')).toBe('\uFFFD\uFFFD')
     // Letters of any script and plain spaces stay.
     expect(shownName('Отчёт 2026 · résumé.md')).toBe('Отчёт 2026 · résumé.md')
   })
