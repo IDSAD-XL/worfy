@@ -54,6 +54,15 @@ TRAP_WIN="${BE#*"$WIN_IF"}"; TRAP_WIN="${TRAP_WIN%%; else *}"
 [ "$TRAP_WIN" != "$BE" ] && [[ "$TRAP_WIN" == *'kill -KILL $HB'* ]] && [[ "$TRAP_WIN" == *'/usr/bin/kill -f -9 $HB'* ]] && [[ "$TRAP_WIN" != *STOP* ]] \
     && ok "skill blocks: the Git Bash branch of the one-PR block's trap kills the heartbeat without kill -STOP" \
     || bad "skill blocks: the one-PR block's trap has no Git Bash branch ('$WIN_IF') without kill -STOP: [${TRAP_WIN:0:300}]"
+# The other branch of the trap stops the heartbeat and runs pkill -P again while it is stopped, until passes in a row
+# find no child: `ps` shows the heartbeat stopped while a fork it began before the stop is still under way, and the
+# child shows up later (measured on macOS under load). With a single pkill, under load, 1 of the 40 runs below left
+# a `sleep` in about every third run of this file; the 40 runs show it only by chance, this check every time.
+TRAP_POSIX="${BE#*"$WIN_IF"}"; TRAP_POSIX="${TRAP_POSIX#*; else }"; TRAP_POSIX="${TRAP_POSIX%%; fi; grep *}"
+PKILL_AGAIN='while [ $e -lt 3 ] && [ $w -lt 40 ]; do sleep 0.05; w=$((w + 1)); if pkill -P $HB 2>/dev/null; then e=0; else e=$((e + 1)); fi; done; kill -KILL $HB'
+[[ "$TRAP_POSIX" == *'kill -STOP $HB'*"$PKILL_AGAIN"*'kill -CONT $HB'* ]] \
+    && ok "skill blocks: the other branch of the one-PR block's trap runs pkill -P again while the heartbeat is stopped" \
+    || bad "skill blocks: the one-PR block's trap has no '$PKILL_AGAIN' between kill -STOP and kill -CONT: [${TRAP_POSIX:0:400}]"
 # The heartbeat ends with the block's shell and touches the lock only while holder.json names that shell. The cases
 # below show both by behaviour; the holder.json the block writes is in the form the heartbeat looks for.
 HB_OURS='kill -0 $$ 2>/dev/null || exit 0; grep -q "\"pid\":$$," "$L/holder.json" 2>/dev/null && touch -c "$L"'
