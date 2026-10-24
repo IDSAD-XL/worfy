@@ -3,7 +3,7 @@ import type { AgentEvent } from '../../shared/agent/events'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { clipText as clip, hookOutput, toolSummary } from '../../shared/transcript/find'
 import { Markdown } from '../markdown/Markdown'
-import { DRAW_ALL_UP_TO, foldTranscript, rowOrder, rowWindow, toolSegments, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
+import { DRAW_ALL_UP_TO, FIRST_DRAWN, foldTranscript, ROW_ESTIMATE, rowFor, rowWindow, spanOf, stepOf, toolSegments, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
 import { formatDuration } from './format'
 import { rowTypes } from './rows/index'
 import { clearMatches, extensionTypes, paintMatches, partId, scrollToMatch, type TranscriptFind } from './transcript-find'
@@ -514,27 +514,53 @@ function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps })
 
 // ── drawing only the rows around the visible part (worfy-ui ticket 22) ─────────
 
-/** The height a row not measured yet is taken to have, while no row is measured. */
-const ROW_ESTIMATE = 60
-/** Rows drawn before the log is measured: the newest, where it opens. */
-const FIRST_DRAWN = 40
-
 /** Where the reader is: at the bottom of the log, or row `key` with its top `offset` px below the top of the visible part. */
 type Position = { bottom: true } | { bottom: false; key: string; offset: number }
 const BOTTOM: Position = { bottom: true }
 
-/** The part of the rows drawn: from row `from` to row `to` (null: to the last), and the space the rows around them take. */
+/**
+ * The part of the rows drawn: from row `from` to row `to` (null: to the last), and the height of
+ * each space that stands for rows not drawn, by the key of the drawn row after it ('' for the last).
+ */
 interface Drawn {
   from: string
   to: string | null
   /** How many rows; where they start when `from` is gone (the cap of the events dropped it). */
   count: number
-  above: number
-  below: number
+  spaces: Readonly<Record<string, number>>
 }
 
-const sameDrawn = (a: Drawn | null, b: Drawn): boolean =>
-  a !== null && a.from === b.from && a.to === b.to && a.count === b.count && Math.abs(a.above - b.above) < 1 && Math.abs(a.below - b.below) < 1
+function sameDrawn(a: Drawn | null, b: Drawn): boolean {
+  if (a === null || a.from !== b.from || a.to !== b.to || a.count !== b.count) return false
+  const keys = Object.keys(b.spaces)
+  return keys.length === Object.keys(a.spaces).length && keys.every((key) => Math.abs((a.spaces[key] ?? Number.NaN) - b.spaces[key]!) < 1)
+}
+
+/**
+ * The rows drawn, in order: [start, end), and the rows of `pinned` outside it — an open permission
+ * or question card keeps what the reader picked and typed while they scroll away from it.
+ */
+function drawnIndices(n: number, start: number, end: number, pinned: readonly number[]): number[] {
+  const rows: number[] = []
+  for (const row of pinned) if (row < start) rows.push(row)
+  for (let row = start; row < end; row += 1) rows.push(row)
+  for (const row of pinned) if (row >= end && row < n) rows.push(row)
+  return rows
+}
+
+/** The rows of the open permission and question cards of a live Session (rows/PermissionRequest.tsx, rows/QuestionRequest.tsx). */
+function openRequests(items: readonly TranscriptItem[], events: readonly AgentEvent[], sessionId: string | null): number[] {
+  if (sessionId === null) return []
+  const resolved = new Set<string>()
+  for (const event of events) if (event.type === 'permission_resolved' || event.type === 'question_resolved') resolved.add(event.requestId)
+  const rows: number[] = []
+  items.forEach((item, row) => {
+    if (item.kind !== 'extension') return
+    const { event } = item
+    if ((event.type === 'permission_request' || event.type === 'question_request') && !resolved.has(event.requestId)) rows.push(row)
+  })
+  return rows
+}
 
 /** The rows of the log as drawn: each row's element and key, in order. */
 const drawnRows = (log: HTMLElement): HTMLElement[] => Array.from(log.querySelectorAll<HTMLElement>(':scope > [data-item]'))
@@ -550,9 +576,10 @@ function firstVisibleRow(log: HTMLElement): { row: HTMLElement; offset: number }
 }
 
 export function Transcript(props: TranscriptProps) {
-  const { events, firstIndex = 0, earlier, hideTools, find, logRef } = props
+  const { events, firstIndex = 0, earlier, hideTools, find, logRef, sessionId = null } = props
   const items = useMemo(() => foldTranscript(events, extensionTypes, firstIndex), [events, firstIndex])
   const index = useMemo(() => new Map(items.map((item, at) => [item.key, at])), [items])
+  const pinned = useMemo(() => openRequests(items, events, sessionId), [items, events, sessionId])
   const now = useToday()
   const [lines] = useState(() => new Map<string, LineState>())
   const log = useRef<HTMLDivElement>(null)
@@ -566,31 +593,27 @@ export function Transcript(props: TranscriptProps) {
   // render: what the handlers and effects choose the rows to draw from.
   const position = useRef<Position>(BOTTOM)
   const heights = useRef(new Map<string, number>())
-  const latest = useRef({ items, index })
+  const latest = useRef({ items, index, pinned })
   const [drawn, setDrawn] = useState<Drawn | null>(null)
 
-  // The rows drawn now: all of a short transcript; of a long one the part `drawn` names, and the
-  // space of the others above and below it.
+  // The rows drawn now: all of a short transcript; of a long one the part `drawn` names and the
+  // open cards, with spaces for the others.
   const n = items.length
   let start = 0
   let end = n
-  let above = 0
-  let below = 0
   if (n > DRAW_ALL_UP_TO) {
     if (drawn === null) {
       start = Math.max(0, n - FIRST_DRAWN)
-      above = start * ROW_ESTIMATE
     } else {
       end = drawn.to === null ? n : Math.min(n, (index.get(drawn.to) ?? n - 1) + 1)
       start = Math.min(index.get(drawn.from) ?? Math.max(0, end - drawn.count), end)
-      above = drawn.above
-      below = drawn.below
     }
   }
+  const shown = drawnIndices(n, start, end, n > DRAW_ALL_UP_TO ? pinned : [])
 
   /**
    * Measures the rows drawn, and says the height of every row: measured when it was last drawn,
-   * the mean of those measured when it never was. `step` is the room a row takes with its gap.
+   * the mean of those measured when it never was.
    */
   const sizing = useCallback((element: HTMLElement) => {
     const known = heights.current
@@ -600,9 +623,7 @@ export function Transcript(props: TranscriptProps) {
     const estimate = known.size > 0 ? sum / known.size : ROW_ESTIMATE
     const sizes = latest.current.items.map((row) => known.get(row.key) ?? estimate)
     const gap = Number.parseFloat(getComputedStyle(element).rowGap) || 0
-    // A row that draws nothing (an answered request card, `.w-tr__item:empty`) takes no gap either.
-    const step = (row: number): number => (sizes[row]! > 0 ? sizes[row]! + gap : 0)
-    return { sizes, gap, step }
+    return { sizes, gap }
   }, [])
 
   /** Reads where the reader is from the log (Position, atBottom). */
@@ -616,26 +637,24 @@ export function Transcript(props: TranscriptProps) {
       return
     }
     const top = element.getBoundingClientRect().top
-    const above = element.querySelector<HTMLElement>(':scope > [data-space="above"]')
-    const below = element.querySelector<HTMLElement>(':scope > [data-space="below"]')
     const { items: rows, index: rowIndex } = latest.current
-    // The top of the visible part in the space of the rows not drawn (a scroll past the drawn
-    // ones): the row there is the one at the same share of that space, by the heights rows are
-    // taken to have now.
-    for (const space of [above, below]) {
-      const box = space?.getBoundingClientRect()
-      // Above: the visible part starts in it or before it (the padding at the very top); below: in it or past it.
-      if (space === null || box === undefined || (space === above ? box.bottom <= top : box.top > top)) continue
-      const { gap, step } = sizing(element)
-      const edge = rowIndex.get((space === above ? space.nextElementSibling : space.previousElementSibling)?.getAttribute('data-item') ?? '')
-      if (edge === undefined) return
-      const [from, to] = space === above ? [0, edge] : [edge + 1, rows.length]
-      let total = -gap
-      for (let one = from; one < to; one += 1) total += step(one)
-      const scale = total > 0 ? box.height / total : 1
+    const rowOf = (sibling: Element | null): number | undefined => (sibling?.hasAttribute('data-item') === true ? rowIndex.get(sibling.getAttribute('data-item') ?? '') : undefined)
+    // The top of the visible part in a space of rows not drawn (a scroll past the drawn ones): the
+    // row there is counted from the space's top by the heights rows are taken to have now (the
+    // space was laid out by the same heights at the last render).
+    for (const space of Array.from(element.querySelectorAll<HTMLElement>(':scope > [data-space]'))) {
+      const box = space.getBoundingClientRect()
+      const before = rowOf(space.previousElementSibling)
+      const after = rowOf(space.nextElementSibling)
+      const from = before === undefined ? 0 : before + 1
+      const to = after ?? rows.length
+      // The first space also takes the visible part that starts before it (the padding at the very top); the last, one past it.
+      const inside = (from === 0 || box.top <= top) && (to === rows.length || box.bottom > top)
+      if (!inside || from >= to) continue
+      const { sizes, gap } = sizing(element)
       let row = from
       let y = box.top
-      for (; row < to - 1 && y + step(row) * scale <= top; row += 1) y += step(row) * scale
+      for (; row < to - 1 && y + stepOf(sizes[row]!, gap) <= top; row += 1) y += stepOf(sizes[row]!, gap)
       position.current = { bottom: false, key: rows[row]!.key, offset: y - top }
       return
     }
@@ -643,28 +662,53 @@ export function Transcript(props: TranscriptProps) {
     if (visible !== null) position.current = { bottom: false, key: visible.row.dataset['item'] ?? '', offset: visible.offset }
   }, [sizing])
 
+  /**
+   * Keeps the reader where they were: at the bottom, or their row at its offset when rows above it
+   * changed (drawn in place of their space, measured anew, come in front with «Load earlier»). A row
+   * that is gone gives its place to the row that holds its event now (rowFor).
+   */
+  const keep = useCallback(() => {
+    const element = log.current
+    if (element === null) return
+    if (atBottom.current) {
+      element.scrollTop = element.scrollHeight
+      return
+    }
+    const at = position.current
+    if (at.bottom || element.clientHeight === 0) return
+    const { items: rows, index: rowIndex } = latest.current
+    // The position keeps the gone key: the row may come back (the cap dropped it while «Load earlier» read).
+    const key = rowIndex.has(at.key) ? at.key : rows[rowFor(rows, at.key)]?.key
+    const row = drawnRows(element).find((one) => one.dataset['item'] === key)
+    if (row === undefined) return
+    // Not read back here: a space above may still be the old one until the rows to draw are chosen
+    // again (the last effect), and the reader's row is where it was by now anyway.
+    element.scrollTop += row.getBoundingClientRect().top - element.getBoundingClientRect().top - at.offset
+  }, [])
+
   /** Measures the rows drawn and chooses the rows to draw around where the reader is. */
   const place = useCallback(() => {
     const element = log.current
-    const rows = latest.current.items
+    const { items: rows, index: rowIndex, pinned: open } = latest.current
     if (element === null) return
     if (rows.length <= DRAW_ALL_UP_TO) return setDrawn(null)
-    const { sizes, gap, step } = sizing(element)
+    const { sizes, gap } = sizing(element)
     const at = position.current
-    // The reader's row, or the first after it when the cap of the events dropped it.
-    const row = at.bottom ? -1 : (latest.current.index.get(at.key) ?? rows.findIndex((one) => rowOrder(one.key) >= rowOrder(at.key)))
+    const row = at.bottom ? -1 : (rowIndex.get(at.key) ?? rowFor(rows, at.key))
     const { start, end } = rowWindow(sizes, gap, row, at.bottom ? 0 : at.offset, element.clientHeight || window.innerHeight)
-    const space = (from: number, to: number): number => {
-      let total = 0
-      for (let one = from; one < to; one += 1) total += step(one)
-      return Math.max(0, total - gap)
+    const spaces: Record<string, number> = {}
+    let next = 0
+    for (const one of drawnIndices(rows.length, start, end, open)) {
+      if (one > next) spaces[rows[one]!.key] = spanOf(sizes, gap, next, one)
+      next = one + 1
     }
-    const next: Drawn = { from: rows[start]!.key, to: end >= rows.length ? null : rows[end - 1]!.key, count: end - start, above: space(0, start), below: space(end, rows.length) }
-    setDrawn((was) => (sameDrawn(was, next) ? was : next))
+    if (next < rows.length) spaces[''] = spanOf(sizes, gap, next, rows.length)
+    const drawnNext: Drawn = { from: rows[start]!.key, to: end >= rows.length ? null : rows[end - 1]!.key, count: end - start, spaces }
+    setDrawn((was) => (sameDrawn(was, drawnNext) ? was : drawnNext))
   }, [sizing])
 
   useLayoutEffect(() => {
-    latest.current = { items, index }
+    latest.current = { items, index, pinned }
   })
 
   useLayoutEffect(() => {
@@ -693,24 +737,8 @@ export function Transcript(props: TranscriptProps) {
     if (atBottom.current) element.scrollTop = element.scrollHeight
   }, [items, firstIndex, earlier?.loading, hideTools])
 
-  // The row the reader looks at stays where it was when rows above it change: drawn in place of
-  // their space, measured anew, or come in front («Load earlier»). A reader at the bottom stays
-  // there: the space of the rows not drawn above grows once they are measured.
-  useLayoutEffect(() => {
-    const element = log.current
-    const at = position.current
-    if (element === null) return
-    if (atBottom.current) {
-      element.scrollTop = element.scrollHeight
-      return
-    }
-    if (at.bottom || element.clientHeight === 0) return
-    const row = drawnRows(element).find((one) => one.dataset['item'] === at.key)
-    if (row === undefined) return
-    // Not read back here: the space above may still be the old one until the rows to draw are
-    // chosen again (the last effect), and the reader's row is where it was by now anyway.
-    element.scrollTop += row.getBoundingClientRect().top - element.getBoundingClientRect().top - at.offset
-  })
+  // After every render: the reader stays where they were (keep).
+  useLayoutEffect(() => keep())
 
   // Find (worfy-ui ticket 26): paints the matches drawn now and again when rows change or open; scrolls
   // to the current match once each time it changes. After the follow above, so it wins over it.
@@ -722,11 +750,11 @@ export function Transcript(props: TranscriptProps) {
       scrolledTo.current = null
       return
     }
-    const target = find.current === null ? null : `${find.current.part}#${find.current.occurrence}#${find.seq}`
-    const row = find.current === null ? undefined : index.get(find.current.row)
-    if (target !== null && target !== scrolledTo.current && find.current !== null && row !== undefined && (row < start || row >= end)) {
+    const current = find.current
+    const target = current === null ? null : `${current.part}#${current.occurrence}#${find.seq}`
+    if (target !== null && current !== null && target !== scrolledTo.current && index.has(current.row) && !drawnRows(element).some((row) => row.dataset['item'] === current.row)) {
       // The match is in a row not drawn: it is drawn a third of the way down the log first, and this runs again.
-      position.current = { bottom: false, key: find.current.row, offset: element.clientHeight / 3 }
+      position.current = { bottom: false, key: current.row, offset: element.clientHeight / 3 }
       atBottom.current = false
       place()
       return
@@ -748,7 +776,7 @@ export function Transcript(props: TranscriptProps) {
       observer.disconnect()
       cancelAnimationFrame(frame)
     }
-  }, [find, items, index, start, end, place, track])
+  }, [find, items, index, drawn, place, track])
   useEffect(() => clearMatches, [])
 
   // Last: the rows to draw for where the reader is now, after the scroll above moved.
@@ -764,17 +792,38 @@ export function Transcript(props: TranscriptProps) {
   }
 
   // Rows that arrive while the log is hidden (the Canvas is on screen) cannot be followed: a hidden
-  // element has no height. The log follows them once it is shown again, and when it is resized.
+  // element has no height. Once it is shown again, and when it is resized, the log follows them or
+  // keeps the reader's row, and chooses the rows to draw for its height.
   useEffect(() => {
     const element = log.current
     if (!element || typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(() => {
-      if (atBottom.current) element.scrollTop = element.scrollHeight
+      keep()
       place()
     })
     observer.observe(element)
     return () => observer.disconnect()
-  }, [place])
+  }, [keep, place])
+
+  const spaces = drawn?.spaces ?? {}
+  const space = (key: string, from: number, to: number) => (
+    <div key={`space:${key}`} className="w-tr__space" style={{ height: spaces[key] ?? (to - from) * ROW_ESTIMATE }} aria-hidden="true" data-space="" />
+  )
+  const rows: ReactNode[] = []
+  let next = 0
+  for (const row of shown) {
+    const item = items[row]!
+    if (row > next) rows.push(space(item.key, next, row))
+    rows.push(
+      <div key={item.key} className="w-tr__item" data-item={item.key}>
+        <RowKey.Provider value={item.key}>
+          <Item item={item} props={props} />
+        </RowKey.Provider>
+      </div>,
+    )
+    next = row + 1
+  }
+  if (next < n) rows.push(space('', next, n))
 
   return (
     <div
@@ -799,23 +848,7 @@ export function Transcript(props: TranscriptProps) {
         </div>
       ) : null}
       <NowContext.Provider value={now}>
-        <Lines.Provider value={lines}>
-          {items.length === 0 ? (
-            <div className="w-tr__empty">No messages yet</div>
-          ) : (
-            <>
-              {start > 0 ? <div className="w-tr__space" style={{ height: above }} aria-hidden="true" data-space="above" /> : null}
-              {items.slice(start, end).map((item) => (
-                <div key={item.key} className="w-tr__item" data-item={item.key}>
-                  <RowKey.Provider value={item.key}>
-                    <Item item={item} props={props} />
-                  </RowKey.Provider>
-                </div>
-              ))}
-              {end < n ? <div className="w-tr__space" style={{ height: below }} aria-hidden="true" data-space="below" /> : null}
-            </>
-          )}
-        </Lines.Provider>
+        <Lines.Provider value={lines}>{items.length === 0 ? <div className="w-tr__empty">No messages yet</div> : rows}</Lines.Provider>
       </NowContext.Provider>
     </div>
   )

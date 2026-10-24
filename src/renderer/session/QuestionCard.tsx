@@ -87,9 +87,10 @@ export function QuestionCard({ request, sessionId, projectId }: QuestionCardProp
   const last = step === questions.length - 1
 
   // A question that arrives while nothing has the focus takes it, so 1–4 and Enter work at once;
-  // it never takes the focus from the message field or anything else.
+  // it never takes the focus from the message field or anything else, and never scrolls the
+  // transcript to the card (the transcript keeps the reader where they are).
   useEffect(() => {
-    if (open && readOnly === null && document.activeElement === document.body) firstOption.current?.focus()
+    if (open && readOnly === null && document.activeElement === document.body) firstOption.current?.focus({ preventScroll: true })
     // Only when the card first appears.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
