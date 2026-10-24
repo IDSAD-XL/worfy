@@ -4,8 +4,8 @@
 // shell.openExternal and dialog.showMessageBox are recorders; the box answers what a test sets.
 import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join, posix, win32 } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { dirname, join, posix, win32 } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectLayout } from '../../src/main/workflow/folder'
@@ -229,7 +229,20 @@ describe('shell.openInEditor in a Silent Project', () => {
       (links: Record<string, string | null> = {}) =>
       async (path: string): Promise<string | null> =>
         path in links ? links[path]! : path
-    const places = (workflowFolder: string, ticketsRoot: string, home: string, links?: Record<string, string | null>) => workflowPlaces(layout(workflowFolder, ticketsRoot), { paths: posix, home, real: real(links) })
+    // stat of the folders: each path its own folder unless a test gives it the identity of another,
+    // or an error.
+    const looks =
+      (ids: Record<string, { dev: number; ino: number } | NodeJS.ErrnoException> = {}) =>
+      async (path: string): Promise<{ dev: number; ino: number }> => {
+        const id = ids[path]
+        if (id instanceof Error) throw id
+        return id ?? { dev: 1, ino: inode(path) }
+      }
+    const inodes = new Map<string, number>()
+    const inode = (path: string): number => inodes.get(path) ?? inodes.set(path, 1000 + inodes.size).get(path)!
+    const failure = (code: string): NodeJS.ErrnoException => Object.assign(new Error(code), { code })
+    const places = (workflowFolder: string, ticketsRoot: string, home: string, links?: Record<string, string | null>, ids?: Parameters<typeof looks>[0]) =>
+      workflowPlaces(layout(workflowFolder, ticketsRoot), { paths: posix, home, real: real(links), stat: looks(ids) })
     expect(await places('/wf', '/wf/.scratch', '/Users/a')).toEqual(['/wf/.scratch', '/wf'])
     expect(await places('/', '/.scratch', '/Users/a')).toEqual(['/.scratch'])
     expect(await places('/Users/a', '/Users/a/', '/Users/a')).toEqual([])
@@ -241,17 +254,48 @@ describe('shell.openInEditor in a Silent Project', () => {
     expect(await places('/tmp/x/link', '/tmp/x/link/.scratch', '/Users/a', { '/tmp/x/link': '/Users/a', '/tmp/x/link/.scratch': '/Users/a/.scratch' })).toEqual(['/tmp/x/link/.scratch'])
     expect(await places('/users/a', '/users/a/wf', '/Users/a', { '/users/a': '/Users/a', '/users/a/wf': '/Users/a/wf' })).toEqual(['/users/a/wf'])
     expect(await places('/tmp/up', '/wf', '/Users/a', { '/tmp/up': '/' })).toEqual(['/wf'])
+    // The written path and the real path of a place are both judged, and so are those of the home folder.
+    expect(await places('/Users', '/wf', '/Users/a', { '/Users': '/elsewhere' })).toEqual(['/wf'])
+    expect(await places('/srv/up', '/wf', '/home/a', { '/home/a': '/srv/up/a' })).toEqual(['/wf'])
+    expect(await places('/home', '/wf', '/home/a', { '/home/a': '/srv/up/a' })).toEqual(['/wf'])
+    // review of PR #826: realpath keeps a macOS firmlink (`/System/Volumes/Data/Users` is `/Users`)
+    // and `/.nofollow/Users` as they are; the device and inode say what they are.
+    const firmlinks = { '/System/Volumes/Data/Users': { dev: 1, ino: 7 }, '/Users': { dev: 1, ino: 7 }, '/System/Volumes/Data/Users/a': { dev: 1, ino: 8 }, '/Users/a': { dev: 1, ino: 8 }, '/.nofollow/Users/a': { dev: 1, ino: 8 } }
+    expect(await places('/System/Volumes/Data/Users', '/System/Volumes/Data/Users/a', '/Users/a', {}, firmlinks)).toEqual([])
+    expect(await places('/System/Volumes/Data', '/.nofollow', '/Users/a', {}, firmlinks)).toEqual([])
+    // A place inside the home folder stays, under any name.
+    expect(await places('/System/Volumes/Data/Users/a/wf', '/Users/a/wf', '/Users/a', {}, firmlinks)).toEqual(['/Users/a/wf', '/System/Volumes/Data/Users/a/wf'])
+    // A place whose stat fails, or whose folder on the way down to the home folder cannot be read, is left out.
+    expect(await places('/wf', '/denied', '/Users/a', {}, { '/denied': failure('EACCES') })).toEqual(['/wf'])
+    expect(await places('/wf', '/gone-now', '/Users/a', {}, { '/gone-now': failure('ENOENT') })).toEqual(['/wf'])
+    expect(await places('/wf', '/odd', '/Users/a', {}, { '/odd/Users/a': failure('EACCES') })).toEqual(['/wf'])
+    // A folder above the home folder that cannot be read: nothing is known to be safe.
+    expect(await places('/wf', '/wf/.scratch', '/Users/a', {}, { '/Users': failure('EACCES') })).toEqual([])
+    // A home folder that is not there holds no file: the places stay.
+    expect(await places('/wf', '/wf/.scratch', '/nobody/a', {}, { '/nobody/a': failure('ENOENT'), '/nobody': failure('ENOENT') })).toEqual(['/wf/.scratch', '/wf'])
     // The home folder that is a symlink itself: the place is compared with where it leads.
     expect(await places('/data/a', '/data/a/wf', '/home/a', { '/home/a': '/data/a' })).toEqual(['/data/a/wf'])
     // A place that does not exist holds no file.
     expect(await places('/gone', '/wf', '/Users/a', { '/gone': null })).toEqual(['/wf'])
     // On Windows the root of a drive and of a share, and the home folder in any letter case.
-    const windows = (workflowFolder: string, ticketsRoot: string) => workflowPlaces(layout(workflowFolder, ticketsRoot), { paths: win32, home: 'C:\\Users\\a', real: real() })
+    const windows = (workflowFolder: string, ticketsRoot: string) => workflowPlaces(layout(workflowFolder, ticketsRoot), { paths: win32, home: 'C:\\Users\\a', real: real(), stat: looks() })
     expect(await windows('D:\\', '\\\\host\\share\\')).toEqual([])
     expect(await windows('c:\\users\\A', 'D:\\wf\\.scratch')).toEqual(['D:\\wf\\.scratch'])
     expect(await windows('C:\\Users', '\\\\host\\share\\wf')).toEqual(['\\\\host\\share\\wf'])
     // The path as written is judged too: `D:\wf\..` is the root of the drive.
     expect(await windows('D:\\wf\\..', 'D:\\wf')).toEqual(['D:\\wf'])
+  })
+
+  // review of PR #826: on macOS `/System/Volumes/Data/Users` and `/.nofollow/Users` are the folder
+  // above the home folder under other names, which realpath keeps.
+  const home = realpathSync.native(homedir())
+  it.runIf(process.platform === 'darwin' && existsSync(join('/System/Volumes/Data', dirname(home))))('takes on macOS no firmlink or /.nofollow name of the folder above the home folder', async () => {
+    const { workflowPlaces } = await import('../../src/main/ipc/shell')
+    const data = join('/System/Volumes/Data', dirname(home))
+    const nofollow = join('/.nofollow', dirname(home))
+    const layout: ProjectLayout = { root: repo, mode: 'silent', workflowFolder: data, ticketsRoot: existsSync(nofollow) ? nofollow : data, repos: [], workspace: null, reason: null, failed: false }
+    expect(await workflowPlaces(layout)).toEqual([])
+    expect(await workflowPlaces({ ...layout, workflowFolder: '/System/Volumes/Data', ticketsRoot: join('/System/Volumes/Data', home) })).toEqual([])
   })
 
   // review of PR #826: a Workflow folder that is a symlink to the home folder, a folder above it, or

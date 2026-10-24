@@ -26,13 +26,41 @@ function worktreeFolders(root: string): Promise<string[]> {
 
 const realOrNull = (path: string): Promise<string | null> => realpath(path).catch(() => null)
 
+/** The device and inode of a folder: what it is, whatever path names it. */
+export interface FolderIdentity {
+  dev: number | bigint
+  ino: number | bigint
+}
+
+const identityStat = (path: string): Promise<FolderIdentity> => stat(path, { bigint: true })
+
+/** `dev:ino` of the folder at `path`; null when there is none; throws when it cannot be read. */
+async function identityOf(path: string, look: (path: string) => Promise<FolderIdentity>): Promise<string | null> {
+  try {
+    const { dev, ino } = await look(path)
+    return `${dev}:${ino}`
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) return null
+    throw error
+  }
+}
+
+/** `path` and every folder above it, up to the root. */
+function upToRoot(path: string, paths: Pick<PathRules, 'dirname'>): string[] {
+  const folders = [path]
+  for (let up = paths.dirname(path); up !== folders.at(-1); up = paths.dirname(up)) folders.push(up)
+  return folders
+}
+
 export interface PlaceOptions {
   /** The path rules of the platform; path.win32 in tests on any system. */
-  paths?: Pick<PathRules, 'isAbsolute' | 'parse' | 'relative' | 'resolve' | 'sep'>
+  paths?: Pick<PathRules, 'dirname' | 'isAbsolute' | 'join' | 'parse' | 'relative' | 'resolve' | 'sep'>
   /** The user's home folder; os.homedir() by default. */
   home?: string
   /** realpath, or null when there is no such folder; replaced in tests. */
   real?: (path: string) => Promise<string | null>
+  /** stat of a folder, for its device and inode; replaced in tests. */
+  stat?: (path: string) => Promise<FolderIdentity>
 }
 
 /**
@@ -46,20 +74,52 @@ export interface PlaceOptions {
  * by its path as written: a symlink to the home folder, a folder above it and the home folder in
  * another letter case (realpath gives the case the disk keeps) are all left out. So is a place that
  * does not exist: no file lies inside it.
+ *
+ * realpath does not give one name for every path to a folder: on macOS `/System/Volumes/Data/Users`
+ * (a firmlink) and `/.nofollow/Users` are `/Users` under other names, and realpath keeps them as
+ * they are. So a place is also compared by what it is, its device and inode: one that is the home
+ * folder or a folder above it, or in which the names from such a folder down to the home folder
+ * (`Users/alexey`) lead to the home folder, is left out. A place inside the home folder stays. A place
+ * whose stat fails is left out, and so is every place when a folder above the home folder cannot be
+ * read: then it is unknown what holds the home folder.
  */
 export async function workflowPlaces(layout: ProjectLayout | null, options: PlaceOptions = {}): Promise<string[]> {
   if (layout === null || layout.failed) return []
   const paths = options.paths ?? nativePath
   const real = options.real ?? realOrNull
+  const look = options.stat ?? identityStat
   const home = paths.resolve(options.home ?? homedir())
-  const homes = [home, (await real(home)) ?? home]
+  const homes = [...new Set([home, (await real(home)) ?? home])]
+  let homeId: string | null
+  let above: Set<string | null>
+  try {
+    homeId = await identityOf(homes.at(-1)!, look)
+    above = new Set(await Promise.all(homes.flatMap((each) => upToRoot(each, paths)).map((folder) => identityOf(folder, look))))
+  } catch {
+    return []
+  }
+  // A folder that is not there has no identity a place could share.
+  above.delete(null)
+  // The names from each folder above the home folder down to it: `alexey`, `Users/alexey`.
+  const tails = [...new Set(homes.flatMap((each) => upToRoot(each, paths).slice(1).map((folder) => paths.relative(folder, each))))]
   const places = [layout.ticketsRoot, layout.workflowFolder]
   const kept = await Promise.all(
     places.map(async (place) => {
       const folder = paths.resolve(place)
       const realFolder = await real(folder)
       if (realFolder === null) return false
-      return [folder, realFolder].every((form) => form !== paths.parse(form).root && !homes.some((each) => isInside(form, each, paths)))
+      const forms = [...new Set([folder, realFolder])]
+      if (!forms.every((form) => form !== paths.parse(form).root && !homes.some((each) => isInside(form, each, paths)))) return false
+      try {
+        for (const form of forms) {
+          const id = await identityOf(form, look)
+          if (id === null || above.has(id)) return false
+          for (const tail of tails) if (homeId !== null && (await identityOf(paths.join(form, tail), look)) === homeId) return false
+        }
+        return true
+      } catch {
+        return false
+      }
     }),
   )
   return places.filter((_, index) => kept[index])

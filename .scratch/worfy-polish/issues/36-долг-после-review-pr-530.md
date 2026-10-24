@@ -260,3 +260,15 @@ Terminal, колеса, `projects-connect`, Ticket-а, Linked machine и Autopil
   Test-ы — `shell.test.ts`: и на `workflowPlaces`, и через `shell.openInEditor` с подменённым HOME.
 - Диалог «Open?» показывает U+FFFD на месте каждого управляющего символа, а не убирает его:
   `notes.md<BEL>` не выглядит как `notes.md`, имя из одних управляющих символов не пустое.
+
+Ревью PR #826, круг 3, исправлено:
+
+- realpath на macOS оставляет firmlink `/System/Volumes/Data/Users` и `/.nofollow/Users` как есть,
+  поэтому место сверяется ещё и по device и inode (stat). Место не берётся, если это home folder или
+  папка выше него, или если имена от такой папки до home (`Users/alexey`) ведут внутри места к home
+  folder. Место внутри home folder остаётся. Ошибка stat места — место не берётся; не читается папка
+  выше home — не берётся ни одно место. Test-ы — `shell.test.ts` (stat подменён, и на macOS — живые
+  `/System/Volumes/Data` и `/.nofollow`), `tickets-read.test.ts` (realpath, который дали
+  `readTicketFile`, доходит до `workflowPlaces`).
+- Не закрыто: bind mount на Linux, который кладёт home folder в место под другим именем, этой
+  проверкой не виден.

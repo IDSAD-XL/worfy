@@ -4,7 +4,7 @@
 // with the Tickets under the repository, and Silent mode with them in a Workflow folder outside it.
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, posix, win32 } from 'node:path'
+import { join, posix, sep, win32 } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { accessOf, IPC_CHANNEL_PREFIX, useOf, type IpcResult } from '../../src/shared/ipc/channels'
@@ -146,6 +146,29 @@ describe('tickets.read', () => {
     const layout = { ...silent(repo, workflow), ticketsRoot: workflow }
     expect((await readTicketFile(layout, { epic: 'e', num: 1, slug: 'a' }, { home: scratch })).text).toBe('the Workflow folder copy')
     await expect(readTicketFile(layout, { epic: 'e', num: 1, slug: 'a' }, { home: workflow })).rejects.toThrow(/outside the Project/)
+  })
+
+  // review of PR #826: the places of the Tickets are judged by the realpath readTicketFile is given,
+  // the one it checks the files against.
+  it('judges the places of the Tickets by the realpath it is given', async () => {
+    const { readTicketFile } = await import('../../src/main/ipc/tickets')
+    const home = join(scratch, 'home-h')
+    writeTicket(home, 'e', '01-a.md', 'a file of the home folder')
+    // `named` is the home folder under another name, as a macOS firmlink is; the given realpath says so.
+    const named = join(scratch, 'named-w')
+    mkdirSync(named)
+    const real = async (path: string): Promise<string | null> => {
+      if (path === named || path.startsWith(named + sep)) return home + path.slice(named.length)
+      try {
+        return realpathSync(path)
+      } catch {
+        return null
+      }
+    }
+    const layout = { ...silent(repo, named), ticketsRoot: named }
+    const ref = { epic: 'e', num: 1, slug: 'a' }
+    expect((await readTicketFile(layout, ref, { real, home: join(scratch, 'someone-else') })).text).toBe('a file of the home folder')
+    await expect(readTicketFile(layout, ref, { real, home })).rejects.toThrow(/outside the Project/)
   })
 
   it('answers the path relative to the Project root that main resolves a link against, or null where there is none', async () => {
