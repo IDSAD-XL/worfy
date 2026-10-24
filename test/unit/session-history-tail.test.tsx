@@ -140,7 +140,11 @@ function layOut(height: (row: Element) => number = () => ROW, gap = 0) {
       })
     },
     hide: () => (hidden = true),
-    show: () => (hidden = false),
+    /** `drop`: the browser gave up the scroll offset of the hidden element. */
+    show: (drop = false) => {
+      hidden = false
+      if (drop) top = 0
+    },
     rows,
     /** The row of «answer n». */
     rowOf: (n: number) => rows().find((row) => new RegExp(`answer ${n}(?!\\d)`).test(row.textContent ?? '')),
@@ -714,7 +718,7 @@ describe('the last answer of a resumed Session Node', () => {
 describe('drawing only the rows around the visible part (worfy-ui ticket 22)', () => {
   /** The gap between rows in the layouts below, as `.w-tr` has one. */
   const GAP = 8
-  const use = (id: string): AgentEvent => ({ type: 'tool_use', id, name: 'Read', input: { file_path: `/x/${id}` }, parentToolUseId: null })
+  const call = (id: string): AgentEvent => ({ type: 'tool_use', id, name: 'Read', input: { file_path: `/x/${id}` }, parentToolUseId: null })
 
   it('chooses the rows that cover the visible part and OVERSCAN px around it, at most MAX_DRAWN', async () => {
     const { MAX_DRAWN, OVERSCAN, rowWindow, spanOf, stepOf } = await import('../../src/renderer/session/fold')
@@ -802,8 +806,8 @@ describe('drawing only the rows around the visible part (worfy-ui ticket 22)', (
     const { Transcript } = await import('../../src/renderer/session/Transcript')
     // The window starts with a tool call; the window before it ends with another, so the two join
     // into one row, which takes the key of the earlier call.
-    const before = [...range(0, 10).map(answer), use('A')]
-    const shown = [use('B'), ...range(10, 200).map(answer)]
+    const before = [...range(0, 10).map(answer), call('A')]
+    const shown = [call('B'), ...range(10, 200).map(answer)]
     const load = vi.fn()
     const layout = layOut(() => ROW, GAP)
     try {
@@ -967,6 +971,191 @@ describe('drawing only the rows around the visible part (worfy-ui ticket 22)', (
     } finally {
       layout.restore()
       focus.mockRestore()
+    }
+  })
+})
+
+describe('the reader’s row and the rows kept drawn, review round 2 (worfy-ui ticket 22)', () => {
+  const call = (id: string): AgentEvent => ({ type: 'tool_use', id, name: 'Read', input: { file_path: `/x/${id}` }, parentToolUseId: null })
+  const older = (n: number): AgentEvent => ({ type: 'text', text: `older ${n}`, messageId: `o${n}`, parentToolUseId: null, synthetic: false })
+  /** A call line is 30 px: a run of tool calls is 30 px a call; any other row ROW. */
+  const callHeight = (row: Element): number => {
+    const calls = row.querySelectorAll('[data-testid="tool-call"]').length
+    return calls > 0 ? 30 * calls : ROW
+  }
+
+  it('rowFor: the row that holds a gone row’s event, else the first one', async () => {
+    const { foldTranscript, rowFor } = await import('../../src/renderer/session/fold')
+    const rows = foldTranscript([answer(0), call('A'), call('B'), answer(1)], new Set(), 14)
+    expect(rows.map((row) => row.key)).toStrictEqual(['e14', 'e15', 'e17'])
+    // e16 (the call B) is in the run that starts at e15.
+    expect(rowFor(rows, 'e16')).toBe(1)
+    // e11 was dropped by the cap: the first row stands for it.
+    expect(rowFor(rows, 'e11')).toBe(0)
+    expect(rowFor([], 'e11')).toBe(-1)
+  })
+
+  for (const [name, shownCount, olderCount] of [
+    ['a short transcript', 40, 10],
+    ['a long one', 300, 300],
+  ] as const) {
+    it(`Load earlier that joins 20 calls to the first row, a run of tool calls, keeps the row after it in place: ${name}`, async () => {
+      const { Transcript } = await import('../../src/renderer/session/Transcript')
+      const before = [...range(0, olderCount).map(older), ...range(0, 20).map((n) => call(`A${n}`))]
+      const shown = [call('B'), ...range(10, 10 + shownCount).map(answer)]
+      const load = vi.fn()
+      const layout = layOut(callHeight, 8)
+      try {
+        const view = (events: AgentEvent[], first: number, loading: boolean) => <Transcript events={events} firstIndex={first} earlier={{ load, loading }} />
+        const { rerender } = render(view(shown, before.length, false))
+        const log = screen.getByTestId('transcript')
+        layout.attach(log)
+        rerender(view(shown, before.length, false))
+        log.scrollTop = 0
+        fireEvent.scroll(log)
+        const top = layout.rowOf(10)?.getBoundingClientRect().top
+        expect(top).toBe(30 + 8)
+        fireEvent.click(screen.getByTestId('transcript-load-earlier'))
+        rerender(view(shown, before.length, true))
+        rerender(view([...before, ...shown], 0, true))
+        rerender(view([...before, ...shown], 0, false))
+        fireEvent.scroll(log)
+        // The run is 21 calls now, 630 px; «answer 10» right after it is where the reader saw it.
+        expect(layout.rowOf(10)?.previousElementSibling?.querySelectorAll('[data-testid="tool-call"]')).toHaveLength(21)
+        expect(layout.rowOf(10)?.getBoundingClientRect().top).toBe(top)
+      } finally {
+        layout.restore()
+      }
+    })
+  }
+
+  it('a scroll half way into the space above, after a drawn row grew with no render, lands half way down the log', async () => {
+    const { Transcript } = await import('../../src/renderer/session/Transcript')
+    let grown = 0
+    const layout = layOut((row) => (row.textContent?.includes('answer 399') === true ? ROW + grown : ROW))
+    try {
+      const { rerender } = render(<Transcript events={range(0, 399).map(answer)} />)
+      const log = screen.getByTestId('transcript')
+      layout.attach(log)
+      rerender(<Transcript events={range(0, 400).map(answer)} />)
+      // A tool output opened in the newest row: 2000 px more, and no render of the Transcript.
+      grown = 2000
+      const space = log.querySelector<HTMLElement>(':scope > [data-space]')!
+      log.scrollTop = Number.parseFloat(space.style.height) / 2
+      const asked = log.scrollTop / log.scrollHeight
+      fireEvent.scroll(log)
+      expect(Math.abs(log.scrollTop / log.scrollHeight - asked)).toBeLessThan(0.02)
+    } finally {
+      layout.restore()
+    }
+  })
+
+  it('keeps an open card drawn above the drawn rows, and not a card already answered', async () => {
+    const { Transcript } = await import('../../src/renderer/session/Transcript')
+    const ask = (requestId: string): AgentEvent => ({
+      type: 'question_request',
+      requestId,
+      toolUseId: null,
+      questions: [{ question: `Which one, ${requestId}?`, header: 'Pick', multiSelect: false, options: [{ label: 'One', description: 'one', preview: null }, { label: 'Two', description: 'two', preview: null }] }],
+    })
+    const done: AgentEvent = { type: 'question_resolved', requestId: 'q-done', outcome: 'answered', answers: {} }
+    // e5 an open question, e7 an answered one, far above the newest rows.
+    const events = [...range(0, 5).map(answer), ask('q-open'), answer(5), ask('q-done'), ...range(6, 300).map(answer), done, answer(300)]
+    const layout = layOut()
+    try {
+      const { rerender } = render(<Transcript events={events.slice(0, -1)} sessionId="live-2" />)
+      const log = screen.getByTestId('transcript')
+      layout.attach(log)
+      rerender(<Transcript events={events} sessionId="live-2" />)
+      expect(layout.rowOf(6)).toBeUndefined()
+      expect(log.querySelector('[data-item="e5"]')).not.toBeNull()
+      expect(log.querySelector('[data-item="e7"]')).toBeNull()
+    } finally {
+      layout.restore()
+    }
+  })
+
+  it('find with a current row the rows do not have leaves the reader at the bottom', async () => {
+    const { Transcript } = await import('../../src/renderer/session/Transcript')
+    const layout = layOut()
+    try {
+      const events = range(0, 401).map(answer)
+      const { rerender } = render(<Transcript events={events.slice(0, -1)} />)
+      const log = screen.getByTestId('transcript')
+      layout.attach(log)
+      rerender(<Transcript events={events} />)
+      rerender(<Transcript events={events} find={{ needle: 'answer', parts: new Set(['e9999:text']), current: { row: 'e9999', part: 'e9999:text', occurrence: 0, reveal: null }, seq: 1 }} />)
+      expect(log.scrollTop).toBe(log.scrollHeight)
+      expect(layout.rowOf(400)).toBeDefined()
+    } finally {
+      layout.restore()
+    }
+  })
+
+  it('a log shown again after the browser dropped its scroll offset puts the reader’s row back, with no rows to draw anew', async () => {
+    const { Transcript } = await import('../../src/renderer/session/Transcript')
+    const observers: (() => void)[] = []
+    const globals = globalThis as { ResizeObserver?: unknown }
+    const had = globals.ResizeObserver
+    globals.ResizeObserver = class {
+      constructor(callback: () => void) {
+        observers.push(callback)
+      }
+      observe() {}
+      disconnect() {}
+    }
+    const height = Object.getOwnPropertyDescriptor(window, 'innerHeight')
+    // A window as tall as the log: hidden or shown, the same rows are drawn, so no render follows the show.
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 300 })
+    const layout = layOut()
+    try {
+      const { rerender } = render(<Transcript events={range(0, 400).map(answer)} />)
+      const log = screen.getByTestId('transcript')
+      layout.attach(log)
+      rerender(<Transcript events={range(0, 401).map(answer)} />)
+      scrollToAnswer(log, layout, 200)
+      log.scrollTop += 37
+      fireEvent.scroll(log)
+      layout.hide()
+      rerender(<Transcript events={range(0, 401).map(answer)} />)
+      const drawnBefore = layout.rows().map((row) => row.getAttribute('data-item'))
+      layout.show(true)
+      act(() => observers.forEach((callback) => callback()))
+      expect(layout.rows().map((row) => row.getAttribute('data-item'))).toStrictEqual(drawnBefore)
+      expect(layout.rowOf(200)?.getBoundingClientRect().top).toBe(-37)
+    } finally {
+      layout.restore()
+      globals.ResizeObserver = had
+      if (height !== undefined) Object.defineProperty(window, 'innerHeight', height)
+    }
+  })
+})
+
+describe('a reader’s row the cap dropped while Load earlier reads (worfy-ui ticket 22)', () => {
+  it('the first row stands in for it at its offset, whatever its height, until the row comes back', async () => {
+    const { Transcript } = await import('../../src/renderer/session/Transcript')
+    const call = (id: string): AgentEvent => ({ type: 'tool_use', id, name: 'Read', input: { file_path: `/x/${id}` }, parentToolUseId: null })
+    // Event n: «answer n», but events 14–16 are three tool calls, one 90 px row.
+    const event = (n: number): AgentEvent => (n >= 14 && n <= 16 ? call(`c${n}`) : answer(n))
+    const layout = layOut((row) => (row.querySelectorAll('[data-testid="tool-call"]').length > 0 ? 90 : ROW))
+    try {
+      const load = vi.fn()
+      const shown = (from: number, to: number, loading: boolean) => <Transcript events={range(from, to).map(event)} firstIndex={from} earlier={{ load, loading }} />
+      const { rerender } = render(shown(10, 30, false))
+      const log = screen.getByTestId('transcript')
+      layout.attach(log)
+      // The reader looks at «answer 11» and presses Load earlier; the cap drops the rows before the calls.
+      log.scrollTop = 1 * ROW
+      fireEvent.scroll(log)
+      fireEvent.click(screen.getByRole('button', { name: 'Load earlier' }))
+      rerender(shown(14, 34, true))
+      expect(layout.rowOf(11)).toBeUndefined()
+      // The run of calls, the first row now, is where «answer 11» was: at the top.
+      expect(log.querySelector('[data-item="e14"]')?.getBoundingClientRect().top).toBe(0)
+      rerender(shown(4, 34, false))
+      expect(layout.rowOf(11)?.getBoundingClientRect().top).toBe(0)
+    } finally {
+      layout.restore()
     }
   })
 })

@@ -3,7 +3,7 @@ import type { AgentEvent } from '../../shared/agent/events'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { clipText as clip, hookOutput, toolSummary } from '../../shared/transcript/find'
 import { Markdown } from '../markdown/Markdown'
-import { DRAW_ALL_UP_TO, FIRST_DRAWN, foldTranscript, ROW_ESTIMATE, rowFor, rowWindow, spanOf, stepOf, toolSegments, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
+import { DRAW_ALL_UP_TO, FIRST_DRAWN, foldTranscript, ROW_ESTIMATE, rowFor, rowOrder, rowWindow, spanOf, stepOf, toolSegments, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
 import { formatDuration } from './format'
 import { rowTypes } from './rows/index'
 import { clearMatches, extensionTypes, paintMatches, partId, scrollToMatch, type TranscriptFind } from './transcript-find'
@@ -611,20 +611,25 @@ export function Transcript(props: TranscriptProps) {
   }
   const shown = drawnIndices(n, start, end, n > DRAW_ALL_UP_TO ? pinned : [])
 
+  /** Notes the height of every row drawn, unless the log is hidden (no height to measure). */
+  const measure = useCallback((element: HTMLElement) => {
+    if (element.clientHeight > 0) for (const row of drawnRows(element)) heights.current.set(row.dataset['item'] ?? '', row.getBoundingClientRect().height)
+  }, [])
+
   /**
    * Measures the rows drawn, and says the height of every row: measured when it was last drawn,
    * the mean of those measured when it never was.
    */
   const sizing = useCallback((element: HTMLElement) => {
     const known = heights.current
-    if (element.clientHeight > 0) for (const row of drawnRows(element)) known.set(row.dataset['item'] ?? '', row.getBoundingClientRect().height)
+    measure(element)
     let sum = 0
     for (const height of known.values()) sum += height
     const estimate = known.size > 0 ? sum / known.size : ROW_ESTIMATE
     const sizes = latest.current.items.map((row) => known.get(row.key) ?? estimate)
     const gap = Number.parseFloat(getComputedStyle(element).rowGap) || 0
     return { sizes, gap }
-  }, [])
+  }, [measure])
 
   /** Reads where the reader is from the log (Position, atBottom). */
   const track = useCallback(() => {
@@ -640,8 +645,9 @@ export function Transcript(props: TranscriptProps) {
     const { items: rows, index: rowIndex } = latest.current
     const rowOf = (sibling: Element | null): number | undefined => (sibling?.hasAttribute('data-item') === true ? rowIndex.get(sibling.getAttribute('data-item') ?? '') : undefined)
     // The top of the visible part in a space of rows not drawn (a scroll past the drawn ones): the
-    // row there is counted from the space's top by the heights rows are taken to have now (the
-    // space was laid out by the same heights at the last render).
+    // row there is the one at the same share of that space. The heights rows are taken to have
+    // may have changed since the space was laid out (a drawn row grew with no render: a line
+    // opened in it), so they are scaled to the space.
     for (const space of Array.from(element.querySelectorAll<HTMLElement>(':scope > [data-space]'))) {
       const box = space.getBoundingClientRect()
       const before = rowOf(space.previousElementSibling)
@@ -652,9 +658,11 @@ export function Transcript(props: TranscriptProps) {
       const inside = (from === 0 || box.top <= top) && (to === rows.length || box.bottom > top)
       if (!inside || from >= to) continue
       const { sizes, gap } = sizing(element)
+      const total = spanOf(sizes, gap, from, to)
+      const scale = total > 0 ? box.height / total : 1
       let row = from
       let y = box.top
-      for (; row < to - 1 && y + stepOf(sizes[row]!, gap) <= top; row += 1) y += stepOf(sizes[row]!, gap)
+      for (; row < to - 1 && y + stepOf(sizes[row]!, gap) * scale <= top; row += 1) y += stepOf(sizes[row]!, gap) * scale
       position.current = { bottom: false, key: rows[row]!.key, offset: y - top }
       return
     }
@@ -678,12 +686,17 @@ export function Transcript(props: TranscriptProps) {
     if (at.bottom || element.clientHeight === 0) return
     const { items: rows, index: rowIndex } = latest.current
     // The position keeps the gone key: the row may come back (the cap dropped it while «Load earlier» read).
-    const key = rowIndex.has(at.key) ? at.key : rows[rowFor(rows, at.key)]?.key
+    const stand = rowIndex.has(at.key) ? undefined : rows[rowFor(rows, at.key)]
+    const key = stand?.key ?? at.key
     const row = drawnRows(element).find((one) => one.dataset['item'] === key)
     if (row === undefined) return
+    // A run of tool calls that earlier calls joined at its top holds the reader's row at its bottom:
+    // it stands that much higher, by what it grew since the reader's row was measured.
+    const was = heights.current.get(at.key)
+    const grown = stand?.kind === 'tools' && rowOrder(stand.key) < rowOrder(at.key) && was !== undefined ? row.getBoundingClientRect().height - was : 0
     // Not read back here: a space above may still be the old one until the rows to draw are chosen
     // again (the last effect), and the reader's row is where it was by now anyway.
-    element.scrollTop += row.getBoundingClientRect().top - element.getBoundingClientRect().top - at.offset
+    element.scrollTop += row.getBoundingClientRect().top - element.getBoundingClientRect().top - (at.offset - grown)
   }, [])
 
   /** Measures the rows drawn and chooses the rows to draw around where the reader is. */
@@ -691,7 +704,10 @@ export function Transcript(props: TranscriptProps) {
     const element = log.current
     const { items: rows, index: rowIndex, pinned: open } = latest.current
     if (element === null) return
-    if (rows.length <= DRAW_ALL_UP_TO) return setDrawn(null)
+    if (rows.length <= DRAW_ALL_UP_TO) {
+      measure(element)
+      return setDrawn(null)
+    }
     const { sizes, gap } = sizing(element)
     const at = position.current
     const row = at.bottom ? -1 : (rowIndex.get(at.key) ?? rowFor(rows, at.key))
@@ -705,7 +721,7 @@ export function Transcript(props: TranscriptProps) {
     if (next < rows.length) spaces[''] = spanOf(sizes, gap, next, rows.length)
     const drawnNext: Drawn = { from: rows[start]!.key, to: end >= rows.length ? null : rows[end - 1]!.key, count: end - start, spaces }
     setDrawn((was) => (sameDrawn(was, drawnNext) ? was : drawnNext))
-  }, [sizing])
+  }, [measure, sizing])
 
   useLayoutEffect(() => {
     latest.current = { items, index, pinned }
