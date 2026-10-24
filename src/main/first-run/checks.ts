@@ -53,7 +53,7 @@ import { execFile, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { arch as osArch, release as osRelease, tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
-import { fileOrAlias, findGitBash, findOnPath, type Env as AgentEnv, type FileExists } from '../agent/env'
+import { fileOrAlias, findGitBash, findOnPath, getVar, type Env as AgentEnv, type FileExists } from '../agent/env'
 import type { AccountInfoLike } from '../agent/session'
 import { limitsBridgeState } from '../harness/status-line'
 import { terminalShell } from '../terminal/pty'
@@ -158,16 +158,9 @@ export interface ToolRun {
   missing: boolean
 }
 
-/** A variable of `env` under any case, as Windows reads variable names. */
-function variable(env: Env, name: string): string | undefined {
-  const upper = name.toUpperCase()
-  for (const [key, value] of Object.entries(env)) if (key.toUpperCase() === upper) return value
-  return undefined
-}
-
 /** The extensions windowsProgram looks for, in the order of PATHEXT (`.COM;.EXE;.BAT;.CMD;…` by default). */
 function programExtensions(env: Env): string[] {
-  const listed = (variable(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD')
+  const listed = (getVar(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD')
     .split(';')
     .map((ext) => ext.trim().toLowerCase())
     .filter((ext) => ext === '.exe' || ext === '.cmd' || ext === '.bat')
@@ -182,7 +175,7 @@ function programExtensions(env: Env): string[] {
  */
 export function windowsProgram(name: string, env: Env, exists?: FileExists): { file: string; cmd: boolean } | null {
   const extensions = programExtensions(env)
-  for (const dir of (variable(env, 'PATH') ?? '').split(';')) {
+  for (const dir of (getVar(env, 'PATH') ?? '').split(';')) {
     for (const ext of extensions) {
       // findOnPath on that one folder: the same rules for a folder of the Path (full paths only, quotes).
       const file = findOnPath(`${name}${ext}`, { PATH: dir }, exists)
@@ -210,14 +203,14 @@ export function toolStart(name: string, args: readonly string[], env: Env, platf
   const program = path.kind === 'full' ? (path.file === null ? null : { file: path.file, cmd: /\.(?:cmd|bat)$/i.test(path.file) }) : windowsProgram(name, env, exists)
   if (program === null) return null
   if (!program.cmd) return { file: program.file, args: [...args], shell: false }
-  const root = variable(env, 'SystemRoot') ?? ''
+  const root = getVar(env, 'SystemRoot') ?? ''
   const cmdExe = win32.join(/^[A-Za-z]:[\\/]/.test(root) ? root : 'C:\\Windows', 'System32', 'cmd.exe')
   return { file: [`"${program.file}"`, ...args].join(' '), args: [], shell: cmdExe }
 }
 
 /** taskkill of %SystemRoot%, by its full path. */
 function taskkillPath(env: Env): string {
-  const root = variable(env, 'SystemRoot') ?? ''
+  const root = getVar(env, 'SystemRoot') ?? ''
   return win32.join(/^[A-Za-z]:[\\/]/.test(root) ? root : 'C:\\Windows', 'System32', 'taskkill.exe')
 }
 
@@ -524,9 +517,9 @@ const GIT_BASH_HINT = 'Claude Code needs Git Bash for its Bash tool and the Harn
  * findGitBash refuses such a candidate; one that names no file fails too.
  */
 function gitBash(deps: CheckDeps, machine: Machine): Row {
-  const named = variable(deps.env, 'CLAUDE_CODE_GIT_BASH_PATH')
+  const named = getVar(deps.env, 'CLAUDE_CODE_GIT_BASH_PATH')
   if (named !== undefined && named !== '') {
-    const systemRoot = (variable(deps.env, 'SystemRoot') || 'C:\\Windows').toLowerCase()
+    const systemRoot = (getVar(deps.env, 'SystemRoot') || 'C:\\Windows').toLowerCase()
     if (win32.normalize(named).toLowerCase().startsWith(`${win32.normalize(systemRoot)}\\`)) {
       return row('fail', `CLAUDE_CODE_GIT_BASH_PATH is ${named}`, `${GIT_BASH_HINT}: point the variable at bash.exe of Git for Windows, or remove it`, `winget install ${WINGET_IDS.git}`)
     }
@@ -563,7 +556,7 @@ function windowsVersion(machine: Machine): Row {
  * comes from worfy's process, which an x64 emulation sees as AMD64. Null without either variable.
  */
 export function windowsNativeArch(env: Env): string | null {
-  const raw = (variable(env, 'PROCESSOR_ARCHITEW6432') || variable(env, 'PROCESSOR_ARCHITECTURE'))?.trim()
+  const raw = (getVar(env, 'PROCESSOR_ARCHITEW6432') || getVar(env, 'PROCESSOR_ARCHITECTURE'))?.trim()
   if (!raw) return null
   const names: Record<string, string> = { AMD64: 'x64', ARM64: 'arm64', X86: 'ia32' }
   return names[raw.toUpperCase()] ?? raw.toLowerCase()

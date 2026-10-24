@@ -85,7 +85,10 @@ test.beforeAll(async () => {
          <div id="closed-host" contenteditable="true"></div>
          <script>window.closedRoot = document.querySelector('#closed-host').attachShadow({ mode: 'closed', delegatesFocus: true }); window.closedRoot.innerHTML = '<input type="password">'</script>
          <form id="search" action="/next"><input id="s" name="s"></form>
-         <p><input id="filled" value="hello"> <span id="filled-editable" contenteditable="true">hello</span></p>
+         <p><input id="filled" value="hello"> <span id="filled-editable" contenteditable="true">hello</span>
+            <input id="filled-email" type="email" value="a@b.c"> <input id="filled-number" type="number" value="12"></p>
+         <p><textarea id="area">line</textarea> <textarea id="area-guarded" onkeydown="if (event.key === 'Enter') event.preventDefault()">line</textarea></p>
+         <div id="editable-enter" contenteditable="true">line</div> <div id="editable-guarded" contenteditable="true" onkeydown="if (event.key === 'Enter') event.preventDefault()">line</div>
          <form id="two" action="/next"><input id="two-a" name="a"><input id="two-b" name="b"></form>
          <form id="guarded" action="/next" onkeydown="if (event.key === 'Enter') event.preventDefault()"><input id="g" name="g"></form>
          <form id="guarded-press" action="/next" onkeypress="if (event.key === 'Enter') event.preventDefault()"><input id="gp" name="g"></form>
@@ -310,7 +313,7 @@ test('a page outside the origins is refused whoever leads there, and the page st
   expect(await refused('browser_type', { id, selector: '#frame-away', text: 'hunter2' })).toMatch(/a frame of another site/)
   // A contenteditable host whose closed shadow root takes the focus into a password field.
   expect(await refused('browser_type', { id, selector: '#closed-host', text: 'LEAK' })).toMatch(/closed shadow root/)
-  const typed = `[...document.querySelectorAll('input:not(#filled)')].map((e) => e.value).join('')
+  const typed = `[...document.querySelectorAll('input:not([id^="filled"])')].map((e) => e.value).join('')
     + document.querySelector('#pw-host').shadowRoot.querySelector('input').value
     + document.querySelector('#frame-pw').contentDocument.querySelector('input').value
     + window.closedRoot.querySelector('input').value + document.querySelector('#closed-host').textContent`
@@ -353,6 +356,20 @@ test('typing goes into the page and leaves the keyboard focus of the window wher
   await ok('browser_type', { id, selector: '#filled', text: 'X' })
   await ok('browser_type', { id, selector: '#filled-editable', text: 'X' })
   expect(await inPage("document.querySelector('#filled').value + '|' + document.querySelector('#filled-editable').textContent")).toBe('helloX|helloX')
+  // Also in an email or a number field, where a script cannot move the caret (setSelectionRange throws).
+  await ok('browser_type', { id, selector: '#filled-email', text: 'X' })
+  await ok('browser_type', { id, selector: '#filled-number', text: '3' })
+  expect(await inPage("document.querySelector('#filled-email').value + '|' + document.querySelector('#filled-number').value")).toBe('a@b.cX|123')
+  // Enter in a text area starts a new line, as a real one does, unless the page stops the key.
+  await ok('browser_type', { id, selector: '#area', text: 'X', submit: true })
+  await ok('browser_type', { id, selector: '#area', text: 'Y' })
+  await ok('browser_type', { id, selector: '#area-guarded', text: 'X', submit: true })
+  expect(await inPage("JSON.stringify([document.querySelector('#area').value, document.querySelector('#area-guarded').value])")).toBe(JSON.stringify(['lineX\nY', 'lineX']))
+  // So does Enter in an editable element: a new paragraph, the next text in it.
+  await ok('browser_type', { id, selector: '#editable-enter', text: 'X', submit: true })
+  await ok('browser_type', { id, selector: '#editable-enter', text: 'Y' })
+  await ok('browser_type', { id, selector: '#editable-guarded', text: 'X', submit: true })
+  expect(await inPage("JSON.stringify([document.querySelector('#editable-enter').innerText, document.querySelector('#editable-guarded').innerText])")).toBe(JSON.stringify(['lineX\nY', 'lineX']))
 
   // Enter does what a real one does: a form of two text fields and no button is not sent, nor one
   // whose page stops the key; a form's default button is clicked — its handler runs, its name and

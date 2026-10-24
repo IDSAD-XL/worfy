@@ -1,10 +1,12 @@
 import { execFile } from 'node:child_process'
-import { realpath, stat } from 'node:fs/promises'
+import { open, realpath, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import * as nativePath from 'node:path'
 import { BrowserWindow, dialog, shell, type Dialog } from 'electron'
 import { shellOpenExternal, shellOpenInEditor, type RevealPlatform } from '../../shared/ipc/shell'
 import { projectStore } from '../projects/store'
 import { isInside, UNCHECKED, walkLinks, type LinkFs, type PathRules } from '../remote-links'
+import { projectLayouts, type ProjectLayout } from '../workflow/folder'
 import { defineHandler, type HandlerModule } from './index'
 
 /** The folders of the Project's git worktrees (the main one included); empty when git cannot say. */
@@ -23,6 +25,105 @@ function worktreeFolders(root: string): Promise<string[]> {
 }
 
 const realOrNull = (path: string): Promise<string | null> => realpath(path).catch(() => null)
+
+/** The device and inode of a folder: what it is, whatever path names it. */
+export interface FolderIdentity {
+  dev: number | bigint
+  ino: number | bigint
+}
+
+const identityStat = (path: string): Promise<FolderIdentity> => stat(path, { bigint: true })
+
+/** `dev:ino` of the folder at `path`; null when there is none; throws when it cannot be read. */
+async function identityOf(path: string, look: (path: string) => Promise<FolderIdentity>): Promise<string | null> {
+  try {
+    const { dev, ino } = await look(path)
+    return `${dev}:${ino}`
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) return null
+    throw error
+  }
+}
+
+/** `path` and every folder above it, up to the root. */
+function upToRoot(path: string, paths: Pick<PathRules, 'dirname'>): string[] {
+  const folders = [path]
+  for (let up = paths.dirname(path); up !== folders.at(-1); up = paths.dirname(up)) folders.push(up)
+  return folders
+}
+
+export interface PlaceOptions {
+  /** The path rules of the platform; path.win32 in tests on any system. */
+  paths?: Pick<PathRules, 'dirname' | 'isAbsolute' | 'join' | 'parse' | 'relative' | 'resolve' | 'sep'>
+  /** The user's home folder; os.homedir() by default. */
+  home?: string
+  /** realpath, or null when there is no such folder; replaced in tests. */
+  real?: (path: string) => Promise<string | null>
+  /** stat of a folder, for its device and inode; replaced in tests. */
+  stat?: (path: string) => Promise<FolderIdentity>
+}
+
+/**
+ * The places of the Project's workflow outside its root: in Silent mode the Ticket files lie in the
+ * Workflow folder, and the Tickets root may lie elsewhere still. `tickets.read` reads a Ticket from
+ * there (src/main/ipc/tickets.ts), and "Open in editor" and the links of its body open from there.
+ * None for a layout that could not be read: where the workflow lives is unknown then. A place that
+ * is the root of a disk or a share, or holds the home folder, is left out: a Profile naming one would
+ * open every file of the disk, or of the user (`~/.ssh`), to a link in a Ticket. resolveProjectFile
+ * checks a file against the real path of a place, so the place is judged by its real path too, and
+ * by its path as written: a symlink to the home folder, a folder above it and the home folder in
+ * another letter case (realpath gives the case the disk keeps) are all left out. So is a place that
+ * does not exist: no file lies inside it.
+ *
+ * realpath does not give one name for every path to a folder: on macOS `/System/Volumes/Data/Users`
+ * (a firmlink) and `/.nofollow/Users` are `/Users` under other names, and realpath keeps them as
+ * they are. So a place is also compared by what it is, its device and inode: one that is the home
+ * folder or a folder above it, or in which the names from such a folder down to the home folder
+ * (`Users/alexey`) lead to the home folder, is left out. A place inside the home folder stays. A place
+ * whose stat fails is left out, and so is every place when a folder above the home folder cannot be
+ * read: then it is unknown what holds the home folder.
+ */
+export async function workflowPlaces(layout: ProjectLayout | null, options: PlaceOptions = {}): Promise<string[]> {
+  if (layout === null || layout.failed) return []
+  const paths = options.paths ?? nativePath
+  const real = options.real ?? realOrNull
+  const look = options.stat ?? identityStat
+  const home = paths.resolve(options.home ?? homedir())
+  const homes = [...new Set([home, (await real(home)) ?? home])]
+  let homeId: string | null
+  let above: Set<string | null>
+  try {
+    homeId = await identityOf(homes.at(-1)!, look)
+    above = new Set(await Promise.all(homes.flatMap((each) => upToRoot(each, paths)).map((folder) => identityOf(folder, look))))
+  } catch {
+    return []
+  }
+  // A folder that is not there has no identity a place could share.
+  above.delete(null)
+  // The names from each folder above the home folder down to it: `alexey`, `Users/alexey`.
+  const tails = [...new Set(homes.flatMap((each) => upToRoot(each, paths).slice(1).map((folder) => paths.relative(folder, each))))]
+  const places = [layout.ticketsRoot, layout.workflowFolder]
+  const kept = await Promise.all(
+    places.map(async (place) => {
+      const folder = paths.resolve(place)
+      const realFolder = await real(folder)
+      if (realFolder === null) return false
+      const forms = [...new Set([folder, realFolder])]
+      if (!forms.every((form) => form !== paths.parse(form).root && !homes.some((each) => isInside(form, each, paths)))) return false
+      try {
+        for (const form of forms) {
+          const id = await identityOf(form, look)
+          if (id === null || above.has(id)) return false
+          for (const tail of tails) if (homeId !== null && (await identityOf(paths.join(form, tail), look)) === homeId) return false
+        }
+        return true
+      } catch {
+        return false
+      }
+    }),
+  )
+  return places.filter((_, index) => kept[index])
+}
 
 export interface ResolveOptions {
   /** realpath, or null when there is no such file; replaced in tests. */
@@ -76,8 +177,10 @@ export async function resolveProjectFile(root: string, path: string, worktrees: 
 const DOCUMENTS_EVERYWHERE = ['.md', '.markdown', '.txt', '.log', '.json', '.jsonc', '.yaml', '.yml', '.toml', '.ts', '.tsx', '.css', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf']
 
 // JavaScript sources open in an editor on macOS and Linux; on Windows Script Host runs `.js` and
-// `.jse`, and `.mjs` and `.cjs` have no editor by default, so there they are shown.
-const DOCUMENTS_POSIX = ['.js', '.mjs', '.cjs', '.jsx']
+// `.jse`, and `.mjs` and `.cjs` have no editor by default, so there they are shown. `.jsx` is not a
+// document anywhere: on a Mac with Adobe software it is an ExtendScript file, and opening it runs it
+// in the Adobe application (review of PR #826).
+const DOCUMENTS_POSIX = ['.js', '.mjs', '.cjs']
 
 /** The documents a link opens on `platform`, lower case. */
 export function documentKinds(platform: string): readonly string[] {
@@ -94,15 +197,36 @@ export interface DocumentOptions {
   platform?: string
   /** stat of the file; replaced in tests. */
   stat?: (path: string) => Promise<{ isFile(): boolean }>
+  /** The first bytes of the file (at most `length`); replaced in tests. */
+  head?: (path: string, length: number) => Promise<Buffer>
 }
+
+/** The first `length` bytes of a file, fewer when it is shorter. */
+async function headOf(path: string, length: number): Promise<Buffer> {
+  const file = await open(path, 'r')
+  try {
+    const buffer = Buffer.alloc(length)
+    const { bytesRead } = await file.read(buffer, 0, length, 0)
+    return buffer.subarray(0, bytesRead)
+  } finally {
+    await file.close()
+  }
+}
+
+// A Finder alias is a regular file whose data is bookmark data, and its name may end in `.md`. macOS
+// opens what it points at — the alias `x.md` of a `.command` opens in Terminal and runs it (checked
+// with NSWorkspace.urlForApplication on 2026-10-24) — and a zip keeps the extended attributes that
+// make the file an alias. Bookmark data starts with these bytes.
+const BOOKMARK_MAGIC = Buffer.from('book\0\0\0\0mark', 'latin1')
 
 /**
  * Whether `target` (a real path, symlinks resolved) is a document a link may open: a regular file
  * whose extension, in any letter case, is one of documentKinds. A folder (an `.app` bundle is one),
  * a name without an extension or with any other, and on Windows a name with `:` (a stream of a file)
- * are not. The execute bit is not looked at: the system types a file with an extension by the
- * extension, which is why a document copied from a FAT or SMB volume, every bit set, still opens in
- * its editor. Throws when the file cannot be read, so a file that cannot be checked is never opened.
+ * are not, and on macOS neither is a Finder alias, whatever its name. The execute bit is not looked
+ * at: the system types a file with an extension by the extension, which is why a document copied
+ * from a FAT or SMB volume, every bit set, still opens in its editor. Throws when the file cannot be
+ * read, so a file that cannot be checked is never opened.
  */
 export async function isDocument(target: string, options: DocumentOptions = {}): Promise<boolean> {
   const platform = options.platform ?? process.platform
@@ -110,8 +234,27 @@ export async function isDocument(target: string, options: DocumentOptions = {}):
   if (!info.isFile()) return false
   const name = nativePath.basename(target).toLowerCase()
   if (platform === 'win32' && name.includes(':')) return false
-  return documentKinds(platform).includes(nativePath.extname(name))
+  if (!documentKinds(platform).includes(nativePath.extname(name))) return false
+  // shortcut: an alias made before Mac OS X 10.6 keeps its record in the resource fork, not as
+  // bookmark data, and is not seen here, redo when such an alias turns up in a Project.
+  if (platform === 'darwin' && (await (options.head ?? headOf)(target, BOOKMARK_MAGIC.length)).equals(BOOKMARK_MAGIC)) return false
+  return true
 }
+
+/**
+ * What a name may carry that is not shown as itself: the control characters (C0, DEL, C1), the line
+ * and paragraph separators (U+2028, U+2029), the bidirectional controls (U+202A–U+202E,
+ * U+2066–U+2069) and the direction marks (U+200E, U+200F, U+061C). Line breaks push the end of a name
+ * out of the box (`invoice.md<LF><LF><LF>.command`), and the bidirectional controls reorder it
+ * (`setup<U+202E>dm.command` reads as ending in `.md`). The question about a file shows each of them
+ * as U+FFFD, the replacement character, rather than dropping it: `notes.md<BEL>` must not read as
+ * `notes.md`, and a name of control characters alone must not read as an empty one.
+ */
+// eslint-disable-next-line no-control-regex -- the control characters are what is replaced
+const HIDING = /[\u0000-\u001F\u007F-\u009F\u2028\u2029\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/g
+
+/** A file name as the question about it shows it: a visible mark for what would hide or reorder a part of it. */
+export const shownName = (name: string): string => name.replace(HIDING, '\uFFFD')
 
 /** What the user chose for a file that is not a document. */
 export type OpenChoice = 'open' | 'show' | 'cancel'
@@ -130,7 +273,7 @@ export function openButtons(platform: string): readonly [string, string, string]
  * a program; a closed box is Cancel too.
  */
 export async function askToOpen(owner: BrowserWindow | null, target: string, platform: string, box: Pick<Dialog, 'showMessageBox'> = dialog): Promise<OpenChoice> {
-  const name = nativePath.basename(target)
+  const name = shownName(nativePath.basename(target))
   const options = {
     type: 'warning' as const,
     buttons: [...openButtons(platform)],
@@ -156,7 +299,8 @@ export function httpsUrl(url: string): string {
 export default [
   defineHandler(shellOpenInEditor, async ({ projectId, path }, { event }) => {
     const root = projectStore().get(projectId).path
-    const target = await resolveProjectFile(root, path, await worktreeFolders(root))
+    const [worktrees, layout] = await Promise.all([worktreeFolders(root), projectLayouts().get(root).catch(() => null)])
+    const target = await resolveProjectFile(root, path, [...worktrees, ...(await workflowPlaces(layout))])
     // A document opens at once; for anything else the user decides in a box of main, never the
     // window: the renderer is not trusted. `desktop`: a Linked machine never reaches this handler.
     if (!(await isDocument(target))) {

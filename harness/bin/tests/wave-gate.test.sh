@@ -298,6 +298,19 @@ for sh in "${SHELLS[@]}"; do
     unset GATE_LOCK
 done
 
+# --- finish: a run cut off at its time limit goes with its whole tree ---------------------------
+# The run waits on a child shell, which waits on a sleep: SIGTERM to the run alone ends it and leaves both, without a
+# parent, for the 30 s of the sleep. The sleep's duration names this file's process, so a pid reused by another
+# process is never taken for it.
+NAP="30.$$"; TREE="$T/finish-tree.pids"; : >"$TREE"
+bash -c "( sleep $NAP & echo \$! >>'$TREE'; wait ) & echo \$! >>'$TREE'; wait" & run=$!
+until_ok 10 eval '[ "$(wc -l <"$TREE")" -ge 2 ]' || bad "finish: the run did not start its tree: [$(cat "$TREE")]"
+finish "$run" 1; why_finish="$rc"
+left=; for p in $(cat "$TREE"); do kill -0 "$p" 2>/dev/null && left="$left$p "; done
+[[ "$why_finish" == *"stopped by SIGTERM"* ]] && [ -z "$left" ] && ok "finish: a run cut off at its time limit is stopped with its child and grandchild" \
+    || bad "finish: [$why_finish], left alive: [$left]"
+for p in $left; do c="$(cmd_of "$p")"; [[ "$c" == *"$NAP"* || "$c" == *"$TREE"* ]] && kill -KILL "$p" 2>/dev/null; done
+
 caf_gone "$T"/*/screen/caf*.log && ok "no stub caffeinate of any test is left" || bad "stub caffeinate left: $(cat "$T"/*/screen/caf*.log)"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"

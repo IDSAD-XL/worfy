@@ -28,6 +28,8 @@ vi.mock('electron', () => ({
       return electron.isPackaged
     },
     requestSingleInstanceLock: () => true,
+    // src/main/quit-listeners.ts raises the limit of the app's listeners first.
+    setMaxListeners: () => undefined,
     setPath: vi.fn(),
     setAppUserModelId: (id: string) => steps.push(`id:${id}`),
     whenReady: () => Promise.resolve(),

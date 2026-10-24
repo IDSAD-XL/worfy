@@ -4,7 +4,8 @@
 //
 // And the Live Browsers a Session drives (src/main/browser/live.ts, worfy-browser ticket 04): the
 // page a window draws for a Browser Node is taken only from that window — a guest of a <webview>
-// whose embedder is the caller — so no window hands main a page it does not draw.
+// whose embedder is the caller, on the partition of the Browser's profile — so no window hands main
+// a page it does not draw, or one that holds the logins of another profile or Project.
 //
 // And Live and Asleep (worfy-browser ticket 05): what each window shows is kept by the id of its web
 // contents until it reports again or closes.
@@ -14,7 +15,7 @@
 // frames of a Browser, sends its input and its address to the page. Only the window that owns a
 // Browser hands main its page (src/main/browser/owner.ts), and each client reads whether it is that
 // window (`here`). A read-only Linked machine reaches none of these: they are `write`.
-import { webContents, type WebContents } from 'electron'
+import { session, webContents, type WebContents } from 'electron'
 import {
   browserControlHold,
   browserControlList,
@@ -34,6 +35,8 @@ import {
   browserProfilesList,
   browserProfilesUpdate,
 } from '../../shared/ipc/browser'
+import { browserPartitions } from '../../shared/browser/partition'
+import { BROWSER_KIND } from '../../shared/browser/tools'
 import { ControlError, liveBrowsers, NOT_SHOWN, screenKey } from '../browser/live'
 import { webAddress } from '../browser/origins'
 import { browserProfileStore } from '../browser/profiles'
@@ -58,6 +61,22 @@ function webUrl(url: string): string {
   const parsed = webAddress(url)
   if (parsed === null) throw new Error('only an http or https address opens in a Browser')
   return parsed.href
+}
+
+/**
+ * Whether `guest` is on a partition the page of Browser `nodeId` of Project `projectId` opens on: that
+ * of the Browser profile its Node names, or — while the Node names none yet, and the frame opens it
+ * under the one the rule picks (browserProfileChoice) before it writes it — that of any profile of
+ * the Project. A page on another partition holds the logins of another profile or Project, and a
+ * Session driving it would act under them.
+ */
+function onBrowserPartition(projectId: string, nodeId: string, guest: WebContents): boolean {
+  const node = layoutStore().get(projectId).layout.nodes.find((each) => each.id === nodeId)
+  if (node === undefined || node.kind !== BROWSER_KIND) return false
+  const named = node.data.profile
+  const profileIds = typeof named === 'string' ? [named] : browserProfileStore().list(projectId).map((profile) => profile.id)
+  // Electron answers the same Session object for a partition every time.
+  return browserPartitions([projectId], () => profileIds).some((partition) => guest.session === session.fromPartition(partition))
 }
 
 function changed(projectId: string): void {
@@ -90,6 +109,7 @@ export default [
     // Electron's types say a WebContents, but a guest whose embedder has gone has none.
     const host = guest?.hostWebContents as WebContents | null | undefined
     if (guest === undefined || guest.isDestroyed() || guest.getType() !== 'webview' || host !== event.sender) return { live: false }
+    if (!onBrowserPartition(projectId, nodeId, guest)) return { live: false }
     return { live: liveBrowsers().register(projectId, nodeId, guest, host.id) !== null }
   }),
   defineHandler(browserScreen, async ({ projectId, visible, zoom, screen }, { event }) => {

@@ -43,6 +43,7 @@ import { sdkMessageToEvents } from '../../shared/agent/events'
 import type { BrowserProfile } from '../../shared/browser/profiles'
 import {
   AUTOPILOT_ONLY,
+  BROWSER_KIND,
   BROWSER_SERVER_NAME,
   BROWSER_SIZE,
   BROWSER_TOOL_NAMES,
@@ -68,9 +69,6 @@ import { layoutStore } from '../layout/store'
 import { projectStore, type StoredProject } from '../projects/store'
 import instructions from './browser-instructions.md?raw'
 import { appDeps as canvasAppDeps, observeMessages, projectForCwd, repositoryRoot, type CanvasLayout, type CanvasWorkflow } from './canvas-server'
-
-/** The kind of a Browser Node (BROWSER_KIND, src/renderer/canvas/nodes/browser-frame.ts). */
-const BROWSER_KIND = 'browser'
 
 /** How long a call waits for a window to draw a Browser's page. */
 export const LIVE_WAIT_MS = 15_000

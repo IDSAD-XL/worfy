@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
-import { chooseGitBash, WINDOWS, windowsProfileEnv } from './terminal-shell'
+import { chooseGitBash, WINDOWS } from './terminal-shell'
+import { windowsProfileEnv } from '../windows-profile'
 
 // The wheel over a Node (worfy-week ticket 16). Until a Node is clicked, a wheel or a two-finger
 // swipe over it moves the Canvas, whatever the Node draws: a scrolling HANDOFF, a Note's textarea,
@@ -323,8 +324,12 @@ test('Esc ends the activity of HANDOFF and Note but not of a Terminal; a click o
 
 test('a Terminal running a program in the alternate screen gets no arrow keys from the wheel until it is active', async () => {
   const window = await start()
-  // Fewer rows than the 24 xterm.js is made with, on every system: an alternate screen that kept the
-  // room for 24 would scroll under the wheel instead of sending arrow keys (terminal-alt-buffer.ts).
+  // Fewer rows than the 24 xterm.js is made with: an alternate screen that kept the room for 24
+  // would scroll under the wheel instead of sending arrow keys (terminal-alt-buffer.ts). The room
+  // fills only when the program prints past the last row of the alternate screen. With `cat -v`
+  // alone that happened on Windows only, so the test without that module was red there and green
+  // on macOS; the command prints 40 lines in the alternate screen first, more than it has rows, to
+  // fill the room on every system.
   expect((await invoke(window, 'layout.apply', { projectId: PROJECT, op: { op: 'resize', id: 'term', w: 560, h: 240 } })).ok).toBe(true)
   const rows = () => terminalRows(window).locator(':scope > div').count()
   await expect.poll(rows).toBeLessThan(20)
@@ -333,9 +338,9 @@ test('a Terminal running a program in the alternate screen gets no arrow keys fr
   // (measured with node-pty on 2026-10-22, also 600 ms after the resize). The command starts with a
   // space, which the shell ignores whether it arrives or not.
   await clickOn(window, terminalScreen(window))
-  await window.keyboard.type(" printf '\\033[?1049h'; cat -v")
+  await window.keyboard.type(" printf '\\033[?1049h'; seq 1 40; cat -v")
   await window.keyboard.press('Enter')
-  // In the alternate screen the earlier output is gone.
+  // In the alternate screen the earlier output (1 to 200) is gone.
   await expect.poll(() => terminalRows(window).innerText(), { timeout: 10_000 }).not.toMatch(/\b200\b/)
   await clickPlane(window)
   await expectNotActive(window, 'term')

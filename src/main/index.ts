@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+// First of the app's own modules: those imported below subscribe to `will-quit` as they load.
+import './quit-listeners'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { bindingWorkflowOf } from '../shared/binding/resolve'
 import { sessionArchiveOf } from '../shared/settings/app-settings'

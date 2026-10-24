@@ -3,6 +3,8 @@
 // «Load earlier» answer after the file was opened again, the control in the transcript
 // (src/renderer/session/Transcript.tsx), and the last answer of a resumed Session Node, which reads
 // only the window at the end of the file. A fake bridge answers; no main process.
+import { setFlagsFromString } from 'node:v8'
+import { runInNewContext } from 'node:vm'
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -661,6 +663,46 @@ describe('a main that does not know `back` (an older build on a Linked machine)'
     const few = keepNewest({ events: [answer(0)], dropped: 7 }, [answer(1)])
     expect(texts(few.events)).toEqual(['answer 0', 'answer 1'])
     expect(few.dropped).toBe(7)
+  })
+
+  it('between chunks it holds only the newest KEEP_EVENTS events: the older ones are free for the garbage collector', async () => {
+    // The test above times the read and the one before checks keepNewest alone; neither sees what
+    // the read holds while it waits for the next chunk. Kept whole and cut once at the end, the
+    // events would give the same view, and a long file would sit in memory until the read ended.
+    setFlagsFromString('--expose-gc')
+    const collect = runInNewContext('gc') as () => void
+    const module = await import('../../src/renderer/claude-home/useClaudeHome')
+    const keep = module.KEEP_EVENTS
+    // Three chunks of KEEP_EVENTS events each, then a fourth that waits. Once the third is read,
+    // the second is older than the newest KEEP_EVENTS. The first stays out of the check: the read
+    // keeps the first answer it was started with.
+    let second: WeakRef<AgentEvent> | undefined
+    let third: WeakRef<AgentEvent> | undefined
+    const chunk = (from: number, more: boolean): Answer => ({ found: true, events: range(from, from + keep).map(answer), cursor: { offset: from + keep, fileId: FILE }, reset: false, more })
+    answers.push(() => chunk(0, true))
+    answers.push(() => {
+      const read = chunk(keep, true)
+      second = new WeakRef(read.events[0]!)
+      return read
+    })
+    answers.push(() => {
+      const read = chunk(2 * keep, true)
+      third = new WeakRef(read.events[0]!)
+      return read
+    })
+    let release: (last: Answer) => void = () => undefined
+    answers.push(() => new Promise<Answer>((done) => (release = done)))
+    const hook = renderHook(() => module.useSessionTranscript(ROOT, S))
+    await vi.waitFor(() => expect(requests).toHaveLength(4))
+    // A WeakRef keeps its target until the current job ends: collect in a later one.
+    await new Promise((done) => setTimeout(done, 0))
+    collect()
+    expect(third?.deref(), 'the newest chunk is still held').toBeDefined()
+    expect(second?.deref(), 'the chunk older than the newest KEEP_EVENTS is still held').toBeUndefined()
+    release(chunk(3 * keep, false))
+    await vi.waitFor(() => expect(hook.result.current.loaded).toBe(true))
+    expect(texts(hook.result.current.events)).toEqual(range(3 * keep, 4 * keep).map((n) => `answer ${n}`))
+    expect(hook.result.current.first).toBe(3 * keep)
   })
 
   it('a file replaced while it is read from its start: only the new file is shown, its rows counted from its start', async () => {

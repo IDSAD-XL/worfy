@@ -132,6 +132,23 @@ describe('first-run checks on Windows', () => {
     expect(checkOf(report, 'windows').detail).toBe('Windows 11, build 22631')
   })
 
+  // worfy-polish ticket 36: Windows names its variables in any letter case (Path, systemroot), and the
+  // checks read them through getVar of src/main/agent/env.ts.
+  it('reads Path and systemroot in the letter case Windows gives them', async () => {
+    const env = { ProgramFiles: WINDOWS_ENV.ProgramFiles, LOCALAPPDATA: WINDOWS_ENV.LOCALAPPDATA, USERPROFILE: WINDOWS_ENV.USERPROFILE, Path: WINDOWS_ENV.PATH, systemroot: 'D:\\Win' }
+    const report = await runChecks(deps(WIN11, ALL, undefined, { env }))
+    for (const id of ['git', 'git-bash', 'gh', 'node', 'jq', 'powershell'] as const) expect(checkOf(report, id).status, id).toBe('ok')
+    // The Windows folder is the one systemroot names: its System32\bash.exe (WSL) is refused.
+    const wsl = 'D:\\Win\\System32\\bash.exe'
+    const named = await runChecks(deps(WIN11, ALL, [`${GIT_CMD}\\git.exe`, GIT_BASH, PWSH, wsl], { env: { ...env, CLAUDE_CODE_GIT_BASH_PATH: wsl } }))
+    expect(checkOf(named, 'git-bash')).toMatchObject({ status: 'fail', detail: `CLAUDE_CODE_GIT_BASH_PATH is ${wsl}` })
+    // A tool is found on the Path, and a .cmd starts through cmd.exe of the folder systemroot names.
+    const files = [`${GIT_CMD}\\git.exe`, 'C:\\npm\\claude.cmd']
+    const exists = (file: string): boolean => files.includes(file)
+    expect(windowsProgram('git', env, exists)).toEqual({ file: `${GIT_CMD}\\git.exe`, cmd: false })
+    expect(toolStart('claude', ['--version'], { ...env, Path: 'C:\\npm' }, 'win32', exists)).toMatchObject({ shell: 'D:\\Win\\System32\\cmd.exe' })
+  })
+
   it('no Git Bash: Failed with winget install Git.Git', async () => {
     const report = await runChecks(deps(WIN11, ALL, [`${GIT_CMD}\\git.exe`, PWSH]))
     expect(checkOf(report, 'git-bash')).toMatchObject({ status: 'fail', command: 'winget install Git.Git' })

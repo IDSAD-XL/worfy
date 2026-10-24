@@ -614,6 +614,23 @@ describe('the origins of the Browser profile', () => {
     expect(order.indexOf('Network.setBypassServiceWorker')).toBeLessThan(order.indexOf('Fetch.enable'))
   })
 
+  it('stand again after the debugger was taken away (DevTools opened): the next call attaches and turns them on again; the logs from before stay', async () => {
+    const rpc = await connect()
+    const { id, page } = await opened(rpc)
+    page.emit('Runtime.consoleAPICalled', { type: 'log', args: [{ type: 'string', value: 'before the detach' }] })
+    page.emit('Network.requestWillBeSent', { requestId: 'r1', request: { url: `${SITE}/api/slow`, method: 'GET' }, type: 'Fetch' })
+    page.detach()
+    expect(textOf(await rpc.call('browser_read', { id }))).toContain('Page: Fixture')
+    expect(page.debugger.isAttached()).toBe(true)
+    expect(page.commands('Network.setBypassServiceWorker')).toEqual([{ bypass: true }, { bypass: true }])
+    expect(page.commands('Fetch.enable')).toHaveLength(2)
+    expect(await page.pauseRequest(`${ELSEWHERE}/after-the-detach`)).toBe('failed')
+    // A request that was on its way when the debugger went keeps its row and gets its answer.
+    page.emit('Network.responseReceived', { requestId: 'r1', response: { status: 200 } })
+    expect(json<{ messages: unknown[] }>(await rpc.call('browser_console', { id })).messages).toEqual([{ level: 'log', text: 'before the detach' }])
+    expect(json<{ requests: unknown[] }>(await rpc.call('browser_network', { id })).requests).toEqual([{ method: 'GET', url: `${SITE}/api/slow`, type: 'Fetch', status: 200 }])
+  })
+
   it('with an empty list let the Session open no page at all', async () => {
     const rpc = await connect()
     const { id } = json<{ id: string }>(await rpc.call('browser_open', { profile: 'none-bbbbbb' }))

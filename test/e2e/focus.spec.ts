@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
-import { printJoined, WINDOWS, windowsProfileEnv } from './terminal-shell'
+import { printJoined, WINDOWS } from './terminal-shell'
+import { windowsProfileEnv } from '../windows-profile'
 import { settled } from './wait'
 
 // Focus mode against the built app: selected Nodes fill the window as tiles, presets, dividers

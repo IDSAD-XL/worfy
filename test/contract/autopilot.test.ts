@@ -20,7 +20,7 @@ import { SessionSettingsStore, UNATTENDED_MODE_MESSAGE } from '../../src/main/ag
 import { openRun, readRun } from '../../src/main/autopilot/journal'
 import { Autopilot, alreadyRunning, selfProjectRefusal, SELF_PROJECT_MESSAGE, STOP_TEXT, type AutopilotDeps } from '../../src/main/autopilot/run'
 import { agentHandlers } from '../../src/main/ipc/agent'
-import { autopilotHandlers, gitCommonDir } from '../../src/main/ipc/autopilot'
+import { autopilotHandlers, gitCommonDir, workflowWatch } from '../../src/main/ipc/autopilot'
 import { sendFromCard } from '../../src/main/ipc/card-api'
 import { appUrlMatcher, emit, registerIpc } from '../../src/main/ipc/index'
 import { LayoutStore } from '../../src/main/layout/store'
@@ -799,6 +799,32 @@ describe('an Autopilot run on the fake agent', () => {
 })
 
 // ── worfy's own repository ───────────────────────────────────────────────────
+
+// worfy-polish ticket 36: the cycle reads the Tickets' fields; an edit of a Ticket's text alone
+// (only its `version` changes) would cost a fresh read of the whole workflow for nothing.
+describe('the workflow watch of Autopilot', () => {
+  it('subscribes for the Tickets\' fields only, sends every change it gets on, and leaves with the same id', async () => {
+    const opened: { root: string; id: number | string; fieldsOnly?: boolean; send: (delta: never) => void }[] = []
+    const closed: [string, number | string][] = []
+    const watch = workflowWatch({
+      open: async (root, subscriber) => {
+        opened.push({ root, ...subscriber })
+        return null as never
+      },
+      close: async (root, id) => {
+        closed.push([root, id])
+        return true
+      },
+    })
+    let changes = 0
+    const stop = await watch('/p', () => void (changes += 1))
+    expect(opened.map(({ root, fieldsOnly }) => [root, fieldsOnly])).toEqual([['/p', true]])
+    opened[0]!.send(undefined as never)
+    expect(changes).toBe(1)
+    await stop()
+    expect(closed).toEqual([['/p', opened[0]!.id]])
+  })
+})
 
 describe('selfProjectRefusal', () => {
   const sameGit = (dir: string) => Promise.resolve(dir.startsWith(join(scratch, 'worfy')) ? join(scratch, 'worfy', '.git') : null)

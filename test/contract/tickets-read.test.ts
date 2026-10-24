@@ -4,7 +4,7 @@
 // with the Tickets under the repository, and Silent mode with them in a Workflow folder outside it.
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, posix, sep, win32 } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { accessOf, IPC_CHANNEL_PREFIX, useOf, type IpcResult } from '../../src/shared/ipc/channels'
@@ -113,12 +113,12 @@ describe('tickets.read', () => {
   it('reads a Ticket of the Project in Full mode by number and slug, and answers with its real path', async () => {
     const file = writeTicket(join(repo, '.scratch'), 'e', '07-rate-limit.md', '# 07 — Rate limit\n\nStatus: open\n\nThe body.\n')
     writeTicket(join(repo, '.scratch'), 'e', '07-other.md', '# 07 — Other\n')
-    expect(await call(ticket('e', 7, 'rate-limit'))).toStrictEqual({ ok: true, value: { path: file, text: '# 07 — Rate limit\n\nStatus: open\n\nThe body.\n' } })
+    expect(await call(ticket('e', 7, 'rate-limit'))).toStrictEqual({ ok: true, value: { path: file, relative: '.scratch/e/issues/07-rate-limit.md', text: '# 07 — Rate limit\n\nStatus: open\n\nThe body.\n' } })
   })
 
   it('finds the file by the number as epic-status reads it: 007 and 7 are Ticket 7', async () => {
     const file = writeTicket(join(repo, '.scratch'), 'e', '007-s.md', 'seven')
-    expect(await call(ticket('e', 7, 's'))).toStrictEqual({ ok: true, value: { path: file, text: 'seven' } })
+    expect(await call(ticket('e', 7, 's'))).toStrictEqual({ ok: true, value: { path: file, relative: '.scratch/e/issues/007-s.md', text: 'seven' } })
   })
 
   it('reads a Ticket of a Silent Project from the Tickets root of its Workflow folder, outside the repository', async () => {
@@ -126,7 +126,66 @@ describe('tickets.read', () => {
     // A file of the same name in the repository is not the Ticket in Silent mode.
     writeTicket(join(repo, '.scratch'), 'e', '01-a.md', 'the repository copy')
     const file = writeTicket(join(workflow, '.scratch'), 'e', '01-a.md', 'the Workflow folder copy')
-    expect(await call(ticket('e', 1, 'a'))).toStrictEqual({ ok: true, value: { path: file, text: 'the Workflow folder copy' } })
+    expect(await call(ticket('e', 1, 'a'))).toStrictEqual({ ok: true, value: { path: file, relative: '../workflow/.scratch/e/issues/01-a.md', text: 'the Workflow folder copy' } })
+  })
+
+  // worfy-polish ticket 36: `ticket root` may name a Tickets root apart from the Workflow folder.
+  it('reads a Ticket of a Silent Project whose Tickets root lies outside its Workflow folder, and still refuses a link out of both', async () => {
+    const elsewhere = join(scratch, 'tickets-elsewhere')
+    layouts.byRoot.set(repo, { ...silent(repo, workflow), ticketsRoot: elsewhere })
+    writeTicket(join(workflow, '.scratch'), 'e', '01-a.md', 'the Workflow folder copy')
+    const file = writeTicket(elsewhere, 'e', '01-a.md', 'the Tickets root copy')
+    expect(await call(ticket('e', 1, 'a'))).toStrictEqual({ ok: true, value: { path: file, relative: '../tickets-elsewhere/e/issues/01-a.md', text: 'the Tickets root copy' } })
+    symlinkSync(join(outside, 'secret.md'), join(elsewhere, 'e', 'issues', '02-b.md'))
+    await refused(ticket('e', 2, 'b'), /outside the Project/)
+  })
+
+  it('reads no Ticket from a Workflow folder and a Tickets root that are the home folder', async () => {
+    const { readTicketFile } = await import('../../src/main/ipc/tickets')
+    writeTicket(workflow, 'e', '01-a.md', 'the Workflow folder copy')
+    const layout = { ...silent(repo, workflow), ticketsRoot: workflow }
+    expect((await readTicketFile(layout, { epic: 'e', num: 1, slug: 'a' }, { home: scratch })).text).toBe('the Workflow folder copy')
+    await expect(readTicketFile(layout, { epic: 'e', num: 1, slug: 'a' }, { home: workflow })).rejects.toThrow(/outside the Project/)
+  })
+
+  // review of PR #826: the places of the Tickets are judged by the realpath readTicketFile is given,
+  // the one it checks the files against.
+  it('judges the places of the Tickets by the realpath it is given', async () => {
+    const { readTicketFile } = await import('../../src/main/ipc/tickets')
+    const home = join(scratch, 'home-h')
+    writeTicket(home, 'e', '01-a.md', 'a file of the home folder')
+    // `named` is the home folder under another name, as a macOS firmlink is; the given realpath says so.
+    const named = join(scratch, 'named-w')
+    mkdirSync(named)
+    const real = async (path: string): Promise<string | null> => {
+      if (path === named || path.startsWith(named + sep)) return home + path.slice(named.length)
+      try {
+        return realpathSync(path)
+      } catch {
+        return null
+      }
+    }
+    const layout = { ...silent(repo, named), ticketsRoot: named }
+    const ref = { epic: 'e', num: 1, slug: 'a' }
+    expect((await readTicketFile(layout, ref, { real, home: join(scratch, 'someone-else') })).text).toBe('a file of the home folder')
+    await expect(readTicketFile(layout, ref, { real, home })).rejects.toThrow(/outside the Project/)
+  })
+
+  it('answers the path relative to the Project root that main resolves a link against, or null where there is none', async () => {
+    const { relativeToRoot } = await import('../../src/main/ipc/tickets')
+    const real = (path: string) => Promise.resolve(path)
+    // A Project on a share: the leading \\ of the folder is never handed to the renderer.
+    expect(await relativeToRoot('\\\\host\\share\\p', '\\\\host\\share\\p\\.scratch\\e\\issues\\01-a.md', win32, { real })).toBe('.scratch/e/issues/01-a.md')
+    expect(await relativeToRoot('C:\\p', 'C:\\wf\\.scratch\\e\\issues\\01-a.md', win32, { real })).toBe('../wf/.scratch/e/issues/01-a.md')
+    // Another drive or another share: no relative path.
+    expect(await relativeToRoot('C:\\p', 'D:\\wf\\.scratch\\e\\issues\\01-a.md', win32, { real })).toBeNull()
+    expect(await relativeToRoot('\\\\host\\share\\p', '\\\\other\\share\\01-a.md', win32, { real })).toBeNull()
+    // A root that is a link: a file inside its real folder is relative to that folder; one outside
+    // it to the root as written, so path.resolve(root, relative) is the file again.
+    const linked = (path: string) => Promise.resolve(path === '/home/p' ? '/volume/p' : path)
+    expect(await relativeToRoot('/home/p', '/volume/p/.scratch/e/issues/01-a.md', posix, { real: linked })).toBe('.scratch/e/issues/01-a.md')
+    expect(await relativeToRoot('/home/p', '/volume/wf/01-a.md', posix, { real: linked })).toBe('../../volume/wf/01-a.md')
+    expect(posix.resolve('/home/p', '../../volume/wf/01-a.md')).toBe('/volume/wf/01-a.md')
   })
 
   it('refuses a Ticket file that is a link out of the Project and its Workflow folder', async () => {
@@ -147,7 +206,7 @@ describe('tickets.read', () => {
     writeFileSync(join(repo, 'notes.md'), 'kept elsewhere in the Project')
     mkdirSync(join(repo, '.scratch', 'e', 'issues'), { recursive: true })
     symlinkSync(join(repo, 'notes.md'), join(repo, '.scratch', 'e', 'issues', '01-a.md'))
-    expect(await call(ticket('e', 1, 'a'))).toStrictEqual({ ok: true, value: { path: join(repo, 'notes.md'), text: 'kept elsewhere in the Project' } })
+    expect(await call(ticket('e', 1, 'a'))).toStrictEqual({ ok: true, value: { path: join(repo, 'notes.md'), relative: 'notes.md', text: 'kept elsewhere in the Project' } })
   })
 
   it.each([

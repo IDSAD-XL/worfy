@@ -8,7 +8,8 @@ import { expect, test } from '@playwright/test'
 import { BUILD_VERSION, buildVersion } from '../../scripts/build-version'
 import { launchApp, type LaunchedApp, type ListedProcess, NO_WINDOW_RESTORE, packagedBuild, packagedExecutable as executableOf, packagedResources as resourcesOf, processesWith, repoRoot } from './helpers'
 import { DIRECT_START_PROFILE, directStartEnv } from './launch-env'
-import { profileVars, WINDOWS, windowsProfileEnv } from './terminal-shell'
+import { WINDOWS } from './terminal-shell'
+import { profileVars, windowsProfileEnv } from '../windows-profile'
 import { catScript } from '../harness-node'
 
 // The packaged tests drive the stable copy of worfy that scripts/install-stable.mjs installs:

@@ -86,14 +86,20 @@ const LATE_WRITER =
 /**
  * The lines of a script of its own that give it `captureLoginShellEnv`. Electron's Node strips the types of env.ts
  * but resolves no import without an extension, as env.ts has (`'../../shared/paths'`): a resolve hook adds `.ts`
- * to such a relative import. env.ts is imported dynamically, after the hook is registered.
+ * to such a relative import when that `.ts` file is there. A relative `require('./x')` inside a CommonJS package
+ * env.ts may import one day names a `.js` file, and goes on as written. env.ts is imported dynamically, after the
+ * hook is registered. The hook's imports have names of their own, so a script may import the same functions.
  */
 function importCapture(): string[] {
   const envUrl = pathToFileURL(join(__dirname, '..', '..', 'src', 'main', 'agent', 'env.ts')).href
   return [
+    "import { existsSync as hookFileExists } from 'node:fs'",
     "import { registerHooks } from 'node:module'",
-    'registerHooks({ resolve: (specifier: string, context: unknown, next: (specifier: string, context: unknown) => unknown) =>',
-    "  next(/^\\.\\.?\\//.test(specifier) && !/\\.[a-z]+$/.test(specifier) ? specifier + '.ts' : specifier, context) })",
+    "import { fileURLToPath as hookFilePath } from 'node:url'",
+    'registerHooks({ resolve: (specifier: string, context: { parentURL?: string }, next: (specifier: string, context: unknown) => unknown) => {',
+    "  const bare = /^\\.\\.?\\//.test(specifier) && !/\\.[a-z]+$/.test(specifier) && context.parentURL !== undefined",
+    "  const typed = bare && hookFileExists(hookFilePath(new URL(specifier + '.ts', context.parentURL)))",
+    "  return next(typed ? specifier + '.ts' : specifier, context) } })",
     `const { captureLoginShellEnv } = await import(${JSON.stringify(envUrl)})`,
   ]
 }

@@ -68,6 +68,8 @@ vi.mock('electron', () => {
         return electron.isPackaged
       },
       requestSingleInstanceLock: electron.requestSingleInstanceLock,
+      // src/main/quit-listeners.ts raises the limit of the app's listeners first.
+      setMaxListeners: () => undefined,
       setPath: vi.fn(),
       // On Windows the start sets the AppUserModelId (worfy-windows ticket 11).
       setAppUserModelId: vi.fn(),

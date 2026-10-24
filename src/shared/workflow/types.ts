@@ -136,6 +136,17 @@ export const ticketKey = (ticket: { epic: string; num: number }): string => `${t
 
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b)
 
+/**
+ * Whether two reads of one Project differ in nothing but the `version` of Tickets: a Ticket file's
+ * text changed and nothing parsed from it did (an edit of the body). Its open view reads the text
+ * again; what is computed from the Tickets' fields alone — the Stages, Autopilot's cycle — is not.
+ */
+export function onlyTextChanged(previous: WorkflowModel, next: WorkflowModel): boolean {
+  // `same` compares JSON, which leaves out a key whose value is undefined.
+  const fields = (model: WorkflowModel) => ({ ...model, tickets: model.tickets.map((ticket) => ({ ...ticket, version: undefined })) })
+  return same(fields(previous), fields(next))
+}
+
 /** Compares two reads of one Project. Returns null when nothing changed. */
 export function diffModels(previous: WorkflowModel | null, next: WorkflowModel): WorkflowDelta | null {
   const oldEpics = new Map((previous?.epics ?? []).map((epic) => [epic.epic, epic]))

@@ -27,7 +27,11 @@ const env = await vi.hoisted(async () => {
   const fs = await import('node:fs')
   const os = await import('node:os')
   const path = await import('node:path')
-  const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'worfy-64-')))
+  const real = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'worfy-64-')))
+  // On Windows the folder is written in upper case, which names the same folder there: the native
+  // real path B's handlers watch (WATCHED below) then spells it apart on every machine, not only
+  // where %TEMP% has an 8.3 short name, so the reduction of the two spellings to one is checked.
+  const scratch = process.platform === 'win32' ? real.toUpperCase() : real
   process.env.WORFY_DATA_DIR = path.join(scratch, 'data')
   process.env.WORFY_CLAUDE_HOME = path.join(scratch, 'claude-home')
   return { scratch }
@@ -128,9 +132,9 @@ interface Subscriber {
 
 /**
  * The root B's handlers give the hub for a Linked machine's call: the native real path that
- * insideProjects (src/main/link/caller.ts) answers. On Windows it can spell PROJECT apart:
- * fs.realpathSync keeps an 8.3 short name of %TEMP% (`C:\Users\RUNNER~1\…` on a GitHub runner) and
- * the case the path was written in, the native one gives the long names and the disk's case.
+ * insideProjects (src/main/link/caller.ts) answers. On Windows it spells PROJECT apart:
+ * PROJECT is written in upper case (above), and fs.realpathSync keeps an 8.3 short name of %TEMP%
+ * (`C:\Users\RUNNER~1\…` on a GitHub runner); the native one gives the long names and the disk's case.
  */
 const WATCHED = resolve(realpathSync.native(PROJECT))
 

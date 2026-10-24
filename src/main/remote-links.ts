@@ -143,7 +143,16 @@ export function cachedLinks(links: LinkFs = nodeLinks): LinkFs {
 export function isInside(base: string, path: string, paths: Pick<PathRules, 'isAbsolute' | 'relative' | 'sep'> = nativePath): boolean {
   if (paths.sep === '\\' && UNC.test(base) !== UNC.test(path)) return false
   const rel = paths.relative(base, path)
-  return rel === '' || (rel !== '..' && !rel.startsWith(`..${paths.sep}`) && !paths.isAbsolute(rel))
+  return rel === '' || !leavesFolder(rel, paths)
+}
+
+/**
+ * True when `rel`, a path.relative answer, leaves the folder it is relative to: it is `..`, starts
+ * with `..` and a separator, or is absolute (another drive or share on Windows). A first segment
+ * like `..drafts` stays inside.
+ */
+export function leavesFolder(rel: string, paths: Pick<PathRules, 'isAbsolute' | 'sep'> = nativePath): boolean {
+  return rel === '..' || rel.startsWith(`..${paths.sep}`) || paths.isAbsolute(rel)
 }
 
 /**

@@ -287,7 +287,7 @@ export default [
       started: () => undefined,
     })
     if (client.isDestroyed()) void signIns().leave(client)
-    return { replay: opened.replay, end: opened.end, exited: opened.exited }
+    return { replay: opened.replay, end: opened.end, sizes: opened.sizes, exited: opened.exited }
   }),
 
   defineHandler(projectsConnectSignInInput, ({ signInId, data, reply }, { event }) => {

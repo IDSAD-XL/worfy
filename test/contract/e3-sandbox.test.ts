@@ -988,6 +988,16 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
     expect(run.ms).toBeLessThan(5_000)
   })
 
+  // worfy-polish ticket 36 (review of #738): ps shows the heartbeat stopped while a fork it began
+  // before the stop may still finish, and its child shows up later under load. One pkill then left a
+  // `sleep` for its 5 min in about one run in three of the same trap in epic-wave; the test below
+  // shows such a sleep only by chance, this check every time.
+  it('runs pkill -P again while the heartbeat is stopped, until three passes in a row find no child', () => {
+    const release = readFileSync(SCRIPT, 'utf8').split('\n').find((line) => line.includes("trap 'if [ -e /proc/'")) ?? ''
+    const posix = release.slice(release.indexOf('; else '))
+    expect(posix).toMatch(/kill -STOP .*pkill -P .*while \[ "\$e" -lt 3 \] && \[ "\$w" -lt 40 \]; do sleep 0\.05; w=\$\(\(w \+ 1\)\); if pkill -P '"\$hb"' 2>\/dev\/null; then e=0; else e=\$\(\(e \+ 1\)\); fi; done; kill -KILL .*kill -CONT/)
+  })
+
   it('leaves no sleep of the heartbeat behind when the command ends', () => {
     // The command under the lock waits until the heartbeat's sleep has started, so the release
     // always finds it running.
@@ -1129,6 +1139,8 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
     stubCommand('sleep', [
       '. "$RACE_DIR/lib.sh"',
       '[ "$1" != 300 ] || exit 1',
+      // The release of the lock sleeps 0.01 s and 0.05 s while it ends the heartbeat: no pause of the race.
+      'case "$1" in 0.0*) exec sleep "$1" ;; esac',
       'echo "$1" >> "$me.pauses"',
       'if [ ! -e "$me.paused" ]; then',
       '  : > "$me.paused"',

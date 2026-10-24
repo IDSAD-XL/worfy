@@ -3,6 +3,7 @@
 import { z } from 'zod'
 import { projectSettingsAnswerSchema, projectSettingsInputSchema } from '../projects/action-templates'
 import { eventChannel, invokeChannel } from './channels'
+import { replaySizeSchema, sizesInOrder } from './terminal'
 
 /** A Project as the renderer sees it. */
 export const projectViewSchema = z.object({
@@ -357,8 +358,10 @@ export const projectsConnectSignIn = invokeChannel(
   z.object({
     replay: z.string(),
     end: z.number().int().nonnegative(),
+    /** The sizes of the pty `replay` came at, as `terminal.open` answers them (worfy-windows ticket 89). */
+    sizes: z.array(replaySizeSchema).optional(),
     exited: z.object({ exitCode: z.number().int(), signal: z.number().int().nullable() }).nullable(),
-  }),
+  }).superRefine(sizesInOrder),
   'local',
 )
 

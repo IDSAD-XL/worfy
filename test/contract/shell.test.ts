@@ -3,11 +3,12 @@
 // worktree in a temporary folder. Nothing reaches macOS: shell.openPath, shell.showItemInFolder,
 // shell.openExternal and dialog.showMessageBox are recorders; the box answers what a test sets.
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { dirname, join, posix, win32 } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ProjectLayout } from '../../src/main/workflow/folder'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
@@ -28,6 +29,22 @@ vi.mock('electron', () => ({
   dialog: { showMessageBox: electron.showMessageBox },
   BrowserWindow: { fromWebContents: () => electron.owner },
 }))
+
+// The Project's layout (src/main/workflow/folder.ts) stands in for the `profile` call: Full mode
+// unless a test puts a Silent layout, with the Workflow folder outside the repository, in its place.
+const layouts = vi.hoisted(() => ({ byRoot: new Map<string, ProjectLayout | Error>() }))
+vi.mock('../../src/main/workflow/folder', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/main/workflow/folder')>()
+  return {
+    ...actual,
+    projectLayouts: () => ({
+      get: (root: string) => {
+        const layout = layouts.byRoot.get(root)
+        return layout instanceof Error ? Promise.reject(layout) : Promise.resolve(layout ?? actual.fullLayout(root))
+      },
+    }),
+  }
+})
 
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
 
@@ -79,6 +96,7 @@ beforeEach(async () => {
   mkdirSync(join(dataDir, PROJECT_ID), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT_ID, name: 'repo', path: repo }], activeId: PROJECT_ID }))
 
+  layouts.byRoot.clear()
   electron.openPath.mockReset().mockResolvedValue('')
   electron.openExternal.mockReset().mockResolvedValue(undefined)
   electron.showItemInFolder.mockReset()
@@ -164,6 +182,162 @@ describe('shell.openInEditor', () => {
   it('reports the reason macOS gives when it cannot open the file', async () => {
     electron.openPath.mockResolvedValue('No application knows how to open this file')
     await refused('shell.openInEditor', { projectId: PROJECT_ID, path: join(repo, 'README.md') }, /No application knows/)
+  })
+})
+
+// worfy-polish ticket 36: in Silent mode the Ticket files lie in the Workflow folder, outside the
+// Project. tickets.read reads them there, so "Open in editor" and the links of the Ticket body must
+// open them there too, and nothing else outside the Project.
+describe('shell.openInEditor in a Silent Project', () => {
+  let workflow: string
+  let ticketsRoot: string
+
+  beforeEach(() => {
+    workflow = join(scratch, 'workflow')
+    // A Tickets root apart from the Workflow folder, as `ticket root` may answer.
+    ticketsRoot = join(scratch, 'tickets-root')
+    mkdirSync(join(workflow, '.scratch', 'e', 'issues'), { recursive: true })
+    mkdirSync(join(ticketsRoot, 'e', 'issues'), { recursive: true })
+    writeFileSync(join(workflow, '.scratch', 'e', 'spec.md'), '# e\n')
+    writeFileSync(join(ticketsRoot, 'e', 'issues', '02-b.md'), '# 02 — b\n')
+    layouts.byRoot.set(repo, { root: repo, mode: 'silent', workflowFolder: workflow, ticketsRoot, repos: [], workspace: null, reason: null, failed: false })
+  })
+
+  it('opens a file of the Workflow folder and of the Tickets root, and the Project\'s own files as before', async () => {
+    for (const file of [join(workflow, '.scratch', 'e', 'spec.md'), join(ticketsRoot, 'e', 'issues', '02-b.md'), join(repo, 'README.md'), join(worktree, 'README.md')]) {
+      expect(await call('shell.openInEditor', { projectId: PROJECT_ID, path: file })).toStrictEqual({ ok: true, value: { path: file, outcome: 'opened' } })
+    }
+    // A link of the Ticket body, relative to the Project root, that leads into the Workflow folder.
+    expect(await call('shell.openInEditor', { projectId: PROJECT_ID, path: '../workflow/.scratch/e/spec.md' })).toStrictEqual({
+      ok: true,
+      value: { path: join(workflow, '.scratch', 'e', 'spec.md'), outcome: 'opened' },
+    })
+  })
+
+  it('still refuses a file outside the Project, its worktrees, the Workflow folder and the Tickets root', async () => {
+    await refused('shell.openInEditor', { projectId: PROJECT_ID, path: join(outside, 'secret.txt') }, /outside the Project/)
+    symlinkSync(join(outside, 'secret.txt'), join(workflow, '.scratch', 'e', 'link-out.md'))
+    await refused('shell.openInEditor', { projectId: PROJECT_ID, path: join(workflow, '.scratch', 'e', 'link-out.md') }, /outside the Project/)
+    expect(electron.openPath).not.toHaveBeenCalled()
+  })
+
+  it('never takes the root of a disk or a share, or a folder that holds the home folder, as a place of the workflow', async () => {
+    const { workflowPlaces } = await import('../../src/main/ipc/shell')
+    const layout = (workflowFolder: string, ticketsRoot: string): ProjectLayout => ({ root: '/p', mode: 'silent', workflowFolder, ticketsRoot, repos: [], workspace: null, reason: null, failed: false })
+    // realpath of the places: the folders as written unless a test names their real path.
+    const real =
+      (links: Record<string, string | null> = {}) =>
+      async (path: string): Promise<string | null> =>
+        path in links ? links[path]! : path
+    // stat of the folders: each path its own folder unless a test gives it the identity of another,
+    // or an error.
+    const looks =
+      (ids: Record<string, { dev: number; ino: number } | NodeJS.ErrnoException> = {}) =>
+      async (path: string): Promise<{ dev: number; ino: number }> => {
+        const id = ids[path]
+        if (id instanceof Error) throw id
+        return id ?? { dev: 1, ino: inode(path) }
+      }
+    const inodes = new Map<string, number>()
+    const inode = (path: string): number => inodes.get(path) ?? inodes.set(path, 1000 + inodes.size).get(path)!
+    const failure = (code: string): NodeJS.ErrnoException => Object.assign(new Error(code), { code })
+    const places = (workflowFolder: string, ticketsRoot: string, home: string, links?: Record<string, string | null>, ids?: Parameters<typeof looks>[0]) =>
+      workflowPlaces(layout(workflowFolder, ticketsRoot), { paths: posix, home, real: real(links), stat: looks(ids) })
+    expect(await places('/wf', '/wf/.scratch', '/Users/a')).toEqual(['/wf/.scratch', '/wf'])
+    expect(await places('/', '/.scratch', '/Users/a')).toEqual(['/.scratch'])
+    expect(await places('/Users/a', '/Users/a/', '/Users/a')).toEqual([])
+    expect(await places('/Users/a/wf', '/Users/a/wf/.scratch', '/Users/a/')).toEqual(['/Users/a/wf/.scratch', '/Users/a/wf'])
+    // A folder above the home folder holds it, and so does a path that only reads as another folder.
+    expect(await places('/Users', '/wf/../Users/a/../a/wf', '/Users/a')).toEqual(['/wf/../Users/a/../a/wf'])
+    // review of PR #826: a symlink to the home folder, and the home folder in another letter case,
+    // which realpath gives as the disk keeps it, pass a check of the text alone.
+    expect(await places('/tmp/x/link', '/tmp/x/link/.scratch', '/Users/a', { '/tmp/x/link': '/Users/a', '/tmp/x/link/.scratch': '/Users/a/.scratch' })).toEqual(['/tmp/x/link/.scratch'])
+    expect(await places('/users/a', '/users/a/wf', '/Users/a', { '/users/a': '/Users/a', '/users/a/wf': '/Users/a/wf' })).toEqual(['/users/a/wf'])
+    expect(await places('/tmp/up', '/wf', '/Users/a', { '/tmp/up': '/' })).toEqual(['/wf'])
+    // The written path and the real path of a place are both judged, and so are those of the home folder.
+    expect(await places('/Users', '/wf', '/Users/a', { '/Users': '/elsewhere' })).toEqual(['/wf'])
+    expect(await places('/srv/up', '/wf', '/home/a', { '/home/a': '/srv/up/a' })).toEqual(['/wf'])
+    expect(await places('/home', '/wf', '/home/a', { '/home/a': '/srv/up/a' })).toEqual(['/wf'])
+    // review of PR #826: realpath keeps a macOS firmlink (`/System/Volumes/Data/Users` is `/Users`)
+    // and `/.nofollow/Users` as they are; the device and inode say what they are.
+    const firmlinks = { '/System/Volumes/Data/Users': { dev: 1, ino: 7 }, '/Users': { dev: 1, ino: 7 }, '/System/Volumes/Data/Users/a': { dev: 1, ino: 8 }, '/Users/a': { dev: 1, ino: 8 }, '/.nofollow/Users/a': { dev: 1, ino: 8 } }
+    expect(await places('/System/Volumes/Data/Users', '/System/Volumes/Data/Users/a', '/Users/a', {}, firmlinks)).toEqual([])
+    expect(await places('/System/Volumes/Data', '/.nofollow', '/Users/a', {}, firmlinks)).toEqual([])
+    // A place inside the home folder stays, under any name.
+    expect(await places('/System/Volumes/Data/Users/a/wf', '/Users/a/wf', '/Users/a', {}, firmlinks)).toEqual(['/Users/a/wf', '/System/Volumes/Data/Users/a/wf'])
+    // A place whose stat fails, or whose folder on the way down to the home folder cannot be read, is left out.
+    expect(await places('/wf', '/denied', '/Users/a', {}, { '/denied': failure('EACCES') })).toEqual(['/wf'])
+    expect(await places('/wf', '/gone-now', '/Users/a', {}, { '/gone-now': failure('ENOENT') })).toEqual(['/wf'])
+    expect(await places('/wf', '/odd', '/Users/a', {}, { '/odd/Users/a': failure('EACCES') })).toEqual(['/wf'])
+    // A folder above the home folder that cannot be read: nothing is known to be safe.
+    expect(await places('/wf', '/wf/.scratch', '/Users/a', {}, { '/Users': failure('EACCES') })).toEqual([])
+    // A home folder that is not there holds no file: the places stay.
+    expect(await places('/wf', '/wf/.scratch', '/nobody/a', {}, { '/nobody/a': failure('ENOENT'), '/nobody': failure('ENOENT') })).toEqual(['/wf/.scratch', '/wf'])
+    // The home folder that is a symlink itself: the place is compared with where it leads.
+    expect(await places('/data/a', '/data/a/wf', '/home/a', { '/home/a': '/data/a' })).toEqual(['/data/a/wf'])
+    // A place that does not exist holds no file.
+    expect(await places('/gone', '/wf', '/Users/a', { '/gone': null })).toEqual(['/wf'])
+    // On Windows the root of a drive and of a share, and the home folder in any letter case.
+    const windows = (workflowFolder: string, ticketsRoot: string) => workflowPlaces(layout(workflowFolder, ticketsRoot), { paths: win32, home: 'C:\\Users\\a', real: real(), stat: looks() })
+    expect(await windows('D:\\', '\\\\host\\share\\')).toEqual([])
+    expect(await windows('c:\\users\\A', 'D:\\wf\\.scratch')).toEqual(['D:\\wf\\.scratch'])
+    expect(await windows('C:\\Users', '\\\\host\\share\\wf')).toEqual(['\\\\host\\share\\wf'])
+    // The path as written is judged too: `D:\wf\..` is the root of the drive.
+    expect(await windows('D:\\wf\\..', 'D:\\wf')).toEqual(['D:\\wf'])
+  })
+
+  // review of PR #826: on macOS `/System/Volumes/Data/Users` and `/.nofollow/Users` are the folder
+  // above the home folder under other names, which realpath keeps.
+  const home = realpathSync.native(homedir())
+  it.runIf(process.platform === 'darwin' && existsSync(join('/System/Volumes/Data', dirname(home))))('takes on macOS no firmlink or /.nofollow name of the folder above the home folder', async () => {
+    const { workflowPlaces } = await import('../../src/main/ipc/shell')
+    const data = join('/System/Volumes/Data', dirname(home))
+    const nofollow = join('/.nofollow', dirname(home))
+    const layout: ProjectLayout = { root: repo, mode: 'silent', workflowFolder: data, ticketsRoot: existsSync(nofollow) ? nofollow : data, repos: [], workspace: null, reason: null, failed: false }
+    expect(await workflowPlaces(layout)).toEqual([])
+    expect(await workflowPlaces({ ...layout, workflowFolder: '/System/Volumes/Data', ticketsRoot: join('/System/Volumes/Data', home) })).toEqual([])
+  })
+
+  // review of PR #826: a Workflow folder that is a symlink to the home folder, a folder above it, or
+  // the home folder in another letter case opened `~/.ssh/id`.
+  it('opens no file of the home folder through a Workflow folder that leads to it', async () => {
+    const home = join(scratch, 'people', 'a')
+    mkdirSync(join(home, '.ssh'), { recursive: true })
+    writeFileSync(join(home, '.ssh', 'id'), 'key\n')
+    vi.stubEnv('HOME', home)
+    vi.stubEnv('USERPROFILE', home)
+    try {
+      const link = join(scratch, 'link-home')
+      symlinkSync(home, link, 'junction')
+      const upper = join(scratch, 'people', 'A')
+      const ways: Array<[string, string]> = [
+        [link, join(link, '.ssh', 'id')],
+        [join(scratch, 'people'), join(home, '.ssh', 'id')],
+        [home, join(home, '.ssh', 'id')],
+        // Only on a disk that ignores the letter case, as macOS and Windows have by default.
+        ...(existsSync(upper) ? [[upper, join(upper, '.ssh', 'id')] as [string, string]] : []),
+      ]
+      for (const [workflowFolder, path] of ways) {
+        layouts.byRoot.set(repo, { root: repo, mode: 'silent', workflowFolder, ticketsRoot, repos: [], workspace: null, reason: null, failed: false })
+        await refused('shell.openInEditor', { projectId: PROJECT_ID, path }, /outside the Project/)
+      }
+      expect(electron.openPath).not.toHaveBeenCalled()
+      // The Tickets root of the same layout still opens.
+      const ticket = join(ticketsRoot, 'e', 'issues', '02-b.md')
+      expect(await call('shell.openInEditor', { projectId: PROJECT_ID, path: ticket })).toStrictEqual({ ok: true, value: { path: ticket, outcome: 'opened' } })
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('opens nothing from the Workflow folder when where the workflow lives is unknown: a failed layout, or one that could not be asked', async () => {
+    const spec = join(workflow, '.scratch', 'e', 'spec.md')
+    layouts.byRoot.set(repo, { root: repo, mode: 'full', workflowFolder: workflow, ticketsRoot, repos: [], workspace: null, reason: 'the profile script failed', failed: true })
+    await refused('shell.openInEditor', { projectId: PROJECT_ID, path: spec }, /outside the Project/)
+    layouts.byRoot.set(repo, new Error('the scripts environment could not be read'))
+    await refused('shell.openInEditor', { projectId: PROJECT_ID, path: spec }, /outside the Project/)
+    // The Project's own files still open.
+    expect(await call('shell.openInEditor', { projectId: PROJECT_ID, path: join(repo, 'README.md') })).toStrictEqual({ ok: true, value: { path: join(repo, 'README.md'), outcome: 'opened' } })
   })
 })
 
@@ -378,6 +552,69 @@ describe('shell.openInEditor opens documents and asks about anything else', () =
     })
     expect(boxes()).toHaveLength(3)
     expect(opened()).toStrictEqual([...files, ...files])
+  })
+
+  // On a Mac with Adobe software `.jsx` is ExtendScript, which its application runs on open.
+  it('asks about a .jsx file on every platform', async () => {
+    const file = projectFile('scripts/panel.jsx')
+    for (const platform of ['darwin', 'linux', 'win32'] as const) expect(outcome(await asPlatform(platform, () => open(file))), platform).toBe('cancelled')
+    expect(boxes()).toHaveLength(3)
+    expect(opened()).toStrictEqual([])
+  })
+
+  // worfy-polish ticket 36: U+202E (right-to-left override) makes `setup<U+202E>dm.command` read as a
+  // name ending in `.md`. The question shows the name without the bidirectional controls.
+  it('shows the name of the file it asks about with a mark for each bidirectional control, so it cannot pass for a document', async () => {
+    const names = ['setup\u202Edm.command', 'a\u2066b\u2069\u202A\u202B\u202C\u202D.term', 'x\u200E\u200F\u061C.sh', 'plain\u2067\u2068.sh']
+    const files = names.map((name) => projectFile(`bidi/${name}`))
+    await asPlatform('darwin', async () => {
+      for (const file of files) expect(outcome(await open(file))).toBe('cancelled')
+    })
+    expect(boxes().map(([, options]) => [options.title, options.message])).toStrictEqual(
+      ['setup\uFFFDdm.command', 'a\uFFFDb\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD.term', 'x\uFFFD\uFFFD\uFFFD.sh', 'plain\uFFFD\uFFFD.sh'].map((name) => [`Open ${name}?`, `Open ${name}?`]),
+    )
+    expect(opened()).toStrictEqual([])
+  })
+
+  // Line breaks would push the real extension out of the box: `invoice.md` and, three lines down, `.command`.
+  it.skipIf(process.platform === 'win32')('shows a mark in place of each line break of the name', async () => {
+    const file = projectFile('lines/invoice.md\n\n\n.command')
+    await asPlatform('darwin', async () => expect(outcome(await open(file))).toBe('cancelled'))
+    expect(boxes().map(([, options]) => options.message)).toStrictEqual(['Open invoice.md\uFFFD\uFFFD\uFFFD.command?'])
+  })
+
+  it('shows U+FFFD in a name for every control character, the line and paragraph separators, the bidirectional controls and the direction marks', async () => {
+    const { shownName } = await import('../../src/main/ipc/shell')
+    const hiding = [...Array.from({ length: 0x20 }, (_, code) => code), 0x7f, ...Array.from({ length: 0x20 }, (_, code) => 0x80 + code), 0x2028, 0x2029, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069, 0x200e, 0x200f, 0x061c]
+    for (const code of hiding) expect(shownName(`a${String.fromCharCode(code)}.command`), code.toString(16)).toBe('a\uFFFD.command')
+    // review of PR #826: a bell at the end must not leave `notes.md`, nor a name of controls alone an empty one.
+    expect(shownName('notes.md\u0007')).toBe('notes.md\uFFFD')
+    expect(shownName('\u0007\u202E')).toBe('\uFFFD\uFFFD')
+    // Letters of any script and plain spaces stay.
+    expect(shownName('Отчёт 2026 · résumé.md')).toBe('Отчёт 2026 · résumé.md')
+  })
+
+  // worfy-polish ticket 36: macOS opens what a Finder alias points at — the alias `x.md` of a
+  // `.command` opens in Terminal — so on macOS an alias is asked about, whatever its name.
+  it('asks on macOS about a Finder alias named like a document, and opens such a file at once elsewhere', async () => {
+    const alias = join(repo, 'docs', 'alias.md')
+    mkdirSync(join(repo, 'docs'), { recursive: true })
+    // Bookmark data as Finder writes it: the magic, then the record.
+    writeFileSync(alias, Buffer.concat([Buffer.from('book\0\0\0\0mark\0\0\0\0', 'latin1'), Buffer.alloc(64, 7)]))
+    // A document that only mentions the word is one.
+    const notes = projectFile('docs/book.md')
+    writeFileSync(notes, 'book mark\n')
+    const empty = projectFile('docs/empty.md')
+    writeFileSync(empty, '')
+    const real = realpathSync(alias)
+    await asPlatform('darwin', async () => {
+      expect(outcome(await open(real))).toBe('cancelled')
+      expect(outcome(await open(notes))).toBe('opened')
+      expect(outcome(await open(empty))).toBe('opened')
+    })
+    for (const platform of ['win32', 'linux'] as const) expect(outcome(await asPlatform(platform, () => open(real)))).toBe('opened')
+    expect(boxes().map(([, options]) => options.message)).toStrictEqual(['Open alias.md?'])
+    expect(opened()).toStrictEqual([notes, empty, real, real])
   })
 })
 
