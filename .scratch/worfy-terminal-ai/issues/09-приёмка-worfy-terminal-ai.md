@@ -36,7 +36,7 @@ Autopilot этот Ticket не берёт: с этого docs-PR он лежит
 Пункт 1 Epic-а — Suggestion.
 
 - [x] (вручную) Префикс команды из истории — серый остаток сразу; →, Option+→, Esc работают.
-- [ ] (вручную) Строка, которой нет в истории, — через паузу серый ответ Haiku. Время до серого текста в 10 попытках — в «Итог» (spike: первый токен ~1,3 с). Набор во время ожидания — старый ответ не появляется. *(2026-10-19: ответ Haiku работает по словам владельца; 10 замеров не сделаны — пункт открыт.)*
+- [ ] (вручную) Строка, которой нет в истории, — через паузу серый ответ Haiku. Время до серого текста в 10 попытках — в «Итог» (spike: первый токен ~1,3 с). Набор во время ожидания — старый ответ не появляется. *(2026-10-19: ответ Haiku работает по словам владельца. 2026-10-24: 10 замеров сделаны, цифры — в «Итог». Набор во время ожидания не проверяли — пункт открыт.)*
 - [x] (вручную) Тот же Terminal во втором окне worfy показывает тот же серый текст.
 - [x] (вручную) История как раньше: стрелка вверх в новом Terminal-е worfy показывает команды прошлых сеансов; команда, набранная в worfy, после выхода из shell-а видна в `~/.zsh_history` (`tail -1 ~/.zsh_history` в Terminal.app); `$HISTFILE` в Terminal-е worfy и в Terminal.app одинаковый.
 
@@ -50,20 +50,20 @@ Autopilot этот Ticket не берёт: с этого docs-PR он лежит
 
 - [x] Команда: `ps -o pid,rss,command -p <pid>` по pid из строки лога — один процесс `claude` assist-а (кроме процессов Session-ов), RSS — в «Итог»; после 10 минут без запросов его нет.
 - [x] Команда: строка лога assist-процесса — `apiKeySource` `none`, модель Suggestion — haiku без thinking (`option_not_applied` нет), нет plugin-ов пользователя; есть ли hooks у встроенных plugin-ов Claude Code — записать в «Итог» (по `init` и `claude --debug`, если `init` их не сообщает).
-- [ ] (вручную) Next command, Command request и Fix на Sonnet с `effort: 'low'`: были ли блоки thinking и как это сказалось на времени ответа — в «Итог» (у Sonnet 5.5 thinking не выключается). *(2026-10-19: не измерено.)*
-- [ ] Команда: список папок `~/.claude/projects` до и после проверки одинаков — транскриптов нет; в `~/.claude/sessions` нет записи assist-процесса с `cwd` в Project-е; на Canvas нет нового Session Node-а. *(2026-10-19: `projects` — да; записи assist-а с `cwd` в Project-е нет, но регистрация в `sessions/` есть — Ticket 16; Canvas отдельно не проверяли — пункт открыт.)*
+- [x] (вручную) Next command, Command request и Fix на Sonnet с `effort: 'low'`: были ли блоки thinking и как это сказалось на времени ответа — в «Итог» (у Sonnet 5.5 thinking не выключается). *(2026-10-19: не измерено. 2026-10-24: 9 ответов, блоков thinking нет ни в одном.)*
+- [x] Команда: список папок `~/.claude/projects` до и после проверки одинаков — транскриптов нет; в `~/.claude/sessions` нет записи assist-процесса с `cwd` в Project-е; на Canvas нет нового Session Node-а. *(2026-10-19: `projects` — да; записи assist-а с `cwd` в Project-е нет, но регистрация в `sessions/` есть — Ticket 16; Canvas отдельно не проверяли. 2026-10-24: все три части — да, подробности в «Итог».)*
 - [x] (вручную) `LimitsMeter` обновился после запросов Terminal AI (время показаний свежее).
-- [ ] Contract-test-ы порогов Limits Ticket-а 02 (`test/unit/terminal-ai-limits-gate.test.ts`, `test/contract/terminal-ai-assist.test.ts`) зелёные: живой упор в 80 % на подписке не устраивается.
+- [x] Contract-test-ы порогов Limits Ticket-а 02 (`test/unit/terminal-ai-limits-gate.test.ts`, `test/contract/terminal-ai-assist.test.ts`) зелёные: живой упор в 80 % на подписке не устраивается.
 
 Пункт 4 — приватность.
 
-- [ ] Команда: тот же сценарий с `WORFY_AGENT=fake` и `WORFY_TERMINAL_AI_LOG` — в журнале нет переменных окружения; `export GITHUB_TOKEN=ghp_…` из истории — `[redacted]`; во время `sudo -k; sudo true` (запрос пароля) запросов нет; в `less` — нет; ` echo secret` (пробел в начале) — нет.
+- [x] Команда: тот же сценарий с `WORFY_AGENT=fake` и `WORFY_TERMINAL_AI_LOG` — в журнале нет переменных окружения; `export GITHUB_TOKEN=ghp_…` из истории — `[redacted]`; во время `sudo -k; sudo true` (запрос пароля) запросов нет; в `less` — нет; ` echo secret` (пробел в начале) — нет. *(2026-10-24: `sudo` на этом Mac пароля не спросил, запрос пароля проверен заменой — `getpass` из Python; подробности в «Итог».)*
 - [x] Команда: `shasum ~/.zshrc` до и после — одинаковый.
 
 Пункт 5 — Settings и test-ы.
 
 - [x] (вручную) Settings → «Terminal AI»: выключение каждой функции работает сразу; «Terminal AI» выключен — ни серого текста, ни запросов.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full — exit 0; в выводе test-ов нет запусков настоящего Claude Code (под vitest настоящая фабрика бросает).
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full — exit 0; в выводе test-ов нет запусков настоящего Claude Code (под vitest настоящая фабрика бросает).
 
 Цифры и ответы — в `../evidence/09-live-проверка.md`: время ответа по функциям, RSS, Limits до и после,
 три примера ответов каждой функции. Секретов и личных данных там нет.
@@ -79,6 +79,45 @@ Autopilot этот Ticket не берёт: с этого docs-PR он лежит
 - `.scratch/worfy-terminal-ai/evidence/09-live-проверка.md` (новый)
 
 ## Итог
+
+Второй промежуточный, 2026-10-24: замеры на Stable copy `46d53eb3`, Ticket не закрыт.
+
+Владелец 2026-10-24: «можешь замерять это сам». Замеры сделал Orchestrator на Stable copy владельца,
+на его подписке, по его просьбе. Цифры, ответы и журнал приватности —
+[`../evidence/09-live-проверка.md`](../evidence/09-live-проверка.md), раздел «2026-10-24».
+
+- Suggestion (Haiku), 10 попыток: до серого текста медиана 2028 мс (1906–3330). Первый токен —
+  медиана 1360 мс от последней клавиши (spike: ~1,3 с). Thinking нет.
+- Sonnet с `effort: 'low'`, 9 ответов: блоков thinking нет ни в одном. Медианы до ответа в строке:
+  Next command 2879 мс (из них ~800 мс — пауза перед запросом), Command request 2173 мс, Fix 1928 мс.
+- Assist-процесс в каждый момент один, RSS 216 MB.
+- `~/.claude/projects` до и после — тот же список, 61 папка. В `~/.claude/sessions` сменилась только
+  запись Session-а, который Stable продолжает при запуске (`--resume`, модель opus, `cwd` в Project-е):
+  pid 45300 → 81881. Записи assist-процесса нет. На Canvas нового Session Node-а нет: временный
+  Terminal Node закрыт, узлы и viewport те же.
+- Limits: `test/unit/terminal-ai-limits-gate.test.ts` и `test/contract/terminal-ai-assist.test.ts`
+  отдельно — 2 файла, 52 test-а, exit 0.
+- gate full с `GATE_SCOPE=all` на `main` `a3f95bbf` — green (lint, typecheck, test, test:e2e,
+  test:package), exit 0. Запусков настоящего Claude Code в выводе test-ов нет.
+- Приватность — `WORFY_AGENT=fake`, `WORFY_TERMINAL_AI_LOG`, отдельная сборка `a3f95bbf`, временные
+  `HOME` и `HISTFILE` с ненастоящим `GITHUB_TOKEN` в истории. Переменных окружения в журнале нет.
+  Токен — только `[redacted]`. В `less` и для ` echo secret` запросов нет. `sudo -k; sudo true` пароля
+  на этом Mac не спросил (по всей видимости, Touch ID или настройка sudo). Поэтому запрос пароля
+  проверен заменой — `getpass` из Python: пока он ждал ввода, запросов не было. `shasum` у `~/.zshrc`
+  и `~/.zsh_history` владельца до и после одинаковый.
+- zsh-autosuggestions у владельца не установлен: проверка совместимости с ним не применима, не
+  выполнена.
+
+Находка, решение владельца не принято. Ответ попадает на экран только после выхода вспомогательного
+процесса `claude` — через 530–760 мс после того, как ответ готов. `attempt()` в
+`src/main/terminal-ai/assist.ts` ждёт конца stream-а, а не сообщения `result`. Если брать ответ на
+`result`, медиана Suggestion стала бы ~1,44 с. То же у Next command, Command request и Fix.
+
+Открыто до закрытия Ticket-а:
+
+- Suggestion: набор во время ожидания ответа Haiku — старый ответ не появляется — не проверяли.
+- Решение владельца по находке про ожидание выхода процесса.
+- Отметки в `spec.md`.
 
 Промежуточный, 2026-10-19: live-проверка прошла, Ticket не закрыт.
 
