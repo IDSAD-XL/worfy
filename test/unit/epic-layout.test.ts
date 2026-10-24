@@ -734,6 +734,14 @@ describe('Ticket text helpers', () => {
     expect(ticketTitle({ num: 7, title: '', slug: 'rate-limit-bids' })).toBe('rate-limit-bids')
     expect(ticketTitle({ num: 7, title: ' \t', slug: 'rate-limit-bids' })).toBe('rate-limit-bids')
   })
+
+  it('measures the card of a Ticket without a title from the slug it shows', () => {
+    const slug = 'a-slug-long-enough-to-wrap-onto-more-than-one-line-of-the-card-title-and-then-some-more'
+    const tickets = [ticket(1, { title: '', slug }), ticket(2, { title: slug }), ticket(3, { title: '', slug: 'x' })]
+    const heights = cardHeights(tickets, epicColumns(tickets))
+    expect(heights.get(1)).toBe(heights.get(2))
+    expect(heights.get(1)).toBeGreaterThan(heights.get(3)!)
+  })
 })
 
 // ── cards as tall as their content (worfy-canvas ticket 18) ─────────────────

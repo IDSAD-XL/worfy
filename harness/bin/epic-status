@@ -199,7 +199,8 @@ function refTree(entries, gitDir) {
 //   the FIRST Status line in any spelling is statusRaw; the state comes from it only when it is the only
 //   Status line of the file and has the new form, otherwise the state is none (with statusError "old header"
 //   when there was a Status line); the first Blocked reason / Waits / PR line of the header;
-//   the LAST Blocked by / Branch / Repo line wins; lines inside ``` and ~~~ fences are skipped;
+//   the LAST Blocked by / Branch / Repo line wins; lines inside ``` and ~~~ fences are skipped (a fence closes
+//   only with a line of the same character, at least as long as the one that opened it, and nothing after it);
 //   a trailing \r is stripped; a byte order mark at the start of the file is dropped; the title is the first H1
 //   ("# " at the start of a line) on any line outside fences — the header may stand before it or after it
 //   (TICKETS.md, "Header"; worfy reads the H1 of spec.md by the same rule, tested on bin/tests/fixtures/ticket-title).
@@ -218,6 +219,8 @@ const clean = (x) => x.replace(/[\x01-\x1f\x7f]/g, " ")
 const jstr = (x) => '"' + clean(x).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"'
 // The H1: "#", spaces or tabs, the text; trailing spaces and tabs are not part of the title.
 const H1 = /^#[ \t]+([^ \t].*?)[ \t]*$/
+// A fence line: indentation, three or more ` or ~, and the rest (an info string on an opening line).
+const FENCE = /^[ \t]*(`{3,}|~{3,})(.*)$/
 const FIELD = /^\*?\*?(status|blocked by|branch|repo)[ \t]*\*?\*?[ \t]*:/
 const VALUE = /^\*?\*?[^:]*:\*?\*?[ \t]*/
 
@@ -236,7 +239,7 @@ function parse(epic, file, text) {
     let blocked = ""
     let branchV = ""
     let repo = ""
-    let fence = false
+    let fence = "" // the run of ` or ~ that opened the code block we are in; "" outside code
     let sline = ""
     let nstatus = 0
     let hdr = true
@@ -246,11 +249,16 @@ function parse(epic, file, text) {
     const after = (l, name) => l.slice(name.length).replace(/^[ \t]*/, "").replace(/[ \t]+$/, "")
     lines.forEach((raw) => {
         const l = raw.replace(/\r$/, "")
-        if (/^[ \t]*(```|~~~)/.test(l)) {
-            fence = !fence
+        const f = FENCE.exec(l)
+        if (fence !== "") {
+            // A ~~~ line inside a ``` block, or ``` inside ````, is text of the block, not its end.
+            if (f && f[1][0] === fence[0] && f[1].length >= fence.length && /^[ \t]*$/.test(f[2])) fence = ""
+            return // "Status: done" in a code example is not a ticket field
+        }
+        if (f) {
+            fence = f[1]
             return
         }
-        if (fence) return // "Status: done" in a code example is not a ticket field
         // H1 trims [ \t], not \s: in a latin1 string \s also matches the byte 0xA0 (a no-break space) that ends
         // some UTF-8 letters, and would leave half a letter.
         const h1 = title === "" ? H1.exec(l) : null

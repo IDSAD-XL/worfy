@@ -2,9 +2,9 @@
 # not the title: inside a fence
 ```
 
-~~~
-# nor this one
-~~~
+  ~~~
+# nor this one: inside an indented fence
+  ~~~
 
 #not-a-heading
 

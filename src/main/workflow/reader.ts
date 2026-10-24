@@ -221,10 +221,15 @@ export function codeSection(markdown: string, heading: string = DEFAULT_DOC_HEAD
  * harness/bin/tests/fixtures/ticket-title.
  */
 export function firstHeading(markdown: string): string | null {
-  let fence = false
+  // The run of ` or ~ that opened the code block we are in; '' outside code. A fence closes only with a line of the same
+  // character, at least as long, and nothing after it: a ~~~ line inside a ``` block is text of the block.
+  let fence = ''
   for (const line of markdown.replace(/^\uFEFF/u, '').split(/\r?\n/u)) {
-    if (/^[ \t]*(```|~~~)/u.test(line)) fence = !fence
-    else if (!fence) {
+    const f = /^[ \t]*(`{3,}|~{3,})(.*)$/u.exec(line)
+    if (fence !== '') {
+      if (f && f[1]![0] === fence[0] && f[1]!.length >= fence.length && /^[ \t]*$/u.test(f[2]!)) fence = ''
+    } else if (f) fence = f[1]!
+    else {
       const match = /^#[ \t]+([^ \t].*?)[ \t]*$/u.exec(line)
       if (match) return match[1]!
     }

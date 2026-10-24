@@ -12,6 +12,13 @@ const SHARED = join(__dirname, '..', '..', 'harness', 'bin', 'tests', 'fixtures'
 const TITLES: Record<string, string> = {
   '07-header-first.md': '07 — Header first',
   '08-fence-first.md': '08 — After the fences',
+  '09-bom.md': '09 — Byte order mark',
+  '10-a0-byte.md': '10 — Voilà',
+  '11-tab-separator.md': '11 — Tab after the hash',
+  '12-empty-heading.md': '12 — After empty headings',
+  '13-nested-fence.md': '13 — After a nested fence',
+  '14-tilde-in-backticks.md': '14 — After a tilde line in a backtick block',
+  '15-info-string.md': '15 — After a fence closed by a bare line',
 }
 
 describe('firstHeading: the shared cases of the Ticket title', () => {
@@ -29,13 +36,7 @@ describe('firstHeading: the shared cases of the Ticket title', () => {
 })
 
 describe('firstHeading: the rest of the rule', () => {
-  it('skips a byte order mark at the start, as epic-status does (its case 09-bom.md)', () => {
-    expect(firstHeading('﻿# 09 — Byte order mark\r\n\r\nStatus: open\r\n')).toBe('09 — Byte order mark')
-  })
-
-  it('drops trailing spaces and tabs, and takes no "##", "#word" or empty "# " line for the H1', () => {
-    expect(firstHeading('# Epic title \t\n')).toBe('Epic title')
-    expect(firstHeading('## Section\n#word\n#  \n\n#\tTabbed title\n# Second\n')).toBe('Tabbed title')
+  it('gives null without an H1, and takes no "##" line for one', () => {
     expect(firstHeading('No heading\n\n## Only a section\n')).toBeNull()
     expect(firstHeading('')).toBeNull()
   })
