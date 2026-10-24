@@ -1139,6 +1139,8 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
     stubCommand('sleep', [
       '. "$RACE_DIR/lib.sh"',
       '[ "$1" != 300 ] || exit 1',
+      // The release of the lock sleeps 0.01 s and 0.05 s while it ends the heartbeat: no pause of the race.
+      'case "$1" in 0.0*) exec sleep "$1" ;; esac',
       'echo "$1" >> "$me.pauses"',
       'if [ ! -e "$me.paused" ]; then',
       '  : > "$me.paused"',
