@@ -19,6 +19,7 @@ const TITLES: Record<string, string> = {
   '13-nested-fence.md': '13 — After a nested fence',
   '14-tilde-in-backticks.md': '14 — After a tilde line in a backtick block',
   '15-info-string.md': '15 — After a fence closed by a bare line',
+  '16-longer-close.md': '16 — After a longer closing fence',
 }
 
 describe('firstHeading: the shared cases of the Ticket title', () => {

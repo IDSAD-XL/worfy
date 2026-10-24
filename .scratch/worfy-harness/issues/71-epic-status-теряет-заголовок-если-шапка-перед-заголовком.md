@@ -140,3 +140,22 @@ Source: владелец, 2026-10-25 (чат Mac-оркестратора); за
 `src/main/workflow/waits-notify.ts:54`) показывают `ticket.title` без запасного slug-а: общий helper с test-ом на
 каждое место — не одна строка, поэтому не сделано. После исправления `epic-status` заголовок пуст только у файла
 без H1.
+
+**Ревью, круг 2.** Что исправлено:
+
+- **Одно правило блоков кода для writer-а и reader-а шапки.** Правило вынесено в `harness/lib/code-fence.cjs`
+  (`codeLines()`), его берут и `bin/ticket` (`shape()`), и `bin/epic-status`. До этого `ticket` переключал блок на
+  любой строке ```` ``` ````/`~~~`, а `epic-status` уже закрывал блок только строкой того же вида — и они расходились:
+  `ticket done` закрывал Ticket, который `epic-status` читал как «old header», и наоборот. В
+  `harness/bin/tests/ticket-header.test.sh`, раздел 7b, теперь оба случая ревьюера: `~~~` внутри ```` ``` ```` со
+  второй строкой Status после блока — оба инструмента видят «old header», `ticket done` отказывает; ```` ``` ````
+  внутри блока из четырёх backtick-ов — оба видят одну строку Status, `ticket done` пишет её, `epic-status` читает done.
+  `worfy` (`firstHeading`) держит тот же код у себя: renderer и main не берут модули Harness; его сверяют общие
+  fixture-ы.
+- **Общий случай `16-longer-close.md`**: ```` ``` ```` закрывается более длинной строкой с хвостовыми пробелами.
+- **На настоящих данных**: `ticket migrate -n` из `origin/main` и новый — одинаковый вывод по `.scratch` worfy;
+  `epic-status --json` — байт в байт одинаковый.
+- **Mutation testing, круг 2**: 7 mutant-ов `lib/code-fence.cjs` (`/^$/` вместо `/^[ \t]*$/`, `===` вместо `>=`, три
+  условия закрытия, старое переключение, блок без отступа), возврат старого переключения отдельно в `ticket` и
+  отдельно в `epic-status` — каждый красный хотя бы в одном из `epic-status.test.sh` и `ticket-header.test.sh`;
+  в `firstHeading` `/^$/` и `===` — красные.

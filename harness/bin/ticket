@@ -54,6 +54,8 @@ import { fileURLToPath } from "node:url"
 import { createRequire } from "node:module"
 // The git to start and the Harness state folder, with the variables of an eval run (EVAL_GIT, EVAL_HARNESS_HOME).
 import { git as GIT, harnessHome } from "../hooks/eval-env.cjs"
+// Code blocks: the rule epic-status, the reader of the header, skips them by.
+import { codeLines } from "../lib/code-fence.cjs"
 
 const die = (msg) => {
     process.stderr.write(msg + "\n")
@@ -263,7 +265,6 @@ const STATUS_NEW = new RegExp(`^Status: (open|claimed|blocked|done)(?: (${TIME_R
 const STATUS_ANY = /^\*{0,2}status[ \t]*\*{0,2}[ \t]*:/i
 // The lines that follow Status in the header, in this order; each holds one fact.
 const GROUP = ["Blocked reason", "Waits", "PR"]
-const FENCE = /^[ \t]*(```|~~~)/
 const FIELD_LINE = /^(\*{0,2})(Type|Status|Blocked by|Source|What to build)\b/i
 const now = () => new Date().toISOString().slice(0, 16) + "Z"
 
@@ -291,21 +292,17 @@ function writeTicket(target, { bom, eol, lines }) {
     }
 }
 
-// Where the header lines are. Code blocks are skipped: "Status: done" in an example is not a field.
+// Where the header lines are. Code blocks are skipped (lib/code-fence.cjs, the rule epic-status reads them by too):
+// "Status: done" in an example is not a field.
 // The header runs from the top of the file to the first `## ` heading after the Status line; the
 // group lines are read only there — a `PR: <url>` line of a result section is not the header's.
 function shape(lines) {
     const code = []
     const statusAt = []
-    let fence = false
+    const isCode = codeLines()
     lines.forEach((l, i) => {
-        if (FENCE.test(l)) {
-            fence = !fence
-            code[i] = true
-            return
-        }
-        code[i] = fence
-        if (!fence && STATUS_ANY.test(l)) statusAt.push(i)
+        code[i] = isCode(l)
+        if (!code[i] && STATUS_ANY.test(l)) statusAt.push(i)
     })
     const first = statusAt.length ? statusAt[0] : -1
     let end = lines.length

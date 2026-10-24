@@ -222,7 +222,8 @@ export function codeSection(markdown: string, heading: string = DEFAULT_DOC_HEAD
  */
 export function firstHeading(markdown: string): string | null {
   // The run of ` or ~ that opened the code block we are in; '' outside code. A fence closes only with a line of the same
-  // character, at least as long, and nothing after it: a ~~~ line inside a ``` block is text of the block.
+  // character, at least as long, and nothing after it: a ~~~ line inside a ``` block is text of the block. The same rule
+  // as harness/lib/code-fence.cjs, which the Harness's ticket and epic-status share.
   let fence = ''
   for (const line of markdown.replace(/^\uFEFF/u, '').split(/\r?\n/u)) {
     const f = /^[ \t]*(`{3,}|~{3,})(.*)$/u.exec(line)
