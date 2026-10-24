@@ -78,6 +78,11 @@ export function returnBrowserControl(projectId: string, nodeId: string): void {
  * <webview> at the press; at the end of the click it goes back to the element that had it at the
  * start — unless that was nothing (the page's body), a <webview> or a part of a Browser's frame:
  * then the focus stays where the click put it. Answers the unsubscribe.
+ *
+ * The focus goes back at the end of the click, not as soon as the <webview> takes it: taken back in
+ * the middle, the page would lose its focus between its mousedown and its mouseup, and a page that
+ * drops a press on blur would never get the click. So a key the user types in the few ms between
+ * Chromium's press and main's `end` lands in the page.
  */
 export function keepWindowFocus(projectId: string, nodeId: string): () => void {
   let before: Element | null = null

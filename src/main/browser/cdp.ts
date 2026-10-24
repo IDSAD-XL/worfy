@@ -239,8 +239,9 @@ function argumentText(argument: unknown): string {
  * of the first, does it all again and types in the same synchronous turn, so no timer of the page
  * runs between the check and the text: `moved` when the focus ends elsewhere this time, `unchanged`
  * when the field took no text, `typed` when it did. The text is inserted by the page's own editing
- * command and Enter is sent as page events: neither goes through the window's input, so the
- * keyboard focus of the worfy window stays where the user has it.
+ * command, Enter is sent as page events, and the new line Enter makes in a text area or an editable
+ * element is an editing command too: none of it goes through the window's input, so the keyboard
+ * focus of the worfy window stays where the user has it.
  */
 const TYPE_IN_PAGE = `function (text, submit, expected) {
   const isPassword = (e) => e.localName === "input" && e.type === "password";
@@ -269,7 +270,14 @@ const TYPE_IN_PAGE = `function (text, submit, expected) {
   if (last !== expected) return "moved";
   // focus() leaves the caret at the start: the text goes after what the field holds, as after a click.
   if (last.localName === "input" || last.localName === "textarea") {
-    try { last.setSelectionRange(last.value.length, last.value.length); } catch (error) { /* a type without a caret (email, number) */ }
+    try { last.setSelectionRange(last.value.length, last.value.length); }
+    catch (error) {
+      // email and number have no caret a script can move (setSelectionRange throws), but select()
+      // works on them: the whole value is replaced by itself and the text, one edit as typing makes.
+      // shortcut: a number field showing text that is no number has the value "", so the text goes
+      // in front of it; redo if a Session must type into such a half-typed field.
+      if (text !== "" && last.value !== "") { last.select(); text = last.value + text; }
+    }
   } else {
     last.ownerDocument.getSelection().selectAllChildren(last);
     last.ownerDocument.getSelection().collapseToEnd();
@@ -281,6 +289,10 @@ const TYPE_IN_PAGE = `function (text, submit, expected) {
     const view = last.ownerDocument.defaultView;
     const key = (type) => last.dispatchEvent(new view.KeyboardEvent(type, { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true }));
     const go = key("keydown") && key("keypress");
+    // A key event of a script (isTrusted false) has no default action: the new line a real Enter
+    // puts into a text area or an editable element is the page's own editing command here.
+    if (go && last.localName === "textarea") last.ownerDocument.execCommand("insertLineBreak");
+    else if (go && last.isContentEditable) last.ownerDocument.execCommand("insertParagraph");
     key("keyup");
     const form = last.localName === "input" ? last.form : null;
     if (go && form !== null) {
@@ -319,6 +331,10 @@ export class CdpPage {
       if (TAKEOVER_INPUT.has(input.type)) guard.onUserInput()
     })
     contents.debugger.on('message', (_event, method, params) => this.onMessage(method, isRecord(params) ? params : {}))
+    // What describes the page now is dropped: the next call attaches again (start() turns the
+    // domains and the origin wall on again and reads the main frame anew). The console and network
+    // logs stay: they are what the page did while the debugger watched, and a Session may still
+    // read them; a request of the log answered after the next attach gets its status then.
     contents.debugger.on('detach', () => {
       this.attaching = null
       this.mainFrame = null
@@ -357,6 +373,11 @@ export class CdpPage {
     await this.send('Network.enable')
     // A service worker answers a navigation of its scope itself, before the Fetch domain sees the
     // request: with it bypassed every whole-page request reaches the origin wall below.
+    // shortcut: the debugger is never detached (see quietly()), so the bypass lasts until the page
+    // closes or sleeps, also after the Session's control ended: a site whose service worker serves
+    // it offline or from its cache loads from the network meanwhile. Redo when a Browser a Session
+    // drove must keep its service worker for the user: turn the bypass off when the control and
+    // the wall end (live.ts) and on again here at the next call.
     await this.send('Network.setBypassServiceWorker', { bypass: true })
     // Only the requests for a document: a whole page or a frame. A frame's is let through at once.
     await this.send('Fetch.enable', { patterns: [{ urlPattern: '*', resourceType: 'Document', requestStage: 'Request' }] })
