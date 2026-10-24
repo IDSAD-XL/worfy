@@ -83,7 +83,8 @@
 //     than one call takes — ends the removal with that error and nothing removed, where rmSync
 //     alone removed the rest of the tree, or all of it. rmSync reaches where a look by the full
 //     path cannot (the tree of 1693 bytes above), so what is not seen is not removed. The error
-//     keeps its code and its path, and its words end with "Nothing of <path given> was removed";
+//     keeps the code, errno, syscall and path of the system's error, holds that error as its
+//     cause, and its words end with "Nothing of <path given> was removed";
 //   - an entry a listing names and lstat does not see (ENOENT, ENOTDIR) is gone meanwhile — or a
 //     name the system does not read back: on Linux a name that is not valid UTF-8 is listed with
 //     U+FFFD in it, and lstat by that name answers ENOENT at every call (measured on Linux by the
