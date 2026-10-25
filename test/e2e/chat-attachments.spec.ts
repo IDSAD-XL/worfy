@@ -153,6 +153,20 @@ test('a png and a pdf dropped on the Orchestrator transcript: chips, then a thum
   const first = await launchApp({ env })
   try {
     const { window } = first
+    // Outside the chat — on the Canvas, on the sidebar — nothing takes a file, and the window does
+    // not open it either: the drag and the drop of it are refused (dispatchEvent answers false).
+    const refused = await window.evaluate(`(() => ['.react-flow__pane', '.w-sidebar-section'].map((selector) => {
+      const target = document.querySelector(selector)
+      const data = new DataTransfer()
+      data.items.add(new File(['x'], 'outside.png', { type: 'image/png' }))
+      const over = target.dispatchEvent(new DragEvent('dragover', { dataTransfer: data, bubbles: true, cancelable: true }))
+      const drop = target.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }))
+      return { selector, over, drop }
+    }))()`)
+    expect(refused).toEqual([
+      { selector: '.react-flow__pane', over: false, drop: false },
+      { selector: '.w-sidebar-section', over: false, drop: false },
+    ])
     const view = await openSession(window)
     const field = view.getByRole('textbox', { name: 'Message Orchestrator' })
 

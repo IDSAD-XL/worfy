@@ -414,6 +414,29 @@ describe('Session history', () => {
     expect((await registry.sessions(DEMO)).history.find((entry) => entry.sessionId === 'meta-1')?.title).toBe('The prompt the user typed')
   })
 
+  it('names a Session by the first prompt with text: a message of attachments only names none', async () => {
+    const home = await copyOfFixture()
+    const dir = join(home, 'projects', projectDir(DEMO))
+    const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: Buffer.from('png bytes').toString('base64') } }
+    const user = (uuid: string, content: unknown, second: number) =>
+      JSON.stringify({ type: 'user', uuid, timestamp: `2026-06-01T00:00:0${second}.000Z`, cwd: DEMO, message: { role: 'user', content } })
+    await writeFile(
+      join(dir, 'attach-1.jsonl'),
+      `${[
+        user('images', [image, { type: 'text', text: 'Attached images: shot.png' }], 0),
+        user('files', 'Attached files: /Users/test/notes.txt', 1),
+        user('typed', 'The prompt after the attachments', 2),
+      ].join('\n')}\n`,
+    )
+    await writeFile(join(dir, 'attach-2.jsonl'), `${[user('only', [image], 0)].join('\n')}\n`)
+    const registry = new ClaudeHomeRegistry({ home, listWorktrees: noWorktrees, isAlive: alive() })
+    const history = (await registry.sessions(DEMO)).history
+    expect(history.find((entry) => entry.sessionId === 'attach-1')?.title).toBe('The prompt after the attachments')
+    // No title at all, so the sidebar and the Session Node fall back to «Session <id>».
+    expect(history.find((entry) => entry.sessionId === 'attach-2')).toBeDefined()
+    expect(history.find((entry) => entry.sessionId === 'attach-2')?.title).toBeUndefined()
+  })
+
   it('reads only the head and the tail of a large transcript', async () => {
     const home = await copyOfFixture()
     const file = join(home, 'projects', projectDir(DEMO), 'big-1.jsonl')

@@ -332,6 +332,7 @@ describe('the attachment lines read back (worfy-ui ticket 28)', () => {
     expect(attachmentLines('Attached files: /p/a\n\nmy own words')).toEqual({ typed: 'Attached files: /p/a\n\nmy own words', files: [], images: [] })
     // A line with nothing after its colon is the user's own.
     expect(attachmentLines('x\n\nAttached files: ')).toEqual({ typed: 'x\n\nAttached files: ', files: [], images: [] })
+    expect(attachmentLines('x\n\nAttached images: ')).toEqual({ typed: 'x\n\nAttached images: ', files: [], images: [] })
   })
 
   it('names a file by the last segment of its path, on either platform, with its extension', () => {

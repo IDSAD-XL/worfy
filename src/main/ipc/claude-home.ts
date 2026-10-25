@@ -164,6 +164,7 @@ async function readTranscript(path: string, read: TranscriptRead, events: (entri
     const offsets: number[] = []
     lines.forEach((line, at) => {
       // An image of a user message is named by the hash of its copy; its bytes stay here (worfy-ui ticket 28).
+      // shortcut: the hash is computed again on each read, in main: about 1.7 ms per 3 MB image (30 such images, about 50 ms, measured 2026-10-25), redo with a cache by file and line offset when a read of a transcript with many large images holds main up noticeably.
       for (const each of events(parseTranscriptLine(line, { imageRef }))) {
         all.push(each)
         offsets.push(lineOffsets[at] ?? 0)

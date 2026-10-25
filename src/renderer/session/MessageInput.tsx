@@ -278,7 +278,7 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
         setError(refusal)
         return
       }
-      if (files.length > 0) void attachFiles(files, 'dropped')
+      void attachFiles(files, 'dropped')
     },
   }))
 

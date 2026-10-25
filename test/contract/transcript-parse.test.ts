@@ -334,17 +334,40 @@ describe('transcript parsing of a message with attachments', () => {
     ])
   })
 
-  it('without imageRef an image has no copy to show; a block the line does not name gets a name of its own', () => {
+  it('without imageRef an image has no copy to show; an images line that names another number of images is the user\'s text', () => {
     expect(eventsOf(user([image(PNG), image(PNG), { type: 'text', text: 'two\n\nAttached images: one.png' }]))).toStrictEqual([
       {
         type: 'notice',
         kind: 'user',
-        text: 'two',
+        text: 'two\n\nAttached images: one.png',
         attachments: [
-          { kind: 'image', name: 'one.png', mediaType: 'image/png', ref: null },
+          { kind: 'image', name: 'image-1.png', mediaType: 'image/png', ref: null },
           { kind: 'image', name: 'image-2.png', mediaType: 'image/png', ref: null },
         ],
       },
+    ])
+  })
+
+  it('lines the user typed stay text: an images line with no image, a files line with a path that is not absolute', () => {
+    expect(eventsOf(user('see\n\nAttached images: shot.png'))).toStrictEqual([{ type: 'notice', kind: 'user', text: 'see\n\nAttached images: shot.png' }])
+    expect(eventsOf(user('see\n\nAttached files: the notes, below'))).toStrictEqual([{ type: 'notice', kind: 'user', text: 'see\n\nAttached files: the notes, below' }])
+    // The paths messageText writes on Windows are absolute too.
+    expect(eventsOf(user('see\n\nAttached files: C:\\Users\\a\\spec.pdf, \\\\server\\share\\b.txt'))).toStrictEqual([
+      { type: 'notice', kind: 'user', text: 'see', attachments: [{ kind: 'file', name: 'spec.pdf', ext: 'pdf' }, { kind: 'file', name: 'b.txt', ext: 'txt' }] },
+    ])
+  })
+
+  it('an image block without its data, or with data of another type, does not stop the transcript', () => {
+    const blocks = [{ type: 'image', source: { type: 'base64', media_type: 'image/png' } }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 42 } }]
+    expect(labels(eventsOf(user([...blocks, { type: 'text', text: 'hi' }]), refOf))).toEqual(['unknown:user/image', 'unknown:user/image', 'notice:user'])
+  })
+
+  it('an image whose copy cannot be named is a chip, and the transcript still reads', () => {
+    const failing = () => {
+      throw new Error('cannot hash')
+    }
+    expect(eventsOf(user([image(PNG), { type: 'text', text: 'one\n\nAttached images: a.png' }]), failing)).toStrictEqual([
+      { type: 'notice', kind: 'user', text: 'one', attachments: [{ kind: 'image', name: 'a.png', mediaType: 'image/png', ref: null }] },
     ])
   })
 
@@ -357,6 +380,8 @@ describe('transcript parsing of a message with attachments', () => {
   it('an image block it cannot show stays an unknown event, and a plain message stays as it was', () => {
     expect(labels(eventsOf(user([{ type: 'image', source: { type: 'url', url: 'https://x/y.png' } }, { type: 'text', text: 'hi' }])))).toEqual(['unknown:user/image', 'notice:user'])
     expect(labels(eventsOf(user([image(PNG, 'image/bmp')])))).toEqual(['unknown:user/image'])
+    // Data that is not base64: nothing to name a copy by.
+    expect(labels(eventsOf(user([{ type: 'image', source: { type: 'file', media_type: 'image/png', data: 'file_123' } }]), refOf))).toEqual(['unknown:user/image'])
     expect(eventsOf(user('just text'))).toStrictEqual([{ type: 'notice', kind: 'user', text: 'just text' }])
   })
 

@@ -1,7 +1,10 @@
 // Files dropped anywhere on the chat of the Session view — the transcript or the input field —
 // become chips of the input field (worfy-ui ticket 28). While files are dragged over the chat it
 // shows where they go, «Drop files to attach», or why they are not taken: a chat whose Session is
-// not running, or a read-only screen, takes none, and a drop there says so under the field.
+// not running, or a read-only screen, takes none. The reason is shown in the drop target while the
+// files are over the chat, because that is where the user sees it: the cursor says no
+// (dropEffect 'none'), and Chromium then sends no drop at all. A drop that comes anyway is refused
+// by the input field, which names the reason under it.
 import { useState, type DragEvent, type ReactNode } from 'react'
 
 /** Why the chat takes no files now, or null when it takes them. */

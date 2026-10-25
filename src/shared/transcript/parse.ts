@@ -152,13 +152,22 @@ function imageBlock(block: Json): ImageBlock | null {
   return mediaType.success ? { mediaType: mediaType.data, data: source.data } : null
 }
 
+/** The name of an image's copy; null when there is none to name, or naming it fails: the image is then a chip, the transcript still reads. */
+function refOf(data: string, options: ParseOptions): string | null {
+  try {
+    return options.imageRef?.(data) ?? null
+  } catch {
+    return null
+  }
+}
+
 /** The images of a message, named from its `Attached images: …` line, in order; one the line does not name is `image-<n>.<ext>`. */
 function shownImages(images: readonly ImageBlock[], names: readonly string[], options: ParseOptions): MessageAttachment[] {
   return images.map(({ mediaType, data }, at) => ({
     kind: 'image',
     name: names[at] ?? `image-${at + 1}.${IMAGE_EXTENSIONS[mediaType]}`,
     mediaType,
-    ref: options.imageRef?.(data) ?? null,
+    ref: refOf(data, options),
   }))
 }
 
@@ -174,7 +183,8 @@ function withAttachments(events: AgentEvent[], images: readonly ImageBlock[], op
   if (notice === undefined || notice.type !== 'notice') {
     return images.length === 0 ? events : [...events, { type: 'notice', kind: 'user', text: '', attachments: shownImages(images, [], options) }]
   }
-  const lines = attachmentLines(notice.text)
+  // An images line counts only with as many image blocks as it names: otherwise the user wrote it.
+  const lines = attachmentLines(notice.text, images.length)
   const attachments = [...shownImages(images, lines.images, options), ...lines.files.map((path) => shownFile(baseName(path)))]
   if (attachments.length === 0) return events
   return events.map((event, index) => (index === at ? { ...notice, text: lines.typed, attachments } : event))

@@ -16,6 +16,22 @@ import type { MessageInputHandle } from '../../src/renderer/session/MessageInput
 import { Transcript } from '../../src/renderer/session/Transcript'
 import { parseTranscriptLine } from '../../src/shared/transcript/parse'
 
+// The window's Machine (null: this one) and the read-only hint of the screen, as the test sets them.
+const screenState = vi.hoisted(() => ({ machine: null as string | null, readOnly: null as string | null }))
+vi.mock('../../src/renderer/ipc', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/renderer/ipc')>()),
+  windowMachine: () => screenState.machine,
+}))
+vi.mock('../../src/renderer/projects/useProjects', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/renderer/projects/useProjects')>()),
+  useReadOnly: () => screenState.readOnly,
+}))
+
+afterEach(() => {
+  screenState.machine = null
+  screenState.readOnly = null
+})
+
 const REF = 'ab'.repeat(32)
 const shot: MessageAttachment = { kind: 'image', name: 'shot.png', mediaType: 'image/png', ref: REF }
 const spec: MessageAttachment = { kind: 'file', name: 'spec.pdf', ext: 'pdf', size: 2048 }
@@ -58,14 +74,35 @@ describe('a sent message with attachments', () => {
     expect(row.textContent).not.toMatch(/Attached (files|images)|\//)
   })
 
+  it('in a window on a Linked machine, takes the image from that Machine: its label in the address', () => {
+    screenState.machine = '01234567-89AB-cdef-0123-456789abcdef'
+    render(<Transcript events={[sent('there', [shot])]} />)
+    const image = screen.getByTestId('message-image').querySelector('img')
+    expect(image?.getAttribute('src')).toBe(`worfy-image://attachments.0123456789abcdef0123456789abcdef/${REF}.png`)
+  })
+
+  it('in a window on a Machine whose id gives no label, an image is a chip', () => {
+    screenState.machine = 'not-a-uuid'
+    render(<Transcript events={[sent('there', [shot])]} />)
+    expect(screen.queryByTestId('message-image')).toBeNull()
+    expect(screen.getByTestId('message-image-chip').textContent).toBe('PNGshot.png')
+  })
+
   it('a message read back from a transcript shows no path and no attachment line either', () => {
     const line = JSON.stringify({
       type: 'user',
-      message: { role: 'user', content: 'read\n\nAttached files: /Users/a/Downloads/spec.pdf, /p/build.log\n\nAttached images: shot.png' },
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } },
+          { type: 'text', text: 'read\n\nAttached files: /Users/a/Downloads/spec.pdf, /p/build.log\n\nAttached images: shot.png' },
+        ],
+      },
     })
     render(<Transcript events={parseTranscriptLine(line).map((entry) => entry.event)} />)
     const row = screen.getByTestId('transcript-prompt')
     expect(within(row).getAllByTestId('message-file').map((chip) => chip.textContent)).toEqual(['PDFspec.pdf', 'LOGbuild.log'])
+    expect(within(row).getByTestId('message-image-chip').textContent).toBe('PNGshot.png')
     expect(row.textContent).not.toContain('/Users/a')
     expect(row.textContent).not.toContain('Attached')
   })
@@ -213,7 +250,7 @@ describe('the chat as a drop target', () => {
   })
 })
 
-describe('the input field with files dropped while its Session is not running', () => {
+describe('the input field with files dropped while it takes none', () => {
   const asked: string[] = []
   beforeEach(() => {
     asked.length = 0
@@ -241,6 +278,30 @@ describe('the input field with files dropped while its Session is not running', 
     expect(screen.queryAllByTestId('attachment-chip')).toHaveLength(0)
     expect(asked.filter((channel) => channel === 'agent.attach')).toEqual([])
   })
+
+  const dropOnRunning = async () => {
+    const { MessageInput } = await import('../../src/renderer/session/MessageInput')
+    const input = createRef<MessageInputHandle>()
+    render(<MessageInput ref={input} sessionId="s1" busy={false} history={[]} recipient="Orchestrator" onSend={() => Promise.resolve(null)} onInterrupt={() => undefined} />)
+    await act(async () => {
+      input.current?.drop(files('a.png'))
+      // Reading the file and asking main take a few turns of the event loop.
+      await new Promise((settle) => setTimeout(settle, 50))
+    })
+  }
+
+  it('with its Session running, asks main to check a dropped file', async () => {
+    await dropOnRunning()
+    expect(asked.filter((channel) => channel === 'agent.attach')).toEqual(['agent.attach'])
+  })
+
+  it('on a read-only screen takes none, though its Session runs, and says why', async () => {
+    screenState.readOnly = 'Read-only: the Linked machine gives this Machine read-only access'
+    await dropOnRunning()
+    expect(screen.getByTestId('input-error').textContent).toBe('Read-only: the Linked machine gives this Machine read-only access')
+    expect(screen.queryAllByTestId('attachment-chip')).toHaveLength(0)
+    expect(asked.filter((channel) => channel === 'agent.attach')).toEqual([])
+  })
 })
 
 describe('the window guard against opening a dropped file', () => {
@@ -251,7 +312,10 @@ describe('the window guard against opening a dropped file', () => {
       listeners,
       target: {
         addEventListener: (type: string, listener: Listener) => listeners.set(type, listener),
-        removeEventListener: (type: string) => listeners.delete(type),
+        // Removes only the very listener that was added for that type.
+        removeEventListener: (type: string, listener: Listener) => {
+          if (listeners.get(type) === listener) listeners.delete(type)
+        },
       } as unknown as Window,
     }
   }

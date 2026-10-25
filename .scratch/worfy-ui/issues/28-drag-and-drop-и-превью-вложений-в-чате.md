@@ -115,7 +115,10 @@ Drag-and-drop файлов и пути к ним ведут себя по-раз
 **Drop на весь чат.** Зона приёма — вся секция `w-session__main` Session view (Transcript и поле
 ввода), `useChatDrop` в `src/renderer/session/chat-drop.tsx`; во время перетаскивания поверх чата
 видна рамка с подписью «Drop files to attach», у Session, которая не запущена или открыта только для
-чтения, — с причиной отказа. Брошенные файлы передаются в поле ввода через его `ref`
+чтения, — с причиной отказа. Причина показывается именно в рамке, пока файлы над чатом: курсор
+показывает запрет (`dropEffect: 'none'`), и Chromium тогда вообще не присылает событие drop, так что
+строке под полем ввода показать нечего. Если drop всё же придёт, поле ввода откажет и назовёт причину
+под собой. С настоящим перетаскиванием из Finder это не проверялось. Брошенные файлы передаются в поле ввода через его `ref`
 (`MessageInputHandle.drop`) и становятся chips, как раньше. Окно не открывает брошенный файл ни в
 каком месте: `guardFileDrops` (`src/renderer/drop-guard.ts`) на `window` отменяет drop файлов, который
 никто не принял. Старый drop только на рамку поля ввода (`data-dragging`) убран.
@@ -127,6 +130,12 @@ Drag-and-drop файлов и пути к ним ведут себя по-раз
 `Attached files:` / `Attached images:` в Transcript нет. Агент по-прежнему получает строку
 `Attached files: <пути>`, а теперь ещё и `Attached images: <имена>` в конце текста: так имена картинок
 переживают перезапуск (в истории у блока image имени нет). `messageLabel` заменён на `messageText`.
+При чтении истории строки разбираются в chips, только если они такие, какими их пишет worfy: строка
+картинок — при стольких же блоках image в сообщении, строка файлов — когда все пути абсолютные.
+Иначе это текст пользователя. Однозначного признака у этих строк нет: абзац
+«Attached files: /абсолютный/путь», набранный руками в конце сообщения, тоже станет chip-ом. Это
+только показ: chip даёт имя файла без пути и ничего не открывает. Ввести признак значило бы сменить
+текст к агенту и потерять chips у уже отправленных сообщений.
 
 **Превью.** `MessageAttachments.tsx`: миниатюра до 160 px по длинной стороне (пропорции сохраняются),
 клик открывает overlay с картинкой целиком; Escape, клик или Close закрывают его, фокус
@@ -142,24 +151,39 @@ Drag-and-drop файлов и пути к ним ведут себя по-раз
 (`parse.ts`) отдаёт блок image как вложение с hash-ем (hash считает main, `readTranscript` передаёт
 `imageRef`; base64 в renderer не идёт), строки `Attached files:` / `Attached images:` разбирает в
 chips. Картинка без строки имён (Session продолжена из терминала) получает имя `image-<n>.<ext>`.
+Hash считается в main при каждом чтении. Замер: около 1,7 ms на картинку в 3 MB, 30 таких картинок —
+около 50 ms на одно чтение (load average около 28). Кеша нет: в коде стоит `shortcut:` с условием,
+когда его добавить. Сообщение из одних вложений не даёт имени Session: заголовок берётся из первого
+сообщения с текстом (`firstPrompt`, `src/main/claude-home/registry.ts`).
 Удаления старых копий нет — вне скоупа.
 
-**Схема `worfy-image://` — общая с worfy-canvas 23.** Адрес — `worfy-image://<host>/<имя файла>`:
-host выбирает хранилище, путь — ровно одно имя. Сейчас хранилище одно: host `attachments` →
-`<data>/attachments/images/`, имена `^[0-9a-f]{64}\.(png|jpg|gif|webp)$`
-(`ATTACHMENT_IMAGES_HOST`, `attachmentImageUrl` в `src/shared/images.ts`; handler —
-`src/main/images/protocol.ts`). Handler отдаёт файл, только если: имя подходит под шаблон хранилища;
-расширение из списка типов; ни файл, ни папка хранилища не ссылка (сравнение realpath), и ссылка на
-сетевую папку Windows отсекается до realpath (`leadsToRemote`); размер не больше лимита копии.
-Всё прочее — 404, методы кроме GET/HEAD — 405; ответ с `nosniff`, `no-store` и
-`default-src 'none'`. Обе схемы (`worfy-card`, `worfy-image`) регистрируются одним вызовом
-`registerSchemesAsPrivileged` (`src/main/schemes.ts`): второй вызов заменил бы первый. CSP окна:
-`img-src 'self' worfy-image:`.
+**Схема `worfy-image://` — общая с worfy-canvas 23.** Адрес —
+`worfy-image://<хранилище>[.<machine label>]/<имя файла>`: host называет хранилище и, как в
+worfy-card://, машину; путь — ровно одно имя. Хранилище — папка, шаблон имён и свой лимит размера
+(`ImageStore { dir, names, limit }`, `src/main/images/protocol.ts`). Сейчас хранилище одно:
+`attachments` → `<data>/attachments/images/`, имена `IMAGE_FILE_NAME_PATTERN`
+(`<sha256>.<ext>`, выведен из `IMAGE_EXTENSIONS` в `src/shared/agent/attachments.ts`), лимит —
+лимит копии файла (`attachmentImageStore`). Адрес строят `attachmentImageUrl` и `imageHost`, разбирает
+`parseImageHost` (`src/shared/images.ts`): последняя часть host, похожая на machine label (32 hex),
+— машина, остальное — хранилище. Handler отдаёт файл, только если: в host нет machine label (это
+картинка этой машины); хранилище известно locator-у; имя подходит под шаблон хранилища; расширение из
+списка типов; ни файл, ни папка хранилища не ссылка (сравнение realpath), и ссылка на сетевую папку
+Windows отсекается до realpath (`leadsToRemote`); размер не больше лимита хранилища. Всё прочее —
+404, методы кроме GET/HEAD — 405; ответ с `nosniff`, `no-store` и `default-src 'none'`. Обе схемы
+(`worfy-card`, `worfy-image`) регистрируются одним вызовом `registerSchemesAsPrivileged`
+(`src/main/schemes.ts`): второй вызов заменил бы первый. CSP окна: `img-src 'self' worfy-image:`.
 
-Что делает ticket 23: добавляет host своего хранилища, например `canvas.<label Project-а>` →
-`<папка данных Project-а>/images/` со своим шаблоном имён — одна ветка в locator-е, который
-передаётся в `installImageProtocol` (`src/main/index.ts`), и функция адреса рядом с
-`attachmentImageUrl`. Проверки путей, заголовки и CSP уже общие.
+**Картинки Linked machine.** Окно на Linked machine показывает Session-ы той машины, и копии их
+картинок лежат там. Поэтому окно строит адрес с machine label той машины
+(`worfy-image://attachments.<machine label>/…`, `windowMachine` + `machineLabel`), а main этой машины
+на такой адрес отвечает 404, и окно показывает chip картинки. Читать картинку через link — ticket
+worfy-canvas 24; формат адреса для этого уже не меняется. До него в Transcript Session-ов Linked
+machine вместо миниатюр — chips.
+
+Что делает ticket 23: добавляет своё хранилище, например `canvas.<label Project-а>` →
+`<папка данных Project-а>/images/` со своим шаблоном имён и своим лимитом — одна ветка в locator-е,
+который передаётся в `installImageProtocol` (`src/main/index.ts`), и функция адреса рядом с
+`attachmentImageUrl`. Проверки путей, заголовки, machine label и CSP уже общие.
 
 **Session Node на Canvas.** Node показывает только последний ответ, а Transcript Session (свой
 worfy и внешний) открывается в Session view — там те же миниатюры и chips (один компонент
@@ -177,4 +201,6 @@ worfy и внешний) открывается в Session view — там те 
 `image-store.test.ts`, `agent-attachments.test.ts`, `transcript-parse.test.ts`,
 `claude-home-registry.test.ts`; e2e `test/e2e/chat-attachments.spec.ts` (png и pdf на Transcript →
 chips → миниатюра, которую окно действительно отрисовало, и chip «PDF»; overlay и Escape; перезапуск —
-то же; без копии — chip). Mutation testing: 36 мутантов новых строк, все убиты.
+то же; без копии — chip; drop файла на Canvas и на sidebar отменён). Mutation testing: 36 мутантов
+новых строк в первом раунде; после review — ещё 26 (оставшиеся от reviewer-а и новые строки), все
+убиты.

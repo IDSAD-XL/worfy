@@ -472,13 +472,16 @@ function lastString(list: readonly Record<string, unknown>[], type: string | und
 const firstString = (list: readonly Record<string, unknown>[], field: string): string | undefined =>
   lastString([...list].reverse(), undefined, field)
 
-/** The first prompt the user typed: a slash command gives `/name`, injected (meta) text is skipped. */
+/**
+ * The first prompt the user typed: a slash command gives `/name`, injected (meta) text is skipped,
+ * and so is a message of attachments only, which has no text to name the Session by.
+ */
 function firstPrompt(head: readonly Record<string, unknown>[]): string | undefined {
   for (const record of head) {
     if (record.type !== 'user' || record.isSidechain === true) continue
     for (const { event } of parseTranscriptRecord(record)) {
       if (event.type === 'command') return event.name
-      if (event.type === 'notice' && event.kind === 'user' && !event.text.trimStart().startsWith('<')) return event.text
+      if (event.type === 'notice' && event.kind === 'user' && event.text.trim() !== '' && !event.text.trimStart().startsWith('<')) return event.text
     }
   }
   return undefined

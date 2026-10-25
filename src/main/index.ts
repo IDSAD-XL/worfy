@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import './quit-listeners'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { bindingWorkflowOf } from '../shared/binding/resolve'
-import { ATTACHMENT_IMAGES_HOST } from '../shared/images'
+import { ATTACHMENT_IMAGES_STORE } from '../shared/images'
 import { sessionArchiveOf } from '../shared/settings/app-settings'
 import { startOrchestrators } from './agent/app-orchestrators'
 import { sharedRegistry } from './agent/app-registry'
@@ -17,7 +17,7 @@ import { cardStore } from './cards/store'
 import { installProcessGone } from './diagnostics/process-gone'
 import { BindingSignalReader } from './claude-home/binding-signals'
 import { installDevDockIcon } from './dock-icon'
-import { ATTACHMENT_IMAGE_NAME, installImageProtocol } from './images/protocol'
+import { attachmentImageStore, installImageProtocol } from './images/protocol'
 import { bundledHarnessVersion } from './harness/bundled'
 import { liveSessionListeners, type LiveSessionsListener } from './ipc/claude-home'
 import { sharedGateQueue } from './ipc/gate-queue'
@@ -147,9 +147,7 @@ function start(): void {
       app.on('will-quit', stopLiveBrowsers)
       inStep('installCardRuntime', () => installCardRuntime((host) => cardStore().locate(host)))
       // The copies of the images sent in messages; a store of the Canvas images joins here (src/shared/images.ts).
-      inStep('installImageProtocol', () =>
-        installImageProtocol((host) => (host === ATTACHMENT_IMAGES_HOST ? { dir: attachmentImagesDir(dataRoot()), names: ATTACHMENT_IMAGE_NAME } : null)),
-      )
+      inStep('installImageProtocol', () => installImageProtocol((store) => (store === ATTACHMENT_IMAGES_STORE ? attachmentImageStore(attachmentImagesDir(dataRoot())) : null)))
       // Before the first window: its creation is what opens the active Project's Orchestrator.
       inStep('startOrchestrators', () => startOrchestrators())
       // Notifications when a Session ends its turn or asks for permission (ticket 21), here and on

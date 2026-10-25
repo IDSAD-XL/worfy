@@ -85,7 +85,16 @@ async function harness(script = 'message-input', picked: string[] = []) {
   const ipc: IpcMainLike = { handle: (channel, listener) => handlers.set(channel, listener) }
   await registerIpc(ipc, { modules: { './agent.ts': () => Promise.resolve(agentHandlers(() => registry, deps, (send) => send(sender))) }, isTrustedSender: (url) => url === APP_URL })
   const received: AgentEventEnvelope[] = []
-  const sender = { isDestroyed: () => false, send: (_channel: string, payload: unknown) => received.push(payload as AgentEventEnvelope), once: () => undefined }
+  // What the store of image copies held when each prompt reached the window.
+  const copiesAtPrompt: string[][] = []
+  const sender = {
+    isDestroyed: () => false,
+    send: (_channel: string, payload: unknown) => {
+      if ((payload as AgentEventEnvelope).event.type === 'prompt') copiesAtPrompt.push(existsSync(imagesDir) && statSync(imagesDir).isDirectory() ? readdirSync(imagesDir) : [])
+      received.push(payload as AgentEventEnvelope)
+    },
+    once: () => undefined,
+  }
   const call = async (channel: string, input?: unknown): Promise<IpcResult<unknown>> => {
     const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
     if (!listener) throw new Error(`no handler for ${channel}`)
@@ -104,7 +113,7 @@ async function harness(script = 'message-input', picked: string[] = []) {
   }
   const messages = () => calls.flatMap((each) => (each.kind === 'message' ? [each] : []))
   const results = () => events().filter((event) => event.type === 'result').length
-  return { call, ok, calls, registry, deps, events, start, messages, results }
+  return { call, ok, calls, registry, deps, events, start, messages, results, copiesAtPrompt }
 }
 
 const image = { kind: 'image', name: 'shot.png', mediaType: 'image/png', size: PNG.length, data: PNG.toString('base64') } as const
@@ -196,6 +205,25 @@ describe('agent.send with attachments', () => {
     expect(readdirSync(imagesDir)).toEqual([`${PNG_REF}.png`])
     // Left as it was: the same name holds the same bytes.
     expect(statSync(copy).mtimeMs).toBe(written)
+  })
+
+  it('the copy is in place before the prompt reaches the window, so its thumbnail loads at once', async () => {
+    const h = await harness()
+    const id = await h.start()
+    await h.ok('agent.send', { sessionId: id, text: 'look', attachments: [image] })
+    await vi.waitFor(() => expect(h.results()).toBe(1))
+    expect(h.copiesAtPrompt).toEqual([[`${PNG_REF}.png`]])
+  })
+
+  it('a message of an image and blank text shows no text: the prompt has none, Claude Code gets the images line only', async () => {
+    const h = await harness()
+    const id = await h.start()
+    await h.ok('agent.send', { sessionId: id, text: '  ', attachments: [image] })
+    await vi.waitFor(() => expect(h.results()).toBe(1))
+    expect(h.events().filter((event) => event.type === 'prompt')).toEqual([
+      { type: 'prompt', text: '', attachments: [{ kind: 'image', name: 'shot.png', mediaType: 'image/png', ref: PNG_REF }] },
+    ])
+    expect(h.messages()[0]?.text).toBe('Attached images: shot.png')
   })
 
   it('a copy that cannot be written is reported, and the message goes all the same', async () => {

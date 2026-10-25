@@ -7,7 +7,9 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { IMAGE_EXTENSIONS, type MessageAttachment } from '../../shared/agent/attachments'
+import { machineLabel } from '../../shared/cards/bridge'
 import { attachmentImageUrl } from '../../shared/images'
+import { windowMachine } from '../ipc'
 import { documentKind, formatLabel, formatSize, type DocumentKind } from './attachment-format'
 
 const DOCUMENT_PATHS: Readonly<Record<DocumentKind, string>> = {
@@ -94,10 +96,22 @@ function ImageOverlay({ src, name, onClose }: { src: string; name: string; onClo
   )
 }
 
+/**
+ * The address of an image's copy, on the Machine whose Sessions the window shows (windowMachine):
+ * a window on a Linked machine names it by its machine label. null when there is no copy, or that
+ * Machine's id gives no label.
+ */
+function imageSrc(image: ImageAttachment): string | null {
+  if (image.ref === null) return null
+  const machine = windowMachine()
+  const label = machine === null ? null : machineLabel(machine)
+  return machine !== null && label === null ? null : attachmentImageUrl(image.ref, image.mediaType, label)
+}
+
 function ImagePreview({ image }: { image: ImageAttachment }) {
   const [broken, setBroken] = useState(false)
   const [open, setOpen] = useState(false)
-  const src = image.ref === null ? null : attachmentImageUrl(image.ref, image.mediaType)
+  const src = imageSrc(image)
   if (src === null || broken) return <ImageChip image={image} />
   return (
     <>

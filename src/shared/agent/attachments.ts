@@ -92,8 +92,13 @@ export const IMAGE_EXTENSIONS: Readonly<Record<ImageMediaType, string>> = { 'ima
 /** The file name of main's copy of an image: `<sha256>.<ext>`. */
 export const imageFileName = (ref: string, mediaType: ImageMediaType): string => `${ref}.${IMAGE_EXTENSIONS[mediaType]}`
 
+const IMAGE_REF = '[0-9a-f]{64}'
+
 /** The sha256 of an image's bytes in lower-case hex: the name of main's copy of it, without the extension. */
-export const IMAGE_REF_PATTERN = /^[0-9a-f]{64}$/
+export const IMAGE_REF_PATTERN = new RegExp(`^${IMAGE_REF}$`)
+
+/** The name of main's copy of an image, imageFileName: `<sha256>.<ext>` with an extension of IMAGE_EXTENSIONS. */
+export const IMAGE_FILE_NAME_PATTERN = new RegExp(`^${IMAGE_REF}\\.(?:${Object.values(IMAGE_EXTENSIONS).join('|')})$`)
 
 /**
  * An attachment as a sent message shows it: no path and no bytes. An image is named by `ref`, the
@@ -156,24 +161,31 @@ export interface AttachmentLines {
   images: string[]
 }
 
+/** A path as messageText writes it: absolute — from the root, from a Windows drive letter, or a Windows network path. */
+const ABSOLUTE_PATH = /^(?:\/|[A-Za-z]:[\\/]|\\\\)/
+
 /**
  * Splits a message's text (messageText) into what the user typed and its attachment lines: the
- * `Attached files: …` and `Attached images: …` paragraphs at its end. A paragraph that only starts
- * the same way in the middle of the text is the user's own.
+ * `Attached files: …` and `Attached images: …` paragraphs at its end, as messageText writes them.
+ * A paragraph that only starts the same way in the middle of the text is the user's own, and so is
+ * a files line with a path that is not absolute, and, when `imageCount` is given (the image blocks
+ * of the message), an images line that names another number of images.
  */
 // shortcut: a path or a name that holds ", " splits in two here, redo when such a chip shows up or the lines get a format that can be read back unambiguously.
-export function attachmentLines(text: string): AttachmentLines {
+export function attachmentLines(text: string, imageCount?: number): AttachmentLines {
   const parts = text.split('\n\n')
-  // The last paragraph, when it is the line `prefix` starts, with its list; nothing otherwise.
-  const take = (prefix: string): string[] => {
+  // The last paragraph, when it is the line `prefix` starts and its list `fits`; nothing otherwise.
+  const take = (prefix: string, fits: (list: readonly string[]) => boolean): string[] => {
     const last = parts.at(-1)
     if (last === undefined || !last.startsWith(prefix) || last.length === prefix.length) return []
+    const list = last.slice(prefix.length).split(LIST_SEPARATOR)
+    if (!fits(list)) return []
     parts.pop()
-    return last.slice(prefix.length).split(LIST_SEPARATOR)
+    return list
   }
   // messageText writes the files first, the images last.
-  const images = take(IMAGES_LINE)
-  const files = take(FILES_LINE)
+  const images = take(IMAGES_LINE, (names) => imageCount === undefined || names.length === imageCount)
+  const files = take(FILES_LINE, (paths) => paths.every((path) => ABSOLUTE_PATH.test(path)))
   return { typed: parts.join('\n\n'), files, images }
 }
 
