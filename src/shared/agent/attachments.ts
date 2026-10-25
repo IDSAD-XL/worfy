@@ -171,7 +171,7 @@ const ABSOLUTE_PATH = /^(?:\/|[A-Za-z]:[\\/]|\\\\)/
  * a files line with a path that is not absolute, and, when `imageCount` is given (the image blocks
  * of the message), an images line that names another number of images.
  */
-// shortcut: a path or a name that holds ", " splits in two here, redo when such a chip shows up or the lines get a format that can be read back unambiguously.
+// shortcut: a path or a name that holds ", " splits in two here; read back from a transcript, such a line then mostly fails its check and stays in the text (an images line names one image too many, so its images get the names image-<n>.<ext>; a files line gets a part that is not an absolute path), redo when such a name shows up or the lines get a format that can be read back unambiguously.
 export function attachmentLines(text: string, imageCount?: number): AttachmentLines {
   const parts = text.split('\n\n')
   // The last paragraph, when it is the line `prefix` starts and its list `fits`; nothing otherwise.

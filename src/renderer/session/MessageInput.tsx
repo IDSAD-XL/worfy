@@ -278,7 +278,8 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
         setError(refusal)
         return
       }
-      void attachFiles(files, 'dropped')
+      // A drop of no files (a file promise, such as a photo dragged from Photos) changes nothing: an earlier error stays.
+      if (files.length > 0) void attachFiles(files, 'dropped')
     },
   }))
 

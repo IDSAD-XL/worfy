@@ -295,6 +295,24 @@ describe('the input field with files dropped while it takes none', () => {
     expect(asked.filter((channel) => channel === 'agent.attach')).toEqual(['agent.attach'])
   })
 
+  it('a drop of no files keeps the error under the field', async () => {
+    const { MessageInput } = await import('../../src/renderer/session/MessageInput')
+    const input = createRef<MessageInputHandle>()
+    render(<MessageInput ref={input} sessionId="s1" busy={false} history={[]} recipient="Orchestrator" onSend={() => Promise.resolve(null)} onInterrupt={() => undefined} />)
+    // main refuses the first file (the bridge here answers every call with an error).
+    await act(async () => {
+      input.current?.drop(files('a.png'))
+      await new Promise((settle) => setTimeout(settle, 50))
+    })
+    expect(screen.getByTestId('input-error').textContent).toBe('no agent.attach')
+    await act(async () => {
+      input.current?.drop([])
+      await new Promise((settle) => setTimeout(settle, 50))
+    })
+    expect(screen.getByTestId('input-error').textContent).toBe('no agent.attach')
+    expect(asked.filter((channel) => channel === 'agent.attach')).toEqual(['agent.attach'])
+  })
+
   it('on a read-only screen takes none, though its Session runs, and says why', async () => {
     screenState.readOnly = 'Read-only: the Linked machine gives this Machine read-only access'
     await dropOnRunning()

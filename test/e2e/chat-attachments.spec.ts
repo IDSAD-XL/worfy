@@ -160,12 +160,14 @@ test('a png and a pdf dropped on the Orchestrator transcript: chips, then a thum
       const data = new DataTransfer()
       data.items.add(new File(['x'], 'outside.png', { type: 'image/png' }))
       const over = target.dispatchEvent(new DragEvent('dragover', { dataTransfer: data, bubbles: true, cancelable: true }))
+      // 'none': nobody took the file (a target that takes it sets 'copy').
+      const effect = data.dropEffect
       const drop = target.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }))
-      return { selector, over, drop }
+      return { selector, over, effect, drop }
     }))()`)
     expect(refused).toEqual([
-      { selector: '.react-flow__pane', over: false, drop: false },
-      { selector: '.w-sidebar-section', over: false, drop: false },
+      { selector: '.react-flow__pane', over: false, effect: 'none', drop: false },
+      { selector: '.w-sidebar-section', over: false, effect: 'none', drop: false },
     ])
     const view = await openSession(window)
     const field = view.getByRole('textbox', { name: 'Message Orchestrator' })
