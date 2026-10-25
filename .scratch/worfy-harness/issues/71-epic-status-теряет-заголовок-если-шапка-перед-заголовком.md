@@ -1,7 +1,8 @@
 # 71 — epic-status теряет заголовок Ticket-а, если шапка стоит перед `# заголовком`
 
 Type: bug
-Status: claimed 2026-10-24T21:56Z
+Status: done 2026-10-25T01:26Z
+PR: #829
 Branch: worfy-harness/71
 Blocked by: —
 Source: владелец, 2026-10-25 (чат Mac-оркестратора); замер файлов — Session на Windows-ПК, 2026-10-25
