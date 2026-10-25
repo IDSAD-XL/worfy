@@ -57,13 +57,41 @@ printf '%s\n' "rm -f '$L/holder.json'; rmdir '$L'; mkdir '$L'; echo '{\"prs\":[7
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 0 ] && [ "$(q "$L/holder.json" 's.prs.join(",")' 2>&1)" = 7 ] && ok "e2e lock: on release, a lock someone else holds now keeps its holder.json and stays" || bad "e2e lock foreign: exit $rc, lock [$(ls -A "$L" 2>&1)]"
 rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null; rm -f "$GATE_DIR/takeover"
-new_world young 1:a.txt
-S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
-mkdir "$L"; touch -t "$(date -r $(( $(date +%s) - 1500 )) +%Y%m%d%H%M.%S 2>/dev/null || date -d @$(( $(date +%s) - 1500 )) +%Y%m%d%H%M.%S)" "$L"
-"$WG" check "$S" >"$W/out" 2>&1 & wg=$!
-until_ok 30 grep -q "waiting for the e2e lock" "$W/out"; sleep 2
-[ "$(gate_count)" = 0 ] && grep -q "waiting for the e2e lock" "$W/out" && ok "e2e lock: a lock 25 min old is not taken over" || bad "e2e lock: a 25-min lock was taken"
-rmdir "$L"; finish "$wg" 120 || bad "young lock: the run did not end: $rc"
+# Sets the mtime of $2 to $1 seconds ago. The time goes to touch -t in UTC, which has no summer time: in local time
+# the hour that the end of summer time repeats is ambiguous, touch takes its first pass, and a lock set to 25 min
+# old came out 85 min old and was taken over as stale (2026-10-25, EEST -> EET).
+aged() {
+    local t=$(( $(date +%s) - $1 ))
+    TZ=UTC0 touch -t "$(TZ=UTC0 date -r "$t" +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC0 date -d "@$t" +%Y%m%d%H%M.%S)" "$2"
+}
+# A TZ in which the time of 25 min ago lies in the hour that the end of summer time repeats: summer time (UTC+3)
+# ended 30 min ago, so that local time is read twice. On 2026-10-25 (EEST -> EET) the local time zone of the Mac
+# did that by itself between 01:25 and 02:25 UTC.
+# shortcut: on 1 January before about 01:00 UTC the rule's end comes before its start and summer time inverts, redo if this case runs then.
+ambiguous_tz() {
+    local x=$(( $(date +%s) - 1800 )) at
+    at="$(TZ=UTC0 date -r $((x + 10800)) '+%j %H:%M:%S' 2>/dev/null || TZ=UTC0 date -d "@$((x + 10800))" '+%j %H:%M:%S')"
+    echo "XST-2XDT-3,0/0,$(( 10#${at%% *} - 1 ))/${at#* }"
+}
+# The young-lock case in the time zone $1 (empty: the one of the machine).
+young_lock() {
+    new_world "young$2" 1:a.txt
+    S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
+    mkdir "$L"; ( [ -z "$1" ] || export TZ="$1"; aged 1500 "$L" )
+    "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
+    until_ok 30 grep -q "waiting for the e2e lock" "$W/out"; sleep 2
+    [ "$(gate_count)" = 0 ] && grep -q "waiting for the e2e lock" "$W/out" && ok "e2e lock: a lock 25 min old is not taken over${1:+ (TZ=$1)}" || bad "e2e lock: a 25-min lock was taken${1:+ (TZ=$1)}"
+    rmdir "$L"; finish "$wg" 120 || bad "young lock: the run did not end: $rc"
+}
+young_lock "" ""
+# The case is worth running in that TZ only where its local time is read wrong: there touch -t with the local time of
+# 25 min ago sets an mtime 85 min ago.
+dst_tz="$(ambiguous_tz)"; probe="$(mktemp)"
+( export TZ="$dst_tz"; t=$(( $(date +%s) - 1500 )); touch -t "$(date -r "$t" +%Y%m%d%H%M.%S 2>/dev/null || date -d "@$t" +%Y%m%d%H%M.%S)" "$probe" )
+probe_min=$(( ( $(date +%s) - $(node -e "process.stdout.write(String(Math.floor(require(\"fs\").statSync(process.argv[1]).mtimeMs / 1000)))" "$probe") ) / 60 ))
+rm -f "$probe"
+if [ "$probe_min" -ge 80 ] && [ "$probe_min" -le 90 ]; then young_lock "$dst_tz" -dst
+else skip "e2e lock: the 25-min lock in a TZ whose summer time ended 30 min ago: local time there gives a lock $probe_min min old, not 85 (TZ=$dst_tz)"; fi
 # heartbeat: the lock's mtime moves during a run
 new_world beat 1:a.txt
 S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
