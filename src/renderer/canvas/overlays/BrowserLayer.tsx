@@ -46,8 +46,9 @@
 // (UNDER_FOCUS_ATTRIBUTE, ../../focus/cover.ts): the one in a tile is drawn there and takes input, the
 // others stay rendered, invisible and inert, so that main keeps reaching them — their frames, a
 // Session's screenshots. Leaving focus mode puts the page back on the frame: the same page, its
-// history, scroll and typed text. While a tile shows a Browser the window shows the Browsers in
-// tiles alone (screenShown in browser-pages.ts), wherever their frames are on the Canvas.
+// history, scroll and typed text. A Browser in a tile counts as on screen (screenShown in
+// browser-pages.ts), wherever its frame is on the Canvas; the Browsers on the Canvas count as without
+// focus mode.
 import { createElement, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { UNDER_FOCUS_ATTRIBUTE } from '../../focus/cover'
 import { useFocusState } from '../../focus/focus-state'

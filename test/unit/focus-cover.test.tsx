@@ -131,6 +131,11 @@ describe('keepFocusOutOfCover', () => {
     await settle()
     expect(document.activeElement).toBe(layer)
     again()
+    // Taken back, it no longer looks after a blur either.
+    covered.focus()
+    window.dispatchEvent(new Event('blur'))
+    await settle()
+    expect(document.activeElement).toBe(covered)
   })
 
   it('counts both covers: inert and the mark of a see-through tile', () => {

@@ -199,7 +199,7 @@ describe('a Browser in focus mode (worfy-browser ticket 17)', () => {
     // The tile's body owns its page for a screen reader.
     const body = document.querySelector('[data-testid="focus-tile"] [data-testid="browser-frame-body"]')!
     expect(body.getAttribute('aria-owns')).toBe(inTile.closest('[data-under-focus]')!.id)
-    // Only the Browser in the tile is on screen.
+    // On screen: the Browser in the tile; the other's frame is off the Canvas, as without focus mode.
     await waitFor(() => expect(main.screens.at(-1)).toMatchObject({ visible: ['b0'], zoom: 1 }))
   })
 
@@ -234,22 +234,27 @@ describe('a Browser in focus mode (worfy-browser ticket 17)', () => {
     }
   })
 
-  it('lays the page on its tile body again when the body changes size', async () => {
-    const observers: { callback: () => void; targets: Element[] }[] = []
+  it('lays the page on its tile body again when the body changes size, and stops watching it once focus mode closes', async () => {
+    const observers: { callback: () => void; targets: Element[]; disconnects: number }[] = []
     ;(globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
-      targets: Element[] = []
+      entry: { callback: () => void; targets: Element[]; disconnects: number }
       constructor(callback: () => void) {
-        observers.push({ callback, targets: this.targets })
+        this.entry = { callback, targets: [], disconnects: 0 }
+        observers.push(this.entry)
       }
       observe(target: Element): void {
-        this.targets.push(target)
+        this.entry.targets.push(target)
       }
       unobserve(): void {}
-      disconnect(): void {}
+      disconnect(): void {
+        this.entry.disconnects += 1
+      }
     }
     shown.projectId = 'iota-8a9b0c1d'
     main.profiles = { [shown.projectId]: ['default'] }
-    drawCanvas([farBrowser('b0')], buildPreset('columns', ['b0'])!)
+    const apply = vi.fn<(op: LayoutOpInput) => Promise<void>>(() => Promise.resolve())
+    const nodes = [farBrowser('b0')]
+    const { rerender } = render(canvasTree(nodes, buildPreset('columns', ['b0'])!, apply))
     await waitFor(() => expect(document.querySelectorAll('[data-under-focus="shown"]')).toHaveLength(1))
     const body = document.querySelector<HTMLElement>('[data-testid="focus-tile"] [data-testid="browser-frame-body"]')!
     body.getBoundingClientRect = () => new DOMRect(30, 40, 500, 300)
@@ -259,6 +264,11 @@ describe('a Browser in focus mode (worfy-browser ticket 17)', () => {
     const element = document.querySelector<HTMLElement>('webview[data-browser-id="b0"]')!.parentElement!
     await waitFor(() => expect(element.style.transform).toBe('translate(30px, 40px) scale(1)'))
     expect(element.style.width).toBe('500px')
+    const watching = observers.filter((observer) => observer.targets.includes(body))
+    expect(watching.length).toBeGreaterThan(0)
+    rerender(canvasTree(nodes, undefined, apply))
+    await waitFor(() => expect(element.getAttribute('data-under-focus')).toBe('kept'))
+    for (const observer of watching) expect(observer.disconnects).toBeGreaterThan(0)
   })
 
   it('shows the Browser nowhere again once focus mode closes', async () => {

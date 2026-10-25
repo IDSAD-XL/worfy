@@ -62,6 +62,12 @@ describe('sleepReason: when a Live Browser goes to sleep', () => {
     expect(sleepReason(tiled, [screen(['a'], 1)], NOW, strictest)).toBeNull()
     // The same Browser off the Canvas without the tile: asleep.
     expect(sleepReason(tiled, [screen([], 0.25)], NOW, strictest)).toBe('offscreen')
+    // A Browser left in the window on the Canvas under focus mode is reported with the tile's: it does
+    // not sleep for being off screen, as it would not without focus mode; the idle rule still holds.
+    const left = browser('b', { seenAt: NOW - 30_001 })
+    expect(sleepReason(left, [screen(['b'], 0.5)], NOW, SETTINGS)).toBeNull()
+    expect(sleepReason(left, [screen(['b', 'a'], 1)], NOW, SETTINGS)).toBeNull()
+    expect(sleepReason({ ...left, usedAt: NOW - 300_001 }, [screen(['b', 'a'], 1)], NOW, SETTINGS)).toBe('idle')
   })
 
   it('without the focus and without a Session\'s call for longer than the threshold; the focus keeps it', () => {

@@ -104,8 +104,12 @@ Source: владелец, 2026-10-25 (чат Mac-оркестратора)
 - фокус: `inert` не мешает скрипту фрейма взять фокус (Chromium) — Card под слоем, вызвавшая `focus()`
   у своего поля, забирала клавиатуру и до этого ticket-а. Теперь фокус, попавший под слой (кроме
   страницы `shown`), возвращается на слой (`keepFocusOutOfCover`), при любом покрытии;
-- сон: пока tile показывает Browser этого Canvas, отчёт `browser.screen` — только Browser-ы в tile-ах и
-  zoom 1 (`screenShown`): Canvas под слоем не виден, Browser-ы на нём засыпают в свой срок;
+- сон, одно правило для любого focus mode: открытый focus mode не усыпляет Browser на Canvas раньше,
+  чем без focus mode. Browser-ы на Canvas входят в отчёт `browser.screen` так же, как без focus mode
+  (по viewport-у Canvas), к ним добавляются Browser-ы в tile-ах, где бы ни была их рамка, а zoom отчёта
+  тогда не меньше 1 (`screenShown`). Ограничение — один zoom на экран: пока tile показывает Browser,
+  Browser-ы на Canvas при zoom ниже читаемого тоже считаются читаемыми и засыпают позже (правило «far»
+  на них не действует), правило простоя (idle) действует как обычно (`shortcut:` в `browser-pages.ts`);
 - screen reader: страница лежит в DOM под Canvas, а не в регионе «Focus mode»; тело рамки в tile-е
   ставит `aria-owns` на элемент страницы. С VoiceOver не проверено.
 
@@ -141,4 +145,14 @@ e2e двух Browser-ов в tile-ах — каждая страница на с
 `keepFocusOutOfCover`. Mutant-ы раунда 1 (27, все убиты): `some`→`every` у сквозных tile-ов, первое тело для
 всех страниц, без `keepShownOnly`, без возврата фокуса, без ResizeObserver, без сигнала раскладки, без
 `aria-owns`, CSS без `opacity` у `kept`, без видимости `data-under-focus`, без правила нажатой мыши и другие.
+
+Review раунд 2 (PR #831). Правило сна из раунда 1 («пока tile показывает Browser, в отчёте только
+tile-ы») усыпляло Browser, оставшийся на Canvas, через 30 s (правило offscreen): после выхода из focus mode
+он спал, будился только кликом и грузил страницу заново. Решение координатора — правило выше: Canvas
+считается как без focus mode, tile-ы добавляются с zoom не меньше 1. Unit: `browser-layer-pages` —
+для zoom 0.25, 0.39, 1, 2 отчёт с tile-ом содержит всё, что без него, и zoom не ниже; `browser-sleep` —
+Browser в окне на Canvas, отчитанный вместе с tile-ом, не засыпает по offscreen, но засыпает по idle.
+Fake ResizeObserver в unit-test-е считает `disconnect()`, test фокуса проверяет, что после снятия
+слушатель `blur` больше не срабатывает. Mutant-ы раунда 2 (5, все убиты): без `observer.disconnect()`,
+без снятия слушателя `blur`, zoom Canvas вместо не меньше 1, только tile-ы при открытом tile-е, без tile-ов.
 

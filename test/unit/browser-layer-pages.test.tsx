@@ -93,12 +93,25 @@ describe('a page in a focus tile (worfy-browser ticket 17)', () => {
   ]
   const view = (zoom: number) => ({ transform: [0, 0, zoom] as [number, number, number], width: 800, height: 600 })
 
-  it('counts the Browsers in tiles alone as shown, wherever their frames are on the Canvas, at zoom 1', () => {
+  it('counts a Browser in a tile as shown, wherever its frame is on the Canvas, at zoom 1 or more', () => {
     expect(screenShown(view(1), pages, [])).toEqual({ visible: ['near'], zoom: 1 })
-    expect(screenShown(view(1), pages, ['far'])).toEqual({ visible: ['far'], zoom: 1 })
-    expect(screenShown(view(0.25), pages, ['far'])).toEqual({ visible: ['far'], zoom: 1 })
-    expect(screenShown(view(2), pages, ['far'])).toEqual({ visible: ['far'], zoom: 1 })
-    expect(screenShown(view(0.25), pages, ['far', 'near'])).toEqual({ visible: ['near', 'far'], zoom: 1 })
+    expect(screenShown(view(1), pages, ['far'])).toEqual({ visible: ['near', 'far'], zoom: 1 })
+    expect(screenShown(view(0.25), pages, ['far'])).toEqual({ visible: ['near', 'far'], zoom: 1 })
+    expect(screenShown(view(2), pages, ['far'])).toEqual({ visible: ['near', 'far'], zoom: 2 })
+  })
+
+  it('never takes a Browser left on the Canvas off screen, nor lowers its zoom, while a tile shows another', () => {
+    // main's offscreen and far rules (src/main/browser/sleep.ts; test/unit/browser-sleep.test.ts) look
+    // only at `visible` and `zoom`: what keeps `near` awake without focus mode keeps it awake with it.
+    for (const zoom of [0.25, 0.39, 1, 2]) {
+      const without = screenShown(view(zoom), pages, [])
+      const withTile = screenShown(view(zoom), pages, ['far'])
+      expect(withTile.visible).toEqual(expect.arrayContaining(without.visible))
+      expect(withTile.zoom).toBeGreaterThanOrEqual(without.zoom)
+    }
+    // A Browser off the Canvas without a tile stays off screen: focus mode keeps it no longer either.
+    const away: BrowserLayerPage[] = [...pages, { id: 'away', url: null, x: -9000, y: 0, w: 100, h: 100 }]
+    expect(screenShown(view(1), away, ['far']).visible).not.toContain('away')
   })
 
   it('leaves the zoom as the Canvas has it when no tile shows a Browser of this Canvas', () => {
