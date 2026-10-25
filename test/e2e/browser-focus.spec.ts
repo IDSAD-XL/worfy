@@ -44,7 +44,7 @@ function git(cwd: string, ...args: string[]): void {
 test.beforeAll(async () => {
   // The fixture page at two addresses, so the page has a history to go back through.
   server = createServer((request, response) => {
-    if (request.url !== '/page.html' && request.url !== '/second.html') {
+    if (request.url !== '/page.html' && request.url !== '/second.html' && request.url !== '/other.html') {
       response.writeHead(404).end()
       return
     }
@@ -68,8 +68,15 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
-/** Starts the app over a Project whose Layout holds the Browser frame `FRAME` on the first address, the Canvas at `zoom`. */
-async function start(zoom: number): Promise<Page> {
+interface StartOptions {
+  /** More Nodes of the Layout. */
+  extra?: Record<string, unknown>[]
+  /** Cards of the Project: id → its index.html. */
+  cards?: Record<string, string>
+}
+
+/** Starts the app over a Project whose Layout holds the Browser frame `FRAME` on the first address, `NOTE` and `extra`, the Canvas at `zoom`. */
+async function start(zoom: number, { extra = [], cards = {} }: StartOptions = {}): Promise<Page> {
   const dataDir = join(scratch, 'data')
   const home = join(scratch, 'home')
   const repo = join(scratch, 'alpha')
@@ -77,14 +84,18 @@ async function start(zoom: number): Promise<Page> {
   mkdirSync(repo)
   git(repo, 'init', '-q')
   const base = { hidden: false, locked: false, pinned: false, tags: [] }
-  const nodes = [{ ...FRAME, kind: 'browser', ...base, data: { url: `${origin}/page.html` } }, { ...NOTE, ...base }]
+  const nodes = [{ ...FRAME, kind: 'browser', ...base, data: { url: `${origin}/page.html` } }, { ...NOTE, ...base }, ...extra.map((node) => ({ ...base, ...node }))]
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
+  for (const [id, html] of Object.entries(cards)) {
+    mkdirSync(join(dataDir, PROJECT, 'cards', id), { recursive: true })
+    writeFileSync(join(dataDir, PROJECT, 'cards', id, 'index.html'), html)
+  }
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'alpha', path: repo }], activeId: PROJECT }))
   writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes, viewport: { x: 40, y: 20, zoom } }))
   launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, HOME: home } })
   const { window } = launched
   await canvasReady(launched, { size: WINDOW, visible: [window.locator(`.react-flow__node[data-id="${FRAME.id}"]`)] })
-  await expect.poll(() => guestState().then((state) => state?.ready), { timeout: 15_000, message: 'the fixture page has loaded in the <webview>' }).toBe('yes')
+  await expect.poll(() => guestState('/page.html').then((state) => state?.ready), { timeout: 15_000, message: 'the fixture page has loaded in the <webview>' }).toBe('yes')
   return window
 }
 
@@ -106,19 +117,28 @@ interface GuestState {
   moves: number | null
 }
 
-/** Runs `script` in the one <webview> guest; null while there is none. */
-async function inGuest<T>(script: string): Promise<T | null> {
+/**
+ * Runs `script` in a <webview> guest: the one whose address has the path `path`, or the only one
+ * without `path`; null while there is none.
+ */
+async function inGuest<T>(script: string, path?: string): Promise<T | null> {
   if (launched === undefined) return null
-  return launched.app.evaluate(async ({ webContents }, code) => {
-    const guests = webContents.getAllWebContents().filter((contents) => contents.getType() === 'webview')
-    if (guests.length !== 1) return null
-    return (await guests[0]!.executeJavaScript(code)) as T
-  }, script)
+  return launched.app.evaluate(
+    async ({ webContents }, { code, at }) => {
+      const guests = webContents
+        .getAllWebContents()
+        .filter((contents) => contents.getType() === 'webview' && (at === undefined || (URL.canParse(contents.getURL()) && new URL(contents.getURL()).pathname === at)))
+      if (guests.length !== 1) return null
+      return (await guests[0]!.executeJavaScript(code)) as T
+    },
+    { code: script, at: path },
+  )
 }
 
-const guestState = (): Promise<GuestState | null> =>
+const guestState = (path?: string): Promise<GuestState | null> =>
   inGuest<GuestState>(
     "({ ready: document.body?.dataset.ready, load: document.body?.dataset.load, path: location.pathname, scrollY, innerWidth, innerHeight, typed: document.getElementById('field')?.value ?? null, active: document.activeElement?.id ?? '', mark: window.__mark ?? null, moves: Number(document.body?.dataset.moves ?? 0) })",
+    path,
   )
 
 /** Types `text` into the one <webview> guest as key presses of its own web contents. */
@@ -309,6 +329,20 @@ test('with a Note beside it the page follows its tile when the tiling changes, a
   await expect.poll(onBody).toBeLessThanOrEqual(1)
   expect((await guestState())!.moves ?? 0, 'the page saw none of the drag').toBe(movesBefore)
 
+  // Beside the Note the page is seen in its tile and takes the mouse there.
+  await canvasReady(launched!, { frames: 5 })
+  const body = (await rectOf(window, TILE_BODY))!
+  const seen = await screenshot(window, 'beside-note')
+  const area = Math.floor((body.width - 2 * CORNER) * seen.scale) * Math.floor((body.height - 2 * CORNER) * seen.scale)
+  const share = creamInside(seen.image, seen.scale, body, CORNER) / area
+  const middle = { x: body.x + body.width / 2, y: body.y + body.height / 2 }
+  report('beside the Note', { body, creamShare: Math.round(share * 1000) / 1000, hit: await hitAt(window, middle) })
+  expect(share, 'the page is seen in its tile beside the Note').toBeGreaterThan(0.8)
+  expect(await hitAt(window, middle), 'the <webview> lies under the pointer in its tile').toBe('webview')
+  await window.mouse.move(middle.x, middle.y)
+  await window.mouse.wheel(0, 300)
+  await expect.poll(async () => (await guestState())!.scrollY, { message: 'the wheel in the tile scrolls the page' }).toBeGreaterThan(0)
+
   // The Note's tile keeps its own background and its text; the Note takes the keys as before.
   const noteTile = focus.locator(`[data-testid="focus-tile"][data-node-id="${NOTE.id}"]`)
   const text = noteTile.getByRole('textbox', { name: 'Note text' })
@@ -320,4 +354,162 @@ test('with a Note beside it the page follows its tile when the tiling changes, a
   const noteBox = (await noteTile.boundingBox())!
   const shot = await screenshot(window, 'with-note')
   expect(creamInside(shot.image, shot.scale, noteBox, CORNER), 'no page pixels in the Note tile').toBe(0)
+})
+
+/** A second Browser, left on the Canvas while focus mode shows the first. */
+const OTHER = { id: 'b2', kind: 'browser', x: 900, y: 80, w: 400, h: 300 }
+/** A Card whose script keeps asking for the keyboard focus. */
+const GRABBER = { id: 'c1', kind: 'card', x: 520, y: 600, w: 260, h: 200, data: {} }
+const GRABBER_HTML = `<!doctype html><html><body><input id="grab"><script>window.__grab = setInterval(() => document.getElementById('grab').focus(), 100)</script></body></html>`
+
+/** Whether the guest on `path` is on screen for itself: its visibility, and how many animation frames it ran in half a second. */
+const guestLiveness = (path: string): Promise<{ visibility: string; frames: number } | null> =>
+  inGuest(
+    `new Promise((done) => { let frames = 0; const start = performance.now(); const tick = () => { frames += 1; if (performance.now() - start < 500) requestAnimationFrame(tick); else done({ visibility: document.visibilityState, frames }) }; requestAnimationFrame(tick); setTimeout(() => done({ visibility: document.visibilityState, frames }), 1500) })`,
+    path,
+  )
+
+/** A capture of the guest on `path` by its own web contents, as main takes a Session's screenshot and the picture of a sleep; null when it does not come within 3 s. */
+async function guestCapture(path: string): Promise<Image | null> {
+  const base64 = await launched!.app.evaluate(async ({ webContents }, at) => {
+    const guest = webContents.getAllWebContents().find((contents) => contents.getType() === 'webview' && URL.canParse(contents.getURL()) && new URL(contents.getURL()).pathname === at)
+    if (guest === undefined) return null
+    const shot = await Promise.race([guest.capturePage(), new Promise<null>((done) => setTimeout(() => done(null), 3000))])
+    return shot === null || shot.isEmpty() ? null : shot.toPNG().toString('base64')
+  }, path)
+  return base64 === null ? null : decodePng(Buffer.from(base64, 'base64'))
+}
+
+/** How many screencast frames (CDP Page.startScreencast, as main's screencast.ts asks) the guest on `path` sends in a second while its page changes. */
+async function guestScreencastFrames(path: string): Promise<number> {
+  await inGuest("(() => { const tick = document.createElement('div'); tick.id = 'tick'; tick.style.cssText = 'position:fixed;left:8px;top:8px;'; document.body.append(tick); setInterval(() => { tick.textContent = String(performance.now()) }, 30); return true })()", path)
+  return launched!.app.evaluate(async ({ webContents }, at) => {
+    const guest = webContents.getAllWebContents().find((contents) => contents.getType() === 'webview' && URL.canParse(contents.getURL()) && new URL(contents.getURL()).pathname === at)
+    if (guest === undefined || guest.debugger.isAttached()) return -1
+    const debug = guest.debugger
+    debug.attach('1.3')
+    let frames = 0
+    const onMessage = (_event: unknown, method: string, params: { sessionId?: number }) => {
+      if (method !== 'Page.screencastFrame') return
+      frames += 1
+      debug.sendCommand('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => undefined)
+    }
+    debug.on('message', onMessage)
+    try {
+      await debug.sendCommand('Page.startScreencast', { format: 'jpeg', quality: 40, everyNthFrame: 1 })
+      await new Promise((done) => setTimeout(done, 1000))
+      await debug.sendCommand('Page.stopScreencast')
+    } finally {
+      debug.removeListener('message', onMessage)
+      debug.detach()
+    }
+    return frames
+  }, path)
+}
+
+/** The colour the test gives the second Browser's page, so that it is told apart from the first's cream. */
+const BLUE = 'rgb(0, 128, 255)'
+// The window's capture turns it into about rgb(59, 130, 246) on a Mac's colour profile.
+const isBlue = (r: number, g: number, b: number): boolean => r < 100 && Math.abs(g - 129) < 35 && b > 200
+
+/** How many pixels of `image` are of the second page's blue. */
+function bluePixels(image: Image): number {
+  let blue = 0
+  for (let i = 0; i < image.data.length; i += 4) if (isBlue(image.data[i]!, image.data[i + 1]!, image.data[i + 2]!)) blue += 1
+  return blue
+}
+
+/** Where the keyboard focus of the window is: the focused element's tag, whether it is under focus mode's cover, and whether it is the <webview> in the tile. */
+const windowFocus = (window: Page): Promise<{ tag: string; covered: boolean; tilePage: boolean }> =>
+  window.evaluate((id) => {
+    interface Found {
+      tagName: string
+      getAttribute(name: string): string | null
+      closest(selector: string): Found | null
+    }
+    const active = (globalThis as unknown as { document: { activeElement: Found | null } }).document.activeElement
+    return {
+      tag: active?.tagName.toLowerCase() ?? '',
+      covered: active?.closest('[data-focus-covered], [inert]') != null,
+      tilePage: active?.tagName.toLowerCase() === 'webview' && active.getAttribute('data-browser-id') === id && active.closest('[data-under-focus="shown"]') !== null,
+    }
+  }, FRAME.id)
+
+test('a Browser left on the Canvas stays on screen for itself under focus mode, and nothing under the layer takes the keyboard', async () => {
+  const window = await start(1, { extra: [{ ...OTHER, data: { url: `${origin}/other.html` } }, GRABBER], cards: { c1: GRABBER_HTML } })
+  await expect.poll(() => guestState('/other.html').then((state) => state?.ready), { timeout: 15_000, message: 'the second Browser has loaded' }).toBe('yes')
+  await expect(window.locator(`.react-flow__node[data-id="${GRABBER.id}"] iframe`)).toHaveCount(1)
+  await inGuest(`(() => { document.documentElement.style.background = '${BLUE}'; document.body.style.background = '${BLUE}'; return true })()`, '/other.html')
+  await canvasReady(launched!, { frames: 5 })
+  const blueOnCanvas = bluePixels((await screenshot(window, 'second-on-canvas')).image)
+  const onCanvas = { liveness: await guestLiveness('/other.html'), frames: await guestScreencastFrames('/other.html'), blue: blueOnCanvas }
+  expect(blueOnCanvas, 'the second Browser is seen on the Canvas').toBeGreaterThan(10_000)
+  await openFocus(window)
+  await canvasReady(launched!, { frames: 5 })
+  await expect.poll(async () => boxGap((await rectOf(window, WEBVIEW))!, (await rectOf(window, TILE_BODY))!)).toBeLessThanOrEqual(1)
+  // Under the layer the second Browser is not seen: not over the tile, nor anywhere else.
+  const blueUnder = bluePixels((await screenshot(window, 'second-under-focus')).image)
+
+  // The second Browser under the layer: visible to itself, drawing, captured, sending its frames.
+  const liveness = await guestLiveness('/other.html')
+  const capture = await guestCapture('/other.html')
+  const frames = await guestScreencastFrames('/other.html')
+  // The Card asks for the keyboard focus ten times a second: under the layer it never gets it.
+  await new Promise((done) => setTimeout(done, 800))
+  const afterCard = await windowFocus(window)
+  // Tab from the layer: the keyboard focus never goes under the layer, but for the page in the tile.
+  // The Card stops asking first: a focus it takes is given back a moment later, and Tab is asked alone.
+  const stopped = await launched!.app.evaluate(async ({ BrowserWindow }) => {
+    const frame = BrowserWindow.getAllWindows()[0]!.webContents.mainFrame.framesInSubtree.find((each) => each.url.startsWith('worfy-card:'))
+    return frame === undefined ? false : ((await frame.executeJavaScript('clearInterval(window.__grab), true')) as boolean)
+  })
+  expect(stopped, 'the Card stopped asking for the focus').toBe(true)
+  await window.getByTestId('focus-mode').focus()
+  const tabbed: { tag: string; covered: boolean; tilePage: boolean }[] = []
+  for (let press = 0; press < 20; press += 1) {
+    await window.keyboard.press('Tab')
+    tabbed.push(await windowFocus(window))
+  }
+  report('under focus mode', { onCanvas, liveness, blueUnder, captureBlue: capture === null ? null : Math.round((bluePixels(capture) / (capture.width * capture.height)) * 1000) / 1000, frames, afterCard, tabbedUnder: tabbed.filter((each) => each.covered) })
+  expect(liveness?.visibility, 'the second Browser is visible to itself').toBe('visible')
+  // Invisible under the layer, its animation frames may be throttled (a few a second), never stopped.
+  expect(liveness?.frames, 'the second Browser runs its animation frames').toBeGreaterThan(0)
+  expect(capture, 'the second Browser can be captured').not.toBeNull()
+  expect(bluePixels(capture!) / (capture!.width * capture!.height), 'the capture shows its page').toBeGreaterThan(0.5)
+  expect(blueUnder, 'the second Browser is not seen under focus mode').toBe(0)
+  expect(frames, 'the second Browser sends screencast frames').toBeGreaterThan(3)
+  expect(afterCard.covered && !afterCard.tilePage, `the Card under the layer took the keyboard focus (${afterCard.tag})`).toBe(false)
+  for (const each of tabbed) expect(each.covered && !each.tilePage, `Tab went under the layer (${each.tag})`).toBe(false)
+})
+
+test('two Browsers in tiles: each page lies on its own tile and is seen there', async () => {
+  const window = await start(1, { extra: [{ ...OTHER, data: { url: `${origin}/other.html` } }] })
+  await expect.poll(() => guestState('/other.html').then((state) => state?.ready), { timeout: 15_000, message: 'the second Browser has loaded' }).toBe('yes')
+  const header = (await window.locator(`.react-flow__node[data-id="${FRAME.id}"] .w-browser-frame__header`).boundingBox())!
+  await window.mouse.click(header.x + header.width - 30, header.y + header.height / 2)
+  const otherHeader = window.locator(`.react-flow__node[data-id="${OTHER.id}"] .w-browser-frame__header`)
+  const otherBox = (await otherHeader.boundingBox())!
+  await otherHeader.click({ position: { x: otherBox.width - 30, y: otherBox.height / 2 }, modifiers: ['ControlOrMeta'] })
+  await expect(window.locator('.react-flow__node.selected')).toHaveCount(2)
+  await window.getByRole('button', { name: /^Focus/ }).click()
+  const focus = window.getByTestId('focus-mode')
+  await expect(focus.getByTestId('focus-tile')).toHaveCount(2)
+
+  const bodyOf = (id: string): string => `[data-testid="focus-tile"][data-node-id="${id}"] [data-testid="browser-frame-body"]`
+  const gaps = async (): Promise<number[]> => {
+    const result: number[] = []
+    for (const id of [FRAME.id, OTHER.id]) result.push(boxGap((await rectOf(window, `webview[data-browser-id="${id}"]`))!, (await rectOf(window, bodyOf(id)))!))
+    return result
+  }
+  await expect.poll(async () => Math.max(...(await gaps())), { message: 'each page lies on its own tile body' }).toBeLessThanOrEqual(1)
+  await canvasReady(launched!, { frames: 5 })
+  const shot = await screenshot(window, 'two-browsers')
+  const shares: number[] = []
+  for (const id of [FRAME.id, OTHER.id]) {
+    const body = (await rectOf(window, bodyOf(id)))!
+    const area = Math.floor((body.width - 2 * CORNER) * shot.scale) * Math.floor((body.height - 2 * CORNER) * shot.scale)
+    shares.push(creamInside(shot.image, shot.scale, body, CORNER) / area)
+  }
+  report('two Browsers', { gaps: await gaps(), shares })
+  for (const share of shares) expect(share, 'each page is seen in its tile').toBeGreaterThan(0.8)
 })

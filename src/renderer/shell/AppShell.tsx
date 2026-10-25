@@ -1,5 +1,6 @@
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
-import { COVERED_ATTRIBUTE, setFocusSlot } from '../focus/focus-state'
+import { underFocusCover } from '../focus/cover'
+import { setFocusSlot } from '../focus/focus-state'
 import { useInterfaceScale } from '../settings/interface-scale'
 import { SettingsDialog } from '../settings/SettingsDialog'
 import { ShortcutsOverlay } from '../shortcuts/ShortcutsOverlay'
@@ -44,9 +45,9 @@ class SidebarFocusKeeper extends Component<{ visible: boolean; shell: RefObject<
   override componentDidUpdate(_props: unknown, _state: unknown, focusWasInSidebar: boolean): void {
     if (!focusWasInSidebar) return
     const toggles = this.props.shell.current?.querySelectorAll<HTMLElement>(SIDEBAR_TOGGLE_SELECTOR) ?? []
-    // A layout effect: focus mode has made the toolbar inert — or hidden, while a tile shows a
-    // Browser — or taken that off, before this runs.
-    const toggle = [...toggles].find((button) => button.closest(`[inert], [${COVERED_ATTRIBUTE}]`) === null)
+    // A layout effect: focus mode has made the toolbar inert — or hidden, while a tile is
+    // see-through — or taken that off, before this runs.
+    const toggle = [...toggles].find((button) => !underFocusCover(button))
     toggle?.focus({ preventScroll: true })
   }
 

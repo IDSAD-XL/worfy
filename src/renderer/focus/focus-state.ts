@@ -6,7 +6,9 @@
 //   for the two (shell/sidebar-visibility.ts);
 // - `request` — the last request to open focus mode on given Nodes, from a Node itself (a double
 //   click on a Ticket card). The way in (canvas/overlays/FocusEntry.tsx) carries it out; `seq`
-//   makes a repeat a new request.
+//   makes a repeat a new request;
+// - `layoutSeq` — grows whenever the tiles may have moved without changing size (a new tiling, the
+//   sidebar shown or hidden): what lies over a tile measures it again (worfy-browser ticket 17).
 // Nothing here is saved or sent to main.
 import { create } from 'zustand'
 
@@ -19,16 +21,15 @@ export interface FocusState {
   slot: HTMLElement | null
   active: boolean
   request: FocusRequest | null
+  layoutSeq: number
 }
 
-export const useFocusState = create<FocusState>(() => ({ slot: null, active: false, request: null }))
+export const useFocusState = create<FocusState>(() => ({ slot: null, active: false, request: null, layoutSeq: 0 }))
 
-/**
- * The attribute focus mode puts on what its layer covers instead of `inert` while a tile shows a
- * Browser (FocusMode.tsx, worfy-browser ticket 17); focus.css hides what carries it. The shell asks
- * for it as for `inert`: neither takes the focus.
- */
-export const COVERED_ATTRIBUTE = 'data-focus-covered'
+/** Focus mode says that its tiles may have moved. */
+export function focusLayoutChanged(): void {
+  useFocusState.setState((state) => ({ layoutSeq: state.layoutSeq + 1 }))
+}
 
 /** Asks the Canvas on screen to open focus mode on these Nodes, as the Focus button opens it on the selection. */
 export function requestFocus(ids: readonly string[]): void {

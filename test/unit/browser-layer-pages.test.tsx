@@ -93,11 +93,12 @@ describe('a page in a focus tile (worfy-browser ticket 17)', () => {
   ]
   const view = (zoom: number) => ({ transform: [0, 0, zoom] as [number, number, number], width: 800, height: 600 })
 
-  it('counts a Browser in a tile as shown, wherever its frame is on the Canvas, and readable at zoom 1 or more', () => {
+  it('counts the Browsers in tiles alone as shown, wherever their frames are on the Canvas, at zoom 1', () => {
     expect(screenShown(view(1), pages, [])).toEqual({ visible: ['near'], zoom: 1 })
-    expect(screenShown(view(1), pages, ['far'])).toEqual({ visible: ['near', 'far'], zoom: 1 })
-    expect(screenShown(view(0.25), pages, ['far'])).toEqual({ visible: ['near', 'far'], zoom: 1 })
-    expect(screenShown(view(2), pages, ['far'])).toEqual({ visible: ['near', 'far'], zoom: 2 })
+    expect(screenShown(view(1), pages, ['far'])).toEqual({ visible: ['far'], zoom: 1 })
+    expect(screenShown(view(0.25), pages, ['far'])).toEqual({ visible: ['far'], zoom: 1 })
+    expect(screenShown(view(2), pages, ['far'])).toEqual({ visible: ['far'], zoom: 1 })
+    expect(screenShown(view(0.25), pages, ['far', 'near'])).toEqual({ visible: ['near', 'far'], zoom: 1 })
   })
 
   it('leaves the zoom as the Canvas has it when no tile shows a Browser of this Canvas', () => {

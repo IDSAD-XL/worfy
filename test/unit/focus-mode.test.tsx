@@ -123,6 +123,36 @@ describe('keyboard focus', () => {
     expect(document.activeElement).toBe(outside)
   })
 
+  it('takes the focus back that lands under the layer anyway, as a Card script under it may take it', () => {
+    const { unmount } = render(
+      <ReactFlowProvider initialNodes={[flowNode('a')]}>
+        <FocusMode tree={columns(['a'])} onChange={() => {}} onExit={() => {}} />
+      </ReactFlowProvider>,
+    )
+    const layer = screen.getByTestId('focus-mode')
+    outside.focus()
+    expect(document.activeElement).toBe(layer)
+    unmount()
+    outside.focus()
+    expect(document.activeElement).toBe(outside)
+  })
+
+  it('tells what lies over a tile from under the layer that the tiles may have moved, whenever the tiling changes', () => {
+    const draw = (tree: TileTree) => (
+      <ReactFlowProvider initialNodes={[flowNode('a'), flowNode('b')]}>
+        <FocusMode tree={tree} onChange={() => {}} onExit={() => {}} />
+      </ReactFlowProvider>
+    )
+    const first = columns(['a', 'b'])
+    const { rerender, unmount } = render(draw(first))
+    const opened = useFocusState.getState().layoutSeq
+    rerender(draw(first))
+    expect(useFocusState.getState().layoutSeq).toBe(opened)
+    rerender(draw(buildPreset('rows', ['b', 'a'])!))
+    expect(useFocusState.getState().layoutSeq).toBeGreaterThan(opened)
+    unmount()
+  })
+
   it('leaves an element inert that was inert before focus mode', () => {
     outside.setAttribute('inert', '')
     const { unmount } = render(

@@ -191,6 +191,11 @@ export function registerBrowserTileBody(id: string, body: HTMLElement): () => vo
   }
 }
 
+/** The id of the element of the Browser layer that holds the page of Browser `id`. */
+export function browserPageElementId(id: string): string {
+  return `w-browser-page-${id}`
+}
+
 /** The bodies of the Browser frames in focus tiles now, by Node id. */
 export function useBrowserTileBodies(): Readonly<Record<string, HTMLElement>> {
   return useTileBodies((bodies) => bodies)

@@ -86,20 +86,28 @@ Source: владелец, 2026-10-25 (чат Mac-оркестратора)
 а focus mode пропускает её сквозь себя:
 
 - копия `BrowserNode` в tile-е регистрирует своё тело (`registerBrowserTileBody`,
-  `src/renderer/canvas/nodes/browser-frame.ts`); `BrowserLayer` каждый кадр анимации меряет это тело
-  и ставит туда страницу: место в единицах Canvas и `scale(1 / zoom)`, так что страница раскладывается
+  `src/renderer/canvas/nodes/browser-frame.ts`); `BrowserLayer` меряет это тело (ResizeObserver на
+  теле, сигнал `layoutSeq` из focus mode при смене раскладки и sidebar, сдвиг Canvas) и ставит туда
+  страницу: место в единицах Canvas и `scale(1 / zoom)`, так что страница раскладывается
   и рисуется в размер tile-а, один CSS px страницы на CSS px окна (`tilePlacement`,
   `src/renderer/canvas/overlays/browser-pages.ts`). Меняется только `style` того же элемента;
-- пока tile показывает Browser, focus mode прячет то, что накрывает (`data-focus-covered`,
-  `visibility: hidden !important` у всех потомков — React Flow пишет `visibility: visible` в inline-стиль
-  каждого Node-а), вместо `inert`: страница под `inert` не получает ввода. Видна из спрятанного только
-  страница в tile-е. Фон слоя focus mode переходит на `.w-shell__main`, рамка tile-а Browser прозрачна,
-  мышь проходит сквозь слой и этот tile к странице, кроме панели, разделителей, других tile-ов, заголовка
-  tile-а и шапки рамки. Пока тянут заголовок tile-а или разделитель, страница мышь не берёт
-  (`frames-step-aside.ts` на слое focus mode);
-- сон: Browser в tile-е входит в `visible` отчёта `browser.screen`, где бы ни была его рамка на Canvas, а
-  zoom отчёта тогда не меньше 1 (`screenShown`). Ограничение — один zoom на экран: пока tile показывает
-  Browser, Browser-ы под слоем тоже считаются читаемыми (`shortcut:` в `browser-pages.ts`).
+- копия рамки, чья страница рисуется в этом окне, объявляет свой tile сквозным (`useSeeThroughTile`,
+  `src/renderer/focus/focus-tile.ts`); focus mode не знает, какой Node в tile-е. Пока есть сквозной
+  tile, то, что слой накрывает, помечено `data-focus-covered` и спрятано (`visibility: hidden
+  !important` у всех потомков — React Flow пишет `visibility: visible` в inline-стиль каждого Node-а),
+  кроме элементов с `data-under-focus` (`src/renderer/focus/cover.ts`): страница в tile-е (`shown`)
+  видна и берёт ввод, остальные страницы (`kept`) отрисованы, но невидимы (`opacity: 0`) и `inert`;
+  всё прочее под слоем `inert` (`keepShownOnly`: всё вне цепочки предков страниц `shown`). Фон слоя
+  переходит на элемент, в котором он нарисован, рамка сквозного tile-а прозрачна, мышь проходит сквозь
+  слой и этот tile к странице, кроме панели, разделителей, других tile-ов, заголовка tile-а и шапки
+  рамки. Пока тянут заголовок tile-а или разделитель, страница мышь не берёт;
+- фокус: `inert` не мешает скрипту фрейма взять фокус (Chromium) — Card под слоем, вызвавшая `focus()`
+  у своего поля, забирала клавиатуру и до этого ticket-а. Теперь фокус, попавший под слой (кроме
+  страницы `shown`), возвращается на слой (`keepFocusOutOfCover`), при любом покрытии;
+- сон: пока tile показывает Browser этого Canvas, отчёт `browser.screen` — только Browser-ы в tile-ах и
+  zoom 1 (`screenShown`): Canvas под слоем не виден, Browser-ы на нём засыпают в свой срок;
+- screen reader: страница лежит в DOM под Canvas, а не в регионе «Focus mode»; тело рамки в tile-е
+  ставит `aria-owns` на элемент страницы. С VoiceOver не проверено.
 
 Цифры e2e после правки: страница лежит на теле tile-а с точностью до 1 px (1150 × 787 при окне 1400 × 900,
 zoom 1 и 0.5), раскладка страницы 1150 × 787, кремовый в нижней части тела — 100 % (Note и копии Node-ов
@@ -108,7 +116,7 @@ Canvas под слоем не видны), вне тела tile-а пиксел�
 выхода; «Back» на рамке ведёт на прошлый адрес. При смене раскладки (Rows, Columns) страница идёт за
 tile-ом; разделитель, протянутый над страницей, двигается, страница не видит ни одного движения мыши.
 
-Mutant-ы (все убиты): без раскладки в tile (`useTilePlacement(undefined)`) — e2e красный; без tile-ов в
+Mutant-ы раунда 0 (все убиты): без раскладки в tile (`useTilePlacement(undefined)`) — e2e красный; без tile-ов в
 `screenShown` и без подъёма zoom — unit красный; `inert` вместо `data-focus-covered`, регистрация тела
 копией на Canvas, без снятия раскладки при выходе, без замера каждый кадр, CSS без `*`, слой с мышью, слой
 и рамка tile-а непрозрачные, без правила step-aside — красные e2e или unit.
@@ -117,3 +125,20 @@ Mutant-ы (все убиты): без раскладки в tile (`useTilePlacem
 (проверено при написании test-а), поэтому test проверяет, что фокус окна на `<webview>` и поле страницы, а
 текст набирает через `sendInputEvent` самого гостя. Живой набор с клавиатуры в tile-е — в ручной проверке
 на Stable.
+
+Review раунд 1 (PR #831). Подтверждено e2e на коде раунда 0: со вторым Browser-ом, оставшимся на
+Canvas, `visibility: hidden` у предков останавливает его гостя — `capturePage` не приходит за 3 s,
+screencast даёт 0 кадров (на Canvas 34), хотя `visibilityState` гостя `visible`. Card со скриптом,
+который зовёт `focus()` каждые 100 ms, забирала клавиатуру из-под слоя. После правки (`data-under-focus`,
+`keepShownOnly`, `keepFocusOutOfCover`): capture второго Browser-а есть (доля его цвета 0.90), screencast
+36–67 кадров за секунду, синих пикселей второй страницы в окне под focus mode 0 (на Canvas 209 170),
+фокус остаётся на слое, Tab под слой не уходит (только в страницу tile-а). Цена: невидимая страница под
+слоем получает кадры анимации реже (1–8 за 0.5 s вместо 62) — Chromium притормаживает невидимый фрейм;
+Card-ы под слоем при `visibility: hidden` тоже могут притормаживаться, пока открыт focus mode.
+Новые test-ы: e2e «с Note рядом» проверяет пиксели страницы в tile-е, `<webview>` под курсором и колесо;
+e2e двух Browser-ов в tile-ах — каждая страница на своём теле с точностью до 1 px; unit — два Live Browser-а
+в tile-ах, ResizeObserver, сигнал `layoutSeq`, отчёт `[]` после выхода, `keepShownOnly`,
+`keepFocusOutOfCover`. Mutant-ы раунда 1 (27, все убиты): `some`→`every` у сквозных tile-ов, первое тело для
+всех страниц, без `keepShownOnly`, без возврата фокуса, без ResizeObserver, без сигнала раскладки, без
+`aria-owns`, CSS без `opacity` у `kept`, без видимости `data-under-focus`, без правила нажатой мыши и другие.
+

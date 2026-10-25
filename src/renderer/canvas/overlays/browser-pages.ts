@@ -102,22 +102,24 @@ export function tilePlacement(body: ScreenBox, origin: { x: number; y: number },
 
 /**
  * What the window shows of the Browsers (`browser.screen`): the ids of those whose page lies at least
- * partly inside the window on the Canvas, and those whose frame is in a focus tile (`inTiles`), with
- * the zoom of the Canvas. A tile draws its page at 1: while one shows a Browser the zoom counts as at
- * least 1, so main's sleep rules (src/main/browser/sleep.ts) never take that Browser for far off.
- * shortcut: one zoom per screen, so the Browsers under focus mode count readable too while a tile shows one; redo when `browser.screen` carries a zoom per Browser.
+ * partly inside the window on the Canvas, with the zoom of the Canvas. While focus mode shows a
+ * Browser in a tile (`inTiles`, worfy-browser ticket 17) the Canvas is under its layer: the window
+ * shows the Browsers in tiles alone, at 1 — a tile draws its page at its own size — so main's sleep
+ * rules (src/main/browser/sleep.ts) never take one of them for far off, and the Browsers left on the
+ * Canvas go to sleep in their time.
  */
 export function screenShown(
   state: Pick<ReactFlowState, 'transform' | 'width' | 'height'>,
   pages: readonly BrowserLayerPage[],
   inTiles: readonly string[],
 ): { visible: string[]; zoom: number } {
+  const tiled = pages.filter((page) => inTiles.includes(page.id)).map((page) => page.id)
+  if (tiled.length > 0) return { visible: tiled, zoom: 1 }
   const [x, y, zoom] = state.transform
   const left = -x / zoom
   const top = -y / zoom
   const right = left + state.width / zoom
   const bottom = top + state.height / zoom
-  const tiled = new Set(inTiles)
-  const visible = pages.filter((page) => tiled.has(page.id) || (page.x < right && page.x + page.w > left && page.y < bottom && page.y + page.h > top)).map((page) => page.id)
-  return { visible, zoom: pages.some((page) => tiled.has(page.id)) ? Math.max(zoom, 1) : zoom }
+  const visible = pages.filter((page) => page.x < right && page.x + page.w > left && page.y < bottom && page.y + page.h > top).map((page) => page.id)
+  return { visible, zoom }
 }

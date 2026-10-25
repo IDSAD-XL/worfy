@@ -233,18 +233,6 @@
   pointer-events: none;
 }
 
-/* A page laid over its frame's body in a focus tile (worfy-browser ticket 17, BrowserLayer.tsx): the
-   only thing drawn of what focus mode hides under its layer (focus.css). While a tile's title bar or
-   a divider is dragged the page takes no mouse, as on the Canvas: focus mode's layer carries the
-   mark of frames-step-aside.ts. */
-[data-focus-covered] .w-browser-layer__page[data-in-tile],
-[data-focus-covered] .w-browser-layer__page[data-in-tile] * {
-  visibility: visible !important;
-}
-.w-shell__main:has(> .w-focus[data-pointer-pressed]) .w-browser-layer__page {
-  pointer-events: none;
-}
-
 /* The name of the Browser profile in the header (worfy-browser ticket 03): a quiet button that
    opens the window «Browser profiles…». */
 .w-browser-frame__profile {

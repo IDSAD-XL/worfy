@@ -41,11 +41,16 @@
 // Focus mode draws a second copy of a Browser's frame in its tile (worfy-browser ticket 17,
 // ../../focus/FocusMode.tsx). The page stays here — a <webview> moved in the DOM loads its page
 // again — and, while the frame is in a tile, is laid over the tile copy's body instead of the Canvas
-// frame's (useTilePlacement): under focus mode's layer, which lets it show through the tile and hides
-// the rest of the Canvas (focus.css, BrowserNode.css). Leaving focus mode puts it back on the frame:
-// the same page, its history, scroll and typed text. A Browser in a tile counts as on screen
-// (screenShown in browser-pages.ts), wherever its frame is on the Canvas.
+// frame's (useTilePlacement): under focus mode's layer, which the frame makes see-through
+// (BrowserNode.tsx) and which hides the rest of the Canvas. Every page is marked for that layer
+// (UNDER_FOCUS_ATTRIBUTE, ../../focus/cover.ts): the one in a tile is drawn there and takes input, the
+// others stay rendered, invisible and inert, so that main keeps reaching them — their frames, a
+// Session's screenshots. Leaving focus mode puts the page back on the frame: the same page, its
+// history, scroll and typed text. While a tile shows a Browser the window shows the Browsers in
+// tiles alone (screenShown in browser-pages.ts), wherever their frames are on the Canvas.
 import { createElement, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import { UNDER_FOCUS_ATTRIBUTE } from '../../focus/cover'
+import { useFocusState } from '../../focus/focus-state'
 import { useStore, useStoreApi, ViewportPortal, type ReactFlowState } from '@xyflow/react'
 import { announceBrowserPage, keepWindowFocus } from '../../browser/control'
 import { reportBrowserScreen, useFollowBrowserLives, useLiveBrowserIds } from '../../browser/lives'
@@ -54,6 +59,7 @@ import { useBrowserProfiles } from '../../browser/profiles'
 import { subscribe, windowMachine } from '../../ipc'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import {
+  browserPageElementId,
   dismissBrowserOpenRequest,
   offerOwnBrowserOpenRequest,
   registerBrowserPage,
@@ -236,9 +242,15 @@ function BrowserPage({
     placement === null
       ? { transform: `translate(${page.x}px, ${page.y}px)`, width: page.w, height: page.h }
       : { transform: `translate(${placement.x}px, ${placement.y}px) scale(${1 / placement.zoom})`, transformOrigin: '0 0', width: placement.w, height: placement.h }
-  // Only the style changes between the frame and the tile: the same element, so the same page.
+  // Only the style changes between the frame and the tile: the same element, so the same page. Its
+  // id names it to the tile's body, which owns it for a screen reader (BrowserNode.tsx).
   return (
-    <div className="w-browser-layer__page" data-in-tile={placement === null ? undefined : ''} style={style}>
+    <div
+      id={browserPageElementId(page.id)}
+      className="w-browser-layer__page"
+      {...{ [UNDER_FOCUS_ATTRIBUTE]: placement === null ? 'kept' : 'shown' }}
+      style={style}
+    >
       {/* allowpopups: without it Electron drops a page's window.open and target="_blank" before main's
           window-open handler sees them; that handler opens no window and sends the page itself to
           the address instead (src/main/window.ts). */}
@@ -249,37 +261,45 @@ function BrowserPage({
 
 /**
  * Where the page lies over `tile`, the body of its frame in a focus tile (worfy-browser ticket 17);
- * null while the frame is not in a tile. Measured in every animation frame while it is: a divider
- * dragged, tiles swapped, the sidebar or the window resized all move the body, and nothing tells
- * the layer of them. The page is not taken out of the layer — a <webview> moved in the DOM loads its
- * page again — but laid over the body from where it is: under focus mode's layer, which lets it
- * show through the tile's body (focus.css).
+ * null while the frame is not in a tile. Measured again whenever the body changes size (a divider
+ * dragged, the sidebar or the window resized), focus mode says its tiles may have moved without
+ * that (tiles swapped, the sidebar shown: `layoutSeq` of focus-state.ts), or the Canvas moves the
+ * layer. The page is not taken out of the layer — a <webview> moved in the DOM loads its page
+ * again — but laid over the body from where it is: under focus mode's layer, which lets it show
+ * through the tile's body.
  */
 function useTilePlacement(tile: HTMLElement | undefined, layer: RefObject<HTMLDivElement | null>): TilePlacement | null {
   const flow = useStoreApi()
   const [placement, setPlacement] = useState<TilePlacement | null>(null)
+  const measure = useRef<(() => void) | null>(null)
   useEffect(() => {
     if (tile === undefined) return undefined
-    let frame = 0
     let last = ''
-    const measure = () => {
+    const now = () => {
       const origin = layer.current?.getBoundingClientRect()
-      if (origin !== undefined) {
-        const next = tilePlacement(tile.getBoundingClientRect(), origin, flow.getState().transform[2])
-        const key = JSON.stringify(next)
-        if (key !== last) {
-          last = key
-          setPlacement(next)
-        }
-      }
-      frame = requestAnimationFrame(measure)
+      if (origin === undefined) return
+      const next = tilePlacement(tile.getBoundingClientRect(), origin, flow.getState().transform[2])
+      const key = JSON.stringify(next)
+      if (key === last) return
+      last = key
+      setPlacement(next)
     }
-    measure()
+    measure.current = now
+    now()
+    const observer = new ResizeObserver(now)
+    observer.observe(tile)
     return () => {
-      cancelAnimationFrame(frame)
+      observer.disconnect()
+      measure.current = null
       setPlacement(null)
     }
   }, [tile, layer, flow])
+  const layoutSeq = useFocusState((state) => state.layoutSeq)
+  // The layer is inside React Flow's viewport: a pan or a zoom moves it. Only read while in a tile.
+  const transform = useStore((state) => (tile === undefined ? null : state.transform))
+  useEffect(() => {
+    measure.current?.()
+  }, [layoutSeq, transform])
   return placement
 }
 
