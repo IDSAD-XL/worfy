@@ -201,20 +201,15 @@
   border-radius: var(--radius-node);
   border: 1px solid var(--border);
   background: var(--done-bg);
-  box-shadow:
-    4px 4px 0 -1px var(--done-bg),
-    4px 4px 0 0 var(--border),
-    var(--shadow-node);
+  /* The two cards drawn behind the top one, and the Node shadow; the hover adds the veil. */
+  --w-stack-shadow: 4px 4px 0 -1px var(--done-bg), 4px 4px 0 0 var(--border), var(--shadow-node);
+  box-shadow: var(--w-stack-shadow);
   color: var(--done-text);
   font: inherit;
   text-align: left;
 }
-.w-epic__stack:hover:not([aria-disabled='true']) {
-  box-shadow:
-    4px 4px 0 -1px var(--done-bg),
-    4px 4px 0 0 var(--border),
-    var(--shadow-node),
-    var(--hover-shadow);
+.w-epic__stack:hover:where(:not(:disabled, [aria-disabled='true'])) {
+  box-shadow: var(--w-stack-shadow), var(--hover-shadow);
 }
 .w-epic__stack-title {
   flex: none;

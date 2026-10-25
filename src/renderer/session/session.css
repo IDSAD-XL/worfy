@@ -172,7 +172,7 @@
 .w-session__button:hover:not(:disabled, [aria-disabled='true']) {
   box-shadow: var(--shadow-control), var(--hover-shadow);
 }
-.w-session__toggle[aria-pressed='true']:hover {
+.w-session__toggle[aria-pressed='true']:hover:where(:not(:disabled, [aria-disabled='true'])) {
   box-shadow: var(--hover-shadow);
 }
 
@@ -851,7 +851,7 @@
   line-height: 1;
 }
 
-.w-attachment__remove:hover {
+.w-attachment__remove:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--border);
   color: var(--text);
 }
@@ -1207,7 +1207,7 @@
   line-height: 1;
 }
 
-.w-queue__remove:hover {
+.w-queue__remove:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--surface-raised);
   color: var(--text);
 }

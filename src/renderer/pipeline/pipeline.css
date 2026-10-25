@@ -83,7 +83,7 @@
   font: inherit;
   font-size: var(--text-12);
 }
-.w-pipeline-column__fold:hover {
+.w-pipeline-column__fold:hover:where(:not(:disabled, [aria-disabled='true'])) {
   border-color: var(--text-secondary);
 }
 .w-pipeline-column__fold:focus-visible {
@@ -118,7 +118,7 @@
   font: inherit;
   text-align: left;
 }
-.w-pipeline-card:hover {
+.w-pipeline-card:hover:where(:not(:disabled, [aria-disabled='true'])) {
   border-color: var(--border-strong);
 }
 .w-pipeline-card:focus-visible {

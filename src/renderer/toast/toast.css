@@ -80,7 +80,7 @@
   font: inherit;
   font-weight: 600;
 }
-.w-toast__action:hover {
+.w-toast__action:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--selected);
 }
 
@@ -97,7 +97,7 @@
   background: transparent;
   color: var(--text-muted);
 }
-.w-toast__close:hover {
+.w-toast__close:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--surface-raised);
   color: var(--text);
 }

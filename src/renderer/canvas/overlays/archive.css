@@ -30,7 +30,7 @@
   color: var(--text-secondary);
   font: inherit;
 }
-.w-archive__button:hover {
+.w-archive__button:hover:where(:not(:disabled, [aria-disabled='true'])) {
   box-shadow: var(--shadow-control), var(--hover-shadow);
 }
 .w-archive__button[aria-expanded='true'] {

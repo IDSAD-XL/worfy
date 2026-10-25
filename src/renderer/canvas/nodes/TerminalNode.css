@@ -82,7 +82,7 @@
   font-size: var(--text-11);
   font-weight: 600;
 }
-.w-terminal__fix:hover,
+.w-terminal__fix:hover:where(:not(:disabled, [aria-disabled='true'])),
 .w-terminal__fix:focus-visible {
   background: color-mix(in srgb, var(--blocked-ring) 18%, var(--terminal-bg));
   color: var(--blocked-ring);

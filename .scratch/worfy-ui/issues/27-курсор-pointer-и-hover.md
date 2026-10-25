@@ -121,15 +121,19 @@ segment, palette trigger, New conversation у Orchestrator, Trash, Pin и Delete
 - `src/renderer/theme/tokens.css` — правила контролов (`:where(...)`, нулевая специфичность): pointer;
   hover — полупрозрачная вуаль `--hover-veil` (inset box-shadow `--hover-shadow`, видна и поверх
   inline `background`); `:focus-visible` — кольцо `2px var(--accent)`; отключённые
-  (`:disabled`, `[aria-disabled=true]`) — `not-allowed` и без вуали. Поля ввода текста в список не
+  (`:disabled`, `[aria-disabled=true]`, label отключённого checkbox или radio) — `not-allowed` и без
+  вуали. Поля ввода текста в список не
   входят и держат курсор браузера (text).
 - Ручных `cursor: pointer` в `src/renderer` было **44** (25 в CSS, 19 inline в `.tsx`), стало **1** —
   общее правило; плюс `cursor: pointer` миникарты (`minimap.css`, это `div` React Flow, не контрол из
   списка). Убраны и явные `cursor: default` у кнопок, и дубли курсора у отключённых.
 - Компоненты со своим box-shadow получили hover «своя тень + вуаль»: `.w-primary`, текущий segment,
   Trash, Archive, `.w-session__button`, `.w-composer__send`, done stack Epic frame.
-- Hover-правила компонентов не срабатывают на отключённых (`:where(:not(:disabled, [aria-disabled='true']))`).
-- У строк архива и корзины hover убран; у панели ADR — pointer; фон selection toolbar — `default`.
+- Hover-правила компонентов не срабатывают на отключённых (`:where(:not(:disabled, [aria-disabled='true']))`,
+  специфичность прежняя): все hover-правила кнопок renderer-а, `.w-action` и `.w-action--primary` тоже
+  (раньше отключённые через `disabled` Move up, Reset в Settings → Pipeline и Up в выборе папки меняли
+  рамку под указателем).
+- У строк архива и корзины hover убран; у панели ADR — pointer.
 - Контраст вуали: `test/unit/contrast.test.ts` — фон под вуалью отличается от фона не меньше 1,07:1,
   текст на нём держит 4,5:1, в обеих темах (светлая — 4 % чёрного, тёмная — 6 % белого).
 
@@ -137,16 +141,31 @@ segment, palette trigger, New conversation у Orchestrator, Trash, Pin и Delete
 
 Пустое место Canvas до изменения — **не grab, а pointer**: Canvas работает в режиме выделения
 перетаскиванием (`selectionOnDrag`, `panOnDrag={[1]}`), и React Flow ставит pane-у
-`.react-flow__pane.selection { cursor: pointer }`. Курсоры Canvas не тронуты: test проверяет, что
-pane остался pointer, заголовок Note — grab, текст Note — text. Вопрос владельцу: оставить pointer на
-пустом Canvas или поставить `default` (pointer там — тот же «ложный» сигнал, на который жалоба).
+`.react-flow__pane.selection { cursor: pointer }`; это же правило перекрывало и его `grabbing` во время
+pan средней кнопкой (`.dragging`). Решение владельца (2026-10-25, вариант B): пустое место Canvas —
+`default` (`src/renderer/canvas/canvas.css`), pan средней кнопкой — `grabbing`. Состояние `draggable`
+(grab) у pane здесь не возникает: pan левой кнопкой выключен. Заголовок Note — grab, текст Note — text,
+рамки resize — правила React Flow, не тронуты.
 
 ### Проверки
 
-- `test/e2e/controls.spec.ts` (светлая и тёмная тема): pointer и смена вида под указателем у
-  контролов sidebar, toolbar, шапки Node-а, шапки Browser-а, selection toolbar, Settings, Session view;
-  Back Browser-а без истории — `not-allowed` и без смены вида; статус Orchestrator и заголовок раздела
-  Settings — без pointer и без смены вида; поле palette, текст Note и поле сообщения — text; кольцо
-  фокуса с клавиатуры; обход всех видимых контролов в каждой области — pointer или `not-allowed`.
-- Mutation testing: удалить правило pointer, вуаль, правило `not-allowed` или кольцо фокуса — test
-  красный в каждом случае.
+- `test/e2e/controls.spec.ts` (светлая и тёмная тема): pointer и вуаль под указателем (inset-слой с
+  ненулевым spread) у контролов sidebar, toolbar, шапки Node-а, шапки Browser-а, Canvas menu,
+  selection toolbar, Settings, Session view; Back Browser-а без истории, отключённая `.w-action` и
+  label отключённого checkbox — `not-allowed` и без смены вида; статус Orchestrator и заголовок
+  раздела Settings — без pointer и без смены вида; пустой Canvas — `default`, во время pan — `grabbing`;
+  поле palette, текст Note и поле сообщения — text; кольцо фокуса с клавиатуры; обход всех видимых
+  контролов в каждой области — pointer или `not-allowed`.
+- Тот же файл, read-only экран (два worfy, B даёт A Read only): пункт Canvas menu с `aria-disabled` —
+  `not-allowed` и без смены вида, неактивная строка Command palette — `not-allowed`.
+- Отключённая `.w-action` и label отключённого checkbox проверяются на элементах, добавленных в
+  документ приложения (стили — его собственные): настоящие стоят в выборе папки Linked machine, в
+  Settings → Pipeline и в редакторе Browser profile на read-only экране, для них нужен Harness profile
+  или Linked machine.
+- Mutation testing: удалить правило pointer, вуаль, правило `not-allowed`, `[aria-disabled]` в нём,
+  кольцо фокуса, правило пустого Canvas; вернуть `.w-row:hover` и `.w-action:hover` без исключения
+  отключённых; убрать исключение label отключённого checkbox; обнулить spread вуали — test красный в
+  каждом случае.
+- Кольцо фокуса в sidebar не обрезается: строки `.w-row` рисуют его внутри (`outline-offset: -2px`),
+  у кнопок шапок разделов до края области прокрутки остаётся 4 px при кольце 3 px (снимок с фокусом на
+  History в отчёте реализатора).

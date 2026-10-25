@@ -11,8 +11,6 @@
   font-family: var(--font-ui);
   font-size: var(--text-12);
   color: var(--text);
-  /* Not the pointer the Canvas pane passes down in selection mode: only the buttons act on a click. */
-  cursor: default;
 }
 .w-selection-toolbar__button {
   height: 24px;

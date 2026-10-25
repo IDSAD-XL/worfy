@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
@@ -5,7 +6,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, launchApp, type LaunchedApp } from './helpers'
+import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 
 // The control rules of src/renderer/theme/tokens.css in the built app: every control shows the
@@ -110,23 +111,41 @@ const looks = (target: Locator): Promise<string> =>
     return [style.backgroundColor, style.borderColor, style.color, style.boxShadow, style.opacity, style.textDecorationLine].join(' | ')
   })
 
+/** The look once it has stopped changing: two reads 50 ms apart agree (a transition may run). */
+async function settledLooks(window: Page, target: Locator): Promise<string> {
+  let last = await looks(target)
+  for (let read = 0; read < 40; read++) {
+    await window.waitForTimeout(50)
+    const next = await looks(target)
+    if (next === last) return next
+    last = next
+  }
+  throw new Error('the look of the control kept changing for 2 s')
+}
+
 /** The control's look with the pointer away from it and over it. */
 async function hovered(window: Page, target: Locator): Promise<{ away: string; over: string }> {
   await window.mouse.move(1, 1)
-  const away = await looks(target)
+  const away = await settledLooks(window, target)
   await target.hover()
-  await expect.poll(() => looks(target), { timeout: 2_000 }).not.toBe('')
-  const over = await looks(target)
+  const over = await settledLooks(window, target)
   await window.mouse.move(1, 1)
   return { away, over }
 }
 
-/** A control: the pointer, and a look of its own under the pointer. */
+/**
+ * The veil in a computed box-shadow: an inset layer in the veil's colour whose spread is more than
+ * zero (`100vmax` computes to pixels). The look string lists the box-shadow fourth.
+ */
+const veilOf = (look: string): RegExpMatchArray | null => /rgba\((?:0, 0, 0, 0\.04|255, 255, 255, 0\.06)\) 0px 0px 0px ([1-9][\d.]*)px inset/.exec(look.split(' | ')[3] ?? '')
+
+/** A control: the pointer, and the veil under the pointer. */
 async function expectControl(window: Page, target: Locator, name: string): Promise<void> {
   await expect(target, name).toBeVisible()
   expect(await cursorOf(target), `${name}: cursor`).toBe('pointer')
   const { away, over } = await hovered(window, target)
   expect(over, `${name}: looks different under the pointer`).not.toBe(away)
+  expect(veilOf(over), `${name}: the veil under the pointer (${over})`).not.toBeNull()
 }
 
 /** An inactive control: the not-allowed cursor, and no change under the pointer. */
@@ -175,9 +194,18 @@ for (const scheme of ['light', 'dark'] as const) {
     const veil = await window.evaluate(() => (globalThis as unknown as PageGlobals).getComputedStyle((globalThis as unknown as PageGlobals).document.documentElement).getPropertyValue('--hover-veil'))
     expect(veil.trim(), 'the veil of this theme').toBe(scheme === 'light' ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.06)')
 
-    // The Canvas keeps its own cursors: React Flow's on the pane (pointer while dragging draws a
-    // selection, the mode this Canvas runs in) and the grab of a Node's drag handle.
-    await expect.poll(() => cursorOf(window.locator('.react-flow__pane'))).toBe('pointer')
+    // The empty Canvas, where a drag draws a selection, has the arrow (canvas.css), not React Flow's
+    // pointer; a pan with the middle button shows grabbing. A Node's drag handle keeps its grab.
+    const pane = window.locator('.react-flow__pane')
+    await expect.poll(() => cursorOf(pane)).toBe('default')
+    const paneBox = await pane.boundingBox()
+    if (paneBox === null) throw new Error('the Canvas has no box')
+    await window.mouse.move(paneBox.x + 300, paneBox.y + paneBox.height - 40)
+    await window.mouse.down({ button: 'middle' })
+    await window.mouse.move(paneBox.x + 340, paneBox.y + paneBox.height - 60, { steps: 4 })
+    await expect.poll(() => cursorOf(pane), { message: 'the Canvas while it is panned' }).toBe('grabbing')
+    await window.mouse.up({ button: 'middle' })
+    await expect.poll(() => cursorOf(pane)).toBe('default')
     expect(await cursorOf(window.locator('.w-note__header')), 'the drag handle of a Note').toBe('grab')
     expect(await cursorOf(window.locator('.w-note__text')), 'the text of a Note').toBe('text')
 
@@ -197,6 +225,31 @@ for (const scheme of ['light', 'dark'] as const) {
     await expectControl(window, frame.getByRole('button', { name: 'Reload' }), 'Reload of a Browser')
     await expectInactive(window, frame.getByRole('button', { name: 'Back' }), 'Back of a Browser with no history')
     await expectAllCursors(window, 'the Canvas')
+
+    // The Canvas menu of the empty Canvas: its items are controls.
+    await window.mouse.click(paneBox.x + 300, paneBox.y + paneBox.height - 40, { button: 'right' })
+    const menu = window.getByRole('menu', { name: 'Canvas' })
+    await expect(menu).toBeVisible()
+    await expectControl(window, menu.getByRole('menuitem').first(), 'an item of the Canvas menu')
+    await expectAllCursors(window, 'the Canvas menu')
+    await menu.press('Escape')
+    await expect(menu).toHaveCount(0)
+
+    // Inactive controls the screens of this test do not show: a `.w-action` button with `disabled`
+    // (Up of the folder browser at the root, Move up and Reset of Settings → Pipeline, which need
+    // a Linked machine or a Harness profile) and the label of a disabled checkbox (the Autopilot box
+    // of a read-only Browser profile). Drawn into the app's own document, so the app's own
+    // stylesheets style them.
+    await window.evaluate(() => {
+      const probe = (globalThis as unknown as { document: { createElement: (tag: string) => { innerHTML: string; style: { cssText: string } }; body: { append: (node: unknown) => void } } }).document
+      const holder = probe.createElement('div')
+      holder.style.cssText = 'position: fixed; left: 360px; top: 120px; z-index: 100000; display: flex; gap: 8px; padding: 8px; background: var(--surface)'
+      holder.innerHTML = '<button type="button" class="w-action" disabled data-testid="probe-action">Up</button><label data-testid="probe-label"><input type="checkbox" disabled> Available to Autopilot</label>'
+      probe.body.append(holder)
+    })
+    await expectInactive(window, window.getByTestId('probe-action'), 'a disabled .w-action button')
+    await expectInactive(window, window.getByTestId('probe-label'), 'the label of a disabled checkbox')
+    await window.evaluate(() => (globalThis as unknown as { document: { querySelector: (selector: string) => { parentElement: { remove: () => void } } | null } }).document.querySelector('[data-testid="probe-action"]')?.parentElement.remove())
 
     // The selection toolbar of a selected Note: its buttons, and its own ground that is not one.
     await window.locator('.w-note__header').click()
@@ -251,3 +304,69 @@ for (const scheme of ['light', 'dark'] as const) {
     await expectAllCursors(window, 'the Session view')
   })
 }
+
+function git(cwd: string, ...args: string[]): void {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd, env })
+}
+
+// A read-only screen (worfy-link ticket 25): B shares its Project with A read-only, A opens it. The
+// write actions there carry aria-disabled, not disabled (projects/read-only.ts): the items of the
+// Canvas menu and the rows of the command palette that would change B's Layout.
+test('the write actions of a read-only screen show not-allowed and no hover', async () => {
+  test.setTimeout(180_000)
+  const projectOf = (name: string, id: string): string => {
+    const repo = join(scratch, name)
+    const dataDir = join(scratch, `${name}-data`)
+    mkdirSync(repo)
+    git(repo, 'init', '-q')
+    mkdirSync(join(dataDir, id), { recursive: true })
+    mkdirSync(join(scratch, `${name}-home`))
+    writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id, name, path: realpathSync(repo) }], activeId: id }))
+    return dataDir
+  }
+  const BETA = 'beta-0000000b'
+  const a = await launchApp({ env: { WORFY_DATA_DIR: projectOf('alpha', PROJECT), HOME: join(scratch, 'alpha-home') } })
+  launched = a
+  const b = await launchApp({ env: { WORFY_DATA_DIR: projectOf('beta', BETA), HOME: join(scratch, 'beta-home') } })
+  try {
+    await canvasReady(b, { size: { width: 1400, height: 900 } })
+    await canvasReady(a, { size: { width: 1400, height: 900 } })
+    await linkThroughUi(a.window, b.window)
+    const aId = await machineIdOf(a.window)
+    const bId = await machineIdOf(b.window)
+    const settings = await openMachinesSettings(b)
+    await settings.getByRole('switch', { name: PROJECTS_ACCESS_LABEL, exact: true }).click()
+    await chooseLevel(b.window, settings.getByTestId(`link-machine-access-${aId}`), 'read')
+    await closeSettings(b.window)
+
+    const window = a.window
+    const group = window.locator(`[data-testid="machine-group"][data-machine-id="${bId}"]`)
+    await expect(group.getByTestId('machine-read-only')).toHaveText('Read only', { timeout: 20_000 })
+    await group.locator(`[data-testid="project-row"][data-project-id="${BETA}"]`).getByRole('button').click()
+    await expect(window.getByTestId('canvas')).toHaveAttribute('data-project-id', BETA)
+    await expect(window.getByTestId('canvas-read-only')).toBeVisible()
+
+    const pane = window.locator('.react-flow__pane')
+    const box = await pane.boundingBox()
+    if (box === null) throw new Error('the Canvas has no box')
+    await window.mouse.click(box.x + 300, box.y + box.height - 40, { button: 'right' })
+    const menu = window.getByRole('menu', { name: 'Canvas' })
+    await expect(menu).toBeVisible()
+    const item = menu.getByRole('menuitem').first()
+    await expect(item).toHaveAttribute('aria-disabled', 'true')
+    await expectInactive(window, item, 'an inactive item of the Canvas menu')
+    await expectAllCursors(window, 'the Canvas menu of a read-only screen')
+    await menu.press('Escape')
+    await expect(menu).toHaveCount(0)
+
+    await window.keyboard.press('ControlOrMeta+k')
+    await expect(window.getByTestId('palette-input')).toBeVisible()
+    const inactive = window.locator('[data-testid="palette-option"][aria-disabled="true"]').first()
+    await expect(inactive).toBeVisible()
+    expect(await cursorOf(inactive), 'an inactive row of the command palette').toBe('not-allowed')
+    await expectAllCursors(window, 'the command palette of a read-only screen')
+  } finally {
+    await b.close()
+  }
+})

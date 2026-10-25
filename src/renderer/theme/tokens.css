@@ -229,7 +229,7 @@ button {
     [role='option'],
     [role='switch'],
     [role='link']
-  ):where(:hover:not(:disabled, [aria-disabled='true'])) {
+  ):where(:hover:not(:disabled, [aria-disabled='true'], :has(input:disabled))) {
   box-shadow: var(--hover-shadow);
 }
 :where(
@@ -248,7 +248,7 @@ button {
     [role='option'],
     [role='switch'],
     [role='link']
-  ):focus-visible {
+  ):where(:focus-visible) {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
