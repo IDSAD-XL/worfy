@@ -9,7 +9,7 @@
 // file name itself and writes the file (src/main/layout/images.ts). The renderer then creates the
 // Node with the answer, through the Layout like any other gesture, so ⌘Z undoes it.
 import { z } from 'zod'
-import { base64Length, FILE_COPY_LIMIT_BYTES, IMAGE_MEDIA_TYPES, imageMediaTypeSchema, type ImageMediaType } from '../agent/attachments'
+import { base64Length, FILE_COPY_LIMIT_BYTES, IMAGE_EXTENSIONS, IMAGE_MEDIA_TYPES, imageMediaTypeSchema } from '../agent/attachments'
 import { invokeChannel } from './channels'
 
 /** The kind of the Nodes that show an image. */
@@ -24,19 +24,11 @@ export const CANVAS_IMAGE_LIMIT_BYTES = FILE_COPY_LIMIT_BYTES
 /** The types the Canvas shows; svg is refused (it is XML, and may carry scripts). */
 export const CANVAS_IMAGE_TYPES = IMAGE_MEDIA_TYPES
 
-/** The extension of an image file by its type. */
-export const IMAGE_EXTENSIONS: Readonly<Record<ImageMediaType, string>> = {
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/gif': 'gif',
-  'image/webp': 'webp',
-}
-
 /**
  * The name of an image file: 32 hex digits main chose, and the extension of its type. The pattern
  * keeps a name from reaching any other folder (no separators, no dots but the one).
  */
-export const IMAGE_FILE_PATTERN = /^[0-9a-f]{32}\.(?:png|jpg|gif|webp)$/
+export const IMAGE_FILE_PATTERN = new RegExp(`^[0-9a-f]{32}\\.(?:${Object.values(IMAGE_EXTENSIONS).join('|')})$`)
 
 const MB = 1024 * 1024
 const megabytes = (bytes: number): string => `${Math.floor((bytes / MB) * 100) / 100} MB`

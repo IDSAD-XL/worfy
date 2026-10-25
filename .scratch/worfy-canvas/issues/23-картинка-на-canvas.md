@@ -138,3 +138,50 @@ Orchestrator-а; владелец может их поменять. Код пе�
       `windows-verdict-scope`.
 
 ## Итог
+
+**Как картинка попадает на Canvas.** Overlay `src/renderer/canvas/overlays/ImageDrop.tsx`: вставка
+(⌘V / Ctrl+V), когда Canvas на экране и фокус на нём или ни на чём, но не в поле ввода
+(`isTextTarget`: поле, textarea Terminal-а, поле сообщения), — картинка встаёт под курсором, если он
+над Canvas, иначе в центре Canvas. Drop файлов — только на пустое место Canvas: drop на Node остаётся
+Node-у (Session Node берёт файл вложением). Несколько файлов — каскад со сдвигом 32 px, один шаг ⌘Z
+(`addImages`, `src/renderer/canvas/image-drop.ts`). На экране только для чтения — toast с причиной.
+
+**Запись.** Канал `canvasImage.add` (`src/shared/ipc/canvas-images.ts`, `project`/`write`). Main
+(`storeImage`, `src/main/layout/images.ts`): предел 20 MB, тип по первым байтам (png, jpeg, gif,
+webp), svg — отдельное сообщение, натуральный размер — из заголовка картинки (PNG IHDR, GIF, JPEG SOF,
+WebP VP8/VP8L/VP8X), имя файла — 32 hex от main, запись с флагом `wx`. Файл —
+`<Project data folder>/images/<id>.<ext>`; в Layout — только `{ file, width, height, mime }`.
+Renderer до чтения отклоняет файл больше 20 MB. Отказы — toast `image-refused`.
+
+**Node `image`.** `src/renderer/canvas/nodes/ImageNode.tsx`: `<img>` 100 % × 100 %, `object-fit:
+contain`, по центру; рамка `NodeResizeClamp` без сохранения пропорций, минимум 48 × 48. Начальный
+размер — естественный, длинная сторона не больше 480 px, без увеличения (`initialImageSize`).
+Заголовка у Node-а нет (исключение в `test/unit/canvas-zoom.test.tsx`). Картинка, которая не
+загрузилась, — плашка «Image not available».
+
+**Показ.** Схема `worfy-image://` из worfy-ui 28 (#835): хранилище `canvas.<project label>` →
+`<Project data folder>/images/`, имена `IMAGE_FILE_PATTERN`, лимит 20 MB (`canvasImageStore`, одна
+ветка locator-а в `src/main/index.ts`). Адрес строит `canvasImageUrl` (`src/shared/images.ts`);
+project label считается в renderer-е так же, как `projectIdHash` в main (сверяет contract test). Окно
+на Linked machine строит адрес с её machine label, main отвечает 404, Node показывает плашку; чтение
+через link — ticket 24.
+
+**Корзина.** `image` — в `TRASHABLE_KINDS`. Удаление переносит файл в запись корзины, restore
+возвращает Node и файл, purge удаляет; файл, который показывает другой Node, остаётся. ⌘Z вставки
+убирает Node, а файл оставляет для ⇧⌘Z; такие файлы удаляет проверка при старте (`sweepImages`):
+только файлы старше 10 минут без Node-а и только если `layout.json` есть, разбирается и ни разу не
+откладывался как unreadable — пустой Layout из битого файла не стоит пользователю всех картинок.
+
+**Известное ограничение.** Размер JPEG не учитывает EXIF orientation (`shortcut:` в
+`src/main/layout/images.ts`): снятое боком фото начнёт с переставленными сторонами, но картинка не
+искажается.
+
+**Тесты.** unit `test/unit/image-node.test.tsx`, `test/unit/image-src.test.ts`; contract
+`test/contract/canvas-images.test.ts` (запись, предел, svg и не-картинки, корзина, проверка при
+старте), `test/contract/canvas-image-protocol.test.ts` (`..`, чужой Project, чужой id, имя вне
+шаблона, svg, больше лимита, Linked machine → 404); e2e `test/e2e/canvas-image.spec.ts` (вставка,
+очень широкая и очень высокая карточка — пропорции видимой картинки по пикселям, перезапуск, Delete и
+⌘Z с файлом, вставка в поле заметки остаётся полю, drop двух файлов, отказ svg и 20 MB). Mutation
+testing: 33 + 12 мутантов новых строк убиты; e2e-мутант `object-fit: fill` падает на проверке
+пикселей.
+

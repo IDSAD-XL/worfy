@@ -24,7 +24,7 @@ vi.mock('../../src/renderer/projects/useProjects', async (original) => ({
   useProjects: () => ({ projects: [{ id: 'demo-0a1b2c3d', name: 'demo', path: '/repo' }], activeId: 'demo-0a1b2c3d' }),
 }))
 vi.mock('../../src/renderer/canvas/nodes/image-url', () => ({
-  canvasImageUrl: (projectId: string, file: string) => `test-image://${projectId}/${file}`,
+  imageSrc: (projectId: string, file: string) => `test-image://${projectId}/${file}`,
 }))
 
 const { default: ImageNode } = await import('../../src/renderer/canvas/nodes/ImageNode')
@@ -84,18 +84,18 @@ describe('the image inside the card', () => {
     expect(sent).toEqual([{ op: 'resize', id: 'pic', x: 10, y: 20, w: 1000, h: 50 }])
   })
 
-  it('shows "Image not found" when the file does not load, and for data that names no image file', () => {
+  it('shows "Image not available" when the file does not load, and for data that names no image file', () => {
     renderNode(200, 100)
     act(() => {
       screen.getByRole('img', { name: 'Image' }).dispatchEvent(new Event('error'))
     })
-    expect(screen.getByRole('img', { name: 'Image not found' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: 'Image not available' })).toBeTruthy()
     expect(screen.queryByRole('img', { name: 'Image' })).toBeNull()
   })
 
-  it('shows "Image not found" for data that is not an image file of the store', () => {
+  it('shows "Image not available" for data that is not an image file of the store', () => {
     renderNode(200, 100, { file: '../../etc/passwd', width: 1, height: 1, mime: 'image/png' })
-    expect(screen.getByRole('img', { name: 'Image not found' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: 'Image not available' })).toBeTruthy()
   })
 })
 

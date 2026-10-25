@@ -147,6 +147,12 @@ async function expectUndistorted(node: Locator, label: string): Promise<void> {
   expect(Math.abs(middle.y - red.card.height / 2), `${label}: centred down`).toBeLessThan(4)
 }
 
+/** Drags the selected Node's bottom-right handle so the Node becomes `w` × `h` on screen (zoom 1). */
+async function resizeTo(window: Page, node: Locator, w: number, h: number): Promise<void> {
+  const now = await box(node)
+  await resizeBy(window, w - now.width, h - now.height)
+}
+
 /** Drags the selected Node's bottom-right handle by (dx, dy). */
 async function resizeBy(window: Page, dx: number, dy: number): Promise<void> {
   const handle = window.locator('.react-flow__resize-control.handle.bottom.right')
@@ -166,9 +172,11 @@ test('a pasted image becomes a Node, stays undistorted at any card size, survive
     const { window } = first
     await canvasReady(first)
     const pane = window.locator('.react-flow__pane')
+    const room = await box(pane)
 
-    // The pointer over the empty plane, the focus on the Canvas: the image lands under the pointer.
-    await pane.click({ position: { x: 360, y: 300 } })
+    // The pointer over the empty plane, the focus on the Canvas: the image lands under the pointer —
+    // left of the middle and below the Orchestrator Node, which takes the top-left corner.
+    await pane.click({ position: { x: 300, y: Math.round(room.height * 0.55) } })
     expect(await carry(window, 'paste', [{ name: 'image.png', type: 'image/png', png: NATURAL }])).toBe(false)
     const node = window.getByTestId('image-node')
     await expect(node).toHaveCount(1)
@@ -184,7 +192,7 @@ test('a pasted image becomes a Node, stays undistorted at any card size, survive
     await expectUndistorted(node, 'at its natural size')
 
     // A paste into a note's text field is the field's: no image Node.
-    await pane.dblclick({ position: { x: 900, y: 560 } })
+    await pane.dblclick({ position: { x: Math.round(room.width * 0.6), y: Math.round(room.height - 150) } })
     const text = window.getByRole('textbox', { name: 'Note text' })
     await text.focus()
     expect(await carry(window, 'paste', [{ name: 'image.png', type: 'image/png', png: { width: 10, height: 10 } }], { selector: 'textarea' })).toBe(true)
@@ -192,15 +200,18 @@ test('a pasted image becomes a Node, stays undistorted at any card size, survive
     expect(await imagesOf(window)).toHaveLength(1)
 
     // Very wide, then very tall: the image keeps its proportions, fitted and centred.
+    // To 60 px short of the Canvas's right edge, 60 px high.
     await node.click()
-    await resizeBy(window, 500, -140)
-    await expect.poll(async () => (await imagesOf(window))[0]?.w).toBeGreaterThan(800)
+    const placed = await box(node)
+    await resizeTo(window, node, room.x + room.width - 60 - placed.x, 60)
+    await expect.poll(async () => (await imagesOf(window))[0]?.h).toBe(60)
     const wide = await box(node)
     expect(wide.width / wide.height).toBeGreaterThan(10)
     await expectUndistorted(node, 'very wide')
 
-    await resizeBy(window, -840, 500)
-    await expect.poll(async () => (await imagesOf(window))[0]?.h).toBeGreaterThan(500)
+    // 60 px wide, down to 60 px short of the Canvas's bottom edge.
+    await resizeTo(window, node, 60, room.y + room.height - 60 - placed.y)
+    await expect.poll(async () => (await imagesOf(window))[0]?.w).toBe(60)
     const tall = await box(node)
     expect(tall.height / tall.width).toBeGreaterThan(5)
     await expectUndistorted(node, 'very tall')

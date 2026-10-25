@@ -28,6 +28,7 @@ import { installAppMenu } from './menu'
 import { workflowHub } from './ipc/workflow'
 import { archiveRegistry, archiveSettings, archiveTickMs, AutoArchiver, sessionBindings, startAppArchiver } from './layout/archive'
 import { bindingStore } from './layout/bindings'
+import { canvasImageStore } from './layout/images'
 import { layoutStore } from './layout/store'
 import { appWaitsSources, electronNotifyDeps, followAppLinkPauses, installGateQueueNotifications, installNotifications } from './notify'
 import { projectStore } from './projects/store'
@@ -146,8 +147,15 @@ function start(): void {
       // The checks of Browser sleep (worfy-browser ticket 05) start with the first screen a window reports.
       app.on('will-quit', stopLiveBrowsers)
       inStep('installCardRuntime', () => installCardRuntime((host) => cardStore().locate(host)))
-      // The copies of the images sent in messages; a store of the Canvas images joins here (src/shared/images.ts).
-      inStep('installImageProtocol', () => installImageProtocol((store) => (store === ATTACHMENT_IMAGES_STORE ? attachmentImageStore(attachmentImagesDir(dataRoot())) : null)))
+      // The copies of sent images (worfy-ui ticket 28) and the images on each Project's Canvas
+      // (worfy-canvas ticket 23, src/main/layout/images.ts).
+      inStep('installImageProtocol', () =>
+        installImageProtocol((store) =>
+          store === ATTACHMENT_IMAGES_STORE
+            ? attachmentImageStore(attachmentImagesDir(dataRoot()))
+            : canvasImageStore(store, { ids: () => projectStore().list().map(({ id }) => id), dataDirOf: (id) => projectStore().dataDir(id) }),
+        ),
+      )
       // Before the first window: its creation is what opens the active Project's Orchestrator.
       inStep('startOrchestrators', () => startOrchestrators())
       // Notifications when a Session ends its turn or asks for permission (ticket 21), here and on

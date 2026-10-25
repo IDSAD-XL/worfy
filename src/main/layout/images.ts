@@ -9,17 +9,20 @@
 // its own message), and an image whose header tells no size. The natural size comes from the
 // image's own header, so the Layout never takes the renderer's word for it.
 //
+// The window shows an image through worfy-image://canvas.<project label>/<file>
+// (src/shared/images.ts): canvasImageStore() is that store for the protocol's locator, which serves
+// only names of IMAGE_FILE_PATTERN from the Project's images folder, up to CANVAS_IMAGE_LIMIT_BYTES.
+//
 // A file leaves the folder with its Node when the Node goes to the trash (trash.ts). ⌘Z of the
 // paste removes the Node but keeps the file, which ⇧⌘Z needs again; sweepImages(), run when the
 // app starts, deletes the files no Node of the Layout shows any more.
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ImageMediaType } from '../../shared/agent/attachments'
+import { IMAGE_EXTENSIONS, type ImageMediaType } from '../../shared/agent/attachments'
 import {
   CANVAS_IMAGE_LIMIT_BYTES,
   canvasImageTooLarge,
-  IMAGE_EXTENSIONS,
   IMAGE_FILE_PATTERN,
   IMAGE_NODE_KIND,
   IMAGES_DIR,
@@ -28,12 +31,30 @@ import {
   unreadableImage,
   type CanvasImageResult,
 } from '../../shared/ipc/canvas-images'
+import { canvasImagesStore } from '../../shared/images'
 import type { LayoutNode } from '../../shared/layout/types'
 import { imageTypeOf } from '../agent/attachments'
+import type { ImageStore } from '../images/protocol'
 import { removeFile } from '../storage/remove'
 
 /** The folder of a Project's images. */
 export const imagesDirOf = (dataDir: string): string => join(dataDir, IMAGES_DIR)
+
+/** The Projects canvasImageStore() looks through: the ids in worfy's list and their data folders. */
+export interface CanvasImageProjects {
+  ids: () => readonly string[]
+  dataDirOf: (projectId: string) => string
+}
+
+/**
+ * The store a store name of the worfy-image:// protocol names when it is `canvas.<project label>`
+ * of exactly one Project in the list: that Project's images folder. Null for any other name.
+ */
+export function canvasImageStore(store: string, projects: CanvasImageProjects): ImageStore | null {
+  const matches = projects.ids().filter((id) => canvasImagesStore(id) === store)
+  if (matches.length !== 1) return null
+  return { dir: imagesDirOf(projects.dataDirOf(matches[0]!)), names: IMAGE_FILE_PATTERN, limit: CANVAS_IMAGE_LIMIT_BYTES }
+}
 
 /** The image file a Node shows: `data.file` of an `image` Node when it is a name main could have chosen; null otherwise. */
 export function imageFileOf(node: Pick<LayoutNode, 'kind' | 'data'>): string | null {

@@ -5,7 +5,7 @@ import { IMAGE_MIN_SIDE } from '../image-drop'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
-import { canvasImageUrl } from './image-url'
+import { imageSrc } from './image-url'
 import './ImageNode.css'
 
 // An image pasted or dropped on the Canvas (worfy-canvas ticket 23; ../overlays/ImageDrop.tsx).
@@ -26,7 +26,7 @@ export default function ImageNode({ id, data, selected }: CanvasNodeProps) {
   const ops = useLayoutOps()
   const projectId = activeProject(useProjects())?.id
   const image = imageNodeDataSchema.safeParse(data.node.data)
-  const src = image.success && projectId !== undefined ? canvasImageUrl(projectId, image.data.file) : null
+  const src = image.success && projectId !== undefined ? imageSrc(projectId, image.data.file) : null
   // The file a failed load was for: a Node whose file changes tries again.
   const [failed, setFailed] = useState<string | null>(null)
   const shown = src !== null && failed !== src
@@ -41,8 +41,8 @@ export default function ImageNode({ id, data, selected }: CanvasNodeProps) {
       {shown ? (
         <img className="w-image__img" style={FIT} src={src} alt="Image" draggable={false} onError={() => setFailed(src)} />
       ) : (
-        <div className="w-image__missing" role="img" aria-label="Image not found">
-          Image not found
+        <div className="w-image__missing" role="img" aria-label="Image not available">
+          Image not available
         </div>
       )}
     </div>
