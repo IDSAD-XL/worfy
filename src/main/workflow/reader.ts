@@ -214,10 +214,28 @@ export function codeSection(markdown: string, heading: string = DEFAULT_DOC_HEAD
   return { listed, files }
 }
 
-/** The H1 of a markdown file, or null. */
+/**
+ * The H1 of a markdown file, or null: the first line outside ``` and ~~~ fences that is `#`, spaces or tabs, and text,
+ * with the trailing spaces and tabs dropped; a byte order mark at the start does not count. It is the rule of the Ticket
+ * title in the Harness's epic-status (harness/bin/TICKETS.md, "Header"): both readers are tested on the cases of
+ * harness/bin/tests/fixtures/ticket-title.
+ */
 export function firstHeading(markdown: string): string | null {
-  const match = /^#[ \t]+(.+?)\s*$/mu.exec(markdown)
-  return match ? match[1]! : null
+  // The run of ` or ~ that opened the code block we are in; '' outside code. A fence closes only with a line of the same
+  // character, at least as long, and nothing after it: a ~~~ line inside a ``` block is text of the block. The same rule
+  // as harness/lib/code-fence.cjs, which the Harness's ticket and epic-status share.
+  let fence = ''
+  for (const line of markdown.replace(/^\uFEFF/u, '').split(/\r?\n/u)) {
+    const f = /^[ \t]*(`{3,}|~{3,})(.*)$/u.exec(line)
+    if (fence !== '') {
+      if (f && f[1]![0] === fence[0] && f[1]!.length >= fence.length && /^[ \t]*$/u.test(f[2]!)) fence = ''
+    } else if (f) fence = f[1]!
+    else {
+      const match = /^#[ \t]+([^ \t].*?)[ \t]*$/u.exec(line)
+      if (match) return match[1]!
+    }
+  }
+  return null
 }
 
 /** `NN-slug.md` → the key epic-status gives the Ticket: its number and slug (same rules as the script). */

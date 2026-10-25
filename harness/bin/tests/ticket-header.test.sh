@@ -192,6 +192,25 @@ printf '\357\273\277# 10 — CRLF and BOM\r\n\r\nStatus: claimed %s\r\nPR: #27\r
 out="$(tk show ep 09 2>&1)"
 [[ "$out" == "09-new.md:4  Status: blocked "*"Blocked reason: another reason"* ]] && ok "show prints the status lines" || bad "show: $out"
 
+# ── 7b. the writer and the reader take the same lines for code (lib/code-fence.cjs) ────────────────
+# A block closes only with a line of its own character, at least as long, with nothing after it. If ticket and
+# epic-status saw blocks differently, `ticket done` could write a ticket that epic-status reads as not done.
+# In their own tickets root, so the migrate runs above do not reach them.
+F="$T/fence/.scratch"; FE="$F/fen/issues"; mkdir -p "$FE"
+# 01: ~~~ inside a ``` block is text; the ``` after it closes the block, so the next Status line is a second one.
+printf '%s\n' '# 01 — tilde in a backtick block' '' 'Status: open' '' '```text' '~~~' '```' 'Status: done' '```' >"$FE/01-tilde.md"
+# 02: ``` inside a ```` block is text, and so is the Status line after it: the header has one Status line.
+printf '%s\n' '# 02 — backticks in a longer block' '' 'Status: open' '' '````md' '```' 'Status: done' '```' '````' >"$FE/02-four.md"
+fstate() { "$STATUS" --json --root "$F" | jq -r --argjson n "$1" '.tickets[] | select(.num == $n) | .state + "/" + (.statusError // "-")'; }
+[ "$(fstate 1)" = "none/old header" ] && [ "$(fstate 2)" = "open/-" ] \
+    && ok "epic-status: ~~~ does not close a \`\`\` block, \`\`\` does not close a \`\`\`\` block" || bad "epic-status on fences: 01 $(fstate 1), 02 $(fstate 2)"
+out="$("$TICKET" done fen 01 --root "$F" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [[ "$out" == *"run ticket migrate first"* ]] && grep -qx 'Status: open' "$FE/01-tilde.md" \
+    && ok "ticket done refuses 01 as an old header, as epic-status reads it" || bad "ticket done fen 01: exit $rc, $out"
+out="$("$TICKET" done fen 02 --root "$F" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(fstate 2)" = "done/-" ] && [ "$(sed -n 3p "$FE/02-four.md")" != "Status: open" ] && grep -Eqx "Status: done $NOW" "$FE/02-four.md" \
+    && ok "ticket done on 02 writes the header line, and epic-status reads 02 as done" || bad "ticket done fen 02: exit $rc, $out, state $(fstate 2)"
+
 # ── 8. no writes into the real home ───────────────────────────────────────────────────────────────
 [ "$(real_home_snapshot "$HOME" "$T")" = "$home_before" ] && ok "real home untouched" || bad "real home changed"
 

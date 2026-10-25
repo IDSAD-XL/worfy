@@ -2,7 +2,8 @@
 // node runs. It reads Tickets the way the real script does for those tests' simple files: from the
 // working tree, or from a branch for `--ref`. The header is the one-fact-per-line format of
 // harness/bin/TICKETS.md: `Status: <word> [<time>]`, `Blocked reason:`, `Waits:`, `PR: #N`; any other
-// Status line is an old header, state none. STUB_LOG, STUB_DELAY_MS, STUB_SCRATCH and STUB_MODE
+// Status line is an old header, state none. The title is the first H1 on any line, as the real script
+// reads it; the code blocks it skips do not occur in those files. STUB_LOG, STUB_DELAY_MS, STUB_SCRATCH and STUB_MODE
 // come from the environment the test hands the reader.
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
@@ -53,7 +54,7 @@ for (const [path, read] of files) {
   // Branch: and Repo: as the Harness of Silent mode gives them; only when the Ticket has the line.
   const lines = {}
   for (const [key, name] of [['branch', 'Branch'], ['repo', 'Repo']]) { const v = last(name); if (v !== null) lines[key] = v }
-  tickets.push({ epic, num: Number(m[1]), slug: m[2], title: (text.split('\n')[0] || '').replace(/^#\s*/, ''), statusRaw: status, state, ...facts,
+  tickets.push({ epic, num: Number(m[1]), slug: m[2], title: /^#[ \t]+([^ \t].*?)[ \t]*$/m.exec(text.replace(/\r/g, ''))?.[1] ?? '', statusRaw: status, state, ...facts,
     blockedRaw: blocked, blockedNums: nums, blockedParsed: nums.every((n) => !Number.isNaN(n)), ...lines, ref: ref ?? '.', secret: 'not-for-the-renderer' })
 }
 if (process.env.STUB_MODE === 'fail') { process.stderr.write('stub broke on purpose\n'); process.exit(3) }

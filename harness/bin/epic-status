@@ -44,6 +44,8 @@ const { spawnSync } = require("node:child_process")
 const { git: GIT } = require("../hooks/eval-env.cjs")
 // Words of other languages in a Blocked by line: "none" and "and" (data, not protocol).
 const INPUT = require("../lib/input-words.json")
+// Code blocks: the rule bin/ticket, the writer of the header, skips them by.
+const { codeLines } = require("../lib/code-fence.cjs")
 
 // Bytes as a string: the UTF-8 bytes of `s`, one per character.
 const B = (s) => Buffer.from(s, "utf8").toString("latin1")
@@ -199,8 +201,12 @@ function refTree(entries, gitDir) {
 //   the FIRST Status line in any spelling is statusRaw; the state comes from it only when it is the only
 //   Status line of the file and has the new form, otherwise the state is none (with statusError "old header"
 //   when there was a Status line); the first Blocked reason / Waits / PR line of the header;
-//   the LAST Blocked by / Branch / Repo line wins; lines inside ``` and ~~~ fences are skipped;
-//   a trailing \r is stripped; the title is the first line when it starts with #.
+//   the LAST Blocked by / Branch / Repo line wins; lines inside ``` and ~~~ fences are skipped (lib/code-fence.cjs:
+//   a fence closes only with a line of the same character, at least as long as the one that opened it, and nothing
+//   after it);
+//   a trailing \r is stripped; a byte order mark at the start of the file is dropped; the title is the first H1
+//   ("# " at the start of a line) on any line outside fences — the header may stand before it or after it
+//   (TICKETS.md, "Header"; worfy reads the H1 of spec.md by the same rule, tested on bin/tests/fixtures/ticket-title).
 // The patterns with non-ASCII words are written as text and turned into bytes (B), like the text they match.
 const re = (source, flags) => new RegExp(B(source), flags)
 // The Status line of the new format.
@@ -214,6 +220,8 @@ const AND = re([";", ...INPUT.blockedByAnd.map((w) => String.raw`[ \t]+${escRe(w
 // Control characters are ALWAYS stripped: raw, they break both the line and JSON.
 const clean = (x) => x.replace(/[\x01-\x1f\x7f]/g, " ")
 const jstr = (x) => '"' + clean(x).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"'
+// The H1: "#", spaces or tabs, the text; trailing spaces and tabs are not part of the title.
+const H1 = /^#[ \t]+([^ \t].*?)[ \t]*$/
 const FIELD = /^\*?\*?(status|blocked by|branch|repo)[ \t]*\*?\*?[ \t]*:/
 const VALUE = /^\*?\*?[^:]*:\*?\*?[ \t]*/
 
@@ -221,6 +229,8 @@ function parse(epic, file, text) {
     // A file without a leading number is not a ticket; an empty file never reached awk's first line.
     const num = file.replace(/-.*/s, "")
     if (!/^[0-9]+$/.test(num) || text === "") return null
+    // The UTF-8 byte order mark, as latin1 reads it: an editor on Windows may write one before the H1.
+    if (text.startsWith("\xEF\xBB\xBF")) text = text.slice(3)
     let slug = file.replace(/\.md$/, "").replace(/^[^-]*-/, "")
     if (slug === file) slug = num
     const lines = text.split("\n")
@@ -230,7 +240,7 @@ function parse(epic, file, text) {
     let blocked = ""
     let branchV = ""
     let repo = ""
-    let fence = false
+    const isCode = codeLines()
     let sline = ""
     let nstatus = 0
     let hdr = true
@@ -238,14 +248,13 @@ function parse(epic, file, text) {
     let waits = null
     let prl = null
     const after = (l, name) => l.slice(name.length).replace(/^[ \t]*/, "").replace(/[ \t]+$/, "")
-    lines.forEach((raw, n) => {
+    lines.forEach((raw) => {
         const l = raw.replace(/\r$/, "")
-        if (n === 0 && l.startsWith("#")) title = l.replace(/^#[ \t]*/, "")
-        if (/^[ \t]*(```|~~~)/.test(l)) {
-            fence = !fence
-            return
-        }
-        if (fence) return // "Status: done" in a code example is not a ticket field
+        if (isCode(l)) return // "Status: done" in a code example is not a ticket field
+        // H1 trims [ \t], not \s: in a latin1 string \s also matches the byte 0xA0 (a no-break space) that ends
+        // some UTF-8 letters, and would leave half a letter.
+        const h1 = title === "" ? H1.exec(l) : null
+        if (h1) title = h1[1]
         // The header ends at the first "## " heading after the Status line: a "PR: <url>" line of a result
         // section is not the header's.
         if (nstatus > 0 && l.startsWith("## ")) hdr = false
