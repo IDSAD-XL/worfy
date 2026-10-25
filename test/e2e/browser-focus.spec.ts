@@ -412,11 +412,24 @@ const BLUE = 'rgb(0, 128, 255)'
 // The window's capture turns it into about rgb(59, 130, 246) on a Mac's colour profile.
 const isBlue = (r: number, g: number, b: number): boolean => r < 100 && Math.abs(g - 129) < 35 && b > 200
 
-/** How many pixels of `image` are of the second page's blue. */
+/**
+ * How many pixels of `image` lie inside an area of the second page's blue: the pixel and its eight
+ * neighbours are all blue. Text antialiasing (ClearType on Windows) puts single bluish pixels on the
+ * edges of dark text anywhere in the window; they are no page.
+ */
 function bluePixels(image: Image): number {
-  let blue = 0
-  for (let i = 0; i < image.data.length; i += 4) if (isBlue(image.data[i]!, image.data[i + 1]!, image.data[i + 2]!)) blue += 1
-  return blue
+  const { width, height, data } = image
+  const blue = new Uint8Array(width * height)
+  for (let at = 0; at < width * height; at += 1) blue[at] = isBlue(data[at * 4]!, data[at * 4 + 1]!, data[at * 4 + 2]!) ? 1 : 0
+  let solid = 0
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      let all = true
+      for (let dy = -1; dy <= 1 && all; dy += 1) for (let dx = -1; dx <= 1 && all; dx += 1) all = blue[(y + dy) * width + x + dx] === 1
+      if (all) solid += 1
+    }
+  }
+  return solid
 }
 
 /** Where the keyboard focus of the window is: the focused element's tag, whether it is under focus mode's cover, and whether it is the <webview> in the tile. */
