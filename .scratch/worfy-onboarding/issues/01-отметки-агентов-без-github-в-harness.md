@@ -3,7 +3,7 @@
 Type: task
 Status: open
 Blocked by: —
-Source: решения владельца 2026-10-26, пункт 5 (Demo project — Full mode, `workflow.finish` `local-green`, без GitHub); [spec.md](../spec.md), «Решено без владельца», Р1 (решено без владельца, подтвердить); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md) — отметки агентов привязаны к SHA
+Source: решения владельца 2026-10-26, пункт 5 (Demo project — Full mode, `workflow.finish` `local-green`, без GitHub); [spec.md](../spec.md), «Решено без владельца», Р1 (решено без владельца, подтверждено владельцем 2026-10-26); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md) — отметки агентов привязаны к SHA
 
 ## Что происходит
 

@@ -3,7 +3,7 @@
 Type: task
 Status: open
 Blocked by: 06
-Source: решения владельца 2026-10-26, пункт 2 (раздел вверху боковой панели, шесть шагов, «Connect your own project» ниже и не в «готово», пропуск в любой момент, команда Command palette «Getting started»); [spec.md](../spec.md), «Тексты (черновик)», «Раздел Getting started», «Command palette»; «Решено без владельца», Р4 (решено без владельца, подтвердить)
+Source: решения владельца 2026-10-26, пункт 2 (раздел вверху боковой панели, шесть шагов, «Connect your own project» ниже и не в «готово», пропуск в любой момент, команда Command palette «Getting started»); [spec.md](../spec.md), «Тексты (черновик)», «Раздел Getting started», «Command palette»; «Решено без владельца», Р4 (решено без владельца, подтверждено владельцем 2026-10-26)
 
 ## Что происходит
 

@@ -3,7 +3,7 @@
 Type: task
 Status: open
 Blocked by: 07
-Source: решения владельца 2026-10-26, пункты 4 (остальные понятия — короткие подсказки на Stage-ах Ticket-а demo), 5 (запасной путь: «this time the review found nothing» и записанный пример REJECTED и доработки), 6 (по умолчанию Sonnet, effort medium; переключатель на Opus; только «a bit cheaper» / «a bit more expensive»); [spec.md](../spec.md), «Тексты (черновик)»; «Решено без владельца», Р5, Р10, Р11 (решено без владельца, подтвердить)
+Source: решения владельца 2026-10-26, пункты 4 (остальные понятия — короткие подсказки на Stage-ах Ticket-а demo), 5 (запасной путь: «this time the review found nothing» и записанный пример REJECTED и доработки), 6 (по умолчанию Sonnet, effort medium; переключатель на Opus; только «a bit cheaper» / «a bit more expensive»); [spec.md](../spec.md), «Тексты (черновик)»; «Решено без владельца», Р5, Р10, Р11 (решено без владельца, подтверждено владельцем 2026-10-26)
 
 ## Что происходит
 

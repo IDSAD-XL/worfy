@@ -3,7 +3,7 @@
 Type: task
 Status: open
 Blocked by: 03, 05, 07
-Source: решения владельца 2026-10-26, пункты 7 (экран «Done» с «Connect your own project» и «Remove the demo project»; удаление с подтверждением убирает папку, Profile и запись registry; сам demo не удаляется) и 8 (macOS и Windows одинаково); [spec.md](../spec.md), «Тексты (черновик)», «Экран Done»; «Решено без владельца», Р12 (решено без владельца, подтвердить)
+Source: решения владельца 2026-10-26, пункты 7 (экран «Done» с «Connect your own project» и «Remove the demo project»; удаление с подтверждением убирает папку, Profile и запись registry; сам demo не удаляется) и 8 (macOS и Windows одинаково); [spec.md](../spec.md), «Тексты (черновик)», «Экран Done»; «Решено без владельца», Р12 (решено без владельца, подтверждено владельцем 2026-10-26)
 
 ## Что происходит
 

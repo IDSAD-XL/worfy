@@ -3,7 +3,7 @@
 Type: task
 Status: open
 Blocked by: —
-Source: решения владельца 2026-10-26, пункт 7 (удаление убирает папку, Profile и запись registry); [spec.md](../spec.md), «Решено без владельца», Р12 и Р13 (решено без владельца, подтвердить); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) — скрипты Harness на Node
+Source: решения владельца 2026-10-26, пункт 7 (удаление убирает папку, Profile и запись registry); [spec.md](../spec.md), «Решено без владельца», Р12 и Р13 (решено без владельца, подтверждено владельцем 2026-10-26); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) — скрипты Harness на Node
 
 ## Что происходит
 
