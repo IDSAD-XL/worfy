@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import { formatLinkAddress, parseLinkAddress, type DiscoveredMachineView } from '../../shared/ipc/link'
+import { formatLinkAddress, isTailscaleHost, parseLinkAddress, type DiscoveredMachineView } from '../../shared/ipc/link'
 import { PrimaryButton } from '../theme/primitives'
 import { closeLinking, openLinking, pairWith, useMachines } from './useMachines'
 
@@ -68,6 +68,7 @@ const styles = {
   },
   error: { color: 'var(--blocked-text)', fontSize: 'var(--text-12)', overflowWrap: 'anywhere' },
   hint: { color: 'var(--text-muted)', fontSize: 'var(--text-12)' },
+  mark: { marginLeft: 'var(--space-1)', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-secondary)' },
   actions: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' },
   secondary: {
     height: 'var(--row-height)',
@@ -81,6 +82,12 @@ const styles = {
 } satisfies Record<string, CSSProperties>
 
 type Target = { name: string | null; address: string }
+
+/** Whether `address` (`host:port` as main lists it) is a Tailscale address of this Machine. */
+const isTailscaleOwn = (address: string): boolean => {
+  const parsed = parseLinkAddress(address)
+  return parsed.ok && isTailscaleHost(parsed.address.host)
+}
 
 /** The shortest wait before the window asks main again whether the pause is over. */
 const PAUSE_RECHECK_MS = 1000
@@ -268,11 +275,25 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
                 <p style={styles.caption}>
                   Address{' '}
                   {state.addresses.map((each, index) => (
-                    <span key={each}>
+                    <span key={each} data-testid="link-own-address-entry">
                       {index > 0 ? ', ' : ''}
                       <span style={styles.mono} data-testid="link-own-address">
                         {each}
                       </span>
+                      {isTailscaleOwn(each) ? (
+                        <span
+                          className="w-chip"
+                          style={styles.mark}
+                          data-testid="link-tailscale-mark"
+                          title={
+                            state.tailscale
+                              ? 'The address of this Machine in your tailnet: the other worfy can type it, or this Machine\'s MagicDNS name, with this port'
+                              : 'The address of this Machine in your tailnet. To link through it, turn on Link through Tailscale in Settings → Machines on both worfy'
+                          }
+                        >
+                          Tailscale
+                        </span>
+                      ) : null}
                     </span>
                   ))}
                 </p>
@@ -318,7 +339,7 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
                     placeholder="192.168.1.20:52000"
                     data-testid="link-address-input"
                     aria-invalid={addressError !== undefined}
-                    aria-describedby={addressError ? `${addressId}-error` : undefined}
+                    aria-describedby={addressError ? `${addressId}-hint ${addressId}-error` : `${addressId}-hint`}
                     onChange={(event) => {
                       setAddress(event.target.value)
                       setAddressError(undefined)
@@ -327,6 +348,10 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
                       if (event.key === 'Enter') next()
                     }}
                   />
+                  <span id={`${addressId}-hint`} data-testid="link-address-hint" style={styles.hint}>
+                    The address and its port are under the code in Link a machine on the other worfy.
+                    {state?.tailscale ? ' Through Tailscale, type its MagicDNS name or Tailscale address with that port, like pc:52000.' : ''}
+                  </span>
                   {addressError ? (
                     <span id={`${addressId}-error`} role="alert" data-testid="link-address-error" style={styles.error}>
                       {addressError}

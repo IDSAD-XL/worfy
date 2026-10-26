@@ -1,7 +1,8 @@
 # 29 — Через Tailscale: ввод руками имени MagicDNS или IP-адреса, порт из окна другой машины
 
 Type: task
-Status: open
+Status: claimed 2026-10-26T19:24Z
+Branch: worfy-link/29
 Blocked by: 27
 Source: решения владельца 2026-10-18, Q22 ([ADR-0070](../../../docs/adr/0070-worfy-link-outside-the-lan-through-an-overlay-network.md), пункт 5). Код начинается после текущей очереди Epic-а `worfy-windows` (Q21)
 
@@ -36,12 +37,12 @@ Source: решения владельца 2026-10-18, Q22 ([ADR-0070](../../../d
 
 ## Готово, когда
 
-- [ ] Unit test: `pc:52000`, `100.101.102.103:52000`, `[fd7a:115c:a1e0::1]:52000` разбираются.
-- [ ] Unit test `allowedHostNames`: при включённой настройке `pc` и `pc.example.ts.net` для машины `pc`
+- [x] Unit test: `pc:52000`, `100.101.102.103:52000`, `[fd7a:115c:a1e0::1]:52000` разбираются.
+- [x] Unit test `allowedHostNames`: при включённой настройке `pc` и `pc.example.ts.net` для машины `pc`
       приняты, `other.example.ts.net` — нет; при выключенной — ни одно.
-- [ ] Contract test: соединение с `Host: pc:<port>` при включённой настройке доходит до upgrade.
-- [ ] e2e: в окне «Link a machine» адрес Tailscale помечен (интерфейсы подменены).
-- [ ] Ответ владельца по пункту 3 записан в «Итог».
+- [x] Contract test: соединение с `Host: pc:<port>` при включённой настройке доходит до upgrade.
+- [x] e2e: в окне «Link a machine» адрес Tailscale помечен (интерфейсы подменены).
+- [x] Ответ владельца по пункту 3 записан в «Итог».
 
 ## Где в коде
 
@@ -50,3 +51,35 @@ Source: решения владельца 2026-10-18, Q22 ([ADR-0070](../../../d
 - `src/shared/ipc/link.ts` — `parseLinkAddress` (`:38`), состояние окна (`addresses`, `:130`).
 - `src/renderer/machines/LinkMachineDialog.tsx`.
 - `test/unit/` (разбор адреса, `allowedHostNames`), `test/contract/link-server.test.ts`, e2e окна связи.
+
+## Итог
+
+- **Пункт 3, имена MagicDNS в проверке `Host` — решено без владельца, подтвердить** (оркестратор,
+  2026-10-26, по рекомендации тикета; вопрос владельцу задан). Пока настройка «Link through Tailscale»
+  включена, проверка `Host` принимает, кроме прежних имён: голое имя машины — первую метку
+  `os.hostname()` в нижнем регистре (на Windows это всё имя), и имена вида `<это имя>.<что угодно>.ts.net`
+  (между именем и `ts.net` — одна или несколько меток DNS). Без настройки — ни одно из них.
+  Защита от DNS rebinding (ADR-0052, пункт 8) держится: зону `ts.net` контролирует только Tailscale.
+- Ограничение: если машину переименовали в админке Tailscale, по имени MagicDNS она не подключится
+  (отказ 403 до upgrade) — нужно вводить IP-адрес Tailscale. В коде — комментарий `shortcut:` у
+  `isAllowedHostName`; переделать, когда список машин придёт из `tailscale status --json` (Ticket 30).
+- Код: `isAllowedHostName` и поле `tailscale` в `HostNames` (`src/main/link/checks.ts`); сервис отдаёт
+  серверу настройку вместе с интерфейсами и именем, читает её на каждом запросе: выключение отказывает
+  по имени со следующего upgrade, без перезапуска.
+- Окно «Link a machine»: адрес из 100.64.0.0/10 или `fd7a:115c:a1e0::/48` помечен chip-ом «Tailscale»
+  (tooltip при выключенной настройке говорит включить её на обеих машинах); при включённой настройке
+  адреса Tailscale идут первыми (`linkAddresses`, `src/main/link/service.ts`). Пометку ставит окно
+  по `isTailscaleHost` (`src/shared/ipc/link.ts`); контракт `link.state` не менялся, unit test держит
+  `isTailscaleHost` и `isTailscaleAddress` main на одной таблице.
+- Поле ввода: разбор `parseLinkAddress` уже принимал `pc:52000`, IP-адрес и `[fd7a:…]:port` — добавлен
+  только test. Подсказка под полем говорит, что адрес и порт — под кодом в окне другой машины, а при
+  включённой настройке — что через Tailscale вводят имя MagicDNS или адрес Tailscale с этим портом.
+- Переподключение: pairing по имени запоминает имя (`record.address`), а не адрес, в который оно
+  разрешилось; contract test связывает по имени `localhost`, перезапускает A и подключается по
+  запомненному имени. Отдельный contract test проверяет, что по имени уходит SNI, а по адресу — нет
+  (долг ревью Ticket-а 27).
+- Для e2e добавлена переменная `WORFY_LINK_INTERFACES` (JSON: имя интерфейса → адреса): подменяет
+  `os.networkInterfaces()` приложению и показывает эти адреса в окне, хотя сервер слушает только
+  127.0.0.1.
+- Снимки окна в светлой и тёмной теме — в scratchpad ревью, в репозиторий не кладутся.
+
