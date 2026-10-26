@@ -2,7 +2,9 @@
 // DNS-SD service type `_worfy._tcp`; the TXT record carries the Machine id (`id`), the link
 // protocol (`proto`) and the Machine name (`name`).
 //
-// - Announcing: while the link server listens (LinkDiscovery.advertise with its port).
+// - Announcing: while the link server listens (LinkDiscovery.advertise with its port), and again
+//   with the current addresses when this Machine wakes up or its network changes (announceAgain,
+//   worfy-link ticket 36).
 // - Searching: while "Link a machine" is open, and while a Linked machine is unavailable (a new
 //   address found for it reconnects at once, connections.ts). The reasons are kept apart, so one
 //   ending does not stop the search the other still needs.
@@ -120,6 +122,19 @@ export function readAnnouncement(service: MdnsService): FoundMachine | undefined
   return { id, name, host, port: service.port, protocol: protocol !== null && protocol > 0 ? protocol : null }
 }
 
+/**
+ * The mDNS name of an announcement's host, `<label>.local` in lower case; undefined when it is no
+ * such name. A bare label counts too: `bonjour-service` announces os.hostname() as it is, which on
+ * Windows is the computer name without `.local` (whether Windows answers for `<name>.local` is for
+ * the check on the PC, worfy-link ticket 36).
+ */
+export function mdnsName(host: string): string | undefined {
+  const name = host.replace(/\.$/, '').toLowerCase()
+  if (/^[a-z0-9-]{1,63}\.local$/.test(name)) return name
+  if (/^[a-z0-9-]{1,63}$/.test(name)) return `${name}.local`
+  return undefined
+}
+
 /** The instance name: the Machine name and the start of its id, so two worfy on one Mac differ. */
 export function instanceName(machine: { id: string; name: string }): string {
   const suffix = ` (${machine.id.slice(0, 8)})`
@@ -131,10 +146,14 @@ export function instanceName(machine: { id: string; name: string }): string {
 
 export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
   private readonly found = new Map<string, FoundMachine>()
+  /** The mDNS name of each found announcement's host, by the same key as `found`. */
+  private readonly names = new Map<string, string>()
   /** When `seen` last went out per Machine id. */
   private readonly lastSeenAt = new Map<string, number>()
   private readonly reasons = new Set<BrowseReason>()
   private announcement: { port: number; handle: { stop(): void } } | null = null
+  /** The port advertise() was last asked for; null: not announcing. */
+  private wanted: number | null = null
   private browser: { stop(): void; refresh(): void } | null = null
   private refreshTimer: NodeJS.Timeout | null = null
   private stopped = false
@@ -146,9 +165,14 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
   /** Announces this Machine on `port`; null stops announcing. */
   advertise(port: number | null): void {
     if (this.stopped) return
+    this.wanted = port
     if (this.announcement !== null && this.announcement.port === port) return
     void this.withdraw()
     if (port === null) return
+    this.publish(port)
+  }
+
+  private publish(port: number): void {
     const self = this.options.self()
     const handle = this.options.backend.publish({
       name: instanceName(self),
@@ -156,6 +180,22 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
       txt: { id: self.id, proto: String(this.options.protocol), name: self.name },
     })
     this.announcement = { port, handle }
+  }
+
+  /**
+   * Announces this Machine again, with the addresses its interfaces have now, and asks the network
+   * again for the others: after a wake-up or a change of network (worfy-link ticket 36). The old
+   * announcement's goodbye goes out first, so it cannot arrive after the new one. Nothing while
+   * this Machine does not announce.
+   */
+  async announceAgain(): Promise<void> {
+    this.browser?.refresh()
+    const current = this.announcement
+    if (this.stopped || current === null) return
+    await this.withdraw()
+    // advertise() may have run meanwhile (another port, or none): that one stands.
+    if (this.stopped || this.announcement !== null || this.wanted !== current.port) return
+    this.publish(current.port)
   }
 
   /** Starts or ends the search for one reason; the search runs while any reason holds. */
@@ -197,6 +237,13 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
     let last: FoundMachine | undefined
     for (const machine of this.found.values()) if (machine.id === id) last = machine
     return last
+  }
+
+  /** The mDNS name of the host Bonjour last found Linked machine `id` on, as lastSeen does; undefined when none. */
+  lastSeenName(id: string): string | undefined {
+    let name: string | undefined
+    for (const [key, machine] of this.found) if (machine.id === id) name = this.names.get(key)
+    return name
   }
 
   /**
@@ -241,6 +288,7 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
     this.browser?.stop()
     this.browser = null
     this.lastSeenAt.clear()
+    this.names.clear()
     if (this.found.size === 0) return
     this.found.clear()
     this.emit('changed')
@@ -254,6 +302,9 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
     const key = service.fqdn ?? service.name
     if (!this.found.has(key) && this.found.size >= MAX_FOUND) return
     this.found.set(key, machine)
+    const name = mdnsName(service.host)
+    if (name === undefined) this.names.delete(key)
+    else this.names.set(key, name)
     if (this.options.isLinked(machine.id)) this.sighted(machine)
     this.emit('changed')
   }
@@ -268,6 +319,7 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
   }
 
   private down(service: MdnsService): void {
+    this.names.delete(service.fqdn ?? service.name)
     if (this.found.delete(service.fqdn ?? service.name)) this.emit('changed')
   }
 }

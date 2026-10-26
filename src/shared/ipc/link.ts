@@ -1,5 +1,6 @@
 // The `link` domain (worfy-link tickets 01, 02 and 14; ADR-0052): this Machine as the link knows it,
-// its Linked machines, "Link a machine", the access switch and the keep-awake switch. Handled in src/main/ipc/link.ts.
+// its Linked machines, "Link a machine", the access switch and the keep-awake switch; reconnecting
+// and setting the address of a Linked machine by hand (worfy-link ticket 36). Handled in src/main/ipc/link.ts.
 //
 // Only `link.ping` is open to Linked machines (its mark `link`, src/shared/ipc/channels.ts). Every
 // other channel here is `local`, for this Machine's own windows: `link.state` carries the pairing
@@ -115,6 +116,12 @@ export const linkedMachineViewSchema = z.object({
    * only while `projectsAccess` of the state is on.
    */
   access: accessLevelSchema,
+  /**
+   * What to check when worfy on Windows cannot find it (worfy-link ticket 36): Bonjour sees no
+   * announcement of it while it is unavailable, so Windows firewall may be closing mDNS or the link
+   * port. Absent when there is nothing to say.
+   */
+  hint: z.string().min(1).optional(),
 })
 export type LinkedMachineView = z.output<typeof linkedMachineViewSchema>
 
@@ -197,6 +204,27 @@ export const linkPair = invokeChannel(
 /** Revokes Linked machine `id`; it loses the link at once when connected, else on its next connection. */
 export const linkRevoke = invokeChannel('link.revoke', z.object({ id: z.uuid() }), linkStateSchema, 'local')
 
+/**
+ * Dials Linked machine `id` now (worfy-link ticket 36), without the pause between retries: at its
+ * remembered address and names, and where Bonjour sees it now.
+ */
+export const linkReconnect = invokeChannel('link.reconnect', z.object({ id: z.uuid() }), linkStateSchema, 'local')
+
+/**
+ * Sets the address of Linked machine `id` by hand, `host:port` (worfy-link ticket 36), without
+ * linking again: it is kept only when the remembered certificate answers there. A refusal — another
+ * certificate, no answer, an address that does not parse — is an answer: `reason` is shown as it is.
+ */
+export const linkSetAddress = invokeChannel(
+  'link.setAddress',
+  z.object({ id: z.uuid(), address: z.string().min(1).max(300) }),
+  z.discriminatedUnion('status', [
+    z.object({ status: z.literal('saved'), state: linkStateSchema }),
+    z.object({ status: z.literal('failed'), reason: z.string().min(1), state: linkStateSchema }),
+  ]),
+  'local',
+)
+
 /** Sets "Linked machines can work with my Projects": off turns access off for every Linked machine. */
 export const linkSetAccess = invokeChannel('link.setAccess', z.object({ projectsAccess: z.boolean() }), linkStateSchema, 'local')
 
@@ -220,6 +248,8 @@ declare module './channels' {
     'link.close': typeof linkClose
     'link.pair': typeof linkPair
     'link.revoke': typeof linkRevoke
+    'link.reconnect': typeof linkReconnect
+    'link.setAddress': typeof linkSetAddress
     'link.setAccess': typeof linkSetAccess
     'link.setMachineAccess': typeof linkSetMachineAccess
     'link.setKeepAwake': typeof linkSetKeepAwake

@@ -324,9 +324,11 @@ describe('what the renderer hears of Linked machines', () => {
     expect(heard.filter((key) => /token|secret|fingerprint|certificate(?!Changed)|cert\b/i.test(key))).toEqual([])
     // Addresses: only this Machine's own, and those of worfy found by Bonjour, which are not linked.
     const ownOrFound = /^link\.\w+: (state\.)?(addresses|discovered\.(host|port))$/
-    expect(heard.filter((key) => /address|host|port/i.test(key) && !ownOrFound.test(key))).toEqual([])
-    // A Linked machine is named by its id and name alone; its access level is this Machine's own setting.
+    // The field, not the channel's name: `link.setAddress` names one, and answers none of a Linked machine.
+    expect(heard.filter((key) => /address|host|port/i.test(key.slice(key.indexOf(': '))) && !ownOrFound.test(key))).toEqual([])
+    // A Linked machine is named by its id and name alone; its access level is this Machine's own
+    // setting; its hint is a fixed text about Windows firewall (worfy-link ticket 36).
     const linkedFields = new Set(heard.filter((key) => /^link\.\w+: (state\.)?linked\./.test(key)).map((key) => key.replace(/^.*linked\./, '')))
-    expect(linkedFields).toEqual(new Set(['access', 'certificateChanged', 'id', 'name', 'state']))
+    expect(linkedFields).toEqual(new Set(['access', 'certificateChanged', 'hint', 'id', 'name', 'state']))
   })
 })

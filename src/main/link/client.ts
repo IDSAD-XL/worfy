@@ -40,6 +40,10 @@ export interface OpenOptions {
   expectFingerprint?: string
   /** Sent as `Authorization: Bearer …`, only once the server certificate checked out. */
   token?: string
+  /**
+   * The limit on each step of the dial: TCP connect plus the TLS handshake together, then the
+   * WebSocket upgrade (ws's handshakeTimeout). DIAL_TIMEOUT_MS by default.
+   */
   timeoutMs?: number
   /** Overrides the protocol version sent (tests of a mismatch). */
   protocolVersion?: number
@@ -63,26 +67,37 @@ export interface OpenedSocket {
 
 const hostForUrl = (host: string): string => (host.includes(':') && !host.startsWith('[') ? `[${host}]` : host)
 
-const CONNECT_TIMEOUT_MS = 10_000
+/** How long a dial waits for each step before it gives up (worfy-link ticket 36). */
+export const DIAL_TIMEOUT_MS = 10_000
 
 /** Opens the WebSocket; rejects with LinkConnectError, whose message never carries the token. */
 export function openLinkSocket(options: OpenOptions): Promise<OpenedSocket> {
   let serverFingerprint = ''
   let remoteAddress: string | undefined
   let certificateChanged = false
+  const timeoutMs = options.timeoutMs ?? DIAL_TIMEOUT_MS
   const url = `wss://${hostForUrl(options.host)}:${options.port}${options.path}`
   const headers: Record<string, string> = { [LINK_PROTOCOL_HEADER]: String(options.protocolVersion ?? LINK_PROTOCOL_VERSION) }
   if (options.token !== undefined) headers.authorization = `Bearer ${options.token}`
 
   const ws = new WebSocket(url, {
     headers,
-    handshakeTimeout: options.timeoutMs ?? CONNECT_TIMEOUT_MS,
+    handshakeTimeout: timeoutMs,
     perMessageDeflate: false,
     maxPayload: options.maxPayload ?? (options.path === PAIR_PATH ? PAIRING_MAX_PAYLOAD : LINK_MAX_PAYLOAD),
     createConnection: ((_options: unknown, ready: (error: Error | null, socket?: Duplex) => void) => {
       const host = options.host.replace(/^\[|\]$/g, '')
       let settled = false
+      let socket: tls.TLSSocket | undefined
+      // ws's handshakeTimeout starts only once the request has its socket, after secureConnect: an
+      // address that keeps silent on TCP, or takes TCP and never answers TLS, is cut here.
+      const timer = setTimeout(() => {
+        socket?.destroy()
+        tcp.destroy()
+        fail(new LinkConnectError('unreachable', `could not reach ${options.host}:${options.port} (no answer within ${timeoutMs / 1000} s)`))
+      }, timeoutMs)
       const fail = (error: Error): void => {
+        clearTimeout(timer)
         if (settled) return
         settled = true
         ready(error)
@@ -99,7 +114,7 @@ export function openLinkSocket(options: OpenOptions): Promise<OpenedSocket> {
           fail(new LinkConnectError('refused', allowed))
           return
         }
-        const socket = tls.connect({
+        const secure = tls.connect({
           socket: tcp,
           host,
           port: options.port,
@@ -110,18 +125,21 @@ export function openLinkSocket(options: OpenOptions): Promise<OpenedSocket> {
           // The chain is not checked: trust is the fingerprint below.
           rejectUnauthorized: false,
         })
-        socket.once('secureConnect', () => {
+        socket = secure
+        secure.once('secureConnect', () => {
+          clearTimeout(timer)
+          if (settled) return
           settled = true
-          serverFingerprint = socket.getPeerCertificate().fingerprint256 ?? ''
+          serverFingerprint = secure.getPeerCertificate().fingerprint256 ?? ''
           if (options.expectFingerprint !== undefined && serverFingerprint !== options.expectFingerprint) {
             certificateChanged = true
-            socket.destroy()
+            secure.destroy()
             ready(new LinkConnectError('certificate-changed', 'certificate changed: the other Machine presents a certificate other than the one remembered at linking; link it again'))
             return
           }
-          ready(null, socket)
+          ready(null, secure)
         })
-        socket.once('error', fail)
+        secure.once('error', fail)
       })
       return undefined
     }) as never,

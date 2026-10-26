@@ -40,7 +40,7 @@ import { dataRoot, type BuildKind } from '../storage/paths'
 import { isAllowedPeer, isTailscaleAddress, normalizeAddress, type HostNames, type PeerAddresses, type SocketAddresses } from './checks'
 import { LinkConnectError, openLinkSocket } from './client'
 import { CLOSE_REVOKED, CLOSE_UNLINKED, LinkConnection } from './connection'
-import { LinkConnections } from './connections'
+import { LinkConnections, watchNetwork, type LinkConnectionsOptions } from './connections'
 import { bonjourBackend, LinkDiscovery } from './discovery'
 import { loadIdentity, MACHINE_KEY, saveIdentity, type MachineIdentity } from './identity'
 import { createLinkIpc, LinkPeer, type LinkIpcAdapter, type LocalMachine } from './ipc-adapter'
@@ -68,6 +68,7 @@ import {
 } from './pairing'
 import { FileSecretStore, type SecretStore } from './secrets'
 import { startLinkServer, UNAUTHORIZED, type Admission, type LinkServer, type Refusal } from './server'
+import { LinkLogFile, teeLinkConsole } from './log-file'
 import { LinkSettings, type LinkSettingsValue } from './settings'
 import { SleepNotice, type PowerEvents } from './sleep-notice'
 import { LinkedMachineStore, outgoingTokenKey, tokenHash, type LinkedMachineRecord } from './store'
@@ -160,6 +161,8 @@ export interface LinkServiceOptions {
    */
   addClient?: (client: Client) => void
   pingIntervalMs?: number
+  /** The limit on each step of a dial to a Linked machine (client.ts); 10 s by default. */
+  dialTimeoutMs?: number
   codeTtlMs?: number
   pairingStepTimeoutMs?: number
   /** Warnings for the worfy log; console.warn by default. */
@@ -420,19 +423,65 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
    * Machine whose certificate checked out means it has forgotten this one: this side forgets it
    * too. Another certificate at the remembered address marks it "certificate changed".
    *
+   * When the remembered address does not answer, or another worfy answers there, the Machine's
+   * names are tried next (worfy-link ticket 36): its `.local` name, then, while "Link through
+   * Tailscale" is on, its MagicDNS name (store.ts). A name is checked as an address from Bonjour is
+   * (below); where the remembered certificate answers, that address is kept.
+   *
    * `via` is an address someone else claims for it — a Bonjour announcement (connections.ts), which
-   * anyone in the network can send with any Machine id. It is tried once and proves nothing until
-   * the certificate there is the remembered one: only then is the address kept (after the
-   * connection opened). Another certificate there means "not that Machine": an error, with neither
-   * the record nor the "certificate changed" mark touched. No token is sent before that check
-   * (client.ts).
+   * anyone in the network can send with any Machine id, or an address typed by hand (setAddress).
+   * It is tried once and proves nothing until the certificate there is the remembered one: only
+   * then is the address kept (after the connection opened). Another certificate there means "not
+   * that Machine": an error, with neither the record nor the "certificate changed" mark touched. No
+   * token is sent before that check (client.ts).
    */
   async connect(machineId: string, via?: { host: string; port: number }): Promise<void> {
     const record = this.store.get(machineId)
     if (record === undefined) throw new Error(`Machine ${machineId} is not linked`)
+    if (via !== undefined) return this.connectAt(record, via, 'claimed')
+    let first: LinkConnectError
+    try {
+      return await this.connectAt(record, { host: record.address, port: record.port }, 'remembered')
+    } catch (error) {
+      // The Machine answered there and said no: no name will do better.
+      if (!(error instanceof LinkConnectError) || error.kind === 'unauthorized' || error.kind === 'protocol') throw error
+      first = error
+    }
+    const tried: string[] = []
+    for (const name of this.fallbackNames(record)) {
+      if (this.stopped || this.store.get(machineId) === undefined) break
+      try {
+        return await this.connectAt(record, { host: name, port: record.port }, 'name')
+      } catch (error) {
+        if (error instanceof LinkConnectError && error.kind === 'unauthorized') throw error
+        tried.push(`${name}: ${messageOf(error)}`)
+      }
+    }
+    if (first.kind === 'certificate-changed' && this.store.get(machineId) !== undefined) {
+      this.certificateChanged.add(record.id)
+      this.emit('certificate-changed', { id: record.id, name: record.name })
+    }
+    if (tried.length === 0) throw first
+    throw new LinkConnectError(first.kind, `${first.message}; also tried ${tried.join('; ')}`)
+  }
+
+  /** The names connect tries after the address: `.local`, then MagicDNS while "Link through Tailscale" is on. */
+  private fallbackNames(record: LinkedMachineRecord): string[] {
+    const names = [record.localName, this.settings.get().tailscale ? record.tailnetName : undefined]
+    return names.filter((name): name is string => name !== undefined && name !== record.address)
+  }
+
+  /**
+   * One dial of `record` at `target`, which is its remembered address, one of its names (connect),
+   * or an address someone claims for it (Bonjour, typed by hand). Anywhere but the remembered
+   * address another certificate is "not that Machine", and the address is kept once the connection
+   * opened: a name as the address it resolved to, a claimed address as it is. A 401 forgets the
+   * Machine either way.
+   */
+  private async connectAt(record: LinkedMachineRecord, target: { host: string; port: number }, kind: 'remembered' | 'name' | 'claimed'): Promise<void> {
+    const claimed = kind !== 'remembered'
     const token = this.secrets.get(record.outgoingTokenKey)
     if (token === undefined) throw new Error(`the token for Machine ${record.id} (${record.name}) is missing; link it again`)
-    const target = via ?? { host: record.address, port: record.port }
     let opened: Awaited<ReturnType<typeof openLinkSocket>>
     try {
       opened = await openLinkSocket({
@@ -443,18 +492,14 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
         certificate: this.identity.certificate,
         expectFingerprint: record.fingerprint,
         token,
+        ...(this.options.dialTimeoutMs === undefined ? {} : { timeoutMs: this.options.dialTimeoutMs }),
         allowServer: (socket) => this.mayDial(socket, target.host),
       })
     } catch (error) {
-      if (via !== undefined && error instanceof LinkConnectError && error.kind === 'certificate-changed') {
-        throw new LinkConnectError('refused', `the worfy announced at ${target.host}:${target.port} is not Machine ${record.id} (${record.name}): another certificate; nothing was changed`)
+      if (claimed && error instanceof LinkConnectError && error.kind === 'certificate-changed') {
+        throw new LinkConnectError('refused', `the worfy at ${target.host}:${target.port} is not Machine ${record.id} (${record.name}): another certificate; nothing was changed`)
       }
-      if (error instanceof LinkConnectError && error.kind === 'certificate-changed') {
-        this.certificateChanged.add(record.id)
-        this.emit('certificate-changed', { id: record.id, name: record.name })
-      } else if (error instanceof LinkConnectError && error.kind === 'unauthorized') {
-        this.forget(record.id, 'other-machine')
-      }
+      if (error instanceof LinkConnectError && error.kind === 'unauthorized') this.forget(record.id, 'other-machine')
       throw error
     }
     this.certificateChanged.delete(record.id)
@@ -466,8 +511,42 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       throw new Error(`Machine ${record.id} (${record.name}) was linked again while connecting; connect again`)
     }
     if (!this.attach(opened.ws, current ?? record, 'out', this.peerAddress.get(opened.ws))) throw new Error(`Machine ${record.id} (${record.name}) was unlinked while connecting`)
+    if (!claimed) return
     // The remembered certificate answered there: from now on it is where this Machine is.
-    if (via !== undefined) this.store.touch(record.id, { address: normalizeAddress(via.host), port: via.port })
+    const resolved = kind === 'name' ? this.peerAddress.get(opened.ws) : undefined
+    this.store.touch(record.id, { address: resolved ?? normalizeAddress(target.host), port: target.port })
+    if (kind === 'name') this.warn(`[link] Machine ${record.id} (${record.name}) answered at ${target.host}; its address is now ${resolved ?? target.host}`)
+  }
+
+  /**
+   * Sets the address of Linked machine `machineId` by hand (`link.setAddress`, worfy-link ticket 36),
+   * without linking again: the address is kept only when the remembered certificate answers there,
+   * and this dial is then the connection. Another certificate, or no answer, is a refusal with the
+   * reason; the record stays as it was.
+   */
+  async setAddress(machineId: string, target: { host: string; port: number }): Promise<LinkedMachineInfo> {
+    const record = this.store.get(machineId)
+    if (record === undefined) throw new Error(`Machine ${machineId} is not linked`)
+    this.warn(`[link] the address of Machine ${record.id} (${record.name}) is being set by hand to ${target.host}:${target.port}`)
+    await this.connectAt(record, target, 'claimed')
+    const saved = this.store.get(machineId)
+    if (saved === undefined) throw new Error(`Machine ${machineId} was unlinked while its address was checked`)
+    return this.info(saved)
+  }
+
+  /**
+   * Bonjour announced Linked machine `machineId` at `address` under the mDNS name `name`: the name
+   * is kept for later dials (connect) when a connection to the Machine is open from that very
+   * address, which its certificate proved. Anyone may announce anything, so nothing else counts.
+   */
+  learnLocalName(machineId: string, address: string, name: string): void {
+    const record = this.store.get(machineId)
+    if (record === undefined || record.localName === name.toLowerCase()) return
+    const at = normalizeAddress(address)
+    const proven = [...(this.connections.get(machineId) ?? [])].some((connection) => connection.isOpen && this.peerAddress.get(connection) === at)
+    if (!proven) return
+    this.store.touch(machineId, { localName: name.toLowerCase() })
+    this.warn(`[link] Machine ${record.id} (${record.name}) is also ${name.toLowerCase()} (from Bonjour)`)
   }
 
   /** Calls an IPC channel on Linked machine `machineId` over an open connection. */
@@ -931,6 +1010,8 @@ export interface AppLink {
   sleep: SleepNotice
   /** The blocker held while Linked machines are connected; null where none is made (tests). */
   keepAwake: { stop(): void } | null
+  /** The watch on this machine's addresses (connections.ts, watchNetwork). */
+  network: { stop(): void }
 }
 
 let appLinkValue: AppLink | undefined
@@ -1025,14 +1106,42 @@ export interface WireAppLinkOptions {
   power?: PowerEvents
   /** Makes the keep-awake over the service (keep-awake.ts); the app passes it, tests may not. */
   keepAwake?: (service: LinkService) => { stop(): void }
+  /** The machine's interfaces as the network watch reads them; os.networkInterfaces() by default. */
+  networkInterfaces?: () => HostNames['interfaces']
+  /** How often the network watch reads them; 5 s by default. */
+  networkPollMs?: number
+  /** The pauses of the connections' retries (connections.ts); tests shorten or lengthen them. */
+  retry?: Pick<LinkConnectionsOptions, 'firstDelayMs' | 'maxDelayMs'>
 }
 
-/** Wires the connections, Bonjour, "going to sleep" and the keep-awake around a started service. */
+/**
+ * Wires the connections, Bonjour, "going to sleep" and the keep-awake around a started service.
+ * A wake-up and a change of the machine's addresses (worfy-link ticket 36) dial every unavailable
+ * Linked machine at once and announce this Machine again.
+ */
 export function wireAppLink(service: LinkService, options: WireAppLinkOptions): AppLink {
   const sleep = new SleepNotice(service, options.power === undefined ? {} : { power: options.power })
   const keepAwake = options.keepAwake?.(service) ?? null
-  const connections = new LinkConnections(service)
-  const discovery =
+  // Assigned below; the connections ask it only when they dial, after this function returned.
+  let discovery: LinkDiscovery | null = null
+  const connections = new LinkConnections(service, {
+    ...options.retry,
+    seenAt: (id) => {
+      const found = discovery?.lastSeen(id)
+      return found === undefined ? undefined : { host: found.host, port: found.port }
+    },
+  })
+  const again = (why: string): void => {
+    console.log(`[link] ${why}: dialling the unavailable Linked machines now and announcing this Machine again`)
+    connections.reconnect()
+    void discovery?.announceAgain()
+  }
+  sleep.on('resumed', () => again('this Machine woke up'))
+  const stopWatch = watchNetwork(() => again('the network of this Machine changed'), {
+    ...(options.networkInterfaces === undefined ? {} : { interfaces: options.networkInterfaces }),
+    ...(options.networkPollMs === undefined ? {} : { intervalMs: options.networkPollMs }),
+  })
+  discovery =
     options.discovery ??
     (options.bonjour
       ? new LinkDiscovery({
@@ -1050,14 +1159,25 @@ export function wireAppLink(service: LinkService, options: WireAppLinkOptions): 
     }
     service.on('status', followServer)
     followServer()
-    discovery.on('seen', (machine) => connections.seen(machine.id, machine.host, machine.port))
+    const found = discovery
+    // The `.local` name of a Linked machine, learnt where Bonjour sees it at a connection's address.
+    const learnName = (id: string): void => {
+      const seen = found.lastSeen(id)
+      const name = found.lastSeenName(id)
+      if (seen !== undefined && name !== undefined) service.learnLocalName(id, seen.host, name)
+    }
+    service.on('connected', ({ id }) => learnName(id))
+    discovery.on('seen', (machine) => {
+      learnName(machine.id)
+      connections.seen(machine.id, machine.host, machine.port)
+    })
     // Searched for while a Linked machine is unavailable: a new address reconnects at once.
     const followConnections = (): void => discovery.browse('reconnect', connections.anyUnavailable())
     connections.on('changed', followConnections)
     followConnections()
   }
   connections.start()
-  return { service, connections, discovery, sleep, keepAwake }
+  return { service, connections, discovery, sleep, keepAwake, network: { stop: stopWatch } }
 }
 
 /**
@@ -1068,6 +1188,7 @@ export function wireAppLink(service: LinkService, options: WireAppLinkOptions): 
  */
 export async function stopLink(link: AppLink): Promise<void> {
   link.connections.stop()
+  link.network.stop()
   link.sleep.stop()
   link.keepAwake?.stop()
   try {
@@ -1129,10 +1250,18 @@ export function stopLinkOnQuit(app: QuitApp, stop: () => Promise<void> | undefin
   })
 }
 
-/** Starts the app's link over worfy's data folder (src/main/index.ts, after registerIpc). */
+/** The undo of the app's journal of `[link]` lines (log-file.ts); set once it is on. */
+let appJournal: (() => void) | undefined
+
+/**
+ * Starts the app's link over worfy's data folder (src/main/index.ts, after registerIpc). The
+ * `[link]` lines go to <dataDir>/link/link.log from here on (log-file.ts, worfy-link ticket 36),
+ * the warning of src/main/index.ts about a failed start included.
+ */
 export async function startAppLink(options: { buildKind: BuildKind; buildVersion: string }): Promise<LinkService> {
   const environment = appLinkEnvironment(options.buildKind)
   try {
+    appJournal ??= teeLinkConsole(new LinkLogFile({ dir: join(dataRoot(), 'link') }))
     // Imported here, not at the top: broadcast.ts and keep-awake.ts reach Electron, and the link
     // tests run without it.
     const [{ addClient }, { powerMonitor }, { LinkKeepAwake }] = await Promise.all([import('../broadcast'), import('electron'), import('./keep-awake')])
