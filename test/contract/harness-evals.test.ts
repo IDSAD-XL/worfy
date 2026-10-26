@@ -24,7 +24,7 @@ import {
 import { constants, homedir, tmpdir, userInfo } from 'node:os'
 import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { findStatusBlock } from '../../src/shared/agent/status-block'
 import { removeTestTree } from '../remove'
 import { shellStub } from '../shell-stub'
@@ -63,15 +63,52 @@ const graderFiles = (name: string): string[] => {
   return existsSync(dir) ? readdirSync(dir).filter((file) => file.endsWith('.md')).map((file) => join(dir, file)) : []
 }
 
-const temps: string[] = []
-afterAll(() => {
-  for (const dir of temps) removeTestTree(dir)
+// The temporary folders of this file. A folder a test makes is removed after that test, in
+// afterEach; afterAll removes only the folders made outside a test (while the file is collected,
+// in a beforeAll) and those a helper keeps for the tests after it (`'file'`). All of them in one
+// afterAll — about 280 trees with 44 000 entries, the 49 git repositories of changedRepo() most of
+// them — took 2.6 s on an idle Mac and more than the 10 s limit of a hook under a loaded gate full.
+const testTemps: string[] = []
+const fileTemps: string[] = []
+let inTest = false
+beforeEach(() => {
+  inTest = true
 })
-const tempDir = (prefix: string): string => {
+afterEach(() => {
+  inTest = false
+  for (const dir of testTemps.splice(0)) removeTestTree(dir)
+})
+afterAll(() => {
+  for (const dir of fileTemps.splice(0)) removeTestTree(dir)
+})
+/** A new temporary folder, removed after the test that asks for it, or with `'file'` after the file. */
+const tempDir = (prefix: string, keep: 'test' | 'file' = 'test'): string => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)))
-  temps.push(dir)
+  ;(inTest && keep === 'test' ? testTemps : fileTemps).push(dir)
   return dir
 }
+
+describe('the temporary folders of this file', () => {
+  let made = ''
+  let kept = ''
+  let before = ''
+  beforeAll(() => {
+    before = tempDir('worfy-eval-before-')
+  })
+  it('a test makes one of its own and one for the file', () => {
+    made = tempDir('worfy-eval-own-')
+    kept = tempDir('worfy-eval-kept-', 'file')
+    expect(existsSync(made)).toBe(true)
+  })
+  it('is removed after the test that made it, not at the end of the file', () => {
+    expect(made).not.toBe('')
+    expect(existsSync(made)).toBe(false)
+  })
+  it('stays until the end of the file when kept for the file or made in a beforeAll', () => {
+    expect(existsSync(kept)).toBe(true)
+    expect(existsSync(before)).toBe(true)
+  })
+})
 
 /**
  * The environment of every child this file gives a home: `vars`, and HOME and USERPROFILE in the
@@ -710,7 +747,7 @@ interface StubCall {
 let harnessCopy = ''
 const evaluated = (): string => {
   if (!harnessCopy) {
-    harnessCopy = join(tempDir('worfy-eval-harness-'), 'harness')
+    harnessCopy = join(tempDir('worfy-eval-harness-', 'file'), 'harness')
     const results = join('evals', 'results')
     cpSync(HARNESS, harnessCopy, {
       recursive: true,

@@ -13,7 +13,7 @@ import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readd
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 
 const REPO = join(__dirname, '..', '..')
@@ -78,7 +78,8 @@ beforeAll(async () => {
   runEnv = (await import(pathToFileURL(join(REPO, 'scripts', 'eval-run-env.mjs')).href).catch(() => undefined)) as RunEnv
 })
 
-const temps: string[] = []
+const testTemps: string[] = []
+const fileTemps: string[] = []
 /** Gives the owner back every mode a test closed (a kept run is 0500 with a 000 folder in it), then removes. */
 const openUp = (path: string): void => {
   const stat = lstatSync(path, { throwIfNoEntry: false })
@@ -86,17 +87,82 @@ const openUp = (path: string): void => {
   chmodSync(path, 0o700)
   for (const name of readdirSync(path)) openUp(join(path, name))
 }
-afterAll(() => {
-  for (const dir of temps) {
+const remove = (dirs: string[]): void => {
+  for (const dir of dirs.splice(0)) {
     openUp(dir)
     removeTestTree(dir)
   }
+}
+// A folder a test makes is removed after that test, in afterEach. A folder a describe block's
+// shared setup makes (beforeBlock) is removed at the end of that block, in an afterAll of its own.
+// The file's afterAll removes only what is left: folders made while the file is collected or in a
+// plain beforeAll, and those a helper keeps for the tests after it (`'file'`). All of them in one
+// afterAll — about 11 500 entries, 6 300 of them in the kept runs of the tests-intact block, each
+// walked three times — went past the 10 s limit of a hook under a loaded gate full on the Mac, and
+// past 30 s on Windows.
+let inTest = false
+let blockTemps: string[] | null = null
+beforeEach(() => {
+  inTest = true
 })
-const tempDir = (prefix: string): string => {
+afterEach(() => {
+  inTest = false
+  remove(testTemps)
+})
+afterAll(() => remove(fileTemps))
+/**
+ * A new temporary folder, removed after the test that asks for it, at the end of the describe block
+ * whose beforeBlock asks for it, or with `'file'` after the file.
+ */
+const tempDir = (prefix: string, keep: 'test' | 'file' = 'test'): string => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)))
-  temps.push(dir)
+  ;(keep === 'file' ? fileTemps : inTest ? testTemps : (blockTemps ?? fileTemps)).push(dir)
   return dir
 }
+/** The beforeAll of what the tests of a describe block share; the folders it makes go at the end of the block. */
+const beforeBlock = (build: () => unknown, timeout: number): void => {
+  const made: string[] = []
+  beforeAll(() => {
+    blockTemps = made
+    try {
+      build()
+    } finally {
+      blockTemps = null
+    }
+  }, timeout)
+  afterAll(() => remove(made))
+}
+
+describe('the temporary folders of this file', () => {
+  let made = ''
+  let kept = ''
+  let before = ''
+  describe('a block with a shared setup', () => {
+    beforeBlock(() => {
+      before = tempDir('outcome-before-')
+    }, SETUP_TIMEOUT)
+    it('a test makes one of its own, closed as a kept run is, and one for the file', () => {
+      made = tempDir('outcome-own-')
+      mkdirSync(join(made, 'sealed'))
+      chmodSync(join(made, 'sealed'), 0o000)
+      chmodSync(made, 0o500)
+      kept = tempDir('outcome-kept-', 'file')
+      expect(existsSync(made)).toBe(true)
+    })
+    it('is removed after the test that made it, not at the end of the file', () => {
+      expect(made).not.toBe('')
+      expect(existsSync(made)).toBe(false)
+    })
+    it('keeps the folder of the shared setup until the end of the block', () => {
+      expect(existsSync(before)).toBe(true)
+    })
+  })
+  it('removes the folder of the shared setup at the end of its block, and keeps one kept for the file', () => {
+    expect(before).not.toBe('')
+    expect(existsSync(before)).toBe(false)
+    expect(existsSync(kept)).toBe(true)
+  })
+})
 
 /**
  * The temporary folder (TMPDIR, TEMP, TMP) of every child of the running describe block. Each block
@@ -240,7 +306,7 @@ describe('harness/evals-outcome/lib/fixture.sh and the plugin state script', () 
       return cache
     }
   })()
-  beforeAll(() => void built(), SETUP_TIMEOUT)
+  beforeBlock(built, SETUP_TIMEOUT)
 
   it('builds with exit code 0 in a temporary HOME, on a clean main with one commit', () => {
     const { run, state, work, home } = built()
@@ -399,7 +465,7 @@ describe('the run environment both evals share (scripts/eval-run-env.mjs)', () =
       writeFileSync(join(source, file), '{"name":"worfy","dependencies":["other"]}\n')
     }
     const copy = runEnv.pluginCopy(source)
-    temps.push(dirname(copy))
+    testTemps.push(dirname(copy))
     expect(filesOf(copy).sort()).toEqual(['.claude-plugin/plugin.json', 'evals-outcome/lib/fixture.sh', 'evals-outcome/results-notes.md', 'evals/case/prompt.md'])
     expect(JSON.parse(readFileSync(join(copy, '.claude-plugin', 'plugin.json'), 'utf8'))).toEqual({ name: 'worfy' })
     expect(readFileSync(join(source, '.claude-plugin', 'plugin.json'), 'utf8')).toContain('dependencies')
@@ -804,7 +870,7 @@ describe('scripts/eval-outcome-score.mjs (stub judge, synthetic kept runs)', () 
       return cache
     }
   })()
-  beforeAll(() => void setup(), SETUP_TIMEOUT)
+  beforeBlock(setup, SETUP_TIMEOUT)
   const outcome = (): Outcome => readOutcome(setup().results)
 
   it('exits 0 and writes outcome.json next to aggregate-result.json', () => {
@@ -958,7 +1024,7 @@ describe('scripts/eval-outcome-score.mjs when a check, the judge or the scorer i
     let cache: ReturnType<typeof score> | null = null
     return () => (cache ??= score(setup().failing, { with: [setup().good], without: [setup().bad] }, 'fail'))
   })()
-  beforeAll(() => void failed(), SETUP_TIMEOUT)
+  beforeBlock(failed, SETUP_TIMEOUT)
 
   it('a missing program, a timeout and a signal give an unknown check, not a failed one', (context) => {
     const outcome = readOutcome(failed().results)
@@ -1189,19 +1255,18 @@ describe('the tests-intact check (stub agents on synthetic kept runs)', () => {
         aggregate(results, task.name, { with: Object.keys(AGENTS).map((name) => runs[name]!), without: [runs.honest!] })
         const gitResults = join(root, 'git-results')
         aggregate(gitResults, task.name, { with: Object.keys(GIT_AGENTS).map((name) => gitRuns[name]!) })
-        cache = {
-          results,
-          gitResults,
-          marker,
-          lazyMarker,
-          run: node(SCORER, [results, '--hidden-dir', hidden], join(root, 'home')),
-          gitRun: node(SCORER, [gitResults, '--hidden-dir', hidden], join(root, 'home')),
-        }
+        const run = node(SCORER, [results, '--hidden-dir', hidden], join(root, 'home'))
+        const gitRun = node(SCORER, [gitResults, '--hidden-dir', hidden], join(root, 'home'))
+        // The tests read only the scores and the markers. The kept runs — about 6 300 entries, two
+        // git repositories in each — go now, inside this setup, and not in the afterAll of the block:
+        // under a loaded gate full their removal took up to 7.8 s of the 10 s a hook has.
+        remove([kept])
+        cache = { results, gitResults, marker, lazyMarker, run, gitRun }
       }
       return cache
     }
   })()
-  beforeAll(() => void setup(), SETUP_TIMEOUT)
+  beforeBlock(setup, SETUP_TIMEOUT)
   const check = (name: string): Check => readOutcome(setup().results).tasks['synthetic-add']!.arms.with!.runs[Object.keys(AGENTS).indexOf(name)]!.checks['tests-intact']!
   const gitCheck = (name: string): Check => readOutcome(setup().gitResults).tasks['synthetic-add']!.arms.with!.runs[Object.keys(GIT_AGENTS).indexOf(name)]!.checks['tests-intact']!
 
@@ -1383,7 +1448,7 @@ const pluginForStub = (source: string, target: string): void =>
 let stubFile = ''
 const claudeStub = (): string => {
   if (stubFile === '') {
-    stubFile = join(tempDir('outcome-claude-stub-'), 'claude')
+    stubFile = join(tempDir('outcome-claude-stub-', 'file'), 'claude')
     writeFileSync(stubFile, STUB, { mode: 0o755 })
   }
   return stubFile
@@ -1486,7 +1551,7 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
     let cache: ReturnType<typeof stubRun> | null = null
     return () => (cache ??= stubRun(['--', '--max-cost-usd', '5', '--runs', '1'], true, { CLAUDECODE: '1', PATH: `${FAKE_PLUGIN_BIN}${delimiter}${process.env.PATH ?? ''}` }))
   })()
-  beforeAll(() => void full(), SETUP_TIMEOUT)
+  beforeBlock(full, SETUP_TIMEOUT)
 
   it('makes one call: the plugin copy first, then with-without, the outcome eval dir, kept temp folders and the pinned models', () => {
     const { run, calls } = full()

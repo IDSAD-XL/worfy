@@ -333,9 +333,11 @@ rep='until mkdir "$L" 2>/dev/null; do n=$((n+1)); [ "$n" -le 3 ] || { echo IDLE;
 BL="${BL//"$pat"/$rep}"
 BL="${BL//sleep 30/:}"
 [[ "$BL" == *'echo IDLE'* && "$BL" != *'sleep 30'* ]] || bad "main-branch lock block: the round bound did not go in: [$BL]"
-two_hours_ago="$(perl -MPOSIX -e 'print strftime("%Y%m%d%H%M", localtime(time - 7200))')"
+# In UTC, for TZ=UTC0 touch -t below: local time has an hour that the end of summer time repeats, and touch reads it
+# as its first pass (a lock set to 25 min old came out 85 min old in harness/bin/tests/wave-gate-lock.test.sh).
+two_hours_ago="$(perl -MPOSIX -e 'print strftime("%Y%m%d%H%M", gmtime(time - 7200))')"
 for sh in "${SHELLS[@]}"; do
-    rmdir "$LK" 2>/dev/null; mkdir "$LK"; touch -t "$two_hours_ago" "$LK"
+    rmdir "$LK" 2>/dev/null; mkdir "$LK"; TZ=UTC0 touch -t "$two_hours_ago" "$LK"
     got="$($sh -c "$BL" 2>&1)"; rc=$?
     [ "$rc" = 0 ] && [ "$got" = LOCKED ] && [ ! -e "$LK" ] \
         && ok "$sh: main-branch lock: a lock two hours old in the repository's git folder is removed and taken again (LOCKED), then released" \
