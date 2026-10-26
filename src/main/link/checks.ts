@@ -99,6 +99,12 @@ export interface PeerAddresses {
   local: string | undefined
 }
 
+/** What a socket tells of its two ends; net.Socket has both. */
+export interface SocketAddresses {
+  remoteAddress?: string | undefined
+  localAddress?: string | undefined
+}
+
 export interface PeerRule {
   /** "Link through Tailscale" (link/settings.json): off by default. */
   tailscale: boolean

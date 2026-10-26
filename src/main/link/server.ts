@@ -16,7 +16,7 @@ import { createServer, type Server } from 'node:https'
 import type { Socket } from 'node:net'
 import type { TLSSocket } from 'node:tls'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { isAllowedHost, isAllowedPeer, normalizeAddress, type HostNames, type PeerAddresses } from './checks'
+import { isAllowedHost, isAllowedPeer, normalizeAddress, type HostNames, type PeerAddresses, type SocketAddresses } from './checks'
 import { CONNECT_PATH, LINK_MAX_PAYLOAD, LINK_PROTOCOL_HEADER, LINK_PROTOCOL_VERSION, PAIR_PATH, PAIRING_MAX_PAYLOAD } from './messages'
 
 /** A refusal before the handshake: status and body. */
@@ -95,11 +95,11 @@ export interface LinkServerOptions {
    */
   isAllowedPeer?: (peer: PeerAddresses) => boolean
   /** How a socket's two addresses are read; its own by default. Tests stand 127.0.0.1 in for a Tailscale address. */
-  addressesOf?: (socket: Socket) => PeerAddresses
+  addressesOf?: (socket: SocketAddresses) => PeerAddresses
 }
 
 const LOCAL_NETWORK_ONLY = { tailscale: false, interfaces: {} }
-const socketAddresses = (socket: Socket): PeerAddresses => ({ remote: socket.remoteAddress, local: socket.localAddress })
+const socketAddresses = (socket: SocketAddresses): PeerAddresses => ({ remote: socket.remoteAddress, local: socket.localAddress })
 
 /** What to do with an admitted request: `accept` gets the WebSocket, `abort` runs when the handshake fails instead. */
 export interface Admission {

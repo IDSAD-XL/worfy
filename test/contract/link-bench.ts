@@ -39,6 +39,8 @@ export interface BenchOptions {
    * bench machine, next to loopback.
    */
   peerAddresses?: { remote: string; local: string }
+  /** Reads a socket's addresses in place of `peerAddresses` (it still gives the interface); a test watches the dials with it. */
+  addressesOf?: LinkServiceOptions['addressesOf']
 }
 
 const LOOPBACK: NetworkInterfaceInfo = { address: '127.0.0.1', netmask: '255.0.0.0', family: 'IPv4', mac: '00:00:00:00:00:00', internal: true, cidr: '127.0.0.1/8' }
@@ -83,7 +85,11 @@ export class LinkBench {
       listenHost: '127.0.0.1',
       hostname: () => `${label}.local`,
       networkInterfaces: () => ({ lo0: [LOOPBACK], ...(peer === undefined ? {} : { utun4: [interfaceOf(peer.local)] }) }),
-      ...(peer === undefined ? {} : { addressesOf: (): PeerAddresses => ({ ...peer }) }),
+      ...(this.options.addressesOf !== undefined
+        ? { addressesOf: this.options.addressesOf }
+        : peer === undefined
+          ? {}
+          : { addressesOf: (): PeerAddresses => ({ ...peer }) }),
       now: () => this.now,
       ipcModules: this.options.ipcModules ?? { './link.ts': () => import('../../src/main/ipc/link').then((module) => module.default) },
       ...(this.options.pingIntervalMs === undefined ? {} : { pingIntervalMs: this.options.pingIntervalMs }),

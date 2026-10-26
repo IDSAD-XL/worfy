@@ -10,8 +10,9 @@
 //
 // While pairing there is nothing remembered yet: the fingerprint is only recorded, and the pairing
 // transcript (pairing.ts) proves it.
-import tls from 'node:tls'
+import net, { type Socket } from 'node:net'
 import type { Duplex } from 'node:stream'
+import tls from 'node:tls'
 import WebSocket from 'ws'
 import { LINK_MAX_PAYLOAD, LINK_PROTOCOL_HEADER, LINK_PROTOCOL_VERSION, PAIR_PATH, PAIRING_MAX_PAYLOAD } from './messages'
 
@@ -44,12 +45,20 @@ export interface OpenOptions {
   protocolVersion?: number
   /** The largest message taken from the server; by default PAIRING_MAX_PAYLOAD on the pairing path, LINK_MAX_PAYLOAD otherwise. */
   maxPayload?: number
+  /**
+   * Asked once the TCP connection is up, before the first byte of TLS: true lets it go on, a text
+   * refuses it ('refused', with that text for the user). The address a name resolved to is known
+   * only here. Without it every server is dialed.
+   */
+  allowServer?: (socket: Socket) => true | string
 }
 
 export interface OpenedSocket {
   ws: WebSocket
   /** The server certificate's fingerprint as seen in this connection. */
   serverFingerprint: string
+  /** The address the connection went to (socket.remoteAddress). */
+  remoteAddress: string | undefined
 }
 
 const hostForUrl = (host: string): string => (host.includes(':') && !host.startsWith('[') ? `[${host}]` : host)
@@ -59,6 +68,7 @@ const CONNECT_TIMEOUT_MS = 10_000
 /** Opens the WebSocket; rejects with LinkConnectError, whose message never carries the token. */
 export function openLinkSocket(options: OpenOptions): Promise<OpenedSocket> {
   let serverFingerprint = ''
+  let remoteAddress: string | undefined
   let certificateChanged = false
   const url = `wss://${hostForUrl(options.host)}:${options.port}${options.path}`
   const headers: Record<string, string> = { [LINK_PROTOCOL_HEADER]: String(options.protocolVersion ?? LINK_PROTOCOL_VERSION) }
@@ -70,38 +80,55 @@ export function openLinkSocket(options: OpenOptions): Promise<OpenedSocket> {
     perMessageDeflate: false,
     maxPayload: options.maxPayload ?? (options.path === PAIR_PATH ? PAIRING_MAX_PAYLOAD : LINK_MAX_PAYLOAD),
     createConnection: ((_options: unknown, ready: (error: Error | null, socket?: Duplex) => void) => {
-      const socket = tls.connect({
-        host: options.host.replace(/^\[|\]$/g, ''),
-        port: options.port,
-        key: options.key,
-        cert: options.certificate,
-        minVersion: 'TLSv1.3',
-        // The chain is not checked: trust is the fingerprint below.
-        rejectUnauthorized: false,
-      })
+      const host = options.host.replace(/^\[|\]$/g, '')
       let settled = false
-      socket.once('secureConnect', () => {
-        settled = true
-        serverFingerprint = socket.getPeerCertificate().fingerprint256 ?? ''
-        if (options.expectFingerprint !== undefined && serverFingerprint !== options.expectFingerprint) {
-          certificateChanged = true
-          socket.destroy()
-          ready(new LinkConnectError('certificate-changed', 'certificate changed: the other Machine presents a certificate other than the one remembered at linking; link it again'))
-          return
-        }
-        ready(null, socket)
-      })
-      socket.once('error', (error) => {
+      const fail = (error: Error): void => {
         if (settled) return
         settled = true
         ready(error)
+      }
+      // TCP first, TLS over it: allowServer sees the address a name resolved to before the
+      // ClientHello is written, so a refused server gets no byte of TLS.
+      const tcp = net.connect({ host, port: options.port })
+      tcp.once('error', fail)
+      tcp.once('connect', () => {
+        remoteAddress = tcp.remoteAddress
+        const allowed = options.allowServer?.(tcp) ?? true
+        if (allowed !== true) {
+          tcp.destroy()
+          fail(new LinkConnectError('refused', allowed))
+          return
+        }
+        const socket = tls.connect({
+          socket: tcp,
+          host,
+          port: options.port,
+          ...(net.isIP(host) === 0 ? { servername: host } : {}),
+          key: options.key,
+          cert: options.certificate,
+          minVersion: 'TLSv1.3',
+          // The chain is not checked: trust is the fingerprint below.
+          rejectUnauthorized: false,
+        })
+        socket.once('secureConnect', () => {
+          settled = true
+          serverFingerprint = socket.getPeerCertificate().fingerprint256 ?? ''
+          if (options.expectFingerprint !== undefined && serverFingerprint !== options.expectFingerprint) {
+            certificateChanged = true
+            socket.destroy()
+            ready(new LinkConnectError('certificate-changed', 'certificate changed: the other Machine presents a certificate other than the one remembered at linking; link it again'))
+            return
+          }
+          ready(null, socket)
+        })
+        socket.once('error', fail)
       })
       return undefined
     }) as never,
   })
 
   return new Promise((resolve, reject) => {
-    ws.once('open', () => resolve({ ws, serverFingerprint }))
+    ws.once('open', () => resolve({ ws, serverFingerprint, remoteAddress }))
     ws.once('unexpected-response', (_request, response) => {
       const chunks: Buffer[] = []
       response.on('data', (chunk: Buffer) => chunks.push(chunk))
