@@ -2,8 +2,8 @@
 
 Type: task
 Status: open
-Blocked by: 27, 28, 29
-Source: решения владельца 2026-10-18, Q16, Q21, Q24 ([ADR-0070](../../../docs/adr/0070-worfy-link-outside-the-lan-through-an-overlay-network.md)). Начинается после текущей очереди Epic-а `worfy-windows` и после Ticket-ов 27–29; Ticket 30 приёмку не держит
+Blocked by: 27, 28, 29, 36, 37
+Source: решения владельца 2026-10-18, Q16, Q21, Q24 ([ADR-0070](../../../docs/adr/0070-worfy-link-outside-the-lan-through-an-overlay-network.md)). Начинается после текущей очереди Epic-а `worfy-windows` и после Ticket-ов 27–29, 36 и 37; Ticket 30 приёмку не держит
 
 ## Что происходит
 

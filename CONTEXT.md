@@ -167,8 +167,8 @@ _Avoid_: песочница, sandbox, пример, учебный проект
 _Avoid_: инстанс, машина (как термин), host и client (как виды устройств)
 
 **Linked machine**:
-Machine, связанная с этой по коду из 6 цифр. Связь двусторонняя, отзывается с любой стороны. Если здесь включён доступ «Linked machines can work with my Projects» (по умолчанию выключен), Linked machine видит Project-ы этой Machine и работает с ними: открывает Canvas, пишет в Session, печатает в Terminal, запускает Autopilot. При выключенном доступе Project-ов этой Machine она не видит. Всё это выполняется на Machine Project-а ([ADR-0052](docs/adr/0052-machines-and-linking.md), [ADR-0053](docs/adr/0053-several-screens-on-one-project.md)).
-_Avoid_: удалённый инстанс, host, client, remote
+Machine, связанная с этой по коду из 6 цифр. Связь двусторонняя, удаляется (Remove) с любой стороны. Если здесь включён доступ «Linked machines can work with my Projects» (по умолчанию выключен), Linked machine видит Project-ы этой Machine и работает с ними: открывает Canvas, пишет в Session, печатает в Terminal, запускает Autopilot. При выключенном доступе Project-ов этой Machine она не видит. Всё это выполняется на Machine Project-а ([ADR-0052](docs/adr/0052-machines-and-linking.md), [ADR-0053](docs/adr/0053-several-screens-on-one-project.md)).
+_Avoid_: удалённый инстанс, host, client, remote, отозвать, Revoke
 
 ## Terminal AI
 
