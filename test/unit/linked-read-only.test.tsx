@@ -78,6 +78,7 @@ const linkState: LinkState = {
   discovered: [],
   projectsAccess: false,
   keepAwake: true,
+  tailscale: false,
 }
 
 const linkedState = (readOnly: boolean, revision = 1): LinkedState => ({ revision, machines: [{ id: M, online: true, sharing: 'yes', readOnly, epoch: 1 }] })

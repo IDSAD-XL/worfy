@@ -31,6 +31,7 @@ const linkState = (revision: number, change: Partial<LinkState> = {}): LinkState
   discovered: [],
   projectsAccess: false,
   keepAwake: true,
+  tailscale: false,
   ...change,
 })
 
@@ -188,6 +189,7 @@ describe('the Machines section of the sidebar', () => {
 
 const ACCESS = 'Linked machines can work with my Projects'
 const KEEP_AWAKE = 'Keep this computer awake while linked machines are connected'
+const TAILSCALE = 'Link through Tailscale'
 
 async function mountSettings(link: LinkState) {
   preload(link)
@@ -199,6 +201,7 @@ async function mountSettings(link: LinkState) {
 
 const access = () => screen.getByRole('switch', { name: ACCESS }) as HTMLButtonElement
 const keepAwake = () => screen.getByRole('switch', { name: KEEP_AWAKE }) as HTMLButtonElement
+const tailscale = () => screen.getByRole('switch', { name: TAILSCALE }) as HTMLButtonElement
 const linkCalls = () => main.calls.map(({ channel, input }) => [channel, input])
 
 describe('Settings → Machines', () => {
@@ -212,7 +215,8 @@ describe('Settings → Machines', () => {
 
   it('shows the two switches as main has them, under the test ids the sidebar gave them', async () => {
     await mountSettings(linkState(1, { projectsAccess: true }))
-    expect(screen.getAllByRole('switch')).toHaveLength(2)
+    // The third is "Link through Tailscale" (its own describe below).
+    expect(screen.getAllByRole('switch')).toHaveLength(3)
     expect(access().getAttribute('aria-checked')).toBe('true')
     expect(keepAwake().getAttribute('aria-checked')).toBe('true')
     expect(access().disabled).toBe(false)
@@ -492,5 +496,37 @@ describe('Settings → Machines: the level of each Linked machine', () => {
     fireEvent.click(option)
     await act(async () => main.calls[0]!.answer({ ok: false, error: `link.setMachineAccess failed: Machine ${MINI} is not linked` }))
     expect(screen.getByRole('alert').textContent).toContain('is not linked')
+  })
+})
+
+// worfy-link ticket 27 (ADR-0070, point 3).
+describe('Settings → Machines: "Link through Tailscale"', () => {
+  it('shows off as main has it, enabled whether access is on or off', async () => {
+    await mountSettings(linkState(1, { projectsAccess: false }))
+    expect(tailscale().getAttribute('aria-checked')).toBe('false')
+    expect(tailscale().disabled).toBe(false)
+    expect(tailscale().getAttribute('data-testid')).toBe('link-tailscale-switch')
+    expect(screen.getByTestId('settings-machines-tailscale-row').hasAttribute('data-disabled')).toBe(false)
+    expect(screen.getByText(TAILSCALE)).toBeTruthy()
+  })
+
+  it('a click calls link.setTailscale with the other value, and the switch shows what main answered', async () => {
+    await mountSettings(linkState(1))
+    fireEvent.click(tailscale())
+    expect(linkCalls()).toStrictEqual([['link.setTailscale', { tailscale: true }]])
+    await act(async () => main.calls[0]!.answer({ ok: true, value: linkState(2, { tailscale: true }) }))
+    expect(tailscale().getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(tailscale())
+    expect(linkCalls()[1]).toStrictEqual(['link.setTailscale', { tailscale: false }])
+    await act(async () => main.calls[1]!.answer({ ok: false, error: 'link.setTailscale: refused' }))
+    expect(tailscale().getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('alert').textContent).toBe('link.setTailscale: refused')
+  })
+
+  it('without this Machine it is disabled', async () => {
+    await mountSettings(linkState(1, { machine: null, problem: 'the link service has not started yet', tailscale: true }))
+    expect(tailscale().disabled).toBe(true)
+    fireEvent.click(tailscale())
+    expect(linkCalls()).toStrictEqual([])
   })
 })

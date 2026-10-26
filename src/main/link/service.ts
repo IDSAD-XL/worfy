@@ -26,6 +26,7 @@
 // connections), and WORFY_LINK_BONJOUR=0 turns Bonjour off (e2e tests, so macOS never asks for
 // the Local Network permission during a run).
 import { EventEmitter } from 'node:events'
+import type { Socket } from 'node:net'
 import { hostname as osHostname, networkInterfaces as osNetworkInterfaces } from 'node:os'
 import { join } from 'node:path'
 import type { WebSocket } from 'ws'
@@ -34,7 +35,7 @@ import type { IpcResult } from '../../shared/ipc/channels'
 import type { Client } from '../clients'
 import type { ModuleLoader } from '../ipc/index'
 import { dataRoot, type BuildKind } from '../storage/paths'
-import { normalizeAddress, type HostNames } from './checks'
+import { isAllowedPeer, isTailscaleAddress, normalizeAddress, type HostNames, type PeerAddresses } from './checks'
 import { LinkConnectError, openLinkSocket } from './client'
 import { CLOSE_REVOKED, CLOSE_UNLINKED, LinkConnection } from './connection'
 import { LinkConnections } from './connections'
@@ -135,6 +136,8 @@ export interface LinkServiceOptions {
   listenHost?: string
   hostname?: () => string
   networkInterfaces?: () => HostNames['interfaces']
+  /** How the server reads a socket's two addresses; its own by default. Tests stand 127.0.0.1 in for a Tailscale address. */
+  addressesOf?: (socket: Socket) => PeerAddresses
   now?: () => number
   /** The secret store; the 0600 file in <dataDir>/link by default. */
   secrets?: SecretStore
@@ -197,6 +200,8 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   private pairingsOut = 0
   /** WebSockets of pairing attempts this side answers; stop() cuts them. */
   private readonly pairingSockets = new Set<WebSocket>()
+  /** The peer's address of each connection and pairing attempt that came in through the server. */
+  private readonly inboundAddress = new WeakMap<LinkConnection | WebSocket, string>()
   private server: LinkServer | null = null
   /** The IPC adapter, made at the first call over the link: a worfy without Linked machines never loads it. */
   private ipc: Promise<LinkIpcAdapter> | undefined
@@ -222,6 +227,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       // Off, or another level: the connection's `project` client is destroyed now, and its
       // subscriptions with it; a level on makes a fresh one (ipc-adapter.ts, LinkPeer.setAccess).
       for (const peer of this.peers) peer.setAccess(this.settings.levelOf(peer.machineId))
+      if (!value.tailscale) this.closeTailscalePeers()
       this.emit('settings', value)
     })
     this.hostname = options.hostname ?? osHostname
@@ -599,7 +605,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
    * Takes an established WebSocket of a Linked machine into service; false (and the socket closed)
    * when the Machine was forgotten while the handshake ran, or the service stopped.
    */
-  private attach(ws: WebSocket, record: LinkedMachineRecord, direction: 'in' | 'out'): boolean {
+  private attach(ws: WebSocket, record: LinkedMachineRecord, direction: 'in' | 'out', remoteAddress?: string): boolean {
     if (this.stopped || this.store.get(record.id) === undefined) {
       ws.close(CLOSE_UNLINKED, 'unlinked')
       return false
@@ -616,6 +622,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       ...(this.options.addClient === undefined ? {} : { addClient: this.options.addClient }),
       warn: this.warn,
     })
+    if (remoteAddress !== undefined) this.inboundAddress.set(connection, remoteAddress)
     this.peers.add(peer)
     peer.setAccess(this.settings.levelOf(record.id))
     let set = this.connections.get(record.id)
@@ -694,6 +701,20 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     return this.ipc
   }
 
+  /**
+   * "Link through Tailscale" went off: connections and pairing attempts that came in from a
+   * Tailscale address are cut, as the server now drops such a peer on TCP (ADR-0070, point 4).
+   */
+  private closeTailscalePeers(): void {
+    for (const set of this.connections.values()) {
+      for (const connection of set) {
+        const address = this.inboundAddress.get(connection)
+        if (address !== undefined && isTailscaleAddress(address)) connection.terminate()
+      }
+    }
+    for (const ws of this.pairingSockets) if (isTailscaleAddress(this.inboundAddress.get(ws) ?? '')) ws.terminate()
+  }
+
   /** The server's endpoint checks after the common ones (server.ts). */
   private admit(upgrade: { path: string; clientFingerprint: string | undefined; remoteAddress: string; token: string | undefined }): Refusal | Admission {
     if (upgrade.path === PAIR_PATH) {
@@ -711,7 +732,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       // handleUpgrade calls back synchronously after this check, so the record is still current.
       accept: (ws) => {
         this.store.touch(record.id, { address: upgrade.remoteAddress })
-        this.attach(ws, record, 'in')
+        this.attach(ws, record, 'in', upgrade.remoteAddress)
       },
       abort: () => undefined,
     }
@@ -720,6 +741,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   private async respond(ws: WebSocket, clientFingerprint: string, remoteAddress: string): Promise<void> {
     let stored: LinkedMachineRecord | undefined
     holdPairingErrors(ws)
+    this.inboundAddress.set(ws, remoteAddress)
     this.pairingSockets.add(ws)
     try {
       await respondToPairing(ws, () => this.pairingWindow.take(), {
@@ -816,6 +838,10 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
             build: this.options.buildVersion,
             hostNames: () => ({ interfaces: this.interfaces(), hostname: this.hostname() }),
             admit: (upgrade) => this.admit(upgrade),
+            // Read on every connection: the switch acts without a restart, and the Tailscale adapter
+            // may get its address after worfy started.
+            isAllowedPeer: (peer) => isAllowedPeer(peer, { tailscale: this.settings.get().tailscale, interfaces: this.interfaces() }),
+            ...(this.options.addressesOf === undefined ? {} : { addressesOf: this.options.addressesOf }),
           })
         } catch (error) {
           lastError = error

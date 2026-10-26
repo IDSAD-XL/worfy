@@ -593,6 +593,138 @@ describe('round 2: a peer outside the local network', () => {
   })
 })
 
+// worfy-link ticket 27 (ADR-0070, points 3 and 4). The bench servers read 127.0.0.1 as the
+// addresses given here (link-bench.ts, peerAddresses), and every bench machine has `local` on an
+// interface: a peer at a Tailscale address without a tailnet in the test.
+describe('a peer at a Tailscale address', () => {
+  const TAILNET = { remote: '100.101.2.3', local: '100.100.7.9' }
+
+  /** A raw TLS connection to `port`: whether the handshake completed or the server dropped it first. */
+  function handshake(port: number): Promise<'handshake' | 'dropped'> {
+    return new Promise((resolve) => {
+      const socket = tls.connect({ host: '127.0.0.1', port, rejectUnauthorized: false, minVersion: 'TLSv1.3' })
+      socket.once('secureConnect', () => {
+        resolve('handshake')
+        socket.destroy()
+      })
+      socket.once('error', () => resolve('dropped'))
+      socket.once('close', () => resolve('dropped'))
+    })
+  }
+
+  /** Machine beta, listening with "Link a machine" open. */
+  async function listening(peerAddresses: { remote: string; local: string }): Promise<{ b: BenchMachine; port: number }> {
+    newBench({ peerAddresses })
+    const b = await bench!.machine('beta')
+    await bench!.codeOf(b)
+    return { b, port: bench!.portOf(b) }
+  }
+
+  it('is dropped before the TLS handshake while "Link through Tailscale" is off, and gets through once it is on, without a restart', async () => {
+    const { b, port } = await listening(TAILNET)
+    expect(b.service.settings.get().tailscale).toBe(false)
+    expect(await handshake(port)).toBe('dropped')
+    b.service.settings.set({ tailscale: true })
+    expect(await handshake(port)).toBe('handshake')
+    b.service.settings.set({ tailscale: false })
+    expect(await handshake(port)).toBe('dropped')
+  })
+
+  it('an IPv6 Tailscale address no longer passes as a local fc00::/7 one: dropped while off, through while on', async () => {
+    const { b, port } = await listening({ remote: 'fd7a:115c:a1e0::2', local: 'fd7a:115c:a1e0::7' })
+    expect(await handshake(port)).toBe('dropped')
+    b.service.settings.set({ tailscale: true })
+    expect(await handshake(port)).toBe('handshake')
+  })
+
+  it('a peer in 100.64.0.0/10 that arrived on the home network address (a carrier-grade NAT neighbour) is dropped with the setting on', async () => {
+    const { b, port } = await listening({ remote: '100.101.2.3', local: '192.168.0.119' })
+    b.service.settings.set({ tailscale: true })
+    expect(await handshake(port)).toBe('dropped')
+  })
+
+  it('the upgrade reads the setting again: off between the TLS handshake and the request gets 403', async () => {
+    const { b, port } = await listening(TAILNET)
+    b.service.settings.set({ tailscale: true })
+    const socket = tls.connect({ host: '127.0.0.1', port, rejectUnauthorized: false, minVersion: 'TLSv1.3' })
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.once('secureConnect', resolve)
+        socket.once('error', reject)
+      })
+      b.service.settings.set({ tailscale: false })
+      const answer = new Promise<string>((resolve) => {
+        let text = ''
+        socket.on('data', (chunk: Buffer) => (text += chunk.toString('latin1')))
+        socket.once('close', () => resolve(text))
+        socket.once('error', () => resolve(text))
+      })
+      socket.write(
+        [
+          `GET ${PAIR_PATH} HTTP/1.1`,
+          `Host: 127.0.0.1:${port}`,
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          'Sec-WebSocket-Version: 13',
+          `Sec-WebSocket-Key: ${randomBytes(16).toString('base64')}`,
+          `x-worfy-link-protocol: ${LINK_PROTOCOL_VERSION}`,
+          '',
+          '',
+        ].join('\r\n'),
+      )
+      // The common check's refusal, not the pairing endpoint's own (this request has no client certificate).
+      const text = await answer
+      expect(text.split('\r\n')[0]).toBe('HTTP/1.1 403 Forbidden')
+      expect(text.split('\r\n\r\n')[1]).toBe('forbidden')
+    } finally {
+      socket.destroy()
+    }
+  })
+
+  it('turning the setting off closes an open connection from a Tailscale address; another switch does not', async () => {
+    newBench({ peerAddresses: TAILNET })
+    const a = await bench!.machine('alpha')
+    const b = await bench!.machine('beta')
+    b.service.settings.set({ tailscale: true })
+    await bench!.link(a, b)
+    const aId = a.service.machine.id
+    await a.service.connect(b.service.machine.id)
+    await expect.poll(() => b.service.isConnected(aId)).toBe(true)
+    b.service.settings.set({ keepAwake: false })
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(b.service.isConnected(aId)).toBe(true)
+    const gone = new Promise((resolve) => a.service.once('disconnected', resolve))
+    b.service.settings.set({ tailscale: false })
+    expect(await gone).toEqual({ id: b.service.machine.id, name: 'beta' })
+    await expect.poll(() => b.service.isConnected(aId)).toBe(false)
+  })
+
+  it('turning the setting off leaves a connection from the local network open', async () => {
+    newBench()
+    const { a, b } = await linkedPair()
+    const aId = a.service.machine.id
+    b.service.settings.set({ tailscale: true })
+    await a.service.connect(b.service.machine.id)
+    await expect.poll(() => b.service.isConnected(aId)).toBe(true)
+    b.service.settings.set({ tailscale: false })
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(b.service.isConnected(aId)).toBe(true)
+    expect(a.service.isConnected(b.service.machine.id)).toBe(true)
+  })
+
+  it('turning the setting off cuts a pairing attempt from a Tailscale address', async () => {
+    newBench({ peerAddresses: TAILNET })
+    const b = await bench!.machine('beta')
+    const c = await bench!.machine('gamma')
+    b.service.settings.set({ tailscale: true })
+    await bench!.codeOf(b)
+    const { ws } = await openLinkSocket({ host: '127.0.0.1', port: bench!.portOf(b), path: PAIR_PATH, key: keyOf(c), certificate: certificateOf(c) })
+    const code = closeCode(ws)
+    b.service.settings.set({ tailscale: false })
+    expect(await code).not.toBe('still open')
+  })
+})
+
 describe('round 2: message size limits', () => {
   it(`the server closes a pairing socket that sends more than ${PAIRING_MAX_PAYLOAD} bytes with 1009`, async () => {
     newBench()

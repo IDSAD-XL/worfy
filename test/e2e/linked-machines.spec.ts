@@ -297,10 +297,15 @@ test('revoking from A, then from B: the row goes on both within 5 s, and linking
 /** The line under the access switch of Settings → Machines (ADR-0060). */
 const STARTED_WORK_KEEPS_RUNNING = 'Work already started from a Linked machine keeps running'
 
+/** "Link through Tailscale" in Settings → Machines (worfy-link ticket 27; ADR-0070, point 3). */
+const TAILSCALE_LABEL = 'Link through Tailscale'
+
+type SavedLinkSettings = { projectsAccess: boolean; machines?: Record<string, string>; keepAwake?: boolean; tailscale?: boolean }
+
 /** What link/settings.json of the data folder says, once worfy has written it (src/main/link/settings.ts). */
-function savedLinkSettings(dataDir: string): { projectsAccess: boolean; machines?: Record<string, string>; keepAwake?: boolean } | null {
+function savedLinkSettings(dataDir: string): SavedLinkSettings | null {
   const file = join(dataDir, 'link', 'settings.json')
-  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as { projectsAccess: boolean; machines?: Record<string, string>; keepAwake?: boolean }) : null
+  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as SavedLinkSettings) : null
 }
 
 test('Settings → Machines: the access switch is off on a fresh Machine and stays on across a restart over the same data folder', async () => {
@@ -319,8 +324,13 @@ test('Settings → Machines: the access switch is off on a fresh Machine and sta
       await expect(sections.filter({ hasText: /^Machines$/ })).toHaveAttribute('aria-current', 'true')
       const access = dialog.getByRole('switch', { name: PROJECTS_ACCESS_LABEL, exact: true })
       const keepAwake = dialog.getByRole('switch', { name: KEEP_AWAKE_LABEL, exact: true })
-      await expect(dialog.getByRole('switch')).toHaveCount(2)
-      for (const toggle of [access, keepAwake]) await expect(toggle).toBeVisible()
+      const tailscale = dialog.getByRole('switch', { name: TAILSCALE_LABEL, exact: true })
+      await expect(dialog.getByRole('switch')).toHaveCount(3)
+      for (const toggle of [access, keepAwake, tailscale]) await expect(toggle).toBeVisible()
+      // "Link through Tailscale" is off on a fresh Machine, and can be switched with access off.
+      await expect(tailscale).toBeEnabled()
+      await expect(tailscale).toHaveAttribute('aria-checked', 'false')
+      await expect(dialog.getByText(TAILSCALE_LABEL, { exact: true })).toBeVisible()
       // As a fresh Machine has them: access off, keep-awake on in link/settings.json. With access off
       // sleep is not kept away, so keep-awake is disabled, shows off and says why. Both labels and
       // the line under the access switch are on screen.
@@ -352,7 +362,14 @@ test('Settings → Machines: the access switch is off on a fresh Machine and sta
       await expect(dialog.getByText(STARTED_WORK_KEEPS_RUNNING, { exact: true })).toBeVisible()
       await snapshotThemes(first.window, 'settings-machines-access-on')
       // Written where the sidebar's switch wrote it.
-      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 2, projectsAccess: true, machines: {}, keepAwake: true })
+      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 2, projectsAccess: true, machines: {}, keepAwake: true, tailscale: false })
+      // "Link through Tailscale" on is written next to the other switches, and off again.
+      await tailscale.click()
+      await expect(tailscale).toHaveAttribute('aria-checked', 'true')
+      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 2, projectsAccess: true, machines: {}, keepAwake: true, tailscale: true })
+      await tailscale.click()
+      await expect(tailscale).toHaveAttribute('aria-checked', 'false')
+      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 2, projectsAccess: true, machines: {}, keepAwake: true, tailscale: false })
       // Closing Settings loses nothing: open again, the switch is on. The sidebar still has no
       // switch, with its Machines section expanded too.
       await closeSettings(first.window)
@@ -454,14 +471,14 @@ test('Settings → Machines in the smallest window: a refusal of main is shown a
       await expect(access).toHaveAttribute('aria-checked', 'true')
       await expect(access).toBeFocused()
       await expect(error).toHaveCount(0)
-      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 2, projectsAccess: true, machines: {}, keepAwake: true })
+      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 2, projectsAccess: true, machines: {}, keepAwake: true, tailscale: false })
       // Tab goes on to the next switch; Enter switches it off.
       await window.keyboard.press('Tab')
       await expect(keepAwake).toBeFocused()
       await window.keyboard.press('Enter')
       await expect(keepAwake).toHaveAttribute('aria-checked', 'false')
       await expect(keepAwake).toBeFocused()
-      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 2, projectsAccess: true, machines: {}, keepAwake: false })
+      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 2, projectsAccess: true, machines: {}, keepAwake: false, tailscale: false })
 
       // After a click on a label, Esc still closes Settings.
       await labels[0]!.click()
@@ -730,7 +747,7 @@ test('Settings → Machines: a level per Linked machine; with Read only A sees t
     await expect(levelRow).toContainText('Read only still means trust: a Session transcript can show a secret')
     await expect(levelRow).toContainText('not Terminal output')
     await evidence18(b.window, 'settings-machines-read-only')
-    await expect.poll(() => savedLinkSettings(bData)).toStrictEqual({ version: 2, projectsAccess: true, machines: { [aId]: 'read' }, keepAwake: true })
+    await expect.poll(() => savedLinkSettings(bData)).toStrictEqual({ version: 2, projectsAccess: true, machines: { [aId]: 'read' }, keepAwake: true, tailscale: false })
     await closeSettings(b.window)
 
     // On A: the Project of B is listed; reading answers, a change is refused with the read-only text.

@@ -8,6 +8,10 @@
 // - "Keep this computer awake while linked machines are connected" (`keepAwake`, ticket 14): on by
 //   default — the owner's decision is that a Project machine does not sleep while it is used —
 //   and also on in a file written before it existed. keep-awake.ts applies it.
+// - "Link through Tailscale" (`tailscale`, worfy-link ticket 27; ADR-0070, point 3): off for a fresh
+//   data folder and off in a file written before it existed. The link server reads it on every
+//   connection (checks.ts, isAllowedPeer); service.ts closes the connections from Tailscale addresses
+//   when it goes off.
 // This module only keeps and announces them.
 //
 // A file of version 1 (before ticket 18) had one switch for all Linked machines. It reads as the
@@ -31,6 +35,8 @@ const versionTwo = z.object({
   projectsAccess: z.boolean(),
   machines: z.record(z.uuid(), accessLevelSchema),
   keepAwake: z.boolean(),
+  /** Absent in a file written before worfy-link ticket 27: off then. */
+  tailscale: z.boolean().optional(),
 })
 
 const settingsFileSchema = z.discriminatedUnion('version', [versionOne, versionTwo])
@@ -45,9 +51,11 @@ export interface LinkSettingsValue {
   machines: Readonly<Record<string, GrantedLevel>>
   /** "Keep this computer awake while linked machines are connected". */
   keepAwake: boolean
+  /** "Link through Tailscale": peers in the Tailscale ranges may connect on the Tailscale interface. */
+  tailscale: boolean
 }
 
-export const DEFAULT_LINK_SETTINGS: Readonly<LinkSettingsValue> = Object.freeze({ projectsAccess: false, machines: Object.freeze({}), keepAwake: true })
+export const DEFAULT_LINK_SETTINGS: Readonly<LinkSettingsValue> = Object.freeze({ projectsAccess: false, machines: Object.freeze({}), keepAwake: true, tailscale: false })
 
 /** `machines` without the `off` entries, in a fresh object. */
 function granted(machines: Readonly<Record<string, AccessLevel>>): Record<string, GrantedLevel> {
@@ -85,11 +93,11 @@ export class LinkSettings extends EventEmitter<{ changed: [LinkSettingsValue] }>
     if (stored === undefined) {
       this.value = { ...DEFAULT_LINK_SETTINGS, machines: {} }
     } else if (stored.version === 2) {
-      this.value = { projectsAccess: stored.projectsAccess, machines: granted(stored.machines), keepAwake: stored.keepAwake }
+      this.value = { projectsAccess: stored.projectsAccess, machines: granted(stored.machines), keepAwake: stored.keepAwake, tailscale: stored.tailscale ?? DEFAULT_LINK_SETTINGS.tailscale }
     } else {
       const machines: Record<string, GrantedLevel> = {}
       if (stored.projectsAccess) for (const id of options.linked?.() ?? []) machines[id] = 'all'
-      this.value = { projectsAccess: stored.projectsAccess, machines, keepAwake: stored.keepAwake ?? DEFAULT_LINK_SETTINGS.keepAwake }
+      this.value = { projectsAccess: stored.projectsAccess, machines, keepAwake: stored.keepAwake ?? DEFAULT_LINK_SETTINGS.keepAwake, tailscale: DEFAULT_LINK_SETTINGS.tailscale }
       try {
         this.write(this.value)
       } catch (error) {
@@ -112,13 +120,20 @@ export class LinkSettings extends EventEmitter<{ changed: [LinkSettingsValue] }>
    * Saves a change and announces it; nothing is written or announced when nothing changes.
    * `machines`, when given, replaces the whole list.
    */
-  set(change: Partial<{ projectsAccess: boolean; machines: Readonly<Record<string, AccessLevel>>; keepAwake: boolean }>): LinkSettingsValue {
+  set(change: Partial<{ projectsAccess: boolean; machines: Readonly<Record<string, AccessLevel>>; keepAwake: boolean; tailscale: boolean }>): LinkSettingsValue {
     const next: LinkSettingsValue = {
       projectsAccess: change.projectsAccess ?? this.value.projectsAccess,
       machines: change.machines === undefined ? this.value.machines : granted(change.machines),
       keepAwake: change.keepAwake ?? this.value.keepAwake,
+      tailscale: change.tailscale ?? this.value.tailscale,
     }
-    if (next.projectsAccess === this.value.projectsAccess && next.keepAwake === this.value.keepAwake && sameMachines(next.machines, this.value.machines)) return this.get()
+    if (
+      next.projectsAccess === this.value.projectsAccess &&
+      next.keepAwake === this.value.keepAwake &&
+      next.tailscale === this.value.tailscale &&
+      sameMachines(next.machines, this.value.machines)
+    )
+      return this.get()
     this.write(next)
     this.value = next
     this.emit('changed', this.get())
@@ -131,6 +146,6 @@ export class LinkSettings extends EventEmitter<{ changed: [LinkSettingsValue] }>
   }
 
   private write(value: LinkSettingsValue): void {
-    writeJsonFile(this.file, settingsFileSchema, { version: 2, projectsAccess: value.projectsAccess, machines: { ...value.machines }, keepAwake: value.keepAwake })
+    writeJsonFile(this.file, settingsFileSchema, { version: 2, projectsAccess: value.projectsAccess, machines: { ...value.machines }, keepAwake: value.keepAwake, tailscale: value.tailscale })
   }
 }
