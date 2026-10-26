@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 29
+Blocked by: 29, 36, 37
 Source: решение владельца 2026-10-18, Q22, вторая часть ([ADR-0070](../../../docs/adr/0070-worfy-link-outside-the-lan-through-an-overlay-network.md), пункт 5): «позже, отдельным Ticket-ом». Код начинается после текущей очереди Epic-а `worfy-windows` (Q21)
 
 ## Что происходит

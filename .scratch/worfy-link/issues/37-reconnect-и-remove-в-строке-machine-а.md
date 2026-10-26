@@ -30,11 +30,11 @@ Source: баг владельца 2026-10-26 и его решения того �
 2. **«Change address…»** — в меню строки и в строке без связи. Окно с полем IP или имени (и порта); сохраняет
    через `link.setAddress` (Ticket 36). Отказ main (другой сертификат, нет ответа) — текстом в окне, адрес не
    меняется.
-3. **Сторона host-а.** Строка client-а, который отключился, — «Offline» и «Waiting for <name> to connect», с
-   «Remove», без «Reconnect» (состояние — из Ticket-а 36, пункт 7).
+3. **Обе стороны одинаковы** (решение владельца 2026-10-26, Q9'). Любая Linked machine без связи — «Offline»
+   с «Reconnect» и «Remove», на какой бы стороне ни нажимали. Подписи «Waiting for … to connect» нет.
 4. **Settings → Machines**: у каждой Linked machine-а — «Remove».
 5. **Command palette**: «Reconnect machine…» и «Remove machine…» — выбор Machine-а, затем то же действие, что у
-   кнопки. «Reconnect machine…» предлагает только Machine-ы без связи, у которых Reconnect есть (пункт 3).
+   кнопки. «Reconnect machine…» предлагает только Machine-ы без связи.
 6. **«Revoke» → «Remove» везде в UI**: меню, tooltip «Certificate changed» (`:83`), тексты Settings. Remove
    спрашивает подтверждение: что машина забудется на обеих сторонах и связать её снова можно только новым кодом.
    Имя канала IPC `link.revoke` не меняется.
@@ -42,8 +42,8 @@ Source: баг владельца 2026-10-26 и его решения того �
 
 ## Готово, когда
 
-- [ ] Unit test секции: строка без связи — кнопки «Reconnect» и «Remove»; строка host-а с отключённым client-ом —
-      «Offline», «Waiting for <name> to connect», «Remove», без «Reconnect»; подсказка firewall видна, когда main
+- [ ] Unit test секции: строка без связи — кнопки «Reconnect» и «Remove»; статус
+      «Offline»; подсказка firewall видна, когда main
       её отдаёт.
 - [ ] Unit test: «Remove» спрашивает подтверждение; «Cancel» ничего не вызывает; слова «Revoke» в UI нет.
 - [ ] Unit test Command palette: «Reconnect machine…» и «Remove machine…» вызывают `link.reconnect` и
@@ -51,7 +51,7 @@ Source: баг владельца 2026-10-26 и его решения того �
 - [ ] e2e (своим spec-файлом, `test/e2e/linked-reconnect.spec.ts`): Remove из строки без связи — машины нет в
       списке на обеих сторонах после следующего набора; «Reconnect» набирает сразу, без паузы повторов.
 - [ ] e2e: «Change address…» с верным адресом — связь восстановлена, с чужим — отказ текстом в окне.
-- [ ] Снимки UI в светлой и тёмной темах (строка без связи, строка host-а, Settings → Machines, окно
+- [ ] Снимки UI в светлой и тёмной темах (строка без связи, Settings → Machines, окно
       «Change address…») — смотрит reviewer.
 
 ## Где в коде
