@@ -1012,6 +1012,8 @@ export interface AppLink {
   keepAwake: { stop(): void } | null
   /** The watch on this machine's addresses (connections.ts, watchNetwork). */
   network: { stop(): void }
+  /** The copy of `[link]` lines into link/link.log (log-file.ts); null where none is made (tests). */
+  journal: { stop(): void } | null
 }
 
 let appLinkValue: AppLink | undefined
@@ -1106,6 +1108,8 @@ export interface WireAppLinkOptions {
   power?: PowerEvents
   /** Makes the keep-awake over the service (keep-awake.ts); the app passes it, tests may not. */
   keepAwake?: (service: LinkService) => { stop(): void }
+  /** The journal of `[link]` lines (log-file.ts); stopLink stops it last. The app passes it, tests may not. */
+  journal?: { stop(): void }
   /** The machine's interfaces as the network watch reads them; os.networkInterfaces() by default. */
   networkInterfaces?: () => HostNames['interfaces']
   /** How often the network watch reads them; 5 s by default. */
@@ -1177,7 +1181,7 @@ export function wireAppLink(service: LinkService, options: WireAppLinkOptions): 
     followConnections()
   }
   connections.start()
-  return { service, connections, discovery, sleep, keepAwake, network: { stop: stopWatch } }
+  return { service, connections, discovery, sleep, keepAwake, network: { stop: stopWatch }, journal: options.journal ?? null }
 }
 
 /**
@@ -1194,7 +1198,12 @@ export async function stopLink(link: AppLink): Promise<void> {
   try {
     await link.discovery?.stop()
   } finally {
-    await link.service.stop()
+    try {
+      await link.service.stop()
+    } finally {
+      // Last: what the stop itself prints still reaches the file.
+      link.journal?.stop()
+    }
   }
 }
 
@@ -1272,7 +1281,13 @@ export async function startAppLink(options: { buildKind: BuildKind; buildVersion
       ...(environment.listenHost === undefined ? {} : { listenHost: environment.listenHost }),
       ...(environment.interfaces === undefined ? {} : { networkInterfaces: () => environment.interfaces ?? {}, listInterfaces: true }),
     })
-    appLinkValue = wireAppLink(service, { bonjour: environment.bonjour, power: powerMonitor, keepAwake: (followed) => new LinkKeepAwake(followed) })
+    const journal = {
+      stop: (): void => {
+        appJournal?.()
+        appJournal = undefined
+      },
+    }
+    appLinkValue = wireAppLink(service, { bonjour: environment.bonjour, power: powerMonitor, keepAwake: (followed) => new LinkKeepAwake(followed), journal })
     appProblem = undefined
     return service
   } catch (error) {

@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firewallHint } from '../../src/main/ipc/link'
 import { LinkConnections, networkSignature } from '../../src/main/link/connections'
 import { LinkDiscovery, mdnsName, type MdnsBackend } from '../../src/main/link/discovery'
+import { LinkLogFile, teeLinkConsole } from '../../src/main/link/log-file'
 import { LinkService, stopLink, wireAppLink, type AppLink, type LinkServiceOptions } from '../../src/main/link/service'
 import { accessOf } from '../../src/shared/ipc/channels'
 import '../../src/shared/ipc/link'
@@ -370,6 +371,33 @@ describe('the names of a Linked machine', () => {
     expect(recordOf(a, b)).toEqual({ ...before, certificateChanged: true })
   })
 
+  it('another worfy at the remembered address: no "certificate changed" before the names are tried, and the name where the remembered certificate answers connects', async () => {
+    const a = await bench.machine('a')
+    const b = await bench.machine('b')
+    const impostor = await bench.machine('impostor')
+    await bench.link(a, b)
+    const port = bench.portOf(b)
+    // B moves to ::1 on the same port; another worfy takes 127.0.0.1 with that port.
+    await restartWith(b, { listenHost: '::1' })
+    expect(b.service.status()).toMatchObject({ listening: true, port })
+    await impostor.service.stop()
+    const machineFile = join(impostor.dataDir, 'link', 'machine.json')
+    writeFileSync(machineFile, JSON.stringify({ ...JSON.parse(readFileSync(machineFile, 'utf8')), port }))
+    await bench.restart(impostor)
+    await bench.codeOf(impostor)
+    expect(bench.portOf(impostor)).toBe(port)
+    await a.service.stop()
+    editRecord(a, b, { address: '127.0.0.1', port, localName: '::1' })
+    await bench.restart(a)
+    const marks: string[] = []
+    a.service.on('certificate-changed', ({ id }) => marks.push(id))
+
+    await a.service.connect(b.service.machine.id)
+    expect(marks).toEqual([])
+    expect(online(a, b)).toBe(true)
+    expect(recordOf(a, b)).toMatchObject({ address: '::1', port, certificateChanged: false })
+  })
+
   it('a .local name from Bonjour is kept only when it was announced at the address of an open connection', async () => {
     const a = await bench.machine('a')
     const b = await bench.machine('b')
@@ -414,6 +442,33 @@ describe('link.setAddress', () => {
     expect(info).toMatchObject({ id, address: 'localhost', port: newPort, fingerprint: before?.fingerprint, connected: true })
     expect(linked).toEqual([])
     expect(b.service.pairingCode()).toBeNull()
+  })
+})
+
+describe('stopping the link', () => {
+  it('stops the journal last, after the service, and gives console its own methods back', async () => {
+    const a = await bench.machine('a')
+    const before = { log: console.log, warn: console.warn }
+    const undo = teeLinkConsole(new LinkLogFile({ dir: join(a.dataDir, 'link') }))
+    expect(console.warn).not.toBe(before.warn)
+    let serviceStopped: boolean | undefined
+    const link = wireAppLink(a.service, {
+      bonjour: false,
+      journal: {
+        stop: () => {
+          serviceStopped = a.service.isStopped
+          undo()
+        },
+      },
+    })
+    console.warn('[link] before the stop')
+    await stopLink(link)
+    expect(serviceStopped).toBe(true)
+    expect({ log: console.log, warn: console.warn }).toEqual(before)
+    console.warn('[link] after the stop')
+    const text = readFileSync(join(a.dataDir, 'link', 'link.log'), 'utf8')
+    expect(text).toContain('[link] before the stop')
+    expect(text).not.toContain('after the stop')
   })
 })
 

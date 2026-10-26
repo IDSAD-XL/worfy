@@ -1,6 +1,6 @@
 // The link's journal in a file (worfy-link ticket 36; src/main/link/log-file.ts): `[link]` lines
 // with their time, rotation by size within a total limit, and no token or pairing code in the file.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -42,10 +42,31 @@ describe('the link journal in a file', () => {
     // The file is this user's only.
     if (process.platform !== 'win32') expect(statSync(join(dir, LINK_LOG_FILE)).mode & 0o777).toBe(0o600)
 
+    const wrapped = console.warn
     undo()
     undo = undefined
+    expect(console.warn).not.toBe(wrapped)
     console.warn('[link] after the undo')
     expect(read()).not.toContain('after the undo')
+  })
+
+  it('the undo under another wrapper leaves that wrapper in place and stops copying', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    undo = teeLinkConsole(new LinkLogFile({ dir }))
+    const ours = console.warn
+    const theirs = (...args: unknown[]): void => ours(...args)
+    console.warn = theirs
+    try {
+      console.warn('[link] while both wrap')
+      undo()
+      undo = undefined
+      expect(console.warn).toBe(theirs)
+      console.warn('[link] after the undo')
+      expect(read()).toContain('while both wrap')
+      expect(read()).not.toContain('after the undo')
+    } finally {
+      console.warn = ours
+    }
   })
 
   it('rotates by size and keeps at most the given number of old files', () => {
@@ -62,6 +83,32 @@ describe('the link journal in a file', () => {
     const numbers = [...all.matchAll(/line (\d\d)/g)].map((match) => Number(match[1]))
     expect(numbers).toEqual([...numbers].sort((x, y) => x - y))
     expect(numbers.at(-1)).toBe(39)
+  })
+
+  it('a rotation that fails (EBUSY on Windows) keeps the lines in the current file, says so once, and is tried again', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    let busy = true
+    const log = new LinkLogFile({
+      dir,
+      maxBytes: 200,
+      rename: (from, to) => {
+        if (busy) throw Object.assign(new Error(`EBUSY: resource busy or locked, rename '${from}'`), { code: 'EBUSY' })
+        renameSync(from, to)
+      },
+    })
+    for (let index = 0; index < 10; index += 1) log.write(`[link] line ${index} ${'x'.repeat(40)}`)
+
+    expect(readdirSync(dir)).toEqual([LINK_LOG_FILE])
+    expect(read()).toContain('line 0 ')
+    expect(read()).toContain('line 9 ')
+    expect(statSync(join(dir, LINK_LOG_FILE)).size).toBeGreaterThan(200)
+    expect(warn.mock.calls.filter(([text]) => String(text).includes('could not rotate'))).toHaveLength(1)
+
+    busy = false
+    log.write('[link] line 10')
+    expect(readdirSync(dir).sort()).toEqual([LINK_LOG_FILE, `${LINK_LOG_FILE}.1`])
+    expect(read()).toContain('line 10')
+    expect(read(`${LINK_LOG_FILE}.1`)).toContain('line 9 ')
   })
 
   it('never writes a token or a pairing code, and leaves Machine ids, ports and times alone', () => {

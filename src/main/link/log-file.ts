@@ -10,7 +10,9 @@
 // - Secrets: no token and no pairing code is ever printed (ADR-0052, point 10), and the file
 //   checks again: what looks like one is replaced before the line is written (redactSecrets).
 // - A file that cannot be written never stops worfy: the journal says so once on the console and
-//   writes nothing more.
+//   writes nothing more. A rotation that fails (on Windows a rename meets EBUSY or EPERM while
+//   another program holds the file) is said once too, and the lines go on into link.log; the
+//   next line that does not fit tries the rotation again.
 import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { format } from 'node:util'
@@ -26,6 +28,8 @@ export interface LinkLogOptions {
   /** How many rotated files are kept; 3 by default. */
   files?: number
   now?: () => number
+  /** Renames a file while rotating; fs.renameSync by default (a test makes it fail). */
+  rename?: (from: string, to: string) => void
 }
 
 /** A Machine id; left as it is, its digits and letters are no secret. */
@@ -58,12 +62,15 @@ export class LinkLogFile {
   private readonly now: () => number
   private size: number | undefined
   private broken = false
+  private rotationFailed = false
+  private readonly rename: (from: string, to: string) => void
 
   constructor(private readonly options: LinkLogOptions) {
     this.file = join(options.dir, LINK_LOG_FILE)
     this.maxBytes = options.maxBytes ?? 1024 * 1024
     this.files = options.files ?? 3
     this.now = options.now ?? Date.now
+    this.rename = options.rename ?? renameSync
   }
 
   get path(): string {
@@ -80,7 +87,7 @@ export class LinkLogFile {
         mkdirSync(this.options.dir, { recursive: true })
         this.size = sizeOf(this.file)
       }
-      if (this.size > 0 && this.size + bytes > this.maxBytes) this.rotate()
+      if (this.size > 0 && this.size + bytes > this.maxBytes) this.tryRotate()
       appendFileSync(this.file, line, { mode: 0o600 })
       this.size += bytes
     } catch (error) {
@@ -90,13 +97,26 @@ export class LinkLogFile {
     }
   }
 
+  /** Rotates; when a rename fails, says so once and leaves the line to the current file. */
+  private tryRotate(): void {
+    try {
+      this.rotate()
+      this.rotationFailed = false
+    } catch (error) {
+      if (this.rotationFailed) return
+      this.rotationFailed = true
+      // `[worfy]`, not `[link]`: the tee does not copy this line back into the file.
+      console.warn(`[worfy] the link journal ${this.file} could not rotate, it goes on in the same file: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
   private rotate(): void {
     removeFile(`${this.file}.${this.files}`)
     for (let index = this.files - 1; index >= 1; index -= 1) {
       const from = `${this.file}.${index}`
-      if (exists(from)) renameSync(from, `${this.file}.${index + 1}`)
+      if (exists(from)) this.rename(from, `${this.file}.${index + 1}`)
     }
-    renameSync(this.file, `${this.file}.1`)
+    this.rename(this.file, `${this.file}.1`)
     this.size = 0
   }
 }
@@ -122,17 +142,23 @@ const METHODS = ['log', 'info', 'warn', 'error'] as const
 
 /**
  * Copies every `[link]` line printed through console into `log`, the console still printing it.
- * Returns the undo. Called once by the app's link (service.ts, startAppLink).
+ * Returns the undo (stopLink calls it, service.ts): the copying stops, and each console method
+ * that is still this wrapper gets its own function back. One that another wrapper has replaced
+ * since is left to that wrapper; ours under it only passes the lines on.
  */
 export function teeLinkConsole(log: Pick<LinkLogFile, 'write'>): () => void {
-  const saved = METHODS.map((method) => [method, console[method]] as const)
-  for (const [method, print] of saved) {
-    console[method] = (...args: unknown[]): void => {
+  let active = true
+  const installed = METHODS.map((method) => {
+    const print = console[method]
+    const wrapper = (...args: unknown[]): void => {
       print.apply(console, args)
-      if (typeof args[0] === 'string' && args[0].startsWith('[link]')) log.write(format(...args))
+      if (active && typeof args[0] === 'string' && args[0].startsWith('[link]')) log.write(format(...args))
     }
-  }
+    console[method] = wrapper
+    return { method, print, wrapper }
+  })
   return () => {
-    for (const [method, print] of saved) console[method] = print
+    active = false
+    for (const { method, print, wrapper } of installed) if (console[method] === wrapper) console[method] = print
   }
 }
