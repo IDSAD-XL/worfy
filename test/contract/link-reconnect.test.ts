@@ -542,11 +542,11 @@ const ipv4 = (address: string, netmask = '255.255.255.0', internal = false): Net
 
 describe('one mDNS socket per interface that may carry the link', () => {
   it('lists local-network IPv4 interfaces only: no loopback, link-local, IPv6 or public address; Tailscale only with the setting on', () => {
-    const pc = {
+    const pc: Record<string, NetworkInterfaceInfo[]> = {
       lo: [ipv4('127.0.0.1', '255.0.0.0', true)],
       'Radmin VPN': [ipv4('26.204.152.2', '255.0.0.0')],
       'vEthernet (WSL)': [ipv4('172.30.16.1', '255.255.240.0')],
-      Ethernet: [ipv4('192.168.0.193'), { ...ipv4('fe80::1'), family: 'IPv6' as const }],
+      Ethernet: [ipv4('192.168.0.193'), { address: 'fe80::1', netmask: 'ffff:ffff:ffff:ffff::', family: 'IPv6', mac: '00:00:00:00:00:01', internal: false, cidr: 'fe80::1/64', scopeid: 4 }],
       APIPA: [ipv4('169.254.10.2', '255.255.0.0')],
       Tailscale: [ipv4('100.101.102.103', '255.255.255.255')],
     }
