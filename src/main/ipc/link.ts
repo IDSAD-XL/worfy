@@ -161,13 +161,16 @@ function scheduleExpiry(expiresAt: number | null): void {
 
 /**
  * The hint of a Linked machine row on Windows (worfy-link ticket 36): Bonjour runs, the Machine is
- * unavailable, and no announcement of it is seen. Its own being off looks the same from here, so
- * the hint says "if it is on". Elsewhere, or with Bonjour off, none.
+ * unavailable, and no announcement of it is seen. From here a Machine that is off, asleep or on
+ * another network looks the same as one whose announcements Windows firewall drops, so the hint
+ * names the likely reasons in that order and the one thing to check on this side: whether the
+ * firewall lets this program (`program`, process.execPath: worfy.exe, or electron.exe of a dev
+ * build, which has no rule until Windows asks) receive. Elsewhere, or with Bonjour off, none.
  */
-export function firewallHint(input: { platform: NodeJS.Platform; bonjour: boolean; connected: boolean; seen: boolean; port: number | null }): string | undefined {
+export function firewallHint(input: { platform: NodeJS.Platform; bonjour: boolean; connected: boolean; seen: boolean; port: number | null; program: string }): string | undefined {
   if (input.platform !== 'win32' || !input.bonjour || input.connected || input.seen) return undefined
-  const port = input.port === null ? 'the link port of worfy' : `port ${input.port}`
-  return `Bonjour does not see this machine. If it is on, allow worfy in Windows firewall: incoming UDP 5353 (mDNS) and incoming TCP on ${port}, with this network set to Private.`
+  const port = input.port === null ? 'its link port' : `TCP ${input.port}`
+  return `worfy does not find this machine on the network: it may be off, asleep or on another network. If it is on and nearby, check that Windows firewall lets ${input.program} receive connections (UDP 5353 for finding machines, ${port} for the link).`
 }
 
 function buildState(): LinkState {
@@ -216,6 +219,7 @@ function buildState(): LinkState {
         connected: machine.connected,
         seen: discovery?.lastSeen(machine.id) !== undefined,
         port: status.port,
+        program: process.execPath,
       })
       return {
         id: machine.id,

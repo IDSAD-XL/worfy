@@ -41,7 +41,7 @@ import { isAllowedPeer, isTailscaleAddress, normalizeAddress, type HostNames, ty
 import { LinkConnectError, openLinkSocket } from './client'
 import { CLOSE_REVOKED, CLOSE_UNLINKED, LinkConnection } from './connection'
 import { LinkConnections, watchNetwork, type LinkConnectionsOptions } from './connections'
-import { bonjourBackend, LinkDiscovery } from './discovery'
+import { bonjourBackend, LinkDiscovery, mdnsInterfaces, onSameNetwork, type BonjourLike, type BonjourSocketOptions } from './discovery'
 import { loadIdentity, MACHINE_KEY, saveIdentity, type MachineIdentity } from './identity'
 import { createLinkIpc, LinkPeer, type LinkIpcAdapter, type LocalMachine } from './ipc-adapter'
 import {
@@ -1108,6 +1108,8 @@ export interface WireAppLinkOptions {
   power?: PowerEvents
   /** Makes the keep-awake over the service (keep-awake.ts); the app passes it, tests may not. */
   keepAwake?: (service: LinkService) => { stop(): void }
+  /** Makes the `bonjour-service` instance of one mDNS socket (discovery.ts); tests pass a fake. */
+  mdnsCreate?: (socket: BonjourSocketOptions) => BonjourLike
   /** The journal of `[link]` lines (log-file.ts); stopLink stops it last. The app passes it, tests may not. */
   journal?: { stop(): void }
   /** The machine's interfaces as the network watch reads them; os.networkInterfaces() by default. */
@@ -1149,10 +1151,16 @@ export function wireAppLink(service: LinkService, options: WireAppLinkOptions): 
     options.discovery ??
     (options.bonjour
       ? new LinkDiscovery({
-          backend: bonjourBackend(),
+          // One mDNS socket per interface that may carry the link, followed on a change of network
+          // and of "Link through Tailscale" (discovery.ts, bonjourBackend).
+          backend: bonjourBackend({
+            ...(options.mdnsCreate === undefined ? {} : { create: options.mdnsCreate }),
+            interfaces: () => mdnsInterfaces((options.networkInterfaces ?? osNetworkInterfaces)(), service.settings.get().tailscale),
+          }),
           self: () => service.machine,
           isLinked: (id) => service.isLinked(id),
           protocol: LINK_PROTOCOL_VERSION,
+          sameNetwork: (address) => onSameNetwork(address, (options.networkInterfaces ?? osNetworkInterfaces)()),
         })
       : null)
   if (discovery !== null) {
@@ -1164,6 +1172,7 @@ export function wireAppLink(service: LinkService, options: WireAppLinkOptions): 
     service.on('status', followServer)
     followServer()
     const found = discovery
+    service.on('settings', () => void found.announceAgain())
     // The `.local` name of a Linked machine, learnt where Bonjour sees it at a connection's address.
     const learnName = (id: string): void => {
       const seen = found.lastSeen(id)

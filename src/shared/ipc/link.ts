@@ -117,9 +117,9 @@ export const linkedMachineViewSchema = z.object({
    */
   access: accessLevelSchema,
   /**
-   * What to check when worfy on Windows cannot find it (worfy-link ticket 36): Bonjour sees no
-   * announcement of it while it is unavailable, so Windows firewall may be closing mDNS or the link
-   * port. Absent when there is nothing to say.
+   * On Windows, when worfy cannot find it (worfy-link ticket 36): Bonjour sees no announcement of it
+   * while it is unavailable; the text names the likely reasons and the firewall check for this
+   * program. Absent when there is nothing to say.
    */
   hint: z.string().min(1).optional(),
 })

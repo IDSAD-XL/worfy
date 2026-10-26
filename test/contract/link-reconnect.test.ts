@@ -11,7 +11,17 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firewallHint } from '../../src/main/ipc/link'
 import { LinkConnections, networkSignature } from '../../src/main/link/connections'
-import { LinkDiscovery, mdnsName, type MdnsBackend } from '../../src/main/link/discovery'
+import {
+  bonjourBackend,
+  dialAddress,
+  LinkDiscovery,
+  mdnsInterfaces,
+  mdnsName,
+  onSameNetwork,
+  type BonjourLike,
+  type BonjourSocketOptions,
+  type MdnsBackend,
+} from '../../src/main/link/discovery'
 import { LinkLogFile, teeLinkConsole } from '../../src/main/link/log-file'
 import { LinkService, stopLink, wireAppLink, type AppLink, type LinkServiceOptions } from '../../src/main/link/service'
 import { accessOf } from '../../src/shared/ipc/channels'
@@ -480,15 +490,133 @@ describe('the new channels', () => {
 })
 
 describe('the Windows firewall hint', () => {
-  const base = { platform: 'win32' as const, bonjour: true, connected: false, seen: false, port: 52000 }
+  const base = { platform: 'win32' as const, bonjour: true, connected: false, seen: false, port: 52000, program: 'C:\\dev\\electron.exe' }
 
-  it('names mDNS and the link port on Windows when Bonjour does not see an unavailable Machine; nothing otherwise', () => {
+  it('names the likely reasons and the firewall check for this program on Windows when Bonjour does not see an unavailable Machine; nothing otherwise', () => {
+    expect(firewallHint(base)).toContain('off, asleep or on another network')
+    expect(firewallHint(base)).toContain('lets C:\\dev\\electron.exe receive connections')
     expect(firewallHint(base)).toContain('UDP 5353')
-    expect(firewallHint(base)).toContain('TCP on port 52000')
-    expect(firewallHint({ ...base, port: null })).toContain('the link port of worfy')
+    expect(firewallHint(base)).toContain('TCP 52000')
+    expect(firewallHint(base)).not.toContain('Private')
+    expect(firewallHint({ ...base, port: null })).toContain('its link port')
     expect(firewallHint({ ...base, platform: 'darwin' })).toBeUndefined()
     expect(firewallHint({ ...base, bonjour: false })).toBeUndefined()
     expect(firewallHint({ ...base, connected: true })).toBeUndefined()
     expect(firewallHint({ ...base, seen: true })).toBeUndefined()
+  })
+})
+
+/** bonjour-service instances made by bonjourBackend, one per mDNS socket, with what each did. */
+function fakeBonjour(): { create: (socket: BonjourSocketOptions) => BonjourLike; made: FakeInstance[] } {
+  const made: FakeInstance[] = []
+  return {
+    made,
+    create: (socket) => {
+      const instance: FakeInstance = { socket, published: [], goodbyes: [], browsers: 0, browsersStopped: 0, destroyed: false }
+      made.push(instance)
+      return {
+        publish: ({ port }) => {
+          instance.published.push(port)
+          return { stop: (done?: () => void) => (instance.goodbyes.push(port), done?.()), on: () => undefined }
+        },
+        find: () => {
+          instance.browsers += 1
+          return { on: () => undefined, stop: () => void (instance.browsersStopped += 1), update: () => undefined, expire: () => undefined }
+        },
+        destroy: () => void (instance.destroyed = true),
+      }
+    },
+  }
+}
+
+interface FakeInstance {
+  socket: BonjourSocketOptions
+  published: number[]
+  goodbyes: number[]
+  browsers: number
+  browsersStopped: number
+  destroyed: boolean
+}
+
+const ipv4 = (address: string, netmask = '255.255.255.0', internal = false): NetworkInterfaceInfo => ({ address, netmask, family: 'IPv4', mac: '00:00:00:00:00:01', internal, cidr: `${address}/24` })
+
+describe('one mDNS socket per interface that may carry the link', () => {
+  it('lists local-network IPv4 interfaces only: no loopback, link-local, IPv6 or public address; Tailscale only with the setting on', () => {
+    const pc = {
+      lo: [ipv4('127.0.0.1', '255.0.0.0', true)],
+      'Radmin VPN': [ipv4('26.204.152.2', '255.0.0.0')],
+      'vEthernet (WSL)': [ipv4('172.30.16.1', '255.255.240.0')],
+      Ethernet: [ipv4('192.168.0.193'), { ...ipv4('fe80::1'), family: 'IPv6' as const }],
+      APIPA: [ipv4('169.254.10.2', '255.255.0.0')],
+      Tailscale: [ipv4('100.101.102.103', '255.255.255.255')],
+    }
+    expect(mdnsInterfaces(pc, false)).toEqual(['172.30.16.1', '192.168.0.193'])
+    expect(mdnsInterfaces(pc, true)).toEqual(['172.30.16.1', '192.168.0.193', '100.101.102.103'])
+  })
+
+  it('announces and searches on every interface, each socket joined and sending on its own; follows a change; closes all on destroy', async () => {
+    const fake = fakeBonjour()
+    let addresses = ['192.168.0.193', '172.30.16.1']
+    const backend = bonjourBackend({ create: fake.create, interfaces: () => addresses, warn: () => undefined })
+    expect(fake.made).toEqual([])
+
+    const announcement = backend.publish({ name: 'PC (11111111)', port: 52000, txt: { id: '11111111-1111-4111-8111-111111111111' } })
+    const search = backend.browse({ up: () => undefined, down: () => undefined })
+    expect(fake.made.map((instance) => instance.socket)).toEqual([
+      { interface: '192.168.0.193', bind: '0.0.0.0' },
+      { interface: '172.30.16.1', bind: '0.0.0.0' },
+    ])
+    expect(fake.made.map((instance) => [instance.published, instance.browsers])).toEqual([
+      [[52000], 1],
+      [[52000], 1],
+    ])
+
+    // WSL goes, Wi-Fi comes: the WSL socket says goodbye and closes, the new one announces and searches.
+    addresses = ['192.168.0.193', '192.168.1.40']
+    backend.refresh?.()
+    await vi.waitFor(() => expect(fake.made[1]?.destroyed).toBe(true))
+    expect(fake.made[1]).toMatchObject({ goodbyes: [52000], browsersStopped: 1 })
+    expect(fake.made[0]).toMatchObject({ destroyed: false, published: [52000], browsers: 1 })
+    expect(fake.made[2]).toMatchObject({ socket: { interface: '192.168.1.40', bind: '0.0.0.0' }, published: [52000], browsers: 1 })
+
+    await announcement.stop()
+    search.stop()
+    expect([fake.made[0]?.goodbyes, fake.made[2]?.goodbyes]).toEqual([[52000], [52000]])
+    backend.destroy()
+    expect(fake.made.every((instance) => instance.destroyed)).toBe(true)
+  })
+
+  it('the app link: sockets on the machine interfaces, rebuilt when the network changes and when Tailscale is turned on, closed on stop', async () => {
+    const a = await bench.machine('a')
+    const b = await bench.machine('b')
+    await bench.link(a, b)
+    const fake = fakeBonjour()
+    const network = { address: '192.168.0.193' }
+    const read = (): Record<string, NetworkInterfaceInfo[]> => ({ lo0: [LOOPBACK], en0: [ipv4(network.address)], utun4: [ipv4('100.101.102.103', '255.255.255.255')] })
+    const link = wireAppLink(a.service, { bonjour: true, mdnsCreate: fake.create, networkInterfaces: read, networkPollMs: 20 })
+    const port = bench.portOf(a)
+    const live = (): (string | undefined)[] => fake.made.filter((instance) => !instance.destroyed).map((instance) => instance.socket.interface)
+    expect(live()).toEqual(['192.168.0.193'])
+    expect(fake.made[0]?.published).toEqual([port])
+
+    network.address = '10.0.0.7'
+    await until(() => live().join() === '10.0.0.7')
+    expect(fake.made.find((instance) => instance.socket.interface === '10.0.0.7')?.published.at(-1)).toBe(port)
+
+    a.service.settings.set({ tailscale: true })
+    await until(() => live().join() === '10.0.0.7,100.101.102.103')
+
+    await stopLink(link)
+    expect(live()).toEqual([])
+  })
+
+  it('of the addresses a worfy announces, one on a network of this machine is dialled first', () => {
+    const interfaces = { en0: [ipv4('192.168.0.137')] }
+    expect(onSameNetwork('192.168.0.193', interfaces)).toBe(true)
+    expect(onSameNetwork('172.30.16.1', interfaces)).toBe(false)
+    expect(onSameNetwork('192.168.1.193', interfaces)).toBe(false)
+    const service = { host: 'DESKTOP-VFHQL1V', addresses: ['172.30.16.1', '172.19.208.1', '192.168.0.193'] }
+    expect(dialAddress(service, (address) => onSameNetwork(address, interfaces))).toBe('192.168.0.193')
+    expect(dialAddress(service)).toBe('172.30.16.1')
   })
 })

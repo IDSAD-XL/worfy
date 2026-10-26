@@ -24,9 +24,10 @@
 // the first time an app announces or searches (Apple TN3179), and that prompt would stop a run.
 import { EventEmitter } from 'node:events'
 import { isIP } from 'node:net'
+import type { NetworkInterfaceInfo } from 'node:os'
 import { Bonjour } from 'bonjour-service'
 import { z } from 'zod'
-import { isLocalNetworkAddress } from './checks'
+import { isLocalNetworkAddress, isTailscaleAddress } from './checks'
 
 /** The DNS-SD service type without underscores: `_worfy._tcp`. */
 export const LINK_SERVICE_TYPE = 'worfy'
@@ -48,6 +49,8 @@ export interface MdnsBackend {
   /** `stop` sends the goodbye (the records with TTL 0) and resolves once it is out. */
   publish(announcement: { name: string; port: number; txt: Record<string, string> }): { stop(): Promise<void> }
   browse(events: { up(service: MdnsService): void; down(service: MdnsService): void }): { stop(): void; refresh(): void }
+  /** The machine's network changed: follow its interfaces (worfy-link ticket 36). Optional; a fake may leave it out. */
+  refresh?(): void
   destroy(): void
 }
 
@@ -78,6 +81,8 @@ export interface LinkDiscoveryOptions {
   isLinked: (id: string) => boolean
   /** The link protocol this Machine speaks (messages.ts, LINK_PROTOCOL_VERSION). */
   protocol: number
+  /** Whether an IPv4 address is on a network of this machine (onSameNetwork); an announced address that is goes first. */
+  sameNetwork?: (address: string) => boolean
   /** How often the search asks again and drops what has expired; 10 s by default. */
   refreshMs?: number
   /** At most one `seen` per Machine id in this time; 10 s by default. */
@@ -99,9 +104,11 @@ const machineId = z.uuid()
  * that needs no zone (not fe80::/10), then the host name when it is an mDNS name (`*.local`).
  * Undefined when the announcement offers none of these.
  */
-export function dialAddress(service: Pick<MdnsService, 'host' | 'addresses'>): string | undefined {
+export function dialAddress(service: Pick<MdnsService, 'host' | 'addresses'>, sameNetwork?: (address: string) => boolean): string | undefined {
   const local = (service.addresses ?? []).filter((address) => isIP(address) !== 0 && isLocalNetworkAddress(address))
-  const v4 = local.find((address) => isIP(address) === 4)
+  // A worfy announces every interface it has (WSL and Hyper-V adapters on Windows too): an address
+  // on a network this machine is on goes first (worfy-link ticket 36).
+  const v4 = local.find((address) => isIP(address) === 4 && sameNetwork?.(address) === true) ?? local.find((address) => isIP(address) === 4)
   if (v4 !== undefined) return v4
   const v6 = local.find((address) => isIP(address) === 6 && !/^fe[89ab]/i.test(address))
   if (v6 !== undefined) return v6
@@ -110,14 +117,14 @@ export function dialAddress(service: Pick<MdnsService, 'host' | 'addresses'>): s
 }
 
 /** What a found service says about itself; undefined when it is not a worfy (no Machine id). */
-export function readAnnouncement(service: MdnsService): FoundMachine | undefined {
+export function readAnnouncement(service: MdnsService, sameNetwork?: (address: string) => boolean): FoundMachine | undefined {
   const txt = service.txt ?? {}
   const id = typeof txt.id === 'string' ? txt.id : undefined
   if (id === undefined || !machineId.safeParse(id).success) return undefined
   const protocol = typeof txt.proto === 'string' && /^\d{1,6}$/.test(txt.proto) ? Number(txt.proto) : null
   const name = typeof txt.name === 'string' && txt.name.trim() !== '' ? txt.name.trim() : service.name
   if (!Number.isInteger(service.port) || service.port < 1 || service.port > 65535) return undefined
-  const host = dialAddress(service)
+  const host = dialAddress(service, sameNetwork)
   if (host === undefined) return undefined
   return { id, name, host, port: service.port, protocol: protocol !== null && protocol > 0 ? protocol : null }
 }
@@ -189,6 +196,9 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
    * this Machine does not announce.
    */
   async announceAgain(): Promise<void> {
+    if (this.stopped) return
+    // The sockets follow the interfaces first (bonjourBackend): the new announcement goes out on them.
+    this.options.backend.refresh?.()
     this.browser?.refresh()
     const current = this.announcement
     if (this.stopped || current === null) return
@@ -296,7 +306,7 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
 
   private up(service: MdnsService): void {
     if (this.browser === null) return
-    const machine = readAnnouncement(service)
+    const machine = readAnnouncement(service, this.options.sameNetwork)
     if (machine === undefined) return
     if (machine.id === this.options.self().id) return
     const key = service.fqdn ?? service.name
@@ -339,43 +349,174 @@ export interface BonjourLike {
   destroy(callback?: () => void): void
 }
 
-/** mDNS through `bonjour-service`, made on first use: an app that never announces nor searches opens no socket. */
-export function bonjourBackend(options: { create?: () => BonjourLike; warn?: (message: string) => void } = {}): MdnsBackend {
+/** Whether IPv4 `address` is on the network of one of `interfaces` (address and netmask). */
+export function onSameNetwork(address: string, interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>): boolean {
+  const value = (text: string): number => text.split('.').reduce((sum, octet) => sum * 256 + Number(octet), 0)
+  if (isIP(address) !== 4) return false
+  const target = value(address)
+  for (const list of Object.values(interfaces)) {
+    for (const entry of list ?? []) {
+      if (entry.family !== 'IPv4' || entry.internal || isIP(entry.netmask) !== 4) continue
+      const mask = value(entry.netmask)
+      // Unsigned arithmetic: the bitwise operators of JavaScript are signed 32-bit.
+      if (mask !== 0 && Math.floor(target / (2 ** 32 - mask)) === Math.floor(value(entry.address) / (2 ** 32 - mask))) return true
+    }
+  }
+  return false
+}
+
+/** What bonjourBackend asks of `bonjour-service` for one socket: the interface it joins and sends on. */
+export interface BonjourSocketOptions {
+  /** The IPv4 address of the interface; absent: the library's choice (every interface, its default for sending). */
+  interface?: string
+  /** Where the socket binds: every address, so multicast still arrives on macOS and Linux. */
+  bind?: string
+}
+
+/**
+ * The IPv4 addresses mDNS runs on (worfy-link ticket 36): this machine's addresses that may carry
+ * the link, as the server's peer check accepts them (checks.ts) — local-network IPv4, not loopback,
+ * not link-local 169.254/16, and Tailscale only while "Link through Tailscale" is on.
+ */
+export function mdnsInterfaces(interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>, tailscale: boolean): string[] {
+  const found: string[] = []
+  for (const list of Object.values(interfaces)) {
+    for (const entry of list ?? []) {
+      if (entry.family !== 'IPv4' || entry.internal || entry.address.startsWith('169.254.')) continue
+      if (isTailscaleAddress(entry.address) ? tailscale : isLocalNetworkAddress(entry.address) && !entry.address.startsWith('127.')) found.push(entry.address)
+    }
+  }
+  return [...new Set(found)]
+}
+
+/**
+ * mDNS through `bonjour-service`, made on first use: an app that never announces nor searches
+ * opens no socket.
+ *
+ * With `interfaces` (the app's link), one `bonjour-service` instance — one socket — per address it
+ * lists, bound to every address and joined and sending on that interface; each announcement and
+ * each search runs on all of them. Without it, one instance with the library's own choice.
+ * Why (worfy-link ticket 36, item 9): multicast-dns 7.2.5 sends on interface 0.0.0.0 everywhere but
+ * macOS, so Windows picked one by itself — on the owner's PC the WSL adapter, not Ethernet — and the
+ * Mac never heard the PC. `refresh()` (on a change of network) closes the sockets of addresses that
+ * went, with the goodbye of their announcements, and opens the new ones with every announcement
+ * and search there is.
+ */
+export function bonjourBackend(
+  options: { create?: (socket: BonjourSocketOptions) => BonjourLike; interfaces?: () => string[]; warn?: (message: string) => void } = {},
+): MdnsBackend {
   const warn = options.warn ?? ((message: string) => console.warn(message))
   const create =
-    options.create ?? ((): BonjourLike => new Bonjour({}, (error: unknown) => warn(`[link] Bonjour: ${error instanceof Error ? error.message : String(error)}`)) as unknown as BonjourLike)
-  let bonjour: BonjourLike | undefined
-  const instance = (): BonjourLike => (bonjour ??= create())
+    options.create ??
+    ((socket: BonjourSocketOptions): BonjourLike =>
+      // The first argument goes to multicast-dns as it is; bonjour-service types it as a service's options.
+      new Bonjour(socket as never, (error: unknown) => warn(`[link] Bonjour${socket.interface === undefined ? '' : ` on ${socket.interface}`}: ${error instanceof Error ? error.message : String(error)}`)) as unknown as BonjourLike)
+  type Published = ReturnType<BonjourLike['publish']>
+  type Browser = ReturnType<BonjourLike['find']>
+  type Announcement = { name: string; port: number; txt: Record<string, string> }
+  type Search = { up(service: MdnsService): void; down(service: MdnsService): void }
+  interface Instance {
+    bonjour: BonjourLike
+    published: Map<Announcement, Published>
+    browsers: Map<Search, Browser>
+  }
+  const instances = new Map<string, Instance>()
+  const announcements = new Set<Announcement>()
+  const searches = new Set<Search>()
+  let opened = false
+
+  const goodbye = (service: Published): Promise<void> =>
+    new Promise<void>((done) => {
+      if (service.stop === undefined) return done()
+      // bonjour-service calls back once the goodbye (the records with TTL 0) is sent.
+      service.stop(() => done())
+    })
+  const announce = (instance: Instance, key: string, announcement: Announcement): void => {
+    const service = instance.bonjour.publish({ name: announcement.name, type: LINK_SERVICE_TYPE, protocol: 'tcp', port: announcement.port, txt: announcement.txt })
+    service.on?.('error', (error) => warn(`[link] Bonjour could not announce this Machine${key === DEFAULT ? '' : ` on ${key}`}: ${error.message}`))
+    instance.published.set(announcement, service)
+  }
+  const search = (instance: Instance, events: Search): void => {
+    const browser = instance.bonjour.find({ type: LINK_SERVICE_TYPE, protocol: 'tcp' })
+    browser.on('up', events.up)
+    browser.on('srv-update', events.up)
+    browser.on('txt-update', events.up)
+    browser.on('down', events.down)
+    instance.browsers.set(events, browser)
+  }
+  const wanted = (): string[] => (options.interfaces === undefined ? [DEFAULT] : options.interfaces())
+  /** Opens the instances of the addresses there are now and closes those of the addresses that went. */
+  const sync = (): void => {
+    opened = true
+    const keys = new Set(wanted())
+    for (const [key, instance] of instances) {
+      if (keys.has(key)) continue
+      instances.delete(key)
+      for (const browser of instance.browsers.values()) browser.stop()
+      void Promise.all([...instance.published.values()].map(goodbye)).finally(() => instance.bonjour.destroy())
+    }
+    for (const key of keys) {
+      if (instances.has(key)) continue
+      const instance: Instance = { bonjour: create(key === DEFAULT ? {} : { interface: key, bind: '0.0.0.0' }), published: new Map(), browsers: new Map() }
+      instances.set(key, instance)
+      for (const announcement of announcements) announce(instance, key, announcement)
+      for (const events of searches) search(instance, events)
+    }
+  }
+  const ensure = (): void => {
+    if (!opened) sync()
+  }
   return {
     publish: (announcement) => {
-      const service = instance().publish({ name: announcement.name, type: LINK_SERVICE_TYPE, protocol: 'tcp', port: announcement.port, txt: announcement.txt })
-      service.on?.('error', (error) => warn(`[link] Bonjour could not announce this Machine: ${error.message}`))
+      ensure()
+      const entry = { ...announcement }
+      announcements.add(entry)
+      for (const [key, instance] of instances) announce(instance, key, entry)
       return {
-        stop: () =>
-          new Promise<void>((done) => {
-            if (service.stop === undefined) return done()
-            // bonjour-service calls back once the goodbye (the records with TTL 0) is sent.
-            service.stop(() => done())
-          }),
-      }
-    },
-    browse: (events) => {
-      const browser = instance().find({ type: LINK_SERVICE_TYPE, protocol: 'tcp' })
-      browser.on('up', events.up)
-      browser.on('srv-update', events.up)
-      browser.on('txt-update', events.up)
-      browser.on('down', events.down)
-      return {
-        stop: () => browser.stop(),
-        refresh: () => {
-          browser.expire()
-          browser.update()
+        stop: async () => {
+          announcements.delete(entry)
+          const services: Published[] = []
+          for (const instance of instances.values()) {
+            const service = instance.published.get(entry)
+            instance.published.delete(entry)
+            if (service !== undefined) services.push(service)
+          }
+          await Promise.all(services.map(goodbye))
         },
       }
     },
+    browse: (events) => {
+      ensure()
+      const entry = { up: events.up, down: events.down }
+      searches.add(entry)
+      for (const instance of instances.values()) search(instance, entry)
+      return {
+        stop: () => {
+          searches.delete(entry)
+          for (const instance of instances.values()) {
+            instance.browsers.get(entry)?.stop()
+            instance.browsers.delete(entry)
+          }
+        },
+        refresh: () => {
+          for (const instance of instances.values()) {
+            const browser = instance.browsers.get(entry)
+            browser?.expire()
+            browser?.update()
+          }
+        },
+      }
+    },
+    refresh: () => {
+      if (opened) sync()
+    },
     destroy: () => {
-      bonjour?.destroy()
-      bonjour = undefined
+      for (const instance of instances.values()) instance.bonjour.destroy()
+      instances.clear()
+      opened = false
     },
   }
 }
+
+/** The key of the one instance made without `interfaces`. */
+const DEFAULT = 'default'
