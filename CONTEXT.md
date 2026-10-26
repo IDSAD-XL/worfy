@@ -152,6 +152,14 @@ _Avoid_: привязка, assignment, линк
 Настройки самого worfy на этой Machine — масштаб интерфейса, доступ Linked machine-ов, Terminal AI и другие функции worfy — и окно Settings (Cmd/Ctrl+, или «Settings…» в меню), где они меняются; там же для справки — проверки Health и список сочетаний клавиш. Это собственное состояние worfy на Machine ([ADR-0005](docs/adr/0005-worfy-own-state-inventory.md)): в репозиторий Project-а и в Profile Settings не попадают и действуют во всех Project-ах этой Machine. Это не Profile — описание Project-а для Harness, — и не «Project settings…» — окно одного Project-а в worfy с его шаблонами действий.
 _Avoid_: настройки (без уточнения чьи), preferences, конфиг, Profile или Project settings (как синоним)
 
+**Getting started**:
+Список из шести шагов для нового пользователя: от проверок First run до Ticket-а Demo project, доведённого через ревью и доработку до merge. Шаги отмечаются сами, когда сделаны; список можно пропустить, и он ничего не блокирует.
+_Avoid_: онбординг (как имя в интерфейсе), тур, туториал, wizard
+
+**Demo project**:
+Project, который worfy создаёт сам для Getting started: маленький локальный git-репозиторий без GitHub с одним Epic-ом и одним Ticket-ом, в Full mode. Агенты работают в нём по-настоящему; удаляется одной командой вместе со своим Profile.
+_Avoid_: песочница, sandbox, пример, учебный проект
+
 ## Machines
 
 **Machine**:

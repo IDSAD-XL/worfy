@@ -248,7 +248,7 @@ Session проектирования 2026-10-26. Номера — как у вл
 **Раздел Getting started** (Ticket 07)
 
 - Заголовок раздела: «Getting started»; строка: «A guided demo: one ticket from start to merge.»
-- 1 — «Check your setup» — «Claude Code, git, node and the Harness are ready.» Кнопка, пока не
+- 1 — «Check your setup» — «Make sure Claude Code, git, node and the Harness are ready.» Кнопка, пока не
   отмечен: «Open checks»
 - 2 — «Open the demo project» — «worfy creates a small todo app in your home folder. No GitHub needed.»
   Кнопка: «Create demo project». Ошибка: «Could not create the demo project: <reason>»
@@ -275,7 +275,7 @@ Session проектирования 2026-10-26. Номера — как у вл
 - Шаг 3, Epic и Ticket: «An Epic is a goal; a Ticket is one piece of work in it. Both are files in the
   project, under .scratch/.»
 - Implementing: «Implementer started in its own worktree — a separate checkout, so main stays untouched.»
-- Agent review: «The reviewer started. It runs the full checks, not only the fast ones.»
+- Agent review: «The reviewer started. It reads the change and runs the project's checks itself.»
 - Implementing после отметки `review` `failure`: «The reviewer found a problem — this is the rework
   round. The implementer fixes it on the same branch.»
 - Gate & merge: «Review passed. The Orchestrator runs the Gate — the project's full checks — and merges.»
@@ -293,11 +293,11 @@ Session проектирования 2026-10-26. Номера — как у вл
 **Экран Done** (Ticket 10)
 
 - Заголовок: «Done — the ticket is merged»
-- Текст: «You took one ticket from the Orchestrator through review and rework to main. That is the whole loop.»
+- Текст: «You took one ticket from the Orchestrator through review to main. That is the whole loop.»
 - Кнопки: «Connect your own project», «Remove the demo project»
 - Подтверждение (нативный диалог): заголовок «Remove the demo project?»; текст «worfy closes the
-  demo's Sessions, then deletes the folder <path>, the Profile worfy-demo and its Gate entry. This
-  cannot be undone.»; кнопки «Confirm», «Cancel»
+  demo's Sessions, then deletes the folder <path>, and its worfy settings. This cannot be
+  undone.»; кнопки «Confirm», «Cancel»
 - После удаления: «The demo project was removed.»
 
 ## Не в этом Epic-е
