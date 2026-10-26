@@ -991,9 +991,11 @@ gone. A `sleep` that is still starting when the trap runs may not be visible yet
 5 min, its output on `/dev/null`; before this trap every heartbeat `sleep` there did, because Git
 Bash has no `pkill`. Elsewhere the trap stops the heartbeat, and `ps` shows it stopped while a
 `fork` it began before the stop may still be under way: the child shows up later, under load
-hundreds of ms later (measured on macOS). So `pkill -P` runs again every 0.05 s, while the
-heartbeat is still stopped, until three passes in a row find no child (at most 2 s); a fork slower
-than that still leaves a `sleep` for its 5 min. One Bash call with timeout 600000 (if it ended
+hundreds of ms later (measured on macOS). So every 0.05 s, while the heartbeat is still stopped,
+the trap ends any child of it that `ps` shows not yet ended, until three passes in a row find none
+(at most 2 s); a fork slower than that still leaves a `sleep` for its 5 min. A child that is
+already ended does not count: the stopped heartbeat cannot reap it, it stays a zombie, and on
+Linux `pkill -P` matches a zombie, so a loop on its exit code ran all 2 s every time. One Bash call with timeout 600000 (if it ended
 while waiting for the lock, run it again):
 
 ```bash
@@ -1007,7 +1009,7 @@ if [ -n "$L" ]; then
   done
   printf '{"prs":[%s],"what":"gate-full","pid":%s,"since":"%s"}\n' <N> "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$L/holder.json"
   ( while sleep 300; do kill -0 $$ 2>/dev/null || exit 0; grep -q "\"pid\":$$," "$L/holder.json" 2>/dev/null && touch -c "$L" 2>/dev/null; done ) >/dev/null 2>&1 & HB=$!   # its sleep holds no output open; ends with its shell, so the trap never signals a freed pid; touches only our lock
-  trap 'if [ -e /proc/$HB/winpid ]; then { c=; for f in /proc/[0-9]*/ppid; do read -r p 2>/dev/null <"$f" && [ "$p" = "$HB" ] && { f=${f%/ppid}; c="$c ${f#/proc/}"; }; done; kill -KILL $HB 2>/dev/null; [ -n "$c" ] && /usr/bin/kill -f -9 $c 2>/dev/null; w=0; while [ $w -lt 20 ] && kill -0 $HB 2>/dev/null; do w=$((w + 1)); [ $w = 10 ] && /usr/bin/kill -f -9 $HB; sleep 0.1; done; kill -0 $HB || wait $HB; } 2>/dev/null; else kill -STOP $HB 2>/dev/null; w=0; while [ $w -lt 200 ] && ps -o stat= -p $HB 2>/dev/null | grep -qv T; do w=$((w + 1)); sleep 0.01; done; pkill -P $HB 2>/dev/null; e=0; w=0; while [ $e -lt 3 ] && [ $w -lt 40 ]; do sleep 0.05; w=$((w + 1)); if pkill -P $HB 2>/dev/null; then e=0; else e=$((e + 1)); fi; done; kill -KILL $HB 2>/dev/null; kill -CONT $HB 2>/dev/null; wait $HB 2>/dev/null; fi; grep -q "\"pid\":$$," "$L/holder.json" 2>/dev/null && rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null' EXIT   # Git Bash: no STOP, the wait is bounded; elsewhere pkill once ps shows it stopped, again until 3 passes find no child; only our holder.json
+  trap 'if [ -e /proc/$HB/winpid ]; then { c=; for f in /proc/[0-9]*/ppid; do read -r p 2>/dev/null <"$f" && [ "$p" = "$HB" ] && { f=${f%/ppid}; c="$c ${f#/proc/}"; }; done; kill -KILL $HB 2>/dev/null; [ -n "$c" ] && /usr/bin/kill -f -9 $c 2>/dev/null; w=0; while [ $w -lt 20 ] && kill -0 $HB 2>/dev/null; do w=$((w + 1)); [ $w = 10 ] && /usr/bin/kill -f -9 $HB; sleep 0.1; done; kill -0 $HB || wait $HB; } 2>/dev/null; else kill -STOP $HB 2>/dev/null; w=0; while [ $w -lt 200 ] && ps -o stat= -p $HB 2>/dev/null | grep -qv T; do w=$((w + 1)); sleep 0.01; done; pkill -P $HB 2>/dev/null; e=0; w=0; while [ $e -lt 3 ] && [ $w -lt 40 ]; do sleep 0.05; w=$((w + 1)); k=; for p in $(ps -A -o pid=,ppid=,stat= | awk -v h=$HB "BEGIN { while ((getline l) > 0) if (split(l, f) == 3 && f[2] == h && f[3] ~ /^[^Z]/) print f[1] }"); do kill $p 2>/dev/null; k=1; done; if [ -n "$k" ]; then e=0; else e=$((e + 1)); fi; done; kill -KILL $HB 2>/dev/null; kill -CONT $HB 2>/dev/null; wait $HB 2>/dev/null; fi; grep -q "\"pid\":$$," "$L/holder.json" 2>/dev/null && rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null' EXIT   # Git Bash: no STOP, the wait is bounded; elsewhere pkill once ps shows it stopped, then kill its children until 3 passes find none but zombies; only our holder.json
 fi
 (cd <PR worktree> && GATE_SCOPE=all node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" full </dev/null); echo "EXIT=$?"
 ```

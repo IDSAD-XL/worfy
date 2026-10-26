@@ -42,7 +42,11 @@ printf '#!/bin/sh\nexit 0\n' >"$HBBIN/ioreg"
 printf '#!/bin/sh\necho "$$" >>"$HB_PIDS"\nexec sleep "$@"\n' >"$HBBIN/hbsleep"
 # waitgo <file>: the gate of the kill -9 run; marks <file>.started, ends once <file> exists, then marks <file>.done
 printf '#!/bin/sh\n: >"$1.started"\nn=0; while [ ! -e "$1" ] && [ "$n" -lt 400 ]; do sleep 0.05; n=$((n + 1)); done\n: >"$1.done"\n' >"$HBBIN/waitgo"
-chmod +x "$HBBIN/ioreg" "$HBBIN/hbsleep" "$HBBIN/waitgo"
+# sleepgate <file>: the gate of the timed run; waits until the heartbeat has started its sleep (a pid in $HB_PIDS, at
+# most 5 s) and 0.1 s more, then writes the time in ms to <file>, as the gate's last step
+printf '#!/bin/sh\nn=0; until [ -s "$HB_PIDS" ] || [ "$n" -ge 100 ]; do sleep 0.05; n=$((n + 1)); done\nsleep 0.1\nnode -e "process.stdout.write(String(Date.now()))" >"$1"\n' >"$HBBIN/sleepgate"
+chmod +x "$HBBIN/ioreg" "$HBBIN/hbsleep" "$HBBIN/waitgo" "$HBBIN/sleepgate"
+now_ms() { node -e 'process.stdout.write(String(Date.now()))'; }
 HB_LOOP='while sleep 300;'
 [[ "$BE" == *"$HB_LOOP"* ]] && ok "skill blocks: the one-PR gate full block's heartbeat sleeps 300 s between touches" \
     || bad "skill blocks: the one-PR gate full block has no '$HB_LOOP' heartbeat"
@@ -54,15 +58,17 @@ TRAP_WIN="${BE#*"$WIN_IF"}"; TRAP_WIN="${TRAP_WIN%%; else *}"
 [ "$TRAP_WIN" != "$BE" ] && [[ "$TRAP_WIN" == *'kill -KILL $HB'* ]] && [[ "$TRAP_WIN" == *'/usr/bin/kill -f -9 $HB'* ]] && [[ "$TRAP_WIN" != *STOP* ]] \
     && ok "skill blocks: the Git Bash branch of the one-PR block's trap kills the heartbeat without kill -STOP" \
     || bad "skill blocks: the one-PR block's trap has no Git Bash branch ('$WIN_IF') without kill -STOP: [${TRAP_WIN:0:300}]"
-# The other branch of the trap stops the heartbeat and runs pkill -P again while it is stopped, until passes in a row
-# find no child: `ps` shows the heartbeat stopped while a fork it began before the stop is still under way, and the
+# The other branch of the trap stops the heartbeat and, while it is stopped, ends its children again until passes in
+# a row find none: `ps` shows the heartbeat stopped while a fork it began before the stop is still under way, and the
 # child shows up later (measured on macOS under load). With a single pkill, under load, 1 of the 40 runs below left
-# a `sleep` in about every third run of this file; the 40 runs show it only by chance, this check every time.
+# a `sleep` in about every third run of this file; the 40 runs show it only by chance, this check every time. A pass
+# counts zombie children as none: the stopped heartbeat cannot reap the `sleep` the first pkill ended, and procps
+# pkill (Linux) matches a zombie, so a loop on pkill's exit code ran all its 40 passes, 2 s, in every trap there.
 TRAP_POSIX="${BE#*"$WIN_IF"}"; TRAP_POSIX="${TRAP_POSIX#*; else }"; TRAP_POSIX="${TRAP_POSIX%%; fi; grep *}"
-PKILL_AGAIN='while [ $e -lt 3 ] && [ $w -lt 40 ]; do sleep 0.05; w=$((w + 1)); if pkill -P $HB 2>/dev/null; then e=0; else e=$((e + 1)); fi; done; kill -KILL $HB'
-[[ "$TRAP_POSIX" == *'kill -STOP $HB'*"$PKILL_AGAIN"*'kill -CONT $HB'* ]] \
-    && ok "skill blocks: the other branch of the one-PR block's trap runs pkill -P again while the heartbeat is stopped" \
-    || bad "skill blocks: the one-PR block's trap has no '$PKILL_AGAIN' between kill -STOP and kill -CONT: [${TRAP_POSIX:0:400}]"
+PKILL_AGAIN='while [ $e -lt 3 ] && [ $w -lt 40 ]; do sleep 0.05; w=$((w + 1)); k=; for p in $(ps -A -o pid=,ppid=,stat= | awk -v h=$HB "BEGIN { while ((getline l) > 0) if (split(l, f) == 3 && f[2] == h && f[3] ~ /^[^Z]/) print f[1] }"); do kill $p 2>/dev/null; k=1; done; if [ -n "$k" ]; then e=0; else e=$((e + 1)); fi; done; kill -KILL $HB'
+[[ "$TRAP_POSIX" == *'kill -STOP $HB'*'pkill -P $HB'*"$PKILL_AGAIN"*'kill -CONT $HB'* ]] \
+    && ok "skill blocks: the other branch of the one-PR block's trap ends the heartbeat's live (not zombie) children again while it is stopped" \
+    || bad "skill blocks: the one-PR block's trap has no '$PKILL_AGAIN' between kill -STOP and kill -CONT: [${TRAP_POSIX:0:500}]"
 # The heartbeat ends with the block's shell and touches the lock only while holder.json names that shell. The cases
 # below show both by behaviour; the holder.json the block writes is in the form the heartbeat looks for.
 HB_OURS='kill -0 $$ 2>/dev/null || exit 0; grep -q "\"pid\":$$," "$L/holder.json" 2>/dev/null && touch -c "$L"'
@@ -220,6 +226,24 @@ for sh in "${SHELLS[@]}"; do
     : >"$W/go"; until_ok 5 test -e "$W/go.done" || bad "$sh: the one-PR block, live: the stub gate did not end"
     rm -f "$L/holder.json" "$W/hb.pid" "$W/go" "$W/go.started" "$W/go.done"; rmdir "$L" 2>/dev/null
     for p in $(alive_of "$HB_PIDS" "$FAST"); do kill "$p" 2>/dev/null; done
+    # The trap of a normal run returns quickly: the gate ends while the heartbeat is in its sleep, and from the gate's
+    # end to the end of the block's shell takes under 1.2 s. The trap needs about 0.15 s (three empty passes 0.05 s
+    # apart); the loop that counted the zombie `sleep` as a child (procps pkill, Linux) needs at least its 40 passes,
+    # 2 s, so it fails here every time, not by chance. 40 such traps took a file over its 120 s limit on Linux CI.
+    # macOS pkill does not match a zombie, so there this case is green on both loops. Not in Git Bash: no pkill, and
+    # its trap waits for the heartbeat on its own bounded loop.
+    if ! on_windows && command -v pkill >/dev/null 2>&1; then
+        : >"$HB_PIDS"; rm -f "$W/t0"
+        b="${b0/"$HB_LOOP"/while \"$HBBIN/hbsleep\" $LONG;}"; b="${b//@GATE@/\"$HBBIN/sleepgate\" \"$W/t0\"}"
+        run_limited 15 "$W/run.out" env PATH="$HBBIN:$PATH" $sh -c "$STUB"$'\n'"$b"; t1="$(now_ms)"
+        t0="$(cat "$W/t0" 2>/dev/null)"; took=$(( t1 - ${t0:-0} ))
+        until_ok 2 none_alive "$HB_PIDS" "$LONG"; left="$(alive_of "$HB_PIDS" "$LONG")"
+        [ "$rc" = 0 ] && [ -s "$W/t0" ] && [ -s "$HB_PIDS" ] && [ "$took" -lt 1200 ] && [ -z "$left" ] && [ ! -e "$L" ] \
+            && ok "$sh: the one-PR gate full block: with the heartbeat in its sleep, the block ends within 1.2 s of its gate (${took} ms) and leaves no sleep" \
+            || bad "$sh: the one-PR block, timed trap: exit $rc, ${took} ms from the gate's end (limit 1200), heartbeat sleeps recorded [$(tr '\n' ' ' <"$HB_PIDS")], left [$left], lock [$(ls -A "$L" 2>&1)] [$(cat "$W/run.out")]"
+        for p in $left; do kill "$p" 2>/dev/null; done
+        rm -f "$L/holder.json" "$W/t0"; rmdir "$L" 2>/dev/null
+    fi
     # 40 normal runs. Each run has 15 s: a trap that never returns (in Git Bash a heartbeat stopped with kill -STOP and
     # then killed stays alive and deaf to every signal, and `wait` for it hangs) fails the case instead of hanging
     # the file. No run is cut off, every run starts a heartbeat, none of them outlives its run, no heartbeat sleep

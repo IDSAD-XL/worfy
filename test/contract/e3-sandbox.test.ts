@@ -991,11 +991,18 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
   // worfy-polish ticket 36 (review of #738): ps shows the heartbeat stopped while a fork it began
   // before the stop may still finish, and its child shows up later under load. One pkill then left a
   // `sleep` for its 5 min in about one run in three of the same trap in epic-wave; the test below
-  // shows such a sleep only by chance, this check every time.
-  it('runs pkill -P again while the heartbeat is stopped, until three passes in a row find no child', () => {
+  // shows such a sleep only by chance, this check every time. A zombie child counts as none: the
+  // stopped heartbeat cannot reap the `sleep` pkill ended, and procps pkill (Linux) matches a zombie,
+  // so a loop on pkill's exit code ran its 40 passes, 2 s, in every release there.
+  it('ends the live (not zombie) children of the stopped heartbeat again, until three passes in a row find none', () => {
     const release = readFileSync(SCRIPT, 'utf8').split('\n').find((line) => line.includes("trap 'if [ -e /proc/'")) ?? ''
     const posix = release.slice(release.indexOf('; else '))
-    expect(posix).toMatch(/kill -STOP .*pkill -P .*while \[ "\$e" -lt 3 \] && \[ "\$w" -lt 40 \]; do sleep 0\.05; w=\$\(\(w \+ 1\)\); if pkill -P '"\$hb"' 2>\/dev\/null; then e=0; else e=\$\(\(e \+ 1\)\); fi; done; kill -KILL .*kill -CONT/)
+    const again =
+      'while [ "$e" -lt 3 ] && [ "$w" -lt 40 ]; do sleep 0.05; w=$((w + 1)); k=; ' +
+      `for p in $(ps -A -o pid=,ppid=,stat= | awk -v h='"$hb"' "BEGIN { while ((getline l) > 0) if (split(l, f) == 3 && f[2] == h && f[3] ~ /^[^Z]/) print f[1] }"); do kill "$p" 2>/dev/null || true; k=1; done; ` +
+      'if [ -n "$k" ]; then e=0; else e=$((e + 1)); fi; done; kill -KILL '
+    expect(posix).toMatch(/kill -STOP .*pkill -P .*kill -KILL .*kill -CONT/)
+    expect(posix).toContain(again)
   })
 
   it('leaves no sleep of the heartbeat behind when the command ends', () => {
