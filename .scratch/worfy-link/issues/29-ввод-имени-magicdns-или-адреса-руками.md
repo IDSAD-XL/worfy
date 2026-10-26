@@ -1,7 +1,8 @@
 # 29 — Через Tailscale: ввод руками имени MagicDNS или IP-адреса, порт из окна другой машины
 
 Type: task
-Status: claimed 2026-10-26T19:24Z
+Status: done 2026-10-26T22:21Z
+PR: #841
 Branch: worfy-link/29
 Blocked by: 27
 Source: решения владельца 2026-10-18, Q22 ([ADR-0070](../../../docs/adr/0070-worfy-link-outside-the-lan-through-an-overlay-network.md), пункт 5). Код начинается после текущей очереди Epic-а `worfy-windows` (Q21)
@@ -87,3 +88,12 @@ Source: решения владельца 2026-10-18, Q22 ([ADR-0070](../../../d
 - Contract test-ы подключения по имени — в отдельном файле `test/contract/link-by-name.test.ts`.
 - Снимки окна в светлой и тёмной теме — в scratchpad ревью, в репозиторий не кладутся.
 
+
+### Ревью и merge (2026-10-26)
+
+PR #841: ревью уровня low, два круга (первый — REJECTED, находка med про `WORFY_LINK_INTERFACES` в
+собранном приложении; второй — VERIFIED, новых долгов нет). gate full зелёный перед merge, merge
+`d2078574`, после зелёного batch CI на `680ab775`.
+
+Пункт 3 (какие имена MagicDNS принимает проверка `Host`: голое имя машины и `<имя>.<что угодно>.ts.net`
+при включённой настройке) решён без владельца — подтвердить.
