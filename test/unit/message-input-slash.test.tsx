@@ -1,12 +1,13 @@
 // The input field's slash menu and attachments (ticket 20) over a mocked bridge: what the user
 // does with the keyboard and the chips, and what goes to main.
 import { act, fireEvent, render, screen } from '@testing-library/react'
+import { createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Attachment, AttachResult } from '../../src/shared/agent/attachments'
 import type { SlashCommand } from '../../src/shared/agent/commands'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { matchCommands, slashQuery } from '../../src/renderer/session/SlashMenu'
-import type { OutgoingMessage } from '../../src/renderer/session/MessageInput'
+import type { MessageInputHandle, OutgoingMessage } from '../../src/renderer/session/MessageInput'
 
 const COMMANDS: SlashCommand[] = [
   { name: 'compact', description: 'Clear the conversation but keep a summary', argumentHint: '', kind: 'command' },
@@ -46,11 +47,14 @@ interface MountOptions {
   history?: readonly string[]
 }
 
+/** The field's handle: what the chat around it calls with dropped files (session/chat-drop.tsx). */
+const input = createRef<MessageInputHandle>()
+
 async function mount(onSend: (message: OutgoingMessage) => Promise<string | null> = () => Promise.resolve(null), { busy = false, history = [] }: MountOptions = {}) {
   const { MessageInput } = await import('../../src/renderer/session/MessageInput')
   const send = vi.fn(onSend)
   const interrupt = vi.fn()
-  render(<MessageInput sessionId="s" busy={busy} history={history} recipient="Orchestrator" onSend={send} onInterrupt={interrupt} />)
+  render(<MessageInput ref={input} sessionId="s" busy={busy} history={history} recipient="Orchestrator" onSend={send} onInterrupt={interrupt} />)
   const field = screen.getByRole('textbox', { name: 'Message Orchestrator' }) as HTMLTextAreaElement
   const type = async (value: string) => {
     await act(async () => {
@@ -316,7 +320,7 @@ describe('attachments', () => {
     // A full message reads no more dropped files and asks main nothing.
     const before = asked.length
     await act(async () => {
-      fireEvent.drop(screen.getByTestId('message-input-box'), { dataTransfer: { files: [new File(['x'], 'more.txt')], types: ['Files'] } })
+      input.current?.drop([new File(['x'], 'more.txt')])
     })
     expect(asked.length).toBe(before)
     expect(screen.getByRole('alert').textContent).toBe('A message takes up to 20 attachments: more.txt left out')
@@ -330,12 +334,11 @@ describe('attachments', () => {
   it('a dropped file goes to main as bytes; one too big is refused without being read', async () => {
     answers['agent.attach'] = () => ({ results: [{ ok: true, attachment: file }] })
     await mount()
-    const box = screen.getByTestId('message-input-box')
     const small = new File(['notes'], 'notes.txt', { type: 'text/plain' })
     const big = new File(['x'], 'huge.bin')
     Object.defineProperty(big, 'size', { value: 20 * 1024 * 1024 + 1 })
     await act(async () => {
-      fireEvent.drop(box, { dataTransfer: { files: [small, big], types: ['Files'] } })
+      input.current?.drop([small, big])
     })
     await vi.waitFor(() => expect(screen.getAllByTestId('attachment-chip')).toHaveLength(1))
     expect(asked.find((each) => each.channel === 'agent.attach')?.input).toEqual({ sessionId: 's', sources: [{ kind: 'dropped', name: 'notes.txt', data: 'bm90ZXM=' }] })

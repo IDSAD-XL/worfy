@@ -765,11 +765,6 @@
   position: relative;
 }
 
-.w-composer__box[data-dragging] {
-  border-color: var(--primary);
-  border-style: dashed;
-}
-
 .w-composer__attach {
   width: 24px;
   height: 24px;
@@ -1311,4 +1306,159 @@
 .w-permission__problem {
   font-size: var(--text-12);
   color: var(--blocked-text);
+}
+
+/*
+ * Attachments in the chat (worfy-ui ticket 28): the drop target over the whole chat while files are
+ * dragged (chat-drop.tsx), and what a sent message shows of its attachments (MessageAttachments.tsx).
+ */
+.w-chat-drop {
+  position: absolute;
+  inset: 8px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--primary);
+  border-radius: var(--radius-node);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  pointer-events: none;
+}
+
+.w-chat-drop[data-refused] {
+  border-color: var(--blocked-ring);
+}
+
+.w-chat-drop__label {
+  padding: 6px 12px;
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  color: var(--accent);
+  font-size: var(--text-13);
+  font-weight: 600;
+}
+
+.w-chat-drop[data-refused] .w-chat-drop__label {
+  color: var(--blocked-text);
+}
+
+.w-msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.w-msg-attachments__item {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.w-msg-image {
+  display: block;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  overflow: hidden;
+  background: var(--surface);
+  cursor: zoom-in;
+}
+
+/* At most 160 px on the longer side, proportions kept. */
+.w-msg-image img {
+  display: block;
+  max-width: 160px;
+  max-height: 160px;
+  width: auto;
+  height: auto;
+}
+
+.w-msg-image:focus-visible,
+.w-image-overlay__close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.w-msg-file {
+  max-width: 280px;
+  height: 28px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-chip);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+
+.w-msg-file__icon {
+  flex: none;
+  display: inline-flex;
+}
+
+.w-msg-file__format {
+  flex: none;
+  font-size: var(--text-11);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.w-msg-file__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.w-msg-file__size {
+  flex: none;
+  font-size: var(--text-11);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* Above the app's dialogs (90–101), under the Settings window (110). */
+.w-image-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 105;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.72);
+  cursor: zoom-out;
+  outline: none;
+}
+
+.w-image-overlay__image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-button);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.w-image-overlay__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  font-size: 18px;
+  line-height: 28px;
+  cursor: pointer;
 }

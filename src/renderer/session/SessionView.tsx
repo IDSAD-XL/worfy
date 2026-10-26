@@ -11,7 +11,8 @@ import { StatusChip } from '../theme/primitives'
 import { formatCost, permissionLabel, STATE_CHIPS } from './format'
 import { promptHistory } from './history'
 import { ExternalSessionPanel } from './ExternalSessionPanel'
-import { MessageInput, type OutgoingMessage } from './MessageInput'
+import { dropRefusal, useChatDrop } from './chat-drop'
+import { MessageInput, type MessageInputHandle, type OutgoingMessage } from './MessageInput'
 import { useNavigation } from './navigation'
 import { useSessionNodeView } from './node-sessions'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
@@ -212,6 +213,11 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
     return result.ok ? null : result.error
   }
 
+  // A file dropped anywhere on the chat, the transcript too, goes to the input field (worfy-ui ticket 28).
+  const input = useRef<MessageInputHandle>(null)
+  const readOnly = useReadOnly()
+  const drop = useChatDrop(dropRefusal(sessionId, readOnly), (files) => input.current?.drop(files))
+
   const interrupt = () => {
     if (sessionId === null) return
     void invoke('agent.interrupt', { sessionId }).then((result) => {
@@ -287,7 +293,8 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
         <Interrupt testId="session-interrupt" disabled={!busy} onClick={interrupt} />
       </header>
       <div className="w-session__body">
-        <section className="w-session__main" aria-label="Session">
+        <section className="w-session__main" aria-label="Session" {...drop.handlers}>
+          {drop.overlay}
           <SessionFind find={find} />
           {/* Another Session gets a fresh log: no row stays opened from the one shown before (rows are keyed by position). */}
           <Transcript
@@ -302,7 +309,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
             find={find.transcript}
             logRef={logRef}
           />
-          <MessageInput key={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} onSend={send} onInterrupt={interrupt} />
+          <MessageInput ref={input} key={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} onSend={send} onInterrupt={interrupt} />
         </section>
         <SessionRail blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={sessionId} />
       </div>

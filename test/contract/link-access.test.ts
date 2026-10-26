@@ -263,7 +263,7 @@ const modules: Record<string, ModuleLoader> = {
   './agent.ts': async () =>
     agentHandlers(
       () => fakeSessions,
-      { target: (cwd) => ({ projectRoot: repo, cwd, attachmentsDir }), pickFiles: async () => [] },
+      { target: (cwd) => ({ projectRoot: repo, cwd, attachmentsDir }), pickFiles: async () => [], imagesDir: () => join(attachmentsDir, 'images') },
       () => undefined,
     ),
   './checks.ts': async () => checksHandlers(fakeChecks),

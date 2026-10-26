@@ -5,6 +5,7 @@ import './theme/tokens.css'
 import { AppShell } from './shell/AppShell'
 import { installArchiveToasts } from './canvas/archive-toast'
 import { Canvas } from './canvas/Canvas'
+import { guardFileDrops } from './drop-guard'
 import { windowMachine } from './ipc'
 import { useMachines } from './machines/useMachines'
 import { markPlatform } from './platform'
@@ -100,6 +101,8 @@ if (container) {
   installArchiveToasts()
   // A question of a Session that is not on screen comes as a toast (worfy-ui ticket 17).
   installQuestionToasts()
+  // A file dropped where nothing takes it does not open in the window (worfy-ui ticket 28).
+  guardFileDrops()
   createRoot(container).render(
     <StrictMode>
       <App />

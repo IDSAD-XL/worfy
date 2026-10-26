@@ -80,7 +80,7 @@ import { homedir } from 'node:os'
 import { resolve } from 'node:path'
 import type { AutopilotWaveResult } from '../actions/launch'
 import { ticketNumber } from '../../shared/actions/render-template'
-import { messageLabel } from '../../shared/agent/attachments'
+import { messageText } from '../../shared/agent/attachments'
 import { isTaskEvent, type BackgroundTask } from '../../shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
 import { clipLastText, journalReason, type JournalEventFields } from '../../shared/autopilot/journal'
@@ -126,7 +126,7 @@ export const STOP_TEXT =
   'A person stopped Autopilot. Do not take new Tickets and do not start new Waves. Do not start the Tickets of the current Wave that have not started yet. Finish the Tickets already in work as usual, to merge or blocked, then end the turn.'
 
 /** STOP_TEXT as the Session's queue shows it. */
-const STOP_LABEL = messageLabel(STOP_TEXT, [])
+const STOP_LABEL = messageText(STOP_TEXT, [])
 
 /** The timers of the wait for background tasks; a test passes a clock it moves by hand. */
 export interface TasksClock {
@@ -897,7 +897,7 @@ export class Autopilot {
     run.cycle = { ...run.cycle, phase: 'turn', tickets: [], reason: null, inWork: [] }
     run.gateQueue = saved
     run.lastText = null
-    run.wavePrompt = messageLabel(text, [])
+    run.wavePrompt = messageText(text, [])
     run.waveTurn = null
     run.sending = true
     run.promptsWhileSending.clear()
@@ -963,7 +963,7 @@ export class Autopilot {
     run.sent = sent
     run.lastText = null
     // Sent at once, its turn has started by now; queued, it starts with a later `prompt`.
-    run.wavePrompt = messageLabel(sent.text, [])
+    run.wavePrompt = messageText(sent.text, [])
     run.waveTurn = null
     for (const [turn, text] of run.promptsWhileSending) {
       if (text !== run.wavePrompt) continue

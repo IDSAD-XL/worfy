@@ -7,6 +7,7 @@
 // a Session from the registry finishes its turn, src/main/notify.ts): once when the watcher starts,
 // and again after each change of the registry.
 import { resolve } from 'node:path'
+import { imageRef } from '../agent/attachments'
 import { ClaudeHomeRegistry, rootPath, type ClaudeHomeWatch, type RegistryRoot } from '../claude-home/registry'
 import { TranscriptSearch } from '../claude-home/search'
 import { SubagentReader, subagentTranscriptPath } from '../claude-home/subagents'
@@ -162,7 +163,9 @@ async function readTranscript(path: string, read: TranscriptRead, events: (entri
     const all: AgentEvent[] = []
     const offsets: number[] = []
     lines.forEach((line, at) => {
-      for (const each of events(parseTranscriptLine(line))) {
+      // An image of a user message is named by the hash of its copy; its bytes stay here (worfy-ui ticket 28).
+      // shortcut: the hash is computed again on each read, in main: about 1.7 ms per 3 MB image (30 such images, about 50 ms, measured 2026-10-25), redo with a cache by file and line offset when a read of a transcript with many large images holds main up noticeably.
+      for (const each of events(parseTranscriptLine(line, { imageRef }))) {
         all.push(each)
         offsets.push(lineOffsets[at] ?? 0)
       }

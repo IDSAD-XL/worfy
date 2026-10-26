@@ -12,9 +12,24 @@
 // Everything else is optional here: a record or a content block this module does not know
 // becomes an `unknown` event, and parsing goes on. Nothing in this file throws on input.
 //
+// A user message worfy sent with attachments (worfy-ui ticket 28) is read back as one `notice` of
+// kind `user`: its text as the user typed it, and its attachments — the image blocks as images
+// named by the sha256 of their bytes (the copy main keeps; the bytes stay out of the event), the
+// paths of its `Attached files: …` line as files named by their last segment.
+//
 // The function is pure and runs in any process; the main process reads the files (tail.ts).
 import { z } from 'zod'
+import { attachmentLines, baseName, IMAGE_EXTENSIONS, imageMediaTypeSchema, shownFile, type ImageMediaType, type MessageAttachment } from '../agent/attachments'
 import { agentEvent, hookSaidSomething, LOCAL_COMMAND, toolResultText, type AgentEvent } from '../agent/events'
+
+/** What a reader of transcripts adds to the parse. */
+export interface ParseOptions {
+  /**
+   * The name of the copy of an image, from its base64 data: the sha256 of its bytes (main,
+   * src/main/agent/attachments.ts, imageRef). Without it an image is shown by its name alone.
+   */
+  imageRef?: (data: string) => string | null
+}
 
 /** What Claude Code writes as a user message when a turn is interrupted; not a prompt. */
 export const INTERRUPT_NOTICE = /^\[Request interrupted by user/
@@ -124,17 +139,72 @@ function subagentStarted(toolUseId: string, outcome: Json): AgentEvent[] {
   return [started, { ...started, phase: 'finished', description: null, subagentType: null, status }]
 }
 
-function userRecord(record: Json): AgentEvent[] {
+/** An image block of a user message, as the Messages API takes it: base64 data of a known type. */
+interface ImageBlock {
+  mediaType: ImageMediaType
+  data: string
+}
+
+function imageBlock(block: Json): ImageBlock | null {
+  const source = block.source
+  if (block.type !== 'image' || !isObject(source) || source.type !== 'base64' || typeof source.data !== 'string') return null
+  const mediaType = imageMediaTypeSchema.safeParse(source.media_type)
+  return mediaType.success ? { mediaType: mediaType.data, data: source.data } : null
+}
+
+/** The name of an image's copy; null when there is none to name, or naming it fails: the image is then a chip, the transcript still reads. */
+function refOf(data: string, options: ParseOptions): string | null {
+  try {
+    return options.imageRef?.(data) ?? null
+  } catch {
+    return null
+  }
+}
+
+/** The images of a message, named from its `Attached images: …` line, in order; one the line does not name is `image-<n>.<ext>`. */
+function shownImages(images: readonly ImageBlock[], names: readonly string[], options: ParseOptions): MessageAttachment[] {
+  return images.map(({ mediaType, data }, at) => ({
+    kind: 'image',
+    name: names[at] ?? `image-${at + 1}.${IMAGE_EXTENSIONS[mediaType]}`,
+    mediaType,
+    ref: refOf(data, options),
+  }))
+}
+
+/**
+ * The user's message of a record with its attachments: its first `notice` of kind `user` gets the
+ * text the user typed and the attachments its lines and its image blocks name. A record with
+ * images and no such notice (an image sent without text, before worfy-ui ticket 28 or from a
+ * terminal) gets a notice of its own, with no text.
+ */
+function withAttachments(events: AgentEvent[], images: readonly ImageBlock[], options: ParseOptions): AgentEvent[] {
+  const at = events.findIndex((event) => event.type === 'notice' && event.kind === 'user')
+  const notice = events[at]
+  if (notice === undefined || notice.type !== 'notice') {
+    return images.length === 0 ? events : [...events, { type: 'notice', kind: 'user', text: '', attachments: shownImages(images, [], options) }]
+  }
+  // An images line counts only with as many image blocks as it names: otherwise the user wrote it.
+  const lines = attachmentLines(notice.text, images.length)
+  const attachments = [...shownImages(images, lines.images, options), ...lines.files.map((path) => shownFile(baseName(path)))]
+  if (attachments.length === 0) return events
+  return events.map((event, index) => (index === at ? { ...notice, text: lines.typed, attachments } : event))
+}
+
+function userRecord(record: Json, options: ParseOptions): AgentEvent[] {
   const message = record.message
   if (!isObject(message)) return [invalid('user')]
   const content = message.content
-  if (typeof content === 'string') return userString(record, content)
+  if (typeof content === 'string') return withAttachments(userString(record, content), [], options)
   if (!Array.isArray(content)) return [invalid('user')]
 
   const events: AgentEvent[] = []
+  const images: ImageBlock[] = []
   for (const block of content) {
+    const image = isObject(block) ? imageBlock(block) : null
     if (!isObject(block)) {
       events.push(invalid('user'))
+    } else if (image !== null) {
+      images.push(image)
     } else if (block.type === 'text' && typeof block.text === 'string') {
       events.push(...userString(record, block.text))
     } else if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
@@ -145,7 +215,7 @@ function userRecord(record: Json): AgentEvent[] {
       events.push(unknownType('user', str(block.type)))
     }
   }
-  return events
+  return withAttachments(events, images, options)
 }
 
 function assistantRecord(record: Json): AgentEvent[] {
@@ -241,11 +311,11 @@ const TITLE_FIELDS = {
   'agent-name': ['agent', 'agentName'],
 } as const
 
-function recordEvents(record: Json): AgentEvent[] {
+function recordEvents(record: Json, options: ParseOptions): AgentEvent[] {
   const type = str(record.type) ?? ''
   switch (type) {
     case 'user':
-      return userRecord(record)
+      return userRecord(record, options)
     case 'assistant':
       return assistantRecord(record)
     case 'system':
@@ -265,26 +335,26 @@ function recordEvents(record: Json): AgentEvent[] {
 }
 
 /** One parsed transcript record (a JSON value) → its events, each with the record's facts. Never throws. */
-export function parseTranscriptRecord(record: unknown): TranscriptEntry[] {
+export function parseTranscriptRecord(record: unknown, options: ParseOptions = {}): TranscriptEntry[] {
   if (!isObject(record)) return [{ sidechain: false, event: invalid('') }]
   const meta = metaOf(record)
-  return recordEvents(record).map((event) => ({ ...meta, event }))
+  return recordEvents(record, options).map((event) => ({ ...meta, event }))
 }
 
 /** One JSONL line → its entries. A line that is not JSON gives one `unknown` event. */
-export function parseTranscriptLine(line: string): TranscriptEntry[] {
+export function parseTranscriptLine(line: string, options: ParseOptions = {}): TranscriptEntry[] {
   let record: unknown
   try {
     record = JSON.parse(line)
   } catch {
     return [{ sidechain: false, event: unknown('line:unparsable') }]
   }
-  return parseTranscriptRecord(record)
+  return parseTranscriptRecord(record, options)
 }
 
 /** Many lines → their entries, in order. */
-export function parseTranscriptLines(lines: readonly string[]): TranscriptEntry[] {
-  return lines.flatMap(parseTranscriptLine)
+export function parseTranscriptLines(lines: readonly string[], options: ParseOptions = {}): TranscriptEntry[] {
+  return lines.flatMap((line) => parseTranscriptLine(line, options))
 }
 
 /**

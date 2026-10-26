@@ -18,6 +18,7 @@ import {
 import { readNewLines } from '../../src/main/claude-home/tail'
 import { ClaudeHomeSubscriptions, claudeHomeHandlers, type LiveSessionsListener, type Subscriber } from '../../src/main/ipc/claude-home'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
+import type { AgentEvent } from '../../src/shared/agent/events'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { parseTranscriptLines } from '../../src/shared/transcript/parse'
 import { APP_URL, INDEX_HTML } from '../app-url'
@@ -413,6 +414,29 @@ describe('Session history', () => {
     expect((await registry.sessions(DEMO)).history.find((entry) => entry.sessionId === 'meta-1')?.title).toBe('The prompt the user typed')
   })
 
+  it('names a Session by the first prompt with text: a message of attachments only names none', async () => {
+    const home = await copyOfFixture()
+    const dir = join(home, 'projects', projectDir(DEMO))
+    const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: Buffer.from('png bytes').toString('base64') } }
+    const user = (uuid: string, content: unknown, second: number) =>
+      JSON.stringify({ type: 'user', uuid, timestamp: `2026-06-01T00:00:0${second}.000Z`, cwd: DEMO, message: { role: 'user', content } })
+    await writeFile(
+      join(dir, 'attach-1.jsonl'),
+      `${[
+        user('images', [image, { type: 'text', text: 'Attached images: shot.png' }], 0),
+        user('files', 'Attached files: /Users/test/notes.txt', 1),
+        user('typed', 'The prompt after the attachments', 2),
+      ].join('\n')}\n`,
+    )
+    await writeFile(join(dir, 'attach-2.jsonl'), `${[user('only', [image], 0)].join('\n')}\n`)
+    const registry = new ClaudeHomeRegistry({ home, listWorktrees: noWorktrees, isAlive: alive() })
+    const history = (await registry.sessions(DEMO)).history
+    expect(history.find((entry) => entry.sessionId === 'attach-1')?.title).toBe('The prompt after the attachments')
+    // No title at all, so the sidebar and the Session Node fall back to «Session <id>».
+    expect(history.find((entry) => entry.sessionId === 'attach-2')).toBeDefined()
+    expect(history.find((entry) => entry.sessionId === 'attach-2')?.title).toBeUndefined()
+  })
+
   it('reads only the head and the tail of a large transcript', async () => {
     const home = await copyOfFixture()
     const file = join(home, 'projects', projectDir(DEMO), 'big-1.jsonl')
@@ -753,6 +777,29 @@ describe('claudeHome IPC channels', () => {
     expect(events.map((event) => event.text)).not.toContain('from a subagent')
     // With the time of its record, so the row shows when it was written (ticket 14).
     expect(events.at(-1)).toStrictEqual({ type: 'text', text: 'after the subagent', messageId: 'own-1', parentToolUseId: null, synthetic: false, at: Date.parse('2026-05-05T10:07:00.000Z') })
+  })
+
+  it('names an image of a user message by the sha256 of its bytes, the copy main keeps, and sends no base64 (worfy-ui ticket 28)', async () => {
+    const home = await copyOfFixture()
+    const registry = new ClaudeHomeRegistry({ home, listWorktrees: noWorktrees, isAlive: alive() })
+    const file = (await registry.transcriptPath(DEMO, S5)) ?? ''
+    const bytes = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32, 9)])
+    const content = [
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: bytes.toString('base64') } },
+      { type: 'text', text: 'see\n\nAttached images: shot.png' },
+    ]
+    await appendFile(file, `${JSON.stringify({ type: 'user', uuid: 'img-1', isSidechain: false, message: { role: 'user', content } })}\n`)
+    const { call } = await ipcOver(registry)
+    const result = await call('claudeHome.transcript', { projectRoot: DEMO, sessionId: S5 })
+    if (!result.ok) throw new Error(result.error)
+    const { events } = result.value as { events: AgentEvent[] }
+    expect(events.at(-1)).toStrictEqual({
+      type: 'notice',
+      kind: 'user',
+      text: 'see',
+      attachments: [{ kind: 'image', name: 'shot.png', mediaType: 'image/png', ref: createHash('sha256').update(bytes).digest('hex') }],
+    })
+    expect(JSON.stringify(result)).not.toContain(bytes.toString('base64'))
   })
 
   it('answers sessions with the contract fields only', async () => {

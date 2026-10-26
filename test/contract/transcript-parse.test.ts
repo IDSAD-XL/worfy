@@ -294,3 +294,99 @@ describe('transcript parsing of hook attachments', () => {
     expect(eventOf({ type: 'hook_additional_context', content: [], hookName: 'SessionStart', hookEvent: 'SessionStart' })).toStrictEqual([])
   })
 })
+
+// worfy-ui ticket 28: a message worfy sent with attachments, as Claude Code writes it into its
+// transcript — image blocks, then a text block that ends with the attachment lines (messageText) —
+// reads back as one user notice: the typed text and the attachments, no paths, no base64.
+describe('transcript parsing of a message with attachments', () => {
+  const PNG = 'iVBORw0KGgoAAAA'
+  const GIF = 'R0lGODlhAQABAAAA'
+  const refOf = (data: string) => `${data.length.toString(16).padStart(2, '0')}${'a'.repeat(62)}`
+  const user = (content: unknown) => JSON.stringify({ type: 'user', uuid: 'u1', timestamp: '2026-10-25T10:00:00.000Z', isSidechain: false, message: { role: 'user', content } })
+  const image = (data: string, mediaType = 'image/png') => ({ type: 'image', source: { type: 'base64', media_type: mediaType, data } })
+  const eventsOf = (line: string, imageRef?: (data: string) => string | null) => parseTranscriptLine(line, imageRef ? { imageRef } : {}).map((entry) => entry.event)
+
+  it('gives the image blocks as images named by their copy, and the files of the line as chips by name', () => {
+    const text = 'what is on these?\n\nAttached files: /Users/a/Downloads/spec.pdf, /p/notes.md\n\nAttached images: shot.png, anim.gif'
+    const events = eventsOf(user([image(PNG), image(GIF, 'image/gif'), { type: 'text', text }]), refOf)
+    expect(events).toStrictEqual([
+      {
+        type: 'notice',
+        kind: 'user',
+        text: 'what is on these?',
+        attachments: [
+          { kind: 'image', name: 'shot.png', mediaType: 'image/png', ref: refOf(PNG) },
+          { kind: 'image', name: 'anim.gif', mediaType: 'image/gif', ref: refOf(GIF) },
+          { kind: 'file', name: 'spec.pdf', ext: 'pdf' },
+          { kind: 'file', name: 'notes.md', ext: 'md' },
+        ],
+      },
+    ])
+    expect(JSON.stringify(events)).not.toContain(PNG)
+    expect(JSON.stringify(events)).not.toContain('/Users/a/Downloads')
+    // It is an event of the schema the renderer checks.
+    for (const event of events) expect(agentEvent.parse(event)).toStrictEqual(event)
+  })
+
+  it('reads a message with files only, which Claude Code keeps as a string', () => {
+    expect(eventsOf(user('read these\n\nAttached files: C:\\Users\\a\\b.csv'))).toStrictEqual([
+      { type: 'notice', kind: 'user', text: 'read these', attachments: [{ kind: 'file', name: 'b.csv', ext: 'csv' }] },
+    ])
+  })
+
+  it('without imageRef an image has no copy to show; an images line that names another number of images is the user\'s text', () => {
+    expect(eventsOf(user([image(PNG), image(PNG), { type: 'text', text: 'two\n\nAttached images: one.png' }]))).toStrictEqual([
+      {
+        type: 'notice',
+        kind: 'user',
+        text: 'two\n\nAttached images: one.png',
+        attachments: [
+          { kind: 'image', name: 'image-1.png', mediaType: 'image/png', ref: null },
+          { kind: 'image', name: 'image-2.png', mediaType: 'image/png', ref: null },
+        ],
+      },
+    ])
+  })
+
+  it('lines the user typed stay text: an images line with no image, a files line with a path that is not absolute', () => {
+    expect(eventsOf(user('see\n\nAttached images: shot.png'))).toStrictEqual([{ type: 'notice', kind: 'user', text: 'see\n\nAttached images: shot.png' }])
+    expect(eventsOf(user('see\n\nAttached files: the notes, below'))).toStrictEqual([{ type: 'notice', kind: 'user', text: 'see\n\nAttached files: the notes, below' }])
+    // The paths messageText writes on Windows are absolute too.
+    expect(eventsOf(user('see\n\nAttached files: C:\\Users\\a\\spec.pdf, \\\\server\\share\\b.txt'))).toStrictEqual([
+      { type: 'notice', kind: 'user', text: 'see', attachments: [{ kind: 'file', name: 'spec.pdf', ext: 'pdf' }, { kind: 'file', name: 'b.txt', ext: 'txt' }] },
+    ])
+  })
+
+  it('an image block without its data, or with data of another type, does not stop the transcript', () => {
+    const blocks = [{ type: 'image', source: { type: 'base64', media_type: 'image/png' } }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 42 } }]
+    expect(labels(eventsOf(user([...blocks, { type: 'text', text: 'hi' }]), refOf))).toEqual(['unknown:user/image', 'unknown:user/image', 'notice:user'])
+  })
+
+  it('an image whose copy cannot be named is a chip, and the transcript still reads', () => {
+    const failing = () => {
+      throw new Error('cannot hash')
+    }
+    expect(eventsOf(user([image(PNG), { type: 'text', text: 'one\n\nAttached images: a.png' }]), failing)).toStrictEqual([
+      { type: 'notice', kind: 'user', text: 'one', attachments: [{ kind: 'image', name: 'a.png', mediaType: 'image/png', ref: null }] },
+    ])
+  })
+
+  it('an image sent with no text, from a terminal or an older worfy, still makes a user message', () => {
+    expect(eventsOf(user([image(PNG, 'image/jpeg')]), refOf)).toStrictEqual([
+      { type: 'notice', kind: 'user', text: '', attachments: [{ kind: 'image', name: 'image-1.jpg', mediaType: 'image/jpeg', ref: refOf(PNG) }] },
+    ])
+  })
+
+  it('an image block it cannot show stays an unknown event, and a plain message stays as it was', () => {
+    expect(labels(eventsOf(user([{ type: 'image', source: { type: 'url', url: 'https://x/y.png' } }, { type: 'text', text: 'hi' }])))).toEqual(['unknown:user/image', 'notice:user'])
+    expect(labels(eventsOf(user([image(PNG, 'image/bmp')])))).toEqual(['unknown:user/image'])
+    // Data that is not base64: nothing to name a copy by.
+    expect(labels(eventsOf(user([{ type: 'image', source: { type: 'file', media_type: 'image/png', data: 'file_123' } }]), refOf))).toEqual(['unknown:user/image'])
+    expect(eventsOf(user('just text'))).toStrictEqual([{ type: 'notice', kind: 'user', text: 'just text' }])
+  })
+
+  it('leaves text the harness injected alone, attachment lines and all', () => {
+    const line = JSON.stringify({ type: 'user', uuid: 'u2', isSidechain: false, isMeta: true, message: { role: 'user', content: 'skill body\n\nAttached files: /p/a.ts' } })
+    expect(eventsOf(line)).toStrictEqual([{ type: 'notice', kind: 'synthetic', text: 'skill body\n\nAttached files: /p/a.ts' }])
+  })
+})

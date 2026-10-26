@@ -1,10 +1,12 @@
-import { useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
+import { useImperativeHandle, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type Ref } from 'react'
 import type { Attachment, AttachResult } from '../../shared/agent/attachments'
 import { invoke, windowMachine } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useReadOnly } from '../projects/useProjects'
 import { attachFiles as attachFilesIn, roomFor, takeAttached, type FileKind } from './attach-files'
+import { dropRefusal } from './chat-drop'
 import { composerItems } from './composer/index'
+import { formatSize } from './attachment-format'
 import { composerHint } from './hints'
 import { stepHistory } from './history'
 import { useSlashMenu } from './SlashMenu'
@@ -17,7 +19,8 @@ import { useSlashMenu } from './SlashMenu'
 // chip (ticket 19).
 //
 // Ticket 20: `/` at the start of the field opens the slash menu (SlashMenu.tsx). Files come in by
-// "+" (main's file dialog), by dropping them on the field, and by pasting an image; main checks each
+// "+" (main's file dialog), by dropping them on the chat (the Session view hands them over with
+// `drop`, chat-drop.tsx; worfy-ui ticket 28), and by pasting an image; main checks each
 // one (`agent.attach`, src/main/agent/attachments.ts) and the field shows it as a chip until the
 // message is sent, or the chip is removed. A refused file is named under the field; the message
 // itself can still be sent. A message takes MAX_ATTACHMENTS at most: what comes past that is left
@@ -47,6 +50,14 @@ export interface MessageInputProps {
   /** Sends a message; resolves to an error text when it was not sent. */
   onSend: (message: OutgoingMessage) => Promise<string | null>
   onInterrupt: () => void
+  /** What the chat around the field calls with the files dropped on it. */
+  ref?: Ref<MessageInputHandle>
+}
+
+/** What the chat around the field asks of it. */
+export interface MessageInputHandle {
+  /** Files dropped on the chat: attached, or the reason they are not when the field is off. */
+  drop(files: readonly File[]): void
 }
 
 /** The tallest the field grows before it scrolls, in px. */
@@ -97,13 +108,6 @@ function FileIcon({ image }: { image: boolean }) {
   )
 }
 
-/** A size for a chip: bytes, KB or MB. */
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`
-}
-
 /** The chips of a message's attachments, each with its "×"; the Session Node shows them too. */
 export function AttachmentChips({ chips, onRemove }: { chips: readonly Chip[]; onRemove: (key: number) => void }) {
   return (
@@ -122,14 +126,13 @@ export function AttachmentChips({ chips, onRemove }: { chips: readonly Chip[]; o
   )
 }
 
-export function MessageInput({ sessionId, busy, history, recipient, onSend, onInterrupt }: MessageInputProps) {
+export function MessageInput({ sessionId, busy, history, recipient, onSend, onInterrupt, ref }: MessageInputProps) {
   const [text, setText] = useState('')
   // Where ↑/↓ are in the history; null while the field holds the user's own text.
   const [at, setAt] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [chips, setChips] = useState<Chip[]>([])
-  const [dragging, setDragging] = useState(false)
   const nextKey = useRef(1)
   // The chips as they are now, ahead of the next render: attaching is async, and its answer counts
   // against the chips there are by then. Every change of the chips goes through changeChips.
@@ -268,23 +271,17 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
     void attachFiles(images, 'pasted')
   }
 
-  const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files')
-
-  const onDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (disabled || !hasFiles(event)) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'copy'
-    setDragging(true)
-  }
-
-  const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasFiles(event)) return
-    // Never let the window open a dropped file in place of the app.
-    event.preventDefault()
-    setDragging(false)
-    if (disabled) return
-    void attachFiles([...event.dataTransfer.files], 'dropped')
-  }
+  useImperativeHandle(ref, () => ({
+    drop: (files) => {
+      const refusal = dropRefusal(sessionId, readOnly)
+      if (refusal !== null) {
+        setError(refusal)
+        return
+      }
+      // A drop of no files (a file promise, such as a photo dragged from Photos) changes nothing: an earlier error stays.
+      if (files.length > 0) void attachFiles(files, 'dropped')
+    },
+  }))
 
   const canSend = !disabled && !sending && (text.trim() !== '' || chips.length > 0)
 
@@ -295,11 +292,7 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
         <div
           className="w-composer__box"
           data-disabled={disabled || undefined}
-          data-dragging={dragging || undefined}
           data-testid="message-input-box"
-          onDragOver={onDragOver}
-          onDragLeave={() => setDragging(false)}
-          onDrop={onDrop}
         >
           {chips.length > 0 ? <AttachmentChips chips={chips} onRemove={(key) => changeChips((current) => current.filter((chip) => chip.key !== key))} /> : null}
           <textarea

@@ -128,7 +128,11 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
         return { ...log, settings: event.settings, modelPick: picked ? { model: event.settings.model } : log.modelPick }
       }
       case 'prompt':
-        return { ...log, ...append(log, { type: 'notice', kind: 'user', text: event.text, at: event.at }), echo: event.text }
+        return {
+          ...log,
+          ...append(log, { type: 'notice', kind: 'user', text: event.text, ...(event.attachments?.length ? { attachments: event.attachments } : {}), at: event.at }),
+          echo: event.text,
+        }
       default:
         if (event.type === 'notice' && event.kind === 'user' && log.echo !== null && event.text === log.echo) return { ...log, echo: null }
         return { ...log, ...append(log, event), echo: event.type === 'result' ? null : log.echo, modelPick: event.type === 'init' ? null : log.modelPick }
@@ -194,9 +198,8 @@ function identity(event: AgentEvent): string | null {
 /**
  * The text the user typed, for an event that opens a turn: a prompt (`notice` of kind `user`), or a
  * slash command, which a transcript file records as a `command` event and the live Session as the
- * prompt the user typed. Without the leading slash, and without the `Attached images: …` line the
- * live prompt carries and the file does not (the images go as blocks of their own; typedText), so
- * the two compare equal. Claude Code's own `[Request interrupted by user]` is a prompt here too: it
+ * prompt the user typed. Without the leading slash, and without the lines naming attachments, which
+ * a transcript of an older worfy may still carry in the text (typedText), so the two compare equal. Claude Code's own `[Request interrupted by user]` is a prompt here too: it
  * closes a turn in the file.
  */
 function typed(event: AgentEvent): string | null {

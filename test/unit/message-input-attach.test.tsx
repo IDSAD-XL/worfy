@@ -4,9 +4,11 @@
 // source `dropped`), the way a dropped file does. M's own dialog (`agent.attachPick`) is never
 // called. In a window on this Machine "+" calls `agent.attachPick`, as before.
 import { act, fireEvent, render, screen } from '@testing-library/react'
+import { createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FILE_COPY_LIMIT_BYTES, fileTooLarge, imageTooLarge, tooManyAttachments, type Attachment, type AttachmentSource } from '../../src/shared/agent/attachments'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
+import type { MessageInputHandle } from '../../src/renderer/session/MessageInput'
 
 const M = 'machine-m'
 
@@ -55,10 +57,13 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+/** The field's handle: what the chat around it calls with dropped files (session/chat-drop.tsx). */
+const input = createRef<MessageInputHandle>()
+
 async function mount(machine: string | null) {
   window.history.replaceState(null, '', machine === null ? '/' : `/?machine=${machine}&project=p-00000001`)
   const { MessageInput } = await import('../../src/renderer/session/MessageInput')
-  render(<MessageInput sessionId="s" busy={false} history={[]} recipient="Orchestrator" onSend={() => Promise.resolve(null)} onInterrupt={() => undefined} />)
+  render(<MessageInput ref={input} sessionId="s" busy={false} history={[]} recipient="Orchestrator" onSend={() => Promise.resolve(null)} onInterrupt={() => undefined} />)
 }
 
 const fileInput = () => screen.queryByTestId('input-attach-file') as HTMLInputElement | null
@@ -156,12 +161,13 @@ describe('"+" in a window on this Machine', () => {
   })
 })
 
-// Files dropped on the field go the same way as chosen ones (session/attach-files.ts, shared with the
-// Session Node): read here, checked by `agent.attach`, shown as chips.
-describe('files dropped on the field', () => {
+// Files dropped on the chat go the same way as chosen ones (session/attach-files.ts, shared with the
+// Session Node): the chat hands them to the field (worfy-ui ticket 28), read here, checked by
+// `agent.attach`, shown as chips.
+describe('files dropped on the chat', () => {
   async function drop(files: File[]) {
     await act(async () => {
-      fireEvent.drop(screen.getByTestId('message-input-box'), { dataTransfer: { types: ['Files'], files } })
+      input.current?.drop(files)
     })
   }
 

@@ -16,6 +16,7 @@ export type StartupStep =
   | 'registerIpc'
   | 'installWebPolicy'
   | 'installCardRuntime'
+  | 'installImageProtocol'
   | 'startOrchestrators'
   | 'installNotifications'
   | 'createMainWindow'
@@ -46,6 +47,7 @@ const STEPS: Record<StartupStep, { doing: string; advice: string }> = {
   },
   installWebPolicy: { doing: 'installing the web policy for pages and Cards', advice: REINSTALL },
   installCardRuntime: { doing: 'installing the Card runtime', advice: REINSTALL },
+  installImageProtocol: { doing: 'installing the protocol of the images worfy keeps', advice: REINSTALL },
   startOrchestrators: { doing: 'starting the Orchestrators', advice: REINSTALL },
   installNotifications: { doing: 'installing notifications', advice: REINSTALL },
   createMainWindow: { doing: 'creating the main window', advice: REINSTALL },

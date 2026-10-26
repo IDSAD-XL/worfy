@@ -3,18 +3,21 @@ import { randomUUID } from 'node:crypto'
 import './quit-listeners'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { bindingWorkflowOf } from '../shared/binding/resolve'
+import { ATTACHMENT_IMAGES_STORE } from '../shared/images'
 import { sessionArchiveOf } from '../shared/settings/app-settings'
 import { startOrchestrators } from './agent/app-orchestrators'
 import { sharedRegistry } from './agent/app-registry'
+import { attachmentImagesDir } from './agent/attachments'
 import { installLimitsRefresh } from './agent/limits-usage'
 import { appUserModelId } from './app-id'
 import { stopLiveBrowsers } from './browser/live'
 import { browserProfilePartitions } from './browser/profiles'
-import { installCardRuntime, registerCardScheme } from './cards/protocol'
+import { installCardRuntime } from './cards/protocol'
 import { cardStore } from './cards/store'
 import { installProcessGone } from './diagnostics/process-gone'
 import { BindingSignalReader } from './claude-home/binding-signals'
 import { installDevDockIcon } from './dock-icon'
+import { attachmentImageStore, installImageProtocol } from './images/protocol'
 import { bundledHarnessVersion } from './harness/bundled'
 import { liveSessionListeners, type LiveSessionsListener } from './ipc/claude-home'
 import { sharedGateQueue } from './ipc/gate-queue'
@@ -29,6 +32,7 @@ import { layoutStore } from './layout/store'
 import { appWaitsSources, electronNotifyDeps, followAppLinkPauses, installGateQueueNotifications, installNotifications } from './notify'
 import { projectStore } from './projects/store'
 import { quietWindows } from './quiet-windows'
+import { registerAppSchemes } from './schemes'
 import { appSettingsStore } from './settings/store'
 import { checkDataFolder, inStep, reportStartupFailure } from './startup-failure'
 import { claudeHome, dataRoot, setBuildKind } from './storage/paths'
@@ -111,8 +115,9 @@ function start(): void {
     if (started) createMainWindow()
   })
 
-  // Cards get their own origin on worfy-card:// (ticket 25); a scheme's privileges are set only before ready.
-  registerCardScheme()
+  // Cards get their own origin on worfy-card:// (ticket 25), the images worfy keeps come by
+  // worfy-image:// (worfy-ui ticket 28); a scheme's privileges are set only before ready.
+  registerAppSchemes()
 
   // Windows: before the first window and the first notification, or the notifications do not show
   // or carry no name and icon of worfy (app-id.ts, worfy-windows ticket 11).
@@ -141,6 +146,8 @@ function start(): void {
       // The checks of Browser sleep (worfy-browser ticket 05) start with the first screen a window reports.
       app.on('will-quit', stopLiveBrowsers)
       inStep('installCardRuntime', () => installCardRuntime((host) => cardStore().locate(host)))
+      // The copies of the images sent in messages; a store of the Canvas images joins here (src/shared/images.ts).
+      inStep('installImageProtocol', () => installImageProtocol((store) => (store === ATTACHMENT_IMAGES_STORE ? attachmentImageStore(attachmentImagesDir(dataRoot())) : null)))
       // Before the first window: its creation is what opens the active Project's Orchestrator.
       inStep('startOrchestrators', () => startOrchestrators())
       // Notifications when a Session ends its turn or asks for permission (ticket 21), here and on

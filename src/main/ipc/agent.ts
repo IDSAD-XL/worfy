@@ -7,12 +7,13 @@
 //
 // Attachments (ticket 20) are checked here: agent.attach and agent.attachPick make them (copies of
 // files from outside the Project go into the Project's data folder, attachments.ts, ADR-0005), and
-// agent.send checks again what the renderer hands back before the Session gets it (recheck).
+// agent.send checks again what the renderer hands back before the Session gets it (recheck), and
+// keeps a copy of each image it sends (storeImages, worfy-ui ticket 28).
 import { stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { WebContents } from 'electron'
 import { sharedRegistry } from '../agent/app-registry'
-import { attach, recheck, type AttachTarget } from '../agent/attachments'
+import { attach, attachmentImagesDir, recheck, storeImages, type AttachTarget } from '../agent/attachments'
 import { closeRefusal } from '../agent/resume'
 import type { EventSink, Session, SessionRegistry } from '../agent/session'
 import { toEveryWindow } from '../broadcast'
@@ -61,6 +62,8 @@ export interface AttachDeps {
   target(cwd: string): AttachTarget
   /** Asks the user for files to attach; the absolute paths picked, none when cancelled. */
   pickFiles(owner: WebContents): Promise<string[]>
+  /** Where the copies of sent images go (attachmentImagesDir); the window shows them from there (worfy-image://). */
+  imagesDir(): string
 }
 
 /** The app's attachments: copies go to `<Project data folder>/attachments`, or `<data root>/attachments` outside every Project. */
@@ -78,6 +81,7 @@ export const appAttachDeps: AttachDeps = {
     const result = await (window ? dialog.showOpenDialog(window, options) : dialog.showOpenDialog(options))
     return result.canceled ? [] : result.filePaths
   },
+  imagesDir: () => attachmentImagesDir(dataRoot()),
 }
 
 /** What a settings change touches, for the journal: `model`, `effort and permission mode`, … */
@@ -127,7 +131,8 @@ export function agentHandlers(
       const sent = (lastSend.get(session) ?? Promise.resolve())
         .catch(() => undefined)
         .then(() => checked)
-        .then((list) => {
+        .then(async (list) => {
+          await storeImages(list, attachments.imagesDir())
           session.send(text, list)
         })
       lastSend.set(session, sent)

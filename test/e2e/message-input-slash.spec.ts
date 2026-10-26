@@ -127,10 +127,12 @@ test('the slash menu lists the skills, Tab puts one in; a pasted image, a droppe
     await expect.poll(() => messages().length).toBe(1)
     expect(messages()[0]?.content).toEqual([
       { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG.toString('base64') } },
-      { type: 'text', text: 'what is on this screenshot?' },
+      { type: 'text', text: 'what is on this screenshot?\n\nAttached images: image.png' },
     ])
     await expect(view.getByTestId('transcript-turn-done')).toHaveCount(1)
-    await expect(view.getByTestId('transcript-prompt').last()).toContainText('Attached images: image.png')
+    // The sent message shows the image, not the line with its name: here a chip, as these bytes are no picture the window can draw.
+    await expect(view.getByTestId('transcript-prompt').last().getByTestId('message-image-chip')).toHaveText(/image\.png/)
+    await expect(view.getByTestId('transcript-prompt').last()).not.toContainText('Attached images')
 
     // A file from outside the Project, picked with "+", is copied into the Project's data folder and goes by its path.
     writeFileSync(join(outside, 'notes.txt'), 'meeting notes')

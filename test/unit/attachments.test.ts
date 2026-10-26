@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { attach, recheck, userContent, type AttachTarget } from '../../src/main/agent/attachments'
-import { FILE_COPY_LIMIT_BYTES, IMAGE_LIMIT_BYTES, base64Length, messageLabel, messageText, typedText, type Attachment } from '../../src/shared/agent/attachments'
+import { FILE_COPY_LIMIT_BYTES, IMAGE_LIMIT_BYTES, attachmentLines, base64Length, baseName, fileExtension, messageText, shownFile, typedText, type Attachment } from '../../src/shared/agent/attachments'
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0])
@@ -284,26 +284,65 @@ describe('the user message', () => {
     expect(userContent('', [file('/p/a.ts')])).toBe('Attached files: /p/a.ts')
   })
 
-  it('carries images as image blocks before the text', () => {
+  it('carries images as image blocks before the text, and names them at its end', () => {
     expect(userContent('what is this?', [image, file('/p/a.ts')])).toEqual([
       { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
-      { type: 'text', text: 'what is this?\n\nAttached files: /p/a.ts' },
+      { type: 'text', text: 'what is this?\n\nAttached files: /p/a.ts\n\nAttached images: shot.png' },
     ])
   })
 
-  it('an image alone has no text block', () => {
-    expect(userContent('  ', [image])).toEqual([{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } }])
+  it('an image alone goes with the line that names it', () => {
+    expect(userContent('  ', [image])).toEqual([
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+      { type: 'text', text: 'Attached images: shot.png' },
+    ])
   })
 
-  it('shows the names of the images in the transcript, not their bytes', () => {
-    expect(messageLabel('what is this?', [image, file('/p/a.ts')])).toBe('what is this?\n\nAttached files: /p/a.ts\n\nAttached images: shot.png')
-    expect(messageText('what is this?', [image])).toBe('what is this?')
+  it('the text names the images, not their bytes', () => {
+    expect(messageText('what is this?', [image, file('/p/a.ts')])).toBe('what is this?\n\nAttached files: /p/a.ts\n\nAttached images: shot.png')
+    expect(messageText('what is this?', [image])).toBe('what is this?\n\nAttached images: shot.png')
+    expect(messageText('what is this?', [image])).not.toContain('AAAA')
   })
 
   it('the typed text of a transcript line leaves out the lines naming the attachments', () => {
-    expect(typedText(messageLabel('what is this?', [image, file('/p/a.ts')]))).toBe('what is this?')
-    expect(typedText(messageLabel('', [image]))).toBe('')
+    expect(typedText(messageText('what is this?', [image, file('/p/a.ts')]))).toBe('what is this?')
+    expect(typedText(messageText('', [image]))).toBe('')
     expect(typedText('one\n\ntwo')).toBe('one\n\ntwo')
     expect(typedText('Attached files: mine\n\nand more')).toBe('Attached files: mine\n\nand more')
+  })
+})
+
+describe('the attachment lines read back (worfy-ui ticket 28)', () => {
+  const image: Attachment = { kind: 'image', name: 'shot.png', mediaType: 'image/png', size: 3, data: 'AAAA' }
+  const file = (path: string): Attachment => ({ kind: 'file', name: path.split('/').at(-1) ?? path, path, size: 1, copied: false })
+
+  it('splits what messageText wrote into the typed text, the paths and the image names', () => {
+    expect(attachmentLines(messageText('look\n\nhere', [image, file('/p/a.ts'), file('/d/b c.log'), { ...image, name: 'two.gif' }]))).toEqual({
+      typed: 'look\n\nhere',
+      files: ['/p/a.ts', '/d/b c.log'],
+      images: ['shot.png', 'two.gif'],
+    })
+    expect(attachmentLines(messageText('', [file('/p/a.ts')]))).toEqual({ typed: '', files: ['/p/a.ts'], images: [] })
+    expect(attachmentLines('plain')).toEqual({ typed: 'plain', files: [], images: [] })
+  })
+
+  it('takes the lines only at the end and in the order messageText writes them', () => {
+    // Images before files is not what messageText writes: the files line stays text.
+    expect(attachmentLines('x\n\nAttached images: a.png\n\nAttached files: /p/a')).toEqual({ typed: 'x\n\nAttached images: a.png', files: ['/p/a'], images: [] })
+    expect(attachmentLines('Attached files: /p/a\n\nmy own words')).toEqual({ typed: 'Attached files: /p/a\n\nmy own words', files: [], images: [] })
+    // A line with nothing after its colon is the user's own.
+    expect(attachmentLines('x\n\nAttached files: ')).toEqual({ typed: 'x\n\nAttached files: ', files: [], images: [] })
+    expect(attachmentLines('x\n\nAttached images: ')).toEqual({ typed: 'x\n\nAttached images: ', files: [], images: [] })
+  })
+
+  it('names a file by the last segment of its path, on either platform, with its extension', () => {
+    expect(baseName('/Users/a/report.final.PDF')).toBe('report.final.PDF')
+    expect(baseName('C:\\Users\\a\\notes.md')).toBe('notes.md')
+    expect(fileExtension('report.final.PDF')).toBe('pdf')
+    expect(fileExtension('Makefile')).toBe('')
+    expect(fileExtension('.env')).toBe('')
+    expect(fileExtension('trailing.')).toBe('')
+    expect(shownFile('a.ts', 3)).toEqual({ kind: 'file', name: 'a.ts', ext: 'ts', size: 3 })
+    expect(shownFile('a.ts')).toEqual({ kind: 'file', name: 'a.ts', ext: 'ts' })
   })
 })
