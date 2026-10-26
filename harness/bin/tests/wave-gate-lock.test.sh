@@ -90,8 +90,12 @@ dst_tz="$(ambiguous_tz)"; probe="$(mktemp)"
 ( export TZ="$dst_tz"; t=$(( $(date +%s) - 1500 )); touch -t "$(date -r "$t" +%Y%m%d%H%M.%S 2>/dev/null || date -d "@$t" +%Y%m%d%H%M.%S)" "$probe" )
 probe_min=$(( ( $(date +%s) - $(node -e "process.stdout.write(String(Math.floor(require(\"fs\").statSync(process.argv[1]).mtimeMs / 1000)))" "$probe") ) / 60 ))
 rm -f "$probe"
+dst_miss="e2e lock: the 25-min lock in a TZ whose summer time ended 30 min ago: local time there gives a lock $probe_min min old, not 85 (TZ=$dst_tz)"
 if [ "$probe_min" -ge 80 ] && [ "$probe_min" -le 90 ]; then young_lock "$dst_tz" -dst
-else skip "e2e lock: the 25-min lock in a TZ whose summer time ended 30 min ago: local time there gives a lock $probe_min min old, not 85 (TZ=$dst_tz)"; fi
+# On macOS the probe is known to show the 85 min, so a miss there is a broken TZ, not the platform: it fails
+# instead of dropping the only case that sees aged() go back to local time. The skip guard above runs earlier.
+elif [ "$(uname -s)" = Darwin ]; then bad "$dst_miss"
+else skip "$dst_miss"; fi
 # heartbeat: the lock's mtime moves during a run
 new_world beat 1:a.txt
 S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
