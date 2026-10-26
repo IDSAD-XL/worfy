@@ -37,6 +37,11 @@ export const canvasImageTooLarge = (name: string): string => `${name} is too lar
 export const svgNotSupported = (name: string): string => `${name} is an SVG image, which the canvas does not take: use a PNG, JPEG, GIF or WebP`
 export const notAnImage = (name: string): string => `${name} is not a supported image: use a PNG, JPEG, GIF or WebP`
 export const unreadableImage = (name: string): string => `${name} could not be read as an image`
+/**
+ * Why an image is not added to the Canvas of a Linked machine: the file would be stored on that
+ * machine, and this window cannot show it yet (worfy-canvas ticket 24).
+ */
+export const LINKED_CANVAS_IMAGES = "Images can't be added to a Linked machine's canvas yet: paste or drop them on this machine's canvas"
 
 /** The data of an `image` Node in the Layout. */
 export const imageNodeDataSchema = z.object({

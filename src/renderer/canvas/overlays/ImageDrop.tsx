@@ -10,13 +10,16 @@
 // - A drop is the Canvas's on the empty plane only: a file dropped on a Node is that Node's (a
 //   Session Node takes it as an attachment). Each file lands where it was dropped, the next ones
 //   cascading right and down.
-// - On a read-only screen (worfy-link ticket 25) nothing is made; a toast says why.
+// - On a read-only screen (worfy-link ticket 25) nothing is made; a toast says why. Neither on the
+//   Canvas of a Linked machine with full access: the file would be stored there, and this window
+//   cannot show it yet (worfy-canvas ticket 24); main refuses such a call through the link as well.
 import { useEffect } from 'react'
 import { useReactFlow, useStoreApi } from '@xyflow/react'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
-import { invoke } from '../../ipc'
+import { invoke, windowMachine } from '../../ipc'
 import { isTextTarget } from '../../shortcuts/match'
 import { showToast } from '../../toast/toasts'
+import { LINKED_CANVAS_IMAGES } from '../../../shared/ipc/canvas-images'
 import { addImages } from '../image-drop'
 import type { CanvasFlowNode } from '../nodes'
 import { useLayoutOps } from '../useLayout'
@@ -30,6 +33,7 @@ const inside = (canvas: HTMLElement, target: EventTarget | null): boolean => tar
 export default function ImageDrop() {
   const projectId = activeProject(useProjects())?.id
   const readOnly = useReadOnly()
+  const machine = windowMachine()
   const flow = useReactFlow<CanvasFlowNode>()
   const store = useStoreApi<CanvasFlowNode>()
   const ops = useLayoutOps()
@@ -47,6 +51,10 @@ export default function ImageDrop() {
     const add = (files: readonly File[], screen: { x: number; y: number }) => {
       if (readOnly !== null) {
         showToast({ kind: 'info', key: `image-read-only:${projectId}`, projectId, text: readOnly, testId: 'image-refused' })
+        return
+      }
+      if (machine !== null) {
+        showToast({ kind: 'info', key: `image-linked:${projectId}`, projectId, text: LINKED_CANVAS_IMAGES, testId: 'image-refused' })
         return
       }
       void addImages(files, flow.screenToFlowPosition(screen), {
@@ -84,7 +92,7 @@ export default function ImageDrop() {
     const onDragOver = (event: DragEvent) => {
       if (!onPlane(event)) return
       event.preventDefault()
-      if (event.dataTransfer) event.dataTransfer.dropEffect = readOnly === null ? 'copy' : 'none'
+      if (event.dataTransfer) event.dataTransfer.dropEffect = readOnly === null && machine === null ? 'copy' : 'none'
     }
     const onDrop = (event: DragEvent) => {
       if (!onPlane(event)) return
@@ -103,7 +111,7 @@ export default function ImageDrop() {
       window.removeEventListener('dragover', onDragOver)
       window.removeEventListener('drop', onDrop)
     }
-  }, [projectId, readOnly, flow, store, ops])
+  }, [projectId, readOnly, machine, flow, store, ops])
 
   return null
 }

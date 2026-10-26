@@ -3,10 +3,11 @@
 // image files no Node of a Project's Layout shows any more are deleted (sweepImages).
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { canvasImageAdd } from '../../shared/ipc/canvas-images'
+import { canvasImageAdd, LINKED_CANVAS_IMAGES } from '../../shared/ipc/canvas-images'
 import { layoutSchema, type LayoutNode } from '../../shared/layout/types'
 import { LAYOUT_FILE, layoutStore } from '../layout/store'
 import { imagesDirOf, storeImage, sweepImages } from '../layout/images'
+import { isRemoteCall } from '../link/caller'
 import { projectStore } from '../projects/store'
 import { defineHandler, type HandlerModule } from './index'
 
@@ -52,4 +53,9 @@ setTimeout(() => {
   }
 }, 0)
 
-export default [defineHandler(canvasImageAdd, ({ projectId, name, data }) => storeImage(dataDirOf(projectId), name, data))] satisfies HandlerModule
+export default [
+  defineHandler(canvasImageAdd, ({ projectId, name, data }, { event }) =>
+    // A call through a link comes from a window of the Linked machine, which cannot show the file yet.
+    isRemoteCall(event) ? { ok: false, error: LINKED_CANVAS_IMAGES } : storeImage(dataDirOf(projectId), name, data),
+  ),
+] satisfies HandlerModule

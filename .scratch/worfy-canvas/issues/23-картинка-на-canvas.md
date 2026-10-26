@@ -185,3 +185,23 @@ project label считается в renderer-е так же, как `projectIdHa
 testing: 33 + 12 мутантов новых строк убиты; e2e-мутант `object-fit: fill` падает на проверке
 пикселей.
 
+**Круг доработки 1 (ревью PR #838, REJECTED на `53f4b734`).** Вставка и drop на Canvas Linked machine-а
+теперь отклоняются: файл лёг бы на ту машину, а это окно его пока не показывает (ticket 24). Renderer
+(`ImageDrop.tsx`) при `windowMachine() !== null` ничего не создаёт и не шлёт, показывает toast
+`LINKED_CANVAS_IMAGES`, курсор drop — «нельзя»; на экране только для чтения по-прежнему toast с
+причиной доступа. Main (`src/main/ipc/canvas-images.ts`) отвечает тем же отказом на вызов через link
+(`isRemoteCall`), ничего не записав. `LinkConnection.call()` (`src/main/link/connection.ts`) меряет
+UTF-8 байты кадра и вызов больше `LINK_MAX_PAYLOAD` (16 MB — предел, с которым другая сторона
+принимает сообщение, `server.ts`/`client.ts`) отклоняет до отправки ошибкой «the request is N MB, more
+than the 16 MB…»: соединение и другие вызовы на нём остаются (тот же риск был у `agent.attach`).
+Новые test-ы: `test/unit/image-drop-overlay.test.tsx` (вставка под курсором и в центре, не на экране,
+в поле ввода, вне Canvas; drop на пустое место и на Node; только чтение; Linked machine), в
+`test/contract/canvas-images.test.ts` — отказ вызова через link, проверка base64 и длины на канале,
+Node с `file: '../layout.json'` не уносит `layout.json` в корзину, маркеры JPEG 0xc8/0xcc, 14 бит
+WebP, svg после doctype, GIF и JPEG нулевого размера, проверка при старте читает Layout из памяти
+main и не трогает папки; в `test/contract/link-server.test.ts` — вызов ровно 16 MB уходит, на байт
+больше — отказ без отправки; `image-node.test.tsx` — повторная загрузка после смены файла;
+`search-index.test.ts` — `image: 'Image'`. Mutation testing: 25 мутантов изменённых и непокрытых
+строк убиты, 2 контрольных выжили. Не сделано из пунктов low: отказ restore, когда папка картинок
+ведёт с машины, — такой путь строится только по правилам Windows (`remote-guards-links.test.ts`
+идёт лишь на Windows), на Mac test-ом не проверить.

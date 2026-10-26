@@ -3,6 +3,7 @@ import {
   FIND_LIMIT,
   findDocs,
   FindIndex,
+  kindLabel,
   nodeTitle,
   orderMatches,
   rankItems,
@@ -191,6 +192,10 @@ describe('what the search reads', () => {
     expect(nodeTitle({ data: { title: ' Board ', text: 'x' } })).toBe('Board')
     expect(nodeTitle({ data: { text: '\n\n  first line \nsecond' } })).toBe('first line')
     expect(nodeTitle({ data: {} })).toBeNull()
+  })
+
+  it('calls an image Node, which has no title of its own, "Image"', () => {
+    expect(kindLabel('image')).toBe('Image')
   })
 
   it('builds documents from titles, Tickets, open transcripts, HANDOFF and Card text, skipping hidden Nodes', () => {

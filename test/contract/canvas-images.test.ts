@@ -9,7 +9,8 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CANVAS_IMAGE_LIMIT_BYTES, IMAGE_FILE_PATTERN, type CanvasImageResult, type ImageNodeData } from '../../src/shared/ipc/canvas-images'
+import { base64Length } from '../../src/shared/agent/attachments'
+import { CANVAS_IMAGE_LIMIT_BYTES, IMAGE_FILE_PATTERN, LINKED_CANVAS_IMAGES, type CanvasImageResult, type ImageNodeData } from '../../src/shared/ipc/canvas-images'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { TRASH_KEEP_MS, type TrashEntry } from '../../src/shared/ipc/trash'
 import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
@@ -55,10 +56,11 @@ async function start(): Promise<void> {
   layout = (await import('../../src/main/layout/store')).layoutStore()
 }
 
-async function call(channel: string, input?: unknown): Promise<IpcResult<unknown>> {
+/** A call from a window of this machine, or with `sender` from elsewhere (a link connection's client). */
+async function call(channel: string, input?: unknown, sender: unknown = {}): Promise<IpcResult<unknown>> {
   const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
   if (!listener) throw new Error(`no handler for ${channel}`)
-  const event = { senderFrame: { url: APP_URL }, sender: {} } as unknown as IpcMainInvokeEvent
+  const event = { senderFrame: { url: APP_URL }, sender } as unknown as IpcMainInvokeEvent
   return (await listener(event, input)) as IpcResult<unknown>
 }
 
@@ -253,6 +255,42 @@ describe('canvasImage.add: the write path', () => {
     expect(readFileSync(join(imagesDir(), `${'a'.repeat(32)}.png`))).toEqual(png(1, 1))
   })
 
+  it('refuses a call that came through a link from a Linked machine, writing nothing', async () => {
+    const linkClient = { id: 'link:22222222-2222-4222-8222-222222222222/1' }
+    const result = await call('canvasImage.add', { projectId: PROJECT, name: 'x.png', data: png(10, 10).toString('base64') }, linkClient)
+    expect(result).toEqual({ ok: true, value: { ok: false, error: LINKED_CANVAS_IMAGES } })
+    expect(existsSync(imagesDir())).toBe(false)
+  })
+
+  it('refuses at the channel data that is not base64, or longer than 20 MB takes in base64: nothing reaches the store', async () => {
+    const input = (data: string) => ({ projectId: PROJECT, name: 'x.png', data })
+    expect(await call('canvasImage.add', input(`${png(10, 10).toString('base64')}!`))).toMatchObject({ ok: false, error: expect.stringContaining('the data must be base64') })
+    // Zero bytes in base64: decoded, 3 bytes over the limit; the channel refuses before decoding.
+    expect(await call('canvasImage.add', input('A'.repeat(base64Length(CANVAS_IMAGE_LIMIT_BYTES) + 4)))).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('canvasImage.add: invalid input'),
+    })
+    expect(existsSync(imagesDir())).toBe(false)
+  })
+
+  it('reads the size past JPEG markers that are no frame and from the 14 bits of a lossy WebP; an svg after a doctype is still an svg', async () => {
+    // JPG (0xc8) and DAC (0xcc) sit in the frame markers' range but carry no size.
+    const segment = (marker: number) => Buffer.from([0xff, marker, 0x00, 0x07, 1, 1, 1, 1, 1])
+    const plain = jpeg(640, 480)
+    const markers = Buffer.concat([plain.subarray(0, 2), segment(0xc8), segment(0xcc), plain.subarray(2)])
+    expect(await add(markers, 'markers.jpg')).toMatchObject({ ok: true, image: { width: 640, height: 480, mime: 'image/jpeg' } })
+    // The top two bits of each 16 are the lossy WebP's scale, not its size.
+    const scaled = webp('VP8 ', 300, 150)
+    scaled.writeUInt16LE(300 | 0xc000, 26)
+    scaled.writeUInt16LE(150 | 0x4000, 28)
+    expect(await add(scaled, 'scaled.webp')).toMatchObject({ ok: true, image: { width: 300, height: 150 } })
+    const doctype = Buffer.from('<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">\n<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+    expect(await add(doctype, 'old.svg')).toEqual({ ok: false, error: 'old.svg is an SVG image, which the canvas does not take: use a PNG, JPEG, GIF or WebP' })
+    expect(await add(gif(0, 5), 'flat.gif')).toEqual({ ok: false, error: 'flat.gif could not be read as an image' })
+    expect(await add(jpeg(640, 0), 'flat.jpg')).toEqual({ ok: false, error: 'flat.jpg could not be read as an image' })
+    expect(imagesOnDisk()).toHaveLength(2)
+  })
+
   it('refuses a Project that is not in the list', async () => {
     const result = await call('canvasImage.add', { projectId: 'other-0b1c2d3e', name: 'x.png', data: png(1, 1).toString('base64') })
     expect(result.ok).toBe(false)
@@ -299,6 +337,18 @@ describe('trash: an image Node takes its file along', () => {
     expect(nodeOf('lost')).toBeDefined()
   })
 
+  it('a Node whose file names a path out of the images folder takes no file along: layout.json stays where it is', async () => {
+    create({ id: 'odd', kind: 'image', x: 0, y: 0, w: 100, h: 100, data: { file: '../layout.json', width: 1, height: 1, mime: 'image/png' } })
+    layout.flushAll()
+    const layoutFile = join(projectDir(), 'layout.json')
+    expect(existsSync(layoutFile)).toBe(true)
+    const entry = await put('odd')
+    expect(entry.hasFiles).toBe(false)
+    expect(existsSync(layoutFile)).toBe(true)
+    expect(readdirSync(trashDir())).toEqual([entry.label])
+    expect(readdirSync(join(trashDir(), entry.label))).toEqual(['entry.json'])
+  })
+
   it('restore refuses, changing nothing, when a file of the same name is back in the images folder', async () => {
     const image = await imageNode('pic')
     const entry = await put('pic')
@@ -338,6 +388,32 @@ describe('the start-up sweep of image files', () => {
 
     await start()
     await vi.waitFor(() => expect(imagesOnDisk()).toEqual([shown.file, fresh.image.file, 'notes.txt'].sort()))
+  })
+
+  it('keeps a file a Node of the Layout main holds shows, though layout.json does not have that Node yet', async () => {
+    const held = await add(png(5, 5))
+    const orphan = await add(png(6, 6))
+    if (!held.ok || !orphan.ok) throw new Error('not stored')
+    for (const file of [held.image.file, orphan.image.file]) age(join(imagesDir(), file), 60 * 60 * 1000)
+    writeFileSync(join(projectDir(), 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 0, y: 0, zoom: 1 } }))
+    // Only setTimeout is faked: the sweep waits for it, and so does the Layout's save, which would put the Node on disk.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    await start()
+    create({ id: 'held', kind: 'image', x: 0, y: 0, w: 5, h: 5, data: held.image })
+    vi.advanceTimersByTime(0)
+    expect(imagesOnDisk()).toEqual([held.image.file])
+    expect(JSON.parse(readFileSync(join(projectDir(), 'layout.json'), 'utf8'))).toMatchObject({ nodes: [] })
+  })
+
+  it('leaves a folder in the images folder alone, even one named like an image file', async () => {
+    const { sweepImages } = await import('../../src/main/layout/images')
+    mkdirSync(join(imagesDir(), `${'b'.repeat(32)}.png`), { recursive: true })
+    const removed: string[] = []
+    const remove = (path: string) => {
+      removed.push(path)
+    }
+    expect(sweepImages(projectDir(), [], true, { now: () => Date.now() + DAY, remove })).toEqual([])
+    expect(removed).toEqual([])
   })
 
   it('deletes nothing when layout.json does not parse, was set aside as unreadable, or is not there', async () => {

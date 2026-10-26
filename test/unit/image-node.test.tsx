@@ -40,14 +40,17 @@ function renderNode(w: number, h: number, data: Record<string, unknown> = { file
     },
   }
   const props = { id: 'pic', data: { node: { id: 'pic', kind: 'image', x: 0, y: 0, w, h, data } }, selected: true, width: w, height: h } as unknown as CanvasNodeProps
-  render(
+  const tree = (nodeProps: CanvasNodeProps) => (
     <ReactFlowProvider>
       <LayoutOpsContext.Provider value={ops}>
-        <ImageNode {...props} />
+        <ImageNode {...nodeProps} />
       </LayoutOpsContext.Provider>
-    </ReactFlowProvider>,
+    </ReactFlowProvider>
   )
-  return { sent }
+  const view = render(tree(props))
+  /** Shows the same Node with other data, as a change of the Layout does. */
+  const rerender = (next: Record<string, unknown>) => view.rerender(tree({ ...props, data: { node: { ...props.data.node, data: next } } } as CanvasNodeProps))
+  return { sent, rerender }
 }
 
 afterEach(() => {
@@ -91,6 +94,17 @@ describe('the image inside the card', () => {
     })
     expect(screen.getByRole('img', { name: 'Image not available' })).toBeTruthy()
     expect(screen.queryByRole('img', { name: 'Image' })).toBeNull()
+  })
+
+  it('tries again when the Node comes to show another file after a failed load', () => {
+    const view = renderNode(200, 100)
+    act(() => {
+      screen.getByRole('img', { name: 'Image' }).dispatchEvent(new Event('error'))
+    })
+    expect(screen.queryByRole('img', { name: 'Image' })).toBeNull()
+    const other = `${'b'.repeat(32)}.png`
+    view.rerender({ file: other, width: 400, height: 200, mime: 'image/png' })
+    expect(screen.getByRole('img', { name: 'Image' }).getAttribute('src')).toBe(`test-image://demo-0a1b2c3d/${other}`)
   })
 
   it('shows "Image not available" for data that is not an image file of the store', () => {
