@@ -336,7 +336,7 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
 
 /** The part of `bonjour-service` bonjourBackend uses; the unit test passes a fake. */
 export interface BonjourLike {
-  publish(options: { name: string; type: string; protocol: 'tcp'; port: number; txt: Record<string, string> }): {
+  publish(options: { name: string; type: string; protocol: 'tcp'; port: number; txt: Record<string, string>; probe?: boolean }): {
     stop?: (callback?: () => void) => void
     on?: (event: 'error', listener: (error: Error) => void) => unknown
   }
@@ -367,10 +367,10 @@ export function onSameNetwork(address: string, interfaces: NodeJS.Dict<NetworkIn
 
 /** What bonjourBackend asks of `bonjour-service` for one socket: the interface it joins and sends on. */
 export interface BonjourSocketOptions {
-  /** The IPv4 address of the interface; absent: the library's choice (every interface, its default for sending). */
-  interface?: string
+  /** The IPv4 address of the interface. */
+  interface: string
   /** Where the socket binds: every address, so multicast still arrives on macOS and Linux. */
-  bind?: string
+  bind: string
 }
 
 /**
@@ -393,9 +393,12 @@ export function mdnsInterfaces(interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>, 
  * mDNS through `bonjour-service`, made on first use: an app that never announces nor searches
  * opens no socket.
  *
- * With `interfaces` (the app's link), one `bonjour-service` instance — one socket — per address it
- * lists, bound to every address and joined and sending on that interface; each announcement and
- * each search runs on all of them. Without it, one instance with the library's own choice.
+ * One `bonjour-service` instance — one socket — per address `interfaces` lists, bound to every
+ * address and joined and sending on that interface; each announcement and each search runs on all
+ * of them. An announcement does not probe for its name first: the sockets of one machine would
+ * probe the same name at once, and where two interfaces share a network the loser hears the winner,
+ * gives up the name and sends a goodbye, so peers drop the machine on every announcement. The name
+ * cannot clash with another machine's: it carries the start of the Machine id (instanceName).
  * Why (worfy-link ticket 36, item 9): multicast-dns 7.2.5 sends on interface 0.0.0.0 everywhere but
  * macOS, so Windows picked one by itself — on the owner's PC the WSL adapter, not Ethernet — and the
  * Mac never heard the PC. `refresh()` (on a change of network) closes the sockets of addresses that
@@ -403,14 +406,14 @@ export function mdnsInterfaces(interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>, 
  * and search there is.
  */
 export function bonjourBackend(
-  options: { create?: (socket: BonjourSocketOptions) => BonjourLike; interfaces?: () => string[]; warn?: (message: string) => void } = {},
+  options: { create?: (socket: BonjourSocketOptions) => BonjourLike; interfaces: () => string[]; warn?: (message: string) => void },
 ): MdnsBackend {
   const warn = options.warn ?? ((message: string) => console.warn(message))
   const create =
     options.create ??
     ((socket: BonjourSocketOptions): BonjourLike =>
       // The first argument goes to multicast-dns as it is; bonjour-service types it as a service's options.
-      new Bonjour(socket as never, (error: unknown) => warn(`[link] Bonjour${socket.interface === undefined ? '' : ` on ${socket.interface}`}: ${error instanceof Error ? error.message : String(error)}`)) as unknown as BonjourLike)
+      new Bonjour(socket as never, (error: unknown) => warn(`[link] Bonjour on ${socket.interface}: ${error instanceof Error ? error.message : String(error)}`)) as unknown as BonjourLike)
   type Published = ReturnType<BonjourLike['publish']>
   type Browser = ReturnType<BonjourLike['find']>
   type Announcement = { name: string; port: number; txt: Record<string, string> }
@@ -432,8 +435,8 @@ export function bonjourBackend(
       service.stop(() => done())
     })
   const announce = (instance: Instance, key: string, announcement: Announcement): void => {
-    const service = instance.bonjour.publish({ name: announcement.name, type: LINK_SERVICE_TYPE, protocol: 'tcp', port: announcement.port, txt: announcement.txt })
-    service.on?.('error', (error) => warn(`[link] Bonjour could not announce this Machine${key === DEFAULT ? '' : ` on ${key}`}: ${error.message}`))
+    const service = instance.bonjour.publish({ name: announcement.name, type: LINK_SERVICE_TYPE, protocol: 'tcp', port: announcement.port, txt: announcement.txt, probe: false })
+    service.on?.('error', (error) => warn(`[link] Bonjour could not announce this Machine on ${key}: ${error.message}`))
     instance.published.set(announcement, service)
   }
   const search = (instance: Instance, events: Search): void => {
@@ -444,7 +447,7 @@ export function bonjourBackend(
     browser.on('down', events.down)
     instance.browsers.set(events, browser)
   }
-  const wanted = (): string[] => (options.interfaces === undefined ? [DEFAULT] : options.interfaces())
+  const wanted = (): string[] => options.interfaces()
   /** Opens the instances of the addresses there are now and closes those of the addresses that went. */
   const sync = (): void => {
     opened = true
@@ -457,7 +460,7 @@ export function bonjourBackend(
     }
     for (const key of keys) {
       if (instances.has(key)) continue
-      const instance: Instance = { bonjour: create(key === DEFAULT ? {} : { interface: key, bind: '0.0.0.0' }), published: new Map(), browsers: new Map() }
+      const instance: Instance = { bonjour: create({ interface: key, bind: '0.0.0.0' }), published: new Map(), browsers: new Map() }
       instances.set(key, instance)
       for (const announcement of announcements) announce(instance, key, announcement)
       for (const events of searches) search(instance, events)
@@ -517,6 +520,3 @@ export function bonjourBackend(
     },
   }
 }
-
-/** The key of the one instance made without `interfaces`. */
-const DEFAULT = 'default'

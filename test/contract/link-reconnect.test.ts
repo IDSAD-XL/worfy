@@ -512,11 +512,12 @@ function fakeBonjour(): { create: (socket: BonjourSocketOptions) => BonjourLike;
   return {
     made,
     create: (socket) => {
-      const instance: FakeInstance = { socket, published: [], goodbyes: [], browsers: 0, browsersStopped: 0, destroyed: false }
+      const instance: FakeInstance = { socket, published: [], probes: [], goodbyes: [], browsers: 0, browsersStopped: 0, destroyed: false }
       made.push(instance)
       return {
-        publish: ({ port }) => {
+        publish: ({ port, probe }) => {
           instance.published.push(port)
+          instance.probes.push(probe)
           return { stop: (done?: () => void) => (instance.goodbyes.push(port), done?.()), on: () => undefined }
         },
         find: () => {
@@ -532,6 +533,8 @@ function fakeBonjour(): { create: (socket: BonjourSocketOptions) => BonjourLike;
 interface FakeInstance {
   socket: BonjourSocketOptions
   published: number[]
+  /** The `probe` option of each announcement. */
+  probes: (boolean | undefined)[]
   goodbyes: number[]
   browsers: number
   browsersStopped: number
@@ -570,6 +573,8 @@ describe('one mDNS socket per interface that may carry the link', () => {
       [[52000], 1],
       [[52000], 1],
     ])
+    // No probe for the name: the sockets of one machine would take each other for a rival.
+    expect(fake.made.map((instance) => instance.probes)).toEqual([[false], [false]])
 
     // WSL goes, Wi-Fi comes: the WSL socket says goodbye and closes, the new one announces and searches.
     addresses = ['192.168.0.193', '192.168.1.40']
@@ -602,6 +607,14 @@ describe('one mDNS socket per interface that may carry the link', () => {
     network.address = '10.0.0.7'
     await until(() => live().join() === '10.0.0.7')
     expect(fake.made.find((instance) => instance.socket.interface === '10.0.0.7')?.published.at(-1)).toBe(port)
+
+    // Settings other than Tailscale leave the announcements alone: no goodbye, no new announcement.
+    const announcements = (): number => fake.made.reduce((sum, instance) => sum + instance.published.length + instance.goodbyes.length, 0)
+    const before = announcements()
+    a.service.settings.set({ projectsAccess: true, keepAwake: false })
+    a.service.settings.setLevel(b.service.machine.id, 'read')
+    await pause(100)
+    expect(announcements()).toBe(before)
 
     a.service.settings.set({ tailscale: true })
     await until(() => live().join() === '10.0.0.7,100.101.102.103')

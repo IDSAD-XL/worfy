@@ -1172,7 +1172,13 @@ export function wireAppLink(service: LinkService, options: WireAppLinkOptions): 
     service.on('status', followServer)
     followServer()
     const found = discovery
-    service.on('settings', () => void found.announceAgain())
+    // "Link through Tailscale" decides which interfaces carry mDNS; no other setting does.
+    let tailscale = service.settings.get().tailscale
+    service.on('settings', (value) => {
+      if (value.tailscale === tailscale) return
+      tailscale = value.tailscale
+      void found.announceAgain()
+    })
     // The `.local` name of a Linked machine, learnt where Bonjour sees it at a connection's address.
     const learnName = (id: string): void => {
       const seen = found.lastSeen(id)

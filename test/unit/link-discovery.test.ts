@@ -282,11 +282,12 @@ describe('bonjourBackend', () => {
     const service = { stop: vi.fn((callback: () => void) => (goodbyeSent = callback)), on: vi.fn() }
     const fake = { publish: vi.fn(() => service), find: vi.fn(() => browser), destroy: vi.fn() }
     const create = vi.fn(() => fake as unknown as BonjourLike)
-    const backend = bonjourBackend({ create, warn: () => undefined })
+    const backend = bonjourBackend({ create, interfaces: () => ['192.168.1.20'], warn: () => undefined })
     expect(create).not.toHaveBeenCalled()
 
     const handle = backend.publish({ name: 'Studio (11111111)', port: 52000, txt: { id: SELF.id, proto: '1', name: 'Studio' } })
-    expect(fake.publish).toHaveBeenCalledWith({ name: 'Studio (11111111)', type: 'worfy', protocol: 'tcp', port: 52000, txt: { id: SELF.id, proto: '1', name: 'Studio' } })
+    expect(create).toHaveBeenCalledWith({ interface: '192.168.1.20', bind: '0.0.0.0' })
+    expect(fake.publish).toHaveBeenCalledWith({ name: 'Studio (11111111)', type: 'worfy', protocol: 'tcp', port: 52000, txt: { id: SELF.id, proto: '1', name: 'Studio' }, probe: false })
     let stopped = false
     void handle.stop().then(() => (stopped = true))
     expect(service.stop).toHaveBeenCalled()
