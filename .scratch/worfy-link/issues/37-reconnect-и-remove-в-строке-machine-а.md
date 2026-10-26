@@ -39,6 +39,15 @@ Source: баг владельца 2026-10-26 и его решения того �
    спрашивает подтверждение: что машина забудется на обеих сторонах и связать её снова можно только новым кодом.
    Имя канала IPC `link.revoke` не меняется.
 7. **Подсказка про Windows firewall** из Ticket-а 36 (пункт 8) — текстом в строке Machine-а.
+8. **«Link a machine» показывает уже связанные машины** (владелец 2026-10-26, Q14). Сейчас окно их молча
+   выбрасывает из списка (`src/main/link/discovery.ts:9-10`), и владелец, связав ПК с Mac, решил, что Mac не
+   может связаться с ПК «как host». Такая машина стоит в списке с меткой «Already linked», без кнопки привязки, со
+   строкой: «One link works both ways. To open <name>'s Projects here, turn on "Linked machines can work with my
+   Projects" on <name>.»
+9. **Доступ в обе стороны в строке машины** (владелец 2026-10-26, Q15) — в боковой панели и в Settings →
+   Machines: «Shares its Projects with you» / «Doesn't share its Projects» и «Can work with your Projects» /
+   «Can't see your Projects». Первая строка — только когда состояние доступа другой стороны известно по связи;
+   если его нет в `link.state`, Ticket добавляет его туда.
 
 ## Готово, когда
 
@@ -51,8 +60,12 @@ Source: баг владельца 2026-10-26 и его решения того �
 - [ ] e2e (своим spec-файлом, `test/e2e/linked-reconnect.spec.ts`): Remove из строки без связи — машины нет в
       списке на обеих сторонах после следующего набора; «Reconnect» набирает сразу, без паузы повторов.
 - [ ] e2e: «Change address…» с верным адресом — связь восстановлена, с чужим — отказ текстом в окне.
-- [ ] Снимки UI в светлой и тёмной темах (строка без связи, Settings → Machines, окно
-      «Change address…») — смотрит reviewer.
+- [ ] Unit test: «Link a machine» показывает уже связанную машину с «Already linked», без кнопки привязки, со
+      строкой про одну связь в обе стороны.
+- [ ] Unit test: строка машины показывает обе строки доступа и меняет их, когда доступ включают или выключают на
+      любой стороне.
+- [ ] Снимки UI в светлой и тёмной темах (строка без связи, строки доступа, Settings → Machines, окно
+      «Change address…», «Link a machine» с уже связанной машиной) — смотрит reviewer.
 
 ## Где в коде
 
@@ -61,4 +74,6 @@ Source: баг владельца 2026-10-26 и его решения того �
 - `src/renderer/machines/useMachines.ts` — `reconnectMachine`, `setMachineAddress`.
 - `src/renderer/machines/ChangeAddressDialog.tsx` (новый).
 - `src/renderer/palette/commands.ts` — две команды.
+- `src/renderer/machines/LinkMachineDialog.tsx`, `src/main/link/discovery.ts:9-10` — уже связанные в списке.
+- `src/shared/ipc/link.ts`, `src/main/link/service.ts` — доступ другой стороны в `link.state`, если его там нет.
 - `test/unit/machines-section.test.tsx`, `test/unit/palette-commands.test.tsx`, `test/e2e/linked-reconnect.spec.ts`.
