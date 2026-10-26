@@ -151,6 +151,8 @@ export const linkStateSchema = z.object({
   projectsAccess: z.boolean(),
   /** "Keep this computer awake while linked machines are connected"; on by default (worfy-link ticket 14). */
   keepAwake: z.boolean(),
+  /** "Link through Tailscale"; off by default (worfy-link ticket 27; ADR-0070, point 3). */
+  tailscale: z.boolean(),
 })
 export type LinkState = z.output<typeof linkStateSchema>
 
@@ -189,6 +191,9 @@ export const linkSetMachineAccess = invokeChannel('link.setMachineAccess', z.obj
 /** Sets "Keep this computer awake while linked machines are connected". */
 export const linkSetKeepAwake = invokeChannel('link.setKeepAwake', z.object({ keepAwake: z.boolean() }), linkStateSchema, 'local')
 
+/** Sets "Link through Tailscale": off closes the connections from Tailscale addresses. */
+export const linkSetTailscale = invokeChannel('link.setTailscale', z.object({ tailscale: z.boolean() }), linkStateSchema, 'local')
+
 /** Sent to this Machine's windows after any change of the state. */
 export const linkChanged = eventChannel('link.changed', linkStateSchema, 'local')
 
@@ -203,6 +208,7 @@ declare module './channels' {
     'link.setAccess': typeof linkSetAccess
     'link.setMachineAccess': typeof linkSetMachineAccess
     'link.setKeepAwake': typeof linkSetKeepAwake
+    'link.setTailscale': typeof linkSetTailscale
     'link.changed': typeof linkChanged
   }
 }

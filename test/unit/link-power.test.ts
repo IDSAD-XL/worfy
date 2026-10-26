@@ -245,10 +245,10 @@ describe('keep-awake while Linked machines are connected', () => {
 
   it('the keep-awake switch is on for a fresh data folder and survives a restart', async () => {
     const a = await bench.machine('a')
-    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: true })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: true, tailscale: false })
     a.service.settings.set({ keepAwake: false })
     await bench.restart(a)
-    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: false })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: false, tailscale: false })
   })
 
   it('its IPC channel is open to this Machine\'s windows only', () => {

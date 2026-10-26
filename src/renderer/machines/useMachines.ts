@@ -76,6 +76,7 @@ export const revokeMachine = (id: string): Promise<string | undefined> => change
 export const setProjectsAccess = (projectsAccess: boolean): Promise<string | undefined> => change(invoke('link.setAccess', { projectsAccess }))
 export const setMachineAccess = (id: string, access: AccessLevel): Promise<string | undefined> => change(invoke('link.setMachineAccess', { id, access }))
 export const setKeepAwake = (keepAwake: boolean): Promise<string | undefined> => change(invoke('link.setKeepAwake', { keepAwake }))
+export const setTailscale = (tailscale: boolean): Promise<string | undefined> => change(invoke('link.setTailscale', { tailscale }))
 
 /** Links with the worfy at `address`; the reason when it did not link. */
 export async function pairWith(address: string, code: string): Promise<{ linked: { id: string; name: string } } | { reason: string }> {

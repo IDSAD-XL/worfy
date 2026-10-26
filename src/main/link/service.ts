@@ -34,7 +34,7 @@ import type { IpcResult } from '../../shared/ipc/channels'
 import type { Client } from '../clients'
 import type { ModuleLoader } from '../ipc/index'
 import { dataRoot, type BuildKind } from '../storage/paths'
-import { normalizeAddress, type HostNames } from './checks'
+import { isAllowedPeer, isTailscaleAddress, normalizeAddress, type HostNames, type PeerAddresses, type SocketAddresses } from './checks'
 import { LinkConnectError, openLinkSocket } from './client'
 import { CLOSE_REVOKED, CLOSE_UNLINKED, LinkConnection } from './connection'
 import { LinkConnections } from './connections'
@@ -135,6 +135,11 @@ export interface LinkServiceOptions {
   listenHost?: string
   hostname?: () => string
   networkInterfaces?: () => HostNames['interfaces']
+  /**
+   * How a socket's two addresses are read, on the server's sockets and on the ones this Machine
+   * dials; its own by default. Tests stand 127.0.0.1 in for a Tailscale address.
+   */
+  addressesOf?: (socket: SocketAddresses) => PeerAddresses
   now?: () => number
   /** The secret store; the 0600 file in <dataDir>/link by default. */
   secrets?: SecretStore
@@ -197,6 +202,10 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   private pairingsOut = 0
   /** WebSockets of pairing attempts this side answers; stop() cuts them. */
   private readonly pairingSockets = new Set<WebSocket>()
+  /** WebSockets of pairing attempts this side started (pair()); turning Tailscale off cuts those to a Tailscale address. */
+  private readonly pairingSocketsOut = new Set<WebSocket>()
+  /** The other side's address of each connection and pairing attempt, both directions. */
+  private readonly peerAddress = new WeakMap<LinkConnection | WebSocket, string>()
   private server: LinkServer | null = null
   /** The IPC adapter, made at the first call over the link: a worfy without Linked machines never loads it. */
   private ipc: Promise<LinkIpcAdapter> | undefined
@@ -206,6 +215,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   private readonly warn: (message: string) => void
   private readonly hostname: () => string
   private readonly interfaces: () => HostNames['interfaces']
+  private readonly addressesOf: (socket: SocketAddresses) => PeerAddresses
 
   private constructor(
     private readonly options: LinkServiceOptions,
@@ -222,10 +232,12 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       // Off, or another level: the connection's `project` client is destroyed now, and its
       // subscriptions with it; a level on makes a fresh one (ipc-adapter.ts, LinkPeer.setAccess).
       for (const peer of this.peers) peer.setAccess(this.settings.levelOf(peer.machineId))
+      if (!value.tailscale) this.closeTailscalePeers()
       this.emit('settings', value)
     })
     this.hostname = options.hostname ?? osHostname
     this.interfaces = options.networkInterfaces ?? osNetworkInterfaces
+    this.addressesOf = options.addressesOf ?? ((socket) => ({ remote: socket.remoteAddress, local: socket.localAddress }))
     this.pairingWindow = new PairingWindow(options.now ?? Date.now, options.codeTtlMs ?? PAIRING_CODE_TTL_MS, () => this.emit('pairing-code'))
     this.messages.register(helloMessage, (hello, from) => this.onHello(hello, from.machineId))
     this.messages.register(revokedMessage, (_payload, from) => this.forget(from.machineId, 'other-machine'))
@@ -339,17 +351,20 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       // The other side stores the port this one listens on: without a server there is none to give.
       if (this.server === null) throw new PairingError(`this Machine cannot listen, so it cannot be linked: ${this.problem ?? 'the link server is not running'}`)
       const key = this.machineKey()
-      const { ws, serverFingerprint } = await openLinkSocket({
+      const { ws, serverFingerprint, remoteAddress } = await openLinkSocket({
         host: target.host,
         port: target.port,
         path: PAIR_PATH,
         key,
         certificate: this.identity.certificate,
         ...(this.options.pairingStepTimeoutMs === undefined ? {} : { timeoutMs: this.options.pairingStepTimeoutMs }),
+        allowServer: (socket) => this.mayDial(socket, target.host),
       })
       holdPairingErrors(ws)
       let stored: LinkedMachineRecord | undefined
       try {
+        this.admitDialed(ws, remoteAddress, target.host)
+        this.pairingSocketsOut.add(ws)
         await initiatePairing(ws, target.code, {
           local: this.hello(),
           clientFingerprint: this.identity.fingerprint,
@@ -363,6 +378,8 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       } catch (error) {
         endFailedPairing(ws)
         throw error
+      } finally {
+        this.pairingSocketsOut.delete(ws)
       }
       if (stored === undefined) throw new PairingError('linking ended without a result')
       const info = this.info(stored)
@@ -406,6 +423,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
         certificate: this.identity.certificate,
         expectFingerprint: record.fingerprint,
         token,
+        allowServer: (socket) => this.mayDial(socket, target.host),
       })
     } catch (error) {
       if (via !== undefined && error instanceof LinkConnectError && error.kind === 'certificate-changed') {
@@ -420,13 +438,14 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       throw error
     }
     this.certificateChanged.delete(record.id)
+    this.admitDialed(opened.ws, opened.remoteAddress, target.host)
     // Linked again while connecting: this socket was opened with the old token.
     const current = this.store.get(record.id)
     if (current !== undefined && this.secrets.get(current.outgoingTokenKey) !== token) {
       opened.ws.close(CLOSE_UNLINKED, 'linked again')
       throw new Error(`Machine ${record.id} (${record.name}) was linked again while connecting; connect again`)
     }
-    if (!this.attach(opened.ws, current ?? record, 'out')) throw new Error(`Machine ${record.id} (${record.name}) was unlinked while connecting`)
+    if (!this.attach(opened.ws, current ?? record, 'out', this.peerAddress.get(opened.ws))) throw new Error(`Machine ${record.id} (${record.name}) was unlinked while connecting`)
     // The remembered certificate answered there: from now on it is where this Machine is.
     if (via !== undefined) this.store.touch(record.id, { address: normalizeAddress(via.host), port: via.port })
   }
@@ -599,7 +618,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
    * Takes an established WebSocket of a Linked machine into service; false (and the socket closed)
    * when the Machine was forgotten while the handshake ran, or the service stopped.
    */
-  private attach(ws: WebSocket, record: LinkedMachineRecord, direction: 'in' | 'out'): boolean {
+  private attach(ws: WebSocket, record: LinkedMachineRecord, direction: 'in' | 'out', peerAddress?: string): boolean {
     if (this.stopped || this.store.get(record.id) === undefined) {
       ws.close(CLOSE_UNLINKED, 'unlinked')
       return false
@@ -616,6 +635,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       ...(this.options.addClient === undefined ? {} : { addClient: this.options.addClient }),
       warn: this.warn,
     })
+    if (peerAddress !== undefined) this.peerAddress.set(connection, peerAddress)
     this.peers.add(peer)
     peer.setAccess(this.settings.levelOf(record.id))
     let set = this.connections.get(record.id)
@@ -694,6 +714,48 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     return this.ipc
   }
 
+  /**
+   * "Link through Tailscale" went off: connections and pairing attempts with a Tailscale address,
+   * in either direction, are cut. The server now drops such a peer on TCP, and this Machine dials
+   * no such address (ADR-0070, points 3 and 4: the setting is on on both Machines).
+   */
+  private closeTailscalePeers(): void {
+    for (const set of this.connections.values()) {
+      for (const connection of set) {
+        const address = this.peerAddress.get(connection)
+        if (address !== undefined && isTailscaleAddress(address)) connection.terminate()
+      }
+    }
+    for (const ws of [...this.pairingSockets, ...this.pairingSocketsOut]) if (isTailscaleAddress(this.peerAddress.get(ws) ?? '')) ws.terminate()
+  }
+
+  /**
+   * Asked on the TCP connection of a dial, before TLS, and again once it opened: true, or the
+   * refusal for the user while "Link through Tailscale" is off and the dial went to a Tailscale
+   * address. A name (MagicDNS) that resolved to one counts too.
+   */
+  private mayDial(socket: SocketAddresses, host: string): true | string {
+    const address = this.addressesOf(socket).remote
+    if (address === undefined || !isTailscaleAddress(address) || this.settings.get().tailscale) return true
+    const where = normalizeAddress(host) === normalizeAddress(address) ? `${host} is a Tailscale address` : `${host} is at the Tailscale address ${normalizeAddress(address)}`
+    return `${where}, and "Link through Tailscale" is off on this Machine: turn it on in Settings → Machines`
+  }
+
+  /**
+   * Checks a dialed WebSocket again once it opened, and remembers where it went. The setting may
+   * have gone off during the TLS and WebSocket handshakes, after the check on TCP: such a socket
+   * is cut and the dial fails. Runs in the same tick as attach(), so nothing can switch in between.
+   */
+  private admitDialed(ws: WebSocket, remoteAddress: string | undefined, host: string): void {
+    const verdict = this.mayDial({ remoteAddress }, host)
+    if (verdict !== true) {
+      ws.terminate()
+      throw new LinkConnectError('refused', verdict)
+    }
+    const address = this.addressesOf({ remoteAddress }).remote
+    if (address !== undefined) this.peerAddress.set(ws, normalizeAddress(address))
+  }
+
   /** The server's endpoint checks after the common ones (server.ts). */
   private admit(upgrade: { path: string; clientFingerprint: string | undefined; remoteAddress: string; token: string | undefined }): Refusal | Admission {
     if (upgrade.path === PAIR_PATH) {
@@ -711,7 +773,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       // handleUpgrade calls back synchronously after this check, so the record is still current.
       accept: (ws) => {
         this.store.touch(record.id, { address: upgrade.remoteAddress })
-        this.attach(ws, record, 'in')
+        this.attach(ws, record, 'in', upgrade.remoteAddress)
       },
       abort: () => undefined,
     }
@@ -720,6 +782,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   private async respond(ws: WebSocket, clientFingerprint: string, remoteAddress: string): Promise<void> {
     let stored: LinkedMachineRecord | undefined
     holdPairingErrors(ws)
+    this.peerAddress.set(ws, remoteAddress)
     this.pairingSockets.add(ws)
     try {
       await respondToPairing(ws, () => this.pairingWindow.take(), {
@@ -816,6 +879,10 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
             build: this.options.buildVersion,
             hostNames: () => ({ interfaces: this.interfaces(), hostname: this.hostname() }),
             admit: (upgrade) => this.admit(upgrade),
+            // Read on every connection: the switch acts without a restart, and the Tailscale adapter
+            // may get its address after worfy started.
+            isAllowedPeer: (peer) => isAllowedPeer(peer, { tailscale: this.settings.get().tailscale, interfaces: this.interfaces() }),
+            addressesOf: this.addressesOf,
           })
         } catch (error) {
           lastError = error

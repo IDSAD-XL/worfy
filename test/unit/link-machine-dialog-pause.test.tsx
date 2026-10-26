@@ -20,6 +20,7 @@ const linkState = (linking: Partial<LinkState['linking']>): LinkState => ({
   discovered: [],
   projectsAccess: false,
   keepAwake: false,
+  tailscale: false,
 })
 
 /**

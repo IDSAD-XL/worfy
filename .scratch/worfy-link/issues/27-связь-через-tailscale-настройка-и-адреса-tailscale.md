@@ -1,7 +1,8 @@
 # 27 — Связь через Tailscale: настройка в Settings и адреса Tailscale только на интерфейсе Tailscale
 
 Type: task
-Status: open
+Status: claimed 2026-10-26T18:35Z
+Branch: worfy-link/27
 Blocked by: —
 Source: решения владельца 2026-10-18, Q16, Q23, Q24 ([ADR-0070](../../../docs/adr/0070-worfy-link-outside-the-lan-through-an-overlay-network.md), пункты 2–4). Код начинается после текущей очереди Epic-а `worfy-windows` (Q21, HANDOFF.md, «Дальше»)
 
@@ -63,3 +64,45 @@ Source: решения владельца 2026-10-18, Q16, Q23, Q24 ([ADR-0070](
   связи у владельца.
 - На Windows адаптер Tailscale может получить адрес позже запуска worfy: список интерфейсов читается
   на каждом соединении, как в `allowedHostNames`.
+
+## Итог
+
+- Правило соседа — `isAllowedPeer({ remote, local }, { tailscale, interfaces })` в
+  `src/main/link/checks.ts`. Адрес соседа из 100.64.0.0/10 или `fd7a:115c:a1e0::/48` проходит, только
+  если настройка включена, локальный адрес соединения лежит в том же диапазоне (IPv4 к IPv4, IPv6 к
+  IPv6) и он есть у интерфейса этой машины в `os.networkInterfaces()`. Имя интерфейса не смотрится,
+  ветвления по платформе нет. Любой другой сосед — `isLocalNetworkAddress`, как раньше; адреса
+  Tailscale через `fc00::/7` больше не проходят. Сама `isLocalNetworkAddress` не менялась: её
+  использует ещё Bonjour (`discovery.ts`).
+- Сервер (`src/main/link/server.ts`) спрашивает правило на TCP (`connection`, до TLS handshake) и
+  ещё раз на upgrade (`checkUpgrade`). Сервис (`src/main/link/service.ts`) отдаёт серверу правило,
+  которое читает настройку и список интерфейсов на каждом соединении: переключатель действует без
+  перезапуска, а адаптер Tailscale, получивший адрес после запуска worfy, виден сразу.
+- Выключение настройки обрывает соединения и попытки pairing с адресом Tailscale в обе стороны
+  (`closeTailscalePeers`): входящие и те, что эта машина открыла сама.
+- Круг доработки (ревью, находка med): ADR-0070 требует настройку на обеих Machine, поэтому при
+  выключенной настройке эта машина и сама не связывается с адресом Tailscale. `openLinkSocket`
+  (`src/main/link/client.ts`, вне «Где в коде», с разрешения оркестратора) сначала открывает TCP и
+  спрашивает `allowServer` до первого байта TLS; адрес, в который разрешилось имя (MagicDNS), тоже
+  проверяется. Отказ — `LinkConnectError` `refused` с текстом «… is at the Tailscale address …, and
+  "Link through Tailscale" is off on this Machine: turn it on in Settings → Machines». Так отказывают
+  `connect` (и переподключение `connections.ts` по запомненному адресу) и `pair`. Сразу после open
+  `service.ts` проверяет ещё раз: настройку могли выключить во время TLS handshake.
+- Риск «связь по `fd7a` оборвётся» (раздел «Риски»): у владельца таких связей не ожидается — Bonjour
+  предпочитает IPv4, а Tailscale ещё не установлен.
+- Настройка — поле `tailscale` в `link/settings.json` (`src/main/link/settings.ts`), версия файла
+  та же, 2. Свежая папка данных, файл версии 1, файл версии 2 без поля и нечитаемый файл — выключено.
+- Settings → Machines: переключатель «Link through Tailscale» с подсказкой «Lets a Linked machine
+  reach this computer at its Tailscale address. Turn it on on both computers. Off closes the links
+  that came through Tailscale». Не зависит от «Linked machines can work with my Projects»: он решает,
+  кто вообще доходит до сервера, pairing тоже. Канал IPC — `link.setTailscale`, поле состояния —
+  `tailscale`.
+- Вне «Где в коде», с разрешения оркестратора: `src/main/ipc/link.ts` (обработчик канала и поле
+  состояния), `src/renderer/machines/useMachines.ts` (`setTailscale`),
+  `test/contract/link-connections.test.ts` и `test/e2e/linked-machines.spec.ts` (форма файла
+  настроек с новым полем; e2e переключателя), fixture-ы `LinkState` в unit test-ах.
+- Contract test-ы идут на 127.0.0.1: стенд `link-bench.ts` получил `peerAddresses` — сервер читает
+  адреса сокета как заданные (опция `addressesOf` сервиса и сервера), и у машин стенда есть интерфейс
+  с локальным адресом.
+- Платформенный ли PR (ADR-0056, пункт 2): нет. Код не ветвится по платформе: интерфейс Tailscale
+  узнаётся по адресу, одинаково на macOS (`utun*`) и Windows (адаптер «Tailscale»).

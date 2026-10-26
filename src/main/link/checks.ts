@@ -48,19 +48,86 @@ function isLocalIpv4([a = -1, b = -1]: number[]): boolean {
  * judged as IPv4. Anything else, a malformed address included, is not local.
  */
 export function isLocalNetworkAddress(address: string): boolean {
-  const value = normalizeAddress(address)
-  const v4 = ipv4Octets(value)
-  if (v4 !== undefined) return isLocalIpv4(v4)
-  const v6 = ipv6Groups(value)
-  if (v6 === undefined || v6.length !== 8 || v6.some((group) => Number.isNaN(group))) return false
-  // ::ffff:7f00:1 is ::ffff:127.0.0.1 written in hex.
-  if (v6.slice(0, 5).every((group) => group === 0) && v6[5] === 0xffff) {
-    const [high = 0, low = 0] = v6.slice(6)
-    return isLocalIpv4([high >> 8, high & 0xff, low >> 8, low & 0xff])
-  }
+  const parsed = parseAddress(address)
+  if (parsed === undefined) return false
+  if (parsed.family === 4) return isLocalIpv4(parsed.parts)
+  const v6 = parsed.parts
   const first = v6[0] ?? 0
   const isLoopback = v6.slice(0, 7).every((group) => group === 0) && v6[7] === 1
   return isLoopback || (first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80
+}
+
+/**
+ * An address as IPv4 octets or eight IPv6 groups; IPv4 inside IPv6 (`::ffff:a.b.c.d`, or
+ * `::ffff:7f00:1` in hex) is IPv4. Undefined when malformed.
+ */
+function parseAddress(address: string): { family: 4 | 6; parts: number[] } | undefined {
+  const value = normalizeAddress(address)
+  const v4 = ipv4Octets(value)
+  if (v4 !== undefined) return { family: 4, parts: v4 }
+  const v6 = ipv6Groups(value)
+  if (v6 === undefined || v6.length !== 8 || v6.some((group) => Number.isNaN(group))) return undefined
+  if (v6.slice(0, 5).every((group) => group === 0) && v6[5] === 0xffff) {
+    const [high = 0, low = 0] = v6.slice(6)
+    return { family: 4, parts: [high >> 8, high & 0xff, low >> 8, low & 0xff] }
+  }
+  return { family: 6, parts: v6 }
+}
+
+/**
+ * Which Tailscale range an address is in (ADR-0070, point 4): IPv4 100.64.0.0/10 (shared with
+ * carrier-grade NAT) or IPv6 fd7a:115c:a1e0::/48; undefined for any other address.
+ */
+function tailscaleRange(address: string): 4 | 6 | undefined {
+  const parsed = parseAddress(address)
+  if (parsed === undefined) return undefined
+  const [a = -1, b = -1, c = -1] = parsed.parts
+  if (parsed.family === 4) return a === 100 && (b & 0xc0) === 64 ? 4 : undefined
+  return a === 0xfd7a && b === 0x115c && c === 0xa1e0 ? 6 : undefined
+}
+
+/** True for an address in a Tailscale range: 100.64.0.0/10 or fd7a:115c:a1e0::/48. */
+export function isTailscaleAddress(address: string): boolean {
+  return tailscaleRange(address) !== undefined
+}
+
+/** The two ends of a connection as the server's socket sees them. */
+export interface PeerAddresses {
+  /** The peer's address (socket.remoteAddress). */
+  remote: string | undefined
+  /** This machine's address the connection arrived on (socket.localAddress). */
+  local: string | undefined
+}
+
+/** What a socket tells of its two ends; net.Socket has both. */
+export interface SocketAddresses {
+  remoteAddress?: string | undefined
+  localAddress?: string | undefined
+}
+
+export interface PeerRule {
+  /** "Link through Tailscale" (link/settings.json): off by default. */
+  tailscale: boolean
+  /** os.networkInterfaces(), read on every connection: the Tailscale adapter may get its address after worfy starts. */
+  interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>
+}
+
+/**
+ * Whether a peer may connect at all (ADR-0052, point 7, replaced by ADR-0070, points 3 and 4). A
+ * peer in a Tailscale range passes only while "Link through Tailscale" is on, and only when the
+ * connection arrived on an address in the same range that an interface of this machine has: the
+ * Tailscale interface, found by its address and not by its name (utun* on macOS, "Tailscale" on
+ * Windows). 100.64.0.0/10 is also carrier-grade NAT, so a neighbour at the same provider arrives on
+ * the home network's address and is refused. Any other peer passes when it is on the local network
+ * or loopback; fd7a:115c:a1e0::/48 no longer passes as fc00::/7.
+ */
+export function isAllowedPeer({ remote, local }: PeerAddresses, { tailscale, interfaces }: PeerRule): boolean {
+  if (remote === undefined) return false
+  const range = tailscaleRange(remote)
+  if (range === undefined) return isLocalNetworkAddress(remote)
+  if (!tailscale || local === undefined || tailscaleRange(local) !== range) return false
+  const arrivedOn = normalizeAddress(local)
+  return Object.values(interfaces).some((list) => (list ?? []).some((info) => normalizeAddress(info.address) === arrivedOn))
 }
 
 export interface HostNames {

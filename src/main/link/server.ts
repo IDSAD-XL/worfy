@@ -2,7 +2,8 @@
 // certificate, and WebSocket over it through `ws` in noServer mode. Every check runs in the
 // server's 'upgrade' event, before handleUpgrade, as the `ws` documentation advises: a refused
 // request gets a plain HTTP answer and its socket is closed before any WebSocket handshake. The
-// order: the peer address is local, no Origin header, the Host names this machine and port, the
+// order: the peer may connect (isAllowedPeer: the local network, or Tailscale on the Tailscale
+// interface while "Link through Tailscale" is on), no Origin header, the Host names this machine and port, the
 // protocol version matches, then the endpoint's own check — the token for /link/connect, an open
 // "Link a machine" for /link/pair. Refusal texts say what kind of refusal it is, never which part
 // of a token was wrong.
@@ -15,7 +16,7 @@ import { createServer, type Server } from 'node:https'
 import type { Socket } from 'node:net'
 import type { TLSSocket } from 'node:tls'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { isAllowedHost, isLocalNetworkAddress, normalizeAddress, type HostNames } from './checks'
+import { isAllowedHost, isAllowedPeer, normalizeAddress, type HostNames, type PeerAddresses, type SocketAddresses } from './checks'
 import { CONNECT_PATH, LINK_MAX_PAYLOAD, LINK_PROTOCOL_HEADER, LINK_PROTOCOL_VERSION, PAIR_PATH, PAIRING_MAX_PAYLOAD } from './messages'
 
 /** A refusal before the handshake: status and body. */
@@ -38,14 +39,14 @@ export function protocolMismatch(theirs: string | undefined, build: string): Ref
 }
 
 export interface UpgradeRequest {
-  remoteAddress: string | undefined
+  peer: PeerAddresses
   headers: IncomingMessage['headers']
   url: string | undefined
 }
 
 /** The checks every upgrade passes, whatever the endpoint; null when they pass. */
-export function checkUpgrade(request: UpgradeRequest, context: { port: number; names: HostNames; build: string }): Refusal | null {
-  if (request.remoteAddress === undefined || !isLocalNetworkAddress(request.remoteAddress)) return FORBIDDEN
+export function checkUpgrade(request: UpgradeRequest, context: { port: number; names: HostNames; build: string; isAllowedPeer: (peer: PeerAddresses) => boolean }): Refusal | null {
+  if (!context.isAllowedPeer(request.peer)) return FORBIDDEN
   // A browser always sends Origin (and an old one Sec-WebSocket-Origin); worfy's client never does.
   if (request.headers.origin !== undefined || request.headers['sec-websocket-origin'] !== undefined) return FORBIDDEN
   if (!isAllowedHost(request.headers.host, context.port, context.names)) return FORBIDDEN
@@ -88,9 +89,17 @@ export interface LinkServerOptions {
   hostNames: () => HostNames
   /** The endpoint's own check after the common ones: a refusal, or an admission. */
   admit: (upgrade: AcceptedUpgrade) => Refusal | Admission
-  /** Which peer addresses may connect at all; isLocalNetworkAddress by default (tests narrow it). */
-  isAllowedPeer?: (address: string) => boolean
+  /**
+   * Which peers may connect at all, asked on every connection and again at its upgrade: by default
+   * the local network only, as with "Link through Tailscale" off (checks.ts, isAllowedPeer).
+   */
+  isAllowedPeer?: (peer: PeerAddresses) => boolean
+  /** How a socket's two addresses are read; its own by default. Tests stand 127.0.0.1 in for a Tailscale address. */
+  addressesOf?: (socket: SocketAddresses) => PeerAddresses
 }
+
+const LOCAL_NETWORK_ONLY = { tailscale: false, interfaces: {} }
+const socketAddresses = (socket: SocketAddresses): PeerAddresses => ({ remote: socket.remoteAddress, local: socket.localAddress })
 
 /** What to do with an admitted request: `accept` gets the WebSocket, `abort` runs when the handshake fails instead. */
 export interface Admission {
@@ -115,13 +124,14 @@ export function startLinkServer(options: LinkServerOptions): Promise<LinkServer>
   const pairing = new WebSocketServer({ noServer: true, maxPayload: PAIRING_MAX_PAYLOAD })
   const connections = new WebSocketServer({ noServer: true, maxPayload: LINK_MAX_PAYLOAD })
   let port = options.port
-  const isAllowedPeer = options.isAllowedPeer ?? isLocalNetworkAddress
+  const allowed = options.isAllowedPeer ?? ((peer: PeerAddresses) => isAllowedPeer(peer, LOCAL_NETWORK_ONLY))
+  const addressesOf = options.addressesOf ?? socketAddresses
 
-  // A peer outside the local network is dropped on the TCP connection, before the TLS handshake:
-  // it never gets as far as the certificate (whose name carries the Machine id). The check at
+  // A peer that may not connect is dropped on the TCP connection, before the TLS handshake: it
+  // never gets as far as the certificate (whose name carries the Machine id). The check at
   // 'upgrade' below stays as the second line.
   server.on('connection', (socket: Socket) => {
-    if (socket.remoteAddress === undefined || !isAllowedPeer(socket.remoteAddress)) socket.destroy()
+    if (!allowed(addressesOf(socket))) socket.destroy()
   })
 
   // Plain HTTPS requests have nothing here.
@@ -131,8 +141,9 @@ export function startLinkServer(options: LinkServerOptions): Promise<LinkServer>
   })
   server.on('upgrade', (request: IncomingMessage, socket: Socket, head: Buffer) => {
     socket.on('error', () => socket.destroy())
-    const remoteAddress = socket.remoteAddress
-    const common = checkUpgrade({ remoteAddress, headers: request.headers, url: request.url }, { port, names: options.hostNames(), build: options.build })
+    const peerAddresses = addressesOf(socket)
+    const remoteAddress = peerAddresses.remote
+    const common = checkUpgrade({ peer: peerAddresses, headers: request.headers, url: request.url }, { port, names: options.hostNames(), build: options.build, isAllowedPeer: allowed })
     if (common !== null || remoteAddress === undefined) {
       refuse(socket, common ?? FORBIDDEN)
       return

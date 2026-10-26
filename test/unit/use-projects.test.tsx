@@ -88,6 +88,7 @@ const linkState = (linked: { id: string; name: string; state?: 'online' | 'unava
   discovered: [],
   projectsAccess: false,
   keepAwake: true,
+  tailscale: false,
 })
 
 const linkedState = (machines: { id: string; sharing: 'yes' | 'no' | 'unknown'; epoch?: number; online?: boolean; readOnly?: boolean }[], revision = 1): LinkedState => ({

@@ -6,11 +6,12 @@
 // reads every token from the secrets files, and leakedSecrets() lists those that appear in the
 // captured console output or in error texts the test hands it. The bench itself never prints one.
 import { mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { tmpdir, type NetworkInterfaceInfo } from 'node:os'
 import { join } from 'node:path'
 import { format } from 'node:util'
 import { vi, type MockInstance } from 'vitest'
 import type { ModuleLoader } from '../../src/main/ipc/index'
+import type { PeerAddresses } from '../../src/main/link/checks'
 import { LinkService, type LinkedMachineInfo, type LinkServiceOptions } from '../../src/main/link/service'
 import { removeTestTree } from '../remove'
 
@@ -32,6 +33,23 @@ export interface BenchOptions {
   pairingStepTimeoutMs?: number
   /** Adds a connection's client with access on to main's clients (worfy-link ticket 08); none by default. */
   addClient?: LinkServiceOptions['addClient']
+  /**
+   * The addresses every bench server reads on a connection instead of 127.0.0.1 (worfy-link ticket
+   * 27): a peer at a Tailscale address, say. `local` is also an address of an interface of every
+   * bench machine, next to loopback.
+   */
+  peerAddresses?: { remote: string; local: string }
+  /** Reads a socket's addresses in place of `peerAddresses` (it still gives the interface); a test watches the dials with it. */
+  addressesOf?: LinkServiceOptions['addressesOf']
+}
+
+const LOOPBACK: NetworkInterfaceInfo = { address: '127.0.0.1', netmask: '255.0.0.0', family: 'IPv4', mac: '00:00:00:00:00:00', internal: true, cidr: '127.0.0.1/8' }
+
+/** An interface entry holding `address`, as os.networkInterfaces() lists it. */
+function interfaceOf(address: string): NetworkInterfaceInfo {
+  return address.includes(':')
+    ? { address, netmask: 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', family: 'IPv6', mac: '00:00:00:00:00:00', internal: false, cidr: `${address}/128`, scopeid: 0 }
+    : { address, netmask: '255.255.255.255', family: 'IPv4', mac: '00:00:00:00:00:00', internal: false, cidr: `${address}/32` }
 }
 
 export class LinkBench {
@@ -59,13 +77,19 @@ export class LinkBench {
   }
 
   private serviceOptions(label: string, dataDir: string): LinkServiceOptions {
+    const peer = this.options.peerAddresses
     return {
       dataDir,
       buildKind: 'packaged',
       buildVersion: '0.2.0+bench',
       listenHost: '127.0.0.1',
       hostname: () => `${label}.local`,
-      networkInterfaces: () => ({ lo0: [{ address: '127.0.0.1', netmask: '255.0.0.0', family: 'IPv4', mac: '00:00:00:00:00:00', internal: true, cidr: '127.0.0.1/8' }] }),
+      networkInterfaces: () => ({ lo0: [LOOPBACK], ...(peer === undefined ? {} : { utun4: [interfaceOf(peer.local)] }) }),
+      ...(this.options.addressesOf !== undefined
+        ? { addressesOf: this.options.addressesOf }
+        : peer === undefined
+          ? {}
+          : { addressesOf: (): PeerAddresses => ({ ...peer }) }),
       now: () => this.now,
       ipcModules: this.options.ipcModules ?? { './link.ts': () => import('../../src/main/ipc/link').then((module) => module.default) },
       ...(this.options.pingIntervalMs === undefined ? {} : { pingIntervalMs: this.options.pingIntervalMs }),

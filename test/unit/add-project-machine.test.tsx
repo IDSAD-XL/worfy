@@ -31,6 +31,7 @@ const linkState = (linked: Linked[]): LinkState => ({
   discovered: [],
   projectsAccess: false,
   keepAwake: true,
+  tailscale: false,
 })
 
 const linkedState = (linked: Linked[]): LinkedState => ({

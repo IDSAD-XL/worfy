@@ -147,24 +147,24 @@ describe('the access switch "Linked machines can work with my Projects"', () => 
   it('is off for a fresh data folder, survives a restart over the same folder, and its change is announced', async () => {
     const a = await bench.machine('a')
     const file = join(a.dataDir, 'link', 'settings.json')
-    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: true })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: true, tailscale: false })
     expect(existsSync(file)).toBe(false)
 
     const events: unknown[] = []
     a.service.on('settings', (value) => events.push(value))
     a.service.settings.set({ projectsAccess: true })
     a.service.settings.set({ projectsAccess: true })
-    expect(events).toEqual([{ projectsAccess: true, machines: {}, keepAwake: true }])
-    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ version: 2, projectsAccess: true, machines: {}, keepAwake: true })
+    expect(events).toEqual([{ projectsAccess: true, machines: {}, keepAwake: true, tailscale: false }])
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ version: 2, projectsAccess: true, machines: {}, keepAwake: true, tailscale: false })
 
     await bench.restart(a)
-    expect(a.service.settings.get()).toEqual({ projectsAccess: true, machines: {}, keepAwake: true })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: true, machines: {}, keepAwake: true, tailscale: false })
     const after: unknown[] = []
     a.service.on('settings', (value) => after.push(value))
     a.service.settings.set({ projectsAccess: false })
-    expect(after).toEqual([{ projectsAccess: false, machines: {}, keepAwake: true }])
+    expect(after).toEqual([{ projectsAccess: false, machines: {}, keepAwake: true, tailscale: false }])
     await bench.restart(a)
-    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: true })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: true, tailscale: false })
   })
 
   it('stays off when its file cannot be read', async () => {
@@ -173,7 +173,7 @@ describe('the access switch "Linked machines can work with my Projects"', () => 
     const file = join(a.dataDir, 'link', 'settings.json')
     writeFileSync(file, '{ not json')
     await bench.restart(a)
-    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: true })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: true, tailscale: false })
   })
 })
 
@@ -187,9 +187,9 @@ describe('the access level of each Linked machine', () => {
     const file = join(a.dataDir, 'link', 'settings.json')
     writeFileSync(file, JSON.stringify({ version: 1, projectsAccess: true, keepAwake: false }))
     await bench.restart(a)
-    expect(a.service.settings.get()).toEqual({ projectsAccess: true, machines: { [bId]: 'all' }, keepAwake: false })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: true, machines: { [bId]: 'all' }, keepAwake: false, tailscale: false })
     expect(a.service.settings.levelOf(bId)).toBe('all')
-    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ version: 2, projectsAccess: true, machines: { [bId]: 'all' }, keepAwake: false })
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ version: 2, projectsAccess: true, machines: { [bId]: 'all' }, keepAwake: false, tailscale: false })
 
     const c = await bench.machine('c')
     await bench.link(a, c)
@@ -205,7 +205,7 @@ describe('the access level of each Linked machine', () => {
     const file = join(a.dataDir, 'link', 'settings.json')
     writeFileSync(file, JSON.stringify({ version: 1, projectsAccess: false }))
     await bench.restart(a)
-    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: true })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: true, tailscale: false })
     expect(a.service.settings.levelOf(b.service.machine.id)).toBe('off')
     // On again, the switch alone gives nothing: the level of each Machine is its own.
     a.service.settings.set({ projectsAccess: true })

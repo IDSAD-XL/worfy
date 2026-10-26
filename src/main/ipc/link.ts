@@ -25,6 +25,7 @@ import {
   linkSetAccess,
   linkSetKeepAwake,
   linkSetMachineAccess,
+  linkSetTailscale,
   linkState,
   parseLinkAddress,
   type LinkState,
@@ -170,6 +171,7 @@ function buildState(): LinkState {
       discovered: [],
       projectsAccess: false,
       keepAwake: false,
+      tailscale: false,
     }
   }
   const { service, discovery, sleep } = link
@@ -203,6 +205,7 @@ function buildState(): LinkState {
     discovered: discovery === null || openers.size === 0 ? [] : discovery.list(),
     projectsAccess: settings.projectsAccess,
     keepAwake: settings.keepAwake,
+    tailscale: settings.tailscale,
   }
 }
 
@@ -289,6 +292,12 @@ export default [
   defineHandler(linkSetKeepAwake, ({ keepAwake }) => {
     const { service } = requireLink()
     service.settings.set({ keepAwake })
+    return buildState()
+  }),
+
+  defineHandler(linkSetTailscale, ({ tailscale }) => {
+    const { service } = requireLink()
+    service.settings.set({ tailscale })
     return buildState()
   }),
 ] satisfies HandlerModule
