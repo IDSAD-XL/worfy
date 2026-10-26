@@ -1,7 +1,8 @@
 # 27 — Связь через Tailscale: настройка в Settings и адреса Tailscale только на интерфейсе Tailscale
 
 Type: task
-Status: claimed 2026-10-26T18:35Z
+Status: done 2026-10-26T22:21Z
+PR: #840
 Branch: worfy-link/27
 Blocked by: —
 Source: решения владельца 2026-10-18, Q16, Q23, Q24 ([ADR-0070](../../../docs/adr/0070-worfy-link-outside-the-lan-through-an-overlay-network.md), пункты 2–4). Код начинается после текущей очереди Epic-а `worfy-windows` (Q21, HANDOFF.md, «Дальше»)
@@ -106,3 +107,17 @@ Source: решения владельца 2026-10-18, Q16, Q23, Q24 ([ADR-0070](
   с локальным адресом.
 - Платформенный ли PR (ADR-0056, пункт 2): нет. Код не ветвится по платформе: интерфейс Tailscale
   узнаётся по адресу, одинаково на macOS (`utun*`) и Windows (адаптер «Tailscale»).
+
+### Ревью и merge (2026-10-26)
+
+PR #840: ревью уровня low, два круга (первый — REJECTED, находка med про исходящую связь по адресу
+Tailscale при выключенной настройке; второй — VERIFIED). gate full зелёный перед merge, merge
+`49a573d3`. Batch CI на этом коммите упал на регрессии PR #826 (`wave-gate-heartbeat.test.sh` на
+Linux); её исправил PR #846, batch CI на `680ab775` зелёный.
+
+Долги ревью (не блокируют):
+- Consider: адрес 100.64.0.0/10 прямо на интерфейсе, который не Tailscale (CGNAT у провайдера),
+  проходит правило соседа (`src/main/link/checks.ts:124`).
+- Consider: по имени хоста теперь уходит SNI (`src/main/link/client.ts:105`); test на это добавил
+  Ticket 29.
+- Noted: в F-SPEC.md нет строки про настройку «Link through Tailscale» (`F-SPEC.md:164`).
