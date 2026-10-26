@@ -26,9 +26,10 @@
 // connections), and WORFY_LINK_BONJOUR=0 turns Bonjour off (e2e tests, so macOS never asks for
 // the Local Network permission during a run). A third, WORFY_LINK_INTERFACES, gives the app's link
 // the machine's interfaces in place of os.networkInterfaces() and lists them in "Link a machine"
-// (e2e tests of the Tailscale address, worfy-link ticket 29).
+// (e2e tests of the Tailscale address, worfy-link ticket 29); an unpacked build only, IP literals only.
 import { EventEmitter } from 'node:events'
 import { hostname as osHostname, networkInterfaces as osNetworkInterfaces, type NetworkInterfaceInfo } from 'node:os'
+import { isIP } from 'node:net'
 import { join } from 'node:path'
 import type { WebSocket } from 'ws'
 import { z } from 'zod'
@@ -967,12 +968,14 @@ function announceAppLink(): void {
   }
 }
 
-const interfacesSchema = z.record(z.string(), z.array(z.string().min(1)))
+const interfacesSchema = z.record(z.string(), z.array(z.string()))
 
 /**
  * WORFY_LINK_INTERFACES (e2e tests): a JSON map of interface names to addresses, say
  * `{"utun4":["100.101.102.103"]}`, the app's link takes for os.networkInterfaces(); undefined, with
- * a warning, when it is not such a map.
+ * a warning, when it is not such a map. Only IP literals are kept: these addresses join the Host
+ * allowlist (checks.ts, allowedHostNames), and a name there would let a site that points it at this
+ * machine past the DNS rebinding check. Any other entry is dropped with a warning.
  */
 function interfacesFrom(text: string): HostNames['interfaces'] | undefined {
   let parsed: z.output<typeof interfacesSchema>
@@ -982,18 +985,31 @@ function interfacesFrom(text: string): HostNames['interfaces'] | undefined {
     console.warn(`[link] WORFY_LINK_INTERFACES is not a JSON map of interface names to addresses, ignored: ${messageOf(error)}`)
     return undefined
   }
+  const isAddress = (address: string): boolean => {
+    if (isIP(address) !== 0) return true
+    console.warn(`[link] WORFY_LINK_INTERFACES: ${JSON.stringify(address)} is not an IP address, ignored`)
+    return false
+  }
   const entry = (address: string): NetworkInterfaceInfo =>
     address.includes(':')
       ? { address, netmask: 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', family: 'IPv6', mac: '00:00:00:00:00:00', internal: false, cidr: `${address}/128`, scopeid: 0 }
       : { address, netmask: '255.255.255.255', family: 'IPv4', mac: '00:00:00:00:00:00', internal: false, cidr: `${address}/32` }
-  return Object.fromEntries(Object.entries(parsed).map(([name, addresses]) => [name, addresses.map(entry)]))
+  return Object.fromEntries(Object.entries(parsed).map(([name, addresses]) => [name, addresses.filter(isAddress).map(entry)]))
 }
 
-/** Reads WORFY_LINK_HOST, WORFY_LINK_BONJOUR and WORFY_LINK_INTERFACES (see the top of this file). */
-export function appLinkEnvironment(env: NodeJS.ProcessEnv = process.env): { listenHost?: string; bonjour: boolean; interfaces?: HostNames['interfaces'] } {
+/**
+ * Reads WORFY_LINK_HOST, WORFY_LINK_BONJOUR and WORFY_LINK_INTERFACES (see the top of this file).
+ * WORFY_LINK_INTERFACES is read only in an unpacked build (`buildKind` 'dev': app.isPackaged false,
+ * as e2e tests run out/): a packaged worfy.app started from a shell that still has it set keeps
+ * its real interfaces, for the peer rule and the Host check alike.
+ */
+export function appLinkEnvironment(
+  buildKind: BuildKind,
+  env: NodeJS.ProcessEnv = process.env,
+): { listenHost?: string; bonjour: boolean; interfaces?: HostNames['interfaces'] } {
   const host = env.WORFY_LINK_HOST?.trim()
   const bonjour = env.WORFY_LINK_BONJOUR?.trim()
-  const text = env.WORFY_LINK_INTERFACES?.trim()
+  const text = buildKind === 'packaged' ? undefined : env.WORFY_LINK_INTERFACES?.trim()
   const interfaces = text ? interfacesFrom(text) : undefined
   return {
     ...(host ? { listenHost: host } : {}),
@@ -1115,7 +1131,7 @@ export function stopLinkOnQuit(app: QuitApp, stop: () => Promise<void> | undefin
 
 /** Starts the app's link over worfy's data folder (src/main/index.ts, after registerIpc). */
 export async function startAppLink(options: { buildKind: BuildKind; buildVersion: string }): Promise<LinkService> {
-  const environment = appLinkEnvironment()
+  const environment = appLinkEnvironment(options.buildKind)
   try {
     // Imported here, not at the top: broadcast.ts and keep-awake.ts reach Electron, and the link
     // tests run without it.

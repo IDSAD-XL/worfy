@@ -127,8 +127,21 @@ describe('the Tailscale address in "Link a machine"', () => {
 })
 
 describe('WORFY_LINK_INTERFACES: the interfaces an e2e test gives the app', () => {
-  it('reads a JSON map of interface names to addresses, as non-internal entries', () => {
-    const env = appLinkEnvironment({ WORFY_LINK_HOST: '127.0.0.1', WORFY_LINK_INTERFACES: '{"en0":["192.168.1.20"],"utun4":["100.101.102.103","fd7a:115c:a1e0::1"]}' })
+  const MAP = '{"en0":["192.168.1.20"],"utun4":["100.101.102.103","fd7a:115c:a1e0::1"]}'
+
+  /** Runs `body` with console.warn recorded; returns what it warned. */
+  function warned(body: () => void): string[] {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      body()
+      return warn.mock.calls.map((call) => String(call[0]))
+    } finally {
+      warn.mockRestore()
+    }
+  }
+
+  it('reads a JSON map of interface names to addresses, as non-internal entries, in an unpacked build', () => {
+    const env = appLinkEnvironment('dev', { WORFY_LINK_HOST: '127.0.0.1', WORFY_LINK_INTERFACES: MAP })
     expect(env.listenHost).toBe('127.0.0.1')
     expect(Object.keys(env.interfaces ?? {})).toEqual(['en0', 'utun4'])
     expect(linkAddresses(env.interfaces ?? {}, 52000, true)).toEqual(['100.101.102.103:52000', '[fd7a:115c:a1e0::1]:52000', '192.168.1.20:52000'])
@@ -138,18 +151,31 @@ describe('WORFY_LINK_INTERFACES: the interfaces an e2e test gives the app', () =
     ])
   })
 
+  it('is not read by a packaged build: the app keeps its real interfaces', () => {
+    const env = appLinkEnvironment('packaged', { WORFY_LINK_HOST: '127.0.0.1', WORFY_LINK_BONJOUR: '0', WORFY_LINK_INTERFACES: MAP })
+    expect(env.interfaces).toBeUndefined()
+    // The other two variables keep working as before.
+    expect(env).toEqual({ listenHost: '127.0.0.1', bonjour: false })
+  })
+
+  it('keeps only IP literals: a name would join the Host allowlist and pass DNS rebinding', () => {
+    let env: ReturnType<typeof appLinkEnvironment> | undefined
+    const warnings = warned(() => {
+      env = appLinkEnvironment('dev', { WORFY_LINK_INTERFACES: '{"x":["evil.test","100.101.102.103","","localhost","100.101.102","fe80::1%en0"]}' })
+    })
+    expect(env?.interfaces?.x?.map((entry) => entry.address)).toEqual(['100.101.102.103', 'fe80::1%en0'])
+    expect(warnings).toEqual(['"evil.test"', '""', '"localhost"', '"100.101.102"'].map((value) => expect.stringContaining(`WORFY_LINK_INTERFACES: ${value} is not an IP address`)))
+    const names = allowedHostNames({ interfaces: env?.interfaces ?? {}, hostname: 'pc.local', tailscale: true })
+    expect(names.has('evil.test')).toBe(false)
+    expect(isAllowedHost('evil.test:52000', 52000, { interfaces: env?.interfaces ?? {}, hostname: 'pc.local', tailscale: true })).toBe(false)
+  })
+
   it('gives none when unset, and none with a warning when it is not such a map', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    try {
-      expect(appLinkEnvironment({}).interfaces).toBeUndefined()
-      expect(warn).not.toHaveBeenCalled()
-      for (const text of ['not json', '[]', '{"en0":"192.168.1.20"}', '{"en0":[5]}', 'null']) {
-        warn.mockClear()
-        expect(appLinkEnvironment({ WORFY_LINK_INTERFACES: text }).interfaces, text).toBeUndefined()
-        expect(warn, text).toHaveBeenCalledWith(expect.stringContaining('WORFY_LINK_INTERFACES'))
-      }
-    } finally {
-      warn.mockRestore()
+    expect(warned(() => expect(appLinkEnvironment('dev', {}).interfaces).toBeUndefined())).toEqual([])
+    for (const text of ['not json', '[]', '{"en0":"192.168.1.20"}', '{"en0":[5]}', 'null']) {
+      expect(warned(() => expect(appLinkEnvironment('dev', { WORFY_LINK_INTERFACES: text }).interfaces, text).toBeUndefined()), text).toEqual([
+        expect.stringContaining('WORFY_LINK_INTERFACES'),
+      ])
     }
   })
 })
