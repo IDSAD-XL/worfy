@@ -65,6 +65,21 @@ export function parseLinkAddress(text: string): { ok: true; address: LinkAddress
   return { ok: true, address: { host, port } }
 }
 
+/**
+ * Whether `host` (an address without brackets and port) is in a Tailscale range: IPv4
+ * 100.64.0.0/10 or IPv6 fd7a:115c:a1e0::/48 (ADR-0070, point 4). For the window's mark on this
+ * Machine's own addresses only; what the link lets through is decided in main
+ * (src/main/link/checks.ts, isTailscaleAddress), and a unit test holds the two to one table.
+ */
+export function isTailscaleHost(host: string): boolean {
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
+  if (v4 !== null) return v4.slice(1).every((octet) => Number(octet) <= 255) && v4[1] === '100' && (Number(v4[2]) & 0xc0) === 64
+  if (!host.includes(':')) return false
+  // The first three groups stand left of `::`: a group it stands for is 0, and none of fd7a:115c:a1e0 is.
+  const groups = (host.split('::')[0] ?? '').split(':')
+  return groups.length >= 3 && groups.slice(0, 3).every((group, index) => /^[0-9a-f]{1,4}$/i.test(group) && parseInt(group, 16) === [0xfd7a, 0x115c, 0xa1e0][index])
+}
+
 /** `host:port`, IPv6 in brackets: how an address is shown and typed. */
 export function formatLinkAddress({ host, port }: LinkAddress): string {
   return host.includes(':') ? `[${host}]:${port}` : `${host}:${port}`

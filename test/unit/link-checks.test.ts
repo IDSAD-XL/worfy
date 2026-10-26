@@ -59,6 +59,7 @@ describe('the Host allowlist', () => {
   const names = {
     interfaces: { en0: [info('192.168.0.119', 'IPv4'), info('fe80::1cf6:52ec:1e29:a090', 'IPv6')], lo0: [info('127.0.0.1', 'IPv4'), info('::1', 'IPv6')] },
     hostname: 'Alexeys-MacBook-Pro.local',
+    tailscale: false,
   }
   const port = 52000
 
@@ -67,7 +68,7 @@ describe('the Host allowlist', () => {
       ['127.0.0.1', '192.168.0.119', '::1', 'alexeys-macbook-pro.local', 'fe80::1cf6:52ec:1e29:a090', 'localhost'].sort(),
     )
     // Windows: os.hostname() has no domain; its mDNS name is <name>.local.
-    expect(allowedHostNames({ interfaces: {}, hostname: 'DESKTOP-PC' }).has('desktop-pc.local')).toBe(true)
+    expect(allowedHostNames({ interfaces: {}, hostname: 'DESKTOP-PC', tailscale: false }).has('desktop-pc.local')).toBe(true)
   })
 
   it.each([

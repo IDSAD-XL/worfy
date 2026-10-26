@@ -135,24 +135,55 @@ export interface HostNames {
   interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>
   /** os.hostname(): `Name.local` on macOS, the bare computer name on Windows. */
   hostname: string
+  /** "Link through Tailscale" (link/settings.json), read on every request: on adds the MagicDNS names. */
+  tailscale: boolean
+}
+
+/** The first label of os.hostname() in lower case: `pc` of `PC`, `pc.local` or `pc.lan`; '' when empty. */
+function machineLabel(hostname: string): string {
+  return hostname.trim().toLowerCase().split('.')[0] ?? ''
 }
 
 /**
  * The names a request may carry in Host, without the port: the addresses of the machine's
  * interfaces, `localhost`, `127.0.0.1`, `::1`, and the machine's name in `.local` (its first
- * label + `.local`, and os.hostname() itself when it already ends in `.local`). Lower case,
- * IPv6 without brackets and without a zone id.
+ * label + `.local`, and os.hostname() itself when it already ends in `.local`). While "Link
+ * through Tailscale" is on, also the bare first label: the short MagicDNS name (`pc`). Lower case,
+ * IPv6 without brackets and without a zone id. The long MagicDNS names are a pattern, not a list:
+ * isAllowedHostName.
  */
-export function allowedHostNames({ interfaces, hostname }: HostNames): Set<string> {
+export function allowedHostNames({ interfaces, hostname, tailscale }: HostNames): Set<string> {
   const names = new Set<string>(['localhost', '127.0.0.1', '::1'])
   for (const list of Object.values(interfaces)) {
     for (const info of list ?? []) names.add(normalizeAddress(info.address))
   }
   const host = hostname.trim().toLowerCase()
-  const label = host.split('.')[0] ?? ''
+  const label = machineLabel(hostname)
   if (label !== '') names.add(`${label}.local`)
   if (host.endsWith('.local')) names.add(host)
+  if (tailscale && label !== '') names.add(label)
   return names
+}
+
+/** One DNS label or more, dot-separated: the tailnet part of a MagicDNS name. */
+const TAILNET = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/
+
+/**
+ * Whether `name` (lower case, without the port, as parseHostHeader gives it) names this machine:
+ * one of allowedHostNames, or, while "Link through Tailscale" is on, the long MagicDNS name
+ * `<first label>.<tailnet>.ts.net` (ADR-0070, point 5). Without the Tailscale CLI the machine does
+ * not know its tailnet, so any tailnet passes. DNS rebinding (ADR-0052, point 8) stays shut: a site
+ * cannot point a name under ts.net at this machine, only Tailscale controls that zone.
+ * shortcut: the MagicDNS name is taken to be the first label of os.hostname(), so a machine renamed
+ * in the Tailscale admin console is refused by name (its Tailscale address still works); redo when
+ * the machine list comes from `tailscale status --json` (worfy-link ticket 30).
+ */
+export function isAllowedHostName(name: string, names: HostNames): boolean {
+  if (allowedHostNames(names).has(name)) return true
+  const label = machineLabel(names.hostname)
+  if (!names.tailscale || label === '' || !name.startsWith(`${label}.`) || !name.endsWith('.ts.net')) return false
+  const tailnet = name.slice(label.length + 1, -'.ts.net'.length)
+  return TAILNET.test(tailnet)
 }
 
 /** `name:port`, `[v6]:port`, `name` or `[v6]` → name and port (undefined when absent); undefined when malformed. */
@@ -189,5 +220,5 @@ export function isAllowedHost(header: string | undefined, serverPort: number, na
   const parsed = parseHostHeader(header)
   if (parsed === undefined) return false
   if ((parsed.port ?? 443) !== serverPort) return false
-  return allowedHostNames(names).has(parsed.name)
+  return isAllowedHostName(parsed.name, names)
 }

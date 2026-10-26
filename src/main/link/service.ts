@@ -21,15 +21,18 @@
 // The app's link (bottom of this file, worfy-link ticket 02) adds what a running worfy needs around
 // the service: the connections kept to every Linked machine (connections.ts), Bonjour
 // (discovery.ts), and (worfy-link ticket 14) "going to sleep" (sleep-notice.ts) and the keep-awake
-// while Linked machines are connected (keep-awake.ts). Two environment variables shape it: WORFY_LINK_HOST is the one address the server
+// while Linked machines are connected (keep-awake.ts). Environment variables shape it: WORFY_LINK_HOST is the one address the server
 // listens on (e2e tests set 127.0.0.1, so the macOS firewall never asks about incoming
 // connections), and WORFY_LINK_BONJOUR=0 turns Bonjour off (e2e tests, so macOS never asks for
-// the Local Network permission during a run).
+// the Local Network permission during a run). A third, WORFY_LINK_INTERFACES, gives the app's link
+// the machine's interfaces in place of os.networkInterfaces() and lists them in "Link a machine"
+// (e2e tests of the Tailscale address, worfy-link ticket 29); an unpacked build only, IP literals only.
 import { EventEmitter } from 'node:events'
-import { hostname as osHostname, networkInterfaces as osNetworkInterfaces } from 'node:os'
+import { hostname as osHostname, networkInterfaces as osNetworkInterfaces, type NetworkInterfaceInfo } from 'node:os'
+import { isIP } from 'node:net'
 import { join } from 'node:path'
 import type { WebSocket } from 'ws'
-import type { z } from 'zod'
+import { z } from 'zod'
 import type { IpcResult } from '../../shared/ipc/channels'
 import type { Client } from '../clients'
 import type { ModuleLoader } from '../ipc/index'
@@ -136,6 +139,11 @@ export interface LinkServiceOptions {
   hostname?: () => string
   networkInterfaces?: () => HostNames['interfaces']
   /**
+   * Lists the interface addresses in "Link a machine" even while the server listens on one
+   * `listenHost`: e2e tests listen on 127.0.0.1 and give the interfaces (WORFY_LINK_INTERFACES).
+   */
+  listInterfaces?: boolean
+  /**
    * How a socket's two addresses are read, on the server's sockets and on the ones this Machine
    * dials; its own by default. Tests stand 127.0.0.1 in for a Tailscale address.
    */
@@ -182,6 +190,27 @@ function endFailedPairing(ws: WebSocket): void {
 
 /** Every interface, IPv6 and IPv4; on a system without IPv6, IPv4 only. */
 const ALL_INTERFACES = '::'
+
+/**
+ * Every non-internal address of the machine with the server's port, `host:port` (IPv6 in
+ * brackets, link-local IPv6 left out): IPv4, then IPv6. While "Link through Tailscale" is on the
+ * Tailscale addresses come first (worfy-link ticket 29; ADR-0070, point 5): through Tailscale the
+ * other worfy types one of them, or the MagicDNS name with this port.
+ */
+export function linkAddresses(interfaces: HostNames['interfaces'], port: number, tailscale: boolean): string[] {
+  const v4: string[] = []
+  const v6: string[] = []
+  const overlay: string[] = []
+  for (const entries of Object.values(interfaces)) {
+    for (const entry of entries ?? []) {
+      if (entry.internal || (entry.family !== 'IPv4' && /^fe[89ab]/i.test(entry.address))) continue
+      const shown = entry.family === 'IPv4' ? `${entry.address}:${port}` : `[${entry.address}]:${port}`
+      if (tailscale && isTailscaleAddress(entry.address)) overlay.push(shown)
+      else (entry.family === 'IPv4' ? v4 : v6).push(shown)
+    }
+  }
+  return [...new Set([...overlay, ...v4, ...v6])]
+}
 
 export class LinkService extends EventEmitter<LinkServiceEvents> {
   private readonly linkDir: string
@@ -288,24 +317,15 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
 
   /**
    * Addresses another worfy may type to reach this one, `host:port` (IPv6 in brackets): the listen
-   * address when it is a single one, else every non-internal address of the machine. Empty while
-   * the server does not listen.
+   * address when it is a single one, else the machine's addresses as linkAddresses lists them.
+   * Empty while the server does not listen.
    */
   addresses(): string[] {
     const port = this.server?.port
     if (port === undefined) return []
     const host = this.options.listenHost
-    if (host !== undefined && host !== ALL_INTERFACES && host !== '0.0.0.0') return [host.includes(':') ? `[${host}]:${port}` : `${host}:${port}`]
-    const v4: string[] = []
-    const v6: string[] = []
-    for (const entries of Object.values(this.interfaces())) {
-      for (const entry of entries ?? []) {
-        if (entry.internal) continue
-        if (entry.family === 'IPv4') v4.push(`${entry.address}:${port}`)
-        else if (!/^fe[89ab]/i.test(entry.address)) v6.push(`[${entry.address}]:${port}`)
-      }
-    }
-    return [...new Set([...v4, ...v6])]
+    if (host !== undefined && host !== ALL_INTERFACES && host !== '0.0.0.0' && this.options.listInterfaces !== true) return [host.includes(':') ? `[${host}]:${port}` : `${host}:${port}`]
+    return linkAddresses(this.interfaces(), port, this.settings.get().tailscale)
   }
 
   // ---- "Link a machine" on this side (B) -------------------------------------------------------
@@ -877,7 +897,8 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
             host,
             port,
             build: this.options.buildVersion,
-            hostNames: () => ({ interfaces: this.interfaces(), hostname: this.hostname() }),
+            // The setting is read on every request too: off refuses a MagicDNS name at once.
+            hostNames: () => ({ interfaces: this.interfaces(), hostname: this.hostname(), tailscale: this.settings.get().tailscale }),
             admit: (upgrade) => this.admit(upgrade),
             // Read on every connection: the switch acts without a restart, and the Tailscale adapter
             // may get its address after worfy started.
@@ -947,11 +968,54 @@ function announceAppLink(): void {
   }
 }
 
-/** Reads WORFY_LINK_HOST and WORFY_LINK_BONJOUR (see the top of this file). */
-export function appLinkEnvironment(env: NodeJS.ProcessEnv = process.env): { listenHost?: string; bonjour: boolean } {
+const interfacesSchema = z.record(z.string(), z.array(z.string()))
+
+/**
+ * WORFY_LINK_INTERFACES (e2e tests): a JSON map of interface names to addresses, say
+ * `{"utun4":["100.101.102.103"]}`, the app's link takes for os.networkInterfaces(); undefined, with
+ * a warning, when it is not such a map. Only IP literals are kept: these addresses join the Host
+ * allowlist (checks.ts, allowedHostNames), and a name there would let a site that points it at this
+ * machine past the DNS rebinding check. Any other entry is dropped with a warning.
+ */
+function interfacesFrom(text: string): HostNames['interfaces'] | undefined {
+  let parsed: z.output<typeof interfacesSchema>
+  try {
+    parsed = interfacesSchema.parse(JSON.parse(text))
+  } catch (error) {
+    console.warn(`[link] WORFY_LINK_INTERFACES is not a JSON map of interface names to addresses, ignored: ${messageOf(error)}`)
+    return undefined
+  }
+  const isAddress = (address: string): boolean => {
+    if (isIP(address) !== 0) return true
+    console.warn(`[link] WORFY_LINK_INTERFACES: ${JSON.stringify(address)} is not an IP address, ignored`)
+    return false
+  }
+  const entry = (address: string): NetworkInterfaceInfo =>
+    address.includes(':')
+      ? { address, netmask: 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', family: 'IPv6', mac: '00:00:00:00:00:00', internal: false, cidr: `${address}/128`, scopeid: 0 }
+      : { address, netmask: '255.255.255.255', family: 'IPv4', mac: '00:00:00:00:00:00', internal: false, cidr: `${address}/32` }
+  return Object.fromEntries(Object.entries(parsed).map(([name, addresses]) => [name, addresses.filter(isAddress).map(entry)]))
+}
+
+/**
+ * Reads WORFY_LINK_HOST, WORFY_LINK_BONJOUR and WORFY_LINK_INTERFACES (see the top of this file).
+ * WORFY_LINK_INTERFACES is read only in an unpacked build (`buildKind` 'dev': app.isPackaged false,
+ * as e2e tests run out/): a packaged worfy.app started from a shell that still has it set keeps
+ * its real interfaces, for the peer rule and the Host check alike.
+ */
+export function appLinkEnvironment(
+  buildKind: BuildKind,
+  env: NodeJS.ProcessEnv = process.env,
+): { listenHost?: string; bonjour: boolean; interfaces?: HostNames['interfaces'] } {
   const host = env.WORFY_LINK_HOST?.trim()
   const bonjour = env.WORFY_LINK_BONJOUR?.trim()
-  return { ...(host ? { listenHost: host } : {}), bonjour: bonjour !== '0' && bonjour !== 'false' && bonjour !== 'off' }
+  const text = buildKind === 'packaged' ? undefined : env.WORFY_LINK_INTERFACES?.trim()
+  const interfaces = text ? interfacesFrom(text) : undefined
+  return {
+    ...(host ? { listenHost: host } : {}),
+    bonjour: bonjour !== '0' && bonjour !== 'false' && bonjour !== 'off',
+    ...(interfaces === undefined ? {} : { interfaces }),
+  }
 }
 
 export interface WireAppLinkOptions {
@@ -1067,7 +1131,7 @@ export function stopLinkOnQuit(app: QuitApp, stop: () => Promise<void> | undefin
 
 /** Starts the app's link over worfy's data folder (src/main/index.ts, after registerIpc). */
 export async function startAppLink(options: { buildKind: BuildKind; buildVersion: string }): Promise<LinkService> {
-  const environment = appLinkEnvironment()
+  const environment = appLinkEnvironment(options.buildKind)
   try {
     // Imported here, not at the top: broadcast.ts and keep-awake.ts reach Electron, and the link
     // tests run without it.
@@ -1077,6 +1141,7 @@ export async function startAppLink(options: { buildKind: BuildKind; buildVersion
       ...options,
       addClient,
       ...(environment.listenHost === undefined ? {} : { listenHost: environment.listenHost }),
+      ...(environment.interfaces === undefined ? {} : { networkInterfaces: () => environment.interfaces ?? {}, listInterfaces: true }),
     })
     appLinkValue = wireAppLink(service, { bonjour: environment.bonjour, power: powerMonitor, keepAwake: (followed) => new LinkKeepAwake(followed) })
     appProblem = undefined

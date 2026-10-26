@@ -571,7 +571,7 @@ describe('round 2: a peer outside the local network', () => {
       host: '127.0.0.1',
       port: 0,
       build: '0.2.0+bench',
-      hostNames: () => ({ interfaces: {}, hostname: 'bench.local' }),
+      hostNames: () => ({ interfaces: {}, hostname: 'bench.local', tailscale: false }),
       admit: () => ({ status: 403, body: 'forbidden' }),
       // 127.0.0.1 stands in for an address outside the local network.
       isAllowedPeer: () => false,
