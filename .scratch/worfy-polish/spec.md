@@ -207,6 +207,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 28 | `src/renderer/palette/CommandPalette.tsx`, `test/unit/palette-manual-check-row.test.tsx` | 6 |
 | 29 | `src/shared/settings/app-settings.ts`, `src/main/settings/store.ts`, `src/main/agent/app-registry.ts`, `src/main/claude-home/user-model.ts`, `src/shared/ipc/session-autocompact.ts`, `src/main/ipc/session-autocompact.ts`, `src/renderer/settings/SessionsSection.tsx`, `test/contract/agent-autocompact.test.ts`, `test/contract/app-settings.test.ts`, `test/unit/settings-sessions.test.tsx` | 6 |
 | 33 | `src/shared/ipc/tickets.ts`, `src/main/ipc/tickets.ts`, `src/main/workflow/reader.ts`, `src/shared/workflow/types.ts`, `src/renderer/focus/focus-tile.ts`, `src/renderer/focus/focus-state.ts`, `src/renderer/focus/FocusMode.tsx`, `src/renderer/focus/focus.css`, `src/renderer/canvas/overlays/FocusEntry.tsx`, `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/nodes/TicketBody.tsx`, `src/renderer/canvas/nodes/ticket-text.ts`, `src/renderer/canvas/epic-frame.css`, `src/renderer/canvas/epic-layout.ts`, `test/unit/epic-layout.test.ts`, `test/unit/ticket-focus.test.tsx`, `test/contract/tickets-read.test.ts`, `test/contract/workflow-reader.test.ts`, `test/unit/link-access.test.ts`, `test/e2e/ticket-focus.spec.ts`, `test/e2e/linked-system-actions.spec.ts` | 7 |
+| 44 | `src/renderer/session/navigation.ts`, `src/renderer/session/SessionView.tsx`, `src/renderer/session/ExternalSessionPanel.tsx`, `src/renderer/session/SessionPicker.tsx`, `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/renderer/session/HistoryPopover.tsx`, `src/renderer/palette/commands.ts`, `test/unit/session-back.test.tsx`, `test/unit/session-view.test.tsx`, `test/unit/palette-commands.test.tsx`, `test/unit/palette-transcripts.test.tsx`, `test/unit/pipeline-board.test.tsx`, `test/unit/question-card.test.tsx`, `test/unit/subagent-nodes.test.tsx`, `test/unit/session-nodes.test.tsx`, `test/unit/linked-read-only.test.tsx`, `test/unit/history-popover.test.tsx`, `test/unit/show-archived-node.test.tsx`, `test/unit/focus-mode.test.tsx`, `test/e2e/session-view.spec.ts`, `test/e2e/session-back.spec.ts`, `test/e2e/sidebar-sections.spec.ts`, `test/e2e/session-resume.spec.ts`, `test/e2e/session-picker.spec.ts` | 8 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.
@@ -237,6 +238,9 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
   настройки приложения, `app-registry.ts`, `user-model.ts` и раздел Sessions.
 - **Wave 7 — 33.** Добавлен 2026-10-19 по слову владельца (Ticket целиком в focus mode). Блокеров
   нет; Ticket-ы 30–32 в таблицу не внесены, общих файлов с ними нет. Ticket и код — в одном PR.
+- **Wave 8 — 44.** Добавлен 2026-10-26 по решениям владельца Q1–Q3 (выбор Session-а во вкладке Session,
+  клик в сайдбаре по текущему виду, последняя Session у каждого Project-а). Блокеров нет; берётся после
+  Epic-а worfy-link (слово владельца 2026-10-26). Ticket-ы 34–43 в таблицу не внесены.
 
 Пересечения проверены правилом `filesOverlap` (`src/shared/workflow/waves.ts:145`): папка с `/` на
 конце пересекается с каждым файлом в ней. Если исполнителю нужен файл вне своего списка (например,
