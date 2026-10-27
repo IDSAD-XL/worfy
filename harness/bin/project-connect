@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// project-connect — writes a new project's profile and its gate registry entries on this machine.
+// project-connect — writes a new project's profile and its gate registry entries on this machine,
+// or removes them.
 //
-//   project-connect [--check | --schema-only] < draft.json
+//   project-connect [--check | --schema-only | --no-qmd] < draft.json
+//   project-connect --remove <name> [--no-qmd]
 //   project-connect --facts <folder>
 //
 // The draft is one JSON object { profile, rules, gate } (profiles/draft.schema.json): profile.json
@@ -17,6 +19,19 @@
 //                  the qmd collections (bin/qmd-collections, only when qmd is installed and its models
 //                  were downloaded — otherwise skipped with the reason); their profile field joins
 //                  the same commit. A qmd failure is reported and undoes nothing of the connection.
+//   --no-qmd       with a write or --remove: the qmd step is skipped, with the reason "skipped: --no-qmd"
+//                  (the write leaves the profile without a qmd field; --remove leaves the collections).
+//   --remove <name>
+//                  removes the project <name> from this machine's Harness: $HARNESS_HOME/projects/<name>/
+//                  (with the default Workflow folder of a Silent mode project inside it), every gate
+//                  registry entry with `profile: <name>`, $HARNESS_HOME/runs/<name>/ (the agents' marks),
+//                  in one commit in the git repository of $HARNESS_HOME (none when it is no git
+//                  repository). A failure half-way rolls back whatever was removed: the folders are moved
+//                  aside until the commit holds. Only then the qmd collections the profile's qmd field
+//                  names are removed (`qmd collection remove`, only when qmd is installed); one that
+//                  another profile names too is kept. A qmd failure is reported and undoes nothing.
+//                  The project's repositories are not touched. No such profile — exit 1, nothing
+//                  touched; a name with a slash or ".." — exit 2.
 //   --check        only the checks; writes nothing.
 //   --schema-only  only the schema of profiles/draft.schema.json; writes nothing.
 //   --facts <dir>  only reads: what a draft needs that only a command could tell (owner decision
@@ -30,15 +45,19 @@
 // repository is covered), once — the ticket worktrees live there and must not show in git. Nothing
 // goes into a working tree, `.gitignore` or a tracked file.
 //
-// Exit codes: 0 — written (or the check passed); 1 — the draft failed the schema or a check (the
-// name is taken, a `match` is already in the registry, …) or the write failed and was rolled back:
-// nothing written, the reasons in stderr; 2 — usage error.
+// Exit codes: 0 — written or removed (or the check passed); 1 — the draft failed the schema or a check
+// (the name is taken, a `match` is already in the registry, …), --remove found no such profile or an
+// unreadable registry, or the write or removal failed and was rolled back: nothing changed, the reasons
+// in stderr; 2 — usage error.
 // Output (stdout, JSON, English only): on success { name, profileDir, gateKeys, workflowFolder, excludes, qmd }
-// (with --check: { ok: true, name, gateKeys, workflowFolder }); on exit 1 { ok: false, errors: [{ path,
-// kind, message }] }, kind is "schema", "conflict", "value" or "write".
+// (with --check: { ok: true, name, gateKeys, workflowFolder }; with --remove: { name, removed: { profileDir,
+// gateKeys, runs, qmd: { status, reason, removed, kept } } }, runs null when there was none, status
+// "removed", "skipped" or "failed"); on exit 1 { ok: false, errors: [{ path, kind, message }] }, kind is
+// "schema", "conflict", "value" or "write".
 // Environment: HARNESS_HOME (default ~/.claude/worfy-harness). Tests only: PROJECT_CONNECT_FAIL_AT
-// (profile | workflow | gate | exclude | commit — fail as that step starts), PROJECT_CONNECT_QMD_BIN
-// (the qmd-collections to run), PROJECT_CONNECT_QMD (the qmd command to look for).
+// (profile | workflow | gate | exclude | commit — fail as that step starts; --remove: profile | gate |
+// runs | commit), PROJECT_CONNECT_QMD_BIN (the qmd-collections to run), PROJECT_CONNECT_QMD (the qmd
+// command to look for).
 "use strict"
 
 const fs = require("node:fs")
@@ -71,9 +90,11 @@ function scriptCommand(file, args) {
 }
 const FAIL_AT = process.env.PROJECT_CONNECT_FAIL_AT || ""
 
-const USAGE = `usage: project-connect [--check | --schema-only] < draft.json
+const USAGE = `usage: project-connect [--check | --schema-only | --no-qmd] < draft.json
+       project-connect --remove <name> [--no-qmd]
        project-connect --facts <folder>
-exit: 0 written (or checked), 1 the draft failed a check or the write was rolled back, 2 usage`
+exit: 0 written, removed (or checked), 1 the draft failed a check, no such profile, or the write or removal
+      was rolled back, 2 usage`
 
 // The .gitignore of a Harness home made a git repository (the same as worfy's move of the old
 // Harness writes): the profiles and the gate registry are history, the rest is state.
@@ -101,14 +122,20 @@ const err = (text) => process.stderr.write(`project-connect: ${text}\n`)
 // --- arguments ---------------------------------------------------------------------
 let mode = "write"
 let factsFolder = null
+let removeName = null
+let noQmd = false
 const argv = process.argv.slice(2)
 for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
-    if (arg === "--check" && mode === "write") mode = "check"
+    if (arg === "--no-qmd" && !noQmd) noQmd = true
+    else if (arg === "--check" && mode === "write") mode = "check"
     else if (arg === "--schema-only" && mode === "write") mode = "schema"
     else if (arg === "--facts" && mode === "write" && argv[i + 1] !== undefined && !argv[i + 1].startsWith("-")) {
         mode = "facts"
         factsFolder = argv[++i]
+    } else if (arg === "--remove" && mode === "write" && argv[i + 1] !== undefined && !argv[i + 1].startsWith("-")) {
+        mode = "remove"
+        removeName = argv[++i]
     } else if (arg === "-h" || arg === "--help") {
         process.stdout.write(USAGE + "\n")
         process.exit(0)
@@ -118,6 +145,14 @@ for (let i = 0; i < argv.length; i++) {
         process.exit(2)
     }
 }
+const usageError = (text) => {
+    err(text)
+    process.stderr.write(USAGE + "\n")
+    process.exit(2)
+}
+if (noQmd && mode !== "write" && mode !== "remove") usageError("--no-qmd goes with a write or --remove only")
+// A name with a slash or "..": refused before any path is built from it.
+if (mode === "remove" && !NAME.test(removeName)) usageError(`not a profile name: ${removeName}`)
 // --- facts: only reads ------------------------------------------------------------------
 // git without the caller's GIT_* variables and without optional locks: not even an index refresh.
 const gitEnv = (() => {
@@ -167,6 +202,72 @@ function repoFacts(root) {
         origin: origin ? origin.url : null,
     }
 }
+// --- shared by the write and --remove ----------------------------------------------------
+const isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v)
+const realDir = (p) => {
+    try {
+        return fs.statSync(p).isDirectory() ? fs.realpathSync.native(p) : null
+    } catch {
+        return null
+    }
+}
+const step = (label, work) => {
+    if (FAIL_AT === label) throw new Error(`failed on purpose at the step "${label}" (PROJECT_CONNECT_FAIL_AT)`)
+    work()
+}
+const run = (cmd, args, cwd) => {
+    const result = spawnSync(cmd, args, { cwd, encoding: "utf8" })
+    if (result.error) throw new Error(`${cmd} ${args.join(" ")}: ${result.error.message}`)
+    if (result.status !== 0) throw new Error(`${cmd} ${args.join(" ")}: ${(result.stderr || result.stdout).trim()}`)
+    return result.stdout
+}
+const isGitRoot = (dir) => {
+    const result = spawnSync("git", ["-C", dir, "rev-parse", "--show-toplevel"], { encoding: "utf8" })
+    return result.status === 0 && realDir(result.stdout.trim()) === realDir(dir)
+}
+// git commit without the machine's hooks and signing, and with an identity when it has none.
+const commitArgs = (dir) => {
+    const args = ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false"]
+    const email = spawnSync("git", ["-C", dir, "config", "user.email"], { encoding: "utf8" })
+    if (email.status !== 0 || email.stdout.trim() === "") args.push("-c", "user.name=worfy Harness", "-c", "user.email=harness@localhost")
+    return args
+}
+const writeAtomic = (file, text) => {
+    const tmp = `${file}.tmp-${process.pid}`
+    fs.writeFileSync(tmp, text)
+    fs.renameSync(tmp, file)
+}
+// Runs qmd. A Node qmd (the npm package is one, and so is a test's stand-in) is started with the node
+// running this script: Windows does not start an extensionless file by its #! line. A bare command
+// name (the default "qmd") or a binary is started as it is.
+const runQmd = (args) => {
+    let head = ""
+    try {
+        const fd = fs.openSync(QMD, "r")
+        try {
+            const buf = Buffer.alloc(256)
+            head = buf.toString("latin1", 0, fs.readSync(fd, buf, 0, buf.length, 0)).split("\n")[0]
+        } finally {
+            fs.closeSync(fd)
+        }
+    } catch {
+        /* a bare name looked up on PATH, or unreadable: start it as it is */
+    }
+    const [file, list] = head.startsWith("#!") && /\bnode\b/.test(head) ? [process.execPath, [QMD, ...args]] : [QMD, args]
+    return spawnSync(file, list, { encoding: "utf8" })
+}
+const qmdInstalled = () => {
+    const result = runQmd(["--version"])
+    return !result.error && result.status === 0
+}
+// The last line a failed command printed, without terminal colours.
+const lastLine = (result) =>
+    ((result.stderr || "") + (result.error ? result.error.message : ""))
+        .replace(/\x1b\[[0-9;]*m/g, "")
+        .trim()
+        .split("\n")
+        .pop()
+
 if (mode === "facts") {
     const dir = realOr(path.resolve(factsFolder))
     const refuseFacts = (message) => {
@@ -194,6 +295,134 @@ if (mode === "facts") {
     process.exit(0)
 }
 
+// --- --remove: the profile, its registry entries, its runs folder, one commit ---------------
+if (mode === "remove") {
+    const name = removeName
+    const profileDir = path.join(HARNESS_HOME, "projects", name)
+    const profileFile = path.join(profileDir, "profile.json")
+    const gateFile = path.join(HARNESS_HOME, "gate", "config.json")
+    const runsDir = path.join(HARNESS_HOME, "runs", name)
+    const refuseRemove = (kind, message) => {
+        err(message)
+        out({ ok: false, errors: [{ path: "", kind, message }] })
+        process.exit(1)
+    }
+    if (!fs.existsSync(profileFile)) refuseRemove("value", `no profile ${name}: ${profileFile} does not exist`)
+    // Read before the removal: the qmd step needs its collections. A broken profile is still removed.
+    let stored = null
+    try {
+        stored = JSON.parse(fs.readFileSync(profileFile, "utf8"))
+    } catch {
+        /* removed all the same; its qmd collections are not known */
+    }
+    // The registry as it is now: a broken one is not overwritten.
+    let registry = null
+    if (fs.existsSync(gateFile)) {
+        try {
+            registry = JSON.parse(fs.readFileSync(gateFile, "utf8"))
+            if (!isObject(registry) || !Array.isArray(registry.repos)) throw new Error('the "repos" field must be an array')
+        } catch (e) {
+            refuseRemove("value", `the gate registry ${gateFile} cannot be read: ${e.message}`)
+        }
+    }
+    const ours = (entry) => isObject(entry) && entry.profile === name
+    const gateKeys = registry ? registry.repos.filter(ours).map((entry) => entry.key) : []
+    const removed = { profileDir, gateKeys, runs: fs.existsSync(runsDir) ? runsDir : null, qmd: null }
+
+    // The folders are moved aside, not deleted, until the commit holds: the rollback moves them back.
+    // The staging folder sits in the Harness home itself (the same disk, so a rename), and its .gitignore
+    // (`/*`) keeps it out of the history.
+    const undo = []
+    let staging = null
+    try {
+        staging = fs.mkdtempSync(path.join(HARNESS_HOME, ".remove-"))
+        step("profile", () => {
+            const aside = path.join(staging, "profile")
+            fs.renameSync(profileDir, aside)
+            undo.push(() => fs.renameSync(aside, profileDir))
+        })
+        step("gate", () => {
+            if (gateKeys.length === 0) return
+            const before = fs.readFileSync(gateFile)
+            writeAtomic(gateFile, JSON.stringify({ ...registry, repos: registry.repos.filter((entry) => !ours(entry)) }, null, 2) + "\n")
+            undo.push(() => writeAtomic(gateFile, before))
+        })
+        step("runs", () => {
+            if (removed.runs === null) return
+            const aside = path.join(staging, "runs")
+            fs.renameSync(runsDir, aside)
+            undo.push(() => fs.renameSync(aside, runsDir))
+        })
+        step("commit", () => {
+            // A Harness home without git (never connected through this script) has no history to keep.
+            if (!isGitRoot(HARNESS_HOME)) return
+            const profileRel = path.join("projects", name)
+            const gateRel = path.join("gate", "config.json")
+            const paths = []
+            if (run("git", ["ls-files", "--", profileRel], HARNESS_HOME).trim() !== "") {
+                run("git", ["rm", "-r", "-q", "--cached", "--", profileRel], HARNESS_HOME)
+                undo.push(() => spawnSync("git", ["-C", HARNESS_HOME, "reset", "-q", "--", profileRel]))
+                paths.push(profileRel)
+            }
+            if (gateKeys.length > 0 && run("git", ["ls-files", "--", gateRel], HARNESS_HOME).trim() !== "") {
+                run("git", ["add", "--", gateRel], HARNESS_HOME)
+                undo.push(() => spawnSync("git", ["-C", HARNESS_HOME, "reset", "-q", "--", gateRel]))
+                paths.push(gateRel)
+            }
+            if (paths.length === 0) return
+            run("git", [...commitArgs(HARNESS_HOME), "commit", "-q", "--no-verify", "-m", `Remove the project ${name}`, "--", ...paths], HARNESS_HOME)
+        })
+    } catch (e) {
+        for (const back of undo.reverse()) {
+            try {
+                back()
+            } catch (rollback) {
+                err(`the rollback could not undo a step: ${rollback.message}`)
+            }
+        }
+        if (staging !== null) fs.rmSync(staging, { recursive: true, force: true })
+        refuseRemove("write", `${e.message}; the removal was rolled back`)
+    }
+    try {
+        fs.rmSync(staging, { recursive: true, force: true })
+    } catch (e) {
+        // The removal is committed; what is left is a folder of the Harness home its history ignores.
+        err(`the removed files are left in ${staging}: ${e.message}`)
+    }
+
+    // --- qmd, after the commit: a failure here is reported and puts nothing back ---
+    const collections = stored && isObject(stored.qmd) && Array.isArray(stored.qmd.collections) ? stored.qmd.collections.filter((c) => typeof c === "string" && c !== "") : []
+    if (noQmd) removed.qmd = { status: "skipped", reason: "skipped: --no-qmd", removed: [], kept: collections }
+    else if (collections.length === 0) removed.qmd = { status: "skipped", reason: "the profile names no qmd collections", removed: [], kept: [] }
+    else if (!qmdInstalled()) removed.qmd = { status: "skipped", reason: "qmd is not installed", removed: [], kept: collections }
+    else {
+        // A collection another profile names too (the qmd field of a profile may name shared ones) stays.
+        const elsewhere = new Set()
+        const projectsDir = path.join(HARNESS_HOME, "projects")
+        for (const other of fs.existsSync(projectsDir) ? fs.readdirSync(projectsDir) : []) {
+            try {
+                const theirs = JSON.parse(fs.readFileSync(path.join(projectsDir, other, "profile.json"), "utf8")).qmd
+                for (const c of (isObject(theirs) && Array.isArray(theirs.collections) && theirs.collections) || []) elsewhere.add(c)
+            } catch {
+                /* not a profile folder, or an unreadable profile: it names nothing */
+            }
+        }
+        const done = []
+        const failed = []
+        for (const c of collections.filter((c) => !elsewhere.has(c))) {
+            const result = runQmd(["collection", "remove", c])
+            if (!result.error && result.status === 0) done.push(c)
+            else failed.push(`qmd collection remove ${c} failed: ${lastLine(result)}`)
+        }
+        const kept = collections.filter((c) => elsewhere.has(c))
+        const reasons = [...failed]
+        if (kept.length > 0) reasons.push(`kept, another profile names them: ${kept.join(", ")}`)
+        removed.qmd = { status: failed.length > 0 ? "failed" : done.length > 0 ? "removed" : "skipped", reason: reasons.join("; ") || null, removed: done, kept }
+    }
+    out({ name, removed })
+    process.exit(0)
+}
+
 if (process.stdin.isTTY) {
     err("the draft is read from stdin")
     process.stderr.write(USAGE + "\n")
@@ -211,7 +440,6 @@ const refuse = () => {
 // --- the schema --------------------------------------------------------------------
 // The keywords profiles/draft.schema.json uses: type, enum, const, required, properties,
 // additionalProperties, items, minItems, minLength.
-const isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v)
 const TYPES = {
     string: (v) => typeof v === "string",
     number: (v) => typeof v === "number",
@@ -287,13 +515,6 @@ const legacyGateFile = path.join(require("node:os").homedir(), ".claude", "gate"
 const readGateFile = !fs.existsSync(gateFile) && fs.existsSync(legacyGateFile) ? legacyGateFile : gateFile
 const defaultFolder = path.join(profileDir, "workflow")
 
-const realDir = (p) => {
-    try {
-        return fs.statSync(p).isDirectory() ? fs.realpathSync.native(p) : null
-    } catch {
-        return null
-    }
-}
 const inside = (child, parent) => child === parent || child.startsWith(parent.endsWith(path.sep) ? parent : parent + path.sep)
 
 if (!NAME.test(name)) fail("profile.name", "value", "letters, digits, dots, dashes and underscores only, starting with a letter or a digit")
@@ -363,32 +584,6 @@ if (mode === "check") {
 
 // --- the write, with a rollback --------------------------------------------------------
 const undo = []
-const step = (label, work) => {
-    if (FAIL_AT === label) throw new Error(`failed on purpose at the step "${label}" (PROJECT_CONNECT_FAIL_AT)`)
-    work()
-}
-const run = (cmd, args, cwd) => {
-    const result = spawnSync(cmd, args, { cwd, encoding: "utf8" })
-    if (result.error) throw new Error(`${cmd} ${args.join(" ")}: ${result.error.message}`)
-    if (result.status !== 0) throw new Error(`${cmd} ${args.join(" ")}: ${(result.stderr || result.stdout).trim()}`)
-    return result.stdout
-}
-const isGitRoot = (dir) => {
-    const result = spawnSync("git", ["-C", dir, "rev-parse", "--show-toplevel"], { encoding: "utf8" })
-    return result.status === 0 && realDir(result.stdout.trim()) === realDir(dir)
-}
-// git commit without the machine's hooks and signing, and with an identity when it has none.
-const commitArgs = (dir) => {
-    const args = ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false"]
-    const email = spawnSync("git", ["-C", dir, "config", "user.email"], { encoding: "utf8" })
-    if (email.status !== 0 || email.stdout.trim() === "") args.push("-c", "user.name=worfy Harness", "-c", "user.email=harness@localhost")
-    return args
-}
-const writeAtomic = (file, text) => {
-    const tmp = `${file}.tmp-${process.pid}`
-    fs.writeFileSync(tmp, text)
-    fs.renameSync(tmp, file)
-}
 
 const written = { name, profileDir, gateKeys: draft.gate.map((entry) => entry.key), workflowFolder, excludes: [], qmd: null }
 // The line that keeps the ticket worktrees of a Silent project out of git, in .git/info/exclude.
@@ -514,14 +709,14 @@ const amendProfile = () => {
         return `the qmd field of profile.json is not committed: ${e.message}`
     }
 }
-const qmd = spawnSync(QMD, ["--version"], { encoding: "utf8" })
-if (qmd.error || qmd.status !== 0) written.qmd = { status: "skipped", reason: "qmd is not installed" }
+if (noQmd) written.qmd = { status: "skipped", reason: "skipped: --no-qmd" }
+else if (!qmdInstalled()) written.qmd = { status: "skipped", reason: "qmd is not installed" }
 else if (models !== "downloaded") written.qmd = { status: "skipped", reason: 'the qmd models were not downloaded (qmd-models is not "downloaded")' }
 else {
     const indexBefore = readIndex()
     const [collectionsFile, collectionsArgs] = scriptCommand(QMD_COLLECTIONS, [name])
     const added = spawnSync(collectionsFile, collectionsArgs, { encoding: "utf8", env: { ...process.env, HARNESS_HOME } })
-    const last = ((added.stderr || "") + (added.error ? added.error.message : "")).trim().split("\n").pop()
+    const last = lastLine(added)
     if (added.status === 0) {
         written.qmd = { status: "added", reason: amendProfile() }
     } else if (readIndex() !== indexBefore) {
