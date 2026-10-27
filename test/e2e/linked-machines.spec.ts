@@ -57,11 +57,15 @@ const DENIED = process.platform === 'win32' ? 'EPERM' : 'EACCES'
 
 const row = (window: Page, machineId: string) => window.locator(`[data-testid="machine-row"][data-machine-id="${machineId}"]`)
 
-/** Revokes `machineId` from its row's context menu in `window`; the row is in the body of the Machines section. */
+/**
+ * Removes (revokes) `machineId` from its row's context menu in `window`, confirming in the window
+ * Remove opens (worfy-link ticket 37); the row is in the body of the Machines section.
+ */
 async function revoke(window: Page, machineId: string): Promise<void> {
   await expandMachines(window)
   await row(window, machineId).click({ button: 'right' })
-  await window.getByRole('menuitem', { name: 'Revoke' }).click()
+  await window.getByRole('menuitem', { name: 'Remove' }).click()
+  await window.getByRole('dialog', { name: /^Remove .+\?$/ }).getByRole('button', { name: 'Remove' }).click()
 }
 
 const machinesRegion = (window: Page): Locator => window.getByRole('region', { name: 'Machines', exact: true })
@@ -229,7 +233,7 @@ test('two worfy link by address and code, and each lists the other as online', a
     await expandMachines(a.window)
     await expect(row(a.window, bId)).toBeVisible()
     await expect(row(a.window, bId)).toHaveAttribute('data-state', 'unavailable')
-    await expect(row(a.window, bId)).toContainText('Unavailable')
+    await expect(row(a.window, bId)).toContainText('Offline')
   } finally {
     await a.close()
     await b?.close()

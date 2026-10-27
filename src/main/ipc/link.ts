@@ -209,7 +209,7 @@ function buildState(): LinkState {
       tailscale: false,
     }
   }
-  const { service, discovery, sleep } = link
+  const { service, connections, discovery, sleep } = link
   const status = service.status()
   const settings = service.settings.get()
   const pairing = openers.size > 0 ? service.pairingCode() : null
@@ -239,9 +239,11 @@ function buildState(): LinkState {
         certificateChanged: machine.certificateChanged,
         access: settings.machines[machine.id] ?? 'off',
         ...(hint === undefined ? {} : { hint }),
+        ...(connections.isDialing(machine.id) ? { dialing: true } : {}),
       }
     }),
     discovered: discovery === null || openers.size === 0 ? [] : discovery.list(),
+    discoveredLinked: discovery === null || openers.size === 0 ? [] : discovery.foundLinked(),
     projectsAccess: settings.projectsAccess,
     keepAwake: settings.keepAwake,
     tailscale: settings.tailscale,

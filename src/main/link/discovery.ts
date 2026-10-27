@@ -10,6 +10,8 @@
 //   ending does not stop the search the other still needs.
 // - The list shown in "Link a machine" leaves out this Machine (by its id in the TXT record) and the
 //   Machines already linked; a worfy of another link protocol is listed and marked incompatible.
+//   The window still says which Linked machines are found (foundLinked, worfy-link ticket 37), by id
+//   alone: the address of a Linked machine never reaches a window.
 //
 // An announcement is a claim, not a proof: anyone in the network can announce any Machine id at
 // any address. So only local-network addresses are taken (checks.ts, as the server's own check),
@@ -255,6 +257,14 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
     return [...entries.values()]
       .map((entry) => ({ ...entry, conflict: (addressesOf.get(entry.id)?.size ?? 0) > 1 }))
       .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id) || a.host.localeCompare(b.host) || a.port - b.port)
+  }
+
+  /** The Linked machines found now, by id, sorted: "Link a machine" shows them as already linked. */
+  foundLinked(): string[] {
+    const self = this.options.self().id
+    const ids = new Set<string>()
+    for (const machine of this.found.values()) if (machine.id !== self && this.options.isLinked(machine.id)) ids.add(machine.id)
+    return [...ids].sort()
   }
 
   /** Where a Linked machine was last found, while the search runs. */

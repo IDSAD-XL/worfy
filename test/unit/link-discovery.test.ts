@@ -115,6 +115,21 @@ describe('the list of found worfy', () => {
     expect(discovery.list()).toEqual([])
   })
 
+  it('says which Linked machines are found, by id alone, once each (worfy-link ticket 37)', () => {
+    const { mdns, discovery, linked } = makeDiscovery(new Set([LINKED]))
+    discovery.browse('linking', true)
+    mdns.up(worfy(SELF.id, SELF.name))
+    mdns.up(worfy(OTHER, 'Laptop'))
+    mdns.up(worfy(LINKED, 'Office'))
+    mdns.up(worfy(LINKED, 'Office', { fqdn: 'Office 2._worfy._tcp.local', addresses: ['192.168.1.21'] }))
+    expect(discovery.foundLinked()).toEqual([LINKED])
+    linked.add(OTHER)
+    expect(discovery.foundLinked()).toEqual([OTHER, LINKED].sort())
+    // Gone from the network: no longer found.
+    mdns.down(worfy(OTHER, 'Laptop'))
+    expect(discovery.foundLinked()).toEqual([LINKED])
+  })
+
   it('shows a worfy of another link protocol, marked incompatible', () => {
     const { mdns, discovery } = makeDiscovery()
     discovery.browse('linking', true)

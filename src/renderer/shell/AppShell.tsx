@@ -1,6 +1,7 @@
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { underFocusCover } from '../focus/cover'
 import { setFocusSlot } from '../focus/focus-state'
+import { MachineDialogs } from '../machines/MachineDialogs'
 import { useInterfaceScale } from '../settings/interface-scale'
 import { SettingsDialog } from '../settings/SettingsDialog'
 import { ShortcutsOverlay } from '../shortcuts/ShortcutsOverlay'
@@ -108,6 +109,7 @@ export function AppShell({ project, canvas, session, pipeline, view: controlledV
       <SettingsDialog />
       {/* The Keyboard shortcuts window (worfy-ui ticket 11): Cmd/Ctrl+/, "?", the palette; in the layer of Settings. */}
       <ShortcutsOverlay />
+      <MachineDialogs />
     </div>
   )
 }

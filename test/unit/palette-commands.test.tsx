@@ -1,4 +1,4 @@
-import { fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { GateQueueView } from '../../src/shared/ipc/gate-queue'
@@ -14,6 +14,9 @@ import { useCanvasRequests } from '../../src/renderer/find/canvas-requests'
 import { setView, useNavigation } from '../../src/renderer/session/navigation'
 import { useFirstRun } from '../../src/renderer/shell/first-run-store'
 import { useSettingsWindow } from '../../src/renderer/settings/settings-window'
+import { MachineDialogs } from '../../src/renderer/machines/MachineDialogs'
+import { acceptLinkState } from '../../src/renderer/machines/useMachines'
+import type { LinkedMachineView, LinkState } from '../../src/shared/ipc/link'
 
 function ticket(num: number, state: Ticket['state'], blockedNums: number[] = []): Ticket {
   return {
@@ -478,5 +481,99 @@ describe('palette commands', () => {
       expect(rows()).toContain('manual-check:e/07:0')
       expect(screen.queryAllByTestId('palette-group').map((group) => group.dataset['group'])).toContain('Manual check')
     })
+  })
+})
+
+// ── worfy-link ticket 37: "Reconnect machine…" and "Remove machine…" ─────────────────────────────
+
+describe('Machine commands', () => {
+  const MINI = '22222222-2222-4222-8222-222222222222'
+  const ATTIC = '33333333-3333-4333-8333-333333333333'
+  const linkedMachine = (id: string, name: string, state: LinkedMachineView['state']): LinkedMachineView => ({ id, name, state, certificateChanged: false, access: 'off' })
+  const machines = [linkedMachine(MINI, 'Mini', 'unavailable'), linkedMachine(ATTIC, 'Attic', 'online')]
+  const linkState = (revision: number, linked: LinkedMachineView[]): LinkState => ({
+    revision,
+    machine: { id: '11111111-1111-4111-8111-111111111111', name: 'Studio' },
+    problem: null,
+    listening: true,
+    addresses: [],
+    bonjour: false,
+    linking: { open: false, code: null, expiresAt: null, linked: null, failure: null },
+    linked,
+    discovered: [],
+    projectsAccess: false,
+    keepAwake: false,
+    tailscale: false,
+  })
+
+  /** This Machine's preload: link.state answers `linked`; every other call is recorded and answered by the test. */
+  function preload(): { calls: { channel: string; input: unknown; answer: (value: unknown) => void }[] } {
+    const calls: { channel: string; input: unknown; answer: (value: unknown) => void }[] = []
+    const bridge: WorfyBridge = {
+      invoke: (channel, input) => {
+        if (channel === 'link.state') return Promise.resolve({ ok: true, value: linkState(1, machines) } as never)
+        return new Promise((resolve) => calls.push({ channel, input, answer: (value) => resolve(value as never) }))
+      },
+      on: () => 1,
+      off: () => undefined,
+    }
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = bridge
+    onTestFinished(() => {
+      delete (globalThis as { worfy?: WorfyBridge }).worfy
+    })
+    return { calls }
+  }
+
+  it('"Reconnect machine…" for each Linked machine without a connection, "Remove machine…" for each one; the name is the detail', () => {
+    const rows = buildCommands(context({ linked: machines })).filter((command) => command.id.startsWith('machine-'))
+    expect(rows.map((row) => [row.id, row.group, row.title, row.detail])).toEqual([
+      [`machine-reconnect:${MINI}`, 'Action', 'Reconnect machine…', 'Mini'],
+      [`machine-remove:${MINI}`, 'Action', 'Remove machine…', 'Mini'],
+      [`machine-remove:${ATTIC}`, 'Action', 'Remove machine…', 'Attic'],
+    ])
+    // Without a Project too: they concern this Machine's link.
+    expect(buildCommands(context({ project: undefined, model: undefined, linked: machines })).filter((command) => command.id.startsWith('machine-'))).toHaveLength(3)
+    expect(buildCommands(context({ linked: [] })).filter((command) => command.id.startsWith('machine-'))).toEqual([])
+  })
+
+  it('typing the Machine picks it: "reconnect mini" finds its row, which calls link.reconnect for it', async () => {
+    const { calls } = preload()
+    const found = rankItems(buildCommands(context({ linked: machines })), 'reconnect mini')
+    expect(found[0]?.id).toBe(`machine-reconnect:${MINI}`)
+    const running = found[0]!.run()
+    expect(calls.map(({ channel, input }) => [channel, input])).toEqual([['link.reconnect', { id: MINI }]])
+    calls[0]!.answer({ ok: true, value: linkState(2, machines) })
+    expect(await running).toBeUndefined()
+  })
+
+  it('a refusal of link.reconnect is what the palette shows', async () => {
+    const { calls } = preload()
+    const reconnect = buildCommands(context({ linked: machines })).find((command) => command.id === `machine-reconnect:${MINI}`)!
+    const running = reconnect.run()
+    calls[0]!.answer({ ok: false, error: 'link.reconnect: Machine is not linked' })
+    expect(await running).toBe('link.reconnect: Machine is not linked')
+  })
+
+  it('"Remove machine…" opens the confirmation for that Machine; Cancel calls nothing, Remove calls link.revoke', async () => {
+    const { calls } = preload()
+    acceptLinkState(linkState(10, machines))
+    render(<MachineDialogs />)
+    const remove = buildCommands(context({ linked: machines })).find((command) => command.id === `machine-remove:${ATTIC}`)!
+    act(() => void remove.run())
+    const dialog = await screen.findByRole('dialog', { name: 'Remove Attic?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(calls).toEqual([])
+
+    act(() => void remove.run())
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Remove Attic?' })).getByRole('button', { name: 'Remove' }))
+    expect(calls.map(({ channel, input }) => [channel, input])).toEqual([['link.revoke', { id: ATTIC }]])
+    await act(async () => calls[0]!.answer({ ok: true, value: linkState(11, [machines[0]!]) }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('without the Linked machines in the context, the ones the renderer has now', () => {
+    acceptLinkState(linkState(20, [linkedMachine(MINI, 'Mini', 'sleeping')]))
+    expect(ids(context()).filter((id) => id.startsWith('machine-'))).toEqual([`machine-reconnect:${MINI}`, `machine-remove:${MINI}`])
   })
 })

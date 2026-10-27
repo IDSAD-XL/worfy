@@ -1,10 +1,12 @@
 // The renderer's copy of the link state (worfy-link ticket 02): this Machine, its Linked machines,
-// "Link a machine", the two switches and the access level of each Linked machine. Main owns all of it (src/main/ipc/link.ts); this module
+// "Link a machine", the two switches and the access level of each Linked machine; reconnecting and
+// setting the address of a Linked machine (worfy-link ticket 37). Main owns all of it (src/main/ipc/link.ts); this module
 // keeps the latest state main sent, for the Machines section of the sidebar and the "Link a machine"
 // dialog. One subscription and one state call serve them all.
 import { useEffect } from 'react'
 import { create } from 'zustand'
-import type { AccessLevel, LinkState } from '../../shared/ipc/link'
+import type { AccessLevel, LinkedMachineView, LinkState } from '../../shared/ipc/link'
+import type { LinkedMachineInfo } from '../../shared/ipc/linked'
 import { invoke, subscribe } from '../ipc'
 
 interface MachinesStore {
@@ -73,6 +75,8 @@ async function change(call: Promise<{ ok: true; value: LinkState } | { ok: false
 export const openLinking = (): Promise<string | undefined> => change(invoke('link.open'))
 export const closeLinking = (): Promise<string | undefined> => change(invoke('link.close'))
 export const revokeMachine = (id: string): Promise<string | undefined> => change(invoke('link.revoke', { id }))
+/** Dials Linked machine `id` now, without the pause between retries (worfy-link ticket 36). */
+export const reconnectMachine = (id: string): Promise<string | undefined> => change(invoke('link.reconnect', { id }))
 export const setProjectsAccess = (projectsAccess: boolean): Promise<string | undefined> => change(invoke('link.setAccess', { projectsAccess }))
 export const setMachineAccess = (id: string, access: AccessLevel): Promise<string | undefined> => change(invoke('link.setMachineAccess', { id, access }))
 export const setKeepAwake = (keepAwake: boolean): Promise<string | undefined> => change(invoke('link.setKeepAwake', { keepAwake }))
@@ -84,4 +88,29 @@ export async function pairWith(address: string, code: string): Promise<{ linked:
   if (!result.ok) return { reason: result.error }
   acceptLinkState(result.value.state)
   return result.value.status === 'linked' ? { linked: result.value.machine } : { reason: result.value.reason }
+}
+
+/**
+ * Sets the address of Linked machine `id` by hand, `host:port` (worfy-link ticket 36): main keeps it
+ * only where the remembered certificate answers. The reason when it did not.
+ */
+export async function setMachineAddress(id: string, address: string): Promise<{ saved: true } | { reason: string }> {
+  const result = await invoke('link.setAddress', { id, address })
+  if (!result.ok) return { reason: result.error }
+  acceptLinkState(result.value.state)
+  return result.value.status === 'saved' ? { saved: true } : { reason: result.value.reason }
+}
+
+/**
+ * The two access lines of a Linked machine's row (worfy-link ticket 37): whether it shares its
+ * Projects with this Machine — only once it said so over the link (`sharing` of `linked.state`,
+ * src/shared/ipc/linked.ts) — and whether it may work with the Projects of this one: the switch
+ * "Linked machines can work with my Projects" and its own level.
+ */
+export function machineAccessLines(machine: Pick<LinkedMachineView, 'access'>, projectsAccess: boolean, sharing: LinkedMachineInfo['sharing'] | undefined): string[] {
+  const lines: string[] = []
+  if (sharing === 'yes') lines.push('Shares its Projects with you')
+  else if (sharing === 'no') lines.push("Doesn't share its Projects")
+  lines.push(projectsAccess && machine.access !== 'off' ? 'Can work with your Projects' : "Can't see your Projects")
+  return lines
 }
