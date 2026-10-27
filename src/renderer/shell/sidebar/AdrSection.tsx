@@ -32,7 +32,6 @@ const styles = {
     font: 'inherit',
     fontSize: 'var(--text-13)',
     textAlign: 'left',
-    cursor: 'pointer',
   },
   number: { flex: 'none', fontSize: 'var(--text-12)', color: 'var(--text-secondary)' },
   title: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
@@ -82,7 +81,6 @@ const styles = {
     color: 'var(--text)',
     font: 'inherit',
     fontSize: 'var(--text-12)',
-    cursor: 'pointer',
   },
   panelBody: { flex: 1, minHeight: 0, overflow: 'auto', padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--text-13)', userSelect: 'text' },
 } satisfies Record<string, CSSProperties>

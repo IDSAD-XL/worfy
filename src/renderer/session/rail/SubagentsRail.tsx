@@ -41,7 +41,6 @@ const styles = {
     font: 'inherit',
     fontSize: 'var(--text-12)',
     textAlign: 'left',
-    cursor: 'pointer',
   },
   branch: { flex: 'none', color: 'var(--text-muted)' },
   name: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
@@ -97,7 +96,7 @@ export function SubagentsList({ tree, now, onOpen, sessionKey }: SubagentsListPr
       <li key={info.id}>
         <button
           type="button"
-          style={{ ...styles.row, paddingLeft: 10 + (info.depth - 1) * 14, cursor: canOpen ? 'pointer' : 'default' }}
+          style={{ ...styles.row, paddingLeft: 10 + (info.depth - 1) * 14 }}
           disabled={!canOpen}
           title={info.summary ?? info.description ?? undefined}
           data-testid="subagents-rail-row"

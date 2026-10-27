@@ -79,9 +79,8 @@
   color: var(--accent);
   font: inherit;
   font-weight: 600;
-  cursor: pointer;
 }
-.w-toast__action:hover {
+.w-toast__action:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--selected);
 }
 
@@ -97,9 +96,8 @@
   border-radius: var(--radius-chip);
   background: transparent;
   color: var(--text-muted);
-  cursor: pointer;
 }
-.w-toast__close:hover {
+.w-toast__close:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--surface-raised);
   color: var(--text);
 }

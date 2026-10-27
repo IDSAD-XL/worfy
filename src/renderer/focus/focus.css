@@ -60,7 +60,7 @@ html[data-platform='linux'] .w-focus__bar[data-sidebar='hidden'] {
   color: var(--text-secondary);
   padding: 0;
 }
-.w-focus__icon-button:hover {
+.w-focus__icon-button:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--surface-raised);
 }
 /* What gives way in a narrow bar, in this order: the title is cut with an ellipsis, as in the
@@ -115,7 +115,7 @@ html[data-platform='linux'] .w-focus__bar[data-sidebar='hidden'] {
   font: inherit;
   font-size: var(--text-12);
 }
-.w-focus__button:hover {
+.w-focus__button:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--surface-raised);
 }
 .w-focus__button kbd {
@@ -250,7 +250,7 @@ html[data-platform='linux'] .w-focus__bar[data-sidebar='hidden'] {
   font-family: var(--font-ui);
   font-size: var(--text-12);
 }
-.w-focus-entry:hover {
+.w-focus-entry:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--surface-raised);
 }
 .w-focus-entry kbd {

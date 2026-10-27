@@ -21,7 +21,6 @@
   font: inherit;
   font-size: var(--text-12);
   text-align: left;
-  cursor: default;
 }
 .w-select:hover:not(:disabled) {
   border-color: var(--text-muted);
@@ -81,7 +80,6 @@
   box-sizing: border-box;
   border-radius: var(--radius-button);
   white-space: nowrap;
-  cursor: default;
 }
 .w-select-option[data-active='true'] {
   background: var(--selected);

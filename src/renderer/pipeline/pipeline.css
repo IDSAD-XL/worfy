@@ -82,9 +82,8 @@
   color: var(--text-secondary);
   font: inherit;
   font-size: var(--text-12);
-  cursor: pointer;
 }
-.w-pipeline-column__fold:hover {
+.w-pipeline-column__fold:hover:where(:not(:disabled, [aria-disabled='true'])) {
   border-color: var(--text-secondary);
 }
 .w-pipeline-column__fold:focus-visible {
@@ -118,9 +117,8 @@
   color: var(--text);
   font: inherit;
   text-align: left;
-  cursor: pointer;
 }
-.w-pipeline-card:hover {
+.w-pipeline-card:hover:where(:not(:disabled, [aria-disabled='true'])) {
   border-color: var(--border-strong);
 }
 .w-pipeline-card:focus-visible {
@@ -233,7 +231,6 @@
   min-height: var(--row-height);
   padding: 5px 8px 6px;
   box-sizing: border-box;
-  cursor: pointer;
 }
 .w-pipeline-row__line {
   display: flex;

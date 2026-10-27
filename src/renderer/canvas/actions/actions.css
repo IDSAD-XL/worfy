@@ -11,9 +11,8 @@
   font-size: var(--text-12);
   line-height: 18px;
   white-space: nowrap;
-  cursor: default;
 }
-.w-action:hover {
+.w-action:hover:where(:not(:disabled, [aria-disabled='true'])) {
   border-color: var(--text-secondary);
 }
 .w-action--primary {
@@ -22,7 +21,7 @@
   color: var(--primary-text);
   font-weight: 600;
 }
-.w-action--primary:hover {
+.w-action--primary:hover:where(:not(:disabled, [aria-disabled='true'])) {
   border-color: transparent;
   filter: brightness(1.08);
 }

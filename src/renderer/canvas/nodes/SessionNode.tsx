@@ -99,7 +99,6 @@ const styles = {
     color: 'var(--text-muted)',
     font: 'inherit',
     fontSize: 'var(--text-11)',
-    cursor: 'pointer',
   },
   broken: { padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
   answer: {

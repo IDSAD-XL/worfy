@@ -93,3 +93,46 @@ for (const [scheme, tokens] of [['light', light], ['dark', dark]] as const) {
     })
   })
 }
+
+// The hover veil (--hover-veil, laid over every control under the pointer by the control rules of
+// tokens.css): a hovered control must look different from the ground it stands on, and its text
+// must stay readable on the darker or lighter ground the veil makes.
+function veilIn(block: string): [number, number, number, number] {
+  const match = /--hover-veil\s*:\s*rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)\s*;/.exec(block)
+  if (!match) throw new Error('the block has no --hover-veil in rgba()')
+  return [Number(match[1]), Number(match[2]), Number(match[3]), Number(match[4])]
+}
+
+/** `ground` with the veil laid over it, as the browser blends a translucent colour. */
+function veiled(ground: string, [r, g, b, alpha]: [number, number, number, number]): string {
+  const blend = (offset: number, over: number): string => {
+    const under = Number.parseInt(ground.slice(offset, offset + 2), 16)
+    return Math.round(over * alpha + under * (1 - alpha))
+      .toString(16)
+      .padStart(2, '0')
+  }
+  return `#${blend(1, r)}${blend(3, g)}${blend(5, b)}`
+}
+
+for (const [scheme, veil] of [
+  ['light', veilIn(blockAfter(':root {'))],
+  ['dark', veilIn(blockAfter('@media (prefers-color-scheme: dark)'))],
+] as const) {
+  const tokens = scheme === 'light' ? light : dark
+  describe(`${scheme} theme, a hovered control`, () => {
+    it('blends the veil the way the browser does', () => {
+      expect(veiled('#ffffff', [0, 0, 0, 0.5])).toBe('#808080')
+      expect(veiled('#000000', [255, 255, 255, 0.25])).toBe('#404040')
+    })
+
+    it.each(grounds)('on %s stands out from the ground by a contrast of at least 1.07:1', (ground) => {
+      const plain = tokens[ground] ?? ''
+      expect(contrast(plain, veiled(plain, veil)), `${ground} ${plain} hovered`).toBeGreaterThanOrEqual(1.07)
+    })
+
+    it.each(textPairs)('keeps %s on a hovered %s at a contrast of at least 4.5:1', (foreground, ground) => {
+      const hovered = veiled(tokens[ground] ?? '', veil)
+      expect(contrast(tokens[foreground] ?? '', hovered), `${foreground} on ${ground} hovered (${hovered})`).toBeGreaterThanOrEqual(4.5)
+    })
+  })
+}

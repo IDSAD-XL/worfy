@@ -109,7 +109,7 @@ html[data-platform='linux'] .w-toolbar[data-sidebar='hidden'] {
   color: var(--text-secondary);
   padding: 0;
 }
-.w-toolbar__icon-button:hover {
+.w-toolbar__icon-button:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--surface-raised);
 }
 /* The icon buttons of a two-line toolbar item (the Harness line above the app version): smaller,

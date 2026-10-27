@@ -16,6 +16,18 @@
   color: var(--text);
 }
 
+/*
+ * The empty Canvas: a drag there draws a selection (selectionOnDrag), a click acts on nothing, so
+ * the arrow rather than React Flow's pointer for that mode. A pan with the middle button
+ * (`.dragging`) shows React Flow's grabbing, which its own `.selection` rule used to cover.
+ */
+.w-canvas .react-flow__pane.selection {
+  cursor: default;
+}
+.w-canvas .react-flow__pane.selection.dragging {
+  cursor: grabbing;
+}
+
 /* While a mouse button pressed on the Canvas is held, and while a Node is dragged or resized or the
    Canvas is panned, no iframe on the Canvas takes the mouse (worfy-week ticket 09). A Card's page
    is on another origin: a pointer that runs ahead onto its iframe would hand the mouse events to

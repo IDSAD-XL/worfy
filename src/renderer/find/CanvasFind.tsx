@@ -150,7 +150,7 @@ const filterStyles = {
     fontSize: 'var(--text-12)',
     color: 'var(--text-secondary)',
   },
-  button: { height: 20, padding: '0 6px', border: 0, borderRadius: 'var(--radius-chip)', background: 'var(--surface-raised)', color: 'var(--text)', font: 'inherit', fontSize: 'var(--text-11)', cursor: 'pointer' },
+  button: { height: 20, padding: '0 6px', border: 0, borderRadius: 'var(--radius-chip)', background: 'var(--surface-raised)', color: 'var(--text)', font: 'inherit', fontSize: 'var(--text-11)' },
 } satisfies Record<string, CSSProperties>
 
 /** "Show only tag": every Node without the tag, and the edges that touch one, are not drawn. */
@@ -205,7 +205,7 @@ const barStyles = {
   input: { flex: 1, minWidth: 80, height: 34, border: 0, outline: 'none', background: 'transparent', color: 'var(--text)', font: 'inherit', fontSize: 'var(--text-13)' },
   count: { flex: 'none', fontVariantNumeric: 'tabular-nums' },
   scope: { flex: 'none', padding: '1px 6px', borderRadius: 'var(--radius-chip)', background: 'var(--working-bg)', color: 'var(--working-text)', fontSize: 'var(--text-11)' },
-  button: { flex: 'none', width: 24, height: 24, padding: 0, border: 0, borderRadius: 'var(--radius-button)', background: 'transparent', color: 'var(--text-secondary)', font: 'inherit', cursor: 'pointer' },
+  button: { flex: 'none', width: 24, height: 24, padding: 0, border: 0, borderRadius: 'var(--radius-button)', background: 'transparent', color: 'var(--text-secondary)', font: 'inherit' },
   where: {
     width: 'min(520px, calc(100vw - 48px))',
     marginTop: 4,

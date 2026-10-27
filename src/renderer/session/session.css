@@ -153,7 +153,6 @@
   font-size: var(--text-12);
   font-weight: 600;
   box-shadow: var(--shadow-control);
-  cursor: default;
 }
 
 /* A toggle in the header (Hide tools): a square icon button, pressed while on. */
@@ -168,6 +167,13 @@
   background: var(--selected);
   color: var(--accent);
   box-shadow: none;
+}
+
+.w-session__button:hover:not(:disabled, [aria-disabled='true']) {
+  box-shadow: var(--shadow-control), var(--hover-shadow);
+}
+.w-session__toggle[aria-pressed='true']:hover:where(:not(:disabled, [aria-disabled='true'])) {
+  box-shadow: var(--hover-shadow);
 }
 
 .w-session__button:disabled {
@@ -264,10 +270,9 @@
   border-radius: var(--radius-chip);
   background: none;
   color: var(--text-secondary);
-  cursor: pointer;
 }
 
-.w-session-find__button:hover {
+.w-session-find__button:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--surface-raised);
   color: var(--text);
 }
@@ -372,7 +377,6 @@
   color: var(--text-secondary);
   font: inherit;
   font-size: var(--text-12);
-  cursor: default;
 }
 
 .w-tr__earlier-button:hover:not(:disabled) {
@@ -489,7 +493,6 @@
   font: inherit;
   font-size: var(--text-12);
   text-align: left;
-  cursor: default;
 }
 
 .w-tr__fold-line {
@@ -747,6 +750,10 @@
   box-shadow: var(--shadow-primary);
 }
 
+.w-composer__send:hover:not(:disabled) {
+  box-shadow: var(--shadow-primary), var(--hover-shadow);
+}
+
 .w-composer__send:disabled {
   border-color: var(--border-strong);
   background: var(--surface-raised);
@@ -844,7 +851,7 @@
   line-height: 1;
 }
 
-.w-attachment__remove:hover {
+.w-attachment__remove:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--border);
   color: var(--text);
 }
@@ -896,7 +903,6 @@
   border-radius: var(--radius-button);
   color: var(--text);
   font-size: var(--text-12);
-  cursor: default;
 }
 
 .w-slash__item[aria-selected='true'] {
@@ -1053,7 +1059,6 @@
   padding: 0;
   appearance: none;
   background: transparent;
-  cursor: pointer;
 }
 
 .w-effort__slider::-webkit-slider-runnable-track {
@@ -1135,7 +1140,6 @@
   background: var(--surface-raised);
   color: var(--text);
   font-size: var(--text-11);
-  cursor: pointer;
 }
 
 .w-queue[data-paused] .w-queue__chip {
@@ -1201,10 +1205,9 @@
   color: var(--text-muted);
   font-size: 14px;
   line-height: 1;
-  cursor: pointer;
 }
 
-.w-queue__remove:hover {
+.w-queue__remove:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--surface-raised);
   color: var(--text);
 }

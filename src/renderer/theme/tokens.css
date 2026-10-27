@@ -92,6 +92,11 @@
 
   /* The sidebar lets the native vibrancy of the window show through */
   --sidebar-translucent: rgba(233, 233, 236, 0.8);
+
+  /* Laid over a control under the pointer (the control rules at the end of this file) */
+  --hover-veil: rgba(0, 0, 0, 0.04);
+  /* The veil as a box-shadow layer: a control that has a shadow of its own lists both on hover */
+  --hover-shadow: inset 0 0 0 100vmax var(--hover-veil);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -150,6 +155,8 @@
     --shadow-primary: 0 0 #0000;
 
     --sidebar-translucent: rgba(22, 21, 19, 0.82);
+
+    --hover-veil: rgba(255, 255, 255, 0.06);
   }
 }
 
@@ -177,6 +184,85 @@ body {
 button {
   font: inherit;
   color: inherit;
+}
+
+/*
+ * Controls: everything a click acts on shows the pointer, a veil under the pointer and the accent
+ * ring on keyboard focus, the same everywhere; an inactive control shows none of them. These are
+ * the only cursor rules for controls: components do not set `cursor: pointer` themselves.
+ * `:where()` keeps them at zero specificity, so a component's own hover, focus ring or cursor
+ * (the Canvas's grab and resize cursors among them) still wins. The veil is an inset shadow, not a
+ * background, so it shows over a component's own background, inline ones included; a component
+ * that sets its own box-shadow draws its own hover. Text fields keep the text cursor: they are not
+ * in the list. test/e2e/controls.spec.ts checks these rules on the controls of every area.
+ */
+:where(
+    button,
+    [role='button'],
+    a[href],
+    summary,
+    select,
+    label:has(input[type='checkbox'], input[type='radio']),
+    input[type='checkbox'],
+    input[type='radio'],
+    input[type='range'],
+    [role='menuitem'],
+    [role='menuitemradio'],
+    [role='menuitemcheckbox'],
+    [role='tab'],
+    [role='option'],
+    [role='switch'],
+    [role='link']
+  ) {
+  cursor: pointer;
+}
+:where(
+    button,
+    [role='button'],
+    a[href],
+    summary,
+    label:has(input[type='checkbox'], input[type='radio']),
+    [role='menuitem'],
+    [role='menuitemradio'],
+    [role='menuitemcheckbox'],
+    [role='tab'],
+    [role='option'],
+    [role='switch'],
+    [role='link']
+  ):where(:hover:not(:disabled, [aria-disabled='true'], :has(input:disabled))) {
+  box-shadow: var(--hover-shadow);
+}
+:where(
+    button,
+    [role='button'],
+    a[href],
+    summary,
+    select,
+    input[type='checkbox'],
+    input[type='radio'],
+    input[type='range'],
+    [role='menuitem'],
+    [role='menuitemradio'],
+    [role='menuitemcheckbox'],
+    [role='tab'],
+    [role='option'],
+    [role='switch'],
+    [role='link']
+  ):where(:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* One cursor for every inactive control, the read-only write actions of F-SPEC included. */
+:where(
+    button:disabled,
+    select:disabled,
+    input[type='checkbox']:disabled,
+    input[type='radio']:disabled,
+    input[type='range']:disabled,
+    label:has(input[type='checkbox']:disabled, input[type='radio']:disabled),
+    [aria-disabled='true']
+  ) {
+  cursor: not-allowed;
 }
 
 /* Every id, path, number, branch, model and cost is set in monospace with tabular figures. */

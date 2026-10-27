@@ -47,7 +47,6 @@
   border-radius: var(--radius-chip);
   background: transparent;
   color: var(--text-secondary);
-  cursor: default;
 }
 .w-browser-frame__nav-button:hover:not(:disabled) {
   background: var(--segment-track);
@@ -187,9 +186,8 @@
   background: var(--bg);
   color: var(--text);
   font: inherit;
-  cursor: default;
 }
-.w-browser-frame__open-button:hover {
+.w-browser-frame__open-button:hover:where(:not(:disabled, [aria-disabled='true'])) {
   border-color: var(--border-strong);
 }
 .w-browser-frame__open-button:focus-visible {
@@ -247,9 +245,8 @@
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: default;
 }
-.w-browser-frame__profile:hover {
+.w-browser-frame__profile:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--segment-track);
 }
 .w-browser-frame__profile:focus-visible {
@@ -336,7 +333,6 @@
   color: var(--text-secondary);
   font: inherit;
   font-size: var(--text-12);
-  cursor: pointer;
   pointer-events: all;
 }
 .w-browser-frame__asleep:focus-visible {

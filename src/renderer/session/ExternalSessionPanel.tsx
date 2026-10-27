@@ -77,7 +77,7 @@ const styles = {
   readOnly: { fontSize: 'var(--text-13)', color: 'var(--text-secondary)' },
   source: { fontSize: 'var(--text-12)', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 },
   back: { width: 26, padding: 0, justifyContent: 'center' },
-  link: { padding: 0, border: 'none', background: 'none', font: 'inherit', color: 'var(--accent)', textDecoration: 'underline', textUnderlineOffset: 2, cursor: 'pointer' },
+  link: { padding: 0, border: 'none', background: 'none', font: 'inherit', color: 'var(--accent)', textDecoration: 'underline', textUnderlineOffset: 2 },
 } satisfies Record<string, CSSProperties>
 
 export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, blocks = [] }: ExternalSessionPanelProps) {

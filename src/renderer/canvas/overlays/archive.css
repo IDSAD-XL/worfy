@@ -29,7 +29,9 @@
   box-shadow: var(--shadow-control);
   color: var(--text-secondary);
   font: inherit;
-  cursor: pointer;
+}
+.w-archive__button:hover:where(:not(:disabled, [aria-disabled='true'])) {
+  box-shadow: var(--shadow-control), var(--hover-shadow);
 }
 .w-archive__button[aria-expanded='true'] {
   border-color: var(--accent);
@@ -103,9 +105,6 @@
   padding: 0 var(--space-1);
   border-radius: var(--radius-button);
 }
-.w-archive__row:hover {
-  background: var(--surface-raised);
-}
 .w-archive__title {
   flex: 1;
   min-width: 0;
@@ -128,12 +127,10 @@
   color: var(--text);
   font: inherit;
   white-space: nowrap;
-  cursor: pointer;
 }
 .w-archive__action[aria-disabled='true'] {
   background: transparent;
   color: var(--text-muted);
-  cursor: default;
 }
 .w-archive__action:focus-visible,
 .w-archive__button:focus-visible,
@@ -157,7 +154,6 @@
   font-size: var(--text-11);
   line-height: 14px;
   white-space: nowrap;
-  cursor: pointer;
 }
 .w-archive-badge[aria-expanded='true'] {
   border-color: var(--accent);

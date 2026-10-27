@@ -44,7 +44,6 @@ const styles = {
     font: 'inherit',
     fontSize: 'var(--text-11)',
     lineHeight: '16px',
-    cursor: 'pointer',
   },
   fold: {
     width: '100%',
@@ -60,7 +59,6 @@ const styles = {
     color: 'var(--text-secondary)',
     font: 'inherit',
     fontSize: 'var(--text-12)',
-    cursor: 'pointer',
   },
   handle: { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, border: 0, pointerEvents: 'none' },
 } satisfies Record<string, CSSProperties>
@@ -111,7 +109,7 @@ function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; ag
           <button
             type="button"
             className="nodrag"
-            style={{ ...styles.open, opacity: canOpen ? 1 : 0.5, cursor: canOpen ? 'pointer' : 'default' }}
+            style={{ ...styles.open, opacity: canOpen ? 1 : 0.5 }}
             disabled={!canOpen}
             title={canOpen ? 'Open the transcript of this Subagent' : 'No transcript of this Subagent yet'}
             data-testid="subagent-open"

@@ -87,7 +87,6 @@ const styles = {
     font: 'inherit',
     fontSize: 'var(--text-13)',
     textAlign: 'left',
-    cursor: 'pointer',
   },
 } satisfies Record<string, CSSProperties>
 
