@@ -194,8 +194,7 @@ export function quarantineProblems(
     if (text === undefined || names.length === 0) {
       problems.push(`${entry.id}: ${entry.file} has no mark quarantined('${entry.id}')`)
     } else {
-      // shortcut: a describe name is looked for as plain text, so one written as a template or with
-      // an escaped quote is not found; redo when such a describe holds a quarantined test.
+      // shortcut: a describe name is matched as plain text (no template, no escaped quote), redo when one gets an entry.
       const found = names.some((name) => {
         const match = name.exec(entry.test)
         return match !== null && (match[1] ?? '').split(' > ').every((block) => block === '' || text.includes(block))
