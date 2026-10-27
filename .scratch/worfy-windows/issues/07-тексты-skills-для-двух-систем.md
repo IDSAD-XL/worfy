@@ -2,7 +2,7 @@
 
 Type: task
 Status: blocked 2026-10-18T17:55Z
-Blocked reason: влит (#461); метка и Q33 проверены на #479; Profile ПК role request записан; ждут ПК: Q31 (первая Wave на ПК), запуск worfy и Get-Process
+Blocked reason: влит (#461); метка и Q33 проверены на #479; Profile ПК role request записан; запуск worfy и Get-Process на ПК проверены 2026-10-27; ждёт ПК: Q31 (первая Wave на ПК)
 Waits: owner
 Blocked by: 03, 12
 Source: решения владельца 2026-10-07: Q19 (скрипты Harness — на Node, команды skills — для обеих систем), Q25 (Session-ы Mac и Windows общаются через репозиторий; перед Wave — открытые PR второго Epic-а), Q12 (мерж в main по очереди); решения владельца 2026-10-08: Q30 (метка `needs-mac-gate`: PR Session Windows с общим кодом проверяет и вливает Session Mac; spec.md, «Соглашения», «Метка needs-mac-gate»), Q31 (Windows проверяет main после мержа: gate full на свежем main в начале каждой своей Wave, красный — первым делом чинит; уточняет ADR-0056, пункт 6), Q33 (раздел «Mac checks» в описании PR; Session Mac выполняет его вместе с gate full и пишет отчёт в PR; без отчёта мержа нет); spec.md, «Решения владельца», «Как работает очередь needs-mac-gate» ([spec.md](../spec.md)); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node», пункт 6; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions», пункты 4–6; [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness по-английски); evidence Ticket-а 01 (`.scratch/worfy-windows/evidence/01-факты-windows.md`, файл создаёт Ticket 01)
@@ -222,11 +222,11 @@ macOS PR #150 не добавил: `grep -rnE 'stat -f|date -v' harness/skills` 
 - [x] `bash harness/bin/tests/skill-blocks.test.sh`, `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` и `bash harness/bin/tests/profile.test.sh` — exit 0 на Mac и в `pnpm test`.
 - [x] Те же три test-а — exit 0 в Git Bash на Windows-ПК; случаи zsh печатают `skip`.
 - [x] Живая проверка: новый блок раздела 1 в репозитории worfy для Epic-а `worfy-windows` печатает открытые PR других Epic-ов с их файлами (или ничего). Вывод — в Итог.
-- [ ] Вручную: `profile --field cross_machine_gate.role` в репозитории worfy печатает `request` на Windows-ПК и `serve` на Mac (Mac — через раздел Mac checks PR, Q33); `--field cross_machine_gate.checks_section` на обеих — `Mac checks`.
+- [x] Вручную: `profile --field cross_machine_gate.role` в репозитории worfy печатает `request` на Windows-ПК и `serve` на Mac (Mac — через раздел Mac checks PR, Q33); `--field cross_machine_gate.checks_section` на обеих — `Mac checks`.
 - [x] Живая проверка метки. PR этого Ticket-а идёт по правилу вручную: метку ставит Session на Windows, вливает Session на Mac. Первый PR с меткой после его мержа, когда новые тексты skills стоят на обеих Machine, идёт по новым шагам: метку ставит раздел 8 `ship-ticket` на Windows-ПК, Session на Mac в разделе 1 `epic-wave` перебазирует, проверяет и вливает его или пишет комментарий. Годится PR Ticket-а, который не ждёт 07 (обычно 14): 15 и 16 ждут 07. Если такого PR не осталось — на Windows-ПК блок раздела 8 над влитым PR этого Ticket-а печатает `label`, на Mac блок раздела 1 печатает открытые PR с меткой или ничего. Номер PR, строка `[gate]` и итог — в Итог.
 - [x] Живая проверка Q33 на том же PR с меткой: в описании PR есть раздел `## Mac checks` (команды или `none`); в PR есть отчёт Session на Mac с первой строкой `Mac checks report: green` или `Mac checks report: red`, строкой `[gate]` и кодами выхода команд раздела; мерж — позже отчёта по времени. Ссылки на описание и отчёт — в Итог.
 - [ ] Живая проверка Q31: на Windows-ПК первая Wave после мержа этого Ticket-а начинается с gate full на свежем main — строка вердикта и код выхода стоят в отчёте Wave раньше раздачи Ticket-ов. Выдержка из отчёта Wave — в Итог.
-- [ ] Windows-ПК, один раз: запуск по новому абзацу открывает установленный worfy, команда `Get-Process` печатает путь его `worfy.exe`. Выбранный способ запуска и вывод — в Итог.
+- [x] Windows-ПК, один раз: запуск по новому абзацу открывает установленный worfy, команда `Get-Process` печатает путь его `worfy.exe`. Выбранный способ запуска и вывод — в Итог.
 - [x] Mac: gate full зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
 
 ## Тесты
@@ -327,4 +327,11 @@ worfy/.:test`. Три test-а Ticket-а отдельно — exit 0. До rebase
 - Profile ПК записан через `project-connect` (exit 0, Harness home `610fbcd`): копия Profile Mac с путями ПК и `cross_machine_gate` = role `request`, label `needs-mac-gate`, checks_section `Mac checks`; `profile --field cross_machine_gate.role` на ПК — `request`, exit 0.
 - Блок Pipeline (Q8) в Profile ПК — Harness home `67d8d71`. В Profile Mac блок Pipeline (Q8) тоже записан: шаг Orchestrator-а после мержа Ticket-а 07 Epic-а `worfy-pipeline` сделан 2026-10-18.
 - gate fast на ПК — `lint` и `typecheck` (решение владельца в чате ПК, Harness home `2bb021e`), пока не закрыт [Ticket 14](14-gate-full-на-windows.md).
-- Осталось (ПК, владелец): Q31 — первая Wave на ПК; запуск установленного worfy на ПК (`Get-Process`).
+- Windows-ПК 2026-10-27, `cross_machine_gate` в Profile ПК (репозиторий worfy): `profile --field cross_machine_gate.role` — `request`, `--field cross_machine_gate.checks_section` — `Mac checks`, оба exit 0. Вместе с записью Mac выше пункт закрыт.
+- Windows-ПК 2026-10-27, запуск по абзацу раздела 6 `ship-ticket`. Сделан по «да» владельца, переданному через мост; после запуска Orchestrator Mac уточнил, что такое разрешение должно прийти в чате ПК-сессии, и владелец подтвердил его там («Разрешаю», 2026-10-27).
+  - Stable уже работала: `powershell -NoProfile -Command "Get-Process worfy | Select-Object Id,Path"` (exit 0) — четыре процесса (pid 30568, 38520, 44112, 63100), у всех `C:\Users\Alexey\AppData\Local\Programs\worfy\worfy.exe`.
+  - Запуск `explorer.exe "C:\Users\Alexey\AppData\Local\Programs\worfy\worfy.exe"` (20:15:47 EET): `explorer.exe` вышел с кодом 1, как и предупреждает абзац; процесс запустился. Появились два новых `worfy.exe`: pid 69228 с путём `...\Programs\worfy\worfy.exe` и pid 43028 (путь прочитать не успел), оба сами закрылись через 1–8 с (`requestSingleInstanceLock`, `src/main/index.ts:57`). Четыре процесса Stable остались те же, с тем же путём.
+  - Передний план к Stable не перешёл: впереди был Telegram, после запуска — explorer, затем Chrome; окно Stable не было свёрнуто, так что `restore()` не требовался. `focus()` из second-instance Windows, судя по всему, не пустила на передний план (блокировка переднего плана, как в Ticket-е 113 worfy-windows); сам вызов `second-instance` снаружи не виден — обработчик ничего не пишет в лог.
+  - Вернуть передний план Telegram без клика (`WScript.Shell.AppActivate`) не вышло: ответ True, но впереди остался Chrome.
+  - UI-тест другого проекта (`stolyar_uitest`) к моменту запуска уже закончился: ни до, ни после запуска его процесса не было.
+- Осталось (ПК): Q31 — первая Wave на ПК (gate full на свежем main; ждёт слова Orchestrator-а Mac).
