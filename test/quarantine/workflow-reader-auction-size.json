@@ -1,0 +1,11 @@
+{
+  "file": "test/contract/workflow-reader.test.ts",
+  "test": "workflow reader on an Auction-sized Project > parses the answer, reads the files section of each Ticket and diffs 682 Tickets in ≤ 300 ms of its own time (450 ms on Windows)",
+  "platforms": [
+    "win32"
+  ],
+  "reason": "Measures wall time: 597 ms against the 450 ms bound on the GitHub Windows runner (run 40009839336, 2026-10-23), green when run again.",
+  "owner": "worfy-throughput 23",
+  "since": "2026-10-28",
+  "until": "2026-11-11"
+}

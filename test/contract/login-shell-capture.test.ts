@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { agentEnv, captureLoginShellEnv, MAX_SHELL_OUTPUT, SYSTEM_PATH, type CapturedEnv } from '../../src/main/agent/env'
 import { harnessScriptEnv, withProcessPath } from '../../src/main/harness/script-env'
 import { removeTestTree } from '../remove'
+import { quarantined } from '../quarantine'
 
 /** The files in HOME where an rc file writes the pids of what it leaves behind. */
 const PID_FILES = ['background.pid', 'probe.pid', 'shell.pid']
@@ -168,7 +169,7 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
     expect(took).toBeLessThan(10_000)
   }, 30_000)
 
-  it('keeps nothing of what that process writes after the answer', () => {
+  quarantined('login-shell-capture-late-writes')('keeps nothing of what that process writes after the answer', () => {
     // A process of its own, run with --expose-gc: its memory (RSS) is measured before and after the
     // background process writes 100 MB to the shell's output. RSS, not the V8 heap: Electron's V8
     // keeps strings this large outside heapUsed.

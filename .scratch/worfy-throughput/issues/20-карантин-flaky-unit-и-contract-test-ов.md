@@ -1,7 +1,8 @@
 # 20 — Карантин flaky unit- и contract-test-ов: запись с владельцем и датой выхода, блокирующие run-ы их пропускают
 
 Type: task
-Status: open
+Status: claimed 2026-10-27T23:08Z
+Branch: worfy-throughput/20
 Blocked by: —
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», решения 2 и 3; открытые вопросы
 Ticket-ов [11](11-pr-вливается-по-задетым-test-ам-полный-набор-на-main.md)
