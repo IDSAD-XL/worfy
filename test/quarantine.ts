@@ -4,12 +4,14 @@
 // the order of a console's output — gets an entry in test/quarantine/<id>.json and is declared with
 // `quarantined('<id>')(name, fn, timeout)` in place of `it(name, fn, timeout)`. The entry says which
 // test it is, on which platforms it is flaky, why, which ticket fixes it (`owner`), and until when
-// (`until`, at most 14 days after `since`). There are at most 15 entries.
+// (`until`, at most 14 days after `since`; `since` is today's date in UTC, never a later one). There
+// are at most 15 entries.
 //
 // What the helper does with such a test, by the environment variable WORFY_QUARANTINE:
 //   unset or empty — the blocking runs (pnpm test, the gate, CI): the test is skipped, its name
 //                    says so — "<name> (quarantine: <owner>, until <date>)" — and a line on stderr
-//                    names it with its owner and exit date;
+//                    names it with its owner and exit date; on GitHub Actions a second line,
+//                    a ::warning workflow command, puts the same on the run's summary page;
 //   run            — every test runs, the quarantined ones under that name too;
 //   only           — the same, meant for the run of the quarantined tests alone:
 //                    WORFY_QUARANTINE=only pnpm test -t "\(quarantine: "
@@ -121,9 +123,11 @@ export function parseEntry({ id, text }: EntryFile): { entry: QuarantineEntry } 
   return { entry: { id, ...(r as Omit<QuarantineEntry, 'id'>) } }
 }
 
+const today = (now: Date) => now.toISOString().slice(0, 10)
+
 /** Past its exit date: today, in UTC, is later than `until`. */
 export function isExpired(entry: QuarantineEntry, now: Date): boolean {
-  return now.toISOString().slice(0, 10) > entry.until
+  return today(now) > entry.until
 }
 
 /** The files of test/quarantine/ (or of `dir`), sorted by name. */
@@ -184,6 +188,12 @@ export function quarantineProblems(
       continue
     }
     const { entry } = parsed
+    // An entry date in the future would stretch the 14 days from `since` to `until` past today's 14.
+    if (entry.since > today(options.now)) {
+      problems.push(
+        `${entry.id}: since ${entry.since} is later than today ${today(options.now)} (UTC): the entry date is the day the test is quarantined`,
+      )
+    }
     if (isExpired(entry, options.now)) {
       problems.push(
         `${entry.id}: expired on ${entry.until} (owner ${entry.owner}): fix the test, or extend the entry with the owner’s word`,
@@ -264,6 +274,11 @@ export function quarantined(id: string, options: QuarantineOptions = {}) {
       // vitest's default reporter counts skipped tests but does not name them: this line does.
       const log = options.log ?? ((line: string) => process.stderr.write(`${line}\n`))
       log(`skip (quarantine: ${entry.owner}, until ${entry.until}): ${entry.file} > ${entry.test}`)
+      // The github-actions reporter of vitest annotates failures only; this names the skip on the run's page.
+      if (process.env.GITHUB_ACTIONS === 'true') {
+        const message = `${entry.file} > ${entry.test} (owner ${entry.owner}, until ${entry.until})`
+        log(`::warning title=quarantine::${message.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}`)
+      }
       register.skip(labelled, fn, timeout)
     } else register(labelled, fn, timeout)
   }

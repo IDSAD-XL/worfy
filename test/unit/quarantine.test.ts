@@ -1,13 +1,13 @@
 // The quarantine of flaky unit and contract tests (test/quarantine.ts, entries in test/quarantine/).
 //
 // The first block checks the real entries and marks of the repository: an entry without an owner or
-// an exit date, one that stays longer than 14 days, one past its exit date, one for a test the file
-// does not have, a mark without an entry, more than 15 entries — each makes this file red, with the
-// name of the entry. The other blocks check the rules on fixtures, with a clock passed in, never the
+// an exit date, one that stays longer than 14 days, one dated later than today, one past its exit
+// date, one for a test the file does not have, a mark without an entry, more than 15 entries — each
+// makes this file red, with the name of the entry. The other blocks check the rules on fixtures, with a clock passed in, never the
 // system clock, and the helper with a fake `it` in place of vitest's.
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   MAX_ENTRIES,
   QUARANTINE_DIR,
@@ -134,6 +134,14 @@ describe('quarantineProblems: the rules of an entry', () => {
     expect(problemsOf([entry('watcher-event'), roundsEntry], { now: new Date('2026-11-11T23:59:59Z') })).toEqual([])
   })
 
+  it('an entry date later than today (UTC) is red; today itself passes', () => {
+    const later = entry('watcher-event', { since: '2026-10-29', until: '2026-11-11' })
+    expect(problemsOf([later, roundsEntry], { now: new Date('2026-10-28T23:59:59Z') })).toEqual([
+      'watcher-event: since 2026-10-29 is later than today 2026-10-28 (UTC): the entry date is the day the test is quarantined',
+    ])
+    expect(problemsOf([later, roundsEntry], { now: new Date('2026-10-29T00:00:00Z') })).toEqual([])
+  })
+
   it('an entry for a test the file does not have is red', () => {
     expect(
       problemsOf([entry('watcher-event', { test: 'the watcher > reports a change within two seconds' }), roundsEntry]),
@@ -216,6 +224,14 @@ describe('quarantined(): what the helper does with a test', () => {
   const name = 'reports a change within one second'
   const label = ' (quarantine: worfy-throughput 23, until 2026-11-11)'
 
+  // CI sets GITHUB_ACTIONS; these tests set it themselves, so they read the same everywhere.
+  beforeEach(() => {
+    vi.stubEnv('GITHUB_ACTIONS', '')
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   function declare(options: { env?: string; platform?: NodeJS.Platform; now?: Date; files?: Record<string, EntryFile>; id?: string; name?: string }) {
     const fake = fakeIt()
     quarantined(options.id ?? 'watcher-event', {
@@ -236,6 +252,24 @@ describe('quarantined(): what the helper does with a test', () => {
     ]
     expect(declare({})).toEqual(skipped)
     expect(declare({ env: '' })).toEqual(skipped)
+  })
+
+  it('on GitHub Actions also prints a warning annotation that names the test, its owner and exit date', () => {
+    vi.stubEnv('GITHUB_ACTIONS', 'true')
+    expect(declare({})).toEqual([
+      { how: 'log', name: `skip (quarantine: worfy-throughput 23, until 2026-11-11): ${FIXTURE_FILE} > the watcher > ${name}` },
+      {
+        how: 'log',
+        name: `::warning title=quarantine::${FIXTURE_FILE} > the watcher > ${name} (owner worfy-throughput 23, until 2026-11-11)`,
+      },
+      { how: 'skip', name: `${name}${label}`, timeout: 30_000 },
+    ])
+    // The message of a workflow command escapes %, CR and LF.
+    const odd = { 'watcher-event': entry('watcher-event', { test: 'the watcher > 100% of\nchanges' }) }
+    expect(declare({ files: odd, name: '100% of\nchanges' })[1]?.name).toBe(
+      `::warning title=quarantine::${FIXTURE_FILE} > the watcher > 100%25 of%0Achanges (owner worfy-throughput 23, until 2026-11-11)`,
+    )
+    expect(declare({ env: 'run' }).map((call) => call.how)).toEqual(['run'])
   })
 
   it('runs the test under WORFY_QUARANTINE=run and =only, its name still saying it is quarantined', () => {
