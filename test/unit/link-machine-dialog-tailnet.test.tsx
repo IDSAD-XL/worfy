@@ -154,3 +154,18 @@ it('an answer that comes after the setting was turned off is dropped', async () 
   await main.answer({ ok: true, value: PEERS }, 0)
   expect(screen.queryByTestId('link-tailscale-list')).toBeNull()
 })
+
+it('asks again when the Linked machines change, and a machine linked meanwhile drops out without a gap', async () => {
+  const main = await open(linkState())
+  await main.answer({ ok: true, value: PEERS })
+  const linked = { id: '22222222-2222-4222-8222-222222222222', name: 'pc', state: 'online' as const, certificateChanged: false, access: 'off' as const }
+  main.push(linkState({ revision: 2, linked: [linked] }))
+  expect(main.asked).toHaveLength(2)
+  // Until main answers, the window keeps the list it has.
+  expect(rows()).toHaveLength(3)
+  await main.answer({ ok: true, value: PEERS.filter((peer) => peer.name !== 'pc') })
+  expect(rows().map((row) => row.querySelector('span span')?.textContent)).toEqual(['lab', 'nas'])
+  // A state that changes something else does not ask again.
+  main.push(linkState({ revision: 3, linked: [linked], keepAwake: true }))
+  expect(main.asked).toHaveLength(2)
+})

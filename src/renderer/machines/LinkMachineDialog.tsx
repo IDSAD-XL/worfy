@@ -141,9 +141,16 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
     else codeField.current?.focus()
   }, [target])
 
-  // The tailnet list is asked for once the state says "Link through Tailscale" is on, and again each
-  // time it turns on. No list is an answer, not an error: main gives none without the CLI.
+  // The tailnet list is asked for once the state says "Link through Tailscale" is on, again each time
+  // it turns on, and each time the Linked machines change: main leaves them out of the list, so one
+  // linked while the window is open drops out. The shown list stays until the new answer replaces it;
+  // turning the setting off clears it. No list is an answer, not an error: main gives none without the CLI.
   const tailscaleOn = state?.tailscale === true
+  const linkedIds = (state?.linked ?? []).map((machine) => machine.id).join(' ')
+  useEffect(() => {
+    if (!tailscaleOn) return
+    return () => setPeers([])
+  }, [tailscaleOn])
   useEffect(() => {
     if (!tailscaleOn) return
     let current = true
@@ -152,9 +159,8 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
     })
     return () => {
       current = false
-      setPeers([])
     }
-  }, [tailscaleOn])
+  }, [tailscaleOn, linkedIds])
 
   // A picked tailnet machine: back to the field, where its port is typed. Setting the value has put
   // the caret at its end already.

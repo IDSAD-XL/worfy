@@ -2,12 +2,19 @@
 // reading `tailscale status --json` (a recorded output, test/fixtures/tailscale/status.json),
 // finding the Tailscale CLI, and what a missing, failing, hanging or garbled CLI gives. No test
 // starts a real `tailscale`: the runner and the file check are injected; the default runner is
-// tested against a shell script that stands in for it.
+// tested against a shell script that stands in for it. The login shell's environment (agentEnv) is
+// a stub: no shell starts.
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { findTailscale, parseTailscaleStatus, readTailscalePeers, runTailscaleCli, TAILSCALE_TIMEOUT_MS } from '../../src/main/link/tailscale'
+
+const login = vi.hoisted(() => ({ agentEnv: vi.fn() }))
+vi.mock('../../src/main/agent/env', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/main/agent/env')>()),
+  agentEnv: login.agentEnv,
+}))
 
 const STATUS = readFileSync(join(__dirname, '../fixtures/tailscale/status.json'), 'utf8')
 
@@ -102,9 +109,26 @@ describe('readTailscalePeers', () => {
     const run = vi.fn(async () => STATUS)
     const warn = vi.fn()
     const peers = await readTailscalePeers({ ...found, run, warn })
-    expect(run).toHaveBeenCalledWith(cli, ['status', '--json'], TAILSCALE_TIMEOUT_MS)
+    expect(run).toHaveBeenCalledWith(cli, ['status', '--json'], TAILSCALE_TIMEOUT_MS, { PATH: '/usr/bin' })
     expect(peers.map((peer) => peer.name)).toEqual(['Alexeys-iPhone', 'lab', 'pc', 'nas'])
     expect(warn).not.toHaveBeenCalled()
+  })
+
+  it("looks for the CLI on the PATH of the login shell's environment, not worfy's own, and runs it with that environment", async () => {
+    // worfy opened from Finder: its own PATH has no /opt/homebrew/bin; the login shell's has.
+    vi.stubEnv('PATH', '/usr/bin:/bin:/usr/sbin:/sbin')
+    const env = { PATH: '/usr/bin:/bin:/opt/homebrew/bin', HOME: '/Users/test' }
+    login.agentEnv.mockResolvedValue({ env, from: 'login-shell', error: null })
+    const run = vi.fn(async () => STATUS)
+    const homebrew = '/opt/homebrew/bin/tailscale'
+    try {
+      const peers = await readTailscalePeers({ platform: 'darwin', exists: (path) => path === homebrew, run, warn: vi.fn() })
+      expect(peers).toHaveLength(4)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+    expect(login.agentEnv).toHaveBeenCalledTimes(1)
+    expect(run).toHaveBeenCalledWith(homebrew, ['status', '--json'], TAILSCALE_TIMEOUT_MS, env)
   })
 
   it('leaves out the Linked machines it is given', async () => {
@@ -138,10 +162,14 @@ describe.skipIf(process.platform === 'win32')('runTailscaleCli', () => {
   }
 
   it('passes the arguments as they are, without a shell', async () => {
-    expect(await runTailscaleCli(script(`printf '%s\\n' "$@"`), ['status', '--json', '$(echo no); echo no'], 5_000)).toBe('status\n--json\n$(echo no); echo no\n')
+    expect(await runTailscaleCli(script(`printf '%s\\n' "$@"`), ['status', '--json', '$(echo no); echo no'], 5_000, process.env)).toBe('status\n--json\n$(echo no); echo no\n')
+  })
+
+  it('runs the CLI with the environment it is given', async () => {
+    expect(await runTailscaleCli(script('printf %s "$WORFY_TAILSCALE_PROBE"'), [], 5_000, { ...process.env, WORFY_TAILSCALE_PROBE: 'from the login shell' })).toBe('from the login shell')
   })
 
   it('stops a CLI that does not answer in time', async () => {
-    await expect(runTailscaleCli(script('exec sleep 30'), ['status', '--json'], 200)).rejects.toMatchObject({ killed: true })
+    await expect(runTailscaleCli(script('exec sleep 30'), ['status', '--json'], 200, process.env)).rejects.toMatchObject({ killed: true })
   })
 })

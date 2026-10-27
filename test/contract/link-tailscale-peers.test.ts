@@ -13,7 +13,7 @@ import type { LinkState, TailscalePeerView } from '../../src/shared/ipc/link'
 import { LinkBench } from './link-bench'
 
 const app = vi.hoisted(() => ({ link: undefined as AppLink | undefined }))
-const cli = vi.hoisted(() => ({ path: '/Applications/Tailscale.app/Contents/MacOS/Tailscale', installed: false, run: vi.fn<(file: string, args: readonly string[], timeout: number) => Promise<string>>(async () => ''), warn: vi.fn() }))
+const cli = vi.hoisted(() => ({ path: '/Applications/Tailscale.app/Contents/MacOS/Tailscale', installed: false, run: vi.fn<(file: string, args: readonly string[], timeout: number, env: NodeJS.ProcessEnv) => Promise<string>>(async () => ''), warn: vi.fn() }))
 
 vi.mock('../../src/main/link/service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/main/link/service')>()),
@@ -109,7 +109,7 @@ it('with the CLI and "Link through Tailscale" on, lists the tailnet as the CLI r
     { name: 'pc', address: '100.101.102.104', online: true },
     { name: 'nas', address: '100.101.102.105', online: false },
   ])
-  expect(cli.run).toHaveBeenCalledWith(cli.path, ['status', '--json'], expect.any(Number))
+  expect(cli.run).toHaveBeenCalledWith(cli.path, ['status', '--json'], expect.any(Number), { PATH: '/usr/bin:/bin' })
 })
 
 it('with "Link through Tailscale" off, gives no list and does not start the CLI', async () => {

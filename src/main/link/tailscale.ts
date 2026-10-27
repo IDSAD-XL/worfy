@@ -8,13 +8,15 @@
 // works as before. A CLI that fails, hangs past TAILSCALE_TIMEOUT_MS or prints something that is not
 // its status means no list either, with one warning in the log; the window shows no error.
 //
-// The CLI is started with an argument array, never through a shell. Tests inject the runner and the
+// The CLI is looked for on the PATH of the login shell's environment and started with it (agentEnv,
+// ADR-0007): worfy opened from Finder has a PATH of /usr/bin:/bin:/usr/sbin:/sbin, without
+// Homebrew's /opt/homebrew/bin. It is started with an argument array, never through a shell. Tests inject the runner and the
 // file check: no test starts a real `tailscale`.
 import { execFile } from 'node:child_process'
 import { posix, win32 } from 'node:path'
 import { z } from 'zod'
 import type { TailscalePeerView } from '../../shared/ipc/link'
-import { fileOrAlias, findOnPath, getVar, type FileExists } from '../agent/env'
+import { agentEnv, fileOrAlias, findOnPath, getVar, type FileExists } from '../agent/env'
 
 /** How long `tailscale status --json` may run before it is stopped and the list left empty. */
 export const TAILSCALE_TIMEOUT_MS = 3_000
@@ -89,12 +91,12 @@ export function parseTailscaleStatus(text: string, linked: readonly string[] = [
   return peers.sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name))
 }
 
-/** Runs `file` with `args` (no shell) and gives its standard output; rejects on a failure or after `timeoutMs`. */
-export type TailscaleRunner = (file: string, args: readonly string[], timeoutMs: number) => Promise<string>
+/** Runs `file` with `args` (no shell) in `env` and gives its standard output; rejects on a failure or after `timeoutMs`. */
+export type TailscaleRunner = (file: string, args: readonly string[], timeoutMs: number, env: NodeJS.ProcessEnv) => Promise<string>
 
-export const runTailscaleCli: TailscaleRunner = (file, args, timeoutMs) =>
+export const runTailscaleCli: TailscaleRunner = (file, args, timeoutMs, env) =>
   new Promise((resolve, reject) => {
-    execFile(file, [...args], { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (error, stdout) => {
+    execFile(file, [...args], { env, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (error, stdout) => {
       if (error) reject(error)
       else resolve(stdout)
     })
@@ -102,6 +104,7 @@ export const runTailscaleCli: TailscaleRunner = (file, args, timeoutMs) =>
 
 export interface TailscaleReadOptions {
   platform?: NodeJS.Platform
+  /** Where the CLI is looked for and what it runs with; the login shell's environment (agentEnv) by default. */
   env?: NodeJS.ProcessEnv
   exists?: FileExists
   run?: TailscaleRunner
@@ -117,10 +120,11 @@ export interface TailscaleReadOptions {
  */
 export async function readTailscalePeers(options: TailscaleReadOptions = {}): Promise<TailscalePeerView[]> {
   const warn = options.warn ?? ((message: string) => console.warn(message))
-  const cli = findTailscale(options.platform ?? process.platform, options.env ?? process.env, options.exists)
+  const env = options.env ?? (await agentEnv()).env
+  const cli = findTailscale(options.platform ?? process.platform, env, options.exists)
   if (cli === null) return []
   try {
-    return parseTailscaleStatus(await (options.run ?? runTailscaleCli)(cli, ['status', '--json'], TAILSCALE_TIMEOUT_MS), options.linked)
+    return parseTailscaleStatus(await (options.run ?? runTailscaleCli)(cli, ['status', '--json'], TAILSCALE_TIMEOUT_MS, env), options.linked)
   } catch (error) {
     const reason =
       error instanceof SyntaxError || error instanceof z.ZodError

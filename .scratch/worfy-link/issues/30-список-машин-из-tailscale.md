@@ -32,6 +32,8 @@ Source: решение владельца 2026-10-18, Q22, вторая част
 
 - `src/main/link/` — новый модуль чтения списка Tailscale (имя выбирает исполнитель).
 - `src/shared/ipc/link.ts`, `src/renderer/machines/LinkMachineDialog.tsx`.
+- `src/main/ipc/link.ts` — handler канала `link.tailscalePeers`; `src/main/link/service.ts` —
+  `linkedHosts()` (адреса и имена MagicDNS Linked machine-ов для фильтра списка).
 
 ## Итог
 
@@ -42,8 +44,10 @@ Source: решение владельца 2026-10-18, Q22, вторая част
   вводится руками.
 - Модуль `src/main/link/tailscale.ts`: `findTailscale` (поиск CLI по правилу выше; на Linux — только
   `PATH`; относительные папки `PATH` пропускаются), `parseTailscaleStatus` (разбор
-  `tailscale status --json`), `readTailscalePeers` (запуск и разбор). CLI запускается через
-  `execFile` с массивом аргументов `status --json`, без shell, с timeout 3 с (`TAILSCALE_TIMEOUT_MS`).
+  `tailscale status --json`), `readTailscalePeers` (запуск и разбор). CLI ищется по `PATH` окружения
+  login shell (`agentEnv()`, ADR-0007, урок `docs/lessons/testing.md`) и запускается с этим же
+  окружением: у worfy, открытого из Finder, `PATH` без `/opt/homebrew/bin`. Запуск — `execFile` с
+  массивом аргументов `status --json`, без shell, с timeout 3 с (`TAILSCALE_TIMEOUT_MS`).
 - Разбор: `Self` (эта машина) в список не входит; имя — первая метка `DNSName` (имя MagicDNS, точка
   в конце отбрасывается вместе с остальными метками), без `DNSName` — `HostName`; адрес — первый IPv4
   из `TailscaleIPs`, без IPv4 — первый адрес; машина без адреса и запись другой формы пропускаются;
@@ -65,7 +69,9 @@ Source: решение владельца 2026-10-18, Q22, вторая част
   про которую известен только адрес локальной сети (без `tailnetName`), остаётся в списке со своим
   адресом Tailscale — этот адрес связь не хранит. Guard `test/contract/ipc-renderer.test.tsx` допускает поле `link.tailscalePeers: address`
   и говорит об этом в комментарии.
-- Окно «Link a machine» спрашивает список, когда настройка включена, и снова при каждом её включении;
+- Окно «Link a machine» спрашивает список, когда настройка включена, снова при каждом её включении и
+  при каждой смене набора Linked machine-ов (связанная при открытом окне машина уходит из списка; до
+  нового ответа окно держит прежний список);
   ответ, пришедший после выключения, отбрасывается. Список «In your tailnet» — под машинами Bonjour,
   теми же строками `w-row`, chip «Offline» — тем же стилем, что «Already linked»; цвета — только
   токены темы, обе темы. Выбор подставляет `адрес:` (IPv6 — в скобках) и возвращает фокус в поле.
@@ -76,4 +82,4 @@ Source: решение владельца 2026-10-18, Q22, вторая част
   `test/contract/link-tailscale-peers.test.ts` (настоящие IPC handler-ы: CLI нет — окно открывается
   без problem, список пуст; связанная машина — по адресу или по `tailnetName` при адресе локальной сети — в ответ не попадает),
   `test/unit/link-machine-dialog-tailnet.test.tsx` (список, Offline, выбор, настройка, поздний ответ).
-  Каждое новое поведение проверено mutant-ом: 33 из 33 убиты.
+  Каждое новое поведение проверено mutant-ом: 38 из 38 убиты.
