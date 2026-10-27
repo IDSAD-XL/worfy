@@ -191,7 +191,7 @@ describe('the parent of a Subagent (navigation.ts)', () => {
     answers['orchestrator.open'] = () => ({ projectId: PROJECT, nodeId: ORCH, sessionId: null, state: 'starting', error: null, model: null, costUsd: 0, statusBlock: null, version: 1 })
     const done = navigation.openOrchestrator(PROJECT)
     // The view changes at once, not after main's answer.
-    expect(navigation.useNavigation.getState()).toEqual({ view: 'session', opened: {}, withoutNode: {} })
+    expect(navigation.useNavigation.getState()).toEqual({ view: 'session', opened: {}, offCanvas: {} })
     expect(await done).toBeUndefined()
     expect(opens().map((call) => call.input)).toEqual([{ projectId: PROJECT }])
     // A refusal of main is the palette's reason.
@@ -250,6 +250,6 @@ describe('"Go to Orchestrator" with an Orchestrator that is down (palette row)',
     expect(reason).toBeUndefined()
     expect(opens()).toHaveLength(2)
     expect(opens()[1]?.input).toEqual({ projectId: PROJECT })
-    expect(navigation.useNavigation.getState()).toEqual({ view: 'session', opened: {}, withoutNode: {} })
+    expect(navigation.useNavigation.getState()).toEqual({ view: 'session', opened: {}, offCanvas: {} })
   })
 })

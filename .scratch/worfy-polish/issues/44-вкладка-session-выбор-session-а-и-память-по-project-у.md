@@ -131,12 +131,17 @@ transcript-а — Node, на котором его открыли) есть в L
 `SessionView` берёт Session через `useOpenedSession`, ветка `external` — тоже. «Switch to Session»
 в палитре и клик по вкладке — один и тот же `setView('session')`: своей логики в `commands.ts` нет.
 
-Отступление от текста Ticket-а: строка transcript-а в палитре (`CommandPalette.tsx:322`) открывает
-Session, у которой может не быть Node в Layout (`session:<id>`). По букве правила «нет Node — 
-Orchestrator» такая строка показывала бы Orchestrator вместо выбранного transcript-а. Поэтому
-`openSession` отмечает Project в `withoutNode`, если Node этого id в Layout нет в момент открытия:
-такая Session показывается, пока не получит Node; как только Node появился, отметка снимается, и
-закрытый после этого Node ведёт к Orchestrator. **Решено без владельца, подтвердить.**
+Отступление от текста Ticket-а: Session открывают и тогда, когда её Node нет на Canvas — строка
+transcript-а в палитре (`CommandPalette.tsx:322`, Node `session:<id>` может не быть или он в архиве
+после автоархива, ADR-0076), клик по уведомлению (`NotificationTarget.tsx:106`), toast вопроса
+(`question-toast.ts:29`) при скрытом Node. По букве правила «Node нет, в архиве или скрыт —
+Orchestrator» такой явный переход показывал бы Orchestrator. Поэтому `openSession` отмечает Project в
+`offCanvas`, если Node этого id не на Canvas в момент открытия (нет в Layout, в архиве или скрыт):
+такая Session показывается, пока её Node не окажется на Canvas. Как только он там, отметка
+снимается, и закрытый, архивный или скрытый после этого Node ведёт к Orchestrator. Отметку снимает
+подписка на `layout.changed` уровня хранилища (работает, даже когда вкладка Session этого Project-а
+не нарисована) и проверка в `useOpenedSession` для Layout-а, прочитанного через `layout.get`.
+**Решено без владельца, подтвердить.**
 
 Dropdown (Q1) — `src/renderer/session/SessionPicker.tsx` в шапке обоих panel-ей, сразу после статуса;
 строки — `src/renderer/session/session-picker.ts` (`pickerSessions`). Это общий `Select`
@@ -165,9 +170,12 @@ Test-ы:
   Project-а, выбор показывает Session сразу (live и только для чтения), клавиатура, `touch` при выборе
   и его отсутствие на экране только для чтения; Q3: A → B → A, вкладка и «Switch to Session»,
   Node закрыт / в архиве / скрыт → Orchestrator, «Go to Orchestrator» стирает память только своего
-  Project-а, transcript без Node.
+  Project-а, transcript без Node; Session с архивным или скрытым Node, открытая явно, показывается;
+  Node, появившийся и закрытый, пока вкладка не нарисована, ведёт к Orchestrator.
 - `test/unit/show-archived-node.test.tsx` — Q2: строка сайдбара во вкладке Session (архивный Node
-  возвращается, вид не меняется, ⌘Z), живая Session worfy, путь на Canvas; «Resume» в обоих видах.
+  возвращается, вид не меняется, ⌘Z), живая Session worfy, путь на Canvas; «Resume» в обоих видах
+  (во вкладке Session — скрытый Node: архивный main восстанавливает сам); пользователь, ушедший на
+  Canvas, пока main отвечал, там и остаётся — для строки сайдбара и для «Resume».
 - Форма хранилища обновлена в `session-back`, `session-view`, `palette-commands`,
   `palette-transcripts`, `permission-card`, `question-card`, `subagent-nodes`.
 - e2e `test/e2e/session-picker.spec.ts` (новый): dropdown переключает Session, строка сайдбара во

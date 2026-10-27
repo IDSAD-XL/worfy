@@ -49,7 +49,7 @@ beforeEach(() => {
     return promise
   })
   Element.prototype.scrollIntoView = () => undefined
-  useNavigation.setState({ view: 'canvas', opened: {}, withoutNode: {} })
+  useNavigation.setState({ view: 'canvas', opened: {}, offCanvas: {} })
 })
 
 afterEach(() => {

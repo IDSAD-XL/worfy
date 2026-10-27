@@ -105,10 +105,20 @@ function Sessions({ project }: { project: ProjectView }) {
   const open = (sessionId: string) => {
     const node = nodeOf(sessionId)
     if (!node) return
-    const opens = useNavigation.getState().view === 'session' ? nodeSession(node, project.id, isRunning(sessionNodes[node.id])) : null
-    if (opens === null) setView('canvas')
+    if (useNavigation.getState().view !== 'session') setView('canvas')
     // An archived or hidden Node comes back first, as one step ⌘Z undoes (canvas/show-node.ts).
-    void showNode(project.id, node).then(() => (opens === null ? focusSessionNode(project.id, node.id) : openSession(opens)))
+    void showNode(project.id, node).then(() => {
+      // Read after main's answer: a user who went to the Canvas meanwhile is not taken back.
+      const view = useNavigation.getState().view
+      const opens = view === 'session' ? nodeSession(node, project.id, isRunning(sessionNodes[node.id])) : null
+      if (opens !== null) {
+        openSession(opens)
+        return
+      }
+      // A Node with no Session to show goes to the Canvas, as before.
+      if (view === 'session') setView('canvas')
+      focusSessionNode(project.id, node.id)
+    })
   }
 
   let body = null

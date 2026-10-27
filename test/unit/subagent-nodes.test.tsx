@@ -61,7 +61,7 @@ const trees = (tree: SubagentInfo[]) => new Map([[S7, tree]])
 
 afterEach(() => {
   vi.useRealTimers()
-  useNavigation.setState({ view: 'canvas', opened: {}, withoutNode: {} })
+  useNavigation.setState({ view: 'canvas', opened: {}, offCanvas: {} })
 })
 
 describe('placeSubagents', () => {

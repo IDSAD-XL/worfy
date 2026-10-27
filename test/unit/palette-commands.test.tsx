@@ -113,7 +113,7 @@ describe('palette commands', () => {
       delete globals.worfy
     })
     expect(await row!.run()).toBeUndefined()
-    expect(useNavigation.getState()).toEqual({ view: 'session', opened: {}, withoutNode: {} })
+    expect(useNavigation.getState()).toEqual({ view: 'session', opened: {}, offCanvas: {} })
     expect(asked).toEqual([{ channel: 'orchestrator.open', input: { projectId: 'p1' } }])
   })
 

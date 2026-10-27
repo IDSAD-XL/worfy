@@ -175,8 +175,14 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
       focus(nodeId)
       return
     }
+    // main restores an archived Node itself (src/main/agent/node-sessions.ts, liveNode); a hidden one stays hidden.
     const node = currentLayout(project.id)?.nodes.find((each) => each.id === nodeId)
     if (node !== undefined) await showNode(project.id, node)
+    // A user who went to the Canvas meanwhile is not taken back.
+    if (useNavigation.getState().view !== 'session') {
+      focus(nodeId)
+      return
+    }
     openSession({ nodeId, projectId: project.id })
     onClose()
   }

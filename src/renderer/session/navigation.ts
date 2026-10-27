@@ -12,7 +12,7 @@ import { isSourceNodeId, shownOnCanvas } from '../../shared/layout/derived'
 import type { LayoutNode } from '../../shared/layout/types'
 import { currentLayout, useLayout } from '../canvas/useLayout'
 import { readSessionNodeData, readWorfySessionNodeData, SESSION_KIND } from '../claude-home/session-nodes'
-import { invoke } from '../ipc'
+import { invoke, subscribe } from '../ipc'
 import { readOnlyNow } from '../projects/read-only-now'
 import type { ShellView } from '../shell/Toolbar'
 
@@ -32,14 +32,16 @@ interface NavigationStore {
   /** The last Session opened in each Project, by Project id; none: the Session view shows the Project's Orchestrator. */
   opened: Readonly<Record<string, OpenedSession>>
   /**
-   * Projects whose last Session was opened while the Layout had no Node of that id — a transcript
-   * from the palette, or a Node main had not sent yet: such a Session is shown without a Node.
-   * Cleared once its Node is in the Layout, from when on a closed Node means the Orchestrator.
+   * Projects whose last Session was opened while its Node was not on the Canvas: no such Node in
+   * the Layout (a transcript from the palette, a Node main had not sent yet), or one archived or
+   * hidden (an old Session's Node the automatic archive took, opened from the palette or a
+   * notification). The user asked for that Session, so it shows. Cleared once its Node is seen on
+   * the Canvas, from when on its Node closed, archived or hidden means the Orchestrator.
    */
-  withoutNode: Readonly<Record<string, true>>
+  offCanvas: Readonly<Record<string, true>>
 }
 
-export const useNavigation = create<NavigationStore>(() => ({ view: 'canvas', opened: {}, withoutNode: {} }))
+export const useNavigation = create<NavigationStore>(() => ({ view: 'canvas', opened: {}, offCanvas: {} }))
 
 export function setView(view: ShellView): void {
   useNavigation.setState({ view })
@@ -51,6 +53,35 @@ function without<T>(record: Readonly<Record<string, T>>, key: string): Record<st
   return rest
 }
 
+const onCanvas = (opened: OpenedSession, nodes: readonly LayoutNode[] | undefined): boolean => {
+  const node = nodes?.find((each) => each.id === opened.nodeId)
+  return node !== undefined && shownOnCanvas(node)
+}
+
+/** Clears the Project's `offCanvas` once its last Session's Node is on the Canvas in `nodes`. */
+function noteLayout(projectId: string, nodes: readonly LayoutNode[] | undefined): void {
+  const { opened, offCanvas } = useNavigation.getState()
+  const last = opened[projectId]
+  if (offCanvas[projectId] === true && last !== undefined && onCanvas(last, nodes)) useNavigation.setState((state) => ({ offCanvas: without(state.offCanvas, projectId) }))
+}
+
+let following = false
+
+/**
+ * Follows every Layout change, whichever Project and view the window shows: a Node that comes onto
+ * the Canvas and goes again while the Session view of its Project is not drawn still counts.
+ */
+function followLayouts(): void {
+  if (following) return
+  following = true
+  try {
+    subscribe('layout.changed', (change) => noteLayout(change.projectId, change.layout.nodes))
+  } catch (error) {
+    following = false
+    console.error('layout.changed: cannot subscribe', error)
+  }
+}
+
 /**
  * Shows the Session view on the Session behind a Node, the last one of its Project from now on,
  * and tells main the user opened it: a `touch` of the Node, so the automatic archive leaves it for
@@ -59,11 +90,12 @@ function without<T>(record: Readonly<Record<string, T>>, key: string): Record<st
  * step of the undo history.
  */
 export function openSession(opened: OpenedSession): void {
-  const placed = currentLayout(opened.projectId)?.nodes.some((node) => node.id === opened.nodeId) === true
+  const placed = onCanvas(opened, currentLayout(opened.projectId)?.nodes)
+  if (!placed) followLayouts()
   useNavigation.setState((state) => ({
     view: 'session',
     opened: { ...state.opened, [opened.projectId]: opened },
-    withoutNode: placed ? without(state.withoutNode, opened.projectId) : { ...state.withoutNode, [opened.projectId]: true },
+    offCanvas: placed ? without(state.offCanvas, opened.projectId) : { ...state.offCanvas, [opened.projectId]: true },
   }))
   if (readOnlyNow() !== null || isSourceNodeId(opened.nodeId)) return
   void invoke('layout.apply', { projectId: opened.projectId, op: { op: 'touch', id: opened.nodeId } }).catch(() => undefined)
@@ -72,29 +104,24 @@ export function openSession(opened: OpenedSession): void {
 /**
  * The Session the Session view shows in a Project: its last opened one while that Session's Node
  * is on the Canvas — for a Subagent's window and a transcript, the Node it was opened on — else
- * null, the Project's Orchestrator. A Node closed, archived or hidden since leads to the
- * Orchestrator; a Session opened without a Node (`withoutNode`) is shown until it gets one. Before
- * the Layout has come (`nodes` undefined) there is nothing to judge by, and the last Session shows.
+ * null, the Project's Orchestrator. A Session opened while its Node was off the Canvas
+ * (`offCanvas`) shows until its Node is seen on the Canvas. Before the Layout has come (`nodes`
+ * undefined) there is nothing to judge by, and the last Session shows.
  */
-export function shownSession(opened: OpenedSession | undefined, nodes: readonly LayoutNode[] | undefined, withoutNode: boolean): OpenedSession | null {
+export function shownSession(opened: OpenedSession | undefined, nodes: readonly LayoutNode[] | undefined, offCanvas: boolean): OpenedSession | null {
   if (opened === undefined) return null
-  if (nodes === undefined) return opened
-  const node = nodes.find((each) => each.id === opened.nodeId)
-  if (node === undefined) return withoutNode ? opened : null
-  return shownOnCanvas(node) ? opened : null
+  if (nodes === undefined || offCanvas) return opened
+  return onCanvas(opened, nodes) ? opened : null
 }
 
 /** shownSession() of a Project, kept up with its Layout; what a click on the Session tab shows. */
 export function useOpenedSession(projectId: string): OpenedSession | null {
   const opened = useNavigation((store) => store.opened[projectId])
-  const withoutNode = useNavigation((store) => store.withoutNode[projectId] === true)
+  const offCanvas = useNavigation((store) => store.offCanvas[projectId] === true)
   const nodes = useLayout(projectId).state?.layout.nodes
-  const placed = opened !== undefined && nodes?.some((node) => node.id === opened.nodeId) === true
-  // The Node has come: from now on its closing leads to the Orchestrator.
-  useEffect(() => {
-    if (withoutNode && placed) useNavigation.setState((state) => ({ withoutNode: without(state.withoutNode, projectId) }))
-  }, [withoutNode, placed, projectId])
-  return shownSession(opened, nodes, withoutNode)
+  // A Layout read with `layout.get` (no change event) may show the Node on the Canvas as well.
+  useEffect(() => noteLayout(projectId, nodes), [projectId, nodes, opened, offCanvas])
+  return shownSession(opened, nodes, offCanvas)
 }
 
 /**
@@ -124,7 +151,7 @@ export function nodeSession(node: LayoutNode, projectId: string, running: boolea
  * (src/main/agent/orchestrator.ts, open). Resolves to the reason when main refuses.
  */
 export async function openOrchestrator(projectId: string): Promise<string | undefined> {
-  useNavigation.setState((state) => ({ view: 'session', opened: without(state.opened, projectId), withoutNode: without(state.withoutNode, projectId) }))
+  useNavigation.setState((state) => ({ view: 'session', opened: without(state.opened, projectId), offCanvas: without(state.offCanvas, projectId) }))
   // A read-only screen (worfy-link ticket 25) only shows the Orchestrator: starting it is a write.
   if (readOnlyNow() !== null) return undefined
   const result = await invoke('orchestrator.open', { projectId })

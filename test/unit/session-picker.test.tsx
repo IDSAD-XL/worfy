@@ -72,6 +72,16 @@ let layouts: Record<string, LayoutNode[]>
 let answers: Record<string, (input: unknown) => unknown>
 /** The channels the renderer called, in order. */
 const sent: string[] = []
+/** The window's subscriptions, so a test can send main's events (`layout.changed`). */
+let listeners: { channel: string; handler: (payload: unknown) => void }[] = []
+const emit = (channel: string, payload: unknown): void => {
+  for (const each of listeners) if (each.channel === channel) each.handler(payload)
+}
+/** main's `layout.changed` for Project A with `nodes`: what every window hears after any change. */
+const layoutChanged = (nodes: LayoutNode[], revision: number): void => {
+  layouts[A] = nodes
+  emit('layout.changed', { ...layoutState(A, revision), screen: null, op: { op: 'touch', id: 'node-run' } })
+}
 
 const layoutState = (projectId: string, revision = 1): LayoutState => ({ projectId, layout: { nodes: layouts[projectId] ?? [], viewport: { x: 0, y: 0, zoom: 1 } }, revision })
 const rootOf = (input: unknown): string => (input as { projectRoot: string }).projectRoot
@@ -79,6 +89,7 @@ const rootOf = (input: unknown): string => (input as { projectRoot: string }).pr
 beforeEach(() => {
   vi.resetModules()
   sent.length = 0
+  listeners = []
   layouts = { [A]: nodesA(), [B]: [node('orch-b', 'orchestrator', {}), node('node-b', 'session', { origin: 'worfy', sessionId: S_DONE })] }
   answers = {
     'projects.list': () => PROJECTS,
@@ -106,7 +117,7 @@ beforeEach(() => {
       const answer = answers[channel]
       return Promise.resolve(answer ? { ok: true, value: answer(input) } : { ok: false, error: `no ${channel}` })
     },
-    on: () => 1,
+    on: (channel: string, handler: (payload: unknown) => void) => listeners.push({ channel, handler }),
     off: () => undefined,
   } as unknown as WorfyBridge
   ;(globalThis as { worfy?: WorfyBridge }).worfy = bridge
@@ -341,15 +352,57 @@ describe('the last Session of each Project (Q3)', () => {
     act(() => navigation.openSession({ nodeId: `session:${S_NEW}`, projectId: A, external: { sessionId: S_NEW } }))
     await settle()
     expect(shownNode()).toBe(`session:${S_NEW}`)
-    expect(navigation.useNavigation.getState().withoutNode).toEqual({ [A]: true })
+    expect(navigation.useNavigation.getState().offCanvas).toEqual({ [A]: true })
     // «Show» in the history gives it a Node: the memory now follows that Node.
     layouts[A] = [...nodesA(), node(`session:${S_NEW}`, 'session', { sessionId: S_NEW, origin: 'external', source: 'terminal', cwd: ROOT_A })]
     act(() => acceptLayoutState(layoutState(A, 2)))
     await settle()
-    expect(navigation.useNavigation.getState().withoutNode).toEqual({})
+    expect(navigation.useNavigation.getState().offCanvas).toEqual({})
     expect(shownNode()).toBe(`session:${S_NEW}`)
     layouts[A] = nodesA()
     act(() => acceptLayoutState(layoutState(A, 3)))
+    await settle()
+    expect(shownNode()).toBe('orch-a')
+  })
+
+  it.each([
+    ['archived', `session:${S_IDLE}`, (nodes: LayoutNode[]) => nodes.map((each) => (each.id === `session:${S_IDLE}` ? { ...each, archived: { at: 1, rule: 'idle' as const, batch: 'b1' } } : each))],
+    ['hidden', `session:${S_HIDDEN}`, (nodes: LayoutNode[]) => nodes],
+  ])('a Session whose Node is %s, opened from the palette or a notification, shows; once its Node is back on the Canvas and goes again, the Orchestrator', async (_, nodeId, start) => {
+    layouts[A] = start(nodesA())
+    const { navigation } = await renderView(A)
+    const { acceptLayoutState } = await import('../../src/renderer/canvas/useLayout')
+    const sessionId = nodeId.slice('session:'.length)
+    act(() => navigation.openSession({ nodeId, projectId: A, external: { sessionId } }))
+    await settle()
+    expect(shownNode()).toBe(nodeId)
+    expect(navigation.useNavigation.getState().offCanvas).toEqual({ [A]: true })
+    // Back on the Canvas (restored, or shown again): the memory follows the Node from now on.
+    layouts[A] = layouts[A]!.map((each) => (each.id === nodeId ? { ...each, hidden: false, archived: null } : each))
+    act(() => acceptLayoutState(layoutState(A, 2)))
+    await settle()
+    expect(navigation.useNavigation.getState().offCanvas).toEqual({})
+    expect(shownNode()).toBe(nodeId)
+    layouts[A] = layouts[A]!.map((each) => (each.id === nodeId ? { ...each, hidden: true } : each))
+    act(() => acceptLayoutState(layoutState(A, 3)))
+    await settle()
+    expect(shownNode()).toBe('orch-a')
+  })
+
+  it('a Node that comes onto the Canvas and goes again while no Session view of its Project is drawn still counts: the Orchestrator', async () => {
+    const projects = await import('../../src/renderer/projects/useProjects')
+    projects.acceptProjectsState(PROJECTS)
+    const navigation = await import('../../src/renderer/session/navigation')
+    const S_NEW = '66666666-6666-4666-8666-666666666666'
+    const added = node(`session:${S_NEW}`, 'session', { sessionId: S_NEW, origin: 'external', source: 'terminal', cwd: ROOT_A })
+    navigation.openSession({ nodeId: added.id, projectId: A, external: { sessionId: S_NEW } })
+    expect(navigation.useNavigation.getState().offCanvas).toEqual({ [A]: true })
+    // Nothing of Project A is drawn: «Show» in the history gives it a Node, then the Node is removed.
+    layoutChanged([...nodesA(), added], 2)
+    expect(navigation.useNavigation.getState().offCanvas).toEqual({})
+    layoutChanged(nodesA(), 3)
+    const { SessionView } = await import('../../src/renderer/session/SessionView')
+    render(<SessionView projectId={A} projectName="alpha" />)
     await settle()
     expect(shownNode()).toBe('orch-a')
   })
@@ -364,7 +417,9 @@ describe('the last Session of each Project (Q3)', () => {
     expect(shownSession(opened, [], false)).toBeNull()
     expect(shownSession(opened, [], true)).toBe(opened)
     expect(shownSession({ nodeId: `session:${S_HIDDEN}`, projectId: A }, nodes, false)).toBeNull()
-    expect(shownSession({ nodeId: 'node-archived', projectId: A }, nodes, true)).toBeNull()
+    expect(shownSession({ nodeId: 'node-archived', projectId: A }, nodes, false)).toBeNull()
+    // Opened while its Node was off the Canvas: shown until that Node is on the Canvas.
+    expect(shownSession({ nodeId: 'node-archived', projectId: A }, nodes, true)).toMatchObject({ nodeId: 'node-archived' })
     // A Subagent's window is judged by the Node it was opened on.
     expect(shownSession({ nodeId: 'node-run', projectId: A, external: { sessionId: S_RUN, agentId: 'a1' } }, nodes, false)).toMatchObject({ nodeId: 'node-run' })
     expect(shownSession({ nodeId: 'node-archived', projectId: A, external: { sessionId: S_HIDDEN, agentId: 'a1' } }, nodes, false)).toBeNull()
