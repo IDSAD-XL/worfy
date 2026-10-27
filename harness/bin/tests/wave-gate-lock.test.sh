@@ -57,27 +57,51 @@ printf '%s\n' "rm -f '$L/holder.json'; rmdir '$L'; mkdir '$L'; echo '{\"prs\":[7
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 0 ] && [ "$(q "$L/holder.json" 's.prs.join(",")' 2>&1)" = 7 ] && ok "e2e lock: on release, a lock someone else holds now keeps its holder.json and stays" || bad "e2e lock foreign: exit $rc, lock [$(ls -A "$L" 2>&1)]"
 rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null; rm -f "$GATE_DIR/takeover"
-# Sets the mtime of $2 to $1 seconds ago. The time goes to touch -t in UTC, which has no summer time: in local time
-# the hour that the end of summer time repeats is ambiguous, touch takes its first pass, and a lock set to 25 min
-# old came out 85 min old and was taken over as stale (2026-10-25, EEST -> EET).
+# Sets the mtime of $2 to $1 seconds before $3 (default: now). The time goes to touch -t in UTC, which has no summer
+# time: in local time the hour that the end of summer time repeats is ambiguous, touch takes its first pass, and a
+# lock set to 25 min old came out 85 min old and was taken over as stale (2026-10-25, EEST -> EET).
 aged() {
-    local t=$(( $(date +%s) - $1 ))
+    local t=$(( ${3:-$(date +%s)} - $1 ))
     TZ=UTC0 touch -t "$(TZ=UTC0 date -r "$t" +%Y%m%d%H%M.%S 2>/dev/null || TZ=UTC0 date -d "@$t" +%Y%m%d%H%M.%S)" "$2"
 }
-# A TZ in which the time of 25 min ago lies in the hour that the end of summer time repeats: summer time (UTC+3)
-# ended 30 min ago, so that local time is read twice. On 2026-10-25 (EEST -> EET) the local time zone of the Mac
-# did that by itself between 01:25 and 02:25 UTC.
+# A TZ whose summer time (UTC+3) ends exactly at the instant $1, so that the local time of $1 is the start of the
+# hour that the end repeats, on its second pass. On 2026-10-25 (EEST -> EET) the local time zone of the Mac did that
+# by itself between 01:25 and 02:25 UTC. Read back as local time, that time has two instants, $1 and an hour
+# earlier, and every instant between them is still summer time: the binary search of macOS mktime meets only summer
+# time there and lands on the earlier one, unless one of its steps hits $1 itself (one epoch second in 4096, see
+# dst_pick). A summer time that ended before $1 (it used to end 5 min before) left part of that hour in winter time,
+# and the search landed there and took $1 itself for about 7 % of the epoch values.
 # shortcut: on 1 January before about 01:00 UTC the rule's end comes before its start and summer time inverts, redo if this case runs then.
 ambiguous_tz() {
-    local x=$(( $(date +%s) - 1800 )) at
-    at="$(TZ=UTC0 date -r $((x + 10800)) '+%j %H:%M:%S' 2>/dev/null || TZ=UTC0 date -d "@$((x + 10800))" '+%j %H:%M:%S')"
+    local at
+    at="$(TZ=UTC0 date -r $(($1 + 10800)) '+%j %H:%M:%S' 2>/dev/null || TZ=UTC0 date -d "@$(($1 + 10800))" '+%j %H:%M:%S')"
     echo "XST-2XDT-3,0/0,$(( 10#${at%% *} - 1 ))/${at#* }"
 }
-# The young-lock case in the time zone $1 (empty: the one of the machine).
+# How many minutes before $1 (an epoch second) touch -t puts a file given the local time, in the TZ $2, of 25 min
+# before $1.
+dst_probe() {
+    local p; p="$(mktemp)"
+    ( export TZ="$2"; t=$(( $1 - 1500 )); touch -t "$(date -r "$t" +%Y%m%d%H%M.%S 2>/dev/null || date -d "@$t" +%Y%m%d%H%M.%S)" "$p" )
+    echo $(( ( $1 - $(node -e "process.stdout.write(String(Math.floor(require(\"fs\").statSync(process.argv[1]).mtimeMs / 1000)))" "$p") ) / 60 ))
+    rm -f "$p"
+}
+# Sets dst_now, dst_tz and probe_min for the summer-time case counting from the epoch second $1; returns 1 if the
+# probe shows no 85-min lock. The binary search of macOS mktime hits the lock's own instant for single isolated epoch
+# seconds, 4096 s apart, so a miss is tried once more a second earlier.
+dst_pick() {
+    local try
+    for try in 0 1; do
+        dst_now=$(( $1 - try )); dst_tz="$(ambiguous_tz $((dst_now - 1500)))"; probe_min="$(dst_probe "$dst_now" "$dst_tz")"
+        [ "$probe_min" -ge 80 ] && [ "$probe_min" -le 90 ] && return 0
+    done
+    return 1
+}
+# The young-lock case in the time zone $1 (empty: the one of the machine); $3 is the epoch second the lock's age
+# counts from (default: now).
 young_lock() {
     new_world "young$2" 1:a.txt
     S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
-    mkdir "$L"; ( [ -z "$1" ] || export TZ="$1"; aged 1500 "$L" )
+    mkdir "$L"; ( [ -z "$1" ] || export TZ="$1"; aged 1500 "$L" "${3:-}" )
     "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
     until_ok 30 grep -q "waiting for the e2e lock" "$W/out"; sleep 2
     [ "$(gate_count)" = 0 ] && grep -q "waiting for the e2e lock" "$W/out" && ok "e2e lock: a lock 25 min old is not taken over${1:+ (TZ=$1)}" || bad "e2e lock: a 25-min lock was taken${1:+ (TZ=$1)}"
@@ -85,13 +109,11 @@ young_lock() {
 }
 young_lock "" ""
 # The case is worth running in that TZ only where its local time is read wrong: there touch -t with the local time of
-# 25 min ago sets an mtime 85 min ago.
-dst_tz="$(ambiguous_tz)"; probe="$(mktemp)"
-( export TZ="$dst_tz"; t=$(( $(date +%s) - 1500 )); touch -t "$(date -r "$t" +%Y%m%d%H%M.%S 2>/dev/null || date -d "@$t" +%Y%m%d%H%M.%S)" "$probe" )
-probe_min=$(( ( $(date +%s) - $(node -e "process.stdout.write(String(Math.floor(require(\"fs\").statSync(process.argv[1]).mtimeMs / 1000)))" "$probe") ) / 60 ))
-rm -f "$probe"
-dst_miss="e2e lock: the 25-min lock in a TZ whose summer time ended 30 min ago: local time there gives a lock $probe_min min old, not 85 (TZ=$dst_tz)"
-if [ "$probe_min" -ge 80 ] && [ "$probe_min" -le 90 ]; then young_lock "$dst_tz" -dst
+# 25 min ago sets an mtime 85 min ago. The probe and the lock count from one epoch second, so both read the same
+# local time.
+dst_pick "$(date +%s)"; dst_ok=$?
+dst_miss="e2e lock: the 25-min lock in a TZ whose summer time ended at the lock's time: local time there gives a lock $probe_min min old, not 85 (TZ=$dst_tz)"
+if [ "$dst_ok" = 0 ]; then young_lock "$dst_tz" -dst "$dst_now"
 # On macOS the probe is known to show the 85 min, so a miss there is a broken TZ, not the platform: it fails
 # instead of dropping the only case that sees aged() go back to local time. The skip guard above runs earlier.
 elif [ "$(uname -s)" = Darwin ]; then bad "$dst_miss"
