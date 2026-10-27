@@ -430,12 +430,47 @@ Dismissed: <findings, each with its reason>'
     check "$n section $num: the example counts as one REJECTED in a Silent-mode ticket file" \
         test "$(printf 'gate: %s\n' "$example" | grep -c '^gate: REJECTED')" = 1
     check "$n section $num: REJECTED sends the Act on group, not the whole list" \
-        in_sec '`SendMessage` with the Act on group of its list'
+        in_sec 'Findings: <the Act on group of the recorded `REJECTED`'
     check "$n section $num: the second round gets the Act on group as the first round's list" \
         in_sec "The brief gives the first round's list — the Act on group of the recorded \`REJECTED\`, without the lines of the other groups — and the diff of the rework only"
     check "$n section $num: a finding set aside in the first round is not ground (a)" \
         in_sec "Only the items of that list count for (a): what the first round put into Consider, Noted or Dismissed — a \`high\` or \`med\` finding only with the verifier's agreement — is not ground (a)."
 done
+# 7e. A rework round goes to a fresh implementer with a short brief, not through SendMessage to the old one
+# whose prompt cache has expired; the exception is an implementer that reported less than 5 min ago.
+rw3="$(section "$EW" 3 | tr '\n' ' ' | tr -s ' ')"
+in_rw3() { [[ "$rw3" == *"$1"* ]]; }
+check "epic-wave section 3: a rework round is a fresh implementer with the rework brief" \
+    in_rw3 'The round is a new agent `worfy:implementer` with the rework brief below, in the same worktree and on the same branch — not `SendMessage` to the old implementer'
+check "epic-wave section 3: the 5 min exception" \
+    in_rw3 'The exception: the old implementer reported less than 5 min ago — then `SendMessage` to it with the same brief; a report time you do not know counts as older.'
+check "epic-wave section 3: the old wording — REJECTED to the same implementer — is gone" \
+    lacks "$EW" 'goes to the same implementer through'
+check "epic-wave section 3: every rework round of the skill follows the rule" \
+    in_rw3 'Every rework round of this skill follows this rule:'
+# The brief template: one fenced block after its heading, with the six labelled lines.
+rework_brief="$(section "$EW" 3 | awk '/^\*\*The rework brief\*\*/{p=1} p && /^```$/{if (b) exit; b=1; next} b')"
+for label in Ticket PR Branch Head Findings 'Verifier report'; do
+    check "epic-wave section 3: the rework brief has the line '$label:'" \
+        bash -c 'grep -q "^$2: " <<<"$1"' _ "$rework_brief" "$label"
+done
+check "epic-wave section 3: the rework brief reminds of a test per new behaviour" \
+    bash -c '[[ "$(tr "\n" " " <<<"$1" | tr -s " ")" == *"$2"* ]]' _ "$rework_brief" \
+    'Cover every new behaviour of the rework with a test that turns red on a mutant of that change'
+check "epic-wave section 3: the rework brief tells the agent to enter the worktree, not create one" \
+    bash -c 'grep -qF "$2" <<<"$1"' _ "$rework_brief" 'enter it, do not create one'
+rw4="$(section "$EW" 4 | tr '\n' ' ' | tr -s ' ')"
+in_rw4() { [[ "$rw4" == *"$1"* ]]; }
+check "epic-wave section 4: a red Check goes to a fresh implementer" \
+    in_rw4 'failure`: the PR is not merged and goes to a rework round (section 3, a fresh implementer) with that report'
+check "epic-wave section 4: the culprit of a red set goes to a fresh implementer" \
+    in_rw4 'the culprit goes to a rework round (section 3, a fresh implementer) with the log of its run'
+check "epic-wave section 4: no rework goes back to its implementer" \
+    lacks "$EW" 'back to its implementer as a rework round'
+check "implementer: a rework brief names an existing worktree — enter it, do not create one" \
+    in_flat "$(cat "$IM")" 'A rework brief names the worktree and branch of the first round: enter that tree (`EnterWorktree` with its `path`) instead of creating one'
+check "implementer: the create-a-tree rule points a rework round at the brief's tree" \
+    in_flat "$(cat "$IM")" '(a rework round: enter the tree its brief names, see "A rework round")'
 # In Silent mode the verdict is the last gate: line of the ticket file, not its last line: group lines follow
 # the verdict of their round with VERIFIED too, and the verdict is read with grep | tail.
 ew3="$(section "$EW" 3 | tr '\n' ' ' | tr -s ' ')"

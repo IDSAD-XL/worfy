@@ -1,7 +1,7 @@
 # 26 — Доработка — свежему implementer-у с коротким брифом, а не `SendMessage` прежнему с большим контекстом
 
 Type: task
-Status: open
+Status: claimed 2026-10-27T22:57Z
 Blocked by: —
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», предложение 2, решение 9.
 
@@ -46,3 +46,22 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - Правило implementer-а об ожидании — Ticket 25.
 
 ## Итог
+
+- Правило в `harness/skills/epic-wave/SKILL.md`, раздел 3 «Verification gate»: круг доработки — новый агент
+  `worfy:implementer` в том же worktree и на той же ветке, с коротким брифом, а не `SendMessage` прежнему
+  implementer-у. Исключение — прежний отчитался меньше 5 min назад (его cache ещё жив); неизвестное время
+  считается старше. Правило действует для всех кругов доработки skill-а: `REJECTED`, узкий круг, красный check,
+  виновник красного набора, revert PR.
+- Шаблон брифа доработки — блок «The rework brief» там же: строки Rework, Repository, Ticket, PR, Branch,
+  Worktree («enter it, do not create one»), Head (HEAD ветки до доработки), Findings, Verifier report и
+  напоминание о test-е на каждое новое поведение; остальные строки — из первого брифа (раздел 2).
+- Раздел 4: красный check и виновник красного набора идут «to a rework round (section 3, a fresh implementer)»
+  вместо «back to its implementer».
+- `harness/agents/implementer.md`: бриф доработки называет worktree первого круга — implementer входит в него
+  (`EnterWorktree`), а не создаёт новый, начинает с `Head` и пушит в тот же PR.
+- Test-ы: `harness/bin/tests/epic-wave-ship-ticket.test.sh`, блок 7e — фразы правила, исключение 5 min, шесть
+  строк шаблона (Ticket, PR, Branch, Head, Findings, Verifier report), напоминание о test-е, правка раздела 4 и
+  implementer.md. До правки skill-а — 17 FAIL, после — exit 0 (389 проверок); mutant-ы (удалена строка Head,
+  5 → 10 min) дают FAIL.
+- Не сделано: ручной пункт «первые три круга доработки — свежим агентом, число и цена кругов по Ticket-у 19» —
+  после обновления Stable copy.

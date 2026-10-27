@@ -665,11 +665,32 @@ Source: pstack, `pstack/skills/interrogate/SKILL.md` and
 pstack's; the rules are reworded, not copied. The exchange with the verifier and the group lines of
 the recorded verdict are this project's own rules.
 
-`REJECTED` (except `REJECTED: gate 3 …` — see above) goes to the same implementer through
-`SendMessage` with the Act on group of its list — exactly one rework round (the exception is the
-narrow round below), then the gate again. The same message reminds the implementer: cover every new
-behaviour of the rework with a test that turns red on a mutant of that change, and think through
-races in async code — rework rounds have introduced defects themselves.
+`REJECTED` (except `REJECTED: gate 3 …` — see above) gets exactly one rework round (the exception
+is the narrow round below), then the gate again. The round is a new agent `worfy:implementer` with
+the rework brief below, in the same worktree and on the same branch — not `SendMessage` to the old
+implementer: by then it has usually been idle past its prompt cache (5 min), and its first message
+re-reads its whole context, often 100k tokens and more, while the brief is a few thousand. The
+exception: the old implementer reported less than 5 min ago — then `SendMessage` to it with the same
+brief; a report time you do not know counts as older. Every rework round of this skill follows this rule: a `REJECTED`, a narrow round, a red check
+(section 4), the culprit of a red set (section 4), a reverted PR.
+
+**The rework brief**:
+
+```
+Rework: <epic>/<NN>, round <n>
+Repository: <repo>
+Ticket: <F tickets.path for NN>
+PR: <N>                               # local-green: none
+Branch: <branch>
+Worktree: <the first round's worktree> — enter it, do not create one
+Head: <sha>                           # the branch HEAD before the rework, after the rebase
+Findings: <the Act on group of the recorded `REJECTED` | the failing tests of the red run>
+Verifier report: <the recorded verdict: PR comment URL, gate: commit or ticket file | the run log>
+Cover every new behaviour of the rework with a test that turns red on a mutant of that change,
+and think through races in async code — rework rounds have introduced defects themselves.
+        # plus the Scratchpad, Write to ~/.claude, Temporary HOME, GUI checks and Browser roles
+        # lines of the first brief (section 2)
+```
 
 **The second gate round checks the rework round; it does not search everything again.** The
 brief gives the first round's list — the Act on group of the recorded `REJECTED`, without the lines
@@ -838,7 +859,7 @@ the old way or one after another — every Check of the Pipeline has its mark on
   checked, the exit code of its gate full and the gate's verdict line: exit code 0 and the line
   `[gate] green (…)` on the PR's head — `success` (a gate of the release before prints the same line
   with a Russian word in place of `green`: the same verdict, for one release); red — `failure`: the PR is not merged and goes
-  back to its implementer as a rework round with that report; "could not verify", or a report on
+  to a rework round (section 3, a fresh implementer) with that report; "could not verify", or a report on
   another commit — no new mark, and the PR waits.
 - A check a CI runner may answer. The project's rules (`rules.md`) may name, for a Check, a scope
   command, a dispatch command (with `$ref` for the branch), the workflow of that dispatch, the job
@@ -1055,7 +1076,7 @@ run; when the main branch has moved meanwhile, it checks the set again.
   the repeat green: the failing tests go into the wave report as a flaky test. `STATUS=empty` — all
   PRs are out of the set.
 - `EXIT=2` (`STATUS=red`) — red twice; the bisection named `culprit`. Merge `green_prefix` (the
-  merge block does exactly that); the culprit goes back to its implementer as a rework round with
+  merge block does exactly that); the culprit goes to a rework round (section 3, a fresh implementer) with
   the log of its run (`runs[].log`); the PRs after it go into the next set.
 - `EXIT=3` (`STATUS=unverified`) — could not verify: nothing is merged. Fix the cause named in the
   log of the last run and run the same check again.
