@@ -27,6 +27,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Terminal as HeadlessTerminal } from '@xterm/headless'
 import type { Terminal as XtermTerminal } from '@xterm/xterm'
 import { watchUserInput } from '../../src/renderer/canvas/nodes/terminal-user-input'
+import { FocusTileContext } from '../../src/renderer/focus/focus-tile'
 import { terminalInput, terminalOpen, terminalResize, terminalTakeSize } from '../../src/shared/ipc/terminal'
 
 /** What the registry sends a subscriber (TerminalSink of src/main/terminal/pty.ts). */
@@ -367,7 +368,11 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
     const { pty } = await terminal()
     const canvas = await mount()
     // Focus mode draws the Node in a tile while the Canvas keeps its own view mounted under it.
-    const tile = render(<TerminalNode {...nodeProps} />)
+    const tile = render(
+      <FocusTileContext.Provider value={true}>
+        <TerminalNode {...nodeProps} />
+      </FocusTileContext.Provider>,
+    )
     await waitFor(() => expect(screen.getAllByTestId('terminal-node').map((node) => node.dataset.state)).toEqual(['running', 'running']))
     const tileXterm = xterms.at(-1)
     if (tileXterm === undefined || tileXterm === canvas.xterm) throw new Error('no second xterm.js')

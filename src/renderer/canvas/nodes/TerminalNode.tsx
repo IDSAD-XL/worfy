@@ -10,6 +10,7 @@ import { matches } from '../../shortcuts/match'
 import type { CanvasNodeProps } from './index'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
+import { useInFocusTile } from '../../focus/focus-tile'
 import { keepAltBufferFitted } from './terminal-alt-buffer'
 import { watchTypedLine, type TypedLineWatch } from './terminal-line'
 import { writeReplay } from './terminal-replay'
@@ -79,8 +80,6 @@ import { NODE_HEADER } from '../node-header'
 // here because the Node registry needs a literal export.
 export const kind = 'terminal'
 
-/** The number of the last view mounted in this window: a view names itself by it to main. */
-let lastView = 0
 export const defaultWidth = 560
 export const defaultHeight = 340
 /** The Canvas context menu item that creates this Node (overlays/CanvasMenu.tsx). */
@@ -236,6 +235,9 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
   // The Canvas on screen is always the active Project's, so its Nodes belong to that Project.
   const projectId = activeProject(useProjects())?.id
   const host = useRef<HTMLDivElement>(null)
+  // How this view names itself in its answers: a window shows a shell at most once on the Canvas and
+  // once in the focus mode tile, and a view mounted again keeps the name.
+  const viewName = useInFocusTile() ? 'tile' : 'canvas'
   const [status, setStatus] = useState<Status>({ state: 'starting' })
   // Bumped by Restart (a new run of the effect opens a new shell) and by a shell started on another
   // screen or in another view (a new run attaches to it).
@@ -348,7 +350,6 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     // Typed, pasted or clicked data takes the size of the pty for this screen; an answer of xterm.js
     // to the program goes as `reply` and does not (ADR-0053, decision 5).
     const userInput = watchUserInput(terminal)
-    const viewName = String((lastView += 1))
     const typed = terminal.onData((keys) => {
       const user = userInput.take(keys)
       if (attached) void invoke('terminal.input', { ...ref, data: keys, ...(user ? {} : { reply: true, view: viewName }) })
@@ -491,7 +492,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       altBuffer.dispose()
       terminal.dispose()
     }
-  }, [projectId, id, run])
+  }, [projectId, id, run, viewName])
 
   const closeRequest = () => {
     setRequestOpen(false)
