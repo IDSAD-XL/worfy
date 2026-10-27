@@ -97,7 +97,7 @@ async function closeB(pair: Pair): Promise<void> {
   const bRow = row(pair.a.window, pair.bId)
   await expect(bRow).toHaveAttribute('data-state', 'unavailable', { timeout: 20_000 })
   await expect(bRow).toContainText('Offline')
-  for (const name of ['Reconnect', 'Change address…', 'Remove']) await expect(bRow.getByRole('button', { name, exact: true })).toBeVisible()
+  for (const testId of ['machine-reconnect', 'machine-change-address', 'machine-remove']) await expect(bRow.getByTestId(testId)).toBeVisible()
 }
 
 test('Remove from the row of an offline Machine: gone here at once, and on the other side after its next dial', async () => {
@@ -109,14 +109,14 @@ test('Remove from the row of an offline Machine: gone here at once, and on the o
     const { a, aId, bId, bDir } = pair
 
     // Cancel first: nothing is removed.
-    await row(a.window, bId).getByRole('button', { name: 'Remove', exact: true }).click()
+    await row(a.window, bId).getByTestId('machine-remove').click()
     const confirm = a.window.getByRole('dialog', { name: /^Remove .+\?$/ })
-    await expect(confirm).toContainText('will be forgotten on both machines')
+    await expect(confirm).toContainText('will be forgotten here now')
     await confirm.getByRole('button', { name: 'Cancel' }).click()
     await expect(confirm).toHaveCount(0)
     await expect(row(a.window, bId)).toBeVisible()
 
-    await row(a.window, bId).getByRole('button', { name: 'Remove', exact: true }).click()
+    await row(a.window, bId).getByTestId('machine-remove').click()
     await a.window.getByRole('dialog', { name: /^Remove .+\?$/ }).getByRole('button', { name: 'Remove' }).click()
     await expect(row(a.window, bId)).toHaveCount(0)
 
@@ -181,7 +181,7 @@ test('Change address…: another worfy at the address is refused in the window; 
     await machineIdOf(pair.b.window)
     expect(portOf(bDir)).toBe(newPort)
 
-    await row(a.window, bId).getByRole('button', { name: 'Change address…' }).click()
+    await row(a.window, bId).getByTestId('machine-change-address').click()
     const dialog = a.window.getByRole('dialog', { name: /^Change address of / })
     await expect(dialog).toBeVisible()
     // A's own server answers there: another certificate.

@@ -752,7 +752,7 @@ describe('round 2: a Machine id is bound to its certificate', () => {
     } finally {
       sendSpy.mockRestore()
     }
-    expect(error.message).toMatch(/already linked with another certificate/)
+    expect(error.message).toMatch(/already linked with another certificate; remove it on this Machine first/)
     await expect.poll(() => impostor.pairingFailures.length).toBe(1)
     // A learns who B claims to be from pake4, after both confirmations, and refuses before it accepts.
     const kinds = frames.map((frame) => JSON.parse(frame) as { t: string; token?: string })

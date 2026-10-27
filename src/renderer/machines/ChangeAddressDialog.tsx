@@ -9,6 +9,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { formatLinkAddress, parseLinkAddress } from '../../shared/ipc/link'
+import { focusablesOf } from '../settings/settings-window'
 import { PrimaryButton } from '../theme/primitives'
 import { dialogStyles } from './machine-dialogs'
 import { setMachineAddress } from './useMachines'
@@ -20,9 +21,26 @@ export interface MachineDialogFrameProps {
   children: ReactNode
 }
 
-/** A modal window of a Linked machine: Esc and a click outside close it, as "Link a machine" does. */
+/**
+ * A modal window of a Linked machine: Esc and a click outside close it, as "Link a machine" does.
+ * The focus stays inside, as in the Settings window (settings-window.ts): Tab and Shift+Tab go round
+ * its controls, and focus that lands behind it (a click on the backdrop) comes back, so Esc still
+ * reaches it.
+ */
 export function MachineDialogFrame({ title, testId, onClose, children }: MachineDialogFrameProps) {
   const titleId = useId()
+  const frame = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const keep = (event: FocusEvent): void => {
+      const dialog = frame.current
+      if (dialog === null || (event.target instanceof Node && dialog.contains(event.target))) return
+      ;(focusablesOf(dialog)[0] ?? dialog).focus()
+    }
+    document.addEventListener('focusin', keep)
+    return () => document.removeEventListener('focusin', keep)
+  }, [])
+
   return createPortal(
     <div
       style={dialogStyles.backdrop}
@@ -31,15 +49,27 @@ export function MachineDialogFrame({ title, testId, onClose, children }: Machine
       }}
     >
       <div
+        ref={frame}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        tabIndex={-1}
         style={dialogStyles.dialog}
         data-testid={testId}
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             event.stopPropagation()
             onClose()
+          } else if (event.key === 'Tab') {
+            const focusable = focusablesOf(event.currentTarget)
+            const first = focusable[0]
+            const last = focusable.at(-1)
+            if (first === undefined || last === undefined) return
+            const active = document.activeElement
+            if (event.shiftKey ? active === first || active === event.currentTarget : active === last) {
+              event.preventDefault()
+              ;(event.shiftKey ? last : first).focus()
+            }
           }
         }}
       >

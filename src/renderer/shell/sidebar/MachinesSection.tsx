@@ -19,7 +19,8 @@ const styles = {
   details: { display: 'flex', flexDirection: 'column', gap: 2, padding: '0 8px 4px 31px', fontSize: 'var(--text-12)', lineHeight: '16px' },
   access: { margin: 0, color: 'var(--text-secondary)' },
   hint: { margin: 0, color: 'var(--text-muted)', overflowWrap: 'anywhere' },
-  // Under the icon too: the three buttons fit one line of the sidebar at its narrowest.
+  // Under the icon too. At the default sidebar width Remove wraps to a second line; that is intended:
+  // the labels stay whole rather than shrink.
   actions: { display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)', margin: '2px 0 0 -23px' },
   action: {
     height: 22,
@@ -190,15 +191,16 @@ function MachineDetails({ machine, access, onReconnect }: { machine: LinkedMachi
             style={styles.action}
             data-testid="machine-reconnect"
             disabled={dialing}
+            aria-label={`Reconnect ${machine.name}`}
             title={dialing ? `worfy is connecting to ${machine.name}` : `Connect to ${machine.name} now`}
             onClick={onReconnect}
           >
             {dialing ? 'Connecting…' : 'Reconnect'}
           </button>
-          <button type="button" style={styles.action} data-testid="machine-change-address" onClick={() => openChangeAddress(machine.id)}>
+          <button type="button" style={styles.action} data-testid="machine-change-address" aria-label={`Change address of ${machine.name}`} onClick={() => openChangeAddress(machine.id)}>
             Change address…
           </button>
-          <button type="button" style={styles.action} data-testid="machine-remove" onClick={() => askRemoveMachine(machine.id)}>
+          <button type="button" style={styles.action} data-testid="machine-remove" aria-label={`Remove ${machine.name}`} onClick={() => askRemoveMachine(machine.id)}>
             Remove
           </button>
         </div>

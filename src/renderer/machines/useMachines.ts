@@ -103,13 +103,21 @@ export async function setMachineAddress(id: string, address: string): Promise<{ 
 
 /**
  * The two access lines of a Linked machine's row (worfy-link ticket 37): whether it shares its
- * Projects with this Machine — only once it said so over the link (`sharing` of `linked.state`,
- * src/shared/ipc/linked.ts) — and whether it may work with the Projects of this one: the switch
- * "Linked machines can work with my Projects" and its own level.
+ * Projects with this Machine — only while it is connected and has said so over the link (`sharing`
+ * of `linked.state`, src/shared/ipc/linked.ts, keeps the last value it said after the connection
+ * closes) — and whether it may work with the Projects of this one: the switch "Linked machines can
+ * work with my Projects" and its own level.
  */
-export function machineAccessLines(machine: Pick<LinkedMachineView, 'access'>, projectsAccess: boolean, sharing: LinkedMachineInfo['sharing'] | undefined): string[] {
+export function machineAccessLines(
+  machine: Pick<LinkedMachineView, 'access' | 'state' | 'certificateChanged'>,
+  projectsAccess: boolean,
+  sharing: LinkedMachineInfo['sharing'] | undefined,
+): string[] {
   const lines: string[] = []
-  if (sharing === 'yes') lines.push('Shares its Projects with you')
+  const connected = machine.state === 'online' && !machine.certificateChanged
+  if (!connected) {
+    // Not known now: what it said last may have changed since.
+  } else if (sharing === 'yes') lines.push('Shares its Projects with you')
   else if (sharing === 'no') lines.push("Doesn't share its Projects")
   lines.push(projectsAccess && machine.access !== 'off' ? 'Can work with your Projects' : "Can't see your Projects")
   return lines

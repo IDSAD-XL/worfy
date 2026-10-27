@@ -15,11 +15,13 @@ import { revokeMachine, useMachines } from './useMachines'
 
 export interface RemoveMachineDialogProps {
   machine: { id: string; name: string }
+  /** It is the only Linked machine: removed, this computer stops listening for links (service.ts, the reason `linked`). */
+  last: boolean
   onClose: () => void
 }
 
 /** "Remove <name>?": Cancel calls nothing; Remove calls `link.revoke` and shows a refusal in the window. */
-export function RemoveMachineDialog({ machine, onClose }: RemoveMachineDialogProps) {
+export function RemoveMachineDialog({ machine, last, onClose }: RemoveMachineDialogProps) {
   const [error, setError] = useState<string>()
   const [removing, setRemoving] = useState(false)
   const cancel = useRef<HTMLButtonElement>(null)
@@ -47,7 +49,11 @@ export function RemoveMachineDialog({ machine, onClose }: RemoveMachineDialogPro
   return (
     <MachineDialogFrame title={`Remove ${machine.name}?`} testId="remove-machine-dialog" onClose={onClose}>
       <p style={dialogStyles.text}>
-        {`${machine.name} will be forgotten on both machines: here at once, and on ${machine.name} as soon as it connects. To link it again, use Link a machine with a new code.`}
+        {`${machine.name} will be forgotten here now, and on ${machine.name} the next time it connects to this computer.`}
+        {last
+          ? ` It is the last linked machine, so this computer stops listening for links: ${machine.name} shows this computer as Offline until you remove it there too, or open Link a machine here.`
+          : ''}
+        {' To link it again, use Link a machine with a new code.'}
       </p>
       {error ? (
         <p role="alert" data-testid="remove-machine-error" style={{ ...dialogStyles.error, margin: '0 0 var(--space-3)' }}>
@@ -81,7 +87,7 @@ export function MachineDialogs() {
   if (dialog === undefined || machine === undefined) return null
   const target = { id: machine.id, name: machine.name }
   return dialog.kind === 'remove' ? (
-    <RemoveMachineDialog key={`remove:${machine.id}`} machine={target} onClose={closeMachineDialog} />
+    <RemoveMachineDialog key={`remove:${machine.id}`} machine={target} last={(state?.linked.length ?? 0) === 1} onClose={closeMachineDialog} />
   ) : (
     <ChangeAddressDialog key={`address:${machine.id}`} machine={target} onClose={closeMachineDialog} />
   )

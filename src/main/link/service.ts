@@ -672,7 +672,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     const existing = this.store.get(peerId)
     if (existing !== undefined && existing.fingerprint !== fingerprint) {
       throw new PairingError(
-        `Machine ${existing.id} (${existing.name}) is already linked with another certificate; revoke it on this Machine first, then link again; nothing was linked`,
+        `Machine ${existing.id} (${existing.name}) is already linked with another certificate; remove it on this Machine first, then link again; nothing was linked`,
       )
     }
   }
