@@ -423,6 +423,8 @@ export function bonjourBackend(
     interfaces: () => string[]
     /** os.hostname() by default; the announcement names it as an mDNS host (mdnsHost). */
     hostname?: () => string
+    /** How long a goodbye is waited for before its socket closes anyway; 1 s by default. */
+    goodbyeWaitMs?: number
     warn?: (message: string) => void
   },
 ): MdnsBackend {
@@ -446,11 +448,17 @@ export function bonjourBackend(
   const searches = new Set<Search>()
   let opened = false
 
+  // A socket that never calls back (it failed meanwhile) must not hold the link's stop: stopLink
+  // stops the service only after this.
   const goodbye = (service: Published): Promise<void> =>
     new Promise<void>((done) => {
       if (service.stop === undefined) return done()
+      const timer = setTimeout(done, options.goodbyeWaitMs ?? 1_000)
       // bonjour-service calls back once the goodbye (the records with TTL 0) is sent.
-      service.stop(() => done())
+      service.stop(() => {
+        clearTimeout(timer)
+        done()
+      })
     })
   const announce = (instance: Instance, key: string, announcement: Announcement): void => {
     const service = instance.bonjour.publish({ name: announcement.name, type: LINK_SERVICE_TYPE, protocol: 'tcp', port: announcement.port, txt: announcement.txt, probe: false, host: mdnsHost((options.hostname ?? osHostname)()) })

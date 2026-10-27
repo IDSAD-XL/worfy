@@ -603,6 +603,40 @@ describe('one mDNS socket per interface that may carry the link', () => {
     expect(fake.made.every((instance) => instance.destroyed)).toBe(true)
   })
 
+  it('stopping the link sends the goodbye on every socket before closing them all; a goodbye that never goes out holds it for the wait only', async () => {
+    for (const silent of [false, true]) {
+      const fake = fakeBonjour()
+      const events: string[] = []
+      const create = (socket: BonjourSocketOptions): BonjourLike => {
+        const made = fake.create(socket)
+        return {
+          ...made,
+          publish: (announcement) => {
+            const service = made.publish(announcement)
+            return {
+              ...service,
+              stop: (done?: () => void) => {
+                events.push(`goodbye ${socket.interface}`)
+                if (!silent) service.stop?.(done)
+              },
+            }
+          },
+          destroy: () => (events.push(`close ${socket.interface}`), made.destroy()),
+        }
+      }
+      const backend = bonjourBackend({ create, interfaces: () => ['192.168.0.193', '172.30.16.1'], goodbyeWaitMs: 200, warn: () => undefined })
+      const discovery = new LinkDiscovery({ backend, self: () => ({ id: '11111111-1111-4111-8111-111111111111', name: 'PC' }), isLinked: () => false, protocol: 1 })
+      discovery.advertise(52000)
+      discovery.browse('reconnect', true)
+      const started = Date.now()
+      await discovery.stop()
+      expect(events, String(silent)).toEqual(['goodbye 192.168.0.193', 'goodbye 172.30.16.1', 'close 192.168.0.193', 'close 172.30.16.1'])
+      expect(fake.made.every((instance) => instance.destroyed && instance.browsersStopped === 1)).toBe(true)
+      if (silent) expect(Date.now() - started).toBeGreaterThanOrEqual(150)
+      else expect(Date.now() - started).toBeLessThan(150)
+    }
+  })
+
   it('the app link: sockets on the machine interfaces, rebuilt when the network changes and when Tailscale is turned on, closed on stop', async () => {
     const a = await bench.machine('a')
     const b = await bench.machine('b')
