@@ -69,6 +69,7 @@ const styles = {
   error: { color: 'var(--blocked-text)', fontSize: 'var(--text-12)', overflowWrap: 'anywhere' },
   hint: { color: 'var(--text-muted)', fontSize: 'var(--text-12)' },
   mark: { marginLeft: 'var(--space-1)', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-secondary)' },
+  linkedRow: { display: 'flex', height: 'auto', minHeight: 'var(--row-height)', flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingTop: 4, paddingBottom: 4, cursor: 'default' },
   actions: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' },
   secondary: {
     height: 'var(--row-height)',
@@ -188,6 +189,24 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
 
   const problem = openError ?? state?.problem ?? null
   const targetLabel = target ? (target.name === null ? target.address : `${target.name} (${target.address})`) : ''
+
+  // The Linked machines Bonjour finds (worfy-link ticket 37): listed so the user sees they are
+  // linked, with no way to link them again — one link works both ways. Main gives their ids alone;
+  // the name is the one this Machine knows them by.
+  const foundLinked = (state?.discoveredLinked ?? []).flatMap((id) => state?.linked.filter((machine) => machine.id === id) ?? [])
+  const linkedRow = (machine: { id: string; name: string }) => (
+    <li key={`linked:${machine.id}`} data-testid="link-found-linked-row" data-machine-id={machine.id} className="w-row" style={styles.linkedRow}>
+      <span style={styles.found}>
+        <span style={{ fontWeight: 600 }}>{machine.name}</span>
+        <span className="w-chip" style={styles.mark} data-testid="link-found-linked">
+          Already linked
+        </span>
+      </span>
+      <span style={styles.hint} data-testid="link-found-linked-hint">
+        {`One link works both ways. To open ${machine.name}'s Projects here, turn on "Linked machines can work with my Projects" on ${machine.name}.`}
+      </span>
+    </li>
+  )
 
   const foundRow = (found: DiscoveredMachineView) => (
     <li key={`${found.id}|${found.host}|${found.port}`} data-testid="link-found-row" data-machine-id={found.id}>
@@ -314,9 +333,10 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
               <>
                 <h3 style={styles.section}>Link with another worfy</h3>
                 {state?.bonjour ? (
-                  state.discovered.length > 0 ? (
+                  state.discovered.length > 0 || foundLinked.length > 0 ? (
                     <ul style={styles.list} aria-label="Found in the network">
                       {state.discovered.map(foundRow)}
+                      {foundLinked.map(linkedRow)}
                     </ul>
                   ) : (
                     <p style={{ ...styles.hint, margin: '0 0 var(--space-3)' }}>Looking for worfy in the local network…</p>

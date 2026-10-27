@@ -122,6 +122,8 @@ export const linkedMachineViewSchema = z.object({
    * program. Absent when there is nothing to say.
    */
   hint: z.string().min(1).optional(),
+  /** A dial to it runs now (worfy-link ticket 37): the row's "Reconnect" waits for it. Absent: none. */
+  dialing: z.boolean().optional(),
 })
 export type LinkedMachineView = z.output<typeof linkedMachineViewSchema>
 
@@ -166,6 +168,11 @@ export const linkStateSchema = z.object({
   }),
   linked: z.array(linkedMachineViewSchema),
   discovered: z.array(discoveredMachineSchema),
+  /**
+   * The Linked machines Bonjour finds while "Link a machine" is open, by id alone (worfy-link ticket
+   * 37): the window shows them as already linked. Their addresses stay in main. Absent: none.
+   */
+  discoveredLinked: z.array(z.uuid()).optional(),
   /**
    * "Linked machines can work with my Projects"; off by default (ADR-0052, point 6). Off turns
    * access off for every Linked machine whatever its own level (ADR-0066).

@@ -135,6 +135,11 @@ export class LinkConnections extends EventEmitter<{ changed: [] }> {
     return this.service.linkedMachines().some((machine) => !this.service.isConnected(machine.id))
   }
 
+  /** Whether a dial to `id` runs now; the row's "Reconnect" waits for it (worfy-link ticket 37). */
+  isDialing(id: string): boolean {
+    return this.peers.get(id)?.dialing === true
+  }
+
   /** Why the last dial to `id` failed; null when it did not, or it is connected. */
   lastError(id: string): string | null {
     return this.service.isConnected(id) ? null : (this.peers.get(id)?.lastError ?? null)
@@ -197,6 +202,8 @@ export class LinkConnections extends EventEmitter<{ changed: [] }> {
     this.clearTimer(peer)
     peer.dialing = true
     peer.again = false
+    // The windows show the dial (isDialing); its end announces itself below.
+    this.emit('changed')
     this.attempt(id, via).then(
       () => {
         peer.dialing = false

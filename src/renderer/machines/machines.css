@@ -69,3 +69,21 @@
   line-height: 16px;
   overflow-wrap: anywhere;
 }
+
+/* Settings → Machines (worfy-link ticket 37): the access lines of a Linked machine, each on its own line under the level's hint. */
+.w-machines-settings__access {
+  display: block;
+  margin-top: 2px;
+}
+
+/* "Remove" next to the level of a Linked machine. */
+.w-machines-settings__remove {
+  height: 22px;
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-button);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: var(--text-12);
+}

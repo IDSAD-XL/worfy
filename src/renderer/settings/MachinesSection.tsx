@@ -10,11 +10,16 @@
 //
 // "Link through Tailscale" (worfy-link ticket 27; ADR-0070, point 3) is off by default and does not
 // depend on access: it decides who may reach the link server at all, linking included.
+//
+// Each Linked machine's row also says the access both ways and has "Remove" (worfy-link ticket 37),
+// which asks to confirm first (machines/MachineDialogs.tsx); Remove works with access off too.
 import { useRef, useState } from 'react'
 import type { AccessLevel } from '../../shared/ipc/link'
+import { askRemoveMachine } from '../machines/machine-dialogs'
 import '../machines/machines.css'
+import { useLinked } from '../projects/useProjects'
 import { Select, type SelectOption } from '../theme/Select'
-import { setKeepAwake, setMachineAccess, setProjectsAccess, setTailscale, useMachines } from '../machines/useMachines'
+import { machineAccessLines, setKeepAwake, setMachineAccess, setProjectsAccess, setTailscale, useMachines } from '../machines/useMachines'
 import { SettingRow, SettingSwitch } from './controls'
 
 export const order = 40
@@ -44,6 +49,7 @@ const LEVEL_HINTS: Readonly<Record<AccessLevel, string>> = {
 
 export default function MachinesSection() {
   const state = useMachines()
+  const linked = useLinked()
   const [error, setError] = useState<string>()
   // Answers can come back out of order: the last click decides what the message says. An answer
   // that comes after Settings was closed still reaches the link state (useMachines.ts); only its
@@ -76,8 +82,24 @@ export default function MachinesSection() {
         // Off for everyone shows Off for each; the level kept in main shows again once access is on.
         const level = access ? machine.access : 'off'
         const idle = noMachine || !access
+        const lines = machineAccessLines(machine, access, linked?.machines.find((each) => each.id === machine.id)?.sharing)
         return (
-          <SettingRow key={machine.id} label={machine.name} description={LEVEL_HINTS[level]} disabled={idle} testId={`settings-machines-level-row-${machine.id}`}>
+          <SettingRow
+            key={machine.id}
+            label={machine.name}
+            description={
+              <>
+                {LEVEL_HINTS[level]}
+                {lines.map((line) => (
+                  <span key={line} className="w-machines-settings__access" data-testid="settings-machine-access-line">
+                    {line}
+                  </span>
+                ))}
+              </>
+            }
+            disabled={idle}
+            testId={`settings-machines-level-row-${machine.id}`}
+          >
             <Select
               aria-label={`Access of ${machine.name} to my Projects`}
               data-testid={`link-machine-access-${machine.id}`}
@@ -87,6 +109,16 @@ export default function MachinesSection() {
               title={!noMachine && !access ? NEEDS_ACCESS : undefined}
               onChange={(next) => run(setMachineAccess(machine.id, next))}
             />
+            <button
+              type="button"
+              className="w-machines-settings__remove"
+              data-testid={`settings-machine-remove-${machine.id}`}
+              aria-label={`Remove ${machine.name}`}
+              disabled={noMachine}
+              onClick={() => askRemoveMachine(machine.id)}
+            >
+              Remove
+            </button>
           </SettingRow>
         )
       })}

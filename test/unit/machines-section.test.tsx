@@ -11,6 +11,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { LinkState, LinkedMachineView } from '../../src/shared/ipc/link'
+import type { LinkedState } from '../../src/shared/ipc/linked'
 import type { AppSettings } from '../../src/shared/settings/app-settings'
 
 const THIS = '11111111-1111-4111-8111-111111111111'
@@ -48,18 +49,24 @@ interface FakeMain {
   calls: { channel: string; input: unknown; answer: (result: IpcResult<unknown>) => void }[]
   /** Fires `link.changed`, as main does after any change of the link. */
   linkChanged: (state: LinkState) => void
+  /** Fires `linked.changed`: what this Machine learned of the Linked machines over the link. */
+  linkedChanged: (state: LinkedState) => void
 }
 
 let main: FakeMain
 
-/** This Machine's preload: `link` answers `link.state`, `settings` answers `appSettings.get`. */
-function preload(link: LinkState, settings: AppSettings = appSettings(0)): void {
+/**
+ * This Machine's preload: `link` answers `link.state`, `settings` answers `appSettings.get`, `linked`
+ * answers `linked.state` (nothing known of the Linked machines by default).
+ */
+function preload(link: LinkState, settings: AppSettings = appSettings(0), linked: LinkedState = { revision: 0, machines: [] }): void {
   const handlers = new Map<string, (payload: unknown) => void>()
-  const fake: FakeMain = { calls: [], linkChanged: (state) => handlers.get('link.changed')?.(state) }
+  const fake: FakeMain = { calls: [], linkChanged: (state) => handlers.get('link.changed')?.(state), linkedChanged: (state) => handlers.get('linked.changed')?.(state) }
   const bridge: WorfyBridge = {
     invoke: (channel, input) => {
       if (channel === 'link.state') return Promise.resolve({ ok: true, value: link } as never)
       if (channel === 'appSettings.get') return Promise.resolve({ ok: true, value: settings } as never)
+      if (channel === 'linked.state') return Promise.resolve({ ok: true, value: linked } as never)
       return new Promise((resolve) => fake.calls.push({ channel, input, answer: resolve as (result: IpcResult<unknown>) => void }))
     },
     on: (channel, handler) => {
@@ -529,4 +536,343 @@ describe('Settings → Machines: "Link through Tailscale"', () => {
     fireEvent.click(tailscale())
     expect(linkCalls()).toStrictEqual([])
   })
+})
+
+// ── worfy-link ticket 37: Reconnect, Remove, Change address…, the access both ways ──────────────
+
+const HINT = 'worfy does not find this machine on the network: it may be off, asleep or on another network.'
+const linkedInfo = (id: string, sharing: 'yes' | 'no' | 'unknown', revision = 1): LinkedState => ({ revision, machines: [{ id, online: false, sharing, readOnly: false, epoch: 1 }] })
+
+/** The sidebar section and the shell's host of the Machine windows, as AppShell has them. */
+async function mountWithDialogs(link: LinkState, linked?: LinkedState) {
+  preload(link, appSettings(0, { MachinesSection: false }), linked)
+  const { default: MachinesSection } = await import('../../src/renderer/shell/sidebar/MachinesSection')
+  const { MachineDialogs } = await import('../../src/renderer/machines/MachineDialogs')
+  const view = render(
+    <>
+      <MachinesSection />
+      <MachineDialogs />
+    </>,
+  )
+  await settle()
+  return view
+}
+
+async function mountSettingsWithDialogs(link: LinkState, linked?: LinkedState) {
+  preload(link, appSettings(0), linked)
+  const { default: MachinesSection } = await import('../../src/renderer/settings/MachinesSection')
+  const { MachineDialogs } = await import('../../src/renderer/machines/MachineDialogs')
+  const view = render(
+    <>
+      <MachinesSection />
+      <MachineDialogs />
+    </>,
+  )
+  await settle()
+  return view
+}
+
+const rowOf = (id: string) => {
+  const element = document.querySelector<HTMLElement>(`[data-testid="machine-row"][data-machine-id="${id}"]`)
+  if (element === null) throw new Error(`no row for ${id}`)
+  return element
+}
+const accessLines = (scope: HTMLElement, testId = 'machine-access-line') => within(scope).queryAllByTestId(testId).map((line) => line.textContent)
+
+describe('a Machine row without a connection (worfy-link ticket 37)', () => {
+  it('shows Offline with Reconnect, Change address… and Remove; an online row has none of them', async () => {
+    await mountWithDialogs(linkState(1, { linked: [machine(MINI, 'Mini', 'unavailable'), machine(ATTIC, 'Attic', 'online')] }))
+    const mini = rowOf(MINI)
+    expect(within(mini).getByText('Offline')).toBeTruthy()
+    expect(within(mini).queryByText('Unavailable')).toBeNull()
+    expect(within(mini).getByRole('button', { name: 'Reconnect Mini' })).toBeTruthy()
+    expect(within(mini).getByRole('button', { name: 'Change address of Mini' })).toBeTruthy()
+    expect(within(mini).getByRole('button', { name: 'Remove Mini' })).toBeTruthy()
+    const attic = rowOf(ATTIC)
+    expect(within(attic).getByText('Online')).toBeTruthy()
+    for (const name of ['Reconnect Attic', 'Change address of Attic', 'Remove Attic']) expect(within(attic).queryByRole('button', { name })).toBeNull()
+  })
+
+  it('a sleeping Machine and one with another certificate have the buttons too: neither is connected', async () => {
+    await mountWithDialogs(linkState(1, { linked: [machine(MINI, 'Mini', 'sleeping'), machine(ATTIC, 'Attic', 'unavailable', true)] }))
+    expect(within(rowOf(MINI)).getByText('Sleeping')).toBeTruthy()
+    expect(within(rowOf(ATTIC)).getByText('Certificate changed')).toBeTruthy()
+    expect(within(rowOf(MINI)).getByRole('button', { name: 'Reconnect Mini' })).toBeTruthy()
+    expect(within(rowOf(ATTIC)).getByRole('button', { name: 'Reconnect Attic' })).toBeTruthy()
+    // The tooltip of "Certificate changed" says Remove, not Revoke.
+    expect(rowOf(ATTIC).getAttribute('title')).toBe('Attic answered with another certificate. Remove it, then link it again with Link a machine')
+  })
+
+  it('shows the firewall hint when main gives one, and nothing when it does not', async () => {
+    await mountWithDialogs(linkState(1, { linked: [{ ...machine(MINI, 'Mini', 'unavailable'), hint: `${HINT} Check Windows firewall.` }, machine(ATTIC, 'Attic', 'unavailable')] }))
+    expect(within(rowOf(MINI)).getByTestId('machine-hint').textContent).toBe(`${HINT} Check Windows firewall.`)
+    expect(within(rowOf(ATTIC)).queryByTestId('machine-hint')).toBeNull()
+  })
+
+  it('Reconnect calls link.reconnect for the Machine; while worfy dials it the button is inactive and says it is connecting', async () => {
+    await mountWithDialogs(linkState(1, { linked: [machine(MINI, 'Mini', 'unavailable')] }))
+    fireEvent.click(within(rowOf(MINI)).getByRole('button', { name: 'Reconnect Mini' }))
+    expect(linkCalls()).toStrictEqual([['link.reconnect', { id: MINI }]])
+    await act(async () => main.calls[0]!.answer({ ok: true, value: linkState(2, { linked: [{ ...machine(MINI, 'Mini', 'unavailable'), dialing: true }] }) }))
+    const button = within(rowOf(MINI)).getByTestId('machine-reconnect') as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    expect(button.textContent).toBe('Connecting…')
+    expect(button.title).toBe('worfy is connecting to Mini')
+    fireEvent.click(button)
+    expect(main.calls).toHaveLength(1)
+    // The dial ended without a connection: Reconnect is there again.
+    act(() => main.linkChanged(linkState(3, { linked: [machine(MINI, 'Mini', 'unavailable')] })))
+    expect((within(rowOf(MINI)).getByTestId('machine-reconnect') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('a refusal of link.reconnect is shown above the list', async () => {
+    await mountWithDialogs(linkState(1, { linked: [machine(MINI, 'Mini', 'unavailable')] }))
+    fireEvent.click(within(rowOf(MINI)).getByRole('button', { name: 'Reconnect Mini' }))
+    await act(async () => main.calls[0]!.answer({ ok: false, error: 'link.reconnect: Machine is not linked' }))
+    expect(screen.getByTestId('machines-error').textContent).toBe('link.reconnect: Machine is not linked')
+  })
+})
+
+describe('Remove asks first (worfy-link ticket 37)', () => {
+  it('Remove opens the confirmation; Cancel closes it and calls nothing', async () => {
+    await mountWithDialogs(linkState(1, { linked: [machine(MINI, 'Mini', 'unavailable')] }))
+    fireEvent.click(within(rowOf(MINI)).getByRole('button', { name: 'Remove Mini' }))
+    const dialog = screen.getByRole('dialog', { name: 'Remove Mini?' })
+    expect(dialog.textContent).toBe(
+      'Remove Mini?Mini will be forgotten here now, and on Mini the next time it connects to this computer. It is the last linked machine, so this computer stops listening for links: Mini shows this computer as Offline until you remove it there too, or open Link a machine here. To link it again, use Link a machine with a new code.CancelRemove',
+    )
+    // The focus is on Cancel: Enter right away does not remove.
+    expect(document.activeElement?.textContent).toBe('Cancel')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(main.calls).toStrictEqual([])
+  })
+
+  it('Esc closes the confirmation and calls nothing', async () => {
+    await mountWithDialogs(linkState(1, { linked: [machine(MINI, 'Mini', 'unavailable')] }))
+    fireEvent.click(within(rowOf(MINI)).getByRole('button', { name: 'Remove Mini' }))
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Remove Mini?' }), { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(main.calls).toStrictEqual([])
+  })
+
+  it('confirmed, it calls link.revoke for the Machine; the window closes and the row goes with main\'s answer', async () => {
+    await mountWithDialogs(linkState(1, { linked: [machine(MINI, 'Mini', 'unavailable')] }))
+    fireEvent.click(within(rowOf(MINI)).getByRole('button', { name: 'Remove Mini' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Remove Mini?' })).getByRole('button', { name: 'Remove' }))
+    expect(linkCalls()).toStrictEqual([['link.revoke', { id: MINI }]])
+    await act(async () => main.calls[0]!.answer({ ok: true, value: linkState(2) }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.querySelector('[data-testid="machine-row"]')).toBeNull()
+  })
+
+  it('a refusal stays in the window, and the Machine stays', async () => {
+    await mountWithDialogs(linkState(1, { linked: [machine(MINI, 'Mini', 'unavailable')] }))
+    fireEvent.click(within(rowOf(MINI)).getByRole('button', { name: 'Remove Mini' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Remove Mini?' })).getByRole('button', { name: 'Remove' }))
+    await act(async () => main.calls[0]!.answer({ ok: false, error: 'link.revoke: the link service has not started' }))
+    expect(within(screen.getByRole('dialog', { name: 'Remove Mini?' })).getByRole('alert').textContent).toBe('link.revoke: the link service has not started')
+    expect(rowOf(MINI)).toBeTruthy()
+  })
+
+  it('the row menu has Reconnect, Change address… and Remove, and the word Revoke is nowhere', async () => {
+    const { container } = await mountWithDialogs(linkState(1, { linked: [machine(MINI, 'Mini', 'unavailable'), machine(ATTIC, 'Attic', 'online', true)] }))
+    fireEvent.contextMenu(rowOf(MINI))
+    expect(within(screen.getByRole('menu', { name: 'Machine Mini' })).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Reconnect', 'Change address…', 'Remove'])
+    expect(document.body.textContent).not.toMatch(/revoke/i)
+    expect(container.innerHTML).not.toMatch(/revoke/i)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove' }))
+    expect(screen.getByRole('dialog', { name: 'Remove Mini?' })).toBeTruthy()
+    expect(main.calls).toStrictEqual([])
+    expect(document.body.innerHTML).not.toMatch(/revoke/i)
+  })
+
+  it('an online Machine\'s menu has Change address… and Remove, without Reconnect', async () => {
+    await mountWithDialogs(linkState(1, { linked: [machine(MINI, 'Mini', 'online')] }))
+    fireEvent.contextMenu(rowOf(MINI))
+    expect(within(screen.getByRole('menu', { name: 'Machine Mini' })).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Change address…', 'Remove'])
+  })
+
+  it('Settings → Machines: a Remove per Linked machine, with access off too, behind the same confirmation', async () => {
+    await mountSettingsWithDialogs(linkState(1, { linked: [machine(MINI, 'Mini', 'online'), machine(ATTIC, 'Attic', 'unavailable')] }))
+    const remove = screen.getByRole('button', { name: 'Remove Attic' }) as HTMLButtonElement
+    expect(remove.disabled).toBe(false)
+    expect(screen.getByRole('button', { name: 'Remove Mini' })).toBeTruthy()
+    fireEvent.click(remove)
+    const dialog = screen.getByRole('dialog', { name: 'Remove Attic?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(main.calls).toStrictEqual([])
+    fireEvent.click(remove)
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Remove Attic?' })).getByRole('button', { name: 'Remove' }))
+    expect(linkCalls()).toStrictEqual([['link.revoke', { id: ATTIC }]])
+    expect(document.body.innerHTML).not.toMatch(/revoke/i)
+  })
+})
+
+describe('Change address… (worfy-link ticket 37)', () => {
+  const openDialog = async () => {
+    await mountWithDialogs(linkState(1, { linked: [machine(MINI, 'Mini', 'unavailable')] }))
+    fireEvent.click(within(rowOf(MINI)).getByRole('button', { name: 'Change address of Mini' }))
+    return screen.getByRole('dialog', { name: 'Change address of Mini' })
+  }
+  const field = () => screen.getByTestId('change-address-input') as HTMLInputElement
+
+  it('an address that does not parse is refused in the window, and main is not asked', async () => {
+    const dialog = await openDialog()
+    expect(document.activeElement).toBe(field())
+    fireEvent.change(field(), { target: { value: 'mini.local' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+    expect(within(dialog).getByRole('alert').textContent).toBe('Add the port: host:port')
+    expect(main.calls).toStrictEqual([])
+  })
+
+  it('saves through link.setAddress; a refusal of main is shown in the window and the window stays', async () => {
+    const dialog = await openDialog()
+    fireEvent.change(field(), { target: { value: ' 192.168.1.44:52000 ' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+    expect(linkCalls()).toStrictEqual([['link.setAddress', { id: MINI, address: '192.168.1.44:52000' }]])
+    expect(within(dialog).getByRole('button', { name: 'Checking…' })).toBeTruthy()
+    const refusal = 'Another worfy answers at 192.168.1.44:52000: it is not Mini. The address stays as it was'
+    await act(async () => main.calls[0]!.answer({ ok: true, value: { status: 'failed', reason: refusal, state: linkState(2, { linked: [machine(MINI, 'Mini', 'unavailable')] }) } }))
+    expect(within(screen.getByRole('dialog', { name: 'Change address of Mini' })).getByRole('alert').textContent).toBe(refusal)
+  })
+
+  it('saved: the window closes', async () => {
+    const dialog = await openDialog()
+    fireEvent.change(field(), { target: { value: 'mini.local:52000' } })
+    fireEvent.keyDown(field(), { key: 'Enter' })
+    expect(linkCalls()).toStrictEqual([['link.setAddress', { id: MINI, address: 'mini.local:52000' }]])
+    expect(dialog.isConnected).toBe(true)
+    await act(async () => main.calls[0]!.answer({ ok: true, value: { status: 'saved', state: linkState(2, { linked: [machine(MINI, 'Mini', 'online')] }) } }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('Cancel closes it and asks main nothing', async () => {
+    const dialog = await openDialog()
+    fireEvent.change(field(), { target: { value: 'mini.local:52000' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(main.calls).toStrictEqual([])
+  })
+})
+
+describe('the access both ways in a Machine row (worfy-link ticket 37)', () => {
+  it('the sidebar: both lines, and each follows a change on its own side', async () => {
+    await mountWithDialogs(linkState(1, { projectsAccess: true, linked: [machine(MINI, 'Mini', 'online', false, 'read')] }), linkedInfo(MINI, 'yes'))
+    expect(accessLines(rowOf(MINI))).toEqual(['Shares its Projects with you', 'Can work with your Projects'])
+    // Turned off on the other side: it said so over the link.
+    act(() => main.linkedChanged(linkedInfo(MINI, 'no', 2)))
+    expect(accessLines(rowOf(MINI))).toEqual(["Doesn't share its Projects", 'Can work with your Projects'])
+    // Turned off here: the switch for every Linked machine.
+    act(() => main.linkChanged(linkState(2, { projectsAccess: false, linked: [machine(MINI, 'Mini', 'online', false, 'read')] })))
+    expect(accessLines(rowOf(MINI))).toEqual(["Doesn't share its Projects", "Can't see your Projects"])
+    // On again here, but this Machine's level for it is Off.
+    act(() => main.linkChanged(linkState(3, { projectsAccess: true, linked: [machine(MINI, 'Mini', 'online', false, 'off')] })))
+    expect(accessLines(rowOf(MINI))).toEqual(["Doesn't share its Projects", "Can't see your Projects"])
+    // On again on the other side.
+    act(() => main.linkedChanged(linkedInfo(MINI, 'yes', 3)))
+    expect(accessLines(rowOf(MINI))).toEqual(['Shares its Projects with you', "Can't see your Projects"])
+  })
+
+  it('the line about the other side is there only once the link said it', async () => {
+    await mountWithDialogs(linkState(1, { linked: [machine(MINI, 'Mini', 'unavailable')] }), linkedInfo(MINI, 'unknown'))
+    expect(accessLines(rowOf(MINI))).toEqual(["Can't see your Projects"])
+  })
+
+  it('Settings → Machines: the same two lines under each Linked machine', async () => {
+    await mountSettingsWithDialogs(linkState(1, { projectsAccess: true, linked: [machine(MINI, 'Mini', 'online', false, 'all')] }), linkedInfo(MINI, 'yes'))
+    const row = screen.getByTestId(`settings-machines-level-row-${MINI}`)
+    expect(accessLines(row, 'settings-machine-access-line')).toEqual(['Shares its Projects with you', 'Can work with your Projects'])
+    act(() => main.linkedChanged(linkedInfo(MINI, 'no', 2)))
+    act(() => main.linkChanged(linkState(2, { projectsAccess: false, linked: [machine(MINI, 'Mini', 'online', false, 'all')] })))
+    expect(accessLines(row, 'settings-machine-access-line')).toEqual(["Doesn't share its Projects", "Can't see your Projects"])
+  })
+})
+
+describe('"Link a machine" and a Machine already linked (worfy-link ticket 37)', () => {
+  it('lists it as Already linked, with no way to link it and the line about one link both ways', async () => {
+    preload(
+      linkState(1, {
+        bonjour: true,
+        linking: { open: true, code: '482913', expiresAt: Date.now() + 60_000, linked: null, failure: null },
+        linked: [machine(MINI, 'Mini', 'online')],
+        discovered: [{ id: ATTIC, name: 'Attic', host: '192.168.1.31', port: 52000, protocol: 1, compatible: true, conflict: false }],
+        discoveredLinked: [MINI],
+      }),
+    )
+    const { LinkMachineDialog } = await import('../../src/renderer/machines/LinkMachineDialog')
+    render(<LinkMachineDialog onClose={() => undefined} />)
+    await settle()
+    const list = screen.getByRole('list', { name: 'Found in the network' })
+    const mini = within(list).getByTestId('link-found-linked-row')
+    expect(mini.dataset.machineId).toBe(MINI)
+    expect(within(mini).getByText('Mini')).toBeTruthy()
+    expect(within(mini).getByText('Already linked')).toBeTruthy()
+    expect(within(mini).getByTestId('link-found-linked-hint').textContent).toBe(
+      'One link works both ways. To open Mini\'s Projects here, turn on "Linked machines can work with my Projects" on Mini.',
+    )
+    expect(within(mini).queryByRole('button')).toBeNull()
+    // Another worfy found is still offered for linking.
+    const attic = within(list).getByTestId('link-found-row')
+    expect(attic.dataset.machineId).toBe(ATTIC)
+    expect(within(attic).getByRole('button')).toBeTruthy()
+    expect(within(attic).queryByText('Already linked')).toBeNull()
+  })
+
+  it('with only a Linked machine found, the list shows it instead of "Looking for worfy…"', async () => {
+    preload(
+      linkState(1, {
+        bonjour: true,
+        linking: { open: true, code: '482913', expiresAt: Date.now() + 60_000, linked: null, failure: null },
+        linked: [machine(MINI, 'Mini', 'online')],
+        discoveredLinked: [MINI],
+      }),
+    )
+    const { LinkMachineDialog } = await import('../../src/renderer/machines/LinkMachineDialog')
+    render(<LinkMachineDialog onClose={() => undefined} />)
+    await settle()
+    expect(screen.getByTestId('link-found-linked-row').textContent).toContain('Already linked')
+    expect(screen.queryByText('Looking for worfy in the local network…')).toBeNull()
+  })
+})
+
+describe('worfy-link ticket 37, review round', () => {
+  it('Remove of one of several Linked machines does not speak of this computer no longer listening', async () => {
+    await mountWithDialogs(linkState(1, { linked: [machine(MINI, 'Mini', 'unavailable'), machine(ATTIC, 'Attic', 'online')] }))
+    fireEvent.click(within(rowOf(MINI)).getByRole('button', { name: 'Remove Mini' }))
+    const text = screen.getByRole('dialog', { name: 'Remove Mini?' }).textContent ?? ''
+    expect(text).toContain('Mini will be forgotten here now, and on Mini the next time it connects to this computer.')
+    expect(text).not.toContain('stops listening')
+  })
+
+  it('an offline row does not show what the other side last said about sharing; online again, it does', async () => {
+    await mountWithDialogs(linkState(1, { projectsAccess: true, linked: [machine(MINI, 'Mini', 'unavailable', false, 'all')] }), linkedInfo(MINI, 'yes'))
+    expect(accessLines(rowOf(MINI))).toEqual(['Can work with your Projects'])
+    act(() => main.linkChanged(linkState(2, { projectsAccess: true, linked: [machine(MINI, 'Mini', 'online', false, 'all')] })))
+    expect(accessLines(rowOf(MINI))).toEqual(['Shares its Projects with you', 'Can work with your Projects'])
+    act(() => main.linkChanged(linkState(3, { projectsAccess: true, linked: [machine(MINI, 'Mini', 'online', true, 'all')] })))
+    expect(accessLines(rowOf(MINI))).toEqual(['Can work with your Projects'])
+  })
+
+  for (const kind of ['Change address of Mini', 'Remove Mini'] as const) {
+    it(`${kind}: Tab and Shift+Tab stay inside the window, focus behind it comes back, and Esc still closes it`, async () => {
+      await mountWithDialogs(linkState(1, { linked: [machine(MINI, 'Mini', 'unavailable')] }))
+      fireEvent.click(within(rowOf(MINI)).getByRole('button', { name: kind }))
+      const dialog = screen.getByRole('dialog')
+      const inside = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input')]
+      const first = inside[0]!
+      const last = inside.at(-1)!
+      last.focus()
+      fireEvent.keyDown(last, { key: 'Tab' })
+      expect(document.activeElement).toBe(first)
+      fireEvent.keyDown(first, { key: 'Tab', shiftKey: true })
+      expect(document.activeElement).toBe(last)
+      // Something behind the window takes the focus: it comes back inside.
+      within(rowOf(MINI)).getByRole('button', { name: 'Reconnect Mini' }).focus()
+      expect(dialog.contains(document.activeElement)).toBe(true)
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(main.calls).toStrictEqual([])
+    })
+  }
 })

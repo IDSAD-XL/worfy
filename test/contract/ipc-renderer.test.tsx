@@ -327,8 +327,10 @@ describe('what the renderer hears of Linked machines', () => {
     // The field, not the channel's name: `link.setAddress` names one, and answers none of a Linked machine.
     expect(heard.filter((key) => /address|host|port/i.test(key.slice(key.indexOf(': '))) && !ownOrFound.test(key))).toEqual([])
     // A Linked machine is named by its id and name alone; its access level is this Machine's own
-    // setting; its hint is a fixed text about Windows firewall (worfy-link ticket 36).
+    // setting; its hint is a fixed text about Windows firewall (worfy-link ticket 36); `dialing` says
+    // a dial to it runs (worfy-link ticket 37). The Linked machines Bonjour finds come by id alone.
     const linkedFields = new Set(heard.filter((key) => /^link\.\w+: (state\.)?linked\./.test(key)).map((key) => key.replace(/^.*linked\./, '')))
-    expect(linkedFields).toEqual(new Set(['access', 'certificateChanged', 'hint', 'id', 'name', 'state']))
+    expect(linkedFields).toEqual(new Set(['access', 'certificateChanged', 'dialing', 'hint', 'id', 'name', 'state']))
+    expect(heard).toContain('link.state: discoveredLinked')
   })
 })

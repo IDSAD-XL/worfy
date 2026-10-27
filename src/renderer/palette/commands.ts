@@ -23,10 +23,15 @@
 // On the read-only screen of a Linked machine (worfy-link ticket 26, ADR-0066) the commands that
 // would change the Project — New …, Tidy up, Arrange by Epic, Re-pack, Archive finished sessions now, Run wave, Ship ticket, Process gate queue — carry the read-only hint and
 // their rows are inactive with it; moving the Canvas, the views and switching Projects stay active.
+// "Reconnect machine…" and "Remove machine…" (worfy-link ticket 37) are a row per Linked machine,
+// its name the detail: the row is the choice of the Machine. They do what the buttons of its row in
+// the sidebar do — `link.reconnect`, and the confirmation of Remove (machines/MachineDialogs.tsx);
+// Reconnect only for a Machine without a connection. They concern this Machine's link, not the Project.
 import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { HistorySession } from '../../shared/ipc/claude-home'
 import type { GateQueueView } from '../../shared/ipc/gate-queue'
+import type { LinkedMachineView } from '../../shared/ipc/link'
 import { failureReason } from '../../shared/ipc/channels'
 import { epicNodeId, shownOnCanvas, SOURCE_NODE_KINDS, ticketNodeId } from '../../shared/layout/derived'
 import type { LayoutNode } from '../../shared/layout/types'
@@ -39,6 +44,8 @@ import { showNode } from '../canvas/show-node'
 import { createCanvasNode, focusCanvasNode, openAdr, requestArrangeByEpic, requestTidyUp, setTagFilter, type TagFilter } from '../find/canvas-requests'
 import { kindLabel, nodeTitle, normalizeQuery, type Rankable } from '../find/search-index'
 import { invoke, windowMachine } from '../ipc'
+import { askRemoveMachine } from '../machines/machine-dialogs'
+import { linkStateNow, reconnectMachine } from '../machines/useMachines'
 import { openProject } from '../projects/useProjects'
 import { openOrchestrator, setView } from '../session/navigation'
 import { openSettings } from '../settings/settings-window'
@@ -88,6 +95,8 @@ export interface CommandContext {
   gateQueue?: GateQueueView | undefined
   /** Now, in milliseconds, for the age of the oldest wait; Date.now() when absent. */
   now?: number | undefined
+  /** The Linked machines of this Machine; absent — as the renderer has them now (linkStateNow). */
+  linked?: readonly LinkedMachineView[] | undefined
 }
 
 const nn = (num: number): string => String(num).padStart(2, '0')
@@ -478,6 +487,36 @@ function manualCheckCommands({ project, model }: CommandContext): PaletteCommand
   return commands
 }
 
+/** "Reconnect machine…" for each Linked machine without a connection, "Remove machine…" for each one. */
+function machineCommands({ linked }: CommandContext): PaletteCommand[] {
+  const machines = linked ?? linkStateNow()?.linked ?? []
+  const commands: PaletteCommand[] = []
+  for (const machine of machines) {
+    if (machine.certificateChanged || machine.state !== 'online') {
+      commands.push({
+        id: `machine-reconnect:${machine.id}`,
+        group: 'Action',
+        title: 'Reconnect machine…',
+        detail: machine.name,
+        run: () => reconnectMachine(machine.id),
+      })
+    }
+  }
+  for (const machine of machines) {
+    commands.push({
+      id: `machine-remove:${machine.id}`,
+      group: 'Action',
+      title: 'Remove machine…',
+      detail: machine.name,
+      run: () => {
+        askRemoveMachine(machine.id)
+        return undefined
+      },
+    })
+  }
+  return commands
+}
+
 /** The commands the palette ranks for `query`: with an empty field, those without `queryOnly`. */
 export function forQuery(commands: readonly PaletteCommand[], query: string): readonly PaletteCommand[] {
   return normalizeQuery(query) === '' ? commands.filter((command) => command.queryOnly !== true) : commands
@@ -488,5 +527,12 @@ export function forQuery(commands: readonly PaletteCommand[], query: string): re
  * order: actions, the view, then the things to go to.
  */
 export function buildCommands(context: CommandContext): PaletteCommand[] {
-  return [...actionCommands(context), ...viewCommands(context), ...workflowActionCommands(context), ...goToCommands(context), ...manualCheckCommands(context)]
+  return [
+    ...actionCommands(context),
+    ...viewCommands(context),
+    ...workflowActionCommands(context),
+    ...machineCommands(context),
+    ...goToCommands(context),
+    ...manualCheckCommands(context),
+  ]
 }
