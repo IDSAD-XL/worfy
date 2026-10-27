@@ -31,7 +31,12 @@
 //                  names are removed (`qmd collection remove`, only when qmd is installed); one that
 //                  another profile names too is kept. A qmd failure is reported and undoes nothing.
 //                  The project's repositories are not touched. No such profile — exit 1, nothing
-//                  touched; a name with a slash or ".." — exit 2.
+//                  touched; a name with a slash or ".." — exit 2. A default Workflow folder that holds
+//                  anything beyond an empty `git init` (the project's tickets, out of the Harness home's
+//                  history) — exit 1, nothing removed: the user moves it out first. A rollback that
+//                  cannot put everything back keeps the staging folder ($HARNESS_HOME/.remove-*) and
+//                  names it; staging folders left by an earlier run are named in stderr and in
+//                  `leftover`, never deleted.
 //   --check        only the checks; writes nothing.
 //   --schema-only  only the schema of profiles/draft.schema.json; writes nothing.
 //   --facts <dir>  only reads: what a draft needs that only a command could tell (owner decision
@@ -51,13 +56,15 @@
 // in stderr; 2 — usage error.
 // Output (stdout, JSON, English only): on success { name, profileDir, gateKeys, workflowFolder, excludes, qmd }
 // (with --check: { ok: true, name, gateKeys, workflowFolder }; with --remove: { name, removed: { profileDir,
-// gateKeys, runs, qmd: { status, reason, removed, kept } } }, runs null when there was none, status
-// "removed", "skipped" or "failed"); on exit 1 { ok: false, errors: [{ path, kind, message }] }, kind is
+// gateKeys, runs, qmd: { status, reason, removed, kept }, leftover } }, runs null when there was none, status
+// "removed", "skipped" or "failed", leftover the staging folders still in the Harness home — earlier ones and
+// this run's when it could not be deleted after the commit); on exit 1 { ok: false, errors: [{ path, kind, message }] }, kind is
 // "schema", "conflict", "value" or "write".
 // Environment: HARNESS_HOME (default ~/.claude/worfy-harness). Tests only: PROJECT_CONNECT_FAIL_AT
 // (profile | workflow | gate | exclude | commit — fail as that step starts; --remove: profile | gate |
-// runs | commit), PROJECT_CONNECT_QMD_BIN (the qmd-collections to run), PROJECT_CONNECT_QMD (the qmd
-// command to look for).
+// runs | commit | cleanup), PROJECT_CONNECT_FAIL_ROLLBACK_AT (--remove: profile | gate | runs | commit —
+// the rollback of that step fails), PROJECT_CONNECT_QMD_BIN (the qmd-collections to run),
+// PROJECT_CONNECT_QMD (the qmd command to look for).
 "use strict"
 
 const fs = require("node:fs")
@@ -307,7 +314,25 @@ if (mode === "remove") {
         out({ ok: false, errors: [{ path: "", kind, message }] })
         process.exit(1)
     }
-    if (!fs.existsSync(profileFile)) refuseRemove("value", `no profile ${name}: ${profileFile} does not exist`)
+    // Staging folders an earlier --remove left behind (killed half-way, or not deletable after its
+    // commit): never deleted here, since one may hold the only copy of a profile; named in the answer.
+    const earlier = fs.existsSync(HARNESS_HOME)
+        ? fs.readdirSync(HARNESS_HOME).filter((entry) => entry.startsWith(".remove-")).map((entry) => path.join(HARNESS_HOME, entry))
+        : []
+    for (const left of earlier) err(`an earlier removal left ${left}: what it holds was not put back`)
+    const earlierNote = earlier.length > 0 ? `; earlier removals left ${earlier.join(", ")}` : ""
+    if (!fs.existsSync(profileFile)) refuseRemove("value", `no profile ${name}: ${profileFile} does not exist${earlierNote}`)
+    // The default Workflow folder of a Silent mode project lies inside the profile folder and is a git
+    // repository of its own, out of the Harness home's history: its tickets could not be brought back.
+    // Anything in it beyond an empty `git init` is a refusal.
+    const workflowDir = path.join(profileDir, "workflow")
+    if (fs.existsSync(workflowDir)) {
+        const holds = fs.readdirSync(workflowDir).some((entry) => entry !== ".git")
+        const commits = isGitRoot(workflowDir) && spawnSync("git", ["-C", workflowDir, "rev-parse", "-q", "--verify", "HEAD"]).status === 0
+        if (holds || commits) {
+            refuseRemove("value", `the Workflow folder ${workflowDir} holds the project's own files${commits ? " and commits" : ""}: move it out of ${profileDir} first; nothing was removed`)
+        }
+    }
     // Read before the removal: the qmd step needs its collections. A broken profile is still removed.
     let stored = null
     try {
@@ -327,31 +352,38 @@ if (mode === "remove") {
     }
     const ours = (entry) => isObject(entry) && entry.profile === name
     const gateKeys = registry ? registry.repos.filter(ours).map((entry) => entry.key) : []
-    const removed = { profileDir, gateKeys, runs: fs.existsSync(runsDir) ? runsDir : null, qmd: null }
+    const removed = { profileDir, gateKeys, runs: fs.existsSync(runsDir) ? runsDir : null, qmd: null, leftover: [...earlier] }
 
     // The folders are moved aside, not deleted, until the commit holds: the rollback moves them back.
     // The staging folder sits in the Harness home itself (the same disk, so a rename), and its .gitignore
     // (`/*`) keeps it out of the history.
     const undo = []
+    // Tests only: PROJECT_CONNECT_FAIL_ROLLBACK_AT=<step> makes the rollback of that step fail.
+    const FAIL_ROLLBACK_AT = process.env.PROJECT_CONNECT_FAIL_ROLLBACK_AT || ""
+    const undoStep = (label, back) =>
+        undo.push(() => {
+            if (FAIL_ROLLBACK_AT === label) throw new Error(`failed on purpose at the rollback of "${label}" (PROJECT_CONNECT_FAIL_ROLLBACK_AT)`)
+            back()
+        })
     let staging = null
     try {
         staging = fs.mkdtempSync(path.join(HARNESS_HOME, ".remove-"))
         step("profile", () => {
             const aside = path.join(staging, "profile")
             fs.renameSync(profileDir, aside)
-            undo.push(() => fs.renameSync(aside, profileDir))
+            undoStep("profile", () => fs.renameSync(aside, profileDir))
         })
         step("gate", () => {
             if (gateKeys.length === 0) return
             const before = fs.readFileSync(gateFile)
             writeAtomic(gateFile, JSON.stringify({ ...registry, repos: registry.repos.filter((entry) => !ours(entry)) }, null, 2) + "\n")
-            undo.push(() => writeAtomic(gateFile, before))
+            undoStep("gate", () => writeAtomic(gateFile, before))
         })
         step("runs", () => {
             if (removed.runs === null) return
             const aside = path.join(staging, "runs")
             fs.renameSync(runsDir, aside)
-            undo.push(() => fs.renameSync(aside, runsDir))
+            undoStep("runs", () => fs.renameSync(aside, runsDir))
         })
         step("commit", () => {
             // A Harness home without git (never connected through this script) has no history to keep.
@@ -361,32 +393,38 @@ if (mode === "remove") {
             const paths = []
             if (run("git", ["ls-files", "--", profileRel], HARNESS_HOME).trim() !== "") {
                 run("git", ["rm", "-r", "-q", "--cached", "--", profileRel], HARNESS_HOME)
-                undo.push(() => spawnSync("git", ["-C", HARNESS_HOME, "reset", "-q", "--", profileRel]))
+                undoStep("commit", () => run("git", ["reset", "-q", "--", profileRel], HARNESS_HOME))
                 paths.push(profileRel)
             }
             if (gateKeys.length > 0 && run("git", ["ls-files", "--", gateRel], HARNESS_HOME).trim() !== "") {
                 run("git", ["add", "--", gateRel], HARNESS_HOME)
-                undo.push(() => spawnSync("git", ["-C", HARNESS_HOME, "reset", "-q", "--", gateRel]))
+                undoStep("commit", () => run("git", ["reset", "-q", "--", gateRel], HARNESS_HOME))
                 paths.push(gateRel)
             }
             if (paths.length === 0) return
             run("git", [...commitArgs(HARNESS_HOME), "commit", "-q", "--no-verify", "-m", `Remove the project ${name}`, "--", ...paths], HARNESS_HOME)
         })
     } catch (e) {
+        let whole = true
         for (const back of undo.reverse()) {
             try {
                 back()
             } catch (rollback) {
+                whole = false
                 err(`the rollback could not undo a step: ${rollback.message}`)
             }
         }
+        // The staging folder goes only when everything in it was put back: otherwise it may hold the
+        // only copy of the profile or the runs folder.
+        if (!whole) refuseRemove("write", `${e.message}; the rollback failed, what was not put back is kept in ${staging}${earlierNote}`)
         if (staging !== null) fs.rmSync(staging, { recursive: true, force: true })
-        refuseRemove("write", `${e.message}; the removal was rolled back`)
+        refuseRemove("write", `${e.message}; the removal was rolled back${earlierNote}`)
     }
     try {
-        fs.rmSync(staging, { recursive: true, force: true })
+        step("cleanup", () => fs.rmSync(staging, { recursive: true, force: true }))
     } catch (e) {
         // The removal is committed; what is left is a folder of the Harness home its history ignores.
+        removed.leftover.push(staging)
         err(`the removed files are left in ${staging}: ${e.message}`)
     }
 

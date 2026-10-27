@@ -475,6 +475,18 @@ done
 [ "$before" = "$(state)" ] && ok "the refused and failed removals changed nothing" || bad "a refused removal changed HARNESS_HOME"
 [ ! -s "$QMD_LOG" ] && ok "no qmd collection was removed by a refused or failed removal" || bad "qmd ran: $(cat "$QMD_LOG")"
 
+# A rollback step that fails: the staging folder is kept, named, and holds the profile; nothing is deleted.
+check "a failing rollback is exit 1 and says so" 1 "the rollback failed" \
+    bash -c 'set -o pipefail; PROJECT_CONNECT_FAIL_AT=commit PROJECT_CONNECT_FAIL_ROLLBACK_AT=profile "$1" --remove demo | tee "$2"' _ "$CONNECT" "$T/rollback.out"
+staging="$(find "$HARNESS_HOME" -maxdepth 1 -name '.remove-*')"
+[ -n "$staging" ] && [ "$(printf '%s\n' "$staging" | wc -l | tr -d ' ')" = 1 ] && ok "a failing rollback keeps one staging folder" || bad "staging folders: [$staging]"
+[ -f "$staging/profile/profile.json" ] && ok "the kept staging folder holds the profile" || bad "the profile is lost: $(ls -R "$HARNESS_HOME" | head -20)"
+check "the error names the kept staging folder" 0 "is kept in $(jpath "$staging")" cat "$T/rollback.out"
+check "a later --remove names the earlier staging folder" 1 "earlier removals left $(jpath "$staging")" "$CONNECT" --remove nobody
+mv "$staging/profile" "$HARNESS_HOME/projects/demo"
+rmdir "$staging"
+[ "$before" = "$(state)" ] && ok "after the profile is moved back by hand, HARNESS_HOME is as it was" || bad "the failing rollback lost more: $(diff <(echo "$before") <(state))"
+
 n_rm="$(commits)"
 check "--remove demo is written" 0 '"removed"' \
     env PROJECT_CONNECT_QMD="$QMD_NODE" bash -c 'set -o pipefail; "$1" --remove demo | tee "$2"' _ "$CONNECT" "$T/remove.out"
@@ -510,7 +522,40 @@ draft demo3 full null "$T/demo3" >"$T/demo3.json"
 check "demo3 is connected" 0 '"profileDir"' env PROJECT_CONNECT_QMD="$QMD_NODE" PROJECT_CONNECT_QMD_BIN="$T/bin/qmd-collections-shared" "$CONNECT" <"$T/demo3.json"
 check "a failing qmd keeps the removal and names the reason" 0 "collection is locked" env QMD_FAIL=1 PROJECT_CONNECT_QMD="$QMD_NODE" "$CONNECT" --remove demo3
 [ ! -e "$HARNESS_HOME/projects/demo3" ] && ok "a failing qmd still removed projects/demo3/" || bad "projects/demo3/ is still there"
-check "--remove without qmd installed skips the collections" 0 "qmd is not installed" "$CONNECT" --remove keep
+
+# The staging folder cannot be deleted after the commit: the removal holds, the folder is named in leftover.
+repo "$T/demo4"
+draft demo4 full null "$T/demo4" >"$T/demo4.json"
+check "demo4 is connected" 0 '"profileDir"' "$CONNECT" --no-qmd <"$T/demo4.json"
+check "a staging folder that cannot be deleted keeps the removal" 0 '"leftover": [' \
+    bash -c 'set -o pipefail; PROJECT_CONNECT_FAIL_AT=cleanup "$1" --remove demo4 | tee "$2"' _ "$CONNECT" "$T/demo4.out"
+left="$(find "$HARNESS_HOME" -maxdepth 1 -name '.remove-*')"
+[ -n "$left" ] && [ -f "$left/profile/profile.json" ] && [ ! -e "$HARNESS_HOME/projects/demo4" ] && ok "the staging folder stays with the removed profile" || bad "leftover: [$left]"
+check "leftover names it" 0 "$(jpath "$left")" node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).removed.leftover))' "$T/demo4.out"
+check "--remove without qmd installed skips the collections" 0 "qmd is not installed" bash -c 'set -o pipefail; "$1" --remove keep | tee "$2"' _ "$CONNECT" "$T/keep.out"
+check "a later removal names the earlier staging folder in leftover" 0 "$(jpath "$left")" node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).removed.leftover))' "$T/keep.out"
+[ -f "$left/profile/profile.json" ] && ok "an earlier staging folder is never deleted" || bad "the earlier staging folder is gone"
+
+# A Silent project's default Workflow folder holds the project's tickets: --remove refuses while it holds anything.
+repo "$T/wf"
+draft wf silent null "$T/wf" >"$T/wf.json"
+check "a Silent project is connected" 0 '"profileDir"' "$CONNECT" --no-qmd <"$T/wf.json"
+WF="$HARNESS_HOME/projects/wf/workflow"
+echo "# 01" >"$WF/01-ticket.md"
+before="$(state)"
+check "--remove refuses a Workflow folder with files" 1 "holds the project's own files" "$CONNECT" --remove wf
+git -C "$WF" add 01-ticket.md && git -C "$WF" commit -q -m tickets
+check "--remove refuses a Workflow folder with commits" 1 "and commits" "$CONNECT" --remove wf
+git -C "$WF" rm -q 01-ticket.md && git -C "$WF" commit -q -m empty
+check "--remove refuses a Workflow folder with commits and no files" 1 "and commits" "$CONNECT" --remove wf
+[ -d "$WF/.git" ] && [ -f "$HARNESS_HOME/projects/wf/profile.json" ] && [ -z "$(find "$HARNESS_HOME" -maxdepth 1 -name '.remove-*' -newer "$T/wf.json")" ] \
+    && ok "the refusals moved nothing" || bad "a refusal moved files: $(ls -a "$HARNESS_HOME" "$HARNESS_HOME/projects/wf")"
+check "the refused Silent project is still known" 0 "wf" "$PROFILE" -C "$T/wf" --name
+repo "$T/wf2"
+draft wf2 silent null "$T/wf2" >"$T/wf2.json"
+check "a second Silent project is connected" 0 '"profileDir"' "$CONNECT" --no-qmd <"$T/wf2.json"
+check "--remove of a Silent project with an empty default Workflow folder is written" 0 '"removed"' "$CONNECT" --remove wf2 --no-qmd
+[ ! -e "$HARNESS_HOME/projects/wf2" ] && ok "the empty default Workflow folder went with the profile" || bad "projects/wf2 is still there"
 export HARNESS_HOME="$SAVED"
 
 home_after="$(real_home_snapshot "$REAL_HOME")"
