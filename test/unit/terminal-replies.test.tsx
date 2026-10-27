@@ -219,9 +219,9 @@ async function terminal(options: { otherScreen: boolean; duringOpen?: (pty: Stan
           return { ok: true, value }
         }
         case 'terminal.input': {
-          const { data, reply } = terminalInput.input.parse(input)
+          const { data, reply, view: name } = terminalInput.input.parse(input)
           inputs.push({ data, reply })
-          registry.write(KEY, data, view, { reply: reply === true })
+          registry.write(KEY, data, view, { reply: reply === true, ...(name === undefined ? {} : { view: name }) })
           return { ok: true, value: undefined }
         }
         case 'terminal.resize': {
@@ -363,7 +363,7 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
     expect(pty.resizes).toEqual([])
   })
 
-  it('two views of the shell in one window (focus mode): only the view mounted last sends its colour answer, and the other once it goes (worfy-windows ticket 68)', async () => {
+  it('two views of the shell in one window (focus mode) both answer a colour query: the shell gets the first answer only, and the other view answers once the first goes (worfy-windows ticket 68)', async () => {
     const { pty } = await terminal()
     const canvas = await mount()
     // Focus mode draws the Node in a tile while the Canvas keeps its own view mounted under it.
@@ -379,15 +379,15 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
     answer(canvas.xterm, BACKGROUND)
     answer(tileXterm, BACKGROUND)
     await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(inputs).toEqual([{ data: BACKGROUND, reply: true }])
+    expect(inputs).toEqual([{ data: BACKGROUND, reply: true }, { data: BACKGROUND, reply: true }])
     expect(pty.writes).toEqual([BACKGROUND])
 
-    // Focus mode closed: the Canvas Node's view answers again.
+    // Focus mode closed: the Canvas Node's view answers the next query.
     tile.unmount()
-    inputs.length = 0
+    pty.calls.length = 0
     answer(canvas.xterm, BACKGROUND)
     await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(inputs).toEqual([{ data: BACKGROUND, reply: true }])
+    expect(pty.writes).toEqual([BACKGROUND])
   })
 
   it('a view mounted again writes nothing while it redraws the kept output; a live request after that is answered', async () => {

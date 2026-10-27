@@ -354,6 +354,15 @@ describe('the colour queries stay with the views; with two views main passes the
     expect(pty.writes).toEqual([BACKGROUND, BACKGROUND])
   })
 
+  it('two views of one window (focus mode) are told apart by `view`: the first answer passes', async () => {
+    const { registry, pty, a } = await shell()
+    registry.write(KEY, BACKGROUND, a, { reply: true, view: '2' })
+    registry.write(KEY, BACKGROUND, a, { reply: true, view: '1' })
+    // The same view again: a new query.
+    registry.write(KEY, BACKGROUND, a, { reply: true, view: '2' })
+    expect(pty.writes).toEqual([BACKGROUND, BACKGROUND])
+  })
+
   it('each kind of colour is its own: another view’s answer of another kind passes', async () => {
     const { registry, pty, a } = await shell()
     const b = {}

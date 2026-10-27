@@ -72,10 +72,14 @@ export const COLOUR_ANSWER_WINDOW_MS = 1000
  * view's answer of the same kind within COLOUR_ANSWER_WINDOW_MS is dropped (see the head of the file).
  */
 export class ColourAnswers {
-  private readonly last = new Map<string, { client: unknown; at: number }>()
+  private readonly last = new Map<string, { client: unknown; view: string | undefined; at: number }>()
 
-  /** What of `data`, marked as an answer by `client`, goes to the shell: all of it unless it is colour answers. */
-  pass(data: string, client: unknown): string {
+  /**
+   * What of `data`, marked as an answer by the view `view` of `client`, goes to the shell: all of it
+   * unless it is colour answers. A view is its window (`client`) and its name in that window: focus
+   * mode shows a shell in two views of one window. A screen that names no view counts as one view.
+   */
+  pass(data: string, client: unknown, view?: string): string {
     const answers = colourAnswers(data)
     if (answers === null) return data
     const now = Date.now()
@@ -85,12 +89,12 @@ export class ColourAnswers {
         // shortcut: a time window in place of a count of the queries, redo by counting the colour queries in the output main follows once a program is seen getting two answers or none.
         // The window's limit: a second view that answers more than COLOUR_ANSWER_WINDOW_MS late
         // gives the program a second answer, and when the view that answered goes, a new query
-        // within the window gets no answer. Two views of a shell in one window (focus mode) are one
-        // client here: of those, only the view mounted last sends its answer (terminal-views.ts). Chromium runs a hidden window's timers once a second or
+        // within the window gets no answer. Chromium runs a hidden window's timers once a second or
         // less often, and a view's xterm.js parses output on a timer, so a view in a hidden window
         // may answer that late.
-        if (last !== undefined && last.client !== client && now - last.at < COLOUR_ANSWER_WINDOW_MS) return false
-        this.last.set(kind, { client, at: now })
+        const other = last !== undefined && (last.client !== client || last.view !== view)
+        if (other && now - last.at < COLOUR_ANSWER_WINDOW_MS) return false
+        this.last.set(kind, { client, view, at: now })
         return true
       })
       .map(({ text }) => text)

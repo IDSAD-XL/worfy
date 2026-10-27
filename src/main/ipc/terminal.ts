@@ -113,8 +113,8 @@ export function terminalHandlers(deps: TerminalDeps): HandlerModule {
       return result
     }),
     defineHandler(terminalShells, async () => (await deps.shells?.()) ?? []),
-    defineHandler(terminalInput, ({ projectId, nodeId, data, reply }, { event }) => {
-      deps.registry().write(terminalKey(projectId, nodeId), data, clientOf(event), { reply: reply === true })
+    defineHandler(terminalInput, ({ projectId, nodeId, data, reply, view }, { event }) => {
+      deps.registry().write(terminalKey(projectId, nodeId), data, clientOf(event), { reply: reply === true, ...(view === undefined ? {} : { view }) })
     }),
     defineHandler(terminalResize, ({ projectId, nodeId, cols, rows }, { event }) => {
       deps.registry().resize(terminalKey(projectId, nodeId), cols, rows, clientOf(event))

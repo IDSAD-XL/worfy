@@ -797,15 +797,16 @@ export class TerminalRegistry {
    * typed or clicked last (ADR-0053, decision 5; worfy-windows ticket 39). An answer main gives
    * itself (the cursor position, the device attributes, a mode, a setting: isMainAnswer) goes
    * nowhere: main has answered that request. A colour answer passes once per query, from the view
-   * that answered first (ColourAnswers; worfy-windows ticket 68). Unmarked data is the user's and
+   * that answered first, views told apart by subscriber and `view` (ColourAnswers; worfy-windows
+   * ticket 68). Unmarked data is the user's and
    * always reaches the shell.
    */
-  write(key: string, data: string, client: TerminalClient | undefined, options: { reply?: boolean } = {}): void {
+  write(key: string, data: string, client: TerminalClient | undefined, options: { reply?: boolean; view?: string } = {}): void {
     const terminal = this.running(key)
     if (options.reply === true) {
       // While main answers (not after its screen refused output, cursor-answers.ts).
       if (terminal.cursor.answering && isMainAnswer(data)) return
-      const passed = terminal.colours.pass(data, client)
+      const passed = terminal.colours.pass(data, client, options.view)
       if (passed !== '') terminal.pty.write(passed)
       return
     }

@@ -1,12 +1,10 @@
-// Which view of a shell sets the size of its pty, and answers a colour query (TerminalNode.tsx).
+// Which view of a shell sets the size of its pty (TerminalNode.tsx).
 //
 // One shell can have two views at once: focus mode draws the Node in a tile while the Canvas keeps
 // its own copy mounted under the layer (src/renderer/focus/FocusMode.tsx). The pty has one size:
 // the view mounted last sets it, and when that view goes, the view mounted before it takes the
 // size again. So leaving focus mode gives the shell back the size of the Canvas Node, and while
-// focus mode is open a change of the Canvas Node's box does not take the size from the tile. The
-// same view is the one that answers a colour query of the program: main tells views apart by window
-// only, so two answers from one window would both reach the shell (worfy-windows ticket 68).
+// focus mode is open a change of the Canvas Node's box does not take the size from the tile.
 
 /** A mounted view of a shell, as the other views of the same shell see it. */
 export interface ShellView {
