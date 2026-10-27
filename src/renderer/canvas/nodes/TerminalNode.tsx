@@ -21,6 +21,7 @@ import { failureReason } from '../../../shared/ipc/channels'
 import type { TerminalAiFixState } from '../../../shared/ipc/terminal-ai-fix'
 import type { TerminalAiRequestState } from '../../../shared/ipc/terminal-ai-request'
 import { SHORTCUTS } from '../../../shared/shortcuts'
+import { CURSOR_BLINK } from '../../../shared/terminal/cursor-answer'
 import { NODE_HEADER } from '../node-header'
 
 // A Terminal: the user's interactive shell in the root of the Project (CONTEXT.md, "Terminal").
@@ -255,7 +256,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     const terminal = new Terminal({
       fontFamily: getComputedStyle(element).getPropertyValue('--font-mono').trim() || 'monospace',
       fontSize: 12,
-      cursorBlink: true,
+      cursorBlink: CURSOR_BLINK,
       scrollback: 5000,
       theme: themeOf(element),
     })

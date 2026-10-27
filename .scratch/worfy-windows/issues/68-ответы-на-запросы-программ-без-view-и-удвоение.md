@@ -99,6 +99,7 @@ Source: follow-up [Ticket-а 39](39-ответы-экрана-считаются
 | CPR `ESC[6n`, DECXCPR `ESC[?6n` | позиция | то же | main (как с Ticket-а 39) |
 | DECRQM `ESC[?2004$p` / после `?2004h` / `ESC[4$p` / `ESC[?9999$p` | `ESC[?2004;2$y` / `ESC[?2004;1$y` / `ESC[4;2$y` / `ESC[?9999;0$y` | то же | main |
 | DECRQSS `ESC P $q m ESC \`, `… r …` | `ESC P 1 $ r 0 m ESC \`, `ESC P 1 $ r 1;30 r ESC \` | то же | main |
+| DECRQM `ESC[?12$p`, DECRQSS `ESC P $q SP q ESC \` (курсор) | `ESC[?12;1$y`, `ESC P 1 $ r 1 q ESC \` — после ревью | то же (`cursorBlink: true`) | main |
 | DA3, XTVERSION, XTGETTCAP, `14/16/18t`, `?u`, `?996n` | нет ответа | нет ответа | никто (как и раньше) |
 | OSC 10/11/12/4 с `?` | нет ответа (темы нет) | цвет из темы | view; при двух view — первый ответ |
 
@@ -140,6 +141,18 @@ Session-а на ПК, `t68-capture-mac.cjs` — на Mac.
 - `test/unit/terminal-replies.test.tsx`: метка `reply` у ответов view на DA2, DSR, DECRQM, DECRQSS и один
   ответ main на каждый; резерв `watchUserInput` по новым формам. Ответ view на запрос цвета в jsdom не
   проверить: xterm.js отвечает из темы своего renderer-а, а `open()` в test-е ничего не рисует.
+
+### Ревью
+
+- Корректность, medium: экран main создавался без `cursorBlink`, а оба view — с `cursorBlink: true`. На
+  DECRQM 12 и DECRQSS стиля курсора main отвечал «не мигает» (`?12;2$y`, `2 q`), а ответ view отбрасывал.
+  Исправлено: общая константа `CURSOR_BLINK` (`src/shared/terminal/cursor-answer.ts`) у обоих view и у
+  экрана main; два случая добавлены в таблицу contract test-а (8 красных до исправления).
+- Low, исправлено: устаревший пример «the device attributes» в документации `terminal.input` и
+  `TerminalRegistry.write`; реэкспорт `isMainAnswer` через main; название и повтор запроса в
+  `terminal-replies.test.tsx`; в комментарии окна цветов назван таймер скрытого окна Chromium.
+- Low, не сделано: правило помеченных ответов разнесено между `pty.ts` и `cursor-answers.ts`; имена
+  `cursor-answer(s)` теперь уже того, что в них лежит.
 
 ### Что не проверено
 

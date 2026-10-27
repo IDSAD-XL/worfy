@@ -117,7 +117,7 @@ export const terminalShells = invokeChannel(
 
 /**
  * Keys typed or pasted in the terminal. `reply` marks an answer of the caller's terminal to the
- * program instead (a focus report, the device attributes): it reaches the shell the same way, but
+ * program instead (a focus report): it reaches the shell the same way, but
  * does not give the caller the size of the pty (worfy-windows ticket 39). A marked answer to a
  * request whose answer does not depend on the view (cursor position, device attributes, status,
  * modes, settings) goes nowhere: main answers those itself; of the views' answers to a colour

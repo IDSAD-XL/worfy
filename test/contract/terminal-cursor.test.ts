@@ -9,8 +9,8 @@
 import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { join } from 'node:path'
-import { COLOUR_ANSWER_WINDOW_MS, CursorAnswers, HIGH_WATER, isMainAnswer, SCROLLBACK, screenWorker, unpackedPath } from '../../src/main/terminal/cursor-answers'
-import { colourAnswers } from '../../src/shared/terminal/cursor-answer'
+import { COLOUR_ANSWER_WINDOW_MS, CursorAnswers, HIGH_WATER, SCROLLBACK, screenWorker, unpackedPath } from '../../src/main/terminal/cursor-answers'
+import { colourAnswers, isMainAnswer } from '../../src/shared/terminal/cursor-answer'
 import { ROWS_MAX, TerminalRegistry, type PtyProcess, type TerminalSink } from '../../src/main/terminal/pty'
 
 const KEY = JSON.stringify(['alpha-0000000a', 'terminal-node-1'])
@@ -286,6 +286,9 @@ const SAME_ANSWER: [name: string, output: string, answer: string][] = [
   ['an unknown mode (DECRQM)', `${ESC}[?9999$p`, `${ESC}[?9999;0$y`],
   ['the graphic rendition (DECRQSS)', `${ESC}P$qm${ESC}\\`, `${ESC}P1$r0m${ESC}\\`],
   ['the scroll region (DECRQSS)', `${ESC}P$qr${ESC}\\`, `${ESC}P1$r1;24r${ESC}\\`],
+  // The cursor's settings, answered as a view answers: a view's cursor blinks (CURSOR_BLINK).
+  ['the cursor blinking (DECRQM 12)', `${ESC}[?12$p`, `${ESC}[?12;1$y`],
+  ['the cursor style (DECRQSS)', `${ESC}P$q q${ESC}\\`, `${ESC}P1$r1 q${ESC}\\`],
 ]
 
 describe('main answers every request whose answer does not depend on the view (worfy-windows ticket 68)', () => {

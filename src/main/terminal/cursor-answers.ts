@@ -59,9 +59,7 @@
 // would not know where the cursor is until the program moved it to a fixed place, so none is made.
 import { createRequire } from 'node:module'
 import { Worker } from 'node:worker_threads'
-import { colourAnswers, isMainAnswer } from '../../shared/terminal/cursor-answer'
-
-export { isMainAnswer }
+import { colourAnswers, CURSOR_BLINK, isMainAnswer } from '../../shared/terminal/cursor-answer'
 
 /**
  * How long after a view's colour answer passed another view's answer of the same kind is taken for
@@ -87,7 +85,9 @@ export class ColourAnswers {
         // shortcut: a time window in place of a count of the queries, redo by counting the colour queries in the output main follows once a program is seen getting two answers or none.
         // The window's limit: a second view that answers more than COLOUR_ANSWER_WINDOW_MS late
         // gives the program a second answer, and when the view that answered goes, a new query
-        // within the window gets no answer.
+        // within the window gets no answer. Chromium runs a hidden window's timers once a second or
+        // less often, and a view's xterm.js parses output on a timer, so a view in a hidden window
+        // may answer that late.
         if (last !== undefined && last.client !== client && now - last.at < COLOUR_ANSWER_WINDOW_MS) return false
         this.last.set(kind, { client, at: now })
         return true
@@ -132,7 +132,7 @@ function refuse(id, error) {
 parentPort.on('message', (m) => {
   try {
     if (m.t === 'open') {
-      const screen = new Terminal({ cols: m.cols, rows: m.rows, scrollback: m.scrollback, allowProposedApi: false })
+      const screen = new Terminal({ cols: m.cols, rows: m.rows, scrollback: m.scrollback, cursorBlink: m.cursorBlink, allowProposedApi: false })
       screen.onData((data) => parentPort.postMessage({ t: 'data', id: m.id, data }))
       screens.set(m.id, screen)
       return
@@ -151,7 +151,7 @@ parentPort.on('message', (m) => {
 `
 
 type ToWorker =
-  | { t: 'open'; id: number; cols: number; rows: number; scrollback: number }
+  | { t: 'open'; id: number; cols: number; rows: number; scrollback: number; cursorBlink: boolean }
   | { t: 'feed'; id: number; data: string }
   | { t: 'resize'; id: number; cols: number; rows: number }
   | { t: 'close'; id: number }
@@ -179,7 +179,7 @@ class ScreenWorker {
   open(size: { cols: number; rows: number }, listener: ScreenListener): number {
     const id = ++this.next
     this.screens.set(id, listener)
-    this.post({ t: 'open', id, cols: size.cols, rows: size.rows, scrollback: SCROLLBACK })
+    this.post({ t: 'open', id, cols: size.cols, rows: size.rows, scrollback: SCROLLBACK, cursorBlink: CURSOR_BLINK })
     return id
   }
 

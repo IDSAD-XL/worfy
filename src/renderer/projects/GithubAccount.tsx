@@ -16,6 +16,7 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { failureReason } from '../../shared/ipc/channels'
 import { githubChoice, type GithubAccountsStep, type GithubChoice } from '../../shared/ipc/projects'
+import { CURSOR_BLINK } from '../../shared/terminal/cursor-answer'
 import { writeReplay } from '../canvas/nodes/terminal-replay'
 import { watchUserInput } from '../canvas/nodes/terminal-user-input'
 import { invoke, invokeOn, subscribe } from '../ipc'
@@ -261,7 +262,7 @@ export function SignInTerminal({ signInId, onExit, onClose }: { signInId: string
     const token = (name: string): string => getComputedStyle(element).getPropertyValue(name).trim()
     // The terminal colours of the current appearance, from the tokens of design F, as a Terminal Node has them.
     const theme = () => ({ background: token('--terminal-bg'), foreground: token('--terminal-text'), cursor: token('--terminal-text'), cursorAccent: token('--terminal-bg') })
-    const terminal = new Terminal({ fontFamily: token('--font-mono') || 'monospace', fontSize: 12, cursorBlink: true, scrollback: 1000, theme: theme() })
+    const terminal = new Terminal({ fontFamily: token('--font-mono') || 'monospace', fontSize: 12, cursorBlink: CURSOR_BLINK, scrollback: 1000, theme: theme() })
     const scheme = window.matchMedia('(prefers-color-scheme: dark)')
     const onScheme = (): void => {
       terminal.options.theme = theme()

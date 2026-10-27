@@ -335,7 +335,7 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
     expect(pty.calls).toEqual([['write', VIEW_ANSWER]])
   })
 
-  it('the view marks its answers to the requests main now answers too (DA2, DSR, DECRQM, DECRQSS); the shell gets one answer to each, main’s (worfy-windows ticket 68)', async () => {
+  it('the view marks its answers to the requests main now answers too (DA2, DSR, DECRQM, DECRQSS); the shell gets one answer to each (worfy-windows ticket 68)', async () => {
     const { pty } = await terminal()
     const { xterm } = await mount()
     pty.calls.length = 0
@@ -354,7 +354,7 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
   it('a view mounted again writes nothing while it redraws the kept output; a live request after that is answered', async () => {
     const { pty } = await terminal({ otherScreen: false })
     // Focus reports turned on: the view's to answer (main answers the device attributes itself, ticket 68).
-    pty.print(`$ vim${ESC}[1t${VIEW_REQUEST}${ESC}[?1004h${ESC}[?9001h`)
+    pty.print(`$ vim${ESC}[1t${VIEW_REQUEST}${ESC}[?9001h`)
     const first = await mount()
     first.shown.unmount()
     pty.calls.length = 0

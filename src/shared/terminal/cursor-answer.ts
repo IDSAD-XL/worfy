@@ -4,7 +4,8 @@
 // of a mode, a colour) and xterm.js answers by sending data to the program, as if typed. Two kinds
 // of answer are told apart here:
 //   - the answers main gives itself (isMainAnswer): those whose answer is the same from main's
-//     screen (@xterm/headless) and from a view's xterm.js, measured with xterm.js 6.0.0 — the
+//     screen (@xterm/headless) and from a view's xterm.js, measured with xterm.js 6.0.0 and the
+//     cursor blinking in both (CURSOR_BLINK) — the
 //     device attributes (DA1 `ESC[?1;2c`, DA2 `ESC[>0;276;0c`), the device status (`ESC[0n`), the
 //     cursor position (`ESC[<row>;<column>R`, `ESC[?…R`), the state of a mode (DECRPM,
 //     `ESC[?<mode>;<state>$y` and `ESC[<mode>;<state>$y`) and a setting (DECRQSS,
@@ -19,6 +20,12 @@
 // xterm.js sends Shift+F3 as `ESC[1;2R`, so main drops only data marked as an answer.
 
 const ESC = '\x1b'
+
+/**
+ * Whether the cursor blinks, in every view's xterm.js and in main's screen alike: the answers to a
+ * mode or setting of the cursor (DECRQM 12, DECRQSS ` q`) depend on it, and main gives those.
+ */
+export const CURSOR_BLINK = true
 
 /** One answer main gives itself, as xterm.js gives it; see the head of the file. */
 const MAIN_ANSWER = [

@@ -61,7 +61,8 @@ import { findGitBash, findOnPath, getVar, gitBashKill, powershellScriptCommand, 
 import type { ReplaySize } from '../../shared/ipc/terminal'
 import type { TerminalShellSetting } from '../../shared/projects/action-templates'
 import { ConsoleRequests, DEVICE_ATTRIBUTES_ANSWER } from './console-request'
-import { ColourAnswers, CursorAnswers, isMainAnswer } from './cursor-answers'
+import { isMainAnswer } from '../../shared/terminal/cursor-answer'
+import { ColourAnswers, CursorAnswers } from './cursor-answers'
 import { ShellTracker, type ShellEvent, type ShellState } from './osc'
 import { REPLAY_LIMIT, ReplayBuffer } from './replay-buffer'
 import { integrationEnv, isZsh, newNonce, type AssistAdmission, type AssistDoor, type ShellIntegration } from './shell-integration'
@@ -791,7 +792,7 @@ export class TerminalRegistry {
 
   /**
    * Types into the shell; a subscriber that types takes the size of the pty first. An answer of the
-   * subscriber's terminal to the program (`reply`: a focus report, the device attributes) reaches
+   * subscriber's terminal to the program (`reply`: a focus report) reaches
    * the shell the same way and leaves the size where it is: the size belongs to the screen that
    * typed or clicked last (ADR-0053, decision 5; worfy-windows ticket 39). An answer main gives
    * itself (the cursor position, the device attributes, a mode, a setting: isMainAnswer) goes
