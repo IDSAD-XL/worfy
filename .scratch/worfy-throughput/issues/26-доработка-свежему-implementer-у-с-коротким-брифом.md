@@ -61,7 +61,15 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
   (`EnterWorktree`), а не создаёт новый, начинает с `Head` и пушит в тот же PR.
 - Test-ы: `harness/bin/tests/epic-wave-ship-ticket.test.sh`, блок 7e — фразы правила, исключение 5 min, шесть
   строк шаблона (Ticket, PR, Branch, Head, Findings, Verifier report), напоминание о test-е, правка раздела 4 и
-  implementer.md. До правки skill-а — 17 FAIL, после — exit 0 (389 проверок); mutant-ы (удалена строка Head,
-  5 → 10 min) дают FAIL.
+  implementer.md. Первый круг: test круга 1 против документов main — 18 FAIL, после — exit 0 (389 проверок).
+- Круг доработки 2 (head до него — dd38a4ff): бриф доработки получил `spec:` в строке Ticket, строки Files и
+  Wave neighbours' files первого брифа; Worktree — абсолютный путь, «work in it, do not create one»; Head —
+  HEAD ветки до rebase, implementer делает rebase первым. Исключение 5 min считается от финального отчёта
+  до отправки брифа. `implementer.md`: в круге доработки нет `EnterWorktree` — правка по абсолютным путям,
+  Bash как `cd <worktree> && …`, нет дерева или не та ветка — вопрос; шаги 1–2 ship-ticket пропускаются,
+  head после rebase — в комментарии PR. Test-ы: метки Rework, Repository, Worktree, spec, Files, Head,
+  строки правила и брифа ≤ 100 символов, новые фразы implementer.md; 12 mutant-ов — каждый даёт FAIL.
+  Итог: 398 проверок, exit 0; против документов dd38a4ff — 10 FAIL, против main — 26 FAIL. Рост текста
+  SKILL.md + implementer.md за круг — +429 байт.
 - Не сделано: ручной пункт «первые три круга доработки — свежим агентом, число и цена кругов по Ticket-у 19» —
   после обновления Stable copy.

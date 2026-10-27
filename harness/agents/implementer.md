@@ -42,7 +42,7 @@ and stop.
 - **`worktree.root` outside the repository** (`<HARNESS_HOME>/worktrees/<project>/`) — not supported
   yet: `EnterWorktree` does not reach such a tree, and the plugin registers no
   hook that would put you there. It is a false premise of the brief (see "Boundaries").
-- **First of all, create a working tree FOR YOURSELF and work only in it** (a rework round: enter the
+- **First of all, create a working tree FOR YOURSELF and work only in it** (a rework round: work in the
   tree its brief names, see "A rework round") — with the profile command
   `worktree.implementer` (root `worktree.root`, base `worktree.base`) — and enter it right away:
   `EnterWorktree` with the `path` of that tree. The PreToolUse check on Edit and Write lets edits
@@ -245,9 +245,12 @@ list. Cover every new behaviour of the rework with a test and make sure it goes 
 that change (the mutant lives in your own tree; restore from a copy, not with `git checkout`). In
 asynchronous code (watcher, debounce, timers, IPC) think through the races before the report: an
 event between two `await`s, a file deleted while it is read, a reply after close. Every race is a
-test or a line in `not_verified`. A rework brief names the worktree and branch of the first round:
-enter that tree (`EnterWorktree` with its `path`) instead of creating one, start from its `Head`,
-fix its `Findings` (details in its `Verifier report`) and push to the same PR.
+test or a line in `not_verified`. A rework brief names the worktree and branch of the first round.
+Do not create a tree and do not call `EnterWorktree` (refused from the repository root): edit files
+by absolute paths inside that tree and run every Bash command as `cd <worktree> && …`; a path that
+is missing or not on the brief's branch — stop and ask. Skip steps 1–2 of the ticket skill (claim,
+base): rebase onto the base first — `Head` is from before it — and name the head after that rebase
+in your PR comment. Fix the `Findings` (details in `Verifier report`), push to the same PR.
 
 **Never launch review agents (`worfy:reviewer` or any other) — under no circumstances.** The review
 step in the ticket skill is written for the main session, not for you: your children report to the

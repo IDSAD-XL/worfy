@@ -670,26 +670,27 @@ is the narrow round below), then the gate again. The round is a new agent `worfy
 the rework brief below, in the same worktree and on the same branch — not `SendMessage` to the old
 implementer: by then it has usually been idle past its prompt cache (5 min), and its first message
 re-reads its whole context, often 100k tokens and more, while the brief is a few thousand. The
-exception: the old implementer reported less than 5 min ago — then `SendMessage` to it with the same
-brief; a report time you do not know counts as older. Every rework round of this skill follows this rule: a `REJECTED`, a narrow round, a red check
-(section 4), the culprit of a red set (section 4), a reverted PR.
+exception: the old implementer sent its final report less than 5 min before this brief — then
+`SendMessage` to it with the same brief; a report time you do not know counts as older. Every rework
+round of this skill follows this rule: a `REJECTED`, a narrow round, a red check (section 4), the
+culprit of a red set (section 4), a reverted PR.
 
 **The rework brief**:
 
 ```
 Rework: <epic>/<NN>, round <n>
 Repository: <repo>
-Ticket: <F tickets.path for NN>
+Ticket: <F tickets.path for NN>; spec: <F tickets.spec>
 PR: <N>                               # local-green: none
 Branch: <branch>
-Worktree: <the first round's worktree> — enter it, do not create one
-Head: <sha>                           # the branch HEAD before the rework, after the rebase
+Worktree: <absolute path of the first round's worktree> — work in it, do not create one
+Head: <sha>               # the branch HEAD before the rework; the implementer rebases it first
 Findings: <the Act on group of the recorded `REJECTED` | the failing tests of the red run>
 Verifier report: <the recorded verdict: PR comment URL, gate: commit or ticket file | the run log>
 Cover every new behaviour of the rework with a test that turns red on a mutant of that change,
 and think through races in async code — rework rounds have introduced defects themselves.
-        # plus the Scratchpad, Write to ~/.claude, Temporary HOME, GUI checks and Browser roles
-        # lines of the first brief (section 2)
+        # plus the Files, Wave neighbours' files, Scratchpad, Write to ~/.claude, Temporary HOME,
+        # GUI checks and Browser roles lines of the first brief (section 2)
 ```
 
 **The second gate round checks the rework round; it does not search everything again.** The

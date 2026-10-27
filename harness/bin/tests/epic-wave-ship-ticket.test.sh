@@ -443,22 +443,32 @@ in_rw3() { [[ "$rw3" == *"$1"* ]]; }
 check "epic-wave section 3: a rework round is a fresh implementer with the rework brief" \
     in_rw3 'The round is a new agent `worfy:implementer` with the rework brief below, in the same worktree and on the same branch — not `SendMessage` to the old implementer'
 check "epic-wave section 3: the 5 min exception" \
-    in_rw3 'The exception: the old implementer reported less than 5 min ago — then `SendMessage` to it with the same brief; a report time you do not know counts as older.'
+    in_rw3 'The exception: the old implementer sent its final report less than 5 min before this brief — then `SendMessage` to it with the same brief; a report time you do not know counts as older.'
+# The rule's paragraph and the brief template stay within 100 characters a line.
+rw_lines="$(section "$EW" 3 | awk '/^`REJECTED` \(except/{p=1} p; p && /^```$/{n++} n == 2{exit}')"
+check "epic-wave section 3: the rework rule and brief keep lines within 100 characters" \
+    bash -c '[ -n "$1" ] && perl -CSDA -e '"'"'for (split /\n/, shift) { exit 1 if length > 100 }'"'"' "$1"' _ "$rw_lines"
 check "epic-wave section 3: the old wording — REJECTED to the same implementer — is gone" \
     lacks "$EW" 'goes to the same implementer through'
 check "epic-wave section 3: every rework round of the skill follows the rule" \
     in_rw3 'Every rework round of this skill follows this rule:'
 # The brief template: one fenced block after its heading, with the six labelled lines.
 rework_brief="$(section "$EW" 3 | awk '/^\*\*The rework brief\*\*/{p=1} p && /^```$/{if (b) exit; b=1; next} b')"
-for label in Ticket PR Branch Head Findings 'Verifier report'; do
+for label in Rework Repository Ticket PR Branch Worktree Head Findings 'Verifier report'; do
     check "epic-wave section 3: the rework brief has the line '$label:'" \
         bash -c 'grep -q "^$2: " <<<"$1"' _ "$rework_brief" "$label"
 done
+brief_has() { grep -qF -- "$1" <<<"$rework_brief"; }
+check "epic-wave section 3: the rework brief names the spec" brief_has 'Ticket: <F tickets.path for NN>; spec: <F tickets.spec>'
+check "epic-wave section 3: the rework brief carries Files and Wave neighbours' files of the first brief" \
+    brief_has "# plus the Files, Wave neighbours' files, Scratchpad,"
+check "epic-wave section 3: Head is from before the rebase, which the implementer does first" \
+    bash -c 'grep -q "^Head: <sha> .*# the branch HEAD before the rework; the implementer rebases it first$" <<<"$1"' _ "$rework_brief"
 check "epic-wave section 3: the rework brief reminds of a test per new behaviour" \
     bash -c '[[ "$(tr "\n" " " <<<"$1" | tr -s " ")" == *"$2"* ]]' _ "$rework_brief" \
     'Cover every new behaviour of the rework with a test that turns red on a mutant of that change'
-check "epic-wave section 3: the rework brief tells the agent to enter the worktree, not create one" \
-    bash -c 'grep -qF "$2" <<<"$1"' _ "$rework_brief" 'enter it, do not create one'
+check "epic-wave section 3: the rework brief names the worktree by absolute path — work in it, do not create one" \
+    bash -c 'grep -q "^Worktree: <absolute path of the first round.s worktree> — work in it, do not create one$" <<<"$1"' _ "$rework_brief"
 rw4="$(section "$EW" 4 | tr '\n' ' ' | tr -s ' ')"
 in_rw4() { [[ "$rw4" == *"$1"* ]]; }
 check "epic-wave section 4: a red Check goes to a fresh implementer" \
@@ -467,10 +477,14 @@ check "epic-wave section 4: the culprit of a red set goes to a fresh implementer
     in_rw4 'the culprit goes to a rework round (section 3, a fresh implementer) with the log of its run'
 check "epic-wave section 4: no rework goes back to its implementer" \
     lacks "$EW" 'back to its implementer as a rework round'
-check "implementer: a rework brief names an existing worktree — enter it, do not create one" \
-    in_flat "$(cat "$IM")" 'A rework brief names the worktree and branch of the first round: enter that tree (`EnterWorktree` with its `path`) instead of creating one'
+check "implementer: a rework round works in the brief's tree by absolute paths, without EnterWorktree" \
+    in_flat "$(cat "$IM")" 'Do not create a tree and do not call `EnterWorktree` (refused from the repository root): edit files by absolute paths inside that tree and run every Bash command as `cd <worktree> && …`; a path that is missing or not on the brief'"'"'s branch — stop and ask.'
+check "implementer: a rework round skips claim and base, rebases first and names the rebased head" \
+    in_flat "$(cat "$IM")" 'Skip steps 1–2 of the ticket skill (claim, base): rebase onto the base first — `Head` is from before it — and name the head after that rebase in your PR comment.'
 check "implementer: the create-a-tree rule points a rework round at the brief's tree" \
-    in_flat "$(cat "$IM")" '(a rework round: enter the tree its brief names, see "A rework round")'
+    in_flat "$(cat "$IM")" '(a rework round: work in the tree its brief names, see "A rework round")'
+check "implementer: a rework round is not sent into EnterWorktree" \
+    lacks "$IM" 'enter that tree (`EnterWorktree`'
 # In Silent mode the verdict is the last gate: line of the ticket file, not its last line: group lines follow
 # the verdict of their round with VERIFIED too, and the verdict is read with grep | tail.
 ew3="$(section "$EW" 3 | tr '\n' ' ' | tr -s ' ')"
