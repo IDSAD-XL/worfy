@@ -4,7 +4,9 @@
 //
 // Sending: on powerMonitor's `suspend` this Machine sends the service message `sleeping` to every
 // connected Linked machine; on `resume`, `awake` to those whose connection survived. The others
-// reconnect by the rules of worfy-link ticket 02 (connections.ts).
+// reconnect by the rules of worfy-link ticket 02 (connections.ts). `resume` is also the event
+// `resumed`: the app's link dials the unavailable Linked machines at once and announces this Machine
+// again on Bonjour (service.ts, wireAppLink; worfy-link ticket 36).
 //
 // Receiving: `sleeping` marks the sender "sleeping" until a connection to it opens again, or it
 // says `awake`; the connection dropping after the message does not change it. When the message does
@@ -43,7 +45,7 @@ type Followed = Pick<LinkService, 'on' | 'off' | 'linkedMachines' | 'isConnected
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
-export class SleepNotice extends EventEmitter<{ changed: [] }> {
+export class SleepNotice extends EventEmitter<{ changed: []; resumed: [] }> {
   private readonly sleeping = new Set<string>()
   private readonly log: (message: string) => void
   private readonly now: () => number
@@ -51,7 +53,10 @@ export class SleepNotice extends EventEmitter<{ changed: [] }> {
   private readonly onConnected = ({ id }: { id: string }): void => this.wake(id)
   private readonly onUnlinked = ({ id }: { id: string }): void => this.wake(id)
   private readonly onSuspend = (): void => this.tell(sleepingMessage, 'going to sleep')
-  private readonly onResume = (): void => this.tell(awakeMessage, 'awake again')
+  private readonly onResume = (): void => {
+    this.tell(awakeMessage, 'awake again')
+    if (!this.stopped) this.emit('resumed')
+  }
 
   constructor(
     private readonly service: Followed,

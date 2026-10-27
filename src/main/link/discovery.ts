@@ -2,7 +2,9 @@
 // DNS-SD service type `_worfy._tcp`; the TXT record carries the Machine id (`id`), the link
 // protocol (`proto`) and the Machine name (`name`).
 //
-// - Announcing: while the link server listens (LinkDiscovery.advertise with its port).
+// - Announcing: while the link server listens (LinkDiscovery.advertise with its port), and again
+//   with the current addresses when this Machine wakes up or its network changes (announceAgain,
+//   worfy-link ticket 36).
 // - Searching: while "Link a machine" is open, and while a Linked machine is unavailable (a new
 //   address found for it reconnects at once, connections.ts). The reasons are kept apart, so one
 //   ending does not stop the search the other still needs.
@@ -22,9 +24,12 @@
 // the first time an app announces or searches (Apple TN3179), and that prompt would stop a run.
 import { EventEmitter } from 'node:events'
 import { isIP } from 'node:net'
+import os, { type NetworkInterfaceInfo } from 'node:os'
 import { Bonjour } from 'bonjour-service'
 import { z } from 'zod'
-import { isLocalNetworkAddress } from './checks'
+import { isLocalNetworkAddress, isTailscaleAddress, worfyHost } from './checks'
+
+export { worfyHost }
 
 /** The DNS-SD service type without underscores: `_worfy._tcp`. */
 export const LINK_SERVICE_TYPE = 'worfy'
@@ -45,7 +50,13 @@ export interface MdnsService {
 export interface MdnsBackend {
   /** `stop` sends the goodbye (the records with TTL 0) and resolves once it is out. */
   publish(announcement: { name: string; port: number; txt: Record<string, string> }): { stop(): Promise<void> }
-  browse(events: { up(service: MdnsService): void; down(service: MdnsService): void }): { stop(): void; refresh(): void }
+  /**
+   * `up` and `down` follow the announcements; `answered`, when the backend gives it, comes for every
+   * answer to the search's question (refresh() asks it again), a known announcement's included.
+   */
+  browse(events: { up(service: MdnsService): void; down(service: MdnsService): void; answered?(service: MdnsService): void }): { stop(): void; refresh(): void }
+  /** The machine's network changed: follow its interfaces (worfy-link ticket 36). Optional; a fake may leave it out. */
+  refresh?(): void
   destroy(): void
 }
 
@@ -76,10 +87,17 @@ export interface LinkDiscoveryOptions {
   isLinked: (id: string) => boolean
   /** The link protocol this Machine speaks (messages.ts, LINK_PROTOCOL_VERSION). */
   protocol: number
+  /** Whether an IPv4 address is on a network of this machine (onSameNetwork); an announced address that is goes first. */
+  sameNetwork?: (address: string) => boolean
   /** How often the search asks again and drops what has expired; 10 s by default. */
   refreshMs?: number
   /** At most one `seen` per Machine id in this time; 10 s by default. */
   seenIntervalMs?: number
+  /**
+   * How long a Linked machine counts as answering after its last answer (answeredRecently); three
+   * times refreshMs by default, so one lost answer does not count.
+   */
+  answeredWindowMs?: number
   now?: () => number
 }
 
@@ -97,9 +115,11 @@ const machineId = z.uuid()
  * that needs no zone (not fe80::/10), then the host name when it is an mDNS name (`*.local`).
  * Undefined when the announcement offers none of these.
  */
-export function dialAddress(service: Pick<MdnsService, 'host' | 'addresses'>): string | undefined {
+export function dialAddress(service: Pick<MdnsService, 'host' | 'addresses'>, sameNetwork?: (address: string) => boolean): string | undefined {
   const local = (service.addresses ?? []).filter((address) => isIP(address) !== 0 && isLocalNetworkAddress(address))
-  const v4 = local.find((address) => isIP(address) === 4)
+  // A worfy announces every interface it has (WSL and Hyper-V adapters on Windows too): an address
+  // on a network this machine is on goes first (worfy-link ticket 36).
+  const v4 = local.find((address) => isIP(address) === 4 && sameNetwork?.(address) === true) ?? local.find((address) => isIP(address) === 4)
   if (v4 !== undefined) return v4
   const v6 = local.find((address) => isIP(address) === 6 && !/^fe[89ab]/i.test(address))
   if (v6 !== undefined) return v6
@@ -108,16 +128,29 @@ export function dialAddress(service: Pick<MdnsService, 'host' | 'addresses'>): s
 }
 
 /** What a found service says about itself; undefined when it is not a worfy (no Machine id). */
-export function readAnnouncement(service: MdnsService): FoundMachine | undefined {
+export function readAnnouncement(service: MdnsService, sameNetwork?: (address: string) => boolean): FoundMachine | undefined {
   const txt = service.txt ?? {}
   const id = typeof txt.id === 'string' ? txt.id : undefined
   if (id === undefined || !machineId.safeParse(id).success) return undefined
   const protocol = typeof txt.proto === 'string' && /^\d{1,6}$/.test(txt.proto) ? Number(txt.proto) : null
   const name = typeof txt.name === 'string' && txt.name.trim() !== '' ? txt.name.trim() : service.name
   if (!Number.isInteger(service.port) || service.port < 1 || service.port > 65535) return undefined
-  const host = dialAddress(service)
+  const host = dialAddress(service, sameNetwork)
   if (host === undefined) return undefined
   return { id, name, host, port: service.port, protocol: protocol !== null && protocol > 0 ? protocol : null }
+}
+
+/**
+ * The mDNS name of an announcement's host, `<label>.local` in lower case; undefined when it is no
+ * such name. A bare label counts too: a worfy before worfy-link ticket 36 announced os.hostname()
+ * as it is, which on Windows is the computer name without `.local`; a worfy now announces its own
+ * name (worfyHost).
+ */
+export function mdnsName(host: string): string | undefined {
+  const name = host.replace(/\.$/, '').toLowerCase()
+  if (/^[a-z0-9-]{1,63}\.local$/.test(name)) return name
+  if (/^[a-z0-9-]{1,63}$/.test(name)) return `${name}.local`
+  return undefined
 }
 
 /** The instance name: the Machine name and the start of its id, so two worfy on one Mac differ. */
@@ -131,10 +164,18 @@ export function instanceName(machine: { id: string; name: string }): string {
 
 export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
   private readonly found = new Map<string, FoundMachine>()
+  /** The mDNS name of each found announcement's host, by the same key as `found`. */
+  private readonly names = new Map<string, string>()
   /** When `seen` last went out per Machine id. */
   private readonly lastSeenAt = new Map<string, number>()
+  /** When each Linked machine last answered the search, while it runs. */
+  private readonly answeredAt = new Map<string, number>()
+  /** The Linked machines answeredRecently counts as answering at the last check: a change is a `changed`. */
+  private readonly answering = new Set<string>()
   private readonly reasons = new Set<BrowseReason>()
   private announcement: { port: number; handle: { stop(): void } } | null = null
+  /** The port advertise() was last asked for; null: not announcing. */
+  private wanted: number | null = null
   private browser: { stop(): void; refresh(): void } | null = null
   private refreshTimer: NodeJS.Timeout | null = null
   private stopped = false
@@ -146,9 +187,14 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
   /** Announces this Machine on `port`; null stops announcing. */
   advertise(port: number | null): void {
     if (this.stopped) return
+    this.wanted = port
     if (this.announcement !== null && this.announcement.port === port) return
     void this.withdraw()
     if (port === null) return
+    this.publish(port)
+  }
+
+  private publish(port: number): void {
     const self = this.options.self()
     const handle = this.options.backend.publish({
       name: instanceName(self),
@@ -156,6 +202,25 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
       txt: { id: self.id, proto: String(this.options.protocol), name: self.name },
     })
     this.announcement = { port, handle }
+  }
+
+  /**
+   * Announces this Machine again, with the addresses its interfaces have now, and asks the network
+   * again for the others: after a wake-up or a change of network (worfy-link ticket 36). The old
+   * announcement's goodbye goes out first, so it cannot arrive after the new one. Nothing while
+   * this Machine does not announce.
+   */
+  async announceAgain(): Promise<void> {
+    if (this.stopped) return
+    // The sockets follow the interfaces first (bonjourBackend): the new announcement goes out on them.
+    this.options.backend.refresh?.()
+    this.browser?.refresh()
+    const current = this.announcement
+    if (this.stopped || current === null) return
+    await this.withdraw()
+    // advertise() may have run meanwhile (another port, or none): that one stands.
+    if (this.stopped || this.announcement !== null || this.wanted !== current.port) return
+    this.publish(current.port)
   }
 
   /** Starts or ends the search for one reason; the search runs while any reason holds. */
@@ -200,6 +265,23 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
   }
 
   /**
+   * Whether Linked machine `id` answered the search within answeredWindowMs (worfy-link ticket 36).
+   * Not whether its announcement is still kept: one that left without a goodbye (a laptop taken to
+   * another network) is kept until its TTL of 8 hours runs out, but stops answering at once.
+   */
+  answeredRecently(id: string): boolean {
+    const at = this.answeredAt.get(id)
+    return this.browser !== null && at !== undefined && this.clock() - at <= this.answeredWindow()
+  }
+
+  /** The mDNS name of the host Bonjour last found Linked machine `id` on, as lastSeen does; undefined when none. */
+  lastSeenName(id: string): string | undefined {
+    let name: string | undefined
+    for (const [key, machine] of this.found) if (machine.id === id) name = this.names.get(key)
+    return name
+  }
+
+  /**
    * Stops for good: the goodbye goes out first (other worfy drop this one at once, not when the
    * announcement's TTL of 8 hours runs out), then the socket closes. Resolves when both are done.
    */
@@ -230,8 +312,13 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
     this.browser = this.options.backend.browse({
       up: (service) => this.up(service),
       down: (service) => this.down(service),
+      answered: (service) => this.answered(service),
     })
-    this.refreshTimer = setInterval(() => this.browser?.refresh(), this.options.refreshMs ?? 10_000)
+    this.refreshTimer = setInterval(() => {
+      // A Linked machine whose answers stopped no longer counts as answering: its row changes.
+      this.followAnswering()
+      this.browser?.refresh()
+    }, this.options.refreshMs ?? 10_000)
     this.refreshTimer.unref()
   }
 
@@ -241,6 +328,9 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
     this.browser?.stop()
     this.browser = null
     this.lastSeenAt.clear()
+    this.answeredAt.clear()
+    this.answering.clear()
+    this.names.clear()
     if (this.found.size === 0) return
     this.found.clear()
     this.emit('changed')
@@ -248,14 +338,54 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
 
   private up(service: MdnsService): void {
     if (this.browser === null) return
-    const machine = readAnnouncement(service)
+    const machine = readAnnouncement(service, this.options.sameNetwork)
     if (machine === undefined) return
     if (machine.id === this.options.self().id) return
     const key = service.fqdn ?? service.name
     if (!this.found.has(key) && this.found.size >= MAX_FOUND) return
     this.found.set(key, machine)
-    if (this.options.isLinked(machine.id)) this.sighted(machine)
+    const name = mdnsName(service.host)
+    if (name === undefined) this.names.delete(key)
+    else this.names.set(key, name)
+    if (this.options.isLinked(machine.id)) {
+      this.answeredAt.set(machine.id, this.clock())
+      this.answering.add(machine.id)
+      this.sighted(machine)
+    }
     this.emit('changed')
+  }
+
+  /** An answer to the search, a known announcement's too: a Linked machine's counts as answering now. */
+  private answered(service: MdnsService): void {
+    if (this.browser === null) return
+    const machine = readAnnouncement(service, this.options.sameNetwork)
+    if (machine === undefined || !this.options.isLinked(machine.id)) return
+    this.answeredAt.set(machine.id, this.clock())
+    this.followAnswering()
+  }
+
+  /** Emits `changed` when the set of Linked machines answeredRecently counts as answering changed. */
+  private followAnswering(): void {
+    let changed = false
+    for (const id of this.answering) {
+      if (this.answeredRecently(id)) continue
+      this.answering.delete(id)
+      changed = true
+    }
+    for (const id of this.answeredAt.keys()) {
+      if (this.answering.has(id) || !this.answeredRecently(id)) continue
+      this.answering.add(id)
+      changed = true
+    }
+    if (changed) this.emit('changed')
+  }
+
+  private clock(): number {
+    return (this.options.now ?? Date.now)()
+  }
+
+  private answeredWindow(): number {
+    return this.options.answeredWindowMs ?? 3 * (this.options.refreshMs ?? 10_000)
   }
 
   /** A Linked machine announced itself: `seen`, at most once per seenIntervalMs per id. */
@@ -268,13 +398,22 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
   }
 
   private down(service: MdnsService): void {
-    if (this.found.delete(service.fqdn ?? service.name)) this.emit('changed')
+    const key = service.fqdn ?? service.name
+    const machine = this.found.get(key)
+    this.names.delete(key)
+    if (!this.found.delete(key)) return
+    // A goodbye: the Machine left now, it does not count as answering until it answers again.
+    if (machine !== undefined && this.lastSeen(machine.id) === undefined) {
+      this.answeredAt.delete(machine.id)
+      this.answering.delete(machine.id)
+    }
+    this.emit('changed')
   }
 }
 
 /** The part of `bonjour-service` bonjourBackend uses; the unit test passes a fake. */
 export interface BonjourLike {
-  publish(options: { name: string; type: string; protocol: 'tcp'; port: number; txt: Record<string, string> }): {
+  publish(options: { name: string; type: string; protocol: 'tcp'; port: number; txt: Record<string, string>; probe?: boolean; host?: string; disableIPv6?: boolean }): {
     stop?: (callback?: () => void) => void
     on?: (event: 'error', listener: (error: Error) => void) => unknown
   }
@@ -287,43 +426,224 @@ export interface BonjourLike {
   destroy(callback?: () => void): void
 }
 
-/** mDNS through `bonjour-service`, made on first use: an app that never announces nor searches opens no socket. */
-export function bonjourBackend(options: { create?: () => BonjourLike; warn?: (message: string) => void } = {}): MdnsBackend {
+/** Whether IPv4 `address` is on the network of one of `interfaces` (address and netmask). */
+export function onSameNetwork(address: string, interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>): boolean {
+  const value = (text: string): number => text.split('.').reduce((sum, octet) => sum * 256 + Number(octet), 0)
+  if (isIP(address) !== 4) return false
+  const target = value(address)
+  for (const list of Object.values(interfaces)) {
+    for (const entry of list ?? []) {
+      if (entry.family !== 'IPv4' || entry.internal || isIP(entry.netmask) !== 4) continue
+      const mask = value(entry.netmask)
+      // Unsigned arithmetic: the bitwise operators of JavaScript are signed 32-bit.
+      if (mask !== 0 && Math.floor(target / (2 ** 32 - mask)) === Math.floor(value(entry.address) / (2 ** 32 - mask))) return true
+    }
+  }
+  return false
+}
+
+
+/**
+ * Runs `publish` with os.networkInterfaces() showing `address` alone: `bonjour-service` builds a
+ * service's A and AAAA records from os.networkInterfaces() in the call that announces it, and in the
+ * one that sends its goodbye (service.js, records()), and offers no option for it. So each socket
+ * answers for worfyHost with its own interface's address and nothing else. Synchronous: nothing
+ * else runs while the view is in place.
+ * shortcut: relies on bonjour-service 1.4 reading os.networkInterfaces() through the `os` module, redo when it changes how records are built
+ * (a test reads the records of the real Service and goes red then).
+ */
+function withOnlyInterface<T>(address: string, publish: () => T): T {
+  const original = os.networkInterfaces
+  // A MAC of zeros is skipped by bonjour-service (service.js): a Tailscale adapter has one.
+  const entry: NetworkInterfaceInfo = { address, netmask: '255.255.255.255', family: 'IPv4', mac: '02:00:00:00:00:01', internal: false, cidr: `${address}/32` }
+  os.networkInterfaces = () => ({ link: [entry] })
+  try {
+    return publish()
+  } finally {
+    os.networkInterfaces = original
+  }
+}
+
+/** What bonjourBackend asks of `bonjour-service` for one socket: the interface it joins and sends on. */
+export interface BonjourSocketOptions {
+  /** The IPv4 address of the interface. */
+  interface: string
+  /** Where the socket binds: every address, so multicast still arrives on macOS and Linux. */
+  bind: string
+}
+
+/**
+ * The IPv4 addresses mDNS runs on (worfy-link ticket 36): this machine's addresses that may carry
+ * the link, as the server's peer check accepts them (checks.ts) — local-network IPv4, not loopback,
+ * not link-local 169.254/16, and Tailscale only while "Link through Tailscale" is on.
+ */
+export function mdnsInterfaces(interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>, tailscale: boolean): string[] {
+  const found: string[] = []
+  for (const list of Object.values(interfaces)) {
+    for (const entry of list ?? []) {
+      if (entry.family !== 'IPv4' || entry.internal || entry.address.startsWith('169.254.')) continue
+      if (isTailscaleAddress(entry.address) ? tailscale : isLocalNetworkAddress(entry.address) && !entry.address.startsWith('127.')) found.push(entry.address)
+    }
+  }
+  return [...new Set(found)]
+}
+
+/**
+ * mDNS through `bonjour-service`, made on first use: an app that never announces nor searches
+ * opens no socket.
+ *
+ * One `bonjour-service` instance — one socket — per address `interfaces` lists, bound to every
+ * address and joined and sending on that interface; each announcement and each search runs on all
+ * of them. An announcement does not probe for its name first: the sockets of one machine would
+ * probe the same name at once, and where two interfaces share a network the loser hears the winner,
+ * gives up the name and sends a goodbye, so peers drop the machine on every announcement. The name
+ * cannot clash with another machine's: it carries the start of the Machine id (instanceName).
+ * Why (worfy-link ticket 36, item 9): multicast-dns 7.2.5 sends on interface 0.0.0.0 everywhere but
+ * macOS, so Windows picked one by itself — on the owner's PC the WSL adapter, not Ethernet — and the
+ * Mac never heard the PC. `refresh()` (on a change of network) closes the sockets of addresses that
+ * went, with the goodbye of their announcements, and opens the new ones with every announcement
+ * and search there is.
+ */
+export function bonjourBackend(
+  options: {
+    create?: (socket: BonjourSocketOptions) => BonjourLike
+    interfaces: () => string[]
+    /** How long a goodbye is waited for before its socket closes anyway; 1 s by default. */
+    goodbyeWaitMs?: number
+    warn?: (message: string) => void
+  },
+): MdnsBackend {
   const warn = options.warn ?? ((message: string) => console.warn(message))
   const create =
-    options.create ?? ((): BonjourLike => new Bonjour({}, (error: unknown) => warn(`[link] Bonjour: ${error instanceof Error ? error.message : String(error)}`)) as unknown as BonjourLike)
-  let bonjour: BonjourLike | undefined
-  const instance = (): BonjourLike => (bonjour ??= create())
+    options.create ??
+    ((socket: BonjourSocketOptions): BonjourLike =>
+      // The first argument goes to multicast-dns as it is; bonjour-service types it as a service's options.
+      new Bonjour(socket as never, (error: unknown) => warn(`[link] Bonjour on ${socket.interface}: ${error instanceof Error ? error.message : String(error)}`)) as unknown as BonjourLike)
+  type Published = ReturnType<BonjourLike['publish']>
+  type Browser = ReturnType<BonjourLike['find']>
+  type Announcement = { name: string; port: number; txt: Record<string, string> }
+  type Search = { up(service: MdnsService): void; down(service: MdnsService): void; answered?(service: MdnsService): void }
+  interface Instance {
+    bonjour: BonjourLike
+    published: Map<Announcement, Published>
+    browsers: Map<Search, Browser>
+    /** The search's question of the last refresh, asked by a browser of its own (see refresh below). */
+    questions: Map<Search, Browser>
+  }
+  const instances = new Map<string, Instance>()
+  const announcements = new Set<Announcement>()
+  const searches = new Set<Search>()
+  let opened = false
+
+  // A socket that never calls back (it failed meanwhile) must not hold the link's stop: stopLink
+  // stops the service only after this.
+  const goodbye = (service: Published): Promise<void> =>
+    new Promise<void>((done) => {
+      if (service.stop === undefined) return done()
+      const timer = setTimeout(done, options.goodbyeWaitMs ?? 1_000)
+      // bonjour-service calls back once the goodbye (the records with TTL 0) is sent.
+      service.stop(() => {
+        clearTimeout(timer)
+        done()
+      })
+    })
+  const announce = (instance: Instance, key: string, announcement: Announcement): void => {
+    // The target is worfy's own name, and this socket answers for it with its own address only
+    // (worfyHost, withOnlyInterface); IPv6 is left out, a dial takes IPv4 first anyway.
+    const config = { name: announcement.name, type: LINK_SERVICE_TYPE, protocol: 'tcp' as const, port: announcement.port, txt: announcement.txt, probe: false, host: worfyHost(announcement.txt.id ?? ''), disableIPv6: true }
+    const service = withOnlyInterface(key, () => instance.bonjour.publish(config))
+    service.on?.('error', (error) => warn(`[link] Bonjour could not announce this Machine on ${key}: ${error.message}`))
+    const stop = service.stop
+    // The goodbye rebuilds the records too: the same view, so it withdraws exactly what was announced.
+    instance.published.set(announcement, stop === undefined ? {} : { stop: (callback?: () => void) => withOnlyInterface(key, () => stop.call(service, callback)) })
+  }
+  const search = (instance: Instance, events: Search): void => {
+    const browser = instance.bonjour.find({ type: LINK_SERVICE_TYPE, protocol: 'tcp' })
+    browser.on('up', events.up)
+    browser.on('srv-update', events.up)
+    browser.on('txt-update', events.up)
+    browser.on('down', events.down)
+    instance.browsers.set(events, browser)
+  }
+  const wanted = (): string[] => options.interfaces()
+  /** Opens the instances of the addresses there are now and closes those of the addresses that went. */
+  const sync = (): void => {
+    opened = true
+    const keys = new Set(wanted())
+    for (const [key, instance] of instances) {
+      if (keys.has(key)) continue
+      instances.delete(key)
+      for (const browser of [...instance.browsers.values(), ...instance.questions.values()]) browser.stop()
+      void Promise.all([...instance.published.values()].map(goodbye)).finally(() => instance.bonjour.destroy())
+    }
+    for (const key of keys) {
+      if (instances.has(key)) continue
+      const instance: Instance = { bonjour: create({ interface: key, bind: '0.0.0.0' }), published: new Map(), browsers: new Map(), questions: new Map() }
+      instances.set(key, instance)
+      for (const announcement of announcements) announce(instance, key, announcement)
+      for (const events of searches) search(instance, events)
+    }
+  }
+  const ensure = (): void => {
+    if (!opened) sync()
+  }
   return {
     publish: (announcement) => {
-      const service = instance().publish({ name: announcement.name, type: LINK_SERVICE_TYPE, protocol: 'tcp', port: announcement.port, txt: announcement.txt })
-      service.on?.('error', (error) => warn(`[link] Bonjour could not announce this Machine: ${error.message}`))
+      ensure()
+      const entry = { ...announcement }
+      announcements.add(entry)
+      for (const [key, instance] of instances) announce(instance, key, entry)
       return {
-        stop: () =>
-          new Promise<void>((done) => {
-            if (service.stop === undefined) return done()
-            // bonjour-service calls back once the goodbye (the records with TTL 0) is sent.
-            service.stop(() => done())
-          }),
-      }
-    },
-    browse: (events) => {
-      const browser = instance().find({ type: LINK_SERVICE_TYPE, protocol: 'tcp' })
-      browser.on('up', events.up)
-      browser.on('srv-update', events.up)
-      browser.on('txt-update', events.up)
-      browser.on('down', events.down)
-      return {
-        stop: () => browser.stop(),
-        refresh: () => {
-          browser.expire()
-          browser.update()
+        stop: async () => {
+          announcements.delete(entry)
+          const services: Published[] = []
+          for (const instance of instances.values()) {
+            const service = instance.published.get(entry)
+            instance.published.delete(entry)
+            if (service !== undefined) services.push(service)
+          }
+          await Promise.all(services.map(goodbye))
         },
       }
     },
+    browse: (events) => {
+      ensure()
+      const entry: Search = { up: events.up, down: events.down, ...(events.answered === undefined ? {} : { answered: events.answered }) }
+      searches.add(entry)
+      for (const instance of instances.values()) search(instance, entry)
+      return {
+        stop: () => {
+          searches.delete(entry)
+          for (const instance of instances.values()) {
+            instance.browsers.get(entry)?.stop()
+            instance.browsers.delete(entry)
+            instance.questions.get(entry)?.stop()
+            instance.questions.delete(entry)
+          }
+        },
+        // A bonjour-service browser says nothing when a service it knows answers again, and keeps
+        // it until its TTL (8 hours) runs out. So the question goes out from a new browser each
+        // time: it knows nothing, every answer is an `up` there, and that is `answered`. The kept
+        // browser hears the same answers and goes on with up, down and goodbyes as before.
+        refresh: () => {
+          for (const instance of instances.values()) {
+            instance.browsers.get(entry)?.expire()
+            instance.questions.get(entry)?.stop()
+            // find() asks the question at once (Browser.start).
+            const question = instance.bonjour.find({ type: LINK_SERVICE_TYPE, protocol: 'tcp' })
+            question.on('up', (service) => entry.answered?.(service))
+            instance.questions.set(entry, question)
+          }
+        },
+      }
+    },
+    refresh: () => {
+      if (opened) sync()
+    },
     destroy: () => {
-      bonjour?.destroy()
-      bonjour = undefined
+      for (const instance of instances.values()) instance.bonjour.destroy()
+      instances.clear()
+      opened = false
     },
   }
 }

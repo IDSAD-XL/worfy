@@ -1,7 +1,8 @@
 // The `link` domain's handlers (worfy-link tickets 01, 02 and 14; ADR-0052): `link.ping` for windows
 // and Linked machines, and for this Machine's windows the state of the link, "Link a machine",
 // linking, revoking, the access switch, the access level of each Linked machine (worfy-link ticket
-// 18) and the keep-awake switch.
+// 18), the keep-awake switch, and reconnecting and setting the address of a Linked machine by hand
+// (worfy-link ticket 36).
 //
 // The state is built anew on every call and every change, from the app's link (service.ts,
 // appLink): nothing here keeps a copy of the Linked machines. What only the UI has is kept here:
@@ -21,7 +22,9 @@ import {
   linkOpen,
   linkPair,
   linkPing,
+  linkReconnect,
   linkRevoke,
+  linkSetAddress,
   linkSetAccess,
   linkSetKeepAwake,
   linkSetMachineAccess,
@@ -156,6 +159,38 @@ function scheduleExpiry(expiresAt: number | null): void {
   expiryTimer.unref()
 }
 
+/**
+ * The hint of a Linked machine row on Windows (worfy-link ticket 36): Bonjour runs, the Machine is
+ * unavailable, and it has not answered the search lately (LinkDiscovery.answeredRecently). From here a Machine that is off, asleep or on
+ * another network looks the same as one whose announcements Windows firewall drops, so the hint
+ * names the likely reasons in that order and the one thing to check on this side: whether the
+ * firewall lets this program (`program`, process.execPath: worfy.exe, or electron.exe of a dev
+ * build, which has no rule until Windows asks) receive. Elsewhere, or with Bonjour off, none.
+ */
+export function firewallHint(input: { platform: NodeJS.Platform; bonjour: boolean; connected: boolean; seen: boolean; port: number | null; program: string }): string | undefined {
+  if (input.platform !== 'win32' || !input.bonjour || input.connected || input.seen) return undefined
+  const port = input.port === null ? 'its link port' : `TCP ${input.port}`
+  return `worfy does not find this machine on the network: it may be off, asleep or on another network. If it is on and nearby, check that Windows firewall lets ${input.program} receive connections (UDP 5353 for finding machines, ${port} for the link).`
+}
+
+/** firewallHint of Linked machine `machine`'s row, from what this Machine's Bonjour sees now. */
+export function rowHint(
+  discovery: Pick<NonNullable<AppLink['discovery']>, 'browsing' | 'answeredRecently'> | null,
+  machine: { id: string; connected: boolean },
+  port: number | null,
+  platform: NodeJS.Platform = process.platform,
+): string | undefined {
+  return firewallHint({
+    platform,
+    bonjour: discovery?.browsing === true,
+    connected: machine.connected,
+    // Answered lately, not merely still kept: a Machine gone without a goodbye is kept for hours.
+    seen: discovery?.answeredRecently(machine.id) === true,
+    port,
+    program: process.execPath,
+  })
+}
+
 function buildState(): LinkState {
   const link = appLink()
   if (link === undefined) {
@@ -195,13 +230,17 @@ function buildState(): LinkState {
       failure: openers.size > 0 ? failure : null,
       ...(pausedUntil === null ? {} : { pausedUntil }),
     },
-    linked: service.linkedMachines().map((machine) => ({
-      id: machine.id,
-      name: machine.name,
-      state: sleep.stateOf(machine),
-      certificateChanged: machine.certificateChanged,
-      access: settings.machines[machine.id] ?? 'off',
-    })),
+    linked: service.linkedMachines().map((machine) => {
+      const hint = rowHint(discovery, machine, status.port)
+      return {
+        id: machine.id,
+        name: machine.name,
+        state: sleep.stateOf(machine),
+        certificateChanged: machine.certificateChanged,
+        access: settings.machines[machine.id] ?? 'off',
+        ...(hint === undefined ? {} : { hint }),
+      }
+    }),
     discovered: discovery === null || openers.size === 0 ? [] : discovery.list(),
     projectsAccess: settings.projectsAccess,
     keepAwake: settings.keepAwake,
@@ -273,6 +312,27 @@ export default [
     if (!service.isLinked(id)) throw new Error(`Machine ${id} is not linked`)
     service.revoke(id)
     return buildState()
+  }),
+
+  defineHandler(linkReconnect, ({ id }) => {
+    const { service, connections } = requireLink()
+    if (!service.isLinked(id)) throw new Error(`Machine ${id} is not linked`)
+    connections.reconnect(id)
+    return buildState()
+  }),
+
+  defineHandler(linkSetAddress, async ({ id, address }) => {
+    const { service } = requireLink()
+    if (!service.isLinked(id)) throw new Error(`Machine ${id} is not linked`)
+    const parsed = parseLinkAddress(address)
+    if (!parsed.ok) return { status: 'failed' as const, reason: parsed.error, state: buildState() }
+    try {
+      await service.setAddress(id, parsed.address)
+      return { status: 'saved' as const, state: buildState() }
+    } catch (error) {
+      // The texts of service.ts and client.ts never carry a token (ADR-0052, point 10).
+      return { status: 'failed' as const, reason: messageOf(error), state: buildState() }
+    }
   }),
 
   defineHandler(linkSetAccess, ({ projectsAccess }) => {

@@ -11,18 +11,35 @@
 // - A revoked or forgotten Machine is not dialled again. A 401 from the other side makes the service
 //   forget it (service.ts, connect), which ends the dials too.
 //
+// - At once, without the pause and with the count of failures reset (worfy-link ticket 36): when
+//   this Machine wakes up, when its network changes (watchNetwork below), and on `link.reconnect`
+//   (reconnect). A dial already running is followed by another one at once when it fails. Each dial
+//   tries the remembered address (with its names, LinkService.connect), then the address Bonjour
+//   sees the Machine at now, when it sees one elsewhere (`seenAt`).
+//
 // Both sides dial: each keeps its own connections, and a Machine counts as online while any
 // connection to it, made by either side, is open (LinkService.isConnected). A refusal for another
 // certificate is shown in the row ("certificate changed") and keeps being retried at the long pause:
 // linking again on the other side clears it.
 import { EventEmitter } from 'node:events'
+import { networkInterfaces as osNetworkInterfaces } from 'node:os'
 import type { LinkService } from './service'
+
+/** Where Bonjour sees a Machine now. */
+export interface SeenAddress {
+  host: string
+  port: number
+}
 
 export interface LinkConnectionsOptions {
   /** The pause before the first retry; 1 s by default. */
   firstDelayMs?: number
   /** The longest pause between retries; 30 s by default. */
   maxDelayMs?: number
+  /** Where Bonjour sees Linked machine `id` now (discovery.ts, lastSeen); none by default. */
+  seenAt?: (id: string) => SeenAddress | undefined
+  /** Where a failed dial is told, once per new reason (the journal, log-file.ts); console.log by default. */
+  log?: (message: string) => void
 }
 
 interface Peer {
@@ -30,6 +47,8 @@ interface Peer {
   /** Failed dials in a row: the next pause is delayFor(failures), at least the first one. */
   failures: number
   dialing: boolean
+  /** A dial at once was asked for while one ran: when that one fails, the next starts without the pause. */
+  again: boolean
   /** The last reason a dial failed; for a tooltip, never a token. */
   lastError: string | null
 }
@@ -40,6 +59,8 @@ export class LinkConnections extends EventEmitter<{ changed: [] }> {
   private readonly peers = new Map<string, Peer>()
   private readonly firstDelayMs: number
   private readonly maxDelayMs: number
+  private readonly seenAt: (id: string) => SeenAddress | undefined
+  private readonly log: (message: string) => void
   private readonly subscriptions: [string, (...args: never[]) => void][] = []
   private started = false
   private stopped = false
@@ -51,6 +72,8 @@ export class LinkConnections extends EventEmitter<{ changed: [] }> {
     super()
     this.firstDelayMs = options.firstDelayMs ?? 1_000
     this.maxDelayMs = options.maxDelayMs ?? 30_000
+    this.seenAt = options.seenAt ?? (() => undefined)
+    this.log = options.log ?? ((message) => console.log(message))
   }
 
   /** Dials every Linked machine and follows the service from now on. */
@@ -90,6 +113,23 @@ export class LinkConnections extends EventEmitter<{ changed: [] }> {
     this.dial(id, { host, port })
   }
 
+  /**
+   * Dials Linked machine `id` now, or every one that is not connected when `id` is absent: the pause
+   * is skipped and the count of failures starts again (wake-up, a new network, `link.reconnect`).
+   */
+  reconnect(id?: string): void {
+    if (this.stopped || this.service.isStopped) return
+    const ids = id === undefined ? this.service.linkedMachines().map((machine) => machine.id) : [id]
+    for (const each of ids) {
+      if (!this.isLinked(each) || this.service.isConnected(each)) continue
+      const peer = this.peer(each)
+      peer.failures = 0
+      this.clearTimer(peer)
+      if (peer.dialing) peer.again = true
+      else this.dial(each)
+    }
+  }
+
   /** Whether any Linked machine is not connected (Bonjour then keeps searching for it). */
   anyUnavailable(): boolean {
     return this.service.linkedMachines().some((machine) => !this.service.isConnected(machine.id))
@@ -117,7 +157,7 @@ export class LinkConnections extends EventEmitter<{ changed: [] }> {
   private peer(id: string): Peer {
     let peer = this.peers.get(id)
     if (peer === undefined) {
-      peer = { timer: null, failures: 0, dialing: false, lastError: null }
+      peer = { timer: null, failures: 0, dialing: false, again: false, lastError: null }
       this.peers.set(id, peer)
     }
     return peer
@@ -146,16 +186,21 @@ export class LinkConnections extends EventEmitter<{ changed: [] }> {
     peer.timer.unref()
   }
 
-  /** Dials `id` at its remembered address, or once at `via` (an address from Bonjour). */
-  private dial(id: string, via?: { host: string; port: number }): void {
+  /**
+   * Dials `id` at its remembered address and names, then where Bonjour sees it now when that is
+   * elsewhere; or once at `via` (an address from Bonjour).
+   */
+  private dial(id: string, via?: SeenAddress): void {
     if (this.stopped || this.service.isStopped || !this.isLinked(id) || this.service.isConnected(id)) return
     const peer = this.peer(id)
     if (peer.dialing) return
     this.clearTimer(peer)
     peer.dialing = true
-    this.service.connect(id, via).then(
+    peer.again = false
+    this.attempt(id, via).then(
       () => {
         peer.dialing = false
+        peer.again = false
         peer.failures = 0
         peer.lastError = null
         // Closed again right after opening: the 'disconnected' came while dialing, schedule now.
@@ -172,10 +217,75 @@ export class LinkConnections extends EventEmitter<{ changed: [] }> {
         }
         // A failed try at an announced address does not lengthen the pause: the announcement may be forged.
         if (via === undefined) peer.failures += 1
-        peer.lastError = messageOf(error)
-        if (!this.service.isConnected(id)) this.schedule(id)
+        // Once per reason, not once per retry: a Machine that is off fails every 30 s for hours.
+        const reason = messageOf(error)
+        if (reason !== peer.lastError) {
+          const name = this.service.linkedMachines().find((machine) => machine.id === id)?.name
+          this.log(`[link] a dial to Machine ${id}${name === undefined ? '' : ` (${name})`} failed: ${reason}`)
+        }
+        peer.lastError = reason
+        if (peer.again) {
+          peer.again = false
+          peer.failures = 0
+          this.dial(id)
+        } else if (!this.service.isConnected(id)) this.schedule(id)
         this.emit('changed')
       },
     )
   }
+
+  /** One dial: `via`, or the remembered address and names, then the address Bonjour sees now. */
+  private async attempt(id: string, via?: SeenAddress): Promise<void> {
+    if (via !== undefined) return this.service.connect(id, via)
+    try {
+      await this.service.connect(id)
+    } catch (error) {
+      const seen = this.seenAt(id)
+      const record = this.service.linkedMachines().find((machine) => machine.id === id)
+      if (seen === undefined || record === undefined || this.stopped || this.service.isStopped || this.service.isConnected(id)) throw error
+      if (seen.host === record.address && seen.port === record.port) throw error
+      try {
+        await this.service.connect(id, seen)
+      } catch (second) {
+        throw new Error(`${messageOf(error)}; at ${seen.host}:${seen.port}, where Bonjour sees it: ${messageOf(second)}`, { cause: second })
+      }
+    }
+  }
+}
+
+/** What watchNetwork compares: every non-internal address, by interface, sorted. */
+export function networkSignature(interfaces: ReturnType<typeof osNetworkInterfaces>): string {
+  const entries: string[] = []
+  for (const [name, list] of Object.entries(interfaces)) for (const entry of list ?? []) if (!entry.internal) entries.push(`${name} ${entry.address}`)
+  return entries.sort().join('\n')
+}
+
+/**
+ * Calls `changed` when the machine's addresses change: another network, a new DHCP address, the
+ * Tailscale adapter up or down. Node and Electron have no event for it, so the interfaces are read
+ * every `intervalMs` (5 s by default). Returns the stop.
+ */
+export function watchNetwork(
+  changed: () => void,
+  options: { interfaces?: () => ReturnType<typeof osNetworkInterfaces>; intervalMs?: number } = {},
+): () => void {
+  const read = options.interfaces ?? osNetworkInterfaces
+  const signature = (): string | undefined => {
+    try {
+      return networkSignature(read())
+    } catch {
+      // Unreadable this time (it throws on some systems while an adapter goes away): the next read decides.
+      return undefined
+    }
+  }
+  let last = signature()
+  const timer = setInterval(() => {
+    const now = signature()
+    if (now === undefined || now === last) return
+    const first = last === undefined
+    last = now
+    if (!first) changed()
+  }, options.intervalMs ?? 5_000)
+  timer.unref()
+  return () => clearInterval(timer)
 }

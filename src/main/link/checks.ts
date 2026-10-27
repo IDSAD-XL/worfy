@@ -137,6 +137,17 @@ export interface HostNames {
   hostname: string
   /** "Link through Tailscale" (link/settings.json), read on every request: on adds the MagicDNS names. */
   tailscale: boolean
+  /** This Machine's id: its own mDNS name worfyHost(machineId) is allowed (worfy-link ticket 36). */
+  machineId?: string
+}
+
+/**
+ * The host name this Machine announces on Bonjour as its SRV target, `worfy-<first 8 of its
+ * id>.local` (discovery.ts): worfy's own, stable per Machine, so it never answers for the
+ * computer's name, which the OS owns. Other worfy learn it and dial it when an address fails.
+ */
+export function worfyHost(machineId: string): string {
+  return `worfy-${machineId.slice(0, 8).toLowerCase()}.local`
 }
 
 /** The first label of os.hostname() in lower case: `pc` of `PC`, `pc.local` or `pc.lan`; '' when empty. */
@@ -147,13 +158,16 @@ function machineLabel(hostname: string): string {
 /**
  * The names a request may carry in Host, without the port: the addresses of the machine's
  * interfaces, `localhost`, `127.0.0.1`, `::1`, and the machine's name in `.local` (its first
- * label + `.local`, and os.hostname() itself when it already ends in `.local`). While "Link
+ * label + `.local`, and os.hostname() itself when it already ends in `.local`), and this Machine's
+ * own mDNS name worfyHost (one name, not a pattern: DNS rebinding, ADR-0052 point 8, stays shut,
+ * since a site would have to know the Machine id and still could not resolve `.local`). While "Link
  * through Tailscale" is on, also the bare first label: the short MagicDNS name (`pc`). Lower case,
  * IPv6 without brackets and without a zone id. The long MagicDNS names are a pattern, not a list:
  * isAllowedHostName.
  */
-export function allowedHostNames({ interfaces, hostname, tailscale }: HostNames): Set<string> {
+export function allowedHostNames({ interfaces, hostname, tailscale, machineId }: HostNames): Set<string> {
   const names = new Set<string>(['localhost', '127.0.0.1', '::1'])
+  if (machineId !== undefined && machineId !== '') names.add(worfyHost(machineId))
   for (const list of Object.values(interfaces)) {
     for (const info of list ?? []) names.add(normalizeAddress(info.address))
   }
