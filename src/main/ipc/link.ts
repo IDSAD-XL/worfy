@@ -2,7 +2,7 @@
 // and Linked machines, and for this Machine's windows the state of the link, "Link a machine",
 // linking, revoking, the access switch, the access level of each Linked machine (worfy-link ticket
 // 18), the keep-awake switch, and reconnecting and setting the address of a Linked machine by hand
-// (worfy-link ticket 36).
+// (worfy-link ticket 36), and the machines of the user's tailnet (worfy-link ticket 30).
 //
 // The state is built anew on every call and every change, from the app's link (service.ts,
 // appLink): nothing here keeps a copy of the Linked machines. What only the UI has is kept here:
@@ -30,12 +30,14 @@ import {
   linkSetMachineAccess,
   linkSetTailscale,
   linkState,
+  linkTailscalePeers,
   parseLinkAddress,
   type LinkState,
 } from '../../shared/ipc/link'
 import { ClientHolders, clientOf, type Client, type ClientId } from '../clients'
 import { localMachineOf } from '../link/ipc-adapter'
 import { appLink, appLinkProblem, appLinkService, onAppLinkStart, type AppLink } from '../link/service'
+import { readTailscalePeers } from '../link/tailscale'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 /**
@@ -361,5 +363,14 @@ export default [
     const { service } = requireLink()
     service.settings.set({ tailscale })
     return buildState()
+  }),
+
+  // Only while "Link through Tailscale" is on: off, the link would refuse those addresses anyway.
+  // The Linked machines are left out by their remembered address and MagicDNS name, as the Bonjour
+  // list leaves them out.
+  defineHandler(linkTailscalePeers, () => {
+    const { service } = requireLink()
+    if (!service.settings.get().tailscale) return []
+    return readTailscalePeers({ linked: service.linkedHosts() })
   }),
 ] satisfies HandlerModule

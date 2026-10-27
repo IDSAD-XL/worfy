@@ -1,6 +1,7 @@
 // The `link` domain (worfy-link tickets 01, 02 and 14; ADR-0052): this Machine as the link knows it,
 // its Linked machines, "Link a machine", the access switch and the keep-awake switch; reconnecting
-// and setting the address of a Linked machine by hand (worfy-link ticket 36). Handled in src/main/ipc/link.ts.
+// and setting the address of a Linked machine by hand (worfy-link ticket 36); the machines of the
+// user's tailnet (worfy-link ticket 30). Handled in src/main/ipc/link.ts.
 //
 // Only `link.ping` is open to Linked machines (its mark `link`, src/shared/ipc/channels.ts). Every
 // other channel here is `local`, for this Machine's own windows: `link.state` carries the pairing
@@ -244,6 +245,24 @@ export const linkSetKeepAwake = invokeChannel('link.setKeepAwake', z.object({ ke
 /** Sets "Link through Tailscale": off closes the connections from Tailscale addresses. */
 export const linkSetTailscale = invokeChannel('link.setTailscale', z.object({ tailscale: z.boolean() }), linkStateSchema, 'local')
 
+/**
+ * A machine of the user's tailnet as `tailscale status --json` lists it (worfy-link ticket 30;
+ * ADR-0070, point 5): its MagicDNS name, its Tailscale address (IPv4 when it has one) without a
+ * port, and whether the tailnet sees it online. Tailscale does not know the link port.
+ */
+export const tailscalePeerSchema = z.object({
+  name: z.string().min(1),
+  address: z.string().min(1),
+  online: z.boolean(),
+})
+export type TailscalePeerView = z.output<typeof tailscalePeerSchema>
+
+/**
+ * The machines of the user's tailnet for "Link a machine": empty while "Link through Tailscale" is
+ * off, when the Tailscale CLI is not found, or when it fails (src/main/link/tailscale.ts).
+ */
+export const linkTailscalePeers = invokeChannel('link.tailscalePeers', z.void(), z.array(tailscalePeerSchema), 'local')
+
 /** Sent to this Machine's windows after any change of the state. */
 export const linkChanged = eventChannel('link.changed', linkStateSchema, 'local')
 
@@ -261,6 +280,7 @@ declare module './channels' {
     'link.setMachineAccess': typeof linkSetMachineAccess
     'link.setKeepAwake': typeof linkSetKeepAwake
     'link.setTailscale': typeof linkSetTailscale
+    'link.tailscalePeers': typeof linkTailscalePeers
     'link.changed': typeof linkChanged
   }
 }
