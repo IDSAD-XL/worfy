@@ -17,7 +17,7 @@ import { attach, attachmentImagesDir, recheck, storeImages, type AttachTarget } 
 import { closeRefusal } from '../agent/resume'
 import type { EventSink, Session, SessionRegistry } from '../agent/session'
 import { toEveryWindow } from '../broadcast'
-import { insideProjects } from '../link/caller'
+import { insideProjects, isRemoteCall, localProjectOf, setSessionFolders } from '../link/caller'
 import { projectForCwd } from '../mcp/canvas-server'
 import { projectStore } from '../projects/store'
 import { dataRoot } from '../storage/paths'
@@ -104,6 +104,15 @@ export function agentHandlers(
   projects: () => readonly { readonly path: string }[] = () => projectStore().list(),
 ): HandlerModule {
   const sink = everyClientSink(clients)
+  // The link adapter refuses a call, and a link client an event, of a Session in a Project local to
+  // this Machine (src/main/link/caller.ts): it learns the Session's folder here.
+  setSessionFolders((sessionId) => {
+    try {
+      return registry().get(sessionId).cwd
+    } catch {
+      return null
+    }
+  })
   // The messages of one Session reach it in the order they were sent, though checking the
   // attachments of one takes longer than checking another's.
   const lastSend = new WeakMap<Session, Promise<unknown>>()
@@ -168,7 +177,8 @@ export function agentHandlers(
       if (refusal !== null) throw new Error(refusal)
       session.close()
     }),
-    defineHandler(agentList, () => registry().list()),
+    // A Linked machine does not see the Sessions of a Project local to this Machine.
+    defineHandler(agentList, (_input, { event }) => registry().list().filter((session) => !isRemoteCall(event) || localProjectOf(session.cwd) === null)),
     defineHandler(agentControls, ({ sessionId }) => registry().get(sessionId).controls()),
     defineHandler(agentConfigure, ({ sessionId, change }) => {
       const session = registry().get(sessionId)

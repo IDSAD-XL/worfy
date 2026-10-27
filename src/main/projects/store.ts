@@ -20,6 +20,11 @@ const storedProjectSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   path: z.string().min(1),
+  /**
+   * Only for this Machine: no Linked machine sees it or reaches into it (the Demo project). A list
+   * saved before the field reads as before; a Project added without it is written without it.
+   */
+  localOnly: z.literal(true).optional(),
 })
 export type StoredProject = z.output<typeof storedProjectSchema>
 
@@ -203,11 +208,25 @@ export class ProjectStore {
 
   /** The state for the renderer, with each Project's current branch. */
   async state(): Promise<ProjectsState> {
+    return (await this.states()).all
+  }
+
+  /**
+   * The state for this Machine's windows (`all`) and as a Linked machine sees it (`linked`), from one
+   * read of the list. `linked` leaves out the Projects local to this Machine; when the active one is
+   * such a Project, the first of the others is active, or none (as after a removal).
+   */
+  async states(): Promise<{ all: ProjectsState; linked: ProjectsState }> {
     // Read synchronously before the git calls, so the revision matches the list it goes with.
     const { projects, activeId } = this.data()
     const revision = this.revision
-    const views: ProjectView[] = await Promise.all(projects.map(async (project) => ({ ...project, branch: await this.branch(project.path) })))
-    return { projects: views, activeId, revision }
+    const views: ProjectView[] = await Promise.all(projects.map(async ({ id, name, path }) => ({ id, name, path, branch: await this.branch(path) })))
+    const all = { projects: views, activeId, revision }
+    const local = new Set(projects.filter((project) => project.localOnly === true).map((project) => project.id))
+    if (local.size === 0) return { all, linked: all }
+    const shared = views.filter((project) => !local.has(project.id))
+    const linkedActive = activeId !== null && local.has(activeId) ? (shared[0]?.id ?? null) : activeId
+    return { all, linked: { projects: shared, activeId: linkedActive, revision } }
   }
 
   /** Finds the repository root for a folder the user picked. */
@@ -257,9 +276,10 @@ export class ProjectStore {
   /**
    * Adds the repository that contains `folder` and makes it active (or selects it, if it is already
    * listed). With `keepActive` the active Project stays as it is: an add from a Linked machine does
-   * not switch the screens of this Machine (worfy-link ticket 08).
+   * not switch the screens of this Machine (worfy-link ticket 08). With `localOnly` a Project new to
+   * the list is only for this Machine (StoredProject.localOnly); one already listed stays as it is.
    */
-  async add(folder: string, options: { keepActive?: boolean } = {}): Promise<AddResult> {
+  async add(folder: string, options: { keepActive?: boolean; localOnly?: boolean } = {}): Promise<AddResult> {
     const resolved = await this.resolve(folder)
     if (!resolved.ok) return { status: 'rejected', reason: resolved.reason }
 
@@ -268,7 +288,7 @@ export class ProjectStore {
     const { projects, activeId } = this.data()
     const existing = projects.find((project) => project.id === id)
     const path = resolvePath(resolved.root)
-    const project = existing ?? { id, name: basename(path) || path, path }
+    const project = existing ?? { id, name: basename(path) || path, path, ...(options.localOnly === true ? { localOnly: true as const } : {}) }
 
     mkdirSync(this.dataDir(id), { recursive: true })
     ensureProjectSettings(this.dataDir(id))

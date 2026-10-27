@@ -1,7 +1,8 @@
 # 11 — Project `localOnly`: Demo project не виден Linked machine-у
 
 Type: task
-Status: open
+Status: claimed 2026-10-27T09:21Z
+Branch: worfy-onboarding/11
 Blocked by: —
 Source: решения владельца 2026-10-26, пункт 8 (Demo project только локальный и никогда не предлагается Linked machine-у); [spec.md](../spec.md), «Как устроено», «Linked machine»; [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6 (Linked machine работает только внутри Project-ов этой Machine)
 

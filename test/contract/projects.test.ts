@@ -4,9 +4,11 @@
 import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
+import type { SessionRegistry } from '../../src/main/agent/session'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ModuleLoader } from '../../src/main/ipc/index'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { loginProfileWithNode, nodeScript } from '../harness-node'
@@ -23,6 +25,8 @@ const electron = vi.hoisted(() => {
 })
 
 vi.mock('electron', () => ({
+  // src/main/ipc/layout.ts, loaded for the link adapter, listens for the app's quit.
+  app: { on: () => undefined },
   BrowserWindow: { getAllWindows: () => [electron.window], fromWebContents: () => null },
   dialog: { showOpenDialog: electron.showOpenDialog },
 }))
@@ -794,5 +798,242 @@ describe('from a Linked machine (the link adapter)', () => {
     const local = await value<{ status: string; project: View }>('projects.connect.inspect', { path: other })
     expect(local.status).toBe('added')
     expect(projectsFile().activeId).toBe(local.project.id)
+  })
+})
+
+// A Project local to this Machine (`localOnly`; the Demo project) is never shared over the link:
+// ProjectStore.add puts it in the list, the windows see it, a Linked machine does not.
+describe('a Project local to this Machine (localOnly)', () => {
+  /** Adds `path` as the app's code does for the Demo project: through the store, with localOnly. */
+  async function addLocal(path: string): Promise<{ id: string; name: string }> {
+    const { projectStore } = await import('../../src/main/projects/store')
+    const added = await projectStore().add(path, { localOnly: true })
+    if (added.status !== 'added') throw new Error(`rejected: ${added.reason}`)
+    return added.project
+  }
+
+  /** A link connection with access on whose `project` client joins main's clients, and the events it pushed. */
+  async function linkedPeer(more: Record<string, ModuleLoader> = {}): Promise<{ call: (channel: string, input?: unknown) => Promise<IpcResult<unknown>>; pushed: { channel: string; payload: unknown }[] }> {
+    const { createLinkIpc, LinkPeer } = await import('../../src/main/link/ipc-adapter')
+    const { addClient } = await import('../../src/main/broadcast')
+    const adapter = await createLinkIpc({
+      modules: {
+        './projects.ts': () => import('../../src/main/ipc/projects').then((module) => module.default),
+        './layout.ts': () => import('../../src/main/ipc/layout').then((module) => module.default),
+        ...more,
+      },
+      isLinked: (id) => id === LINKED,
+    })
+    const pushed: { channel: string; payload: unknown }[] = []
+    const peer = new LinkPeer({
+      machineId: LINKED,
+      describe: () => LINKED,
+      push: (channel, payload) => pushed.push({ channel, payload }),
+      local: () => ({ id: 'beta', name: 'Beta', protocol: 1, build: 'x' }),
+      addClient,
+      warn: () => undefined,
+    })
+    peer.setAccess('all')
+    return { call: (channel, input) => adapter.call(peer, channel, input, 'Beta'), pushed }
+  }
+
+  /** Waits until the change broadcast of the store has reached the clients. */
+  async function settled(check: () => boolean): Promise<void> {
+    await vi.waitFor(() => {
+      if (!check()) throw new Error('not yet')
+    })
+  }
+
+  it('projects.list over the link leaves it out and keeps the ordinary one; a window sees both', async () => {
+    const shop = (await addOk(makeRepo('shop'))).project
+    const demo = await addLocal(makeRepo('demo'))
+    const { call } = await linkedPeer()
+    const linked = await call('projects.list')
+    expect(linked.ok && (linked.value as State).projects.map((project) => project.id)).toEqual([shop.id])
+    expect((await value<State>('projects.list')).projects.map((project) => project.id)).toEqual([shop.id, demo.id])
+  })
+
+  it('when it is the active Project, a Linked machine gets the first of the others as active, or null', async () => {
+    const shop = (await addOk(makeRepo('shop'))).project
+    const demo = await addLocal(makeRepo('demo'))
+    expect((await value<State>('projects.list')).activeId).toBe(demo.id)
+    const { call } = await linkedPeer()
+    const linked = await call('projects.list')
+    expect(linked.ok && (linked.value as State).activeId).toBe(shop.id)
+    await value('projects.remove', { id: shop.id })
+    const alone = await call('projects.list')
+    expect(alone.ok && (alone.value as State)).toMatchObject({ projects: [], activeId: null })
+  })
+
+  it('projects.changed after an add with localOnly: the link client gets the list without it, the window with it', async () => {
+    const shop = (await addOk(makeRepo('shop'))).project
+    const { pushed } = await linkedPeer()
+    electron.sent.length = 0
+    const demo = await addLocal(makeRepo('demo'))
+    const changed = (): State[] => pushed.filter((item) => item.channel === 'projects.changed').map((item) => item.payload as State)
+    const toWindow = (): State[] => electron.sent.filter((item) => item.channel === IPC_CHANNEL_PREFIX + 'projects.changed').map((item) => item.payload as State)
+    // Broadcasts are asynchronous and may finish out of order: compare the ones of the add's revision.
+    const revision = (await value<State>('projects.list')).revision
+    await settled(() => changed().some((state) => state.revision === revision) && toWindow().some((state) => state.revision === revision))
+    const linkedState = changed().find((state) => state.revision === revision)
+    expect(linkedState?.projects.map((project) => project.id)).toEqual([shop.id])
+    expect(linkedState?.activeId).toBe(shop.id)
+    expect(toWindow().find((state) => state.revision === revision)?.projects.map((project) => project.id)).toEqual([shop.id, demo.id])
+    expect(JSON.stringify(pushed)).not.toContain(demo.id)
+  })
+
+  it('layout.get with its projectId from a Linked machine is refused before the handler; an ordinary Project answers', async () => {
+    const shop = (await addOk(makeRepo('shop'))).project
+    const demo = await addLocal(makeRepo('demo'))
+    const { call } = await linkedPeer()
+    const { layoutStore } = await import('../../src/main/layout/store')
+    const get = vi.spyOn(layoutStore(), 'get')
+    expect(await call('layout.get', { projectId: demo.id })).toStrictEqual({ ok: false, error: 'demo is local to this Machine' })
+    expect(get).not.toHaveBeenCalled()
+    expect((await call('layout.get', { projectId: shop.id })).ok).toBe(true)
+    expect(get).toHaveBeenCalledWith(shop.id)
+  })
+
+  it('a Linked machine can neither remove it by id nor add its folder; the list stays', async () => {
+    await addOk(makeRepo('shop'))
+    const demoPath = makeRepo('demo')
+    const demo = await addLocal(demoPath)
+    const { call } = await linkedPeer()
+    const before = projectsFile()
+    expect(await call('projects.remove', { id: demo.id })).toStrictEqual({ ok: false, error: 'demo is local to this Machine' })
+    expect(await call('projects.add', { path: join(demoPath, 'README.md', '..') })).toStrictEqual({ ok: false, error: 'demo is local to this Machine' })
+    expect(await call('projects.settings.get', { id: demo.id })).toStrictEqual({ ok: false, error: 'demo is local to this Machine' })
+    expect(projectsFile()).toStrictEqual(before)
+  })
+
+  it('an old projects.json without the field reads as before; add without the option writes no field, with it writes localOnly: true', async () => {
+    const old = makeRepo('old')
+    mkdirSync(dataDir, { recursive: true })
+    writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: 'old-12345678', name: 'old', path: old }], activeId: 'old-12345678' }))
+    await start()
+    expect(await value<State>('projects.list')).toMatchObject({ projects: [{ id: 'old-12345678', name: 'old', path: old }], activeId: 'old-12345678' })
+    const shop = (await addOk(makeRepo('shop'))).project
+    const demo = await addLocal(makeRepo('demo'))
+    const saved = JSON.parse(readFileSync(join(dataDir, 'projects.json'), 'utf8')) as { projects: Record<string, unknown>[] }
+    expect(saved.projects.map((project) => [project.id, 'localOnly' in project ? project.localOnly : 'none'])).toEqual([
+      ['old-12345678', 'none'],
+      [shop.id, 'none'],
+      [demo.id, true],
+    ])
+  })
+
+  it('a relative path to it from a Linked machine is refused too: projects.add, connect.inspect, connect.write', async () => {
+    await addOk(makeRepo('shop'))
+    const demoPath = makeRepo('demo')
+    await addLocal(demoPath)
+    const { call } = await linkedPeer()
+    const before = projectsFile()
+    const relativeTo = relative(process.cwd(), demoPath)
+    expect(await call('projects.add', { path: relativeTo })).toStrictEqual({ ok: false, error: 'demo is local to this Machine' })
+    expect(await call('projects.connect.inspect', { path: relativeTo })).toStrictEqual({ ok: false, error: 'demo is local to this Machine' })
+    expect(await call('projects.connect.write', { root: relativeTo, draft: {} })).toStrictEqual({ ok: false, error: 'demo is local to this Machine' })
+    expect(projectsFile()).toStrictEqual(before)
+  })
+
+  it('a `..` after a symbolic link inside an ordinary Project: refused on connect.draft, inspect, write and accounts wherever it leads into it', async () => {
+    const shopPath = makeRepo('shop')
+    await addOk(shopPath)
+    const demoPath = makeRepo('demo')
+    await addLocal(demoPath)
+    // shop/lnk -> <scratch>/deep/a/b. POSIX follows the link before each `..` (the kernel, realpath,
+    // `git -C`); Win32 drops `..` as text first (GetFullPathName), before any link is followed.
+    mkdirSync(join(scratch, 'deep', 'a', 'b'), { recursive: true })
+    symlinkSync(join(scratch, 'deep', 'a', 'b'), join(shopPath, 'lnk'))
+    const { call } = await linkedPeer()
+    const refused = { ok: false, error: 'demo is local to this Machine' }
+    const fourCalls = async (through: string) => [
+      await call('projects.connect.draft', { draftId: 'd1', root: through, mode: 'full', workflowFolder: null }),
+      await call('projects.connect.inspect', { path: through }),
+      await call('projects.connect.write', { root: through, draft: { profile: {}, rules: '', gate: [] } }),
+      await call('projects.connect.accounts', { root: through }),
+    ]
+    // Two `..`: as text this is <scratch>/demo, the Demo project (Win32 reads it so); POSIX reads
+    // <scratch>/deep/demo. Refused on both: either form leading into it is enough.
+    expect(await fourCalls(join(shopPath, 'lnk') + '/../../demo')).toStrictEqual([refused, refused, refused, refused])
+    // Three `..`: POSIX follows the link and lands in <scratch>/demo, the Demo project: refused.
+    const three = join(shopPath, 'lnk') + '/../../../demo'
+    if (process.platform !== 'win32') {
+      expect(await fourCalls(three)).toStrictEqual([refused, refused, refused, refused])
+    } else {
+      // Win32 reads it as text: <temp>/demo, one folder above the scratch folder, not the Demo
+      // project and not there at all. The handlers look there and find nothing.
+      expect(resolve(three)).toBe(join(dirname(scratch), 'demo'))
+      expect(existsSync(resolve(three))).toBe(false)
+      const missing = { ok: true, value: expect.objectContaining({ reason: `${three} does not exist.` }) }
+      expect(await fourCalls(three)).toStrictEqual([missing, missing, missing, missing])
+    }
+  })
+
+  it('connect.write that names it as the Workflow folder of a shared Project is refused; docs.read of that Project then reads its own documents', async () => {
+    const shopPath = makeRepo('shop')
+    const shop = (await addOk(shopPath)).project
+    const demoPath = makeRepo('demo')
+    await addLocal(demoPath)
+    writeFileSync(join(shopPath, 'HANDOFF.md'), 'shop handoff\n')
+    writeFileSync(join(demoPath, 'HANDOFF.md'), 'demo handoff\n')
+    const { call } = await linkedPeer({ './docs.ts': () => import('../../src/main/ipc/docs').then((module) => module.default) })
+    const before = projectsFile()
+    const draft = { profile: { name: 'shop', mode: 'silent', workflow: { folder: demoPath } }, rules: '', gate: [] }
+    expect(await call('projects.connect.write', { root: shopPath, draft })).toStrictEqual({ ok: false, error: 'demo is local to this Machine' })
+    expect(projectsFile()).toStrictEqual(before)
+    const read = await call('docs.read', { projectId: shop.id, path: 'HANDOFF.md' })
+    expect(read).toStrictEqual({ ok: true, value: { path: 'HANDOFF.md', text: 'shop handoff\n' } })
+  })
+
+  it('an add that reaches the handler with its folder answers a Linked machine with a refusal, not its view; a window gets the view', async () => {
+    const demoPath = makeRepo('demo')
+    await addLocal(demoPath)
+    // As if the link adapter had missed the folder: the handler itself, called by a link client.
+    const listener = handlers.get(IPC_CHANNEL_PREFIX + 'projects.add')
+    const remoteEvent = { senderFrame: { url: APP_URL }, sender: { id: `link:${LINKED}/1` } } as unknown as IpcMainInvokeEvent
+    expect(await listener?.(remoteEvent, { path: demoPath })).toStrictEqual({ ok: false, error: 'projects.add failed: demo is local to this Machine' })
+    expect((await add(demoPath)).status).toBe('added')
+  })
+
+  it('agent: a Linked machine does not see its Sessions, cannot call them, and does not hear their events', async () => {
+    await addOk(makeRepo('shop'))
+    const demoPath = makeRepo('demo')
+    await addLocal(demoPath)
+    const shopPath = projectsFile().projects[0]?.path ?? ''
+    const sessions = new Map([
+      ['s-demo', { cwd: demoPath }],
+      ['s-shop', { cwd: shopPath }],
+    ])
+    const noteInput = vi.fn()
+    const registry = {
+      get: (sessionId: string) => {
+        const session = sessions.get(sessionId)
+        if (session === undefined) throw new Error(`No live Session ${sessionId}`)
+        return { ...session, state: 'idle', close: () => undefined }
+      },
+      list: () => [...sessions].map(([sessionId, { cwd }]) => ({ sessionId, sdkSessionId: null, cwd, state: 'idle' })),
+      noteInput,
+    }
+    const { call, pushed } = await linkedPeer({
+      './agent.ts': () => import('../../src/main/ipc/agent').then((module) => module.agentHandlers(() => registry as unknown as SessionRegistry)),
+    })
+    const listed = await call('agent.list')
+    expect(listed.ok && (listed.value as { sessionId: string }[]).map((session) => session.sessionId)).toEqual(['s-shop'])
+    for (const [channel, input] of [
+      ['agent.send', { sessionId: 's-demo', text: 'hi', attachments: [] }],
+      ['agent.close', { sessionId: 's-demo' }],
+      ['agent.permission', { sessionId: 's-demo', requestId: 'r', decision: 'allow' }],
+      ['agent.configure', { sessionId: 's-demo', change: { model: 'opus' } }],
+    ] as const) {
+      expect(await call(channel, input)).toStrictEqual({ ok: false, error: 'demo is local to this Machine' })
+    }
+    expect(noteInput).not.toHaveBeenCalled()
+    await call('agent.close', { sessionId: 's-shop' })
+    expect(noteInput).toHaveBeenCalledWith('s-shop', 'closed the Session')
+    const { toEveryWindow } = await import('../../src/main/broadcast')
+    const { emit } = await import('../../src/main/ipc/index')
+    const { agentEvent } = await import('../../src/shared/ipc/agent')
+    for (const sessionId of ['s-demo', 's-shop']) toEveryWindow((client) => emit(client, agentEvent, { sessionId, event: { type: 'prompt', text: 'hi', at: 1 } }))
+    expect(pushed.filter((item) => item.channel === 'agent.event').map((item) => (item.payload as { sessionId: string }).sessionId)).toEqual(['s-shop'])
   })
 })
