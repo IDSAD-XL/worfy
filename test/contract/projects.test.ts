@@ -935,6 +935,23 @@ describe('a Project local to this Machine (localOnly)', () => {
     expect(projectsFile()).toStrictEqual(before)
   })
 
+  it('a `..` after a symbolic link inside an ordinary Project that leads into it is refused on connect.draft, inspect, write and accounts', async () => {
+    const shopPath = makeRepo('shop')
+    await addOk(shopPath)
+    await addLocal(makeRepo('demo'))
+    // shop/lnk -> <scratch>/deep/a/b: three `..` after the link reach <scratch>, where demo lies. As
+    // text the same path ends outside the scratch folder.
+    mkdirSync(join(scratch, 'deep', 'a', 'b'), { recursive: true })
+    symlinkSync(join(scratch, 'deep', 'a', 'b'), join(shopPath, 'lnk'))
+    const through = join(shopPath, 'lnk') + '/../../../demo'
+    const { call } = await linkedPeer()
+    const refused = { ok: false, error: 'demo is local to this Machine' }
+    expect(await call('projects.connect.draft', { draftId: 'd1', root: through, mode: 'full', workflowFolder: null })).toStrictEqual(refused)
+    expect(await call('projects.connect.inspect', { path: through })).toStrictEqual(refused)
+    expect(await call('projects.connect.write', { root: through, draft: {} })).toStrictEqual(refused)
+    expect(await call('projects.connect.accounts', { root: through })).toStrictEqual(refused)
+  })
+
   it('an add that reaches the handler with its folder answers a Linked machine with a refusal, not its view; a window gets the view', async () => {
     const demoPath = makeRepo('demo')
     await addLocal(demoPath)

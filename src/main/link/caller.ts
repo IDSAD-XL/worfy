@@ -13,7 +13,7 @@
 // Project, or another spelling of a folder does not pass. A path that does not exist yet is judged
 // by its nearest existing folder.
 import { lstatSync, realpathSync } from 'node:fs'
-import { basename, dirname, join, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, sep } from 'node:path'
 
 /** Whether a call came from somewhere else than a window of this Machine (see the top of the file). */
 export function isRemoteCall(event: { readonly sender?: unknown }): boolean {
@@ -171,13 +171,15 @@ export function setSessionFolders(source: (sessionId: string) => string | null):
 
 /**
  * The Project local to this Machine whose root holds `path`; null when none. A relative path is
- * taken from main's working folder, as the handlers that get it (fs, `git -C`) take it.
+ * taken from main's working folder, as the handlers that get it (fs, `git -C`) take it. The path is
+ * not normalised: a `..` after a symbolic link leads where the link's target leads, for realpath
+ * as for the kernel, and path.resolve() would drop it as text first.
  */
 export function localProjectOf(path: string): LocalProject | null {
   if (path === '') return null
   const local = localProjects()
   if (local.length === 0) return null
-  const absolute = resolve(path)
+  const absolute = isAbsolute(path) ? path : process.cwd() + sep + path
   return local.find((project) => realInsideProjects(absolute, [project]) !== null) ?? null
 }
 
