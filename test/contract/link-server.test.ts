@@ -297,6 +297,33 @@ describe('IPC over the link', () => {
     expect(warnings).toEqual([expect.stringContaining(`the answer to link.ping is ${LINK_MAX_PAYLOAD + 1} bytes`)])
     ws.emit('close', 1000)
   })
+
+  it(`sends a call of exactly ${LINK_MAX_PAYLOAD} bytes, and refuses one byte more before sending it, the connection staying`, async () => {
+    const sent: string[] = []
+    const ws = Object.assign(new EventEmitter(), { OPEN: 1, readyState: 1, send: (text: string) => sent.push(text), ping: () => undefined })
+    const connection = new LinkConnection(ws as unknown as WebSocket, randomUUID(), 'out', { pingIntervalMs: 60_000, warn: () => undefined })
+    const frameBytes = (id: number, data: string): number => Buffer.byteLength(JSON.stringify({ t: 'call', id, channel: 'agent.attach', input: { data } }))
+    const room = LINK_MAX_PAYLOAD - frameBytes(0, '')
+    // 'é' is two UTF-8 bytes: the limit is on the bytes the receiver counts, not the string length.
+    const exact = 'é'.repeat(Math.floor(room / 2)) + 'a'.repeat(room % 2)
+    expect(frameBytes(0, exact)).toBe(LINK_MAX_PAYLOAD)
+
+    const first = connection.call('agent.attach', { data: exact })
+    expect(sent).toHaveLength(1)
+    expect(Buffer.byteLength(sent[0] ?? '')).toBe(LINK_MAX_PAYLOAD)
+    ws.emit('message', JSON.stringify({ t: 'result', id: 0, result: { ok: true, value: 'stored' } }))
+    expect(await first).toEqual({ ok: true, value: 'stored' })
+
+    // Id 1 has as many digits as id 0, so one more byte of input is one byte over the limit.
+    expect(await connection.call('agent.attach', { data: `${exact}a` })).toEqual({ ok: false, error: expect.stringContaining('agent.attach: the request is') })
+    expect(await connection.call('canvasImage.add', { data: 'a'.repeat(LINK_MAX_PAYLOAD * 1.5) })).toEqual({
+      ok: false,
+      error: 'canvasImage.add: the request is 24 MB, more than the 16 MB a link to another machine carries',
+    })
+    expect(sent).toHaveLength(1)
+    expect(connection.isOpen).toBe(true)
+    ws.emit('close', 1000)
+  })
 })
 
 describe('IPC handler modules', () => {

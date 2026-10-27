@@ -16,6 +16,9 @@ export const CALL_TIMEOUT_MS = 30_000
 export const CLOSE_REVOKED = 4003
 export const CLOSE_UNLINKED = 4004
 
+/** A size in MB, two decimals cut, as people read it in a message. */
+const megabytes = (bytes: number): string => `${Math.floor((bytes / (1024 * 1024)) * 100) / 100} MB`
+
 export interface LinkConnectionEvents {
   frame: [Frame]
   close: [code: number]
@@ -107,17 +110,27 @@ export class LinkConnection extends EventEmitter<LinkConnectionEvents> {
     this.send({ t: 'result', id, result: { ok: false, error: `${channel}: the answer is too large to send over the link` } })
   }
 
-  /** Calls an IPC channel on the other Machine; resolves with its IpcResult, never rejects. */
+  /**
+   * Calls an IPC channel on the other Machine; resolves with its IpcResult, never rejects. A call
+   * over LINK_MAX_PAYLOAD bytes (an image or an attachment of many megabytes) is refused here,
+   * before it is sent: the receiver would close the connection (code 1009) and every call on it.
+   */
   call(channel: string, input: unknown, timeoutMs = CALL_TIMEOUT_MS): Promise<IpcResult<unknown>> {
     if (!this.isOpen) return Promise.resolve({ ok: false, error: `${channel}: the Linked machine is not connected` })
     const id = this.nextCallId++
+    const text = JSON.stringify({ t: 'call', id, channel, input } satisfies Frame)
+    // The receiver counts the UTF-8 bytes of a text message, not its UTF-16 length.
+    const bytes = Buffer.byteLength(text)
+    if (bytes > LINK_MAX_PAYLOAD) {
+      return Promise.resolve({ ok: false, error: `${channel}: the request is ${megabytes(bytes)}, more than the ${megabytes(LINK_MAX_PAYLOAD)} a link to another machine carries` })
+    }
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
         resolve({ ok: false, error: `${channel}: the Linked machine did not answer in time` })
       }, timeoutMs)
       this.pending.set(id, { resolve, timer })
-      this.send({ t: 'call', id, channel, input })
+      this.ws.send(text)
     })
   }
 

@@ -276,6 +276,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'cardApi.askFinish',
     'cardApi.askPrepare',
     'cardApi.dataSet',
+    // Writes an image file into the Project's data folder (worfy-canvas ticket 23).
+    'canvasImage.add',
     'layout.apply',
     // The Undo of the archive toast: main restores a batch (worfy-canvas ticket 10); a read-only screen has no Undo.
     'layout.restoreBatch',

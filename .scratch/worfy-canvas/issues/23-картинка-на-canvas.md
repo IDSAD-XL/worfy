@@ -1,7 +1,8 @@
 # 23 — Картинка на Canvas: вставка из буфера и перетаскиванием, карточка меняет размер, картинка вписывается без искажений
 
 Type: feature
-Status: open 2026-10-24T22:34Z
+Status: claimed 2026-10-24T23:27Z
+Branch: worfy-canvas/23
 Blocked by: —
 Source: владелец, 2026-10-25 (чат Mac-оркестратора). Решения ниже — значения по умолчанию
 Orchestrator-а; владелец может их поменять. Код перечитан по main `d089cfea`.
@@ -48,6 +49,9 @@ Orchestrator-а; владелец может их поменять. Код пе�
    - Минимальный размер карточки (например, 48 × 48 px), чтобы её можно было найти и схватить.
 
 3. **Где хранятся байты. Решение: вариант B — один файл на картинку в папке данных Project-а.**
+   **Подтверждено владельцем 2026-10-25:** картинки хранятся только на этой машине, в данных
+   приложения (`<Project data folder>/images/<id>.<ext>`), и никогда — в репозитории Project-а
+   (ADR-0005).
    Путь: `<Project data folder>/images/<id>.<ext>` (Project data folder — папка Project-а внутри
    данных приложения, не в репозитории). В Layout (файл раскладки Canvas) у Node-а только
    `data: { file, width, height, mime }`: имя файла, естественный размер и тип.
@@ -134,3 +138,70 @@ Orchestrator-а; владелец может их поменять. Код пе�
       `windows-verdict-scope`.
 
 ## Итог
+
+**Как картинка попадает на Canvas.** Overlay `src/renderer/canvas/overlays/ImageDrop.tsx`: вставка
+(⌘V / Ctrl+V), когда Canvas на экране и фокус на нём или ни на чём, но не в поле ввода
+(`isTextTarget`: поле, textarea Terminal-а, поле сообщения), — картинка встаёт под курсором, если он
+над Canvas, иначе в центре Canvas. Drop файлов — только на пустое место Canvas: drop на Node остаётся
+Node-у (Session Node берёт файл вложением). Несколько файлов — каскад со сдвигом 32 px, один шаг ⌘Z
+(`addImages`, `src/renderer/canvas/image-drop.ts`). На экране только для чтения — toast с причиной.
+
+**Запись.** Канал `canvasImage.add` (`src/shared/ipc/canvas-images.ts`, `project`/`write`). Main
+(`storeImage`, `src/main/layout/images.ts`): предел 20 MB, тип по первым байтам (png, jpeg, gif,
+webp), svg — отдельное сообщение, натуральный размер — из заголовка картинки (PNG IHDR, GIF, JPEG SOF,
+WebP VP8/VP8L/VP8X), имя файла — 32 hex от main, запись с флагом `wx`. Файл —
+`<Project data folder>/images/<id>.<ext>`; в Layout — только `{ file, width, height, mime }`.
+Renderer до чтения отклоняет файл больше 20 MB. Отказы — toast `image-refused`.
+
+**Node `image`.** `src/renderer/canvas/nodes/ImageNode.tsx`: `<img>` 100 % × 100 %, `object-fit:
+contain`, по центру; рамка `NodeResizeClamp` без сохранения пропорций, минимум 48 × 48. Начальный
+размер — естественный, длинная сторона не больше 480 px, без увеличения (`initialImageSize`).
+Заголовка у Node-а нет (исключение в `test/unit/canvas-zoom.test.tsx`). Картинка, которая не
+загрузилась, — плашка «Image not available».
+
+**Показ.** Схема `worfy-image://` из worfy-ui 28 (#835): хранилище `canvas.<project label>` →
+`<Project data folder>/images/`, имена `IMAGE_FILE_PATTERN`, лимит 20 MB (`canvasImageStore`, одна
+ветка locator-а в `src/main/index.ts`). Адрес строит `canvasImageUrl` (`src/shared/images.ts`);
+project label считается в renderer-е так же, как `projectIdHash` в main (сверяет contract test). Окно
+на Linked machine строит адрес с её machine label, main отвечает 404, Node показывает плашку; чтение
+через link — ticket 24.
+
+**Корзина.** `image` — в `TRASHABLE_KINDS`. Удаление переносит файл в запись корзины, restore
+возвращает Node и файл, purge удаляет; файл, который показывает другой Node, остаётся. ⌘Z вставки
+убирает Node, а файл оставляет для ⇧⌘Z; такие файлы удаляет проверка при старте (`sweepImages`):
+только файлы старше 10 минут без Node-а и только если `layout.json` есть, разбирается и ни разу не
+откладывался как unreadable — пустой Layout из битого файла не стоит пользователю всех картинок.
+
+**Известное ограничение.** Размер JPEG не учитывает EXIF orientation (`shortcut:` в
+`src/main/layout/images.ts`): снятое боком фото начнёт с переставленными сторонами, но картинка не
+искажается.
+
+**Тесты.** unit `test/unit/image-node.test.tsx`, `test/unit/image-src.test.ts`; contract
+`test/contract/canvas-images.test.ts` (запись, предел, svg и не-картинки, корзина, проверка при
+старте), `test/contract/canvas-image-protocol.test.ts` (`..`, чужой Project, чужой id, имя вне
+шаблона, svg, больше лимита, Linked machine → 404); e2e `test/e2e/canvas-image.spec.ts` (вставка,
+очень широкая и очень высокая карточка — пропорции видимой картинки по пикселям, перезапуск, Delete и
+⌘Z с файлом, вставка в поле заметки остаётся полю, drop двух файлов, отказ svg и 20 MB). Mutation
+testing: 33 + 12 мутантов новых строк убиты; e2e-мутант `object-fit: fill` падает на проверке
+пикселей.
+
+**Круг доработки 1 (ревью PR #838, REJECTED на `53f4b734`).** Вставка и drop на Canvas Linked machine-а
+теперь отклоняются: файл лёг бы на ту машину, а это окно его пока не показывает (ticket 24). Renderer
+(`ImageDrop.tsx`) при `windowMachine() !== null` ничего не создаёт и не шлёт, показывает toast
+`LINKED_CANVAS_IMAGES`, курсор drop — «нельзя»; на экране только для чтения по-прежнему toast с
+причиной доступа. Main (`src/main/ipc/canvas-images.ts`) отвечает тем же отказом на вызов через link
+(`isRemoteCall`), ничего не записав. `LinkConnection.call()` (`src/main/link/connection.ts`) меряет
+UTF-8 байты кадра и вызов больше `LINK_MAX_PAYLOAD` (16 MB — предел, с которым другая сторона
+принимает сообщение, `server.ts`/`client.ts`) отклоняет до отправки ошибкой «the request is N MB, more
+than the 16 MB…»: соединение и другие вызовы на нём остаются (тот же риск был у `agent.attach`).
+Новые test-ы: `test/unit/image-drop-overlay.test.tsx` (вставка под курсором и в центре, не на экране,
+в поле ввода, вне Canvas; drop на пустое место и на Node; только чтение; Linked machine), в
+`test/contract/canvas-images.test.ts` — отказ вызова через link, проверка base64 и длины на канале,
+Node с `file: '../layout.json'` не уносит `layout.json` в корзину, маркеры JPEG 0xc8/0xcc, 14 бит
+WebP, svg после doctype, GIF и JPEG нулевого размера, проверка при старте читает Layout из памяти
+main и не трогает папки; в `test/contract/link-server.test.ts` — вызов ровно 16 MB уходит, на байт
+больше — отказ без отправки; `image-node.test.tsx` — повторная загрузка после смены файла;
+`search-index.test.ts` — `image: 'Image'`. Mutation testing: 25 мутантов изменённых и непокрытых
+строк убиты, 2 контрольных выжили. Не сделано из пунктов low: отказ restore, когда папка картинок
+ведёт с машины, — такой путь строится только по правилам Windows (`remote-guards-links.test.ts`
+идёт лишь на Windows), на Mac test-ом не проверить.

@@ -36,8 +36,8 @@ export interface ReadFiles {
 /** A file with no name of its own is a pasted image. */
 const nameOf = (file: File): string => (file.name === '' ? 'image.png' : file.name)
 
-/** The bytes of a File in base64. */
-function base64Of(file: File): Promise<string> {
+/** The bytes of a File in base64; the Canvas reads pasted and dropped images with it too (canvas/image-drop.ts). */
+export function base64Of(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
