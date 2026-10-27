@@ -1,7 +1,8 @@
 # 33 — Индикатор загрузки при первом открытии Project-а Linked machine-а
 
 Type: task
-Status: open
+Status: done 2026-10-27T08:04Z
+PR: #853
 Blocked by: —
 Source: отзыв владельца 2026-10-19 после ручной проверки связи Mac и Windows-ПК ([Ticket 16](16-приёмка-epic-а-worfy-link.md),
 «Итог»): при первом открытии Project-а Mac-а с Windows Canvas 15–20 с тормозил при сдвиге. Слова
@@ -179,3 +180,15 @@ workflow и Session-ы Project-а (`workflow.close` и второй `workflow.op
 Решено без владельца, подтвердить: место строки (внизу слева), пороги 300 и 150 мс, компонент рядом с
 React Flow вместо overlay-я, fixture в `test/e2e/many-epics.ts` вместо `test/fixtures/` (tsconfig e2e
 не включает `test/fixtures/*.ts`).
+
+### Ревью и merge (2026-10-27)
+
+PR #853: ревью medium. Первый круг — REJECTED: [med] в замере не было числа обновлений хранилищ,
+не было «Итог» и файла профиля; три low. Второй круг по доработке `be4c8367..b72daf42` — VERIFIED.
+Вердикт Windows — `linked-opening.spec.ts` на ПК владельца, 2 из 2, exit 0. Цифры Windows под
+нагрузкой (vitest соседнего Ticket-а, CPU 68 %): строка 322/308 мс, Canvas 537/507 мс, конец загрузки
+2006/1844 мс; `useWorkflowStore` 2, `useElkAnswers` 20; длинные задачи 150–237 мс — верхняя граница,
+тихий перезамер на ПК запрошен. Если на тихой Windows длинные задачи останутся больше 100 мс, это
+довод за сборку ответов ELK по кадру (пункт 3). gate full на Mac — head `71ab82c5` на main `9c2744a5`,
+зелёный; merge `a93ca861`. Долг: `[low] debt:` строка загрузки может закрыть chip фильтра по тегу
+(`src/renderer/find/CanvasFind.tsx:173`), если фильтр включён во время загрузки.
