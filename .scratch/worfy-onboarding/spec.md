@@ -72,7 +72,8 @@ Epic готов, когда:
   - Epic `todo` в `.scratch/todo/` (Full mode: Workflow folder — корень репозитория), `spec.md` и один
     Ticket `issues/01-done-command.md`: «add `done <n>` that marks a task done»;
   - Profile `worfy-demo`: Full mode, `workflow.finish` `local-green`, `github.account` null, свой
-    `workflow.pipeline` без CI (Р1), gate registry — fast `node --test test/fast/`, full `node --test`.
+    `workflow.pipeline` без CI (Р1), gate registry — fast script `test:fast` (`node --test test/fast/*.test.js`),
+    full script `test` (`node --test`): gate registry называет script-ы `package.json`, а не команды.
   Fast gate исполнителя запускает только `test/fast/`; полная проверка ревьюера — всё. Поэтому крайний
   случай `done` почти наверняка находит ревью, и круг доработки виден.
 - **Создание** (Ticket 05) — канал `gettingStarted.createDemo`, без агентской Session черновика:

@@ -59,7 +59,8 @@ Source: решения владельца 2026-10-26, пункт 5 (содерж
 
 ## Тесты
 
-- Unit `test/unit/demo-template.test.ts` (новый): запись во временную папку, запуск `node --test` с
+- Unit `test/unit/demo-template.test.ts` (новый): файлы шаблона и черновик Profile как значения.
+- Contract `test/contract/demo-template.test.ts` (новый): запись во временную папку, запуск `node --test` с
   `process.execPath`, проверка `--check` и `epic-status` из `harness/bin`.
 - Сначала падающий: test импорта `demoTemplate` — модуля нет.
 
@@ -67,6 +68,7 @@ Source: решения владельца 2026-10-26, пункт 5 (содерж
 
 - `src/main/getting-started/demo-template.ts` (новый)
 - `test/unit/demo-template.test.ts` (новый)
+- `test/contract/demo-template.test.ts` (новый)
 
 Только читать: `harness/profiles/draft.schema.json`, `harness/profiles/README.md`,
 `harness/bin/project-connect`, `src/shared/workflow/pipeline.ts`, `src/main/projects/connect.ts`
