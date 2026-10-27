@@ -1,7 +1,8 @@
 # 17 — В focus mode Browser страница не видна: `<webview>` остаётся на Canvas под слоем focus mode
 
 Type: bug
-Status: claimed 2026-10-24T21:56Z
+Status: done 2026-10-27T07:26Z
+PR: #831
 Branch: worfy-browser/17
 Blocked by: —
 Source: владелец, 2026-10-25 (чат Mac-оркестратора)
@@ -156,3 +157,10 @@ Fake ResizeObserver в unit-test-е считает `disconnect()`, test фоку
 слушатель `blur` больше не срабатывает. Mutant-ы раунда 2 (5, все убиты): без `observer.disconnect()`,
 без снятия слушателя `blur`, zoom Canvas вместо не меньше 1, только tile-ы при открытом tile-е, без tile-ов.
 
+### Ревью и merge (2026-10-27)
+
+PR #831. Вердикт Windows — `browser-focus.spec.ts` на ПК владельца (Windows 11, масштаб 150 %, head
+`b554dcee`): 5 passed, exit 0; gate full на ПК красный от нагрузки, разбор PR против main `b1cd150f`
+новых падений от PR не нашёл, `check/windows` = success. Красный `browser-layer.spec.ts:370` (zoom 0.25,
+правый край 2.175 px) есть и на main до PR (`07c8b8da`) — не от этого PR. gate full на Mac — head
+`58bc0be7` на main `07c8b8da`, зелёный; merge `6698ecf7`.
