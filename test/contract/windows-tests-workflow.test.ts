@@ -1,6 +1,7 @@
-// The manual "Windows tests" workflow (.github/workflows/windows-tests.yml, worfy-windows tickets 25
-// and 66) and the check of its input (scripts/windows-test-list.mjs). A Windows runner minute is
-// paid, so every limit of both modes is pinned here: loosening one turns the Linux CI red. The
+// The "Windows tests" workflow (.github/workflows/windows-tests.yml, worfy-windows tickets 25 and 66)
+// and the check of its input (scripts/windows-test-list.mjs). It starts by hand or from a call of
+// ci.yml, which runs its mode full in shards on every pull request. Every limit of both modes is
+// pinned here: loosening one turns the Linux CI red. The
 // project has no YAML parser, so the workflow is read as text: it is written in block style, one key
 // per line, with `#` only at the start of comment lines.
 import { spawnSync } from 'node:child_process'
@@ -85,15 +86,26 @@ const PNPM = ['corepack enable pnpm', 'corepack install']
 const INSTALL = 'pnpm install --frozen-lockfile'
 const RUN = ['test -n "$TEST_FILES"', 'node scripts/vitest-electron.mjs $TEST_FILES']
 const REFUSE = ['test -z "$TEST_FILES" || { echo "::error::mode full runs the whole suite and takes no list of files; leave files empty or choose mode files"; exit 1; }']
-const SUITE = 'pnpm test'
+const SUITE = ['if ($env:SHARD) { pnpm test "--shard=$env:SHARD" } else { pnpm test }']
 
 describe('.github/workflows/windows-tests.yml', () => {
-  it('starts by hand only: workflow_dispatch is its one trigger', () => {
+  it('starts by hand or from a call: workflow_dispatch and workflow_call are its only triggers', () => {
     const lines = code()
     // One `on:` key in block style: `on: push`, `on: [workflow_dispatch, push]` and a second key fail here.
     expect(lines.filter((line) => /^["']?on["']?\s*:/.test(line))).toEqual(['on:'])
-    expect(keys(under(lines, 'on:'))).toEqual(['workflow_dispatch'])
-    expect(lines.join('\n')).not.toMatch(/\b(push|pull_request|pull_request_target|schedule|workflow_run|workflow_call)\b/)
+    expect(keys(under(lines, 'on:'))).toEqual(['workflow_dispatch', 'workflow_call'])
+    // Pull requests and pushes reach it through ci.yml only, never through a trigger of its own.
+    expect(lines.join('\n')).not.toMatch(/\b(push|pull_request|pull_request_target|schedule|workflow_run)\b/)
+  })
+
+  it('takes three string inputs from a call: the mode, a list of files that is empty by default, and the shard', () => {
+    const inputs = under(under(under(code(), 'on:'), '  workflow_call:'), '    inputs:')
+    expect(keys(inputs)).toEqual(['mode', 'files', 'shard'])
+    expect(under(inputs, '      mode:')).toEqual(['        required: true', '        type: string'])
+    expect(under(inputs, '      files:')).toEqual(['        required: false', '        type: string', "        default: ''"])
+    const shard = under(inputs, '      shard:')
+    expect(keys(shard)).toEqual(['description', 'required', 'type', 'default'])
+    expect(shard.slice(1)).toEqual(['        required: false', '        type: string', "        default: ''"])
   })
 
   it('takes two inputs: the mode, files or full, files by default, and the list of files, with no default list', () => {
@@ -160,11 +172,12 @@ describe('.github/workflows/windows-tests.yml', () => {
       run: CHECK,
     })
     // An expression inside `run` is pasted into the script before the shell reads it: a list such
-    // as `x; rm -rf .` would run as a command. Expressions stand in the three `env` values only.
+    // as `x; rm -rf .` would run as a command. Expressions stand in the four `env` values only.
     expect(code().filter((line) => line.includes('${{'))).toEqual([
       '          TEST_FILES: ${{ inputs.files }}',
       '          TEST_FILES: ${{ steps.list.outputs.files }}',
       '          TEST_FILES: ${{ inputs.files }}',
+      '          SHARD: ${{ inputs.shard }}',
     ])
     for (const name of [FILES_JOB, FULL_JOB]) {
       for (const step of steps(name)) expect([step.run ?? []].flat().join('\n')).not.toContain('${{')
@@ -205,7 +218,7 @@ describe('.github/workflows/windows-tests.yml', () => {
     for (const command of commands) expect(command).not.toMatch(/pnpm\s+(run\s+)?test|vitest(?!-electron\.mjs \$TEST_FILES$)/)
   })
 
-  it('mode full: refuses a list of files first, then checkout, pnpm, node, install and pnpm test, nothing else', () => {
+  it('mode full: refuses a list of files first, then checkout, pnpm, node, install and pnpm test of the shard, nothing else', () => {
     expect(steps(FULL_JOB).map(does)).toEqual([REFUSE, 'actions/checkout', 'actions/setup-node', PNPM, 'actions/setup-node', INSTALL, SUITE])
     // The refusal comes before checkout: a dispatch with a list fails within seconds, not after the install.
     expect(steps(FULL_JOB)[0]).toEqual({
@@ -214,8 +227,10 @@ describe('.github/workflows/windows-tests.yml', () => {
       env: ['TEST_FILES: ${{ inputs.files }}'],
       run: REFUSE,
     })
-    expect(steps(FULL_JOB)[6]).toEqual({ name: 'Run the whole unit and contract suite', run: SUITE })
-    expect(steps(FULL_JOB).flatMap((step) => step.run ?? [])).toEqual([...REFUSE, ...PNPM, INSTALL, SUITE])
+    // The shard reaches the command through env; with none, the whole suite runs, as a dispatch did
+    // before. The default shell, PowerShell: the tests see the environment they always saw.
+    expect(steps(FULL_JOB)[6]).toEqual({ name: 'Run the whole unit and contract suite', env: ['SHARD: ${{ inputs.shard }}'], run: SUITE })
+    expect(steps(FULL_JOB).flatMap((step) => step.run ?? [])).toEqual([...REFUSE, ...PNPM, INSTALL, ...SUITE])
   })
 
   it('mode full: runs unit and contract tests only — no e2e, no packaged app, no acceptance', () => {

@@ -1,34 +1,84 @@
 name: CI
 
-# CI is the cheap check: lint, typecheck and unit/contract tests on Linux.
-# e2e tests and the packaged .app run on the owner's Mac before merge (gate full), because a
-# macOS runner minute costs ten times a Linux one and e2e plus packaging took 6.5 of 8.7 minutes.
-# CI is not a merge gate for a PR (ADR-0068): it runs only when dispatched, once on main after a
-# Wave is merged (`gh workflow run ci.yml --ref main -f job=check`, the profile's
-# workflow.ci_batch_run). There is no pull_request, push or schedule trigger.
-# The full macOS run stays available by hand: Actions → CI → Run workflow, job full-macos.
+# CI checks every pull request and every push to main on GitHub-hosted runners, with what gate full
+# runs on the owner's Mac: lint, typecheck, `pnpm test` (unit and contract), `pnpm test:e2e` and
+# `pnpm test:package`. The repository is public, so the standard Linux, Windows and macOS runners
+# cost nothing.
+#
+# - changes: which jobs this run needs (scripts/ci-scope.mjs). A change of documents only runs
+#   lint-typecheck and skips the rest.
+# - lint-typecheck: pnpm lint and pnpm typecheck on Linux.
+# - linux-tests: pnpm test on Linux in 4 shards (vitest --shard), files in a random order.
+# - macos-tests: pnpm test on macOS in 2 shards: the tests that run on macOS only are checked here.
+# - macos-e2e: pnpm test:e2e on macOS in 2 shards (Playwright --shard), Electron with a window.
+# - macos-package: pnpm test:package on macOS: the packaged .app.
+# - windows: the job full-suite of windows-tests.yml, pnpm test on Windows, in 4 shards.
+# - ci-ok: green when every job the run needs succeeded (scripts/ci-ok.mjs). A merge reads this check.
+#
+# The manual run stays: Actions → CI → Run workflow, or `gh workflow run ci.yml --ref <ref> -f
+# job=check` (lint, typecheck and the Linux shards — the batch run of a Wave) and `-f job=full-macos`
+# (lint, typecheck and the macOS jobs).
+#
+# Never pull_request_target: a pull request runs with a read-only token and no secrets, and a pull
+# request from a fork waits for approval (the repository's setting for outside contributors).
 on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       job:
-        description: check — lint, typecheck, unit on Linux; full-macos — the full run on macOS
+        description: check — lint, typecheck, unit on Linux; full-macos — the macOS jobs
         type: choice
         default: check
         options:
           - check
           - full-macos
 
-# Dispatches of the same job on the same branch go one at a time: a running batch run is never
-# cancelled, so every Wave gets its own result. GitHub keeps at most one waiting run per group and
-# cancels an older waiting one when a newer one arrives; the newer run checks a newer commit of main.
+permissions:
+  contents: read
+
+# One run per pull request: a new push cancels the run of the older head. Runs on main are never
+# cancelled, so every commit of main gets its result; GitHub keeps at most one waiting run per group
+# and drops an older waiting one when a newer one arrives. Dispatches of the same job on the same
+# branch go one at a time, as before.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.job }}
-  cancel-in-progress: false
+  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ inputs.job || github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  check:
-    if: inputs.job == 'check'
+  changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      expect: ${{ steps.scope.outputs.expect }}
+    steps:
+      # Two commits: the merge commit of a pull request and its first parent, the head of the base.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      # A pull request compares its merge commit with the base it merges into; a push compares with
+      # the commit main was at before it. The values reach the script through env, never as text of
+      # the command.
+      - name: Decide which jobs run
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          JOB: ${{ inputs.job }}
+          BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before }}
+        run: node scripts/ci-scope.mjs
+
+  lint-typecheck:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.expect)['lint-typecheck']
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       # Installs the pnpm version pinned by "packageManager" in package.json.
@@ -41,17 +91,42 @@ jobs:
       # pnpm-workspace.yaml; any other package with a build script fails the install.
       # The root postinstall rebuilds node-pty for Electron's ABI.
       - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+
+  linux-tests:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.expect)['linux-tests']
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - 1/4
+          - 2/4
+          - 3/4
+          - 4/4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       # The shell tests of the Harness (test/contract/harness-scripts.test.ts) run the qmd scripts
       # under zsh; the Ubuntu image has bash, git, jq and node but no zsh.
       - name: Install zsh
         run: command -v zsh || { sudo apt-get update -qq && sudo apt-get install -y -qq zsh; }
-      - run: pnpm lint
-      - run: pnpm typecheck
-      # Test files run in a random order (ADR-0036), so a test that passes only after or before
-      # another file turns red here; the log names the seed ("Running tests with seed …") and
-      # `pnpm test --sequence.shuffle.files --sequence.seed=<seed>` repeats the order locally.
-      # One shuffled run replaces the plain one: CI stays one test run long.
-      - run: pnpm test --sequence.shuffle.files
+      # vitest gives each shard a fixed part of the test files. Inside a shard the files run in a
+      # random order (ADR-0036), so a test that passes only after or before another file turns red
+      # here; the log names the seed ("Running tests with seed …") and
+      # `pnpm test --shard=<shard> --sequence.shuffle.files --sequence.seed=<seed>` repeats the order.
+      - name: Run unit and contract tests, one shard
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: pnpm test "--shard=$SHARD" --sequence.shuffle.files
       # Tests must leave the source tree as they found it: no probe or other temporary file in src/.
       - name: src/ is unchanged after the tests
         run: |
@@ -62,9 +137,17 @@ jobs:
             exit 1
           fi
 
-  full-macos:
-    if: inputs.job == 'full-macos'
+  macos-tests:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.expect)['macos-tests']
     runs-on: macos-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - 1/2
+          - 2/2
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -73,18 +156,101 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
-      # Builds the app into out/ and drives it with Playwright.
-      - run: pnpm test:e2e
-      # Packages dist/mac-*/worfy.app (ad-hoc signed) and drives the packaged app.
-      - run: pnpm test:package
+      - name: Run unit and contract tests, one shard
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: pnpm test "--shard=$SHARD"
+
+  macos-e2e:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.expect)['macos-e2e']
+    runs-on: macos-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - 1/2
+          - 2/2
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Builds the app into out/ and drives it with Playwright; the shard goes to playwright test.
+      - name: Run the e2e tests, one shard
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: pnpm test:e2e "--shard=$SHARD"
       # A failing e2e test keeps the app's trace and a screenshot of its window under test-results/.
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: test-results-${{ github.run_id }}-${{ github.run_attempt }}
+          name: e2e-results-${{ strategy.job-index }}-${{ github.run_attempt }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 14
+
+  macos-package:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.expect)['macos-package']
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Packages dist/mac-*/worfy.app (ad-hoc signed) and drives the packaged app.
+      - run: pnpm test:package
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-results-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # pnpm test on Windows: the job full-suite of the Windows workflow, one call per shard.
+  windows:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.expect)['windows']
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - 1/4
+          - 2/4
+          - 3/4
+          - 4/4
+    uses: ./.github/workflows/windows-tests.yml
+    with:
+      mode: full
+      shard: ${{ matrix.shard }}
+
+  # Runs whatever happened before it (always()), so the check reports on every run; a cancelled run
+  # reads as red, never as a skipped check.
+  ci-ok:
+    needs:
+      - changes
+      - lint-typecheck
+      - linux-tests
+      - macos-tests
+      - macos-e2e
+      - macos-package
+      - windows
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Every job the run needs succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci-ok.mjs

@@ -1,16 +1,22 @@
 name: Windows tests
 
-# Runs unit and contract tests on a clean Windows machine, by hand only, in one of two modes:
+# Runs unit and contract tests on a clean Windows machine in one of two modes:
 # - `files` (the default): a given list of 1 to 12 test files, job "listed-tests";
 # - `full`: the whole `pnpm test` (unit and contract, no e2e), job "full-suite".
 #
-# Why a workflow of its own and not a job in ci.yml: "Run workflow" on CI starts the full macOS
-# job, at six times the price of a Windows minute. A separate file has one trigger, so starting it
-# can never start macOS, and ci.yml stays as it is.
+# Two ways to start it: by hand (workflow_dispatch, below), and from the CI workflow (ci.yml) on
+# every pull request and every push to main (workflow_call): ci.yml calls the mode full once per
+# shard, with the input "shard" (`1/4` … `4/4`), and the job runs `pnpm test --shard=<shard>`. Since
+# 2026-10-28 the repository is public and a Windows runner minute costs nothing; the price limits
+# below were written for the private repository, and they still hold for a run started by hand.
+#
+# Why a workflow of its own and not a job in ci.yml: "Run workflow" here starts one Windows job and
+# never the macOS jobs of ci.yml, and the mode files has no place in ci.yml.
 #
 # The limits, all inside this file and scripts/windows-test-list.mjs. A Windows runner minute costs
 # $0.010:
-# - it starts only from "Run workflow" (workflow_dispatch): never on a push, a pull request or a timer;
+# - it has no push, pull request or timer trigger of its own: it starts from "Run workflow"
+#   (workflow_dispatch) or from a call of ci.yml (workflow_call);
 # - one dispatch runs exactly one job: "mode" is a choice of `files` and `full`, and each job runs
 #   only under its own value; two jobs, no matrix;
 # - mode files, $0.10 at most: the input "files" is an explicit list of 1 to 12 test files, and an
@@ -56,6 +62,22 @@ on:
         description: 'Mode files: test files under test/unit/ or test/contract/, separated by spaces or commas, 12 at most; empty in mode full'
         required: false
         type: string
+  # ci.yml calls the mode full with a shard. The inputs of a call are strings: a choice exists only
+  # for a dispatch, and a mode other than files or full runs neither job.
+  workflow_call:
+    inputs:
+      mode:
+        required: true
+        type: string
+      files:
+        required: false
+        type: string
+        default: ''
+      shard:
+        description: 'Mode full: the part of the test files to run, as vitest --shard takes it (1/4); empty for all'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -148,6 +170,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # `pnpm test` is `node scripts/vitest-electron.mjs`: vitest under Electron's Node, test/unit and
-      # test/contract; vitest.config.ts leaves test/e2e and test/acceptance out.
+      # test/contract; vitest.config.ts leaves test/e2e and test/acceptance out. A call from ci.yml
+      # passes a shard: vitest runs that part of the files and refuses a shard it cannot read. The
+      # default shell (PowerShell) stays: the tests see the environment they always saw on Windows.
       - name: Run the whole unit and contract suite
-        run: pnpm test
+        env:
+          SHARD: ${{ inputs.shard }}
+        run: |
+          if ($env:SHARD) { pnpm test "--shard=$env:SHARD" } else { pnpm test }
