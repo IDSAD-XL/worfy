@@ -1,7 +1,8 @@
 # 43 — Flaky `afterAll` в `harness-evals` test-ах: уборка временных папок дольше 10 s под нагрузкой
 
 Type: bug
-Status: claimed 2026-10-25T01:21Z
+Status: done 2026-10-27T00:01Z
+PR: #839
 Branch: worfy-polish/43
 Blocked by: —
 Source: оркестратор, 2026-10-25: повторяющийся flaky test в gate full. Замеры 2026-10-24/25 на Mac и на ПК
@@ -167,3 +168,10 @@ failed 2»; после — «passed 29, failed 0»; mutant с прежним `to
 важен; в `test/` таких мест нет.
 
 **Не сделано здесь.** gate full на Mac — его делает Orchestrator перед мержем.
+
+### Ревью и merge (2026-10-27)
+
+PR #839: ревью medium, одна находка low (на macOS промах пробы летнего времени в
+`wave-gate-lock.test.sh` был skip) исправлена коммитом оркестратора: теперь на Darwin это `bad`.
+Вердикт Windows — полный прогон Windows runner 40412053753, со второй попытки (первая: flaky
+`cards-watch-links.test.ts`, не из PR). gate full зелёный, merge `4eb0aac9`.

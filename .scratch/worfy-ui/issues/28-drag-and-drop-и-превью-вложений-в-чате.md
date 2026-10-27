@@ -1,7 +1,8 @@
 # 28 — Чат с Orchestrator: drag-and-drop файлов и превью вложений в отправленном сообщении
 
 Type: feature
-Status: claimed 2026-10-24T22:42Z
+Status: done 2026-10-27T00:01Z
+PR: #835
 Blocked by: —
 Source: владелец, 2026-10-25 (чат Mac-оркестратора). Код перечитан по main `d089cfea`.
 
@@ -204,3 +205,10 @@ chips → миниатюра, которую окно действительно
 то же; без копии — chip; drop файла на Canvas и на sidebar отменён). Mutation testing: 36 мутантов
 новых строк в первом раунде; после review — ещё 26 (оставшиеся от reviewer-а и новые строки), все
 убиты.
+
+### Ревью и merge (2026-10-27)
+
+PR #835: ревью medium, последний круг доработки (три пункта low) — VERIFIED. Вердикт Windows — e2e
+`chat-attachments.spec.ts` и `message-input-slash.spec.ts` на ПК владельца, exit 0. gate full на Mac
+дважды красный на flaky test-ах вне PR (`claude-home-registry.test.ts` под нагрузкой и `harness-evals`
+afterAll, который чинит worfy-polish 43); после merge #839 и rebase — зелёный, merge `1a64ff10`.
