@@ -305,8 +305,8 @@ export function SignInTerminal({ signInId, onExit, onClose }: { signInId: string
     const offExit = subscribe('projects.connect.signInExit', (payload) => {
       if (payload.signInId === signInId && active) finish(payload.exitCode)
     })
-    // An answer of xterm.js to gh goes marked as one: main answers gh's cursor-position requests
-    // itself and drops a marked answer to them (worfy-windows ticket 39).
+    // An answer of xterm.js to gh goes marked as one: main answers gh's requests whose answer does
+    // not depend on the view itself and drops a marked answer to them (worfy-windows tickets 39 and 68).
     const userInput = watchUserInput(terminal)
     const typed = terminal.onData((data) => {
       const user = userInput.take(data)
