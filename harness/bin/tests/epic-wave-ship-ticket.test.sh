@@ -635,12 +635,14 @@ statuses() { # statuses <sha number> <context:state:description>...
     for c in "$@"; do IFS=: read -r ctx state desc <<<"$c"; out="$out${out:+,}{\"context\":\"$ctx\",\"state\":\"$state\",\"description\":\"$desc\"}"; done
     printf '{"statuses":[%s]}\n' "$out" >"$GH_DATA/status-$(sha "$s").json"
 }
-run_checks() { # run_checks <sh> <mode> <pipeline JSON> <candidates>
-    local b="${CB//<repo>/$R}"
+run_checks() { # run_checks <sh> <mode> <pipeline JSON> <candidates> [<workflow.finish>]: the block in the repository $R
+    local b="${CB//<repo>/$R}" fin="return 4"
+    [ -z "${5:-}" ] || fin="echo $5"
     b="${b//<epic>/pay-flow}"; b="${b//<PR>:<NN> pairs in merge order/$4}"
-    (cd "$R" && "${RUN_ENV[@]}" $1 -c "F() { case \"\$1\" in _resolved.pipeline) printf '%s\n' '$3' ;; _resolved.mode) echo $2 ;; _resolved.name) echo sp ;; *) return 4 ;; esac; }"$'\n'"$b" 2>&1)
+    (cd "$R" && "${RUN_ENV[@]}" $1 -c "F() { case \"\$1\" in _resolved.pipeline) printf '%s\n' '$3' ;; _resolved.mode) echo $2 ;; _resolved.name) echo sp ;; workflow.finish) $fin ;; *) return 4 ;; esac; }"$'\n'"$b" 2>&1)
 }
 R="$T/repo"; git init -q -b main "$R"
+RO="$T/repo-origin"; git init -q -b main "$RO"; git -C "$RO" remote add origin "$T/pay.git"   # any origin: the rule asks only whether there is one
 pr_head 1 11; pr_head 2 12; pr_head 3 13; pr_head 4 14; pr_head 5 15; pr_head 6 16
 statuses 12 'check/windows:success:skipped' 'review:success:success'
 statuses 13 'check/windows:success:success' 'review:success:success'
@@ -677,6 +679,21 @@ for sh in "${SHELLS[@]}"; do
     check "$sh: Silent mode — the marks file: skipped on the head, a failure on another commit does not count" bash -c '[[ "$1" == *"check/windows=skipped — ready" ]]' _ "$(line 2 "$got")"
     check "$sh: Silent mode — no marks file for the ticket: the PR waits" bash -c '[[ "$1" == *"check/windows=none — waits" ]]' _ "$(line 3 "$got")"
     check "$sh: Silent mode — no commit status is read" bash -c '! grep -q "^api " "$1"' _ "$GH_LOG"
+    # Full mode with local-green: the same marks file when the repository has no origin ($R), as ticket mark writes
+    # it; with an origin, or with another finish, the commit statuses (one read per PR).
+    : >"$GH_LOG"
+    got="$(run_checks "$sh" full "$WORFY_PL" '2:02 3:03' local-green)"
+    check "$sh: Full + local-green, no origin — the marks file: skipped on the head, a failure on another commit does not count" bash -c '[[ "$1" == *"check/windows=skipped — ready" ]]' _ "$(line 2 "$got")"
+    check "$sh: Full + local-green, no origin — no marks file for the ticket: the PR waits" bash -c '[[ "$1" == *"check/windows=none — waits" ]]' _ "$(line 3 "$got")"
+    check "$sh: Full + local-green, no origin — no commit status is read" bash -c '! grep -q "^api " "$1"' _ "$GH_LOG"
+    : >"$GH_LOG"
+    got="$(run_checks "$sh" full "$WORFY_PL" '3:03' pr-green-ci)"
+    check "$sh: Full + pr-green-ci, no origin — the commit statuses, not the marks file" \
+        bash -c '[[ "$1" == *"check/windows=success — ready, PLATFORM" ]] && [ "$(grep -c "^api repos/{owner}/{repo}/commits/.*/status" "$2")" = 1 ]' _ "$(line 3 "$got")" "$GH_LOG"
+    : >"$GH_LOG"
+    got="$(R="$RO" run_checks "$sh" full "$WORFY_PL" '3:03' local-green)"
+    check "$sh: Full + local-green with an origin — the commit statuses, not the marks file" \
+        bash -c '[[ "$1" == *"check/windows=success — ready, PLATFORM" ]] && [ "$(grep -c "^api repos/{owner}/{repo}/commits/.*/status" "$2")" = 1 ]' _ "$(line 3 "$got")" "$GH_LOG"
     rm -rf "$T/hh/runs"
     got="$(run_checks "$sh" full "$WORFY_PL" '7:07 2:02')"
     check "$sh: gh gives no head — the line says so, the other PRs still get theirs, EXIT=1" \

@@ -26,7 +26,8 @@
 //                                       an agent's mark bound to a commit: kind — review or
 //                                       check/<name>, verdict — pending, success, failure or skipped, sha — the
 //                                       full SHA. Full mode — a GitHub commit status on that SHA (context — the
-//                                       kind); Silent mode — <HARNESS_HOME>/runs/<project>/marks/<epic>-<NN>.json
+//                                       kind); Silent mode, and Full mode with workflow.finish local-green in a
+//                                       repository without origin — <HARNESS_HOME>/runs/<project>/marks/<epic>-<NN>.json
 //                                       and nothing on GitHub (see "mark" below). Usage errors — exit 2.
 //   ticket mark --contexts              print the contexts of the marks (review, check/*, deploy), one per line:
 //                                       CI checks filter them out
@@ -680,7 +681,7 @@ function diff(a, b) {
 }
 
 // --- mark -----------------------------------------------------------------------
-// One interface, two stores by the project's mode. Both are bound to the SHA: a new
+// One interface, two stores; marksStore below picks one. Both are bound to the SHA: a new
 // commit makes a mark stale, and whoever reads it (worfy, the skills) compares the SHA with the head of the branch.
 //   Full mode   — a commit status: gh api -X POST repos/<owner>/<repo>/statuses/<sha>, context = the kind,
 //                 state = the verdict (skipped → success with the description "skipped"); the description names
@@ -693,16 +694,39 @@ function diff(a, b) {
 //                 at}]}, each mark appended at the end. Written through a temporary file and rename, under a lock
 //                 directory next to it, so two marks at once do not lose one. Nothing goes to GitHub or into the
 //                 repository: the repository of a Silent project keeps no trace of the workflow.
+//                 Full mode with workflow.finish local-green whose repository has no origin uses the same file:
+//                 there is no GitHub to hold a commit status, and the ticket still needs its marks.
 function mark() {
     if (!prof) die(`ticket mark needs the project profile: ${process.cwd()} is not in a registered project (bin/profile)`)
     const nn = matches[0].match(/^(\d+)-/)[1]
-    if (prof._resolved?.mode === "silent") markLocal(nn)
-    else markGitHub()
+    const store = marksStore()
+    if (store.file) markLocal(nn)
+    else markGitHub(store)
     process.exit(0)
 }
 
-function markGitHub() {
-    const { kind, verdict, sha } = markArgs
+// Where the marks of this ticket live — the one rule. The marks file: Silent mode, and Full mode with
+// workflow.finish local-green when the ticket's repository has no origin. Otherwise a commit status of the
+// repository's origin on GitHub; any other origin, or no origin with another finish, is refused as before.
+// Whoever reads the marks applies the same rule (skill epic-wave, "Checks before merge").
+function marksStore() {
+    if (prof._resolved?.mode === "silent") return { file: true }
+    const dir = markRepo()
+    let url = ""
+    try {
+        url = execFileSync(GIT, ["-C", dir, "remote", "get-url", "origin"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim()
+    } catch {
+        if (prof.workflow?.finish === "local-green") return { file: true }
+        die(`${dir} has no origin: a commit status needs a repository on GitHub`)
+    }
+    const m = url.match(/^(?:https?:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/]+)\/([^/]+?)(?:\.git)?\/?$/)
+    if (!m) die(`origin of ${dir} is not on GitHub (${url}): a commit status needs a repository on GitHub`)
+    return { dir, owner: m[1], name: m[2] }
+}
+
+// The repository of the ticket: its `Repo:` line (a project of several repositories), otherwise the git
+// repository ticket runs in, otherwise the project's only repository.
+function markRepo() {
     const REPO_LINE = /^\*{0,2}Repo\b[ \t]*\*{0,2}[ \t]*:[ \t]*\*{0,2}[ \t]*/i
     const line = lines.slice(0, sh.end).find((l, i) => !sh.code[i] && REPO_LINE.test(l))
     const repoName = line ? line.replace(REPO_LINE, "").replace(/\*+[ \t]*$/, "").trim() : null
@@ -716,15 +740,11 @@ function markGitHub() {
     } else if (top) dir = top
     else if (repos.length === 1) dir = repos[0].path
     else die(`${rel(target)} has no Repo: line and ${process.cwd()} is not a git repository: name the repository in the ticket (ticket claim --repo) or run mark from it`)
-    let url = ""
-    try {
-        url = execFileSync(GIT, ["-C", dir, "remote", "get-url", "origin"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim()
-    } catch {
-        die(`${dir} has no origin: a commit status needs a repository on GitHub`)
-    }
-    const m = url.match(/^(?:https?:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/]+)\/([^/]+?)(?:\.git)?\/?$/)
-    if (!m) die(`origin of ${dir} is not on GitHub (${url}): a commit status needs a repository on GitHub`)
-    const [, owner, name] = m
+    return dir
+}
+
+function markGitHub({ dir, owner, name }) {
+    const { kind, verdict, sha } = markArgs
     const state = verdict === "skipped" ? "success" : verdict
     const args = ["api", "-X", "POST", `repos/${owner}/${name}/statuses/${sha}`, "-f", `state=${state}`, "-f", `context=${kind}`, "-f", `description=${verdict}`]
     try {
