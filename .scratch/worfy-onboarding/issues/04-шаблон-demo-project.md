@@ -59,7 +59,8 @@ Source: решения владельца 2026-10-26, пункт 5 (содерж
 
 ## Тесты
 
-- Unit `test/unit/demo-template.test.ts` (новый): запись во временную папку, запуск `node --test` с
+- Unit `test/unit/demo-template.test.ts` (новый): файлы шаблона и черновик Profile как значения.
+- Contract `test/contract/demo-template.test.ts` (новый): запись во временную папку, запуск `node --test` с
   `process.execPath`, проверка `--check` и `epic-status` из `harness/bin`.
 - Сначала падающий: test импорта `demoTemplate` — модуля нет.
 
@@ -67,6 +68,7 @@ Source: решения владельца 2026-10-26, пункт 5 (содерж
 
 - `src/main/getting-started/demo-template.ts` (новый)
 - `test/unit/demo-template.test.ts` (новый)
+- `test/contract/demo-template.test.ts` (новый)
 
 Только читать: `harness/profiles/draft.schema.json`, `harness/profiles/README.md`,
 `harness/bin/project-connect`, `src/shared/workflow/pipeline.ts`, `src/main/projects/connect.ts`
@@ -74,4 +76,43 @@ Source: решения владельца 2026-10-26, пункт 5 (содерж
 
 ## Итог
 
-Заполняется при закрытии.
+Шаблон — `src/main/getting-started/demo-template.ts`, `demoTemplate({ root, profileName })` →
+`{ files, draft }`; пути `files` — с `/`, переводы строк — только `\n`. Test-ы:
+`test/unit/demo-template.test.ts` (файлы и черновик как значения) и
+`test/contract/demo-template.test.ts` (запуск `node --test`, `project-connect --check`, `epic-status`):
+запуски процессов ушли в contract test, у которого предел 15 с, а не 5 с, как у unit.
+
+Отступление от «Что делаем», пункт 3: gate registry запускает не команды, а script-ы `package.json`
+через `<pm> run <script>` (`harness/hooks/gate.mjs`, `runScript`; `pm` null → `npm`). Поэтому
+`root.fast` — `["test:fast"]`, `root.full` — `["test"]`, а сами команды — в `package.json`:
+`test:fast` — `node --test test/fast/*.test.js`, `test` — `node --test`. Форма `node --test test/fast/`
+не годится: Node 24 принимает папку за файл test-а и падает («test failed»); glob Node раскрывает сам
+и там, где shell этого не делает (cmd.exe на Windows).
+
+| Поле | Значение | Почему |
+| --- | --- | --- |
+| `schema`, `name`, `title` | `2`, `profileName`, `worfy demo` | имя приходит от Ticket-а 05 (Р14: `worfy-demo`) |
+| `mode`, `workflow.folder` | `full`, `null` | пункт 5: Full mode, файлы workflow в репозитории demo |
+| `language` | `{ team: en, docs: en }` | язык команды и документов — английский; `reports` новый Profile не пишет (README Profile-ей) |
+| `attribution` | `on` | значение Full mode по умолчанию |
+| `layout`, `stack` | один пакет, `packages: ["."]`, `repos: null` | факты шаблона |
+| `commands.test`, `verify` | `npm run test:fast` | проверка исполнителя — только `test/fast/` (риск 1) |
+| `commands.test_one` | `node --test <file>` | прицельный запуск одного файла |
+| остальные `commands` | `null`, `requires: []` | установки, lint, сборки нет |
+| `parallel` | `worktrees` | как у worfy: исполнитель и ревьюер в своих worktree |
+| `worktree.root` | `<root>/.claude/worktrees/` | как `applyChoices`; только там `EnterWorktree` пускает правки |
+| `worktree.base` | `main` | без `origin` preflight берёт локальную ветку |
+| `worktree.implementer` / `reviewer` | `git worktree add …` от `main`, путь в одинарных кавычках с `/` | путь с пробелом или `'` (Windows, Git Bash) не ломает команду |
+| `tickets` | `.scratch/`, `.scratch/<epic>/issues/NN-*.md`, `## Where in code`, `## Done when`, `<epic>/<NN>` | Р14: ветка `todo/01`; разделы — как в Ticket-е demo |
+| `workflow.ticket_skill`, `merge` | `ship-ticket`, `orchestrator` | шаг 4 отправляет `/worfy:ship-ticket todo 01` |
+| `workflow.finish` | `local-green` | без GitHub |
+| `workflow.pipeline` | Queued, Implementing, Agent review, Gate & merge, Done | Р1: без CI и Closing |
+| `numbering`, `deploy`, `docs` | `null` | ADR, миграций, деплоя, файла состояния нет |
+| `github.account` | `null` | без GitHub |
+| `lessons` | `profile` | уроки не попадают в репозиторий demo и уходят вместе с Profile при удалении |
+| `mcp.allowed` | `["worfy-canvas"]` | qmd для demo не подключается (Р13) |
+| `review` | `correctness`, `tests` | две линзы, которые ловят крайний случай `done` |
+| gate | `key` и `profile` = `profileName`, `match` = `root`, `pm: null`, `workspace: {}` | один репозиторий, один пакет |
+
+Для Ticket-а 05: `worktree.base` и команды worktree называют ветку `main` — `git init` demo должен
+создать именно её (`git init -b main`), иначе preflight и `git worktree add` не найдут базу.
