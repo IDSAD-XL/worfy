@@ -23,6 +23,8 @@ const electron = vi.hoisted(() => ({
   shown: [] as { title: string; body: string }[],
   focused: null as unknown,
   windows: [] as unknown[],
+  /** The process that owns the system's foreground window; null: worfy. */
+  foregroundPid: null as number | null,
 }))
 
 vi.mock('electron', () => {
@@ -40,6 +42,16 @@ vi.mock('electron', () => {
 })
 // The real window module loads the app's page; openNote gets its own window factory.
 vi.mock('../../src/main/window', () => ({ createMainWindow: () => undefined }))
+// On Windows the focus check asks PowerShell for the foreground window: here the answer is
+// `electron.foregroundPid`, worfy by default, and no real PowerShell runs (test/unit/foreground.test.ts
+// covers the check).
+vi.mock('../../src/main/foreground', async (original) => ({
+  ...(await original<typeof import('../../src/main/foreground')>()),
+  foregroundPid: () => Promise.resolve({ pid: electron.foregroundPid ?? process.pid }),
+}))
+
+/** Lets promised focus answers reach their notes. */
+const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
 /**
  * The app's hubs and Project list, as src/main/notify.ts's appWaitsSources takes them (worfy-pipeline
@@ -276,6 +288,49 @@ describe('Notifier', () => {
     expect(h.shown).toHaveLength(1)
   })
 
+  it('a promised focus answer (Windows asks the system, worfy-windows ticket 113): the note shows once it says no window has focus; one held back is not counted', async () => {
+    const answers: ((focused: boolean) => void)[] = []
+    const shown: Note[] = []
+    const notifier = new Notifier({
+      focused: () => new Promise<boolean>((resolve) => answers.push(resolve)),
+      show: (note) => shown.push(note),
+      open: () => undefined,
+      now: () => 1_000_000,
+    })
+    notifier.sessionEvent('s1', init('/Users/test/alpha'))
+    notifier.sessionEvent('s1', result())
+    expect(answers).toHaveLength(1)
+    answers.shift()?.(true)
+    await settle()
+    expect(shown).toEqual([])
+
+    notifier.sessionEvent('s1', result())
+    expect(shown).toEqual([])
+    answers.shift()?.(false)
+    await settle()
+    expect(shown).toEqual([{ title: 'alpha', body: 'All tests pass.', sessionId: 's1', projectRoot: null }])
+  })
+
+  it('a focus answer that fails is logged, not left as an unhandled rejection', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const shown: Note[] = []
+      const notifier = new Notifier({
+        focused: () => Promise.reject(new Error('boom')),
+        show: (note) => shown.push(note),
+        open: () => undefined,
+        now: () => 1_000_000,
+      })
+      notifier.sessionEvent('s1', init('/Users/test/alpha'))
+      notifier.sessionEvent('s1', result())
+      await settle()
+      expect(shown).toEqual([])
+      expect(warn).toHaveBeenCalledWith('[notify] a notification was not shown: boom')
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it('keeps the 10 s across the rename of a new Session to its SDK id', () => {
     const h = harness()
     h.notifier.sessionEvent('pending-1', permission())
@@ -408,7 +463,7 @@ describe('the Machine of a Project and its Linked machines (worfy-link ticket 13
 })
 
 describe('Electron notifications', () => {
-  it('shows an Electron Notification only when no window has focus', () => {
+  it('shows an Electron Notification only when no window has focus', async () => {
     electron.shown.length = 0
     withQuietWindows(undefined, () => {
       const stop = installNotifications(
@@ -426,7 +481,24 @@ describe('Electron notifications', () => {
       expect(electron.shown).toEqual([{ title: 'Session', body: 'All tests pass.' }])
       stop()
     })
+    // On Windows the second answer comes from the system (worfy owns the foreground here): still silent.
+    await settle()
+    expect(electron.shown).toEqual([{ title: 'Session', body: 'All tests pass.' }])
     expect(electronNotifyDeps.focused()).toBe(false)
+  })
+
+  it('on Windows a window Electron calls focused counts only while worfy owns the foreground window (worfy-windows ticket 113)', async () => {
+    electron.focused = {}
+    electron.foregroundPid = process.pid + 1
+    try {
+      await expect(Promise.resolve(electronNotifyDeps.focused())).resolves.toBe(process.platform !== 'win32')
+      await expect(Promise.resolve(electronWindowNoteDeps.focused())).resolves.toBe(process.platform !== 'win32')
+      electron.foregroundPid = null
+      await expect(Promise.resolve(electronNotifyDeps.focused())).resolves.toBe(true)
+    } finally {
+      electron.focused = null
+      electron.foregroundPid = null
+    }
   })
 
   it('with quiet windows (WORFY_QUIET_WINDOWS=1, e2e tests) shows no system notification, though no window has focus', () => {
@@ -830,6 +902,25 @@ describe('the gate queue: a PR that has waited over an hour (worfy-windows ticke
     g.wait(5 * MIN)
     g.read()
     expect(g.shown).toHaveLength(1)
+  })
+
+  it('a promised focus answer (worfy-windows ticket 113): held back while it says focused; once it says not, one notification, however many reads waited for it', async () => {
+    const answers: ((focused: boolean) => void)[] = []
+    const shown: WindowNote[] = []
+    const notices = new GateQueueNotices({ focused: () => new Promise<boolean>((resolve) => answers.push(resolve)), show: (note) => shown.push(note), open: () => undefined })
+    const waiting = waitingPrs([labelled([{ oid: 'c1', committedDate: new Date(START).toISOString() }])], 'Mac checks', 'mac-bot', START + 2 * 60 * MIN)
+    const read = (): void => notices.read(PROJECT, { role: 'serve', label: 'needs-mac-gate', gh: { state: 'ok' }, waiting })
+    read()
+    answers.shift()?.(true)
+    await settle()
+    expect(shown).toEqual([])
+
+    read()
+    read()
+    expect(answers).toHaveLength(2)
+    for (const answer of answers.splice(0)) answer(false)
+    await settle()
+    expect(shown.map((note) => note.body)).toEqual(['PR #480 Gate queue has waited for the gate queue for over an hour. Run Process gate queue'])
   })
 
   it('the text on serve and on request; the title is the Project\'s name', () => {

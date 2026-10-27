@@ -18,6 +18,10 @@
 // and so do its Sessions: then the click opens a new window, whose renderer takes the note once
 // its overlay mounts.
 //
+// "Has focus" is Electron's answer; on Windows, when Electron says yes, the system is asked whether
+// worfy owns the foreground window (src/main/foreground.ts, worfy-windows ticket 113): Electron calls
+// a window focused that Windows never let to the front.
+//
 // Linked machines (worfy-link ticket 13): the Machine of a Project decides what to notify about, as
 // above, and hands each note to two places — its own display, and the connected Linked machines it
 // shares its Projects with (src/main/link/notes.ts). Its own focus does not hold the note back from
@@ -69,6 +73,7 @@ import type { LiveSession } from '../shared/ipc/claude-home'
 import type { GateQueueRead } from './github/gate-queue'
 import { notifyOpen } from '../shared/ipc/notify'
 import type { SessionRegistry } from './agent/session'
+import { createFocusCheck, foregroundPid } from './foreground'
 import { emit } from './ipc/index'
 import { workflowHub } from './ipc/workflow'
 import { pendingOpens, type PendingOpens } from './notify-pending'
@@ -155,7 +160,8 @@ export interface WindowNote {
 
 /** The Electron parts of the gate queue's notifications (GateQueueNotices); tests pass their own. */
 export interface WindowNoteDeps {
-  focused(): boolean
+  /** As NotifyDeps.focused. */
+  focused(): boolean | Promise<boolean>
   show(note: WindowNote, onClick: () => void): void
   /** Raises worfy's window, or opens one; no Session opens. */
   open(note: WindowNote): void
@@ -171,13 +177,26 @@ export interface NoteLink {
 
 /** The Electron parts of notifications, for notes of kind `N`; tests pass their own. */
 export interface NotifyDeps<N extends DisplayNote = Note> {
-  /** Whether a worfy window has focus now. */
-  focused(): boolean
+  /** Whether a worfy window has focus now; a promise while the system is asked (foreground.ts). */
+  focused(): boolean | Promise<boolean>
   /** Shows a system notification; `onClick` runs when the user clicks it. */
   show(note: N, onClick: () => void): void
   /** Raises the window and opens the Session of the note, or the Pipeline board of a Ticket's. */
   open(note: N): void
   now(): number
+}
+
+/** Runs `then` when no worfy window has focus: at once for an answer known now, later for a promised one. */
+function unlessFocused(focused: boolean | Promise<boolean>, then: () => void): void {
+  if (typeof focused === 'boolean') {
+    if (!focused) then()
+    return
+  }
+  focused
+    .then((yes) => {
+      if (!yes) then()
+    })
+    .catch((error: unknown) => console.warn(`[notify] a notification was not shown: ${error instanceof Error ? error.message : String(error)}`))
 }
 
 const clip = (text: string): string => {
@@ -216,7 +235,11 @@ export class NoteDisplay<N extends DisplayNote = Note> {
   constructor(private readonly deps: NotifyDeps<N>) {}
 
   show(note: N): void {
-    if (this.deps.focused()) return
+    unlessFocused(this.deps.focused(), () => this.showUnfocused(note))
+  }
+
+  /** The note passed the focus rule: the count per Session decides. */
+  private showUnfocused(note: N): void {
     const now = this.deps.now()
     const key = noteKey(note)
     const last = this.last.get(key)
@@ -498,18 +521,27 @@ export class GateQueueNotices {
 
   read(project: { root: string; name: string }, queue: GateQueueRead): void {
     if (queue.role === null || queue.gh.state !== 'ok') return
+    const role = queue.role
     const prefix = `${project.root}\0`
     const waiting = new Set<string>()
+    const due: { key: string; note: WindowNote }[] = []
     for (const pr of queue.waiting) {
       const key = `${prefix}${pr.number}\0${pr.lastCommit ?? pr.since}`
       waiting.add(key)
-      if (pr.waitedMs <= GATE_QUEUE_NOTICE_MS || this.shown.has(key) || this.deps.focused()) continue
-      this.shown.add(key)
-      const note: WindowNote = { title: project.name, body: gateQueueNoteBody(pr, queue.role), sessionId: null }
-      this.deps.show(note, () => this.deps.open(note))
+      if (pr.waitedMs <= GATE_QUEUE_NOTICE_MS || this.shown.has(key)) continue
+      due.push({ key, note: { title: project.name, body: gateQueueNoteBody(pr, role), sessionId: null } })
     }
     // A PR that no longer waits (a report, a merge, a new commit) is forgotten.
     for (const key of [...this.shown]) if (key.startsWith(prefix) && !waiting.has(key)) this.shown.delete(key)
+    if (due.length === 0) return
+    unlessFocused(this.deps.focused(), () => {
+      for (const { key, note } of due) {
+        // The system's answer may come after the next read showed the same PR.
+        if (this.shown.has(key)) continue
+        this.shown.add(key)
+        this.deps.show(note, () => this.deps.open(note))
+      }
+    })
   }
 }
 
@@ -691,9 +723,18 @@ function showSystem(note: { title: string; body: string }, onClick: () => void):
   notification.show()
 }
 
+/** Whether a worfy window has focus; on Windows checked against the system's foreground window (foreground.ts). */
+const electronFocused = createFocusCheck({
+  electronFocused: () => BrowserWindow.getFocusedWindow() !== null,
+  platform: process.platform,
+  pid: process.pid,
+  foreground: () => foregroundPid(),
+  warn: (message) => console.warn(message),
+})
+
 /** Electron's notifications and windows. */
 export const electronNotifyDeps: NotifyDeps<DisplayNote> = {
-  focused: () => BrowserWindow.getFocusedWindow() !== null,
+  focused: electronFocused,
   show: showSystem,
   open: (note) => openNote(note),
   now: () => Date.now(),
@@ -701,7 +742,7 @@ export const electronNotifyDeps: NotifyDeps<DisplayNote> = {
 
 /** The same for the gate queue's notifications. */
 export const electronWindowNoteDeps: WindowNoteDeps = {
-  focused: () => BrowserWindow.getFocusedWindow() !== null,
+  focused: electronFocused,
   show: showSystem,
   open: (note) => openNote(note),
 }
