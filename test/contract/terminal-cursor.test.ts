@@ -9,7 +9,8 @@
 import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { join } from 'node:path'
-import { CursorAnswers, HIGH_WATER, isCursorAnswer, SCROLLBACK, screenWorker, unpackedPath } from '../../src/main/terminal/cursor-answers'
+import { COLOUR_ANSWER_WINDOW_MS, CursorAnswers, HIGH_WATER, isMainAnswer, SCROLLBACK, screenWorker, unpackedPath } from '../../src/main/terminal/cursor-answers'
+import { colourAnswers } from '../../src/shared/terminal/cursor-answer'
 import { ROWS_MAX, TerminalRegistry, type PtyProcess, type TerminalSink } from '../../src/main/terminal/pty'
 
 const KEY = JSON.stringify(['alpha-0000000a', 'terminal-node-1'])
@@ -172,13 +173,15 @@ describe('main answers the cursor-position requests (worfy-windows ticket 39)', 
     expect(pty.calls.filter((call) => call[0] === 'resize')).toEqual([])
   })
 
-  it('what is dropped is only a marked cursor answer: other answers, and the same bytes typed (Shift+F3), reach the shell', async () => {
+  it('what is dropped is only a marked answer main gives itself: a focus report, and the same bytes typed or pasted (Shift+F3, `ESC[?1;2c`), reach the shell', async () => {
     const { registry, pty, a } = await shell()
     registry.write(KEY, `${ESC}[?1;2c`, a, { reply: true })
     registry.write(KEY, `${ESC}[O`, a, { reply: true })
     registry.write(KEY, `${ESC}[1;2R`, a)
     registry.write(KEY, `${ESC}[1;2R`, a, { reply: false })
-    expect(pty.writes).toEqual([`${ESC}[?1;2c`, `${ESC}[O`, `${ESC}[1;2R`, `${ESC}[1;2R`])
+    registry.write(KEY, `${ESC}[?1;2c`, a)
+    registry.write(KEY, `${ESC}[?1;2c`, a, { reply: false })
+    expect(pty.writes).toEqual([`${ESC}[O`, `${ESC}[1;2R`, `${ESC}[1;2R`, `${ESC}[?1;2c`, `${ESC}[?1;2c`])
   })
 
   it('a shell that has exited is not answered', async () => {
@@ -263,6 +266,121 @@ describe('main answers the cursor-position requests (worfy-windows ticket 39)', 
     pty.print(`${ESC}[30;1Hx${REQUEST}`)
     expect(await writtenSoon(pty, 2)).toEqual([`${ESC}[1;3R`, `${ESC}[30;2R`])
     expect(write).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The requests whose answer is the same from main's screen and from a view's (worfy-windows ticket
+ * 68, measured with @xterm/headless and @xterm/xterm 6.0.0), with what the program has printed
+ * before it and the answer, on a screen of 80×24.
+ */
+const SAME_ANSWER: [name: string, output: string, answer: string][] = [
+  ['device attributes (DA1)', `${ESC}[c`, `${ESC}[?1;2c`],
+  ['secondary device attributes (DA2)', `${ESC}[>c`, `${ESC}[>0;276;0c`],
+  ['device status (DSR 5)', `${ESC}[5n`, `${ESC}[0n`],
+  ['cursor position (CPR)', `ab${ESC}[6n`, `${ESC}[1;3R`],
+  ['extended cursor position (DECXCPR)', `ab${ESC}[?6n`, `${ESC}[?1;3R`],
+  ['a private mode, reset (DECRQM)', `${ESC}[?2004$p`, `${ESC}[?2004;2$y`],
+  ['a private mode, set (DECRQM)', `${ESC}[?2004h${ESC}[?2004$p`, `${ESC}[?2004;1$y`],
+  ['an ANSI mode (DECRQM)', `${ESC}[4$p`, `${ESC}[4;2$y`],
+  ['an unknown mode (DECRQM)', `${ESC}[?9999$p`, `${ESC}[?9999;0$y`],
+  ['the graphic rendition (DECRQSS)', `${ESC}P$qm${ESC}\\`, `${ESC}P1$r0m${ESC}\\`],
+  ['the scroll region (DECRQSS)', `${ESC}P$qr${ESC}\\`, `${ESC}P1$r1;24r${ESC}\\`],
+]
+
+describe('main answers every request whose answer does not depend on the view (worfy-windows ticket 68)', () => {
+  // On Windows the device attributes request is the console's own and is answered by
+  // console-request.ts; the views never see it. Either way the shell gets one answer.
+  describe.each(['linux', 'win32'] as const)('as on %s', (platform) => {
+    it.each(SAME_ANSWER)('%s with no view open: exactly one answer', async (_name, output, answer) => {
+      const { pty } = await shell(platform)
+      pty.print(output)
+      expect(await writtenSoon(pty, 1)).toEqual([answer])
+    })
+
+    it.each(SAME_ANSWER)('%s with two views answering: still exactly one, main’s', async (_name, output, answer) => {
+      const { registry, pty, a } = await shell(platform)
+      const b = {}
+      await registry.open(KEY, { cwd: '/', cols: 80, rows: 24 }, b, nothing)
+      pty.print(output)
+      // Both views' xterm.js answer, marked as answers.
+      registry.write(KEY, answer, a, { reply: true })
+      registry.write(KEY, answer, b, { reply: true })
+      expect(await writtenSoon(pty, 1)).toEqual([answer])
+      // No resize either: the answers were not typing.
+      expect(pty.calls.filter((call) => call[0] === 'resize')).toEqual([])
+    })
+  })
+
+  it('the same bytes typed or pasted by the user reach the shell', async () => {
+    const { registry, pty, a } = await shell()
+    for (const [, , answer] of SAME_ANSWER) registry.write(KEY, answer, a)
+    expect(pty.writes).toEqual(SAME_ANSWER.map(([, , answer]) => answer))
+  })
+})
+
+/** What xterm.js 6.0.0 of a view answers to `ESC]11;?` with a dark theme. */
+const BACKGROUND = `${ESC}]11;rgb:1e1e/1e1e/1e1e${ESC}\\`
+const FOREGROUND = `${ESC}]10;rgb:d4d4/d4d4/d4d4${ESC}\\`
+
+describe('the colour queries stay with the views; with two views main passes the first answer (worfy-windows ticket 68)', () => {
+  it('with no view open a colour query is not answered: only a view knows its theme', async () => {
+    const { pty } = await shell()
+    pty.print(`${ESC}]11;?\x07${ESC}]10;?${ESC}\\${ESC}]4;1;?\x07`)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(pty.writes).toEqual([])
+  })
+
+  it('two views answering the same query: the first answer passes, the other view’s is dropped', async () => {
+    const { registry, pty, a } = await shell()
+    const b = {}
+    await registry.open(KEY, { cwd: '/', cols: 80, rows: 24 }, b, nothing)
+    registry.write(KEY, BACKGROUND, b, { reply: true })
+    registry.write(KEY, `${ESC}]11;rgb:ffff/ffff/ffff${ESC}\\`, a, { reply: true })
+    expect(pty.writes).toEqual([BACKGROUND])
+  })
+
+  it('the same view answering twice in a row passes twice: two queries, two answers', async () => {
+    const { registry, pty, a } = await shell()
+    registry.write(KEY, BACKGROUND, a, { reply: true })
+    registry.write(KEY, BACKGROUND, a, { reply: true })
+    expect(pty.writes).toEqual([BACKGROUND, BACKGROUND])
+  })
+
+  it('each kind of colour is its own: another view’s answer of another kind passes', async () => {
+    const { registry, pty, a } = await shell()
+    const b = {}
+    await registry.open(KEY, { cwd: '/', cols: 80, rows: 24 }, b, nothing)
+    const red = `${ESC}]4;1;rgb:cdcd/3131/3131${ESC}\\`
+    const green = `${ESC}]4;2;rgb:0d0d/bcbc/7979${ESC}\\`
+    registry.write(KEY, BACKGROUND, a, { reply: true })
+    registry.write(KEY, FOREGROUND, b, { reply: true })
+    registry.write(KEY, red, a, { reply: true })
+    registry.write(KEY, green, b, { reply: true })
+    registry.write(KEY, red, b, { reply: true })
+    expect(pty.writes).toEqual([BACKGROUND, FOREGROUND, red, green])
+  })
+
+  it('another view’s answer after the window passes: a new query', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    const { registry, pty, a } = await shell()
+    const b = {}
+    await registry.open(KEY, { cwd: '/', cols: 80, rows: 24 }, b, nothing)
+    registry.write(KEY, BACKGROUND, a, { reply: true })
+    now.mockReturnValue(1_000_000 + COLOUR_ANSWER_WINDOW_MS - 1)
+    registry.write(KEY, BACKGROUND, b, { reply: true })
+    now.mockReturnValue(1_000_000 + COLOUR_ANSWER_WINDOW_MS)
+    registry.write(KEY, BACKGROUND, b, { reply: true })
+    expect(pty.writes).toEqual([BACKGROUND, BACKGROUND])
+  })
+
+  it('a colour answer typed or pasted (unmarked) always reaches the shell', async () => {
+    const { registry, pty, a } = await shell()
+    const b = {}
+    await registry.open(KEY, { cwd: '/', cols: 80, rows: 24 }, b, nothing)
+    registry.write(KEY, BACKGROUND, a, { reply: true })
+    registry.write(KEY, BACKGROUND, b)
+    expect(pty.writes).toEqual([BACKGROUND, BACKGROUND])
   })
 })
 
@@ -367,19 +485,42 @@ describe('unpackedPath', () => {
   })
 })
 
-describe('isCursorAnswer', () => {
+describe('isMainAnswer', () => {
   it.each([
     [`${ESC}[1;1R`, true],
     [`${ESC}[?12;80R`, true],
     [`${ESC}[1;1R${ESC}[2;3R`, true],
+    [`${ESC}[?1;2c`, true],
+    [`${ESC}[>0;276;0c`, true],
+    [`${ESC}[0n`, true],
+    [`${ESC}[?2004;1$y`, true],
+    [`${ESC}[4;2$y`, true],
+    [`${ESC}P1$r0m${ESC}\\`, true],
+    [`${ESC}P0$r${ESC}\\`, true],
+    [`${ESC}P1$r1;24r${ESC}\\${ESC}[1;1R`, true],
     [`${ESC}[1;1Rx`, false],
     [`x${ESC}[1;1R`, false],
-    [`${ESC}[?1;2c`, false],
     [`${ESC}[O`, false],
+    [`${ESC}[I`, false],
+    [BACKGROUND, false],
     ['', false],
     [`${ESC}[1R`, false],
+    [`${ESC}P1$r0m`, false],
+    [`${ESC}P1$r0m${ESC}\\x`, false],
+    [`${ESC}[?1;2cls`, false],
   ])('%j → %s', (data, expected) => {
-    expect(isCursorAnswer(data)).toBe(expected)
+    expect(isMainAnswer(data)).toBe(expected)
+  })
+
+  it('colourAnswers: the colour answers data is made of, with their kinds; null for anything else', () => {
+    const red = `${ESC}]4;1;rgb:cdcd/3131/3131${ESC}\\`
+    expect(colourAnswers(BACKGROUND)).toEqual([{ kind: '11', text: BACKGROUND }])
+    expect(colourAnswers(`${FOREGROUND}${red}`)).toEqual([
+      { kind: '10', text: FOREGROUND },
+      { kind: '4;1', text: red },
+    ])
+    expect(colourAnswers(`${ESC}]12;rgb:ffff/ffff/ffff${ESC}\\`)).toEqual([{ kind: '12', text: `${ESC}]12;rgb:ffff/ffff/ffff${ESC}\\` }])
+    for (const data of ['', `${BACKGROUND}x`, `${ESC}]11;?${ESC}\\`, `${ESC}]2;title${ESC}\\`, `${ESC}[?1;2c`]) expect(colourAnswers(data)).toBeNull()
   })
 
   it('the screen of main keeps more lines above the visible rows than the tallest screen has', () => {

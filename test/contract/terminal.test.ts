@@ -624,10 +624,11 @@ describe('the size of a Terminal on several screens: the screen that typed or cl
     if (pty === undefined) throw new Error('no pty')
     pty.calls.length = 0
 
-    await h.ok('terminal.input', { ...ref, data: '\x1b[?1;2c', reply: true }, b)
+    // A focus report: main answers the device attributes itself and drops a view's (ticket 68).
+    await h.ok('terminal.input', { ...ref, data: '\x1b[I', reply: true }, b)
     await h.ok('terminal.input', { ...ref, data: '\x1b[O', reply: true }, b)
     expect(pty.calls).toEqual([
-      ['write', '\x1b[?1;2c'],
+      ['write', '\x1b[I'],
       ['write', '\x1b[O'],
     ])
 

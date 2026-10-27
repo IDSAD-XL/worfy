@@ -51,8 +51,10 @@ import { NODE_HEADER } from '../node-header'
 // and main leaves the size where it is (terminal-user-input.ts tells them from typing). A view
 // that redraws the kept output sends none of the answers xterm.js gives to the requests in it:
 // the program had its answers when those requests came — unless no view was mounted then: such a
-// request stays unanswered (ticket 39, its result section), except a cursor-position request, which main
-// answers itself in every case (src/main/terminal/cursor-answers.ts). The view attaches once xterm.js has parsed the
+// request stays unanswered (ticket 39, its result section), except the requests main answers itself
+// in every case: the cursor position, the device attributes, a mode, a setting
+// (src/main/terminal/cursor-answers.ts, ticket 68). A colour query is answered only by a mounted
+// view, from its theme. The view attaches once xterm.js has parsed the
 // kept output; output that comes meanwhile waits and is answered as live, and what the user types
 // or clicks meanwhile is sent once the view attaches.
 //

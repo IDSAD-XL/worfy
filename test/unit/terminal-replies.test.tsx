@@ -1,7 +1,9 @@
-// The automatic answers of a screen's terminal to the program in the shell (worfy-windows ticket
-// 39): xterm.js answers a request for the device attributes (`ESC[c`), for the cursor position
-// (`ESC[6n`) and, once a program turns focus reports on (`ESC[?1004h`), reports the focus (`ESC[I`,
-// `ESC[O`). Those answers are not the user's input:
+// The automatic answers of a screen's terminal to the program in the shell (worfy-windows tickets
+// 39 and 68): xterm.js answers a request for the device attributes (`ESC[c`), for the cursor
+// position (`ESC[6n`), for a mode or a setting, for a colour (`ESC]11;?`) and, once a program turns
+// focus reports on (`ESC[?1004h`), reports the focus (`ESC[I`, `ESC[O`). main answers the requests
+// whose answer does not depend on the screen itself and drops the view's marked answer to them;
+// the colours stay with the view. Those answers are not the user's input:
 //   - they reach the shell, but leave the size of the pty with the screen that typed or clicked
 //     last (ADR-0053, decision 5);
 //   - the answers a new view gives while it redraws the kept output (the replay) go nowhere: the
@@ -52,6 +54,16 @@ const ESC = '\x1b'
 const DEVICE_ATTRIBUTES = `${ESC}[?1;2c`
 /** The focus report of a screen whose terminal does not have the focus. */
 const FOCUS_OUT = `${ESC}[O`
+/**
+ * Output only a view answers: focus reports turned on, and a view reports its focus at once (main's
+ * screen has none). The colour queries are the view's too, but its xterm.js answers them from the
+ * theme of its renderer, which jsdom does not give it (open() draws nothing here).
+ */
+const VIEW_REQUEST = `${ESC}[?1004h`
+/** What the view answers to VIEW_REQUEST. */
+const VIEW_ANSWER = FOCUS_OUT
+/** What the view sent main on `terminal.input`, in order. */
+const inputs: { data: string; reply?: boolean | undefined }[] = []
 /** The size the Node asks for in jsdom, where it cannot measure itself (SIZE_BEFORE_LAYOUT). */
 const VIEW_SIZE = { cols: 80, rows: 24 }
 /** The size of the other screen: it opened the terminal first. */
@@ -206,6 +218,7 @@ async function terminal(options: { otherScreen: boolean; duringOpen?: (pty: Stan
         }
         case 'terminal.input': {
           const { data, reply } = terminalInput.input.parse(input)
+          inputs.push({ data, reply })
           registry.write(KEY, data, view, { reply: reply === true })
           return { ok: true, value: undefined }
         }
@@ -252,6 +265,7 @@ async function print(pty: StandInPty, xterm: XtermTerminal, text: string): Promi
 
 beforeEach(() => {
   xterms.length = 0
+  inputs.length = 0
   whileReplaying.run = null
   fitted.size = undefined
   observers.length = 0
@@ -277,8 +291,8 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
   it('a second screen that only opens the Terminal leaves the size of the pty where it is, whatever the kept output asks', async () => {
     const { pty } = await terminal()
     pty.print(`PS C:\\> ${ESC}[c${ESC}[?1004h${ESC}[6nvim is waiting`)
-    // main answers the cursor request when it comes (cursor-answers.ts).
-    await waitFor(() => expect(pty.writes).toEqual([`${ESC}[1;9R`]))
+    // main answers the device attributes and the cursor request when they come (cursor-answers.ts).
+    await waitFor(() => expect(pty.writes).toEqual([DEVICE_ATTRIBUTES, `${ESC}[1;9R`]))
     pty.calls.length = 0
 
     await mount()
@@ -293,14 +307,16 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
     const { xterm } = await mount()
     pty.calls.length = 0
 
-    await print(pty, xterm, `${ESC}[c`)
     await print(pty, xterm, `${ESC}[?1004h`)
+    await print(pty, xterm, `${ESC}[c`)
     await print(pty, xterm, `${ESC}[6n`)
-    // The cursor position is main's answer (cursor-answers.ts), a moment later; the view's own goes nowhere.
+    // The focus report is the view's answer. The device attributes and the cursor position are
+    // main's (cursor-answers.ts), a moment later; the view's own go nowhere.
     await waitFor(() => expect(pty.calls).toHaveLength(3))
+    await new Promise((resolve) => setTimeout(resolve, 50))
     expect(pty.calls).toEqual([
-      ['write', DEVICE_ATTRIBUTES],
       ['write', FOCUS_OUT],
+      ['write', DEVICE_ATTRIBUTES],
       // Nothing visible was printed: the cursor is in the first cell.
       ['write', `${ESC}[1;1R`],
     ])
@@ -315,13 +331,30 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
     // An answer after typing is an answer again: the mark of the typed keys does not stay.
     await act(() => registry.takeSize(KEY, OTHER_SIZE.cols, OTHER_SIZE.rows, other))
     pty.calls.length = 0
-    await print(pty, xterm, `${ESC}[c`)
-    expect(pty.calls).toEqual([['write', DEVICE_ATTRIBUTES]])
+    await print(pty, xterm, VIEW_REQUEST)
+    expect(pty.calls).toEqual([['write', VIEW_ANSWER]])
+  })
+
+  it('the view marks its answers to the requests main now answers too (DA2, DSR, DECRQM, DECRQSS); the shell gets one answer to each, main’s (worfy-windows ticket 68)', async () => {
+    const { pty } = await terminal()
+    const { xterm } = await mount()
+    pty.calls.length = 0
+    inputs.length = 0
+
+    for (const request of [`${ESC}[>c`, `${ESC}[5n`, `${ESC}[?2004$p`, `${ESC}[4$p`, `${ESC}P$qm${ESC}\\`]) await print(pty, xterm, request)
+
+    const answers = [`${ESC}[>0;276;0c`, `${ESC}[0n`, `${ESC}[?2004;2$y`, `${ESC}[4;2$y`, `${ESC}P1$r0m${ESC}\\`]
+    expect(inputs).toEqual(answers.map((data) => ({ data, reply: true })))
+    await waitFor(() => expect(pty.writes).toHaveLength(answers.length))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(pty.writes).toEqual(answers)
+    expect(pty.resizes).toEqual([])
   })
 
   it('a view mounted again writes nothing while it redraws the kept output; a live request after that is answered', async () => {
     const { pty } = await terminal({ otherScreen: false })
-    pty.print(`$ vim${ESC}[1t${ESC}[c${ESC}[?1004h${ESC}[?9001h`)
+    // Focus reports turned on: the view's to answer (main answers the device attributes itself, ticket 68).
+    pty.print(`$ vim${ESC}[1t${VIEW_REQUEST}${ESC}[?1004h${ESC}[?9001h`)
     const first = await mount()
     first.shown.unmount()
     pty.calls.length = 0
@@ -330,18 +363,18 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
     const again = await mount()
     expect(pty.writes).toEqual([])
 
-    await print(pty, again.xterm, `${ESC}[c`)
-    expect(pty.writes).toEqual([DEVICE_ATTRIBUTES])
+    await print(pty, again.xterm, VIEW_REQUEST)
+    expect(pty.writes).toEqual([VIEW_ANSWER])
   })
 
   it('a request that comes while the view opens is answered once, after the kept output is redrawn', async () => {
-    const { pty } = await terminal({ otherScreen: true, duringOpen: (shell) => shell.print(`${ESC}[c`) })
-    pty.print(`${ESC}[c`)
+    const { pty } = await terminal({ otherScreen: true, duringOpen: (shell) => shell.print(VIEW_REQUEST) })
+    pty.print(VIEW_REQUEST)
     pty.calls.length = 0
 
     await mount()
 
-    expect(pty.writes).toEqual([DEVICE_ATTRIBUTES])
+    expect(pty.writes).toEqual([VIEW_ANSWER])
     expect(pty.resizes).toEqual([])
   })
 
@@ -365,23 +398,23 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
 
   it('output that comes while the kept output is parsed is shown after it, in order, and its request is answered once', async () => {
     const { pty } = await terminal()
-    pty.print(`first|${ESC}[c`)
+    pty.print(`first|${VIEW_REQUEST}`)
     pty.calls.length = 0
     whileReplaying.run = () => {
       pty.print('second|')
-      pty.print(`third|${ESC}[c`)
+      pty.print(`third|${VIEW_REQUEST}`)
     }
 
     const { xterm } = await mount()
 
     expect(firstLine(xterm)).toBe('first|second|third|')
-    expect(pty.writes).toEqual([DEVICE_ATTRIBUTES])
+    expect(pty.writes).toEqual([VIEW_ANSWER])
     expect(pty.resizes).toEqual([])
   })
 
   it('keys typed while the kept output is parsed reach the shell once the view attaches, and take the size', async () => {
     const { pty } = await terminal()
-    pty.print(`first|${ESC}[c`)
+    pty.print(`first|${VIEW_REQUEST}`)
     pty.calls.length = 0
     whileReplaying.run = (xterm) => xterm.input('x')
 
@@ -395,7 +428,7 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
 
   it('a click while the kept output is parsed takes the size once the view attaches', async () => {
     const { pty } = await terminal()
-    pty.print(`first|${ESC}[c`)
+    pty.print(`first|${VIEW_REQUEST}`)
     pty.calls.length = 0
     whileReplaying.run = () => fireEvent.mouseDown(screen.getByTestId('terminal-screen'))
 
@@ -406,10 +439,10 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
 
   it('a shell that exits while the kept output is parsed: its last output is shown, the header keeps its name, nothing is written', async () => {
     const { pty } = await terminal()
-    pty.print(`first|${ESC}[c`)
+    pty.print(`first|${VIEW_REQUEST}`)
     pty.calls.length = 0
     whileReplaying.run = (xterm) => {
-      pty.print(`bye|${ESC}[c`)
+      pty.print(`bye|${VIEW_REQUEST}`)
       xterm.input('x')
       pty.kill()
     }
@@ -425,7 +458,7 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
 
   it('a view that goes while the kept output is parsed does not attach when the parse ends: what it typed before going is not sent', async () => {
     const { pty } = await terminal()
-    pty.print(`first|${ESC}[c`)
+    pty.print(`first|${VIEW_REQUEST}`)
     pty.calls.length = 0
     const view: { shown?: ReturnType<typeof render> } = {}
     let ended = false
@@ -522,10 +555,24 @@ describe('output after the shell exited on its own (worfy-polish ticket 38)', ()
 })
 
 describe('watchUserInput', () => {
-  it('an xterm.js that does not say which data is the user’s: a cursor-position answer counts as an answer (main answers those), the rest as typed', () => {
+  it('an xterm.js that does not say which data is the user’s: the answers main gives itself and the colour answers count as answers, the rest as typed', () => {
     const watch = watchUserInput({} as XtermTerminal)
     // Shift+F3 is the same bytes as an answer: in this fallback it is taken for one.
-    expect([`${ESC}[1;2R`, `${ESC}[12;40R${ESC}[12;40R`, 'ls\r', `${ESC}[?1;2c`, `${ESC}[O`, `${ESC}[1;2Rx`].map((data) => watch.take(data))).toEqual([false, false, true, true, true, true])
+    const answers = [
+      `${ESC}[1;2R`,
+      `${ESC}[12;40R${ESC}[12;40R`,
+      DEVICE_ATTRIBUTES,
+      `${ESC}[>0;276;0c`,
+      `${ESC}[0n`,
+      `${ESC}[?2004;2$y`,
+      `${ESC}[4;2$y`,
+      `${ESC}P1$r0m${ESC}\\`,
+      `${ESC}]11;rgb:1e1e/1e1e/1e1e${ESC}\\`,
+      `${ESC}]4;1;rgb:cdcd/3131/3131${ESC}\\`,
+    ]
+    const typed = ['ls\r', FOCUS_OUT, `${ESC}[1;2Rx`, `${DEVICE_ATTRIBUTES}ls`, `${ESC}]11;?${ESC}\\`]
+    expect(answers.map((data) => watch.take(data))).toEqual(answers.map(() => false))
+    expect(typed.map((data) => watch.take(data))).toEqual(typed.map(() => true))
     watch.dispose()
   })
 })
