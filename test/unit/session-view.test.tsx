@@ -808,7 +808,7 @@ describe('opening the Session view', () => {
     await screen.findByText('claude-opus-5-5')
     expect(navigation.useNavigation.getState().view).toBe('canvas')
     fireEvent.doubleClick(screen.getByTestId('orchestrator-node'))
-    expect(navigation.useNavigation.getState()).toEqual({ view: 'session', opened: { nodeId: 'orch', projectId: 'alpha' } })
+    expect(navigation.useNavigation.getState()).toMatchObject({ view: 'session', opened: { alpha: { nodeId: 'orch', projectId: 'alpha' } } })
   })
 
   it('AppShell follows a view given from outside and reports the switch', async () => {

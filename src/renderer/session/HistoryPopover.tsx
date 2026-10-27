@@ -5,14 +5,14 @@ import type { ResumeVerdict } from '../../shared/ipc/sessions'
 import { useOrchestratorViews } from '../canvas/nodes/orchestrator-view'
 import { shownOnCanvas } from '../../shared/layout/derived'
 import { showNode } from '../canvas/show-node'
-import { applyLayoutOp, useLayout } from '../canvas/useLayout'
+import { applyLayoutOp, currentLayout, useLayout } from '../canvas/useLayout'
 import { focusSessionNode } from '../claude-home/focus'
 import { externalSource, readSessionNodeData, SESSION_KIND, showSessionNodeOp, worfySessionIds, worfySessions } from '../claude-home/session-nodes'
 import { refreshClaudeHome, useClaudeHome } from '../claude-home/useClaudeHome'
 import { invoke } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useReadOnly } from '../projects/useProjects'
-import { setView } from './navigation'
+import { openSession, setView, useNavigation } from './navigation'
 import { ensureProject, useSessionNodeViews } from './node-sessions'
 
 // The history of a Project (ticket 18): every Session the Project's transcripts record, wherever
@@ -161,11 +161,24 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
     focus(op.node.id ?? '')
   }
 
+  // The resumed Session opens where the user is (worfy-polish ticket 44): live in the Session view
+  // when that is shown, else its Node on the Canvas. Its Node comes back first when it is archived or hidden.
   const resume = async (session: HistorySession) => {
     setProblem(null)
     const result = await invoke('sessions.resume', { projectId: project.id, sessionId: session.sessionId })
-    if (result.ok) focus(result.value.nodeId)
-    else setProblem({ sessionId: session.sessionId, text: result.error })
+    if (!result.ok) {
+      setProblem({ sessionId: session.sessionId, text: result.error })
+      return
+    }
+    const { nodeId } = result.value
+    if (useNavigation.getState().view !== 'session') {
+      focus(nodeId)
+      return
+    }
+    const node = currentLayout(project.id)?.nodes.find((each) => each.id === nodeId)
+    if (node !== undefined) await showNode(project.id, node)
+    openSession({ nodeId, projectId: project.id })
+    onClose()
   }
 
   let body

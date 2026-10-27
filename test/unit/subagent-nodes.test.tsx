@@ -61,7 +61,7 @@ const trees = (tree: SubagentInfo[]) => new Map([[S7, tree]])
 
 afterEach(() => {
   vi.useRealTimers()
-  useNavigation.setState({ view: 'canvas', opened: null })
+  useNavigation.setState({ view: 'canvas', opened: {}, withoutNode: {} })
 })
 
 describe('placeSubagents', () => {
@@ -314,7 +314,7 @@ describe('SubagentNode', () => {
     const data = dataOf('AGENT1XXXXXXXXXXXXXX')
     renderNode(data)
     fireEvent.click(screen.getByTestId('subagent-open'))
-    expect(useNavigation.getState()).toMatchObject({ view: 'session', opened: { nodeId: session.id, projectId: data.projectId, external: { sessionId: S7, agentId: 'a3000000000000286' } } })
+    expect(useNavigation.getState()).toMatchObject({ view: 'session', opened: { [data.projectId]: { nodeId: session.id, projectId: data.projectId, external: { sessionId: S7, agentId: 'a3000000000000286' } } } })
   })
 
   it('cannot open a Subagent that has no transcript file yet', () => {

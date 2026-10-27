@@ -49,7 +49,7 @@ beforeEach(() => {
     return promise
   })
   Element.prototype.scrollIntoView = () => undefined
-  useNavigation.setState({ view: 'canvas', opened: null })
+  useNavigation.setState({ view: 'canvas', opened: {}, withoutNode: {} })
 })
 
 afterEach(() => {
@@ -138,7 +138,7 @@ describe('the In transcripts group of the palette', () => {
     await wait(TRANSCRIPT_SEARCH_DELAY_MS)
     await calls[0]!.answer({ ok: true, value: { hits: [hit(A, 'Zebra config', 'the zebra')], limited: false } })
     fireEvent.click(within(group()!).getByRole('option'))
-    expect(useNavigation.getState()).toMatchObject({ view: 'session', opened: { nodeId: `session:${A}`, projectId: 'p1', external: { sessionId: A } } })
+    expect(useNavigation.getState()).toMatchObject({ view: 'session', opened: { p1: { nodeId: `session:${A}`, projectId: 'p1', external: { sessionId: A } } } })
     expect(onClose).toHaveBeenCalledOnce()
   })
 
@@ -151,7 +151,7 @@ describe('the In transcripts group of the palette', () => {
     fireEvent.keyDown(input, { key: 'ArrowDown' })
     expect(within(group()!).getByRole('option').getAttribute('aria-selected')).toBe('true')
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(useNavigation.getState().opened).toMatchObject({ external: { sessionId: B } })
+    expect(useNavigation.getState().opened['p1']).toMatchObject({ external: { sessionId: B } })
   })
 
   it('says when older transcripts were not searched, and when the search failed', async () => {

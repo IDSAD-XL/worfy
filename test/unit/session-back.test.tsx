@@ -89,13 +89,13 @@ describe('the way back from a Subagent window', () => {
     })
     expect(back.getAttribute('title')).toBe('Back to Wave 3 (⌘[)')
     fireEvent.click(back)
-    expect(navigation.useNavigation.getState()).toEqual({ view: 'session', opened: { nodeId: ORCH, projectId: PROJECT } })
+    expect(navigation.useNavigation.getState()).toMatchObject({ view: 'session', opened: { [PROJECT]: { nodeId: ORCH, projectId: PROJECT } } })
   })
 
   it('a nested Subagent goes back to the window of the Subagent that started it', async () => {
     const navigation = await openSubagent('ascout')
     fireEvent.click(await screen.findByRole('button', { name: 'Back to Subagent impl-09' }))
-    expect(navigation.useNavigation.getState()).toEqual({ view: 'session', opened: { nodeId: ORCH, projectId: PROJECT, external: { sessionId: SESSION, agentId: 'aimpl' } } })
+    expect(navigation.useNavigation.getState()).toMatchObject({ view: 'session', opened: { [PROJECT]: { nodeId: ORCH, projectId: PROJECT, external: { sessionId: SESSION, agentId: 'aimpl' } } } })
   })
 
   it('the "of <Session>" link of a nested Subagent goes to the Session itself', async () => {
@@ -105,7 +105,7 @@ describe('the way back from a Subagent window', () => {
       await new Promise((done) => setTimeout(done, 0))
     })
     fireEvent.click(screen.getByRole('link', { name: 'Wave 3' }))
-    expect(navigation.useNavigation.getState()).toEqual({ view: 'session', opened: { nodeId: ORCH, projectId: PROJECT } })
+    expect(navigation.useNavigation.getState()).toMatchObject({ view: 'session', opened: { [PROJECT]: { nodeId: ORCH, projectId: PROJECT } } })
   })
 
   it('a Subagent of a Session outside worfy goes back to that Session read-only', async () => {
@@ -114,7 +114,7 @@ describe('the way back from a Subagent window', () => {
       await new Promise((done) => setTimeout(done, 0))
     })
     fireEvent.click(await screen.findByRole('button', { name: 'Back to Wave 3' }))
-    expect(navigation.useNavigation.getState()).toEqual({ view: 'session', opened: { nodeId: 'claude-session:7777', projectId: PROJECT, external: { sessionId: SESSION } } })
+    expect(navigation.useNavigation.getState()).toMatchObject({ view: 'session', opened: { [PROJECT]: { nodeId: 'claude-session:7777', projectId: PROJECT, external: { sessionId: SESSION } } } })
   })
 
   const nodeView = (state: string) => ({ projectId: PROJECT, nodeId: 'node-s', sessionId: 'pending-1', sdkSessionId: SESSION, state, error: null, cwd: ROOT, model: null, version: 1 })
@@ -128,7 +128,7 @@ describe('the way back from a Subagent window', () => {
       await new Promise((done) => setTimeout(done, 0))
     })
     fireEvent.click(await screen.findByRole('button', { name: 'Back to Wave 3' }))
-    expect(navigation.useNavigation.getState().opened).toEqual({ nodeId: ORCH, projectId: PROJECT, external: { sessionId: SESSION } })
+    expect(navigation.useNavigation.getState().opened[PROJECT]).toEqual({ nodeId: ORCH, projectId: PROJECT, external: { sessionId: SESSION } })
   })
 
   it('a Subagent of a worfy Session Node that runs goes back to it live', async () => {
@@ -138,7 +138,7 @@ describe('the way back from a Subagent window', () => {
       await new Promise((done) => setTimeout(done, 0))
     })
     fireEvent.click(await screen.findByRole('button', { name: 'Back to Wave 3' }))
-    expect(navigation.useNavigation.getState().opened).toEqual({ nodeId: 'node-s', projectId: PROJECT })
+    expect(navigation.useNavigation.getState().opened[PROJECT]).toEqual({ nodeId: 'node-s', projectId: PROJECT })
   })
 
   it('a Subagent of a worfy Session Node that no longer runs goes back to its transcript read-only', async () => {
@@ -148,7 +148,7 @@ describe('the way back from a Subagent window', () => {
       await new Promise((done) => setTimeout(done, 0))
     })
     fireEvent.click(await screen.findByRole('button', { name: 'Back to Wave 3' }))
-    expect(navigation.useNavigation.getState().opened).toEqual({ nodeId: 'node-s', projectId: PROJECT, external: { sessionId: SESSION } })
+    expect(navigation.useNavigation.getState().opened[PROJECT]).toEqual({ nodeId: 'node-s', projectId: PROJECT, external: { sessionId: SESSION } })
   })
 
   it('⌘[ goes back while the Session view is shown, and does nothing over the Canvas', async () => {
@@ -156,13 +156,13 @@ describe('the way back from a Subagent window', () => {
     await screen.findByRole('button', { name: 'Back to Subagent impl-09' })
     act(() => navigation.setView('canvas'))
     fireEvent.keyDown(window, { key: '[', code: 'BracketLeft', metaKey: true })
-    expect(navigation.useNavigation.getState().opened?.external?.agentId).toBe('ascout')
+    expect(navigation.useNavigation.getState().opened[PROJECT]?.external?.agentId).toBe('ascout')
     act(() => navigation.setView('session'))
     // Ctrl+[ is not the key on macOS.
     fireEvent.keyDown(window, { key: '[', code: 'BracketLeft', ctrlKey: true })
-    expect(navigation.useNavigation.getState().opened?.external?.agentId).toBe('ascout')
+    expect(navigation.useNavigation.getState().opened[PROJECT]?.external?.agentId).toBe('ascout')
     fireEvent.keyDown(window, { key: '[', code: 'BracketLeft', metaKey: true })
-    expect(navigation.useNavigation.getState().opened?.external?.agentId).toBe('aimpl')
+    expect(navigation.useNavigation.getState().opened[PROJECT]?.external?.agentId).toBe('aimpl')
   })
 
   it('the window of a Session (not a Subagent) has no back arrow', async () => {
@@ -191,7 +191,7 @@ describe('the parent of a Subagent (navigation.ts)', () => {
     answers['orchestrator.open'] = () => ({ projectId: PROJECT, nodeId: ORCH, sessionId: null, state: 'starting', error: null, model: null, costUsd: 0, statusBlock: null, version: 1 })
     const done = navigation.openOrchestrator(PROJECT)
     // The view changes at once, not after main's answer.
-    expect(navigation.useNavigation.getState()).toEqual({ view: 'session', opened: null })
+    expect(navigation.useNavigation.getState()).toEqual({ view: 'session', opened: {}, withoutNode: {} })
     expect(await done).toBeUndefined()
     expect(opens().map((call) => call.input)).toEqual([{ projectId: PROJECT }])
     // A refusal of main is the palette's reason.
@@ -250,6 +250,6 @@ describe('"Go to Orchestrator" with an Orchestrator that is down (palette row)',
     expect(reason).toBeUndefined()
     expect(opens()).toHaveLength(2)
     expect(opens()[1]?.input).toEqual({ projectId: PROJECT })
-    expect(navigation.useNavigation.getState()).toEqual({ view: 'session', opened: null })
+    expect(navigation.useNavigation.getState()).toEqual({ view: 'session', opened: {}, withoutNode: {} })
   })
 })

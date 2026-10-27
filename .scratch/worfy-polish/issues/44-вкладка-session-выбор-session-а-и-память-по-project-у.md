@@ -1,7 +1,7 @@
 # 44 — Вкладка Session: выбор Session-а в самой вкладке, клик в сайдбаре по текущему виду, последняя Session у каждого Project-а
 
 Type: task
-Status: open
+Status: claimed 2026-10-27T08:06Z
 Branch: worfy-polish/44
 Blocked by: —
 Source: отзыв пользователя через владельца 2026-10-26: пользователь пришёл из Claude Code CLI; вкладка
@@ -120,3 +120,55 @@ main `7d258313`.
 - Сохранять последнюю Session между запусками worfy.
 - «Show» в History и «New session» в сайдбаре — остаются на Canvas.
 - Subagent-ы в dropdown-е.
+
+## Итог
+
+Память по Project-у — `src/renderer/session/navigation.ts`: хранилище `{ view, opened, withoutNode }`,
+`opened` — последняя открытая Session у каждого Project-а (`projectId` → `OpenedSession`).
+`openSession` пишет запись своего Project-а, `openOrchestrator` стирает только её. `shownSession` /
+`useOpenedSession` — что показать для Project-а: запись, пока её Node (для окна Subagent-а и
+transcript-а — Node, на котором его открыли) есть в Layout и `shownOnCanvas`; иначе Orchestrator.
+`SessionView` берёт Session через `useOpenedSession`, ветка `external` — тоже. «Switch to Session»
+в палитре и клик по вкладке — один и тот же `setView('session')`: своей логики в `commands.ts` нет.
+
+Отступление от текста Ticket-а: строка transcript-а в палитре (`CommandPalette.tsx:322`) открывает
+Session, у которой может не быть Node в Layout (`session:<id>`). По букве правила «нет Node — 
+Orchestrator» такая строка показывала бы Orchestrator вместо выбранного transcript-а. Поэтому
+`openSession` отмечает Project в `withoutNode`, если Node этого id в Layout нет в момент открытия:
+такая Session показывается, пока не получит Node; как только Node появился, отметка снимается, и
+закрытый после этого Node ведёт к Orchestrator. **Решено без владельца, подтвердить.**
+
+Dropdown (Q1) — `src/renderer/session/SessionPicker.tsx` в шапке обоих panel-ей, сразу после статуса;
+строки — `src/renderer/session/session-picker.ts` (`pickerSessions`). Это общий `Select`
+(`theme/Select.tsx`): роль `combobox` / `listbox`, клавиатура как у остальных Select-ов. Строки:
+Orchestrator, затем работающие (живой процесс worfy или запись в registry Claude Code), затем
+остальные Node-ы Session-ов на Canvas, внутри группы — порядок Layout-а; у строки — заголовок и
+статус (как на Node-е). Выбор зовёт `openSession` с той же записью, что двойной клик по Node-у
+(`nodeSession` в `navigation.ts`). Session, которая показана, но не входит в список (окно
+Subagent-а, transcript без Node), стоит первой строкой, неактивной, с пометкой `shown`. Pure-логика
+вынесена в отдельный файл `session-picker.ts`: правило ESLint `react-refresh/only-export-components`
+не даёт экспортировать функции из файла компонента.
+
+Q2 — `SessionsSection.tsx`: во вкладке Session строка возвращает скрытый или архивный Node
+(`showNode`, один шаг ⌘Z) и зовёт `openSession`; на Canvas — прежний путь. `HistoryPopover.tsx`:
+«Resume» во вкладке Session возвращает Node и открывает продолженную Session там же; на Canvas —
+фокус на Node, как раньше. «Show» и «New session» не менялись.
+
+Снимки dropdown-а (закрытый и открытый, светлая и тёмная тема):
+- ![закрытый, светлая](../evidence/44-session-picker-closed-light.png)
+- ![закрытый, тёмная](../evidence/44-session-picker-closed-dark.png)
+- ![открытый, светлая](../evidence/44-session-picker-open-light.png)
+- ![открытый, тёмная](../evidence/44-session-picker-open-dark.png)
+
+Test-ы:
+- `test/unit/session-picker.test.tsx` (новый) — Q1: порядок и статусы строк, только Session-ы этого
+  Project-а, выбор показывает Session сразу (live и только для чтения), клавиатура, `touch` при выборе
+  и его отсутствие на экране только для чтения; Q3: A → B → A, вкладка и «Switch to Session»,
+  Node закрыт / в архиве / скрыт → Orchestrator, «Go to Orchestrator» стирает память только своего
+  Project-а, transcript без Node.
+- `test/unit/show-archived-node.test.tsx` — Q2: строка сайдбара во вкладке Session (архивный Node
+  возвращается, вид не меняется, ⌘Z), живая Session worfy, путь на Canvas; «Resume» в обоих видах.
+- Форма хранилища обновлена в `session-back`, `session-view`, `palette-commands`,
+  `palette-transcripts`, `permission-card`, `question-card`, `subagent-nodes`.
+- e2e `test/e2e/session-picker.spec.ts` (новый): dropdown переключает Session, строка сайдбара во
+  вкладке Session показывает Session там же, вкладка возвращается к последней Session, снимки.
