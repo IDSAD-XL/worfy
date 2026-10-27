@@ -1,0 +1,72 @@
+{
+  "Version": "1.76.1-t1234567-g89abcdef",
+  "TUN": true,
+  "BackendState": "Running",
+  "AuthURL": "",
+  "TailscaleIPs": ["100.101.102.103", "fd7a:115c:a1e0::6501:6667"],
+  "Self": {
+    "ID": "n1111CNTRL",
+    "PublicKey": "nodekey:1111111111111111111111111111111111111111111111111111111111111111",
+    "HostName": "Studio",
+    "DNSName": "studio.tail1234.ts.net.",
+    "OS": "macOS",
+    "UserID": 1001,
+    "TailscaleIPs": ["100.101.102.103", "fd7a:115c:a1e0::6501:6667"],
+    "Online": true,
+    "Active": false
+  },
+  "Peer": {
+    "nodekey:2222222222222222222222222222222222222222222222222222222222222222": {
+      "ID": "n2222CNTRL",
+      "HostName": "DESKTOP-7Q2K",
+      "DNSName": "pc.tail1234.ts.net.",
+      "OS": "windows",
+      "UserID": 1001,
+      "TailscaleIPs": ["fd7a:115c:a1e0::6501:6668", "100.101.102.104"],
+      "Online": true,
+      "Active": true
+    },
+    "nodekey:3333333333333333333333333333333333333333333333333333333333333333": {
+      "ID": "n3333CNTRL",
+      "HostName": "nas",
+      "DNSName": "nas.tail1234.ts.net.",
+      "OS": "linux",
+      "UserID": 1001,
+      "TailscaleIPs": ["100.101.102.105", "fd7a:115c:a1e0::6501:6669"],
+      "Online": false,
+      "Active": false
+    },
+    "nodekey:4444444444444444444444444444444444444444444444444444444444444444": {
+      "ID": "n4444CNTRL",
+      "HostName": "Alexeys-iPhone",
+      "DNSName": "",
+      "OS": "iOS",
+      "UserID": 1001,
+      "TailscaleIPs": ["100.101.102.106"],
+      "Online": true,
+      "Active": false
+    },
+    "nodekey:5555555555555555555555555555555555555555555555555555555555555555": {
+      "ID": "n5555CNTRL",
+      "HostName": "lab",
+      "DNSName": "lab.tail1234.ts.net.",
+      "OS": "linux",
+      "UserID": 1001,
+      "TailscaleIPs": ["fd7a:115c:a1e0::6501:6670"],
+      "Online": true,
+      "Active": false
+    },
+    "nodekey:6666666666666666666666666666666666666666666666666666666666666666": {
+      "ID": "n6666CNTRL",
+      "HostName": "expired",
+      "DNSName": "expired.tail1234.ts.net.",
+      "OS": "linux",
+      "UserID": 1001,
+      "TailscaleIPs": null,
+      "Online": false,
+      "Active": false
+    }
+  },
+  "MagicDNSSuffix": "tail1234.ts.net",
+  "CurrentTailnet": { "Name": "alexey@example.com", "MagicDNSSuffix": "tail1234.ts.net", "MagicDNSEnabled": true }
+}

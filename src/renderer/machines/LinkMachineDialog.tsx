@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import { formatLinkAddress, isTailscaleHost, parseLinkAddress, type DiscoveredMachineView } from '../../shared/ipc/link'
+import { formatLinkAddress, isTailscaleHost, parseLinkAddress, type DiscoveredMachineView, type TailscalePeerView } from '../../shared/ipc/link'
+import { invoke } from '../ipc'
 import { PrimaryButton } from '../theme/primitives'
 import { closeLinking, openLinking, pairWith, useMachines } from './useMachines'
 
@@ -69,6 +70,7 @@ const styles = {
   error: { color: 'var(--blocked-text)', fontSize: 'var(--text-12)', overflowWrap: 'anywhere' },
   hint: { color: 'var(--text-muted)', fontSize: 'var(--text-12)' },
   mark: { marginLeft: 'var(--space-1)', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-secondary)' },
+  offlineRow: { color: 'var(--text-muted)', cursor: 'default' },
   linkedRow: { display: 'flex', height: 'auto', minHeight: 'var(--row-height)', flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingTop: 4, paddingBottom: 4, cursor: 'default' },
   actions: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' },
   secondary: {
@@ -90,6 +92,9 @@ const isTailscaleOwn = (address: string): boolean => {
   return parsed.ok && isTailscaleHost(parsed.address.host)
 }
 
+/** An address with nothing after its port colon, IPv6 in brackets: what picking a tailnet machine puts in the field. */
+const withoutPort = (host: string): string => (host.includes(':') ? `[${host}]:` : `${host}:`)
+
 /** The shortest wait before the window asks main again whether the pause is over. */
 const PAUSE_RECHECK_MS = 1000
 
@@ -104,6 +109,10 @@ const checkIcon = (
  * own code and address, and on either one the user picks the other worfy — found by Bonjour, or by
  * an address typed by hand — and types the code the other one shows. While it is open the server
  * listens and Bonjour searches; closing it (Close, Esc, a click outside) closes linking again.
+ *
+ * While "Link through Tailscale" is on it also lists the machines of the user's tailnet (worfy-link
+ * ticket 30), when main finds the Tailscale CLI: picking an online one puts its address in the field,
+ * and the port is still typed. An offline one is shown greyed and cannot be picked.
  */
 export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
   const state = useMachines()
@@ -114,6 +123,8 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
   const [code, setCode] = useState('')
   const [pairError, setPairError] = useState<string>()
   const [pairing, setPairing] = useState(false)
+  const [peers, setPeers] = useState<TailscalePeerView[]>([])
+  const [picked, setPicked] = useState(0)
   const titleId = useId()
   const addressId = useId()
   const codeId = useId()
@@ -129,6 +140,27 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
     if (target === undefined) addressField.current?.focus()
     else codeField.current?.focus()
   }, [target])
+
+  // The tailnet list is asked for once the state says "Link through Tailscale" is on, and again each
+  // time it turns on. No list is an answer, not an error: main gives none without the CLI.
+  const tailscaleOn = state?.tailscale === true
+  useEffect(() => {
+    if (!tailscaleOn) return
+    let current = true
+    void invoke('link.tailscalePeers').then((result) => {
+      if (current) setPeers(result.ok ? result.value : [])
+    })
+    return () => {
+      current = false
+      setPeers([])
+    }
+  }, [tailscaleOn])
+
+  // A picked tailnet machine: back to the field, where its port is typed. Setting the value has put
+  // the caret at its end already.
+  useEffect(() => {
+    if (picked > 0) addressField.current?.focus()
+  }, [picked])
 
   const choose = (next: Target): void => {
     setTarget(next)
@@ -231,6 +263,35 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
                 Other version
               </span>
             )}
+          </span>
+        )}
+      </button>
+    </li>
+  )
+
+  const peerRow = (peer: TailscalePeerView) => (
+    <li key={`tailscale:${peer.address}`} data-testid="link-tailscale-row" data-online={peer.online}>
+      <button
+        type="button"
+        className="w-row"
+        disabled={!peer.online}
+        style={peer.online ? undefined : styles.offlineRow}
+        title={peer.online ? 'Puts its Tailscale address in the field: type the port its Link a machine shows' : 'Offline in your tailnet: it can be linked once it is online'}
+        onClick={() => {
+          setAddress(withoutPort(peer.address))
+          setAddressError(undefined)
+          setPicked((count) => count + 1)
+        }}
+      >
+        <span className="w-row__label" style={styles.found}>
+          <span style={{ fontWeight: 600 }}>{peer.name}</span>
+          <span style={peer.online ? styles.mono : { ...styles.mono, color: 'inherit' }}>{peer.address}</span>
+        </span>
+        {peer.online ? null : (
+          <span className="w-row__trailing">
+            <span className="w-chip" style={styles.mark} data-testid="link-tailscale-offline">
+              Offline
+            </span>
           </span>
         )}
       </button>
@@ -344,6 +405,14 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
                 ) : (
                   <p style={{ ...styles.hint, margin: '0 0 var(--space-3)' }}>Search in the network is off. Type the address the other worfy shows.</p>
                 )}
+                {peers.length > 0 ? (
+                  <>
+                    <p style={{ ...styles.caption, margin: '0 0 var(--space-1)' }}>In your tailnet</p>
+                    <ul style={styles.list} aria-label="In your tailnet" data-testid="link-tailscale-list">
+                      {peers.map(peerRow)}
+                    </ul>
+                  </>
+                ) : null}
                 <div style={styles.field}>
                   <label htmlFor={addressId} style={styles.label}>
                     Address

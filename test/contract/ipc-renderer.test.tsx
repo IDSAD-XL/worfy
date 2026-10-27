@@ -322,8 +322,10 @@ describe('what the renderer hears of Linked machines', () => {
     const heard = channels.flatMap((channel) => keysOf(channel.kind === 'invoke' ? channel.output : channel.payload).map((key) => `${channel.name}: ${key}`))
     expect(heard.length).toBeGreaterThan(20)
     expect(heard.filter((key) => /token|secret|fingerprint|certificate(?!Changed)|cert\b/i.test(key))).toEqual([])
-    // Addresses: only this Machine's own, and those of worfy found by Bonjour, which are not linked.
-    const ownOrFound = /^link\.\w+: (state\.)?(addresses|discovered\.(host|port))$/
+    // Addresses: only this Machine's own, those of worfy found by Bonjour, which are not linked, and
+    // the tailnet's machines as `tailscale status` lists them (worfy-link ticket 30): Tailscale's list,
+    // with no Machine id, not an address the link keeps for a Linked machine.
+    const ownOrFound = /^link\.\w+: (state\.)?(addresses|discovered\.(host|port))$|^link\.tailscalePeers: address$/
     // The field, not the channel's name: `link.setAddress` names one, and answers none of a Linked machine.
     expect(heard.filter((key) => /address|host|port/i.test(key.slice(key.indexOf(': '))) && !ownOrFound.test(key))).toEqual([])
     // A Linked machine is named by its id and name alone; its access level is this Machine's own
