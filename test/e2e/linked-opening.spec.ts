@@ -9,7 +9,8 @@
 // long tasks (over 50 ms) of A's renderer while it pans, and the steps of the Epics counter. They
 // are attached to the test as `linked-opening.json`. With WORFY_LINKED_PROFILE=<folder> the run
 // also writes A's renderer CPU profile there (`linked-opening.cpuprofile`, opened in Chrome
-// DevTools, Performance) with the same numbers beside it.
+// DevTools, Performance) with the same numbers beside it. The renderer counts the updates of
+// `useWorkflowStore` and `useElkAnswers` only because the recorder turns the count on.
 import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -17,10 +18,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, type LaunchedApp } from './helpers'
+import { snapshotThemes } from './snapshots'
 import { loginProfileWithNode } from '../harness-node'
 import { MANY_EPICS, manyEpicsStatus, writeSessionHistory } from './many-epics'
 
 test.setTimeout(240_000)
+
+/** WORFY_EVIDENCE=1: the line in both themes (test-results/e2e/snapshots/33-loading-line/), with B's epic-status held for EVIDENCE_DELAY_MS so the line stays. */
+const EVIDENCE = process.env.WORFY_EVIDENCE === '1'
+const EVIDENCE_DELAY_MS = EVIDENCE ? 5000 : 0
 
 const ALPHA = 'alpha-0000000a'
 const BETA = 'beta-0000000b'
@@ -65,7 +71,7 @@ function prepareB(scratch: string) {
   // Runs whether node takes it for CommonJS or for an ES module, like catScript (test/harness-node.ts).
   writeFileSync(
     join(claudeHome, 'bin', 'epic-status'),
-    `import('node:fs').then((fs) => process.stdout.write(fs.readFileSync(process.cwd() === ${JSON.stringify(beta)} ? ${JSON.stringify(many)} : ${JSON.stringify(none)}, 'utf8')))\n`,
+    `import('node:fs').then((fs) => { const mine = process.cwd() === ${JSON.stringify(beta)}; setTimeout(() => process.stdout.write(fs.readFileSync(mine ? ${JSON.stringify(many)} : ${JSON.stringify(none)}, 'utf8')), mine ? ${EVIDENCE_DELAY_MS} : 0) })\n`,
   )
   chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
   writeSessionHistory(claudeHome, beta)
@@ -87,8 +93,12 @@ function prepareB(scratch: string) {
  */
 const RECORDER = `(() => {
   const w = window
-  const record = { at: { placeholder: null, line: null, canvas: null, gone: null }, epics: [], gaps: 0, longTasks: [] }
+  const record = { at: { placeholder: null, line: null, canvas: null, gone: null }, epics: [], gaps: 0, covers: [], longTasks: [] }
   w.__worfyOpening = record
+  // Turns on the count of store updates (src/renderer/canvas/loading-steps.ts, countStoreUpdates).
+  w.__worfyStoreUpdates = {}
+  // The controls of the Canvas: the line must cover none of them.
+  const CONTROLS = '.react-flow__panel button, .react-flow__panel input, .react-flow__panel [role="button"], .react-flow__minimap'
   let shown = false
   const look = () => {
     const now = performance.now()
@@ -96,6 +106,12 @@ const RECORDER = `(() => {
     if (record.at.placeholder === null && document.querySelector('[data-testid="canvas-loading-placeholder"]')) record.at.placeholder = now
     if (record.at.canvas === null && document.querySelector('[data-testid="canvas"]')) record.at.canvas = now
     if (line) {
+      const box = line.getBoundingClientRect()
+      for (const control of document.querySelectorAll(CONTROLS)) {
+        const r = control.getBoundingClientRect()
+        const name = String(control.getAttribute('aria-label') || control.textContent || control.getAttribute('class')).trim().slice(0, 40)
+        if (r.width > 0 && r.height > 0 && r.left < box.right && box.left < r.right && r.top < box.bottom && box.top < r.bottom && !record.covers.includes(name)) record.covers.push(name)
+      }
       if (record.at.line === null) record.at.line = now
       if (!shown && record.at.gone !== null) record.gaps += 1
       shown = true
@@ -120,6 +136,8 @@ interface Opening {
   at: { placeholder: number | null; line: number | null; canvas: number | null; gone: number | null }
   epics: { at: number; text: string }[]
   gaps: number
+  /** The controls of the Canvas the line covered at some moment. */
+  covers: string[]
   longTasks: { start: number; duration: number }[]
 }
 
@@ -199,6 +217,8 @@ test('the first opening of a Project of a Linked machine: the loading line from 
       if (now?.at.gone !== null && now?.at.gone !== undefined) break
       // A look at the line while it loads, beside the profile.
       if (profileDir !== undefined && turn === 0) await a.window.screenshot({ path: join(profileDir, 'linked-opening-loading.png') })
+      // The line in both themes, for the review, while B's epic-status takes EVIDENCE_DELAY_MS.
+      if (EVIDENCE && turn === 0) await snapshotThemes(a.window, '33-loading-line')
       await a.window.mouse.wheel(turn % 20 < 10 ? 40 : -40, turn % 10 < 5 ? 25 : -25)
       turn += 1
       await a.window.waitForTimeout(50)
@@ -208,6 +228,8 @@ test('the first opening of a Project of a Linked machine: the loading line from 
     await a.window.waitForTimeout(2000)
     const record = await opening(a.window)
     if (record === undefined) throw new Error('the recorder did not run in the new document')
+    const updates = await a.window.evaluate(() => (globalThis as unknown as { __worfyStoreUpdates?: Record<string, number[]> }).__worfyStoreUpdates ?? {})
+    const loading = (times: number[] | undefined) => (times ?? []).filter((time) => record.at.gone === null || time <= record.at.gone)
 
     let profile: unknown
     if (profileDir !== undefined) profile = (await cdp.send('Profiler.stop')).profile
@@ -219,6 +241,9 @@ test('the first opening of a Project of a Linked machine: the loading line from 
       at: record.at,
       epicSteps: record.epics,
       gaps: record.gaps,
+      covers: record.covers,
+      // Every update of the two stores from the new document to the end of the line, with its time.
+      storeUpdates: Object.fromEntries(['useWorkflowStore', 'useElkAnswers'].map((store) => [store, { count: loading(updates[store]).length, at: loading(updates[store]).map(Math.round) }])),
       wheelTurns: turn,
       longTasks: { count: loadingLongTasks.length, over100: loadingLongTasks.filter((task) => task.duration > 100).length, longest: Math.max(0, ...loadingLongTasks.map((task) => task.duration)), total: loadingLongTasks.reduce((sum, task) => sum + task.duration, 0), all: loadingLongTasks },
       linkedCalls: timed ? calls.filter((call) => call.start >= clickedAt) : 'not measured: ipcMain._invokeHandlers is not there',
@@ -244,6 +269,10 @@ test('the first opening of a Project of a Linked machine: the loading line from 
     expect(done).toEqual([...done].sort((x, y) => x - y))
     expect(record.at.gone).not.toBeNull()
     expect(record.gaps).toBe(0)
+    // It covers none of the Canvas's controls (the Trash button, the minimap…), and the stores were counted.
+    expect(record.covers).toEqual([])
+    expect(measure.storeUpdates.useElkAnswers?.count).toBeGreaterThanOrEqual(1)
+    expect(measure.storeUpdates.useWorkflowStore?.count).toBeGreaterThanOrEqual(1)
     await expect(a.window.getByTestId('canvas-loading')).toHaveCount(0)
     await expect(a.window.getByTestId('canvas-loading-status')).toHaveText('Project loaded')
   } finally {

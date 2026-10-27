@@ -33,7 +33,7 @@ import {
 import type { AgentEvent } from '../../shared/agent/events'
 import { findNeedle } from '../../shared/transcript/find'
 import { mainThreadEvents, parseTranscriptLine, timedEvent, type TranscriptEntry } from '../../shared/transcript/parse'
-import type { SubagentFile, SubagentSignal } from '../../shared/transcript/subagents'
+import { summaryLine, type SubagentFile, type SubagentSignal } from '../../shared/transcript/subagents'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 /** The client the subscriptions serve (src/main/clients.ts); tests pass a fake. */
@@ -163,18 +163,28 @@ export interface SubagentsAnswer {
  */
 export const SUBAGENTS_LINK_BYTES = LINK_MAX_PAYLOAD - 64 * 1024
 
-/** Each longer text of a result or an answer is cut to these lengths in turn until the answer fits. */
-const TEXT_CUTS = [1000, 200, 0] as const
+/**
+ * Each longer text of a result or an answer is cut to these lengths in turn until the answer fits;
+ * the last cut keeps only the line the tree shows of it (summaryLine, src/shared/transcript/subagents.ts).
+ * An emptied text would stand in front of the one-line summary there, and the tree would lose it.
+ */
+const TEXT_CUTS = [1000, 200, 'summary line'] as const
+type TextCut = (typeof TEXT_CUTS)[number]
 
-const cutText = <T extends string | null>(text: T, length: number): T => (text === null || text.length <= length ? text : (text.slice(0, length) as T))
+function cutText<T extends string | null>(text: T, length: TextCut): T {
+  if (text === null) return text
+  // A text without such a line (only marks or spaces) keeps its first 200 characters rather than none.
+  if (length === 'summary line') return (summaryLine(text) ?? text.slice(0, 200)) as T
+  return (text.length <= length ? text : text.slice(0, length)) as T
+}
 
-function cutSignal(signal: SubagentSignal, length: number): SubagentSignal {
+function cutSignal(signal: SubagentSignal, length: TextCut): SubagentSignal {
   if (signal.kind === 'result') return { ...signal, text: cutText(signal.text, length) }
   if (signal.kind === 'finished') return { ...signal, result: cutText(signal.result, length) }
   return signal
 }
 
-function cutFile(file: SubagentFile, length: number): SubagentFile {
+function cutFile(file: SubagentFile, length: TextCut): SubagentFile {
   return {
     ...file,
     finalText: cutText(file.finalText, length),
@@ -188,8 +198,9 @@ const bytesOf = (answer: SubagentsAnswer): number => Buffer.byteLength(JSON.stri
 /**
  * The answer of `claudeHome.subagents`, made to fit in `maxBytes` (worfy-link ticket 33): a Session
  * with a large tree of Subagents gave an answer larger than a link connection carries, and the
- * Linked machine got an error instead of the tree. The texts of results and answers are cut first
- * (the tree shows only their first line); every signal and file stays, so the tree is whole.
+ * Linked machine got an error instead of the tree. The texts of results and answers are cut first,
+ * down to the one line the tree shows of each; every signal and file stays, so the tree
+ * is whole.
  * `truncated` says the answer was shortened. An answer that fits is returned as it is.
  */
 export function fitSubagentsAnswer(answer: SubagentsAnswer, maxBytes: number): SubagentsAnswer {
@@ -199,7 +210,7 @@ export function fitSubagentsAnswer(answer: SubagentsAnswer, maxBytes: number): S
     cut = { found: answer.found, signals: answer.signals.map((signal) => cutSignal(signal, length)), files: answer.files.map((file) => cutFile(file, length)), truncated: true }
     if (bytesOf(cut) <= maxBytes) return cut
   }
-  // shortcut: without any text the oldest half of the signals and of the files is left out until the answer fits, so the oldest Subagents leave the tree; redo with pages of the answer when a Session of so many Subagents (tens of thousands) is seen.
+  // shortcut: with only one line of each text left the oldest half of the signals and of the files is left out until the answer fits, so the oldest Subagents leave the tree; redo with pages of the answer when a Session of so many Subagents (tens of thousands) is seen.
   while (bytesOf(cut) > maxBytes && (cut.signals.length > 0 || cut.files.length > 0)) {
     cut = { ...cut, signals: cut.signals.slice(Math.ceil(cut.signals.length / 2)), files: cut.files.slice(Math.ceil(cut.files.length / 2)) }
   }

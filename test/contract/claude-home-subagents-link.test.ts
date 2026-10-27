@@ -155,7 +155,23 @@ describe('fitSubagentsAnswer', () => {
     expect(fitted.files.every((file) => file.finalText?.length === 1000)).toBe(true)
   })
 
-  it('without any text still too large, leaves out the oldest signals and files until it fits, and never loops on one left', async () => {
+  it('cut to the last length, each text keeps the line the tree shows, so every Subagent keeps its one-line summary', async () => {
+    const { fitSubagentsAnswer } = await import('../../src/main/ipc/claude-home')
+    const answer = { found: true, ...bigSession(40) }
+    // Too small for 200 characters a text, large enough for one line of each.
+    expect(fitSubagentsAnswer(answer, Number.MAX_SAFE_INTEGER)).toBe(answer)
+    const fitted = fitSubagentsAnswer(answer, sizeOf(answer) / 12)
+    expect(fitted.signals).toHaveLength(answer.signals.length)
+    const finished = fitted.signals.filter((signal) => signal.kind === 'finished')
+    expect(finished.every((signal) => signal.kind === 'finished' && signal.result === 'First line of the answer')).toBe(true)
+    expect(fitted.files.every((file) => file.finalText === 'First line of the answer')).toBe(true)
+    const tree = buildSubagentTree(fitted)
+    expect(tree).toHaveLength(40)
+    expect(tree.map((info) => info.summary)).toStrictEqual(buildSubagentTree(answer).map((info) => info.summary))
+    expect(tree.every((info) => info.summary === 'First line of the answer')).toBe(true)
+  })
+
+  it('with one line of each text still too large, leaves out the oldest signals and files until it fits, and never loops on one left', async () => {
     const { fitSubagentsAnswer } = await import('../../src/main/ipc/claude-home')
     const answer = { found: true, ...bigSession(64) }
     const limit = 4000
@@ -164,7 +180,7 @@ describe('fitSubagentsAnswer', () => {
     expect(fitted.signals.length).toBeGreaterThan(0)
     expect(fitted.signals.length).toBeLessThan(answer.signals.length)
     // The newest are kept.
-    expect(fitted.signals.at(-1)).toStrictEqual({ ...answer.signals.at(-1), result: '' })
+    expect(fitted.signals.at(-1)).toStrictEqual({ ...answer.signals.at(-1), result: 'First line of the answer' })
     // A limit nothing fits in ends with empty lists rather than a loop.
     expect(fitSubagentsAnswer(answer, 10)).toStrictEqual({ found: true, signals: [], files: [], truncated: true })
   })

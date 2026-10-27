@@ -24,6 +24,11 @@ interface WorkflowStore {
 
 const useWorkflowStore = create<WorkflowStore>(() => ({ byRoot: {} }))
 
+/** Calls `listener` after every update of the shared copy; returns the unsubscribe (a measure, canvas/loading-steps.ts). */
+export function onWorkflowStoreUpdate(listener: () => void): () => void {
+  return useWorkflowStore.subscribe(listener)
+}
+
 const EMPTY: WorkflowEntry = { model: undefined, error: undefined }
 
 /** Applies a delta to a model; objects that the delta does not name are kept as they are. */

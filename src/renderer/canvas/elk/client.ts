@@ -46,7 +46,7 @@ export const useElkAnswers = create<Readonly<Record<string, Readonly<Record<stri
 
 /**
  * Per Project, per Epic, the key of the latest request sent. An Epic whose answer has this key is
- * laid out: the loading line of the Canvas (overlays/LoadingProgress.tsx) counts them. Only that
+ * laid out: the loading line of the Canvas (../LoadingProgress.tsx, ../loading-steps.ts) counts them. Only that
  * line reads it, so a request does not redraw the Epic frames.
  */
 export const useElkRequests = create<Readonly<Record<string, Readonly<Record<string, string>>>>>(() => ({}))

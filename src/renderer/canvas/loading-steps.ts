@@ -8,7 +8,7 @@
 import { useMemo } from 'react'
 import { useClaudeHome } from '../claude-home/useClaudeHome'
 import { useProjects } from '../projects/useProjects'
-import { useWorkflow } from '../workflow/useWorkflow'
+import { onWorkflowStoreUpdate, useWorkflow } from '../workflow/useWorkflow'
 import { useElkAnswers, useElkRequests } from './elk/client'
 
 /** How long the opening of a Project on this Machine may take before the line shows. */
@@ -60,3 +60,24 @@ export function loadingParts(steps: LoadingSteps): { id: string; text: string; d
     { id: 'sessions', text: sessions ? 'Sessions history read' : 'Reading Sessions history…', done: sessions },
   ]
 }
+
+/** Per store, the time (performance.now()) of each of its updates. */
+export type StoreUpdates = Record<string, number[]>
+
+/**
+ * Counts every update of the stores the opening of a Canvas goes through into `into`: the workflow's
+ * shared copy (`useWorkflowStore`) and ELK's answers (`useElkAnswers`). A measure of the first
+ * opening (test/e2e/linked-opening.spec.ts); returns the unsubscribe.
+ */
+export function countStoreUpdates(into: StoreUpdates): () => void {
+  const count = (store: string) => () => void (into[store] ??= []).push(performance.now())
+  const stops = [onWorkflowStoreUpdate(count('useWorkflowStore')), useElkAnswers.subscribe(count('useElkAnswers'))]
+  return () => {
+    for (const stop of stops) stop()
+  }
+}
+
+// The measure is on only when the page defined `__worfyStoreUpdates` before the app's scripts ran,
+// as the e2e does; the app never defines it, so nothing is counted there.
+const measured = (globalThis as { __worfyStoreUpdates?: StoreUpdates }).__worfyStoreUpdates
+if (measured !== undefined) countStoreUpdates(measured)
