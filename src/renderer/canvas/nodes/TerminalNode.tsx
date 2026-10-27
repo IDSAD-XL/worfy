@@ -21,7 +21,7 @@ import { failureReason } from '../../../shared/ipc/channels'
 import type { TerminalAiFixState } from '../../../shared/ipc/terminal-ai-fix'
 import type { TerminalAiRequestState } from '../../../shared/ipc/terminal-ai-request'
 import { SHORTCUTS } from '../../../shared/shortcuts'
-import { CURSOR_BLINK } from '../../../shared/terminal/cursor-answer'
+import { colourAnswers, CURSOR_BLINK } from '../../../shared/terminal/cursor-answer'
 import { NODE_HEADER } from '../node-header'
 
 // A Terminal: the user's interactive shell in the root of the Project (CONTEXT.md, "Terminal").
@@ -55,7 +55,8 @@ import { NODE_HEADER } from '../node-header'
 // request stays unanswered (ticket 39, its result section), except the requests main answers itself
 // in every case: the cursor position, the device attributes, a mode, a setting
 // (src/main/terminal/cursor-answers.ts, ticket 68). A colour query is answered only by a mounted
-// view, from its theme. The view attaches once xterm.js has parsed the
+// view, from its theme; of the views of a shell in one window, by the view mounted last
+// (terminal-views.ts). The view attaches once xterm.js has parsed the
 // kept output; output that comes meanwhile waits and is answered as live, and what the user types
 // or clicks meanwhile is sent once the view attaches.
 //
@@ -340,15 +341,6 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       if (active && !opening && !attached) setRun((current) => ({ count: current.count + 1, restart: false }))
     })
 
-    // Typed, pasted or clicked data takes the size of the pty for this screen; an answer of xterm.js
-    // to the program goes as `reply` and does not (ADR-0053, decision 5).
-    const userInput = watchUserInput(terminal)
-    const typed = terminal.onData((keys) => {
-      const user = userInput.take(keys)
-      if (attached) void invoke('terminal.input', { ...ref, data: keys, ...(user ? {} : { reply: true }) })
-      // Typed while the kept output is parsed: sent once the view attaches.
-      else if (replaying && user) pending.push(() => void invoke('terminal.input', { ...ref, data: keys }))
-    })
     // Fits the terminal to the Node: xterm.js resizes only when the size differs.
     const refit = () => {
       if (sizing) return
@@ -363,6 +355,19 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     }
     const key = `${projectId} ${id}`
     const removeView = addView(key, view)
+    // Typed, pasted or clicked data takes the size of the pty for this screen; an answer of xterm.js
+    // to the program goes as `reply` and does not (ADR-0053, decision 5). A colour answer goes only
+    // from the view of the shell mounted last: focus mode keeps the Canvas Node's view under the
+    // tile in the same window, and main tells the views apart by window only (ColourAnswers,
+    // worfy-windows ticket 68).
+    const userInput = watchUserInput(terminal)
+    const typed = terminal.onData((keys) => {
+      const user = userInput.take(keys)
+      if (!user && colourAnswers(keys) !== null && !isLastView(key, view)) return
+      if (attached) void invoke('terminal.input', { ...ref, data: keys, ...(user ? {} : { reply: true }) })
+      // Typed while the kept output is parsed: sent once the view attaches.
+      else if (replaying && user) pending.push(() => void invoke('terminal.input', { ...ref, data: keys }))
+    })
     const resized = terminal.onResize(({ cols, rows }) => {
       // Only the view mounted last sets the size of the pty; another view keeps its own size.
       if (attached && isLastView(key, view)) void invoke('terminal.resize', { ...ref, cols, rows })

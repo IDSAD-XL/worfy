@@ -85,7 +85,8 @@ export class ColourAnswers {
         // shortcut: a time window in place of a count of the queries, redo by counting the colour queries in the output main follows once a program is seen getting two answers or none.
         // The window's limit: a second view that answers more than COLOUR_ANSWER_WINDOW_MS late
         // gives the program a second answer, and when the view that answered goes, a new query
-        // within the window gets no answer. Chromium runs a hidden window's timers once a second or
+        // within the window gets no answer. Two views of a shell in one window (focus mode) are one
+        // client here: of those, only the view mounted last sends its answer (terminal-views.ts). Chromium runs a hidden window's timers once a second or
         // less often, and a view's xterm.js parses output on a timer, so a view in a hidden window
         // may answer that late.
         if (last !== undefined && last.client !== client && now - last.at < COLOUR_ANSWER_WINDOW_MS) return false

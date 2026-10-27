@@ -50,6 +50,8 @@ const PROJECT = 'alpha-0000000a'
 const NODE = 'terminal-node-1'
 const KEY = JSON.stringify([PROJECT, NODE])
 const ESC = '\x1b'
+/** What xterm.js 6.0.0 of a view answers to `ESC]11;?` with a dark theme. */
+const BACKGROUND = `${ESC}]11;rgb:1e1e/1e1e/1e1e${ESC}\\`
 /** What xterm.js 6.0.0 answers to `ESC[c`. */
 const DEVICE_ATTRIBUTES = `${ESC}[?1;2c`
 /** The focus report of a screen whose terminal does not have the focus. */
@@ -257,6 +259,16 @@ async function parsed(xterm: XtermTerminal): Promise<void> {
   await act(() => new Promise<void>((resolve) => xterm.write('', resolve)))
 }
 
+/**
+ * Sends `data` the way xterm.js sends its own answers to the program: on `onData`, not as the
+ * user's input. In jsdom xterm.js gives no colour answer (it answers from the theme of a renderer
+ * that `open()` does not start here), so a test sends one for it.
+ */
+function answer(xterm: XtermTerminal, data: string): void {
+  const core = (xterm as unknown as { _core: { coreService: { triggerDataEvent(data: string, wasUserInput?: boolean): void } } })._core
+  act(() => core.coreService.triggerDataEvent(data, false))
+}
+
 /** The shell prints `text`; resolves once the Node's xterm.js has parsed it. */
 async function print(pty: StandInPty, xterm: XtermTerminal, text: string): Promise<void> {
   pty.print(text)
@@ -349,6 +361,33 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(pty.writes).toEqual(answers)
     expect(pty.resizes).toEqual([])
+  })
+
+  it('two views of the shell in one window (focus mode): only the view mounted last sends its colour answer, and the other once it goes (worfy-windows ticket 68)', async () => {
+    const { pty } = await terminal()
+    const canvas = await mount()
+    // Focus mode draws the Node in a tile while the Canvas keeps its own view mounted under it.
+    const tile = render(<TerminalNode {...nodeProps} />)
+    await waitFor(() => expect(screen.getAllByTestId('terminal-node').map((node) => node.dataset.state)).toEqual(['running', 'running']))
+    const tileXterm = xterms.at(-1)
+    if (tileXterm === undefined || tileXterm === canvas.xterm) throw new Error('no second xterm.js')
+    await parsed(tileXterm)
+    pty.calls.length = 0
+    inputs.length = 0
+
+    // Both answer the program's `ESC]11;?` from the same window: main cannot tell them apart.
+    answer(canvas.xterm, BACKGROUND)
+    answer(tileXterm, BACKGROUND)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(inputs).toEqual([{ data: BACKGROUND, reply: true }])
+    expect(pty.writes).toEqual([BACKGROUND])
+
+    // Focus mode closed: the Canvas Node's view answers again.
+    tile.unmount()
+    inputs.length = 0
+    answer(canvas.xterm, BACKGROUND)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(inputs).toEqual([{ data: BACKGROUND, reply: true }])
   })
 
   it('a view mounted again writes nothing while it redraws the kept output; a live request after that is answered', async () => {
