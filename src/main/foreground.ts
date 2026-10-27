@@ -28,21 +28,30 @@ export type ForegroundAnswer = { pid: number } | { failure: string }
 /** The pid of the process that owns the system's foreground window, or why it is not known. */
 export function foregroundPid(run: RunFile = runFile, systemRoot = process.env.SystemRoot): Promise<ForegroundAnswer> {
   const command = powershellScriptCommand(systemRoot, FOREGROUND_SCRIPT)
+  const late = `no answer within ${FOREGROUND_TIMEOUT_MS} ms`
   return new Promise((resolve) => {
+    // execFile's timeout kills PowerShell, but its callback waits until the output pipes close, and
+    // csc.exe, which Add-Type starts, may hold them open longer: the answer is due at the timeout.
+    const timer = setTimeout(() => resolve({ failure: late }), FOREGROUND_TIMEOUT_MS)
+    timer.unref?.()
+    const answer = (value: ForegroundAnswer): void => {
+      clearTimeout(timer)
+      resolve(value)
+    }
     try {
       run(command.file, command.args, { ...command.options, timeout: FOREGROUND_TIMEOUT_MS }, (error, stdout, stderr) => {
         if (error !== null) {
-          const reason = error.killed === true ? `no answer within ${FOREGROUND_TIMEOUT_MS} ms` : `exit code ${String(error.code)}`
+          const reason = error.killed === true ? late : `exit code ${String(error.code)}`
           const line = stderrLine(stderr)
-          resolve({ failure: line === null ? reason : `${reason}: ${line}` })
+          answer({ failure: line === null ? reason : `${reason}: ${line}` })
           return
         }
         const text = stdout.trim()
-        resolve(/^\d+$/.test(text) ? { pid: Number(text) } : { failure: `unexpected output ${JSON.stringify(text.slice(0, 80))}` })
+        answer(/^\d+$/.test(text) ? { pid: Number(text) } : { failure: `unexpected output ${JSON.stringify(text.slice(0, 80))}` })
       })
     } catch (error) {
       // execFile throws at once for some spawn errors instead of calling back.
-      resolve({ failure: `could not start: ${error instanceof Error ? error.message : String(error)}` })
+      answer({ failure: `could not start: ${error instanceof Error ? error.message : String(error)}` })
     }
   })
 }
@@ -60,20 +69,29 @@ export interface FocusDeps {
 /**
  * Whether a worfy window has focus: Electron's answer, and on Windows, when Electron says yes, whether
  * worfy owns the system's foreground window. A boolean when Electron's answer is final, a promise
- * when the system is asked.
+ * when the system is asked. Checks that come while the system is being asked share that one call:
+ * a burst of notes or several Projects read together start one PowerShell, not one each.
  */
 export function createFocusCheck(deps: FocusDeps): () => boolean | Promise<boolean> {
   let warned = false
+  let asking: Promise<boolean> | null = null
   return () => {
     if (!deps.electronFocused()) return false
     if (deps.platform !== 'win32') return true
-    return deps.foreground().then((answer) => {
-      if ('pid' in answer) return answer.pid === deps.pid
+    if (asking !== null) return asking
+    const answer = deps.foreground().then((foreground) => {
+      if ('pid' in foreground) return foreground.pid === deps.pid
       if (!warned) {
         warned = true
-        deps.warn(`[notify] the foreground window is not known (${answer.failure}); Electron's focus decides`)
+        deps.warn(`[notify] the foreground window is not known (${foreground.failure}); Electron's focus decides`)
       }
       return true
     })
+    asking = answer
+    const done = (): void => {
+      if (asking === answer) asking = null
+    }
+    answer.then(done, done)
+    return answer
   }
 }

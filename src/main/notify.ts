@@ -723,29 +723,32 @@ function showSystem(note: { title: string; body: string }, onClick: () => void):
   notification.show()
 }
 
-/** Whether a worfy window has focus; on Windows checked against the system's foreground window (foreground.ts). */
-const electronFocused = createFocusCheck({
-  electronFocused: () => BrowserWindow.getFocusedWindow() !== null,
-  platform: process.platform,
-  pid: process.pid,
-  foreground: () => foregroundPid(),
-  warn: (message) => console.warn(message),
-})
+/**
+ * Electron's notifications and windows (`notify`) and the same for the gate queue's notifications
+ * (`window`). Both share one focus check, on Windows checked against the system's foreground window
+ * (foreground.ts). The platform is a parameter so that tests build the Windows wiring on any system.
+ */
+export function electronDeps(platform: NodeJS.Platform): { notify: NotifyDeps<DisplayNote>; window: WindowNoteDeps } {
+  const focused = createFocusCheck({
+    electronFocused: () => BrowserWindow.getFocusedWindow() !== null,
+    platform,
+    pid: process.pid,
+    foreground: () => foregroundPid(),
+    warn: (message) => console.warn(message),
+  })
+  return {
+    notify: { focused, show: showSystem, open: (note) => openNote(note), now: () => Date.now() },
+    window: { focused, show: showSystem, open: (note) => openNote(note) },
+  }
+}
+
+const thisPlatformDeps = electronDeps(process.platform)
 
 /** Electron's notifications and windows. */
-export const electronNotifyDeps: NotifyDeps<DisplayNote> = {
-  focused: electronFocused,
-  show: showSystem,
-  open: (note) => openNote(note),
-  now: () => Date.now(),
-}
+export const electronNotifyDeps: NotifyDeps<DisplayNote> = thisPlatformDeps.notify
 
 /** The same for the gate queue's notifications. */
-export const electronWindowNoteDeps: WindowNoteDeps = {
-  focused: electronFocused,
-  show: showSystem,
-  open: (note) => openNote(note),
-}
+export const electronWindowNoteDeps: WindowNoteDeps = thisPlatformDeps.window
 
 /** Where the notes of the Tickets that wait for the owner come from: a workflow hub and a Project list. */
 export interface WaitsSources {

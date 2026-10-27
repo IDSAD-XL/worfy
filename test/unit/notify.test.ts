@@ -119,7 +119,7 @@ vi.mock('../../src/main/ipc/pipeline', async () => {
   return { stageHub }
 })
 
-const { MATCH_KEY_TTL_MS, NOTIFY_INTERVAL_MS, NoteDisplay, Notifier, RECEIVED_LIMIT, TicketNotes, ticketRecipients, appWaitsSources, GateQueueNotices, electronNotifyDeps, electronWindowNoteDeps, installGateQueueNotifications, installNotifications, followAppLinkPauses, installPairingPauseNotes, openNote, pairingPauseNoteBody } = await import('../../src/main/notify')
+const { MATCH_KEY_TTL_MS, NOTIFY_INTERVAL_MS, NoteDisplay, Notifier, RECEIVED_LIMIT, TicketNotes, ticketRecipients, appWaitsSources, GateQueueNotices, electronDeps, electronNotifyDeps, electronWindowNoteDeps, installGateQueueNotifications, installNotifications, followAppLinkPauses, installPairingPauseNotes, openNote, pairingPauseNoteBody } = await import('../../src/main/notify')
 const { GATE_QUEUE_INTERVAL_MS, waitingPrs } = await import('../../src/main/github/gate-queue')
 const { NORMAL_WINDOWS, quietWindows } = await import('../../src/main/quiet-windows')
 const { app: electronApp } = await import('electron')
@@ -491,10 +491,16 @@ describe('Electron notifications', () => {
     electron.focused = {}
     electron.foregroundPid = process.pid + 1
     try {
-      await expect(Promise.resolve(electronNotifyDeps.focused())).resolves.toBe(process.platform !== 'win32')
-      await expect(Promise.resolve(electronWindowNoteDeps.focused())).resolves.toBe(process.platform !== 'win32')
+      // The Windows wiring, built on any system.
+      const windows = electronDeps('win32')
+      await expect(Promise.resolve(windows.notify.focused())).resolves.toBe(false)
+      await expect(Promise.resolve(windows.window.focused())).resolves.toBe(false)
       electron.foregroundPid = null
-      await expect(Promise.resolve(electronNotifyDeps.focused())).resolves.toBe(true)
+      await expect(Promise.resolve(windows.notify.focused())).resolves.toBe(true)
+      await expect(Promise.resolve(windows.window.focused())).resolves.toBe(true)
+      // macOS keeps Electron's answer.
+      electron.foregroundPid = process.pid + 1
+      expect(electronDeps('darwin').notify.focused()).toBe(true)
     } finally {
       electron.focused = null
       electron.foregroundPid = null
@@ -921,6 +927,21 @@ describe('the gate queue: a PR that has waited over an hour (worfy-windows ticke
     for (const answer of answers.splice(0)) answer(false)
     await settle()
     expect(shown.map((note) => note.body)).toEqual(['PR #480 Gate queue has waited for the gate queue for over an hour. Run Process gate queue'])
+  })
+
+  it('a read with no PR due (under an hour, or already shown) does not ask whether a window has focus (worfy-windows ticket 113: on Windows that starts PowerShell)', () => {
+    const focused = vi.fn(() => false)
+    const shown: WindowNote[] = []
+    const notices = new GateQueueNotices({ focused, show: (note) => shown.push(note), open: () => undefined })
+    const pr = labelled([{ oid: 'c1', committedDate: new Date(START).toISOString() }])
+    const read = (at: number): void => notices.read(PROJECT, { role: 'serve', label: 'needs-mac-gate', gh: { state: 'ok' }, waiting: waitingPrs([pr], 'Mac checks', 'mac-bot', at) })
+    read(START + 30 * MIN)
+    expect(focused).not.toHaveBeenCalled()
+    read(START + 61 * MIN)
+    expect(focused).toHaveBeenCalledTimes(1)
+    expect(shown).toHaveLength(1)
+    read(START + 70 * MIN)
+    expect(focused).toHaveBeenCalledTimes(1)
   })
 
   it('the text on serve and on request; the title is the Project\'s name', () => {

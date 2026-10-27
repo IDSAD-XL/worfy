@@ -35,6 +35,23 @@ describe('the focus check of notifications', () => {
     expect(c.foreground).not.toHaveBeenCalled()
   })
 
+  it('checks that come while the system is being asked share that one call; the next check asks again', async () => {
+    let answer: (value: ForegroundAnswer) => void = () => undefined
+    const foreground = vi.fn(() => new Promise<ForegroundAnswer>((resolve) => (answer = resolve)))
+    const focused = createFocusCheck({ electronFocused: () => true, platform: 'win32', pid: OWN_PID, foreground, warn: () => undefined })
+    const first = focused()
+    const second = focused()
+    expect(foreground).toHaveBeenCalledTimes(1)
+    expect(second).toBe(first)
+    answer({ pid: 40196 })
+    await expect(first).resolves.toBe(false)
+    await expect(second).resolves.toBe(false)
+    const third = focused()
+    expect(foreground).toHaveBeenCalledTimes(2)
+    answer({ pid: OWN_PID })
+    await expect(third).resolves.toBe(true)
+  })
+
   it('macOS and Linux keep Electron\'s answer, the system is not asked', () => {
     for (const platform of ['darwin', 'linux'] as const) {
       const c = check({ electron: true, platform, answer: { pid: 1 } })
@@ -76,6 +93,23 @@ describe('foregroundPid', () => {
     await expect(foregroundPid(runner({ error: { killed: true } }).run)).resolves.toEqual({ failure: `no answer within ${FOREGROUND_TIMEOUT_MS} ms` })
     await expect(foregroundPid(runner({ error: { code: 1 }, stderr: 'Add-Type : boom\r\n' }).run)).resolves.toEqual({ failure: 'exit code 1: Add-Type : boom' })
     await expect(foregroundPid(runner({ error: null, stdout: 'WARNING: x' }).run)).resolves.toEqual({ failure: 'unexpected output "WARNING: x"' })
+    // A number inside other text is not a pid.
+    await expect(foregroundPid(runner({ error: null, stdout: 'WARNING 1' }).run)).resolves.toEqual({ failure: 'unexpected output "WARNING 1"' })
+  })
+
+  it('a call that has not called back by FOREGROUND_TIMEOUT_MS (csc.exe holding the pipes) is a failure then, not later', async () => {
+    vi.useFakeTimers()
+    try {
+      const run: RunFile = () => undefined
+      let answer: ForegroundAnswer | null = null
+      void foregroundPid(run).then((value) => (answer = value))
+      await vi.advanceTimersByTimeAsync(FOREGROUND_TIMEOUT_MS - 1)
+      expect(answer).toBeNull()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(answer).toEqual({ failure: `no answer within ${FOREGROUND_TIMEOUT_MS} ms` })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('a runner that throws at once instead of calling back is a failure, not a rejected promise', async () => {
