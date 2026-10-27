@@ -13,7 +13,8 @@ import { promptHistory } from './history'
 import { ExternalSessionPanel } from './ExternalSessionPanel'
 import { dropRefusal, useChatDrop } from './chat-drop'
 import { MessageInput, type MessageInputHandle, type OutgoingMessage } from './MessageInput'
-import { useNavigation } from './navigation'
+import { useOpenedSession } from './navigation'
+import { SessionPicker } from './SessionPicker'
 import { useSessionNodeView } from './node-sessions'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
 import { useShowSession } from './shown-session'
@@ -248,6 +249,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
         <span data-testid="session-state" title={view?.error ?? undefined}>
           <StatusChip status={chip.status} label={chip.label} />
         </span>
+        <SessionPicker projectId={projectId} shown={{ nodeId, projectId }} shownTitle={heading} />
         <span className="w-session__divider" aria-hidden="true" />
         {/* The model gives way first when the header is short of room: its value ends in «…», the whole name in the tooltip. */}
         <span className="w-session__fact w-session__fact--model">
@@ -319,11 +321,6 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
 
 export function SessionView({ projectId, projectName }: SessionViewProps) {
   useEffect(ensureAgentEvents, [])
-  const opened = useNavigation((store) => store.opened)
-  const readOnly = useReadOnly()
-  const orchestrator = useOrchestratorNode(projectId, readOnly !== null)
-  const nodeId = opened !== null && opened.projectId === projectId ? opened.nodeId : orchestrator
-
   if (projectId === undefined) {
     return (
       <div className="w-session__empty" data-testid="session-view-empty">
@@ -331,7 +328,17 @@ export function SessionView({ projectId, projectName }: SessionViewProps) {
       </div>
     )
   }
-  if (opened?.external && opened.projectId === projectId) {
+  return <ProjectSessionView projectId={projectId} projectName={projectName} />
+}
+
+/** The Session view of a Project: its last opened Session while that Session's Node is on the Canvas, else its Orchestrator (navigation.ts). */
+function ProjectSessionView({ projectId, projectName }: { projectId: string; projectName: string | undefined }) {
+  const opened = useOpenedSession(projectId)
+  const readOnly = useReadOnly()
+  const orchestrator = useOrchestratorNode(projectId, readOnly !== null)
+  const nodeId = opened !== null ? opened.nodeId : orchestrator
+
+  if (opened?.external) {
     const { sessionId, agentId } = opened.external
     return <ExternalSessionPanel key={`${opened.nodeId}/${agentId ?? ''}`} projectId={projectId} nodeId={opened.nodeId} sessionId={sessionId} agentId={agentId} blocks={railBlocks} />
   }

@@ -420,7 +420,7 @@ describe('the "Waits for answer" badge', () => {
     expect(screen.queryByTestId('badge-needs-permission')).toBeNull()
     const { useNavigation } = await import('../../src/renderer/session/navigation')
     fireEvent.click(badge)
-    expect(useNavigation.getState()).toMatchObject({ view: 'session', opened: { nodeId: 'node-7', projectId: 'alpha' } })
+    expect(useNavigation.getState()).toMatchObject({ view: 'session', opened: { alpha: { nodeId: 'node-7', projectId: 'alpha' } } })
 
     emit('sdk-7', { type: 'question_resolved', requestId: 'q-1', outcome: 'answered', answers: {} })
     expect(screen.queryByTestId('badge-waits-for-answer')).toBeNull()
@@ -525,7 +525,7 @@ describe('the toast of a question whose Session is not on screen', () => {
     emit('sdk-7', request())
     const { useNavigation } = await import('../../src/renderer/session/navigation')
     act(() => shown()[0]?.actions?.at(-1)?.run())
-    expect(useNavigation.getState()).toMatchObject({ view: 'session', opened: { nodeId: 'node-7', projectId: 'alpha' } })
+    expect(useNavigation.getState()).toMatchObject({ view: 'session', opened: { alpha: { nodeId: 'node-7', projectId: 'alpha' } } })
   })
 
   it('no toast while the Session view shows that Session', async () => {

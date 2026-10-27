@@ -55,9 +55,17 @@ function apply(op: LayoutOpInput): void {
   else if (op.op === 'archive') for (const { id, rule, at } of op.nodes) change(id, (node) => ({ ...node, archived: { at: at ?? 2000, rule, batch: op.batch } }))
   else if (op.op === 'hide') change(op.id, (node) => ({ ...node, hidden: op.hidden }))
   else if (op.op === 'move') change(op.id, (node) => ({ ...node, x: op.x, y: op.y }))
+  // Opening a Session in the Session view marks its Node as used (navigation.ts): nothing to keep here.
+  else if (op.op === 'touch') return
   else throw new Error(`not in this test: ${op.op}`)
   main.revision += 1
 }
+
+/** What main answers to `sessions.resume` (session/HistoryPopover.tsx): the Session goes on, on its Node. */
+const resumedView = { projectId: PROJECT_ID, nodeId: 'node-s', sessionId: 'live-1', sdkSessionId: SESSION, state: 'starting', error: null, cwd: ROOT, model: null, version: 1 }
+
+/** While set, main answers no `layout.apply` until it resolves: the user acts in between. */
+let hold: Promise<void> | null = null
 
 function preload(live: LiveSession[]): void {
   const bridge = {
@@ -66,8 +74,10 @@ function preload(live: LiveSession[]): void {
         const { op, screen } = input as { op: LayoutOpInput; screen?: string }
         main.applied.push({ op, screen })
         apply(op)
-        return Promise.resolve({ ok: true, value: state() })
+        return (hold ?? Promise.resolve()).then(() => ({ ok: true, value: state() }))
       }
+      // main restores an archived Node itself when it resumes its Session (src/main/agent/node-sessions.ts, liveNode).
+      if (channel === 'sessions.resume') main.nodes = main.nodes.map((node) => ({ ...node, archived: null }))
       const value: unknown =
         channel === 'layout.get'
           ? state()
@@ -80,8 +90,10 @@ function preload(live: LiveSession[]): void {
                 : channel === 'sessions.views'
                   ? { views: [] }
                   : channel === 'sessions.resumable'
-                    ? { verdicts: {} }
-                    : undefined
+                    ? { verdicts: { [SESSION]: { resumable: true, cwd: ROOT } } }
+                    : channel === 'sessions.resume'
+                      ? resumedView
+                      : undefined
       return Promise.resolve(value === undefined ? { ok: false, error: `no ${channel}` } : { ok: true, value })
     },
     on: () => 1,
@@ -92,6 +104,7 @@ function preload(live: LiveSession[]): void {
 
 beforeEach(() => {
   vi.resetModules()
+  hold = null
   main = { nodes: [sessionNode()], revision: 1, applied: [] }
   preload([])
 })
@@ -282,5 +295,130 @@ describe('Show of an archived Node', () => {
     const { showNode } = await import('../../src/renderer/canvas/show-node')
     await expect(showNode(PROJECT_ID, main.nodes[0]!)).resolves.toBeUndefined()
     expect(ops()).toEqual([])
+  })
+})
+
+// Where the user is (worfy-polish ticket 44): in the Session view a row of the sidebar and "Resume"
+// in the history show the Session there, its archived Node back first; on the Canvas they go to the Node.
+describe('a Session opened from the sidebar or the history, where the user is', () => {
+  async function renderSidebar(): Promise<void> {
+    preload([liveRow])
+    const projects = await import('../../src/renderer/projects/useProjects')
+    projects.acceptProjectsState(LIST)
+    const { default: SessionsSection } = await import('../../src/renderer/shell/sidebar/SessionsSection')
+    const { useLayout } = await import('../../src/renderer/canvas/useLayout')
+    function LayoutReady() {
+      return useLayout(PROJECT_ID).state === undefined ? null : <span data-testid="layout-ready" />
+    }
+    render(
+      <>
+        <SessionsSection />
+        <LayoutReady />
+      </>,
+    )
+    await screen.findByTestId('layout-ready')
+  }
+
+  it('in the Session view a row of the sidebar restores its archived Node and shows its Session there, not the Canvas', async () => {
+    const navigation = await import('../../src/renderer/session/navigation')
+    const { useSessionFocus } = await import('../../src/renderer/claude-home/focus')
+    navigation.setView('session')
+    await renderSidebar()
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId('sidebar-session'))
+      // The Session main does not run now: read-only from its transcript, as a double click on its Node opens it.
+      await waitFor(() => expect(navigation.useNavigation.getState().opened[PROJECT_ID]).toEqual({ nodeId: 'node-s', projectId: PROJECT_ID, external: { sessionId: SESSION } }))
+    })
+    expect(navigation.useNavigation.getState().view).toBe('session')
+    expect(useSessionFocus.getState().request).toBeNull()
+    expect(ops()).toEqual([{ op: 'restore', ids: ['node-s'] }, { op: 'touch', id: 'node-s' }])
+    // Its Node is on the Canvas again, so the Session view shows it.
+    expect(navigation.shownSession(navigation.useNavigation.getState().opened[PROJECT_ID], main.nodes, false)).toMatchObject({ nodeId: 'node-s' })
+    await undo()
+    expect(main.nodes[0]).toMatchObject({ archived: RECORD })
+  })
+
+  it('in the Session view a row of a Session worfy runs shows it live', async () => {
+    main.nodes = [sessionNode({ archived: null })]
+    const navigation = await import('../../src/renderer/session/navigation')
+    const { acceptSessionNodeView } = await import('../../src/renderer/session/node-sessions')
+    acceptSessionNodeView({ ...resumedView, state: 'idle' } as never)
+    navigation.setView('session')
+    await renderSidebar()
+    fireEvent.click(await screen.findByTestId('sidebar-session'))
+    await waitFor(() => expect(navigation.useNavigation.getState().opened[PROJECT_ID]).toEqual({ nodeId: 'node-s', projectId: PROJECT_ID }))
+    expect(navigation.useNavigation.getState().view).toBe('session')
+  })
+
+  it('in the Session view, a user who goes to the Canvas before the archived Node is back stays there: the Node is focused, nothing opens', async () => {
+    let answer = () => undefined as void
+    hold = new Promise((done) => (answer = done))
+    const navigation = await import('../../src/renderer/session/navigation')
+    const { useSessionFocus } = await import('../../src/renderer/claude-home/focus')
+    navigation.setView('session')
+    await renderSidebar()
+    fireEvent.click(await screen.findByTestId('sidebar-session'))
+    await waitFor(() => expect(ops()).toEqual([{ op: 'restore', ids: ['node-s'] }]))
+    act(() => navigation.setView('canvas'))
+    await act(async () => answer())
+    await waitFor(() => expect(useSessionFocus.getState().request).toMatchObject({ projectId: PROJECT_ID, nodeId: 'node-s' }))
+    expect(navigation.useNavigation.getState()).toEqual({ view: 'canvas', opened: {}, offCanvas: {} })
+  })
+
+  it('on the Canvas a row of the sidebar focuses the Node and opens nothing in the Session view', async () => {
+    const navigation = await import('../../src/renderer/session/navigation')
+    const { useSessionFocus } = await import('../../src/renderer/claude-home/focus')
+    await renderSidebar()
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId('sidebar-session'))
+      await waitFor(() => expect(useSessionFocus.getState().request).toMatchObject({ projectId: PROJECT_ID, nodeId: 'node-s' }))
+    })
+    expect(navigation.useNavigation.getState()).toEqual({ view: 'canvas', opened: {}, offCanvas: {} })
+  })
+
+  async function resumeFromHistory(): Promise<void> {
+    const { HistoryPopover } = await import('../../src/renderer/session/HistoryPopover')
+    const { acceptLayoutState } = await import('../../src/renderer/canvas/useLayout')
+    acceptLayoutState(state())
+    render(<HistoryPopover project={LIST.projects[0]!} onClose={() => undefined} />)
+    const row = await screen.findByTestId('history-session')
+    const resume = within(row).getByTestId('history-resume')
+    await waitFor(() => expect(resume).not.toHaveProperty('disabled', true))
+    fireEvent.click(resume)
+  }
+
+  it('"Resume" in the history, in the Session view: a hidden Node is shown again and the resumed Session shows live there', async () => {
+    main.nodes = [sessionNode({ archived: null, hidden: true })]
+    const navigation = await import('../../src/renderer/session/navigation')
+    const { useSessionFocus } = await import('../../src/renderer/claude-home/focus')
+    navigation.setView('session')
+    await resumeFromHistory()
+    await waitFor(() => expect(navigation.useNavigation.getState().opened[PROJECT_ID]).toEqual({ nodeId: 'node-s', projectId: PROJECT_ID }))
+    expect(navigation.useNavigation.getState().view).toBe('session')
+    expect(useSessionFocus.getState().request).toBeNull()
+    expect(ops()).toEqual([{ op: 'hide', id: 'node-s', hidden: false }, { op: 'touch', id: 'node-s' }])
+  })
+
+  it('"Resume" from the Session view while the user goes to the Canvas before the hidden Node is back: the Canvas stays, its Node is focused', async () => {
+    main.nodes = [sessionNode({ archived: null, hidden: true })]
+    let answer = () => undefined as void
+    hold = new Promise((done) => (answer = done))
+    const navigation = await import('../../src/renderer/session/navigation')
+    const { useSessionFocus } = await import('../../src/renderer/claude-home/focus')
+    navigation.setView('session')
+    await resumeFromHistory()
+    await waitFor(() => expect(ops()).toEqual([{ op: 'hide', id: 'node-s', hidden: false }]))
+    act(() => navigation.setView('canvas'))
+    await act(async () => answer())
+    await waitFor(() => expect(useSessionFocus.getState().request).toMatchObject({ projectId: PROJECT_ID, nodeId: 'node-s' }))
+    expect(navigation.useNavigation.getState()).toEqual({ view: 'canvas', opened: {}, offCanvas: {} })
+  })
+
+  it('"Resume" in the history, on the Canvas: focuses the resumed Session\'s Node, as before', async () => {
+    const navigation = await import('../../src/renderer/session/navigation')
+    const { useSessionFocus } = await import('../../src/renderer/claude-home/focus')
+    await resumeFromHistory()
+    await waitFor(() => expect(useSessionFocus.getState().request).toMatchObject({ projectId: PROJECT_ID, nodeId: 'node-s' }))
+    expect(navigation.useNavigation.getState()).toEqual({ view: 'canvas', opened: {}, offCanvas: {} })
   })
 })

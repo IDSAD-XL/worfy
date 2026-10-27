@@ -97,7 +97,7 @@ describe('palette commands', () => {
     // The Orchestrator Node's own row, which centers the Canvas on it, stays.
     expect(ids(withNode)).toContain('node:o1')
     // From a Subagent's window over the Canvas: the Session view, with nothing opened — the active Project's Orchestrator.
-    useNavigation.setState({ view: 'canvas', opened: { nodeId: 'o1', projectId: 'p1', external: { sessionId: 'feedbeef00', agentId: 'a1' } } })
+    useNavigation.setState({ view: 'canvas', opened: { p1: { nodeId: 'o1', projectId: 'p1', external: { sessionId: 'feedbeef00', agentId: 'a1' } } } })
     // It also asks main to open the Orchestrator, which starts one that does not run.
     const asked: { channel: string; input: unknown }[] = []
     const globals = globalThis as { worfy?: WorfyBridge }
@@ -113,7 +113,7 @@ describe('palette commands', () => {
       delete globals.worfy
     })
     expect(await row!.run()).toBeUndefined()
-    expect(useNavigation.getState()).toEqual({ view: 'session', opened: null })
+    expect(useNavigation.getState()).toEqual({ view: 'session', opened: {}, offCanvas: {} })
     expect(asked).toEqual([{ channel: 'orchestrator.open', input: { projectId: 'p1' } }])
   })
 

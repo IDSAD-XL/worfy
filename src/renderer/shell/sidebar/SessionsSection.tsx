@@ -11,8 +11,8 @@ import { invoke, readableReason } from '../../ipc'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { HistoryPopover } from '../../session/HistoryPopover'
-import { setView } from '../../session/navigation'
-import { ensureProject, useSessionNodeViews } from '../../session/node-sessions'
+import { nodeSession, openSession, setView, useNavigation } from '../../session/navigation'
+import { ensureProject, isRunning, useSessionNodeViews } from '../../session/node-sessions'
 import { StatusChip } from '../../theme/primitives'
 import { SidebarSection } from '../SidebarSection'
 
@@ -100,12 +100,25 @@ function Sessions({ project }: { project: ProjectView }) {
   // The Node of a Session: the one that names it (worfy's own, e.g. the Orchestrator), else its Session Node.
   const nodeOf = (sessionId: string) => layout?.layout.nodes.find((node) => node.data.sessionId === sessionId) ?? layout?.layout.nodes.find((node) => node.id === sessionNodeId(sessionId))
 
+  // Where the user is (worfy-polish ticket 44): in the Session view the row shows its Session there,
+  // as a double click on its Node would; on the Canvas it centres the Node.
   const open = (sessionId: string) => {
     const node = nodeOf(sessionId)
     if (!node) return
-    setView('canvas')
+    if (useNavigation.getState().view !== 'session') setView('canvas')
     // An archived or hidden Node comes back first, as one step ⌘Z undoes (canvas/show-node.ts).
-    void showNode(project.id, node).then(() => focusSessionNode(project.id, node.id))
+    void showNode(project.id, node).then(() => {
+      // Read after main's answer: a user who went to the Canvas meanwhile is not taken back.
+      const view = useNavigation.getState().view
+      const opens = view === 'session' ? nodeSession(node, project.id, isRunning(sessionNodes[node.id])) : null
+      if (opens !== null) {
+        openSession(opens)
+        return
+      }
+      // A Node with no Session to show goes to the Canvas, as before.
+      if (view === 'session') setView('canvas')
+      focusSessionNode(project.id, node.id)
+    })
   }
 
   let body = null

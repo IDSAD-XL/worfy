@@ -154,7 +154,7 @@ describe('the "Needs permission" badge', () => {
     const badge = await screen.findByTestId('badge-needs-permission')
     expect(badge.textContent).toContain('Needs permission')
     fireEvent.click(badge)
-    expect(useNavigation.getState()).toMatchObject({ view: 'session', opened: { nodeId: 'node-7', projectId: 'alpha' } })
+    expect(useNavigation.getState()).toMatchObject({ view: 'session', opened: { alpha: { nodeId: 'node-7', projectId: 'alpha' } } })
   })
 
   it('shows nothing for a Session that is busy, or for a Ticket', async () => {
@@ -257,7 +257,7 @@ describe('the notification overlay', () => {
     // The Session Node's view comes only when the overlay asks for the Project's views.
     answers['sessions.views'] = () => ({ views: [nodeView({ state: 'busy' })] })
     const h = await mountOverlay()
-    await vi.waitFor(() => expect(h.opened()).toMatchObject({ view: 'session', opened: { nodeId: 'node-7', projectId: 'alpha' } }))
+    await vi.waitFor(() => expect(h.opened()).toMatchObject({ view: 'session', opened: { alpha: { nodeId: 'node-7', projectId: 'alpha' } } }))
     expect(asked.filter((each) => each.channel === 'notify.pending')).not.toHaveLength(0)
     expect(asked).toContainEqual({ channel: 'sessions.views', input: { projectId: 'alpha' } })
     expect(h.target.usePendingNote.getState().pending).toBeNull()
@@ -274,11 +274,11 @@ describe('the notification overlay', () => {
     const h = await mountOverlay()
     await vi.waitFor(() => expect(asked.map((each) => each.channel)).toContain('projects.list'))
     expect(asked.filter((each) => each.channel === 'notify.pending')).toHaveLength(1)
-    expect(h.opened().opened).toBeNull()
+    expect(h.opened().opened).toEqual({})
     // Main keeps the note, then signals; the signal itself names no Session.
     held = { sessionId: 'ext-1', projectRoot: '/Users/test/alpha' }
     act(() => handlers.get('notify.open')?.({}))
-    await vi.waitFor(() => expect(h.opened().opened).toEqual({ nodeId: 'session:ext-1', projectId: 'alpha', external: { sessionId: 'ext-1' } }))
+    await vi.waitFor(() => expect(h.opened().opened['alpha']).toEqual({ nodeId: 'session:ext-1', projectId: 'alpha', external: { sessionId: 'ext-1' } }))
     expect(asked.filter((each) => each.channel === 'notify.pending')).toHaveLength(2)
   })
 
@@ -293,7 +293,7 @@ describe('the notification overlay', () => {
       await Promise.resolve()
     })
     expect(h.target.usePendingNote.getState().pending).toBeNull()
-    expect(h.opened().opened).toBeNull()
+    expect(h.opened().opened).toEqual({})
   })
 
   it('drops a note whose Session does not show up in time, so a later view opens nothing', async () => {
@@ -308,7 +308,7 @@ describe('the notification overlay', () => {
     await act(async () => {
       await Promise.resolve()
     })
-    expect(h.opened().opened).toBeNull()
+    expect(h.opened().opened).toEqual({})
   })
 
   describe('a note of a Linked machine', () => {
@@ -350,7 +350,7 @@ describe('the notification overlay', () => {
       expect(new URL(loads[0] ?? '').searchParams.get('project')).toBe('gamma')
       expect(reached.every((each) => each.machine === 'machine-a')).toBe(true)
       // Nothing opened here, not even a Session of this Machine with the same id.
-      expect(h.opened().opened).toBeNull()
+      expect(h.opened().opened).toEqual({})
       expect(h.target.usePendingNote.getState().pending).toBeNull()
       const carried = h.target.takeCarriedNote()
       expect(carried?.note).toEqual({ sessionId: 'sdk-9', projectRoot: null, machineId: 'machine-a' })
@@ -398,7 +398,7 @@ describe('the notification overlay', () => {
         throw new Error('the window must not load again')
       }
       const h = await mountOverlay()
-      await vi.waitFor(() => expect(h.opened()).toMatchObject({ view: 'session', opened: { nodeId: 'session:ext-1', projectId: 'gamma', external: { sessionId: 'ext-1' } } }))
+      await vi.waitFor(() => expect(h.opened()).toMatchObject({ view: 'session', opened: { gamma: { nodeId: 'session:ext-1', projectId: 'gamma', external: { sessionId: 'ext-1' } } } }))
       expect(asked).toContainEqual({ channel: 'linked.open', input: { machine: 'machine-a', projectId: 'gamma' } })
     })
 
@@ -419,7 +419,7 @@ describe('the notification overlay', () => {
         throw new Error('the window must not load again')
       }
       const h = await mountOverlay()
-      await vi.waitFor(() => expect(h.opened()).toMatchObject({ view: 'session', opened: { nodeId: 'node-g', projectId: 'gamma' } }))
+      await vi.waitFor(() => expect(h.opened()).toMatchObject({ view: 'session', opened: { gamma: { nodeId: 'node-g', projectId: 'gamma' } } }))
       // Every Project of A was asked for its views, through A.
       expect(reached.filter((each) => each.channel === 'sessions.views').map((each) => each.input)).toEqual(expect.arrayContaining([{ projectId: 'beta' }, { projectId: 'gamma' }]))
       expect(reached.every((each) => each.machine === 'machine-a')).toBe(true)
@@ -453,7 +453,7 @@ describe('the notification overlay', () => {
       await vi.waitFor(() => expect(waiting).toBeGreaterThan(0))
       // The newer click is about a Session of this Machine: it opens here.
       act(() => h.target.holdNote({ sessionId: 'sdk-7', projectRoot: null }))
-      await vi.waitFor(() => expect(h.opened().opened).toEqual({ nodeId: 'node-7', projectId: 'alpha' }))
+      await vi.waitFor(() => expect(h.opened().opened['alpha']).toEqual({ nodeId: 'node-7', projectId: 'alpha' }))
       release()
       await act(async () => {
         await new Promise((done) => setTimeout(done, 20))
@@ -474,7 +474,7 @@ describe('the notification overlay', () => {
         await Promise.resolve()
       })
       expect(h.target.usePendingNote.getState().pending).toBeNull()
-      expect(h.opened().opened).toBeNull()
+      expect(h.opened().opened).toEqual({})
     })
 
     it('a note of this Machine in a window on a Linked machine brings the window back to this Machine', async () => {
@@ -490,7 +490,7 @@ describe('the notification overlay', () => {
       expect(url.searchParams.get('machine')).toBeNull()
       expect(url.searchParams.get('project')).toBeNull()
       // A's Node runs a Session of the same id: it is not the one the note is about.
-      expect(h.opened().opened).toBeNull()
+      expect(h.opened().opened).toEqual({})
       expect(h.target.takeCarriedNote()?.note).toEqual({ sessionId: 'sdk-7', projectRoot: null })
     })
   })

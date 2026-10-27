@@ -13,6 +13,7 @@ import { StatusChip, type Status } from '../theme/primitives'
 import { openSession, subagentParent, subagentSession, useNavigation, type OpenedSession } from './navigation'
 import { isRunning, useSessionNodeView } from './node-sessions'
 import type { RailBlock } from './rail/index'
+import { SessionPicker } from './SessionPicker'
 import { SessionRail } from './SessionRail'
 import { Transcript } from './Transcript'
 import { HideToolsButton } from './HideToolsButton'
@@ -150,6 +151,7 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
         <span data-testid="session-state">
           <StatusChip status={chip.status} label={chip.label} />
         </span>
+        <SessionPicker projectId={projectId} shown={{ nodeId, projectId, external: { sessionId, agentId } }} shownTitle={title} />
         <span className="w-session__divider" aria-hidden="true" />
         <span className="w-mono" style={styles.source} data-testid="session-source" title={agentId !== undefined ? (type ?? undefined) : undefined}>
           {source}

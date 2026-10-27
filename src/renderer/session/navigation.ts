@@ -1,9 +1,18 @@
 // Which view the window shows (Canvas or Session) and which Session the Session view is on. The
 // toolbar's switch and a double click on a Session's Node (OrchestratorNode.tsx) both go through
 // here; main.tsx hands the view to AppShell.
+//
+// The Session view remembers the last Session opened in each Project, not one for the window
+// (worfy-polish ticket 44): back in a Project, the Session tab shows that Project's last Session
+// again, or its Orchestrator once that Session's Node is closed, archived or hidden. The memory
+// lives as long as the window; nothing of it is saved.
+import { useEffect } from 'react'
 import { create } from 'zustand'
-import { isSourceNodeId } from '../../shared/layout/derived'
-import { invoke } from '../ipc'
+import { isSourceNodeId, shownOnCanvas } from '../../shared/layout/derived'
+import type { LayoutNode } from '../../shared/layout/types'
+import { currentLayout, useLayout } from '../canvas/useLayout'
+import { readSessionNodeData, readWorfySessionNodeData, SESSION_KIND } from '../claude-home/session-nodes'
+import { invoke, subscribe } from '../ipc'
 import { readOnlyNow } from '../projects/read-only-now'
 import type { ShellView } from '../shell/Toolbar'
 
@@ -20,37 +29,129 @@ export interface OpenedSession {
 
 interface NavigationStore {
   view: ShellView
-  /** null: the Session view shows the active Project's Orchestrator. */
-  opened: OpenedSession | null
+  /** The last Session opened in each Project, by Project id; none: the Session view shows the Project's Orchestrator. */
+  opened: Readonly<Record<string, OpenedSession>>
+  /**
+   * Projects whose last Session was opened while its Node was not on the Canvas: no such Node in
+   * the Layout (a transcript from the palette, a Node main had not sent yet), or one archived or
+   * hidden (an old Session's Node the automatic archive took, opened from the palette or a
+   * notification). The user asked for that Session, so it shows. Cleared once its Node is seen on
+   * the Canvas, from when on its Node closed, archived or hidden means the Orchestrator.
+   */
+  offCanvas: Readonly<Record<string, true>>
 }
 
-export const useNavigation = create<NavigationStore>(() => ({ view: 'canvas', opened: null }))
+export const useNavigation = create<NavigationStore>(() => ({ view: 'canvas', opened: {}, offCanvas: {} }))
 
 export function setView(view: ShellView): void {
   useNavigation.setState({ view })
 }
 
+function without<T>(record: Readonly<Record<string, T>>, key: string): Record<string, T> {
+  const rest = { ...record }
+  delete rest[key]
+  return rest
+}
+
+const onCanvas = (opened: OpenedSession, nodes: readonly LayoutNode[] | undefined): boolean => {
+  const node = nodes?.find((each) => each.id === opened.nodeId)
+  return node !== undefined && shownOnCanvas(node)
+}
+
+/** Clears the Project's `offCanvas` once its last Session's Node is on the Canvas in `nodes`. */
+function noteLayout(projectId: string, nodes: readonly LayoutNode[] | undefined): void {
+  const { opened, offCanvas } = useNavigation.getState()
+  const last = opened[projectId]
+  if (offCanvas[projectId] === true && last !== undefined && onCanvas(last, nodes)) useNavigation.setState((state) => ({ offCanvas: without(state.offCanvas, projectId) }))
+}
+
+let following = false
+
 /**
- * Shows the Session view on the Session behind a Node, and tells main the user opened it: a
- * `touch` of the Node, so the automatic archive leaves it for a while (ADR-0076, point 2). Not
- * from a read-only screen, which writes nothing, and not for a Subagent's Node, which the Layout
- * does not keep. The touch is sent without a screen: it is no step of the undo history.
+ * Follows every Layout change, whichever Project and view the window shows: a Node that comes onto
+ * the Canvas and goes again while the Session view of its Project is not drawn still counts.
+ */
+function followLayouts(): void {
+  if (following) return
+  following = true
+  try {
+    subscribe('layout.changed', (change) => noteLayout(change.projectId, change.layout.nodes))
+  } catch (error) {
+    following = false
+    console.error('layout.changed: cannot subscribe', error)
+  }
+}
+
+/**
+ * Shows the Session view on the Session behind a Node, the last one of its Project from now on,
+ * and tells main the user opened it: a `touch` of the Node, so the automatic archive leaves it for
+ * a while (ADR-0076, point 2). Not from a read-only screen, which writes nothing, and not for a
+ * Subagent's Node, which the Layout does not keep. The touch is sent without a screen: it is no
+ * step of the undo history.
  */
 export function openSession(opened: OpenedSession): void {
-  useNavigation.setState({ view: 'session', opened })
+  const placed = onCanvas(opened, currentLayout(opened.projectId)?.nodes)
+  if (!placed) followLayouts()
+  useNavigation.setState((state) => ({
+    view: 'session',
+    opened: { ...state.opened, [opened.projectId]: opened },
+    offCanvas: placed ? without(state.offCanvas, opened.projectId) : { ...state.offCanvas, [opened.projectId]: true },
+  }))
   if (readOnlyNow() !== null || isSourceNodeId(opened.nodeId)) return
   void invoke('layout.apply', { projectId: opened.projectId, op: { op: 'touch', id: opened.nodeId } }).catch(() => undefined)
 }
 
 /**
- * The palette's "Go to Orchestrator": shows the Session view with nothing opened — the view shows
- * the Project's Orchestrator — and asks main to open it. The Session view asks only when it mounts
+ * The Session the Session view shows in a Project: its last opened one while that Session's Node
+ * is on the Canvas — for a Subagent's window and a transcript, the Node it was opened on — else
+ * null, the Project's Orchestrator. A Session opened while its Node was off the Canvas
+ * (`offCanvas`) shows until its Node is seen on the Canvas. Before the Layout has come (`nodes`
+ * undefined) there is nothing to judge by, and the last Session shows.
+ */
+export function shownSession(opened: OpenedSession | undefined, nodes: readonly LayoutNode[] | undefined, offCanvas: boolean): OpenedSession | null {
+  if (opened === undefined) return null
+  if (nodes === undefined || offCanvas) return opened
+  return onCanvas(opened, nodes) ? opened : null
+}
+
+/** shownSession() of a Project, kept up with its Layout; what a click on the Session tab shows. */
+export function useOpenedSession(projectId: string): OpenedSession | null {
+  const opened = useNavigation((store) => store.opened[projectId])
+  const offCanvas = useNavigation((store) => store.offCanvas[projectId] === true)
+  const nodes = useLayout(projectId).state?.layout.nodes
+  // A Layout read with `layout.get` (no change event) may show the Node on the Canvas as well.
+  useEffect(() => noteLayout(projectId, nodes), [projectId, nodes, opened, offCanvas])
+  return shownSession(opened, nodes, offCanvas)
+}
+
+/**
+ * What a double click on a Layout Node opens (OrchestratorNode.tsx, SessionNode.tsx), for the
+ * Session picker and the sidebar's rows in the Session view: the Orchestrator; a Session worfy runs
+ * on its Node live while it runs (`running`), else read-only from the transcript it saved; a
+ * Session started outside worfy read-only. null for any other Node, and for a Session Node that
+ * never had a Session.
+ */
+export function nodeSession(node: LayoutNode, projectId: string, running: boolean): OpenedSession | null {
+  if (node.kind === 'orchestrator') return { nodeId: node.id, projectId }
+  if (node.kind !== SESSION_KIND) return null
+  const own = readWorfySessionNodeData(node.data)
+  if (own !== null) {
+    if (running) return { nodeId: node.id, projectId }
+    return own.sessionId === undefined ? null : { nodeId: node.id, projectId, external: { sessionId: own.sessionId } }
+  }
+  const external = readSessionNodeData(node.data)
+  return external === null ? null : { nodeId: node.id, projectId, external: { sessionId: external.sessionId } }
+}
+
+/**
+ * The palette's "Go to Orchestrator": shows the Session view with nothing opened in the Project —
+ * the view shows its Orchestrator — and asks main to open it. The Session view asks only when it mounts
  * or the Project changes, so an Orchestrator that failed to start or closed since would stay down;
  * `orchestrator.open` starts it again, and changes nothing while its Session runs or starts
  * (src/main/agent/orchestrator.ts, open). Resolves to the reason when main refuses.
  */
 export async function openOrchestrator(projectId: string): Promise<string | undefined> {
-  useNavigation.setState({ view: 'session', opened: null })
+  useNavigation.setState((state) => ({ view: 'session', opened: without(state.opened, projectId), offCanvas: without(state.offCanvas, projectId) }))
   // A read-only screen (worfy-link ticket 25) only shows the Orchestrator: starting it is a write.
   if (readOnlyNow() !== null) return undefined
   const result = await invoke('orchestrator.open', { projectId })
