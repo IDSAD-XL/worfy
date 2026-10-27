@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { COLOUR_ANSWER_WINDOW_MS, CursorAnswers, HIGH_WATER, SCROLLBACK, screenWorker, unpackedPath } from '../../src/main/terminal/cursor-answers'
 import { colourAnswers, isMainAnswer } from '../../src/shared/terminal/cursor-answer'
 import { ROWS_MAX, TerminalRegistry, type PtyProcess, type TerminalSink } from '../../src/main/terminal/pty'
+import { timeScale } from '../time-scale'
 
 const KEY = JSON.stringify(['alpha-0000000a', 'terminal-node-1'])
 /** A stand-in of @xterm/headless whose write throws "write data discarded". */
@@ -104,9 +105,12 @@ async function shell(platform: NodeJS.Platform = 'linux', size = { cols: 80, row
   return { registry, pty, a }
 }
 
-/** Waits until the pty was written `count` things, and a moment more to see that nothing else comes. */
+/**
+ * Waits until the pty was written `count` things, and a moment more to see that nothing else comes.
+ * Main's answer comes from a worker thread; under load it once came later than vi.waitFor's default 1 s.
+ */
 async function writtenSoon(pty: StandInPty, count: number): Promise<string[]> {
-  await vi.waitFor(() => expect(pty.writes.length).toBeGreaterThanOrEqual(count))
+  await vi.waitFor(() => expect(pty.writes.length).toBeGreaterThanOrEqual(count), { timeout: 5_000 * timeScale })
   await new Promise((resolve) => setTimeout(resolve, 50))
   return pty.writes
 }
