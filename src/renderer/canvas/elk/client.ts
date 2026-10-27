@@ -44,6 +44,13 @@ export interface ElkRequest {
 /** Per Project, per Epic, ELK's last answer. */
 export const useElkAnswers = create<Readonly<Record<string, Readonly<Record<string, ElkAnswer>>>>>(() => ({}))
 
+/**
+ * Per Project, per Epic, the key of the latest request sent. An Epic whose answer has this key is
+ * laid out: the loading line of the Canvas (overlays/LoadingProgress.tsx) counts them. Only that
+ * line reads it, so a request does not redraw the Epic frames.
+ */
+export const useElkRequests = create<Readonly<Record<string, Readonly<Record<string, string>>>>>(() => ({}))
+
 let engine: ElkEngine | null | undefined
 let sequence = 0
 /** Per `<projectId>|<epic>`, the latest request sent. */
@@ -68,6 +75,7 @@ export function setElkEngine(next: ElkEngine | null): void {
   engine = next
   latest.clear()
   useElkAnswers.setState({}, true)
+  useElkRequests.setState({}, true)
 }
 
 /**
@@ -94,6 +102,7 @@ export function requestEpicLayout(projectId: string, epic: string, request: ElkR
   if (elk === null) return
   const seq = (sequence += 1)
   latest.set(id, { key: request.key, seq })
+  useElkRequests.setState((state) => ({ ...state, [projectId]: { ...state[projectId], [epic]: request.key } }))
   const hasDone = request.tickets.some((t) => t.state === 'done')
   const input = { tickets: request.tickets, name: request.name, cards: request.cards }
   const folded = layoutEpicElk({ ...input, doneExpanded: false }, elk)

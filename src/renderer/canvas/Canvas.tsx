@@ -66,6 +66,7 @@ import { ownedKinds, toFlowNodes } from './flow-nodes'
 import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
 import { applyRecorded, type Group, type LayoutChannel, type RecordOptions } from './history'
+import { LoadingProgress } from './LoadingProgress'
 import { lockedForReadOnly } from './read-only-nodes'
 import { currentLayout, LayoutOpsContext, screenChannel, useLayout, type LayoutOps } from './useLayout'
 // Every Node type is drawn inside the chrome (tags, the pinned frame); pinned Nodes are placed
@@ -528,6 +529,8 @@ function ProjectCanvas({ projectId }: { projectId: string }) {
   const { state, error } = useLayout(projectId)
   // React Flow takes the camera only when it mounts: the Canvas waits for both answers.
   const opening = useOpeningCamera(projectId, state?.layout)
+  // The loading line counts from here: in place of the Canvas before the answers, over it after them (worfy-link ticket 33).
+  const [startedAt] = useState(() => Date.now())
   if (error !== undefined) {
     return (
       <div className="w-canvas-message" role="alert">
@@ -535,11 +538,18 @@ function ProjectCanvas({ projectId }: { projectId: string }) {
       </div>
     )
   }
-  if (state === undefined || opening === undefined) return null
+  const ready = state !== undefined && opening !== undefined
   return (
-    <ReactFlowProvider>
-      <Flow projectId={projectId} state={state} opening={opening} />
-    </ReactFlowProvider>
+    <>
+      {ready ? (
+        <ReactFlowProvider>
+          <Flow projectId={projectId} state={state} opening={opening} />
+        </ReactFlowProvider>
+      ) : (
+        <div className="w-canvas" data-testid="canvas-loading-placeholder" style={{ background: 'var(--canvas)' }} />
+      )}
+      <LoadingProgress projectId={projectId} startedAt={startedAt} canvas={ready} />
+    </>
   )
 }
 

@@ -15,6 +15,7 @@ import { readLinesBefore, readNewLines, type TailCursor } from '../claude-home/t
 import { FIND_LIMITS, findInTranscript } from '../claude-home/transcript-find'
 import { ClientHolders, clientOf, type Client, type ClientId } from '../clients'
 import { isRemoteCall, projectRootOf } from '../link/caller'
+import { LINK_MAX_PAYLOAD } from '../link/messages'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import {
@@ -32,6 +33,7 @@ import {
 import type { AgentEvent } from '../../shared/agent/events'
 import { findNeedle } from '../../shared/transcript/find'
 import { mainThreadEvents, parseTranscriptLine, timedEvent, type TranscriptEntry } from '../../shared/transcript/parse'
+import type { SubagentFile, SubagentSignal } from '../../shared/transcript/subagents'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 /** The client the subscriptions serve (src/main/clients.ts); tests pass a fake. */
@@ -147,6 +149,63 @@ export class ClaudeHomeSubscriptions {
   }
 }
 
+/** What `claudeHome.subagents` answers for a Session it found. */
+export interface SubagentsAnswer {
+  found: boolean
+  signals: SubagentSignal[]
+  files: SubagentFile[]
+  truncated?: boolean
+}
+
+/**
+ * The most an answer of `claudeHome.subagents` to a Linked machine may take: a link connection
+ * carries LINK_MAX_PAYLOAD bytes in one message, and the frame around the answer takes a little of it.
+ */
+export const SUBAGENTS_LINK_BYTES = LINK_MAX_PAYLOAD - 64 * 1024
+
+/** Each longer text of a result or an answer is cut to these lengths in turn until the answer fits. */
+const TEXT_CUTS = [1000, 200, 0] as const
+
+const cutText = <T extends string | null>(text: T, length: number): T => (text === null || text.length <= length ? text : (text.slice(0, length) as T))
+
+function cutSignal(signal: SubagentSignal, length: number): SubagentSignal {
+  if (signal.kind === 'result') return { ...signal, text: cutText(signal.text, length) }
+  if (signal.kind === 'finished') return { ...signal, result: cutText(signal.result, length) }
+  return signal
+}
+
+function cutFile(file: SubagentFile, length: number): SubagentFile {
+  return {
+    ...file,
+    finalText: cutText(file.finalText, length),
+    signals: file.signals.map((signal) => cutSignal(signal, length)),
+    workflow: file.workflow === null ? null : { ...file.workflow, result: cutText(file.workflow.result, length) },
+  }
+}
+
+const bytesOf = (answer: SubagentsAnswer): number => Buffer.byteLength(JSON.stringify(answer))
+
+/**
+ * The answer of `claudeHome.subagents`, made to fit in `maxBytes` (worfy-link ticket 33): a Session
+ * with a large tree of Subagents gave an answer larger than a link connection carries, and the
+ * Linked machine got an error instead of the tree. The texts of results and answers are cut first
+ * (the tree shows only their first line); every signal and file stays, so the tree is whole.
+ * `truncated` says the answer was shortened. An answer that fits is returned as it is.
+ */
+export function fitSubagentsAnswer(answer: SubagentsAnswer, maxBytes: number): SubagentsAnswer {
+  if (bytesOf(answer) <= maxBytes) return answer
+  let cut: SubagentsAnswer = answer
+  for (const length of TEXT_CUTS) {
+    cut = { found: answer.found, signals: answer.signals.map((signal) => cutSignal(signal, length)), files: answer.files.map((file) => cutFile(file, length)), truncated: true }
+    if (bytesOf(cut) <= maxBytes) return cut
+  }
+  // shortcut: without any text the oldest half of the signals and of the files is left out until the answer fits, so the oldest Subagents leave the tree; redo with pages of the answer when a Session of so many Subagents (tens of thousands) is seen.
+  while (bytesOf(cut) > maxBytes && (cut.signals.length > 0 || cut.files.length > 0)) {
+    cut = { ...cut, signals: cut.signals.slice(Math.ceil(cut.signals.length / 2)), files: cut.files.slice(Math.ceil(cut.files.length / 2)) }
+  }
+  return cut
+}
+
 interface TranscriptRead {
   cursor?: TailCursor | undefined
   maxBytes?: number | undefined
@@ -228,7 +287,9 @@ export function claudeHomeHandlers(
     defineHandler(claudeHomeSubagents, async ({ projectRoot, sessionId }, { event }) => {
       const path = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
       if (path === null) return { found: false, signals: [], files: [] }
-      return { found: true, ...(await subagents.session(path)) }
+      const answer = { found: true, ...(await subagents.session(path)) }
+      // A window's own main has no limit; a link connection has (LINK_MAX_PAYLOAD).
+      return isRemoteCall(event) ? fitSubagentsAnswer(answer, SUBAGENTS_LINK_BYTES) : answer
     }),
     defineHandler(claudeHomeSubagentTranscript, async ({ projectRoot, sessionId, agentId, cursor, maxBytes, back }, { event }) => {
       const session = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
