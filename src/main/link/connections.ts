@@ -38,6 +38,8 @@ export interface LinkConnectionsOptions {
   maxDelayMs?: number
   /** Where Bonjour sees Linked machine `id` now (discovery.ts, lastSeen); none by default. */
   seenAt?: (id: string) => SeenAddress | undefined
+  /** Where a failed dial is told, once per new reason (the journal, log-file.ts); console.log by default. */
+  log?: (message: string) => void
 }
 
 interface Peer {
@@ -58,6 +60,7 @@ export class LinkConnections extends EventEmitter<{ changed: [] }> {
   private readonly firstDelayMs: number
   private readonly maxDelayMs: number
   private readonly seenAt: (id: string) => SeenAddress | undefined
+  private readonly log: (message: string) => void
   private readonly subscriptions: [string, (...args: never[]) => void][] = []
   private started = false
   private stopped = false
@@ -70,6 +73,7 @@ export class LinkConnections extends EventEmitter<{ changed: [] }> {
     this.firstDelayMs = options.firstDelayMs ?? 1_000
     this.maxDelayMs = options.maxDelayMs ?? 30_000
     this.seenAt = options.seenAt ?? (() => undefined)
+    this.log = options.log ?? ((message) => console.log(message))
   }
 
   /** Dials every Linked machine and follows the service from now on. */
@@ -213,7 +217,13 @@ export class LinkConnections extends EventEmitter<{ changed: [] }> {
         }
         // A failed try at an announced address does not lengthen the pause: the announcement may be forged.
         if (via === undefined) peer.failures += 1
-        peer.lastError = messageOf(error)
+        // Once per reason, not once per retry: a Machine that is off fails every 30 s for hours.
+        const reason = messageOf(error)
+        if (reason !== peer.lastError) {
+          const name = this.service.linkedMachines().find((machine) => machine.id === id)?.name
+          this.log(`[link] a dial to Machine ${id}${name === undefined ? '' : ` (${name})`} failed: ${reason}`)
+        }
+        peer.lastError = reason
         if (peer.again) {
           peer.again = false
           peer.failures = 0

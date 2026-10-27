@@ -28,7 +28,7 @@ class FakeMdns implements MdnsBackend {
   browsers = 0
   destroyed = false
   refreshes = 0
-  private events: { up(service: MdnsService): void; down(service: MdnsService): void } | undefined
+  private events: { up(service: MdnsService): void; down(service: MdnsService): void; answered?(service: MdnsService): void } | undefined
 
   publish(announcement: { name: string; port: number; txt: Record<string, string> }) {
     const entry = { ...announcement, stopped: false }
@@ -47,7 +47,7 @@ class FakeMdns implements MdnsBackend {
     }
   }
 
-  browse(events: { up(service: MdnsService): void; down(service: MdnsService): void }) {
+  browse(events: { up(service: MdnsService): void; down(service: MdnsService): void; answered?(service: MdnsService): void }) {
     this.browsers += 1
     this.events = events
     return {
@@ -70,6 +70,11 @@ class FakeMdns implements MdnsBackend {
 
   down(service: MdnsService): void {
     this.events?.down(service)
+  }
+
+  /** A known announcement answered the search again: bonjour-service says nothing, the backend says `answered`. */
+  answered(service: MdnsService): void {
+    this.events?.answered?.(service)
   }
 }
 
@@ -233,6 +238,69 @@ describe('searching and announcing', () => {
     expect(mdns.refreshes).toBe(3)
   })
 
+  describe('whether a Linked machine answers the search (the Windows hint, worfy-link ticket 36)', () => {
+    const office = worfy(LINKED, 'Office')
+    const start = () => {
+      vi.useFakeTimers()
+      const mdns = new FakeMdns()
+      const found = new LinkDiscovery({ backend: mdns, self: () => SELF, isLinked: (id) => id === LINKED, protocol: 1, refreshMs: 1000 })
+      discovery = found
+      let changes = 0
+      found.on('changed', () => (changes += 1))
+      found.browse('reconnect', true)
+      mdns.up(office)
+      return { mdns, found, changes: () => changes }
+    }
+
+    it('gone without a goodbye: it stops counting once no answer came for three refreshes, though its announcement is kept, and the row changes', () => {
+      const { found, changes } = start()
+      expect(found.answeredRecently(LINKED)).toBe(true)
+      vi.advanceTimersByTime(2999)
+      expect(found.answeredRecently(LINKED)).toBe(true)
+      const before = changes()
+      vi.advanceTimersByTime(1001)
+      expect(found.answeredRecently(LINKED)).toBe(false)
+      // Kept until its TTL runs out (bonjour-service), so lastSeen still has it.
+      expect(found.lastSeen(LINKED)).toBeDefined()
+      expect(changes()).toBe(before + 1)
+    })
+
+    it('answers keep coming: it keeps counting, and nothing changes', () => {
+      const { mdns, found, changes } = start()
+      const before = changes()
+      for (let second = 0; second < 20; second += 1) {
+        vi.advanceTimersByTime(1000)
+        mdns.answered(office)
+      }
+      expect(found.answeredRecently(LINKED)).toBe(true)
+      expect(changes()).toBe(before)
+    })
+
+    it('answers again after it stopped: it counts again, and the row changes', () => {
+      const { mdns, found, changes } = start()
+      vi.advanceTimersByTime(5000)
+      expect(found.answeredRecently(LINKED)).toBe(false)
+      const before = changes()
+      mdns.answered(office)
+      expect(found.answeredRecently(LINKED)).toBe(true)
+      expect(changes()).toBe(before + 1)
+    })
+
+    it('a goodbye: it stops counting at once', () => {
+      const { mdns, found } = start()
+      mdns.down(office)
+      expect(found.answeredRecently(LINKED)).toBe(false)
+    })
+
+    it('an answer of a Machine that is not Linked, or while nothing is searched for, does not count', () => {
+      const { mdns, found } = start()
+      mdns.answered(worfy(OTHER, 'Laptop'))
+      expect(found.answeredRecently(OTHER)).toBe(false)
+      found.browse('reconnect', false)
+      expect(found.answeredRecently(LINKED)).toBe(false)
+    })
+  })
+
   it('announces this Machine with its id, protocol and name on the server port, and stops when the server does', async () => {
     const { mdns, discovery } = makeDiscovery()
     discovery.advertise(52000)
@@ -276,11 +344,17 @@ describe('searching and announcing', () => {
 
 describe('bonjourBackend', () => {
   it('maps announcing and searching onto bonjour-service as _worfy._tcp, and opens nothing before the first use', async () => {
-    const listeners = new Map<string, (service: MdnsService) => void>()
-    const browser = { on: vi.fn((event: string, listener: (service: MdnsService) => void) => listeners.set(event, listener)), stop: vi.fn(), update: vi.fn(), expire: vi.fn() }
+    // Each find() is a browser of its own, with its listeners.
+    const browsers: { listeners: Map<string, (service: MdnsService) => void>; on: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; expire: ReturnType<typeof vi.fn> }[] = []
+    const makeBrowser = () => {
+      const listeners = new Map<string, (service: MdnsService) => void>()
+      const made = { listeners, on: vi.fn((event: string, listener: (service: MdnsService) => void) => listeners.set(event, listener)), stop: vi.fn(), update: vi.fn(), expire: vi.fn() }
+      browsers.push(made)
+      return made
+    }
     let goodbyeSent: (() => void) | undefined
     const service = { stop: vi.fn((callback: () => void) => (goodbyeSent = callback)), on: vi.fn() }
-    const fake = { publish: vi.fn(() => service), find: vi.fn(() => browser), destroy: vi.fn() }
+    const fake = { publish: vi.fn(() => service), find: vi.fn(makeBrowser), destroy: vi.fn() }
     const create = vi.fn(() => fake as unknown as BonjourLike)
     const backend = bonjourBackend({ create, interfaces: () => ['192.168.1.20'], warn: () => undefined })
     expect(create).not.toHaveBeenCalled()
@@ -298,19 +372,32 @@ describe('bonjourBackend', () => {
 
     const up = vi.fn()
     const down = vi.fn()
-    const search = backend.browse({ up, down })
+    const answered = vi.fn()
+    const search = backend.browse({ up, down, answered })
     expect(fake.find).toHaveBeenCalledWith({ type: 'worfy', protocol: 'tcp' })
+    const kept = browsers[0]!
     const found = worfy(OTHER, 'Laptop')
-    listeners.get('up')?.(found)
-    listeners.get('txt-update')?.(found)
-    listeners.get('down')?.(found)
+    kept.listeners.get('up')?.(found)
+    kept.listeners.get('txt-update')?.(found)
+    kept.listeners.get('down')?.(found)
     expect(up).toHaveBeenCalledTimes(2)
     expect(down).toHaveBeenCalledWith(found)
+    expect(answered).not.toHaveBeenCalled()
+    // A refresh drops what expired and asks again from a new browser, whose every answer is `answered`.
     search.refresh()
-    expect(browser.expire).toHaveBeenCalled()
-    expect(browser.update).toHaveBeenCalled()
+    expect(kept.expire).toHaveBeenCalled()
+    expect(fake.find).toHaveBeenCalledTimes(2)
+    const question = browsers[1]!
+    question.listeners.get('up')?.(found)
+    expect(answered).toHaveBeenCalledWith(found)
+    expect(up).toHaveBeenCalledTimes(2)
+    // The next refresh asks from another new one; the last one stops.
+    search.refresh()
+    expect(question.stop).toHaveBeenCalled()
+    expect(browsers).toHaveLength(3)
     search.stop()
-    expect(browser.stop).toHaveBeenCalled()
+    expect(kept.stop).toHaveBeenCalled()
+    expect(browsers[2]!.stop).toHaveBeenCalled()
     backend.destroy()
     expect(fake.destroy).toHaveBeenCalled()
     expect(create).toHaveBeenCalledTimes(1)

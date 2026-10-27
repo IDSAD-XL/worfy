@@ -50,7 +50,11 @@ export interface MdnsService {
 export interface MdnsBackend {
   /** `stop` sends the goodbye (the records with TTL 0) and resolves once it is out. */
   publish(announcement: { name: string; port: number; txt: Record<string, string> }): { stop(): Promise<void> }
-  browse(events: { up(service: MdnsService): void; down(service: MdnsService): void }): { stop(): void; refresh(): void }
+  /**
+   * `up` and `down` follow the announcements; `answered`, when the backend gives it, comes for every
+   * answer to the search's question (refresh() asks it again), a known announcement's included.
+   */
+  browse(events: { up(service: MdnsService): void; down(service: MdnsService): void; answered?(service: MdnsService): void }): { stop(): void; refresh(): void }
   /** The machine's network changed: follow its interfaces (worfy-link ticket 36). Optional; a fake may leave it out. */
   refresh?(): void
   destroy(): void
@@ -89,6 +93,11 @@ export interface LinkDiscoveryOptions {
   refreshMs?: number
   /** At most one `seen` per Machine id in this time; 10 s by default. */
   seenIntervalMs?: number
+  /**
+   * How long a Linked machine counts as answering after its last answer (answeredRecently); three
+   * times refreshMs by default, so one lost answer does not count.
+   */
+  answeredWindowMs?: number
   now?: () => number
 }
 
@@ -159,6 +168,10 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
   private readonly names = new Map<string, string>()
   /** When `seen` last went out per Machine id. */
   private readonly lastSeenAt = new Map<string, number>()
+  /** When each Linked machine last answered the search, while it runs. */
+  private readonly answeredAt = new Map<string, number>()
+  /** The Linked machines answeredRecently counts as answering at the last check: a change is a `changed`. */
+  private readonly answering = new Set<string>()
   private readonly reasons = new Set<BrowseReason>()
   private announcement: { port: number; handle: { stop(): void } } | null = null
   /** The port advertise() was last asked for; null: not announcing. */
@@ -251,6 +264,16 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
     return last
   }
 
+  /**
+   * Whether Linked machine `id` answered the search within answeredWindowMs (worfy-link ticket 36).
+   * Not whether its announcement is still kept: one that left without a goodbye (a laptop taken to
+   * another network) is kept until its TTL of 8 hours runs out, but stops answering at once.
+   */
+  answeredRecently(id: string): boolean {
+    const at = this.answeredAt.get(id)
+    return this.browser !== null && at !== undefined && this.clock() - at <= this.answeredWindow()
+  }
+
   /** The mDNS name of the host Bonjour last found Linked machine `id` on, as lastSeen does; undefined when none. */
   lastSeenName(id: string): string | undefined {
     let name: string | undefined
@@ -289,8 +312,13 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
     this.browser = this.options.backend.browse({
       up: (service) => this.up(service),
       down: (service) => this.down(service),
+      answered: (service) => this.answered(service),
     })
-    this.refreshTimer = setInterval(() => this.browser?.refresh(), this.options.refreshMs ?? 10_000)
+    this.refreshTimer = setInterval(() => {
+      // A Linked machine whose answers stopped no longer counts as answering: its row changes.
+      this.followAnswering()
+      this.browser?.refresh()
+    }, this.options.refreshMs ?? 10_000)
     this.refreshTimer.unref()
   }
 
@@ -300,6 +328,8 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
     this.browser?.stop()
     this.browser = null
     this.lastSeenAt.clear()
+    this.answeredAt.clear()
+    this.answering.clear()
     this.names.clear()
     if (this.found.size === 0) return
     this.found.clear()
@@ -317,8 +347,45 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
     const name = mdnsName(service.host)
     if (name === undefined) this.names.delete(key)
     else this.names.set(key, name)
-    if (this.options.isLinked(machine.id)) this.sighted(machine)
+    if (this.options.isLinked(machine.id)) {
+      this.answeredAt.set(machine.id, this.clock())
+      this.answering.add(machine.id)
+      this.sighted(machine)
+    }
     this.emit('changed')
+  }
+
+  /** An answer to the search, a known announcement's too: a Linked machine's counts as answering now. */
+  private answered(service: MdnsService): void {
+    if (this.browser === null) return
+    const machine = readAnnouncement(service, this.options.sameNetwork)
+    if (machine === undefined || !this.options.isLinked(machine.id)) return
+    this.answeredAt.set(machine.id, this.clock())
+    this.followAnswering()
+  }
+
+  /** Emits `changed` when the set of Linked machines answeredRecently counts as answering changed. */
+  private followAnswering(): void {
+    let changed = false
+    for (const id of this.answering) {
+      if (this.answeredRecently(id)) continue
+      this.answering.delete(id)
+      changed = true
+    }
+    for (const id of this.answeredAt.keys()) {
+      if (this.answering.has(id) || !this.answeredRecently(id)) continue
+      this.answering.add(id)
+      changed = true
+    }
+    if (changed) this.emit('changed')
+  }
+
+  private clock(): number {
+    return (this.options.now ?? Date.now)()
+  }
+
+  private answeredWindow(): number {
+    return this.options.answeredWindowMs ?? 3 * (this.options.refreshMs ?? 10_000)
   }
 
   /** A Linked machine announced itself: `seen`, at most once per seenIntervalMs per id. */
@@ -331,8 +398,16 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
   }
 
   private down(service: MdnsService): void {
-    this.names.delete(service.fqdn ?? service.name)
-    if (this.found.delete(service.fqdn ?? service.name)) this.emit('changed')
+    const key = service.fqdn ?? service.name
+    const machine = this.found.get(key)
+    this.names.delete(key)
+    if (!this.found.delete(key)) return
+    // A goodbye: the Machine left now, it does not count as answering until it answers again.
+    if (machine !== undefined && this.lastSeen(machine.id) === undefined) {
+      this.answeredAt.delete(machine.id)
+      this.answering.delete(machine.id)
+    }
+    this.emit('changed')
   }
 }
 
@@ -447,11 +522,13 @@ export function bonjourBackend(
   type Published = ReturnType<BonjourLike['publish']>
   type Browser = ReturnType<BonjourLike['find']>
   type Announcement = { name: string; port: number; txt: Record<string, string> }
-  type Search = { up(service: MdnsService): void; down(service: MdnsService): void }
+  type Search = { up(service: MdnsService): void; down(service: MdnsService): void; answered?(service: MdnsService): void }
   interface Instance {
     bonjour: BonjourLike
     published: Map<Announcement, Published>
     browsers: Map<Search, Browser>
+    /** The search's question of the last refresh, asked by a browser of its own (see refresh below). */
+    questions: Map<Search, Browser>
   }
   const instances = new Map<string, Instance>()
   const announcements = new Set<Announcement>()
@@ -496,12 +573,12 @@ export function bonjourBackend(
     for (const [key, instance] of instances) {
       if (keys.has(key)) continue
       instances.delete(key)
-      for (const browser of instance.browsers.values()) browser.stop()
+      for (const browser of [...instance.browsers.values(), ...instance.questions.values()]) browser.stop()
       void Promise.all([...instance.published.values()].map(goodbye)).finally(() => instance.bonjour.destroy())
     }
     for (const key of keys) {
       if (instances.has(key)) continue
-      const instance: Instance = { bonjour: create({ interface: key, bind: '0.0.0.0' }), published: new Map(), browsers: new Map() }
+      const instance: Instance = { bonjour: create({ interface: key, bind: '0.0.0.0' }), published: new Map(), browsers: new Map(), questions: new Map() }
       instances.set(key, instance)
       for (const announcement of announcements) announce(instance, key, announcement)
       for (const events of searches) search(instance, events)
@@ -531,7 +608,7 @@ export function bonjourBackend(
     },
     browse: (events) => {
       ensure()
-      const entry = { up: events.up, down: events.down }
+      const entry: Search = { up: events.up, down: events.down, ...(events.answered === undefined ? {} : { answered: events.answered }) }
       searches.add(entry)
       for (const instance of instances.values()) search(instance, entry)
       return {
@@ -540,13 +617,22 @@ export function bonjourBackend(
           for (const instance of instances.values()) {
             instance.browsers.get(entry)?.stop()
             instance.browsers.delete(entry)
+            instance.questions.get(entry)?.stop()
+            instance.questions.delete(entry)
           }
         },
+        // A bonjour-service browser says nothing when a service it knows answers again, and keeps
+        // it until its TTL (8 hours) runs out. So the question goes out from a new browser each
+        // time: it knows nothing, every answer is an `up` there, and that is `answered`. The kept
+        // browser hears the same answers and goes on with up, down and goodbyes as before.
         refresh: () => {
           for (const instance of instances.values()) {
-            const browser = instance.browsers.get(entry)
-            browser?.expire()
-            browser?.update()
+            instance.browsers.get(entry)?.expire()
+            instance.questions.get(entry)?.stop()
+            // find() asks the question at once (Browser.start).
+            const question = instance.bonjour.find({ type: LINK_SERVICE_TYPE, protocol: 'tcp' })
+            question.on('up', (service) => entry.answered?.(service))
+            instance.questions.set(entry, question)
           }
         },
       }

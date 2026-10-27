@@ -34,6 +34,7 @@ import { join } from 'node:path'
 import type { WebSocket } from 'ws'
 import { z } from 'zod'
 import type { IpcResult } from '../../shared/ipc/channels'
+import { formatLinkAddress } from '../../shared/ipc/link'
 import type { Client } from '../clients'
 import type { ModuleLoader } from '../ipc/index'
 import { dataRoot, type BuildKind } from '../storage/paths'
@@ -514,8 +515,12 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     if (!claimed) return
     // The remembered certificate answered there: from now on it is where this Machine is.
     const resolved = kind === 'name' ? this.peerAddress.get(opened.ws) : undefined
-    this.store.touch(record.id, { address: resolved ?? normalizeAddress(target.host), port: target.port })
+    const address = resolved ?? normalizeAddress(target.host)
+    this.store.touch(record.id, { address, port: target.port })
     if (kind === 'name') this.warn(`[link] Machine ${record.id} (${record.name}) answered at ${target.host}; its address is now ${resolved ?? target.host}`)
+    else if (address !== record.address || target.port !== record.port) {
+      this.warn(`[link] Machine ${record.id} (${record.name}) answered at ${formatLinkAddress({ host: address, port: target.port })}; its address was ${formatLinkAddress({ host: record.address, port: record.port })}`)
+    }
   }
 
   /**
@@ -558,6 +563,14 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
 
   isConnected(machineId: string): boolean {
     return this.openConnection(machineId) !== undefined
+  }
+
+  /**
+   * Checks every open connection now (LinkConnection.checkNow): one that does not answer within
+   * `timeoutMs` is cut, and the Machine is dialled again (connections.ts). After a change of network.
+   */
+  checkConnections(timeoutMs = 3_000): void {
+    for (const set of this.connections.values()) for (const connection of set) connection.checkNow(timeoutMs)
   }
 
   /** An open connection to Linked machine `machineId`, the one call() uses; undefined when none is. */
@@ -1110,6 +1123,8 @@ export interface WireAppLinkOptions {
   keepAwake?: (service: LinkService) => { stop(): void }
   /** Makes the `bonjour-service` instance of one mDNS socket (discovery.ts); tests pass a fake. */
   mdnsCreate?: (socket: BonjourSocketOptions) => BonjourLike
+  /** How long checkConnections waits for a pong after a wake-up or a change of network; 3 s by default. */
+  checkTimeoutMs?: number
   /** The journal of `[link]` lines (log-file.ts); stopLink stops it last. The app passes it, tests may not. */
   journal?: { stop(): void }
   /** The machine's interfaces as the network watch reads them; os.networkInterfaces() by default. */
@@ -1138,10 +1153,17 @@ export function wireAppLink(service: LinkService, options: WireAppLinkOptions): 
     },
   })
   const again = (why: string): void => {
-    console.log(`[link] ${why}: dialling the unavailable Linked machines now and announcing this Machine again`)
+    console.log(`[link] ${why}: checking the open connections, dialling the unavailable Linked machines now and announcing this Machine again`)
+    // A connection over an address this machine no longer has stays "online" until the heartbeat
+    // notices, 15 to 30 s; checked now, it is cut within seconds and dialled again.
+    service.checkConnections(options.checkTimeoutMs)
     connections.reconnect()
     void discovery?.announceAgain()
   }
+  // The journal's account of each Linked machine (log-file.ts): when it comes and goes, and where.
+  // A new address has its own line (connectAt): `connected` comes before the address is kept.
+  service.on('connected', ({ id, name }) => console.log(`[link] Machine ${id} (${name}) is connected`))
+  service.on('disconnected', ({ id, name }) => console.log(`[link] Machine ${id} (${name}) is disconnected`))
   sleep.on('resumed', () => again('this Machine woke up'))
   const stopWatch = watchNetwork(() => again('the network of this Machine changed'), {
     ...(options.networkInterfaces === undefined ? {} : { interfaces: options.networkInterfaces }),

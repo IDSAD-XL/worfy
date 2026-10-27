@@ -29,6 +29,8 @@ export class LinkConnection extends EventEmitter<LinkConnectionEvents> {
   private readonly pending = new Map<number, { resolve: (result: IpcResult<unknown>) => void; timer: NodeJS.Timeout }>()
   private readonly heartbeat: NodeJS.Timeout
   private alive = true
+  /** Pongs so far: checkNow waits for one more, apart from the heartbeat's own `alive`. */
+  private pongs = 0
   private closed = false
   private readonly warn: (message: string) => void
 
@@ -67,6 +69,7 @@ export class LinkConnection extends EventEmitter<LinkConnectionEvents> {
     })
     ws.on('pong', () => {
       this.alive = true
+      this.pongs += 1
     })
     ws.on('close', (code) => this.finish(code))
     ws.on('error', () => {
@@ -139,6 +142,25 @@ export class LinkConnection extends EventEmitter<LinkConnectionEvents> {
     this.ws.close(code, reason)
     // A peer that never answers the close handshake is cut off after a second.
     setTimeout(() => this.ws.terminate(), 1000).unref()
+  }
+
+  /**
+   * Pings now and cuts the connection when no pong comes within `timeoutMs`: after a change of
+   * network a connection over an address this machine no longer has is dead, and the heartbeat
+   * would take up to two intervals to notice (worfy-link ticket 36).
+   */
+  checkNow(timeoutMs: number): void {
+    if (this.closed) return
+    const before = this.pongs
+    try {
+      this.ws.ping()
+    } catch {
+      this.ws.terminate()
+      return
+    }
+    setTimeout(() => {
+      if (!this.closed && this.pongs === before) this.ws.terminate()
+    }, timeoutMs).unref()
   }
 
   /** Cuts the connection at once (service stop). */

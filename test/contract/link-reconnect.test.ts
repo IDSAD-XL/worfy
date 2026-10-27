@@ -3,6 +3,7 @@
 // again on Bonjour, the `.local` and MagicDNS names, and setting an address by hand. Real link
 // services over temporary data folders on 127.0.0.1 (test/contract/link-bench.ts), except where the
 // timing of retries is counted under fake timers.
+import { randomUUID } from 'node:crypto'
 import dns from 'node:dns'
 import { EventEmitter } from 'node:events'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -10,7 +11,7 @@ import { createServer, type Server, type Socket } from 'node:net'
 import os, { type NetworkInterfaceInfo } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { firewallHint } from '../../src/main/ipc/link'
+import { firewallHint, rowHint } from '../../src/main/ipc/link'
 import { LinkConnections, networkSignature } from '../../src/main/link/connections'
 import {
   bonjourBackend,
@@ -23,7 +24,9 @@ import {
   type BonjourLike,
   type BonjourSocketOptions,
   type MdnsBackend,
+  type MdnsService,
 } from '../../src/main/link/discovery'
+import { LinkConnection } from '../../src/main/link/connection'
 import { LinkLogFile, teeLinkConsole } from '../../src/main/link/log-file'
 import { LinkService, stopLink, wireAppLink, type AppLink, type LinkServiceOptions } from '../../src/main/link/service'
 import { accessOf } from '../../src/shared/ipc/channels'
@@ -482,6 +485,81 @@ describe('link.setAddress', () => {
   })
 })
 
+describe('the journal of a Linked machine', () => {
+  it('a drop, a failed dial (once per reason), a return and a new address each write a line to link.log', async () => {
+    const a = await bench.machine('a')
+    const b = await bench.machine('b')
+    await bench.link(a, b)
+    const undo = teeLinkConsole(new LinkLogFile({ dir: join(a.dataDir, 'link') }))
+    const link = wireAppLink(a.service, { bonjour: false, retry: { firstDelayMs: 60_000, maxDelayMs: 60_000 }, journal: { stop: undo } })
+    links.push(link)
+    await until(() => online(a, b))
+    const id = b.service.machine.id
+    const oldPort = bench.portOf(b)
+
+    await b.service.stop()
+    await until(() => !online(a, b))
+    // Two dials that fail for the same reason: one line.
+    link.connections.reconnect()
+    await until(() => link.connections.lastError(id) !== null)
+    link.connections.reconnect()
+    await pause(100)
+    // Something else took B's old port, so B comes back on another one.
+    await silentServer(oldPort)
+    await bench.restart(b)
+    const newPort = bench.portOf(b)
+    expect(newPort).not.toBe(oldPort)
+    // Bonjour sees B at its new port: the dial there is the return, and the address changes.
+    link.connections.seen(id, '127.0.0.1', newPort)
+    await until(() => online(a, b))
+
+    const lines = readFileSync(join(a.dataDir, 'link', 'link.log'), 'utf8').split('\n')
+    const has = (text: string): number => lines.filter((line) => line.includes(text)).length
+    expect(has(`[link] Machine ${id} (b) is disconnected`)).toBe(1)
+    expect(has(`[link] a dial to Machine ${id} (b) failed:`)).toBe(1)
+    expect(has(`[link] Machine ${id} (b) is connected`)).toBeGreaterThanOrEqual(1)
+    expect(has(`[link] Machine ${id} (b) answered at 127.0.0.1:${newPort}; its address was 127.0.0.1:${oldPort}`)).toBe(1)
+  })
+})
+
+describe('checking the open connections after a change of network', () => {
+  /** A WebSocket for LinkConnection: pings are counted, a pong is sent by the test. */
+  const fakeSocket = () => Object.assign(new EventEmitter(), { OPEN: 1, readyState: 1, pings: 0, terminated: 0, send: () => undefined, ping(this: { pings: number }) { this.pings += 1 }, terminate(this: { terminated: number }) { this.terminated += 1 } })
+
+  it('a connection that does not answer the ping within the time is cut; one that answers stays', () => {
+    vi.useFakeTimers()
+    const silent = fakeSocket()
+    const answering = fakeSocket()
+    const quiet = new LinkConnection(silent as never, randomUUID(), 'out', { pingIntervalMs: 60_000, warn: () => undefined })
+    const alive = new LinkConnection(answering as never, randomUUID(), 'out', { pingIntervalMs: 60_000, warn: () => undefined })
+    quiet.checkNow(3000)
+    alive.checkNow(3000)
+    expect([silent.pings, answering.pings]).toEqual([1, 1])
+    answering.emit('pong')
+    vi.advanceTimersByTime(2999)
+    expect(silent.terminated).toBe(0)
+    vi.advanceTimersByTime(1)
+    expect([silent.terminated, answering.terminated]).toEqual([1, 0])
+  })
+
+  it('a change of network checks every open connection: a Linked machine that answers stays online', async () => {
+    const a = await bench.machine('a')
+    const b = await bench.machine('b')
+    await bench.link(a, b)
+    const network = fakeNetwork()
+    const link = wireAppLink(a.service, { bonjour: false, networkInterfaces: network.read, networkPollMs: 20, checkTimeoutMs: 200 })
+    links.push(link)
+    await until(() => online(a, b))
+    const connection = a.service.connectionTo(b.service.machine.id)
+    const check = vi.spyOn(connection as LinkConnection, 'checkNow')
+    network.address = '10.0.0.7'
+    await until(() => check.mock.calls.length > 0)
+    expect(check).toHaveBeenCalledWith(200)
+    await pause(400)
+    expect(a.service.connectionTo(b.service.machine.id)).toBe(connection)
+  })
+})
+
 describe('stopping the link', () => {
   it('stops the journal last, after the service, and gives console its own methods back', async () => {
     const a = await bench.machine('a')
@@ -530,6 +608,29 @@ describe('the Windows firewall hint', () => {
     expect(firewallHint({ ...base, bonjour: false })).toBeUndefined()
     expect(firewallHint({ ...base, connected: true })).toBeUndefined()
     expect(firewallHint({ ...base, seen: true })).toBeUndefined()
+  })
+
+  it('a Machine gone without a goodbye gets the hint once it stops answering, though Bonjour still keeps its announcement', () => {
+    vi.useFakeTimers()
+    const id = randomUUID()
+    let events: { up(service: MdnsService): void; down(service: MdnsService): void; answered?(service: MdnsService): void } | undefined
+    const backend: MdnsBackend = {
+      publish: () => ({ stop: () => Promise.resolve() }),
+      browse: (given) => ((events = given), { stop: () => undefined, refresh: () => undefined }),
+      destroy: () => undefined,
+    }
+    const discovery = new LinkDiscovery({ backend, self: () => ({ id: randomUUID(), name: 'PC' }), isLinked: (other) => other === id, protocol: 1, refreshMs: 1000 })
+    discovery.browse('reconnect', true)
+    const mac = { name: 'Mac', fqdn: 'Mac._worfy._tcp.local', host: 'mac.local', port: 52000, addresses: ['192.168.0.137'], txt: { id, proto: '1', name: 'Mac' } }
+    events?.up(mac)
+    const row = { id, connected: false }
+    expect(rowHint(discovery, row, 52000, 'win32')).toBeUndefined()
+    vi.advanceTimersByTime(5000)
+    expect(discovery.lastSeen(id)).toBeDefined()
+    expect(rowHint(discovery, row, 52000, 'win32')).toContain('off, asleep or on another network')
+    events?.answered?.(mac)
+    expect(rowHint(discovery, row, 52000, 'win32')).toBeUndefined()
+    void discovery.stop()
   })
 })
 

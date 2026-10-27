@@ -161,7 +161,7 @@ function scheduleExpiry(expiresAt: number | null): void {
 
 /**
  * The hint of a Linked machine row on Windows (worfy-link ticket 36): Bonjour runs, the Machine is
- * unavailable, and no announcement of it is seen. From here a Machine that is off, asleep or on
+ * unavailable, and it has not answered the search lately (LinkDiscovery.answeredRecently). From here a Machine that is off, asleep or on
  * another network looks the same as one whose announcements Windows firewall drops, so the hint
  * names the likely reasons in that order and the one thing to check on this side: whether the
  * firewall lets this program (`program`, process.execPath: worfy.exe, or electron.exe of a dev
@@ -171,6 +171,24 @@ export function firewallHint(input: { platform: NodeJS.Platform; bonjour: boolea
   if (input.platform !== 'win32' || !input.bonjour || input.connected || input.seen) return undefined
   const port = input.port === null ? 'its link port' : `TCP ${input.port}`
   return `worfy does not find this machine on the network: it may be off, asleep or on another network. If it is on and nearby, check that Windows firewall lets ${input.program} receive connections (UDP 5353 for finding machines, ${port} for the link).`
+}
+
+/** firewallHint of Linked machine `machine`'s row, from what this Machine's Bonjour sees now. */
+export function rowHint(
+  discovery: Pick<NonNullable<AppLink['discovery']>, 'browsing' | 'answeredRecently'> | null,
+  machine: { id: string; connected: boolean },
+  port: number | null,
+  platform: NodeJS.Platform = process.platform,
+): string | undefined {
+  return firewallHint({
+    platform,
+    bonjour: discovery?.browsing === true,
+    connected: machine.connected,
+    // Answered lately, not merely still kept: a Machine gone without a goodbye is kept for hours.
+    seen: discovery?.answeredRecently(machine.id) === true,
+    port,
+    program: process.execPath,
+  })
 }
 
 function buildState(): LinkState {
@@ -213,14 +231,7 @@ function buildState(): LinkState {
       ...(pausedUntil === null ? {} : { pausedUntil }),
     },
     linked: service.linkedMachines().map((machine) => {
-      const hint = firewallHint({
-        platform: process.platform,
-        bonjour: discovery?.browsing === true,
-        connected: machine.connected,
-        seen: discovery?.lastSeen(machine.id) !== undefined,
-        port: status.port,
-        program: process.execPath,
-      })
+      const hint = rowHint(discovery, machine, status.port)
       return {
         id: machine.id,
         name: machine.name,
