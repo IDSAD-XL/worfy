@@ -1,7 +1,8 @@
 # 27 — Курсор pointer и понятное состояние hover у всех кликабельных элементов
 
 Type: bug
-Status: claimed 2026-10-24T22:42Z
+Status: done 2026-10-27T07:26Z
+PR: #833
 Branch: worfy-ui/27
 Blocked by: —
 Source: владелец, 2026-10-25 (чат Mac-оркестратора). Код перечитан по main `d089cfea`.
@@ -169,3 +170,14 @@ pan средней кнопкой (`.dragging`). Решение владельц
 - Кольцо фокуса в sidebar не обрезается: строки `.w-row` рисуют его внутри (`outline-offset: -2px`),
   у кнопок шапок разделов до края области прокрутки остаётся 4 px при кольце 3 px (снимок с фокусом на
   History в отчёте реализатора).
+
+### Ревью и merge (2026-10-27)
+
+PR #833: ревью medium, второй круг (проверка доработки) — VERIFIED. Вердикт Windows — `controls.spec.ts`
+и 8 e2e spec-ов Browser/Terminal на ПК владельца: exit 1 от двух падений не из PR (`browser-layer.spec.ts:370`,
+zoom 0.25, красный и на main до #831; flaky test `terminal.spec.ts:387`, выход за 15 s под нагрузкой);
+регрессий на Windows нет. gate full на Mac: шаг test дважды красный на flaky test-ах вне PR (drop test-ы
+`chat-attachments`, `search-index` 102 ms, timeout `harness-evals`; затем `canvas.test` collectNodeTypes,
+5 s), остальные шаги зелёные; по правилу владельца перезапущен только test: `pnpm test` exit 0; merge
+`94352ef4`. Долг: `[low] debt:` `veilOf` в `controls.spec.ts` повторяет цвета `tokens.css` в regex;
+`[low] debt:` disabled `.w-action` и checkbox проверены на вставленных test-ом элементах, не на реальных экранах.

@@ -1,7 +1,8 @@
 # 23 — Картинка на Canvas: вставка из буфера и перетаскиванием, карточка меняет размер, картинка вписывается без искажений
 
 Type: feature
-Status: claimed 2026-10-24T23:27Z
+Status: done 2026-10-27T07:26Z
+PR: #838
 Branch: worfy-canvas/23
 Blocked by: —
 Source: владелец, 2026-10-25 (чат Mac-оркестратора). Решения ниже — значения по умолчанию
@@ -205,3 +206,12 @@ main и не трогает папки; в `test/contract/link-server.test.ts` �
 строк убиты, 2 контрольных выжили. Не сделано из пунктов low: отказ restore, когда папка картинок
 ведёт с машины, — такой путь строится только по правилам Windows (`remote-guards-links.test.ts`
 идёт лишь на Windows), на Mac test-ом не проверить.
+
+### Ревью и merge (2026-10-27)
+
+PR #838: ревью medium, первый круг — REJECTED (три пункта med: отказ paste/drop на Canvas Linked машины
+и проверка размера исходящего вызова по link, contract test для проверки пути в `imageFileOf`, test-ы
+`ImageDrop.tsx`); второй круг по доработке `53f4b734..275c6c95` — VERIFIED. Вердикт Windows — e2e
+`canvas-image.spec.ts` на ПК владельца (head `b0532703`), exit 0, 2 passed. gate full на Mac — head
+`031e4977` на main `6698ecf7`, зелёный; merge `4443aad1`. Долг: `[low] debt:` у отказа restore в
+`src/main/layout/trash.ts:315-316` для папки картинок, ведущей с машины, нет test-а (путь только Windows).
