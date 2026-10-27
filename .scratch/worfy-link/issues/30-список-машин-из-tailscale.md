@@ -54,6 +54,17 @@ Source: решение владельца 2026-10-18, Q22, вторая част
 - IPC: новый канал `link.tailscalePeers` (`local`, `src/shared/ipc/link.ts`), отвечает массивом
   `{ name, address, online }`; при выключенной настройке «Link through Tailscale» — пустой массив без
   запуска CLI (`src/main/ipc/link.ts`).
+- **Решено без владельца, подтвердить: tailnet-адреса в renderer, кроме адресов Linked machine-ов**
+  (оркестратор, 2026-10-27). Причина: правило spec («адрес Linked machine-а в renderer не попадает»,
+  `.scratch/worfy-link/spec.md`, Ticket 09) и цель Ticket-а — выбор машины подставляет её адрес в поле,
+  значит адрес нужен окну. Tailscale не знает id Machine, поэтому main до ответа отбрасывает каждую
+  машину tailnet, у которой один из `TailscaleIPs`, полное имя MagicDNS или его первая метка (без
+  регистра и точки в конце) совпадает с адресом, запомненным для Linked machine-а
+  (`parseTailscaleStatus`, параметр `linked`). Так же, как список Bonjour, окно видит только
+  несвязанные машины, и уже связанную не предлагают связать ещё раз. Ограничение: Linked machine,
+  запомненная по адресу локальной сети, остаётся в списке со своим адресом Tailscale — этот адрес связь
+  не хранит. Guard `test/contract/ipc-renderer.test.tsx` допускает поле `link.tailscalePeers: address`
+  и говорит об этом в комментарии.
 - Окно «Link a machine» спрашивает список, когда настройка включена, и снова при каждом её включении;
   ответ, пришедший после выключения, отбрасывается. Список «In your tailnet» — под машинами Bonjour,
   теми же строками `w-row`, chip «Offline» — тем же стилем, что «Already linked»; цвета — только
@@ -63,5 +74,6 @@ Source: решение владельца 2026-10-18, Q22, вторая част
 - Test-ы: `test/unit/link-tailscale.test.ts` (разбор записи `test/fixtures/tailscale/status.json`,
   поиск CLI на macOS, Linux и Windows, отказы CLI, timeout и аргументы без shell на stub-скрипте),
   `test/contract/link-tailscale-peers.test.ts` (настоящие IPC handler-ы: CLI нет — окно открывается
-  без problem, список пуст), `test/unit/link-machine-dialog-tailnet.test.tsx` (список, Offline, выбор,
-  настройка, поздний ответ). Каждое новое поведение проверено mutant-ом: 22 из 22 убиты.
+  без problem, список пуст; связанная машина в ответ не попадает),
+  `test/unit/link-machine-dialog-tailnet.test.tsx` (список, Offline, выбор, настройка, поздний ответ).
+  Каждое новое поведение проверено mutant-ом: 31 из 31 убиты.

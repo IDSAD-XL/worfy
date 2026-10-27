@@ -27,8 +27,8 @@ vi.mock('../../src/main/link/tailscale', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/main/link/tailscale')>()
   return {
     ...actual,
-    readTailscalePeers: () =>
-      actual.readTailscalePeers({ platform: 'darwin', env: { PATH: '/usr/bin:/bin' }, exists: (path) => cli.installed && path === cli.path, run: cli.run, warn: cli.warn }),
+    readTailscalePeers: (options: Parameters<typeof actual.readTailscalePeers>[0] = {}) =>
+      actual.readTailscalePeers({ ...options, platform: 'darwin', env: { PATH: '/usr/bin:/bin' }, exists: (path) => cli.installed && path === cli.path, run: cli.run, warn: cli.warn }),
   }
 })
 
@@ -54,8 +54,9 @@ afterEach(async () => {
 
 type Handler = (event: IpcMainInvokeEvent, input: unknown) => Promise<IpcResult<unknown>>
 
-async function handlers(tailscale: boolean): Promise<<T>(name: string) => Promise<T>> {
+async function handlers(tailscale: boolean, linkedWith?: string): Promise<<T>(name: string) => Promise<T>> {
   const b = await bench.machine('beta')
+  if (linkedWith !== undefined) await bench.link(b, await bench.machine(linkedWith))
   b.service.settings.set({ tailscale })
   app.link = wireAppLink(b.service, { bonjour: false })
   const registered = new Map<string, Handler>()
@@ -110,4 +111,17 @@ it('a CLI that fails gives an empty list, not an error of the call, and one warn
   const call = await handlers(true)
   expect(await call<TailscalePeerView[]>('link.tailscalePeers')).toEqual([])
   expect(cli.warn).toHaveBeenCalledTimes(1)
+})
+
+it('leaves out a Linked machine: the peer at the address this Machine remembers for it', async () => {
+  cli.installed = true
+  const call = await handlers(true, 'gamma')
+  const remembered = app.link?.service.linkedMachines().map((machine) => machine.address)
+  expect(remembered).toEqual(['127.0.0.1'])
+  // gamma as the tailnet would list it, with the address the link remembers among its TailscaleIPs.
+  const status = JSON.parse(readFileSync(join(__dirname, '../fixtures/tailscale/status.json'), 'utf8')) as { Peer: Record<string, unknown> }
+  status.Peer['nodekey:gamma'] = { HostName: 'gamma', DNSName: 'gamma.tail1234.ts.net.', TailscaleIPs: ['100.101.102.120', '127.0.0.1'], Online: true }
+  cli.run.mockResolvedValue(JSON.stringify(status))
+  const peers = await call<TailscalePeerView[]>('link.tailscalePeers')
+  expect(peers.map((peer) => peer.name)).toEqual(['Alexeys-iPhone', 'lab', 'pc', 'nas'])
 })

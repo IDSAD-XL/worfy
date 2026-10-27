@@ -366,8 +366,10 @@ export default [
   }),
 
   // Only while "Link through Tailscale" is on: off, the link would refuse those addresses anyway.
+  // The Linked machines are left out by their remembered address, as the Bonjour list leaves them out.
   defineHandler(linkTailscalePeers, () => {
     const { service } = requireLink()
-    return service.settings.get().tailscale ? readTailscalePeers() : []
+    if (!service.settings.get().tailscale) return []
+    return readTailscalePeers({ linked: service.linkedMachines().map((machine) => machine.address) })
   }),
 ] satisfies HandlerModule

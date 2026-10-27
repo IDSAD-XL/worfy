@@ -55,15 +55,25 @@ const nodeSchema = z.object({
 })
 const statusSchema = z.object({ Peer: z.record(z.string(), z.unknown()).nullable().optional() })
 
+/** A host as the comparison with the Linked machines reads it: lower case, without a trailing dot or IPv6 brackets. */
+const normalHost = (host: string): string => host.toLowerCase().replace(/\.$/, '').replace(/^\[(.*)\]$/, '$1')
+
 /**
  * The machines of the tailnet in the output of `tailscale status --json`, online ones first, then by
  * name; this Machine (`Self`) is not among them. Name: the MagicDNS name, the first label of
  * `DNSName` (which ends with a dot), else `HostName`. Address: the first IPv4 of `TailscaleIPs`,
  * else its first address; a peer without one is left out, as is an entry of another shape. Throws
  * when the text is not JSON or not a status.
+ *
+ * `linked` are the addresses remembered for the Linked machines (LinkedMachineInfo.address): a peer
+ * is left out when one of its TailscaleIPs, its full MagicDNS name or the name's first label is one
+ * of them, compared without case and trailing dot. Like the Bonjour list, the window is offered only
+ * machines that are not linked, and is not given the address the link keeps for a Linked machine.
+ * A Linked machine remembered by its LAN address stays in the list: that is not the address here.
  */
-export function parseTailscaleStatus(text: string): TailscalePeerView[] {
+export function parseTailscaleStatus(text: string, linked: readonly string[] = []): TailscalePeerView[] {
   const status = statusSchema.parse(JSON.parse(text))
+  const known = new Set(linked.map(normalHost))
   const peers: TailscalePeerView[] = []
   for (const entry of Object.values(status.Peer ?? {})) {
     const node = nodeSchema.safeParse(entry)
@@ -71,6 +81,8 @@ export function parseTailscaleStatus(text: string): TailscalePeerView[] {
     const ips = node.data.TailscaleIPs ?? []
     const address = ips.find((ip) => /^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip)) ?? ips[0]
     if (address === undefined || address === '') continue
+    const dnsName = normalHost(node.data.DNSName ?? '')
+    if ([...ips, dnsName, dnsName.split('.')[0] ?? ''].some((key) => key !== '' && known.has(key))) continue
     const name = node.data.DNSName?.split('.')[0] || node.data.HostName || address
     peers.push({ name, address, online: node.data.Online === true })
   }
@@ -95,6 +107,8 @@ export interface TailscaleReadOptions {
   run?: TailscaleRunner
   /** Warnings for the worfy log; console.warn by default. */
   warn?: (message: string) => void
+  /** The addresses remembered for the Linked machines: their peers are left out (parseTailscaleStatus). */
+  linked?: readonly string[]
 }
 
 /**
@@ -106,7 +120,7 @@ export async function readTailscalePeers(options: TailscaleReadOptions = {}): Pr
   const cli = findTailscale(options.platform ?? process.platform, options.env ?? process.env, options.exists)
   if (cli === null) return []
   try {
-    return parseTailscaleStatus(await (options.run ?? runTailscaleCli)(cli, ['status', '--json'], TAILSCALE_TIMEOUT_MS))
+    return parseTailscaleStatus(await (options.run ?? runTailscaleCli)(cli, ['status', '--json'], TAILSCALE_TIMEOUT_MS), options.linked)
   } catch (error) {
     const reason =
       error instanceof SyntaxError || error instanceof z.ZodError
