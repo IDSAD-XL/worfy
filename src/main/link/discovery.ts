@@ -24,7 +24,7 @@
 // the first time an app announces or searches (Apple TN3179), and that prompt would stop a run.
 import { EventEmitter } from 'node:events'
 import { isIP } from 'node:net'
-import type { NetworkInterfaceInfo } from 'node:os'
+import { hostname as osHostname, type NetworkInterfaceInfo } from 'node:os'
 import { Bonjour } from 'bonjour-service'
 import { z } from 'zod'
 import { isLocalNetworkAddress, isTailscaleAddress } from './checks'
@@ -336,7 +336,7 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
 
 /** The part of `bonjour-service` bonjourBackend uses; the unit test passes a fake. */
 export interface BonjourLike {
-  publish(options: { name: string; type: string; protocol: 'tcp'; port: number; txt: Record<string, string>; probe?: boolean }): {
+  publish(options: { name: string; type: string; protocol: 'tcp'; port: number; txt: Record<string, string>; probe?: boolean; host?: string }): {
     stop?: (callback?: () => void) => void
     on?: (event: 'error', listener: (error: Error) => void) => unknown
   }
@@ -363,6 +363,18 @@ export function onSameNetwork(address: string, interfaces: NodeJS.Dict<NetworkIn
     }
   }
   return false
+}
+
+/**
+ * The host an announcement names (its SRV target and A records): `<first label>.local`, or the
+ * name as it is when it already ends in `.local`. `bonjour-service` takes os.hostname() as it is,
+ * which on Windows is the bare computer name (`DESKTOP-VFHQL1V.`): no resolver finds that, while
+ * `DESKTOP-VFHQL1V.local` resolves (worfy-link ticket 36, the PC check of item 9).
+ */
+export function mdnsHost(hostname: string): string {
+  const name = hostname.trim().replace(/\.$/, '')
+  if (/\.local$/i.test(name)) return name
+  return `${name.split('.')[0] || 'worfy'}.local`
 }
 
 /** What bonjourBackend asks of `bonjour-service` for one socket: the interface it joins and sends on. */
@@ -406,7 +418,13 @@ export function mdnsInterfaces(interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>, 
  * and search there is.
  */
 export function bonjourBackend(
-  options: { create?: (socket: BonjourSocketOptions) => BonjourLike; interfaces: () => string[]; warn?: (message: string) => void },
+  options: {
+    create?: (socket: BonjourSocketOptions) => BonjourLike
+    interfaces: () => string[]
+    /** os.hostname() by default; the announcement names it as an mDNS host (mdnsHost). */
+    hostname?: () => string
+    warn?: (message: string) => void
+  },
 ): MdnsBackend {
   const warn = options.warn ?? ((message: string) => console.warn(message))
   const create =
@@ -435,7 +453,7 @@ export function bonjourBackend(
       service.stop(() => done())
     })
   const announce = (instance: Instance, key: string, announcement: Announcement): void => {
-    const service = instance.bonjour.publish({ name: announcement.name, type: LINK_SERVICE_TYPE, protocol: 'tcp', port: announcement.port, txt: announcement.txt, probe: false })
+    const service = instance.bonjour.publish({ name: announcement.name, type: LINK_SERVICE_TYPE, protocol: 'tcp', port: announcement.port, txt: announcement.txt, probe: false, host: mdnsHost((options.hostname ?? osHostname)()) })
     service.on?.('error', (error) => warn(`[link] Bonjour could not announce this Machine on ${key}: ${error.message}`))
     instance.published.set(announcement, service)
   }

@@ -15,6 +15,7 @@ import {
   bonjourBackend,
   dialAddress,
   LinkDiscovery,
+  mdnsHost,
   mdnsInterfaces,
   mdnsName,
   onSameNetwork,
@@ -512,12 +513,13 @@ function fakeBonjour(): { create: (socket: BonjourSocketOptions) => BonjourLike;
   return {
     made,
     create: (socket) => {
-      const instance: FakeInstance = { socket, published: [], probes: [], goodbyes: [], browsers: 0, browsersStopped: 0, destroyed: false }
+      const instance: FakeInstance = { socket, published: [], probes: [], hosts: [], goodbyes: [], browsers: 0, browsersStopped: 0, destroyed: false }
       made.push(instance)
       return {
-        publish: ({ port, probe }) => {
+        publish: ({ port, probe, host }) => {
           instance.published.push(port)
           instance.probes.push(probe)
+          instance.hosts.push(host)
           return { stop: (done?: () => void) => (instance.goodbyes.push(port), done?.()), on: () => undefined }
         },
         find: () => {
@@ -535,6 +537,8 @@ interface FakeInstance {
   published: number[]
   /** The `probe` option of each announcement. */
   probes: (boolean | undefined)[]
+  /** The `host` of each announcement: its SRV target. */
+  hosts: (string | undefined)[]
   goodbyes: number[]
   browsers: number
   browsersStopped: number
@@ -560,7 +564,7 @@ describe('one mDNS socket per interface that may carry the link', () => {
   it('announces and searches on every interface, each socket joined and sending on its own; follows a change; closes all on destroy', async () => {
     const fake = fakeBonjour()
     let addresses = ['192.168.0.193', '172.30.16.1']
-    const backend = bonjourBackend({ create: fake.create, interfaces: () => addresses, warn: () => undefined })
+    const backend = bonjourBackend({ create: fake.create, interfaces: () => addresses, hostname: () => 'DESKTOP-VFHQL1V', warn: () => undefined })
     expect(fake.made).toEqual([])
 
     const announcement = backend.publish({ name: 'PC (11111111)', port: 52000, txt: { id: '11111111-1111-4111-8111-111111111111' } })
@@ -575,6 +579,14 @@ describe('one mDNS socket per interface that may carry the link', () => {
     ])
     // No probe for the name: the sockets of one machine would take each other for a rival.
     expect(fake.made.map((instance) => instance.probes)).toEqual([[false], [false]])
+    // The SRV target is a name resolvers find: the bare Windows computer name gets `.local`, on every socket.
+    expect(fake.made.map((instance) => instance.hosts)).toEqual([['DESKTOP-VFHQL1V.local'], ['DESKTOP-VFHQL1V.local']])
+    expect([mdnsHost('Alexeys-MacBook-Pro-5.local'), mdnsHost('DESKTOP-VFHQL1V.'), mdnsHost('pc.lan'), mdnsHost('Studio.LOCAL.')]).toEqual([
+      'Alexeys-MacBook-Pro-5.local',
+      'DESKTOP-VFHQL1V.local',
+      'pc.local',
+      'Studio.LOCAL',
+    ])
 
     // WSL goes, Wi-Fi comes: the WSL socket says goodbye and closes, the new one announces and searches.
     addresses = ['192.168.0.193', '192.168.1.40']
