@@ -99,16 +99,17 @@ test, не называет эту платформу или просрочен�
 записи test не пропускает. 17 mutant-ов `test/quarantine.ts` — все красные; во втором раунде ещё 6 (правило
 `since`, строка `::warning` и её экранирование `%`, CR, LF) — тоже красные.
 
-**Записи в карантине (6):**
+**Записи в карантине (6):** `since` 2026-10-27 — дата создания по UTC (сначала стояла местная 2026-10-28,
+её правило `since` не позже сегодняшнего дня по UTC краснило до полуночи UTC), `until` 2026-11-10.
 
 | Запись | Test | Платформа | Владелец | Выход |
 | --- | --- | --- | --- | --- |
-| `login-shell-capture-late-writes` | `test/contract/login-shell-capture.test.ts` › keeps nothing of what that process writes after the answer | `darwin` | `worfy-throughput 22` | 2026-11-11 |
-| `link-access-handlers-event-sender` | `test/contract/link-access.test.ts` › access on › handlers that read event.sender… | `win32` | `worfy-throughput 23` | 2026-11-11 |
-| `link-access-switch-off-mid-subscription` | `test/contract/link-access.test.ts` › switching access off › in the middle of a subscription… | `win32` | `worfy-throughput 23` | 2026-11-11 |
-| `link-access-read-only-mid-work` | `test/contract/link-access.test.ts` › read-only access › lowered from all to read-only… | `win32` | `worfy-throughput 23` | 2026-11-11 |
-| `workflow-reader-auction-size` | `test/contract/workflow-reader.test.ts` › … diffs 682 Tickets in ≤ 300 ms… | `win32` | `worfy-throughput 23` | 2026-11-11 |
-| `workflow-branches-handles-rounds` | `test/contract/workflow-branches-handles.test.ts` › 16 rounds of a worktree… | `win32` | `worfy-throughput 23` | 2026-11-11 |
+| `login-shell-capture-late-writes` | `test/contract/login-shell-capture.test.ts` › keeps nothing of what that process writes after the answer | `darwin` | `worfy-throughput 22` | 2026-11-10 |
+| `link-access-handlers-event-sender` | `test/contract/link-access.test.ts` › access on › handlers that read event.sender… | `win32` | `worfy-throughput 23` | 2026-11-10 |
+| `link-access-switch-off-mid-subscription` | `test/contract/link-access.test.ts` › switching access off › in the middle of a subscription… | `win32` | `worfy-throughput 23` | 2026-11-10 |
+| `link-access-read-only-mid-work` | `test/contract/link-access.test.ts` › read-only access › lowered from all to read-only… | `win32` | `worfy-throughput 23` | 2026-11-10 |
+| `workflow-reader-auction-size` | `test/contract/workflow-reader.test.ts` › … diffs 682 Tickets in ≤ 300 ms… | `win32` | `worfy-throughput 23` | 2026-11-10 |
+| `workflow-branches-handles-rounds` | `test/contract/workflow-branches-handles.test.ts` › 16 rounds of a worktree… | `win32` | `worfy-throughput 23` | 2026-11-10 |
 
 **Отклонения от «Что делаем», пункт 3.**
 

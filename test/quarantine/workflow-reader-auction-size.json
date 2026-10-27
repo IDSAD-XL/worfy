@@ -6,6 +6,6 @@
   ],
   "reason": "Measures wall time: 597 ms against the 450 ms bound on the GitHub Windows runner (run 40009839336, 2026-10-23), green when run again.",
   "owner": "worfy-throughput 23",
-  "since": "2026-10-28",
-  "until": "2026-11-11"
+  "since": "2026-10-27",
+  "until": "2026-11-10"
 }

@@ -6,6 +6,6 @@
   ],
   "reason": "On the GitHub Windows runner the output of PowerShell through ConPTY comes in another order than the test waits for; red in three runs of 2026-10-19 and 2026-10-22.",
   "owner": "worfy-throughput 23",
-  "since": "2026-10-28",
-  "until": "2026-11-11"
+  "since": "2026-10-27",
+  "until": "2026-11-10"
 }
