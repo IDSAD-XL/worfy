@@ -5,8 +5,7 @@ name: Windows tests
 # - `full`: the whole `pnpm test` (unit and contract, no e2e), job "full-suite".
 #
 # Two ways to start it: by hand (workflow_dispatch, below), and from the CI workflow (ci.yml) on
-# every pull request and every push to main (workflow_call): ci.yml calls the mode full once per
-# shard, with the input "shard" (`1/4` … `4/4`), and the job runs `pnpm test --shard=<shard>`. Since
+# every pull request and every push to main (workflow_call): ci.yml calls the mode full. Since
 # 2026-10-28 the repository is public and a Windows runner minute costs nothing; the price limits
 # below were written for the private repository, and they still hold for a run started by hand.
 #
@@ -62,19 +61,14 @@ on:
         description: 'Mode files: test files under test/unit/ or test/contract/, separated by spaces or commas, 12 at most; empty in mode full'
         required: false
         type: string
-  # ci.yml calls the mode full with a shard. The inputs of a call are strings: a choice exists only
-  # for a dispatch, and a mode other than files or full runs neither job.
+  # ci.yml calls the mode full. The inputs of a call are strings: a choice exists only for a
+  # dispatch, and a mode other than files or full runs neither job.
   workflow_call:
     inputs:
       mode:
         required: true
         type: string
       files:
-        required: false
-        type: string
-        default: ''
-      shard:
-        description: 'Mode full: the part of the test files to run, as vitest --shard takes it (1/4); empty for all'
         required: false
         type: string
         default: ''
@@ -170,11 +164,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # `pnpm test` is `node scripts/vitest-electron.mjs`: vitest under Electron's Node, test/unit and
-      # test/contract; vitest.config.ts leaves test/e2e and test/acceptance out. A call from ci.yml
-      # passes a shard: vitest runs that part of the files and refuses a shard it cannot read. The
-      # default shell (PowerShell) stays: the tests see the environment they always saw on Windows.
+      # test/contract; vitest.config.ts leaves test/e2e and test/acceptance out.
       - name: Run the whole unit and contract suite
-        env:
-          SHARD: ${{ inputs.shard }}
-        run: |
-          if ($env:SHARD) { pnpm test "--shard=$env:SHARD" } else { pnpm test }
+        run: pnpm test

@@ -12,7 +12,9 @@ name: CI
 # - macos-tests: pnpm test on macOS in 2 shards: the tests that run on macOS only are checked here.
 # - macos-e2e: pnpm test:e2e on macOS in 2 shards (Playwright --shard), Electron with a window.
 # - macos-package: pnpm test:package on macOS: the packaged .app.
-# - windows: the job full-suite of windows-tests.yml, pnpm test on Windows, in 4 shards.
+# - windows: the job full-suite of windows-tests.yml, pnpm test on Windows, in one job: in 4 vitest
+#   shards 7 shell tests of the Harness and the tests-intact check of harness-evals-outcome failed in
+#   the fourth shard on both runs, while the whole suite in one job passes them.
 # - ci-ok: green when every job the run needs succeeded (scripts/ci-ok.mjs). A merge reads this check.
 #
 # The manual run stays: Actions → CI → Run workflow, or `gh workflow run ci.yml --ref <ref> -f
@@ -182,8 +184,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # The display of the runner bounds the windows the e2e tests open: a window is never taller than
       # the screen. Its size is in the log for a test that fails on the size of its window.
+      # system_profiler lists no display on the runner's virtual machine; AppKit gives the size.
       - name: Show the display of the runner
-        run: system_profiler SPDisplaysDataType
+        run: osascript -l JavaScript scripts/ci-display.js
       # Builds the app into out/ and drives it with Playwright; the shard goes to playwright test.
       - name: Run the e2e tests, one shard
         env:
@@ -203,6 +206,11 @@ jobs:
     if: fromJSON(needs.changes.outputs.expect)['macos-package']
     runs-on: macos-latest
     timeout-minutes: 45
+    # electron-builder skips signing in a pull request unless told otherwise, and the packaged tests
+    # check the ad-hoc signature. The signature is ad-hoc (identity '-' in electron-builder.yml): no
+    # certificate and no secret is involved.
+    env:
+      CSC_FOR_PULL_REQUEST: 'true'
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -226,22 +234,13 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # pnpm test on Windows: the job full-suite of the Windows workflow, one call per shard.
+  # pnpm test on Windows: the job full-suite of the Windows workflow.
   windows:
     needs: changes
     if: fromJSON(needs.changes.outputs.expect)['windows']
-    strategy:
-      fail-fast: false
-      matrix:
-        shard:
-          - 1/4
-          - 2/4
-          - 3/4
-          - 4/4
     uses: ./.github/workflows/windows-tests.yml
     with:
       mode: full
-      shard: ${{ matrix.shard }}
 
   # Runs whatever happened before it (always()), so the check reports on every run; a cancelled run
   # reads as red, never as a skipped check.

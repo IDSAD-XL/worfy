@@ -118,20 +118,19 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     expect(runs('lint-typecheck')).toEqual(['pnpm install --frozen-lockfile', 'pnpm lint', 'pnpm typecheck'])
     expect(runs('linux-tests')).toContain('pnpm test "--shard=$SHARD" --sequence.shuffle.files')
     expect(runs('macos-tests')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test "--shard=$SHARD"'])
-    expect(runs('macos-e2e')).toEqual(['pnpm install --frozen-lockfile', 'system_profiler SPDisplaysDataType', 'pnpm test:e2e "--shard=$SHARD"'])
+    expect(runs('macos-e2e')).toEqual(['pnpm install --frozen-lockfile', 'osascript -l JavaScript scripts/ci-display.js', 'pnpm test:e2e "--shard=$SHARD"'])
     // electron-builder needs the binary that Electron downloads only on its first require.
     expect(runs('macos-package')).toEqual(['pnpm install --frozen-lockfile', `node -e "require('electron')"`, 'pnpm test:package'])
     // Windows: the job full-suite of windows-tests.yml, which runs pnpm test (its own contract test).
     const windows = job('windows')
     expect(value(windows, 'uses')).toBe('./.github/workflows/windows-tests.yml')
-    expect(under(windows, '    with:')).toEqual(['      mode: full', '      shard: ${{ matrix.shard }}'])
+    expect(under(windows, '    with:')).toEqual(['      mode: full'])
   })
 
   it('splits the tests into shards that together cover every file', () => {
     expect(shards('linux-tests')).toHaveLength(4)
     expect(shards('macos-tests')).toHaveLength(2)
     expect(shards('macos-e2e')).toHaveLength(2)
-    expect(shards('windows')).toHaveLength(4)
     for (const name of ['linux-tests', 'macos-tests', 'macos-e2e']) {
       expect(job(name), name).toContain('          SHARD: ${{ matrix.shard }}')
     }
@@ -139,6 +138,11 @@ describe('ci.yml: every pull request and every push to main, one check for the m
 
   it('pastes no expression into a command: values reach the shell through env', () => {
     for (const line of code().filter((l) => /^\s*(- )?run: /.test(l))) expect(line).not.toContain('${{')
+  })
+
+  it('lets electron-builder sign the app ad hoc in a pull request, with no certificate', () => {
+    expect(under(job('macos-package'), '    env:')).toEqual(["      CSC_FOR_PULL_REQUEST: 'true'"])
+    expect(readFileSync(join(REPO, 'electron-builder.yml'), 'utf8')).toMatch(/^\s+identity: '-'/m)
   })
 
   it('keeps the trace and screenshots of a failed e2e or packaged run', () => {
