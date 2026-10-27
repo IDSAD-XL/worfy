@@ -144,11 +144,16 @@ export const claudeHomeTranscript = invokeChannel(
  * builds the tree from them (src/shared/transcript/subagents.ts), together with the events of a
  * live Session. `found` is false when the Session has no transcript yet. No subscription: the
  * Session's transcript changes come on `claudeHome.changed`.
+ *
+ * `truncated` is set when the answer to a Linked machine was shortened to fit a link connection
+ * (LINK_MAX_PAYLOAD, src/main/link/messages.ts): the texts of results and answers are cut, and in
+ * the last resort the oldest signals and files are left out (src/main/ipc/claude-home.ts,
+ * fitSubagentsAnswer).
  */
 export const claudeHomeSubagents = invokeChannel(
   'claudeHome.subagents',
   z.object({ projectRoot: absolutePath, sessionId: sessionIdSchema }),
-  z.object({ found: z.boolean(), signals: z.array(subagentSignalSchema), files: z.array(subagentFileSchema) }),
+  z.object({ found: z.boolean(), signals: z.array(subagentSignalSchema), files: z.array(subagentFileSchema), truncated: z.boolean().optional() }),
   'project',
   'read',
 )

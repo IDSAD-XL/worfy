@@ -1,0 +1,428 @@
+{
+  "fixture": {
+    "epics": 20,
+    "tickets": 300,
+    "sessions": 60
+  },
+  "clickToLoadedMs": 764,
+  "at": {
+    "placeholder": 130.2000002861023,
+    "line": 130.2000002861023,
+    "canvas": 186.80000019073486,
+    "gone": 707.3000001907349
+  },
+  "epicSteps": [
+    {
+      "at": 130.2000002861023,
+      "text": "Laying out Epics…"
+    },
+    {
+      "at": 186.80000019073486,
+      "text": "Laying out Epics 0/20"
+    },
+    {
+      "at": 443.90000009536743,
+      "text": "Laying out Epics 1/20"
+    },
+    {
+      "at": 454.1000003814697,
+      "text": "Laying out Epics 2/20"
+    },
+    {
+      "at": 458.90000009536743,
+      "text": "Laying out Epics 3/20"
+    },
+    {
+      "at": 469.30000019073486,
+      "text": "Laying out Epics 4/20"
+    },
+    {
+      "at": 476.30000019073486,
+      "text": "Laying out Epics 5/20"
+    },
+    {
+      "at": 483,
+      "text": "Laying out Epics 6/20"
+    },
+    {
+      "at": 486.30000019073486,
+      "text": "Laying out Epics 7/20"
+    },
+    {
+      "at": 496.7000002861023,
+      "text": "Laying out Epics 8/20"
+    },
+    {
+      "at": 504.2000002861023,
+      "text": "Laying out Epics 9/20"
+    },
+    {
+      "at": 512.1000003814697,
+      "text": "Laying out Epics 10/20"
+    },
+    {
+      "at": 515.5,
+      "text": "Laying out Epics 11/20"
+    },
+    {
+      "at": 522.6000003814697,
+      "text": "Laying out Epics 12/20"
+    },
+    {
+      "at": 526.3000001907349,
+      "text": "Laying out Epics 13/20"
+    },
+    {
+      "at": 529.6000003814697,
+      "text": "Laying out Epics 14/20"
+    },
+    {
+      "at": 532.8000001907349,
+      "text": "Laying out Epics 15/20"
+    },
+    {
+      "at": 540.2000002861023,
+      "text": "Laying out Epics 16/20"
+    },
+    {
+      "at": 543.7000002861023,
+      "text": "Laying out Epics 17/20"
+    },
+    {
+      "at": 547.2000002861023,
+      "text": "Laying out Epics 18/20"
+    },
+    {
+      "at": 550.3000001907349,
+      "text": "Laying out Epics 19/20"
+    },
+    {
+      "at": 559.5,
+      "text": "Laying out Epics 20/20"
+    }
+  ],
+  "gaps": 0,
+  "covers": [],
+  "storeUpdates": {
+    "useWorkflowStore": {
+      "count": 2,
+      "at": [
+        135,
+        207
+      ]
+    },
+    "useElkAnswers": {
+      "count": 20,
+      "at": [
+        441,
+        450,
+        455,
+        466,
+        473,
+        480,
+        483,
+        491,
+        501,
+        509,
+        512,
+        519,
+        523,
+        527,
+        530,
+        537,
+        541,
+        544,
+        548,
+        554
+      ]
+    }
+  },
+  "wheelTurns": 1,
+  "longTasks": {
+    "count": 1,
+    "over100": 0,
+    "longest": 60,
+    "total": 60,
+    "all": [
+      {
+        "start": 137.7000002861023,
+        "duration": 60
+      }
+    ]
+  },
+  "linkedCalls": [
+    {
+      "channel": "layout.recentBatches",
+      "input": "null",
+      "start": 1793087177683,
+      "ms": 0,
+      "bytes": 42
+    },
+    {
+      "channel": "projects.list",
+      "input": "null",
+      "start": 1793087177753,
+      "ms": 15,
+      "bytes": 386
+    },
+    {
+      "channel": "workflow.open",
+      "input": "{\"root\":\"/private/var/folders/3c/vgccn1z92czdrc5h61w_hkvw0000gn/T/worfy-link-33-TrpL8Y/beta\"}",
+      "start": 1793087177770,
+      "ms": 4,
+      "bytes": 86326
+    },
+    {
+      "channel": "layout.get",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177770,
+      "ms": 5,
+      "bytes": 299
+    },
+    {
+      "channel": "sessions.views",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177770,
+      "ms": 5,
+      "bytes": 52
+    },
+    {
+      "channel": "layout.get",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177770,
+      "ms": 5,
+      "bytes": 299
+    },
+    {
+      "channel": "orchestrator.open",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177770,
+      "ms": 5,
+      "bytes": 252
+    },
+    {
+      "channel": "pipeline.get",
+      "input": "{\"root\":\"/private/var/folders/3c/vgccn1z92czdrc5h61w_hkvw0000gn/T/worfy-link-33-TrpL8Y/gamma\"}",
+      "start": 1793087177770,
+      "ms": 5,
+      "bytes": 740
+    },
+    {
+      "channel": "workflow.open",
+      "input": "{\"root\":\"/private/var/folders/3c/vgccn1z92czdrc5h61w_hkvw0000gn/T/worfy-link-33-TrpL8Y/gamma\"}",
+      "start": 1793087177770,
+      "ms": 5,
+      "bytes": 189
+    },
+    {
+      "channel": "pipeline.get",
+      "input": "{\"root\":\"/private/var/folders/3c/vgccn1z92czdrc5h61w_hkvw0000gn/T/worfy-link-33-TrpL8Y/beta\"}",
+      "start": 1793087177770,
+      "ms": 5,
+      "bytes": 62658
+    },
+    {
+      "channel": "docs.open",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177770,
+      "ms": 5,
+      "bytes": 94
+    },
+    {
+      "channel": "orchestrator.view",
+      "input": "{\"nodeId\":\"3ce16c1f-d42b-4e5a-af28-b96a917fca1b\"}",
+      "start": 1793087177797,
+      "ms": 1,
+      "bytes": 261
+    },
+    {
+      "channel": "browser.profiles.list",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177799,
+      "ms": 1,
+      "bytes": 119
+    },
+    {
+      "channel": "browser.lives.list",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177799,
+      "ms": 1,
+      "bytes": 80
+    },
+    {
+      "channel": "trash.list",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177799,
+      "ms": 1,
+      "bytes": 54
+    },
+    {
+      "channel": "layout.get",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177800,
+      "ms": 0,
+      "bytes": 299
+    },
+    {
+      "channel": "bindings.get",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177800,
+      "ms": 0,
+      "bytes": 83
+    },
+    {
+      "channel": "layout.get",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177800,
+      "ms": 0,
+      "bytes": 299
+    },
+    {
+      "channel": "layout.get",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177800,
+      "ms": 0,
+      "bytes": 299
+    },
+    {
+      "channel": "layout.get",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177800,
+      "ms": 0,
+      "bytes": 299
+    },
+    {
+      "channel": "checks.repos",
+      "input": "{\"root\":\"/private/var/folders/3c/vgccn1z92czdrc5h61w_hkvw0000gn/T/worfy-link-33-TrpL8Y/beta\"}",
+      "start": 1793087177800,
+      "ms": 0,
+      "bytes": 66
+    },
+    {
+      "channel": "orchestrator.view",
+      "input": "{\"nodeId\":\"3ce16c1f-d42b-4e5a-af28-b96a917fca1b\"}",
+      "start": 1793087177824,
+      "ms": 0,
+      "bytes": 261
+    },
+    {
+      "channel": "projects.settings.get",
+      "input": "{\"id\":\"beta-0000000b\"}",
+      "start": 1793087177824,
+      "ms": 1,
+      "bytes": 171
+    },
+    {
+      "channel": "autopilot.state",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177824,
+      "ms": 1,
+      "bytes": 259
+    },
+    {
+      "channel": "actions.launches",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177824,
+      "ms": 1,
+      "bytes": 95
+    },
+    {
+      "channel": "layout.get",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177846,
+      "ms": 0,
+      "bytes": 299
+    },
+    {
+      "channel": "orchestrator.view",
+      "input": "{\"nodeId\":\"3ce16c1f-d42b-4e5a-af28-b96a917fca1b\"}",
+      "start": 1793087177846,
+      "ms": 0,
+      "bytes": 261
+    },
+    {
+      "channel": "layout.get",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087177846,
+      "ms": 1,
+      "bytes": 299
+    },
+    {
+      "channel": "claudeHome.sessions",
+      "input": "{\"projectRoot\":\"/private/var/folders/3c/vgccn1z92czdrc5h61w_hkvw0000gn/T/worfy-link-33-TrpL8Y/beta\"}",
+      "start": 1793087177770,
+      "ms": 137,
+      "bytes": 20993
+    },
+    {
+      "channel": "agent.controls",
+      "input": "{\"sessionId\":\"c6e47dd1-5372-40a8-ac5d-2abfeeae537a\"}",
+      "start": 1793087177909,
+      "ms": 0,
+      "bytes": 154
+    },
+    {
+      "channel": "agent.controls",
+      "input": "{\"sessionId\":\"c6e47dd1-5372-40a8-ac5d-2abfeeae537a\"}",
+      "start": 1793087177909,
+      "ms": 3,
+      "bytes": 154
+    },
+    {
+      "channel": "agent.controls",
+      "input": "{\"sessionId\":\"c6e47dd1-5372-40a8-ac5d-2abfeeae537a\"}",
+      "start": 1793087177909,
+      "ms": 3,
+      "bytes": 154
+    },
+    {
+      "channel": "agent.models",
+      "input": "{\"sessionId\":\"c6e47dd1-5372-40a8-ac5d-2abfeeae537a\"}",
+      "start": 1793087177909,
+      "ms": 3,
+      "bytes": 321
+    },
+    {
+      "channel": "bindings.signals",
+      "input": "{\"projectRoot\":\"/private/var/folders/3c/vgccn1z92czdrc5h61w_hkvw0000gn/T/worfy-link-33-TrpL8Y/beta\",\"sessionId\":\"c6e47dd1-5372-40a8-ac5d-2abfeeae537a\"}",
+      "start": 1793087177909,
+      "ms": 16,
+      "bytes": 148
+    },
+    {
+      "channel": "claudeHome.subagents",
+      "input": "{\"projectRoot\":\"/private/var/folders/3c/vgccn1z92czdrc5h61w_hkvw0000gn/T/worfy-link-33-TrpL8Y/beta\",\"sessionId\":\"c6e47dd1-5372-40a8-ac5d-2abfeeae537a\"}",
+      "start": 1793087177909,
+      "ms": 16,
+      "bytes": 79
+    },
+    {
+      "channel": "browser.screen",
+      "input": "{\"projectId\":\"beta-0000000b\",\"visible\":[],\"zoom\":1,\"screen\":\"a2ba93fd-5cb5-4a96-8db6-065aa28001fe\"}",
+      "start": 1793087178015,
+      "ms": 0,
+      "bytes": 42
+    },
+    {
+      "channel": "autopilot.state",
+      "input": "{\"projectId\":\"beta-0000000b\"}",
+      "start": 1793087178200,
+      "ms": 0,
+      "bytes": 259
+    },
+    {
+      "channel": "layout.apply",
+      "input": "{\"projectId\":\"beta-0000000b\",\"op\":{\"op\":\"create\",\"node\":{\"id\":\"epic-arrangement\",\"kind\":\"epic-arrangement\",\"x\":0,\"y\":0,\"w\":1,\"h\":1,\"locked\":true,\"data\":{\"order\"",
+      "start": 1793087178201,
+      "ms": 1,
+      "bytes": 692
+    },
+    {
+      "channel": "checks.get",
+      "input": "{\"root\":\"/private/var/folders/3c/vgccn1z92czdrc5h61w_hkvw0000gn/T/worfy-link-33-TrpL8Y/beta\",\"branches\":[\"epic-01/14\",\"epic-02/14\",\"epic-03/14\",\"epic-04/14\",\"ep",
+      "start": 1793087177968,
+      "ms": 316,
+      "bytes": 376
+    }
+  ]
+}
