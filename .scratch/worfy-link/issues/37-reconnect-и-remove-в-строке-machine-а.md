@@ -1,7 +1,8 @@
 # 37 — «Reconnect», «Remove» и «Change address…» видны в строке Machine-а без связи; «Revoke» → «Remove»
 
 Type: task
-Status: open
+Status: done 2026-10-27T17:48Z
+PR: #850
 Blocked by: 36
 Source: баг владельца 2026-10-26 и его решения того же дня (приняты все): после потери связи Mac и Windows-ПК
 владелец не нашёл, как подключиться заново и как убрать машину. Main-часть — Ticket 36. Ticket берётся сразу
@@ -77,3 +78,13 @@ Source: баг владельца 2026-10-26 и его решения того �
 - `src/renderer/machines/LinkMachineDialog.tsx`, `src/main/link/discovery.ts:9-10` — уже связанные в списке.
 - `src/shared/ipc/link.ts`, `src/main/link/service.ts` — доступ другой стороны в `link.state`, если его там нет.
 - `test/unit/machines-section.test.tsx`, `test/unit/palette-commands.test.tsx`, `test/e2e/linked-reconnect.spec.ts`.
+
+### Ревью и merge (2026-10-27)
+
+PR #850: ревью low — VERIFIED (пять low взяты в follow-up commit); follow-up dc267212..d1b0fbef после rebase на
+worfy-link/36 — VERIFIED (low 1, 3, 4, 5 исправлены, пункт 2 принят как правка комментария). Вердикт Windows — e2e
+`linked-machines.spec.ts` и `linked-reconnect.spec.ts` на d1b0fbef, exit 0, 12 passed; окно Remove при 150 %
+не проверено (оба монитора ПК на 100 %). gate full на Mac — зелёный на e8f4c204 после rebase на e42eb339; merge
+`9c8046f0`. Долг: `ChangeAddressDialog.tsx:34-42` не возвращает focus на кнопку при закрытии; aria-label
+`MachinesSection.tsx:194` остаётся «Reconnect <name>» при «Connecting…»; текст `MachineDialogs.tsx:52` «the next
+time it connects» неверен для машины online; секция Projects показывает «doesn't share its Projects» у offline машины.
