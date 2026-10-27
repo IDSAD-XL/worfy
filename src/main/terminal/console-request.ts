@@ -38,8 +38,11 @@
 // answers those itself (cursor-answers.ts). This console also passes a request that a PROGRAM
 // writes on to the terminal, and the answer back to the program (measured: a program that wrote
 // `ESC [ c` read back `ESC [ ? 1 ; 2 c` when the terminal answered, and nothing when it did not).
-// Such a request is answered here in the same way, with what xterm.js would say. Other requests of
-// a program (the colors, the modes) still go to the screens: only a screen knows those answers.
+// Such a request is answered here in the same way, with what xterm.js would say, and main's own
+// screen never sees it. The other requests of a program go on to the screens: main's screen
+// answers those whose answer does not depend on a view (the modes, the secondary device
+// attributes, cursor-answers.ts), and the views answer the colour queries — which this console
+// does not pass on at all (measured, worfy-windows ticket 68).
 
 const ESC = '\x1b'
 /** CSI as one character (C1); xterm.js reads it as `ESC [`. */

@@ -1,22 +1,33 @@
-// main answers the cursor-position requests of a shell (worfy-windows ticket 39).
+// main answers the requests of a program to its terminal (worfy-windows tickets 39 and 68).
 //
-// A program asks its terminal where the cursor is with `ESC[6n` (or `ESC[?6n`) and waits for the
-// answer `ESC[<row>;<column>R`. The console of node-pty 1.2.0-beta.15 on Windows asks it about ten
-// times after every resize, and PowerShell echoes nothing more until it is answered (PR #498).
-// xterm.js in a view answers too, but a view is not always there: Canvas unmounts a Node out of
-// sight while its window stays subscribed, and a view that redraws the kept output drops the
-// answers to the old requests in it (TerminalNode.tsx). A request that came while no view was
-// mounted would wait for ever.
+// A program asks its terminal where the cursor is (`ESC[6n`, `ESC[?6n`), what it is (the device
+// attributes, `ESC[c`, `ESC[>c`), how it is (`ESC[5n`), the state of a mode (DECRQM,
+// `ESC[?2004$p`) or a setting (DECRQSS, `ESC P $q m ESC \`), and waits for the answer. The
+// console of node-pty 1.2.0-beta.15 on Windows asks the cursor position about ten times after
+// every resize, and PowerShell echoes nothing more until it is answered (PR #498); vim asks the
+// position and the secondary device attributes when it starts. xterm.js in a view answers too, but
+// a view is not always there: Canvas unmounts a Node out of sight while its window stays
+// subscribed, and a view that redraws the kept output drops the answers to the old requests in it
+// (TerminalNode.tsx). A request that came while no view was mounted would wait for ever; with two
+// views mounted the program got two answers.
 //
-// So main answers every such request itself, once, and drops the same answer when a view sends it
-// (`TerminalRegistry.write` with `reply`): one answer however many views are open, none or two.
-// This holds for every TerminalRegistry, the Terminal Nodes' and the "Sign in with gh" one
-// (src/main/ipc/projects.ts): each view marks its answers (terminal-user-input.ts). The
-// position is that of a screen of the pty's own size: main follows the output with xterm.js
-// without a display (@xterm/headless, the same parser and buffer as the views'), and its answer is
-// what xterm.js answers at that point of the output. Other requests (the device attributes, the
-// colours, the modes) are still answered by the views; on Windows main also answers the console's
-// device attributes request (console-request.ts).
+// So main answers each request whose answer is the same from its screen and from a view's (the
+// shapes are in src/shared/terminal/cursor-answer.ts, isMainAnswer), once, and drops the same
+// answer when a view sends it (`TerminalRegistry.write` with `reply`): one answer however many
+// views are open, none or two. This holds for every TerminalRegistry, the Terminal Nodes' and the
+// "Sign in with gh" one (src/main/ipc/projects.ts): each view marks its answers
+// (terminal-user-input.ts). main follows the output with xterm.js without a display
+// (@xterm/headless, the same parser and buffer as the views', on a screen of the pty's own size),
+// and its answer is what xterm.js answers at that point of the output. On Windows the device
+// attributes request never reaches this screen: main answers it in console-request.ts and takes it
+// out of the output.
+//
+// The colour queries (OSC 10, 11, 12 and 4 with `?`) stay with the views: the answer is the
+// colour of the view's theme, and main's screen has none. With no view mounted such a query gets
+// no answer. With two views each answers; main passes the first answer of each kind (foreground,
+// background, cursor, a palette entry) and drops another view's answer of that kind that comes
+// within COLOUR_ANSWER_WINDOW_MS (ColourAnswers). The same view answering again passes: the
+// program asked again. main does not track the queries for this.
 //
 // The screen keeps SCROLLBACK lines above the visible rows: when a resize makes the lines wider,
 // xterm.js pulls lines back from the scrollback into view, at most as many as the rows freed, so
@@ -48,9 +59,48 @@
 // would not know where the cursor is until the program moved it to a fixed place, so none is made.
 import { createRequire } from 'node:module'
 import { Worker } from 'node:worker_threads'
-import { isCursorAnswer } from '../../shared/terminal/cursor-answer'
+import { colourAnswers, CURSOR_BLINK, isMainAnswer } from '../../shared/terminal/cursor-answer'
 
-export { isCursorAnswer }
+/**
+ * How long after a view's colour answer passed another view's answer of the same kind is taken for
+ * a second answer to the same query (ColourAnswers).
+ */
+export const COLOUR_ANSWER_WINDOW_MS = 1000
+
+/**
+ * The colour answers of the views of one shell: the first answer of a kind passes, and another
+ * view's answer of the same kind within COLOUR_ANSWER_WINDOW_MS is dropped (see the head of the file).
+ */
+export class ColourAnswers {
+  private readonly last = new Map<string, { client: unknown; view: string | undefined; at: number }>()
+
+  /**
+   * What of `data`, marked as an answer by the view `view` of `client`, goes to the shell: all of it
+   * unless it is colour answers. A view is its window (`client`) and its name in that window: focus
+   * mode shows a shell in two views of one window. A screen that names no view counts as one view.
+   */
+  pass(data: string, client: unknown, view?: string): string {
+    const answers = colourAnswers(data)
+    if (answers === null) return data
+    const now = Date.now()
+    return answers
+      .filter(({ kind }) => {
+        const last = this.last.get(kind)
+        // shortcut: a time window in place of a count of the queries, redo by counting the colour queries in the output main follows once a program is seen getting two answers or none.
+        // The window's limit: a second view that answers more than COLOUR_ANSWER_WINDOW_MS late
+        // gives the program a second answer, and when the view that answered goes, a new query
+        // within the window gets no answer. Chromium runs a hidden window's timers once a second or
+        // less often, and a view's xterm.js parses output on a timer, so a view in a hidden window
+        // may answer that late.
+        const other = last !== undefined && (last.client !== client || last.view !== view)
+        if (other && now - last.at < COLOUR_ANSWER_WINDOW_MS) return false
+        this.last.set(kind, { client, view, at: now })
+        return true
+      })
+      .map(({ text }) => text)
+      .join('')
+  }
+}
 
 /** Lines kept above the visible rows; see the head of the file. */
 export const SCROLLBACK = 1000
@@ -87,7 +137,7 @@ function refuse(id, error) {
 parentPort.on('message', (m) => {
   try {
     if (m.t === 'open') {
-      const screen = new Terminal({ cols: m.cols, rows: m.rows, scrollback: m.scrollback, allowProposedApi: false })
+      const screen = new Terminal({ cols: m.cols, rows: m.rows, scrollback: m.scrollback, cursorBlink: m.cursorBlink, allowProposedApi: false })
       screen.onData((data) => parentPort.postMessage({ t: 'data', id: m.id, data }))
       screens.set(m.id, screen)
       return
@@ -106,7 +156,7 @@ parentPort.on('message', (m) => {
 `
 
 type ToWorker =
-  | { t: 'open'; id: number; cols: number; rows: number; scrollback: number }
+  | { t: 'open'; id: number; cols: number; rows: number; scrollback: number; cursorBlink: boolean }
   | { t: 'feed'; id: number; data: string }
   | { t: 'resize'; id: number; cols: number; rows: number }
   | { t: 'close'; id: number }
@@ -134,7 +184,7 @@ class ScreenWorker {
   open(size: { cols: number; rows: number }, listener: ScreenListener): number {
     const id = ++this.next
     this.screens.set(id, listener)
-    this.post({ t: 'open', id, cols: size.cols, rows: size.rows, scrollback: SCROLLBACK })
+    this.post({ t: 'open', id, cols: size.cols, rows: size.rows, scrollback: SCROLLBACK, cursorBlink: CURSOR_BLINK })
     return id
   }
 
@@ -187,7 +237,7 @@ class ScreenWorker {
 let shared: ScreenWorker | undefined
 const screenWorkerOf = (): ScreenWorker => (shared ??= new ScreenWorker())
 
-/** Follows the output of one shell and answers its cursor-position requests through `answer`. */
+/** Follows the output of one shell and answers its requests (isMainAnswer) through `answer`. */
 export class CursorAnswers {
   private readonly id: number
   private disposed = false
@@ -209,7 +259,7 @@ export class CursorAnswers {
   ) {
     this.id = screenWorkerOf().open(size, {
       data: (data) => {
-        if (this.answering && isCursorAnswer(data)) answer(data)
+        if (this.answering && isMainAnswer(data)) answer(data)
       },
       parsed: (n) => {
         this.inFlight -= n
@@ -219,7 +269,7 @@ export class CursorAnswers {
     })
   }
 
-  /** Whether main answers this shell's cursor requests: not after the screen refused output, nor after dispose. */
+  /** Whether main answers this shell's requests: not after the screen refused output, nor after dispose. */
   get answering(): boolean {
     return !this.disposed && !this.failed
   }
@@ -264,6 +314,6 @@ export class CursorAnswers {
     this.failed = true
     // Nothing goes to the worker any more: the pty must not wait for it.
     this.letOutputFlow()
-    console.warn(`[terminal] ${this.name}: main's screen refused output (${reason}); the views answer the cursor-position requests from now on`)
+    console.warn(`[terminal] ${this.name}: main's screen refused output (${reason}); the views answer its requests from now on`)
   }
 }

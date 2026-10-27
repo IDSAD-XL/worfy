@@ -10,6 +10,7 @@ import { matches } from '../../shortcuts/match'
 import type { CanvasNodeProps } from './index'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
+import { useInFocusTile } from '../../focus/focus-tile'
 import { keepAltBufferFitted } from './terminal-alt-buffer'
 import { watchTypedLine, type TypedLineWatch } from './terminal-line'
 import { writeReplay } from './terminal-replay'
@@ -21,6 +22,7 @@ import { failureReason } from '../../../shared/ipc/channels'
 import type { TerminalAiFixState } from '../../../shared/ipc/terminal-ai-fix'
 import type { TerminalAiRequestState } from '../../../shared/ipc/terminal-ai-request'
 import { SHORTCUTS } from '../../../shared/shortcuts'
+import { CURSOR_BLINK } from '../../../shared/terminal/cursor-answer'
 import { NODE_HEADER } from '../node-header'
 
 // A Terminal: the user's interactive shell in the root of the Project (CONTEXT.md, "Terminal").
@@ -51,8 +53,12 @@ import { NODE_HEADER } from '../node-header'
 // and main leaves the size where it is (terminal-user-input.ts tells them from typing). A view
 // that redraws the kept output sends none of the answers xterm.js gives to the requests in it:
 // the program had its answers when those requests came — unless no view was mounted then: such a
-// request stays unanswered (ticket 39, its result section), except a cursor-position request, which main
-// answers itself in every case (src/main/terminal/cursor-answers.ts). The view attaches once xterm.js has parsed the
+// request stays unanswered (ticket 39, its result section), except the requests main answers itself
+// in every case: the cursor position, the device attributes, a mode, a setting
+// (src/main/terminal/cursor-answers.ts, ticket 68). A colour query is answered only by a mounted
+// view, from its theme; main passes the first view's answer, and each view names itself in its
+// answers (`view`), since focus mode shows a shell in two views of one window. The view attaches
+// once xterm.js has parsed the
 // kept output; output that comes meanwhile waits and is answered as live, and what the user types
 // or clicks meanwhile is sent once the view attaches.
 //
@@ -73,6 +79,7 @@ import { NODE_HEADER } from '../node-header'
 // The same value as TERMINAL_NODE_KIND, by which main recognises a Terminal Node; written out
 // here because the Node registry needs a literal export.
 export const kind = 'terminal'
+
 export const defaultWidth = 560
 export const defaultHeight = 340
 /** The Canvas context menu item that creates this Node (overlays/CanvasMenu.tsx). */
@@ -228,6 +235,9 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
   // The Canvas on screen is always the active Project's, so its Nodes belong to that Project.
   const projectId = activeProject(useProjects())?.id
   const host = useRef<HTMLDivElement>(null)
+  // How this view names itself in its answers: a window shows a shell at most once on the Canvas and
+  // once in the focus mode tile, and a view mounted again keeps the name.
+  const viewName = useInFocusTile() ? 'tile' : 'canvas'
   const [status, setStatus] = useState<Status>({ state: 'starting' })
   // Bumped by Restart (a new run of the effect opens a new shell) and by a shell started on another
   // screen or in another view (a new run attaches to it).
@@ -253,7 +263,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     const terminal = new Terminal({
       fontFamily: getComputedStyle(element).getPropertyValue('--font-mono').trim() || 'monospace',
       fontSize: 12,
-      cursorBlink: true,
+      cursorBlink: CURSOR_BLINK,
       scrollback: 5000,
       theme: themeOf(element),
     })
@@ -342,7 +352,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     const userInput = watchUserInput(terminal)
     const typed = terminal.onData((keys) => {
       const user = userInput.take(keys)
-      if (attached) void invoke('terminal.input', { ...ref, data: keys, ...(user ? {} : { reply: true }) })
+      if (attached) void invoke('terminal.input', { ...ref, data: keys, ...(user ? {} : { reply: true, view: viewName }) })
       // Typed while the kept output is parsed: sent once the view attaches.
       else if (replaying && user) pending.push(() => void invoke('terminal.input', { ...ref, data: keys }))
     })
@@ -482,7 +492,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       altBuffer.dispose()
       terminal.dispose()
     }
-  }, [projectId, id, run])
+  }, [projectId, id, run, viewName])
 
   const closeRequest = () => {
     setRequestOpen(false)

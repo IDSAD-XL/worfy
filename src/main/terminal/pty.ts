@@ -19,9 +19,11 @@
 // subscriber that typed or clicked in the terminal last (Q14). A subscriber's resize is remembered
 // and applies only while it owns the size; typing (write) or a click (takeSize) makes it the owner.
 // An answer of a screen's terminal to the program (write with `reply`) does not (ticket 39 of
-// worfy-windows): it reaches the shell, and the size stays where it is. Cursor-position requests
-// are answered by main itself, once, at the pty's size, and the screens' answers to them are
-// dropped (cursor-answers.ts).
+// worfy-windows): it reaches the shell, and the size stays where it is. The requests whose answer
+// does not depend on the screen (the cursor position, the device attributes, the state of a mode
+// or a setting) are answered by main itself, once, at the pty's size, and the screens' answers to
+// them are dropped; of the screens' colour answers main passes one per query (cursor-answers.ts,
+// worfy-windows ticket 68).
 // When the owner leaves, the size goes to the subscriber that typed or clicked last, or else to the
 // one whose size came last.
 //
@@ -59,7 +61,8 @@ import { findGitBash, findOnPath, getVar, gitBashKill, powershellScriptCommand, 
 import type { ReplaySize } from '../../shared/ipc/terminal'
 import type { TerminalShellSetting } from '../../shared/projects/action-templates'
 import { ConsoleRequests, DEVICE_ATTRIBUTES_ANSWER } from './console-request'
-import { CursorAnswers, isCursorAnswer } from './cursor-answers'
+import { isMainAnswer } from '../../shared/terminal/cursor-answer'
+import { ColourAnswers, CursorAnswers } from './cursor-answers'
 import { ShellTracker, type ShellEvent, type ShellState } from './osc'
 import { REPLAY_LIMIT, ReplayBuffer } from './replay-buffer'
 import { integrationEnv, isZsh, newNonce, type AssistAdmission, type AssistDoor, type ShellIntegration } from './shell-integration'
@@ -265,8 +268,10 @@ interface Terminal {
   tracker: ShellTracker | null
   /** The size the pty has now. */
   size: Size
-  /** Answers the cursor-position requests in the output, on every system (cursor-answers.ts). */
+  /** Answers the requests in the output whose answer does not depend on a screen, on every system (cursor-answers.ts). */
   cursor: CursorAnswers
+  /** Passes one colour answer of the screens per query (cursor-answers.ts). */
+  colours: ColourAnswers
   exited: Promise<void>
   closing: boolean
   /** A moment by which the shell was running (StartedShell). */
@@ -572,7 +577,7 @@ export class TerminalRegistry {
         try {
           pty.write(answer)
         } catch (error) {
-          console.warn(`[terminal] ${key}: a cursor-position request could not be answered`, error)
+          console.warn(`[terminal] ${key}: a request of the program could not be answered`, error)
         }
       }, key, {
         // Held back while main's screen lags behind a flood (cursor-answers.ts, HIGH_WATER).
@@ -591,6 +596,7 @@ export class TerminalRegistry {
           }
         },
       }),
+      colours: new ColourAnswers(),
       exited: new Promise((resolve) => (exitedResolve = resolve)),
       closing: false,
       startedBy,
@@ -786,16 +792,25 @@ export class TerminalRegistry {
 
   /**
    * Types into the shell; a subscriber that types takes the size of the pty first. An answer of the
-   * subscriber's terminal to the program (`reply`: a focus report, the device attributes) reaches
+   * subscriber's terminal to the program (`reply`: a focus report) reaches
    * the shell the same way and leaves the size where it is: the size belongs to the screen that
-   * typed or clicked last (ADR-0053, decision 5; worfy-windows ticket 39). An answer to a
-   * cursor-position request goes nowhere: main has answered that request itself (cursor-answers.ts).
+   * typed or clicked last (ADR-0053, decision 5; worfy-windows ticket 39). An answer main gives
+   * itself (the cursor position, the device attributes, a mode, a setting: isMainAnswer) goes
+   * nowhere: main has answered that request. A colour answer passes once per query, from the view
+   * that answered first, views told apart by subscriber and `view` (ColourAnswers; worfy-windows
+   * ticket 68). Unmarked data is the user's and
+   * always reaches the shell.
    */
-  write(key: string, data: string, client: TerminalClient | undefined, options: { reply?: boolean } = {}): void {
+  write(key: string, data: string, client: TerminalClient | undefined, options: { reply?: boolean; view?: string } = {}): void {
     const terminal = this.running(key)
-    // While main answers (not after its screen refused output, cursor-answers.ts).
-    if (options.reply === true && terminal.cursor.answering && isCursorAnswer(data)) return
-    if (options.reply !== true) this.touch(key, terminal, client)
+    if (options.reply === true) {
+      // While main answers (not after its screen refused output, cursor-answers.ts).
+      if (terminal.cursor.answering && isMainAnswer(data)) return
+      const passed = terminal.colours.pass(data, client, options.view)
+      if (passed !== '') terminal.pty.write(passed)
+      return
+    }
+    this.touch(key, terminal, client)
     terminal.pty.write(data)
   }
 

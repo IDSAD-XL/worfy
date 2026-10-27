@@ -367,8 +367,8 @@ export const projectsConnectSignIn = invokeChannel(
 
 /**
  * Keys the user typed into the sign-in terminal, or (`reply: true`) an answer of its xterm.js to gh.
- * main answers gh's cursor-position requests itself and drops a marked answer to them, as on
- * `terminal.input` (worfy-windows ticket 39).
+ * main answers gh's requests whose answer does not depend on the view itself and drops a marked
+ * answer to them, as on `terminal.input` (worfy-windows tickets 39 and 68).
  */
 export const projectsConnectSignInInput = invokeChannel(
   'projects.connect.signInInput',

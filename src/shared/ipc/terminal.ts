@@ -117,13 +117,17 @@ export const terminalShells = invokeChannel(
 
 /**
  * Keys typed or pasted in the terminal. `reply` marks an answer of the caller's terminal to the
- * program instead (a focus report, the device attributes): it reaches the shell the same way, but
+ * program instead (a focus report): it reaches the shell the same way, but
  * does not give the caller the size of the pty (worfy-windows ticket 39). A marked answer to a
- * cursor-position request goes nowhere: main answers those itself (src/main/terminal/cursor-answers.ts).
+ * request whose answer does not depend on the view (cursor position, device attributes, status,
+ * modes, settings) goes nowhere: main answers those itself; of the views' answers to a colour
+ * query only the first passes (src/main/terminal/cursor-answers.ts, worfy-windows ticket 68). `view`
+ * names the caller's view that sent a marked answer: one window may show a shell in two views at
+ * once (focus mode), and main tells the views apart by window and `view`.
  */
 export const terminalInput = invokeChannel(
   'terminal.input',
-  z.object({ ...terminalRef, data: z.string().min(1).max(1_000_000), reply: z.boolean().optional() }),
+  z.object({ ...terminalRef, data: z.string().min(1).max(1_000_000), reply: z.boolean().optional(), view: z.string().min(1).max(64).optional() }),
   z.void(),
   'project',
   'write',
