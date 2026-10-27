@@ -5,6 +5,7 @@ import { toEveryWindow } from '../broadcast'
 import { clientOf } from '../clients'
 import { onArchiveBatch, recentBatches, restoreBatch, runningArchiver, type AutoArchiver } from '../layout/archive'
 import { layoutStore } from '../layout/store'
+import { isRemoteCall, localProjectIn } from '../link/caller'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 const store = layoutStore()
@@ -50,5 +51,6 @@ export default [
   // The Undo of a batch's toast: that batch alone, without a screen (src/main/layout/archive.ts).
   defineHandler(layoutRestoreBatch, ({ projectId, batch }) => restoreBatch(store, projectId, batch)),
   // The batches a window missed while its page loaded, asked once it listens (src/main/layout/archive.ts).
-  defineHandler(layoutRecentBatches, () => recentBatches(store, Date.now())),
+  // A Linked machine does not hear of a Project local to this Machine (src/main/link/caller.ts).
+  defineHandler(layoutRecentBatches, (_input, { event }) => recentBatches(store, Date.now()).filter((batch) => !isRemoteCall(event) || localProjectIn('layout.archived', batch) === null)),
 ] satisfies HandlerModule

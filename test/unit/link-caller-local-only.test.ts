@@ -3,9 +3,9 @@
 // call input or an event payload that names it is caught; a window's call goes on as before.
 import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
-import { insideProjects, localProjectIn, projectRootOf, setLocalProjects } from '../../src/main/link/caller'
+import { insideProjects, localProjectIn, localProjectOf, projectRootOf, setLocalProjects, setSessionFolders } from '../../src/main/link/caller'
 import { LinkSender } from '../../src/main/link/ipc-adapter'
 import { removeTestTree } from '../remove'
 
@@ -20,7 +20,10 @@ const projects = () => [shopProject, demoProject]
 const noWorktrees = () => Promise.resolve([])
 
 afterAll(() => removeTestTree(root))
-afterEach(() => setLocalProjects(() => []))
+afterEach(() => {
+  setLocalProjects(() => [])
+  setSessionFolders(() => null)
+})
 
 const remote = { sender: new LinkSender('3c1c6f43-6d4e-4c39-9d4c-7c2f0d7f2a11', 'project', () => undefined, () => ({ id: 'x', name: 'beta', protocol: 1, build: 'x' })) }
 const window = { sender: { id: 7, send: () => undefined } }
@@ -62,12 +65,29 @@ describe('localProjectIn: what names a Project local to this Machine', () => {
     expect(localProjectIn('workflow.changed', { root: demo, epics: [] })).toStrictEqual(demoProject)
   })
 
-  it('anything else: another Project, an `id` outside the projects domain, a relative path, no object', () => {
+  it('a relative path is taken from main\'s working folder, as fs and `git -C` take it', () => {
+    setLocalProjects(() => [demoProject])
+    expect(localProjectIn('projects.add', { path: relative(process.cwd(), demo) })).toStrictEqual(demoProject)
+    expect(localProjectIn('projects.connect.write', { root: relative(process.cwd(), join(demo, 'src')), draft: {} })).toStrictEqual(demoProject)
+    expect(localProjectOf(relative(process.cwd(), join(demo, 'src')))).toStrictEqual(demoProject)
+  })
+
+  it('a sessionId of a Session whose folder lies in its root; an unknown Session or one elsewhere names nothing', () => {
+    setLocalProjects(() => [demoProject])
+    setSessionFolders((sessionId) => ({ 's-demo': join(demo, 'src'), 's-shop': shop })[sessionId] ?? null)
+    expect(localProjectIn('agent.send', { sessionId: 's-demo', text: 'hi' })).toStrictEqual(demoProject)
+    expect(localProjectIn('agent.event', { sessionId: 's-demo', event: { type: 'text' } })).toStrictEqual(demoProject)
+    expect(localProjectIn('agent.send', { sessionId: 's-shop', text: 'hi' })).toBeNull()
+    expect(localProjectIn('agent.send', { sessionId: 's-gone', text: 'hi' })).toBeNull()
+  })
+
+  it('anything else: another Project, an `id` outside the projects domain, a relative path to another Project, an empty path, no object', () => {
     setLocalProjects(() => [demoProject])
     expect(localProjectIn('layout.get', { projectId: shopProject.id })).toBeNull()
     expect(localProjectIn('cards.read', { id: demoProject.id })).toBeNull()
     expect(localProjectIn('projects.add', { path: shop })).toBeNull()
-    expect(localProjectIn('projects.add', { path: 'demo' })).toBeNull()
+    expect(localProjectIn('projects.add', { path: relative(process.cwd(), shop) })).toBeNull()
+    expect(localProjectIn('projects.add', { path: '' })).toBeNull()
     expect(localProjectIn('terminal.input', { data: demo })).toBeNull()
     expect(localProjectIn('projects.list', undefined)).toBeNull()
   })

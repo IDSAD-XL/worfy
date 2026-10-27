@@ -208,23 +208,25 @@ export class ProjectStore {
 
   /** The state for the renderer, with each Project's current branch. */
   async state(): Promise<ProjectsState> {
-    // Read synchronously before the git calls, so the revision matches the list it goes with.
-    const { projects, activeId } = this.data()
-    const revision = this.revision
-    const views: ProjectView[] = await Promise.all(projects.map(async (project) => ({ ...project, branch: await this.branch(project.path) })))
-    return { projects: views, activeId, revision }
+    return (await this.states()).all
   }
 
   /**
-   * `state` as a Linked machine sees it: without the Projects local to this Machine, and when the
-   * active one is such a Project, the first of the others is active, or none (as after a removal).
+   * The state for this Machine's windows (`all`) and as a Linked machine sees it (`linked`), from one
+   * read of the list. `linked` leaves out the Projects local to this Machine; when the active one is
+   * such a Project, the first of the others is active, or none (as after a removal).
    */
-  forLinkedMachine(state: ProjectsState): ProjectsState {
-    const local = new Set(this.data().projects.filter((project) => project.localOnly === true).map((project) => project.id))
-    if (local.size === 0) return state
-    const projects = state.projects.filter((project) => !local.has(project.id))
-    const activeId = state.activeId !== null && local.has(state.activeId) ? (projects[0]?.id ?? null) : state.activeId
-    return { ...state, projects, activeId }
+  async states(): Promise<{ all: ProjectsState; linked: ProjectsState }> {
+    // Read synchronously before the git calls, so the revision matches the list it goes with.
+    const { projects, activeId } = this.data()
+    const revision = this.revision
+    const views: ProjectView[] = await Promise.all(projects.map(async ({ id, name, path }) => ({ id, name, path, branch: await this.branch(path) })))
+    const all = { projects: views, activeId, revision }
+    const local = new Set(projects.filter((project) => project.localOnly === true).map((project) => project.id))
+    if (local.size === 0) return { all, linked: all }
+    const shared = views.filter((project) => !local.has(project.id))
+    const linkedActive = activeId !== null && local.has(activeId) ? (shared[0]?.id ?? null) : activeId
+    return { all, linked: { projects: shared, activeId: linkedActive, revision } }
   }
 
   /** Finds the repository root for a folder the user picked. */

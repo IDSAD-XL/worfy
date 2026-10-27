@@ -42,7 +42,7 @@ import { ghRunner } from '../github/prs'
 import { bundledHarnessDir } from '../harness/bundled'
 import { currentHarness, harnessHomes, locateHarness, profileRegistryFiles, scriptEnv } from '../harness/locate'
 import { layoutStore } from '../layout/store'
-import { isRemoteCall, setLocalProjects } from '../link/caller'
+import { isRemoteCall, localProjectRefusal, setLocalProjects } from '../link/caller'
 import { browseFolder } from '../projects/browse'
 import { connectScriptRunner, ProjectConnector, type ConnectScript, type DraftQueryFactory } from '../projects/connect'
 import { projectHolds } from '../projects/holds'
@@ -179,18 +179,22 @@ function watchSignIn(client: Client): void {
 
 /** The list after an add, with the added Project's view. */
 async function addedView(projectId: string, notice: string | null, event: { readonly sender?: unknown }) {
-  const state = await store.state()
-  const project = state.projects.find((item) => item.id === projectId)
+  // A folder that names a Project local to this Machine in a way the link adapter did not catch
+  // (another spelling of it) is refused to a Linked machine here, before its view goes out.
+  const stored = store.find(projectId)
+  if (stored?.localOnly === true && isRemoteCall(event)) throw new Error(localProjectRefusal(stored.name))
+  const states = await store.states()
+  const project = states.all.projects.find((item) => item.id === projectId)
   if (!project) throw new Error(`the added Project ${projectId} is not in the list`)
-  return { status: 'added' as const, project, notice, state: visibleTo(event, state) }
+  return { status: 'added' as const, project, notice, state: visibleTo(event, states) }
 }
 
 /**
  * The list as the caller may see it: a Linked machine's call gets it without the Projects local to
- * this Machine (ProjectStore.forLinkedMachine), a window's call gets it whole.
+ * this Machine (ProjectStore.states), a window's call gets it whole.
  */
-function visibleTo(event: { readonly sender?: unknown }, state: ProjectsState): ProjectsState {
-  return isRemoteCall(event) ? store.forLinkedMachine(state) : state
+function visibleTo(event: { readonly sender?: unknown }, states: { all: ProjectsState; linked: ProjectsState }): ProjectsState {
+  return isRemoteCall(event) ? states.linked : states.all
 }
 
 // The link adapter refuses a call, and a link client an event, that names one of these (link/caller.ts).
@@ -212,10 +216,9 @@ function toSender(sender: EventTarget & { isDestroyed?: () => boolean }, send: (
 // A client of a link connection gets the list without the Projects local to this Machine.
 store.onChange(() => {
   void store
-    .state()
-    .then((state) => {
-      let linked: ProjectsState | undefined
-      toEveryWindow((client) => emit(client, projectsChanged, isRemoteCall({ sender: client }) ? (linked ??= store.forLinkedMachine(state)) : state))
+    .states()
+    .then((states) => {
+      toEveryWindow((client) => emit(client, projectsChanged, visibleTo({ sender: client }, states)))
     })
     .catch((error: unknown) => console.error('[projects] could not broadcast the change', error))
 })
@@ -241,7 +244,7 @@ export default [
     return { path: result.canceled ? null : (result.filePaths[0] ?? null) }
   }),
 
-  defineHandler(projectsList, async (_input, { event }) => visibleTo(event, await store.state())),
+  defineHandler(projectsList, async (_input, { event }) => visibleTo(event, await store.states())),
 
   // The folders of a folder of this Machine (worfy-link ticket 11): "Add project" of a Linked
   // machine's screen picks a folder here this way. The whole disk, from the home folder; reads names only.
@@ -326,7 +329,7 @@ export default [
     layoutStore().flush(id)
     store.remove(id, { keepActive: isRemoteCall(event) })
     layoutStore().forget(id)
-    return visibleTo(event, await store.state())
+    return visibleTo(event, await store.states())
   }),
 
   // A screen of a Linked machine shows a Project of this Machine (worfy-link ticket 09): its

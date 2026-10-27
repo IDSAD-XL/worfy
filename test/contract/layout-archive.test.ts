@@ -1067,6 +1067,17 @@ describe('the toast of a batch and its Undo (worfy-canvas ticket 10; ADR-0076, p
     expect(await call('layout.recentBatches')).toEqual({ ok: true, value: [] })
   })
 
+  it('layout.recentBatches leaves out a Project local to this Machine for a Linked machine; a window still gets its batch', async () => {
+    apply(sessionNode('a'))
+    world.history = transcripts(['a', 30 * HOUR])
+    await archiver().run({ id: PROJECT, path: repo })
+    const { setLocalProjects } = await import('../../src/main/link/caller')
+    setLocalProjects(() => [{ id: PROJECT, name: 'demo', path: repo }])
+    onTestFinished(() => setLocalProjects(() => []))
+    expect(await call('layout.recentBatches', undefined, { id: 'link:machine-b/1' })).toEqual({ ok: true, value: [] })
+    expect(await call('layout.recentBatches')).toEqual({ ok: true, value: [{ projectId: PROJECT, batch: 'batch-1', count: 1 }] })
+  })
+
   it('layout.recentBatches counts the Nodes still archived in the batch: as many as its Undo brings back', async () => {
     apply(sessionNode('a'))
     apply(sessionNode('b', 400, 0))
