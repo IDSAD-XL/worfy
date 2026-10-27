@@ -20,6 +20,11 @@ const storedProjectSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   path: z.string().min(1),
+  /**
+   * Only for this Machine: no Linked machine sees it or reaches into it (the Demo project). A list
+   * saved before the field reads as before; a Project added without it is written without it.
+   */
+  localOnly: z.literal(true).optional(),
 })
 export type StoredProject = z.output<typeof storedProjectSchema>
 
@@ -210,6 +215,18 @@ export class ProjectStore {
     return { projects: views, activeId, revision }
   }
 
+  /**
+   * `state` as a Linked machine sees it: without the Projects local to this Machine, and when the
+   * active one is such a Project, the first of the others is active, or none (as after a removal).
+   */
+  forLinkedMachine(state: ProjectsState): ProjectsState {
+    const local = new Set(this.data().projects.filter((project) => project.localOnly === true).map((project) => project.id))
+    if (local.size === 0) return state
+    const projects = state.projects.filter((project) => !local.has(project.id))
+    const activeId = state.activeId !== null && local.has(state.activeId) ? (projects[0]?.id ?? null) : state.activeId
+    return { ...state, projects, activeId }
+  }
+
   /** Finds the repository root for a folder the user picked. */
   private async resolve(folder: string): Promise<Resolved> {
     try {
@@ -257,9 +274,10 @@ export class ProjectStore {
   /**
    * Adds the repository that contains `folder` and makes it active (or selects it, if it is already
    * listed). With `keepActive` the active Project stays as it is: an add from a Linked machine does
-   * not switch the screens of this Machine (worfy-link ticket 08).
+   * not switch the screens of this Machine (worfy-link ticket 08). With `localOnly` a Project new to
+   * the list is only for this Machine (StoredProject.localOnly); one already listed stays as it is.
    */
-  async add(folder: string, options: { keepActive?: boolean } = {}): Promise<AddResult> {
+  async add(folder: string, options: { keepActive?: boolean; localOnly?: boolean } = {}): Promise<AddResult> {
     const resolved = await this.resolve(folder)
     if (!resolved.ok) return { status: 'rejected', reason: resolved.reason }
 
@@ -268,7 +286,7 @@ export class ProjectStore {
     const { projects, activeId } = this.data()
     const existing = projects.find((project) => project.id === id)
     const path = resolvePath(resolved.root)
-    const project = existing ?? { id, name: basename(path) || path, path }
+    const project = existing ?? { id, name: basename(path) || path, path, ...(options.localOnly === true ? { localOnly: true as const } : {}) }
 
     mkdirSync(this.dataDir(id), { recursive: true })
     ensureProjectSettings(this.dataDir(id))

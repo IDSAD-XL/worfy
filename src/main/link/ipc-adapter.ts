@@ -36,6 +36,7 @@ import { accessOf, IPC_CHANNEL_PREFIX, LINKED_MACHINE_ACCESS, useOf, type Channe
 import type { AccessLevel } from '../../shared/ipc/link'
 import type { Client } from '../clients'
 import { registerIpc, type IpcMainLike, type ModuleLoader } from '../ipc/index'
+import { localProjectIn } from './caller'
 
 export const LINK_FRAME_SCHEME = 'worfy-link:'
 
@@ -58,6 +59,9 @@ export const accessOffRefusal = (machineName: string): string => `Linked machine
 
 /** The refusal of a `write` channel while the calling Machine's access is read-only (worfy-link ticket 18). */
 export const readOnlyRefusal = (machineName: string): string => `Linked machines can only view the Projects of ${machineName}: access is read-only`
+
+/** The refusal of a call that names a Project local to this Machine (caller.ts, localProjectIn). */
+export const localProjectRefusal = (projectName: string): string => `${projectName} is local to this Machine`
 
 /**
  * The ids of link clients follow the rule for clients without a window (src/main/clients.ts):
@@ -106,6 +110,8 @@ export class LinkSender extends EventEmitter implements Client {
     if (accessOf(name) !== this.hears) return
     // Read-only: an event not marked `read` (Terminal output) stays here, as does an unknown mark.
     if (this.readOnly && useOf(name) !== 'read') return
+    // An event of a Project local to this Machine (the Demo project) stays here (caller.ts).
+    if (localProjectIn(name, args[0]) !== null) return
     this.push(name, args[0])
   }
 
@@ -239,6 +245,13 @@ export class LinkIpcAdapter implements IpcMainLike {
         peer.refused(channel, 'access is read-only')
         return { ok: false, error: readOnlyRefusal(machineName) }
       }
+    }
+    // A Project local to this Machine does not exist for a Linked machine (caller.ts): a call that
+    // names it is refused before its input is parsed, and no handler runs.
+    const local = localProjectIn(channel, input)
+    if (local !== null) {
+      peer.refused(channel, 'a Project local to this Machine')
+      return { ok: false, error: localProjectRefusal(local.name) }
     }
     const event = { senderFrame: { url: linkFrameUrl(peer.machineId) }, sender } as unknown as IpcMainInvokeEvent
     return (await entry.listener(event, input)) as IpcResult<unknown>

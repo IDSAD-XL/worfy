@@ -13,7 +13,7 @@
 // Project, or another spelling of a folder does not pass. A path that does not exist yet is judged
 // by its nearest existing folder.
 import { lstatSync, realpathSync } from 'node:fs'
-import { basename, dirname, join, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, sep } from 'node:path'
 
 /** Whether a call came from somewhere else than a window of this Machine (see the top of the file). */
 export function isRemoteCall(event: { readonly sender?: unknown }): boolean {
@@ -94,33 +94,93 @@ export async function realProjectRoot(
 
 /**
  * For a call from outside this Machine's screen, throws unless `path` is the root of a Project of
- * the list or one of its worktrees (realProjectRoot), and answers its real path, as insideProjects
+ * the list not local to this Machine, or one of its worktrees (realProjectRoot), and answers its real path, as insideProjects
  * does. For the handlers whose root names Claude home folders. A path outside every Project gets
  * the refusal of insideProjects. A window's call passes untouched.
  */
 export async function projectRootOf(
   event: { readonly sender?: unknown },
   path: string,
-  projects: () => readonly { readonly path: string }[],
+  projects: () => readonly ListedProject[],
   worktrees: (root: string) => Promise<readonly string[]>,
   what: string,
 ): Promise<string> {
   if (!isRemoteCall(event)) return path
   insideProjects(event, path, projects, what)
-  const checked = await realProjectRoot(path, projects(), worktrees)
+  const checked = await realProjectRoot(path, sharedOnly(projects()), worktrees)
   if (checked === null) throw new Error(`${what} ${path} is neither the root of a Project of this Machine nor one of its worktrees; a Linked machine asks for the Sessions of those only`)
   return checked
 }
 
 /**
  * For a call from outside this Machine's screen, throws unless `path` lies inside a Project of
- * the list, and answers its real path: the caller uses that one, so a link swapped in after the
+ * the list that is not local to this Machine (`localOnly`, below), and answers its real path: the caller uses that one, so a link swapped in after the
  * check does not lead elsewhere. A window's call passes untouched, with `path` as it came.
  * `what` names the path in the refusal.
  */
-export function insideProjects(event: { readonly sender?: unknown }, path: string, projects: () => readonly { readonly path: string }[], what: string): string {
+export function insideProjects(event: { readonly sender?: unknown }, path: string, projects: () => readonly ListedProject[], what: string): string {
   if (!isRemoteCall(event)) return path
-  const checked = realInsideProjects(path, projects())
+  const checked = realInsideProjects(path, sharedOnly(projects()))
   if (checked === null) throw new Error(`${what} ${path} is outside the Projects of this Machine; a Linked machine works only inside them`)
   return checked
+}
+
+// ── Projects local to this Machine (worfy-onboarding ticket 11) ──────────────────────────────────
+// A Project with `localOnly` (src/main/projects/store.ts; the Demo project) does not exist for a
+// Linked machine: its root is no Project root for insideProjects and projectRootOf, the link adapter
+// refuses a call that names it before the handler runs, and the `project` client of a connection
+// does not pass on an event that names it (ipc-adapter.ts).
+
+/** A Project of the list as the checks above read it. */
+export interface ListedProject {
+  readonly path: string
+  readonly localOnly?: boolean
+}
+
+/** A Project local to this Machine, as the refusal names it. */
+export interface LocalProject {
+  readonly id: string
+  readonly name: string
+  readonly path: string
+}
+
+/** The Projects of `projects` a Linked machine may reach. */
+function sharedOnly<T extends ListedProject>(projects: readonly T[]): readonly T[] {
+  return projects.filter((project) => project.localOnly !== true)
+}
+
+let localProjects: () => readonly LocalProject[] = () => []
+
+/**
+ * Where the Projects local to this Machine come from: src/main/ipc/projects.ts names its store when
+ * it loads. Until then there are none, so a test of the link without that module reads no store.
+ */
+export function setLocalProjects(source: () => readonly LocalProject[]): void {
+  localProjects = source
+}
+
+/** The keys a call input or an event payload carries a folder of this Machine in (cwd, Project root, file). */
+const PATH_KEYS = ['path', 'root', 'cwd', 'project', 'folder', 'file'] as const
+
+/**
+ * The Project local to this Machine that a call input or an event payload of `channel` names; null
+ * when none. It names one by its `projectId`, by `id` on a `projects.*` channel (the Project id
+ * there), or by an absolute path inside its root under one of PATH_KEYS. Only the top level of the
+ * object is read; a path nested deeper is left to the handler's insideProjects.
+ */
+export function localProjectIn(channel: string, value: unknown): LocalProject | null {
+  if (typeof value !== 'object' || value === null) return null
+  const local = localProjects()
+  if (local.length === 0) return null
+  const fields = value as Record<string, unknown>
+  const ids = [fields.projectId, channel.startsWith('projects.') ? fields.id : undefined].filter((id) => typeof id === 'string')
+  const named = local.find((project) => ids.includes(project.id))
+  if (named !== undefined) return named
+  for (const key of PATH_KEYS) {
+    const path = fields[key]
+    if (typeof path !== 'string' || !isAbsolute(path)) continue
+    const inside = local.find((project) => realInsideProjects(path, [project]) !== null)
+    if (inside !== undefined) return inside
+  }
+  return null
 }

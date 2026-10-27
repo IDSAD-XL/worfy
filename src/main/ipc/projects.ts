@@ -28,6 +28,7 @@ import {
   projectsSettingsDefaults,
   projectsSettingsGet,
   projectsSettingsSet,
+  type ProjectsState,
 } from '../../shared/ipc/projects'
 import { defaultProjectSettings } from '../../shared/projects/action-templates'
 import { agentEnv } from '../agent/env'
@@ -41,7 +42,7 @@ import { ghRunner } from '../github/prs'
 import { bundledHarnessDir } from '../harness/bundled'
 import { currentHarness, harnessHomes, locateHarness, profileRegistryFiles, scriptEnv } from '../harness/locate'
 import { layoutStore } from '../layout/store'
-import { isRemoteCall } from '../link/caller'
+import { isRemoteCall, setLocalProjects } from '../link/caller'
 import { browseFolder } from '../projects/browse'
 import { connectScriptRunner, ProjectConnector, type ConnectScript, type DraftQueryFactory } from '../projects/connect'
 import { projectHolds } from '../projects/holds'
@@ -177,12 +178,23 @@ function watchSignIn(client: Client): void {
 }
 
 /** The list after an add, with the added Project's view. */
-async function addedView(projectId: string, notice: string | null) {
+async function addedView(projectId: string, notice: string | null, event: { readonly sender?: unknown }) {
   const state = await store.state()
   const project = state.projects.find((item) => item.id === projectId)
   if (!project) throw new Error(`the added Project ${projectId} is not in the list`)
-  return { status: 'added' as const, project, notice, state }
+  return { status: 'added' as const, project, notice, state: visibleTo(event, state) }
 }
+
+/**
+ * The list as the caller may see it: a Linked machine's call gets it without the Projects local to
+ * this Machine (ProjectStore.forLinkedMachine), a window's call gets it whole.
+ */
+function visibleTo(event: { readonly sender?: unknown }, state: ProjectsState): ProjectsState {
+  return isRemoteCall(event) ? store.forLinkedMachine(state) : state
+}
+
+// The link adapter refuses a call, and a link client an event, that names one of these (link/caller.ts).
+setLocalProjects(() => store.list().filter((project) => project.localOnly === true))
 
 /** An event to the window that asked; a window already gone is skipped. */
 function toSender(sender: EventTarget & { isDestroyed?: () => boolean }, send: (target: EventTarget) => void): void {
@@ -197,11 +209,13 @@ function toSender(sender: EventTarget & { isDestroyed?: () => boolean }, send: (
 // Every client hears about every change, whoever made it: a select from one window, or a later
 // part of main that switches the Project. A client keeps the state with the highest revision, so
 // two broadcasts that finish out of order do not roll the list back.
+// A client of a link connection gets the list without the Projects local to this Machine.
 store.onChange(() => {
   void store
     .state()
     .then((state) => {
-      toEveryWindow((client) => emit(client, projectsChanged, state))
+      let linked: ProjectsState | undefined
+      toEveryWindow((client) => emit(client, projectsChanged, isRemoteCall({ sender: client }) ? (linked ??= store.forLinkedMachine(state)) : state))
     })
     .catch((error: unknown) => console.error('[projects] could not broadcast the change', error))
 })
@@ -227,7 +241,7 @@ export default [
     return { path: result.canceled ? null : (result.filePaths[0] ?? null) }
   }),
 
-  defineHandler(projectsList, () => store.state()),
+  defineHandler(projectsList, async (_input, { event }) => visibleTo(event, await store.state())),
 
   // The folders of a folder of this Machine (worfy-link ticket 11): "Add project" of a Linked
   // machine's screen picks a folder here this way. The whole disk, from the home folder; reads names only.
@@ -238,10 +252,7 @@ export default [
   defineHandler(projectsAdd, async ({ path }, { event }) => {
     const result = await store.add(path, { keepActive: isRemoteCall(event) })
     if (result.status === 'rejected') return result
-    const state = await store.state()
-    const project = state.projects.find((item) => item.id === result.project.id)
-    if (!project) throw new Error(`the added Project ${result.project.id} is not in the list`)
-    return { status: 'added' as const, project, notice: result.notice, state }
+    return addedView(result.project.id, result.notice, event)
   }),
 
   // Connecting a Project: this Machine's screens, and a Linked machine while access is on
@@ -253,7 +264,7 @@ export default [
     // The Harness knows the folder: it goes into the list as projects.add puts it, with its notices.
     const added = await store.add(path, { keepActive: isRemoteCall(event) })
     if (added.status === 'rejected') return added
-    return addedView(added.project.id, added.notice)
+    return addedView(added.project.id, added.notice, event)
   }),
 
   defineHandler(projectsConnectDraft, (input, { event }) =>
@@ -267,7 +278,7 @@ export default [
   defineHandler(projectsConnectWrite, async ({ root, draft }, { event }) => {
     const written = await connector().write(root, draft, { keepActive: isRemoteCall(event) })
     if (written.status !== 'added') return written
-    return addedView(written.projectId, written.notice)
+    return addedView(written.projectId, written.notice, event)
   }),
 
   defineHandler(projectsConnectAccounts, ({ root }) => connector().accounts(root)),
@@ -311,11 +322,11 @@ export default [
   // what is still waiting is written now, while the Project is in the list, and its Layout is
   // forgotten once it is out (worfy-windows ticket 31). A refused remove (a Linked machine and the
   // active Project) throws before the forget; the write before it changes nothing.
-  defineHandler(projectsRemove, ({ id }, { event }) => {
+  defineHandler(projectsRemove, async ({ id }, { event }) => {
     layoutStore().flush(id)
     store.remove(id, { keepActive: isRemoteCall(event) })
     layoutStore().forget(id)
-    return store.state()
+    return visibleTo(event, await store.state())
   }),
 
   // A screen of a Linked machine shows a Project of this Machine (worfy-link ticket 09): its
