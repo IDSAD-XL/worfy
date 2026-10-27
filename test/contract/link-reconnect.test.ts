@@ -3,10 +3,11 @@
 // again on Bonjour, the `.local` and MagicDNS names, and setting an address by hand. Real link
 // services over temporary data folders on 127.0.0.1 (test/contract/link-bench.ts), except where the
 // timing of retries is counted under fake timers.
+import dns from 'node:dns'
 import { EventEmitter } from 'node:events'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
-import { networkInterfaces, type NetworkInterfaceInfo } from 'node:os'
+import os, { type NetworkInterfaceInfo } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firewallHint } from '../../src/main/ipc/link'
@@ -409,6 +410,31 @@ describe('the names of a Linked machine', () => {
     expect(recordOf(a, b)).toMatchObject({ address: '::1', port, certificateChanged: false })
   })
 
+  it('the learnt worfy name: a dial by it reaches the other Machine, whose Host check takes its own worfy name', async () => {
+    const a = await bench.machine('a')
+    const b = await bench.machine('b')
+    await bench.link(a, b)
+    const name = worfyHost(b.service.machine.id)
+    // The name resolves to B, as mDNS would answer it; every other name as the system says.
+    const lookup = dns.lookup.bind(dns)
+    const resolved: string[] = []
+    vi.spyOn(dns, 'lookup').mockImplementation(((host: string, options: unknown, callback?: unknown) => {
+      const done = (typeof options === 'function' ? options : callback) as (...args: unknown[]) => void
+      const all = typeof options === 'object' && options !== null && (options as { all?: boolean }).all === true
+      if (host !== name) return lookup(host, (typeof options === 'function' ? {} : options) as dns.LookupOptions, done as never)
+      resolved.push(host)
+      return all ? done(null, [{ address: '127.0.0.1', family: 4 }]) : done(null, '127.0.0.1', 4)
+    }) as never)
+    await a.service.stop()
+    editRecord(a, b, { address: '::1', localName: name })
+    await bench.restart(a)
+
+    await a.service.connect(b.service.machine.id)
+    expect(resolved).toContain(name)
+    expect(online(a, b)).toBe(true)
+    expect(recordOf(a, b)?.address).toBe('127.0.0.1')
+  })
+
   it('a .local name from Bonjour is kept only when it was announced at the address of an open connection', async () => {
     const a = await bench.machine('a')
     const b = await bench.machine('b')
@@ -603,6 +629,7 @@ describe('one mDNS socket per interface that may carry the link', () => {
 
   it('each socket announces and withdraws A records of its own interface only, for worfy\'s own name (the real records of bonjour-service)', async () => {
     type Record = { name: string; type: string; data: unknown; ttl: number }
+    const ownNetworkInterfaces = os.networkInterfaces
     const { Registry } = (await import('bonjour-service/dist/lib/registry')) as unknown as { Registry: new (server: unknown) => { publish(config: object): BonjourLikeService } }
     const sent: { [address: string]: Record[][] } = {}
     const create = (socket: BonjourSocketOptions): BonjourLike => {
@@ -627,8 +654,8 @@ describe('one mDNS socket per interface that may carry the link', () => {
       expect(hostRecords(goodbye), address).toEqual([{ name: 'worfy-83a67a58.local', type: 'A', ttl: 0, data: address }])
       expect(announced.find((record) => record.type === 'SRV')?.data).toMatchObject({ target: 'worfy-83a67a58.local', port: 62057 })
     }
-    // The view of the interfaces is gone once the calls return.
-    expect(Object.values(networkInterfaces()).flat().some((entry) => entry?.address === '172.30.16.1' && entry.mac === '02:00:00:00:00:01')).toBe(false)
+    // The view of the interfaces is gone once the calls return: the os module has its own function back.
+    expect(os.networkInterfaces).toBe(ownNetworkInterfaces)
     backend.destroy()
   })
 

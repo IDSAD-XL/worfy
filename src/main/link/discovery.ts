@@ -27,7 +27,9 @@ import { isIP } from 'node:net'
 import os, { type NetworkInterfaceInfo } from 'node:os'
 import { Bonjour } from 'bonjour-service'
 import { z } from 'zod'
-import { isLocalNetworkAddress, isTailscaleAddress } from './checks'
+import { isLocalNetworkAddress, isTailscaleAddress, worfyHost } from './checks'
+
+export { worfyHost }
 
 /** The DNS-SD service type without underscores: `_worfy._tcp`. */
 export const LINK_SERVICE_TYPE = 'worfy'
@@ -365,16 +367,6 @@ export function onSameNetwork(address: string, interfaces: NodeJS.Dict<NetworkIn
   return false
 }
 
-/**
- * The host an announcement names (its SRV target and A records): `worfy-<first 8 of the Machine
- * id>.local`, worfy's own name, stable per Machine (worfy-link ticket 36). Not the machine's host
- * name: the OS answers for that one itself (mDNSResponder on macOS, Windows' own responder), and
- * `bonjour-service` would answer for it too with every address of every interface (VPN, WSL and
- * Hyper-V adapters included), so a dial by that name could go to an address that never answers.
- */
-export function worfyHost(machineId: string): string {
-  return `worfy-${machineId.slice(0, 8).toLowerCase()}.local`
-}
 
 /**
  * Runs `publish` with os.networkInterfaces() showing `address` alone: `bonjour-service` builds a

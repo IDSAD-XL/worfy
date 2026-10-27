@@ -977,7 +977,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
             port,
             build: this.options.buildVersion,
             // The setting is read on every request too: off refuses a MagicDNS name at once.
-            hostNames: () => ({ interfaces: this.interfaces(), hostname: this.hostname(), tailscale: this.settings.get().tailscale }),
+            hostNames: () => ({ interfaces: this.interfaces(), hostname: this.hostname(), tailscale: this.settings.get().tailscale, machineId: this.identity.id }),
             admit: (upgrade) => this.admit(upgrade),
             // Read on every connection: the switch acts without a restart, and the Tailscale adapter
             // may get its address after worfy started.
