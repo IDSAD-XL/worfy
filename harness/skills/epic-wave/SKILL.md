@@ -468,9 +468,11 @@ verifier starts, the orchestrator marks the head commit `review pending`; the re
 the same commit — `review success` for `VERIFIED` and `NARROW: VERIFIED`, `review failure` for
 `REJECTED`, `NARROW: <findings>` and `NARROW: REJECTED`. A push after the verdict leaves the mark on
 the old commit: the new head has none, and the ticket is back on review. In Full mode the mark is a
-commit status of the PR (`pr-green-ci`); with `local-green` in Full mode the commit is not on
-GitHub, so there is no mark — the `gate:` commit below stays the record. In Silent mode the mark is a
-file in the Harness home, never on GitHub. The comment, the commit and the line below stay: the
+commit status of the PR (`pr-green-ci`); with `local-green` in Full mode and an `origin` the commit
+is not on GitHub, so there is no mark — the `gate:` commit below stays the record. In Silent mode, and
+in Full mode with `local-green` in a repository without `origin`, the mark is a file in the Harness
+home (`runs/<project>/marks/<epic>-<NN>.json`), never on GitHub: `ticket mark` picks the store
+itself. The comment, the commit and the line below stay: the
 rounds are counted by them, and people read them.
 
 ```bash
@@ -847,9 +849,9 @@ the old way or one after another — every Check of the Pipeline has its mark on
   then `<scope command> origin/<main branch> "$sha"; echo "EXIT=$?"`.
   - `EXIT=0` — the run answers. Every dispatch is a paid run, and a session break, an earlier wave
     or a lookup that gave up may have left one on this head: look before dispatching.
-    1. The mark `check/<name>` on `$sha`, read as the block below reads marks (Full mode —
+    1. The mark `check/<name>` on `$sha`, read as the block below reads marks (commit statuses —
        `gh api "repos/{owner}/{repo}/commits/$sha/status" --jq '[.statuses[] | select(.context == "check/<name>") | .state]'`;
-       Silent mode — the marks file of the PR's ticket).
+       the marks file — that of the PR's ticket).
     2. The runs on this head: `gh run list --workflow <workflow> --branch <branch> --event workflow_dispatch --limit 20 --json databaseId,url,headSha,createdAt,status,conclusion --jq "[.[] | select(.headSha == \"$sha\")]"`.
        `gh run list` shows no jobs, so read each candidate, newest first:
        `gh run view <id> --json jobs --jq '[.jobs[] | select(.name == "<job>") | .conclusion]'` —
@@ -893,8 +895,9 @@ the old way or one after another — every Check of the Pipeline has its mark on
   So a PR merged the old way (a rebase and its own gate full) is rebased before its check is asked for,
   and the block below runs again right before its `gh pr merge`.
 
-The block reads the marks on the head of each ready PR — in Full mode the commit statuses of the
-head, in Silent mode the marks file of its ticket — and prints one line per PR: `ready` (every Check
+The block reads the marks on the head of each ready PR where `ticket mark` writes them — the marks
+file of its ticket in Silent mode, and in Full mode with `local-green` in a repository without
+`origin`; otherwise the commit statuses of the head — and prints one line per PR: `ready` (every Check
 `success` or `skipped`; with no Check in the Pipeline every PR is ready, and the project's rules
 pick the platform PRs — "Gate before merge" below), `ready, PLATFORM` (ready,
 and at least one Check `success`, not `skipped`), `waits` (a Check with no mark on the head, or
@@ -904,20 +907,24 @@ and at least one Check `success`, not `skipped`), `waits` (a Check with no mark 
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 E=<epic>
 CANDIDATES=(<PR>:<NN> pairs in merge order)   # VERIFIED, CI green on the head (batch: mergeable MERGEABLE); <NN> — the PR's ticket
-PL=$(F _resolved.pipeline); MODE=$(F _resolved.mode); NAME=$(F _resolved.name); rc=0
+PL=$(F _resolved.pipeline); NAME=$(F _resolved.name); rc=0
+# Where the marks are: the rule of bin/ticket mark (marksStore) — the marks file in Silent mode, and in Full
+# mode with local-green in a repository without origin; otherwise commit statuses.
+STORE=status
+if [ "$(F _resolved.mode)" = silent ] || { [ "$(F workflow.finish)" = local-green ] && ! git -C <repo> remote get-url origin >/dev/null 2>&1; }; then STORE=file; fi
 for c in "${CANDIDATES[@]}"; do
   n=${c%%:*}; nn=${c#*:}; st='[]'
   head=$(cd <repo> && gh pr view "$n" --json headRefOid --jq .headRefOid) || { echo "PR $n: no head from gh — waits"; rc=1; continue; }
-  if [ "$MODE" != silent ]; then
+  if [ "$STORE" = status ]; then
     st=$(cd <repo> && gh api "repos/{owner}/{repo}/commits/$head/status" --jq '[.statuses[] | {context, state, description}]') \
       || { echo "PR $n: no commit statuses from gh — waits"; rc=1; continue; }
   fi
-  node - "$PL" "$MODE" "$NAME" "$E" "$nn" "$n" "$head" "$st" <<'NODE' || rc=1
+  node - "$PL" "$STORE" "$NAME" "$E" "$nn" "$n" "$head" "$st" <<'NODE' || rc=1
 const fs = require("fs"), os = require("os"), path = require("path")
-const [pl, mode, project, epic, nn, n, head, st] = process.argv.slice(2)
+const [pl, store, project, epic, nn, n, head, st] = process.argv.slice(2)
 const checks = JSON.parse(pl).filter((s) => s.kind === "check").map((s) => "check/" + s.name)
 const marks = new Map()
-if (mode === "silent") {   // the marks file of bin/ticket mark; the last mark of a kind on this head wins
+if (store === "file") {   // the marks file of bin/ticket mark; the last mark of a kind on this head wins
   const file = path.join(process.env.HARNESS_HOME || path.join(os.homedir(), ".claude", "worfy-harness"), "runs", project, "marks", `${epic}-${nn}.json`)
   for (const m of fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")).marks : []) if (m.sha === head) marks.set(m.kind, m.verdict)
 } else for (const s of JSON.parse(st)) marks.set(s.context, s.state === "success" && s.description === "skipped" ? "skipped" : s.state)

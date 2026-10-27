@@ -52,16 +52,25 @@ repo "$T/r/local" "$T/elsewhere.git"
 repo "$T/r/multi/front" "https://github.com/acme/front"
 repo "$T/r/multi/back" "ssh://git@github.com/acme/back.git"
 repo "$T/r/plain" ""
+repo "$T/r/demo" ""
+repo "$T/r/demopr" ""
+repo "$T/r/lgh" "https://github.com/acme/lgh.git"
 # Paths written into files node reads are in node's spelling: C:/… in Git Bash on Windows (pwd -W), where node
 # reads /tmp/… as C:\tmp\…; the same as $T elsewhere.
 TN="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
 printf '{"repos":[%s]}\n' "$(printf '{"key":"shop","match":"%s","profile":"shop"},{"key":"quiet","match":"%s","profile":"quiet"},{"key":"local","match":"%s","profile":"local"},{"key":"front","match":"%s","profile":"multi"},{"key":"back","match":"%s","profile":"multi"}' \
-    "$TN/r/shop" "$TN/r/quiet" "$TN/r/local" "$TN/r/multi/front" "$TN/r/multi/back")" >"$HH/gate/config.json"
+    "$TN/r/shop" "$TN/r/quiet" "$TN/r/local" "$TN/r/multi/front" "$TN/r/multi/back"),$(printf '{"key":"demo","match":"%s","profile":"demo"},{"key":"demopr","match":"%s","profile":"demopr"},{"key":"lgh","match":"%s","profile":"lgh"}' \
+    "$TN/r/demo" "$TN/r/demopr" "$TN/r/lgh")" >"$HH/gate/config.json"
 newp() { mkdir -p "$HH/projects/$1" && printf '%s\n' "$2" >"$HH/projects/$1/profile.json"; }
 newp shop '{"schema":2,"name":"shop","mode":"full"}'
 newp quiet "{\"schema\":2,\"name\":\"quiet\",\"mode\":\"silent\",\"workflow\":{\"folder\":\"$TN/wf\"}}"
 newp local '{"schema":2,"name":"local","mode":"full"}'
 newp multi '{"schema":2,"name":"multi","mode":"full"}'
+# Full mode with a local finish: without origin the marks go to the marks file, as in Silent mode; with an origin
+# on GitHub, or with a PR finish, they stay commit statuses.
+newp demo '{"schema":2,"name":"demo","mode":"full","workflow":{"finish":"local-green"}}'
+newp demopr '{"schema":2,"name":"demopr","mode":"full","workflow":{"finish":"pr-green-ci"}}'
+newp lgh '{"schema":2,"name":"lgh","mode":"full","workflow":{"finish":"local-green"}}'
 
 # Tickets: Full mode — in the working tree; Silent mode — in the Workflow folder; the multi project — in the
 # folder above its repositories, with the ticket's `Repo:` line naming the repository.
@@ -69,6 +78,9 @@ ticket() { mkdir -p "$1/.scratch/shopfront/issues" && printf '%s\n' "# $2 — a 
 ticket "$T/r/shop" 02
 ticket "$T/wf" 02
 ticket "$T/r/local" 02
+ticket "$T/r/demo" 01
+ticket "$T/r/demopr" 01
+ticket "$T/r/lgh" 01
 ticket "$T/r/multi" 03 'Repo: back'
 ticket "$T/r/multi" 04
 SHA="$(git -C "$T/r/shop" rev-parse HEAD)"
@@ -168,6 +180,31 @@ mkdir "$M.lock"
 tk "$T/r/quiet" mark shopfront 02 review success --sha "$SHA"; rc=$?; wait "$holder"
 [ "$rc" -eq 0 ] && [ "$(jq '.marks | length' "$M")" = 5 ] && ok "silent: a live lock is waited for, then the mark is added" || bad "silent: live lock: exit $rc $(cat "$T/out")"
 [ "$(calls)" = 0 ] && ok "silent: still no gh call" || bad "silent: gh called: $(cat "$GH_LOG")"
+
+# --- Full mode, local finish, no origin: the marks file, never gh -------------------------------------------
+: >"$GH_LOG"
+D="$HH/runs/demo/marks/shopfront-01.json"
+DSHA="$(git -C "$T/r/demo" rev-parse HEAD)"
+tk "$T/r/demo" mark shopfront 01 review pending --sha "$DSHA"; rc1=$?
+tk "$T/r/demo" mark shopfront/01 review failure --sha "$DSHA"; rc2=$?
+tk "$T/r/demo" mark shopfront 1 check/windows skipped --sha "$OTHER"; rc3=$?
+[ "$rc1$rc2$rc3" = 000 ] && [ -f "$D" ] && ok "full + local-green, no origin: three marks -> exit 0, $D" || bad "full + local-green, no origin: exit $rc1 $rc2 $rc3, $(cat "$T/out")"
+got="$(jq -r '"\(.epic) \(.num) " + ([.marks[] | "\(.kind)=\(.verdict)@\(.sha[0:7])"] | join(","))' "$D" 2>&1)"
+[ "$got" = "shopfront 01 review=pending@${DSHA:0:7},review=failure@${DSHA:0:7},check/windows=skipped@0000000" ] \
+    && ok "full + local-green, no origin: the file of Silent mode, {epic, num, marks: [{kind, verdict, sha}]}, in order" || bad "full + local-green, no origin: file: $got"
+grep -q "check/windows skipped on 0000000 — .*runs.demo.marks.shopfront-01\.json$" "$T/out" && ok "full + local-green, no origin: names the marks file it wrote" || bad "full + local-green, no origin: output: $(cat "$T/out")"
+[ "$(calls)" = 0 ] && ok "full + local-green, no origin: gh is never called" || bad "full + local-green, no origin: gh called: $(cat "$GH_LOG")"
+[ "$(ls -A "$HH/runs/demo/marks")" = "shopfront-01.json" ] && [ -z "$(git -C "$T/r/demo" status --porcelain -- . ':!.scratch')" ] \
+    && ok "full + local-green, no origin: no lock or temporary file left, nothing written into the repository" || bad "full + local-green, no origin: left $(ls -A "$HH/runs/demo/marks"), repo $(git -C "$T/r/demo" status --porcelain)"
+# A PR finish without origin: the refusal of before, nothing written
+tk "$T/r/demopr" mark shopfront 01 review failure --sha "$DSHA"; rc=$?
+[ "$rc" -eq 1 ] && grep -q "has no origin: a commit status needs a repository on GitHub" "$T/out" && [ "$(calls)" = 0 ] && [ ! -e "$HH/runs/demopr" ] \
+    && ok "full + pr-green-ci, no origin: exit 1 'has no origin', no gh, no marks file" || bad "full + pr-green-ci, no origin: exit $rc $(cat "$T/out")"
+# A local finish with an origin on GitHub: a commit status, as before
+tk "$T/r/lgh" mark shopfront 01 review success --sha "$DSHA"; rc=$?
+[ "$rc" -eq 0 ] && [[ "$(last_call)" == "api | -X | POST | repos/acme/lgh/statuses/$DSHA | -f | state=success | -f | context=review"* ]] && [ ! -e "$HH/runs/lgh" ] \
+    && ok "full + local-green with an origin on GitHub: a commit status, no marks file" || bad "full + local-green with origin: exit $rc [$(last_call)] $(cat "$T/out")"
+rm -rf "$HH/runs/demo"
 
 # --- usage: exit 2, nothing called, nothing written -------------------------------------------------------
 : >"$GH_LOG"

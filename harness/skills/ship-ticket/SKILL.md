@@ -403,9 +403,11 @@ a PR's verdict stay as they are.
 round starts, mark that commit `review pending`; when its verdict is written down, mark the same
 commit `review success` (`VERIFIED`) or `review failure` (`REJECTED`). A new commit has no mark,
 so a push after the verdict sends the ticket back to review. In Full mode the mark is a commit
-status on GitHub, so the commit must be pushed first; with `local-green` in Full mode there is no
-mark — the `gate:` commit stays the record. In Silent mode the mark is a file in the Harness home,
-never on GitHub. The comment, the commit or the line in the ticket file stays as well: the rounds
+status on GitHub, so the commit must be pushed first; with `local-green` in Full mode and an
+`origin` there is no mark — the `gate:` commit stays the record. In Silent mode, and in Full mode
+with `local-green` in a repository without `origin`, the mark is a file in the Harness home
+(`runs/<project>/marks/<epic>-<NN>.json`), never on GitHub: `ticket mark` picks the store itself.
+The comment, the commit or the line in the ticket file stays as well: the rounds
 are counted by them.
 
 ```bash
