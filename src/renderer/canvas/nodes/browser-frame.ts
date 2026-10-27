@@ -170,6 +170,37 @@ export function registerBrowserPage(id: string, control: BrowserPageControl): ()
   }
 }
 
+/**
+ * The body of each Browser frame drawn in a tile of focus mode, by Node id (worfy-browser ticket
+ * 17). Focus mode draws a second copy of the frame there (../../focus/FocusMode.tsx); the page is
+ * still the one <webview> of the Browser layer, which lays it over this body while it is here and
+ * counts the Browser as on screen.
+ */
+const useTileBodies = create<Record<string, HTMLElement>>(() => ({}))
+
+/** The frame in a focus tile registers its body; the returned function takes it away again. */
+export function registerBrowserTileBody(id: string, body: HTMLElement): () => void {
+  useTileBodies.setState({ [id]: body })
+  return () => {
+    if (useTileBodies.getState()[id] !== body) return
+    useTileBodies.setState((bodies) => {
+      const rest = { ...bodies }
+      delete rest[id]
+      return rest
+    }, true)
+  }
+}
+
+/** The id of the element of the Browser layer that holds the page of Browser `id`. */
+export function browserPageElementId(id: string): string {
+  return `w-browser-page-${id}`
+}
+
+/** The bodies of the Browser frames in focus tiles now, by Node id. */
+export function useBrowserTileBodies(): Readonly<Record<string, HTMLElement>> {
+  return useTileBodies((bodies) => bodies)
+}
+
 /** Sends the page of Browser `id` to `url`; false when this window draws no page for it. */
 export function navigateBrowserPage(id: string, url: string): boolean {
   const control = pages.get(id)

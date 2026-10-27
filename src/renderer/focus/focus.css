@@ -258,3 +258,48 @@ html[data-platform='linux'] .w-focus__bar[data-sidebar='hidden'] {
   font-size: var(--text-11);
   color: var(--text-muted);
 }
+
+/* A see-through tile (worfy-browser ticket 17, focus-tile.ts, cover.ts): what the tile's Node shows
+   is drawn under this layer — a Browser's page, the <webview> of the Browser layer on the Canvas,
+   laid over the tile's body. While a tile is see-through, what the layer covers is hidden, all but
+   the elements marked `data-under-focus`: `shown` is drawn, `kept` stays rendered but invisible (a
+   <webview> under `visibility: hidden` is told it is hidden, and its frames and captures stop). The
+   layer lets them show through: its background moves to the element it is drawn in, the
+   see-through tile's frame has none, and the mouse goes through the layer and that tile — except
+   over the bar, the dividers, the other tiles, the tile's title bar, and what in the tile's Node
+   takes it (a Browser's header). */
+/* Everything in it, with !important: React Flow writes `visibility: visible` into each measured
+   Node's inline style, which would beat a visibility inherited from here. */
+[data-focus-covered],
+[data-focus-covered] * {
+  visibility: hidden !important;
+}
+[data-focus-covered] [data-under-focus],
+[data-focus-covered] [data-under-focus] * {
+  visibility: visible !important;
+}
+[data-focus-covered] [data-under-focus='kept'] {
+  opacity: 0;
+  pointer-events: none;
+}
+/* While a tile's title bar or a divider is dragged, what shows through takes no mouse, as on the
+   Canvas: the layer carries the mark of frames-step-aside.ts. */
+[data-focus-see-through]:has(> .w-focus[data-pointer-pressed]) [data-under-focus] {
+  pointer-events: none;
+}
+[data-focus-see-through] {
+  background: var(--canvas);
+}
+.w-focus[data-see-through] {
+  background: transparent;
+  pointer-events: none;
+}
+.w-focus[data-see-through] > .w-focus__bar,
+.w-focus[data-see-through] .w-focus__divider,
+.w-focus[data-see-through] .w-focus__tile:not([data-see-through]),
+.w-focus[data-see-through] .w-focus__tile-title {
+  pointer-events: auto;
+}
+.w-focus__tile[data-see-through] .w-focus__frame {
+  background: transparent;
+}

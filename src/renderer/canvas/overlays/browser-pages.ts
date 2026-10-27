@@ -71,3 +71,56 @@ export function placeBrowserPages(pages: readonly BrowserLayerPage[], profiles: 
 export function profileWrites(placed: readonly PlacedBrowserPage[]): { id: string; profile: string }[] {
   return placed.flatMap(({ page, choice }) => (choice.kind === 'use' && choice.write ? [{ id: page.id, profile: choice.id }] : []))
 }
+
+/** A box on the window, in CSS px, as getBoundingClientRect() gives it. */
+export interface ScreenBox {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** Where a page lies over a frame's body in a focus tile, in the layer's own units, and the Canvas zoom it undoes. */
+export interface TilePlacement {
+  x: number
+  y: number
+  w: number
+  h: number
+  zoom: number
+}
+
+/**
+ * Where the page goes to lie exactly on `body`, the body of its frame in a focus tile (worfy-browser
+ * ticket 17), inside the Browser layer whose origin is at `origin` on the window with the Canvas at
+ * `zoom`. The layer is inside React Flow's viewport, which scales by `zoom`: the page is placed in
+ * Canvas units and scaled back by 1 / zoom, so it is laid out and drawn at the body's size, one CSS
+ * px of the page per CSS px of the window.
+ */
+export function tilePlacement(body: ScreenBox, origin: { x: number; y: number }, zoom: number): TilePlacement {
+  return { x: (body.x - origin.x) / zoom, y: (body.y - origin.y) / zoom, w: body.width, h: body.height, zoom }
+}
+
+/**
+ * What the window shows of the Browsers (`browser.screen`): the ids of those whose page lies at least
+ * partly inside the window on the Canvas, with the zoom of the Canvas. Focus mode changes nothing of
+ * that for the Browsers on the Canvas under its layer: opening it never puts one to sleep sooner than
+ * without it (main's sleep rules, src/main/browser/sleep.ts). The Browsers in its tiles (`inTiles`,
+ * worfy-browser ticket 17) count as shown too, wherever their frames are, and the zoom as at least 1 —
+ * a tile draws its page at its own size — so those rules never take one of them for far off.
+ * shortcut: one zoom per screen, so while a tile shows a Browser the Browsers on the Canvas zoomed out below the readable zoom count readable too and sleep later; redo when `browser.screen` carries a zoom per Browser.
+ */
+export function screenShown(
+  state: Pick<ReactFlowState, 'transform' | 'width' | 'height'>,
+  pages: readonly BrowserLayerPage[],
+  inTiles: readonly string[],
+): { visible: string[]; zoom: number } {
+  const [x, y, zoom] = state.transform
+  const left = -x / zoom
+  const top = -y / zoom
+  const right = left + state.width / zoom
+  const bottom = top + state.height / zoom
+  const onCanvas = (page: BrowserLayerPage) => page.x < right && page.x + page.w > left && page.y < bottom && page.y + page.h > top
+  const tiled = (page: BrowserLayerPage) => inTiles.includes(page.id)
+  const visible = pages.filter((page) => onCanvas(page) || tiled(page)).map((page) => page.id)
+  return { visible, zoom: pages.some(tiled) ? Math.max(zoom, 1) : zoom }
+}

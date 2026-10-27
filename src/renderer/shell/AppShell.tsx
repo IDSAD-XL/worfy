@@ -1,4 +1,5 @@
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { underFocusCover } from '../focus/cover'
 import { setFocusSlot } from '../focus/focus-state'
 import { useInterfaceScale } from '../settings/interface-scale'
 import { SettingsDialog } from '../settings/SettingsDialog'
@@ -29,7 +30,7 @@ export interface AppShellProps {
  * Keeps the keyboard focus when the sidebar goes away with the focus inside it: the browser would
  * leave it on <body>, where Tab starts from the top of the page. It goes to the button that brings
  * the sidebar back — the one of the focus mode bar while focus mode is on screen (the toolbar is
- * inert then), else the one of the toolbar.
+ * inert or hidden then), else the one of the toolbar.
  *
  * A class, for getSnapshotBeforeUpdate: the one place React lets a component read the DOM after
  * the render and before the sidebar is taken out of it.
@@ -44,8 +45,9 @@ class SidebarFocusKeeper extends Component<{ visible: boolean; shell: RefObject<
   override componentDidUpdate(_props: unknown, _state: unknown, focusWasInSidebar: boolean): void {
     if (!focusWasInSidebar) return
     const toggles = this.props.shell.current?.querySelectorAll<HTMLElement>(SIDEBAR_TOGGLE_SELECTOR) ?? []
-    // A layout effect: focus mode has made the toolbar inert, or taken that off, before this runs.
-    const toggle = [...toggles].find((button) => button.closest('[inert]') === null)
+    // A layout effect: focus mode has made the toolbar inert — or hidden, while a tile is
+    // see-through — or taken that off, before this runs.
+    const toggle = [...toggles].find((button) => !underFocusCover(button))
     toggle?.focus({ preventScroll: true })
   }
 

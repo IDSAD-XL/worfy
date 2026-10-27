@@ -24,23 +24,33 @@
 // press first, when it reacts to it at all (takenOutside).
 //
 // While the layer is open it takes the keyboard focus and what it covers (the toolbar and the view)
-// is inert, so no key reaches a Canvas Node underneath (React Flow moves the selected Nodes on
+// is inert — and a focus a frame's script takes there anyway comes back to the layer (cover.ts) —
+// so no key reaches a Canvas Node underneath (React Flow moves the selected Nodes on
 // arrow keys and unselects on Esc). On leaving, the focus goes back to where it was, unless it has
 // moved out of the layer meanwhile (to the sidebar): then it stays there.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+//
+// A tile may be see-through (focus-tile.ts, worfy-browser ticket 17): a Browser's page is no Node
+// component but the <webview> of the Browser layer on the Canvas, laid over the tile from under
+// this layer, since a <webview> moved in the DOM loads its page again. While a tile is see-through
+// the layer's background and that tile's are transparent, the mouse goes through that tile to what
+// is under it (focus.css), and what the layer covers is hidden instead of all inert, all but what is
+// marked to stay rendered (cover.ts). The layer never asks what kind of Node a tile holds.
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useNodes } from '@xyflow/react'
 import { TERMINAL_NODE_KIND } from '../../shared/ipc/terminal'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { nodeTypes, type CanvasFlowNode, type CanvasNodeProps } from '../canvas/nodes'
+import { useFramesStepAsideWhilePressed } from '../canvas/nodes/frames-step-aside'
 import { ReadOnlyTerminal } from '../canvas/ReadOnlyTerminal'
 import { UnknownNode } from '../canvas/UnknownNode'
 import { isPrimary } from '../platform'
 import { useReadOnly } from '../projects/useProjects'
 import { SidebarToggle, useSidebarVisibility } from '../shell/sidebar-visibility'
 import { label, matches } from '../shortcuts/match'
-import { setFocusActive, useFocusState } from './focus-state'
-import { FocusTileContext } from './focus-tile'
+import { COVERED_ATTRIBUTE, keepFocusOutOfCover, keepShownOnly, SEE_THROUGH_SLOT, underFocusCover } from './cover'
+import { focusLayoutChanged, setFocusActive, useFocusState } from './focus-state'
+import { FocusTileContext, SeeThroughTileContext, type SetSeeThrough } from './focus-tile'
 import {
   buildPreset,
   computeGeometry,
@@ -128,7 +138,7 @@ function focusIsElsewhere(layer: HTMLElement): boolean {
  * the layer — what the layer covers is inert.
  */
 function isOpenOutside(popup: Element, layer: HTMLElement): boolean {
-  return popup.isConnected && !layer.contains(popup) && popup.closest('[inert], [hidden]') === null
+  return popup.isConnected && !layer.contains(popup) && popup.closest('[hidden]') === null && !underFocusCover(popup)
 }
 
 /** The menus and dialogs open outside `layer`: of the sidebar, the command palette, the Settings window. */
@@ -167,16 +177,41 @@ function takenOutside(press: EscapePress): boolean {
   return press.event.defaultPrevented || press.popups.some((popup) => !isOpenOutside(popup, press.layer))
 }
 
-function TileNode({ node }: { node: CanvasFlowNode }) {
+function TileNode({ node, setSeeThrough }: { node: CanvasFlowNode; setSeeThrough: SetSeeThrough }) {
   const readOnly = useReadOnly()
   if (readOnly !== null && node.data.node.kind === TERMINAL_NODE_KIND) return <ReadOnlyTerminal id={node.id} hint={readOnly} />
   const Component = nodeTypes.get(node.data.node.kind)?.Component ?? UnknownNode
   // The Node knows it has a tile's room (focus-tile.ts): the Ticket shows its whole file there.
   return (
     <FocusTileContext.Provider value={true}>
-      <Component {...tileProps(node)} />
+      <SeeThroughTileContext.Provider value={setSeeThrough}>
+        <Component {...tileProps(node)} />
+      </SeeThroughTileContext.Provider>
     </FocusTileContext.Provider>
   )
+}
+
+/** The tiles whose Node shows through them (focus-tile.ts), and for each tile the setter it is given. */
+function useSeeThroughTiles(): [ReadonlySet<string>, (id: string) => SetSeeThrough] {
+  const [tiles, setTiles] = useState<ReadonlySet<string>>(() => new Set())
+  // One setter per tile for the layer's life: a new one would set the Node's effect off again.
+  const setters = useRef(new Map<string, SetSeeThrough>())
+  const setterOf = useCallback((id: string) => {
+    let setter = setters.current.get(id)
+    if (setter === undefined) {
+      setter = (seeThrough) =>
+        setTiles((current) => {
+          if (current.has(id) === seeThrough) return current
+          const next = new Set(current)
+          if (seeThrough) next.add(id)
+          else next.delete(id)
+          return next
+        })
+      setters.current.set(id, setter)
+    }
+    return setter
+  }, [])
+  return [tiles, setterOf]
 }
 
 interface PointerHandlers {
@@ -243,6 +278,13 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
   const nodes = useNodes<CanvasFlowNode>()
   const byId = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes])
   const layer = useRef<HTMLDivElement>(null)
+  // The layer as state, for the step-aside of Browser pages during a gesture (frames-step-aside.ts).
+  const [layerElement, setLayerElement] = useState<HTMLDivElement | null>(null)
+  useFramesStepAsideWhilePressed(layerElement)
+  const setLayer = useCallback((element: HTMLDivElement | null) => {
+    layer.current = element
+    setLayerElement(element)
+  }, [])
   const area = useRef<HTMLDivElement>(null)
   const geometry = useMemo(() => computeGeometry(tree), [tree])
   // The title-bar drag lives in a ref: a pointerup can arrive before React has rendered the
@@ -279,22 +321,52 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
   const slot = useFocusState((state) => state.slot)
   const sidebar = useSidebarVisibility()
 
-  // Keyboard focus: into the layer, what the layer covers inert, and back when the layer closes.
-  // What it covers is the other children of the element it is drawn in: the toolbar and the view in
-  // the shell — not the sidebar, which is next to that element — and the whole page on <body>.
+  // A tile that is see-through lets what is under the layer show (see the top of this file).
+  const ids = useMemo(() => leafIds(tree), [tree])
+  const [seeThroughTiles, seeThroughSetter] = useSeeThroughTiles()
+  const seeThrough = ids.some((id) => seeThroughTiles.has(id))
+
+  // What the layer covers is the other children of the element it is drawn in: the toolbar and the
+  // view in the shell — not the sidebar, which is next to that element — and the whole page on
+  // <body>. Inert; while a tile is see-through, hidden and inert but what is marked to stay
+  // rendered (cover.ts), and the element the layer is in takes the layer's background. Back as it
+  // was when the layer closes. Before the effect below, so that on closing the cover is off before
+  // the focus goes back.
   useLayoutEffect(() => {
     const root = layer.current
     const covered = root?.parentElement
     if (root === null || covered === null || covered === undefined) return undefined
+    const mark = seeThrough ? COVERED_ATTRIBUTE : 'inert'
+    const marked = Array.from(covered.children).filter((element) => element !== root && !element.hasAttribute(mark))
+    for (const element of marked) element.setAttribute(mark, '')
+    const kept = seeThrough ? Array.from(covered.children).filter((element) => element !== root).map(keepShownOnly) : []
+    if (seeThrough) covered.setAttribute(SEE_THROUGH_SLOT, '')
+    // A frame's script under the cover can still take the focus (cover.ts): it comes back here.
+    const stopGuard = keepFocusOutOfCover(root)
+    return () => {
+      stopGuard()
+      covered.removeAttribute(SEE_THROUGH_SLOT)
+      for (const undo of kept) undo()
+      for (const element of marked) element.removeAttribute(mark)
+    }
+  }, [slot, seeThrough])
+
+  // What lies over a tile from under the layer measures it again: the tiles may have moved without
+  // changing size (focus-state.ts).
+  useLayoutEffect(() => {
+    focusLayoutChanged()
+  }, [tree, sidebar.visible, slot])
+
+  // Keyboard focus: into the layer, and back when the layer closes.
+  useLayoutEffect(() => {
+    const root = layer.current
+    if (root === null) return undefined
     const previous = document.activeElement
-    const inerted = Array.from(covered.children).filter((element) => element !== root && !element.hasAttribute('inert'))
-    for (const element of inerted) element.setAttribute('inert', '')
     root.focus({ preventScroll: true })
     // The sidebar is shown or hidden apart for focus mode (shell/sidebar-visibility.ts).
     setFocusActive(true)
     return () => {
       setFocusActive(false)
-      for (const element of inerted) element.removeAttribute('inert')
       // Back to where the focus was, when it is still in the layer or nowhere. A focus that went to
       // the sidebar meanwhile stays there (a click on an Epic that ends focus mode must not lose it
       // to the Canvas): React puts the focus back on an element that had it before the layer was
@@ -304,7 +376,6 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
   }, [slot])
 
   // A Node that left the Canvas (removed or hidden) leaves its tile; with none left, focus mode ends.
-  const ids = useMemo(() => leafIds(tree), [tree])
   useEffect(() => {
     const gone = ids.filter((id) => {
       const node = byId.get(id)
@@ -452,7 +523,15 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
 
   return createPortal(
     // A region, not a modal dialog: the sidebar next to it stays in reach, for a screen reader too.
-    <div ref={layer} tabIndex={-1} className="w-focus" role="region" aria-label="Focus mode" data-testid="focus-mode">
+    <div
+      ref={setLayer}
+      tabIndex={-1}
+      className="w-focus"
+      role="region"
+      aria-label="Focus mode"
+      data-testid="focus-mode"
+      data-see-through={seeThrough ? '' : undefined}
+    >
       <div className="w-focus__bar" data-toast-keep-out="" data-sidebar={sidebar.visible ? 'visible' : 'hidden'}>
         {/* The toolbar's button is under the layer: the same one here. */}
         <SidebarToggle className="w-focus__icon-button" visible={sidebar.visible} onToggle={sidebar.toggle} />
@@ -480,6 +559,7 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
               data-testid="focus-tile"
               data-node-id={tile.id}
               data-drop-zone={zone}
+              data-see-through={seeThroughTiles.has(tile.id) ? '' : undefined}
               aria-label={node ? titleOf(node) : tile.id}
               style={{ left: percent(tile.x), top: percent(tile.y), width: percent(tile.w), height: percent(tile.h) }}
             >
@@ -493,7 +573,7 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
                   <span aria-hidden="true">⠿</span>
                   {node ? titleOf(node) : tile.id}
                 </div>
-                <div className="w-focus__node">{node ? <TileNode node={node} /> : null}</div>
+                <div className="w-focus__node">{node ? <TileNode node={node} setSeeThrough={seeThroughSetter(tile.id)} /> : null}</div>
               </div>
             </section>
           )

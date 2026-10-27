@@ -445,6 +445,24 @@ describe('the sidebar, hidden and shown', () => {
       expect(document.activeElement).toBe(inBar)
       inBar.remove()
     })
+
+    it('goes to the focus mode bar too while a Browser tile has the toolbar hidden instead of inert (worfy-browser ticket 17)', async () => {
+      const { setFocusActive } = await mount()
+      await act(async () => main.answerGet(settings(0)))
+      setFocusActive(true)
+      const toolbar = screen.getByRole('banner')
+      toolbar.setAttribute('data-focus-covered', '')
+      const inBar = document.createElement('button')
+      inBar.setAttribute('data-sidebar-toggle', '')
+      toolbar.after(inBar)
+      const row = within(sidebar()!).getAllByRole('button')[0]!
+      row.focus()
+      await menuToggle()
+      expect(shown()).toBe(false)
+      expect(document.activeElement).toBe(inBar)
+      inBar.remove()
+      toolbar.removeAttribute('data-focus-covered')
+    })
   })
 })
 

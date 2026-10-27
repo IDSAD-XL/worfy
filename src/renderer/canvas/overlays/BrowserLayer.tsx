@@ -37,8 +37,22 @@
 // window of a Linked machine never draws a page: the Browser runs on the Machine of its Project. It
 // tells that Machine what it shows all the same, again every BROWSER_SCREEN_RENEW_MS — a Browser seen
 // there does not sleep — except on a read-only screen, which shows the frame alone.
-import { createElement, useEffect, useMemo, useRef, useState } from 'react'
-import { useStore, ViewportPortal, type ReactFlowState } from '@xyflow/react'
+//
+// Focus mode draws a second copy of a Browser's frame in its tile (worfy-browser ticket 17,
+// ../../focus/FocusMode.tsx). The page stays here — a <webview> moved in the DOM loads its page
+// again — and, while the frame is in a tile, is laid over the tile copy's body instead of the Canvas
+// frame's (useTilePlacement): under focus mode's layer, which the frame makes see-through
+// (BrowserNode.tsx) and which hides the rest of the Canvas. Every page is marked for that layer
+// (UNDER_FOCUS_ATTRIBUTE, ../../focus/cover.ts): the one in a tile is drawn there and takes input, the
+// others stay rendered, invisible and inert, so that main keeps reaching them — their frames, a
+// Session's screenshots. Leaving focus mode puts the page back on the frame: the same page, its
+// history, scroll and typed text. A Browser in a tile counts as on screen (screenShown in
+// browser-pages.ts), wherever its frame is on the Canvas; the Browsers on the Canvas count as without
+// focus mode.
+import { createElement, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import { UNDER_FOCUS_ATTRIBUTE } from '../../focus/cover'
+import { useFocusState } from '../../focus/focus-state'
+import { useStore, useStoreApi, ViewportPortal, type ReactFlowState } from '@xyflow/react'
 import { announceBrowserPage, keepWindowFocus } from '../../browser/control'
 import { reportBrowserScreen, useFollowBrowserLives, useLiveBrowserIds } from '../../browser/lives'
 import { BROWSER_SCREEN_RENEW_MS } from '../../../shared/ipc/browser'
@@ -46,16 +60,27 @@ import { useBrowserProfiles } from '../../browser/profiles'
 import { subscribe, windowMachine } from '../../ipc'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import {
+  browserPageElementId,
   dismissBrowserOpenRequest,
   offerOwnBrowserOpenRequest,
   registerBrowserPage,
   type BrowserOpenRequestEvent,
   setBrowserHistory,
+  useBrowserTileBodies,
   webAddress,
 } from '../nodes/browser-frame'
 import { useFramesStepAsideWhilePressed } from '../nodes/frames-step-aside'
 import { useLayoutOps } from '../useLayout'
-import { pagesKey, placeBrowserPages, profileWrites, type BrowserLayerPage, type PlacedBrowserPage } from './browser-pages'
+import {
+  pagesKey,
+  placeBrowserPages,
+  profileWrites,
+  screenShown,
+  tilePlacement,
+  type BrowserLayerPage,
+  type PlacedBrowserPage,
+  type TilePlacement,
+} from './browser-pages'
 import '../nodes/BrowserNode.css'
 
 export const order = 5
@@ -81,7 +106,20 @@ type NavigationEvent = Event & { url: string; isMainFrame?: boolean }
  * changed `src` attribute would load the page again, and the attribute would change on every
  * navigation the page makes itself, since the address it reaches is written back into the Node.
  */
-function BrowserPage({ page, partition, projectId }: { page: BrowserLayerPage; partition: string; projectId: string }) {
+function BrowserPage({
+  page,
+  partition,
+  projectId,
+  tile,
+  layer,
+}: {
+  page: BrowserLayerPage
+  partition: string
+  projectId: string
+  /** The body of the Browser's frame in a focus tile, while focus mode shows it. */
+  tile: HTMLElement | undefined
+  layer: RefObject<HTMLDivElement | null>
+}) {
   const ops = useLayoutOps()
   const readOnly = useReadOnly()
   const view = useRef<WebviewElement>(null)
@@ -200,8 +238,20 @@ function BrowserPage({ page, partition, projectId }: { page: BrowserLayerPage; p
     }
   }, [page.id, ops, readOnly])
 
+  const placement = useTilePlacement(tile, layer)
+  const style: CSSProperties =
+    placement === null
+      ? { transform: `translate(${page.x}px, ${page.y}px)`, width: page.w, height: page.h }
+      : { transform: `translate(${placement.x}px, ${placement.y}px) scale(${1 / placement.zoom})`, transformOrigin: '0 0', width: placement.w, height: placement.h }
+  // Only the style changes between the frame and the tile: the same element, so the same page. Its
+  // id names it to the tile's body, which owns it for a screen reader (BrowserNode.tsx).
   return (
-    <div className="w-browser-layer__page" style={{ transform: `translate(${page.x}px, ${page.y}px)`, width: page.w, height: page.h }}>
+    <div
+      id={browserPageElementId(page.id)}
+      className="w-browser-layer__page"
+      {...{ [UNDER_FOCUS_ATTRIBUTE]: placement === null ? 'kept' : 'shown' }}
+      style={style}
+    >
       {/* allowpopups: without it Electron drops a page's window.open and target="_blank" before main's
           window-open handler sees them; that handler opens no window and sends the page itself to
           the address instead (src/main/window.ts). */}
@@ -210,26 +260,64 @@ function BrowserPage({ page, partition, projectId }: { page: BrowserLayerPage; p
   )
 }
 
+/**
+ * Where the page lies over `tile`, the body of its frame in a focus tile (worfy-browser ticket 17);
+ * null while the frame is not in a tile. Measured again whenever the body changes size (a divider
+ * dragged, the sidebar or the window resized), focus mode says its tiles may have moved without
+ * that (tiles swapped, the sidebar shown: `layoutSeq` of focus-state.ts), or the Canvas moves the
+ * layer. The page is not taken out of the layer — a <webview> moved in the DOM loads its page
+ * again — but laid over the body from where it is: under focus mode's layer, which lets it show
+ * through the tile's body.
+ */
+function useTilePlacement(tile: HTMLElement | undefined, layer: RefObject<HTMLDivElement | null>): TilePlacement | null {
+  const flow = useStoreApi()
+  const [placement, setPlacement] = useState<TilePlacement | null>(null)
+  const measure = useRef<(() => void) | null>(null)
+  useEffect(() => {
+    if (tile === undefined) return undefined
+    let last = ''
+    const now = () => {
+      const origin = layer.current?.getBoundingClientRect()
+      if (origin === undefined) return
+      const next = tilePlacement(tile.getBoundingClientRect(), origin, flow.getState().transform[2])
+      const key = JSON.stringify(next)
+      if (key === last) return
+      last = key
+      setPlacement(next)
+    }
+    measure.current = now
+    now()
+    const observer = new ResizeObserver(now)
+    observer.observe(tile)
+    return () => {
+      observer.disconnect()
+      measure.current = null
+      setPlacement(null)
+    }
+  }, [tile, layer, flow])
+  const layoutSeq = useFocusState((state) => state.layoutSeq)
+  // The layer is inside React Flow's viewport: a pan or a zoom moves it. Only read while in a tile.
+  const transform = useStore((state) => (tile === undefined ? null : state.transform))
+  useEffect(() => {
+    measure.current?.()
+  }, [layoutSeq, transform])
+  return placement
+}
+
 /** How long what the window shows stays unchanged before the layer tells main. */
 const REPORT_REST_MS = 150
 
-/** The ids of the Browsers whose page lies at least partly inside the window, and the zoom, as one string: compared by value. */
-function screenKey(state: Pick<ReactFlowState, 'transform' | 'width' | 'height'>, pages: readonly BrowserLayerPage[]): string {
-  const [x, y, zoom] = state.transform
-  const left = -x / zoom
-  const top = -y / zoom
-  const right = left + state.width / zoom
-  const bottom = top + state.height / zoom
-  const visible = pages.filter((page) => page.x < right && page.x + page.w > left && page.y < bottom && page.y + page.h > top).map((page) => page.id)
-  return JSON.stringify({ visible, zoom })
+/** What the window shows of the Browsers (screenShown) as one string: compared by value. */
+function screenKey(state: Pick<ReactFlowState, 'transform' | 'width' | 'height'>, pages: readonly BrowserLayerPage[], inTiles: readonly string[]): string {
+  return JSON.stringify(screenShown(state, pages, inTiles))
 }
 
 /**
  * Tells main what this window shows of Project `projectId` whenever it changes (`browser.screen`),
  * and that it shows nothing of it once the layer goes (another Project, the window closes its Canvas).
  */
-function useReportScreen(projectId: string | undefined, pages: readonly BrowserLayerPage[], readOnly: boolean): void {
-  const shown = useStore((state) => screenKey(state, pages))
+function useReportScreen(projectId: string | undefined, pages: readonly BrowserLayerPage[], inTiles: readonly string[], readOnly: boolean): void {
+  const shown = useStore((state) => screenKey(state, pages, inTiles))
   const [hidden, setHidden] = useState(() => document.visibilityState === 'hidden')
   useEffect(() => {
     const visibility = () => setHidden(document.visibilityState === 'hidden')
@@ -270,7 +358,11 @@ export default function BrowserLayer() {
   useFollowBrowserLives(project?.id, readOnly !== null)
   // The Browsers whose page this window draws: their owner is this window (`here`).
   const live = useLiveBrowserIds(project?.id)
-  useReportScreen(project?.id, pages, readOnly !== null)
+  // The Browsers whose frame is in a focus tile: on screen whatever the Canvas shows (worfy-browser ticket 17).
+  const tiles = useBrowserTileBodies()
+  const inTiles = useMemo(() => Object.keys(tiles).sort(), [tiles])
+  useReportScreen(project?.id, pages, inTiles, readOnly !== null)
+  const layer = useRef<HTMLDivElement>(null)
 
   // The profile the rule picked for a Node without one goes into the Node, as the address bar's
   // address does (not a step of ⌘Z): from then on the Node keeps it whatever profiles come later.
@@ -291,9 +383,9 @@ export default function BrowserLayer() {
   if (shown.length === 0 || project === undefined) return null
   return (
     <ViewportPortal>
-      <div className="w-browser-layer" data-testid="browser-layer">
+      <div ref={layer} className="w-browser-layer" data-testid="browser-layer">
         {shown.map(({ page, partition }) => (
-          <BrowserPage key={`${partition} ${page.id}`} page={page} partition={partition} projectId={project.id} />
+          <BrowserPage key={`${partition} ${page.id}`} page={page} partition={partition} projectId={project.id} tile={tiles[page.id]} layer={layer} />
         ))}
       </div>
     </ViewportPortal>
