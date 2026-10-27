@@ -3,7 +3,9 @@
 // - the workflow model (src/main/workflow/watch.ts): Status, its time, `Blocked reason:`, `Waits:`;
 // - the PR tracker (src/main/github/prs.ts): the PR of the Ticket's branch, its head SHA, CI checks,
 //   `reviewDecision`, merge commit and time, and in Full mode the agents' marks among its commit statuses;
-// - in Silent mode the marks file of the Ticket (src/main/workflow/marks.ts);
+//   not asked for a Full mode repository whose marks are in the marks file (it has no GitHub);
+// - the marks file of the Ticket (src/main/workflow/marks.ts) where `marksInFile` says so: in Silent
+//   mode, and in Full mode with `workflow.finish` `local-green` in a repository without `origin`;
 // - git: the heads of the branches (`for-each-ref`) and, for a Ticket on Deploy, whether its merge
 //   commit is in a deployed commit (`merge-base --is-ancestor`);
 // - the Deployments and deploy marks (src/main/github/deployments.ts), only for Tickets on Deploy;
@@ -60,7 +62,7 @@ export interface StageSources {
   /** The Profile's Pipeline, mode, name and lock (readPipelineProfile), or why there is none. */
   profile: (root: string) => Promise<{ ok: true; profile: PipelineProfile } | { ok: false; reason: string }>
   deployments: Pick<DeploymentReader, 'environment' | 'deployMarks'>
-  /** The Harness home: its `runs/<project>/marks/` keeps the Silent mode marks. */
+  /** The Harness home: its `runs/<project>/marks/` keeps the marks files (marksInFile). */
   harnessHome: string
   git?: GitRunner
   /** How often the PRs are asked again; the tracker's own interval (60 s) by default. */
@@ -99,6 +101,18 @@ export async function readE2eLock(folder: string | null): Promise<StageFacts['lo
   }
 }
 
+/**
+ * Whether the agents' marks of a Ticket are in the marks file of the Harness home rather than among
+ * the commit statuses of its PR: in Silent mode, and in Full mode when the Profile finishes with green
+ * local checks (`workflow.finish` `local-green`) and the Ticket's repository has no `origin`, so there
+ * is no repository on GitHub to hold a commit status. The same rule as `harness/bin/ticket mark`,
+ * which writes the marks: the two change together. `hasOrigin` is asked only when the answer hangs on it.
+ */
+export async function marksInFile(profile: Pick<PipelineProfile, 'mode' | 'finish'>, hasOrigin: () => Promise<boolean>): Promise<boolean> {
+  if (profile.mode === 'silent') return true
+  return profile.finish === 'local-green' && !(await hasOrigin())
+}
+
 const columnsOf = (pipeline: readonly PipelineStage[]): PipelineColumn[] => pipeline.map((stage) => ({ ...stage, id: stageId(stage), title: stageLabel(stage) }))
 
 /** Computes one snapshot of a Project; keeps what is worth keeping between snapshots. */
@@ -119,7 +133,7 @@ export class StageReader {
     if (profileRead.ok) profile = profileRead.profile
     else {
       problems.push(`the Profile could not be read, the default Pipeline stands in: ${profileRead.reason}`)
-      profile = { name: '', mode: 'full', pipeline: DEFAULT_PIPELINE, pipelineReason: null, e2eLock: null, repos: [] }
+      profile = { name: '', mode: 'full', finish: null, pipeline: DEFAULT_PIPELINE, pipelineReason: null, e2eLock: null, repos: [] }
     }
     if (profile.pipelineReason !== null) problems.push(`the default Pipeline stands in: ${profile.pipelineReason}`)
     if (model?.error) problems.push(`the workflow model is empty: ${model.error.message}`)
@@ -140,17 +154,24 @@ export class StageReader {
     }
 
     const lock = await readE2eLock(profile.e2eLock)
-    if (profile.mode === 'silent' && profile.name !== '' && this.marksKey !== profile.name) {
+    if (profile.name !== '' && this.marksKey !== profile.name) {
       this.marks = new SilentMarks({ harnessHome: this.sources.harnessHome, project: profile.name, log: this.sources.log })
       this.marksKey = profile.name
     }
 
     const pulls = new Map<string, TrackedPull[]>()
     const heads = new Map<string, Map<string, string>>()
+    const fileMarks = new Set<string>()
     for (const [repo, own] of byRepo) {
-      const read = await this.sources.prs.read(repo, [...new Set(own.map(branchOfTicket))])
-      if (!read.gh.available) problems.push(`gh is unavailable in ${repo}: ${read.gh.error ?? 'no reason given'}`)
-      pulls.set(repo, read.pulls)
+      const inFile = await marksInFile(profile, () => this.hasOrigin(repo))
+      if (inFile) fileMarks.add(repo)
+      // A Full mode repository with its marks in the file has no GitHub: its PR facts stay empty and gh is not run for it.
+      if (inFile && profile.mode === 'full') pulls.set(repo, [])
+      else {
+        const read = await this.sources.prs.read(repo, [...new Set(own.map(branchOfTicket))])
+        if (!read.gh.available) problems.push(`gh is unavailable in ${repo}: ${read.gh.error ?? 'no reason given'}`)
+        pulls.set(repo, read.pulls)
+      }
       heads.set(repo, await this.branchHeads(repo))
     }
 
@@ -178,7 +199,7 @@ export class StageReader {
           pull === null
             ? null
             : { number: pull.number, state: pull.state, headSha: pull.headSha, checks: pull.checks, reviewDecision: pull.reviewDecision, mergedAt: pull.mergedAt, mergeCommit: pull.mergeCommit }
-        facts.marks = await this.marksOf(profile, ticket, open)
+        facts.marks = await this.marksOf(fileMarks.has(repo), ticket, open)
       }
       let stage = stageOf(facts, pipeline)
       const deploy = pipeline[stage.index]
@@ -198,8 +219,8 @@ export class StageReader {
     return found === null ? null : (pulls.find((pull) => pull.number === found.number) ?? null)
   }
 
-  private async marksOf(profile: PipelineProfile, ticket: Ticket, open: TrackedPull | null): Promise<MarkFact[]> {
-    if (profile.mode === 'silent') return this.marks === null ? [] : this.marks.read(ticket.epic, ticket.num)
+  private async marksOf(inFile: boolean, ticket: Ticket, open: TrackedPull | null): Promise<MarkFact[]> {
+    if (inFile) return this.marks === null ? [] : this.marks.read(ticket.epic, ticket.num)
     return open === null ? [] : marksFromStatuses(open.markStatuses, open.headSha)
   }
 
@@ -207,6 +228,11 @@ export class StageReader {
   private async isInWorkTree(folder: string): Promise<boolean> {
     const inside = await this.git(folder, ['rev-parse', '--is-inside-work-tree'])
     return inside.code === 0 && inside.stdout.trim() === 'true'
+  }
+
+  /** Whether the repository has a remote `origin`, as `bin/ticket mark` asks (`git remote get-url origin`). */
+  private async hasOrigin(repo: string): Promise<boolean> {
+    return (await this.git(repo, ['remote', 'get-url', 'origin'])).code === 0
   }
 
   /** Branch name → head SHA of the repository's local branches. */
