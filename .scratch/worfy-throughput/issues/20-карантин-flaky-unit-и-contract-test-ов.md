@@ -79,3 +79,57 @@ runner-у этой ОС; helper работает без правки workflow-о
 - Карантин e2e и shell test-ов Harness — 34 и `worfy-polish` 41.
 
 ## Итог
+
+Ветка `worfy-throughput/20`, PR — #873.
+
+**Что сделано.** `test/quarantine.ts` — helper `quarantined('<id>')(name, fn, timeout)` вместо `it(name, fn,
+timeout)`; запись — `test/quarantine/<id>.json` с полями `file`, `test`, `platforms`, `reason`, `owner`, `since`,
+`until`. Без `WORFY_QUARANTINE` test с действующей записью этой платформы пропускается: имя в отчёте vitest —
+`<имя> (quarantine: <owner>, until <дата>)`, и строка `skip (quarantine: <owner>, until <дата>): <файл> > <test>`
+в stderr (её видно и в reporter-е vitest под агентом). `WORFY_QUARANTINE=run` и `=only` — test идёт; другое
+значение — ошибка при сборе файла. Helper ничего не пропускает, если запись пропала, сломана, называет другой
+test, не называет эту платформу или просрочена (сегодня по UTC позже `until`): test идёт под своим именем в
+каждом run-е. Автоматического повтора нет. `test/unit/quarantine.test.ts` проверяет записи и пометки
+репозитория и на фикстурах (часы — параметр `now`, не системные) краснеет с именем записи: нет `owner`, нет
+`until`, `until` дальше 14 дней от `since` или раньше `since`, просроченная запись, test, которого нет в файле
+под пометкой, пометка без записи, две записи на один test, больше 15 записей; helper на фикстуре просроченной
+записи test не пропускает. 17 mutant-ов `test/quarantine.ts` — все красные.
+
+**Записи в карантине (6):**
+
+| Запись | Test | Платформа | Владелец | Выход |
+| --- | --- | --- | --- | --- |
+| `login-shell-capture-late-writes` | `test/contract/login-shell-capture.test.ts` › keeps nothing of what that process writes after the answer | `darwin` | `worfy-throughput 22` | 2026-11-11 |
+| `link-access-handlers-event-sender` | `test/contract/link-access.test.ts` › access on › handlers that read event.sender… | `win32` | `worfy-throughput 23` | 2026-11-11 |
+| `link-access-switch-off-mid-subscription` | `test/contract/link-access.test.ts` › switching access off › in the middle of a subscription… | `win32` | `worfy-throughput 23` | 2026-11-11 |
+| `link-access-read-only-mid-work` | `test/contract/link-access.test.ts` › read-only access › lowered from all to read-only… | `win32` | `worfy-throughput 23` | 2026-11-11 |
+| `workflow-reader-auction-size` | `test/contract/workflow-reader.test.ts` › … diffs 682 Tickets in ≤ 300 ms… | `win32` | `worfy-throughput 23` | 2026-11-11 |
+| `workflow-branches-handles-rounds` | `test/contract/workflow-branches-handles.test.ts` › 16 rounds of a worktree… | `win32` | `worfy-throughput 23` | 2026-11-11 |
+
+**Отклонения от «Что делаем», пункт 3.**
+
+- `test/unit/canvas.test.tsx` (`collectNodeTypes`) и `test/unit/session-node-drop.test.tsx` — без записи. Их
+  flaky test — первый test файла, который делает медленный dynamic import в jsdom; пропуск переносит эти 5 s на
+  следующий test. Замер: с пропущенным первым test-ом `collectNodeTypes` при load average 32 упал следующий,
+  `names a React Flow wrapper…` (timeout 5004 ms). Карантин тут не убирает красный, а прячет имя причины;
+  оба файла целиком остаются за Ticket-ом 22.
+- `test/contract/claude-home-registry.test.ts` — без записи. Все его красные (7 test-ов) — в трёх run-ах
+  «Windows tests» 2026-10-19 до 12:16 UTC, до мержа `a3514683` (#525, watcher Claude home на Windows, 15:46 UTC).
+  В разборе run-ов с тех пор до 2026-10-27 красных в этом файле нет, в том числе в трёх красных полных run-ах
+  (2026-10-22 и дважды 2026-10-23), где падали другие файлы. Запись спрятала бы зелёный test, а
+  семь записей дали бы 16 — больше 15. Ticket 23 проверяет его повторами run-а, как и остальные.
+
+**`WORFY_QUARANTINE=only pnpm test`.** Переменная сама не сужает run vitest: отобрать test-ы без пометки
+можно только правкой `vitest.config.ts`, `package.json` или setup-файлов, а они в `PC_ONLY`. Run только test-ов
+карантина — `WORFY_QUARANTINE=only pnpm test -t "\(quarantine: "`: на Mac код 0, `Tests  1 passed | 9699 skipped (9700)`, 35 s (идёт одна запись `darwin`).
+
+**Вне следа (нужно для зелёного `pnpm typecheck` и `pnpm test`).** `tsconfig.test.node.json` — строка
+`test/quarantine.ts` (project перечисляет файлы `test/*.ts` поимённо). `test/unit/e2e-no-spawn-on-load.test.ts`
+— `quarantined` из `../quarantine` считается test-ом vitest (иначе запуск процесса в теле помеченного test-а
+читается как запуск при загрузке файла), плюс фикстура; mutant без этой строки красный.
+
+**Проверки.** `pnpm lint && pnpm typecheck && pnpm test` на Mac под load average 37–43: lint и typecheck — 0; `pnpm test` — 1 красный вне PR (`harness-scripts.test.ts` › `guard-silent.test.sh`, EPIPE при запуске node под нагрузкой), отдельно — код 0. Прошлый прогон дал 5 jsdom timeout-ов 5 s в `canvas`, `chat-attachments`, `session-history-tail` — отдельно все пять файлов зелёные (код 0). `pnpm test` на Mac без `WORFY_QUARANTINE` пропускает запись `darwin` и печатает строку `skip (quarantine: worfy-throughput 22, until 2026-11-11): test/contract/login-shell-capture.test.ts > …`; записи `win32` на Mac идут. `node scripts/windows-verdict-scope.mjs origin/main HEAD` — `runner`, код 0.
+gate fast на `3ba962ca` — `[gate] green (fast)`, код 0 (lint 13,5 s, typecheck 4,2 s, test 166,8 s). Вердикт Windows — run `full` на head (scope `runner`); на Windows-runner-е запись `win32` проверяется там же.
+
+**После merge (Orchestrator).** Строка в `rules.md` Profile-а worfy: «test в карантине не краснит gate; новый
+flaky — запись с владельцем и датой, а не повтор gate full».
