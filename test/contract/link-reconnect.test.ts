@@ -6,7 +6,7 @@
 import { EventEmitter } from 'node:events'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
-import type { NetworkInterfaceInfo } from 'node:os'
+import { networkInterfaces, type NetworkInterfaceInfo } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firewallHint } from '../../src/main/ipc/link'
@@ -15,7 +15,7 @@ import {
   bonjourBackend,
   dialAddress,
   LinkDiscovery,
-  mdnsHost,
+  worfyHost,
   mdnsInterfaces,
   mdnsName,
   onSameNetwork,
@@ -532,6 +532,9 @@ function fakeBonjour(): { create: (socket: BonjourSocketOptions) => BonjourLike;
   }
 }
 
+/** A service as bonjour-service's Registry returns it. */
+type BonjourLikeService = ReturnType<BonjourLike['publish']>
+
 interface FakeInstance {
   socket: BonjourSocketOptions
   published: number[]
@@ -564,7 +567,7 @@ describe('one mDNS socket per interface that may carry the link', () => {
   it('announces and searches on every interface, each socket joined and sending on its own; follows a change; closes all on destroy', async () => {
     const fake = fakeBonjour()
     let addresses = ['192.168.0.193', '172.30.16.1']
-    const backend = bonjourBackend({ create: fake.create, interfaces: () => addresses, hostname: () => 'DESKTOP-VFHQL1V', warn: () => undefined })
+    const backend = bonjourBackend({ create: fake.create, interfaces: () => addresses, warn: () => undefined })
     expect(fake.made).toEqual([])
 
     const announcement = backend.publish({ name: 'PC (11111111)', port: 52000, txt: { id: '11111111-1111-4111-8111-111111111111' } })
@@ -579,14 +582,9 @@ describe('one mDNS socket per interface that may carry the link', () => {
     ])
     // No probe for the name: the sockets of one machine would take each other for a rival.
     expect(fake.made.map((instance) => instance.probes)).toEqual([[false], [false]])
-    // The SRV target is a name resolvers find: the bare Windows computer name gets `.local`, on every socket.
-    expect(fake.made.map((instance) => instance.hosts)).toEqual([['DESKTOP-VFHQL1V.local'], ['DESKTOP-VFHQL1V.local']])
-    expect([mdnsHost('Alexeys-MacBook-Pro-5.local'), mdnsHost('DESKTOP-VFHQL1V.'), mdnsHost('pc.lan'), mdnsHost('Studio.LOCAL.')]).toEqual([
-      'Alexeys-MacBook-Pro-5.local',
-      'DESKTOP-VFHQL1V.local',
-      'pc.local',
-      'Studio.LOCAL',
-    ])
+    // The SRV target is worfy's own name, not the computer's: the OS answers for that one itself.
+    expect(fake.made.map((instance) => instance.hosts)).toEqual([['worfy-11111111.local'], ['worfy-11111111.local']])
+    expect(worfyHost('ABCDEF12-1111-4111-8111-111111111111')).toBe('worfy-abcdef12.local')
 
     // WSL goes, Wi-Fi comes: the WSL socket says goodbye and closes, the new one announces and searches.
     addresses = ['192.168.0.193', '192.168.1.40']
@@ -601,6 +599,37 @@ describe('one mDNS socket per interface that may carry the link', () => {
     expect([fake.made[0]?.goodbyes, fake.made[2]?.goodbyes]).toEqual([[52000], [52000]])
     backend.destroy()
     expect(fake.made.every((instance) => instance.destroyed)).toBe(true)
+  })
+
+  it('each socket announces and withdraws A records of its own interface only, for worfy\'s own name (the real records of bonjour-service)', async () => {
+    type Record = { name: string; type: string; data: unknown; ttl: number }
+    const { Registry } = (await import('bonjour-service/dist/lib/registry')) as unknown as { Registry: new (server: unknown) => { publish(config: object): BonjourLikeService } }
+    const sent: { [address: string]: Record[][] } = {}
+    const create = (socket: BonjourSocketOptions): BonjourLike => {
+      const packets: Record[][] = (sent[socket.interface] = [])
+      const server = {
+        register: () => undefined,
+        unregister: () => undefined,
+        mdns: { respond: (records: Record[], done: () => void) => (packets.push(records.map((record) => ({ ...record }))), done()) },
+      }
+      const registry = new Registry(server)
+      return { publish: (config) => registry.publish(config), find: () => ({ on: () => undefined, stop: () => undefined, update: () => undefined, expire: () => undefined }), destroy: () => undefined }
+    }
+    const backend = bonjourBackend({ create, interfaces: () => ['192.168.0.193', '172.30.16.1'], warn: () => undefined })
+    const handle = backend.publish({ name: 'PC (83a67a58)', port: 62057, txt: { id: '83a67a58-1111-4111-8111-111111111111' } })
+    await handle.stop()
+    const hostRecords = (records: Record[]): Record[] => records.filter((record) => record.type === 'A' || record.type === 'AAAA')
+    expect(Object.keys(sent)).toEqual(['192.168.0.193', '172.30.16.1'])
+    for (const [address, packets] of Object.entries(sent)) {
+      expect(packets.length, address).toBe(2)
+      const [announced = [], goodbye = []] = packets
+      expect(hostRecords(announced), address).toEqual([{ name: 'worfy-83a67a58.local', type: 'A', ttl: 120, data: address }])
+      expect(hostRecords(goodbye), address).toEqual([{ name: 'worfy-83a67a58.local', type: 'A', ttl: 0, data: address }])
+      expect(announced.find((record) => record.type === 'SRV')?.data).toMatchObject({ target: 'worfy-83a67a58.local', port: 62057 })
+    }
+    // The view of the interfaces is gone once the calls return.
+    expect(Object.values(networkInterfaces()).flat().some((entry) => entry?.address === '172.30.16.1' && entry.mac === '02:00:00:00:00:01')).toBe(false)
+    backend.destroy()
   })
 
   it('stopping the link sends the goodbye on every socket before closing them all; a goodbye that never goes out holds it for the wait only', async () => {

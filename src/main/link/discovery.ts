@@ -24,7 +24,7 @@
 // the first time an app announces or searches (Apple TN3179), and that prompt would stop a run.
 import { EventEmitter } from 'node:events'
 import { isIP } from 'node:net'
-import { hostname as osHostname, type NetworkInterfaceInfo } from 'node:os'
+import os, { type NetworkInterfaceInfo } from 'node:os'
 import { Bonjour } from 'bonjour-service'
 import { z } from 'zod'
 import { isLocalNetworkAddress, isTailscaleAddress } from './checks'
@@ -131,9 +131,9 @@ export function readAnnouncement(service: MdnsService, sameNetwork?: (address: s
 
 /**
  * The mDNS name of an announcement's host, `<label>.local` in lower case; undefined when it is no
- * such name. A bare label counts too: `bonjour-service` announces os.hostname() as it is, which on
- * Windows is the computer name without `.local` (whether Windows answers for `<name>.local` is for
- * the check on the PC, worfy-link ticket 36).
+ * such name. A bare label counts too: a worfy before worfy-link ticket 36 announced os.hostname()
+ * as it is, which on Windows is the computer name without `.local`; a worfy now announces its own
+ * name (worfyHost).
  */
 export function mdnsName(host: string): string | undefined {
   const name = host.replace(/\.$/, '').toLowerCase()
@@ -336,7 +336,7 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
 
 /** The part of `bonjour-service` bonjourBackend uses; the unit test passes a fake. */
 export interface BonjourLike {
-  publish(options: { name: string; type: string; protocol: 'tcp'; port: number; txt: Record<string, string>; probe?: boolean; host?: string }): {
+  publish(options: { name: string; type: string; protocol: 'tcp'; port: number; txt: Record<string, string>; probe?: boolean; host?: string; disableIPv6?: boolean }): {
     stop?: (callback?: () => void) => void
     on?: (event: 'error', listener: (error: Error) => void) => unknown
   }
@@ -366,15 +366,35 @@ export function onSameNetwork(address: string, interfaces: NodeJS.Dict<NetworkIn
 }
 
 /**
- * The host an announcement names (its SRV target and A records): `<first label>.local`, or the
- * name as it is when it already ends in `.local`. `bonjour-service` takes os.hostname() as it is,
- * which on Windows is the bare computer name (`DESKTOP-VFHQL1V.`): no resolver finds that, while
- * `DESKTOP-VFHQL1V.local` resolves (worfy-link ticket 36, the PC check of item 9).
+ * The host an announcement names (its SRV target and A records): `worfy-<first 8 of the Machine
+ * id>.local`, worfy's own name, stable per Machine (worfy-link ticket 36). Not the machine's host
+ * name: the OS answers for that one itself (mDNSResponder on macOS, Windows' own responder), and
+ * `bonjour-service` would answer for it too with every address of every interface (VPN, WSL and
+ * Hyper-V adapters included), so a dial by that name could go to an address that never answers.
  */
-export function mdnsHost(hostname: string): string {
-  const name = hostname.trim().replace(/\.$/, '')
-  if (/\.local$/i.test(name)) return name
-  return `${name.split('.')[0] || 'worfy'}.local`
+export function worfyHost(machineId: string): string {
+  return `worfy-${machineId.slice(0, 8).toLowerCase()}.local`
+}
+
+/**
+ * Runs `publish` with os.networkInterfaces() showing `address` alone: `bonjour-service` builds a
+ * service's A and AAAA records from os.networkInterfaces() in the call that announces it, and in the
+ * one that sends its goodbye (service.js, records()), and offers no option for it. So each socket
+ * answers for worfyHost with its own interface's address and nothing else. Synchronous: nothing
+ * else runs while the view is in place.
+ * shortcut: relies on bonjour-service 1.4 reading os.networkInterfaces() through the `os` module, redo when it changes how records are built
+ * (a test reads the records of the real Service and goes red then).
+ */
+function withOnlyInterface<T>(address: string, publish: () => T): T {
+  const original = os.networkInterfaces
+  // A MAC of zeros is skipped by bonjour-service (service.js): a Tailscale adapter has one.
+  const entry: NetworkInterfaceInfo = { address, netmask: '255.255.255.255', family: 'IPv4', mac: '02:00:00:00:00:01', internal: false, cidr: `${address}/32` }
+  os.networkInterfaces = () => ({ link: [entry] })
+  try {
+    return publish()
+  } finally {
+    os.networkInterfaces = original
+  }
 }
 
 /** What bonjourBackend asks of `bonjour-service` for one socket: the interface it joins and sends on. */
@@ -421,8 +441,6 @@ export function bonjourBackend(
   options: {
     create?: (socket: BonjourSocketOptions) => BonjourLike
     interfaces: () => string[]
-    /** os.hostname() by default; the announcement names it as an mDNS host (mdnsHost). */
-    hostname?: () => string
     /** How long a goodbye is waited for before its socket closes anyway; 1 s by default. */
     goodbyeWaitMs?: number
     warn?: (message: string) => void
@@ -461,9 +479,14 @@ export function bonjourBackend(
       })
     })
   const announce = (instance: Instance, key: string, announcement: Announcement): void => {
-    const service = instance.bonjour.publish({ name: announcement.name, type: LINK_SERVICE_TYPE, protocol: 'tcp', port: announcement.port, txt: announcement.txt, probe: false, host: mdnsHost((options.hostname ?? osHostname)()) })
+    // The target is worfy's own name, and this socket answers for it with its own address only
+    // (worfyHost, withOnlyInterface); IPv6 is left out, a dial takes IPv4 first anyway.
+    const config = { name: announcement.name, type: LINK_SERVICE_TYPE, protocol: 'tcp' as const, port: announcement.port, txt: announcement.txt, probe: false, host: worfyHost(announcement.txt.id ?? ''), disableIPv6: true }
+    const service = withOnlyInterface(key, () => instance.bonjour.publish(config))
     service.on?.('error', (error) => warn(`[link] Bonjour could not announce this Machine on ${key}: ${error.message}`))
-    instance.published.set(announcement, service)
+    const stop = service.stop
+    // The goodbye rebuilds the records too: the same view, so it withdraws exactly what was announced.
+    instance.published.set(announcement, stop === undefined ? {} : { stop: (callback?: () => void) => withOnlyInterface(key, () => stop.call(service, callback)) })
   }
   const search = (instance: Instance, events: Search): void => {
     const browser = instance.bonjour.find({ type: LINK_SERVICE_TYPE, protocol: 'tcp' })
