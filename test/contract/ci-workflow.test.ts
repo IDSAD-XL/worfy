@@ -118,8 +118,9 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     expect(runs('lint-typecheck')).toEqual(['pnpm install --frozen-lockfile', 'pnpm lint', 'pnpm typecheck'])
     expect(runs('linux-tests')).toContain('pnpm test "--shard=$SHARD" --sequence.shuffle.files')
     expect(runs('macos-tests')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test "--shard=$SHARD"'])
-    expect(runs('macos-e2e')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test:e2e "--shard=$SHARD"'])
-    expect(runs('macos-package')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test:package'])
+    expect(runs('macos-e2e')).toEqual(['pnpm install --frozen-lockfile', 'system_profiler SPDisplaysDataType', 'pnpm test:e2e "--shard=$SHARD"'])
+    // electron-builder needs the binary that Electron downloads only on its first require.
+    expect(runs('macos-package')).toEqual(['pnpm install --frozen-lockfile', `node -e "require('electron')"`, 'pnpm test:package'])
     // Windows: the job full-suite of windows-tests.yml, which runs pnpm test (its own contract test).
     const windows = job('windows')
     expect(value(windows, 'uses')).toBe('./.github/workflows/windows-tests.yml')

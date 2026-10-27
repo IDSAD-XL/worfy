@@ -180,6 +180,10 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The display of the runner bounds the windows the e2e tests open: a window is never taller than
+      # the screen. Its size is in the log for a test that fails on the size of its window.
+      - name: Show the display of the runner
+        run: system_profiler SPDisplaysDataType
       # Builds the app into out/ and drives it with Playwright; the shard goes to playwright test.
       - name: Run the e2e tests, one shard
         env:
@@ -207,6 +211,11 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Electron 44 downloads its binary on the first require('electron'), not at install.
+      # electron-builder copies the binary from node_modules/electron/dist (electronDist in
+      # electron-builder.yml) and never requires electron, so on a clean machine the folder is missing.
+      - name: Download the Electron binary
+        run: node -e "require('electron')"
       # Packages dist/mac-*/worfy.app (ad-hoc signed) and drives the packaged app.
       - run: pnpm test:package
       - if: failure()
