@@ -441,7 +441,13 @@ done
 rw3="$(section "$EW" 3 | tr '\n' ' ' | tr -s ' ')"
 in_rw3() { [[ "$rw3" == *"$1"* ]]; }
 check "epic-wave section 3: a rework round is a fresh implementer with the rework brief" \
-    in_rw3 'The round is a new agent `worfy:implementer` with the rework brief below, in the same worktree and on the same branch — not `SendMessage` to the old implementer'
+    in_rw3 'The round is a new agent `worfy:implementer` with the rework brief below, on the same branch — not `SendMessage` to the old implementer'
+check "epic-wave section 3: the orchestrator removes the previous round's idle worktree and launches with isolation worktree" \
+    in_rw3 'Otherwise the previous round'"'"'s worktree is idle and its branch is pushed: remove that worktree (`git worktree remove <worktree>`, then `git branch -D <branch>`) and launch the new agent with the Agent parameter `isolation: "worktree"`, which gives it a fresh tree of its own. There it checks out the branch from origin (`git checkout -B <branch> origin/<branch>`) and rebases first.'
+check "epic-wave section 3: a rework implementer is never sent into an existing tree" \
+    in_rw3 'Never send it into an existing tree: `EnterWorktree` refuses a subagent started at the repository root, by `path` and by `name`.'
+check "epic-wave section 3: the old wording — the rework in the same worktree — is gone" \
+    bash -c '[[ "$1" != *"in the same worktree and on the same branch"* ]]' _ "$rw3"
 check "epic-wave section 3: the 5 min exception" \
     in_rw3 'The exception: the old implementer sent its final report less than 5 min before this brief — then `SendMessage` to it with the same brief; a report time you do not know counts as older.'
 # The rule's paragraph and the brief template stay within 100 characters a line.
@@ -467,8 +473,14 @@ check "epic-wave section 3: Head is from before the rebase, which the implemente
 check "epic-wave section 3: the rework brief reminds of a test per new behaviour" \
     bash -c '[[ "$(tr "\n" " " <<<"$1" | tr -s " ")" == *"$2"* ]]' _ "$rework_brief" \
     'Cover every new behaviour of the rework with a test that turns red on a mutant of that change'
-check "epic-wave section 3: the rework brief names the worktree by absolute path — work in it, do not create one" \
-    bash -c 'grep -q "^Worktree: <absolute path of the first round.s worktree> — work in it, do not create one$" <<<"$1"' _ "$rework_brief"
+check "epic-wave section 3: the rework brief's Worktree is the launch tree, where the branch is checked out from origin" \
+    bash -c 'grep -qx "Worktree: your launch tree (isolation \"worktree\") — git checkout -B <branch> origin/<branch>" <<<"$1"' _ "$rework_brief"
+check "epic-wave section 3: the old Worktree line — work in it, do not create one — is gone" \
+    lacks "$EW" 'do not create one'
+check "epic-wave section 3: the second round's diff starts at the head after the rebase, from the PR comment" \
+    in_rw3 'where `<sha>` is the head after the rebase the rework starts with, as the implementer names it in its PR comment (local-green: its report) — not the brief'"'"'s `Head`, which is from before that rebase.'
+check "epic-wave section 3: the old wording — the HEAD before the rework, already after the rebase — is gone" \
+    bash -c '[[ "$1" != *"already after the rebase"* ]]' _ "$rw3"
 rw4="$(section "$EW" 4 | tr '\n' ' ' | tr -s ' ')"
 in_rw4() { [[ "$rw4" == *"$1"* ]]; }
 check "epic-wave section 4: a red Check goes to a fresh implementer" \
@@ -477,12 +489,18 @@ check "epic-wave section 4: the culprit of a red set goes to a fresh implementer
     in_rw4 'the culprit goes to a rework round (section 3, a fresh implementer) with the log of its run'
 check "epic-wave section 4: no rework goes back to its implementer" \
     lacks "$EW" 'back to its implementer as a rework round'
-check "implementer: a rework round works in the brief's tree by absolute paths, without EnterWorktree" \
-    in_flat "$(cat "$IM")" 'Do not create a tree and do not call `EnterWorktree` (refused from the repository root): edit files by absolute paths inside that tree and run every Bash command as `cd <worktree> && …`; a path that is missing or not on the brief'"'"'s branch — stop and ask.'
+check "implementer: a rework round starts in its isolation-worktree tree and never calls EnterWorktree" \
+    in_flat "$(cat "$IM")" 'the orchestrator launches you with `isolation: "worktree"`: your working directory is already a fresh tree of your own, the previous round'"'"'s tree is removed. Never call `EnterWorktree` — it refuses a subagent started at the repository root, by `path` and by `name` — and do not create another tree.'
+check "implementer: a rework round checks the branch out from origin in its tree" \
+    in_flat "$(cat "$IM")" 'Check out the branch from origin in your tree: `git checkout -B <branch> origin/<branch>`.'
+check "implementer: a refused Edit is never written around" \
+    in_flat "$(cat "$IM")" 'An Edit or Write that is refused is never written around (python, sed or a heredoc in Bash): stop and report it.'
+check "implementer: the old rework wording — no EnterWorktree, edit by absolute paths — is gone" \
+    bash -c '[[ "$1" != *"do not call \`EnterWorktree\` (refused from the repository root)"* && "$1" != *"edit files by absolute paths inside that tree"* ]]' _ "$(flat "$(cat "$IM")")"
 check "implementer: a rework round skips claim and base, rebases first and names the rebased head" \
     in_flat "$(cat "$IM")" 'Skip steps 1–2 of the ticket skill (claim, base): rebase onto the base first — `Head` is from before it — and name the head after that rebase in your PR comment.'
 check "implementer: the create-a-tree rule points a rework round at the brief's tree" \
-    in_flat "$(cat "$IM")" '(a rework round: work in the tree its brief names, see "A rework round")'
+    in_flat "$(cat "$IM")" '(a rework round starts in the fresh tree it was launched in and skips this step, see "A rework round")'
 check "implementer: a rework round is not sent into EnterWorktree" \
     lacks "$IM" 'enter that tree (`EnterWorktree`'
 # In Silent mode the verdict is the last gate: line of the ticket file, not its last line: group lines follow
