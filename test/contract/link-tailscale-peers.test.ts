@@ -3,7 +3,7 @@
 // the shared schema (src/main/ipc/index.ts). The app's link is a real service on the bench. The
 // Tailscale CLI is never started: the reader gets an injected file check and runner.
 import type { IpcMainInvokeEvent } from 'electron'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { registerIpc } from '../../src/main/ipc/index'
@@ -54,9 +54,23 @@ afterEach(async () => {
 
 type Handler = (event: IpcMainInvokeEvent, input: unknown) => Promise<IpcResult<unknown>>
 
-async function handlers(tailscale: boolean, linkedWith?: string): Promise<<T>(name: string) => Promise<T>> {
+/**
+ * The IPC handlers over beta's link service; `linkedWith` is paired with beta first, and `remembered`
+ * then changes what beta's linked.json keeps for it (read again on a restart).
+ */
+async function handlers(tailscale: boolean, linkedWith?: string, remembered?: Record<string, unknown>): Promise<<T>(name: string) => Promise<T>> {
   const b = await bench.machine('beta')
-  if (linkedWith !== undefined) await bench.link(b, await bench.machine(linkedWith))
+  if (linkedWith !== undefined) {
+    const other = await bench.machine(linkedWith)
+    await bench.link(b, other)
+    if (remembered !== undefined) {
+      const file = join(b.dataDir, 'link', 'linked.json')
+      const data = JSON.parse(readFileSync(file, 'utf8')) as { machines: Record<string, unknown>[] }
+      for (const record of data.machines) if (record.id === other.service.machine.id) Object.assign(record, remembered)
+      writeFileSync(file, JSON.stringify(data))
+      await bench.restart(b)
+    }
+  }
   b.service.settings.set({ tailscale })
   app.link = wireAppLink(b.service, { bonjour: false })
   const registered = new Map<string, Handler>()
@@ -121,6 +135,17 @@ it('leaves out a Linked machine: the peer at the address this Machine remembers 
   // gamma as the tailnet would list it, with the address the link remembers among its TailscaleIPs.
   const status = JSON.parse(readFileSync(join(__dirname, '../fixtures/tailscale/status.json'), 'utf8')) as { Peer: Record<string, unknown> }
   status.Peer['nodekey:gamma'] = { HostName: 'gamma', DNSName: 'gamma.tail1234.ts.net.', TailscaleIPs: ['100.101.102.120', '127.0.0.1'], Online: true }
+  cli.run.mockResolvedValue(JSON.stringify(status))
+  const peers = await call<TailscalePeerView[]>('link.tailscalePeers')
+  expect(peers.map((peer) => peer.name)).toEqual(['Alexeys-iPhone', 'lab', 'pc', 'nas'])
+})
+
+it('leaves out a Linked machine remembered by a LAN address and its MagicDNS name', async () => {
+  cli.installed = true
+  const call = await handlers(true, 'gamma', { address: '192.168.1.77', tailnetName: 'gamma.tail1234.ts.net' })
+  expect(app.link?.service.linkedMachines().map((machine) => machine.address)).toEqual(['192.168.1.77'])
+  const status = JSON.parse(readFileSync(join(__dirname, '../fixtures/tailscale/status.json'), 'utf8')) as { Peer: Record<string, unknown> }
+  status.Peer['nodekey:gamma'] = { HostName: 'gamma', DNSName: 'Gamma.tail1234.ts.net.', TailscaleIPs: ['100.101.102.120'], Online: true }
   cli.run.mockResolvedValue(JSON.stringify(status))
   const peers = await call<TailscalePeerView[]>('link.tailscalePeers')
   expect(peers.map((peer) => peer.name)).toEqual(['Alexeys-iPhone', 'lab', 'pc', 'nas'])

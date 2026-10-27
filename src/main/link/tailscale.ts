@@ -65,11 +65,11 @@ const normalHost = (host: string): string => host.toLowerCase().replace(/\.$/, '
  * else its first address; a peer without one is left out, as is an entry of another shape. Throws
  * when the text is not JSON or not a status.
  *
- * `linked` are the addresses remembered for the Linked machines (LinkedMachineInfo.address): a peer
+ * `linked` are the addresses and MagicDNS names remembered for the Linked machines (LinkService.linkedHosts): a peer
  * is left out when one of its TailscaleIPs, its full MagicDNS name or the name's first label is one
  * of them, compared without case and trailing dot. Like the Bonjour list, the window is offered only
  * machines that are not linked, and is not given the address the link keeps for a Linked machine.
- * A Linked machine remembered by its LAN address stays in the list: that is not the address here.
+ * A Linked machine known only by its LAN address stays in the list: that is not an address here.
  */
 export function parseTailscaleStatus(text: string, linked: readonly string[] = []): TailscalePeerView[] {
   const status = statusSchema.parse(JSON.parse(text))
@@ -107,7 +107,7 @@ export interface TailscaleReadOptions {
   run?: TailscaleRunner
   /** Warnings for the worfy log; console.warn by default. */
   warn?: (message: string) => void
-  /** The addresses remembered for the Linked machines: their peers are left out (parseTailscaleStatus). */
+  /** The addresses and MagicDNS names remembered for the Linked machines: their peers are left out (parseTailscaleStatus). */
   linked?: readonly string[]
 }
 

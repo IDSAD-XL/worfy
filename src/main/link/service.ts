@@ -310,6 +310,14 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     return this.store.list().map((record) => this.info(record))
   }
 
+  /**
+   * The remembered address and MagicDNS name (`tailnetName`) of every Linked machine: the tailnet
+   * list of "Link a machine" leaves out the peers they name (worfy-link ticket 30, tailscale.ts).
+   */
+  linkedHosts(): string[] {
+    return this.store.list().flatMap((record) => (record.tailnetName === undefined ? [record.address] : [record.address, record.tailnetName]))
+  }
+
   isLinked(machineId: string): boolean {
     return this.store.get(machineId) !== undefined
   }
