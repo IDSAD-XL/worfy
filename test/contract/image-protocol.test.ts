@@ -53,7 +53,9 @@ const get = (url: string) => handle({ url, method: 'GET' })
 const url = (name: string) => `${IMAGE_SCHEME}://${ATTACHMENT_IMAGES_STORE}/${name}`
 
 beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-image-protocol-')))
+  // The long spelling resolveImageFile answers with: realpath of node:fs/promises turns an 8.3
+  // short name of TEMP (C:\Users\RUNNER~1 on the Windows runner) into the long one, realpathSync keeps it.
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-image-protocol-')))
   dataRoot = join(scratch, 'data')
   images = join(dataRoot, 'attachments', 'images')
   outside = join(scratch, 'outside')
@@ -277,6 +279,17 @@ describe('resolveImageFile and a link that leads to a share (Windows rules)', ()
   it('serves a plain copy', async () => {
     const system = fakeSystem({})
     expect(await resolveImageFile(attachmentImageStore(STORE), NAME, system.options)).toBe(FILE)
+  })
+
+  it('serves a store under an 8.3 short name at the long name realpath answers with', async () => {
+    const short = 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\data\\attachments\\images'
+    const long = 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\data\\attachments\\images'
+    const system = fakeSystem({})
+    const real = async (path: string): Promise<string> => {
+      system.asked.push(path)
+      return path.replace('C:\\Users\\RUNNER~1', 'C:\\Users\\runneradmin')
+    }
+    expect(await resolveImageFile(attachmentImageStore(short), NAME, { ...system.options, real })).toBe(`${long}\\${NAME}`)
   })
 
   it.each([
