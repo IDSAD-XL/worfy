@@ -2,10 +2,12 @@
 
 Type: task
 Status: open
-Blocked by: 10, 11
+Blocked by: 10, 21, 35
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-20: скорость test-ов», решение Q5;
 [ADR-0081](../../../docs/adr/0081-per-pr-linux-ci-shards-and-affected-tests.md) (принят 2026-10-20), пункт 3;
-Ticket [03](03-implementer-гоняет-только-свои-e2e.md) (done, PR #385).
+Ticket [03](03-implementer-гоняет-только-свои-e2e.md) (done, PR #385). Правка 2026-10-28 (раздел «Решения
+владельца 2026-10-28: процесс»): было «весь e2e или ни одного», стало «только spec-и, которые задевает diff»;
+блокер 11 заменён на 21 (команда выбора test-ов); слово владельца на правки Harness дано 2026-10-28.
 
 ## Что происходит
 
@@ -21,17 +23,29 @@ Ticket [03](03-implementer-гоняет-только-свои-e2e.md) (done, PR 
   `src/main/watch-gone.ts`, `src/main/cards/store.ts`, `src/main/claude-home/registry.ts`. Списка путей в
   Profile-е нет.
 
+## Правка 2026-10-28: CI на runner-ах
+
+Правка 2026-10-28 (решение 0 spec-а, «Переходим на CI раннеры»): e2e и `test:package` идут на macOS-runner-е в `ci-ok` каждого PR и
+push в `main` (Ticket 35). Цель этого Ticket-а теперь — скорость и стабильность `ci-ok`, а не экономия Mac:
+macOS job PR-а гоняет только spec-и по таблице ниже, весь `test:e2e` — push в `main`. Список spec-ов
+передаётся в job `ci-ok` (выводом команды, не правкой `playwright.config.ts`); «ночной run» пункта 3 заменяет
+run на push в `main`. Точку передачи выбрать при claim по PR Ticket-а 35.
+
 ## Что делаем
 
-1. Поле Profile-а — список путей (glob), при которых e2e и `test:package` нужны до merge. Для worfy —
-   пути из «Что происходит»; окончательный список — в «Итог».
-2. Шаг перед merge: diff PR против базы трогает путь из списка — весь `test:e2e` и `test:package` на Mac,
-   как сейчас; не трогает — e2e до merge нет.
+1. Поле Profile-а — таблица «путь (glob) → spec-и e2e» и список путей, при которых нужен `test:package`. Для
+   worfy — пути из «Что происходит»; окончательная таблица — в «Итог».
+2. Шаг перед merge: e2e — только spec-и, которые задевает diff PR против базы (по таблице пункта 1 и по
+   `scripts/affected-tests.mjs` Ticket-а 21 для import-ов из `test/e2e/helpers.ts`). Путь в `src/main`,
+   `src/preload` или `src/renderer`, которого нет в таблице, — весь `test:e2e`, не пустой список. diff не
+   трогает ни одного пути таблицы — e2e до merge нет. `test:package` — по своему списку путей.
+   Список spec-ов передаётся через gate или `land` (Ticket 27) — **не** правкой `playwright.config.ts`: этот
+   файл в списке `PC_ONLY` (`scripts/windows-verdict-scope.mjs`), и такой PR ждал бы ПК.
 3. Ночной run на `main`: весь `test:e2e` и `test:package`. Что делать с красным ночным run-ом — в
    «Открытые вопросы».
 4. **Связь с Ticket-ом 03.** Первая половина правила 03 остаётся: implementer гоняет только e2e-файлы,
    которые трогает Ticket. Вторая половина — «весь `test:e2e` — в gate full перед merge» — меняется:
-   весь `test:e2e` перед merge — только по списку путей пункта 1, иначе — ночью. Текст
+   перед merge — только spec-и по таблице пункта 1, весь `test:e2e` — ночью. Текст
    `harness/agents/implementer.md:174-179` и пункт `rules.md` Profile-а, который записал 03, правятся
    под это.
 5. `docs/lessons/agents.md:57-66` и `:95-101` (заблокированный экран — e2e падает на первом окне) касаются и
@@ -43,8 +57,9 @@ Ticket [03](03-implementer-гоняет-только-свои-e2e.md) (done, PR 
 
 - [ ] `profile` читает и проверяет поле списка путей; неверный тип — exit 1 с причиной;
       `harness/bin/tests/profile.test.sh` это проверяет.
-- [ ] На временном репозитории: diff в `src/renderer/` — шаг перед merge гоняет e2e и `test:package`;
-      diff только в `src/shared/` — не гоняет; shell test это проверяет.
+- [ ] На временном репозитории: diff в файле из таблицы — шаг перед merge гоняет только его spec-и; diff в
+      `src/renderer/` вне таблицы — весь `test:e2e`; diff только в `src/shared/` без связи с e2e — e2e нет;
+      shell test это проверяет. `playwright.config.ts` в diff PR-а нет.
 - [ ] Текст implementer-а и skill-ов говорит новое правило; `harness/bin/tests/agents-text.test.sh`
       проверяет фразу; правило Ticket-а 03 о своих e2e-файлах на месте.
 - [ ] Ночной run на `main` запущен хотя бы один раз; ссылка или лог и код выхода — в «Итог».
