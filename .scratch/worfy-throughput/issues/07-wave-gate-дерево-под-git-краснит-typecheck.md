@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: —
+Blocked by: 35
 Source: Wave `worfy-link` 17, 19 (2026-10-16) — первый набор `wave-gate` на Mac;
 [ADR-0065](../../../docs/adr/0065-one-gate-full-per-wave-merge-set.md); лог решений Wave — каталог
 `runs/worfy/worfy-link-wave-20261016T155152Z/` в Harness state.
@@ -24,6 +24,16 @@ Source: Wave `worfy-link` 17, 19 (2026-10-16) — первый набор `wave-
   implementer чинил бы то, чего не ломал.
 - Причина, почему tsc иначе ведёт себя под `.git/`, не выяснена. Гипотеза: путь дерева внутри
   каталога `.git` меняет то, как tsc строит спецификатор модуля для символических ссылок pnpm.
+
+## Правка 2026-10-28: сначала оценка, нужен ли `wave-gate`
+
+Правка 2026-10-28 (решение 0 spec-а, «Переходим на CI раннеры»): условие merge — check `ci-ok` на GitHub-hosted runner-ах
+(Ticket 35), а не локальный gate full. `wave-gate` был нужен, чтобы гонять один gate full на Mac на весь набор PR
+Wave вместо одного на PR; с `ci-ok` этот довод уходит, и `wave-gate` как путь по умолчанию
+(`workflow.merge_gate: "wave"`) под вопросом. Первый шаг после merge Ticket-а 35 — оценка: даёт ли проверка
+общего дерева набора что-то сверх `ci-ok` на каждом head и push в `main` (скорость и стабильность CI, а не
+экономия Mac). Ответ — владельцу. Если `wave-gate` не нужен — Profile на `merge_gate: "each"`, Ticket
+закрывается этим ответом, пункты ниже не делаются; если нужен — пункты ниже.
 
 ## Что делаем
 

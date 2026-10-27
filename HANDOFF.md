@@ -15,7 +15,7 @@
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–26; 12 — приёмка; открыты 27 (pointer, hover), 28 (drop, превью в чате).
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
 - `worfy-polish`: 39/43, влиты 01–38, 42 (#822). 39 (#754) — долг ревью; 40 — чипы с рамкой 1 px; 41 — flaky Windows (пересчёт 2026-10-23); 43 — flaky `afterAll` в `harness-evals` test-ах.
-- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 9/18, влиты 01–03, 06, 08, 10, 16–18 (gate full 18,5 → 8,4 min); 07, 09 — `wave-gate`; 04, 05 — Orchestrator; 11–15 — скорость test-ов (ADR-0081).
+- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 9/35, влиты 01–03, 06, 08, 10, 16–18; 19–35 — процесс (решения 2026-10-28): Wave 0 — 35 (CI на runner-ах, `ci-ok`), потом 07, 19–21, 24, 25; 30, 34 ждут ПК.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 01–22 влиты (13 → 22); открыты 23 (картинки на Canvas), 24 (на Linked machine).
