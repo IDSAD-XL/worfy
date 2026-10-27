@@ -726,6 +726,8 @@ export interface PipelineProfile {
   /** The Profile's name, `_resolved.name`: the folder of its Silent mode marks. */
   name: string
   mode: 'full' | 'silent'
+  /** `workflow.finish`: how a Ticket ends — a PR with green CI, or green local checks; null when the Profile names neither. */
+  finish: 'pr-green-ci' | 'local-green' | null
   /** `_resolved.pipeline`; the default Pipeline when the Harness gives none or one that does not read. */
   pipeline: readonly PipelineStage[]
   /** Why `pipeline` is the default although the Harness answered; null otherwise. */
@@ -742,11 +744,11 @@ const pipelineProfileSchema = z.object({
     repos: z.array(z.object({ name: z.string().trim().min(1), path: absolute })).catch([]),
     pipeline: z.unknown().optional(),
   }),
-  workflow: z.object({ e2e_lock: z.string().nullish().catch(null) }).loose().nullish().catch(null),
+  workflow: z.object({ e2e_lock: z.string().nullish().catch(null), finish: z.enum(['pr-green-ci', 'local-green']).nullish().catch(null) }).loose().nullish().catch(null),
 })
 
 /**
- * `_resolved.name`, `mode`, `repos` and `pipeline` and `workflow.e2e_lock` of `bin/profile -C <root> --json`,
+ * `_resolved.name`, `mode`, `repos` and `pipeline`, `workflow.e2e_lock` and `workflow.finish` of `bin/profile -C <root> --json`,
  * or why there are none (any exit code but 0, output that is not the expected JSON). A Harness from
  * before the Pipeline has no `_resolved.pipeline`: the default Pipeline, and `pipelineReason` says so.
  * A relative lock path is not taken: it would depend on worfy's own cwd. Nothing is logged here.
@@ -778,6 +780,6 @@ export async function readPipelineProfile(options: ReadProfileOptions): Promise<
   const lock = parsed.data.workflow?.e2e_lock ?? null
   return {
     ok: true,
-    profile: { name, mode, pipeline, pipelineReason, e2eLock: lock !== null && isAbsolutePath(lock) ? lock : null, repos: repos.map(({ name: repo, path }) => ({ name: repo, path })) },
+    profile: { name, mode, finish: parsed.data.workflow?.finish ?? null, pipeline, pipelineReason, e2eLock: lock !== null && isAbsolutePath(lock) ? lock : null, repos: repos.map(({ name: repo, path }) => ({ name: repo, path })) },
   }
 }

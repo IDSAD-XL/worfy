@@ -211,7 +211,15 @@ function nextSnapshot(sent: PipelineSnapshot[], match: (snapshot: PipelineSnapsh
   })
 }
 
-const fullProfile = (world: World, pipeline: PipelineStage[] = WORFY): PipelineProfile => ({ name: 'demo-project', mode: 'full', pipeline, pipelineReason: null, e2eLock: world.lock, repos: [] })
+const fullProfile = (world: World, pipeline: PipelineStage[] = WORFY, finish: PipelineProfile['finish'] = 'pr-green-ci'): PipelineProfile => ({
+  name: 'demo-project',
+  mode: 'full',
+  finish,
+  pipeline,
+  pipelineReason: null,
+  e2eLock: world.lock,
+  repos: [],
+})
 
 describe('Stages in Full mode', () => {
   it('PR, CI, commit status marks, the e2e lock and a Deployment give each Ticket its Stage; pipeline.changed follows a Ticket file edit and a PR read', async () => {
@@ -266,7 +274,7 @@ describe('Stages in Full mode', () => {
 })
 
 describe('Stages in Silent mode', () => {
-  const silentProfile = (world: World): PipelineProfile => ({ name: 'atakama', mode: 'silent', pipeline: ATAKAMA, pipelineReason: null, e2eLock: world.lock, repos: [] })
+  const silentProfile = (world: World): PipelineProfile => ({ name: 'atakama', mode: 'silent', finish: null, pipeline: ATAKAMA, pipelineReason: null, e2eLock: world.lock, repos: [] })
   const markFile = (world: World, num: number) => markFilePath(world.harnessHome, 'atakama', 'demo', num)
   const writeMarks = (world: World, num: number, marks: unknown) => {
     mkdirSync(join(world.harnessHome, 'runs', 'atakama', 'marks'), { recursive: true })
@@ -322,6 +330,70 @@ describe('Stages in Silent mode', () => {
     gh.world.pulls[0]!.reviewDecision = 'APPROVED'
     const approved = await nextSnapshot(sent, (snapshot) => ticket(snapshot, 3).stage === 'awaiting-merge')
     expect(ticket(approved, 3).waits).toBe('team')
+  })
+})
+
+// worfy-onboarding: a Project that finishes locally and has no repository on GitHub (the Demo project)
+// keeps its agents' marks in the marks file of the Harness home, as Silent mode does.
+describe('Stages in Full mode with workflow.finish local-green', () => {
+  const DEMO: PipelineStage[] = [{ kind: 'queued' }, { kind: 'implementing' }, { kind: 'agent-review' }, { kind: 'gate-merge' }, { kind: 'done' }]
+  const markFile = (world: World, num: number) => markFilePath(world.harnessHome, 'demo-project', 'demo', num)
+  const writeMarks = (world: World, num: number, marks: unknown[]) => {
+    mkdirSync(join(world.harnessHome, 'runs', 'demo-project', 'marks'), { recursive: true })
+    writeFileSync(markFile(world, num), JSON.stringify({ epic: 'demo', num: String(num).padStart(2, '0'), marks }))
+  }
+  /** Marks on the head of each branch (A): 03 review pending, 04 review failure, 05 review success. */
+  const reviewMarks = (world: World) => {
+    const { A } = world.commits
+    writeMarks(world, 3, [{ kind: 'review', verdict: 'pending', sha: A, at: '2026-10-17T11:00:00.000Z' }])
+    writeMarks(world, 4, [{ kind: 'review', verdict: 'failure', sha: A, at: '2026-10-17T11:00:00.000Z' }])
+    writeMarks(world, 5, [{ kind: 'review', verdict: 'success', sha: A, at: '2026-10-17T11:00:00.000Z' }])
+  }
+
+  it('without origin: the marks file gives each Ticket its Stage, gh is not asked for PRs, nothing is written', async () => {
+    const world = makeWorld()
+    reviewMarks(world)
+    const gh = stubGh({ pulls: [], deployments: [], deployMarks: [] })
+    const { hub } = hubOver(world, fullProfile(world, DEMO, 'local-green'), gh.gh)
+    const before = [treeState(world.repo), treeState(world.harnessHome)]
+    const snapshot = await hub.open(world.repo, { id: 1, send: () => undefined })
+
+    expect(snapshot.error).toBeNull()
+    expect(snapshot.pipeline.map((column) => column.title)).toEqual(['Queued', 'Implementing', 'Agent review', 'Gate & merge', 'Done'])
+    expect(ticket(snapshot, 3)).toMatchObject({ stage: 'agent-review', rework: false })
+    expect(ticket(snapshot, 4)).toMatchObject({ stage: 'implementing', rework: true })
+    expect(ticket(snapshot, 5)).toMatchObject({ stage: 'gate-merge', passed: ['queued', 'implementing', 'agent-review'] })
+    // No marks file: Implementing, as before.
+    expect(ticket(snapshot, 6)).toMatchObject({ stage: 'implementing', rework: false })
+    expect(gh.calls).toEqual([])
+    expect([treeState(world.repo), treeState(world.harnessHome)]).toEqual(before)
+  })
+
+  it('with origin: the marks are the commit statuses of the PR, the marks file is not read', async () => {
+    const world = makeWorld()
+    git(world.repo, 'remote', 'add', 'origin', 'https://github.com/o/r.git')
+    reviewMarks(world)
+    const HEAD = 'e'.repeat(40)
+    const gh = stubGh({ pulls: [pr(4, 'demo/04', { headRefOid: HEAD, statusCheckRollup: [status('review', 'SUCCESS')] })], deployments: [], deployMarks: [] })
+    const { hub } = hubOver(world, fullProfile(world, DEMO, 'local-green'), gh.gh)
+    const snapshot = await hub.open(world.repo, { id: 1, send: () => undefined })
+
+    // The file's pending review of 03 and success of 05 do not count; 04's PR has review success on its head.
+    expect(ticket(snapshot, 3)).toMatchObject({ stage: 'implementing', rework: false })
+    expect(ticket(snapshot, 4)).toMatchObject({ stage: 'gate-merge' })
+    expect(ticket(snapshot, 5)).toMatchObject({ stage: 'implementing', rework: false })
+    expect(gh.calls.some((args) => args[0] === 'pr' && args[1] === 'list')).toBe(true)
+  })
+
+  it('pr-green-ci without origin: no marks, as before; the PR tracker is asked', async () => {
+    const world = makeWorld()
+    reviewMarks(world)
+    const gh = stubGh({ pulls: [], deployments: [], deployMarks: [] })
+    const { hub } = hubOver(world, fullProfile(world, DEMO, 'pr-green-ci'), gh.gh)
+    const snapshot = await hub.open(world.repo, { id: 1, send: () => undefined })
+
+    for (const num of [3, 4, 5]) expect(ticket(snapshot, num)).toMatchObject({ stage: 'implementing', rework: false })
+    expect(gh.calls.some((args) => args[0] === 'pr' && args[1] === 'list')).toBe(true)
   })
 })
 
@@ -551,7 +623,19 @@ describe('readPipelineProfile', () => {
 
   it('takes the name, mode, repositories, Pipeline and e2e lock of profile --json', async () => {
     const read = await readPipelineProfile(options(resolved({ pipeline: WORFY })))
-    expect(read).toEqual({ ok: true, profile: { name: 'worfy', mode: 'full', pipeline: WORFY, pipelineReason: null, e2eLock: '/tmp/worfy-e2e.lock', repos: [{ name: 'r', path: '/r' }] } })
+    expect(read).toEqual({ ok: true, profile: { name: 'worfy', mode: 'full', finish: null, pipeline: WORFY, pipelineReason: null, e2eLock: '/tmp/worfy-e2e.lock', repos: [{ name: 'r', path: '/r' }] } })
+  })
+
+  it('takes workflow.finish; an unknown value or none is null', async () => {
+    const finishOf = async (workflow: unknown) => {
+      const read = await readPipelineProfile(options({ ...resolved({ pipeline: WORFY }), workflow }))
+      return read.ok ? read.profile.finish : 'not read'
+    }
+    expect(await finishOf({ finish: 'local-green' })).toBe('local-green')
+    expect(await finishOf({ finish: 'pr-green-ci', e2e_lock: '/tmp/lock' })).toBe('pr-green-ci')
+    expect(await finishOf({ finish: 'merge-and-pray' })).toBeNull()
+    expect(await finishOf({})).toBeNull()
+    expect(await finishOf(undefined)).toBeNull()
   })
 
   it('a Harness without _resolved.pipeline, or a Pipeline that breaks the rules: the default Pipeline and the reason', async () => {
