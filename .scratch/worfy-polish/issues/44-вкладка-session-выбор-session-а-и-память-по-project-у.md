@@ -1,7 +1,8 @@
 # 44 — Вкладка Session: выбор Session-а в самой вкладке, клик в сайдбаре по текущему виду, последняя Session у каждого Project-а
 
 Type: task
-Status: claimed 2026-10-27T08:06Z
+Status: done 2026-10-27T09:12Z
+PR: #855
 Branch: worfy-polish/44
 Blocked by: —
 Source: отзыв пользователя через владельца 2026-10-26: пользователь пришёл из Claude Code CLI; вкладка
@@ -180,3 +181,15 @@ Test-ы:
   `palette-transcripts`, `permission-card`, `question-card`, `subagent-nodes`.
 - e2e `test/e2e/session-picker.spec.ts` (новый): dropdown переключает Session, строка сайдбара во
   вкладке Session показывает Session там же, вкладка возвращается к последней Session, снимки.
+
+### Ревью и merge (2026-10-27)
+
+PR #855: ревью medium. Первый круг — REJECTED: [med] явное открытие Session-а, чей Node в архиве или
+скрыт (строка transcript-а в Command palette, клик по уведомлению, toast с вопросом), показывало
+Orchestrator — регрессия против main; три low. Второй круг по доработке `c07fc48e..413b0081` — VERIFIED.
+Windows — skipped: PR не платформенный (только renderer, ADR-0056). gate full на Mac: первый прогон
+красный на двух test-ах вне PR (`wave-gate-lock.test.sh`, случай со сменой летнего времени, — отдельно на
+main 2 из 2 зелёный; `browser.spec.ts:510` — приложение не закрылось за 20 s), повтор — зелёный; merge
+`68225764`. Долг: `[low] debt:` ошибка подписки на `layout.changed` пишется только в console, без toast
+(`src/renderer/session/navigation.ts:79-82`); `[low] debt:` «Resume» архивной Session-и из вида Session
+test-ом не покрыт.
