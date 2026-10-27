@@ -952,6 +952,22 @@ describe('a Project local to this Machine (localOnly)', () => {
     expect(await call('projects.connect.accounts', { root: through })).toStrictEqual(refused)
   })
 
+  it('connect.write that names it as the Workflow folder of a shared Project is refused; docs.read of that Project then reads its own documents', async () => {
+    const shopPath = makeRepo('shop')
+    const shop = (await addOk(shopPath)).project
+    const demoPath = makeRepo('demo')
+    await addLocal(demoPath)
+    writeFileSync(join(shopPath, 'HANDOFF.md'), 'shop handoff\n')
+    writeFileSync(join(demoPath, 'HANDOFF.md'), 'demo handoff\n')
+    const { call } = await linkedPeer({ './docs.ts': () => import('../../src/main/ipc/docs').then((module) => module.default) })
+    const before = projectsFile()
+    const draft = { profile: { name: 'shop', mode: 'silent', workflow: { folder: demoPath } }, rules: '', gate: [] }
+    expect(await call('projects.connect.write', { root: shopPath, draft })).toStrictEqual({ ok: false, error: 'demo is local to this Machine' })
+    expect(projectsFile()).toStrictEqual(before)
+    const read = await call('docs.read', { projectId: shop.id, path: 'HANDOFF.md' })
+    expect(read).toStrictEqual({ ok: true, value: { path: 'HANDOFF.md', text: 'shop handoff\n' } })
+  })
+
   it('an add that reaches the handler with its folder answers a Linked machine with a refusal, not its view; a window gets the view', async () => {
     const demoPath = makeRepo('demo')
     await addLocal(demoPath)

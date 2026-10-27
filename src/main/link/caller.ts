@@ -13,7 +13,7 @@
 // Project, or another spelling of a folder does not pass. A path that does not exist yet is judged
 // by its nearest existing folder.
 import { lstatSync, realpathSync } from 'node:fs'
-import { basename, dirname, isAbsolute, join, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 
 /** Whether a call came from somewhere else than a window of this Machine (see the top of the file). */
 export function isRemoteCall(event: { readonly sender?: unknown }): boolean {
@@ -172,26 +172,39 @@ export function setSessionFolders(source: (sessionId: string) => string | null):
 /**
  * The Project local to this Machine whose root holds `path`; null when none. A relative path is
  * taken from main's working folder, as the handlers that get it (fs, `git -C`) take it. The path is
- * not normalised: a `..` after a symbolic link leads where the link's target leads, for realpath
- * as for the kernel, and path.resolve() would drop it as text first.
+ * judged in both forms a handler may take it in: as given, where a `..` after a symbolic link leads
+ * where the link's target leads (realpath, the kernel, `git -C`), and normalised as text first
+ * (path.resolve(), as pipeline.ts and checks.ts do). Either one inside the Project names it.
  */
 export function localProjectOf(path: string): LocalProject | null {
   if (path === '') return null
   const local = localProjects()
   if (local.length === 0) return null
-  const absolute = isAbsolute(path) ? path : process.cwd() + sep + path
-  return local.find((project) => realInsideProjects(absolute, [project]) !== null) ?? null
+  const forms = [isAbsolute(path) ? path : process.cwd() + sep + path, resolve(path)]
+  return local.find((project) => forms.some((form) => realInsideProjects(form, [project]) !== null)) ?? null
 }
 
 /** The keys a call input or an event payload carries a folder of this Machine in (cwd, Project root, file). */
-const PATH_KEYS = ['path', 'root', 'cwd', 'project', 'folder', 'file'] as const
+const PATH_KEYS = ['path', 'root', 'cwd', 'project', 'folder', 'file', 'workflowFolder'] as const
+
+/** The Workflow folder a connection draft names (`draft.profile.workflow.folder`, projects.connect.write); undefined when none. */
+function draftWorkflowFolder(fields: Record<string, unknown>): unknown {
+  const draft = fields.draft
+  if (typeof draft !== 'object' || draft === null) return undefined
+  const profile = (draft as Record<string, unknown>).profile
+  if (typeof profile !== 'object' || profile === null) return undefined
+  const workflow = (profile as Record<string, unknown>).workflow
+  if (typeof workflow !== 'object' || workflow === null) return undefined
+  return (workflow as Record<string, unknown>).folder
+}
 
 /**
  * The Project local to this Machine that a call input or an event payload of `channel` names; null
  * when none. It names one by its `projectId`, by `id` on a `projects.*` channel (the Project id
  * there), by a `sessionId` of a Session whose folder lies in its root, or by a path inside its root
- * under one of PATH_KEYS. Only the top level of the object is read; a path nested deeper is left
- * to the handler's insideProjects.
+ * under one of PATH_KEYS or as the Workflow folder of a connection draft. Apart from that draft
+ * folder only the top level of the object is read; a path nested deeper is left to the handler's
+ * insideProjects.
  */
 export function localProjectIn(channel: string, value: unknown): LocalProject | null {
   if (typeof value !== 'object' || value === null) return null
@@ -202,7 +215,7 @@ export function localProjectIn(channel: string, value: unknown): LocalProject | 
   const named = local.find((project) => ids.includes(project.id))
   if (named !== undefined) return named
   const folder = typeof fields.sessionId === 'string' ? sessionFolder(fields.sessionId) : null
-  const paths = [folder, ...PATH_KEYS.map((key) => fields[key])]
+  const paths = [folder, ...PATH_KEYS.map((key) => fields[key]), draftWorkflowFolder(fields)]
   for (const path of paths) {
     if (typeof path !== 'string') continue
     const inside = localProjectOf(path)

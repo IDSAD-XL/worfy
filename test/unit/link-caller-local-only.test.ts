@@ -1,9 +1,9 @@
 // A Project local to this Machine (`localOnly`, the Demo project) does not exist for a Linked
 // machine (src/main/link/caller.ts): its root is no Project root for a call over the link, and a
 // call input or an event payload that names it is caught; a window's call goes on as before.
-import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { insideProjects, localProjectIn, localProjectOf, projectRootOf, setLocalProjects, setSessionFolders } from '../../src/main/link/caller'
 import { LinkSender } from '../../src/main/link/ipc-adapter'
@@ -70,6 +70,26 @@ describe('localProjectIn: what names a Project local to this Machine', () => {
     expect(localProjectIn('projects.add', { path: relative(process.cwd(), demo) })).toStrictEqual(demoProject)
     expect(localProjectIn('projects.connect.write', { root: relative(process.cwd(), join(demo, 'src')), draft: {} })).toStrictEqual(demoProject)
     expect(localProjectOf(relative(process.cwd(), join(demo, 'src')))).toStrictEqual(demoProject)
+  })
+
+  it('a `..` after a symbolic link is judged both as the kernel follows it and as resolve() reads it (pipeline.ts, checks.ts)', () => {
+    // <root>/L -> <root>/a/b: <root>/L/../demo is <root>/a/demo for the kernel, <root>/demo for resolve().
+    mkdirSync(join(root, 'a', 'b'), { recursive: true })
+    symlinkSync(join(root, 'a', 'b'), join(root, 'L'))
+    setLocalProjects(() => [demoProject])
+    const through = join(root, 'L') + sep + '..' + sep + 'demo'
+    expect(localProjectIn('pipeline.get', { root: through })).toStrictEqual(demoProject)
+    expect(localProjectIn('checks.get', { root: through })).toStrictEqual(demoProject)
+  })
+
+  it('the Workflow folder of a connection: workflowFolder of connect.draft, draft.profile.workflow.folder of connect.write', () => {
+    setLocalProjects(() => [demoProject])
+    expect(localProjectIn('projects.connect.draft', { draftId: 'd', root: shop, mode: 'silent', workflowFolder: join(demo, 'src') })).toStrictEqual(demoProject)
+    const draft = (folder: unknown) => ({ profile: { mode: 'silent', workflow: { folder } }, rules: '', gate: [] })
+    expect(localProjectIn('projects.connect.write', { root: shop, draft: draft(demo) })).toStrictEqual(demoProject)
+    expect(localProjectIn('projects.connect.write', { root: shop, draft: draft(join(shop, 'src')) })).toBeNull()
+    expect(localProjectIn('projects.connect.write', { root: shop, draft: draft(null) })).toBeNull()
+    expect(localProjectIn('projects.connect.write', { root: shop, draft: { profile: { workflow: 'x' } } })).toBeNull()
   })
 
   it('a sessionId of a Session whose folder lies in its root; an unknown Session or one elsewhere names nothing', () => {
