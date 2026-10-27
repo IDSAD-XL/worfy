@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import type { SessionRegistry } from '../../src/main/agent/session'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -935,21 +935,38 @@ describe('a Project local to this Machine (localOnly)', () => {
     expect(projectsFile()).toStrictEqual(before)
   })
 
-  it('a `..` after a symbolic link inside an ordinary Project that leads into it is refused on connect.draft, inspect, write and accounts', async () => {
+  it('a `..` after a symbolic link inside an ordinary Project: refused on connect.draft, inspect, write and accounts wherever it leads into it', async () => {
     const shopPath = makeRepo('shop')
     await addOk(shopPath)
-    await addLocal(makeRepo('demo'))
-    // shop/lnk -> <scratch>/deep/a/b: three `..` after the link reach <scratch>, where demo lies. As
-    // text the same path ends outside the scratch folder.
+    const demoPath = makeRepo('demo')
+    await addLocal(demoPath)
+    // shop/lnk -> <scratch>/deep/a/b. POSIX follows the link before each `..` (the kernel, realpath,
+    // `git -C`); Win32 drops `..` as text first (GetFullPathName), before any link is followed.
     mkdirSync(join(scratch, 'deep', 'a', 'b'), { recursive: true })
     symlinkSync(join(scratch, 'deep', 'a', 'b'), join(shopPath, 'lnk'))
-    const through = join(shopPath, 'lnk') + '/../../../demo'
     const { call } = await linkedPeer()
     const refused = { ok: false, error: 'demo is local to this Machine' }
-    expect(await call('projects.connect.draft', { draftId: 'd1', root: through, mode: 'full', workflowFolder: null })).toStrictEqual(refused)
-    expect(await call('projects.connect.inspect', { path: through })).toStrictEqual(refused)
-    expect(await call('projects.connect.write', { root: through, draft: {} })).toStrictEqual(refused)
-    expect(await call('projects.connect.accounts', { root: through })).toStrictEqual(refused)
+    const fourCalls = async (through: string) => [
+      await call('projects.connect.draft', { draftId: 'd1', root: through, mode: 'full', workflowFolder: null }),
+      await call('projects.connect.inspect', { path: through }),
+      await call('projects.connect.write', { root: through, draft: { profile: {}, rules: '', gate: [] } }),
+      await call('projects.connect.accounts', { root: through }),
+    ]
+    // Two `..`: as text this is <scratch>/demo, the Demo project (Win32 reads it so); POSIX reads
+    // <scratch>/deep/demo. Refused on both: either form leading into it is enough.
+    expect(await fourCalls(join(shopPath, 'lnk') + '/../../demo')).toStrictEqual([refused, refused, refused, refused])
+    // Three `..`: POSIX follows the link and lands in <scratch>/demo, the Demo project: refused.
+    const three = join(shopPath, 'lnk') + '/../../../demo'
+    if (process.platform !== 'win32') {
+      expect(await fourCalls(three)).toStrictEqual([refused, refused, refused, refused])
+    } else {
+      // Win32 reads it as text: <temp>/demo, one folder above the scratch folder, not the Demo
+      // project and not there at all. The handlers look there and find nothing.
+      expect(resolve(three)).toBe(join(dirname(scratch), 'demo'))
+      expect(existsSync(resolve(three))).toBe(false)
+      const missing = { ok: true, value: expect.objectContaining({ reason: `${three} does not exist.` }) }
+      expect(await fourCalls(three)).toStrictEqual([missing, missing, missing, missing])
+    }
   })
 
   it('connect.write that names it as the Workflow folder of a shared Project is refused; docs.read of that Project then reads its own documents', async () => {
