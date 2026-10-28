@@ -75,7 +75,17 @@ describe('the frame when a branch-done blocker is merged', () => {
   it('asks ELK again and shows the dependant ready, at once and in the new answer', async () => {
     const real = new ELK()
     const graphs: unknown[] = []
-    const counting: ElkEngine = { layout: (graph) => (graphs.push(graph), real.layout(graph)) }
+    // The answers of the real ELK, awaited before the store is looked at: a cold ELK in a busy worker took longer
+    // than the second of vi.waitFor on the Windows runner, and the wait saw no answer.
+    const answers: Promise<unknown>[] = []
+    const counting: ElkEngine = {
+      layout: (graph) => {
+        graphs.push(graph)
+        const answer = real.layout(graph)
+        answers.push(answer)
+        return answer
+      },
+    }
     setElkEngine(counting)
     const id = freshProject()
     const build = (tickets: Ticket[]) => buildEpicNodes(id, '/repo', model(tickets), layout, {}, [], useElkAnswers.getState()[id])
@@ -88,6 +98,7 @@ describe('the frame when a branch-done blocker is merged', () => {
 
     build(inBranch)
     requestEpicLayouts(id)
+    await Promise.all(answers)
     await vi.waitFor(() => expect(useElkAnswers.getState()[id]?.a?.key).toBe(elkKey(inBranch, 'a')))
     const before = build(inBranch)
     expect(readyOf(before)).toEqual([])
@@ -101,6 +112,7 @@ describe('the frame when a branch-done blocker is merged', () => {
 
     requestEpicLayouts(id)
     expect(graphs.length).toBeGreaterThan(asked)
+    await Promise.all(answers)
     await vi.waitFor(() => expect(useElkAnswers.getState()[id]?.a?.key).toBe(elkKey(merged, 'a')))
     const after = build(merged)
     expect(readyOf(after)).toEqual([2])
