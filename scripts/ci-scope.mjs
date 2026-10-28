@@ -16,15 +16,17 @@
 //   every job, the whole suite in each. A pull request runs the Linux and Windows jobs and only the
 //   macOS jobs its diff asks for: the free plan runs 5 macOS jobs at a time, and pull requests
 //   waited 26 to 67 minutes in that queue. macos-package runs when it changes a build input
-//   (isBuildInput), macos-e2e when it changes the app (isAppPath), macos-tests when it changes the
-//   app or a macOS-only test file, and then with the macOS-only test files alone (darwinTestFiles,
+//   (isBuildInput), macos-e2e when it changes the app (isAppPath, the Harness the app carries too),
+//   macos-tests when it changes the app, scripts/, harness/ or a macOS-only test file, and then with
+//   the macOS-only test files alone (darwinTestFiles,
 //   the second output `macos-tests-files`; empty means every file). A diff that cannot be read, a
 //   BASE of zeros (a new branch) and an empty diff run every job, the whole suite in each: when in
 //   doubt, test. windows-e2e runs whenever macos-e2e does.
 // - workflow_dispatch: JOB=check runs lint-typecheck and linux-tests, as the batch run of a Wave did
 //   before CI ran on pull requests; JOB=full-macos runs lint-typecheck and the macOS jobs.
 //
-// The answer is also printed, with the files that decided it. Any other event or JOB is refused with
+// The answer is also printed, with the files that decided it. `--darwin-tests` only prints the
+// macOS-only test files (darwinTestFiles) of the working tree. Any other event or JOB is refused with
 // exit code 1. Only Node's own modules and git are used: the script runs on the Node the runner
 // image ships.
 
@@ -84,11 +86,12 @@ const isBuildInput = (path) => BUILD_FILES.has(path) || BUILD_FOLDERS.some((fold
 // The files a pull request runs the e2e tests for (the job macos-e2e, `pnpm test:e2e`): the build
 // inputs above, the app (all of src/, card-runtime too: src/main serves it), the e2e tests, the files
 // outside test/e2e that they import or read (test/contract/ci-workflow.test.ts checks that every
-// such import is here), the configs electron-vite builds with and the scripts the build and the job
-// run. A change of harness/, of test/unit or test/contract, of another script or of a document runs
-// no e2e on a pull request: the push to main runs them all, and catches it there. The Harness copy
-// the app carries (out/harness) is the one gap of note: harness-install.spec.ts and its neighbours
-// check it on that push only.
+// such import is here), the configs electron-vite builds with, the scripts the build and the job
+// run, and harness/: the build copies it to out/harness, the app ships and reads that copy, and e2e
+// tests (harness-install, harness-migrate, first-run, projects-connect) run it. The parts of harness/
+// the build leaves out (HARNESS_NOT_BUNDLED, the same list as in electron.vite.config.ts) are not the
+// app. A change of test/unit or test/contract, of another script or of a document runs no e2e on a
+// pull request: the push to main runs them all, and catches it there.
 const APP_FILES = new Set([
   'tsconfig.json',
   'tsconfig.base.json',
@@ -105,21 +108,36 @@ const APP_FILES = new Set([
   'test/claude-home-legacy.ts',
 ])
 const APP_FOLDERS = ['src/', 'test/e2e/', 'test/fixtures/', 'test/quarantine/']
+// test/contract/ci-workflow.test.ts checks that this is HARNESS_NOT_BUNDLED of electron.vite.config.ts.
+const HARNESS_NOT_BUNDLED = ['bin/tests', 'hooks/tests', 'evals', 'evals-outcome']
+
+/** A path of harness/ that the build copies into the app. */
+function isBundledHarness(path) {
+  if (!path.startsWith('harness/')) return false
+  const inside = path.slice('harness/'.length)
+  return !HARNESS_NOT_BUNDLED.some((dir) => inside === dir || inside.startsWith(`${dir}/`))
+}
 
 /** A path whose change a pull request checks with the e2e tests on macOS. */
-const isAppPath = (path) => isBuildInput(path) || APP_FILES.has(path) || APP_FOLDERS.some((folder) => path.startsWith(folder))
+const isAppPath = (path) =>
+  isBuildInput(path) || APP_FILES.has(path) || APP_FOLDERS.some((folder) => path.startsWith(folder)) || isBundledHarness(path)
 
 // The job macos-tests on a pull request runs only the test files that check something on macOS that
 // the Linux and Windows jobs do not: a test or a describe that runs on macOS only, or an assertion
 // that differs there (darwinTestFiles). On the macOS runner they took 179 s of the 1131 s that all
 // 462 files took (run 40744007856): the job ends in a few minutes instead of 11. It runs when the
-// pull request changes the app (isAppPath), one of those files, or the way vitest runs. The push to
+// pull request changes the app (isAppPath), one of those files, the way vitest runs, or code under
+// scripts/ or harness/, which those files check too (make-icons.test.ts runs scripts/make-icons.mjs
+// with the real sips, harness-evals.test.ts the Harness evals with the git of macOS). The push to
 // main runs the whole suite on macOS, and catches what an unguarded test finds only there.
 const TEST_RUNNER = new Set(['vitest.config.ts', 'scripts/vitest-electron.mjs'])
+const CHECKED_FOLDERS = ['scripts/', 'harness/']
 const TEST_FOLDERS = ['test/unit/', 'test/contract/']
-// `process.platform === 'darwin'`, `!== "darwin"`, `platform() === 'darwin'`: the guard of a test
-// that runs on macOS only, or of an assertion that differs there.
-const DARWIN_GUARD = /platform(\(\))?\s*[!=]==?\s*['"]darwin['"]/
+// The guard of a test that runs on macOS only, or of an assertion that differs there:
+// `process.platform === 'darwin'`, `!== "darwin"`, `platform() === 'darwin'`, `'darwin' ===
+// process.platform` and `case 'darwin'`. test/contract/ci-workflow.test.ts fails on a test file that
+// guards on macOS another way (an imported isMac in skipIf or runIf).
+const DARWIN_GUARD = /platform(\(\))?\s*[!=]==?\s*['"]darwin['"]|['"]darwin['"]\s*[!=]==?\s*[\w.]*platform\b|case\s+['"]darwin['"]/
 // The names the job hands to `pnpm test` unquoted, one word each.
 const PLAIN_NAME = /^test\/(unit|contract)\/[A-Za-z0-9._-]+\.test\.tsx?$/
 
@@ -203,17 +221,23 @@ function pullRequest(code) {
     notes.push('the macOS-only test files could not be listed, so macos-tests runs every file')
     return { expect, files: [], notes }
   }
-  if (!code.some((path) => isAppPath(path) || TEST_RUNNER.has(path) || darwin.includes(path))) {
+  const checked = (path) => isAppPath(path) || TEST_RUNNER.has(path) || CHECKED_FOLDERS.some((folder) => path.startsWith(folder))
+  if (!code.some((path) => checked(path) || darwin.includes(path))) {
     expect['macos-tests'] = false
-    notes.push('no app path and no macOS-only test file, so no macos-tests')
+    notes.push('no app path, script, Harness or macOS-only test file, so no macos-tests')
     return { expect, files: [], notes }
   }
   notes.push(`macos-tests runs the ${darwin.length} macOS-only test files`)
   return { expect, files: darwin, notes }
 }
 
-const answer = decide(process.env)
-if (answer.error) {
+// `node scripts/ci-scope.mjs --darwin-tests` prints the macOS-only test files of the working tree,
+// one per line (exit 1 when they cannot be listed): the contract test compares them with its own look.
+const answer = process.argv[2] === '--darwin-tests' ? { darwin: darwinTestFiles() } : decide(process.env)
+if (answer.darwin !== undefined) {
+  if (answer.darwin === null) process.exitCode = 1
+  else process.stdout.write(answer.darwin.map((file) => `${file}\n`).join(''))
+} else if (answer.error) {
   process.stderr.write(`ci-scope: ${answer.error}\n`)
   process.exitCode = 1
 } else {
