@@ -1,0 +1,11 @@
+{
+  "file": "test/contract/orchestrator-relaunch.test.ts",
+  "test": "Orchestrator relaunch waits for the old Claude Code process > a message sent during the wait waits in the new Session and reaches the new process; the old Session takes none",
+  "platforms": [
+    "win32"
+  ],
+  "reason": "The same late exit report of the killed stub process on the GitHub Windows runner as orchestrator-relaunch-sigterm-ignored: 'exit 1 SIGTERM' comes after 'spawn 2'. Red in CI run 40607908878 (2026-10-28), green in 40594274933, 40604951289, 40605523606, 40606669326, 40609470172, 40611634948 on the same code.",
+  "owner": "worfy-throughput 23",
+  "since": "2026-10-28",
+  "until": "2026-11-11"
+}

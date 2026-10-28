@@ -9,15 +9,15 @@
 // and which test file Vite transforms the real registry for first does not matter.
 import { act, render, screen, waitFor } from '@testing-library/react'
 import type { ComponentType } from 'react'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { LayoutState } from '../../src/shared/layout/types'
 import { globProbe } from './glob-probe'
 
 const registryCopy = vi.hoisted(() => ({ path: '', remove: () => {} }))
 
-// The factory runs when something first imports the registry, which every test here does inside
-// a test body, after beforeAll has built the copy.
+// The factory runs when something first imports the registry, which this file does once the copy
+// is built.
 vi.mock('../../src/renderer/canvas/nodes/index', () => {
   if (registryCopy.path === '') throw new Error('the Node type registry was imported before its copy was built')
   return import(/* @vite-ignore */ registryCopy.path)
@@ -29,15 +29,17 @@ export default function ZzVitestProbeNode() {
 }
 `
 
-beforeAll(async () => {
-  const probe = await globProbe({
-    module: 'src/renderer/canvas/nodes/index.ts',
-    globDir: 'src/renderer/canvas/nodes',
-    probes: { 'ZzVitestProbeNode.tsx': probeSource },
-  })
-  registryCopy.path = probe.modulePath
-  registryCopy.remove = probe.remove
+// Built while the file is collected, as its static imports are, and the registry imported once
+// right after: that first import transforms every Node type file, which took more than the 5 s of
+// a test on the loaded macOS runner (CI run 40614114327, 2026-10-28) when the first test did it.
+const probe = await globProbe({
+  module: 'src/renderer/canvas/nodes/index.ts',
+  globDir: 'src/renderer/canvas/nodes',
+  probes: { 'ZzVitestProbeNode.tsx': probeSource },
 })
+registryCopy.path = probe.modulePath
+registryCopy.remove = probe.remove
+await import('../../src/renderer/canvas/nodes/index')
 
 afterAll(() => {
   registryCopy.remove()

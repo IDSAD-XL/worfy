@@ -1499,7 +1499,7 @@ describe('harness/evals/lib/coverage.json: which case checks which rule file', (
  * A temporary git repository with copies of scripts/eval-harness.mjs, its three modules and harness/,
  * the base commit on `main`; `git` runs git in it with a temporary home.
  */
-function changedRepo(): { repo: string; git: (...args: string[]) => SpawnSyncReturns<string> } {
+function changedRepo(): { repo: string; env: NodeJS.ProcessEnv; git: (...args: string[]) => SpawnSyncReturns<string> } {
   const root = tempDir('worfy-eval-changed-')
   const repo = join(root, 'repo')
   const home = join(root, 'home')
@@ -1516,13 +1516,21 @@ function changedRepo(): { repo: string; git: (...args: string[]) => SpawnSyncRet
     GIT_AUTHOR_EMAIL: 'test@example.com',
     GIT_COMMITTER_NAME: 'test',
     GIT_COMMITTER_EMAIL: 'test@example.com',
+    // Auto maintenance off: otherwise each commit starts `git maintenance run --auto --detach`,
+    // which outlives the commit and writes .git/objects/maintenance.lock while afterEach removes
+    // the folder — ENOTEMPTY on the Linux runner (git 2.55; CI runs 40606566772, 40611634948).
+    GIT_CONFIG_COUNT: '2',
+    GIT_CONFIG_KEY_0: 'maintenance.auto',
+    GIT_CONFIG_VALUE_0: 'false',
+    GIT_CONFIG_KEY_1: 'gc.auto',
+    GIT_CONFIG_VALUE_1: '0',
   })
   const git = (...args: string[]): SpawnSyncReturns<string> => spawnSync('git', args, { cwd: repo, env, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
   for (const args of [['init', '-q', '-b', 'main'], ['add', '-A'], ['commit', '-q', '-m', 'base']]) {
     const step = git(...args)
     if (step.status !== 0) throw new Error(`git ${args.join(' ')}: ${step.stderr}`)
   }
-  return { repo, git }
+  return { repo, env, git }
 }
 
 /** Runs the copy of eval-harness.mjs in `repo` against the claude stub, without HARNESS_DIR. */
@@ -1549,6 +1557,17 @@ const aggregate = (fields: Record<string, unknown> = {}): string =>
 const lines = (text: string): string[] => text.split('\n')
 
 describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a temporary git repository)', () => {
+  it('a commit in the temporary repository starts no background maintenance that would outlive it', () => {
+    const { repo, env } = changedRepo()
+    appendFileSync(join(repo, 'README.md'), 'more\n')
+    // GIT_TRACE lists every process git starts.
+    const trace = join(tempDir('worfy-eval-trace-'), 'trace.log')
+    const commit = spawnSync('git', ['commit', '-q', '-am', 'traced'], { cwd: repo, env: { ...env, GIT_TRACE: trace }, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+    expect(commit.status, commit.stderr).toBe(0)
+    const started = readFileSync(trace, 'utf8').split('\n').filter((line) => line.includes('run_command:'))
+    expect(started.filter((line) => /maintenance|gc --auto/.test(line))).toEqual([])
+  })
+
   it('runs only the case of an uncommitted change to a rule file, in the main call, and keeps --changed from claude', () => {
     const { repo } = changedRepo()
     appendFileSync(join(repo, 'harness', 'agents', 'implementer.md'), '\nOne more rule.\n')

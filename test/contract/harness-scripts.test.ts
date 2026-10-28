@@ -34,7 +34,11 @@ const WINDOWS = process.platform === 'win32'
 // and five files at once take longer, so 300 s cut off wave-gate.test.sh there (2026-10-21).
 // With the lock-takeover cases wave-gate.test.sh takes 348 s alone and went past 600 s in a full
 // run (2026-10-22), hence 900 s. The cost: a hanging .test.sh on Windows is cut off 5 min later.
-const FILE_TIMEOUT_MS = WINDOWS ? 900_000 : 120_000
+// On the GitHub macOS runner, next to the other files of its shard, profile.test.sh took 56, 111 and
+// 116 s and skill-blocks.test.sh 71 and 113 s, and both were cut off at 120 s in CI runs 40602360006
+// and 40606566772 (2026-10-28): twice the slowest pass, 240 s, on macOS. The cost: a hanging .test.sh
+// on macOS is cut off 2 min later.
+const FILE_TIMEOUT_MS = WINDOWS ? 900_000 : process.platform === 'darwin' ? 240_000 : 120_000
 
 const testFiles = TEST_DIRS.flatMap((dir) =>
   existsSync(dir)

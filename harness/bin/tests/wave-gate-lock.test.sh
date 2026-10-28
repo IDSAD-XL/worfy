@@ -209,7 +209,10 @@ if until_ok 30 held_twice; then finish "$wg" 120; else finish "$wg" 0; rc="still
 rm -rf "$L"; unset GATE_LOCK
 # two runs wait on the lock of a dead wave-gate: one takes it over, the other waits for that one's lock, both run
 # their gate, and no takeover token is left
-gone2="$(node -e 'process.stdout.write(String(process.pid))')"
+# A pid no system hands out (above the pid limit of Linux, macOS and Windows), not one of a process that has just
+# exited: a loaded Windows runner gave such a freed pid to a new process, the dead holder was taken for a live one,
+# and its lock was removed by age instead (CI run 40562890010).
+gone2=2147483644
 me="$(node -e 'process.stdout.write(require("os").hostname())')"
 L2="$T/shared-e2e.lock"; mkdir "$L2"
 printf '{"prs":[9],"what":"gate-full","pid":%s,"host":"%s","since":"x"}\n' "$gone2" "$me" >"$L2/holder.json"
@@ -219,8 +222,16 @@ new_world twin2 1:a.txt; W2="$W"; state "$W2/state.json" "$L2" 1
 twin() { GATE_DIR="$1/gate" GATE_LOCK="$L2" GH_ORIGIN="$1/origin.git" GH_LOG="$1/gh/log" GH_TMP="$1/gh" SCREEN_DIR="$1/screen" exec "$WG" check "$1/state.json" >"$1/out" 2>&1; }
 twin "$W1" & t1=$!; twin "$W2" & t2=$!
 twins_done() { ! kill -0 "$t1" 2>/dev/null && ! kill -0 "$t2" 2>/dev/null; }
-if until_ok 60 twins_done; then finish "$t1" 0; r1=$rc; finish "$t2" 0; r2=$rc
-else finish "$t1" 0; r1="still waiting after 60 s ($rc)"; finish "$t2" 0; r2="still waiting after 60 s ($rc)"; fi
+# The two runs take turns on one lock, each with its gate: on a loaded Windows runner that took longer than a
+# minute (CI run 40607908878). So the wait lasts while their output grows, and ends 60 s after its last change.
+twins_out() { cat "$W1/out" "$W2/out" 2>/dev/null | wc -c; }
+seen=-1; still=0
+while ! twins_done && [ "$still" -lt 300 ]; do
+    now="$(twins_out)"; if [ "$now" != "$seen" ]; then seen=$now; still=0; else still=$((still + 1)); fi
+    sleep 0.2
+done
+if twins_done; then finish "$t1" 0; r1=$rc; finish "$t2" 0; r2=$rc
+else finish "$t1" 0; r1="still waiting 60 s after the last output ($rc)"; finish "$t2" 0; r2="still waiting 60 s after the last output ($rc)"; fi
 n="$(cat "$W1/out" "$W2/out" | grep -c "which is not running")"
 [ "$r1" = 0 ] && [ "$r2" = 0 ] && [ "$n" = 1 ] && [ ! -e "$L2" ] && [ -z "$(ls -d "$L2".* 2>/dev/null)" ] \
     && ok "e2e lock: of two runs waiting on a dead lock one takes it over, both run" || bad "e2e lock twins: exit $r1 $r2, takeovers $n, left [$(ls -d "$L2"* 2>/dev/null)], dead pid $gone2: $(grep -h "not running\|waiting\|taken over" "$W1/out" "$W2/out" | tr '\n' '|')"
