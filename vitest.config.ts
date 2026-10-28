@@ -43,6 +43,9 @@ export default defineConfig({
     // A failed test runs once more in CI, never locally (test/flaky.ts). The time limits below are
     // per attempt: a test that runs into its limit and is retried takes twice its limit.
     retry: CI_RETRIES,
+    // The FLAKY line names the line of the test's declaration (test/flaky.ts); vitest collects it only
+    // with this option, at the cost of one stack trace per declared test.
+    includeTaskLocation: true,
     testTimeout: 5_000 * timeScale,
     hookTimeout: 10_000 * timeScale,
     projects: [

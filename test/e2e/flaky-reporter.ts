@@ -1,7 +1,8 @@
 // A Playwright reporter (playwright.config.ts) that prints a FLAKY line for every e2e test that
 // failed and then passed on a retry, and appends the lines to the GitHub job summary
 // (GITHUB_STEP_SUMMARY): test/flaky.ts says when CI retries and why. The list reporter names flaky
-// tests in its own last lines too; this reporter gives them the same form as the vitest ones and
+// tests in its own last lines too, in a form of its own; this reporter gives them the one FLAKY form of
+// the vitest ones and
 // puts them on the job's summary page, which no built-in Playwright reporter writes.
 import { relative } from 'node:path'
 import type { FullConfig, Reporter, Suite, TestCase } from '@playwright/test/reporter'
@@ -18,7 +19,7 @@ export function flakyTests(root: Suite, cwd: string): FlakyTest[] {
   return root
     .allTests()
     .filter((test) => test.outcome() === 'flaky')
-    .map((test) => ({ file: relative(cwd, test.location.file).replaceAll('\\', '/'), name: testName(test) }))
+    .map((test) => ({ file: relative(cwd, test.location.file).replaceAll('\\', '/'), line: test.location.line, name: testName(test) }))
 }
 
 export default class FlakyReporter implements Reporter {
@@ -29,7 +30,7 @@ export default class FlakyReporter implements Reporter {
   }
 
   onEnd(): void {
-    if (this.root) reportFlaky('Playwright', flakyTests(this.root, process.cwd()), process.env.GITHUB_STEP_SUMMARY)
+    if (this.root) reportFlaky('playwright', flakyTests(this.root, process.cwd()), process.env.GITHUB_STEP_SUMMARY)
   }
 
   printsToStdio(): boolean {

@@ -132,9 +132,10 @@ scope `pc` ждёт ПК, scope решает скрипт); ADR-0081, пункт
   job-а не путь к merge, поэтому ничего не вливалось. В CI упавший test повторяется один раз: vitest
   `retry` (`vitest.config.ts`) и Playwright `retries` (`playwright.config.ts`) равны 1, когда задана
   переменная `CI`; локально, в gate fast и gate full, повторов нет. Test, прошедший только со второй
-  попытки, — flaky test, и он виден: в логе job-а строка `FLAKY <файл> > <test> (passed on retry)`
-  (`test/flaky-reporter.ts`, `test/e2e/flaky-reporter.ts`), в сводке job-а — раздел «Flaky Tests» vitest и
-  раздел «Flaky tests (Playwright)». Такой test по-прежнему подпадает под правила карантина; 3 строки FLAKY
+  попытки, — flaky test, и он виден: в логе job-а строка `FLAKY <runner> <файл>:<строка> > <test>` в начале
+  строки, `<runner>` — `vitest` или `playwright` (`test/flaky-reporter.ts`, `test/e2e/flaky-reporter.ts`), так
+  что `grep '^FLAKY '` по логу job-а находит каждый такой test; в сводке job-а — раздел «Flaky Tests» vitest и
+  раздел «Flaky tests (playwright)». Такой test по-прежнему подпадает под правила карантина; 3 строки FLAKY
   одного test-а за неделю — ticket на причину. Ручные повторы job-ов по-прежнему запрещены. Цена: test,
   упавший по пределу времени, в CI идёт дважды — shell test Harness до 120 s лишних на Linux и macOS и до
   900 s на Windows.

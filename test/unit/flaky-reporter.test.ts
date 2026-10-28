@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TestModule } from 'vitest/node'
 import PlaywrightFlakyReporter from '../e2e/flaky-reporter'
 import VitestFlakyReporter from '../flaky-reporter'
+import { flakyLine } from '../flaky'
 import { removeTestTree } from '../remove'
 
 const dirs: string[] = []
@@ -38,9 +39,10 @@ function output(run: () => void): { stdout: string; stderr: string } {
 }
 
 /** A vitest test file whose tests have these full names and diagnostics (undefined: not run). */
-function vitestModule(file: string, tests: { fullName: string; retryCount?: number; flaky?: boolean }[]): TestModule {
-  const cases = tests.map(({ fullName, retryCount, flaky }) => ({
+function vitestModule(file: string, tests: { fullName: string; line?: number; retryCount?: number; flaky?: boolean }[]): TestModule {
+  const cases = tests.map(({ fullName, line, retryCount, flaky }) => ({
     fullName,
+    location: line === undefined ? undefined : { line, column: 3 },
     diagnostic: () => (flaky === undefined ? undefined : { retryCount: retryCount ?? 0, flaky }),
   }))
   return { relativeModuleId: file, children: { allTests: () => cases.values() } } as unknown as TestModule
@@ -51,6 +53,8 @@ describe('retries of vitest.config.ts', () => {
     const config = readFileSync(join(import.meta.dirname, '..', '..', 'vitest.config.ts'), 'utf8')
     expect(config).toMatch(/reporters: \[\.\.\.configDefaults\.reporters, .*'\.\/test\/flaky-reporter\.ts'\]/)
     expect(config).toContain('    retry: CI_RETRIES,\n')
+    // The FLAKY line names the line of the test: vitest collects it only with includeTaskLocation.
+    expect(config).toContain('    includeTaskLocation: true,\n')
   })
 
   it('CI_RETRIES is 1 in CI and 0 outside it', async () => {
@@ -68,7 +72,7 @@ describe('the vitest flaky reporter', () => {
   it('prints a FLAKY line for a test that passed on the retry, and nothing for the others', () => {
     const modules = [
       vitestModule('test\\unit\\a.test.ts', [
-        { fullName: 'group > retried and passed', retryCount: 1, flaky: true },
+        { fullName: 'group > retried and passed', line: 12, retryCount: 1, flaky: true },
         { fullName: 'group > passed at once', retryCount: 0, flaky: false },
         { fullName: 'group > retried and failed', retryCount: 1, flaky: false },
         { fullName: 'skipped' },
@@ -76,7 +80,7 @@ describe('the vitest flaky reporter', () => {
       vitestModule('test/contract/b.test.ts', [{ fullName: 'passed at once', retryCount: 0, flaky: false }]),
     ]
     const { stdout } = output(() => new VitestFlakyReporter().onTestRunEnd(modules))
-    expect(stdout.split('\n').filter(Boolean)).toEqual(['FLAKY test/unit/a.test.ts > group > retried and passed (passed on retry)'])
+    expect(stdout.split('\n').filter(Boolean)).toEqual(['FLAKY vitest test/unit/a.test.ts:12 > group > retried and passed'])
   })
 
   it('prints nothing and writes no summary when no test needed the retry', () => {
@@ -90,8 +94,8 @@ describe('the vitest flaky reporter', () => {
   it('leaves the job summary to vitest: a flaky test is not written there twice', () => {
     const summary = join(tempDir(), 'summary.md')
     vi.stubEnv('GITHUB_STEP_SUMMARY', summary)
-    const modules = [vitestModule('test/unit/a.test.ts', [{ fullName: 'retried and passed', retryCount: 1, flaky: true }])]
-    expect(output(() => new VitestFlakyReporter().onTestRunEnd(modules)).stdout).toContain('FLAKY test/unit/a.test.ts > retried and passed (passed on retry)')
+    const modules = [vitestModule('test/unit/a.test.ts', [{ fullName: 'retried and passed', line: 4, retryCount: 1, flaky: true }])]
+    expect(output(() => new VitestFlakyReporter().onTestRunEnd(modules)).stdout).toContain('FLAKY vitest test/unit/a.test.ts:4 > retried and passed')
     expect(existsSync(summary)).toBe(false)
   })
 })
@@ -101,10 +105,10 @@ function playwrightRoot(cwd: string, tests: { title: string; describe?: string; 
   const root = { type: 'root', title: '' } as Suite
   const project = { type: 'project', title: '', parent: root } as Suite
   const file = { type: 'file', title: 'test/e2e/a.spec.ts', parent: project } as Suite
-  const cases = tests.map(({ title, describe: block, outcome }) => ({
+  const cases = tests.map(({ title, describe: block, outcome }, index) => ({
     title,
     parent: block === undefined ? file : ({ type: 'describe', title: block, parent: file } as Suite),
-    location: { file: join(cwd, 'test', 'e2e', 'a.spec.ts'), line: 1, column: 1 },
+    location: { file: join(cwd, 'test', 'e2e', 'a.spec.ts'), line: 10 + index, column: 3 },
     outcome: () => outcome,
   }))
   return Object.assign(root, { allTests: () => cases as unknown as TestCase[] })
@@ -131,10 +135,10 @@ describe('the Playwright flaky reporter', () => {
       { title: 'failed twice', outcome: 'unexpected' },
       { title: 'quarantined', outcome: 'skipped' },
     ])
-    const line = 'FLAKY test/e2e/a.spec.ts > Canvas > opens the canvas (passed on retry)'
+    const line = 'FLAKY playwright test/e2e/a.spec.ts:10 > Canvas > opens the canvas'
     const { stdout } = runPlaywrightReporter(root, dir)
     expect(stdout.split('\n').filter(Boolean)).toEqual([line])
-    expect(readFileSync(summary, 'utf8')).toBe(`### Flaky tests (Playwright)\n\n1 passed only on the retry:\n\n\`\`\`\n${line}\n\`\`\`\n\n`)
+    expect(readFileSync(summary, 'utf8')).toBe(`### Flaky tests (playwright)\n\n1 passed only on the retry:\n\n\`\`\`\n${line}\n\`\`\`\n\n`)
   })
 
   it('prints nothing and writes no summary when no test needed the retry', () => {
@@ -150,7 +154,7 @@ describe('the Playwright flaky reporter', () => {
     const dir = tempDir()
     vi.stubEnv('GITHUB_STEP_SUMMARY', undefined)
     const root = playwrightRoot(dir, [{ title: 'opens the canvas', outcome: 'flaky' }])
-    expect(runPlaywrightReporter(root, dir)).toEqual({ stdout: '\nFLAKY test/e2e/a.spec.ts > opens the canvas (passed on retry)\n', stderr: '' })
+    expect(runPlaywrightReporter(root, dir)).toEqual({ stdout: '\nFLAKY playwright test/e2e/a.spec.ts:10 > opens the canvas\n', stderr: '' })
   })
 
   it('a summary it cannot write is said on stderr and does not fail the run', () => {
@@ -158,7 +162,34 @@ describe('the Playwright flaky reporter', () => {
     vi.stubEnv('GITHUB_STEP_SUMMARY', join(dir, 'missing', 'summary.md'))
     const root = playwrightRoot(dir, [{ title: 'opens the canvas', outcome: 'flaky' }])
     const { stdout, stderr } = runPlaywrightReporter(root, dir)
-    expect(stdout).toContain('FLAKY test/e2e/a.spec.ts > opens the canvas (passed on retry)')
+    expect(stdout).toContain('FLAKY playwright test/e2e/a.spec.ts:10 > opens the canvas')
     expect(stderr).toMatch(/^flaky report: the job summary .*summary\.md was not written: /)
+  })
+})
+
+describe('the FLAKY line', () => {
+  // One form for both runners, at the start of a log line, so `grep '^FLAKY '` over a job log finds
+  // every test that passed only on the retry.
+  const FORM = /^FLAKY (vitest|playwright) [^\s:]+:\d+ > .+$/
+
+  it('is FLAKY, the runner, the file and line of the test, then its title', () => {
+    expect(flakyLine('vitest', { file: 'test/unit/a.test.ts', line: 12, name: 'group > test' })).toBe('FLAKY vitest test/unit/a.test.ts:12 > group > test')
+    expect(flakyLine('playwright', { file: 'test/e2e/a.spec.ts', line: 7, name: 'Canvas > opens' })).toBe('FLAKY playwright test/e2e/a.spec.ts:7 > Canvas > opens')
+  })
+
+  it('both reporters print it in that form, each at the start of its own line', () => {
+    const dir = tempDir()
+    vi.stubEnv('GITHUB_STEP_SUMMARY', undefined)
+    const vitest = output(() =>
+      new VitestFlakyReporter().onTestRunEnd([vitestModule('test/unit/a.test.ts', [{ fullName: 'a > b', line: 3, retryCount: 1, flaky: true }])]),
+    ).stdout
+    const playwright = runPlaywrightReporter(playwrightRoot(dir, [{ title: 'b', describe: 'a', outcome: 'flaky' }]), dir).stdout
+    const lines = `${vitest}${playwright}`.split('\n').filter(Boolean)
+    expect(lines).toHaveLength(2)
+    for (const line of lines) expect(line).toMatch(FORM)
+  })
+
+  it('leaves the line out only when the runner did not collect it', () => {
+    expect(flakyLine('vitest', { file: 'test/unit/a.test.ts', line: undefined, name: 'test' })).toBe('FLAKY vitest test/unit/a.test.ts > test')
   })
 })
