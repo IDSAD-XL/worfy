@@ -462,6 +462,20 @@ function holderAlive(pid, started) {
     const now = startedAt(pid)
     return now === null || now <= started + START_SLACK_MS
 }
+// The pid file holds the bare pid: wave-gates before the start time read it as Number(text.trim()), and they share
+// the file. The start time of its writer is in <pid file>.started, "<pid> <started>", written right after the pid
+// file. It counts only when it names the same pid and is no older than the pid file: one left by a check that was
+// killed is older than the pid file of the next check, which may be an older wave-gate that writes none.
+const startedFile = (file) => `${file}.started`
+function startedOf(file, pid, st) {
+    try {
+        const side = startedFile(file)
+        const [sidePid, started] = fs.readFileSync(side, "utf8").trim().split(/\s+/)
+        return Number(sidePid) === pid && fs.statSync(side).mtimeMs >= st.mtimeMs ? Number(started) : NaN
+    } catch {
+        return NaN
+    }
+}
 function pidState(file) {
     let text, st
     try {
@@ -471,9 +485,8 @@ function pidState(file) {
         if (e.code === "ENOENT") return { gone: true }
         throw e
     }
-    const [pidText, startedText] = text.trim().split(/\s+/)
-    const pid = Number(pidText)
-    if (Number.isInteger(pid) && pid > 0) return { text, pid, live: holderAlive(pid, Number(startedText)) }
+    const pid = Number(text.trim())
+    if (Number.isInteger(pid) && pid > 0) return { text, pid, live: holderAlive(pid, startedOf(file, pid, st)) }
     return { text, pid: null, live: (Date.now() - st.mtimeMs) / 1000 <= PID_EMPTY_S }
 }
 function guardPid(common) {
@@ -486,9 +499,13 @@ function guardPid(common) {
             if (e.code !== "EEXIST") throw e
         }
         if (fd !== undefined) {
-            fs.writeSync(fd, `${process.pid} ${STARTED}\n`)
+            fs.writeSync(fd, `${process.pid}\n`)
             fs.closeSync(fd)
             held.pidFile = file
+            // Without it the pid alone is the verdict, as before.
+            try {
+                fs.writeFileSync(startedFile(file), `${process.pid} ${STARTED}\n`)
+            } catch {}
             return
         }
         const seen = pidState(file)
@@ -518,7 +535,10 @@ function releasePid() {
     if (!held.pidFile) return
     // Only our own: a file another check wrote after ours was taken over stays.
     try {
-        if (fs.readFileSync(held.pidFile, "utf8").trim().split(/\s+/)[0] === String(process.pid)) fs.rmSync(held.pidFile, { force: true })
+        if (fs.readFileSync(startedFile(held.pidFile), "utf8").trim().split(/\s+/)[0] === String(process.pid)) fs.rmSync(startedFile(held.pidFile), { force: true })
+    } catch {}
+    try {
+        if (fs.readFileSync(held.pidFile, "utf8").trim() === String(process.pid)) fs.rmSync(held.pidFile, { force: true })
     } catch {}
     held.pidFile = null
 }
