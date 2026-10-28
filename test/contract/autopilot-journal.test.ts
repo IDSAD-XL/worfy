@@ -5,7 +5,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFi
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { journalDir, listRuns, openRun, readRun } from '../../src/main/autopilot/journal'
+import { ESTIMATE_RUNS, journalDir, listRuns, openRun, readRecentRuns, readRun } from '../../src/main/autopilot/journal'
 import { JOURNAL_EVENT_KINDS, type JournalEventFields } from '../../src/shared/autopilot/journal'
 import { removeTestTree } from '../remove'
 
@@ -217,6 +217,35 @@ describe('readRun', () => {
     expect(parsed?.events[2]).not.toHaveProperty('reason')
   })
 
+  it('writes wave-started and wave-finished with limits, reads old lines without them, and a wrong limits drops only that field (worfy-throughput ticket 40)', async () => {
+    const limits = {
+      five_hour: { utilization: 0.12, receivedAt: '2026-10-06T00:58:00.000Z', resetsAt: '2026-10-06T04:00:00.000Z' },
+      seven_day: { utilization: 0.41, receivedAt: '2026-10-06T00:58:00.000Z', resetsAt: null },
+    }
+    const journal = await openRun({ project: PROJECT, epic: EPIC }, { now: ticking(T0) })
+    await journal.append({ kind: 'wave-started', wave: 1, tickets: ['01'], limits })
+    await journal.append({ kind: 'wave-finished', wave: 1, tickets: ['01'], limits: { five_hour: null, seven_day: { ...limits.seven_day, utilization: 0.44 } } })
+    const head = (second: number) => `"at":"2026-10-06T01:00:0${second}Z","run":"${journal.run}","project":"${PROJECT}","epic":"${EPIC}"`
+    // A line written before ticket 40, and two with a limits value outside the format.
+    appendFileSync(journal.file, `{"kind":"wave-started",${head(3)},"wave":2,"tickets":["02"]}\n`)
+    appendFileSync(journal.file, `{"kind":"wave-finished",${head(4)},"wave":2,"tickets":["02"],"limits":{"seven_day":{"utilization":"41%"}}}\n`)
+    appendFileSync(journal.file, `{"kind":"wave-started",${head(5)},"wave":3,"tickets":["03"],"limits":"full"}\n`)
+    appendFileSync(journal.file, `{"kind":"wave-finished",${head(6)},"wave":3,"tickets":["03"]}\n`)
+
+    // As written: the field is on the line, one JSON object.
+    const written = rawLines(journal.file).map((line) => JSON.parse(line) as Record<string, unknown>)
+    expect(written[1]).toMatchObject({ kind: 'wave-started', limits })
+
+    const parsed = await readRun(journal.run)
+    expect(parsed?.skipped).toBe(0)
+    const waves = parsed!.events.slice(1)
+    expect(waves.map((event) => event.kind)).toEqual(['wave-started', 'wave-finished', 'wave-started', 'wave-finished', 'wave-started', 'wave-finished'])
+    expect(waves[0]).toMatchObject({ wave: 1, limits })
+    expect(waves[1]).toMatchObject({ wave: 1, limits: { five_hour: null, seven_day: { utilization: 0.44 } } })
+    for (const event of waves.slice(2)) expect((event as { limits?: unknown }).limits).toBeUndefined()
+    expect(waves.slice(2).map((event) => (event as { wave: number }).wave)).toEqual([2, 2, 3, 3])
+  })
+
   it('returns undefined for a run without a file and refuses a name that is not a run id', async () => {
     expect(await readRun('2026-10-06T01-00-00-000Z-000000')).toBeUndefined()
     mkdirSync(join(dataDir, 'autopilot'), { recursive: true })
@@ -237,6 +266,21 @@ describe('listRuns', () => {
     expect(runs.map((run) => run.run)).toEqual([newest.run, middle.run, oldest.run])
     expect(runs[0]).toEqual({ run: newest.run, project: PROJECT, epic: EPIC, startedAt: new Date(T0 + 120_000).toISOString(), file: newest.file })
     expect((await listRuns(OTHER_PROJECT)).map((run) => run.project)).toEqual([OTHER_PROJECT])
+  })
+
+  it("readRecentRuns gives the events of the Project's newest runs, at most the limit, for the Wave estimate (worfy-throughput ticket 40)", async () => {
+    expect(ESTIMATE_RUNS).toBe(30)
+    const open = (project: string, start: number, suffix: string) => openRun({ project, epic: EPIC }, { now: () => new Date(start), suffix: () => suffix })
+    const oldest = await open(PROJECT, T0, 'aaaaaa')
+    const newest = await open(PROJECT, T0 + 120_000, 'cccccc')
+    await newest.append({ kind: 'wave-started', wave: 1, tickets: ['01'] })
+    await open(OTHER_PROJECT, T0 + 90_000, 'dddddd')
+
+    const all = await readRecentRuns(PROJECT)
+    expect(all.map((events) => events[0]?.run)).toEqual([newest.run, oldest.run])
+    expect(all[0]!.map((event) => event.kind)).toEqual(['run-started', 'wave-started'])
+    expect((await readRecentRuns(PROJECT, { limit: 1 })).map((events) => events[0]?.run)).toEqual([newest.run])
+    expect(await readRecentRuns('nobody-00000000')).toEqual([])
   })
 
   it('leaves out files that are not run journals or have no readable line', async () => {

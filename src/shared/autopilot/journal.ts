@@ -72,7 +72,16 @@
 //                                    quit; gh answers at most once a minute. So a comment made less
 //                                    than a minute before the end, or one gh is slow to give then,
 //                                    may be missing. Journals written before ticket 20 have none
-//   wave-finished  wave, tickets     wave and tickets as in wave-started
+//   wave-finished  wave, tickets,    wave and tickets as in wave-started
+//                  limits?
+//
+//   limits? of wave-started and wave-finished: the share of the Limits windows when the line
+//   was written (worfy-throughput ticket 40), {"five_hour": <window>, "seven_day": <window>}, a
+//   window null when worfy knew nothing of it; <window> is {utilization, receivedAt, resetsAt}:
+//   utilization the used share 0..1 (above 1 when over) or null, receivedAt the ISO time worfy got
+//   the number, resetsAt the ISO time the window resets or null. Before both lines worfy asks the
+//   usage once when the number is older than 5 minutes. A limits value outside this shape is
+//   dropped and the line read without it. Lines written before ticket 40 have no limits
 //   limits-hit     window, resetsAt  a Session was refused by the Limits; window: `five_hour`,
 //                                    `seven_day`, … or null; resetsAt: ISO time or null
 //   waiting-until  until             the run sleeps until this ISO time
@@ -157,6 +166,7 @@
 //
 // Everything here is pure; src/main/autopilot/journal.ts reads and writes the files.
 import { z } from 'zod'
+import type { LimitWindowId, LimitsState } from '../agent/limits'
 
 /** Every kind of event, in the order a run usually meets them. */
 export const JOURNAL_EVENT_KINDS = [
@@ -217,6 +227,12 @@ export const REASON_MAX = 200
 const skipped = z.array(z.object({ num: text, state: z.enum(['blocked', 'none']) }))
 const session = z.string().min(1).nullable()
 const tasks = z.array(z.object({ id: text, type: z.string().nullable(), description: z.string().nullable() }))
+const limitsWindow = z.object({ utilization: z.number().nonnegative().nullable(), receivedAt: isoTime, resetsAt: isoTime.nullable() }).nullable()
+/** The `limits` field of wave-started and wave-finished: the share of each window when the line was written. */
+export const journalLimitsSchema = z.object({ five_hour: limitsWindow, seven_day: limitsWindow })
+export type JournalLimits = z.output<typeof journalLimitsSchema>
+// A value outside the shape reads as no value: the Wave's line itself is not lost for it.
+const limits = journalLimitsSchema.optional().catch(undefined)
 
 const common = {
   at: isoTime,
@@ -231,9 +247,9 @@ const event = <K extends JournalEventKind, F extends z.ZodRawShape>(kind: K, fie
 export const journalEventSchema = z.discriminatedUnion('kind', [
   event('run-started', { origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional() }),
   event('harness-behind', { harness: text, main: text, commits: z.number().int().positive() }),
-  event('wave-started', { ...wave, text: z.string().optional(), skipped: skipped.optional() }),
+  event('wave-started', { ...wave, text: z.string().optional(), skipped: skipped.optional(), limits }),
   event('narrow-round', { ticket: text, outcome: z.enum(NARROW_OUTCOMES), text: text.max(LAST_TEXT_MAX) }),
-  event('wave-finished', wave),
+  event('wave-finished', { ...wave, limits }),
   event('limits-hit', { window: z.string().min(1).nullable(), resetsAt: isoTime.nullable() }),
   event('waiting-until', { until: isoTime }),
   event('resumed', {}),
@@ -300,6 +316,20 @@ export function journalReason(reason: string, home: string): string {
   // `C:` or `/c` before a drive home's folders; a separator before any other home's.
   const prefix = drive === null ? `${PATH_START}${rest}` : `(?:${DRIVE_START}${drive[1]}:|${PATH_START}[\\\\/]${drive[1]})${rest}`
   return clip(reason.replace(new RegExp(`${prefix}${NAME_GOES_ON}`, 'giu'), '~'), REASON_MAX)
+}
+
+/**
+ * The `limits` field for the Limits state `state` (LimitsTracker.snapshot); undefined when nothing
+ * is known of either window, so the line goes without the field.
+ */
+export function journalLimits(state: LimitsState): JournalLimits | undefined {
+  const window = (id: LimitWindowId): JournalLimits[LimitWindowId] => {
+    const known = state.windows[id]
+    if (known === undefined) return null
+    return { utilization: known.utilization, receivedAt: new Date(known.receivedAt).toISOString(), resetsAt: known.resetsAt === null ? null : new Date(known.resetsAt * 1000).toISOString() }
+  }
+  const out = { five_hour: window('five_hour'), seven_day: window('seven_day') }
+  return out.five_hour === null && out.seven_day === null ? undefined : out
 }
 
 /** The fields every line shares; the writer fills them in. */

@@ -214,6 +214,70 @@ describe('LimitsRefresher', () => {
   })
 })
 
+describe('LimitsRefresher.refreshIfOlder (before a Wave of Autopilot, worfy-throughput ticket 40)', () => {
+  let store: Store
+  let read: ReturnType<typeof vi.fn<(signal: AbortSignal) => Promise<unknown>>>
+  let clock: number
+  let refresher: LimitsRefresher
+
+  beforeEach(() => {
+    clock = START
+    store = new Store()
+    read = vi.fn<(signal: AbortSignal) => Promise<unknown>>(() => Promise.resolve(answer(10, 40)))
+    // Not started: no timer, only the asks of refreshIfOlder.
+    refresher = new LimitsRefresher({ limits: store, read, log: () => undefined, now: () => clock })
+  })
+
+  afterEach(() => refresher.stop())
+
+  it('asks once when a window is older than the age given, and resolves after the answer is recorded', async () => {
+    store.state = both(START - 5 * MINUTE - 1, 'usage')
+    await refresher.refreshIfOlder(5 * MINUTE)
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(store.state.windows.seven_day).toMatchObject({ utilization: 0.4, receivedAt: START, source: 'usage' })
+    // Fresh now: the next call asks nothing.
+    await refresher.refreshIfOlder(5 * MINUTE)
+    expect(read).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks nothing while both windows are at most that old, whatever their source', async () => {
+    store.state = both(START - 5 * MINUTE, 'usage')
+    await refresher.refreshIfOlder(5 * MINUTE)
+    store.state = both(START - MINUTE, 'statusline')
+    await refresher.refreshIfOlder(5 * MINUTE)
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it('asks when one window is missing', async () => {
+    store.state = { windows: { five_hour: window(START, 'sdk') } }
+    await refresher.refreshIfOlder(5 * MINUTE)
+    expect(read).toHaveBeenCalledTimes(1)
+  })
+
+  it('waits for an ask already running instead of starting a second one', async () => {
+    let finish: (value: unknown) => void = () => undefined
+    read.mockImplementation(() => new Promise((resolve) => (finish = resolve)))
+    const tick = refresher.check(false)
+    let done = false
+    const refresh = refresher.refreshIfOlder(5 * MINUTE).then(() => (done = true))
+    await Promise.resolve()
+    expect(done).toBe(false)
+    finish(answer(10, 40))
+    await Promise.all([tick, refresh])
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(store.state.windows.seven_day?.utilization).toBe(0.4)
+  })
+
+  it('resolves without throwing when the ask fails, and asks nothing once stopped', async () => {
+    read.mockRejectedValueOnce(new Error('no network'))
+    await expect(refresher.refreshIfOlder(5 * MINUTE)).resolves.toBeUndefined()
+    expect(read).toHaveBeenCalledTimes(1)
+    refresher.stop()
+    await refresher.refreshIfOlder(5 * MINUTE)
+    expect(read).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('askUsage', () => {
   it('calls the SDK method by its one name, without the transcript scan', async () => {
     const method = vi.fn(() => Promise.resolve(answer(1, 2)))

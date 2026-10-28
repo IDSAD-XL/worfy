@@ -77,7 +77,8 @@ export class LimitsRefresher {
   private readonly intervalMs: number
   private readonly log: (message: string, error?: unknown) => void
   private timer: ReturnType<typeof setInterval> | null = null
-  private running = false
+  /** The ask in flight, if any: a second caller waits for it instead of asking again. */
+  private running: Promise<void> | null = null
   private stopped = false
   private readonly quit = new AbortController()
   /** Whether the line for "no rate limits" or for a failure was logged since the last answer. */
@@ -110,8 +111,33 @@ export class LimitsRefresher {
    * the next ask.
    */
   async check(passiveOnly: boolean): Promise<void> {
-    if (this.running || this.stopped || this.fresh(passiveOnly)) return
-    this.running = true
+    if (this.running !== null || this.stopped || this.fresh(passiveOnly, this.intervalMs)) return
+    await this.ask()
+  }
+
+  /**
+   * Asks once when a shown window is missing or older than `maxAgeMs`, whatever its source, and
+   * resolves once the answer is recorded (or the ask failed: that is logged, never thrown). An ask
+   * already running is waited for instead. Autopilot calls it before each Wave's line in its journal
+   * (worfy-throughput ticket 40), so the line carries a number at most that old.
+   */
+  async refreshIfOlder(maxAgeMs: number): Promise<void> {
+    if (this.running !== null) return this.running
+    // A number exactly `maxAgeMs` old is not older than that: fresh within one millisecond more.
+    if (this.stopped || this.fresh(false, maxAgeMs + 1)) return
+    await this.ask()
+  }
+
+  /** One ask; `running` holds it until it is over. */
+  private ask(): Promise<void> {
+    const ask = this.askOnce().finally(() => {
+      this.running = null
+    })
+    this.running = ask
+    return ask
+  }
+
+  private async askOnce(): Promise<void> {
     try {
       const answer = await this.options.read(this.quit.signal)
       if (this.stopped) return
@@ -126,14 +152,13 @@ export class LimitsRefresher {
     } catch (error) {
       if (!this.logged.failed) this.log('[limits] the usage request failed: the Limits come from Sessions and the status line only', error)
       this.logged.failed = true
-    } finally {
-      this.running = false
     }
   }
 
-  private fresh(passiveOnly: boolean): boolean {
+  /** Whether every shown window was received less than `maxAgeMs` ago (by a passive source only, with `passiveOnly`). */
+  private fresh(passiveOnly: boolean, maxAgeMs: number): boolean {
     const { windows } = this.options.limits.snapshot()
-    const since = this.now() - this.intervalMs
+    const since = this.now() - maxAgeMs
     return LIMIT_WINDOWS.every((id) => {
       const known = windows[id]
       return known !== undefined && known.receivedAt > since && !(passiveOnly && known.source === 'usage')
@@ -220,6 +245,17 @@ export function usageOptions({ env, cwd, executable }: UsageOptionsInput): Optio
   }
 }
 
+/** The app's refresher once installLimitsRefresh has started it; null before, in e2e runs and under vitest. */
+let appRefresher: LimitsRefresher | null = null
+
+/**
+ * The app's refresher's refreshIfOlder: one usage ask when a window is older than `maxAgeMs`.
+ * Resolves at once while no refresher runs (the fake agent, vitest, before the start).
+ */
+export function refreshAppUsage(maxAgeMs: number): Promise<void> {
+  return appRefresher === null ? Promise.resolve() : appRefresher.refreshIfOlder(maxAgeMs)
+}
+
 /**
  * Starts the app's refresher over appLimits(); answers the function that stops it (for
  * `will-quit`). With WORFY_AGENT=fake (e2e runs) or under vitest nothing starts: no Claude Code.
@@ -247,5 +283,9 @@ export async function installLimitsRefresh(env: NodeJS.ProcessEnv = process.env)
     }),
   })
   refresher.start()
-  return () => refresher.stop()
+  appRefresher = refresher
+  return () => {
+    refresher.stop()
+    if (appRefresher === refresher) appRefresher = null
+  }
 }

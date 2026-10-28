@@ -1,13 +1,13 @@
 // When "Run wave" and "Ship ticket" (ticket 23) are shown and whether they can run now. The buttons
 // on the Canvas (EpicActions.tsx, TicketActions.tsx) and the rows of the command palette (ticket 31)
 // both ask here, so the two never disagree; main checks the same conditions again on a click.
-import { runWaveState, shipTicketState, type ActionState } from '../../../shared/actions/render-template'
+import { runWaveState, shipTicketState, type ActionState, type WaveState } from '../../../shared/actions/render-template'
 import type { Ticket } from '../../../shared/workflow/types'
 import { useProjects } from '../../projects/useProjects'
 import { useLaunched } from './launches'
 import { useActionTemplates } from './templates'
 
-const READING: ActionState = { enabled: false, reason: 'Reading the Project settings…' }
+const READING: Extract<ActionState, { enabled: false }> = { enabled: false, reason: 'Reading the Project settings…' }
 
 /** An Epic whose Tickets are all done has no "Run wave". */
 export function hasRunWave(epic: string, tickets: readonly Pick<Ticket, 'epic' | 'state'>[]): boolean {
@@ -29,9 +29,10 @@ function useBranch(projectId: string): string | null {
  * `autopilot`, whether Autopilot can start: the template must also name the Wave's Tickets
  * ({tickets}, ADR-0033), and the reason says so on the Autopilot button. `resumable`: the Tickets
  * of the Wave the last Stop of this Epic interrupted (worfy-week ticket 17); those still in work
- * count as ready, as main counts them.
+ * count as ready, as main counts them. When it can, the Wave's Tickets come along (the Autopilot
+ * button's estimate counts them).
  */
-export function useRunWaveState(projectId: string, epic: string, tickets: readonly Ticket[], autopilot = false, resumable: readonly number[] = []): ActionState {
+export function useRunWaveState(projectId: string, epic: string, tickets: readonly Ticket[], autopilot = false, resumable: readonly number[] = []): WaveState {
   const branch = useBranch(projectId)
   const templates = useActionTemplates(projectId)
   if (templates === undefined) return READING

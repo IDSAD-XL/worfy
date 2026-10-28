@@ -178,6 +178,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'agent.list',
     'agent.models',
     'autopilot.state',
+    // The estimate of a Wave's share of the week, read from the run journals (worfy-throughput ticket 40).
+    'autopilot.estimate',
     'bindings.get',
     'bindings.signals',
     // The Browser profiles of a Project: a read-only screen shows a frame's profile name (worfy-browser ticket 03).
