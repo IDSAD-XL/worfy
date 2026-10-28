@@ -1,0 +1,11 @@
+{
+  "file": "test/contract/harness-scripts.test.ts",
+  "test": "harness shell tests > bin/tests/wave-gate-lock.test.sh exits 0 with an empty HOME",
+  "platforms": [
+    "win32"
+  ],
+  "reason": "Under Git Bash on the loaded GitHub Windows runner a case of harness/bin/tests/wave-gate-lock.test.sh that needs a killed wave-gate's pid to stay dead fails now and then: Windows hands the freed pid to a new process within seconds, and the next run takes it for a live holder (\"another wave-gate check runs in this repository (pid 940)\", case \"e2e lock of a killed run\", PR run 40615971705). The twins and token cases, red in CI runs 40607908878 and 40562890010, got a pid no system hands out in the same PR; the killed-run case needs the real pid. Green in 15 other Windows runs of 2026-10-27/28.",
+  "owner": "worfy-throughput 23",
+  "since": "2026-10-28",
+  "until": "2026-11-11"
+}

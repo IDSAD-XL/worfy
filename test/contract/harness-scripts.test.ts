@@ -17,8 +17,9 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, describe, expect, it, vi, type TestContext } from 'vitest'
 import { gitBash } from '../git-bash'
+import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
 import { timeScale } from '../time-scale'
 
@@ -400,17 +401,24 @@ describe('harness shell tests', () => {
     expect(found.status, `${command} is not installed`).toBe(0)
   })
 
-  it.concurrent.for(ordered.map((file): [string, string] => [relative(file), file]))(
+  const runFile = async (name: string, file: string, context: TestContext): Promise<void> => {
+    context.skip(WINDOWS && ZSH_ONLY.has(file), NO_ZSH_UNTIL_TICKET_15)
+    starts.set(name, (starts.get(name) ?? 0) + 1)
+    const { run } = await runInEmptyHome(file, FILE_TIMEOUT_MS)
+    const problem = failure(file, run, FILE_TIMEOUT_MS)
+    context.expect(problem === null, problem ?? '').toBe(true)
+  }
+  // On Windows wave-gate-lock.test.sh is in quarantine (test/quarantine/harness-wave-gate-lock.json),
+  // so there it is declared on its own, as the quarantine marks a test; elsewhere it runs with the rest.
+  const lockApart = (file: string): boolean => WINDOWS && relative(file) === 'bin/tests/wave-gate-lock.test.sh'
+  it.concurrent.for(ordered.filter((file) => !lockApart(file)).map((file): [string, string] => [relative(file), file]))(
     '%s exits 0 with an empty HOME',
     { timeout: FILE_TIMEOUT_MS + 10_000 },
-    async ([name, file], context) => {
-      context.skip(WINDOWS && ZSH_ONLY.has(file), NO_ZSH_UNTIL_TICKET_15)
-      starts.set(name, (starts.get(name) ?? 0) + 1)
-      const { run } = await runInEmptyHome(file, FILE_TIMEOUT_MS)
-      const problem = failure(file, run, FILE_TIMEOUT_MS)
-      context.expect(problem === null, problem ?? '').toBe(true)
-    },
+    ([name, file], context) => runFile(name, file, context),
   )
+  for (const file of ordered.filter(lockApart)) {
+    quarantined('harness-wave-gate-lock')('bin/tests/wave-gate-lock.test.sh exits 0 with an empty HOME', (context) => runFile(relative(file), file, context), FILE_TIMEOUT_MS + 10_000)
+  }
 
   it('kills a file past its limit with every process it started, and removes its HOME', async () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-harness-hang-')))
