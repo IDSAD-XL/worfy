@@ -252,6 +252,33 @@ for host in none elsewhere; do
     rm -f "$L/holder.json"; rmdir "$L"; finish "$wg" 120 || bad "e2e lock host $host: the run did not end: $rc"
     unset GATE_LOCK
 done
+# holder.json also names when the holder's process started. A live pid whose process started no later is the holder:
+# its young lock is waited for. A live pid whose process started after it (2020-01-01) was handed to another process
+# when the holder ended: the lock is taken at once. On Windows only, where a pid comes back within seconds and its
+# start time is read (wave-gate, holderAlive).
+if on_windows; then
+    sleep 120 & rp=$! rjob=$!
+    until_ok 5 grep -q sleep "/proc/$rp/exename"; rp="$(cat "/proc/$rp/winpid")"
+    for started in now 1577836800000; do
+        new_world "holder-started-$started" 1:a.txt
+        S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
+        at="$started"; [ "$started" = now ] && at="$(( $(date +%s) * 1000 ))"
+        mkdir "$L"; printf '{"prs":[9],"what":"gate-full","pid":%s,"started":%s,"host":"%s","since":"x"}\n' "$rp" "$at" "$me" >"$L/holder.json"
+        "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
+        if [ "$started" = now ]; then
+            until_ok 30 grep -q "waiting for the e2e lock" "$W/out"; sleep 2
+            [ "$(gate_count)" = 0 ] && [ -f "$L/holder.json" ] \
+                && ok "e2e lock: a live holder pid whose process started no later than holder.json says is waited for" || bad "e2e lock holder started now: taken [$(tail -2 "$W/out")]"
+            rm -f "$L/holder.json"; rmdir "$L"; finish "$wg" 120 || bad "e2e lock holder started now: the run did not end: $rc"
+        else
+            if until_ok 30 grep -q "held by pid $rp, which is not running" "$W/out"; then finish "$wg" 120; else finish "$wg" 0; rc="not taken in 30 s ($rc)"; fi
+            [ "$rc" = 0 ] && [ ! -e "$L" ] && [ "$(gate_count)" = 1 ] \
+                && ok "e2e lock: a holder pid now held by a process that started later is taken at once" || bad "e2e lock reused pid: $rc: $(tail -3 "$W/out")"
+        fi
+        unset GATE_LOCK
+    done
+    kill "$rjob"; wait "$rjob" 2>/dev/null
+fi
 
 caf_gone "$T"/*/screen/caf*.log && ok "no stub caffeinate of any test is left" || bad "stub caffeinate left: $(cat "$T"/*/screen/caf*.log)"
 

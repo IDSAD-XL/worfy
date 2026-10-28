@@ -218,7 +218,7 @@ async function lock(dir, t, what, holder) {
         await sleep(t.poll)
     }
     if (holder) {
-        const record = { ...holder, pid: process.pid, host: os.hostname(), since: new Date().toISOString() }
+        const record = { ...holder, pid: process.pid, started: STARTED, host: os.hostname(), since: new Date().toISOString() }
         try {
             fs.writeFileSync(path.join(dir, HOLDER), JSON.stringify(record) + "\n")
         } catch (e) {
@@ -240,7 +240,8 @@ async function lock(dir, t, what, holder) {
 // (SIGKILL; on Windows a kill from any other process, taskkill /F or Git Bash's kill) leaves its lock, and waiting
 // for the lock to grow stale would hold every later run for half an hour. Its child (the gate, which runs the e2e)
 // may outlive it off Windows (on Windows libuv's job object ends node's children with node), so a holder with a
-// `child` that runs is not dead either (noteChild). Only a holder.json with this
+// `child` that runs is not dead either (noteChild). A pid whose process started after the holder's `started` (the
+// child's `childStarted`) has been handed to another process, and its holder is gone (holderAlive). Only a holder.json with this
 // machine's host is judged by its pids: the pid of another machine means nothing here, and the one-PR block of
 // skills/epic-wave writes no host and the pid of its shell, which in Git Bash is not a Windows pid.
 // shortcut: a child of the gate (an e2e script) that outlives both is not seen; redo with the pids of the whole tree
@@ -253,9 +254,9 @@ function deadHolder(dir) {
     } catch {
         return null
     }
-    const gone = (pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid && !pidAlive(pid)
-    if (record?.host !== os.hostname() || !gone(record.pid)) return null
-    if (record.child !== undefined && !gone(record.child)) return null
+    const gone = (pid, started) => Number.isInteger(pid) && pid > 0 && pid !== process.pid && !holderAlive(pid, started)
+    if (record?.host !== os.hostname() || !gone(record.pid, record.started)) return null
+    if (record.child !== undefined && !gone(record.child, record.childStarted)) return null
     return { text, pid: record.pid }
 }
 // Takes the lock of a dead holder. Of two waiters only one may remove it, or the second removes the lock the first
@@ -313,8 +314,14 @@ function noteChild(pid) {
         try {
             const record = JSON.parse(fs.readFileSync(file, "utf8"))
             if (record.pid !== process.pid) continue
-            if (pid === null) delete record.child
-            else record.child = pid
+            if (pid === null) {
+                delete record.child
+                delete record.childStarted
+            } else {
+                // Written once the child has started, so never before the system's start time of it.
+                record.child = pid
+                record.childStarted = Date.now()
+            }
             fs.writeFileSync(file, JSON.stringify(record) + "\n")
         } catch {}
     }
@@ -428,6 +435,63 @@ const pidAlive = (pid) => {
         return e.code === "EPERM"
     }
 }
+// Windows hands the pid of a process that has ended to a new one within seconds, so a pid alone does not say that
+// the run which wrote it still runs. Each record of a pid also names when that process started (ms since the
+// epoch, never later than the system's own start time of it), and a live process with that pid which started
+// after it is another one. START_SLACK_MS covers the rounding of the start times the system reports.
+// shortcut: the start time is read on Windows only, where pids come back within seconds; read /proc/<pid>/stat and
+// `ps -o lstart=` when a reused pid is reported on Linux or macOS.
+const START_SLACK_MS = 1000
+const STARTED = Math.floor(Date.now() - process.uptime() * 1000)
+// When the process with this pid started, in ms since the epoch, or null when it cannot be told.
+function startedAt(pid) {
+    if (process.platform !== "win32") return null
+    const shell = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+    const r = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-Command", `[System.Diagnostics.Process]::GetProcessById(${pid}).StartTime.ToUniversalTime().ToString('o')`], {
+        encoding: "utf8",
+        timeout: 15000,
+        windowsHide: true,
+    })
+    const at = r.status === 0 ? Date.parse(r.stdout.trim()) : NaN
+    return Number.isFinite(at) ? at : null
+}
+// Test-only: with WAVE_GATE_PID_SYNC=<folder> that holds `hold-<at>`, the check stops at the point `at`: it creates
+// `<at>` there and waits for `resume-<at>`, up to 30 s. The point `alive`: the pid of the pid file was found running,
+// and when its process started is not asked yet.
+function stopPoint(at) {
+    const dir = process.env.WAVE_GATE_PID_SYNC
+    if (!dir || !fs.existsSync(path.join(dir, `hold-${at}`))) return
+    fs.writeFileSync(path.join(dir, at), "")
+    for (const until = Date.now() + 30000; !fs.existsSync(path.join(dir, `resume-${at}`)) && Date.now() < until; ) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
+    }
+}
+// Whether the process that wrote `pid` (started at `started`, when the record names it) still runs: false, or why it
+// is taken to run, which the error names.
+function holderAlive(pid, started) {
+    if (!pidAlive(pid)) return false
+    if (!Number.isFinite(started) || process.platform !== "win32") return "no start time to compare"
+    stopPoint("alive")
+    const now = startedAt(pid)
+    // No answer also comes for a process that ended while PowerShell was asked, as a short-lived process that got the
+    // pid of a killed check does on a loaded runner: a pid no longer running is dead, whatever PowerShell said.
+    if (now === null) return pidAlive(pid) && "its start time could not be read"
+    return now <= started + START_SLACK_MS && `it started at ${new Date(now).toISOString()}, no later than the file says`
+}
+// The pid file holds the bare pid: wave-gates before the start time read it as Number(text.trim()), and they share
+// the file. The start time of its writer is in <pid file>.started, "<pid> <started>", written right after the pid
+// file. It counts only when it names the same pid and is no older than the pid file: one left by a check that was
+// killed is older than the pid file of the next check, which may be an older wave-gate that writes none.
+const startedFile = (file) => `${file}.started`
+function startedOf(file, pid, st) {
+    try {
+        const side = startedFile(file)
+        const [sidePid, started] = fs.readFileSync(side, "utf8").trim().split(/\s+/)
+        return Number(sidePid) === pid && fs.statSync(side).mtimeMs >= st.mtimeMs ? Number(started) : NaN
+    } catch {
+        return NaN
+    }
+}
 function pidState(file) {
     let text, st
     try {
@@ -438,7 +502,7 @@ function pidState(file) {
         throw e
     }
     const pid = Number(text.trim())
-    if (Number.isInteger(pid) && pid > 0) return { text, pid, live: pidAlive(pid) }
+    if (Number.isInteger(pid) && pid > 0) return { text, pid, live: holderAlive(pid, startedOf(file, pid, st)) }
     return { text, pid: null, live: (Date.now() - st.mtimeMs) / 1000 <= PID_EMPTY_S }
 }
 function guardPid(common) {
@@ -454,11 +518,15 @@ function guardPid(common) {
             fs.writeSync(fd, `${process.pid}\n`)
             fs.closeSync(fd)
             held.pidFile = file
+            // Without it the pid alone is the verdict, as before.
+            try {
+                fs.writeFileSync(startedFile(file), `${process.pid} ${STARTED}\n`)
+            } catch {}
             return
         }
         const seen = pidState(file)
         if (seen.gone) continue
-        if (seen.live) fail(`another wave-gate check runs in this repository (${seen.pid ? `pid ${seen.pid}` : "its pid is being written"}, ${file})`)
+        if (seen.live) fail(`another wave-gate check runs in this repository (${seen.pid ? `pid ${seen.pid}, ${seen.live}` : "its pid is being written"}, ${file})`)
         const aside = `${file}.stale-${process.pid}`
         try {
             fs.renameSync(file, aside)
@@ -482,6 +550,9 @@ function guardPid(common) {
 function releasePid() {
     if (!held.pidFile) return
     // Only our own: a file another check wrote after ours was taken over stays.
+    try {
+        if (fs.readFileSync(startedFile(held.pidFile), "utf8").trim().split(/\s+/)[0] === String(process.pid)) fs.rmSync(startedFile(held.pidFile), { force: true })
+    } catch {}
     try {
         if (fs.readFileSync(held.pidFile, "utf8").trim() === String(process.pid)) fs.rmSync(held.pidFile, { force: true })
     } catch {}

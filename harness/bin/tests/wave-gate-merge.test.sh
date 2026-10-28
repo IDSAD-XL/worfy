@@ -89,6 +89,8 @@ node -e 'const fs=require("fs"),[f,c,t]=process.argv.slice(1),s=JSON.parse(fs.re
 
 # --- one check per repository: the pid file ------------------------------------------------------
 PIDF() { echo "$(cd "$W/repo/.git" && pwd -P)/worfy-wave-gate.pid"; }
+# the start time of the pid file's writer, "<pid> <started>"; the pid file itself holds the bare pid
+SIDE() { echo "$(PIDF).started"; }
 new_world pidlive 1:a.txt
 S="$W/state.json"; state "$S" null 1
 git -C "$W/repo" worktree add -q --detach "$(TMPW_OF)" origin/main && echo mine >"$(TMPW_OF)/marker"
@@ -100,6 +102,14 @@ echo "$sp" >"$(PIDF)"
 [ "$rc" -eq 1 ] && grep -q "another wave-gate check runs in this repository (pid $sp" "$W/out" && ok "pid: a live check's pid -> exit 1 naming it" || bad "pid live: exit $rc: $(tail -3 "$W/out")"
 [ "$(cat "$(TMPW_OF)/marker" 2>/dev/null)" = mine ] && git -C "$W/repo" worktree list | grep -q worfy-wave-gate && [ "$(gate_count)" = 0 ] && [ "$(cat "$(PIDF)")" = "$sp" ] \
     && ok "pid: the other check's worktree and pid file are untouched, no gate run" || bad "pid live: worktree, pid file or gate touched"
+# The side file names when the pid file's writer started. A live pid whose process started no later is that check:
+# waited for. Read on Windows only, where a pid comes back within seconds (wave-gate, holderAlive).
+if on_windows; then
+    echo "$sp" >"$(PIDF)"; echo "$sp $(( $(date +%s) * 1000 ))" >"$(SIDE)"
+    "$WG" check "$S" >"$W/out" 2>&1; rc=$?
+    [ "$rc" -eq 1 ] && grep -q "another wave-gate check runs in this repository (pid $sp, it started at .*, no later than the file says" "$W/out" \
+        && ok "pid: a live pid whose process started no later than the file says -> exit 1 naming it" || bad "pid live with start: exit $rc: $(tail -3 "$W/out")"
+fi
 kill "$job"; wait "$job" 2>/dev/null
 git -C "$W/repo" worktree remove --force "$(TMPW_OF)"
 # a dead pid: stale, taken over. The pid of a node that has exited: node's pid is the one wave-gate checks, while in
@@ -107,7 +117,38 @@ git -C "$W/repo" worktree remove --force "$(TMPW_OF)"
 dp="$(node -e 'process.stdout.write(String(process.pid))')"
 echo "$dp" >"$(PIDF)"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
-[ "$rc" -eq 0 ] && grep -q "pid $dp, which is not running" "$W/out" && [ ! -e "$(PIDF)" ] && ok "pid: a dead pid is taken over; the pid file is gone at the end" || bad "pid dead: exit $rc: $(tail -3 "$W/out")"
+[ "$rc" -eq 0 ] && grep -q "pid $dp, which is not running" "$W/out" && [ ! -e "$(PIDF)" ] && [ ! -e "$(SIDE)" ] && ok "pid: a dead pid is taken over; the pid file is gone at the end" || bad "pid dead: exit $rc: $(tail -3 "$W/out")"
+# a pid handed to another process: live, but that process started after the check that wrote the file (2020-01-01)
+if on_windows; then
+    sleep 60 & rp=$! rjob=$!
+    until_ok 5 grep -q sleep "/proc/$rp/exename"; rp="$(cat "/proc/$rp/winpid")"
+    # a side file older than the pid file was left by a killed check: the pid file is of a later writer (an older
+    # wave-gate writes none), and its pid alone is the verdict
+    echo "$rp 1577836800000" >"$(SIDE)"; touch -t 202001010000 "$(SIDE)"; echo "$rp" >"$(PIDF)"
+    "$WG" check "$S" >"$W/out" 2>&1; rc=$?
+    [ "$rc" -eq 1 ] && grep -q "another wave-gate check runs in this repository (pid $rp" "$W/out" \
+        && ok "pid: a side file older than the pid file is not read; the live pid is waited for" || bad "pid old side file: exit $rc: $(tail -3 "$W/out")"
+    echo "$rp" >"$(PIDF)"; echo "$rp 1577836800000" >"$(SIDE)"
+    "$WG" check "$S" >"$W/out" 2>&1; rc=$?
+    [ "$rc" -eq 0 ] && grep -q "pid $rp, which is not running" "$W/out" && [ ! -e "$(PIDF)" ] && [ ! -e "$(SIDE)" ] \
+        && ok "pid: a pid now held by a process that started later is taken over" || bad "pid reused: exit $rc: $(tail -3 "$W/out")"
+    kill "$rjob"; wait "$rjob" 2>/dev/null
+    # A pid whose process ends while the check asks when it started: PowerShell answers nothing then, and the pid, no
+    # longer running, is dead. On a loaded runner a short-lived process that got the pid of the killed check ended so,
+    # and the resume case was refused (CI run 40656857467). The check stops between its two looks at the pid
+    # (WAVE_GATE_PID_SYNC) while the process is ended; the file names a start no earlier than the process's own.
+    sleep 60 & ep=$! ejob=$!
+    until_ok 5 grep -q sleep "/proc/$ep/exename"; ep="$(cat "/proc/$ep/winpid")"
+    echo "$ep" >"$(PIDF)"; echo "$ep $(( $(date +%s) * 1000 ))" >"$(SIDE)"
+    sync="$W/pid-sync"; mkdir -p "$sync"; touch "$sync/hold-alive"
+    WAVE_GATE_PID_SYNC="$sync" "$WG" check "$S" >"$W/out" 2>&1 & ewg=$!
+    until_ok 30 test -e "$sync/alive" || bad "pid ended while asked: the check never stopped where it found the pid running"
+    kill "$ejob"; wait "$ejob" 2>/dev/null
+    touch "$sync/resume-alive"
+    wait "$ewg"; rc=$?
+    [ "$rc" -eq 0 ] && grep -q "pid $ep, which is not running" "$W/out" && [ ! -e "$(PIDF)" ] \
+        && ok "pid: a pid whose process ends while its start time is asked is taken over" || bad "pid ended while asked: exit $rc: $(tail -3 "$W/out")"
+fi
 # an empty pid file: young — its writer is between open and write; old — stale
 new_world pidempty 1:a.txt
 S="$W/state.json"; state "$S" null 1
@@ -125,10 +166,15 @@ touch "$GATE_DIR/hold"
 "$WG" check "$W/s1.json" >"$W/o1" 2>&1 & p1=$!
 "$WG" check "$W/s2.json" >"$W/o2" 2>&1 & p2=$!
 until_ok 30 grep -q "another wave-gate check" "$W/o1" "$W/o2"
+# what the running check wrote: a wave-gate before the side file reads the pid file as Number(text.trim())
+held_pid="$(node -e 'const n = Number(require("fs").readFileSync(process.argv[1], "utf8").trim()); process.stdout.write(Number.isInteger(n) && n > 0 ? String(n) : "NaN")' "$(PIDF)")"
+side_pid="$(awk '{print $1}' "$(SIDE)" 2>/dev/null)"
 rm -f "$GATE_DIR/hold"
 finish "$p1" 120; r1=$rc; finish "$p2" 120; r2=$rc
 codes="$(printf '%s\n' "$r1" "$r2" | sort | tr '\n' ' ')"
 [ "$codes" = "0 1 " ] && grep -q "another wave-gate check" "$W/o1" "$W/o2" && [ "$(gate_count)" = 1 ] && ok "pid: two checks at once -> one runs, the other exits 1" || bad "pid race: codes [$codes] runs $(gate_count): $(tail -2 "$W/o1") | $(tail -2 "$W/o2")"
+[ "$held_pid" != NaN ] && [ "$side_pid" = "$held_pid" ] && [ ! -e "$(PIDF)" ] && [ ! -e "$(SIDE)" ] \
+    && ok "pid: the pid file holds the bare pid an older wave-gate reads; the side file names it; both gone at the end" || bad "pid file format: pid [$held_pid] side [$side_pid]"
 
 # --- between runs: ignored build output is removed, node_modules stays ---------------------------
 new_world artifacts 1:a.txt 2:RED
