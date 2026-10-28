@@ -94,8 +94,8 @@ function measure(scale: number, zoom: number, edges: readonly Edge[], scrollbar:
 describe('the edges of the fixture page against its frame on a capture (edgeErrors)', () => {
   for (const scale of [1.5, 2]) {
     for (const { zoom, edges } of ZOOMS) {
-      // Drawn exactly, the page is on the frame's edge: the e2e test's bound (edgeBound: 1 px at a whole
-      // scale, 1.5 at a fractional one) is for real captures, here the reading must be within one device pixel.
+      // Drawn exactly, the page is on the frame's edge: the e2e test's bound (edgeBound: 1 px at scale 2,
+      // 1.5 at a fractional one, 2.5 at scale 1) is for real captures, here the reading must be within one device pixel.
       it(`a page without a scrollbar sits in its frame within one device pixel on every edge read, at scale ${scale} and zoom ${zoom}`, () => {
         const errors = measure(scale, zoom, edges, 0)
         for (const edge of edges) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(1 / scale)
@@ -103,7 +103,7 @@ describe('the edges of the fixture page against its frame on a capture (edgeErro
 
       it(`a page that lost its magenta line is read from its cream within 1 px, at scale ${scale} and zoom ${zoom}`, () => {
         // Without the line, the pixel blended at the border is neither cream nor magenta, so the reading
-        // may be off by up to one more device pixel: still within 1 px, edgeBound at a whole scale.
+        // may be off by up to one more device pixel: still within 1 px, edgeBound at scale 2.
         const errors = measure(scale, zoom, edges, 0, false)
         for (const edge of edges) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(1)
       })
@@ -252,10 +252,15 @@ describe('page pixels in the band just outside the frame, one by one (pagePixels
 })
 
 describe('the bound on edgeErrors (edgeBound)', () => {
-  it('is 1 px at a whole device scale and 1.5 px at a fractional one', () => {
-    expect(edgeBound(1)).toBe(1)
+  it('is 1 px at a whole device scale of 2 or more and 1.5 px at a fractional one', () => {
     expect(edgeBound(2)).toBe(1)
+    expect(edgeBound(3)).toBe(1)
     expect(edgeBound(2100 / 1400)).toBe(1.5)
     expect(edgeBound(1.25)).toBe(1.5)
+  })
+
+  it('is 2.5 px at scale 1, the measured 2.38 px of the 1024x768 macOS runner plus a margin, and no more', () => {
+    expect(edgeBound(1)).toBe(2.5)
+    expect(edgeBound(1)).toBeGreaterThan(2.38)
   })
 })

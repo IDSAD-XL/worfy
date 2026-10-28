@@ -149,12 +149,18 @@ export function edgeErrors(image: Image, scale: number, body: Box, zoom: number,
 
 /**
  * The bound, in CSS px, on edgeErrors in the zoom tests for a capture at `scale` device px per CSS
- * px. 1 at a whole scale (a Retina Mac at 2). 1.5 at a fractional one (Windows at 150 %): there the
- * frame's edges sit between device pixels, and the rounding of the page's surface and of the outline
- * to whole device pixels adds up to half a pixel more (1.18 px measured at zoom 0.25 on a 150 %
- * display).
+ * px. 1 at a whole scale of 2 or more (a Retina Mac at 2). 1.5 at a fractional one (Windows at
+ * 150 %): there the frame's edges sit between device pixels, and the rounding of the page's surface
+ * and of the outline to whole device pixels adds up to half a pixel more (1.18 px measured at zoom
+ * 0.25 on a 150 % display).
+ *
+ * 2.5 at scale 1 (the 1024x768 display of the macOS CI runner): there a device pixel is a whole CSS
+ * px, so the rounding is a whole pixel too. A 0.25 downscale loses one device pixel at the right and
+ * bottom edges and blends one more: 1.38 px measured on the left and top edges, 2.38 px on the right
+ * and bottom, the same in three runs at zoom 0.25. The bound is that worst 2.38 plus a small margin.
  */
 export function edgeBound(scale: number): number {
+  if (Math.abs(scale - 1) < 0.01) return 2.5
   return Math.abs(scale - Math.round(scale)) < 0.01 ? 1 : 1.5
 }
 
