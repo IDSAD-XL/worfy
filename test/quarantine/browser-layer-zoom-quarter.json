@@ -1,0 +1,12 @@
+{
+  "runner": "playwright",
+  "file": "test/e2e/browser-layer.spec.ts",
+  "test": "zoom 0.25: the page scales with its frame and is clipped at the frame's edge and the Canvas's",
+  "platforms": [
+    "darwin"
+  ],
+  "reason": "On the GitHub macOS runner the test now and then runs for about a minute and fails with 'every edge of the page and of the frame found in the capture': the screen capture holds none of the edges it looks for. Red in CI runs 40649755730 (macos-e2e 1/2, PR #884) and 40644132756 (macos-e2e 1/2, PR #882 first head); green in 40640810358 (3.6 s) and 40651661167 of the same job (2026-10-28).",
+  "owner": "worfy-throughput 23",
+  "since": "2026-10-28",
+  "until": "2026-11-11"
+}

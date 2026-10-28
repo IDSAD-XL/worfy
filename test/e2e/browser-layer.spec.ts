@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { creamInside, decodePng, edgeBound, edgeErrors, pagePixelsNear, pagePixelsOutside, type Box, type Edge, type Image } from './browser-pixels'
 import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { quarantined } from './quarantine'
 import { snapshotThemes } from './snapshots'
 
 // The prototype of the layer of live Browsers (worfy-browser ticket 01, ADR-0078 item 12): the
@@ -367,7 +368,7 @@ const ZOOMS = [
 ] as const
 
 for (const { zoom, viewport, edges } of ZOOMS) {
-  test(`zoom ${zoom}: the page scales with its frame and is clipped at the frame's edge and the Canvas's`, async () => {
+  quarantined('browser-layer-zoom-quarter', { when: zoom === 0.25 })(`zoom ${zoom}: the page scales with its frame and is clipped at the frame's edge and the Canvas's`, async () => {
     const window = await start(viewport)
     await window.addStyleTag({ content: GREEN_OUTLINE })
     await canvasReady(launched!)
