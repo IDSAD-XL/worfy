@@ -18,6 +18,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, write
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it, vi, type TestContext } from 'vitest'
+import { CI_RETRIES } from '../flaky'
 import { gitBash } from '../git-bash'
 import { removeTestTree } from '../remove'
 import { timeScale } from '../time-scale'
@@ -318,8 +319,10 @@ async function expectGroupEnded(pgid: number): Promise<void> {
   )
 }
 
-// How many times each file started in this run: every file once, and a retry counts as a second
-// start (afterAll below fails on it).
+// How many times each file started in this run: every file once, and once more for each retry CI
+// allows (CI_RETRIES, test/flaky.ts; afterAll below fails on any further start). A retried file is
+// printed as FLAKY when it passes, and it may take FILE_TIMEOUT_MS twice: 120 s more on Linux and
+// macOS, 900 s more on Windows.
 const starts = new Map<string, number>()
 
 describe('harness shell tests', () => {
@@ -482,7 +485,7 @@ describe('harness shell tests', () => {
   afterAll(() => {
     killLiveRuns()
     unwatchStops()
-    const repeated = [...starts].filter(([, count]) => count > 1).map(([name]) => name)
+    const repeated = [...starts].filter(([, count]) => count > 1 + CI_RETRIES).map(([name]) => name)
     expect(repeated, 'shell test files started more than once in this run').toEqual([])
   })
 })

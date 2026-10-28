@@ -59,6 +59,9 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
       runner `full`; условие merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
 - [ ] (вручную, после обновления Stable copy) Одна настоящая Wave влита через `land`; число вызовов модели
       Orchestrator-а на merge до и после — по Ticket-у 19, в «Итог».
+- [ ] `harness/skills/epic-wave/SKILL.md`, `harness/skills/ship-ticket/SKILL.md` (`:50`, `:678`, `:743`) и
+      `harness/agents/implementer.md` (`:202`) называют условием merge `ci-ok`, а не gate full (расхождение из
+      «Итог» Ticket-а 35).
 
 ## Где в коде
 
