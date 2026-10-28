@@ -54,6 +54,25 @@ describe('the JSON report of playwright.config.ts', () => {
   it('keeps the list reporter and the failure-artifacts reporter', async () => {
     process.argv = [argv[0] ?? 'node', 'playwright', 'test']
     const config = ((await import(`${pathToFileURL(join(REPO, 'playwright.config.ts')).href}?t=${Date.now()}${++loads}`)) as { default: { reporter: [string][] } }).default
-    expect(config.reporter.map(([name]) => name)).toEqual(['list', './test/e2e/helpers.ts', 'json'])
+    expect(config.reporter.map(([name]) => name)).toEqual(['list', './test/e2e/helpers.ts', './test/e2e/flaky-reporter.ts', 'json'])
+  })
+})
+
+describe('retries of playwright.config.ts', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  /** The retries of the config, loaded anew with CI set to `ci` (undefined: CI unset). */
+  async function retries(ci: string | undefined): Promise<unknown> {
+    vi.stubEnv('CI', ci)
+    process.argv = [argv[0] ?? 'node', 'playwright', 'test']
+    vi.resetModules()
+    return ((await import(`${pathToFileURL(join(REPO, 'playwright.config.ts')).href}?t=${Date.now()}${++loads}`)) as { default: { retries: unknown } }).default.retries
+  }
+
+  it('retries a failed test once in CI, never outside it', async () => {
+    expect(await retries('true')).toBe(1)
+    expect(await retries(undefined)).toBe(0)
   })
 })

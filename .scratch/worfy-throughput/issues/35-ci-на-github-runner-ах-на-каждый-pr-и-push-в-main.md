@@ -1,8 +1,8 @@
 # 35 — Каждый PR и каждый push в `main` проверяются на GitHub-hosted runner-ах; check `ci-ok` — условие merge вместо локального gate full
 
 Type: task
-Status: claimed 2026-10-28
-PR: —
+Status: done 2026-10-28T06:22Z
+PR: #870
 Branch: ci/runners-on-every-pr
 Blocked by: —
 Source: решение владельца 2026-10-28 «Переходим на CI раннеры, это приоритет» ([spec.md](../spec.md), раздел
@@ -68,3 +68,36 @@ Source: решение владельца 2026-10-28 «Переходим на C
 - gate full на ПК для scope `pc` — Ticket 30.
 
 ## Итог
+
+- PR #870: `.github/workflows/ci.yml` запускается на `pull_request` и `push` в `main` (без `pull_request_target`,
+  токен только на чтение, `persist-credentials: false` на каждом checkout, `pnpm/action-setup` закреплён по SHA).
+  Job-ы: `changes` (`scripts/ci-scope.mjs`: PR только с документами получает лишь `lint-typecheck`),
+  `lint-typecheck`, `linux-tests` (4 shard-а), `macos-tests` (2), `macos-e2e` (2), `macos-package`,
+  `windows / full-suite` и итоговый `ci-ok`. Push-run-ы `main` получают concurrency-группу по commit-у и не
+  отменяют друг друга. Contract test-ы `test/contract/ci-workflow.test.ts` и `windows-tests-workflow.test.ts`.
+- Довести `ci-ok` до зелёного на runner-ах понадобилось пять follow-up PR: #875 (Git Bash находит `/tmp` на
+  Windows runner-е), #874 (e2e проходят на экране macOS runner-а 1024×768), #877 (исправления и записи
+  карантина), #878 (карантин e2e общий с карантином vitest), #879 (повторный просмотр папки registry, если
+  FSEvents потерял событие). #876 — документы: ADR-0083 (условие merge — `ci-ok` вместо локального gate
+  full) и `## Amendments` в ADR-0056, 0065, 0068, 0069, 0071, 0081; `CONTEXT.md`, `HANDOFF.md`;
+  `scripts/windows-verdict-scope.mjs` (в `PC_ONLY` остался `test/windows-runner.ts`) и его contract test.
+  Profile worfy (`merge_gate: null`, `ci-ok` в `stack`) поправлен вне репозитория.
+- Расхождение: тексты Harness (ship-ticket, epic-wave, implementer) ещё говорят gate full перед merge; правку
+  ведёт Ticket 27.
+- Первый зелёный push-run на `main` — [40640810358](https://github.com/IDSAD-XL/worfy/actions/runs/40640810358)
+  (`c43e9648`, после #878), 24 min от начала до `ci-ok`: `lint-typecheck` 2 min, `linux-tests` 2–4 min,
+  `macos-tests` 5–6 min, `macos-package` 3 min, `macos-e2e` 13 и 19 min, `windows / full-suite` 15,5 min.
+  Push-run-ы #870…#877 на `main` были красными — их и чинили follow-up PR. Собственный run PR #870 с
+  Windows — 40606669326.
+- Карантин (Ticket 20) — 14 записей, владелец всех новых — Ticket 23: к шести записям #873 добавлены
+  `demo-template-careless-done`, `demo-template-reference-done`, `harness-evals-budget-rounding`,
+  `harness-evals-changed-no-case`, `harness-wave-gate-lock-killed`, `orchestrator-relaunch-message-during-wait`,
+  `orchestrator-relaunch-sigterm-ignored`, `workflow-watch-links-same-link` (`test/quarantine/`). Автоматических
+  повторов нет.
+- Расхождение с «Что делаем»: Windows-test-ы e2e на runner-е не идут — это Ticket 44.
+- Долг (low, из VERIFIED-комментариев): `wave-gate-heartbeat` — timed trap 1234 ms против предела 1200 на
+  macOS runner-е (run 40628079155, #877); нет test-а на пропущенный `clearInterval` у повторного просмотра
+  registry, `ready` не ждёт первого снимка (#879); метка цикла без `when` проходит `quarantine.test.ts` (#878);
+  `start-budget.ts:20-22` приводит два разных диапазона одних замеров (#874); комментарий
+  `global-setup-git-bash.ts:22` говорит «refuses», а код отклоняет (#875); HANDOFF говорил о переходе в
+  настоящем времени до первого зелёного `ci-ok` на `main` (#876; с `c43e9648` это верно).
