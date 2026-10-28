@@ -47,6 +47,8 @@
     "test/shell-stub.ts",
     "test/stale-leftovers.ts",
     "test/timings-reporter.ts",
+    "test/flaky.ts",
+    "test/flaky-reporter.ts",
     "test/time-scale.ts",
     "test/zsh.ts",
     "test/windows-runner.ts",

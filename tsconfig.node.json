@@ -14,6 +14,8 @@
     "scripts/dev-bundle.ts",
     "electron.vite.config.ts",
     "vitest.config.ts",
+    "test/flaky.ts",
+    "test/flaky-reporter.ts",
     "test/stale-leftovers.ts",
     "test/timings-reporter.ts",
     "test/time-scale.ts",

@@ -486,4 +486,17 @@ describe('the watcher scans on from where it stopped (round 3)', () => {
     await writeFile(path, `${userLine('a prompt', project, 'u')}\n`)
     await vi.waitFor(() => expect(reported()).toContain(id), { timeout: 3000, interval: 20 })
   })
+
+  it('a file emptied and written again 15 ms later is reported, though chokidar reports only the emptying', async () => {
+    const { write, project, id, watchOf, reported, settle } = await single()
+    const path = await watchOf(await write(undefined, id, [enqueue(id, 'x')], project))
+    await appendFile(path, `${enqueue(id, 'y')}\n`)
+    await settle()
+    expect(reported()).not.toContain(id)
+    // On Linux chokidar 5 drops a change of a path within 50 ms of the one it reported.
+    await writeFile(path, '')
+    await new Promise((done) => setTimeout(done, 15))
+    await appendFile(path, `${userLine('a prompt', project, 'u')}\n`)
+    await vi.waitFor(() => expect(reported()).toContain(id), { timeout: 3000, interval: 20 })
+  })
 })
