@@ -26,7 +26,6 @@ import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { findStatusBlock } from '../../src/shared/agent/status-block'
-import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
 import { shellStub } from '../shell-stub'
 
@@ -67,8 +66,8 @@ const graderFiles = (name: string): string[] => {
 // The temporary folders of this file. A folder a test makes is removed after that test, in
 // afterEach; afterAll removes only the folders made outside a test (while the file is collected,
 // in a beforeAll) and those a helper keeps for the tests after it (`'file'`). All of them in one
-// afterAll — about 280 trees with 44 000 entries, the 49 git repositories of changedRepo() most of
-// them — took 2.6 s on an idle Mac and more than the 10 s limit of a hook under a loaded gate full.
+// afterAll — about 280 trees with 44 000 entries, when changedRepo() still made a git repository per
+// call — took 2.6 s on an idle Mac and more than the 10 s limit of a hook under a loaded gate full.
 const testTemps: string[] = []
 const fileTemps: string[] = []
 let inTest = false
@@ -1496,12 +1495,36 @@ describe('harness/evals/lib/coverage.json: which case checks which rule file', (
   })
 })
 
+type ChangedRepo = { repo: string; env: NodeJS.ProcessEnv; git: (...args: string[]) => SpawnSyncReturns<string> }
+let changed: ChangedRepo | null = null
+
 /**
  * A temporary git repository with copies of scripts/eval-harness.mjs, its three modules and harness/,
- * the base commit on `main`; `git` runs git in it with a temporary home.
+ * the base commit on `main`, checked out with no other branch and no change; `git` runs git in it with
+ * a temporary home. There is one such repository for the file: each call puts it back to its base
+ * commit, so the repository an earlier call returned is gone. Copying harness/ and committing it
+ * created some 400 files per call, and that, many times over on a loaded Windows runner, took a test
+ * past its limit (CI run 40649261940).
  */
-function changedRepo(): { repo: string; env: NodeJS.ProcessEnv; git: (...args: string[]) => SpawnSyncReturns<string> } {
-  const root = tempDir('worfy-eval-changed-')
+function changedRepo(): ChangedRepo {
+  if (changed === null) changed = newChangedRepo()
+  else {
+    const { git } = changed
+    const step = (...args: string[]): string => {
+      const done = git(...args)
+      if (done.status !== 0) throw new Error(`git ${args.join(' ')}: ${done.stderr}`)
+      return done.stdout
+    }
+    step('checkout', '-q', '-f', '-B', 'main', 'base')
+    step('clean', '-q', '-f', '-d', '-x')
+    const others = step('for-each-ref', '--format=%(refname:short)', 'refs/heads').split('\n').filter((name) => name !== '' && name !== 'main')
+    if (others.length > 0) step('branch', '-q', '-D', ...others)
+  }
+  return changed
+}
+
+function newChangedRepo(): ChangedRepo {
+  const root = tempDir('worfy-eval-changed-', 'file')
   const repo = join(root, 'repo')
   const home = join(root, 'home')
   mkdirSync(home)
@@ -1527,7 +1550,7 @@ function changedRepo(): { repo: string; env: NodeJS.ProcessEnv; git: (...args: s
     GIT_CONFIG_VALUE_1: '0',
   })
   const git = (...args: string[]): SpawnSyncReturns<string> => spawnSync('git', args, { cwd: repo, env, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
-  for (const args of [['init', '-q', '-b', 'main'], ['add', '-A'], ['commit', '-q', '-m', 'base']]) {
+  for (const args of [['init', '-q', '-b', 'main'], ['add', '-A'], ['commit', '-q', '-m', 'base'], ['tag', 'base']]) {
     const step = git(...args)
     if (step.status !== 0) throw new Error(`git ${args.join(' ')}: ${step.stderr}`)
   }
@@ -1733,7 +1756,7 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
     expect(run.stdout).toMatch(/no case selected/)
   })
 
-  quarantined('harness-evals-changed-no-case')('names a changed rule file that has no case, with its reason, and calls no claude', () => {
+  it('names a changed rule file that has no case, with its reason, and calls no claude', () => {
     const { repo } = changedRepo()
     appendFileSync(join(repo, 'harness', 'skills', 'qmd', 'SKILL.md'), '\nOne more rule.\n')
     const { run, calls } = evalIn(repo, ['--changed', 'HEAD'])
@@ -1967,7 +1990,7 @@ describe('pnpm eval:harness: a `--` anywhere, the cost limit of the user, --dry-
     expect(partial.run.stdout).toMatch(/cases implementer-report, partial\n/)
   })
 
-  quarantined('harness-evals-budget-rounding')('rounds what is left of the budget down to the cent, never up', () => {
+  it('rounds what is left of the budget down to the cent, never up', () => {
     const { run, calls } = evalIn(threeCalls(), ['--changed', 'main'], { STUB_AGGREGATE: aggregate({ costUsd: 0.004 }) })
     expect(run.status, run.stderr).toBe(0)
     // 30 - 0.004 is 29.996: toFixed(2) would give the second call 30, more than is left.
