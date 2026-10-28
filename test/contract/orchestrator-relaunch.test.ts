@@ -13,6 +13,7 @@ import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { sessionOptions, watchedSpawn } from '../../src/main/agent/options'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
+import type { ClaudeCodeProcess } from '../../src/main/agent/session/types'
 import { LayoutStore } from '../../src/main/layout/store'
 import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
 import { IGNORE_TERM_EXIT_SIGNAL, StubProcesses, type StubKind } from './claude-process-stub'
@@ -239,6 +240,52 @@ describe('Session.exited', () => {
     await exited
     // On Windows the process ends at the SIGTERM of the late start's close (TerminateProcess), before the limit.
     expect(stub.order()).toEqual(['spawn 1', KILLED(1)])
+  })
+
+  // On the Windows runner Node's exit event of a killed process came seconds after the system had
+  // ended it (CI run 40651661632). A process whose event never comes, and whose pid the system no
+  // longer runs: exited() hears of it from the system, and the Session drops it, so no SIGKILL.
+  it('hears from the system of a process whose exit event never comes: no SIGKILL, well under the limit', async () => {
+    const PID = 2_000_000_001
+    const signals: NodeJS.Signals[] = []
+    const child: ClaudeCodeProcess = {
+      pid: PID,
+      exitCode: null,
+      signalCode: null,
+      kill: (signal) => {
+        signals.push(signal)
+        return true
+      },
+      once: () => child,
+    }
+    let gone = false
+    const kill = process.kill.bind(process)
+    const spy = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (pid !== PID) return kill(pid, signal)
+      if (gone) throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' })
+      return true
+    })
+    try {
+      const fake = fakeQueryFactory({ scriptsDir: join(scratch, 'scripts'), script: 'turn' })
+      const registry = new SessionRegistry(async (request) => {
+        request.spawned?.(child)
+        return fake(request)
+      })
+      registries.push(registry)
+      const session = registry.start(repo, undefined, () => undefined)
+      await vi.waitFor(() => expect(session.state).toBe('idle'))
+      session.close()
+      const LIMIT_MS = 5000
+      const asked = Date.now()
+      const exited = session.exited(LIMIT_MS)
+      await new Promise((wait) => setTimeout(wait, 200))
+      gone = true
+      await exited
+      expect(signals).not.toContain('SIGKILL')
+      expect(Date.now() - asked).toBeLessThan(LIMIT_MS / 2)
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('answers at once for a Session without a process of its own (the fake agent)', async () => {

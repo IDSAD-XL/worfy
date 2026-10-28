@@ -85,7 +85,7 @@ import { PermissionGate, unattendedCanUseTool, type CanUseToolHandler, type Refu
 import { MessageQueue, type QueueEntry } from './queue'
 import { InputQueue } from './session/input-queue'
 import { mergeSettings, modelOptions, USER_MODEL_FALLBACK } from './session/models'
-import { EXIT_WAIT_MS, exitOf, HALT_TURN_MS, hasExited, KILL_EXIT_MS, waitForExit, within } from './session/process'
+import { EXIT_WAIT_MS, exitOf, HALT_TURN_MS, hasExited, KILL_EXIT_MS, stopWaiting, waitForExit, within } from './session/process'
 import { pushSettings, STDERR_KEEP, type Run } from './session/run'
 import type { ClaudeCodeProcess, EventSink, QueryFactory, QueryHandle, QueryRequest, SessionControls, SessionInfo } from './session/types'
 import { ATTENDED, launchSettings, settingsChangeRefusal, type SessionLaunch } from './session-settings'
@@ -278,6 +278,7 @@ export class Session {
     }
     if (!(await within(Promise.all(survivors.map(waitForExit)), KILL_EXIT_MS))) {
       console.warn(`[agent] Claude Code of ${this.current} did not exit after SIGKILL; going on without it`)
+      for (const child of survivors) stopWaiting(child)
     }
   }
 
