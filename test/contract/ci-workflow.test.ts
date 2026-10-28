@@ -285,14 +285,16 @@ describe('scripts/ci-scope.mjs', () => {
   // Test files of the base: two with a macOS-only test or assertion, one with a Windows-only test,
   // one with none. macos-tests on a pull request runs the first two alone.
   const DARWIN_FILES = ['test/unit/mac-only.test.ts', 'test/contract/mac-menu.test.tsx']
-  const MAC_ONLY = "describe.skipIf(process.platform !== 'darwin')('x', () => {})\n"
+  // The guards are put together here, so that this file holds none: ci-scope.mjs would list it.
+  const DARWIN = "'darwin'"
+  const MAC_ONLY = `describe.skipIf(process.platform !== ${DARWIN})('x', () => {})\n`
   const BASE_FILES: Record<string, string> = {
     'test/unit/mac-only.test.ts': MAC_ONLY,
-    'test/contract/mac-menu.test.tsx': 'const file = process.platform === "darwin" ? \'fileMenu\' : \'File\'\n',
+    'test/contract/mac-menu.test.tsx': `const file = process.platform === ${DARWIN.replaceAll("'", '"')} ? 'fileMenu' : 'File'\n`,
     'test/unit/windows-only.test.ts': "describe.runIf(process.platform === 'win32')('x', () => {})\n",
     'test/unit/plain.test.ts': "it('x', () => {})\n",
     // Not a test file: a helper that names the platform is not run by itself.
-    'test/unit/mac-helper.ts': "export const mac = process.platform === 'darwin'\n",
+    'test/unit/mac-helper.ts': `export const mac = process.platform === ${DARWIN}\n`,
   }
 
   beforeAll(() => {
@@ -480,7 +482,7 @@ describe('scripts/ci-scope.mjs', () => {
 
   it('a pull request that adds a macOS-only test file runs it on macOS with the others', () => {
     const added = 'test/contract/new-mac.test.ts'
-    commitOnBase([added], { [added]: "it.runIf(os.platform() === 'darwin')('x', () => {})\n" })
+    commitOnBase([added], { [added]: `it.runIf(os.platform() === ${DARWIN})('x', () => {})\n` })
     const pr = scope({ EVENT: 'pull_request', BASE: base })
     expect(pr.expect).toEqual({ ...NO_MACOS, 'macos-tests': true })
     expect(pr.files).toEqual([...DARWIN_FILES, added])
@@ -540,7 +542,7 @@ describe('scripts/ci-scope.mjs', () => {
 
   it('a macOS-only test file whose name the shell would split: macos-tests runs every file', () => {
     const odd = 'test/unit/two words.test.ts'
-    commitOnBase([odd, 'src/main/index.ts'], { [odd]: "describe.skipIf(process.platform !== 'darwin')('x', () => {})\n" })
+    commitOnBase([odd, 'src/main/index.ts'], { [odd]: MAC_ONLY })
     const pr = scope({ EVENT: 'pull_request', BASE: base })
     expect(pr.status, pr.stderr).toBe(0)
     expect(pr.expect).toEqual(NO_PACKAGE)
