@@ -78,8 +78,12 @@ Source: решение владельца 2026-10-28 «Переходим на C
 - Довести `ci-ok` до зелёного на runner-ах понадобилось пять follow-up PR: #875 (Git Bash находит `/tmp` на
   Windows runner-е), #874 (e2e проходят на экране macOS runner-а 1024×768), #877 (исправления и записи
   карантина), #878 (карантин e2e общий с карантином vitest), #879 (повторный просмотр папки registry, если
-  FSEvents потерял событие). #876 — ADR-0083: условие merge — `ci-ok` вместо локального gate full; тексты
-  Harness и Profile-а переведены на `ci-ok`.
+  FSEvents потерял событие). #876 — документы: ADR-0083 (условие merge — `ci-ok` вместо локального gate
+  full) и `## Amendments` в ADR-0056, 0065, 0068, 0069, 0071, 0081; `CONTEXT.md`, `HANDOFF.md`;
+  `scripts/windows-verdict-scope.mjs` (в `PC_ONLY` остался `test/windows-runner.ts`) и его contract test.
+  Profile worfy (`merge_gate: null`, `ci-ok` в `stack`) поправлен вне репозитория.
+- Расхождение: тексты Harness (ship-ticket, epic-wave, implementer) ещё говорят gate full перед merge; правку
+  ведёт Ticket 27.
 - Первый зелёный push-run на `main` — [40640810358](https://github.com/IDSAD-XL/worfy/actions/runs/40640810358)
   (`c43e9648`, после #878), 24 min от начала до `ci-ok`: `lint-typecheck` 2 min, `linux-tests` 2–4 min,
   `macos-tests` 5–6 min, `macos-package` 3 min, `macos-e2e` 13 и 19 min, `windows / full-suite` 15,5 min.

@@ -3,10 +3,10 @@
 Type: task
 Status: open
 Blocked by: 35
-Source: решение владельца 2026-10-28 (после merge Ticket-а 35, [ADR-0083](../../../docs/adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md)):
-Windows e2e — отдельным job-ом в `ci-ok`, сначала не блокирующим, блокирующим после примерно пяти зелёных run-ов
-подряд; начать с разбора красных Windows e2e. [spec.md](../spec.md), раздел «Решения владельца 2026-10-28:
-процесс», решение 0.
+Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», решение 15 (Windows e2e —
+отдельным job-ом в `ci-ok`, сначала не блокирующим, блокирующим после примерно пяти зелёных run-ов подряд;
+начать с разбора красных Windows e2e); условие merge `ci-ok` —
+[ADR-0083](../../../docs/adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md).
 
 ## Что происходит
 
