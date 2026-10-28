@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { sessionHarnessPlugin, sessionOptions, userExtensions, withBrowserServer, type BrowserAttachment, type CanvasAttachment, type RuntimeInfo, type SessionOptionsInput } from '../../src/main/agent/options'
+import { draftSessionOptions, sessionHarnessPlugin, sessionOptions, userExtensions, withBrowserServer, type BrowserAttachment, type CanvasAttachment, type RuntimeInfo, type SessionOptionsInput } from '../../src/main/agent/options'
 import * as bundled from '../../src/main/harness/bundled'
 import type { CanUseToolHandler } from '../../src/main/agent/permissions'
 import { DEFAULT_MCP_SERVERS, readSkillsAllowlist } from '../../src/main/workflow/profile'
@@ -182,6 +182,42 @@ describe('MCP servers of a Session outside a Project', () => {
     expect(options).not.toHaveProperty('managedSettings')
     expect(options).not.toHaveProperty('mcpServers')
     expect(options.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code' })
+  })
+})
+
+// worfy-throughput ticket 45: the draft Session of "Add project" may use only Read, Glob and Grep,
+// so every MCP tool it was offered was refused by canUseTool and only filled its first request: the
+// user's servers and the claude.ai connectors, about 900 tools on the owner's Mac.
+describe('MCP servers of the draft Session of a Project connection', () => {
+  const draft = (harnessPlugin: string | null) =>
+    draftSessionOptions({
+      cwd: '/repo',
+      env,
+      runtime,
+      settings: settings('default'),
+      canUseTool,
+      outputFormat: { type: 'json_schema', schema: { type: 'object' } },
+      allowedTools: ['Read', 'Glob', 'Grep'],
+      disallowedTools: ['Bash'],
+      harnessPlugin,
+    })
+
+  it('allows no MCP server: not the user servers, not the claude.ai connectors', () => {
+    const options = draft(null)
+    expect(options.managedSettings).toEqual({ allowManagedMcpServersOnly: true, allowedMcpServers: [], allowManagedPermissionRulesOnly: true })
+    expect(options).not.toHaveProperty('mcpServers')
+  })
+
+  it('does not register the servers of the Harness plugin either', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'worfy-plugin-'))
+    try {
+      writeFileSync(join(dir, '.mcp.json'), JSON.stringify({ mcpServers: { qmd: { command: 'qmd-mcp' } } }))
+      const options = draft(dir)
+      expect(options.plugins).toEqual([{ type: 'local', path: dir, skipMcpDiscovery: true }])
+      expect(options).not.toHaveProperty('mcpServers')
+    } finally {
+      removeTestTree(dir)
+    }
   })
 })
 
