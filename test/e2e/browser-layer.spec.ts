@@ -376,10 +376,27 @@ for (const { zoom, viewport, edges } of ZOOMS) {
     // The <webview> box is the frame's body, scaled with the Canvas.
     expect(boxGap(body!, page!)).toBeLessThanOrEqual(1)
     expect(Math.abs(page!.width - (FRAME.w - 2) * zoom)).toBeLessThanOrEqual(1)
-    const { png, image, scale } = await screenshot(window)
+    // The page paints in its own surface, after the Canvas: a capture taken before it has painted at
+    // this zoom finds no page pixel or no outline at an edge (edgeErrors gives Infinity; seen at zoom
+    // 0.25 on the macOS runner). Capture again until every edge is found, within the test's timeout;
+    // the checks below then hold that capture to the bounds.
+    let shot: Awaited<ReturnType<typeof screenshot>> | undefined
+    let errors = {} as Record<Edge, number>
+    let captures = 0
+    await expect
+      .poll(
+        async () => {
+          captures += 1
+          shot = await screenshot(window)
+          errors = edgeErrors(shot.image, shot.scale, body!, zoom, edges)
+          return edges.filter((edge) => !Number.isFinite(errors[edge]))
+        },
+        { message: 'every edge of the page and of the frame found in the capture', timeout: 0 },
+      )
+      .toEqual([])
+    const { png, image, scale } = shot!
     const file = savePng(png, 'browser-layer-clip', `zoom-${zoom}`)
     if (zoom !== 0.25) evidence(file, `browser-layer-clip-zoom-${zoom}`)
-    const errors = edgeErrors(image, scale, body!, zoom, edges)
     // Clipped: no pixel of the page outside the part of the frame's body that is on the Canvas.
     // Anywhere in the window in 3 × 3 blocks (pagePixelsOutside), and pixel by pixel in a band just
     // outside that part, on all four sides, the Canvas's edge included (pagePixelsNear).
@@ -389,7 +406,7 @@ for (const { zoom, viewport, edges } of ZOOMS) {
     const near = pagePixelsNear(image, scale, visible)
     const sidebar = canvas.x > 0 ? pagePixelsOutside(image, scale, { x: canvas.x, y: 0, width: image.width / scale, height: image.height / scale }) : 0
     const guest = (await guestState())!
-    report(`zoom ${zoom}`, { guestViewport: [guest.innerWidth, guest.innerHeight, guest.devicePixelRatio], edgeErrorsPx: Object.fromEntries(Object.entries(errors).map(([edge, value]) => [edge, round(value)])), pagePixelsOutsideFrame: outside, pagePixelsNearFrame: near, pagePixelsLeftOfCanvas: sidebar, pageWidthPx: round(page!.width) })
+    report(`zoom ${zoom}`, { captures, guestViewport: [guest.innerWidth, guest.innerHeight, guest.devicePixelRatio], edgeErrorsPx: Object.fromEntries(Object.entries(errors).map(([edge, value]) => [edge, round(value)])), pagePixelsOutsideFrame: outside, pagePixelsNearFrame: near, pagePixelsLeftOfCanvas: sidebar, pageWidthPx: round(page!.width) })
     for (const edge of edges) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(edgeBound(scale, zoom))
     expect(outside, 'page pixels outside the frame').toBe(0)
     expect(near, 'page pixels just outside the frame').toBe(0)
@@ -485,6 +502,15 @@ test('another Node dragged over the frame and the Canvas menu are drawn over the
   await expect(menu).toBeVisible()
   const menuBox = (await menu.boundingBox())!
   expect(intersect(menuBox, now).width, 'the menu reaches over the page').toBeGreaterThan(40)
+  // Visible in the DOM is not yet painted: a capture right after the click found the page where the
+  // menu stands (14489 pixels on the macOS runner). Wait for every animation of the menu to end,
+  // then for two animation frames of the window, so the frame with the menu has been drawn.
+  await menu.evaluate(async (element) => {
+    const dom = globalThis as unknown as { requestAnimationFrame(callback: () => void): number }
+    const animated = element as unknown as { getAnimations(options: { subtree: boolean }): { finished: Promise<unknown> }[] }
+    await Promise.all(animated.getAnimations({ subtree: true }).map((animation) => animation.finished))
+    await new Promise<void>((done) => dom.requestAnimationFrame(() => dom.requestAnimationFrame(() => done())))
+  })
   const opened = await screenshot(window)
   const underMenu = creamInside(opened.image, opened.scale, intersect(menuBox, now), CORNER)
   const menuShots = await snapshotThemes(window, 'browser-layer-overlap-menu')
