@@ -1,0 +1,509 @@
+#!/usr/bin/env node
+// land — merge the ready PRs of a state file one by one, close their tickets in one documents PR, and say
+// in one line per PR what happened. One command the orchestrator runs in the background instead of many
+// model calls per merge (skill epic-wave, section 4).
+//
+//   land <state.json> [--watch]
+//
+// The merge condition, on the PR's head commit (profile workflow.ci "pr": CI runs on every PR):
+//   - no run of the CI workflow (ci_workflow) on the head is queued or in progress — a newer run is coming,
+//     even when an older check of ci_check exists;
+//   - the latest check run named ci_check is completed with conclusion success;
+//   - the commit status `review` is success. When it is not, and the PR's head has moved since the head the
+//     orchestrator verified (prs[].head), the mark is carried over to the new head when the old head has
+//     `review` success and the PR's diff outside the tickets root, `index` lines dropped, is byte-identical on
+//     both heads: a rebase that changed nothing in the PR. The new status says "carried from <old sha>";
+//   - with a scope rule (scope): `<scope.command> <remote>/<branch> <head>` run in `repo`, a checkout of the
+//     main branch — never the PR's branch, so a PR cannot change its own verdict. Exit 0 — the CI runners
+//     answer for the PR, nothing more; exit 1 — the commit status scope.check must be success (a `skipped`
+//     mark is a success status too); any other exit code — the PR waits;
+//   - then, under the main-branch lock (mkdir of main_lock, by default <git common dir>/main.lock — the lock
+//     the skills share): `mergeable` UNKNOWN is asked again up to MERGEABLE_RETRIES times, RETRY_S apart;
+//     CONFLICTING, DIRTY or BEHIND — the PR waits (land rebases nothing); the head must still be the checked
+//     one; `gh pr merge <N> --squash --match-head-commit <head>`.
+// No local gate runs here, and workflow.ci "batch" is refused: with it a PR head has no CI run to merge on
+// (wave-gate is that path).
+//
+// After the merges: one documents PR per run of land. In a worktree of its own (<state>.docs, a branch
+// land-docs/<time> from <remote>/<branch>) `ticket done <epic> <NN> --pr <N> --root <tree>/<tickets root>`
+// for every merged PR not yet in a documents PR, then docs_check, a commit, a push, `gh pr create`. That PR
+// merges on ci_check alone (documents get no agent review) under the same lock.
+//
+// The state file is the input and the record; every finished step is written to it at once, so a run
+// broken off (the session ended, a kill) goes on from there when it is run again on the same file: a PR
+// recorded as merged, or one GitHub already shows as merged, is never merged again. The orchestrator writes:
+//   repo          absolute path of a checkout of the main branch (the scope command runs here)
+//   branch        the main branch; remote — optional, "origin"
+//   ci            profile workflow.ci: "pr" (anything else — exit 1)
+//   ci_check      the name of the check run that is the merge condition
+//   ci_workflow   the workflow (file name) of the CI runs on a PR head
+//   scope         null, or {command, check}: see above
+//   docs_check    null, or a shell command run in the documents worktree before its commit (profile
+//                 docs.handoff.check)
+//   tickets_root  optional, ".scratch": the tickets root inside the repository; null — the tickets are not in
+//                 the repository (Silent mode), no documents PR: `ticket done` is the orchestrator's
+//   main_lock     optional absolute path of the main-branch lock
+//   prs           [{number, epic, ticket, head}] in merge order; epic and ticket — the PR's ticket (without
+//                 them no `ticket done`); head — optional, the head SHA the review verified
+// land adds: prs[].result {status: merged|waits, sha | reason, kind, at}, docs [{branch, prs, pr, result}],
+// runs [{started, ended, land}].
+//
+// Output: one line per PR, `#N merged <sha>` or `#N waits: <reason>`, the documents PR the same way, then
+// `LAND=green` (every PR and the documents PR merged), `LAND=red` (a PR waits on a red verdict: a red or
+// cancelled check, a review or scope check failure, a red docs_check) or `LAND=unverified` (something waits
+// for CI, a person or a rebase). Exit 0 green, 2 red, 3 unverified, 1 error in the input. The full log goes
+// to <state>.log.
+//
+// --watch: passes every POLL_S seconds while a PR or the documents PR waits for CI (a run in progress, a
+// check not finished, mergeable UNKNOWN), at most WATCH_S seconds in all. Without it — one pass.
+//
+// Environment (tests set them; the defaults are the project's): LAND_GH, LAND_TICKET, LAND_SLEEP — an
+// executable used instead of `gh`, of bin/ticket next to this script and of the wait between tries (it gets
+// the seconds); a `.mjs` file runs with this node. LAND_POLL_S (300), LAND_WATCH_S (6600), LAND_RETRY_S (10),
+// LAND_LOCK_POLL_S (30), LAND_LOCK_STALE_S (5400: the 90 minutes after which the skills call the lock stuck).
+// shortcut: two runs of land on one state file are not kept apart, redo with a pid file like wave-gate's once a second
+// run is ever started (each merge is still guarded by the lock and --match-head-commit; the file is not).
+"use strict"
+const fs = require("fs")
+const path = require("path")
+const { spawnSync } = require("child_process")
+// The git to start, with the variable of an eval run (EVAL_GIT).
+const { git: GIT } = require("../hooks/eval-env.cjs")
+
+const SHA = /^[0-9a-f]{40}$/
+const MERGEABLE_RETRIES = 6
+const seconds = (name, dflt) => {
+    const v = Number(process.env[name])
+    return Number.isFinite(v) && v > 0 ? v : dflt
+}
+const T = {
+    poll: seconds("LAND_POLL_S", 300),
+    watch: seconds("LAND_WATCH_S", 6600),
+    retry: seconds("LAND_RETRY_S", 10),
+    lockPoll: seconds("LAND_LOCK_POLL_S", 30),
+    lockStale: seconds("LAND_LOCK_STALE_S", 5400),
+}
+const SIGNALS = { SIGHUP: 1, SIGINT: 2, SIGTERM: 15, ...(process.platform === "win32" ? { SIGBREAK: 21 } : {}) }
+
+class Fail extends Error {}
+const fail = (msg) => {
+    throw new Fail(msg)
+}
+// Why a PR is not merged. kind: "red" — a red verdict; "ci" — CI has not answered yet, a later pass may merge it;
+// "waits" — someone has to act (a review, a rebase, another machine's verdict) or gh could not be read.
+class Wait extends Error {
+    constructor(reason, kind = "waits") {
+        super(reason)
+        this.kind = kind
+    }
+}
+const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z")
+const short = (sha) => (sha || "").slice(0, 8)
+const firstLine = (s) => (s || "").trim().split("\n")[0]
+
+let logFile = null
+const log = (msg) => {
+    if (logFile) fs.appendFileSync(logFile, `${now()} ${msg}\n`)
+}
+// The main-branch lock this process holds, released on every way out (a signal included; a SIGKILL leaves it,
+// and LAND_LOCK_STALE_S later it counts as stuck).
+let heldLock = null
+function unlock() {
+    if (!heldLock) return
+    try {
+        fs.rmdirSync(heldLock)
+        log(`released the main-branch lock ${heldLock}`)
+    } catch {}
+    heldLock = null
+}
+
+// [file, args] of a program a test may stand in for: `usual` without an override, a `.mjs` override with this node.
+function program(override, usual) {
+    if (!override) return usual
+    if (override.endsWith(".mjs")) return [process.execPath, [override]]
+    return [override, []]
+}
+function run([file, pre], args, cwd) {
+    const r = spawnSync(file, [...pre, ...args], { cwd, encoding: "utf8", windowsHide: true, maxBuffer: 64 << 20 })
+    return { code: r.error ? 127 : (r.status ?? 128 + (SIGNALS[r.signal] || 0)), out: r.stdout || "", err: r.error ? r.error.message : r.stderr || "" }
+}
+const sh = (command, cwd) => {
+    const r = spawnSync(command, { cwd, encoding: "utf8", windowsHide: true, shell: true, maxBuffer: 64 << 20 })
+    return { code: r.error ? 127 : (r.status ?? 128 + (SIGNALS[r.signal] || 0)), out: r.stdout || "", err: r.stderr || "" }
+}
+async function sleep(s) {
+    if (process.env.LAND_SLEEP) {
+        run(program(process.env.LAND_SLEEP, null), [String(s)])
+        return
+    }
+    await new Promise((r) => setTimeout(r, s * 1000))
+}
+
+// --- the state file ----------------------------------------------------------------------------
+function load(file) {
+    let st
+    try {
+        st = JSON.parse(fs.readFileSync(file, "utf8"))
+    } catch (e) {
+        fail(`${file}: ${e.message}`)
+    }
+    if (!st || typeof st !== "object" || Array.isArray(st)) fail(`${file} is not a JSON object`)
+    const text = (key) => typeof st[key] === "string" && st[key].trim() !== ""
+    if (!text("repo") || !path.isAbsolute(st.repo) || !fs.existsSync(st.repo)) fail(`${file}: "repo" must be the absolute path of a checkout`)
+    if (!text("branch")) fail(`${file}: "branch" must name the main branch`)
+    if (st.remote !== undefined && !text("remote")) fail(`${file}: "remote" must be a remote name`)
+    if (st.ci !== "pr")
+        fail(`${file}: "ci" is ${JSON.stringify(st.ci)}: land merges on the CI check of a PR head, which only workflow.ci "pr" has (with "batch" — wave-gate)`)
+    if (!text("ci_check")) fail(`${file}: "ci_check" must name the check run that is the merge condition`)
+    if (!text("ci_workflow")) fail(`${file}: "ci_workflow" must name the workflow of the CI runs on a PR head`)
+    for (const key of ["scope", "docs_check"]) if (!(key in st)) fail(`${file}: "${key}" must be present (null for none): a missing one would silently run without it`)
+    if (st.scope !== null && !(st.scope && typeof st.scope.command === "string" && st.scope.command && typeof st.scope.check === "string" && st.scope.check))
+        fail(`${file}: "scope" must be null or {command, check}`)
+    if (st.docs_check !== null && !text("docs_check")) fail(`${file}: "docs_check" must be null or a command`)
+    if (st.tickets_root !== undefined && st.tickets_root !== null && !text("tickets_root")) fail(`${file}: "tickets_root" must be a path inside the repository, or null`)
+    if (st.main_lock !== undefined && st.main_lock !== null && (typeof st.main_lock !== "string" || !path.isAbsolute(st.main_lock)))
+        fail(`${file}: "main_lock" must be an absolute path`)
+    if (!Array.isArray(st.prs) || !st.prs.length) fail(`${file}: "prs" must be a list of PRs`)
+    const seen = new Set()
+    for (const pr of st.prs) {
+        if (!pr || !Number.isInteger(pr.number) || pr.number <= 0) fail(`${file}: every PR needs a positive integer "number"`)
+        if (seen.has(pr.number)) fail(`${file}: PR #${pr.number} is listed twice`)
+        seen.add(pr.number)
+        if (pr.head !== undefined && pr.head !== null && !SHA.test(pr.head)) fail(`${file}: PR #${pr.number}: "head" must be a full SHA`)
+        for (const key of ["epic", "ticket"])
+            if (pr[key] !== undefined && pr[key] !== null && (typeof pr[key] !== "string" || !pr[key])) fail(`${file}: PR #${pr.number}: "${key}" must be a string`)
+    }
+    st.docs = Array.isArray(st.docs) ? st.docs : []
+    st.runs = Array.isArray(st.runs) ? st.runs : []
+    return st
+}
+function save(file, st) {
+    const tmp = `${file}.tmp-${process.pid}`
+    fs.writeFileSync(tmp, JSON.stringify(st, null, 2) + "\n")
+    fs.renameSync(tmp, file)
+}
+
+// --- git and gh ------------------------------------------------------------------------------
+function git(args, cwd) {
+    const r = run([GIT, []], args, cwd)
+    if (r.code !== 0) throw new Wait(`git ${args.join(" ")} (exit ${r.code}): ${firstLine(r.err)}`)
+    return r.out.trim()
+}
+function gh(st, args) {
+    const r = run(program(process.env.LAND_GH, ["gh", []]), args, st.repo)
+    log(`gh ${args.join(" ")} — exit ${r.code}`)
+    return r
+}
+function ghJson(st, args, what) {
+    const r = gh(st, args)
+    if (r.code !== 0) throw new Wait(`${what}: gh exit ${r.code}: ${firstLine(r.err)}`)
+    try {
+        return JSON.parse(r.out)
+    } catch {
+        throw new Wait(`${what}: gh printed no JSON`)
+    }
+}
+const PR_FIELDS = "number,state,headRefOid,mergeable,mergeStateStatus,mergeCommit"
+const prView = (st, n) => ghJson(st, ["pr", "view", String(n), "--json", PR_FIELDS], `gh pr view ${n}`)
+// The commit statuses of a commit, the latest per context: {context: {state, description}}.
+function statuses(st, sha) {
+    const s = ghJson(st, ["api", `repos/{owner}/{repo}/commits/${sha}/status?per_page=100`], `the statuses of ${short(sha)}`)
+    const out = {}
+    for (const x of Array.isArray(s.statuses) ? s.statuses : []) if (x && x.context && !out[x.context]) out[x.context] = x
+    return out
+}
+
+// --- the merge condition ------------------------------------------------------------------------
+function ciGreen(st, head) {
+    const runs = ghJson(st, ["run", "list", "--workflow", st.ci_workflow, "--commit", head, "--limit", "20", "--json", "databaseId,status,conclusion"], `the ${st.ci_workflow} runs`)
+    const open = (Array.isArray(runs) ? runs : []).filter((r) => r.status !== "completed")
+    if (open.length) throw new Wait(`${st.ci_workflow} run ${open[0].databaseId} is ${open[0].status} on ${short(head)}`, "ci")
+    const cr = ghJson(st, ["api", `repos/{owner}/{repo}/commits/${head}/check-runs?per_page=100`], `the check runs of ${short(head)}`)
+    const mine = (Array.isArray(cr.check_runs) ? cr.check_runs : [])
+        .filter((c) => c.name === st.ci_check)
+        .sort((a, b) => String(a.started_at || "").localeCompare(String(b.started_at || "")) || (a.id || 0) - (b.id || 0))
+    const last = mine[mine.length - 1]
+    if (!last) throw new Wait(`no ${st.ci_check} check on ${short(head)}`, "ci")
+    if (last.status !== "completed") throw new Wait(`${st.ci_check} is ${last.status} on ${short(head)}`, "ci")
+    if (last.conclusion !== "success") throw new Wait(`${st.ci_check} ${last.conclusion} on ${short(head)}`, "red")
+}
+// The PR's diff from its fork point off the main branch, outside the tickets root, without the `index` lines
+// (blob ids change with a rebase even when the change does not).
+function prDiff(st, sha) {
+    const remote = st.remote || "origin"
+    const base = git(["merge-base", sha, `refs/remotes/${remote}/${st.branch}`], st.repo)
+    const d = git(["diff", "--binary", base, sha, "--", ".", `:(exclude)${st.tickets_root || ".scratch"}`], st.repo)
+    return d
+        .split("\n")
+        .filter((l) => !l.startsWith("index "))
+        .join("\n")
+}
+function haveCommit(st, sha) {
+    if (run([GIT, []], ["cat-file", "-e", `${sha}^{commit}`], st.repo).code === 0) return true
+    run([GIT, []], ["fetch", "-q", st.remote || "origin", sha], st.repo)
+    return run([GIT, []], ["cat-file", "-e", `${sha}^{commit}`], st.repo).code === 0
+}
+function reviewed(st, pr, head) {
+    const mark = statuses(st, head).review
+    if (mark && mark.state === "success") return
+    const old = pr.head
+    if (old && old !== head && haveCommit(st, old) && haveCommit(st, head)) {
+        const was = statuses(st, old).review
+        if (was && was.state === "success" && prDiff(st, old) === prDiff(st, head)) {
+            const description = `carried from ${short(old)}: the PR diff outside ${st.tickets_root || ".scratch"} is unchanged`
+            const r = gh(st, ["api", "-X", "POST", `repos/{owner}/{repo}/statuses/${head}`, "-f", "state=success", "-f", "context=review", "-f", `description=${description}`])
+            if (r.code !== 0) throw new Wait(`review could not be carried to ${short(head)}: gh exit ${r.code}: ${firstLine(r.err)}`)
+            log(`#${pr.number}: review ${description}, now on ${head}`)
+            return
+        }
+    }
+    const state = mark ? mark.state : "missing"
+    throw new Wait(`review is ${state} on ${short(head)}`, state === "failure" || state === "error" ? "red" : "waits")
+}
+function scoped(st, pr, head) {
+    if (!st.scope) return
+    const remote = st.remote || "origin"
+    if (!haveCommit(st, head)) run([GIT, []], ["fetch", "-q", remote, `refs/pull/${pr.number}/head`], st.repo)
+    const r = sh(`${st.scope.command} ${remote}/${st.branch} ${head}`, st.repo)
+    log(`#${pr.number}: scope command exit ${r.code}: ${firstLine(r.out)}`)
+    if (r.code === 0) return
+    if (r.code !== 1) throw new Wait(`the scope command exited ${r.code}: ${firstLine(r.err || r.out)}`)
+    const mark = statuses(st, head)[st.scope.check]
+    if (mark && mark.state === "success") return
+    const state = mark ? mark.state : "missing"
+    throw new Wait(`scope pc, ${st.scope.check} is ${state} on ${short(head)}`, state === "failure" || state === "error" ? "red" : "waits")
+}
+
+// --- the merge, under the main-branch lock -------------------------------------------------------------
+async function lock(dir) {
+    let told = false
+    for (;;) {
+        try {
+            fs.mkdirSync(dir)
+            heldLock = dir
+            log(`took the main-branch lock ${dir}`)
+            return
+        } catch (e) {
+            if (e.code !== "EEXIST") throw new Wait(`the main-branch lock ${dir}: ${e.message}`)
+        }
+        let m
+        try {
+            m = fs.statSync(dir).mtimeMs
+        } catch {
+            continue // released between mkdir and stat
+        }
+        if ((Date.now() - m) / 1000 > T.lockStale) {
+            log(`the main-branch lock ${dir} is older than ${T.lockStale} s — stuck, removed`)
+            try {
+                fs.rmdirSync(dir)
+            } catch {}
+            continue
+        }
+        if (!told) log(`waiting for the main-branch lock ${dir}`)
+        told = true
+        await sleep(T.lockPoll)
+    }
+}
+// Merges PR n at head; returns the merge commit. Throws Wait when it may not merge now.
+async function mergeOne(st, n, head) {
+    await lock(st.main_lock || path.join(git(["rev-parse", "--path-format=absolute", "--git-common-dir"], st.repo), "main.lock"))
+    try {
+        let v
+        for (let retry = 0; ; retry++) {
+            v = prView(st, n)
+            if (v.state === "MERGED") return v.mergeCommit && v.mergeCommit.oid
+            if (v.state !== "OPEN") throw new Wait(`the PR is ${v.state}`)
+            if (v.headRefOid !== head) throw new Wait(`the head moved from ${short(head)} to ${short(v.headRefOid)} during the check`, "ci")
+            if (v.mergeable !== "UNKNOWN" || retry >= MERGEABLE_RETRIES) break
+            log(`#${n}: mergeable UNKNOWN, asking again in ${T.retry} s (retry ${retry + 1} of ${MERGEABLE_RETRIES})`)
+            await sleep(T.retry)
+        }
+        if (v.mergeable === "UNKNOWN") throw new Wait(`mergeable UNKNOWN after ${MERGEABLE_RETRIES} retries`, "ci")
+        if (v.mergeable === "CONFLICTING" || v.mergeStateStatus === "DIRTY") throw new Wait("DIRTY: the PR conflicts with its base, rebase it")
+        if (v.mergeStateStatus === "BEHIND") throw new Wait("BEHIND: the base moved, rebase the PR")
+        const r = gh(st, ["pr", "merge", String(n), "--squash", "--match-head-commit", head])
+        if (r.code !== 0) throw new Wait(`gh pr merge failed (exit ${r.code}): ${firstLine(r.err)}`)
+        let sha = null
+        try {
+            const after = prView(st, n)
+            sha = after.mergeCommit && after.mergeCommit.oid
+        } catch {}
+        return sha || "unknown"
+    } finally {
+        unlock()
+    }
+}
+
+// --- one pass over the PRs ---------------------------------------------------------------------------
+async function landPr(file, st, pr) {
+    if (pr.result && pr.result.status === "merged") return
+    try {
+        const v = prView(st, pr.number)
+        let sha
+        if (v.state === "MERGED") {
+            sha = (v.mergeCommit && v.mergeCommit.oid) || "unknown"
+            log(`#${pr.number}: GitHub shows it merged already (${sha}), recorded`)
+        } else {
+            if (v.state !== "OPEN") throw new Wait(`the PR is ${v.state}`)
+            const head = v.headRefOid
+            ciGreen(st, head)
+            reviewed(st, pr, head)
+            scoped(st, pr, head)
+            sha = await mergeOne(st, pr.number, head)
+            log(`#${pr.number}: merged at ${head} as ${sha}`)
+        }
+        pr.result = { status: "merged", sha, at: now() }
+    } catch (e) {
+        if (!(e instanceof Wait)) throw e
+        pr.result = { status: "waits", reason: e.message, kind: e.kind, at: now() }
+        log(`#${pr.number} waits: ${e.message}`)
+    }
+    save(file, st)
+}
+
+// The documents PR of this run: every merged PR with a ticket that no documents PR has yet.
+function docsEntry(file, st, madeThisRun) {
+    if (st.tickets_root === null) return
+    const covered = new Set(st.docs.flatMap((d) => d.prs))
+    const todo = st.prs.filter((p) => p.result && p.result.status === "merged" && p.epic && p.ticket && !covered.has(p.number)).map((p) => p.number)
+    if (!todo.length) return
+    // an entry whose PR was never opened takes the new ones; otherwise one new entry per run
+    const open = st.docs.find((d) => !d.pr)
+    if (open) open.prs.push(...todo)
+    else if (!madeThisRun.done) st.docs.push({ branch: `land-docs/${now().replace(/[-:]/g, "").replace(/Z$/, "")}`, prs: todo, pr: null, result: null })
+    else return
+    madeThisRun.done = true
+    save(file, st)
+}
+function openDocsPr(file, st, d) {
+    const remote = st.remote || "origin"
+    const tree = `${file}.docs`
+    const root = st.tickets_root || ".scratch"
+    run([GIT, []], ["worktree", "remove", "--force", tree], st.repo)
+    fs.rmSync(tree, { recursive: true, force: true })
+    run([GIT, []], ["worktree", "prune"], st.repo)
+    git(["fetch", "-q", remote, `+refs/heads/${st.branch}:refs/remotes/${remote}/${st.branch}`], st.repo)
+    git(["worktree", "add", "-q", "-B", d.branch, tree, `refs/remotes/${remote}/${st.branch}`], st.repo)
+    try {
+        for (const n of d.prs) {
+            const p = st.prs.find((x) => x.number === n)
+            const args = ["done", p.epic, p.ticket, "--pr", String(n), "--root", path.join(tree, root)]
+            const r = run(program(process.env.LAND_TICKET, [process.execPath, [path.join(__dirname, "ticket")]]), args, tree)
+            log(`ticket ${args.join(" ")} — exit ${r.code}`)
+            if (r.code !== 0) throw new Wait(`ticket done ${p.epic} ${p.ticket} failed (exit ${r.code}): ${firstLine(r.err)}`)
+        }
+        if (st.docs_check) {
+            const r = sh(st.docs_check, tree)
+            log(`${st.docs_check} — exit ${r.code}`)
+            if (r.code !== 0) throw new Wait(`${st.docs_check} exited ${r.code}: ${firstLine(r.err || r.out)}`, "red")
+        }
+        git(["add", "-A"], tree)
+        if (run([GIT, []], ["diff", "--cached", "--quiet"], tree).code === 0) {
+            d.result = { status: "empty", at: now() }
+            log(`documents of ${d.prs.map((n) => "#" + n).join(", ")}: nothing to commit`)
+            return
+        }
+        const list = d.prs.map((n) => "#" + n).join(", ")
+        git(["commit", "-q", "-m", `docs: mark the tickets of ${list} done`], tree)
+        git(["push", "-q", "-f", remote, `HEAD:refs/heads/${d.branch}`], tree)
+        const found = ghJson(st, ["pr", "list", "--head", d.branch, "--state", "open", "--json", "number"], "gh pr list")
+        if (Array.isArray(found) && found.length) d.pr = found[0].number
+        else {
+            const body = `The tickets of ${list}, merged by land, are marked done.`
+            const r = gh(st, ["pr", "create", "--base", st.branch, "--head", d.branch, "--title", `docs: mark the tickets of ${list} done`, "--body", body])
+            const m = /\/pull\/(\d+)/.exec(r.out)
+            if (r.code !== 0 || !m) throw new Wait(`gh pr create failed (exit ${r.code}): ${firstLine(r.err || r.out)}`)
+            d.pr = Number(m[1])
+        }
+        log(`documents PR #${d.pr} on ${d.branch} for ${list}`)
+    } finally {
+        run([GIT, []], ["worktree", "remove", "--force", tree], st.repo)
+        save(file, st)
+    }
+}
+async function landDocs(file, st, madeThisRun) {
+    docsEntry(file, st, madeThisRun)
+    for (const d of st.docs) {
+        if (d.result && (d.result.status === "merged" || d.result.status === "empty")) continue
+        try {
+            if (!d.pr) openDocsPr(file, st, d)
+            if (d.result && d.result.status === "empty") continue
+            const v = prView(st, d.pr)
+            let sha
+            if (v.state === "MERGED") sha = (v.mergeCommit && v.mergeCommit.oid) || "unknown"
+            else {
+                if (v.state !== "OPEN") throw new Wait(`the PR is ${v.state}`)
+                ciGreen(st, v.headRefOid)
+                sha = await mergeOne(st, d.pr, v.headRefOid)
+            }
+            d.result = { status: "merged", sha, at: now() }
+        } catch (e) {
+            if (!(e instanceof Wait)) throw e
+            d.result = { status: "waits", reason: e.message, kind: e.kind, at: now() }
+            log(`documents ${d.pr ? "#" + d.pr : d.branch} wait: ${e.message}`)
+        }
+        save(file, st)
+    }
+}
+
+const waitingForCi = (st) => [...st.prs, ...st.docs].some((x) => x.result && x.result.status === "waits" && x.result.kind === "ci")
+
+async function main() {
+    const argv = process.argv.slice(2)
+    const watch = argv.includes("--watch")
+    const files = argv.filter((a) => a !== "--watch")
+    if (files.length !== 1 || files[0].startsWith("-")) fail("usage: land <state.json> [--watch]")
+    const file = path.resolve(files[0])
+    const st = load(file)
+    logFile = file.replace(/\.json$/, "") + ".log"
+    const started = now()
+    log(`land ${file}${watch ? " --watch" : ""}`)
+    const deadline = Date.now() + T.watch * 1000
+    const madeThisRun = { done: false }
+    for (;;) {
+        // a pass: the code PRs in order, then the documents PR once no code PR still waits for CI
+        try {
+            git(["fetch", "-q", st.remote || "origin", `+refs/heads/${st.branch}:refs/remotes/${st.remote || "origin"}/${st.branch}`], st.repo)
+        } catch (e) {
+            log(`fetch failed: ${e.message}`)
+        }
+        for (const pr of st.prs) await landPr(file, st, pr)
+        const last = !watch || Date.now() + T.poll * 1000 > deadline
+        if (!st.prs.some((p) => p.result.status === "waits" && p.result.kind === "ci") || last) await landDocs(file, st, madeThisRun)
+        if (!watch || !waitingForCi(st) || last) break
+        log(`waiting ${T.poll} s for CI`)
+        await sleep(T.poll)
+    }
+    const lines = []
+    for (const pr of st.prs) lines.push(pr.result.status === "merged" ? `#${pr.number} merged ${pr.result.sha}` : `#${pr.number} waits: ${pr.result.reason}`)
+    for (const d of st.docs) {
+        if (!d.result || d.result.status === "empty") continue
+        const name = d.pr ? `#${d.pr}` : `documents ${d.branch}`
+        lines.push(d.result.status === "merged" ? `${name} merged ${d.result.sha}` : `${name} waits: ${d.result.reason}`)
+    }
+    const all = [...st.prs.map((p) => p.result), ...st.docs.map((d) => d.result).filter((r) => r && r.status !== "empty")]
+    const verdict = all.every((r) => r.status === "merged") ? "green" : all.some((r) => r.kind === "red") ? "red" : "unverified"
+    st.runs.push({ started, ended: now(), land: verdict })
+    save(file, st)
+    for (const l of [...lines, `LAND=${verdict}`]) {
+        log(l)
+        process.stdout.write(l + "\n")
+    }
+    return { green: 0, red: 2, unverified: 3 }[verdict]
+}
+
+for (const [signal, number] of Object.entries(SIGNALS))
+    process.on(signal, () => {
+        log(`stopped by ${signal}`)
+        unlock()
+        process.exit(128 + number)
+    })
+main().then(
+    (code) => process.exit(code),
+    (e) => {
+        unlock()
+        process.stderr.write(`land: ${e instanceof Fail || e instanceof Wait ? e.message : e.stack}\n`)
+        log(`error: ${e.message}`)
+        process.exit(1)
+    },
+)

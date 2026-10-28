@@ -395,8 +395,8 @@ last_line="$(printf '%s\n' "$ORDER" | grep -v '^$' | tail -n 1)"
 # --- 11. implementer: only its own e2e files -----------------------
 # Step 5 of section Order has a paragraph of its own on e2e tests, and the whole paragraph hangs on
 # the condition: a project whose profile has no `commands.e2e` gets no e2e rule. The implementer
-# runs the e2e files its ticket touches; the full suite is the orchestrator's gate full before the
-# merge; repeats and CPU load only on the ticket's demand; the lock comes from the profile's rules.
+# runs the e2e files its ticket touches; the full suite is CI's on the PR head, or the orchestrator's
+# gate full before the merge when the profile asks for one; repeats and CPU load only on the ticket's demand; the lock comes from the profile's rules.
 STEP5="$(printf '%s\n' "$ORDER" | awk '/^5\. /{s=1} /^6\. /{exit} s')"
 E2E="$(printf '%s\n' "$STEP5" | awk 'BEGIN { RS = "" } /only[ \n]+the[ \n]+e2e[ \n]+files[ \n]+the[ \n]+ticket[ \n]+touches/ { print; exit }')"
 if [ -z "$E2E" ]; then
@@ -411,8 +411,8 @@ else
     e2e() { if in_text "$E2E" "$2"; then ok "implementer, step 5, e2e: $1"; else bad "implementer, step 5, e2e: $1 — no '$2'"; fi; }
     e2e "only the files the ticket adds, changes or names in its tests, with the exit code" \
         'run only the e2e files the ticket touches — the ones it adds or changes and the ones its tests section names — with `<commands.e2e> <files>; echo "EXIT=$?"`.'
-    e2e "the whole suite is the orchestrator's gate full before the merge" \
-        'The whole e2e suite is not yours to run: the orchestrator runs it in `gate full` before the merge.'
+    e2e "the whole suite is CI's on the PR head, or the orchestrator's gate full when the profile asks for one" \
+        'The whole e2e suite is not yours to run: CI runs it on the PR head, where the project'"'"'s final CI check (for example `ci-ok`) is the merge condition, or the orchestrator runs it in `gate full` before the merge when `workflow.merge_gate` asks for one.'
     e2e "repeats and CPU load only when the ticket asks" \
         'Repeats (`--repeat-each`) and CPU load — only when the ticket'"'"'s list of what "done" means asks for them.'
     e2e "the lock as the profile's rules say" 'The e2e lock, if the project has one, is described in the profile'"'"'s `rules.md`.'

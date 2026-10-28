@@ -643,6 +643,11 @@ merged by this machine: the machine with `serve` checks, reports and merges it (
 The gate the project requires before this merge is `F workflow.merge_gate` — skill
 `/worfy:epic-wave`, section 4, "Gate before merge". With `"wave"`, a single ticket outside a wave
 is a set of one PR: the same three blocks, with `PRS=(<N>)`.
+With no `merge_gate` and `F workflow.ci` `pr` no gate full runs before the merge: the condition is the
+project's final CI check on the PR's head (its `rules.md` names it, for example `ci-ok`) completed
+with `success`, no CI run still going on that head, and the `review` mark `success` on the same head.
+The orchestrator merges through `bin/land`, a single ticket too — a state file of one PR (skill
+`/worfy:epic-wave`, section 4, "Merge with land").
 
 With `F workflow.ci` `batch` the merge does not wait for CI: the PR merges on its gate when
 `mergeable` is `MERGEABLE`. A single ticket outside a wave is a wave of one: after its merge, the
