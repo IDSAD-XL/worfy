@@ -10,7 +10,9 @@
 # with nothing changed; a failure half-way is rolled back; one commit in the git of HARNESS_HOME;
 # the qmd step runs only with qmd and its models, after the commit; the project's repository stays
 # clean — a Silent project gets `.claude/worktrees/` in .git/info/exclude, once, and nothing else;
-# --facts reads remotes and branches of a repository and of a folder above several, and writes nothing.
+# --facts reads remotes and branches of a repository and of a folder above several, and writes nothing;
+# --no-qmd skips the qmd step; --remove takes the profile, its registry entries, its runs folder and its own
+# qmd collections away in one commit, refuses an unknown or unsafe name, and rolls a failure back.
 set -u
 HARNESS="$(cd "$(dirname "$0")/../.." && pwd)"
 BIN="${BIN_DIR:-$HARNESS/bin}"
@@ -406,6 +408,154 @@ check "a Node qmd-collections without the execute bit runs through node" 0 '"sta
     env QMD_NODE_LOG="$T/qmd-node-called" PROJECT_CONNECT_QMD="$(command -v node)" PROJECT_CONNECT_QMD_BIN="$T/bin/qmd-collections-node" "$CONNECT" <"$T/q5.json"
 check "the Node qmd-collections got the project name" 0 "q5" cat "$T/qmd-node-called"
 check "its qmd field went into the q5 commit" 0 "q5-docs" git -C "$HARNESS_HOME" show HEAD:projects/q5/profile.json
+
+# --- --no-qmd: the qmd step is skipped even with qmd and its models ready -------------------
+rm -f "$T/qmd-called"
+repo "$T/q6"
+draft q6 full null "$T/q6" >"$T/q6.json"
+check "--no-qmd skips the qmd step with the reason" 0 "skipped: --no-qmd" \
+    env PROJECT_CONNECT_QMD="$QMD_STUB" PROJECT_CONNECT_QMD_BIN="$(stub_bin "$T/bin/qmd-collections")" "$CONNECT" --no-qmd <"$T/q6.json"
+[ ! -e "$T/qmd-called" ] && ok "--no-qmd: qmd-collections did not run" || bad "--no-qmd: qmd-collections ran: $(cat "$T/qmd-called")"
+check "--no-qmd: the profile has no qmd field" 1 "" bash -c 'git -C "$1" show HEAD:projects/q6/profile.json | grep -q "\"qmd\""' _ "$HARNESS_HOME"
+check "--no-qmd twice is exit 2" 2 "" "$CONNECT" --no-qmd --no-qmd <"$T/q6.json"
+check "--no-qmd with --facts is exit 2" 2 "" "$CONNECT" --no-qmd --facts "$T/q6"
+export HARNESS_HOME="$SAVED"
+
+# --- --remove: the profile, its registry entries, its runs folder and its qmd collections, one commit ---
+export HARNESS_HOME="$T/rm"
+mkdir -p "$HARNESS_HOME"
+printf 'downloaded\n' >"$HARNESS_HOME/qmd-models"
+# A Node qmd stand-in (it runs through node on every system): `--version` answers, any other call is noted in
+# $QMD_LOG; with $QMD_FAIL set it fails.
+cat >"$T/bin/qmd-node" <<'STUB'
+#!/usr/bin/env node
+const args = process.argv.slice(2)
+if (args[0] === "--version") { console.log("qmd 2.8.3"); process.exit(0) }
+require("fs").appendFileSync(process.env.QMD_LOG, args.join(" ") + "\n")
+if (process.env.QMD_FAIL) { console.error("collection is locked"); process.exit(1) }
+STUB
+# qmd-collections that names the project's own collection and one shared with another profile.
+cat >"$T/bin/qmd-collections-shared" <<'STUB'
+#!/usr/bin/env node
+const fs = require("fs")
+const name = process.argv[2]
+const file = require("path").join(process.env.HARNESS_HOME, "projects", name, "profile.json")
+const profile = JSON.parse(fs.readFileSync(file, "utf8"))
+profile.qmd = { collections: [name + "-docs", "shared"] }
+fs.writeFileSync(file, JSON.stringify(profile, null, 2) + "\n")
+STUB
+QMD_NODE="$T/bin/qmd-node"
+export QMD_LOG="$T/qmd-log"
+: >"$QMD_LOG"
+repo "$T/demo"
+draft demo full null "$T/demo" >"$T/demo.json"
+check "the demo project is connected" 0 '"profileDir"' \
+    env PROJECT_CONNECT_QMD="$QMD_NODE" PROJECT_CONNECT_QMD_BIN="$T/bin/qmd-collections-shared" "$CONNECT" <"$T/demo.json"
+repo "$T/keep"
+draft keep full null "$T/keep" >"$T/keep.json"
+check "a second project is connected" 0 '"profileDir"' \
+    env PROJECT_CONNECT_QMD="$QMD_NODE" PROJECT_CONNECT_QMD_BIN="$T/bin/qmd-collections-shared" "$CONNECT" <"$T/keep.json"
+mkdir -p "$HARNESS_HOME/runs/demo/marks" "$HARNESS_HOME/runs/keep/marks"
+echo '{}' >"$HARNESS_HOME/runs/demo/marks/todo-01.json"
+echo '{}' >"$HARNESS_HOME/runs/keep/marks/todo-01.json"
+demo_repo_before="$(git -C "$T/demo" status --porcelain --ignored --untracked-files=all; git -C "$T/demo" rev-parse HEAD)"
+
+before="$(state)"
+check "--remove of an unknown name is exit 1 with the reason" 1 "no profile" "$CONNECT" --remove nobody
+for bad_name in "../keep" "a/b" ".." "demo/../keep"; do
+    check "--remove $bad_name is exit 2" 2 "" "$CONNECT" --remove "$bad_name"
+done
+check "--remove without a name is exit 2" 2 "" "$CONNECT" --remove
+check "--remove with --check is exit 2" 2 "" "$CONNECT" --check --remove demo
+for at in profile gate runs commit; do
+    check "--remove failing at the step $at is exit 1" 1 "rolled back" env PROJECT_CONNECT_FAIL_AT="$at" "$CONNECT" --remove demo
+    [ "$before" = "$(state)" ] && ok "--remove failing at $at left HARNESS_HOME as it was" || bad "--remove failing at $at left changes: $(diff <(echo "$before") <(state))"
+    check "after the failure at $at bin/profile still knows the repository" 0 "demo" "$PROFILE" -C "$T/demo" --name
+done
+[ "$before" = "$(state)" ] && ok "the refused and failed removals changed nothing" || bad "a refused removal changed HARNESS_HOME"
+[ ! -s "$QMD_LOG" ] && ok "no qmd collection was removed by a refused or failed removal" || bad "qmd ran: $(cat "$QMD_LOG")"
+
+# A rollback step that fails: the staging folder is kept, named, and holds the profile; nothing is deleted.
+check "a failing rollback is exit 1 and says so" 1 "the rollback failed" \
+    bash -c 'set -o pipefail; PROJECT_CONNECT_FAIL_AT=commit PROJECT_CONNECT_FAIL_ROLLBACK_AT=profile "$1" --remove demo | tee "$2"' _ "$CONNECT" "$T/rollback.out"
+staging="$(find "$HARNESS_HOME" -maxdepth 1 -name '.remove-*')"
+[ -n "$staging" ] && [ "$(printf '%s\n' "$staging" | wc -l | tr -d ' ')" = 1 ] && ok "a failing rollback keeps one staging folder" || bad "staging folders: [$staging]"
+[ -f "$staging/profile/profile.json" ] && ok "the kept staging folder holds the profile" || bad "the profile is lost: $(ls -R "$HARNESS_HOME" | head -20)"
+check "the error names the kept staging folder" 0 "is kept in $(jpath "$staging")" cat "$T/rollback.out"
+check "a later --remove names the earlier staging folder" 1 "earlier removals left $(jpath "$staging")" "$CONNECT" --remove nobody
+mv "$staging/profile" "$HARNESS_HOME/projects/demo"
+rmdir "$staging"
+[ "$before" = "$(state)" ] && ok "after the profile is moved back by hand, HARNESS_HOME is as it was" || bad "the failing rollback lost more: $(diff <(echo "$before") <(state))"
+
+n_rm="$(commits)"
+check "--remove demo is written" 0 '"removed"' \
+    env PROJECT_CONNECT_QMD="$QMD_NODE" bash -c 'set -o pipefail; "$1" --remove demo | tee "$2"' _ "$CONNECT" "$T/remove.out"
+check "the output names the profile folder" 0 "\"profileDir\": \"$(jpath "$HARNESS_HOME/projects/demo")\"" cat "$T/remove.out"
+check "the output names the gate keys" 0 '"demo"' node -e 'const o=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); process.stdout.write(JSON.stringify(o.removed.gateKeys)); process.exit(o.name==="demo"?0:1)' "$T/remove.out"
+check "the output names the runs folder" 0 "\"runs\": \"$(jpath "$HARNESS_HOME/runs/demo")\"" cat "$T/remove.out"
+check "bin/profile no longer knows the repository" 3 "" "$PROFILE" -C "$T/demo" --name
+check "the gate registry has no entry of demo and keeps keep" 0 "[keep]" \
+    node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).repos; process.stdout.write("[" + r.map(e=>e.profile).join(" ") + "]")' "$HARNESS_HOME/gate/config.json"
+[ ! -e "$HARNESS_HOME/projects/demo" ] && ok "projects/demo/ is gone" || bad "projects/demo/ is still there"
+[ ! -e "$HARNESS_HOME/runs/demo" ] && ok "runs/demo/ is gone" || bad "runs/demo/ is still there"
+[ -f "$HARNESS_HOME/runs/keep/marks/todo-01.json" ] && [ -f "$HARNESS_HOME/projects/keep/profile.json" ] && ok "the other project keeps its profile and runs" || bad "the other project lost files"
+check "bin/profile still knows the other project" 0 "keep" "$PROFILE" -C "$T/keep" --name
+[ "$(commits)" -eq $((n_rm + 1)) ] && ok "--remove is exactly one new commit" || bad "--remove commits: $n_rm -> $(commits)"
+check "the commit removes the profile and changes the registry" 0 "projects/demo/profile.json" git -C "$HARNESS_HOME" show --name-only --format= HEAD
+[ -z "$(git -C "$HARNESS_HOME" status --porcelain)" ] && ok "HARNESS_HOME has nothing left uncommitted after --remove" || bad "dirty after --remove: $(git -C "$HARNESS_HOME" status --porcelain)"
+[ -z "$(find "$HARNESS_HOME" -maxdepth 1 -name '.remove-*')" ] && ok "--remove leaves no temporary folder" || bad "a temporary folder is left: $(ls -a "$HARNESS_HOME")"
+[ "$demo_repo_before" = "$(git -C "$T/demo" status --porcelain --ignored --untracked-files=all; git -C "$T/demo" rev-parse HEAD)" ] && ok "--remove leaves the project's repository alone" || bad "--remove changed the repository"
+check "qmd removed the project's own collection" 0 "collection remove demo-docs" cat "$QMD_LOG"
+check "a collection another profile names is not removed" 1 "" grep -q "remove shared" "$QMD_LOG"
+check "the output names the shared collection as kept" 0 '"shared"' node -e 'const q=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).removed.qmd; process.stdout.write(JSON.stringify(q)); process.exit(q.removed.includes("demo-docs")?0:1)' "$T/remove.out"
+check "--remove of a name already removed is exit 1" 1 "no profile" "$CONNECT" --remove demo
+
+# --no-qmd with --remove: the collections stay; a failing qmd keeps the removal, with the reason.
+: >"$QMD_LOG"
+repo "$T/demo2"
+draft demo2 full null "$T/demo2" >"$T/demo2.json"
+check "demo2 is connected" 0 '"profileDir"' env PROJECT_CONNECT_QMD="$QMD_NODE" PROJECT_CONNECT_QMD_BIN="$T/bin/qmd-collections-shared" "$CONNECT" <"$T/demo2.json"
+check "--remove --no-qmd skips qmd with the reason" 0 "skipped: --no-qmd" env PROJECT_CONNECT_QMD="$QMD_NODE" "$CONNECT" --remove demo2 --no-qmd
+[ ! -s "$QMD_LOG" ] && ok "--remove --no-qmd ran no qmd command" || bad "qmd ran: $(cat "$QMD_LOG")"
+repo "$T/demo3"
+draft demo3 full null "$T/demo3" >"$T/demo3.json"
+check "demo3 is connected" 0 '"profileDir"' env PROJECT_CONNECT_QMD="$QMD_NODE" PROJECT_CONNECT_QMD_BIN="$T/bin/qmd-collections-shared" "$CONNECT" <"$T/demo3.json"
+check "a failing qmd keeps the removal and names the reason" 0 "collection is locked" env QMD_FAIL=1 PROJECT_CONNECT_QMD="$QMD_NODE" "$CONNECT" --remove demo3
+[ ! -e "$HARNESS_HOME/projects/demo3" ] && ok "a failing qmd still removed projects/demo3/" || bad "projects/demo3/ is still there"
+
+# The staging folder cannot be deleted after the commit: the removal holds, the folder is named in leftover.
+repo "$T/demo4"
+draft demo4 full null "$T/demo4" >"$T/demo4.json"
+check "demo4 is connected" 0 '"profileDir"' "$CONNECT" --no-qmd <"$T/demo4.json"
+check "a staging folder that cannot be deleted keeps the removal" 0 '"leftover": [' \
+    bash -c 'set -o pipefail; PROJECT_CONNECT_FAIL_AT=cleanup "$1" --remove demo4 | tee "$2"' _ "$CONNECT" "$T/demo4.out"
+left="$(find "$HARNESS_HOME" -maxdepth 1 -name '.remove-*')"
+[ -n "$left" ] && [ -f "$left/profile/profile.json" ] && [ ! -e "$HARNESS_HOME/projects/demo4" ] && ok "the staging folder stays with the removed profile" || bad "leftover: [$left]"
+check "leftover names it" 0 "$(jpath "$left")" node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).removed.leftover))' "$T/demo4.out"
+check "--remove without qmd installed skips the collections" 0 "qmd is not installed" bash -c 'set -o pipefail; "$1" --remove keep | tee "$2"' _ "$CONNECT" "$T/keep.out"
+check "a later removal names the earlier staging folder in leftover" 0 "$(jpath "$left")" node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).removed.leftover))' "$T/keep.out"
+[ -f "$left/profile/profile.json" ] && ok "an earlier staging folder is never deleted" || bad "the earlier staging folder is gone"
+
+# A Silent project's default Workflow folder holds the project's tickets: --remove refuses while it holds anything.
+repo "$T/wf"
+draft wf silent null "$T/wf" >"$T/wf.json"
+check "a Silent project is connected" 0 '"profileDir"' "$CONNECT" --no-qmd <"$T/wf.json"
+WF="$HARNESS_HOME/projects/wf/workflow"
+echo "# 01" >"$WF/01-ticket.md"
+before="$(state)"
+check "--remove refuses a Workflow folder with files" 1 "holds the project's own files" "$CONNECT" --remove wf
+git -C "$WF" add 01-ticket.md && git -C "$WF" commit -q -m tickets
+check "--remove refuses a Workflow folder with commits" 1 "and commits" "$CONNECT" --remove wf
+git -C "$WF" rm -q 01-ticket.md && git -C "$WF" commit -q -m empty
+check "--remove refuses a Workflow folder with commits and no files" 1 "and commits" "$CONNECT" --remove wf
+[ -d "$WF/.git" ] && [ -f "$HARNESS_HOME/projects/wf/profile.json" ] && [ -z "$(find "$HARNESS_HOME" -maxdepth 1 -name '.remove-*' -newer "$T/wf.json")" ] \
+    && ok "the refusals moved nothing" || bad "a refusal moved files: $(ls -a "$HARNESS_HOME" "$HARNESS_HOME/projects/wf")"
+check "the refused Silent project is still known" 0 "wf" "$PROFILE" -C "$T/wf" --name
+repo "$T/wf2"
+draft wf2 silent null "$T/wf2" >"$T/wf2.json"
+check "a second Silent project is connected" 0 '"profileDir"' "$CONNECT" --no-qmd <"$T/wf2.json"
+check "--remove of a Silent project with an empty default Workflow folder is written" 0 '"removed"' "$CONNECT" --remove wf2 --no-qmd
+[ ! -e "$HARNESS_HOME/projects/wf2" ] && ok "the empty default Workflow folder went with the profile" || bad "projects/wf2 is still there"
 export HARNESS_HOME="$SAVED"
 
 home_after="$(real_home_snapshot "$REAL_HOME")"
