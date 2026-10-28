@@ -12,9 +12,11 @@
 //
 // - pull_request and push: the files that differ between BASE and HEAD. When every one of them is a
 //   document (isDocument), only lint-typecheck runs: lint is the check that reads documents
-//   (HANDOFF.md, the lessons, Cyrillic in code) and it takes a minute. Otherwise every job runs.
-//   A diff that cannot be read, a BASE of zeros (a new branch) and an empty diff run every job too:
-//   when in doubt, test.
+//   (HANDOFF.md, the lessons, Cyrillic in code) and it takes a minute. Otherwise every job runs,
+//   but for macos-package on a pull request that changes no build input (isBuildInput): the free
+//   plan runs 5 macOS jobs at a time, and a pull request that asked for 5 waited hours for them. A
+//   push to main packages the app whatever it changed. A diff that cannot be read, a BASE of zeros
+//   (a new branch) and an empty diff run every job too: when in doubt, test.
 // - workflow_dispatch: JOB=check runs lint-typecheck and linux-tests, as the batch run of a Wave did
 //   before CI ran on pull requests; JOB=full-macos runs lint-typecheck and the macOS jobs.
 //
@@ -42,6 +44,27 @@ function isDocument(path) {
   if (READ_BY_TESTS.has(path) || CODE_FOLDERS.some((folder) => path.startsWith(folder))) return false
   return path.startsWith('.scratch/') || path.startsWith('docs/') || path.endsWith('.md')
 }
+
+// What `pnpm test:package` (the job macos-package) builds and runs beyond the app's own code: the
+// dependencies and their install (postinstall rebuilds node-pty for Electron), the configs of the
+// build and of electron-builder, the icons, the scripts electron-builder copies into the .app, the
+// packaged tests and the workflows. A change of src/ alone is packaged on the push to main.
+const BUILD_FILES = new Set([
+  'package.json',
+  'pnpm-lock.yaml',
+  'pnpm-workspace.yaml',
+  'electron-builder.yml',
+  'electron.vite.config.ts',
+  'scripts/postinstall.mjs',
+  'scripts/statusline-bridge.sh',
+  'scripts/statusline-bridge.mjs',
+  'playwright.config.ts',
+  'test/e2e/packaged.spec.ts',
+])
+const BUILD_FOLDERS = ['build/', '.github/workflows/']
+
+/** A path whose change a pull request checks by packaging the app. */
+const isBuildInput = (path) => BUILD_FILES.has(path) || BUILD_FOLDERS.some((folder) => path.startsWith(folder))
 
 const only = (names) => Object.fromEntries(JOBS.map((name) => [name, names.includes(name)]))
 
@@ -72,7 +95,9 @@ function decide(env) {
   if (files.length === 0) return { expect: only(JOBS), why: 'no file changed' }
   const code = files.filter((file) => !isDocument(file))
   if (code.length === 0) return { expect: only(['lint-typecheck']), why: `documents only: ${files.join(' ')}` }
-  return { expect: only(JOBS), why: `code changed: ${code.slice(0, 20).join(' ')}${code.length > 20 ? ` and ${code.length - 20} more` : ''}` }
+  const why = `code changed: ${code.slice(0, 20).join(' ')}${code.length > 20 ? ` and ${code.length - 20} more` : ''}`
+  if (event === 'pull_request' && !code.some(isBuildInput)) return { expect: only(JOBS.filter((name) => name !== 'macos-package')), why: `${why}; no build input, so no macos-package` }
+  return { expect: only(JOBS), why }
 }
 
 const answer = decide(process.env)
