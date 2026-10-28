@@ -212,7 +212,8 @@ process.on("exit", () => {
 })
 // For the tests only: with a `hold-<at>` file in the PROFILE_SET_STALE_SYNC folder, a takeover stops at the
 // point `at`: it creates the file `<at>` and waits for `resume-<at>` (up to STALE_SYNC_WAIT_MS). The points:
-// `checked` (the lock judged still stale, not claimed yet) and `moved` (the lock moved aside, not deleted).
+// `checked` (the lock judged still stale, not claimed yet) and `moved` (the lock moved aside, not deleted) of
+// a takeover, and `waiting`: the first time the writer finds a live lock, before its first pause.
 function stopPoint(at) {
     if (STALE_SYNC === "" || !fs.existsSync(path.join(STALE_SYNC, `hold-${at}`))) return
     fs.writeFileSync(path.join(STALE_SYNC, at), "")
@@ -289,6 +290,7 @@ function takeOver(token, ino) {
     return true
 }
 const deadline = Date.now() + LOCK_WAIT_MS
+let waited = false
 while (!locked) {
     try {
         fs.mkdirSync(LOCK)
@@ -305,6 +307,12 @@ while (!locked) {
         if (ino === null) continue
         // Taken over: try at once. Not taken over (another waiter claimed it, or it changed): wait as for a live lock.
         if (age > LOCK_STALE_MS && clearStale(token, ino)) continue
+        if (!waited) {
+            waited = true
+            // A test may release the lock at this point: try again at once, before the deadline is looked at.
+            stopPoint("waiting")
+            continue
+        }
         if (Date.now() >= deadline) die(6, `another profile-set is writing ${pjPath} (lock ${LOCK}) — not written; try again`)
         pause(100)
         continue

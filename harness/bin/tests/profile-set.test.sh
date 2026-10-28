@@ -250,6 +250,15 @@ check "pipeline null: --expect null writes (exit 0)" [ "$rc" -eq 0 ]
 check "pipeline null: --expect null writes the value" [ "$(field "$PJ")" = "$OTHER" ]
 
 # --- the lock ---------------------------------------------------------------------------------------------
+# wait_for <file>: up to 300 looks, 0.05 s apart, for the file to appear; 1 when it does not.
+wait_for() {
+    local i=0
+    while [ ! -e "$1" ]; do
+        i=$((i + 1))
+        [ "$i" -gt 300 ] && return 1
+        sleep 0.05
+    done
+}
 LOCKDIR="$HH/projects/demo/.profile-set.lock"
 check "lock: no lock folder left after the writes" [ ! -e "$LOCKDIR" ]
 # A live lock of another writer: this one waits, gives up with exit 6 and writes nothing.
@@ -262,12 +271,22 @@ check "held lock: exit 6" [ "$rc" -eq 6 ]
 check "held lock: says another writer holds it" grep -q "another profile-set is writing" "$T/err"
 check "held lock: profile.json as it was" cmp -s "$PJ" "$T/pj-before"
 check "held lock: the other writer's lock is left alone" [ -d "$LOCKDIR" ]
-# The lock is released while this writer waits: it goes on and writes.
-( sleep 0.5; rmdir "$LOCKDIR" ) &
-releaser=$!
-run "$SET" -C "$T/r/demo" --expect "$fp" --set "$GOOD" >/dev/null 2>"$T/err"
+# The lock is released while this writer waits: it goes on and writes. The writer stops where it first finds the
+# live lock (`waiting`, PROFILE_SET_STALE_SYNC) until the lock is gone: by events. A `sleep 0.5` before the rmdir
+# outlasted the writer's whole 10 s wait on a loaded Windows runner (CI run 40656474989), where each process starts
+# seconds late.
+s="$T/sync-release"
+rm -rf "$s"
+mkdir -p "$s"
+touch "$s/hold-waiting"
+PROFILE_SET_STALE_SYNC="$s" run "$SET" -C "$T/r/demo" --expect "$fp" --set "$GOOD" >/dev/null 2>"$T/err" &
+writer=$!
+wait_for "$s/waiting" || bad "lock released while waiting: the writer never said it waits"
+rmdir "$LOCKDIR"
+touch "$s/resume-waiting"
+wait "$writer"
 rc=$?
-wait "$releaser"
+check "lock released while waiting: the writer waited for the lock" [ -e "$s/waiting" ]
 check "lock released while waiting: exit 0" [ "$rc" -eq 0 ]
 check "lock released while waiting: written" [ "$(field "$PJ")" = "$GOOD" ]
 # A lock a killed writer left long ago is removed.
@@ -345,15 +364,6 @@ check "usage names exit 6" grep -q "6 another write held the lock" <(run "$SET" 
 # by events, not by pauses: each writer has a PROFILE_SET_STALE_SYNC folder where profile-set puts its
 # token in `judged`, waits for `go` and creates `tried`; the stub git creates `in-commit` and waits
 # for `release`. A machine under load only makes each step later, never changes the order.
-# wait_for <file>: up to 15 s for the file to appear; 1 when it does not.
-wait_for() {
-    local i=0
-    while [ ! -e "$1" ]; do
-        i=$((i + 1))
-        [ "$i" -gt 300 ] && return 1
-        sleep 0.05
-    done
-}
 # two_waiters <name> <first|second: which writer takes over first> <seconds the second one starts late>
 two_waiters() {
     local name="$1" winner="$2" late="$3" s="$T/sync" s1 s2 sw sl vw v1 v2 pid1 pid2="" pidl rc1 rc2 rcw rcl owner_mid loser_waits
