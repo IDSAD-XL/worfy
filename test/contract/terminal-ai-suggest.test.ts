@@ -908,12 +908,18 @@ describe('the Suggestion from the model on a real zsh', () => {
     await askAbout('docker ps')
     expect(performance.now() - from).toBeGreaterThanOrEqual(1500)
     expect(await probe()).toMatchObject({ timer: '', pid: '' })
-    // The next timer takes the descriptor the first one gave back: none is left open by a timer that ran out.
+    // The next line gets a timer of its own. Its number is not the first one's, even when nothing is
+    // left open: `{fd}` takes the lowest free descriptor from 10, and zsh holds descriptors of its own
+    // in a key's widget that it does not hold in the handler of a pipe, where a timer that ended
+    // before a later key's moment is started again. So the pipes are checked by their own numbers:
+    // once both timers ran out, a command finds neither open.
     t.type(' -a')
     await t.settle()
-    expect((await probe()).timer).toBe(first.timer)
+    const second = await probe()
+    expect(second.timer).toMatch(/^\d{2,}$/)
     await askAbout('docker ps -a')
-    expect(await t.run(`${CTRL_U}/bin/sh -c '( : <&${first.timer} ) 2>/dev/null && echo pipe-open; echo pipe-checked'`)).toMatch(/^pipe-checked\r\n/)
+    const open = (fd: string) => `( : <&${fd} ) 2>/dev/null && echo pipe-open-${fd};`
+    expect(await t.run(`${CTRL_U}/bin/sh -c '${open(first.timer)} ${open(second.timer)} echo pipe-checked'`)).toMatch(/^pipe-checked\r\n/)
     expect(shown(t.text())).not.toMatch(ZSH_ERROR)
   })
 
