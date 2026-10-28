@@ -395,10 +395,11 @@ export class WorkflowWatcher {
   }
 
   private async unwatch(): Promise<void> {
-    this.tickets?.close()
+    const tickets = this.tickets
     this.tickets = null
     this.ticketsWatcher = null
-    await Promise.all(this.watchers.splice(0).map(closeForGood))
+    // The look of the Tickets root that was running ends first: after the close it asks nothing more.
+    await Promise.all([tickets?.close(), ...this.watchers.splice(0).map(closeForGood)])
   }
 
   /**

@@ -812,6 +812,26 @@ describe('close', () => {
     expect(errors).toEqual([])
   })
 
+  it('close() settles only once the look it cut short has ended: nothing is asked of the file system after it', async () => {
+    const disk = windowsDisk({ [`${ROOT}\\first\\issues`]: linkTo('C:\\other\\issues'), ...TICKETS, 'C:\\other\\issues\\01.md': FILE })
+    const held = holding(disk.fs, 'isFolder', 'C:\\other\\issues')
+    const { watch } = made(disk, ROOT, [REPO, ROOT], { fs: held.fs })
+    const started = watch.start()
+    await held.asked
+    let closed = false
+    const closing = watch.close().then(() => {
+      closed = true
+    })
+    await pause(20)
+    expect(closed).toBe(false)
+    held.release()
+    await closing
+    const atClosed = disk.calls.length
+    expect(await started).toBe('closed')
+    await watch.settled()
+    expect(disk.calls.slice(atClosed)).toEqual([])
+  })
+
   it('a root that is lost while the links are looked for ends that look too: the link gets its watch from the next one only', async () => {
     const disk = windowsDisk({ ...TICKETS, [`${ROOT}\\linked`]: linkTo('C:\\other\\epic'), 'C:\\other\\epic\\spec.md': FILE })
     const held = holding(disk.fs, 'isFolder', 'C:\\other\\epic')

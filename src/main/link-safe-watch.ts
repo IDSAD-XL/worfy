@@ -239,7 +239,11 @@ export class LinkSafeWatch {
     }
   }
 
-  close(): void {
+  /**
+   * Ends the watch at once. Settles once the look or scan that was running has ended: a call of it
+   * already awaited still comes back, and nothing is asked of the file system after that. Never rejects.
+   */
+  close(): Promise<void> {
     this.closed = true
     this.current = 'closed'
     if (this.scanTimer !== null) clearTimeout(this.scanTimer)
@@ -247,6 +251,7 @@ export class LinkSafeWatch {
     this.endRetry()
     this.detach()
     this.endWait()
+    return this.queue
   }
 
   /** Jobs run one after another: an event never meets a half-made state. */
