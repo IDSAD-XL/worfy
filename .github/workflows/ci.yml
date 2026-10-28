@@ -20,6 +20,10 @@ name: CI
 #   contract files (harness-evals 943 s, harness-migrate 450 s, harness-scripts 421 s) ran at the same
 #   time on one 4-CPU runner, the likely cause of its flaky tests. An earlier try with 4 shards
 #   failed on Git Bash's /tmp, which test/global-setup-git-bash.ts now fixes for every vitest process.
+# - windows-e2e: pnpm test:e2e on Windows in 4 shards, whenever macos-e2e runs. It does not block yet:
+#   ci-ok prints its result and warns when it is not green, but stays green (NON_BLOCKING in
+#   scripts/ci-ok.mjs). It blocks after five green push runs on main in a row, in a pull request of
+#   its own.
 # - ci-ok: green when every job the run needs succeeded (scripts/ci-ok.mjs). A merge reads this check.
 #
 # The free plan runs 5 macOS jobs at a time, so an ordinary pull request asks for 3 of them: one
@@ -271,6 +275,51 @@ jobs:
       mode: full
       shard: ${{ matrix.shard }}
 
+  # pnpm test:e2e on Windows. Four shards: in the runs of the triage one shard took 7 to 15 min, so
+  # each stays under 20 min (runs 40710168910 to 40737039070, the longest shard 14.5 min in 40719521332).
+  windows-e2e:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.expect)['windows-e2e']
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - 1/4
+          - 2/4
+          - 3/4
+          - 4/4
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Under PowerShell, not Git Bash. The runner's user is an administrator, and its token holds the
+      # backup and restore privileges, disabled. Git Bash (its MSYS2 runtime) enables both when it
+      # starts; every process it starts inherits them — pnpm, Playwright, the app under test — and
+      # Node (libuv) opens a folder with FILE_FLAG_BACKUP_SEMANTICS, so with them Windows does not
+      # check the folder's ACL. The tests that deny the user a folder (icacls /deny) then still get in.
+      # Under PowerShell both privileges stay disabled. The shard goes to playwright test.
+      - name: Run the e2e tests, one shard
+        shell: pwsh
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: pnpm test:e2e "--shard=$env:SHARD"
+      # A failing e2e test keeps the app's trace and a screenshot of its window under test-results/.
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-e2e-results-${{ strategy.job-index }}-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
   # Runs whatever happened before it (always()), so the check reports on every run; a cancelled run
   # reads as red, never as a skipped check.
   ci-ok:
@@ -282,6 +331,7 @@ jobs:
       - macos-e2e
       - macos-package
       - windows
+      - windows-e2e
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

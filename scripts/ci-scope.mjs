@@ -16,7 +16,8 @@
 //   but for macos-package on a pull request that changes no build input (isBuildInput): the free
 //   plan runs 5 macOS jobs at a time, and a pull request that asked for 5 waited hours for them. A
 //   push to main packages the app whatever it changed. A diff that cannot be read, a BASE of zeros
-//   (a new branch) and an empty diff run every job too: when in doubt, test.
+//   (a new branch) and an empty diff run every job too: when in doubt, test. windows-e2e runs
+//   whenever macos-e2e does.
 // - workflow_dispatch: JOB=check runs lint-typecheck and linux-tests, as the batch run of a Wave did
 //   before CI ran on pull requests; JOB=full-macos runs lint-typecheck and the macOS jobs.
 //
@@ -28,7 +29,7 @@ import { spawnSync } from 'node:child_process'
 import { appendFileSync } from 'node:fs'
 import process from 'node:process'
 
-const JOBS = ['lint-typecheck', 'linux-tests', 'macos-tests', 'macos-e2e', 'macos-package', 'windows']
+const JOBS = ['lint-typecheck', 'linux-tests', 'macos-tests', 'macos-e2e', 'macos-package', 'windows', 'windows-e2e']
 const MACOS = ['macos-tests', 'macos-e2e', 'macos-package']
 
 // Folders whose every file counts as code, Markdown included: the app, the tests, the Harness, the
