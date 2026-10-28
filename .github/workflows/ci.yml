@@ -6,11 +6,14 @@ name: CI
 # cost nothing.
 #
 # - changes: which jobs this run needs (scripts/ci-scope.mjs). A change of documents only runs
-#   lint-typecheck and skips the rest; a pull request that changes no build input skips
-#   macos-package.
+#   lint-typecheck and skips the rest. A push to main runs every job. A pull request runs only the
+#   macOS jobs its diff asks for: macos-e2e when it changes the app, macos-tests (the macOS-only test
+#   files) when it changes the app or one of those files, macos-package when it changes a build input.
 # - lint-typecheck: pnpm lint and pnpm typecheck on Linux.
 # - linux-tests: pnpm test on Linux in 4 shards (vitest --shard), files in a random order.
-# - macos-tests: pnpm test on macOS in one job: the tests that run on macOS only are checked here.
+# - macos-tests: pnpm test on macOS in one job: the tests that run on macOS only are checked here. A
+#   push to main runs every file; a pull request the files with a macOS-only test or assertion
+#   (scripts/ci-scope.mjs, output macos-tests-files).
 # - macos-e2e: pnpm test:e2e on macOS in 2 shards (Playwright --shard), Electron with a window.
 # - macos-package: pnpm test:package on macOS: the packaged .app. On every push to main, and on a
 #   pull request that changes a build input (scripts/ci-scope.mjs: package.json, the lockfile, the
@@ -26,8 +29,10 @@ name: CI
 #   its own.
 # - ci-ok: green when every job the run needs succeeded (scripts/ci-ok.mjs). A merge reads this check.
 #
-# The free plan runs 5 macOS jobs at a time, so an ordinary pull request asks for 3 of them: one
-# macos-tests and two macos-e2e shards.
+# The free plan runs 5 macOS jobs at a time, and pull requests waited 26 to 67 minutes for them while
+# their longest job took 19. So a pull request asks for at most 3 of them (one macos-tests and two
+# macos-e2e shards) when it changes the app, and for none when it changes no app path: the Harness,
+# the unit and contract tests, the scripts the app does not use. The push to main runs them all.
 #
 # The manual run stays: Actions → CI → Run workflow, or `gh workflow run ci.yml --ref <ref> -f
 # job=check` (lint, typecheck and the Linux shards — the batch run of a Wave) and `-f job=full-macos`
@@ -74,6 +79,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       expect: ${{ steps.scope.outputs.expect }}
+      macos-tests-files: ${{ steps.scope.outputs.macos-tests-files }}
     steps:
       # Two commits: the merge commit of a pull request and its first parent, the head of the base.
       # No checkout keeps the token in .git/config (persist-credentials: false): no step pushes or
@@ -180,8 +186,13 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # A pull request hands the macOS-only test files, a push to main and a run by hand nothing:
+      # every file. scripts/ci-scope.mjs names only plain test file names, one word each, so the
+      # shell splits the list on its spaces.
       - name: Run unit and contract tests
-        run: pnpm test
+        env:
+          FILES: ${{ needs.changes.outputs.macos-tests-files }}
+        run: pnpm test $FILES
 
   macos-e2e:
     needs: changes

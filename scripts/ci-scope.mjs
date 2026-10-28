@@ -12,12 +12,15 @@
 //
 // - pull_request and push: the files that differ between BASE and HEAD. When every one of them is a
 //   document (isDocument), only lint-typecheck runs: lint is the check that reads documents
-//   (HANDOFF.md, the lessons, Cyrillic in code) and it takes a minute. Otherwise every job runs,
-//   but for macos-package on a pull request that changes no build input (isBuildInput): the free
-//   plan runs 5 macOS jobs at a time, and a pull request that asked for 5 waited hours for them. A
-//   push to main packages the app whatever it changed. A diff that cannot be read, a BASE of zeros
-//   (a new branch) and an empty diff run every job too: when in doubt, test. windows-e2e runs
-//   whenever macos-e2e does.
+//   (HANDOFF.md, the lessons, Cyrillic in code) and it takes a minute. Otherwise a push to main runs
+//   every job, the whole suite in each. A pull request runs the Linux and Windows jobs and only the
+//   macOS jobs its diff asks for: the free plan runs 5 macOS jobs at a time, and pull requests
+//   waited 26 to 67 minutes in that queue. macos-package runs when it changes a build input
+//   (isBuildInput), macos-e2e when it changes the app (isAppPath), macos-tests when it changes the
+//   app or a macOS-only test file, and then with the macOS-only test files alone (darwinTestFiles,
+//   the second output `macos-tests-files`; empty means every file). A diff that cannot be read, a
+//   BASE of zeros (a new branch) and an empty diff run every job, the whole suite in each: when in
+//   doubt, test. windows-e2e runs whenever macos-e2e does.
 // - workflow_dispatch: JOB=check runs lint-typecheck and linux-tests, as the batch run of a Wave did
 //   before CI ran on pull requests; JOB=full-macos runs lint-typecheck and the macOS jobs.
 //
@@ -26,7 +29,8 @@
 // image ships.
 
 import { spawnSync } from 'node:child_process'
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, readdirSync, readFileSync } from 'node:fs'
+import { sep } from 'node:path'
 import process from 'node:process'
 
 const JOBS = ['lint-typecheck', 'linux-tests', 'macos-tests', 'macos-e2e', 'macos-package', 'windows', 'windows-e2e']
@@ -77,6 +81,75 @@ const BUILD_FOLDERS = ['build/', '.github/workflows/']
 /** A path whose change a pull request checks by packaging the app. */
 const isBuildInput = (path) => BUILD_FILES.has(path) || BUILD_FOLDERS.some((folder) => path.startsWith(folder))
 
+// The files a pull request runs the e2e tests for (the job macos-e2e, `pnpm test:e2e`): the build
+// inputs above, the app (all of src/, card-runtime too: src/main serves it), the e2e tests, the files
+// outside test/e2e that they import or read (test/contract/ci-workflow.test.ts checks that every
+// such import is here), the configs electron-vite builds with and the scripts the build and the job
+// run. A change of harness/, of test/unit or test/contract, of another script or of a document runs
+// no e2e on a pull request: the push to main runs them all, and catches it there. The Harness copy
+// the app carries (out/harness) is the one gap of note: harness-install.spec.ts and its neighbours
+// check it on that push only.
+const APP_FILES = new Set([
+  'tsconfig.json',
+  'tsconfig.base.json',
+  'tsconfig.node.json',
+  'tsconfig.web.json',
+  'scripts/dev-bundle.ts',
+  'scripts/ci-display.js',
+  'test/harness-node.ts',
+  'test/zsh.ts',
+  'test/windows-profile.ts',
+  'test/big-transcript.ts',
+  'test/quarantine.ts',
+  'test/flaky.ts',
+  'test/claude-home-legacy.ts',
+])
+const APP_FOLDERS = ['src/', 'test/e2e/', 'test/fixtures/', 'test/quarantine/']
+
+/** A path whose change a pull request checks with the e2e tests on macOS. */
+const isAppPath = (path) => isBuildInput(path) || APP_FILES.has(path) || APP_FOLDERS.some((folder) => path.startsWith(folder))
+
+// The job macos-tests on a pull request runs only the test files that check something on macOS that
+// the Linux and Windows jobs do not: a test or a describe that runs on macOS only, or an assertion
+// that differs there (darwinTestFiles). On the macOS runner they took 179 s of the 1131 s that all
+// 462 files took (run 40744007856): the job ends in a few minutes instead of 11. It runs when the
+// pull request changes the app (isAppPath), one of those files, or the way vitest runs. The push to
+// main runs the whole suite on macOS, and catches what an unguarded test finds only there.
+const TEST_RUNNER = new Set(['vitest.config.ts', 'scripts/vitest-electron.mjs'])
+const TEST_FOLDERS = ['test/unit/', 'test/contract/']
+// `process.platform === 'darwin'`, `!== "darwin"`, `platform() === 'darwin'`: the guard of a test
+// that runs on macOS only, or of an assertion that differs there.
+const DARWIN_GUARD = /platform(\(\))?\s*[!=]==?\s*['"]darwin['"]/
+// The names the job hands to `pnpm test` unquoted, one word each.
+const PLAIN_NAME = /^test\/(unit|contract)\/[A-Za-z0-9._-]+\.test\.tsx?$/
+
+/** The test files of vitest that hold a darwin guard, or null when one cannot be read or named plainly. */
+function darwinTestFiles() {
+  const files = []
+  for (const folder of TEST_FOLDERS) {
+    let names
+    try {
+      names = readdirSync(folder, { recursive: true, encoding: 'utf8' })
+    } catch {
+      return null
+    }
+    for (const name of names.sort()) {
+      const path = `${folder}${name.split(sep).join('/')}`
+      if (!/\.test\.tsx?$/.test(path)) continue
+      let text
+      try {
+        text = readFileSync(path, 'utf8')
+      } catch {
+        return null
+      }
+      if (!DARWIN_GUARD.test(text)) continue
+      if (!PLAIN_NAME.test(path)) return null
+      files.push(path)
+    }
+  }
+  return files
+}
+
 const only = (names) => Object.fromEntries(JOBS.map((name) => [name, names.includes(name)]))
 
 /** The files changed between `base` and HEAD, or null when git cannot tell. */
@@ -107,8 +180,36 @@ function decide(env) {
   const code = files.filter((file) => !isDocument(file))
   if (code.length === 0) return { expect: only(['lint-typecheck']), why: `documents only: ${files.join(' ')}` }
   const why = `code changed: ${code.slice(0, 20).join(' ')}${code.length > 20 ? ` and ${code.length - 20} more` : ''}`
-  if (event === 'pull_request' && !code.some(isBuildInput)) return { expect: only(JOBS.filter((name) => name !== 'macos-package')), why: `${why}; no build input, so no macos-package` }
-  return { expect: only(JOBS), why }
+  if (event === 'push') return { expect: only(JOBS), why }
+  const decided = pullRequest(code)
+  return { expect: decided.expect, files: decided.files, why: [why, ...decided.notes].join('; ') }
+}
+
+/** The macOS jobs of a pull request that changes code: each only when the diff asks for it. */
+function pullRequest(code) {
+  const expect = only(JOBS)
+  const notes = []
+  if (!code.some(isBuildInput)) {
+    expect['macos-package'] = false
+    notes.push('no build input, so no macos-package')
+  }
+  if (!code.some(isAppPath)) {
+    expect['macos-e2e'] = false
+    notes.push('no app path, so no macos-e2e')
+  }
+  const darwin = darwinTestFiles()
+  if (darwin === null || darwin.length === 0) {
+    // A test file the script cannot read or name plainly: when in doubt, the whole suite.
+    notes.push('the macOS-only test files could not be listed, so macos-tests runs every file')
+    return { expect, files: [], notes }
+  }
+  if (!code.some((path) => isAppPath(path) || TEST_RUNNER.has(path) || darwin.includes(path))) {
+    expect['macos-tests'] = false
+    notes.push('no app path and no macOS-only test file, so no macos-tests')
+    return { expect, files: [], notes }
+  }
+  notes.push(`macos-tests runs the ${darwin.length} macOS-only test files`)
+  return { expect, files: darwin, notes }
 }
 
 const answer = decide(process.env)
@@ -117,6 +218,8 @@ if (answer.error) {
   process.exitCode = 1
 } else {
   const expect = JSON.stringify(answer.expect)
-  process.stdout.write(`${answer.why}\nexpect=${expect}\n`)
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `expect=${expect}\n`)
+  // The test files macos-tests hands to `pnpm test`; empty: every file.
+  const files = (answer.files ?? []).join(' ')
+  process.stdout.write(`${answer.why}\nexpect=${expect}\nmacos-tests-files=${files}\n`)
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `expect=${expect}\nmacos-tests-files=${files}\n`)
 }

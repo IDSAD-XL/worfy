@@ -95,3 +95,26 @@ run на push в `main`. Точку передачи выбрать при claim
 - e2e в CI на GitHub — нет (Q4).
 
 ## Итог
+
+- **CI-половина (2026-10-28, ветка `ci/macos-jobs-by-diff`).** Было: каждый PR с кодом просил 3 macOS job-а
+  (`macos-tests` и два shard-а `macos-e2e`), и зелёные run-ы PR шли 57–81 минуту при самом долгом job-е
+  19 минут: macOS job-ы ждали 26–67 минут одного из 5 macOS runner-ов бесплатного плана. Стало
+  (`scripts/ci-scope.mjs`, `.github/workflows/ci.yml`, test-ы — `test/contract/ci-workflow.test.ts`):
+  - `macos-e2e` на PR — только когда diff трогает приложение: `src/` (вся папка, `card-runtime` тоже),
+    `test/e2e/`, `test/fixtures/`, `test/quarantine/` и файлы `test/*.ts`, которые импортирует e2e
+    (contract test сверяет каждый import `test/e2e` со списком), `playwright.config.ts`,
+    `electron.vite.config.ts`, `electron-builder.yml`, `tsconfig*.json`, `build/`, `package.json`,
+    `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `.github/workflows/`, скрипты сборки и job-а
+    (`build-version.ts`, `dev-bundle.ts`, `postinstall.mjs`, `install-stable.mjs`, `statusline-bridge.*`,
+    `ci-display.js`). `harness/`, `test/unit`, `test/contract`, прочие скрипты и документы — e2e на PR нет.
+  - `macos-tests` на PR — вариант (a): только test-файлы с проверкой для одной macOS (guard
+    `platform === / !== 'darwin'`; список строит `ci-scope.mjs` при каждом run-е, второй output
+    `macos-tests-files`), когда diff трогает приложение, такой файл, `vitest.config.ts` или
+    `scripts/vitest-electron.mjs`. Замер по логу `macos-tests` run-а 40744007856 на `main`: 18 таких файлов
+    из 462 — 179 s из 1131 s времени файлов (весь набор шёл 640 s, job 11 минут); самые тяжёлые из 18 —
+    `harness-evals` 57 s, `harness-evals-outcome` 36 s, `harness-install` 31 s.
+  - `macos-package` — без изменений (входы сборки на PR, всегда на push).
+  - Push в `main` и ручной `full-macos` — все job-ы, весь набор в каждом. Поправка ADR-0083 записана.
+  - Цена: test без guard-а, который краснеет только на macOS (FSEvents, case-insensitive FS, BSD-утилиты), и
+    e2e Harness-копии приложения (`harness-install.spec.ts`) при PR только с `harness/` ловит run push-а в `main`.
+  Открыто (Harness-половина): поле Profile-а, шаг gate, `implementer.md`, `rules.md`.
