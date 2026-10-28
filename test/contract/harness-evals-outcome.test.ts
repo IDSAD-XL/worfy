@@ -790,7 +790,13 @@ async function keptRuns(parent: string, scaffold: string, agents: Record<string,
   const lane = async (): Promise<void> => {
     for (let name = names[next++]; name !== undefined; name = names[next++]) {
       const run = newKeptRun(parent)
-      for (const script of [scaffold, agents[name]!]) await bash(script, run)
+      try {
+        for (const script of [scaffold, agents[name]!]) await bash(script, run)
+      } catch (error) {
+        // The block fails with this error: the other lanes start no new run.
+        next = names.length
+        throw error
+      }
       runs[name] = sealKeptRun(run, agents[name]!, answer)
     }
   }
@@ -890,6 +896,13 @@ interface Outcome {
   >
 }
 const readOutcome = (dir: string): Outcome => JSON.parse(readFileSync(join(dir, 'outcome.json'), 'utf8')) as Outcome
+
+describe('keptRuns, the kept runs of several stub agents side by side', () => {
+  it('fails with the stderr of a script that exits with a code other than 0', async () => {
+    const parent = tempDir('outcome-kept-runs-')
+    await expect(keptRuns(parent, 'true', { fine: 'true', broken: 'echo the agent broke >&2; exit 3' }, 'Done.')).rejects.toThrow(/^kept run: the agent broke/)
+  })
+})
 
 describe('scripts/eval-outcome-score.mjs (stub judge, synthetic kept runs)', () => {
   ownTmp()
