@@ -108,3 +108,10 @@ Session-и на разных машинах не мешают друг друг�
   конце.
 - **Epic-и по очереди: сначала Linked machines, потом порт.** Отвергнуто (Q12): Epic-и идут
   параллельно, каждый на своей машине.
+
+## Amendments
+
+- **2026-10-28, ADR-0083** (`worfy-throughput` 35). Пункт 1 заменён: Windows-runner на PR есть — job
+  `windows / full-suite` в составе check `ci-ok` на каждый PR, и он вердикт Windows для каждого PR. Пункт 2
+  сужен: gate full на ПК нужен только платформенному PR, для которого `scripts/windows-verdict-scope.mjs`
+  печатает `pc`. В пункте 6 проверки после rebase — `ci-ok`.

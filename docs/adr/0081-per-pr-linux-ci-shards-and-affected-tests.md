@@ -84,3 +84,10 @@ PR с меткой `needs-mac-gate` — по одному); ADR-0068, пункт
   `main`; цена — красный `main` между batch-ами и минуты Actions.
 - **Job-ы на macOS на PR (e2e в CI).** Отвергнуто владельцем (Q4): минута macOS-runner-а в десять раз
   дороже Linux.
+
+## Amendments
+
+- **2026-10-28, ADR-0083** (`worfy-throughput` 35). Q4 отменён: репозиторий публичный, и job-ы на macOS
+  (`test:e2e`, `test:package`) идут на каждый PR. Пункт 1 сделан в составе check `ci-ok`; пункты 2 и 3
+  заменены: перед merge — зелёный `ci-ok` с полным набором, gate full не нужен; пункт 4 заменён run-ом на
+  каждый push в `main`. Пункты 5–7 остаются.

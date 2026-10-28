@@ -81,3 +81,11 @@ runner-е был запрещён только потому, что на Windows
   должно проверяться скриптом, а не суждением.
 - **Полный `pnpm test` на runner-е с e2e (`test:e2e`, `test:package`).** Отвергнуто: e2e Electron
   требуют рабочего стола и идут по одному; run стал бы дороже и медленнее, а замены ПК не дал бы.
+
+## Amendments
+
+- **2026-10-28, ADR-0083** (`worfy-throughput` 35). Режим `full` идёт на каждый PR и push в `main` сам — job
+  `windows / full-suite` в составе check `ci-ok`; Orchestrator его не запускает (пункт 2), run `windows-full`
+  вместе с batch CI больше не нужен. Зелёный `ci-ok` — `check/windows` `success` для обычного PR и для
+  платформенного со scope `runner` (пункт 3); пункты 4 и 5 (платформенный PR со scope `pc` ждёт ПК, решает
+  скрипт) остаются.

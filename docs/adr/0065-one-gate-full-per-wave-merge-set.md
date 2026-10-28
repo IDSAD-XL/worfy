@@ -82,3 +82,9 @@ ADR-0056 не меняется. Правку `rules.md` и `profile.json` Profil
 - **Merge queue GitHub.** Делает то же на стороне GitHub, но проверку в очереди гоняет CI GitHub, а
   gate full с e2e и собранным `.app` идёт только на macOS. Нужен macOS-раннер — запрещено ценой
   (правило владельца: Actions только на Linux).
+
+## Amendments
+
+- **2026-10-28, ADR-0083** (`worfy-throughput` 35). Условие merge — зелёный check `ci-ok` на head PR, а не
+  gate full: `workflow.merge_gate` Profile-а worfy — `null`, набор Wave и `wave-gate` — не путь по
+  умолчанию. Нужен ли набор сверх `ci-ok`, решает `worfy-throughput` 07.
