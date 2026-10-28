@@ -11,7 +11,7 @@
 // fake agent of launchApp; no gh but the stand-in of launchApp.
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -161,6 +161,24 @@ async function launchPair(scratch: string, run: (pair: Pair) => Promise<void>): 
     await canvasReady(b, { size: SIZE })
     await canvasReady(a, { size: SIZE })
     await linkThroughUi(a.window, b.window)
+    // Triage only (branch triage/windows-e2e): what B's main process gets for the folder under the deny entry,
+    // and which privileges its token has enabled.
+    const locked = join(bHome, 'locked')
+    console.log(`[triage] Playwright process readdir: ${(() => { try { return JSON.stringify(readdirSync(locked)) } catch (error) { return `refused ${(error as NodeJS.ErrnoException).code}` } })()}`)
+    console.log(
+      `[triage] B main process:\n${await b.app.evaluate((_electron, folder) => {
+        const fs = process.getBuiltinModule('node:fs') as typeof import('node:fs')
+        const childProcess = process.getBuiltinModule('node:child_process') as typeof import('node:child_process')
+        let read: string
+        try {
+          read = JSON.stringify(fs.readdirSync(folder))
+        } catch (error) {
+          read = `refused ${(error as NodeJS.ErrnoException).code}`
+        }
+        const privileges = process.platform === 'win32' ? childProcess.execFileSync(`${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\whoami.exe`, ['/priv'], { encoding: 'utf8' }).trim() : ''
+        return `readdir: ${read}\n${privileges}`
+      }, locked)}`
+    )
     await run({ a, b, bId: await machineIdOf(b.window), aData, bData, bHome: realpathSync.native(bHome), shop })
   } finally {
     // First, so that a close that throws cannot leave the folder locked; and a give-back that throws

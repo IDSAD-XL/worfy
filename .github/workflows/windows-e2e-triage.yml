@@ -40,6 +40,17 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Triage: whether a deny ACE set as linked-add-project and linked-machines set it stops the runner's
+      # user under node and under the Electron binary the app runs on, and which privileges each one's token
+      # has enabled (scripts/triage-deny-probe.cjs).
+      - name: Does a deny ACE stop the runner's user, under node and under Electron
+        if: matrix.shard == '1/4'
+        shell: pwsh
+        run: |
+          node scripts/triage-deny-probe.cjs
+          $electron = node -p "require('electron')"
+          $env:ELECTRON_RUN_AS_NODE = '1'
+          & $electron scripts/triage-deny-probe.cjs
       - name: Run the e2e tests, one shard
         shell: bash
         env:
