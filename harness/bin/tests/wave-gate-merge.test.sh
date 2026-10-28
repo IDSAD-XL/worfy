@@ -99,7 +99,8 @@ sleep 60 & sp=$! job=$!
 if on_windows; then until_ok 5 grep -q sleep "/proc/$sp/exename"; sp="$(cat "/proc/$sp/winpid")"; fi
 echo "$sp" >"$(PIDF)"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
-[ "$rc" -eq 1 ] && grep -q "another wave-gate check runs in this repository (pid $sp" "$W/out" && ok "pid: a live check's pid -> exit 1 naming it" || bad "pid live: exit $rc: $(tail -3 "$W/out")"
+[ "$rc" -eq 1 ] && grep -q "another wave-gate check runs in this repository (pid $sp, no start time to compare" "$W/out" \
+    && ok "pid: a live check's pid and no side file -> exit 1 naming it, with no start time to compare" || bad "pid live: exit $rc: $(tail -3 "$W/out")"
 [ "$(cat "$(TMPW_OF)/marker" 2>/dev/null)" = mine ] && git -C "$W/repo" worktree list | grep -q worfy-wave-gate && [ "$(gate_count)" = 0 ] && [ "$(cat "$(PIDF)")" = "$sp" ] \
     && ok "pid: the other check's worktree and pid file are untouched, no gate run" || bad "pid live: worktree, pid file or gate touched"
 # The side file names when the pid file's writer started. A live pid whose process started no later is that check:
@@ -109,6 +110,12 @@ if on_windows; then
     "$WG" check "$S" >"$W/out" 2>&1; rc=$?
     [ "$rc" -eq 1 ] && grep -q "another wave-gate check runs in this repository (pid $sp, it started at .*, no later than the file says" "$W/out" \
         && ok "pid: a live pid whose process started no later than the file says -> exit 1 naming it" || bad "pid live with start: exit $rc: $(tail -3 "$W/out")"
+else
+    # Off Windows the start time is not read: the error says so, not that the file names none.
+    echo "$sp" >"$(PIDF)"; echo "$sp $(( $(date +%s) * 1000 ))" >"$(SIDE)"
+    "$WG" check "$S" >"$W/out" 2>&1; rc=$?
+    [ "$rc" -eq 1 ] && grep -q "another wave-gate check runs in this repository (pid $sp, its start time is not read here" "$W/out" \
+        && ok "pid: off Windows a live pid with a side file -> exit 1, its start time not read" || bad "pid live with start off Windows: exit $rc: $(tail -3 "$W/out")"
 fi
 kill "$job"; wait "$job" 2>/dev/null
 git -C "$W/repo" worktree remove --force "$(TMPW_OF)"
