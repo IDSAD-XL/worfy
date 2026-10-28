@@ -63,7 +63,7 @@
 - Неделя работы владельца из Stable copy (условие 4 E2 и цель `worfy-week`): каждый дефект и каждое вмешательство человека — Ticket `worfy-week`, следующий номер 21.
 - `worfy-harness` 31: `$0` и `$1` в shell-блоках skills подменяются аргументами вызова.
 - Кандидаты Harness (`worfy-harness`): изоляция `preflight.test.sh` (11), абсолютный путь к `gh` (01), PATH с node в hook-е `gh-token-env` (18); прочие — `worfy-polish`.
-- `worfy-link` ведёт Session на Mac, `worfy-windows` — Session на ПК; PR Windows с общим кодом — метка `needs-mac-gate`, вливает Session на Mac (spec `worfy-windows`, Q30–Q33).
+- `worfy-link` ведёт Session на Mac, `worfy-windows` — Session на ПК; PR с ПК вливает Session на Mac по `ci-ok` и `review`; метки `needs-mac-gate` нет (ADR-0083).
 - E4 (подпись Developer ID и нотаризация) — после `worfy-link` и `worfy-windows` и только при первом внешнем пользователе ([roadmap](docs/roadmap.md)).
 
 ## Где остальное

@@ -58,17 +58,21 @@ Windows, очередь `needs-mac-gate`, карантин e2e и предел j
    проверял gate full на Mac, проверяют job-ы `ci-ok` на macOS. Вливает такой PR по-прежнему Session на Mac
    (ADR-0069, пункт 1).
 6. **Вердикт Windows — job `windows / full-suite` в составе `ci-ok` у каждого PR** (меняет ADR-0056, пункты
-   1 и 2, и ADR-0071, пункты 2–4), в том числе у PR, который меняет сами workflow-ы CI: его run идёт уже с
+   1 и 2, и ADR-0071, пункты 2 и 3), в том числе у PR, который меняет сами workflow-ы CI: его run идёт уже с
    изменённым workflow. Отметка `check/windows` (ADR-0067) — `success` на head, где `ci-ok` зелёный. ПК
    нужен только платформенному PR (определение — ADR-0056, пункт 2), для которого
    `node scripts/windows-verdict-scope.mjs <base> <head>` из checkout-а `main` печатает `pc`: такой PR ждёт
    gate full на Windows-ПК владельца на том же head, потому что runner не проверяет Terminal, окна, меню и
-   уведомления, e2e и упаковку на Windows. Какие пути дают `pc`, решает список скрипта, а не этот ADR.
+   уведомления, e2e и упаковку на Windows. Какие пути дают `pc`, решает список скрипта, а не этот ADR. В PR этого ADR из списка
+   ушли `.github/workflows/windows-tests.yml`, сам скрипт и настройка vitest: их проверяет run самого PR
+   (скрипт запускается из `main`, настройку vitest runner и ПК гоняют одинаково); остался
+   `test/windows-runner.ts` — он называет test-ы, которые runner пропускает, а ПК гоняет.
    Как отметка ставится из run-а автоматически — Ticket `worfy-throughput` 24; gate full на ПК раз в Wave
    вместо каждого PR — Ticket 30 и его ADR. Ручной dispatch `windows-tests.yml` (режимы `files` и `full`)
    Orchestrator больше не запускает: run приходит с `ci-ok`. Ручные режимы остаются для владельца.
 7. **Push в `main` заменяет batch CI run** (ADR-0068, пункты 2 и 4; ADR-0081, пункт 4; ADR-0071, run
-   `windows-full` на `main`). Каждый merge запускает свой run, и виноватый PR красного `main` виден по run-у
+   `windows-full` на `main` из пункта 2; ADR-0071, пункт 6 — красный run на `main` чинится только вперёд,
+   без revert, — заменён последним предложением этого пункта). Каждый merge запускает свой run, и виноватый PR красного `main` виден по run-у
    без деления пополам. Красный `ci-ok` на `main` — новые merge PR с кодом стоят, пока `main` не зелёный;
    исправление — revert виноватого PR или PR с исправлением, по выбору Orchestrator-а, со своим зелёным
    `ci-ok`.
@@ -78,8 +82,8 @@ Windows, очередь `needs-mac-gate`, карантин e2e и предел j
 
 Что остаётся в силе: ADR-0056, пункты 3–6 (ручной job, общение Session-й через репозиторий, merge по одному
 с rebase — проверки после rebase теперь `ci-ok`); ADR-0067 (отметки агентов на SHA); ADR-0069, пункт 1 в
-части «PR Session на Windows-ПК вливает Session на Mac»; ADR-0071, пункты 1 и 5 (режим `full`, scope решает
-скрипт); ADR-0081, пункты 5–7 (метрика, бюджет 15/30 min, аудит test-ов); замок e2e `workflow.e2e_lock` и
+части «PR Session на Windows-ПК вливает Session на Mac»; ADR-0071, пункты 1, 4 и 5 (режим `full`, PR со
+scope `pc` ждёт ПК, scope решает скрипт); ADR-0081, пункты 5–7 (метрика, бюджет 15/30 min, аудит test-ов); замок e2e `workflow.e2e_lock` и
 проверка экрана для локальных run-ов.
 
 **Последствия.**

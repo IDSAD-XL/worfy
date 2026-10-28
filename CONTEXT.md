@@ -97,11 +97,11 @@ _Avoid_: стабильная копия, prod-сборка, релиз
 _Avoid_: проверка, CI (CI — отдельная проверка на GitHub)
 
 **Gate full**:
-Полный Gate на одной Machine: lint, typecheck, все test-ы, e2e и проверка собранного приложения; gate fast — то же без e2e и сборки. С [ADR-0083](docs/adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md) gate full — не условие merge, а инструмент implementer-а и разбора сбоя; условие merge — зелёный check `ci-ok` CI на GitHub.
+Полный Gate на одной Machine: lint, typecheck, все test-ы, e2e и проверка собранного приложения; gate fast — то же без e2e и сборки. По [ADR-0083](docs/adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md), с первого зелёного check `ci-ok` на `main`, gate full — не условие merge, а инструмент implementer-а и разбора сбоя; условие merge — зелёный `ci-ok` CI на GitHub. До этого момента gate full на Mac — условие merge каждого PR с кодом.
 _Avoid_: полный гейт, полная проверка, full gate, ci-ok (как синоним)
 
 **Windows verdict**:
-Ответ на вопрос, работает ли изменение PR на Windows. Для каждого PR это job `windows` в составе check `ci-ok` CI на GitHub-hosted runner-е; для платформенного PR, который трогает то, чего runner не проверяет (Terminal, окна, меню, уведомления, e2e, упаковку), — Gate full на Windows-ПК владельца. Какой из двух нужен, решает скрипт scope, а не человек ([ADR-0083](docs/adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md)).
+Ответ на вопрос, работает ли изменение PR на Windows. С первого зелёного `ci-ok` на `main` (ADR-0083) для каждого PR это job `windows` в составе check `ci-ok` CI на GitHub-hosted runner-е; для платформенного PR, который трогает то, чего runner не проверяет (Terminal, окна, меню, уведомления, e2e, упаковку), — Gate full на Windows-ПК владельца. Какой из двух нужен, решает скрипт scope, а не человек ([ADR-0083](docs/adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md)).
 _Avoid_: проверка Windows, Windows-гейт, `check/windows` (это отметка, в которой Windows verdict записан)
 
 **Harness**:

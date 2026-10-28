@@ -64,6 +64,7 @@ job-ы: кончился бюджет Actions. При этом gate перед m
 
 ## Amendments
 
-- **2026-10-28, заменён ADR-0083** (`worfy-throughput` 35). Репозиторий публичный, минуты runner-ов
+- **2026-10-28, заменён ADR-0083** (`worfy-throughput` 35). Замена вступает в силу по ADR-0083 — с первым
+  зелёным `ci-ok` на `main`; до этого batch CI run на Wave действует как написан. Репозиторий публичный, минуты runner-ов
   бесплатны: CI идёт на каждый PR и push в `main`, зелёный check `ci-ok` на head — условие merge,
   `workflow.ci` Profile-а worfy — `"pr"`, batch CI run на `main` больше не запускается.

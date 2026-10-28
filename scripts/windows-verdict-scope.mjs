@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Which machine gives the Windows verdict of a platform pull request (ADR-0071, worfy-windows ticket 66):
+// Which machine gives the Windows verdict of a platform pull request (ADR-0071 and ADR-0083,
+// worfy-windows ticket 66):
 //
 //   node scripts/windows-verdict-scope.mjs <base> <head>
 //
@@ -8,12 +9,14 @@
 // moved out of a listed path still counts. When at least one file matches a path of PC_ONLY, the
 // script prints `pc` and then each matching file on a line of its own, and the exit code is 1: the
 // verdict is gate full on the owner's Windows PC (ADR-0056). When none matches, it prints `runner`
-// and the exit code is 0: the verdict is a green run of the mode full of the "Windows tests"
-// workflow (.github/workflows/windows-tests.yml) on the head. An empty diff is `runner`.
+// and the exit code is 0: the verdict is the green job `windows / full-suite` of the pull request's
+// own CI run on the head (part of the check `ci-ok`), also for a pull request that changes the CI
+// workflows themselves — that run already runs with the changed workflow. An empty diff is `runner`.
 // Any other exit code — 2: wrong arguments, or git could not compute the diff — is no verdict.
 //
 // The rule is for platform pull requests only. Which pull request is a platform one is decided as
-// before (ADR-0056, point 2); for an ordinary one the check is `skipped`, whatever this prints.
+// before (ADR-0056, point 2); an ordinary one gets its Windows verdict from `ci-ok` alone, whatever
+// this prints.
 //
 // Run it from a checkout of main, not of the pull request: the pull request must not decide its own
 // verdict by changing this list. The arguments are commits or refs of the repository in the working
@@ -23,7 +26,8 @@ import { spawnSync } from 'node:child_process'
 import process from 'node:process'
 
 // What the runner cannot check: a real Terminal (ConPTY, PowerShell, node-pty), windows, menus and
-// notifications, e2e and the packaged app — and the files that decide what the run itself checks.
+// notifications, e2e and the packaged app — and the one file that tells the run to skip tests the PC
+// still runs.
 // `**` is any number of folders (none too), `*` any characters but `/`; a pattern matches the whole
 // path from the repository root. An error toward `pc` costs one more gate full on the PC; an error
 // toward `runner` lets a regression through to the next gate full there.
@@ -90,14 +94,14 @@ const PC_ONLY = [
   'scripts/make-icons.mjs',
   'scripts/ico.mjs',
   'scripts/postinstall.mjs',
-  // The run's own rules: a pull request that changes them must not be judged by its own run
-  '.github/workflows/windows-tests.yml',
-  'scripts/windows-verdict-scope.mjs',
-  'scripts/vitest-electron.mjs',
-  'vitest.config.ts',
-  'test/setup-contract.ts',
-  'test/setup-dom.ts',
+  // The skip list of the runner alone: tests it names are skipped on the GitHub Windows runner and
+  // run on the PC, so a pull request that widens it hides those tests from its own run.
   'test/windows-runner.ts',
+  // Not listed, because the pull request's own CI run judges them: the workflows (the run already
+  // uses the changed workflow, ADR-0083), this script (run from a checkout of main, so a pull request
+  // never decides its own verdict; its tests run on the runner) and the vitest setup —
+  // scripts/vitest-electron.mjs, vitest.config.ts, test/setup-contract.ts, test/setup-dom.ts — which
+  // the runner and the PC run alike.
 ]
 
 const escape = (text) => text.replace(/[.+^${}()|[\]\\?]/g, '\\$&')

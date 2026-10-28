@@ -91,7 +91,8 @@ Mac, повторить gate full на Windows некому.
 
 ## Amendments
 
-- **2026-10-28, ADR-0083** (`worfy-throughput` 35). Очереди `needs-mac-gate` больше нет: поле
+- **2026-10-28, ADR-0083** (`worfy-throughput` 35). Вступает в силу по ADR-0083 — с первым зелёным `ci-ok`
+  на `main`; до этого очередь `needs-mac-gate` работает как написано. После перехода очереди больше нет: поле
   `cross_machine_gate` снимается из Profile-а worfy на Mac, и PR Session на Windows-ПК вливается по
   зелёному check `ci-ok` и отметке `review`, как любой другой PR, — без gate full на Mac, раздела
   «Mac checks» и отчёта по нему (пункты 1–4). Вливает такой PR по-прежнему Session на Mac.

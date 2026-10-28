@@ -158,14 +158,24 @@ describe('scripts/windows-verdict-scope.mjs', () => {
     ['scripts/make-icons.mjs', 'scripts/make-icons.mjs'],
     ['scripts/ico.mjs', 'scripts/ico.mjs'],
     ['scripts/postinstall.mjs', 'scripts/postinstall.mjs'],
-    ['.github/workflows/windows-tests.yml', '.github/workflows/windows-tests.yml'],
-    ['scripts/windows-verdict-scope.mjs', 'scripts/windows-verdict-scope.mjs'],
-    ['scripts/vitest-electron.mjs', 'scripts/vitest-electron.mjs'],
-    ['vitest.config.ts', 'vitest.config.ts'],
-    ['test/setup-contract.ts', 'test/setup-contract.ts'],
-    ['test/setup-dom.ts', 'test/setup-dom.ts'],
     ['test/windows-runner.ts', 'test/windows-runner.ts'],
   ]
+
+  it.each([
+    // ADR-0083, point 6: the pull request's own CI run, with the changed workflow, is its verdict.
+    '.github/workflows/windows-tests.yml',
+    '.github/workflows/ci.yml',
+    // Run from a checkout of main, so the pull request does not decide its own verdict.
+    'scripts/windows-verdict-scope.mjs',
+    // The vitest setup: the runner and the PC run it alike.
+    'scripts/vitest-electron.mjs',
+    'vitest.config.ts',
+    'test/setup-contract.ts',
+    'test/setup-dom.ts',
+  ])('prints runner, exit code 0, for a change of %s alone: the CI run of the pull request judges it', (path) => {
+    const head = branch(() => put(path, `${path} changed\n`))
+    expect(scope('main', head)).toEqual({ status: 0, lines: ['runner'], stderr: '' })
+  })
 
   it('lists exactly the entries pinned here, in this order', () => {
     // The list as the script spells it: one quoted pattern per line of the PC_ONLY array.
