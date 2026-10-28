@@ -34,8 +34,8 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
    `worfy-review` 08). Skill пишет в отчёт `Agents: eco` или `Agents: full — <причина>`.
 4. Отчёт Wave и ship-ticket называет число запущенных Subagent-ов Ticket-а.
 
-Нужен ПК: нет. **Трогает Harness: да** — skill-ы `epic-wave`, `ship-ticket`, `profiles/README.md`, schema; слова
-владельца на эти правки пока нет (Q-L0 spec-а). Вердикт Windows: не платформенный PR, если не меняются скрипты `harness/bin` (test-ы в
+Нужен ПК: нет. **Трогает Harness: да** — skill-ы `epic-wave`, `ship-ticket`, `profiles/README.md`, schema; слово
+владельца дано (Q-L0 spec-а: «да» 2026-10-28). Вердикт Windows: не платформенный PR, если не меняются скрипты `harness/bin` (test-ы в
 `harness/bin/tests/` не в счёт). Общий файл с 07, 13, 26, 27, 28 — `epic-wave/SKILL.md`, с 33 — `ship-ticket/SKILL.md`: claim после 28 и 33.
 
 ## Готово, когда

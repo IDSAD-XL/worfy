@@ -1,4 +1,4 @@
-# 37 — Модель и effort по роли Harness из Profile: Sonnet по умолчанию, Opus — явным выбором
+# 37 — Модель и effort по роли Harness из Profile: Sonnet для scout и reviewer, Opus — явным выбором
 
 Type: task
 Status: open
@@ -35,8 +35,8 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
    модель и effort каждого агента и откуда они взяты.
 4. Frontmatter агентов не меняется, пока Profile не задал поле: старые Profile работают как раньше.
 
-Нужен ПК: нет. **Трогает Harness: да** — `epic-wave`, `ship-ticket`, `profiles/README.md`, schema; слова владельца
-нет (Q-L0 spec-а). Вердикт Windows: не платформенный PR, если не меняются скрипты `harness/bin` (test-ы в
+Нужен ПК: нет. **Трогает Harness: да** — `epic-wave`, `ship-ticket`, `profiles/README.md`, schema; слово владельца
+ дано (Q-L0 spec-а: «да» 2026-10-28). Вердикт Windows: не платформенный PR, если не меняются скрипты `harness/bin` (test-ы в
 `harness/bin/tests/` не в счёт). Общие файлы с 36 —
 claim после 36.
 
@@ -48,6 +48,8 @@ claim после 36.
       `epic-wave-ship-ticket.test.sh`): строка вызова агента с моделью и effort из `F agents.<роль>`, строка отчёта
       `Model: <модель> (<откуда>)`, фраза о том, что аргумент skill-а и слово владельца перекрывают поле Profile —
       exit 0 после правки.
+- [ ] Значения Profile worfy по ответу на Q-L3 (2026-10-28): scout и reviewer на глубине `low` — Sonnet сразу;
+      implementer — Sonnet только после итога Ticket-а 43, до него `inherit`.
 - [ ] Schema test — по образцу `harness/bin/tests/review-depth.test.sh`, раздел 2.
 - [ ] Shell test-ы Harness — exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; условие merge — `ci-ok`.
 - [ ] Платный eval — только с «да» владельца и ценой из команды, которую eval реально запустит (решение 14 раздела «процесс»;

@@ -21,9 +21,9 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 
 1. **Замер, до кода.** По транскриптам (скрипт Ticket-а 19 или разовый разбор) — размер описаний skills и
    plugin-ов в первом запросе Session worfy и Subagent-а на Mac владельца: token-ы и доля стартового контекста.
-   Итог — в «Итог» и ответ на Q-L4. Меньше 5k token-ов на старт (порог из рекомендации Q-L4) — Ticket
+   Итог — в «Итог»; по нему выбирается шаг 2 (ответ владельца на Q-L4). Меньше 5k token-ов на старт (порог из рекомендации Q-L4) — Ticket
    закрывается этим ответом.
-2. Иначе, после «да» владельца на Q-L4: поле Profile со списком plugin-ов и skills для Session Project-а (имя
+2. Иначе (больше 5k token-ов; «да» владельца на Q-L4 — 2026-10-28, `spec.md` «Ответы»; нужен новый ADR): поле Profile со списком plugin-ов и skills для Session Project-а (имя
    предлагает Ticket). Поле объявляется в контракте Profile так же, как `mcp.allowed`: строка в
    `harness/profiles/README.md` (образец — `:209`) и в `harness/profiles/draft.schema.json` (образец — `:147`).
    Нет поля — как сейчас. plugin worfy в списке всегда.
@@ -33,7 +33,7 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 4. Новый ADR: меняет следствие ADR-0002 о skills. Номер — `bin/preflight` на claim.
 
 Нужен ПК: нет. **Трогает Harness: да** — контракт Profile (`harness/profiles/README.md`, `draft.schema.json`) на
-шаге 2; слова владельца нет (Q-L0 spec-а). Остальное — код worfy. Вердикт Windows: runner `full` (код Session, нужен
+шаге 2; слово владельца дано (Q-L0 spec-а: «да» 2026-10-28). Остальное — код worfy. Вердикт Windows: runner `full` (код Session, нужен
 на обеих ОС).
 
 ## Готово, когда

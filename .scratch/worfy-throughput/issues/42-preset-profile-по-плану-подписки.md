@@ -36,7 +36,7 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 5. С `worfy-onboarding` 09: тексты и выбор Sonnet/Opus Demo project — согласовать при claim, чтобы два места не
    говорили разное.
 
-Нужен ПК: нет. **Трогает Harness: да** — `harness/bin/profile-set`; слова владельца нет (Q-L0 spec-а). Вердикт
+Нужен ПК: для merge — если в diff есть `test/e2e/**`. **Трогает Harness: да** — `harness/bin/profile-set`; слово владельца дано (Q-L0 spec-а: «да» 2026-10-28). Вердикт
 Windows: платформенный PR (скрипт Harness, ADR-0056, пункт 2). В diff есть `test/e2e/**` — gate full на ПК владельца
 (scope `pc`, `scripts/windows-verdict-scope.mjs:80`); иначе runner `full`.
 
