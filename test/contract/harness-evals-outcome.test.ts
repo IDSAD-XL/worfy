@@ -8,9 +8,9 @@
 // run folders and computes the metrics (stub judge), the statistics give known values, and the free
 // checker compares reference solutions with their expected verdicts on a synthetic task that lives
 // only in a temporary folder.
-import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
+import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { availableParallelism, homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -122,10 +122,10 @@ const tempDir = (prefix: string, keep: 'test' | 'file' = 'test'): string => {
 /** The beforeAll of what the tests of a describe block share; the folders it makes go at the end of the block. */
 const beforeBlock = (build: () => unknown, timeout: number): void => {
   const made: string[] = []
-  beforeAll(() => {
+  beforeAll(async () => {
     blockTemps = made
     try {
-      build()
+      await build()
     } finally {
       blockTemps = null
     }
@@ -761,15 +761,66 @@ const judgeInputs = (log: string): string[] => (existsSync(log) ? readFileSync(l
  * itself 0500. The working folder was <root>/home/cwd during the run: the scaffold, then `agent`.
  */
 function keptRun(parent: string, scaffold: string, agent: string, answer: string): { root: string; trace: string } {
+  const run = newKeptRun(parent)
+  for (const script of [scaffold, agent]) {
+    const done = spawnSync('bash', ['-c', script], { cwd: run.work, encoding: 'utf8', env: run.env })
+    if (done.status !== 0) throw new Error(`kept run: ${done.stderr}`)
+  }
+  return sealKeptRun(run, agent, answer)
+}
+
+/**
+ * keptRun for each of `agents`, side by side, one bash per CPU at most. Each run has its own folder,
+ * HOME and TMP, so they do not meet. The scaffold takes about 4 s of git and bash per run on Windows
+ * (on the PC, quiet: 157 s of the 175 s of the setup of the tests-intact check, 38 runs one after
+ * another), so one after another they outgrew the setup timeout under the load of a gate full.
+ */
+async function keptRuns(parent: string, scaffold: string, agents: Record<string, string>, answer: string): Promise<Record<string, { root: string; trace: string }>> {
+  const bash = (script: string, run: KeptRun): Promise<void> =>
+    new Promise((done, fail) => {
+      const child = spawn('bash', ['-c', script], { cwd: run.work, env: run.env, stdio: ['ignore', 'ignore', 'pipe'] })
+      let stderr = ''
+      child.stderr.setEncoding('utf8').on('data', (data: string) => (stderr += data))
+      child.on('error', fail)
+      child.on('close', (code) => (code === 0 ? done() : fail(new Error(`kept run: ${stderr}`))))
+    })
+  const names = Object.keys(agents)
+  const runs: Record<string, { root: string; trace: string }> = {}
+  let next = 0
+  const lane = async (): Promise<void> => {
+    for (let name = names[next++]; name !== undefined; name = names[next++]) {
+      const run = newKeptRun(parent)
+      try {
+        for (const script of [scaffold, agents[name]!]) await bash(script, run)
+      } catch (error) {
+        // The block fails with this error: the other lanes start no new run.
+        next = names.length
+        throw error
+      }
+      runs[name] = sealKeptRun(run, agents[name]!, answer)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(availableParallelism(), names.length) }, lane))
+  return runs
+}
+
+interface KeptRun {
+  root: string
+  home: string
+  work: string
+  env: NodeJS.ProcessEnv
+}
+/** The folders of a kept run before its scripts: <root>/home/cwd is the working folder. */
+function newKeptRun(parent: string): KeptRun {
   const root = realpathSync(mkdtempSync(join(parent, 'e-')))
   const home = join(root, 'home')
   const work = join(home, 'cwd')
   for (const dir of [work, join(root, 'tmp'), join(root, 'out'), join(root, 'config')]) mkdirSync(dir, { recursive: true })
   const env = childEnv(home, { ...baseVars(), TMPDIR: join(root, 'tmp'), TEMP: join(root, 'tmp'), TMP: join(root, 'tmp'), GIT_CONFIG_NOSYSTEM: '1' })
-  for (const script of [scaffold, agent]) {
-    const run = spawnSync('bash', ['-c', script], { cwd: work, encoding: 'utf8', env })
-    if (run.status !== 0) throw new Error(`kept run: ${run.stderr}`)
-  }
+  return { root, home, work, env }
+}
+/** After the scripts: the trace of `agent` and `answer`, then home/ and tmp/ sealed. */
+function sealKeptRun({ root, home, work }: KeptRun, agent: string, answer: string): { root: string; trace: string } {
   const tool = (command: string, i: number): object => ({ type: 'assistant', parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'tool_use', id: `t${i}`, name: 'Bash', input: { command } }] } })
   const events = [
     { type: 'system', subtype: 'init', cwd: work },
@@ -845,6 +896,13 @@ interface Outcome {
   >
 }
 const readOutcome = (dir: string): Outcome => JSON.parse(readFileSync(join(dir, 'outcome.json'), 'utf8')) as Outcome
+
+describe('keptRuns, the kept runs of several stub agents side by side', () => {
+  it('fails with the stderr of a script that exits with a code other than 0', async () => {
+    const parent = tempDir('outcome-kept-runs-')
+    await expect(keptRuns(parent, 'true', { fine: 'true', broken: 'echo the agent broke >&2; exit 3' }, 'Done.')).rejects.toThrow(/^kept run: the agent broke/)
+  })
+})
 
 describe('scripts/eval-outcome-score.mjs (stub judge, synthetic kept runs)', () => {
   ownTmp()
@@ -1231,9 +1289,13 @@ describe('the tests-intact check (stub agents on synthetic kept runs)', () => {
         '',
       ].join('\n'),
   }
-  const setup = (() => {
+  const { build, setup } = (() => {
     let cache: { results: string; gitResults: string; marker: string; lazyMarker: string; run: SpawnSyncReturns<string>; gitRun: SpawnSyncReturns<string> } | null = null
-    return () => {
+    const setup = () => {
+      if (!cache) throw new Error('the setup of the block did not run')
+      return cache
+    }
+    const build = async (): Promise<void> => {
       if (!cache) {
         const root = tempDir('outcome-intact-')
         const task = syntheticTask(root)
@@ -1242,8 +1304,9 @@ describe('the tests-intact check (stub agents on synthetic kept runs)', () => {
         const marker = join(root, 'filter-ran')
         const lazyMarker = join(root, 'upload-pack-ran')
         const scaffold = `bash ${JSON.stringify(join(task.tasks, task.name, 'scaffold.sh'))}`
-        const runs = Object.fromEntries(Object.entries(AGENTS).map(([name, agent]) => [name, keptRun(kept, scaffold, agent(marker), 'Done.')]))
-        const gitRuns = Object.fromEntries(Object.entries(GIT_AGENTS).map(([name, agent]) => [name, keptRun(kept, scaffold, agent(lazyMarker), 'Done.')]))
+        const all = await keptRuns(kept, scaffold, { ...Object.fromEntries(Object.entries(AGENTS).map(([name, agent]) => [name, agent(marker)])), ...Object.fromEntries(Object.entries(GIT_AGENTS).map(([name, agent]) => [`git:${name}`, agent(lazyMarker)])) }, 'Done.')
+        const runs = Object.fromEntries(Object.keys(AGENTS).map((name) => [name, all[name]!]))
+        const gitRuns = Object.fromEntries(Object.keys(GIT_AGENTS).map((name) => [name, all[`git:${name}`]!]))
         const hidden = join(root, 'hidden-intact')
         mkdirSync(join(hidden, task.name), { recursive: true })
         // No `primary`: every rate gets the Holm adjustment, `solved` too.
@@ -1263,10 +1326,10 @@ describe('the tests-intact check (stub agents on synthetic kept runs)', () => {
         remove([kept])
         cache = { results, gitResults, marker, lazyMarker, run, gitRun }
       }
-      return cache
     }
+    return { build, setup }
   })()
-  beforeBlock(setup, SETUP_TIMEOUT)
+  beforeBlock(build, SETUP_TIMEOUT)
   const check = (name: string): Check => readOutcome(setup().results).tasks['synthetic-add']!.arms.with!.runs[Object.keys(AGENTS).indexOf(name)]!.checks['tests-intact']!
   const gitCheck = (name: string): Check => readOutcome(setup().gitResults).tasks['synthetic-add']!.arms.with!.runs[Object.keys(GIT_AGENTS).indexOf(name)]!.checks['tests-intact']!
 
