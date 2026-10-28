@@ -12,9 +12,11 @@ name: CI
 # - macos-tests: pnpm test on macOS in 2 shards: the tests that run on macOS only are checked here.
 # - macos-e2e: pnpm test:e2e on macOS in 2 shards (Playwright --shard), Electron with a window.
 # - macos-package: pnpm test:package on macOS: the packaged .app.
-# - windows: the job full-suite of windows-tests.yml, pnpm test on Windows, in one job: in 4 vitest
-#   shards 7 shell tests of the Harness and the tests-intact check of harness-evals-outcome failed in
-#   the fourth shard on both runs, while the whole suite in one job passes them.
+# - windows: the job full-suite of windows-tests.yml, pnpm test on Windows in 3 shards (vitest
+#   --shard), jobs "windows (1/3) / full-suite" to "windows (3/3) / full-suite". In one job the heavy
+#   contract files (harness-evals 943 s, harness-migrate 450 s, harness-scripts 421 s) ran at the same
+#   time on one 4-CPU runner, the likely cause of its flaky tests. An earlier try with 4 shards
+#   failed on Git Bash's /tmp, which test/global-setup-git-bash.ts now fixes for every vitest process.
 # - ci-ok: green when every job the run needs succeeded (scripts/ci-ok.mjs). A merge reads this check.
 #
 # The manual run stays: Actions → CI → Run workflow, or `gh workflow run ci.yml --ref <ref> -f
@@ -252,13 +254,22 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # pnpm test on Windows: the job full-suite of the Windows workflow.
+  # pnpm test on Windows: the job full-suite of the Windows workflow, one call per shard. For ci-ok,
+  # needs.windows.result is the result of all three: a failed or cancelled shard makes it red.
   windows:
     needs: changes
     if: fromJSON(needs.changes.outputs.expect)['windows']
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - 1/3
+          - 2/3
+          - 3/3
     uses: ./.github/workflows/windows-tests.yml
     with:
       mode: full
+      shard: ${{ matrix.shard }}
 
   # Runs whatever happened before it (always()), so the check reports on every run; a cancelled run
   # reads as red, never as a skipped check.

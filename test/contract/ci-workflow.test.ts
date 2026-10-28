@@ -155,16 +155,19 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     expect(runs('macos-e2e')).toEqual(['pnpm install --frozen-lockfile', 'osascript -l JavaScript scripts/ci-display.js', 'pnpm test:e2e "--shard=$SHARD"'])
     // electron-builder needs the binary that Electron downloads only on its first require.
     expect(runs('macos-package')).toEqual(['pnpm install --frozen-lockfile', `node -e "require('electron')"`, 'pnpm test:package'])
-    // Windows: the job full-suite of windows-tests.yml, which runs pnpm test (its own contract test).
+    // Windows: the job full-suite of windows-tests.yml, which runs pnpm test with the shard it is
+    // given (its own contract test), once per shard of the matrix.
     const windows = job('windows')
     expect(value(windows, 'uses')).toBe('./.github/workflows/windows-tests.yml')
-    expect(under(windows, '    with:')).toEqual(['      mode: full'])
+    expect(under(windows, '    with:')).toEqual(['      mode: full', '      shard: ${{ matrix.shard }}'])
   })
 
   it('splits the tests into shards that together cover every file', () => {
     expect(shards('linux-tests')).toHaveLength(4)
     expect(shards('macos-tests')).toHaveLength(2)
     expect(shards('macos-e2e')).toHaveLength(2)
+    // One Windows job ran the heavy contract files side by side on one runner; three shards share them out.
+    expect(shards('windows')).toHaveLength(3)
     for (const name of ['linux-tests', 'macos-tests', 'macos-e2e']) {
       expect(job(name), name).toContain('          SHARD: ${{ matrix.shard }}')
     }
