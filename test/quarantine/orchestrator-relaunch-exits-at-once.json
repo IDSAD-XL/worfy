@@ -1,0 +1,11 @@
+{
+  "file": "test/contract/orchestrator-relaunch.test.ts",
+  "test": "Orchestrator relaunch waits for the old Claude Code process > a process that exits at once: the new one starts with no wait added — well under the limit",
+  "platforms": [
+    "win32"
+  ],
+  "reason": "On the GitHub Windows runner the test takes 8.8-11 s now and then and the order of the stub processes lacks 'exit 1 SIGTERM' (['spawn 1', 'spawn 2']): the exit of the terminated stub process is not reported before the new start. Red in CI runs 40633058906 (11082 ms) and 40643969213 (8809 ms) of windows / full-suite; green in 40620951864 (627 ms), 40628079155 (1544 ms) and 40640810358 (2188 ms) (2026-10-28).",
+  "owner": "worfy-throughput 23",
+  "since": "2026-10-28",
+  "until": "2026-11-11"
+}
