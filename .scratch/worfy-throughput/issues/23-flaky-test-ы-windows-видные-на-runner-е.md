@@ -199,3 +199,7 @@ note…`, который красный и до правки (5 из 5): в ко
   (project-connect, wave-gate-heartbeat, wave-gate-screen, gate-args, wave-gate-lock). В трёх job-ах до него
   (122722658964, 122735647777, 122741771964) этого нет. Похоже на сломанный PATH Git Bash на одном runner-е; при
   повторе разбираем.
+- 2026-10-28, `test/contract/harness-evals.test.ts:1982` «says "cases mismatch" when a chosen case is missing…»: `Test
+  timed out in 45000ms` на Windows runner-е (#885, job 122748777183). Head уже содержит #888, то есть одного
+  временного git-репозитория на все `--changed` case-ы мало. Перемерить после #889 (shard-ы); если не уйдёт —
+  разбирать, что в case-е стоит дороже 45 s.
