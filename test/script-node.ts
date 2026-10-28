@@ -16,7 +16,7 @@
 //
 // A few tests stay on process.execPath on purpose, each for the reason
 // test/contract/script-node.test.ts gives: there the program is the app's own choice, not a script the
-// test starts. That test also fails on a new launch of process.execPath anywhere else.
+// test starts. That test also fails on a new read of process.execPath anywhere else in the test code.
 import { spawnSync } from 'node:child_process'
 import process from 'node:process'
 
@@ -41,7 +41,10 @@ export function findScriptNode(env: Readonly<Record<string, string | undefined>>
       `the node for the tests' scripts is not usable: ${source} ${why}. The tests take node from npm_node_execpath (set by pnpm) or else from PATH, and never fall back to process.execPath (Electron under pnpm test).`,
     )
   }
-  if (run.error !== undefined) return fail(`did not start (${run.error.message})`)
+  if (run.error !== undefined) {
+    const timedOut = (run.error as NodeJS.ErrnoException).code === 'ETIMEDOUT'
+    return fail(timedOut ? 'started but did not answer within 30 s' : `did not start (${run.error.message})`)
+  }
   if (run.status !== 0) return fail(`exited with ${run.status ?? run.signal}: ${run.stderr.trim()}`)
   let answer: unknown
   try {

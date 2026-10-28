@@ -18,8 +18,6 @@ import { shellStub } from '../shell-stub'
 const MJS = join(__dirname, '..', '..', 'scripts', 'statusline-bridge.mjs')
 const SH = join(__dirname, '..', '..', 'scripts', 'statusline-bridge.sh')
 const WINDOWS = process.platform === 'win32'
-/** Node itself, not the Electron that runs the tests. */
-const NODE = scriptNode()
 
 const RATE_LIMITS = { five_hour: { used_percentage: 29, resets_at: 1791202800 }, seven_day: { used_percentage: 9, resets_at: 1791777600 } }
 const STATUS = {
@@ -57,7 +55,7 @@ type Entry = 'mjs' | 'sh'
 function run(entry: Entry, stdin: string, args: string[] = [], env: Record<string, string> = { WORFY_DATA_DIR: dataDir }) {
   const base: Record<string, string> = { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home }
   if (WINDOWS) Object.assign(base, { USERPROFILE: home, SystemRoot: process.env.SystemRoot ?? 'C:\\Windows' })
-  const [file, fileArgs] = entry === 'mjs' ? [NODE, [MJS]] : ['/bin/sh', [SH]]
+  const [file, fileArgs] = entry === 'mjs' ? [scriptNode(), [MJS]] : ['/bin/sh', [SH]]
   const result = spawnSync(file, [...fileArgs, ...args], { input: stdin, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, env: { ...base, ...env } })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }
@@ -189,7 +187,7 @@ describe('statusline-bridge scripts', () => {
   // bytes after the JSON made the script write nothing while it exited 0.
   it('reads a status line JSON over 64 KB, and the first object of JSON followed by stray bytes', async () => {
     const big = JSON.stringify({ ...STATUS, padding: 'x'.repeat(70_000) })
-    expect(await runAsync(NODE, [MJS, 'cat >/dev/null; echo ok'], big)).toMatchObject({ status: 0, stdout: 'ok\n' })
+    expect(await runAsync(scriptNode(), [MJS, 'cat >/dev/null; echo ok'], big)).toMatchObject({ status: 0, stdout: 'ok\n' })
     expect(written()).toEqual(RATE_LIMITS)
     rmSync(join(dataDir, 'statusline-limits.json'))
     expect(run('mjs', `${JSON.stringify(STATUS)}\n{"not": "closed"`)).toMatchObject({ status: 0 })
@@ -210,14 +208,14 @@ describe('statusline-bridge scripts', () => {
   it('gives the user command a status line JSON over 64 KB and returns, 30 runs in a row', async () => {
     const big = JSON.stringify({ ...STATUS, padding: 'x'.repeat(70_000) })
     for (let round = 0; round < 30; round += 1) {
-      expect(await runAsync(NODE, [MJS, 'wc -c'], big), `run ${round}`).toMatchObject({ status: 0, stdout: expect.stringMatching(new RegExp(`^\\s*${big.length}\\s*$`)) })
+      expect(await runAsync(scriptNode(), [MJS, 'wc -c'], big), `run ${round}`).toMatchObject({ status: 0, stdout: expect.stringMatching(new RegExp(`^\\s*${big.length}\\s*$`)) })
     }
     expect(written()).toEqual(RATE_LIMITS)
   }, 180_000)
 
   it('runs a user command that does not read its stdin, with its output and exit code', async () => {
     const big = JSON.stringify({ ...STATUS, padding: 'x'.repeat(300_000) })
-    expect(await runAsync(NODE, [MJS, 'echo hi; exit 4'], big)).toEqual({ status: 4, stdout: 'hi\n' })
+    expect(await runAsync(scriptNode(), [MJS, 'echo hi; exit 4'], big)).toEqual({ status: 4, stdout: 'hi\n' })
     expect(written()).toEqual(RATE_LIMITS)
   })
 
@@ -240,7 +238,7 @@ describe('statusline-bridge scripts', () => {
   it('writes the file with no jq anywhere on PATH', () => {
     const emptyPath = join(scratch, 'empty-path')
     mkdirSync(emptyPath)
-    const result = spawnSync(NODE, [MJS], { input: JSON.stringify(STATUS), encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, env: { PATH: emptyPath, HOME: home, USERPROFILE: home, WORFY_DATA_DIR: dataDir } })
+    const result = spawnSync(scriptNode(), [MJS], { input: JSON.stringify(STATUS), encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, env: { PATH: emptyPath, HOME: home, USERPROFILE: home, WORFY_DATA_DIR: dataDir } })
     expect(result).toMatchObject({ status: 0, stdout: '', stderr: '' })
     expect(written()).toEqual(RATE_LIMITS)
   })
@@ -270,7 +268,7 @@ describe.skipIf(WINDOWS)('statusline-bridge.sh without a working node', () => {
       const found = tool(name)
       if (found) symlinkSync(found, join(dir, name))
     }
-    if (node === 'real') symlinkSync(NODE, join(dir, 'node'))
+    if (node === 'real') symlinkSync(scriptNode(), join(dir, 'node'))
     else if (node !== null) shellStub(join(dir, 'node'), STUBS[node])
     return dir
   }

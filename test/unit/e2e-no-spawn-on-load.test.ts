@@ -492,8 +492,8 @@ const STARTED_ON_LOAD_ON_PURPOSE: Record<string, { why: string; calls: string[] 
     calls: ["git(repo, 'init', '-q')", "git(repo, 'add', '.')", "git(repo, 'commit', '-q', '-m', 'init')", "git(second, 'init', '-q')", "git(second, 'add', '.')", "git(second, 'commit', '-q', '-m', 'init')"],
   },
   'test/contract/statusline-bridge.test.ts': {
-    why: 'node -p asks for the path of Node, which every system of the tests has; tool() is a spawnSync of /bin/sh, which returns the error where there is no /bin/sh instead of throwing it',
-    calls: ["execFileSync('node', ['-p', 'process.execPath'], { encoding: 'utf8' })", "tool('jq')"],
+    why: 'tool() is a spawnSync of /bin/sh, which returns the error where there is no /bin/sh instead of throwing it',
+    calls: ["tool('jq')"],
   },
   'test/contract/workflow-profile.test.ts': { why: 'hasSh() of test/harness-node.ts is a spawnSync for it.skipIf: it returns false where sh does not start', calls: ['hasSh()'] },
   'test/contract/workflow-reader.test.ts': { why: 'hasSh() of test/harness-node.ts is a spawnSync for it.skipIf: it returns false where sh does not start', calls: ['hasSh()'] },

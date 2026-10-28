@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
+import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { findScriptNode, scriptNode } from '../script-node'
 
@@ -21,6 +22,8 @@ const STAYS: Record<string, string> = {
   'unit/program.test.ts': 'checks programStart, which starts a .mjs stand-in with the app\'s own executable',
   'unit/first-run-windows.test.ts': 'checks the gh stand-in calls of the first-run check, started with the app\'s own executable',
   'unit/install-stable-functions.test.ts': 'checks the command the install script starts the Harness profile with: the node that runs it',
+  'contract/app-user-model-id.test.ts': 'checks the Windows AppUserModelID the app derives from its own executable',
+  'contract/script-node.test.ts': 'checks that scriptNode() is not process.execPath, and refuses Electron given as npm_node_execpath',
   // The Claude process stub: a stand-in of the Claude Code process, handed to the app's watchedSpawn
   // as the SDK hands it (test/contract/claude-process-stub.ts).
   'contract/claude-process-stub.ts': 'the Claude Code stand-in, started through the app\'s watchedSpawn as the SDK starts it',
@@ -32,18 +35,23 @@ const STAYS: Record<string, string> = {
   'unit/agent-cost.test.ts': 'waits for #922, which changes this file',
 }
 
-/** A program given as process.execPath in code: the first argument of a launch, or a `command`. */
-const LAUNCH = /\b(?:spawn|spawnSync|execFile|execFileSync|runFile|fork)\(\s*process\.execPath\b|\bcommand:\s*process\.execPath\b/
-
-/** The line without its comments and string literals, so a script a test writes does not count. */
-function code(line: string): string {
-  const trimmed = line.trim()
-  if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) return ''
-  return line
-    .replace(/`[^`]*`/g, '``')
-    .replace(/'(?:[^'\\]|\\.)*'/g, "''")
-    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
-    .replace(/\/\/.*$/, '')
+/**
+ * The lines where the code of a file reads process.execPath, as the TypeScript parser sees it: a launch,
+ * an alias, a program handed on in an object or a list. Comments and the text of string literals do not
+ * count — a script a test writes for a child reads its own process.execPath — but an expression inside
+ * a template literal does.
+ */
+function execPathReads(path: string, text: string): number[] {
+  const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, path.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
+  const lines: number[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isPropertyAccessExpression(node) && node.name.text === 'execPath' && ts.isIdentifier(node.expression) && node.expression.text === 'process') {
+      lines.push(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  return lines
 }
 
 /** Test files outside test/e2e and test/acceptance: those run under Playwright's node, not Electron. */
@@ -54,20 +62,32 @@ function testFiles(): string[] {
 }
 
 describe('test/script-node.ts', () => {
-  it('no test starts a program with process.execPath but those of the list', () => {
-    const found = testFiles().flatMap((path) =>
-      readFileSync(join(TEST, path), 'utf8')
-        .split(/\r?\n/)
-        .flatMap((line, at) => (LAUNCH.test(code(line)) && !(path in STAYS) ? [`test/${path}:${at + 1}`] : [])),
-    )
+  it('no test code reads process.execPath but that of the list', () => {
+    const found = testFiles()
+      .filter((path) => !(path in STAYS))
+      .flatMap((path) => execPathReads(path, readFileSync(join(TEST, path), 'utf8')).map((line) => `test/${path}:${line}`))
     expect(found, 'start the script with scriptNode() from test/script-node.ts, or add the file to STAYS with its reason').toEqual([])
   })
 
-  it('every file of the list still uses process.execPath', () => {
+  it('every file of the list still reads process.execPath in its code', () => {
     for (const path of Object.keys(STAYS)) {
       expect(existsSync(join(TEST, path)), path).toBe(true)
-      expect(readFileSync(join(TEST, path), 'utf8'), path).toContain('process.execPath')
+      expect(execPathReads(path, readFileSync(join(TEST, path), 'utf8')), path).not.toEqual([])
     }
+  })
+
+  it('counts a split call and an alias, and no comment or string text', () => {
+    const text = [
+      '// spawnSync(process.execPath)',
+      "const child = 'spawnSync(process.execPath)'",
+      'const script = `spawn(process.execPath, [])`',
+      'spawnSync(',
+      '  process.execPath,',
+      ')',
+      "it(\"runs the app's script\", () => { const node = process.execPath })",
+      'const stub = `exec "${process.execPath}"`',
+    ].join('\n')
+    expect(execPathReads('x.ts', text)).toEqual([5, 7, 8])
   })
 
   it('is node, not Electron', () => {
