@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import react from '@vitejs/plugin-react'
 import { searchForWorkspaceRoot } from 'vite'
 import { configDefaults, defineConfig } from 'vitest/config'
+import { CI_RETRIES } from './test/flaky'
 import { removeStaleProbes, removeStaleTempFolders } from './test/stale-leftovers'
 import { timeScale } from './test/time-scale'
 
@@ -37,7 +38,14 @@ export default defineConfig({
     // vitest's own reporters as they were (minimal under an agent, default otherwise, github-actions
     // in GitHub Actions), and test-results/vitest-timings.json with the time of each test file
     // (test/timings-reporter.ts; read by scripts/test-timings.mjs). test-results/ is not in git.
-    reporters: [...configDefaults.reporters, './test/timings-reporter.ts'],
+    // test/flaky-reporter.ts prints a FLAKY line for each test that passed only on the retry.
+    reporters: [...configDefaults.reporters, './test/timings-reporter.ts', './test/flaky-reporter.ts'],
+    // A failed test runs once more in CI, never locally (test/flaky.ts). The time limits below are
+    // per attempt: a test that runs into its limit and is retried takes twice its limit.
+    retry: CI_RETRIES,
+    // The FLAKY line names the line of the test's declaration (test/flaky.ts); vitest collects it only
+    // with this option, at the cost of one stack trace per declared test.
+    includeTaskLocation: true,
     testTimeout: 5_000 * timeScale,
     hookTimeout: 10_000 * timeScale,
     projects: [
