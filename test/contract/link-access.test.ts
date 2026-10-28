@@ -44,7 +44,6 @@ import { LinkBench, type BenchMachine } from './link-bench'
 import { PROFILE_VARS, windowsProfileEnv } from '../windows-profile'
 import { nodeScript } from '../harness-node'
 import { removeTestTree } from '../remove'
-import { quarantined } from '../quarantine'
 
 const env = await vi.hoisted(async () => {
   // Before any module of main is imported: the workflow hub takes the Claude home at import.
@@ -513,7 +512,7 @@ describe('access on', () => {
     expect(channelsReceived()).toEqual(['layout.changed'])
   })
 
-  quarantined('link-access-handlers-event-sender')('handlers that read event.sender serve the connection: workflow, docs, claude-home, bindings and terminal answer ok, and A gets their events', async () => {
+  it('handlers that read event.sender serve the connection: workflow, docs, claude-home, bindings and terminal answer ok, and A gets their events', async () => {
     setAccess('all')
     expect(await callB('workflow.open', { root: repo })).toMatchObject({ ok: true })
     expect(await callB('docs.open', { projectId: PROJECT })).toMatchObject({ ok: true })
@@ -544,7 +543,7 @@ describe('access on', () => {
 })
 
 describe('switching access off', () => {
-  quarantined('link-access-switch-off-mid-subscription')('in the middle of a subscription: A stops getting terminal.output, the next terminal.input is refused, link.ping answers, the hubs let go', async () => {
+  it('in the middle of a subscription: A stops getting terminal.output, the next terminal.input is refused, link.ping answers, the hubs let go', async () => {
     setAccess('all')
     // A window of B keeps the shell open after A leaves it.
     const windowEvents: string[] = []
@@ -675,7 +674,7 @@ describe('read-only access', () => {
     expect(received.find((event) => event.channel === 'layout.changed')?.payload).toMatchObject({ projectId: PROJECT, op: { op: 'create' } })
   })
 
-  quarantined('link-access-read-only-mid-work')('lowered from all to read-only in the middle of work: the Terminal subscription goes, the next write is refused, link.ping answers', async () => {
+  it('lowered from all to read-only in the middle of work: the Terminal subscription goes, the next write is refused, link.ping answers', async () => {
     setAccess('all')
     const first = linkClientsOfB()
     // A window of B keeps the shell open after A leaves it (a shell only a Linked machine held
