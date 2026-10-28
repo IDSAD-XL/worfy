@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { findGitBash } from '../../src/main/agent/env'
 import { spawnShellPty, type SpawnPty } from '../../src/main/terminal/pty'
 import { endDescendants, endShell, type StartedShell } from '../../src/main/terminal/windows-pty'
-import { alive, consoleHosts, harness, home, needsWindowsPowerShellOffRunner, NODE, type OpenResult, PROJECT, settledHandleCount, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
+import { alive, consoleHosts, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, settledHandleCount, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
 
@@ -28,24 +28,11 @@ function needsGitBash(context: { skip: (condition: boolean, note?: string) => vo
 /** A command whose output, not its typed line, holds `<word>-42`; the typed line is what history keeps. */
 const unique = (word: string): { command: string; output: RegExp } => ({ command: `echo ${word}-$((40+2))`, output: new RegExp(`${word}-42\\r?\\n`) })
 
-/**
- * Opens a Git Bash Terminal and waits until its readline asks for the first line: bash turns
- * bracketed paste on (ESC[?2004h) right before its first prompt. Under the load of a full run a
- * Git Bash started later than the 5 s that h.run gives a command's output, and the case failed with
- * only the start codes of the console in the output. The start is waited for apart from the
- * command, with no clock of its own: the timeout of the test bounds it.
- */
-async function openBash(h: Awaited<ReturnType<typeof harness>>, nodeId = NODE): Promise<OpenResult> {
-  const opened = await h.open(nodeId)
-  while (!h.text(nodeId).includes('\u001b[?2004h')) await new Promise((done) => setTimeout(done, 50))
-  return opened
-}
-
 describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty', () => {
   it('terminal.close of a running Git Bash leaves its history: both commands typed before the close are in HISTFILE of the home', async (context) => {
     needsGitBash(context)
     const h = await harness({ shell: 'git-bash' })
-    expect((await openBash(h)).shell).toBe('bash.exe')
+    expect((await h.open()).shell).toBe('bash.exe')
     const word = `worfy-history-${process.pid}-${Date.now()}`
     const first = unique(`${word}-one`)
     const second = unique(`${word}-two`)
@@ -78,7 +65,7 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty',
       for (let i = 0; i < nodeIds.length; i += 4) {
         await Promise.all(
           nodeIds.slice(i, i + 4).map(async (nodeId) => {
-            await openBash(h, nodeId)
+            await h.open(nodeId)
             const { command, output } = unique(`ready-${nodeId}`)
             await h.run(command, output, nodeId)
             await h.ok('terminal.close', { projectId: PROJECT, nodeId })
@@ -106,7 +93,7 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows when a step fail
 
   /** Opens Git Bash, runs a command, closes it; answers the launcher pid and how long the close took. */
   async function openAndClose(h: Awaited<ReturnType<typeof harness>>): Promise<{ launcher: number; ms: number }> {
-    const { pid: launcher } = await openBash(h)
+    const { pid: launcher } = await h.open()
     const { command, output } = unique('ready')
     await h.run(command, output)
     const started = Date.now()
@@ -197,7 +184,7 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows when a step fail
     const h = await harness({ shell: 'git-bash', nodes: nodeIds })
     const launchers = await Promise.all(
       nodeIds.map(async (nodeId) => {
-        const { pid } = await openBash(h, nodeId)
+        const { pid } = await h.open(nodeId)
         const { command, output } = unique(`open-${nodeId}`)
         await h.run(command, output, nodeId)
         return pid

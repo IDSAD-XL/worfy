@@ -11,7 +11,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
 import { SYSTEM_PATH } from '../../src/main/agent/env'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
-import { terminalHandlers } from '../../src/main/ipc/terminal'
+import { terminalHandlers, terminalKey } from '../../src/main/ipc/terminal'
 import { spawnShellPty, TerminalRegistry, terminalShellOptions, type SpawnPty, type TerminalRegistryOptions } from '../../src/main/terminal/pty'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL } from '../app-url'
@@ -285,11 +285,35 @@ export async function harness(options: HarnessOptions = {}) {
       .filter((o) => o.nodeId === nodeId)
       .map((o) => o.data)
       .join('')
-  const open = (nodeId = NODE, size: { cols: number; rows: number; restart?: boolean; command?: string } = { cols: 80, rows: 24 }, from?: ReturnType<typeof makeWindow>) =>
-    ok<OpenResult>('terminal.open', { projectId: PROJECT, nodeId, ...size }, from)
+  // A Git Bash opened and not yet run in: where its output began at the open.
+  const unprompted = new Map<string, number>()
+  const open = async (nodeId = NODE, size: { cols: number; rows: number; restart?: boolean; command?: string } = { cols: 80, rows: 24 }, from?: ReturnType<typeof makeWindow>) => {
+    const start = text(nodeId).length
+    const opened = await ok<OpenResult>('terminal.open', { projectId: PROJECT, nodeId, ...size }, from)
+    if (opened.shell === 'bash.exe') unprompted.set(nodeId, start)
+    else unprompted.delete(nodeId)
+    return opened
+  }
+  /**
+   * Waits until the readline of a Git Bash just opened asks for its first line: bash turns bracketed
+   * paste on (ESC[?2004h) right before its first prompt. Under the load of a full run a Git Bash
+   * started later than the 5 s that run gives a command's output, which then held only the start
+   * codes of the console. The wait has no clock of its own: it ends with the prompt, or once the
+   * registry no longer has the Terminal — as after a failed test closes it — and the test's timeout bounds it.
+   */
+  const prompted = async (nodeId: string) => {
+    const from = unprompted.get(nodeId)
+    if (from === undefined) return
+    while (!text(nodeId).slice(from).includes('\u001b[?2004h')) {
+      if (!registry.has(terminalKey(PROJECT, nodeId))) throw new Error(`the Git Bash of ${nodeId} ended before its first prompt: ${JSON.stringify(text(nodeId).slice(from))}`)
+      await new Promise((done) => setTimeout(done, 50))
+    }
+    unprompted.delete(nodeId)
+  }
   const type = (data: string, nodeId = NODE, from?: ReturnType<typeof makeWindow>) => ok('terminal.input', { projectId: PROJECT, nodeId, data }, from)
-  /** Runs a command and waits for the line its output starts with. */
+  /** Runs a command and waits for the line its output starts with; in a Git Bash just opened, after its first prompt. */
   const run = async (command: string, expected: RegExp, nodeId = NODE, from?: ReturnType<typeof makeWindow>) => {
+    await prompted(nodeId)
     // On a real shell of Windows the first command of each test prints its time to output (ticket 41).
     const timed = WINDOWS && options.spawn === undefined && !firstRunTimed
     firstRunTimed ||= timed
