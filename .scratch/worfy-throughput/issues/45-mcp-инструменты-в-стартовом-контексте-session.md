@@ -1,7 +1,8 @@
 # 45 — MCP-инструменты и инструкции connector-ов claude.ai в стартовом контексте Session: сначала замер
 
 Type: task
-Status: claimed 2026-10-28T21:18Z
+Status: done 2026-10-28T22:07Z
+PR: #931
 Branch: worfy-throughput/45
 Blocked by: 38
 Source: находка Ticket-а 38 вне его скоупа (PR #920, отчёт implementer-а 2026-10-28); договорённость моста и Orchestrator-а
@@ -112,3 +113,5 @@ Draft Session после 2026-10-14 не запускалась ни разу (�
 только built-in tool-ы. Живым запуском не проверено.
 
 Для Session-ов Claude Desktop повторного замера нет: их набор меняет только ответ владельца на Q-L7.
+
+Ответ владельца 2026-10-29 (через Orchestrator): владелец отключил ненужные connector-ы 2026-10-29; кода не нужно.
