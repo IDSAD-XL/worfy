@@ -585,7 +585,7 @@ describe('scripts/ci-scope.mjs', () => {
 
   /** The macOS-only test files ci-scope.mjs lists in `root`. */
   const darwinTests = (root: string): string[] =>
-    execFileSync(process.execPath, [SCOPE, '--darwin-tests'], { cwd: root, encoding: 'utf8' }).split('\n').filter((line) => line !== '')
+    execFileSync(scriptNode(), [SCOPE, '--darwin-tests'], { cwd: root, encoding: 'utf8' }).split('\n').filter((line) => line !== '')
 
   // Other ways to guard a test on macOS: a constant or a function named for the Mac in skipIf, runIf,
   // an if or a ?: — an isMac imported from a helper, which ci-scope.mjs cannot see through.
