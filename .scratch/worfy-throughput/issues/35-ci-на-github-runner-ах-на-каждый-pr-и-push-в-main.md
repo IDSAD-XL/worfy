@@ -90,7 +90,7 @@ Source: решение владельца 2026-10-28 «Переходим на C
   `harness-evals-changed-no-case`, `harness-wave-gate-lock-killed`, `orchestrator-relaunch-message-during-wait`,
   `orchestrator-relaunch-sigterm-ignored`, `workflow-watch-links-same-link` (`test/quarantine/`). Автоматических
   повторов нет.
-- Расхождение с «Что делаем»: Windows-test-ы e2e на runner-е не идут — это Ticket 36.
+- Расхождение с «Что делаем»: Windows-test-ы e2e на runner-е не идут — это Ticket 44.
 - Долг (low, из VERIFIED-комментариев): `wave-gate-heartbeat` — timed trap 1234 ms против предела 1200 на
   macOS runner-е (run 40628079155, #877); нет test-а на пропущенный `clearInterval` у повторного просмотра
   registry, `ready` не ждёт первого снимка (#879); метка цикла без `when` проходит `quarantine.test.ts` (#878);
