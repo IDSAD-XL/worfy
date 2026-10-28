@@ -1182,7 +1182,8 @@ describe('the draft Session (step 4)', () => {
     })
     // Not 'project' or 'local': allow rules in the repository's .claude/settings*.json would let a tool past canUseTool.
     expect(options.settingSources).toEqual(['user'])
-    expect(options.managedSettings).toEqual({ allowManagedPermissionRulesOnly: true })
+    // And no MCP server (worfy-throughput ticket 45): canUseTool would refuse every MCP tool anyway.
+    expect(options.managedSettings).toEqual({ allowManagedMcpServersOnly: true, allowedMcpServers: [], allowManagedPermissionRulesOnly: true })
     expect(options.allowedTools).toEqual(['Read', 'Glob', 'Grep'])
     expect(options.disallowedTools).toContain('Bash')
     expect(options.allowedTools).not.toContain('Bash')

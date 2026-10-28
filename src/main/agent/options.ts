@@ -56,7 +56,9 @@
 // `.claude/settings*.json` of the folder it reads, whose allow rules would let a tool past the
 // Session's canUseTool; and it asks the policy tier to ignore every allow rule outside it
 // (`allowManagedPermissionRulesOnly`), so the user's own allow rules do not either — that key is
-// documented for the policy tier, but no real Claude Code run has confirmed it is kept.
+// documented for the policy tier, but no real Claude Code run has confirmed it is kept. It gets no
+// MCP server (an empty allowlist, worfy-throughput ticket 45): canUseTool refuses every MCP tool, so
+// the user's servers and the claude.ai connectors would only add their tools to its first request.
 //
 // The autocompact window (worfy-polish ticket 24): a window in tokens goes as the flag settings of
 // the query (`settings: { autoCompactWindow }`, the `--settings` flag of Claude Code). Claude Code
@@ -373,9 +375,13 @@ export type DraftSessionOptionsInput = Omit<SessionOptionsInput, 'settingSources
   disallowedTools: readonly string[]
 }
 
-/** The draft Session: no canvas, only the user's settings, allow rules from the policy tier alone. */
+/**
+ * The draft Session: no canvas, only the user's settings, allow rules from the policy tier alone,
+ * and no MCP server at all (an empty allowlist): it may use only Read, Glob and Grep, so the user's
+ * servers and the claude.ai connectors only filled its first request (worfy-throughput ticket 45).
+ */
 export function draftSessionOptions(input: DraftSessionOptionsInput): Options {
-  return sessionOptions({ ...input, settingSources: ['user'], permissionRulesFromPolicyOnly: true })
+  return sessionOptions({ ...input, settingSources: ['user'], permissionRulesFromPolicyOnly: true, mcpAllowlist: [] })
 }
 
 /** The name worfy registers a server of the Harness plugin under: `plugin_worfy_qmd` for `qmd`. */

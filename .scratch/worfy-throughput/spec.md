@@ -764,6 +764,20 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
   продолжает после сброса окна. Числа — ваши.
 - **Q-L6. Где хранить карту кода, если 39 её строит?** Рекомендую: рядом с Profile на Machine (вне репозитория
   Project), Markdown на репозиторий.
+- **Q-L7. Connector-ы claude.ai и MCP-серверы в Session-ах, которые вы запускаете сами в Claude Desktop (Ticket 45)?**
+  Замер 2026-10-28: первый запрос такой Session Orchestrator-а несёт 927 deferred tool-ов, из них 780 — connector-ы
+  аккаунта claude.ai (Datadog 483, LaunchDarkly 174, Notion 67, Figma 33, заметки встреч 17, Claude Docs 5, ещё 1):
+  около 29–37k token-ов списка и около 2,3k token-ов их инструкций на каждый старт. Те же 780 tool-ов получает каждый
+  implementer и general-purpose Subagent такой Session, и ещё 191 tool серверов `telegram`, `github`, `freecad` из
+  `~/.claude.json` (около 3–4k token-ов). Session-ы worfy этого не видят: у них 29–40 tool-ов по списку Profile
+  (ADR-0021). Код worfy это не выключит — это ваши настройки. Варианты:
+  (а) выключить в claude.ai connector-ы, которые не нужны работе в Claude Desktop, хотя бы Datadog и LaunchDarkly
+  (657 tool-ов, около 25–31k token-ов на старт Session и каждого такого Subagent-а); 2026-10-21…10-24 они были
+  выключены, и первый запрос нёс 154–213 tool-а;
+  (б) убрать `github` и `telegram` из `~/.claude.json` для этого Project-а (у `github` есть замена — `gh`);
+  (в) вести Orchestrator в worfy, где действует список Profile;
+  (г) оставить как есть.
+  Рекомендую (а) и (б). Это меняете только вы; агенты настройки не трогают.
 
 ### Ответы владельца 2026-10-28
 
