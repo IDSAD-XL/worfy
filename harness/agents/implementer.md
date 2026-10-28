@@ -42,7 +42,8 @@ and stop.
 - **`worktree.root` outside the repository** (`<HARNESS_HOME>/worktrees/<project>/`) — not supported
   yet: `EnterWorktree` does not reach such a tree, and the plugin registers no
   hook that would put you there. It is a false premise of the brief (see "Boundaries").
-- **First of all, create a working tree FOR YOURSELF and work only in it** — with the profile command
+- **First of all, create a working tree FOR YOURSELF and work only in it** (a rework round starts
+  in the fresh tree it was launched in and skips this step, see "A rework round") — with the profile command
   `worktree.implementer` (root `worktree.root`, base `worktree.base`) — and enter it right away:
   `EnterWorktree` with the `path` of that tree. The PreToolUse check on Edit and Write lets edits
   through only inside the session's tree; without entering it your edits are refused, and getting
@@ -244,7 +245,20 @@ list. Cover every new behaviour of the rework with a test and make sure it goes 
 that change (the mutant lives in your own tree; restore from a copy, not with `git checkout`). In
 asynchronous code (watcher, debounce, timers, IPC) think through the races before the report: an
 event between two `await`s, a file deleted while it is read, a reply after close. Every race is a
-test or a line in `not_verified`.
+test or a line in `not_verified`. A rework brief names the branch of the first round, and the
+orchestrator launches you with `isolation: "worktree"`: your working directory is already a fresh
+tree of your own, the previous round's tree is removed. Never call `EnterWorktree` — it refuses a
+subagent started at the repository root, by `path` and by `name` — and do not create another tree.
+Check out the branch in your tree. Pushed (`pr-green-ci`) — from origin:
+`git checkout -B <branch> origin/<branch>`. With `local-green` or without `origin` nothing is
+pushed: check out the local branch, `git checkout <branch>` (worktrees share the branches; the
+orchestrator kept it). A
+working directory that is the main checkout or someone else's tree — stop and ask. An Edit or
+Write that is refused is never written around (python, sed or a heredoc in Bash): stop and report
+it. Skip steps 1–2 of the ticket skill (claim,
+base): rebase onto the base first — `Head` is from before it — and name the head after that rebase
+in your PR comment (`local-green`: in your report). Fix the `Findings` (details in `Verifier
+report`), push to the same PR (`local-green`: no push).
 
 **Never launch review agents (`worfy:reviewer` or any other) — under no circumstances.** The review
 step in the ticket skill is written for the main session, not for you: your children report to the

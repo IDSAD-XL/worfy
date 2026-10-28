@@ -665,17 +665,54 @@ Source: pstack, `pstack/skills/interrogate/SKILL.md` and
 pstack's; the rules are reworded, not copied. The exchange with the verifier and the group lines of
 the recorded verdict are this project's own rules.
 
-`REJECTED` (except `REJECTED: gate 3 …` — see above) goes to the same implementer through
-`SendMessage` with the Act on group of its list — exactly one rework round (the exception is the
-narrow round below), then the gate again. The same message reminds the implementer: cover every new
-behaviour of the rework with a test that turns red on a mutant of that change, and think through
-races in async code — rework rounds have introduced defects themselves.
+`REJECTED` (except `REJECTED: gate 3 …` — see above) gets exactly one rework round (the exception
+is the narrow round below), then the gate again. The round is a new agent `worfy:implementer` with
+the rework brief below, on the same branch — not `SendMessage` to the old
+implementer: by then it has usually been idle past its prompt cache (5 min), and its first message
+re-reads its whole context, often 100k tokens and more, while the brief is a few thousand. The
+exception: the old implementer sent its final report less than 5 min before this brief — then
+`SendMessage` to it with the same brief; a report time you do not know counts as older.
+Otherwise the previous round's worktree is idle: remove it and launch the new agent with the
+Agent parameter `isolation: "worktree"`, which gives it a fresh tree of its own. What happens to
+the branch depends on where it lives:
+- pushed (`pr-green-ci`): `git worktree remove <worktree>`, then `git branch -D <branch>`; the
+  new agent checks out the branch from origin (`git checkout -B <branch> origin/<branch>`).
+- `local-green` or a repository without `origin` — nothing is pushed, and the local branch is the
+  only copy of the first round's commits and of the `gate: REJECTED` commits that count the
+  rounds: `git worktree remove <worktree>` only, the branch stays (no `git branch -D`); the new
+  agent checks out the local branch (`git checkout <branch>`; worktrees share the branches).
+
+If `git worktree remove` refuses (untracked or modified files), look at what is there instead of
+forcing it. Either way the new agent rebases first. Never send it into an existing tree:
+`EnterWorktree` refuses a subagent started at the repository root, by `path` and by `name`. Every
+rework round of this skill follows this rule: a `REJECTED`, a narrow round, a red check
+(section 4), the culprit of a red set (section 4), a reverted PR.
+
+**The rework brief**:
+
+```
+Rework: <epic>/<NN>, round <n>
+Repository: <repo>
+Ticket: <F tickets.path for NN>; spec: <F tickets.spec>
+PR: <N>                               # local-green: none
+Branch: <branch>
+Worktree: your launch tree (isolation "worktree") — git checkout -B <branch> origin/<branch>
+                          # local-green or no origin: git checkout <branch> (the local branch)
+Head: <sha>               # the branch HEAD before the rework; the implementer rebases it first
+Findings: <the Act on group of the recorded `REJECTED` | the failing tests of the red run>
+Verifier report: <the recorded verdict: PR comment URL, gate: commit or ticket file | the run log>
+Cover every new behaviour of the rework with a test that turns red on a mutant of that change,
+and think through races in async code — rework rounds have introduced defects themselves.
+        # plus the Files, Wave neighbours' files, Scratchpad, Write to ~/.claude, Temporary HOME,
+        # GUI checks and Browser roles lines of the first brief (section 2)
+```
 
 **The second gate round checks the rework round; it does not search everything again.** The
 brief gives the first round's list — the Act on group of the recorded `REJECTED`, without the lines
 of the other groups — and the diff of the rework only: `git diff <sha>..HEAD`,
-where `<sha>` is the branch HEAD before the rework, already after the rebase (append it to the
-`REJECTED` comment too, so it survives a session break). A second-round `REJECTED` is given only
+where `<sha>` is the head after the rebase the rework starts with, as the implementer names it in
+its PR comment (local-green: its report) — not the brief's `Head`, which is from before that
+rebase. The PR comment keeps it across a session break. A second-round `REJECTED` is given only
 for: (a) a first-round item that is neither fixed nor refuted; (b) a defect introduced by the
 rework's changes; (c) a new high-severity defect. Only the items of that list count for (a): what
 the first round put into Consider, Noted or Dismissed — a `high` or `med` finding only with the
@@ -838,7 +875,7 @@ the old way or one after another — every Check of the Pipeline has its mark on
   checked, the exit code of its gate full and the gate's verdict line: exit code 0 and the line
   `[gate] green (…)` on the PR's head — `success` (a gate of the release before prints the same line
   with a Russian word in place of `green`: the same verdict, for one release); red — `failure`: the PR is not merged and goes
-  back to its implementer as a rework round with that report; "could not verify", or a report on
+  to a rework round (section 3, a fresh implementer) with that report; "could not verify", or a report on
   another commit — no new mark, and the PR waits.
 - A check a CI runner may answer. The project's rules (`rules.md`) may name, for a Check, a scope
   command, a dispatch command (with `$ref` for the branch), the workflow of that dispatch, the job
@@ -1055,7 +1092,7 @@ run; when the main branch has moved meanwhile, it checks the set again.
   the repeat green: the failing tests go into the wave report as a flaky test. `STATUS=empty` — all
   PRs are out of the set.
 - `EXIT=2` (`STATUS=red`) — red twice; the bisection named `culprit`. Merge `green_prefix` (the
-  merge block does exactly that); the culprit goes back to its implementer as a rework round with
+  merge block does exactly that); the culprit goes to a rework round (section 3, a fresh implementer) with
   the log of its run (`runs[].log`); the PRs after it go into the next set.
 - `EXIT=3` (`STATUS=unverified`) — could not verify: nothing is merged. Fix the cause named in the
   log of the last run and run the same check again.
@@ -1348,7 +1385,9 @@ for CI, not after. With `F workflow.ci` `batch` there is no CI to wait for: chec
 (`CONFLICTING` — rebase) before the rework round and before the merge.
 
 **Cleanup after the merge.** Once a ticket's PR (and the wave's documents PR) is merged — at once
-`git worktree remove <worktree>` and `git branch -D <branch>`; the verifiers' worktrees too. With
+`git worktree remove <worktree>` and `git branch -D <branch>`; the verifiers' worktrees too. A
+rework round's tree (`isolation: "worktree"`, section 3) leaves its own branch behind after the
+agent checked the ticket branch out there: delete it too (`git branch -D worktree-agent-<id>`). With
 `local-green` the same after `MERGED=0` (`git branch -d <branch>` — the branch, with its documents
 commit, is in the main branch by then). A
 worktree stays only for a ticket removed from the wave with an open PR. An old ticket branch in a
