@@ -1,7 +1,8 @@
 # 01 — Отметки агентов без GitHub: Full mode с `local-green` пишет файл отметок
 
 Type: task
-Status: open
+Status: done 2026-10-28T06:22Z
+PR: #861
 Blocked by: —
 Source: решения владельца 2026-10-26, пункт 5 (Demo project — Full mode, `workflow.finish` `local-green`, без GitHub); [spec.md](../spec.md), «Решено без владельца», Р1 (решено без владельца, подтверждено владельцем 2026-10-26); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md) — отметки агентов привязаны к SHA
 
@@ -64,4 +65,12 @@ Source: решения владельца 2026-10-26, пункт 5 (Demo project
 
 ## Итог
 
-Заполняется при закрытии.
+- PR #861, влит 2026-10-27. Хранилище отметок выбирает одна функция `marksStore` (`harness/bin/ticket`): файл
+  `<HARNESS_HOME>/runs/<project>/marks/<epic>-<NN>.json` — в Silent mode и в Full mode с `local-green`, когда у
+  репозитория Ticket-а нет `origin`; иначе commit status GitHub. Full mode с `pr-green-ci` без `origin` по-прежнему
+  отказывает. Skill-ы `epic-wave` и `ship-ticket` говорят, где лежит отметка в каждом случае.
+- Долг (low, из VERIFIED-комментария): ADR-0067:49 всё ещё говорит, что хранилище зависит только от режима
+  Project-а, — нужна датированная строка `## Amendments` со ссылкой на Р1 spec-а и #861;
+  `harness/skills/epic-wave/SKILL.md:914` проверяет `origin` репозитория `<repo>` Project-а, а `bin/ticket:736` —
+  репозитория из строки `Repo:` Ticket-а: у Project-а из нескольких репозиториев с `local-green` запись и чтение
+  могут разойтись — правило надо назвать «по репозиторию PR».

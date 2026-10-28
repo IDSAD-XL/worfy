@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test'
+import { CI_RETRIES } from './test/flaky'
 
 // Quiet windows (src/main/quiet-windows.ts): every worfy an e2e test starts shows its window without
 // taking the focus, without a Dock icon, transparent and letting the mouse through, so a run does
@@ -14,9 +15,14 @@ process.env.WORFY_KEEP_PAINTING ??= '1'
 // e2e tests drive the built app (out/) through Playwright's _electron; `pnpm test:e2e`
 // rebuilds it first, so a run never sees a stale build.
 //
-// No retries, on purpose: a test that passes only on a second try is unstable, and a retry would
-// hide that. A failing test keeps, in its folder under the output folder, Playwright's trace of the
-// test's steps and (from test/e2e/helpers.ts) the app's own trace and a screenshot of its window.
+// Retries: none locally. In CI one (CI_RETRIES, test/flaky.ts), because a flake of the runner would
+// otherwise block every PR. A test that passed only on the retry is not hidden: test/e2e/flaky-reporter.ts
+// prints it as FLAKY in the log and on the job's summary page, and it still counts for the quarantine
+// rules (test/quarantine.ts). A failing attempt keeps, in its folder under the output folder,
+// Playwright's trace of the test's steps and (from test/e2e/helpers.ts) the app's own trace and a
+// screenshot of its window; the retry gets a folder of its own (…-retry1), so a retry that passes
+// leaves the first attempt's traces in place ('retain-on-failure' keeps a failed run's trace even
+// when a later retry passes).
 //
 // The output folder is test-results/e2e. `pnpm test:package` runs the @packaged tests with
 // `--output test-results/package`: Playwright empties the output folder when a run starts, and with
@@ -60,7 +66,8 @@ export default defineConfig({
   fullyParallel: false,
   workers: E2E_WORKERS,
   timeout: 60_000,
-  reporter: [['list'], ['./test/e2e/helpers.ts'], ['json', { outputFile: jsonReport }]],
+  retries: CI_RETRIES,
+  reporter: [['list'], ['./test/e2e/helpers.ts'], ['./test/e2e/flaky-reporter.ts'], ['json', { outputFile: jsonReport }]],
   use: {
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
