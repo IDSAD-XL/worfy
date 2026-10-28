@@ -15,6 +15,7 @@ import { browserProfilePartitions } from './browser/profiles'
 import { installCardRuntime } from './cards/protocol'
 import { cardStore } from './cards/store'
 import { installProcessGone } from './diagnostics/process-gone'
+import { reportUncaughtToStderr } from './diagnostics/uncaught-stderr'
 import { BindingSignalReader } from './claude-home/binding-signals'
 import { installDevDockIcon } from './dock-icon'
 import { attachmentImageStore, installImageProtocol } from './images/protocol'
@@ -38,6 +39,10 @@ import { appSettingsStore } from './settings/store'
 import { checkDataFolder, inStep, reportStartupFailure } from './startup-failure'
 import { claudeHome, dataRoot, setBuildKind } from './storage/paths'
 import { createMainWindow, installWebPolicy, rendererEntry } from './window'
+
+// Before anything else runs: an uncaught exception's stack reaches stderr before Electron's error box
+// blocks the main thread (diagnostics/uncaught-stderr.ts).
+reportUncaughtToStderr()
 
 // A dev run keeps its state in a folder of its own, apart from the stable copy of worfy.app that
 // runs Autopilot over worfy itself. Set before the first dataRoot() call.
