@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { edgeBound, edgeErrors, NEAR_BAND, pagePixelsNear, pagePixelsOutside, type Box, type Edge, type Image } from '../e2e/browser-pixels'
+import { edgeBound, edgeErrors, NEAR_BAND, outlineWidth, pagePixelsNear, pagePixelsOutside, type Box, type Edge, type Image } from '../e2e/browser-pixels'
 
 const WINDOW = { width: 1400, height: 900 }
 /** The page's viewport in its own CSS px, as the e2e test reports it (`guestViewport`). */
@@ -48,15 +48,15 @@ function paint(image: Image, scale: number, box: Box, color: Rgb, noise = 0): vo
 
 /**
  * A capture of the window at `scale` with the frame's body at `body` (CSS px) and the page in it at
- * `zoom`, as the e2e test draws it: the green outline one line (`zoom` CSS px) outside the body,
+ * `zoom`, as the e2e test draws it: the green outline one line (`outline` CSS px on screen, `zoom` by default) outside the body,
  * the page's cream, a scrollbar of `scrollbar` page CSS px at its right, and the page's magenta
  * line (`position: fixed; inset: 0`), which stops at the scrollbar; without `line`, no magenta line,
  * as a minified page loses it on a real capture (zoom 0.25), so the edge is read from the cream alone.
  */
-function capture(scale: number, body: Box, zoom: number, scrollbar: number, line = true): Image {
+function capture(scale: number, body: Box, zoom: number, scrollbar: number, line = true, outline = zoom): Image {
   const image: Image = { width: WINDOW.width * scale, height: WINDOW.height * scale, data: new Uint8Array(WINDOW.width * scale * WINDOW.height * scale * 4).fill(255) }
   paint(image, scale, { x: 0, y: 0, width: WINDOW.width, height: WINDOW.height }, CANVAS)
-  paint(image, scale, { x: body.x - zoom, y: body.y - zoom, width: body.width + 2 * zoom, height: body.height + 2 * zoom }, OUTLINE)
+  paint(image, scale, { x: body.x - outline, y: body.y - outline, width: body.width + 2 * outline, height: body.height + 2 * outline }, OUTLINE)
   paint(image, scale, body, CREAM, CREAM_NOISE)
   const bar = scrollbar * zoom
   if (bar > 0) paint(image, scale, { x: body.x + body.width - bar, y: body.y, width: bar, height: body.height }, TRACK)
@@ -85,10 +85,10 @@ const ZOOMS: readonly { zoom: number; edges: readonly Edge[] }[] = [
 const bodyAt = (zoom: number): Box => ({ x: WINDOW.width - 80.3 - PAGE.width * zoom, y: 420.3, width: PAGE.width * zoom, height: PAGE.height * zoom })
 
 /** What edgeErrors reads on a capture at `scale`, the scale computed the way the e2e test does: capture width over window width. */
-function measure(scale: number, zoom: number, edges: readonly Edge[], scrollbar: number, line = true): Record<Edge, number> {
-  const image = capture(scale, bodyAt(zoom), zoom, scrollbar, line)
+function measure(scale: number, zoom: number, edges: readonly Edge[], scrollbar: number, line = true, outline = zoom): Record<Edge, number> {
+  const image = capture(scale, bodyAt(zoom), zoom, scrollbar, line, outline)
   expect([image.width, image.height]).toEqual([WINDOW.width * scale, WINDOW.height * scale])
-  return edgeErrors(image, image.width / WINDOW.width, bodyAt(zoom), zoom, edges)
+  return edgeErrors(image, image.width / WINDOW.width, bodyAt(zoom), zoom, edges, outline)
 }
 
 describe('the edges of the fixture page against its frame on a capture (edgeErrors)', () => {
@@ -109,6 +109,22 @@ describe('the edges of the fixture page against its frame on a capture (edgeErro
       })
     }
   }
+
+  // The outline the zoom test draws (outlineWidth): one device pixel on screen at zoom 0.25, and
+  // edgeErrors told its width. Drawn exactly, the page is on the frame's edge within one device pixel.
+  for (const scale of [1, 1.5, 2]) {
+    it(`an outline of outlineWidth around the body reads every edge within one device pixel, at scale ${scale} and zoom 0.25`, () => {
+      const outline = outlineWidth(0.25, scale) * 0.25
+      expect(outline * scale).toBeCloseTo(1, 9)
+      const errors = measure(scale, 0.25, ['left', 'right', 'top', 'bottom'], 0, false, outline)
+      for (const edge of ['left', 'right', 'top', 'bottom'] as const) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(1 / scale)
+    })
+  }
+
+  it('reads the frame edge half the told outline inward of its centre: a 3 px outline at zoom 1 and scale 2', () => {
+    const errors = measure(2, 1, ['left', 'right', 'top', 'bottom'], 0, true, 3)
+    for (const edge of ['left', 'right', 'top', 'bottom'] as const) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(1 / 2)
+  })
 
   // The failure of the e2e test on Windows at 150 % (worfy-windows ticket 97): left, top and bottom
   // within 1 px, the right edge not found at zooms 0.5, 1 and 2 (and 3.65 px off at 0.25, about the
@@ -248,6 +264,22 @@ describe('page pixels in the band just outside the frame, one by one (pagePixels
     const body: Box = { x: 5, y: 4, width: 10, height: 5 }
     const leak = Array.from({ length: 6 }, (_, i): [number, number] => [23, 7 + i])
     expect(pagePixelsNear(blank(40, 24, leak), 1.5, body)).toBe(6)
+  })
+})
+
+describe('the width of the zoom test\'s green outline (outlineWidth)', () => {
+  it('is 1 px where the zoom leaves 1 px at least one device pixel wide', () => {
+    expect(outlineWidth(1, 1)).toBe(1)
+    expect(outlineWidth(2, 1)).toBe(1)
+    expect(outlineWidth(0.5, 2)).toBe(1)
+    expect(outlineWidth(1, 1.5)).toBe(1)
+  })
+
+  it('is wider below that, so the outline is one device pixel wide on screen', () => {
+    expect(outlineWidth(0.25, 1)).toBe(4)
+    expect(outlineWidth(0.25, 2)).toBe(2)
+    expect(outlineWidth(0.5, 1)).toBe(2)
+    expect(outlineWidth(0.25, 1.5) * 0.25 * 1.5).toBeCloseTo(1, 9)
   })
 })
 
