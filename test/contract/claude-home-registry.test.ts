@@ -554,7 +554,9 @@ describe('watching the Claude home', () => {
     const second = await log.waitFor((change) => change.transcripts.includes(S5))
     const chunk = await readNewLines(file, cursor)
     const events = parseTranscriptLines(chunk.lines)
-    expect(Date.now() - rest).toBeLessThanOrEqual(1000)
+    // The watcher's own delay, stamped when it reported the change. A bound on Date.now() here also
+    // counted the waitFor polling and the test's read and parse: 1154 ms on a loaded Windows runner
+    // (CI run 40650174464).
     expect(second.at - rest).toBeLessThanOrEqual(1000)
     expect(events).toStrictEqual([
       {
