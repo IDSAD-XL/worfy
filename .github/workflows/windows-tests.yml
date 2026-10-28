@@ -5,9 +5,12 @@ name: Windows tests
 # - `full`: the whole `pnpm test` (unit and contract, no e2e), job "full-suite".
 #
 # Two ways to start it: by hand (workflow_dispatch, below), and from the CI workflow (ci.yml) on
-# every pull request and every push to main (workflow_call): ci.yml calls the mode full. Since
-# 2026-10-28 the repository is public and a Windows runner minute costs nothing; the price limits
-# below were written for the private repository, and they still hold for a run started by hand.
+# every pull request and every push to main (workflow_call): ci.yml calls the mode full three times,
+# once per vitest shard (the input "shard", `1/3` to `3/3`), so the jobs are "windows (1/3) /
+# full-suite" to "windows (3/3) / full-suite". A dispatch has no input "shard": by hand the mode
+# full runs the whole suite in one job, as before. Since 2026-10-28 the repository is public and a
+# Windows runner minute costs nothing; the price limits below were written for the private
+# repository, and they still hold for a run started by hand.
 #
 # Why a workflow of its own and not a job in ci.yml: "Run workflow" here starts one Windows job and
 # never the macOS jobs of ci.yml, and the mode files has no place in ci.yml.
@@ -24,7 +27,8 @@ name: Windows tests
 #   and an option are refused; the job runs `node scripts/vitest-electron.mjs <files>` and never
 #   `pnpm test`; stopped after 10 minutes;
 # - mode full, $0.60 at most: a list of files is refused, not ignored; the job runs `pnpm test` and
-#   nothing else of the suite (no `test:e2e`, `test:package` or acceptance); stopped after 60
+#   nothing else of the suite (no `test:e2e`, `test:package` or acceptance), with `--shard` only
+#   when a call gives a shard; each job stopped after 60
 #   minutes. The limit is the measured run × 1.5, rounded up to 5 minutes: the first full run
 #   (39841670369, 2026-10-22, main with this job) took 39.5 minutes, of it 38.4 minutes of vitest
 #   (worfy-windows ticket 66).
@@ -62,13 +66,18 @@ on:
         required: false
         type: string
   # ci.yml calls the mode full. The inputs of a call are strings: a choice exists only for a
-  # dispatch, and a mode other than files or full runs neither job.
+  # dispatch, and a mode other than files or full runs neither job. "shard" is a vitest shard,
+  # `<index>/<count>`, read by the job of the mode full only; empty runs the whole suite.
   workflow_call:
     inputs:
       mode:
         required: true
         type: string
       files:
+        required: false
+        type: string
+        default: ''
+      shard:
         required: false
         type: string
         default: ''
@@ -133,11 +142,13 @@ jobs:
           test -n "$TEST_FILES"
           node scripts/vitest-electron.mjs $TEST_FILES
 
-  # The whole unit and contract suite. Its result is the Windows verdict of a platform pull request
-  # for which scripts/windows-verdict-scope.mjs prints `runner` (ADR-0071).
+  # The whole unit and contract suite, or one shard of it. The results of the three shards that
+  # ci.yml calls are the Windows verdict of a platform pull request for which
+  # scripts/windows-verdict-scope.mjs prints `runner` (ADR-0071).
   full-suite:
     if: inputs.mode == 'full'
     # The measured run × 1.5, rounded up to 5 minutes: 39.5 minutes on 2026-10-22 (run 39841670369).
+    # A shard keeps the limit of the whole suite: it is the bound of one job, not its expected time.
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -169,6 +180,13 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # `pnpm test` is `node scripts/vitest-electron.mjs`: vitest under Electron's Node, test/unit and
-      # test/contract; vitest.config.ts leaves test/e2e and test/acceptance out.
-      - name: Run the whole unit and contract suite
-        run: pnpm test
+      # test/contract; vitest.config.ts leaves test/e2e and test/acceptance out. The shard reaches the
+      # shell through env, as the list does in the other job. The step keeps the default shell of the
+      # Windows image, PowerShell: the suite sees the same environment as when it ran in one job.
+      # Without a shard (a dispatch) it runs the whole suite. The files inside a shard keep vitest's
+      # own order, not a random one as on Linux: the order checks are Linux's.
+      - name: Run the unit and contract suite, or one shard of it
+        env:
+          SHARD: ${{ inputs.shard }}
+        run: |
+          if ($env:SHARD) { pnpm test "--shard=$env:SHARD" } else { pnpm test }
