@@ -100,6 +100,14 @@ echo "$sp" >"$(PIDF)"
 [ "$rc" -eq 1 ] && grep -q "another wave-gate check runs in this repository (pid $sp" "$W/out" && ok "pid: a live check's pid -> exit 1 naming it" || bad "pid live: exit $rc: $(tail -3 "$W/out")"
 [ "$(cat "$(TMPW_OF)/marker" 2>/dev/null)" = mine ] && git -C "$W/repo" worktree list | grep -q worfy-wave-gate && [ "$(gate_count)" = 0 ] && [ "$(cat "$(PIDF)")" = "$sp" ] \
     && ok "pid: the other check's worktree and pid file are untouched, no gate run" || bad "pid live: worktree, pid file or gate touched"
+# The pid file also names when its process started. A live pid whose process started no later is that check: waited
+# for. Read on Windows only, where a pid comes back within seconds (wave-gate, holderAlive).
+if on_windows; then
+    echo "$sp $(( $(date +%s) * 1000 ))" >"$(PIDF)"
+    "$WG" check "$S" >"$W/out" 2>&1; rc=$?
+    [ "$rc" -eq 1 ] && grep -q "another wave-gate check runs in this repository (pid $sp" "$W/out" \
+        && ok "pid: a live pid whose process started no later than the file says -> exit 1 naming it" || bad "pid live with start: exit $rc: $(tail -3 "$W/out")"
+fi
 kill "$job"; wait "$job" 2>/dev/null
 git -C "$W/repo" worktree remove --force "$(TMPW_OF)"
 # a dead pid: stale, taken over. The pid of a node that has exited: node's pid is the one wave-gate checks, while in
@@ -108,6 +116,16 @@ dp="$(node -e 'process.stdout.write(String(process.pid))')"
 echo "$dp" >"$(PIDF)"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 0 ] && grep -q "pid $dp, which is not running" "$W/out" && [ ! -e "$(PIDF)" ] && ok "pid: a dead pid is taken over; the pid file is gone at the end" || bad "pid dead: exit $rc: $(tail -3 "$W/out")"
+# a pid handed to another process: live, but that process started after the check that wrote the file (2020-01-01)
+if on_windows; then
+    sleep 60 & rp=$! rjob=$!
+    until_ok 5 grep -q sleep "/proc/$rp/exename"; rp="$(cat "/proc/$rp/winpid")"
+    echo "$rp 1577836800000" >"$(PIDF)"
+    "$WG" check "$S" >"$W/out" 2>&1; rc=$?
+    [ "$rc" -eq 0 ] && grep -q "pid $rp, which is not running" "$W/out" && [ ! -e "$(PIDF)" ] \
+        && ok "pid: a pid now held by a process that started later is taken over" || bad "pid reused: exit $rc: $(tail -3 "$W/out")"
+    kill "$rjob"; wait "$rjob" 2>/dev/null
+fi
 # an empty pid file: young — its writer is between open and write; old — stale
 new_world pidempty 1:a.txt
 S="$W/state.json"; state "$S" null 1
