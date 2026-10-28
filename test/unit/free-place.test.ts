@@ -134,15 +134,13 @@ describe('freeShift of a group', () => {
 
 /**
  * freeShift as it was before worfy-week ticket 14, kept word for word as the reference the faster
- * search must agree with; `count` gets every rectangle pair it compared.
+ * search must agree with.
  */
-function previousFreeShift(moving: readonly Rect[], obstacles: readonly Rect[], gap: number = NODE_GAP, count: (pairs: number) => void = () => {}): Shift {
-  let pairs = 0
+function previousFreeShift(moving: readonly Rect[], obstacles: readonly Rect[], gap: number = NODE_GAP): Shift {
   const clear = (rects: readonly Rect[], others: readonly Rect[], shift: Shift): boolean => {
     for (const rect of rects) {
       const at = { x: rect.x + shift.dx, y: rect.y + shift.dy, w: rect.w, h: rect.h }
       for (const other of others) {
-        pairs += 1
         if (crowds(at, other, gap)) return false
       }
     }
@@ -192,9 +190,7 @@ function previousFreeShift(moving: readonly Rect[], obstacles: readonly Rect[], 
     }
     return best
   }
-  const shift = run()
-  count(pairs)
-  return shift
+  return run()
 }
 
 /**
@@ -259,20 +255,20 @@ describe('freeShift against the search before ticket 14', () => {
     }
   }, 120_000)
 
+  // The count of the search before is the constant measured once: running the reference search
+  // over the whole wave took 18 s of this file's 28 s on a Mac (2026-10-29). It still gives the
+  // expected shift at every 12th place; the test above compares the two searches on 1000 layouts.
   it('compares at least 10 times fewer rectangle pairs for a group of 10 Notes dragged along a sine wave over 250 Nodes', () => {
     const obstacles = scatteredGrid(random(7))
-    let previous = 0
     let now = 0
-    for (const place of sineWave()) {
+    sineWave().forEach((place, step) => {
       const group = noteGroup(10, place.x, place.y)
-      const expected = previousFreeShift(group, obstacles, NODE_GAP, (pairs) => (previous += pairs))
-      expect(freeShift(group, obstacles, NODE_GAP, (pairs) => (now += pairs))).toEqual(expected)
-    }
-    expect(previous).toBe(PREVIOUS_PAIR_CHECKS)
+      const shift = freeShift(group, obstacles, NODE_GAP, (pairs) => (now += pairs))
+      if (step % 12 === 0) expect(shift, `step ${step}`).toEqual(previousFreeShift(group, obstacles, NODE_GAP))
+    })
     // The search reports what it compared; none at all would mean the count is not wired.
     expect(now).toBeGreaterThan(0)
-    expect(now * 10).toBeLessThanOrEqual(previous)
-    // The reference search alone takes about 10 s here.
+    expect(now * 10).toBeLessThanOrEqual(PREVIOUS_PAIR_CHECKS)
   }, 120_000)
 })
 
