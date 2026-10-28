@@ -10,6 +10,12 @@ import { FILE_COPY_LIMIT_BYTES, fileTooLarge, imageTooLarge, tooManyAttachments,
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { SessionNodeView } from '../../src/shared/ipc/sessions'
 
+// Imported once while the file is collected, as its static imports are: the first import
+// transforms the Node and every renderer module it reaches, which took more than the 5 s of a test
+// on a loaded Mac when the first test did it. Each test still evaluates a fresh copy after
+// vi.resetModules(), from the transforms this import left behind.
+await import('../../src/renderer/canvas/nodes/SessionNode')
+
 const ROOT = '/Users/test/projects/demo'
 const PROJECT = { id: 'demo-0000000a', name: 'demo', path: ROOT, branch: 'main' }
 const NODE = 'session-node-1'

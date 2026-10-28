@@ -151,7 +151,7 @@ describe('ci.yml: every pull request and every push to main, one check for the m
   it('runs the commands of gate full: lint, typecheck, test on three systems, test:e2e and test:package on macOS', () => {
     expect(runs('lint-typecheck')).toEqual(['pnpm install --frozen-lockfile', 'pnpm lint', 'pnpm typecheck'])
     expect(runs('linux-tests')).toContain('pnpm test "--shard=$SHARD" --sequence.shuffle.files')
-    expect(runs('macos-tests')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test "--shard=$SHARD"'])
+    expect(runs('macos-tests')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test'])
     expect(runs('macos-e2e')).toEqual(['pnpm install --frozen-lockfile', 'osascript -l JavaScript scripts/ci-display.js', 'pnpm test:e2e "--shard=$SHARD"'])
     // electron-builder needs the binary that Electron downloads only on its first require.
     expect(runs('macos-package')).toEqual(['pnpm install --frozen-lockfile', `node -e "require('electron')"`, 'pnpm test:package'])
@@ -164,13 +164,19 @@ describe('ci.yml: every pull request and every push to main, one check for the m
 
   it('splits the tests into shards that together cover every file', () => {
     expect(shards('linux-tests')).toHaveLength(4)
-    expect(shards('macos-tests')).toHaveLength(2)
     expect(shards('macos-e2e')).toHaveLength(2)
     // One Windows job ran the heavy contract files side by side on one runner; three shards share them out.
     expect(shards('windows')).toHaveLength(3)
-    for (const name of ['linux-tests', 'macos-tests', 'macos-e2e']) {
+    for (const name of ['linux-tests', 'macos-e2e']) {
       expect(job(name), name).toContain('          SHARD: ${{ matrix.shard }}')
     }
+  })
+
+  it('asks the free plan for 3 macOS jobs on an ordinary pull request: macos-tests is one job, macos-e2e two shards', () => {
+    // The free plan runs 5 macOS jobs at a time; macos-package runs only when ci-scope.mjs says so.
+    expect(job('macos-tests').join('\n')).not.toMatch(/strategy:|matrix|shard/i)
+    expect(value(job('macos-tests'), 'timeout-minutes')).toBe('45')
+    expect(shards('macos-e2e')).toHaveLength(2)
   })
 
   it('pastes no expression into a command: values reach the shell through env', () => {
@@ -242,6 +248,7 @@ describe('scripts/ci-scope.mjs', () => {
 
   const ALL = Object.fromEntries(DECIDED.map((name) => [name, true]))
   const ONLY_LINT = Object.fromEntries(DECIDED.map((name) => [name, name === 'lint-typecheck']))
+  const NO_PACKAGE = { ...ALL, 'macos-package': false }
 
   beforeAll(() => {
     scratch = mkdtempSync(join(tmpdir(), 'worfy-ci-scope-'))
@@ -258,12 +265,53 @@ describe('scripts/ci-scope.mjs', () => {
     removeTestTree(scratch)
   })
 
-  it('names every job of ci.yml but changes and ci-ok, and a change of code runs them all', () => {
+  it('names every job of ci.yml but changes and ci-ok, and a change of code pushed to main runs them all', () => {
     commitOnBase(['src/main/index.ts'])
-    const result = scope({ EVENT: 'pull_request', BASE: base })
+    const result = scope({ EVENT: 'push', BASE: base })
     expect(result.status, result.stderr).toBe(0)
     expect(result.expect).toEqual(ALL)
     expect(result.stdout).toContain('code changed: src/main/index.ts')
+  })
+
+  it.each([
+    ['the app', ['src/main/index.ts', 'src/renderer/App.tsx']],
+    ['tests and scripts the package does not use', ['test/e2e/canvas.spec.ts', 'scripts/ci-scope.mjs', 'test/contract/ci-workflow.test.ts']],
+    ['look-alikes of build inputs', ['src/build/x.ts', 'buildx/a.ts', 'test/package.json', 'scripts/statusline-bridge.test.mjs']],
+  ])('a pull request that changes code but no build input (%s) runs every job but macos-package', (_name, files) => {
+    commitOnBase(files)
+    const result = scope({ EVENT: 'pull_request', BASE: base })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(NO_PACKAGE)
+    expect(result.stdout).toContain('no build input, so no macos-package')
+  })
+
+  it.each([
+    'package.json',
+    'pnpm-lock.yaml',
+    'pnpm-workspace.yaml',
+    'electron-builder.yml',
+    'electron.vite.config.ts',
+    'scripts/build-version.ts',
+    'build/icon.icns',
+    'build/brand/logo.svg',
+    'scripts/postinstall.mjs',
+    'scripts/statusline-bridge.sh',
+    'scripts/statusline-bridge.mjs',
+    // The @packaged tests install the packaged app with it.
+    'scripts/install-stable.mjs',
+    'playwright.config.ts',
+    'test/e2e/packaged.spec.ts',
+    // Holds the @packaged test of node-pty unpacked from app.asar.
+    'test/e2e/terminal.spec.ts',
+    // packagedBuild, packagedExecutable and packagedResources of the @packaged tests.
+    'test/e2e/helpers.ts',
+    '.github/workflows/ci.yml',
+    '.github/workflows/windows-tests.yml',
+  ])('a pull request that changes the build input %s next to the app runs every job, macos-package too', (file) => {
+    commitOnBase(['src/main/index.ts', file])
+    const result = scope({ EVENT: 'pull_request', BASE: base })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(ALL)
   })
 
   it.each([
@@ -297,12 +345,16 @@ describe('scripts/ci-scope.mjs', () => {
     },
   )
 
-  it('a source file with a Cyrillic name runs every job', () => {
+  it('a source file with a Cyrillic name runs the tests: every job on a push, every job but macos-package on a pull request', () => {
     commitOnBase(['docs/adr/0001-a.md', 'src/main/уведомления.ts'])
-    const result = scope({ EVENT: 'pull_request', BASE: base })
-    expect(result.status, result.stderr).toBe(0)
-    expect(result.expect).toEqual(ALL)
-    expect(result.stdout).toContain('code changed: src/main/уведомления.ts\n')
+    const push = scope({ EVENT: 'push', BASE: base })
+    expect(push.status, push.stderr).toBe(0)
+    expect(push.expect).toEqual(ALL)
+    expect(push.stdout).toContain('code changed: src/main/уведомления.ts\n')
+    const pr = scope({ EVENT: 'pull_request', BASE: base })
+    expect(pr.status, pr.stderr).toBe(0)
+    expect(pr.expect).toEqual(NO_PACKAGE)
+    expect(pr.stdout).toContain('code changed: src/main/уведомления.ts; no build input, so no macos-package\n')
   })
 
   it.each([
@@ -319,22 +371,27 @@ describe('scripts/ci-scope.mjs', () => {
     ['the lessons index, which a test reads', 'docs/lessons/README.md'],
     ['a workflow', '.github/workflows/ci.yml'],
     ['package.json', 'package.json'],
-  ])('%s next to documents runs every job', (_name, file) => {
+  ])('%s next to documents runs the tests: every job on a push, every job but maybe macos-package on a pull request', (_name, file) => {
     commitOnBase(['docs/adr/0001-a.md', file])
-    const result = scope({ EVENT: 'pull_request', BASE: base })
-    expect(result.status, result.stderr).toBe(0)
-    expect(result.expect).toEqual(ALL)
+    const push = scope({ EVENT: 'push', BASE: base })
+    expect(push.status, push.stderr).toBe(0)
+    expect(push.expect).toEqual(ALL)
+    const pr = scope({ EVENT: 'pull_request', BASE: base })
+    expect(pr.status, pr.stderr).toBe(0)
+    expect(pr.expect).toEqual({ ...ALL, 'macos-package': ['.github/workflows/ci.yml', 'package.json'].includes(file) })
   })
 
   it.each([
     ['a base of zeros (a new branch)', '0000000000000000000000000000000000000000'],
     ['a base that does not exist', 'f'.repeat(40)],
     ['no base', ''],
-  ])('runs every job when the diff cannot be read: %s', (_name, missing) => {
+  ])('runs every job, macos-package too, when the diff cannot be read: %s', (_name, missing) => {
     commitOnBase(['docs/adr/0001-a.md'])
-    const result = scope({ EVENT: 'push', BASE: missing })
-    expect(result.status, result.stderr).toBe(0)
-    expect(result.expect).toEqual(ALL)
+    for (const event of ['push', 'pull_request']) {
+      const result = scope({ EVENT: event, BASE: missing })
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.expect, event).toEqual(ALL)
+    }
   })
 
   it('runs every job when no file changed', () => {
@@ -386,6 +443,22 @@ describe('scripts/ci-ok.mjs', () => {
     const result = ok(JSON.stringify(needs(ONLY_LINT, results((name) => (name === 'lint-typecheck' ? 'success' : 'skipped')))))
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('linux-tests: skipped (not needed)')
+  })
+
+  it('is green when a pull request with no build input skipped macos-package and the other jobs succeeded', () => {
+    const result = ok(JSON.stringify(needs({ ...ALL, 'macos-package': false }, results((name) => (name === 'macos-package' ? 'skipped' : 'success')))))
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('macos-package: skipped (not needed)')
+  })
+
+  it.each([
+    ['a needed macos-package failed', true, 'failure', /macos-package: failure, expected success/],
+    ['a needed macos-package was skipped', true, 'skipped', /macos-package: skipped, expected success/],
+    ['a macos-package that was not needed failed', false, 'failure', /macos-package: failure, expected skipped/],
+  ])('is red when %s', (_name, needed, packageResult, reason) => {
+    const result = ok(JSON.stringify(needs({ ...ALL, 'macos-package': needed }, results((name) => (name === 'macos-package' ? packageResult : 'success')))))
+    expect(result.status).toBe(1)
+    expect(result.stderr).toMatch(reason)
   })
 
   it.each([

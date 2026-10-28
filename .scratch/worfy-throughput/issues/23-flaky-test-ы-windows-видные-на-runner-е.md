@@ -119,3 +119,39 @@ at the next prompt…», job 122732532153: «the next prompt 9997 ms after the l
 0, 86 passed; на Linux в контейнере suggest целиком — 0; zle целиком — 1 из-за `the messages of main > status is a grey
 note…`, который красный и до правки (5 из 5): в контейнере нет locale `en_US.UTF-8`, «…» выводится байтами. Это
 окружение контейнера, на runner-е этот test зелёный. `pnpm lint`, `pnpm typecheck`, gate fast — в PR.
+
+### `harness/hooks/tests/guard-silent.test.sh`: EPIPE от `bin/silent-check` (2026-10-28, ветка `fix/guard-silent-epipe`)
+
+- Где краснел: macOS runner — job 122744439103 («an unknown exit code», `exit 3`), job 122747558462 и
+  job 122630495860 («killed by a signal»); на Mac под нагрузкой — «exit 0 -> allow at once». Во всех случаях
+  вместо своей причины отказ «failed (EPIPE: spawnSync … EPIPE)».
+- Причина: `harness/hooks/guard.mjs:228` передаёт текст в stdin `bin/silent-check` через `spawnSync(…, { input })`.
+  Stub test-а выходит, не читая stdin. Если процесс закрыл pipe раньше, чем node дописал текст, `spawnSync`
+  возвращает и код выхода, и `error` с кодом EPIPE. Hook смотрел на `r.error` раньше кода выхода и отказывал
+  с причиной EPIPE. Гипотеза Orchestrator-а подтвердилась. С малым текстом это гонка; с текстом больше буфера
+  pipe — каждый раз. Та же ошибка была и в продукте: настоящий `silent-check` в Full-проекте с attribution on
+  выходит с кодом 0 сразу, и длинное сообщение commit-а получало бы отказ EPIPE.
+- Правка: `guard.mjs:241-245` — EPIPE при известном коде выхода или сигнале не считается сбоем запуска,
+  вердикт берётся из кода выхода (0 — пропустить, 1 — следы, 3 — «failed (exit 3)», сигнал — «signal SIGKILL»).
+  EPIPE без кода выхода и любые другие ошибки запуска отказывают, как раньше. Timeout-ы не менялись, sleep нет.
+- Детерминированный test: `guard-silent.test.sh:246-255` — текст commit-а в 1 MB через `git commit -F`, stub
+  не читает stdin: exit 3 → «failed (exit 3)» без EPIPE, exit 0 → allow, SIGKILL → «signal SIGKILL» (кроме Windows).
+- Красные (весь файл, `HOME` — пустая временная папка, около 60 s на run):
+  - до правки, старый test: 0/10 без нагрузки, 0/10 под нагрузкой (`yes` на 9 из 18 ядер, предел 120 s на run);
+  - до правки, новый test: 1/1 красный (4 FAIL, все с EPIPE);
+  - после правки: 0/10 без нагрузки, 0/10 под нагрузкой;
+  - mutant (старый `guard.mjs` с новым test-ом): exit 1, те же 4 FAIL; файл восстановлен из копии, `cmp` — exit 0.
+- Команды: `bash harness/hooks/tests/guard-silent.test.sh` (с пустым `HOME`) — exit 0 после правки; `pnpm lint` —
+  exit 0; `pnpm typecheck` — exit 0; `gate.mjs fast` — exit 0, «[gate] green (fast)» с третьего run-а. Два первых
+  run-а — exit 2 при load average 20–25 от других Session-ов, красные чужие файлы: `terminal.test.ts`, затем
+  `terminal-ai-suggest.test.ts` (3 test-а) и `gate-verdict.test.sh` (предел 120 s); `guard-silent.test.sh` в обоих
+  зелёный.
+- `harness/hooks/tests/gate-verdict.test.sh` — причина другая: в job 122744439103 он зелёный (113 s), а в job
+  122747558462 красный из-за предела 120 s на файл в `test/contract/harness-scripts.test.ts` («killed after
+  120 s»), строк FAIL и EPIPE нет. В этой правке его не трогали.
+
+### Отложено
+
+- 2026-10-28, из PR #907: `_worfy_suggest_timer_end` (`src/main/terminal/zsh/rc.d/20-suggest-ai.zsh:89`) — тот же
+  SIGCHLD может прийти при естественном конце таймера Suggestion, и на Linux потеряется ask или перерисовка.
+  Детерминированного test-а нет, правки нет. Если flaky test terminal-ai вернётся после мержа #907, берём это первым.

@@ -240,9 +240,52 @@ stub root "exit 2, the tickets root is not read -> deny with the error" deny "$C
 stub 3 "an unknown exit code -> deny with the reason" deny "$CLEAN" 'exit 3'
 stub 3 "a failure on a PR text: the refusal names gh pr create" deny 'gh pr create --title "Fix" --body "Keeps state"' '`gh pr create` was not run'
 stub 1 "exit 1 with nothing found printed (a crash) -> deny as a failure, not as traces" deny "$CLEAN" 'failed (exit 1)'
+# The stand-in exits without reading its stdin. A text larger than a pipe buffer cannot be written in full, so
+# the write gets EPIPE every time, not only when the exit wins a race with a small write; the exit code is
+# still the verdict.
+node -e 'process.stdout.write("Fix the withdraw button state.\n".repeat(32768))' >"$T/big-msg.txt"
+BIG="git commit -F $T/big-msg.txt"
+stub 3 "a text the check does not read, unknown exit code -> deny with exit 3, not EPIPE" deny "$BIG" 'failed (exit 3)'
+[[ "$got" != *EPIPE* && "$got" != *"(EOF"* ]] && ok "a text the check does not read: the refusal names neither EPIPE nor EOF" \
+    || bad "a text the check does not read names the write error: ${got:0:300}"
+stub 0 "a text the check does not read, exit 0 -> allow" allow "$BIG" '' 1
+# The same write error as each platform reports it, on every platform: EPIPE on macOS and Linux, EOF on Windows
+# (libuv's name for ERROR_BROKEN_PIPE). A preloaded script replaces spawnSync in the guard's process, for the
+# silent-check call only, with a result of FAKE_SPAWN="<error code>:<exit code>|<signal>|null".
+FAKE="$T/fake-spawn.cjs"
+cat >"$FAKE" <<'EOF'
+const cp = require("node:child_process")
+const real = cp.spawnSync
+cp.spawnSync = (cmd, args, opts) => {
+    if (!Array.isArray(args) || args[0] !== process.env.CLAUDE_SILENT_CHECK_BIN) return real(cmd, args, opts)
+    const [code, end] = process.env.FAKE_SPAWN.split(":")
+    const status = /^\d+$/.test(end) ? Number(end) : null
+    const signal = /^SIG/.test(end) ? end : null
+    const error = Object.assign(new Error(`spawnSync ${cmd} ${code}`), { code, syscall: "spawnSync " + cmd })
+    return { pid: 1, output: [null, "", ""], stdout: "", stderr: "", status, signal, error }
+}
+require("node:module").syncBuiltinESMExports()
+EOF
+fake() { # <error code>:<end> <description> <allow|deny> [substring of the reason]
+    got="$(jq -n --arg c "$CLEAN" --arg d "$R" '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}' \
+        | CLAUDE_SILENT_CHECK_BIN="$STUB" FAKE_SPAWN="$1" node --require "$FAKE" "$GUARD")"
+    if [ -z "$got" ]; then got=allow; else got="deny: $(printf '%s' "$got" | jq -r '.hookSpecificOutput.permissionDecisionReason')"; fi
+    if [[ "$got" == "$3"* ]] && { [ -z "${4:-}" ] || [[ "$got" == *"$4"* ]]; }; then ok "$2"
+    else bad "$2: want $3${4:+ ($4)}, got: ${got:0:400}"; fi
+}
+fake EOF:0 "EOF (Windows) with exit 0 -> allow" allow
+fake EOF:3 "EOF (Windows) with exit 3 -> deny with exit 3" deny 'failed (exit 3)'
+fake EOF:SIGKILL "EOF (Windows) with a signal -> deny with the signal" deny 'signal SIGKILL'
+fake EOF:null "EOF with no exit code and no signal -> deny with the error" deny 'failed (EOF: '
+fake EPIPE:0 "EPIPE (macOS, Linux) with exit 0 -> allow" allow
+fake EPIPE:null "EPIPE with no exit code and no signal -> deny with the error" deny 'failed (EPIPE: '
+fake ENOENT:0 "another error with exit 0 -> deny with the error" deny 'failed (ENOENT: '
 case "$(uname -s)" in
     MINGW* | MSYS* | CYGWIN*) stub kill "killed by a signal -> deny" deny "$CLEAN" 'was not run' ;; # no POSIX signals
-    *) stub kill "killed by a signal -> deny with the signal" deny "$CLEAN" 'signal SIGKILL' ;;
+    *)
+        stub kill "killed by a signal -> deny with the signal" deny "$CLEAN" 'signal SIGKILL'
+        stub kill "a text the check does not read, killed by a signal -> deny with the signal" deny "$BIG" 'signal SIGKILL'
+        ;;
 esac
 stub 0 "exit 0 -> allow at once, one call" allow "$CLEAN" '' 1
 stub many "120 findings -> the refusal shows 50 and counts the rest" deny "$CLEAN" '… 70 more lines'
