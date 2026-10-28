@@ -318,6 +318,9 @@ export async function openSecondWindow(launched: Pick<LaunchedApp, 'app'>, optio
       const second = new BrowserWindow({
         ...size,
         show: true,
+        // Keeps its size on a display smaller than it, as worfy's own window in e2e starts
+        // (largerThanScreen, src/main/quiet-windows.ts): the GitHub macOS runner's is 1024×768.
+        enableLargerThanScreen: true,
         // The window's own webPreferences (src/main/window.ts), the <webview> tag of the Browsers too.
         webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: true },
       })
