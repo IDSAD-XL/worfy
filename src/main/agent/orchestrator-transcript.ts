@@ -10,7 +10,7 @@
 import { open, type FileHandle } from 'node:fs/promises'
 import { findStatusBlock } from '../../shared/agent/status-block'
 import { parseTranscriptRecord } from '../../shared/transcript/parse'
-import { readLinesBefore, type TailCursor } from '../claude-home/tail'
+import { fileFacts, readLinesBefore, type TailCursor } from '../claude-home/tail'
 
 export interface TranscriptFacts {
   /** `message.model` of the Orchestrator's last answer. */
@@ -77,10 +77,10 @@ async function readTail(file: string, cursor: TailCursor): Promise<string[]> {
     throw error
   }
   try {
-    const stats = await handle.stat()
-    if (`${stats.dev}:${stats.ino}` !== cursor.fileId) return []
+    const { fileId, size } = await fileFacts(handle)
+    if (fileId !== cursor.fileId) return []
     const { offset } = cursor
-    const length = Math.max(0, stats.size - offset)
+    const length = Math.max(0, size - offset)
     const tail = Buffer.alloc(length)
     const { bytesRead } = await handle.read(tail, 0, length, offset)
     return tail.subarray(0, bytesRead).toString('utf8').split('\n')

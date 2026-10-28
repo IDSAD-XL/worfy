@@ -53,6 +53,16 @@ async function readAt(handle: FileHandle, position: number, length: number): Pro
   return buffer.subarray(0, filled)
 }
 
+/**
+ * The `fileId` and the size of an open file. The ids are read as bigints: on Windows the file id of
+ * NTFS has 64 bits and a number keeps 53, so a file and the one that replaced it, made one after the
+ * other, could get one id, and the new file was read on as the old one.
+ */
+export async function fileFacts(handle: Pick<FileHandle, 'stat'>): Promise<{ fileId: string; size: number }> {
+  const stats = await handle.stat({ bigint: true })
+  return { fileId: `${stats.dev}:${stats.ino}`, size: Number(stats.size) }
+}
+
 /** Splits bytes at line ends, decodes each line, drops a trailing `\r` and empty lines. */
 export function splitLines(bytes: Buffer): string[] {
   return splitLinesAt(bytes, 0).lines
@@ -90,9 +100,7 @@ export async function readNewLines(file: string, cursor?: TailCursor, options: T
     throw error
   }
   try {
-    const stats = await handle.stat()
-    const fileId = `${stats.dev}:${stats.ino}`
-    const size = stats.size
+    const { fileId, size } = await fileFacts(handle)
 
     let start = cursor?.offset ?? 0
     let reset = false
@@ -182,13 +190,12 @@ export async function readLinesBefore(file: string, options: WindowOptions): Pro
     throw error
   }
   try {
-    const stats = await handle.stat()
-    const fileId = `${stats.dev}:${stats.ino}`
-    const end = before?.offset ?? stats.size
+    const { fileId, size } = await fileFacts(handle)
+    const end = before?.offset ?? size
     let bytesRead = 0
     if (before !== undefined && end > 0) {
       const replaced = before.fileId !== null && before.fileId !== fileId
-      const truncated = stats.size < end
+      const truncated = size < end
       let rewritten = false
       if (!replaced && !truncated) {
         const last = await readAt(handle, end - 1, 1)

@@ -2,7 +2,7 @@ import { appendFile, mkdtemp, rm, truncate, unlink, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { readLinesBefore, readNewLines, type TailCursor } from '../../src/main/claude-home/tail'
+import { fileFacts, readLinesBefore, readNewLines, type TailCursor } from '../../src/main/claude-home/tail'
 
 let dir: string
 let file: string
@@ -271,5 +271,22 @@ describe('readLinesBefore', () => {
     expect(chunk.lines).toEqual([wide(2), wide(3)])
     expect(chunk.offsets).toEqual([38, 57])
     expect(chunk.start).toBe(38)
+  })
+})
+
+describe('fileFacts', () => {
+  // NTFS file ids have 64 bits; these two differ by one and round to one number.
+  const big = 2n ** 60n
+  const handle = (ino: bigint) => ({
+    stat: (options?: { bigint?: boolean }) =>
+      Promise.resolve(options?.bigint ? { dev: 7n, ino, size: 12n } : { dev: 7, ino: Number(ino), size: 12 }),
+  })
+
+  it('tells apart two files whose ids differ beyond the precision of a number', async () => {
+    expect(Number(big + 1n)).toBe(Number(big + 2n))
+    const first = await fileFacts(handle(big + 1n) as never)
+    const second = await fileFacts(handle(big + 2n) as never)
+    expect(first).toStrictEqual({ fileId: `7:${big + 1n}`, size: 12 })
+    expect(second.fileId).not.toBe(first.fileId)
   })
 })
