@@ -632,7 +632,12 @@ test('one Terminal on two windows: both show the output, the second gets the rep
     expect(await pidOf(tile)).toBe(restarted)
     await expect(onCanvas2).toHaveAttribute('data-state', 'running')
     await run(second, tile, printJoined('after', '-restart'), /^after-restart$/m)
-    await expect.poll(() => screenText(node)).toMatch(/^after-restart$/m)
+    // Window 1 gets the output, laid out for window 2 (Q14): the line editor redraws the prompt and
+    // the typed line for window 2's width, and where they are longer than window 1 is wide (a long
+    // host name in the prompt on a CI runner) the rest of a row of window 1 keeps cells of the typed
+    // line. The output follows a line break, so it starts a row; what follows it on that row is not
+    // promised.
+    await expect.poll(() => screenText(node)).toMatch(/^after-restart/m)
 
     // Window 1 closes: the shell lives on in window 2.
     await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().reduce((a, b) => (a.id < b.id ? a : b)).close())
