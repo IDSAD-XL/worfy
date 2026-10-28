@@ -217,25 +217,38 @@ function runShellTest(bash: string, file: string, cwd: string, env: NodeJS.Proce
   })
 }
 
+/**
+ * The environment of a shell test file run in the empty `home`. The temporary folder is the
+ * system one under all three names: without TEMP and TMP, Windows takes the temp folder of Git
+ * Bash and of every Windows program it starts from USERPROFILE, which is `home`, removed when the
+ * run returns. A Git Bash started first in the run would then mount /tmp there for every other one
+ * (test/global-setup-git-bash.ts).
+ */
+function emptyHomeEnv(home: string): NodeJS.ProcessEnv {
+  const tmp = process.env.TMPDIR ?? tmpdir()
+  return {
+    PATH: process.env.PATH,
+    HOME: home,
+    USERPROFILE: home,
+    TMPDIR: tmp,
+    TEMP: tmp,
+    TMP: tmp,
+    // epic-status falls back to en_US.UTF-8, which a minimal Linux image may lack; the
+    // warning about it would land in the output the test compares.
+    LANG: process.env.LANG ?? 'C.UTF-8',
+    GIT_AUTHOR_NAME: 'Harness Test',
+    GIT_AUTHOR_EMAIL: 'harness-test@example.invalid',
+    GIT_COMMITTER_NAME: 'Harness Test',
+    GIT_COMMITTER_EMAIL: 'harness-test@example.invalid',
+    GIT_CONFIG_NOSYSTEM: '1',
+  }
+}
+
 /** Runs one shell test file as the cases do: in a new empty HOME, removed when the run returns. */
 async function runInEmptyHome(file: string, timeoutMs: number): Promise<{ run: Run; home: string }> {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-harness-home-')))
   try {
-    const env: NodeJS.ProcessEnv = {
-      PATH: process.env.PATH,
-      HOME: home,
-      USERPROFILE: home,
-      TMPDIR: process.env.TMPDIR ?? tmpdir(),
-      // epic-status falls back to en_US.UTF-8, which a minimal Linux image may lack; the
-      // warning about it would land in the output the test compares.
-      LANG: process.env.LANG ?? 'C.UTF-8',
-      GIT_AUTHOR_NAME: 'Harness Test',
-      GIT_AUTHOR_EMAIL: 'harness-test@example.invalid',
-      GIT_COMMITTER_NAME: 'Harness Test',
-      GIT_COMMITTER_EMAIL: 'harness-test@example.invalid',
-      GIT_CONFIG_NOSYSTEM: '1',
-    }
-    return { run: await runShellTest(gitBash(), file, home, env, timeoutMs), home }
+    return { run: await runShellTest(gitBash(), file, home, emptyHomeEnv(home), timeoutMs), home }
   } finally {
     removeTestTree(home)
   }
@@ -347,6 +360,32 @@ describe('harness shell tests', () => {
     const many = Array.from({ length: 40 }, (_, i) => `FAIL check ${i}`).join('\n')
     expect(failureReport(many)).toContain('... and 10 more FAIL lines')
     expect(failureReport('ok   one\npassed 1, failed 0')).toBe('ok   one\npassed 1, failed 0')
+  })
+
+  it('gives a shell test the system temp folder as TMPDIR, TEMP and TMP, outside the HOME it removes', () => {
+    const home = join(tmpdir(), 'worfy-harness-home-x')
+    const env = emptyHomeEnv(home)
+    expect(env.TMPDIR).toBe(process.env.TMPDIR ?? tmpdir())
+    expect(env.TEMP).toBe(env.TMPDIR)
+    expect(env.TMP).toBe(env.TMPDIR)
+    expect(env.TEMP?.startsWith(home)).toBe(false)
+  })
+
+  // Git Bash mounts /tmp once for all its processes, on the temp folder of the first one; the
+  // globalSetup test/global-setup-git-bash.ts starts that first one with the system temp folder.
+  it('Git Bash mounts /tmp on the system temp folder even when its TEMP and TMP name another one', (context) => {
+    context.skip(!WINDOWS, 'the /tmp mount of Git Bash exists on Windows only')
+    const home = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-harness-home-')))
+    try {
+      const other = join(home, 'other-temp')
+      const run = spawnSync(gitBash(), ['-c', 'cygpath -w /tmp'], { encoding: 'utf8', env: { ...emptyHomeEnv(home), TEMP: other, TMP: other } })
+      expect(run.stderr).not.toContain('could not find /tmp')
+      expect(run.status).toBe(0)
+      const spelled = (path: string): string => realpathSync.native(path.trim().replace(/[\\/]+$/, '')).toLowerCase()
+      expect(spelled(run.stdout)).toBe(spelled(tmpdir()))
+    } finally {
+      removeTestTree(home)
+    }
   })
 
   // Commands the Harness scripts need. The shell tests do not skip a check when one is missing,
