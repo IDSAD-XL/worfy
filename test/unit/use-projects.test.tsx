@@ -107,9 +107,10 @@ const listOf = (prefix: string, activeId: string | null = null): ProjectsState =
 
 /**
  * This Machine's preload: what reached it, in order. `linked.invoke` answers with the list of the
- * Machine it names — or "access is off" for one in `refusing`.
+ * Machine it names — or "access is off" for one in `refusing`, "is unreachable" for one in
+ * `unreachable` (read at each call, so a test can change it on the way).
  */
-function machinesBridge(options: { link: LinkState; linked: LinkedState; refusing?: string[]; gateRole?: 'serve' | 'request' | null }) {
+function machinesBridge(options: { link: LinkState; linked: LinkedState; refusing?: string[]; unreachable?: string[]; gateRole?: 'serve' | 'request' | null }) {
   const calls: [string, unknown][] = []
   const listeners = new Map<number, { channel: string; handler: (payload: unknown) => void }>()
   let next = 1
@@ -144,6 +145,7 @@ function machinesBridge(options: { link: LinkState; linked: LinkedState; refusin
         return gate(channel)
       case 'linked.invoke': {
         const call = input as { machine: string; channel: string }
+        if (options.unreachable?.includes(call.machine)) return { ok: true, value: { ok: false, error: `${call.channel}: Mini is unreachable` } }
         if (options.refusing?.includes(call.machine)) {
           return { ok: true, value: { ok: false, error: 'Linked machines cannot work with the Projects of Z: access is off' } }
         }
@@ -357,7 +359,29 @@ describe('the Projects of Linked machines', () => {
     await act(async () => fire('linked.changed', linkedState([{ id: M, sharing: 'no', epoch: 5 }], 4)))
     expect(reload).not.toHaveBeenCalled()
     await act(async () => fire('linked.changed', linkedState([{ id: M, sharing: 'yes', epoch: 6 }], 5)))
-    expect(reload).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1))
+  })
+
+  it('a window on M does not load again on a new epoch M cannot answer on: M quit, and the second connection that took over closes too', async () => {
+    const options: Parameters<typeof machinesBridge>[0] = { link: linkState([{ id: M, name: 'Mini' }]), linked: linkedState([{ id: M, sharing: 'yes', epoch: 4 }]) }
+    const { projects, fire, calls } = await loadModules(options, M)
+    const hook = renderHook(() => projects.useLinked())
+    await waitFor(() => expect(hook.result.current?.machines[0]?.epoch).toBe(4))
+    // Both sides dial each other: M quits, the first connection closes and the second one takes
+    // over — a new epoch, still online — and is already gone when the window asks over it.
+    options.unreachable = [M]
+    const asked = calls.length
+    await act(async () => fire('linked.changed', linkedState([{ id: M, sharing: 'yes', epoch: 5 }], 2)))
+    // A reload now would come up with no Project and no Canvas; the window keeps its Canvas.
+    expect(reload).not.toHaveBeenCalled()
+    // It asked M over the new epoch, and the answer said M is unreachable.
+    await waitFor(() => expect(calls.slice(asked)).toContainEqual(['linked.invoke', { machine: M, channel: 'projects.list', input: undefined }]))
+    await act(async () => fire('linked.changed', linkedState([{ id: M, sharing: 'yes', epoch: 5, online: false }], 3)))
+    expect(reload).not.toHaveBeenCalled()
+    // M is back: another epoch it answers on loads the window again, once.
+    options.unreachable = []
+    await act(async () => fire('linked.changed', linkedState([{ id: M, sharing: 'yes', epoch: 6 }], 4)))
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1))
   })
   describe('"Process gate queue" in the Project menu (worfy-windows ticket 17)', () => {
     const items = () => screen.getAllByRole('menuitem').map((item) => item.textContent)

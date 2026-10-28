@@ -182,10 +182,28 @@ export function acceptLinkedState(linked: LinkedState): void {
   }
   // The Machine is back (another connection, sharing on again): what this window subscribed to
   // there is gone; a fresh load takes the current state.
-  if (info.epoch !== loadedEpoch && info.online && info.sharing !== 'no') {
-    loadedEpoch = info.epoch
+  if (info.epoch !== loadedEpoch && info.online && info.sharing !== 'no') reloadOnceAnswering(info.epoch)
+}
+
+/** The epoch reloadOnceAnswering is asking the window's Machine over; undefined when none. */
+let asking: number | undefined
+
+/**
+ * Loads the window again for `epoch` once the window's Machine answers over it. Both sides dial
+ * each other, so a Machine that quits closes two connections: when the first one closes the second
+ * takes over (a new epoch, still online), and it closes a moment later. A reload then comes up on
+ * a Machine it cannot reach, with no Project and no Canvas. Without an answer the window keeps its
+ * Canvas under the "unreachable" line, and the next new epoch (the Machine back) asks again.
+ */
+function reloadOnceAnswering(epoch: number): void {
+  if (asking === epoch) return
+  asking = epoch
+  void invoke('projects.list').then((result) => {
+    if (asking === epoch) asking = undefined
+    if (!result.ok) return
+    loadedEpoch = epoch
     navigation.reload()
-  }
+  })
 }
 
 let linkedStarted = false
