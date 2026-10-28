@@ -557,11 +557,17 @@ describe('Card store', () => {
       // chokidar needs a moment to set its watches up after the first info().
       await new Promise((done) => setTimeout(done, 300))
       const seen: CardInfo[] = []
-      watching.onChange((info) => seen.push(info))
+      // When the store reported the new title: a bound on Date.now() after the waitFor also counted
+      // its polling, 1172 ms on a loaded Windows runner.
+      let reportedAt: number | undefined
+      watching.onChange((info) => {
+        seen.push(info)
+        if (info.title === 'Clock v2') reportedAt ??= Date.now()
+      })
       const started = Date.now()
       writeFileSync(join(cardDir('c1'), 'index.html'), '<title>Clock v2</title>')
       await vi.waitFor(() => expect(seen.at(-1)?.title).toBe('Clock v2'), { timeout: 1000, interval: 20 })
-      expect(Date.now() - started).toBeLessThan(1000)
+      expect((reportedAt ?? Infinity) - started).toBeLessThan(1000)
       // At least one: FSEvents may also deliver the fixture's own writes from just before the watch began.
       expect(seen.at(-1)).toMatchObject({ cardId: 'c1', exists: true })
       expect(seen.at(-1)?.revision).toBeGreaterThanOrEqual(1)
