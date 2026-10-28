@@ -22,7 +22,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { agentEnv, captureLoginShellEnv, MAX_SHELL_OUTPUT, SYSTEM_PATH, type CapturedEnv } from '../../src/main/agent/env'
 import { harnessScriptEnv, withProcessPath } from '../../src/main/harness/script-env'
 import { removeTestTree } from '../remove'
-import { quarantined } from '../quarantine'
 
 /** The files in HOME where an rc file writes the pids of what it leaves behind. */
 const PID_FILES = ['background.pid', 'probe.pid', 'shell.pid']
@@ -169,11 +168,15 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
     expect(took).toBeLessThan(10_000)
   }, 30_000)
 
-  quarantined('login-shell-capture-late-writes')('keeps nothing of what that process writes after the answer', () => {
+  it('keeps nothing of what that process writes after the answer', () => {
     // A process of its own, run with --expose-gc: its memory (RSS) is measured before and after the
     // background process writes 100 MB to the shell's output. RSS, not the V8 heap: Electron's V8
     // keeps strings this large outside heapUsed.
-    profile(`( while [ ! -e "$HOME/go" ]; do sleep 0.05; done; head -c 100000000 /dev/zero | tr '\\0' a; echo "$?" > "$HOME/after" ) & echo $! > "$HOME/probe.pid"\n`)
+    // The 100 MB are NUL bytes straight from `head`, with no `tr '\0' a` after it: tr turns about
+    // 40 MB a second on a quiet Mac, so the 100 MB took 2.5 s of the 20 s below, and on a Mac loaded
+    // by parallel runs the time limit killed the process. head writes them in tens of milliseconds;
+    // the capture drops NULs as it drops any other text.
+    profile(`( while [ ! -e "$HOME/go" ]; do sleep 0.05; done; head -c 100000000 /dev/zero; echo "$?" > "$HOME/after" ) & echo $! > "$HOME/probe.pid"\n`)
     const script = join(home, 'flood.mts')
     writeFileSync(
       script,
@@ -198,7 +201,7 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
     const answer = JSON.parse(run.stdout) as { from: string; grownMB: number; status: string }
     expect(answer.from).toBe('login-shell')
     expect(answer.status).toBe('0')
-    // Kept, the 100 MB would stay: about +200 MB of RSS; dropped, about +2 MB.
+    // Kept, the 100 MB would stay: about +200 MB of RSS; dropped, under +10 MB.
     expect(answer.grownMB).toBeLessThan(50)
   }, 30_000)
 
