@@ -35,7 +35,7 @@ let scratch: string
 let dataDir: string
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-canvas-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-canvas-')))
   dataDir = join(scratch, 'data')
   const projects = [ALPHA, BETA].map((id) => {
     const name = id.split('-')[0] ?? id

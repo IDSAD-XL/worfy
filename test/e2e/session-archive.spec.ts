@@ -58,7 +58,7 @@ const sessionNode = (sessionId: string, x: number, fields: Record<string, unknow
 })
 
 function makeProject(): void {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-archive-now-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-archive-now-')))
   dataDir = join(scratch, 'data')
   claudeHome = join(scratch, 'claude-home')
   repo = join(scratch, 'demo')

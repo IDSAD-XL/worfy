@@ -599,7 +599,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
     const version = readJson(join(resourcesOf(stableApp), 'harness', '.claude-plugin', 'plugin.json')).version as string
     const sha = /\+([0-9a-f]+)/.exec(version)?.[1]
     expect(sha, version).toBeDefined()
-    const dir = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-harness-behind-')))
+    const dir = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-harness-behind-')))
     try {
       const behind = harnessClone(dir, sha!, true)
       const current = harnessClone(dir, sha!, false)

@@ -85,7 +85,7 @@ function prepareB(scratch: string) {
   )
   writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
   chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
-  const dataDir = dataFolder(join(scratch, 'b-data'), [{ id: BETA, name: 'beta', path: realpathSync(repo) }])
+  const dataDir = dataFolder(join(scratch, 'b-data'), [{ id: BETA, name: 'beta', path: realpathSync.native(repo) }])
   const base = { hidden: false, locked: false, pinned: false, tags: [] }
   mkdirSync(join(dataDir, BETA), { recursive: true })
   writeFileSync(
@@ -119,11 +119,11 @@ async function expectInactive(action: Locator): Promise<void> {
 }
 
 test('Read only: A marks B in the sidebar, B\'s Canvas in A only shows — inactive actions, no drag, no Terminal; Full access makes them active again', async () => {
-  const scratch = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-link-25-')))
+  const scratch = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-link-25-')))
   const alpha = join(scratch, 'alpha')
   mkdirSync(alpha, { recursive: true })
   git(alpha, 'init', '-q')
-  const aData = dataFolder(join(scratch, 'a-data'), [{ id: ALPHA, name: 'alpha', path: realpathSync(alpha) }])
+  const aData = dataFolder(join(scratch, 'a-data'), [{ id: ALPHA, name: 'alpha', path: realpathSync.native(alpha) }])
   const bSetup = prepareB(scratch)
   const a = await launchApp({ env: { WORFY_DATA_DIR: aData } })
   let b: LaunchedApp | undefined

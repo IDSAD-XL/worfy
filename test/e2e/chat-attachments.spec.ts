@@ -61,7 +61,7 @@ let project: string
 let log: string
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-chat-attachments-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-chat-attachments-')))
   dataDir = join(scratch, 'data')
   claudeHome = join(scratch, 'claude-home')
   log = join(scratch, 'agent.log')

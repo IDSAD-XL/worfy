@@ -42,7 +42,7 @@ export interface TerminalAiSandbox {
 
 /** A fresh sandbox; the fake has no answers until `answers()` is called. */
 export function terminalAiSandbox(): TerminalAiSandbox {
-  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-tai-')))
+  const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-tai-')))
   const dataDir = join(scratch, 'data')
   const root = join(scratch, 'alpha')
   const home = join(scratch, 'home')

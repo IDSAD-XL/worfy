@@ -23,7 +23,7 @@ function makeRepo(parent: string, name: string, branch: string): string {
   writeFileSync(join(dir, 'src', 'index.ts'), 'export {}\n')
   git(dir, 'add', '.')
   git(dir, 'commit', '-q', '-m', 'init')
-  return realpathSync(dir)
+  return realpathSync.native(dir)
 }
 
 /** Replaces the system folder picker in main: the next "Add project" gets `folder`. */
@@ -74,7 +74,7 @@ let scratch: string
 let dataDir: string
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-projects-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-projects-')))
   dataDir = join(scratch, 'data')
 })
 

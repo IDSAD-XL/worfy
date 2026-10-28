@@ -53,7 +53,7 @@ const sessionNode = (sessionId: string, name: string, at: { x: number; y: number
 })
 
 function makeProject(): void {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-archive-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-archive-')))
   dataDir = join(scratch, 'data')
   claudeHome = join(scratch, 'claude-home')
   mkdirSync(join(claudeHome, 'bin'), { recursive: true })

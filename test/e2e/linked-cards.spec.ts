@@ -73,7 +73,7 @@ function gitRepo(path: string): string {
   writeFileSync(join(path, 'README.md'), '# shared\n')
   git('add', '.')
   git('commit', '-q', '-m', 'init')
-  return realpathSync(path)
+  return realpathSync.native(path)
 }
 
 const group = (window: Page, selector: string) => window.locator(`[data-testid="machine-group"]${selector}`)
@@ -212,7 +212,7 @@ const navigateScript = (url: string) => `location.href = ${JSON.stringify(url)}`
 const showStatus = (frame: Frame, text: string) => frame.evaluate(`document.getElementById('status').textContent = ${JSON.stringify(text)}`)
 
 test('A shows the Card of B from B, its own Card as before; a file change on B reloads the frame in A; session.ask asks on A and sends on B; Card B reaches nothing of A', async () => {
-  const scratch = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-link-10-cards-')))
+  const scratch = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-link-10-cards-')))
   const shared = gitRepo(join(scratch, 'shared'))
   const aData = dataFolder(join(scratch, 'a-data'), shared, 'A')
   const bData = dataFolder(join(scratch, 'b-data'), shared, 'B')

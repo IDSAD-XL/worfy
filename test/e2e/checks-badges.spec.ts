@@ -102,7 +102,7 @@ async function seen(locator: Locator): Promise<{ scroll: number; client: number;
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-checks-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-checks-')))
 })
 
 test.afterEach(async () => {

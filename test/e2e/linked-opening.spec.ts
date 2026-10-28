@@ -45,7 +45,7 @@ function repository(path: string): string {
   git(path, 'init', '-q')
   git(path, 'add', '.')
   git(path, 'commit', '-q', '-m', 'init')
-  return realpathSync(path)
+  return realpathSync.native(path)
 }
 
 /** A data folder whose projects.json lists `projects`, the first one active. */
@@ -169,7 +169,7 @@ const linkedCalls = (launched: LaunchedApp) =>
   launched.app.evaluate(() => (globalThis as unknown as { __worfyLinkedCalls?: { channel: string; input: string; start: number; ms: number; bytes: number }[] }).__worfyLinkedCalls ?? [])
 
 test('the first opening of a Project of a Linked machine: the loading line from the first frame, Epics counted to M/M, gone at the end', async () => {
-  const scratch = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-link-33-')))
+  const scratch = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-link-33-')))
   const alpha = repository(join(scratch, 'alpha'))
   const aData = dataFolder(join(scratch, 'a-data'), [{ id: ALPHA, name: 'alpha', path: alpha }])
   const bEnv = prepareB(scratch)

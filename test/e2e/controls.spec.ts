@@ -68,7 +68,7 @@ test.afterAll(async () => {
 })
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-controls-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-controls-')))
 })
 
 test.afterEach(async () => {
@@ -322,7 +322,7 @@ test('the write actions of a read-only screen show not-allowed and no hover', as
     git(repo, 'init', '-q')
     mkdirSync(join(dataDir, id), { recursive: true })
     mkdirSync(join(scratch, `${name}-home`))
-    writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id, name, path: realpathSync(repo) }], activeId: id }))
+    writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id, name, path: realpathSync.native(repo) }], activeId: id }))
     return dataDir
   }
   const BETA = 'beta-0000000b'

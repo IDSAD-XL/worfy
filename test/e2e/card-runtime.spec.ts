@@ -38,7 +38,7 @@ function writeLayout(zoom: number): void {
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-cards-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-cards-')))
   dataDir = join(scratch, 'data')
   repo = join(scratch, 'alpha')
   mkdirSync(repo)

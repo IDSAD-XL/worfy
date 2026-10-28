@@ -65,7 +65,7 @@ const TICKETS = [
 ]
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-toolbar-frame-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-toolbar-frame-')))
   dataDir = join(scratch, 'data')
   claudeHome = join(scratch, 'claude-home')
   const repo = join(scratch, 'demo')

@@ -62,7 +62,7 @@ function epicStatus(): unknown {
  * (ADR-0082), and a Node off screen is not drawn at all.
  */
 function makeProject(nodes: unknown[]): void {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-done-shelf-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-done-shelf-')))
   dataDir = join(scratch, 'data')
   claudeHome = join(scratch, 'claude-home')
   mkdirSync(join(claudeHome, 'bin'), { recursive: true })

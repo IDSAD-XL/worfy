@@ -134,7 +134,7 @@ async function arrangeFromPalette(window: Page): Promise<void> {
 }
 
 test('Arrange by Epic from ⌘K: the Sessions stand right of the strip at their Epics, the unbound one under them; one ⌘Z, ⇧⌘Z; a second window draws the same', async () => {
-  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-arrange-')))
+  const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-arrange-')))
   const repo = join(scratch, 'demo')
   const claudeHome = join(scratch, 'claude-home')
   const dataDir = join(scratch, 'data')
@@ -229,7 +229,7 @@ test('Arrange by Epic from ⌘K: the Sessions stand right of the strip at their 
 })
 
 test('Arrange by Epic in the Canvas menu: under Tidy up, before Re-pack', async () => {
-  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-arrange-menu-')))
+  const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-arrange-menu-')))
   const dataDir = join(scratch, 'data')
   const repo = join(scratch, 'plain')
   mkdirSync(repo, { recursive: true })

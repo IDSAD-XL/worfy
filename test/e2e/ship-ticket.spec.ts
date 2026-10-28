@@ -89,7 +89,7 @@ const bridgeCall = (window: Page, channel: string, input?: unknown) =>
   window.evaluate(([name, value]) => (globalThis as unknown as { worfy: Bridge }).worfy.invoke(name as string, value), [channel, input] as const)
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-ship-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-ship-')))
 })
 
 test.afterEach(async () => {

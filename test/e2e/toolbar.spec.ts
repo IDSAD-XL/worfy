@@ -35,7 +35,7 @@ function makeRepo(parent: string, name: string): string {
   writeFileSync(join(dir, 'README.md'), name)
   git('add', '.')
   git('commit', '-q', '-m', 'init')
-  return realpathSync(dir)
+  return realpathSync.native(dir)
 }
 
 /** limits.json with both windows received two days ago. */
@@ -60,7 +60,7 @@ let scratch: string
 let dataDir: string
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-toolbar-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-toolbar-')))
   dataDir = join(scratch, 'data')
   mkdirSync(dataDir)
 })

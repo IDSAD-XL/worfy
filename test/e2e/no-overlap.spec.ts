@@ -56,7 +56,7 @@ function makeProjects(layouts: Record<string, unknown[]>, active = ALPHA): void 
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-no-overlap-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-no-overlap-')))
   dataDir = join(scratch, 'data')
   mkdirSync(dataDir)
 })

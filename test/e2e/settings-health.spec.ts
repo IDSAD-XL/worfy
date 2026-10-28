@@ -34,7 +34,7 @@ let log: string
 let sandboxEnv: Record<string, string>
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-settings-health-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-settings-health-')))
   home = join(scratch, 'home')
   claudeHome = join(home, '.claude')
   dataDir = join(scratch, 'data')

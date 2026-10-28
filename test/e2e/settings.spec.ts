@@ -132,7 +132,7 @@ async function focusToPage(window: Page, dialog: Locator): Promise<void> {
 
 test('Settings is modal: ⌘K, ⌘F and ⌘↩ do nothing under it, also with the focus on the page, where Tab comes back and Esc closes; it opens over focus mode and leaves it as it was', async () => {
   // A Project with two notes: ⌘F searches its Canvas and ⌘↩ opens focus mode on the selected note.
-  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-settings-')))
+  const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-settings-')))
   const PROJECT = 'alpha-0000000a'
   const dataDir = join(scratch, 'data')
   mkdirSync(join(scratch, 'alpha'))

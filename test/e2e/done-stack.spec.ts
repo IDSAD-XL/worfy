@@ -99,7 +99,7 @@ async function openPlaces(window: Page): Promise<Record<number, { x: number; y: 
 const ticketNode = (window: Page, num: number) => window.locator(`[data-testid="ticket-node"][data-epic="${EPIC}"][data-ticket="${num}"]`)
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-done-stack-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-done-stack-')))
 })
 
 test.afterEach(async () => {

@@ -28,7 +28,7 @@ let claudeHome: string
 let env: Record<string, string>
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-migrate-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-migrate-')))
   claudeHome = legacyClaudeHome(scratch)
   env = { WORFY_CLAUDE_HOME: claudeHome, WORFY_CLAUDE: claudePluginStub(join(scratch, 'stub-bin')), STUB_PLUGIN_VERSION: bundledVersion() }
 })
