@@ -85,7 +85,7 @@ import { PermissionGate, unattendedCanUseTool, type CanUseToolHandler, type Refu
 import { MessageQueue, type QueueEntry } from './queue'
 import { InputQueue } from './session/input-queue'
 import { mergeSettings, modelOptions, USER_MODEL_FALLBACK } from './session/models'
-import { EXIT_WAIT_MS, exitOf, HALT_TURN_MS, hasExited, KILL_EXIT_MS, within } from './session/process'
+import { EXIT_WAIT_MS, exitOf, HALT_TURN_MS, hasExited, KILL_EXIT_MS, waitForExit, within } from './session/process'
 import { pushSettings, STDERR_KEEP, type Run } from './session/run'
 import type { ClaudeCodeProcess, EventSink, QueryFactory, QueryHandle, QueryRequest, SessionControls, SessionInfo } from './session/types'
 import { ATTENDED, launchSettings, settingsChangeRefusal, type SessionLaunch } from './session-settings'
@@ -265,7 +265,7 @@ export class Session {
     const deadline = Date.now() + killAfterMs
     const left = (): number => Math.max(0, deadline - Date.now())
     await within(Promise.allSettled([...this.pendingStarts]), left())
-    await within(Promise.all([...this.alive].map(exitOf)), left())
+    await within(Promise.all([...this.alive].map(waitForExit)), left())
     const survivors = [...this.alive]
     if (survivors.length === 0) return
     for (const child of survivors) {
@@ -276,7 +276,7 @@ export class Session {
         console.warn(`[agent] could not kill Claude Code ${child.pid ?? ''} of ${this.current}`, error)
       }
     }
-    if (!(await within(Promise.all(survivors.map(exitOf)), KILL_EXIT_MS))) {
+    if (!(await within(Promise.all(survivors.map(waitForExit)), KILL_EXIT_MS))) {
       console.warn(`[agent] Claude Code of ${this.current} did not exit after SIGKILL; going on without it`)
     }
   }
@@ -515,7 +515,7 @@ export class Session {
   private watch(child: ClaudeCodeProcess): void {
     if (child.pid === undefined || hasExited(child)) return
     this.alive.add(child)
-    child.once('exit', () => this.alive.delete(child))
+    void exitOf(child).then(() => this.alive.delete(child))
   }
 
   /**
