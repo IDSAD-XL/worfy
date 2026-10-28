@@ -42,7 +42,7 @@ const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, for
 
 /** A data folder with one Project of two notes, so the Canvas has something to show and to put into focus mode. */
 function projectData(): { scratch: string; dataDir: string } {
-  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-interface-scale-')))
+  const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-interface-scale-')))
   const PROJECT = 'alpha-0000000a'
   const dataDir = join(scratch, 'data')
   mkdirSync(join(scratch, 'alpha'))

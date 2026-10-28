@@ -80,7 +80,7 @@ function prepareB(scratch: string) {
   chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
   const dataDir = join(scratch, 'b-data')
   mkdirSync(join(dataDir, BETA), { recursive: true })
-  writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: BETA, name: 'beta', path: realpathSync(repo) }], activeId: BETA }))
+  writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: BETA, name: 'beta', path: realpathSync.native(repo) }], activeId: BETA }))
   const log = join(scratch, 'b-agent.log')
   // B's login shell is /bin/sh with a HOME of its own: its .profile puts node on PATH for the
   // epic-status stand-in, and nothing reads the real home.
@@ -173,7 +173,7 @@ async function interceptsFileChooser(launched: LaunchedApp): Promise<boolean> {
 }
 
 test('in a window of A on a Project of B: "+" picks with A\'s dialog and B keeps the copy; a link opens in A; a Ticket shows its file from B and its editor says where it is; the Minimap is A\'s own', async () => {
-  const scratch = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-link-12-')))
+  const scratch = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-link-12-')))
   const bSetup = prepareB(scratch)
   // A has a Project of its own, so its window starts on a Canvas.
   const own = join(scratch, 'alpha')
@@ -181,7 +181,7 @@ test('in a window of A on a Project of B: "+" picks with A\'s dialog and B keeps
   git(own, 'init', '-q')
   const aData = join(scratch, 'a-data')
   mkdirSync(aData)
-  writeFileSync(join(aData, 'projects.json'), JSON.stringify({ projects: [{ id: 'alpha-0000000a', name: 'alpha', path: realpathSync(own) }], activeId: 'alpha-0000000a' }))
+  writeFileSync(join(aData, 'projects.json'), JSON.stringify({ projects: [{ id: 'alpha-0000000a', name: 'alpha', path: realpathSync.native(own) }], activeId: 'alpha-0000000a' }))
   // A file of A's own disk, picked with "+" in A.
   const picked = join(scratch, 'from-a', 'notes-of-a.txt')
   mkdirSync(join(scratch, 'from-a'))

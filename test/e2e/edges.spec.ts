@@ -317,7 +317,7 @@ async function hoverUntilLit(window: Page, num: number): Promise<number> {
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-edges-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-edges-')))
   dataDir = join(scratch, 'data')
   mkdirSync(dataDir)
 })

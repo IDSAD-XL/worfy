@@ -34,7 +34,7 @@ let dataDir: string
 let layoutFile: string
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-focus-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-focus-')))
   dataDir = join(scratch, 'data')
   const path = join(scratch, 'alpha')
   mkdirSync(path)

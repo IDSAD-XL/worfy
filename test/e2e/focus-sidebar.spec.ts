@@ -47,7 +47,7 @@ function writeLayout(nodes: unknown[]): void {
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-focus-sidebar-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-focus-sidebar-')))
   dataDir = join(scratch, 'data')
   // A Project in a git repository with two Epics and an ADR, so the sidebar has rows to click.
   const repo = join(scratch, 'alpha')

@@ -207,7 +207,7 @@ async function box(locator: Locator): Promise<{ x: number; y: number; width: num
 const ticketNode = (window: Page, num: number) => window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`)
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-epics-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-epics-')))
   dataDir = join(scratch, 'data')
   mkdirSync(dataDir)
 })

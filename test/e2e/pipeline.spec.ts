@@ -77,7 +77,7 @@ const ticketText = (num: number, title: string, status: string): string =>
 const ticketPath = (num: number, slug: string): string => join(repo, '.scratch', 'demo', 'issues', `${String(num).padStart(2, '0')}-${slug}.md`)
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-pipeline-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-pipeline-')))
   dataDir = join(scratch, 'data')
   repo = join(scratch, 'demo')
   mkdirSync(join(repo, '.scratch', 'demo', 'issues'), { recursive: true })

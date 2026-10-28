@@ -83,7 +83,7 @@ async function headerPaint(node: Locator): Promise<{ band: string; dashed: boole
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-node-kinds-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-node-kinds-')))
   dataDir = join(scratch, 'data')
   claudeHome = join(scratch, 'claude-home')
   projectPath = join(scratch, 'alpha')

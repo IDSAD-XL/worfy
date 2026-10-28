@@ -54,7 +54,7 @@ function makeRepo(dir: string): string {
   git(dir, 'init', '-q')
   git(dir, 'add', '.')
   git(dir, 'commit', '-q', '-m', 'init')
-  return realpathSync(dir)
+  return realpathSync.native(dir)
 }
 
 /** An `epic-status` stub with no Epics, so a Project's Canvas reads without an error. */
@@ -161,7 +161,7 @@ async function launchPair(scratch: string, run: (pair: Pair) => Promise<void>): 
     await canvasReady(b, { size: SIZE })
     await canvasReady(a, { size: SIZE })
     await linkThroughUi(a.window, b.window)
-    await run({ a, b, bId: await machineIdOf(b.window), aData, bData, bHome: realpathSync(bHome), shop })
+    await run({ a, b, bId: await machineIdOf(b.window), aData, bData, bHome: realpathSync.native(bHome), shop })
   } finally {
     // First, so that a close that throws cannot leave the folder locked; and a give-back that throws
     // still closes both apps.
@@ -184,7 +184,7 @@ const folderRow = (window: Page, name: string) => window.getByTestId('folder-row
 let scratch: string
 
 test.beforeEach(async () => {
-  scratch = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-link-11-')))
+  scratch = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-link-11-')))
 })
 
 test.afterEach(async () => {

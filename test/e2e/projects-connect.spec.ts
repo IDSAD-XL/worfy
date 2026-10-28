@@ -36,7 +36,7 @@ function makeRepo(path: string): string {
   writeFileSync(join(path, 'package.json'), '{"name":"shop","scripts":{"lint":"eslint .","test":"vitest run"}}\n')
   git(path, 'add', '.')
   git(path, 'commit', '-q', '-m', 'init')
-  return realpathSync(path)
+  return realpathSync.native(path)
 }
 
 async function pickNext(app: ElectronApplication, folder: string): Promise<void> {
@@ -57,7 +57,7 @@ async function shoot(launched: LaunchedApp, locator: Locator, name: string, tick
 let scratch: string
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-connect-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-connect-')))
 })
 
 test.afterEach(async () => {

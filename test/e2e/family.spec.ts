@@ -106,7 +106,7 @@ async function allOnCanvas(window: Page, nodeIds: readonly string[]): Promise<bo
 }
 
 test('hovering a Session draws its Binding line and fades no Node; "Show family" fits the camera to it; a second window draws no line', async () => {
-  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-family-')))
+  const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-family-')))
   const repo = join(scratch, 'demo')
   const claudeHome = join(scratch, 'claude-home')
   const dataDir = join(scratch, 'data')
@@ -205,7 +205,7 @@ test.describe('on a read-only screen', () => {
   test.setTimeout(180_000)
 
   test('hovering a Ticket of a Linked machine shown read-only fades no Node; "Show family" is there and active', async () => {
-    const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-family-ro-')))
+    const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-family-ro-')))
     const ALPHA = 'alpha-0000000a'
     const BETA = 'beta-0000000b'
     const epic = 'demo'
@@ -214,14 +214,14 @@ test.describe('on a read-only screen', () => {
     git(alpha, 'init', '-q')
     const aData = join(scratch, 'a-data')
     mkdirSync(aData, { recursive: true })
-    writeFileSync(join(aData, 'projects.json'), JSON.stringify({ projects: [{ id: ALPHA, name: 'alpha', path: realpathSync(alpha) }], activeId: ALPHA }))
+    writeFileSync(join(aData, 'projects.json'), JSON.stringify({ projects: [{ id: ALPHA, name: 'alpha', path: realpathSync.native(alpha) }], activeId: ALPHA }))
     // B: Epic `demo` with Tickets 1 and 2, and a note.
     const beta = join(scratch, 'beta')
     const bClaude = join(scratch, 'b-claude')
     makeEpic(beta, bClaude, epic, [1, 2])
     const bData = join(scratch, 'b-data')
     mkdirSync(join(bData, BETA), { recursive: true })
-    writeFileSync(join(bData, 'projects.json'), JSON.stringify({ projects: [{ id: BETA, name: 'beta', path: realpathSync(beta) }], activeId: BETA }))
+    writeFileSync(join(bData, 'projects.json'), JSON.stringify({ projects: [{ id: BETA, name: 'beta', path: realpathSync.native(beta) }], activeId: BETA }))
     writeFileSync(join(bData, BETA, 'layout.json'), JSON.stringify({ nodes: [{ id: 'note-b', kind: 'note', x: 1300, y: 60, w: 220, h: 120, ...base, data: { text: 'A note of B' } }], viewport: { x: 0, y: 0, zoom: 0.5 } }))
     const bHome = join(scratch, 'b-home')
     mkdirSync(bHome, { recursive: true })

@@ -160,7 +160,7 @@ async function messageOrchestrator(window: Page, text: string): Promise<void> {
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-new-session-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-new-session-')))
   dataDir = join(scratch, 'data')
   claudeHome = join(scratch, 'claude-home')
   projectPath = join(scratch, 'alpha')

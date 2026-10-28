@@ -22,7 +22,7 @@ const EPIC = 'demo'
 let scratch: string
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-ticket-focus-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-ticket-focus-')))
 })
 
 test.afterEach(async () => {

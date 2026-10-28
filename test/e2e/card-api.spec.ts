@@ -46,7 +46,7 @@ function cardNode(id: string, x: number) {
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-card-api-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-card-api-')))
   dataDir = join(scratch, 'data')
   claudeHome = join(scratch, 'claude-home')
   repo = join(scratch, 'alpha')

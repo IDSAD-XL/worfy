@@ -540,7 +540,7 @@ function gitRepo(path: string): string {
   mkdirSync(path, { recursive: true })
   const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: path, env: gitEnv })
-  return realpathSync(path)
+  return realpathSync.native(path)
 }
 
 /** A data folder whose projects.json lists `projects`, the first one active. */
@@ -551,7 +551,7 @@ function dataFolder(path: string, projects: { id: string; name: string; path: st
 }
 
 test('the sidebar of A lists the Projects of B under B, with its state; not shared — none and a line; B closed — unavailable', async () => {
-  const scratch = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-link-09-sidebar-')))
+  const scratch = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-link-09-sidebar-')))
   const ownRepo = gitRepo(join(scratch, 'alpha-repo'))
   const bRepo = gitRepo(join(scratch, 'beta-repo'))
   const aData = dataFolder(join(scratch, 'a-data'), [{ id: 'alpha-repo-0000000a', name: 'alpha-repo', path: ownRepo }])
@@ -648,7 +648,7 @@ function prepareB(scratch: string, shared: string) {
   writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
   chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
   const dataDir = dataFolder(join(scratch, 'b-data'), [
-    { id: BETA, name: 'beta', path: realpathSync(repo) },
+    { id: BETA, name: 'beta', path: realpathSync.native(repo) },
     { id: SHARED, name: 'shared', path: shared },
   ])
   const base = { hidden: false, locked: false, pinned: false, tags: [] }
@@ -722,7 +722,7 @@ async function evidence18(window: Page, name: string): Promise<void> {
 }
 
 test('Settings → Machines: a level per Linked machine; with Read only A sees the Projects of B and a change is refused; Full access lets it through', async () => {
-  const scratch = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-link-18-levels-')))
+  const scratch = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-link-18-levels-')))
   const bRepo = gitRepo(join(scratch, 'beta-repo'))
   const aData = dataFolder(join(scratch, 'a-data'), [])
   const bData = dataFolder(join(scratch, 'b-data'), [{ id: 'beta-repo-0000000b', name: 'beta-repo', path: bRepo }])
@@ -779,7 +779,7 @@ test('Settings → Machines: a level per Linked machine; with Read only A sees t
 
 test('A opens a Project of B: its Canvas, Node moves, Session, Terminal and Autopilot go to B; B gone — "unreachable", B back — the Canvas again', async () => {
   test.setTimeout(240_000)
-  const scratch = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-link-09-canvas-')))
+  const scratch = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-link-09-canvas-')))
   const shared = gitRepo(join(scratch, 'shared'))
   const own = gitRepo(join(scratch, 'alpha'))
   const aData = dataFolder(join(scratch, 'a-data'), [{ id: 'alpha-0000000a', name: 'alpha', path: own }])
@@ -880,7 +880,7 @@ test('A opens a Project of B: its Canvas, Node moves, Session, Terminal and Auto
 
 test('one folder in A and in B is two Projects: moving a Node in B\'s does not move A\'s; B keeps its active Project and opens the Orchestrator', async () => {
   test.setTimeout(180_000)
-  const scratch = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-link-09-shared-')))
+  const scratch = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-link-09-shared-')))
   const shared = gitRepo(join(scratch, 'shared'))
   const aData = dataFolder(join(scratch, 'a-data'), [{ id: SHARED, name: 'shared', path: shared }])
   const bSetup = prepareB(scratch, shared)

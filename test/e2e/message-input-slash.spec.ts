@@ -35,7 +35,7 @@ const snapshot = (dir: string): string[] =>
     .map((path) => `${path}:${statSync(join(dir, path)).size}:${statSync(join(dir, path)).mtimeMs}`)
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-message-input-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-message-input-')))
   dataDir = join(scratch, 'data')
   claudeHome = join(scratch, 'claude-home')
   log = join(scratch, 'agent.log')

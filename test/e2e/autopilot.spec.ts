@@ -231,7 +231,7 @@ async function recordPower(app: ElectronApplication): Promise<() => Promise<stri
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-autopilot-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-autopilot-')))
 })
 
 test.afterEach(async () => {

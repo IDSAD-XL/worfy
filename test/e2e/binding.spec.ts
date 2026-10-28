@@ -251,7 +251,7 @@ async function backToCanvas(window: Page): Promise<void> {
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-binding-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-binding-')))
   dataDir = join(scratch, 'data')
   makeProject()
   writeSession(CLAIM, repo, 'main', [prompt('take 07'), bash('toolu_claim', `~/.claude/bin/ticket claim ${EPIC} 07; echo "КОД=$?"`), answer('a1', 'claimed')])

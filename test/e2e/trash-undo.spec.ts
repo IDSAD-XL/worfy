@@ -30,7 +30,7 @@ const dataFile = (id: string) => join(projectDir(), 'card-data', `${id}.json`)
 const trashEntries = () => (existsSync(join(projectDir(), 'trash')) ? readdirSync(join(projectDir(), 'trash')) : [])
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-trash-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-trash-')))
   dataDir = join(scratch, 'data')
   const path = join(scratch, 'alpha')
   mkdirSync(path)

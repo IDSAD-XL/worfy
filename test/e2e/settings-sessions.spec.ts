@@ -28,7 +28,7 @@ let scratch: string
 let home: string
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-sessions-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-sessions-')))
   home = join(scratch, 'home')
   mkdirSync(home)
   for (const file of ['.zshrc', '.zprofile', '.zshenv']) writeFileSync(join(home, file), '')

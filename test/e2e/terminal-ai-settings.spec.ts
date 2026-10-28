@@ -38,7 +38,7 @@ let root: string
 let home: string
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-tai-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-tai-')))
   dataDir = join(scratch, 'data')
   root = join(scratch, 'alpha')
   home = join(scratch, 'home')
