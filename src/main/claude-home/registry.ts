@@ -751,6 +751,13 @@ export interface ClaudeHomeWatch {
 
 const TRANSCRIPT = /^([A-Za-z0-9][A-Za-z0-9-]*)\.jsonl$/
 
+/**
+ * How long chokidar 5.0.0 keeps quiet about a path after it reported a change of it: every other
+ * change within that time is dropped, not reported at its end (`_throttle(EV.CHANGE, path, 50)`
+ * in its index.js). A write in that time after a read of the file is seen by no one.
+ */
+const CHANGE_QUIET_MS = 50
+
 export class ClaudeHomeRegistry {
   readonly home: string
   private readonly listWorktrees: NonNullable<RegistryOptions['listWorktrees']>
@@ -930,7 +937,8 @@ export class ClaudeHomeRegistry {
       verdicts.set(path, verdict)
       return verdict
     }
-    const note = (path: string, removed = false) => {
+    const relooks = new Set<NodeJS.Timeout>()
+    const note = (path: string, removed = false, again = false) => {
       if (/^\d+\.json$/.test(relative(sessionsDir, path))) {
         sessions = true
         schedule()
@@ -946,7 +954,18 @@ export class ClaudeHomeRegistry {
         schedule()
       }
       if (!removed) {
-        void startsInProject(path, match).then(report)
+        void startsInProject(path, match).then((inside) => {
+          report(inside)
+          // No cwd yet: a write chokidar dropped right after this change (a rewrite truncates the
+          // file, then writes it) may hold it. One more read once chokidar reports changes again;
+          // a later write is a change of its own. A read that was itself such a look ends here.
+          if (inside || again || closed || verdicts.has(path)) return
+          const timer = setTimeout(() => {
+            relooks.delete(timer)
+            note(path, false, true)
+          }, CHANGE_QUIET_MS)
+          relooks.add(timer)
+        })
         return
       }
       // A removed file can no longer be read: its verdict, else the cwd of the last list, else unknown.
@@ -1002,6 +1021,8 @@ export class ClaudeHomeRegistry {
         clearInterval(poller)
         if (timer) clearTimeout(timer)
         timer = undefined
+        for (const relook of relooks) clearTimeout(relook)
+        relooks.clear()
         await closeForGood(watcher)
       },
     }
