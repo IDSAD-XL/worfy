@@ -879,14 +879,16 @@ describe('the Suggestion from the model on a real zsh', () => {
     expect(await t.run(`kill -0 ${waiting.pid} 2>/dev/null && print -r -- alive || print -r -- gone`)).toContain('gone')
 
     // The same again, and Enter instead of wiping the line: the command that runs finds the pipe of
-    // the timer closed and no subshell left, at once and not when the 3 s are over.
+    // the timer closed and no subshell left, at once and not when the 3 s are over. The subshell is
+    // looked for first, before the command starts a program: gone means the shell has reaped it,
+    // so its SIGCHLD came before the command and cannot cut short a write of the next prompt.
     for (const part of [':', ' ', 'w', 'a', 'i', 't']) {
       t.type(part)
       await t.settle(30)
     }
     const again = await probe()
     expect(again.timer).toMatch(/^\d{2,}$/)
-    t.type(`; /bin/sh -c '( : <&${again.timer} ) 2>/dev/null && echo pipe-open; echo pipe-checked'; kill -0 ${again.pid} 2>/dev/null && print -r -- alive || print -r -- gone; ${COUNT}`)
+    t.type(`; kill -0 ${again.pid} 2>/dev/null && print -r -- alive || print -r -- gone; /bin/sh -c '( : <&${again.timer} ) 2>/dev/null && echo pipe-open; echo pipe-checked'; ${COUNT}`)
     await t.settle(30)
     const output = await t.run('')
     expect(output).toContain('pipe-checked')
