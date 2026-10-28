@@ -23,6 +23,14 @@ jobs:
           - 3/4
           - 4/4
     steps:
+      # Triage of the two tests that deny the runner's user access with icacls and still find the folder
+      # readable or writable: which privileges the user's token has, and which of them are enabled.
+      - name: The privileges and groups of the runner's user
+        shell: pwsh
+        run: |
+          whoami
+          whoami /priv
+          whoami /groups
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
