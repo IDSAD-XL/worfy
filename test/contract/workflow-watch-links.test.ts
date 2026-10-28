@@ -16,7 +16,6 @@ import { removeTree } from '../../src/main/storage/remove'
 import type { ProjectLayout } from '../../src/main/workflow/folder'
 import type { EpicStatusRunner } from '../../src/main/workflow/reader'
 import { ticketsIgnored, WorkflowWatcher } from '../../src/main/workflow/watch'
-import { quarantined } from '../quarantine'
 import { canLink, countFsCalls, SHARE, through, until } from './counted-fs'
 
 const WINDOWS = process.platform === 'win32'
@@ -177,7 +176,7 @@ describe.runIf(WINDOWS)('the watch of a Tickets root on Windows', () => {
     }
   }, 30_000)
 
-  quarantined('workflow-watch-links-same-link')('the same link in place of the issues folder, of a Ticket file, and of the Tickets root itself', async (context) => {
+  it('the same link in place of the issues folder, of a Ticket file, and of the Tickets root itself', async (context) => {
     context.skip(!LINKS, 'this user may not make a symlink (Developer Mode is off)')
     writeTicket(scratch, 'demo', 1, 'first')
     mkdirSync(join(scratch, 'other'))
