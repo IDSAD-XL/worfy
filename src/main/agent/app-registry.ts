@@ -16,7 +16,7 @@ import { app } from 'electron'
 import { agentEnv, type Env } from './env'
 import { fakeQueryFactory } from './fake-query'
 import { appLimits } from './limits'
-import { sessionHarnessPlugin, sessionOptions, withBrowserServer } from './options'
+import { sessionHarnessPlugin, sessionOptions, userExtensions, withBrowserServer } from './options'
 import { currentHarness } from '../harness/locate'
 import { browserForSession, exposeBrowserToolsToFakeAgent, type BrowserResolver, type BrowserSession } from '../mcp/browser-server'
 import { canvasForSession, type CanvasResolver, type CanvasSession } from '../mcp/canvas-server'
@@ -24,7 +24,7 @@ import { readUserAutoCompactWindow } from '../claude-home/user-model'
 import { appSettingsStore } from '../settings/store'
 import { claudeHome } from '../storage/paths'
 import { autoCompactWindowFor } from '../../shared/settings/app-settings'
-import { readMcpAllowlist } from '../workflow/profile'
+import { readMcpAllowlist, readSkillsAllowlist } from '../workflow/profile'
 import { SessionRegistry, type QueryFactory, type QueryHandle, type QueryRequest } from './session'
 
 /** The canvas of a Session (ticket 24); a failure leaves the Session without canvas tools rather than without a Session. */
@@ -58,6 +58,15 @@ export type McpAllowlistResolver = (cwd: string, env: Env) => Promise<readonly s
  * `bin/profile` runs with the login shell environment: from Finder worfy's own PATH has no node.
  */
 const profileAllowlist: McpAllowlistResolver = async (cwd, env) => (await readMcpAllowlist({ root: cwd, claudeHome: claudeHome(), env })).servers
+
+/**
+ * The user's plugins and skills a Session in the Project at `cwd` gets (ADR-0084), or null for all
+ * of them; never rejects.
+ */
+export type SkillsAllowlistResolver = (cwd: string, env: Env) => Promise<readonly string[] | null>
+
+/** The Profile's `skills.allowed` (profile.ts), read like the MCP list. */
+const profileSkills: SkillsAllowlistResolver = async (cwd, env) => (await readSkillsAllowlist({ root: cwd, claudeHome: claudeHome(), env })).names
 
 /**
  * The autocompact window a Session starts with, by whether it is a Project's Orchestrator; null
@@ -98,12 +107,16 @@ export interface SdkQueryFactoryOptions {
   loadSdk?: () => Promise<AgentSdk>
   /** The Browser server of a Session in a Project; browserForSession by default. */
   browser?: BrowserResolver
+  /** The Profile's list of the user's plugins and skills; `skills.allowed` by default. */
+  skills?: SkillsAllowlistResolver
 }
 
 /**
  * Claude Code through the Agent SDK, with the user's login shell environment and the Project's
  * canvas. A Session in a Project (one the canvas attaches to) gets only the MCP servers its Profile
- * lists; a Session outside every Project, or whose canvas failed, keeps the user's servers as they are.
+ * lists, and of the user's plugins and skills those its `skills.allowed` names, when it has one; a
+ * Session outside every Project, or whose canvas failed, keeps the user's servers, plugins and skills
+ * as they are.
  * Every Session gets the Harness copy of this build inline unless the old Harness is on the machine
  * (sessionHarnessPlugin, ADR-0049), and the autocompact window of its role (`autoCompactWindow`),
  * read when the options are built — after the environment and the canvas are in, so a change made
@@ -113,7 +126,7 @@ export interface SdkQueryFactoryOptions {
 export function sdkQueryFactory(
   canvas: CanvasResolver = canvasForSession,
   mcpAllowlist: McpAllowlistResolver = profileAllowlist,
-  { autoCompactWindow = appAutoCompactWindow, loadSdk = importSdk, browser = browserForSession }: SdkQueryFactoryOptions = {},
+  { autoCompactWindow = appAutoCompactWindow, loadSdk = importSdk, browser = browserForSession, skills = profileSkills }: SdkQueryFactoryOptions = {},
 ): QueryFactory {
   return async (request) => {
     const [{ query }, environment, attached] = await Promise.all([loadSdk(), agentEnv(), canvasOrNull(canvas, request)])
@@ -121,7 +134,9 @@ export function sdkQueryFactory(
     // unattended one (Autopilot) gets it in Autopilot mode: only the Browser profiles marked
     // «Available to Autopilot» exist for it (worfy-browser ticket 08, ADR-0078 item 10).
     const browsing = attached ? browserOrNull(browser, request) : Promise.resolve(null)
-    const [listed, browserSession] = attached ? await Promise.all([mcpAllowlist(request.cwd, environment.env), browsing]) : [null, null]
+    const [listed, browserSession, skillsAllowlist] = attached
+      ? await Promise.all([mcpAllowlist(request.cwd, environment.env), browsing, skills(request.cwd, environment.env)])
+      : [null, null, null]
     // worfy-browser joins the Profile's list only with the server it names: not when the Browser
     // server could not be made.
     const allowlist = listed !== null && browserSession !== null ? withBrowserServer(listed) : listed
@@ -139,6 +154,9 @@ export function sdkQueryFactory(
       canUseTool: request.canUseTool,
       unattended: request.unattended,
       mcpAllowlist: allowlist,
+      skillsAllowlist,
+      // Read only with a list: without one nothing is turned off.
+      userExtensions: skillsAllowlist !== null ? userExtensions(claudeHome(), request.cwd) : undefined,
       // Looked for at every Session start: worfy's own Harness inline unless the old one is on the machine (ADR-0049).
       harnessPlugin: sessionHarnessPlugin(currentHarness().kind),
       autoCompactWindow: autoCompactWindow(request.orchestrator === true),

@@ -1,4 +1,5 @@
-// Reads the Project's Profile: the list of MCP servers its agents may use (ADR-0021), the
+// Reads the Project's Profile: the list of MCP servers its agents may use (ADR-0021), the list of
+// the user's plugins and skills its Sessions get (ADR-0084, `readSkillsAllowlist`), the
 // GitHub account worfy's own gh calls go with (ADR-0020, worfy-week ticket 01) and the Pipeline
 // with what the Stage of a Ticket is computed from (ADR-0067, `readPipelineProfile`).
 //
@@ -575,6 +576,41 @@ export async function readMcpAllowlist(options: ReadMcpAllowlistOptions): Promis
   const parsed = serverNames.safeParse(json)
   if (!parsed.success) return fallback(`${MCP_ALLOWED_FIELD} is not a list of server names: ${JSON.stringify(stdout.slice(0, 200))}`)
   return { servers: [...new Set(parsed.data)], source: 'profile', reason: null }
+}
+
+// ── the plugins and skills ───────────────────────────────────────────────────
+
+/** The Profile field with the list of the user's plugins and skills a Session gets (ADR-0084). */
+export const SKILLS_ALLOWED_FIELD = 'skills.allowed'
+
+/** The Profile's list of plugins and skills; null — no list, everything as it was — with the reason. */
+export interface SkillsAllowlist {
+  names: readonly string[] | null
+  reason: string | null
+}
+
+/**
+ * The Profile's `skills.allowed` for the Project at `root`. Unlike the MCP list there is no default:
+ * without the field — exit code 4 or 3, `null`, no script, a failed run, a value that is not a list
+ * of names — the Session keeps every plugin and skill of the user, as before the field existed.
+ */
+export async function readSkillsAllowlist(options: ReadProfileOptions): Promise<SkillsAllowlist> {
+  const log = options.log ?? ((message: string) => console.warn(message))
+  const none = (reason: string): SkillsAllowlist => {
+    log(`[profile] plugins and skills for ${options.root}: all of the user's, because ${reason}`)
+    return { names: null, reason }
+  }
+  const field = await readField(options, SKILLS_ALLOWED_FIELD)
+  if (!field.ok) return none(field.reason)
+  let json: unknown
+  try {
+    json = JSON.parse(field.stdout)
+  } catch {
+    return none(`${SKILLS_ALLOWED_FIELD} is not JSON: ${JSON.stringify(field.stdout.slice(0, 200))}`)
+  }
+  const parsed = serverNames.safeParse(json)
+  if (!parsed.success) return none(`${SKILLS_ALLOWED_FIELD} is not a list of names: ${JSON.stringify(field.stdout.slice(0, 200))}`)
+  return { names: [...new Set(parsed.data)], reason: null }
 }
 
 // ── the GitHub account ───────────────────────────────────────────────────────

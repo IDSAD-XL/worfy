@@ -2,15 +2,15 @@
 // ticket 02): the permission mode Claude Code starts in, the flag that lets it skip permissions, and
 // the canUseTool the Session hands over. And the MCP servers of a Session (worfy-daily ticket 06,
 // ADR-0021): in a Project only those on the Profile's list, outside a Project the user's own set.
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { sessionHarnessPlugin, sessionOptions, withBrowserServer, type BrowserAttachment, type CanvasAttachment, type RuntimeInfo, type SessionOptionsInput } from '../../src/main/agent/options'
+import { sessionHarnessPlugin, sessionOptions, userExtensions, withBrowserServer, type BrowserAttachment, type CanvasAttachment, type RuntimeInfo, type SessionOptionsInput } from '../../src/main/agent/options'
 import * as bundled from '../../src/main/harness/bundled'
 import type { CanUseToolHandler } from '../../src/main/agent/permissions'
-import { DEFAULT_MCP_SERVERS } from '../../src/main/workflow/profile'
+import { DEFAULT_MCP_SERVERS, readSkillsAllowlist } from '../../src/main/workflow/profile'
 import { PERMISSION_MODES, type SessionSettings } from '../../src/shared/agent/settings'
 import { BROWSER_SERVER_NAME } from '../../src/shared/browser/tools'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
@@ -314,5 +314,148 @@ describe('the MCP servers of the Harness plugin', () => {
     expect(options.mcpServers).toEqual({ plugin_worfy_qmd: { type: 'stdio', command: `${harness}/bin/qmd-mcp` } })
     const fixture = join(import.meta.dirname, '..', 'fixtures', 'sdk-messages', 'plugin-known-installed.jsonl')
     expect(readFileSync(fixture, 'utf8')).toContain('"mcp__plugin_worfy_qmd__')
+  })
+})
+
+// worfy-throughput ticket 38 (ADR-0084): a Session in a Project whose Profile has `skills.allowed`
+// gets, of the user's plugins and own skills, only those on the list. The list goes to Claude Code as
+// flag settings (`--settings`): above the user's, the project's and the local settings, and below
+// the policy tier, where `syncClaudeAiSkills: false` would move the synced skills to the trash.
+// settingSources stay as they are, so CLAUDE.md and hooks still come from the user (ADR-0002).
+describe('the plugins and skills of a Session in a Project', () => {
+  const dirs: string[] = []
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) removeTestTree(dir)
+  })
+  const tmp = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'worfy-skills-'))
+    dirs.push(dir)
+    return dir
+  }
+  /** A Claude home and a project folder as the owner's Mac has them (the measurement of ticket 38). */
+  const world = (): { home: string; cwd: string } => {
+    const home = tmp()
+    const cwd = tmp()
+    writeFileSync(join(home, 'settings.json'), JSON.stringify({ enabledPlugins: { 'figma@claude-plugins-official': true, 'mattpocock-skills@claude-plugins-official': true, 'worfy@worfy-harness': true, 'old@claude-plugins-official': false } }))
+    for (const skill of ['wrangler', 'cloudflare']) {
+      mkdirSync(join(home, 'skills', skill), { recursive: true })
+      writeFileSync(join(home, 'skills', skill, 'SKILL.md'), `---\nname: ${skill}\ndescription: d\n---\n`)
+    }
+    mkdirSync(join(home, 'skills', 'notes'), { recursive: true })
+    mkdirSync(join(home, 'skills', 'synced', 'org_user', 'pdf'), { recursive: true })
+    writeFileSync(join(home, 'skills', 'synced', 'org_user', 'pdf', 'SKILL.md'), '---\nname: pdf\n---\n')
+    mkdirSync(join(cwd, '.claude'), { recursive: true })
+    writeFileSync(join(cwd, '.claude', 'settings.json'), JSON.stringify({ enabledPlugins: { 'team-tools@acme': true } }))
+    writeFileSync(join(cwd, '.claude', 'settings.local.json'), JSON.stringify({ enabledPlugins: { 'local-only@acme': true } }))
+    return { home, cwd }
+  }
+
+  it('reads the plugins the settings enable and the skills of <claude home>/skills, and only reads', () => {
+    const { home, cwd } = world()
+    const tree = (dir: string): string[] => readdirSync(dir, { recursive: true, withFileTypes: true }).map((entry) => `${join(entry.parentPath, entry.name)}:${entry.isFile() ? readFileSync(join(entry.parentPath, entry.name), 'utf8') : 'dir'}`).sort()
+    const before = { home: tree(home), cwd: tree(cwd) }
+    const extensions = userExtensions(home, cwd)
+    expect([...extensions.plugins].sort()).toEqual(['figma@claude-plugins-official', 'local-only@acme', 'mattpocock-skills@claude-plugins-official', 'team-tools@acme', 'worfy@worfy-harness'])
+    // A folder without SKILL.md is no skill; the skills synced from claude.ai go by the `claude.ai` entry.
+    expect([...extensions.skills].sort()).toEqual(['cloudflare', 'wrangler'])
+    sessionOptions(input({ cwd, skillsAllowlist: ['figma'], userExtensions: extensions }))
+    expect({ home: tree(home), cwd: tree(cwd) }).toEqual(before)
+  })
+
+  it('reads nothing from a Claude home without settings or skills, and from settings that are not JSON', () => {
+    const home = tmp()
+    const cwd = tmp()
+    expect(userExtensions(home, cwd)).toEqual({ plugins: [], skills: [] })
+    writeFileSync(join(home, 'settings.json'), '{ not json')
+    expect(userExtensions(home, cwd)).toEqual({ plugins: [], skills: [] })
+  })
+
+  it('with a list, turns off every plugin and skill of the user outside it, worfy kept', () => {
+    const { home, cwd } = world()
+    const options = sessionOptions(input({ cwd, skillsAllowlist: ['figma', 'cloudflare'], userExtensions: userExtensions(home, cwd) }))
+    expect(options.settings).toEqual({
+      enabledPlugins: { 'mattpocock-skills@claude-plugins-official': false, 'team-tools@acme': false, 'local-only@acme': false },
+      skillOverrides: { wrangler: 'off' },
+      syncClaudeAiSkills: false,
+      syncClaudeAiPlugins: false,
+    })
+    // CLAUDE.md and hooks still come from the user (ADR-0002); nothing of this is in the policy tier.
+    expect(options.settingSources).toEqual(['user', 'project', 'local'])
+    expect(options).not.toHaveProperty('managedSettings')
+  })
+
+  it('with an empty list, keeps only worfy, and names a plugin by its id too', () => {
+    const { home, cwd } = world()
+    const extensions = userExtensions(home, cwd)
+    const none = sessionOptions(input({ cwd, skillsAllowlist: [], userExtensions: extensions })).settings as Record<string, Record<string, unknown>>
+    expect(Object.keys(none.enabledPlugins ?? {}).sort()).toEqual(['figma@claude-plugins-official', 'local-only@acme', 'mattpocock-skills@claude-plugins-official', 'team-tools@acme'])
+    expect(none.skillOverrides).toEqual({ cloudflare: 'off', wrangler: 'off' })
+    const byId = sessionOptions(input({ cwd, skillsAllowlist: ['team-tools@acme'], userExtensions: extensions })).settings as Record<string, Record<string, unknown>>
+    expect(byId.enabledPlugins).not.toHaveProperty('team-tools@acme')
+  })
+
+  it('keeps the skills and plugins synced from claude.ai when the list names claude.ai', () => {
+    const { home, cwd } = world()
+    const options = sessionOptions(input({ cwd, skillsAllowlist: ['claude.ai'], userExtensions: userExtensions(home, cwd) }))
+    expect(options.settings).not.toHaveProperty('syncClaudeAiSkills')
+    expect(options.settings).not.toHaveProperty('syncClaudeAiPlugins')
+  })
+
+  it('goes next to the autocompact window in the same flag settings', () => {
+    const { home, cwd } = world()
+    const options = sessionOptions(input({ cwd, skillsAllowlist: ['figma', 'mattpocock-skills', 'claude.ai', 'wrangler', 'cloudflare', 'team-tools', 'local-only'], userExtensions: userExtensions(home, cwd), autoCompactWindow: 200_000 }))
+    expect(options.settings).toEqual({ autoCompactWindow: 200_000 })
+  })
+
+  it('never puts the synced-skills switch into the policy tier, where it would move them to the trash', () => {
+    const { home, cwd } = world()
+    const options = sessionOptions(input({ cwd, skillsAllowlist: [], userExtensions: userExtensions(home, cwd), mcpAllowlist: ['qmd'], permissionRulesFromPolicyOnly: true }))
+    expect(Object.keys(options.managedSettings ?? {}).sort()).toEqual(['allowManagedMcpServersOnly', 'allowManagedPermissionRulesOnly', 'allowedMcpServers'])
+    expect(options.settings).toMatchObject({ syncClaudeAiSkills: false, syncClaudeAiPlugins: false })
+  })
+
+  it('without a list (a Profile without the field, or a Session outside a Project) works as before', () => {
+    const { home, cwd } = world()
+    const extensions = userExtensions(home, cwd)
+    expect(sessionOptions(input({ cwd, skillsAllowlist: null, userExtensions: extensions }))).not.toHaveProperty('settings')
+    expect(sessionOptions(input({ cwd, userExtensions: extensions }))).not.toHaveProperty('settings')
+    expect(sessionOptions(input({ cwd }))).not.toHaveProperty('settings')
+    expect(sessionOptions(input({ cwd, skillsAllowlist: null, userExtensions: extensions, autoCompactWindow: 100_000 })).settings).toEqual({ autoCompactWindow: 100_000 })
+  })
+
+  it('turns off by the ids Claude Code reports in system/init, never a built-in or the inline plugin (fixture of worfy-harness ticket 01)', () => {
+    const fixture = join(import.meta.dirname, '..', 'fixtures', 'sdk-messages', 'plugin-known-user-settings.jsonl')
+    const init = readFileSync(fixture, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { type?: string; subtype?: string; plugins?: { name: string; source: string }[] })
+      .find((message) => message.type === 'system' && message.subtype === 'init')
+    const reported = (init?.plugins ?? []).map((plugin) => plugin.source)
+    // The settings enable the marketplace plugins of that run; the built-in, inline and synced ones come from elsewhere.
+    const enabled = reported.filter((source) => !/@(builtin|inline|synced)$/u.test(source))
+    expect(enabled).toEqual(['plugin-1@claude-plugins-official', 'plugin-2@claude-plugins-official'])
+    const home = tmp()
+    writeFileSync(join(home, 'settings.json'), JSON.stringify({ enabledPlugins: Object.fromEntries(enabled.map((id) => [id, true])) }))
+    const off = sessionOptions(input({ skillsAllowlist: ['plugin-2'], userExtensions: userExtensions(home, tmp()) })).settings as Record<string, Record<string, unknown>>
+    expect(off.enabledPlugins).toEqual({ 'plugin-1@claude-plugins-official': false })
+    for (const source of reported.filter((id) => /@(builtin|inline)$/u.test(id))) expect(off.enabledPlugins).not.toHaveProperty(source)
+  })
+})
+
+describe("the Profile's skills.allowed", () => {
+  const read = (code: number, stdout: string) => readSkillsAllowlist({ root: '/repo', claudeHome: '/nowhere', env: {}, run: () => Promise.resolve({ code, stdout, stderr: '' }), log: () => undefined })
+
+  it('is the list the Profile names, each name once', async () => {
+    expect(await read(0, '["figma", "claude.ai", "figma"]\n')).toEqual({ names: ['figma', 'claude.ai'], reason: null })
+    expect(await read(0, '[]\n')).toEqual({ names: [], reason: null })
+  })
+
+  it('is no list — everything as before — without the field, outside a Project, or with a value of the wrong shape', async () => {
+    expect((await read(4, '')).names).toBeNull()
+    expect((await read(3, '')).names).toBeNull()
+    expect((await read(0, 'null\n')).names).toBeNull()
+    expect((await read(0, '"figma"\n')).names).toBeNull()
+    expect((await read(0, '[1]\n')).names).toBeNull()
+    expect((await read(0, '{ nope\n')).names).toBeNull()
   })
 })
