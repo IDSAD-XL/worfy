@@ -107,7 +107,7 @@ echo "$sp" >"$(PIDF)"
 if on_windows; then
     echo "$sp" >"$(PIDF)"; echo "$sp $(( $(date +%s) * 1000 ))" >"$(SIDE)"
     "$WG" check "$S" >"$W/out" 2>&1; rc=$?
-    [ "$rc" -eq 1 ] && grep -q "another wave-gate check runs in this repository (pid $sp" "$W/out" \
+    [ "$rc" -eq 1 ] && grep -q "another wave-gate check runs in this repository (pid $sp, it started at .*, no later than the file says" "$W/out" \
         && ok "pid: a live pid whose process started no later than the file says -> exit 1 naming it" || bad "pid live with start: exit $rc: $(tail -3 "$W/out")"
 fi
 kill "$job"; wait "$job" 2>/dev/null
@@ -133,6 +133,21 @@ if on_windows; then
     [ "$rc" -eq 0 ] && grep -q "pid $rp, which is not running" "$W/out" && [ ! -e "$(PIDF)" ] && [ ! -e "$(SIDE)" ] \
         && ok "pid: a pid now held by a process that started later is taken over" || bad "pid reused: exit $rc: $(tail -3 "$W/out")"
     kill "$rjob"; wait "$rjob" 2>/dev/null
+    # A pid whose process ends while the check asks when it started: PowerShell answers nothing then, and the pid, no
+    # longer running, is dead. On a loaded runner a short-lived process that got the pid of the killed check ended so,
+    # and the resume case was refused (CI run 40656857467). The check stops between its two looks at the pid
+    # (WAVE_GATE_PID_SYNC) while the process is ended; the file names a start no earlier than the process's own.
+    sleep 60 & ep=$! ejob=$!
+    until_ok 5 grep -q sleep "/proc/$ep/exename"; ep="$(cat "/proc/$ep/winpid")"
+    echo "$ep" >"$(PIDF)"; echo "$ep $(( $(date +%s) * 1000 ))" >"$(SIDE)"
+    sync="$W/pid-sync"; mkdir -p "$sync"; touch "$sync/hold-alive"
+    WAVE_GATE_PID_SYNC="$sync" "$WG" check "$S" >"$W/out" 2>&1 & ewg=$!
+    until_ok 30 test -e "$sync/alive" || bad "pid ended while asked: the check never stopped where it found the pid running"
+    kill "$ejob"; wait "$ejob" 2>/dev/null
+    touch "$sync/resume-alive"
+    wait "$ewg"; rc=$?
+    [ "$rc" -eq 0 ] && grep -q "pid $ep, which is not running" "$W/out" && [ ! -e "$(PIDF)" ] \
+        && ok "pid: a pid whose process ends while its start time is asked is taken over" || bad "pid ended while asked: exit $rc: $(tail -3 "$W/out")"
 fi
 # an empty pid file: young — its writer is between open and write; old — stale
 new_world pidempty 1:a.txt

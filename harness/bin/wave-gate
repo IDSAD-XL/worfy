@@ -455,12 +455,28 @@ function startedAt(pid) {
     const at = r.status === 0 ? Date.parse(r.stdout.trim()) : NaN
     return Number.isFinite(at) ? at : null
 }
-// Whether the process that wrote `pid` (started at `started`, when the record names it) still runs.
+// Test-only: with WAVE_GATE_PID_SYNC=<folder> that holds `hold-<at>`, the check stops at the point `at`: it creates
+// `<at>` there and waits for `resume-<at>`, up to 30 s. The point `alive`: the pid of the pid file was found running,
+// and when its process started is not asked yet.
+function stopPoint(at) {
+    const dir = process.env.WAVE_GATE_PID_SYNC
+    if (!dir || !fs.existsSync(path.join(dir, `hold-${at}`))) return
+    fs.writeFileSync(path.join(dir, at), "")
+    for (const until = Date.now() + 30000; !fs.existsSync(path.join(dir, `resume-${at}`)) && Date.now() < until; ) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
+    }
+}
+// Whether the process that wrote `pid` (started at `started`, when the record names it) still runs: false, or why it
+// is taken to run, which the error names.
 function holderAlive(pid, started) {
     if (!pidAlive(pid)) return false
-    if (!Number.isFinite(started)) return true
+    if (!Number.isFinite(started) || process.platform !== "win32") return "no start time to compare"
+    stopPoint("alive")
     const now = startedAt(pid)
-    return now === null || now <= started + START_SLACK_MS
+    // No answer also comes for a process that ended while PowerShell was asked, as a short-lived process that got the
+    // pid of a killed check does on a loaded runner: a pid no longer running is dead, whatever PowerShell said.
+    if (now === null) return pidAlive(pid) && "its start time could not be read"
+    return now <= started + START_SLACK_MS && `it started at ${new Date(now).toISOString()}, no later than the file says`
 }
 // The pid file holds the bare pid: wave-gates before the start time read it as Number(text.trim()), and they share
 // the file. The start time of its writer is in <pid file>.started, "<pid> <started>", written right after the pid
@@ -510,7 +526,7 @@ function guardPid(common) {
         }
         const seen = pidState(file)
         if (seen.gone) continue
-        if (seen.live) fail(`another wave-gate check runs in this repository (${seen.pid ? `pid ${seen.pid}` : "its pid is being written"}, ${file})`)
+        if (seen.live) fail(`another wave-gate check runs in this repository (${seen.pid ? `pid ${seen.pid}, ${seen.live}` : "its pid is being written"}, ${file})`)
         const aside = `${file}.stale-${process.pid}`
         try {
             fs.renameSync(file, aside)
