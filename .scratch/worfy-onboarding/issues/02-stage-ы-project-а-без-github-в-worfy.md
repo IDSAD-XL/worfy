@@ -1,7 +1,8 @@
 # 02 — Stage-ы Project-а без GitHub: worfy читает файл отметок в Full mode с `local-green`
 
 Type: task
-Status: open
+Status: done 2026-10-28T06:22Z
+PR: #858
 Blocked by: —
 Source: решения владельца 2026-10-26, пункты 2 (Pipeline показывает Stage-ы demo) и 5 (Full mode, `local-green`, без GitHub); [spec.md](../spec.md), «Решено без владельца», Р1 (решено без владельца, подтверждено владельцем 2026-10-26); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md)
 
@@ -57,4 +58,12 @@ Source: решения владельца 2026-10-26, пункты 2 (Pipeline �
 
 ## Итог
 
-Заполняется при закрытии.
+- PR #858, влит 2026-10-27. `src/main/workflow/profile.ts` читает `workflow.finish`; `src/main/workflow/stages.ts`
+  (`marksInFile`) берёт отметки из файла отметок Harness home в Silent mode и в Full mode с `local-green` без
+  `origin` — то же правило, что у `ticket mark` (Ticket 01). PR tracker для такого репозитория не спрашивается,
+  gh не запускается. Full mode с `origin` и Silent mode — как раньше. Test-ы — `test/contract/workflow-stages.test.ts`,
+  блок «Stages in Full mode with workflow.finish local-green»; пять mutant-ов правила красные.
+- Долг (low, из VERIFIED-комментария): `src/main/workflow/stages.ts:235` — любой ненулевой exit code
+  `git remote get-url` (timeout, нет git, не репозиторий) читается как «нет `origin`», хотя «нет remote» — только
+  exit 2; так же делает и `harness/bin/ticket`, так что правило согласовано; шапка `src/main/workflow/marks.ts:8-10`
+  всё ещё говорит, что файл отметок — только для Silent mode.

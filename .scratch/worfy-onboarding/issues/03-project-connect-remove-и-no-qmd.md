@@ -1,7 +1,8 @@
 # 03 — `project-connect --remove <name>` и `--no-qmd`
 
 Type: task
-Status: open
+Status: done 2026-10-28T06:22Z
+PR: #862
 Blocked by: —
 Source: решения владельца 2026-10-26, пункт 7 (удаление убирает папку, Profile и запись registry); [spec.md](../spec.md), «Решено без владельца», Р12 и Р13 (решено без владельца, подтверждено владельцем 2026-10-26); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) — скрипты Harness на Node
 
@@ -60,9 +61,16 @@ Source: решения владельца 2026-10-26, пункт 7 (удален
 
 ## Итог
 
-Заполняется при закрытии.
-
-- **Решено без владельца (ревью #862, круг 1; владельцу подтвердить):** `--remove` отказывает с exit 1 и
+- PR #862, влит 2026-10-28, второй круг — VERIFIED. `harness/bin/project-connect --remove <name>` убирает
+  `projects/<name>/`, записи gate registry с `profile: <name>` и `runs/<name>/` одним commit-ом в git-репозитории
+  Harness home; до commit-а папки лежат в staging-папке, сбой на полпути всё возвращает. После commit-а удаляются
+  коллекции qmd Profile-а, кроме тех, что называет и другой Profile; сбой qmd ничего не откатывает. Нет такого
+  Profile-а — exit 1, имя с `/` или `..` — exit 2. `--no-qmd` пропускает шаг qmd и при записи, и при `--remove`.
+  Test-ы — `harness/bin/tests/project-connect.test.sh`.
+- Долг (low, из VERIFIED-комментария): `harness/bin/project-connect:419` — фраза «what was not put back is kept in
+  <staging>» неверна, когда не удался откат шага gate: прежний gate registry живёт только в памяти — писать его в
+  `staging/gate.config.json` или убрать обещание из текста.
+- **Решено без владельца (ревью #862, круг 1; подтверждено владельцем 2026-10-27):** `--remove` отказывает с exit 1 и
   ничего не трогает, если папка Workflow по умолчанию у Project-а в Silent mode
   (`projects/<name>/workflow/`) содержит что-то, кроме пустого `git init`: файлы или commit-ы. Это свой
   git-репозиторий Project-а с его Ticket-ами, история Harness его не хранит (`.gitignore`), и удалить его
