@@ -13,8 +13,8 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - После Ticket-а 35 `ci-ok` собирает Linux, macOS (`macos-tests`, `macos-e2e`, `macos-package`) и
   `windows / full-suite` — это `pnpm test` (unit и contract) из `windows-tests.yml`. e2e Playwright на Windows
   в CI не идут нигде: `windows-tests.yml` их не запускает (комментарий в начале файла: «no e2e»).
-- Windows e2e гоняет только ПК владельца в gate full. Когда-то красными там были 128 e2e; ПК сейчас снимает
-  свежую базу красных на `main` `2e70bf0f`.
+- Windows e2e гоняет только ПК владельца в gate full. Когда-то красными там были 128 e2e; База ПК на `main`
+  `2e70bf0f` — раздел «База ПК 2026-10-28» ниже: 0 красных e2e.
 - Карантин Ticket-а 20 после #878 работает и для Playwright (`test/e2e/quarantine.ts`, записи
   `test/quarantine/<id>.json` с `"runner": "playwright"` и полем `platforms`), так что пропуск e2e на `win32` с
   владельцем и датой уже есть.
@@ -48,6 +48,31 @@ ADR-0083).
 - [ ] Пять зелёных push-run-ов `windows-e2e` подряд на `main` — ссылки в «Итог»; после них PR делает job
       блокирующим, и contract test закрепляет это.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; условие merge — `ci-ok`.
+
+## База ПК 2026-10-28
+
+Стартовая точка триажа на runner-е. gate full (`GATE_SCOPE=all`) на ПК владельца, `main` `2e70bf0f`, 08:21–09:06 EET,
+CPU на старте 18 %. Exit 2 — красное только в шаге `test`. Логи на ПК:
+`C:/Users/Alexey/.claude/worfy-harness/gate/state/logs/c848baa6/2026-10-28T06-21-26Z-69084/`.
+
+| Шаг | Итог |
+| --- | --- |
+| lint, typecheck | зелёные |
+| test (unit и contract) | 2 файла красные, 9371 passed, 462 skipped |
+| test:e2e | 323 passed, 16 skipped, 0 failed (23,7 min) |
+| test:package | 16 passed, 1 skipped |
+
+- Красные test-ы — flaky под нагрузкой, оба зелёные 2 из 2 в тихих повторах (CPU 25–27 %, 7 файлов, 304 passed):
+  `test/contract/terminal-git-bash-close.test.ts` (Git Bash вывел только escape-коды режима, без строки готовности;
+  `terminal-harness.ts:300`) и `test/contract/harness-evals-outcome.test.ts` (hook timeout 300 000 ms, файл 705 с).
+  Оба — Ticket 23.
+- Все 8 красных e2e базы 2026-10-23 (тогда 295 passed, 8 failed) зелёные, в карантине их нет: browser-mcp service worker
+  (`:406`), done-stack (`:139`), epic-frame-undo (`:125`), linked-machines — Project машины B (`:780`), linked-notify
+  (`:108`), palette-find (`:107`), projects-connect (`:217`), window — размер и положение после перезапуска (`:179`).
+- 16 skipped e2e — по платформе: login shell, PATH из Finder, dev-запуск упакованной сборки, terminal-ai (zsh),
+  `window:153` (кнопки окна macOS).
+- В `test/quarantine` на тот момент 14 записей, все vitest (13 — `win32`, 1 — `darwin`), e2e — ни одной.
+- Что падает на runner-е, но не на ПК, — первый шаг этого Ticket-а.
 
 ## Где в коде
 
