@@ -19,7 +19,6 @@ import { diffModels, type EpicStatusSnapshot, type WorkflowDelta, type WorkflowM
 import { hasSh, NODE_DIR, withPath } from '../harness-node'
 import { generateScratch } from './scratch-gen'
 import { removeTestTree } from '../remove'
-import { quarantined } from '../quarantine'
 
 /**
  * The scripts' environment the readers are handed here: this process's own. The stub below reads
@@ -1675,7 +1674,7 @@ describe('workflow hub', () => {
 // ── size of an Auction-like Project ──────────────────────────────────────────
 
 describe('workflow reader on an Auction-sized Project', () => {
-  quarantined('workflow-reader-auction-size')('parses the answer, reads the files section of each Ticket and diffs 682 Tickets in ≤ 300 ms of its own time (450 ms on Windows)', async () => {
+  it('parses the answer, reads the files section of each Ticket and diffs 682 Tickets in ≤ 300 ms of CPU time (450 ms on Windows)', async () => {
     const repo = join(dir, 'big')
     const { json, ticketCount } = generateScratch(repo)
     expect(ticketCount).toBe(682)
@@ -1683,33 +1682,29 @@ describe('workflow reader on an Auction-sized Project', () => {
     const home = join(dir, 'big-home')
     mkdirSync(join(home, 'bin'), { recursive: true })
     canned(join(home, 'bin', 'epic-status'), { out: JSON.stringify(json), code: 0 })
+    const run = epicStatusRunner(home, ownEnv)
 
-    // The script's own time (process start, cat) is not worfy's: measure it and take it out.
-    const real = epicStatusRunner(home, ownEnv)
-    let scriptMs = 0
-    const timed: EpicStatusRunner = async (cwd, ref) => {
-      const start = performance.now()
-      try {
-        return await real(cwd, ref)
-      } finally {
-        scriptMs += performance.now() - start
-      }
-    }
-
-    const previous = (await readWorkflow({ root: repo, claudeHome: home, env: ownEnv }, timed)).model
+    // The speed of worfy's own code is the CPU time of this process (a test file has its own process,
+    // the default `forks` pool), not the wall time: a loaded runner stretched that to 597 ms (CI run
+    // 40009839336) while the work stayed the same. The script's process is not counted in it.
+    const previous = (await readWorkflow({ root: repo, claudeHome: home, env: ownEnv }, run)).model
     const samples: number[] = []
+    const wall: number[] = []
     for (let i = 0; i < 3; i += 1) {
-      scriptMs = 0
       const start = performance.now()
-      const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv }, timed)
+      const cpuStart = process.cpuUsage()
+      const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv }, run)
       diffModels(previous, model)
-      samples.push(performance.now() - start - scriptMs)
+      const cpu = process.cpuUsage(cpuStart)
+      samples.push((cpu.user + cpu.system) / 1000)
+      wall.push(performance.now() - start)
       expect(model.tickets).toHaveLength(682)
       expect(model.tickets.every((t) => t.files.length === 3)).toBe(true)
     }
     const best = Math.min(...samples)
-    console.info(`[workflow] Auction-sized read, worfy's own share: ${samples.map((s) => s.toFixed(0)).join(', ')} ms`)
-    // Windows on the PC, 2026-10-19, links checked once per folder in a read: best 224–330 ms (samples 224–432, CPU 75–95 % busy); 424–570 ms without that.
+    console.info(`[workflow] Auction-sized read: CPU ${samples.map((s) => s.toFixed(0)).join(', ')} ms; wall ${wall.map((s) => s.toFixed(0)).join(', ')} ms`)
+    // Windows on the PC, 2026-10-28, the whole file: best CPU 156–202 ms (samples 156–313; Windows counts CPU in steps of
+    // about 16 ms), wall 206–235 ms with the script.
     expect(best).toBeLessThanOrEqual(process.platform === 'win32' ? 450 : 300)
   })
 })
