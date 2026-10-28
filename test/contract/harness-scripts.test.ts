@@ -20,7 +20,6 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it, vi, type TestContext } from 'vitest'
 import { CI_RETRIES } from '../flaky'
 import { gitBash } from '../git-bash'
-import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
 import { timeScale } from '../time-scale'
 
@@ -414,17 +413,11 @@ describe('harness shell tests', () => {
     const problem = failure(file, run, FILE_TIMEOUT_MS)
     context.expect(problem === null, problem ?? '').toBe(true)
   }
-  // On Windows wave-gate-lock-killed.test.sh is in quarantine (test/quarantine/harness-wave-gate-lock-killed.json),
-  // so there it is declared on its own, as the quarantine marks a test; elsewhere it runs with the rest.
-  const lockApart = (file: string): boolean => WINDOWS && relative(file) === 'bin/tests/wave-gate-lock-killed.test.sh'
-  it.concurrent.for(ordered.filter((file) => !lockApart(file)).map((file): [string, string] => [relative(file), file]))(
+  it.concurrent.for(ordered.map((file): [string, string] => [relative(file), file]))(
     '%s exits 0 with an empty HOME',
     { timeout: FILE_TIMEOUT_MS + 10_000 },
     ([name, file], context) => runFile(name, file, context),
   )
-  for (const file of ordered.filter(lockApart)) {
-    quarantined('harness-wave-gate-lock-killed')('bin/tests/wave-gate-lock-killed.test.sh exits 0 with an empty HOME', (context) => runFile(relative(file), file, context), FILE_TIMEOUT_MS + 10_000)
-  }
 
   it('kills a file past its limit with every process it started, and removes its HOME', async () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-harness-hang-')))
