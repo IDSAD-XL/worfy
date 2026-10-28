@@ -249,12 +249,16 @@ test or a line in `not_verified`. A rework brief names the branch of the first r
 orchestrator launches you with `isolation: "worktree"`: your working directory is already a fresh
 tree of your own, the previous round's tree is removed. Never call `EnterWorktree` — it refuses a
 subagent started at the repository root, by `path` and by `name` — and do not create another tree.
-Check out the branch from origin in your tree: `git checkout -B <branch> origin/<branch>`. A
+Check out the branch in your tree. Pushed (`pr-green-ci`) — from origin:
+`git checkout -B <branch> origin/<branch>`. With `local-green` or without `origin` nothing is
+pushed: check out the local branch, `git checkout <branch>` (worktrees share the branches; the
+orchestrator kept it). A
 working directory that is the main checkout or someone else's tree — stop and ask. An Edit or
 Write that is refused is never written around (python, sed or a heredoc in Bash): stop and report
 it. Skip steps 1–2 of the ticket skill (claim,
 base): rebase onto the base first — `Head` is from before it — and name the head after that rebase
-in your PR comment. Fix the `Findings` (details in `Verifier report`), push to the same PR.
+in your PR comment (`local-green`: in your report). Fix the `Findings` (details in `Verifier
+report`), push to the same PR (`local-green`: no push).
 
 **Never launch review agents (`worfy:reviewer` or any other) — under no circumstances.** The review
 step in the ticket skill is written for the main session, not for you: your children report to the

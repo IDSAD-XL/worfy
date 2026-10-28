@@ -672,14 +672,21 @@ implementer: by then it has usually been idle past its prompt cache (5 min), and
 re-reads its whole context, often 100k tokens and more, while the brief is a few thousand. The
 exception: the old implementer sent its final report less than 5 min before this brief — then
 `SendMessage` to it with the same brief; a report time you do not know counts as older.
-Otherwise the previous round's worktree is idle and its branch is pushed: remove that worktree
-(`git worktree remove <worktree>`, then `git branch -D <branch>`) and launch the new agent with
-the Agent parameter `isolation: "worktree"`, which gives it a fresh tree of its own. There it
-checks out the branch from origin (`git checkout -B <branch> origin/<branch>`) and rebases first.
-Never send it into an existing tree: `EnterWorktree` refuses a subagent started at the repository
-root, by `path` and by `name`. Every rework
-round of this skill follows this rule: a `REJECTED`, a narrow round, a red check (section 4), the
-culprit of a red set (section 4), a reverted PR.
+Otherwise the previous round's worktree is idle: remove it and launch the new agent with the
+Agent parameter `isolation: "worktree"`, which gives it a fresh tree of its own. What happens to
+the branch depends on where it lives:
+- pushed (`pr-green-ci`): `git worktree remove <worktree>`, then `git branch -D <branch>`; the
+  new agent checks out the branch from origin (`git checkout -B <branch> origin/<branch>`).
+- `local-green` or a repository without `origin` — nothing is pushed, and the local branch is the
+  only copy of the first round's commits and of the `gate: REJECTED` commits that count the
+  rounds: `git worktree remove <worktree>` only, the branch stays (no `git branch -D`); the new
+  agent checks out the local branch (`git checkout <branch>`; worktrees share the branches).
+
+If `git worktree remove` refuses (untracked or modified files), look at what is there instead of
+forcing it. Either way the new agent rebases first. Never send it into an existing tree:
+`EnterWorktree` refuses a subagent started at the repository root, by `path` and by `name`. Every
+rework round of this skill follows this rule: a `REJECTED`, a narrow round, a red check
+(section 4), the culprit of a red set (section 4), a reverted PR.
 
 **The rework brief**:
 
@@ -690,6 +697,7 @@ Ticket: <F tickets.path for NN>; spec: <F tickets.spec>
 PR: <N>                               # local-green: none
 Branch: <branch>
 Worktree: your launch tree (isolation "worktree") — git checkout -B <branch> origin/<branch>
+                          # local-green or no origin: git checkout <branch> (the local branch)
 Head: <sha>               # the branch HEAD before the rework; the implementer rebases it first
 Findings: <the Act on group of the recorded `REJECTED` | the failing tests of the red run>
 Verifier report: <the recorded verdict: PR comment URL, gate: commit or ticket file | the run log>
@@ -1377,7 +1385,9 @@ for CI, not after. With `F workflow.ci` `batch` there is no CI to wait for: chec
 (`CONFLICTING` — rebase) before the rework round and before the merge.
 
 **Cleanup after the merge.** Once a ticket's PR (and the wave's documents PR) is merged — at once
-`git worktree remove <worktree>` and `git branch -D <branch>`; the verifiers' worktrees too. With
+`git worktree remove <worktree>` and `git branch -D <branch>`; the verifiers' worktrees too. A
+rework round's tree (`isolation: "worktree"`, section 3) leaves its own branch behind after the
+agent checked the ticket branch out there: delete it too (`git branch -D worktree-agent-<id>`). With
 `local-green` the same after `MERGED=0` (`git branch -d <branch>` — the branch, with its documents
 commit, is in the main branch by then). A
 worktree stays only for a ticket removed from the wave with an open PR. An old ticket branch in a

@@ -443,7 +443,21 @@ in_rw3() { [[ "$rw3" == *"$1"* ]]; }
 check "epic-wave section 3: a rework round is a fresh implementer with the rework brief" \
     in_rw3 'The round is a new agent `worfy:implementer` with the rework brief below, on the same branch — not `SendMessage` to the old implementer'
 check "epic-wave section 3: the orchestrator removes the previous round's idle worktree and launches with isolation worktree" \
-    in_rw3 'Otherwise the previous round'"'"'s worktree is idle and its branch is pushed: remove that worktree (`git worktree remove <worktree>`, then `git branch -D <branch>`) and launch the new agent with the Agent parameter `isolation: "worktree"`, which gives it a fresh tree of its own. There it checks out the branch from origin (`git checkout -B <branch> origin/<branch>`) and rebases first.'
+    in_rw3 'Otherwise the previous round'"'"'s worktree is idle: remove it and launch the new agent with the Agent parameter `isolation: "worktree"`, which gives it a fresh tree of its own. What happens to the branch depends on where it lives:'
+check "epic-wave section 3: a pushed branch is deleted locally and checked out from origin" \
+    in_rw3 '- pushed (`pr-green-ci`): `git worktree remove <worktree>`, then `git branch -D <branch>`; the new agent checks out the branch from origin (`git checkout -B <branch> origin/<branch>`).'
+# With local-green or without origin the local branch is the only copy of the rounds' commits: it is never deleted.
+rw_local="$(section "$EW" 3 | awk '/^- `local-green` or a repository without `origin`/{p=1} p && /^$/{exit} p' | tr '\n' ' ' | tr -s ' ')"
+check "epic-wave section 3: the local-green / no-origin rule exists" \
+    test -n "$rw_local"
+check "epic-wave section 3: local-green / no origin keeps the branch — the worktree is removed, the branch is not" \
+    bash -c '[[ "$1" == *"the local branch is the only copy of the first round'"'"'s commits and of the \`gate: REJECTED\` commits that count the rounds: \`git worktree remove <worktree>\` only, the branch stays (no \`git branch -D\`);"* && "$1" != *"git branch -D <branch>"* && "$1" != *"origin/<branch>"* ]]' _ "$rw_local"
+check "epic-wave section 3: local-green / no origin — the new agent checks out the local branch" \
+    bash -c '[[ "$1" == *"the new agent checks out the local branch (\`git checkout <branch>\`; worktrees share the branches)."* ]]' _ "$rw_local"
+check "epic-wave section 3: the old wording — every idle branch is pushed and deleted — is gone" \
+    bash -c '[[ "$1" != *"is idle and its branch is pushed: remove that worktree"* ]]' _ "$rw3"
+check "epic-wave section 3: a refused git worktree remove is looked into, not forced" \
+    in_rw3 'If `git worktree remove` refuses (untracked or modified files), look at what is there instead of forcing it. Either way the new agent rebases first.'
 check "epic-wave section 3: a rework implementer is never sent into an existing tree" \
     in_rw3 'Never send it into an existing tree: `EnterWorktree` refuses a subagent started at the repository root, by `path` and by `name`.'
 check "epic-wave section 3: the old wording — the rework in the same worktree — is gone" \
@@ -475,6 +489,10 @@ check "epic-wave section 3: the rework brief reminds of a test per new behaviour
     'Cover every new behaviour of the rework with a test that turns red on a mutant of that change'
 check "epic-wave section 3: the rework brief's Worktree is the launch tree, where the branch is checked out from origin" \
     bash -c 'grep -qx "Worktree: your launch tree (isolation \"worktree\") — git checkout -B <branch> origin/<branch>" <<<"$1"' _ "$rework_brief"
+check "epic-wave section 3: the rework brief's Worktree line names the local checkout for local-green / no origin" \
+    bash -c 'grep -A1 "^Worktree: " <<<"$1" | grep -qx " *# local-green or no origin: git checkout <branch> (the local branch)"' _ "$rework_brief"
+check "epic-wave section 4: the cleanup after the merge deletes a rework round's isolation branch" \
+    in_flat "$(section "$EW" 4)" 'A rework round'"'"'s tree (`isolation: "worktree"`, section 3) leaves its own branch behind after the agent checked the ticket branch out there: delete it too (`git branch -D worktree-agent-<id>`).'
 check "epic-wave section 3: the old Worktree line — work in it, do not create one — is gone" \
     lacks "$EW" 'do not create one'
 check "epic-wave section 3: the second round's diff starts at the head after the rebase, from the PR comment" \
@@ -491,14 +509,20 @@ check "epic-wave section 4: no rework goes back to its implementer" \
     lacks "$EW" 'back to its implementer as a rework round'
 check "implementer: a rework round starts in its isolation-worktree tree and never calls EnterWorktree" \
     in_flat "$(cat "$IM")" 'the orchestrator launches you with `isolation: "worktree"`: your working directory is already a fresh tree of your own, the previous round'"'"'s tree is removed. Never call `EnterWorktree` — it refuses a subagent started at the repository root, by `path` and by `name` — and do not create another tree.'
-check "implementer: a rework round checks the branch out from origin in its tree" \
-    in_flat "$(cat "$IM")" 'Check out the branch from origin in your tree: `git checkout -B <branch> origin/<branch>`.'
+check "implementer: a rework round checks a pushed branch out from origin in its tree" \
+    in_flat "$(cat "$IM")" 'Check out the branch in your tree. Pushed (`pr-green-ci`) — from origin: `git checkout -B <branch> origin/<branch>`.'
+check "implementer: a local-green / no-origin rework round checks out the local branch" \
+    in_flat "$(cat "$IM")" 'With `local-green` or without `origin` nothing is pushed: check out the local branch, `git checkout <branch>` (worktrees share the branches; the orchestrator kept it).'
+check "implementer: the old wording — always from origin — is gone" \
+    lacks "$IM" 'Check out the branch from origin in your tree'
+check "implementer: a local-green rework round names the head in its report and does not push" \
+    in_flat "$(cat "$IM")" 'in your PR comment (`local-green`: in your report). Fix the `Findings` (details in `Verifier report`), push to the same PR (`local-green`: no push).'
 check "implementer: a refused Edit is never written around" \
     in_flat "$(cat "$IM")" 'An Edit or Write that is refused is never written around (python, sed or a heredoc in Bash): stop and report it.'
 check "implementer: the old rework wording — no EnterWorktree, edit by absolute paths — is gone" \
     bash -c '[[ "$1" != *"do not call \`EnterWorktree\` (refused from the repository root)"* && "$1" != *"edit files by absolute paths inside that tree"* ]]' _ "$(flat "$(cat "$IM")")"
 check "implementer: a rework round skips claim and base, rebases first and names the rebased head" \
-    in_flat "$(cat "$IM")" 'Skip steps 1–2 of the ticket skill (claim, base): rebase onto the base first — `Head` is from before it — and name the head after that rebase in your PR comment.'
+    in_flat "$(cat "$IM")" 'Skip steps 1–2 of the ticket skill (claim, base): rebase onto the base first — `Head` is from before it — and name the head after that rebase in your PR comment'
 check "implementer: the create-a-tree rule points a rework round at the brief's tree" \
     in_flat "$(cat "$IM")" '(a rework round starts in the fresh tree it was launched in and skips this step, see "A rework round")'
 check "implementer: a rework round is not sent into EnterWorktree" \
