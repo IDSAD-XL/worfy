@@ -188,19 +188,33 @@ export function acceptLinkedState(linked: LinkedState): void {
 /** The epoch reloadOnceAnswering is asking the window's Machine over; undefined when none. */
 let asking: number | undefined
 
+/** Set once the window starts loading another address (a Project of another Machine). */
+let leaving = false
+
+/** What a call to a Machine answers when no connection to it is open (src/main/link/remote-calls.ts). */
+const UNREACHABLE = / is unreachable$/
+
 /**
  * Loads the window again for `epoch` once the window's Machine answers over it. Both sides dial
  * each other, so a Machine that quits closes two connections: when the first one closes the second
  * takes over (a new epoch, still online), and it closes a moment later. A reload then comes up on
- * a Machine it cannot reach, with no Project and no Canvas. Without an answer the window keeps its
- * Canvas under the "unreachable" line, and the next new epoch (the Machine back) asks again.
+ * a Machine it cannot reach, with no Project and no Canvas. So the window keeps its Canvas under
+ * the "unreachable" line when the answer says the Machine is unreachable or the Machine has gone
+ * offline meanwhile; the next new epoch (the Machine back) asks again. Any other answer — the list,
+ * no answer in time, an error on the Machine — loads the window again: what it subscribed to there
+ * is gone either way. A newer epoch asked meanwhile decides instead, and a window already loading
+ * another address is left to it.
  */
 function reloadOnceAnswering(epoch: number): void {
   if (asking === epoch) return
   asking = epoch
+  const machine = windowMachine()
   void invoke('projects.list').then((result) => {
-    if (asking === epoch) asking = undefined
-    if (!result.ok) return
+    if (asking !== epoch) return
+    asking = undefined
+    if (leaving || windowMachine() !== machine) return
+    const info = useLinkedStore.getState().linked?.machines.find((candidate) => candidate.id === machine)
+    if (info?.online !== true || (!result.ok && UNREACHABLE.test(result.error))) return
     loadedEpoch = epoch
     navigation.reload()
   })
@@ -211,6 +225,10 @@ let linkedStarted = false
 function followLinked(): void {
   if (linkedStarted) return
   linkedStarted = true
+  // A reload while the window loads another address would cancel that load.
+  window.addEventListener('beforeunload', () => {
+    leaving = true
+  })
   try {
     subscribe('linked.changed', acceptLinkedState)
   } catch (error) {

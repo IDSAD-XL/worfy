@@ -108,9 +108,17 @@ const listOf = (prefix: string, activeId: string | null = null): ProjectsState =
 /**
  * This Machine's preload: what reached it, in order. `linked.invoke` answers with the list of the
  * Machine it names — or "access is off" for one in `refusing`, "is unreachable" for one in
- * `unreachable` (read at each call, so a test can change it on the way).
+ * `unreachable` (read at each call, so a test can change it on the way). While `held` is set, a
+ * `projects.list` over `linked.invoke` waits until the test calls the one it pushed there with the answer.
  */
-function machinesBridge(options: { link: LinkState; linked: LinkedState; refusing?: string[]; unreachable?: string[]; gateRole?: 'serve' | 'request' | null }) {
+function machinesBridge(options: {
+  link: LinkState
+  linked: LinkedState
+  refusing?: string[]
+  unreachable?: string[]
+  held?: ((answer: { ok: boolean; value?: unknown; error?: string }) => void)[]
+  gateRole?: 'serve' | 'request' | null
+}) {
   const calls: [string, unknown][] = []
   const listeners = new Map<number, { channel: string; handler: (payload: unknown) => void }>()
   let next = 1
@@ -145,6 +153,8 @@ function machinesBridge(options: { link: LinkState; linked: LinkedState; refusin
         return gate(channel)
       case 'linked.invoke': {
         const call = input as { machine: string; channel: string }
+        const held = options.held
+        if (held !== undefined && call.channel === 'projects.list') return new Promise((resolve) => held.push((value) => resolve({ ok: true, value })))
         if (options.unreachable?.includes(call.machine)) return { ok: true, value: { ok: false, error: `${call.channel}: Mini is unreachable` } }
         if (options.refusing?.includes(call.machine)) {
           return { ok: true, value: { ok: false, error: 'Linked machines cannot work with the Projects of Z: access is off' } }
@@ -159,7 +169,7 @@ function machinesBridge(options: { link: LinkState; linked: LinkedState; refusin
   const bridge: WorfyBridge = {
     invoke: (channel, input) => {
       calls.push([channel, input])
-      return Promise.resolve(answer(channel, input) as never)
+      return Promise.resolve(answer(channel, input)) as never
     },
     on: (channel, handler) => {
       listeners.set(next, { channel, handler })
@@ -382,6 +392,69 @@ describe('the Projects of Linked machines', () => {
     options.unreachable = []
     await act(async () => fire('linked.changed', linkedState([{ id: M, sharing: 'yes', epoch: 6 }], 4)))
     await waitFor(() => expect(reload).toHaveBeenCalledTimes(1))
+  })
+  describe('a window on M, asking M over a new epoch before it loads again', () => {
+    /** A window on M at epoch 4 whose next `projects.list` calls over M wait for the test. */
+    async function heldWindow() {
+      const options: Parameters<typeof machinesBridge>[0] = { link: linkState([{ id: M, name: 'Mini' }]), linked: linkedState([{ id: M, sharing: 'yes', epoch: 4 }]) }
+      const loaded = await loadModules(options, M)
+      const hook = renderHook(() => loaded.projects.useLinked())
+      await waitFor(() => expect(hook.result.current?.machines[0]?.epoch).toBe(4))
+      const held: NonNullable<typeof options.held> = []
+      options.held = held
+      const asked = loaded.calls.length
+      const lists = () => loaded.calls.slice(asked).filter(([channel, input]) => channel === 'linked.invoke' && (input as { channel: string }).channel === 'projects.list')
+      return { ...loaded, held, lists }
+    }
+    const list = { ok: true, value: listOf('m') }
+
+    it('asks once per epoch: a second linked state with the same epoch does not ask again', async () => {
+      const { fire, held, lists } = await heldWindow()
+      await act(async () => {
+        fire('linked.changed', linkedState([{ id: M, sharing: 'yes', epoch: 5 }], 2))
+        fire('linked.changed', linkedState([{ id: M, sharing: 'yes', epoch: 5 }], 3))
+      })
+      expect(lists()).toHaveLength(1)
+      await act(async () => held[0]?.(list))
+      expect(reload).toHaveBeenCalledTimes(1)
+    })
+
+    it('an answer over epoch 5 that comes after epoch 6 began does not load the window; the answer over 6 does, once', async () => {
+      const { fire, held, lists } = await heldWindow()
+      await act(async () => fire('linked.changed', linkedState([{ id: M, sharing: 'yes', epoch: 5 }], 2)))
+      await act(async () => fire('linked.changed', linkedState([{ id: M, sharing: 'yes', epoch: 6 }], 3)))
+      expect(lists()).toHaveLength(2)
+      await act(async () => held[0]?.(list))
+      expect(reload).not.toHaveBeenCalled()
+      await act(async () => held[1]?.(list))
+      expect(reload).toHaveBeenCalledTimes(1)
+    })
+
+    it('M online and the call failing otherwise (no answer in time, an error on M) still loads the window: its subscriptions on M are gone', async () => {
+      const { fire, held } = await heldWindow()
+      await act(async () => fire('linked.changed', linkedState([{ id: M, sharing: 'yes', epoch: 5 }], 2)))
+      await act(async () => held[0]?.({ ok: false, error: 'projects.list: Mini did not answer in time' }))
+      expect(reload).toHaveBeenCalledTimes(1)
+    })
+
+    it('M gone offline by the time the answer comes: no reload, whatever the answer', async () => {
+      const { fire, held } = await heldWindow()
+      await act(async () => fire('linked.changed', linkedState([{ id: M, sharing: 'yes', epoch: 5 }], 2)))
+      await act(async () => fire('linked.changed', linkedState([{ id: M, sharing: 'yes', epoch: 5, online: false }], 3)))
+      await act(async () => held[0]?.({ ok: false, error: 'projects.list: Mini did not answer in time' }))
+      expect(reload).not.toHaveBeenCalled()
+    })
+
+    it('the window began loading a Project of another Machine while it asked: the late answer does not reload over that load', async () => {
+      const { projects, fire, held } = await heldWindow()
+      await act(async () => fire('linked.changed', linkedState([{ id: M, sharing: 'yes', epoch: 5 }], 2)))
+      // navigation.load is replaced here; the window says it is leaving the way a real load does.
+      await act(async () => projects.openProject(null, 'studio-two-00000002'))
+      expect(load).toHaveBeenCalledTimes(1)
+      window.dispatchEvent(new Event('beforeunload'))
+      await act(async () => held[0]?.(list))
+      expect(reload).not.toHaveBeenCalled()
+    })
   })
   describe('"Process gate queue" in the Project menu (worfy-windows ticket 17)', () => {
     const items = () => screen.getAllByRole('menuitem').map((item) => item.textContent)
