@@ -209,7 +209,7 @@ describe('test/timings-reporter.ts', () => {
 
   it('is a reporter of the vitest config, next to the default one', () => {
     const config = readFileSync(join(import.meta.dirname, '..', '..', 'vitest.config.ts'), 'utf8')
-    expect(config).toContain("reporters: [...configDefaults.reporters, './test/timings-reporter.ts']")
+    expect(config).toContain("reporters: [...configDefaults.reporters, './test/timings-reporter.ts',")
   })
 
   it('keeps the run going when the report cannot be written: one line on stderr, no temporary file left', () => {

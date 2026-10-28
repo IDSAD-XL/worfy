@@ -23,7 +23,8 @@
 //                    (`-t` keeps only them: a variable cannot narrow vitest's run by itself);
 //                    Playwright: the quarantined tests are declared with `test.only`, so
 //                    WORFY_QUARANTINE=only pnpm test:e2e runs them alone.
-// Nothing retries a failed test, in any run.
+// Nothing retries a failed test, except one retry in CI (test/flaky.ts); a test that passes only on
+// that retry is printed as FLAKY and is a candidate for an entry here like any other flaky test.
 //
 // The helper skips nothing when the entry is missing or broken, names another test or another
 // runner, does not name this platform, or is past its exit date (the day after `until`, in UTC): then the test runs under
