@@ -14,15 +14,15 @@
 // remakes nothing there (src/main/workflow/watch.ts, watchBranches), but every handle must be given
 // back all the same.
 import { execFile, execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { REMOVE_RETRY_MS } from '../../src/main/storage/remove'
 import { fullLayout } from '../../src/main/workflow/folder'
 import { WorkflowWatcher } from '../../src/main/workflow/watch'
 import { removeTestTree } from '../remove'
 import { timeScale } from '../time-scale'
-import { quarantined } from '../quarantine'
 
 const WINDOWS = process.platform === 'win32'
 const EPIC_JSON = JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: false, hasMap: false }], tickets: [] })
@@ -46,8 +46,31 @@ function inChild(file: string, args: string[], cwd: string): Promise<void> {
   return new Promise((done, fail) => execFile(file, args, { cwd, env: gitEnv(), windowsHide: true }, (error) => (error ? fail(error) : done())))
 }
 
-const removeFromChild = (path: string, cwd: string): Promise<void> =>
+const removeOnce = (path: string, cwd: string): Promise<void> =>
   WINDOWS ? inChild('cmd.exe', ['/d', '/c', 'rmdir', '/s', '/q', path], cwd) : inChild('rm', ['-rf', path], cwd)
+
+/** Tries of the removal of one folder, REMOVE_RETRY_MS apart: about 5 s, within a round's budget. */
+const REMOVE_TRIES = 50
+
+/**
+ * Removes `path` from a child process, and again while the folder is still there, as a person tries
+ * again in Explorer. The removal itself sends events to the watch of the branches, and the read that
+ * follows runs git with the repository as its current folder (readBranches). Windows does not remove
+ * a folder that is a running process's current folder: `rmdir /s /q` then removes what is inside,
+ * leaves the folder, says "being used by another process" and exits 32 (CI run 39918292362, on a
+ * loaded runner). Once that git is done, the next try removes the empty folder.
+ */
+async function removeFromChild(path: string, cwd: string): Promise<void> {
+  for (let tried = 1; ; tried++) {
+    const failed = await removeOnce(path, cwd).then(
+      () => null,
+      (error: unknown) => error,
+    )
+    if (!existsSync(path)) return
+    if (tried === REMOVE_TRIES) throw failed ?? new Error(`${path} is still there after ${tried} removals`)
+    await pause(REMOVE_RETRY_MS)
+  }
+}
 
 /** Waits until the handles are back to `count`, or the time is up; answers how many are held. */
 async function settledAt(count: number): Promise<number> {
@@ -92,7 +115,7 @@ async function round(): Promise<number> {
 }
 
 describe('the watch of the branches gives back its fs.watch handles when another process removes the repository', () => {
-  quarantined('workflow-branches-handles-rounds')(`${ROUNDS} rounds of a worktree and then the repository removed from a child process: after each close() the fs.watch handles are back to where they were`, async () => {
+  it(`${ROUNDS} rounds of a worktree and then the repository removed from a child process: after each close() the fs.watch handles are back to where they were`, async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const before = fsWatches()
     const held: number[] = []
