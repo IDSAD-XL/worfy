@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { scriptNode } from '../script-node'
 
 const SCRIPT = join(import.meta.dirname, '..', '..', 'scripts', 'sdk-compat.mjs')
 const FIXTURES = join(import.meta.dirname, '..', 'fixtures', 'sdk-compat')
@@ -173,7 +174,7 @@ describe('the command line', () => {
   })
 
   it('runs as a script', () => {
-    const result = spawnSync(process.execPath, [SCRIPT, 'diff', OLD, NEW], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+    const result = spawnSync(scriptNode(), [SCRIPT, 'diff', OLD, NEW], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
     expect(result.status).toBe(1)
     expect(result.stdout.split('\n')[0]).toBe('SDK 0.3.289 -> 0.3.300, Claude Code 2.1.289 -> 2.1.300')
   })

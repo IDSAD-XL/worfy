@@ -4,7 +4,7 @@
 // The work is done by scripts/statusline-bridge.mjs (Node, worfy-windows ticket 08); every case runs
 // against it and, where /bin/sh is, against the entry scripts/statusline-bridge.sh that the user's
 // `statusLine` names in the .app.
-import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, relative, win32 } from 'node:path'
@@ -12,13 +12,14 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type BuildKind, dataRoot } from '../../src/main/storage/paths'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 import { shellStub } from '../shell-stub'
 
 const MJS = join(__dirname, '..', '..', 'scripts', 'statusline-bridge.mjs')
 const SH = join(__dirname, '..', '..', 'scripts', 'statusline-bridge.sh')
 const WINDOWS = process.platform === 'win32'
 /** Node itself, not the Electron that runs the tests. */
-const NODE = execFileSync('node', ['-p', 'process.execPath'], { encoding: 'utf8' }).trim()
+const NODE = scriptNode()
 
 const RATE_LIMITS = { five_hour: { used_percentage: 29, resets_at: 1791202800 }, seven_day: { used_percentage: 9, resets_at: 1791777600 } }
 const STATUS = {

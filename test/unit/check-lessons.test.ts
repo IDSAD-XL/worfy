@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 const REPO = join(import.meta.dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'check-lessons.mjs')
@@ -27,7 +28,7 @@ afterEach(() => {
 
 /** Runs the script on a repository root; `pnpm test` runs under Electron as Node, so the child does too. */
 function run(root: string, args: readonly string[] = []): { status: number | null; stdout: string; stderr: string } {
-  const child = spawnSync(process.execPath, [SCRIPT, ...args, root], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+  const child = spawnSync(scriptNode(), [SCRIPT, ...args, root], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
   return { status: child.status, stdout: child.stdout, stderr: child.stderr }
 }
 

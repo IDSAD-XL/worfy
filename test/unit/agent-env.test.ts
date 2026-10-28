@@ -46,6 +46,7 @@ import {
   type RunFile,
 } from '../../src/main/agent/env'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 let home: string
 
@@ -428,7 +429,7 @@ describe('captureAgentEnv on win32', () => {
   it('an environment with a NUL in the registry still starts a process', async () => {
     const { env } = await capture({ readKey: async (name) => (name === PERSISTENT_ENV_KEYS[0] ? key(['TOOLS', SZ, 'C:\\tools\0junk'], ['N\0UL', SZ, 'x']) : regAnswers[name]!) })
     expect(env.TOOLS).toBe('C:\\tools')
-    const started = spawnSync(process.execPath, ['-e', ''], { env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, timeout: 20_000 })
+    const started = spawnSync(scriptNode(), ['-e', ''], { env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, timeout: 20_000 })
     expect(started.error).toBeUndefined()
     expect(started.status).toBe(0)
   })
@@ -744,13 +745,10 @@ describe('findOnPath and the registry reader', () => {
   // worfy-windows ticket 29: the scripts get their data only through the environment runFile hands
   // on; were it lost, the script of the live Session check would read no pids at all.
   it('runFile starts the program with the environment it is given', async () => {
-    // Under `pnpm test` process.execPath is Electron, a Node only with ELECTRON_RUN_AS_NODE: checked
-    // first, so that even a runFile that dropped `env` starts no Electron window.
-    expect(process.versions.electron === undefined || process.env.ELECTRON_RUN_AS_NODE === '1').toBe(true)
     const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', WORFY_RUN_FILE_TEST: 'given Ключ' }
     const script = 'process.stdout.write(String(process.env.WORFY_RUN_FILE_TEST))'
     const answer = await new Promise<{ error: unknown; stdout: string }>((resolve) =>
-      runFile(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 10_000, windowsHide: true, env }, (error, stdout) => resolve({ error, stdout })),
+      runFile(scriptNode(), ['-e', script], { encoding: 'utf8', timeout: 10_000, windowsHide: true, env }, (error, stdout) => resolve({ error, stdout })),
     )
     expect(answer).toEqual({ error: null, stdout: 'given Ключ' })
   })

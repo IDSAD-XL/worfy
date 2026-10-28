@@ -8,11 +8,12 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 import { shellStub } from '../shell-stub'
+import { scriptNode } from '../script-node'
 
 const REPO = join(__dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'postinstall.mjs')
 
-const run = (...args: string[]) => spawnSync(process.execPath, [SCRIPT, ...args], { cwd: REPO, encoding: 'utf8' })
+const run = (...args: string[]) => spawnSync(scriptNode(), [SCRIPT, ...args], { cwd: REPO, encoding: 'utf8' })
 
 /** The environment of the process with PATH (any case of the key, as on Windows) set to `dirs`. */
 const withPath = (dirs: string): NodeJS.ProcessEnv => {
@@ -33,7 +34,7 @@ describe('scripts/postinstall.mjs', () => {
   it('without electron-rebuild on PATH exits 1 and names the command', () => {
     const empty = mkdtempSync(join(tmpdir(), 'worfy-postinstall-empty-'))
     try {
-      const result = spawnSync(process.execPath, [SCRIPT, '--platform', 'linux'], {
+      const result = spawnSync(scriptNode(), [SCRIPT, '--platform', 'linux'], {
         cwd: REPO,
         encoding: 'utf8',
         env: withPath(empty),
@@ -52,7 +53,7 @@ describe('scripts/postinstall.mjs', () => {
     try {
       const args = join(bin, 'args.txt')
       shellStub(join(bin, 'electron-rebuild'), [`echo "$@" > '${args}'`, 'exit 3'])
-      const result = spawnSync(process.execPath, [SCRIPT, '--platform', 'linux'], {
+      const result = spawnSync(scriptNode(), [SCRIPT, '--platform', 'linux'], {
         cwd: REPO,
         encoding: 'utf8',
         env: withPath(bin),

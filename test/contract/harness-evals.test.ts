@@ -28,6 +28,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { findStatusBlock } from '../../src/shared/agent/status-block'
 import { removeTestTree } from '../remove'
 import { shellStub } from '../shell-stub'
+import { scriptNode } from '../script-node'
 
 const REPO = join(__dirname, '..', '..')
 const HARNESS = join(REPO, 'harness')
@@ -169,7 +170,7 @@ const harnessEnv = (home: string, extra: NodeJS.ProcessEnv = {}): NodeJS.Process
  * starts no script by its path, only .exe and .com.
  */
 const harness = (home: string, cwd: string, script: string, args: string[], extra: NodeJS.ProcessEnv = {}): SpawnSyncReturns<string> =>
-  spawnSync(process.execPath, [join(HARNESS, 'bin', script), ...args], {
+  spawnSync(scriptNode(), [join(HARNESS, 'bin', script), ...args], {
     cwd,
     env: harnessEnv(home, extra),
     encoding: 'utf8',
@@ -814,7 +815,7 @@ function evalHarness(
   extra: NodeJS.ProcessEnv = {},
 ): { run: SpawnSyncReturns<string>; calls: StubCall[]; home: string } {
   const { dir, log, env } = stubSetup(version, codes, path, extra)
-  const run = spawnSync(process.execPath, [EVAL_HARNESS, ...args], { env, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+  const run = spawnSync(scriptNode(), [EVAL_HARNESS, ...args], { env, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
   return { run, calls: loggedCalls(log), home: dir }
 }
 
@@ -904,7 +905,7 @@ describe('a child process sees the temporary home', () => {
     const env = envOf(tempDir('worfy-eval-home-'))
     // A launcher that starts this process's executable is used as it is: adding the variable here
     // would hide its loss.
-    const child = spawnSync(process.execPath, ['-e', 'process.stdout.write(require("node:os").homedir())'], {
+    const child = spawnSync(scriptNode(), ['-e', 'process.stdout.write(require("node:os").homedir())'], {
       env: startsNode ? env : { ...env, ELECTRON_RUN_AS_NODE: '1' },
       encoding: 'utf8',
       timeout: SCAFFOLD_TIMEOUT_MS,
@@ -1195,7 +1196,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
       const { dir, log, env } = stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', {})
       const hang = join(dir, 'hang.pid')
       const stubEnv = { ...env, STUB_HANG: hang, ...(claudeDoes === 'exits 0' ? { STUB_CATCH: '1' } : {}) }
-      const child = spawn(process.execPath, [EVAL_HARNESS], { env: stubEnv, stdio: 'ignore' })
+      const child = spawn(scriptNode(), [EVAL_HARNESS], { env: stubEnv, stdio: 'ignore' })
       const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
         child.on('close', (code, ended) => resolve({ code, signal: ended })),
       )
@@ -1263,7 +1264,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
   // that executable itself: by its path it answers --version (v<major>.<minor>.<patch>, newer than
   // the minimum); as a script of itself it fails. A --case that matches nothing skips both calls.
   it.runIf(process.platform === 'win32')('on Windows starts a CLAUDE_BIN that is no .mjs by its path', () => {
-    const { run, calls } = evalHarness('2.1.289', '0,0', ['--', '--case', 'no-such-case'], undefined, { CLAUDE_BIN: process.execPath })
+    const { run, calls } = evalHarness('2.1.289', '0,0', ['--', '--case', 'no-such-case'], undefined, { CLAUDE_BIN: scriptNode() })
     expect(run.status, run.stderr).toBe(0)
     expect(run.stdout).toMatch(/no main case selected/)
     expect(calls).toEqual([])
@@ -1276,7 +1277,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     const { dir, log, env } = stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', {})
     const claude = join(dir, 'claude-by-path.mjs')
     shellStub(claude, [`exec '${join(dir, 'claude')}' "$@"`])
-    const run = spawnSync(process.execPath, [EVAL_HARNESS], { env: { ...env, CLAUDE_BIN: claude }, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+    const run = spawnSync(scriptNode(), [EVAL_HARNESS], { env: { ...env, CLAUDE_BIN: claude }, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
     expect(run.status, run.stderr).toBe(0)
     expect(loggedCalls(log)).toHaveLength(2)
   })
@@ -1574,7 +1575,7 @@ function evalIn(
   const versionLog = join(dir, 'version.log')
   delete env.HARNESS_DIR
   Object.assign(env, { STUB_VERSION_LOG: versionLog }, extra)
-  const run = spawnSync(process.execPath, [join(repo, 'scripts', 'eval-harness.mjs'), ...args], { env, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+  const run = spawnSync(scriptNode(), [join(repo, 'scripts', 'eval-harness.mjs'), ...args], { env, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
   const versionCalls = existsSync(versionLog) ? readFileSync(versionLog, 'utf8').split('\n').filter(Boolean).length : 0
   return { run, calls: loggedCalls(log), versionCalls }
 }

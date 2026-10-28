@@ -15,6 +15,7 @@ import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { NODE_DIR, scriptsEnv } from '../harness-node'
 import { STUB_COMMAND } from './gh-world'
+import { scriptNode } from '../script-node'
 
 // Pull requests and CI from `gh` (ticket 17), against the stub of test/fixtures/gh (STUB_COMMAND):
 // it records its arguments and answers from a prs.json. Nothing here reaches GitHub.
@@ -118,7 +119,7 @@ describe('ciOf', () => {
   ])('with marks: %j → %s', (rollup, expected) => expect(ciOf(rollup as Parameters<typeof ciOf>[0])).toBe(expected))
 
   it('leaves out the same contexts `ticket mark --contexts` prints', () => {
-    const run = spawnSync(process.execPath, [join(__dirname, '..', '..', 'harness', 'bin', 'ticket'), 'mark', '--contexts'], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+    const run = spawnSync(scriptNode(), [join(__dirname, '..', '..', 'harness', 'bin', 'ticket'), 'mark', '--contexts'], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
     expect([run.status, run.stdout.trim().split('\n')]).toEqual([0, [...MARK_CONTEXTS]])
   })
 })

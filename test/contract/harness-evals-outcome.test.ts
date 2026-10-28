@@ -15,6 +15,7 @@ import { delimiter, dirname, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 const REPO = join(__dirname, '..', '..')
 const HARNESS = join(REPO, 'harness')
@@ -195,7 +196,7 @@ const baseVars = (): NodeJS.ProcessEnv => {
 
 /** Runs a script of scripts/ under this process's Node (Electron's, as a plain Node). */
 const node = (script: string, args: string[], home: string, vars: NodeJS.ProcessEnv = {}, cwd = REPO): SpawnSyncReturns<string> =>
-  spawnSync(process.execPath, [script, ...args], { cwd, encoding: 'utf8', env: childEnv(home, { ...baseVars(), ELECTRON_RUN_AS_NODE: '1', ...vars }), timeout: 120_000 })
+  spawnSync(scriptNode(), [script, ...args], { cwd, encoding: 'utf8', env: childEnv(home, { ...baseVars(), ELECTRON_RUN_AS_NODE: '1', ...vars }), timeout: 120_000 })
 
 const git = (cwd: string, home: string, ...args: string[]): string => {
   const run = spawnSync('git', args, { cwd, encoding: 'utf8', env: childEnv(home, { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: '1' }) })
@@ -321,7 +322,7 @@ describe('harness/evals-outcome/lib/fixture.sh and the plugin state script', () 
 
   it('its own tests pass with node --test, and its README names that command', () => {
     const { work, home } = built()
-    const run = spawnSync(process.execPath, ['--test'], { cwd: work, encoding: 'utf8', env: childEnv(home, { ...baseVars(), ELECTRON_RUN_AS_NODE: '1' }) })
+    const run = spawnSync(scriptNode(), ['--test'], { cwd: work, encoding: 'utf8', env: childEnv(home, { ...baseVars(), ELECTRON_RUN_AS_NODE: '1' }) })
     expect(run.status, run.stdout + run.stderr).toBe(0)
     expect(readFileSync(join(work, 'README.md'), 'utf8')).toContain('node --test')
   })
@@ -371,7 +372,7 @@ describe('harness/evals-outcome/lib/fixture.sh and the plugin state script', () 
       expect(existsSync(join(state, 'gate', 'config.json')), state).toBe(true)
       expect(existsSync(join(state, 'projects', 'fixture', 'profile.json')), state).toBe(true)
     }
-    const profile = spawnSync(process.execPath, [join(HARNESS, 'bin', 'profile'), '-C', work, '--field', 'commands.test'], {
+    const profile = spawnSync(scriptNode(), [join(HARNESS, 'bin', 'profile'), '-C', work, '--field', 'commands.test'], {
       encoding: 'utf8',
       env: childEnv(home, { ...baseVars(), ELECTRON_RUN_AS_NODE: '1', EVAL_HARNESS_HOME: 'worfy-harness' }),
     })
@@ -382,7 +383,7 @@ describe('harness/evals-outcome/lib/fixture.sh and the plugin state script', () 
 
   it('refuses a HOME that is the real home folder of the user and writes nothing', () => {
     const work = join(tempDir('outcome-fixture-real-'), 'cwd')
-    const real = spawnSync(process.execPath, ['-p', 'require("node:os").userInfo().homedir'], { encoding: 'utf8', env: childEnv(tempDir('outcome-h-'), { ELECTRON_RUN_AS_NODE: '1' }) }).stdout.trim()
+    const real = spawnSync(scriptNode(), ['-p', 'require("node:os").userInfo().homedir'], { encoding: 'utf8', env: childEnv(tempDir('outcome-h-'), { ELECTRON_RUN_AS_NODE: '1' }) }).stdout.trim()
     for (const script of [FIXTURE, PLUGIN_STATE]) {
       const run = runScript(script, work, real)
       expect(run.status, script).toBe(1)
@@ -751,7 +752,7 @@ function stubJudge(dir: string): { env: NodeJS.ProcessEnv; log: string } {
   const script = join(dir, 'judge.cjs')
   writeFileSync(script, JUDGE)
   const log = join(dir, `judge-${Math.random().toString(36).slice(2)}.log`)
-  return { env: { EVAL_OUTCOME_JUDGE: JSON.stringify([process.execPath, script]), JUDGE_LOG: log }, log }
+  return { env: { EVAL_OUTCOME_JUDGE: JSON.stringify([scriptNode(), script]), JUDGE_LOG: log }, log }
 }
 const judgeInputs = (log: string): string[] => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as string) : [])
 

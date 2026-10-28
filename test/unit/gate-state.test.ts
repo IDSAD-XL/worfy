@@ -20,6 +20,7 @@ import {
   type Worktree,
 } from '../../src/main/gate/state'
 import { worktreeOfCwd, worktreeOfTicket, type ChecksSnapshot } from '../../src/shared/ipc/checks'
+import { scriptNode } from '../script-node'
 
 // The gate's verdict per worktree (ticket 17): the Gate's tag, the key from gate/config.json, the
 // red/unverified markers, and the last `[gate]` line of the worktree's transcripts. The tests named
@@ -831,8 +832,7 @@ describe('GateReader and the verdict file', () => {
     git('commit', '-q', '-m', 'init')
     // pm is `true`: the gate runs "true run check", which passes.
     await writeFile(join(home, 'gate', 'config.json'), JSON.stringify({ repos: [{ key: 'demo', match: repo, pm: 'true', root: { fast: ['check'] }, workspace: {} }] }))
-    // process.execPath is Electron run as Node (ELECTRON_RUN_AS_NODE=1 is in the environment).
-    const out = execFileSync(process.execPath, [join(__dirname, '..', '..', 'harness', 'hooks', 'gate.mjs'), 'fast'], { cwd: repo, env, input: '', encoding: 'utf8' })
+    const out = execFileSync(scriptNode(), [join(__dirname, '..', '..', 'harness', 'hooks', 'gate.mjs'), 'fast'], { cwd: repo, env, input: '', encoding: 'utf8' })
     expect(out).toContain('[gate] green (fast)')
     // listWorktrees gives the worktree's HEAD, which the file's `head` must match.
     const [wt] = await new GateReader({ home }).read(repo, await listWorktrees(repo))

@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 const SCRIPT = join(import.meta.dirname, '..', '..', 'scripts', 'check-handoff.mjs')
 const CONFIG = join(import.meta.dirname, '..', '..', 'scripts', 'doc-headings.json')
@@ -25,7 +26,7 @@ function check(lines: string[], eol = '\n', args: readonly string[] = []): { sta
   dirs.push(dir)
   const file = join(dir, 'HANDOFF.md')
   writeFileSync(file, lines.map((line) => `${line}${eol}`).join(''))
-  const run = spawnSync(process.execPath, [SCRIPT, ...args, file], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+  const run = spawnSync(scriptNode(), [SCRIPT, ...args, file], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
   return { status: run.status, stdout: run.stdout, stderr: run.stderr, file }
 }
 
@@ -135,7 +136,7 @@ describe('check-handoff', () => {
     const file = join(dir, 'HANDOFF.md')
     const bytes = Buffer.concat([Buffer.from(`${good().join('\n')}\n`), Buffer.from([0xff, 0xfe, 0x0a])])
     writeFileSync(file, bytes)
-    const run = spawnSync(process.execPath, [SCRIPT, file], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+    const run = spawnSync(scriptNode(), [SCRIPT, file], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
     expect(run.status).toBe(0)
     expect(run.stdout).toBe(`handoff: ok (${good().length + 1} lines, ${bytes.length} bytes)\n`)
   })
@@ -195,7 +196,7 @@ describe('check-handoff', () => {
   })
 
   it('exits 2 when the file cannot be read', () => {
-    const run = spawnSync(process.execPath, [SCRIPT, join(tmpdir(), 'worfy-check-handoff-missing', 'HANDOFF.md')], {
+    const run = spawnSync(scriptNode(), [SCRIPT, join(tmpdir(), 'worfy-check-handoff-missing', 'HANDOFF.md')], {
       encoding: 'utf8',
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     })

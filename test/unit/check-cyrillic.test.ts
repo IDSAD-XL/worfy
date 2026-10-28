@@ -17,6 +17,7 @@ import { ESLint } from 'eslint'
 import tseslint from 'typescript-eslint'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 const REPO = join(import.meta.dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'check-cyrillic.mjs')
@@ -61,7 +62,7 @@ async function eslintErrors(root: string): Promise<string[]> {
 
 /** Runs the command on a root; `pnpm test` runs under Electron as Node, so the child does too. */
 function run(root: string): { status: number | null; lines: string[]; stderr: string } {
-  const child = spawnSync(process.execPath, [SCRIPT, '--root', root], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+  const child = spawnSync(scriptNode(), [SCRIPT, '--root', root], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
   const lines = child.stderr
     .split('\n')
     .filter((l) => /^[^\s:]+:\d+: /.test(l))

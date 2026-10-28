@@ -13,6 +13,7 @@ import { pathToFileURL } from 'node:url'
 import { inflateSync } from 'node:zlib'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 const REPO = join(__dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'make-icons.mjs')
@@ -233,8 +234,7 @@ describe.skipIf(process.platform !== 'darwin')('scripts/make-icons.mjs (macOS on
     out = join(scratch, 'out')
     temporary = join(scratch, 'tmp')
     mkdirSync(temporary)
-    // process.execPath is Electron run as Node (ELECTRON_RUN_AS_NODE=1 is in the environment).
-    run = spawnSync(process.execPath, [SCRIPT, '--out', out], { encoding: 'utf8', env: { ...process.env, TMPDIR: temporary } })
+    run = spawnSync(scriptNode(), [SCRIPT, '--out', out], { encoding: 'utf8', env: { ...process.env, TMPDIR: temporary } })
   }, 120_000)
 
   afterAll(() => {
@@ -296,7 +296,7 @@ describe.skipIf(process.platform !== 'darwin')('scripts/make-icons.mjs (macOS on
   })
 
   it('refuses an unknown argument with a non-zero exit code and a usage line', () => {
-    const result = spawnSync(process.execPath, [SCRIPT, '--outdir', out], { encoding: 'utf8', env: process.env })
+    const result = spawnSync(scriptNode(), [SCRIPT, '--outdir', out], { encoding: 'utf8', env: process.env })
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain('usage: make-icons')
     expect(existsSync(join(out, 'icon.icns'))).toBe(true)

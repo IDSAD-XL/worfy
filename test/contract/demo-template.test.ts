@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { demoTemplate } from '../../src/main/getting-started/demo-template'
 import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 const BIN = join(import.meta.dirname, '..', '..', 'harness', 'bin')
 
@@ -38,16 +39,15 @@ function written(edit?: (files: Files) => Files): { root: string; template: Retu
 }
 
 /**
- * Runs a `node …` script of the demo's package.json with the Node of this test run (`pnpm test` runs
- * under Electron as Node; the demo's tests start their CLI with process.execPath, so it runs there
- * too). No shell: the glob of `test:fast` is expanded by node, as on Windows. Returns the exit code
+ * Runs a `node …` script of the demo's package.json with the real node (test/script-node.ts); the
+ * demo's tests start their CLI with process.execPath, so it runs there too. No shell: the glob of `test:fast` is expanded by node, as on Windows. Returns the exit code
  * and the names of the tests that failed, from the TAP report.
  */
 function runScript(root: string, script: string): { status: number | null; failed: string[]; output: string } {
   const scripts = (JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts
   const [node, flag, ...rest] = (scripts[script] ?? '').split(' ')
   expect([node, flag]).toEqual(['node', '--test'])
-  const child = spawnSync(process.execPath, ['--test', '--test-reporter=tap', ...rest], { cwd: root, encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+  const child = spawnSync(scriptNode(), ['--test', '--test-reporter=tap', ...rest], { cwd: root, encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
   const output = `${child.stdout}${child.stderr}`
   const failed = [...output.matchAll(/^\s*not ok \d+ - (.+)$/gmu)].map((match) => (match[1] ?? '').trim()).sort()
   return { status: child.status, failed, output }
@@ -113,7 +113,7 @@ describe('the Profile draft of the Demo project', () => {
   it('passes the real project-connect --check in a temporary Harness home', () => {
     const { template } = written()
     const home = tempDir('worfy-demo-harness-')
-    const child = spawnSync(process.execPath, [join(BIN, 'project-connect'), '--check'], {
+    const child = spawnSync(scriptNode(), [join(BIN, 'project-connect'), '--check'], {
       input: JSON.stringify(template.draft),
       encoding: 'utf8',
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', HOME: home, USERPROFILE: home, HARNESS_HOME: join(home, 'harness') },
@@ -126,7 +126,7 @@ describe('the Profile draft of the Demo project', () => {
 describe('the Epic of the Demo project', () => {
   it('epic-status sees the Epic todo with one open Ticket', () => {
     const { root } = written()
-    const child = spawnSync(process.execPath, [join(BIN, 'epic-status'), '--json', '--root', join(root, '.scratch'), 'todo'], {
+    const child = spawnSync(scriptNode(), [join(BIN, 'epic-status'), '--json', '--root', join(root, '.scratch'), 'todo'], {
       cwd: root,
       encoding: 'utf8',
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },

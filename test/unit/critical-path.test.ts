@@ -11,6 +11,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { JOURNAL_EVENT_KINDS } from '../../src/shared/autopilot/journal'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 const SCRIPT = join(import.meta.dirname, '..', '..', 'scripts', 'critical-path.mjs')
 const FIXTURE = join(import.meta.dirname, '..', 'fixtures', 'critical-path')
@@ -62,7 +63,7 @@ const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) 
 
 /** Runs the script as `pnpm test` runs it: under Electron as Node; `env` replaces the given keys. */
 function run(args: string[], env: Record<string, string> = {}): { status: number | null; stdout: string; stderr: string } {
-  const result = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', env: { ...inherited, ELECTRON_RUN_AS_NODE: '1', ...env } })
+  const result = spawnSync(scriptNode(), [SCRIPT, ...args], { encoding: 'utf8', env: { ...inherited, ELECTRON_RUN_AS_NODE: '1', ...env } })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }
 

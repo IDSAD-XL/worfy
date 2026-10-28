@@ -12,6 +12,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 import { processGoneLogPath } from '../../src/main/diagnostics/process-gone'
 import { dataRoot } from '../../src/main/storage/paths'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 const SCRIPT = join(import.meta.dirname, '..', '..', 'scripts', 'hang-sample.mjs')
 
@@ -281,7 +282,7 @@ describe('hang-sample run as a script', () => {
 
   /** `pnpm test` runs under Electron as Node, so the child does too. */
   const script = (args: string[]) =>
-    spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', WORFY_DATA_DIR: scratch } })
+    spawnSync(scriptNode(), [SCRIPT, ...args], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', WORFY_DATA_DIR: scratch } })
 
   it('refuses the pid of a process that is not a packaged worfy — this test run — and writes nothing', () => {
     const { status, stdout, stderr } = script([String(process.pid)])

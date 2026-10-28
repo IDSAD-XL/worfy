@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach } from 'vitest'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 export type Env = Record<string, string | undefined>
 export interface Files {
@@ -118,9 +119,8 @@ export function useStandInBuild(): void {
 /** The target of a system: a folder on Windows, a path ending in .app elsewhere. */
 export const targetIn = (...parts: string[]) => join(dir, ...parts.slice(0, -1), WINDOWS ? parts.at(-1)! : `${parts.at(-1)!}.app`)
 export const run = (args: string[], env: Env = {}, script = SCRIPT) => {
-  // process.execPath is Electron run as Node (ELECTRON_RUN_AS_NODE=1 is in the environment).
   // The working folder is the temporary one: a relative target would land there, not in the repository.
   // Electron's fs would read the stand-in app.asar as an archive; the Node that runs the script for a user has no such fs.
-  return spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', cwd: dir, env: { ...process.env, ELECTRON_NO_ASAR: '1', LOCALAPPDATA: local, WORFY_STABLE_PREBUILT: build, ...env } })
+  return spawnSync(scriptNode(), [script, ...args], { encoding: 'utf8', cwd: dir, env: { ...process.env, ELECTRON_NO_ASAR: '1', LOCALAPPDATA: local, WORFY_STABLE_PREBUILT: build, ...env } })
 }
 export const head = (): string => spawnSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim()

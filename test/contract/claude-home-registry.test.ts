@@ -23,6 +23,7 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import { parseTranscriptLines } from '../../src/shared/transcript/parse'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { copyClaudeHome, projectDir, windowsProcStart } from './claude-home-fixture'
+import { scriptNode } from '../script-node'
 
 // The Claude home of ticket 09 (test/fixtures/claude-home/README.md). Tests never touch it. FIXTURE
 // is a copy in a temporary directory that the tests which only read share; a test that writes
@@ -348,7 +349,7 @@ describe('process liveness', () => {
   })
 
   it('is not alive for a process that has exited, or for a pid that is not a process id', async () => {
-    const child = spawn(process.execPath, ['-e', ''], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+    const child = spawn(scriptNode(), ['-e', ''], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
     const pid = child.pid ?? 0
     await new Promise((done) => child.on('exit', done))
     expect(await processAlive(pid, undefined)).toBe(false)
