@@ -4,7 +4,7 @@
 // after the system reported the exit code (CI run 40651661632).
 import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { exitOf, waitForExit } from '../../src/main/agent/session/process'
+import { exitOf, stopWaiting, waitForExit } from '../../src/main/agent/session/process'
 import type { ClaudeCodeProcess } from '../../src/main/agent/session/types'
 
 const PID = 4242
@@ -96,6 +96,31 @@ describe('exitOf and waitForExit', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(await settledNow(exit)).toBe(false)
     expect(kill).toHaveBeenCalled()
+    child.exit()
+    expect(await settledNow(exit)).toBe(true)
+  })
+
+  it.each(['EINVAL', 'ENOSYS', 'UNKNOWN'])('keeps waiting while kill(pid, 0) fails with %s: only ESRCH says the pid is gone', async (code) => {
+    vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw Object.assign(new Error(`kill ${code}`), { code })
+    })
+    const child = fakeChild()
+    const exit = waitForExit(child)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(await settledNow(exit)).toBe(false)
+    child.exit()
+    expect(await settledNow(exit)).toBe(true)
+  })
+
+  it('stopWaiting ends the asking for a process given up on; its exit event still settles it', async () => {
+    const kill = systemRuns(() => true)
+    const child = fakeChild()
+    const exit = waitForExit(child)
+    await vi.advanceTimersByTimeAsync(200)
+    stopWaiting(child)
+    const asked = kill.mock.calls.length
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(kill.mock.calls.length).toBe(asked)
     child.exit()
     expect(await settledNow(exit)).toBe(true)
   })

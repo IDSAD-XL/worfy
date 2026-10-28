@@ -29,17 +29,23 @@ interface Exit {
   readonly settled: Promise<void>
   /** Starts asking the system, once; nothing after the exit. */
   readonly poll: () => void
+  /** Stops asking; a later poll() starts again. */
+  readonly stop: () => void
 }
 
 const exits = new WeakMap<ClaudeCodeProcess, Exit>()
 
-/** Whether the system runs a process with this pid: `kill(pid, 0)` sends nothing, it only looks. */
+/**
+ * Whether the system may still run a process with this pid: `kill(pid, 0)` sends nothing, it only
+ * looks. Only ESRCH says that no process has it; any other failure (EPERM, or EINVAL, ENOSYS,
+ * UNKNOWN of a failed OpenProcess on Windows) is taken for a running one.
+ */
 const running = (pid: number): boolean => {
   try {
     process.kill(pid, 0)
     return true
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM'
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH'
   }
 }
 
@@ -67,7 +73,11 @@ function exitRecord(child: ClaudeCodeProcess): Exit {
     }, EXIT_POLL_MS)
     timer.unref()
   }
-  const record = { settled, poll }
+  const stop = (): void => {
+    clearInterval(timer)
+    timer = undefined
+  }
+  const record = { settled, poll, stop }
   exits.set(child, record)
   return record
 }
@@ -91,6 +101,9 @@ export const waitForExit = (child: ClaudeCodeProcess): Promise<void> => {
   record.poll()
   return record.settled
 }
+
+/** Ends the asking of waitForExit() for a process given up on; its exit event still settles exitOf(). */
+export const stopWaiting = (child: ClaudeCodeProcess): void => exitRecord(child).stop()
 
 /** Settles with true once `work` settles, or with false after `ms`, whichever comes first. */
 export async function within(work: Promise<unknown>, ms: number): Promise<boolean> {
