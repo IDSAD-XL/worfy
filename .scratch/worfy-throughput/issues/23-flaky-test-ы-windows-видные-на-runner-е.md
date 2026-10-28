@@ -67,3 +67,55 @@ Profile-а), не implementer.
 - `image-protocol.test.ts` (`RUNNER~1`) — чинится отдельно.
 
 ## Итог
+
+### Terminal AI на Linux runner-е: prompt после команды не приходит (PR #892, ветка `fix/terminal-ai-prompt-wait`)
+
+Два contract test-а покраснели на Linux runner-е в PR #892, правка которого их не трогает:
+`test/contract/terminal-ai-zle.test.ts:233` («the shell closes its connection while a command runs and says hello again
+at the next prompt…», job 122732532153: «the next prompt 9997 ms after the line») и
+`test/contract/terminal-ai-suggest.test.ts:357` («the request carries the line, the folder, the last 20 commands…», job
+122732532051: «expected 25 to be greater than 25»). Карантинных записей у них не было.
+
+**Причина — одна на оба.** Гипотеза «под нагрузкой zsh не успевает нарисовать prompt» не подтвердилась: prompt не
+опаздывает, он теряется. В логе job-а после `D` и `P;Cwd` сразу идёт `\e[K\e[?1h\e=\e[?2004h`, без `\r\e[0m…\e[J`, без
+`A`, `zle% ` и `B`: zsh уже ждёт клавишу, а prompt на экран не попал и не попадёт. Механизм:
+
+- Таймер Suggestion (`src/main/terminal/zsh/rc.d/20-suggest-ai.zsh`, `_worfy_suggest_timer`) — subshell, его pid
+  виден zsh. Enter (line-finish) убивает его `kill -TERM` (`_worfy_suggest_stop`) и сразу идёт дальше: команда (`true`,
+  `:` — builtin, мгновенно), precmd, prompt. SIGCHLD от умершего subshell-а приходит в этот момент. Таймер стартует на
+  каждой строке test-ов: замер на Mac с логом в скрипте — `TIMER-START`/`TIMER-KILL` на всех 22 строках test-а zle.
+- Обработчики сигналов zsh ставятся без `SA_RESTART`; на Linux `write()` в tty, во время которого пришёл сигнал,
+  возвращает `EINTR` (strace: `write(10, "\10tr", 3) = ? ERESTARTSYS`), а stdio glibc при ошибке `fflush` выбрасывает
+  буфер. Так пропадает запись `zrefresh` с prompt-ом и его `B`; worfy не видит события prompt, test ждёт до timeout-а.
+  На macOS libc сохраняет недописанный буфер — поэтому на Mac test не краснеет ни разу.
+- Воспроизведение механизма отдельно от worfy: контейнер `ubuntu:24.04`, zsh 5.9, python-pty вводит `true` 200 раз; без
+  сигналов prompt потерян 0/200, с потоком `kill -CHLD` в zsh — 49/200, и хвост вывода тот же, что в логе CI
+  (`\r \r\e[K\e[?1h\e=\e[?2004h`).
+
+**Правка — в продукте.** `_worfy_suggest_stop` после `kill -TERM` ждёт, пока zsh пожнёт subshell
+(`_worfy_suggest_reap`: `kill -0` до отказа, между проверками `zselect -t 1`, который будит тот же SIGCHLD; не больше
+100 проверок на случай чужого pid). Сигнал приходит, пока zsh ничего не пишет в терминал. Timeout-ы и пороги test-ов
+не менялись. Test `there is one timer however many keys are pressed, and Enter ends it and its subshell at once`
+(`test/contract/terminal-ai-suggest.test.ts`) теперь проверяет subshell первым словом команды после Enter, до запуска
+программы: «gone» значит, что zsh его уже пожал.
+
+**Красных из 10** (Mac — `node scripts/vitest-electron.mjs <файл> -t <имя>`; нагрузка — `yes > /dev/null` на 9 из 18
+ядер, pid-ы сохранены и убиты по одному; Linux — контейнер `node:24-bookworm`, 4 CPU, zsh 5.9, нагрузка — 4 `yes` в
+контейнере):
+
+| test | Mac тихо до/после | Mac нагрузка до/после | Linux тихо до/после | Linux нагрузка до/после |
+| --- | --- | --- | --- | --- |
+| zle, «says hello again at the next prompt» | 0 / 0 | 0 / 0 | 0 / 0 | **5** / 0 |
+| suggest, «the request carries the line…» | 0 / 0 | 0 / 0 | 0 / 0 | **3** / 0 |
+
+На Linux все 8 красных — с той же подписью, что в CI («expected N to be greater than N», хвост без prompt-а).
+
+**Mutant:** исходный `20-suggest-ai.zsh` (без ожидания) против усиленного test-а Enter — 5 из 5 красных на Mac
+(`expected 'alive\r\npipe-checked…' to contain 'gone'`); с правкой — 3 из 3 зелёных; файл восстановлен из копии,
+`cmp` — код 0.
+
+Команды и коды выхода: оба файла целиком на Mac с правкой
+(`node scripts/vitest-electron.mjs test/contract/terminal-ai-suggest.test.ts test/contract/terminal-ai-zle.test.ts`) —
+0, 86 passed; на Linux в контейнере suggest целиком — 0; zle целиком — 1 из-за `the messages of main > status is a grey
+note…`, который красный и до правки (5 из 5): в контейнере нет locale `en_US.UTF-8`, «…» выводится байтами. Это
+окружение контейнера, на runner-е этот test зелёный. `pnpm lint`, `pnpm typecheck`, gate fast — в PR.

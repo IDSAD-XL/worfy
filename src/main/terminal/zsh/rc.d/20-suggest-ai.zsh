@@ -20,7 +20,8 @@
 # The pause is one timer at a time: a subshell that waits (zselect, no program is run) on a pipe zle
 # watches. A key during the pause moves the moment to ask and leaves the timer alone; when the timer
 # ends too soon for the line as it is by then, the next one waits for what is left. Enter, Esc, and
-# a line there is nothing to ask about, end the timer and its subshell at once.
+# a line there is nothing to ask about, end the timer and its subshell at once, and wait until zsh
+# has reaped the subshell, so its SIGCHLD does not come while zsh writes to the terminal.
 
 # Only where rc.d/10-assist.zsh set its widget up: it does that only where a line is edited. zselect
 # waits, EPOCHREALTIME is the clock, sysparams tells the timer's subshell its pid, funcstack tells
@@ -52,10 +53,25 @@ _worfy_suggest_stop() {
   __worfy_suggest_fd='' __worfy_suggest_pid=''
   builtin zle -F $fd 2>/dev/null
   { builtin exec {fd}<&- } 2>/dev/null
-  [[ $pid == <2-> ]] && builtin kill -TERM $pid 2>/dev/null
+  [[ $pid == <2-> ]] && builtin kill -TERM $pid 2>/dev/null && _worfy_suggest_reap $pid
   builtin return 0
 }
 builtin zle -N _worfy_suggest_stop
+
+# Waits until zsh has reaped the timer's subshell $1: kill -0 fails once it has. zsh hears that a
+# child ended by SIGCHLD, and its handlers do not restart a system call the signal cut short. On
+# Linux a write to the terminal that the signal cuts short fails, and zsh (glibc's stdio) drops
+# what it was writing: after Enter on a builtin such as `true` the next prompt never showed, and
+# worfy never saw its B. Waited for here, the signal comes while zsh writes nothing. At most
+# 100 looks of 10 ms, should the pid already belong to another process.
+_worfy_suggest_reap() {
+  builtin emulate -L zsh
+  builtin local -i looks=0
+  while builtin kill -0 $1 2>/dev/null && (( looks++ < 100 )); do
+    builtin zselect -t 1
+  done
+  builtin return 0
+}
 
 # Starts the timer for what is left until __worfy_suggest_due, unless one runs already. Its subshell
 # writes its pid, so it can be ended, and then only waits: the pipe closes when it is over.
