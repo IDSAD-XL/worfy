@@ -229,7 +229,10 @@ describe('scripts/ci-scope.mjs', () => {
   const scope = (env: Record<string, string>) => {
     const output = join(scratch, `output-${++outputs}`)
     writeFileSync(output, '')
-    const result = spawnSync(process.execPath, [SCOPE], { cwd: repo, encoding: 'utf8', env: { ...process.env, GITHUB_OUTPUT: output, EVENT: '', JOB: '', BASE: '', ...env } })
+    // core.quotePath is pinned to git's default, which the runner keeps: with it git quotes a path
+    // that has bytes outside ASCII, a double quote or a control character, whatever this machine sets.
+    const quotePath = { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.quotePath', GIT_CONFIG_VALUE_0: 'true' }
+    const result = spawnSync(process.execPath, [SCOPE], { cwd: repo, encoding: 'utf8', env: { ...process.env, ...quotePath, GITHUB_OUTPUT: output, EVENT: '', JOB: '', BASE: '', ...env } })
     const written = /^expect=(.*)$/m.exec(readFileSync(output, 'utf8'))?.[1]
     return { status: result.status, stdout: result.stdout, stderr: result.stderr, expect: written === undefined ? undefined : (JSON.parse(written) as Record<string, boolean>) }
   }
@@ -271,6 +274,32 @@ describe('scripts/ci-scope.mjs', () => {
       expect(result.expect, event).toEqual(ONLY_LINT)
       expect(result.stdout).toMatch(/^documents only: /)
     }
+  })
+
+  // git quotes these names by default (core.quotePath); the last two are not valid file names on Windows.
+  const ODD_NAMES: Array<[string, string, boolean]> = [
+    ['a ticket with a Cyrillic name', '.scratch/worfy-windows/issues/113-уведомления-молчат.md', false],
+    ['a document with a space in its name', 'docs/research/two words.md', false],
+    ['a document with a double quote in its name', 'docs/research/say "hi".md', true],
+    ['a document with a newline in its name', 'docs/research/two\nlines.md', true],
+  ]
+  it.each(ODD_NAMES.filter(([, , unixOnly]) => !unixOnly || process.platform !== 'win32'))(
+    'a change of documents only, %s, runs lint-typecheck alone and names the file as it is',
+    (_name, file) => {
+      commitOnBase([file])
+      const result = scope({ EVENT: 'pull_request', BASE: base })
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.expect).toEqual(ONLY_LINT)
+      expect(result.stdout).toContain(`documents only: ${file}\n`)
+    },
+  )
+
+  it('a source file with a Cyrillic name runs every job', () => {
+    commitOnBase(['docs/adr/0001-a.md', 'src/main/уведомления.ts'])
+    const result = scope({ EVENT: 'pull_request', BASE: base })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(ALL)
+    expect(result.stdout).toContain('code changed: src/main/уведомления.ts\n')
   })
 
   it.each([
