@@ -6,9 +6,9 @@
 // parser, so the workflow is read as text, the way windows-tests-workflow.test.ts reads its
 // workflow: block style, one key per line, `#` only at the start of comment lines.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
@@ -153,7 +153,9 @@ describe('ci.yml: every pull request and every push to main, one check for the m
   it('runs the commands of gate full: lint, typecheck, test on three systems, test:e2e and test:package on macOS', () => {
     expect(runs('lint-typecheck')).toEqual(['pnpm install --frozen-lockfile', 'pnpm lint', 'pnpm typecheck'])
     expect(runs('linux-tests')).toContain('pnpm test "--shard=$SHARD" --sequence.shuffle.files')
-    expect(runs('macos-tests')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test'])
+    // The test files ci-scope.mjs names, none (every file) but on a pull request.
+    expect(runs('macos-tests')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test $FILES'])
+    expect(job('macos-tests')).toContain('          FILES: ${{ needs.changes.outputs.macos-tests-files }}')
     expect(runs('macos-e2e')).toEqual(['pnpm install --frozen-lockfile', 'osascript -l JavaScript scripts/ci-display.js', 'pnpm test:e2e "--shard=$SHARD"'])
     // electron-builder needs the binary that Electron downloads only on its first require.
     expect(runs('macos-package')).toEqual(['pnpm install --frozen-lockfile', `node -e "require('electron')"`, 'pnpm test:package'])
@@ -227,6 +229,7 @@ describe('ci.yml: every pull request and every push to main, one check for the m
   it('the job changes hands the event, the input and the base to scripts/ci-scope.mjs through env', () => {
     const changes = job('changes')
     expect(value(under(changes, '    outputs:'), 'expect')).toBe('${{ steps.scope.outputs.expect }}')
+    expect(value(under(changes, '    outputs:'), 'macos-tests-files')).toBe('${{ steps.scope.outputs.macos-tests-files }}')
     expect(changes).toContain('          fetch-depth: 2')
     expect(changes).toContain('          EVENT: ${{ github.event_name }}')
     expect(changes).toContain('          JOB: ${{ inputs.job }}')
@@ -243,12 +246,12 @@ describe('scripts/ci-scope.mjs', () => {
   const git = (...args: string[]): string =>
     execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd: repo, encoding: 'utf8' }).trim()
 
-  /** A commit on top of `base` that changes the given files; HEAD is left on it. */
-  function commitOnBase(files: string[]): void {
+  /** A commit on top of `base` that changes the given files (to `texts[file]`, if given); HEAD is left on it. */
+  function commitOnBase(files: string[], texts: Record<string, string> = {}): void {
     git('checkout', '-q', '--detach', base)
     for (const file of files) {
       mkdirSync(join(repo, dirname(file)), { recursive: true })
-      writeFileSync(join(repo, file), `changed ${Math.random()}\n`)
+      writeFileSync(join(repo, file), `${texts[file] ?? ''}changed ${Math.random()}\n`)
     }
     if (files.length > 0) git('add', '-A')
     git('commit', '-q', '--allow-empty', '-m', 'change')
@@ -262,13 +265,39 @@ describe('scripts/ci-scope.mjs', () => {
     // that has bytes outside ASCII, a double quote or a control character, whatever this machine sets.
     const quotePath = { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.quotePath', GIT_CONFIG_VALUE_0: 'true' }
     const result = spawnSync(scriptNode(), [SCOPE], { cwd: repo, encoding: 'utf8', env: { ...process.env, ...quotePath, GITHUB_OUTPUT: output, EVENT: '', JOB: '', BASE: '', ...env } })
-    const written = /^expect=(.*)$/m.exec(readFileSync(output, 'utf8'))?.[1]
-    return { status: result.status, stdout: result.stdout, stderr: result.stderr, expect: written === undefined ? undefined : (JSON.parse(written) as Record<string, boolean>) }
+    const text = readFileSync(output, 'utf8')
+    const written = /^expect=(.*)$/m.exec(text)?.[1]
+    const files = /^macos-tests-files=(.*)$/m.exec(text)?.[1]
+    return {
+      status: result.status,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      expect: written === undefined ? undefined : (JSON.parse(written) as Record<string, boolean>),
+      files: files === undefined ? undefined : files.split(' ').filter((name) => name !== ''),
+    }
   }
 
   const ALL = Object.fromEntries(DECIDED.map((name) => [name, true]))
   const ONLY_LINT = Object.fromEntries(DECIDED.map((name) => [name, name === 'lint-typecheck']))
   const NO_PACKAGE = { ...ALL, 'macos-package': false }
+  /** A pull request that changes code but no app path: the Linux and Windows tests, no macOS job and no e2e on Windows. */
+  const NO_MACOS = { ...ALL, 'macos-tests': false, 'macos-e2e': false, 'macos-package': false, 'windows-e2e': false }
+  /** A pull request that changes a script or a part of the Harness the app does not carry: the macOS-only test files, no e2e. */
+  const TESTS_ONLY = { ...NO_MACOS, 'macos-tests': true }
+  // Test files of the base: two with a macOS-only test or assertion, one with a Windows-only test,
+  // one with none. macos-tests on a pull request runs the first two alone.
+  const DARWIN_FILES = ['test/unit/mac-only.test.ts', 'test/contract/mac-menu.test.tsx']
+  // The guards are put together here, so that this file holds none: ci-scope.mjs would list it.
+  const DARWIN = "'darwin'"
+  const MAC_ONLY = `describe.skipIf(process.platform !== ${DARWIN})('x', () => {})\n`
+  const BASE_FILES: Record<string, string> = {
+    'test/unit/mac-only.test.ts': MAC_ONLY,
+    'test/contract/mac-menu.test.tsx': `const file = process.platform === ${DARWIN.replaceAll("'", '"')} ? 'fileMenu' : 'File'\n`,
+    'test/unit/windows-only.test.ts': "describe.runIf(process.platform === 'win32')('x', () => {})\n",
+    'test/unit/plain.test.ts': "it('x', () => {})\n",
+    // Not a test file: a helper that names the platform is not run by itself.
+    'test/unit/mac-helper.ts': `export const mac = process.platform === ${DARWIN}\n`,
+  }
 
   beforeAll(() => {
     scratch = mkdtempSync(join(tmpdir(), 'worfy-ci-scope-'))
@@ -276,6 +305,10 @@ describe('scripts/ci-scope.mjs', () => {
     mkdirSync(repo)
     git('init', '-q')
     writeFileSync(join(repo, 'package.json'), '{}\n')
+    for (const [file, text] of Object.entries(BASE_FILES)) {
+      mkdirSync(join(repo, dirname(file)), { recursive: true })
+      writeFileSync(join(repo, file), text)
+    }
     git('add', '-A')
     git('commit', '-q', '-m', 'base')
     base = git('rev-parse', 'HEAD')
@@ -290,22 +323,31 @@ describe('scripts/ci-scope.mjs', () => {
     const result = scope({ EVENT: 'push', BASE: base })
     expect(result.status, result.stderr).toBe(0)
     expect(result.expect).toEqual(ALL)
-    expect(result.stdout).toContain('code changed: src/main/index.ts')
+    expect(result.stdout).toContain('code changed: src/main/index.ts\n')
+    // No list: macos-tests runs every test file.
+    expect(result.files).toEqual([])
   })
 
   it('chooses windows-e2e by the files as it chooses macos-e2e; a run by hand never asks for it', () => {
-    const cases: Array<[string, string[]]> = [
-      ['pull_request', ['src/main/index.ts']],
-      ['pull_request', ['src/main/index.ts', 'package.json']],
-      ['pull_request', ['docs/adr/0001-a.md']],
-      ['push', ['src/main/index.ts']],
-      ['push', ['HANDOFF.md']],
+    // The event, the files and whether the e2e tests run, on macOS and on Windows alike.
+    const cases: Array<[string, string[], boolean]> = [
+      ['pull_request', ['src/main/index.ts'], true],
+      ['pull_request', ['src/main/index.ts', 'package.json'], true],
+      ['pull_request', ['harness/bin/profile'], true],
+      ['pull_request', ['docs/adr/0001-a.md'], false],
+      // Code outside the app: no e2e on either system.
+      ['pull_request', ['test/unit/plain.test.ts'], false],
+      ['pull_request', ['scripts/agent-cost.mjs', 'harness/bin/tests/profile.test.sh'], false],
+      ['push', ['src/main/index.ts'], true],
+      ['push', ['test/unit/plain.test.ts'], true],
+      ['push', ['HANDOFF.md'], false],
     ]
-    for (const [event, files] of cases) {
+    for (const [event, files, e2e] of cases) {
       commitOnBase(files)
       const result = scope({ EVENT: event, BASE: base })
       expect(result.status, result.stderr).toBe(0)
-      expect(result.expect?.['windows-e2e'], `${event} ${files.join(' ')}`).toBe(result.expect?.['macos-e2e'])
+      expect(result.expect?.['macos-e2e'], `${event} ${files.join(' ')}`).toBe(e2e)
+      expect(result.expect?.['windows-e2e'], `${event} ${files.join(' ')}`).toBe(e2e)
     }
     for (const job of ['check', 'full-macos']) expect(scope({ EVENT: 'workflow_dispatch', JOB: job }).expect?.['windows-e2e'], job).toBe(false)
   })
@@ -314,12 +356,13 @@ describe('scripts/ci-scope.mjs', () => {
     ['the app', ['src/main/index.ts', 'src/renderer/App.tsx']],
     ['tests and scripts the package does not use', ['test/e2e/canvas.spec.ts', 'scripts/ci-scope.mjs', 'test/contract/ci-workflow.test.ts']],
     ['look-alikes of build inputs', ['src/build/x.ts', 'buildx/a.ts', 'test/package.json', 'scripts/statusline-bridge.test.mjs']],
-  ])('a pull request that changes code but no build input (%s) runs every job but macos-package', (_name, files) => {
+  ])('a pull request that changes the app but no build input (%s) runs every job but macos-package, macos-tests with the macOS-only files', (_name, files) => {
     commitOnBase(files)
     const result = scope({ EVENT: 'pull_request', BASE: base })
     expect(result.status, result.stderr).toBe(0)
     expect(result.expect).toEqual(NO_PACKAGE)
-    expect(result.stdout).toContain('no build input, so no macos-package')
+    expect(result.files).toEqual(DARWIN_FILES)
+    expect(result.stdout).toContain('no build input, so no macos-package; macos-tests runs the 2 macOS-only test files\n')
   })
 
   it.each([
@@ -344,11 +387,12 @@ describe('scripts/ci-scope.mjs', () => {
     'test/e2e/helpers.ts',
     '.github/workflows/ci.yml',
     '.github/workflows/windows-tests.yml',
-  ])('a pull request that changes the build input %s next to the app runs every job, macos-package too', (file) => {
-    commitOnBase(['src/main/index.ts', file])
+  ])('a pull request that changes the build input %s runs every job, macos-package too', (file) => {
+    commitOnBase([file])
     const result = scope({ EVENT: 'pull_request', BASE: base })
     expect(result.status, result.stderr).toBe(0)
     expect(result.expect).toEqual(ALL)
+    expect(result.files).toEqual(DARWIN_FILES)
   })
 
   it.each([
@@ -391,31 +435,207 @@ describe('scripts/ci-scope.mjs', () => {
     const pr = scope({ EVENT: 'pull_request', BASE: base })
     expect(pr.status, pr.stderr).toBe(0)
     expect(pr.expect).toEqual(NO_PACKAGE)
-    expect(pr.stdout).toContain('code changed: src/main/уведомления.ts; no build input, so no macos-package\n')
+    expect(pr.stdout).toContain('code changed: src/main/уведомления.ts; no build input, so no macos-package; macos-tests')
   })
 
   it.each([
-    ['Markdown under src/', 'src/renderer/notes.md'],
-    ['Markdown under test/', 'test/fixtures/epic/spec.md'],
-    ['Markdown under harness/', 'harness/skills/x/SKILL.md'],
+    ['Markdown under src/', 'src/renderer/notes.md', NO_PACKAGE],
+    // The e2e tests read test/fixtures/.
+    ['Markdown under test/fixtures/', 'test/fixtures/epic/spec.md', NO_PACKAGE],
+    // The build copies harness/ into the app.
+    ['Markdown under harness/', 'harness/skills/x/SKILL.md', NO_PACKAGE],
     // test/contract/harness-evals-outcome.test.ts reads the README files of scripts/eval-outcome/.
-    ['Markdown under scripts/, which a test reads', 'scripts/eval-outcome/README.md'],
-    ['any Markdown under scripts/', 'scripts/notes.md'],
+    ['Markdown under scripts/, which a test reads', 'scripts/eval-outcome/README.md', TESTS_ONLY],
+    ['any Markdown under scripts/', 'scripts/notes.md', TESTS_ONLY],
     // test/unit/kind-tokens.test.ts reads docs/design/F-SPEC.md.
-    ['the design spec, which a test reads', 'docs/design/F-SPEC.md'],
-    ['any file under docs/design/', 'docs/design/F-1.dc.html'],
-    ['README.md, which a test reads', 'README.md'],
-    ['the lessons index, which a test reads', 'docs/lessons/README.md'],
-    ['a workflow', '.github/workflows/ci.yml'],
-    ['package.json', 'package.json'],
-  ])('%s next to documents runs the tests: every job on a push, every job but maybe macos-package on a pull request', (_name, file) => {
+    ['the design spec, which a test reads', 'docs/design/F-SPEC.md', NO_MACOS],
+    ['any file under docs/design/', 'docs/design/F-1.dc.html', NO_MACOS],
+    ['README.md, which a test reads', 'README.md', NO_MACOS],
+    ['the lessons index, which a test reads', 'docs/lessons/README.md', NO_MACOS],
+    ['a workflow', '.github/workflows/ci.yml', ALL],
+    ['package.json', 'package.json', ALL],
+  ])('%s next to documents runs the tests: every job on a push, the macOS jobs its path asks for on a pull request', (_name, file, pullRequest) => {
     commitOnBase(['docs/adr/0001-a.md', file])
     const push = scope({ EVENT: 'push', BASE: base })
     expect(push.status, push.stderr).toBe(0)
     expect(push.expect).toEqual(ALL)
     const pr = scope({ EVENT: 'pull_request', BASE: base })
     expect(pr.status, pr.stderr).toBe(0)
-    expect(pr.expect).toEqual({ ...ALL, 'macos-package': ['.github/workflows/ci.yml', 'package.json'].includes(file) })
+    expect(pr.expect).toEqual(pullRequest)
+  })
+
+  it.each([
+    ['unit and contract tests', ['test/unit/plain.test.ts', 'test/contract/ci-workflow.test.ts', 'test/unit/windows-only.test.ts']],
+    ['a test helper the e2e tests do not use', ['test/remove.ts']],
+    ['a helper next to a macOS-only test file', ['test/unit/mac-helper.ts']],
+  ])('a pull request that changes no app path, script or Harness file (%s) asks for no macOS job', (_name, files) => {
+    commitOnBase(files)
+    const pr = scope({ EVENT: 'pull_request', BASE: base })
+    expect(pr.status, pr.stderr).toBe(0)
+    expect(pr.expect).toEqual(NO_MACOS)
+    expect(pr.files).toEqual([])
+    expect(pr.stdout).toContain('no app path, so no macos-e2e and no windows-e2e; no app path, script, Harness or macOS-only test file, so no macos-tests\n')
+    // The same change pushed to main runs every job, macos-tests with every file.
+    const push = scope({ EVENT: 'push', BASE: base })
+    expect(push.expect).toEqual(ALL)
+    expect(push.files).toEqual([])
+  })
+
+  it('a pull request that changes a macOS-only test file runs macos-tests with the macOS-only files, and no e2e', () => {
+    commitOnBase(['test/unit/mac-only.test.ts', 'test/remove.ts'], { 'test/unit/mac-only.test.ts': MAC_ONLY })
+    const pr = scope({ EVENT: 'pull_request', BASE: base })
+    expect(pr.status, pr.stderr).toBe(0)
+    expect(pr.expect).toEqual(TESTS_ONLY)
+    expect(pr.files).toEqual(DARWIN_FILES)
+  })
+
+  it.each([
+    // The Harness the app carries: the build copies it, the e2e tests install and run it.
+    ['harness/bin/profile', NO_PACKAGE],
+    ['harness/agents/implementer.md', NO_PACKAGE],
+    ['harness/profiles/draft.schema.json', NO_PACKAGE],
+    ['harness/hooks/gate.mjs', NO_PACKAGE],
+    ['harness/evalsx/a.md', NO_PACKAGE],
+    // The parts of harness/ the build leaves out (HARNESS_NOT_BUNDLED): the macOS-only tests check them.
+    ['harness/bin/tests/profile.test.sh', TESTS_ONLY],
+    ['harness/hooks/tests/gate.test.mjs', TESTS_ONLY],
+    ['harness/evals/cases/a.json', TESTS_ONLY],
+    ['harness/evals-outcome/a.md', TESTS_ONLY],
+    // Scripts the macOS-only tests run: make-icons.test.ts with the real sips, hang-sample.test.ts with the ps of macOS.
+    ['scripts/make-icons.mjs', TESTS_ONLY],
+    ['scripts/hang-sample.mjs', TESTS_ONLY],
+    ['scripts/agent-cost.mjs', TESTS_ONLY],
+    ['scripts/ci-scope.mjs', TESTS_ONLY],
+  ])('a pull request that changes %s asks for the macOS jobs that check it', (file, jobs) => {
+    commitOnBase([file])
+    const pr = scope({ EVENT: 'pull_request', BASE: base })
+    expect(pr.status, pr.stderr).toBe(0)
+    expect(pr.expect).toEqual(jobs)
+    expect(pr.files).toEqual(DARWIN_FILES)
+  })
+
+  it('leaves out of the app exactly the parts of harness/ that the build leaves out of its copy', () => {
+    // electron.vite.config.ts: export const HARNESS_NOT_BUNDLED = [join('bin', 'tests'), …]
+    const build = /HARNESS_NOT_BUNDLED = \[(.*)\]/.exec(readFileSync(join(REPO, 'electron.vite.config.ts'), 'utf8'))?.[1] ?? ''
+    const built = build.split(/,\s*(?![^(]*\))/).map((item) => [...item.matchAll(/'([^']+)'/g)].map(([, part]) => part).join('/'))
+    const listed = /HARNESS_NOT_BUNDLED = \[(.*)\]/.exec(readFileSync(SCOPE, 'utf8'))?.[1] ?? ''
+    expect([...listed.matchAll(/'([^']+)'/g)].map(([, part]) => part)).toEqual(built)
+    expect(built).toContain('bin/tests')
+  })
+
+  it('a pull request that adds a macOS-only test file runs it on macOS with the others', () => {
+    const added = 'test/contract/new-mac.test.ts'
+    commitOnBase([added], { [added]: `it.runIf(os.platform() === ${DARWIN})('x', () => {})\n` })
+    const pr = scope({ EVENT: 'pull_request', BASE: base })
+    expect(pr.expect).toEqual({ ...NO_MACOS, 'macos-tests': true })
+    expect(pr.files).toEqual([...DARWIN_FILES, added])
+  })
+
+  it.each([
+    ['vitest.config.ts', NO_MACOS],
+    ['scripts/vitest-electron.mjs', NO_MACOS],
+    ['src/renderer/App.tsx', NO_PACKAGE],
+    ['src/main/index.ts', NO_PACKAGE],
+    ['src/preload/index.ts', NO_PACKAGE],
+    ['src/shared/ipc/channels.ts', NO_PACKAGE],
+    ['src/card-runtime/worfy-card.ts', NO_PACKAGE],
+  ])('a pull request that changes %s runs macos-tests with the macOS-only files', (file, jobs) => {
+    commitOnBase([file])
+    const pr = scope({ EVENT: 'pull_request', BASE: base })
+    expect(pr.status, pr.stderr).toBe(0)
+    expect(pr.expect).toEqual({ ...jobs, 'macos-tests': true })
+    expect(pr.files).toEqual(DARWIN_FILES)
+  })
+
+  it.each([
+    'test/e2e/canvas.spec.ts',
+    'test/e2e/helpers.ts',
+    'test/fixtures/epic/spec.md',
+    'test/quarantine/demo.json',
+    'playwright.config.ts',
+    'electron.vite.config.ts',
+    'tsconfig.json',
+    'tsconfig.web.json',
+    'scripts/dev-bundle.ts',
+    'scripts/build-version.ts',
+    'scripts/ci-display.js',
+  ])('a pull request that changes %s, which the e2e run builds or reads, runs macos-e2e', (file) => {
+    commitOnBase([file])
+    const pr = scope({ EVENT: 'pull_request', BASE: base })
+    expect(pr.status, pr.stderr).toBe(0)
+    expect(pr.expect?.['macos-e2e']).toBe(true)
+  })
+
+  it('every file outside test/e2e that the e2e tests import makes a pull request run macos-e2e', () => {
+    const e2e = join(REPO, 'test', 'e2e')
+    const imported = new Set<string>()
+    for (const name of readdirSync(e2e, { recursive: true, encoding: 'utf8' })) {
+      if (!/\.ts$/.test(name)) continue
+      for (const [, from = ''] of readFileSync(join(e2e, name), 'utf8').matchAll(/from '(\.{1,2}\/[^']+)'/g)) {
+        const path = relative(REPO, resolve(e2e, dirname(name), from)).split(sep).join('/')
+        if (!path.startsWith('test/e2e/')) imported.add(/\.[cm]?[jt]sx?$/.test(path) ? path : `${path}.ts`)
+      }
+    }
+    expect(imported.size).toBeGreaterThan(3)
+    for (const path of imported) {
+      commitOnBase([path])
+      expect(scope({ EVENT: 'pull_request', BASE: base }).expect?.['macos-e2e'], path).toBe(true)
+    }
+  })
+
+  /** The macOS-only test files ci-scope.mjs lists in `root`. */
+  const darwinTests = (root: string): string[] =>
+    execFileSync(scriptNode(), [SCOPE, '--darwin-tests'], { cwd: root, encoding: 'utf8' }).split('\n').filter((line) => line !== '')
+
+  // Other ways to guard a test on macOS: a constant or a function named for the Mac in skipIf, runIf,
+  // an if or a ?: — an isMac imported from a helper, which ci-scope.mjs cannot see through.
+  const OTHER_GUARD = /(skipIf|runIf)\(\s*!?\s*\w*(mac|darwin)\w*\b|\bif\s*\(\s*!?\s*\w*(mac|darwin)\w*\s*[)&|]|\b\w*(mac|darwin)\w*\s*\?\s/i
+
+  /** The test files of `root` that guard on macOS another way and that ci-scope.mjs does not list. */
+  function unlisted(root: string): string[] {
+    const listed = darwinTests(root)
+    const found: string[] = []
+    for (const folder of ['test/unit', 'test/contract']) {
+      if (!existsSync(join(root, folder))) continue
+      for (const name of readdirSync(join(root, folder), { recursive: true, encoding: 'utf8' })) {
+        const path = `${folder}/${name.split(sep).join('/')}`
+        if (/\.test\.tsx?$/.test(path) && OTHER_GUARD.test(readFileSync(join(root, path), 'utf8')) && !listed.includes(path)) found.push(path)
+      }
+    }
+    return found.sort()
+  }
+
+  it('lists a test file that compares the other way round or switches on the platform', () => {
+    const reversed = 'test/unit/reversed.test.ts'
+    const switched = 'test/contract/switched.test.ts'
+    commitOnBase([reversed, switched], {
+      [reversed]: `if (${DARWIN} === process.platform) it('x', () => {})\n`,
+      [switched]: `switch (process.platform) {\n  case ${DARWIN}:\n    it('x', () => {})\n}\n`,
+    })
+    // test/unit first, then test/contract, each by name.
+    expect(darwinTests(repo)).toEqual(['test/unit/mac-only.test.ts', reversed, 'test/contract/mac-menu.test.tsx', switched])
+  })
+
+  it('the check of the test files finds a macOS guard that ci-scope.mjs does not list: an imported isMac', () => {
+    const imported = 'test/unit/imported-mac.test.ts'
+    const mac = 'isMac'
+    commitOnBase([imported], { [imported]: `import { ${mac} } from './platform'\nit.runIf(${mac})('x', () => {})\n` })
+    expect(unlisted(repo)).toEqual([imported])
+  })
+
+  it('every test file of this repository that guards on macOS is one ci-scope.mjs lists', () => {
+    expect(darwinTests(REPO).length).toBeGreaterThan(10)
+    expect(unlisted(REPO)).toEqual([])
+  })
+
+  it('a macOS-only test file whose name the shell would split: macos-tests runs every file', () => {
+    const odd = 'test/unit/two words.test.ts'
+    commitOnBase([odd, 'src/main/index.ts'], { [odd]: MAC_ONLY })
+    const pr = scope({ EVENT: 'pull_request', BASE: base })
+    expect(pr.status, pr.stderr).toBe(0)
+    expect(pr.expect).toEqual(NO_PACKAGE)
+    expect(pr.files).toEqual([])
+    expect(pr.stdout).toContain('the macOS-only test files could not be listed, so macos-tests runs every file')
   })
 
   it.each([
@@ -428,6 +648,7 @@ describe('scripts/ci-scope.mjs', () => {
       const result = scope({ EVENT: event, BASE: missing })
       expect(result.status, result.stderr).toBe(0)
       expect(result.expect, event).toEqual(ALL)
+      expect(result.files, event).toEqual([])
     }
   })
 
@@ -441,7 +662,9 @@ describe('scripts/ci-scope.mjs', () => {
   it('a run by hand: job check runs lint and the Linux tests, job full-macos lint and the macOS jobs', () => {
     commitOnBase(['docs/adr/0001-a.md'])
     expect(scope({ EVENT: 'workflow_dispatch', JOB: 'check' }).expect).toEqual({ ...ONLY_LINT, 'linux-tests': true })
-    expect(scope({ EVENT: 'workflow_dispatch', JOB: 'full-macos' }).expect).toEqual({ ...ONLY_LINT, 'macos-tests': true, 'macos-e2e': true, 'macos-package': true })
+    const full = scope({ EVENT: 'workflow_dispatch', JOB: 'full-macos' })
+    expect(full.expect).toEqual({ ...ONLY_LINT, 'macos-tests': true, 'macos-e2e': true, 'macos-package': true })
+    expect(full.files).toEqual([])
   })
 
   it.each([
@@ -486,6 +709,14 @@ describe('scripts/ci-ok.mjs', () => {
     const result = ok(JSON.stringify(needs({ ...ALL, 'macos-package': false }, results((name) => (name === 'macos-package' ? 'skipped' : 'success')))))
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('macos-package: skipped (not needed)')
+  })
+
+  it('is green when a pull request that changes no app path skipped every macOS job and the other jobs succeeded', () => {
+    const MACOS = ['macos-tests', 'macos-e2e', 'macos-package']
+    const wanted = Object.fromEntries(DECIDED.map((name) => [name, !MACOS.includes(name)]))
+    const result = ok(JSON.stringify(needs(wanted, results((name) => (MACOS.includes(name) ? 'skipped' : 'success')))))
+    expect(result.status, result.stderr).toBe(0)
+    for (const name of MACOS) expect(result.stdout).toContain(`${name}: skipped (not needed)`)
   })
 
   it.each([

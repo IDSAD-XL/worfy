@@ -77,6 +77,8 @@ run на push в `main`. Точку передачи выбрать при claim
   что красный `main` у Ticket-а 11 (bisect и revert), или только отчёт — не решено.
 - **Точный список путей.** Входит ли `src/shared/` (общий код renderer-а и main process) и
   `harness/` (Harness ставится из приложения, `harness-install.spec.ts`).
+  Решено Orchestrator-ом (2026-10-28, PR #927): `harness/` считается приложением, кроме того, что сборка не
+  несёт; `src/shared/` входит.
 
 ## Где в коде
 
@@ -95,3 +97,37 @@ run на push в `main`. Точку передачи выбрать при claim
 - e2e в CI на GitHub — нет (Q4).
 
 ## Итог
+
+- **CI-половина (2026-10-28, ветка `ci/macos-jobs-by-diff`).** Было: каждый PR с кодом просил 3 macOS job-а
+  (`macos-tests` и два shard-а `macos-e2e`), и зелёные run-ы PR шли 57–81 минуту при самом долгом job-е
+  19 минут: macOS job-ы ждали 26–67 минут одного из 5 macOS runner-ов бесплатного плана. Стало
+  (`scripts/ci-scope.mjs`, `.github/workflows/ci.yml`, test-ы — `test/contract/ci-workflow.test.ts`):
+  - `macos-e2e` на PR — только когда diff трогает приложение: `src/` (вся папка, `card-runtime` тоже),
+    `harness/`, кроме того, что сборка не несёт (`HARNESS_NOT_BUNDLED`: `bin/tests`, `hooks/tests`, `evals`,
+    `evals-outcome`; contract test сверяет список с `electron.vite.config.ts`),
+    `test/e2e/`, `test/fixtures/`, `test/quarantine/` и файлы `test/*.ts`, которые импортирует e2e
+    (contract test сверяет каждый import `test/e2e` со списком), `playwright.config.ts`,
+    `electron.vite.config.ts`, `electron-builder.yml`, `tsconfig*.json`, `build/`, `package.json`,
+    `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `.github/workflows/`, скрипты сборки и job-а
+    (`build-version.ts`, `dev-bundle.ts`, `postinstall.mjs`, `install-stable.mjs`, `statusline-bridge.*`,
+    `ci-display.js`). `test/unit`, `test/contract`, прочие скрипты, test-ы и eval-ы Harness и документы —
+    e2e на PR нет.
+  - `macos-tests` на PR — вариант (a): только test-файлы с проверкой для одной macOS (guard
+    `platform === / !== 'darwin'`; список строит `ci-scope.mjs` при каждом run-е, второй output
+    `macos-tests-files`), когда diff трогает приложение, `scripts/`, `harness/`, такой файл, `vitest.config.ts`
+    или `scripts/vitest-electron.mjs`: эти файлы проверяют и код скриптов и Harness (`make-icons.test.ts` —
+    настоящий `sips`, `hang-sample.test.ts` — `ps` macOS, `harness-evals.test.ts`, `harness-install.test.ts`).
+    Guard распознаётся в формах `platform === / !== 'darwin'`, `'darwin' === platform` и `case 'darwin'`;
+    contract test краснеет на test-файле, который проверяет macOS иначе (импортированный `isMac` в
+    `skipIf`/`runIf`, `if`, `?:`) и которого нет в списке. Замер по логу `macos-tests` run-а 40744007856 на `main`: 18 таких файлов
+    из 462 — 179 s из 1131 s времени файлов (весь набор шёл 640 s, job 11 минут); самые тяжёлые из 18 —
+    `harness-evals` 57 s, `harness-evals-outcome` 36 s, `harness-install` 31 s.
+  - `macos-package` — без изменений (входы сборки на PR, всегда на push).
+  - `windows-e2e` (#921) идёт тогда же, когда `macos-e2e`: PR без пути приложения не просит e2e ни на macOS,
+    ни на Windows.
+  - Push в `main` и ручной `full-macos` — все job-ы, весь набор в каждом. Поправка ADR-0083 записана.
+  - Открытый вопрос «входит ли `harness/`» — решено Orchestrator-ом: `harness/` считается приложением, кроме
+    того, что сборка не несёт. `src/shared/` входит вместе со всей `src/`.
+  - Цена: test без guard-а, который краснеет только на macOS (FSEvents, case-insensitive FS, BSD-утилиты), ловит
+    только run push-а в `main`; PR только с unit/contract test-ами не просит ни одного macOS job-а.
+  Открыто (Harness-половина): поле Profile-а, шаг gate, `implementer.md`, `rules.md`.

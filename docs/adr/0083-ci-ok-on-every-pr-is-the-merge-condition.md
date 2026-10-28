@@ -144,3 +144,12 @@ scope `pc` ждёт ПК, scope решает скрипт); ADR-0081, пункт
   нужного run-у `windows-e2e` — строка `::warning::` в сводке run-а, не красный `ci-ok` (`NON_BLOCKING` в
   `scripts/ci-ok.mjs`). Ненужный run-у `windows-e2e` по-прежнему должен быть `skipped`. Блокирующим job
   делает отдельный PR после пяти зелёных push-run-ов подряд на `main`.
+- **2026-10-28, macOS job-ы PR — по путям diff** (`worfy-throughput` 13, CI-половина; PR #927). Причина:
+  зелёные run-ы PR шли 57–81 минуту при самом долгом job-е 19 минут — macOS job-ы ждали 26–67 минут одного
+  из 5 macOS runner-ов бесплатного плана. Теперь на PR (`scripts/ci-scope.mjs`): `macos-e2e` — только когда
+  diff трогает приложение (`src/`, `harness/` кроме того, что сборка не несёт, `test/e2e/`, то, что e2e
+  импортирует или читает, конфиги сборки, `package.json`, lockfile, workflow-ы); `macos-tests` — тогда же, при
+  правке `scripts/` или `harness/` или test-файла с проверкой только для macOS, и гоняет только такие файлы
+  (18 из 462, 179 s из 1131 s); `macos-package` — как раньше, по входам сборки. PR только с unit/contract
+  test-ами не просит ни одного macOS job-а. Push в `main` гоняет все job-ы, весь набор в каждом. Красный run
+  push-а в `main` чинится первым, по правилу этого ADR для красного `ci-ok` на `main`.
