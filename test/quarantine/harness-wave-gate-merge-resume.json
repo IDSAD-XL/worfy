@@ -1,0 +1,11 @@
+{
+  "file": "test/contract/harness-scripts.test.ts",
+  "test": "harness shell tests > bin/tests/wave-gate-merge.test.sh exits 0 with an empty HOME",
+  "platforms": [
+    "win32"
+  ],
+  "reason": "Under Git Bash on the GitHub Windows runner the \"resume\" case fails: the resumed run refuses to start because it takes the pid file of the killed first run for a live check (\"another wave-gate check runs in this repository (pid 1632, …\\resume\\repo\\.git\\worfy-wave-gate.pid)\", \"exit 1 culprit node:internal/streams/writable:484\", \"worktree or lock left\"). Red in CI run 40656857467 (job 122710536442, PR #887, 2026-10-28) and run 40664527217 (job 122735647777, PR #893, 2026-10-28, pid 1224). The cure in PR #887 did not hold on the runner; diagnosis in progress.",
+  "owner": "worfy-throughput 23",
+  "since": "2026-10-28",
+  "until": "2026-11-11"
+}

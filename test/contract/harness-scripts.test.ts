@@ -411,17 +411,21 @@ describe('harness shell tests', () => {
     const problem = failure(file, run, FILE_TIMEOUT_MS)
     context.expect(problem === null, problem ?? '').toBe(true)
   }
-  // On Windows wave-gate-lock-killed.test.sh is in quarantine (test/quarantine/harness-wave-gate-lock-killed.json),
-  // so there it is declared on its own, as the quarantine marks a test; elsewhere it runs with the rest.
-  const lockApart = (file: string): boolean => WINDOWS && relative(file) === 'bin/tests/wave-gate-lock-killed.test.sh'
-  it.concurrent.for(ordered.filter((file) => !lockApart(file)).map((file): [string, string] => [relative(file), file]))(
+  // On Windows these files are in quarantine (their entries are in test/quarantine/), so there each is
+  // declared on its own, as the quarantine marks a test; elsewhere they run with the rest.
+  const QUARANTINED_ON_WINDOWS: Record<string, (file: string) => void> = {
+    'bin/tests/wave-gate-lock-killed.test.sh': (file) =>
+      quarantined('harness-wave-gate-lock-killed')('bin/tests/wave-gate-lock-killed.test.sh exits 0 with an empty HOME', (context) => runFile(relative(file), file, context), FILE_TIMEOUT_MS + 10_000),
+    'bin/tests/wave-gate-merge.test.sh': (file) =>
+      quarantined('harness-wave-gate-merge-resume')('bin/tests/wave-gate-merge.test.sh exits 0 with an empty HOME', (context) => runFile(relative(file), file, context), FILE_TIMEOUT_MS + 10_000),
+  }
+  const apart = (file: string): boolean => WINDOWS && Object.hasOwn(QUARANTINED_ON_WINDOWS, relative(file))
+  it.concurrent.for(ordered.filter((file) => !apart(file)).map((file): [string, string] => [relative(file), file]))(
     '%s exits 0 with an empty HOME',
     { timeout: FILE_TIMEOUT_MS + 10_000 },
     ([name, file], context) => runFile(name, file, context),
   )
-  for (const file of ordered.filter(lockApart)) {
-    quarantined('harness-wave-gate-lock-killed')('bin/tests/wave-gate-lock-killed.test.sh exits 0 with an empty HOME', (context) => runFile(relative(file), file, context), FILE_TIMEOUT_MS + 10_000)
-  }
+  for (const file of ordered.filter(apart)) QUARANTINED_ON_WINDOWS[relative(file)]?.(file)
 
   it('kills a file past its limit with every process it started, and removes its HOME', async () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-harness-hang-')))
