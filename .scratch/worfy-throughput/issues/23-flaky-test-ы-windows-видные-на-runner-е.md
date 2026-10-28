@@ -150,6 +150,36 @@ note…`, который красный и до правки (5 из 5): в ко
   122747558462 красный из-за предела 120 s на файл в `test/contract/harness-scripts.test.ts` («killed after
   120 s»), строк FAIL и EPIPE нет. В этой правке его не трогали.
 
+### e2e `browser-layer` zoom 0.25 на macOS runner-е (ветка `fix/browser-layer-zoom-quarter`)
+
+- **Что было.** `test/e2e/browser-layer.spec.ts:370`, «zoom 0.25…», красный в job `macos-e2e (1/2)`: run-ы
+  40649755730 (PR #884), 40644132756 (PR #882), PR #885; около минуты и «every edge of the page and of the
+  frame found in the capture». Зелёные run-ы того же job: 40640810358, 40651661167.
+- **Причина.** Край frame test читает по зелёной outline шириной 1 CSS px. Zoom Canvas-а 0.25 при display
+  scale 1 (1024×768 runner-а) делает её четвертью device pixel: после antialiasing зелёного в пикселе на
+  несколько уровней цвета, около порога `GREEN` (`test/e2e/browser-pixels.ts:76`). В части run-ов outline
+  не находится ни на одном крае (Infinity). Ничего не перерисовывается, поэтому каждый следующий capture
+  читает те же пиксели. Через 30 s Browser на zoom ниже 0.4 засыпает (`src/main/browser/sleep.ts`, правило
+  far), и после этого test дожидается своего timeout-а 60 s. Доказательства: trace run-а 40649755730 —
+  frame `data-life="live"` 30 s, потом `asleep`; пиксель outline на снимке run-а — `#d9f1dc` (вес `GREEN`
+  1). Локально с `--force-device-scale-factor=1` (только для разбора, в PR нет) outline — `#e5f2e3`, вес 0.
+- **Правка (только test).** Outline шириной `outlineWidth(zoom, scale)` = `max(1, 1 / (zoom × scale))`
+  CSS px, то есть не меньше одного device pixel на экране. `edgeErrors` получает ширину outline
+  (`line`), край body — на половину outline внутрь от её центра. Граница `edgeBound` (2.5 px при scale 1
+  и zoom 0.25) и display scale не менялись; timeout-ов и sleep нет.
+- **Красных до и после.** До: на Mac (scale 2) 0 из 10; с scale 1 — 5 из 5 красные с той же ошибкой.
+  После: scale 2 — 0 из 10, края 0.25/0.28 px; scale 1 — 0 из 10, края 1 px на всех четырёх
+  (граница 2.5). Mutant (`outlineWidth` снова 1 px), scale 1 — красный с ошибкой CI; restore, `cmp` 0.
+  Mutant `edgeErrors` (`zoom / 2` вместо `line / 2`) — 3 unit-test-а красные; restore, `cmp` 0.
+- **Команды.** `pnpm test:e2e test/e2e/browser-layer.spec.ts --grep "zoom 0.25" --repeat-each 10 --workers=1`
+  под `/tmp/worfy-e2e.lock`: до — exit 0, после — exit 0; `pnpm test test/unit/e2e-browser-pixels.test.ts`
+  — exit 0 (40 test-ов); `pnpm lint` — exit 0; `pnpm typecheck` — exit 0.
+- **Не проверено здесь.** Числа на настоящем runner-е: первый run — CI этого PR.
+
+#### Наблюдения
+
+- 2026-10-28: `harness/hooks/tests/gate-verdict.test.sh` убит пределом 120 s на файл в `test/contract/harness-scripts.test.ts`, job 122747558462, это не EPIPE.
+
 ### Отложено
 
 - 2026-10-28, из PR #907: `_worfy_suggest_timer_end` (`src/main/terminal/zsh/rc.d/20-suggest-ai.zsh:89`) — тот же

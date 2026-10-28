@@ -109,14 +109,15 @@ export const isPage = (r: number, g: number, b: number): boolean =>
  * How far, in CSS pixels, the page's own edge is from the frame's edge on each `edges` side of
  * `body` (the frame's body in CSS pixels at the time of the capture), along the row or column
  * through the middle of the body. The frame's edge: the centre of the green outline the test puts
- * just outside the body, one line (`zoom` CSS px) wide, so the body's edge is half a line inward of
- * it. The page's edge: the outermost pixel of the page (cream or magenta), found from outside in.
+ * just outside the body, `line` CSS px wide on screen (by default `zoom`: an outline of 1 CSS px
+ * scaled by the Canvas; see outlineWidth), so the body's edge is half a line inward of it. The
+ * page's edge: the outermost pixel of the page (cream or magenta), found from outside in.
  * 0 when the page sits exactly in the body; a pixel blended at the border counts as up to one device
  * pixel. The page's own magenta line is not used for the position: at zoom 0.25 the minified page
  * loses its last row and column of pixels, line and all. An edge where the outline or the page is
  * not found counts as Infinity.
  */
-export function edgeErrors(image: Image, scale: number, body: Box, zoom: number, edges: readonly Edge[]): Record<Edge, number> {
+export function edgeErrors(image: Image, scale: number, body: Box, zoom: number, edges: readonly Edge[], line = zoom): Record<Edge, number> {
   const reach = (6 * zoom + 3) * scale
   const mid = { x: (body.x + body.width / 2) * scale, y: (body.y + body.height / 2) * scale }
   const result = {} as Record<Edge, number>
@@ -142,9 +143,21 @@ export function edgeErrors(image: Image, scale: number, body: Box, zoom: number,
     }
     // The green centre is half a line outside the body's edge; the page's edge should be on the body's edge.
     const greenCentre = green + 0.5
-    result[edge] = Math.abs((outward * (greenCentre - pageEdge)) / scale - zoom / 2)
+    result[edge] = Math.abs((outward * (greenCentre - pageEdge)) / scale - line / 2)
   }
   return result
+}
+
+/**
+ * The width, in the frame's own CSS px, of the green outline the zoom test puts around the frame's
+ * body at Canvas zoom `zoom` on a display of `scale` device px per CSS px: 1 px, or wider, so that
+ * the Canvas's zoom leaves it at least one device pixel wide on screen. A 1 px outline at zoom 0.25
+ * is a quarter of a device pixel at scale 1: its antialiased green is a few colour levels around
+ * the threshold of GREEN, found in one run and not in the next (macOS runner, runs 40649755730 and
+ * 40644132756), and every capture after that reads the same pixels.
+ */
+export function outlineWidth(zoom: number, scale: number): number {
+  return Math.max(1, 1 / (zoom * scale))
 }
 
 /**
