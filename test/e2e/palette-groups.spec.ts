@@ -39,7 +39,7 @@ function git(cwd: string, ...args: string[]): string {
 let scratch: string
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-palette-groups-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-palette-groups-')))
 })
 
 test.afterEach(async () => {

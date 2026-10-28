@@ -146,7 +146,7 @@ const expectLit = (window: Page, ids: readonly string[]): Promise<void> =>
 
 test('the Session Autopilot runs uses only the Browser profiles marked for it, opens a Browser for a Ticket of its Epic, is told an expired sign-in, never fills the password, and its Browser is in the Ticket’s Family', async () => {
   test.setTimeout(120_000)
-  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-browser-autopilot-')))
+  const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-browser-autopilot-')))
   const { dataDir, claudeHome, repo } = prepare(scratch)
   const log = join(scratch, 'agent.jsonl')
   const scripts = join(repoRoot, 'test', 'fixtures', 'agent-scripts')

@@ -39,7 +39,7 @@ let scratch: string
 const processes: ChildProcess[] = []
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-toast-placement-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-toast-placement-')))
 })
 
 test.afterEach(async () => {

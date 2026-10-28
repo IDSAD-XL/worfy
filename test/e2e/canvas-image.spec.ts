@@ -37,7 +37,7 @@ let dataDir: string
 let repo: string
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-image-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-image-')))
   dataDir = join(scratch, 'data')
   repo = join(scratch, 'alpha')
   mkdirSync(repo)

@@ -75,7 +75,7 @@ function makeProject(nodes: unknown[], viewport: SavedLayout['viewport'] = VIEWP
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-card-drag-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-card-drag-')))
   dataDir = join(scratch, 'data')
   mkdirSync(dataDir)
 })

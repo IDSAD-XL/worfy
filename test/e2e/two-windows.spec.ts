@@ -47,7 +47,7 @@ function makeRepo(path: string): void {
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-two-windows-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-two-windows-')))
   dataDir = join(scratch, 'data')
   repo = join(scratch, 'demo')
   // The fixture Epic in the Project's folder; `epic-status` answers from a file the test edits.

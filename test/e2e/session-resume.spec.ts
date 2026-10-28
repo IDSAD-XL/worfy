@@ -105,7 +105,7 @@ async function bothThemes(window: Page, name: string): Promise<void> {
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-session-resume-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-session-resume-')))
   dataDir = join(scratch, 'data')
   claudeHome = join(scratch, 'claude-home')
   projectPath = join(scratch, 'alpha')

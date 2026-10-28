@@ -45,7 +45,7 @@ function writeLayout(nodes: { id: string; x: number; y: number; pinned?: boolean
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-pin-tags-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-pin-tags-')))
   dataDir = join(scratch, 'data')
   const path = join(scratch, 'alpha')
   mkdirSync(path)

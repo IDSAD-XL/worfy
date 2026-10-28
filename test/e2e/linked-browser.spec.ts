@@ -57,7 +57,7 @@ function prepareB(scratch: string, url: string): Record<string, string> {
   const repo = join(scratch, 'beta')
   mkdirSync(repo, { recursive: true })
   git(repo, 'init', '-q')
-  const dataDir = dataFolder(join(scratch, 'b-data'), [{ id: BETA, name: 'beta', path: realpathSync(repo) }])
+  const dataDir = dataFolder(join(scratch, 'b-data'), [{ id: BETA, name: 'beta', path: realpathSync.native(repo) }])
   const base = { hidden: false, locked: false, pinned: false, tags: [] }
   mkdirSync(join(dataDir, BETA), { recursive: true })
   writeFileSync(
@@ -87,11 +87,11 @@ async function typedOnB(b: LaunchedApp): Promise<string | null> {
 }
 
 test('a Browser of B: full access shows its frames and types in its page; read-only shows only the frame with the profile name', async () => {
-  const scratch = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-browser-07-linked-')))
+  const scratch = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-browser-07-linked-')))
   const alpha = join(scratch, 'alpha')
   mkdirSync(alpha, { recursive: true })
   git(alpha, 'init', '-q')
-  const aData = dataFolder(join(scratch, 'a-data'), [{ id: ALPHA, name: 'alpha', path: realpathSync(alpha) }])
+  const aData = dataFolder(join(scratch, 'a-data'), [{ id: ALPHA, name: 'alpha', path: realpathSync.native(alpha) }])
   const url = `${origin}/`
   const bEnv = prepareB(scratch, url)
   const a = await launchApp({ env: { WORFY_DATA_DIR: aData } })

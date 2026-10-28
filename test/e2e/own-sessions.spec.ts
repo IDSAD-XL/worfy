@@ -39,11 +39,11 @@ let terminals = 0
 function gitRepo(dir: string): string {
   mkdirSync(dir, { recursive: true })
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir })
-  return realpathSync(dir)
+  return realpathSync.native(dir)
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-own-sessions-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-own-sessions-')))
   dataDir = join(scratch, 'data')
   claudeHome = join(scratch, 'claude-home')
   mkdirSync(join(claudeHome, 'sessions'), { recursive: true })

@@ -115,7 +115,7 @@ async function nodeHidden(window: Page, nodeId: string): Promise<boolean | null>
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-external-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-external-')))
   dataDir = join(scratch, 'data')
   claudeHome = join(scratch, 'claude-home')
   projectPath = join(scratch, 'alpha')

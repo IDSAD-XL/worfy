@@ -108,7 +108,7 @@ function writeEpics(dir: string, sizes: readonly number[]): string {
 const AUCTION_SIZES = [97, ...Array.from({ length: 41 }, (_, i) => 14 + (i < 11 ? 1 : 0))]
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-snapping-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-snapping-')))
   dataDir = join(scratch, 'data')
   mkdirSync(dataDir)
 })

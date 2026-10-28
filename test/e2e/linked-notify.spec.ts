@@ -35,7 +35,7 @@ function gitRepo(path: string): string {
   mkdirSync(path, { recursive: true })
   const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: path, env: gitEnv })
-  return realpathSync(path)
+  return realpathSync.native(path)
 }
 
 /** A data folder whose projects.json lists one Project, active. */
@@ -106,7 +106,7 @@ async function unfocusAll(apps: LaunchedApp[]): Promise<void> {
 }
 
 test('a turn of a Session of A ends with no window focused: A and B record the notification; a click on B opens the Session in B on A\'s Project', async () => {
-  const scratch = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-link-13-notify-')))
+  const scratch = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-link-13-notify-')))
   const aData = dataFolder(join(scratch, 'a-data'), { id: ALPHA, name: 'alpha', path: gitRepo(join(scratch, 'alpha')) })
   const bData = dataFolder(join(scratch, 'b-data'), { id: GAMMA, name: 'gamma', path: gitRepo(join(scratch, 'gamma')) })
   const a = await launchApp({ env: { WORFY_DATA_DIR: aData, ...NORMAL_WINDOWS } })

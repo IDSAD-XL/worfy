@@ -29,7 +29,7 @@ let root: string
 let home: string
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-term-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-term-')))
   dataDir = join(scratch, 'data')
   root = join(scratch, 'alpha')
   home = join(scratch, 'home')
@@ -183,6 +183,18 @@ async function run(window: Page, node: Locator, command: string, expected: RegEx
   await window.keyboard.type(command)
   await window.keyboard.press('Enter')
   await expect.poll(() => screenText(node), { timeout: 10_000 }).toMatch(expected)
+}
+
+/**
+ * Types a command that runs on and waits until the screen shows it typed. After a long prompt the
+ * typed line wraps onto the next row, and a row loses the spaces it ends with, so the screen and the
+ * command are compared without any white space.
+ */
+async function runUntilTyped(window: Page, node: Locator, command: string): Promise<void> {
+  await node.getByTestId('terminal-screen').click()
+  await window.keyboard.type(command)
+  await window.keyboard.press('Enter')
+  await expect.poll(async () => (await screenText(node)).replace(/\s/g, ''), { timeout: 10_000 }).toContain(command.replace(/\s/g, ''))
 }
 
 /** The last `cols=N rows=M` the shell printed. */
@@ -406,8 +418,7 @@ test('quitting worfy ends every shell; after a restart the Node starts a new she
     // no SIGHUP; the job there is a program (Start-Sleep would run inside PowerShell, no child).
     // On Windows this test proves less: closing the pseudo-console with the app already ends
     // PowerShell and ping, so it passes whether or not worfy ends them itself before it exits.
-    if (WINDOWS) await run(window, nodes.nth(1), 'ping -n 31 127.0.0.1 > $null', /ping -n 31/)
-    else await run(window, nodes.nth(1), `trap '' HUP; sleep 30`, /sleep 30/)
+    await runUntilTyped(window, nodes.nth(1), WINDOWS ? 'ping -n 31 127.0.0.1 > $null' : `trap '' HUP; sleep 30`)
     await expect.poll(() => childrenOf(pids[1] ?? 0).length, { timeout: 15_000 }).toBe(1)
     jobs.push(...childrenOf(pids[1] ?? 0))
     expect(pids.every(alive)).toBe(true)

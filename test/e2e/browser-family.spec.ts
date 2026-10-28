@@ -68,7 +68,7 @@ function fixture(scratch: string, projectId: string, extra: object[] = []): { re
   git(repo, 'init', '-q')
   git(repo, 'add', '.')
   git(repo, 'commit', '-q', '-m', 'init')
-  const realRepo = realpathSync(repo)
+  const realRepo = realpathSync.native(repo)
   mkdirSync(join(claudeHome, 'bin'), { recursive: true })
   const answer = join(claudeHome, 'epic-status.json')
   writeFileSync(
@@ -153,7 +153,7 @@ const expectLit = (window: Page, ids: readonly string[]): Promise<void> =>
 
 test('a Session’s Browser is in its Ticket’s Family and leaves the Canvas with the Session; the user’s Browsers stay, in both windows', async () => {
   test.setTimeout(120_000)
-  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-browser-family-')))
+  const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-browser-family-')))
   const projectId = 'demo-0000000d'
   const { claudeHome, dataDir, home } = fixture(scratch, projectId, [userBrowser(USER_BROWSER, 0, 600), userBrowser(DRIVEN_BROWSER, 0, 1200)])
   const launched: LaunchedApp = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, SHELL: '/bin/sh', HOME: home } })
@@ -234,7 +234,7 @@ test.describe('on a read-only screen', () => {
   test.setTimeout(180_000)
 
   test('a Linked machine shown the Project read-only lights the Session’s Browser in the Ticket’s Family', async () => {
-    const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-browser-family-ro-')))
+    const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-browser-family-ro-')))
     const ALPHA = 'alpha-0000000a'
     const BETA = 'beta-0000000b'
     const alpha = join(scratch, 'alpha')
@@ -242,7 +242,7 @@ test.describe('on a read-only screen', () => {
     git(alpha, 'init', '-q')
     const aData = join(scratch, 'a-data')
     mkdirSync(aData, { recursive: true })
-    writeFileSync(join(aData, 'projects.json'), JSON.stringify({ projects: [{ id: ALPHA, name: 'alpha', path: realpathSync(alpha) }], activeId: ALPHA }))
+    writeFileSync(join(aData, 'projects.json'), JSON.stringify({ projects: [{ id: ALPHA, name: 'alpha', path: realpathSync.native(alpha) }], activeId: ALPHA }))
     const b = fixture(scratch, BETA, [userBrowser(USER_BROWSER, 0, 600)])
 
     const a = await launchApp({ env: { WORFY_DATA_DIR: aData } })

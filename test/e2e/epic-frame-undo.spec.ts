@@ -42,7 +42,7 @@ const EPIC_STATUS = {
 const NOTE = { id: 'n1', kind: 'note', x: 40, y: 320, w: 220, h: 120, data: { text: 'move me' } }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-epic-undo-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-epic-undo-')))
   dataDir = join(scratch, 'data')
   claudeHome = join(scratch, 'claude-home')
   mkdirSync(join(claudeHome, 'bin'), { recursive: true })

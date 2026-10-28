@@ -30,7 +30,7 @@ const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, for
 let scratch: string
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-epics-reading-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-epics-reading-')))
 })
 
 test.afterEach(async () => {

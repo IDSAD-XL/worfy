@@ -23,7 +23,7 @@ let dataDir: string
 let project: string
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-limits-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-limits-')))
   dataDir = join(scratch, 'data')
   project = join(scratch, 'project')
   mkdirSync(dataDir)

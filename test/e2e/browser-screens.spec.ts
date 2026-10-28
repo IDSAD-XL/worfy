@@ -50,7 +50,7 @@ test.afterAll(async () => {
 })
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-browser-screens-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-browser-screens-')))
 })
 
 test.afterEach(async () => {

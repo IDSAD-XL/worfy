@@ -214,7 +214,7 @@ async function setUp(launched: LaunchedApp): Promise<() => Promise<string[]>> {
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-linked-autopilot-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-linked-autopilot-')))
 })
 
 test.afterEach(async () => {

@@ -42,7 +42,7 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-sidebar-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-sidebar-')))
   dataDir = join(scratch, 'data')
   const repo = join(scratch, 'alpha')
   mkdirSync(join(repo, 'docs', 'adr'), { recursive: true })

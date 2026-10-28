@@ -64,7 +64,7 @@ let scratch: string
 let stub: { env: Record<string, string>; log: string; envLog: string; state: string }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-harness-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-harness-')))
   // A .mjs, which worfy starts under its own Node on every system (src/main/program.ts); Windows
   // cannot start a #!/bin/sh wrapper (worfy-windows ticket 83).
   const claude = join(scratch, 'claude-stub.mjs')

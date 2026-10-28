@@ -24,7 +24,7 @@ const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, for
 let scratch: string
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-silent-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-silent-')))
 })
 
 test.afterEach(async () => {
@@ -116,7 +116,7 @@ function stubHarness(claudeHome: string, resolved: unknown, ticketsRoot: string,
       'const args = process.argv.slice(2)',
       'const has = (flag) => args.some((arg) => arg.includes(flag))',
       "const cat = (file) => process.stdout.write(fs.readFileSync(file, 'utf8'))",
-      `fs.appendFileSync(${JSON.stringify(log)}, \`${name} \${args.join(' ')} in \${fs.realpathSync(process.cwd())}\\n\`)`,
+      `fs.appendFileSync(${JSON.stringify(log)}, \`${name} \${args.join(' ')} in \${fs.realpathSync.native(process.cwd())}\\n\`)`,
     ]
     writeFileSync(join(bin, name), nodeScript([...setup, body].join('\n')))
   }
@@ -303,7 +303,7 @@ test('a Project over two repositories: each Ticket shows its repository, and its
   // gh ran only in the two repositories, never in the folder above them.
   const ghRuns = readFileSync(gh.log, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line) as { cwd: string; args: string[] })
   expect(ghRuns.length).toBeGreaterThan(0)
-  expect(new Set(ghRuns.map((run) => realpathSync(run.cwd)))).toEqual(new Set([api, web]))
+  expect(new Set(ghRuns.map((run) => realpathSync.native(run.cwd)))).toEqual(new Set([api, web]))
   expect(ghRuns.every((run) => run.args[0] === 'pr' && run.args[1] === 'list')).toBe(true)
 
   expect(listing(workspace)).toEqual(before.workspace)

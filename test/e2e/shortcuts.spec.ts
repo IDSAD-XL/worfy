@@ -30,7 +30,7 @@ let dataDir: string
 
 test.beforeEach(() => {
   // A Project with two notes: ⌘F searches its Canvas and ⌘↩ opens focus mode on the selected note.
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-shortcuts-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-shortcuts-')))
   dataDir = join(scratch, 'data')
   mkdirSync(join(scratch, 'alpha'))
   mkdirSync(join(dataDir, PROJECT), { recursive: true })

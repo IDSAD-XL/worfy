@@ -110,7 +110,7 @@ async function terminalSize(window: Page): Promise<{ rows: number; width: number
 }
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-zoom-whole-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-zoom-whole-')))
   dataDir = join(scratch, 'data')
   claudeHome = join(scratch, 'claude-home')
   projectPath = join(scratch, 'alpha')

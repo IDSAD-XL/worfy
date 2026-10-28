@@ -23,7 +23,7 @@ const bundledVersion = (): string => (JSON.parse(readFileSync(join(bundle, '.cla
 let scratch: string
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-select-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-select-')))
 })
 
 test.afterEach(async () => {
@@ -41,7 +41,7 @@ function makeRepo(path: string): string {
   writeFileSync(join(path, 'package.json'), '{"name":"shop","scripts":{"lint":"eslint .","test":"vitest run"}}\n')
   git(path, 'add', '.')
   git(path, 'commit', '-q', '-m', 'init')
-  return realpathSync(path)
+  return realpathSync.native(path)
 }
 
 function claudeStub(): string {

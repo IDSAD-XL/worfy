@@ -97,7 +97,7 @@ async function clearInView(window: Page, node: Locator, other: Locator): Promise
 const flowNode = (window: Page, id: string): Locator => window.locator(`.react-flow__node[data-id="${id}"]`)
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-palette-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-palette-')))
 })
 
 test.afterEach(async () => {

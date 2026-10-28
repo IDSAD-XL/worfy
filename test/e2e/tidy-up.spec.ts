@@ -63,7 +63,7 @@ const SCATTERED = [
 ]
 
 test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-tidy-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-tidy-')))
   dataDir = join(scratch, 'data')
   mkdirSync(dataDir)
 })

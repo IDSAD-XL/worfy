@@ -74,7 +74,7 @@ function epicStatus(): unknown {
 
 /** The Project's files; `nodes` are the Layout's Nodes, the camera at zoom 0.2 so every frame is drawn. */
 function makeProject(nodes: unknown[]): void {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-epic-columns-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-epic-columns-')))
   dataDir = join(scratch, 'data')
   claudeHome = join(scratch, 'claude-home')
   mkdirSync(join(claudeHome, 'bin'), { recursive: true })
