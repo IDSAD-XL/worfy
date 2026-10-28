@@ -1,8 +1,18 @@
 import { useEffect, useState } from 'react'
 import { create } from 'zustand'
-import { autopilotStatusLine, HARNESS_BEHIND_LABEL, harnessBehindTitle, type AutopilotState, type RunningElsewhereRefusal } from '../../../shared/ipc/autopilot'
+import { waveEstimateLine } from '../../../shared/autopilot/limits-estimate'
+import {
+  autopilotEstimateAnswerSchema,
+  autopilotStatusLine,
+  HARNESS_BEHIND_LABEL,
+  harnessBehindTitle,
+  type AutopilotEstimateAnswer,
+  type AutopilotState,
+  type RunningElsewhereRefusal,
+} from '../../../shared/ipc/autopilot'
 import { failureReason } from '../../../shared/ipc/channels'
 import { invoke, subscribe } from '../../ipc'
+import { useNow } from '../../limits/useLimits'
 import { useReadOnly } from '../../projects/useProjects'
 import type { SlotProps } from '../badges'
 import { ActionButton } from './action-button'
@@ -54,6 +64,13 @@ import { hasRunWave, useRunWaveState } from './gates'
 //   refusal stays until the next start of the Project or a run of it.
 // - Each button role has its own key: "Stop autopilot" after "Start anyway" is a new button, not
 //   the Autopilot button with its refusal still on.
+//
+// What a Wave usually takes of the week (worfy-throughput ticket 40): the hint of an active
+// "Autopilot" ends with "A Wave like this usually takes about 6% of the week. Used now: 41%,
+// resets in 2 d 5 h" (waveEstimateLine; no estimate from fewer than three past Waves, and it says
+// so), for as many Tickets as the Wave about to go has. Main answers it from the run journals
+// (`autopilot.estimate`); it is asked when the button appears and again whenever the run's status
+// changes. An answer that does not parse leaves the hint without the line.
 
 export const order = 30
 
@@ -231,6 +248,27 @@ async function stop(projectId: string, kind: StopKind): Promise<string | undefin
 
 const noRun = (): Promise<undefined> => Promise.resolve(undefined)
 
+/**
+ * The Project's Wave estimate, asked once per `key`; null until main answers or when it fails.
+ * shortcut: "Used now" is as of the last ask, not live; redo if the hint is seen to lag the toolbar's
+ * Limits for long (then join useLimits here).
+ */
+function useWaveEstimate(projectId: string, key: string): AutopilotEstimateAnswer | null {
+  const [answer, setAnswer] = useState<AutopilotEstimateAnswer | null>(null)
+  useEffect(() => {
+    let active = true
+    void invoke('autopilot.estimate', { projectId }).then((result) => {
+      if (!active) return
+      const parsed = result.ok ? autopilotEstimateAnswerSchema.safeParse(result.value) : null
+      setAnswer(parsed?.success === true ? parsed.data : null)
+    })
+    return () => {
+      active = false
+    }
+  }, [projectId, key])
+  return answer
+}
+
 function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], { kind: 'epic' }>) {
   const state = useAutopilot(projectId)
   const mine = state?.epic === epic.epic
@@ -246,6 +284,11 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
   const refused = refusal !== undefined && refusal.epic === epic.epic && !running ? refusal : undefined
   // On a read-only screen (worfy-link ticket 25) starting and stopping are inactive; the state shows.
   const readOnly = useReadOnly()
+  // Before main's first state the Project counts as without a run: that state asks again only when it is a run.
+  const estimate = useWaveEstimate(projectId, state?.status ?? 'stopped')
+  const now = useNow()
+  const estimateLine =
+    estimate === null || !wave.enabled ? null : waveEstimateLine({ estimate: estimate.estimate, tickets: wave.tickets.length, sevenDay: estimate.sevenDay, now })
   if (!hasRunWave(epic.epic, tickets) && !(mine && running) && line === null && pending === undefined && refused === undefined) return null
 
   const button =
@@ -272,7 +315,7 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
             : running
             ? `Autopilot is ${stopping ? 'stopping' : 'running'} Epic ${state?.epic ?? ''}`
             : wave.enabled
-              ? `Run the Waves of ${epic.epic} one after another, without a person. ${DISPLAY_STAYS_ON}`
+              ? `Run the Waves of ${epic.epic} one after another, without a person. ${DISPLAY_STAYS_ON}${estimateLine === null ? '' : `. ${estimateLine}`}`
               : wave.reason
         }
         run={() => start(projectId, epic.epic)}

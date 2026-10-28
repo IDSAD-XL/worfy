@@ -43,6 +43,8 @@ let autopilot: AutopilotState
 let stopAnswer: Promise<IpcResult<unknown>> | null
 /** What autopilot.forceStop answers; null answers the stopped state at once. */
 let forceStopAnswer: Promise<IpcResult<unknown>> | null
+/** What autopilot.estimate answers; null answers the bridge's default, which is no estimate answer. */
+let estimateAnswer: unknown
 
 beforeEach(() => {
   vi.resetModules()
@@ -50,6 +52,7 @@ beforeEach(() => {
   autopilot = { projectId: PROJECT, epic: null, status: 'stopped', wave: 0, backgroundTasks: 0, resumesAt: null, reason: null, message: null, resumable: [], stopping: false, ticketsInWork: 0, harnessBehind: null, revision: 1 }
   stopAnswer = null
   forceStopAnswer = null
+  estimateAnswer = null
   listeners = new Map()
   // 07 done; 08 open, blocked by 07 (done) → ready; 09 open; 10 open, blocked by 09 (open); 11 claimed.
   tickets = [ticket(7, 'done'), ticket(8, 'open', [7]), ticket(9, 'open'), ticket(10, 'open', [9]), ticket(11, 'work')]
@@ -82,6 +85,9 @@ beforeEach(() => {
           return stopAnswer ?? Promise.resolve({ ok: true, value: { ...autopilot, stopping: true, revision: autopilot.revision + 1 } })
         case 'autopilot.forceStop':
           return forceStopAnswer ?? Promise.resolve({ ok: true, value: { ...autopilot, status: 'stopped', reason: 'user-force-stop', stopping: false, revision: autopilot.revision + 1 } })
+        case 'autopilot.estimate':
+          if (estimateAnswer !== null) return Promise.resolve({ ok: true, value: estimateAnswer })
+          return Promise.resolve({ ok: true, value: { closed: true } })
         case 'shell.openExternal':
           return Promise.resolve({ ok: true, value: { url: (input as { url: string }).url } })
         default:
@@ -300,6 +306,28 @@ describe('Autopilot (ticket 30, ADR-0033)', () => {
     const autopilot = await screen.findByRole('button', { name: 'Autopilot' })
     await vi.waitFor(() => expect(autopilot.getAttribute('aria-disabled')).toBe('false'))
     expect(autopilot.getAttribute('title')).toBe('Run the Waves of demo one after another, without a person. The display stays on until the run ends')
+  })
+
+  it('ends its hint with what a Wave like the ready one usually takes of the week, and the share used now (worfy-throughput ticket 40)', async () => {
+    // The ready Wave is 08 and 09: two Tickets at 2 % each.
+    estimateAnswer = { estimate: { perTicket: 0.02, waves: 5 }, sevenDay: { utilization: 0.41, resetsAt: Math.round(Date.now() / 1000) + 2 * 86_400 + 5 * 3600 + 1800 } }
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(<AutopilotAction subject={epicSubject()} />)
+    const autopilot = await screen.findByRole('button', { name: 'Autopilot' })
+    await vi.waitFor(() =>
+      expect(autopilot.getAttribute('title')).toBe(
+        'Run the Waves of demo one after another, without a person. The display stays on until the run ends. A Wave like this usually takes about 4% of the week. Used now: 41%, resets in 2 d 5 h',
+      ),
+    )
+    expect(calls.filter((call) => call.channel === 'autopilot.estimate')).toEqual([{ channel: 'autopilot.estimate', input: { projectId: PROJECT } }])
+  })
+
+  it('says there is no estimate yet when main has none', async () => {
+    estimateAnswer = { estimate: null, sevenDay: null }
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(<AutopilotAction subject={epicSubject()} />)
+    const autopilot = await screen.findByRole('button', { name: 'Autopilot' })
+    await vi.waitFor(() => expect(autopilot.getAttribute('title')).toMatch(/until the run ends\. No estimate for a Wave yet: fewer than 3 past Waves with fresh Limits\. Used now: unknown$/))
   })
 })
 

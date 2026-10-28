@@ -1,7 +1,8 @@
 # 40 — Доля Limits на Wave в журнале Autopilot и оценка перед Wave: «такая Wave обычно — около N % недели»
 
 Type: task
-Status: open
+Status: claimed 2026-10-28T19:59Z
+Branch: worfy-throughput/40
 Blocked by: 19
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: меньше token-ов на Ticket, чтобы хватало Limits подписки», идея 7, строки L1 и
 L2 таблицы «Цель и числа».
@@ -37,11 +38,11 @@ diff есть `test/e2e/**` (`scripts/windows-verdict-scope.mjs:80`); иначе
 
 ## Готово, когда
 
-- [ ] Сначала падающий unit test оценки (`test/unit/autopilot-journal.test.ts` или новый рядом): три Wave с долями дают медиану; Wave со сбросом окна и Wave без свежего
+- [x] Сначала падающий unit test оценки (`test/unit/autopilot-journal.test.ts` или новый рядом): три Wave с долями дают медиану; Wave со сбросом окна и Wave без свежего
       числа не считаются; меньше трёх Wave — «нет оценки».
-- [ ] Contract test журнала (`test/contract/autopilot-journal.test.ts`): `wave-started` с `limits` пишется и читается; строка без `limits` по-прежнему
+- [x] Contract test журнала (`test/contract/autopilot-journal.test.ts`): `wave-started` с `limits` пишется и читается; строка без `limits` по-прежнему
       читается; неверное поле не ломает чтение остальных строк.
-- [ ] Contract test свежего usage с подставными часами (`test/contract/autopilot-limits.test.ts`): число старше
+- [x] Contract test свежего usage с подставными часами (`test/contract/autopilot-limits.test.ts`): число старше
       5 min — перед `wave-started` ровно один запрос usage; свежее — ни одного.
 - [ ] e2e (fake agent, `test/e2e/autopilot.spec.ts`): диалог старта Autopilot показывает оценку и текущую долю;
       снимки в светлой и тёмной теме.
@@ -61,3 +62,43 @@ diff есть `test/e2e/**` (`scripts/windows-verdict-scope.mjs:80`); иначе
 - Остановка по бюджету — Ticket 41. Цены в долларах в UI — нет.
 
 ## Итог
+
+Сделаны шаги 1–4 из «Что делаем». Шаг 5 (калибровка) не сделан: ждёт PR #922 (Ticket 39), который меняет
+`scripts/agent-cost.mjs`; на момент PR #922 открыт (`gh pr view 922 --json state` → `OPEN`).
+
+- **Поле `limits`** в `wave-started` и `wave-finished` (`src/shared/autopilot/journal.ts`): `{five_hour, seven_day}`,
+  у окна `utilization` (0..1 или null), `receivedAt` (ISO) и `resetsAt` (ISO или null), окно null, когда о нём ничего не
+  известно. `resetsAt` добавлен сверх текста тикета: без него шаг 3 не отличит сброс окна внутри Wave. Строки без поля
+  читаются как раньше; неверное значение `limits` отбрасывается, сама строка Wave читается.
+- **Свежий usage**: `LimitsRefresher.refreshIfOlder(maxAgeMs)` (`src/main/agent/limits-usage.ts`) — один запрос, если окно
+  старше 5 min или его нет; запрос, который уже идёт, ждётся, второй не начинается. Run (`src/main/autopilot/run.ts`)
+  спрашивает перед отправкой «Run wave» (число `wave-started` — до начала Wave) и перед `wave-finished` (сверх тикета:
+  иначе число конца Wave бывает старше 30 min, и шаг 3 такую Wave не считает). Ответ конца Wave свежий для старта
+  следующей, поэтому на границе Wave — не больше одного запроса. После Force stop и выхода из приложения запрос не ждётся.
+- **Оценка** — `waveEstimate` в `src/shared/autopilot/limits-estimate.ts`: медиана роста `seven_day` на Ticket по последним
+  10 Wave; Wave без свежего числа (старше 30 min на любом конце), со сбросом окна (другой `resetsAt`, сброс до конца
+  Wave или доля упала) не считается; меньше 3 Wave — `null`. Читаются 30 новейших run-ов Project-а
+  (`readRecentRuns`, `src/main/autopilot/journal.ts`), IPC `autopilot.estimate` (read).
+- **UI**: диалога старта у Autopilot нет — старт идёт кнопкой «Autopilot». Строка оценки — в конце hint-а активной
+  кнопки: «A Wave like this usually takes about 4% of the week. Used now: 41%, resets in 2 d 5 h» (на число Ticket-ов
+  готовой Wave) или «No estimate for a Wave yet: fewer than 3 past Waves with fresh Limits…». Без цен.
+- **e2e не добавлен**: hint проверяет jsdom test `test/unit/canvas-actions.test.tsx`; правка `test/e2e/**` сделала бы
+  вердикт Windows `pc` (решение Orchestrator-а для этого Ticket-а). Снимков в светлой и тёмной теме нет: строка — текст
+  hint-а, а не новый элемент.
+- **Калибровка**: не сделана (ждёт #922). Данных для неё тоже нет: в `~/Library/Application Support/worfy/autopilot/`
+  36 журналов, последний от 2026-10-17, ни в одном нет `limits` (`grep -l '"limits"' … | wc -l` → 0, код выхода 0).
+- **Проверка**: `pnpm lint` и `pnpm typecheck` — exit 0. `pnpm test` и `gate fast` — exit 1 и 2 только из-за contract test-ов
+  file watcher-а (docs-watch-root, docs, card-protocol, claude-home-registry, workflow-reader watcher, harness-script-env) —
+  известная проблема fseventsd на этом Mac; `clients`, `harness-script-env`, `harness-scripts` отдельно — exit 0.
+- **Вручную** (не сделано): две настоящие Wave со сверкой долей с `/usage`.
+- **Раунд 2 (PR #928)**: Stop, Force stop и выход из приложения во время запроса usage перед «Run wave» больше не ждут
+  ответа (до 30 s): запрос гонится с `run.rushing` и с новым `run.stopAsked` (клик Stop, `Run.requestStop`). После Force
+  stop и выхода Wave не уходит (`if (run.rushed) return` в `sendWave`): без этой проверки run слал «Run wave» сразу после
+  Force stop — нашёл новый contract test. Stop, кликнутый до запроса, запроса не делает. Перед `wave-finished` гонки со
+  Stop нет: Wave уже идёт, её число конца нужно. Новые test-ы: три contract test-а с usage reader-ом, который не отвечает
+  (`test/contract/autopilot-limits.test.ts`), медиана по 4 Wave и сброс до конца Wave при `resetsAt: null` в конце
+  (`test/unit/autopilot-limits-estimate.test.ts`). `fresh()` в `limits-usage.ts` считает окно с `utilization: null`
+  несвежим (test в `test/unit/limits-usage.test.ts`): такое окно теперь вызывает запрос и перед строкой Wave, и на тике
+  таймера. Шесть mutant-ов — все красные, файлы восстановлены, `cmp` exit 0.
+- **Вне скоупа**: `src/main/autopilot/journal.ts:156-180`: `listRuns` разбирает журналы всех Project-ов, а `readRecentRuns` перечитывает 30
+  из них — теперь на каждую смену статуса кнопки Autopilot. Стоит кешировать или читать только журналы этого Project-а.

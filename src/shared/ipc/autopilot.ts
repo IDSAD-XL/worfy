@@ -127,6 +127,19 @@ export const autopilotForceStop = invokeChannel('autopilot.forceStop', z.object(
 /** The Project's run as it is now. */
 export const autopilotState = invokeChannel('autopilot.state', z.object({ projectId }), autopilotStateSchema, 'project', 'read')
 
+/**
+ * The estimate of what share of the week a Wave of the Project takes (worfy-throughput ticket 40,
+ * src/shared/autopilot/limits-estimate.ts), from the journals of its past runs, with the 7-day
+ * window as it is now: the hint of the Autopilot button says both (waveEstimateLine). `estimate` is
+ * null with fewer than ESTIMATE_MIN_WAVES counted Waves; `sevenDay` null when nothing is known of it.
+ */
+export const autopilotEstimateAnswerSchema = z.object({
+  estimate: z.object({ perTicket: z.number().nonnegative(), waves: z.number().int().positive() }).nullable(),
+  sevenDay: z.object({ utilization: z.number().nonnegative().nullable(), resetsAt: z.number().nullable() }).nullable(),
+})
+export type AutopilotEstimateAnswer = z.infer<typeof autopilotEstimateAnswerSchema>
+export const autopilotEstimate = invokeChannel('autopilot.estimate', z.object({ projectId }), autopilotEstimateAnswerSchema, 'project', 'read')
+
 /** Sent to every window whenever a Project's run changes. */
 export const autopilotChanged = eventChannel('autopilot.changed', autopilotStateSchema, 'project', 'read')
 
@@ -179,6 +192,7 @@ declare module './channels' {
     'autopilot.stop': typeof autopilotStop
     'autopilot.forceStop': typeof autopilotForceStop
     'autopilot.state': typeof autopilotState
+    'autopilot.estimate': typeof autopilotEstimate
     'autopilot.changed': typeof autopilotChanged
   }
 }

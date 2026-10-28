@@ -186,3 +186,17 @@ export async function readRun(run: string, options: Pick<JournalOptions, 'env'> 
   const text = await readIfPresent(join(journalDir(options.env), journalFileName(run)))
   return text === undefined ? undefined : parseJournal(text)
 }
+
+/**
+ * How many of a Project's newest runs the Wave estimate reads (worfy-throughput ticket 40).
+ * shortcut: a fixed count of runs, not "until 10 Waves counted"; redo when runs with fewer than one
+ * counted Wave each crowd the estimate out (many short or failed runs in a row).
+ */
+export const ESTIMATE_RUNS = 30
+
+/** The events of a Project's newest runs (at most `limit`, newest first); a file gone meanwhile is left out. */
+export async function readRecentRuns(project: string, options: Pick<JournalOptions, 'env'> & { limit?: number } = {}): Promise<JournalEvent[][]> {
+  const runs = (await listRuns(project, options)).slice(0, options.limit ?? ESTIMATE_RUNS)
+  const read = await Promise.all(runs.map(async (summary) => (await readRun(summary.run, options))?.events))
+  return read.filter((events): events is JournalEvent[] => events !== undefined)
+}

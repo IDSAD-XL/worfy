@@ -16,12 +16,23 @@
 // (before-quit) has begun no more: the link stops in will-quit, after it (service.ts).
 import { execFile } from 'node:child_process'
 import { app } from 'electron'
-import { autopilotChanged, autopilotForceStop, autopilotStart, autopilotState, autopilotStop, type AutopilotState } from '../../shared/ipc/autopilot'
+import type { LimitsState } from '../../shared/agent/limits'
+import { estimateAnswer } from '../../shared/autopilot/limits-estimate'
+import {
+  autopilotChanged,
+  autopilotEstimate,
+  autopilotForceStop,
+  autopilotStart,
+  autopilotState,
+  autopilotStop,
+  type AutopilotState,
+} from '../../shared/ipc/autopilot'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
 import { appLimits, observeSessionLimits } from '../agent/limits'
+import { refreshAppUsage } from '../agent/limits-usage'
 import { harnessDriftWatch } from '../autopilot/harness-drift'
-import { openRun } from '../autopilot/journal'
+import { openRun, readRecentRuns } from '../autopilot/journal'
 import { KeepAwake } from '../autopilot/power'
 import { readOriginKey } from '../autopilot/origin'
 import { Autopilot, RunningElsewhere, selfProjectRefusal, type AutopilotDeps } from '../autopilot/run'
@@ -39,8 +50,19 @@ import { sharedPrTracker } from './checks'
 import { defineHandler, emit, type HandlerModule } from './index'
 import { workflowHub } from './workflow'
 
+/** What `autopilot.estimate` reads; tests pass their own. */
+export interface EstimateSources {
+  runs(projectId: string): ReturnType<typeof readRecentRuns>
+  limits(): LimitsState
+}
+
+const appEstimateSources: EstimateSources = { runs: (projectId) => readRecentRuns(projectId), limits: () => appLimits().snapshot() }
+
 /** The handlers over an Autopilot; tests pass their own. */
-export function autopilotHandlers(autopilot: () => Pick<Autopilot, 'start' | 'stop' | 'forceStop' | 'state'> & Partial<Pick<Autopilot, 'refreshHarness'>>): HandlerModule {
+export function autopilotHandlers(
+  autopilot: () => Pick<Autopilot, 'start' | 'stop' | 'forceStop' | 'state'> & Partial<Pick<Autopilot, 'refreshHarness'>>,
+  sources: EstimateSources = appEstimateSources,
+): HandlerModule {
   return [
     defineHandler(autopilotStart, async ({ projectId, epic, override }) => {
       try {
@@ -58,6 +80,7 @@ export function autopilotHandlers(autopilot: () => Pick<Autopilot, 'start' | 'st
       void current.refreshHarness?.(projectId)?.catch((error: unknown) => console.warn(`[autopilot] ${projectId}: could not compare the Harness with main`, error))
       return current.state(projectId)
     }),
+    defineHandler(autopilotEstimate, async ({ projectId }) => estimateAnswer(await sources.runs(projectId), sources.limits())),
   ]
 }
 
@@ -145,6 +168,8 @@ export function sharedAutopilot(): Autopilot {
       return service !== undefined && service.linkedMachines().length > 0 ? service.machine : null
     },
     onChange: (state: AutopilotState) => toEveryWindow((target) => emit(target, autopilotChanged, state)),
+    // Before a Wave's line in the journal: one usage ask when the number is older than 5 minutes.
+    usage: { refresh: (olderThanMs) => refreshAppUsage(olderThanMs) },
     limits: {
       state: () => appLimits().snapshot(),
       observeSession: (isSession, listener) => observeSessionLimits((sink) => sharedRegistry().observe(sink), isSession, listener),

@@ -73,6 +73,12 @@
 //   app's quit has come (they do not wait for gh). Each state of a Ticket is one line, once per run;
 //   a comment made before the run started is not journaled; a failed read writes nothing, and the
 //   run goes on.
+// - `wave-started` and `wave-finished` carry the share of the Limits windows (`limits`,
+//   worfy-throughput ticket 40), for the estimate of what a Wave takes (limits-estimate.ts). Before
+//   "Run wave" goes and before `wave-finished` is written, the run asks the usage once when the
+//   number is older than FRESH_USAGE_MS (deps.usage, the app's LimitsRefresher: no model tokens).
+//   `wave-started` has the number from before "Run wave" went; `wave-finished` the one at its
+//   writing. A failed ask is logged, and the line goes with the number there is.
 //
 // worfy still writes no Ticket status (ADR-0002): the agents do, through `ticket`.
 import { realpath } from 'node:fs/promises'
@@ -83,7 +89,7 @@ import { ticketNumber } from '../../shared/actions/render-template'
 import { messageText } from '../../shared/agent/attachments'
 import { isTaskEvent, type BackgroundTask } from '../../shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
-import { clipLastText, journalReason, type JournalEventFields } from '../../shared/autopilot/journal'
+import { clipLastText, journalLimits, journalReason, type JournalEventFields, type JournalLimits } from '../../shared/autopilot/journal'
 import { toMs, type LimitsHit } from '../../shared/autopilot/resume-at'
 import {
   BACKGROUND_STALL_MS,
@@ -204,8 +210,16 @@ export interface AutopilotDeps {
   onChange?(state: AutopilotState): void
   /** How long a run settles before `wave-unfinished` (default SETTLE_MS). */
   settleMs?: number
-  /** The Limits and the wait for them (limits-wait.ts); without it a refused turn ends the run as `turn-error`. */
+  /**
+   * The Limits and the wait for them (limits-wait.ts); without it a refused turn ends the run as
+   * `turn-error`, and no Wave's line has `limits`.
+   */
   limits?: LimitsWaitDeps
+  /**
+   * Asks the usage once when a Limits window is older than `olderThanMs` (LimitsRefresher.refreshIfOlder),
+   * resolving once the answer is in `limits`; without it the Wave's lines carry what `limits` has.
+   */
+  usage?: { refresh(olderThanMs: number): Promise<void> }
   /** How long a run waits for its background tasks without an event of theirs (default BACKGROUND_STALL_MS). */
   backgroundStallMs?: number
   /** How long a run waits for the task-notification turn after the last task ended (default TASKS_GRACE_MS). */
@@ -239,6 +253,9 @@ export interface AutopilotDeps {
   machine?(): { id: string; name: string } | null
 }
 
+
+/** A Limits number older than this is asked anew before a Wave's line (worfy-throughput ticket 40). */
+export const FRESH_USAGE_MS = 5 * 60 * 1000
 
 /**
  * How long the last read of the PRs before `run-stopped` may take; its answer after that is not
@@ -351,12 +368,17 @@ class Run {
   waveTurn: number | null = null
   /** What the current Wave's "Run wave" sent: its text and the skipped Tickets go to `wave-started`. */
   sent: AutopilotWaveResult | null = null
+  /** The Limits right before that "Run wave" went: `limits` of its `wave-started`. */
+  sentLimits: JournalLimits | undefined = undefined
   /** The Orchestrator's last answer in the turns of the current Wave, clipped; null before any. */
   lastText: string | null = null
   /** The Tickets of an interrupted Wave the next "Run wave" takes along; emptied once it is sent. */
   resume: readonly number[] = []
-  /** Set at the click on Stop (Autopilot.stop), before its step runs: no new Wave goes from then on. */
+  /** Set at the click on Stop (Autopilot.stop, through requestStop), before its step runs: no new Wave goes from then on. */
   stopRequested = false
+  /** Settles when `stopRequested` is set. */
+  readonly stopAsked: Promise<void>
+  private stopAskedDone!: () => void
   /** Whether STOP_TEXT has gone to the Orchestrator: once per run. */
   stopSent = false
   /** After a Force stop: the Tickets of the Wave it interrupted (AutopilotState.resumable). */
@@ -399,6 +421,9 @@ class Run {
     this.rushing = new Promise((done) => {
       this.rushDone = done
     })
+    this.stopAsked = new Promise((done) => {
+      this.stopAskedDone = done
+    })
     this.ended = new Promise((done) => {
       this.finish = done
     })
@@ -413,6 +438,12 @@ class Run {
    */
   get running(): boolean {
     return !this.done
+  }
+
+  /** Stop was clicked: no new Wave goes, and a usage ask before "Run wave" is not waited for. */
+  requestStop(): void {
+    this.stopRequested = true
+    this.stopAskedDone()
   }
 
   /** A Force stop or the app's quit has come: an end waiting for gh goes on without it. */
@@ -664,7 +695,7 @@ export class Autopilot {
   async stop(projectId: string): Promise<AutopilotState> {
     const run = this.runs.get(projectId)
     if (run === undefined) return this.state(projectId)
-    run.stopRequested = true
+    run.requestStop()
     await run.enqueue(async () => {
       if (run.cycle.phase === 'stopped' || run.cycle.stopping) return
       await this.feed(run, { type: 'graceful-stop', tickets: await this.freshTickets(run) })
@@ -854,15 +885,19 @@ export class Autopilot {
             wave: effect.wave,
             tickets: effect.tickets.map(ticketNumber),
             ...(sent === null ? {} : { text: sent.text, skipped: sent.skipped.map((each) => ({ num: ticketNumber(each.num), state: each.state })) }),
+            ...(run.sentLimits === undefined ? {} : { limits: run.sentLimits }),
           })
           for (const num of effect.tickets) run.waveTickets.add(num)
           this.pollPrs(run)
           break
         }
-        case 'wave-finished':
+        case 'wave-finished': {
           // The end of the gate queue's turn is not a Wave's.
-          if (run.gateQueue === null) await this.write(run, { kind: effect.kind, wave: effect.wave, tickets: effect.tickets.map(ticketNumber) })
+          if (run.gateQueue !== null) break
+          const limits = await this.freshLimits(run)
+          await this.write(run, { kind: effect.kind, wave: effect.wave, tickets: effect.tickets.map(ticketNumber), ...(limits === undefined ? {} : { limits }) })
           break
+        }
         case 'stopping':
           await this.beginStopping(run, effect)
           break
@@ -940,12 +975,20 @@ export class Autopilot {
 
   private async sendWave(run: Run): Promise<void> {
     let sent: AutopilotWaveResult
+    // First: a Stop clicked while the usage is asked ends that wait at once and is seen below, and
+    // the Wave does not go. A Stop clicked before asks nothing: no Wave line needs the answer.
+    if (!run.stopRequested) run.sentLimits = await this.freshLimits(run, run.stopAsked)
     // Stop was clicked while the step that decided on this Wave ran (worfy-week ticket 18): the
-    // Wave has not gone, so no Ticket was taken, and the run ends here.
+    // Wave has not gone, so no Ticket was taken, and the run ends here. Checked before a Force stop
+    // or the app's quit: a Stop clicked first ends the run with its own reason, and the stop step
+    // queued behind this one finds it stopped.
     if (run.stopRequested) {
       await this.feed(run, { type: 'stop', reason: 'user-stop' })
       return
     }
+    // A Force stop or the app's quit came meanwhile, without a Stop: its stop step waits behind this
+    // one and stops the run with its own reason; the Wave does not go.
+    if (run.rushed) return
     run.sending = true
     run.promptsWhileSending.clear()
     // Only the run's first Wave takes the interrupted Tickets along.
@@ -975,6 +1018,25 @@ export class Autopilot {
     // the Wave goes out stopping, ahead of any step queued behind this one.
     if (run.stopRequested && !run.cycle.stopping) await this.feed(run, { type: 'graceful-stop', tickets: await this.freshTickets(run) })
     await this.feed(run, { type: 'wave-sent', tickets: sent.tickets })
+  }
+
+  /**
+   * The Limits for a Wave's line: asked anew first when older than FRESH_USAGE_MS (deps.usage).
+   * A failed ask is logged and the line takes what there is; undefined without deps.limits. Not
+   * waited for once a Force stop or the app's quit has come (Run.rush), as the last PR read, nor
+   * once `cutShort` settles (before "Run wave": the click on Stop). The ask cut short goes on, and
+   * its answer reaches the Limits when it comes.
+   */
+  private async freshLimits(run: Run, cutShort?: Promise<void>): Promise<JournalLimits | undefined> {
+    if (this.deps.limits === undefined) return undefined
+    if (this.deps.usage !== undefined && !run.rushed) {
+      try {
+        await Promise.race([this.deps.usage.refresh(FRESH_USAGE_MS), run.rushing, ...(cutShort === undefined ? [] : [cutShort])])
+      } catch (error) {
+        console.warn(`[autopilot] ${run.projectId}: could not ask the usage before a Wave's line`, error)
+      }
+    }
+    return journalLimits(this.deps.limits.state())
   }
 
   /**

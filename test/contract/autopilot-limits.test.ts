@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActionLauncher } from '../../src/main/actions/launch'
 import { fakeQueryFactory, FakeReleases, type FakeCall } from '../../src/main/agent/fake-query'
 import { LimitsTracker, LIMITS_FILE, observeSessionLimits, type SessionLimitsStatus } from '../../src/main/agent/limits'
+import { LimitsRefresher, type UsageReader } from '../../src/main/agent/limits-usage'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry } from '../../src/main/agent/session'
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
@@ -173,6 +174,11 @@ interface HarnessOptions {
   lines?: Record<string, unknown>[]
   /** limits.json before the app starts. */
   limitsFile?: unknown
+  /**
+   * The usage ask of the app's LimitsRefresher (not started: no timer), on the test's clock; given,
+   * the run asks the usage before a Wave's line through it (worfy-throughput ticket 40).
+   */
+  usage?: UsageReader
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -244,6 +250,7 @@ function harness(options: HarnessOptions = {}) {
   const timers: Timer[] = []
   const states: AutopilotState[] = []
   const power: string[] = []
+  const refresher = options.usage === undefined ? null : new LimitsRefresher({ limits: tracker, read: options.usage, now: () => clock, log: () => undefined })
   const autopilot = new Autopilot({
     projectRoot: () => repo,
     selfRefusal: () => Promise.resolve(null),
@@ -252,6 +259,7 @@ function harness(options: HarnessOptions = {}) {
     orchestrators,
     registry,
     waves: launcher,
+    ...(refresher === null ? {} : { usage: { refresh: (olderThanMs: number) => refresher.refreshIfOlder(olderThanMs) } }),
     journal: (start) => openRun(start, { env }),
     keepAwake: () => ({ start: () => power.push('start'), stop: () => power.push('stop') }),
     onChange: (state) => states.push(state),
@@ -619,6 +627,128 @@ describe('Autopilot and the Limits on the fake agent', () => {
     expect(h.state()).toMatchObject({ reason: 'turn-error', resumesAt: null })
     expect(await h.kinds()).not.toContain('limits-hit')
     expect(h.timers).toEqual([])
+  })
+})
+
+describe('the Limits in the lines of a Wave (worfy-throughput ticket 40)', () => {
+  /** An answer of the usage request: the 5-hour window at 20 %, the 7-day one at 40 %. */
+  const usageAnswer = { rate_limits: { five_hour: { utilization: 20, resets_at: iso(RESET_MS) }, seven_day: { utilization: 40, resets_at: '2026-10-09T09:00:00.000Z' } } }
+  /** Both Waves pass in one turn each: the fixture's turn that goes through, twice. */
+  const twoPassingWaves = (): Record<string, unknown>[] => {
+    const { passing } = fixtureTurns()
+    return [...passing, ...passing]
+  }
+  const knownWindow = (receivedAt: number, utilization: number) => ({ utilization, resetsAt: RESET_S + 7 * 86_400, status: null, receivedAt, source: 'usage' })
+  const limitsFile = (receivedAt: number) => ({ windows: { five_hour: knownWindow(receivedAt, 0.05), seven_day: knownWindow(receivedAt, 0.3) } })
+
+  /** A usage reader that counts its asks and the Waves already sent at each. */
+  function reader(h: () => ReturnType<typeof harness>) {
+    const asks: { wavesSent: number }[] = []
+    const read: UsageReader = () => {
+      asks.push({ wavesSent: h().messages().length })
+      return Promise.resolve(usageAnswer)
+    }
+    return { asks, read }
+  }
+
+  it('a number older than 5 minutes: exactly one usage ask before wave-started, and the line carries its answer', async () => {
+    const box: { h?: ReturnType<typeof harness> } = {}
+    const { asks, read } = reader(() => box.h!)
+    const h = (box.h = harness({ lines: twoPassingWaves(), limitsFile: limitsFile(START_MS - 5 * 60_000 - 1), usage: read }))
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect(h.messages()).toEqual([WAVE_1, WAVE_2])
+    // One ask, before "Run wave" of Wave 1 went; the answer is fresh for every line after it.
+    expect(asks).toEqual([{ wavesSent: 0 }])
+    const waves = (await h.journal()).filter((event) => event.kind === 'wave-started' || event.kind === 'wave-finished')
+    expect(waves.map((event) => event.kind)).toEqual(['wave-started', 'wave-finished', 'wave-started', 'wave-finished'])
+    expect(waves[0]).toMatchObject({
+      kind: 'wave-started',
+      wave: 1,
+      limits: { five_hour: { utilization: 0.2, receivedAt: iso(START_MS), resetsAt: iso(RESET_MS) }, seven_day: { utilization: 0.4, receivedAt: iso(START_MS), resetsAt: '2026-10-09T09:00:00.000Z' } },
+    })
+    for (const event of waves) expect(event).toMatchObject({ limits: { seven_day: { utilization: 0.4, receivedAt: iso(START_MS) } } })
+  })
+
+  it('a number at most 5 minutes old: no usage ask, and the lines carry the number known', async () => {
+    const box: { h?: ReturnType<typeof harness> } = {}
+    const { asks, read } = reader(() => box.h!)
+    const h = (box.h = harness({ lines: twoPassingWaves(), limitsFile: limitsFile(START_MS - 5 * 60_000), usage: read }))
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect(h.messages()).toEqual([WAVE_1, WAVE_2])
+    expect(asks).toEqual([])
+    const started = (await h.journal()).find((event) => event.kind === 'wave-started')
+    expect(started).toMatchObject({ limits: { seven_day: { utilization: 0.3, receivedAt: iso(START_MS - 5 * 60_000) } } })
+  })
+
+  /**
+   * A run waiting on a usage ask that never answers before "Run wave" of Wave 1: the number known
+   * is older than 5 minutes. The reader ignores its abort signal, so only the run's own race ends the wait.
+   */
+  async function hungAsk() {
+    let asks = 0
+    const read: UsageReader = () => {
+      asks += 1
+      return new Promise<never>(() => undefined)
+    }
+    const h = harness({ lines: twoPassingWaves(), limitsFile: limitsFile(START_MS - 5 * 60_000 - 1), usage: read })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => asks === 1, 'the usage ask before Wave 1')
+    return h
+  }
+
+  /** `promise` settles within `ms`, or the test fails at once instead of waiting for the ask's 30 s timeout. */
+  async function within<T>(promise: Promise<T>, what: string, ms = 2000): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${what} did not settle within ${ms} ms`)), ms)
+    })
+    try {
+      return await Promise.race([promise, late])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  it('Force stop during a usage ask that never answers stops the run at once, and no Wave goes', async () => {
+    const h = await hungAsk()
+    const stopped = await within(h.autopilot.forceStop(PROJECT), 'Force stop')
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-force-stop' })
+    expect(h.messages()).toEqual([])
+    expect((await h.journal()).filter((event) => event.kind === 'run-stopped')).toMatchObject([{ reason: 'user-force-stop' }])
+  })
+
+  it("the app's quit during a usage ask that never answers stops the run at once, and no Wave goes", async () => {
+    const h = await hungAsk()
+    await within(h.autopilot.stopAll(), 'the quit')
+    expect(h.state()).toMatchObject({ status: 'stopped', reason: 'app-quit' })
+    expect(h.messages()).toEqual([])
+    expect((await h.journal()).filter((event) => event.kind === 'run-stopped')).toMatchObject([{ reason: 'app-quit' }])
+  })
+
+  it('Stop during a usage ask that never answers answers at once, and no Wave goes', async () => {
+    const h = await hungAsk()
+    const stopped = await within(h.autopilot.stop(PROJECT), 'Stop')
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    expect(h.messages()).toEqual([])
+    expect((await h.journal()).filter((event) => event.kind === 'run-stopped')).toMatchObject([{ reason: 'user-stop' }])
+  })
+
+  it('a number that got old during a Wave is asked anew before its wave-finished, which is fresh for the next wave-started', async () => {
+    const box: { h?: ReturnType<typeof harness> } = {}
+    const { asks, read } = reader(() => box.h!)
+    const h = (box.h = harness({ lines: twoPassingWaves(), limitsFile: limitsFile(START_MS), usage: read }))
+    // Each Wave's turn takes 6 minutes on the test's clock: the turn's result moves it.
+    h.registry.observe((_sessionId, event) => {
+      if (event.type === 'result') clock += 6 * 60_000
+    })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    // None before Wave 1; one at the end of each Wave, none before Wave 2: the answer at Wave 1's end is fresh.
+    expect(asks).toEqual([{ wavesSent: 1 }, { wavesSent: 2 }])
+    const finished = (await h.journal()).find((event) => event.kind === 'wave-finished')
+    expect(finished).toMatchObject({ limits: { seven_day: { utilization: 0.4, receivedAt: iso(START_MS + 6 * 60_000) } } })
   })
 })
 
