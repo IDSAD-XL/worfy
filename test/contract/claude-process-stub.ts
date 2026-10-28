@@ -72,6 +72,7 @@ export class StubProcesses {
       const start = watchedSpawn((child) => {
         this.children.push(child)
         this.events.push({ kind: 'spawn', n, at: Date.now() })
+        this.trace(n, child)
         child.once('exit', (_code, signal) => this.events.push({ kind: 'exit', n, signal, at: Date.now() }))
         request.spawned?.(child)
       }, stderr)
@@ -104,6 +105,47 @@ export class StubProcesses {
         }
       }
       return handle
+    }
+  }
+
+  // DIAGNOSTIC (temporary, for the Windows runner): when each kill() was called and what it
+  // returned, when the system stopped listing the process (process.kill(pid, 0)), and when Node's
+  // `exit` came. Printed by stopAll().
+  private readonly traces = new Map<number, { pid: number | undefined; kills: string[]; gone?: number; exit?: number; first?: number }>()
+
+  private trace(n: number, child: ChildProcess): void {
+    const entry: { pid: number | undefined; kills: string[]; gone?: number; exit?: number; first?: number } = { pid: child.pid, kills: [] }
+    this.traces.set(n, entry)
+    const kill = child.kill.bind(child)
+    let poll: ReturnType<typeof setInterval> | undefined
+    child.kill = (signal?: NodeJS.Signals | number) => {
+      const at = Date.now()
+      entry.first ??= at
+      const result = kill(signal)
+      entry.kills.push(`${String(signal)}@+${at - entry.first}=${String(result)}`)
+      if (poll === undefined && child.pid !== undefined) {
+        const pid = child.pid
+        poll = setInterval(() => {
+          try {
+            process.kill(pid, 0)
+          } catch {
+            entry.gone = Date.now()
+            clearInterval(poll)
+          }
+        }, 20)
+        poll.unref()
+      }
+      return result
+    }
+    child.once('exit', () => {
+      entry.exit = Date.now()
+    })
+  }
+
+  private printTraces(): void {
+    for (const [n, entry] of this.traces) {
+      const since = (at: number | undefined): string => (at === undefined || entry.first === undefined ? '-' : `+${at - entry.first}`)
+      console.warn(`[stub-trace] n=${n} pid=${entry.pid ?? '-'} kills=${entry.kills.join(',') || '-'} gone=${since(entry.gone)} exit=${since(entry.exit)}`)
     }
   }
 
@@ -141,5 +183,6 @@ export class StubProcesses {
             }),
         ),
     )
+    this.printTraces()
   }
 }
