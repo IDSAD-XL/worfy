@@ -29,17 +29,18 @@ import process from 'node:process'
 const JOBS = ['lint-typecheck', 'linux-tests', 'macos-tests', 'macos-e2e', 'macos-package', 'windows']
 const MACOS = ['macos-tests', 'macos-e2e', 'macos-package']
 
-// Documents that a test reads from the repository: a change to one of them runs the tests.
-// test/contract/node-version.test.ts reads README.md; test/unit/check-lessons.test.ts reads the
-// lessons index.
+// Folders whose every file counts as code, Markdown included: the app, the tests, the Harness, the
+// scripts and the design spec. Tests read Markdown from them: test/contract/harness-evals-outcome.test.ts
+// reads scripts/eval-outcome/README.md, test/unit/kind-tokens.test.ts reads docs/design/F-SPEC.md.
+const CODE_FOLDERS = ['src/', 'test/', 'harness/', 'scripts/', 'docs/design/']
+// Single documents outside those folders that a test reads: test/contract/node-version.test.ts reads
+// README.md, test/unit/check-lessons.test.ts the lessons index.
 const READ_BY_TESTS = new Set(['README.md', 'docs/lessons/README.md'])
-const CODE_FOLDERS = ['src/', 'test/', 'harness/']
 
 /** A path (from the repository root, forward slashes) whose change needs no test run. */
 function isDocument(path) {
-  if (READ_BY_TESTS.has(path)) return false
-  if (path.startsWith('.scratch/') || path.startsWith('docs/')) return true
-  return path.endsWith('.md') && !CODE_FOLDERS.some((folder) => path.startsWith(folder))
+  if (READ_BY_TESTS.has(path) || CODE_FOLDERS.some((folder) => path.startsWith(folder))) return false
+  return path.startsWith('.scratch/') || path.startsWith('docs/') || path.endsWith('.md')
 }
 
 const only = (names) => Object.fromEntries(JOBS.map((name) => [name, names.includes(name)]))

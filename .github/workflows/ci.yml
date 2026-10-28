@@ -46,12 +46,14 @@ on:
 permissions:
   contents: read
 
-# One run per pull request: a new push cancels the run of the older head. Runs on main are never
-# cancelled, so every commit of main gets its result; GitHub keeps at most one waiting run per group
-# and drops an older waiting one when a newer one arrives. Dispatches of the same job on the same
-# branch go one at a time, as before.
+# One run per pull request: a new push cancels the run of the older head. A push to main gets a
+# group of its own, named by its commit: GitHub keeps at most one waiting run per group and cancels
+# the older waiting one when a newer one arrives, so in one group for all of main the run of a merged
+# pull request could be cancelled by the next merge, and a later run that compares with the newer
+# commit would never test that code. Dispatches of the same job on the same branch go one at a time,
+# as before.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ inputs.job || github.event_name }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ inputs.job || github.event_name }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -62,9 +64,14 @@ jobs:
       expect: ${{ steps.scope.outputs.expect }}
     steps:
       # Two commits: the merge commit of a pull request and its first parent, the head of the base.
+      # No checkout keeps the token in .git/config (persist-credentials: false): no step pushes or
+      # calls the API with it. The one network call after checkout, ci-scope.mjs fetching the commit
+      # main was at before a push, reads the public repository without a token, and if that fetch
+      # fails the script runs every job.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 2
+          persist-credentials: false
       # A pull request compares its merge commit with the base it merges into; a push compares with
       # the commit main was at before it. The values reach the script through env, never as text of
       # the command.
@@ -83,8 +90,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      # Installs the pnpm version pinned by "packageManager" in package.json.
-      - uses: pnpm/action-setup@v6
+        with:
+          persist-credentials: false
+      # Installs the pnpm version pinned by "packageManager" in package.json. A third-party action:
+      # pinned by the commit of its tag v6, so a moved tag cannot change what runs here.
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -111,7 +121,9 @@ jobs:
           - 4/4
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -152,7 +164,9 @@ jobs:
           - 2/2
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -176,7 +190,9 @@ jobs:
           - 2/2
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -213,7 +229,9 @@ jobs:
       CSC_FOR_PULL_REQUEST: 'true'
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -258,6 +276,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Every job the run needs succeeded
         env:
           NEEDS: ${{ toJSON(needs) }}

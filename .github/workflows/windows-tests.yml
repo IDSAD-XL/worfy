@@ -82,7 +82,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
+      # No step needs the token after checkout, so it is not kept in .git/config.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       # The first step after checkout, before anything is installed: a refused list fails the job
       # within a minute. The script needs no dependencies and runs on the Node of the runner image.
       # The input reaches it through env. Written into `run` as an expression it would be pasted
@@ -148,6 +151,8 @@ jobs:
         run: |
           test -z "$TEST_FILES" || { echo "::error::mode full runs the whole suite and takes no list of files; leave files empty or choose mode files"; exit 1; }
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       # pnpm from corepack, then Node with the pnpm store cache: the same three steps as in the job
       # of the list, for the same reasons.
       - uses: actions/setup-node@v7

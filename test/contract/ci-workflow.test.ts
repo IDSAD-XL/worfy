@@ -6,7 +6,7 @@
 // parser, so the workflow is read as text, the way windows-tests-workflow.test.ts reads its
 // workflow: block style, one key per line, `#` only at the start of comment lines.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -17,11 +17,14 @@ const WORKFLOW = join(REPO, '.github', 'workflows', 'ci.yml')
 const SCOPE = join(REPO, 'scripts', 'ci-scope.mjs')
 const OK = join(REPO, 'scripts', 'ci-ok.mjs')
 
-/** The workflow without its comment lines and blank lines. */
-const code = (): string[] =>
-  readFileSync(WORKFLOW, 'utf8')
+/** A workflow file without its comment lines and blank lines. */
+const codeOf = (file: string): string[] =>
+  readFileSync(file, 'utf8')
     .split(/\r?\n/)
     .filter((line) => line.trim() !== '' && !line.trimStart().startsWith('#'))
+
+/** ci.yml without its comment lines and blank lines. */
+const code = (): string[] => codeOf(WORKFLOW)
 
 const indent = (line: string): number => line.length - line.trimStart().length
 
@@ -96,10 +99,41 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     expect(under(code(), 'permissions:')).toEqual(['  contents: read'])
   })
 
-  it('runs one run per pull request and cancels the older one; runs on main are never cancelled', () => {
+  it('runs one run per pull request and cancels the older one; a push to main has a group of its own commit', () => {
     const group = under(code(), 'concurrency:')
-    expect(value(group, 'group')).toBe('ci-${{ github.event.pull_request.number || github.ref }}-${{ inputs.job || github.event_name }}')
+    // GitHub keeps one waiting run per group and cancels the older waiting one, so pushes to main that
+    // shared a group could cancel the run of a merged pull request before it started; github.sha in
+    // the group of a push keeps every push to main in a group of its own.
+    expect(value(group, 'group')).toBe(
+      "ci-${{ github.event.pull_request.number || github.ref }}-${{ inputs.job || github.event_name }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}",
+    )
     expect(value(group, 'cancel-in-progress')).toBe("${{ github.event_name == 'pull_request' }}")
+  })
+
+  it('pins the third-party action pnpm/action-setup by the commit of its tag v6, the same in every job', () => {
+    const lines = code().filter((line) => line.includes('pnpm/action-setup'))
+    expect(lines).toHaveLength(['lint-typecheck', 'linux-tests', 'macos-tests', 'macos-e2e', 'macos-package'].length)
+    for (const line of lines) expect(line.trim()).toMatch(/^- uses: pnpm\/action-setup@[0-9a-f]{40} # v6$/)
+    expect(new Set(lines.map((line) => line.trim())).size).toBe(1)
+  })
+
+  it('keeps no token in .git/config: every checkout of every workflow sets persist-credentials: false', () => {
+    const folder = dirname(WORKFLOW)
+    const files = readdirSync(folder).filter((name) => /\.ya?ml$/.test(name))
+    expect(files).toEqual(expect.arrayContaining(['ci.yml', 'windows-tests.yml']))
+    for (const file of files) {
+      const lines = codeOf(join(folder, file))
+      const checkouts = lines.flatMap((line, at) => (/^\s*- uses: actions\/checkout@/.test(line) ? [at] : []))
+      expect(checkouts.length, file).toBeGreaterThan(0)
+      for (const at of checkouts) {
+        const step: string[] = []
+        for (const line of lines.slice(at + 1)) {
+          if (indent(line) <= indent(lines[at] ?? '')) break
+          step.push(line.trim())
+        }
+        expect(step, `${file}: checkout number ${checkouts.indexOf(at) + 1}`).toContain('persist-credentials: false')
+      }
+    }
   })
 
   it('has the jobs of gate full, each run only when the job changes says the run needs it', () => {
@@ -227,8 +261,8 @@ describe('scripts/ci-scope.mjs', () => {
   })
 
   it.each([
-    ['tickets and docs', ['.scratch/epic/issues/01-a.md', 'docs/adr/0001-a.md', 'docs/design/F-1.dc.html']],
-    ['Markdown at the root and in other folders', ['HANDOFF.md', 'CONTEXT.md', 'scripts/notes.md']],
+    ['tickets and docs', ['.scratch/epic/issues/01-a.md', 'docs/adr/0001-a.md', 'docs/research/chart.png']],
+    ['Markdown at the root and in other folders', ['HANDOFF.md', 'CONTEXT.md', 'docs/lessons/process.md', '.github/notes.md']],
   ])('a change of documents only (%s) runs lint-typecheck alone', (_name, files) => {
     commitOnBase(files)
     for (const event of ['pull_request', 'push']) {
@@ -243,6 +277,12 @@ describe('scripts/ci-scope.mjs', () => {
     ['Markdown under src/', 'src/renderer/notes.md'],
     ['Markdown under test/', 'test/fixtures/epic/spec.md'],
     ['Markdown under harness/', 'harness/skills/x/SKILL.md'],
+    // test/contract/harness-evals-outcome.test.ts reads the README files of scripts/eval-outcome/.
+    ['Markdown under scripts/, which a test reads', 'scripts/eval-outcome/README.md'],
+    ['any Markdown under scripts/', 'scripts/notes.md'],
+    // test/unit/kind-tokens.test.ts reads docs/design/F-SPEC.md.
+    ['the design spec, which a test reads', 'docs/design/F-SPEC.md'],
+    ['any file under docs/design/', 'docs/design/F-1.dc.html'],
     ['README.md, which a test reads', 'README.md'],
     ['the lessons index, which a test reads', 'docs/lessons/README.md'],
     ['a workflow', '.github/workflows/ci.yml'],
