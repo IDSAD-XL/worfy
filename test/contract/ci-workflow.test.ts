@@ -55,7 +55,7 @@ function value(block: string[], key: string): string | undefined {
 /** The items of a block list (`- a`), without the dash. */
 const items = (block: string[]): string[] => block.map((line) => line.trim().replace(/^- /, ''))
 
-const JOBS = ['changes', 'lint-typecheck', 'linux-tests', 'macos-tests', 'macos-e2e', 'macos-package', 'windows', 'ci-ok']
+const JOBS = ['changes', 'lint-typecheck', 'linux-tests', 'macos-tests', 'macos-e2e', 'macos-package', 'windows', 'windows-e2e', 'ci-ok']
 /** The jobs that ci-scope.mjs decides on: every job but itself and ci-ok. */
 const DECIDED = JOBS.filter((name) => name !== 'changes' && name !== 'ci-ok')
 
@@ -112,7 +112,7 @@ describe('ci.yml: every pull request and every push to main, one check for the m
 
   it('pins the third-party action pnpm/action-setup by the commit of its tag v6, the same in every job', () => {
     const lines = code().filter((line) => line.includes('pnpm/action-setup'))
-    expect(lines).toHaveLength(['lint-typecheck', 'linux-tests', 'macos-tests', 'macos-e2e', 'macos-package'].length)
+    expect(lines).toHaveLength(['lint-typecheck', 'linux-tests', 'macos-tests', 'macos-e2e', 'macos-package', 'windows-e2e'].length)
     for (const line of lines) expect(line.trim()).toMatch(/^- uses: pnpm\/action-setup@[0-9a-f]{40} # v6$/)
     expect(new Set(lines.map((line) => line.trim())).size).toBe(1)
   })
@@ -146,6 +146,7 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     expect(value(job('lint-typecheck'), 'runs-on')).toBe('ubuntu-latest')
     expect(value(job('linux-tests'), 'runs-on')).toBe('ubuntu-latest')
     for (const name of ['macos-tests', 'macos-e2e', 'macos-package']) expect(value(job(name), 'runs-on'), name).toBe('macos-latest')
+    expect(value(job('windows-e2e'), 'runs-on')).toBe('windows-latest')
   })
 
   it('runs the commands of gate full: lint, typecheck, test on three systems, test:e2e and test:package on macOS', () => {
@@ -160,6 +161,22 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     const windows = job('windows')
     expect(value(windows, 'uses')).toBe('./.github/workflows/windows-tests.yml')
     expect(under(windows, '    with:')).toEqual(['      mode: full', '      shard: ${{ matrix.shard }}'])
+    expect(runs('windows-e2e')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test:e2e "--shard=$env:SHARD"'])
+  })
+
+  it('runs the Windows e2e tests under PowerShell: Git Bash would enable the backup and restore privileges for every process it starts', () => {
+    // With them the app under test reads and writes a folder its user is denied (icacls /deny), and
+    // linked-add-project.spec.ts and linked-machines.spec.ts turn red on the runner.
+    const steps = job('windows-e2e')
+    const e2e = steps.findIndex((line) => line.trim() === '- name: Run the e2e tests, one shard')
+    expect(e2e).toBeGreaterThan(-1)
+    const step: string[] = []
+    for (const line of steps.slice(e2e + 1)) {
+      if (indent(line) <= indent(steps[e2e] ?? '')) break
+      step.push(line.trim())
+    }
+    expect(step).toEqual(['shell: pwsh', 'env:', 'SHARD: ${{ matrix.shard }}', 'run: pnpm test:e2e "--shard=$env:SHARD"'])
+    expect(steps.join('\n')).not.toMatch(/shell: bash/)
   })
 
   it('splits the tests into shards that together cover every file', () => {
@@ -167,7 +184,9 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     expect(shards('macos-e2e')).toHaveLength(2)
     // One Windows job ran the heavy contract files side by side on one runner; three shards share them out.
     expect(shards('windows')).toHaveLength(3)
-    for (const name of ['linux-tests', 'macos-e2e']) {
+    // A shard of the Windows e2e tests took up to 14.5 min in four; one job stays under 20 min.
+    expect(shards('windows-e2e')).toHaveLength(4)
+    for (const name of ['linux-tests', 'macos-e2e', 'windows-e2e']) {
       expect(job(name), name).toContain('          SHARD: ${{ matrix.shard }}')
     }
   })
@@ -189,7 +208,7 @@ describe('ci.yml: every pull request and every push to main, one check for the m
   })
 
   it('keeps the trace and screenshots of a failed e2e or packaged run', () => {
-    for (const name of ['macos-e2e', 'macos-package']) {
+    for (const name of ['macos-e2e', 'macos-package', 'windows-e2e']) {
       const text = job(name).join('\n')
       expect(text, name).toMatch(/- if: failure\(\)\n\s+uses: actions\/upload-artifact@v\d+/)
       expect(text, name).toContain('path: test-results/')
@@ -271,6 +290,23 @@ describe('scripts/ci-scope.mjs', () => {
     expect(result.status, result.stderr).toBe(0)
     expect(result.expect).toEqual(ALL)
     expect(result.stdout).toContain('code changed: src/main/index.ts')
+  })
+
+  it('chooses windows-e2e by the files as it chooses macos-e2e; a run by hand never asks for it', () => {
+    const cases: Array<[string, string[]]> = [
+      ['pull_request', ['src/main/index.ts']],
+      ['pull_request', ['src/main/index.ts', 'package.json']],
+      ['pull_request', ['docs/adr/0001-a.md']],
+      ['push', ['src/main/index.ts']],
+      ['push', ['HANDOFF.md']],
+    ]
+    for (const [event, files] of cases) {
+      commitOnBase(files)
+      const result = scope({ EVENT: event, BASE: base })
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.expect?.['windows-e2e'], `${event} ${files.join(' ')}`).toBe(result.expect?.['macos-e2e'])
+    }
+    for (const job of ['check', 'full-macos']) expect(scope({ EVENT: 'workflow_dispatch', JOB: job }).expect?.['windows-e2e'], job).toBe(false)
   })
 
   it.each([
@@ -470,6 +506,36 @@ describe('scripts/ci-ok.mjs', () => {
     const result = ok(JSON.stringify(needs(expect_, results(each))))
     expect(result.status).toBe(1)
     expect(result.stderr).toMatch(reason)
+  })
+
+  it.each(['failure', 'cancelled', 'skipped'])('stays green when a needed windows-e2e ends %s: it does not block yet, and a warning says so', (windowsE2e) => {
+    const result = ok(JSON.stringify(needs(ALL, results((name) => (name === 'windows-e2e' ? windowsE2e : 'success')))))
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain(`windows-e2e: ${windowsE2e} (needed, does not block ci-ok)`)
+    expect(result.stdout).toContain(`::warning::windows-e2e: ${windowsE2e}, expected success; it does not block ci-ok yet`)
+    expect(result.stdout).toContain('ci-ok: every job the run needs succeeded')
+  })
+
+  it('prints a green windows-e2e without a warning', () => {
+    const result = ok(JSON.stringify(needs(ALL, results(() => 'success'))))
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('windows-e2e: success (needed, does not block ci-ok)')
+    expect(result.stdout).not.toContain('::warning::')
+  })
+
+  it.each(['success', 'failure'])('is red when windows-e2e ran though the run did not need it (%s): the scope still holds', (windowsE2e) => {
+    const result = ok(JSON.stringify(needs({ ...ALL, 'windows-e2e': false }, results((name) => (name === 'windows-e2e' ? windowsE2e : 'success')))))
+    expect(result.status).toBe(1)
+    expect(result.stderr).toMatch(new RegExp(`windows-e2e: ${windowsE2e}, expected skipped`))
+  })
+
+  // windows-e2e is the only job that does not block: a failure of any other job turns ci-ok red,
+  // whatever windows-e2e did.
+  it.each(DECIDED.filter((name) => name !== 'windows-e2e'))('is red when %s fails, also next to a red windows-e2e', (failed) => {
+    const result = ok(JSON.stringify(needs(ALL, results((name) => (name === failed || name === 'windows-e2e' ? 'failure' : 'success')))))
+    expect(result.status).toBe(1)
+    expect(result.stderr).toMatch(new RegExp(`${failed}: failure, expected success`))
+    expect(result.stderr).not.toMatch(/windows-e2e/)
   })
 
   it('is red when the job changes did not succeed', () => {

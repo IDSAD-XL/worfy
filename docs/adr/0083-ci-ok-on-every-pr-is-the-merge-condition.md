@@ -139,3 +139,8 @@ scope `pc` ждёт ПК, scope решает скрипт); ADR-0081, пункт
   одного test-а за неделю — ticket на причину. Ручные повторы job-ов по-прежнему запрещены. Цена: test,
   упавший по пределу времени, в CI идёт дважды — shell test Harness до 120 s лишних на Linux и macOS и до
   900 s на Windows.
+- **2026-10-28, job `windows-e2e` — в `ci-ok`, но пока не блокирует** (`worfy-throughput` 44). `pnpm test:e2e` на
+  Windows в 4 shard-ах идёт там же, где `macos-e2e`; `ci-ok` печатает его результат, а не зелёный результат
+  нужного run-у `windows-e2e` — строка `::warning::` в сводке run-а, не красный `ci-ok` (`NON_BLOCKING` в
+  `scripts/ci-ok.mjs`). Ненужный run-у `windows-e2e` по-прежнему должен быть `skipped`. Блокирующим job
+  делает отдельный PR после пяти зелёных push-run-ов подряд на `main`.

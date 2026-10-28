@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { canvasReady, icacls, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, thisUser, type LaunchedApp } from './helpers'
+import { DENY_ACE_BYPASSED, denyBypassed } from './deny-ace'
 import { snapshotThemes } from './snapshots'
 import { windowsProfileEnv } from '../windows-profile'
 import { loginProfileWithNode, printScript, profileJsonScript } from '../harness-node'
@@ -203,6 +204,8 @@ test.afterEach(async () => {
 
 test('in A: Add project → Machine B → B\'s folders → a repository: the Project is added on B, B\'s active one stays, A opens it; no system picker anywhere', async () => {
   await launchPair(scratch, async ({ a, b, bId, aData, bData, bHome, shop }) => {
+    // The step with the folder B cannot read means nothing if B's process gets past the deny entry.
+    test.skip(await denyBypassed(b.app, join(bHome, 'locked'), 'read'), DENY_ACE_BYPASSED)
     await setProjectsAccess(b, true)
     // A sees B's Projects: B is online and shares.
     await expect(groupOf(a.window, bId).locator(`[data-testid="project-row"][data-project-id="${BETA}"]`)).toBeVisible()

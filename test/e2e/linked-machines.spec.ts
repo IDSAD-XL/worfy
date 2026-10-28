@@ -35,6 +35,7 @@ import {
   thisUser,
   type LaunchedApp,
 } from './helpers'
+import { DENY_ACE_BYPASSED, denyBypassed } from './deny-ace'
 import { snapshotThemes } from './snapshots'
 import { catScript, loginProfileWithNode } from '../harness-node'
 
@@ -440,6 +441,8 @@ test('Settings → Machines in the smallest window: a refusal of main is shown a
       await expect(error).toHaveCount(0)
       setWritable(linkDir, false)
       try {
+        // main's refusal never comes if its process gets past the deny entry.
+        test.skip(await denyBypassed(launched.app, linkDir, 'write'), DENY_ACE_BYPASSED)
         await access.click()
         await expect(error).toBeVisible()
         await expect(error).toHaveAttribute('role', 'alert')
