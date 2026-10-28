@@ -51,9 +51,12 @@ function changedFiles(base) {
   const git = (...args) => spawnSync('git', args, { encoding: 'utf8' })
   // A push names the commit main was at; a shallow checkout does not have it yet.
   if (git('cat-file', '-e', `${base}^{commit}`).status !== 0) git('fetch', '--no-tags', '--depth=1', 'origin', base)
-  const diff = git('diff', '--name-only', '--no-renames', base, 'HEAD')
+  // -z: NUL after each path, and no path is quoted. Without it git (core.quotePath, on by default)
+  // prints a path with non-ASCII bytes, a double quote or a control character as an escaped string
+  // in quotes, and a ticket file with a Cyrillic name no longer starts with .scratch/.
+  const diff = git('diff', '--name-only', '-z', '--no-renames', base, 'HEAD')
   if (diff.status !== 0) return null
-  return diff.stdout.split('\n').filter((line) => line !== '')
+  return diff.stdout.split('\0').filter((path) => path !== '')
 }
 
 function decide(env) {
