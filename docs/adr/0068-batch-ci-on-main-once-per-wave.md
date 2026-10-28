@@ -61,3 +61,10 @@ job-ы: кончился бюджет Actions. При этом gate перед m
   делает отставание правилом.
 - **Один CI run на Wave на `main` (выбрано).** Один CI run на Wave, gate на Mac остаётся gate. Цена —
   Linux-сбой находится после merge, исправление вперёд.
+
+## Amendments
+
+- **2026-10-28, заменён ADR-0083** (`worfy-throughput` 35). Замена вступает в силу по ADR-0083 — с первым
+  зелёным `ci-ok` на `main`; до этого batch CI run на Wave действует как написан. Репозиторий публичный, минуты runner-ов
+  бесплатны: CI идёт на каждый PR и push в `main`, зелёный check `ci-ok` на head — условие merge,
+  `workflow.ci` Profile-а worfy — `"pr"`, batch CI run на `main` больше не запускается.
