@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { creamInside, decodePng, edgeBound, edgeErrors, pagePixelsNear, pagePixelsOutside, type Box, type Edge, type Image } from './browser-pixels'
+import { creamInside, decodePng, edgeBound, edgeErrors, outlineWidth, pagePixelsNear, pagePixelsOutside, type Box, type Edge, type Image } from './browser-pixels'
 import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 
@@ -157,7 +157,8 @@ test('a Browser frame that leaves the screen and comes back keeps its page: the 
 // ── Measuring the layer ─────────────────────────────────────────────────────
 // The pixel measures (decodePng, edgeErrors…) are in browser-pixels.ts.
 
-const GREEN_OUTLINE = `.react-flow__node[data-id="${FRAME.id}"] [data-testid="browser-frame-body"] { outline: 1px solid #00ff00 !important; }`
+/** The green outline the measures read as the frame's edge, `width` CSS px of the frame wide (outlineWidth). */
+const greenOutline = (width = 1): string => `.react-flow__node[data-id="${FRAME.id}"] [data-testid="browser-frame-body"] { outline: ${width}px solid #00ff00 !important; }`
 
 /** Where the frame's body and the <webview> are on screen, in CSS pixels. */
 async function boxes(window: Page): Promise<{ body: Box | null; page: Box | null; zoom: number }> {
@@ -301,7 +302,7 @@ const ALL_EDGES: readonly Edge[] = ['left', 'right', 'top', 'bottom']
  * anything. Returns the frame record's report and the largest edge error of each screenshot.
  */
 async function measureGesture(window: Page, name: string, from: { x: number; y: number }, button: 'left' | 'middle', up = false): Promise<{ frames: ReturnType<typeof frameReport>; shotsPx: number[] }> {
-  await window.addStyleTag({ content: GREEN_OUTLINE })
+  await window.addStyleTag({ content: greenOutline() })
   await window.mouse.move(from.x, from.y)
   await recordFrames(window)
   await window.mouse.down({ button })
@@ -369,7 +370,11 @@ const ZOOMS = [
 for (const { zoom, viewport, edges } of ZOOMS) {
   test(`zoom ${zoom}: the page scales with its frame and is clipped at the frame's edge and the Canvas's`, async () => {
     const window = await start(viewport)
-    await window.addStyleTag({ content: GREEN_OUTLINE })
+    // At least one device pixel wide at this zoom: thinner, its green is too faint to be found in
+    // some runs, and no later capture changes that (outlineWidth; zoom 0.25 at scale 1 on the macOS
+    // runner).
+    const outline = outlineWidth(zoom, await window.evaluate(() => (globalThis as unknown as { devicePixelRatio: number }).devicePixelRatio))
+    await window.addStyleTag({ content: greenOutline(outline) })
     await canvasReady(launched!)
     const { body, page, zoom: shown } = await boxes(window)
     expect(shown).toBeCloseTo(zoom, 5)
@@ -377,9 +382,10 @@ for (const { zoom, viewport, edges } of ZOOMS) {
     expect(boxGap(body!, page!)).toBeLessThanOrEqual(1)
     expect(Math.abs(page!.width - (FRAME.w - 2) * zoom)).toBeLessThanOrEqual(1)
     // The page paints in its own surface, after the Canvas: a capture taken before it has painted at
-    // this zoom finds no page pixel or no outline at an edge (edgeErrors gives Infinity; seen at zoom
-    // 0.25 on the macOS runner). Capture again until every edge is found, within the test's timeout;
-    // the checks below then hold that capture to the bounds.
+    // this zoom finds no page pixel at an edge (edgeErrors gives Infinity). Capture again until every
+    // edge is found, within the test's timeout; the checks below then hold that capture to the bounds.
+    // Past 30 s the Browser falls asleep at this zoom (the far rule of src/main/browser/sleep.ts) and
+    // its picture is no page: only a capture before that can pass.
     let shot: Awaited<ReturnType<typeof screenshot>> | undefined
     let errors = {} as Record<Edge, number>
     let captures = 0
@@ -388,7 +394,7 @@ for (const { zoom, viewport, edges } of ZOOMS) {
         async () => {
           captures += 1
           shot = await screenshot(window)
-          errors = edgeErrors(shot.image, shot.scale, body!, zoom, edges)
+          errors = edgeErrors(shot.image, shot.scale, body!, zoom, edges, outline * zoom)
           return edges.filter((edge) => !Number.isFinite(errors[edge]))
         },
         { message: 'every edge of the page and of the frame found in the capture', timeout: 0 },
@@ -406,7 +412,7 @@ for (const { zoom, viewport, edges } of ZOOMS) {
     const near = pagePixelsNear(image, scale, visible)
     const sidebar = canvas.x > 0 ? pagePixelsOutside(image, scale, { x: canvas.x, y: 0, width: image.width / scale, height: image.height / scale }) : 0
     const guest = (await guestState())!
-    report(`zoom ${zoom}`, { captures, guestViewport: [guest.innerWidth, guest.innerHeight, guest.devicePixelRatio], edgeErrorsPx: Object.fromEntries(Object.entries(errors).map(([edge, value]) => [edge, round(value)])), pagePixelsOutsideFrame: outside, pagePixelsNearFrame: near, pagePixelsLeftOfCanvas: sidebar, pageWidthPx: round(page!.width) })
+    report(`zoom ${zoom}`, { captures, outlinePx: round(outline), guestViewport: [guest.innerWidth, guest.innerHeight, guest.devicePixelRatio], edgeErrorsPx: Object.fromEntries(Object.entries(errors).map(([edge, value]) => [edge, round(value)])), pagePixelsOutsideFrame: outside, pagePixelsNearFrame: near, pagePixelsLeftOfCanvas: sidebar, pageWidthPx: round(page!.width) })
     for (const edge of edges) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(edgeBound(scale, zoom))
     expect(outside, 'page pixels outside the frame').toBe(0)
     expect(near, 'page pixels just outside the frame').toBe(0)
