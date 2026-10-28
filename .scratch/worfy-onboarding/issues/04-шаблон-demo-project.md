@@ -1,7 +1,8 @@
 # 04 — Шаблон Demo project: todo CLI, Epic, Ticket и черновик Profile `worfy-demo`
 
 Type: task
-Status: open
+Status: done 2026-10-28T06:22Z
+PR: #860
 Blocked by: —
 Source: решения владельца 2026-10-26, пункт 5 (содержимое demo, Ticket «add `done <n>`», крайний случай только в полной проверке ревьюера); [spec.md](../spec.md), «Как устроено», «Demo project»; «Решено без владельца», Р1, Р13, Р14 (решено без владельца, подтверждено владельцем 2026-10-26)
 
@@ -116,3 +117,7 @@ Source: решения владельца 2026-10-26, пункт 5 (содерж
 
 Для Ticket-а 05: `worktree.base` и команды worktree называют ветку `main` — `git init` demo должен
 создать именно её (`git init -b main`), иначе preflight и `git worktree add` не найдут базу.
+
+Закрытие: PR #860, влит 2026-10-27; долгов в комментариях PR нет. На Windows runner-е два contract test-а шаблона
+(`demo-template-careless-done`, `demo-template-reference-done`) — в карантине с владельцем worfy-throughput 23
+(#877).

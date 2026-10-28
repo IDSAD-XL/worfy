@@ -1,7 +1,8 @@
 # 20 — Карантин flaky unit- и contract-test-ов: запись с владельцем и датой выхода, блокирующие run-ы их пропускают
 
 Type: task
-Status: claimed 2026-10-27T23:08Z
+Status: done 2026-10-28T06:22Z
+PR: #873
 Branch: worfy-throughput/20
 Blocked by: —
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», решения 2 и 3; открытые вопросы
@@ -137,3 +138,7 @@ gate fast на `3ba962ca` — `[gate] green (fast)`, код 0 (lint 13,5 s, type
 
 **После merge (Orchestrator).** Строка в `rules.md` Profile-а worfy: «test в карантине не краснит gate; новый
 flaky — запись с владельцем и датой, а не повтор gate full».
+
+**Закрытие.** PR #873 влит 2026-10-28. #877 добавил записи (их теперь 14, список — «Итог» Ticket-а 35),
+#878 распространил тот же карантин на e2e Playwright. Долг (low, из VERIFIED-комментария): абзац «Проверки» выше приводит
+`until 2026-11-11`, а у записей `until` 2026-11-10.
