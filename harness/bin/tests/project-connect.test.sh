@@ -94,7 +94,8 @@ NODE
 }
 
 state() { # the files of HARNESS_HOME (without .git) with their contents' hash, and its HEAD
-    (cd "$HARNESS_HOME" 2>/dev/null && find . -path ./.git -prune -o -type f -print | sort | while read -r f; do printf '%s %s\n' "$f" "$(shasum "$f" | cut -c1-12)"; done
+    # node, not shasum: Git Bash has shasum only where perl is on PATH. One node hashes every file.
+    (cd "$HARNESS_HOME" 2>/dev/null && find . -path ./.git -prune -o -type f -print | sort | node -e 'const fs = require("node:fs"), crypto = require("node:crypto"); for (const f of fs.readFileSync(0, "utf8").split("\n").filter(Boolean)) process.stdout.write(f + " " + crypto.createHash("sha1").update(fs.readFileSync(f)).digest("hex").slice(0, 12) + "\n")'
      git -C "$HARNESS_HOME" rev-parse -q --verify HEAD 2>/dev/null)
 }
 commits() { git -C "$HARNESS_HOME" rev-list --count HEAD 2>/dev/null || echo 0; }
