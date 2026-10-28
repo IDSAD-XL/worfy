@@ -1100,10 +1100,15 @@ async function interactiveAfter(window: Page, epic: string): Promise<number> {
  * How many times the start of a one-Ticket Project the start of an Auction-sized one may take, on a
  * machine slow enough that 3 s is less than that. The 3 s hold on the owner's Mac; the GitHub macOS
  * runner starts every Project several times slower, so there the budget is measured against its
- * own start of a one-Ticket Project in the same test. Measured 2026-10-28: the owner's Mac 564 ms
- * against 325 ms (1.7×, the budget stays 3 s), the runner 3897 ms against 1274 ms (3.1×).
+ * own start of a one-Ticket Project in the same test, the median of REFERENCE_STARTS starts.
+ * Measured 2026-10-28 from single starts: the owner's Mac 564 ms against 325 ms (1.7×, the budget
+ * stays 3 s); the runner 3897 ms against 1274 ms (3.1×) and 3911 ms against 909 ms (4.3×), and
+ * 3717–4853 ms for the Auction-sized start alone. 6 holds the runner's spread and still guards it
+ * more tightly than 3 s guard the owner's Mac (5.3 times its 564 ms).
  */
-const START_RATIO = 4
+const START_RATIO = 6
+/** One-Ticket starts behind the reference: a single start on the runner varied from 909 to 1274 ms. */
+const REFERENCE_STARTS = 3
 
 test('an Auction-sized Project is interactive within 3 s and pans and zooms smoothly over its biggest Epic', async () => {
   const answer = join(scratch, 'epic-status.json')
@@ -1114,13 +1119,16 @@ test('an Auction-sized Project is interactive within 3 s and pans and zooms smoo
   })
   writeFileSync(answer, small!.json)
   makeClaudeHome(answer)
-  const reference = await launch()
-  let referenceMs: number
-  try {
-    referenceMs = await interactiveAfter(reference.window, small!.biggest)
-  } finally {
-    await reference.close()
+  const starts: number[] = []
+  for (let n = 0; n < REFERENCE_STARTS; n += 1) {
+    const reference = await launch()
+    try {
+      starts.push(await interactiveAfter(reference.window, small!.biggest))
+    } finally {
+      await reference.close()
+    }
   }
+  const referenceMs = [...starts].sort((a, b) => a - b)[Math.floor(REFERENCE_STARTS / 2)]!
   // The Auction-sized Project in a Project folder and app data of its own.
   await removeDir(join(scratch, 'demo'))
   dataDir = join(scratch, 'data-auction')
@@ -1191,7 +1199,7 @@ test('an Auction-sized Project is interactive within 3 s and pans and zooms smoo
 
     const budget = Math.max(3_000, START_RATIO * referenceMs)
     console.log(
-      `auction-size: interactive ${interactiveMs} ms after the window's page started loading (a one-Ticket Project ${referenceMs} ms, budget ${budget} ms); ` +
+      `auction-size: interactive ${interactiveMs} ms after the window's page started loading (a one-Ticket Project ${starts.join(', ')} ms, median ${referenceMs} ms; budget ${budget} ms); ` +
         `pan/zoom 5 s: ${frames.length} frames, median ${fps} fps, longest frame ${longest} ms; ${ticketsDrawn} Ticket Nodes in the DOM`,
     )
     test.info().annotations.push({ type: 'perf', description: `interactive=${interactiveMs}ms reference=${referenceMs}ms medianFps=${fps} longestFrame=${longest}ms frames=${frames.length}` })

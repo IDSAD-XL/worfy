@@ -324,6 +324,10 @@ export async function openSecondWindow(launched: Pick<LaunchedApp, 'app'>, optio
         // The window's own webPreferences (src/main/window.ts), the <webview> tag of the Browsers too.
         webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: true },
       })
+      // The size once more, now that the window is on screen: with the option alone a 1700×900
+      // window still came out 1024×642 on the runner, as macOS fits a window it shows into the
+      // display; a resize after that keeps the size (canvasReady sizes the first window the same way).
+      second.setSize(size.width, size.height)
       await second.loadURL(first.webContents.getURL())
     },
     { preload: builtPreload, size },
