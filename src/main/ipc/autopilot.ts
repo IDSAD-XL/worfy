@@ -13,7 +13,9 @@
 // through the link (src/main/link/autopilot-runs.ts), and this Machine answers their questions from
 // the moment its link starts, whether or not its Autopilot has been used. A start refused for a run
 // elsewhere answers `runningElsewhere`, not an error. The question goes after the quit's wait
-// (before-quit) has begun no more: the link stops in will-quit, after it (service.ts).
+// (before-quit) has begun no more: the link stops in will-quit, after it (service.ts). Before each
+// Wave the run weighs the budget of the Limits (worfy-throughput ticket 41) with the settings of
+// Settings → Autopilot and the journals of the Project's recent runs.
 import { execFile } from 'node:child_process'
 import { app } from 'electron'
 import type { LimitsState } from '../../shared/agent/limits'
@@ -27,6 +29,7 @@ import {
   autopilotStop,
   type AutopilotState,
 } from '../../shared/ipc/autopilot'
+import { autopilotBudgetOf } from '../../shared/settings/app-settings'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
 import { appLimits, observeSessionLimits } from '../agent/limits'
@@ -42,6 +45,7 @@ import { harnessScriptEnv } from '../harness/script-env'
 import { AutopilotRunsLink } from '../link/autopilot-runs'
 import { appLinkService, onAppLinkStart, type LinkService } from '../link/service'
 import { projectStore } from '../projects/store'
+import { appSettingsStore } from '../settings/store'
 import { claudeHome } from '../storage/paths'
 import { readWorkflow } from '../workflow/reader'
 import type { WorkflowHub } from '../workflow/watch'
@@ -170,6 +174,14 @@ export function sharedAutopilot(): Autopilot {
     onChange: (state: AutopilotState) => toEveryWindow((target) => emit(target, autopilotChanged, state)),
     // Before a Wave's line in the journal: one usage ask when the number is older than 5 minutes.
     usage: { refresh: (olderThanMs) => refreshAppUsage(olderThanMs) },
+    // Read before each Wave: a change in Settings counts from the next Wave of a run that goes on.
+    budget: {
+      settings: () => {
+        const budget = autopilotBudgetOf(appSettingsStore().get())
+        return { enabled: budget.enabled, reserve: budget.reservePercent / 100 }
+      },
+      runs: (projectId) => readRecentRuns(projectId),
+    },
     limits: {
       state: () => appLimits().snapshot(),
       observeSession: (isSession, listener) => observeSessionLimits((sink) => sharedRegistry().observe(sink), isSession, listener),

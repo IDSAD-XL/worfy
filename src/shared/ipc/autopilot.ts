@@ -37,6 +37,14 @@ export const autopilotStateSchema = z.object({
   backgroundTasks: z.number().int().nonnegative(),
   /** While `waiting`: when the run sends the Orchestrator on, in milliseconds since the epoch; else null. */
   resumesAt: z.number().int().nonnegative().nullable(),
+  /**
+   * While `waiting`: what for. `limits` — a turn of the Wave was refused by the Limits (worfy-daily
+   * ticket 05); `daily-share` — today's share of the budget is used, and the next Wave waits;
+   * `five-hour` — today's share is left but the 5-hour window is full, and the next Wave waits for
+   * its reset (worfy-throughput ticket 41, src/shared/autopilot/budget.ts). Then `message` says it
+   * in words. Absent otherwise, and in states of builds before ticket 41.
+   */
+  waitingFor: z.enum(['limits', 'daily-share', 'five-hour']).optional(),
   reason: z.enum(AUTOPILOT_STOP_REASONS).nullable(),
   message: z.string().nullable(),
   /**
@@ -151,11 +159,12 @@ export interface StatusLineOptions {
 /**
  * The status line of the Epic's Autopilot action: `Wave 3 · running`, `Wave 3 · 4 background
  * tasks` (ADR-0029), `stopping · 2 tickets in work` and `stopping` (a graceful Stop, worfy-week
- * ticket 18), `waiting for limits · resumes 14:20`, `stopped: no ready wave`, `stopped: user force
- * stop`.
+ * ticket 18), `waiting for limits · resumes 14:20`, `today's share used · resumes 00:00` and
+ * `5-hour limits full · resumes 02:12` (the budget, worfy-throughput ticket 41), `stopped: no
+ * ready wave`, `stopped: user force stop`.
  */
 export function autopilotStatusLine(
-  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'backgroundTasks' | 'stopping' | 'ticketsInWork'>>,
+  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'backgroundTasks' | 'stopping' | 'ticketsInWork'>>,
   options: StatusLineOptions = {},
 ): string | null {
   if (state.status === 'running') {
@@ -169,9 +178,10 @@ export function autopilotStatusLine(
     return `Wave ${state.wave} · running`
   }
   if (state.status === 'waiting') {
-    if (state.resumesAt === null || state.resumesAt === undefined) return 'waiting for limits'
+    const what = state.waitingFor === 'daily-share' ? "today's share used" : state.waitingFor === 'five-hour' ? '5-hour limits full' : 'waiting for limits'
+    if (state.resumesAt === null || state.resumesAt === undefined) return what
     const at = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: options.timeZone }).format(state.resumesAt)
-    return `waiting for limits · resumes ${at}`
+    return `${what} · resumes ${at}`
   }
   if (state.reason === null) return null
   return `stopped: ${state.reason.replaceAll('-', ' ')}`

@@ -75,6 +75,7 @@ export const JOURNAL_KINDS = [
   'wave-started',
   'narrow-round',
   'wave-finished',
+  'budget-stop',
   'limits-hit',
   'waiting-until',
   'resumed',

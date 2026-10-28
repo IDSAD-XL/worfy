@@ -10,7 +10,8 @@
 // keeps only the fields a change named, so a choice outlives a later change of the defaults; an
 // `after` this version does not know (written by a newer one) reads as not chosen. `browserSleep`
 // (worfy-browser ticket 05) keeps only the fields a change named too; a value outside its bounds —
-// a file edited by hand — reads as not chosen, and the rest of the file stays.
+// a file edited by hand — reads as not chosen, and the rest of the file stays. `autopilotBudget`
+// (worfy-throughput ticket 41) is kept the same way.
 //
 // One file for the Machine: every window shares it. The store announces `changed` with each new
 // state; the IPC module (src/main/ipc/app-settings.ts) passes it on to every window, and the modules
@@ -30,6 +31,7 @@ import {
   sectionIdSchema,
   sessionArchiveAfterSchema,
   browserSleepChoiceSchema,
+  autopilotBudgetChoiceSchema,
   type AppSettings,
   type AutoCompactRole,
   type AppSettingsPatch,
@@ -72,6 +74,13 @@ const appSettingsFileSchema = z.object({
     })
     .optional()
     .catch(undefined),
+  autopilotBudget: z
+    .object({
+      enabled: autopilotBudgetChoiceSchema.shape.enabled.catch(undefined),
+      reservePercent: autopilotBudgetChoiceSchema.shape.reservePercent.catch(undefined),
+    })
+    .optional()
+    .catch(undefined),
   revision: z.number().int().nonnegative().default(0),
 })
 
@@ -96,6 +105,16 @@ function sleepChoice(current: SleepChoice, patch?: SleepChoice): Pick<AppSetting
     if (value !== undefined) chosen[field] = value
   }
   return Object.keys(chosen).length === 0 ? {} : { browserSleep: chosen }
+}
+
+type BudgetChoice = AppSettings['autopilotBudget']
+
+/** The Autopilot budget choice after `patch`, with only its chosen fields, or nothing while none is chosen. */
+function budgetChoice(current: BudgetChoice, patch?: BudgetChoice): Pick<AppSettings, 'autopilotBudget'> {
+  const enabled = patch?.enabled ?? current?.enabled
+  const reservePercent = patch?.reservePercent ?? current?.reservePercent
+  if (enabled === undefined && reservePercent === undefined) return {}
+  return { autopilotBudget: { ...(enabled === undefined ? {} : { enabled }), ...(reservePercent === undefined ? {} : { reservePercent }) } }
 }
 
 /** One window and whether the person chose it. */
@@ -130,6 +149,7 @@ function copy(settings: AppSettings): AppSettings {
     memoryIndicator: settings.memoryIndicator,
     ...archiveChoice(settings.sessionArchive),
     ...sleepChoice(settings.browserSleep),
+    ...budgetChoice(settings.autopilotBudget),
     revision: settings.revision,
   }
 }
@@ -156,6 +176,7 @@ function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
     memoryIndicator: patch.memoryIndicator ?? current.memoryIndicator,
     ...archiveChoice(current.sessionArchive, patch.sessionArchive),
     ...sleepChoice(current.browserSleep, patch.browserSleep),
+    ...budgetChoice(current.autopilotBudget, patch.autopilotBudget),
     revision: current.revision,
   }
 }
@@ -174,6 +195,8 @@ function same(a: AppSettings, b: AppSettings): boolean {
     a.sessionArchive?.after === b.sessionArchive?.after &&
     a.sessionArchive?.ticketDone === b.sessionArchive?.ticketDone &&
     SLEEP_FIELDS.every((field) => a.browserSleep?.[field] === b.browserSleep?.[field]) &&
+    a.autopilotBudget?.enabled === b.autopilotBudget?.enabled &&
+    a.autopilotBudget?.reservePercent === b.autopilotBudget?.reservePercent &&
     a.autoCompactWindow.orchestrator === b.autoCompactWindow.orchestrator &&
     a.autoCompactWindow.other === b.autoCompactWindow.other &&
     autoCompactWindowChosen(a, 'orchestrator') === autoCompactWindowChosen(b, 'orchestrator') &&

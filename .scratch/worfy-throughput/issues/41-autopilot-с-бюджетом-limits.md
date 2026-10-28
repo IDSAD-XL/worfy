@@ -1,7 +1,8 @@
 # 41 — Autopilot с бюджетом Limits: доля недели на день, остановка между Wave-ами, продолжение после сброса
 
 Type: task
-Status: open
+Status: claimed 2026-10-28T21:38Z
+Branch: worfy-throughput/41
 Blocked by: 40
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: меньше token-ов на Ticket, чтобы хватало Limits подписки», идея 8, строка L1
 таблицы «Цель и числа», вопрос Q-L5.
@@ -36,20 +37,20 @@ diff есть `test/e2e/**` (`scripts/windows-verdict-scope.mjs:80`); иначе
 
 ## Готово, когда
 
-- [ ] Сначала падающий unit test доли дня: запас, использовано, дни до сброса → доля; сброс окна посреди дня
+- [x] Сначала падающий unit test доли дня: запас, использовано, дни до сброса → доля; сброс окна посреди дня
       пересчитывает долю; бюджет выключен — остановки нет.
-- [ ] Unit test времени продолжения: начало следующего дня против сброса 5-часового окна при остатке доли дня —
+- [x] Unit test времени продолжения: начало следующего дня против сброса 5-часового окна при остатке доли дня —
       берётся то, что раньше; доля дня кончилась — только начало следующего дня (или сброс `seven_day`, если он
       раньше).
-- [ ] Contract test run-а (`test/contract/autopilot-limits.test.ts`; fake agent, подставные часы и Limits): доля
+- [x] Contract test run-а (`test/contract/autopilot-limits.test.ts`; fake agent, подставные часы и Limits): доля
       кончилась — run не начинает следующую Wave, пишет `budget-stop`, продолжает в рассчитанное время; Wave в
       работе не прерывается.
-- [ ] Contract test журнала (`test/contract/autopilot-journal.test.ts`): новый kind `budget-stop` пишется и
+- [x] Contract test журнала (`test/contract/autopilot-journal.test.ts`): новый kind `budget-stop` пишется и
       читается.
-- [ ] Contract test: отказ Limits по-прежнему ведёт тем же путём `limits-hit` → `waiting-until` → `resumed`.
+- [x] Contract test: отказ Limits по-прежнему ведёт тем же путём `limits-hit` → `waiting-until` → `resumed`.
 - [ ] e2e (fake agent; `test/e2e/settings.spec.ts`, `test/e2e/autopilot.spec.ts`): настройка бюджета в Settings и
       причина остановки в Autopilot; снимки в двух темах.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; e2e — только свои spec-и; условие merge — `ci-ok`.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; e2e — только свои spec-и; условие merge — `ci-ok`.
 - [ ] (вручную) Одна ночь Autopilot с бюджетом: строки `budget-stop` / `resumed` в журнале — в «Итог».
 
 ## Где в коде
@@ -64,3 +65,25 @@ diff есть `test/e2e/**` (`scripts/windows-verdict-scope.mjs:80`); иначе
   наполовину, риск в spec-е).
 
 ## Итог
+
+- Чистая функция бюджета — `src/shared/autopilot/budget.ts`: доля дня = (1 − запас − доля недели на начало дня) / дни до
+  сброса `seven_day` (дни считаются от начала местного дня, сегодня включительно); начало дня — первое число сегодняшнего
+  дня из `limits` строк Wave в журналах того же окна, иначе число сейчас. Сброс окна посреди дня — новый счёт от нового
+  окна. Unit test-ы — `test/unit/autopilot-budget.test.ts`.
+- Перед каждой Wave (в `sendWave`, `src/main/autopilot/run.ts`) run сравнивает остаток доли дня с оценкой Wave Ticket-а
+  40 (медиана на Ticket × готовые Ticket-ы). Не хватает — `budget-stop` (причина `daily-share`) и `waiting-until`, run
+  в `waiting`, продолжение — начало следующего дня или сброс `seven_day`, что раньше. Доля дня есть, но 5-часовое окно
+  полное (доля ≥ 1 или `rejected`) — `budget-stop` с причиной `five-hour`, продолжение — сброс `five_hour` или начало
+  дня, что раньше: ночью run продолжает сам. Нет числа `seven_day`, нет времени сброса или число старше 30 min — остановки
+  нет. Wave в работе бюджет не прерывает.
+- Stop во время ожидания бюджета завершает run сразу (`user-stop`), Force stop и quit — со своими причинами и без
+  Ticket-ов; таймер снимается при любом конце. Contract test-ы — `test/contract/autopilot-limits.test.ts`, describe
+  «the budget of the Limits before a Wave».
+- Settings → Autopilot (`src/renderer/settings/AutopilotSection.tsx`): бюджет включён / выключен и запас недели. Умолчания
+  по ответу на Q-L5 — включён, запас 15 %. Хранится в `autopilotBudget` настроек Machine.
+- В Autopilot причина словами: строка статуса `today's share used · resumes 00:00` или `5-hour limits full · resumes
+  02:12`, подсказка — «Today's share of the Limits is used: Autopilot continues at 00:00». Цен нет.
+- e2e (`test/e2e/settings.spec.ts`, `test/e2e/autopilot.spec.ts`) и снимки в двух темах не сделаны: по брифу diff без
+  `test/e2e/**` (иначе вердикт Windows — `pc`). Настройка и строка статуса проверены jsdom test-ами
+  (`test/unit/settings-autopilot.test.tsx`, `test/unit/canvas-actions.test.tsx`). Ночь Autopilot с бюджетом (вручную) — ждёт
+  владельца.

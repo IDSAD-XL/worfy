@@ -67,6 +67,7 @@ const appended: JournalEventFields[] = [
   { kind: 'wave-started', wave: 1, tickets: ['01', '02'] },
   { kind: 'narrow-round', ticket: '02', outcome: 'rejected', text: 'NARROW: REJECTED: src/a.ts:1 still open' },
   { kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
+  { kind: 'budget-stop', cause: 'five-hour', share: 0.0925, used: 0.04, need: 0.06, until: '2026-10-06T05:02:00.000Z', text: "The 5-hour Limits are used, today's share is not: Autopilot continues at 05:02" },
   { kind: 'limits-hit', window: 'five_hour', resetsAt: '2026-10-06T06:00:00.000Z' },
   { kind: 'waiting-until', until: '2026-10-06T06:01:00.000Z' },
   { kind: 'resumed' },
@@ -244,6 +245,23 @@ describe('readRun', () => {
     expect(waves[1]).toMatchObject({ wave: 1, limits: { five_hour: null, seven_day: { utilization: 0.44 } } })
     for (const event of waves.slice(2)) expect((event as { limits?: unknown }).limits).toBeUndefined()
     expect(waves.slice(2).map((event) => (event as { wave: number }).wave)).toEqual([2, 2, 3, 3])
+  })
+
+  it('writes budget-stop and reads it back; a line with an unknown cause or a share below 0 is skipped (worfy-throughput ticket 41)', async () => {
+    const journal = await openRun({ project: PROJECT, epic: EPIC }, { now: ticking(T0) })
+    const stop = { kind: 'budget-stop', cause: 'daily-share', share: 0.1125, used: 0.12, need: 0.03, until: '2026-10-07T00:00:00.000Z', text: "Today's share of the Limits is used: Autopilot continues at 00:00" } as const
+    await journal.append(stop)
+    await journal.append({ kind: 'waiting-until', until: stop.until })
+    const head = (second: number) => `"at":"2026-10-06T01:00:0${second}Z","run":"${journal.run}","project":"${PROJECT}","epic":"${EPIC}"`
+    appendFileSync(journal.file, `{"kind":"budget-stop",${head(3)},"cause":"weekly","share":0.1,"used":0,"need":0,"until":"2026-10-07T00:00:00.000Z","text":"x"}\n`)
+    appendFileSync(journal.file, `{"kind":"budget-stop",${head(4)},"cause":"five-hour","share":-0.1,"used":0,"need":0,"until":"2026-10-07T00:00:00.000Z","text":"x"}\n`)
+
+    const written = rawLines(journal.file).map((line) => JSON.parse(line) as Record<string, unknown>)
+    expect(written[1]).toEqual({ ...stop, at: new Date(T0 + 1000).toISOString(), run: journal.run, project: PROJECT, epic: EPIC })
+    const parsed = await readRun(journal.run)
+    expect(parsed?.skipped).toBe(2)
+    expect(parsed!.events.slice(1).map((event) => event.kind)).toEqual(['budget-stop', 'waiting-until'])
+    expect(parsed!.events[1]).toMatchObject(stop)
   })
 
   it('returns undefined for a run without a file and refuses a name that is not a run id', async () => {

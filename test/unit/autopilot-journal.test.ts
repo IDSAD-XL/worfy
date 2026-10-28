@@ -31,6 +31,7 @@ const everyKind: JournalEvent[] = [
   waveStarted,
   { ...base, at: at(2), kind: 'narrow-round', ticket: '02', outcome: 'started', text: 'NARROW: [med] src/a.ts:1 — x' },
   { ...base, at: at(2), kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
+  { ...base, at: at(2), kind: 'budget-stop', cause: 'daily-share', share: 0.09, used: 0.1, need: 0, until: at(29), text: "Today's share of the Limits is used: Autopilot continues at 00:00" },
   { ...base, at: at(3), kind: 'limits-hit', window: 'five_hour', resetsAt: at(30) },
   { ...base, at: at(3), kind: 'waiting-until', until: at(31) },
   { ...base, at: at(31), kind: 'resumed' },

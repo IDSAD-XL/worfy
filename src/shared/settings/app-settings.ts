@@ -35,6 +35,12 @@
 //   which a page counts as unreadable. Like `sessionArchive`, it holds only what the person chose in
 //   Settings → Browser; browserSleepOf() fills the rest with BROWSER_SLEEP_DEFAULTS. Main reads it at
 //   every check of the sleep rules (src/main/browser/live.ts);
+// - `autopilotBudget` — the budget of the Limits for Autopilot (worfy-throughput ticket 41,
+//   src/shared/autopilot/budget.ts): `enabled` — whether a run starts no Wave once today's share of
+//   the week is used; `reservePercent` — the share of the week kept for the person's own work. Like
+//   `sessionArchive`, it holds only what the person chose in Settings → Autopilot;
+//   autopilotBudgetOf() fills the rest with AUTOPILOT_BUDGET_DEFAULTS. Main reads it before every
+//   Wave of a run (src/main/ipc/autopilot.ts);
 // - `revision` — grows with every write, so a renderer keeps the newest of the states it hears.
 import { z } from 'zod'
 
@@ -153,6 +159,25 @@ export type BrowserSleep = { [K in keyof BrowserSleepChoice]-?: NonNullable<Brow
  */
 export const BROWSER_SLEEP_DEFAULTS: Readonly<BrowserSleep> = Object.freeze({ maxLive: 3, offscreenSeconds: 30, idleMinutes: 5, zoom: 0.4 })
 
+/** The bounds of the reserve of the week, in percent. */
+export const AUTOPILOT_RESERVE_BOUNDS = Object.freeze({ min: 0, max: 50 })
+
+/** What the person chose in Settings → Autopilot: each field only once chosen. */
+export const autopilotBudgetChoiceSchema = z.object({
+  enabled: z.boolean().optional(),
+  reservePercent: z.number().int().min(AUTOPILOT_RESERVE_BOUNDS.min).max(AUTOPILOT_RESERVE_BOUNDS.max).optional(),
+})
+export type AutopilotBudgetChoice = z.output<typeof autopilotBudgetChoiceSchema>
+
+/** The budget settings in force: the person's choice, else the default. */
+export type AutopilotBudgetSettings = { [K in keyof AutopilotBudgetChoice]-?: NonNullable<AutopilotBudgetChoice[K]> }
+
+/**
+ * The budget of a Machine whose person chose nothing: on, with 15 % of the week kept for work by
+ * hand (the owner's answer of 2026-10-28 to Q-L5 of the worfy-throughput spec).
+ */
+export const AUTOPILOT_BUDGET_DEFAULTS: Readonly<AutopilotBudgetSettings> = Object.freeze({ enabled: true, reservePercent: 15 })
+
 export const appSettingsSchema = z.object({
   interfaceScale: z.number().min(INTERFACE_SCALE_MIN).max(INTERFACE_SCALE_MAX),
   sidebar: z.object({
@@ -174,6 +199,8 @@ export const appSettingsSchema = z.object({
   sessionArchive: sessionArchiveChoiceSchema.optional(),
   /** The Browser sleep settings the person chose; absent while none is (see browserSleepOf). */
   browserSleep: browserSleepChoiceSchema.optional(),
+  /** The Autopilot budget settings the person chose; absent while none is (see autopilotBudgetOf). */
+  autopilotBudget: autopilotBudgetChoiceSchema.optional(),
   revision: z.number().int().nonnegative(),
 })
 export type AppSettings = z.output<typeof appSettingsSchema>
@@ -204,6 +231,8 @@ export const appSettingsPatchSchema = z.object({
   sessionArchive: sessionArchiveChoiceSchema.optional(),
   /** Each field given is chosen, as in `sessionArchive`; a value outside BROWSER_SLEEP_BOUNDS is refused. */
   browserSleep: browserSleepChoiceSchema.optional(),
+  /** Each field given is chosen, as in `sessionArchive`; a reserve outside AUTOPILOT_RESERVE_BOUNDS is refused. */
+  autopilotBudget: autopilotBudgetChoiceSchema.optional(),
 })
 export type AppSettingsPatch = z.input<typeof appSettingsPatchSchema>
 
@@ -243,6 +272,14 @@ export function browserSleepOf(settings: Pick<AppSettings, 'browserSleep'>): Bro
     offscreenSeconds: chosen?.offscreenSeconds ?? BROWSER_SLEEP_DEFAULTS.offscreenSeconds,
     idleMinutes: chosen?.idleMinutes ?? BROWSER_SLEEP_DEFAULTS.idleMinutes,
     zoom: chosen?.zoom ?? BROWSER_SLEEP_DEFAULTS.zoom,
+  }
+}
+
+/** The Autopilot budget settings in force: each field the person chose, else its default. */
+export function autopilotBudgetOf(settings: Pick<AppSettings, 'autopilotBudget'>): AutopilotBudgetSettings {
+  return {
+    enabled: settings.autopilotBudget?.enabled ?? AUTOPILOT_BUDGET_DEFAULTS.enabled,
+    reservePercent: settings.autopilotBudget?.reservePercent ?? AUTOPILOT_BUDGET_DEFAULTS.reservePercent,
   }
 }
 

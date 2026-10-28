@@ -13,7 +13,7 @@ import { createLinkIpc, LinkPeer, LinkSender } from '../../src/main/link/ipc-ada
 import { APP_SETTINGS_FILE, AppSettingsStore } from '../../src/main/settings/store'
 import { appSettingsChanged, appSettingsGet, appSettingsSet } from '../../src/shared/ipc/app-settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { autoCompactWindowChosen, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, DEFAULT_APP_SETTINGS, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
+import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autoCompactWindowChosen, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, DEFAULT_APP_SETTINGS, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
 import { removeTestTree } from '../remove'
 
 /** The path of every readFileSync call, by the test and by the code under test. */
@@ -351,6 +351,29 @@ describe('AppSettingsStore', () => {
     expect(new AppSettingsStore(atBound).get().browserSleep).toStrictEqual(bound)
   })
 
+  it('the Autopilot budget (worfy-throughput ticket 41): an older file gives the defaults, on with 15 %; a choice is kept field by field, one outside the bounds in the file reads as not chosen', () => {
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.2, revision: 4 }))
+    const store = new AppSettingsStore(file)
+    expect(store.get().autopilotBudget).toBeUndefined()
+    expect(autopilotBudgetOf(store.get())).toEqual({ enabled: true, reservePercent: 15 })
+    expect(AUTOPILOT_BUDGET_DEFAULTS).toEqual({ enabled: true, reservePercent: 15 })
+
+    expect(store.set({ autopilotBudget: { enabled: false } })).toMatchObject({ autopilotBudget: { enabled: false }, revision: 5 })
+    expect(JSON.parse(readFileSync(file, 'utf8')).autopilotBudget).toStrictEqual({ enabled: false })
+    expect(store.set({ autopilotBudget: { reservePercent: 25 } }).autopilotBudget).toStrictEqual({ enabled: false, reservePercent: 25 })
+    expect(new AppSettingsStore(file).get().autopilotBudget).toStrictEqual({ enabled: false, reservePercent: 25 })
+    // The same choice again changes nothing.
+    expect(store.set({ autopilotBudget: { reservePercent: 25 } }).revision).toBe(6)
+
+    const outside = freshFile()
+    mkdirSync(join(outside, '..'), { recursive: true })
+    writeFileSync(outside, JSON.stringify({ interfaceScale: 1.1, autopilotBudget: { enabled: 'yes', reservePercent: 51 } }))
+    expect(new AppSettingsStore(outside).get()).toMatchObject({ interfaceScale: 1.1 })
+    expect(autopilotBudgetOf(new AppSettingsStore(outside).get())).toEqual({ enabled: true, reservePercent: 15 })
+  })
+
   it('a Browser sleep field of the wrong type reads as not chosen, and the file is not set aside', () => {
     const file = freshFile()
     mkdirSync(join(file, '..'), { recursive: true })
@@ -509,6 +532,15 @@ describe('appSettings channels', () => {
       expect((await call('appSettings.set', { browserSleep: outside })).ok, JSON.stringify(outside)).toBe(false)
     }
     expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { browserSleep: { maxLive: 10, offscreenSeconds: 1, idleMinutes: 240, zoom: 0.1 } } })
+  })
+
+  it('appSettings.set takes the Autopilot budget within its bounds and refuses a reserve outside them (worfy-throughput ticket 41)', async () => {
+    const call = await windowCaller()
+    expect(await call('appSettings.set', { autopilotBudget: { enabled: true, reservePercent: 50 } })).toMatchObject({ ok: true, value: { autopilotBudget: { enabled: true, reservePercent: 50 } } })
+    for (const outside of [{ reservePercent: -1 }, { reservePercent: 51 }, { reservePercent: 12.5 }, { enabled: 'no' }]) {
+      expect((await call('appSettings.set', { autopilotBudget: outside })).ok, JSON.stringify(outside)).toBe(false)
+    }
+    expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { autopilotBudget: { enabled: true, reservePercent: 50 } } })
   })
 
   it('a change made in main (a menu item) reaches every window too', async () => {
