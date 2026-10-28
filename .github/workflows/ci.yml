@@ -6,18 +6,24 @@ name: CI
 # cost nothing.
 #
 # - changes: which jobs this run needs (scripts/ci-scope.mjs). A change of documents only runs
-#   lint-typecheck and skips the rest.
+#   lint-typecheck and skips the rest; a pull request that changes no build input skips
+#   macos-package.
 # - lint-typecheck: pnpm lint and pnpm typecheck on Linux.
 # - linux-tests: pnpm test on Linux in 4 shards (vitest --shard), files in a random order.
-# - macos-tests: pnpm test on macOS in 2 shards: the tests that run on macOS only are checked here.
+# - macos-tests: pnpm test on macOS in one job: the tests that run on macOS only are checked here.
 # - macos-e2e: pnpm test:e2e on macOS in 2 shards (Playwright --shard), Electron with a window.
-# - macos-package: pnpm test:package on macOS: the packaged .app.
+# - macos-package: pnpm test:package on macOS: the packaged .app. On every push to main, and on a
+#   pull request that changes a build input (scripts/ci-scope.mjs: package.json, the lockfile, the
+#   build configs, build/, the scripts the .app ships, the packaged tests, the workflows).
 # - windows: the job full-suite of windows-tests.yml, pnpm test on Windows in 3 shards (vitest
 #   --shard), jobs "windows (1/3) / full-suite" to "windows (3/3) / full-suite". In one job the heavy
 #   contract files (harness-evals 943 s, harness-migrate 450 s, harness-scripts 421 s) ran at the same
 #   time on one 4-CPU runner, the likely cause of its flaky tests. An earlier try with 4 shards
 #   failed on Git Bash's /tmp, which test/global-setup-git-bash.ts now fixes for every vitest process.
 # - ci-ok: green when every job the run needs succeeded (scripts/ci-ok.mjs). A merge reads this check.
+#
+# The free plan runs 5 macOS jobs at a time, so an ordinary pull request asks for 3 of them: one
+# macos-tests and two macos-e2e shards.
 #
 # The manual run stays: Actions → CI → Run workflow, or `gh workflow run ci.yml --ref <ref> -f
 # job=check` (lint, typecheck and the Linux shards — the batch run of a Wave) and `-f job=full-macos`
@@ -157,13 +163,9 @@ jobs:
     needs: changes
     if: fromJSON(needs.changes.outputs.expect)['macos-tests']
     runs-on: macos-latest
+    # The two shards it replaced took up to 6.7 + 12.6 min together (run 40696174010), each with its
+    # own install: the whole suite fits 45 min more than twice over.
     timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        shard:
-          - 1/2
-          - 2/2
     steps:
       - uses: actions/checkout@v7
         with:
@@ -174,10 +176,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Run unit and contract tests, one shard
-        env:
-          SHARD: ${{ matrix.shard }}
-        run: pnpm test "--shard=$SHARD"
+      - name: Run unit and contract tests
+        run: pnpm test
 
   macos-e2e:
     needs: changes

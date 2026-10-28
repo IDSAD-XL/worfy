@@ -238,7 +238,7 @@ const silentCheck = () => {
                     "Run the same command again. If the check keeps running out of time, the machine is likely overloaded: " +
                     `look at its load, and run the check by hand on the same text to see how long it takes: ${byHand}.`
             )
-        if (r.error)
+        if (r.error && !unreadStdin(r.error, r.status, r.signal))
             deny(
                 notRun +
                     `the check for workflow traces (bin/silent-check) failed (${r.error.code || "error"}: ${r.error.message}), ` +
@@ -273,6 +273,14 @@ const silentCheck = () => {
         )
     }
 }
+
+// True when the only error of a finished check is that it exited before it read all of its stdin (an answer
+// that needs no text, such as exit 0 of a Full project, or a crash). The write into the closed pipe fails with
+// EPIPE on macOS and Linux and with EOF on Windows, where libuv reports ERROR_BROKEN_PIPE as EOF. The exit code
+// or signal is still the verdict, read after this check; any other error, or a check that never ended (no exit
+// code and no signal), has no verdict.
+const unreadStdin = (error, status, signal) =>
+    (error?.code === "EPIPE" || error?.code === "EOF") && (status !== null || signal !== null)
 
 const lowerFirst = (s) => s.charAt(0).toLowerCase() + s.slice(1)
 // The first <max> lines of a long text, and how many more there are: a refusal stays readable.

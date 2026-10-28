@@ -12,9 +12,11 @@
 //
 // - pull_request and push: the files that differ between BASE and HEAD. When every one of them is a
 //   document (isDocument), only lint-typecheck runs: lint is the check that reads documents
-//   (HANDOFF.md, the lessons, Cyrillic in code) and it takes a minute. Otherwise every job runs.
-//   A diff that cannot be read, a BASE of zeros (a new branch) and an empty diff run every job too:
-//   when in doubt, test.
+//   (HANDOFF.md, the lessons, Cyrillic in code) and it takes a minute. Otherwise every job runs,
+//   but for macos-package on a pull request that changes no build input (isBuildInput): the free
+//   plan runs 5 macOS jobs at a time, and a pull request that asked for 5 waited hours for them. A
+//   push to main packages the app whatever it changed. A diff that cannot be read, a BASE of zeros
+//   (a new branch) and an empty diff run every job too: when in doubt, test.
 // - workflow_dispatch: JOB=check runs lint-typecheck and linux-tests, as the batch run of a Wave did
 //   before CI ran on pull requests; JOB=full-macos runs lint-typecheck and the macOS jobs.
 //
@@ -42,6 +44,37 @@ function isDocument(path) {
   if (READ_BY_TESTS.has(path) || CODE_FOLDERS.some((folder) => path.startsWith(folder))) return false
   return path.startsWith('.scratch/') || path.startsWith('docs/') || path.endsWith('.md')
 }
+
+// The files a pull request packages the app for (the job macos-package, `pnpm test:package`), two
+// kinds of them:
+// - build inputs: the dependencies and their install (postinstall rebuilds node-pty for Electron),
+//   the configs of the build and of electron-builder, the build version, the icons in build/, the
+//   scripts electron-builder copies into the .app, and the workflows;
+// - the files the @packaged tests read that no other job checks: their spec files (packaged.spec.ts,
+//   and terminal.spec.ts with its test of node-pty from app.asar.unpacked), the helpers that find
+//   the packaged app, scripts/install-stable.mjs, which they install, and the Playwright config.
+// A change of src/main, harness/ or anything else that matters only in the packaged app is not on
+// this list: the push to main packages the app whatever it changed, and catches it there.
+const BUILD_FILES = new Set([
+  'package.json',
+  'pnpm-lock.yaml',
+  'pnpm-workspace.yaml',
+  'electron-builder.yml',
+  'electron.vite.config.ts',
+  'scripts/build-version.ts',
+  'scripts/postinstall.mjs',
+  'scripts/statusline-bridge.sh',
+  'scripts/statusline-bridge.mjs',
+  'scripts/install-stable.mjs',
+  'playwright.config.ts',
+  'test/e2e/packaged.spec.ts',
+  'test/e2e/terminal.spec.ts',
+  'test/e2e/helpers.ts',
+])
+const BUILD_FOLDERS = ['build/', '.github/workflows/']
+
+/** A path whose change a pull request checks by packaging the app. */
+const isBuildInput = (path) => BUILD_FILES.has(path) || BUILD_FOLDERS.some((folder) => path.startsWith(folder))
 
 const only = (names) => Object.fromEntries(JOBS.map((name) => [name, names.includes(name)]))
 
@@ -72,7 +105,9 @@ function decide(env) {
   if (files.length === 0) return { expect: only(JOBS), why: 'no file changed' }
   const code = files.filter((file) => !isDocument(file))
   if (code.length === 0) return { expect: only(['lint-typecheck']), why: `documents only: ${files.join(' ')}` }
-  return { expect: only(JOBS), why: `code changed: ${code.slice(0, 20).join(' ')}${code.length > 20 ? ` and ${code.length - 20} more` : ''}` }
+  const why = `code changed: ${code.slice(0, 20).join(' ')}${code.length > 20 ? ` and ${code.length - 20} more` : ''}`
+  if (event === 'pull_request' && !code.some(isBuildInput)) return { expect: only(JOBS.filter((name) => name !== 'macos-package')), why: `${why}; no build input, so no macos-package` }
+  return { expect: only(JOBS), why }
 }
 
 const answer = decide(process.env)
