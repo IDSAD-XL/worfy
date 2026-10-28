@@ -195,10 +195,12 @@ note…`, который красный и до правки (5 из 5): в ко
   60 s не воспроизвелось. Готовый sandbox не скопировать: fixture пишет свой путь в файлы, которые коммитит. Решение
   Orchestrator-а: смотрим test после мержа #889; при повторе берём параллельный git плюс печать времени шагов
   sandbox-а в CI-лог.
-- 2026-10-28, Windows job #884 (122747558557): пять shell-test-ов упали с «line 97: shasum: command not found»
-  (project-connect, wave-gate-heartbeat, wave-gate-screen, gate-args, wave-gate-lock). В трёх job-ах до него
-  (122722658964, 122735647777, 122741771964) этого нет. Похоже на сломанный PATH Git Bash на одном runner-е; при
-  повторе разбираем.
+- 2026-10-28, Windows job #884 (122747558557, образ windows-2025-vs2026 20261021.278.1): в выводе
+  `project-connect.test.sh` 78 строк «line 97: shasum: command not found» — на этом образе у Git Bash нет `shasum`.
+  Красным файл сделал не он: файл оборвался со статусом 2304 (exit 9) без строки FAIL, как ещё семь файлов этого
+  job-а (wave-gate-heartbeat, wave-gate-screen, gate-args, wave-gate-lock и другие) — это давление на job, его
+  закрывают #887 и shard-ы #889. Без `shasum` проверка «Harness home не изменился» сравнивала только имена
+  файлов; #908 считает хеш через node.
 - 2026-10-28, `test/contract/harness-evals.test.ts:1982` «says "cases mismatch" when a chosen case is missing…»: `Test
   timed out in 45000ms` на Windows runner-е (#885, job 122748777183). Head уже содержит #888, то есть одного
   временного git-репозитория на все `--changed` case-ы мало. Перемерить после #889 (shard-ы); если не уйдёт —
