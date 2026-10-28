@@ -280,8 +280,8 @@ describe('scripts/ci-scope.mjs', () => {
   const ALL = Object.fromEntries(DECIDED.map((name) => [name, true]))
   const ONLY_LINT = Object.fromEntries(DECIDED.map((name) => [name, name === 'lint-typecheck']))
   const NO_PACKAGE = { ...ALL, 'macos-package': false }
-  /** A pull request that changes code but no app path: the Linux and Windows jobs, no macOS job. */
-  const NO_MACOS = { ...ALL, 'macos-tests': false, 'macos-e2e': false, 'macos-package': false }
+  /** A pull request that changes code but no app path: the Linux and Windows tests, no macOS job and no e2e on Windows. */
+  const NO_MACOS = { ...ALL, 'macos-tests': false, 'macos-e2e': false, 'macos-package': false, 'windows-e2e': false }
   /** A pull request that changes a script or a part of the Harness the app does not carry: the macOS-only test files, no e2e. */
   const TESTS_ONLY = { ...NO_MACOS, 'macos-tests': true }
   // Test files of the base: two with a macOS-only test or assertion, one with a Windows-only test,
@@ -329,18 +329,25 @@ describe('scripts/ci-scope.mjs', () => {
   })
 
   it('chooses windows-e2e by the files as it chooses macos-e2e; a run by hand never asks for it', () => {
-    const cases: Array<[string, string[]]> = [
-      ['pull_request', ['src/main/index.ts']],
-      ['pull_request', ['src/main/index.ts', 'package.json']],
-      ['pull_request', ['docs/adr/0001-a.md']],
-      ['push', ['src/main/index.ts']],
-      ['push', ['HANDOFF.md']],
+    // The event, the files and whether the e2e tests run, on macOS and on Windows alike.
+    const cases: Array<[string, string[], boolean]> = [
+      ['pull_request', ['src/main/index.ts'], true],
+      ['pull_request', ['src/main/index.ts', 'package.json'], true],
+      ['pull_request', ['harness/bin/profile'], true],
+      ['pull_request', ['docs/adr/0001-a.md'], false],
+      // Code outside the app: no e2e on either system.
+      ['pull_request', ['test/unit/plain.test.ts'], false],
+      ['pull_request', ['scripts/agent-cost.mjs', 'harness/bin/tests/profile.test.sh'], false],
+      ['push', ['src/main/index.ts'], true],
+      ['push', ['test/unit/plain.test.ts'], true],
+      ['push', ['HANDOFF.md'], false],
     ]
-    for (const [event, files] of cases) {
+    for (const [event, files, e2e] of cases) {
       commitOnBase(files)
       const result = scope({ EVENT: event, BASE: base })
       expect(result.status, result.stderr).toBe(0)
-      expect(result.expect?.['windows-e2e'], `${event} ${files.join(' ')}`).toBe(result.expect?.['macos-e2e'])
+      expect(result.expect?.['macos-e2e'], `${event} ${files.join(' ')}`).toBe(e2e)
+      expect(result.expect?.['windows-e2e'], `${event} ${files.join(' ')}`).toBe(e2e)
     }
     for (const job of ['check', 'full-macos']) expect(scope({ EVENT: 'workflow_dispatch', JOB: job }).expect?.['windows-e2e'], job).toBe(false)
   })
@@ -467,7 +474,7 @@ describe('scripts/ci-scope.mjs', () => {
     expect(pr.status, pr.stderr).toBe(0)
     expect(pr.expect).toEqual(NO_MACOS)
     expect(pr.files).toEqual([])
-    expect(pr.stdout).toContain('no app path, so no macos-e2e; no app path, script, Harness or macOS-only test file, so no macos-tests\n')
+    expect(pr.stdout).toContain('no app path, so no macos-e2e and no windows-e2e; no app path, script, Harness or macOS-only test file, so no macos-tests\n')
     // The same change pushed to main runs every job, macos-tests with every file.
     const push = scope({ EVENT: 'push', BASE: base })
     expect(push.expect).toEqual(ALL)

@@ -212,8 +212,10 @@ function pullRequest(code) {
     notes.push('no build input, so no macos-package')
   }
   if (!code.some(isAppPath)) {
+    // windows-e2e runs the same e2e tests on Windows, so it follows macos-e2e.
     expect['macos-e2e'] = false
-    notes.push('no app path, so no macos-e2e')
+    expect['windows-e2e'] = false
+    notes.push('no app path, so no macos-e2e and no windows-e2e')
   }
   const darwin = darwinTestFiles()
   if (darwin === null || darwin.length === 0) {
