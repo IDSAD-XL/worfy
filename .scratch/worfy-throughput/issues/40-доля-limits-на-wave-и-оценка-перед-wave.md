@@ -91,3 +91,14 @@ diff есть `test/e2e/**` (`scripts/windows-verdict-scope.mjs:80`); иначе
   file watcher-а (docs-watch-root, docs, card-protocol, claude-home-registry, workflow-reader watcher, harness-script-env) —
   известная проблема fseventsd на этом Mac; `clients`, `harness-script-env`, `harness-scripts` отдельно — exit 0.
 - **Вручную** (не сделано): две настоящие Wave со сверкой долей с `/usage`.
+- **Раунд 2 (PR #928)**: Stop, Force stop и выход из приложения во время запроса usage перед «Run wave» больше не ждут
+  ответа (до 30 s): запрос гонится с `run.rushing` и с новым `run.stopAsked` (клик Stop, `Run.requestStop`). После Force
+  stop и выхода Wave не уходит (`if (run.rushed) return` в `sendWave`): без этой проверки run слал «Run wave» сразу после
+  Force stop — нашёл новый contract test. Stop, кликнутый до запроса, запроса не делает. Перед `wave-finished` гонки со
+  Stop нет: Wave уже идёт, её число конца нужно. Новые test-ы: три contract test-а с usage reader-ом, который не отвечает
+  (`test/contract/autopilot-limits.test.ts`), медиана по 4 Wave и сброс до конца Wave при `resetsAt: null` в конце
+  (`test/unit/autopilot-limits-estimate.test.ts`). `fresh()` в `limits-usage.ts` считает окно с `utilization: null`
+  несвежим (test в `test/unit/limits-usage.test.ts`): такое окно теперь вызывает запрос и перед строкой Wave, и на тике
+  таймера. Шесть mutant-ов — все красные, файлы восстановлены, `cmp` exit 0.
+- **Вне скоупа**: `src/main/autopilot/journal.ts:156-180`: `listRuns` разбирает журналы всех Project-ов, а `readRecentRuns` перечитывает 30
+  из них — теперь на каждую смену статуса кнопки Autopilot. Стоит кешировать или читать только журналы этого Project-а.

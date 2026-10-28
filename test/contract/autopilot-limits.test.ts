@@ -682,6 +682,59 @@ describe('the Limits in the lines of a Wave (worfy-throughput ticket 40)', () =>
     expect(started).toMatchObject({ limits: { seven_day: { utilization: 0.3, receivedAt: iso(START_MS - 5 * 60_000) } } })
   })
 
+  /**
+   * A run waiting on a usage ask that never answers before "Run wave" of Wave 1: the number known
+   * is older than 5 minutes. The reader ignores its abort signal, so only the run's own race ends the wait.
+   */
+  async function hungAsk() {
+    let asks = 0
+    const read: UsageReader = () => {
+      asks += 1
+      return new Promise<never>(() => undefined)
+    }
+    const h = harness({ lines: twoPassingWaves(), limitsFile: limitsFile(START_MS - 5 * 60_000 - 1), usage: read })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => asks === 1, 'the usage ask before Wave 1')
+    return h
+  }
+
+  /** `promise` settles within `ms`, or the test fails at once instead of waiting for the ask's 30 s timeout. */
+  async function within<T>(promise: Promise<T>, what: string, ms = 2000): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${what} did not settle within ${ms} ms`)), ms)
+    })
+    try {
+      return await Promise.race([promise, late])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  it('Force stop during a usage ask that never answers stops the run at once, and no Wave goes', async () => {
+    const h = await hungAsk()
+    const stopped = await within(h.autopilot.forceStop(PROJECT), 'Force stop')
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-force-stop' })
+    expect(h.messages()).toEqual([])
+    expect((await h.journal()).filter((event) => event.kind === 'run-stopped')).toMatchObject([{ reason: 'user-force-stop' }])
+  })
+
+  it("the app's quit during a usage ask that never answers stops the run at once, and no Wave goes", async () => {
+    const h = await hungAsk()
+    await within(h.autopilot.stopAll(), 'the quit')
+    expect(h.state()).toMatchObject({ status: 'stopped', reason: 'app-quit' })
+    expect(h.messages()).toEqual([])
+    expect((await h.journal()).filter((event) => event.kind === 'run-stopped')).toMatchObject([{ reason: 'app-quit' }])
+  })
+
+  it('Stop during a usage ask that never answers answers at once, and no Wave goes', async () => {
+    const h = await hungAsk()
+    const stopped = await within(h.autopilot.stop(PROJECT), 'Stop')
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    expect(h.messages()).toEqual([])
+    expect((await h.journal()).filter((event) => event.kind === 'run-stopped')).toMatchObject([{ reason: 'user-stop' }])
+  })
+
   it('a number that got old during a Wave is asked anew before its wave-finished, which is fresh for the next wave-started', async () => {
     const box: { h?: ReturnType<typeof harness> } = {}
     const { asks, read } = reader(() => box.h!)

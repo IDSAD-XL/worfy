@@ -155,13 +155,17 @@ export class LimitsRefresher {
     }
   }
 
-  /** Whether every shown window was received less than `maxAgeMs` ago (by a passive source only, with `passiveOnly`). */
+  /**
+   * Whether every shown window was received less than `maxAgeMs` ago (by a passive source only, with
+   * `passiveOnly`). A window known without its share (`utilization` null) is not fresh: there is no
+   * number to show or to journal.
+   */
   private fresh(passiveOnly: boolean, maxAgeMs: number): boolean {
     const { windows } = this.options.limits.snapshot()
     const since = this.now() - maxAgeMs
     return LIMIT_WINDOWS.every((id) => {
       const known = windows[id]
-      return known !== undefined && known.receivedAt > since && !(passiveOnly && known.source === 'usage')
+      return known !== undefined && known.utilization !== null && known.receivedAt > since && !(passiveOnly && known.source === 'usage')
     })
   }
 }

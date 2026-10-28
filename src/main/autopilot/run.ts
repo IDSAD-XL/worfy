@@ -374,8 +374,11 @@ class Run {
   lastText: string | null = null
   /** The Tickets of an interrupted Wave the next "Run wave" takes along; emptied once it is sent. */
   resume: readonly number[] = []
-  /** Set at the click on Stop (Autopilot.stop), before its step runs: no new Wave goes from then on. */
+  /** Set at the click on Stop (Autopilot.stop, through requestStop), before its step runs: no new Wave goes from then on. */
   stopRequested = false
+  /** Settles when `stopRequested` is set. */
+  readonly stopAsked: Promise<void>
+  private stopAskedDone!: () => void
   /** Whether STOP_TEXT has gone to the Orchestrator: once per run. */
   stopSent = false
   /** After a Force stop: the Tickets of the Wave it interrupted (AutopilotState.resumable). */
@@ -418,6 +421,9 @@ class Run {
     this.rushing = new Promise((done) => {
       this.rushDone = done
     })
+    this.stopAsked = new Promise((done) => {
+      this.stopAskedDone = done
+    })
     this.ended = new Promise((done) => {
       this.finish = done
     })
@@ -432,6 +438,12 @@ class Run {
    */
   get running(): boolean {
     return !this.done
+  }
+
+  /** Stop was clicked: no new Wave goes, and a usage ask before "Run wave" is not waited for. */
+  requestStop(): void {
+    this.stopRequested = true
+    this.stopAskedDone()
   }
 
   /** A Force stop or the app's quit has come: an end waiting for gh goes on without it. */
@@ -683,7 +695,7 @@ export class Autopilot {
   async stop(projectId: string): Promise<AutopilotState> {
     const run = this.runs.get(projectId)
     if (run === undefined) return this.state(projectId)
-    run.stopRequested = true
+    run.requestStop()
     await run.enqueue(async () => {
       if (run.cycle.phase === 'stopped' || run.cycle.stopping) return
       await this.feed(run, { type: 'graceful-stop', tickets: await this.freshTickets(run) })
@@ -963,8 +975,12 @@ export class Autopilot {
 
   private async sendWave(run: Run): Promise<void> {
     let sent: AutopilotWaveResult
-    // First: a Stop clicked while the usage is asked is seen below, and the Wave does not go.
-    run.sentLimits = await this.freshLimits(run)
+    // First: a Stop clicked while the usage is asked ends that wait at once and is seen below, and
+    // the Wave does not go. A Stop clicked before asks nothing: no Wave line needs the answer.
+    if (!run.stopRequested) run.sentLimits = await this.freshLimits(run, run.stopAsked)
+    // A Force stop or the app's quit came meanwhile: its stop step waits behind this one and stops
+    // the run with its own reason; the Wave does not go.
+    if (run.rushed) return
     // Stop was clicked while the step that decided on this Wave ran (worfy-week ticket 18): the
     // Wave has not gone, so no Ticket was taken, and the run ends here.
     if (run.stopRequested) {
@@ -1005,13 +1021,15 @@ export class Autopilot {
   /**
    * The Limits for a Wave's line: asked anew first when older than FRESH_USAGE_MS (deps.usage).
    * A failed ask is logged and the line takes what there is; undefined without deps.limits. Not
-   * waited for once a Force stop or the app's quit has come (Run.rush), as the last PR read.
+   * waited for once a Force stop or the app's quit has come (Run.rush), as the last PR read, nor
+   * once `cutShort` settles (before "Run wave": the click on Stop). The ask cut short goes on, and
+   * its answer reaches the Limits when it comes.
    */
-  private async freshLimits(run: Run): Promise<JournalLimits | undefined> {
+  private async freshLimits(run: Run, cutShort?: Promise<void>): Promise<JournalLimits | undefined> {
     if (this.deps.limits === undefined) return undefined
     if (this.deps.usage !== undefined && !run.rushed) {
       try {
-        await Promise.race([this.deps.usage.refresh(FRESH_USAGE_MS), run.rushing])
+        await Promise.race([this.deps.usage.refresh(FRESH_USAGE_MS), run.rushing, ...(cutShort === undefined ? [] : [cutShort])])
       } catch (error) {
         console.warn(`[autopilot] ${run.projectId}: could not ask the usage before a Wave's line`, error)
       }

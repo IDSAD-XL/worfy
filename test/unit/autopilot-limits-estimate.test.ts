@@ -28,6 +28,7 @@ interface WaveSpec {
   /** How old the number at each end is, ms. */
   ageStart?: number
   ageEnd?: number
+  resetsStart?: string
   resetsEnd?: string | null
   noLimits?: boolean
 }
@@ -36,7 +37,7 @@ interface WaveSpec {
 function wave(num: number, spec: WaveSpec): JournalEvent[] {
   const tickets = spec.tickets ?? ['01']
   const end = spec.at + HOUR
-  const started: JournalEvent = { ...common(spec.at), kind: 'wave-started', wave: num, tickets, ...(spec.noLimits ? {} : { limits: limits(spec.from, spec.at - (spec.ageStart ?? 0)) }) }
+  const started: JournalEvent = { ...common(spec.at), kind: 'wave-started', wave: num, tickets, ...(spec.noLimits ? {} : { limits: limits(spec.from, spec.at - (spec.ageStart ?? 0), spec.resetsStart ?? RESETS) }) }
   const finished: JournalEvent = {
     ...common(end),
     kind: 'wave-finished',
@@ -83,6 +84,22 @@ describe('waveEstimate', () => {
       ),
     ])
     expect(estimate).toEqual({ perTicket: expect.closeTo(0.02, 10) as unknown as number, waves: 3 })
+  })
+
+  it('leaves out a Wave whose start knew a reset before its end, when the end has no reset time', () => {
+    const counted = [wave(1, { at: T0, from: 0.1, to: 0.12 }), wave(2, { at: T0 + 2 * HOUR, from: 0.12, to: 0.14 }), wave(3, { at: T0 + 4 * HOUR, from: 0.14, to: 0.16 })]
+    // The start's reset time is half an hour into the Wave; the end does not know one, and its share is not lower.
+    const resetInside = wave(4, { at: T0 + 6 * HOUR, from: 0.16, to: 0.5, resetsStart: iso(T0 + 6 * HOUR + HOUR / 2), resetsEnd: null })
+    expect(waveEstimate([run(...counted, resetInside)])).toEqual({ perTicket: expect.closeTo(0.02, 10) as unknown as number, waves: 3 })
+  })
+
+  it('an even number of Waves gives the mean of the two middle samples', () => {
+    // 1 %, 2 %, 4 % and 8 %, given out of order: the median is (2 % + 4 %) / 2.
+    const estimate = waveEstimate([
+      run(wave(1, { at: T0, from: 0.1, to: 0.14 }), wave(2, { at: T0 + 2 * HOUR, from: 0.14, to: 0.15 }), wave(3, { at: T0 + 4 * HOUR, from: 0.15, to: 0.23 }), wave(4, { at: T0 + 6 * HOUR, from: 0.23, to: 0.25 })),
+    ])
+    expect(estimate?.waves).toBe(4)
+    expect(estimate?.perTicket).toBeCloseTo(0.03, 10)
   })
 
   it('a number exactly 30 minutes old still counts', () => {

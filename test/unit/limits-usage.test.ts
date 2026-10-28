@@ -254,6 +254,13 @@ describe('LimitsRefresher.refreshIfOlder (before a Wave of Autopilot, worfy-thro
     expect(read).toHaveBeenCalledTimes(1)
   })
 
+  it('asks when a fresh window is known without its share (utilization null)', async () => {
+    store.state = { windows: { five_hour: window(START, 'sdk'), seven_day: { ...window(START, 'sdk'), utilization: null } } }
+    await refresher.refreshIfOlder(5 * MINUTE)
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(store.state.windows.seven_day).toMatchObject({ utilization: 0.4, receivedAt: START, source: 'usage' })
+  })
+
   it('waits for an ask already running instead of starting a second one', async () => {
     let finish: (value: unknown) => void = () => undefined
     read.mockImplementation(() => new Promise((resolve) => (finish = resolve)))
