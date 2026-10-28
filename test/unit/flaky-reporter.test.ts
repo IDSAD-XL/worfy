@@ -50,7 +50,8 @@ function vitestModule(file: string, tests: { fullName: string; line?: number; re
 
 describe('retries of vitest.config.ts', () => {
   it('retries a failed test CI_RETRIES times and reports the flaky ones, next to the default reporters', () => {
-    const config = readFileSync(join(import.meta.dirname, '..', '..', 'vitest.config.ts'), 'utf8')
+    // A Windows checkout may have CRLF line ends.
+    const config = readFileSync(join(import.meta.dirname, '..', '..', 'vitest.config.ts'), 'utf8').replaceAll('\r\n', '\n')
     expect(config).toMatch(/reporters: \[\.\.\.configDefaults\.reporters, .*'\.\/test\/flaky-reporter\.ts'\]/)
     expect(config).toContain('    retry: CI_RETRIES,\n')
     // The FLAKY line names the line of the test: vitest collects it only with includeTaskLocation.
