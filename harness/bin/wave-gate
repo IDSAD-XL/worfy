@@ -470,7 +470,8 @@ function stopPoint(at) {
 // is taken to run, which the error names.
 function holderAlive(pid, started) {
     if (!pidAlive(pid)) return false
-    if (!Number.isFinite(started) || process.platform !== "win32") return "no start time to compare"
+    if (!Number.isFinite(started)) return "no start time to compare"
+    if (process.platform !== "win32") return "its start time is not read here"
     stopPoint("alive")
     const now = startedAt(pid)
     // No answer also comes for a process that ended while PowerShell was asked, as a short-lived process that got the
