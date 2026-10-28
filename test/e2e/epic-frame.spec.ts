@@ -15,6 +15,7 @@ import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
 import { canvasReady, expectSettledWithoutOverlaps, flowPositionsInOnePass, launchApp, oneBoxEachInOnePass, parkPointer, repoRoot, settledBoxes, settledRead, ticketCardCuts, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { measuresReference, RUNNER_START_CAP_MS, START_RATIO, startBudget } from './start-budget'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
 
@@ -1096,43 +1097,35 @@ async function interactiveAfter(window: Page, epic: string): Promise<number> {
   )
 }
 
-/**
- * How many times the start of a one-Ticket Project the start of an Auction-sized one may take, on a
- * machine slow enough that 3 s is less than that. The 3 s hold on the owner's Mac; the GitHub macOS
- * runner starts every Project several times slower, so there the budget is measured against its
- * own start of a one-Ticket Project in the same test, the median of REFERENCE_STARTS starts.
- * Measured 2026-10-28 from single starts: the owner's Mac 564 ms against 325 ms (1.7×, the budget
- * stays 3 s); the runner 3897 ms against 1274 ms (3.1×) and 3911 ms against 909 ms (4.3×), and
- * 3717–4853 ms for the Auction-sized start alone. 6 holds the runner's spread and still guards it
- * more tightly than 3 s guard the owner's Mac (5.3 times its 564 ms).
- */
-const START_RATIO = 6
-/** One-Ticket starts behind the reference: a single start on the runner varied from 909 to 1274 ms. */
+/** One-Ticket starts behind the reference on GitHub Actions: a single start on the runner varied from 909 to 1274 ms. */
 const REFERENCE_STARTS = 3
 
 test('an Auction-sized Project is interactive within 3 s and pans and zooms smoothly over its biggest Epic', async () => {
   const answer = join(scratch, 'epic-status.json')
-  // The reference: the same start of a one-Ticket Project on this machine.
-  let small: { json: string; biggest: string } | undefined
-  makeProject((dir) => {
-    small = generateEpics(dir, [1])
-  })
-  writeFileSync(answer, small!.json)
   makeClaudeHome(answer)
+  // On GitHub Actions the budget is measured against the same start of a one-Ticket Project on the
+  // runner (test/e2e/start-budget.ts); everywhere else it is 3 s and needs no reference.
   const starts: number[] = []
-  for (let n = 0; n < REFERENCE_STARTS; n += 1) {
-    const reference = await launch()
-    try {
-      starts.push(await interactiveAfter(reference.window, small!.biggest))
-    } finally {
-      await reference.close()
+  if (measuresReference(process.env)) {
+    let small: { json: string; biggest: string } | undefined
+    makeProject((dir) => {
+      small = generateEpics(dir, [1])
+    })
+    writeFileSync(answer, small!.json)
+    for (let n = 0; n < REFERENCE_STARTS; n += 1) {
+      const reference = await launch()
+      try {
+        starts.push(await interactiveAfter(reference.window, small!.biggest))
+      } finally {
+        await reference.close()
+      }
     }
+    // The Auction-sized Project in a Project folder and app data of its own.
+    await removeDir(join(scratch, 'demo'))
+    dataDir = join(scratch, 'data-auction')
+    mkdirSync(dataDir)
   }
-  const referenceMs = [...starts].sort((a, b) => a - b)[Math.floor(REFERENCE_STARTS / 2)]!
-  // The Auction-sized Project in a Project folder and app data of its own.
-  await removeDir(join(scratch, 'demo'))
-  dataDir = join(scratch, 'data-auction')
-  mkdirSync(dataDir)
+  const referenceMs = starts.length > 0 ? [...starts].sort((a, b) => a - b)[Math.floor(starts.length / 2)]! : 0
 
   let generated: { json: string; biggest: string } | undefined
   makeProject((dir) => {
@@ -1197,13 +1190,14 @@ test('an Auction-sized Project is interactive within 3 s and pans and zooms smoo
     test.info().annotations.push({ type: 'perf', description: `hoverToLit=${hoverMs}ms` })
     if (enforce) expect(hoverMs).toBeLessThanOrEqual(100)
 
-    const budget = Math.max(3_000, START_RATIO * referenceMs)
+    const budget = startBudget(referenceMs, process.env)
+    const reference = starts.length > 0 ? `a one-Ticket Project ${starts.join(', ')} ms, median ${referenceMs} ms` : 'no one-Ticket reference off GitHub Actions'
     console.log(
-      `auction-size: interactive ${interactiveMs} ms after the window's page started loading (a one-Ticket Project ${starts.join(', ')} ms, median ${referenceMs} ms; budget ${budget} ms); ` +
+      `auction-size: interactive ${interactiveMs} ms after the window's page started loading (${reference}; budget ${budget} ms); ` +
         `pan/zoom 5 s: ${frames.length} frames, median ${fps} fps, longest frame ${longest} ms; ${ticketsDrawn} Ticket Nodes in the DOM`,
     )
     test.info().annotations.push({ type: 'perf', description: `interactive=${interactiveMs}ms reference=${referenceMs}ms medianFps=${fps} longestFrame=${longest}ms frames=${frames.length}` })
-    expect(interactiveMs, `interactive within ${budget} ms: 3 s, or ${START_RATIO} × the ${referenceMs} ms of a one-Ticket Project on a slower machine`).toBeLessThanOrEqual(budget)
+    expect(interactiveMs, `interactive within ${budget} ms: 3 s, or on GitHub Actions ${START_RATIO} × the ${referenceMs} ms of a one-Ticket Project, at most ${RUNNER_START_CAP_MS} ms`).toBeLessThanOrEqual(budget)
     // Frame rates depend on the machine: CI only prints them, WORFY_PERF=1 on the developer's Mac checks them.
     if (enforce) {
       expect(fps).toBeGreaterThanOrEqual(55)

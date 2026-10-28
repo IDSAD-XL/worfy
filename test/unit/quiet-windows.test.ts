@@ -63,8 +63,9 @@ describe('quietWindows', () => {
     expect(quietWindows({ WORFY_QUIET_WINDOWS: value }, 'darwin')).toEqual(NORMAL_WINDOWS)
   })
 
-  // WORFY_KEEP_PAINTING=1 (every e2e start, playwright.config.ts): the painting switches of quiet
-  // mode without the rest of it, for the specs that turn quiet windows off for the real focus.
+  // WORFY_KEEP_PAINTING=1 (every e2e start, playwright.config.ts): the painting switches,
+  // backgroundThrottling: false and largerThanScreen of quiet mode without the rest of it, for the
+  // specs that turn quiet windows off for the real focus.
   it('with WORFY_KEEP_PAINTING=1 alone keeps the normal start and adds only the painting switches, backgroundThrottling: false and a window larger than the display', () => {
     const plan = quietWindows({ WORFY_KEEP_PAINTING: '1' }, 'darwin')
     expect(plan).toEqual({

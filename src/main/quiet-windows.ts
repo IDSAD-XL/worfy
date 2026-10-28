@@ -11,9 +11,10 @@
 // value other than "1" counts as not set: the window shows itself and takes the focus as before.
 //
 // Kept painting: WORFY_KEEP_PAINTING=1, also set by playwright.config.ts for every e2e run, turns on
-// only the Chromium switches and backgroundThrottling: false that quiet mode has, so a window that
-// macOS counts as covered or in the background is still painted and gets its 'ready-to-show'. It
-// also covers the specs that turn quiet mode off for the real focus (test/e2e/linked-notify.spec.ts):
+// only three things that quiet mode has: the Chromium switches and backgroundThrottling: false, so a
+// window that macOS counts as covered or in the background is still painted and gets its
+// 'ready-to-show'; and largerThanScreen, so a window keeps the size a test sets on a display smaller
+// than that size (the GitHub macOS runner's 1024×768). It also covers the specs that turn quiet mode off for the real focus (test/e2e/linked-notify.spec.ts):
 // focus and system notifications stay as in a normal start. The same rule: only "1" turns it on.
 
 /** What src/main/index.ts, src/main/window.ts and src/main/notify.ts do about showing worfy's windows and notes. */
