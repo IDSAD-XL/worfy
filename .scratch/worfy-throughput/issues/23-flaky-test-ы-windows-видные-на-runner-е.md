@@ -185,3 +185,17 @@ note…`, который красный и до правки (5 из 5): в ко
 - 2026-10-28, из PR #907: `_worfy_suggest_timer_end` (`src/main/terminal/zsh/rc.d/20-suggest-ai.zsh:89`) — тот же
   SIGCHLD может прийти при естественном конце таймера Suggestion, и на Linux потеряется ask или перерисовка.
   Детерминированного test-а нет, правки нет. Если flaky test terminal-ai вернётся после мержа #907, берём это первым.
+
+### Наблюдения, отложенные без PR
+
+- 2026-10-28, `test/contract/harness-migrate.test.ts` › «Q19 matches the plugin…»: `Hook timed out in 60000ms` в
+  beforeEach `useSandbox` (`test/contract/harness-migrate-harness.ts:130`), CI #892, job 122732532813. На runner-е
+  первые два test-а файла шли 72 s и 52 s, остальные ~5 s; в то же окно шли harness-evals, projects, terminal-ai-suggest
+  и link-server. На ПК sandbox — 1,6 s тихо (12 вызовов git — ~1,25 s), под нагрузкой 16 spinner-ов первый test 5,8 s;
+  60 s не воспроизвелось. Готовый sandbox не скопировать: fixture пишет свой путь в файлы, которые коммитит. Решение
+  Orchestrator-а: смотрим test после мержа #889; при повторе берём параллельный git плюс печать времени шагов
+  sandbox-а в CI-лог.
+- 2026-10-28, Windows job #884 (122747558557): пять shell-test-ов упали с «line 97: shasum: command not found»
+  (project-connect, wave-gate-heartbeat, wave-gate-screen, gate-args, wave-gate-lock). В трёх job-ах до него
+  (122722658964, 122735647777, 122741771964) этого нет. Похоже на сломанный PATH Git Bash на одном runner-е; при
+  повторе разбираем.
