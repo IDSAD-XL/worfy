@@ -239,3 +239,8 @@ note…`, который красный и до правки (5 из 5): в ко
   Timeout не менялся.
   Долг (low, из review #926): сторож не считает `export { execPath } from 'node:process'`. `agent-cost.test.ts`
   остаётся в списке, пока не смёржен #922.
+- 2026-10-28, Windows e2e на runner-е, flaky — каждый по одному разу:
+  - первый полный run 40742646874 (head 68491cf9): `browser.spec.ts:279` и `linked-machines.spec.ts:783`;
+  - ранние triage run-ы: `trash-undo.spec.ts:115` и `controls.spec.ts:189`.
+  Правило — «3 FLAKY за неделю → ticket»; ни один test его не достиг, отдельного ticket-а нет. Run #921 (40749133614,
+  после переноса e2e-шага под pwsh) — 323 passed, flaky нет.
