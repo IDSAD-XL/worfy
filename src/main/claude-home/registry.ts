@@ -698,6 +698,31 @@ export interface WatchOptions {
    * chokidar's 'ready' was missed in 4 of 150 runs, and in none of 150 with a 50 ms wait.
    */
   settleMs?: number
+  /**
+   * How often the registry folder is listed in case the watcher missed a change of it. On macOS
+   * every fs.watch of the process shares one FSEvents stream, and libuv makes that stream again
+   * each time any watch starts or stops: a file written meanwhile is never reported. With other
+   * watches starting, 1 to 4 of 100 registry files written were missed (none without them), and
+   * the app starts its watches in the first seconds. A missed file with no live Session left its
+   * Node off the Canvas until the next change of the registry, which may never come.
+   */
+  pollMs?: number
+}
+
+/** Names, sizes and modification times of the registry files: equal while the registry is unchanged. */
+async function registryStamp(sessionsDir: string): Promise<string> {
+  const names = (await listDir(sessionsDir)).filter((entry) => entry.isFile && /^\d+\.json$/.test(entry.name)).map((entry) => entry.name)
+  const stamps = await Promise.all(
+    names.map(async (name) => {
+      try {
+        const stats = await stat(join(sessionsDir, name))
+        return `${name}:${stats.size}:${stats.mtimeMs}`
+      } catch {
+        return `${name}:gone` // removed between the listing and the stat
+      }
+    }),
+  )
+  return stamps.sort().join('\n')
 }
 
 /**
@@ -837,6 +862,7 @@ export class ClaudeHomeRegistry {
     const roots = await this.roots(projectRoot)
     const debounceMs = options.debounceMs ?? 150
     const settleMs = options.settleMs ?? 100
+    const pollMs = options.pollMs ?? 250
     const projectsDir = this.projectsDir
     const sessionsDir = this.sessionsDir
 
@@ -947,10 +973,33 @@ export class ClaudeHomeRegistry {
       })
       .catch((error: unknown) => console.error('[claude-home] reading transcript folders failed', error))
     const ready = Promise.all([new Promise<void>((done) => watcher.once('ready', () => setTimeout(done, settleMs))), prefilled]).then(() => undefined)
+    // The registry folder listed again every pollMs (WatchOptions.pollMs): a change the watcher
+    // missed is reported all the same. Taken first when watching starts, so a file written after
+    // that is either in the list a client reads after `ready` or reported here.
+    let stamp: string | undefined
+    let polling = true
+    const listed = (now: string): void => {
+      if (stamp !== undefined && now !== stamp) {
+        sessions = true
+        schedule()
+      }
+      stamp = now
+    }
+    const pollDone = () => {
+      polling = false
+    }
+    void registryStamp(sessionsDir).then(listed, () => undefined).finally(pollDone)
+    const poller = setInterval(() => {
+      if (polling || closed) return
+      polling = true
+      void registryStamp(sessionsDir).then(listed, () => undefined).finally(pollDone)
+    }, pollMs)
+    poller.unref()
     return {
       ready,
       close: async () => {
         closed = true
+        clearInterval(poller)
         if (timer) clearTimeout(timer)
         timer = undefined
         await closeForGood(watcher)
