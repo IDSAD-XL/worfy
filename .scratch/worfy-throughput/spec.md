@@ -561,6 +561,7 @@ https://platform.claude.com/docs/en/build-with-claude/prompt-caching, разде
 | 30 | gate full на ПК раз в Wave вместо каждого PR со scope `pc` | 29 | **да** | да (`epic-wave`, `rules.md`) + ADR | ПК | после ПК |
 | 34 | Карантин e2e и flaky `quiet-windows.spec.ts` | 20 | **да** (файлы `PC_ONLY`) | нет | ПК | после ПК |
 | `worfy-polish` 41 | Flaky test-ы Windows на ПК (с правкой выше) | — | **да** | нет | ПК | после ПК |
+| 36 | Windows e2e на GitHub runner-е: job в `ci-ok`, сначала не блокирует, после пяти зелёных run-ов подряд — блокирует (решение владельца 2026-10-28) | 35 | только база красных e2e | нет | runner | 7 |
 | 05 | Повторный замер после плана | 01, 02, 03, 13, 19, 20, 24, 25, 26, 27, 28, 29, 31, 33 | нет | нет | — | последним |
 
 Почему так:

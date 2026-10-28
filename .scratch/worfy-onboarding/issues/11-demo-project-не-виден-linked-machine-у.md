@@ -1,7 +1,8 @@
 # 11 — Project `localOnly`: Demo project не виден Linked machine-у
 
 Type: task
-Status: claimed 2026-10-27T09:21Z
+Status: done 2026-10-28T06:22Z
+PR: #859
 Branch: worfy-onboarding/11
 Blocked by: —
 Source: решения владельца 2026-10-26, пункт 8 (Demo project только локальный и никогда не предлагается Linked machine-у); [spec.md](../spec.md), «Как устроено», «Linked machine»; [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6 (Linked machine работает только внутри Project-ов этой Machine)
@@ -68,4 +69,14 @@ Source: решения владельца 2026-10-26, пункт 8 (Demo project
 
 ## Итог
 
-Заполняется при закрытии.
+- PR #859, влит 2026-10-27. Project, добавленный с `localOnly` (`ProjectStore.add(folder, { localOnly })`,
+  `src/main/projects/store.ts`), Linked machine не видит: `projects.*` отдают ей список без него, broadcast
+  `projects.changed` уходит ей отфильтрованным. `src/main/link/caller.ts` (`localProjectIn`) находит такой Project
+  по `projectId`, `id` на канале `projects.*`, пути внутри его корня (в том числе относительному) или `sessionId`
+  его Session; `src/main/link/ipc-adapter.ts` отказывает в вызове до handler-а («<name> is local to this Machine»),
+  `LinkSender.send` не передаёт его события. Отдельный круг на Windows поправил только test: Win32 отбрасывает
+  `..` как текст до перехода по ссылке.
+- Долг (low, из VERIFIED-комментария): adapter не проверяет `draft.gate[].match` у `projects.connect.write` —
+  общий Project из нескольких репозиториев мог бы назвать папку Demo репозиторием, и `checks.repos`
+  (`src/main/ipc/checks.ts:132-137`) вернул бы её имя и путь (по коду, не запускалось); `test/contract/projects.test.ts`
+  длиннее 1000 строк (1022).
