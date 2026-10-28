@@ -1,7 +1,8 @@
 # 44 — Windows e2e на GitHub runner-е: job в `ci-ok`, сначала только статистика, блокирует после пяти зелёных run-ов подряд
 
 Type: task
-Status: open
+Status: claimed 2026-10-28T10:44Z
+Branch: triage/windows-e2e
 Blocked by: 35
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», решение 15 (Windows e2e —
 отдельным job-ом в `ci-ok`, сначала не блокирующим, блокирующим после примерно пяти зелёных run-ов подряд;
