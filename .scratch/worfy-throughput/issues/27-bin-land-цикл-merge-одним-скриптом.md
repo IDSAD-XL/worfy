@@ -1,7 +1,7 @@
 # 27 — `bin/land`: цикл merge одним скриптом в фоне — rebase, gate full, метки, merge, `ticket done`, batch CI
 
 Type: task
-Status: open
+Status: claimed 2026-10-28T22:09Z
 Blocked by: 35
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», предложения 3 и 4, решения 12 и 13;
 скрипт Orchestrator-а `merge-once.sh`
@@ -78,3 +78,51 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - Свежий контекст Orchestrator-а — Ticket 28.
 
 ## Итог
+
+Ветка `worfy-throughput/27`; PR — с этой ветки, платформенный (ADR-0056, пункт 2: новый скрипт Harness).
+
+**Что сделано.** Основа — правка 2026-10-28: merge по check `ci-ok` на head каждого PR, без локального
+gate full и без `wave-gate check`/`merge` (Ticket 07 не оставил `wave-gate` путём по умолчанию, у профиля
+worfy `workflow.merge_gate` — `null`). Поэтому пункты «Что делаем» 1.1, 1.3 и 1.5 (gate full набора,
+`wave-gate merge`, batch CI и dispatch `windows-full`) в скрипт не вошли: с `workflow.ci` `pr` CI идёт на
+каждом PR и на каждом push в `main` сам.
+
+- `harness/bin/land <state.json> [--watch]` (Node). Условие merge на head PR: ни одного run-а
+  `ci.yml` в очереди или в работе; последний check `ci-ok` — `completed` `success` (`failure` и
+  `cancelled` — красный); commit status `review` — `success`; с правилом scope — `node
+  scripts/windows-verdict-scope.mjs origin/main <head>` в checkout-е `main`: код 0 — достаточно runner-а,
+  код 1 — нужен `check/windows` `success` (`skipped` — тоже `success`), другой код — PR ждёт. Метка
+  `review` переносится на новый head, только если diff PR вне `.scratch` (без строк `index`) побайтно
+  тот же. Merge по одному PR, под замком `$(git rev-parse --git-common-dir)/main.lock` (mkdir):
+  `mergeable` `UNKNOWN` — повтор до 6 раз через 10 s, потом `waits`; `CONFLICTING`/`DIRTY`/`BEHIND` —
+  `waits` с причиной (rebase и update-branch `land` не делает); `gh pr merge N --squash
+  --match-head-commit <head>`. После merge-ей — один docs PR на run: `ticket done` в отдельном worktree
+  `<state>.docs`, `docs.handoff.check`, commit, push, `gh pr create`, merge по `ci-ok`. Каждый шаг
+  пишется в state file сразу; повторный запуск продолжает с записанного, влитый PR не вливается снова.
+  Вывод: `#N merged <sha>` / `#N waits: <причина>`, затем `LAND=green|red|unverified` (exit 0/2/3,
+  1 — ошибка во входе); лог — `<state>.log` рядом со state file. `workflow.ci` `batch` отклоняется.
+- `harness/bin/tests/land.test.sh` — 55 проверок на временном bare-репозитории со stub-ами `gh`,
+  `ticket`, `sleep`, scope и docs check: два зелёных PR и один docs PR; красный и отменённый `ci-ok`;
+  run в работе при старом зелёном `ci-ok`; `review` нет / `failure` / перенос после rebase; scope 0/1/2;
+  `UNKNOWN` ×6, `BEHIND`, `DIRTY`, сдвиг head; замок (ожидание, брошенный замок, снятие на SIGTERM);
+  kill после merge первого PR и повторный запуск; `--watch`; красный docs check; упавший `ticket
+  done`; Silent mode; блок state file из skill-а. Настоящий `~/.claude` test не трогает (снимок до и после).
+- Mutation testing: 26 mutant-ов правил `land` (по одному на правило: `ci-ok`, run в работе, `review`,
+  перенос, scope, `--match-head-commit`, замок, `UNKNOWN`, `BEHIND`, `DIRTY`, сдвиг head, resume, один
+  docs PR, docs check, `ticket done`, `batch`, сигнал, брошенный замок, вердикт) — каждый краснит
+  `land.test.sh`, после восстановления — exit 0. Два mutant-а сначала выжили (повторный опрос GitHub о
+  PR, который state file уже знает влитым; упавший `ticket done` без проверки кода выхода) — для них
+  добавлены проверки.
+- Skill `epic-wave`, раздел 4: «Merge with land» — Orchestrator вливает PR только через `land` в фоне,
+  блок state file и команда запуска. `ship-ticket` (раздел о merge) и `implementer.md` (шаг 5, e2e)
+  называют условием merge финальный CI check (`ci-ok`), а не gate full. Строки `ship-ticket` `:50`,
+  `:683`, `:748` из «Готово, когда» описывают finish `local-green`, где gate full и есть условие, —
+  их не правили. `harness/README.md` — `land` в списке скриптов.
+
+**Что осталось.**
+- (вручную, после обновления Stable copy) одна настоящая Wave, влитая через `land`, и число вызовов
+  модели Orchestrator-а на merge до и после (Ticket 19).
+- Вердикт Windows — runner `full`: `land.test.sh` на Windows идёт в `windows / full-suite` (через
+  `test/contract/harness-scripts.test.ts`); merge ждёт `check/windows`.
+- Две параллельные копии `land` на одном state file не разведены (`shortcut:` в шапке скрипта): каждый
+  merge защищён замком и `--match-head-commit`, сам файл — нет.

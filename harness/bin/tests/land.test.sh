@@ -107,12 +107,14 @@ if (cmd === "pr view") {
 EOF
 # The shell's gh is the stub too: nothing in this file can reach a real gh.
 printf '#!/usr/bin/env bash\nexec node "%s" "$@"\n' "$STUBS/gh.mjs" >"$STUBS/gh"; chmod +x "$STUBS/gh"
-# ticket: `done <epic> <NN> --pr <N> --root <root>` writes <root>/<epic>/issues/<NN>.md and logs the call and its cwd.
+# ticket: `done <epic> <NN> --pr <N> --root <root>` writes <root>/<epic>/issues/<NN>.md and logs the call and its cwd;
+# with $GHD/ticket-fail it writes nothing and exits 1.
 cat >"$STUBS/ticket.mjs" <<'EOF'
 import fs from "node:fs"
 import path from "node:path"
 const a = process.argv.slice(2), root = a[a.indexOf("--root") + 1]
 fs.appendFileSync(path.join(process.env.GHD, "ticket.log"), `${a.slice(0, 5).join(" ")} root-in-cwd=${path.resolve(root).startsWith(process.cwd())}\n`)
+if (fs.existsSync(path.join(process.env.GHD, "ticket-fail"))) { process.stderr.write("ticket: no such ticket\n"); process.exit(1) }
 fs.mkdirSync(path.join(root, a[1], "issues"), { recursive: true })
 fs.writeFileSync(path.join(root, a[1], "issues", `${a[2]}.md`), `Status: done\nPR: #${a[4]}\n`)
 EOF
@@ -220,6 +222,7 @@ docs_head="$(git -C "$W/origin.git" rev-parse refs/pull/900/head)"
 "$LAND" "$S" >"$W/out2" 2>&1; rc=$?
 [ "$rc" = 0 ] && ! grep -q '^pr merge\|^pr create' "$GHD/log" && [ "$(head -n 3 "$W/out2")" = "$(head -n 3 "$W/out")" ] \
     && ok "green: a second run repeats nothing and prints the same lines" || bad "green: second run exit $rc, gh $(cat "$GHD/log")"
+! grep -q '^pr view' "$GHD/log" && ok "green: a second run asks GitHub nothing about a PR its state file has as merged" || bad "green: second run asked $(grep '^pr view' "$GHD/log")"
 
 # --- a red ci-ok waits; a cancelled one too; the other PR merges -----------------------------------------------
 new_world red 1 2
@@ -402,6 +405,16 @@ echo 1 >"$GHD/docs-check-rc"
 rm -f "$GHD/docs-check-rc"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(grep -c '^pr create' "$GHD/log")" = 1 ] && [ "$(merged_of 1)" = 1 ] && ok "docs: the next run opens and merges the documents PR, PR 1 not merged again" || bad "docsred rerun: exit $rc: $(cat "$W/out")"
+new_world ticketfail 1
+state noscope 1
+: >"$GHD/ticket-fail"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merged_of 1)" = 1 ] && ! grep -q '^pr create' "$GHD/log" && grep -q '^documents land-docs/.* waits: ticket done e 01 failed (exit 1)' "$W/out" \
+    && [ -z "$(git -C "$W/origin.git" for-each-ref 'refs/heads/land-docs/*')" ] \
+    && ok "docs: a failed ticket done -> nothing pushed, no documents PR, LAND=unverified" || bad "ticketfail: exit $rc: $(cat "$W/out")"
+rm -f "$GHD/ticket-fail"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(grep -c '^pr create' "$GHD/log")" = 1 ] && [ "$(merged_of 1)" = 1 ] && ok "docs: after a failed ticket done the next run opens and merges the documents PR" || bad "ticketfail rerun: exit $rc: $(cat "$W/out")"
 new_world silent 1
 state noscope 1
 node -e 'const fs=require("fs"),s=JSON.parse(fs.readFileSync(process.argv[1]));s.tickets_root=null;fs.writeFileSync(process.argv[1],JSON.stringify(s))' "$S"
