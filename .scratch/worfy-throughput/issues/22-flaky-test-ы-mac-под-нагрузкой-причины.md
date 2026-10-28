@@ -74,3 +74,77 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - **Mutant.** В `src/main/agent/env.ts:175` `if (settled) return` заменён на `if (settled) { output += chunk; return }`
   (capture держит всё, что пришло после ответа). Test красный: `AssertionError: expected 185.401344 to be less than 50`,
   файл — exit 1 (1 failed, 15 passed). Файл восстановлен из копии, `cmp` — 0.
+
+Нагрузка во всех замерах ниже — `yes > /dev/null` на половине ядер (9 из 18 на Mac владельца),
+свои pid-ы каждого прогона запущены перед ним и сняты `kill` сразу после; один прогон под нагрузкой —
+2–4 s. Каждый прогон — `node scripts/vitest-electron.mjs <файл> --reporter=verbose`. «До правки» —
+копия test-а до правки во временном файле `test/unit/zz-before-*.test.tsx` (удалён после замера).
+Записей карантина у обоих test-ов не было (`grep -c` по `test/quarantine/*.json` — 0 во всех
+11 файлах), снимать нечего. Timeout-ы не менялись.
+
+### `test/unit/canvas.test.tsx`, `collectNodeTypes` (первый test файла)
+
+- **Красные в gate full на Mac до правки:** 26 логов из 447 в `~/.claude/worfy-harness/gate/state/logs/`,
+  везде `Test timed out in 5000ms` у первого test-а файла, файл целиком — 10,8–18,7 s (в тишине — 1,7 s).
+  Последний красный — 2026-10-28T03:56Z.
+- **Причина:** до PR #877 копия реестра Node type-ов строилась в `beforeAll`, а первый import реестра
+  делал первый test (`collectNodeTypes`). Реестр (`src/renderer/canvas/nodes/index.ts:109`,
+  `import.meta.glob('./*Node.tsx', { eager: true })`) тянет все Node type-ы: 143 модуля `src/`
+  (658 вместе с `node_modules`, замер esbuild metafile) — почти весь renderer. Их transform шёл внутри
+  5 s первого test-а; под load average 30–60 он не успевал.
+- **Правка:** уже в `main` — PR #877 (`bdf72fff`): копия реестра строится, и реестр импортируется
+  один раз, пока файл собирается (`test/unit/canvas.test.tsx:35-42`), вне timeout-а test-а. Проверено:
+  1. дорогой import не повторяется — в файле нет `vi.resetModules`, остальные 11 `await import(...)`
+     реестра берут модуль из кэша: первый test — 1–2 ms;
+  2. весь renderer он тянет, но это нужно самому файлу: его test-ы рисуют настоящий `Canvas.tsx` с
+     реестром, так что облегчить import только для `collectNodeTypes` (вынести функцию в отдельный
+     модуль) — перенос той же цены, а не её снятие. Новой правки нет: причины, которую можно снять
+     ещё, не нашлось.
+- **После правки:** с 2026-10-28T05:32Z в 21 gate-логе ни одного красного у этого файла.
+- **Повторы (exit code каждого прогона):**
+
+  | Вариант | Тишина: красных | Нагрузка: красных | Первый test, тишина | Первый test, нагрузка |
+  | --- | --- | --- | --- | --- |
+  | до #877 | 0 из 10 (все exit 0) | 0 из 10 (все exit 0) | 590–621 ms | 828–897 ms |
+  | после #877 | 0 из 10 (все exit 0) | 0 из 10 (все exit 0) | 1–2 ms | 1–2 ms |
+
+  Красным `yes` на 9 ядрах при прогоне одного файла не сделать: этого мало до load average 30–60
+  gate full, где 18 worker-ов делят один Vite server. Правку подтверждают время первого test-а и
+  mutant.
+- **Mutant:** `FALLBACK_WIDTH = 240` → `200` в `src/renderer/canvas/nodes/index.ts:36` — test
+  `maps each kind to its component…` красный (exit 1, `1 failed | 42 passed`); файл восстановлен из
+  копии, `cmp` — exit 0.
+
+### `test/unit/session-node-drop.test.tsx`
+
+- **Красные в gate full на Mac до правки:** 12 логов (2026-10-25 – 2026-10-27), везде
+  `Test timed out in 5000ms`: первый test файла (`an image and a text file become two chips…`) —
+  12 раз, второй (`a message of attachments only…`) — 7 раз, `a chip removed with ×…` — 1 раз; файл
+  целиком — 10,3–18,3 s (в тишине — 3,5 s).
+- **Причина:** та же, что у `collectNodeTypes`. `beforeEach` зовёт `vi.resetModules()`, и каждый
+  test импортирует `SessionNode.tsx` заново; первый такой import делает transform Node-а и всего, до
+  чего он доходит (56 модулей `src/`, 532 вместе с `node_modules`), внутри 5 s первого test-а.
+  Второй test, если первый упал по timeout-у, ждёт тот же ещё не законченный transform — поэтому
+  красные парами. `vi.resetModules()` сбрасывает только выполненные модули (`exports`, `evaluated`),
+  результат transform-а остаётся, так что повторный import в следующих test-ах дешёвый.
+- **Правка:** `test/unit/session-node-drop.test.tsx:13-17` — `await import(SessionNode)` один раз,
+  пока файл собирается; каждый test по-прежнему выполняет свежую копию модулей после
+  `vi.resetModules()` (test с `vi.doMock('../../src/renderer/ipc')` зелёный — mock доходит до Node-а).
+- **Повторы (exit code каждого прогона):**
+
+  | Вариант | Тишина: красных | Нагрузка: красных | Первый test, тишина | Первый test, нагрузка |
+  | --- | --- | --- | --- | --- |
+  | до правки | 0 из 10 (все exit 0) | 0 из 10 (все exit 0) | 519–563 ms | 686–725 ms |
+  | после правки | 0 из 10 (все exit 0) | 0 из 10 (все exit 0) | 131–137 ms | 134–138 ms |
+
+  Как и у `canvas`, `yes` на половине ядер красного не дал; правку подтверждают время первого test-а
+  (вся разница — transform, ушедший из test-а в сбор файла: файл целиком — те же 3,5–3,7 s) и mutant.
+- **Mutant:** в `src/renderer/canvas/nodes/SessionNode.tsx:291` `agent.send` получает
+  `attachments: []` вместо chip-ов — 7 test-ов красные (exit 1, `7 failed | 18 passed`), в том числе
+  первый; файл восстановлен из копии, `cmp` — exit 0.
+
+### Проверки
+
+- `pnpm lint` — exit 0; `pnpm typecheck` — exit 0.
+- `node "$HOME/.claude/worfy-harness/plugin/hooks/gate.mjs" fast </dev/null` — exit 0,
+  `[gate] green (fast): worfy/.:lint worfy/.:typecheck worfy/.:test` (весь `pnpm test`, 163,5 s).
