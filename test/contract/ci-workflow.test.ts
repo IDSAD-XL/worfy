@@ -291,13 +291,20 @@ describe('scripts/ci-scope.mjs', () => {
     'pnpm-workspace.yaml',
     'electron-builder.yml',
     'electron.vite.config.ts',
+    'scripts/build-version.ts',
     'build/icon.icns',
     'build/brand/logo.svg',
     'scripts/postinstall.mjs',
     'scripts/statusline-bridge.sh',
     'scripts/statusline-bridge.mjs',
+    // The @packaged tests install the packaged app with it.
+    'scripts/install-stable.mjs',
     'playwright.config.ts',
     'test/e2e/packaged.spec.ts',
+    // Holds the @packaged test of node-pty unpacked from app.asar.
+    'test/e2e/terminal.spec.ts',
+    // packagedBuild, packagedExecutable and packagedResources of the @packaged tests.
+    'test/e2e/helpers.ts',
     '.github/workflows/ci.yml',
     '.github/workflows/windows-tests.yml',
   ])('a pull request that changes the build input %s next to the app runs every job, macos-package too', (file) => {

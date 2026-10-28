@@ -45,21 +45,31 @@ function isDocument(path) {
   return path.startsWith('.scratch/') || path.startsWith('docs/') || path.endsWith('.md')
 }
 
-// What `pnpm test:package` (the job macos-package) builds and runs beyond the app's own code: the
-// dependencies and their install (postinstall rebuilds node-pty for Electron), the configs of the
-// build and of electron-builder, the icons, the scripts electron-builder copies into the .app, the
-// packaged tests and the workflows. A change of src/ alone is packaged on the push to main.
+// The files a pull request packages the app for (the job macos-package, `pnpm test:package`), two
+// kinds of them:
+// - build inputs: the dependencies and their install (postinstall rebuilds node-pty for Electron),
+//   the configs of the build and of electron-builder, the build version, the icons in build/, the
+//   scripts electron-builder copies into the .app, and the workflows;
+// - the files the @packaged tests read that no other job checks: their spec files (packaged.spec.ts,
+//   and terminal.spec.ts with its test of node-pty from app.asar.unpacked), the helpers that find
+//   the packaged app, scripts/install-stable.mjs, which they install, and the Playwright config.
+// A change of src/main, harness/ or anything else that matters only in the packaged app is not on
+// this list: the push to main packages the app whatever it changed, and catches it there.
 const BUILD_FILES = new Set([
   'package.json',
   'pnpm-lock.yaml',
   'pnpm-workspace.yaml',
   'electron-builder.yml',
   'electron.vite.config.ts',
+  'scripts/build-version.ts',
   'scripts/postinstall.mjs',
   'scripts/statusline-bridge.sh',
   'scripts/statusline-bridge.mjs',
+  'scripts/install-stable.mjs',
   'playwright.config.ts',
   'test/e2e/packaged.spec.ts',
+  'test/e2e/terminal.spec.ts',
+  'test/e2e/helpers.ts',
 ])
 const BUILD_FOLDERS = ['build/', '.github/workflows/']
 
