@@ -238,7 +238,11 @@ const silentCheck = () => {
                     "Run the same command again. If the check keeps running out of time, the machine is likely overloaded: " +
                     `look at its load, and run the check by hand on the same text to see how long it takes: ${byHand}.`
             )
-        if (r.error)
+        // EPIPE: the check exited before it read all of its stdin (an answer that needs no text, such as exit 0
+        // of a Full project, or a crash). Its exit code or signal is still the verdict, read below; only a
+        // check that never ended has no verdict.
+        const unread = r.error?.code === "EPIPE" && (r.status !== null || r.signal !== null)
+        if (r.error && !unread)
             deny(
                 notRun +
                     `the check for workflow traces (bin/silent-check) failed (${r.error.code || "error"}: ${r.error.message}), ` +

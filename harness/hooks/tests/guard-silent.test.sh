@@ -240,9 +240,20 @@ stub root "exit 2, the tickets root is not read -> deny with the error" deny "$C
 stub 3 "an unknown exit code -> deny with the reason" deny "$CLEAN" 'exit 3'
 stub 3 "a failure on a PR text: the refusal names gh pr create" deny 'gh pr create --title "Fix" --body "Keeps state"' '`gh pr create` was not run'
 stub 1 "exit 1 with nothing found printed (a crash) -> deny as a failure, not as traces" deny "$CLEAN" 'failed (exit 1)'
+# The stand-in exits without reading its stdin. A text larger than a pipe buffer cannot be written in full, so
+# the write gets EPIPE every time, not only when the exit wins a race with a small write; the exit code is
+# still the verdict.
+node -e 'process.stdout.write("Fix the withdraw button state.\n".repeat(32768))' >"$T/big-msg.txt"
+BIG="git commit -F $T/big-msg.txt"
+stub 3 "a text the check does not read, unknown exit code -> deny with exit 3, not EPIPE" deny "$BIG" 'failed (exit 3)'
+[[ "$got" != *EPIPE* ]] && ok "a text the check does not read: the refusal does not name EPIPE" || bad "a text the check does not read names EPIPE: ${got:0:300}"
+stub 0 "a text the check does not read, exit 0 -> allow" allow "$BIG" '' 1
 case "$(uname -s)" in
     MINGW* | MSYS* | CYGWIN*) stub kill "killed by a signal -> deny" deny "$CLEAN" 'was not run' ;; # no POSIX signals
-    *) stub kill "killed by a signal -> deny with the signal" deny "$CLEAN" 'signal SIGKILL' ;;
+    *)
+        stub kill "killed by a signal -> deny with the signal" deny "$CLEAN" 'signal SIGKILL'
+        stub kill "a text the check does not read, killed by a signal -> deny with the signal" deny "$BIG" 'signal SIGKILL'
+        ;;
 esac
 stub 0 "exit 0 -> allow at once, one call" allow "$CLEAN" '' 1
 stub many "120 findings -> the refusal shows 50 and counts the rest" deny "$CLEAN" '… 70 more lines'
