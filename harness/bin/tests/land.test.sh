@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Tests of harness/bin/land: the merge condition (the CI check of the head, no CI run in progress, the review
-# mark and its carry over a rebase, the scope rule), mergeable UNKNOWN asked again, BEHIND and DIRTY, the
+# mark and its carry over a rebase, the Check marks a PR lists, the head the orchestrator verified), mergeable UNKNOWN asked again, BEHIND and DIRTY, the
 # main-branch lock, one documents PR per run with `ticket done` for every merged PR, a run broken off by a kill
 # and resumed, and --watch.
 # The world: a bare origin with PR refs (refs/pull/<N>/head), a clone of it as the orchestrator's checkout, and
-# node stubs for gh, ticket, the wait between tries (sleep), the scope command and the documents check. gh is
+# node stubs for gh, ticket, the wait between tries (sleep) and the documents check. gh is
 # always the stub: no network, no real gh, no credential.
 # Run: bash harness/bin/tests/land.test.sh; exit code 0 — everything passed.
 set -u
@@ -119,7 +119,8 @@ fs.mkdirSync(path.join(root, a[1], "issues"), { recursive: true })
 fs.writeFileSync(path.join(root, a[1], "issues", `${a[2]}.md`), `Status: done\nPR: #${a[4]}\n`)
 EOF
 # sleep: logs the seconds, and kills land at the 201st wait; $GHD/unlock-on-sleep — removes $LAND_TEST_LOCK at the second wait; $GHD/runs-done-on-sleep —
-# removes every runs-<sha> file (the CI runs finish).
+# removes every runs-<sha> file (the CI runs finish); every file in $GHD/on-sleep/ moves into $GHD at the first wait (a mark or
+# a PR that changes while land waits for the lock).
 cat >"$STUBS/sleep.mjs" <<'EOF'
 import fs from "node:fs"
 import path from "node:path"
@@ -129,17 +130,10 @@ const n = fs.readFileSync(path.join(D, "sleep.log"), "utf8").split("\n").filter(
 // a wait that never ends (a lock nobody releases) ends the run instead of hanging the file
 if (n > 200) process.kill(process.ppid, "SIGKILL")
 if (fs.existsSync(path.join(D, "unlock-on-sleep")) && n >= 2) fs.rmSync(process.env.LAND_TEST_LOCK, { recursive: true, force: true })
+if (fs.existsSync(path.join(D, "on-sleep"))) for (const x of fs.readdirSync(path.join(D, "on-sleep"))) fs.renameSync(path.join(D, "on-sleep", x), path.join(D, x))
 if (fs.existsSync(path.join(D, "runs-done-on-sleep"))) for (const x of fs.readdirSync(D)) if (x.startsWith("runs-")) fs.rmSync(path.join(D, x))
 EOF
-# the scope command: exit code from $GHD/scope-<head> (0 without it); the documents check: from $GHD/docs-check-rc.
-cat >"$STUBS/scope.mjs" <<'EOF'
-import fs from "node:fs"
-import path from "node:path"
-const D = process.env.GHD, [base, head] = process.argv.slice(2)
-fs.appendFileSync(path.join(D, "scope.log"), `${base} ${head}\n`)
-const p = path.join(D, `scope-${head}`)
-process.exit(fs.existsSync(p) ? +fs.readFileSync(p, "utf8") : 0)
-EOF
+# the documents check: exit code from $GHD/docs-check-rc (0 without it).
 cat >"$STUBS/docs-check.mjs" <<'EOF'
 import fs from "node:fs"
 import path from "node:path"
@@ -176,18 +170,19 @@ new_world() {
     S="$W/state.json"
 }
 head_of() { git -C "$W/origin.git" rev-parse "refs/pull/$1/head"; }
-# state [scope|noscope] <N>[:<head>]…: the state file of the world; each PR has epic e and ticket 0<N>.
+# state <N>[:<head>][/<check>,…]…: the state file of the world; each PR has epic e, ticket 0<N> and the Check marks
+# after the slash as its "checks" ([] without them).
 state() {
-    local scope=null items="" sep=""
-    if [ "$1" = scope ]; then scope="{\"command\":\"node \\\"$(tn "$STUBS/scope.mjs")\\\"\",\"check\":\"check/windows\"}"; fi
-    shift
+    local items="" sep=""
     for p in "$@"; do
-        local n="${p%%:*}" head=""
+        local checks="" head=""
+        [[ "$p" == */* ]] && checks="\"${p#*/}\"" && checks="${checks//,/\",\"}" && p="${p%%/*}"
+        local n="${p%%:*}"
         [[ "$p" == *:* ]] && head=",\"head\":\"${p#*:}\""
-        items="$items$sep{\"number\":$n,\"epic\":\"e\",\"ticket\":\"0$n\"$head}"; sep=","
+        items="$items$sep{\"number\":$n,\"epic\":\"e\",\"ticket\":\"0$n\"$head,\"checks\":[$checks]}"; sep=","
     done
-    printf '{"repo":"%s","branch":"main","ci":"pr","ci_check":"ci-ok","ci_workflow":"ci.yml","scope":%s,"docs_check":"node \\"%s\\"","prs":[%s]}\n' \
-        "$(tn "$W/repo")" "$scope" "$(tn "$STUBS/docs-check.mjs")" "$items" >"$S"
+    printf '{"repo":"%s","branch":"main","ci":"pr","ci_check":"ci-ok","ci_workflow":"ci.yml","docs_check":"node \\"%s\\"","prs":[%s]}\n' \
+        "$(tn "$W/repo")" "$(tn "$STUBS/docs-check.mjs")" "$items" >"$S"
 }
 merges() { { grep '^pr merge' "$GHD/log" 2>/dev/null || true; } | wc -l | tr -d ' '; }
 merged_of() { grep "^pr merge $1 " "$GHD/log" | wc -l | tr -d ' '; }
@@ -195,7 +190,7 @@ running() { printf '[{"databaseId":7,"status":"%s","conclusion":""}]' "${2:-in_p
 
 # --- two green PRs: both merged, one documents PR with both tickets, no batch CI ----------------------------
 new_world green 1 2
-state noscope 1 2
+state 1 2
 h1="$(head_of 1)" h2="$(head_of 2)"
 "$LAND" "$S" >"$W/out" 2>"$W/err"; rc=$?
 [ "$rc" = 0 ] && tail -n 1 "$W/out" | grep -qx 'LAND=green' && ok "green: two PRs and the documents PR merged, LAND=green, exit 0" || bad "green: exit $rc: $(cat "$W/out" "$W/err")"
@@ -226,19 +221,19 @@ docs_head="$(git -C "$W/origin.git" rev-parse refs/pull/900/head)"
 
 # --- a red ci-ok waits; a cancelled one too; the other PR merges -----------------------------------------------
 new_world red 1 2
-state noscope 1 2
+state 1 2
 echo '[{"id":1,"name":"ci-ok","status":"completed","conclusion":"success","started_at":"2026-10-28T09:00:00Z"},{"id":2,"name":"ci-ok","status":"completed","conclusion":"failure","started_at":"2026-10-28T10:00:00Z"}]' >"$GHD/checks-$(head_of 2)"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 2 ] && grep -qx "#2 waits: ci-ok failure on $(head_of 2 | cut -c1-8)" "$W/out" && tail -n 1 "$W/out" | grep -qx 'LAND=red' \
     && ok "red: the latest ci-ok failure -> '#2 waits', LAND=red, exit 2" || bad "red: exit $rc: $(cat "$W/out")"
 [ "$(merged_of 2)" = 0 ] && [ "$(merged_of 1)" = 1 ] && ok "red: PR 2 not merged, PR 1 merged" || bad "red: merges $(grep '^pr merge' "$GHD/log")"
 new_world cancelled 1
-state noscope 1
+state 1
 echo '[{"id":2,"name":"ci-ok","status":"completed","conclusion":"cancelled","started_at":"2026-10-28T10:00:00Z"}]' >"$GHD/checks-$(head_of 1)"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 2 ] && [ "$(merges)" = 0 ] && grep -q '^#1 waits: ci-ok cancelled' "$W/out" && ok "red: a cancelled ci-ok is not merged" || bad "cancelled: exit $rc: $(cat "$W/out")"
 new_world nocheck 1
-state noscope 1
+state 1
 echo '[{"id":3,"name":"lint-typecheck","status":"completed","conclusion":"success","started_at":"2026-10-28T10:00:00Z"}]' >"$GHD/checks-$(head_of 1)"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q '^#1 waits: no ci-ok check' "$W/out" && tail -n 1 "$W/out" | grep -qx 'LAND=unverified' \
@@ -246,7 +241,7 @@ echo '[{"id":3,"name":"lint-typecheck","status":"completed","conclusion":"succes
 
 # --- a pending run waits, even with an older green ci-ok; ci-ok in progress waits ---------------------------
 new_world pending 1
-state noscope 1
+state 1
 running "$(head_of 1)" queued
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q '^#1 waits: ci.yml run 7 is queued' "$W/out" \
@@ -258,7 +253,7 @@ echo '[{"id":2,"name":"ci-ok","status":"in_progress","conclusion":null,"started_
 
 # --- review: missing waits; a failure is red; carried over a rebase that changed nothing --------------------
 new_world review 1
-state noscope 1
+state 1
 echo '{}' >"$GHD/status-$(head_of 1).json"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q '^#1 waits: review is missing' "$W/out" && ok "review: no review mark -> waits" || bad "review missing: exit $rc: $(cat "$W/out")"
@@ -276,37 +271,58 @@ sed -i.bak '40s/.*/forty/' "$W/seed/base.txt" && rm -f "$W/seed/base.txt.bak" &&
 git -C "$W/seed" checkout -q pr1 && git -C "$W/seed" rebase -q main && mkdir -p "$W/seed/.scratch" && echo note >"$W/seed/.scratch/n.md" \
     && git -C "$W/seed" add -A && git -C "$W/seed" commit -q -m notes && git -C "$W/seed" push -q -f origin pr1:refs/pull/1/head && git -C "$W/seed" checkout -q main
 new="$(head_of 1)"
-state noscope "1:$old"
+state "1:$old"
 echo '{}' >"$GHD/status-$new.json"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && grep -q "^$new review success carried from $(echo "$old" | cut -c1-8)" "$GHD/posted" \
     && ok "review carry: same diff outside .scratch after a rebase -> review carried to the new head, merged" || bad "carry: exit $rc: $(cat "$W/out") posted $(cat "$GHD/posted" 2>/dev/null)"
+# a reviewer's verdict on the new head is never overwritten by a carry: failure is red, pending waits
+for verdict in failure pending; do
+    git -C "$W/origin.git" update-ref refs/heads/main "$(git -C "$W/seed" rev-parse main)"
+    rm -f "$GHD/posted" "$GHD/pr-1.json" "$GHD/log"
+    echo "{\"review\":\"$verdict\"}" >"$GHD/status-$new.json"
+    state "1:$old"
+    "$LAND" "$S" >"$W/out" 2>&1; rc=$?
+    want=3; [ "$verdict" = failure ] && want=2
+    [ "$rc" = "$want" ] && [ "$(merges)" = 0 ] && [ ! -e "$GHD/posted" ] && grep -q "^#1 waits: review is $verdict on" "$W/out" \
+        && ok "review carry: a $verdict review on the new head stays, the PR is not merged" || bad "carry over $verdict: exit $rc: $(cat "$W/out") posted $(cat "$GHD/posted" 2>/dev/null)"
+done
+# Check marks are never carried: the old head's check/windows success does not count on the new head
+rm -f "$GHD/posted" "$GHD/pr-1.json" "$GHD/log"
+echo '{}' >"$GHD/status-$new.json"
+echo '{"review":"success","check/windows":"success"}' >"$GHD/status-$old.json"
+state "1:$old/windows"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q "^#1 waits: check/windows is missing on" "$W/out" && ! grep -q ' check/windows ' "$GHD/posted" \
+    && ok "checks: a Check mark is not carried to the new head, the PR waits for it" || bad "check carry: exit $rc: $(cat "$W/out") posted $(cat "$GHD/posted" 2>/dev/null)"
 new_world nocarry 1
 old="$(head_of 1)"
 git -C "$W/seed" checkout -q pr1 && echo changed >"$W/seed/f1.txt" && git -C "$W/seed" commit -qam more && git -C "$W/seed" push -q -f origin pr1:refs/pull/1/head && git -C "$W/seed" checkout -q main
-state noscope "1:$old"
+state "1:$old"
 echo '{}' >"$GHD/status-$(head_of 1).json"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 3 ] && [ "$(merges)" = 0 ] && [ ! -e "$GHD/posted" ] && ok "review carry: a changed diff is not carried, the PR waits" || bad "nocarry: exit $rc: $(cat "$W/out") posted $(cat "$GHD/posted" 2>/dev/null)"
+# the head the orchestrator verified moved and the PR changed: a review on the new head does not stand in for its verification
+echo '{"review":"success"}' >"$GHD/status-$(head_of 1).json"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q "^#1 waits: the head moved from .* and the PR's change differs" "$W/out" \
+    && ok "verified head: a changed PR on a new head waits for the orchestrator, even with review success there" || bad "changed head: exit $rc: $(cat "$W/out")"
 
-# --- scope: exit 1 (pc) needs check/windows success; exit 0 needs nothing; another code waits ----------------
-new_world scope 1 2 3
-state scope 1 2 3
-echo 1 >"$GHD/scope-$(head_of 1)"; echo 1 >"$GHD/scope-$(head_of 2)"; echo 2 >"$GHD/scope-$(head_of 3)"
+# --- checks: each listed Check mark must be success (skipped is posted as success); none listed — none needed ----------
+new_world checks 1 2 3 4
+state 1/windows 2/check/windows 3/windows 4
 echo '{"review":"success","check/windows":"success"}' >"$GHD/status-$(head_of 2).json"
+echo '{"review":"success","check/windows":"failure"}' >"$GHD/status-$(head_of 3).json"
+echo '{"review":"success","check/windows":"failure"}' >"$GHD/status-$(head_of 4).json"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
-grep -q "^#1 waits: scope pc, check/windows is missing" "$W/out" && [ "$(merged_of 1)" = 0 ] && ok "scope pc without check/windows: waits" || bad "scope pc: $(cat "$W/out")"
-[ "$(merged_of 2)" = 1 ] && ok "scope pc with check/windows success: merged" || bad "scope pc with mark: $(cat "$W/out")"
-grep -q "^#3 waits: the scope command exited 2" "$W/out" && [ "$(merged_of 3)" = 0 ] && ok "scope exit 2: waits, not read as runner" || bad "scope exit 2: $(cat "$W/out")"
-head -n 1 "$GHD/scope.log" | grep -qx "origin/main $(head_of 1)" && ok "scope: the command gets origin/main and the head" || bad "scope: args $(head -n 1 "$GHD/scope.log")"
-new_world runner 1
-state scope 1
-"$LAND" "$S" >"$W/out" 2>&1; rc=$?
-[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && ok "scope exit 0 (runner): merged without check/windows" || bad "scope runner: exit $rc: $(cat "$W/out")"
+grep -q "^#1 waits: check/windows is missing on" "$W/out" && [ "$(merged_of 1)" = 0 ] && ok "checks: a listed Check without its mark waits" || bad "checks missing: $(cat "$W/out")"
+[ "$(merged_of 2)" = 1 ] && ok "checks: a listed Check (named check/<name>) with success: merged" || bad "checks success: $(cat "$W/out")"
+grep -q "^#3 waits: check/windows is failure on" "$W/out" && [ "$(merged_of 3)" = 0 ] && [ "$rc" = 2 ] && ok "checks: a failed Check is red" || bad "checks failure: exit $rc: $(cat "$W/out")"
+[ "$(merged_of 4)" = 1 ] && ok "checks: a PR that lists no Check merges whatever marks its head has" || bad "checks none: $(cat "$W/out")"
 
 # --- mergeable UNKNOWN: asked again 6 times, 10 s apart, then waits; BEHIND and DIRTY wait ----------------------
 new_world unknown 1
-state noscope 1
+state 1
 echo UNKNOWN >"$GHD/mergeable-1"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q '^#1 waits: mergeable UNKNOWN after 6 retries' "$W/out" \
@@ -315,19 +331,19 @@ echo UNKNOWN >"$GHD/mergeable-1"
     && ok "UNKNOWN: 6 waits of 10 s, 7 views under the lock (8 with the first)" || bad "unknown: sleeps [$(cat "$GHD/sleep.log")] views $(grep -c '^pr view 1 ' "$GHD/log")"
 [ ! -e "$LAND_TEST_LOCK" ] && ok "UNKNOWN: the lock is released" || bad "unknown: lock left"
 new_world unknown3 1
-state noscope 1
+state 1
 printf 'MERGEABLE\nUNKNOWN\nUNKNOWN\nUNKNOWN\nMERGEABLE\n' >"$GHD/mergeable-1"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && [ "$(wc -l <"$GHD/sleep.log" | tr -d ' ')" = 3 ] && ok "UNKNOWN 3 times, then MERGEABLE: merged after 3 waits" || bad "unknown3: exit $rc sleeps $(cat "$GHD/sleep.log" 2>/dev/null): $(cat "$W/out")"
 new_world moved 1
-state noscope 1
+state 1
 echo 0123456789abcdef0123456789abcdef01234567 >"$GHD/moved-1"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q "^#1 waits: the head moved from $(head_of 1 | cut -c1-8) to 01234567" "$W/out" \
     && ok "a push between the check and the merge: waits, no gh pr merge" || bad "moved: exit $rc: $(cat "$W/out")"
 for st in BEHIND DIRTY; do
     new_world "mss-$st" 1
-    state noscope 1
+    state 1
     echo "{\"mergeStateStatus\":\"$st\"}" >"$GHD/pr-1.json"
     "$LAND" "$S" >"$W/out" 2>&1; rc=$?
     [ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q "^#1 waits: $st: " "$W/out" && [ ! -e "$LAND_TEST_LOCK" ] && ok "$st: waits, no rebase, no merge" || bad "$st: exit $rc: $(cat "$W/out")"
@@ -336,26 +352,42 @@ done
 
 # --- the lock: waited for while another holds it, a stuck one removed, released on a refused merge -------------------
 new_world lockwait 1
-state noscope 1
+state 1
 mkdir "$LAND_TEST_LOCK"; : >"$GHD/unlock-on-sleep"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(head -n 2 "$GHD/sleep.log" | tr '\n' ' ')" = "30 30 " ] && [ "$(head -n 1 "$GHD/locks")" = "1 held" ] \
     && ok "lock: a held lock is waited for (30 s polls), then taken for the merge" || bad "lockwait: exit $rc sleeps $(cat "$GHD/sleep.log" 2>/dev/null) locks $(cat "$GHD/locks" 2>/dev/null)"
 new_world lockstale 1
-state noscope 1
+state 1
 mkdir "$LAND_TEST_LOCK"; touch -t 202001010000 "$LAND_TEST_LOCK"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ ! -s "$GHD/sleep.log" ] && grep -q "stuck, removed" "$W/state.log" && ok "lock: one older than 90 min is removed as stuck" || bad "lockstale: exit $rc: $(cat "$W/out")"
 new_world lockfail 1 2
-state noscope 1 2
+state 1 2
 : >"$GHD/merge-fail-1"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 grep -q '^#1 waits: gh pr merge failed (exit 1): Pull request #1 is not mergeable' "$W/out" && [ "$(cat "$GHD/locks")" = "$(printf '1 held\n2 held\n900 held')" ] && [ ! -e "$LAND_TEST_LOCK" ] \
     && ok "lock: released after a refused merge, the next PR takes it again" || bad "lockfail: $(cat "$W/out") locks $(cat "$GHD/locks")"
 
+# the merge condition is read again once the lock is taken: a review that turned failure while land waited stops the merge
+new_world lockrecheck 1
+state 1
+mkdir "$LAND_TEST_LOCK" "$GHD/on-sleep"; : >"$GHD/unlock-on-sleep"
+echo '{"review":"failure"}' >"$GHD/on-sleep/status-$(head_of 1).json"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 2 ] && [ "$(merges)" = 0 ] && grep -q '^#1 waits: review is failure on' "$W/out" && [ ! -e "$LAND_TEST_LOCK" ] \
+    && ok "lock: the review is read again under the lock; a failure posted while land waited stops the merge" || bad "lockrecheck: exit $rc: $(cat "$W/out")"
+# merged by someone else while land waited for the lock, before GitHub filled the merge commit
+new_world lockmerged 1
+state 1
+mkdir "$LAND_TEST_LOCK" "$GHD/on-sleep"; : >"$GHD/unlock-on-sleep"
+echo '{"state":"MERGED"}' >"$GHD/on-sleep/pr-1.json"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+grep -qx '#1 merged unknown' "$W/out" && [ "$(merged_of 1)" = 0 ] && ok "lock: a PR merged meanwhile with no merge commit yet is recorded as 'merged unknown'" || bad "lockmerged: exit $rc: $(cat "$W/out")"
+
 # --- a kill after the first merge, then the same command again --------------------------------------------------
 new_world resume 1 2
-state noscope 1 2
+state 1 2
 : >"$GHD/kill-after-merge-1"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 # exit 137 (128 + SIGKILL); on Windows a killed process ends with exit code 1
@@ -370,7 +402,7 @@ rm -f "$GHD/kill-after-merge-1"
 
 # --- SIGTERM while the lock is held: released -----------------------------------------------------------------
 new_world term 1
-state noscope 1
+state 1
 echo UNKNOWN >"$GHD/mergeable-1"
 unset LAND_SLEEP
 LAND_RETRY_S=30 "$LAND" "$S" >"$W/out" 2>&1 & lp=$!
@@ -385,19 +417,19 @@ fi
 
 # --- --watch: a run in progress finishes, the next pass merges ---------------------------------------------------
 new_world watch 1
-state noscope 1
+state 1
 running "$(head_of 1)"; : >"$GHD/runs-done-on-sleep"
 "$LAND" "$S" --watch >"$W/out" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && [ "$(head -n 1 "$GHD/sleep.log")" = 300 ] && ok "watch: waits 300 s while CI runs, merges on the next pass" || bad "watch: exit $rc sleeps $(cat "$GHD/sleep.log" 2>/dev/null): $(cat "$W/out")"
 new_world nowatch 1
-state noscope 1
+state 1
 running "$(head_of 1)"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 3 ] && [ ! -e "$GHD/sleep.log" ] && ok "without --watch: one pass, no wait" || bad "nowatch: exit $rc sleeps $(cat "$GHD/sleep.log" 2>/dev/null)"
 
 # --- the documents: a red documents check is red, nothing pushed; the input is checked -----------------------------
 new_world docsred 1
-state noscope 1
+state 1
 echo 1 >"$GHD/docs-check-rc"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 2 ] && [ "$(merged_of 1)" = 1 ] && ! grep -q '^pr create' "$GHD/log" && grep -q '^documents land-docs/.* waits: .* exited 1' "$W/out" \
@@ -406,7 +438,7 @@ rm -f "$GHD/docs-check-rc"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(grep -c '^pr create' "$GHD/log")" = 1 ] && [ "$(merged_of 1)" = 1 ] && ok "docs: the next run opens and merges the documents PR, PR 1 not merged again" || bad "docsred rerun: exit $rc: $(cat "$W/out")"
 new_world ticketfail 1
-state noscope 1
+state 1
 : >"$GHD/ticket-fail"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 3 ] && [ "$(merged_of 1)" = 1 ] && ! grep -q '^pr create' "$GHD/log" && grep -q '^documents land-docs/.* waits: ticket done e 01 failed (exit 1)' "$W/out" \
@@ -415,13 +447,40 @@ state noscope 1
 rm -f "$GHD/ticket-fail"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(grep -c '^pr create' "$GHD/log")" = 1 ] && [ "$(merged_of 1)" = 1 ] && ok "docs: after a failed ticket done the next run opens and merges the documents PR" || bad "ticketfail rerun: exit $rc: $(cat "$W/out")"
+# a documents PR closed without a merge does not cover its tickets: the next run opens another one for them
+new_world docsclosed 1
+state 1
+: >"$GHD/merge-fail-900"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+grep -q '^#900 waits: gh pr merge failed' "$W/out" && [ "$(merged_of 1)" = 1 ] || bad "docsclosed: setup: exit $rc: $(cat "$W/out")"
+rm -f "$GHD/merge-fail-900"; echo '{"state":"CLOSED"}' >"$GHD/pr-900.json"; : >"$GHD/ticket.log"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && grep -qx '#901 merged [0-9a-f]\{40\}' "$W/out" && [ "$(merged_of 1)" = 1 ] && [ "$(merged_of 900)" = 1 ] \
+    && [ "$(cat "$GHD/ticket.log")" = "done e 01 --pr 1 root-in-cwd=true" ] && [ "$(q "$S" 's.docs[0].closed')" = "[900]" ] \
+    && ok "docs: a documents PR closed unmerged -> a new documents PR with its tickets, merged" || bad "docsclosed: exit $rc: $(cat "$W/out") tickets $(cat "$GHD/ticket.log")"
+# tickets_root: another root inside the repository is where ticket done writes and what the documents commit holds
+new_world root 1
+state 1
+node -e 'const fs=require("fs"),s=JSON.parse(fs.readFileSync(process.argv[1]));s.tickets_root="work/tickets/";fs.writeFileSync(process.argv[1],JSON.stringify(s))' "$S"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(git -C "$W/origin.git" show --name-only --format= refs/pull/900/head)" = "work/tickets/e/issues/01.md" ] \
+    && ok "docs: tickets_root from the state file is the root of ticket done" || bad "root: exit $rc: $(cat "$W/out") files $(git -C "$W/origin.git" show --name-only --format= refs/pull/900/head 2>&1)"
+# the input: a tickets root outside the repository, the old scope rule and a PR without its checks are refused
+i=0
+for bad_input in 's.tickets_root="/abs/.scratch"' 's.tickets_root="../.scratch"' 's.scope=null' 'delete s.prs[0].checks' 's.prs[0].checks=["two words"]'; do
+    i=$((i + 1)); new_world "input$i" 1
+    state 1
+    node -e "const fs=require('fs'),s=JSON.parse(fs.readFileSync(process.argv[1]));$bad_input;fs.writeFileSync(process.argv[1],JSON.stringify(s))" "$S"
+    "$LAND" "$S" >"$W/out" 2>&1; rc=$?
+    [ "$rc" = 1 ] && [ ! -s "$GHD/log" ] && ok "input: $bad_input is refused before any gh call" || bad "input $bad_input: exit $rc: $(cat "$W/out")"
+done
 new_world silent 1
-state noscope 1
+state 1
 node -e 'const fs=require("fs"),s=JSON.parse(fs.readFileSync(process.argv[1]));s.tickets_root=null;fs.writeFileSync(process.argv[1],JSON.stringify(s))' "$S"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && ! grep -q '^pr create' "$GHD/log" && [ ! -e "$GHD/ticket.log" ] && ok "docs: tickets_root null -> merged, no documents PR, no ticket done" || bad "silent: exit $rc: $(cat "$W/out")"
 new_world input 1
-state noscope 1
+state 1
 node -e 'const fs=require("fs"),s=JSON.parse(fs.readFileSync(process.argv[1]));s.ci="batch";fs.writeFileSync(process.argv[1],JSON.stringify(s))' "$S"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 1 ] && grep -q 'batch' "$W/out" && [ ! -s "$GHD/log" ] && ok "input: workflow.ci batch is refused before any gh call" || bad "input batch: exit $rc: $(cat "$W/out")"
@@ -432,10 +491,17 @@ node -e 'const fs=require("fs"),s=JSON.parse(fs.readFileSync(process.argv[1]));s
 SKILL="${SKILL_FILE:-$HERE/../../skills/epic-wave/SKILL.md}"
 awk '/^\*\*Merge with land\*\*/{s=1} s && /<<.NODE.$/{n=1; next} n && /^NODE$/{exit} n' "$SKILL" >"$T/skill-state.js"
 new_world skill 1
-node "$T/skill-state.js" "$(tn "$S")" "$(tn "$W/repo")" main pr ci-ok ci.yml "" "" "node \"$(tn "$STUBS/docs-check.mjs")\"" "1:e:01:$(head_of 1)" >"$W/out" 2>&1
+node "$T/skill-state.js" "$(tn "$S")" "$(tn "$W/repo")" main pr ci-ok ci.yml "node \"$(tn "$STUBS/docs-check.mjs")\"" ".scratch/" full "1:e:01:$(head_of 1):windows" >"$W/out" 2>&1
+echo '{"review":"success","check/windows":"success"}' >"$GHD/status-$(head_of 1).json"
 "$LAND" "$S" >>"$W/out" 2>&1; rc=$?
-[ -s "$T/skill-state.js" ] && [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && [ "$(q "$S" 's.prs[0].head')" = "$(head_of 1)" ] && [ "$(q "$S" 's.scope')" = null ] \
+[ -s "$T/skill-state.js" ] && [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && [ "$(q "$S" 's.prs[0].head')" = "$(head_of 1)" ] && [ "$(q "$S" 's.prs[0].checks')" = '["windows"]' ] \
+    && [ "$(q "$S" 's.tickets_root')" = .scratch ] && [ "$(q "$S" '"scope" in s')" = false ] \
     && ok "skill: the state file of the epic-wave block is one land merges from" || bad "skill block: exit $rc: $(cat "$W/out")"
+# the tickets root: an absolute one inside the repository becomes relative, one outside it and Silent mode give null; no Check — []
+skill_root() { node "$T/skill-state.js" "$(tn "$W/s-$1.json")" "$(tn "$W/repo")" main pr ci-ok ci.yml "" "$2" "$3" "1:e:01:$(head_of 1):" >/dev/null 2>&1 && q "$W/s-$1.json" 's.tickets_root'; }
+[ "$(skill_root abs "$(tn "$W/repo")/work/tickets/" full)" = work/tickets ] && [ "$(skill_root out "$(tn "$T")/elsewhere/" full)" = null ] \
+    && [ "$(skill_root silent .scratch/ silent)" = null ] && [ "$(skill_root none "" full)" = .scratch ] && [ "$(q "$W/s-none.json" 's.prs[0].checks')" = '[]' ] \
+    && ok "skill: tickets_root from the profile — absolute made relative, outside the repository or Silent mode null" || bad "skill roots: abs $(q "$W/s-abs.json" 's.tickets_root') out $(q "$W/s-out.json" 's.tickets_root') silent $(q "$W/s-silent.json" 's.tickets_root') none $(q "$W/s-none.json" 's.tickets_root')"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || { bad "the real home changed"; real_home_diff "$home_before" "$home_after"; }

@@ -981,62 +981,79 @@ and the next set; a `failed` PR goes to rework.
 **Gate before merge** (`pr-green-ci`). What the project requires before a PR with code is merged
 is `F workflow.merge_gate`:
 
-- absent or `null` — no gate full before the merge. With `F workflow.ci` `pr` the merge condition of a
-  PR with code is CI on its head: the project's final CI check (its `rules.md` names it, for example
-  `ci-ok`) completed with `success` and no run of the CI workflow still queued or running on that head,
-  plus the `review` mark `success` on the same head and the Check marks of "Checks before merge". The
-  orchestrator merges these PRs only through `bin/land` ("Merge with land" below);
+- absent or `null` — the Harness requires no gate full before the merge (the project's `rules.md` may).
+  With `F workflow.ci` `pr` the merge condition of a PR with code is CI on its head: the project's final
+  CI check (its `rules.md` names it, for example `ci-ok`) completed with `success` and no run of the CI
+  workflow still queued or running on that head, plus the `review` mark `success` on the same head and
+  the Check marks of "Checks before merge". The orchestrator merges these PRs only through `bin/land`
+  ("Merge with land" below);
 - `"each"` — every PR on its own: rebase onto the fresh main branch, `GATE_SCOPE=all` gate full on
   its branch (exit code 0 and the line `[gate] green (…)`), CI again on the new head (with
   `F workflow.ci` `batch` — no CI: `mergeable` is `MERGEABLE`), the merge; then the next PR;
-- `"wave"` — one gate full for the set of the wave's ready PRs, with `bin/wave-gate`, as below.
+- `"wave"` — one gate full for the set of the wave's ready PRs, with `bin/wave-gate` ("The set is the
+  wave's PRs …" after "Merge with land").
 
 **Merge with land** (`pr-green-ci`, `F workflow.ci` `pr`, no `F workflow.merge_gate`). The orchestrator
 merges PRs only with `bin/land`, run in the background: no `gh pr merge` by hand and no merge script of
-its own. The blocks of this section — status and merge, the CI wait, the main-branch lock, the marks of
-"Checks before merge" — describe what `land` does on this path; they stay the orchestrator's own steps
-with `"each"`, `"wave"`, `batch` and `local-green`. For each PR, in the order of the state file, `land`:
+its own. The blocks of this section — status and merge, the CI wait, the main-branch lock — describe what
+`land` does on this path; they stay the orchestrator's own steps with `"each"`, `"wave"`, `batch` and
+`local-green`. The marks of "Checks before merge" stay the orchestrator's: it sets them, and it tells
+`land` which of them each PR needs. A PR with the label `F cross_machine_gate.label` and a PR held by
+People in the Pipeline (`awaiting-merge`, `human-review` without `APPROVED`) never go into a state file
+of `land`. For each PR, in the order of the state file, `land`:
 
 - waits while a run of the CI workflow is queued or in progress on the head, even when an older final
   check is green; then the latest final check on the head must be `completed` `success` — `failure`
   or `cancelled` is red, and the PR is not merged;
-- needs the `review` mark `success` on the head. A head that moved since the verified one (a rebase
-  with nothing new) gets the mark carried from the old head only when the old head has `review`
-  `success` and the PR's diff outside the tickets root, its `index` lines dropped, is byte-identical
-  on both heads; the new status says `carried from <old sha>`;
-- with a scope rule from the project's rules (a command that answers whether the CI runners decide the
-  PR's platform verdict): runs it in the checkout of the main branch with `<remote>/<main branch>` and the
-  head. Exit 0 — the CI runners answer, nothing more; exit 1 — the Check mark the rules name must be
-  `success` or `skipped`; any other exit code — the PR waits;
+- needs the head the review verified (`<head>` of the state file), or a head whose PR diff outside the
+  tickets root, its `index` lines dropped, is byte-identical to it (a rebase with nothing new). A PR
+  that changed on a new head waits: verify the new head and write a new state file;
+- needs the `review` mark `success` on the head. A head with no `review` status at all gets the verified
+  head's `success` carried over; the new status says `carried from <old sha>`. A `failure`, `error` or
+  `pending` review on the head is a reviewer's verdict and is never overwritten;
+- needs each Check mark the state file lists for the PR (`check/<name>`) `success` or `skipped` on the
+  head. These marks are never carried: a new head needs its own;
 - under the main-branch lock (the one above): asks `mergeable` again while it is `UNKNOWN`, up to 6
   times 10 s apart; `CONFLICTING`, `DIRTY` or `BEHIND` — the PR waits, `land` does not rebase it (the
-  implementer does, as above); then `gh pr merge <N> --squash --match-head-commit <head>`;
+  implementer does, after the status block above); reads the final check and the marks again (the lock may
+  have taken long); then `gh pr merge <N> --squash --match-head-commit <head>`;
+- goes on to the next PR when one waits: each PR merges on its own head's condition, not only a green
+  prefix of the list;
 - after the merges, one documents PR per run: `ticket done <epic> <NN> --pr <N>` for every merged PR
   in a worktree of its own, `F docs.handoff.check` there, a commit, a push and `gh pr create`; that
-  PR merges on the final check alone, under the same lock.
+  PR merges on the final check alone, under the same lock. A documents PR closed without a merge is
+  replaced by a new one for the same tickets.
 
 The state file — one per set of PRs; a new set gets a new file. `<CI check>` and `<CI workflow>` are
-the final check and the workflow file the project's rules name; `<scope command>` and `<scope Check>`
-their scope rule (`""` and `""` when they have none). Each PR is `<N>:<epic>:<NN>:<head>`, `<head>` — the
-head SHA the review verified:
+the final check and the workflow file the project's rules name. Each PR is
+`<N>:<epic>:<NN>:<head>:<checks>`: `<head>` — the head SHA the review verified; `<checks>` — the
+names of the Pipeline's `check` Stages (`F _resolved.pipeline`, `kind` `check`) this PR needs by the
+project's rules, comma-separated, empty for none. For example, rules that give a Check a scope command
+("Checks before merge"): the Check's name when `<scope command> origin/<main branch> <head>`, run in a
+checkout of the main branch, exits 1; nothing when it exits 0; another exit code — the PR stays out of
+the file and waits. The tickets
+root comes from `F tickets.root`; the block makes an absolute one relative to the repository, and one
+outside the repository, or Silent mode, means no documents PR:
 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 S=<state file>                                 # e.g. <orchestrator scratchpad>/land-<epic>-1.json
-node - "$S" <repo> <main branch> "$(F workflow.ci)" <CI check> <CI workflow> "<scope command>" "<scope Check>" "$(F docs.handoff.check)" <PR>:<epic>:<NN>:<head>… <<'NODE'
-const fs = require("fs")
-const [file, repo, branch, ci, check, workflow, scope, scopeCheck, docs, ...prs] = process.argv.slice(2)
+node - "$S" <repo> <main branch> "$(F workflow.ci)" <CI check> <CI workflow> "$(F docs.handoff.check)" "$(F tickets.root)" "$(F _resolved.mode)" <N>:<epic>:<NN>:<head>:<checks>… <<'NODE'
+const fs = require("fs"), path = require("path"), os = require("os")
+const [file, repo, branch, ci, check, workflow, docs, root, mode, ...prs] = process.argv.slice(2)
 const val = (v) => (v === "" || v === "null" ? null : v)
-const list = prs.map((p) => { const [number, epic, ticket, head] = p.split(":"); return { number: +number, epic, ticket, head } })
+const abs = val(root) && (root.startsWith("~/") ? path.join(os.homedir(), root.slice(2)) : root)
+const rel = !abs ? ".scratch" : path.isAbsolute(abs) ? path.relative(repo, abs) : abs
+const tickets_root = mode === "silent" || rel === "" || rel.startsWith("..") || path.isAbsolute(rel) ? null : rel.replace(/[\\/]+$/, "")
+const list = prs.map((p) => { const [number, epic, ticket, head, checks] = p.split(":"); return { number: +number, epic, ticket, head, checks: checks ? checks.split(",") : [] } })
 if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify({ repo, branch, ci: ci || "pr", ci_check: check, ci_workflow: workflow,
-  scope: val(scope) ? { command: scope, check: scopeCheck } : null, docs_check: val(docs), prs: list }, null, 2) + "\n")
+  docs_check: val(docs), tickets_root, prs: list }, null, 2) + "\n")
 NODE
 echo "EXIT=$?"
 ```
 
-In Silent mode the tickets are not in the repository: add `"tickets_root": null` to the file, and
-`land` opens no documents PR (`ticket done` is the orchestrator's, in the Workflow folder). Then, with
-`run_in_background: true`:
+In Silent mode `land` opens no documents PR (`ticket done` is the orchestrator's, in the Workflow
+folder). Then, with `run_in_background: true`:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/land" <state file> --watch; echo "EXIT=$?"
@@ -1048,8 +1065,8 @@ line per PR — `#N merged <sha>` or `#N waits: <reason>`, the documents PR the 
 or Check, a red documents check) or `LAND=unverified` (`EXIT=3`: something waits for CI, a mark or a
 rebase). `EXIT=1` — the state file is wrong, the message says how. The full log is `<state file>`
 without `.json`, plus `.log`. A `waits` PR: red CI — a rework round or the project's quarantine rule;
-no `review` — section 3; `DIRTY` or `BEHIND` — the implementer rebases; scope `pc` — the other
-machine's verdict. After a session break, run the same command on the same file: a PR merged before
+no `review` — section 3; `DIRTY` or `BEHIND` — the implementer rebases; a Check mark missing —
+the Check's verdict, as "Checks before merge" says; a changed head — verify it and write a new state file. After a session break, run the same command on the same file: a PR merged before
 is not merged again, and the documents PR goes on from where it stopped.
 
 The set is the wave's PRs with `VERIFIED` (no `agent-review` in the Pipeline — without it) and green

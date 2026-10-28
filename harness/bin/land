@@ -9,48 +9,56 @@
 //   - no run of the CI workflow (ci_workflow) on the head is queued or in progress — a newer run is coming,
 //     even when an older check of ci_check exists;
 //   - the latest check run named ci_check is completed with conclusion success;
-//   - the commit status `review` is success. When it is not, and the PR's head has moved since the head the
-//     orchestrator verified (prs[].head), the mark is carried over to the new head when the old head has
-//     `review` success and the PR's diff outside the tickets root, `index` lines dropped, is byte-identical on
-//     both heads: a rebase that changed nothing in the PR. The new status says "carried from <old sha>";
-//   - with a scope rule (scope): `<scope.command> <remote>/<branch> <head>` run in `repo`, a checkout of the
-//     main branch — never the PR's branch, so a PR cannot change its own verdict. Exit 0 — the CI runners
-//     answer for the PR, nothing more; exit 1 — the commit status scope.check must be success (a `skipped`
-//     mark is a success status too); any other exit code — the PR waits;
+//   - when the head is not the one the orchestrator verified (prs[].head), the PR's diff from its fork point,
+//     outside the tickets root and without `index` lines, is byte-identical on both heads (a rebase that
+//     changed nothing in the PR); otherwise the PR waits for the orchestrator to verify the new head: its
+//     review and its list of checks were made for the old one;
+//   - the commit status `review` is success. A head with no `review` status at all gets it carried from the
+//     verified head when that one has `review` success (the diff is the same, see above); the new status
+//     says "carried from <old sha>". A `review` that is failure, error or pending on the head is never
+//     overwritten;
+//   - every commit status of prs[].checks (`check/<name>`; the orchestrator lists the Checks of the Pipeline
+//     the project's rules require for this PR) is success on the head — a `skipped` mark is a success status
+//     too. These marks are never carried;
 //   - then, under the main-branch lock (mkdir of main_lock, by default <git common dir>/main.lock — the lock
 //     the skills share): `mergeable` UNKNOWN is asked again up to MERGEABLE_RETRIES times, RETRY_S apart;
 //     CONFLICTING, DIRTY or BEHIND — the PR waits (land rebases nothing); the head must still be the checked
-//     one; `gh pr merge <N> --squash --match-head-commit <head>`.
-// No local gate runs here, and workflow.ci "batch" is refused: with it a PR head has no CI run to merge on
+//     one; the CI check and the marks are read again (the lock may have been waited for a long time); then
+//     `gh pr merge <N> --squash --match-head-commit <head>`.
+// A PR that waits does not hold back the next one: each PR is merged on its own head's condition, in the
+// order of the state file. No local gate runs here, and workflow.ci "batch" is refused: with it a PR head has no CI run to merge on
 // (wave-gate is that path).
 //
 // After the merges: one documents PR per run of land. In a worktree of its own (<state>.docs, a branch
 // land-docs/<time> from <remote>/<branch>) `ticket done <epic> <NN> --pr <N> --root <tree>/<tickets root>`
 // for every merged PR not yet in a documents PR, then docs_check, a commit, a push, `gh pr create`. That PR
-// merges on ci_check alone (documents get no agent review) under the same lock.
+// merges on ci_check alone (documents get no agent review) under the same lock. A documents PR closed
+// without a merge does not cover its tickets: the same entry gets a new branch and a new PR.
 //
 // The state file is the input and the record; every finished step is written to it at once, so a run
 // broken off (the session ended, a kill) goes on from there when it is run again on the same file: a PR
 // recorded as merged, or one GitHub already shows as merged, is never merged again. The orchestrator writes:
-//   repo          absolute path of a checkout of the main branch (the scope command runs here)
+//   repo          absolute path of a checkout of the main branch (git and gh run here)
 //   branch        the main branch; remote — optional, "origin"
 //   ci            profile workflow.ci: "pr" (anything else — exit 1)
 //   ci_check      the name of the check run that is the merge condition
 //   ci_workflow   the workflow (file name) of the CI runs on a PR head
-//   scope         null, or {command, check}: see above
 //   docs_check    null, or a shell command run in the documents worktree before its commit (profile
 //                 docs.handoff.check)
-//   tickets_root  optional, ".scratch": the tickets root inside the repository; null — the tickets are not in
-//                 the repository (Silent mode), no documents PR: `ticket done` is the orchestrator's
+//   tickets_root  optional, ".scratch": the tickets root, relative to the repository root (profile
+//                 tickets.root; an absolute one the orchestrator makes relative); null — the tickets are not
+//                 in the repository (Silent mode, a root outside it), no documents PR: `ticket done` is the
+//                 orchestrator's
 //   main_lock     optional absolute path of the main-branch lock
-//   prs           [{number, epic, ticket, head}] in merge order; epic and ticket — the PR's ticket (without
-//                 them no `ticket done`); head — optional, the head SHA the review verified
-// land adds: prs[].result {status: merged|waits, sha | reason, kind, at}, docs [{branch, prs, pr, result}],
-// runs [{started, ended, land}].
+//   prs           [{number, epic, ticket, head, checks}] in merge order; epic and ticket — the PR's ticket
+//                 (without them no `ticket done`); head — optional, the head SHA the review verified; checks —
+//                 the Check marks the PR needs, ["windows"] or ["check/windows"] alike, [] for none
+// land adds: prs[].result {status: merged|waits, sha | reason, kind, at}, docs [{branch, prs, pr, closed,
+// result}], runs [{started, ended, land}].
 //
 // Output: one line per PR, `#N merged <sha>` or `#N waits: <reason>`, the documents PR the same way, then
 // `LAND=green` (every PR and the documents PR merged), `LAND=red` (a PR waits on a red verdict: a red or
-// cancelled check, a review or scope check failure, a red docs_check) or `LAND=unverified` (something waits
+// cancelled check, a review or Check mark failure, a red docs_check) or `LAND=unverified` (something waits
 // for CI, a person or a rebase). Exit 0 green, 2 red, 3 unverified, 1 error in the input. The full log goes
 // to <state>.log.
 //
@@ -156,11 +164,15 @@ function load(file) {
         fail(`${file}: "ci" is ${JSON.stringify(st.ci)}: land merges on the CI check of a PR head, which only workflow.ci "pr" has (with "batch" — wave-gate)`)
     if (!text("ci_check")) fail(`${file}: "ci_check" must name the check run that is the merge condition`)
     if (!text("ci_workflow")) fail(`${file}: "ci_workflow" must name the workflow of the CI runs on a PR head`)
-    for (const key of ["scope", "docs_check"]) if (!(key in st)) fail(`${file}: "${key}" must be present (null for none): a missing one would silently run without it`)
-    if (st.scope !== null && !(st.scope && typeof st.scope.command === "string" && st.scope.command && typeof st.scope.check === "string" && st.scope.check))
-        fail(`${file}: "scope" must be null or {command, check}`)
+    if ("scope" in st) fail(`${file}: "scope" is not read any more: list the Check marks each PR needs in its "checks"`)
+    if (!("docs_check" in st)) fail(`${file}: "docs_check" must be present (null for none): a missing one would silently run without it`)
     if (st.docs_check !== null && !text("docs_check")) fail(`${file}: "docs_check" must be null or a command`)
-    if (st.tickets_root !== undefined && st.tickets_root !== null && !text("tickets_root")) fail(`${file}: "tickets_root" must be a path inside the repository, or null`)
+    if (
+        st.tickets_root !== undefined &&
+        st.tickets_root !== null &&
+        !(text("tickets_root") && !path.isAbsolute(st.tickets_root) && !path.normalize(st.tickets_root).startsWith(".."))
+    )
+        fail(`${file}: "tickets_root" must be a path relative to the repository root, inside it, or null`)
     if (st.main_lock !== undefined && st.main_lock !== null && (typeof st.main_lock !== "string" || !path.isAbsolute(st.main_lock)))
         fail(`${file}: "main_lock" must be an absolute path`)
     if (!Array.isArray(st.prs) || !st.prs.length) fail(`${file}: "prs" must be a list of PRs`)
@@ -172,6 +184,9 @@ function load(file) {
         if (pr.head !== undefined && pr.head !== null && !SHA.test(pr.head)) fail(`${file}: PR #${pr.number}: "head" must be a full SHA`)
         for (const key of ["epic", "ticket"])
             if (pr[key] !== undefined && pr[key] !== null && (typeof pr[key] !== "string" || !pr[key])) fail(`${file}: PR #${pr.number}: "${key}" must be a string`)
+        // a missing list would merge without the Checks the project requires
+        if (!Array.isArray(pr.checks) || !pr.checks.every((c) => typeof c === "string" && /^(check\/)?[^\s/]+$/.test(c)))
+            fail(`${file}: PR #${pr.number}: "checks" must be a list of Check names ([] for none)`)
     }
     st.docs = Array.isArray(st.docs) ? st.docs : []
     st.runs = Array.isArray(st.runs) ? st.runs : []
@@ -238,18 +253,31 @@ function prDiff(st, sha) {
         .filter((l) => !l.startsWith("index "))
         .join("\n")
 }
-function haveCommit(st, sha) {
+function haveCommit(st, sha, n) {
     if (run([GIT, []], ["cat-file", "-e", `${sha}^{commit}`], st.repo).code === 0) return true
     run([GIT, []], ["fetch", "-q", st.remote || "origin", sha], st.repo)
+    if (n) run([GIT, []], ["fetch", "-q", st.remote || "origin", `refs/pull/${n}/head`], st.repo)
     return run([GIT, []], ["cat-file", "-e", `${sha}^{commit}`], st.repo).code === 0
 }
-function reviewed(st, pr, head) {
-    const mark = statuses(st, head).review
+// The review and the list of checks are the orchestrator's for the head it verified (prs[].head). Another head
+// passes only when the PR's change is the same on it: a rebase with nothing new.
+function sameChange(st, pr, head) {
+    const old = pr.head
+    if (!old || old === head) return
+    if (!haveCommit(st, old, pr.number) || !haveCommit(st, head, pr.number)) throw new Wait(`the head moved from ${short(old)} to ${short(head)}, and git has not got both to compare`)
+    if (prDiff(st, old) !== prDiff(st, head))
+        throw new Wait(`the head moved from ${short(old)} to ${short(head)} and the PR's change differs: verify the new head and put it in the state file`)
+}
+const red = (state) => (state === "failure" || state === "error" ? "red" : "waits")
+// The `review` mark on the head. carry — a head with no `review` status at all may get the verified head's
+// success (sameChange has passed); a failure or pending review on the head is a reviewer's and stays.
+function reviewed(st, pr, head, marks, carry) {
+    const mark = marks.review
     if (mark && mark.state === "success") return
     const old = pr.head
-    if (old && old !== head && haveCommit(st, old) && haveCommit(st, head)) {
+    if (!mark && carry && old && old !== head) {
         const was = statuses(st, old).review
-        if (was && was.state === "success" && prDiff(st, old) === prDiff(st, head)) {
+        if (was && was.state === "success") {
             const description = `carried from ${short(old)}: the PR diff outside ${st.tickets_root || ".scratch"} is unchanged`
             const r = gh(st, ["api", "-X", "POST", `repos/{owner}/{repo}/statuses/${head}`, "-f", "state=success", "-f", "context=review", "-f", `description=${description}`])
             if (r.code !== 0) throw new Wait(`review could not be carried to ${short(head)}: gh exit ${r.code}: ${firstLine(r.err)}`)
@@ -258,20 +286,25 @@ function reviewed(st, pr, head) {
         }
     }
     const state = mark ? mark.state : "missing"
-    throw new Wait(`review is ${state} on ${short(head)}`, state === "failure" || state === "error" ? "red" : "waits")
+    throw new Wait(`review is ${state} on ${short(head)}`, red(state))
 }
-function scoped(st, pr, head) {
-    if (!st.scope) return
-    const remote = st.remote || "origin"
-    if (!haveCommit(st, head)) run([GIT, []], ["fetch", "-q", remote, `refs/pull/${pr.number}/head`], st.repo)
-    const r = sh(`${st.scope.command} ${remote}/${st.branch} ${head}`, st.repo)
-    log(`#${pr.number}: scope command exit ${r.code}: ${firstLine(r.out)}`)
-    if (r.code === 0) return
-    if (r.code !== 1) throw new Wait(`the scope command exited ${r.code}: ${firstLine(r.err || r.out)}`)
-    const mark = statuses(st, head)[st.scope.check]
-    if (mark && mark.state === "success") return
-    const state = mark ? mark.state : "missing"
-    throw new Wait(`scope pc, ${st.scope.check} is ${state} on ${short(head)}`, state === "failure" || state === "error" ? "red" : "waits")
+// The Check marks the PR needs (prs[].checks), each success on the head (`skipped` is posted as success).
+function checked(pr, head, marks) {
+    for (const name of pr.checks) {
+        const context = name.startsWith("check/") ? name : `check/${name}`
+        const mark = marks[context]
+        if (mark && mark.state === "success") continue
+        const state = mark ? mark.state : "missing"
+        throw new Wait(`${context} is ${state} on ${short(head)}`, red(state))
+    }
+}
+// The whole merge condition of a code PR on head; carry — whether a missing review may be carried.
+function ready(st, pr, head, carry) {
+    ciGreen(st, head)
+    sameChange(st, pr, head)
+    const marks = statuses(st, head)
+    reviewed(st, pr, head, marks, carry)
+    checked(pr, head, marks)
 }
 
 // --- the merge, under the main-branch lock -------------------------------------------------------------
@@ -304,14 +337,15 @@ async function lock(dir) {
         await sleep(T.lockPoll)
     }
 }
-// Merges PR n at head; returns the merge commit. Throws Wait when it may not merge now.
-async function mergeOne(st, n, head) {
+// Merges PR n at head; returns the merge commit. Throws Wait when it may not merge now. verify — the merge
+// condition, read again under the lock: the lock may have been waited for long enough for a mark or a run to change.
+async function mergeOne(st, n, head, verify) {
     await lock(st.main_lock || path.join(git(["rev-parse", "--path-format=absolute", "--git-common-dir"], st.repo), "main.lock"))
     try {
         let v
         for (let retry = 0; ; retry++) {
             v = prView(st, n)
-            if (v.state === "MERGED") return v.mergeCommit && v.mergeCommit.oid
+            if (v.state === "MERGED") return (v.mergeCommit && v.mergeCommit.oid) || "unknown"
             if (v.state !== "OPEN") throw new Wait(`the PR is ${v.state}`)
             if (v.headRefOid !== head) throw new Wait(`the head moved from ${short(head)} to ${short(v.headRefOid)} during the check`, "ci")
             if (v.mergeable !== "UNKNOWN" || retry >= MERGEABLE_RETRIES) break
@@ -321,6 +355,7 @@ async function mergeOne(st, n, head) {
         if (v.mergeable === "UNKNOWN") throw new Wait(`mergeable UNKNOWN after ${MERGEABLE_RETRIES} retries`, "ci")
         if (v.mergeable === "CONFLICTING" || v.mergeStateStatus === "DIRTY") throw new Wait("DIRTY: the PR conflicts with its base, rebase it")
         if (v.mergeStateStatus === "BEHIND") throw new Wait("BEHIND: the base moved, rebase the PR")
+        verify()
         const r = gh(st, ["pr", "merge", String(n), "--squash", "--match-head-commit", head])
         if (r.code !== 0) throw new Wait(`gh pr merge failed (exit ${r.code}): ${firstLine(r.err)}`)
         let sha = null
@@ -346,10 +381,8 @@ async function landPr(file, st, pr) {
         } else {
             if (v.state !== "OPEN") throw new Wait(`the PR is ${v.state}`)
             const head = v.headRefOid
-            ciGreen(st, head)
-            reviewed(st, pr, head)
-            scoped(st, pr, head)
-            sha = await mergeOne(st, pr.number, head)
+            ready(st, pr, head, true)
+            sha = await mergeOne(st, pr.number, head, () => ready(st, pr, head, false))
             log(`#${pr.number}: merged at ${head} as ${sha}`)
         }
         pr.result = { status: "merged", sha, at: now() }
@@ -361,6 +394,7 @@ async function landPr(file, st, pr) {
     save(file, st)
 }
 
+const docsBranch = (n) => `land-docs/${now().replace(/[-:]/g, "").replace(/Z$/, "")}${n ? "-" + n : ""}`
 // The documents PR of this run: every merged PR with a ticket that no documents PR has yet.
 function docsEntry(file, st, madeThisRun) {
     if (st.tickets_root === null) return
@@ -370,7 +404,7 @@ function docsEntry(file, st, madeThisRun) {
     // an entry whose PR was never opened takes the new ones; otherwise one new entry per run
     const open = st.docs.find((d) => !d.pr)
     if (open) open.prs.push(...todo)
-    else if (!madeThisRun.done) st.docs.push({ branch: `land-docs/${now().replace(/[-:]/g, "").replace(/Z$/, "")}`, prs: todo, pr: null, result: null })
+    else if (!madeThisRun.done) st.docs.push({ branch: docsBranch(), prs: todo, pr: null, result: null })
     else return
     madeThisRun.done = true
     save(file, st)
@@ -428,13 +462,23 @@ async function landDocs(file, st, madeThisRun) {
         try {
             if (!d.pr) openDocsPr(file, st, d)
             if (d.result && d.result.status === "empty") continue
-            const v = prView(st, d.pr)
+            let v = prView(st, d.pr)
+            if (v.state === "CLOSED") {
+                // closed without a merge: its tickets are not done on the main branch — a new branch and PR for them
+                log(`documents PR #${d.pr} was closed without a merge, opening another for ${d.prs.map((n) => "#" + n).join(", ")}`)
+                d.closed = [...(d.closed || []), d.pr]
+                Object.assign(d, { branch: docsBranch(d.closed.length), pr: null, result: null })
+                save(file, st)
+                openDocsPr(file, st, d)
+                if (d.result && d.result.status === "empty") continue
+                v = prView(st, d.pr)
+            }
             let sha
             if (v.state === "MERGED") sha = (v.mergeCommit && v.mergeCommit.oid) || "unknown"
             else {
                 if (v.state !== "OPEN") throw new Wait(`the PR is ${v.state}`)
                 ciGreen(st, v.headRefOid)
-                sha = await mergeOne(st, d.pr, v.headRefOid)
+                sha = await mergeOne(st, d.pr, v.headRefOid, () => ciGreen(st, v.headRefOid))
             }
             d.result = { status: "merged", sha, at: now() }
         } catch (e) {

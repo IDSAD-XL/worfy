@@ -491,6 +491,12 @@ else
         if printf '%s' "$ew_flat" | grep -qF -- "$p"; then bad "epic-wave: repeats the reviewer's lens ('$p')"
         else ok "epic-wave: no copy of the reviewer's lens ('$p')"; fi
     done
+    # Section 4: with no merge_gate and workflow.ci pr the orchestrator merges only through bin/land.
+    for p in 'The orchestrator merges PRs only with `bin/land`, run in the background: no `gh pr merge` by hand and no merge script of its own.' \
+        'The orchestrator merges these PRs only through `bin/land`'; do
+        if printf '%s' "$ew_flat" | grep -qF -- "$p"; then ok "epic-wave, section 4: '$p'"
+        else bad "epic-wave, section 4: no '$p'"; fi
+    done
 fi
 
 # The Profile contract points at the descriptions (harness/profiles/README.md, the row of review.lenses).
