@@ -22,9 +22,10 @@ import { CONTINUE_TEXT, continueText, LimitsWait, WALL_TICK_MS, wallTimer } from
 import { Autopilot, STOP_TEXT } from '../../src/main/autopilot/run'
 import { emit } from '../../src/main/ipc/index'
 import { LayoutStore } from '../../src/main/layout/store'
+import { AppSettingsStore } from '../../src/main/settings/store'
 import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
 import type { AgentEvent } from '../../src/shared/agent/events'
-import { budgetDecision, budgetResumeAt, budgetStopText, nextLocalDayStart, type AutopilotBudget } from '../../src/shared/autopilot/budget'
+import { budgetDecision, budgetFromSettings, budgetResumeAt, budgetStopText, daysToReset, nextLocalDayStart, type AutopilotBudget } from '../../src/shared/autopilot/budget'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { MAX_WAIT_MS, RECHECK_MS, RESUME_MARGIN_MS } from '../../src/shared/autopilot/resume-at'
 import { autopilotChanged, autopilotStateSchema, autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
@@ -180,8 +181,15 @@ interface HarnessOptions {
    * the run asks the usage before a Wave's line through it (worfy-throughput ticket 40).
    */
   usage?: UsageReader
-  /** The budget of the Limits (worfy-throughput ticket 41); the run reads the journals of this test's data folder. */
-  budget?: AutopilotBudget
+  /**
+   * The budget of the Limits (worfy-throughput ticket 41), or the function the run reads it
+   * through before each Wave; the run reads the journals of this test's data folder.
+   */
+  budget?: AutopilotBudget | (() => AutopilotBudget)
+}
+
+function budgetSettings(budget: AutopilotBudget | (() => AutopilotBudget)): () => AutopilotBudget {
+  return typeof budget === 'function' ? budget : () => budget
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -263,7 +271,7 @@ function harness(options: HarnessOptions = {}) {
     registry,
     waves: launcher,
     ...(refresher === null ? {} : { usage: { refresh: (olderThanMs: number) => refresher.refreshIfOlder(olderThanMs) } }),
-    ...(options.budget === undefined ? {} : { budget: { settings: () => options.budget!, runs: (projectId: string) => readRecentRuns(projectId, { env }) } }),
+    ...(options.budget === undefined ? {} : { budget: { settings: budgetSettings(options.budget), runs: (projectId: string) => readRecentRuns(projectId, { env }) } }),
     journal: (start) => openRun(start, { env }),
     keepAwake: () => ({ start: () => power.push('start'), stop: () => power.push('stop') }),
     onChange: (state) => states.push(state),
@@ -771,7 +779,7 @@ describe('the budget of the Limits before a Wave (worfy-throughput ticket 41)', 
   const spent = () => ({ windows: { five_hour: five(0.05, START_MS), seven_day: week(0.3, START_MS) } })
 
   /** A run whose Wave 1 went and whose Wave 2 waits for the budget. */
-  async function stoppedByBudget(budget: AutopilotBudget = ON) {
+  async function stoppedByBudget(budget: AutopilotBudget | (() => AutopilotBudget) = ON) {
     const h = harness({ lines: twoPassingWaves(), limitsFile: spent(), budget })
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => h.state().status === 'waiting', 'the budget wait before Wave 2')
@@ -835,6 +843,14 @@ describe('the budget of the Limits before a Wave (worfy-throughput ticket 41)', 
     expect(h.messages()).toEqual([WAVE_1])
     expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'wave-finished', 'budget-stop', 'waiting-until', 'resumed', 'budget-stop', 'waiting-until'])
     expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'daily-share', resumesAt: second.at })
+  })
+
+  it('the reserve stored in Settings is the margin the run keeps: 40 % stored gives the share of 1 − 0.40 − 0.30', async () => {
+    const store = new AppSettingsStore(join(scratch, 'app-settings.json'))
+    store.set({ autopilotBudget: { enabled: true, reservePercent: 40 } })
+    const h = await stoppedByBudget(() => budgetFromSettings(store.get()))
+    const stop = (await h.journal()).find((event) => event.kind === 'budget-stop')
+    expect(stop).toMatchObject({ cause: 'daily-share', share: expect.closeTo((1 - 0.4 - 0.3) / daysToReset(START_MS, WEEK_S * 1000), 10) })
   })
 
   it('the budget off: the same numbers start Wave 2 at once', async () => {

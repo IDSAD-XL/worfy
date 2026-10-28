@@ -19,6 +19,7 @@
 import { execFile } from 'node:child_process'
 import { app } from 'electron'
 import type { LimitsState } from '../../shared/agent/limits'
+import { budgetFromSettings } from '../../shared/autopilot/budget'
 import { estimateAnswer } from '../../shared/autopilot/limits-estimate'
 import {
   autopilotChanged,
@@ -29,7 +30,6 @@ import {
   autopilotStop,
   type AutopilotState,
 } from '../../shared/ipc/autopilot'
-import { autopilotBudgetOf } from '../../shared/settings/app-settings'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
 import { appLimits, observeSessionLimits } from '../agent/limits'
@@ -176,10 +176,7 @@ export function sharedAutopilot(): Autopilot {
     usage: { refresh: (olderThanMs) => refreshAppUsage(olderThanMs) },
     // Read before each Wave: a change in Settings counts from the next Wave of a run that goes on.
     budget: {
-      settings: () => {
-        const budget = autopilotBudgetOf(appSettingsStore().get())
-        return { enabled: budget.enabled, reserve: budget.reservePercent / 100 }
-      },
+      settings: () => budgetFromSettings(appSettingsStore().get()),
       runs: (projectId) => readRecentRuns(projectId),
     },
     limits: {

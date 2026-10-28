@@ -351,19 +351,19 @@ describe('AppSettingsStore', () => {
     expect(new AppSettingsStore(atBound).get().browserSleep).toStrictEqual(bound)
   })
 
-  it('the Autopilot budget (worfy-throughput ticket 41): an older file gives the defaults, on with 15 %; a choice is kept field by field, one outside the bounds in the file reads as not chosen', () => {
+  it('the Autopilot budget (worfy-throughput ticket 41): an older file gives the defaults, off with 15 %; a choice is kept field by field, one outside the bounds in the file reads as not chosen', () => {
     const file = freshFile()
     mkdirSync(join(file, '..'), { recursive: true })
     writeFileSync(file, JSON.stringify({ interfaceScale: 1.2, revision: 4 }))
     const store = new AppSettingsStore(file)
     expect(store.get().autopilotBudget).toBeUndefined()
-    expect(autopilotBudgetOf(store.get())).toEqual({ enabled: true, reservePercent: 15 })
-    expect(AUTOPILOT_BUDGET_DEFAULTS).toEqual({ enabled: true, reservePercent: 15 })
+    expect(autopilotBudgetOf(store.get())).toEqual({ enabled: false, reservePercent: 15 })
+    expect(AUTOPILOT_BUDGET_DEFAULTS).toEqual({ enabled: false, reservePercent: 15 })
 
-    expect(store.set({ autopilotBudget: { enabled: false } })).toMatchObject({ autopilotBudget: { enabled: false }, revision: 5 })
-    expect(JSON.parse(readFileSync(file, 'utf8')).autopilotBudget).toStrictEqual({ enabled: false })
-    expect(store.set({ autopilotBudget: { reservePercent: 25 } }).autopilotBudget).toStrictEqual({ enabled: false, reservePercent: 25 })
-    expect(new AppSettingsStore(file).get().autopilotBudget).toStrictEqual({ enabled: false, reservePercent: 25 })
+    expect(store.set({ autopilotBudget: { enabled: true } })).toMatchObject({ autopilotBudget: { enabled: true }, revision: 5 })
+    expect(JSON.parse(readFileSync(file, 'utf8')).autopilotBudget).toStrictEqual({ enabled: true })
+    expect(store.set({ autopilotBudget: { reservePercent: 25 } }).autopilotBudget).toStrictEqual({ enabled: true, reservePercent: 25 })
+    expect(new AppSettingsStore(file).get().autopilotBudget).toStrictEqual({ enabled: true, reservePercent: 25 })
     // The same choice again changes nothing.
     expect(store.set({ autopilotBudget: { reservePercent: 25 } }).revision).toBe(6)
 
@@ -371,7 +371,7 @@ describe('AppSettingsStore', () => {
     mkdirSync(join(outside, '..'), { recursive: true })
     writeFileSync(outside, JSON.stringify({ interfaceScale: 1.1, autopilotBudget: { enabled: 'yes', reservePercent: 51 } }))
     expect(new AppSettingsStore(outside).get()).toMatchObject({ interfaceScale: 1.1 })
-    expect(autopilotBudgetOf(new AppSettingsStore(outside).get())).toEqual({ enabled: true, reservePercent: 15 })
+    expect(autopilotBudgetOf(new AppSettingsStore(outside).get())).toEqual({ enabled: false, reservePercent: 15 })
   })
 
   it('a Browser sleep field of the wrong type reads as not chosen, and the file is not set aside', () => {

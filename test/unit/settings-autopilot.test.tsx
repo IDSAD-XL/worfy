@@ -66,31 +66,36 @@ describe('Settings → Autopilot', () => {
     expect(autopilot.order).toBeLessThan(pipeline.order)
   })
 
-  it('a Machine that chose nothing shows the defaults: the budget on, 15 % kept; no price anywhere', async () => {
+  it('a Machine that chose nothing shows the defaults: the budget off, 15 % to keep, the reserve disabled; no price anywhere', async () => {
     await mount(settings(1))
     await waitFor(() => expect(reserve().textContent).toContain('15 % of the week'))
-    expect(budgetSwitch().getAttribute('aria-checked')).toBe('true')
+    expect(budgetSwitch().getAttribute('aria-checked')).toBe('false')
+    expect(reserve().disabled).toBe(true)
     expect(document.body.textContent).not.toMatch(/\$|USD|€|price|cost/i)
   })
 
-  it('turns the budget off: the switch goes to main alone, and the reserve is disabled once main answers', async () => {
+  it('turns the budget on and off: the switch goes to main alone, and the reserve follows once main answers', async () => {
     const main = await mount(settings(1))
-    await waitFor(() => expect(budgetSwitch().getAttribute('aria-checked')).toBe('true'))
+    await waitFor(() => expect(budgetSwitch().getAttribute('aria-checked')).toBe('false'))
     fireEvent.click(budgetSwitch())
-    await act(async () => main.sets[0]!.answer({ ok: true, value: settings(2, { enabled: false }) }))
-    expect(main.sets.map((each) => each.input)).toEqual([{ autopilotBudget: { enabled: false } }])
+    await act(async () => main.sets[0]!.answer({ ok: true, value: settings(2, { enabled: true }) }))
+    expect(budgetSwitch().getAttribute('aria-checked')).toBe('true')
+    expect(reserve().disabled).toBe(false)
+    fireEvent.click(budgetSwitch())
+    await act(async () => main.sets[1]!.answer({ ok: true, value: settings(3, { enabled: false }) }))
+    expect(main.sets.map((each) => each.input)).toEqual([{ autopilotBudget: { enabled: true } }, { autopilotBudget: { enabled: false } }])
     expect(budgetSwitch().getAttribute('aria-checked')).toBe('false')
     expect(reserve().disabled).toBe(true)
   })
 
   it('changes the reserve: the pick goes to main as the reserve alone and shows once main answers', async () => {
-    const main = await mount(settings(1))
+    const main = await mount(settings(1, { enabled: true }))
     await waitFor(() => expect(reserve().textContent).toContain('15 %'))
     fireEvent.click(reserve())
     const listbox = screen.getByRole('listbox', { name: RESERVE })
     expect(within(listbox).getAllByRole('option').map((option) => option.textContent)).toEqual(['0 % of the week', '5 % of the week', '10 % of the week', '15 % of the week', '20 % of the week', '25 % of the week', '30 % of the week', '40 % of the week', '50 % of the week'])
     fireEvent.click(within(listbox).getByRole('option', { name: '25 % of the week' }))
-    await act(async () => main.sets[0]!.answer({ ok: true, value: settings(2, { reservePercent: 25 }) }))
+    await act(async () => main.sets[0]!.answer({ ok: true, value: settings(2, { enabled: true, reservePercent: 25 }) }))
     expect(main.sets.map((each) => each.input)).toEqual([{ autopilotBudget: { reservePercent: 25 } }])
     expect(reserve().textContent).toContain('25 %')
   })
@@ -101,6 +106,6 @@ describe('Settings → Autopilot', () => {
     fireEvent.click(budgetSwitch())
     await act(async () => main.sets[0]!.answer({ ok: false, error: 'disk full' }))
     expect(screen.getByTestId('settings-autopilot-problem').textContent).toBe('Not saved: disk full')
-    expect(budgetSwitch().getAttribute('aria-checked')).toBe('true')
+    expect(budgetSwitch().getAttribute('aria-checked')).toBe('false')
   })
 })

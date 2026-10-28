@@ -10,8 +10,10 @@
 // - Used today = the share now − the share at the start of the day. What is left of the day =
 //   the share of the day − used today.
 // - The next Wave does not start when nothing is left of the day, or less than the estimate of the
-//   Wave (limits-estimate.ts: the median per Ticket × the Tickets ready). The run then waits until
-//   the start of the next local day, or the 7-day reset when that comes first.
+//   Wave (limits-estimate.ts: the median per Ticket × the Tickets ready) once something of the day is
+//   used: the first Wave of a day goes whenever the day has a share, so a Wave estimated above the
+//   whole share does not wait forever. The run then waits until the start of the next local day, or
+//   the 7-day reset when that comes first.
 // - With the day's share left but the 5-hour window full (share at 1 or `rejected`), the Wave does
 //   not start either: the run waits until the 5-hour reset or the start of the next day, whichever
 //   is first, so it goes on at night by itself.
@@ -22,6 +24,7 @@
 // by hand before the first Wave of the day is not counted as today's; redo when the usage is
 // sampled at midnight on its own.
 import { SAME_WINDOW_RESET_GAP_S, type LimitsState, type LimitWindowState } from '../agent/limits'
+import { autopilotBudgetOf, type AppSettings } from '../settings/app-settings'
 import type { BUDGET_CAUSES, JournalEvent } from './journal'
 import type { WaveEstimate } from './limits-estimate'
 import { RESUME_MARGIN_MS, toMs } from './resume-at'
@@ -40,6 +43,12 @@ export interface AutopilotBudget {
   reserve: number
 }
 
+/** The budget in force from the app settings (Settings → Autopilot): the reserve from percent to a share. */
+export function budgetFromSettings(settings: Pick<AppSettings, 'autopilotBudget'>): AutopilotBudget {
+  const { enabled, reservePercent } = autopilotBudgetOf(settings)
+  return { enabled, reserve: reservePercent / 100 }
+}
+
 /** The start of the local day of `ms`. */
 export function localDayStart(ms: number): number {
   const day = new Date(ms)
@@ -54,9 +63,21 @@ export function nextLocalDayStart(ms: number): number {
   return day.getTime()
 }
 
-/** The days with a share from the local day of `from` until `resetsAt`, the day of `from` included; at least 1. */
+/** The local calendar date of `ms` as a day number: whole days since the epoch, whatever the length of the day (DST). */
+function localDate(ms: number): number {
+  const day = new Date(ms)
+  return Math.round(Date.UTC(day.getFullYear(), day.getMonth(), day.getDate()) / DAY_MS)
+}
+
+/**
+ * The days with a share from the local day of `from` until `resetsAt`: calendar dates, the day of
+ * `from` included, and the day of the reset when it resets after its midnight (its hours before the
+ * reset get a whole day's share); at least 1. Counted by dates, so a day of 23 or 25 hours (DST) is
+ * one day.
+ */
 export function daysToReset(from: number, resetsAt: number): number {
-  return Math.max(1, Math.ceil((resetsAt - localDayStart(from)) / DAY_MS))
+  const partial = resetsAt > localDayStart(resetsAt) ? 1 : 0
+  return Math.max(1, localDate(resetsAt) - localDate(from) + partial)
 }
 
 /** The share of one day: the week left after the reserve and `used`, over `days` (at least 1); never below 0. */
@@ -156,7 +177,7 @@ export function budgetDecision({ budget, now, limits, runs, estimate, tickets }:
   const five = fresh(limits.windows.five_hour, now)
   const fiveHourResetsAt = five === null || five.resetsAt === null ? null : toMs(five.resetsAt)
   const stop = (cause: BudgetCause, until: number): BudgetDecision => ({ kind: 'stop', cause, share: day.share, used: day.used, need, until })
-  if (day.remaining <= 0 || day.remaining < need) return stop('daily-share', budgetResumeAt({ now, dayLeft: false, fiveHourResetsAt, sevenDayResetsAt }))
+  if (day.remaining <= 0 || (day.remaining < need && day.used > 0)) return stop('daily-share', budgetResumeAt({ now, dayLeft: false, fiveHourResetsAt, sevenDayResetsAt }))
   const fiveFull = five !== null && fiveHourResetsAt !== null && fiveHourResetsAt > now && ((five.utilization !== null && five.utilization >= FIVE_HOUR_FULL) || five.status === 'rejected')
   if (fiveFull) return stop('five-hour', budgetResumeAt({ now, dayLeft: true, fiveHourResetsAt, sevenDayResetsAt }))
   return { kind: 'go' }

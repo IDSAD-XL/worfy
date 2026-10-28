@@ -2,12 +2,13 @@
 // reserve, spread over the days until the 7-day window resets; the share of today against what
 // today used by the journal; whether the next Wave may start, and when the run goes on if not.
 // Times are built in the Machine's local time, as the day of the budget is.
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { LimitsState } from '../../src/shared/agent/limits'
 import {
   BUDGET_FRESH_MS,
   budgetDay,
   budgetDecision,
+  budgetFromSettings,
   budgetResumeAt,
   budgetStopText,
   dailyShare,
@@ -149,6 +150,16 @@ describe('whether the next Wave starts', () => {
     expect(budgetDecision(input({ runs, limits: limits({ utilization: 0.45 }), tickets: 3 }))).toEqual({ kind: 'go' })
   })
 
+  it('a Wave estimated above the whole share of the day goes as the first one of the day, and waits once something of the day is used', () => {
+    // 28 Oct → 31 Oct 09:00: four days; (1 − 0.15 − 0.554) / 4 = 7.4 % a day, against 4 Tickets × 2 % = 8 %.
+    const big = { estimate: { perTicket: 0.02, waves: 5 }, tickets: 4 }
+    expect(budgetDay({ reserve: 0.15, now: NOW, week: { at: NOW, utilization: 0.554, resetsAt: WEEK_RESET }, readings: [] }).share).toBeCloseTo(0.074, 10)
+    expect(budgetDecision(input({ ...big, limits: limits({ utilization: 0.554 }) }))).toEqual({ kind: 'go' })
+    // At 01:00 the day began at 55.4 %; now 56 %: something is used, and 6.8 % left is less than 8 %.
+    const runs = [wave(1, { at: at(28, 1), utilization: 0.554 }, { at: at(28, 3), utilization: 0.56 })]
+    expect(budgetDecision(input({ ...big, runs, limits: limits({ utilization: 0.56 }) }))).toMatchObject({ kind: 'stop', cause: 'daily-share', need: expect.closeTo(0.08, 10), until: at(29, 0) })
+  })
+
   it('the share of the day left but the 5-hour window full: stops until its reset, also at night', () => {
     const night = at(28, 23)
     const fiveReset = at(29, 1, 30)
@@ -175,6 +186,36 @@ describe('whether the next Wave starts', () => {
     expect(budgetDecision(input({ limits: limits({ utilization: 0.9, resetsAt: at(28, 9) }) }))).toEqual({ kind: 'go' })
     expect(budgetDecision(input({ limits: limits({ utilization: 0.9, receivedAt: NOW - BUDGET_FRESH_MS - 1 }) }))).toEqual({ kind: 'go' })
     expect(budgetDecision(input({ limits: limits({ utilization: 0.9, receivedAt: NOW - BUDGET_FRESH_MS }) }))).toMatchObject({ kind: 'stop' })
+  })
+})
+
+describe('the days until the reset across a change of the clocks (Europe/Kyiv)', () => {
+  let zone: string | undefined
+  beforeAll(() => {
+    zone = process.env.TZ
+    process.env.TZ = 'Europe/Kyiv'
+  })
+  afterAll(() => {
+    if (zone === undefined) delete process.env.TZ
+    else process.env.TZ = zone
+  })
+
+  it('counts calendar dates: a day of 25 or 23 hours is one day, a reset at midnight adds no day', () => {
+    const local = (month: number, day: number, hour: number, minute = 0): number => new Date(2026, month, day, hour, minute).getTime()
+    // The zone is in force: summer time before 25 October, winter time after.
+    expect([new Date(2026, 9, 24, 12).getTimezoneOffset(), new Date(2026, 9, 26, 12).getTimezoneOffset()]).toEqual([-180, -120])
+    // The clocks go back on 25 October: 24 Oct → 31 Oct 00:00 is seven days, though 7 d 1 h long.
+    expect(daysToReset(local(9, 24, 12), local(9, 31, 0))).toBe(7)
+    // They go forward on 29 March: 28 Mar → 4 Apr 00:30 is eight days with a share, though 6 d 23.5 h from the first midnight.
+    expect(daysToReset(local(2, 28, 12), local(3, 4, 0, 30))).toBe(8)
+    expect(nextLocalDayStart(local(9, 25, 1))).toBe(local(9, 26, 0))
+  })
+})
+
+describe('the budget from the app settings', () => {
+  it('the reserve in percent becomes a share; nothing chosen is off with 15 %', () => {
+    expect(budgetFromSettings({ autopilotBudget: { enabled: true, reservePercent: 40 } })).toEqual({ enabled: true, reserve: 0.4 })
+    expect(budgetFromSettings({})).toEqual({ enabled: false, reserve: 0.15 })
   })
 })
 

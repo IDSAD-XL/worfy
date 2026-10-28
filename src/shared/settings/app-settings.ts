@@ -38,7 +38,7 @@
 // - `autopilotBudget` — the budget of the Limits for Autopilot (worfy-throughput ticket 41,
 //   src/shared/autopilot/budget.ts): `enabled` — whether a run starts no Wave once today's share of
 //   the week is used; `reservePercent` — the share of the week kept for the person's own work. Like
-//   `sessionArchive`, it holds only what the person chose in Settings → Autopilot;
+//   `sessionArchive`, it holds only what the person chose in Settings → Autopilot (off by default);
 //   autopilotBudgetOf() fills the rest with AUTOPILOT_BUDGET_DEFAULTS. Main reads it before every
 //   Wave of a run (src/main/ipc/autopilot.ts);
 // - `revision` — grows with every write, so a renderer keeps the newest of the states it hears.
@@ -173,10 +173,12 @@ export type AutopilotBudgetChoice = z.output<typeof autopilotBudgetChoiceSchema>
 export type AutopilotBudgetSettings = { [K in keyof AutopilotBudgetChoice]-?: NonNullable<AutopilotBudgetChoice[K]> }
 
 /**
- * The budget of a Machine whose person chose nothing: on, with 15 % of the week kept for work by
- * hand (the owner's answer of 2026-10-28 to Q-L5 of the worfy-throughput spec).
+ * The budget of a Machine whose person chose nothing: off, with 15 % of the week to keep for work by
+ * hand once turned on (the owner's answer of 2026-10-28 to Q-L5 of the worfy-throughput spec gives
+ * the 15 %; it does not ask for the budget on by default, and the owner's rule is the full mode by
+ * default, the saving one by choice).
  */
-export const AUTOPILOT_BUDGET_DEFAULTS: Readonly<AutopilotBudgetSettings> = Object.freeze({ enabled: true, reservePercent: 15 })
+export const AUTOPILOT_BUDGET_DEFAULTS: Readonly<AutopilotBudgetSettings> = Object.freeze({ enabled: false, reservePercent: 15 })
 
 export const appSettingsSchema = z.object({
   interfaceScale: z.number().min(INTERFACE_SCALE_MIN).max(INTERFACE_SCALE_MAX),
