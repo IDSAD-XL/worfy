@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, win32 } from 'node:path'
@@ -11,6 +11,8 @@ import { checkTargets, listProblems, overlaps, passOf, passProblems, translateOf
 import { endApp, exited, killThenClean } from './end-app'
 import { SHOW_POLL_MS, waitForFirstWindowShown } from './first-window-shown'
 import { launchEnv } from './launch-env'
+import { quitDiagnosisText, quitLogLines, SAMPLE_SECONDS, SAMPLE_TIMEOUT_MS, type QuitFindings } from './quit-diagnosis'
+import type { StepResult } from './start-diagnosis'
 import { currentTest, recordOutput, startDiagnostics, startTestClock } from './start-diagnostics-run'
 import { clickMenuItem } from './menu'
 
@@ -121,6 +123,8 @@ export const ENGLISH_LOCALE = ['--lang=en-US']
 /** Names of the attachments a failing test keeps (see FailureArtifactsReporter below). */
 export const APP_TRACE = 'app-trace'
 export const APP_SCREENSHOT = 'app-screenshot'
+/** The text a quit that timed out leaves: the hung app's main thread and its last output (diagnoseQuit). */
+export const QUIT_DIAGNOSIS = 'quit-diagnosis'
 
 export interface LaunchedApp {
   app: ElectronApplication
@@ -189,6 +193,51 @@ async function saveArtifacts(app: ElectronApplication, window: Page, tracing: bo
   if (await within(app.context().tracing.stop({ path: trace }), 15_000)) {
     await info.attach(APP_TRACE, { path: trace, contentType: 'application/zip' })
     await removeDir(trace)
+  }
+}
+
+/**
+ * What macOS's `sample` reports of process `pid` over SAMPLE_SECONDS, written to a temporary file
+ * (without -file it leaves its report in /tmp) and read back. Undefined off macOS and where
+ * `sample` is not installed; bounded by SAMPLE_TIMEOUT_MS, since it runs against a hung app.
+ */
+function sampleOf(pid: number | undefined): StepResult<string> | undefined {
+  if (process.platform !== 'darwin') return undefined
+  if (pid === undefined) return { problem: 'the app never named its PID' }
+  const file = join(tmpdir(), `worfy-quit-sample-${pid}-${Date.now()}.txt`)
+  try {
+    const run = spawnSync('sample', [String(pid), String(SAMPLE_SECONDS), '-file', file], { encoding: 'utf8', timeout: SAMPLE_TIMEOUT_MS })
+    if (run.error !== undefined) return (run.error as NodeJS.ErrnoException).code === 'ENOENT' ? undefined : { problem: run.error.message }
+    if (run.status !== 0) return { problem: `exit code ${String(run.status)}: ${run.stderr.trim().split('\n').at(-1) ?? ''}` }
+    return { value: readFileSync(file, 'utf8') }
+  } catch (error) {
+    return { problem: error instanceof Error ? error.message : String(error) }
+  } finally {
+    rmSync(file, { force: true })
+  }
+}
+
+/**
+ * Says why the app did not quit, while it still runs: the innermost frames of its main thread go
+ * to the log, and they, the tail of its output and the whole `sample` report are attached to the
+ * running test (quit-diagnosis.ts). Off macOS only the output is there. Never throws: the kill
+ * after it must happen whatever the diagnosis does.
+ */
+async function diagnoseQuit(pid: number | undefined, output: string): Promise<void> {
+  try {
+    const findings: QuitFindings = { quitTimeoutMs: QUIT_TIMEOUT_MS, pid, sample: sampleOf(pid), output }
+    console.log(quitLogLines(findings).join('\n'))
+    const info = currentTest()
+    if (!info) return
+    // A file in the test's output folder, not a body: CI uploads that folder when a run fails.
+    const file = info.outputPath(`${QUIT_DIAGNOSIS}-${info.retry}-${Date.now()}.txt`)
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, quitDiagnosisText(findings))
+    await info.attach(QUIT_DIAGNOSIS, { path: file, contentType: 'text/plain' })
+    // attach() copied it into the attachments folder.
+    rmSync(file, { force: true })
+  } catch (error) {
+    console.warn('[quit diagnosis] failed', error)
   }
 }
 
@@ -267,6 +316,8 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
       close: async () => {
         await saveArtifacts(app, window, tracing)
         const closed = await Promise.race([app.close().then(() => 'closed' as const), timeout(QUIT_TIMEOUT_MS)])
+        // Before the kill: what the hung app's main thread is doing can only be read while it runs.
+        if (closed === 'timeout') await diagnoseQuit(await Promise.race([appPid, timeout(PID_TIMEOUT_MS).then(() => undefined)]), output.text())
         const killFailure = await killThenClean(async () => {
           if (closed === 'timeout') await kill()
           await exited(child)
