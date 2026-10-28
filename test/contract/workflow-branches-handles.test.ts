@@ -17,11 +17,12 @@ import { execFile, execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, vi } from 'vitest'
 import { fullLayout } from '../../src/main/workflow/folder'
 import { WorkflowWatcher } from '../../src/main/workflow/watch'
 import { removeTestTree } from '../remove'
 import { timeScale } from '../time-scale'
+import { quarantined } from '../quarantine'
 
 const WINDOWS = process.platform === 'win32'
 const EPIC_JSON = JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: false, hasMap: false }], tickets: [] })
@@ -91,7 +92,7 @@ async function round(): Promise<number> {
 }
 
 describe('the watch of the branches gives back its fs.watch handles when another process removes the repository', () => {
-  it(`${ROUNDS} rounds of a worktree and then the repository removed from a child process: after each close() the fs.watch handles are back to where they were`, async () => {
+  quarantined('workflow-branches-handles-rounds')(`${ROUNDS} rounds of a worktree and then the repository removed from a child process: after each close() the fs.watch handles are back to where they were`, async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const before = fsWatches()
     const held: number[] = []

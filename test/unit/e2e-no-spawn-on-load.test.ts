@@ -50,6 +50,8 @@ const FRAMEWORKS: Record<string, Record<string, Api>> = {
   vitest: { it: 'test', test: 'test', describe: 'describe', suite: 'describe', beforeEach: 'hook', afterEach: 'hook', beforeAll: 'hook', afterAll: 'hook', aroundEach: 'hook', aroundAll: 'hook' },
   '@playwright/test': { test: 'test' },
 }
+/** test/quarantine.ts: `quarantined('<id>')` gives back a test of vitest, which keeps its function for later. */
+const QUARANTINE: Record<string, Api> = { quarantined: 'test' }
 
 /** The members of a test that are a test still: they keep the function for later, as the test does. */
 const TEST_MEMBERS = new Set(['only', 'skip', 'fixme', 'fail', 'fails', 'slow', 'todo', 'concurrent', 'sequential', 'skipIf', 'runIf', 'each', 'for', 'extend'])
@@ -160,7 +162,7 @@ function readSource(path: string, text: string, resolveModule: Resolve): Source 
         for (const element of named) if (SPAWNS.has((element.propertyName ?? element.name).text)) s.calls.add(element.name.text)
         continue
       }
-      const framework = FRAMEWORKS[specifier]
+      const framework = FRAMEWORKS[specifier] ?? (/(?:^|\/)quarantine$/.test(specifier) ? QUARANTINE : undefined)
       for (const element of named) {
         const imported = (element.propertyName ?? element.name).text
         const api = framework?.[imported]
@@ -538,6 +540,7 @@ describe('a process started while a module of test/e2e or test/contract loads', 
     { name: 'hooks taken out of test by destructuring', text: `${IMPORT}const { beforeAll, afterEach } = test\nbeforeAll(() => { execSync('git init') })\nafterEach(async () => { spawnSync('git') })`, found: [] },
     { name: 'test.extend under another name, its hooks and its modifiers', text: `${IMPORT}const it2 = test.extend({})\nit2('x', () => { execSync('ls') })\nit2.beforeEach(() => { execSync('ls') })\nit2.skip('y', () => { execSync('ls') })`, found: [] },
     { name: 'the tests and hooks of vitest, also under another name', text: "import { beforeAll as setup, it, test as check } from 'vitest'; import { execSync } from 'node:child_process'\nsetup(() => { execSync('a') })\nit('x', () => { execSync('b') })\nit.skipIf(false)('y', () => { execSync('c') })\nit.each([1])('z %i', () => { execSync('d') })\ncheck('w', () => { execSync('e') })", found: [] },
+    { name: 'a test in quarantine (test/quarantine.ts) starts its processes when it runs', text: "import { quarantined } from '../quarantine'; import { execSync } from 'node:child_process'\nquarantined(\"x\")('y', () => { execSync('a') }, 30_000)", found: [] },
     { name: 'a vitest describe whose tests and hooks start the processes', text: `${VITEST}describe('x', () => {\n  beforeAll(() => { execSync('git init') })\n  it('y', () => { execFileSync('git') })\n  afterEach(() => { execSync('ls') })\n})`, found: [] },
     { name: 'the initialiser of a field: it runs on new, not at load', text: `${IMPORT}class Repo {\n  head = execFileSync('git')\n}`, found: [] },
     { name: 'the calls that do not wait', text: "import * as cp from 'node:child_process'\nimport { execFile, spawn } from 'node:child_process'\nspawn('git')\nexecFile('git')\ncp.spawn('git')", found: [] },
