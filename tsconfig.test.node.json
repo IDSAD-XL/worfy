@@ -43,6 +43,7 @@
     "test/harness-node.ts",
     "test/quarantine.ts",
     "test/remove.ts",
+    "test/script-node.ts",
     "test/setup-contract.ts",
     "test/shell-stub.ts",
     "test/stale-leftovers.ts",

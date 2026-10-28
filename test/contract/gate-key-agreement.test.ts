@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { gateKey } from '../../src/main/gate/state'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 const RESOLVE = join(import.meta.dirname, '..', '..', 'harness', 'hooks', 'gate-resolve.mjs')
 
@@ -49,7 +50,7 @@ function spellings(): Record<string, string> {
 function which(config: { repos: { key: string; match: string }[] }, target: string): string | null {
   const file = join(scratch, `config-${Math.random().toString(16).slice(2)}.json`)
   writeFileSync(file, JSON.stringify(config))
-  const run = spawnSync(process.execPath, [RESOLVE, '--which', target], {
+  const run = spawnSync(scriptNode(), [RESOLVE, '--which', target], {
     encoding: 'utf8',
     env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, HOME: scratch, USERPROFILE: scratch, ELECTRON_RUN_AS_NODE: '1', CLAUDE_GATE_CONFIG: file },
   })

@@ -8,12 +8,13 @@ import { join } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 const REPO = join(__dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'vitest-electron.mjs')
 
 const run = (...args: string[]) =>
-  spawnSync(process.execPath, [SCRIPT, ...args], { cwd: REPO, encoding: 'utf8', timeout: 120_000 })
+  spawnSync(scriptNode(), [SCRIPT, ...args], { cwd: REPO, encoding: 'utf8', timeout: 120_000 })
 
 describe('scripts/vitest-electron.mjs', () => {
   it('passes the exit code of vitest on: a filter that matches no test file exits 1', () => {
@@ -87,7 +88,7 @@ beforeAll(() => {
 afterAll(() => removeTestTree(standInRepo))
 
 const runStandIn = (mode: string, ...args: string[]) =>
-  spawnSync(process.execPath, [join(standInRepo, 'scripts', 'vitest-electron.mjs'), ...args], {
+  spawnSync(scriptNode(), [join(standInRepo, 'scripts', 'vitest-electron.mjs'), ...args], {
     cwd: standInRepo,
     encoding: 'utf8',
     timeout: 30_000,

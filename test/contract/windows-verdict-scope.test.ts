@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 const REPO = join(__dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'windows-verdict-scope.mjs')
@@ -59,7 +60,7 @@ function branch(change: () => void): string {
 }
 
 const scope = (...args: string[]) => {
-  const result = spawnSync(process.execPath, [SCRIPT, ...args], { cwd: repo, encoding: 'utf8', env: gitEnv() })
+  const result = spawnSync(scriptNode(), [SCRIPT, ...args], { cwd: repo, encoding: 'utf8', env: gitEnv() })
   return { status: result.status, lines: result.stdout.split('\n').filter((line) => line !== ''), stderr: result.stderr }
 }
 

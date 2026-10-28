@@ -5,6 +5,7 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { endApp, exited, killThenClean, running } from '../e2e/end-app'
+import { scriptNode } from '../script-node'
 
 const started: ChildProcess[] = []
 const strays: number[] = []
@@ -61,7 +62,7 @@ async function zombie(): Promise<{ parent: ChildProcess; pid: number }> {
 
 /** A process that runs until killed, started directly: the app as macOS and Linux start it. */
 function app(): ChildProcess {
-  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: 'ignore' })
+  const child = spawn(scriptNode(), ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
   started.push(child)
   return child
 }

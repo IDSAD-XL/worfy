@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 const REPO = join(__dirname, '..', '..')
 const WORKFLOW = join(REPO, '.github', 'workflows', 'ci.yml')
@@ -260,7 +261,7 @@ describe('scripts/ci-scope.mjs', () => {
     // core.quotePath is pinned to git's default, which the runner keeps: with it git quotes a path
     // that has bytes outside ASCII, a double quote or a control character, whatever this machine sets.
     const quotePath = { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.quotePath', GIT_CONFIG_VALUE_0: 'true' }
-    const result = spawnSync(process.execPath, [SCOPE], { cwd: repo, encoding: 'utf8', env: { ...process.env, ...quotePath, GITHUB_OUTPUT: output, EVENT: '', JOB: '', BASE: '', ...env } })
+    const result = spawnSync(scriptNode(), [SCOPE], { cwd: repo, encoding: 'utf8', env: { ...process.env, ...quotePath, GITHUB_OUTPUT: output, EVENT: '', JOB: '', BASE: '', ...env } })
     const written = /^expect=(.*)$/m.exec(readFileSync(output, 'utf8'))?.[1]
     return { status: result.status, stdout: result.stdout, stderr: result.stderr, expect: written === undefined ? undefined : (JSON.parse(written) as Record<string, boolean>) }
   }
@@ -463,7 +464,7 @@ describe('scripts/ci-ok.mjs', () => {
     ...Object.fromEntries(Object.entries(results).map(([name, result]) => [name, { result, outputs: {} }])),
   })
 
-  const ok = (raw: string) => spawnSync(process.execPath, [OK], { encoding: 'utf8', env: { ...process.env, NEEDS: raw } })
+  const ok = (raw: string) => spawnSync(scriptNode(), [OK], { encoding: 'utf8', env: { ...process.env, NEEDS: raw } })
 
   const ALL = Object.fromEntries(DECIDED.map((name) => [name, true]))
   const ONLY_LINT = Object.fromEntries(DECIDED.map((name) => [name, name === 'lint-typecheck']))

@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { gitBash } from '../git-bash'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 const REPO = join(__dirname, '..', '..')
 const WORKFLOW = join(REPO, '.github', 'workflows', 'windows-tests.yml')
@@ -269,7 +270,7 @@ describe('scripts/windows-test-list.mjs', () => {
     const env: NodeJS.ProcessEnv = { ...process.env, GITHUB_OUTPUT: outputFile }
     delete env.TEST_FILES
     if (list !== undefined) env.TEST_FILES = list
-    const result = spawnSync(process.execPath, [SCRIPT], { cwd, env, encoding: 'utf8' })
+    const result = spawnSync(scriptNode(), [SCRIPT], { cwd, env, encoding: 'utf8' })
     return { status: result.status, stdout: result.stdout, stderr: result.stderr, output: readFileSync(outputFile, 'utf8') }
   }
 
@@ -501,8 +502,7 @@ describe('scripts/windows-test-list.mjs', () => {
     expect(accepted.status, accepted.stderr).toBe(0)
     const files = accepted.output.trim().replace(/^files=/, '').split(' ')
     // `vitest list --filesOnly` answers which files the arguments select, without running a test.
-    // The same Node as `pnpm test`: this process is Electron's Node, and so is its child.
-    const listed = spawnSync(process.execPath, [join(REPO, 'node_modules', 'vitest', 'vitest.mjs'), 'list', '--filesOnly', ...files], {
+    const listed = spawnSync(scriptNode(), [join(REPO, 'node_modules', 'vitest', 'vitest.mjs'), 'list', '--filesOnly', ...files], {
       cwd: REPO,
       encoding: 'utf8',
       timeout: 120_000,

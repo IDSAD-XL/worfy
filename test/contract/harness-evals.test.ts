@@ -28,6 +28,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { findStatusBlock } from '../../src/shared/agent/status-block'
 import { removeTestTree } from '../remove'
 import { shellStub } from '../shell-stub'
+import { scriptNode } from '../script-node'
 
 const REPO = join(__dirname, '..', '..')
 const HARNESS = join(REPO, 'harness')
@@ -151,15 +152,13 @@ function scaffold(
 }
 
 /**
- * The environment of a Harness script: the fixture's home, PATH, TMPDIR and LANG, and `extra`;
- * ELECTRON_RUN_AS_NODE, because the script runs under this process's Node (see `harness`).
+ * The environment of a Harness script: the fixture's home, PATH, TMPDIR and LANG, and `extra`.
  */
 const harnessEnv = (home: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv =>
   childEnv(home, {
     PATH: process.env.PATH,
     TMPDIR: process.env.TMPDIR ?? tmpdir(),
     LANG: process.env.LANG ?? 'C.UTF-8',
-    ELECTRON_RUN_AS_NODE: '1',
     ...extra,
   })
 
@@ -169,7 +168,7 @@ const harnessEnv = (home: string, extra: NodeJS.ProcessEnv = {}): NodeJS.Process
  * starts no script by its path, only .exe and .com.
  */
 const harness = (home: string, cwd: string, script: string, args: string[], extra: NodeJS.ProcessEnv = {}): SpawnSyncReturns<string> =>
-  spawnSync(process.execPath, [join(HARNESS, 'bin', script), ...args], {
+  spawnSync(scriptNode(), [join(HARNESS, 'bin', script), ...args], {
     cwd,
     env: harnessEnv(home, extra),
     encoding: 'utf8',
@@ -400,7 +399,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     const fake = tempDir('worfy-eval-guard-home-')
     const env = childEnv(fake, { PATH: process.env.PATH })
     const check = (home: string, extra: NodeJS.ProcessEnv = {}) =>
-      spawnSync(process.env.npm_node_execpath ?? 'node', [guard, home, work], { env: { ...env, ...extra }, encoding: 'utf8' })
+      spawnSync(scriptNode(), [guard, home, work], { env: { ...env, ...extra }, encoding: 'utf8' })
     const real = check(userInfo().homedir)
     expect(real.status, real.stderr).toBe(1)
     expect(real.stderr).toMatch(/is the real home folder of this user/)
@@ -452,7 +451,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     const { stub, realHome } = fakeRealHome()
     const link = join(tempDir('worfy-eval-link-'), 'home')
     symlinkSync(realHome, link)
-    const run = spawnSync(process.env.npm_node_execpath ?? 'node', [join(EVALS, 'lib', 'state-guard.cjs'), link, tempDir('worfy-eval-guard-')], {
+    const run = spawnSync(scriptNode(), [join(EVALS, 'lib', 'state-guard.cjs'), link, tempDir('worfy-eval-guard-')], {
       env: { PATH: process.env.PATH, ...stub },
       encoding: 'utf8',
     })
@@ -465,7 +464,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
   const { realHome: caseHome } = fakeRealHome()
   it.skipIf(!existsSync(caseHome.toUpperCase()))('state-guard.cjs refuses the real home folder spelled in another case', () => {
     const { stub, realHome } = fakeRealHome()
-    const run = spawnSync(process.env.npm_node_execpath ?? 'node', [join(EVALS, 'lib', 'state-guard.cjs'), realHome.toUpperCase(), tempDir('worfy-eval-guard-')], {
+    const run = spawnSync(scriptNode(), [join(EVALS, 'lib', 'state-guard.cjs'), realHome.toUpperCase(), tempDir('worfy-eval-guard-')], {
       env: { PATH: process.env.PATH, ...stub },
       encoding: 'utf8',
     })
@@ -480,7 +479,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     const { stub } = fakeRealHome()
     const missing = join(tempDir('worfy-eval-missing-home-'), 'home')
     const guard = (home: string) =>
-      spawnSync(process.env.npm_node_execpath ?? 'node', [join(EVALS, 'lib', 'state-guard.cjs'), home, tempDir('worfy-eval-guard-')], {
+      spawnSync(scriptNode(), [join(EVALS, 'lib', 'state-guard.cjs'), home, tempDir('worfy-eval-guard-')], {
         env: { PATH: process.env.PATH, ...stub, EVAL_TEST_REAL_HOME: missing },
         encoding: 'utf8',
       })
@@ -501,7 +500,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     const link = join(tempDir('worfy-eval-parent-link-'), 'parent')
     symlinkSync(parent, link, 'junction')
     const guard = (home: string) =>
-      spawnSync(process.env.npm_node_execpath ?? 'node', [join(EVALS, 'lib', 'state-guard.cjs'), home, tempDir('worfy-eval-guard-')], {
+      spawnSync(scriptNode(), [join(EVALS, 'lib', 'state-guard.cjs'), home, tempDir('worfy-eval-guard-')], {
         env: { PATH: process.env.PATH, ...stub, EVAL_TEST_REAL_HOME: missing },
         encoding: 'utf8',
       })
@@ -526,7 +525,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     `state-guard.cjs takes a HARNESS_HOME under the fixture spelled in another case for one inside it${caseInsensitive ? '' : ' (skipped: the file system is case-sensitive)'}`,
     () => {
       const home = tempDir('worfy-eval-guard-home-')
-      const run = spawnSync(process.env.npm_node_execpath ?? 'node', [join(EVALS, 'lib', 'state-guard.cjs'), home, caseWork], {
+      const run = spawnSync(scriptNode(), [join(EVALS, 'lib', 'state-guard.cjs'), home, caseWork], {
         env: childEnv(home, { PATH: process.env.PATH, HARNESS_HOME: join(caseWork.toUpperCase(), 'hh') }),
         encoding: 'utf8',
       })
@@ -567,7 +566,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     // absolute path, not `..`, so that counts as outside too.
     const inside = relative(realpathSync.native(work), realpathSync.native(pm))
     expect(inside.startsWith('..') || isAbsolute(inside), pm).toBe(false)
-    const gate = spawnSync(process.env.npm_node_execpath ?? 'node', [join(HARNESS, 'hooks', 'gate.mjs'), 'fast'], {
+    const gate = spawnSync(scriptNode(), [join(HARNESS, 'hooks', 'gate.mjs'), 'fast'], {
       cwd: work,
       env: childEnv(home, { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR ?? tmpdir(), LANG: process.env.LANG ?? 'C.UTF-8', GATE_SCOPE: 'all', ...evalHome }),
       encoding: 'utf8',
@@ -597,7 +596,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
   it('gate fast of the fixture is red (exit 2) when its tests fail', () => {
     const { work, home, run } = scaffold('reviewer-verdict')
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
-    const gate = spawnSync(process.env.npm_node_execpath ?? 'node', [join(HARNESS, 'hooks', 'gate.mjs'), 'fast'], {
+    const gate = spawnSync(scriptNode(), [join(HARNESS, 'hooks', 'gate.mjs'), 'fast'], {
       cwd: work,
       env: childEnv(home, { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR ?? tmpdir(), LANG: process.env.LANG ?? 'C.UTF-8', GATE_SCOPE: 'all', EVAL_HARNESS_HOME: 'worfy-harness' }),
       encoding: 'utf8',
@@ -778,7 +777,6 @@ function stubSetup(
   const log = join(dir, 'calls.log')
   const env = childEnv(dir, {
     PATH: path(dir),
-    ELECTRON_RUN_AS_NODE: '1',
     HARNESS_DIR: evaluated(),
     CLAUDE_BIN: claude,
     STUB_VERSION: version,
@@ -814,7 +812,7 @@ function evalHarness(
   extra: NodeJS.ProcessEnv = {},
 ): { run: SpawnSyncReturns<string>; calls: StubCall[]; home: string } {
   const { dir, log, env } = stubSetup(version, codes, path, extra)
-  const run = spawnSync(process.execPath, [EVAL_HARNESS, ...args], { env, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+  const run = spawnSync(scriptNode(), [EVAL_HARNESS, ...args], { env, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
   return { run, calls: loggedCalls(log), home: dir }
 }
 
@@ -874,16 +872,14 @@ describe('a child process sees the temporary home', () => {
   // The variables of a caller that names a home of its own: the real one. Built from names, so the
   // scan below (no HOME or USERPROFILE key outside childEnv) does not count them.
   const foreignHome = (): NodeJS.ProcessEnv => Object.fromEntries(['HOME', 'USERPROFILE'].map((name) => [name, homedir()]))
-  // startsNode: the environment starts this process's executable, which under Electron needs
-  // ELECTRON_RUN_AS_NODE to run as Node and not as an app window that never exits.
-  const launchers: [name: string, env: (home: string) => NodeJS.ProcessEnv, startsNode: boolean][] = [
-    ['scaffold', (home) => scaffoldEnv(home), false],
-    ['scaffold, a caller with its own home', (home) => scaffoldEnv(home, foreignHome()), false],
-    ['harness', (home) => harnessEnv(home), true],
-    ['harness, a caller with its own home', (home) => harnessEnv(home, foreignHome()), true],
-    ['inFixture', (home) => fixtureEnv(home), false],
-    ['the claude stub', () => stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', {}).env, true],
-    ['the claude stub, a caller with its own home', () => stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', foreignHome()).env, true],
+  const launchers: [name: string, env: (home: string) => NodeJS.ProcessEnv][] = [
+    ['scaffold', (home) => scaffoldEnv(home)],
+    ['scaffold, a caller with its own home', (home) => scaffoldEnv(home, foreignHome())],
+    ['harness', (home) => harnessEnv(home)],
+    ['harness, a caller with its own home', (home) => harnessEnv(home, foreignHome())],
+    ['inFixture', (home) => fixtureEnv(home)],
+    ['the claude stub', () => stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', {}).env],
+    ['the claude stub, a caller with its own home', () => stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', foreignHome()).env],
   ]
   const insideTemp = (dir: string | undefined): boolean => {
     const inside = relative(realpathSync(tmpdir()), dir ?? '')
@@ -896,16 +892,10 @@ describe('a child process sees the temporary home', () => {
     expect(env.USERPROFILE).toBe(env.HOME)
   })
 
-  it.each(launchers.filter(([, , startsNode]) => startsNode))('%s: runs this process as Node (ELECTRON_RUN_AS_NODE=1)', (_, envOf) => {
-    expect(envOf(tempDir('worfy-eval-home-')).ELECTRON_RUN_AS_NODE).toBe('1')
-  })
-
-  it.each(launchers)('%s: a Node child takes the temporary home for os.homedir()', (_, envOf, startsNode) => {
+  it.each(launchers)('%s: a Node child takes the temporary home for os.homedir()', (_, envOf) => {
     const env = envOf(tempDir('worfy-eval-home-'))
-    // A launcher that starts this process's executable is used as it is: adding the variable here
-    // would hide its loss.
-    const child = spawnSync(process.execPath, ['-e', 'process.stdout.write(require("node:os").homedir())'], {
-      env: startsNode ? env : { ...env, ELECTRON_RUN_AS_NODE: '1' },
+    const child = spawnSync(scriptNode(), ['-e', 'process.stdout.write(require("node:os").homedir())'], {
+      env,
       encoding: 'utf8',
       timeout: SCAFFOLD_TIMEOUT_MS,
     })
@@ -1195,7 +1185,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
       const { dir, log, env } = stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', {})
       const hang = join(dir, 'hang.pid')
       const stubEnv = { ...env, STUB_HANG: hang, ...(claudeDoes === 'exits 0' ? { STUB_CATCH: '1' } : {}) }
-      const child = spawn(process.execPath, [EVAL_HARNESS], { env: stubEnv, stdio: 'ignore' })
+      const child = spawn(scriptNode(), [EVAL_HARNESS], { env: stubEnv, stdio: 'ignore' })
       const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
         child.on('close', (code, ended) => resolve({ code, signal: ended })),
       )
@@ -1263,7 +1253,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
   // that executable itself: by its path it answers --version (v<major>.<minor>.<patch>, newer than
   // the minimum); as a script of itself it fails. A --case that matches nothing skips both calls.
   it.runIf(process.platform === 'win32')('on Windows starts a CLAUDE_BIN that is no .mjs by its path', () => {
-    const { run, calls } = evalHarness('2.1.289', '0,0', ['--', '--case', 'no-such-case'], undefined, { CLAUDE_BIN: process.execPath })
+    const { run, calls } = evalHarness('2.1.289', '0,0', ['--', '--case', 'no-such-case'], undefined, { CLAUDE_BIN: scriptNode() })
     expect(run.status, run.stderr).toBe(0)
     expect(run.stdout).toMatch(/no main case selected/)
     expect(calls).toEqual([])
@@ -1276,7 +1266,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     const { dir, log, env } = stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', {})
     const claude = join(dir, 'claude-by-path.mjs')
     shellStub(claude, [`exec '${join(dir, 'claude')}' "$@"`])
-    const run = spawnSync(process.execPath, [EVAL_HARNESS], { env: { ...env, CLAUDE_BIN: claude }, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+    const run = spawnSync(scriptNode(), [EVAL_HARNESS], { env: { ...env, CLAUDE_BIN: claude }, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
     expect(run.status, run.stderr).toBe(0)
     expect(loggedCalls(log)).toHaveLength(2)
   })
@@ -1574,7 +1564,7 @@ function evalIn(
   const versionLog = join(dir, 'version.log')
   delete env.HARNESS_DIR
   Object.assign(env, { STUB_VERSION_LOG: versionLog }, extra)
-  const run = spawnSync(process.execPath, [join(repo, 'scripts', 'eval-harness.mjs'), ...args], { env, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+  const run = spawnSync(scriptNode(), [join(repo, 'scripts', 'eval-harness.mjs'), ...args], { env, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
   const versionCalls = existsSync(versionLog) ? readFileSync(versionLog, 'utf8').split('\n').filter(Boolean).length : 0
   return { run, calls: loggedCalls(log), versionCalls }
 }
