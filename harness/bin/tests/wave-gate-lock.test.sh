@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Tests of harness/bin/wave-gate: the e2e lock. A live lock of another holder is waited for, holder.json names the
 # set, a stale lock is taken over and a young one is not, the heartbeat moves its mtime, and a SIGTERM releases it.
-# Then the e2e lock of a wave-gate that got a signal it cannot forward, or was killed without its signal handlers. The lock is released, or taken over at once by the next run when its holder (and
+# Then the e2e lock of a wave-gate that got a signal it cannot forward, or was killed while its gate still ran. The lock is released, or taken over at once by the next run when its holder (and
 # the holder's gate) no longer runs; two waiting runs and a takeover token; a holder.json of another host or with
-# no host. The world of wave-gate.test.sh (wave-gate-world.sh): temporary git repositories, a stub gate and gh. No
+# no host. A wave-gate killed without its signal handlers: wave-gate-lock-killed.test.sh. The world of wave-gate.test.sh (wave-gate-world.sh): temporary git repositories, a stub gate and gh. No
 # network, no real gate, no real gh, no real /tmp/worfy-e2e.lock.
 # Run: bash harness/bin/tests/wave-gate-lock.test.sh; exit code 0 — everything passed.
 set -u
@@ -164,24 +164,8 @@ for pair in $sigs; do
         && ok "e2e lock: released when wave-gate gets $sig during its gate (exit $code)" || bad "e2e lock on $sig: exit $rc, lock $( [ -e "$L" ] && echo left || echo gone): $(tail -3 "$W/out")"
     unset GATE_LOCK
 done
-# killed without its signal handlers (SIGKILL; on Windows every kill from another process): the lock stays with its
-# holder.json, and the next run takes it at once because the holder's pid is not running, not after 30 min.
-# On every system.
-new_world killed 1:a.txt
-S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
-echo KILL >"$GATE_DIR/kill1"
-# STAND_IN_PARENTS: on Windows the gate stub finds wave-gate's pid there, as in the resume case
-STAND_IN_PARENTS="$GATE_DIR/parents" "$WG" check "$S" >"$W/out" 2>&1; rc=$?
-rm -f "$GATE_DIR/kill1"
-kp="$(q "$L/holder.json" s.pid 2>&1)"
-[ "$rc" -ne 0 ] && [ -d "$L" ] && [ "$(q "$L/holder.json" 's.host===require("os").hostname()' 2>&1)" = true ] \
-    && ok "e2e lock: a killed wave-gate leaves its lock with its pid and host (exit $rc)" || bad "e2e lock killed: exit $rc, holder [$(cat "$L/holder.json" 2>&1)]"
+# The lock of a wave-gate killed without its signal handlers, taken at once by the next run: wave-gate-lock-killed.test.sh.
 held_twice() { [ "$(grep -c 'lock=held' "$GATE_DIR/log" 2>/dev/null)" -ge 2 ]; }
-"$WG" check "$S" >"$W/out" 2>&1 & wg=$!
-if until_ok 30 held_twice; then finish "$wg" 120; else finish "$wg" 0; rc="still waiting after 30 s ($rc)"; fi
-[ "$rc" = 0 ] && grep -q "held by pid $kp, which is not running" "$W/out" && [ ! -e "$L" ] \
-    && ok "e2e lock: the lock of a killed wave-gate is taken at once by the next run" || bad "e2e lock of a killed run: $rc: $(tail -3 "$W/out")"
-rm -rf "$L"; unset GATE_LOCK
 # killed while its gate still runs (SIGKILL leaves the gate and its e2e running): holder.json names the gate as
 # `child`, and the lock is waited for until the gate has ended too. On Windows the gate ends with wave-gate (libuv
 # puts node's children in a job object that is closed with node), so the next run takes the lock at once there.
@@ -209,7 +193,10 @@ if until_ok 30 held_twice; then finish "$wg" 120; else finish "$wg" 0; rc="still
 rm -rf "$L"; unset GATE_LOCK
 # two runs wait on the lock of a dead wave-gate: one takes it over, the other waits for that one's lock, both run
 # their gate, and no takeover token is left
-gone2="$(node -e 'process.stdout.write(String(process.pid))')"
+# A pid no system hands out (above the pid limit of Linux, macOS and Windows), not one of a process that has just
+# exited: a loaded Windows runner gave such a freed pid to a new process, the dead holder was taken for a live one,
+# and its lock was removed by age instead (CI run 40562890010).
+gone2=2147483644
 me="$(node -e 'process.stdout.write(require("os").hostname())')"
 L2="$T/shared-e2e.lock"; mkdir "$L2"
 printf '{"prs":[9],"what":"gate-full","pid":%s,"host":"%s","since":"x"}\n' "$gone2" "$me" >"$L2/holder.json"
@@ -219,8 +206,16 @@ new_world twin2 1:a.txt; W2="$W"; state "$W2/state.json" "$L2" 1
 twin() { GATE_DIR="$1/gate" GATE_LOCK="$L2" GH_ORIGIN="$1/origin.git" GH_LOG="$1/gh/log" GH_TMP="$1/gh" SCREEN_DIR="$1/screen" exec "$WG" check "$1/state.json" >"$1/out" 2>&1; }
 twin "$W1" & t1=$!; twin "$W2" & t2=$!
 twins_done() { ! kill -0 "$t1" 2>/dev/null && ! kill -0 "$t2" 2>/dev/null; }
-if until_ok 60 twins_done; then finish "$t1" 0; r1=$rc; finish "$t2" 0; r2=$rc
-else finish "$t1" 0; r1="still waiting after 60 s ($rc)"; finish "$t2" 0; r2="still waiting after 60 s ($rc)"; fi
+# The two runs take turns on one lock, each with its gate: on a loaded Windows runner that took longer than a
+# minute (CI run 40607908878). So the wait lasts while their output grows, and ends 60 s after its last change.
+twins_out() { cat "$W1/out" "$W2/out" 2>/dev/null | wc -c; }
+seen=-1; still=0
+while ! twins_done && [ "$still" -lt 300 ]; do
+    now="$(twins_out)"; if [ "$now" != "$seen" ]; then seen=$now; still=0; else still=$((still + 1)); fi
+    sleep 0.2
+done
+if twins_done; then finish "$t1" 0; r1=$rc; finish "$t2" 0; r2=$rc
+else finish "$t1" 0; r1="still waiting 60 s after the last output ($rc)"; finish "$t2" 0; r2="still waiting 60 s after the last output ($rc)"; fi
 n="$(cat "$W1/out" "$W2/out" | grep -c "which is not running")"
 [ "$r1" = 0 ] && [ "$r2" = 0 ] && [ "$n" = 1 ] && [ ! -e "$L2" ] && [ -z "$(ls -d "$L2".* 2>/dev/null)" ] \
     && ok "e2e lock: of two runs waiting on a dead lock one takes it over, both run" || bad "e2e lock twins: exit $r1 $r2, takeovers $n, left [$(ls -d "$L2"* 2>/dev/null)], dead pid $gone2: $(grep -h "not running\|waiting\|taken over" "$W1/out" "$W2/out" | tr '\n' '|')"

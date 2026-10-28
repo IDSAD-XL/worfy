@@ -126,8 +126,9 @@ an unsupported `schema` and a schema 2 profile without a valid `mode`).
 
 Variables for tests: `HARNESS_HOME`, `CLAUDE_GATE_CONFIG`, `CLAUDE_GATE_RESOLVE`,
 `CLAUDE_PROFILES_DIR` (a folder of profiles that replaces both places of step 3).
-Tests: `bash bin/tests/profile.test.sh` from the plugin root (in the worfy repository —
-`harness/bin/tests/profile.test.sh`).
+Tests: `bash bin/tests/profile.test.sh`, `profile-schema2.test.sh`, `profile-attribution.test.sh` and
+`profile-user.test.sh` in the same folder, from the plugin root (in the worfy repository —
+`harness/bin/tests/`).
 
 ## profile.json
 

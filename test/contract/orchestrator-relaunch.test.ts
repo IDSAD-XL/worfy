@@ -15,6 +15,7 @@ import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
 import { LayoutStore } from '../../src/main/layout/store'
 import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
+import { quarantined } from '../quarantine'
 import { IGNORE_TERM_EXIT_SIGNAL, StubProcesses, type StubKind } from './claude-process-stub'
 
 vi.mock('electron', () => ({
@@ -104,7 +105,7 @@ function harness(kind: StubKind | ((n: number, request: QueryRequest) => StubKin
 }
 
 describe('Orchestrator relaunch waits for the old Claude Code process', () => {
-  it('a process that ignores SIGTERM: the new one starts only after the old one exited by SIGKILL at the limit; giveBackNow answers after the new start', async () => {
+  quarantined('orchestrator-relaunch-sigterm-ignored')('a process that ignores SIGTERM: the new one starts only after the old one exited by SIGKILL at the limit; giveBackNow answers after the new start', async () => {
     const h = harness('ignore-term', 300)
     await h.opened()
     expect(h.stub.order()).toEqual(['spawn 1'])
@@ -149,7 +150,7 @@ describe('Orchestrator relaunch waits for the old Claude Code process', () => {
     expect(untilTerm + added).toBeLessThan(LIMIT_MS / 5)
   })
 
-  it('a message sent during the wait waits in the new Session and reaches the new process; the old Session takes none', async () => {
+  quarantined('orchestrator-relaunch-message-during-wait')('a message sent during the wait waits in the new Session and reaches the new process; the old Session takes none', async () => {
     const h = harness('ignore-term', 400)
     await h.opened()
     const old = h.view().sessionId ?? ''

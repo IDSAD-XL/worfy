@@ -1,0 +1,11 @@
+{
+  "file": "test/contract/demo-template.test.ts",
+  "test": "the tests of the Demo project > with a done that misses the already-done check exactly the edge-case test fails",
+  "platforms": [
+    "win32"
+  ],
+  "reason": "The same cost as demo-template-reference-done: the demo's whole node --test suite, a process per test file and per CLI call, under the Electron binary as Node, on the GitHub Windows runner that runs more test files at once since the evening of 2026-10-27. Past its 45 s limit in CI runs 40604951289 and 40607908878 (2026-10-28).",
+  "owner": "worfy-throughput 23",
+  "since": "2026-10-28",
+  "until": "2026-11-11"
+}

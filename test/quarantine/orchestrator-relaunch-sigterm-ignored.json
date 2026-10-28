@@ -1,0 +1,11 @@
+{
+  "file": "test/contract/orchestrator-relaunch.test.ts",
+  "test": "Orchestrator relaunch waits for the old Claude Code process > a process that ignores SIGTERM: the new one starts only after the old one exited by SIGKILL at the limit; giveBackNow answers after the new start",
+  "platforms": [
+    "win32"
+  ],
+  "reason": "On the GitHub Windows runner the exit of the killed stub process is reported later than 300 ms + the 2 s after SIGKILL now and then; Session.exited then goes on without it by design, and the order lacks 'exit 1 SIGTERM'. Red in CI runs 40594274933, 40604951289, 40607908878, green in 40605523606, 40606669326, 40609470172, 40611634948 on the same code of the test and src/main/agent (2026-10-27/28).",
+  "owner": "worfy-throughput 23",
+  "since": "2026-10-28",
+  "until": "2026-11-11"
+}

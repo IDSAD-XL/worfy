@@ -7,11 +7,11 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import type { SessionRegistry } from '../../src/main/agent/session'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { ModuleLoader } from '../../src/main/ipc/index'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
-import { loginProfileWithNode, nodeScript } from '../harness-node'
+import { nodeScript } from '../harness-node'
 import { removeTestTree } from '../remove'
 
 const electron = vi.hoisted(() => {
@@ -777,20 +777,26 @@ describe('from a Linked machine (the link adapter)', () => {
   })
 
   it('projects.connect.inspect of a folder the Harness knows adds it without switching the active Project for a Linked machine', async () => {
-    // No login shell of the person running the test: the scripts' environment comes from /bin/sh with
-    // a HOME of its own, whose .profile only puts node on PATH, for the Node stub of profile.
-    const home = join(scratch, 'home')
-    mkdirSync(home)
-    loginProfileWithNode(home)
-    vi.stubEnv('HOME', home)
-    vi.stubEnv('SHELL', '/bin/sh')
+    // No capture of an environment: the scripts get this process's, which has node on PATH for the
+    // Node stub of profile. A capture starts real processes — a login shell, or on Windows PowerShell
+    // twice with 10 s each — and on the loaded Windows runner it and the 15 s of bin/profile ran out
+    // in 4 of 9 runs, each answering 'rejected' after 17-27 s (CI runs 40594271018, 40605523606,
+    // 40609470172, 40611634948).
+    vi.doMock('../../src/main/agent/env', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../src/main/agent/env')>()),
+      agentEnv: () => Promise.resolve({ env: { ...process.env }, from: 'login-shell', error: null }),
+    }))
+    onTestFinished(() => {
+      vi.doUnmock('../../src/main/agent/env')
+    })
     await start()
     stubProfile({ code: 0, workspace: null })
     const mine = (await addOk(makeRepo('auction'))).project
     const remote = makeRepo('shop')
     const linked = await linkedCaller(true)
     const result = await linked('projects.connect.inspect', { path: remote })
-    expect(result.ok && (result.value as { status: string }).status).toBe('added')
+    // The whole answer: a refusal names its reason.
+    expect(result).toMatchObject({ ok: true, value: { status: 'added' } })
     expect(projectsFile().activeId).toBe(mine.id)
     expect(projectsFile().projects.map((project) => project.path)).toContain(remote)
     // From this Machine's window the known folder becomes active, as before.

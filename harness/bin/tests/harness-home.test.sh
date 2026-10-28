@@ -307,6 +307,9 @@ FILES=(
     bin/qmd-mcp bin/qmd-refresh bin/qmd-sync-main bin/TICKETS.md
     hooks/gate.mjs hooks/gate-paths.mjs hooks/gate-resolve.mjs hooks/guard.mjs hooks/stop.mjs hooks/session-start.mjs hooks/session-end.mjs
     bin/tests/preflight.test.sh bin/tests/profile.test.sh bin/tests/qmd.test.sh bin/tests/skill-blocks.test.sh
+    bin/tests/profile-world.sh bin/tests/profile-schema2-world.sh bin/tests/profile-schema2.test.sh
+    bin/tests/profile-attribution.test.sh bin/tests/profile-user.test.sh
+    bin/tests/skill-blocks-world.sh bin/tests/skill-blocks-gate.test.sh
     bin/tests/tickets-root.test.sh
     hooks/tests/gate-notverified.test.sh hooks/tests/gate-unregistered.test.sh hooks/tests/session-hooks.test.sh
 )
