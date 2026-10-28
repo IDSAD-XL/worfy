@@ -1,7 +1,8 @@
 # 40 — Доля Limits на Wave в журнале Autopilot и оценка перед Wave: «такая Wave обычно — около N % недели»
 
 Type: task
-Status: claimed 2026-10-28T19:59Z
+Status: done 2026-10-28T23:06Z
+PR: #928
 Branch: worfy-throughput/40
 Blocked by: 19
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: меньше token-ов на Ticket, чтобы хватало Limits подписки», идея 7, строки L1 и
@@ -102,3 +103,11 @@ diff есть `test/e2e/**` (`scripts/windows-verdict-scope.mjs:80`); иначе
   таймера. Шесть mutant-ов — все красные, файлы восстановлены, `cmp` exit 0.
 - **Вне скоупа**: `src/main/autopilot/journal.ts:156-180`: `listRuns` разбирает журналы всех Project-ов, а `readRecentRuns` перечитывает 30
   из них — теперь на каждую смену статуса кнопки Autopilot. Стоит кешировать или читать только журналы этого Project-а.
+- **Раунд 3 (PR #928)**: раунд 2 поставил `if (run.rushed) return` в `sendWave` раньше проверки `run.stopRequested`,
+  и Stop, кликнутый, пока шаг ещё ждёт, оставлял run в `running` (`test/unit/autopilot-run.test.ts:861` красный в CI).
+  Порядок восстановлен: сначала `stopRequested` → `user-stop`, потом `rushed`. Ожидаемый текст tooltip в
+  `test/e2e/autopilot.spec.ts` дополнен строкой оценки. Проверка: 430 test-ов модуля, два mutant-а красные;
+  Windows — `autopilot.spec.ts` 5 passed на ПК. Merge — c3bd3d35.
+- **Не закрыто, ждёт настоящих Wave**: калибровка шага 5 (token-ы на 1 % недели) и сверка долей с `/usage` — нужны
+  две настоящие Wave Autopilot; агенты живой run не запускают. Оценка видна только в tooltip кнопки Autopilot —
+  нужна ли видимая строка или диалог, решит владелец.
