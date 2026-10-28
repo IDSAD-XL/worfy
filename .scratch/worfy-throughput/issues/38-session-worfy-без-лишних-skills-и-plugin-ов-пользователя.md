@@ -1,7 +1,8 @@
 # 38 — Session worfy без skills и plugin-ов пользователя вне списка Profile: сначала замер
 
 Type: task
-Status: claimed 2026-10-28T17:25Z
+Status: done 2026-10-28T18:47Z
+PR: #920
 Branch: worfy-throughput/38
 Blocked by: 19
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: меньше token-ов на Ticket, чтобы хватало Limits подписки», идея 2, строка L5
