@@ -12,7 +12,8 @@
 // subagents on 2026-10-21, all on claude-opus-5-5:
 //   - s-wave.jsonl, the Orchestrator: msg_o1 before any Wave; then the command
 //     `/worfy:epic-wave tickets 01, 02 of epic demo-epic`; msg_o2 and msg_o3 after it, with a tool
-//     result between them that quotes another wave command (not a Wave start);
+//     result between them that quotes another wave command (not a Wave start); then a second
+//     command `/worfy:epic-wave tickets 02 of epic demo-epic` and msg_o4 after it;
 //   - agent-aimpl1, implementer of demo-epic/01 (first line of the brief): reads src/a.ts and
 //     src/b.ts (msg_a1, msg_a2), then edits in msg_a3, written on two lines (text, then the Edit),
 //     then reads src/z.ts (msg_a4);
@@ -220,17 +221,19 @@ describe('agent-cost --by-ticket on the by-ticket fixture', () => {
     expect(total.tickets).toBeUndefined()
     expect(r.tickets.reduce((sum, row) => sum + row.cost, 0)).toBeCloseTo(total.cost, 9)
     expect(r.cost).toBeCloseTo(total.cost, 9)
-    expect(r.tickets.reduce((sum, row) => sum + row.tokens, 0)).toBe(241335)
+    expect(r.tickets.reduce((sum, row) => sum + row.tokens, 0)).toBe(241335 + tokens(2, 50, 12100, 500))
   })
 
-  it('splits the Orchestrator evenly between the tickets of a Wave, from the wave command on', async () => {
+  it('splits the Orchestrator evenly between the tickets of a Wave, from the wave command on until the next one', async () => {
     const [one, two, none] = await threeRows()
     const wave = tokens(2, 200, 10000, 2000) + tokens(2, 100, 12000, 0)
     expect(one.orchestrator.tokens).toBe(wave / 2)
-    expect(two.orchestrator.tokens).toBe(wave / 2)
+    // msg_o4 comes after the second wave command, which names demo-epic/02 alone.
+    expect(two.orchestrator.tokens).toBe(wave / 2 + tokens(2, 50, 12100, 500))
+    expect(two.orchestrator.cost).toBeCloseTo((opus(2, 200, 10000, 2000) + opus(2, 100, 12000, 0)) / 2 + opus(2, 50, 12100, 500), 9)
     expect(none.orchestrator.tokens).toBe(tokens(1, 100, 0, 10000))
     expect(none.tokens).toBe(tokens(1, 100, 0, 10000) + tokens(4, 700, 5000, 9000))
-    expect(one.orchestrator.cost + two.orchestrator.cost).toBeCloseTo(opus(2, 200, 10000, 2000) + opus(2, 100, 12000, 0), 9)
+    expect(one.orchestrator.cost + two.orchestrator.cost).toBeCloseTo(opus(2, 200, 10000, 2000) + opus(2, 100, 12000, 0) + opus(2, 50, 12100, 500), 9)
   })
 
   it('counts the scout of a ticket and its implementer up to the first Edit or Write', async () => {
@@ -279,6 +282,22 @@ describe('ticketOf', () => {
     expect(ticketOf('Review worfy-ui 05 first.\nTicket: worfy-ui/27')).toBe('worfy-ui/05')
     expect(ticketOf('Lens: correctness, depth high, round 2.\nRepo: /repo, Claude Code 2.1.289')).toBe(null)
     expect(ticketOf('PR #1 of IDSAD-XL/worfy, ADR-0075 and round-2 gate')).toBe(null)
+    expect(ticketOf('Lens: correctness.\nRead .scratch/worfy-ui/issues/27-pointer.md first.')).toBe('worfy-ui/27')
+  })
+
+  it('takes no ticket from a line of the first lines that only mentions one: a branch, a commit, test output', () => {
+    const brief = [
+      'Repository: /repo. Read the profile first.',
+      'Worktree /repo/.claude/worktrees/x on branch worfy-mvp/11.',
+      'Test output: blocks:worfy-mvp/11->16 failed after commit "worfy-polish 41: tidy".',
+      'Edits of open tickets (05, 11, worfy-polish 41) stay out of this change.',
+    ].join('\n')
+    expect(ticketOf(brief)).toBe(null)
+  })
+
+  it('reads a Ticket: line that comes after the first lines of the brief', () => {
+    const lines = Array.from({ length: 8 }, (_, i) => `Step ${i + 1}: read the profile and the rules.`)
+    expect(ticketOf([...lines, 'Ticket: worfy-ui/27'].join('\n'))).toBe('worfy-ui/27')
   })
 })
 

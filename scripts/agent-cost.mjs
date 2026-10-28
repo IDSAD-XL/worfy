@@ -149,6 +149,13 @@ const TICKET_FORMS = [
 ]
 /** How many lines of a brief the last step of ticketOf reads. */
 const BRIEF_LINES = 8
+/**
+ * A line of those first lines that may name the brief's own Ticket: it has the word "ticket" (or
+ * the Russian word for it), not "tickets", or a Ticket file path. A branch name, a commit or test
+ * output in another line only mentions a Ticket.
+ */
+// shortcut: accepts the old Russian token of the Russian briefs, until the Harness writes briefs in English only (Epic worfy-neutral)
+const NAMES_A_TICKET = /(?<!\p{L})(?:ticket|тикет)(?!\p{L})|\.scratch\/[a-z][a-z0-9-]*\/issues\/\d{1,3}-/iu
 
 /** The Ticket the text names first, `<epic>/<NN>`, or null. */
 function ticketIn(text) {
@@ -162,13 +169,15 @@ function ticketIn(text) {
 
 /**
  * The Ticket of a subagent from its brief, `<epic>/<NN>`, or null. The first line, then a line
- * that starts with `Ticket:`, then the first BRIEF_LINES lines: briefs often open with the
- * repository and name the Ticket a line or two later.
+ * that starts with `Ticket:`, then the lines among the first BRIEF_LINES that NAMES_A_TICKET
+ * accepts: briefs often open with the repository and name the Ticket a line or two later.
  */
+// shortcut: a line such as "added by worfy-x ticket 18" still gives its Ticket, redo it if the per-ticket rows must be exact
 export function ticketOf(brief) {
   const lines = brief.split('\n').map((line) => line.trim()).filter((line) => line !== '')
   const ticketLine = lines.find((line) => /^\**Ticket\**\s*:/.test(line))
-  return ticketIn(lines[0] ?? '') ?? (ticketLine === undefined ? null : ticketIn(ticketLine)) ?? ticketIn(lines.slice(0, BRIEF_LINES).join('\n'))
+  const naming = lines.slice(0, BRIEF_LINES).filter((line) => NAMES_A_TICKET.test(line))
+  return ticketIn(lines[0] ?? '') ?? (ticketLine === undefined ? null : ticketIn(ticketLine)) ?? ticketIn(naming.join('\n'))
 }
 
 /**
