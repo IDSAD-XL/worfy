@@ -978,15 +978,17 @@ export class Autopilot {
     // First: a Stop clicked while the usage is asked ends that wait at once and is seen below, and
     // the Wave does not go. A Stop clicked before asks nothing: no Wave line needs the answer.
     if (!run.stopRequested) run.sentLimits = await this.freshLimits(run, run.stopAsked)
-    // A Force stop or the app's quit came meanwhile: its stop step waits behind this one and stops
-    // the run with its own reason; the Wave does not go.
-    if (run.rushed) return
     // Stop was clicked while the step that decided on this Wave ran (worfy-week ticket 18): the
-    // Wave has not gone, so no Ticket was taken, and the run ends here.
+    // Wave has not gone, so no Ticket was taken, and the run ends here. Checked before a Force stop
+    // or the app's quit: a Stop clicked first ends the run with its own reason, and the stop step
+    // queued behind this one finds it stopped.
     if (run.stopRequested) {
       await this.feed(run, { type: 'stop', reason: 'user-stop' })
       return
     }
+    // A Force stop or the app's quit came meanwhile, without a Stop: its stop step waits behind this
+    // one and stops the run with its own reason; the Wave does not go.
+    if (run.rushed) return
     run.sending = true
     run.promptsWhileSending.clear()
     // Only the run's first Wave takes the interrupted Tickets along.

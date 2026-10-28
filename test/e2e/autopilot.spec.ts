@@ -266,7 +266,11 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
     // Before a run: active, no status line.
     await expect(autopilot).toHaveAttribute('aria-disabled', 'false')
     await expect(autopilot).toHaveText('Autopilot')
-    await expect(autopilot).toHaveAttribute('title', `Run the Waves of ${EPIC} one after another, without a person. ${DISPLAY_STAYS_ON}`)
+    // The hint ends with the Wave estimate (worfy-throughput ticket 40): no past Waves here, and no usage known.
+    await expect(autopilot).toHaveAttribute(
+      'title',
+      `Run the Waves of ${EPIC} one after another, without a person. ${DISPLAY_STAYS_ON}. No estimate for a Wave yet: fewer than 3 past Waves with fresh Limits. Used now: unknown`,
+    )
     await expect(status).toHaveCount(0)
     await snapshots(window, header, 'autopilot-idle')
 
