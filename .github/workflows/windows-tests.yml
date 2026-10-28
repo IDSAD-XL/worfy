@@ -1,16 +1,21 @@
 name: Windows tests
 
-# Runs unit and contract tests on a clean Windows machine, by hand only, in one of two modes:
+# Runs unit and contract tests on a clean Windows machine in one of two modes:
 # - `files` (the default): a given list of 1 to 12 test files, job "listed-tests";
 # - `full`: the whole `pnpm test` (unit and contract, no e2e), job "full-suite".
 #
-# Why a workflow of its own and not a job in ci.yml: "Run workflow" on CI starts the full macOS
-# job, at six times the price of a Windows minute. A separate file has one trigger, so starting it
-# can never start macOS, and ci.yml stays as it is.
+# Two ways to start it: by hand (workflow_dispatch, below), and from the CI workflow (ci.yml) on
+# every pull request and every push to main (workflow_call): ci.yml calls the mode full. Since
+# 2026-10-28 the repository is public and a Windows runner minute costs nothing; the price limits
+# below were written for the private repository, and they still hold for a run started by hand.
+#
+# Why a workflow of its own and not a job in ci.yml: "Run workflow" here starts one Windows job and
+# never the macOS jobs of ci.yml, and the mode files has no place in ci.yml.
 #
 # The limits, all inside this file and scripts/windows-test-list.mjs. A Windows runner minute costs
 # $0.010:
-# - it starts only from "Run workflow" (workflow_dispatch): never on a push, a pull request or a timer;
+# - it has no push, pull request or timer trigger of its own: it starts from "Run workflow"
+#   (workflow_dispatch) or from a call of ci.yml (workflow_call);
 # - one dispatch runs exactly one job: "mode" is a choice of `files` and `full`, and each job runs
 #   only under its own value; two jobs, no matrix;
 # - mode files, $0.10 at most: the input "files" is an explicit list of 1 to 12 test files, and an
@@ -56,6 +61,17 @@ on:
         description: 'Mode files: test files under test/unit/ or test/contract/, separated by spaces or commas, 12 at most; empty in mode full'
         required: false
         type: string
+  # ci.yml calls the mode full. The inputs of a call are strings: a choice exists only for a
+  # dispatch, and a mode other than files or full runs neither job.
+  workflow_call:
+    inputs:
+      mode:
+        required: true
+        type: string
+      files:
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -66,7 +82,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
+      # No step needs the token after checkout, so it is not kept in .git/config.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       # The first step after checkout, before anything is installed: a refused list fails the job
       # within a minute. The script needs no dependencies and runs on the Node of the runner image.
       # The input reaches it through env. Written into `run` as an expression it would be pasted
@@ -132,6 +151,8 @@ jobs:
         run: |
           test -z "$TEST_FILES" || { echo "::error::mode full runs the whole suite and takes no list of files; leave files empty or choose mode files"; exit 1; }
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       # pnpm from corepack, then Node with the pnpm store cache: the same three steps as in the job
       # of the list, for the same reasons.
       - uses: actions/setup-node@v7

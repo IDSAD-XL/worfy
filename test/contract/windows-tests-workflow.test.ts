@@ -1,6 +1,7 @@
-// The manual "Windows tests" workflow (.github/workflows/windows-tests.yml, worfy-windows tickets 25
-// and 66) and the check of its input (scripts/windows-test-list.mjs). A Windows runner minute is
-// paid, so every limit of both modes is pinned here: loosening one turns the Linux CI red. The
+// The "Windows tests" workflow (.github/workflows/windows-tests.yml, worfy-windows tickets 25 and 66)
+// and the check of its input (scripts/windows-test-list.mjs). It starts by hand or from a call of
+// ci.yml, which runs its mode full on every pull request. Every limit of both modes is
+// pinned here: loosening one turns the Linux CI red. The
 // project has no YAML parser, so the workflow is read as text: it is written in block style, one key
 // per line, with `#` only at the start of comment lines.
 import { spawnSync } from 'node:child_process'
@@ -88,12 +89,20 @@ const REFUSE = ['test -z "$TEST_FILES" || { echo "::error::mode full runs the wh
 const SUITE = 'pnpm test'
 
 describe('.github/workflows/windows-tests.yml', () => {
-  it('starts by hand only: workflow_dispatch is its one trigger', () => {
+  it('starts by hand or from a call: workflow_dispatch and workflow_call are its only triggers', () => {
     const lines = code()
     // One `on:` key in block style: `on: push`, `on: [workflow_dispatch, push]` and a second key fail here.
     expect(lines.filter((line) => /^["']?on["']?\s*:/.test(line))).toEqual(['on:'])
-    expect(keys(under(lines, 'on:'))).toEqual(['workflow_dispatch'])
-    expect(lines.join('\n')).not.toMatch(/\b(push|pull_request|pull_request_target|schedule|workflow_run|workflow_call)\b/)
+    expect(keys(under(lines, 'on:'))).toEqual(['workflow_dispatch', 'workflow_call'])
+    // Pull requests and pushes reach it through ci.yml only, never through a trigger of its own.
+    expect(lines.join('\n')).not.toMatch(/\b(push|pull_request|pull_request_target|schedule|workflow_run)\b/)
+  })
+
+  it('takes two string inputs from a call: the mode, and a list of files that is empty by default', () => {
+    const inputs = under(under(under(code(), 'on:'), '  workflow_call:'), '    inputs:')
+    expect(keys(inputs)).toEqual(['mode', 'files'])
+    expect(under(inputs, '      mode:')).toEqual(['        required: true', '        type: string'])
+    expect(under(inputs, '      files:')).toEqual(['        required: false', '        type: string', "        default: ''"])
   })
 
   it('takes two inputs: the mode, files or full, files by default, and the list of files, with no default list', () => {
