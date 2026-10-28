@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TestModule, Vitest } from 'vitest/node'
 import { removeTestTree } from '../remove'
@@ -26,6 +27,22 @@ function put(dir: string, file: string, content: unknown): void {
   writeFileSync(join(dir, file), typeof content === 'string' ? content : JSON.stringify(content))
 }
 const run = (cwd: string, ...args: string[]) => spawnSync(process.execPath, [SCRIPT, ...args], { cwd, encoding: 'utf8', timeout: 30_000 })
+
+interface TestTimings {
+  testTimings: (args: string[], io: { cwd: string; out: (text: string) => void; err: (line: string) => void }) => number
+}
+const { testTimings } = (await import(pathToFileURL(SCRIPT).href)) as TestTimings
+
+/**
+ * The script in this process: its exit code and what it wrote to stderr. One launch of node costs
+ * a second or more on a loaded Windows runner, so checks of many arguments run here; one test keeps
+ * the launch of the command itself.
+ */
+function runHere(cwd: string, ...args: string[]): { status: number; stderr: string } {
+  const err: string[] = []
+  const status = testTimings(args, { cwd, out: () => undefined, err: (line) => err.push(line) })
+  return { status, stderr: err.join('\n') }
+}
 
 const vitestReport = {
   version: 1,
@@ -153,27 +170,34 @@ describe('scripts/test-timings.mjs', () => {
 
   it('refuses: no report (1), a named report that is missing (1), a file that is no report (1), a wrong --top or option (2)', () => {
     const dir = tempDir()
-    const none = run(dir)
+    const none = runHere(dir)
     expect(none.status).toBe(1)
     expect(none.stderr).toContain('run pnpm test or pnpm test:e2e first')
 
-    const missing = run(dir, 'nope.json')
+    const missing = runHere(dir, 'nope.json')
     expect(missing.status).toBe(1)
     expect(missing.stderr).toContain('nope.json: no such file')
 
     put(dir, 'other.json', { hello: 'world' })
-    const other = run(dir, 'other.json')
+    const other = runHere(dir, 'other.json')
     expect(other.status).toBe(1)
     expect(other.stderr).toContain('neither a vitest timings report')
 
     put(dir, 'broken.json', '{ not json')
-    expect(run(dir, 'broken.json').status).toBe(1)
+    expect(runHere(dir, 'broken.json').status).toBe(1)
 
     for (const args of [['--top', '0'], ['--top'], ['--top=x'], ['--fast']]) {
-      const bad = run(dir, ...args)
+      const bad = runHere(dir, ...args)
       expect(bad.status, args.join(' ')).toBe(2)
       expect(bad.stderr).toContain('usage:')
     }
+  })
+
+  it('the command itself: a refusal comes back as its exit code, the reason on stderr', () => {
+    const bad = run(tempDir(), '--fast')
+    expect(bad.status).toBe(2)
+    expect(bad.stderr).toContain('test-timings: unknown option --fast')
+    expect(bad.stderr).toContain('usage:')
   })
 })
 
