@@ -9,6 +9,7 @@
 // is left, so a failing test leaves nothing running.
 import type { ChildProcess } from 'node:child_process'
 import { watchedSpawn } from '../../src/main/agent/options'
+import { exitOf } from '../../src/main/agent/session/process'
 import type { QueryFactory, QueryRequest } from '../../src/main/agent/session'
 
 /** `ignore-term`: SIGTERM and the stdin's end do not end it, only SIGKILL does; `exit-at-once`: exits when its stdin ends. */
@@ -72,7 +73,17 @@ export class StubProcesses {
       const start = watchedSpawn((child) => {
         this.children.push(child)
         this.events.push({ kind: 'spawn', n, at: Date.now() })
-        child.once('exit', (_code, signal) => this.events.push({ kind: 'exit', n, signal, at: Date.now() }))
+        // The exit as worfy hears of it (exitOf), asked before the Session asks: the event comes
+        // before anything the Session does on it. When the system reports the exit before Node does,
+        // the signal is that of the first kill() that took: on Windows the one Node's exit will report.
+        let killedBy: NodeJS.Signals | null = null
+        const kill = child.kill.bind(child)
+        child.kill = (signal?: NodeJS.Signals | number) => {
+          const took = kill(signal)
+          if (took && killedBy === null && typeof signal === 'string') killedBy = signal
+          return took
+        }
+        void exitOf(child).then(() => this.events.push({ kind: 'exit', n, signal: child.signalCode ?? killedBy, at: Date.now() }))
         request.spawned?.(child)
       }, stderr)
       const sdkSide = start({
