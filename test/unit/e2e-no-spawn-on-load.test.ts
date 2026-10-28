@@ -21,7 +21,8 @@
 // called right there, or passed to a call or a `new` that runs it: a describe (vitest and Playwright
 // run its body while they collect the tests), `[…].map`, `new Promise(…)`, any call but those that
 // keep their callback for later — a test, its modifiers (`skip`, `skipIf(…)`, `each(…)`, …), a hook,
-// `test.step`. Which those are is decided by where the name comes from: an import of vitest or of
+// `test.step`, and a function of the file that only hands its parameters on to one of them (a wrapper
+// of beforeAll). Which those are is decided by where the name comes from: an import of vitest or of
 // Playwright, a hook taken out of `test` by destructuring, a `test.extend(…)` under any name, also
 // one imported from another file. The initialiser of a field of a class runs on `new`, not at load;
 // that of a static field runs at load. The files imported from outside the two folders load with
@@ -305,7 +306,37 @@ function apiOf(p: Program, source: Source, name: string, seen: Set<string>): Api
     return from === undefined ? undefined : member(from, taken.property)
   }
   const value = source.values.get(name)
-  return value === undefined ? undefined : apiOfExpression(p, source, value, seen)
+  if (value !== undefined) return apiOfExpression(p, source, value, seen)
+  const declared = source.file.statements.find((statement): statement is ts.FunctionDeclaration => ts.isFunctionDeclaration(statement) && statement.name?.text === name)
+  return declared !== undefined && handsOnLater(p, source, declared, seen) ? 'hook' : undefined
+}
+
+/**
+ * Whether a function only hands its parameters on to a test or a hook and never runs one itself, as
+ * `beforeBlock` of test/contract/harness-evals-outcome.test.ts does with `beforeAll(async () => { await build() }, timeout)`.
+ * Each use of a parameter is an argument of such a call or lies inside a function that is one. A call
+ * of the function is then a hook too: it keeps the function passed to it for later.
+ */
+function handsOnLater(p: Program, source: Source, fn: ts.FunctionLikeDeclaration, seen: Set<string>): boolean {
+  const names = new Set(fn.parameters.flatMap((parameter) => (ts.isIdentifier(parameter.name) ? [parameter.name.text] : [])))
+  if (names.size === 0 || fn.body === undefined) return false
+  const kept = (use: ts.Node): boolean => {
+    for (let at = use; at !== fn; at = at.parent) {
+      const call = at.parent
+      if (!ts.isCallExpression(call) || call.expression === at) continue
+      const api = apiOfExpression(p, source, call.expression, new Set(seen))
+      if (api === 'test' || api === 'hook') return true
+    }
+    return false
+  }
+  let later = true
+  const visit = (node: ts.Node): void => {
+    if (!later) return
+    if (ts.isIdentifier(node) && names.has(node.text)) later = kept(node)
+    else ts.forEachChild(node, visit)
+  }
+  visit(fn.body)
+  return later
 }
 
 /** What an expression is as a test framework goes: `test`, `test.describe`, `it.skipIf(…)`, `test.extend(…)`. */
@@ -314,6 +345,7 @@ function apiOfExpression(p: Program, source: Source, expression: ts.Expression, 
   while (ts.isParenthesizedExpression(at) || ts.isAsExpression(at) || ts.isSatisfiesExpression(at) || ts.isNonNullExpression(at) || ts.isTypeAssertionExpression(at)) at = at.expression
   if (ts.isIdentifier(at)) return apiOf(p, source, at.text, seen)
   if (ts.isCallExpression(at)) return apiOfExpression(p, source, at.expression, seen)
+  if (ts.isArrowFunction(at) || ts.isFunctionExpression(at)) return handsOnLater(p, source, at, seen) ? 'hook' : undefined
   if (ts.isPropertyAccessExpression(at)) {
     const of = apiOfExpression(p, source, at.expression, seen)
     return of === undefined ? undefined : member(of, at.name.text)
@@ -522,6 +554,11 @@ describe('a process started while a module of test/e2e or test/contract loads', 
     { name: 'a call whose name only ends like test', text: `${IMPORT}latest('x', () => { execSync('ls') })`, found: ["2: execSync('ls')"] },
     { name: 'a test of no framework: test that was not imported', text: "import { execSync } from 'node:child_process'\ntest('x', () => { execSync('ls') })", found: ["2: execSync('ls')"] },
     { name: 'a spawning function passed by its name', text: `${IMPORT}const run = (d: string) => execFileSync('git', [d])\n;['a'].forEach(run)`, found: ['3: run'] },
+    {
+      name: 'a function of the file that runs its parameter now, hands it to a describe, or does both',
+      text: `${VITEST}const now = (run: () => unknown) => { run() }\nconst build = () => { execSync('git init') }\nnow(build)\nconst group = (body: () => void) => { describe('x', body) }\ngroup(() => { execFileSync('git') })\nconst both = (run: () => unknown) => { beforeAll(run); [1].map(run) }\nboth(build)`,
+      found: ['4: build', "6: execFileSync('git')", '8: build'],
+    },
     { name: 'the function of a new Promise: it runs at once', text: `${IMPORT}const head = new Promise((resolve) => resolve(execFileSync('git')))\nconst run = (resolve: () => void) => execSync('ls')\nconst done = new Promise(run)`, found: ["2: execFileSync('git')", '4: run'] },
     { name: 'the initialiser of a static field', text: `${IMPORT}class Repo {\n  static head = execFileSync('git')\n}`, found: ["3: execFileSync('git')"] },
     { name: 'a top-level constant of a vitest file', text: `${VITEST}const ZSH = execFileSync('/bin/sh', ['-c', 'command -v zsh'], { encoding: 'utf8' }).trim()`, found: ["2: execFileSync('/bin/sh', ['-c', 'command -v zsh'], { encoding: 'utf8' })"] },
@@ -533,6 +570,11 @@ describe('a process started while a module of test/e2e or test/contract loads', 
     { name: 'a step of a test, and a function given to the test by its name', text: `${IMPORT}const run = () => execSync('ls')\ntest('x', run)\ntest('y', async () => { await test.step('s', () => { execSync('ls') }) })`, found: [] },
     { name: 'a helper called inside a test', text: `${IMPORT}const zsh = () => execFileSync('/bin/sh')\ntest('x', () => { zsh() })`, found: [] },
     { name: 'a helper that only adds a hook, called at the top level', text: `${IMPORT}function setup() {\n  test.afterEach(() => { execSync('x') })\n}\nsetup()`, found: [] },
+    {
+      name: 'a function of the file that only hands its parameters on to a hook or a test: a hook too',
+      text: `${VITEST}const beforeBlock = (build: () => unknown, timeout: number): void => {\n  beforeAll(async () => {\n    await build()\n  }, timeout)\n  afterEach(() => {})\n}\nconst build = () => { execSync('git init') }\nbeforeBlock(build, 1000)\nbeforeBlock(() => { execSync('ls') }, 1000)\nfunction later(run: () => void) {\n  it('x', run)\n}\nlater(() => { execFileSync('git') })`,
+      found: [],
+    },
     { name: 'a function called where it is written, inside a function no one calls', text: `${IMPORT}function f() { (() => execFileSync('git'))() }`, found: [] },
     { name: 'a call inside a string', text: "const SCRIPT = String.raw`\nconst { execFileSync } = require('node:child_process')\nexecFileSync('git')\n`", found: [] },
     { name: 'a call in a comment', text: `${IMPORT}// execFileSync('/bin/sh')\n/* spawnSync('git') */`, found: [] },
