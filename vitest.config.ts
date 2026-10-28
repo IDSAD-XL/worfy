@@ -68,8 +68,9 @@ export default defineConfig({
           maxConcurrency: 5,
           // Every test file gets a new empty WORFY_CLAUDE_HOME unless the run set one, so no contract
           // test reads the ~/.claude of the machine it runs on; the homes lie in one folder per run,
-          // removed at its end.
-          globalSetup: ['test/global-setup-contract.ts'],
+          // removed at its end. On Windows one Git Bash runs for the whole run, so /tmp of every Git
+          // Bash a test starts is the system temp folder (test/global-setup-git-bash.ts).
+          globalSetup: ['test/global-setup-contract.ts', 'test/global-setup-git-bash.ts'],
           setupFiles: ['test/setup-contract.ts'],
         },
       },
