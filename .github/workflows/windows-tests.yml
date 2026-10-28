@@ -188,5 +188,14 @@ jobs:
       - name: Run the unit and contract suite, or one shard of it
         env:
           SHARD: ${{ inputs.shard }}
+        # Triage (a draft PR, never merged): the launch time of node and of Electron as node, idle and every 5 s
+        # while the suite runs (scripts/triage-launch-time.mjs).
         run: |
+          node scripts/triage-launch-time.mjs idle
+          New-Item -ItemType Directory -Force test-results | Out-Null
+          $sampler = Start-Process node -ArgumentList 'scripts/triage-launch-time.mjs', 'sample', 'test-results/launch-times.txt' -PassThru -NoNewWindow
           if ($env:SHARD) { pnpm test "--shard=$env:SHARD" } else { pnpm test }
+          $code = $LASTEXITCODE
+          Stop-Process -Id $sampler.Id -Force
+          node scripts/triage-launch-time.mjs summary test-results/launch-times.txt
+          exit $code
