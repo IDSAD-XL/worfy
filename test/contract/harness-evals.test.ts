@@ -1504,23 +1504,27 @@ let changed: ChangedRepo | null = null
  * a temporary home. There is one such repository for the file: each call puts it back to its base
  * commit, so the repository an earlier call returned is gone. Copying harness/ and committing it
  * created some 400 files per call, and that, many times over on a loaded Windows runner, took a test
- * past its limit (CI run 40649261940).
+ * past its limit (CI run 40649261940). A repository that cannot be put back — a git killed at its
+ * timeout left .git/index.lock — is left to afterAll and a new one is made, so one case's failure
+ * stays its own.
  */
 function changedRepo(): ChangedRepo {
-  if (changed === null) changed = newChangedRepo()
-  else {
-    const { git } = changed
-    const step = (...args: string[]): string => {
-      const done = git(...args)
-      if (done.status !== 0) throw new Error(`git ${args.join(' ')}: ${done.stderr}`)
-      return done.stdout
-    }
-    step('checkout', '-q', '-f', '-B', 'main', 'base')
-    step('clean', '-q', '-f', '-d', '-x')
-    const others = step('for-each-ref', '--format=%(refname:short)', 'refs/heads').split('\n').filter((name) => name !== '' && name !== 'main')
-    if (others.length > 0) step('branch', '-q', '-D', ...others)
-  }
+  if (changed !== null && !reset(changed)) changed = null
+  changed ??= newChangedRepo()
   return changed
+}
+
+/** Puts the repository back to its base commit; false when a git step of it fails. */
+function reset({ git }: ChangedRepo): boolean {
+  const step = (...args: string[]): string | null => {
+    const done = git(...args)
+    return done.status === 0 ? done.stdout : null
+  }
+  if (step('checkout', '-q', '-f', '-B', 'main', 'base') === null || step('clean', '-q', '-f', '-d', '-x') === null) return false
+  const heads = step('for-each-ref', '--format=%(refname:short)', 'refs/heads')
+  if (heads === null) return false
+  const others = heads.split('\n').filter((name) => name !== '' && name !== 'main')
+  return others.length === 0 || step('branch', '-q', '-D', ...others) !== null
 }
 
 function newChangedRepo(): ChangedRepo {
@@ -1581,6 +1585,19 @@ const aggregate = (fields: Record<string, unknown> = {}): string =>
 const lines = (text: string): string[] => text.split('\n')
 
 describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a temporary git repository)', () => {
+  // A git killed at its timeout (SCAFFOLD_TIMEOUT_MS) leaves .git/index.lock, and every git that writes
+  // the index after it exits 128: the reset of the shared repository too, and with it each case after.
+  it('gives a working repository again after a git left .git/index.lock in the one before', () => {
+    const before = changedRepo()
+    appendFileSync(join(before.repo, 'README.md'), 'more\n')
+    writeFileSync(join(before.repo, '.git', 'index.lock'), '')
+    const { repo, git } = changedRepo()
+    expect(existsSync(join(repo, '.git', 'index.lock'))).toBe(false)
+    expect(git('status', '--porcelain').stdout).toBe('')
+    expect(git('rev-parse', '--abbrev-ref', 'HEAD').stdout.trim()).toBe('main')
+    expect(git('checkout', '-q', '-b', 'topic').status).toBe(0)
+  })
+
   it('a commit in the temporary repository starts no background maintenance that would outlive it', () => {
     const { repo, env } = changedRepo()
     appendFileSync(join(repo, 'README.md'), 'more\n')
