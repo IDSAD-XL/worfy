@@ -26,6 +26,7 @@ import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { findStatusBlock } from '../../src/shared/agent/status-block'
+import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
 import { shellStub } from '../shell-stub'
 
@@ -1732,7 +1733,7 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
     expect(run.stdout).toMatch(/no case selected/)
   })
 
-  it('names a changed rule file that has no case, with its reason, and calls no claude', () => {
+  quarantined('harness-evals-changed-no-case')('names a changed rule file that has no case, with its reason, and calls no claude', () => {
     const { repo } = changedRepo()
     appendFileSync(join(repo, 'harness', 'skills', 'qmd', 'SKILL.md'), '\nOne more rule.\n')
     const { run, calls } = evalIn(repo, ['--changed', 'HEAD'])
@@ -1966,7 +1967,7 @@ describe('pnpm eval:harness: a `--` anywhere, the cost limit of the user, --dry-
     expect(partial.run.stdout).toMatch(/cases implementer-report, partial\n/)
   })
 
-  it('rounds what is left of the budget down to the cent, never up', () => {
+  quarantined('harness-evals-budget-rounding')('rounds what is left of the budget down to the cent, never up', () => {
     const { run, calls } = evalIn(threeCalls(), ['--changed', 'main'], { STUB_AGGREGATE: aggregate({ costUsd: 0.004 }) })
     expect(run.status, run.stderr).toBe(0)
     // 30 - 0.004 is 29.996: toFixed(2) would give the second call 30, more than is left.

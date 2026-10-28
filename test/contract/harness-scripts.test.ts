@@ -35,11 +35,10 @@ const WINDOWS = process.platform === 'win32'
 // and five files at once take longer, so 300 s cut off wave-gate.test.sh there (2026-10-21).
 // With the lock-takeover cases wave-gate.test.sh takes 348 s alone and went past 600 s in a full
 // run (2026-10-22), hence 900 s. The cost: a hanging .test.sh on Windows is cut off 5 min later.
-// On the GitHub macOS runner, next to the other files of its shard, profile.test.sh took 56, 111 and
-// 116 s and skill-blocks.test.sh 71 and 113 s, and both were cut off at 120 s in CI runs 40602360006
-// and 40606566772 (2026-10-28): twice the slowest pass, 240 s, on macOS. The cost: a hanging .test.sh
-// on macOS is cut off 2 min later.
-const FILE_TIMEOUT_MS = WINDOWS ? 900_000 : process.platform === 'darwin' ? 240_000 : 120_000
+// On the GitHub macOS runner profile.test.sh (56-116 s) and skill-blocks.test.sh (71-113 s) were cut
+// off at 120 s (CI runs 40602360006 and 40606566772, 2026-10-28); they are split by theme since, as
+// wave-gate.test.sh was, and the limit stays.
+const FILE_TIMEOUT_MS = WINDOWS ? 900_000 : 120_000
 
 const testFiles = TEST_DIRS.flatMap((dir) =>
   existsSync(dir)
@@ -61,13 +60,17 @@ const relative = (file: string): string => file.slice(HARNESS.length + 1).replac
 // and cut off at 120 s in full runs): in this file at load average 14-19 (2026-10-22) skill-blocks
 // took 75 s, guard-silent 67, profile 55, gate-verdict 49, wave-gate-lock 45, wave-gate 44,
 // silent-mode 29, preflight 27 and qmd-collections 24 s; wave-gate-screen and wave-gate-merge 20-22 s.
+// skill-blocks and profile are split by theme too (cut off at 120 s on the macOS runner): alone on a Mac
+// (2026-10-28) skill-blocks took 54 s, then skill-blocks-gate 16 s and skill-blocks 8 s; profile-schema2 12,
+// profile-attribution 11, profile-user 8 and profile 4 s.
 // shortcut: the list is a measured snapshot and does not follow a file that grows slower, redo it
 // when this file runs longer than the longest single shell test plus a few seconds.
 const RUN_FIRST = [
-  'bin/tests/skill-blocks.test.sh',
   'hooks/tests/guard-silent.test.sh',
-  'bin/tests/profile.test.sh',
   'hooks/tests/gate-verdict.test.sh',
+  'bin/tests/skill-blocks-gate.test.sh',
+  'bin/tests/profile-schema2.test.sh',
+  'bin/tests/profile-attribution.test.sh',
   'bin/tests/wave-gate-lock.test.sh',
   'bin/tests/wave-gate.test.sh',
   'bin/tests/silent-mode.test.sh',
@@ -408,16 +411,16 @@ describe('harness shell tests', () => {
     const problem = failure(file, run, FILE_TIMEOUT_MS)
     context.expect(problem === null, problem ?? '').toBe(true)
   }
-  // On Windows wave-gate-lock.test.sh is in quarantine (test/quarantine/harness-wave-gate-lock.json),
+  // On Windows wave-gate-lock-killed.test.sh is in quarantine (test/quarantine/harness-wave-gate-lock-killed.json),
   // so there it is declared on its own, as the quarantine marks a test; elsewhere it runs with the rest.
-  const lockApart = (file: string): boolean => WINDOWS && relative(file) === 'bin/tests/wave-gate-lock.test.sh'
+  const lockApart = (file: string): boolean => WINDOWS && relative(file) === 'bin/tests/wave-gate-lock-killed.test.sh'
   it.concurrent.for(ordered.filter((file) => !lockApart(file)).map((file): [string, string] => [relative(file), file]))(
     '%s exits 0 with an empty HOME',
     { timeout: FILE_TIMEOUT_MS + 10_000 },
     ([name, file], context) => runFile(name, file, context),
   )
   for (const file of ordered.filter(lockApart)) {
-    quarantined('harness-wave-gate-lock')('bin/tests/wave-gate-lock.test.sh exits 0 with an empty HOME', (context) => runFile(relative(file), file, context), FILE_TIMEOUT_MS + 10_000)
+    quarantined('harness-wave-gate-lock-killed')('bin/tests/wave-gate-lock-killed.test.sh exits 0 with an empty HOME', (context) => runFile(relative(file), file, context), FILE_TIMEOUT_MS + 10_000)
   }
 
   it('kills a file past its limit with every process it started, and removes its HOME', async () => {

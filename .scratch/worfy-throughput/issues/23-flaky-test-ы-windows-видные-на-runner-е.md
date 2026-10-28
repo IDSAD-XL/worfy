@@ -38,6 +38,10 @@ runner `full` — run на PR (после Ticket-а 24 — автоматиче�
 
 - [ ] «Итог»: на каждый test — красных до правки, причина, правка, ссылки на run-ы.
 - [ ] После правки — 3 run-а `files` на четыре файла подряд зелёные; ссылки и коды — в «Итог».
+- [ ] Те же 3 run-а `files` зелёные и для test-ов, добавленных в карантин PR-ом #877: `orchestrator-relaunch`
+      (оба test-а), `workflow-watch-links` (тот же link вместо папки issues, файла Ticket-а и корня Tickets),
+      `demo-template` (оба test-а с `done`), `harness-evals` (`--changed` без case и округление бюджета) и
+      `harness/bin/tests/wave-gate-lock-killed.test.sh` (lock убитого wave-gate, pid reuse, run 40615971705).
 - [ ] Записей карантина этого Ticket-а не осталось; timeout-ы и пороги не изменены.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` на Mac — exit 0; вердикт Windows — runner `full` на head; условие
       merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
@@ -50,6 +54,10 @@ Profile-а), не implementer.
 
 - `test/contract/claude-home-registry.test.ts`, `test/contract/link-access.test.ts`,
   `test/contract/workflow-reader.test.ts`, `test/contract/workflow-branches-handles.test.ts`
+- `test/contract/orchestrator-relaunch.test.ts`, `test/contract/workflow-watch-links.test.ts` (same-link),
+  `test/contract/demo-template.test.ts`, `test/contract/harness-evals.test.ts` — добавлены в карантин PR-ом #877
+- `harness/bin/tests/wave-gate-lock-killed.test.sh` — случай убитого wave-gate, вынесен из
+  `wave-gate-lock.test.sh`; его запись — `test/quarantine/harness-wave-gate-lock-killed.json`
 - `test/quarantine/` — их записи
 - `src/main/claude-home/registry.ts`, `src/main/link-*` — по найденной причине (дописать при claim)
 

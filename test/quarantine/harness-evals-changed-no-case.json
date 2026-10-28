@@ -1,0 +1,11 @@
+{
+  "file": "test/contract/harness-evals.test.ts",
+  "test": "pnpm eval:harness -- --changed <base> (claude replaced by a stub, a temporary git repository) > names a changed rule file that has no case, with its reason, and calls no claude",
+  "platforms": [
+    "win32"
+  ],
+  "reason": "Each case of --changed copies harness/ (190 files) into a new git repository, commits it and runs eval-harness.mjs under the Electron binary as Node; on the GitHub Windows runner, with more test files at once since the evening of 2026-10-27, this one took 54 s against its 45 s limit (CI run 40605523606, 2026-10-28), while its neighbours took 10-21 s. One base repository shared by the cases is the fix.",
+  "owner": "worfy-throughput 23",
+  "since": "2026-10-28",
+  "until": "2026-11-11"
+}
