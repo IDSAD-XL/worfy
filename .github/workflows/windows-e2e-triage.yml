@@ -48,9 +48,16 @@ jobs:
         shell: pwsh
         run: |
           node scripts/triage-deny-probe.cjs
-          $electron = node -p "require('electron')"
+          # The first require may download the binary and print that first: the path is the last line.
+          $electron = ((node -p "require('electron')") | Select-Object -Last 1).Trim()
           $env:ELECTRON_RUN_AS_NODE = '1'
           & $electron scripts/triage-deny-probe.cjs
+      # The e2e step runs under Git Bash: whether its MSYS2 runtime enables the backup and restore
+      # privileges that the processes it starts then inherit.
+      - name: Does a deny ACE stop the runner's user, under node started from Git Bash
+        if: matrix.shard == '1/4'
+        shell: bash
+        run: node scripts/triage-deny-probe.cjs
       - name: Run the e2e tests, one shard
         shell: bash
         env:

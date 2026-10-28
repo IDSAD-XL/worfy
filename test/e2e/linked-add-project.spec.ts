@@ -165,6 +165,9 @@ async function launchPair(scratch: string, run: (pair: Pair) => Promise<void>): 
     // and which privileges its token has enabled.
     const locked = join(bHome, 'locked')
     console.log(`[triage] Playwright process readdir: ${(() => { try { return JSON.stringify(readdirSync(locked)) } catch (error) { return `refused ${(error as NodeJS.ErrnoException).code}` } })()}`)
+    if (process.platform === 'win32') {
+      console.log(`[triage] Playwright process:\n${execFileSync(`${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\whoami.exe`, ['/priv'], { encoding: 'utf8' }).trim()}`)
+    }
     console.log(
       `[triage] B main process:\n${await b.app.evaluate((_electron, folder) => {
         const fs = process.getBuiltinModule('node:fs') as typeof import('node:fs')
