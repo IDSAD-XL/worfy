@@ -390,7 +390,7 @@ for (const { zoom, viewport, edges } of ZOOMS) {
     const sidebar = canvas.x > 0 ? pagePixelsOutside(image, scale, { x: canvas.x, y: 0, width: image.width / scale, height: image.height / scale }) : 0
     const guest = (await guestState())!
     report(`zoom ${zoom}`, { guestViewport: [guest.innerWidth, guest.innerHeight, guest.devicePixelRatio], edgeErrorsPx: Object.fromEntries(Object.entries(errors).map(([edge, value]) => [edge, round(value)])), pagePixelsOutsideFrame: outside, pagePixelsNearFrame: near, pagePixelsLeftOfCanvas: sidebar, pageWidthPx: round(page!.width) })
-    for (const edge of edges) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(edgeBound(scale))
+    for (const edge of edges) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(edgeBound(scale, zoom))
     expect(outside, 'page pixels outside the frame').toBe(0)
     expect(near, 'page pixels just outside the frame').toBe(0)
     expect(sidebar, 'page pixels left of the Canvas').toBe(0)

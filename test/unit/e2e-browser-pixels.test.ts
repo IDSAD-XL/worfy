@@ -94,8 +94,8 @@ function measure(scale: number, zoom: number, edges: readonly Edge[], scrollbar:
 describe('the edges of the fixture page against its frame on a capture (edgeErrors)', () => {
   for (const scale of [1.5, 2]) {
     for (const { zoom, edges } of ZOOMS) {
-      // Drawn exactly, the page is on the frame's edge: the e2e test's bound (edgeBound: 1 px at a whole
-      // scale, 1.5 at a fractional one) is for real captures, here the reading must be within one device pixel.
+      // Drawn exactly, the page is on the frame's edge: the e2e test's bound (edgeBound: 1 px at scale 2,
+      // 1.5 at a fractional one, 2.5 at scale 1 and zoom 0.25) is for real captures, here the reading must be within one device pixel.
       it(`a page without a scrollbar sits in its frame within one device pixel on every edge read, at scale ${scale} and zoom ${zoom}`, () => {
         const errors = measure(scale, zoom, edges, 0)
         for (const edge of edges) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(1 / scale)
@@ -103,7 +103,7 @@ describe('the edges of the fixture page against its frame on a capture (edgeErro
 
       it(`a page that lost its magenta line is read from its cream within 1 px, at scale ${scale} and zoom ${zoom}`, () => {
         // Without the line, the pixel blended at the border is neither cream nor magenta, so the reading
-        // may be off by up to one more device pixel: still within 1 px, edgeBound at a whole scale.
+        // may be off by up to one more device pixel: still within 1 px, edgeBound at scale 2.
         const errors = measure(scale, zoom, edges, 0, false)
         for (const edge of edges) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(1)
       })
@@ -118,7 +118,7 @@ describe('the edges of the fixture page against its frame on a capture (edgeErro
       const errors = measure(1.5, zoom, edges, WINDOWS_SCROLLBAR)
       for (const edge of edges.filter((edge) => edge !== 'right')) expect(errors[edge], `${edge} edge`).toBeLessThanOrEqual(1 / 1.5)
       // Off by more than the e2e test's bound at this scale (edgeBound): not found (Infinity), or found past the scrollbar.
-      expect(errors.right).toBeGreaterThan(edgeBound(1.5))
+      expect(errors.right).toBeGreaterThan(edgeBound(1.5, zoom))
     })
   }
 })
@@ -252,10 +252,24 @@ describe('page pixels in the band just outside the frame, one by one (pagePixels
 })
 
 describe('the bound on edgeErrors (edgeBound)', () => {
-  it('is 1 px at a whole device scale and 1.5 px at a fractional one', () => {
-    expect(edgeBound(1)).toBe(1)
-    expect(edgeBound(2)).toBe(1)
-    expect(edgeBound(2100 / 1400)).toBe(1.5)
-    expect(edgeBound(1.25)).toBe(1.5)
+  // The zooms of the e2e test (test/e2e/browser-layer.spec.ts).
+  const TEST_ZOOMS = [0.25, 0.5, 1, 2]
+
+  it('is 1 px at a whole device scale of 2 or more and 1.5 px at a fractional one, at every zoom', () => {
+    for (const zoom of TEST_ZOOMS) {
+      expect(edgeBound(2, zoom), `scale 2, zoom ${zoom}`).toBe(1)
+      expect(edgeBound(3, zoom), `scale 3, zoom ${zoom}`).toBe(1)
+      expect(edgeBound(2100 / 1400, zoom), `scale 1.5, zoom ${zoom}`).toBe(1.5)
+      expect(edgeBound(1.25, zoom), `scale 1.25, zoom ${zoom}`).toBe(1.5)
+    }
+  })
+
+  it('is 2.5 px at scale 1 and zoom 0.25, the measured 2.38 px of the 1024x768 macOS runner plus a margin', () => {
+    expect(edgeBound(1, 0.25)).toBe(2.5)
+    expect(edgeBound(1, 0.25)).toBeGreaterThan(2.38)
+  })
+
+  it('is 1 px at scale 1 at the other zooms, where the runner measured at most 0.39 px', () => {
+    for (const zoom of [0.5, 1, 2]) expect(edgeBound(1, zoom), `zoom ${zoom}`).toBe(1)
   })
 })

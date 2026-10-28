@@ -211,7 +211,10 @@ test('two worfy link by address and code, and each lists the other as online', a
     // With "reduce motion" of the system the dot is still: no ring pulses.
     await a.window.emulateMedia({ reducedMotion: 'reduce' })
     expect(await dotPaint(a.window)).toMatchObject({ colour: chipDot, ring: 'none' })
-    await a.window.emulateMedia({ reducedMotion: null })
+    // Back to what Playwright emulates from the start: "no-preference", so the ring pulses above on
+    // every machine. `reducedMotion: null` is not that: it drops the emulation, and the page then
+    // reads the machine's own setting, which on the GitHub macOS runner answers "reduce".
+    await a.window.emulateMedia({ reducedMotion: 'no-preference' })
     expect((await dotPaint(a.window)).ring).toBe('w-machines-dot-pulse')
 
     // Collapsed again, as a fresh worfy shows the section: the rows are hidden, the dot stays.

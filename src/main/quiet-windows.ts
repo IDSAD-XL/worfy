@@ -11,9 +11,10 @@
 // value other than "1" counts as not set: the window shows itself and takes the focus as before.
 //
 // Kept painting: WORFY_KEEP_PAINTING=1, also set by playwright.config.ts for every e2e run, turns on
-// only the Chromium switches and backgroundThrottling: false that quiet mode has, so a window that
-// macOS counts as covered or in the background is still painted and gets its 'ready-to-show'. It
-// also covers the specs that turn quiet mode off for the real focus (test/e2e/linked-notify.spec.ts):
+// only three things that quiet mode has: the Chromium switches and backgroundThrottling: false, so a
+// window that macOS counts as covered or in the background is still painted and gets its
+// 'ready-to-show'; and largerThanScreen, so a window keeps the size a test sets on a display smaller
+// than that size (the GitHub macOS runner's 1024×768). It also covers the specs that turn quiet mode off for the real focus (test/e2e/linked-notify.spec.ts):
 // focus and system notifications stay as in a normal start. The same rule: only "1" turns it on.
 
 /** What src/main/index.ts, src/main/window.ts and src/main/notify.ts do about showing worfy's windows and notes. */
@@ -59,6 +60,14 @@ export interface QuietWindows {
    * that does not contain the pointer gets none of them.
    */
   avoidPointer: boolean
+  /**
+   * BrowserWindow's enableLargerThanScreen (macOS only; the other systems never fit a window into
+   * the display). macOS otherwise cuts every size a test sets down to the display: the GitHub
+   * macOS runner's display is 1024×768 with 1024×674 left under the menu bar, so a test that asks
+   * for 1200×900 got 1200×674, and the elements it needed were off the window. Every e2e start
+   * sets it (quiet mode and WORFY_KEEP_PAINTING=1); a normal start keeps the window on the display.
+   */
+  largerThanScreen: boolean
 }
 
 /** The normal start: what worfy did before quiet mode existed. */
@@ -73,16 +82,21 @@ export const NORMAL_WINDOWS: QuietWindows = Object.freeze({
   opacity: undefined,
   ignoreMouseEvents: false,
   avoidPointer: false,
+  largerThanScreen: false,
 })
 
 /** The switches that keep a covered or background window painted (quiet mode and WORFY_KEEP_PAINTING=1). */
 export const KEEP_PAINTING_SWITCHES: readonly string[] = Object.freeze(['disable-backgrounding-occluded-windows', 'disable-renderer-backgrounding'])
 
-/** A normal start that is still painted when covered: what WORFY_KEEP_PAINTING=1 alone gives. */
+/**
+ * A normal start that is still painted when covered, and keeps the size a test sets: what
+ * WORFY_KEEP_PAINTING=1 alone gives.
+ */
 export const KEEP_PAINTING_WINDOWS: QuietWindows = Object.freeze({
   ...NORMAL_WINDOWS,
   chromiumSwitches: KEEP_PAINTING_SWITCHES,
   backgroundThrottling: false,
+  largerThanScreen: true,
 })
 
 /** Reads WORFY_QUIET_WINDOWS and WORFY_KEEP_PAINTING and answers how worfy shows its windows. */
@@ -99,5 +113,6 @@ export function quietWindows(env: Readonly<Record<string, string | undefined>> =
     opacity: 0,
     ignoreMouseEvents: true,
     avoidPointer: platform === 'darwin',
+    largerThanScreen: true,
   }
 }
