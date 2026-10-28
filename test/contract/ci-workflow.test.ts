@@ -345,12 +345,16 @@ describe('scripts/ci-scope.mjs', () => {
     },
   )
 
-  it('a source file with a Cyrillic name runs every job', () => {
+  it('a source file with a Cyrillic name runs the tests: every job on a push, every job but macos-package on a pull request', () => {
     commitOnBase(['docs/adr/0001-a.md', 'src/main/уведомления.ts'])
-    const result = scope({ EVENT: 'pull_request', BASE: base })
-    expect(result.status, result.stderr).toBe(0)
-    expect(result.expect).toEqual(ALL)
-    expect(result.stdout).toContain('code changed: src/main/уведомления.ts\n')
+    const push = scope({ EVENT: 'push', BASE: base })
+    expect(push.status, push.stderr).toBe(0)
+    expect(push.expect).toEqual(ALL)
+    expect(push.stdout).toContain('code changed: src/main/уведомления.ts\n')
+    const pr = scope({ EVENT: 'pull_request', BASE: base })
+    expect(pr.status, pr.stderr).toBe(0)
+    expect(pr.expect).toEqual(NO_PACKAGE)
+    expect(pr.stdout).toContain('code changed: src/main/уведомления.ts; no build input, so no macos-package\n')
   })
 
   it.each([
