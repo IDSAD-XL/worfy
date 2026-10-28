@@ -26,7 +26,7 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) removeTestTree(dir)
 })
 
-/** Runs the script on a repository root; `pnpm test` runs under Electron as Node, so the child does too. */
+/** Runs the script on a repository root, under the real node (test/script-node.ts). */
 function run(root: string, args: readonly string[] = []): { status: number | null; stdout: string; stderr: string } {
   const child = spawnSync(scriptNode(), [SCRIPT, ...args, root], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
   return { status: child.status, stdout: child.stdout, stderr: child.stderr }

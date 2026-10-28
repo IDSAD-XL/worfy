@@ -28,9 +28,9 @@ const STAYS: Record<string, string> = {
   // as the SDK hands it (test/contract/claude-process-stub.ts).
   'contract/claude-process-stub.ts': 'the Claude Code stand-in, started through the app\'s watchedSpawn as the SDK starts it',
   'contract/orchestrator-relaunch.test.ts': 'the Claude Code stand-in of the relaunch, started through the app\'s watchedSpawn',
-  // Electron itself is what these tests need.
-  'contract/e2e-end-app.test.ts': 'the process plays the app, started directly as macOS and Linux start it',
-  'contract/harness-install.test.ts': 'checks that the installer runs the Claude stand-in under worfy\'s own Node and Electron opens no second app',
+  // Electron itself is what this test needs: captureLoginShellEnv (src/main/agent/env.ts) runs in the
+  // app's main process, and Electron's V8 keeps large strings outside heapUsed.
+  'contract/login-shell-capture.test.ts': 'runs captureLoginShellEnv on Electron, the runtime of the app\'s main process where it runs',
   // shortcut: agent-cost keeps its launch while #922 changes that file, switch it once #922 is merged.
   'unit/agent-cost.test.ts': 'waits for #922, which changes this file',
 }
@@ -44,10 +44,25 @@ const STAYS: Record<string, string> = {
 function execPathReads(path: string, text: string): number[] {
   const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, path.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
   const lines: number[] = []
+  const isProcess = (node: ts.Node): boolean => ts.isIdentifier(node) && node.text === 'process'
+  const reads = (node: ts.Node): boolean =>
+    // process.execPath, process['execPath']
+    (ts.isPropertyAccessExpression(node) && node.name.text === 'execPath' && isProcess(node.expression)) ||
+    (ts.isElementAccessExpression(node) && isProcess(node.expression) && ts.isStringLiteralLike(node.argumentExpression) && node.argumentExpression.text === 'execPath') ||
+    // const { execPath } = process, const { execPath: node } = process
+    (ts.isBindingElement(node) &&
+      (node.propertyName ?? node.name).getText(source) === 'execPath' &&
+      ts.isObjectBindingPattern(node.parent) &&
+      ts.isVariableDeclaration(node.parent.parent) &&
+      node.parent.parent.initializer !== undefined &&
+      isProcess(node.parent.parent.initializer)) ||
+    // import { execPath } from 'node:process'
+    (ts.isImportSpecifier(node) &&
+      (node.propertyName ?? node.name).text === 'execPath' &&
+      ts.isStringLiteral(node.parent.parent.parent.moduleSpecifier) &&
+      ['process', 'node:process'].includes(node.parent.parent.parent.moduleSpecifier.text))
   const visit = (node: ts.Node): void => {
-    if (ts.isPropertyAccessExpression(node) && node.name.text === 'execPath' && ts.isIdentifier(node.expression) && node.expression.text === 'process') {
-      lines.push(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1)
-    }
+    if (reads(node)) lines.push(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1)
     ts.forEachChild(node, visit)
   }
   visit(source)
@@ -76,7 +91,7 @@ describe('test/script-node.ts', () => {
     }
   })
 
-  it('counts a split call and an alias, and no comment or string text', () => {
+  it('counts a split call, an alias, destructuring, an index and an import, and no comment or string text', () => {
     const text = [
       '// spawnSync(process.execPath)',
       "const child = 'spawnSync(process.execPath)'",
@@ -86,8 +101,14 @@ describe('test/script-node.ts', () => {
       ')',
       "it(\"runs the app's script\", () => { const node = process.execPath })",
       'const stub = `exec "${process.execPath}"`',
+      'const { execPath } = process',
+      'const { execPath: node, pid } = process',
+      "const other = process['execPath']",
+      "import { execPath as electron } from 'node:process'",
+      "import { argv } from 'node:process'",
+      'const { execPath: unrelated } = options',
     ].join('\n')
-    expect(execPathReads('x.ts', text)).toEqual([5, 7, 8])
+    expect(execPathReads('x.ts', text)).toEqual([5, 7, 8, 9, 10, 11, 12])
   })
 
   it('is node, not Electron', () => {

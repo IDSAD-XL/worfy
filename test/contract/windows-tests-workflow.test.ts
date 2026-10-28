@@ -502,7 +502,6 @@ describe('scripts/windows-test-list.mjs', () => {
     expect(accepted.status, accepted.stderr).toBe(0)
     const files = accepted.output.trim().replace(/^files=/, '').split(' ')
     // `vitest list --filesOnly` answers which files the arguments select, without running a test.
-    // The same Node as `pnpm test`: this process is Electron's Node, and so is its child.
     const listed = spawnSync(scriptNode(), [join(REPO, 'node_modules', 'vitest', 'vitest.mjs'), 'list', '--filesOnly', ...files], {
       cwd: REPO,
       encoding: 'utf8',

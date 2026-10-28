@@ -60,7 +60,7 @@ async function eslintErrors(root: string): Promise<string[]> {
   return results.flatMap((r) => r.messages.map((m) => `${r.filePath.slice(root.length + 1).replaceAll('\\', '/')}:${m.line}`)).sort()
 }
 
-/** Runs the command on a root; `pnpm test` runs under Electron as Node, so the child does too. */
+/** Runs the command on a root, under the real node (test/script-node.ts). */
 function run(root: string): { status: number | null; lines: string[]; stderr: string } {
   const child = spawnSync(scriptNode(), [SCRIPT, '--root', root], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
   const lines = child.stderr

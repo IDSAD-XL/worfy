@@ -22,7 +22,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { agentEnv, captureLoginShellEnv, MAX_SHELL_OUTPUT, SYSTEM_PATH, type CapturedEnv } from '../../src/main/agent/env'
 import { harnessScriptEnv, withProcessPath } from '../../src/main/harness/script-env'
 import { removeTestTree } from '../remove'
-import { scriptNode } from '../script-node'
 
 /** The files in HOME where an rc file writes the pids of what it leaves behind. */
 const PID_FILES = ['background.pid', 'probe.pid', 'shell.pid']
@@ -160,7 +159,7 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
       ].join('\n'),
     )
     const started = Date.now()
-    const run = spawnSync(scriptNode(), [script], { env: { PATH: SYSTEM_PATH, HOME: home, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: 20_000 })
+    const run = spawnSync(process.execPath, [script], { env: { PATH: SYSTEM_PATH, HOME: home, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: 20_000 })
     const took = Date.now() - started
     expect(run.stdout.trim(), run.stderr).toBe('login-shell')
     expect(run.status).toBe(0)
@@ -197,7 +196,7 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
         'process.exit(0)',
       ].join('\n'),
     )
-    const run = spawnSync(scriptNode(), ['--expose-gc', script], { env: { PATH: SYSTEM_PATH, HOME: home, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: 20_000 })
+    const run = spawnSync(process.execPath, ['--expose-gc', script], { env: { PATH: SYSTEM_PATH, HOME: home, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: 20_000 })
     expect(run.status, run.stderr).toBe(0)
     const answer = JSON.parse(run.stdout) as { from: string; grownMB: number; status: string }
     expect(answer.from).toBe('login-shell')

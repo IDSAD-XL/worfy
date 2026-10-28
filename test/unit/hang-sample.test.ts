@@ -280,7 +280,7 @@ describe('hang-sample run as a script', () => {
   const scratch = mkdtempSync(join(tmpdir(), 'worfy-hang-sample-'))
   afterAll(() => removeTestTree(scratch))
 
-  /** `pnpm test` runs under Electron as Node, so the child does too. */
+  /** Under the real node (test/script-node.ts). */
   const script = (args: string[]) =>
     spawnSync(scriptNode(), [SCRIPT, ...args], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', WORFY_DATA_DIR: scratch } })
 

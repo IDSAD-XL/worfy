@@ -20,7 +20,7 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) removeTestTree(dir)
 })
 
-/** Runs the script on a temporary HANDOFF.md with these lines; `pnpm test` runs under Electron as Node, so the child does too. */
+/** Runs the script on a temporary HANDOFF.md with these lines, under the real node (test/script-node.ts). */
 function check(lines: string[], eol = '\n', args: readonly string[] = []): { status: number | null; stdout: string; stderr: string; file: string } {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-check-handoff-')))
   dirs.push(dir)

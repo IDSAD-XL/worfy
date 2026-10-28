@@ -194,7 +194,7 @@ const baseVars = (): NodeJS.ProcessEnv => {
   return { PATH: process.env.PATH, TMPDIR: tmp, TEMP: tmp, TMP: tmp, TERM: 'dumb', ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot } : {}) }
 }
 
-/** Runs a script of scripts/ under this process's Node (Electron's, as a plain Node). */
+/** Runs a script of scripts/ under the real node (test/script-node.ts). */
 const node = (script: string, args: string[], home: string, vars: NodeJS.ProcessEnv = {}, cwd = REPO): SpawnSyncReturns<string> =>
   spawnSync(scriptNode(), [script, ...args], { cwd, encoding: 'utf8', env: childEnv(home, { ...baseVars(), ELECTRON_RUN_AS_NODE: '1', ...vars }), timeout: 120_000 })
 
