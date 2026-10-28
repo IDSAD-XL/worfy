@@ -19,13 +19,27 @@
 // tier (`managedSettings`): `allowedMcpServers` filters every server the user's settings bring —
 // user, project and local config, plugins, claude.ai connectors — and `allowManagedMcpServersOnly`
 // keeps an `allowedMcpServers` in the user's own settings from widening it. settingSources stay
-// as they are, so CLAUDE.md, hooks and skills still come from the user (ADR-0002). The policy
+// as they are, so CLAUDE.md and hooks still come from the user (ADR-0002), and skills too unless the
+// Profile lists them (below). The policy
 // covers the whole Claude Code process, so the Session's Subagents get the same set. It does not
 // cover servers passed in `mcpServers`, so `worfy-canvas` is passed only when the list names it.
 // Checked against Claude Code 2.1.289 / SDK 0.3.289 (the ticket's summary).
 // The Browser server `worfy-browser` (worfy-browser ticket 04, src/main/mcp/browser-server.ts) is
 // passed the same way, only when the list names it; a Profile list that names `worfy-canvas` names
 // it too (withBrowserServer, the owner's decision 6: the existing lists get it without an edit).
+//
+// Plugins and skills (ADR-0084, worfy-throughput ticket 38): a Session in a Project whose Profile
+// has `skills.allowed` gets, of the user's plugins and own skills, only those on the list; worfy's
+// own plugin and the skills built into Claude Code always. Their descriptions went into the first
+// request of every Session and Subagent: about 7k tokens on the owner's Mac. Every plugin the
+// user's, the project's or the local settings enable and the list does not name is turned off
+// (`enabledPlugins: {id: false}`), every skill of <claude home>/skills likewise (`skillOverrides:
+// {name: 'off'}`), and the skills and plugins synced from claude.ai unless the list names
+// `claude.ai`. All of it goes as flag settings (`settings`, the `--settings` flag): they rank above
+// those settings files and cover the whole process, Subagents included. Never the policy tier:
+// there `syncClaudeAiSkills: false` moves the synced skills to ~/.claude/skills/.trash, while in
+// flag settings it only hides them for this process (SDK 0.3.289, Settings). The SDK's `skills`
+// option is not used: it filters the main session's listing only, not a Subagent's.
 //
 // The Harness (ADR-0040, ADR-0049, worfy-harness ticket 12): unless the old Harness is on the
 // machine, a Session gets the Harness copy of this build inline (`plugins`, sessionHarnessPlugin).
@@ -54,7 +68,7 @@
 // starts the process itself through the SDK's `spawnClaudeCodeProcess`, the way the SDK's own spawn
 // does (watchedSpawn), and hands the process to the Session, which can then wait for its exit.
 import { spawn, type ChildProcess } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, posix, win32 } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
@@ -242,6 +256,14 @@ export interface SessionOptionsInput {
    */
   mcpAllowlist?: readonly string[] | null | undefined
   /**
+   * The plugins and skills of the user the Project's Profile allows (`skills.allowed`, ADR-0084):
+   * plugin names or ids, skill names, `claude.ai` for what is synced from there. Absent or null — a
+   * Session outside a Project, or a Profile without the field — leaves them as they are.
+   */
+  skillsAllowlist?: readonly string[] | null | undefined
+  /** What the user's settings bring (userExtensions); the list turns off what it does not name. */
+  userExtensions?: UserExtensions | undefined
+  /**
    * The folder of worfy's own Harness to pass inline (sessionHarnessPlugin). Absent or null — the
    * old Harness is on the machine — passes no plugins.
    */
@@ -269,8 +291,83 @@ export interface SessionOptionsInput {
   autoCompactWindow?: number | null | undefined
 }
 
+/** The user's plugins and own skills a Session would get without a list (ADR-0084). */
+export interface UserExtensions {
+  /** Plugin ids (`name@marketplace`) that the user's, the project's or the local settings enable. */
+  plugins: readonly string[]
+  /**
+   * The skills of <claude home>/skills: the folders that hold a SKILL.md. The skills synced from
+   * claude.ai lie a level deeper (`synced/<organization>_<user>/<skill>`) and go by `claude.ai`.
+   */
+  skills: readonly string[]
+}
+
+/** Settings Claude Code takes as its flag settings (`--settings`). */
+type FlagSettings = Exclude<Options['settings'], string | undefined>
+
+/** The entry of `skills.allowed` that keeps the skills and plugins synced from claude.ai. */
+export const SYNCED_EXTENSIONS = 'claude.ai'
+
+/** The ids a settings file enables in `enabledPlugins`; none when it is absent or not JSON. */
+function enabledPluginIds(file: string): string[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8'))
+  } catch {
+    return []
+  }
+  if (!isRecord(parsed) || !isRecord(parsed.enabledPlugins)) return []
+  // An entry is on when it is not `false`: `true`, a version list or the extended object form.
+  return Object.entries(parsed.enabledPlugins).filter(([, value]) => value !== false && value != null).map(([id]) => id)
+}
+
+/**
+ * What the user's settings bring into a Session started in `cwd`: the plugins enabled in
+ * <claude home>/settings.json and in `<cwd>/.claude/settings.json` and `settings.local.json`, and
+ * the skills of <claude home>/skills. Only reads; a file that is missing or not JSON gives nothing.
+ * shortcut: the project settings are read from `cwd` only and a skill goes by its folder name, while
+ * Claude Code also looks in parent folders and lists a skill by its SKILL.md `name`; redo when a
+ * Profile list leaves through a plugin or skill that is there.
+ */
+export function userExtensions(claudeHome: string, cwd: string): UserExtensions {
+  const plugins = [join(claudeHome, 'settings.json'), join(cwd, '.claude', 'settings.json'), join(cwd, '.claude', 'settings.local.json')].flatMap(enabledPluginIds)
+  let skills: string[]
+  try {
+    skills = readdirSync(join(claudeHome, 'skills'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && existsSync(join(claudeHome, 'skills', entry.name, 'SKILL.md')))
+      .map((entry) => entry.name)
+  } catch {
+    // No skills folder.
+    skills = []
+  }
+  return { plugins: [...new Set(plugins)], skills }
+}
+
+/**
+ * The flag settings that turn off, of `extensions`, what `allowlist` does not name (ADR-0084):
+ * a plugin is named by its name or its id, a skill by its name; worfy's plugin stays whatever the
+ * list says. Empty when the list lets everything through.
+ */
+function extensionSettings(allowlist: readonly string[], extensions: UserExtensions): FlagSettings {
+  const named = new Set(allowlist)
+  const plugins = extensions.plugins.filter((id) => {
+    const name = id.split('@')[0] ?? id
+    return name !== HARNESS_PLUGIN_NAME && !named.has(name) && !named.has(id)
+  })
+  const skills = extensions.skills.filter((name) => !named.has(name))
+  const settings: FlagSettings = {}
+  if (plugins.length > 0) settings.enabledPlugins = Object.fromEntries(plugins.map((id) => [id, false]))
+  if (skills.length > 0) settings.skillOverrides = Object.fromEntries(skills.map((name) => [name, 'off']))
+  // Hides them for this process only; the same keys in the policy tier would move them to the trash.
+  if (!named.has(SYNCED_EXTENSIONS)) {
+    settings.syncClaudeAiSkills = false
+    settings.syncClaudeAiPlugins = false
+  }
+  return settings
+}
+
 /** The options of the draft Session of a Project's connection; see the header. */
-export type DraftSessionOptionsInput = Omit<SessionOptionsInput, 'settingSources' | 'permissionRulesFromPolicyOnly' | 'canvas' | 'browser' | 'mcpAllowlist' | 'outputFormat' | 'disallowedTools' | 'allowedTools'> & {
+export type DraftSessionOptionsInput = Omit<SessionOptionsInput, 'settingSources' | 'permissionRulesFromPolicyOnly' | 'canvas' | 'browser' | 'mcpAllowlist' | 'skillsAllowlist' | 'userExtensions' | 'outputFormat' | 'disallowedTools' | 'allowedTools'> & {
   outputFormat: OutputFormat
   allowedTools: readonly string[]
   disallowedTools: readonly string[]
@@ -362,7 +459,10 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   if (input.resume !== undefined) options.resume = input.resume
   else if (input.sessionId !== undefined) options.sessionId = input.sessionId
   // Read by Claude Code once, when the process starts: a running Session keeps its window.
-  if (input.autoCompactWindow != null) options.settings = { autoCompactWindow: input.autoCompactWindow }
+  const flagSettings: FlagSettings = {}
+  if (input.autoCompactWindow != null) flagSettings.autoCompactWindow = input.autoCompactWindow
+  if (input.skillsAllowlist != null) Object.assign(flagSettings, extensionSettings(input.skillsAllowlist, input.userExtensions ?? { plugins: [], skills: [] }))
+  if (Object.keys(flagSettings).length > 0) options.settings = flagSettings
   if (input.stderr !== undefined) options.stderr = input.stderr
   if (input.spawned !== undefined) options.spawnClaudeCodeProcess = watchedSpawn(input.spawned, input.stderr)
   if (input.canUseTool !== undefined) options.canUseTool = input.canUseTool

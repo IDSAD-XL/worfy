@@ -545,6 +545,34 @@ describe('sdkQueryFactory and the Profile list', () => {
     expect(options.mcpServers).toEqual({ [CANVAS_SERVER_NAME]: canvasServer })
     expect(snapshot(home)).toEqual(before)
   })
+
+  // worfy-throughput ticket 38 (ADR-0084): the Profile's skills.allowed turns off, as flag settings,
+  // the user's plugins it does not name; without a list, or outside a Project, nothing is turned off.
+  it("a Session in a Project gets the Profile's plugins and skills list as flag settings, read for its cwd", async () => {
+    const home = mkdtempSync(join(tmpdir(), 'worfy-skills-home-'))
+    writeFileSync(join(home, 'settings.json'), JSON.stringify({ enabledPlugins: { 'figma@claude-plugins-official': true, 'mattpocock-skills@claude-plugins-official': true } }))
+    vi.stubEnv('WORFY_CLAUDE_HOME', home)
+    const before = snapshot(home)
+    try {
+      const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+      const asked: string[] = []
+      const skills = (cwd: string): Promise<readonly string[] | null> => (asked.push(cwd), Promise.resolve(['figma']))
+      await sdkQueryFactory(() => Promise.resolve(attached), () => Promise.resolve(['qmd']), { skills, autoCompactWindow: () => null })(request('/repo/.claude/worktrees/38'))
+      expect(asked).toEqual(['/repo/.claude/worktrees/38'])
+      expect(sdkOptions().settings).toEqual({ enabledPlugins: { 'mattpocock-skills@claude-plugins-official': false }, syncClaudeAiSkills: false, syncClaudeAiPlugins: false })
+      mocks.query.mockClear()
+      await sdkQueryFactory(() => Promise.resolve(attached), () => Promise.resolve(['qmd']), { skills: () => Promise.resolve(null), autoCompactWindow: () => null })(request('/repo'))
+      expect(sdkOptions()).not.toHaveProperty('settings')
+      mocks.query.mockClear()
+      const outside = vi.fn(() => Promise.resolve(['figma']))
+      await sdkQueryFactory(() => Promise.resolve(null), () => Promise.resolve(['qmd']), { skills: outside, autoCompactWindow: () => null })(request('/elsewhere'))
+      expect(sdkOptions()).not.toHaveProperty('settings')
+      expect(outside).not.toHaveBeenCalled()
+      expect(snapshot(home)).toEqual(before)
+    } finally {
+      removeTestTree(home)
+    }
+  })
 })
 
 // ── where the workflow lives (worfy-harness ticket 23) ──────────────────────

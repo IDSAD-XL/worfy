@@ -149,6 +149,13 @@
           "required": ["allowed"],
           "properties": { "allowed": { "type": "array", "items": { "type": "string" } } }
         },
+        "skills": {
+          "type": "object",
+          "description": "The user's plugins and skills the sessions worfy starts in the project get (profiles/README.md, skills.allowed). Absent — all of them.",
+          "required": ["allowed"],
+          "additionalProperties": false,
+          "properties": { "allowed": { "type": "array", "items": { "type": "string", "minLength": 1 } } }
+        },
         "review": {
           "type": "object",
           "required": ["lenses", "ticket_lenses"],
