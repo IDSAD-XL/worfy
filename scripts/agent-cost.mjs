@@ -49,6 +49,12 @@ an Orchestrator call and the start context of a subagent, from Claude Code trans
   --since <date>          only responses at or after this time: YYYY-MM-DD (UTC midnight) or ISO.
   --until <date>          only responses before this time; a bare YYYY-MM-DD takes in that whole
                           UTC day.
+  --by-ticket             a row per Ticket instead of per role: its tokens and cost, its scouts,
+                          its implementers up to their first Edit or Write, the files they read
+                          by then and how many of them agents of other Tickets of the Epic read
+                          earlier. The Ticket of a subagent comes from its brief (see ticketOf);
+                          the Orchestrator from the wave command, split evenly between the
+                          Wave's Tickets; the rest is the row "(no ticket)".
   --json                  JSON instead of the table.
   --help                  this text.
 
@@ -66,12 +72,13 @@ function parseTime(text, end) {
 }
 
 /** Options from the arguments; throws with the reason when they are wrong. */
-function parseArgs(args) {
-  const options = { json: false, help: false }
+export function parseArgs(args) {
+  const options = { json: false, help: false, byTicket: false }
   const valued = { '--transcripts': 'transcripts', '--since': 'since', '--until': 'until' }
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     if (arg === '--json') options.json = true
+    else if (arg === '--by-ticket') options.byTicket = true
     else if (arg === '--help' || arg === '-h') options.help = true
     else if (arg in valued) {
       const value = args[++i]
@@ -117,11 +124,103 @@ function listTranscripts(folder, found = []) {
   return found
 }
 
-/** The first line of the first user message: the brief of a subagent. */
-function briefLine(message) {
+/** The text of a user message; a tool result is not a text block. */
+function messageText(message) {
   const content = message?.content
-  const text = typeof content === 'string' ? content : Array.isArray(content) ? content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n') : ''
-  return text.split('\n').find((line) => line.trim() !== '')?.trim() ?? ''
+  return typeof content === 'string' ? content : Array.isArray(content) ? content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n') : ''
+}
+
+const firstLine = (text) => text.split('\n').find((line) => line.trim() !== '')?.trim() ?? ''
+
+const number = (digits) => String(Number(digits)).padStart(2, '0')
+
+/**
+ * Where a brief names its Ticket, as `<epic>/<NN>`. Each form gives the Epic and the number:
+ * "ticket 39 of epic X" or its Russian form; "ticket X 39" or "ticket X/39"; a bare "X/39",
+ * "X 39" or "X ticket 39" when X has a dash (worfy-canvas/18, worfy-harness 51), so that "PR 12"
+ * or "round 2" is no Ticket; a Ticket file path, `.scratch/X/issues/39-…`.
+ */
+// shortcut: accepts the old Russian token of the Russian briefs, until the Harness writes briefs in English only (Epic worfy-neutral)
+const TICKET_FORMS = [
+  /\b[Tt]icket\s+(?<num>\d{1,3})\s+(?:of\s+(?:the\s+)?epic|эпика)\s+`?(?<epic>[a-z][a-z0-9-]*)/,
+  /\b[Tt]icket\s+`?(?<epic>[a-z][a-z0-9]*(?:-[a-z0-9]+)*)`?[ /](?<num>\d{1,3})(?![\w.])/,
+  /(?<![\w./-])(?<epic>[a-z][a-z0-9]*(?:-[a-z0-9]+)+)(?:\/| ticket | )(?<num>\d{1,3})(?![\w.])/,
+  /\.scratch\/(?<epic>[a-z][a-z0-9-]*)\/issues\/(?<num>\d{1,3})-/,
+]
+/** How many lines of a brief the last step of ticketOf reads. */
+const BRIEF_LINES = 8
+
+/** The Ticket the text names first, `<epic>/<NN>`, or null. */
+function ticketIn(text) {
+  let best
+  for (const form of TICKET_FORMS) {
+    const match = form.exec(text)
+    if (match && (best === undefined || match.index < best.index)) best = match
+  }
+  return best === undefined ? null : `${best.groups.epic}/${number(best.groups.num)}`
+}
+
+/**
+ * The Ticket of a subagent from its brief, `<epic>/<NN>`, or null. The first line, then a line
+ * that starts with `Ticket:`, then the first BRIEF_LINES lines: briefs often open with the
+ * repository and name the Ticket a line or two later.
+ */
+export function ticketOf(brief) {
+  const lines = brief.split('\n').map((line) => line.trim()).filter((line) => line !== '')
+  const ticketLine = lines.find((line) => /^\**Ticket\**\s*:/.test(line))
+  return ticketIn(lines[0] ?? '') ?? (ticketLine === undefined ? null : ticketIn(ticketLine)) ?? ticketIn(lines.slice(0, BRIEF_LINES).join('\n'))
+}
+
+/**
+ * The Tickets of a wave command a user message starts with — the Autopilot's
+ * `/worfy:epic-wave tickets 01, 02 of epic X` (in a transcript, the command-name and command-args
+ * tags) or the older Russian form of the same command — as `<epic>/<NN>`; [] for a wave command
+ * without Ticket numbers (the oldest form, by Wave number); null for any other message.
+ */
+export function waveTickets(text) {
+  const start = text.trimStart()
+  if (!/^(?:<command-message>(?:worfy:)?epic-wave<\/command-message>|\/(?:worfy:)?epic-wave\s)/.test(start)) return null
+  // shortcut: accepts the old Russian token of the older wave command, until no transcript in a measured period has it
+  const match = /(?:tickets|Ticket-ы)\s+(?<nums>\d{1,3}(?:[,\s]+\d{1,3})*)\s+(?:of\s+epic|эпика)\s+(?<epic>[a-z][a-z0-9-]*)/.exec(start)
+  if (match === null) return []
+  return match.groups.nums.split(/[,\s]+/).map((num) => `${match.groups.epic}/${number(num)}`)
+}
+
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+const SHELL_READERS = new Set(['cat', 'head', 'tail', 'sed', 'nl', 'less', 'more'])
+
+/**
+ * The files a shell command prints: the path arguments of cat, head, tail, nl, less, more and
+ * `sed -n`, in each part of the command between `&&`, `||`, `;`, `|` and a line break. A part that
+ * redirects (`cat > file`) writes, not reads; a word is a path when it has a slash or a dot and no
+ * `$`, glob or redirect.
+ * shortcut: a word split, not a shell parser — a quoted path with spaces, a path relative to a
+ * `cd` and one in a variable are missed; redo it if a decision rests on the file counts alone.
+ */
+export function shellReads(command) {
+  const paths = []
+  for (const part of command.split(/&&|\|\||[;|\n]/)) {
+    const words = part.trim().split(/\s+/)
+    if (!SHELL_READERS.has(words[0]) || /[<>]/.test(part) || (words[0] === 'sed' && !words.includes('-n'))) continue
+    for (const raw of words.slice(1)) {
+      const word = raw.replace(/^['"]|['"]$/g, '')
+      if (word.startsWith('-') || !/[/.]/.test(word) || /[$*?`'"]/.test(word) || /^[\d,$p;]+$/.test(word) || word.startsWith('/dev/')) continue
+      paths.push(word)
+    }
+  }
+  return paths
+}
+
+/**
+ * A path a subagent read, relative to its repository: the part after `.claude/worktrees/<name>/`,
+ * else after the repository of its working directory; any other path stays as it is.
+ */
+function repoPath(path, cwd) {
+  const p = path.replaceAll('\\', '/')
+  const inWorktree = /\/\.claude\/worktrees\/[^/]+\/(.+)$/.exec(p)
+  if (inWorktree) return inWorktree[1]
+  const root = (cwd ?? '').replaceAll('\\', '/').split('/.claude/worktrees/')[0]
+  return root !== '' && p.startsWith(`${root}/`) ? p.slice(root.length + 1) : p
 }
 
 /**
@@ -161,25 +260,37 @@ function readMeta(path) {
 const count = (value) => (Number.isFinite(value) && value > 0 ? value : 0)
 
 /**
- * The responses of one transcript and its first brief line. Only lines that carry a usage (and,
- * for a subagent, the first user line) are parsed: a main session runs to hundreds of megabytes.
+ * The responses of one transcript, its brief (the first user message of a subagent), its working
+ * directory and, for a main session, its wave commands. Only lines that carry a usage, the first
+ * user line of a subagent and a main session's user lines that mention epic-wave are parsed: a
+ * main session runs to hundreds of megabytes.
  */
 async function readTranscript(path, subagent) {
   const calls = []
+  const waves = []
   let brief
+  let cwd
   let order = 0
   const lines = createInterface({ input: createReadStream(path, { encoding: 'utf8' }), crlfDelay: Infinity })
   for await (const line of lines) {
     const wantBrief = subagent && brief === undefined && line.includes('"user"')
-    if (!wantBrief && !line.includes('"usage"')) continue
+    const wantWave = !subagent && line.includes('epic-wave') && line.includes('"user"')
+    if (!wantBrief && !wantWave && !line.includes('"usage"')) continue
     let entry
     try {
       entry = JSON.parse(line)
     } catch {
       continue
     }
+    if (cwd === undefined && typeof entry?.cwd === 'string') cwd = entry.cwd
     if (entry?.type === 'user' && wantBrief && !entry.isMeta) {
-      brief = briefLine(entry.message)
+      brief = messageText(entry.message)
+      continue
+    }
+    if (entry?.type === 'user' && wantWave && !entry.isMeta) {
+      const tickets = waveTickets(messageText(entry.message))
+      const ts = Date.parse(entry.timestamp)
+      if (tickets !== null && !Number.isNaN(ts)) waves.push({ ts, tickets })
       continue
     }
     const message = entry?.type === 'assistant' ? entry.message : undefined
@@ -190,6 +301,7 @@ async function readTranscript(path, subagent) {
     const split = usage.cache_creation
     const hasSplit = split && typeof split === 'object' && ('ephemeral_5m_input_tokens' in split || 'ephemeral_1h_input_tokens' in split)
     const written = count(usage.cache_creation_input_tokens)
+    const tools = Array.isArray(message.content) ? message.content.filter((block) => block?.type === 'tool_use') : []
     calls.push({
       id: message.id || entry.requestId || `${path}#${order}`,
       ts,
@@ -200,10 +312,16 @@ async function readTranscript(path, subagent) {
       cacheRead: count(usage.cache_read_input_tokens),
       write5m: hasSplit ? count(split.ephemeral_5m_input_tokens) : written,
       write1h: hasSplit ? count(split.ephemeral_1h_input_tokens) : 0,
+      edit: tools.some((block) => EDIT_TOOLS.has(block.name)),
+      reads: tools.flatMap((block) => {
+        if (block.name === 'Read' && typeof block.input?.file_path === 'string') return [block.input.file_path]
+        if (block.name === 'Bash' && typeof block.input?.command === 'string') return shellReads(block.input.command)
+        return []
+      }),
     })
     order++
   }
-  return { calls, brief: brief ?? '' }
+  return { calls, brief: brief ?? '', cwd, waves }
 }
 
 /** Dollars of a response: [all, the cache write part]. */
@@ -233,9 +351,9 @@ export async function measure(files, options) {
     if (statSync(path).mtimeMs < options.sinceMs) continue
     const subagent = path.split(sep).includes('subagents')
     const meta = subagent ? readMeta(path) : {}
-    const { calls, brief } = await readTranscript(path, subagent)
-    const role = roleOf({ subagent, agentType: meta.agentType, name: meta.name, description: meta.description, brief })
-    const transcript = { subagent, role, calls: [] }
+    const { calls, brief, cwd, waves } = await readTranscript(path, subagent)
+    const role = roleOf({ subagent, agentType: meta.agentType, name: meta.name, description: meta.description, brief: firstLine(brief) })
+    const transcript = { subagent, role, calls: [], ticket: subagent ? ticketOf(brief) : null, cwd, waves }
     transcripts.push(transcript)
     for (const call of calls) {
       const seen = byId.get(call.id)
@@ -246,6 +364,8 @@ export async function measure(files, options) {
       }
       duplicates++
       for (const key of ['input', 'output', 'cacheRead', 'write5m', 'write1h']) seen[key] = Math.max(seen[key], call[key])
+      seen.edit ||= call.edit
+      seen.reads.push(...call.reads)
       if (call.ts < seen.ts) {
         seen.ts = call.ts
         seen.transcript = transcript
@@ -308,7 +428,7 @@ export async function measure(files, options) {
     const all = list.map((s) => s.context)
     startContext[role] = { agents: all.length, median: median(all), mean: all.length ? all.reduce((a, b) => a + b, 0) / all.length : 0, byDay }
   }
-  return {
+  const report = {
     period: { since: options.since ?? null, until: options.until ?? null },
     transcripts: transcripts.length,
     calls,
@@ -324,11 +444,119 @@ export async function measure(files, options) {
     startContext,
     unpricedModels: [...unpriced].sort(),
   }
+  if (options.byTicket) report.tickets = byTicket(transcripts, inPeriod)
+  return report
+}
+
+const tokensOf = (call) => call.input + call.output + call.cacheRead + call.write5m + call.write1h
+
+/**
+ * A row per Ticket. A subagent's response goes to the Ticket of its brief; an Orchestrator's to
+ * the Tickets of the last wave command before it, split evenly; anything else to the row with
+ * ticket null. An implementer's responses before the first one that calls Edit or Write are its
+ * time before the first edit; the files it read by then (Read, or a shell command that prints a
+ * file) are counted once per Ticket, and "earlier" when a subagent of another Ticket of the same
+ * Epic read the same path before it did. An implementer that never calls Edit or Write (a round
+ * that edits through the shell, rebases or only checks) is `noEdit`: neither scouting nor not.
+ */
+function byTicket(transcripts, inPeriod) {
+  const rows = new Map()
+  const rowOf = (ticket) => {
+    let row = rows.get(ticket)
+    if (row === undefined) {
+      row = { ticket, tokens: 0, cost: 0, orchestrator: { tokens: 0, cost: 0 }, scout: { agents: 0, tokens: 0, cost: 0 }, noEdit: { agents: 0, tokens: 0, cost: 0 }, beforeFirstEdit: { agents: 0, tokens: 0, cost: 0, read: new Set(), earlier: new Set() } }
+      rows.set(ticket, row)
+    }
+    return row
+  }
+  // Who read a path, per Epic: [time, Ticket] of every read of a subagent with a Ticket.
+  const readers = new Map()
+  for (const t of transcripts) {
+    if (!t.subagent || t.ticket === null) continue
+    const epic = t.ticket.split('/')[0]
+    if (!readers.has(epic)) readers.set(epic, new Map())
+    for (const call of t.calls) {
+      for (const path of call.reads) {
+        const key = repoPath(path, t.cwd)
+        const list = readers.get(epic).get(key) ?? []
+        list.push([call.ts, t.ticket])
+        readers.get(epic).set(key, list)
+      }
+    }
+  }
+  const unpriced = new Set()
+  for (const t of transcripts) {
+    const waves = [...(t.waves ?? [])].sort((a, b) => a.ts - b.ts)
+    const firstEdit = t.calls.findIndex((call) => call.edit)
+    let counted = false
+    t.calls.forEach((call, index) => {
+      if (!inPeriod(call)) return
+      const [cost] = costOf(call, unpriced)
+      const tokens = tokensOf(call)
+      if (!t.subagent) {
+        const wave = waves.filter((w) => w.ts <= call.ts).at(-1)
+        const tickets = wave === undefined || wave.tickets.length === 0 ? [null] : wave.tickets
+        for (const ticket of tickets) {
+          const row = rowOf(ticket)
+          for (const part of [row, row.orchestrator]) {
+            part.tokens += tokens / tickets.length
+            part.cost += cost / tickets.length
+          }
+        }
+        return
+      }
+      const row = rowOf(t.ticket)
+      row.tokens += tokens
+      row.cost += cost
+      const implementer = t.role === 'implementer'
+      const part = t.role === 'scout' ? row.scout : implementer && firstEdit === -1 ? row.noEdit : implementer && index < firstEdit ? row.beforeFirstEdit : undefined
+      if (part === undefined) return
+      if (!counted) part.agents++
+      counted = true
+      part.tokens += tokens
+      part.cost += cost
+      if (part !== row.beforeFirstEdit) return
+      const epic = t.ticket?.split('/')[0]
+      for (const path of call.reads) {
+        const key = repoPath(path, t.cwd)
+        part.read.add(key)
+        const before = epic === undefined ? undefined : readers.get(epic)?.get(key)
+        if (before?.some(([ts, ticket]) => ts < call.ts && ticket !== t.ticket)) part.earlier.add(key)
+      }
+    })
+  }
+  const share = (part, of) => (of > 0 ? part / of : 0)
+  return [...rows.values()]
+    .sort((a, b) => (a.ticket === null ? 1 : b.ticket === null ? -1 : a.ticket.localeCompare(b.ticket)))
+    .map(({ beforeFirstEdit: { read, earlier, ...before }, ...row }) => ({
+      ...row,
+      beforeFirstEdit: { ...before, filesRead: read.size, filesReadEarlier: earlier.size },
+      scoutingShare: { tokens: share(row.scout.tokens + before.tokens, row.tokens), cost: share(row.scout.cost + before.cost, row.cost) },
+    }))
 }
 
 const dollars = (n) => `$${n.toFixed(2)}`
 const percent = (n) => `${(n * 100).toFixed(1)}%`
 const kTokens = (n) => `${(n / 1000).toFixed(1)}k`
+
+const mTokens = (n) => `${(n / 1e6).toFixed(2)}M`
+
+/**
+ * The --by-ticket table: one row per Ticket. Scouting is the scouts and the implementers up to their
+ * first edit; no-edit is the implementers that never called Edit or Write, left out of it.
+ */
+function toTicketTable(report) {
+  const out = [
+    'ticket                         tokens       cost  scout tok  pre-edit tok  no-edit tok  files  earlier  scouting tok  scouting cost',
+  ]
+  for (const row of report.tickets) {
+    const b = row.beforeFirstEdit
+    out.push(
+      `${(row.ticket ?? '(no ticket)').padEnd(28)} ${mTokens(row.tokens).padStart(8)} ${dollars(row.cost).padStart(10)} ${mTokens(row.scout.tokens).padStart(10)} ${mTokens(b.tokens).padStart(13)} ${mTokens(row.noEdit.tokens).padStart(12)} ${String(b.filesRead).padStart(6)} ${String(b.filesReadEarlier).padStart(8)} ${percent(row.scoutingShare.tokens).padStart(13)} ${percent(row.scoutingShare.cost).padStart(14)}`,
+    )
+  }
+  return out
+}
 
 function toTable(report) {
   const { period, roles, idleRewrite, orchestratorContext, startContext } = report
@@ -336,8 +564,15 @@ function toTable(report) {
     `Period: ${period.since ?? 'start'} .. ${period.until ?? 'end'}; ${report.calls} responses in ${report.transcripts} transcripts, ${report.duplicates} duplicate lines counted once`,
     `Total: ${dollars(report.cost)} at API list prices`,
     '',
-    'role          responses        cost   share   idle rewrite  rewrite cost',
   ]
+  if (report.tickets !== undefined) {
+    out.push(...toTicketTable(report))
+    if (report.unpricedModels.length) out.push('', `Priced as ${FALLBACK_MODEL}: ${report.unpricedModels.join(', ')}`)
+    return `${out.join('\n')}\n`
+  }
+  out.push(
+    'role          responses        cost   share   idle rewrite  rewrite cost',
+  )
   for (const role of ROLES) {
     const r = roles[role]
     const w = idleRewrite.byRole[role]
@@ -366,7 +601,7 @@ export async function agentCost(args, deps = { env: process.env, home: homedir()
     options = parseArgs(args)
   } catch (error) {
     deps.err(`agent-cost: ${error.message}`)
-    deps.err('usage: node scripts/agent-cost.mjs [--transcripts <folder>] [--since <date>] [--until <date>] [--json] | --help')
+    deps.err('usage: node scripts/agent-cost.mjs [--transcripts <folder>] [--since <date>] [--until <date>] [--by-ticket] [--json] | --help')
     return REFUSED
   }
   if (options.help) {
