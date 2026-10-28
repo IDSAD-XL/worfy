@@ -123,3 +123,18 @@ scope `pc` ждёт ПК, scope решает скрипт); ADR-0081, пункт
 - **Merge queue GitHub.** Проверяет дерево после соседних merge-ей, но удлиняет путь каждого PR ещё на один
   run. Не сейчас: если `ci-ok` на `main` будет краснеть от сочетания PR, вопрос вернётся вместе с оценкой
   Ticket-а 07.
+
+## Amendments
+
+- **2026-10-28, один автоматический повтор упавшего test-а в CI** (PR этой правки). Решено оркестратором без
+  владельца 2026-10-28, ждёт подтверждения. Причина: после перехода на runner-ы `ci-ok` зелёный примерно в
+  одном CI run-е из трёх, и каждый красный run с 04:33 UTC — flaky test, не связанный с PR; ручной повтор
+  job-а не путь к merge, поэтому ничего не вливалось. В CI упавший test повторяется один раз: vitest
+  `retry` (`vitest.config.ts`) и Playwright `retries` (`playwright.config.ts`) равны 1, когда задана
+  переменная `CI`; локально, в gate fast и gate full, повторов нет. Test, прошедший только со второй
+  попытки, — flaky test, и он виден: в логе job-а строка `FLAKY <файл> > <test> (passed on retry)`
+  (`test/flaky-reporter.ts`, `test/e2e/flaky-reporter.ts`), в сводке job-а — раздел «Flaky Tests» vitest и
+  раздел «Flaky tests (Playwright)». Такой test по-прежнему подпадает под правила карантина; 3 строки FLAKY
+  одного test-а за неделю — ticket на причину. Ручные повторы job-ов по-прежнему запрещены. Цена: test,
+  упавший по пределу времени, в CI идёт дважды — shell test Harness до 120 s лишних на Linux и macOS и до
+  900 s на Windows.
