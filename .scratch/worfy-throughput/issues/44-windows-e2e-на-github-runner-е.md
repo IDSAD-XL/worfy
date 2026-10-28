@@ -158,3 +158,20 @@ test/e2e/linked-machines.spec.ts:412` — 2 passed; с mutant-ом, где пр�
   отменённом и пропущенном `windows-e2e`, красный при запуске без нужды и при падении любого другого job-а.
 - ADR-0083 — раздел «Amendments», запись 2026-10-28 о неблокирующем job-е.
 - Пять зелёных push-run-ов подряд на `main` — ещё нет; переключение на блокирующий — отдельный PR.
+
+### Первый run job-а `windows-e2e`
+
+PR #921, run [40742646874](https://github.com/IDSAD-XL/worfy/actions/runs/40742646874), head `68491cf9`, шаг e2e
+под `pwsh`: все 4 shard-а зелёные — 321 passed, 2 flaky (прошли со второй попытки), 16 skipped, 0 failed из 339.
+
+| Shard | Время | Итог |
+| --- | --- | --- |
+| 1/4 | 10,7 min | 85 passed, 1 flaky: `browser.spec.ts:279` (Note тянется через страницу Browser) |
+| 2/4 | 7,7 min | 80 passed, 1 flaky: `linked-machines.spec.ts:783` (A открывает Project машины B), 3 skipped |
+| 3/4 | 8,0 min | 83 passed, 3 skipped |
+| 4/4 | 7,2 min | 73 passed, 10 skipped |
+
+Оба spec-а группы C под `pwsh` прошли, а не пропущены: `linked-add-project.spec.ts:205` — `ok 58`,
+`linked-machines.spec.ts:412` — `ok 68` (shard 2/4). Значит, deny ACE действует, и проверка в test-е обход не нашла.
+Два flaky — кандидаты, по одному разу; записей карантина нет. Если они повторятся, правило то же: 3 строки
+FLAKY одного test-а за неделю — Ticket на причину (ADR-0083, Amendments).
