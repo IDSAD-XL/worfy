@@ -130,6 +130,8 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
     // The frame of design F on macOS, the system's own frame elsewhere (window-frame.ts).
     ...frameOptions(process.platform, nativeTheme.shouldUseDarkColors),
     ...(quiet.opacity === undefined ? {} : { opacity: quiet.opacity }),
+    // e2e starts only: the window keeps a size larger than the display (quiet-windows.ts).
+    ...(quiet.largerThanScreen ? { enableLargerThanScreen: true } : {}),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,

@@ -242,6 +242,20 @@ describe('createMainWindow', () => {
     expect(await optionsOn('darwin', true)).toMatchObject({ ...frameOptions('darwin', true), title: 'worfy', show: false })
   })
 
+  // An e2e start keeps the size a test sets on a display smaller than it (the GitHub macOS
+  // runner's 1024×768); a normal start keeps its window on the display, as before.
+  it.each([
+    [{ WORFY_QUIET_WINDOWS: '1', WORFY_KEEP_PAINTING: '' }, true],
+    [{ WORFY_QUIET_WINDOWS: '', WORFY_KEEP_PAINTING: '1' }, true],
+    [{ WORFY_QUIET_WINDOWS: '', WORFY_KEEP_PAINTING: '' }, false],
+  ])('with %j makes a window larger than the display: %s', async (env, larger) => {
+    const options = await optionsOn('darwin', false, undefined, () => {
+      for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value)
+    })
+    if (larger) expect(options).toMatchObject({ enableLargerThanScreen: true })
+    else expect(options).not.toHaveProperty('enableLargerThanScreen')
+  })
+
   // worfy-windows ticket 109: at a 150 % display on Windows the constructor made a saved 900 × 560
   // window 900 × 562; setBounds on the made window is exact.
   describe('gives the window exactly the bounds it asked for', () => {

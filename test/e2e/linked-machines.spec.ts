@@ -190,6 +190,9 @@ test('two worfy link by address and code, and each lists the other as online', a
     const chipDot = await row(a.window, bId)
       .locator('.w-chip__dot')
       .evaluate((node) => (globalThis as unknown as { getComputedStyle(element: unknown): { backgroundColor: string } }).getComputedStyle(node).backgroundColor)
+    // Motion as a system without "reduce motion" asks for it, whatever the machine's own setting:
+    // the GitHub macOS runner has it turned on, and there the ring would never pulse.
+    await a.window.emulateMedia({ reducedMotion: 'no-preference' })
     const paint = await dotPaint(a.window)
     expect(paint.colour).toBe(chipDot)
     expect(paint.colour).not.toBe('rgba(0, 0, 0, 0)')
@@ -211,7 +214,7 @@ test('two worfy link by address and code, and each lists the other as online', a
     // With "reduce motion" of the system the dot is still: no ring pulses.
     await a.window.emulateMedia({ reducedMotion: 'reduce' })
     expect(await dotPaint(a.window)).toMatchObject({ colour: chipDot, ring: 'none' })
-    await a.window.emulateMedia({ reducedMotion: null })
+    await a.window.emulateMedia({ reducedMotion: 'no-preference' })
     expect((await dotPaint(a.window)).ring).toBe('w-machines-dot-pulse')
 
     // Collapsed again, as a fresh worfy shows the section: the rows are hidden, the dot stays.
