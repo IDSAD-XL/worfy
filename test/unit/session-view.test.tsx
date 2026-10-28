@@ -4,7 +4,7 @@
 // on the Orchestrator's Node.
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
@@ -256,6 +256,24 @@ afterEach(() => {
   delete (globalThis as { worfy?: WorfyBridge }).worfy
 })
 
+// CI runs a failed test once more (test/flaky.ts). A test that ran into its time limit while it
+// awaited the import of a component still renders it when the import lands, and that render went
+// into the document of the retry: the retry then found two input fields and failed too. A mount
+// takes a guard before its first await and calls it right before it renders; the guard throws once
+// the test that took it has ended. This afterEach runs before Testing Library's cleanup
+// (test/setup-dom.ts): vitest runs afterEach hooks in reverse order of registration, so a render
+// that lands before the count moves is still removed by the cleanup.
+let endedTests = 0
+afterEach(() => {
+  endedTests += 1
+})
+function renderGuard(): () => void {
+  const started = endedTests
+  return () => {
+    if (endedTests !== started) throw new Error('the test of this mount ended before the import landed; nothing is rendered')
+  }
+}
+
 const emit = (sessionId: string, event: AgentEvent) => act(() => handlers.get('agent.event')?.({ sessionId, event }))
 
 describe('the event store', () => {
@@ -380,8 +398,20 @@ describe('the event store: limits, queue and settings', () => {
 })
 
 describe('MessageInput', () => {
-  async function mountInput(props: { busy?: boolean; history?: string[]; onSend?: (message: OutgoingMessage) => Promise<string | null> } = {}) {
+  // The first import of MessageInput transforms its module graph: about 0.4 s alone on the Mac,
+  // 0.3–0.5 s in this test on the macOS runner of CI, and once past the 5 s limit of the first test
+  // on a loaded runner. vi.resetModules() keeps the transformed code, so after this import each
+  // test only evaluates the modules again (about 10 ms).
+  beforeAll(async () => {
+    await import('../../src/renderer/session/MessageInput')
+  })
+
+  /** `landing` holds the mount back after its import, as a slow import on a loaded runner does. */
+  async function mountInput(props: { busy?: boolean; history?: string[]; onSend?: (message: OutgoingMessage) => Promise<string | null>; landing?: Promise<void> } = {}) {
+    const guard = renderGuard()
     const { MessageInput } = await import('../../src/renderer/session/MessageInput')
+    await props.landing
+    guard()
     const onSend = vi.fn(props.onSend ?? (() => Promise.resolve(null)))
     const onInterrupt = vi.fn()
     render(<MessageInput sessionId="s" busy={props.busy ?? false} history={props.history ?? []} recipient="Orchestrator" onSend={onSend} onInterrupt={onInterrupt} />)
@@ -446,11 +476,41 @@ describe('MessageInput', () => {
     expect(onSend).toHaveBeenCalledWith({ text: 'later', attachments: [] })
     expect(field.value).toBe('')
   })
+
+  // CI runs a failed test once more (test/flaky.ts). An attempt that ran into its time limit leaves
+  // its mount pending, and the import may land after the attempt ended. The two tests below play
+  // the two attempts, so they run together and in this order: the first leaves a mount pending past
+  // its end, the second lands it and then mounts its own field.
+  describe('a mount whose import lands after its test ended', () => {
+    let late: { land: () => void; mounted: Promise<unknown> } | undefined
+
+    it('is left pending at the end of the first test', () => {
+      let land = (): void => undefined
+      const landing = new Promise<void>((resolve) => {
+        land = resolve
+      })
+      late = { land, mounted: mountInput({ landing }) }
+    })
+
+    it('renders nothing into the next test, which finds one field', async () => {
+      expect(late).toBeDefined()
+      late?.land()
+      const outcome = await late?.mounted.then(
+        () => 'rendered',
+        (error: Error) => error.message,
+      )
+      const { field } = await mountInput()
+      expect(screen.getAllByRole('textbox', { name: 'Message Orchestrator' })).toEqual([field])
+      expect(outcome).toMatch(/ended before/)
+    })
+  })
 })
 
 describe('composer: pickers and queue (ticket 19)', () => {
   async function mountInput(sessionId = 's') {
+    const guard = renderGuard()
     const { MessageInput } = await import('../../src/renderer/session/MessageInput')
+    guard()
     render(<MessageInput sessionId={sessionId} busy={false} history={[]} recipient="Orchestrator" onSend={() => Promise.resolve(null)} onInterrupt={() => undefined} />)
     // The pickers show nothing before main answered the settings and the models.
     await vi.waitFor(() => expect(picker('picker-model').disabled).toBe(false))
@@ -583,7 +643,9 @@ describe('composer: pickers and queue (ticket 19)', () => {
 
   it('the pickers are not native select elements, and are disabled until main answers the settings', async () => {
     delete answers['agent.controls']
+    const guard = renderGuard()
     const { MessageInput } = await import('../../src/renderer/session/MessageInput')
+    guard()
     const view = render(<MessageInput sessionId="s" busy={false} history={[]} recipient="Orchestrator" onSend={() => Promise.resolve(null)} onInterrupt={() => undefined} />)
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
@@ -627,8 +689,10 @@ describe('composer: pickers and queue (ticket 19)', () => {
 
 describe('SessionPanel', () => {
   async function mountPanel(blocks: Record<string, unknown> = {}) {
+    const guard = renderGuard()
     const { SessionPanel } = await import('../../src/renderer/session/SessionView')
     const { collectRailBlocks: collect } = await import('../../src/renderer/session/rail/index')
+    guard()
     render(<SessionPanel projectId="alpha" projectName="alpha" nodeId="orch" blocks={collect(blocks)} />)
     await screen.findByText('claude-opus-5-5')
   }
@@ -796,10 +860,18 @@ describe('SessionPanel', () => {
 })
 
 describe('opening the Session view', () => {
+  // The first import of AppShell transforms the whole shell: about 0.35 s in its test on the Mac,
+  // 0.45–1.6 s on the macOS runner of CI. Done here, the test only evaluates it again.
+  beforeAll(async () => {
+    await import('../../src/renderer/shell/AppShell')
+  })
+
   it('a double click on the Orchestrator Node switches the window to its Session', async () => {
+    const guard = renderGuard()
     const navigation = await import('../../src/renderer/session/navigation')
     const { default: OrchestratorNode } = await import('../../src/renderer/canvas/nodes/OrchestratorNode')
     const props = { id: 'orch', data: { node: { data: {} } }, selected: false } as unknown as CanvasNodeProps
+    guard()
     render(
       <ReactFlowProvider>
         <OrchestratorNode {...props} />
@@ -812,8 +884,10 @@ describe('opening the Session view', () => {
   })
 
   it('AppShell follows a view given from outside and reports the switch', async () => {
+    const guard = renderGuard()
     const { AppShell } = await import('../../src/renderer/shell/AppShell')
     const onViewChange = vi.fn()
+    guard()
     const { container } = render(<AppShell view="session" onViewChange={onViewChange} canvas={<p>canvas</p>} session={<p>session</p>} />)
     expect((container.querySelector('[data-view="session"]') as HTMLElement).hidden).toBe(false)
     expect((container.querySelector('[data-view="canvas"]') as HTMLElement).hidden).toBe(true)
@@ -861,7 +935,9 @@ describe('Transcript: following the bottom', () => {
   const resize = () => act(() => observers.filter((entry) => entry.element !== null).forEach((entry) => entry.callback()))
 
   it('scrolls to the newest row when the log is shown again or resized, if the reader was at the bottom', async () => {
+    const guard = renderGuard()
     const { Transcript } = await import('../../src/renderer/session/Transcript')
+    guard()
     const { rerender } = render(<Transcript events={[prompt('a')]} />)
     const log = screen.getByTestId('transcript')
     // Hidden (the Canvas is on screen): no height, so the new row cannot be followed yet.
@@ -877,7 +953,9 @@ describe('Transcript: following the bottom', () => {
   })
 
   it('leaves the scroll alone on a resize once the reader scrolled up', async () => {
+    const guard = renderGuard()
     const { Transcript } = await import('../../src/renderer/session/Transcript')
+    guard()
     render(<Transcript events={[prompt('a'), text('answer')]} />)
     const log = screen.getByTestId('transcript')
     geometry(log, { scrollHeight: 900, clientHeight: 300 })
@@ -913,7 +991,9 @@ describe('row times (ticket 14)', () => {
   async function renderAt(now: number, events: readonly AgentEvent[]) {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(now)
+    const guard = renderGuard()
     const { Transcript } = await import('../../src/renderer/session/Transcript')
+    guard()
     render(<Transcript events={events} />)
   }
 
@@ -945,7 +1025,9 @@ describe('row times (ticket 14)', () => {
     const lateEvening = new Date(2026, 9, 6, 23, 59, 0).getTime()
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
     vi.setSystemTime(lateEvening)
+    const guard = renderGuard()
     const { Transcript } = await import('../../src/renderer/session/Transcript')
+    guard()
     render(<Transcript events={[{ ...prompt('before midnight'), at: lateEvening - 60_000 }]} />)
     const time = screen.getByTestId('transcript-time')
     expect(within(time).queryByTestId('transcript-date')).toBeNull()
