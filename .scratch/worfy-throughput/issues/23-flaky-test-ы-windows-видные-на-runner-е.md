@@ -228,3 +228,14 @@ note…`, который красный и до правки (5 из 5): в ко
   runner-е под нагрузкой shard-а. Повтор: #919, Windows shard 3/3, обе попытки по 15 s; это 2 из последних 6
   job-ов. Причина — три запуска `node` подряд в одном test-е. Чинит ticket 39 (worfy-throughput, #922): проверки аргументов
   уходят in-process, остаётся один запуск, timeout не меняется.
+- 2026-10-28, причина timeout-ов Windows shard 3/3 найдена. Draft #923 (run 40752443457, закрыт) мерил запуск `-e 0`
+  каждые 5 s, пока шёл shard. В shard-е 3/3 Electron как Node (`process.execPath` под `pnpm test`) запускался
+  1,6 s по медиане, 6,7 s на p90 и до 26 s. `node.exe` за то же время не поднимался выше 0,4 s. В shard-ах 1/3 и 2/3
+  оба запускались меньше чем за 0,8 s. Чинят два PR-а:
+  - #924: отказы `test-timings.test.ts:154` проверяются в процессе, остался один запуск;
+  - #926: тесты запускают скрипты настоящим node через `test/script-node.ts`. Contract test
+    `test/contract/script-node.test.ts` закрепляет список тех, кто остаётся на `process.execPath`, с причинами, и
+    падает на новое чтение `process.execPath` в коде тестов.
+  Timeout не менялся.
+  Долг (low, из review #926): сторож не считает `export { execPath } from 'node:process'`. `agent-cost.test.ts`
+  остаётся в списке, пока не смёржен #922.
