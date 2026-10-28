@@ -275,14 +275,60 @@ describe('Session.exited', () => {
       const session = registry.start(repo, undefined, () => undefined)
       await vi.waitFor(() => expect(session.state).toBe('idle'))
       session.close()
-      const LIMIT_MS = 5000
-      const asked = Date.now()
-      const exited = session.exited(LIMIT_MS)
+      let done = false
+      const exited = session.exited(5000).then(() => {
+        done = true
+      })
       await new Promise((wait) => setTimeout(wait, 200))
+      // While the system still runs the pid, exited() waits: only the system's answer below ends it.
+      expect(done).toBe(false)
       gone = true
       await exited
+      // No SIGKILL also says exited() returned before its limit: the limit is what sends SIGKILL.
       expect(signals).not.toContain('SIGKILL')
-      expect(Date.now() - asked).toBeLessThan(LIMIT_MS / 2)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  // A process the system runs on after SIGKILL: exited() gives up on it after KILL_EXIT_MS, and from then on asks the
+  // system nothing more about its pid, for the life of the app.
+  it('stops asking the system about a process that outlived SIGKILL once exited() gave up on it', async () => {
+    const PID = 2_000_000_003
+    const signals: NodeJS.Signals[] = []
+    const child: ClaudeCodeProcess = {
+      pid: PID,
+      exitCode: null,
+      signalCode: null,
+      kill: (signal) => {
+        signals.push(signal)
+        return true
+      },
+      once: () => child,
+    }
+    let asked = 0
+    const kill = process.kill.bind(process)
+    const spy = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (pid !== PID) return kill(pid, signal)
+      asked++
+      return true
+    })
+    try {
+      const fake = fakeQueryFactory({ scriptsDir: join(scratch, 'scripts'), script: 'turn' })
+      const registry = new SessionRegistry(async (request) => {
+        request.spawned?.(child)
+        return fake(request)
+      })
+      registries.push(registry)
+      const session = registry.start(repo, undefined, () => undefined)
+      await vi.waitFor(() => expect(session.state).toBe('idle'))
+      session.close()
+      await session.exited(100)
+      expect(signals).toContain('SIGKILL')
+      expect(asked).toBeGreaterThan(0)
+      const afterGivingUp = asked
+      await new Promise((wait) => setTimeout(wait, 300))
+      expect(asked).toBe(afterGivingUp)
     } finally {
       spy.mockRestore()
     }

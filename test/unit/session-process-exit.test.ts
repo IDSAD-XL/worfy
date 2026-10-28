@@ -125,6 +125,23 @@ describe('exitOf and waitForExit', () => {
     expect(await settledNow(exit)).toBe(true)
   })
 
+  it('waitForExit after stopWaiting asks the system again, and settles once the pid is gone', async () => {
+    let runs = true
+    const kill = systemRuns(() => runs)
+    const child = fakeChild()
+    const exit = waitForExit(child)
+    await vi.advanceTimersByTimeAsync(200)
+    stopWaiting(child)
+    const asked = kill.mock.calls.length
+    expect(waitForExit(child)).toBe(exit)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(kill.mock.calls.length).toBeGreaterThan(asked)
+    expect(await settledNow(exit)).toBe(false)
+    runs = false
+    await vi.advanceTimersByTimeAsync(100)
+    expect(await settledNow(exit)).toBe(true)
+  })
+
   it('asks the system nothing more once the process has exited', async () => {
     const kill = systemRuns(() => true)
     const child = fakeChild()
