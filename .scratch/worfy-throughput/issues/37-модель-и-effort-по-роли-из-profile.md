@@ -1,7 +1,8 @@
 # 37 — Модель и effort по роли Harness из Profile: Sonnet для scout и reviewer, Opus — явным выбором
 
 Type: task
-Status: open
+Status: claimed 2026-10-29T05:33Z
+Branch: worfy-throughput/37
 Blocked by: —
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: меньше token-ов на Ticket, чтобы хватало Limits подписки», идея 3, строка L4
 таблицы «Цель и числа»; правило «без haiku, минимум sonnet» — [`worfy-daily` 07](../../worfy-daily/issues/07-модель-без-haiku.md);
