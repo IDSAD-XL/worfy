@@ -1,7 +1,8 @@
 # 28 — Свежий контекст Orchestrator-а на каждую Wave: `bin/wave-brief` и остановка в конце Wave
 
 Type: task
-Status: claimed 2026-10-29T01:17Z
+Status: done 2026-10-29T03:13Z
+PR: #941
 Blocked by: 27
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», предложение 4, решение 13;
 аналитика 2026-10-27: Orchestrator — 21 % расхода,
@@ -40,11 +41,11 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - [x] Вывод `wave-brief` на фикстуре меньше 12 000 байт (test проверяет).
 - [x] Тексты skill-а и `orchestrator.md` — фразы об остановке в конце Wave и о чтении сводкой;
       `skill-blocks.test.sh` / `agents-text.test.sh` — exit 0.
-- [ ] Shell test-ы Harness — exit 0; вердикт Windows — runner `full`; условие merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
+- [x] Shell test-ы Harness — exit 0; вердикт Windows — runner `full`; условие merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
 - [ ] (вручную) Две Wave-ы в свежих Session-ах; средний контекст на вызов Orchestrator-а до и после — по
-      Ticket-у 19, в «Итог». — не проверено: нужны две настоящие Wave-ы под Autopilot или у владельца после
-      merge; implementer не запускает Claude Code и Session-ы Orchestrator-а, а замер по Ticket-у 19 — по
-      транскриптам этих Wave.
+      Ticket-у 19, в «Итог».
+      Не проверено: нужны настоящие Wave после merge; под Autopilot Wave-ы идут в одной Session
+      (`src/main/autopilot/run.ts:4-6`) — свежая Session на Wave требует отдельного Ticket-а.
 
 ## Где в коде
 
@@ -110,3 +111,23 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
   строкой об этом; read-only test сравнивает каждый файл и каждую папку под временной папкой test-а
   (ловит `mkdir` в Harness home и файл рядом со state file — mutant-ы m1 и m3 ревьюера).
 - Test-ы: `wave-brief.test.sh` — 35 проверок; 25 mutant-ов (21 скрипта, 4 текста) — каждый красный.
+
+**Проверка и merge (2026-10-29).** PR #941 влит как 5d15f9e5, head f120f969.
+- Ревью: круг 1 — REJECTED на трёх находках med (безусловный запрет следующей Wave в той же Session спорил с
+  Autopilot, который шлёт Wave-ы в одну Session; сохранённый бриф без `--land` терял ждущий state file `land`
+  из-за пустого `wave-brief.txt`; в Full mode Ticket с открытым PR показан «ready», потому что `claimed`
+  живёт на ветке Ticket-а) и нескольких low. Круг 2 — VERIFIED на f120f969.
+- ПК на Windows: `wave-brief.test.sh` — 35 passed, 0 failed; `agents-text.test.sh` — 227/0;
+  `epic-wave-ship-ticket` — 387/0; `rules-hooks.test.sh` — 201/0. Ручные проверки — 15/15: CRLF, ветка
+  только на remote, предел 11 000 байт с UTF-8, команда сохранения с пробелом и обратными слешами в пути.
+- CI run 40808883689 на f120f969: `ci-ok` — pass; `windows (1/3)`–`(3/3) / full-suite` — pass; метка
+  `check/windows` — `success`.
+- Не проверено: две Wave-ы в свежих Session-ах с замером контекста по Ticket-у 19 — нужны настоящие Wave
+  после merge; под Autopilot Wave-ы идут в одной Session (`src/main/autopilot/run.ts:4-6`) — свежая Session
+  на Wave требует отдельного Ticket-а.
+
+Долги (low):
+
+- `wave-brief:223-235`: ветка PR, закрытого без merge, не пускает переоткрытый Ticket в «ready».
+- `wave-brief:337-345`: жёсткая обрезка брифа (примерно от 40 state file-ов `land`) теряет разделы
+  «Next wave» и «Journal».
