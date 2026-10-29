@@ -167,3 +167,4 @@ scope `pc` ждёт ПК, scope решает скрипт); ADR-0081, пункт
   временем. Причина: с e2e по путям diff (`worfy-throughput` 13) и выбором test-ов по diff (`worfy-throughput` 21
   и 11) PR гоняет не весь набор, и часть регрессий видна только в run-е push-а в `main`; такой красный `main`
   будет чаще, и он не должен стоять долго.
+- **2026-10-29, ADR-0086** (`worfy-throughput` 30). Пункт 6 в части «PR со scope `pc` ждёт gate full на Windows-ПК на том же head» заменён: такой PR вливается по `ci-ok` и отметке `review`, `check/windows` — `success`, в отчёте Wave пометка «ПК — после Wave»; ПК гоняет gate full на `main` раз в Wave. e2e на Windows с #958 проверяет job `windows-e2e` в составе `ci-ok`; на ПК остаются Terminal, окна, меню, уведомления и упаковка.

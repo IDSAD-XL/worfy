@@ -859,6 +859,10 @@ check "Check: the set takes only the ready PRs" in_ew4 'Only the PRs whose line 
 check "Check: PLATFORM=() is filled from the PRs whose Check is not skipped" in_ew4 'the `ready, PLATFORM` ones go into its `PLATFORM=(…)` too'
 check "Check: a push or a rebase leaves the marks on the old head" in_ew4 'after a push or a rebase the new head has no marks, and the PR waits again'
 check "Check: which PRs need a Check is the project's rule" in_ew4 'the project'"'"'s rules (`rules.md`) say the PR does not need this check'
+check "Check after the wave: the PR merges with the mark success once its CI is green" in_ew4 'Its mark is `success` on the head once the PR'"'"'s CI is green, and the wave report lists the PR as "checked after the wave"'
+check "Check after the wave: asked on the SHA of the wave's last merge" in_ew4 'ask that session for its check on the SHA of the last merge of the wave'
+check "Check after the wave: red — one rerun of the failing tests, then a fix forward" in_ew4 'first runs the failing tests once more, one at a time, on the same SHA, to check for a flaky test. Red again — that session fixes the main branch forward, with no automatic revert'
+check "Check after the wave: while red, no PR that needs it merges" in_ew4 'While the main branch is red there, no PR that needs this check merges'
 # Without a `check` Stage (the default Pipeline, a profile not yet edited) the rule in words stays: platform PRs
 # keep out of the set, go into PLATFORM=() and merge the old way after the other platform's verdict.
 check "Check: no Check in the Pipeline — PLATFORM=() lists the platform PRs by the project's rules" \

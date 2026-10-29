@@ -957,6 +957,22 @@ the old way or one after another — every Check of the Pipeline has its mark on
   with a Russian word in place of `green`: the same verdict, for one release); red — `failure`: the PR is not merged and goes
   to a rework round (section 3, a fresh implementer) with that report; "could not verify", or a report on
   another commit — no new mark, and the PR waits.
+- A check that answers on the main branch after the wave. The project's rules (`rules.md`) may say
+  that a PR needs a Check another session runs, but not on its own head (worfy: `windows` for a PR of
+  scope `pc`). Such a PR merges by the rest of its conditions. Its mark is `success` on the head once
+  the PR's CI is green, and the wave report lists the PR as "checked after the wave", so that nobody
+  reads the mark as a check of that head.
+  - After a wave that merged at least one such PR, ask that session for its check on the SHA of the
+    last merge of the wave. Ask the same way you ask for a check of a PR's head, and write the request
+    to the decision log. A request from an earlier wave that has no report yet is replaced: one check
+    on the newer SHA answers both.
+  - Its report names the commit, the exit code and the verdict line, as for a PR's head. Green — the
+    check is done.
+  - Red — that session first runs the failing tests once more, one at a time, on the same SHA, to
+    check for a flaky test. Red again — that session fixes the main branch forward, with no automatic
+    revert. While the main branch is red there, no PR that needs this check merges, and the wave
+    report says so with the SHA. Other PRs merge as before.
+  - A check not asked for yet, or with no report yet, holds no merge.
 - A check a CI runner may answer. The project's rules (`rules.md`) may name, for a Check, a scope
   command, a dispatch command (with `$ref` for the branch), the workflow of that dispatch, the job
   whose conclusion is the verdict and the step of that job that runs the tests. No such rules — skip

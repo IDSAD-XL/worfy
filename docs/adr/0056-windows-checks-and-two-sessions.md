@@ -116,3 +116,4 @@ Session-и на разных машинах не мешают друг друг�
   `windows / full-suite` в составе check `ci-ok` на каждый PR, и он вердикт Windows для каждого PR. Пункт 2
   сужен: gate full на ПК нужен только платформенному PR, для которого `scripts/windows-verdict-scope.mjs`
   печатает `pc`. В пункте 6 проверки после rebase — `ci-ok`.
+- **2026-10-29, ADR-0086** (`worfy-throughput` 30). Пункт 2 сужен ещё раз: платформенный PR со scope `pc` вливается по зелёному `ci-ok` и отметке `review`, без gate full на ПК на своём head; ПК гоняет `GATE_SCOPE=all` gate full на `main` раз в Wave, где был такой PR, и пока `main` на ПК красный, новые PR со scope `pc` не вливаются.
