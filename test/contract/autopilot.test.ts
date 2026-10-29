@@ -29,7 +29,7 @@ import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { REASON_MAX, type JournalEvent } from '../../src/shared/autopilot/journal'
 import { autopilotChanged, autopilotEpicAtWork, autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE } from '../../src/shared/projects/action-templates'
+import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE, PLUGIN_HARNESS_TEMPLATES } from '../../src/shared/projects/action-templates'
 import { APP_URL, INDEX_HTML } from '../app-url'
 
 vi.mock('electron', () => ({
@@ -201,7 +201,7 @@ function harness(options: HarnessOptions = {}) {
     registry.observe((_sessionId, event) => {
       if (event.type !== 'prompt') return
       if (event.text === WAVE_1) for (const num of [1, 2]) writeTicket(num, 'done — 2026-10-06')
-      if (event.text.endsWith(WAVE_2)) writeTicket(3, 'done — 2026-10-06')
+      if (event.text.startsWith(WAVE_2)) writeTicket(3, 'done — 2026-10-06')
     })
   }
   const power: string[] = []
@@ -300,40 +300,57 @@ describe('an Autopilot run on the fake agent', () => {
     expect(tree()).toEqual({ ...before, ...Object.fromEntries(written) })
   })
 
-  it('starts Wave 2 in a new SDK session whose first prompt is wave-brief and then the Wave; Wave 1 continues the Orchestrator\'s session (worfy-throughput ticket 52)', async () => {
+  /** A run of two Waves with the Run wave `template`; the agent marks a Wave's Tickets done when its text names them. */
+  async function twoWaves(template: string) {
     // The Orchestrator Node with a saved SDK session: the run's first Wave continues it, as before.
     writeFileSync(join(scratch, 'data', PROJECT, 'layout.json'), JSON.stringify({ nodes: [{ id: 'orch', kind: 'orchestrator', x: 0, y: 0, w: 300, h: 180, locked: true, data: { sessionId: 'sdk-before' } }] }))
-    const h = harness()
+    const h = harness({ runWave: template, agentMarksDone: false })
     // Every prompt, and the SDK session of each turn (its system/init): only the run's Sessions have turns here.
     const prompts: string[] = []
     const turns: string[] = []
     h.registry.observe((_sessionId, event) => {
       if (event.type === 'init') turns.push(event.sdkSessionId)
-      if (event.type === 'prompt') prompts.push(event.text)
+      if (event.type !== 'prompt') return
+      prompts.push(event.text)
+      if (event.text.includes('01, 02')) for (const num of [1, 2]) writeTicket(num, 'done — 2026-10-06')
+      else writeTicket(3, 'done — 2026-10-06')
     })
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
     expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'no-ready-wave', wave: 2 })
-
-    expect(prompts).toEqual([WAVE_1, WAVE_2_SENT])
     // Two turns, two SDK sessions: Wave 1 in the Orchestrator's saved one, Wave 2 in a new one.
+    expect(prompts).toHaveLength(2)
     expect(turns).toHaveLength(2)
     const [first, second] = turns
     expect(first).toBe('sdk-before')
     expect(second).toEqual(expect.any(String))
     expect(second).not.toBe(first)
-    // Wave 2's Session is a new SDK session, not a resume; it is the first prompt of that Session.
+    // Wave 2's Session is a new SDK session, not a resume.
     const starts = h.calls.filter((call) => call.kind === 'start' && call.unattended)
     expect(starts.map((call) => (call as Extract<FakeCall, { kind: 'start' }>).resume)).toEqual(['sdk-before', null])
-    // The first prompt of the new session: `wave-brief demo` first, then the Wave's text as "Run wave" sends it.
-    const text = prompts[1]!
-    expect(text).toContain('`wave-brief demo`')
-    expect(text.endsWith(`\n\n${WAVE_2}`)).toBe(true)
-    expect(text.indexOf('wave-brief demo')).toBeLessThan(text.indexOf(WAVE_2))
     // The journal names what went; the run's end gives the Orchestrator back on Wave 2's session.
-    expect((await h.journal()).filter((event) => event.kind === 'wave-started').map((event) => (event as { text?: string }).text)).toEqual([WAVE_1, WAVE_2_SENT])
+    expect((await h.journal()).filter((event) => event.kind === 'wave-started').map((event) => (event as { text?: string }).text)).toEqual(prompts)
     await until(() => h.requests.at(-1)?.unattended === false, 'the attended Orchestrator')
     expect(h.requests.at(-1)?.resume).toBe(second)
+    return prompts
+  }
+
+  it('starts Wave 2 in a new SDK session; with the default template its first prompt is the slash command, then wave-brief; Wave 1 continues the Orchestrator\'s session (worfy-throughput ticket 52)', async () => {
+    const [wave1, wave2] = await twoWaves(PLUGIN_HARNESS_TEMPLATES.runWave)
+    expect(wave1).toBe('/worfy:epic-wave tickets 01, 02 of epic demo')
+    // The slash command stays first, so Claude Code expands the skill; the instruction follows it.
+    expect(wave2!.startsWith('/worfy:epic-wave tickets 03 of epic demo\n\n')).toBe(true)
+    expect(wave2).toContain('`wave-brief demo`')
+    expect(wave2!.indexOf('wave-brief demo')).toBeGreaterThan(wave2!.indexOf('/worfy:epic-wave tickets'))
+    expect(wave2).toBe(waveBriefText(EPIC, '/worfy:epic-wave tickets 03 of epic demo'))
+  })
+
+  it('a Run wave template that is not a slash command: the first prompt of Wave 2\'s new session asks for wave-brief, then has the Wave\'s text (worfy-throughput ticket 52)', async () => {
+    const [wave1, wave2] = await twoWaves('Run the wave: tickets {tickets} of epic {epic}')
+    expect(wave1).toBe('Run the wave: tickets 01, 02 of epic demo')
+    expect(wave2).toContain('`wave-brief demo`')
+    expect(wave2!.endsWith('\n\nRun the wave: tickets 03 of epic demo')).toBe(true)
+    expect(wave2!.indexOf('wave-brief demo')).toBeLessThan(wave2!.indexOf('Run the wave'))
   })
 
   it('starts a new SDK session for the next Wave only while the unattended Orchestrator is free: a held message in its queue keeps the Session (worfy-throughput ticket 52)', async () => {

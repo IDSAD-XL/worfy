@@ -58,9 +58,12 @@ diff `test/e2e/**` (`scripts/windows-verdict-scope.mjs:80`); иначе runner `
 - Каждая Wave run-а после первой уходит в новую SDK session Orchestrator-а: перед «Run wave» run просит
   `Orchestrators.newUnattendedSession` (`src/main/agent/orchestrator.ts`) — старая Session закрывается и
   остаётся в истории, как при «New conversation», новая идёт unattended без `resume`. Первый prompt новой
-  session — `waveBriefText` (`src/main/actions/launch.ts`): сначала просьба выполнить `wave-brief <epic>`
-  («How to resume a wave»), затем текст Wave из шаблона «Run wave» без изменений. Первая Wave run-а — как
-  раньше: продолжает сохранённую SDK session Orchestrator-а.
+  session — `waveBriefText` (`src/main/actions/launch.ts`): текст Wave из шаблона «Run wave» без изменений и
+  просьба выполнить `wave-brief <epic>` первым делом («How to resume a wave»). Шаблон — slash command
+  (`/worfy:epic-wave tickets … of epic …`), поэтому он остаётся первым, иначе Claude Code не раскроет skill;
+  просьба идёт после пустой строки и попадает в skill как часть аргументов. Skill разбирает «tickets NN, NN of
+  epic X» по смыслу (раздел «What goes into the wave»), точной формы без хвоста не требует. Шаблон без `/` —
+  просьба впереди. Первая Wave run-а — как раньше: продолжает сохранённую SDK session Orchestrator-а.
 - Новая session — только если Orchestrator свободен: нет turn-а, живых background tasks, сообщений в очереди
   и ожидающего возврата. Иначе Wave уходит в текущую Session, как раньше, без brief: закрыть Session значило бы
   потерять turn, tasks или сообщение человека.
@@ -78,6 +81,5 @@ diff `test/e2e/**` (`scripts/windows-verdict-scope.mjs:80`); иначе runner `
   `later`). Без этого ожидания противоречили бы самому Ticket-у.
 - Цена: стоимость на Node Orchestrator-а теперь считается от нуля на каждую Wave (как после «New
   conversation»), а не за весь run.
-- Не проверено на настоящем Claude Code: текст Wave в prompt-е новой session стоит не в начале, поэтому
-  Claude Code не раскрывает его как slash command сам — skill `epic-wave` вызывает модель по тексту. Проверяется
-  первым живым run-ом из двух Wave.
+- Не проверено на настоящем Claude Code: что модель выполняет `wave-brief` из хвоста аргументов skill-а раньше
+  остального. Проверяется первым живым run-ом из двух Wave.

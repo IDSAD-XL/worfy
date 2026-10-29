@@ -20,7 +20,8 @@
 //   one read of the workflow model, so the run's journal names exactly what went. A run after a
 //   Stop passes the interrupted Wave's Tickets (worfy-week ticket 17): those still in work join it.
 //   A Wave the run sends to a new SDK session of the Orchestrator (worfy-throughput ticket 52) goes
-//   with `brief`: the text first asks for `wave-brief <epic>`, then has the template's text as is.
+//   with `brief`: the template's text as is, and the instruction to run `wave-brief <epic>` first
+//   (after a slash command, so Claude Code still expands it; in front of any other text).
 // - Process gate queue: the template's text (no placeholders, /worfy:gate-queue by default) goes to
 //   the Project's Orchestrator, as "Run wave" does. Only on the machine whose Profile gives it the
 //   role `serve` of the cross-machine gate (ADR-0069), read again on every click; refused while
@@ -110,11 +111,15 @@ export interface AutopilotWaveResult extends RunWaveResult {
 
 /**
  * Autopilot's text for a Wave that starts a new SDK session of the Orchestrator (worfy-throughput
- * ticket 52): `wave-brief <epic>` first, as skill epic-wave says a new session starts ("How to
- * resume a wave"), then the Wave's own text, unchanged.
+ * ticket 52): the Wave's own text, unchanged, and the instruction to run `wave-brief <epic>` first,
+ * as skill epic-wave says a new session starts ("How to resume a wave"). A text that is a slash
+ * command (the templates are) stays first, or Claude Code would not expand it: the instruction goes
+ * after it, past a blank line, and reaches the skill as part of its arguments. A text that is not
+ * one gets the instruction in front.
  */
 export function waveBriefText(epic: string, text: string): string {
-  return `This is a new session for the next Wave. As your first command, before any other reading, run \`wave-brief ${epic}\` (skill epic-wave, "How to resume a wave"). Then:\n\n${text}`
+  const brief = `This is a new session for the next Wave: before anything else, run \`wave-brief ${epic}\` (skill epic-wave, "How to resume a wave").`
+  return text.startsWith('/') ? `${text}\n\n${brief}` : `${brief} Then:\n\n${text}`
 }
 
 /** Why "Run wave" by hand is refused while Autopilot runs in the Project. */
