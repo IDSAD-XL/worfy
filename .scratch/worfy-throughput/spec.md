@@ -702,6 +702,7 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
 | 48 | Shard-ы macOS e2e по измеренному времени spec-файлов, а не по числу test-ов | 35 | нет | нет | `pc` по `test/e2e/**` (только таблица `timings.json`, кода e2e нет) | 2 |
 | 49 | `harness-scripts.test.ts` отдельным job-ом Windows: shard 3/3 перестаёт быть самым долгим | 35 | нет | нет (только CI и contract test) | runner `full`: правка workflow | вне Wave (разбор моста 2026-10-29) |
 | 50 | `land.test.sh` быстрее: мир из шаблона, squash stub-а gh прямо в origin | 35 | да, для замеров и `check/windows` | да, только test `harness/bin/tests/land.test.sh` | платформенный PR (ADR-0056): по `scripts/windows-verdict-scope.mjs` | вне Wave (бриф моста 2026-10-29) |
+| 52 | worfy Autopilot начинает каждую следующую Wave в новой Session; первая команда — `wave-brief` | 28 | для merge — если в diff `test/e2e/**` | нет (код worfy) | `pc`, если в diff `test/e2e/**`; иначе runner `full` | вне Wave (решение владельца 2026-10-29, Q5) |
 
 Почему так:
 
@@ -722,6 +723,8 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
   (825 s в run-е 40805903962): файл и два других тяжёлых идут в одном shard-е. 49 выносит файл в свой job.
 - **50 после 49:** тот же `harness-scripts.test.ts`; 49 вынес его в свой job, 50 укорачивает в нём `land.test.sh`.
   Фиксированных ожиданий там нет: время уходит на сборку миров git-ом и на clone в `pr merge` stub-а gh.
+- **52 после 28:** 28 дал `wave-brief` и «report, brief, stop» в конце Wave; 52 делает то же в Autopilot —
+  `src/main/autopilot/run.ts` ведёт все Wave run-а в одной SDK session.
 - **33 правит `ship-ticket/SKILL.md`**, как 36 и 37: 33 (Wave 3 первой таблицы) идёт раньше.
 - **`pc` для 40, 41, 42:** e2e-файлы входят в `PC_ONLY` (`scripts/windows-verdict-scope.mjs:80`), а ПК на паузе. Если
   e2e не нужен, такой PR идёт с runner `full`.
@@ -821,3 +824,23 @@ Ticket-ы 36–43 ведёт Session-мост на Mac — Session, котора
   закрыт PR-ом #931 (Draft Session при Add project получает пустой список MCP-серверов).
 - **Ticket 39, шаг 3 (карта кода)** — да, но после работы над скоростью CI (#927 и его follow-up-ы). До этого
   Ticket 39 остаётся `blocked`.
+
+Ответы на вопросы Orchestrator-а 2026-10-29 (слова владельца: «со всем согласен»):
+
+- **Q1** — Ticket 13 — только CI: PR гоняет те e2e spec-файлы, которые даёт таблица путей; пути приложения вне
+  таблицы, helper-ы и конфиги — весь набор; push в `main` — весь набор; ночного run-а нет. Файл Ticket-а 13
+  правит его PR #953.
+- **Q2** — красный `main` после merge: исправление вперёд не дольше 1 h, затем revert виноватого PR. Пока `main`
+  красный, PR с кодом не вливаются; PR только с документами — можно. Записано поправкой ADR-0083.
+- **Q3** — после merge Ticket-а 21 (#954) `scripts/affected-tests.mjs` идёт в CI PR (shard-ы linux и windows);
+  push в `main` — весь набор. Это Ticket 11.
+- **Q4** — работа над скоростью CI закончена, когда медиана времени CI у последних 10 PR с кодом ≤ 15 min, а у
+  `main` ≤ 30 min. Тогда начинается шаг 3 Ticket-а 39 (карта кода).
+- **Q5** — новый Ticket 52: worfy Autopilot начинает каждую следующую Wave в новой Session, первая команда которой —
+  `wave-brief`.
+- **Q6** — Orchestrator обновляет Stable copy из `main`, когда нет открытого Autopilot run-а.
+- **Q7** — поправка ADR-0083 «2026-10-28, один автоматический повтор упавшего test-а в CI» подтверждена.
+- **Q8** — закрытые Ticket-ы с одним пунктом «не проверено» — нормально.
+- **Q9** — термин Wave brief — в `CONTEXT.md`.
+- **Q10** — `worfy-harness` 70 (`eval:harness --changed` гонит все кейсы и не держит лимит цены) снова `open`,
+  приоритет низкий: рост стоимости не критичен.

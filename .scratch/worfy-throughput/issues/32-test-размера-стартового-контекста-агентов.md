@@ -1,7 +1,8 @@
 # 32 — Test размера стартового контекста агентов Harness: красный выше 35k token-ов
 
 Type: task
-Status: claimed 2026-10-29T03:32Z
+Status: done 2026-10-29T05:16Z
+PR: #951
 Branch: worfy-throughput/32
 Blocked by: 19
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», предложение 5, решение 11;
@@ -40,7 +41,8 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - [x] Оценка на настоящих текстах против первого запроса реальных subagent-ов (по Ticket-у 19) — ошибка не
       больше 10 %; таблица в «Итог».
 - [x] Порог читается из одного места; поднять его — правка с причиной в PR (комментарий у константы).
-- [ ] Shell test-ы Harness — exit 0; вердикт Windows — runner `full`; условие merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
+- [x] Shell test-ы Harness — exit 0; вердикт Windows — runner `full`; условие merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
+      #951: `ci-ok` зелёный, ПК прогнал `check/windows` — 36 проверок, 0 красных.
 
 ## Где в коде
 
@@ -118,3 +120,15 @@ Test-ы: `harness/bin/tests/start-context.test.sh` — exit 0, 36 проверо
 скрипта (порог, `>` против `>=`, exit code, frontmatter, раскрытие корня plugin-а, самая большая часть,
 skill, определение verifier-а, правила пользователя, части Profile-а, предел `MEMORY.md`, work tree против
 main checkout, `--agent`, ошибки вызова, константа, заметка без Profile-а) — каждый краснит test.
+
+Влит PR #951 (merge `c8b7c5cc`, 2026-10-29). Ошибка калибровки на честном окне (агенты, не входившие в
+калибровку) — не больше 4,8 % (по ревью).
+Замер на этой машине: implementer ~67,6k (46k без skill-а), reviewer 31,9k, verifier 32,2k, scout 25,6k.
+
+### Долги (low)
+
+- `KNOWN_OVER` без потолка: test не краснеет, если implementer растёт дальше, оставаясь в списке.
+- Настоящие тексты считаются с пустыми instructions (`CLAUDE.md` и `MEMORY.md` не входят).
+- Комментарий калибровки в скрипте называет не то окно.
+- Читается только `CLAUDE.md` work tree, а не main checkout.
+- Падение скрипта (необработанная ошибка) — exit 1, как превышение порога, а не 2.
