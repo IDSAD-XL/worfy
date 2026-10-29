@@ -1,7 +1,8 @@
 # 27 — `bin/land`: цикл merge одним скриптом в фоне — rebase, gate full, метки, merge, `ticket done`, batch CI
 
 Type: task
-Status: claimed 2026-10-28T22:09Z
+Status: done 2026-10-29T02:11Z
+PR: #934
 Blocked by: 35
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», предложения 3 и 4, решения 12 и 13;
 скрипт Orchestrator-а `merge-once.sh`
@@ -49,17 +50,18 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 
 ## Готово, когда
 
-- [ ] `harness/bin/tests/land.test.sh` на временном репозитории со stub-ами gate, `gh` и `ticket`: зелёный
+- [x] `harness/bin/tests/land.test.sh` на временном репозитории со stub-ами gate, `gh` и `ticket`: зелёный
       набор из двух PR — оба влиты, метки на новых head, `ticket done` для обоих в одном docs PR, batch CI
       запущен один раз; красный набор — влит только зелёный префикс, остальные `waits`; обрыв после merge
       первого PR и повторный запуск — второй влит, первый не повторён.
-- [ ] Shell test: `mergeable` `UNKNOWN` — повтор до 6 раз через 10 s (подставной `sleep`), потом `waits`.
-- [ ] Ни один шаг не вливает PR, если `wave-gate check` не `green` или gate вернул 3, 127 или код сигнала.
-- [ ] Shell test-ы Harness — exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; вердикт Windows —
+- [x] Shell test: `mergeable` `UNKNOWN` — повтор до 6 раз через 10 s (подставной `sleep`), потом `waits`.
+- [x] Ни один шаг не вливает PR, если `wave-gate check` не `green` или gate вернул 3, 127 или код сигнала.
+- [x] Shell test-ы Harness — exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; вердикт Windows —
       runner `full`; условие merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
 - [ ] (вручную, после обновления Stable copy) Одна настоящая Wave влита через `land`; число вызовов модели
       Orchestrator-а на merge до и после — по Ticket-у 19, в «Итог».
-- [ ] `harness/skills/epic-wave/SKILL.md`, `harness/skills/ship-ticket/SKILL.md` (`:50`, `:678`, `:743`) и
+      Не проверено: ждёт обновления Stable copy и первой Wave через `land`.
+- [x] `harness/skills/epic-wave/SKILL.md`, `harness/skills/ship-ticket/SKILL.md` (`:50`, `:678`, `:743`) и
       `harness/agents/implementer.md` (`:202`) называют условием merge `ci-ok`, а не gate full (расхождение из
       «Итог» Ticket-а 35).
 
@@ -150,3 +152,18 @@ worfy `workflow.merge_gate` — `null`). Отступления от «Что д
   `test/contract/harness-scripts.test.ts`); merge ждёт `check/windows`.
 - Две параллельные копии `land` на одном state file не разведены (`shortcut:` в шапке скрипта): каждый
   merge защищён замком и `--match-head-commit`, сам файл — нет.
+
+**Проверка и merge (2026-10-29).** PR #934 влит как eeaa39d4, head be5055ab.
+- Ревью: круг 1 — REJECTED (2 high, 2 med). Круг 2 — REJECTED на одном med: `tickets_root` `"."` выключал
+  проверку «тот же diff» на новом head; ПК нашёл ещё сбой на разделителе путей Windows. Узкий круг —
+  VERIFIED на be5055ab.
+- ПК на Windows: `land.test.sh` — 70 passed, 0 failed (case SIGTERM на Windows пропущен);
+  `agents-text.test.sh` — 215 passed, 0 failed. Метка `check/windows` на head — `success`.
+- CI run 40792349627 на be5055ab: `ci-ok` — pass; `windows (1/3)`–`(3/3) / full-suite` — pass. `ci-ok`
+  включает `pnpm lint` и `pnpm typecheck` (Linux), `pnpm test` на Linux, macOS и Windows, shell test-ы
+  Harness через `test/contract/harness-scripts.test.ts`.
+- Пункты «Готово, когда» о `land.test.sh` и о gate закрыты в изменённом виде, по «Отступлениям» выше:
+  «только зелёный префикс» и batch CI заменены merge-ем по `ci-ok` каждого head; `land` не зовёт ни gate,
+  ни `wave-gate`, а красный и отменённый `ci-ok` и run в работе — case-ы `land.test.sh`. Пункт о skill-ах —
+  кроме строк `ship-ticket` о finish `local-green` (см. выше).
+- Не проверено: одна настоящая Wave через `land` — ждёт обновления Stable copy и первой Wave через `land`.
