@@ -43,7 +43,9 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - [x] Время CI на PR от push до итогового check — в «Итог», рядом с 14,4 min медианы job-а `check`.
 - [x] `test/contract/ci-workflow.test.ts` проверяет: триггер `pull_request`, matrix shard-ов только на
       `ubuntu-latest`, ни одного job-а на macOS на PR, dispatch для batch на месте. (Пункт «ни одного job-а на
-      macOS на PR» — заменено Ticket-ом 35 / ADR-0083: macOS-job-ы идут на PR.)
+      macOS на PR» — заменено Ticket-ом 35 / ADR-0083: macOS-job-ы идут на PR. Пункт «dispatch для batch» —
+      заменено Ticket-ом 35 / ADR-0083, пункт 7: batch на `main` заменён run-ом на push в `main`; остался только
+      ручной dispatch `job=check`.)
 - [ ] `profile --field workflow.ci` принимает новый режим; неизвестное значение — exit 1 с причиной;
       `harness/bin/tests/profile.test.sh` это проверяет. — заменено Ticket-ом 35 / ADR-0083: нового режима
       нет, режим `pr`.
@@ -95,7 +97,8 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - `ci.yml` запускается на `pull_request`, на push в `main` и вручную (`.github/workflows/ci.yml:47-57`;
   `test/contract/ci-workflow.test.ts:85`). Job `linux-tests` — `ubuntu-latest`, matrix `1/4`…`4/4`,
   `pnpm test --shard` (`ci.yml:131-143`, `:165`; test `:152`, `:197`). Итоговый check — `ci-ok`, он ждёт все job-ы
-  (`ci.yml:354`; test `:237`). Dispatch `job=check` (lint и Linux-shard-ы) остался (test `:95`, `:840`).
+  (`ci.yml:354`; test `:237`). Ручной dispatch `job=check` (lint и Linux-shard-ы) остался (test `:95`, `:840`), но batch run-ом на `main`
+  больше не служит.
 - CI run #870: `linux-tests (1/4)`…`(4/4)` — SUCCESS, 2–4 min каждый, Linux-часть готова через 4 min после
   push (медиана прежнего job-а `check` — 14,4 min). `ci-ok` на #870 — через 24 min (его держат macOS e2e и
   Windows `full-suite`), и он красный: `macos-e2e` и `windows / full-suite` упали. PR влит раньше, когда

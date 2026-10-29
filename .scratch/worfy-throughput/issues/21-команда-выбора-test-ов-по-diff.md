@@ -102,7 +102,7 @@ test, который начал читать новый файл, краснит
 
 Review: round 1 REJECTED (5 med false negatives), round 2 VERIFIED.
 
-CI #954 (merge-коммит `7e8798f5`): `lint-typecheck`, `linux-tests` 1–4/4, `macos-tests`, Windows `full-suite` и
+CI #954 (head PR `014725c3`): `lint-typecheck`, `linux-tests` 1–4/4, `macos-tests`, Windows `full-suite` и
 `ci-ok` — SUCCESS.
 
 **Прогон на влитых PR** — снят до доработки round 1, на прежней таблице (одна строка `harness/**` на 42 имени,
