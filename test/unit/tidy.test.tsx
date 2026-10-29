@@ -336,13 +336,14 @@ describe("the palette's Tidy up (useTidyUpRequests)", () => {
   it('runs once per request for its Project: not for one made before it was mounted, nor for another Project', () => {
     const run = vi.fn(() => Promise.resolve())
     act(() => requestTidyUp('tidy-requests'))
-    const { rerender, unmount } = renderHook(() => useTidyUpRequests('tidy-requests', run))
+    const { rerender, unmount } = renderHook(({ fn }) => useTidyUpRequests('tidy-requests', fn), { initialProps: { fn: run } })
     expect(run).not.toHaveBeenCalled()
     act(() => requestTidyUp('tidy-requests-other'))
     expect(run).not.toHaveBeenCalled()
     act(() => requestTidyUp('tidy-requests'))
     expect(run).toHaveBeenCalledTimes(1)
-    rerender()
+    // The Canvas menu's tidyUp changes identity with the Subagent trees and Layout operations.
+    rerender({ fn: (() => run()) as typeof run })
     expect(run).toHaveBeenCalledTimes(1)
     act(() => requestTidyUp('tidy-requests'))
     expect(run).toHaveBeenCalledTimes(2)

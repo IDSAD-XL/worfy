@@ -220,7 +220,6 @@ function KeepButton({ id, keep, readOnly }: { id: string; keep: boolean; readOnl
   )
 }
 
-/** A Session worfy runs, or ran: main's view while it runs, its saved session id otherwise. */
 /**
  * The id that names the Node's React Flow wrapper (flow-nodes.ts), on the Canvas copy alone: focus
  * mode draws the Node in a tile while the Canvas keeps its own copy, and an id twice in the document
@@ -228,6 +227,7 @@ function KeepButton({ id, keep, readOnly }: { id: string; keep: boolean; readOnl
  */
 const useTitleElementId = (id: string): string | undefined => (useInFocusTile() ? undefined : sessionTitleElementId(id))
 
+/** A Session worfy runs, or ran: main's view while it runs, its saved session id otherwise. */
 function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeProps, 'id' | 'selected'> & { info: WorfySessionNodeData; project: ProjectView; keep: boolean }) {
   const ops = useLayoutOps()
   const titleId = useTitleElementId(id)
