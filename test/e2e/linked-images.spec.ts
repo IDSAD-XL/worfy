@@ -138,7 +138,8 @@ test('A shows the image of B from B, undistorted and only to look at; a missing 
     const src = await picture.getAttribute('src', { timeout: FIRST_IMAGE_MS })
     expect(src).toMatch(new RegExp(`^worfy-image://canvas\\.${LABEL}\\.[0-9a-f]{32}/${PICTURE}$`))
     await expect(picture).toHaveJSProperty('complete', true, { timeout: FIRST_IMAGE_MS })
-    expect(await picture.evaluate((element: HTMLImageElement) => ({ width: element.naturalWidth, height: element.naturalHeight }))).toEqual(NATURAL)
+    await expect(picture).toHaveJSProperty('naturalWidth', NATURAL.width)
+    await expect(picture).toHaveJSProperty('naturalHeight', NATURAL.height)
     // On screen: whole, with the natural proportions, filling the card (less its border) it has the proportions of.
     const red = await redBox(a.window, 'pic')
     expect(Math.abs(red.width / red.height - NATURAL.width / NATURAL.height), `the image is ${red.width} × ${red.height} on screen`).toBeLessThan(0.08)
