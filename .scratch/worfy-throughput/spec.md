@@ -702,6 +702,7 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
 | 48 | Shard-ы macOS e2e по измеренному времени spec-файлов, а не по числу test-ов | 35 | нет | нет | `pc` по `test/e2e/**` (только таблица `timings.json`, кода e2e нет) | 2 |
 | 49 | `harness-scripts.test.ts` отдельным job-ом Windows: shard 3/3 перестаёт быть самым долгим | 35 | нет | нет (только CI и contract test) | runner `full`: правка workflow | вне Wave (разбор моста 2026-10-29) |
 | 50 | `land.test.sh` быстрее: мир из шаблона, squash stub-а gh прямо в origin | 35 | да, для замеров и `check/windows` | да, только test `harness/bin/tests/land.test.sh` | платформенный PR (ADR-0056): по `scripts/windows-verdict-scope.mjs` | вне Wave (бриф моста 2026-10-29) |
+| 51 | `harness-evals.test.ts` в двух файлах и одна сборка fixture-а на кейс: короче shard 1/3 Windows | 35 | нет | только строка `harness/README.md` с именем test-файла | runner `full` по `scripts/windows-verdict-scope.mjs` | вне Wave (разбор моста 2026-10-29) |
 | 52 | worfy Autopilot начинает каждую следующую Wave в новой Session; первая команда — `wave-brief` | 28 | для merge — если в diff `test/e2e/**` | нет (код worfy) | `pc`, если в diff `test/e2e/**`; иначе runner `full` | вне Wave (решение владельца 2026-10-29, Q5) |
 
 Почему так:
@@ -723,6 +724,8 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
   (825 s в run-е 40805903962): файл и два других тяжёлых идут в одном shard-е. 49 выносит файл в свой job.
 - **50 после 49:** тот же `harness-scripts.test.ts`; 49 вынес его в свой job, 50 укорачивает в нём `land.test.sh`.
   Фиксированных ожиданий там нет: время уходит на сборку миров git-ом и на clone в `pr merge` stub-а gh.
+- **51 после 49:** после #948 самый долгий job Windows — `windows (1/3) / full-suite` (386–402 s), и в нём
+  `harness-evals.test.ts` — 257–261 s. 51 делит файл на два и строит fixture кейса один раз, а не в каждом test-е.
 - **52 после 28:** 28 дал `wave-brief` и «report, brief, stop» в конце Wave; 52 делает то же в Autopilot —
   `src/main/autopilot/run.ts` ведёт все Wave run-а в одной SDK session.
 - **33 после 37** (решение 2026-10-29): все три правят `harness/skills/ship-ticket/SKILL.md`; 36 влит (#950), 37 в работе у Session моста.

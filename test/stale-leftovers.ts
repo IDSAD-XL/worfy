@@ -32,8 +32,9 @@ export function removeStaleProbes(dir: string): void {
 /**
  * The folders test runs make in the temporary folder: test/unit/glob-probe.tsx builds its copies of
  * src/ modules in worfy-glob-probe-*, test/global-setup-contract.ts makes the folder of a run's
- * Claude homes, worfy-contract-claude-homes-*, and test/contract/harness-evals.test.ts makes the
- * folders of its stand-in claude in worfy-eval-stub-* (one holds a copy of Git's sh.exe, about 22 MB).
+ * Claude homes, worfy-contract-claude-homes-*, and the harness-evals tests make the folders of
+ * their stand-in claude in worfy-eval-stub-* (test/contract/harness-evals-shared.ts; one holds a
+ * copy of Git's sh.exe, about 22 MB).
  */
 export const STALE_PREFIXES = ['worfy-glob-probe-', 'worfy-contract-claude-homes-', 'worfy-eval-stub-'] as const
 

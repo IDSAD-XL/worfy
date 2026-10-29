@@ -10,8 +10,10 @@
 // script prints `pc` and then each matching file on a line of its own, and the exit code is 1: the
 // verdict is gate full on the owner's Windows PC (ADR-0056). When none matches, it prints `runner`
 // and the exit code is 0: the verdict is the green jobs `windows (1/3) / full-suite` to
-// `windows (3/3) / full-suite` of the pull request's own CI run on the head (part of the check `ci-ok`), also for a pull request that changes the CI
-// workflows themselves — that run already runs with the changed workflow. An empty diff is `runner`.
+// `windows (3/3) / full-suite`, `windows (harness-scripts 1/2) / full-suite` and
+// `windows (harness-scripts 2/2) / full-suite` of the pull request's own CI run on the head (part of
+// the check `ci-ok`), also for a pull request that changes the CI workflows themselves — that run
+// already runs with the changed workflow. An empty diff is `runner`.
 // Any other exit code — 2: wrong arguments, or git could not compute the diff — is no verdict.
 //
 // The rule is for platform pull requests only. Which pull request is a platform one is decided as

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// A stand-in for claude in test/contract/harness-evals.test.ts; what it answers and logs is described
-// there, at the constant STUB. CommonJS, started by its path through a link, as the real claude is.
+// A stand-in for claude in test/contract/harness-evals-run.test.ts; what it answers and logs is described
+// in test/contract/harness-evals-shared.ts, at the constant STUB. CommonJS, started by its path through a link, as the real claude is.
 /* global require, process, console, setTimeout */
 /* eslint-disable @typescript-eslint/no-require-imports -- a CommonJS script */
 const { spawnSync } = require('node:child_process')

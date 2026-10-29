@@ -161,7 +161,7 @@ of git runs inside a real sandbox is checked by a paid run of the eval set.
 file without a case one sentence on why (`uncovered`); paths are relative to `harness/`. Rule files
 are every file under `skills/`, `agents/*.md`, `hooks/rules/*.md`, and the two files that put the
 rules into a session, `hooks/hooks.json` and `hooks/inject-rules.mjs`. Every rule file is in exactly
-one of the two lists; `test/contract/harness-evals.test.ts` fails on a rule file in neither or in
+one of the two lists; `test/contract/harness-evals-run.test.ts` fails on a rule file in neither or in
 both, a path of the map that is not on disk, a case without its folder and a case folder without its
 entry (`scripts/eval-harness-coverage.mjs`, `coverageProblems`). A new rule file goes into the map in
 the same PR: under a case, or into `uncovered` with the reason.
