@@ -72,7 +72,7 @@ function preload(read: PipelineEditorRead): FakeMain {
         case 'pipeline.close':
           return answer({ closed: true })
         case 'harness.state':
-          return answer({ state: { kind: 'outdated', from: '0.1.0', to: '0.2.0' }, bundledVersion: '0.2.0', canInstall: true, pluginDir: '/h/plugin', dependencies: [] })
+          return answer({ state: { kind: 'outdated', from: '0.1.0', to: '0.2.0', sameVersion: false }, bundledVersion: '0.2.0', canInstall: true, pluginDir: '/h/plugin', dependencies: [] })
         case 'app.version':
           return answer({ version: '0.2.0' })
         case 'harnessMigration.offer':

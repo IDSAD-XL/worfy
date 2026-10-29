@@ -144,6 +144,12 @@ function HarnessLine({ status, busy, failure, onInstall, onMigrate }: Omit<Harne
       title = state.enabled ? undefined : 'The plugin worfy is disabled in Claude Code'
       break
     case 'outdated':
+      if (state.sameVersion) {
+        // The same semver from another commit (worfy-harness ticket 67): no arrow, as worfy cannot tell which one is newer.
+        text = canInstall ? `Harness ${state.from ?? '?'}` : `Harness ${state.from ?? '?'}, this build ${state.to}`
+        button = action('update', 'Replace Harness', `Replace Harness ${state.from ?? 'unknown'} with ${state.to}: the same version from another commit, and worfy cannot tell which one is newer`)
+        break
+      }
       // With the update offered the line names the installed version and the icon the new one.
       text = canInstall ? `Harness ${state.from ?? '?'}` : `Harness ${state.from ?? '?'} → ${state.to}`
       button = action('update', 'Update Harness', `Update Harness: ${state.from ?? 'unknown'} → ${state.to}`)

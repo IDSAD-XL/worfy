@@ -634,7 +634,7 @@ describe('restore and refusals', () => {
   it.each<[string, HarnessState]>([
     ['not installed', { kind: 'not-installed' }],
     ['disabled', { ...INSTALLED, enabled: false }],
-    ['outdated', { kind: 'outdated', from: '0.1.0', to: '0.2.0' }],
+    ['outdated', { kind: 'outdated', from: '0.1.0', to: '0.2.0', sameVersion: false }],
   ])('the plugin %s: refused with the reason, nothing written', async (_name, state) => {
     const before = treeOf(sandbox.root, everything)
     const result = await applyMigration(selection(plan()), applyOptions({ pluginStatus: () => Promise.resolve(state) }))

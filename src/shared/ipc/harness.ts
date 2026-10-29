@@ -24,8 +24,12 @@ export const harnessStateSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('not-installed') }),
   /** The copy and the plugin Claude Code lists carry the version of this build. */
   z.object({ kind: z.literal('installed'), version: z.string(), enabled: z.boolean() }),
-  /** Installed with another version (`from`; null when Claude Code names none): an update would bring `to`. */
-  z.object({ kind: z.literal('outdated'), from: z.string().nullable(), to: z.string() }),
+  /**
+   * Installed with another version (`from`; null when Claude Code names none): an update would bring `to`.
+   * `sameVersion` — the same semver from another commit (worfy-harness ticket 67): worfy cannot tell
+   * which one is newer, so the action replaces it rather than updates it.
+   */
+  z.object({ kind: z.literal('outdated'), from: z.string().nullable(), to: z.string(), sameVersion: z.boolean() }),
   /**
    * A step failed (`reason` ends with its stderr), Claude Code reports the plugin broken, or the
    * plugin is installed without a dependency (`dependency install`, with its name): the install

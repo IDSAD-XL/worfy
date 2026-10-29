@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bundledClaudeBinary, claudeExecutablePath } from '../../src/main/agent/options'
 import {
   claudeCommandEnv,
+  compareHarnessVersions,
   confirmationText,
   DEPENDENCY_MARKETPLACE,
   DEPENDENCY_MARKETPLACE_SOURCE,
@@ -25,6 +26,7 @@ import {
   installOffered,
   RENAME_RETRY_MS,
   ROLLBACK_RETRY_MS,
+  unorderedWhy,
   type InstallerOptions,
   type InstallPlan,
 } from '../../src/main/harness/install'
@@ -38,7 +40,7 @@ import { harnessInstall, type HarnessStatus } from '../../src/shared/ipc/harness
 
 const REPO = join(__dirname, '..', '..')
 const V1 = '0.2.0+aaaaaaa'
-const V2 = '0.2.0+bbbbbbb'
+const V2 = '0.3.0+bbbbbbb'
 /** The dependency harness/.claude-plugin/plugin.json declares, and the version the stub gives it. */
 const DEP = 'mattpocock-skills@claude-plugins-official'
 const DEP_VERSION = '1.4.0'
@@ -306,6 +308,7 @@ describe('installing', () => {
       {
         pluginDir: sb.pluginDir,
         from: null,
+        folder: null,
         to: V1,
         copy: true,
         dependencies: [DEP],
@@ -422,7 +425,7 @@ describe('installing', () => {
     writeFileSync(join(v2, 'bin', 'new-script'), '#!/bin/sh\necho new\n', { mode: 0o755 })
     clearCalls()
 
-    expect((await installer(v2).status()).state).toEqual({ kind: 'outdated', from: V1, to: V2 })
+    expect((await installer(v2).status()).state).toEqual({ kind: 'outdated', from: V1, to: V2, sameVersion: false })
     const plans: InstallPlan[] = []
     const result = await installer(v2).install((plan) => {
       plans.push(plan)
@@ -467,6 +470,278 @@ describe('installing', () => {
   })
 })
 
+// worfy-harness ticket 67: an older build opened after a newer one must not put its older Harness
+// over the newer one. The version is `<semver>+<short SHA>[.dirty]` (scripts/build-version.ts).
+describe('a Harness newer than the build, or one worfy cannot compare', () => {
+  const NEWER = '0.3.0+ddddddd'
+  const OLDER = '0.2.0+aaaaaaa'
+  let warn: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  })
+  afterEach(() => {
+    warn.mockRestore()
+  })
+
+  /** Installs `version` with a build of it, then sets the installed copy's manifest to `installed` when given (an unparseable version). */
+  async function installedAs(version: string, installed?: string): Promise<void> {
+    await installer(makeBundle(join(sb.root, `bundle-${version}`), version)).install(yes)
+    if (installed !== undefined) {
+      const manifest = join(sb.pluginDir, '.claude-plugin', 'plugin.json')
+      writeFileSync(manifest, JSON.stringify({ ...(JSON.parse(readFileSync(manifest, 'utf8')) as object), version: installed }))
+      setStubState((state) => {
+        state.plugins[HARNESS_PLUGIN_ID] = installed
+      })
+    }
+    clearCalls()
+  }
+  /** The version of the copy in the plugin folder alone, as a copy whose `plugin update` then failed leaves it. */
+  const setFolderVersion = (version: string): void => {
+    const manifest = join(sb.pluginDir, '.claude-plugin', 'plugin.json')
+    writeFileSync(manifest, JSON.stringify({ ...(JSON.parse(readFileSync(manifest, 'utf8')) as object), version }))
+  }
+  /** The version Claude Code lists alone. */
+  const setListedVersion = (version: string): void =>
+    setStubState((state) => {
+      state.plugins[HARNESS_PLUGIN_ID] = version
+    })
+  /** An install that records each plan it was shown and answers `answer`. */
+  const recording = (plans: InstallPlan[], answer: boolean) => (plan: InstallPlan): Promise<boolean> => {
+    plans.push(plan)
+    return Promise.resolve(answer)
+  }
+
+  it.each([
+    ['newer semver', '0.3.0+aaaaaaa', '0.2.0+bbbbbbb', 'newer'],
+    ['newer major', '1.0.0+aaaaaaa', '0.9.9+bbbbbbb', 'newer'],
+    ['numbers, not text', '0.10.0+aaaaaaa', '0.9.0+bbbbbbb', 'newer'],
+    ['older semver', '0.2.0+aaaaaaa', '0.3.0+bbbbbbb', 'older'],
+    ['older patch', '0.3.0+aaaaaaa', '0.3.1+bbbbbbb', 'older'],
+    ['the same string', '0.3.0+aaaaaaa', '0.3.0+aaaaaaa', 'same'],
+    ['the same semver, another commit', '0.3.0+aaaaaaa', '0.3.0+bbbbbbb', 'unordered'],
+    ['the same commit, one of them dirty', '0.3.0+aaaaaaa.dirty', '0.3.0+aaaaaaa', 'unordered'],
+    ['a plain semver installed', '0.3.0+aaaaaaa', '0.2.0', 'newer'],
+    ['not a version', '0.3.0+aaaaaaa', 'banana', 'unknown'],
+    ['a pre-release tag', '0.3.0+aaaaaaa', '0.4.0-beta+bbbbbbb', 'unknown'],
+    ['an empty build version', '', '0.3.0+aaaaaaa', 'unknown'],
+  ])('compareHarnessVersions: %s', (_name, build, installed, order) => {
+    expect(compareHarnessVersions(build, installed)).toBe(order)
+  })
+
+  it('a newer Harness installed: no dialog, no copy, no `plugin update`; the state and the log say why', async () => {
+    await installedAs(NEWER)
+    const before = treeOf(sb.pluginDir)
+    const older = makeBundle(join(sb.root, 'bundle-older'), OLDER)
+
+    const status = await installer(older).status()
+    expect(status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    const reason = (status.state as { reason: string }).reason
+    expect(reason).toContain(`the installed Harness ${NEWER} is newer than this build's ${OLDER}`)
+    expect(reason).toContain(`remove ${sb.pluginDir}, then Install`)
+    // One line: Health shows the last line of the reason.
+    expect(reason).not.toContain('\n')
+
+    let asked = false
+    const result = await installer(older).install(() => {
+      asked = true
+      return Promise.resolve(true)
+    })
+    expect(asked).toBe(false)
+    expect(result).toMatchObject({ outcome: 'done', status: { state: { kind: 'error', step: 'copy', reason } } })
+    expect(writes()).toEqual([])
+    expect(commands()).not.toContain(UPDATE_WORFY)
+    expect(treeOf(sb.pluginDir)).toEqual(before)
+    expect(readdirSync(sb.harnessHome)).toEqual(['plugin'])
+    expect(stubState().plugins[HARNESS_PLUGIN_ID]).toBe(NEWER)
+    expect(warn).toHaveBeenCalledWith(`[harness] ${reason}`)
+  })
+
+  it('reading the state again does not log the same refusal again; an install does', async () => {
+    await installedAs(NEWER)
+    const subject = installer(makeBundle(join(sb.root, 'bundle-older'), OLDER))
+    await subject.status()
+    await subject.status()
+    expect(warn).toHaveBeenCalledTimes(1)
+    await subject.install(yes)
+    expect(warn).toHaveBeenCalledTimes(2)
+  })
+
+  it('an installed version worfy cannot read as a build version is refused the same way, naming it', async () => {
+    await installedAs(OLDER, 'banana')
+    const before = treeOf(sb.pluginDir)
+    const subject = installer(makeBundle(join(sb.root, 'bundle-newer'), NEWER))
+    const result = await subject.install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    expect((result.status.state as { reason: string }).reason).toContain(`worfy cannot compare the installed Harness version "banana" with this build's ${NEWER}`)
+    expect(writes()).toEqual([])
+    expect(treeOf(sb.pluginDir)).toEqual(before)
+  })
+
+  it.each([
+    ['the folder newer than the version Claude Code lists', (): void => setFolderVersion(NEWER)],
+    ['the version Claude Code lists newer than the folder', (): void => setListedVersion(NEWER)],
+  ])('%s: refused, no dialog and no writes', async (_name, newer) => {
+    await installedAs(OLDER)
+    newer()
+    const before = treeOf(sb.pluginDir)
+    const older = makeBundle(join(sb.root, 'bundle-older-again'), OLDER)
+    expect((await installer(older).status()).state).toMatchObject({ kind: 'error', step: 'copy' })
+    const plans: InstallPlan[] = []
+    const result = await installer(older).install(recording(plans, true))
+    expect(plans).toEqual([])
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    expect((result.status.state as { reason: string }).reason).toContain(`the installed Harness ${NEWER} is newer than this build's ${OLDER}`)
+    expect(writes()).toEqual([])
+    expect(treeOf(sb.pluginDir)).toEqual(before)
+  })
+
+  it('a newer Harness installed and its dependency missing: no dependency install either, only the refusal', async () => {
+    await installedAs(NEWER)
+    setStubState((state) => {
+      delete state.plugins[DEP]
+    })
+    const before = treeOf(sb.pluginDir)
+    const older = makeBundle(join(sb.root, 'bundle-older'), OLDER, [DEP])
+    expect((await installer(older).status()).state).toMatchObject({ kind: 'error', step: 'copy' })
+    const plans: InstallPlan[] = []
+    const result = await installer(older).install(recording(plans, true))
+    expect(plans).toEqual([])
+    expect((result.status.state as { reason: string }).reason).toContain(`the installed Harness ${NEWER} is newer than this build's ${OLDER}`)
+    expect(commands()).not.toContain(INSTALL_DEP)
+    expect(writes()).toEqual([])
+    expect(treeOf(sb.pluginDir)).toEqual(before)
+  })
+
+  it('the way out the reason names: with the folder removed by hand, the dialog asks to install this older Harness in place of the newer one', async () => {
+    await installedAs(NEWER)
+    const older = makeBundle(join(sb.root, 'bundle-older'), OLDER)
+    removeTestTree(sb.pluginDir)
+    const plans: InstallPlan[] = []
+    const result = await installer(older).install(recording(plans, true))
+    expect(plans).toHaveLength(1)
+    const text = confirmationText(plans[0]!)
+    expect(text.message).toBe(`Install this build's older Harness ${OLDER} in place of ${NEWER}?`)
+    expect(text.button).toBe('Install')
+    expect(result.status.state).toEqual({ kind: 'installed', version: OLDER, enabled: true })
+    expect(treeOf(sb.pluginDir)).toEqual(treeOf(older))
+    expect(commands()).toContain(UPDATE_WORFY)
+  })
+
+  it('a newer copy an interrupted swap set aside (no plugin/, a .plugin-old-* folder) is refused too, naming that folder', async () => {
+    await installedAs(NEWER)
+    const aside = join(sb.harnessHome, '.plugin-old-interrupted')
+    renameSync(sb.pluginDir, aside)
+    const before = treeOf(aside)
+    const older = makeBundle(join(sb.root, 'bundle-older'), OLDER)
+    const status = await installer(older).status()
+    expect(status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    expect((status.state as { reason: string }).reason).toContain(`remove ${aside}, then Install`)
+    const plans: InstallPlan[] = []
+    await installer(older).install(recording(plans, true))
+    expect(plans).toEqual([])
+    expect(writes()).toEqual([])
+    expect(treeOf(aside)).toEqual(before)
+    expect(existsSync(sb.pluginDir)).toBe(false)
+  })
+
+  it('a newer copy set aside after the plan was made is checked again once the copy puts it back: refused, the newer copy in place', async () => {
+    await installedAs(NEWER)
+    const newer = treeOf(sb.pluginDir)
+    const kept = join(sb.root, 'kept-newer')
+    renameSync(sb.pluginDir, kept)
+    const older = makeBundle(join(sb.root, 'bundle-older'), OLDER)
+    const result = await installer(older).install((): Promise<boolean> => {
+      // Between the dialog and the copy, a swap of another run is left half way.
+      renameSync(kept, join(sb.harnessHome, '.plugin-old-race'))
+      return Promise.resolve(true)
+    })
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    expect((result.status.state as { reason: string }).reason).toContain(`the installed Harness ${NEWER} is newer than this build's ${OLDER}`)
+    expect(treeOf(sb.pluginDir)).toEqual(newer)
+    expect(commands()).not.toContain(UPDATE_WORFY)
+  })
+
+  it('the folder carries another commit of the same version and Claude Code has no record: the dialog asks to Replace, not to Install', async () => {
+    const ours = '0.3.0+aaaaaaa'
+    await installedAs(NEWER)
+    setStubState((state) => {
+      delete state.plugins[HARNESS_PLUGIN_ID]
+    })
+    const plans: InstallPlan[] = []
+    await installer(makeBundle(join(sb.root, 'bundle-ours'), ours)).install(recording(plans, false))
+    expect(plans.map(({ from, folder, copy }) => ({ from, folder, copy }))).toEqual([{ from: null, folder: NEWER, copy: true }])
+    const text = confirmationText(plans[0]!)
+    expect(text.button).toBe('Replace')
+    expect(text.message).toBe(`Replace the worfy Harness ${NEWER} with ${ours}?`)
+    expect(writes()).toEqual([])
+  })
+
+  it('a copy whose `plugin update` failed (the folder another commit, Claude Code still listing this build): the state and the dialog name the folder and say Replace', async () => {
+    const ours = '0.3.0+aaaaaaa'
+    await installedAs(ours)
+    setFolderVersion(NEWER)
+    const bundle = makeBundle(join(sb.root, 'bundle-ours-again'), ours)
+    expect((await installer(bundle).status()).state).toEqual({ kind: 'outdated', from: NEWER, to: ours, sameVersion: true })
+    const plans: InstallPlan[] = []
+    await installer(bundle).install(recording(plans, false))
+    expect(plans.map(({ from, folder, copy }) => ({ from, folder, copy }))).toEqual([{ from: ours, folder: NEWER, copy: true }])
+    const text = confirmationText(plans[0]!)
+    expect(text.message).toBe(`Replace the worfy Harness ${NEWER} with ${ours}?`)
+    expect(text.message).not.toContain('→')
+    expect(writes()).toEqual([])
+  })
+
+  it('the same commit with uncommitted changes in one of them: the dialog does not say they come from different commits', () => {
+    const plan = (from: string, to: string): InstallPlan => ({
+      pluginDir: sb.pluginDir,
+      from,
+      folder: from,
+      to,
+      copy: true,
+      dependencies: [],
+      dependencyCommands: [],
+      commands: [['plugin', 'update', HARNESS_PLUGIN_ID, '--scope', 'user']],
+      legacyHarness: null,
+    })
+    const dirty = confirmationText(plan('0.3.0+abc1234', '0.3.0+abc1234.dirty'))
+    expect(dirty.button).toBe('Replace')
+    expect(dirty.detail).toContain('Both carry version 0.3.0 and come from the same commit, and one of them carries uncommitted changes')
+    expect(dirty.detail).not.toContain('different commits')
+    // A short SHA of another length is still the same commit.
+    expect(unorderedWhy('0.3.0+abc1234.dirty', '0.3.0+abc12345')).toBe('come from the same commit, and one of them carries uncommitted changes')
+    expect(confirmationText(plan('0.3.0+abc1234', '0.3.0+def5678')).detail).toContain('Both carry version 0.3.0 and come from different commits')
+  })
+
+  it('the same semver from another commit: only through the dialog, which says worfy cannot tell which is newer; Cancel writes nothing', async () => {
+    const other = '0.3.0+eeeeeee'
+    await installedAs(NEWER)
+    const before = treeOf(sb.pluginDir)
+    const bundle = makeBundle(join(sb.root, 'bundle-other'), other)
+    expect((await installer(bundle).status()).state).toEqual({ kind: 'outdated', from: NEWER, to: other, sameVersion: true })
+
+    const plans: InstallPlan[] = []
+    const declined = await installer(bundle).install((plan) => {
+      plans.push(plan)
+      return Promise.resolve(false)
+    })
+    expect(declined.outcome).toBe('declined')
+    expect(writes()).toEqual([])
+    expect(treeOf(sb.pluginDir)).toEqual(before)
+    expect(plans).toHaveLength(1)
+    const text = confirmationText(plans[0]!)
+    expect(text.button).toBe('Replace')
+    expect(text.message).toBe(`Replace the worfy Harness ${NEWER} with ${other}?`)
+    expect(text.detail).toContain('Both carry version 0.3.0')
+    expect(text.detail).toContain('worfy cannot tell which of them is newer')
+    expect(text.message).not.toContain('Update')
+
+    const accepted = await installer(bundle).install(yes)
+    expect(accepted.status.state).toEqual({ kind: 'installed', version: other, enabled: true })
+    expect(warn).not.toHaveBeenCalled()
+  })
+})
+
 describe('a dependency that is missing', () => {
   it('worfy installed with the build version but its dependency not: the state is an error of `dependency install`, and install() asks with the dependency commands alone and brings it to installed', async () => {
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
@@ -490,7 +765,7 @@ describe('a dependency that is missing', () => {
       return Promise.resolve(true)
     })
     expect(plans).toEqual([
-      { pluginDir: sb.pluginDir, from: V1, to: V1, copy: false, dependencies: [DEP], dependencyCommands: [['plugin', 'install', DEP, '--scope', 'user']], commands: [], legacyHarness: null },
+      { pluginDir: sb.pluginDir, from: V1, folder: V1, to: V1, copy: false, dependencies: [DEP], dependencyCommands: [['plugin', 'install', DEP, '--scope', 'user']], commands: [], legacyHarness: null },
     ])
     const text = confirmationText(plans[0]!)
     expect(text.button).toBe('Install')
@@ -890,8 +1165,10 @@ describe('a rename refused by a held-open file (Windows)', () => {
     expect(JSON.parse(readFileSync(join(sb.pluginDir, '.claude-plugin', 'plugin.json'), 'utf8'))).toMatchObject({ version: V2 })
     expect(leftovers()).toHaveLength(1)
     expect(leftovers()[0]).toMatch(/^\.plugin-old-/)
-    const next = await installer(makeBundle(join(sb.root, 'bundle-v1b'), V1)).install(yes)
-    expect(next.status.state).toMatchObject({ kind: 'installed', version: V1 })
+    // A newer build again: an older one would be refused before it looked at the leftovers (ticket 67).
+    const v3 = '0.4.0+ccccccc'
+    const next = await installer(makeBundle(join(sb.root, 'bundle-v3'), v3)).install(yes)
+    expect(next.status.state).toMatchObject({ kind: 'installed', version: v3 })
     expect(leftovers()).toEqual([])
   })
 
@@ -1087,6 +1364,7 @@ describe('the dialog', () => {
   const plan: InstallPlan = {
     pluginDir: '/Users/me/.claude/worfy-harness/plugin',
     from: null,
+    folder: null,
     to: V1,
     copy: true,
     dependencies: [],

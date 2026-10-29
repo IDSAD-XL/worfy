@@ -57,7 +57,7 @@ import { fileOrAlias, findGitBash, findOnPath, getVar, type Env as AgentEnv, typ
 import type { AccountInfoLike } from '../agent/session'
 import { limitsBridgeState } from '../harness/status-line'
 import { terminalShell } from '../terminal/pty'
-import { DEPENDENCY_MARKETPLACE_SOURCE } from '../harness/install'
+import { DEPENDENCY_MARKETPLACE_SOURCE, unorderedWhy } from '../harness/install'
 import { harnessHomes, locateHarness } from '../harness/locate'
 import type { HarnessScriptEnvSource } from '../harness/script-env'
 import { environmentExit, harnessScriptRunner, HarnessScriptStartError, HARNESS_SCRIPT_TIMEOUT_MS, NODE_NOT_FOUND, scriptFailureDetail } from '../workflow/profile'
@@ -628,7 +628,16 @@ function harness(status: HarnessStatus): Row {
     case 'not-installed':
       return row('fail', 'not installed', `Install the Harness of this build${status.bundledVersion ? ` (${status.bundledVersion})` : ''}${devRun}`, null, install('Install'))
     case 'outdated':
-      return row('warn', `${state.from ?? 'unknown version'} → ${state.to}`, `Update it to the Harness of this build${devRun}`, null, install('Update'))
+      // The same semver from another commit (ticket 67): no arrow and no "update", as worfy cannot tell which one is newer.
+      return state.sameVersion
+        ? row(
+            'warn',
+            `${state.from ?? 'unknown version'}, this build ${state.to}`,
+            `Both are version ${state.to.split('+')[0] ?? state.to} and ${unorderedWhy(state.to, state.from)}, so worfy cannot tell which is newer: replace it only if this build is the newer one${devRun}`,
+            null,
+            install('Replace'),
+          )
+        : row('warn', `${state.from ?? 'unknown version'} → ${state.to}`, `Update it to the Harness of this build${devRun}`, null, install('Update'))
     case 'error':
       return row('fail', `error at ${state.step}`, lastLine(state.reason), null, install('Retry'))
   }
