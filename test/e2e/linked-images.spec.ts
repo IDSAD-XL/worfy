@@ -7,13 +7,14 @@
 // on B where they are. Bonjour is off and the link server listens on loopback only (launchApp).
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { crc32, deflateSync } from 'node:zlib'
 import { expect, test, type Page } from '@playwright/test'
 import { decodePng } from './browser-pixels'
-import { launchApp, linkThroughUi, machineIdOf, setProjectsAccess, type LaunchedApp } from './helpers'
+import { launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, type LaunchedApp } from './helpers'
+import { snapshotThemes } from './snapshots'
 
 test.setTimeout(180_000)
 
@@ -24,6 +25,22 @@ const GONE = `${'b'.repeat(32)}.png`
 const BIG = `${'c'.repeat(32)}.png`
 /** The image on B: a red rectangle twice as wide as it is high. */
 const NATURAL = { width: 400, height: 200 }
+
+/** Where the snapshots of this ticket are kept in the repository (rules: .scratch/<epic>/evidence/NN-what.png). */
+const EVIDENCE = join(repoRoot, '.scratch', 'worfy-canvas', 'evidence')
+
+/**
+ * Takes the light and dark snapshot of `window` (test-results/e2e/snapshots/24-<name>/). With
+ * WORFY_EVIDENCE=1 both are also kept as the ticket's evidence `24-<name>-{light,dark}.png`; an
+ * ordinary run leaves the repository's files alone.
+ */
+async function evidence(window: Page, name: string): Promise<void> {
+  const shots = await snapshotThemes(window, `24-${name}`)
+  if (process.env.WORFY_EVIDENCE !== '1') return
+  await mkdir(EVIDENCE, { recursive: true })
+  await copyFile(shots.light, join(EVIDENCE, `24-${name}-light.png`))
+  await copyFile(shots.dark, join(EVIDENCE, `24-${name}-dark.png`))
+}
 
 /** A red PNG of `width` × `height`. */
 function redPng(width: number, height: number): Buffer {
@@ -122,10 +139,10 @@ test('A shows the image of B from B, undistorted and only to look at; a missing 
     expect(src).toMatch(new RegExp(`^worfy-image://canvas\\.${LABEL}\\.[0-9a-f]{32}/${PICTURE}$`))
     await expect(picture).toHaveJSProperty('complete', true, { timeout: FIRST_IMAGE_MS })
     expect(await picture.evaluate((element: HTMLImageElement) => ({ width: element.naturalWidth, height: element.naturalHeight }))).toEqual(NATURAL)
-    // On screen: whole, with the natural proportions, filling the card it has the proportions of.
+    // On screen: whole, with the natural proportions, filling the card (less its border) it has the proportions of.
     const red = await redBox(a.window, 'pic')
     expect(Math.abs(red.width / red.height - NATURAL.width / NATURAL.height), `the image is ${red.width} × ${red.height} on screen`).toBeLessThan(0.08)
-    expect(red.card.width - red.width).toBeLessThan(8)
+    expect(red.width / red.card.width, `the image is ${red.width} px wide in a ${red.card.width} px capture`).toBeGreaterThan(0.95)
 
     // The other two say why, instead of a broken image.
     await expect(a.window.locator('[data-node-id="gone"]').getByRole('img', { name: 'Image not available' })).toBeVisible({ timeout: FIRST_IMAGE_MS })
@@ -135,6 +152,7 @@ test('A shows the image of B from B, undistorted and only to look at; a missing 
     await node.click()
     await expect(a.window.locator('.react-flow__node.selected [data-node-id="pic"]')).toHaveCount(1)
     await expect(a.window.locator('.react-flow__resize-control')).toHaveCount(0)
+    await evidence(a.window, 'image-of-linked-machine')
     await a.window.keyboard.press('Delete')
     await expect(node).toHaveCount(1)
     expect(existsSync(join(imagesOfB, PICTURE))).toBe(true)
