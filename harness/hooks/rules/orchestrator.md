@@ -91,6 +91,9 @@ Test suites, builds, linters: pipe through `tail`/`grep` and keep what lands in 
 ~15 lines. If a filter does the job, a subagent is a needless round trip. Delegate the run only
 when it needs interpretation — a large failure set to triage, a bisect, a flake to chase.
 
+Read `land` and agent output as a summary: one line per PR and the verdict. The log stays in its
+file, opened by path, never whole into context.
+
 ## Subagent contract
 
 Give each agent: goal, scope (paths/modules), and the exact output format. Require back: findings

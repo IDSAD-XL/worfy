@@ -499,6 +499,33 @@ else
     done
 fi
 
+# The end of a wave: report, brief, stop (section 5), and a new session that starts with the brief
+# ("How to resume a wave"); the orchestrator rules read land and agent output as a summary.
+if [ -f "$EPIC_WAVE" ]; then
+    s5="$(awk '/^## 5\. /{s=1; next} s && /^## /{exit} s' "$EPIC_WAVE" | tr '\n' ' ' | tr -s ' ')"
+    for p in '**Report, brief, stop.** A wave ends with its report, a saved brief and a stop: the orchestrator does not start the next wave in the same session.' \
+        'The merges of the wave went only through `bin/land` in the background (section 4)' \
+        '"${CLAUDE_PLUGIN_ROOT}/bin/wave-brief" <epic> --land <state file>… >"<run folder>/wave-brief.txt"' \
+        'Then stop. The next wave is started by worfy Autopilot or by the owner, and its first command is `wave-brief`'; do
+        if printf '%s' "$s5" | grep -qF -- "$p"; then ok "epic-wave, section 5: '$p'"
+        else bad "epic-wave, section 5: no '$p'"; fi
+    done
+    resume="$(awk '/^## How to resume a wave/{s=1; next} s && /^## /{exit} s' "$EPIC_WAVE" | tr '\n' ' ' | tr -s ' ')"
+    for p in 'the first command of a new session, before any other reading, is:' \
+        '(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/wave-brief" <epic>); echo "EXIT=$?"' \
+        "Read it instead of the previous session's transcript."; do
+        if printf '%s' "$resume" | grep -qF -- "$p"; then ok "epic-wave, How to resume a wave: '$p'"
+        else bad "epic-wave, How to resume a wave: no '$p'"; fi
+    done
+fi
+ORCH="${ORCHESTRATOR_RULES_FILE:-$AGENTS/../hooks/rules/orchestrator.md}"
+long="$(awk '/^## Long output/{s=1; next} s && /^## /{exit} s' "$ORCH" 2>/dev/null | tr '\n' ' ' | tr -s ' ')"
+for p in 'Read `land` and agent output as a summary: one line per PR and the verdict.' \
+    'The log stays in its file, opened by path, never whole into context.'; do
+    if printf '%s' "$long" | grep -qF -- "$p"; then ok "orchestrator.md, Long output: '$p'"
+    else bad "orchestrator.md, Long output: no '$p'"; fi
+done
+
 # The Profile contract points at the descriptions (harness/profiles/README.md, the row of review.lenses).
 README="${PROFILES_README_FILE:-$AGENTS/../profiles/README.md}"
 LENSES_ROW='the project'"'"'s review lenses; the orchestrator gives each reviewer one. What a lens looks for is described in `agents/reviewer.md`, section "Lens descriptions"; a description applies to the lens of the same name, and a lens that has no description there is read by its name |'

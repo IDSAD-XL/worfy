@@ -1,0 +1,286 @@
+#!/usr/bin/env node
+// wave-brief <epic> [--land <state file>]… — a short summary of where an epic's waves stand: the first thing a
+// fresh orchestrator session reads (skill epic-wave, "How to resume a wave"), and what the orchestrator saves
+// at the end of a wave before it stops (section 5, "report, brief, stop"). Read-only: it writes no file, moves
+// no ticket and calls gh only to read.
+//
+// Run in a checkout of the project (the tickets are read there, as epic-status reads them). The sections:
+//   Epic       the Stage line of `epic-status <epic>` and the checkout's branch and commit
+//   Land       per state file of bin/land: its last `LAND=` line, then one line per PR (`#N <epic>/<NN> merged
+//              <sha>` or `… waits: <reason>`) and per documents PR. The state files are the --land arguments;
+//              without them, the `Land state:` lines of the newest saved brief of the epic (see Journal). None
+//              — "land has not run".
+//   Waiting    the claimed and blocked tickets: state, `Waits:`, `Blocked reason:`, `PR:`
+//   Open PRs   the epic's open PRs (a branch <epic>/…, a ticket's `Branch:` line or `PR:` line): number,
+//              <epic>/<NN> (`?` for a branch of the epic no ticket matches), branch, head, labels, the commit
+//              statuses (`review`, `check/<name>`) and a count of the CI check runs. Not read with
+//              workflow.finish `local-green`; a gh that fails — one line saying so
+//   Next wave  the open tickets whose every blocker of `Blocked by:` is done
+//   Journal    the newest run folder of the epic, <HARNESS_HOME>/runs/<project>/<epic>-wave-<time>/ — the
+//              decision log of a wave without a human (decisions.tsv) and the saved brief (wave-brief.txt)
+// Each list is cut at MAX_LINES lines and each value at MAX_TEXT characters, so the brief stays a few
+// thousand tokens.
+//
+// Exit codes: 0 — printed (a section it could not read says so in its own line); 1 — no such epic, or
+// epic-status failed; 2 — bad arguments.
+//
+// Environment (tests): WAVE_BRIEF_GH — an executable used instead of `gh` (a `.mjs` file runs with this node).
+"use strict"
+const fs = require("fs")
+const path = require("path")
+const { spawnSync } = require("child_process")
+// The git to start and the Harness state folder, with the variables of an eval run.
+const { git: GIT, harnessHome } = require("../hooks/eval-env.cjs")
+
+const MAX_LINES = 25
+const MAX_TEXT = 160
+const BIN = path.dirname(fs.realpathSync(__filename))
+
+const cut = (s, n = MAX_TEXT) => {
+    const t = String(s ?? "").replace(/\s+/g, " ").trim()
+    return [...t].length > n ? [...t].slice(0, n - 1).join("") + "…" : t
+}
+const short = (sha) => String(sha || "").slice(0, 8)
+const pad2 = (n) => String(n).padStart(2, "0")
+function run(file, args, opts = {}) {
+    const r = spawnSync(file, args, { encoding: "utf8", windowsHide: true, maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "pipe"], ...opts })
+    return { code: r.error ? 127 : (r.status ?? 1), out: r.stdout || "", err: r.error ? r.error.message : r.stderr || "" }
+}
+// A script next to this one, started with this node: Windows does not start an extensionless file by its #! line.
+const sibling = (name, args) => run(process.execPath, [path.join(BIN, name), ...args])
+const firstLine = (s) => String(s || "").trim().split("\n")[0]
+// A list of lines, cut at MAX_LINES with the count of the rest.
+function capped(lines) {
+    if (lines.length <= MAX_LINES) return lines
+    return [...lines.slice(0, MAX_LINES), `  … and ${lines.length - MAX_LINES} more`]
+}
+
+// --- arguments ---------------------------------------------------------------------------------
+const USAGE = "usage: wave-brief <epic> [--land <state file>]…"
+const argv = process.argv.slice(2)
+let epic = null
+const landArgs = []
+for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    if (a === "--land") {
+        if (!argv[i + 1]) {
+            process.stderr.write(`${USAGE}\n`)
+            process.exit(2)
+        }
+        landArgs.push(path.resolve(argv[++i]))
+    } else if (a === "-h" || a === "--help") {
+        process.stdout.write(`${USAGE}\n`)
+        process.exit(0)
+    } else if (a.startsWith("-") || epic !== null) {
+        process.stderr.write(`wave-brief: unexpected argument ${a}\n${USAGE}\n`)
+        process.exit(2)
+    } else epic = a
+}
+if (!epic) {
+    process.stderr.write(`${USAGE}\n`)
+    process.exit(2)
+}
+
+// --- the tickets ---------------------------------------------------------------------------------
+const js = sibling("epic-status", ["--json"])
+let model = null
+try {
+    model = js.code === 0 ? JSON.parse(js.out) : null
+} catch {
+    model = null
+}
+if (!model) {
+    process.stderr.write(`wave-brief: epic-status --json failed (exit ${js.code}): ${firstLine(js.err) || "no JSON"}\n`)
+    process.exit(1)
+}
+if (!model.epics.some((e) => e.epic === epic)) {
+    process.stderr.write(`wave-brief: no such epic: ${epic} (epics: ${model.epics.map((e) => e.epic).join(", ") || "none"})\n`)
+    process.exit(1)
+}
+const tickets = model.tickets.filter((t) => t.epic === epic)
+const stateOf = new Map(tickets.map((t) => [t.num, t.state]))
+
+const out = []
+const say = (s = "") => out.push(s)
+
+// --- Epic ----------------------------------------------------------------------------------------
+const g = (args) => {
+    const r = run(GIT, args)
+    return r.code === 0 ? r.out.trim() : ""
+}
+const branch = g(["rev-parse", "--abbrev-ref", "HEAD"]) || "no branch"
+const head = g(["log", "-1", "--format=%h %s"]) || "no commit"
+const stage = sibling("epic-status", [epic])
+say(`# Wave brief: ${epic} · ${new Date().toISOString().replace(/\.\d+Z$/, "Z")}`)
+say(`Stage: ${stage.code === 0 ? stage.out.trim() : `not read — epic-status exit ${stage.code}`}`)
+say(`Checkout: ${branch} ${cut(head, 100)}`)
+
+// --- Journal: the newest run folder of the epic ------------------------------------------------------
+const name = sibling("profile", ["--name"])
+const project = name.code === 0 ? name.out.trim() : ""
+let runFolders = []
+let runsDir = null
+if (project) {
+    runsDir = path.join(harnessHome(process.cwd()), "runs", project)
+    const re = new RegExp(`^${epic.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-wave-\\d{8}T\\d{6}Z$`)
+    try {
+        runFolders = fs
+            .readdirSync(runsDir)
+            .filter((d) => re.test(d))
+            .sort()
+            .map((d) => path.join(runsDir, d))
+    } catch {
+        runFolders = []
+    }
+}
+const newestRun = runFolders.length ? runFolders[runFolders.length - 1] : null
+const savedBrief = [...runFolders].reverse().map((d) => path.join(d, "wave-brief.txt")).find((f) => fs.existsSync(f)) || null
+
+// --- Land ----------------------------------------------------------------------------------------
+say("")
+say("## Land")
+let landFiles = landArgs
+if (!landFiles.length && savedBrief) {
+    landFiles = fs
+        .readFileSync(savedBrief, "utf8")
+        .split(/\r?\n/)
+        .filter((l) => l.startsWith("Land state: "))
+        .map((l) => l.slice("Land state: ".length).trim())
+        .filter(Boolean)
+}
+if (!landFiles.length) say("land has not run: no state file given, none named in a saved brief")
+for (const f of landFiles) {
+    say(`Land state: ${f}`)
+    let st
+    try {
+        st = JSON.parse(fs.readFileSync(f, "utf8"))
+    } catch (e) {
+        say(`  not read — ${cut(e.message)}`)
+        continue
+    }
+    const runs = Array.isArray(st.runs) ? st.runs : []
+    const last = runs[runs.length - 1]
+    say(last ? `  LAND=${last.land} at ${last.ended || last.started || "?"} (run ${runs.length})` : "  land has not run on this file yet")
+    const lines = []
+    for (const p of Array.isArray(st.prs) ? st.prs : []) {
+        const who = p.epic && p.ticket ? ` ${p.epic}/${p.ticket}` : ""
+        const r = p.result
+        if (!r) lines.push(`  #${p.number}${who} not tried`)
+        else if (r.status === "merged") lines.push(`  #${p.number}${who} merged ${short(r.sha)}`)
+        else lines.push(`  #${p.number}${who} waits (${r.kind || "waits"}): ${cut(r.reason)}`)
+    }
+    for (const d of Array.isArray(st.docs) ? st.docs : []) {
+        const covers = (d.prs || []).map((n) => `#${n}`).join(", ")
+        const r = d.result
+        const what = !d.pr ? "not opened" : !r ? "not tried" : r.status === "merged" ? `merged ${short(r.sha)}` : r.status === "empty" ? "nothing to commit" : `waits (${r.kind || "waits"}): ${cut(r.reason)}`
+        lines.push(`  documents PR${d.pr ? ` #${d.pr}` : ""} for ${covers || "no PR"}: ${what}`)
+    }
+    for (const l of capped(lines)) say(l)
+    say(`  log: ${f.replace(/\.json$/, "")}.log`)
+}
+
+// --- Waiting -------------------------------------------------------------------------------------
+say("")
+say("## Waiting")
+const waiting = tickets.filter((t) => t.state === "work" || t.state === "blocked")
+if (!waiting.length) say("none: no ticket is claimed or blocked")
+const wlines = waiting.map((t) => {
+    const parts = [`${pad2(t.num)} ${t.state === "work" ? "claimed" : "blocked"}`]
+    if (t.waits) parts.push(`waits: ${cut(t.waits, 40)}`)
+    if (t.blockedReason) parts.push(cut(t.blockedReason))
+    if (t.pr) parts.push(`PR #${t.pr}`)
+    return parts.join(" · ")
+})
+for (const l of capped(wlines)) say(l)
+const unread = tickets.filter((t) => t.state === "none")
+if (unread.length) say(`without a readable Status: ${unread.map((t) => pad2(t.num)).join(", ")}`)
+
+// --- Open PRs ------------------------------------------------------------------------------------
+say("")
+say("## Open PRs")
+const fin = sibling("profile", ["--field", "workflow.finish"])
+if (fin.code === 0 && fin.out.trim() === "local-green") say("none read: workflow.finish is local-green, a ticket has no PR")
+else {
+    const over = process.env.WAVE_BRIEF_GH
+    const [ghFile, ghPre] = !over ? ["gh", []] : over.endsWith(".mjs") ? [process.execPath, [over]] : [over, []]
+    const fields = "number,title,headRefName,headRefOid,labels,statusCheckRollup"
+    const r = run(ghFile, [...ghPre, "pr", "list", "--state", "open", "--limit", "200", "--json", fields])
+    let prs = null
+    try {
+        prs = r.code === 0 ? JSON.parse(r.out) : null
+    } catch {
+        prs = null
+    }
+    if (!Array.isArray(prs)) say(`not read — gh exit ${r.code}: ${cut(firstLine(r.err) || "no JSON")}`)
+    else {
+        const byBranch = new Map(tickets.filter((t) => t.branch).map((t) => [t.branch, t]))
+        const byPr = new Map(tickets.filter((t) => t.pr).map((t) => [t.pr, t]))
+        const prefix = `${epic}/`
+        const ticketOf = (p) => {
+            if (byBranch.has(p.headRefName)) return byBranch.get(p.headRefName)
+            if (byPr.has(p.number)) return byPr.get(p.number)
+            if (!p.headRefName.startsWith(prefix)) return null
+            const m = /^(\d+)(?:-|$)/.exec(p.headRefName.slice(prefix.length))
+            return (m && tickets.find((t) => t.num === Number(m[1]))) || { num: null }
+        }
+        const mine = prs.map((p) => [p, ticketOf(p)]).filter(([, t]) => t)
+        if (!mine.length) say("none")
+        const lines = mine.map(([p, t]) => {
+            const parts = [`#${p.number} ${epic}/${t.num !== null ? pad2(t.num) : "?"} · branch ${p.headRefName} @ ${short(p.headRefOid)}`]
+            const labels = (p.labels || []).map((l) => l.name).filter(Boolean)
+            if (labels.length) parts.push(`labels: ${labels.join(", ")}`)
+            const roll = Array.isArray(p.statusCheckRollup) ? p.statusCheckRollup : []
+            const marks = roll.filter((c) => c.__typename === "StatusContext" || (c.context && !c.name)).map((c) => `${c.context}=${String(c.state || "").toLowerCase()}`)
+            parts.push(marks.length ? `marks: ${marks.join(" ")}` : "marks: none")
+            const runs = roll.filter((c) => c.__typename === "CheckRun" || (c.name && !c.context))
+            if (runs.length) {
+                const conc = (c) => String(c.conclusion || "").toUpperCase()
+                const failed = runs.filter((c) => ["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"].includes(conc(c)))
+                const pending = runs.filter((c) => String(c.status || "").toUpperCase() !== "COMPLETED")
+                const passed = runs.length - failed.length - pending.length
+                let ci = `CI: ${passed} done, ${pending.length} pending, ${failed.length} failed`
+                if (failed.length) ci += ` (${cut(failed.map((c) => c.name).join(", "), 80)})`
+                parts.push(ci)
+            } else parts.push("CI: no check runs")
+            return parts.join(" · ")
+        })
+        for (const l of capped(lines)) say(l)
+    }
+}
+
+// --- Next wave -----------------------------------------------------------------------------------
+say("")
+say("## Next wave")
+const open = tickets.filter((t) => t.state === "open")
+// A blocker that is not a ticket of the epic does not hold a ticket back: epic-status counts it the same way.
+const ready = open.filter((t) => t.blockedParsed && t.blockedNums.every((n) => !stateOf.has(n) || stateOf.get(n) === "done"))
+const held = open.filter((t) => !ready.includes(t))
+say(ready.length ? `ready (open, every blocker done): ${ready.map((t) => pad2(t.num)).join(", ")}` : "ready: none")
+const hlines = held.map((t) =>
+    t.blockedParsed
+        ? `${pad2(t.num)} waits for ${t.blockedNums.filter((n) => stateOf.has(n) && stateOf.get(n) !== "done").map(pad2).join(" ")}`
+        : `${pad2(t.num)} Blocked by not read: ${cut(t.blockedRaw, 60)}`,
+)
+for (const l of capped(hlines)) say(l)
+const done = tickets.filter((t) => t.state === "done").length
+say(`done ${done}/${tickets.length}`)
+
+// --- Journal -------------------------------------------------------------------------------------
+say("")
+say("## Journal")
+if (!project) say(`none: no project name (profile --name exit ${name.code})`)
+else if (!newestRun) say(`none: no run folder of ${epic} in ${runsDir}`)
+else {
+    const log = path.join(newestRun, "decisions.tsv")
+    let rows = null
+    try {
+        rows = fs.readFileSync(log, "utf8").split(/\r?\n/).filter(Boolean).length - 1
+    } catch {
+        rows = null
+    }
+    say(`run folder: ${newestRun}`)
+    say(rows === null ? "decision log: none in it" : `decision log: ${log} (${rows} rows)`)
+}
+say(savedBrief ? `saved brief: ${savedBrief}` : "saved brief: none")
+
+process.stdout.write(out.join("\n") + "\n")
