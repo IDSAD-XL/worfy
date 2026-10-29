@@ -41,6 +41,7 @@
     "test/git-bash.ts",
     "test/global-setup-contract.ts",
     "test/harness-node.ts",
+    "test/harness-shell-tests.ts",
     "test/quarantine.ts",
     "test/remove.ts",
     "test/script-node.ts",

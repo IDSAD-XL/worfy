@@ -10,7 +10,11 @@ import { timeScale } from './test/time-scale'
 
 // Worktrees of other tickets live under .claude/worktrees/ inside this checkout;
 // their tests must never be picked up by a run here.
-const exclude = [...configDefaults.exclude, '.claude/worktrees/**', 'out/**', 'test/e2e/**', 'test/acceptance/**']
+// WORFY_TEST_EXCLUDE: files a Windows CI shard leaves out because a job of its own runs them
+// (.github/workflows/windows-tests.yml), paths from the repository root separated by spaces. vitest
+// 5.0.3's --exclude does not reach the projects below, which extend this config. Unset elsewhere.
+const ciExclude = (process.env.WORFY_TEST_EXCLUDE ?? '').split(/\s+/).filter(Boolean)
+const exclude = [...configDefaults.exclude, '.claude/worktrees/**', 'out/**', 'test/e2e/**', 'test/acceptance/**', ...ciExclude]
 
 // What a killed test run leaves behind — probe files of an older version in src/, and the folders
 // of a run in the system temporary folder — is removed before each run (test/stale-leftovers.ts).

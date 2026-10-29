@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFil
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { inPart, parsePart, shellTests, type Part } from '../harness-shell-tests'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 
@@ -68,11 +69,14 @@ const runs = (name: string): string[] =>
     .filter((line) => /^\s*(- )?run: /.test(line))
     .map((line) => line.trim().replace(/^(- )?run: /, ''))
 
-/** The shards of a job's matrix, which must be 1/n … n/n. */
-function shards(name: string): string[] {
-  const list = items(under(under(under(job(name), '    strategy:'), '      matrix:'), '        shard:'))
+/** The values of `shard` in a job's matrix, as written. */
+const matrix = (name: string): string[] => items(under(under(under(job(name), '    strategy:'), '      matrix:'), '        shard:'))
+
+/** The shards of a job's matrix whose value is `<prefix><i>/<n>`, which must be 1/n … n/n. */
+function shards(name: string, prefix = ''): string[] {
+  const list = matrix(name).filter((entry) => entry.startsWith(prefix) && /^\d+\/\d+$/.test(entry.slice(prefix.length)))
   const count = list.length
-  expect(list, `${name}: shards`).toEqual(Array.from({ length: count }, (_, at) => `${at + 1}/${count}`))
+  expect(list, `${name}: shards`).toEqual(Array.from({ length: count }, (_, at) => `${prefix}${at + 1}/${count}`))
   expect(value(under(job(name), '    strategy:'), 'fail-fast'), `${name}: every shard runs to its end`).toBe('false')
   return list
 }
@@ -195,6 +199,10 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     expect(shards('macos-e2e')).toHaveLength(2)
     // One Windows job ran the heavy contract files side by side on one runner; three shards share them out.
     expect(shards('windows')).toHaveLength(3)
+    // harness-scripts.test.ts (354-617 s on Windows) runs beside them in two jobs of its own, each
+    // with half of the Harness shell tests; nothing else is in the matrix.
+    expect(shards('windows', 'harness-scripts ')).toHaveLength(2)
+    expect(matrix('windows')).toEqual([...shards('windows'), ...shards('windows', 'harness-scripts ')])
     // A shard of the Windows e2e tests took up to 14.5 min in four; one job stays under 20 min.
     expect(shards('windows-e2e')).toHaveLength(4)
     for (const name of ['linux-tests', 'macos-e2e', 'windows-e2e']) {
@@ -243,6 +251,166 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     expect(changes).toContain('          JOB: ${{ inputs.job }}')
     expect(changes).toContain("          BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before }}")
     expect(runs('changes')).toEqual(['node scripts/ci-scope.mjs'])
+  })
+})
+
+// Every unit and contract test file runs in exactly one Windows job of ci.yml, and so does every shell
+// test of the Harness that harness-scripts.test.ts runs. The jobs are the matrix of the job windows;
+// what one of them runs follows from the step of windows-tests.yml that runs the suite, pinned below:
+// a value `<i>/<n>` runs vitest shard i of n of every file but the ones in WORFY_TEST_EXCLUDE
+// (vitest.config.ts), a value `harness-scripts <i>/<n>` runs harness-scripts.test.ts alone, with
+// part i of n of the shell tests (HARNESS_SCRIPTS_PART, test/harness-shell-tests.ts). Which file a
+// shard gets is vitest's own answer (its BaseSequencer, the hash of the path), not a copy of it.
+const WINDOWS_TESTS = join(REPO, '.github', 'workflows', 'windows-tests.yml')
+
+/** The env and run lines of the step of windows-tests.yml that reads the input shard, trimmed. */
+function suiteStep(): string[] {
+  const lines = codeOf(WINDOWS_TESTS)
+  const env = lines.findIndex((line) => line.trim() === 'SHARD: ${{ inputs.shard }}')
+  expect(env, 'the step that reads the input shard').toBeGreaterThan(-1)
+  let start = env
+  while (start > 0 && !(lines[start] ?? '').trimStart().startsWith('- ')) start -= 1
+  const step = [(lines[start] ?? '').trim().replace(/^- /, '')]
+  for (const line of lines.slice(start + 1)) {
+    if (indent(line) <= indent(lines[start] ?? '')) break
+    step.push(line.trim())
+  }
+  return step
+}
+
+/** The file a shard job leaves out and a job of its own runs: the value of HARNESS_SCRIPTS in that step, if any. */
+const ownJobFiles = (): string[] =>
+  suiteStep()
+    .filter((line) => line.startsWith('HARNESS_SCRIPTS: '))
+    .map((line) => line.slice('HARNESS_SCRIPTS: '.length))
+
+const HARNESS_SCRIPTS = 'test/contract/harness-scripts.test.ts'
+
+/** The test files of vitest.config.ts's projects: *.test.ts and *.test.tsx under test/unit and test/contract. */
+const testFiles = (): string[] =>
+  ['test/unit', 'test/contract']
+    .flatMap((dir) =>
+      readdirSync(join(REPO, dir), { recursive: true, encoding: 'utf8' }).map((name) => `${dir}/${name.split(sep).join('/')}`),
+    )
+    .filter((file) => /\.test\.tsx?$/.test(file))
+    .sort()
+
+type WindowsJob = { name: string; files: string[]; shellTests: string[] }
+
+/** What each value of the matrix runs, by the step of windows-tests.yml; `exclude` is what a shard leaves out. */
+async function windowsJobs(values: readonly string[], exclude: readonly string[]): Promise<WindowsJob[]> {
+  const { BaseSequencer } = await import('vitest/node')
+  const all = testFiles()
+  const shell = shellTests(join(REPO, 'harness'))
+  const root = REPO.split(sep).join('/')
+  const shellOf = (files: string[], part?: Part): string[] => (files.includes(HARNESS_SCRIPTS) ? (part ? inPart(shell, part) : shell) : [])
+  return Promise.all(
+    values.map(async (name): Promise<WindowsJob> => {
+      const own = /^harness-scripts (.+)$/.exec(name)
+      if (own) {
+        // `pnpm test test/contract/harness-scripts.test.ts`: vitest takes the path as a filter, a part of the name.
+        const files = all.filter((file) => file.includes(HARNESS_SCRIPTS))
+        return { name, files, shellTests: shellOf(files, parsePart(own[1])) }
+      }
+      const shard = parsePart(name)
+      if (!shard) throw new Error(`no job runs the whole suite in CI: ${name}`)
+      const sequencer = new BaseSequencer({ config: { root, shard } } as never)
+      const specs = all.filter((file) => !exclude.includes(file)).map((file) => ({ moduleId: `${root}/${file}` }))
+      const files = (await sequencer.shard(specs as never)).map((spec) => spec.moduleId.slice(root.length + 1))
+      return { name, files, shellTests: shellOf(files) }
+    }),
+  )
+}
+
+/** The jobs that run each test file, and each shell test (as `harness/<path>`) in place of harness-scripts.test.ts. */
+function jobsPerTest(jobs: WindowsJob[]): Map<string, string[]> {
+  const shell = shellTests(join(REPO, 'harness')).map((name) => `harness/${name}`)
+  const per = new Map([...testFiles().filter((file) => file !== HARNESS_SCRIPTS), ...shell].map((test): [string, string[]] => [test, []]))
+  for (const job of jobs) {
+    for (const file of job.files) if (file !== HARNESS_SCRIPTS) per.get(file)?.push(job.name)
+    for (const name of job.shellTests) per.get(`harness/${name}`)?.push(job.name)
+  }
+  return per
+}
+
+const inJobs = (per: Map<string, string[]>, count: (n: number) => boolean): string[] =>
+  [...per].filter(([, jobs]) => count(jobs.length)).map(([test]) => test)
+
+describe('Windows CI: every unit and contract test file, and every Harness shell test, runs in exactly one job', () => {
+  it('reads the step that runs the suite as pinned: a shard leaves harness-scripts.test.ts out, a job of its own runs it with its part', () => {
+    expect(suiteStep()).toEqual([
+      'name: Run the unit and contract suite, or a part of it',
+      'env:',
+      'SHARD: ${{ inputs.shard }}',
+      `HARNESS_SCRIPTS: ${HARNESS_SCRIPTS}`,
+      'run: |',
+      "if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; pnpm test $env:HARNESS_SCRIPTS }",
+      'elseif ($env:SHARD) { $env:WORFY_TEST_EXCLUDE = $env:HARNESS_SCRIPTS; pnpm test "--shard=$env:SHARD" }',
+      'else { pnpm test }',
+    ])
+    expect(testFiles()).toContain(HARNESS_SCRIPTS)
+    // The filter names this one file: no other test file has its path in its own.
+    expect(testFiles().filter((file) => file.includes(HARNESS_SCRIPTS))).toEqual([HARNESS_SCRIPTS])
+  })
+
+  it('runs each test file in exactly one Windows job, and each Harness shell test in exactly one', async () => {
+    const per = jobsPerTest(await windowsJobs(matrix('windows'), ownJobFiles()))
+    expect(per.size).toBeGreaterThan(400)
+    expect([...per.keys()].filter((test) => test.startsWith('harness/')).length).toBeGreaterThanOrEqual(8)
+    expect(inJobs(per, (n) => n === 0), 'in no Windows job').toEqual([])
+    expect(inJobs(per, (n) => n > 1), 'in two Windows jobs or more').toEqual([])
+  })
+
+  it('runs harness-scripts.test.ts in jobs of its own, with no other file, and in no shard of the suite', async () => {
+    const jobs = await windowsJobs(matrix('windows'), ownJobFiles())
+    const own = jobs.filter((job) => job.files.includes(HARNESS_SCRIPTS))
+    expect(own.map((job) => job.name)).toEqual(['harness-scripts 1/2', 'harness-scripts 2/2'])
+    for (const job of own) expect(job.files, job.name).toEqual([HARNESS_SCRIPTS])
+    // Each job of its own runs a part, not every shell test.
+    for (const job of own) expect(job.shellTests.length, job.name).toBeLessThan(shellTests(join(REPO, 'harness')).length)
+  })
+
+  it('finds a file that runs in no Windows job and a file that runs in two', async () => {
+    const real = matrix('windows')
+    const exclude = [HARNESS_SCRIPTS]
+    const none = async (values: string[], left: string[]) => inJobs(jobsPerTest(await windowsJobs(values, left)), (n) => n === 0)
+    const twice = async (values: string[], left: string[]) => inJobs(jobsPerTest(await windowsJobs(values, left)), (n) => n > 1)
+    const shell = shellTests(join(REPO, 'harness')).map((name) => `harness/${name}`)
+
+    // A shard missing from the matrix: its files run nowhere.
+    const noSecond = await none(real.filter((entry) => entry !== '2/3'), exclude)
+    expect(noSecond.length).toBeGreaterThan(50)
+    expect(noSecond.every((test) => test.startsWith('test/'))).toBe(true)
+    // A shard twice: its files run twice.
+    expect((await twice([...real, '1/3'], exclude)).length).toBeGreaterThan(50)
+    // The jobs of its own gone while the shards still leave the file out: no shell test runs.
+    expect(await none(real.filter((entry) => !entry.startsWith('harness-scripts ')), exclude)).toEqual(shell)
+    // The shards no longer leave it out: every shell test runs in a shard and in a job of its own.
+    expect(await twice(real, [])).toEqual(shell)
+    // A part missing or repeated.
+    const firstHalf = inPart(shellTests(join(REPO, 'harness')), { index: 1, count: 2 }).map((name) => `harness/${name}`)
+    expect(await none(real.filter((entry) => entry !== 'harness-scripts 1/2'), exclude)).toEqual(firstHalf)
+    expect(await twice([...real, 'harness-scripts 1/2'], exclude)).toEqual(firstHalf)
+  })
+})
+
+describe('test/harness-shell-tests.ts: the part of the Harness shell tests one Windows job runs', () => {
+  it('reads <index>/<count>, no part when unset or empty, and refuses anything else', () => {
+    expect(parsePart(undefined)).toBeUndefined()
+    expect(parsePart('')).toBeUndefined()
+    expect(parsePart('1/2')).toEqual({ index: 1, count: 2 })
+    expect(parsePart('2/2')).toEqual({ index: 2, count: 2 })
+    for (const wrong of ['3/2', '0/2', '1/0', '1', '1/2 ', 'a/b', '-1/2', '1/2/3']) expect(() => parsePart(wrong), wrong).toThrow(/HARNESS_SCRIPTS_PART/)
+  })
+
+  it('puts every name in exactly one part, by sorted name, whatever order it is given in', () => {
+    const names = ['e', 'a', 'd', 'b', 'c']
+    expect(inPart(names, { index: 1, count: 2 })).toEqual(['a', 'c', 'e'])
+    expect(inPart(names, { index: 2, count: 2 })).toEqual(['b', 'd'])
+    for (const count of [1, 2, 3, 7]) {
+      const parts = Array.from({ length: count }, (_, at) => inPart(names, { index: at + 1, count }))
+      expect(parts.flat().sort(), String(count)).toEqual([...names].sort())
+    }
   })
 })
 

@@ -87,8 +87,17 @@ const PNPM = ['corepack enable pnpm', 'corepack install']
 const INSTALL = 'pnpm install --frozen-lockfile'
 const RUN = ['test -n "$TEST_FILES"', 'node scripts/vitest-electron.mjs $TEST_FILES']
 const REFUSE = ['test -z "$TEST_FILES" || { echo "::error::mode full runs the whole suite and takes no list of files; leave files empty or choose mode files"; exit 1; }']
-/** PowerShell, the default shell of the Windows image: `pnpm test`, with `--shard` only when a call gives one. */
-const SUITE = ['if ($env:SHARD) { pnpm test "--shard=$env:SHARD" } else { pnpm test }']
+/**
+ * PowerShell, the default shell of the Windows image: `pnpm test`, with `--shard` only when a call gives
+ * one. A shard `harness-scripts <i>/<n>` runs harness-scripts.test.ts alone with part i of n of its
+ * shell tests; a vitest shard leaves that file out. ci-workflow.test.ts checks that together the jobs
+ * of ci.yml run every test file once.
+ */
+const SUITE = [
+  "if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; pnpm test $env:HARNESS_SCRIPTS }",
+  'elseif ($env:SHARD) { $env:WORFY_TEST_EXCLUDE = $env:HARNESS_SCRIPTS; pnpm test "--shard=$env:SHARD" }',
+  'else { pnpm test }',
+]
 
 describe('.github/workflows/windows-tests.yml', () => {
   it('starts by hand or from a call: workflow_dispatch and workflow_call are its only triggers', () => {
@@ -231,8 +240,8 @@ describe('.github/workflows/windows-tests.yml', () => {
     // The whole step: the shard reaches PowerShell through env, and no `shell` key changes the shell
     // the suite has always run under.
     expect(steps(FULL_JOB)[6]).toEqual({
-      name: 'Run the unit and contract suite, or one shard of it',
-      env: ['SHARD: ${{ inputs.shard }}'],
+      name: 'Run the unit and contract suite, or a part of it',
+      env: ['SHARD: ${{ inputs.shard }}', 'HARNESS_SCRIPTS: test/contract/harness-scripts.test.ts'],
       run: SUITE,
     })
     expect(steps(FULL_JOB).flatMap((step) => step.run ?? [])).toEqual([...REFUSE, ...PNPM, INSTALL, ...SUITE])

@@ -25,6 +25,9 @@ name: CI
 #   contract files (harness-evals 943 s, harness-migrate 450 s, harness-scripts 421 s) ran at the same
 #   time on one 4-CPU runner, the likely cause of its flaky tests. An earlier try with 4 shards
 #   failed on Git Bash's /tmp, which test/global-setup-git-bash.ts now fixes for every vitest process.
+#   harness-scripts.test.ts, the longest file of shard 3/3 (354-617 s), runs in two jobs of its own,
+#   "windows (harness-scripts 1/2)" and "(harness-scripts 2/2)", each with half of the Harness shell
+#   tests; the three shards leave it out.
 # - windows-e2e: pnpm test:e2e on Windows in 4 shards, whenever macos-e2e runs. It does not block yet:
 #   ci-ok prints its result and warns when it is not green, but stays green (NON_BLOCKING in
 #   scripts/ci-ok.mjs). It blocks after five green push runs on main in a row, in a pull request of
@@ -283,8 +286,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # pnpm test on Windows: the job full-suite of the Windows workflow, one call per shard. For ci-ok,
-  # needs.windows.result is the result of all three: a failed or cancelled shard makes it red.
+  # pnpm test on Windows: the job full-suite of the Windows workflow, one call per shard: three vitest
+  # shards of every file but harness-scripts.test.ts, and two parts of that file's shell tests. For
+  # ci-ok, needs.windows.result is the result of all five: a failed or cancelled one makes it red.
   windows:
     needs: changes
     if: fromJSON(needs.changes.outputs.expect)['windows']
@@ -295,6 +299,8 @@ jobs:
           - 1/3
           - 2/3
           - 3/3
+          - harness-scripts 1/2
+          - harness-scripts 2/2
     uses: ./.github/workflows/windows-tests.yml
     with:
       mode: full
