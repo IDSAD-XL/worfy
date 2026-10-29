@@ -5,7 +5,7 @@
 // the tools log their calls outside them, so a test can tell that the checks wrote nothing.
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FirstRunActions, type Confirmation } from '../../src/main/first-run/actions'
 import { askAccount, HARNESS_SCRIPT_HINTS, oldHarnessPresent, runChecks, runTool, type AccountQuery, type CheckDeps, type ProjectProfile } from '../../src/main/first-run/checks'
@@ -358,6 +358,29 @@ describe('first-run checks', () => {
     writeFileSync(join(state, 'plugins'), `${DEP}\n`)
     report = await runChecks(deps(env))
     expect(checkOf(report, 'harness')).toMatchObject({ status: 'ok', actions: [] })
+  })
+
+  // worfy-harness ticket 67: an older build never replaces a newer Harness, and the same semver from another commit has no order.
+  it('the Harness of the same version from another commit warns with Replace and no arrow; a newer one fails with the refusal', async () => {
+    tools(...ALL_TOOLS)
+    const env = loginEnv()
+    const installedAs = (version: string): void => {
+      mkdirSync(join(harnessHome, 'plugin', '.claude-plugin'), { recursive: true })
+      writeFileSync(join(harnessHome, 'plugin', '.claude-plugin', 'plugin.json'), `{ "name": "worfy", "version": "${version}" }\n`)
+      writeFileSync(join(state, 'marketplace'), `${join(harnessHome, 'plugin')}\n`)
+      writeFileSync(join(state, 'plugin-version'), `${version}\n`)
+    }
+    installedAs('1.2.0+def5678')
+    let row = checkOf(await runChecks(deps(env)), 'harness')
+    expect(row).toMatchObject({ status: 'warn', detail: `1.2.0+def5678, this build ${BUNDLED_HARNESS}`, actions: [{ id: 'harness-install', label: 'Replace' }] })
+    expect(row.hint).toContain('Both are version 1.2.0 from different commits, and worfy cannot tell which is newer')
+    expect(row.detail).not.toContain('→')
+
+    installedAs('1.3.0+def5678')
+    row = checkOf(await runChecks(deps(env)), 'harness')
+    expect(row).toMatchObject({ status: 'fail', detail: 'error at copy', actions: [{ id: 'harness-install', label: 'Retry' }] })
+    expect(row.hint).toContain(`the installed Harness 1.3.0+def5678 is newer than this build's ${BUNDLED_HARNESS}`)
+    expect(row.hint).toContain(`remove ${join(harnessHome, 'plugin')}, then Install`)
   })
 
   it('the plugin dependencies: not checked without the Harness plugin, failed with Install… when worfy is installed without one, ok with its version when it is there', async () => {
@@ -806,6 +829,24 @@ describe('first-run actions', () => {
       `claude plugin marketplace add ${join(harnessHome, 'plugin')}`,
       'claude plugin install worfy@worfy-harness --scope user',
     ])
+  })
+
+  it('Retry on a refused Harness (a newer one installed) asks nothing, writes nothing and shows the refusal again', async () => {
+    tools(...ALL_TOOLS)
+    const manifest = join(harnessHome, 'plugin', '.claude-plugin', 'plugin.json')
+    mkdirSync(dirname(manifest), { recursive: true })
+    writeFileSync(manifest, '{ "name": "worfy", "version": "1.3.0+def5678" }\n')
+    writeFileSync(join(state, 'marketplace'), `${join(harnessHome, 'plugin')}\n`)
+    writeFileSync(join(state, 'plugin-version'), '1.3.0+def5678\n')
+    const shown: Confirmation[] = []
+    const result = await actions(loginEnv(), [true], shown).run('harness-install')
+    expect(shown).toEqual([])
+    expect(result.outcome).toBe('failed')
+    expect(result.message).toContain('copy: ')
+    expect(readFileSync(manifest, 'utf8')).toBe('{ "name": "worfy", "version": "1.3.0+def5678" }\n')
+    expect(readFileSync(join(state, 'plugin-version'), 'utf8')).toBe('1.3.0+def5678\n')
+    expect(calls().filter((line) => line.startsWith('claude plugin') && !line.endsWith('list --json'))).toEqual([])
+    expect(checkOf(result.report, 'harness')).toMatchObject({ status: 'fail', detail: 'error at copy' })
   })
 
   it('the Harness with its dependency already installed: the dialog names no dependency and keeps "Nothing is downloaded"', async () => {

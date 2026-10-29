@@ -959,7 +959,7 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
 describe('the Harness check (step 3)', () => {
   it.each([
     [{ kind: 'not-installed' as const }, 'The Harness plugin is not installed. Install it on the first-run screen.'],
-    [{ kind: 'outdated' as const, from: '0.3.0', to: '0.4.0' }, 'The Harness plugin is 0.3.0, and worfy carries 0.4.0. Update it on the first-run screen.'],
+    [{ kind: 'outdated' as const, from: '0.3.0', to: '0.4.0', sameVersion: false }, 'The Harness plugin is 0.3.0, and worfy carries 0.4.0. Update it on the first-run screen.'],
     [{ kind: 'installed' as const, version: '0.4.0', enabled: false }, 'The Harness plugin 0.4.0 is installed but disabled. Enable it on the first-run screen.'],
   ])('%o: no draft Session, the answer names the reason', async (state, reason) => {
     const repo = makeRepo(join(scratch, 'shop'))

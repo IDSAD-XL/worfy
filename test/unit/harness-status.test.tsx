@@ -22,7 +22,7 @@ const status = (state: HarnessState, canInstall: boolean): Status => ({
 
 const STATES: HarnessState[] = [
   { kind: 'not-installed' },
-  { kind: 'outdated', from: '0.2.0+aaaaaaa', to: '0.2.0+bbbbbbb' },
+  { kind: 'outdated', from: '0.1.0+aaaaaaa', to: '0.2.0+bbbbbbb', sameVersion: false },
   { kind: 'error', step: 'marketplace add', reason: 'claude plugin marketplace add … exited with 1' },
 ]
 
@@ -33,7 +33,7 @@ describe('HarnessStatusView', () => {
     render(<HarnessStatusView status={status(state, false)} busy={false} failure={undefined} onInstall={() => undefined} />)
     expect(screen.getByTestId('harness-status').getAttribute('data-state')).toBe(state.kind)
     expect(screen.getByTestId('harness-text').textContent).toBe(
-      { 'not-installed': 'Harness not installed', outdated: 'Harness 0.2.0+aaaaaaa → 0.2.0+bbbbbbb', error: 'Harness error: marketplace add' }[state.kind as 'not-installed'],
+      { 'not-installed': 'Harness not installed', outdated: 'Harness 0.1.0+aaaaaaa → 0.2.0+bbbbbbb', error: 'Harness error: marketplace add' }[state.kind as 'not-installed'],
     )
     expect(screen.queryByTestId('harness-action')).toBeNull()
   })
@@ -91,12 +91,25 @@ describe('HarnessStatusView', () => {
 
   it('an outdated Harness with the update offered: its version on the line, "Update Harness: OLD → NEW" as the icon\'s tooltip', () => {
     render(<HarnessStatusView status={status(STATES[1]!, true)} busy={false} failure={undefined} onInstall={() => undefined} />)
-    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+aaaaaaa')
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.1.0+aaaaaaa')
     const update = screen.getByRole('button', { name: 'Update Harness' })
-    expect(update.getAttribute('title')).toBe('Update Harness: 0.2.0+aaaaaaa → 0.2.0+bbbbbbb')
+    expect(update.getAttribute('title')).toBe('Update Harness: 0.1.0+aaaaaaa → 0.2.0+bbbbbbb')
     // An icon, not the words "Update Harness": the name lives only in aria-label and the tooltip.
     expect(update.textContent).toBe('')
     expect(update.querySelector('svg')).not.toBeNull()
+  })
+
+  // worfy-harness ticket 67: the same semver from another commit has no order, so nothing says "update" or "→".
+  it('the same version from another commit: "Replace Harness" with a tooltip that says worfy cannot tell which is newer, and no arrow', () => {
+    const same: HarnessState = { kind: 'outdated', from: '0.3.0+aaaaaaa', to: '0.3.0+bbbbbbb', sameVersion: true }
+    render(<HarnessStatusView status={status(same, true)} busy={false} failure={undefined} onInstall={() => undefined} />)
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.3.0+aaaaaaa')
+    expect(screen.queryByRole('button', { name: 'Update Harness' })).toBeNull()
+    const replace = screen.getByRole('button', { name: 'Replace Harness' })
+    expect(replace.getAttribute('title')).toBe('Replace Harness 0.3.0+aaaaaaa with 0.3.0+bbbbbbb: the same version from another commit, and worfy cannot tell which one is newer')
+    cleanup()
+    render(<HarnessStatusView status={status(same, false)} busy={false} failure={undefined} onInstall={() => undefined} />)
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.3.0+aaaaaaa, this build 0.3.0+bbbbbbb')
   })
 
   it('"Move old Harness…" is an icon button with that name and tooltip', () => {

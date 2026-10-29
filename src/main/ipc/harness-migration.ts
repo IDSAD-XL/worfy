@@ -10,14 +10,13 @@ import { homedir } from 'node:os'
 import { app, BrowserWindow, dialog } from 'electron'
 import { harnessMigrationApply, harnessMigrationChanged, harnessMigrationOffer, harnessMigrationPlan } from '../../shared/ipc/harness-migration'
 import { toEveryWindow } from '../broadcast'
-import { bundledClaudeBinary } from '../agent/options'
-import { bundledHarnessDir } from '../harness/bundled'
-import { claudeCommandEnv, HarnessInstaller, installOffered } from '../harness/install'
+import { claudeCommandEnv, type HarnessInstaller, installOffered } from '../harness/install'
 import { applyMigration, type MigrationSummary } from '../harness/migrate/apply'
 import { buildPlan, claudeJsonPath, hasLegacyHarness, type PlanOptions } from '../harness/migrate/plan'
 import { restoreCommand } from '../harness/migrate/restore'
 import { bridgeFile } from '../harness/status-line'
 import { claudeHome, harnessHome } from '../storage/paths'
+import { appInstaller } from './harness'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 /** Where the move reads and writes, from the app's environment; the first-run screen (ticket 19) looks for the old Harness with it too. */
@@ -38,17 +37,12 @@ export function planOptions(): Omit<PlanOptions, 'pluginState'> {
   }
 }
 
-/** The installer, only to read the plugin's state (`claude plugin list`). */
+/**
+ * The plugin's state (`claude plugin list`), read by the app's one installer: a refusal to replace a
+ * newer Harness (ticket 67) is then logged once, not on every read of the form.
+ */
 function pluginState(): ReturnType<HarnessInstaller['status']> {
-  const env = process.env
-  const runtime = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch }
-  return new HarnessInstaller({
-    bundledDir: bundledHarnessDir(),
-    harnessHome: harnessHome(env),
-    claude: env.WORFY_CLAUDE || bundledClaudeBinary(runtime),
-    env: claudeCommandEnv(env),
-    canInstall: installOffered({ packaged: app.isPackaged, env }),
-  }).status()
+  return appInstaller().status()
 }
 
 /** The text of the consent dialog. */
