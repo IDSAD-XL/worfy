@@ -124,6 +124,22 @@ guard-silent: 13 s фиксированных ожиданий из 46 s. Ско
 - **heartbeat, тело zsh кончается без счёта** (`exit 0` в начале subshell-а zsh): exit 1, `passed 16, failed 1`,
   красная — «zsh: the body ended without its pass and fail counts». Восстановлен, `cmp` — 0.
 
+### Круг 2: число try в «timeout twice» — по тексту отказа
+
+Находка verifier-а (low): с try 0,5 s проверка «silent-check called 2 time(s)» в «timeout twice» считала вызов, только
+если stub успел стартовать и записать строку в log до того, как guard его убил. Так у проверки появился порог
+скорости машины в 0,5 s. А старт процесса в shard-е 3/3 Windows по замеру Ticket-а 23 — до 1,6 s в медиане и 26 s в
+максимуме. Теперь число try берётся из отказа guard-а: «did not finish in 0.5 s and then 0.5 s». Счёт по log stub-а в
+этом случае убран. Проверок столько же: 103.
+
+- stub с задержкой старта 0,7 s на прошлом head `8cefe98d`: exit 1, `passed 102, failed 1` («called 0 time(s), want 2»);
+  на исправленном файле: exit 0, `passed 103, failed 0`.
+- stub, который отвечает сразу, а не висит: exit 1, `passed 92, failed 11`, среди красных — «the refusal does not
+  name two tries of 0.5 s».
+- guard с одним try вместо двух (`tries.length < 1`): exit 1, `passed 96, failed 7`, среди красных — новая проверка.
+- Каждый mutant восстановлен из копии, `cmp` — 0. Исправленный файл отдельно под временным HOME: exit 0, 103/0;
+  `harness-scripts.test.ts`: exit 0, 125 s, 68 passed, 1 skipped; `pnpm lint`: exit 0.
+
 ### Проверки
 
 - `node scripts/vitest-electron.mjs test/contract/harness-scripts.test.ts` под временным HOME — exit 0, 115 s

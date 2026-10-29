@@ -178,8 +178,8 @@ cp "$T/sp-profile.json" "$SPP"
 # the tickets root is not read; `kill` — killed by a signal; `many` — exit 1 with 120 findings; a number —
 # that exit code, nothing printed.
 # One try lasts $TRY_MS here. Where only timeouts happen, 0.5 s is enough: the stand-in that hangs sleeps far
-# longer than any try, so the result never depends on how fast the machine is, and each such try is waited out
-# in full. Where a stand-in must answer inside a try, a try lasts 5 s, so a node start on a loaded machine never
+# longer than any try, and each such try is waited out in full. Such a case checks only what the guard prints,
+# never the stand-in's log, so its result does not depend on how fast the stand-in starts. Where a stand-in must answer inside a try, a try lasts 5 s, so a node start on a loaded machine never
 # runs out of it; where a timeout comes first and the retry must answer, 3 s (each case waits out one try or
 # two). The default try is checked once, at the end of the section.
 STUB="$T/silent-check-stub.cjs"
@@ -231,7 +231,12 @@ stub() {
     no_stub
 }
 CLEAN='git commit -m "Fix the withdraw button state"'
-stub sleep "timeout twice -> deny with the reason" deny "$CLEAN" 'did not finish' 2
+# The tries are counted from the refusal, which names the length of each try, not from the stand-in's log: a
+# stand-in that starts slower than a 0.5 s try is killed before it writes its log line.
+stub sleep "timeout twice -> deny with the reason" deny "$CLEAN" 'did not finish'
+TRY_S="$((TRY_MS / 1000)).$((TRY_MS % 1000 / 100)) s"
+[[ "$got" == *"did not finish in $TRY_S and then $TRY_S,"* ]] && ok "timeout twice: the refusal names two tries of $TRY_S" \
+    || bad "timeout twice: the refusal does not name two tries of $TRY_S: ${got:0:400}"
 for want in '`git commit` was not run' 'Run the same command again' 'silent-check -C '; do
     [[ "$got" == *"$want"* ]] && ok "timeout twice: the refusal says: $want" || bad "timeout twice: no \"$want\" in: ${got:0:400}"
 done
