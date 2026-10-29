@@ -386,6 +386,24 @@ describe('affected-tests.mjs on the diff', () => {
 })
 
 describe('affected-tests.mjs refuses', () => {
+  it('with --github-output, exits 2 and writes no answer: an error must fail the CI step, never read as an empty list', () => {
+    // A failing input of each kind: a table it cannot read, an unknown commit, a tree that is not the head.
+    const broken = branch(() => put('scripts/affected-tests.table.json', '{"all": [], "none": []}\n'))
+    const head = branch(() => put('src/shared/alone.ts', 'export const alone = 5\n'))
+    const runs = [
+      () => affectedIn({ GITHUB_OUTPUT: join(scratch, 'github-output-refused-1') }, broken, '--github-output'),
+      () => affectedFrom('no-such-ref', { GITHUB_OUTPUT: join(scratch, 'github-output-refused-2') }, head, '--github-output'),
+      () => spawnSync(scriptNode(), [SCRIPT, 'main', head, '--github-output'], { cwd: repo, encoding: 'utf8', env: { ...gitEnv(), GITHUB_OUTPUT: join(scratch, 'github-output-refused-3') } }),
+    ]
+    runs.forEach((run, at) => {
+      const file = join(scratch, `github-output-refused-${at + 1}`)
+      writeFileSync(file, 'earlier=1\n')
+      const r = run()
+      expect(r.status, `case ${at + 1}: ${r.stderr}`).toBe(2)
+      expect(readFileSync(file, 'utf8'), `case ${at + 1}`).toBe('earlier=1\n')
+    })
+  })
+
   it('to answer when the working tree is not the head (exit code 2)', () => {
     const head = branch(() => put('src/shared/alone.ts', 'export const alone = 3\n'))
     const r = spawnSync(scriptNode(), [SCRIPT, 'main', head], { cwd: repo, encoding: 'utf8', env: gitEnv() })
