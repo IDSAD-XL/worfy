@@ -1,10 +1,7 @@
 # 30 — gate full на Windows-ПК раз в Wave на `main`, а не на каждый PR со scope `pc`
 
 Type: task
-Status: blocked
-Blocked reason: нужен Windows-ПК; ПК на паузе до слова владельца
-Waits: owner
-Blocked by: 29
+Status: open 2026-10-29T12:07Z
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», предложение 1, решение 7;
 ADR-0056 (Windows-проверки и две Session), пункт 2 —
 платформенный PR вливается после gate full на ПК; аналитика 2026-10-27: Windows-Ticket до merge 2,5 h.
