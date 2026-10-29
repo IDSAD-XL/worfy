@@ -365,7 +365,7 @@ run-ов); разбор красных run-ов workflow «Windows tests» с 20
 | 2 | Implementer ничего не ждёт; доработка — свежему агенту с коротким брифом; 1 h prompt cache, где ожидание неизбежно | перезапись cache после простоя > 5 min — $2 130, 22 % расхода; из них $1 457 — implementer-ы, которые ждут gate (по ценам API) | перезапись после простоя у implementer-ов ≤ $150 за такой же период; общая доля ≤ 8 % | Ticket 19 |
 | 3 | e2e только по задетым путям, flaky test-ы в карантине; набор PR под одну проверку — если `wave-gate` останется (решение 0) | «конец implementer-а → merge» 0,21 → 0,59 h (неделя 1 → 3); `test:e2e` 398 s и `test:package` 117 s из 732,7 s gate full (70 %) | ≤ 0,3 h; macOS job `ci-ok` без UI-путей в diff ≤ 300 s | Ticket 14, время job-ов `ci-ok` |
 | 4 | Цикл merge Orchestrator-а одним скриптом в фоне; свежий контекст на Wave | Orchestrator — 21 % расхода, около 295k token-ов контекста на вызов | −30–40 % стоимости Orchestrator-а; ≤ 150k token-ов на вызов в среднем | Ticket 19 |
-| 5 | Test размера стартового контекста агента, порог около 35k token-ов | стартовый контекст implementer-а 28k → 88k (19–21.10) → 33k (26.10); test-а нет | test красный выше 35k; все агенты Harness ниже порога | Ticket 32 |
+| 5 | Test размера стартового контекста агента, порог около 35k token-ов (заменено R2-Q7: 15k на часть Harness) | стартовый контекст implementer-а 28k → 88k (19–21.10) → 33k (26.10); test-а нет | test красный выше 35k (заменено R2-Q7: 15k на часть Harness); все агенты Harness ниже порога | Ticket 32 |
 
 Сначала замер (как Q7 от 2026-10-20 — «замер до смены процесса»): Ticket 19 переносит скрипты аналитики в
 репозиторий, и база выше считается заново тем же кодом, которым потом считается итог (Ticket 05).
@@ -444,7 +444,7 @@ run-ов); разбор красных run-ов workflow «Windows tests» с 20
 11. **Что считается стартовым контекстом (Ticket 32).** Решение владельца 2026-10-28 (план принят целиком):
     весь первый запрос агента — system prompt Claude Code и схемы tool-ов (константа, откалиброванная по
     транскриптам), `CLAUDE.md`, правила от hook-ов (`common.md` и правила пользователя), определение агента,
-    вывод `bin/profile` с `rules.md`, skill, который агент грузит до первой правки. Порог 35k для implementer,
+    вывод `bin/profile` с `rules.md`, skill, который агент грузит до первой правки. Порог 35k (заменено R2-Q7: 15k на часть Harness) для implementer,
     reviewer, scout и verifier; подсчёт по байтам с коэффициентом из транскриптов, без вызова API.
 12. **Скрипт цикла merge (Ticket 27).** Решение владельца 2026-10-28 (план принят целиком): новый
     `harness/bin/land`, а не подкоманда `wave-gate` (`wave-gate` уже 997 строк, gate предупреждает о файлах
@@ -557,7 +557,7 @@ https://platform.claude.com/docs/en/build-with-claude/prompt-caching, разде
 | 23 | Flaky test-ы Windows, которые видны на runner-е | 20 | нет (runner) | нет | runner `full` | 2 |
 | 32 | Test размера стартового контекста агентов | 19 | нет | да (новый `bin/start-context`) | runner `full` | 2 |
 | 26 | Доработка — свежему implementer-у с коротким брифом | — | нет | да (`epic-wave`) | не платформенный | 3 |
-| 33 | Сократить стартовый контекст ниже порога | 32 | нет | да (тексты агентов и skill-ов) | не платформенный | 3 |
+| 33 | Сократить стартовый контекст ниже порога (заменено R2-Q7: 15k на часть Harness) | 32 | нет | да (тексты агентов и skill-ов) | не платформенный | 3 |
 | 27 | `bin/land`: `ci-ok` → метки → merge → `ticket done`, в фоне | 35 | нет | да (`bin/land`, `epic-wave`) | runner `full` | 4 |
 | 31 | 1 h cache только ролям с неизбежным ожиданием | 19, 25, 26 | нет | да (frontmatter агентов) | не платформенный | 4 |
 | 28 | Свежий контекст Orchestrator-а на Wave: `bin/wave-brief` | 27 | нет | да (`bin/wave-brief`, `epic-wave`, `rules/orchestrator.md`) | runner `full` | 5 |
@@ -596,7 +596,7 @@ https://platform.claude.com/docs/en/build-with-claude/prompt-caching, разде
 - **Свежий implementer на доработке** не помнит хода мысли прежнего. Бриф с путём к отчёту verifier-а и
   списком находок; рост кругов доработки покажет Ticket 19.
 - **1 h cache дороже на коротких работах** (запись 2 × вместо 1,25 ×) — поэтому только по замеру.
-- **Порог 35k по оценке, а не по API.** Коэффициент «байты → token-ы» откалиброван по транскриптам; при смене
+- **Порог 35k (заменено R2-Q7: 15k на часть Harness) по оценке, а не по API.** Коэффициент «байты → token-ы» откалиброван по транскриптам; при смене
   модели или версии Claude Code его надо пересчитать (Ticket 32 пишет, как).
 - **Harness-правки действуют только после обновления Stable copy.** Ticket 05 мерит после.
 
@@ -621,7 +621,7 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
 | L2 | Та же работа на Pro | опубликованное соотношение планов: Max 5x ≈ 5 × Pro, Max 20x ≈ 20 × Pro; у владельца две подписки Max 20x, обе за неделю (ответ на Q-L1) — около 40 × Pro | расход на Ticket ниже в разы (до 40 раз для работы владельца на Pro), а не на 20–30 % | Ticket 40, Ticket 43 |
 | L3 | Subagent-ов на Ticket | Wave: implementer, verifier на глубине `low`, scout — если список файлов неполный (`harness/skills/epic-wave/SKILL.md:240-243`, `:506-511`); ship-ticket без поля глубины — два-три reviewer-а (`harness/skills/ship-ticket/SKILL.md:371-378`). Ревью `high` — 5,3–6,4 млн token-ов на круг, `low` — меньше 0,5 млн (оценка) (`.scratch/worfy-review/issues/08-глубина-ревью-четыре-ступени.md:24`, `:34`). Сколько token-ов у среднего Ticket-а — базы нет: Ticket 19 (`scripts/agent-cost.mjs`) считает по ролям за период, не по Ticket-у; разбивку по Ticket-у добавляет шаг 1 Ticket-а 39 | режим `eco`: Ticket без лишних агентов (Ticket 36) | Ticket 39, шаг 1 (база); Ticket 43, шаг 3 (итог) |
 | L4 | Модель Subagent-ов | implementer и reviewer — `model: inherit`, `effort: high` (`harness/agents/implementer.md:4-5`, `harness/agents/reviewer.md:5-6`), то есть модель Orchestrator-а; scout — `sonnet`, `medium` (`harness/agents/scout.md:5-6`). Цена API (`scripts/agent-cost.mjs:27-28`): вход, выход и запись в cache у Sonnet 5.5 вдвое дешевле, чем у Opus 5.5; чтение из cache — одинаково, $0,2 за 1 млн token-ов. Агенты читают в основном из cache (у Orchestrator-а 225,8k из 228,3k token-ов на вызов, `issues/19-…:83`), поэтому выигрыш в цене заметно меньше 2 ×. Как Sonnet считается в окне «all models» — базы нет | Sonnet по умолчанию, Opus — явным выбором (Ticket 37) | Ticket 40, Ticket 43 |
-| L5 | Стартовый контекст | implementer 33,8k (27.10), reviewer 20,1k, scout 13,8k token-ов, медианы (Ticket 19, «Итог», `issues/19-…:84`, `:86`). Skills и plugin-ы пользователя в Session worfy — базы нет | все агенты ниже 35k (Ticket 32, 33); лишние skills пользователя не грузятся (Ticket 38) | Ticket 32, Ticket 38 |
+| L5 | Стартовый контекст | implementer 33,8k (27.10), reviewer 20,1k, scout 13,8k token-ов, медианы (Ticket 19, «Итог», `issues/19-…:84`, `:86`). Skills и plugin-ы пользователя в Session worfy — базы нет | все агенты ниже 35k (заменено R2-Q7: 15k на часть Harness) (Ticket 32, 33); лишние skills пользователя не грузятся (Ticket 38) | Ticket 32, Ticket 38 |
 | L6 | Orchestrator и простой cache | Orchestrator — 21,1 % расхода, 228,3k token-ов на вызов; перезапись cache после простоя — 24,6 % (Ticket 19, `issues/19-…:80`, `:82-83`) | цели раздела «процесс», строки 2 и 4 | Ticket-ы 25–28, 31 |
 | L7 | Доля разведки кода (scout и чтение до первой правки) | базы нет: Ticket 19 считает по ролям за период, а не по Ticket-у и не долю scout-а; базу даёт шаг 1 Ticket-а 39; для сравнения: карта scout-а на репозитории Auction — медиана 46k token-ов (замер 2026-09-23, память `scout-audit-2026-09-23`) | решает шаг 1 Ticket-а 39 | Ticket 39 |
 

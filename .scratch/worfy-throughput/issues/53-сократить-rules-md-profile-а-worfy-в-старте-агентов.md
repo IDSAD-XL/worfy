@@ -51,8 +51,12 @@ Source: [spec.md](../spec.md), раздел «Ответы владельца 20
 ## Готово, когда
 
 - [ ] «Итог»: `harness/bin/start-context` показывает часть Profile implementer-а, reviewer-а, scout-а и
-      verifier-а до и после предложенной правки (после — на копии Profile с предложенным `rules.md`, через
-      `--profile <path>`).
+      verifier-а до и после предложенной правки. Оба замера — без `--profile`: тогда `start-context` считает
+      вывод `bin/profile` (`harness/bin/start-context:215-220`), и экономия пункта 4 (без `## Sources`) в нём
+      видна. «После» — с `HARNESS_HOME`, указывающим на копию папки Harness с предложенным `rules.md`
+      (`bin/profile` находит Profile через `HARNESS_HOME`, `harness/bin/profile:109-112`). Режим
+      `--profile <path>` для этого замера не годится: он читает `rules.md` с диска целиком, с `## Sources`
+      (`harness/bin/start-context:206`, `:213`).
 - [ ] «Итог»: предложенный diff `rules.md` и текст файла по запросу; каждая перенесённая часть называет шаг, на
       котором агент её читает.
 - [ ] Если меняется `bin/profile`: shell test — вывод `bin/profile` не содержит раздел `## Sources` (и его
@@ -66,7 +70,7 @@ Source: [spec.md](../spec.md), раздел «Ответы владельца 20
 - `harness/bin/profile` — печать `rules.md` (`:493-494`, `:536-538`)
 - `harness/hooks/session-start.mjs` — как выбрасывается `## Sources` (`:183-188`); только читать
 - `harness/profiles/README.md` — раздел `## rules.md` (`:492-507`), раскладка папки Profile (`:27-37`)
-- `harness/bin/start-context` — часть Profile в замере (`--profile <path>`); только читать
+- `harness/bin/start-context` — часть Profile в замере (вывод `bin/profile`, `:215-220`); только читать
 - Вне репозитория, только предложение: `$HARNESS_HOME/projects/worfy/rules.md`
 
 ## Вне скоупа
