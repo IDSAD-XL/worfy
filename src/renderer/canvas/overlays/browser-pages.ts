@@ -5,6 +5,7 @@ import type { InternalNode, ReactFlowState } from '@xyflow/react'
 import { browserPartition } from '../../../shared/browser/partition'
 import { BROWSER_KIND, browserPageRect, browserProfileChoice, browserUrl, type BrowserProfileChoice } from '../nodes/browser-frame'
 import type { CanvasFlowNode } from '../nodes'
+import { browserPageViewport, type BrowserPageViewport } from '../nodes/browser-viewport'
 
 export interface BrowserLayerPage {
   id: string
@@ -16,6 +17,8 @@ export interface BrowserLayerPage {
    * saved before profiles existed, which browserProfileChoice keeps on `default` by its address.
    */
   profile?: string | null
+  /** The page viewport the Node asks for (`data.viewport`, browser-viewport.ts); absent — the page fills the body. */
+  viewport?: BrowserPageViewport
   x: number
   y: number
   w: number
@@ -24,7 +27,7 @@ export interface BrowserLayerPage {
 
 /**
  * Every Browser Node's page as one string, so the selector's result compares by value and the layer
- * draws again only when a page moves, changes size, address or profile, not on every pan. Sorted by
+ * draws again only when a page moves, changes size, address, profile or viewport, not on every pan. Sorted by
  * id: a <webview> moved in the DOM reloads its page, so the order of the existing ones never
  * changes. It reads React Flow's node lookup, which holds every Node, drawn or not, at the same
  * place the Node renderer reads it, so the frame and its page are drawn in the same commit.
@@ -39,11 +42,13 @@ export function pagesKey(state: Pick<ReactFlowState, 'nodeLookup'>): string {
     const w = node.width ?? node.measured.width ?? node.data.node.w
     const h = node.height ?? node.measured.height ?? node.data.node.h
     const { profile } = node.data.node.data
+    const viewport = browserPageViewport(node.data.node.data)
     pages.push({
       id: node.id,
       url: browserUrl(node.data.node),
       // Absent stays absent: browserProfileChoice tells an old Browser from a new one by the key.
       ...(profile === undefined ? {} : { profile: typeof profile === 'string' ? profile : null }),
+      ...(viewport === null ? {} : { viewport }),
       ...browserPageRect({ x, y, w, h }),
     })
   }

@@ -87,7 +87,9 @@
         "src/renderer/canvas/overlays/BrowserLayer.tsx",
         "src/renderer/canvas/overlays/browser-pages.ts",
         "src/renderer/canvas/nodes/BrowserNode.tsx",
-        "src/renderer/canvas/nodes/BrowserNode.css"
+        "src/renderer/canvas/nodes/BrowserNode.css",
+        "src/renderer/canvas/nodes/BrowserSidebar.tsx",
+        "src/renderer/canvas/nodes/browser-viewport.ts"
       ],
       "specs": [
         "test/e2e/browser-autopilot.spec.ts",
@@ -98,6 +100,7 @@
         "test/e2e/browser-profile.spec.ts",
         "test/e2e/browser-screens.spec.ts",
         "test/e2e/browser-sleep.spec.ts",
+        "test/e2e/browser-viewport.spec.ts",
         "test/e2e/browser-webview-guard.spec.ts",
         "test/e2e/browser.spec.ts",
         "test/e2e/controls.spec.ts",

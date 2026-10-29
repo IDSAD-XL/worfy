@@ -1,7 +1,7 @@
 # 18 — Resize карточки Browser и viewport страницы отдельно от размера карточки; сайдбар настроек в хедере
 
 Type: feature
-Status: open 2026-10-24T21:58Z
+Status: claimed 2026-10-29T15:35Z
 Branch: worfy-browser/18
 Blocked by: 17
 Source: владелец, 2026-10-25 (чат Mac-оркестратора)
@@ -90,3 +90,41 @@ Source: владелец, 2026-10-25 (чат Mac-оркестратора)
 - `src/renderer/browser/frames.ts`, `sendBrowserInput` — ввод с других экранов.
 
 ## Итог
+
+Способ — **CSS** (ADR-0087, `docs/adr/0087-browser-page-viewport.md`). Viewport — `data.viewport` Node-а
+(`{ w, h }`, стороны от 200 до 3840 CSS px); без него страница размером тела карточки, как раньше. С ним слой
+Browser даёт `<webview>` размер viewport-а и `transform: scale(min(тело / viewport))` от левого верхнего угла
+тела, на Canvas и в плитке focus mode. Причины: тот же механизм уже масштабирует страницу при zoom Canvas
+(клики, ввод Session, проверки пикселей с ним верны); всё в renderer, main не держит эмуляцию на каждую
+новую страницу; CDP-эмуляция сбрасывается при detach debugger-а (DevTools). Решено без владельца, подтвердить:
+ADR, место сайдбара (панель поверх правой части тела карточки, 220 px), готовые размеры (1440 × 900,
+1280 × 800, 768 × 1024, 390 × 844 и Custom — названы размером, без «Phone» или «Tablet»: CSS меняет только
+ширину и высоту, устройство не эмулируется, ADR-0087, п. 5), минимум карточки 360 × 200, выравнивание
+страницы и кадров по левому верхнему углу.
+
+Чёткость текста при масштабе (шаг 1 Ticket-а) замерена в Electron e2e 2026-10-29: при 0,44 и 2,05 текст
+чёткий (Chromium растеризует страницу в показанном масштабе), `devicePixelRatio` страницы остаётся 2,
+working set GPU-процесса при viewport-е 3840 × 3840 не растёт заметно (таблица — ADR-0087). Снимки —
+[../evidence/18-text-scale-0.44.png](../evidence/18-text-scale-0.44.png),
+[../evidence/18-text-scale-2.05.png](../evidence/18-text-scale-2.05.png).
+
+- Resize — `NodeResizeClamp` в `BrowserNode.tsx`, операция `resize`; ручки берут мышь (`BrowserNode.css`).
+- Сайдбар — `src/renderer/canvas/nodes/BrowserSidebar.tsx`, кнопка справа от адресной строки; настройка
+  viewport-а — отдельный `<fieldset>`, следующие настройки встают под ним. Запись — `patchData`
+  (`viewport: null` — «Fit to card»).
+- Кадры для других окон и Linked machine: screencast не менялся (снимает viewport страницы); окно с кадрами
+  вписывает их `object-fit: contain` от левого верхнего угла и пересчитывает ввод тем же масштабом
+  (`framePoint`, `src/renderer/browser/frames.ts`); нажатие мимо картинки не уходит странице.
+- Test-ы: `test/unit/browser-viewport.test.tsx` (разбор `data.viewport`, вписывание, пересчёт координат и клик
+  в кадрах, `<webview>` своего размера, сайдбар, ручки resize), `test/unit/browser-layer.test.tsx` (viewport в
+  плитке focus mode), `test/contract/layout-store.test.ts` (resize Browser и `data.viewport` переживают
+  перезапуск main), `test/e2e/browser-viewport.spec.ts` (resize мышью, `innerWidth` страницы равен заданному,
+  перезапуск). Mutant-ы (без `data.viewport` в слое, слой без viewport-а, растяжение кадров вместо вписывания,
+  нажатие мимо картинки, без ручек, сайдбар без записи, разбор без границ, плитка без своего размера) —
+  каждый краснит test. Круг ревью 1 добавил: минимум 360 × 200 (e2e; mutant 10 × 10 красный), колесо мимо
+  картинки (unit), фокус в сайдбаре при открытии и Esc на кнопке (unit), второе окно с кадрами страницы
+  1280 × 400 — клик по видимому квадрату попадает в квадрат (e2e; mutant `object-position: center` красный).
+- Проверки пикселей Browser на Canvas и в focus mode: `browser-layer`, `browser-focus`, `browser-screens`,
+  `browser`, `browser-sleep` e2e — 27 passed локально.
+- Не сделано здесь: вручную на Stable (resize и смена viewport-а) — за владельцем; gate full на Mac не
+  гонялся (по правилам проекта merge решает `ci-ok`).

@@ -220,6 +220,11 @@
   width: 100%;
   height: 100%;
 }
+/* A page with a viewport of its own (worfy-browser ticket 18, ADR-0087): the <webview> has that size
+   and a scale in its style, and the part of the body it does not cover is the raised surface. */
+.w-browser-layer__page--fitted {
+  background: var(--surface-raised);
+}
 
 /* While a mouse button pressed on the Canvas is held (frames-step-aside.ts), a Node is dragged or
    the Canvas panned, the page takes no mouse: a pointer that runs ahead onto it would hand the moves
@@ -344,7 +349,9 @@
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* The page's picture lies as the page does (worfy-browser ticket 18): its viewport may not be the body's. */
+  object-fit: contain;
+  object-position: left top;
   opacity: 0.55;
   filter: grayscale(0.4);
 }
@@ -385,10 +392,123 @@
   height: 100%;
   border-radius: 0 0 var(--radius-node) var(--radius-node);
   background: var(--surface-raised);
+  /* As large as fits whole, from the top-left corner, as the page lies in its own frame
+     (worfy-browser ticket 18): framePoint (src/renderer/browser/frames.ts) maps the mouse the same way. */
+  object-fit: contain;
+  object-position: left top;
   pointer-events: all;
   cursor: default;
 }
 .w-browser-frame__frames:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+}
+
+/* The settings sidebar's button, right of the address bar (worfy-browser ticket 18). */
+.w-browser-frame__header > .w-browser-frame__nav-button {
+  flex: none;
+}
+.w-browser-frame__header > .w-browser-frame__nav-button[aria-expanded='true'] {
+  background: var(--segment-track);
+  color: var(--text);
+}
+
+/* The resize handles of a selected frame (worfy-browser ticket 18): React Flow's wrapper of a Browser
+   Node lets the mouse through to the page (above), and the handles take it back. */
+.w-canvas .react-flow__node.react-flow__node-browser .react-flow__resize-control {
+  pointer-events: all;
+}
+
+/* The settings sidebar (BrowserSidebar.tsx): over the right side of the body, the colours of the
+   header; it covers the page there and takes the mouse, unlike the rest of the body. */
+.w-browser-sidebar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  box-sizing: border-box;
+  width: 220px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-node) 0;
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-12);
+  pointer-events: all;
+  cursor: default;
+}
+.w-browser-sidebar:focus {
+  outline: none;
+}
+.w-browser-sidebar__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.w-browser-sidebar__title {
+  font-weight: 600;
+}
+.w-browser-sidebar__setting {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.w-browser-sidebar__legend {
+  padding: 0;
+  margin-bottom: var(--space-1);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.w-browser-sidebar__choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.w-browser-sidebar__choice > input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+.w-browser-sidebar__custom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-left: 20px;
+}
+.w-browser-sidebar__number {
+  width: 56px;
+  min-width: 0;
+  height: 20px;
+  box-sizing: border-box;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--text-12);
+}
+.w-browser-sidebar__number:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.w-browser-sidebar__number[aria-invalid='true'] {
+  border-color: var(--blocked-ring);
+}
+.w-browser-sidebar__custom .w-browser-frame__open-button {
+  margin-left: 0;
+  padding: 0 var(--space-2);
+}
+.w-browser-sidebar__hint {
+  margin: 0;
+  color: var(--text-muted);
+  white-space: normal;
 }

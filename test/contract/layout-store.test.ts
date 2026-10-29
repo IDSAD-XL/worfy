@@ -688,6 +688,27 @@ describe('layout store: saving', () => {
     store.flushAll()
     expect(onDisk(other).nodes.map((node) => node.id)).toEqual(['theirs'])
   })
+
+  it('a Browser keeps its size from a resize and its page viewport (`data.viewport`) across a restart; «Fit to card» writes null', async () => {
+    // worfy-browser ticket 18: the frame is resized like any Node, and the page viewport is a key of
+    // its data, changed by `patchData` as the address is.
+    const browser = { op: 'create', node: { id: 'b1', kind: 'browser', x: 0, y: 0, w: 640, h: 440, data: { url: 'http://127.0.0.1/page.html', profile: 'default' } } }
+    await applied(browser)
+    await applied({ op: 'resize', id: 'b1', x: -10, y: 20, w: 420, h: 300 })
+    await applied({ op: 'patchData', id: 'b1', data: { viewport: { w: 1440, h: 900 } } })
+    store.flushAll()
+    expect(nodeOf(onDisk(), 'b1')).toMatchObject({ x: -10, y: 20, w: 420, h: 300, data: { url: 'http://127.0.0.1/page.html', profile: 'default', viewport: { w: 1440, h: 900 } } })
+
+    await start()
+    expect(nodeOf((await value('layout.get', { projectId: PROJECT })).layout, 'b1')).toMatchObject({ w: 420, h: 300, data: { viewport: { w: 1440, h: 900 } } })
+
+    await applied({ op: 'patchData', id: 'b1', data: { viewport: null } })
+    store.flushAll()
+    await start()
+    const after = nodeOf((await value('layout.get', { projectId: PROJECT })).layout, 'b1')
+    expect(after?.data).toEqual({ url: 'http://127.0.0.1/page.html', profile: 'default', viewport: null })
+    expect(after).toMatchObject({ w: 420, h: 300 })
+  })
 })
 
 // ── Nodes never overlap (ADR-0038) ─────────────────────────────────────────

@@ -3,13 +3,14 @@ import type { BrowserProfile } from '../../../shared/browser/profiles'
 import type { BROWSER_KIND, BROWSER_SIZE, BrowserControlMode } from '../../../shared/browser/tools'
 import { BrowserProfiles } from '../../browser/BrowserProfiles'
 import { returnBrowserControl, takeOverBrowser, useBrowserControl } from '../../browser/control'
-import { buttonOf, keyText, modifiersOf, navigateBrowserFrames, sendBrowserInput, useBrowserFrames } from '../../browser/frames'
+import { buttonOf, framePoint, keyText, modifiersOf, navigateBrowserFrames, sendBrowserInput, useBrowserFrames } from '../../browser/frames'
 import { useBrowserLife, useBrowserPicture, wakeBrowser } from '../../browser/lives'
 import { useBrowserProfiles } from '../../browser/profiles'
 import { useInFocusTile, useSeeThroughTile } from '../../focus/focus-tile'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { useEdgeFocus } from '../edge-focus'
+import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
 import {
   BROWSER_HEADER_HEIGHT,
@@ -26,6 +27,8 @@ import {
   useBrowserHistory,
   useBrowserOpenRequest,
 } from './browser-frame'
+import { BrowserSidebar } from './BrowserSidebar'
+import { BROWSER_FRAME_MIN, browserPageViewport } from './browser-viewport'
 import type { CanvasNodeProps } from './index'
 import './BrowserNode.css'
 
@@ -56,6 +59,10 @@ import './BrowserNode.css'
 // sends it the user's click, scroll and keys; its address bar sends the page there through main.
 // A read-only screen of a Linked machine (ADR-0078 item 14) shows the frame with the name of the
 // Browser profile alone: no address bar, no buttons, no frames, no picture of an Asleep page.
+// A selected frame is resized by its handles (worfy-browser ticket 18), and the button right of the
+// address bar opens the settings sidebar (BrowserSidebar.tsx), whose first setting is the page
+// viewport (`data.viewport`, browser-viewport.ts, ADR-0087): the page, its frames and its picture are
+// then laid out at that size and fitted into the body.
 // The kind and size of src/shared/browser/tools.ts. The registry (index.ts) needs them here as
 // literals (fast refresh accepts no other constant exports); `satisfies` fails the typecheck the
 // moment they differ from the shared ones.
@@ -327,13 +334,12 @@ function Frames({ projectId, id }: { projectId: string; id: string }) {
       current = false
     }
   }, [frame, id])
-  /** Where `event` is on the page, in its CSS pixels; null before the first frame. */
-  const at = (event: { clientX: number; clientY: number }): { x: number; y: number } | null => {
+  /** Where `event` is on the page, in its CSS pixels, and whether on its picture (framePoint); null before the first frame. */
+  const at = (event: { clientX: number; clientY: number }): { x: number; y: number; inside: boolean } | null => {
     const target = canvas.current
     if (frame === null || target === null) return null
     const box = target.getBoundingClientRect()
-    if (box.width === 0 || box.height === 0) return null
-    return { x: ((event.clientX - box.left) / box.width) * frame.width, y: ((event.clientY - box.top) / box.height) * frame.height }
+    return framePoint(event.clientX - box.left, event.clientY - box.top, box, frame)
   }
   // The scroll is the page's, not the Canvas's: a passive React listener could not stop the Canvas's zoom.
   useEffect(() => {
@@ -343,14 +349,20 @@ function Frames({ projectId, id }: { projectId: string; id: string }) {
       event.preventDefault()
       event.stopPropagation()
       const point = at(event)
-      if (point !== null) sendBrowserInput(projectId, id, { kind: 'wheel', ...point, deltaX: event.deltaX, deltaY: event.deltaY, modifiers: modifiersOf(event) })
+      if (point?.inside === true) sendBrowserInput(projectId, id, { kind: 'wheel', x: point.x, y: point.y, deltaX: event.deltaX, deltaY: event.deltaY, modifiers: modifiersOf(event) })
     }
     target.addEventListener('wheel', onWheel, { passive: false })
     return () => target.removeEventListener('wheel', onWheel)
   })
-  const mouse = (type: 'mousePressed' | 'mouseReleased' | 'mouseMoved', event: ReactPointerEvent<HTMLCanvasElement>, button: 'none' | 'left' | 'middle' | 'right') => {
+  /**
+   * Sends a press, a drag or a release; true when sent. With `onPicture` — a press, or a release
+   * that no press here began — one beside the picture, on the empty part of the body, is none.
+   */
+  const mouse = (type: 'mousePressed' | 'mouseReleased' | 'mouseMoved', event: ReactPointerEvent<HTMLCanvasElement>, button: 'none' | 'left' | 'middle' | 'right', onPicture: boolean): boolean => {
     const point = at(event)
-    if (point !== null) sendBrowserInput(projectId, id, { kind: 'mouse', type, ...point, button, clickCount: type === 'mouseMoved' ? 0 : Math.min(3, Math.max(1, event.detail)), modifiers: modifiersOf(event) })
+    if (point === null || (onPicture && !point.inside)) return false
+    sendBrowserInput(projectId, id, { kind: 'mouse', type, x: point.x, y: point.y, button, clickCount: type === 'mouseMoved' ? 0 : Math.min(3, Math.max(1, event.detail)), modifiers: modifiersOf(event) })
+    return true
   }
   const key = (type: 'keyDown' | 'keyUp', event: ReactKeyboardEvent<HTMLCanvasElement>) => {
     event.preventDefault()
@@ -369,17 +381,17 @@ function Frames({ projectId, id }: { projectId: string; id: string }) {
       onPointerDown={(event) => {
         event.currentTarget.focus()
         event.currentTarget.setPointerCapture(event.pointerId)
-        pressed.current = buttonOf(event.button)
-        mouse('mousePressed', event, pressed.current)
+        const button = buttonOf(event.button)
+        pressed.current = mouse('mousePressed', event, button, true) ? button : null
       }}
       onPointerMove={(event) => {
         // A drag only: a move without a button would send every hover over the network.
-        if (pressed.current !== null) mouse('mouseMoved', event, pressed.current)
+        if (pressed.current !== null) mouse('mouseMoved', event, pressed.current, false)
       }}
       onPointerUp={(event) => {
-        const button = pressed.current ?? buttonOf(event.button)
+        const held = pressed.current
         pressed.current = null
-        mouse('mouseReleased', event, button)
+        mouse('mouseReleased', event, held ?? buttonOf(event.button), held === null)
       }}
       onContextMenu={(event) => event.preventDefault()}
       onKeyDown={(event) => key('keyDown', event)}
@@ -479,8 +491,38 @@ function ChooseProfile({ id, choice, profiles, manage }: { id: string; choice: B
   )
 }
 
-export default function BrowserNode({ id, data }: CanvasNodeProps) {
+/** The button right of the address bar that opens and closes the frame's settings sidebar (BrowserSidebar.tsx). */
+function SidebarButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className="w-browser-frame__nav-button nodrag"
+      data-testid="browser-settings"
+      aria-label="Browser settings"
+      title="Browser settings"
+      aria-expanded={open}
+      onClick={onToggle}
+      onKeyDown={(event) => {
+        // Esc on the button of an open sidebar closes it, not the Esc of an active Node or of Focus mode.
+        if (event.key !== 'Escape' || !open) return
+        event.preventDefault()
+        event.stopPropagation()
+        onToggle()
+      }}
+    >
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true">
+        <rect x="2" y="3" width="12" height="10" rx="1.5" />
+        <path d="M10 3v10" />
+      </svg>
+    </button>
+  )
+}
+
+export default function BrowserNode({ id, data, selected }: CanvasNodeProps) {
+  const ops = useLayoutOps()
   const url = browserUrl(data.node)
+  const viewport = browserPageViewport(data.node.data)
+  const [sidebar, setSidebar] = useState(false)
   const projectId = activeProject(useProjects())?.id
   const profiles = useBrowserProfiles(projectId)
   const choice = browserProfileChoice(data.node.data, profiles)
@@ -523,6 +565,14 @@ export default function BrowserNode({ id, data }: CanvasNodeProps) {
       onPointerDownCapture={takeOver}
       onKeyDownCapture={takeOver}
     >
+      {/* Resized like a Note or a Terminal (worfy-browser ticket 18): the page follows the body, unless
+          the Browser has a viewport of its own, which is then scaled into it (ADR-0087). */}
+      <NodeResizeClamp
+        isVisible={selected}
+        minWidth={BROWSER_FRAME_MIN.w}
+        minHeight={BROWSER_FRAME_MIN.h}
+        onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
+      />
       <div className="w-browser-frame__header" style={{ height: BROWSER_HEADER_HEIGHT }}>
         {profile !== undefined ? (
           <button
@@ -541,6 +591,7 @@ export default function BrowserNode({ id, data }: CanvasNodeProps) {
           <>
             <NavButtons id={id} />
             <AddressBar id={id} url={url} noProfile={choice.kind !== 'use'} framesOf={frames ? projectId : null} />
+            <SidebarButton open={sidebar} onToggle={() => setSidebar(!sidebar)} />
             {life?.live === true ? <LifeMarks unsaved={life.unsaved} overLimit={life.overLimit} /> : null}
             {control !== null && projectId !== undefined && choice.kind !== 'choose' ? <DriveBadge projectId={projectId} id={id} mode={control} /> : null}
           </>
@@ -561,6 +612,7 @@ export default function BrowserNode({ id, data }: CanvasNodeProps) {
         ) : (
           <OpenBar id={id} url={url} />
         )}
+        {sidebar && readOnly === null ? <BrowserSidebar id={id} viewport={viewport} onClose={() => setSidebar(false)} /> : null}
       </div>
       {profilesWindow.window}
     </div>
