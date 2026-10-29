@@ -1,7 +1,8 @@
 # 54 — Меньше PR на полном наборе e2e macOS: узкие триггеры полного набора и `macos-package`
 
 Type: task
-Status: claimed 2026-10-29T10:54Z
+Status: done 2026-10-29T12:04Z
+PR: #979
 Blocked by: 11 (Ticket [11](11-pr-вливается-по-задетым-test-ам-полный-набор-на-main.md) правит те же файлы —
 `.github/workflows/ci.yml` и `scripts/ci-scope.mjs`)
 Source: замер 2026-10-29 около 09:30 UTC по 13 последним завершённым run-ам `ci.yml` и по macOS-job-ам этих run-ов
@@ -99,18 +100,18 @@ windows-e2e-shards=["1/1"]
 
 ## Готово, когда
 
-- [ ] «Итог»: замер шага 1 — run-ы после `87b87f6a`, путь-триггер каждого PR на всём наборе и на `macos-package`.
-- [ ] Сначала красные contract test-ы (a) и (b): PR только с `test/fixtures/eval-stub/claude.cjs` не идёт на весь
+- [x] «Итог»: замер шага 1 — run-ы после `87b87f6a`, путь-триггер каждого PR на всём наборе и на `macos-package`.
+- [x] Сначала красные contract test-ы (a) и (b): PR только с `test/fixtures/eval-stub/claude.cjs` не идёт на весь
       набор; PR только с `.github/workflows/windows-tests.yml` не просит `macos-package`. Старые ожидания
       `test/contract/ci-workflow.test.ts:596-597` и `:663` переписаны под новое правило.
-- [ ] Test: PR только с `harness/skills/epic-wave/SKILL.md` просит только spec-файлы правила Harness таблицы, и по
+- [x] Test: PR только с `harness/skills/epic-wave/SKILL.md` просит только spec-файлы правила Harness таблицы, и по
       нынешнему правилу shard-ов это `macos-e2e-shards=["1/1"]`. Сегодня он зелёный сразу — это guard, а не
       красный test.
-- [ ] Test: каждая папка fixture-ов, которую читает e2e, остаётся путём приложения.
-- [ ] `pnpm lint`, `pnpm typecheck` и `pnpm test` — exit 0; условие merge — `ci-ok`.
+- [x] Test: каждая папка fixture-ов, которую читает e2e, остаётся путём приложения.
+- [x] `pnpm lint`, `pnpm typecheck` и `pnpm test` — exit 0; условие merge — `ci-ok`.
 - [ ] Замер после 10 PR с кодом (тем же методом: медиана времени по стене, медиана ожидания macOS, время без
       ожидания, сколько PR шли на всём наборе и с `macos-package`) — в «Итог».
-- [ ] Вердикт Windows: runner (`scripts/windows-verdict-scope.mjs`). `windows-tests.yml` этот Ticket не меняет; если
+- [x] Вердикт Windows: runner (`scripts/windows-verdict-scope.mjs`). `windows-tests.yml` этот Ticket не меняет; если
       изменит — сказать об этом в PR и в «Итог».
 
 ## Где в коде
@@ -198,3 +199,9 @@ Run-ы `ci.yml` по событию `pull_request` с кодом, созданн
   `test/e2e`). Новая папка fixture-ов даёт ALL. После этого круга PR с правкой `src/` тоже выбирает
   `ci-workflow.test.ts`: guard читает `src/`. Без него было 105 файлов, с ним 106. Отдельная запись в таблице не
   нужна.
+
+Влит #979 (`acd2b50b`), ревью medium в два круга: круг 2 без high и med, 9 из 12 мутантов красные (три выживших —
+только в сторону лишнего прогона). Дополнительно: запись в `test/quarantine/` ведёт на spec из своего поля `file`,
+а не на весь набор. Пункт «замер после 10 PR» открыт — его делает bridge после 10 PR с кодом и дописывает сюда.
+Долг [low] (передан в Ticket 24, следующий PR в `scripts/ci-scope.mjs`): хвост `JOB_KEY`, отступ блока после
+`- key: |`, запись карантина для vitest ведёт на весь набор, три недостающих случая test-а.
