@@ -13,6 +13,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
+import { EPIC_ARRANGEMENT_ID } from '../../src/shared/layout/derived'
 import { canvasReady, launchApp, openSecondWindow, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript, loginProfileWithNode } from '../harness-node'
@@ -174,6 +175,10 @@ test('Arrange by Epic from ⌘K: the Sessions stand right of the strip at their 
     await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [frame(ALPHA), frame(BETA)], timeout: 20_000 })
     // The Bindings are read: the anchors of the bound Sessions are on the Canvas.
     for (const id of [S_ALPHA, S_BETA, S_KEPT]) await expect(window.locator(`.react-flow__node[data-id="binding-anchor:session:${id}"]`)).toHaveCount(1, { timeout: 20_000 })
+    // The Project's first opening of the day writes the strip's record on its own, past the ⌘Z history,
+    // once the Bindings are read and the frames settled (arrangement-record.ts). `before` is read after
+    // that write: read earlier, the record would look like a Node that ⌘Z left behind.
+    await expect.poll(async () => (await state(window)).nodes.some((node) => node.id === EPIC_ARRANGEMENT_ID), { message: "the first opening's record of the strip" }).toBe(true)
     const before = await state(window)
 
     await arrangeFromPalette(window)
