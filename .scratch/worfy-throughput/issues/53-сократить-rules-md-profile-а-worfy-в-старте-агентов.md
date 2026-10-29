@@ -1,7 +1,8 @@
 # 53 — Сократить `rules.md` Profile-а worfy в старте агентов
 
 Type: task
-Status: claimed 2026-10-29T11:18Z
+Status: done 2026-10-29T11:49Z
+PR: #981
 Branch: worfy-throughput/53
 Blocked by: 33
 Source: [spec.md](../spec.md), раздел «Ответы владельца 2026-10-29, раунд 2», ответ R2-Q7; Ticket
@@ -51,20 +52,20 @@ Source: [spec.md](../spec.md), раздел «Ответы владельца 20
 
 ## Готово, когда
 
-- [ ] «Итог»: `harness/bin/start-context` показывает часть Profile implementer-а, reviewer-а, scout-а и
+- [x] «Итог»: `harness/bin/start-context` показывает часть Profile implementer-а, reviewer-а, scout-а и
       verifier-а до и после предложенной правки. Оба замера — без `--profile`: тогда `start-context` считает
       вывод `bin/profile` (`harness/bin/start-context:215-220`), и экономия пункта 4 (без `## Sources`) в нём
       видна. «После» — с `HARNESS_HOME`, указывающим на копию папки Harness с предложенным `rules.md`
       (`bin/profile` находит Profile через `HARNESS_HOME`, `harness/bin/profile:109-112`). Режим
       `--profile <path>` для этого замера не годится: он читает `rules.md` с диска целиком, с `## Sources`
       (`harness/bin/start-context:206`, `:213`).
-- [ ] «Итог»: предложенный diff `rules.md` и текст файла по запросу; каждая перенесённая часть называет шаг, на
+- [x] «Итог»: предложенный diff `rules.md` и текст файла по запросу; каждая перенесённая часть называет шаг, на
       котором агент её читает.
-- [ ] Если меняется `bin/profile`: shell test — вывод `bin/profile` не содержит раздел `## Sources` (и его
+- [x] Если меняется `bin/profile`: shell test — вывод `bin/profile` не содержит раздел `## Sources` (и его
       русское имя), остальной `rules.md` на месте; `harness/bin/tests/start-context.test.sh` — exit 0.
-- [ ] Если меняется контракт Profile: `harness/profiles/README.md` и schema описывают новое поле;
+- [x] Если меняется контракт Profile: `harness/profiles/README.md` и schema описывают новое поле;
       shell test-ы Profile — exit 0.
-- [ ] Shell test-ы Harness — exit 0; `ci-ok` зелёный.
+- [x] Shell test-ы Harness — exit 0; `ci-ok` зелёный.
 
 ## Где в коде
 
@@ -151,3 +152,9 @@ gate до тикета 01); «Harness во время E3» (замороженн
 
 Применить правку: `cp /tmp/worfy-link-w1/impl-53/rules.proposed.md ~/.claude/worfy-harness/projects/worfy/rules.md`
 и `cp /tmp/worfy-link-w1/impl-53/rules-*.md ~/.claude/worfy-harness/projects/worfy/` — только владелец.
+
+Влит #981 (`243a1bd0`), ревью medium — VERIFIED. Предложенный `rules.md` и файлы `rules-*.md` ждут решения
+владельца: применяет он сам (`/tmp/worfy-link-w1/impl-53/`). Долг ревью ([low]): экономия одного кода занижена —
+замеры «до» и «после» сняты на разных путях, на одном пути около 624 token-ов; шапка `harness/bin/profile:8`
+не говорит, что `--rules` убирает Sources; `start-context --profile` считает `rules.md` вместе с Sources —
+передано в PR долга 33.
