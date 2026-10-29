@@ -1,7 +1,8 @@
 # 70 — `pnpm eval:harness --changed` гонит все кейсы тега и глотает `--max-cost-usd` пользователя; `--dry-run`
 
 Type: bug
-Status: claimed 2026-10-29T15:40Z
+Status: done 2026-10-29T19:51Z
+PR: #778
 Branch: worfy-harness/70-r2
 Blocked by: —
 Source: платный run на PR #738 (2026-10-22): `pnpm eval:harness --changed origin/main -- --max-cost-usd 3`
@@ -176,4 +177,4 @@ Source: платный run на PR #738 (2026-10-22): `pnpm eval:harness --chang
 | `--dry-run` запускает вызовы | 3 | `:1199` лог stub-а не пуст |
 | `--dry-run` не печатает командные строки | 3 | `:1199` сравнение с настоящим run-ом |
 
-- Статус остаётся `claimed`: Ticket закрывает владелец (решение владельца о Ticket-е 70).
+- Закрыт 2026-10-29 по решению владельца (вопрос Q10 после ночи 2026-10-29): исправление — PR #778.
