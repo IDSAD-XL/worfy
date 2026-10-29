@@ -1530,7 +1530,7 @@ are not edited. Then one line goes between the groups of findings and the status
 does not start the next wave in the same session. Every wave starts with a fresh context, because
 each model call of a long session reads the reports, logs and decisions of all the waves before it
 again. The merges of the wave went only through `bin/land` in the background (section 4), and its
-output is read as its lines per PR and the `LAND=` line, not as its log. After the report, the
+output is read as its lines per PR and its verdict line, not as its log. After the report, the
 last command of the wave saves the brief of the epic — `<state file>…` are the state files of
 `land` of this wave (no `--land` when it merged nothing), and `<run folder>` is the folder of the
 decision log:
