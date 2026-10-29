@@ -5,8 +5,15 @@
 // images, `<data root>/attachments/images/<sha256>.<ext>` (src/main/agent/attachments.ts,
 // storeImages). The images on the Canvas (worfy-canvas ticket 23) are meant to be a second store,
 // `<Project data folder>/images/`, under a name of their own; the handler and its checks stay as
-// they are. An address with a machine label is an image of a Linked machine: a 404 until
-// worfy-canvas ticket 24 reads it through the link.
+// they are.
+//
+// An address with a machine label is an image of that Linked machine (worfy-canvas ticket 24): its
+// bytes come over the link with `images.file` (src/shared/ipc/images.ts), from the second source
+// (src/main/images/remote.ts). Only the store name and the file name go there, never a path: the
+// Linked machine finds its own store and checks the name and the file as for its own window
+// (readImageFileChunk below, on that Machine). What comes back is checked again here: an extension
+// served, the one the name asked for, up to the limit. No file is a 404, a file over the limit a
+// 413, a Linked machine that did not answer a 502; images.status tells the window which one.
 //
 // What is served: a file of this Machine whose name matches the store's pattern, read from the
 // store's folder itself, never through a symlink — neither the folder, nor the file — and never a
@@ -22,7 +29,10 @@ import * as nativePath from 'node:path'
 import { protocol, type CustomScheme } from 'electron'
 import { FILE_COPY_LIMIT_BYTES, IMAGE_EXTENSIONS, IMAGE_FILE_NAME_PATTERN } from '../../shared/agent/attachments'
 import { IMAGE_SCHEME, parseImageHost } from '../../shared/images'
+import { IMAGE_FILE_LIMIT_BYTES, IMAGE_STORE_PATTERN, type ImageFileAnswer, type ImageStatus } from '../../shared/ipc/images'
+import { readFileChunk, type LinkedFile } from '../link/file-chunks'
 import { leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
+import { appLinkedImageSource } from './remote'
 
 /** The extensions served, and their content types: those of the stored images. Any other name is a 404. */
 export const IMAGE_CONTENT_TYPES: Readonly<Record<string, string>> = Object.fromEntries(Object.entries(IMAGE_EXTENSIONS).map(([type, ext]) => [`.${ext}`, type]))
@@ -123,12 +133,76 @@ export async function resolveImageFile(store: ImageStore, name: string, options:
   }
 }
 
+/**
+ * On the Machine that keeps the image: one piece of it for a Linked machine that shows it
+ * (`images.file`, src/main/ipc/images.ts). The file is found and checked as for this Machine's own
+ * window (resolveImageFile): `store` null — no store of that name; a name outside the store's
+ * pattern, a symlink, a folder or a missing file — `missing`. A file over the store's limit is
+ * `too-large` and is not read.
+ */
+export async function readImageFileChunk(store: ImageStore | null, name: string, offset: number, length: number, options: ImageFileOptions = {}): Promise<ImageFileAnswer> {
+  if (store === null) return { status: 'missing' }
+  // The limit is told apart from a missing file here: resolveImageFile itself turns both into null.
+  const file = await resolveImageFile({ ...store, limit: Number.POSITIVE_INFINITY }, name, options)
+  return readFileChunk(file, offset, length, store.limit)
+}
+
+/** What the handler asks of the second source: one image of the Linked machine `machineLabel` names. */
+export interface LinkedImageRequest {
+  machineLabel: string
+  store: string
+  /** The file name, decoded; the Linked machine checks it against its store's pattern. */
+  name: string
+  /** HEAD: the size and type are enough, the bytes are not needed. */
+  head: boolean
+}
+
+/** The second source of images: the stored images of Linked machines (src/main/images/remote.ts). */
+export type LinkedImageSource = (request: LinkedImageRequest) => Promise<LinkedFile>
+
 type ImageRequest = Pick<Request, 'url' | 'method'>
 
-const notFound = (): Response => new Response('Not found', { status: 404, headers: { ...IMAGE_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' } })
+const plain = (status: number, text: string): Response => new Response(text, { status, headers: { ...IMAGE_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' } })
 
-/** The protocol's request handler; Electron gives it to protocol.handle, tests call it directly. */
-export function createImageHandler(locate: ImageStoreLocator, options: ImageFileOptions = {}): (request: ImageRequest) => Promise<Response> {
+const notFound = (): Response => plain(404, 'Not found')
+
+const tooLarge = (): Response => plain(413, `An image is served up to ${IMAGE_FILE_LIMIT_BYTES} bytes`)
+
+/** The answer for an image found, by its extension; the body only for GET. */
+function imageResponse(method: string, extension: string, body: Uint8Array): Response {
+  const headers = { ...IMAGE_HEADERS, 'Content-Type': IMAGE_CONTENT_TYPES[extension] ?? 'application/octet-stream' }
+  if (method === 'HEAD') return new Response(null, { status: 200, headers })
+  return new Response(new Uint8Array(body), { status: 200, headers })
+}
+
+/** An image of a Linked machine: its bytes from the second source, checked again on this side. */
+async function linkedResponse(method: string, request: Omit<LinkedImageRequest, 'head'>, source: LinkedImageSource | undefined): Promise<Response> {
+  const extension = nativePath.extname(request.name).toLowerCase()
+  // Asked only for a store and a name that could be served at all: no separator, an image's extension.
+  if (source === undefined || !IMAGE_STORE_PATTERN.test(request.store) || /[/\\\0]/.test(request.name) || IMAGE_CONTENT_TYPES[extension] === undefined) return notFound()
+  const file = await source({ ...request, head: method === 'HEAD' })
+  switch (file.status) {
+    case 'unknown-machine':
+    case 'missing':
+      return notFound()
+    case 'too-large':
+      return tooLarge()
+    case 'unreachable':
+      return plain(502, file.reason)
+    case 'file':
+      // A Linked machine does not choose what this side serves: the type the name asked for, up to the limit.
+      if (file.extension !== extension) return notFound()
+      if (file.bytes.byteLength > IMAGE_FILE_LIMIT_BYTES) return tooLarge()
+      return imageResponse(method, extension, file.bytes)
+  }
+}
+
+/**
+ * The protocol's request handler; Electron gives it to protocol.handle, tests call it directly.
+ * `locate` finds the stores of this Machine; `linked`, the second source, the images of Linked
+ * machines (an address with a machine label). Without it such an address is a 404.
+ */
+export function createImageHandler(locate: ImageStoreLocator, options: ImageFileOptions = {}, linked?: LinkedImageSource): (request: ImageRequest) => Promise<Response> {
   return async (request) => {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return new Response('Method not allowed', { status: 405, headers: { ...IMAGE_HEADERS, Allow: 'GET, HEAD' } })
@@ -136,26 +210,37 @@ export function createImageHandler(locate: ImageStoreLocator, options: ImageFile
     const address = parseImageUrl(request.url)
     if (address === null) return notFound()
     const host = parseImageHost(address.host)
-    // An image of a Linked machine is in that Machine's data folder. Reading it through the link is
-    // worfy-canvas ticket 24; until then it is a 404, and the window shows the image's chip.
-    if (host.machineLabel !== null) return notFound()
+    // An image of a Linked machine is in that Machine's data folder: it comes over the link.
+    if (host.machineLabel !== null) return linkedResponse(request.method, { machineLabel: host.machineLabel, store: host.store, name: address.name }, linked)
     const store = locate(host.store)
     if (store === null) return notFound()
     const file = await resolveImageFile(store, address.name, options)
     if (file === null) return notFound()
-    const headers = { ...IMAGE_HEADERS, 'Content-Type': IMAGE_CONTENT_TYPES[nativePath.extname(file).toLowerCase()] ?? 'application/octet-stream' }
-    if (request.method === 'HEAD') return new Response(null, { status: 200, headers })
+    const extension = nativePath.extname(file).toLowerCase()
+    if (request.method === 'HEAD') return imageResponse('HEAD', extension, new Uint8Array())
     let body: Uint8Array
     try {
       body = await (options.read ?? readFile)(file)
     } catch {
       return notFound()
     }
-    return new Response(new Uint8Array(body), { status: 200, headers })
+    return imageResponse(request.method, extension, body)
   }
 }
 
-/** Serves the protocol from the stores `locate` finds. Runs once, after the app is ready, before the first window. */
+/** What the window's <img> could not tell: why the handler does not serve an address (images.status). */
+export async function imageStatus(handler: (request: ImageRequest) => Promise<Response>, url: string): Promise<ImageStatus> {
+  const { status } = await handler({ url, method: 'HEAD' })
+  if (status === 200) return 'ok'
+  if (status === 413) return 'too-large'
+  if (status === 502) return 'unreachable'
+  return 'missing'
+}
+
+/**
+ * Serves the protocol: the stores of this Machine from `locate`, the images of Linked machines from
+ * the app's link (src/main/images/remote.ts). Runs once, after the app is ready, before the first window.
+ */
 export function installImageProtocol(locate: ImageStoreLocator): void {
-  protocol.handle(IMAGE_SCHEME, createImageHandler(locate))
+  protocol.handle(IMAGE_SCHEME, createImageHandler(locate, {}, appLinkedImageSource))
 }

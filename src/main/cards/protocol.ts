@@ -31,13 +31,14 @@
 // the second source of the handler (src/main/cards/remote.ts): M finds and checks the file
 // (readCardFileChunk below, on M) and sends its bytes; this Machine's main puts its own runtime into
 // the HTML, since the runtime must match the bridge of the window that shows the Card.
-import { open, readFile, realpath, stat } from 'node:fs/promises'
+import { readFile, realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { extname } from 'node:path'
 import { protocol, type CustomScheme } from 'electron'
 import { installWorfyCard } from '../../card-runtime/worfy-card'
 import { MACHINE_LABEL_PATTERN } from '../../shared/cards/bridge'
-import { CARD_FILE_CHUNK_BYTES, CARD_FILE_LIMIT_BYTES, CARD_ID_PATTERN, type CardFileAnswer } from '../../shared/ipc/cards'
+import { CARD_FILE_LIMIT_BYTES, CARD_ID_PATTERN, type CardFileAnswer } from '../../shared/ipc/cards'
+import { readFileChunk, type LinkedFile } from '../link/file-chunks'
 import { isProjectIdHash, projectIdHash } from '../projects/store'
 import { leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
 import { appLinkedCardSource } from './remote'
@@ -243,12 +244,7 @@ export interface LinkedCardRequest {
 }
 
 /** What the second source answers. `extension` is the file's, in lower case; this side picks the content type. */
-export type LinkedCardFile =
-  | { status: 'file'; extension: string; bytes: Uint8Array }
-  | { status: 'unknown-machine' }
-  | { status: 'missing' }
-  | { status: 'too-large' }
-  | { status: 'unreachable'; reason: string }
+export type LinkedCardFile = LinkedFile
 
 /** The second source of files: Cards of Linked machines (src/main/cards/remote.ts). */
 export type LinkedCardSource = (request: LinkedCardRequest) => Promise<LinkedCardFile>
@@ -327,27 +323,7 @@ export function createCardHandler(locate: CardsDirLocator, linked?: LinkedCardSo
  */
 export async function readCardFileChunk(cardsDir: string | null, cardId: string, pathname: string, offset: number, length: number): Promise<CardFileAnswer> {
   if (cardsDir === null) return { status: 'missing' }
-  const file = await resolveCardFile(cardsDir, cardId, pathname)
-  if (file === null) return { status: 'missing' }
-  let handle
-  try {
-    handle = await open(file, 'r')
-  } catch {
-    return { status: 'missing' }
-  }
-  try {
-    const { size, mtimeMs } = await handle.stat()
-    if (size > CARD_FILE_LIMIT_BYTES) return { status: 'too-large', size }
-    const start = Math.min(offset, size)
-    const wanted = Math.min(length, CARD_FILE_CHUNK_BYTES, size - start)
-    const buffer = Buffer.alloc(wanted)
-    const { bytesRead } = wanted === 0 ? { bytesRead: 0 } : await handle.read(buffer, 0, wanted, start)
-    return { status: 'file', extension: extname(file).toLowerCase(), size, mtimeMs, base64: buffer.subarray(0, bytesRead).toString('base64') }
-  } catch {
-    return { status: 'missing' }
-  } finally {
-    await handle.close().catch(() => undefined)
-  }
+  return readFileChunk(await resolveCardFile(cardsDir, cardId, pathname), offset, length, CARD_FILE_LIMIT_BYTES)
 }
 
 export interface FrameNavigation {

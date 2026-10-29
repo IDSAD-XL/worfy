@@ -59,6 +59,7 @@
         "test/e2e/linked-autopilot.spec.ts",
         "test/e2e/linked-browser.spec.ts",
         "test/e2e/linked-cards.spec.ts",
+        "test/e2e/linked-images.spec.ts",
         "test/e2e/linked-machines.spec.ts",
         "test/e2e/linked-notify.spec.ts",
         "test/e2e/linked-opening.spec.ts",
@@ -70,6 +71,18 @@
         "test/e2e/sidebar-sections.spec.ts"
       ],
       "why": "The link between machines: its remote paths run only with a linked machine, in the specs that pair two apps (linkThroughUi, launchLinkedPair) or open the Linked machines settings: the linked-* specs, family.spec.ts, controls.spec.ts and browser-family.spec.ts; sidebar-sections and focus-sidebar show the Link machine button, autopilot.spec.ts reaches service.ts through ipc/autopilot.ts. Left out: caller.ts and messages.ts (every ipc handler calls through them), ipc-adapter.ts (browser/read-only.ts, read by ipc/layout.ts for every canvas) and autopilot-runs.ts (ipc/autopilot.ts)."
+    },
+    {
+      "paths": [
+        "src/main/images/remote.ts",
+        "src/main/ipc/images.ts",
+        "src/main/link/file-chunks.ts"
+      ],
+      "specs": [
+        "test/e2e/linked-cards.spec.ts",
+        "test/e2e/linked-images.spec.ts"
+      ],
+      "why": "Files carried over the link in pieces (cards.file, images.file): file-chunks.ts on both ends for Card files and stored images, images/remote.ts and ipc/images.ts for the images of a Linked machine. Only the specs that pair two apps and show a Linked machine's Card or image reach them; images.status of ipc/images.ts runs only when an image fails to load, which linked-images.spec.ts does. Left out: images/stores.ts and images/protocol.ts, which serve this Machine's own images to every window."
     },
     {
       "paths": [

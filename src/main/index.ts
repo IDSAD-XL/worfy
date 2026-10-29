@@ -3,11 +3,9 @@ import { randomUUID } from 'node:crypto'
 import './quit-listeners'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { bindingWorkflowOf } from '../shared/binding/resolve'
-import { ATTACHMENT_IMAGES_STORE } from '../shared/images'
 import { sessionArchiveOf } from '../shared/settings/app-settings'
 import { startOrchestrators } from './agent/app-orchestrators'
 import { sharedRegistry } from './agent/app-registry'
-import { attachmentImagesDir } from './agent/attachments'
 import { installLimitsRefresh } from './agent/limits-usage'
 import { appUserModelId } from './app-id'
 import { stopLiveBrowsers } from './browser/live'
@@ -18,7 +16,8 @@ import { installProcessGone } from './diagnostics/process-gone'
 import { reportUncaughtToStderr } from './diagnostics/uncaught-stderr'
 import { BindingSignalReader } from './claude-home/binding-signals'
 import { installDevDockIcon } from './dock-icon'
-import { attachmentImageStore, installImageProtocol } from './images/protocol'
+import { installImageProtocol } from './images/protocol'
+import { appImageStore } from './images/stores'
 import { bundledHarnessVersion } from './harness/bundled'
 import { liveSessionListeners, type LiveSessionsListener } from './ipc/claude-home'
 import { sharedGateQueue } from './ipc/gate-queue'
@@ -29,7 +28,6 @@ import { installAppMenu } from './menu'
 import { workflowHub } from './ipc/workflow'
 import { archiveRegistry, archiveSettings, archiveTickMs, AutoArchiver, sessionBindings, startAppArchiver } from './layout/archive'
 import { bindingStore } from './layout/bindings'
-import { canvasImageStore } from './layout/images'
 import { layoutStore } from './layout/store'
 import { appWaitsSources, electronNotifyDeps, followAppLinkPauses, installGateQueueNotifications, installNotifications } from './notify'
 import { projectStore } from './projects/store'
@@ -154,13 +152,7 @@ function start(): void {
       inStep('installCardRuntime', () => installCardRuntime((host) => cardStore().locate(host)))
       // The copies of sent images (worfy-ui ticket 28) and the images on each Project's Canvas
       // (worfy-canvas ticket 23, src/main/layout/images.ts).
-      inStep('installImageProtocol', () =>
-        installImageProtocol((store) =>
-          store === ATTACHMENT_IMAGES_STORE
-            ? attachmentImageStore(attachmentImagesDir(dataRoot()))
-            : canvasImageStore(store, { ids: () => projectStore().list().map(({ id }) => id), dataDirOf: (id) => projectStore().dataDir(id) }),
-        ),
-      )
+      inStep('installImageProtocol', () => installImageProtocol(appImageStore))
       // Before the first window: its creation is what opens the active Project's Orchestrator.
       inStep('startOrchestrators', () => startOrchestrators())
       // Notifications when a Session ends its turn or asks for permission (ticket 21), here and on

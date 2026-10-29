@@ -1,16 +1,20 @@
 // The image Node (src/renderer/canvas/nodes/ImageNode.tsx) and what makes it (canvas/image-drop.ts),
 // worfy-canvas ticket 23: the card resizes freely and apart in width and height, the image is
 // fitted inside it whole and centred (object-fit: contain) at any proportions; a new Node starts at
-// the image's natural size, its longer side at most 480 px, never enlarged.
+// the image's natural size, its longer side at most 480 px, never enlarged. An image that does not
+// load says why, as main tells it (worfy-canvas ticket 24); on a Linked machine's Canvas the image
+// has no resize handles and the selection's Delete leaves it alone.
 import { act, render, screen } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { deletableNodes } from '../../src/renderer/canvas/history'
 import { IMAGE_CASCADE_STEP, IMAGE_MAX_SIDE, IMAGE_MIN_SIDE, addImages, initialImageSize, type ImageDropDeps } from '../../src/renderer/canvas/image-drop'
 import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import { LayoutOpsContext, type LayoutOps } from '../../src/renderer/canvas/useLayout'
 import { CANVAS_IMAGE_LIMIT_BYTES, type CanvasImageResult } from '../../src/shared/ipc/canvas-images'
 import type { IpcResult } from '../../src/shared/ipc/channels'
-import type { LayoutOpInput } from '../../src/shared/layout/types'
+import type { ImageStatus } from '../../src/shared/ipc/images'
+import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 
 const resizer = vi.hoisted(() => ({ props: [] as Record<string, unknown>[] }))
 vi.mock('../../src/renderer/canvas/NodeResizeClamp', () => ({
@@ -23,8 +27,15 @@ vi.mock('../../src/renderer/projects/useProjects', async (original) => ({
   ...(await original<typeof import('../../src/renderer/projects/useProjects')>()),
   useProjects: () => ({ projects: [{ id: 'demo-0a1b2c3d', name: 'demo', path: '/repo' }], activeId: 'demo-0a1b2c3d' }),
 }))
+/** What main says of a failed image (images.status), and whether the window shows a Linked machine. */
+const imageMain = vi.hoisted(() => ({ status: 'missing' as ImageStatus, asked: [] as string[], linked: false, pending: [] as Promise<ImageStatus>[] }))
 vi.mock('../../src/renderer/canvas/nodes/image-url', () => ({
   imageSrc: (projectId: string, file: string) => `test-image://${projectId}/${file}`,
+  imageFailure: (src: string) => {
+    imageMain.asked.push(src)
+    return imageMain.pending.shift() ?? Promise.resolve(imageMain.status)
+  },
+  imagesOfLinkedMachine: () => imageMain.linked,
 }))
 
 const { default: ImageNode } = await import('../../src/renderer/canvas/nodes/ImageNode')
@@ -53,9 +64,25 @@ function renderNode(w: number, h: number, data: Record<string, unknown> = { file
   return { sent, rerender }
 }
 
+beforeEach(() => {
+  imageMain.status = 'missing'
+  imageMain.asked.length = 0
+  imageMain.linked = false
+  imageMain.pending.length = 0
+})
+
 afterEach(() => {
   resizer.props.length = 0
+  window.history.replaceState(null, '', '/')
 })
+
+/** Makes the image fail to load and waits for main's answer to images.status. */
+async function failLoad(): Promise<void> {
+  await act(async () => {
+    screen.getByRole('img', { name: 'Image' }).dispatchEvent(new Event('error'))
+    await Promise.resolve()
+  })
+}
 
 describe('the image inside the card', () => {
   for (const [w, h] of [
@@ -110,6 +137,65 @@ describe('the image inside the card', () => {
   it('shows "Image not available" for data that is not an image file of the store', () => {
     renderNode(200, 100, { file: '../../etc/passwd', width: 1, height: 1, mime: 'image/png' })
     expect(screen.getByRole('img', { name: 'Image not available' })).toBeTruthy()
+  })
+})
+
+describe('an image that does not load says why, as main tells it', () => {
+  for (const [status, text] of [
+    ['missing', 'Image not available'],
+    ['ok', 'Image not available'],
+    ['too-large', 'Image too large'],
+    ['unreachable', 'Image not available: the Linked machine is not reachable'],
+  ] as const) {
+    it(`${status}: the plate says "${text}", not a broken image`, async () => {
+      imageMain.status = status
+      renderNode(200, 100)
+      await failLoad()
+      expect(screen.getByRole('img', { name: text }).textContent).toBe(text)
+      expect(screen.queryByRole('img', { name: 'Image' })).toBeNull()
+      expect(imageMain.asked).toEqual([`test-image://demo-0a1b2c3d/${FILE}`])
+    })
+  }
+
+  it('a late answer for a file the Node no longer shows changes nothing', async () => {
+    let answerFirst: (status: ImageStatus) => void = () => undefined
+    imageMain.pending.push(new Promise<ImageStatus>((resolve) => (answerFirst = resolve)))
+    const view = renderNode(200, 100)
+    act(() => {
+      screen.getByRole('img', { name: 'Image' }).dispatchEvent(new Event('error'))
+    })
+    // The Node comes to show another file, which fails too: main says it is missing.
+    view.rerender({ file: `${'b'.repeat(32)}.png`, width: 400, height: 200, mime: 'image/png' })
+    await failLoad()
+    expect(screen.getByRole('img', { name: 'Image not available' })).toBeTruthy()
+    // Then the answer for the first file comes: the plate stays the second file's.
+    await act(async () => {
+      answerFirst('too-large')
+      await Promise.resolve()
+    })
+    expect(screen.getByRole('img', { name: 'Image not available' })).toBeTruthy()
+    expect(screen.queryByRole('img', { name: 'Image' })).toBeNull()
+    expect(imageMain.asked).toHaveLength(2)
+  })
+})
+
+describe("on a Linked machine's Canvas the image is only shown", () => {
+  it('has no resize handles there, and has them on this Machine', () => {
+    imageMain.linked = true
+    renderNode(400, 200)
+    expect(resizer.props).toEqual([])
+    expect(screen.getByRole('img', { name: 'Image' })).toBeTruthy()
+    imageMain.linked = false
+    renderNode(400, 200)
+    expect(resizer.props.at(-1)).toMatchObject({ isVisible: true })
+  })
+
+  it("the selection's Delete leaves an image alone in a window on a Linked machine, and takes it on this Machine", () => {
+    const node = (id: string, kind: string): LayoutNode => ({ id, kind, x: 0, y: 0, w: 10, h: 10, hidden: false, locked: false, pinned: false, tags: [], data: {} }) as LayoutNode
+    const selection = [node('pic', 'image'), node('n1', 'note')]
+    expect(deletableNodes(selection).map(({ id }) => id)).toEqual(['pic', 'n1'])
+    window.history.replaceState(null, '', '/?machine=6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b')
+    expect(deletableNodes(selection).map(({ id }) => id)).toEqual(['n1'])
   })
 })
 

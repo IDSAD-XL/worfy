@@ -65,3 +65,63 @@ Linked machine — другая машина, к которой подключе
 - [ ] Поведение файлов Card не изменилось: их contract- и e2e-тесты зелёные.
 
 ## Итог
+
+**Канал.** Новый канал `images.file` (`src/shared/ipc/images.ts`, `project`/`read`) по образцу
+`cards.file`: те же куски не больше 4 MB, тот же предел 20 MB, та же схема ответа (`file`, `missing`,
+`too-large`). Код обоих концов — общий: чтение куска на машине-владельце (`readFileChunk`) и сборка
+кусков с проверкой предела и mtime на получателе (`fetchLinkedFile`) переехали из
+`src/main/cards/protocol.ts` и `src/main/cards/remote.ts` в `src/main/link/file-chunks.ts`; Card-ы
+зовут их как раньше, их contract-тесты (`test/contract/card-protocol.test.ts`) и e2e
+(`linked-cards.spec.ts`) зелёные. Каналы остаются раздельными, протокол link-а не меняется — ADR-0088
+не занят. **Решено без владельца, подтвердить:** отдельный канал с общим кодом, а не один обобщённый
+канал файлов для Card-ов и картинок.
+
+**Безопасность.** По link-у идут только имя хранилища (`attachments` или `canvas.<project label>`,
+проверка схемой канала) и имя файла. Машина-владелец сама находит папку хранилища
+(`src/main/images/stores.ts`, тот же locator, что у её собственного окна) и отдаёт файл через
+`resolveImageFile`: только имя из шаблона хранилища, без `..`, абсолютного пути, разделителей (в том
+числе закодированных), symlink-а на файл или папку, файла другого Project-а
+(`readImageFileChunk`, `src/main/images/protocol.ts`). Каждый случай — contract-тест в
+`test/contract/linked-image-protocol.test.ts`. Сторона, которая показывает, ещё раз проверяет
+расширение (то, что просило имя) и предел.
+
+**Project только этой машины (`localOnly`, круг 1 ревью).** `cards.file` и `images.file` называют
+Project не `projectId`, а project label (последние 8 hex его id): `projectLabel` у `cards.file`,
+хранилище `canvas.<project label>` у `images.file`. Раньше link adapter такой вызов не узнавал, и
+Linked machine получала файлы Card и картинки Project-а с `localOnly`; у `cards.file` дыра была и до
+этого ticket-а. Теперь `localProjectIn` (`src/main/link/caller.ts`) находит Project и по label-у,
+поэтому оба канала получают тот же отказ до handler-а, что и `layout.get`: «<имя> is local to this
+Machine». Тесты — через link adapter в `test/contract/projects.test.ts` и в
+`test/unit/link-caller-local-only.test.ts`.
+
+**Хранилище `attachments` под `localOnly` не попадает, и это осознанно.** Копии отправленных картинок
+лежат в одной общей папке `<data>/attachments/images/` под именем `<sha256 содержимого>.<ext>`.
+Записи о том, из Session какого Project-а копия, нет, поэтому привязать копию к Project-у нельзя.
+Чтобы получить копию, Linked machine должна знать sha256 картинки. Узнать его она может только из
+Transcript-а, а Transcript Session Project-а с `localOnly` ей не отдаётся. Остаётся одна возможность:
+проверить, есть ли на машине картинка, которая у Linked machine уже есть, по хешу её байтов.
+**Решено без владельца, подтвердить.**
+
+**Протокол.** `worfy-image://<хранилище>.<machine label>/<имя>` больше не 404: handler берёт байты
+через link (`src/main/images/remote.ts`). Это и картинки Canvas Linked machine, и миниатюры картинок
+из чата её Session (`attachments.<machine label>`). Нет файла — 404, больше предела — 413, link
+оборвался — 502.
+
+**Заглушка.** Когда `<img>` не загрузилась, Node спрашивает у main причину (канал `images.status`,
+`local`: HEAD того же handler-а) и пишет её на плашке: «Image not available», «Image too large»,
+«Image not available: the Linked machine is not reachable».
+
+**Только для чтения.** На Canvas Linked machine у картинки нет рамки resize, а Delete её не трогает
+(`deletableNodes`, `src/renderer/canvas/history.ts`) — при любом уровне доступа, как просит ticket.
+Вставка на Canvas Linked machine по-прежнему отказывается (ticket 23).
+
+**Тесты.** contract — `test/contract/linked-image-protocol.test.ts`; unit —
+`test/unit/image-node.test.tsx` (плашки, поздний ответ, нет resize, Delete); e2e с двумя машинами —
+`test/e2e/linked-images.spec.ts` (картинка B на A с натуральным размером 400 × 200 и пропорциями на
+экране, плашки для пропавшего и слишком большого файла, нет resize; Delete картинки вместе с note
+убирает note в корзину B, а картинка и её файл на B остаются),
+добавлен в `scripts/e2e-specs.table.json`. Миниатюра из чата проверена только contract-тестом: e2e с
+Session на Linked machine не написан.
+
+![Картинка Linked machine, светлая тема](../evidence/24-image-of-linked-machine-light.png)
+![Картинка Linked machine, тёмная тема](../evidence/24-image-of-linked-machine-dark.png)

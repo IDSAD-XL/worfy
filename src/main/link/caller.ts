@@ -14,6 +14,7 @@
 // by its nearest existing folder.
 import { lstatSync, realpathSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import { CANVAS_IMAGES_STORE, projectLabelOf } from '../../shared/images'
 
 /** Whether a call came from somewhere else than a window of this Machine (see the top of the file). */
 export function isRemoteCall(event: { readonly sender?: unknown }): boolean {
@@ -198,10 +199,17 @@ function draftWorkflowFolder(fields: Record<string, unknown>): unknown {
   return (workflow as Record<string, unknown>).folder
 }
 
+/** The project label in a store name `canvas.<project label>` of the worfy-image:// protocol (src/shared/images.ts); undefined for any other. */
+function canvasStoreLabel(store: unknown): string | undefined {
+  if (typeof store !== 'string' || !store.startsWith(`${CANVAS_IMAGES_STORE}.`)) return undefined
+  return store.slice(CANVAS_IMAGES_STORE.length + 1)
+}
+
 /**
  * The Project local to this Machine that a call input or an event payload of `channel` names; null
  * when none. It names one by its `projectId`, by `id` on a `projects.*` channel (the Project id
- * there), by a `sessionId` of a Session whose folder lies in its root, or by a path inside its root
+ * there), by its project label — the hash that ends its id — as `projectLabel` (cards.file) or in the
+ * store name `canvas.<project label>` on an `images.*` channel (images.file), by a `sessionId` of a Session whose folder lies in its root, or by a path inside its root
  * under one of PATH_KEYS or as the Workflow folder of a connection draft. Apart from that draft
  * folder only the top level of the object is read; a path nested deeper is left to the handler's
  * insideProjects.
@@ -214,6 +222,13 @@ export function localProjectIn(channel: string, value: unknown): LocalProject | 
   const ids = [fields.projectId, channel.startsWith('projects.') ? fields.id : undefined].filter((id) => typeof id === 'string')
   const named = local.find((project) => ids.includes(project.id))
   if (named !== undefined) return named
+  // A file of a Card or a Canvas image is asked for by project label: the Project that ends with it.
+  const labels = [fields.projectLabel, channel.startsWith('images.') ? canvasStoreLabel(fields.store) : undefined].filter((label) => typeof label === 'string')
+  const labelled = local.find((project) => {
+    const label = projectLabelOf(project.id)
+    return label !== null && labels.includes(label)
+  })
+  if (labelled !== undefined) return labelled
   const folder = typeof fields.sessionId === 'string' ? sessionFolder(fields.sessionId) : null
   const paths = [folder, ...PATH_KEYS.map((key) => fields[key]), draftWorkflowFolder(fields)]
   for (const path of paths) {

@@ -900,6 +900,46 @@ describe('a Project local to this Machine (localOnly)', () => {
     expect(get).toHaveBeenCalledWith(shop.id)
   })
 
+  // A Card file and a Canvas image are asked for by project label, not by projectId (cards.file,
+  // images.file): the label names the Project as well, and the refusal is layout.get's.
+  it('cards.file and images.file of it from a Linked machine are refused before the handler; an ordinary Project answers', async () => {
+    const shop = (await addOk(makeRepo('shop'))).project
+    const demo = await addLocal(makeRepo('demo'))
+    const { projectStore } = await import('../../src/main/projects/store')
+    const image = `${'a'.repeat(32)}.png`
+    for (const project of [shop, demo]) {
+      const data = projectStore().dataDir(project.id)
+      mkdirSync(join(data, 'images'), { recursive: true })
+      writeFileSync(join(data, 'images', image), 'png bytes')
+      mkdirSync(join(data, 'cards', 'c1'), { recursive: true })
+      writeFileSync(join(data, 'cards', 'c1', 'index.html'), '<title>card</title>')
+    }
+    const { call } = await linkedPeer({
+      './cards.ts': () => import('../../src/main/ipc/cards').then((module) => module.default),
+      './images.ts': () => import('../../src/main/ipc/images').then((module) => module.default),
+    })
+    const label = (id: string) => id.slice(-8)
+    const protocol = await import('../../src/main/images/protocol')
+    const cards = await import('../../src/main/cards/protocol')
+    const readImage = vi.spyOn(protocol, 'readImageFileChunk')
+    const readCard = vi.spyOn(cards, 'readCardFileChunk')
+    const refused = { ok: false, error: 'demo is local to this Machine' }
+    expect(await call('images.file', { store: `canvas.${label(demo.id)}`, name: image })).toStrictEqual(refused)
+    expect(await call('cards.file', { projectLabel: label(demo.id), cardId: 'c1', path: '/index.html' })).toStrictEqual(refused)
+    expect(readImage).not.toHaveBeenCalled()
+    expect(readCard).not.toHaveBeenCalled()
+    // The same refusal as layout.get gives it.
+    expect(await call('layout.get', { projectId: demo.id })).toStrictEqual(refused)
+
+    const shopImage = await call('images.file', { store: `canvas.${label(shop.id)}`, name: image })
+    expect(shopImage.ok && shopImage.value).toMatchObject({ status: 'file', extension: '.png', base64: Buffer.from('png bytes').toString('base64') })
+    const shopCard = await call('cards.file', { projectLabel: label(shop.id), cardId: 'c1', path: '/index.html' })
+    expect(shopCard.ok && shopCard.value).toMatchObject({ status: 'file', extension: '.html' })
+    // The copies of sent images belong to no Project: their store is not refused for the local one.
+    const attachments = await call('images.file', { store: 'attachments', name: `${'ab'.repeat(32)}.png` })
+    expect(attachments).toStrictEqual({ ok: true, value: { status: 'missing' } })
+  })
+
   it('a Linked machine can neither remove it by id nor add its folder; the list stays', async () => {
     await addOk(makeRepo('shop'))
     const demoPath = makeRepo('demo')
