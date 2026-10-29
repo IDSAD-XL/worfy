@@ -8,7 +8,7 @@ import { FRAME_GAP } from '../../src/renderer/canvas/epic-layout'
 import { launchedHint } from '../../src/shared/actions/render-template'
 import { LIVE_SESSION_WIDTH } from '../../src/shared/ipc/sessions'
 import { onThePlane } from '../../src/shared/layout/derived'
-import { launchApp } from './helpers'
+import { canvasReady, launchApp } from './helpers'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
 
@@ -168,7 +168,8 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
   let sessionsOf07: string[] | undefined
   try {
     const { window, app } = launched
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 1000))
+    // The window on screen at its size and the Canvas at rest before the first check, as in every other spec.
+    await canvasReady(launched, { size: { width: 1600, height: 1000 } })
     // "Open PR" must not reach a browser: shell.openExternal only records the address.
     await app.evaluate(({ shell }) => {
       const opened: string[] = []
@@ -337,8 +338,8 @@ test('Ship ticket puts the Session right of the Epic frames\' column, by its Tic
   const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'orchestrator', WORFY_AGENT_LOG: log }
   const launched = await launchApp({ env })
   try {
-    const { window, app } = launched
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 1000))
+    const { window } = launched
+    await canvasReady(launched, { size: { width: 1600, height: 1000 } })
     const ticket7 = window.locator(`[data-testid="ticket-node"][data-ticket="7"]`)
     await expect(ticket7).toBeVisible()
     // The Orchestrator goes under the tall Note, off the screen: wait for it in the Layout.
