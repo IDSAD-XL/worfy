@@ -1,7 +1,8 @@
 # 23 — Flaky test-ы Windows, которые краснеют на GitHub runner-е: `claude-home-registry`, `link-access`, `workflow-reader`, `workflow-branches-handles`
 
 Type: task
-Status: open
+Status: done 2026-10-29T02:11Z
+PR: #939
 Blocked by: 20
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», предложение 1 и правка
 `worfy-polish` 41; разбор run-ов «Windows tests» с
@@ -37,13 +38,15 @@ runner `full` — run на PR (после Ticket-а 24 — автоматиче�
 ## Готово, когда
 
 - [ ] «Итог»: на каждый test — красных до правки, причина, правка, ссылки на run-ы.
-- [ ] После правки — 3 run-а `files` на четыре файла подряд зелёные; ссылки и коды — в «Итог».
-- [ ] Те же 3 run-а `files` зелёные и для test-ов, добавленных в карантин PR-ом #877: `orchestrator-relaunch`
+      Не проверено: в «Итог» нет числа красных до правки и причины по каждому test-у четырёх исходных файлов и
+      записей #877; есть только PR-ы, которые сняли записи (раздел «Итог: карантин снят»).
+- [x] После правки — 3 run-а `files` на четыре файла подряд зелёные; ссылки и коды — в «Итог».
+- [x] Те же 3 run-а `files` зелёные и для test-ов, добавленных в карантин PR-ом #877: `orchestrator-relaunch`
       (оба test-а), `workflow-watch-links` (тот же link вместо папки issues, файла Ticket-а и корня Tickets),
       `demo-template` (оба test-а с `done`), `harness-evals` (`--changed` без case и округление бюджета) и
       `harness/bin/tests/wave-gate-lock-killed.test.sh` (lock убитого wave-gate, pid reuse, run 40615971705).
-- [ ] Записей карантина этого Ticket-а не осталось; timeout-ы и пороги не изменены.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` на Mac — exit 0; вердикт Windows — runner `full` на head; условие
+- [x] Записей карантина этого Ticket-а не осталось; timeout-ы и пороги не изменены.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` на Mac — exit 0; вердикт Windows — runner `full` на head; условие
       merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
 
 Run-ы: около 6–8 run-ов `files` и один `full`. Денег они не стоят: репозиторий публичный с 2026-10-27, и
@@ -244,3 +247,26 @@ note…`, который красный и до правки (5 из 5): в ко
   - ранние triage run-ы: `trash-undo.spec.ts:115` и `controls.spec.ts:189`.
   Правило — «3 FLAKY за неделю → ticket»; ни один test его не достиг, отдельного ticket-а нет. Run #921 (40749133614,
   после переноса e2e-шага под pwsh) — 323 passed, flaky нет.
+
+### Итог: карантин снят (2026-10-29)
+
+- Записи карантина сняли: `workflow-watch-links` — #886; `harness-evals` (обе) — #888; `orchestrator-relaunch`
+  (обе) — #885; `harness-wave-gate-lock-killed` — #887; `link-access` (три) — #890; `workflow-reader` — #893;
+  `workflow-branches-handles` — #898; последние две, `demo-template` (оба test-а с `done`), — #939 (89fe70ed).
+  Ещё правки ticket-а: #924, #926 и #937 — запуск скриптов на Windows shard 3/3 (см. выше); #929 — остановка
+  exit poll после SIGKILL, его перезапуск и причины holder-а `wave-gate`. Timeout-ы и пороги test-ов не менялись.
+- #939 снял и метки `quarantined()` этих двух test-ов. Без записей git не хранит пустую папку `test/quarantine/`,
+  поэтому `readEntryFiles` теперь возвращает `[]`, когда папки нет. Первый CI #939 упал ровно на этом
+  (`quarantine.test.ts:51` и `:398`); commit 98e26e63 это исправил. На `main` папки `test/quarantine/` нет.
+- 3 run-а `windows-tests.yml` в режиме `files` на ветке со снятыми записями (head 4e0c23ed): 40798111393,
+  40798119821, 40798128321 — все `success`, в каждом 9 из 9 файлов зелёные, 0 FLAKY. Файлы:
+  `claude-home-registry`, `link-access`, `workflow-reader`, `workflow-branches-handles`, `orchestrator-relaunch`,
+  `workflow-watch-links`, `demo-template` (contract и unit), `harness-evals`. `demo-template` contract — 5 test-ов,
+  0 skipped.
+- Два skip-а на Windows в `orchestrator-relaunch` — с #345 (2026-10-16: на Windows нет ожидания SIGTERM), это не
+  карантин.
+- `harness/bin/tests/wave-gate-lock-killed.test.sh` в режиме `files` не запускается. Его проверка — Windows
+  `full-suite` в CI #939: run 40802542348 на влитом head 98e26e63, `windows (1/3)`–`(3/3) / full-suite` — pass.
+- Условие merge — `ci-ok` (ADR-0083): run 40802542348 — `ci-ok` pass. `ci-ok` включает `pnpm lint` и
+  `pnpm typecheck` (Linux) и `pnpm test` на Linux, macOS и Windows.
+- Не проверено: число красных до правки и причина по каждому test-у в одном месте — их нет в этом «Итог».

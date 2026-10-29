@@ -1,7 +1,8 @@
 # 15 — Аудит test-ов: дублирующие test-ы убираются только с доказательством покрытия; правило «test — в одном слое»
 
 Type: task
-Status: claimed 2026-10-28T22:24Z
+Status: done 2026-10-29T02:11Z
+PR: #935
 Blocked by: 11, 12, 13
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-20: скорость test-ов», решение Q6.
 
@@ -27,12 +28,14 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 
 ## Готово, когда
 
-- [ ] Для каждого убранного или слитого test-а в «Итог» — пара, доказательство (coverage до и после или
+- [x] Для каждого убранного или слитого test-а в «Итог» — пара, доказательство (coverage до и после или
       имя mutant-а) и команда с кодом выхода.
 - [ ] Ни один модуль не теряет покрытие строк или ветвей: отчёт coverage до и после — в «Итог».
+      Не проверено: отчёт coverage до и после есть только для `src/shared/layout/free-place.ts`; для
+      убранных e2e и слитых test-ов доказательство — mutant-ы, общего отчёта coverage по модулям нет.
 - [x] Правило одного слоя — в `harness/agents/implementer.md`; `harness/bin/tests/agents-text.test.sh`
       проверяет фразу.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — шаг Orchestrator-а перед merge.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — шаг Orchestrator-а перед merge.
 
 ## Открытые вопросы
 
@@ -110,3 +113,16 @@ PR #935, ветка `worfy-throughput/15`. Замер «до» — CI run 407704
 ### Правило одного слоя
 
 `docs/lessons/testing.md` — урок «Поведение проверяется в одном слое». Правило — в шаге 3 `harness/agents/implementer.md`: «A behaviour is tested in one layer (unit, contract or e2e); a second layer needs a reason in the PR description.» Фразу проверяет `harness/bin/tests/agents-text.test.sh:130`; mutant (фраза убрана из `implementer.md`) — `agents-text.test.sh` exit 1, «FAIL implementer: no one-layer rule». С фразой `agents-text.test.sh` exit 0 (216 passed), `plugin-neutral.test.sh` exit 0 (31 passed), оба с временным HOME. Сделано после merge #934 (Ticket 27 правил те же два файла).
+
+### Проверка и merge (2026-10-29)
+
+PR #935 влит как caf7a914, head 8cfd6dbf.
+- Ревью: круг 1 — REJECTED на одном med: убранный e2e «two neighbouring Notes dragged together» был
+  единственной проверкой связки `onNodeDragStop` → `dropNodes` в `src/renderer/canvas/Canvas.tsx`. Круг 2
+  вернул test (см. таблицу выше) — VERIFIED на 8cfd6dbf.
+- `check/windows` от ПК: `no-overlap.spec.ts` на Windows — 2 passed; `agents-text.test.sh` — 216 passed, 0 failed.
+- Условие merge с ADR-0083 — `ci-ok`, а не gate full Orchestrator-а: CI run 40798652246 на 8cfd6dbf —
+  `ci-ok` success. `ci-ok` включает `pnpm lint` и `pnpm typecheck` (Linux) и `pnpm test` на Linux, macOS и
+  Windows.
+- Не проверено: отчёт coverage до и после по всем тронутым модулям — есть только для `free-place.ts`,
+  остальное доказано mutant-ами (таблица выше).
