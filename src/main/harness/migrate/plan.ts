@@ -508,7 +508,7 @@ export function buildPlan(options: PlanOptions): BuiltPlan {
   const plugin = options.pluginState
   if (plugin !== undefined) {
     if (plugin.kind === 'not-installed') missing.push('the plugin worfy is not installed: install it first (Install in the toolbar)')
-    else if (plugin.kind === 'outdated') missing.push('the plugin worfy is not the version of this build: update it first (Update Harness in the toolbar)')
+    else if (plugin.kind === 'outdated') missing.push('the plugin worfy is not the version of this build: update or replace it first from the Harness item of the toolbar')
     else if (plugin.kind === 'error') missing.push(`the plugin worfy reports an error (${plugin.step}): ${plugin.reason}`)
     else if (!plugin.enabled) missing.push('the plugin worfy is disabled in Claude Code: enable it first')
   }

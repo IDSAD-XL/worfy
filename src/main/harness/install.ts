@@ -245,6 +245,19 @@ export function compareHarnessVersions(build: string, installed: string): Harnes
 /** The semver part of a build version: `0.3.0` of `0.3.0+abc1234`. */
 const semverOf = (version: string): string => version.split('+')[0] ?? version
 
+/**
+ * Why two versions of the same semver have no order, as the dialog and Health say it: they come
+ * from different commits, or from the same commit with uncommitted changes in one of them (`.dirty`).
+ */
+export function unorderedWhy(build: string, installed: string | null): string {
+  const commit = (version: string): string | undefined => /\+([0-9a-f]+)/.exec(version)?.[1]
+  const ours = commit(build)
+  const theirs = installed === null ? undefined : commit(installed)
+  // Short SHAs of one commit may differ in length: one is the start of the other.
+  const sameCommit = ours !== undefined && theirs !== undefined && (ours.startsWith(theirs) || theirs.startsWith(ours))
+  return sameCommit ? 'come from the same commit, and one of them carries uncommitted changes' : 'come from different commits'
+}
+
 /** The first of the installed versions that is the same semver as `build` from another commit; null when none is. */
 function sameVersionOf(build: string, installed: readonly (string | null)[]): string | null {
   return installed.find((version): version is string => version !== null && compareHarnessVersions(build, version) === 'unordered') ?? null
@@ -362,7 +375,7 @@ export function confirmationText(plan: InstallPlan): { button: string; message: 
   if (same !== null) {
     // No "Update A → B": the version does not say that B is the newer one.
     lines.unshift(
-      `Both carry version ${semverOf(plan.to)} and differ only in the commit they were built from: worfy cannot tell which of them is newer. Replace the installed Harness only if this build is the newer one; otherwise Cancel and open the worfy build that installed ${same}.`,
+      `Both carry version ${semverOf(plan.to)} and ${unorderedWhy(plan.to, same)}: worfy cannot tell which of them is newer. Replace the installed Harness only if this build is the newer one; otherwise Cancel and open the worfy build that installed ${same}.`,
       '',
     )
     return { button: 'Replace', message: `Replace the worfy Harness ${same} with ${plan.to}?`, detail: lines.join('\n') }

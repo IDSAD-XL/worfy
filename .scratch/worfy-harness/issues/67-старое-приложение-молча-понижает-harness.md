@@ -105,6 +105,14 @@ Mutation testing (`test/contract/harness-install.test.ts`, блок «a Harness 
 | Health | строка Health при равном semver — прежний Update | «the Harness of the same version from another commit warns with Replace…» (first-run-checks) |
 | toolbar | toolbar при равном semver — прежний Update | «the same version from another commit: "Replace Harness"…» (harness-status) |
 
+Третий круг: проверка подключения Project-а (`src/main/projects/connect.ts`) при равном semver говорит «Replace it on
+the first-run screen if this build is the newer one»; форма переноса (`src/main/harness/migrate/plan.ts`) не называет
+кнопку («update or replace it first from the Harness item of the toolbar»); при одном SHA, когда одна из сборок
+`.dirty`, диалог и Health говорят «come from the same commit, and one of them carries uncommitted changes», а не «from
+different commits». Mutant-ы: ветка `sameVersion` в `connect.ts` снята — красный «the Harness check (step 3)» в
+`test/contract/projects-connect.test.ts`; одинаковый commit не распознан — красный «the same commit with uncommitted
+changes…» в `test/contract/harness-install.test.ts`. Текст `plan.ts` test-ом не закреплён.
+
 Test-ы: красные на main (16 из 17 нового блока), зелёные с правкой; `pnpm lint && pnpm typecheck && pnpm test` —
 exit 0. В существующих test-ах `V2` стал `0.3.0+bbbbbbb` (обновление — это более высокий semver), а повторная
 установка в test-е «the new copy in place but the previous one cannot be removed…» идёт с `0.4.0`, не со старой

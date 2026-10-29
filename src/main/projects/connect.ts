@@ -315,7 +315,10 @@ export function harnessBlocker(status: HarnessStatus): string | null {
     case 'not-installed':
       return 'The Harness plugin is not installed. Install it on the first-run screen.'
     case 'outdated':
-      return `The Harness plugin is ${state.from ?? 'of another version'}, and worfy carries ${state.to}. Update it on the first-run screen.`
+      // The same semver from another commit has no order (worfy-harness ticket 67): replace, not update.
+      return state.sameVersion
+        ? `The Harness plugin is ${state.from ?? 'of another version'}, and worfy carries ${state.to}, the same version from another build. Replace it on the first-run screen if this build is the newer one.`
+        : `The Harness plugin is ${state.from ?? 'of another version'}, and worfy carries ${state.to}. Update it on the first-run screen.`
     case 'error':
       return `The Harness check failed at "${state.step}": ${lastLine(state.reason)}`
   }

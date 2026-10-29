@@ -26,6 +26,7 @@ import {
   installOffered,
   RENAME_RETRY_MS,
   ROLLBACK_RETRY_MS,
+  unorderedWhy,
   type InstallerOptions,
   type InstallPlan,
 } from '../../src/main/harness/install'
@@ -689,6 +690,27 @@ describe('a Harness newer than the build, or one worfy cannot compare', () => {
     expect(text.message).toBe(`Replace the worfy Harness ${NEWER} with ${ours}?`)
     expect(text.message).not.toContain('→')
     expect(writes()).toEqual([])
+  })
+
+  it('the same commit with uncommitted changes in one of them: the dialog does not say they come from different commits', () => {
+    const plan = (from: string, to: string): InstallPlan => ({
+      pluginDir: sb.pluginDir,
+      from,
+      folder: from,
+      to,
+      copy: true,
+      dependencies: [],
+      dependencyCommands: [],
+      commands: [['plugin', 'update', HARNESS_PLUGIN_ID, '--scope', 'user']],
+      legacyHarness: null,
+    })
+    const dirty = confirmationText(plan('0.3.0+abc1234', '0.3.0+abc1234.dirty'))
+    expect(dirty.button).toBe('Replace')
+    expect(dirty.detail).toContain('Both carry version 0.3.0 and come from the same commit, and one of them carries uncommitted changes')
+    expect(dirty.detail).not.toContain('different commits')
+    // A short SHA of another length is still the same commit.
+    expect(unorderedWhy('0.3.0+abc1234.dirty', '0.3.0+abc12345')).toBe('come from the same commit, and one of them carries uncommitted changes')
+    expect(confirmationText(plan('0.3.0+abc1234', '0.3.0+def5678')).detail).toContain('Both carry version 0.3.0 and come from different commits')
   })
 
   it('the same semver from another commit: only through the dialog, which says worfy cannot tell which is newer; Cancel writes nothing', async () => {

@@ -373,7 +373,7 @@ describe('first-run checks', () => {
     installedAs('1.2.0+def5678')
     let row = checkOf(await runChecks(deps(env)), 'harness')
     expect(row).toMatchObject({ status: 'warn', detail: `1.2.0+def5678, this build ${BUNDLED_HARNESS}`, actions: [{ id: 'harness-install', label: 'Replace' }] })
-    expect(row.hint).toContain('Both are version 1.2.0 from different commits, and worfy cannot tell which is newer')
+    expect(row.hint).toContain('Both are version 1.2.0 and come from different commits, so worfy cannot tell which is newer')
     expect(row.detail).not.toContain('→')
 
     installedAs('1.3.0+def5678')
