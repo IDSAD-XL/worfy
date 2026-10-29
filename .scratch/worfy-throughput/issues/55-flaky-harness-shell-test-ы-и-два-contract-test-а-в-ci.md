@@ -72,8 +72,9 @@ vitest-job-ов и 30 логов Windows `harness-scripts`, по одному, �
   (`scripts/install-stable.mjs:361-362`), холодный старт PowerShell на загруженном runner-е — секунды. Проверка
   «копия запущена» в этих case-ах не участвует: они проверяют отметку deploy.
 - **Правка.** Три case-а «the deploy mark after a whole install» передают `listing: noProcesses` (пустой список:
-  `''` для `ps`, `'[]'` для PowerShell). Timeout не менялся. Настоящий список остаётся в целых установках
-  `install-stable.test.ts`.
+  `''` для `ps`, `'[]'` для PowerShell). Timeout не менялся. Установки `install-stable.test.ts`
+  тоже получают пустой список (`inProcess`); настоящий проверяют его отказы «the copy is running»
+  (`install-stable.test.ts:618`, `:671`, `:875`).
 
 ### `claude-home-registry.test.ts:597` — Linux
 
@@ -90,9 +91,11 @@ vitest-job-ов и 30 логов Windows `harness-scripts`, по одному, �
   через `NEW_DIR_RELIST_MS` (1 s) и отмечает каждый транскрипт в ней, как будто о нём сообщил chokidar
   (`src/main/claude-home/registry.ts`). Чужая папка не читается. Предел записан комментарием `shortcut:`.
 - **Test.** `test/contract/claude-home-registry-missed-event.test.ts`, describe «a transcript in a new folder the
-  file watcher never reports»: chokidar-mock сообщает только `addDir`, без файлов. До правки красный
-  (`Error: no change of ours yet`, 1 failed | 5 passed), после — зелёный; второй case — папка другого Project-а
-  не читается.
+  file watcher never reports»: chokidar-mock сообщает только `addDir`, без файлов; `readdir` считается mock-ом
+  `node:fs/promises`. Case 1: `ours.jsonl` пишется через 200 ms после `addDir` (после чтения папки chokidar-ом и
+  до его `fs.watch`) и приходит в change; `foreign` (look-alike Project) и `old` (папка корня, бывшая до watch) — нет;
+  из `projects/` прочитана только новая папка. Case 2: папка другого Project-а не читается. Case 3: watch, закрытый
+  до второго чтения, больше ничего не читает. До правки case 1 красный (`Error: no change of ours yet`).
 
 ### Shell test-ы Harness (`harness-scripts.test.ts:418/427`)
 
@@ -110,6 +113,52 @@ vitest-job-ов и 30 логов Windows `harness-scripts`, по одному, �
   на пять причин. Повтор на Mac: `wave-gate-lock`, `wave-gate-lock-killed`, `guard-silent`, `land`, `ticket-mark` —
   по 4 копии разом, зелёные; первые три по 6 копий при 36 циклах CPU (load average 120) — 18 из 18 зелёные.
   **Правка — видимость, не карантин:** `runFile` пишет в stderr каждую упавшую попытку с её строками FAIL
-  (`[harness-scripts] <файл>, try <n>, failed: …`), так что следующий FLAKY в логе CI называет упавшую проверку.
+  (`[harness-scripts] <файл>, try <n> of <m>, failed: …`), так что следующий FLAKY в логе CI называет упавшую
+  проверку. Только попытка, за которой есть повтор: ошибку последней vitest печатает сам, второй копии нет; локально
+  (повторов 0) строк нет. Проверено временным файлом `harness/bin/tests/zz-probe.test.sh` (exit 1, удалён после):
+  `CI=1` — одна строка `try 1 of 2`, без `CI` — ни одной.
   Карантин не взят: запись выключает весь shell-файл (десятки проверок Harness), а у каждого из этих файлов меньше
   3 FLAKY за неделю.
+
+### Круг правок 1 (ревью PR #996)
+
+- `NEW_DIR_RELIST_MS` проверен по времени: файл пишется после `addDir`. Добавлены папка корня, которую нельзя
+  читать заново, счёт чтений `readdir` и case закрытого watch (раздел про `claude-home-registry` выше).
+- `guard-silent`: в комментарии записана принятая ошибка замера. Бюджет hook-а начинается до запуска первого
+  stand-in (`deadline`, `harness/hooks/guard.mjs:202`), а stand-in пишет время после своего старта node. Значит
+  hook, превысивший бюджет меньше чем на один старт node, проходит. Ошибка «вторая проверка с собственной
+  попыткой» добавляет целую попытку (3 s) и остаётся красной. Порог не менялся. Mutant ревью был красным с запасом
+  всего 20–30 ms.
+- Комментарий `install-stable-functions` исправлен: настоящий список процессов проверяют отказы
+  `install-stable.test.ts`.
+
+Mutant-ы `src/main/claude-home/registry.ts`, по одному; файл восстановлен из копии, `cmp` — 0. Команда каждого:
+`node scripts/vitest-electron.mjs test/contract/claude-home-registry-missed-event.test.ts`.
+
+| Mutant | Exit | Красный case |
+| --- | --- | --- |
+| `NEW_DIR_RELIST_MS = 0` | 1 | case 1 (новая папка) |
+| `NEW_DIR_RELIST_MS = 5000` | 1 | case 1 |
+| без обработчика `addDir` | 1 | case 1 |
+| заново читаются все папки Project-а | 1 | case 1 (`old`, лишнее чтение) |
+| читается и папка другого Project-а (без `dirMatch`) | 1 | case 2 |
+| таймер не хранится в `relooks` (не снимается в `close()`) | 0 | — |
+| таймер не хранится и нет проверки `closed` в нём | 1 | case 3 |
+
+Таймер нового чтения защищён дважды: `close()` снимает его, а сам таймер выходит при `closed`. Снятие одной
+защиты поведения не меняет (exit 0), поэтому case 3 краснеет, только когда сняты обе.
+
+### Повторы и проверки (2026-10-29)
+
+- Каждый файл — `node scripts/vitest-electron.mjs <файл>`, 10 run-ов одновременно, под 18 циклами CPU
+  (`while :; do :; done`, сняты после) при load average около 50: `claude-home-registry-missed-event`,
+  `claude-home-registry` и `install-stable-functions` одной командой — 10 из 10 exit 0, 139 test-ов в каждом
+  (круг 1). После круга правок: `claude-home-registry-missed-event` — 10 из 10 exit 0, по 7 test-ов.
+- `guard-silent.test.sh` — 10 копий разом, каждая с HOME во временной папке, под 18 циклами CPU: 10 из 10 exit 0,
+  замер «two checks, one budget» — 6003–6120 ms. После круга правок: `HOME=$(mktemp -d) bash
+  harness/hooks/tests/guard-silent.test.sh` — exit 0, `passed 103, failed 0`, 6029 ms.
+- После круга правок, по одному: `claude-home-registry-missed-event` — exit 0 (7 passed), `claude-home-registry` —
+  exit 0 (70), `claude-home-watch-dropped-change` — exit 0 (3), `install-stable-functions` — exit 0 (63).
+- gate fast: `node ~/.claude/worfy-harness/plugin/hooks/gate.mjs fast </dev/null` — exit 0,
+  `[gate] green (fast): worfy/.:lint worfy/.:typecheck worfy/.:test`.
+- `node scripts/windows-verdict-scope.mjs $(git merge-base origin/main HEAD) HEAD` — `runner`, exit 0.

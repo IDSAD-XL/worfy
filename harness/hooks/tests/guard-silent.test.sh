@@ -317,6 +317,11 @@ stub sleep,traces "timeout, then the retry finds traces -> deny with the traces"
 use_stub sleep,0,sleep
 # Counted from the stand-in's first start, not from before the hook: the hook's own node start and jq are not part
 # of the budget, and on a loaded Windows runner they took the 1.5 s to spare (FLAKY 4 times there, 2026-10-29).
+# The error this accepts: the hook's budget starts before it spawns the first stand-in (`deadline` in guard.mjs),
+# and the stand-in writes its time only after its own node start, so that start drops out of what is measured too.
+# A hook past its budget by less than one node start would pass. The fault this case is for, a second check with a
+# try of its own, adds a whole try (3 s) and stays red. The limit is the same as before; a mutant in review was red
+# by only 20-30 ms on the Mac, so a change here should be checked against one.
 t0="$(now_ms)"; got="$(guard "$R" 'git checkout -b fix/x && git commit -m "Fix y"')"; t1="$(now_ms)"
 t0="$(first_call_ms "$t0")"; n="$(calls)"; no_stub
 elapsed=$((t1 - t0))
