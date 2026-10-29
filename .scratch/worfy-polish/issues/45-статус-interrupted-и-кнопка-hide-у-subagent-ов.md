@@ -13,6 +13,10 @@ Source: жалоба владельца и его решение 2026-10-29 (п�
 (`src/renderer/canvas/sources/subagents.ts:238`). Архивировать рабочую Session ради чистой панели —
 неправильный обмен.
 
+Случай «новый процесс, тот же `sessionId`, Subagent умер со старым процессом» — реальный: продолженная
+Session Claude Code сохраняет свой `sessionId`. Transcript Orchestrator-а `f6ab7045` 2026-10-29
+продолжился в том же файле через три перезапуска worfy.
+
 ## Что происходит
 
 - Статус Subagent-а считает `statusOf` (`src/shared/transcript/subagents.ts:544-553`). Subagent без
@@ -29,15 +33,26 @@ Source: жалоба владельца и его решение 2026-10-29 (п�
   живом процессе Subagent без конца — `running` навсегда, со счётчиком времени («running 546h»). Живой
   процесс бывает и чужим этому Subagent-у: Session перезапустили (продолжили после выхода из worfy,
   падения, рестарта Session-а) — процесс новый, а Subagent умер вместе со старым.
-- ADR-0031 отверг статус `stale` по возрасту файла (`:51-54`) и переход `running` → `done` по тишине файла
-  (`:55-56`): живой Subagent может молчать долго. Решение ниже не таймаут по возрасту, а точный признак.
+- ADR-0031 отверг новый статус как таковой (`:51-54`): оборванный Subagent по смыслу — `error` (тот же
+  конец без результата, что `stoppedByUser`), а новый статус трогает все исчерпывающие таблицы статусов.
+  Там же отвергнут переход `running` → `done` по тишине файла (`:55-56`): живой Subagent может молчать
+  долго. Решение ниже пересматривает первый довод ADR-0031 по решению владельца; второй остаётся в силе:
+  признак — не timeout, а смена процесса.
 - Убрать запись из панели нельзя. `SubagentNode` (`src/renderer/canvas/nodes/SubagentNode.tsx`) даёт
   только кнопку «Transcript» (`:109-119`, tooltip «Open the transcript of this Subagent» — `:114`) и
   свёртку «N done» (`:151-163`, текст — `:163`). В rail-е (`src/renderer/session/rail/SubagentsRail.tsx`)
   законченные — в группе «Done (N)» (`:91`, `:129-140`), а `error` стоят вместе с `running` в верхнем
   списке (`:92`).
-- Таблицы статусов исчерпывающие: `CHIP` в `SubagentNode.tsx:66` и в `SubagentsRail.tsx:24`, тип
-  `SubagentStatus` — `src/shared/transcript/subagents.ts:124`, сигналы — схема `:68`.
+- Где код ветвится по статусу Subagent-а (все места меняются в этом Ticket-е):
+  - тип `SubagentStatus` — `src/shared/transcript/subagents.ts:124`; схема сигналов — `:68`; `endedAt` —
+    `:572`, `:604`; статус прогона workflow по его агентам — `:721-722`;
+  - `CHIP` — `src/renderer/canvas/nodes/SubagentNode.tsx:66` и `src/renderer/session/rail/SubagentsRail.tsx:24`;
+  - подпись статуса — `src/renderer/claude-home/subagents.ts:281-282`;
+  - опрос каждые `POLL_MS`, пока что-то `running`, — `src/renderer/claude-home/subagents.ts:129`, `:137-138`,
+    `:256`;
+  - тикающий счётчик времени — `SubagentNode.tsx:69`, `SubagentsRail.tsx:158`; ребро —
+    `src/renderer/canvas/edges/subagents.ts:23`;
+  - свёртка законченных — `src/renderer/canvas/sources/subagents.ts:138-139`, `SubagentsRail.tsx:91-92`.
 
 ## Решение владельца (2026-10-29, принято)
 
@@ -45,8 +60,8 @@ Source: жалоба владельца и его решение 2026-10-29 (п�
 
 1. **Новый статус `interrupted`.** Subagent без записи о конце, у родительской Session которого текущий
    процесс запущен ПОЗЖЕ последней записи в transcript Subagent-а, умер вместе с прежним процессом (выход
-   из worfy, падение, рестарт Session-а). Это точный признак, а не таймаут по возрасту, поэтому он не
-   противоречит ADR-0031. Нужен новый короткий ADR.
+   из worfy, падение, рестарт Session-а). Это точный признак, а не timeout по возрасту. Он пересматривает
+   довод ADR-0031 против нового статуса по решению владельца. Нужен новый короткий ADR.
 2. **Кнопка «Hide»** у одной записи Subagent-а и у всей группы законченных (`done` и `error`) — в
    `SubagentNode` и в `SubagentsRail`. Скрытые записи остаются скрытыми после перезапуска worfy.
 
@@ -54,19 +69,34 @@ Source: жалоба владельца и его решение 2026-10-29 (п�
 
 1. **ADR.** Новый ADR с номером 0085 — следующий свободный на main 2026-10-29 (последний — 0084; открытые
    PR #958 и #960 правят только 0083). При claim номер проверить заново (`gh pr list --state open --json
-   files`). Содержание: статус `interrupted`, его признак, почему это не `stale` из ADR-0031 и почему
-   `unknown` остаётся `running`. Ссылка на ADR-0031 в обе стороны.
-2. **Признак.** `sessionRuns` при живом процессе отдаёт и время его запуска (`procStart` из записи
-   `sessions/<pid>.json`; разбор времени — как в `src/main/claude-home/registry.ts`, на macOS `ps -o
-   lstart=`, на Windows FILETIME). `SubagentReader.session` кладёт его новым сигналом рядом с
+   files`). Содержание ADR:
+   - статус `interrupted` и его признак;
+   - довод ADR-0031 (`:51-54`) против нового статуса: оборванный Subagent по смыслу `error`, а новый
+     статус трогает все исчерпывающие таблицы статусов. Ответ: владелец решил 2026-10-29 иначе.
+     `interrupted` отличается от `error`: агент не упал, его процесс завершили снаружи (выход из worfy,
+     падение, рестарт Session-а), поэтому пользователь может продолжить работу или не обращать внимания.
+     Таблицы статусов (список в «Что происходит») меняются в этом же Ticket-е;
+   - почему при неизвестном процессе остаётся `running`.
+
+   Новый ADR ссылается на ADR-0031. ADR-0031 принят, поэтому его текст не меняется: в конец
+   дописывается раздел `## Amendments` с датой и ссылкой на новый ADR (как в
+   `docs/adr/0066-read-only-access-for-a-linked-machine.md:81`).
+2. **Признак.** Время запуска процесса — число `startedAt` (ms) записи `sessions/<pid>.json` (схема —
+   `src/main/claude-home/registry.ts:338`). `procStart` не разбирается: он остаётся только проверкой
+   «процесс жив» (строки сравниваются как есть, `registry.ts:295`, `:308`). `sessionRuns` при живом
+   процессе отдаёт и `startedAt` его записи; `SubagentReader.session` кладёт его новым сигналом рядом с
    `session-closed` (схема `subagentSignalSchema`, `src/shared/transcript/subagents.ts:68`).
-3. **Статус.** `SubagentStatus` получает `interrupted`. `statusOf` (и `describeRun` для workflow):
-   Subagent без конца, чья последняя запись в transcript раньше запуска текущего процесса Session-а, —
-   `interrupted`. Последняя запись позже или равна — `running`, как сейчас. Процесс не известен
-   (`sessionRuns` → `null`) — `running`, как сейчас. Session закрыта — `error`, как сейчас (ADR-0031).
-4. **UI статуса.** `interrupted` в обеих таблицах `CHIP`, в подписи статуса и в свёртке законченных на
-   Canvas и в rail-е: он законченный, как `done` и `error`, renderer его больше не опрашивает. Цвет
-   чипа — на выбор исполнителя, снимки в «Итог».
+3. **Статус.** `SubagentStatus` получает `interrupted`. Правило в `statusOf` и в `describeRun` (агент
+   workflow): Subagent без конца, у которого `startedAt` текущего процесса Session-а больше его последней
+   записи в transcript (`file.lastAt`, ms, `src/shared/transcript/subagents.ts:367-370`), — `interrupted`.
+   Иначе — `running`, как сейчас. Процесс не известен (`sessionRuns` → `null`) или у записи нет
+   `startedAt` — `running`, как сейчас. Session закрыта — `error`, как сейчас (ADR-0031). Статус прогона
+   workflow по его агентам (`:721-722`) учитывает `interrupted`.
+4. **UI статуса.** `interrupted` — во всех местах из списка в «Что происходит»: обе таблицы `CHIP`,
+   подпись статуса, счётчик времени, ребро, свёртка законченных на Canvas и в rail-е. Он законченный,
+   как `done` и `error`: опрос (`src/renderer/claude-home/subagents.ts:129`) его не считает, и renderer
+   Session-а, где остались только законченные и `interrupted`, больше не опрашивает. Цвет чипа — на
+   выбор исполнителя, снимки в «Итог».
 5. **«Hide».** Кнопка у одной записи (Node на Canvas и строка rail-а) и у группы законченных Session-а
    (свёртка «N done» на Canvas, группа в rail-е). Сегодня `error` в rail-е не в группе (`:92`): исполнитель
    либо собирает `done`, `error` и `interrupted` в одну группу законченных, либо даёт одно действие
@@ -88,37 +118,48 @@ Source: жалоба владельца и его решение 2026-10-29 (п�
 - `src/shared/ipc/claude-home.ts`, `src/main/ipc/claude-home.ts` — канал скрытых записей.
 - `src/renderer/canvas/nodes/SubagentNode.tsx`, `src/renderer/session/rail/SubagentsRail.tsx`,
   `src/renderer/canvas/sources/subagents.ts` — статус, кнопка «Hide», фильтр скрытых.
+- `src/renderer/claude-home/subagents.ts` — опрос и подпись статуса;
+  `src/renderer/canvas/edges/subagents.ts` — ребро.
 - `docs/adr/0085-interrupted-subagents.md` — новый ADR (номер — проверить при claim).
+- `docs/adr/0031-closed-session-ends-its-subagents.md` — только раздел ## Amendments: дописанный раздел с
+  датой и ссылкой на новый ADR.
 - Test-ы: `test/unit/subagents.test.ts`, `test/contract/claude-home-subagents.test.ts`,
   `test/contract/claude-home-subagents-link.test.ts`, `test/unit/subagent-nodes.test.tsx`,
   `test/unit/subagent-trees.test.tsx`, `test/unit/link-access.test.ts`, `test/e2e/subagent-tree.spec.ts`.
 
-Только читать: `src/main/claude-home/registry.ts` (`processState`, разбор `procStart`),
-`docs/adr/0031-closed-session-ends-its-subagents.md`.
+Только читать: `src/main/claude-home/registry.ts` (схема записи `sessions/<pid>.json`, `processState`).
 
-Платформенный PR — да: признак строится на времени запуска процесса, а его разбор разный на macOS и
-Windows (ADR-0056). Merge ждёт Windows-проверку по правилу ADR-0056.
+Платформенный PR — да: в списке файлов `test/e2e/subagent-tree.spec.ts`, а
+`scripts/windows-verdict-scope.mjs:80` относит `test/e2e/**` к проверке на Windows-ПК. Merge ждёт
+Windows-проверку по правилу ADR-0056.
 
 ## Готово, когда
 
-- [ ] Unit, `statusOf`: Subagent без конца, процесс Session-а запущен после последней записи в его
-  transcript, — `interrupted`; запущен до последней записи — `running`.
-- [ ] Unit: процесс Session-а не известен (`sessionRuns` → `null`) — Subagent без конца остаётся
-  `running`, как сегодня; закрытая Session — `error`, как сегодня (ADR-0031).
-- [ ] Contract: `SubagentReader.session` отдаёт время запуска живого процесса; запись `sessions/` без
-  `procStart` даёт прежнее поведение.
+- [ ] Unit, `statusOf`: Subagent без конца, `startedAt` процесса Session-а позже его последней записи в
+  transcript, — `interrupted`; раньше — `running`.
+- [ ] Unit, та же секунда: последняя запись за 300 ms до `startedAt` нового процесса — `interrupted`;
+  через 300 ms после — `running`.
+- [ ] Unit, `describeRun`: агент workflow без конца, `startedAt` позже его последней записи, —
+  `interrupted`; статус прогона по его агентам (`:721-722`) это учитывает.
+- [ ] Unit: процесс Session-а не известен (`sessionRuns` → `null`) или у записи нет `startedAt` —
+  Subagent без конца остаётся `running`, как сегодня; закрытая Session — `error`, как сегодня (ADR-0031).
+- [ ] Unit, опрос: Session, где остались только законченные и `interrupted`, renderer не опрашивает
+  (`setInterval` каждые `POLL_MS` не запущен или снят, `src/renderer/claude-home/subagents.ts:137-140`).
+- [ ] Contract: `SubagentReader.session` отдаёт `startedAt` записи живого процесса; запись без
+  `startedAt` даёт прежнее поведение.
 - [ ] Test хранения: скрытая запись остаётся скрытой после перезапуска (новый экземпляр хранилища читает
   тот же файл); «Show hidden Subagents» возвращает её.
 - [ ] e2e или component test кнопки «Hide»: одна запись и группа законченных исчезают с Canvas и из
   rail-а; одна запись `running` тоже скрывается; «Hide» группы законченных `running` не трогает.
-- [ ] Новый ADR (0085 или следующий свободный) — Статус: принят.
+- [ ] Новый ADR (0085 или следующий свободный) — Статус: принят; ADR-0031 получил раздел
+  `## Amendments` со ссылкой на него.
 - [ ] Снимки панели Subagent-ов (Canvas и rail, со статусом `interrupted` и кнопкой «Hide») в светлой и
   тёмной теме — в «Итог»; reviewer их проверил.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; затронутые e2e — exit 0.
 
-## Вне скоупа
+## Вне scope
 
-- Таймаут по возрасту файла или тишине (отвергнут ADR-0031).
+- Timeout по возрасту файла или тишине (отвергнут ADR-0031).
 - Subagent-ы при неизвестном процессе (`sessionRuns` → `null`): остаются `running`, статус не
   меняется; такую запись убирает кнопка «Hide» у неё самой.
 - Удаление файлов transcript-ов Subagent-ов.
