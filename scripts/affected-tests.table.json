@@ -957,6 +957,12 @@
       ]
     },
     {
+      "file": "test/quarantine.ts",
+      "reads": [
+        "test/quarantine"
+      ]
+    },
+    {
       "file": "test/shell-stub.ts",
       "reads": [
         "test/fixtures/shell-stub/stub"

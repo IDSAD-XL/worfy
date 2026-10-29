@@ -1,0 +1,12 @@
+{
+  "runner": "playwright",
+  "file": "test/e2e/linked-notify.spec.ts",
+  "test": "a turn of a Session of A ends with no window focused: A and B record the notification; a click on B opens the Session in B on A's Project",
+  "platforms": [
+    "win32"
+  ],
+  "reason": "The test runs two apps at once (machines A and B). On the 4-core GitHub Windows runner the window of one of them sometimes does not answer for 8–13 s after launch while the other one runs (launch probe #963, worfy-throughput 44), so canvasReady gives up with «the window is 1400 px wide» on the first try and on the retry. Red in run 40848990263 (#970, a PR with no app code). Not a fault of the change under review; no sync point helps a window that does not answer.",
+  "owner": "worfy-throughput 44",
+  "since": "2026-10-29",
+  "until": "2026-11-12"
+}

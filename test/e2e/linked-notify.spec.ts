@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { canvasReady, launchApp, linkThroughUi, machineIdOf, setProjectsAccess, type LaunchedApp } from './helpers'
+import { quarantined } from './quarantine'
 
 test.setTimeout(180_000)
 
@@ -105,7 +106,7 @@ async function unfocusAll(apps: LaunchedApp[]): Promise<void> {
     .toBe(false)
 }
 
-test('a turn of a Session of A ends with no window focused: A and B record the notification; a click on B opens the Session in B on A\'s Project', async () => {
+quarantined('linked-notify-turn-click-opens-in-b')('a turn of a Session of A ends with no window focused: A and B record the notification; a click on B opens the Session in B on A\'s Project', async () => {
   const scratch = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-link-13-notify-')))
   const aData = dataFolder(join(scratch, 'a-data'), { id: ALPHA, name: 'alpha', path: gitRepo(join(scratch, 'alpha')) })
   const bData = dataFolder(join(scratch, 'b-data'), { id: GAMMA, name: 'gamma', path: gitRepo(join(scratch, 'gamma')) })
