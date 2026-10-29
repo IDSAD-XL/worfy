@@ -1175,7 +1175,7 @@ check "ship-ticket: points at the red main rule" \
 # `MERGEABLE` and `CONFLICTING` also names `UNKNOWN`, in the words of ship-ticket step 8.
 # para_of <file> <anchor> — the blank-line-separated paragraph holding the anchor, as one line.
 para_of() { awk -v RS= -v a="$2" 'index($0, a) {print; exit}' "$1" | tr '\n' ' ' | tr -s ' '; }
-UNKNOWN_WORDS='`UNKNOWN` — GitHub is still computing it, ask again in a minute'
+UNKNOWN_WORDS='`UNKNOWN` — GitHub is still computing it'
 for spec in \
     "ship-ticket step 8|$ST|**\`F workflow.ci\` is \`batch\`**" \
     "implementer finish|$HARNESS/skills/ship-ticket/implementer-finish.md|With \`workflow.ci: \"batch\"\` GitHub CI does not run on a PR" \
@@ -1187,6 +1187,13 @@ for spec in \
     for word in '`MERGEABLE`' '`CONFLICTING`' "$UNKNOWN_WORDS"; do
         check "batch mergeable, $label: names $word" grep -qF -- "$word" <<<"$p"
     done
+    # The implementer waits for nothing after its PR: it reports UNKNOWN, the others ask again.
+    if [ "$label" = "implementer finish" ]; then
+        check "batch mergeable, $label: UNKNOWN goes into the report, no second call" grep -qF -- 'do not ask again: `UNKNOWN` goes into the report as it is' <<<"$p"
+        check "batch mergeable, $label: no \"ask again in a minute\"" bash -c '! grep -qF -- "ask again in a minute" <<<"$1"' _ "$p"
+    else
+        check "batch mergeable, $label: ask again in a minute" grep -qF -- "ask again in a minute" <<<"$p"
+    fi
 done
 check "batch mergeable, overnight-fix-loop: the command comment names UNKNOWN" \
     grep -qF 'gh pr view <N> --json mergeable -q .mergeable   # batch: MERGEABLE — merge; CONFLICTING — as DIRTY; UNKNOWN — ask again in a minute' \

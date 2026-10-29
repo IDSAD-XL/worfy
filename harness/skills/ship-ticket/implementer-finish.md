@@ -10,8 +10,8 @@ the report does not call CI green unless it says `CI=pass`. Do not wait for CI: 
 With `workflow.ci: "batch"` GitHub CI does not run on a PR: the PR and the green step 5 are the
 finish, and `CI=none` is expected, not a gap. Check `gh pr view <N> --json mergeable` once instead
 of the CI read — `CONFLICTING` means rebase onto the base, `MERGEABLE` is done, `UNKNOWN` — GitHub
-is still computing it, ask again in a minute: that is the only second `mergeable` call, and an
-`UNKNOWN` answer to it goes into the report as it is. Say "CI: batch,
+is still computing it; do not ask again: `UNKNOWN` goes into the report as it is, and the orchestrator
+reads `mergeable` again before the merge. Say "CI: batch,
 runs on main after the Wave" in the report.
 `"local-green"` — do not open a PR; you finish at step 5. Before the local merge the
 branch must be on top of the main branch (skill `/worfy:ship-ticket`, step 11): that rebase is
