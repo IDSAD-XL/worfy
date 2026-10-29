@@ -220,9 +220,12 @@ for (const scheme of ['light', 'dark'] as const) {
     await expectControl(window, orchestrator.getByTestId('orchestrator-new-conversation'), 'New conversation of the Orchestrator')
     await expectStatic(window, orchestrator.getByTestId('orchestrator-state'), 'the state of the Orchestrator')
 
-    // A Browser's header: Back stays inactive on a page with no history.
+    // A Browser's header: Back stays inactive on a page with no history. All three buttons are
+    // inactive until the page is ready (BrowserNode.tsx), so Reload is read once it is enabled.
     const frame = window.locator('[data-testid="browser-frame"][data-node-id="b1"]')
-    await expectControl(window, frame.getByRole('button', { name: 'Reload' }), 'Reload of a Browser')
+    const reload = frame.getByRole('button', { name: 'Reload' })
+    await expect(reload, 'Reload of a Browser once its page is ready').toBeEnabled()
+    await expectControl(window, reload, 'Reload of a Browser')
     await expectInactive(window, frame.getByRole('button', { name: 'Back' }), 'Back of a Browser with no history')
     await expectAllCursors(window, 'the Canvas')
 
