@@ -28,12 +28,13 @@ const MAX_FILES = 12
 const FOLDERS = ['test/unit', 'test/contract']
 const FORBIDDEN_WORDS = ['e2e', 'packaged', 'acceptance']
 // Test files longer than the job's 10 minutes on Windows, and what they run instead of the runner.
-const RUNS_ON_THE_PC = new Map([
-  [
-    'test/contract/harness-scripts.test.ts',
-    "runs every Harness shell test, about 26 minutes on Windows: it runs longer than this job's 10 minutes and is run on the owner's Windows PC instead",
-  ],
-])
+// The Harness shell tests are split across four files (test/harness-shell-tests.ts, HARNESS_SCRIPTS_FILES).
+const RUNS_ON_THE_PC = new Map(
+  [1, 2, 3, 4].map((n) => [
+    `test/contract/harness-scripts-${n}.test.ts`,
+    "runs a share of the Harness shell tests, all of which take about 26 minutes on Windows: together they run longer than this job's 10 minutes, in the CI jobs harness-scripts <i>/<n> and on the owner's Windows PC instead",
+  ]),
+)
 
 /**
  * Every regular file under `folder`, as a path from the working directory with forward slashes.

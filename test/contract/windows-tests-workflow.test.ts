@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { gitBash } from '../git-bash'
+import { HARNESS_SCRIPTS_FILES } from '../harness-shell-tests'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { ms } from '../time-scale'
@@ -90,12 +91,12 @@ const RUN = ['test -n "$TEST_FILES"', 'node scripts/vitest-electron.mjs $TEST_FI
 const REFUSE = ['test -z "$TEST_FILES" || { echo "::error::mode full runs the whole suite and takes no list of files; leave files empty or choose mode files"; exit 1; }']
 /**
  * PowerShell, the default shell of the Windows image: `pnpm test`, with `--shard` only when a call gives
- * one. A shard `harness-scripts <i>/<n>` runs harness-scripts.test.ts alone with part i of n of its
- * shell tests; a vitest shard leaves that file out. ci-workflow.test.ts checks that together the jobs
+ * one. A shard `harness-scripts <i>/<n>` runs the files of the Harness shell tests alone with part i
+ * of n of them; a vitest shard leaves those files out. ci-workflow.test.ts checks that together the jobs
  * of ci.yml run every test file once.
  */
 const SUITE = [
-  "if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; if ($env:TEST_FILES -and -not ((-split $env:TEST_FILES) -contains $env:HARNESS_SCRIPTS)) { 'The list has no harness-scripts.test.ts: nothing to run' } else { pnpm test $env:HARNESS_SCRIPTS } }",
+  "if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; if ($env:TEST_FILES -and -not ((-split $env:TEST_FILES) | Where-Object { (-split $env:HARNESS_SCRIPTS) -contains $_ })) { 'The list has no harness-scripts file: nothing to run' } else { pnpm test @(-split $env:HARNESS_SCRIPTS) } }",
   'elseif ($env:SHARD) { $env:WORFY_TEST_EXCLUDE = $env:HARNESS_SCRIPTS; $env:WORFY_TEST_FILES = $env:TEST_FILES; pnpm test "--shard=$env:SHARD" }',
   'else { pnpm test }',
 ]
@@ -264,7 +265,7 @@ describe('.github/workflows/windows-tests.yml', () => {
     expect(steps(FULL_JOB)[7]).toEqual({
       name: 'Run the unit and contract suite, or a part of it',
       if: "steps.tests.outputs.run != 'none'",
-      env: ['SHARD: ${{ inputs.shard }}', 'HARNESS_SCRIPTS: test/contract/harness-scripts.test.ts', 'TEST_FILES: ${{ steps.tests.outputs.files }}'],
+      env: ['SHARD: ${{ inputs.shard }}', `HARNESS_SCRIPTS: ${HARNESS_SCRIPTS_FILES.join(' ')}`, 'TEST_FILES: ${{ steps.tests.outputs.files }}'],
       run: SUITE,
     })
     expect(steps(FULL_JOB).flatMap((step) => step.run ?? [])).toEqual([...REFUSE, ...PNPM, INSTALL, PICK, ...SUITE])
@@ -282,7 +283,7 @@ describe('.github/workflows/windows-tests.yml', () => {
   })
 
   // The step under PowerShell, with pnpm a function that prints what it was given: what each job of a
-  // shard, a part of harness-scripts.test.ts or a dispatch runs, with and without a pull request's list.
+  // shard, a part of the Harness shell tests or a dispatch runs, with and without a pull request's list.
   // PowerShell ships on the Windows and Linux runners; a machine without it skips these cases.
   let pwsh: string | null | undefined
   /** The PowerShell of this machine, looked for once, when a case first runs (never while the file loads). */
@@ -291,17 +292,17 @@ describe('.github/workflows/windows-tests.yml', () => {
     return pwsh
   }
   it.for([
-    ['a shard with a list', '2/3', 'test/unit/a.test.ts test/contract/harness-scripts.test.ts', 'pnpm [test --shard=2/3] files=[test/unit/a.test.ts test/contract/harness-scripts.test.ts] exclude=[test/contract/harness-scripts.test.ts] part=[]'],
-    ['a shard without a list', '1/3', '', 'pnpm [test --shard=1/3] files=[] exclude=[test/contract/harness-scripts.test.ts] part=[]'],
-    ['a part, the list has the file', 'harness-scripts 1/2', 'test/unit/a.test.ts test/contract/harness-scripts.test.ts', 'pnpm [test test/contract/harness-scripts.test.ts] files=[] exclude=[] part=[1/2]'],
-    ['a part, the list has not', 'harness-scripts 2/2', 'test/unit/a.test.ts test/unit/harness-scripts.test.ts.md', 'The list has no harness-scripts.test.ts: nothing to run'],
-    ['a part without a list', 'harness-scripts 2/2', '', 'pnpm [test test/contract/harness-scripts.test.ts] files=[] exclude=[] part=[2/2]'],
+    ['a shard with a list', '2/3', 'test/unit/a.test.ts test/contract/harness-scripts-1.test.ts', 'pnpm [test --shard=2/3] files=[test/unit/a.test.ts test/contract/harness-scripts-1.test.ts] exclude=[test/contract/harness-scripts-1.test.ts test/contract/harness-scripts-2.test.ts test/contract/harness-scripts-3.test.ts test/contract/harness-scripts-4.test.ts] part=[]'],
+    ['a shard without a list', '1/3', '', 'pnpm [test --shard=1/3] files=[] exclude=[test/contract/harness-scripts-1.test.ts test/contract/harness-scripts-2.test.ts test/contract/harness-scripts-3.test.ts test/contract/harness-scripts-4.test.ts] part=[]'],
+    ['a part, the list has one of the files', 'harness-scripts 1/2', 'test/unit/a.test.ts test/contract/harness-scripts-3.test.ts', 'pnpm [test test/contract/harness-scripts-1.test.ts test/contract/harness-scripts-2.test.ts test/contract/harness-scripts-3.test.ts test/contract/harness-scripts-4.test.ts] files=[] exclude=[] part=[1/2]'],
+    ['a part, the list has none of them', 'harness-scripts 2/2', 'test/unit/a.test.ts test/unit/harness-scripts-1.test.ts.md test/contract/harness-scripts.test.ts', 'The list has no harness-scripts file: nothing to run'],
+    ['a part without a list', 'harness-scripts 2/2', '', 'pnpm [test test/contract/harness-scripts-1.test.ts test/contract/harness-scripts-2.test.ts test/contract/harness-scripts-3.test.ts test/contract/harness-scripts-4.test.ts] files=[] exclude=[] part=[2/2]'],
     ['a dispatch', '', '', 'pnpm [test] files=[] exclude=[] part=[]'],
   ] as const)('mode full: the step that runs the suite under PowerShell, %s', ([, shard, list, printed], { skip }) => {
     const shell = findPwsh()
     if (shell === null) return skip('no PowerShell on this machine')
     const stub = 'function pnpm { "pnpm [$args] files=[$env:WORFY_TEST_FILES] exclude=[$env:WORFY_TEST_EXCLUDE] part=[$env:HARNESS_SCRIPTS_PART]" }'
-    const env: NodeJS.ProcessEnv = { ...process.env, SHARD: shard, HARNESS_SCRIPTS: 'test/contract/harness-scripts.test.ts', TEST_FILES: list }
+    const env: NodeJS.ProcessEnv = { ...process.env, SHARD: shard, HARNESS_SCRIPTS: HARNESS_SCRIPTS_FILES.join(' '), TEST_FILES: list }
     for (const name of ['WORFY_TEST_FILES', 'WORFY_TEST_EXCLUDE', 'HARNESS_SCRIPTS_PART']) delete env[name]
     const result = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command', [stub, ...SUITE].join('\n')], { encoding: 'utf8', env })
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
@@ -366,7 +367,7 @@ describe('scripts/windows-test-list.mjs', () => {
       'test/unit/app.packaged.test.ts',
       'test/unit/run_acceptance.test.ts',
       'test/unit/e2e/inner.test.ts',
-      'test/contract/harness-scripts.test.ts',
+      ...HARNESS_SCRIPTS_FILES,
       'test/unit/helper.ts',
       'test/unit/notes.test.js',
       'test/unit/ok.spec.ts',
@@ -471,9 +472,9 @@ describe('scripts/windows-test-list.mjs', () => {
     ['a name with packaged between dots', 'test/unit/app.packaged.test.ts', /has "packaged" in its name/, ''],
     ['a name with acceptance after _', 'test/unit/run_acceptance.test.ts', /has "acceptance" in its name/, ''],
     ['a file in a folder named e2e', 'test/unit/e2e/inner.test.ts', /has "e2e" in its name/, ''],
-    // Every Harness shell test: about 26 minutes on Windows, past the job's 10.
-    ['the Harness shell tests', 'test/contract/harness-scripts.test.ts', /runs longer than this job's 10 minutes.*on the owner's Windows PC/, ''],
-    ['the Harness shell tests of this repository', 'test/contract/harness-scripts.test.ts', /runs longer than this job's 10 minutes.*on the owner's Windows PC/, REPO],
+    // The Harness shell tests: about 26 minutes on Windows together, past the job's 10.
+    ...HARNESS_SCRIPTS_FILES.map((file): [string, string, RegExp, string] => [`the Harness shell tests of ${file}`, file, /together they run longer than this job's 10 minutes.*on the owner's Windows PC/, '']),
+    ...HARNESS_SCRIPTS_FILES.map((file): [string, string, RegExp, string] => [`the Harness shell tests of this repository's ${file}`, file, /together they run longer than this job's 10 minutes.*on the owner's Windows PC/, REPO]),
     ['a helper that is not a test file', 'test/unit/helper.ts', /is not a \*\.test\.ts or \*\.test\.tsx file/, ''],
     ['a .test.js file', 'test/unit/notes.test.js', /is not a \*\.test\.ts or \*\.test\.tsx file/, ''],
     ['a .spec.ts file', 'test/unit/ok.spec.ts', /is not a \*\.test\.ts or \*\.test\.tsx file/, ''],
@@ -510,11 +511,11 @@ describe('scripts/windows-test-list.mjs', () => {
   })
 
   it('refuses the whole list when one element is refused, and names every refused element', () => {
-    const result = check('test/unit/ok.test.ts --config=x test/e2e/x.test.ts test/contract/harness-scripts.test.ts', tree)
+    const result = check('test/unit/ok.test.ts --config=x test/e2e/x.test.ts test/contract/harness-scripts-2.test.ts', tree)
     expect(result.status).toBe(1)
     expect(result.stderr).toMatch(/"--config=x": starts with "-"/)
     expect(result.stderr).toMatch(/"test\/e2e\/x\.test\.ts": is not under/)
-    expect(result.stderr).toMatch(/"test\/contract\/harness-scripts\.test\.ts": runs every Harness shell test/)
+    expect(result.stderr).toMatch(/"test\/contract\/harness-scripts-2\.test\.ts": runs a share of the Harness shell tests/)
     expect(result.stderr).not.toContain('"test/unit/ok.test.ts"')
     expect(result.output).toBe('')
   })
@@ -546,7 +547,7 @@ describe('scripts/windows-test-list.mjs', () => {
     const all = ['test/unit', 'test/contract'].flatMap((folder) =>
       readdirSync(join(REPO, folder), { recursive: true, encoding: 'utf8' })
         .map((name) => `${folder}/${name.split('\\').join('/')}`)
-        .filter((name) => /\.test\.tsx?$/.test(name) && !/e2e|packaged|acceptance/i.test(name) && name !== 'test/contract/harness-scripts.test.ts'),
+        .filter((name) => /\.test\.tsx?$/.test(name) && !/e2e|packaged|acceptance/i.test(name) && !HARNESS_SCRIPTS_FILES.includes(name)),
     )
     expect(all.length).toBeGreaterThan(100)
     for (let at = 0; at < all.length; at += 12) {

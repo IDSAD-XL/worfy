@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { inPart, parsePart, shellTests, type Part } from '../harness-shell-tests'
+import { HARNESS_SCRIPTS_FILES, inFile, inPart, MEASURED_SECONDS, parsePart, shareOf, shellTests, startOrder, UNMEASURED_SECONDS, type Part } from '../harness-shell-tests'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { ms } from '../time-scale'
@@ -209,8 +209,8 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     expect(shards('linux-tests')).toHaveLength(4)
     // One Windows job ran the heavy contract files side by side on one runner; three shards share them out.
     expect(shards('windows')).toHaveLength(3)
-    // harness-scripts.test.ts (354-617 s on Windows) runs beside them in two jobs of its own, each
-    // with half of the Harness shell tests; nothing else is in the matrix.
+    // The Harness shell tests (354-617 s on Windows as one file) run beside them in two jobs of their
+    // own, each with half of them; nothing else is in the matrix.
     expect(shards('windows', 'harness-scripts ')).toHaveLength(2)
     // The shards of macos-e2e and windows-e2e come from scripts/ci-scope.mjs: see the describe of the
     // e2e spec files of a pull request below.
@@ -270,11 +270,11 @@ describe('ci.yml: every pull request and every push to main, one check for the m
 })
 
 // Every unit and contract test file runs in exactly one Windows job of ci.yml, and so does every shell
-// test of the Harness that harness-scripts.test.ts runs. The jobs are the matrix of the job windows;
-// what one of them runs follows from the step of windows-tests.yml that runs the suite, pinned below:
-// a value `<i>/<n>` runs vitest shard i of n of every file but the ones in WORFY_TEST_EXCLUDE
-// (vitest.config.ts), a value `harness-scripts <i>/<n>` runs harness-scripts.test.ts alone, with
-// part i of n of the shell tests (HARNESS_SCRIPTS_PART, test/harness-shell-tests.ts). Which file a
+// test of the Harness that the files test/contract/harness-scripts-<n>.test.ts run. The jobs are the
+// matrix of the job windows; what one of them runs follows from the step of windows-tests.yml that runs
+// the suite, pinned below: a value `<i>/<n>` runs vitest shard i of n of every file but the ones in
+// WORFY_TEST_EXCLUDE (vitest.config.ts), a value `harness-scripts <i>/<n>` runs the harness-scripts
+// files alone, with part i of n of the shell tests (HARNESS_SCRIPTS_PART, test/harness-shell-tests.ts). Which file a
 // shard gets is vitest's own answer (its BaseSequencer, the hash of the path), not a copy of it.
 const WINDOWS_TESTS = join(REPO, '.github', 'workflows', 'windows-tests.yml')
 
@@ -293,13 +293,14 @@ function suiteStep(): string[] {
   return step
 }
 
-/** The file a shard job leaves out and a job of its own runs: the value of HARNESS_SCRIPTS in that step, if any. */
+/** The files a shard job leaves out and a job of their own runs: the value of HARNESS_SCRIPTS in that step, if any. */
 const ownJobFiles = (): string[] =>
   suiteStep()
     .filter((line) => line.startsWith('HARNESS_SCRIPTS: '))
-    .map((line) => line.slice('HARNESS_SCRIPTS: '.length))
+    .flatMap((line) => line.slice('HARNESS_SCRIPTS: '.length).split(' '))
 
-const HARNESS_SCRIPTS = 'test/contract/harness-scripts.test.ts'
+const HARNESS_SCRIPTS = HARNESS_SCRIPTS_FILES
+const isHarnessScripts = (file: string): boolean => HARNESS_SCRIPTS.includes(file)
 
 /** The test files of vitest.config.ts's projects: *.test.ts and *.test.tsx under test/unit and test/contract. */
 const testFiles = (): string[] =>
@@ -344,15 +345,17 @@ async function windowsJobs(values: readonly string[], exclude: readonly string[]
   const { BaseSequencer } = await import('vitest/node')
   const shell = shellTests(join(REPO, 'harness'))
   const root = REPO.split(sep).join('/')
-  const shellOf = (files: string[], part?: Part): string[] => (files.includes(HARNESS_SCRIPTS) ? (part ? inPart(shell, part) : shell) : [])
+  // Each harness-scripts file in the job runs its share, as test/harness-scripts-suite.ts asks for it on Windows.
+  const shellOf = (files: string[], part?: Part): string[] =>
+    HARNESS_SCRIPTS.flatMap((file, at) => (files.includes(file) ? shareOf(shell, at + 1, HARNESS_SCRIPTS.length, part, MEASURED_SECONDS.windows) : []))
   return Promise.all(
     values.map(async (name): Promise<WindowsJob> => {
       const own = /^harness-scripts (.+)$/.exec(name)
       if (own) {
-        // A list without the file: the job runs nothing.
-        if (list !== undefined && !list.includes(HARNESS_SCRIPTS)) return { name, files: [], shellTests: [] }
-        // `pnpm test test/contract/harness-scripts.test.ts`: vitest takes the path as a filter, a part of the name.
-        const files = vitestFiles([HARNESS_SCRIPTS], [])
+        // A list without any of the files: the job runs nothing.
+        if (list !== undefined && !list.some(isHarnessScripts)) return { name, files: [], shellTests: [] }
+        // `pnpm test <the files>`: vitest takes each path as a filter, a part of the name.
+        const files = vitestFiles(HARNESS_SCRIPTS, [])
         return { name, files, shellTests: shellOf(files, parsePart(own[1])) }
       }
       const shard = parsePart(name)
@@ -367,12 +370,12 @@ async function windowsJobs(values: readonly string[], exclude: readonly string[]
   )
 }
 
-/** The jobs that run each test file, and each shell test (as `harness/<path>`) in place of harness-scripts.test.ts. */
+/** The jobs that run each test file, and each shell test (as `harness/<path>`) in place of the harness-scripts files. */
 function jobsPerTest(jobs: WindowsJob[]): Map<string, string[]> {
   const shell = shellTests(join(REPO, 'harness')).map((name) => `harness/${name}`)
-  const per = new Map([...testFiles().filter((file) => file !== HARNESS_SCRIPTS), ...shell].map((test): [string, string[]] => [test, []]))
+  const per = new Map([...testFiles().filter((file) => !isHarnessScripts(file)), ...shell].map((test): [string, string[]] => [test, []]))
   for (const job of jobs) {
-    for (const file of job.files) if (file !== HARNESS_SCRIPTS) per.get(file)?.push(job.name)
+    for (const file of job.files) if (!isHarnessScripts(file)) per.get(file)?.push(job.name)
     for (const name of job.shellTests) per.get(`harness/${name}`)?.push(job.name)
   }
   return per
@@ -382,22 +385,24 @@ const inJobs = (per: Map<string, string[]>, count: (n: number) => boolean): stri
   [...per].filter(([, jobs]) => count(jobs.length)).map(([test]) => test)
 
 describe('Windows CI: every unit and contract test file, and every Harness shell test, runs in exactly one job', () => {
-  it('reads the step that runs the suite as pinned: a shard leaves harness-scripts.test.ts out, a job of its own runs it with its part', () => {
+  it('reads the step that runs the suite as pinned: a shard leaves the harness-scripts files out, a job of their own runs them with its part', () => {
     expect(suiteStep()).toEqual([
       'name: Run the unit and contract suite, or a part of it',
       "if: steps.tests.outputs.run != 'none'",
       'env:',
       'SHARD: ${{ inputs.shard }}',
-      `HARNESS_SCRIPTS: ${HARNESS_SCRIPTS}`,
+      `HARNESS_SCRIPTS: ${HARNESS_SCRIPTS.join(' ')}`,
       'TEST_FILES: ${{ steps.tests.outputs.files }}',
       'run: |',
-      "if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; if ($env:TEST_FILES -and -not ((-split $env:TEST_FILES) -contains $env:HARNESS_SCRIPTS)) { 'The list has no harness-scripts.test.ts: nothing to run' } else { pnpm test $env:HARNESS_SCRIPTS } }",
+      "if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; if ($env:TEST_FILES -and -not ((-split $env:TEST_FILES) | Where-Object { (-split $env:HARNESS_SCRIPTS) -contains $_ })) { 'The list has no harness-scripts file: nothing to run' } else { pnpm test @(-split $env:HARNESS_SCRIPTS) } }",
       'elseif ($env:SHARD) { $env:WORFY_TEST_EXCLUDE = $env:HARNESS_SCRIPTS; $env:WORFY_TEST_FILES = $env:TEST_FILES; pnpm test "--shard=$env:SHARD" }',
       'else { pnpm test }',
     ])
-    expect(testFiles()).toContain(HARNESS_SCRIPTS)
-    // The filter names this one file: no other test file has its path in its own.
-    expect(testFiles().filter((file) => file.includes(HARNESS_SCRIPTS))).toEqual([HARNESS_SCRIPTS])
+    for (const file of HARNESS_SCRIPTS) {
+      expect(testFiles()).toContain(file)
+      // Each filter names its one file: no other test file has its path in its own.
+      expect(testFiles().filter((other) => other.includes(file))).toEqual([file])
+    }
   })
 
   it('runs each test file in exactly one Windows job, and each Harness shell test in exactly one', async () => {
@@ -408,18 +413,18 @@ describe('Windows CI: every unit and contract test file, and every Harness shell
     expect(inJobs(per, (n) => n > 1), 'in two Windows jobs or more').toEqual([])
   })
 
-  it('runs harness-scripts.test.ts in jobs of its own, with no other file, and in no shard of the suite', async () => {
+  it('runs the harness-scripts files in jobs of their own, with no other file, and in no shard of the suite', async () => {
     const jobs = await windowsJobs(matrix('windows'), ownJobFiles())
-    const own = jobs.filter((job) => job.files.includes(HARNESS_SCRIPTS))
+    const own = jobs.filter((job) => job.files.some(isHarnessScripts))
     expect(own.map((job) => job.name)).toEqual(['harness-scripts 1/2', 'harness-scripts 2/2'])
-    for (const job of own) expect(job.files, job.name).toEqual([HARNESS_SCRIPTS])
+    for (const job of own) expect(job.files, job.name).toEqual([...HARNESS_SCRIPTS].sort())
     // Each job of its own runs a part, not every shell test.
     for (const job of own) expect(job.shellTests.length, job.name).toBeLessThan(shellTests(join(REPO, 'harness')).length)
   })
 
   it('finds a file that runs in no Windows job and a file that runs in two', async () => {
     const real = matrix('windows')
-    const exclude = [HARNESS_SCRIPTS]
+    const exclude = HARNESS_SCRIPTS
     const none = async (values: string[], left: string[]) => inJobs(jobsPerTest(await windowsJobs(values, left)), (n) => n === 0)
     const twice = async (values: string[], left: string[]) => inJobs(jobsPerTest(await windowsJobs(values, left)), (n) => n > 1)
     const shell = shellTests(join(REPO, 'harness')).map((name) => `harness/${name}`)
@@ -443,11 +448,13 @@ describe('Windows CI: every unit and contract test file, and every Harness shell
   it('runs each file of a pull request\'s list in exactly one Windows job, and no other file', async () => {
     const shell = shellTests(join(REPO, 'harness')).map((name) => `harness/${name}`)
     const all = testFiles()
-    // Every seventh file, with and without harness-scripts.test.ts, and a list of one file.
-    const some = all.filter((_file, at) => at % 7 === 0 && all[at] !== HARNESS_SCRIPTS)
-    for (const list of [some, [...some, HARNESS_SCRIPTS], [HARNESS_SCRIPTS], [some[0] ?? '']]) {
+    // Every seventh file, with and without the harness-scripts files, one of them alone, and a list of one file.
+    const some = all.filter((file, at) => at % 7 === 0 && !isHarnessScripts(file))
+    const third = HARNESS_SCRIPTS[2] ?? ''
+    for (const list of [some, [...some, ...HARNESS_SCRIPTS], [...HARNESS_SCRIPTS], [third], [some[0] ?? '']]) {
       const per = jobsPerTest(await windowsJobs(matrix('windows'), ownJobFiles(), list))
-      const expected = [...list.filter((file) => file !== HARNESS_SCRIPTS), ...(list.includes(HARNESS_SCRIPTS) ? shell : [])].sort()
+      // A job of the shell tests runs every harness-scripts file once the list has one: all shell tests run.
+      const expected = [...list.filter((file) => !isHarnessScripts(file)), ...(list.some(isHarnessScripts) ? shell : [])].sort()
       expect(inJobs(per, (n) => n === 1).sort(), list.join(' ')).toEqual(expected)
       expect(inJobs(per, (n) => n > 1), list.join(' ')).toEqual([])
     }
@@ -532,6 +539,41 @@ describe('test/harness-shell-tests.ts: the part of the Harness shell tests one W
       const parts = Array.from({ length: count }, (_, at) => inPart(names, { index: at + 1, count }))
       expect(parts.flat().sort(), String(count)).toEqual([...names].sort())
     }
+  })
+
+  it('starts the longest measured first, an unmeasured one at UNMEASURED_SECONDS, equal seconds by name, without losing or repeating one', () => {
+    const measured = { a: 5, b: 30, c: 5, d: UNMEASURED_SECONDS + 1 }
+    expect(startOrder(['a', 'b', 'c', 'd', 'e'], measured)).toEqual(['b', 'd', 'e', 'a', 'c'])
+    expect(startOrder(['c', 'a'], measured)).toEqual(['a', 'c'])
+    expect(startOrder([], measured)).toEqual([])
+  })
+
+  it('splits the names across the files by measured seconds, not by count, each name in exactly one file', () => {
+    // One long name against four short ones: by count file 1 would get three names, here it gets the long one alone.
+    const measured = { long: 40, s1: 10, s2: 10, s3: 10, s4: 10 }
+    const names = ['s1', 's2', 'long', 's3', 's4']
+    expect(inFile(names, 1, 2, measured)).toEqual(['long'])
+    expect(inFile(names, 2, 2, measured)).toEqual(['s1', 's2', 's3', 's4'])
+    const shell = shellTests(join(REPO, 'harness'))
+    for (const [platform, seconds] of Object.entries(MEASURED_SECONDS)) {
+      for (const count of [1, 2, 4, 5]) {
+        const files = Array.from({ length: count }, (_, at) => inFile(shell, at + 1, count, seconds))
+        expect(files.flat().sort(), `${platform} ${count}`).toEqual(shell)
+        // Longest first to the least loaded file: no two files differ by more than the longest shell test.
+        const loads = files.map((names) => names.reduce((sum, name) => sum + (seconds[name] ?? UNMEASURED_SECONDS), 0))
+        const longest = Math.max(...shell.map((name) => seconds[name] ?? UNMEASURED_SECONDS))
+        expect(Math.max(...loads) - Math.min(...loads), `${platform} ${count}: ${loads.join(' ')}`).toBeLessThanOrEqual(longest)
+      }
+    }
+  })
+
+  it('gives a file its share in start order without a part, and the whole part to file 1 alone with one', () => {
+    const measured = { a: 1, b: 9, c: 5, d: 7 }
+    const names = ['a', 'b', 'c', 'd']
+    expect(shareOf(names, 1, 2, undefined, measured)).toEqual(['b', 'a'])
+    expect(shareOf(names, 2, 2, undefined, measured)).toEqual(['d', 'c'])
+    expect(shareOf(names, 1, 2, { index: 2, count: 2 }, measured)).toEqual(['b', 'd'])
+    expect(shareOf(names, 2, 2, { index: 2, count: 2 }, measured)).toEqual([])
   })
 })
 

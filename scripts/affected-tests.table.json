@@ -81,9 +81,9 @@
         "harness/.mcp.json"
       ],
       "files": [
-        "test/contract/harness-scripts.test.ts"
+        "test/harness-scripts-suite.ts"
       ],
-      "why": "the shell tests of the Harness (harness/bin/tests, harness/hooks/tests), which harness-scripts.test.ts runs, start these scripts and read these texts"
+      "why": "the shell tests of the Harness (harness/bin/tests, harness/hooks/tests), which the test files test/contract/harness-scripts-<n>.test.ts run through test/harness-scripts-suite.ts, start these scripts and read these texts"
     },
     {
       "paths": [

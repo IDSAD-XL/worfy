@@ -37,10 +37,11 @@ name: CI
 #   contract files (harness-evals 943 s, harness-migrate 450 s, harness-scripts 421 s) ran at the same
 #   time on one 4-CPU runner, the likely cause of its flaky tests. An earlier try with 4 shards
 #   failed on Git Bash's /tmp, which test/global-setup-git-bash.ts now fixes for every vitest process.
-#   harness-scripts.test.ts, the longest file of shard 3/3 (354-617 s), runs in two jobs of its own,
-#   "windows (harness-scripts 1/2)" and "(harness-scripts 2/2)", each with half of the Harness shell
-#   tests; the three shards leave it out. A pull request narrows these jobs as it narrows linux-tests:
-#   the shards split the list, and the two harness-scripts jobs run only when the list has that file.
+#   The Harness shell tests (test/contract/harness-scripts-<n>.test.ts; as one file the longest of
+#   shard 3/3, 354-617 s) run in two jobs of their own, "windows (harness-scripts 1/2)" and
+#   "(harness-scripts 2/2)", each with half of them; the three shards leave those files out. A pull
+#   request narrows these jobs as it narrows linux-tests: the shards split the list, and the two
+#   harness-scripts jobs run only when the list has one of those files.
 # - windows-e2e: pnpm test:e2e on Windows in 4 shards, whenever macos-e2e runs, on the same spec
 #   files. It blocks ci-ok like every other job since ten push runs on main in a row had it green.
 # - ci-ok: green when every job the run needs succeeded (scripts/ci-ok.mjs). A merge reads this check.
@@ -180,7 +181,7 @@ jobs:
         env:
           BASE: ${{ needs.changes.outputs.tests-base }}
         run: node scripts/affected-tests.mjs "$BASE" HEAD --github-output
-      # The shell tests of the Harness (test/contract/harness-scripts.test.ts) run the qmd scripts
+      # The shell tests of the Harness (test/contract/harness-scripts-<n>.test.ts) run the qmd scripts
       # under zsh; the Ubuntu image has bash, git, jq and node but no zsh.
       - name: Install zsh
         run: command -v zsh || { sudo apt-get update -qq && sudo apt-get install -y -qq zsh; }
@@ -320,7 +321,7 @@ jobs:
           retention-days: 14
 
   # pnpm test on Windows: the job full-suite of the Windows workflow, one call per shard: three vitest
-  # shards of every file but harness-scripts.test.ts, and two parts of that file's shell tests. For
+  # shards of every file but the Harness shell tests, and two parts of those shell tests. For
   # ci-ok, needs.windows.result is the result of all five: a failed or cancelled one makes it red.
   windows:
     needs: changes
