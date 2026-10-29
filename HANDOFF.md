@@ -14,7 +14,7 @@
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–26; 12 — приёмка; открыты 27 (pointer, hover), 28 (drop, превью в чате).
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
-- `worfy-polish`: 42/45, влиты 01–38, 42 (#822), 45 (#975, `interrupted` у Subagent-ов). 39 (#754) — долг ревью; 40 — чипы с рамкой 1 px; 41 — flaky Windows (пересчёт 2026-10-23); 43 — flaky `afterAll` в `harness-evals` test-ах.
+- `worfy-polish`: 43/45, влиты 01–38, 40 (#1007), 42 (#822), 45 (#975, `interrupted` у Subagent-ов). 39 (#754) — долг ревью; 41 — flaky Windows (пересчёт 2026-10-23); 43 — flaky `afterAll` в `harness-evals` test-ах.
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 49/55; закрыты 04, 09, 11, 13, 22, 24, 25, 29, 33, 34, 36, 37, 42, 44, 49–55; 31 ждёт Wave на новом plugin; 30 ждёт Wave; 14 ждёт владельца; eval 33: symlink-и Docker, к владельцу; 39 ждёт CI PR ≤15 min.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
