@@ -502,6 +502,13 @@ function SidebarButton({ open, onToggle }: { open: boolean; onToggle: () => void
       title="Browser settings"
       aria-expanded={open}
       onClick={onToggle}
+      onKeyDown={(event) => {
+        // Esc on the button of an open sidebar closes it, not the Esc of an active Node or of Focus mode.
+        if (event.key !== 'Escape' || !open) return
+        event.preventDefault()
+        event.stopPropagation()
+        onToggle()
+      }}
     >
       <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true">
         <rect x="2" y="3" width="12" height="10" rx="1.5" />

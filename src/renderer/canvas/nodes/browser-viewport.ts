@@ -22,12 +22,16 @@ export interface BrowserPageViewport {
 export const BROWSER_VIEWPORT_MIN = 200
 export const BROWSER_VIEWPORT_MAX = 3840
 
-/** The ready sizes the sidebar offers. */
-export const BROWSER_VIEWPORT_PRESETS: readonly (BrowserPageViewport & { label: string })[] = [
-  { label: 'Desktop', w: 1440, h: 900 },
-  { label: 'Laptop', w: 1280, h: 800 },
-  { label: 'Tablet', w: 768, h: 1024 },
-  { label: 'Phone', w: 390, h: 844 },
+/**
+ * The ready sizes the sidebar offers, named by their size alone: a viewport sets the page's width and
+ * height and nothing else of a device — no devicePixelRatio, no `pointer: coarse`, no meta viewport
+ * (ADR-0087) — so a name such as «Phone» would promise what it does not do.
+ */
+export const BROWSER_VIEWPORT_PRESETS: readonly BrowserPageViewport[] = [
+  { w: 1440, h: 900 },
+  { w: 1280, h: 800 },
+  { w: 768, h: 1024 },
+  { w: 390, h: 844 },
 ]
 
 /** A side of a viewport: a whole number of CSS px inside the bounds. */

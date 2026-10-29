@@ -443,6 +443,9 @@
   pointer-events: all;
   cursor: default;
 }
+.w-browser-sidebar:focus {
+  outline: none;
+}
 .w-browser-sidebar__head {
   display: flex;
   align-items: center;
@@ -474,10 +477,6 @@
 .w-browser-sidebar__choice > input {
   margin: 0;
   accent-color: var(--accent);
-}
-.w-browser-sidebar__size {
-  margin-left: auto;
-  color: var(--text-secondary);
 }
 .w-browser-sidebar__custom {
   display: flex;

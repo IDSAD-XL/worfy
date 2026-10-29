@@ -151,6 +151,13 @@ describe('a point of the frames another window shows, on the page', () => {
     fireEvent.pointerDown(frames, { clientX: 100 + 320, clientY: 50 + 408, button: 0, pointerId: 1 })
     fireEvent.pointerUp(frames, { clientX: 100 + 320, clientY: 50 + 408, button: 0, pointerId: 1 })
     expect(main.inputs).toEqual([])
+
+    // The wheel: on the picture it scrolls the page at the point mapped the same way; on the empty strip under it, nothing.
+    fireEvent.wheel(frames, { clientX: 100 + 320, clientY: 50 + 100, deltaY: 120 })
+    expect(main.inputs.map(({ kind, x, y, deltaY }) => ({ kind, x, y, deltaY }))).toEqual([{ kind: 'wheel', x: 720, y: 225, deltaY: 120 }])
+    main.inputs = []
+    fireEvent.wheel(frames, { clientX: 100 + 320, clientY: 50 + 408, deltaY: 120 })
+    expect(main.inputs).toEqual([])
   })
 })
 
@@ -205,6 +212,34 @@ describe('the settings sidebar of a Browser', () => {
     // Esc in the sidebar closes it.
     fireEvent.keyDown(screen.getByTestId('browser-viewport-card'), { key: 'Escape' })
     expect(screen.queryByTestId('browser-sidebar')).toBeNull()
+  })
+
+  it('takes the focus when it opens, and Esc closes it at once, also with the focus left on the button that opened it', async () => {
+    draw([browserNode({ viewport: { w: 768, h: 1024 } })])
+    const button = await screen.findByTestId('browser-settings')
+    button.focus()
+    fireEvent.click(button)
+    // The ready size the Node keeps has the focus: an Esc goes to the sidebar.
+    expect(document.activeElement).toBe(screen.getByTestId('browser-viewport-768x1024'))
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    expect(screen.queryByTestId('browser-sidebar')).toBeNull()
+
+    fireEvent.click(button)
+    expect(screen.getByTestId('browser-sidebar')).toBeTruthy()
+    button.focus()
+    const escape = fireEvent.keyDown(button, { key: 'Escape' })
+    expect(screen.queryByTestId('browser-sidebar')).toBeNull()
+    // Taken: the Canvas and Focus mode leave an Esc whose default was prevented alone.
+    expect(escape).toBe(false)
+  })
+
+  it('names the ready sizes by their size alone, not by a device it does not emulate', async () => {
+    draw([browserNode({})])
+    fireEvent.click(await screen.findByTestId('browser-settings'))
+    const text = screen.getByTestId('browser-viewport-setting').textContent ?? ''
+    for (const device of ['Phone', 'Tablet', 'Laptop', 'Desktop']) expect(text).not.toContain(device)
+    expect(text).toContain('390 × 844')
+    expect(text).toContain('no device is emulated')
   })
 
   it('shows the viewport the Node keeps, and «Fit to card» writes null', async () => {

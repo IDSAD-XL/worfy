@@ -4,9 +4,11 @@
 // its own, so the next ones (clear this site's cookies or localStorage, save a response from the
 // Network tab — the owner's ideas for later) go in under the first. The first one is the page
 // viewport: «Fit to card» — the page is as large as the frame's body — or a width × height of its own,
-// ready-made or typed (browser-viewport.ts, ADR-0087). The choice goes into the Node's data as
+// ready-made or typed (browser-viewport.ts, ADR-0087). Only the page's width and height change, so the
+// ready sizes are named by their size, not by a device. The choice goes into the Node's data as
 // `data.viewport` through a Layout operation, as the address does; «Fit to card» writes null.
-import { useId, useState, type FormEvent } from 'react'
+// The sidebar takes the keyboard focus when it opens, so Esc closes it at once.
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { useLayoutOps } from '../useLayout'
 import { BROWSER_VIEWPORT_MAX, BROWSER_VIEWPORT_MIN, BROWSER_VIEWPORT_PRESETS, viewportSide, type BrowserPageViewport } from './browser-viewport'
 
@@ -40,10 +42,9 @@ function ViewportSetting({ id, viewport }: { id: string; viewport: BrowserPageVi
         Fit to card
       </label>
       {BROWSER_VIEWPORT_PRESETS.map((each, index) => (
-        <label key={each.label} className="w-browser-sidebar__choice">
+        <label key={`${each.w}x${each.h}`} className="w-browser-sidebar__choice">
           <input type="radio" name={name} data-testid={`browser-viewport-${each.w}x${each.h}`} checked={!custom && preset === index} onChange={() => write({ w: each.w, h: each.h })} />
-          {each.label}
-          <span className="w-browser-sidebar__size w-mono">
+          <span className="w-mono">
             {each.w} × {each.h}
           </span>
         </label>
@@ -85,7 +86,8 @@ function ViewportSetting({ id, viewport }: { id: string; viewport: BrowserPageVi
         </form>
       ) : null}
       <p className="w-browser-sidebar__hint">
-        {viewport === null ? 'The page is as large as the card.' : `The page is ${viewport.w} × ${viewport.h} px, scaled into the card.`}
+        {viewport === null ? 'The page is as large as the card.' : `The page is ${viewport.w} × ${viewport.h} px, scaled into the card.`}{' '}
+        {'Only the width and height of the page change: no device is emulated.'}
       </p>
     </fieldset>
   )
@@ -93,8 +95,18 @@ function ViewportSetting({ id, viewport }: { id: string; viewport: BrowserPageVi
 
 /** The sidebar of Browser `id`; Esc or its close button closes it. */
 export function BrowserSidebar({ id, viewport, onClose }: { id: string; viewport: BrowserPageViewport | null; onClose: () => void }) {
+  const panel = useRef<HTMLElement>(null)
+  // Opened from the header's button, the focus would stay there and Esc would go to the Canvas.
+  useEffect(() => {
+    const radios = [...(panel.current?.querySelectorAll<HTMLInputElement>('input[type="radio"]') ?? [])]
+    const chosen = radios.find((radio) => radio.checked)
+    if (chosen !== undefined) chosen.focus()
+    else panel.current?.focus()
+  }, [])
   return (
     <aside
+      ref={panel}
+      tabIndex={-1}
       className="w-browser-sidebar nodrag nowheel nopan"
       data-testid="browser-sidebar"
       aria-label="Browser settings"
