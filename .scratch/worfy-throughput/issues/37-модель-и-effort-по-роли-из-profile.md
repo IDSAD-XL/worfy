@@ -1,7 +1,8 @@
 # 37 — Модель и effort по роли Harness из Profile: Sonnet для scout и reviewer, Opus — явным выбором
 
 Type: task
-Status: claimed 2026-10-29T05:33Z
+Status: done 2026-10-29T08:18Z
+PR: #965
 Branch: worfy-throughput/37
 Blocked by: —
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: меньше token-ов на Ticket, чтобы хватало Limits подписки», идея 3, строка L4
@@ -43,20 +44,20 @@ claim после 36.
 
 ## Готово, когда
 
-- [ ] Сначала падающий test: schema отвергает `agents.implementer.model: "haiku"` и принимает `sonnet`, `opus`,
+- [x] Сначала падающий test: schema отвергает `agents.implementer.model: "haiku"` и принимает `sonnet`, `opus`,
       отсутствие поля.
-- [ ] Сначала падающий shell test текста skill-ов (`harness/bin/tests/skill-blocks.test.sh` или
+- [x] Сначала падающий shell test текста skill-ов (`harness/bin/tests/skill-blocks.test.sh` или
       `epic-wave-ship-ticket.test.sh`): строка вызова агента с моделью и effort из `F agents.<роль>`, строка отчёта
       `Model: <модель> (<откуда>)`, фраза о том, что аргумент skill-а и слово владельца перекрывают поле Profile —
       exit 0 после правки.
-- [ ] Значения Profile worfy по ответу на Q-L3 (2026-10-28): scout и reviewer на глубине `low` — Sonnet сразу;
+- [x] Значения Profile worfy по ответу на Q-L3 (2026-10-28): scout и reviewer на глубине `low` — Sonnet сразу;
       implementer — Sonnet только после итога Ticket-а 43, до него `inherit`.
-- [ ] Schema test — по образцу `harness/bin/tests/review-depth.test.sh`, раздел 2.
-- [ ] Shell test-ы Harness — exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; условие merge — `ci-ok`.
-- [ ] Платный eval — только с «да» владельца и ценой из команды, которую eval реально запустит (решение 14 раздела «процесс»;
+- [x] Schema test — по образцу `harness/bin/tests/review-depth.test.sh`, раздел 2.
+- [x] Shell test-ы Harness — exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; условие merge — `ci-ok`.
+- [x] Платный eval — только с «да» владельца и ценой из команды, которую eval реально запустит (решение 14 раздела «процесс»;
       урок 2026-10-22: $30,29 вместо одобренных ~$1).
 - [ ] (вручную, с «да» владельца) Одна Wave с `agents.reviewer.model: sonnet`: модель в транскриптах reviewer-ов (поле `model`
-      ответа) — в «Итог».
+      ответа) — в «Итог». Не отмечено: ждёт «да» владельца; PR #965 этого не даёт.
 
 ## Где в коде
 
@@ -88,30 +89,37 @@ claim после 36.
   ID модели, `effort: max`, неизвестная роль и неизвестное поле отвергаются с путём поля.
 - `harness/profiles/README.md`: строки `agents.<role>.model` и `agents.<role>.effort`. Нет поля — параметра нет,
   frontmatter агента как раньше.
-- `epic-wave`, раздел 2: абзац «Model and effort» — строка вызова implementer-а с `model` и `effort` из
-  `F agents.implementer`, роли (verifier — `worfy:reviewer` с линзой «implementer's report»; reviewer — остальные
-  reviewer-ы и sceptic-и), аргумент `<NN> model <sonnet|opus>` / `<NN> effort <low|medium|high>`, слово владельца
-  (`Ticket <NN> — opus`) перекрывает поле на один Ticket, строка отчёта
-  `Model: <model> (<where it came from>), effort: <effort> (<where it came from>)`; раздел 5 — эта строка для каждого
-  агента Ticket-а.
-- `ship-ticket`, шаг 7: тот же абзац для reviewer-ов и sceptic-ов, аргумент
-  `/worfy:ship-ticket <epic> <NN> model <sonnet|opus> effort <low|medium|high>`.
+- `ship-ticket`, шаг 7, абзац «Model and effort» — единственный полный текст: строка вызова
+  `Agent({subagent_type: "worfy:reviewer", model: <F agents.reviewer.model>, effort: <F agents.reviewer.effort>, …})`
+  для reviewer-ов и sceptic-ов; порядок источников — слово владельца (`Ticket <NN> — opus`), аргумент skill-а
+  (каждый на один Ticket), `F agents.<role>`, frontmatter; аргумент
+  `/worfy:ship-ticket <epic> <NN> model <sonnet|opus> effort <low|medium|high>`; нет поля — нет параметра; `haiku` и
+  любое другое значение не передаётся, решает следующий источник; строка отчёта
+  `Model: <model> (<where it came from>), effort: <effort> (<where it came from>)`.
+- `epic-wave`, раздел 2, абзац «Model and effort» — только роли (implementer, scout, verifier — `worfy:reviewer` с
+  линзой «implementer's report», reviewer — остальные reviewer-ы и sceptic-и), форма аргумента
+  `<NN> model <sonnet|opus>` / `<NN> effort <low|medium|high>` после списка Ticket-ов (он и слово владельца задают
+  всех агентов Ticket-а) и ссылка на ship-ticket, шаг 7: порядок источников, значение по умолчанию, отказ от
+  неизвестных значений и строка `Model:` — там. Раздел 5 — строка `Model:` каждого агента Ticket-а.
 - Frontmatter `harness/agents/*.md` не менялся (test проверяет `model`/`effort` implementer, reviewer, scout).
 - Попутно, low круга 3 Ticket-а 36: brief передачи мелкого Ticket-а implementer-у (`epic-wave`, раздел 2) теперь несёт
-  строку `PR: none — open it (ship-ticket, step 8)` (с `local-green` — `PR: none`) и строку-обещание «review the commit,
-  add the tests, run the checks and carry the ticket to its finish»; прежняя фраза вне brief-а удалена. Шаг открытия
-  PR в ship-ticket — 8, не 7 (7 — ревью агентами).
+  строку `PR:` по Pipeline (раздел 0): с `agent-review` перед `ci` —
+  `PR: none — stop after step 6 with the branch pushed, the review by agents comes first`, иначе —
+  `PR: none — open it (ship-ticket, step 8)`, с `local-green` — `PR: none`. Строка-обещание: «review it, add the tests
+  the change needs, run the checks and carry the ticket as far as the PR: line says»; прежняя фраза вне brief-а
+  удалена. Шаг открытия PR в ship-ticket — 8, не 7 (7 — ревью агентами).
 - Значения Profile worfy (Q-L3: scout и reviewer на глубине `low` — Sonnet; implementer — `inherit` до итога
   Ticket-а 43). Поле не различает глубину ревью, поэтому «reviewer на глубине `low`» записан ролью `verifier`: у worfy нет
   `review.depth`, gate Wave идёт на глубине `low`, то есть одним verifier-ом. Фрагмент для живого Profile (вне
   репозитория, применяет Orchestrator после merge): `"agents": {"scout": {"model": "sonnet"}, "verifier": {"model":
-  "sonnet"}}`. Если Sonnet нужен и reviewer-ам ship-ticket и sceptic-ам на любой глубине — добавить
-  `"reviewer": {"model": "sonnet"}`; решает владелец.
+  "sonnet"}}`. Поле `"reviewer"` перевело бы на Sonnet и reviewer-ов ship-ticket и sceptic-ов на любой глубине;
+  владелец его не взял.
 
 **Test-ы.** `harness/bin/tests/epic-wave-ship-ticket.test.sh`, раздел 9f: сначала красный (29 FAIL), после правки
-502/0. Остальные shell test-ы Harness — в описании PR.
+502/0; в круге 1 ревью снова сначала красный (10 FAIL), на merge — 512/0. Остальные shell test-ы Harness — в описании
+PR.
 
-**Ревью круга 1 (PR #965, head c8d981fe): одна med и пять low, все исправлены в этом PR.**
+**Ревью круга 0 (PR #965, head c8d981fe): одна med и пять low, все исправлены в круге 1 этого PR.**
 
 - **med, brief передачи мелкого Ticket-а** (`epic-wave`, раздел 2). Строка `PR:` теперь зависит от Pipeline: с
   `agent-review` перед `ci` — `PR: none — stop after step 6 with the branch pushed, the review by agents comes first`.
@@ -126,3 +134,21 @@ claim после 36.
 - **low, длинная строка** переразбита; строка вызова reviewer-а в ship-ticket — тоже.
 - **low, дубли.** Полный текст — только в ship-ticket, шаг 7; в epic-wave — роли, форма аргумента и ссылка на
   ship-ticket. Test проверяет, что четыре фразы не повторяются в epic-wave.
+
+**Ревью круга 1: `VERIFIED`, mutant-ы verifier-а красные.**
+
+**Start context** (`harness/bin/start-context`, база `be438c4f` → head): implementer (загружает ship-ticket) +382
+token-а, `epic-wave/SKILL.md` +378, `ship-ticket/SKILL.md` +382; reviewer, verifier и scout — без изменений. Все
+дельты меньше 1k; implementer был выше порога 35k уже на базе.
+
+### Merge
+
+PR #965 влит, merge-commit `064a6dd8`; CI на head `d57afa65` — `ci-ok` success.
+
+- Живой Profile worfy (вне репозитория) получил по Q-L3 `"agents": {"scout": {"model": "sonnet"}, "verifier":
+  {"model": "sonnet"}}`. У worfy нет `review.depth`, ревью идёт на глубине `low`, то есть одним verifier-ом.
+- Reviewer-ы ship-ticket и sceptic-и на любой глубине остаются на `inherit` — решение владельца; поля `reviewer` в
+  Profile нет.
+- Значения действуют, когда установленный plugin обновлён дальше `064a6dd8`.
+- Ручной пункт «Готово, когда» (одна Wave с `agents.reviewer.model: sonnet`, модель из транскриптов reviewer-ов) не
+  отмечен: ждёт «да» владельца.
