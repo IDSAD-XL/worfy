@@ -1,7 +1,7 @@
 # 29 — Платформенный PR с вердиктом Windows `success` входит в набор wave-gate
 
 Type: task
-Status: open
+Status: done 2026-10-29T12:07Z
 Blocked by: 07, 24
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», предложение 3, решение 6;
 ADR-0065 (один gate full на набор PR Wave), пункт 5 —
@@ -56,3 +56,13 @@ Windows: runner `full`.
 - PR со scope `pc` и gate full на ПК — Ticket 30.
 
 ## Итог
+
+Закрыт без кода как устаревший, по двум причинам:
+
+- Ticket 07 закрыт (#978): ни один Profile не запускает `wave-gate` на набор PR Wave, так что поля
+  `windows_verdict` и набора, куда входил бы платформенный PR, нет.
+- Решение владельца R2-Q3 (`spec.md:868`): merge skew — два PR зелёные по отдельности и красные вместе — ловит
+  правило красного `main`, а не общий gate full на набор PR.
+
+Скрипт вердикта Windows, на который Ticket ссылался (Ticket 24), тоже не нужен: вердикт — `ci-ok` и метка
+`check/windows` (ADR-0083, пункт 6).

@@ -1,7 +1,8 @@
 # 24 — «Windows tests» на каждый PR автоматически: режим `full` по `pull_request`, вердикт `check/windows` для scope `runner` — из этого run-а
 
 Type: task
-Status: open
+Status: done 2026-10-29T12:07Z
+Branch: worfy-throughput/24-windows-verdict-from-run
 Blocked by: 35
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», решение 5 («Full на каждый PR
 автоматически»); репозиторий `IDSAD-XL/worfy` публичный с 2026-10-27 — GitHub-hosted runner-ы для него бесплатны;
@@ -104,3 +105,37 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - e2e на Windows-runner-е — нет: `full` гоняет только unit- и contract-test-ы.
 
 ## Итог
+
+Закрыт без кода: всё, что Ticket просил, кроме скрипта вердикта, сделал Ticket 35 (ADR-0083), другим путём. Скрипт
+вердикта не нужен.
+
+Что уже на `main` (acd2b50b):
+
+- Windows-run на каждый PR есть, но не вторым триггером `windows-tests.yml`: job `windows` в
+  `.github/workflows/ci.yml:325-341` вызывает `windows-tests.yml` через `workflow_call`, режим `full`, 5 shard-ов,
+  в составе `ci-ok`. После Ticket-а 11 на PR идут только задетые test-файлы: `tests-base` (`ci.yml:341`), по
+  нему `scripts/affected-tests.mjs` выбирает файлы (`windows-tests.yml:74`, `:203`).
+- Push в PR отменяет run прежнего head: `concurrency` по номеру PR, `cancel-in-progress` для `pull_request`
+  (`ci.yml:89-91`).
+- `permissions: contents: read` (`ci.yml:80-81`); `pull_request_target` нет (`ci.yml:58`).
+- PR только с документами Windows-run не запускает: его отсекает `scripts/ci-scope.mjs` через `expect.windows`
+  (`ci.yml:327`), а не `paths-ignore`.
+- Вердикт: ADR-0083, пункт 6 (`docs/adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md:62`) — метка
+  `check/windows` `success` на head, где `ci-ok` зелёный; для scope `pc` — по-прежнему gate full на ПК.
+  `## Amendments` в ADR-0056 (:112) и ADR-0071 (:85) со ссылкой на ADR-0083 уже есть.
+
+Устарело:
+
+- Пункт 1, второй триггер `pull_request` в `windows-tests.yml`, противоречит
+  `test/contract/windows-tests-workflow.test.ts:105-112`: там триггеры ровно `workflow_dispatch` и `workflow_call`,
+  а слова `push`, `pull_request`, `pull_request_target`, `schedule`, `workflow_run` в файле запрещены. PR и push
+  доходят до него только через `ci.yml`.
+- Пункт 2 в форме Ticket-а: test закрепляет обратное; `concurrency` проверяется в `ci.yml`
+  (`test/contract/ci-workflow.test.ts`).
+- Пункт 3, `scripts/windows-run-verdict.mjs`: не нужен. Вердикт Windows — `ci-ok` и метка `check/windows`.
+  Ticket 27 (`land`) закрыт без скрипта; Ticket 29, второй потребитель, закрыт как устаревший.
+- Пункт 4, новый ADR: его содержание уже в ADR-0083.
+- «Нужен ПК»: `windows-tests.yml` не меняется.
+
+Вне репозитория (не проверено здесь): строка `rules.md` Profile-а worfy и шаг владельца в Settings → Actions →
+«Fork pull request workflows from outside collaborators».
