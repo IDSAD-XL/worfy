@@ -701,6 +701,7 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
 | 47 | Медленные Harness test-ы в shard-е 3/3 Windows: короткие timeout-ы в guard-silent, тела bash и zsh в heartbeat параллельно | 35 | по брифу — `check/windows` с ПК; scope печатает `runner` | да, только test-ы `harness/**/tests/` | платформенный PR (ADR-0056): scope `runner`, job `windows / full-suite` | вне Wave (договорённость моста 2026-10-29) |
 | 48 | Shard-ы macOS e2e по измеренному времени spec-файлов, а не по числу test-ов | 35 | нет | нет | `pc` по `test/e2e/**` (только таблица `timings.json`, кода e2e нет) | 2 |
 | 49 | `harness-scripts.test.ts` отдельным job-ом Windows: shard 3/3 перестаёт быть самым долгим | 35 | нет | нет (только CI и contract test) | runner `full`: правка workflow | вне Wave (разбор моста 2026-10-29) |
+| 50 | `land.test.sh` быстрее: мир из шаблона, squash stub-а gh прямо в origin | 35 | да, для замеров и `check/windows` | да, только test `harness/bin/tests/land.test.sh` | платформенный PR (ADR-0056): по `scripts/windows-verdict-scope.mjs` | вне Wave (бриф моста 2026-10-29) |
 
 Почему так:
 
@@ -719,6 +720,8 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
   фиксированные ожидания в двух Harness test-ах его shard-а 3/3 (находка Ticket-а 15 вне скоупа, run 40788089367).
 - **49 после 47:** #942 срезал ожидания внутри `harness-scripts.test.ts`, но shard 3/3 Windows всё равно самый долгий
   (825 s в run-е 40805903962): файл и два других тяжёлых идут в одном shard-е. 49 выносит файл в свой job.
+- **50 после 49:** тот же `harness-scripts.test.ts`; 49 вынес его в свой job, 50 укорачивает в нём `land.test.sh`.
+  Фиксированных ожиданий там нет: время уходит на сборку миров git-ом и на clone в `pr merge` stub-а gh.
 - **33 правит `ship-ticket/SKILL.md`**, как 36 и 37: 33 (Wave 3 первой таблицы) идёт раньше.
 - **`pc` для 40, 41, 42:** e2e-файлы входят в `PC_ONLY` (`scripts/windows-verdict-scope.mjs:80`), а ПК на паузе. Если
   e2e не нужен, такой PR идёт с runner `full`.
