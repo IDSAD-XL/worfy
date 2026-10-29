@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // wave-gate — one `gate full` for the whole set of ready PRs of a wave, instead of a rebase and a
+// probe: CI check of the e2e subset path of #953 (never merged)
 // `gate full` for every PR (skill epic-wave, section 4, "Gate before merge").
 //
 //   wave-gate check <state.json>   squash-merge the set in a temporary worktree, run `gate full` on it
