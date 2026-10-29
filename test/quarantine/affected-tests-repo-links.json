@@ -1,0 +1,12 @@
+{
+  "runner": "vitest",
+  "file": "test/unit/affected-tests.test.ts",
+  "test": "scripts/affected-tests.table.json of this repository > sends a fixture, a document and a Harness script to the tests that read or start it",
+  "platforms": [
+    "darwin"
+  ],
+  "reason": "All four tests of this describe share one beforeAll that runs scripts/affected-tests-table.mjs generate() over this repository in-process: it parses every test source with the TypeScript parser, about 0.7 s of CPU on an idle Mac. On this Mac under load average 16-30, in gate fast, that hook hit its 10 s hook timeout once (test/unit/affected-tests.test.ts:526, the describe line), which fails every test of the describe; alone the file passes (37/37). vitest runs the hook only while a test of the describe runs, so all four are quarantined together; no cheap change to the test removes the parse, and timeouts are not raised one by one.",
+  "owner": "worfy-polish 41",
+  "since": "2026-10-29",
+  "until": "2026-11-12"
+}
