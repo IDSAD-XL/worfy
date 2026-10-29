@@ -88,3 +88,25 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - Место state file-а `land` в разделе 4 (`<orchestrator scratchpad>/land-<epic>-1.json`) не менял (вне
   следа): новая Session находит его через строку `Land state:` сохранённого брифа; если scratchpad удалён,
   бриф скажет «not read» по этому файлу.
+
+Круг 2 (REJECTED на head 2325f005, три находки med и шесть low):
+
+- Autopilot: раздел 5 и «How to resume a wave» больше не запрещают Wave в той же Session без условия.
+  Orchestrator не начинает следующую Wave по своей инициативе; Wave, которую прислал worfy Autopilot или
+  владелец — в эту Session или в новую, — идёт как обычно. Фраза запинена в `agents-text.test.sh`, и там же
+  проверка, что безусловного запрета («does not start the next wave in the same session», «Every wave runs
+  in a session of its own») в skill-е нет.
+- Пустой сохранённый бриф: redirect команды сохранения создаёт пустой `wave-brief.txt` до запуска
+  `wave-brief`. Теперь `wave-brief` пропускает пустой бриф и берёт строки `Land state:` из предыдущего
+  непустого, так что сохранение без `--land` переносит ждущий state file дальше. Skill передаёт `--land` для
+  state file-ов этой Wave и для каждого прежнего, у которого PR ещё ждут.
+- Ticket в работе: в Full mode `claimed` живёт на ветке Ticket-а, а на `main` он `open`. Ticket `open` с
+  открытым PR Epic-а или с веткой `<epic>/<NN>[-…]` (локальной или любого remote) показан в «Waiting» как
+  «in work: PR #N» или «in work: branch …» и в «ready» не попадает.
+- Low: state file, который не разбирается (битый JSON, `null`, `prs:[null]`), — строка «not read», код 0;
+  state file с полем `scope` помечен «outdated»; в skill-е «On the `land` path» и `cd <repo>` в команде
+  сохранения; предел 11 000 байт теперь на весь бриф: списки укорачиваются по 5 строк, пока бриф не
+  поместится, а если не помещается и без строк списков (80 state file-ов) — обрезка по строке с последней
+  строкой об этом; read-only test сравнивает каждый файл и каждую папку под временной папкой test-а
+  (ловит `mkdir` в Harness home и файл рядом со state file — mutant-ы m1 и m3 ревьюера).
+- Test-ы: `wave-brief.test.sh` — 35 проверок; 25 mutant-ов (21 скрипта, 4 текста) — каждый красный.

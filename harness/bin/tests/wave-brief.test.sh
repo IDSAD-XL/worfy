@@ -55,8 +55,9 @@ printf '{"schema":1,"name":"lg","workflow":{"finish":"local-green"}}\n' >"$T/pro
 : >"$T/profiles/t/rules.md"; : >"$T/profiles/lg/rules.md"
 
 # --- the fixture epic e: 01, 02 done; 03 claimed with an open PR; 04 blocked, waits for the owner, its PR named
-# by the PR: line; 05 open behind 03; 06 open behind 01 and 02 (ready); 07 open, no blocker (ready). An epic
-# "other" with a PR of its own that must not show up.
+# by the PR: line; 05 open behind 03; 06 open behind 01 and 02 (ready); 07 open, no blocker (ready); 08 and 09
+# open on main but in work — 08 has an open PR on e/08, 09 a local branch e/09-x (in Full mode `ticket claim`
+# writes `claimed` on the ticket's branch, not on main). An epic "other" with a PR of its own that must not show up.
 tk() { mkdir -p "$1/.scratch/$2/issues"; printf '%b' "$4" >"$1/.scratch/$2/issues/$3"; }
 git init -q -b main "$R"
 tk "$R" e 01-a.md '# 01 — first\n\nStatus: done 2026-10-28T10:00Z\nPR: #11\nBlocked by: —\n'
@@ -66,8 +67,11 @@ tk "$R" e 04-d.md '# 04 — fourth\n\nStatus: blocked 2026-10-28T09:30Z\nBlocked
 tk "$R" e 05-e.md '# 05 — fifth\n\nStatus: open\nBlocked by: 03\n'
 tk "$R" e 06-f.md '# 06 — sixth\n\nStatus: open\nBlocked by: 01, 02\n'
 tk "$R" e 07-g.md '# 07 — seventh\n\nStatus: open\nBlocked by: —\n'
+tk "$R" e 08-h.md '# 08 — eighth\n\nStatus: open\nBlocked by: —\n'
+tk "$R" e 09-i.md '# 09 — ninth\n\nStatus: open\nBlocked by: 01\n'
 tk "$R" other 01-x.md '# 01 — other\n\nStatus: claimed 2026-10-28T09:00Z\nBlocked by: —\n'
 git -C "$R" add -A && git -C "$R" commit -q -m tickets
+git -C "$R" branch e/09-x
 S11=1111111111111111111111111111111111111111 S12=2222222222222222222222222222222222222222
 H13=3333333333333333333333333333333333333333 D900=9999999999999999999999999999999999999999
 cat >"$GHD/prs.json" <<EOF
@@ -78,7 +82,8 @@ cat >"$GHD/prs.json" <<EOF
     {"__typename":"CheckRun","name":"macos-e2e","status":"COMPLETED","conclusion":"FAILURE"},
     {"__typename":"CheckRun","name":"linux-tests","status":"IN_PROGRESS","conclusion":""}]},
  {"number":20,"title":"other","headRefName":"other/01","headRefOid":"$S11","labels":[],"statusCheckRollup":[]},
- {"number":21,"title":"fourth","headRefName":"fix-the-pc-path","headRefOid":"$S12","labels":[],"statusCheckRollup":[]}]
+ {"number":21,"title":"fourth","headRefName":"fix-the-pc-path","headRefOid":"$S12","labels":[],"statusCheckRollup":[]},
+ {"number":22,"title":"eighth","headRefName":"e/08","headRefOid":"$H13","labels":[],"statusCheckRollup":[]}]
 EOF
 # The state file of land: 11 and 12 merged, 13 waits for its review, one documents PR merged, last run unverified.
 S="$T/land-e-1.json"
@@ -102,7 +107,10 @@ section() { awk -v h="## $1" '$0 == h { on = 1; next } on && /^## / { exit } on'
 in_section() { section "$1" | grep -qF -- "$2"; }
 
 # --- 1. the full brief on the fixture ----------------------------------------------------------------
-snap() { (cd "$T" && find repo hh -type f -exec cksum {} + | sort; git -C "$R" status --porcelain) ; }
+# Every file and folder under $T (the repository, the Harness home, the folder of the state file), with the
+# contents of each file; only the test's own output files and the gh stub's log are left out.
+snap() { (cd "$T" && find . \( -path ./gh -o -path ./out -o -path ./err \) -prune -o -print | sort \
+    && find . \( -path ./gh -o -path ./out -o -path ./err \) -prune -o -type f -exec cksum {} + | sort; git -C "$R" status --porcelain) ; }
 before="$(snap)"
 brief e --land "$(tn "$S")"; rc=$?
 [ "$rc" = 0 ] && ok "fixture: exit 0" || bad "fixture: exit $rc: $(cat "$T/err")"
@@ -114,16 +122,19 @@ in_section Land "documents PR #900 for #11, #12: merged ${D900:0:8}" && ok "land
 in_section Land "Land state: $(np "$S")" && in_section Land "log: $(np "$T/land-e-1.log")" && ok "land: names the state file and its log" || bad "land: paths: $(section Land)"
 in_section Waiting '03 claimed' && in_section Waiting '04 blocked · waits: owner · needs the PC · PR #21' \
     && ok "waiting: the claimed ticket and the blocked one with Waits:, its reason and PR" || bad "waiting: $(section Waiting)"
+in_section Waiting '08 in work: PR #22 (open on main)' && in_section Waiting '09 in work: branch e/09-x (open on main)' \
+    && ok "waiting: an open ticket with an open PR or a branch of its own is in work" || bad "waiting, in work: $(section Waiting)"
 ! in_section Waiting '01 ' && ! in_section Waiting '06 ' && ok "waiting: done and open tickets are not listed" || bad "waiting lists done/open: $(section Waiting)"
 in_section 'Open PRs' "#13 e/03 · branch e/03 @ ${H13:0:8} · labels: needs-mac-gate · marks: review=success check/windows=pending · CI: 1 done, 1 pending, 1 failed (macos-e2e)" \
     && ok "open PRs: the epic's PR by its branch, with head, labels, marks and the CI count" || bad "open PRs #13: $(section 'Open PRs')"
 in_section 'Open PRs' "#21 e/04 · branch fix-the-pc-path @ ${S12:0:8} · marks: none · CI: no check runs" \
     && ok "open PRs: a PR named by a ticket's PR: line" || bad "open PRs #21: $(section 'Open PRs')"
 ! in_section 'Open PRs' '#20' && ok "open PRs: another epic's PR is left out" || bad "open PRs shows #20: $(section 'Open PRs')"
-in_section 'Next wave' 'ready (open, every blocker done): 06, 07' && in_section 'Next wave' '05 waits for 03' && in_section 'Next wave' 'done 2/7' \
-    && ok "next wave: the open tickets with every blocker done, the held one and what it waits for" || bad "next wave: $(section 'Next wave')"
+in_section 'Next wave' 'ready (open, not in work, every blocker done): 06, 07' && in_section 'Next wave' '05 waits for 03' && in_section 'Next wave' 'done 2/9' \
+    && ! in_section 'Next wave' '08' && ! in_section 'Next wave' '09' \
+    && ok "next wave: the open tickets not in work with every blocker done, the held one and what it waits for" || bad "next wave: $(section 'Next wave')"
 in_section Journal "run folder: $(np "$NEW")" && in_section Journal "(2 rows)" && ok "journal: the newest run folder of the epic and its decision log" || bad "journal: $(section Journal)"
-has 'Stage: /implement · e 2/7' && ok "epic: the Stage line of epic-status" || bad "epic: no Stage line: $(head -n 3 "$T/out")"
+has 'Stage: /implement · e 2/9' && ok "epic: the Stage line of epic-status" || bad "epic: no Stage line: $(head -n 3 "$T/out")"
 n="$(wc -c <"$T/out" | tr -d ' ')"
 [ "$n" -lt 12000 ] && ok "size: $n bytes < 12000" || bad "size: $n bytes"
 [ "$before" = "$(snap)" ] && ok "read-only: the repository and the Harness home are unchanged" || bad "read-only: something was written"
@@ -144,10 +155,25 @@ brief e
 in_section Land 'LAND=unverified' && in_section Journal "run folder: $(np "$RUNS/e-wave-20261029T080000Z")" && in_section Journal 'decision log: none in it' \
     && ok "saved brief: found in an older run folder when the newest has none" || bad "saved brief, newer folder: $(section Land) / $(section Journal)"
 
-# --- 4. a state file that cannot be read: one line, exit 0 ----------------------------------------------
-printf '{broken' >"$T/broken.json"
-brief e --land "$(tn "$T/broken.json")"; rc=$?
-[ "$rc" = 0 ] && in_section Land 'not read — ' && ok "broken state file: 'not read', exit 0" || bad "broken state file: exit $rc: $(section Land)"
+# the next wave merged nothing and saves without --land: the shell creates its wave-brief.txt empty before
+# wave-brief runs, and that empty file must not hide the state file the brief before it named
+W3="$RUNS/e-wave-20261029T080000Z"
+(cd "$R" && "$WB" e) >"$W3/wave-brief.txt"; rc=$?
+[ "$rc" = 0 ] && grep -qF "Land state: $(np "$S")" "$W3/wave-brief.txt" && grep -qF 'LAND=unverified' "$W3/wave-brief.txt" \
+    && ok "saved brief: a save without --land carries the state file of the brief before it" || bad "saved brief, empty file: exit $rc: $(cat "$W3/wave-brief.txt")"
+: >"$W3/wave-brief.txt"
+brief e
+in_section Land 'LAND=unverified' && in_section Journal "saved brief: $(np "$NEW/wave-brief.txt")" \
+    && ok "saved brief: an empty brief in the newest run folder is skipped" || bad "saved brief, empty newest: $(section Land) / $(section Journal)"
+
+# --- 4. state files that cannot be read, and one of the old format: one line each, exit 0 -------------------
+printf '{broken' >"$T/broken.json"; printf 'null' >"$T/null.json"; printf '{"prs":[null]}' >"$T/nullpr.json"
+printf '{"scope":"all","prs":[],"runs":[{"land":"green","ended":"2026-10-20T10:00:00Z"}]}' >"$T/old.json"
+brief e --land "$(tn "$T/broken.json")" --land "$(tn "$T/null.json")" --land "$(tn "$T/nullpr.json")" --land "$(tn "$T/old.json")"; rc=$?
+[ "$rc" = 0 ] && [ "$(section Land | grep -c '^  not read — ')" = 3 ] && ok "unreadable state files (broken JSON, null, a null PR): 'not read' each, exit 0" \
+    || bad "unreadable state files: exit $rc: $(section Land) $(cat "$T/err")"
+in_section Land "outdated: it has the old field \`scope\`, which land refuses" && in_section Land 'LAND=green' \
+    && ok "a state file with scope is flagged as outdated" || bad "scope: $(section Land)"
 
 # --- 5. gh fails: the PR section says so, exit 0 ---------------------------------------------------------
 : >"$GHD/fail"
@@ -178,14 +204,33 @@ n="$(wc -c <"$T/out" | tr -d ' ')"
 [ "$rc" = 0 ] && in_section Waiting '… and 35 more' && in_section 'Next wave' '… and 5 more' && [ "$n" -lt 12000 ] \
     && ok "big epic: lists cut at 25 lines, $n bytes < 12000" || bad "big epic: exit $rc, $n bytes: $(section Waiting | tail -n 2)"
 
+# 50 blocked tickets with long reasons, 50 open PRs on branches of the epic that match no ticket and 50 held open tickets: every list fits its
+# 25 lines, but together they would pass 12 000 bytes; the lists get shorter and the Journal is still there
+for i in $(seq 100 149); do tk "$R" huge "$i-b.md" "# $i — blocked $i\n\nStatus: blocked\nBlocked reason: $long\nWaits: team\nBlocked by: —\n"; done
+for i in $(seq 150 199); do tk "$R" huge "$i-o.md" "# $i — open $i\n\nStatus: open\nBlocked by: $(seq -s ', ' 100 124)\n"; done
+cp "$GHD/prs.json" "$GHD/prs-e.json"
+node -e 'const l=[];for(let i=200;i<250;i++)l.push({number:1000+i,title:"t",headRefName:`huge/${i}-a-long-branch-name`,headRefOid:"4".repeat(40),labels:["needs-mac-gate","awaiting-merge","human-review","platform","flaky-quarantine"].map((name)=>({name})),statusCheckRollup:["review","check/windows","check/pc","deploy"].map((context)=>({__typename:"StatusContext",context,state:"PENDING"}))});process.stdout.write(JSON.stringify(l))' >"$GHD/prs.json"
+brief huge; rc=$?
+n="$(wc -c <"$T/out" | tr -d ' ')"
+[ "$rc" = 0 ] && [ "$n" -lt 12000 ] && in_section Journal 'saved brief: ' && ! has 'the brief is cut' && in_section Waiting '… and ' && in_section 'Open PRs' '… and ' && in_section 'Next wave' '… and ' \
+    && ok "huge epic: three long lists together, $n bytes < 12000, the Journal kept" || bad "huge epic: exit $rc, $n bytes"
+cp "$GHD/prs-e.json" "$GHD/prs.json"
+# 80 state files: even with no list lines the brief is too long; it is cut at a line and says so
+args=(); for i in $(seq 1 80); do args+=(--land "$(tn "$S")"); done
+brief e "${args[@]}"; rc=$?
+n="$(wc -c <"$T/out" | tr -d ' ')"
+[ "$rc" = 0 ] && [ "$n" -lt 12000 ] && tail -n 1 "$T/out" | grep -qF 'the brief is cut at 11000 bytes' \
+    && ok "80 state files: cut at a line, $n bytes < 12000, the last line says so" || bad "80 state files: exit $rc, $n bytes, last: $(tail -n 1 "$T/out")"
+
 # --- 9. the commands of skill epic-wave run as written: the save at the end of a wave and the first command of a new session
 SKILL="${SKILL_FILE:-$HERE/../../skills/epic-wave/SKILL.md}"
 save="$(grep -F 'bin/wave-brief' "$SKILL" | grep -F '# a wave without a human')"
-first="$(grep -F 'bin/wave-brief' "$SKILL" | grep -F '(cd <repo> && ')"
-fill() { local c="${1//<epic>/e}"; c="${c//<state file>…/$(tn "$S")}"; c="${c//<run folder>/$(tn "$NEW")}"; printf '%s' "${c//<repo>/$(tn "$R")}"; }
-rm -f "$NEW/wave-brief.txt"
-(cd "$R" && CLAUDE_PLUGIN_ROOT="$(tn "$HERE/../..")" bash -c "$(fill "$save")") >"$T/out" 2>"$T/err"
-[ -n "$save" ] && tail -n 1 "$T/out" | grep -qx 'EXIT=0' && grep -qF 'LAND=unverified' "$NEW/wave-brief.txt" \
+first="$(grep -F 'bin/wave-brief" <epic>); echo' "$SKILL")"
+fill() { local c="${1//<epic>/e}"; c="${c//<state file>…/$(tn "$S")}"; c="${c//<run folder>/$(tn "$W3")}"; printf '%s' "${c//<repo>/$(tn "$R")}"; }
+rm -f "$NEW/wave-brief.txt" "$W3/wave-brief.txt"
+# run from outside the repository: the command itself goes there
+(cd "$T" && CLAUDE_PLUGIN_ROOT="$(tn "$HERE/../..")" bash -c "$(fill "$save")") >"$T/out" 2>"$T/err"
+[ -n "$save" ] && tail -n 1 "$T/out" | grep -qx 'EXIT=0' && grep -qF 'LAND=unverified' "$W3/wave-brief.txt" \
     && ok "skill: the save command of section 5 writes the brief into the run folder" || bad "skill save: '$save': $(cat "$T/out" "$T/err")"
 (cd "$T" && CLAUDE_PLUGIN_ROOT="$(tn "$HERE/../..")" bash -c "$(fill "$first")") >"$T/out" 2>"$T/err"
 [ -n "$first" ] && tail -n 1 "$T/out" | grep -qx 'EXIT=0' && in_section Land 'LAND=unverified' \

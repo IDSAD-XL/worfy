@@ -503,15 +503,21 @@ fi
 # ("How to resume a wave"); the orchestrator rules read land and agent output as a summary.
 if [ -f "$EPIC_WAVE" ]; then
     s5="$(awk '/^## 5\. /{s=1; next} s && /^## /{exit} s' "$EPIC_WAVE" | tr '\n' ' ' | tr -s ' ')"
-    for p in '**Report, brief, stop.** A wave ends with its report, a saved brief and a stop: the orchestrator does not start the next wave in the same session.' \
-        'The merges of the wave went only through `bin/land` in the background (section 4)' \
-        '"${CLAUDE_PLUGIN_ROOT}/bin/wave-brief" <epic> --land <state file>… >"<run folder>/wave-brief.txt"' \
-        'Then stop. The next wave is started by worfy Autopilot or by the owner, and its first command is `wave-brief`'; do
+    for p in '**Report, brief, stop.** A wave ends with its report, a saved brief and a stop: the orchestrator does not start the next wave on its own initiative. A wave that worfy Autopilot or the owner sends, into this session or a new one, runs as usual.' \
+        'On the `land` path (section 4, "Merge with land"), the merges of the wave went only through `bin/land` in the background' \
+        '`<state file>…` are the state files of `land` of this wave and every earlier state file whose PRs still wait' \
+        '(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/wave-brief" <epic> --land <state file>…) >"<run folder>/wave-brief.txt"' \
+        'Then stop. The next wave comes from worfy Autopilot or the owner, and a new session starts with `wave-brief`'; do
         if printf '%s' "$s5" | grep -qF -- "$p"; then ok "epic-wave, section 5: '$p'"
         else bad "epic-wave, section 5: no '$p'"; fi
     done
+    # Autopilot sends the next wave into the same session: no sentence may forbid that outright.
+    for p in 'does not start the next wave in the same session' 'Every wave runs in a session of its own'; do
+        if printf '%s' "$s5 $(awk '/^## How to resume a wave/{s=1; next} s && /^## /{exit} s' "$EPIC_WAVE")" | tr '\n' ' ' | tr -s ' ' | grep -qF -- "$p"; then bad "epic-wave: forbids a wave in the same session outright ('$p')"
+        else ok "epic-wave: no outright ban on a wave in the same session ('$p')"; fi
+    done
     resume="$(awk '/^## How to resume a wave/{s=1; next} s && /^## /{exit} s' "$EPIC_WAVE" | tr '\n' ' ' | tr -s ' ')"
-    for p in 'the first command of a new session, before any other reading, is:' \
+    for p in 'A session that worfy Autopilot or the owner starts for a wave (section 5, "Report, brief, stop") runs, as its first command, before any other reading:' \
         '(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/wave-brief" <epic>); echo "EXIT=$?"' \
         "Read it instead of the previous session's transcript."; do
         if printf '%s' "$resume" | grep -qF -- "$p"; then ok "epic-wave, How to resume a wave: '$p'"

@@ -1527,30 +1527,33 @@ are not edited. Then one line goes between the groups of findings and the status
 `Decision log: <path>`, or `Decision log: not written — <reason>`.
 
 **Report, brief, stop.** A wave ends with its report, a saved brief and a stop: the orchestrator
-does not start the next wave in the same session. Every wave starts with a fresh context, because
+does not start the next wave on its own initiative. A wave that worfy Autopilot or the owner sends,
+into this session or a new one, runs as usual. The stop keeps a session from growing wave by wave:
 each model call of a long session reads the reports, logs and decisions of all the waves before it
-again. The merges of the wave went only through `bin/land` in the background (section 4), and its
-output is read as its lines per PR and its verdict line, not as its log. After the report, the
-last command of the wave saves the brief of the epic — `<state file>…` are the state files of
-`land` of this wave (no `--land` when it merged nothing), and `<run folder>` is the folder of the
-decision log:
+again. On the `land` path (section 4, "Merge with land"), the merges of the wave went only through
+`bin/land` in the background, and its output is read as its lines per PR and its verdict line, not
+as its log. After the report, the last command of the wave saves the brief of the epic.
+`<state file>…` are the state files of `land` of this wave and every earlier state file whose PRs
+still wait (its `Land state:` line in the brief this session started with shows a PR that `waits`);
+with none of either, no `--land`. `<run folder>` is the folder of the decision log:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/wave-brief" <epic> --land <state file>… >"<run folder>/wave-brief.txt"; echo "EXIT=$?"   # a wave without a human
-"${CLAUDE_PLUGIN_ROOT}/bin/wave-brief" <epic> --land <state file>…; echo "EXIT=$?"                                  # a session with a human: no run folder
+(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/wave-brief" <epic> --land <state file>…) >"<run folder>/wave-brief.txt"; echo "EXIT=$?"   # a wave without a human
+(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/wave-brief" <epic> --land <state file>…); echo "EXIT=$?"                                  # a session with a human: no run folder
 ```
 
-`wave-brief` only reads: the tickets, the state files, the epic's open PRs (`gh pr list`) and the run
-folders. `EXIT=0` — the brief is written; `EXIT=1` — no such epic, or `epic-status` failed (the
-message says which); a section it could not read says so in its own line. The report gets one more
-line next to the decision log: `Wave brief: <run folder>/wave-brief.txt`, or the brief itself in a
-session with a human. Then stop. The next wave is started by worfy Autopilot or by the owner, and
-its first command is `wave-brief` ("How to resume a wave").
+`wave-brief` only reads: the tickets, the state files, the epic's branches and open PRs (`gh pr
+list`) and the run folders. Without `--land` it takes the state files from the newest saved brief
+that is not empty. `EXIT=0` — the brief is written; `EXIT=1` — no such epic, or `epic-status`
+failed (the message says which); a section it could not read says so in its own line. The report
+gets one more line next to the decision log: `Wave brief: <run folder>/wave-brief.txt`, or the
+brief itself in a session with a human. Then stop. The next wave comes from worfy Autopilot or the
+owner, and a new session starts with `wave-brief` ("How to resume a wave").
 
 ## How to resume a wave
 
-**A new session starts with the brief.** Every wave runs in a session of its own (section 5,
-"Report, brief, stop"), so the first command of a new session, before any other reading, is:
+**A new session starts with the brief.** A session that worfy Autopilot or the owner starts for a
+wave (section 5, "Report, brief, stop") runs, as its first command, before any other reading:
 
 ```bash
 (cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/wave-brief" <epic>); echo "EXIT=$?"
@@ -1558,12 +1561,12 @@ its first command is `wave-brief` ("How to resume a wave").
 
 It prints, in a few thousand tokens: the Stage line; what the last wave merged and the last `LAND=`
 line of each state file of `land` that the saved brief names; the tickets that are claimed or blocked
-and what they wait for (`Waits:`, the reason, the PR); the epic's open PRs with their head, labels,
-marks (`review`, `check/<name>`) and CI; the next wave (the open tickets whose every blocker is
-done); and the run folder with the decision log. Read it instead of the previous session's
+and what they wait for (`Waits:`, the reason, the PR), and the open ones in work on a branch or in
+an open PR; the epic's open PRs with their head, labels, marks (`review`, `check/<name>`) and CI; the
+next wave (the open tickets not in work whose every blocker is done); and the run folder with the decision log. Read it instead of the previous session's
 transcript. A `land` whose PRs wait is run again on the same state file (section 4). The blocks
-below answer what the brief does not: a ticket in work on its branch, a rework round, a narrow
-round.
+below answer what the brief does not: the status on a ticket's branch and its worktree, a rework
+round, a narrow round.
 
 In Silent mode the status is one, in the Workflow folder, and a ticket names its branch in the `Branch:`
 line: the wave is read from those lines, not from the `<epic>/*` branches. `<repo>` is the main
