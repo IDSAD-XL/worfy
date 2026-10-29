@@ -140,3 +140,40 @@ Run 40812733980 на head `cdfb6890`: `ci-ok` — success. Зелёные `lint-
   после обновления Stable copy.
 - `bin/profile` не проверяет значение `workflow.agents` (только schema черновика `connect-project`): профиль, правленный
   руками, с другим значением skill читает как есть. Правка `harness/bin` сделала бы PR платформенным; вне скоупа.
+
+### Раунд 2
+
+Ревью круга 1 — `REJECTED`, две находки med и три low; все пять исправлены в том же PR.
+
+- **med, порядок глубины в ship-ticket.** `eco` теперь отдельный пункт 2 списка «Which depth»
+  (`harness/skills/ship-ticket/SKILL.md:371`): аргумент или слово владельца → `eco` → поля `review.depth.*` → без поля.
+  Абзац «Agents mode» ссылается на пункт 2 и второй раз порядок не задаёт. В строке `Review depth: <depth> — <where it
+  came from>` появился источник `workflow.agents: eco` (`:411`). Строки `review.depth.first_round` и `later_rounds`
+  README (`harness/profiles/README.md:220-221`) говорят, что `eco` их перекрывает, как аргумент.
+- **med, проверка diff-а мелкого Ticket-а в epic-wave.** Режим решается в preflight по «Где в коде» и проверяется ещё
+  раз по diff-у мелкого Ticket-а, который Orchestrator сделал сам (`harness/skills/epic-wave/SKILL.md:248`). Перед
+  verifier-ом его diff сверяется со случаями, где `full` обязателен. Совпало — Ticket уходит implementer-у, в брифе
+  `Base:` — commit Orchestrator-а, строка отчёта — `Agents: full — <случай>`, например `Agents: full — destructive
+  action` (`:349-355`). ship-ticket так же решает по diff-у круга до старта reviewer-ов.
+- **low.** Мелкий Ticket: Orchestrator входит в его worktree через `EnterWorktree` и перед verifier-ом выходит через
+  `ExitWorktree` (`action: "keep"`), `:349`. Любое другое значение `workflow.agents` читается как `full` с причиной
+  `workflow.agents` — в обоих skill-ах и в README. ship-ticket больше не ссылается на свой же шаг 7: там «paragraph
+  "What blocks" below». Список случаев `full` в обоих skill-ах совпадает слово в слово, кроме этой ссылки.
+
+Test-ы. Новые проверки раздела 9e до правки skill-ов и README: exit 1, `passed 443, failed 16` — красные все новые
+проверки. После правки: exit 0, `passed 459, failed 0`. Mutant: в копии ship-ticket пункт «The profile» поставлен
+выше пункта `eco` (через `SHIP_TICKET_FILE`) — exit 1, `passed 458, failed 1`, красная проверка порядка «Which depth».
+
+Под временным HOME, exit 0 у каждого: `epic-wave-ship-ticket` 459/0, `skill-blocks` 86/0, `agents-text` 228/0,
+`plugin-neutral` 31/0, `profile` 81/0, `review-depth` 105/0, `project-connect` 200/0, `skills-allowed` 15/0,
+`rules-hooks` 201/0; `harness-scripts.test.ts` целиком вместе с пятью contract-файлами schema — 348 passed,
+1 skipped. `pnpm lint` и `pnpm typecheck` — exit 0, gate fast — exit 0, `[gate] green (fast)`.
+
+`main` ушёл вперёд кодом (#949 — `harness/bin/wave-gate`, #945 — gate). Сделан rebase на `cc964d11`, после него ещё
+раз прогнаны `epic-wave-ship-ticket` (459/0) и gate fast (exit 0, green). Scope `node scripts/windows-verdict-scope.mjs
+cc964d11 HEAD` — `runner`, exit 0.
+
+CI run 40816011308 на head `b9d6de2d`: `ci-ok` — success; `windows (1/3)`–`(3/3) / full-suite` зелёные. Красный один
+job — `windows-e2e (2/4)`: `test/e2e/linked-machines.spec.ts:412`, 1 failed, 79 passed. Этот job не блокирует
+(`NON_BLOCKING`), PR код приложения не меняет. В круге 1 красным был другой shard и другой test
+(`arrange-by-epic.spec.ts:136`, `windows-e2e (1/4)`).
