@@ -1,9 +1,8 @@
 # 41 — Flaky test-ы Windows после пересчёта 2026-10-23: 2 e2e и 5 unit/contract, красные только под нагрузкой или изредка
 
 Type: task
-Status: blocked
-Blocked reason: нужен Windows-ПК; ПК на паузе до слова владельца
-Waits: owner
+Status: claimed 2026-10-29T15:01Z
+Branch: worfy-polish/41
 Blocked by: —
 Source: пересчёт на ПК владельца 2026-10-23 (e2e на main `f8ada2a3`, unit и contract на main `bc19f2f7`,
 масштаб 150 %; `C:/Users/Alexey/worfy-wt/recount/summary.md` на ПК), решение владельца 2026-10-23 по отсечке
@@ -69,3 +68,74 @@ unit и contract (`pnpm test`; красные только в полном пр�
 - `test/contract/shell.test.ts:293`; `test/contract/terminal.test.ts` (`:183-185` и случаи, добавленные
   2026-10-28).
 - `harness/bin/tests/wave-gate-lock.test.sh` (случаи токена замка e2e).
+
+## Итог, часть 1 (2026-10-29, ПК; Ticket остаётся open — остаток в «Не сделано»)
+
+Данные — три gate full на ПК по ADR-0086 на main 2026-10-29: `755ce722`, `b2b30e07`, `0be09773`
+(GATE_SCOPE=all, vitest с 15 worker-ами по умолчанию). Каждый красный test повторён в одиночку на том же SHA.
+
+Quarantine win32 до 2026-11-12, владелец `worfy-polish 41` — test-ы, красные хотя бы в двух из трёх прогонов.
+В одиночку каждый раз зелёный (код 0). Причина, кроме нагрузки полного прогона, не найдена. Таймауты не
+менялись: правило владельца, решение о множителе — у владельца. Строки — на main d829ab9c; в логах
+gate full они выше (ci-workflow — на 109 строк).
+- `test/contract/ci-workflow.test.ts:1187` — красный 3 из 3, «Test timed out in 45000ms».
+- `test/contract/shell.test.ts:482`, случай win32 — красный 3 из 3: timeout 45 s, затем «EBUSY … rmdir». Случай
+  linux падает следом: случай win32 после своего timeout ещё работает с подменённой платформой.
+- `test/contract/harness-evals-outcome.test.ts:1710` — красный 2 из 3, timeout 60 s.
+- `test/contract/harness-migrate.test.ts:478` — красный 2 из 3, timeout 45 s.
+
+Без quarantine, хоть и красный 2 из 3: `test/contract/harness-evals.test.ts:259` (случай
+`reviewer-intended-breakage`, timeout 45 s). Время уходит на сборку fixture случая, а fixture строит первый
+test, который её попросит (`builtFixture`, кэш по имени случая). Если пропустить этот test, сборку возьмёт на
+себя `reviewer-intended-breakage is the diff the case describes` (`:681`) с тем же пределом 45 s. Это нарушает
+правило `test/quarantine.ts`: в quarantine идёт только test, чья ошибка — его собственная. На gate full `00daddd0`
+так же покраснел случай `reviewer-simplification`.
+
+Красные один раз — без quarantine, только здесь:
+- `755ce722`: `test/contract/docs.test.ts:467` (случай active); e2e `projects-connect.spec.ts:217` и
+  `session-two-windows.spec.ts:183` — «the app did not quit within 20 s and was killed».
+- `b2b30e07`: `harness-evals-outcome.test.ts:1670`, `harness-scripts.test.ts:433` (`guard-silent.test.sh`:
+  `bin/silent-check` не уложился в 0.5 s и 0.4 s), `projects-connect.test.ts:1345` (timeout 45 s),
+  `terminal-ai-suggest.test.ts:443` (ветка git прочиталась как `null`).
+- `0be09773`: `terminal-windows.test.ts:160` (3123 ms при границе 3000), `workflow-reader.test.ts:825` (1517 ms при
+  границе 1500), `affected-tests.test.ts:215` и `:355` (timeout 15 s), e2e `quiet-windows.spec.ts:75` («Target
+  page, context or browser has been closed»).
+
+Test-ы из списка выше:
+- `epic-frame-undo.spec.ts:125` — 5 из 5 зелёный при масштабе 100 %. Красный 2026-10-23 был при 150 %, а
+  масштаб экрана ПК менять нельзя. Не воспроизведён.
+- `projects-connect.spec.ts:217` — красный 1 из 44 run-ов до трёх gate full и 1 из 3 gate full. Причина
+  зависания выхода не найдена. Последняя строка вывода приложения — «Debugger ending on ws://…»: связь
+  Playwright закрыта, а процесс Electron жив до kill на 20 s. Правка этого PR — диагностика:
+  `test/e2e/quit-diagnosis.ts` и `helpers.ts` (`processesOf`). При зависании выхода на Windows лог test-а
+  называет процесс приложения и его потомков (pid, родитель, число потоков, имя, командная строка). Процесс
+  старше своего записанного родителя потомком не считается: Windows отдаёт освободившийся pid заново. Проверено
+  unit test-ом на настоящем дочернем процессе; mutant без обхода потомков — красный. Следующее зависание
+  покажет, что ещё живо.
+- `terminal.test.ts:185` — не повторился ни в тихих прогонах, ни в трёх gate full.
+- `wave-gate-lock.test.sh` — 3 из 3 зелёный (27/27 каждый раз).
+- `shell.test.ts:293` (darwin) — теперь на `:481`, на ПК краснеет случай win32 (в quarantine выше).
+
+Четвёртый gate full на ПК, main `00daddd0` (2026-10-29): lint, typecheck, e2e, package — код 0; vitest — код 1,
+19 красных, каждый в одиночку на том же SHA зелёный. Впервые красные: `autopilot-limits.test.ts:643`, `:681`, `:700`,
+`e3-sandbox.test.ts:1300`, `harness-migrate.test.ts:448` и `:459`, `harness-evals.test.ts` случай
+`reviewer-simplification`, `workflow-reader.test.ts:994`. Второй раз красные: `docs.test.ts:467`,
+`harness-evals-outcome.test.ts:1670`, `harness-scripts.test.ts:433`, `projects-connect.test.ts:1349`,
+`workflow-reader.test.ts:825`.
+
+Попутно: `test/contract/harness-scripts.test.ts` занимает 1367 s из 1542 s vitest (`b2b30e07`), последние ~13
+мин идёт один. Это `worfy-throughput` 56; данные — `C:/Users/Alexey/worfy-wt/evidence/throughput-56/` на ПК.
+
+Не сделано — часть 2, в этом же Ticket-е (правило владельца 2026-10-23: flaky Windows — один Ticket
+`worfy-polish`):
+- Test-ы, красные по одному разу: `docs.test.ts:467`, e2e `projects-connect.spec.ts:217` и
+  `session-two-windows.spec.ts:183`, и красные из прогонов `b2b30e07` и `0be09773` (список выше). Если test
+  краснеет повторно — запись quarantine или правка причины. Красные второй раз и новые — из gate full
+  `00daddd0` выше.
+- `harness-evals.test.ts:259`: сборку fixture случаев вынести из test-а, чья ошибка тогда станет его собственной,
+  либо ускорить саму сборку под нагрузкой.
+- Причина зависания выхода приложения на Windows: найти по дереву процессов из диагностики этого PR и
+  поправить. Решение владельца 2026-10-29: если причина не найдена, test-ы выхода приложения на Windows
+  не запускаются.
+- Пункты 2 и 3 «Готово, когда»: полный `pnpm test` на ПК — код 0 два раза подряд (планка приёмки Windows —
+  полностью зелёный gate full), прогон GitHub Windows runner-а после merge.

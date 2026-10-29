@@ -1,0 +1,12 @@
+{
+  "runner": "vitest",
+  "file": "test/contract/shell.test.ts",
+  "test": "shell.openInEditor opens documents and asks about anything else > on win32 asks about every known launcher kind, in either letter case",
+  "reason": "On the owner's Windows PC, in the full vitest run only: \"Test timed out in 45000ms\", then \"EBUSY: resource busy or locked, rmdir\" of its repository; the linux case after it then reads revealedIn \"win32\", since the timed-out case still runs with its platform. First red: the 2026-10-23 Windows recount (bc19f2f7). Red in the full vitest run of the PC gate full (ADR-0086) on main 755ce722, b2b30e07 and 0be09773 (2026-10-29). Alone on the same SHA it passes (exit 0) every time; no cause found beyond the load of the full run.",
+  "platforms": [
+    "win32"
+  ],
+  "owner": "worfy-polish 41",
+  "since": "2026-10-29",
+  "until": "2026-11-12"
+}

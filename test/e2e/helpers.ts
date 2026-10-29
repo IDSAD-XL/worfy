@@ -11,7 +11,7 @@ import { checkTargets, listProblems, overlaps, passOf, passProblems, translateOf
 import { endApp, exited, killThenClean } from './end-app'
 import { SHOW_POLL_MS, waitForFirstWindowShown } from './first-window-shown'
 import { launchEnv } from './launch-env'
-import { quitDiagnosisText, quitLogLines, SAMPLE_SECONDS, SAMPLE_TIMEOUT_MS, type QuitFindings } from './quit-diagnosis'
+import { PROCESSES_TIMEOUT_MS, processTreeScript, quitDiagnosisText, quitLogLines, SAMPLE_SECONDS, SAMPLE_TIMEOUT_MS, type QuitFindings } from './quit-diagnosis'
 import type { StepResult } from './start-diagnosis'
 import { currentTest, recordOutput, startDiagnostics, startTestClock } from './start-diagnostics-run'
 import { clickMenuItem } from './menu'
@@ -219,14 +219,28 @@ function sampleOf(pid: number | undefined): StepResult<string> | undefined {
 }
 
 /**
+ * Process `pid` and its descendants on Windows, one line each (processTreeScript), from one
+ * PowerShell run bounded by PROCESSES_TIMEOUT_MS. Undefined off Windows: there `sample` says more.
+ */
+function processesOf(pid: number | undefined): StepResult<string> | undefined {
+  if (process.platform !== 'win32') return undefined
+  if (pid === undefined) return { problem: 'the app never named its PID' }
+  const run = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', processTreeScript(pid)], { encoding: 'utf8', timeout: PROCESSES_TIMEOUT_MS, windowsHide: true })
+  if (run.error !== undefined) return { problem: run.error.message }
+  if (run.status !== 0) return { problem: `exit code ${String(run.status)}: ${run.stderr.trim().split('\n').at(-1) ?? ''}` }
+  return { value: run.stdout.replace(/\r\n/g, '\n') }
+}
+
+/**
  * Says why the app did not quit, while it still runs: the innermost frames of its main thread go
  * to the log, and they, the tail of its output and the whole `sample` report are attached to the
- * running test (quit-diagnosis.ts). Off macOS only the output is there. Never throws: the kill
- * after it must happen whatever the diagnosis does.
+ * running test (quit-diagnosis.ts). On Windows the log names the app's processes still running
+ * instead; elsewhere only the output is there. Never throws: the kill after it must happen
+ * whatever the diagnosis does.
  */
 async function diagnoseQuit(pid: number | undefined, output: string): Promise<void> {
   try {
-    const findings: QuitFindings = { quitTimeoutMs: QUIT_TIMEOUT_MS, pid, sample: sampleOf(pid), output }
+    const findings: QuitFindings = { quitTimeoutMs: QUIT_TIMEOUT_MS, pid, sample: sampleOf(pid), processes: processesOf(pid), output }
     console.log(quitLogLines(findings).join('\n'))
     const info = currentTest()
     if (!info) return

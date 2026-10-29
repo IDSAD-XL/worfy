@@ -1,0 +1,12 @@
+{
+  "runner": "vitest",
+  "file": "test/contract/harness-migrate.test.ts",
+  "test": "the move > the toolbar offer: there before a move, gone after a move with the defaults, there while a Harness file is kept",
+  "reason": "On the owner's Windows PC, in the full vitest run only: \"Test timed out in 45000ms\". Red in the full vitest run of the PC gate full (ADR-0086) on main 755ce722 and b2b30e07, not on 0be09773 (2026-10-29). Alone on the same SHA it passes (exit 0) every time; no cause found beyond the load of the full run.",
+  "platforms": [
+    "win32"
+  ],
+  "owner": "worfy-polish 41",
+  "since": "2026-10-29",
+  "until": "2026-11-12"
+}
