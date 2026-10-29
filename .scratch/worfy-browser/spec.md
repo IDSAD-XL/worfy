@@ -236,6 +236,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 13 | `src/renderer/canvas/nodes/BrowserNode.css`, `src/renderer/canvas/nodes/BrowserNode.tsx`, `test/e2e/browser.spec.ts` | после 03 |
 | 14 | `src/renderer/canvas/overlays/CanvasMenu.tsx`, `src/renderer/find/CanvasFind.tsx`, `src/renderer/canvas/nodes/create-items.ts`, `src/renderer/canvas/nodes/browser-frame.ts`, `src/renderer/browser/BrowserProfiles.tsx`, `src/main/browser/profiles.ts`, `test/unit/canvas-menu.test.tsx`, `test/contract/browser-profiles.test.ts` | после 03 |
 | 15 | `test/unit/canvas-menu.test.tsx`, `test/unit/palette-new-browser.test.tsx`, `test/unit/browser-profiles-store.test.tsx`, `test/unit/browser-layer.test.tsx` или `test/e2e/browser-profile.spec.ts` | после 14 |
+| 19 | `src/renderer/canvas/nodes/BrowserSidebar.tsx`, `src/renderer/canvas/nodes/browser-viewport.ts`, `src/main/browser/cdp.ts`, `src/main/browser/screencast.ts`, `src/main/browser/live.ts`, `src/main/browser/sleep.ts`, `src/renderer/browser/frames.ts`, `test/e2e/browser-layer.spec.ts`, `test/fixtures/browser/` | не планируется: `Waits: owner` (решение владельца 2026-10-29 — добавить, но сейчас не работаем) |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.
@@ -247,6 +248,9 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
 - **Wave 5 — 05, 06.** Оба `Blocked by: 04`: 05 правит `live.ts` и `browser-server.ts`, которые
   создаёт 04. Общих файлов нет.
 - **Wave 6 — 07, 08.** 07 — `Blocked by: 05`, 08 — `Blocked by: 05, 06`. Общих файлов нет.
+- **19 — вне Wave.** Эмуляция устройства через CDP поверх viewport-а Ticket-а 18 (ADR-0087). Владелец
+  2026-10-29: Ticket добавить, но сейчас над ним не работаем; статус `blocked`, `Waits: owner`. Epic не закрыт,
+  пока 19 не взят или не снят владельцем.
 
 Пересечения проверены правилом `filesOverlap` (`src/shared/workflow/waves.ts`) вручную, по таблице.
 Если исполнителю нужен файл вне своего списка, он дописывает его в «Где в коде» при claim.
