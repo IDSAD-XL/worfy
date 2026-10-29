@@ -33,8 +33,8 @@
 //                   replaces them all;
 //   - brief         the median brief of that agent in the calibration, a fixed number of bytes;
 //   - profile       what bin/profile prints in the current folder; with --profile <path> (a profile
-//                   folder or its profile.json), that profile.json and the rules.md next to it, plus
-//                   PROFILE_HEADER bytes for the lines bin/profile prints around them. Without a
+//                   folder or its profile.json), that profile.json and the rules.md next to it
+//                   without its Sources section, as bin/profile prints it, plus PROFILE_HEADER bytes for the lines bin/profile prints around them. Without a
 //                   profile there is no profile part and no skill part;
 //   - skill         for an agent that follows the profile's skill (the implementer), the SKILL.md of
 //                   the profile's workflow.ticket_skill ("ship-ticket" or "/<plugin>:ship-ticket");
@@ -228,6 +228,21 @@ function instructionFiles(given) {
     return found
 }
 
+// The `## Sources` section of rules.md is for whoever maintains the profile: bin/profile and
+// hooks/session-start.mjs leave it out, from a heading that starts with the word to the next `## `
+// heading.
+function withoutSources(text) {
+    let skip = false
+    return text
+        .split("\n")
+        .filter((line) => {
+            // shortcut: accepts the old Russian token, remove after the next release
+            if (line.startsWith("## ")) skip = /^## (Sources|Источники)/.test(line)
+            return !skip
+        })
+        .join("\n")
+}
+
 // The profile part and the skill the profile names: { bytes, label, skill } or null.
 function profilePart(given) {
     if (given) {
@@ -235,7 +250,7 @@ function profilePart(given) {
         if (fs.statSync(given, { throwIfNoEntry: false })?.isFile()) dir = path.dirname(given)
         const json = readText(path.join(dir, "profile.json"))
         if (json === null) throw new Usage(`no profile.json in ${dir}`)
-        const rules = readText(path.join(dir, "rules.md")) ?? ""
+        const rules = withoutSources(readText(path.join(dir, "rules.md")) ?? "")
         let skill = null
         try {
             skill = JSON.parse(json)?.workflow?.ticket_skill ?? null

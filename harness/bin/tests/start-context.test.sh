@@ -3,7 +3,8 @@
 # when the parts the Harness writes (definition, rules/common.md, skill) are above 15 000.
 #   - a fixture Harness whose parts are small: exit 0, every agent ok; each part measured as the agent
 #     reads it (the definition without its frontmatter, the rules as the SubagentStart hook injects
-#     them, split into common.md and the user's rules, the profile's two files, the skill the profile
+#     them, split into common.md and the user's rules, the profile's two files (rules.md without its
+#     Sources sections, English or Russian, as bin/profile prints it), the skill the profile
 #     names), every ${CLAUDE_PLUGIN_ROOT} in the definition, common.md and the skill counted as a
 #     worst-case plugin folder of 150 bytes; tokens = the counted parts' tokens, total = the agent's
 #     constant + every part's tokens;
@@ -84,7 +85,9 @@ printf '%s\n' '# Ship a ticket' 'Steps one to eight: `${CLAUDE_PLUGIN_ROOT}/bin/
 printf '%s\n' '# Another skill' >"$H/skills/other/SKILL.md"
 P="$T/profile"; mkdir -p "$P"
 printf '%s\n' '{ "name": "demo", "workflow": { "ticket_skill": "/demo:ship-ticket" } }' >"$P/profile.json"
-printf '%s\n' '# demo rules' 'One fact.' >"$P/rules.md"
+printf '%s\n' '# demo rules' 'One fact.' '' '## Sources' 'Where the fact came from.' '' '## Kept' 'Another fact.' '' '## Источники' 'Откуда факт.' >"$P/rules.md"
+# rules.md as bin/profile prints it: both Sources sections left out, the section after the first kept.
+printf '%s\n' '# demo rules' 'One fact.' '' '## Kept' 'Another fact.' >"$T/rules-printed"
 : >"$T/instr-empty"
 printf '%s\n' 'Use the house style.' >"$T/instr-a"
 
@@ -108,9 +111,9 @@ got_rules="$(field '["rules common.md", "rules of the user"].map((n) => j.agents
 [ "$got_rules" = "$want_rules" ] && ok "rules: common.md and the user's rules, as the hook injects them, two parts ($got_rules B)" || bad "rules: $got_rules B, want $want_rules"
 got="$(field 'j.agents[0].parts.find((p) => p.name.startsWith("instructions")).bytes')"
 [ "$got" = "$(bytes "$T/instr-a")" ] && ok "instructions: the --instructions file" || bad "instructions: $got B, want $(bytes "$T/instr-a")"
-want_prof=$(( $(bytes "$P/profile.json") + $(bytes "$P/rules.md") + 200 ))
+want_prof=$(( $(bytes "$P/profile.json") + $(bytes "$T/rules-printed") + 200 ))
 got="$(field 'j.agents[0].parts.find((p) => p.name.startsWith("profile")).bytes')"
-[ "$got" = "$want_prof" ] && ok "profile: profile.json, rules.md and the header bin/profile prints ($got B)" || bad "profile: $got B, want $want_prof"
+[ "$got" = "$want_prof" ] && ok "profile: profile.json, rules.md without its Sources sections and the header bin/profile prints ($got B)" || bad "profile: $got B, want $want_prof"
 got="$(field 'j.agents[0].parts.find((p) => p.name.startsWith("skill"))?.name ?? "none"')"
 [ "$got" = "skill skills/ship-ticket/SKILL.md" ] && ok "implementer: the skill the profile names (/demo:ship-ticket)" || bad "implementer skill: $got"
 got="$(field 'j.agents[0].parts.find((p) => p.name.startsWith("skill"))?.bytes')"
@@ -178,7 +181,7 @@ cp "$T/scout.md.small" "$H/agents/scout.md"
 
 # The parts the Harness does not write are shown, never counted: blown up, they turn no agent red.
 cp "$P/rules.md" "$T/rules.md.small"; cp "$HARNESS_HOME/user/rules.md" "$T/user-rules.small"
-fill "$P/rules.md" 150000; fill "$T/instr-big" 150000; fill "$HARNESS_HOME/user/rules.md" 8000
+printf '%s\n' '# big rules' >"$P/rules.md"; fill "$P/rules.md" 150000; fill "$T/instr-big" 150000; fill "$HARNESS_HOME/user/rules.md" 8000
 run "$H/bin/start-context" --profile "$(tn "$P")" --instructions "$(tn "$T/instr-big")" --json
 [ "$rc" = 0 ] && [ "$(field 'j.agents.every((a) => !a.over && a.tokens < 1000 && a.total > 100000)')" = true ] && ok "blown-up profile, instructions, user rules: not counted, exit 0, the whole start shows them" || bad "blown-up fixed parts: exit $rc, $(field 'j.agents.map((a) => a.agent + " " + a.tokens + "/" + a.total).join(", ")')"
 [ "$(field 'j.agents[0].parts.find((p) => p.name.startsWith("profile")).bytes > 150000 && j.agents[0].parts.find((p) => p.name.startsWith("rules of the user")).bytes > 7000')" = true ] && ok "blown-up fixed parts: their sizes are still measured" || bad "blown-up fixed parts are not measured"
