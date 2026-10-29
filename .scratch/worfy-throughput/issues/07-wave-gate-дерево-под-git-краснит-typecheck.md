@@ -1,7 +1,7 @@
 # 07 — `wave-gate`: временное дерево под `.git/` краснит typecheck, и красная база называется виной первого PR
 
 Type: task
-Status: open
+Status: done 2026-10-29T10:58Z
 Blocked by: 35
 Source: Wave `worfy-link` 17, 19 (2026-10-16) — первый набор `wave-gate` на Mac;
 [ADR-0065](../../../docs/adr/0065-one-gate-full-per-wave-merge-set.md); лог решений Wave — каталог
@@ -45,12 +45,16 @@ Wave вместо одного на PR; с `ci-ok` этот довод уход�
 
 ## Готово, когда
 
-- [ ] `wave-gate check` на наборе из PR, который не трогает `src/main/ipc/`, на базе с зелёным
-  typecheck в обычном worktree даёт зелёный typecheck.
-- [ ] Shell test `wave-gate`: красная база (stub gate красный на любом дереве) даёт
-  `STATUS=unverified`, а не `culprit`.
-- [ ] «Итог» называет найденную причину TS2883 под `.git/` или говорит, почему её не искали.
-- [ ] Платформенный PR: Harness-скрипт — вердикт Windows-ПК до merge (ADR-0056, пункт 2).
+- [x] `wave-gate check` на наборе из PR, который не трогает `src/main/ipc/`, на базе с зелёным
+  typecheck в обычном worktree даёт зелёный typecheck. — заменено ADR-0083 и решениями владельца Q2 и R2-Q3
+  (2026-10-29): набор Wave не нужен сверх `ci-ok`, см. «Итог».
+- [x] Shell test `wave-gate`: красная база (stub gate красный на любом дереве) даёт
+  `STATUS=unverified`, а не `culprit`. — заменено ADR-0083 и решениями владельца Q2 и R2-Q3 (2026-10-29):
+  бисекции нет.
+- [x] «Итог» называет найденную причину TS2883 под `.git/` или говорит, почему её не искали. — заменено
+  ADR-0083 и решениями владельца Q2 и R2-Q3 (2026-10-29); «Итог» говорит, почему её не искали.
+- [x] Платформенный PR: Harness-скрипт — вердикт Windows-ПК до merge (ADR-0056, пункт 2). — заменено ADR-0083
+  и решениями владельца Q2 и R2-Q3 (2026-10-29): Harness-скрипт не меняется.
 
 ## Где в коде
 
@@ -63,3 +67,26 @@ Wave вместо одного на PR; с `ci-ok` этот довод уход�
 - Ошибки TS2883 в обычном worktree: их там нет.
 
 ## Итог
+
+**Ответ на вопрос Ticket-а** (раздел «Правка 2026-10-28», ADR-0083, пункт 4 —
+`docs/adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md:49-51`): проверка общего дерева набора PR Wave
+ничего не даёт сверх `ci-ok`. Такой набор ловит только merge skew: два PR зелёные каждый на своей базе и
+красные вместе (красный `main` на `f52dc8bb` после #954 и #957, исправлен вперёд PR-ом #968). Для этого случая
+владелец решил R2-Q3 (`.scratch/worfy-throughput/spec.md:868-871`): правило Q2 остаётся (исправление вперёд до
+1 h, затем revert виноватого PR), «require branch up to date» и merge queue не включаем, пока skew-ов не больше
+одного в неделю. Поэтому `wave-gate` не возвращается как путь по умолчанию, `merge_gate` Profile-а остаётся
+`null`.
+
+Закрыт без правок: заменён ADR-0083 (ci-ok на каждом PR — условие merge, push в main гоняет весь набор) и
+решениями владельца Q2 и R2-Q3 от 2026-10-29 (красный main — исправление вперёд до 1 h, затем revert; бисекции
+нет; merge skew — по тому же правилу). На 2026-10-29 ни один Profile не задаёт workflow.merge_gate "wave" или
+workflow.ci "batch", а только в этих режимах skill epic-wave вызывает bin/wave-gate
+(harness/skills/epic-wave/SKILL.md:1046, :1049, :1259; harness/skills/overnight-fix-loop/SKILL.md:331-332;
+harness/bin/profile:420 — ci по умолчанию "pr"). Profile worfy на Mac — merge_gate null (merge через
+bin/land). Profile на Windows-ПК (отчёт bridge 2026-10-29, `-C C:/Users/Alexey/worfy-wt/e34`) —
+workflow.merge_gate null, ci "pr". Причину TS2883 под .git/ не искали: путь, где она проявляется, больше не
+вызывается. Дефект остаётся в harness/bin/wave-gate:45,105 (дерево <git common dir>/worfy-wave-gate) и в его
+бисекции; если какой-то Profile включит "wave" или "batch", Ticket открывают заново.
+
+Вне репозитория: Orchestrator обновил строку `rules.md` Profile-а worfy «нужен ли он сверх ci-ok, решает
+worfy-throughput 07» по этому ответу.
