@@ -15,12 +15,13 @@
 //
 // A job of NON_BLOCKING is seen but does not decide: when the run needs it, any result of it keeps
 // ci-ok green, and a result other than success is printed as a warning (a `::warning::` annotation on
-// the run's summary). A run that does not need it must still skip it. windows-e2e stays here until
-// five push runs on main in a row are green; a later pull request moves it out.
+// the run's summary). A run that does not need it must still skip it. A new job can start here while
+// its runs are counted. The set is empty now: windows-e2e left it after ten push runs on main in a row
+// with all its shards green (a test that passed on its retry counts as green, as in every other job).
 
 import process from 'node:process'
 
-const NON_BLOCKING = new Set(['windows-e2e'])
+const NON_BLOCKING = new Set()
 
 function verdict(raw) {
   let needs

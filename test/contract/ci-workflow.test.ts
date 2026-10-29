@@ -918,18 +918,19 @@ describe('scripts/ci-ok.mjs', () => {
     expect(result.stderr).toMatch(reason)
   })
 
-  it.each(['failure', 'cancelled', 'skipped'])('stays green when a needed windows-e2e ends %s: it does not block yet, and a warning says so', (windowsE2e) => {
+  // windows-e2e blocks like every other job since ten push runs on main in a row had it green.
+  it.each(['failure', 'cancelled', 'skipped'])('is red when a needed windows-e2e ends %s', (windowsE2e) => {
     const result = ok(JSON.stringify(needs(ALL, results((name) => (name === 'windows-e2e' ? windowsE2e : 'success')))))
-    expect(result.status, result.stderr).toBe(0)
-    expect(result.stdout).toContain(`windows-e2e: ${windowsE2e} (needed, does not block ci-ok)`)
-    expect(result.stdout).toContain(`::warning::windows-e2e: ${windowsE2e}, expected success; it does not block ci-ok yet`)
-    expect(result.stdout).toContain('ci-ok: every job the run needs succeeded')
+    expect(result.status).toBe(1)
+    expect(result.stdout).toContain(`windows-e2e: ${windowsE2e} (needed)`)
+    expect(result.stderr).toMatch(new RegExp(`windows-e2e: ${windowsE2e}, expected success`))
+    expect(result.stdout).not.toContain('::warning::')
   })
 
-  it('prints a green windows-e2e without a warning', () => {
+  it('prints a green windows-e2e as any other green job', () => {
     const result = ok(JSON.stringify(needs(ALL, results(() => 'success'))))
     expect(result.status, result.stderr).toBe(0)
-    expect(result.stdout).toContain('windows-e2e: success (needed, does not block ci-ok)')
+    expect(result.stdout).toContain('windows-e2e: success (needed)\n')
     expect(result.stdout).not.toContain('::warning::')
   })
 
@@ -939,13 +940,11 @@ describe('scripts/ci-ok.mjs', () => {
     expect(result.stderr).toMatch(new RegExp(`windows-e2e: ${windowsE2e}, expected skipped`))
   })
 
-  // windows-e2e is the only job that does not block: a failure of any other job turns ci-ok red,
-  // whatever windows-e2e did.
-  it.each(DECIDED.filter((name) => name !== 'windows-e2e'))('is red when %s fails, also next to a red windows-e2e', (failed) => {
-    const result = ok(JSON.stringify(needs(ALL, results((name) => (name === failed || name === 'windows-e2e' ? 'failure' : 'success')))))
+  // No job is left out of the verdict: a failure of any one of them turns ci-ok red.
+  it.each(DECIDED)('is red when %s fails', (failed) => {
+    const result = ok(JSON.stringify(needs(ALL, results((name) => (name === failed ? 'failure' : 'success')))))
     expect(result.status).toBe(1)
     expect(result.stderr).toMatch(new RegExp(`${failed}: failure, expected success`))
-    expect(result.stderr).not.toMatch(/windows-e2e/)
   })
 
   it('is red when the job changes did not succeed', () => {
