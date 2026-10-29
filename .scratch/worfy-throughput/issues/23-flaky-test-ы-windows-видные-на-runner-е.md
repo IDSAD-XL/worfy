@@ -185,3 +185,62 @@ note…`, который красный и до правки (5 из 5): в ко
 - 2026-10-28, из PR #907: `_worfy_suggest_timer_end` (`src/main/terminal/zsh/rc.d/20-suggest-ai.zsh:89`) — тот же
   SIGCHLD может прийти при естественном конце таймера Suggestion, и на Linux потеряется ask или перерисовка.
   Детерминированного test-а нет, правки нет. Если flaky test terminal-ai вернётся после мержа #907, берём это первым.
+
+### Наблюдения, отложенные без PR
+
+- 2026-10-28, `test/contract/harness-migrate.test.ts` › «Q19 matches the plugin…»: `Hook timed out in 60000ms` в
+  beforeEach `useSandbox` (`test/contract/harness-migrate-harness.ts:130`), CI #892, job 122732532813. На runner-е
+  первые два test-а файла шли 72 s и 52 s, остальные ~5 s; в то же окно шли harness-evals, projects, terminal-ai-suggest
+  и link-server. На ПК sandbox — 1,6 s тихо (12 вызовов git — ~1,25 s), под нагрузкой 16 spinner-ов первый test 5,8 s;
+  60 s не воспроизвелось. Готовый sandbox не скопировать: fixture пишет свой путь в файлы, которые коммитит. Решение
+  Orchestrator-а: смотрим test после мержа #889; при повторе берём параллельный git плюс печать времени шагов
+  sandbox-а в CI-лог.
+- 2026-10-28, Windows job #884 (122747558557, образ windows-2025-vs2026 20261021.278.1): в выводе
+  `project-connect.test.sh` 78 строк «line 97: shasum: command not found» — на этом образе у Git Bash нет `shasum`.
+  Красным файл сделал не он: файл оборвался со статусом 2304 (exit 9) без строки FAIL, как ещё семь файлов этого
+  job-а (wave-gate-heartbeat, wave-gate-screen, gate-args, wave-gate-lock и другие) — это давление на job, его
+  закрывают #887 и shard-ы #889. Без `shasum` проверка «Harness home не изменился» сравнивала только имена
+  файлов; #908 считает хеш через node.
+- 2026-10-28, `test/contract/harness-evals.test.ts:1982` «says "cases mismatch" when a chosen case is missing…»: `Test
+  timed out in 45000ms` на Windows runner-е (#885, job 122748777183). Head уже содержит #888, то есть одного
+  временного git-репозитория на все `--changed` case-ы мало. Перемерить после #889 (shard-ы); если не уйдёт —
+  разбирать, что в case-е стоит дороже 45 s.
+- 2026-10-28, Windows `harness/bin/tests/preflight.test.sh` — «FAIL timeout, pipe held: []» на #900, job 122763723853
+  (файл 93 s, 49 из 50 проверок `ok`). Вывод в скобках пустой: `node -e`, который зовёт `withTimeout(1, …)` с
+  отсоединённым внуком, держащим pipe, не напечатал ни код, ни время, ни ошибку — похоже, его promise так и не
+  разрешился и node вышел молча; соседняя проверка «timeout: exit 124 within 3 s, the grandchild is stopped too» в том
+  же прогоне `ok`. Пока не чиним.
+- 2026-10-28, Windows `harness/bin/tests/profile-set.test.sh` — «FAIL lock released while waiting» на #911, run
+  40697796322. Diff #911 этот файл и `harness/bin/profile-set` не трогает. Проверка снимает lock через `sleep 0.5`
+  после старта писателя, то есть по часам: под нагрузкой фоновый `rmdir` может прийти позже, чем кончается
+  ожидание писателя. Ту же проверку лечит #892 (head 9f4f64f8, ещё открыт): lock снимается, когда
+  писатель сказал, что ждёт. Скорее всего, это та же причина до мержа #892; отдельного PR не нужно, после мержа
+  смотреть, повторится ли.
+- 2026-10-28, Windows `harness/bin/tests/ticket-mark.test.sh`, case «silent: live lock» — «could not take the lock
+  …\marks\shopfront-02.json.lock: EPERM: operation not permitted, mkdir» на #903 (a362aa8b), job 122870357635. Diff
+  #903 этот файл не трогает. Похоже, `mkdir` lock-а пришёлся на момент, когда соседний процесс удаляет тот же
+  каталог: на Windows такой `mkdir` даёт EPERM, а не EEXIST, и код принимает его за отказ, а не за занятый lock.
+  Отдельного PR пока нет; при повторе — считать EPERM от `mkdir` lock-а таким же «занят», как EEXIST.
+- 2026-10-28, Windows `test/unit/agent-cost.test.ts:140` «refuses a wrong argument and a missing folder with exit code
+  2»: два timeout-а по 15 s подряд, первая попытка и retry из #912, всего 43 s. Run #918 на 317eff31, job
+  122972620908, shard windows 3/3. В том же shard-е ещё три test-а, которые запускают скрипты Harness, прошли только с
+  retry: 38,7 s, 23 s и 35,6 s. Diff #918 эти файлы не трогает. Похоже на медленный запуск процессов на Windows
+  runner-е под нагрузкой shard-а. Повтор: #919, Windows shard 3/3, обе попытки по 15 s; это 2 из последних 6
+  job-ов. Причина — три запуска `node` подряд в одном test-е. Чинит ticket 39 (worfy-throughput, #922): проверки аргументов
+  уходят in-process, остаётся один запуск, timeout не меняется.
+- 2026-10-28, причина timeout-ов Windows shard 3/3 найдена. Draft #923 (run 40752443457, закрыт) мерил запуск `-e 0`
+  каждые 5 s, пока шёл shard. В shard-е 3/3 Electron как Node (`process.execPath` под `pnpm test`) запускался
+  1,6 s по медиане, 6,7 s на p90 и до 26 s. `node.exe` за то же время не поднимался выше 0,4 s. В shard-ах 1/3 и 2/3
+  оба запускались меньше чем за 0,8 s. Чинят два PR-а:
+  - #924: отказы `test-timings.test.ts:154` проверяются в процессе, остался один запуск;
+  - #926: тесты запускают скрипты настоящим node через `test/script-node.ts`. Contract test
+    `test/contract/script-node.test.ts` закрепляет список тех, кто остаётся на `process.execPath`, с причинами, и
+    падает на новое чтение `process.execPath` в коде тестов;
+  - #937 (9787f176): test-ы `agent-cost` тоже переведены на `scriptNode()`, и файл ушёл из этого списка.
+  Timeout не менялся.
+  Долг (low, из review #926): сторож не считает `export { execPath } from 'node:process'`.
+- 2026-10-28, Windows e2e на runner-е, flaky — каждый по одному разу:
+  - первый полный run 40742646874 (head 68491cf9): `browser.spec.ts:279` и `linked-machines.spec.ts:783`;
+  - ранние triage run-ы: `trash-undo.spec.ts:115` и `controls.spec.ts:189`.
+  Правило — «3 FLAKY за неделю → ticket»; ни один test его не достиг, отдельного ticket-а нет. Run #921 (40749133614,
+  после переноса e2e-шага под pwsh) — 323 passed, flaky нет.
