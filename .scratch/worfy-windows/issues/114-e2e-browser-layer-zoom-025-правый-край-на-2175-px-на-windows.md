@@ -1,7 +1,8 @@
 # 114 — e2e `browser-layer` zoom 0.25 на Windows-ПК: правый край страницы на 2,175 px от края кадра при границе 1
 
 Type: task
-Status: claimed 2026-10-29T14:53Z
+Status: done 2026-10-29T15:00Z
+PR: #1003
 Branch: worfy-windows/114
 Blocked by: —
 Source: gate full ПК-Session на PR #848 (2026-10-27,
