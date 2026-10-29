@@ -1170,6 +1170,28 @@ check "ship-ticket: the touched tests on the PR, the whole suite on the push" \
 check "ship-ticket: points at the red main rule" \
     has_flat "$ST" 'no PR with code is merged: the fix goes forward for at most one hour, then the culprit PR is reverted — skill `/worfy:epic-wave`, section 4, "A red push run on the main branch".'
 
+# With `workflow.ci: "batch"` a PR has no CI run and the agent reads `mergeable` instead. GitHub
+# answers `UNKNOWN` right after a push or a neighbour's merge: every batch paragraph that names
+# `MERGEABLE` and `CONFLICTING` also names `UNKNOWN`, in the words of ship-ticket step 8.
+# para_of <file> <anchor> — the blank-line-separated paragraph holding the anchor, as one line.
+para_of() { awk -v RS= -v a="$2" 'index($0, a) {print; exit}' "$1" | tr '\n' ' ' | tr -s ' '; }
+UNKNOWN_WORDS='`UNKNOWN` — GitHub is still computing it, ask again in a minute'
+for spec in \
+    "ship-ticket step 8|$ST|**\`F workflow.ci\` is \`batch\`**" \
+    "implementer finish|$HARNESS/skills/ship-ticket/implementer-finish.md|With \`workflow.ci: \"batch\"\` GitHub CI does not run on a PR" \
+    "epic-wave verifier|$EW|the verifier skips this CI check" \
+    "overnight-fix-loop 1h|$HARNESS/skills/overnight-fix-loop/SKILL.md|GitHub CI does not run on a PR: skip \`gh pr checks\`"; do
+    label="${spec%%|*}"; rest="${spec#*|}"; file="${rest%%|*}"; anchor="${rest#*|}"
+    p="$(para_of "$file" "$anchor")"
+    check "batch mergeable, $label: the paragraph is found" test -n "$p"
+    for word in '`MERGEABLE`' '`CONFLICTING`' "$UNKNOWN_WORDS"; do
+        check "batch mergeable, $label: names $word" grep -qF -- "$word" <<<"$p"
+    done
+done
+check "batch mergeable, overnight-fix-loop: the command comment names UNKNOWN" \
+    grep -qF 'gh pr view <N> --json mergeable -q .mergeable   # batch: MERGEABLE — merge; CONFLICTING — as DIRTY; UNKNOWN — ask again in a minute' \
+    "$HARNESS/skills/overnight-fix-loop/SKILL.md"
+
 home_after="$(real_home_snapshot "$REAL_HOME" "$T")"
 check "the real ~/.claude and ~/.claude/worfy-harness are unchanged" test "$home_before" = "$home_after"
 
