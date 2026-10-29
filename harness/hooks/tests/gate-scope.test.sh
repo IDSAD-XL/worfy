@@ -291,6 +291,7 @@ EOF
 echo 'export const more = 1' >>"$U/packages/b/mod.ts"
 unreadable "a tab-separated plan" '["packages/b", "pkg-b", "check", "packages/b", ""].join("\t")'
 unreadable "a JSON plan whose scripts are one string" 'JSON.stringify({ dir: "packages/b", name: "pkg-b", scripts: "check" })'
+unreadable "a JSON plan whose workspace has no name" 'JSON.stringify({ dir: "packages/b", scripts: ["check"] })'
 
 echo
 echo "passed: $pass, failed: $fail"

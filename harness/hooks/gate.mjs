@@ -189,7 +189,9 @@ const readPlan = (text) => {
             .map((line) => line.replace(/\r$/, ""))
             .filter(Boolean)
             .map((line) => JSON.parse(line))
-        const valid = (p) => typeof p?.dir === "string" && Array.isArray(p.scripts) && list(p.scripts) && list(p.fingerprint) && list(p.addedFrom)
+        // A workspace runs as `--workspace <name>`, so only the root may have an empty name.
+        const named = (p) => typeof p.name === "string" && (p.name !== "" || p.dir === ".")
+        const valid = (p) => typeof p?.dir === "string" && named(p) && Array.isArray(p.scripts) && list(p.scripts) && list(p.fingerprint) && list(p.addedFrom)
         return plan.every(valid) ? plan : null
     } catch {
         return null
