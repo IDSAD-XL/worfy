@@ -1,0 +1,347 @@
+#!/usr/bin/env node
+// wave-brief <epic> [--land <state file>]… — a short summary of where an epic's waves stand: the first thing a
+// new orchestrator session reads (skill epic-wave, "How to resume a wave"), and what the orchestrator saves
+// at the end of a wave before it stops (section 5, "report, brief, stop"). Read-only: it writes no file, moves
+// no ticket and calls gh only to read.
+//
+// Run in a checkout of the project (the tickets are read there, as epic-status reads them). The sections:
+//   Epic       the Stage line of `epic-status <epic>` and the checkout's branch and commit
+//   Land       per state file of bin/land: its last `LAND=` line, then one line per PR (`#N <epic>/<NN> merged
+//              <sha>` or `… waits: <reason>`) and per documents PR. The state files are the --land arguments;
+//              without them, the `Land state:` lines of the newest saved brief of the epic that is not empty
+//              (see Journal: the save command's redirect creates the file empty before this script runs).
+//              None — "land has not run". A file that cannot be read — "not read"; one with the old field
+//              `scope`, which land refuses — "outdated".
+//   Waiting    the claimed and blocked tickets: state, `Waits:`, `Blocked reason:`, `PR:`; and the tickets
+//              that read `open` here but are in work elsewhere — in Full mode `ticket claim` writes the status
+//              on the ticket's branch, so the main branch still says `open`: an open PR of the ticket, or a
+//              branch <epic>/<NN>[-…] (local or of a remote), makes it "in work"
+//   Open PRs   the epic's open PRs (a branch <epic>/…, a ticket's `Branch:` line or `PR:` line): number,
+//              <epic>/<NN> (`?` for a branch of the epic no ticket matches), branch, head, labels, the commit
+//              statuses (`review`, `check/<name>`) and a count of the CI check runs. Not read with
+//              workflow.finish `local-green`; a gh that fails — one line saying so
+//   Next wave  the open tickets that are not in work and whose every blocker of `Blocked by:` is done
+//   Journal    the newest run folder of the epic, <HARNESS_HOME>/runs/<project>/<epic>-wave-<time>/ — the
+//              decision log of a wave without a human (decisions.tsv) and the saved brief (wave-brief.txt)
+// Each value is cut at MAX_TEXT characters, each list at MAX_LINES lines; when the whole brief is still over
+// MAX_BYTES, every list gets fewer lines until it fits, and a brief that does not fit even then is cut at a
+// line, with a last line saying so.
+//
+// Exit codes: 0 — printed (a section it could not read says so in its own line); 1 — no such epic, or
+// epic-status failed; 2 — bad arguments.
+//
+// Environment (tests): WAVE_BRIEF_GH — an executable used instead of `gh` (a `.mjs` file runs with this node).
+"use strict"
+const fs = require("fs")
+const path = require("path")
+const { spawnSync } = require("child_process")
+// The git to start and the Harness state folder, with the variables of an eval run.
+const { git: GIT, harnessHome } = require("../hooks/eval-env.cjs")
+
+const MAX_LINES = 25
+const MAX_TEXT = 160
+const MAX_BYTES = 11000
+const BIN = path.dirname(fs.realpathSync(__filename))
+
+const cut = (s, n = MAX_TEXT) => {
+    const t = String(s ?? "").replace(/\s+/g, " ").trim()
+    return [...t].length > n ? [...t].slice(0, n - 1).join("") + "…" : t
+}
+const short = (sha) => String(sha || "").slice(0, 8)
+const pad2 = (n) => String(n).padStart(2, "0")
+function run(file, args, opts = {}) {
+    const r = spawnSync(file, args, { encoding: "utf8", windowsHide: true, maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "pipe"], ...opts })
+    return { code: r.error ? 127 : (r.status ?? 1), out: r.stdout || "", err: r.error ? r.error.message : r.stderr || "" }
+}
+// A script next to this one, started with this node: Windows does not start an extensionless file by its #! line.
+const sibling = (name, args) => run(process.execPath, [path.join(BIN, name), ...args])
+const firstLine = (s) => String(s || "").trim().split("\n")[0]
+
+// --- arguments ---------------------------------------------------------------------------------
+const USAGE = "usage: wave-brief <epic> [--land <state file>]…"
+const argv = process.argv.slice(2)
+let epic = null
+const landArgs = []
+for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    if (a === "--land") {
+        if (!argv[i + 1]) {
+            process.stderr.write(`${USAGE}\n`)
+            process.exit(2)
+        }
+        landArgs.push(path.resolve(argv[++i]))
+    } else if (a === "-h" || a === "--help") {
+        process.stdout.write(`${USAGE}\n`)
+        process.exit(0)
+    } else if (a.startsWith("-") || epic !== null) {
+        process.stderr.write(`wave-brief: unexpected argument ${a}\n${USAGE}\n`)
+        process.exit(2)
+    } else epic = a
+}
+if (!epic) {
+    process.stderr.write(`${USAGE}\n`)
+    process.exit(2)
+}
+
+// --- the tickets ---------------------------------------------------------------------------------
+const js = sibling("epic-status", ["--json"])
+let model = null
+try {
+    model = js.code === 0 ? JSON.parse(js.out) : null
+} catch {
+    model = null
+}
+if (!model) {
+    process.stderr.write(`wave-brief: epic-status --json failed (exit ${js.code}): ${firstLine(js.err) || "no JSON"}\n`)
+    process.exit(1)
+}
+if (!model.epics.some((e) => e.epic === epic)) {
+    process.stderr.write(`wave-brief: no such epic: ${epic} (epics: ${model.epics.map((e) => e.epic).join(", ") || "none"})\n`)
+    process.exit(1)
+}
+const tickets = model.tickets.filter((t) => t.epic === epic)
+const stateOf = new Map(tickets.map((t) => [t.num, t.state]))
+const g = (args) => {
+    const r = run(GIT, args)
+    return r.code === 0 ? r.out.trim() : ""
+}
+// The ticket number of a branch <epic>/<NN> or <epic>/<NN>-<slug>; null for any other name.
+const prefix = `${epic}/`
+const numOfBranch = (name) => {
+    if (!name.startsWith(prefix)) return null
+    const m = /^(\d+)(?:-|$)/.exec(name.slice(prefix.length))
+    return m ? Number(m[1]) : null
+}
+
+// --- the run folders of the epic ----------------------------------------------------------------------
+const name = sibling("profile", ["--name"])
+const project = name.code === 0 ? name.out.trim() : ""
+let runFolders = []
+let runsDir = null
+if (project) {
+    runsDir = path.join(harnessHome(process.cwd()), "runs", project)
+    const re = new RegExp(`^${epic.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-wave-\\d{8}T\\d{6}Z$`)
+    try {
+        runFolders = fs
+            .readdirSync(runsDir)
+            .filter((d) => re.test(d))
+            .sort()
+            .map((d) => path.join(runsDir, d))
+    } catch {
+        runFolders = []
+    }
+}
+const newestRun = runFolders.length ? runFolders[runFolders.length - 1] : null
+// A brief with no bytes is skipped: `wave-brief … >"<run folder>/wave-brief.txt"` creates the file empty before
+// this script starts, and taking it would lose the state files the brief before it named.
+const nonEmpty = (f) => {
+    try {
+        return fs.statSync(f).size > 0
+    } catch {
+        return false
+    }
+}
+const savedBrief = [...runFolders].reverse().map((d) => path.join(d, "wave-brief.txt")).find(nonEmpty) || null
+
+// --- land: the state files -------------------------------------------------------------------------------
+let landFiles = landArgs
+if (!landFiles.length && savedBrief) {
+    landFiles = fs
+        .readFileSync(savedBrief, "utf8")
+        .split(/\r?\n/)
+        .filter((l) => l.startsWith("Land state: "))
+        .map((l) => l.slice("Land state: ".length).trim())
+        .filter(Boolean)
+}
+// One entry per state file: {file, head: [lines always shown], list: [one line per PR and documents PR]}.
+const lands = landFiles.map((f) => {
+    const head = [`Land state: ${f}`]
+    try {
+        const st = JSON.parse(fs.readFileSync(f, "utf8"))
+        if (!st || typeof st !== "object" || Array.isArray(st)) throw new Error("not a JSON object")
+        if ("scope" in st) head.push("  outdated: it has the old field `scope`, which land refuses — write a new state file (section 4)")
+        const runs = Array.isArray(st.runs) ? st.runs.filter((r) => r && typeof r === "object") : []
+        const last = runs[runs.length - 1]
+        head.push(last ? `  LAND=${last.land} at ${last.ended || last.started || "?"} (run ${runs.length})` : "  land has not run on this file yet")
+        const list = []
+        for (const p of Array.isArray(st.prs) ? st.prs : []) {
+            if (!p || typeof p !== "object") throw new Error("an entry of prs is not an object")
+            const who = p.epic && p.ticket ? ` ${p.epic}/${p.ticket}` : ""
+            const r = p.result
+            if (!r) list.push(`  #${p.number}${who} not tried`)
+            else if (r.status === "merged") list.push(`  #${p.number}${who} merged ${short(r.sha)}`)
+            else list.push(`  #${p.number}${who} waits (${r.kind || "waits"}): ${cut(r.reason)}`)
+        }
+        for (const d of Array.isArray(st.docs) ? st.docs : []) {
+            if (!d || typeof d !== "object") throw new Error("an entry of docs is not an object")
+            const covers = (Array.isArray(d.prs) ? d.prs : []).map((n) => `#${n}`).join(", ")
+            const r = d.result
+            const what = !d.pr ? "not opened" : !r ? "not tried" : r.status === "merged" ? `merged ${short(r.sha)}` : r.status === "empty" ? "nothing to commit" : `waits (${r.kind || "waits"}): ${cut(r.reason)}`
+            list.push(`  documents PR${d.pr ? ` #${d.pr}` : ""} for ${covers || "no PR"}: ${what}`)
+        }
+        return { head, list, tail: [`  log: ${f.replace(/\.json$/, "")}.log`] }
+    } catch (e) {
+        return { head: [...head.slice(0, 1), `  not read — ${cut(e.message)}`], list: [], tail: [] }
+    }
+})
+
+// --- open PRs: read once, before the tickets are sorted ---------------------------------------------------
+const fin = sibling("profile", ["--field", "workflow.finish"])
+const localGreen = fin.code === 0 && fin.out.trim() === "local-green"
+let prs = null
+let prError = null
+if (!localGreen) {
+    const over = process.env.WAVE_BRIEF_GH
+    const [ghFile, ghPre] = !over ? ["gh", []] : over.endsWith(".mjs") ? [process.execPath, [over]] : [over, []]
+    const fields = "number,title,headRefName,headRefOid,labels,statusCheckRollup"
+    const r = run(ghFile, [...ghPre, "pr", "list", "--state", "open", "--limit", "200", "--json", fields])
+    try {
+        prs = r.code === 0 ? JSON.parse(r.out) : null
+    } catch {
+        prs = null
+    }
+    if (!Array.isArray(prs)) {
+        prError = `gh exit ${r.code}: ${cut(firstLine(r.err) || "no JSON")}`
+        prs = null
+    }
+}
+const byBranch = new Map(tickets.filter((t) => t.branch).map((t) => [t.branch, t]))
+const byPr = new Map(tickets.filter((t) => t.pr).map((t) => [t.pr, t]))
+const ticketOf = (p) => {
+    if (byBranch.has(p.headRefName)) return byBranch.get(p.headRefName)
+    if (byPr.has(p.number)) return byPr.get(p.number)
+    const n = numOfBranch(String(p.headRefName || ""))
+    if (n === null) return String(p.headRefName || "").startsWith(prefix) ? { num: null } : null
+    return tickets.find((t) => t.num === n) || { num: null }
+}
+const mine = (prs || []).map((p) => [p, ticketOf(p)]).filter(([, t]) => t)
+const prOfTicket = new Map()
+for (const [p, t] of mine) if (t.num !== null && !prOfTicket.has(t.num)) prOfTicket.set(t.num, p.number)
+
+// The epic's branches, local and of every remote: a ticket that reads `open` with such a branch is in work.
+const branchOfTicket = new Map()
+for (const ref of g(["for-each-ref", "--format=%(refname)", "refs/heads/", "refs/remotes/"]).split("\n")) {
+    const m = /^refs\/(?:heads|remotes\/[^/]+)\/(.+)$/.exec(ref.trim())
+    if (!m) continue
+    const n = numOfBranch(m[1])
+    if (n !== null && !branchOfTicket.has(n)) branchOfTicket.set(n, m[1])
+}
+for (const t of tickets) if (t.branch && !branchOfTicket.has(t.num) && g(["rev-parse", "--verify", "-q", `refs/heads/${t.branch}`])) branchOfTicket.set(t.num, t.branch)
+const inWork = new Map()
+for (const t of tickets) {
+    if (t.state !== "open") continue
+    if (prOfTicket.has(t.num)) inWork.set(t.num, `PR #${prOfTicket.get(t.num)}`)
+    else if (branchOfTicket.has(t.num)) inWork.set(t.num, `branch ${branchOfTicket.get(t.num)}`)
+}
+
+// --- the lines that do not depend on the length of a list ---------------------------------------------------
+const branch = g(["rev-parse", "--abbrev-ref", "HEAD"]) || "no branch"
+const head = g(["log", "-1", "--format=%h %s"]) || "no commit"
+const stage = sibling("epic-status", [epic])
+
+const waiting = tickets.filter((t) => t.state === "work" || t.state === "blocked")
+const waitLines = [
+    ...waiting.map((t) => {
+        const parts = [`${pad2(t.num)} ${t.state === "work" ? "claimed" : "blocked"}`]
+        if (t.waits) parts.push(`waits: ${cut(t.waits, 40)}`)
+        if (t.blockedReason) parts.push(cut(t.blockedReason))
+        if (t.pr) parts.push(`PR #${t.pr}`)
+        return parts.join(" · ")
+    }),
+    ...tickets.filter((t) => inWork.has(t.num)).map((t) => `${pad2(t.num)} in work: ${inWork.get(t.num)} (open on ${branch})`),
+]
+const unread = tickets.filter((t) => t.state === "none")
+
+const prLines = mine.map(([p, t]) => {
+    const parts = [`#${p.number} ${epic}/${t.num !== null ? pad2(t.num) : "?"} · branch ${p.headRefName} @ ${short(p.headRefOid)}`]
+    const labels = (p.labels || []).map((l) => l && l.name).filter(Boolean)
+    if (labels.length) parts.push(`labels: ${labels.join(", ")}`)
+    const roll = Array.isArray(p.statusCheckRollup) ? p.statusCheckRollup.filter(Boolean) : []
+    const marks = roll.filter((c) => c.__typename === "StatusContext" || (c.context && !c.name)).map((c) => `${c.context}=${String(c.state || "").toLowerCase()}`)
+    parts.push(marks.length ? `marks: ${marks.join(" ")}` : "marks: none")
+    const checks = roll.filter((c) => c.__typename === "CheckRun" || (c.name && !c.context))
+    if (checks.length) {
+        const conc = (c) => String(c.conclusion || "").toUpperCase()
+        const failed = checks.filter((c) => ["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"].includes(conc(c)))
+        const pending = checks.filter((c) => String(c.status || "").toUpperCase() !== "COMPLETED")
+        let ci = `CI: ${checks.length - failed.length - pending.length} done, ${pending.length} pending, ${failed.length} failed`
+        if (failed.length) ci += ` (${cut(failed.map((c) => c.name).join(", "), 80)})`
+        parts.push(ci)
+    } else parts.push("CI: no check runs")
+    return parts.join(" · ")
+})
+
+const open = tickets.filter((t) => t.state === "open" && !inWork.has(t.num))
+// A blocker that is not a ticket of the epic does not hold a ticket back: epic-status counts it the same way.
+const ready = open.filter((t) => t.blockedParsed && t.blockedNums.every((n) => !stateOf.has(n) || stateOf.get(n) === "done"))
+const heldLines = open
+    .filter((t) => !ready.includes(t))
+    .map((t) =>
+        t.blockedParsed
+            ? `${pad2(t.num)} waits for ${t.blockedNums.filter((n) => stateOf.has(n) && stateOf.get(n) !== "done").map(pad2).join(" ")}`
+            : `${pad2(t.num)} Blocked by not read: ${cut(t.blockedRaw, 60)}`,
+    )
+const done = tickets.filter((t) => t.state === "done").length
+
+const journal = []
+if (!project) journal.push(`none: no project name (profile --name exit ${name.code})`)
+else if (!newestRun) journal.push(`none: no run folder of ${epic} in ${runsDir}`)
+else {
+    const log = path.join(newestRun, "decisions.tsv")
+    let rows = null
+    try {
+        rows = fs.readFileSync(log, "utf8").split(/\r?\n/).filter(Boolean).length - 1
+    } catch {
+        rows = null
+    }
+    journal.push(`run folder: ${newestRun}`)
+    journal.push(rows === null ? "decision log: none in it" : `decision log: ${log} (${rows} rows)`)
+}
+journal.push(savedBrief ? `saved brief: ${savedBrief}` : "saved brief: none")
+
+// --- the brief, with every list cut at `max` lines -------------------------------------------------------------
+function render(max) {
+    const capped = (lines) => (lines.length <= max ? lines : [...lines.slice(0, max), `  … and ${lines.length - max} more`])
+    const out = []
+    const say = (s = "") => out.push(s)
+    say(`# Wave brief: ${epic} · ${new Date().toISOString().replace(/\.\d+Z$/, "Z")}`)
+    say(`Stage: ${stage.code === 0 ? stage.out.trim() : `not read — epic-status exit ${stage.code}`}`)
+    say(`Checkout: ${branch} ${cut(head, 100)}`)
+    say("")
+    say("## Land")
+    if (!lands.length) say("land has not run: no state file given, none named in a saved brief")
+    for (const l of lands) for (const s of [...l.head, ...capped(l.list), ...l.tail]) say(s)
+    say("")
+    say("## Waiting")
+    if (!waitLines.length) say("none: no ticket is claimed, blocked or in work")
+    for (const l of capped(waitLines)) say(l)
+    if (unread.length) say(`without a readable Status: ${cut(unread.map((t) => pad2(t.num)).join(", "))}`)
+    say("")
+    say("## Open PRs")
+    if (localGreen) say("none read: workflow.finish is local-green, a ticket has no PR")
+    else if (prError) say(`not read — ${prError}`)
+    else if (!prLines.length) say("none")
+    for (const l of capped(prLines)) say(l)
+    say("")
+    say("## Next wave")
+    say(ready.length ? `ready (open, not in work, every blocker done): ${cut(ready.map((t) => pad2(t.num)).join(", "), 400)}` : "ready: none")
+    for (const l of capped(heldLines)) say(l)
+    say(`done ${done}/${tickets.length}`)
+    say("")
+    say("## Journal")
+    for (const l of journal) say(l)
+    return out.join("\n") + "\n"
+}
+let text = render(MAX_LINES)
+for (let max = MAX_LINES - 5; Buffer.byteLength(text) > MAX_BYTES && max >= 0; max -= 5) text = render(Math.max(max, 0))
+if (Buffer.byteLength(text) > MAX_BYTES) {
+    // Still too long with no list lines at all (many state files): cut at a line, and say so.
+    const lines = text.split("\n")
+    let kept = ""
+    for (const l of lines) {
+        if (Buffer.byteLength(kept + l + "\n") > MAX_BYTES - 200) break
+        kept += l + "\n"
+    }
+    text = kept + `… the brief is cut at ${MAX_BYTES} bytes: give fewer --land files\n`
+}
+process.stdout.write(text)
