@@ -12,11 +12,11 @@ H="$T/home" HH="$T/hh"
 BINREAL="$(cd "$BIN" && pwd -P)"
 BINOUT="$(printed "$BINREAL")" # the bin folder as profile prints it
 mkdir -p "$H/.claude/profiles" "$HH/projects" "$HH/gate" "$T/r"
-for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj langnum langarr langnull teamempty langblank teamnum docsempty phru phen; do git -C "$T/r" init -q -b main "$n"; done
+for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj langnum langarr langnull teamempty langblank teamnum docsempty phru phen srcs; do git -C "$T/r" init -q -b main "$n"; done
 {
     printf '{"repos":['
     sep=""
-    for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj langnum langarr langnull teamempty langblank teamnum docsempty phru phen; do printf '%s{"key":"%s","match":"%s","profile":"%s"}' "$sep" "$n" "$T/r/$n" "$n"; sep=","; done
+    for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj langnum langarr langnull teamempty langblank teamnum docsempty phru phen srcs; do printf '%s{"key":"%s","match":"%s","profile":"%s"}' "$sep" "$n" "$T/r/$n" "$n"; sep=","; done
     printf ']}\n'
 } >"$HH/gate/config.json"
 newp() { mkdir -p "$HH/projects/$1" && printf '%s\n' "$2" >"$HH/projects/$1/profile.json"; }
@@ -52,6 +52,10 @@ newp phen "{\"schema\":2,\"name\":\"phen\",\"mode\":\"full\",$PH_EN}"
 newp phru "{\"schema\":2,\"name\":\"phru\",\"mode\":\"full\",$PH_RU}"
 printf '# phru\n\n## Обязательное чтение исполнителя\n\n- docs/a.md\n\n## Ночной прогон и аудит\r\n\n- x\n\n## Ночной прогон и аудит (old)\n' >"$HH/projects/phru/rules.md"
 printf '# phru\n\n## Required reading for the implementer\n\n- docs/a.md\n\n## Overnight run and audit\r\n\n- x\n\n## Ночной прогон и аудит (old)\n' >"$HH/projects/phen/rules.md"
+# rules.md with a sources section in the middle under its English heading (CRLF line), another under the old
+# Russian heading at the end (Russian input on purpose); the sections after the first one stay.
+newp srcs '{"schema":2,"name":"srcs","mode":"full"}'
+printf '# srcs\n\n## Facts\n\n- keep me\n\n## Sources\r\n\n- facts: a.md:1\n\n## After\n\n- kept too\n\n## Источники\n\n- b.md:2\n' >"$HH/projects/srcs/rules.md"
 newp docsempty '{"schema":2,"name":"docsempty","mode":"full","language":{"reports":"","team":"ru","docs":""}}'
 # Silent mode: a Workflow folder given with ~/, a relative one (broken), and a
 # project of two repositories without workflow.folder (the folder above them).

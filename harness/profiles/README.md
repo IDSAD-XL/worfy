@@ -504,7 +504,9 @@ ticket and the brief, they are listed under a separate heading
 <!-- shortcut: accepts the old Russian token, remove after the next release -->
 At the end — a `## Sources` section (in the existing Russian profiles `## Источники`): where the
 facts come from (file and line), for whoever maintains the profile, so that on a mismatch it is
-clear what to check. It is not an instruction to the agent; `hooks/session-start.mjs` leaves it out.
+clear what to check. It is not an instruction to the agent: `profile` (the summary and `--rules`) and
+`hooks/session-start.mjs` leave it out, from its heading to the next `## ` heading. Whoever maintains the
+profile reads it in the file itself.
 
 ## New project
 

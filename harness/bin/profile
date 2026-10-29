@@ -491,7 +491,21 @@ const resolved = {
 englishPlaceholders(profile)
 const full = { ...profile, _resolved: resolved }
 const rulesPath = path.join(dir, "rules.md")
-const rules = fs.existsSync(rulesPath) ? englishHeadings(fs.readFileSync(rulesPath, "utf8")) : null
+// The `## Sources` section of rules.md is for whoever maintains the profile, not an instruction to the agent
+// (profiles/README.md, "rules.md"): left out from a heading that starts with the word to the next `## ` heading,
+// as hooks/session-start.mjs leaves it out.
+function withoutSources(text) {
+    let skip = false
+    return text
+        .split("\n")
+        .filter((line) => {
+            // shortcut: accepts the old Russian token, remove after the next release
+            if (line.startsWith("## ")) skip = /^## (Sources|Источники)/.test(line)
+            return !skip
+        })
+        .join("\n")
+}
+const rules = fs.existsSync(rulesPath) ? withoutSources(englishHeadings(fs.readFileSync(rulesPath, "utf8"))) : null
 
 // --- output -----------------------------------------------------------------------
 switch (mode) {
