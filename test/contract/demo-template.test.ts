@@ -8,7 +8,6 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { demoTemplate } from '../../src/main/getting-started/demo-template'
-import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 
@@ -95,13 +94,13 @@ describe('the tests of the Demo project', () => {
     expect(full.failed, full.output).toEqual(DONE_TESTS)
   })
 
-  quarantined('demo-template-reference-done')('with a reference done the whole suite passes', () => {
+  it('with a reference done the whole suite passes', () => {
     const reference = runScript(written(withDone(REFERENCE_DONE)).root, 'test')
     expect(reference.status, reference.output).toBe(0)
     expect(reference.failed).toEqual([])
   })
 
-  quarantined('demo-template-careless-done')('with a done that misses the already-done check exactly the edge-case test fails', () => {
+  it('with a done that misses the already-done check exactly the edge-case test fails', () => {
     expect(REFERENCE_DONE).toContain(ALREADY_DONE_CHECK)
     const careless = runScript(written(withDone(REFERENCE_DONE.replace(ALREADY_DONE_CHECK, ''))).root, 'test')
     expect(careless.status, careless.output).not.toBe(0)

@@ -35,7 +35,7 @@
 // of its file to import a slow module only hands that cost to the next test when it is skipped
 // (test/unit/canvas.test.tsx: with its first test skipped, the second one ran past 5 s on a loaded
 // Mac).
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { it as vitestIt, type TestFunction } from 'vitest'
 
@@ -155,6 +155,8 @@ export function isExpired(entry: QuarantineEntry, now: Date): boolean {
 
 /** The files of test/quarantine/ (or of `dir`), sorted by name. */
 export function readEntryFiles(dir: string): EntryFile[] {
+  // git keeps no empty folder: with the last entry gone, test/quarantine/ is gone too.
+  if (!existsSync(dir)) return []
   return readdirSync(dir)
     .filter((name) => name.endsWith('.json'))
     .sort()
