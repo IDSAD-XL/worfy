@@ -3,9 +3,10 @@
 //
 //   gate-resolve.mjs --which <path>          -> TSV: key \t repoRoot \t pm   (or empty)
 //   <changed paths, NUL-separated> | gate-resolve.mjs <repoPath> <profile> <key>
-//                                            -> TSV: wsdir \t packageName \t "script1 script2"
-//                                                    \t "fingerprint paths" \t "added from"
-//                                               ("." + an empty name = the repository root;
+//                                            -> one JSON object per line, one line per package:
+//                                               {"dir", "name", "scripts": [...],
+//                                                "fingerprint": [paths], "addedFrom": [dirs]}
+//                                               (dir "." and name "" = the repository root;
 //                                                the root has no last two fields)
 //                                               The scope also includes the workspaces that depend
 //                                               on the changed ones (transitively).
@@ -13,9 +14,9 @@
 //                                            -> the same, but all workspaces and the root, without
 //                                               regard to the list of changes
 //
-// The empty second field of the root is the reason a caller must split the line by tabs and
-// keep the empty fields: a shell `IFS=$'\t' read` takes tab for a whitespace separator, two in
-// a row collapse, and the script name slides into the package field.
+// The plan is JSON, not tab-separated fields: a workspace folder may hold a tab or a line break in
+// its name, and JSON keeps it whole (it escapes both), where a split by tabs and lines cut the folder
+// into a folder and a package name, or one plan line into two.
 
 import fs from "node:fs"
 import path from "node:path"
@@ -218,7 +219,7 @@ if (!ALL) {
 if (rootWanted.length && rootApplies) {
     const pkg = readPkg(path.join(repoPath, "package.json"))
     const scripts = rootWanted.filter((s) => pkg?.scripts?.[s])
-    if (scripts.length) console.log([".", "", scripts.join(" ")].join("\t"))
+    if (scripts.length) console.log(JSON.stringify({ dir: ".", name: "", scripts }))
 }
 
 for (const dir of [...hit].sort()) {
@@ -227,22 +228,26 @@ for (const dir of [...hit].sort()) {
     // A targeted relaxation: a workspace that has its own set of scripts in this profile.
     const wanted = pick(rc.workspace_overrides?.[dir]) || wsWanted
     const scripts = (wanted.length ? wanted : wsWanted).filter((s) => pkg.scripts?.[s])
-    // The fourth field is the paths for the cache fingerprint: the package itself and all its workspace
+    // `fingerprint` is the paths for the cache fingerprint: the package itself and all its workspace
     // dependencies. Otherwise an uncommitted edit in shared did not change the fingerprint of
-    // demo-bot, and the cache handed out a stale «green». The fifth is what the package was added
+    // demo-bot, and the cache handed out a stale «green». `addedFrom` is what the package was added
     // from as a dependent (empty if it changed itself).
-    const fpScope = [dir, ...[...closure(dir)].sort()].join(" ")
-    const from = (addedFrom.get(dir) || []).join(",")
-    if (scripts.length) console.log([dir, pkg.name, scripts.join(" "), fpScope, from].join("\t"))
+    const fingerprint = [dir, ...[...closure(dir)].sort()]
+    const from = addedFrom.get(dir) || []
+    if (scripts.length) console.log(JSON.stringify({ dir, name: String(pkg.name), scripts, fingerprint, addedFrom: from }))
 }
 
 // The root scripts cover the whole repository, so a file that belongs to no workspace is a problem
 // only where there are no root scripts at all. Filtering by root_if is a deliberate
 // decision (the linter does not need documents), and there is no reason to complain about it.
+// Each path goes in quotes, escaped as JSON: a tab or a line break in it stays on the one line.
 if (uncovered.length && !rootWanted.length) {
     process.stderr.write(
         `[gate] ${key}: changes outside workspaces and with no root scripts: ${uncovered.length} — ` +
-            uncovered.slice(0, 5).join(", ") +
+            uncovered
+                .slice(0, 5)
+                .map((file) => JSON.stringify(file))
+                .join(", ") +
             (uncovered.length > 5 ? ", ..." : "") +
             "\n"
     )

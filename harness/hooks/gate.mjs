@@ -179,6 +179,25 @@ const GIT_OUTPUT_MAX = 1024 ** 3
 const say = (text) => process.stdout.write(`${text}\n`)
 const complain = (text) => process.stderr.write(`${text}\n`)
 const lines = (text) => (text ? text.split("\n") : [])
+// The plan of gate-resolve.mjs: one JSON object per line, one line per package — its folder (`dir`),
+// its name, its scripts, the paths of its fingerprint and what it was added from. null when a line is
+// not such an object: a plan the gate cannot read must not pass for a short one.
+const readPlan = (text) => {
+    const list = (value) => value === undefined || (Array.isArray(value) && value.every((item) => typeof item === "string"))
+    try {
+        const plan = lines(text)
+            .map((line) => line.replace(/\r$/, ""))
+            .filter(Boolean)
+            .map((line) => JSON.parse(line))
+        const valid = (p) => typeof p?.dir === "string" && Array.isArray(p.scripts) && list(p.scripts) && list(p.fingerprint) && list(p.addedFrom)
+        return plan.every(valid) ? plan : null
+    } catch {
+        return null
+    }
+}
+// A folder as the gate's lines name it: as it is, or in quotes, escaped as JSON, when it holds a
+// control character (a tab, a line break) that would break the line or hide in it.
+const shown = (dir) => ([...dir].some((c) => c < " " || c === "\x7f") ? JSON.stringify(dir) : dir)
 const sha1 = (data) => crypto.createHash("sha1").update(data).digest("hex")
 const utcNow = () => new Date().toISOString().replace(/\.\d+Z$/, "Z")
 
@@ -908,11 +927,13 @@ async function main() {
         windowsHide: true,
     })
     await stopIfTold(outsideSignal(planned))
-    if (planned.status !== 0) {
+    const plan = planned.status === 0 ? readPlan(planned.stdout) : null
+    if (!plan) {
         // A crashed resolver would give an empty plan, and an empty plan reads as "nothing
-        // touched". That is not so: verification failed. The red marker is left alone.
-        const ended = howEnded(planned)
-        const byCode = !planned.signal && !tooMuchOutput(planned)
+        // touched". That is not so: verification failed. The red marker is left alone. A plan the
+        // gate cannot read (an older resolver's tab-separated lines) is the same: nothing is known.
+        const ended = planned.status === 0 ? "printed a plan the gate cannot read" : howEnded(planned)
+        const byCode = planned.status !== 0 && !planned.signal && !tooMuchOutput(planned)
         await settle(3)
         writeMarker(unverifiedMarker, `Profile ${PROFILE}, repository ${KEY}. Could not verify: the plan resolver ${ended}.\n`)
         writeVerdict("unverified", 3, `the plan resolver gate-resolve.mjs ${ended}`)
@@ -923,18 +944,12 @@ async function main() {
         )
         return 3
     }
-    // One line per package: its folder, its name, the scripts, the paths of the fingerprint and
-    // what it was added from. Empty fields stay in their places.
-    const plan = lines(planned.stdout)
-        .map((line) => line.replace(/\r$/, ""))
-        .filter(Boolean)
-        .map((line) => line.split("\t"))
 
     // The scope is always printed: it shows whether the gate narrowed and why.
-    const planDirs = plan.map(([dir]) => ` ${dir}`).join("") || " none"
+    const planDirs = plan.map(({ dir }) => ` ${shown(dir)}`).join("") || " none"
     const planAdded = plan
-        .filter((fields) => fields[4])
-        .map((fields) => `${fields[0]} (from ${fields[4].replaceAll(",", ", ")})`)
+        .filter(({ addedFrom }) => addedFrom?.length)
+        .map(({ dir, addedFrom }) => `${shown(dir)} (from ${addedFrom.map(shown).join(", ")})`)
         .join(", ")
     if (scopeWhy) {
         say("[gate] scope (" + PROFILE + `): all packages —${planDirs} (reason: ${scopeWhy})`)
@@ -962,9 +977,10 @@ async function main() {
     const failures = [] // [label, log file name] of each script that failed; the output is in `logs`
     const logDir = runLogDir(STATE, tag) // named by the time the scripts start, written at the end
     const greens = [] // [cache file, fingerprint] of each package whose scripts all passed
-    for (const [wsdir, pkgname = "", scriptList = "", fpscope = ""] of plan) {
-        const scripts = scriptList.split(" ").filter(Boolean)
+    for (const { dir: wsdir, name: pkgname = "", scripts, fingerprint: fpscope = [] } of plan) {
         if (!scripts.length) continue
+        const scriptList = scripts.join(" ")
+        const where = `${KEY}/${shown(wsdir)}` // the package in the labels of its scripts
 
         // The key includes the set of scripts too: the profile was widened — the old green does not count.
         // The key, the folder and the profile come from the registry, the workspace list and the
@@ -973,7 +989,7 @@ async function main() {
         // folders that give the same name.
         const cacheName = [KEY, tag, wsdir, PROFILE].map(fileNamePart).join("__")
         const cacheFile = path.join(CACHE, `${cacheName}__${sha1(`${wsdir}\n${scriptList}`).slice(0, 8)}`)
-        const fp = fingerprint((fpscope || wsdir).split(" ").filter(Boolean))
+        const fp = fingerprint(fpscope.length ? fpscope : [wsdir])
         // Before the cache answers and before a script starts: a gate that was told to stop
         // starts nothing.
         await stopIfTold()
@@ -984,15 +1000,15 @@ async function main() {
         if (fp && green === fp) {
             // Unchanged since it turned green. Only green is cached:
             // red is always run again, so that a flaky test does not stick.
-            for (const script of scripts) cached += ` ${KEY}/${wsdir}:${script}`
-            cachedSteps.push(...cachedTimes(`${cacheFile}.time`, fp, scripts.map((script) => `${KEY}/${wsdir}:${script}`)))
+            for (const script of scripts) cached += ` ${where}:${script}`
+            cachedSteps.push(...cachedTimes(`${cacheFile}.time`, fp, scripts.map((script) => `${where}:${script}`)))
             continue
         }
 
         let wsOk = true
         const wsSteps = [] // this package's steps, for the record of its cache entry
         for (const script of scripts) {
-            const label = `${KEY}/${wsdir}:${script}`
+            const label = `${where}:${script}`
             const startedAt = performance.now()
             const { rc, out, refused, signal } = await runScript(pkgname, script)
             const step = { step: label, package: wsdir, script, ms: Math.round(performance.now() - startedAt), exit: rc }
