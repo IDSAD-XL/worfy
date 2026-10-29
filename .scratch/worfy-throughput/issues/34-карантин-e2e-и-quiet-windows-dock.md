@@ -1,7 +1,8 @@
 # 34 — Карантин e2e-spec-ов и flaky проверка Dock в `quiet-windows.spec.ts`
 
 Type: task
-Status: claimed 2026-10-29T08:49Z
+Status: done 2026-10-29T12:31Z
+PR: #985
 Branch: worfy-throughput/34-quarantine
 Blocked by: 20
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», решения 2 и 3; gate full на Mac
@@ -37,7 +38,7 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - [x] `test/unit/quarantine.test.ts` (Ticket 20) проверяет и e2e-записи; exit 0.
 - [x] e2e-spec в карантине пропускается с пометкой; `WORFY_QUARANTINE=only pnpm test:e2e` гоняет только его.
 - [x] `quiet-windows.spec.ts` — 10 повторов под нагрузкой зелёные, или запись карантина с причиной в «Итог».
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; условие merge `ci-ok` (Ticket 35; до него — gate full на Mac) и вердикт Windows `pc` (gate full на
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; условие merge `ci-ok` (Ticket 35; до него — gate full на Mac) и вердикт Windows `pc` (gate full на
       ПК) — перед merge.
 
 ## Где в коде
@@ -59,3 +60,6 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
   - Карантин не нужен: причины найдены.
   - ПК: `pnpm test:e2e test/e2e/quiet-windows.spec.ts:72 --retries=0 --repeat-each=10` до правки — 10 passed, и под полной загрузкой CPU (16 потоков busy loop) — 10 passed. На Windows не воспроизводится: красный был на macOS. После правки весь spec ×10 под той же загрузкой — exit 0, 40 passed. Проверка Dock идёт только на macOS — нужен прогон Mac-а.
 - Шаг 3, `epic-frame-undo.spec.ts:125` и `projects-connect.spec.ts:217`: флейков сейчас нет. В 206 job-ах windows-e2e с #921 (и 12 job-ах probe #963) у них ни одной строки FLAKY и ни одного красного. ПК: оба ×10 без нагрузки — 20 passed, ×10 под загрузкой — 20 passed. В карантин не перенесены.
+
+Влит #985 (`b5e5f827`): `ci-ok` success, `macos-e2e` 1/1 (проверка Dock на macOS), `check/windows` по gate full на ПК;
+ревью bridge (11 строк spec-а).
