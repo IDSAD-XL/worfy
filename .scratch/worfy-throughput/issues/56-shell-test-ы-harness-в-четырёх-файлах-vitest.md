@@ -138,3 +138,18 @@ average 9–15 во время всех run-ов: на Mac работали др
 - Устаревшие ссылки на удалённый `test/contract/harness-scripts.test.ts`: `harness/README.md`,
   `harness/bin/tests/wave-gate.test.sh`, `harness/hooks/tests/gate-verdict-world.sh`, `docs/lessons/README.md`.
   Скрипта, который читает это имя, нет (`git grep` по `harness/`, `scripts/`, `*.json`, `*.mjs`, `*.yml`).
+
+### Второй run (40946353000) и исправление
+
+- `windows (harness-scripts 1/2)` и `2/2` теперь гоняют четыре файла (4–5 min) и краснеют на одном case-е: проверка
+  имён файлов ждала `\nharnessScripts(1)\n`, а runner Windows делает checkout с CRLF. Исправление: CRLF → LF перед
+  сравнением; с файлом в CRLF case локально зелёный.
+- `linux-tests (2/4)`: `beforeAll` в `test/unit/affected-tests.test.ts` (разбор всех test-файлов TypeScript-парсером,
+  ~0,7 s CPU) не уложился в 10 s; файл шёл 58,6 s против 30–47 s в run-ах `main`. В этом shard-е вместе шли
+  `harness-scripts-1` и `-2` — десять shell test-ов сразу на runner-е с 4 CPU; на `main` в shard-е был один файл,
+  пять сразу. Этот же `beforeAll` уже в карантине на macOS как падающий под нагрузкой. Время самих shell test-ов
+  не выросло, но нагрузка на соседей выросла, а `macos-tests` на push в `main` гонял бы все четыре файла в одном job-е.
+- Решение: в `linux-tests` и `macos-tests` — `HARNESS_SCRIPTS_PART: 1/1`. Файл 1 гоняет все shell test-ы по пять
+  сразу, файлы 2–4 — ни одного: на CI Linux и macOS нагрузка как до деления (локально `HARNESS_SCRIPTS_PART=1/1`:
+  файл 1 — 72 case-а, как один файл на `main`, файлы 2–4 — по одному case-у). Деление на четыре файла остаётся
+  для локальных run-ов (Mac, ПК). Timeout-ы не менялись.

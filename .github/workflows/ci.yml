@@ -191,11 +191,17 @@ jobs:
       # `pnpm test --shard=<shard> --sequence.shuffle.files --sequence.seed=<seed>` repeats the order.
       # The listed files reach vitest through WORFY_TEST_FILES (scripts/vitest-electron.mjs), and
       # --shard splits them; no list (all, or no pull request) is the whole suite.
+      # HARNESS_SCRIPTS_PART 1/1: test/contract/harness-scripts-1.test.ts runs every Harness shell test,
+      # five at a time, and the other three files run none, as the one file did before. Split across
+      # the four files, two of them shared a shard and ran ten shell tests at once on this 4-CPU
+      # runner, and the beforeAll of affected-tests.test.ts in that shard ran past its 10 s limit
+      # (run 40946353000, linux-tests (2/4)).
       - name: Run unit and contract tests, one shard
         if: steps.tests.outputs.run != 'none'
         env:
           SHARD: ${{ matrix.shard }}
           WORFY_TEST_FILES: ${{ steps.tests.outputs.files }}
+          HARNESS_SCRIPTS_PART: 1/1
         run: pnpm test "--shard=$SHARD" --sequence.shuffle.files
       # Tests must leave the source tree as they found it: no probe or other temporary file in src/.
       - name: src/ is unchanged after the tests
@@ -226,10 +232,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # A pull request hands the macOS-only test files, a push to main and a run by hand nothing:
       # every file. scripts/ci-scope.mjs names only plain test file names, one word each, so the
-      # shell splits the list on its spaces.
+      # shell splits the list on its spaces. HARNESS_SCRIPTS_PART 1/1, as in linux-tests: one file runs
+      # every Harness shell test, five at a time, so the whole suite on this runner never runs more.
       - name: Run unit and contract tests
         env:
           FILES: ${{ needs.changes.outputs.macos-tests-files }}
+          HARNESS_SCRIPTS_PART: 1/1
         run: pnpm test $FILES
 
   macos-e2e:

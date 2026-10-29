@@ -327,7 +327,8 @@ export function harnessScripts(file: number): void {
         const found = readdirSync(join(REPO, 'test', 'contract')).filter((name) => /^harness-scripts.*\.test\.ts$/.test(name))
         expect(found.map((name) => `test/contract/${name}`).sort()).toEqual([...HARNESS_SCRIPTS_FILES].sort())
         HARNESS_SCRIPTS_FILES.forEach((path, at) => {
-          expect(readFileSync(join(REPO, path), 'utf8'), path).toContain(`\nharnessScripts(${at + 1})\n`)
+          // The Windows runner checks the files out with CRLF line ends (run 40946353000).
+          expect(readFileSync(join(REPO, path), 'utf8').replaceAll('\r\n', '\n'), path).toContain(`\nharnessScripts(${at + 1})\n`)
         })
       })
 

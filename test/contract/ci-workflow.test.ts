@@ -165,6 +165,10 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     // The test files ci-scope.mjs names, none (every file) but on a pull request.
     expect(runs('macos-tests')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test $FILES'])
     expect(job('macos-tests')).toContain('          FILES: ${{ needs.changes.outputs.macos-tests-files }}')
+    // On Linux and macOS one harness-scripts file runs every shell test, five at a time, as the one
+    // file did before the split: two files in one job ran ten at once (run 40946353000).
+    expect(job('macos-tests')).toContain('          HARNESS_SCRIPTS_PART: 1/1')
+    expect(job('linux-tests')).toContain('          HARNESS_SCRIPTS_PART: 1/1')
     // The shard's spec files come from scripts/e2e-shard.mjs (split by measured time), not --shard.
     expect(runs('macos-e2e')).toEqual([
       'pnpm install --frozen-lockfile',
@@ -503,6 +507,7 @@ describe('ci.yml and windows-tests.yml: a pull request runs the test files its d
       'env:',
       'SHARD: ${{ matrix.shard }}',
       'WORFY_TEST_FILES: ${{ steps.tests.outputs.files }}',
+      'HARNESS_SCRIPTS_PART: 1/1',
       'run: pnpm test "--shard=$SHARD" --sequence.shuffle.files',
     ])
     const order = ['- run: pnpm install --frozen-lockfile', `- name: ${PICK}`, '- name: Run unit and contract tests, one shard'].map((line) => lines.findIndex((l) => l.trim() === line))
