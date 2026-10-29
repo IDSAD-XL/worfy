@@ -1,7 +1,8 @@
 # 55 — Flaky test-ы в CI: shell test-ы Harness, `claude-home-registry` и `install-stable-functions`
 
 Type: task
-Status: claimed 2026-10-29T13:21Z
+Status: done 2026-10-29T15:15Z
+PR: #996
 Blocked by: —
 Source: правило владельца — 3 строки FLAKY за неделю у одного test-а дают Ticket; обход 633 логов job-ов CI с
 2026-10-28T20:21Z (Orchestrator, таблицы `flaky-sweep.tsv` и `flaky-sweep-harness.tsv`); CI повторяет упавший
@@ -181,3 +182,12 @@ Mutant-ы `src/main/claude-home/registry.ts`, по одному; файл вос
 - gate fast: `node ~/.claude/worfy-harness/plugin/hooks/gate.mjs fast </dev/null` — exit 0,
   `[gate] green (fast): worfy/.:lint worfy/.:typecheck worfy/.:test`.
 - `node scripts/windows-verdict-scope.mjs $(git merge-base origin/main HEAD) HEAD` — `runner`, exit 0.
+
+### После merge
+
+- Merge #996 — `414b80b1`.
+- Ещё один flaky test этого Ticket-а ушёл в карантин отдельным PR #998 (`510223c8`): `quiet-windows.spec.ts:74`
+  (запись `test/quarantine/quiet-windows-later-window-quiet.json`, только darwin, owner worfy-throughput 55, до 2026-11-12).
+  Причина пока найдена наполовину: test зависает в своём `app.evaluate` на пути второго экземпляра. Тот же красный был
+  на push-run-е main 40864889606 (job 123417104155, `cf64639c`) ещё до #985. Причину ищет следующий Ticket,
+  который возьмёт эту запись до её срока.
