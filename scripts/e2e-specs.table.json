@@ -132,6 +132,20 @@
         "test/e2e/settings.spec.ts"
       ],
       "why": "The preset of a plan (worfy-throughput ticket 42): only Settings → Plan reads it (planPreset.read) and writes it (planPreset.apply), and settings.spec.ts is the spec that opens that section. Every other spec loads src/main/ipc/plan-preset.ts with the IPC handlers, which only subscribes the plan to the Sessions and to will-quit; a module that failed to load would fail settings.spec.ts too, which launches the app."
+    },
+    {
+      "paths": [
+        "src/main/first-run/actions.ts",
+        "src/main/first-run/checks.ts"
+      ],
+      "specs": [
+        "test/e2e/first-run.spec.ts",
+        "test/e2e/harness-migrate.spec.ts",
+        "test/e2e/projects-connect.spec.ts",
+        "test/e2e/settings-health.spec.ts",
+        "test/e2e/settings.spec.ts"
+      ],
+      "why": "The checks and actions of the first-run screen (worfy-throughput ticket 58). Only src/main/ipc/first-run.ts imports them (and actions.ts imports checks.ts); their code runs through four doors: firstRun.startup when WORFY_FIRST_RUN_AUTO is not 0 (launch-env.ts sets 0 for every launch; first-run.spec.ts and harness-migrate.spec.ts set 1), firstRun.checks and firstRun.run from the first-run screen (the palette's \"First-run checks\": first-run.spec.ts, settings-health.spec.ts; the button \"First-run checks…\" of Connect Project: projects-connect.spec.ts) or from Settings → Health (settings-health.spec.ts), and askAccount through askSignedInAccount, which Settings → Plan asks (planPreset.read and apply, settings.spec.ts). Settings opens on General and shows one section at a time. Left out: src/main/ipc/first-run.ts, whose firstRun.startup every launch calls (it returns at once with WORFY_FIRST_RUN_AUTO=0)."
     }
   ]
 }
