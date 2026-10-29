@@ -1,7 +1,8 @@
 # 47 — Медленные Harness test-ы в shard-е 3/3 Windows: короткие timeout-ы в guard-silent, тела bash и zsh в heartbeat параллельно
 
 Type: task
-Status: claimed 2026-10-29T01:12Z
+Status: done 2026-10-29T02:37Z
+PR: #942
 Branch: worfy-throughput/47
 Blocked by: 35
 Source: договорённость моста и Orchestrator-а 2026-10-29: находка Ticket-а 15 вне его скоупа (out_of_scope), замер по
@@ -148,3 +149,15 @@ guard-silent: 13 s фиксированных ожиданий из 46 s. Ско
 - Отдельно под временным HOME: `wave-gate-lock-killed`, `wave-gate-lock`, `wave-gate-merge`, `wave-gate-screen`,
   `wave-gate` — exit 0 каждый. Других `guard-*.test.sh`, кроме guard-silent, в `harness/hooks/tests/` нет.
 - `pnpm lint`, `pnpm typecheck`, gate fast — exit 0.
+
+### CI после merge
+
+PR run 40805903962, head `fd2a8c73`: `windows (3/3) / full-suite` — 825 s, а не меньше 480–490 s. Причина не в #942:
+у shard-а 3/3 с 2026-10-28 две скорости — 436–528 s и 704–825 s, при том же списке файлов (run-ы 40770425114, 482 s,
+и 40774924657, 782 s, оба push в `main` до #933). В медленном run-е каждый файл shard-а идёт в 1,3–2 раза дольше, с
+первой секунды. Вероятно, это более медленный runner, но лог не печатает модель CPU, так что это не доказано. Базовый
+run этого Ticket-а (40788089367, 492 s) был быстрым.
+
+На Windows в этом run-е: `guard-silent.test.sh` — 141 s (149 s в медленном run-е до #942), `wave-gate-heartbeat.test.sh` —
+54 s в обоих (на Windows идёт только тело bash). Эффект на Windows считать по нескольким run-ам `main` одной скорости.
+Что делать с самим shard-ом 3/3 — в Ticket-е 49.
