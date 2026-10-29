@@ -17,8 +17,9 @@ Ticket [03](03-implementer-гоняет-только-свои-e2e.md) (done, PR 
   `launchApp` → `_electron.launch`, `test/e2e/helpers.ts:275`, кроме `linked-autopilot.spec.ts`) и
   `test:package` (собранный `.app`) на каждом PR с кодом или на наборе Wave. Playwright идёт в один
   поток: `workers: 1`, `fullyParallel: false` (`playwright.config.ts`).
-- Ticket 03 записал правило implementer-а: e2e — только файлы, которые трогает Ticket; весь `test:e2e` —
-  в gate full Orchestrator-а перед merge (`harness/agents/implementer.md:200-207`).
+- Ticket 03 записал правило implementer-а: e2e — только файлы, которые трогает Ticket
+  (`harness/agents/implementer.md:200-207`). После #953 PR гоняет e2e spec-и, которые даёт таблица путей,
+  push в `main` — весь `test:e2e`.
 - Пути, от которых зависит e2e: renderer — `src/renderer/`, `src/preload/`; main process — `src/main/`;
   упаковка — `electron-builder.yml`, `electron.vite.config.ts`, `build/`; watcher-ы —
   `src/main/workflow/watch.ts`, `src/main/link-safe-watch.ts`, `src/main/chokidar-close.ts`,
@@ -57,22 +58,21 @@ run на push в `main`. Точку передачи выбрать при claim
 
 ## Готово, когда
 
-- [ ] `profile` читает и проверяет поле списка путей; неверный тип — exit 1 с причиной;
-      `harness/bin/tests/profile.test.sh` это проверяет.
-      Не проверено: поля Profile-а нет — PR #953 сузил e2e в CI (`scripts/e2e-specs.table.json`), поле
-      Profile-а осталось открытым (раздел «Итог», «Открыто»).
-- [ ] На временном репозитории: diff в файле из таблицы — шаг перед merge гоняет только его spec-и; diff в
-      `src/renderer/` вне таблицы — весь `test:e2e`; diff только в `src/shared/` без связи с e2e — e2e нет;
-      shell test это проверяет. `playwright.config.ts` в diff PR-а нет.
-      Не проверено: shell test-а на временном репозитории нет. Те же случаи проверяет contract test
+- [x] ~~`profile` читает и проверяет поле списка путей; неверный тип — exit 1 с причиной;
+      `harness/bin/tests/profile.test.sh` это проверяет.~~ Заменено решением владельца 2026-10-29 (Q1):
+      Ticket 13 — только CI, таблица путей — `scripts/e2e-specs.table.json`; поле Profile-а вне Ticket-а.
+- [x] На временном репозитории: diff в файле из таблицы — шаг перед merge гоняет только его spec-и; diff в
+      `src/renderer/` вне таблицы — весь `test:e2e`; ~~diff только в `src/shared/` без связи с e2e — e2e нет~~;
+      ~~shell test это проверяет~~. `playwright.config.ts` в diff PR-а нет.
+      Заменено решением владельца 2026-10-29 (Q1): вместо shell test-а на временном репозитории — contract test
       `test/contract/ci-scope-e2e.test.ts`: путь из таблицы — его spec-и (`:61`), путь `src/` вне таблицы — весь
-      `test:e2e` (`:76-92`), diff без пути приложения — e2e нет (`:407`). `src/shared/` по решению Orchestrator-а
-      входит в приложение и правила в таблице не имеет, то есть даёт весь `test:e2e`, а не «e2e нет».
+      `test:e2e` (`:76-92`), diff без пути приложения — e2e нет (`:407`). Пункт «diff только в `src/shared/` —
+      e2e нет» заменён (Q1): путь приложения вне таблицы гоняет весь набор (`:394-395`, случай `src/shared/x.ts`).
       `playwright.config.ts` в diff #953 нет — проверено (`git diff --name-only 87b87f6a~1 87b87f6a`).
-- [ ] Текст implementer-а и skill-ов говорит новое правило; `harness/bin/tests/agents-text.test.sh`
-      проверяет фразу; правило Ticket-а 03 о своих e2e-файлах на месте.
-      Не проверено: тексты Harness в #953 не менялись; правило 03 на месте (`harness/agents/implementer.md:200-207`),
-      новой фразы и её проверки нет.
+- [x] ~~Текст implementer-а и skill-ов говорит новое правило; `harness/bin/tests/agents-text.test.sh`
+      проверяет фразу; правило Ticket-а 03 о своих e2e-файлах на месте.~~ Заменено решением владельца
+      2026-10-29 (Q1): Ticket 13 — только CI, тексты Harness вне Ticket-а. Правило 03 о своих e2e-файлах на месте
+      (`harness/agents/implementer.md:200-207`).
 - [x] ~~Ночной run на `main` запущен хотя бы один раз; ссылка или лог и код выхода — в «Итог».~~ Снято решением
       владельца 2026-10-29: весь `test:e2e` гоняет каждый push в `main`.
 - [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; shell test-ы Harness — exit 0; вердикт
@@ -220,7 +220,12 @@ run на push в `main`. Точку передачи выбрать при claim
   spec, ни его код.
 - **Номера строк сверены 2026-10-29 по `main` 87b87f6a:** `test/e2e/helpers.ts:275` (было `:146`),
   `harness/agents/implementer.md:200-207` (было `:174-179`), `docs/lessons/agents.md:95-102` (было `:95-101`).
-- **Открыто (вне этого PR):**
-  - тексты Harness: правило 03 в `implementer.md`, формулировка gate full;
-  - поле Profile-а со списком путей;
-  - `test:package` по путям.
+- **Что было открыто вне #953:**
+  - тексты Harness (правило 03 в `implementer.md`, формулировка gate full) и поле Profile-а со списком путей —
+    сняты решением владельца 2026-10-29 (Q1): Ticket 13 — только CI;
+  - `test:package` по путям — сделано: `macos-package` на PR идёт, только когда diff трогает входы сборки
+    (`scripts/ci-scope.mjs:61-70`, `:319`); push в `main` упаковывает всегда.
+- **Долг:** `shards()` в `test/contract/ci-workflow.test.ts:76` слишком строгий — низкая находка ревью Ticket-а 49
+  (`49-…md:139`, там `:77`), переданная сюда. В #953 не сделано: PR менял выбор e2e spec-ов, а `shards()`
+  проверяет только статичные matrix job-ов `linux-tests` и `windows` (`:204-209`), которых #953 не трогал;
+  e2e job-ы берут shard-ы из output-ов `ci-scope.mjs`, и `shards()` их не читает.
