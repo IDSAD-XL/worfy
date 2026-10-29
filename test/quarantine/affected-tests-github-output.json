@@ -1,0 +1,12 @@
+{
+  "runner": "vitest",
+  "file": "test/unit/affected-tests.test.ts",
+  "test": "affected-tests.mjs on the diff > appends run and files to $GITHUB_OUTPUT with --github-output, for the test jobs of CI",
+  "platforms": [
+    "darwin"
+  ],
+  "reason": "The test starts scripts/affected-tests.mjs four times, each a fresh Node process, three of which import vitest/node and build the module graph of a temporary git repository, and makes three git branches: about 1.4 s on an idle Mac. On this Mac under load average 16-30, in gate fast, it hit its 5 s test timeout twice, in the runs of two different agents (test/unit/affected-tests.test.ts:354); alone the file passes (37/37). The time is the spawned processes the test exists to check; timeouts are not raised one by one.",
+  "owner": "worfy-polish 41",
+  "since": "2026-10-29",
+  "until": "2026-11-12"
+}
