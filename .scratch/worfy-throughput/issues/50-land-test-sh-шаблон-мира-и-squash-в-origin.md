@@ -1,7 +1,8 @@
 # 50 — `land.test.sh` быстрее: мир из шаблона, squash stub-а gh прямо в origin
 
 Type: task
-Status: claimed 2026-10-29T05:00Z
+Status: done 2026-10-29T06:10Z
+PR: #955
 Branch: worfy-throughput/50
 Blocked by: 35
 Source: бриф моста 2026-10-29: `harness/bin/tests/land.test.sh` — один из самых долгих файлов
@@ -48,7 +49,7 @@ rev-parse во временной папке.
 - [x] Время на ПК до и после: три run-а, медиана.
 - [x] Mutant общего мира красный; mutant-ы Ticket-а 27, которые зависят от устройства мира и git stub-а, перезапущены.
 - [x] `test/contract/harness-scripts.test.ts` целиком и gate fast — exit 0.
-- [ ] `check/windows` (платформенный PR, ADR-0056) — ставит ПК после review моста.
+- [x] `check/windows` (платформенный PR, ADR-0056) — ставит ПК после review моста.
 
 ## Где в коде
 
@@ -111,3 +112,12 @@ Mutant-ы: каждый — одна замена строки на время �
 - `node scripts/windows-verdict-scope.mjs <merge-base> HEAD` (скрипт с `main`): `runner`, exit 0.
 
 Осталось: `land.test.sh` на Mac (случай SIGTERM и время на Mac), `check/windows` после review моста.
+
+### Merge
+
+PR #955 влит, merge-commit `80149146`. Status `check/windows` на head `444dd227` — success, поставил ПК: land.test.sh
+70/70 три раза (309 → 209 s), mutant-ы красные, `harness-scripts.test.ts` — exit 0, gate fast — green.
+
+Review на Mac: `land.test.sh` — 39 и 42 s до правки, 31 s после, 71 passed. Mutant-ы красные, в том числе `lockrecheck`
+и случай «нет unlock на SIGTERM». Ветка `land:483` (documents PR уже влит на GitHub) test-ами не покрыта и на `main`
+до #955 — пробел старый, #955 его не вносил.

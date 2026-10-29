@@ -1,7 +1,8 @@
 # 36 — Режим `eco`: сколько Subagent-ов запускает Ticket — поле Profile
 
 Type: task
-Status: claimed 2026-10-29T03:16Z
+Status: done 2026-10-29T06:10Z
+PR: #950
 Branch: worfy-throughput/36
 Blocked by: —
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: меньше token-ов на Ticket, чтобы хватало Limits подписки», идея 1, строка L3
@@ -51,7 +52,8 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - [x] Платный eval — только с «да» владельца и ценой из команды, которую eval реально запустит (решение 14 раздела «процесс»;
       урок 2026-10-22: $30,29 вместо одобренных ~$1).
 - [ ] (вручную, после обновления Stable copy) Одна Wave с `eco`: число Subagent-ов на Ticket и token-ы по
-      `scripts/agent-cost.mjs` — в «Итог» рядом с прошлой Wave такого же размера.
+      `scripts/agent-cost.mjs` — в «Итог» рядом с прошлой Wave такого же размера. Не отмечено: нужна Wave на
+      обновлённой Stable copy, это делает владелец; PR #950 этого не даёт.
 
 ## Где в коде
 
@@ -211,3 +213,16 @@ gate fast — exit 0, `[gate] green (fast)`. Scope `node scripts/windows-verdict
 
 CI run 40819694000 на head `66f08a1f`: все job-ы `success` или `skipped`, `ci-ok` — success, `CI=pass`; в этот раз
 зелёный и `windows-e2e`.
+
+### Merge
+
+PR #950 влит, merge-commit `be438c4f`. Три круга ревью; круг 3 — `VERIFIED`.
+
+- Низкая находка круга 3 переходит в Ticket 37: бриф передачи мелкого Ticket-а implementer-у в
+  `harness/skills/epic-wave/SKILL.md` должен говорить «PR: none — open it (step 7)» и нести строку обещания.
+- Вторая половина той же находки ждёт следующего PR, который тронет `harness/agents/implementer.md`: строка `:254`
+  выбирает способ checkout ветки по `pr-green-ci`, а должна — по тому, push-нута ли ветка.
+- Вне скоупа: `harness/bin/profile` не проверяет значение `workflow.agents`, его проверяет только schema черновика
+  `connect-project`.
+- Ручной пункт «Готово, когда» (одна Wave с `eco` и число Subagent-ов и token-ов) не отмечен: он ждёт обновления
+  Stable copy.
