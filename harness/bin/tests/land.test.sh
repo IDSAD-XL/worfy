@@ -82,13 +82,12 @@ if (cmd === "pr view") {
     fs.appendFileSync(f("locks"), `${n} ${process.env.LAND_TEST_LOCK && fs.existsSync(process.env.LAND_TEST_LOCK) ? "held" : "free"}\n`)
     if (has(`merge-fail-${n}`)) { process.stderr.write(`Pull request #${n} is not mergeable\n`); process.exit(1) }
     if (sha !== headOf(n)) { process.stderr.write("head mismatch\n"); process.exit(1) }
-    const w = fs.mkdtempSync(path.join(D, "m-"))
-    g("clone", "-q", O, w)
-    g("-C", w, "fetch", "-q", "origin", `refs/pull/${n}/head`)
-    g("-C", w, "merge", "-q", "--squash", "FETCH_HEAD")
-    g("-C", w, "commit", "-q", "--allow-empty", "-m", `squash #${n}`)
-    g("-C", w, "push", "-q", "origin", "HEAD:main")
-    setPr(n, { state: "MERGED", mergeCommit: { oid: g("-C", w, "rev-parse", "HEAD") } })
+    // the squash commit is made in the origin itself, without a clone: one parent (main), the merged tree
+    const main = g("-C", O, "rev-parse", "refs/heads/main")
+    const tree = g("-C", O, "merge-tree", "--write-tree", main, `refs/pull/${n}/head`)
+    const oid = g("-C", O, "commit-tree", tree, "-p", main, "-m", `squash #${n}`)
+    g("-C", O, "update-ref", "refs/heads/main", oid, main)
+    setPr(n, { state: "MERGED", mergeCommit: { oid } })
     if (has(`kill-after-merge-${n}`)) process.kill(process.ppid, "SIGKILL")
 } else if (cmd === "pr list") {
     const br = a[a.indexOf("--head") + 1], made = JSON.parse(read("created.json", "{}"))
@@ -149,8 +148,21 @@ gh_guard LAND_GH "$STUBS/gh" "$STUBS/gh.mjs"
 
 # --- a world -------------------------------------------------------------------------------------------
 # new_world <name> <N>…: main has base.txt (lines 1 to 40); PR N forks off main and adds the file f<N>.txt.
+# Each set of PRs is built once, in $T/tpl-<N>-…; every world is a fresh copy of it with the remotes pointed at
+# its own origin, so no two cases share a repository.
 new_world() {
     W="$T/$1"; shift
+    [ ! -e "$W" ] || { echo "new_world: $W is already there"; exit 1; }
+    local tpl="$T/tpl$(printf -- '-%s' "$@")"
+    [ -d "$tpl" ] || build_world "$tpl" "$@"
+    cp -r "$tpl" "$W"
+    git -C "$W/seed" remote set-url origin "$W/origin.git"
+    git -C "$W/repo" remote set-url origin "$W/origin.git"
+    export GHD="$W/gh" GH_ORIGIN="$W/origin.git" LAND_TEST_LOCK="$W/repo/.git/main.lock"
+    S="$W/state.json"
+}
+build_world() {
+    local W="$1"; shift
     mkdir -p "$W/gh"
     git init -q --bare -b main "$W/origin.git"
     git clone -q "$W/origin.git" "$W/seed" 2>/dev/null
@@ -166,8 +178,6 @@ new_world() {
     git clone -q "$W/origin.git" "$W/repo"
     # GitHub lets a fetch name any commit of the repository by its SHA, an old PR head included
     git -C "$W/origin.git" config uploadpack.allowAnySHA1InWant true
-    export GHD="$W/gh" GH_ORIGIN="$W/origin.git" LAND_TEST_LOCK="$W/repo/.git/main.lock"
-    S="$W/state.json"
 }
 head_of() { git -C "$W/origin.git" rev-parse "refs/pull/$1/head"; }
 # state <N>[:<head>][/<check>,…]…: the state file of the world; each PR has epic e, ticket 0<N> and the Check marks
