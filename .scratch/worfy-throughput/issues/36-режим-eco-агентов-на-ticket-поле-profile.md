@@ -41,14 +41,14 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 
 ## Готово, когда
 
-- [ ] Сначала падающий shell test: `harness/bin/tests/skill-blocks.test.sh` (или `epic-wave-ship-ticket.test.sh`)
+- [x] Сначала падающий shell test: `harness/bin/tests/skill-blocks.test.sh` (или `epic-wave-ship-ticket.test.sh`)
       проверяет фразы `workflow.agents`, `Agents: eco`, `Agents: full —`; правила `eco` пункта 2 (мелкий Ticket
       без implementer-а, verifier остаётся; scout только на новую папку; один reviewer на `low`); список случаев,
       где `full` обязателен; строку отчёта с числом запущенных Subagent-ов (пункт 4).
-- [ ] Schema принимает `"eco"`, `"full"`, отсутствие поля; отвергает другое значение — test по образцу
+- [x] Schema принимает `"eco"`, `"full"`, отсутствие поля; отвергает другое значение — test по образцу
       `harness/bin/tests/review-depth.test.sh`, раздел 2 (`bin/project-connect --schema-only`).
-- [ ] Shell test-ы Harness — exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; условие merge — `ci-ok`.
-- [ ] Платный eval — только с «да» владельца и ценой из команды, которую eval реально запустит (решение 14 раздела «процесс»;
+- [x] Shell test-ы Harness — exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; условие merge — `ci-ok`.
+- [x] Платный eval — только с «да» владельца и ценой из команды, которую eval реально запустит (решение 14 раздела «процесс»;
       урок 2026-10-22: $30,29 вместо одобренных ~$1).
 - [ ] (вручную, после обновления Stable copy) Одна Wave с `eco`: число Subagent-ов на Ticket и token-ы по
       `scripts/agent-cost.mjs` — в «Итог» рядом с прошлой Wave такого же размера.
@@ -65,3 +65,78 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - Модель и effort агентов — Ticket 37. Preset по плану — Ticket 42. Шкала ревью чужого PR — без изменений.
 
 ## Итог
+
+PR #950, head `cdfb6890`. Implementer Ticket-а 36, 2026-10-29, Mac владельца.
+
+### Что сделано
+
+- Поле Profile `workflow.agents`: `"eco"`, `"full"` или `null`; нет поля или `null` — `full`, агенты как сейчас.
+  Строка — `harness/profiles/README.md:186`, schema — `harness/profiles/draft.schema.json:114`
+  (`enum: ["eco", "full", null]`). `null` принят, как у соседних полей `workflow` (`merge_gate`, `ci`).
+- `epic-wave`, раздел 1 (`SKILL.md:245`): абзац «Agents mode» — режим по Ticket-у в preflight по «Где в коде»; scout в
+  `eco` — только если ни одного файла из списка ещё нет или Ticket трогает папку, которой нет в «Где в коде» прошлых
+  Ticket-ов Epic-а; мелкий Ticket (только документы или одна правка в одном файле) — без implementer-а, verifier остаётся.
+- `epic-wave`, раздел 2 (`:343`): мелкий Ticket Orchestrator делает сам, в своём worktree по `F worktree.implementer`, и
+  отдаёт verifier-у поля отчёта implementer-а; в плане в колонке «Who» — `orchestrator`.
+- `epic-wave`, раздел 3 (`:535`): gate в `eco` не меняется — verifier остаётся, круг доработки и узкий круг как были.
+- `epic-wave`, раздел 5 (`:1547`): под таблицей для каждого Ticket-а строки `Agents: …` и `Subagents: <число> — <имена>`.
+- `ship-ticket`, шаг 7 (`SKILL.md:381`): в `eco` каждый круг ревью своего diff-а — глубина `low`, один reviewer одной
+  линзой, если аргумент или слово владельца не задают другую; это раньше полей `review.depth`. Режим решается по diff-у
+  круга до старта reviewer-ов.
+- Случаи, где `full` обязателен и в `eco` (скрипт или hook — `bin/` и `hooks/` Harness или скрипт репозитория;
+  платформенный PR по `rules.md` Project-а; diff с удалением файлов, завершением процессов, заменой копии), и строки
+  отчёта `Agents: eco` / `Agents: full — <причина>` и `Subagents: …` — одним и тем же предложением в обоих skill-ах;
+  test сверяет их слово в слово.
+- В тексте plugin-а нет номеров ADR и путей репозитория worfy (`plugin-neutral.test.sh`): «платформенный PR» описан
+  словами — PR, которому по `rules.md` Project-а нужен вердикт другой ОС.
+
+### Test-ы
+
+- Раздел 9e в `harness/bin/tests/epic-wave-ship-ticket.test.sh` (`:870`): фразы обоих skill-ов и README, плюс schema
+  через `bin/project-connect --schema-only` по образцу `review-depth.test.sh`, раздел 2 — без поля, `eco`, `full`, `null`
+  проходят; `"lean"`, `"ECO"` и число отвергнуты с `"path": "profile.workflow.agents"`; `HARNESS_HOME` после run-а пуст.
+- До правки skill-ов, README и schema: exit 1, `passed 423, failed 24` (красные — все новые проверки, в том числе три
+  отказа schema: она принимала любое значение). После: exit 0, `passed 447, failed 0`.
+- Отдельный файл test-а не заведён: «Где в коде» называет `skill-blocks.test.sh` или `epic-wave-ship-ticket.test.sh`.
+
+### Проверки
+
+Каждый shell test — под временным HOME (пустые `.zshenv`, `.zprofile`, `.zshrc`, `HARNESS_HOME` на настоящий дом Harness):
+
+| Test | Exit |
+| --- | --- |
+| `harness/bin/tests/epic-wave-ship-ticket.test.sh` | 0 (447/0) |
+| `harness/bin/tests/skill-blocks.test.sh` | 0 (86/0) |
+| `harness/bin/tests/agents-text.test.sh` | 0 (228/0) |
+| `harness/bin/tests/plugin-neutral.test.sh` | 0 (31/0) |
+| `harness/bin/tests/profile.test.sh` | 0 (81/0) |
+| `harness/bin/tests/review-depth.test.sh` | 0 (105/0) |
+| `harness/bin/tests/project-connect.test.sh` (schema) | 0 (200/0) |
+| `harness/bin/tests/skills-allowed.test.sh` (schema) | 0 (15/0) |
+| `harness/hooks/tests/rules-hooks.test.sh` | 0 (201/0) |
+| `test/contract/harness-scripts.test.ts` целиком и `projects-connect`, `harness-plugin`, `ci-workflow`, `e3-owner-check`, `harness-migrate` (читают schema или README) | 0 (6 файлов, 348 passed, 1 skipped) |
+| `pnpm lint` | 0 |
+| `pnpm typecheck` | 0 |
+| gate fast | первый run — 2: flaky test `test/contract/claude-home-registry.test.ts:597` (watcher, «no matching change yet»); файл отдельно дважды — exit 0; повтор gate fast — exit 0, `[gate] green (fast)` |
+
+Платный eval не запускался.
+
+### Вердикт Windows
+
+`node scripts/windows-verdict-scope.mjs cad8e228 HEAD` — `runner`, exit 0: в diff нет скриптов `harness/bin` и
+`harness/hooks`, только test в `harness/bin/tests/`. Вердикт — job `windows / full-suite` в `ci-ok`.
+
+### CI
+
+Run 40812733980 на head `cdfb6890`: `ci-ok` — success. Зелёные `lint-typecheck`, `linux-tests` 1–4/4, `macos-tests`,
+`macos-e2e` 1–2/2, `windows (1/3)`–`(3/3) / full-suite` (404, 301, 833 s), `windows-e2e` 2–4/4. Красный один job —
+`windows-e2e (1/4)`: 1 failed, 86 passed, `test/e2e/arrange-by-epic.spec.ts:136` («Arrange by Epic from ⌘K…»,
+`toEqual`). Этот job пока не блокирует (`NON_BLOCKING` в `ci-ok`), а PR не меняет код приложения и e2e. Поэтому
+общий подсчёт checks PR даёт `CI=fail`, а условие merge — `ci-ok` — зелёное.
+
+### Не сделано
+
+- Ручной пункт: одна Wave с `eco` и число Subagent-ов и token-ов по `scripts/agent-cost.mjs` рядом с прошлой Wave —
+  после обновления Stable copy.
+- `bin/profile` не проверяет значение `workflow.agents` (только schema черновика `connect-project`): профиль, правленный
+  руками, с другим значением skill читает как есть. Правка `harness/bin` сделала бы PR платформенным; вне скоупа.
