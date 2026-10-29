@@ -561,8 +561,8 @@ describe('scripts/affected-tests.table.json of this repository', () => {
     expect(selected('docs/lessons/README.md')).toContain('test/unit/check-lessons.test.ts')
     expect(selected('src/main/agent/env.ts')).toContain('test/unit/e2e-no-spawn-on-load.test.ts')
     expect(selected('test/contract/agent-session.test.ts')).toContain('test/unit/e2e-no-spawn-on-load.test.ts')
-    expect(selected('harness/bin/wave-gate')).toContain('test/contract/harness-scripts.test.ts')
-    expect(selected('harness/bin/profile')).toContain('test/contract/harness-scripts.test.ts')
+    expect(selected('harness/bin/wave-gate')).toContain('test/harness-scripts-suite.ts')
+    expect(selected('harness/bin/profile')).toContain('test/harness-scripts-suite.ts')
     expect(selected('harness/hooks/gate.mjs')).toContain('test/unit/gate-state.test.ts')
     // This test runs the generator over every test source.
     expect(selected('test/unit/new.test.ts')).toContain('test/unit/affected-tests.test.ts')

@@ -6,9 +6,9 @@ name: Windows tests
 #
 # Two ways to start it: by hand (workflow_dispatch, below), and from the CI workflow (ci.yml) on
 # every pull request and every push to main (workflow_call): ci.yml calls the mode full five times,
-# once per vitest shard (the input "shard", `1/3` to `3/3`) of every file but harness-scripts.test.ts,
-# and once per part of that file's Harness shell tests (`harness-scripts 1/2` and `harness-scripts
-# 2/2`), so the jobs are "windows (1/3) / full-suite" to "windows (harness-scripts 2/2) /
+# once per vitest shard (the input "shard", `1/3` to `3/3`) of every file but the files that run the
+# Harness shell tests (test/contract/harness-scripts-<n>.test.ts), and once per part of those shell
+# tests (`harness-scripts 1/2` and `harness-scripts 2/2`), so the jobs are "windows (1/3) / full-suite" to "windows (harness-scripts 2/2) /
 # full-suite". A dispatch has no input "shard": by hand the mode full runs the whole suite in one
 # job, as before. Since 2026-10-28 the repository is public and a
 # Windows runner minute costs nothing; the price limits below were written for the private
@@ -207,23 +207,33 @@ jobs:
       # Windows image, PowerShell: the suite sees the same environment as when it ran in one job.
       # Without a shard (a dispatch) it runs the whole suite. The files inside a shard keep vitest's
       # own order, not a random one as on Linux: the order checks are Linux's.
-      # harness-scripts.test.ts (the Harness shell tests, 354-617 s on Windows, always in shard 3/3)
-      # runs in jobs of its own: a shard `<i>/<n>` leaves it out (WORFY_TEST_EXCLUDE, read by
+      # The files that run the Harness shell tests, HARNESS_SCRIPTS (test/harness-shell-tests.ts:
+      # HARNESS_SCRIPTS_FILES; 354-617 s on Windows when they were one file, then always in shard 3/3),
+      # run in jobs of their own: a shard `<i>/<n>` leaves them out (WORFY_TEST_EXCLUDE, read by
       # vitest.config.ts: vitest 5.0.3's --exclude does not reach its projects), and a shard
-      # `harness-scripts <i>/<n>` runs that file alone with part i of n of the shell tests
-      # (HARNESS_SCRIPTS_PART, test/harness-shell-tests.ts). test/contract/ci-workflow.test.ts checks
+      # `harness-scripts <i>/<n>` runs those files alone with part i of n of the shell tests
+      # (HARNESS_SCRIPTS_PART): the first file runs the whole part, five at a time as before, the
+      # others none. test/contract/ci-workflow.test.ts checks
       # that every test file and every shell test runs in exactly one job of ci.yml.
       # A list of a pull request (TEST_FILES): an empty one runs nothing (the step is skipped, the job
       # succeeds); a shard hands it to vitest (WORFY_TEST_FILES, read by scripts/vitest-electron.mjs),
-      # which splits it by --shard; a job of harness-scripts.test.ts runs only when the list has it,
-      # with no other file of the list.
+      # which splits it by --shard; a job of the shell tests runs only when the list has one of their
+      # files, with no other file of the list.
+      # The files go to pnpm splatted from a variable (`@files`), one argument each. An array
+      # expression, `@(-split …)`, reaches a PowerShell function or script, such as the pnpm.ps1 shim of
+      # corepack, as one argument that holds the array; the shim hands it to node as one string with
+      # the four paths, and vitest found no test file for it (run 40939802575). vitest then fails with
+      # "No test files found": no --passWithNoTests here, so a job that would run no shell test is red.
+      # A dispatch (no shard) runs the whole suite in one job on a 4-CPU runner: HARNESS_SCRIPTS_PART 1/1
+      # has harness-scripts-1.test.ts run every shell test five at a time and the other three none, as
+      # in macos-tests of ci.yml, instead of four files of shell tests side by side.
       - name: Run the unit and contract suite, or a part of it
         if: steps.tests.outputs.run != 'none'
         env:
           SHARD: ${{ inputs.shard }}
-          HARNESS_SCRIPTS: test/contract/harness-scripts.test.ts
+          HARNESS_SCRIPTS: test/contract/harness-scripts-1.test.ts test/contract/harness-scripts-2.test.ts test/contract/harness-scripts-3.test.ts test/contract/harness-scripts-4.test.ts
           TEST_FILES: ${{ steps.tests.outputs.files }}
         run: |
-          if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; if ($env:TEST_FILES -and -not ((-split $env:TEST_FILES) -contains $env:HARNESS_SCRIPTS)) { 'The list has no harness-scripts.test.ts: nothing to run' } else { pnpm test $env:HARNESS_SCRIPTS } }
+          if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; if ($env:TEST_FILES -and -not ((-split $env:TEST_FILES) | Where-Object { (-split $env:HARNESS_SCRIPTS) -contains $_ })) { 'The list has no harness-scripts file: nothing to run' } else { $files = -split $env:HARNESS_SCRIPTS; pnpm test @files } }
           elseif ($env:SHARD) { $env:WORFY_TEST_EXCLUDE = $env:HARNESS_SCRIPTS; $env:WORFY_TEST_FILES = $env:TEST_FILES; pnpm test "--shard=$env:SHARD" }
-          else { pnpm test }
+          else { $env:HARNESS_SCRIPTS_PART = '1/1'; pnpm test }

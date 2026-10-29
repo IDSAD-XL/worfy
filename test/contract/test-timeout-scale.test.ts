@@ -15,11 +15,6 @@ const NOT_LIMITS: Record<string, string> = {
   'test/unit/quarantine.test.ts': 'the timeout values are data of the tests a quarantine entry declares',
 }
 
-// Limits a neighbouring change owns, by name, wherever the file that defines them lives.
-const OWNED_ELSEWHERE: Array<[RegExp, string]> = [
-  [/\bFILE_TIMEOUT_MS\b/, 'the limit of one Harness shell test: worfy-throughput 56 (#1023) moves it, the multiplier follows after'],
-]
-
 function sources(folder: string): string[] {
   return readdirSync(join(ROOT, folder), { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile() && /\.(ts|tsx|mts)$/.test(entry.name))
@@ -91,7 +86,6 @@ describe('every time limit of the test run goes through the multiplier', () => {
     const bare = files
       .filter((file) => !(file in NOT_LIMITS))
       .flatMap((file) => unscaledLimits(readFileSync(join(ROOT, file), 'utf8'), file).map((each) => `${file}:${each.line}: ${each.text}`))
-      .filter((finding) => !OWNED_ELSEWHERE.some(([name]) => name.test(finding)))
     // A limit of a test goes through ms (test/time-scale.ts). A bound the test expects to run out, or a
     // time budget of the product, keeps its number with `// unscaled: <reason>` on the line or the one before.
     expect(bare).toEqual([])

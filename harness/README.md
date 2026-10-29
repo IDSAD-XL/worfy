@@ -54,8 +54,9 @@ Lessons and ADRs cite the old SHAs. To find the imported commit of one:
 ## Tests
 
 `pnpm test` runs every `bin/tests/*.test.sh` and `hooks/tests/*.test.sh` through
-`test/contract/harness-scripts.test.ts`: one case per file, `bash <file>` with `HOME` in an empty
-temporary folder, exit code 0 expected, five files at a time. So they run in CI on Linux and in the gate. They need
+the four files `test/contract/harness-scripts-<n>.test.ts` (shared code in `test/harness-scripts-suite.ts`):
+one case per file, `bash <file>` with `HOME` in an empty temporary folder, exit code 0 expected, five
+files at a time in each of the four. So they run in CI on Linux and in the gate. They need
 `bash`, `zsh`, `git`, `jq` and `node`.
 
 By hand, from the repository root:
