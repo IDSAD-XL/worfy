@@ -1,7 +1,8 @@
 # 24 — Картинка с Canvas видна на Linked machine
 
 Type: feature
-Status: open 2026-10-24T22:34Z
+Status: done 2026-10-29T18:08Z
+PR: #1018
 Blocked by: 23
 Source: владелец, 2026-10-25 (чат Mac-оркестратора): картинки на Canvas (ticket 23); этот ticket —
 их показ на другой машине. Код перечитан по main `d089cfea`.
@@ -56,13 +57,13 @@ Linked machine — другая машина, к которой подключе
 
 ## Готово, когда
 
-- [ ] Картинка, вставленная на одной машине, видна на Canvas Linked machine с теми же пропорциями.
-- [ ] Байты идут по link-у кусками не больше 4 MB, с пределом 20 MB; машина-владелец проверяет путь.
-- [ ] На Linked machine картинку нельзя растянуть, удалить или заменить.
-- [ ] Нет файла, слишком большой файл, обрыв link-а — понятная заглушка с причиной, не битая
+- [x] Картинка, вставленная на одной машине, видна на Canvas Linked machine с теми же пропорциями.
+- [x] Байты идут по link-у кусками не больше 4 MB, с пределом 20 MB; машина-владелец проверяет путь.
+- [x] На Linked machine картинку нельзя растянуть, удалить или заменить.
+- [x] Нет файла, слишком большой файл, обрыв link-а — понятная заглушка с причиной, не битая
       картинка.
 - [ ] Миниатюра картинки из чата Session на Linked machine видна в её Transcript здесь, а не chip.
-- [ ] Поведение файлов Card не изменилось: их contract- и e2e-тесты зелёные.
+- [x] Поведение файлов Card не изменилось: их contract- и e2e-тесты зелёные.
 
 ## Итог
 
@@ -125,3 +126,11 @@ Session на Linked machine не написан.
 
 ![Картинка Linked machine, светлая тема](../evidence/24-image-of-linked-machine-light.png)
 ![Картинка Linked machine, тёмная тема](../evidence/24-image-of-linked-machine-dark.png)
+- Не проверено: миниатюра картинки из чата Session на Linked machine в Transcript — только contract-тест адреса
+  `attachments.<machine label>` через link; e2e с Session на второй машине нет, вручную не смотрели.
+- Ревью: круг 1 — REJECTED (med: Project только этой машины (`localOnly`) отдавался Linked machine через
+  `images.file` и старый `cards.file`; три low). Круг 2 — VERIFIED на `042dc1f7`. Merge `df8ee68c` с `check/windows`
+  «PC after Wave» (ADR-0086); gate full на ПК по main запрошен у моста. Долг: комментарии
+  `test/e2e/linked-images.spec.ts:121,168` говорят, что картинка идёт в корзину раньше note, а `deletableNodes`
+  убирает её из выделения. Подтвердить владельцу: картинка Linked machine только для чтения при любом уровне доступа;
+  хранилище `attachments` вне `localOnly`; отдельный канал `images.file`.
