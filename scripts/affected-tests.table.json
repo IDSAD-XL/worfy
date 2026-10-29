@@ -1,0 +1,477 @@
+{
+  "$comment": "Links that vite's module graph cannot see, for scripts/affected-tests.mjs. `all`: a change to these paths runs the whole suite. `none`: paths no unit or contract test reads. `links`: a changed path that matches `paths` selects `files` — a test file as it is, any other file (a module) through the tests that import it. Patterns: `*` is any characters but `/`, `**` any number of folders. A path that neither the graph nor this table covers runs the whole suite, so a missing line costs time, not a missed test; add the line when a test starts a script as a process or reads a file as text.",
+  "all": [
+    {
+      "paths": ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".nvmrc"],
+      "why": "dependencies and the Node version of every test"
+    },
+    {
+      "paths": ["vitest.config.ts", "tsconfig*.json", "scripts/vitest-electron.mjs"],
+      "why": "the configuration of the test run, how each file is compiled, the runner of `pnpm test`"
+    },
+    {
+      "paths": [
+        "test/setup-contract.ts",
+        "test/setup-dom.ts",
+        "test/global-setup-contract.ts",
+        "test/global-setup-git-bash.ts",
+        "test/flaky.ts",
+        "test/flaky-reporter.ts",
+        "test/time-scale.ts",
+        "test/timings-reporter.ts",
+        "test/stale-leftovers.ts"
+      ],
+      "why": "setup files and what vitest.config.ts loads: they run around every test file"
+    },
+    {
+      "paths": [".gitattributes", ".gitignore"],
+      "why": "how git checks out and lists every file"
+    }
+  ],
+  "none": [
+    {
+      "paths": ["docs/**", ".scratch/**"],
+      "why": "documents, tickets and design mock-ups: no unit or contract test reads them"
+    }
+  ],
+  "links": [
+    {
+      "paths": ["harness/**"],
+      "files": [
+        "test/contract/browser-tools.test.ts",
+        "test/contract/ci-workflow.test.ts",
+        "test/contract/demo-template.test.ts",
+        "test/contract/e3-owner-check.test.ts",
+        "test/contract/first-run-checks.test.ts",
+        "test/contract/gate-key-agreement.test.ts",
+        "test/contract/gate-queue.test.ts",
+        "test/contract/gitattributes.test.ts",
+        "test/contract/github-prs.test.ts",
+        "test/contract/harness-changed.test.ts",
+        "test/contract/harness-drift.test.ts",
+        "test/contract/harness-evals-outcome.test.ts",
+        "test/contract/harness-evals.test.ts",
+        "test/contract/harness-install.test.ts",
+        "test/contract/harness-migrate-boundaries.test.ts",
+        "test/contract/harness-migrate-harness.ts",
+        "test/contract/harness-migrate.test.ts",
+        "test/contract/harness-plugin.test.ts",
+        "test/contract/harness-qmd.test.ts",
+        "test/contract/harness-retro-skill.test.ts",
+        "test/contract/harness-script-env.test.ts",
+        "test/contract/harness-scripts.test.ts",
+        "test/contract/main-ipc-wiring.test.ts",
+        "test/contract/pipeline-rules-agree.test.ts",
+        "test/contract/projects-connect.test.ts",
+        "test/contract/windows-verdict-scope.test.ts",
+        "test/contract/workflow-reader.test.ts",
+        "test/harness-shell-tests.ts",
+        "test/unit/agent-options.test.ts",
+        "test/unit/agent-query-factory.test.ts",
+        "test/unit/check-cyrillic.test.ts",
+        "test/unit/check-lessons.test.ts",
+        "test/unit/first-heading.test.ts",
+        "test/unit/first-run-windows.test.ts",
+        "test/unit/gate-state.test.ts",
+        "test/unit/harness-locate.test.ts",
+        "test/unit/install-stable-functions.test.ts",
+        "test/unit/no-github-git.test.ts",
+        "test/unit/paths.test.ts",
+        "test/unit/profile-knows.test.ts",
+        "test/unit/settings-health.test.tsx",
+        "test/unit/settings-pipeline.test.tsx"
+      ],
+      "why": "the Harness: its shell tests run in harness-scripts.test.ts; the contract tests start its bin/ and hooks/ scripts (wave-gate, land, profile, ticket, gate.mjs…) as processes and read its skills, agents and evals as text. One coarse line: every test file that names a path under harness/"
+    },
+    {
+      "paths": ["src/**"],
+      "files": ["test/unit/agent-env.test.ts", "test/unit/no-rmsync.test.ts"],
+      "why": "they read every file under src/ as text, looking for a forbidden call"
+    },
+    {
+      "paths": ["src/main/**"],
+      "files": ["test/unit/chokidar-close-callers.test.ts", "test/unit/e2e-gh-stub.test.ts", "test/unit/quit-listeners.test.ts"],
+      "why": "they read every file under src/main/ as text"
+    },
+    {
+      "paths": ["src/main/index.ts"],
+      "files": [
+        "test/contract/gitattributes.test.ts",
+        "test/contract/harness-drift.test.ts",
+        "test/contract/harness-evals.test.ts",
+        "test/unit/markdown.test.tsx"
+      ],
+      "why": "they read the main entry as text"
+    },
+    {
+      "paths": ["src/main/terminal/zsh/**"],
+      "files": [
+        "src/main/terminal/shell-integration.ts",
+        "test/contract/terminal-ai-next-command.test.ts",
+        "test/contract/terminal-ai-suggest.test.ts",
+        "test/contract/terminal-shell-integration.test.ts"
+      ],
+      "why": "the zsh scripts: shell-integration.ts hands them to every Terminal's zsh, and these tests source them in a real zsh"
+    },
+    {
+      "paths": ["src/main/mcp/*.md"],
+      "files": ["src/main/mcp/canvas-server.ts", "src/main/mcp/browser-server.ts"],
+      "why": "imported with ?raw, which the module graph does not follow"
+    },
+    {
+      "paths": ["src/renderer/**"],
+      "files": ["test/unit/canvas-zoom.test.tsx", "test/unit/ticket-card.test.tsx"],
+      "why": "they read every file under src/renderer/ as text"
+    },
+    {
+      "paths": ["src/renderer/canvas/**"],
+      "files": ["test/unit/canvas.test.tsx", "test/unit/node-kind-header.test.tsx"],
+      "why": "they read the Node components and their CSS as text"
+    },
+    {
+      "paths": ["src/renderer/shell/**"],
+      "files": ["test/unit/shell-discovery.test.tsx", "test/unit/glob-probe.tsx"],
+      "why": "they list and copy the files of the folder"
+    },
+    {
+      "paths": ["src/renderer/session/rail/**"],
+      "files": ["test/unit/session-rail-discovery.test.tsx"],
+      "why": "it lists the files of the folder"
+    },
+    {
+      "paths": ["src/renderer/theme/tokens.css"],
+      "files": [
+        "test/unit/contrast.test.ts",
+        "test/unit/kind-tokens.test.ts",
+        "test/unit/shadow-tokens.test.ts",
+        "test/unit/terminal-theme.test.tsx",
+        "test/unit/window-options.test.ts"
+      ],
+      "why": "they read the colour tokens as text"
+    },
+    {
+      "paths": ["src/renderer/canvas/overlays/minimap.css"],
+      "files": ["test/unit/minimap-paint.test.tsx"],
+      "why": "it reads the file as text"
+    },
+    {
+      "paths": ["src/renderer/shell/shell.css"],
+      "files": ["test/unit/harness-status.test.tsx"],
+      "why": "it reads the file as text"
+    },
+    {
+      "paths": ["src/renderer/index.html"],
+      "files": ["test/contract/image-protocol.test.ts", "test/unit/renderer-entry.test.ts", "test/unit/agent-env.test.ts"],
+      "why": "they read the page and its CSP as text"
+    },
+    {
+      "paths": ["scripts/**"],
+      "files": ["test/unit/no-rmsync.test.ts"],
+      "why": "it reads every script as text, looking for a forbidden call"
+    },
+    {
+      "paths": ["scripts/affected-tests.mjs", "scripts/affected-tests.table.json"],
+      "files": ["test/unit/affected-tests.test.ts"],
+      "why": "started as a process"
+    },
+    {
+      "paths": ["scripts/agent-cost.mjs"],
+      "files": ["test/unit/agent-cost.test.ts"],
+      "why": "started as a process"
+    },
+    {
+      "paths": ["scripts/build-version.ts"],
+      "files": ["test/unit/build-version.test.ts", "test/unit/e2e-no-spawn-on-load.test.ts"],
+      "why": "started as a process; read as text"
+    },
+    {
+      "paths": ["scripts/check-cyrillic.mjs"],
+      "files": ["test/unit/check-cyrillic.test.ts"],
+      "why": "started as a process"
+    },
+    {
+      "paths": ["scripts/check-handoff.mjs"],
+      "files": ["test/unit/check-handoff.test.ts", "test/contract/gitattributes.test.ts"],
+      "why": "started as a process"
+    },
+    {
+      "paths": ["scripts/check-lessons.mjs"],
+      "files": ["test/unit/check-lessons.test.ts"],
+      "why": "started as a process"
+    },
+    {
+      "paths": ["scripts/doc-headings.mjs", "scripts/doc-headings.json"],
+      "files": ["test/unit/check-handoff.test.ts", "test/unit/check-lessons.test.ts", "test/unit/manual-checks.test.ts"],
+      "why": "read by the document checks the tests start"
+    },
+    {
+      "paths": ["scripts/critical-path.mjs"],
+      "files": ["test/unit/critical-path.test.ts"],
+      "why": "started as a process"
+    },
+    {
+      "paths": ["scripts/ci-ok.mjs", "scripts/ci-scope.mjs", "scripts/ci-display.js"],
+      "files": ["test/contract/ci-workflow.test.ts"],
+      "why": "started as processes by the CI workflow tests"
+    },
+    {
+      "paths": ["scripts/e2e-shard.mjs"],
+      "files": ["test/unit/e2e-shard.test.ts", "test/contract/ci-workflow.test.ts"],
+      "why": "started as a process"
+    },
+    {
+      "paths": ["scripts/dev-bundle.ts"],
+      "files": ["test/unit/dev-bundle.test.ts", "test/unit/dev-bundle-config.test.ts"],
+      "why": "loaded by the dev bundle tests"
+    },
+    {
+      "paths": ["scripts/e3-owner-check.sh"],
+      "files": ["test/contract/e3-owner-check.test.ts"],
+      "why": "started as a process"
+    },
+    {
+      "paths": ["scripts/e3-sandbox.sh"],
+      "files": ["test/contract/e3-sandbox.test.ts", "test/unit/no-github-git.test.ts"],
+      "why": "started as a process"
+    },
+    {
+      "paths": ["scripts/eval-harness.mjs", "scripts/eval-harness-coverage.mjs", "scripts/eval-run-env.mjs"],
+      "files": ["test/contract/harness-evals.test.ts", "test/contract/harness-evals-outcome.test.ts"],
+      "why": "started as processes, copied into the tests' repositories"
+    },
+    {
+      "paths": ["scripts/eval-outcome*.mjs", "scripts/eval-outcome/**"],
+      "files": ["test/contract/harness-evals-outcome.test.ts", "test/contract/harness-evals.test.ts"],
+      "why": "started as processes"
+    },
+    {
+      "paths": ["scripts/hang-sample.mjs"],
+      "files": ["test/unit/hang-sample.test.ts"],
+      "why": "started as a process"
+    },
+    {
+      "paths": ["scripts/ico.mjs", "scripts/make-icons.mjs"],
+      "files": ["test/unit/ico.test.ts", "test/contract/make-icons.test.ts"],
+      "why": "started as processes"
+    },
+    {
+      "paths": ["scripts/install-stable.mjs"],
+      "files": [
+        "test/unit/install-stable.test.ts",
+        "test/unit/install-stable-functions.test.ts",
+        "test/unit/install-stable-harness.ts",
+        "test/unit/remove-tree-copies.test.ts",
+        "test/contract/packaging.test.ts"
+      ],
+      "why": "started as a process; its remove-tree copy is compared"
+    },
+    {
+      "paths": ["scripts/postinstall.mjs"],
+      "files": ["test/contract/postinstall.test.ts"],
+      "why": "started as a process"
+    },
+    {
+      "paths": ["scripts/remove-tree.mjs"],
+      "files": [
+        "test/unit/remove-tree.test.ts",
+        "test/unit/remove-tree-walk.test.ts",
+        "test/unit/remove-tree-copies.test.ts",
+        "test/unit/remove-tree-model.ts",
+        "test/contract/harness-evals.test.ts"
+      ],
+      "why": "loaded by path; copied into the eval tests' repositories"
+    },
+    {
+      "paths": ["scripts/sdk-compat.mjs"],
+      "files": ["test/contract/sdk-compat.test.ts", "test/unit/sdk-compat-diff.test.ts"],
+      "why": "started as a process"
+    },
+    {
+      "paths": ["scripts/statusline-bridge.mjs", "scripts/statusline-bridge.sh"],
+      "files": ["test/contract/statusline-bridge.test.ts", "test/contract/harness-migrate.test.ts", "test/unit/first-run-windows.test.ts"],
+      "why": "started as processes"
+    },
+    {
+      "paths": ["scripts/test-timings.mjs"],
+      "files": ["test/unit/test-timings.test.ts", "test/unit/playwright-json-report.test.ts"],
+      "why": "started as a process"
+    },
+    {
+      "paths": ["scripts/windows-test-list.mjs"],
+      "files": ["test/contract/windows-tests-workflow.test.ts"],
+      "why": "started as a process"
+    },
+    {
+      "paths": ["scripts/windows-verdict-scope.mjs"],
+      "files": ["test/contract/windows-verdict-scope.test.ts"],
+      "why": "started as a process"
+    },
+    {
+      "paths": ["scripts/spikes/**"],
+      "files": ["test/contract/gitattributes.test.ts"],
+      "why": "one-off probes no test runs; gitattributes.test.ts checks the line endings of one"
+    },
+    {
+      "paths": [".github/**"],
+      "files": [
+        "test/contract/ci-workflow.test.ts",
+        "test/contract/node-version.test.ts",
+        "test/contract/windows-tests-workflow.test.ts",
+        "test/contract/windows-verdict-scope.test.ts"
+      ],
+      "why": "they read the workflows as text and run their steps"
+    },
+    {
+      "paths": ["build/**"],
+      "files": [
+        "test/contract/make-icons.test.ts",
+        "test/contract/gitattributes.test.ts",
+        "test/contract/packaging.test.ts",
+        "test/contract/windows-verdict-scope.test.ts",
+        "test/contract/ci-workflow.test.ts",
+        "test/unit/dock-icon.test.ts"
+      ],
+      "why": "they read the icons and their sources"
+    },
+    {
+      "paths": ["electron-builder.yml"],
+      "files": ["test/contract/app-user-model-id.test.ts", "test/contract/packaging.test.ts", "test/contract/ci-workflow.test.ts"],
+      "why": "read as text"
+    },
+    {
+      "paths": ["electron.vite.config.ts"],
+      "files": [
+        "test/unit/dev-bundle.test.ts",
+        "test/unit/dev-bundle-config.test.ts",
+        "test/contract/harness-evals.test.ts",
+        "test/contract/harness-evals-outcome.test.ts",
+        "test/contract/ci-workflow.test.ts"
+      ],
+      "why": "read as text"
+    },
+    {
+      "paths": ["eslint.config.js"],
+      "files": ["test/unit/check-cyrillic.test.ts", "test/unit/no-rmsync.test.ts"],
+      "why": "run by the lint tests"
+    },
+    {
+      "paths": ["playwright.config.ts", "playwright.acceptance.config.ts"],
+      "files": [
+        "test/unit/e2e-notifications.test.ts",
+        "test/unit/playwright-json-report.test.ts",
+        "test/unit/quiet-windows.test.ts",
+        "test/unit/no-rmsync.test.ts"
+      ],
+      "why": "read as text; the e2e tests themselves are not in this run"
+    },
+    {
+      "paths": ["test/**"],
+      "files": ["test/unit/no-rmsync.test.ts", "test/unit/no-github-git.test.ts", "test/unit/quarantine.test.ts"],
+      "why": "they read every test file as text"
+    },
+    {
+      "paths": ["test/contract/**", "test/e2e/**"],
+      "files": ["test/unit/e2e-no-spawn-on-load.test.ts"],
+      "why": "it reads these test files as text"
+    },
+    {
+      "paths": ["test/quarantine/**"],
+      "files": ["test/quarantine.ts"],
+      "why": "the quarantine entries, read by the helper the quarantined tests import"
+    },
+    {
+      "paths": ["test/e2e/**"],
+      "files": [
+        "test/contract/ci-workflow.test.ts",
+        "test/contract/windows-tests-workflow.test.ts",
+        "test/contract/windows-verdict-scope.test.ts",
+        "test/unit/e2e-gh-stub.test.ts",
+        "test/unit/e2e-notifications.test.ts",
+        "test/unit/e2e-shard.test.ts"
+      ],
+      "why": "they read the e2e files as text; the e2e tests themselves are not in this run"
+    },
+    {
+      "paths": ["test/acceptance/**"],
+      "files": ["test/contract/windows-verdict-scope.test.ts"],
+      "why": "acceptance tests are not in this run; the scope test names the folder"
+    },
+    {
+      "paths": ["test/fixtures/**"],
+      "files": ["test/contract/workflow-reader.test.ts"],
+      "why": "it reads fixtures by a computed name"
+    },
+    { "paths": ["test/fixtures/agent-cost/**"], "files": ["test/unit/agent-cost.test.ts"], "why": "read by the test" },
+    {
+      "paths": ["test/fixtures/agent-scripts/**"],
+      "files": ["test/contract/projects-connect.test.ts", "test/contract/sdk-compat.test.ts", "test/unit/agent-query-factory.test.ts"],
+      "why": "scripts the tests start as stand-ins of the agent"
+    },
+    { "paths": ["test/fixtures/browser/**"], "files": ["test/unit/e2e-browser-pixels.test.ts"], "why": "read by the test" },
+    { "paths": ["test/fixtures/check-lessons/**"], "files": ["test/unit/check-lessons.test.ts"], "why": "read by the test" },
+    {
+      "paths": ["test/fixtures/claude-home/**"],
+      "files": [
+        "test/contract/claude-home-fixture.ts",
+        "test/contract/bindings.test.ts",
+        "test/contract/clients.test.ts",
+        "test/contract/link-access.test.ts",
+        "test/contract/transcript-parse.test.ts",
+        "test/unit/subagents.test.ts"
+      ],
+      "why": "a Claude home the tests copy and read"
+    },
+    { "paths": ["test/fixtures/critical-path/**"], "files": ["test/unit/critical-path.test.ts"], "why": "read by the test" },
+    { "paths": ["test/fixtures/eval-stub/**"], "files": ["test/contract/harness-evals.test.ts"], "why": "started as a stand-in" },
+    {
+      "paths": ["test/fixtures/first-run-tools/**"],
+      "files": ["test/contract/first-run-checks.test.ts", "test/contract/terminal.test.ts"],
+      "why": "stand-ins the tests start"
+    },
+    {
+      "paths": ["test/fixtures/gh/**"],
+      "files": ["test/contract/gh-world.ts", "test/contract/github-prs.test.ts", "test/contract/gh-stand-in.test.ts"],
+      "why": "the gh stand-in the tests start"
+    },
+    {
+      "paths": ["test/fixtures/harness-stub/**"],
+      "files": [
+        "test/contract/harness-script-wiring.test.ts",
+        "test/contract/docs.test.ts",
+        "test/contract/github-prs.test.ts",
+        "test/contract/e2e-launch-shell.test.ts",
+        "test/contract/harness-script-env.test.ts"
+      ],
+      "why": "stand-ins of the Harness scripts the tests start"
+    },
+    { "paths": ["test/fixtures/headless-*.cjs"], "files": ["test/contract/terminal-cursor.test.ts"], "why": "started as a process" },
+    { "paths": ["test/fixtures/qmd-stub/**"], "files": ["test/contract/harness-qmd.test.ts"], "why": "started as a stand-in" },
+    {
+      "paths": ["test/fixtures/sdk-compat/**"],
+      "files": ["test/contract/sdk-compat.test.ts", "test/unit/sdk-compat-diff.test.ts"],
+      "why": "read by the tests"
+    },
+    {
+      "paths": ["test/fixtures/sdk-messages/**"],
+      "files": ["test/contract/limits.test.ts", "test/contract/sdk-compat.test.ts", "test/unit/agent-options.test.ts"],
+      "why": "recorded SDK messages the tests read"
+    },
+    { "paths": ["test/fixtures/shell-stub/**"], "files": ["test/shell-stub.ts"], "why": "read by the helper the tests import" },
+    {
+      "paths": ["test/fixtures/tailscale/**"],
+      "files": ["test/contract/link-tailscale-peers.test.ts", "test/unit/link-tailscale.test.ts"],
+      "why": "read by the tests"
+    },
+    {
+      "paths": ["test/fixtures/worfy-mvp-epic/**"],
+      "files": ["test/contract/card-bridge.test.ts", "test/unit/waves.test.ts"],
+      "why": "an epic the tests read"
+    },
+    { "paths": ["test/fixtures/workflow-stub/**"], "files": ["test/contract/workflow-stages.test.ts"], "why": "started as a stand-in" },
+    {
+      "paths": ["test/fixtures/claude-home-legacy/**", "test/fixtures/e2e-shell/**"],
+      "files": ["test/unit/e2e-no-spawn-on-load.test.ts"],
+      "why": "fixtures of the e2e tests, which are not in this run"
+    }
+  ]
+}
