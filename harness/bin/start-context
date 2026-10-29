@@ -1,0 +1,289 @@
+#!/usr/bin/env node
+// start-context — estimates the starting context of each Harness agent in tokens and goes red
+// above a threshold.
+//
+//   start-context [--agent <name>] [--profile <path>] [--instructions <file>]... [--json]
+//
+// The starting context of an agent is everything the model reads before the agent's first edit:
+// the first request (Claude Code's system prompt and tool schemas, the instruction files, the rules
+// the SubagentStart hook injects, the agent definition, the brief) and what the agent loads right
+// after it (the output of bin/profile with the project's rules.md, and the skill the agent follows).
+// Nothing is sent to the API: each part is counted in bytes and turned into tokens with one
+// coefficient; the parts the Harness does not write (Claude Code's own prompt and tool schemas)
+// are one constant per agent.
+//
+//   tokens = CONSTANT[agent] + (sum of the bytes of the parts) / BYTES_PER_TOKEN
+//
+// The parts, per agent (AGENTS below):
+//   - definition    agents/<definition>.md without its frontmatter, ${CLAUDE_PLUGIN_ROOT} spelled
+//                   as the folder of this Harness, as Claude Code passes it;
+//   - rules         what hooks/inject-rules.mjs common prints for a SubagentStart event in the
+//                   current folder: rules/common.md and the user's $HARNESS_HOME/user/rules.md;
+//   - instructions  the files Claude Code puts into every request: <config>/CLAUDE.md (<config> is
+//                   CLAUDE_CONFIG_DIR or ~/.claude), CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md
+//                   at the top of the current work tree, the first 200 lines of the project's auto
+//                   memory <config>/projects/<path of the main checkout, every character other than a
+//                   letter or a digit as ->/memory/MEMORY.md; --instructions <file> (repeatable)
+//                   replaces them all;
+//   - brief         the median brief of that agent in the calibration, a fixed number of bytes;
+//   - profile       what bin/profile prints in the current folder; with --profile <path> (a profile
+//                   folder or its profile.json), that profile.json and the rules.md next to it, plus
+//                   PROFILE_HEADER bytes for the lines bin/profile prints around them. Without a
+//                   profile there is no profile part and no skill part;
+//   - skill         for an agent that follows the profile's skill (the implementer), the SKILL.md of
+//                   the profile's workflow.ticket_skill ("ship-ticket" or "/<plugin>:ship-ticket").
+//
+// Output: per agent a line with its estimate and verdict, then its parts with bytes and tokens. A
+// red line names the agent, by how much it is over and its largest part. --json prints the same as
+// JSON. --agent limits the check to one agent.
+//
+// Exit codes: 0 — every agent checked is within the threshold; 1 — at least one is over it;
+// 2 — usage error (unknown agent or option, a missing --profile or --instructions file, a missing
+// agent definition).
+//
+// start-context only reads: it writes nothing anywhere.
+"use strict"
+
+const fs = require("node:fs")
+const os = require("node:os")
+const path = require("node:path")
+const { spawnSync } = require("node:child_process")
+const { git: GIT } = require("../hooks/eval-env.cjs")
+
+// The threshold, in tokens. Raising it is a change of its own: the pull request that raises it says
+// why here, in this comment, next to the number. Shorten the texts instead when an agent goes over.
+const THRESHOLD = 35000
+
+// Calibration of 2026-10-29, from the Claude Code transcripts of the Harness subagents of one
+// machine, 2026-10-22 … 2026-10-29 (Claude Code 2.1, Opus 5.5 and, for the scout, Sonnet). Only
+// aggregate numbers are kept here.
+//
+// BYTES_PER_TOKEN: for a request whose only new content since the previous one was a tool result,
+// the growth of the context (input + cache read + cache write) minus the previous answer's output
+// tokens is the token count of that content. Over 294 such steps whose content was a bin/profile
+// output of 20 KB and more (English JSON, a rules.md mostly in Russian): 2.68 bytes per token for
+// the implementer, 2.76 for the reviewer, the verifier and the scout. Over the 2 loads of the
+// ship-ticket skill (English): 2.61. Over 3 820 other steps of 3 KB and more (code, logs, diffs):
+// 2.40. The agents' texts are prose and markdown, hence 2.7.
+const BYTES_PER_TOKEN = 2.7
+
+// constant: the context of the agent's first request minus the bytes of its definition, rules,
+// instructions and brief (all four read from the transcript itself) over BYTES_PER_TOKEN; the median
+// per agent over 2026-10-26 … 2026-10-29 (Claude Code's tool schemas were larger before):
+// implementer 18 819 (55 agents), reviewer and verifier 5 867 (110), scout 6 402 (18). It holds
+// Claude Code's system prompt and tool schemas, and for the implementer, which has every tool, the
+// skill listing (about 30 KB) and the list of deferred tools. A session with many MCP connectors
+// lists far more deferred tools (65 KB more in 23 of the 206 first requests of that period, about
+// 24 000 tokens): those were left out of the medians, and this check does not see them.
+// briefBytes: the median brief of the same agents. The verifier is the reviewer agent with a
+// verifier's brief.
+//
+// Check, constants fitted on 2026-10-26 … 2026-10-27 only and applied to the agents of 2026-10-28 …
+// 2026-10-29 with the bytes of their own transcripts: the first request plus the bin/profile output
+// is off by at most 1.8 % (implementer, 19 agents), 2.7 % (reviewer, 7), 2.9 % (verifier, 50) and
+// 1.6 % (scout, 1); the two ship-ticket loads by 3.2 %.
+//
+// Redo the calibration when the model, its tokenizer or Claude Code's system prompt changes: measure
+// the two numbers as above on fresh transcripts, then compare this script's estimate with the first
+// requests of 10 or more new agents of each kind; the estimate should be within 10 %.
+const AGENTS = {
+    implementer: { definition: "implementer", constant: 18800, briefBytes: 3100, skill: true },
+    reviewer: { definition: "reviewer", constant: 5900, briefBytes: 1700, skill: false },
+    verifier: { definition: "reviewer", constant: 5900, briefBytes: 2700, skill: false },
+    scout: { definition: "scout", constant: 6400, briefBytes: 2100, skill: false },
+}
+// The lines bin/profile prints around profile.json and rules.md: its name and folder, the
+// repository and the checkout, two separator lines.
+const PROFILE_HEADER = 200
+const MEMORY_LINES = 200
+
+const USAGE = `usage: start-context [--agent <name>] [--profile <path>] [--instructions <file>]... [--json]
+  estimates the starting context of each Harness agent (${Object.keys(AGENTS).join(", ")}) in tokens
+  and compares it with the threshold of ${THRESHOLD}
+  --profile <path>       a profile folder or its profile.json instead of what bin/profile finds here
+  --instructions <file>  the instruction files Claude Code reads (repeatable) instead of the usual ones
+exit: 0 within the threshold, 1 over it, 2 usage error`
+
+class Usage extends Error {}
+
+const HARNESS = path.resolve(__dirname, "..")
+const bytesOf = (text) => Buffer.byteLength(text, "utf8")
+
+function parseArgs(argv) {
+    const opts = { agent: null, profile: null, instructions: null, json: false }
+    for (let i = 0; i < argv.length; i++) {
+        const arg = argv[i]
+        const value = () => {
+            const v = argv[++i]
+            if (v === undefined || v === "") throw new Usage(`${arg} needs a value`)
+            return v
+        }
+        if (arg === "--agent") opts.agent = value()
+        else if (arg === "--profile") opts.profile = value()
+        else if (arg === "--instructions") (opts.instructions ??= []).push(value())
+        else if (arg === "--json") opts.json = true
+        else if (arg === "--help" || arg === "-h") opts.help = true
+        else throw new Usage(`unknown argument '${arg}'`)
+    }
+    if (opts.agent !== null && !Object.hasOwn(AGENTS, opts.agent)) throw new Usage(`unknown agent '${opts.agent}' (${Object.keys(AGENTS).join(", ")})`)
+    return opts
+}
+
+function readText(file) {
+    try {
+        return fs.readFileSync(file, "utf8")
+    } catch {
+        return null
+    }
+}
+
+// The definition as the model reads it: the body after the frontmatter, the plugin root spelled out.
+function definitionText(name) {
+    const file = path.join(HARNESS, "agents", `${name}.md`)
+    const text = readText(file)
+    if (text === null) throw new Usage(`no agent definition ${file}`)
+    const body = text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
+    return { file: `agents/${name}.md`, text: body.split("${CLAUDE_PLUGIN_ROOT}").join(HARNESS) }
+}
+
+// The rules part: exactly what the SubagentStart hook would inject in this folder.
+function rulesText() {
+    const run = spawnSync(process.execPath, [path.join(HARNESS, "hooks", "inject-rules.mjs"), "common"], {
+        input: JSON.stringify({ hook_event_name: "SubagentStart", cwd: process.cwd() }),
+        encoding: "utf8",
+        env: { ...process.env, CLAUDE_PLUGIN_ROOT: HARNESS },
+        windowsHide: true,
+    })
+    try {
+        return JSON.parse(run.stdout).hookSpecificOutput.additionalContext
+    } catch {
+        return ""
+    }
+}
+
+// The repository around the current folder: `top`, the work tree the agent runs in (its CLAUDE.md
+// files), and `main`, the main checkout (a worktree shares the auto memory of its main checkout).
+// Outside git both are the current folder.
+function repository() {
+    const git = (args) => {
+        const run = spawnSync(GIT, ["rev-parse", "--path-format=absolute", ...args], { encoding: "utf8", windowsHide: true })
+        return run.status === 0 ? run.stdout.trim() : ""
+    }
+    const top = git(["--show-toplevel"]) || process.cwd()
+    const common = git(["--git-common-dir"])
+    const main = !common ? top : path.basename(common) === ".git" ? path.dirname(common) : common
+    return { top, main }
+}
+
+function instructionFiles(given) {
+    if (given) {
+        return given.map((file) => {
+            const text = readText(file)
+            if (text === null) throw new Usage(`cannot read --instructions file ${file}`)
+            return { file, text }
+        })
+    }
+    const config = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude")
+    const { top, main } = repository()
+    const memory = path.join(config, "projects", main.replace(/[^A-Za-z0-9]/g, "-"), "memory", "MEMORY.md")
+    const found = []
+    for (const file of [path.join(config, "CLAUDE.md"), path.join(top, "CLAUDE.md"), path.join(top, ".claude", "CLAUDE.md"), path.join(top, "CLAUDE.local.md"), memory]) {
+        let text = readText(file)
+        if (text === null) continue
+        if (file === memory) text = text.split("\n").slice(0, MEMORY_LINES).join("\n")
+        found.push({ file, text })
+    }
+    return found
+}
+
+// The profile part and the skill the profile names: { bytes, label, skill } or null.
+function profilePart(given) {
+    if (given) {
+        let dir = given
+        if (fs.statSync(given, { throwIfNoEntry: false })?.isFile()) dir = path.dirname(given)
+        const json = readText(path.join(dir, "profile.json"))
+        if (json === null) throw new Usage(`no profile.json in ${dir}`)
+        const rules = readText(path.join(dir, "rules.md")) ?? ""
+        let skill = null
+        try {
+            skill = JSON.parse(json)?.workflow?.ticket_skill ?? null
+        } catch {
+            throw new Usage(`${path.join(dir, "profile.json")} is not JSON`)
+        }
+        return { label: `profile ${dir}`, bytes: bytesOf(json) + bytesOf(rules) + PROFILE_HEADER, skill }
+    }
+    const bin = path.join(HARNESS, "bin", "profile")
+    const run = spawnSync(process.execPath, [bin], { encoding: "utf8", windowsHide: true })
+    if (run.status !== 0) return null
+    const field = spawnSync(process.execPath, [bin, "--field", "workflow.ticket_skill"], { encoding: "utf8", windowsHide: true })
+    const skill = field.status === 0 ? field.stdout.trim() : null
+    return { label: "bin/profile output", bytes: bytesOf(run.stdout), skill: skill && skill !== "null" ? skill : null }
+}
+
+// "ship-ticket", "/ship-ticket" or "/plugin:ship-ticket" -> skills/ship-ticket/SKILL.md of this Harness.
+function skillPart(name) {
+    const bare = name.replace(/^\//, "").replace(/^[^:]*:/, "")
+    const rel = `skills/${bare}/SKILL.md`
+    const text = readText(path.join(HARNESS, rel))
+    return text === null ? { name: `skill ${bare} (not in this Harness)`, bytes: 0 } : { name: `skill ${rel}`, bytes: bytesOf(text) }
+}
+
+function estimate(name, shared) {
+    const agent = AGENTS[name]
+    const def = definitionText(agent.definition)
+    const parts = [
+        { name: `definition ${def.file}`, bytes: bytesOf(def.text) },
+        { name: "rules (SubagentStart hook)", bytes: bytesOf(shared.rules) },
+        { name: `instructions (${shared.instructions.length} files)`, bytes: shared.instructions.reduce((sum, f) => sum + bytesOf(f.text), 0) },
+        { name: "brief (typical)", bytes: agent.briefBytes },
+    ]
+    if (shared.profile) {
+        parts.push({ name: shared.profile.label, bytes: shared.profile.bytes })
+        if (agent.skill && shared.profile.skill) parts.push(skillPart(shared.profile.skill))
+    }
+    for (const part of parts) part.tokens = Math.round(part.bytes / BYTES_PER_TOKEN)
+    const tokens = agent.constant + parts.reduce((sum, p) => sum + p.tokens, 0)
+    const largest = parts.reduce((a, b) => (b.bytes > a.bytes ? b : a))
+    return { agent: name, tokens, threshold: THRESHOLD, over: tokens > THRESHOLD, constant: agent.constant, largest: largest.name, parts }
+}
+
+const group = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ")
+
+function printText(results, notes) {
+    const out = [`start-context: threshold ${group(THRESHOLD)} tokens, ${BYTES_PER_TOKEN} bytes per token`]
+    for (const note of notes) out.push(`note: ${note}`)
+    for (const r of results) {
+        const verdict = r.over
+            ? `RED: over the threshold by ${group(r.tokens - THRESHOLD)}; largest part: ${r.largest}`
+            : `ok: ${group(THRESHOLD - r.tokens)} below the threshold`
+        out.push(`${r.agent}: ${group(r.tokens)} tokens — ${verdict}`)
+        out.push(`  ${"Claude Code constant".padEnd(52)} ${"".padStart(9)}  ${group(r.constant).padStart(7)}`)
+        for (const p of r.parts) out.push(`  ${p.name.padEnd(52)} ${`${group(p.bytes)} B`.padStart(9)}  ${group(p.tokens).padStart(7)}`)
+    }
+    process.stdout.write(out.join("\n") + "\n")
+}
+
+function main() {
+    const opts = parseArgs(process.argv.slice(2))
+    if (opts.help) {
+        process.stdout.write(USAGE + "\n")
+        return 0
+    }
+    const notes = []
+    const profile = profilePart(opts.profile)
+    if (!profile) notes.push("bin/profile found no profile here: no profile part and no skill part")
+    const shared = { rules: rulesText(), instructions: instructionFiles(opts.instructions), profile }
+    const names = opts.agent ? [opts.agent] : Object.keys(AGENTS)
+    const results = names.map((name) => estimate(name, shared))
+    if (opts.json) process.stdout.write(JSON.stringify({ threshold: THRESHOLD, bytesPerToken: BYTES_PER_TOKEN, notes, agents: results }, null, 2) + "\n")
+    else printText(results, notes)
+    return results.some((r) => r.over) ? 1 : 0
+}
+
+try {
+    process.exitCode = main()
+} catch (e) {
+    if (!(e instanceof Usage)) throw e
+    process.stderr.write(`start-context: ${e.message}\n${USAGE}\n`)
+    process.exitCode = 2
+}
