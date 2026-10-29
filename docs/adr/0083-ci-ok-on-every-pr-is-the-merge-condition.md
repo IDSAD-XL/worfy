@@ -144,6 +144,11 @@ scope `pc` ждёт ПК, scope решает скрипт); ADR-0081, пункт
   нужного run-у `windows-e2e` — строка `::warning::` в сводке run-а, не красный `ci-ok` (`NON_BLOCKING` в
   `scripts/ci-ok.mjs`). Ненужный run-у `windows-e2e` по-прежнему должен быть `skipped`. Блокирующим job
   делает отдельный PR после пяти зелёных push-run-ов подряд на `main`.
+- **2026-10-29, job `windows-e2e` блокирует** (`worfy-throughput` 44). Решение оркестратора: «зелёный» run — все
+  shard-ы `success`; test, прошедший со второй попытки (FLAKY), не мешает — то же правило, что у любого job-а
+  при одном повторе. Десять push-run-ов `main` подряд с `windows-e2e` 4/4 `success` (40802610050 …
+  40818299601), поэтому `NON_BLOCKING` в `scripts/ci-ok.mjs` пуст: красный, отменённый или пропущенный нужный
+  run-у `windows-e2e` краснит `ci-ok`, как любой другой job.
 - **2026-10-28, macOS job-ы PR — по путям diff** (`worfy-throughput` 13, CI-половина; PR #927). Причина:
   зелёные run-ы PR шли 57–81 минуту при самом долгом job-е 19 минут — macOS job-ы ждали 26–67 минут одного
   из 5 macOS runner-ов бесплатного плана. Теперь на PR (`scripts/ci-scope.mjs`): `macos-e2e` — только когда

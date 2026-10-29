@@ -28,10 +28,8 @@ name: CI
 #   harness-scripts.test.ts, the longest file of shard 3/3 (354-617 s), runs in two jobs of its own,
 #   "windows (harness-scripts 1/2)" and "(harness-scripts 2/2)", each with half of the Harness shell
 #   tests; the three shards leave it out.
-# - windows-e2e: pnpm test:e2e on Windows in 4 shards, whenever macos-e2e runs. It does not block yet:
-#   ci-ok prints its result and warns when it is not green, but stays green (NON_BLOCKING in
-#   scripts/ci-ok.mjs). It blocks after five green push runs on main in a row, in a pull request of
-#   its own.
+# - windows-e2e: pnpm test:e2e on Windows in 4 shards, whenever macos-e2e runs. It blocks ci-ok like
+#   every other job since ten push runs on main in a row had it green.
 # - ci-ok: green when every job the run needs succeeded (scripts/ci-ok.mjs). A merge reads this check.
 #
 # The free plan runs 5 macOS jobs at a time, and pull requests waited 26 to 67 minutes for them while
