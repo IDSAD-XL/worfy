@@ -1,7 +1,8 @@
 # 09 — Тексты batch CI не говорят, что делать с `mergeable == UNKNOWN`
 
 Type: task
-Status: open
+Status: done 2026-10-29T13:34Z
+PR: #993
 Blocked by: —
 Source: ревью PR #433 ([08](08-batch-ci-на-main.md), «Итог»), находка `low`, 2026-10-17;
 [ADR-0068](../../../docs/adr/0068-batch-ci-on-main-once-per-wave.md).
@@ -43,3 +44,15 @@ Source: ревью PR #433 ([08](08-batch-ci-на-main.md), «Итог»), на�
 
 - Ожидание `UNKNOWN` в коде `bin/wave-gate`: `check` и `merge` на `mergeable` не смотрят
   ([08](08-batch-ci-на-main.md), «Итог»).
+
+## Итог
+
+Влит #993 (`19180516`), ревью medium — VERIFIED. Строки Ticket-а устарели после #974 и #982: batch-текст
+implementer-а теперь в `harness/skills/ship-ticket/implementer-finish.md:11-14`, образец — в
+`harness/skills/ship-ticket/step-8-pr-and-ci.md:113`. Все списки исходов `mergeable` называют `MERGEABLE`,
+`CONFLICTING` и `UNKNOWN`: verifier (`epic-wave/SKILL.md:519-521`), ночной цикл (`overnight-fix-loop/SKILL.md:278-283`,
+и в комментарии команды), implementer. Отличие от брифа Ticket-а: implementer после PR ничего не ждёт (Ticket 25),
+поэтому `UNKNOWN` он отдаёт в отчёт как есть, без второго вызова; перед merge `mergeable` перечитывает Orchestrator
+(`epic-wave/SKILL.md:905-908`, `harness/bin/land:357-361`). verifier и ночной цикл спрашивают ещё раз через минуту.
+Проверка — `harness/bin/tests/epic-wave-ship-ticket.test.sh` (32 проверки `batch mergeable`), 5 мутантов reviewer-а
+красные. Платный eval изменённых текстов ждёт владельца.
