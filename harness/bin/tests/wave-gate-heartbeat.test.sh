@@ -110,7 +110,7 @@ run_limited() {
     kill "$pid" 2>/dev/null; until_ok 2 gone_pid "$pid" || kill -KILL "$pid" 2>/dev/null
     wait "$pid" 2>/dev/null; rc=hung; return 1
 }
-FAST=0.2 LONG="300.$$"
+FAST=0.2
 # zsh is skipped, with one line, on Windows (Git Bash has none) and on a machine without zsh in PATH. Off Windows
 # a skip fails the file below: the zsh cases must not drop out while the file stays green.
 SHELLS=(bash zsh) skips=0
@@ -124,7 +124,14 @@ case "$(uname -s)" in
     *) [ "$skips" = 0 ] && [[ " ${SHELLS[*]} " == *" zsh "* ]] && ok "off Windows the zsh cases are not skipped" \
            || bad "off Windows the zsh cases were skipped: $skips skip line(s), shells [${SHELLS[*]}]" ;;
 esac
+# The bodies of the shells run at once, each in a subshell with its own work folder $W, lock, pid files and
+# counts: the subshell writes its output to $T/out-<shell> and its pass and fail counts to $T/counts-<shell>, and
+# the file prints both after the last body ends, in the order of SHELLS. Each body sleeps for a duration of its
+# own ($LONG), so a pid one body recorded is never taken for the other body's heartbeat sleep.
+k=0 body_pids=()
 for sh in "${SHELLS[@]}"; do
+    k=$((k + 1)); LONG="300.$$$k"
+    ( trap - EXIT; pass=0 fail=0
     W="$T/hb-$sh"; mkdir -p "$W/repo"
     L="$W/e2e.lock"; export HB_PIDS="$W/hb.pids"
     STUB="F() { case \"\$1\" in workflow.e2e_lock) echo '$L' ;; *) return 4 ;; esac; }"
@@ -277,6 +284,18 @@ for sh in "${SHELLS[@]}"; do
         echo "skip $sh: no pkill on this machine: the 40-run heartbeat test is not run"
     fi
     unset HB_PIDS
+    echo "$pass $fail" >"$T/counts-$sh"
+    ) >"$T/out-$sh" 2>&1 &
+    body_pids+=($!)
+done
+for p in "${body_pids[@]}"; do wait "$p"; done
+for sh in "${SHELLS[@]}"; do
+    cat "$T/out-$sh" 2>/dev/null
+    if read -r p f <"$T/counts-$sh" 2>/dev/null && [[ "$p" =~ ^[0-9]+$ && "$f" =~ ^[0-9]+$ ]]; then
+        pass=$((pass + p)); fail=$((fail + f))
+    else
+        bad "$sh: the body ended without its pass and fail counts"
+    fi
 done
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
