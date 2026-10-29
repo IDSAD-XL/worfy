@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
 # Tests of bin/start-context: the estimate of each Harness agent's starting context in tokens, red
-# above the threshold of 35 000.
-#   - a fixture Harness whose parts are small: exit 0, every agent ok; each part counted as the agent
+# when the parts the Harness writes (definition, rules/common.md, skill) are above 15 000.
+#   - a fixture Harness whose parts are small: exit 0, every agent ok; each part measured as the agent
 #     reads it (the definition without its frontmatter and with the plugin root spelled out, the
-#     rules as the SubagentStart hook injects them with the user's rules, the profile's two files,
-#     the skill the profile names); tokens = the agent's constant + the parts' tokens;
+#     rules as the SubagentStart hook injects them, split into common.md and the user's rules, the
+#     profile's two files, the skill the profile names); tokens = the counted parts' tokens, total =
+#     the agent's constant + every part's tokens;
+#   - the parts the Harness does not write (the user's rules, the instructions, the profile) blown up:
+#     shown with their size, not counted, exit 0; common.md blown up: every agent red;
 #   - a part blown up above the threshold: exit 1, the red line names the agent and its largest
 #     part — a definition (the reviewer and the verifier, which shares it), then a skill (the
 #     implementer only);
-#   - the real texts of this Harness with a fixture profile whose rules.md is 23 KB: the agents over
-#     the threshold must be exactly KNOWN_OVER below, and the test prints them;
+#   - the real texts of this Harness with a fixture profile whose rules.md is 23 KB: all four agents
+#     within the threshold, exit 0; the test prints each agent's counted tokens;
+#   - the skill folders of this Harness: every file next to a SKILL.md is named by that SKILL.md,
+#     every file a SKILL.md names in its own folder exists (a step moved out of the skill is still
+#     read at its step);
 #   - the usual instruction files and the auto memory (its first 200 lines) when --instructions is
 #     not given; no profile part and no skill part when bin/profile finds no profile;
 #   - --agent, --json, usage errors (exit 2); the run writes nothing into the real home.
@@ -34,11 +40,6 @@ before="$(real_home_snapshot "$REAL_HOME" "$T")"
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
-
-# The agents whose estimate on the real texts is over the threshold today. Shortening their texts is
-# separate work; when an agent drops below the threshold, take it off this list. Never raise the
-# threshold to make this list shorter.
-KNOWN_OVER="implementer"
 
 export HOME="$T/home" HARNESS_HOME="$T/harness-home" CLAUDE_CONFIG_DIR="$T/home/.claude"
 unset CLAUDE_PLUGIN_ROOT
@@ -85,17 +86,17 @@ printf '%s\n' 'Use the house style.' >"$T/instr-a"
 run "$H/bin/start-context" --profile "$(tn "$P")" --instructions "$(tn "$T/instr-a")" --json
 [ "$rc" = 0 ] && ok "small parts: exit 0" || bad "small parts: exit $rc, want 0"$'\n'"$(cat "$T/err")"
 [ "$(field 'j.agents.map((a) => a.agent).join(" ")')" = "implementer reviewer verifier scout" ] && ok "small parts: all four agents, in order" || bad "small parts: agents $(field 'j.agents.map((a) => a.agent).join(" ")')"
-[ "$(field 'j.threshold')" = 35000 ] && ok "the threshold is 35000" || bad "threshold $(field 'j.threshold')"
+[ "$(field 'j.threshold')" = 15000 ] && ok "the threshold is 15000" || bad "threshold $(field 'j.threshold')"
 [ "$(field 'j.agents.every((a) => !a.over)')" = true ] && ok "small parts: no agent over" || bad "small parts: an agent is over"
 # The definition: the body only, ${CLAUDE_PLUGIN_ROOT} spelled as the fixture Harness folder.
 root="$(np "$H")"
 want_def="$(node -e 'const fs = require("fs"); const s = fs.readFileSync(process.argv[1], "utf8").split("${CLAUDE_PLUGIN_ROOT}").join(process.argv[2]); process.stdout.write(String(Buffer.byteLength(s)))' "$(tn "$T/body")" "$root")"
 got_def="$(field 'j.agents[0].parts.find((p) => p.name === "definition agents/implementer.md").bytes')"
 [ "$got_def" = "$want_def" ] && ok "definition: body without frontmatter, plugin root spelled out ($got_def B)" || bad "definition: $got_def B, want $want_def"
-# The rules: common.md without its trailing newlines, the user rules after a heading.
-want_rules="$(node -e 'const fs = require("fs"); const c = fs.readFileSync(process.argv[1], "utf8").replace(/\n+$/, ""); const u = fs.readFileSync(process.argv[2], "utf8").trimEnd(); process.stdout.write(String(Buffer.byteLength(c + "\n\n## User rules\n\n" + u)))' "$(tn "$H/hooks/rules/common.md")" "$(tn "$HARNESS_HOME/user/rules.md")")"
-got_rules="$(field 'j.agents[0].parts.find((p) => p.name.startsWith("rules")).bytes')"
-[ "$got_rules" = "$want_rules" ] && ok "rules: common.md and the user's rules, as the hook injects them ($got_rules B)" || bad "rules: $got_rules B, want $want_rules"
+# The rules: common.md without its trailing newlines, then the user rules after a heading — two parts.
+want_rules="$(node -e 'const fs = require("fs"); const c = fs.readFileSync(process.argv[1], "utf8").replace(/\n+$/, ""); const u = fs.readFileSync(process.argv[2], "utf8").trimEnd(); process.stdout.write(Buffer.byteLength(c) + " " + Buffer.byteLength("\n\n## User rules\n\n" + u))' "$(tn "$H/hooks/rules/common.md")" "$(tn "$HARNESS_HOME/user/rules.md")")"
+got_rules="$(field '["rules common.md", "rules of the user"].map((n) => j.agents[0].parts.find((p) => p.name.startsWith(n)).bytes).join(" ")')"
+[ "$got_rules" = "$want_rules" ] && ok "rules: common.md and the user's rules, as the hook injects them, two parts ($got_rules B)" || bad "rules: $got_rules B, want $want_rules"
 got="$(field 'j.agents[0].parts.find((p) => p.name.startsWith("instructions")).bytes')"
 [ "$got" = "$(bytes "$T/instr-a")" ] && ok "instructions: the --instructions file" || bad "instructions: $got B, want $(bytes "$T/instr-a")"
 want_prof=$(( $(bytes "$P/profile.json") + $(bytes "$P/rules.md") + 200 ))
@@ -105,22 +106,28 @@ got="$(field 'j.agents[0].parts.find((p) => p.name.startsWith("skill"))?.name ??
 [ "$got" = "skill skills/ship-ticket/SKILL.md" ] && ok "implementer: the skill the profile names (/demo:ship-ticket)" || bad "implementer skill: $got"
 got="$(field 'j.agents.slice(1).filter((a) => a.parts.some((p) => p.name.startsWith("skill"))).length')"
 [ "$got" = 0 ] && ok "reviewer, verifier, scout: no skill part" || bad "$got of reviewer, verifier, scout have a skill part"
-# tokens = constant + the parts' tokens, each part bytes / bytesPerToken rounded.
-got="$(field 'j.agents.every((a) => a.tokens === a.constant + a.parts.reduce((s, p) => s + p.tokens, 0) && a.parts.every((p) => p.tokens === Math.round(p.bytes / j.bytesPerToken)))')"
-[ "$got" = true ] && ok "tokens = constant + sum of bytes / bytes per token" || bad "the token sum does not add up"
+# tokens = the counted parts' tokens; total = constant + every part's tokens; each part bytes / bytesPerToken rounded.
+got="$(field 'j.agents.every((a) => a.tokens === a.parts.filter((p) => p.counted).reduce((s, p) => s + p.tokens, 0) && a.total === a.constant + a.parts.reduce((s, p) => s + p.tokens, 0) && a.parts.every((p) => p.tokens === Math.round(p.bytes / j.bytesPerToken)))')"
+[ "$got" = true ] && ok "tokens = counted parts, total = constant + every part, bytes / bytes per token" || bad "the token sums do not add up"
+# Counted: what the Harness writes. Not counted: the user's rules, the instructions, the brief, the profile.
+got="$(field 'j.agents.map((a) => a.parts.filter((p) => p.counted).map((p) => p.name.split(" ")[0] + (p.name.startsWith("rules") ? ":" + p.name.split(" ")[1] : "")).join(",")).join(" ")')"
+[ "$got" = "definition,rules:common.md,skill definition,rules:common.md definition,rules:common.md definition,rules:common.md" ] && ok "counted parts: definition, common.md and the implementer's skill" || bad "counted parts: $got"
+got="$(field 'j.agents.map((a) => a.parts.filter((p) => !p.counted).map((p) => p.name.split(" ")[0] + (p.name.startsWith("rules") ? ":" + p.name.split(" ")[2] : "")).join(",")).join(" ")')"
+[ "$got" = "$(printf 'rules:the,instructions,brief,profile %.0s' 1 2 3 4 | sed 's/ $//')" ] && ok "not counted: the user's rules, the instructions, the brief, the profile" || bad "not counted: $got"
 [ "$(field 'j.agents[1].parts.find((p) => p.name.startsWith("definition")).name')" = "definition agents/reviewer.md" ] && [ "$(field 'j.agents[2].parts.find((p) => p.name.startsWith("definition")).name')" = "definition agents/reviewer.md" ] && ok "the verifier reads the reviewer's definition" || bad "the verifier's definition is not agents/reviewer.md"
 
 run "$H/bin/start-context" --profile "$(tn "$P")" --instructions "$(tn "$T/instr-empty")"
-[ "$rc" = 0 ] && grep -q '^implementer: .* tokens — ok: ' "$T/out" && grep -q '^scout: .* tokens — ok: ' "$T/out" && ok "text output: an ok line per agent" || bad "text output, exit $rc:"$'\n'"$(cat "$T/out")"
-grep -q '^  definition agents/scout.md ' "$T/out" && ok "text output: the parts under the agent" || bad "text output has no part lines"
+[ "$rc" = 0 ] && grep -q '^implementer: .* tokens — ok: .*; whole start about [0-9 ]*$' "$T/out" && grep -q '^scout: .* tokens — ok: ' "$T/out" && ok "text output: an ok line per agent, with the whole start" || bad "text output, exit $rc:"$'\n'"$(cat "$T/out")"
+grep -q '^  definition agents/scout.md .* counted$' "$T/out" && ok "text output: the parts under the agent" || bad "text output has no part lines"
+grep -q '^  Claude Code constant .* not counted$' "$T/out" && grep -q '^  profile .* not counted$' "$T/out" && grep -q '^  instructions .* not counted$' "$T/out" && ok "text output: the fixed parts are shown, marked not counted" || bad "text output: fixed parts not shown as not counted:"$'\n'"$(cat "$T/out")"
 
 # --- 2. A part above the threshold -----------------------------------------------------------------
 cp "$H/agents/reviewer.md" "$T/reviewer.md.small"
 fill "$H/agents/reviewer.md" 150000
 run "$H/bin/start-context" --profile "$(tn "$P")" --instructions "$(tn "$T/instr-empty")"
 [ "$rc" = 1 ] && ok "blown-up definition: exit 1" || bad "blown-up definition: exit $rc, want 1"
-grep -q '^reviewer: [0-9 ]* tokens — RED: over the threshold by [0-9 ]*; largest part: definition agents/reviewer.md$' "$T/out" && ok "the red line names the reviewer and its largest part" || bad "no red reviewer line:"$'\n'"$(cat "$T/out")"
-grep -q '^verifier: .* RED: .*largest part: definition agents/reviewer.md$' "$T/out" && ok "the verifier, which reads the same definition, is red too" || bad "the verifier is not red"
+grep -q '^reviewer: [0-9 ]* tokens — RED: over the threshold by [0-9 ]*; largest part: definition agents/reviewer.md; whole start about [0-9 ]*$' "$T/out" && ok "the red line names the reviewer and its largest part" || bad "no red reviewer line:"$'\n'"$(cat "$T/out")"
+grep -q '^verifier: .* RED: .*largest part: definition agents/reviewer.md; ' "$T/out" && ok "the verifier, which reads the same definition, is red too" || bad "the verifier is not red"
 grep -q '^implementer: .* — ok: ' "$T/out" && grep -q '^scout: .* — ok: ' "$T/out" && ok "the other agents stay ok" || bad "another agent went red"
 run "$H/bin/start-context" --agent scout --profile "$(tn "$P")" --instructions "$(tn "$T/instr-empty")"
 [ "$rc" = 0 ] && [ "$(grep -c '^[a-z]*: [0-9 ]* tokens' "$T/out")" = 1 ] && grep -q '^scout: ' "$T/out" && ok "--agent scout: only the scout, exit 0 while the reviewer is over" || bad "--agent scout: exit $rc"$'\n'"$(cat "$T/out")"
@@ -129,35 +136,71 @@ fill "$H/skills/ship-ticket/SKILL.md" 150000
 run "$H/bin/start-context" --profile "$(tn "$P")" --instructions "$(tn "$T/instr-empty")" --json
 [ "$rc" = 1 ] && [ "$(field 'j.agents.filter((a) => a.over).map((a) => a.agent + ":" + a.largest).join(" ")')" = "implementer:skill skills/ship-ticket/SKILL.md" ] && ok "blown-up skill: exit 1, only the implementer, largest part the skill" || bad "blown-up skill: exit $rc, over: $(field 'j.agents.filter((a) => a.over).map((a) => a.agent + ":" + a.largest).join(" ")')"
 printf '%s\n' '# Ship a ticket' >"$H/skills/ship-ticket/SKILL.md"
-# Exactly at the threshold is still within it.
+# Exactly at the threshold is still within it: the scout's definition grows to the last token.
 run "$H/bin/start-context" --agent scout --profile "$(tn "$P")" --instructions "$(tn "$T/instr-empty")" --json
-need=$(( ( 35000 - $(num "$(field 'j.agents[0].tokens')") ) * 27 / 10 ))
-cp "$P/rules.md" "$T/rules.md.small"
-fill "$P/rules.md" $(( $(bytes "$P/rules.md") + need ))
+deftok=$(num "$(field 'j.agents[0].parts.find((p) => p.name.startsWith("definition")).tokens')")
+want_def_tok=$(( 15000 - $(num "$(field 'j.agents[0].tokens')") + deftok ))
+cp "$H/agents/scout.md" "$T/scout.md.small"
+fill "$H/agents/scout.md" $(( (want_def_tok * 27 + 5) / 10 + $(bytes "$H/agents/scout.md") - $(num "$(field 'j.agents[0].parts.find((p) => p.name.startsWith("definition")).bytes')") ))
 run "$H/bin/start-context" --agent scout --profile "$(tn "$P")" --instructions "$(tn "$T/instr-empty")" --json
 tok="$(field 'j.agents[0].tokens')"
-if [ "$tok" = 35000 ]; then
-    [ "$rc" = 0 ] && ok "35000 tokens exactly: within the threshold, exit 0" || bad "35000 tokens exactly: exit $rc"
-else bad "could not build an estimate of exactly 35000 (got $tok)"; fi
-fill "$P/rules.md" $(( $(bytes "$P/rules.md") + 3 ))
+if [ "$tok" = 15000 ]; then
+    [ "$rc" = 0 ] && ok "15000 tokens exactly: within the threshold, exit 0" || bad "15000 tokens exactly: exit $rc"
+else bad "could not build an estimate of exactly 15000 (got $tok)"; fi
+fill "$H/agents/scout.md" $(( $(bytes "$H/agents/scout.md") + 3 ))
 run "$H/bin/start-context" --agent scout --profile "$(tn "$P")" --instructions "$(tn "$T/instr-empty")" --json
-[ "$rc" = 1 ] && [ "$(field 'j.agents[0].tokens')" = 35001 ] && ok "35001 tokens: over, exit 1" || bad "35001 tokens: exit $rc, tokens $(field 'j.agents[0].tokens')"
-cp "$T/rules.md.small" "$P/rules.md"
+[ "$rc" = 1 ] && [ "$(field 'j.agents[0].tokens')" = 15001 ] && ok "15001 tokens: over, exit 1" || bad "15001 tokens: exit $rc, tokens $(field 'j.agents[0].tokens')"
+cp "$T/scout.md.small" "$H/agents/scout.md"
+
+# The parts the Harness does not write are shown, never counted: blown up, they turn no agent red.
+cp "$P/rules.md" "$T/rules.md.small"; cp "$HARNESS_HOME/user/rules.md" "$T/user-rules.small"
+fill "$P/rules.md" 150000; fill "$T/instr-big" 150000; fill "$HARNESS_HOME/user/rules.md" 8000
+run "$H/bin/start-context" --profile "$(tn "$P")" --instructions "$(tn "$T/instr-big")" --json
+[ "$rc" = 0 ] && [ "$(field 'j.agents.every((a) => !a.over && a.tokens < 1000 && a.total > 100000)')" = true ] && ok "blown-up profile, instructions, user rules: not counted, exit 0, the whole start shows them" || bad "blown-up fixed parts: exit $rc, $(field 'j.agents.map((a) => a.agent + " " + a.tokens + "/" + a.total).join(", ")')"
+[ "$(field 'j.agents[0].parts.find((p) => p.name.startsWith("profile")).bytes > 150000 && j.agents[0].parts.find((p) => p.name.startsWith("rules of the user")).bytes > 7000')" = true ] && ok "blown-up fixed parts: their sizes are still measured" || bad "blown-up fixed parts are not measured"
+cp "$T/rules.md.small" "$P/rules.md"; cp "$T/user-rules.small" "$HARNESS_HOME/user/rules.md"
+# common.md is the Harness's own: blown up, every agent goes red.
+cp "$H/hooks/rules/common.md" "$T/common.md.small"
+fill "$H/hooks/rules/common.md" 50000
+run "$H/bin/start-context" --profile "$(tn "$P")" --instructions "$(tn "$T/instr-empty")" --json
+[ "$rc" = 1 ] && [ "$(field 'j.agents.filter((a) => a.over && a.largest === "rules common.md (SubagentStart hook)").length')" = 4 ] && ok "blown-up common.md: counted, all four agents red" || bad "blown-up common.md: exit $rc, $(field 'j.agents.map((a) => a.agent + " " + a.tokens + " " + a.largest).join(", ")')"
+cp "$T/common.md.small" "$H/hooks/rules/common.md"
 
 # --- 3. The real texts of this Harness, a fixture rules.md of 23 KB -------------------------------
 R="$T/real-profile"; mkdir -p "$R"
 cp "$P/profile.json" "$R/profile.json"
 fill "$R/rules.md" 23250
 run "$SC" --profile "$(tn "$R")" --instructions "$(tn "$T/instr-empty")" --json
-over="$(field 'j.agents.filter((a) => a.over).map((a) => a.agent).join(" ")')"
-want_rc=0; [ -n "$KNOWN_OVER" ] && want_rc=1
-[ "$rc" = "$want_rc" ] && ok "real texts: exit $rc" || bad "real texts: exit $rc, want $want_rc"$'\n'"$(cat "$T/err")"
-if [ "$over" = "$KNOWN_OVER" ]; then
-    ok "real texts: the agents over the threshold are exactly the known ones (${KNOWN_OVER:-none})"
-    [ -n "$KNOWN_OVER" ] && echo "KNOWN RED: on the real texts these agents are over 35000 tokens: $(field 'j.agents.filter((a) => a.over).map((a) => a.agent + " " + a.tokens + " (largest part: " + a.largest + ")").join("; ")')"
-else
-    bad "real texts: over the threshold: '${over}', known: '${KNOWN_OVER}' — shorten the new ones, or take the ones now below off KNOWN_OVER"
-fi
+over="$(field 'j.agents.filter((a) => a.over).map((a) => a.agent + " " + a.tokens + " (largest part: " + a.largest + ")").join("; ")')"
+[ "$rc" = 0 ] && ok "real texts: exit 0" || bad "real texts: exit $rc, want 0"$'\n'"$(cat "$T/err")"
+[ "$(field 'j.agents.map((a) => a.agent).join(" ")')" = "implementer reviewer verifier scout" ] && [ -z "$over" ] \
+    && ok "real texts: all four agents within the threshold" \
+    || bad "real texts: over the threshold: $over — shorten the texts, never raise the threshold for this"
+echo "real texts, tokens of the Harness's own parts: $(field 'j.agents.map((a) => a.agent + " " + a.tokens).join(", ")')"
+
+# --- 3a. Step files of the skills: a part moved out of SKILL.md or an agent is still read ----------
+# start-context counts only SKILL.md and the agent's definition: a file next to SKILL.md costs nothing at
+# the start, so nothing but this check keeps a moved part from being lost. Every file next to a
+# SKILL.md must be named as `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/<file>` by that SKILL.md or by an agent
+# definition (agents/*.md), and every such name in them must be a file on disk.
+SKILLS_DIR="${SKILLS_DIR:-$HARNESS/skills}"
+AGENTS_DIR="${AGENTS_DIR:-$HARNESS/agents}"
+step_files=0
+for d in "$SKILLS_DIR"/*/; do
+    d="${d%/}"; sk="$(basename "$d")"; [ -f "$d/SKILL.md" ] || continue
+    for f in "$d"/*; do
+        n="$(basename "$f")"; [ "$n" = SKILL.md ] && continue
+        step_files=$((step_files + 1))
+        cat "$d/SKILL.md" "$AGENTS_DIR"/*.md | grep -qF "\${CLAUDE_PLUGIN_ROOT}/skills/$sk/$n\`" \
+            && ok "skill $sk: $n is named by SKILL.md or an agent" || bad "skill $sk: $n lies next to SKILL.md, but neither SKILL.md nor an agent names it — the part is lost"
+    done
+done
+for f in "$SKILLS_DIR"/*/SKILL.md "$AGENTS_DIR"/*.md; do
+    for p in $(grep -oE '\$\{CLAUDE_PLUGIN_ROOT\}/skills/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+' "$f" | sed 's|^${CLAUDE_PLUGIN_ROOT}/skills/||' | sort -u); do
+        [ -f "$SKILLS_DIR/$p" ] && ok "$(basename "$(dirname "$f")")/$(basename "$f") names skills/$p, and it exists" || bad "$f names skills/$p, which is not there"
+    done
+done
+[ "$step_files" -gt 0 ] && ok "the skills have step files ($step_files)" || bad "no step file next to any SKILL.md"
 
 # --- 4. The usual instruction files, the auto memory, no profile -----------------------------------
 G="$T/repo"; mkdir -p "$G"; git -C "$G" init -q

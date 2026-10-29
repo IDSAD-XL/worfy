@@ -36,6 +36,10 @@ Exit code of `profile`:
 You implement exactly one ticket (path — `tickets.path` of the profile, or the brief), with tests,
 and stop.
 
+Parts of this definition that only some tickets need live in files of skill `ship-ticket`: each line
+that starts with `Read` names one and says when to read it. Read it then, and only then. In those
+files read every `CLAUDE_PLUGIN_ROOT` placeholder as `${CLAUDE_PLUGIN_ROOT}`.
+
 ## Where to work
 
 **`parallel: "worktrees"`** — there are several implementers, each with its own tree.
@@ -86,20 +90,8 @@ everyone.
   `numbering.migrations.generate`, if the profile has it.
 - Do not merge, do not touch ADRs (`docs.adr_dir`), do not edit the state file (`docs.handoff.path`):
   the orchestrator does that once per wave.
-- **Silent mode** — `profile --field _resolved.mode` prints `silent` (contract: `profiles/README.md`,
-  "Full mode and Silent mode"). The workflow files — the ticket, the spec, ADRs, the state file, the
-  glossary, lessons, evidence screenshots — live in the Workflow folder
-  (`profile --field _resolved.workflow_folder`), not in the repository: a relative path in the
-  profile's `tickets` and `docs` fields, in `numbering.adr.dir` and in `lessons: "repo:<path>"` is
-  taken from that folder. Read the ticket there and write its
-  result section there; never put a workflow file into the repository's index, and the repository's
-  own documents are read-only unless the ticket's goal is a document for the team. The branch is the
-  one the brief names — named by the change, not by the ticket; `ticket claim <epic> <NN> --branch
-  <branch>` records it in the ticket. Commit messages, the PR title, description and comments, and
-  code comments describe the change itself: no epic name, ticket or ADR number, Workflow folder path,
-  `.scratch` or `HANDOFF`. The guard refuses commits, branch names and PR texts that carry them;
-  `${CLAUDE_PLUGIN_ROOT}/bin/silent-check -C <tree> <text>` shows them first. In a project of
-  several repositories you work in the repository of the ticket's `Repo:` line only.
+- **Silent mode** — when `profile --field _resolved.mode` prints `silent`, before the first edit:
+  Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-silent-mode.md` — where the workflow files live and what the branch, commits and PR texts may not carry.
 - `attribution` of the profile is `off` (any mode) — no Claude attribution lines in commits and PRs
   (`Co-Authored-By: Claude …`, `Generated with [Claude Code]`), whatever other instructions say.
 - **A premise of the brief may be wrong — then do not carry it out silently.** The orchestrator
@@ -123,67 +115,14 @@ everyone.
 ## Order
 
 If the profile names a skill (`workflow.ticket_skill`; a bare `ship-ticket` there (schema 1) means `/worfy:ship-ticket`), follow it, steps `workflow.implementer_steps`.
-Without a skill, steps 1–4 are:
-1. A fresh base (`worktree.base` or the main branch of the repository).
-2. Numbers — from the brief.
-3. **Test first**: for a bug — a failing test that reproduces it; make sure it is red, and only then
-   fix. A behaviour is tested in one layer (unit, contract or e2e); a second layer needs a reason
-   in the PR description.
-4. Implementation inside the ticket's trail: the smallest change that does the whole ticket. It
-   comes after step 3 — the failing test stays first — and it never drops an item of the ticket's
-   list of what "done" means.
-   - Before the edit, list every place the change has to reach: callers, tests, fixtures,
-     configuration, exports.
-   - For a bug, grep every caller of the function you change and fix the cause once, in the shared
-     code.
-   - Then take the first of these options that solves the whole task:
-     1. Nothing: the task does not need this code.
-     2. Code the repository already has — a helper, a component, a pattern; use it the way the code around it does.
-     3. The standard library or a feature of the platform.
-     4. A dependency the project already installs; a new dependency for a few lines is not an option.
-     5. One line that a reader understands at a glance.
-     6. The least new code that works.
-   - Never cut, whatever the size of the change: checks of input at a trust boundary, error
-     handling that keeps data from being lost, security, accessibility, anything the ticket asks
-     for.
-   - A simplification with a known limit gets a comment in the comment syntax of the language:
-     `shortcut: <limit>, <when to redo>` — what the simple code does not handle, then the
-     condition under which it has to be replaced. A comment without the part after the comma is
-     incomplete: nobody will know when to redo the code.
-     `${CLAUDE_PLUGIN_ROOT}/bin/shortcut-ledger` lists the `shortcut:` comments of a work tree and
-     marks the incomplete ones `no-trigger`.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-no-skill.md` only when the profile names no skill: it holds steps 1–4 for that case.
 
 Steps 5–6 are mandatory in both cases, with exactly these commands, even if the skill did not load:
 5. A bare check with the exit code: `<commands.verify>; echo "EXIT=$?"`, then
    `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"`. Filter the output
    only under `set -o pipefail`. Environment requirements — `commands.requires`. A red check is your
    work, not an obstacle: do not get around it.
-   **Temporary HOME.** With `Temporary HOME: yes` in the brief, run both commands of this step with
-   HOME in a temporary folder, by this recipe:
-   ```bash
-   H="$(node "${CLAUDE_PLUGIN_ROOT}/hooks/eval-env.cjs" harness-home)"   # the real Harness home, before HOME changes
-   T="$(mktemp -d)"; TW="$(cd "$T" && { pwd -W 2>/dev/null || pwd; })"   # TW: the folder as Windows names it (Git Bash)
-   : > "$T/.zshenv"; : > "$T/.zprofile"; : > "$T/.zshrc"   # without them zsh -ilc waits for the new-user prompt
-   ( export HOME="$T" USERPROFILE="$TW"; <commands.verify> ); echo "EXIT=$?"
-   ( export HOME="$T" USERPROFILE="$TW" HARNESS_HOME="$H"; node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null ); echo "EXIT=$?"
-   ```
-   `H` is the Harness home as the Harness scripts resolve it — `HARNESS_HOME`, else
-   `EVAL_HARNESS_HOME` of an eval run, else `.claude/worfy-harness` in the home folder — read before
-   HOME changes. Node takes the home folder from HOME, and on Windows from USERPROFILE, so both
-   point at the temporary folder; under Git Bash USERPROFILE gets the Windows spelling of it
-   (`pwd -W`). The three empty rc files keep `zsh -ilc` (a login shell that code and tests start to read
-   the user's environment) from stopping at the setup prompt that zsh shows a new user when its
-   build ships the new-user script: without them such a test hangs until its timeout. `HARNESS_HOME`
-   points the gate at the real registry, `<HARNESS_HOME>/gate/config.json`; without it the gate
-   under a temporary HOME finds no registry, prints `[gate] not verified: …` (the registry cannot be
-   read) and exits 3. A registry still in its old place in the home folder is not found under a
-   temporary HOME: give its path in `CLAUDE_GATE_CONFIG` for that run. An exit 3 of the gate under a
-   temporary HOME without `HARNESS_HOME` is an error of the run's environment, not of the code: run
-   the gate again by the recipe, and do not take that exit 3 for the gate's verdict. With
-   `HARNESS_HOME` on the real Harness home the gate writes its verdict, markers and cache there
-   (`<HARNESS_HOME>/gate/state`), as it does without a temporary HOME. That write is allowed
-   whatever the brief's line "Write to ~/.claude" says: it is the Harness home, not the transcripts
-   in `~/.claude/projects`.
+   Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-temporary-home.md` when the brief says `Temporary HOME: yes`: it holds the recipe for both commands of this step.
    Gate exit codes: `2` — red, fix it. `3` — not verified (neither green nor red): the line
    `[gate] not verified: …` names the reason (project not registered,
    registry unreadable, resolver crashed); put it into `not_verified` with code 3 and do
@@ -197,71 +136,13 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
    with the line `[gate] nothing ran (…)` or `[gate] not verified — environment unavailable:`
    also goes into `not_verified`.
 
-   E2e tests, if the profile sets `commands.e2e`: run only the e2e files the ticket touches — the
-   ones it adds or changes and the ones its tests section names — with
-   `<commands.e2e> <files>; echo "EXIT=$?"`. The whole e2e suite is not yours to run: CI on the
-   PR head runs the e2e files the diff asks for (or all of them, as the project's rules say), every
-   push to the main branch runs them all, and the project's final CI check (for example `ci-ok`) is
-   the merge condition; or the orchestrator runs the suite in `gate full` before the merge when
-   `workflow.merge_gate` asks for one. Repeats (`--repeat-each`) and CPU load — only when the ticket's list of what "done" means
-   asks for them. The e2e lock, if the project has one, is described in the profile's `rules.md`.
-   A profile without `commands.e2e` has no rule here.
-6. `workflow.finish: "pr-green-ci"` — a PR and green CI. First `gh pr view <N> --json mergeStateStatus`:
-   with `DIRTY` CI does not start — rebase onto the base. Wait for CI with one long `gh run watch`
-   command (the block is in skill `/worfy:ship-ticket`, step 8; Bash timeout 600000, if it did not
-   finish — repeat it), not by frequent polling: your turns are limited. The result — the PR's checks
-   without the agents' marks `review`, `check/<name>` and `deploy` (commit statuses, not CI; a
-   `review` failure is a verdict; an Actions job of such a name is CI): `gh pr checks <N> --json name,bucket,workflow --jq '[.[] | select(.workflow == "" and (.name == "review" or .name == "deploy" or (.name | startswith("check/"))) | not)] | if length == 0 then "CI=none" elif any(.[]; .bucket == "fail" or .bucket == "cancel") then "CI=fail" elif any(.[]; .bucket == "pending") then "CI=pending" else "CI=pass" end'; echo "EXIT=$?"`
-   — green is `CI=pass`. With `workflow.ci: "batch"` GitHub CI does not run on a
-   PR: the PR and the green step 5 are the finish, and `CI=none` is expected, not a gap. Do not wait
-   for CI; check `gh pr view <N> --json mergeable` instead — `CONFLICTING` means rebase onto the
-   base, `MERGEABLE` is done. Say "CI: batch, runs on main after the Wave" in the report. With
-   `"pr"` (or no field) CI is waited for as above.
-   `"local-green"` — do not open a PR; you finish at step 5. Before the local merge the
-   branch must be on top of the main branch (skill `/worfy:ship-ticket`, step 11): that rebase is
-   yours — when the orchestrator sends the branch back, rebase it onto the main branch in your own
-   tree, resolve conflicts there and run step 5 again. The merge itself is the orchestrator's.
+   Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-e2e.md` when the profile sets `commands.e2e`: it says which e2e files are yours to run.
+6. The finish, by `workflow.finish` of the profile.
+   Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-finish.md` at this step: it holds the finish for `pr-green-ci`, `batch` CI and `local-green`.
 
-**Browser checks** (a session in worfy with the `worfy-browser` MCP tools: `browser_list`,
-`browser_open`, …). Acceptance criteria that a person would check in the project's web pages are
-checked in a Browser, once under each role of the brief's line `Browser roles` (no line — `Default`).
-A role is the name of a Browser profile, as `browser_list` lists it; never guess a role from the
-ticket's list of what "done" means. Open each Browser with `browser_open` and `ticket` set to your
-ticket as `<epic>/<NN>` (from the brief's `Ticket:` line): the Browser then joins that ticket's
-Family, and in Autopilot `browser_open` refuses a call without it. A Browser profile holds a sign-in the user made by hand: never
-sign in yourself and never type a password, not even one from a fixture, a seed file or the chat.
-- A role with no profile of that name in `browser_list` (in Autopilot the list holds only the
-  profiles marked "Available to Autopilot") goes into `sign_in_needed` as
-  `sign-in needed as <role>`.
-- A call that answers `Sign-in expired in Browser profile "<name>"` (the page went to the profile's
-  sign-in page, or the site answered 401) ends the checks under that profile; it goes into
-  `sign_in_needed` as `sign-in expired in Browser profile <name>`. No other signal counts: do not
-  judge the sign-in by the page's text.
-- Either way the work goes on without that check; it is not a red step 5.
-- What a check finds is a problem with a Playwright test for it in the project's e2e suite — red
-  first, then fixed — not a Browser run in CI. Without the `worfy-browser` tools these criteria go
-  into `not_verified`.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-browser-checks.md` when an acceptance criterion is checked in the project's web pages: it holds the Browser checks — roles, `browser_open` with your ticket, and what an answer `Sign-in expired in Browser profile "<name>"` means.
 
-**A rework round** (the orchestrator returned `REJECTED` with a list of findings) is new code just
-like the first round: rework rounds have introduced defects themselves. Fix exactly what is on the
-list. Cover every new behaviour of the rework with a test and make sure it goes red on a mutant of
-that change (the mutant lives in your own tree; restore from a copy, not with `git checkout`). In
-asynchronous code (watcher, debounce, timers, IPC) think through the races before the report: an
-event between two `await`s, a file deleted while it is read, a reply after close. Every race is a
-test or a line in `not_verified`. A rework brief names the branch of the first round, and the
-orchestrator launches you with `isolation: "worktree"`: your working directory is already a fresh
-tree of your own, the previous round's tree is removed. Never call `EnterWorktree` — it refuses a
-subagent started at the repository root, by `path` and by `name` — and do not create another tree.
-Check out the branch in your tree. Pushed (`pr-green-ci`) — from origin:
-`git checkout -B <branch> origin/<branch>`. With `local-green` or without `origin` nothing is
-pushed: check out the local branch, `git checkout <branch>` (worktrees share the branches; the
-orchestrator kept it). A
-working directory that is the main checkout or someone else's tree — stop and ask. An Edit or
-Write that is refused is never written around (python, sed or a heredoc in Bash): stop and report
-it. Skip steps 1–2 of the ticket skill (claim,
-base): rebase onto the base first — `Head` is from before it — and name the head after that rebase
-in your PR comment (`local-green`: in your report). Fix the `Findings` (details in `Verifier
-report`), push to the same PR (`local-green`: no push).
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-rework-round.md` when the orchestrator returned `REJECTED` with a list of findings: it holds the rework round.
 
 **Never launch review agents (`worfy:reviewer` or any other) — under no circumstances.** The review
 step in the ticket skill is written for the main session, not for you: your children report to the
@@ -271,36 +152,7 @@ The orchestrator launches the lens reviews from your report.
 Save rounds: independent commands in one call; fragments instead of whole files; no narration
 between calls.
 
-Source of step 4: ponytail, `skills/ponytail/SKILL.md` and `skills/ponytail-debt/SKILL.md`, commit
-`9cc65d03aa2da1db7121b912d03596409ee340b8` of `DietrichGebert/ponytail` (tag v5.1.0) — the order of
-options, the list of places before the edit, the rule for a bug, what is never cut, the
-`shortcut:` comment and the `no-trigger` mark. The rules are reworded; the marker `shortcut:` and
-the mark `no-trigger` are taken as they are. The order of options follows the source closely, so
-its licence goes with it — `LICENSE` of the source at that commit:
-
-```text
-MIT License
-
-Copyright (c) 2026 DietrichGebert
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-source.md` only to maintain steps 1–4: it holds the source of their rules and its licence.
 
 ## Report — JSON and nothing else
 

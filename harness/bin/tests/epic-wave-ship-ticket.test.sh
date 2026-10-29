@@ -9,6 +9,11 @@ set -u
 HARNESS="$(cd "$(dirname "$0")/../.." && pwd)"
 EW="${EPIC_WAVE_FILE:-$HARNESS/skills/epic-wave/SKILL.md}"
 ST="${SHIP_TICKET_FILE:-$HARNESS/skills/ship-ticket/SKILL.md}"
+# The skill as an agent reads it in full: SKILL.md with its step files put in place of their pointer
+# lines (skill-text.sh). Steps moved out of SKILL.md are checked where the skill puts them.
+. "$HARNESS/bin/tests/skill-text.sh"
+STT="$(mktemp -d)"; trap 'rm -rf "$STT"' EXIT
+[ -f "$ST" ] && { skill_text "$ST" "$STT/ship-ticket.md" || { echo "FAIL cannot assemble $ST"; exit 1; }; ST="$STT/ship-ticket.md"; }
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
@@ -257,6 +262,9 @@ check "ship-ticket: no debts section in the state file" lacks "$ST" "state file'
 # implementer), the documents committed on the ticket branch before the fast-forward, and with single the next
 # ticket waits for the local merge and starts from the main branch, not from the previous ticket's branch.
 IM="${IMPLEMENTER_FILE:-$HARNESS/agents/implementer.md}"
+# The implementer as it reads in full: its definition with the files of skill ship-ticket it names on a
+# `Read` line put in place (skill-text.sh).
+[ -f "$IM" ] && { skill_text "$IM" "$STT/implementer.md" || { echo "FAIL cannot assemble $IM"; exit 1; }; IM="$STT/implementer.md"; }
 PR="${PROFILES_README_FILE:-$HARNESS/profiles/README.md}"
 check "ship-ticket: single + local-green branches from the main branch after the local merge" has "$ST" 'with `local-green` — from the main branch after the'
 check "ship-ticket: no branch from the previous ticket's branch" lacks "$ST" "previous ticket's branch"
@@ -632,7 +640,7 @@ done
 # Deploy before the ticket closes. The blocks run under bash and zsh with a stub profile, a stub gh that only
 # reads (any write or unknown call is exit 1) and a temporary HOME and HARNESS_HOME.
 T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
-trap 'rm -rf "$T"' EXIT
+trap 'rm -rf "$T" "$STT"' EXIT
 . "$HARNESS/bin/tests/real-home.sh"
 . "$HARNESS/bin/tests/gh-stand-in.sh"
 # The shells every block of section 9 runs under. Git Bash on Windows has no zsh: there the zsh

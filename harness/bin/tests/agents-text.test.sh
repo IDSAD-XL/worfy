@@ -26,6 +26,17 @@ ALL="implementer reviewer scout"
 for a in $ALL; do
     [ -f "$AGENTS/$a.md" ] || { bad "$a.md not found in $AGENTS"; echo "passed $pass, failed $fail"; exit 1; }
 done
+# The agents as they read in full: each definition with the files of skill ship-ticket it names on a
+# `Read` line put in place (skill-text.sh). A part moved out of a definition to keep its starting
+# context small (bin/start-context) is checked where the definition puts it. ROOT is the Harness
+# around the definitions, for the other files this test reads.
+ROOT="$AGENTS/.."
+. "$(dirname "$0")/skill-text.sh"
+mkdir -p "$T/agents"
+for a in $ALL; do
+    skill_text "$AGENTS/$a.md" "$T/agents/$a.md" || { bad "$a.md: cannot put its step files in place"; echo "passed $pass, failed $fail"; exit 1; }
+done
+AGENTS="$T/agents"
 
 # The one sentence that may name ~/.claude/bin: Profile values of schema 1 that start with it.
 BIN_RULE='`~/.claude/bin/` (schema 1)'
@@ -49,7 +60,7 @@ has implementer 'node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; ec
 # by one recipe. The reference text is the recipe of skills/epic-wave/SKILL.md, section 2:
 # epic-wave-ship-ticket.test.sh pins it word for word and runs it. Both agents carry the same lines,
 # the exit-3 rule and the rule about the gate's writes into the real Harness home.
-EW_REF="${EPIC_WAVE_SKILL_FILE:-$AGENTS/../skills/epic-wave/SKILL.md}"
+EW_REF="${EPIC_WAVE_SKILL_FILE:-$ROOT/skills/epic-wave/SKILL.md}"
 # recipe_of FILE: the recipe's lines, unindented, from the line that reads the Harness home to the gate call.
 recipe_of() {
     awk '{ l = $0; sub(/\r$/, "", l); sub(/^ +/, "", l) } l ~ /^H="\$\(node / { p = 1 } p { print l } p && l ~ /hooks\/gate\.mjs/ { exit }' "$1"
@@ -393,7 +404,7 @@ SOFTWARE.'
 last_line="$(printf '%s\n' "$ORDER" | grep -v '^$' | tail -n 1)"
 [ "$last_line" = '```' ] && ok "implementer, Order: the licence closes the section" || bad "implementer, Order: the section ends with [$last_line], not the licence block"
 # The script the text names is in harness/bin.
-[ -x "$AGENTS/../bin/shortcut-ledger" ] && ok "implementer: bin/shortcut-ledger exists" || bad "implementer: bin/shortcut-ledger is missing"
+[ -x "$ROOT/bin/shortcut-ledger" ] && ok "implementer: bin/shortcut-ledger exists" || bad "implementer: bin/shortcut-ledger is missing"
 
 # --- 11. implementer: only its own e2e files -----------------------
 # Step 5 of section Order has a paragraph of its own on e2e tests, and the whole paragraph hangs on
@@ -425,7 +436,7 @@ fi
 # --- 12. implementer, reviewer: deletes and -c scripts by the common rules -------------------
 # The full rule lives once, in hooks/rules/common.md, which every session and subagent gets. The
 # agents point at its section by name and keep no second copy of it.
-COMMON="${COMMON_RULES_FILE:-$AGENTS/../hooks/rules/common.md}"
+COMMON="${COMMON_RULES_FILE:-$ROOT/hooks/rules/common.md}"
 SHELL_REF='Deleting files and multi-line `sh -c` scripts follow the common rules, section "Shell commands without a confirmation"'
 if grep -qx '## Shell commands without a confirmation' "$COMMON" 2>/dev/null; then
     ok "common.md has the section the agents point at"
@@ -472,7 +483,7 @@ recording the verdict is the skill's business :: What happens to the verdict —
 EOF
 rv "a failed profile line comes second under the lens implementer's report" \
     'as the first line of your answer (the second under the lens "implementer'"'"'s report", whose first line is the verdict)'
-EPIC_WAVE="${EPIC_WAVE_SKILL_FILE:-$AGENTS/../skills/epic-wave/SKILL.md}"
+EPIC_WAVE="${EPIC_WAVE_SKILL_FILE:-$ROOT/skills/epic-wave/SKILL.md}"
 if [ ! -f "$EPIC_WAVE" ]; then bad "epic-wave SKILL.md not found at $EPIC_WAVE"
 else
     ew_flat="$(tr '\n' ' ' <"$EPIC_WAVE" | tr -s ' ')"
@@ -527,7 +538,7 @@ if [ -f "$EPIC_WAVE" ]; then
         else bad "epic-wave, How to resume a wave: no '$p'"; fi
     done
 fi
-ORCH="${ORCHESTRATOR_RULES_FILE:-$AGENTS/../hooks/rules/orchestrator.md}"
+ORCH="${ORCHESTRATOR_RULES_FILE:-$ROOT/hooks/rules/orchestrator.md}"
 long="$(awk '/^## Long output/{s=1; next} s && /^## /{exit} s' "$ORCH" 2>/dev/null | tr '\n' ' ' | tr -s ' ')"
 for p in 'Read `land` and agent output as a summary: one line per PR and the verdict.' \
     'The log stays in its file, opened by path, never whole into context.'; do
@@ -536,7 +547,7 @@ for p in 'Read `land` and agent output as a summary: one line per PR and the ver
 done
 
 # The Profile contract points at the descriptions (harness/profiles/README.md, the row of review.lenses).
-README="${PROFILES_README_FILE:-$AGENTS/../profiles/README.md}"
+README="${PROFILES_README_FILE:-$ROOT/profiles/README.md}"
 LENSES_ROW='the project'"'"'s review lenses; the orchestrator gives each reviewer one. What a lens looks for is described in `agents/reviewer.md`, section "Lens descriptions"; a description applies to the lens of the same name, and a lens that has no description there is read by its name |'
 if [ ! -f "$README" ]; then bad "profiles/README.md not found at $README"
 elif grep -F -- '| `review.lenses` | strings |' "$README" | grep -qF -- "$LENSES_ROW"; then ok "profiles/README.md: the row of review.lenses points at the lens descriptions"

@@ -12,13 +12,19 @@
 // coefficient; the parts the Harness does not write (Claude Code's own prompt and tool schemas)
 // are one constant per agent.
 //
-//   tokens = CONSTANT[agent] + (sum of the bytes of the parts) / BYTES_PER_TOKEN
+// Only the parts the Harness writes count toward the threshold: the definition, rules/common.md and
+// the skill. The others — the constant, the user's rules, the instructions, the brief, the profile —
+// are measured and printed on their own lines, but not counted: the Harness cannot shorten them.
+//
+//   tokens = (sum of the bytes of the counted parts) / BYTES_PER_TOKEN        (against THRESHOLD)
+//   total  = CONSTANT[agent] + (sum of the bytes of all parts) / BYTES_PER_TOKEN   (the whole start)
 //
 // The parts, per agent (AGENTS below):
 //   - definition    agents/<definition>.md without its frontmatter, ${CLAUDE_PLUGIN_ROOT} spelled
 //                   as the folder of this Harness, as Claude Code passes it;
 //   - rules         what hooks/inject-rules.mjs common prints for a SubagentStart event in the
-//                   current folder: rules/common.md and the user's $HARNESS_HOME/user/rules.md;
+//                   current folder, in two parts: rules/common.md (counted) and the user's
+//                   $HARNESS_HOME/user/rules.md with its heading (not counted);
 //   - instructions  the files Claude Code puts into every request: <config>/CLAUDE.md (<config> is
 //                   CLAUDE_CONFIG_DIR or ~/.claude), CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md
 //                   at the top of the current work tree, the first 200 lines of the project's auto
@@ -31,11 +37,12 @@
 //                   PROFILE_HEADER bytes for the lines bin/profile prints around them. Without a
 //                   profile there is no profile part and no skill part;
 //   - skill         for an agent that follows the profile's skill (the implementer), the SKILL.md of
-//                   the profile's workflow.ticket_skill ("ship-ticket" or "/<plugin>:ship-ticket").
+//                   the profile's workflow.ticket_skill ("ship-ticket" or "/<plugin>:ship-ticket");
+//                   the other files of the skill folder are read at their own step, not at the start.
 //
-// Output: per agent a line with its estimate and verdict, then its parts with bytes and tokens. A
-// red line names the agent, by how much it is over and its largest part. --json prints the same as
-// JSON. --agent limits the check to one agent.
+// Output: per agent a line with its counted tokens, its verdict and the whole start, then its parts
+// with bytes, tokens and whether they count. A red line names the agent, by how much it is over and
+// its largest counted part. --json prints the same as JSON. --agent limits the check to one agent.
 //
 // Exit codes: 0 — every agent checked is within the threshold; 1 — at least one is over it;
 // 2 — usage error (unknown agent or option, a missing --profile or --instructions file, a missing
@@ -50,9 +57,11 @@ const path = require("node:path")
 const { spawnSync } = require("node:child_process")
 const { git: GIT } = require("../hooks/eval-env.cjs")
 
-// The threshold, in tokens. Raising it is a change of its own: the pull request that raises it says
-// why here, in this comment, next to the number. Shorten the texts instead when an agent goes over.
-const THRESHOLD = 35000
+// The threshold, in tokens of the counted parts. Raising it is a change of its own: the pull request
+// that raises it says why here, in this comment, next to the number. Shorten the texts instead when an
+// agent goes over. 15 000 since 2026-10-29 (owner's decision R2-Q7): before, 35 000 on the whole start,
+// of which the parts the Harness does not write already took about 34 000 for the implementer.
+const THRESHOLD = 15000
 
 // Calibration of 2026-10-29, from the Claude Code transcripts of the Harness subagents of one
 // machine, 2026-10-22 … 2026-10-29 (Claude Code 2.1, Opus 5.5 and, for the scout, Sonnet). Only
@@ -146,8 +155,16 @@ function definitionText(name) {
     return { file: `agents/${name}.md`, text: body.split("${CLAUDE_PLUGIN_ROOT}").join(HARNESS) }
 }
 
-// The rules part: exactly what the SubagentStart hook would inject in this folder.
-function rulesText() {
+// The rules part: exactly what the SubagentStart hook would inject in this folder, split into
+// rules/common.md as the hook spells it (trailing newlines cut, the plugin root spelled out) and the
+// rest — the user's rules with their heading.
+function rulesParts() {
+    const common = (readText(path.join(HARNESS, "hooks", "rules", "common.md")) ?? "").replace(/\n+$/, "").split("${CLAUDE_PLUGIN_ROOT}").join(HARNESS)
+    const injected = injectedRules()
+    return { common, user: injected.startsWith(common) ? injected.slice(common.length) : "" }
+}
+
+function injectedRules() {
     const run = spawnSync(process.execPath, [path.join(HARNESS, "hooks", "inject-rules.mjs"), "common"], {
         input: JSON.stringify({ hook_event_name: "SubagentStart", cwd: process.cwd() }),
         encoding: "utf8",
@@ -231,34 +248,40 @@ function skillPart(name) {
 function estimate(name, shared) {
     const agent = AGENTS[name]
     const def = definitionText(agent.definition)
+    // counted: the parts the Harness writes; the rest is measured and shown, not counted.
     const parts = [
-        { name: `definition ${def.file}`, bytes: bytesOf(def.text) },
-        { name: "rules (SubagentStart hook)", bytes: bytesOf(shared.rules) },
-        { name: `instructions (${shared.instructions.length} files)`, bytes: shared.instructions.reduce((sum, f) => sum + bytesOf(f.text), 0) },
-        { name: "brief (typical)", bytes: agent.briefBytes },
+        { name: `definition ${def.file}`, bytes: bytesOf(def.text), counted: true },
+        { name: "rules common.md (SubagentStart hook)", bytes: bytesOf(shared.rules.common), counted: true },
+        { name: "rules of the user (SubagentStart hook)", bytes: bytesOf(shared.rules.user), counted: false },
+        { name: `instructions (${shared.instructions.length} files)`, bytes: shared.instructions.reduce((sum, f) => sum + bytesOf(f.text), 0), counted: false },
+        { name: "brief (typical)", bytes: agent.briefBytes, counted: false },
     ]
     if (shared.profile) {
-        parts.push({ name: shared.profile.label, bytes: shared.profile.bytes })
-        if (agent.skill && shared.profile.skill) parts.push(skillPart(shared.profile.skill))
+        parts.push({ name: shared.profile.label, bytes: shared.profile.bytes, counted: false })
+        if (agent.skill && shared.profile.skill) parts.push({ ...skillPart(shared.profile.skill), counted: true })
     }
     for (const part of parts) part.tokens = Math.round(part.bytes / BYTES_PER_TOKEN)
-    const tokens = agent.constant + parts.reduce((sum, p) => sum + p.tokens, 0)
-    const largest = parts.reduce((a, b) => (b.bytes > a.bytes ? b : a))
-    return { agent: name, tokens, threshold: THRESHOLD, over: tokens > THRESHOLD, constant: agent.constant, largest: largest.name, parts }
+    const counted = parts.filter((p) => p.counted)
+    const tokens = counted.reduce((sum, p) => sum + p.tokens, 0)
+    const total = agent.constant + parts.reduce((sum, p) => sum + p.tokens, 0)
+    const largest = counted.reduce((a, b) => (b.bytes > a.bytes ? b : a))
+    return { agent: name, tokens, total, threshold: THRESHOLD, over: tokens > THRESHOLD, constant: agent.constant, largest: largest.name, parts }
 }
 
 const group = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ")
 
 function printText(results, notes) {
-    const out = [`start-context: threshold ${group(THRESHOLD)} tokens, ${BYTES_PER_TOKEN} bytes per token`]
+    const out = [`start-context: threshold ${group(THRESHOLD)} tokens of the Harness's own parts, ${BYTES_PER_TOKEN} bytes per token`]
     for (const note of notes) out.push(`note: ${note}`)
     for (const r of results) {
         const verdict = r.over
             ? `RED: over the threshold by ${group(r.tokens - THRESHOLD)}; largest part: ${r.largest}`
             : `ok: ${group(THRESHOLD - r.tokens)} below the threshold`
-        out.push(`${r.agent}: ${group(r.tokens)} tokens — ${verdict}`)
-        out.push(`  ${"Claude Code constant".padEnd(52)} ${"".padStart(9)}  ${group(r.constant).padStart(7)}`)
-        for (const p of r.parts) out.push(`  ${p.name.padEnd(52)} ${`${group(p.bytes)} B`.padStart(9)}  ${group(p.tokens).padStart(7)}`)
+        out.push(`${r.agent}: ${group(r.tokens)} tokens — ${verdict}; whole start about ${group(r.total)}`)
+        const line = (name, bytes, tokens, counted) => `  ${name.padEnd(52)} ${bytes.padStart(9)}  ${group(tokens).padStart(7)}  ${counted ? "counted" : "not counted"}`
+        for (const p of r.parts.filter((p) => p.counted)) out.push(line(p.name, `${group(p.bytes)} B`, p.tokens, true))
+        out.push(line("Claude Code constant", "", r.constant, false))
+        for (const p of r.parts.filter((p) => !p.counted)) out.push(line(p.name, `${group(p.bytes)} B`, p.tokens, false))
     }
     process.stdout.write(out.join("\n") + "\n")
 }
@@ -272,7 +295,7 @@ function main() {
     const notes = []
     const profile = profilePart(opts.profile)
     if (!profile) notes.push("bin/profile found no profile here: no profile part and no skill part")
-    const shared = { rules: rulesText(), instructions: instructionFiles(opts.instructions), profile }
+    const shared = { rules: rulesParts(), instructions: instructionFiles(opts.instructions), profile }
     const names = opts.agent ? [opts.agent] : Object.keys(AGENTS)
     const results = names.map((name) => estimate(name, shared))
     if (opts.json) process.stdout.write(JSON.stringify({ threshold: THRESHOLD, bytesPerToken: BYTES_PER_TOKEN, notes, agents: results }, null, 2) + "\n")
