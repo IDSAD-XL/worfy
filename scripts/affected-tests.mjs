@@ -13,18 +13,24 @@
 // 1. A path of `all` in scripts/affected-tests.table.json (the configuration of the test run,
 //    package.json, the lockfile, the setup files): the answer is ALL, the whole suite.
 // 2. A test file of the run (test/unit/, test/contract/): it is in the list, always.
-// 3. A path of a `links` entry: the files the entry names. A named test file goes in as it is; any
-//    other named file is a module, and the tests that import it, directly or not, go in. The table
-//    holds what the import graph cannot see: a script a test starts as a process, a file a test or a
-//    module reads as text.
+// 3. The rows of the table that match the path: the files they name. A named test file goes in as it
+//    is; any other named file is a module, and the tests that import it, directly or not, go in. The
+//    rows hold what the import graph cannot see: a script a test starts as a process, a file a test or
+//    a module reads as text. `generated` is built from the test sources by
+//    scripts/affected-tests-table.mjs (its `reads` and `scans`); `links` is written by hand.
 // 4. A module (.ts, .tsx, .js, .mjs, .cjs, .css…): the test files that import it, directly or not,
 //    by vite's module graph, as `vitest related` computes it.
 //
-// A file that none of this covers is ALL, never an empty list: a module outside src/ and test/ that no
-// test imports and no `links` entry names, a file of any other kind (a shell script, YAML, JSON, an
-// image) that no `links` entry names. Markdown (*.md) and the paths of `none` in the table are covered
-// with no tests: an md-only change selects nothing. A module under src/ or test/ that no test imports
-// is covered with no tests too.
+// A row covers the path unless it is a scan (`"scan": true` in `links`, `scans` in `generated`): a
+// test that reads every file of a folder looking for one thing, which adds itself to the list but does
+// not stand for the tests of the file. A file that nothing covers is ALL, never an empty list:
+// - a module outside src/ and test/ that no test imports and no covering row names;
+// - a deleted module, anywhere: the graph of <head> no longer knows who imported it;
+// - a file of any other kind (a shell script, YAML, JSON, an image, Markdown under src/, test/,
+//   harness/ or scripts/) that no covering row names.
+// Covered with no tests of their own: a module under src/ or test/ that no test imports, Markdown
+// outside those folders, the paths of `none`, and a deleted test file. A Markdown-only change outside
+// them selects only the tests that read that file.
 //
 // Output: ALL, or the selected files one per line, sorted, as paths from the repository root; nothing
 // for an empty list. With --json one object: {"all": boolean, "files": [...], "reasons": [...]},
@@ -49,6 +55,8 @@ const MODULE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|css)$/
 // Modules under these folders reach the tests only through imports (or a `links` entry): one that no
 // test imports is covered with no tests. Any other module that no test imports is ALL.
 const IMPORT_ONLY = ['src/', 'test/']
+// Folders whose Markdown tests read (skills, fixtures, the eval READMEs): there it is a file like any other.
+const CODE_FOLDERS = ['src/', 'test/', 'harness/', 'scripts/']
 
 class Refusal extends Error {}
 
@@ -84,7 +92,20 @@ function readTable(root) {
     }
     return list
   }
-  return { all: entries('all', false), none: entries('none', false), links: entries('links', true) }
+  const generated = table.generated ?? []
+  if (!Array.isArray(generated) || !generated.every((entry) => typeof entry?.file === 'string' && (entry.reads === undefined || strings(entry.reads)) && (entry.scans === undefined || strings(entry.scans)))) {
+    throw new Refusal(`${TABLE}: "generated" must be a list of {"file": ..., "reads": [...], "scans": [...]}`)
+  }
+  // A generated path is a file or a folder: the row matches the file and everything under the folder.
+  const rows = (paths) => paths.flatMap((path) => [path, `${path}/**`])
+  const links = [
+    ...entries('links', true),
+    ...generated.flatMap((entry) => [
+      ...(entry.reads ? [{ paths: rows(entry.reads), files: [entry.file] }] : []),
+      ...(entry.scans ? [{ paths: rows(entry.scans), files: [entry.file], scan: true }] : []),
+    ]),
+  ]
+  return { all: entries('all', false), none: entries('none', false), links }
 }
 
 const matches = (path, entry) => entry.paths.some((pattern) => posix.matchesGlob(path, pattern))
@@ -94,7 +115,7 @@ const matches = (path, entry) => entry.paths.some((pattern) => posix.matchesGlob
  * answer. `testFiles` is every test file of the run; `exists` tells whether a path is a file of the
  * working tree. A reason is a file that makes the answer ALL.
  */
-function classify(changed, table, testFiles, exists) {
+function classify(changed, table, testFiles, isTestPath, exists) {
   const reasons = []
   const files = new Set()
   // Modules whose importers go in: the changed modules and the modules the table names.
@@ -106,6 +127,7 @@ function classify(changed, table, testFiles, exists) {
     // (a scan for a forbidden call) has to see the new one.
     const test = testFiles.has(path)
     if (test) files.add(path)
+    const gone = !exists(path)
     const links = table.links.filter((entry) => matches(path, entry))
     for (const named of links.flatMap((entry) => entry.files)) {
       if (testFiles.has(named)) files.add(named)
@@ -113,10 +135,16 @@ function classify(changed, table, testFiles, exists) {
       else reasons.push(`${path}: ${TABLE} names ${named}, which is not a file`)
     }
     const module = MODULE.test(path)
-    if (module && exists(path) && !test) related.add(path)
-    if (test || links.length > 0 || path.endsWith('.md') || table.none.some((entry) => matches(path, entry))) continue
+    if (test || (gone && isTestPath(path))) continue
+    if (module && gone) {
+      reasons.push(`${path}: a deleted module — the graph of the head no longer knows who imported it`)
+      continue
+    }
+    if (module) related.add(path)
+    const markdown = path.endsWith('.md') && !CODE_FOLDERS.some((folder) => path.startsWith(folder))
+    if (links.some((entry) => !entry.scan) || markdown || table.none.some((entry) => matches(path, entry))) continue
     if (module && IMPORT_ONLY.some((folder) => path.startsWith(folder))) continue
-    if (module && exists(path)) mustHaveImporters.push(path)
+    if (module) mustHaveImporters.push(path)
     else reasons.push(`${path}: neither the module graph nor ${TABLE} covers it`)
   }
   return { reasons, files, related, mustHaveImporters }
@@ -126,6 +154,9 @@ function classify(changed, table, testFiles, exists) {
 async function openGraph(root) {
   // vitest/node from the folder of this script: the repository's own vitest.
   const { createVitest } = await import('vitest/node')
+  // vitest.config.ts leaves out the files a Windows CI shard runs in a job of its own; the answer is
+  // about the whole suite.
+  delete process.env.WORFY_TEST_EXCLUDE
   const vitest = await createVitest('test', { root, watch: false, run: true, reporters: [] })
   // Paths as vitest spells them, with forward slashes on Windows too: config.related is compared
   // with the module graph's own ids as it is, so it must be spelled the same way.
@@ -139,7 +170,9 @@ async function openGraph(root) {
     const found = await vitest.specifications.getRelevantTestSpecifications()
     return new Set(found.map((spec) => rel(spec.moduleId)))
   }
-  return { testFiles, importers, close: () => vitest.close() }
+  /** Whether `path` is where a test file of the run would be: true for a deleted one too. */
+  const isTestPath = (path) => vitest.projects.some((project) => project.matchesTestGlob(posix.join(viteRoot, path)))
+  return { testFiles, isTestPath, importers, close: () => vitest.close() }
 }
 
 async function main() {
@@ -160,7 +193,7 @@ async function main() {
   else {
     const graph = await openGraph(root)
     try {
-      const { reasons, files, related, mustHaveImporters } = classify(changed, table, graph.testFiles, exists)
+      const { reasons, files, related, mustHaveImporters } = classify(changed, table, graph.testFiles, graph.isTestPath, exists)
       if (related.size > 0) for (const file of await graph.importers([...related])) files.add(file)
       for (const module of mustHaveImporters) {
         if ((await graph.importers([module])).size === 0) reasons.push(`${module}: no test imports it and ${TABLE} has no link for it`)

@@ -1,12 +1,21 @@
 {
-  "$comment": "Links that vite's module graph cannot see, for scripts/affected-tests.mjs. `all`: a change to these paths runs the whole suite. `none`: paths no unit or contract test reads. `links`: a changed path that matches `paths` selects `files` — a test file as it is, any other file (a module) through the tests that import it. Patterns: `*` is any characters but `/`, `**` any number of folders. A path that neither the graph nor this table covers runs the whole suite, so a missing line costs time, not a missed test; add the line when a test starts a script as a process or reads a file as text.",
+  "$comment": "Links that vite's module graph cannot see, for scripts/affected-tests.mjs. `all`: a change to these paths runs the whole suite. `none`: paths no unit or contract test needs to run for (a test that reads one is still selected through its row). `links`, written by hand: a changed path that matches `paths` selects `files` — a test file as it is, any other file (a module) through the tests that import it; a row with `\"scan\": true` adds its files but does not cover the path. `generated`, written by `node scripts/affected-tests-table.mjs` from the test sources and checked by test/unit/affected-tests.test.ts: what each test file or helper reads by path (`reads`, covering) or looks through (`scans`). Patterns: `*` is any characters but `/`, `**` any number of folders. A path that nothing covers runs the whole suite.",
   "all": [
     {
-      "paths": ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".nvmrc"],
+      "paths": [
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        ".nvmrc"
+      ],
       "why": "dependencies and the Node version of every test"
     },
     {
-      "paths": ["vitest.config.ts", "tsconfig*.json", "scripts/vitest-electron.mjs"],
+      "paths": [
+        "vitest.config.ts",
+        "tsconfig*.json",
+        "scripts/vitest-electron.mjs"
+      ],
       "why": "the configuration of the test run, how each file is compiled, the runner of `pnpm test`"
     },
     {
@@ -24,454 +33,1403 @@
       "why": "setup files and what vitest.config.ts loads: they run around every test file"
     },
     {
-      "paths": [".gitattributes", ".gitignore"],
+      "paths": [
+        ".gitattributes",
+        ".gitignore"
+      ],
       "why": "how git checks out and lists every file"
     }
   ],
   "none": [
     {
-      "paths": ["docs/**", ".scratch/**"],
+      "paths": [
+        "docs/**",
+        ".scratch/**"
+      ],
       "why": "documents, tickets and design mock-ups: no unit or contract test reads them"
     }
   ],
   "links": [
     {
-      "paths": ["harness/**"],
-      "files": [
-        "test/contract/browser-tools.test.ts",
-        "test/contract/ci-workflow.test.ts",
-        "test/contract/demo-template.test.ts",
-        "test/contract/e3-owner-check.test.ts",
-        "test/contract/first-run-checks.test.ts",
-        "test/contract/gate-key-agreement.test.ts",
-        "test/contract/gate-queue.test.ts",
-        "test/contract/gitattributes.test.ts",
-        "test/contract/github-prs.test.ts",
-        "test/contract/harness-changed.test.ts",
-        "test/contract/harness-drift.test.ts",
-        "test/contract/harness-evals-outcome.test.ts",
-        "test/contract/harness-evals.test.ts",
-        "test/contract/harness-install.test.ts",
-        "test/contract/harness-migrate-boundaries.test.ts",
-        "test/contract/harness-migrate-harness.ts",
-        "test/contract/harness-migrate.test.ts",
-        "test/contract/harness-plugin.test.ts",
-        "test/contract/harness-qmd.test.ts",
-        "test/contract/harness-retro-skill.test.ts",
-        "test/contract/harness-script-env.test.ts",
-        "test/contract/harness-scripts.test.ts",
-        "test/contract/main-ipc-wiring.test.ts",
-        "test/contract/pipeline-rules-agree.test.ts",
-        "test/contract/projects-connect.test.ts",
-        "test/contract/windows-verdict-scope.test.ts",
-        "test/contract/workflow-reader.test.ts",
-        "test/harness-shell-tests.ts",
-        "test/unit/agent-options.test.ts",
-        "test/unit/agent-query-factory.test.ts",
-        "test/unit/check-cyrillic.test.ts",
-        "test/unit/check-lessons.test.ts",
-        "test/unit/first-heading.test.ts",
-        "test/unit/first-run-windows.test.ts",
-        "test/unit/gate-state.test.ts",
-        "test/unit/harness-locate.test.ts",
-        "test/unit/install-stable-functions.test.ts",
-        "test/unit/no-github-git.test.ts",
-        "test/unit/paths.test.ts",
-        "test/unit/profile-knows.test.ts",
-        "test/unit/settings-health.test.tsx",
-        "test/unit/settings-pipeline.test.tsx"
+      "paths": [
+        "scripts/affected-tests.mjs",
+        "scripts/affected-tests-table.mjs",
+        "scripts/affected-tests.table.json"
       ],
-      "why": "the Harness: its shell tests run in harness-scripts.test.ts; the contract tests start its bin/ and hooks/ scripts (wave-gate, land, profile, ticket, gate.mjs…) as processes and read its skills, agents and evals as text. One coarse line: every test file that names a path under harness/"
-    },
-    {
-      "paths": ["src/**"],
-      "files": ["test/unit/agent-env.test.ts", "test/unit/no-rmsync.test.ts"],
-      "why": "they read every file under src/ as text, looking for a forbidden call"
-    },
-    {
-      "paths": ["src/main/**"],
-      "files": ["test/unit/chokidar-close-callers.test.ts", "test/unit/e2e-gh-stub.test.ts", "test/unit/quit-listeners.test.ts"],
-      "why": "they read every file under src/main/ as text"
-    },
-    {
-      "paths": ["src/main/index.ts"],
       "files": [
-        "test/contract/gitattributes.test.ts",
-        "test/contract/harness-drift.test.ts",
-        "test/contract/harness-evals.test.ts",
-        "test/unit/markdown.test.tsx"
-      ],
-      "why": "they read the main entry as text"
+        "test/unit/affected-tests.test.ts"
+      ]
     },
     {
-      "paths": ["src/main/terminal/zsh/**"],
+      "paths": [
+        "test/**"
+      ],
       "files": [
-        "src/main/terminal/shell-integration.ts",
-        "test/contract/terminal-ai-next-command.test.ts",
-        "test/contract/terminal-ai-suggest.test.ts",
-        "test/contract/terminal-shell-integration.test.ts"
+        "test/unit/affected-tests.test.ts"
       ],
-      "why": "the zsh scripts: shell-integration.ts hands them to every Terminal's zsh, and these tests source them in a real zsh"
+      "scan": true
     },
     {
-      "paths": ["src/main/mcp/*.md"],
-      "files": ["src/main/mcp/canvas-server.ts", "src/main/mcp/browser-server.ts"],
+      "paths": [
+        "harness/bin/**",
+        "harness/hooks/**",
+        "harness/lib/**",
+        "harness/skills/**",
+        "harness/agents/**",
+        "harness/profiles/**",
+        "harness/.claude-plugin/**",
+        "harness/package.json",
+        "harness/README.md",
+        "harness/.mcp.json"
+      ],
+      "files": [
+        "test/contract/harness-scripts.test.ts"
+      ],
+      "why": "the shell tests of the Harness (harness/bin/tests, harness/hooks/tests), which harness-scripts.test.ts runs, start these scripts and read these texts"
+    },
+    {
+      "paths": [
+        "src/main/mcp/*.md"
+      ],
+      "files": [
+        "src/main/mcp/canvas-server.ts",
+        "src/main/mcp/browser-server.ts"
+      ],
       "why": "imported with ?raw, which the module graph does not follow"
     },
     {
-      "paths": ["src/renderer/**"],
-      "files": ["test/unit/canvas-zoom.test.tsx", "test/unit/ticket-card.test.tsx"],
-      "why": "they read every file under src/renderer/ as text"
-    },
-    {
-      "paths": ["src/renderer/canvas/**"],
-      "files": ["test/unit/canvas.test.tsx", "test/unit/node-kind-header.test.tsx"],
-      "why": "they read the Node components and their CSS as text"
-    },
-    {
-      "paths": ["src/renderer/shell/**"],
-      "files": ["test/unit/shell-discovery.test.tsx", "test/unit/glob-probe.tsx"],
-      "why": "they list and copy the files of the folder"
-    },
-    {
-      "paths": ["src/renderer/session/rail/**"],
-      "files": ["test/unit/session-rail-discovery.test.tsx"],
-      "why": "it lists the files of the folder"
-    },
-    {
-      "paths": ["src/renderer/theme/tokens.css"],
-      "files": [
-        "test/unit/contrast.test.ts",
-        "test/unit/kind-tokens.test.ts",
-        "test/unit/shadow-tokens.test.ts",
-        "test/unit/terminal-theme.test.tsx",
-        "test/unit/window-options.test.ts"
+      "paths": [
+        "src/main/terminal/zsh/**"
       ],
-      "why": "they read the colour tokens as text"
-    },
-    {
-      "paths": ["src/renderer/canvas/overlays/minimap.css"],
-      "files": ["test/unit/minimap-paint.test.tsx"],
-      "why": "it reads the file as text"
-    },
-    {
-      "paths": ["src/renderer/shell/shell.css"],
-      "files": ["test/unit/harness-status.test.tsx"],
-      "why": "it reads the file as text"
-    },
-    {
-      "paths": ["src/renderer/index.html"],
-      "files": ["test/contract/image-protocol.test.ts", "test/unit/renderer-entry.test.ts", "test/unit/agent-env.test.ts"],
-      "why": "they read the page and its CSP as text"
-    },
-    {
-      "paths": ["scripts/**"],
-      "files": ["test/unit/no-rmsync.test.ts"],
-      "why": "it reads every script as text, looking for a forbidden call"
-    },
-    {
-      "paths": ["scripts/affected-tests.mjs", "scripts/affected-tests.table.json"],
-      "files": ["test/unit/affected-tests.test.ts"],
-      "why": "started as a process"
-    },
-    {
-      "paths": ["scripts/agent-cost.mjs"],
-      "files": ["test/unit/agent-cost.test.ts"],
-      "why": "started as a process"
-    },
-    {
-      "paths": ["scripts/build-version.ts"],
-      "files": ["test/unit/build-version.test.ts", "test/unit/e2e-no-spawn-on-load.test.ts"],
-      "why": "started as a process; read as text"
-    },
-    {
-      "paths": ["scripts/check-cyrillic.mjs"],
-      "files": ["test/unit/check-cyrillic.test.ts"],
-      "why": "started as a process"
-    },
-    {
-      "paths": ["scripts/check-handoff.mjs"],
-      "files": ["test/unit/check-handoff.test.ts", "test/contract/gitattributes.test.ts"],
-      "why": "started as a process"
-    },
-    {
-      "paths": ["scripts/check-lessons.mjs"],
-      "files": ["test/unit/check-lessons.test.ts"],
-      "why": "started as a process"
-    },
-    {
-      "paths": ["scripts/doc-headings.mjs", "scripts/doc-headings.json"],
-      "files": ["test/unit/check-handoff.test.ts", "test/unit/check-lessons.test.ts", "test/unit/manual-checks.test.ts"],
-      "why": "read by the document checks the tests start"
-    },
-    {
-      "paths": ["scripts/critical-path.mjs"],
-      "files": ["test/unit/critical-path.test.ts"],
-      "why": "started as a process"
-    },
-    {
-      "paths": ["scripts/ci-ok.mjs", "scripts/ci-scope.mjs", "scripts/ci-display.js"],
-      "files": ["test/contract/ci-workflow.test.ts"],
-      "why": "started as processes by the CI workflow tests"
-    },
-    {
-      "paths": ["scripts/e2e-shard.mjs"],
-      "files": ["test/unit/e2e-shard.test.ts", "test/contract/ci-workflow.test.ts"],
-      "why": "started as a process"
-    },
-    {
-      "paths": ["scripts/dev-bundle.ts"],
-      "files": ["test/unit/dev-bundle.test.ts", "test/unit/dev-bundle-config.test.ts"],
-      "why": "loaded by the dev bundle tests"
-    },
-    {
-      "paths": ["scripts/e3-owner-check.sh"],
-      "files": ["test/contract/e3-owner-check.test.ts"],
-      "why": "started as a process"
-    },
-    {
-      "paths": ["scripts/e3-sandbox.sh"],
-      "files": ["test/contract/e3-sandbox.test.ts", "test/unit/no-github-git.test.ts"],
-      "why": "started as a process"
-    },
-    {
-      "paths": ["scripts/eval-harness.mjs", "scripts/eval-harness-coverage.mjs", "scripts/eval-run-env.mjs"],
-      "files": ["test/contract/harness-evals.test.ts", "test/contract/harness-evals-outcome.test.ts"],
-      "why": "started as processes, copied into the tests' repositories"
-    },
-    {
-      "paths": ["scripts/eval-outcome*.mjs", "scripts/eval-outcome/**"],
-      "files": ["test/contract/harness-evals-outcome.test.ts", "test/contract/harness-evals.test.ts"],
-      "why": "started as processes"
-    },
-    {
-      "paths": ["scripts/hang-sample.mjs"],
-      "files": ["test/unit/hang-sample.test.ts"],
-      "why": "started as a process"
-    },
-    {
-      "paths": ["scripts/ico.mjs", "scripts/make-icons.mjs"],
-      "files": ["test/unit/ico.test.ts", "test/contract/make-icons.test.ts"],
-      "why": "started as processes"
-    },
-    {
-      "paths": ["scripts/install-stable.mjs"],
       "files": [
-        "test/unit/install-stable.test.ts",
-        "test/unit/install-stable-functions.test.ts",
-        "test/unit/install-stable-harness.ts",
-        "test/unit/remove-tree-copies.test.ts",
-        "test/contract/packaging.test.ts"
+        "src/main/terminal/shell-integration.ts"
       ],
-      "why": "started as a process; its remove-tree copy is compared"
+      "why": "the zsh scripts: shell-integration.ts hands them to every Terminal's zsh"
     },
     {
-      "paths": ["scripts/postinstall.mjs"],
-      "files": ["test/contract/postinstall.test.ts"],
-      "why": "started as a process"
-    },
-    {
-      "paths": ["scripts/remove-tree.mjs"],
+      "paths": [
+        "test/quarantine/**"
+      ],
       "files": [
-        "test/unit/remove-tree.test.ts",
-        "test/unit/remove-tree-walk.test.ts",
-        "test/unit/remove-tree-copies.test.ts",
-        "test/unit/remove-tree-model.ts",
-        "test/contract/harness-evals.test.ts"
+        "test/quarantine.ts"
       ],
-      "why": "loaded by path; copied into the eval tests' repositories"
-    },
-    {
-      "paths": ["scripts/sdk-compat.mjs"],
-      "files": ["test/contract/sdk-compat.test.ts", "test/unit/sdk-compat-diff.test.ts"],
-      "why": "started as a process"
-    },
-    {
-      "paths": ["scripts/statusline-bridge.mjs", "scripts/statusline-bridge.sh"],
-      "files": ["test/contract/statusline-bridge.test.ts", "test/contract/harness-migrate.test.ts", "test/unit/first-run-windows.test.ts"],
-      "why": "started as processes"
-    },
-    {
-      "paths": ["scripts/test-timings.mjs"],
-      "files": ["test/unit/test-timings.test.ts", "test/unit/playwright-json-report.test.ts"],
-      "why": "started as a process"
-    },
-    {
-      "paths": ["scripts/windows-test-list.mjs"],
-      "files": ["test/contract/windows-tests-workflow.test.ts"],
-      "why": "started as a process"
-    },
-    {
-      "paths": ["scripts/windows-verdict-scope.mjs"],
-      "files": ["test/contract/windows-verdict-scope.test.ts"],
-      "why": "started as a process"
-    },
-    {
-      "paths": ["scripts/spikes/**"],
-      "files": ["test/contract/gitattributes.test.ts"],
-      "why": "one-off probes no test runs; gitattributes.test.ts checks the line endings of one"
-    },
-    {
-      "paths": [".github/**"],
-      "files": [
-        "test/contract/ci-workflow.test.ts",
-        "test/contract/node-version.test.ts",
-        "test/contract/windows-tests-workflow.test.ts",
-        "test/contract/windows-verdict-scope.test.ts"
-      ],
-      "why": "they read the workflows as text and run their steps"
-    },
-    {
-      "paths": ["build/**"],
-      "files": [
-        "test/contract/make-icons.test.ts",
-        "test/contract/gitattributes.test.ts",
-        "test/contract/packaging.test.ts",
-        "test/contract/windows-verdict-scope.test.ts",
-        "test/contract/ci-workflow.test.ts",
-        "test/unit/dock-icon.test.ts"
-      ],
-      "why": "they read the icons and their sources"
-    },
-    {
-      "paths": ["electron-builder.yml"],
-      "files": ["test/contract/app-user-model-id.test.ts", "test/contract/packaging.test.ts", "test/contract/ci-workflow.test.ts"],
-      "why": "read as text"
-    },
-    {
-      "paths": ["electron.vite.config.ts"],
-      "files": [
-        "test/unit/dev-bundle.test.ts",
-        "test/unit/dev-bundle-config.test.ts",
-        "test/contract/harness-evals.test.ts",
-        "test/contract/harness-evals-outcome.test.ts",
-        "test/contract/ci-workflow.test.ts"
-      ],
-      "why": "read as text"
-    },
-    {
-      "paths": ["eslint.config.js"],
-      "files": ["test/unit/check-cyrillic.test.ts", "test/unit/no-rmsync.test.ts"],
-      "why": "run by the lint tests"
-    },
-    {
-      "paths": ["playwright.config.ts", "playwright.acceptance.config.ts"],
-      "files": [
-        "test/unit/e2e-notifications.test.ts",
-        "test/unit/playwright-json-report.test.ts",
-        "test/unit/quiet-windows.test.ts",
-        "test/unit/no-rmsync.test.ts"
-      ],
-      "why": "read as text; the e2e tests themselves are not in this run"
-    },
-    {
-      "paths": ["test/**"],
-      "files": ["test/unit/no-rmsync.test.ts", "test/unit/no-github-git.test.ts", "test/unit/quarantine.test.ts"],
-      "why": "they read every test file as text"
-    },
-    {
-      "paths": ["test/contract/**", "test/e2e/**"],
-      "files": ["test/unit/e2e-no-spawn-on-load.test.ts"],
-      "why": "it reads these test files as text"
-    },
-    {
-      "paths": ["test/quarantine/**"],
-      "files": ["test/quarantine.ts"],
       "why": "the quarantine entries, read by the helper the quarantined tests import"
     },
     {
-      "paths": ["test/e2e/**"],
+      "paths": [
+        "src/**",
+        "test/**"
+      ],
       "files": [
-        "test/contract/ci-workflow.test.ts",
-        "test/contract/windows-tests-workflow.test.ts",
-        "test/contract/windows-verdict-scope.test.ts",
+        "test/unit/e2e-no-spawn-on-load.test.ts"
+      ],
+      "scan": true,
+      "why": "it follows the imports of the e2e and contract files into src/ and test/, looking for a process started on load"
+    },
+    {
+      "paths": [
+        "src/renderer/**"
+      ],
+      "files": [
+        "test/unit/ticket-card.test.tsx"
+      ],
+      "scan": true,
+      "why": "it reads the files of src/renderer/ as text"
+    },
+    {
+      "paths": [
+        "src/renderer/canvas/**"
+      ],
+      "files": [
+        "test/unit/canvas.test.tsx",
+        "test/unit/node-kind-header.test.tsx"
+      ],
+      "scan": true,
+      "why": "they list the Node components"
+    },
+    {
+      "paths": [
+        "src/renderer/shell/**"
+      ],
+      "files": [
+        "test/unit/shell-discovery.test.tsx",
+        "test/unit/glob-probe.tsx"
+      ],
+      "scan": true,
+      "why": "they list and copy the files of the folder"
+    }
+  ],
+  "generated": [
+    {
+      "file": "test/claude-home-legacy.ts",
+      "reads": [
+        "test/fixtures/claude-home-legacy"
+      ]
+    },
+    {
+      "file": "test/contract/agent-attachments.test.ts",
+      "reads": [
+        "test/fixtures/agent-scripts",
+        "test/fixtures/claude-home"
+      ]
+    },
+    {
+      "file": "test/contract/agent-context-usage.test.ts",
+      "reads": [
+        "test/fixtures/agent-scripts"
+      ]
+    },
+    {
+      "file": "test/contract/agent-controls.test.ts",
+      "reads": [
+        "test/fixtures/agent-scripts",
+        "test/fixtures/agent-scripts/turn.jsonl"
+      ]
+    },
+    {
+      "file": "test/contract/agent-events.test.ts",
+      "reads": [
+        "test/fixtures/sdk-messages"
+      ]
+    },
+    {
+      "file": "test/contract/agent-session.test.ts",
+      "reads": [
+        "test/fixtures/agent-scripts"
+      ]
+    },
+    {
+      "file": "test/contract/app-user-model-id.test.ts",
+      "reads": [
+        "electron-builder.yml"
+      ]
+    },
+    {
+      "file": "test/contract/autopilot-background.test.ts",
+      "reads": [
+        "test/fixtures/agent-scripts/autopilot-background.jsonl",
+        "test/fixtures/agent-scripts/autopilot-waves.jsonl"
+      ]
+    },
+    {
+      "file": "test/contract/autopilot-journal.test.ts",
+      "reads": [
+        "docs/adr"
+      ]
+    },
+    {
+      "file": "test/contract/autopilot-limits.test.ts",
+      "reads": [
+        "test/fixtures/agent-scripts",
+        "test/fixtures/agent-scripts/autopilot-waves.jsonl"
+      ]
+    },
+    {
+      "file": "test/contract/autopilot.test.ts",
+      "reads": [
+        "test/fixtures/agent-scripts",
+        "test/fixtures/agent-scripts/autopilot-long.jsonl"
+      ]
+    },
+    {
+      "file": "test/contract/bindings.test.ts",
+      "reads": [
+        "test/fixtures/claude-home",
+        "test/fixtures/claude-home/projects/-Users-test-projects-demo--claude-worktrees-07",
+        "test/fixtures/claude-home/projects/-Users-test-projects-demo--claude-worktrees-07/44444444-4444-4444-8444-444444444444.jsonl",
+        "test/fixtures/claude-home/projects/-Users-test-projects-demo/55555555-5555-4555-8555-555555555555.jsonl"
+      ]
+    },
+    {
+      "file": "test/contract/browser-tools.test.ts",
+      "reads": [
+        "harness/agents/implementer.md"
+      ]
+    },
+    {
+      "file": "test/contract/card-api.test.ts",
+      "reads": [
+        "test/fixtures/agent-scripts"
+      ]
+    },
+    {
+      "file": "test/contract/card-bridge.test.ts",
+      "reads": [
+        ".scratch/worfy-mvp",
+        "test/fixtures/worfy-mvp-epic"
+      ]
+    },
+    {
+      "file": "test/contract/ci-workflow.test.ts",
+      "reads": [
+        ".github/workflows",
+        ".github/workflows/ci.yml",
+        ".github/workflows/windows-tests.yml",
+        "CONTEXT.md",
+        "HANDOFF.md",
+        "README.md",
+        "build/icon.icns",
+        "docs/design/F-SPEC.md",
+        "docs/lessons/README.md",
+        "docs/lessons/process.md",
+        "electron-builder.yml",
+        "electron.vite.config.ts",
+        "harness/agents/implementer.md",
+        "harness/bin/profile",
+        "harness/bin/tests/profile.test.sh",
+        "harness/hooks/gate.mjs",
+        "harness/profiles/draft.schema.json",
+        "package.json",
+        "playwright.config.ts",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "scripts/agent-cost.mjs",
+        "scripts/build-version.ts",
+        "scripts/ci-display.js",
+        "scripts/ci-ok.mjs",
+        "scripts/ci-scope.mjs",
+        "scripts/dev-bundle.ts",
+        "scripts/e2e-shard.mjs",
+        "scripts/eval-outcome/README.md",
+        "scripts/hang-sample.mjs",
+        "scripts/install-stable.mjs",
+        "scripts/make-icons.mjs",
+        "scripts/postinstall.mjs",
+        "scripts/statusline-bridge.mjs",
+        "scripts/statusline-bridge.sh",
+        "scripts/vitest-electron.mjs",
+        "src/card-runtime/worfy-card.ts",
+        "src/main/index.ts",
+        "src/preload/index.ts",
+        "src/shared/ipc/channels.ts",
+        "test/contract/harness-scripts.test.ts",
+        "test/e2e/helpers.ts",
+        "test/e2e/packaged.spec.ts",
+        "test/e2e/terminal.spec.ts",
+        "test/e2e/timings.json",
+        "test/remove.ts",
+        "tsconfig.json",
+        "tsconfig.web.json",
+        "vitest.config.ts"
+      ],
+      "scans": [
+        "harness",
+        "test",
+        "test/contract",
+        "test/e2e",
+        "test/unit"
+      ]
+    },
+    {
+      "file": "test/contract/claude-home-fixture.ts",
+      "reads": [
+        "test/fixtures/claude-home",
+        "test/fixtures/claude-home/projects"
+      ]
+    },
+    {
+      "file": "test/contract/clients.test.ts",
+      "reads": [
+        "test/fixtures/claude-home"
+      ]
+    },
+    {
+      "file": "test/contract/demo-template.test.ts",
+      "reads": [
+        "harness/bin/epic-status",
+        "harness/bin/project-connect"
+      ]
+    },
+    {
+      "file": "test/contract/docs-watch-root.test.ts",
+      "reads": [
+        "docs/adr"
+      ]
+    },
+    {
+      "file": "test/contract/docs.test.ts",
+      "reads": [
+        "docs/adr",
+        "test/fixtures/harness-stub/canned"
+      ]
+    },
+    {
+      "file": "test/contract/e2e-launch-shell.test.ts",
+      "reads": [
+        "test/fixtures/harness-stub/login-shell"
+      ]
+    },
+    {
+      "file": "test/contract/e3-owner-check.test.ts",
+      "reads": [
+        "scripts/e3-owner-check.sh"
+      ],
+      "scans": [
+        "harness"
+      ]
+    },
+    {
+      "file": "test/contract/e3-sandbox.test.ts",
+      "reads": [
+        "scripts/e3-sandbox.sh"
+      ]
+    },
+    {
+      "file": "test/contract/first-run-checks.test.ts",
+      "reads": [
+        "test/fixtures/first-run-tools"
+      ],
+      "scans": [
+        "harness"
+      ]
+    },
+    {
+      "file": "test/contract/gate-key-agreement.test.ts",
+      "reads": [
+        "harness/hooks/gate-resolve.mjs"
+      ]
+    },
+    {
+      "file": "test/contract/gh-stand-in.test.ts",
+      "reads": [
+        "test/fixtures/gh",
+        "test/fixtures/gh/gh-stub.mjs"
+      ]
+    },
+    {
+      "file": "test/contract/gh-world.ts",
+      "reads": [
+        "test/fixtures/gh"
+      ]
+    },
+    {
+      "file": "test/contract/gitattributes.test.ts",
+      "reads": [
+        ".gitattributes",
+        "README.md",
+        "build/brand/icon.svg",
+        "build/brand/mark.svg",
+        "harness/bin/epic-status",
+        "harness/bin/profile",
+        "harness/bin/tests/profile.test.sh",
+        "harness/hooks/guard.mjs",
+        "harness/hooks/hooks.json",
+        "harness/hooks/rules/common.md",
+        "package.json",
+        "scripts/build-version.ts",
+        "scripts/check-handoff.mjs",
+        "scripts/install-stable.mjs",
+        "scripts/spikes/path-probe/main.ts",
+        "src/main/index.ts"
+      ]
+    },
+    {
+      "file": "test/contract/github-accounts.test.ts",
+      "reads": [
+        "test/fixtures/gh/gh-stub.mjs"
+      ]
+    },
+    {
+      "file": "test/contract/github-prs.test.ts",
+      "reads": [
+        "harness/bin/ticket",
+        "test/fixtures/gh/gh-account.mjs",
+        "test/fixtures/harness-stub/canned"
+      ]
+    },
+    {
+      "file": "test/contract/harness-drift.test.ts",
+      "reads": [
+        "harness/.claude-plugin",
+        "harness/.claude-plugin/plugin.json",
+        "src/main/index.ts"
+      ]
+    },
+    {
+      "file": "test/contract/harness-evals-outcome.test.ts",
+      "reads": [
+        "README.md",
+        "electron.vite.config.ts",
+        "harness/bin/profile",
+        "harness/evals-outcome",
+        "harness/evals-outcome/README.md",
+        "harness/evals-outcome/lib",
+        "harness/evals-outcome/lib/fixture.sh",
+        "harness/evals-outcome/lib/plugin-state/worfy.sh",
+        "package.json",
+        "scripts/eval-outcome",
+        "scripts/eval-outcome-check.mjs",
+        "scripts/eval-outcome-lib.mjs",
+        "scripts/eval-outcome-score.mjs",
+        "scripts/eval-outcome-stats.mjs",
+        "scripts/eval-outcome.mjs",
+        "scripts/eval-outcome/README.md",
+        "scripts/eval-run-env.mjs"
+      ],
+      "scans": [
+        "harness",
+        "scripts",
+        "test"
+      ]
+    },
+    {
+      "file": "test/contract/harness-evals.test.ts",
+      "reads": [
+        ".gitignore",
+        "README.md",
+        "electron.vite.config.ts",
+        "harness/agents/implementer.md",
+        "harness/agents/reviewer.md",
+        "harness/bin/profile",
+        "harness/evals",
+        "harness/evals/epic-wave-old-form/graders/04-in-the-wave.md",
+        "harness/evals/lib/coverage.json",
+        "harness/evals/lib/demo-project.sh",
+        "harness/evals/lib/state-guard.cjs",
+        "harness/evals/reviewer-simplification/prompt.md",
+        "harness/evals/ship-ticket-local-green/graders/gate-fast.md",
+        "harness/evals/status-block/graders/ends-with-status-block.md",
+        "harness/evals/status-block/graders/epic-status-ran.md",
+        "harness/evals/status-block/scaffold.sh",
+        "harness/hooks/gate.mjs",
+        "harness/hooks/hooks.json",
+        "harness/hooks/inject-rules.mjs",
+        "harness/hooks/rules/orchestrator.md",
+        "harness/skills/epic-wave/SKILL.md",
+        "harness/skills/qmd/SKILL.md",
+        "harness/skills/ship-ticket/SKILL.md",
+        "scripts/eval-harness-coverage.mjs",
+        "scripts/eval-harness.mjs",
+        "scripts/eval-run-env.mjs",
+        "src/main/index.ts",
+        "test/fixtures/eval-stub/claude.cjs"
+      ],
+      "scans": [
+        "harness",
+        "harness/bin",
+        "scripts",
+        "src",
+        "test"
+      ]
+    },
+    {
+      "file": "test/contract/harness-install.test.ts",
+      "scans": [
+        "harness"
+      ]
+    },
+    {
+      "file": "test/contract/harness-migrate-harness.ts",
+      "scans": [
+        "harness"
+      ]
+    },
+    {
+      "file": "test/contract/harness-migrate.test.ts",
+      "reads": [
+        "harness/agents",
+        "harness/bin/profile",
+        "harness/hooks/gate.mjs",
+        "harness/skills"
+      ]
+    },
+    {
+      "file": "test/contract/harness-plugin.test.ts",
+      "reads": [
+        "harness/.claude-plugin/plugin.json"
+      ],
+      "scans": [
+        "harness"
+      ]
+    },
+    {
+      "file": "test/contract/harness-qmd.test.ts",
+      "reads": [
+        "test/fixtures/qmd-stub",
+        "test/fixtures/qmd-stub/qmd-collections"
+      ],
+      "scans": [
+        "harness/bin"
+      ]
+    },
+    {
+      "file": "test/contract/harness-retro-skill.test.ts",
+      "reads": [
+        "docs/lessons",
+        "harness/skills/retro/SKILL.md"
+      ]
+    },
+    {
+      "file": "test/contract/harness-script-env.test.ts",
+      "reads": [
+        "test/fixtures/harness-stub/login-shell"
+      ],
+      "scans": [
+        "harness"
+      ]
+    },
+    {
+      "file": "test/contract/harness-script-wiring.test.ts",
+      "reads": [
+        "test/fixtures/harness-stub"
+      ]
+    },
+    {
+      "file": "test/contract/harness-scripts.test.ts",
+      "reads": [
+        "harness/bin/tests/qmd.test.sh"
+      ],
+      "scans": [
+        "harness"
+      ]
+    },
+    {
+      "file": "test/contract/image-protocol.test.ts",
+      "reads": [
+        "src/renderer/index.html"
+      ]
+    },
+    {
+      "file": "test/contract/limits.test.ts",
+      "reads": [
+        "test/fixtures/sdk-messages"
+      ]
+    },
+    {
+      "file": "test/contract/link-access.test.ts",
+      "reads": [
+        "docs/adr",
+        "test/fixtures/claude-home"
+      ]
+    },
+    {
+      "file": "test/contract/link-tailscale-peers.test.ts",
+      "reads": [
+        "test/fixtures/tailscale/status.json"
+      ]
+    },
+    {
+      "file": "test/contract/login-shell-capture.test.ts",
+      "reads": [
+        "src/main/agent/env.ts"
+      ]
+    },
+    {
+      "file": "test/contract/main-ipc-wiring.test.ts",
+      "reads": [
+        "harness/.claude-plugin",
+        "harness/.claude-plugin/plugin.json"
+      ]
+    },
+    {
+      "file": "test/contract/make-icons.test.ts",
+      "reads": [
+        "build/brand/icon.svg",
+        "build/brand/mark.svg",
+        "build/icon.icns",
+        "build/icon.ico",
+        "build/icon.png",
+        "build/icons.json",
+        "scripts/ico.mjs",
+        "scripts/make-icons.mjs"
+      ],
+      "scans": [
+        "build"
+      ]
+    },
+    {
+      "file": "test/contract/node-sessions.test.ts",
+      "reads": [
+        "test/fixtures/agent-scripts"
+      ]
+    },
+    {
+      "file": "test/contract/node-version.test.ts",
+      "reads": [
+        ".github/workflows",
+        ".nvmrc",
+        "README.md",
+        "package.json",
+        "pnpm-workspace.yaml"
+      ],
+      "scans": [
+        ".github"
+      ]
+    },
+    {
+      "file": "test/contract/orchestrator.test.ts",
+      "reads": [
+        "test/fixtures/agent-scripts"
+      ]
+    },
+    {
+      "file": "test/contract/packaging.test.ts",
+      "reads": [
+        "build/icon.ico",
+        "electron-builder.yml",
+        "package.json",
+        "scripts/install-stable.mjs"
+      ]
+    },
+    {
+      "file": "test/contract/permissions.test.ts",
+      "reads": [
+        "test/fixtures/agent-scripts",
+        "test/fixtures/agent-scripts/permission.jsonl"
+      ]
+    },
+    {
+      "file": "test/contract/pipeline-rules-agree.test.ts",
+      "reads": [
+        "harness/lib/pipeline.cjs",
+        "package.json"
+      ]
+    },
+    {
+      "file": "test/contract/postinstall.test.ts",
+      "reads": [
+        "package.json",
+        "scripts/postinstall.mjs"
+      ]
+    },
+    {
+      "file": "test/contract/projects-connect.test.ts",
+      "reads": [
+        "harness/bin/project-connect",
+        "harness/profiles/draft.schema.json",
+        "package.json",
+        "test/fixtures/agent-scripts",
+        "test/fixtures/agent-scripts/profile-draft.jsonl"
+      ],
+      "scans": [
+        "harness/bin"
+      ]
+    },
+    {
+      "file": "test/contract/projects.test.ts",
+      "reads": [
+        "HANDOFF.md",
+        "README.md"
+      ],
+      "scans": [
+        "docs",
+        "src"
+      ]
+    },
+    {
+      "file": "test/contract/script-node.test.ts",
+      "reads": [
+        "test/script-node.ts"
+      ],
+      "scans": [
+        "test"
+      ]
+    },
+    {
+      "file": "test/contract/sdk-compat.test.ts",
+      "reads": [
+        "package.json",
+        "scripts/sdk-compat.mjs",
+        "test/fixtures/agent-scripts",
+        "test/fixtures/sdk-compat/fake-scripts",
+        "test/fixtures/sdk-messages",
+        "test/fixtures/sdk-messages/manifest.json"
+      ]
+    },
+    {
+      "file": "test/contract/statusline-bridge.test.ts",
+      "reads": [
+        "scripts/statusline-bridge.mjs",
+        "scripts/statusline-bridge.sh"
+      ]
+    },
+    {
+      "file": "test/contract/terminal-ai-next-command.test.ts",
+      "reads": [
+        "src/main/terminal/zsh/rc.d"
+      ]
+    },
+    {
+      "file": "test/contract/terminal-ai-suggest.test.ts",
+      "reads": [
+        "src/main/terminal/zsh/rc.d"
+      ]
+    },
+    {
+      "file": "test/contract/terminal-cursor.test.ts",
+      "reads": [
+        "test/fixtures/headless-exits.cjs",
+        "test/fixtures/headless-refuses.cjs",
+        "test/fixtures/headless-silent.cjs"
+      ]
+    },
+    {
+      "file": "test/contract/terminal-shell-integration.test.ts",
+      "reads": [
+        "src/main/terminal/zsh/rc.d"
+      ]
+    },
+    {
+      "file": "test/contract/terminal.test.ts",
+      "reads": [
+        "test/fixtures/first-run-tools"
+      ]
+    },
+    {
+      "file": "test/contract/transcript-parse.test.ts",
+      "reads": [
+        "test/fixtures/claude-home/projects"
+      ]
+    },
+    {
+      "file": "test/contract/vitest-electron.test.ts",
+      "reads": [
+        "package.json",
+        "scripts/vitest-electron.mjs",
+        "test/contract/postinstall.test.ts"
+      ],
+      "scans": [
+        "scripts"
+      ]
+    },
+    {
+      "file": "test/contract/windows-tests-workflow.test.ts",
+      "reads": [
+        ".github/workflows/windows-tests.yml",
+        "package.json",
+        "scripts/windows-test-list.mjs",
+        "test/contract/harness-scripts.test.ts",
+        "test/e2e/terminal.spec.ts",
+        "test/unit/remote-links.test.ts",
+        "test/unit/shell-resolve.test.ts",
+        "vitest.config.ts"
+      ],
+      "scans": [
+        "test",
+        "test/contract",
+        "test/unit"
+      ]
+    },
+    {
+      "file": "test/contract/windows-verdict-scope.test.ts",
+      "reads": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/windows-tests.yml",
+        "README.md",
+        "build/brand/icon.svg",
+        "build/icon.ico",
+        "electron-builder.yml",
+        "electron.vite.config.ts",
+        "harness/bin/ticket",
+        "package.json",
+        "playwright.acceptance.config.ts",
+        "playwright.config.ts",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "scripts/build-version.ts",
+        "scripts/dev-bundle.ts",
+        "scripts/ico.mjs",
+        "scripts/install-stable.mjs",
+        "scripts/make-icons.mjs",
+        "scripts/postinstall.mjs",
+        "scripts/vitest-electron.mjs",
+        "scripts/windows-verdict-scope.mjs",
+        "src/main/agent/env.ts",
+        "src/main/broadcast.ts",
+        "src/main/browser/live.ts",
+        "src/main/browser/screencast.ts",
+        "src/main/dock-icon.ts",
+        "src/main/ipc/browser.ts",
+        "src/main/ipc/menu.ts",
+        "src/main/ipc/notify.ts",
+        "src/main/ipc/shell.ts",
+        "src/main/ipc/terminal-ai-fix.ts",
+        "src/main/mcp/browser-server.ts",
+        "src/main/menu.ts",
+        "src/main/notify-pending.ts",
+        "src/main/notify.ts",
+        "src/main/quiet-windows.ts",
+        "src/main/settings/interface-scale.ts",
+        "src/main/terminal-ai/features/suggest.ts",
+        "src/main/terminal-ai/socket.ts",
+        "src/main/terminal/pty.ts",
+        "src/main/terminal/windows-pty.ts",
+        "src/main/terminal/zsh/rc.d/10-assist.zsh",
+        "src/main/window-frame.ts",
+        "src/main/window-show.ts",
+        "src/main/window.ts",
+        "src/renderer/browser/BrowserProfiles.tsx",
+        "src/renderer/browser/control.ts",
+        "src/renderer/canvas/ReadOnlyTerminal.tsx",
+        "src/renderer/canvas/nodes/BrowserNode.css",
+        "src/renderer/canvas/nodes/BrowserNode.tsx",
+        "src/renderer/canvas/nodes/SessionNode.tsx",
+        "src/renderer/canvas/nodes/TerminalNode.css",
+        "src/renderer/canvas/nodes/browser-frame.ts",
+        "src/renderer/canvas/nodes/terminal-views.ts",
+        "src/renderer/canvas/overlays/BrowserLayer.tsx",
+        "src/renderer/canvas/overlays/browser-pages.ts",
+        "src/renderer/projects/FolderBrowser.tsx",
+        "src/renderer/settings/BrowserSection.tsx",
+        "src/shared/browser/partition.ts",
+        "src/shared/browser/tools.ts",
+        "src/shared/ipc/browser.ts",
+        "src/shared/ipc/menu.ts",
+        "src/shared/ipc/notify.ts",
+        "src/shared/ipc/terminal.ts",
+        "src/shared/terminal/cursor-answer.ts",
+        "src/shared/window/bounds.ts",
+        "test/acceptance/fixtures/silent-repo/src/index.js",
+        "test/contract/terminal-harness.ts",
+        "test/e2e/browser-sleep.spec.ts",
+        "test/setup-contract.ts",
+        "test/setup-dom.ts",
         "test/unit/e2e-gh-stub.test.ts",
-        "test/unit/e2e-notifications.test.ts",
-        "test/unit/e2e-shard.test.ts"
+        "test/unit/shell-resolve.test.ts",
+        "test/windows-runner.ts",
+        "vitest.config.ts"
+      ]
+    },
+    {
+      "file": "test/contract/workflow-profile.test.ts",
+      "reads": [
+        "docs/adr"
+      ]
+    },
+    {
+      "file": "test/contract/workflow-reader.test.ts",
+      "reads": [
+        "test/fixtures/harness-stub/canned",
+        "test/fixtures/workflow-stub/bin-gone",
+        "test/fixtures/workflow-stub/epic-status",
+        "test/fixtures/workflow-stub/plugin-epic-status"
+      ]
+    },
+    {
+      "file": "test/contract/workflow-stages.test.ts",
+      "reads": [
+        "test/fixtures/workflow-stub/epic-status"
+      ]
+    },
+    {
+      "file": "test/e2e/first-run-sandbox.ts",
+      "reads": [
+        "test/fixtures/first-run-tools"
+      ]
+    },
+    {
+      "file": "test/e2e/helpers.ts",
+      "reads": [
+        "scripts/install-stable.mjs"
+      ]
+    },
+    {
+      "file": "test/e2e/launch-env.ts",
+      "reads": [
+        "test/fixtures/e2e-shell/sh",
+        "test/fixtures/gh"
+      ]
+    },
+    {
+      "file": "test/shell-stub.ts",
+      "reads": [
+        "test/fixtures/shell-stub/stub"
+      ]
+    },
+    {
+      "file": "test/unit/agent-cost.test.ts",
+      "reads": [
+        "README.md",
+        "scripts/agent-cost.mjs",
+        "test/fixtures/agent-cost/by-ticket",
+        "test/fixtures/agent-cost/project"
+      ]
+    },
+    {
+      "file": "test/unit/agent-env.test.ts",
+      "scans": [
+        "src"
+      ]
+    },
+    {
+      "file": "test/unit/agent-options.test.ts",
+      "reads": [
+        "harness/bin/qmd-mcp",
+        "test/fixtures/sdk-messages/plugin-known-user-settings.jsonl"
       ],
-      "why": "they read the e2e files as text; the e2e tests themselves are not in this run"
+      "scans": [
+        "harness"
+      ]
     },
     {
-      "paths": ["test/acceptance/**"],
-      "files": ["test/contract/windows-verdict-scope.test.ts"],
-      "why": "acceptance tests are not in this run; the scope test names the folder"
+      "file": "test/unit/agent-query-factory.test.ts",
+      "reads": [
+        "test/fixtures/agent-scripts"
+      ]
     },
     {
-      "paths": ["test/fixtures/**"],
-      "files": ["test/contract/workflow-reader.test.ts"],
-      "why": "it reads fixtures by a computed name"
+      "file": "test/unit/agent-queue.test.ts",
+      "reads": [
+        "test/fixtures/agent-scripts"
+      ]
     },
-    { "paths": ["test/fixtures/agent-cost/**"], "files": ["test/unit/agent-cost.test.ts"], "why": "read by the test" },
     {
-      "paths": ["test/fixtures/agent-scripts/**"],
-      "files": ["test/contract/projects-connect.test.ts", "test/contract/sdk-compat.test.ts", "test/unit/agent-query-factory.test.ts"],
-      "why": "scripts the tests start as stand-ins of the agent"
+      "file": "test/unit/build-version.test.ts",
+      "reads": [
+        "package.json"
+      ]
     },
-    { "paths": ["test/fixtures/browser/**"], "files": ["test/unit/e2e-browser-pixels.test.ts"], "why": "read by the test" },
-    { "paths": ["test/fixtures/check-lessons/**"], "files": ["test/unit/check-lessons.test.ts"], "why": "read by the test" },
     {
-      "paths": ["test/fixtures/claude-home/**"],
-      "files": [
-        "test/contract/claude-home-fixture.ts",
-        "test/contract/bindings.test.ts",
-        "test/contract/clients.test.ts",
+      "file": "test/unit/canvas-zoom.test.tsx",
+      "reads": [
+        "src/renderer/canvas/ReadOnlyTerminal.tsx",
+        "src/renderer/canvas/nodes"
+      ],
+      "scans": [
+        "src/renderer"
+      ]
+    },
+    {
+      "file": "test/unit/canvas.test.tsx",
+      "reads": [
+        "src/renderer/canvas/nodes",
+        "src/renderer/canvas/nodes/index.ts"
+      ]
+    },
+    {
+      "file": "test/unit/check-cyrillic.test.ts",
+      "reads": [
+        "harness/lib/README.md",
+        "harness/lib/input-words.json",
+        "scripts/check-cyrillic.mjs"
+      ]
+    },
+    {
+      "file": "test/unit/check-handoff.test.ts",
+      "reads": [
+        "scripts/check-handoff.mjs",
+        "scripts/doc-headings.json"
+      ]
+    },
+    {
+      "file": "test/unit/check-lessons.test.ts",
+      "reads": [
+        "docs/lessons",
+        "docs/lessons/README.md",
+        "scripts/check-lessons.mjs",
+        "scripts/doc-headings.json",
+        "test/fixtures/check-lessons",
+        "test/fixtures/check-lessons/good"
+      ],
+      "scans": [
+        "docs",
+        "test"
+      ]
+    },
+    {
+      "file": "test/unit/chokidar-close-callers.test.ts",
+      "reads": [
+        "src/main/chokidar-close.ts",
+        "tsconfig.node.json"
+      ],
+      "scans": [
+        "src/main"
+      ]
+    },
+    {
+      "file": "test/unit/contrast.test.ts",
+      "reads": [
+        "src/renderer/theme/tokens.css"
+      ]
+    },
+    {
+      "file": "test/unit/critical-path.test.ts",
+      "reads": [
+        "scripts/critical-path.mjs",
+        "test/fixtures/critical-path",
+        "test/fixtures/critical-path/journals",
+        "test/fixtures/critical-path/project",
+        "test/fixtures/critical-path/prs.json"
+      ]
+    },
+    {
+      "file": "test/unit/dev-bundle-config.test.ts",
+      "reads": [
+        "electron.vite.config.ts"
+      ]
+    },
+    {
+      "file": "test/unit/dev-bundle.test.ts",
+      "reads": [
+        "build/icon.icns",
+        "electron.vite.config.ts"
+      ]
+    },
+    {
+      "file": "test/unit/dock-icon.test.ts",
+      "reads": [
+        "build/icon.png",
+        "package.json",
+        "src/main/dock-icon.ts"
+      ]
+    },
+    {
+      "file": "test/unit/docs-adr-order.test.ts",
+      "reads": [
+        "docs/adr"
+      ]
+    },
+    {
+      "file": "test/unit/docs-remote-links.test.ts",
+      "reads": [
+        "docs/adr"
+      ]
+    },
+    {
+      "file": "test/unit/e2e-browser-pixels.test.ts",
+      "reads": [
+        "test/fixtures/browser/page.html"
+      ]
+    },
+    {
+      "file": "test/unit/e2e-gh-stub.test.ts",
+      "reads": [
+        "src/main/first-run/actions.ts",
+        "src/main/first-run/checks.ts",
+        "src/main/github/accounts.ts",
+        "src/main/github/prs.ts",
+        "src/main/ipc/first-run.ts",
+        "test/e2e/helpers.ts",
+        "test/e2e/launch-env.ts",
+        "test/e2e/packaged.spec.ts",
+        "test/e2e/window.spec.ts"
+      ],
+      "scans": [
+        "src/main",
+        "test/e2e"
+      ]
+    },
+    {
+      "file": "test/unit/e2e-no-spawn-on-load.test.ts",
+      "reads": [
+        "scripts/build-version.ts",
+        "test/contract/ipc-renderer.test.tsx",
         "test/contract/link-access.test.ts",
-        "test/contract/transcript-parse.test.ts",
-        "test/unit/subagents.test.ts"
+        "test/contract/statusline-bridge.test.ts",
+        "test/contract/terminal-ai-zle.test.ts",
+        "test/contract/terminal-shell-integration.test.ts",
+        "test/contract/terminal.test.ts",
+        "test/contract/workflow-profile.test.ts",
+        "test/contract/workflow-reader.test.ts"
       ],
-      "why": "a Claude home the tests copy and read"
-    },
-    { "paths": ["test/fixtures/critical-path/**"], "files": ["test/unit/critical-path.test.ts"], "why": "read by the test" },
-    { "paths": ["test/fixtures/eval-stub/**"], "files": ["test/contract/harness-evals.test.ts"], "why": "started as a stand-in" },
-    {
-      "paths": ["test/fixtures/first-run-tools/**"],
-      "files": ["test/contract/first-run-checks.test.ts", "test/contract/terminal.test.ts"],
-      "why": "stand-ins the tests start"
+      "scans": [
+        "test",
+        "test/contract",
+        "test/e2e"
+      ]
     },
     {
-      "paths": ["test/fixtures/gh/**"],
-      "files": ["test/contract/gh-world.ts", "test/contract/github-prs.test.ts", "test/contract/gh-stand-in.test.ts"],
-      "why": "the gh stand-in the tests start"
-    },
-    {
-      "paths": ["test/fixtures/harness-stub/**"],
-      "files": [
-        "test/contract/harness-script-wiring.test.ts",
-        "test/contract/docs.test.ts",
-        "test/contract/github-prs.test.ts",
-        "test/contract/e2e-launch-shell.test.ts",
-        "test/contract/harness-script-env.test.ts"
+      "file": "test/unit/e2e-notifications.test.ts",
+      "reads": [
+        "playwright.config.ts"
       ],
-      "why": "stand-ins of the Harness scripts the tests start"
-    },
-    { "paths": ["test/fixtures/headless-*.cjs"], "files": ["test/contract/terminal-cursor.test.ts"], "why": "started as a process" },
-    { "paths": ["test/fixtures/qmd-stub/**"], "files": ["test/contract/harness-qmd.test.ts"], "why": "started as a stand-in" },
-    {
-      "paths": ["test/fixtures/sdk-compat/**"],
-      "files": ["test/contract/sdk-compat.test.ts", "test/unit/sdk-compat-diff.test.ts"],
-      "why": "read by the tests"
+      "scans": [
+        "test/e2e"
+      ]
     },
     {
-      "paths": ["test/fixtures/sdk-messages/**"],
-      "files": ["test/contract/limits.test.ts", "test/contract/sdk-compat.test.ts", "test/unit/agent-options.test.ts"],
-      "why": "recorded SDK messages the tests read"
+      "file": "test/unit/e2e-shard.test.ts",
+      "reads": [
+        "scripts/e2e-shard.mjs",
+        "test/e2e/agent.spec.ts",
+        "test/e2e/browser.spec.ts",
+        "test/e2e/helpers.ts",
+        "test/e2e/terminal.spec.ts",
+        "test/e2e/timings.json"
+      ]
     },
-    { "paths": ["test/fixtures/shell-stub/**"], "files": ["test/shell-stub.ts"], "why": "read by the helper the tests import" },
     {
-      "paths": ["test/fixtures/tailscale/**"],
-      "files": ["test/contract/link-tailscale-peers.test.ts", "test/unit/link-tailscale.test.ts"],
-      "why": "read by the tests"
+      "file": "test/unit/first-heading.test.ts",
+      "reads": [
+        "harness/bin/tests/fixtures/ticket-title"
+      ]
     },
     {
-      "paths": ["test/fixtures/worfy-mvp-epic/**"],
-      "files": ["test/contract/card-bridge.test.ts", "test/unit/waves.test.ts"],
-      "why": "an epic the tests read"
+      "file": "test/unit/flaky-reporter.test.ts",
+      "reads": [
+        "vitest.config.ts"
+      ]
     },
-    { "paths": ["test/fixtures/workflow-stub/**"], "files": ["test/contract/workflow-stages.test.ts"], "why": "started as a stand-in" },
     {
-      "paths": ["test/fixtures/claude-home-legacy/**", "test/fixtures/e2e-shell/**"],
-      "files": ["test/unit/e2e-no-spawn-on-load.test.ts"],
-      "why": "fixtures of the e2e tests, which are not in this run"
+      "file": "test/unit/gate-state.test.ts",
+      "reads": [
+        "harness/hooks/gate.mjs"
+      ]
+    },
+    {
+      "file": "test/unit/hang-sample.test.ts",
+      "reads": [
+        "scripts/hang-sample.mjs"
+      ]
+    },
+    {
+      "file": "test/unit/harness-status.test.tsx",
+      "reads": [
+        "src/renderer/shell/shell.css"
+      ]
+    },
+    {
+      "file": "test/unit/ico.test.ts",
+      "reads": [
+        "scripts/ico.mjs"
+      ]
+    },
+    {
+      "file": "test/unit/install-stable-functions.test.ts",
+      "reads": [
+        "harness/bin/profile",
+        "scripts/install-stable.mjs"
+      ]
+    },
+    {
+      "file": "test/unit/install-stable-harness.ts",
+      "reads": [
+        "scripts/install-stable.mjs"
+      ],
+      "scans": [
+        "build"
+      ]
+    },
+    {
+      "file": "test/unit/install-stable.test.ts",
+      "reads": [
+        "scripts/install-stable.mjs"
+      ]
+    },
+    {
+      "file": "test/unit/kind-tokens.test.ts",
+      "reads": [
+        "docs/design/F-SPEC.md",
+        "src/renderer/theme/tokens.css"
+      ]
+    },
+    {
+      "file": "test/unit/link-caller-local-only.test.ts",
+      "scans": [
+        "src"
+      ]
+    },
+    {
+      "file": "test/unit/link-tailscale.test.ts",
+      "reads": [
+        "test/fixtures/tailscale/status.json"
+      ]
+    },
+    {
+      "file": "test/unit/markdown.test.tsx",
+      "reads": [
+        ".scratch/worfy-mvp",
+        "docs/adr",
+        "docs/design",
+        "src/main/index.ts"
+      ]
+    },
+    {
+      "file": "test/unit/minimap-paint.test.tsx",
+      "reads": [
+        "src/renderer/canvas/overlays/minimap.css"
+      ]
+    },
+    {
+      "file": "test/unit/no-github-git.test.ts",
+      "reads": [
+        "harness/bin/tests",
+        "harness/evals",
+        "harness/evals-outcome",
+        "harness/hooks/tests",
+        "harness/hooks/tests/gate-args.test.sh",
+        "test/acceptance",
+        "test/contract/projects-connect.test.ts",
+        "test/e2e/projects-connect.spec.ts",
+        "test/unit/terminal-ai-context.test.ts",
+        "test/unit/terminal-ai-redact.test.ts"
+      ],
+      "scans": [
+        "harness",
+        "test"
+      ]
+    },
+    {
+      "file": "test/unit/no-rmsync.test.ts",
+      "reads": [
+        "electron.vite.config.ts",
+        "eslint.config.js",
+        "playwright.acceptance.config.ts",
+        "playwright.config.ts",
+        "scripts/install-stable.mjs",
+        "scripts/remove-tree.mjs",
+        "src/main/harness/migrate/restore.ts",
+        "src/main/storage/remove.ts",
+        "test/remove.ts",
+        "test/unit/remove-tree-model.ts",
+        "test/unit/remove-tree.test.ts",
+        "vitest.config.ts"
+      ],
+      "scans": [
+        "scripts",
+        "src",
+        "test"
+      ]
+    },
+    {
+      "file": "test/unit/node-kind-header.test.tsx",
+      "reads": [
+        "src/renderer/canvas/node-chrome.css",
+        "src/renderer/canvas/nodes",
+        "src/renderer/focus/focus.css"
+      ]
+    },
+    {
+      "file": "test/unit/playwright-json-report.test.ts",
+      "reads": [
+        "playwright.config.ts",
+        "test/e2e/flaky-reporter.ts",
+        "test/e2e/helpers.ts"
+      ]
+    },
+    {
+      "file": "test/unit/program.test.ts",
+      "reads": [
+        "test/fixtures/gh/gh-stub.mjs"
+      ]
+    },
+    {
+      "file": "test/unit/quarantine.test.ts",
+      "scans": [
+        "test",
+        "test/contract",
+        "test/e2e",
+        "test/unit"
+      ]
+    },
+    {
+      "file": "test/unit/quit-listeners.test.ts",
+      "reads": [
+        "src/main/index.ts"
+      ],
+      "scans": [
+        "src/main"
+      ]
+    },
+    {
+      "file": "test/unit/remove-tree-copies.test.ts",
+      "reads": [
+        "scripts/install-stable.mjs"
+      ]
+    },
+    {
+      "file": "test/unit/remove-tree-model.ts",
+      "reads": [
+        "scripts/install-stable.mjs",
+        "scripts/remove-tree.mjs"
+      ]
+    },
+    {
+      "file": "test/unit/renderer-entry.test.ts",
+      "reads": [
+        "src/renderer/index.html"
+      ]
+    },
+    {
+      "file": "test/unit/sdk-compat-diff.test.ts",
+      "reads": [
+        "scripts/sdk-compat.mjs",
+        "test/fixtures/sdk-compat/new",
+        "test/fixtures/sdk-compat/old"
+      ]
+    },
+    {
+      "file": "test/unit/session-rail-discovery.test.tsx",
+      "reads": [
+        "src/renderer/session/rail",
+        "src/renderer/session/rail/index.ts"
+      ]
+    },
+    {
+      "file": "test/unit/shadow-tokens.test.ts",
+      "reads": [
+        "src/renderer/theme/tokens.css"
+      ]
+    },
+    {
+      "file": "test/unit/shell-discovery.test.tsx",
+      "reads": [
+        "src/renderer/shell/Sidebar.tsx",
+        "src/renderer/shell/Toolbar.tsx",
+        "src/renderer/shell/sidebar",
+        "src/renderer/shell/toolbar"
+      ]
+    },
+    {
+      "file": "test/unit/stale-leftovers.test.ts",
+      "reads": [
+        "test/contract/harness-evals.test.ts",
+        "test/unit/glob-probe.tsx",
+        "vitest.config.ts"
+      ]
+    },
+    {
+      "file": "test/unit/subagents.test.ts",
+      "reads": [
+        "test/fixtures/claude-home/projects/-Users-test-projects-agents",
+        "test/fixtures/claude-home/projects/-Users-test-projects-demo",
+        "test/fixtures/claude-home/projects/-Users-test-projects-stale",
+        "test/fixtures/claude-home/projects/-Users-test-projects-workflow",
+        "test/fixtures/claude-home/projects/-Users-test-projects-workflow/12121212-1212-4121-8121-121212121212/subagents/workflows/wf_0a1b2c3d-4e5",
+        "test/fixtures/claude-home/projects/-Users-test-projects-workflow/12121212-1212-4121-8121-121212121212/subagents/workflows/wf_0a1b2c3d-4e5/journal.jsonl"
+      ]
+    },
+    {
+      "file": "test/unit/terminal-alt-buffer.test.tsx",
+      "reads": [
+        "package.json"
+      ]
+    },
+    {
+      "file": "test/unit/terminal-theme.test.tsx",
+      "reads": [
+        "src/renderer/theme/tokens.css"
+      ]
+    },
+    {
+      "file": "test/unit/test-timings.test.ts",
+      "reads": [
+        "scripts/test-timings.mjs",
+        "test/timings-reporter.ts",
+        "vitest.config.ts"
+      ]
+    },
+    {
+      "file": "test/unit/waves.test.ts",
+      "reads": [
+        "src/main/ipc/workflow.ts",
+        "src/main/workflow/reader.ts",
+        "src/main/workflow/watch.ts",
+        "src/shared/ipc/workflow.ts",
+        "src/shared/workflow/ticket-ref.ts",
+        "src/shared/workflow/types.ts",
+        "src/shared/workflow/waves.ts",
+        "test/fixtures/worfy-mvp-epic",
+        "test/fixtures/worfy-mvp-epic/epic-status.json",
+        "test/fixtures/worfy-mvp-epic/issues",
+        "test/fixtures/worfy-mvp-epic/spec.md"
+      ]
+    },
+    {
+      "file": "test/unit/window-options.test.ts",
+      "reads": [
+        "src/renderer/theme/tokens.css"
+      ]
     }
   ]
 }

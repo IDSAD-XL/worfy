@@ -3,6 +3,8 @@
 // graph cannot see; ALL for a change to the test run itself and for a path nothing covers.
 // Each case makes a branch in a temporary git repository with its own small module graph and table,
 // checks the branch out and runs the script there, as CI would run it on the head of a pull request.
+// scripts/affected-tests-table.mjs, which builds the `generated` rows from the test sources, runs on a
+// second temporary repository, and with --check on this one: the committed table must be what it builds.
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -13,6 +15,7 @@ import { scriptNode } from '../script-node'
 
 const REPO = join(__dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'affected-tests.mjs')
+const GENERATOR = join(REPO, 'scripts', 'affected-tests-table.mjs')
 const SETTINGS = ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0']
 
 let scratch = ''
@@ -51,9 +54,14 @@ function branch(change: () => void, from = 'main'): string {
 
 /** The script run on `head` checked out, as `<base> <head>`. */
 function affected(head: string, ...extra: string[]) {
+  return affectedIn({}, head, ...extra)
+}
+
+/** The same with more environment variables. */
+function affectedIn(env: NodeJS.ProcessEnv, head: string, ...extra: string[]) {
   git('checkout', '-q', head)
   try {
-    const result = spawnSync(scriptNode(), [SCRIPT, 'main', head, ...extra], { cwd: repo, encoding: 'utf8', env: gitEnv() })
+    const result = spawnSync(scriptNode(), [SCRIPT, 'main', head, ...extra], { cwd: repo, encoding: 'utf8', env: { ...gitEnv(), ...env } })
     return { status: result.status, lines: result.stdout.split('\n').filter((line) => line !== ''), stdout: result.stdout, stderr: result.stderr }
   } finally {
     git('checkout', '-q', 'main')
@@ -67,16 +75,19 @@ const TABLE = {
   links: [
     { paths: ['harness/**'], files: ['test/contract/harness-scripts.test.ts', 'test/contract/wave-gate.test.ts'] },
     { paths: ['config/flags.json'], files: ['test/flags.ts'] },
-    { paths: ['test/**'], files: ['test/unit/scan.test.ts'] },
+    { paths: ['test/**'], files: ['test/unit/scan.test.ts'], scan: true },
   ],
+  generated: [{ file: 'test/unit/reader.test.ts', reads: ['data/input.txt', 'data/cases', 'GUIDE.md', 'docs/spec.md'], scans: ['assets'] }],
 }
 
-// A vitest configuration without imports: the temporary repository has no node_modules.
-const CONFIG = `export default {
+// A vitest configuration without imports: the temporary repository has no node_modules. Like the
+// real one, it leaves out the files WORFY_TEST_EXCLUDE names.
+const CONFIG = `const exclude = (process.env.WORFY_TEST_EXCLUDE ?? '').split(' ').filter(Boolean)
+export default {
   test: {
     projects: [
-      { test: { name: 'node', include: ['test/unit/**/*.test.ts'] } },
-      { test: { name: 'contract', include: ['test/contract/**/*.test.ts'] } },
+      { test: { name: 'node', include: ['test/unit/**/*.test.ts'], exclude } },
+      { test: { name: 'contract', include: ['test/contract/**/*.test.ts'], exclude } },
     ],
   },
 }
@@ -94,6 +105,8 @@ beforeAll(() => {
   put('scripts/affected-tests.table.json', JSON.stringify(TABLE))
   put('README.md', '# fixture\n')
   put('docs/notes.md', 'notes\n')
+  put('docs/spec.md', 'spec\n')
+  put('GUIDE.md', '# guide\n')
   put('docs/mock-up.html', '<p>mock-up</p>\n')
   put('tools/build.sh', '#!/bin/sh\n')
   put('config/flags.json', '{}\n')
@@ -111,6 +124,9 @@ beforeAll(() => {
   put('test/unit/used.test.ts', "import { used } from '../../scripts/used.mjs'\nexport const probe = used\n")
   put('test/unit/other.test.ts', 'export const probe = 0\n')
   put('test/unit/scan.test.ts', 'export const probe = 0\n')
+  put('test/unit/reader.test.ts', 'export const probe = 0\n')
+  put('data/input.txt', 'input\n')
+  put('assets/logo.svg', '<svg/>\n')
   put('harness/bin/wave-gate', '#!/bin/sh\n')
   put('test/contract/harness-scripts.test.ts', 'export const probe = 0\n')
   put('test/contract/wave-gate.test.ts', 'export const probe = 0\n')
@@ -174,10 +190,10 @@ describe('affected-tests.mjs on the table', () => {
   it('answers ALL for a path neither the graph nor the table covers, changed or new', () => {
     const changed = branch(() => put('tools/build.sh', '#!/bin/sh\necho build\n'))
     expect(affected(changed).lines).toEqual(['ALL'])
-    const added = branch(() => put('assets/logo.svg', '<svg/>\n'))
+    const added = branch(() => put('pictures/logo.svg', '<svg/>\n'))
     const r = affected(added)
     expect(r.lines).toEqual(['ALL'])
-    expect(r.stderr).toContain('assets/logo.svg: neither the module graph nor')
+    expect(r.stderr).toContain('pictures/logo.svg: neither the module graph nor')
   })
 
   it('answers ALL when the table names a file that is not there', () => {
@@ -201,6 +217,52 @@ describe('affected-tests.mjs on the table', () => {
     expect(r.status, r.stderr).toBe(0)
     expect(r.stdout).toBe('')
     expect(r.stderr).toBe('')
+  })
+})
+
+describe('affected-tests.mjs on what covers a path', () => {
+  it('answers ALL for an unknown .json or .yml file', () => {
+    expect(affected(branch(() => put('config/other.json', '{}\n'))).lines).toEqual(['ALL'])
+    expect(affected(branch(() => put('config/pipeline.yml', 'a: 1\n'))).lines).toEqual(['ALL'])
+  })
+
+  it('takes a scan row for an addition to the list, not for the cover of a path', () => {
+    // test/** is a scan row: the scanner goes in, and a data file nothing else names is still ALL.
+    const r = affected(branch(() => put('test/data/sample.yml', 'a: 1\n')))
+    expect(r.lines).toEqual(['ALL'])
+    expect(r.stderr).toContain('test/data/sample.yml: neither the module graph nor')
+  })
+
+  it('selects what a generated row reads, and takes its scans for no cover', () => {
+    expect(affected(branch(() => put('data/input.txt', 'changed\n'))).lines).toEqual(['test/unit/reader.test.ts'])
+    // A folder it reads: every file under it.
+    expect(affected(branch(() => put('data/cases/new.json', '{}\n'))).lines).toEqual(['test/unit/reader.test.ts'])
+    expect(affected(branch(() => put('assets/new.svg', '<svg/>\n'))).lines).toEqual(['ALL'])
+  })
+
+  it('selects the reader of a Markdown file, and of a path of `none`, that a test reads as text', () => {
+    // Markdown outside the code folders and the paths of `none` need no tests of their own, but the
+    // tests that read them still go in.
+    expect(affected(branch(() => put('GUIDE.md', '# guide, changed\n'))).lines).toEqual(['test/unit/reader.test.ts'])
+    expect(affected(branch(() => put('docs/spec.md', 'spec, changed\n'))).lines).toEqual(['test/unit/reader.test.ts'])
+  })
+
+  it('answers ALL for a deleted module, whose importers the graph of the head cannot name', () => {
+    const r = affected(branch(() => git('rm', '-q', 'src/shared/alone.ts')))
+    expect(r.lines).toEqual(['ALL'])
+    expect(r.stderr).toContain('src/shared/alone.ts: a deleted module')
+  })
+
+  it('answers ALL for Markdown under src/, test/, harness/ or scripts/ that nothing names', () => {
+    const r = affected(branch(() => put('src/shared/notes.md', 'notes\n')))
+    expect(r.lines).toEqual(['ALL'])
+  })
+
+  it('answers for the whole suite when WORFY_TEST_EXCLUDE leaves a file out of the run', () => {
+    const head = branch(() => put('src/shared/format.ts', 'export const format = (n: number): string => `<${n}>`\n'))
+    const r = affectedIn({ WORFY_TEST_EXCLUDE: 'test/unit/format.test.ts' }, head)
+    expect(r.status, r.stderr).toBe(0)
+    expect(r.lines).toEqual(['test/unit/format.test.ts', 'test/unit/menu.test.ts'])
   })
 })
 
@@ -273,6 +335,10 @@ describe('affected-tests.mjs refuses', () => {
     const b = affected(broken)
     expect(b.status).toBe(2)
     expect(b.stderr).toContain('"links" must be a list of')
+    const generated = branch(() => put('scripts/affected-tests.table.json', '{"all": [], "none": [], "links": [], "generated": [{"file": "test/unit/reader.test.ts", "reads": "data"}]}\n'))
+    const g = affected(generated)
+    expect(g.status).toBe(2)
+    expect(g.stderr).toContain('"generated" must be a list of')
     const missing = branch(() => git('rm', '-q', 'scripts/affected-tests.table.json'))
     const r = affected(missing)
     expect(r.status).toBe(2)
@@ -280,23 +346,134 @@ describe('affected-tests.mjs refuses', () => {
   })
 })
 
-describe('scripts/affected-tests.table.json of this repository', () => {
-  type Entry = { paths: string[]; files?: string[] }
-  const table = JSON.parse(readFileSync(join(REPO, 'scripts', 'affected-tests.table.json'), 'utf8')) as Record<'all' | 'none' | 'links', Entry[]>
-  const selected = (path: string): string[] =>
-    table.links.filter((entry) => entry.paths.some((pattern) => posix.matchesGlob(path, pattern))).flatMap((entry) => entry.files ?? [])
+describe('affected-tests-table.mjs, the generator of the table', () => {
+  // A second repository: the generator reads every tracked file under test/ of the one it runs in.
+  let gen = ''
+  const inGen = (path: string, text: string): void => {
+    mkdirSync(join(gen, path, '..'), { recursive: true })
+    writeFileSync(join(gen, path), text)
+  }
+  const gitGen = (...args: string[]) => spawnSync('git', [...SETTINGS, ...args], { cwd: gen, encoding: 'utf8', env: gitEnv() })
+  const generator = (...args: string[]) => spawnSync(scriptNode(), [GENERATOR, ...args], { cwd: gen, encoding: 'utf8', env: gitEnv() })
+  const generated = () => (JSON.parse(readFileSync(join(gen, 'scripts', 'affected-tests.table.json'), 'utf8')) as { generated: unknown }).generated
 
-  it('names only files that exist', () => {
-    const missing = table.links.flatMap((entry) => entry.files ?? []).filter((file) => !existsSync(join(REPO, file)))
-    expect(missing).toEqual([])
+  beforeAll(() => {
+    gen = join(scratch, 'generator')
+    mkdirSync(gen)
+    gitGen('init', '-q')
+    inGen('scripts/affected-tests.table.json', JSON.stringify({ all: [], none: [], links: [] }))
+    for (const path of ['README.md', 'docs/design/SPEC.md', 'test/fixtures/agent-scripts/one.jsonl', 'test/fixtures/legacy/home.json', 'data/one.txt', 'data/two.txt', 'data/three.txt', 'src/a.ts']) inGen(path, 'x\n')
+    // The forms the tests of this repository use to name a file.
+    inGen(
+      'test/unit/scripts-dir.test.ts',
+      [
+        "import { dirname, join, resolve } from 'node:path'",
+        "import { fileURLToPath } from 'node:url'",
+        "const scriptsDir = join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'fixtures', 'agent-scripts')",
+        'export const script = (name: string): string => join(scriptsDir, name)',
+        '',
+      ].join('\n'),
+    )
+    inGen(
+      'test/unit/read-helper.test.ts',
+      [
+        "import { readFileSync } from 'node:fs'",
+        "import { join } from 'node:path'",
+        // An import is the module graph's business, not a file read by path.
+        "import type { a } from 'src/a.ts'",
+        "const REPO = join(import.meta.dirname, '..', '..')",
+        'const read = (...path: string[]): string => readFileSync(join(REPO, ...path), \'utf8\')',
+        "export const readme = read('README.md')",
+        "export const spec = readFileSync(join(REPO, 'docs', 'design', 'SPEC.md'), 'utf8')",
+        '',
+      ].join('\n'),
+    )
+    inGen('test/legacy.ts', "import { join } from 'node:path'\nexport const home = (repo: string): string => join(repo, 'test', 'fixtures', 'legacy')\n")
+    inGen(
+      'test/unit/scanner.test.ts',
+      [
+        "import { readdirSync, readFileSync } from 'node:fs'",
+        "import { join } from 'node:path'",
+        "import { a } from '../../src/a'",
+        "const DATA = join(__dirname, '..', '..', 'data')",
+        "export const one = readFileSync(join(DATA, 'one.txt'), 'utf8')",
+        "export const two = readFileSync(new URL('../../data/two.txt', import.meta.url), 'utf8')",
+        "export const sources = readdirSync(join(__dirname, '..', '..', 'src'))",
+        "export const temporary = join('/tmp', 'src', 'b.ts')",
+        "export const NAME = 'data/three.txt'",
+        // Not a file of the repository: it stays out.
+        "export const LATER = 'data/later.txt'",
+        'export const used = a',
+        '',
+      ].join('\n'),
+    )
+    gitGen('add', '-A')
+    gitGen('commit', '-q', '-m', 'base')
   })
 
-  it('sends a Harness script to the contract tests that start it as a process', () => {
+  it('finds the files each test file and helper names, in the forms the tests use', () => {
+    const r = generator()
+    expect(r.status, r.stderr).toBe(0)
+    expect(generated()).toEqual([
+      { file: 'test/legacy.ts', reads: ['test/fixtures/legacy'] },
+      { file: 'test/unit/read-helper.test.ts', reads: ['README.md', 'docs/design/SPEC.md'] },
+      { file: 'test/unit/scanner.test.ts', reads: ['data/one.txt', 'data/three.txt', 'data/two.txt'], scans: ['src'] },
+      { file: 'test/unit/scripts-dir.test.ts', reads: ['test/fixtures/agent-scripts'] },
+    ])
+  })
+
+  it('--check answers 0 for a table it would write, and 1 for a reader the table does not know', () => {
+    expect(generator().status).toBe(0)
+    expect(generator('--check').status).toBe(0)
+    inGen('test/unit/late.test.ts', "import { readFileSync } from 'node:fs'\nexport const late = readFileSync(`${import.meta.dirname}/../../data/two.txt`, 'utf8')\n")
+    gitGen('add', '-A')
+    const r = generator('--check')
+    expect(r.status).toBe(1)
+    expect(r.stderr).toContain('test/unit/late.test.ts')
+    expect(r.stderr).toContain('is out of date')
+  })
+})
+
+describe('scripts/affected-tests.table.json of this repository', () => {
+  type Link = { paths: string[]; files: string[]; scan?: boolean }
+  type Generated = { file: string; reads?: string[]; scans?: string[] }
+  const table = JSON.parse(readFileSync(join(REPO, 'scripts', 'affected-tests.table.json'), 'utf8')) as {
+    all: { paths: string[] }[]
+    links: Link[]
+    generated: Generated[]
+  }
+  const under = (path: string, named: string): boolean => path === named || path.startsWith(`${named}/`)
+  /** What the rows select for `path`, as scripts/affected-tests.mjs reads them (without the graph). */
+  const selected = (path: string): string[] => [
+    ...table.links.filter((entry) => entry.paths.some((pattern) => posix.matchesGlob(path, pattern))).flatMap((entry) => entry.files),
+    ...table.generated.filter((entry) => [...(entry.reads ?? []), ...(entry.scans ?? [])].some((named) => under(path, named))).map((entry) => entry.file),
+  ]
+
+  it('holds what the generator builds from the test sources today', () => {
+    const r = spawnSync(scriptNode(), [GENERATOR, '--check'], { cwd: REPO, encoding: 'utf8' })
+    expect(r.status, r.stderr).toBe(0)
+  })
+
+  it('names only files that exist', () => {
+    const named = [...table.links.flatMap((entry) => entry.files), ...table.generated.map((entry) => entry.file)]
+    expect(named.filter((file) => !existsSync(join(REPO, file)))).toEqual([])
+  })
+
+  it('sends a fixture, a document and a Harness script to the tests that read or start it', () => {
+    expect(selected('test/fixtures/agent-scripts/account-error.jsonl')).toEqual(expect.arrayContaining(['test/contract/agent-session.test.ts', 'test/contract/orchestrator.test.ts', 'test/contract/permissions.test.ts']))
+    expect(selected('test/fixtures/sdk-messages/README.md')).toContain('test/contract/agent-events.test.ts')
+    expect(selected('test/fixtures/claude-home-legacy/README.md')).toContain('test/claude-home-legacy.ts')
+    expect(selected('docs/design/F-SPEC.md')).toContain('test/unit/kind-tokens.test.ts')
+    expect(selected('README.md')).toContain('test/contract/node-version.test.ts')
+    expect(selected('docs/lessons/README.md')).toContain('test/unit/check-lessons.test.ts')
+    expect(selected('src/main/agent/env.ts')).toContain('test/unit/e2e-no-spawn-on-load.test.ts')
+    expect(selected('test/contract/agent-session.test.ts')).toContain('test/unit/e2e-no-spawn-on-load.test.ts')
     expect(selected('harness/bin/wave-gate')).toContain('test/contract/harness-scripts.test.ts')
-    expect(selected('harness/bin/land')).toContain('test/contract/harness-scripts.test.ts')
-    expect(selected('harness/bin/profile')).toEqual(expect.arrayContaining(['test/contract/harness-migrate.test.ts', 'test/contract/projects-connect.test.ts']))
-    expect(selected('harness/bin/project-connect')).toEqual(expect.arrayContaining(['test/contract/projects-connect.test.ts', 'test/contract/demo-template.test.ts']))
-    expect(selected('harness/hooks/gate.mjs')).toEqual(expect.arrayContaining(['test/unit/gate-state.test.ts', 'test/contract/harness-migrate.test.ts']))
+    expect(selected('harness/bin/profile')).toContain('test/contract/harness-scripts.test.ts')
+    expect(selected('harness/hooks/gate.mjs')).toContain('test/unit/gate-state.test.ts')
+    // This test runs the generator over every test source.
+    expect(selected('test/unit/new.test.ts')).toContain('test/unit/affected-tests.test.ts')
+    expect(selected('scripts/affected-tests-table.mjs')).toContain('test/unit/affected-tests.test.ts')
   })
 
   it('runs the whole suite for the configuration of the run', () => {
