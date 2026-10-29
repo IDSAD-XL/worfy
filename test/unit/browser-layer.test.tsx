@@ -234,6 +234,22 @@ describe('a Browser in focus mode (worfy-browser ticket 17)', () => {
     }
   })
 
+  it('scales a page with a viewport of its own into the tile body, not into its frame on the Canvas (worfy-browser ticket 18)', async () => {
+    shown.projectId = 'kappa-9a0b1c2d'
+    main.profiles = { [shown.projectId]: ['default'] }
+    const node = farBrowser('b0')
+    const layoutNode = (node.data as { node: LayoutNode }).node
+    drawCanvas([{ ...node, data: { node: { ...layoutNode, data: { ...layoutNode.data, viewport: { w: 1200, h: 800 } } } } }], buildPreset('columns', ['b0'])!)
+    await waitFor(() => expect(document.querySelectorAll('[data-under-focus="shown"]')).toHaveLength(1))
+    document.querySelector<HTMLElement>('[data-testid="focus-tile"] [data-testid="browser-frame-body"]')!.getBoundingClientRect = () => new DOMRect(10, 20, 300, 400)
+    act(() => focusLayoutChanged())
+    const view = document.querySelector<HTMLElement>('webview[data-browser-id="b0"]')!
+    await waitFor(() => expect(view.parentElement!.style.width).toBe('300px'))
+    // The tile body is 300 px wide: the 1200 px page is scaled by a quarter, whatever its frame on the Canvas is.
+    expect(view.style.width).toBe('1200px')
+    expect(view.style.transform).toBe('scale(0.25)')
+  })
+
   it('lays the page on its tile body again when the body changes size, and stops watching it once focus mode closes', async () => {
     const observers: { callback: () => void; targets: Element[]; disconnects: number }[] = []
     ;(globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {

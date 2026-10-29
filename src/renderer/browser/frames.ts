@@ -59,6 +59,22 @@ export function useBrowserFrames(projectId: string, nodeId: string, on: boolean)
   return on ? frame : null
 }
 
+/**
+ * Where a point `x`, `y` of a box of `box` (CSS px from its top-left corner) is on the page that
+ * `frame` shows, in the page's CSS px, and whether it falls on the picture at all; null while either
+ * has no size. The frame is drawn into the box as large as it fits whole, from the top-left corner
+ * (object-fit: contain in BrowserNode.css), as the page itself is scaled into its frame's body when
+ * its viewport is not the body's (worfy-browser ticket 18, ADR-0087); without a viewport of its own
+ * the frame fills the box. A point off the picture still maps — a drag may leave it — but `inside`
+ * is false there.
+ */
+export function framePoint(x: number, y: number, box: { width: number; height: number }, frame: { width: number; height: number }): { x: number; y: number; inside: boolean } | null {
+  if (box.width <= 0 || box.height <= 0 || frame.width <= 0 || frame.height <= 0) return null
+  const scale = Math.min(box.width / frame.width, box.height / frame.height)
+  const point = { x: x / scale, y: y / scale }
+  return { ...point, inside: point.x >= 0 && point.y >= 0 && point.x <= frame.width && point.y <= frame.height }
+}
+
 /** Sends the user's input in the frames of Browser `nodeId` to its page. */
 export function sendBrowserInput(projectId: string, nodeId: string, input: BrowserInput): void {
   void invoke('browser.input', { projectId, nodeId, input }).then(

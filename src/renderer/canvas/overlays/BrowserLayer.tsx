@@ -49,6 +49,10 @@
 // history, scroll and typed text. A Browser in a tile counts as on screen (screenShown in
 // browser-pages.ts), wherever its frame is on the Canvas; the Browsers on the Canvas count as without
 // focus mode.
+//
+// A Browser with a page viewport of its own (`data.viewport`, worfy-browser ticket 18, ADR-0087) has
+// its <webview> laid out at that size and scaled into the body (viewportFit, ../nodes/browser-viewport.ts),
+// on the Canvas and in a tile: the page sees the width it was given, whatever the frame's size.
 import { createElement, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { UNDER_FOCUS_ATTRIBUTE } from '../../focus/cover'
 import { useFocusState } from '../../focus/focus-state'
@@ -69,6 +73,7 @@ import {
   useBrowserTileBodies,
   webAddress,
 } from '../nodes/browser-frame'
+import { viewportFit } from '../nodes/browser-viewport'
 import { useFramesStepAsideWhilePressed } from '../nodes/frames-step-aside'
 import { useLayoutOps } from '../useLayout'
 import {
@@ -243,19 +248,23 @@ function BrowserPage({
     placement === null
       ? { transform: `translate(${page.x}px, ${page.y}px)`, width: page.w, height: page.h }
       : { transform: `translate(${placement.x}px, ${placement.y}px) scale(${1 / placement.zoom})`, transformOrigin: '0 0', width: placement.w, height: placement.h }
+  // A page with its own viewport (worfy-browser ticket 18, ADR-0087) is laid out at that size and
+  // scaled into the body, on the Canvas and in a tile alike; without one it fills the body.
+  const fit = page.viewport === undefined ? null : viewportFit(placement ?? page, page.viewport)
+  const viewStyle: CSSProperties | undefined = fit === null ? undefined : { width: fit.w, height: fit.h, transform: `scale(${fit.scale})`, transformOrigin: '0 0' }
   // Only the style changes between the frame and the tile: the same element, so the same page. Its
   // id names it to the tile's body, which owns it for a screen reader (BrowserNode.tsx).
   return (
     <div
       id={browserPageElementId(page.id)}
-      className="w-browser-layer__page"
+      className={`w-browser-layer__page${fit === null ? '' : ' w-browser-layer__page--fitted'}`}
       {...{ [UNDER_FOCUS_ATTRIBUTE]: placement === null ? 'kept' : 'shown' }}
       style={style}
     >
       {/* allowpopups: without it Electron drops a page's window.open and target="_blank" before main's
           window-open handler sees them; that handler opens no window and sends the page itself to
-          the address instead (src/main/window.ts). */}
-      {createElement('webview', { ref: view, src, partition, allowpopups: 'true', 'data-browser-id': page.id })}
+          the address instead (src/main/window.ts). A changed style never loads the page again. */}
+      {createElement('webview', { ref: view, src, partition, allowpopups: 'true', 'data-browser-id': page.id, style: viewStyle })}
     </div>
   )
 }
