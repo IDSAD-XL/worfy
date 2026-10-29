@@ -282,24 +282,29 @@ describe('.github/workflows/windows-tests.yml', () => {
 
   // The step under PowerShell, with pnpm a function that prints what it was given: what each job of a
   // shard, a part of harness-scripts.test.ts or a dispatch runs, with and without a pull request's list.
-  // PowerShell ships on the Windows and Linux runners; a machine without it skips this test.
-  const pwsh = ['pwsh', 'pwsh.exe'].find((name) => spawnSync(name, ['-NoProfile', '-Command', 'exit 0']).status === 0)
-  describe.skipIf(pwsh === undefined)('mode full: the step that runs the suite, under PowerShell', () => {
-  it.each([
+  // PowerShell ships on the Windows and Linux runners; a machine without it skips these cases.
+  let pwsh: string | null | undefined
+  /** The PowerShell of this machine, looked for once, when a case first runs (never while the file loads). */
+  const findPwsh = (): string | null => {
+    pwsh ??= ['pwsh', 'pwsh.exe'].find((name) => spawnSync(name, ['-NoProfile', '-Command', 'exit 0']).status === 0) ?? null
+    return pwsh
+  }
+  it.for([
     ['a shard with a list', '2/3', 'test/unit/a.test.ts test/contract/harness-scripts.test.ts', 'pnpm [test --shard=2/3] files=[test/unit/a.test.ts test/contract/harness-scripts.test.ts] exclude=[test/contract/harness-scripts.test.ts] part=[]'],
     ['a shard without a list', '1/3', '', 'pnpm [test --shard=1/3] files=[] exclude=[test/contract/harness-scripts.test.ts] part=[]'],
     ['a part, the list has the file', 'harness-scripts 1/2', 'test/unit/a.test.ts test/contract/harness-scripts.test.ts', 'pnpm [test test/contract/harness-scripts.test.ts] files=[] exclude=[] part=[1/2]'],
     ['a part, the list has not', 'harness-scripts 2/2', 'test/unit/a.test.ts test/unit/harness-scripts.test.ts.md', 'The list has no harness-scripts.test.ts: nothing to run'],
     ['a part without a list', 'harness-scripts 2/2', '', 'pnpm [test test/contract/harness-scripts.test.ts] files=[] exclude=[] part=[2/2]'],
     ['a dispatch', '', '', 'pnpm [test] files=[] exclude=[] part=[]'],
-  ])('%s', (_name, shard, list, printed) => {
+  ] as const)('mode full: the step that runs the suite under PowerShell, %s', ([, shard, list, printed], { skip }) => {
+    const shell = findPwsh()
+    if (shell === null) return skip('no PowerShell on this machine')
     const stub = 'function pnpm { "pnpm [$args] files=[$env:WORFY_TEST_FILES] exclude=[$env:WORFY_TEST_EXCLUDE] part=[$env:HARNESS_SCRIPTS_PART]" }'
     const env: NodeJS.ProcessEnv = { ...process.env, SHARD: shard, HARNESS_SCRIPTS: 'test/contract/harness-scripts.test.ts', TEST_FILES: list }
     for (const name of ['WORFY_TEST_FILES', 'WORFY_TEST_EXCLUDE', 'HARNESS_SCRIPTS_PART']) delete env[name]
-    const result = spawnSync(pwsh ?? 'pwsh', ['-NoProfile', '-NonInteractive', '-Command', [stub, ...SUITE].join('\n')], { encoding: 'utf8', env })
+    const result = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command', [stub, ...SUITE].join('\n')], { encoding: 'utf8', env })
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
     expect(result.stdout.trim()).toBe(printed)
-  })
   })
 
   it.each([
