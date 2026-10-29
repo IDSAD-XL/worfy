@@ -19,6 +19,7 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { buildSubagentTree, flattenSubagents, type SubagentFile, type SubagentSignal } from '../../src/shared/transcript/subagents'
 import { APP_URL, INDEX_HTML } from '../app-url'
+import { subagentsAnswerSchema as answerBefore0085 } from './subagents-answer-before-0085'
 import { copyClaudeHome, projectDir, windowsProcStart } from './claude-home-fixture'
 
 type Listener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
@@ -116,7 +117,7 @@ async function ipcOver(registry: ClaudeHomeRegistry, reader = readerWith(), hidd
   }
 }
 
-type SubagentsAnswer = { found: boolean; signals: SubagentSignal[]; files: SubagentFile[] }
+type SubagentsAnswer = { found: boolean; signals: SubagentSignal[]; files: SubagentFile[]; processStartedAt?: number }
 type TranscriptAnswer = { found: boolean; events: AgentEvent[]; more: boolean }
 
 function value<T>(result: IpcResult<unknown>): T {
@@ -271,7 +272,8 @@ describe('claudeHome.subagents: Subagents without a task-notification user messa
     const call = await ipcOver(registryOver(home), readerWith(async (pid) => running && pid === 43000))
     const live = await ask(call)
     // An entry without `startedAt`: no start of the process to compare with (ADR-0085).
-    expect(live.signals.some((signal) => signal.kind === 'session-closed' || signal.kind === 'session-process')).toBe(false)
+    expect(live.signals.some((signal) => signal.kind === 'session-closed')).toBe(false)
+    expect(live.processStartedAt).toBeUndefined()
     expect(statuses(live)).toEqual([
       [A, 'done'],
       [B, 'running'],
@@ -355,10 +357,54 @@ describe('claudeHome.subagents: the start of the Session process (ADR-0085)', ()
     const startedAt = Date.parse('2026-09-10T05:00:00.000Z')
     await register(home, 43000, S9, STALE, { startedAt })
     const answer = await ask(await ipcOver(registryOver(home), readerWith(async (pid) => pid === 43000)))
-    expect(answer.signals.at(-1)).toEqual({ kind: 'session-process', startedAt })
+    expect(answer.processStartedAt).toBe(startedAt)
     expect(statuses(answer)).toEqual([
       [A, 'done'],
       [B, 'interrupted'],
+    ])
+  })
+
+  it('answers what a Linked machine of the build before ADR-0085 still accepts: it drops the start and keeps the whole tree (ADR-0079)', async () => {
+    const home = await copyOfFixture()
+    await register(home, 43000, S9, STALE, { startedAt: Date.parse('2026-09-10T05:00:00.000Z') })
+    const answer = await ask(await ipcOver(registryOver(home), readerWith(async (pid) => pid === 43000)))
+    const older = answerBefore0085.safeParse(answer)
+    expect(older.success, older.error?.message).toBe(true)
+    expect(older.data).not.toHaveProperty('processStartedAt')
+    // The older build shows B as it always did: running.
+    expect(statuses(older.data!)).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+  })
+
+  it('takes the earliest start when two live processes name the Session, and none when one has no start or cannot be told', async () => {
+    const home = await copyOfFixture()
+    // Listed first, the later process: a Subagent of the earlier one may still run.
+    await register(home, 43000, S9, STALE, { startedAt: Date.parse('2026-09-10T05:00:00.000Z') })
+    await register(home, 43001, S9, STALE, { startedAt: B_LAST - 300 })
+    const both = await ask(await ipcOver(registryOver(home), readerWith(async (pid) => pid === 43000 || pid === 43001)))
+    expect(both.processStartedAt).toBe(B_LAST - 300)
+    expect(statuses(both)).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+    await register(home, 43001, S9, STALE)
+    const oneWithout = await ask(await ipcOver(registryOver(home), readerWith(async (pid) => pid === 43000 || pid === 43001)))
+    expect(oneWithout.processStartedAt).toBeUndefined()
+    expect(statuses(oneWithout)).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+    // The other entry's process cannot be told: it may be an earlier one still running.
+    await register(home, 43001, S9, STALE, { startedAt: B_LAST - 300 })
+    const untold = await ask(
+      await ipcOver(registryOver(home), new SubagentReader({ processState: async (pid) => (pid === 43000 ? 'alive' : 'unknown') })),
+    )
+    expect(untold.processStartedAt).toBeUndefined()
+    expect(statuses(untold)).toEqual([
+      [A, 'done'],
+      [B, 'running'],
     ])
   })
 
@@ -366,7 +412,7 @@ describe('claudeHome.subagents: the start of the Session process (ADR-0085)', ()
     const home = await copyOfFixture()
     await register(home, 43000, S9, STALE, { startedAt: B_LAST - 300 })
     const answer = await ask(await ipcOver(registryOver(home), readerWith(async (pid) => pid === 43000)))
-    expect(answer.signals.at(-1)).toEqual({ kind: 'session-process', startedAt: B_LAST - 300 })
+    expect(answer.processStartedAt).toBe(B_LAST - 300)
     expect(statuses(answer)).toEqual([
       [A, 'done'],
       [B, 'running'],
@@ -377,14 +423,15 @@ describe('claudeHome.subagents: the start of the Session process (ADR-0085)', ()
     const home = await copyOfFixture()
     await register(home, 43000, S9, STALE, { startedAt: '2026-09-10T05:00:00.000Z' })
     const text = await ask(await ipcOver(registryOver(home), readerWith(async (pid) => pid === 43000)))
-    expect(text.signals.some((signal) => signal.kind === 'session-process')).toBe(false)
+    expect(text.processStartedAt).toBeUndefined()
     expect(statuses(text)).toEqual([
       [A, 'done'],
       [B, 'running'],
     ])
     await register(home, 43000, S9, STALE, { startedAt: Date.parse('2026-09-10T05:00:00.000Z') })
     const unknown = await ask(await ipcOver(registryOver(home), new SubagentReader({ processState: async () => 'unknown' })))
-    expect(unknown.signals.some((signal) => signal.kind === 'session-process' || signal.kind === 'session-closed')).toBe(false)
+    expect(unknown.processStartedAt).toBeUndefined()
+    expect(unknown.signals.some((signal) => signal.kind === 'session-closed')).toBe(false)
     expect(statuses(unknown)).toEqual([
       [A, 'done'],
       [B, 'running'],

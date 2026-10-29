@@ -21,7 +21,7 @@ import subagentSource, {
 } from '../../src/renderer/canvas/sources/subagents'
 import { formatElapsed, INTERRUPTED_TOOLTIP, statusLabel, withoutHidden } from '../../src/renderer/claude-home/subagents'
 import { useNavigation } from '../../src/renderer/session/navigation'
-import { SubagentsList } from '../../src/renderer/session/rail/SubagentsRail'
+import SubagentsRail, { SubagentsList } from '../../src/renderer/session/rail/SubagentsRail'
 import { Transcript } from '../../src/renderer/session/Transcript'
 import type { Layout, LayoutNode } from '../../src/shared/layout/types'
 import { parseTranscriptLines } from '../../src/shared/transcript/parse'
@@ -29,11 +29,16 @@ import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { buildSubagentTree, flattenSubagents, subagentFile, subagentSignals, type SubagentFile, type SubagentInfo } from '../../src/shared/transcript/subagents'
 
 // The level of the screen: null for full access, the hint of a read-only Linked machine otherwise.
-const screenLevel = vi.hoisted(() => ({ readOnly: null as string | null }))
-vi.mock('../../src/renderer/projects/useProjects', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../src/renderer/projects/useProjects')>()),
-  useReadOnly: () => screenLevel.readOnly,
-}))
+// `projects`, when set, is what useProjects() answers: the rail finds its Project's root there.
+const screenLevel = vi.hoisted(() => ({ readOnly: null as string | null, projects: undefined as unknown }))
+vi.mock('../../src/renderer/projects/useProjects', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/renderer/projects/useProjects')>()
+  return {
+    ...actual,
+    useReadOnly: () => screenLevel.readOnly,
+    useProjects: () => (screenLevel.projects === undefined ? actual.useProjects() : (screenLevel.projects as ReturnType<typeof actual.useProjects>)),
+  }
+})
 
 const S7 = '77777777-7777-4777-8777-777777777777'
 /** The files of Session 7777, by path relative to its project folder. */
@@ -59,7 +64,7 @@ function tree7(until?: string, processStartedAt?: number): SubagentInfo[] {
     if (transcript.length > 0) files.push(subagentFile(agentId, meta === undefined ? null : JSON.parse(meta), transcript))
   }
   const signals = subagentSignals(parseTranscriptLines(lines(`${S7}.jsonl`, until)))
-  return buildSubagentTree({ signals: processStartedAt === undefined ? signals : [...signals, { kind: 'session-process', startedAt: processStartedAt }], files })
+  return buildSubagentTree({ signals, files, processStartedAt })
 }
 
 const RUNNING_AT = '2026-06-01T10:01:10.000Z'
@@ -71,6 +76,7 @@ const trees = (tree: SubagentInfo[]) => new Map([[S7, tree]])
 afterEach(() => {
   vi.useRealTimers()
   screenLevel.readOnly = null
+  screenLevel.projects = undefined
   delete (globalThis as { worfy?: WorfyBridge }).worfy
   useNavigation.setState({ view: 'canvas', opened: {}, offCanvas: {} })
 })
@@ -587,6 +593,34 @@ describe('interrupted Subagents and Hide', () => {
     view.rerender(<SubagentsList tree={[]} now={10_000} onOpen={() => undefined} sessionKey="list-show" onHide={() => undefined} hiddenCount={1} onShowHidden={onShow} />)
     expect(screen.getByTestId('subagents-rail').textContent).toContain('Every Subagent is hidden')
     view.rerender(<SubagentsList tree={tree} now={10_000} onOpen={() => undefined} sessionKey="list-show" hiddenCount={3} />)
+    expect(screen.queryByTestId('subagents-rail-hide')).toBeNull()
+    expect(screen.queryByTestId('subagents-rail-hide-finished')).toBeNull()
+    expect(screen.queryByTestId('subagents-rail-show-hidden')).toBeNull()
+  })
+
+  it('the rail of a Session offers Hide and «Show hidden Subagents» with full access, and neither on a read-only screen', async () => {
+    const root = '/Users/test/projects/agents'
+    const projectId = `agents-${Math.random()}`
+    screenLevel.projects = { projects: [{ id: projectId, path: root }] }
+    const files = { signals: subagentSignals(parseTranscriptLines(lines(`${S7}.jsonl`, RUNNING_AT))), files: [], found: true }
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      invoke: (channel: string) => {
+        if (channel === 'claudeHome.subagents') return Promise.resolve({ ok: true, value: files })
+        if (channel === 'claudeHome.hiddenSubagents') return Promise.resolve({ ok: true, value: { sessions: { [S7]: ['toolu_gone'] } } })
+        if (channel === 'claudeHome.sessions') return Promise.resolve({ ok: true, value: { live: [], history: [] } })
+        if (channel === 'claudeHome.live') return Promise.resolve({ ok: true, value: { live: [] } })
+        return Promise.resolve({ ok: true, value: {} })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    const view = render(<SubagentsRail projectId={projectId} nodeId="n-rail" sessionId={null} claudeSessionId={S7} />)
+    await vi.waitFor(() => expect(screen.getAllByTestId('subagents-rail-hide').length).toBeGreaterThan(0))
+    expect(screen.getByTestId('subagents-rail-show-hidden').textContent).toBe('Show hidden Subagents (1)')
+    view.unmount()
+    screenLevel.readOnly = 'Mini gives this Machine read-only access'
+    render(<SubagentsRail projectId={projectId} nodeId="n-rail" sessionId={null} claudeSessionId={S7} />)
+    await vi.waitFor(() => expect(screen.getAllByTestId('subagents-rail-row').length).toBeGreaterThan(0))
     expect(screen.queryByTestId('subagents-rail-hide')).toBeNull()
     expect(screen.queryByTestId('subagents-rail-hide-finished')).toBeNull()
     expect(screen.queryByTestId('subagents-rail-show-hidden')).toBeNull()

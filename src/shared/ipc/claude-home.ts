@@ -153,7 +153,18 @@ export const claudeHomeTranscript = invokeChannel(
 export const claudeHomeSubagents = invokeChannel(
   'claudeHome.subagents',
   z.object({ projectRoot: absolutePath, sessionId: sessionIdSchema }),
-  z.object({ found: z.boolean(), signals: z.array(subagentSignalSchema), files: z.array(subagentFileSchema), truncated: z.boolean().optional() }),
+  z.object({
+    found: z.boolean(),
+    signals: z.array(subagentSignalSchema),
+    files: z.array(subagentFileSchema),
+    truncated: z.boolean().optional(),
+    /**
+     * When the Session's running process started, ms since the epoch (`startedAt` of its
+     * `sessions/<pid>.json`; ADR-0085). A field of its own, not a signal: a Linked machine of an
+     * older build drops a field it does not know, but refuses a signal it does not know (ADR-0079).
+     */
+    processStartedAt: z.number().optional(),
+  }),
   'project',
   'read',
 )

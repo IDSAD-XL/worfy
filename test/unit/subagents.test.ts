@@ -461,39 +461,37 @@ describe('a Subagent of an earlier process of its Session', () => {
   /** The last record of B, which never reported. */
   const B_LAST = at('2026-09-10T02:31:00.000Z')
   const statuses = (tree: readonly SubagentInfo[]) => flattenSubagents(tree).map(({ agentId, status }) => [agentId, status])
-  const processFrom = (startedAt: number) => ({ kind: 'session-process' as const, startedAt })
 
   it('is interrupted when the process started after its last record, running when before', () => {
     const { signals, files } = load(STALE, SESSION_9)
-    const after = buildSubagentTree({ signals: [...signals, processFrom(at('2026-09-10T05:00:00.000Z'))], files })
+    const after = buildSubagentTree({ signals, processStartedAt: at('2026-09-10T05:00:00.000Z'), files })
     expect(statuses(after)).toEqual([[A, 'done'], [B, 'interrupted']])
     // Its time ends with its last record, its summary is its last text, as for one cut off by a closed Session.
     expect(after[1]).toMatchObject({ durationMs: B_LAST - at('2026-09-10T02:30:07.000Z'), summary: 'Fetching the vendor page.' })
-    expect(statuses(buildSubagentTree({ signals: [...signals, processFrom(at('2026-09-10T02:00:00.000Z'))], files }))).toEqual([[A, 'done'], [B, 'running']])
+    expect(statuses(buildSubagentTree({ signals, processStartedAt: at('2026-09-10T02:00:00.000Z'), files }))).toEqual([[A, 'done'], [B, 'running']])
   })
 
   it('tells 300 ms apart within one second: interrupted 300 ms after its last record, running 300 ms before it', () => {
     const { signals, files } = load(STALE, SESSION_9)
-    expect(statuses(buildSubagentTree({ signals: [...signals, processFrom(B_LAST + 300)], files }))).toEqual([[A, 'done'], [B, 'interrupted']])
-    expect(statuses(buildSubagentTree({ signals: [...signals, processFrom(B_LAST - 300)], files }))).toEqual([[A, 'done'], [B, 'running']])
+    expect(statuses(buildSubagentTree({ signals, processStartedAt: B_LAST + 300, files }))).toEqual([[A, 'done'], [B, 'interrupted']])
+    expect(statuses(buildSubagentTree({ signals, processStartedAt: B_LAST - 300, files }))).toEqual([[A, 'done'], [B, 'running']])
   })
 
   it('stays running without a known start of the process, and is an error once the Session is closed (ADR-0031)', () => {
     const { signals, files } = load(STALE, SESSION_9)
     expect(statuses(buildSubagentTree({ signals, files }))).toEqual([[A, 'done'], [B, 'running']])
-    expect(statuses(buildSubagentTree({ signals: [...signals, processFrom(B_LAST + 1000), { kind: 'session-closed' }], files }))).toEqual([[A, 'done'], [B, 'error']])
+    expect(statuses(buildSubagentTree({ signals: [...signals, { kind: 'session-closed' }], files, processStartedAt: B_LAST + 1000 }))).toEqual([[A, 'done'], [B, 'error']])
   })
 
-  it('takes the start of the process only from the Session thread, not from a Subagent file', () => {
-    const { signals, files } = load(STALE, SESSION_9)
-    const withStray = files.map((file) => ({ ...file, signals: [...file.signals, processFrom(B_LAST + 1000)] }))
-    expect(statuses(buildSubagentTree({ signals, files: withStray }))).toEqual([[A, 'done'], [B, 'running']])
+  it('keeps running a Subagent of which no time at all is known: nothing says it is older than the process', () => {
+    const untimed = { kind: 'call' as const, toolUseId: 'toolu_untimed', at: null, parentToolUseId: null, subagentType: 'scout', description: null, name: null, model: null, background: true }
+    expect(buildSubagentTree({ signals: [untimed], files: [], processStartedAt: 2000 }).map(({ status }) => status)).toEqual(['running'])
   })
 
   it('judges a Subagent known only by its call by the call: interrupted when the process started after it', () => {
     const signals = live([[1000, call('toolu_old', { subagent_type: 'scout', run_in_background: true })]])
-    expect(buildSubagentTree({ signals: [...signals, processFrom(2000)], files: [] }).map(({ status }) => status)).toEqual(['interrupted'])
-    expect(buildSubagentTree({ signals: [...signals, processFrom(500)], files: [] }).map(({ status }) => status)).toEqual(['running'])
+    expect(buildSubagentTree({ signals, processStartedAt: 2000, files: [] }).map(({ status }) => status)).toEqual(['interrupted'])
+    expect(buildSubagentTree({ signals, processStartedAt: 500, files: [] }).map(({ status }) => status)).toEqual(['running'])
   })
 })
 
@@ -603,7 +601,7 @@ describe('Subagents of a workflow script', () => {
 
   it('interrupts an agent without an end whose last record is older than the start of the Session process, and its run once none of its agents runs (ADR-0085)', () => {
     const at1030 = loadWorkflow('2026-09-12T10:05:30.000Z', 5)
-    const after = (startedAt: string) => buildSubagentTree({ ...at1030, signals: [...at1030.signals, { kind: 'session-process', startedAt: at(startedAt) }] })
+    const after = (startedAt: string) => buildSubagentTree({ ...at1030, processStartedAt: at(startedAt) })
     // The reviewer wrote last at 10:04:01, the scout at 10:05:00: the scout still runs, and so does the run.
     expect(rows(after('2026-09-12T10:04:30.000Z')).map(({ name, status }) => [name, status])).toEqual([
       ['wave-03', 'running'],
@@ -616,14 +614,14 @@ describe('Subagents of a workflow script', () => {
 
   it('interrupts a run without agents when the Session process started after its Workflow call, and keeps it running when before', () => {
     const { signals } = loadWorkflow('2026-09-12T10:00:30.000Z')
-    const run = (startedAt: string) => buildSubagentTree({ signals: [...signals, { kind: 'session-process', startedAt: at(startedAt) }], files: [] }).map(({ name, status }) => [name, status])
+    const run = (startedAt: string) => buildSubagentTree({ signals, files: [], processStartedAt: at(startedAt) }).map(({ name, status }) => [name, status])
     expect(run('2026-09-12T11:00:00.000Z')).toEqual([['wave-03', 'interrupted']])
     expect(run('2026-09-12T09:00:00.000Z')).toEqual([['wave-03', 'running']])
   })
 
   it('interrupts a run known only by its folder when an agent of it was interrupted and none runs', () => {
     const { files } = loadWorkflow('2026-09-12T10:05:30.000Z', 5)
-    const tree = buildSubagentTree({ signals: [{ kind: 'session-process', startedAt: at('2026-09-12T10:05:10.000Z') }], files })
+    const tree = buildSubagentTree({ signals: [], files, processStartedAt: at('2026-09-12T10:05:10.000Z') })
     expect(rows(tree).map(({ status }) => status)).toEqual(['interrupted', 'done', 'interrupted', 'interrupted'])
   })
 

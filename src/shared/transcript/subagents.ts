@@ -66,12 +66,8 @@ export const subagentSignalSchema = z.discriminatedUnion('kind', [
    * Counts only among the Session's own signals.
    */
   z.object({ kind: z.literal('session-closed') }),
-  /**
-   * The Session's Claude Code process runs and started at `startedAt` (ms since the epoch, from its
-   * `sessions/<pid>.json`). A Subagent without an end whose last record is older than that died with
-   * an earlier process of the same Session (ADR-0085). Counts only among the Session's own signals.
-   */
-  z.object({ kind: z.literal('session-process'), startedAt: z.number() }),
+  // The start of the Session's running process is not a signal: it travels as `processStartedAt`
+  // next to the signals, which a Linked machine of an older build drops (ADR-0085, ADR-0079).
 ])
 export type SubagentSignal = z.infer<typeof subagentSignalSchema>
 
@@ -535,7 +531,6 @@ function gather(index: Index, signals: readonly SubagentSignal[], thread: string
         index.get(signal.agentId, signal.toolUseId).finished = signal
         break
       case 'session-closed':
-      case 'session-process':
         break
     }
   }
@@ -659,11 +654,20 @@ const byStart =(a: SubagentInfo, b: SubagentInfo): number =>
  * start time. `signals` come from the Session's own events (a live Session or its transcript),
  * `files` from its `subagents/` folder; either may be missing something the other has. A
  * `session-closed` signal among `signals` ends every Subagent that has not ended (ADR-0031).
+ * `processStartedAt`: when the Session's running process started (ms), when main knows it; a
+ * Subagent without an end last seen before it is `interrupted` (ADR-0085).
  */
-export function buildSubagentTree({ signals, files }: { signals: readonly SubagentSignal[]; files: readonly SubagentFile[] }): SubagentInfo[] {
+export function buildSubagentTree({
+  signals,
+  files,
+  processStartedAt,
+}: {
+  signals: readonly SubagentSignal[]
+  files: readonly SubagentFile[]
+  processStartedAt?: number | undefined
+}): SubagentInfo[] {
   const closed = signals.some((signal) => signal.kind === 'session-closed')
-  const process = signals.findLast((signal): signal is Signal<'session-process'> => signal.kind === 'session-process')
-  const state: SessionState = { closed, processStartedAt: process?.startedAt ?? null }
+  const state: SessionState = { closed, processStartedAt: processStartedAt ?? null }
   const index = new Index()
   gather(index, signals, null)
   for (const file of files) gather(index, file.signals, file.agentId)

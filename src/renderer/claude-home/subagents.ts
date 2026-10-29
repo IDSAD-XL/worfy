@@ -29,6 +29,8 @@ export interface SessionFiles {
   signals: readonly SubagentSignal[]
   files: readonly SubagentFile[]
   found: boolean
+  /** When the Session's running process started, when main knows it (ADR-0085). */
+  processStartedAt?: number | undefined
 }
 
 interface SubagentsStore {
@@ -201,7 +203,7 @@ function release(root: string, sessionId: string): void {
 export function treeOf(files: SessionFiles | undefined, events: readonly AgentEvent[] | undefined): readonly SubagentInfo[] {
   const live = events && events.length > 0 ? liveSignals(events) : []
   if ((files === undefined || (files.signals.length === 0 && files.files.length === 0)) && live.length === 0) return EMPTY_TREE
-  return buildSubagentTree({ signals: [...(files?.signals ?? []), ...live], files: files?.files ?? [] })
+  return buildSubagentTree({ signals: [...(files?.signals ?? []), ...live], files: files?.files ?? [], processStartedAt: files?.processStartedAt })
 }
 
 /** The last tree of each Session and what it was built from: text streaming in does not rebuild it. */
@@ -313,17 +315,28 @@ const NOTHING_HIDDEN: HiddenSubagents['sessions'] = {}
 const NO_IDS: ReadonlySet<string> = new Set()
 export const useHiddenSubagentsStore = create<HiddenStore>(() => ({ byProject: {} }))
 const asked = new Set<string>()
+/** How many Hide and Show answers each Project has had: a first read asked before one of them is older than it. */
+const changes = new Map<string, number>()
 
 function setHidden(projectId: string, sessions: HiddenSubagents['sessions']): void {
   useHiddenSubagentsStore.setState(({ byProject }) => ({ byProject: { ...byProject, [projectId]: sessions } }))
 }
 
+/** A Hide or Show answer: the whole list as main has it after the change. */
+function changedHidden(projectId: string, sessions: HiddenSubagents['sessions']): void {
+  changes.set(projectId, (changes.get(projectId) ?? 0) + 1)
+  setHidden(projectId, sessions)
+}
+
 function loadHidden(projectId: string): void {
   if (asked.has(projectId)) return
   asked.add(projectId)
+  const before = changes.get(projectId) ?? 0
   void invoke('claudeHome.hiddenSubagents', { projectId }).then((result) => {
-    if (result.ok) setHidden(projectId, result.value.sessions)
-    else {
+    if (result.ok) {
+      // A Hide answered while this read was under way already gave a newer list.
+      if ((changes.get(projectId) ?? 0) === before) setHidden(projectId, result.value.sessions)
+    } else {
       asked.delete(projectId)
       console.error(`claudeHome.hiddenSubagents ${projectId} failed:`, result.error)
     }
@@ -342,14 +355,14 @@ export function useHiddenSubagents(projectId: string | undefined): HiddenSubagen
 export async function hideSubagents(projectId: string, sessionId: string, ids: readonly string[]): Promise<void> {
   if (ids.length === 0) return
   const result = await invoke('claudeHome.hideSubagents', { projectId, sessionId, ids: [...ids] })
-  if (result.ok) setHidden(projectId, result.value.sessions)
+  if (result.ok) changedHidden(projectId, result.value.sessions)
   else console.error(`claudeHome.hideSubagents ${sessionId} failed:`, result.error)
 }
 
 /** «Show hidden Subagents»: every hidden entry of the Session shows again. */
 export async function showHiddenSubagents(projectId: string, sessionId: string): Promise<void> {
   const result = await invoke('claudeHome.showSubagents', { projectId, sessionId })
-  if (result.ok) setHidden(projectId, result.value.sessions)
+  if (result.ok) changedHidden(projectId, result.value.sessions)
   else console.error(`claudeHome.showSubagents ${sessionId} failed:`, result.error)
 }
 

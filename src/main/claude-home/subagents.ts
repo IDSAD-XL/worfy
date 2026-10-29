@@ -53,6 +53,8 @@ export interface SessionSubagents {
   signals: SubagentSignal[]
   /** One per Subagent that has a transcript or a meta file, by agentId. */
   files: SubagentFile[]
+  /** When the Session's running process started, ms since the epoch; left out when not known (ADR-0085). */
+  processStartedAt?: number
 }
 
 interface Thread {
@@ -133,8 +135,8 @@ const CLOSED: SubagentSignal = { kind: 'session-closed' }
 /**
  * Whether the Session `sessionId` runs, by the `sessions/` folder of the Claude home that holds
  * `transcript` (`<home>/projects/<folder>/<sessionId>.jsonl`): an object when an entry names it and
- * its process runs — with the entry's numeric `startedAt` (ms since the epoch), null when it has
- * none (ADR-0085) — false when none does. Null — not known, so not closed — when the transcript is
+ * its process runs — with the numeric `startedAt` (ms since the epoch) of the earliest such process,
+ * null when one of them has none or another entry cannot be told (ADR-0085) — false when none does. Null — not known, so not closed — when the transcript is
  * not under `projects/`, the home has no `sessions/` folder, an entry cannot be read (one being
  * rewritten may be the Session's own), or whether its process runs cannot be told.
  */
@@ -153,6 +155,8 @@ async function sessionRuns(
     return null
   }
   let unknown = false
+  /** The start of each live process of the Session; null for one without a numeric `startedAt`. */
+  const starts: Array<number | null> = []
   for (const name of names) {
     let entry: unknown
     try {
@@ -166,8 +170,13 @@ async function sessionRuns(
     const { pid, sessionId: id, procStart, startedAt } = entry as Record<string, unknown>
     if (id !== sessionId || typeof pid !== 'number') continue
     const state = await processOf(pid, typeof procStart === 'string' ? procStart : undefined)
-    if (state === 'alive') return { startedAt: typeof startedAt === 'number' && Number.isFinite(startedAt) ? startedAt : null }
-    if (state === 'unknown') unknown = true
+    if (state === 'alive') starts.push(typeof startedAt === 'number' && Number.isFinite(startedAt) ? startedAt : null)
+    else if (state === 'unknown') unknown = true
+  }
+  if (starts.length > 0) {
+    // Two live processes may name one Session (it was opened twice): a Subagent of the earlier one
+    // may still run, so the earliest start counts. One not known could be earlier still.
+    return { startedAt: unknown || starts.includes(null) ? null : Math.min(...(starts as number[])) }
   }
   return unknown ? null : false
 }
@@ -270,7 +279,7 @@ export class SubagentReader {
 
   /**
    * Both, for the Session whose transcript is at `path`; a `session-closed` signal last when its
-   * process is gone, a `session-process` signal with the start of its process when it runs (ADR-0085).
+   * process is gone, and `processStartedAt` when it runs and its start is known (ADR-0085).
    */
   async session(path: string): Promise<SessionSubagents> {
     const sessionId = transcriptSessionId(path)
@@ -279,7 +288,7 @@ export class SubagentReader {
     const runs = await sessionRuns(path, sessionId, this.processState)
     const [signals, files] = await Promise.all([this.signals(path), this.files(join(dirname(path), sessionId, 'subagents'))])
     if (runs === false) return { signals: [...signals, CLOSED], files }
-    if (runs !== null && runs.startedAt !== null) return { signals: [...signals, { kind: 'session-process', startedAt: runs.startedAt }], files }
+    if (runs !== null && runs.startedAt !== null) return { signals, files, processStartedAt: runs.startedAt }
     return { signals, files }
   }
 

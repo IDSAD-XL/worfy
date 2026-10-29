@@ -159,6 +159,8 @@ export interface SubagentsAnswer {
   signals: SubagentSignal[]
   files: SubagentFile[]
   truncated?: boolean
+  /** When the Session's running process started (ADR-0085); kept when the answer is cut. */
+  processStartedAt?: number
 }
 
 /**
@@ -211,7 +213,7 @@ export function fitSubagentsAnswer(answer: SubagentsAnswer, maxBytes: number): S
   if (bytesOf(answer) <= maxBytes) return answer
   let cut: SubagentsAnswer = answer
   for (const length of TEXT_CUTS) {
-    cut = { found: answer.found, signals: answer.signals.map((signal) => cutSignal(signal, length)), files: answer.files.map((file) => cutFile(file, length)), truncated: true }
+    cut = { ...answer, signals: answer.signals.map((signal) => cutSignal(signal, length)), files: answer.files.map((file) => cutFile(file, length)), truncated: true }
     if (bytesOf(cut) <= maxBytes) return cut
   }
   // shortcut: with only one line of each text left the oldest half of the signals and of the files is left out until the answer fits, so the oldest Subagents leave the tree; redo with pages of the answer when a Session of so many Subagents (tens of thousands) is seen.
