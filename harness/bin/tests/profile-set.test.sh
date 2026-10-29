@@ -619,6 +619,86 @@ check "two writers: the file holds the first writer's value" [ "$(field "$PJ")" 
 check "two writers: the second learns the new fingerprint" [ "$(json_get fingerprint <"$T/outA")" = "$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)" ]
 check "two writers: no lock folder left" [ ! -e "$LOCKDIR" ]
 
+# --- --field: workflow.agents and agents, with the same compare-and-write ----------------------------------
+# The fields of everything but workflow.agents and agents, and those two as the file has them.
+not_agents() { node -e 'const p=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); delete p.agents; if (p.workflow) delete p.workflow.agents; process.stdout.write(JSON.stringify(p))' "$1"; }
+agents_of() { node -e 'const p=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); const w=p.workflow&&p.workflow.agents; process.stdout.write(JSON.stringify({w: w===undefined?"absent":w, a: p.agents===undefined?"absent":p.agents}))' "$1"; }
+ROLES='{"implementer":{"model":"sonnet","effort":"medium"},"reviewer":{"model":"sonnet","effort":"medium"},"scout":{"model":"sonnet","effort":"medium"},"verifier":{"model":"sonnet","effort":"medium"}}'
+PRESET="{\"workflow.agents\":\"eco\",\"agents\":$ROLES}"
+
+run "$SET" -C "$T/r/demo" --field workflow.pipeline --read >/dev/null 2>&1
+check "--field: a field profile-set does not write -> exit 2" [ $? -eq 2 ]
+out="$(run "$SET" -C "$T/r/demo" --field workflow.agents --field agents --read)"
+rc=$?
+check "--field --read without the fields: exit 0" [ "$rc" -eq 0 ]
+check "--field --read without the fields: both null" [ "$(json_get fields <<<"$out")" = '{"workflow.agents":null,"agents":null}' ]
+fp="$(json_get fingerprint <<<"$out")"
+check "--field --read: a sha256 fingerprint" [ "${fp#sha256:}" != "$fp" ]
+check "--field --read: the order of --field does not change the fingerprint" [ "$(run "$SET" -C "$T/r/demo" --field agents --field workflow.agents --read | json_get fingerprint)" = "$fp" ]
+
+before_not_agents="$(not_agents "$PJ")"
+cp "$PJ" "$T/pj-before-fields"
+before_commits="$(commits)"
+run "$SET" -C "$T/r/demo" --field workflow.agents --field agents --expect "sha256:$(printf '0%.0s' $(seq 64))" --set "$PRESET" >"$T/out" 2>"$T/err"
+check "--field with a wrong fingerprint: exit 5" [ $? -eq 5 ]
+check "--field with a wrong fingerprint: the answer gives the fingerprint now" [ "$(json_get fingerprint <"$T/out")" = "$fp" ]
+check "--field with a wrong fingerprint: profile.json is unchanged" cmp -s "$PJ" "$T/pj-before-fields"
+check "--field with a wrong fingerprint: no commit" [ "$(commits)" -eq "$before_commits" ]
+
+for bad_value in \
+    '{"workflow.agents":"cheap","agents":null}|workflow.agents' \
+    '{"workflow.agents":"eco","agents":{"implementer":{"model":"haiku"}}}|agents.implementer.model' \
+    '{"workflow.agents":"eco","agents":{"implementer":{"effort":"max"}}}|agents.implementer.effort' \
+    '{"workflow.agents":"eco","agents":{"orchestrator":{"model":"sonnet"}}}|agents.orchestrator' \
+    '{"workflow.agents":"eco","agents":{"scout":{"model":"sonnet","temperature":1}}}|agents.scout.temperature' \
+    '{"workflow.agents":"eco","agents":{"scout":{"toString":"sonnet"}}}|agents.scout.toString: not a field' \
+    '{"workflow.agents":"eco","agents":{"scout":{"__proto__":"sonnet"}}}|agents.scout.__proto__: not a field' \
+    '{"workflow.agents":"eco","agents":{"__proto__":{"model":"sonnet"}}}|agents.__proto__: not a role' \
+    '{"workflow.agents":"eco"}|agents' \
+    '{"workflow.agents":"eco","agents":null,"review":{}}|review' \
+    '"eco"|not a JSON object'; do
+    value="${bad_value%%|*}"
+    why="${bad_value#*|}"
+    run "$SET" -C "$T/r/demo" --field workflow.agents --field agents --expect "$fp" --set "$value" >/dev/null 2>"$T/err"
+    rc=$?
+    check "--field refuses $value: exit 1" [ "$rc" -eq 1 ]
+    check "--field refuses $value: stderr names $why" grep -qF -- "$why" "$T/err"
+done
+check "--field refused values: profile.json is unchanged" cmp -s "$PJ" "$T/pj-before-fields"
+
+out="$(run "$SET" -C "$T/r/demo" --field workflow.agents --field agents --expect "$fp" --set "$PRESET" 2>"$T/err")"
+rc=$?
+check "--field with the right fingerprint: exit 0" [ "$rc" -eq 0 ]
+[ "$rc" -eq 0 ] || echo "     stderr: $(head -c 400 "$T/err")"
+check "--field: workflow.agents and agents written as given" [ "$(agents_of "$PJ")" = "{\"w\":\"eco\",\"a\":$ROLES}" ]
+check "--field: the other fields of profile.json are as they were" [ "$(not_agents "$PJ")" = "$before_not_agents" ]
+check "--field: one commit more" [ "$(commits)" -eq $((before_commits + 1)) ]
+check "--field: the commit holds profile.json only" [ "$(git -C "$HH" show --name-only --format= HEAD)" = "projects/demo/profile.json" ]
+check "--field: the commit names the fields" git -C "$HH" log -1 --format=%s | grep -qF "workflow.agents, agents"
+new_fp="$(json_get fingerprint <<<"$out")"
+check "--field: the answer's fingerprint is the one --read gives now" [ "$new_fp" = "$(run "$SET" -C "$T/r/demo" --field workflow.agents --field agents --read | json_get fingerprint)" ]
+check "--field: bin/profile reads workflow.agents" [ "$(run "$PROFILE" -C "$T/r/demo" --field workflow.agents)" = eco ]
+check "--field: the Pipeline's fingerprint is not the fields' one" [ "$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)" != "$new_fp" ]
+
+# A write of the Pipeline in between changes the profile, not these fields: their fingerprint holds.
+pl_fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
+run "$SET" -C "$T/r/demo" --expect "$pl_fp" --set "$OTHER" >/dev/null 2>&1
+check "--field: a Pipeline write leaves workflow.agents and agents" [ "$(agents_of "$PJ")" = "{\"w\":\"eco\",\"a\":$ROLES}" ]
+check "--field: and their fingerprint" [ "$(run "$SET" -C "$T/r/demo" --field workflow.agents --field agents --read | json_get fingerprint)" = "$new_fp" ]
+
+# One field alone; null in --set removes it.
+one_fp="$(run "$SET" -C "$T/r/demo" --field workflow.agents --read | json_get fingerprint)"
+run "$SET" -C "$T/r/demo" --field workflow.agents --expect "$one_fp" --set '{"workflow.agents":null}' >/dev/null 2>"$T/err"
+check "--field workflow.agents set to null: exit 0" [ $? -eq 0 ]
+check "--field workflow.agents set to null: the field is gone, agents stays" [ "$(agents_of "$PJ")" = "{\"w\":\"absent\",\"a\":$ROLES}" ]
+check "--field workflow.agents set to null: the Pipeline stays" [ "$(field "$PJ")" = "$OTHER" ]
+both_fp="$(run "$SET" -C "$T/r/demo" --field workflow.agents --field agents --read | json_get fingerprint)"
+run "$SET" -C "$T/r/demo" --field workflow.agents --field agents --expect "$both_fp" --reset >/dev/null 2>"$T/err"
+check "--field --reset: exit 0" [ $? -eq 0 ]
+check "--field --reset: both fields are gone" [ "$(agents_of "$PJ")" = '{"w":"absent","a":"absent"}' ]
+check "--field --reset: the Pipeline stays" [ "$(field "$PJ")" = "$OTHER" ]
+check "--field: no lock folder left" [ ! -e "$LOCKDIR" ]
+
 # --- a Harness home inside another git repository gets no commit -----------------------------------------
 OUTER="$T/outer"
 HH3="$OUTER/hh3"

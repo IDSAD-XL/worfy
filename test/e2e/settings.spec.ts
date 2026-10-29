@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -297,5 +297,53 @@ test('Settings → Autopilot: the daily budget is off at first with the reserve 
     await expect(reserve).toHaveText(/25 % of the week/)
   } finally {
     await launched.close()
+  }
+})
+
+test('Settings → Plan: Claude Code signed in with Pro, the active Project gets the recommended settings with Apply; nothing is written before the click', async () => {
+  // worfy-throughput ticket 42. The fake agent answers accountInfo() with "Claude Pro" (a script of
+  // its own); bin/profile-set is a stand-in that answers --read and counts every other call. No price.
+  const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-plan-')))
+  try {
+    const dataDir = join(scratch, 'data')
+    const claudeHome = join(scratch, 'claude-home')
+    const scripts = join(scratch, 'scripts')
+    const repo = join(scratch, 'demo')
+    const writes = join(scratch, 'profile-set-writes')
+    for (const dir of [join(dataDir, 'demo-0000000p'), join(claudeHome, 'bin'), scripts, repo]) mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: 'demo-0000000p', name: 'demo', path: repo }], activeId: 'demo-0000000p' }))
+    writeFileSync(
+      join(scripts, 'plan-pro.jsonl'),
+      `${JSON.stringify({ fake: 'account', info: { apiProvider: 'firstParty', subscriptionType: 'Claude Pro', tokenSource: 'claude.ai' } })}\n${JSON.stringify({ fake: 'wait_message' })}\n`,
+    )
+    const read = { name: 'demo', path: join(claudeHome, 'profile.json'), fields: { 'workflow.agents': null, agents: null }, fingerprint: `sha256:${'1'.repeat(64)}` }
+    writeFileSync(
+      join(claudeHome, 'bin', 'profile-set'),
+      `const args = process.argv.slice(2)\nif (args.includes('--read')) process.stdout.write(${JSON.stringify(`${JSON.stringify(read)}\n`)})\nelse { require('node:fs').appendFileSync(${JSON.stringify(writes)}, JSON.stringify(args) + '\\n'); process.exitCode = 1 }\n`,
+    )
+
+    const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPTS: scripts, WORFY_AGENT_SCRIPT: 'plan-pro' } })
+    try {
+      const { app, window } = launched
+      await clickMenuItem(app, SETTINGS_MENU_ITEM_ID)
+      const dialog = window.getByRole('dialog', { name: 'Settings' })
+      await expect(dialog).toBeVisible()
+      await dialog.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Plan', exact: true }).click()
+      await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('Plan')
+
+      const offer = dialog.getByTestId('plan-offer')
+      await expect(offer).toBeVisible()
+      await expect(offer).toContainText('Plan: Pro')
+      await expect(offer).toContainText('Recommended settings for Pro')
+      await expect(offer).toContainText('Sonnet for every agent role')
+      await expect(offer.getByRole('button', { name: 'Apply', exact: true })).toBeEnabled()
+      await expect(dialog).not.toContainText(/\$|USD|€|price/i)
+      await snapshotThemes(window, 'settings-plan-pro')
+      expect(existsSync(writes)).toBe(false)
+    } finally {
+      await launched.close()
+    }
+  } finally {
+    await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

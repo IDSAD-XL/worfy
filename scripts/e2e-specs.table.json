@@ -104,6 +104,18 @@
         "test/e2e/linked-browser.spec.ts"
       ],
       "why": "The Browser node and its layer: web pages in the app, seen by the browser* specs, linked-browser.spec.ts and controls.spec.ts (a Browser node among the controls). Left out: read-only.ts (ipc/layout.ts), cdp.ts and origins.ts (the MCP server of every agent session), shared/browser/* and renderer browser-frame.ts and profiles.ts (the menu that creates nodes, create-items.ts)."
+    },
+    {
+      "paths": [
+        "src/main/ipc/plan-preset.ts",
+        "src/renderer/settings/PlanSection.tsx",
+        "src/shared/agent/plan-preset.ts",
+        "src/shared/ipc/plan-preset.ts"
+      ],
+      "specs": [
+        "test/e2e/settings.spec.ts"
+      ],
+      "why": "The preset of a plan (worfy-throughput ticket 42): only Settings → Plan reads it (planPreset.read) and writes it (planPreset.apply), and settings.spec.ts is the spec that opens that section. Every other spec loads src/main/ipc/plan-preset.ts with the IPC handlers, which only subscribes the plan to the Sessions and to will-quit; a module that failed to load would fail settings.spec.ts too, which launches the app."
     }
   ]
 }
