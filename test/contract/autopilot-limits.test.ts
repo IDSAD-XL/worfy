@@ -10,12 +10,12 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ActionLauncher } from '../../src/main/actions/launch'
+import { ActionLauncher, waveBriefText } from '../../src/main/actions/launch'
 import { fakeQueryFactory, FakeReleases, type FakeCall } from '../../src/main/agent/fake-query'
 import { LimitsTracker, LIMITS_FILE, observeSessionLimits, type SessionLimitsStatus } from '../../src/main/agent/limits'
 import { LimitsRefresher, type UsageReader } from '../../src/main/agent/limits-usage'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
-import { SessionRegistry } from '../../src/main/agent/session'
+import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
 import { openRun, readRecentRuns, readRun } from '../../src/main/autopilot/journal'
 import { CONTINUE_TEXT, continueText, LimitsWait, WALL_TICK_MS, wallTimer } from '../../src/main/autopilot/limits-wait'
@@ -43,7 +43,8 @@ const SCRIPT = 'autopilot-limits'
 const PROJECT = 'demo-000000a4'
 const EPIC = 'demo'
 const WAVE_1 = '/epic-wave Ticket-ы 01, 02 эпика demo'
-const WAVE_2 = '/epic-wave Ticket-ы 03 эпика demo'
+/** Wave 2 starts a new SDK session, so its text asks for wave-brief first (worfy-throughput ticket 52). */
+const WAVE_2 = waveBriefText(EPIC, '/epic-wave Ticket-ы 03 эпика demo')
 
 /** The reset of the refused 5-hour window in the fixture: 2026-10-05T07:10:00Z, in Unix seconds. */
 const RESET_S = 1791184200
@@ -174,6 +175,11 @@ interface Timer {
 interface HarnessOptions {
   /** A variant of the fixture: its lines, changed; written to a scripts folder of the test. */
   lines?: Record<string, unknown>[]
+  /**
+   * The lines of every unattended Session after the run's first: a Wave after the first starts a new
+   * SDK session, which plays its script from the start (worfy-throughput ticket 52). Default `lines`.
+   */
+  later?: Record<string, unknown>[]
   /** limits.json before the app starts. */
   limitsFile?: unknown
   /**
@@ -201,6 +207,7 @@ function harness(options: HarnessOptions = {}) {
     scriptsDir = join(scratch, 'scripts')
     mkdirSync(scriptsDir, { recursive: true })
     writeFileSync(join(scriptsDir, `${SCRIPT}.jsonl`), options.lines.map((line) => JSON.stringify(line)).join('\n') + '\n')
+    if (options.later !== undefined) writeFileSync(join(scriptsDir, `${SCRIPT}-later.jsonl`), options.later.map((line) => JSON.stringify(line)).join('\n') + '\n')
     // The attended Orchestrator's script, as in the fixtures: without it an attended start fails.
     writeFileSync(join(scriptsDir, 'autopilot-waves.jsonl'), readFileSync(join(fixtures, 'autopilot-waves.jsonl'), 'utf8'))
   }
@@ -209,11 +216,17 @@ function harness(options: HarnessOptions = {}) {
   /** What every fake query was asked to do, attended ones too, with how its Session was launched. */
   const every: { unattended: boolean; call: FakeCall }[] = []
   const releases = new FakeReleases()
+  let unattendedSessions = 0
+  const scriptOf = (request: QueryRequest): string => {
+    if (request.unattended !== true) return 'autopilot-waves'
+    unattendedSessions += 1
+    return unattendedSessions > 1 && options.later !== undefined ? `${SCRIPT}-later` : SCRIPT
+  }
   const registry = new SessionRegistry(
     tracker.observe((request) =>
       fakeQueryFactory({
         scriptsDir,
-        script: request.unattended === true ? SCRIPT : 'autopilot-waves',
+        script: scriptOf(request),
         releases,
         record: (call) => {
           every.push({ unattended: request.unattended === true, call })
@@ -273,6 +286,7 @@ function harness(options: HarnessOptions = {}) {
     ...(refresher === null ? {} : { usage: { refresh: (olderThanMs: number) => refresher.refreshIfOlder(olderThanMs) } }),
     ...(options.budget === undefined ? {} : { budget: { settings: budgetSettings(options.budget), runs: (projectId: string) => readRecentRuns(projectId, { env }) } }),
     journal: (start) => openRun(start, { env }),
+    harness: () => 'plugin',
     keepAwake: () => ({ start: () => power.push('start'), stop: () => power.push('stop') }),
     onChange: (state) => states.push(state),
     settleMs: 60_000,
@@ -509,7 +523,8 @@ describe('Autopilot and the Limits on the fake agent', () => {
 
     expect(waves.mock.calls.map((call) => call[2])).toEqual([[], [1, 2], []])
     const runs = h.processes().filter((each) => each.unattended).map((each) => each.messages)
-    expect(runs).toEqual([[WAVE_1], [WAVE_1, continueText(START_MS, timer.at), WAVE_2]])
+    // The continuation goes to the Session of the Wave it continues; Wave 2 has a new one (worfy-throughput ticket 52).
+    expect(runs).toEqual([[WAVE_1], [WAVE_1, continueText(START_MS, timer.at)], [WAVE_2]])
   })
 
   it('takes the reset time from limits.json when the refusal has none', async () => {
@@ -632,7 +647,7 @@ describe('Autopilot and the Limits on the fake agent', () => {
     const [wait, init, , assistant, result] = passing as [Record<string, unknown>, Record<string, unknown>, Record<string, unknown>, Record<string, unknown>, Record<string, unknown>]
     const opus = { type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: RESET_S, rateLimitType: 'seven_day_opus', isUsingOverage: false }, uuid: '00000000-0000-4000-8000-000000000590', session_id: '{{session}}' }
     const failed = { ...result, is_error: true, result: 'API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"}}', terminal_reason: 'api_error' }
-    const h = harness({ lines: [wait, init, opus, assistant, result, wait, init, failed] })
+    const h = harness({ lines: [wait, init, opus, assistant, result], later: [wait, init, failed] })
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => h.state().status === 'stopped', 'the run to stop')
     expect(h.messages()).toEqual([WAVE_1, WAVE_2])

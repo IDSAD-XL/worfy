@@ -249,6 +249,7 @@ function harness(options: { script?: string; returnGraceMs?: number; processes?:
     registry,
     waves: launcher,
     journal: (start) => openRun(start, { env }),
+    harness: () => 'plugin',
     keepAwake: () => ({ start: () => power.push('start'), stop: () => power.push('stop') }),
     onChange: (state) => states.push(state),
     settleMs: 60_000,

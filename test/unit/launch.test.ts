@@ -2,7 +2,7 @@
 // and what main does on a click (src/main/actions/launch.ts) — over fakes of the Sessions, the
 // Orchestrator, the registry and the Bindings store. Nothing here starts an agent or writes a file.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ActionLauncher, GATE_QUEUE_AUTOPILOT_HINT, gateQueueRoleHint, type LaunchDeps, type LaunchedSession } from '../../src/main/actions/launch'
+import { ActionLauncher, GATE_QUEUE_AUTOPILOT_HINT, gateQueueRoleHint, waveBriefText, type LaunchDeps, type LaunchedSession } from '../../src/main/actions/launch'
 import { launchedHint, runWaveState, shipTicketState } from '../../src/shared/actions/render-template'
 import type { LaunchesSnapshot } from '../../src/shared/ipc/actions'
 import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE, type ActionTemplates } from '../../src/shared/projects/action-templates'
@@ -474,5 +474,16 @@ describe('ActionLauncher.gateQueue (worfy-windows ticket 17)', () => {
     expect(await launcher({ templates: QUEUE, gateRole: async () => 'request' }).launch.autopilotGateQueue('p')).toBeNull()
     expect(await launcher({ templates: { gateQueue: '' }, gateRole: async () => 'serve' }).launch.autopilotGateQueue('p')).toBeNull()
     expect(await launcher({ templates: QUEUE, gateRole: () => Promise.reject(new Error('profile broke')) }).launch.autopilotGateQueue('p')).toBeNull()
+  })
+})
+
+describe('waveBriefText (worfy-throughput ticket 52)', () => {
+  it('a slash command stays first, also after leading spaces; any other text gets the instruction in front', () => {
+    expect(waveBriefText('demo', '  /worfy:epic-wave tickets 03 of epic demo')).toBe(
+      '  /worfy:epic-wave tickets 03 of epic demo\n\nThis is a new session for the next Wave: before anything else, run `wave-brief demo` (skill epic-wave, "How to resume a wave").',
+    )
+    expect(waveBriefText('demo', 'Run the wave: tickets 03 of epic demo')).toBe(
+      'This is a new session for the next Wave: before anything else, run `wave-brief demo` (skill epic-wave, "How to resume a wave"). Then:\n\nRun the wave: tickets 03 of epic demo',
+    )
   })
 })
