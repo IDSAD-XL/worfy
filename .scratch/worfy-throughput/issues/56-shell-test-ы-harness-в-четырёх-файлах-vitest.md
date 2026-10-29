@@ -1,9 +1,11 @@
 # 56 — Shell test-ы Harness в четырёх файлах vitest, а не в одном в конце run-а
 
 Type: task
-Status: claimed 2026-10-29T19:18Z
-Branch: worfy-throughput/56
+Status: blocked 2026-10-29T22:12Z
+Blocked reason: merged in #1023 (ef17acab); only the PC before/after gate-full measurement is left
+Waits: machine
 PR: #1023
+Branch: worfy-throughput/56
 Blocked by: —
 Source: замер gate full на ПК 2026-10-29, bridge Session (ПК-сессия на Windows-ПК владельца): на `main` b2b30e07
 `test/contract/harness-scripts.test.ts` занял 1367 s из 1542 s wall time vitest; первые ~10 min были заняты 15+
