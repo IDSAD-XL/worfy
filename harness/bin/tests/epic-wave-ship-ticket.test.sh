@@ -867,6 +867,77 @@ for sh in "${SHELLS[@]}"; do
     got="$(run_deploy "$sh" "$ENV_PL")"
     check "$sh: a successful Deployment of a commit that contains the merge — deployed" bash -c '[[ "$1" == *"DEPLOYED=$2"* ]]' _ "$got" "$(c 4)"
 done
+# 9e. The agents mode: workflow.agents is "eco" or "full", no field is "full". eco starts fewer subagents
+# per ticket (a small ticket without an implementer, the scout only on unknown code, one reviewer at low
+# depth); full stays required for scripts, hooks, platform PRs and destructive diffs; the reports name the
+# mode and the number of subagents. The draft schema takes eco, full, null and no field, and refuses the rest.
+ew1="$(awk '/^## 1\./{p=1; next} /^## /{p=0} p' "$EW")"; ew2="$(awk '/^## 2\./{p=1; next} /^## /{p=0} p' "$EW")"
+ew5="$(awk '/^## 5\./{p=1; next} /^## /{p=0} p' "$EW")"; st7="$(awk '/^## 7\./{p=1; next} /^## /{p=0} p' "$ST")"
+RD="$HARNESS/profiles/README.md"; rd="$(cat "$RD")"
+NOFIELD='No field (exit 4 or `null`) — `full`: the agents as before.'
+FULL='`full` is required in `eco` too when the change touches a script or a hook (the `bin/` or `hooks/` of the Harness, or a script of the repository), when it is a platform PR (one that needs the verdict of another operating system by the `rules.md` of the project), or when its diff deletes files, stops processes or replaces a copy (the cases that block a merge by the review depth scale, `/worfy:ship-ticket`, step 7).'
+AGENTS='The report names the mode of the ticket: `Agents: eco` or `Agents: full — <reason>`, where `<reason>` is `workflow.agents`, `default: the profile has no workflow.agents`, or the case of the list above that applies (`script or hook`, `platform PR`, `destructive action`).'
+SUBAGENTS='`Subagents: <number> — <names>`: every subagent started for the ticket counts — the scout, the implementers, the verifier, the reviewers and the sceptics.'
+check "README: a row for workflow.agents with eco, full and null" grep -qF '| `workflow.agents` | `"eco"` \| `"full"` \| null |' "$RD"
+check "README: no workflow.agents — full, as before" in_flat "$rd" 'absent or `null` — `full`, the agents as before'
+check "README: the skills describe the mode" in_flat "$rd" 'what `eco` changes is described in skill `epic-wave`, section 1, and skill `ship-ticket`, step 7'
+for f in "$EW" "$ST"; do
+    n="$(name_of "$f")"; if [ "$f" = "$EW" ]; then s="$ew1"; else s="$st7"; fi
+    check "$n: reads F workflow.agents" in_flat "$s" '`F workflow.agents`'
+    check "$n: no field — full" in_flat "$s" "$NOFIELD"
+    check "$n: the cases where full is required, word for word" in_flat "$s" "$FULL"
+    check "$n: the Agents line of the report" in_flat "$s" "$AGENTS"
+    check "$n: the Subagents line of the report" in_flat "$s" "$SUBAGENTS"
+done
+check "epic-wave section 1: eco — the scout only on unknown code" in_flat "$ew1" \
+    'With `eco` the scout goes only when no file the trail section names exists yet, or the ticket touches a folder that the trail section of no earlier ticket of the epic names; otherwise the orchestrator completes the list itself, reading the files at their `file:line`.'
+check "epic-wave section 1: eco — a small ticket without an implementer, the verifier stays" in_flat "$ew1" \
+    'With `eco` a small ticket — only documents, or one change in one file of its trail section — gets no implementer: the orchestrator does it itself (section 2), and the verifier checks it like any other ticket (section 3).'
+check "epic-wave section 2: the orchestrator does a small eco ticket itself" in_flat "$ew2" \
+    'A small ticket in `eco` (section 1) gets no implementer: the orchestrator does it itself, in a worktree of its own by `F worktree.implementer`, by the steps `F workflow.implementer_steps` up to the finish `F workflow.finish`, and gives the verifier the fields of an implementer'"'"'s report (commands with exit codes, claims, what was removed). Its row of the plan names `orchestrator` in the "Who" column.'
+check "epic-wave section 3: eco does not change the gate, the rework round or the narrow round" in_flat "$sec3" \
+    'The agents mode does not change the gate: in `eco` the verifier stays, for a ticket the orchestrator did itself too, and the rework round and the narrow round go as described here.'
+check "epic-wave section 5: the agents line and the subagent count of every ticket" in_flat "$ew5" \
+    'for every ticket of the table, its agents line and the number of subagents started for it (section 1)'
+check "epic-wave section 5: the example of the two lines" bash -c 'grep -qxF "07: Agents: eco" <<<"$1" && grep -qxF "07: Subagents: 2 — impl-07, verify-07" <<<"$1"' _ "$ew5"
+check "ship-ticket step 7: eco — one reviewer, one lens, low depth, unless an argument or the owner's word" in_flat "$st7" \
+    'With `eco` every review round of the ticket'"'"'s own diff has `low` depth — one reviewer with one lens — unless an argument or the owner'"'"'s word sets another depth; this comes before the `review.depth` fields of the profile.'
+check "ship-ticket step 7: the mode is decided on the diff of the round" in_flat "$st7" 'The mode is decided on the diff of the round, before its reviewers start.'
+# The draft schema, run through bin/project-connect --schema-only as skill connect-project proposes it.
+AM="$T/agents-mode"; mkdir -p "$AM/hh" "$AM/repo"; AM="$(cd "$AM" && node_path "$(pwd -P)")"
+# agents_schema <name> <expected exit> <expected output fragment> <workflow.agents as JSON, or "none">
+agents_schema() {
+    local out code
+    node - "$4" "$AM/repo" >"$AM/draft.json" <<'NODE' || { bad "$1 (the draft was not built)"; return; }
+const [agents, match] = process.argv.slice(2)
+const workflow = { folder: null, ticket_skill: "ship-ticket", implementer_steps: "steps 1-8", finish: "local-green", merge: "orchestrator" }
+if (agents !== "none") workflow.agents = JSON.parse(agents)
+const profile = {
+  schema: 2, name: "shop", title: "shop", mode: "full",
+  language: { reports: "en", team: "en", docs: "en" }, attribution: "on",
+  layout: { summary: "one package", packages: ["."], repos: null }, stack: ["node"],
+  commands: { install: "npm ci", lint: "npm run lint", typecheck: null, test: "npm test", test_one: null, contract: null, e2e: null,
+              build: null, verify: "npm run lint && npm test", prepare_tree: "npm ci", requires: [] },
+  parallel: "worktrees",
+  worktree: { root: match + "/.claude/worktrees/", base: "origin/main", implementer: null, reviewer: null },
+  tickets: { root: ".scratch/", path: ".scratch/<epic>/issues/NN-*.md", trail_section: "## Where in the code", spec: ".scratch/<epic>/spec.md", branch: null },
+  workflow, numbering: null, deploy: null, github: { account: null }, docs: null, lessons: "repo:docs/lessons",
+  mcp: { allowed: ["plugin_worfy_qmd", "worfy-canvas"] }, review: { lenses: ["correctness"], ticket_lenses: ["correctness"] },
+}
+const gate = [{ key: "shop", match, profile: "shop", pm: "npm", root: { fast: ["lint", "test"], full: ["lint", "test"] }, workspace: {} }]
+process.stdout.write(JSON.stringify({ profile, rules: "# shop\n\n## Sources\n\n- package.json\n", gate }))
+NODE
+    out="$(HARNESS_HOME="$AM/hh" "$HARNESS/bin/project-connect" --schema-only <"$AM/draft.json" 2>&1)"; code=$?
+    if [ "$code" -eq "$2" ] && [[ "$out" == *"$3"* ]]; then ok "$1"; else bad "$1 (exit $code: $(printf '%s' "$out" | head -c 400))"; fi
+}
+agents_schema "schema: no workflow.agents passes" 0 '"ok": true' none
+agents_schema "schema: workflow.agents eco passes" 0 '"ok": true' '"eco"'
+agents_schema "schema: workflow.agents full passes" 0 '"ok": true' '"full"'
+agents_schema "schema: workflow.agents null passes" 0 '"ok": true' null
+agents_schema "schema: another value is refused, the field named" 1 '"path": "profile.workflow.agents"' '"lean"'
+agents_schema "schema: a value in another case is refused" 1 '"path": "profile.workflow.agents"' '"ECO"'
+agents_schema "schema: a number is refused" 1 '"path": "profile.workflow.agents"' 2
+check "schema: --schema-only wrote nothing into HARNESS_HOME" test -z "$(ls -A "$AM/hh")"
 # 10. The temporary HOME recipe of section 2 runs. It is cut out of the skill, with `true` for
 # <commands.verify>, and runs in a temporary git repository that a stand-in registry of a stand-in
 # home registers. The recipe's gate finds that registry: both EXIT=0 and the green line. The same

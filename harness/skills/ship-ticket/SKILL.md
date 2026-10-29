@@ -378,6 +378,21 @@ scale: it runs at every depth.
    repeat review — `review.depth.later_rounds`). The defaults `high` depth and `medium` depth are
    only for a PR another session wrote (section "Review of a PR another session wrote").
 
+**Agents mode.** How many subagents a ticket starts is `F workflow.agents`: `full` or `eco`.
+No field (exit 4 or `null`) — `full`: the agents as before. With `eco` every review round of the
+ticket's own diff has `low` depth — one reviewer with one lens — unless an argument or the owner's
+word sets another depth; this comes before the `review.depth` fields of the profile. The mode is
+decided on the diff of the round, before its reviewers start. `full` is required in `eco` too when
+the change touches a script or a hook (the `bin/` or `hooks/` of the Harness, or a script of the
+repository), when it is a platform PR (one that needs the verdict of another operating system by
+the `rules.md` of the project), or when its diff deletes files, stops processes or replaces a copy
+(the cases that block a merge by the review depth scale, `/worfy:ship-ticket`, step 7). The report
+names the mode of the ticket: `Agents: eco` or `Agents: full — <reason>`, where `<reason>` is
+`workflow.agents`, `default: the profile has no workflow.agents`, or the case of the list above
+that applies (`script or hook`, `platform PR`, `destructive action`). Next to it goes the line
+`Subagents: <number> — <names>`: every subagent started for the ticket counts — the scout, the
+implementers, the verifier, the reviewers and the sceptics.
+
 **What blocks.** What blocks a merge, at every depth: a `high` or `med` finding in the code, or a
 gap in the tests that guard a destructive action (a delete, stopping a process, replacing a copy).
 The other gaps go as a list into a follow-up ticket. Such a test gap belongs to Act on (below)

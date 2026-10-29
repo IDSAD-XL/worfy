@@ -1,7 +1,8 @@
 # 36 — Режим `eco`: сколько Subagent-ов запускает Ticket — поле Profile
 
 Type: task
-Status: open
+Status: claimed 2026-10-29T03:16Z
+Branch: worfy-throughput/36
 Blocked by: —
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: меньше token-ов на Ticket, чтобы хватало Limits подписки», идея 1, строка L3
 таблицы «Цель и числа»; шкала глубины ревью — [`worfy-review` 08](../../worfy-review/issues/08-глубина-ревью-четыре-ступени.md).

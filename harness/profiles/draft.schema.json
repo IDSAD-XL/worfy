@@ -111,6 +111,7 @@
             "ci": { "enum": ["pr", "batch", null], "description": "Where GitHub CI runs: pr (absent or null resolve to it) — on every PR head, a merge condition; batch — once on the main branch per wave (bin/wave-gate ci), not a merge condition." },
             "ci_batch_run": { "type": ["string", "null"], "description": "The command that starts the CI run on a branch, $ref is the branch; required with ci batch." },
             "e2e_lock": { "type": ["string", "null"], "description": "Absolute path of the e2e lock directory (~/ is expanded); null — no lock." },
+            "agents": { "enum": ["eco", "full", null], "description": "How many subagents a ticket starts (profiles/README.md, workflow.agents): full (absent or null resolve to it) — as before; eco — fewer, by the rules of skills epic-wave and ship-ticket." },
             "pipeline": {
               "type": ["array", "null"],
               "minItems": 1,
