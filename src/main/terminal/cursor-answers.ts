@@ -120,13 +120,17 @@ export const SCREEN_WORKERS_MAX = 8
 
 /**
  * For tests and scripts/terminal-flood-bench.mjs: `headless`, a module to load in place of
- * @xterm/headless when a worker starts; `limit`, the most workers in place of screenWorkersLimit.
+ * @xterm/headless when a worker starts; `limit`, the most workers in place of the default of
+ * screenWorkersLimit (a whole number of at least 1, or Infinity for a worker per shell; anything
+ * else is ignored).
  */
 export const screenWorker: { headless: string | undefined; limit: number | undefined } = { headless: undefined, limit: undefined }
 
-/** How many workers the screens may use: one per core, at most SCREEN_WORKERS_MAX. */
+/** How many workers the screens may use: one per core, at most SCREEN_WORKERS_MAX, unless `screenWorker.limit` says otherwise. */
 export function screenWorkersLimit(): number {
-  return Math.max(1, screenWorker.limit ?? Math.min(availableParallelism(), SCREEN_WORKERS_MAX))
+  const { limit } = screenWorker
+  if (limit === Number.POSITIVE_INFINITY || (Number.isInteger(limit) && limit !== undefined && limit >= 1)) return limit
+  return Math.max(1, Math.min(availableParallelism(), SCREEN_WORKERS_MAX))
 }
 
 /** A module's path inside app.asar, as the same path out of it: electron-builder.yml unpacks @xterm/headless. */
@@ -255,20 +259,24 @@ class ScreenWorker {
   }
 }
 
-/** The workers made so far; one that holds no screen has no thread. */
+/** The workers made so far; one that holds no screen has no thread, and is used again before a new one is made. */
 const pool: ScreenWorker[] = []
 
-/** The worker for a new shell's screen: an empty one, a new one below the limit, or the one with the fewest screens. */
+/**
+ * The worker for a new shell's screen. While fewer workers than the limit hold a screen, one of its
+ * own: an empty one of the pool, or a new one. Then the first of those holding the fewest screens.
+ */
 function screenWorkerFor(): ScreenWorker {
-  const empty = pool.find((each) => each.size === 0)
-  if (empty !== undefined) return empty
-  if (pool.length < screenWorkersLimit()) {
+  const busy = pool.filter((each) => each.size > 0)
+  if (busy.length < screenWorkersLimit()) {
+    const empty = pool.find((each) => each.size === 0)
+    if (empty !== undefined) return empty
     const made = new ScreenWorker()
     pool.push(made)
     return made
   }
   // shortcut: shares by the number of screens, not by how much each shell prints, redo when shells past the limit are seen flooding a worker while another worker idles.
-  return pool.reduce((fewest, each) => (each.size < fewest.size ? each : fewest))
+  return busy.reduce((fewest, each) => (each.size < fewest.size ? each : fewest))
 }
 
 /** Follows the output of one shell and answers its requests (isMainAnswer) through `answer`. */

@@ -83,8 +83,9 @@ Source: follow-up [Ticket-а 39](39-ответы-экрана-считаются
 
 - **Выбор — пул worker-ов, по worker-у на shell до предела** (`src/main/terminal/cursor-answers.ts`,
   `screenWorkersLimit`, `SCREEN_WORKERS_MAX` = 8): предел — `min(os.availableParallelism(), 8)`. Пока
-  shell-ов не больше предела, у каждого свой worker; сверх предела новый shell садится в worker с
-  наименьшим числом экранов. Worker с одним экраном и worker без предела дают одно и то же, поэтому
+  worker-ов с экранами меньше предела, новый shell получает свой (пустой worker пула или новый);
+  иначе садится в первый из worker-ов с наименьшим числом экранов. `screenWorker.limit` принимается,
+  только если это целое ≥ 1 или Infinity; иначе — предел по умолчанию (ревью, круг 1). Worker с одним экраном и worker без предела дают одно и то же, поэтому
   оба варианта Ticket-а — одна реализация с одной настройкой (`screenWorker.limit`, для test-ов и
   замера): «worker на shell» — `limit` = ∞, «пул» — предел по умолчанию.
 - Shell получает worker один раз, при создании `CursorAnswers`, и держит его до конца: все куски
@@ -157,7 +158,14 @@ RSS main без вывода (`--program idle`: в shell-е `node -e` с тай�
 - `--program node` (метод ПК, `node -e` с бесконечной записью `y\n`) на Mac проверен одним кругом:
   1 shell — 34.5 MB/s, 2 — 68.9 MB/s, как с `yes`.
 
-### Замер на ПК (команды)
+### Замер на ПК
+
+Заполняет ПК на финальном head PR.
+
+| Состояние | shell-ов | отказ | MB/s всего (на shell) | main-поток, % | процесс, % | pause / resume | ответ на `ESC[6n`, ms | RSS, MB |
+|---|---|---|---|---|---|---|---|---|
+
+Команды:
 
 В checkout-е ветки после `pnpm install --frozen-lockfile`; на Windows программа по умолчанию —
 `node.exe -e` с бесконечной записью `y\n` (`--program node`). main до правки — отдельный checkout на
@@ -175,8 +183,9 @@ node scripts/terminal-flood-bench.mjs --program idle --shells 1,8 --seconds 2
 git worktree remove ..\worfy-67-main
 ```
 
-Каждая команда печатает таблицу в Markdown и load average (на Windows Node даёт нули), поэтому
-нагрузку ПК перед каждой командой записать отдельно: загрузку CPU и верхние процессы. Скрипт сам закрывает shell-ы в конце каждого круга и добивает их по pid. Запрос
+Каждая команда печатает таблицу в Markdown и нагрузку перед каждым числом shell-ов: на Windows —
+занятость всех ядер за 1 с (`os.cpus()`), load average там всегда 0. Верхние процессы ПК записать
+отдельно. Скрипт сам закрывает shell-ы в конце каждого круга и добивает их по pid. Запрос
 `ESC[6n` вставлен в поток main-а, как в замере Ticket-а 39: консоль из пакета не шлёт его программе,
 которая не PowerShell у prompt-а.
 
@@ -190,7 +199,16 @@ git worktree remove ..\worfy-67-main
   красные; на коде main — красный.
 - «a flood of 2 / 4 shells at once…» — по 15 MB на shell разом: отказов нет, у каждого пауза, ответ
   `ESC[24;1R` после flood-а, весь вывод у подписчика.
-- «the limit of the workers is one per core, at most SCREEN_WORKERS_MAX, and at least one».
+- «with the default limit, as many shells as the limit (up to four here) each get a worker thread of
+  their own» — stand-in отвечает `ESC[<threadId>;1R` на метку THREAD: разных потоков столько, сколько
+  shell-ов; параллельность видна без замера времени. Мутант «один worker на всех» — красный.
+- «past the limit a new shell shares the worker with the fewest screens…» — `limit` = 2, четыре
+  shell-а: третий делит worker первого, четвёртый — второго (тот, где меньше экранов); падение
+  worker-а первого снимает первый и третий, второй и четвёртый отвечают на `ESC[6n`; новый shell после
+  падения получает новый поток и ответ. Мутанты «без предела» (`busy.length < limit` → `true`) и «самый
+  загруженный» (`<` → `>` в reduce) — красные (ревью, круг 1).
+- «the limit of the workers is one per core, at most SCREEN_WORKERS_MAX; screenWorker.limit replaces it
+  only with a whole number of at least 1 or Infinity».
 - «60 MB printed at once…» и остальные test-ы back-pressure не менялись и зелёные.
 
 ### Команды (Mac, worktree ветки)

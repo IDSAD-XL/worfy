@@ -23,6 +23,18 @@ const EXITING_HEADLESS = join(import.meta.dirname, '..', 'fixtures', 'headless-e
 /** The real @xterm/headless, except that the worker ends when a screen is given CRASH. */
 const CRASHING_HEADLESS = join(import.meta.dirname, '..', 'fixtures', 'headless-exits-on-mark.cjs')
 const CRASH = `\x1b]worfy-crash\x07`
+/** Makes that stand-in answer `ESC[<threadId>;1R`: the worker thread of the shell's screen. */
+const THREAD = `\x1b]worfy-thread\x07`
+
+/** The id of the worker thread of the shell's screen (CRASHING_HEADLESS only). */
+async function threadOf(pty: StandInPty): Promise<number> {
+  const before = pty.writes.length
+  pty.print(THREAD)
+  const [answer] = (await writtenSoon(pty, before + 1)).slice(before)
+  const id = new RegExp(`^${ESC}\\[(\\d+);1R$`).exec(answer ?? '')?.[1]
+  if (id === undefined) throw new Error(`not a thread id: ${JSON.stringify(answer)}`)
+  return Number(id)
+}
 /** 999 999 characters of `y` lines, as `yes` floods a shell; the same string each time. */
 const MEGABYTE = 'y\r\n'.repeat(333_333)
 const ESC = '\x1b'
@@ -523,7 +535,7 @@ describe('the screens of several shells parse in parallel, a worker each up to a
       expect(await writtenSoon(second.pty, 1)).toEqual([`${ESC}[1;4R`])
 
       first.pty.print(CRASH)
-      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1))
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1), { timeout: 5_000 * timeScale })
       expect(String(warn.mock.calls[0]?.[0])).toContain('exit code 7')
       second.pty.print(`\r\nx${REQUEST}`)
       first.pty.print(REQUEST)
@@ -559,11 +571,68 @@ describe('the screens of several shells parse in parallel, a worker each up to a
     }
   }, 90_000)
 
-  it('the limit of the workers is one per core, at most SCREEN_WORKERS_MAX, and at least one', () => {
-    expect(screenWorkersLimit()).toBe(Math.min(availableParallelism(), SCREEN_WORKERS_MAX))
-    screenWorker.limit = 0
+  it('with the default limit, as many shells as the limit (up to four here) each get a worker thread of their own', async () => {
+    screenWorker.headless = CRASHING_HEADLESS
     try {
-      expect(screenWorkersLimit()).toBe(1)
+      const count = Math.min(screenWorkersLimit(), 4)
+      const threads: number[] = []
+      for (let i = 0; i < count; i += 1) threads.push(await threadOf((await shell()).pty))
+      expect(new Set(threads).size).toBe(count)
+    } finally {
+      screenWorker.headless = undefined
+    }
+  })
+
+  it('past the limit a new shell shares the worker with the fewest screens; a worker that ends takes only its shells, and a new shell gets a worker again', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    screenWorker.headless = CRASHING_HEADLESS
+    screenWorker.limit = 2
+    try {
+      const [a, b, c, d] = [await shell(), await shell(), await shell(), await shell()]
+      const [ta, tb, tc, td] = [await threadOf(a.pty), await threadOf(b.pty), await threadOf(c.pty), await threadOf(d.pty)]
+      // a and b get a worker each; c joins the first of the two (one screen each), and d the one
+      // with one screen (b's), not the one with two (a's and c's).
+      expect(ta).not.toBe(tb)
+      expect(tc).toBe(ta)
+      expect(td).toBe(tb)
+
+      a.pty.print(CRASH)
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(2), { timeout: 5_000 * timeScale })
+      for (const { pty } of [a, b, c, d]) pty.print(REQUEST)
+      expect((await writtenSoon(b.pty, 2)).at(-1)).toBe(`${ESC}[1;1R`)
+      expect((await writtenSoon(d.pty, 2)).at(-1)).toBe(`${ESC}[1;1R`)
+      // The shells of the worker that ended are answered by their views from now on, not by main.
+      expect(a.pty.writes).toHaveLength(1)
+      expect(c.pty.writes).toHaveLength(1)
+
+      // One worker holds screens now, below the limit: a new shell gets a worker (a new thread) of its own.
+      const e = await shell()
+      const te = await threadOf(e.pty)
+      expect([ta, tb]).not.toContain(te)
+      e.pty.print(REQUEST)
+      expect((await writtenSoon(e.pty, 2)).at(-1)).toBe(`${ESC}[1;1R`)
+      expect(warn).toHaveBeenCalledTimes(2)
+    } finally {
+      screenWorker.headless = undefined
+      screenWorker.limit = undefined
+    }
+  })
+
+  it('the limit of the workers is one per core, at most SCREEN_WORKERS_MAX; screenWorker.limit replaces it only with a whole number of at least 1 or Infinity', () => {
+    const fallback = Math.min(availableParallelism(), SCREEN_WORKERS_MAX)
+    expect(screenWorkersLimit()).toBe(fallback)
+    try {
+      for (const [limit, expected] of [
+        [2, 2],
+        [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY],
+        [0, fallback],
+        [-1, fallback],
+        [2.5, fallback],
+        [Number.NaN, fallback],
+      ] as const) {
+        screenWorker.limit = limit
+        expect(screenWorkersLimit()).toBe(expected)
+      }
     } finally {
       screenWorker.limit = undefined
     }

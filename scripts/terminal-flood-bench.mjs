@@ -14,14 +14,16 @@
 // "refused output" (main's screen gave up). Three times per shell it puts `ESC[6n` at the end of the
 // next chunk node-pty hands the registry and times the answer main writes to that pty; after the
 // last one it waits up to 5 s more ("none": no answer). RSS is the process's at the end of the count.
+// The load of the machine is printed before each number of shells: the load average, on Windows how
+// busy all cores were over one second.
 // `--program idle` runs a program that prints nothing (`node -e` with a timer): the RSS of N quiet
 // shells, what their screens cost at rest; its requests get no answer, as no output carries them.
 // Then the shells are closed and the next round starts.
 //
 // --root measures another checkout (its src/ and its node_modules), for example one of main before a
 // change: the script needs nothing of the branch it came with. --screen-workers sets the most worker
-// threads main's screens may use (`screenWorker.limit`, "shell" for one per shell); a checkout
-// without that setting ignores it, and the report says so.
+// threads main's screens may use (`screenWorker.limit`, "shell" for one per shell); a checkout of
+// --root without that setting (main before it) ignores it, and the report says so.
 //
 // It runs in Electron's Node, as the app's main process and the tests do (node-pty is built for
 // Electron's ABI): started with plain node it starts itself again under Electron. TypeScript of src/
@@ -88,10 +90,15 @@ async function main() {
 
   let variant = 'as built'
   if (values['screen-workers'] !== undefined) {
+    const workers = values['screen-workers']
+    const limit = workers === 'shell' ? Number.POSITIVE_INFINITY : Number(workers)
+    if (limit !== Number.POSITIVE_INFINITY && !(Number.isInteger(limit) && limit >= 1)) throw new Error(`--screen-workers: a whole number of at least 1 or "shell", not ${workers}`)
     if ('limit' in screenWorker) {
-      screenWorker.limit = values['screen-workers'] === 'shell' ? Number.POSITIVE_INFINITY : Number(values['screen-workers'])
-      variant = `screen workers: ${values['screen-workers']}`
-    } else variant = 'as built (this checkout has no screenWorker.limit; --screen-workers ignored)'
+      screenWorker.limit = limit
+      variant = `screen workers: ${workers}`
+    } else if (root !== HERE) variant = 'as built (this checkout has no screenWorker.limit; --screen-workers ignored)'
+    // Its own checkout always has the setting: without it the numbers would be of another variant.
+    else throw new Error('--screen-workers: src/main/terminal/cursor-answers.ts of this checkout has no screenWorker.limit')
   }
 
   const program = programOf(values.program)
@@ -103,7 +110,7 @@ async function main() {
   }
   console.log(`# terminal flood bench: ${root} @ ${commit}, ${variant}`)
   console.log(`# ${process.platform} ${cpus()[0]?.model ?? '?'}, availableParallelism ${availableParallelism()}, Electron ${process.versions.electron}, Node ${process.versions.node}`)
-  console.log(`# program: ${program.label}; warm-up ${warmupMs} ms, count ${countMs} ms, ${rounds} rounds; load average before: ${loadavg().map((n) => n.toFixed(2)).join(' ')}`)
+  console.log(`# program: ${program.label}; warm-up ${warmupMs} ms, count ${countMs} ms, ${rounds} rounds; load before: ${await loadNow()}`)
   console.log('| shells | round | refused | MB/s total (per shell) | main thread, % | process, % | pause / resume | ESC[6n answer, ms | RSS, MB |')
   console.log('|---|---|---|---|---|---|---|---|---|')
 
@@ -125,8 +132,18 @@ async function main() {
     }
   }
   process.on('exit', killAll)
+  // Ctrl+C or a stop of the run: the shells go first (130, 143: 128 + the signal's number).
+  process.on('SIGINT', () => {
+    killAll()
+    process.exit(130)
+  })
+  process.on('SIGTERM', () => {
+    killAll()
+    process.exit(143)
+  })
 
   for (const n of counts) {
+    if (n !== counts[0]) console.log(`# load before ${n} shells: ${await loadNow()}`)
     for (let round = 1; round <= rounds; round += 1) {
       refused = 0
       const shells = []
@@ -183,6 +200,19 @@ async function main() {
   console.warn = warn
   // The screens' worker threads are unref'ed; nothing else keeps the process.
   process.exit(0)
+}
+
+/**
+ * The load of the machine now: the load average, or on Windows, where Node reports it as 0 0 0, how
+ * busy all cores were over one second (os.cpus() times).
+ */
+async function loadNow() {
+  if (process.platform !== 'win32') return `load average ${loadavg().map((n) => n.toFixed(2)).join(' ')}`
+  const sum = () => cpus().reduce((all, { times }) => ({ idle: all.idle + times.idle, total: all.total + times.user + times.nice + times.sys + times.idle + times.irq }), { idle: 0, total: 0 })
+  const before = sum()
+  await sleep(1000)
+  const after = sum()
+  return `CPU busy over 1 s: ${((1 - (after.idle - before.idle) / (after.total - before.total)) * 100).toFixed(0)} % of all cores`
 }
 
 /** The program each shell runs: `y\n` without end. */
