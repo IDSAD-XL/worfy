@@ -712,9 +712,12 @@ describe('claudeHome IPC channels', () => {
     const { handlers } = await ipcOver(new ClaudeHomeRegistry({ home: FIXTURE, listWorktrees: noWorktrees, isAlive: alive() }))
     expect([...handlers.keys()].sort()).toEqual([
       'worfy:claudeHome.close',
+      'worfy:claudeHome.hiddenSubagents',
+      'worfy:claudeHome.hideSubagents',
       'worfy:claudeHome.live',
       'worfy:claudeHome.search',
       'worfy:claudeHome.sessions',
+      'worfy:claudeHome.showSubagents',
       'worfy:claudeHome.subagentTranscript',
       'worfy:claudeHome.subagents',
       'worfy:claudeHome.transcript',

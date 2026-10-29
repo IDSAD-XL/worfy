@@ -59,3 +59,13 @@ Subagent-ы (ADR-0029, контекст: закрытая Session Autopilot ун
 - **Сбой `ps` считать «процесса нет», как `processAlive()`.** Отвергнут ревью PR #45: при
   недоступном `ps` работающий Subagent живой Session показывался `error`, и опрос его Session
   прекращался.
+
+## Amendments
+
+- **2026-10-29, решение владельца — новый статус `interrupted`** (worfy-polish Ticket 45).
+  Довод против нового статуса из Considered Options (вариант `stale`) пересмотрен: Subagent без
+  конца, у Session которого текущий процесс запущен позже его последней записи, — `interrupted`, не
+  `running` и не `error`. Пункт 2 сужен: пока Session жива, Subagent без конца — `running`, если
+  её текущий процесс запущен не позже его последней записи. Пункты 1, 3 и 4 остаются в силе:
+  закрытая Session по-прежнему делает такого Subagent-а `error`, а при неизвестном процессе он
+  остаётся `running`. Пункт 5 («тип `SubagentStatus` не меняется») заменён. Подробно — [ADR-0085](0085-interrupted-subagents.md).

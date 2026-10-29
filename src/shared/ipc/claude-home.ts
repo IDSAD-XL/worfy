@@ -153,9 +153,56 @@ export const claudeHomeTranscript = invokeChannel(
 export const claudeHomeSubagents = invokeChannel(
   'claudeHome.subagents',
   z.object({ projectRoot: absolutePath, sessionId: sessionIdSchema }),
-  z.object({ found: z.boolean(), signals: z.array(subagentSignalSchema), files: z.array(subagentFileSchema), truncated: z.boolean().optional() }),
+  z.object({
+    found: z.boolean(),
+    signals: z.array(subagentSignalSchema),
+    files: z.array(subagentFileSchema),
+    truncated: z.boolean().optional(),
+    /**
+     * When the Session's running process started, ms since the epoch (`startedAt` of its
+     * `sessions/<pid>.json`; ADR-0085). A field of its own, not a signal: a Linked machine of an
+     * older build drops a field it does not know, but refuses a signal it does not know (ADR-0079).
+     */
+    processStartedAt: z.number().optional(),
+  }),
   'project',
   'read',
+)
+
+/** The id of a Subagent entry of a tree (SubagentInfo.id): its call's id, `agent:<agentId>` or `workflow:<runId>`. */
+export const subagentEntryIdSchema = z.string().min(1).max(200)
+
+/** At most this many entries are hidden by one call; a Session keeps at most HIDDEN_PER_SESSION. */
+export const HIDE_SUBAGENTS_MAX = 5000
+export const HIDDEN_PER_SESSION = 20_000
+
+/** The hidden Subagent entries of a Project, by Session id. */
+export const hiddenSubagentsSchema = z.object({ sessions: z.record(sessionIdSchema, z.array(subagentEntryIdSchema)) })
+export type HiddenSubagents = z.infer<typeof hiddenSubagentsSchema>
+
+/**
+ * The Subagent entries the user hid with «Hide» (worfy-polish ticket 45, ADR-0085), by Session id.
+ * main keeps them in the Project's own data folder, never under ~/.claude; the Canvas and the
+ * Session rail leave them out.
+ */
+export const claudeHomeHiddenSubagents = invokeChannel('claudeHome.hiddenSubagents', z.object({ projectId: z.string().min(1) }), hiddenSubagentsSchema, 'project', 'read')
+
+/** Hides Subagent entries of a Session, of any status; answers every hidden entry of the Project. Writes worfy's data. */
+export const claudeHomeHideSubagents = invokeChannel(
+  'claudeHome.hideSubagents',
+  z.object({ projectId: z.string().min(1), sessionId: sessionIdSchema, ids: z.array(subagentEntryIdSchema).min(1).max(HIDE_SUBAGENTS_MAX) }),
+  hiddenSubagentsSchema,
+  'project',
+  'write',
+)
+
+/** «Show hidden Subagents»: shows every hidden entry of a Session again; answers what stays hidden in the Project. */
+export const claudeHomeShowSubagents = invokeChannel(
+  'claudeHome.showSubagents',
+  z.object({ projectId: z.string().min(1), sessionId: sessionIdSchema }),
+  hiddenSubagentsSchema,
+  'project',
+  'write',
 )
 
 /**
@@ -262,6 +309,9 @@ declare module './channels' {
     'claudeHome.transcript': typeof claudeHomeTranscript
     'claudeHome.subagents': typeof claudeHomeSubagents
     'claudeHome.subagentTranscript': typeof claudeHomeSubagentTranscript
+    'claudeHome.hiddenSubagents': typeof claudeHomeHiddenSubagents
+    'claudeHome.hideSubagents': typeof claudeHomeHideSubagents
+    'claudeHome.showSubagents': typeof claudeHomeShowSubagents
     'claudeHome.search': typeof claudeHomeSearch
     'claudeHome.transcriptFind': typeof claudeHomeTranscriptFind
     'claudeHome.changed': typeof claudeHomeChanged

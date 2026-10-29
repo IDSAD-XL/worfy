@@ -16,7 +16,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { create } from 'zustand'
 import type { AgentEvent, AgentEventEnvelope } from '../../shared/agent/events'
-import { buildSubagentTree, subagentSignals, type SubagentFile, type SubagentInfo, type SubagentSignal } from '../../shared/transcript/subagents'
+import type { HiddenSubagents } from '../../shared/ipc/claude-home'
+import { buildSubagentTree, flattenSubagents, subagentSignals, type SubagentFile, type SubagentInfo, type SubagentSignal } from '../../shared/transcript/subagents'
 import { invoke, subscribe } from '../ipc'
 import { ensureAgentEvents, useSessionLogs } from '../session/store'
 import { useClaudeHome } from './useClaudeHome'
@@ -28,6 +29,8 @@ export interface SessionFiles {
   signals: readonly SubagentSignal[]
   files: readonly SubagentFile[]
   found: boolean
+  /** When the Session's running process started, when main knows it (ADR-0085). */
+  processStartedAt?: number | undefined
 }
 
 interface SubagentsStore {
@@ -200,7 +203,7 @@ function release(root: string, sessionId: string): void {
 export function treeOf(files: SessionFiles | undefined, events: readonly AgentEvent[] | undefined): readonly SubagentInfo[] {
   const live = events && events.length > 0 ? liveSignals(events) : []
   if ((files === undefined || (files.signals.length === 0 && files.files.length === 0)) && live.length === 0) return EMPTY_TREE
-  return buildSubagentTree({ signals: [...(files?.signals ?? []), ...live], files: files?.files ?? [] })
+  return buildSubagentTree({ signals: [...(files?.signals ?? []), ...live], files: files?.files ?? [], processStartedAt: files?.processStartedAt })
 }
 
 /** The last tree of each Session and what it was built from: text streaming in does not rebuild it. */
@@ -276,9 +279,12 @@ export function formatElapsed(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
 }
 
-/** A Subagent's status with how long it has run (`running 1m 05s`) or ran (`done 2m 55s`). */
+/** The tooltip of an `interrupted` Subagent's status (ADR-0085). */
+export const INTERRUPTED_TOOLTIP = "The Session's process restarted after this agent's last record: it was stopped from outside, not by a failure"
+
+/** A Subagent's status with how long it has run (`running 1m 05s`) or ran (`done 2m 55s`, `Interrupted 4m 10s`). */
 export function statusLabel(agent: Pick<SubagentInfo, 'status' | 'startedAt' | 'durationMs'>, now: number): string {
-  const label = agent.status === 'error' ? 'error' : agent.status
+  const label = agent.status === 'interrupted' ? 'Interrupted' : agent.status
   if (agent.status === 'running') return agent.startedAt === null ? label : `${label} ${formatElapsed(now - agent.startedAt)}`
   return agent.durationMs === null ? label : `${label} ${formatElapsed(agent.durationMs)}`
 }
@@ -292,4 +298,101 @@ export function useTick(ticking: boolean): number {
     return () => clearInterval(timer)
   }, [ticking])
   return now
+}
+
+// ── hidden Subagents ────────────────────────────────────────────────────────
+
+// The entries the user hid with «Hide» (worfy-polish ticket 45, ADR-0085), kept by main in the
+// Project's data folder. Read once per Project while the window runs; each Hide and «Show hidden
+// Subagents» answers the whole list again.
+
+interface HiddenStore {
+  /** By Project id. */
+  byProject: Readonly<Record<string, HiddenSubagents['sessions']>>
+}
+
+const NOTHING_HIDDEN: HiddenSubagents['sessions'] = {}
+const NO_IDS: ReadonlySet<string> = new Set()
+export const useHiddenSubagentsStore = create<HiddenStore>(() => ({ byProject: {} }))
+const asked = new Set<string>()
+/** How many Hide and Show answers each Project has had: a first read asked before one of them is older than it. */
+const changes = new Map<string, number>()
+
+function setHidden(projectId: string, sessions: HiddenSubagents['sessions']): void {
+  useHiddenSubagentsStore.setState(({ byProject }) => ({ byProject: { ...byProject, [projectId]: sessions } }))
+}
+
+/** A Hide or Show answer: the whole list as main has it after the change. */
+function changedHidden(projectId: string, sessions: HiddenSubagents['sessions']): void {
+  changes.set(projectId, (changes.get(projectId) ?? 0) + 1)
+  setHidden(projectId, sessions)
+}
+
+function loadHidden(projectId: string): void {
+  if (asked.has(projectId)) return
+  asked.add(projectId)
+  const before = changes.get(projectId) ?? 0
+  void invoke('claudeHome.hiddenSubagents', { projectId }).then((result) => {
+    if (result.ok) {
+      // A Hide answered while this read was under way already gave a newer list.
+      if ((changes.get(projectId) ?? 0) === before) setHidden(projectId, result.value.sessions)
+    } else {
+      asked.delete(projectId)
+      console.error(`claudeHome.hiddenSubagents ${projectId} failed:`, result.error)
+    }
+  })
+}
+
+/** The hidden Subagent entries of a Project, by Session id; none until main has answered. */
+export function useHiddenSubagents(projectId: string | undefined): HiddenSubagents['sessions'] {
+  useEffect(() => {
+    if (projectId !== undefined) loadHidden(projectId)
+  }, [projectId])
+  return useHiddenSubagentsStore((store) => (projectId === undefined ? NOTHING_HIDDEN : (store.byProject[projectId] ?? NOTHING_HIDDEN)))
+}
+
+/** Hides entries of a Session (any status); the list then comes from main's answer. */
+export async function hideSubagents(projectId: string, sessionId: string, ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return
+  const result = await invoke('claudeHome.hideSubagents', { projectId, sessionId, ids: [...ids] })
+  if (result.ok) changedHidden(projectId, result.value.sessions)
+  else console.error(`claudeHome.hideSubagents ${sessionId} failed:`, result.error)
+}
+
+/** «Show hidden Subagents»: every hidden entry of the Session shows again. */
+export async function showHiddenSubagents(projectId: string, sessionId: string): Promise<void> {
+  const result = await invoke('claudeHome.showSubagents', { projectId, sessionId })
+  if (result.ok) changedHidden(projectId, result.value.sessions)
+  else console.error(`claudeHome.showSubagents ${sessionId} failed:`, result.error)
+}
+
+/** The hidden ids of one Session as a set. */
+export const hiddenIdsOf = (hidden: HiddenSubagents['sessions'], sessionId: string | null | undefined): ReadonlySet<string> => {
+  const ids = sessionId ? hidden[sessionId] : undefined
+  return ids === undefined || ids.length === 0 ? NO_IDS : new Set(ids)
+}
+
+/**
+ * The tree without the hidden entries. A hidden entry's own Subagents take its place under its
+ * parent: hiding a finished entry never hides a running one under it. The same tree when nothing
+ * of it is hidden.
+ */
+export function withoutHidden(tree: readonly SubagentInfo[], hidden: ReadonlySet<string>): readonly SubagentInfo[] {
+  if (hidden.size === 0 || !flattenSubagents(tree).some((info) => hidden.has(info.id))) return tree
+  const level = (list: readonly SubagentInfo[], depth: number): SubagentInfo[] =>
+    list.flatMap((info) => (hidden.has(info.id) ? level(info.children, depth) : [{ ...info, depth, children: level(info.children, depth + 1) }]))
+  return level(tree, 1)
+}
+
+/** The ids of every entry of `list` and below it that has ended — done, error or interrupted — for «Hide finished». */
+export const finishedIds = (list: readonly SubagentInfo[]): string[] => flattenSubagents(list).flatMap((info) => (info.status === 'running' ? [] : [info.id]))
+
+/** Folded with the done ones: ended without a failure (ADR-0085). */
+export const folds = (info: Pick<SubagentInfo, 'status'>): boolean => info.status === 'done' || info.status === 'interrupted'
+
+/** What a fold of finished Subagents says: `3 done`, `3 done · 2 interrupted`, `2 interrupted`. */
+export function foldLabel(list: readonly Pick<SubagentInfo, 'status'>[]): string {
+  const done = list.filter((info) => info.status === 'done').length
+  const interrupted = list.filter((info) => info.status === 'interrupted').length
+  return [done > 0 || interrupted === 0 ? `${done} done` : null, interrupted > 0 ? `${interrupted} interrupted` : null].filter((part) => part !== null).join(' · ')
 }

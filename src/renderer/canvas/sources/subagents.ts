@@ -1,8 +1,9 @@
 // The Subagent tree of each Session on the Canvas (ticket 15): Nodes to the right of the
 // Session's Node, one per Subagent, the Subagents a Subagent started to the right of it. A
-// parent's done Subagents fold into one "N done" row under its running ones; a click on the row
-// opens them (not saved). The tree comes from the Session's transcript and live events
-// (claude-home/subagents.ts); none of these Nodes is a Layout Node, and nothing about them is
+// parent's done and interrupted Subagents fold into one "N done" row under its running ones; a
+// click on the row opens them (not saved). Entries the user hid («Hide», ADR-0085) are left out.
+// The tree comes from the Session's transcript and live events (claude-home/subagents.ts); none
+// of these Nodes is a Layout Node, and nothing about them is
 // saved. They are children of the Session's Node in React Flow, so they move with it. Their places
 // are computed, never moved by hand (ADR-0037): a Subagent's Node can still be dragged onto a
 // Ticket or an Epic frame to bind it (overlays/BindingDrop.tsx), and goes back to its place on the
@@ -22,7 +23,7 @@ import { create } from 'zustand'
 import { onThePlane, SUBAGENT_KIND, SUBAGENT_TREE_KIND, subagentNodeId } from '../../../shared/layout/derived'
 import type { Layout, LayoutNode } from '../../../shared/layout/types'
 import type { SubagentInfo } from '../../../shared/transcript/subagents'
-import { useSubagentTrees } from '../../claude-home/subagents'
+import { finishedIds, foldLabel, folds, hiddenIdsOf, useHiddenSubagents, useSubagentTrees, withoutHidden } from '../../claude-home/subagents'
 import { useProjects } from '../../projects/useProjects'
 import type { Rect } from '../epic-layout'
 import type { NodeSource, NodeSourceContext } from '../extensions'
@@ -63,7 +64,20 @@ export interface SubagentNodeData {
   /** The Subagent's stable id, `done:<parent>` for a fold row, `anchor` for the anchor. */
   key: string
   agent: SubagentSummary | null
-  fold: { parentKey: string; count: number; expanded: boolean } | null
+  fold: Fold | null
+}
+
+/**
+ * A row that folds a parent's finished Subagents (done and interrupted). `label`: `3 done`,
+ * `3 done · 2 interrupted`. `finished`: every entry under the parent that has ended — done, error,
+ * interrupted, nested ones too — which its «Hide finished» hides (ADR-0085).
+ */
+export interface Fold {
+  parentKey: string
+  count: number
+  label: string
+  expanded: boolean
+  finished: string[]
 }
 
 // ── state of the view that is not saved ─────────────────────────────────────
@@ -99,7 +113,7 @@ export interface PlacedSubagent {
   w: number
   h: number
   agent: SubagentInfo | null
-  fold: { parentKey: string; count: number; expanded: boolean } | null
+  fold: Fold | null
 }
 
 export interface PlaceInput {
@@ -135,8 +149,8 @@ export function placeSubagents({ sessionId, sessionWidth, tree, expanded, around
     const x = right + GAP_X
     let y = top
     const open = expanded(parentKey)
-    const done = children.filter((child) => child.status === 'done')
-    for (const child of open ? children : children.filter((each) => each.status !== 'done')) {
+    const done = children.filter(folds)
+    for (const child of open ? children : children.filter((each) => !folds(each))) {
       const id = subagentNodeId(sessionId, child.id)
       placed.push({ id, key: child.id, parentId, x, y, w: SUBAGENT_WIDTH, h: SUBAGENT_HEIGHT, agent: child, fold: null })
       const bottom = child.children.length > 0 ? column(id, child.id, x + SUBAGENT_WIDTH, y, child.children) : y
@@ -145,7 +159,8 @@ export function placeSubagents({ sessionId, sessionWidth, tree, expanded, around
     }
     if (done.length > 0) {
       const key = `done:${parentKey}`
-      placed.push({ id: subagentNodeId(sessionId, key), key, parentId, x, y, w: SUBAGENT_WIDTH, h: FOLD_HEIGHT, agent: null, fold: { parentKey, count: done.length, expanded: open } })
+      const fold = { parentKey, count: done.length, label: foldLabel(done), expanded: open, finished: finishedIds(children) }
+      placed.push({ id: subagentNodeId(sessionId, key), key, parentId, x, y, w: SUBAGENT_WIDTH, h: FOLD_HEIGHT, agent: null, fold })
       y += FOLD_HEIGHT + GAP_Y
     }
     return y
@@ -307,7 +322,17 @@ export function subagentPlaneRects(layout: Layout, nodes: readonly CanvasFlowNod
 function useSubagentNodes({ projectId, layout }: NodeSourceContext): readonly CanvasFlowNode[] {
   const root = useProjects()?.projects.find((project) => project.id === projectId)?.path
   const sessionIds = useMemo(() => sessionParents(layout).map((node) => node.data.sessionId as string), [layout])
-  const trees = useSubagentTrees(root, sessionIds)
+  const all = useSubagentTrees(root, sessionIds)
+  const hidden = useHiddenSubagents(projectId)
+  // The entries the user hid are left out, and so is a tree with nothing left (ADR-0085).
+  const trees = useMemo(() => {
+    const shown = new Map<string, readonly SubagentInfo[]>()
+    for (const [sessionId, tree] of all) {
+      const visible = withoutHidden(tree, hiddenIdsOf(hidden, sessionId))
+      if (visible.length > 0) shown.set(sessionId, visible)
+    }
+    return shown
+  }, [all, hidden])
   const expanded = useSubagentsUi((state) => state.expanded)
   const nodes = useMemo(() => buildSubagentNodes(projectId, layout, trees, expanded), [projectId, layout, trees, expanded])
   // The Epic frames' column keeps clear of the Subagent Nodes too (ADR-0032).

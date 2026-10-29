@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
+import { HIDDEN_SUBAGENTS_FILE, HiddenSubagents } from '../../src/main/claude-home/hidden-subagents'
 import { ClaudeHomeRegistry, processAlive, processState } from '../../src/main/claude-home/registry'
 import { SubagentReader, transcriptSessionId } from '../../src/main/claude-home/subagents'
 import { ClaudeHomeSubscriptions, claudeHomeHandlers } from '../../src/main/ipc/claude-home'
@@ -18,6 +19,7 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { buildSubagentTree, flattenSubagents, type SubagentFile, type SubagentSignal } from '../../src/shared/transcript/subagents'
 import { APP_URL, INDEX_HTML } from '../app-url'
+import { subagentsAnswerSchema as answerBefore0085 } from './subagents-answer-before-0085'
 import { copyClaudeHome, projectDir, windowsProcStart } from './claude-home-fixture'
 
 type Listener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
@@ -93,18 +95,21 @@ const registryOver = (home: string) => new ClaudeHomeRegistry({ home, listWorktr
 const readerWith = (isAlive: (pid: number) => Promise<boolean> = async () => false) =>
   new SubagentReader({ processState: async (pid) => ((await isAlive(pid)) ? 'alive' : 'gone') })
 
-/** Registers the Session `sessionId` as run by process `pid` in the Claude home `home` (a copy). */
-async function register(home: string, pid: number, sessionId: string, cwd: string): Promise<void> {
+/** Registers the Session `sessionId` as run by process `pid` in the Claude home `home` (a copy); `fields` go into the entry too. */
+async function register(home: string, pid: number, sessionId: string, cwd: string, fields: Record<string, unknown> = {}): Promise<void> {
   await mkdir(join(home, 'sessions'), { recursive: true })
-  await writeFile(join(home, 'sessions', `${pid}.json`), JSON.stringify({ pid, sessionId, cwd, procStart: 'Thu Sep 10 02:29:00 2026', status: 'busy' }))
+  await writeFile(join(home, 'sessions', `${pid}.json`), JSON.stringify({ pid, sessionId, cwd, procStart: 'Thu Sep 10 02:29:00 2026', status: 'busy', ...fields }))
 }
 
-async function ipcOver(registry: ClaudeHomeRegistry, reader = readerWith()) {
+async function ipcOver(registry: ClaudeHomeRegistry, reader = readerWith(), hidden?: HiddenSubagents) {
   const handlers = new Map<string, Listener>()
   const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
   const subscriptions = new ClaudeHomeSubscriptions(registry)
   closers.push(() => subscriptions.closeAll())
-  await registerIpc(ipc, { modules: { './claude-home.ts': async () => claudeHomeHandlers(registry, subscriptions, reader) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
+  await registerIpc(ipc, {
+    modules: { './claude-home.ts': async () => claudeHomeHandlers(registry, subscriptions, reader, undefined, undefined, hidden) },
+    isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }),
+  })
   return async (channel: string, input: unknown): Promise<IpcResult<unknown>> => {
     const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
     if (!listener) throw new Error(`no handler for ${channel}`)
@@ -112,7 +117,7 @@ async function ipcOver(registry: ClaudeHomeRegistry, reader = readerWith()) {
   }
 }
 
-type SubagentsAnswer = { found: boolean; signals: SubagentSignal[]; files: SubagentFile[] }
+type SubagentsAnswer = { found: boolean; signals: SubagentSignal[]; files: SubagentFile[]; processStartedAt?: number }
 type TranscriptAnswer = { found: boolean; events: AgentEvent[]; more: boolean }
 
 function value<T>(result: IpcResult<unknown>): T {
@@ -266,7 +271,9 @@ describe('claudeHome.subagents: Subagents without a task-notification user messa
     let running = true
     const call = await ipcOver(registryOver(home), readerWith(async (pid) => running && pid === 43000))
     const live = await ask(call)
+    // An entry without `startedAt`: no start of the process to compare with (ADR-0085).
     expect(live.signals.some((signal) => signal.kind === 'session-closed')).toBe(false)
+    expect(live.processStartedAt).toBeUndefined()
     expect(statuses(live)).toEqual([
       [A, 'done'],
       [B, 'running'],
@@ -339,8 +346,140 @@ describe('claudeHome.subagents: Subagents without a task-notification user messa
   })
 })
 
+// A Session continued in a new process keeps its sessionId: a Subagent that died with the earlier
+// process has no end, and the Session runs (ADR-0085).
+describe('claudeHome.subagents: the start of the Session process (ADR-0085)', () => {
+  /** The last record of Subagent B of fixture Session 9999. */
+  const B_LAST = Date.parse('2026-09-10T02:31:00.000Z')
+
+  it('gives the numeric startedAt of the entry of the running process, and B is interrupted when the process started after its last record', async () => {
+    const home = await copyOfFixture()
+    const startedAt = Date.parse('2026-09-10T05:00:00.000Z')
+    await register(home, 43000, S9, STALE, { startedAt })
+    const answer = await ask(await ipcOver(registryOver(home), readerWith(async (pid) => pid === 43000)))
+    expect(answer.processStartedAt).toBe(startedAt)
+    expect(statuses(answer)).toEqual([
+      [A, 'done'],
+      [B, 'interrupted'],
+    ])
+  })
+
+  it('answers what a Linked machine of the build before ADR-0085 still accepts: it drops the start and keeps the whole tree (ADR-0079)', async () => {
+    const home = await copyOfFixture()
+    await register(home, 43000, S9, STALE, { startedAt: Date.parse('2026-09-10T05:00:00.000Z') })
+    const answer = await ask(await ipcOver(registryOver(home), readerWith(async (pid) => pid === 43000)))
+    const older = answerBefore0085.safeParse(answer)
+    expect(older.success, older.error?.message).toBe(true)
+    expect(older.data).not.toHaveProperty('processStartedAt')
+    // The older build shows B as it always did: running.
+    expect(statuses(older.data!)).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+  })
+
+  it('takes the earliest start when two live processes name the Session, and none when one has no start or cannot be told', async () => {
+    const home = await copyOfFixture()
+    // Listed first, the later process: a Subagent of the earlier one may still run.
+    await register(home, 43000, S9, STALE, { startedAt: Date.parse('2026-09-10T05:00:00.000Z') })
+    await register(home, 43001, S9, STALE, { startedAt: B_LAST - 300 })
+    const both = await ask(await ipcOver(registryOver(home), readerWith(async (pid) => pid === 43000 || pid === 43001)))
+    expect(both.processStartedAt).toBe(B_LAST - 300)
+    expect(statuses(both)).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+    await register(home, 43001, S9, STALE)
+    const oneWithout = await ask(await ipcOver(registryOver(home), readerWith(async (pid) => pid === 43000 || pid === 43001)))
+    expect(oneWithout.processStartedAt).toBeUndefined()
+    expect(statuses(oneWithout)).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+    // The other entry's process cannot be told: it may be an earlier one still running.
+    await register(home, 43001, S9, STALE, { startedAt: B_LAST - 300 })
+    const untold = await ask(
+      await ipcOver(registryOver(home), new SubagentReader({ processState: async (pid) => (pid === 43000 ? 'alive' : 'unknown') })),
+    )
+    expect(untold.processStartedAt).toBeUndefined()
+    expect(statuses(untold)).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+  })
+
+  it('keeps B running when the process started before its last record', async () => {
+    const home = await copyOfFixture()
+    await register(home, 43000, S9, STALE, { startedAt: B_LAST - 300 })
+    const answer = await ask(await ipcOver(registryOver(home), readerWith(async (pid) => pid === 43000)))
+    expect(answer.processStartedAt).toBe(B_LAST - 300)
+    expect(statuses(answer)).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+  })
+
+  it('gives no start for an entry whose startedAt is not a number, nor when whether the process runs cannot be told', async () => {
+    const home = await copyOfFixture()
+    await register(home, 43000, S9, STALE, { startedAt: '2026-09-10T05:00:00.000Z' })
+    const text = await ask(await ipcOver(registryOver(home), readerWith(async (pid) => pid === 43000)))
+    expect(text.processStartedAt).toBeUndefined()
+    expect(statuses(text)).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+    await register(home, 43000, S9, STALE, { startedAt: Date.parse('2026-09-10T05:00:00.000Z') })
+    const unknown = await ask(await ipcOver(registryOver(home), new SubagentReader({ processState: async () => 'unknown' })))
+    expect(unknown.processStartedAt).toBeUndefined()
+    expect(unknown.signals.some((signal) => signal.kind === 'session-closed')).toBe(false)
+    expect(statuses(unknown)).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+  })
+})
+
 // The process check of the Session registry (registry.ts): what `ps` cannot answer is not a
 // process that ended (PR #45 review: with `ps` missing, a live Session was called closed).
+// «Hide» (worfy-polish ticket 45, ADR-0085): the hidden Subagent entries live in the Project's own
+// data folder, never under the Claude home, and stay hidden after a restart of worfy.
+describe('claudeHome.hiddenSubagents, hideSubagents and showSubagents', () => {
+  const PROJECT_ID = 'stale-00000001'
+  const OTHER = '88888888-8888-4888-8888-888888888888'
+
+  it('keeps hidden entries across a restart (a new store reads the same file), and «Show hidden Subagents» brings them back', async () => {
+    const data = await tempDir()
+    const dataDir = (projectId: string) => join(data, projectId)
+    const home = await copyOfFixture()
+    const before = await snapshot(home)
+    const call = await ipcOver(registryOver(home), readerWith(), new HiddenSubagents(dataDir))
+    expect(value(await call('claudeHome.hiddenSubagents', { projectId: PROJECT_ID }))).toEqual({ sessions: {} })
+    expect(value(await call('claudeHome.hideSubagents', { projectId: PROJECT_ID, sessionId: S9, ids: ['toolu_a', 'agent:b'] }))).toEqual({ sessions: { [S9]: ['toolu_a', 'agent:b'] } })
+    // Hidden twice, an entry is kept once; another Session keeps its own list.
+    value(await call('claudeHome.hideSubagents', { projectId: PROJECT_ID, sessionId: S9, ids: ['agent:b', 'workflow:wf_1'] }))
+    value(await call('claudeHome.hideSubagents', { projectId: PROJECT_ID, sessionId: OTHER, ids: ['toolu_c'] }))
+
+    // worfy restarts: a new store over the same folder.
+    const again = await ipcOver(registryOver(home), readerWith(), new HiddenSubagents(dataDir))
+    expect(value(await again('claudeHome.hiddenSubagents', { projectId: PROJECT_ID }))).toEqual({ sessions: { [S9]: ['toolu_a', 'agent:b', 'workflow:wf_1'], [OTHER]: ['toolu_c'] } })
+    expect(JSON.parse(await readFile(join(data, PROJECT_ID, HIDDEN_SUBAGENTS_FILE), 'utf8'))).toEqual({ sessions: { [S9]: ['toolu_a', 'agent:b', 'workflow:wf_1'], [OTHER]: ['toolu_c'] } })
+
+    expect(value(await again('claudeHome.showSubagents', { projectId: PROJECT_ID, sessionId: S9 }))).toEqual({ sessions: { [OTHER]: ['toolu_c'] } })
+    expect(new HiddenSubagents(dataDir).list(PROJECT_ID)).toEqual({ sessions: { [OTHER]: ['toolu_c'] } })
+    // Nothing was written under the Claude home.
+    expect(await snapshot(home)).toEqual(before)
+  })
+
+  it('refuses a Session id that could leave its folder, and an empty or oversized list of ids', async () => {
+    const data = await tempDir()
+    const call = await ipcOver(registryOver(FIXTURE), readerWith(), new HiddenSubagents((projectId) => join(data, projectId)))
+    expect((await call('claudeHome.hideSubagents', { projectId: PROJECT_ID, sessionId: '../x', ids: ['a'] })).ok).toBe(false)
+    expect((await call('claudeHome.hideSubagents', { projectId: PROJECT_ID, sessionId: S9, ids: [] })).ok).toBe(false)
+    expect((await call('claudeHome.hideSubagents', { projectId: PROJECT_ID, sessionId: S9, ids: ['x'.repeat(201)] })).ok).toBe(false)
+    expect(await readdir(data)).toEqual([])
+  })
+})
+
 describe('transcriptSessionId (worfy-windows ticket 08)', () => {
   it('is the transcript file name without .jsonl, the path split at `/` or `\\`', () => {
     expect(transcriptSessionId('/h/projects/p/abc-1.jsonl')).toBe('abc-1')

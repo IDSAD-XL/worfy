@@ -20,7 +20,7 @@ const running = (sessionId: string): SubagentSignal[] => [
 let asked: Array<{ channel: string; input: unknown }>
 let changed: ((payload: unknown) => void) | undefined
 /** What main answers for a Session's files; by default, a running Subagent. */
-let filesOf: (sessionId: string) => { signals: SubagentSignal[]; files: []; found: boolean }
+let filesOf: (sessionId: string) => { signals: SubagentSignal[]; files: []; found: boolean; processStartedAt?: number }
 
 beforeEach(() => {
   vi.resetModules()
@@ -153,11 +153,47 @@ describe('useSubagentTrees: asking the files again while a Subagent runs', () =>
     expect(readsOf(B)).toBe(1)
   })
 
+  it('does not ask again for a Session whose Subagents have only ended or were interrupted (ADR-0085)', async () => {
+    // The Subagent's call is at 1000; the Session's running process started at 5000, after it.
+    filesOf = (sessionId) => ({ signals: running(sessionId), files: [], found: true, processStartedAt: 5000 })
+    const { hook, store } = await mount([A])
+    await vi.waitFor(() => expect(hook.result.current.get(A)?.[0]?.status).toBe('interrupted'))
+    expect(readsOf(A)).toBe(1)
+    await act(async () => vi.advanceTimersByTime(store.POLL_MS * 3))
+    expect(readsOf(A)).toBe(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('does not ask again while no Subagent runs', async () => {
     filesOf = () => ({ signals: [], files: [], found: false })
     const { store } = await mount([A])
     await vi.waitFor(() => expect(readsOf(A)).toBe(1))
     await act(async () => vi.advanceTimersByTime(store.POLL_MS * 3))
     expect(readsOf(A)).toBe(1)
+  })
+})
+
+// «Hide» (ADR-0085): the first read of a Project's hidden entries may answer after a Hide did; the
+// older list must not replace the newer one.
+describe('hidden Subagent entries', () => {
+  it('keeps the list of a Hide answered while the first read was under way', async () => {
+    let answerRead: ((value: unknown) => void) | undefined
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      invoke: (channel: string) => {
+        if (channel === 'claudeHome.hiddenSubagents') return new Promise((resolve) => (answerRead = resolve))
+        if (channel === 'claudeHome.hideSubagents') return Promise.resolve({ ok: true, value: { sessions: { [A]: ['toolu_x'] } } })
+        return Promise.resolve({ ok: true, value: {} })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    const store = await import('../../src/renderer/claude-home/subagents')
+    const hook = renderHook(() => store.useHiddenSubagents('p-race'))
+    await vi.waitFor(() => expect(answerRead).toBeDefined())
+    await act(async () => store.hideSubagents('p-race', A, ['toolu_x']))
+    expect(hook.result.current).toEqual({ [A]: ['toolu_x'] })
+    // The read asked before the Hide answers now, with the list as it was then.
+    await act(async () => answerRead!({ ok: true, value: { sessions: {} } }))
+    expect(hook.result.current).toEqual({ [A]: ['toolu_x'] })
   })
 })

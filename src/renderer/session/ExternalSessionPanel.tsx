@@ -1,7 +1,7 @@
 import { useEffect, useRef, type CSSProperties } from 'react'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { SHORTCUTS } from '../../shared/shortcuts'
-import { flattenSubagents } from '../../shared/transcript/subagents'
+import { flattenSubagents, type SubagentStatus } from '../../shared/transcript/subagents'
 import { readSessionNodeData, sessionStatus } from '../claude-home/session-nodes'
 import { useOrchestratorView } from '../canvas/nodes/orchestrator-view'
 import { useLayout } from '../canvas/useLayout'
@@ -68,10 +68,12 @@ function BackArrow({ to, name }: { to: OpenedSession; name: string }) {
   )
 }
 
-const SUBAGENT_CHIPS: Record<'running' | 'done' | 'error', { status: Status; label: string }> = {
+const SUBAGENT_CHIPS: Record<SubagentStatus, { status: Status; label: string }> = {
   running: { status: 'working', label: 'running' },
   done: { status: 'done', label: 'done' },
   error: { status: 'blocked', label: 'error' },
+  // Its Session's process restarted after its last record (ADR-0085).
+  interrupted: { status: 'stopped', label: 'Interrupted' },
 }
 
 const styles = {

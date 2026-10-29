@@ -171,6 +171,13 @@ describe('fitSubagentsAnswer', () => {
     expect(tree.every((info) => info.summary === 'First line of the answer')).toBe(true)
   })
 
+  it('keeps the start of the Session process when it cuts an answer (ADR-0085)', async () => {
+    const { fitSubagentsAnswer } = await import('../../src/main/ipc/claude-home')
+    const answer = { found: true, ...bigSession(10), processStartedAt: 1_000 }
+    expect(fitSubagentsAnswer(answer, sizeOf(answer) - 1)).toMatchObject({ truncated: true, processStartedAt: 1_000 })
+    expect(fitSubagentsAnswer(answer, 10)).toStrictEqual({ found: true, signals: [], files: [], truncated: true, processStartedAt: 1_000 })
+  })
+
   it('with one line of each text still too large, leaves out the oldest signals and files until it fits, and never loops on one left', async () => {
     const { fitSubagentsAnswer } = await import('../../src/main/ipc/claude-home')
     const answer = { found: true, ...bigSession(64) }

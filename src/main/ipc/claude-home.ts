@@ -8,6 +8,7 @@
 // and again after each change of the registry.
 import { resolve } from 'node:path'
 import { imageRef } from '../agent/attachments'
+import { HiddenSubagents } from '../claude-home/hidden-subagents'
 import { ClaudeHomeRegistry, rootPath, type ClaudeHomeWatch, type RegistryRoot } from '../claude-home/registry'
 import { TranscriptSearch } from '../claude-home/search'
 import { SubagentReader, subagentTranscriptPath } from '../claude-home/subagents'
@@ -21,9 +22,12 @@ import { claudeHome } from '../storage/paths'
 import {
   claudeHomeChanged,
   claudeHomeClose,
+  claudeHomeHiddenSubagents,
+  claudeHomeHideSubagents,
   claudeHomeLive,
   claudeHomeSearch,
   claudeHomeSessions,
+  claudeHomeShowSubagents,
   claudeHomeSubagents,
   claudeHomeSubagentTranscript,
   claudeHomeTranscript,
@@ -155,6 +159,8 @@ export interface SubagentsAnswer {
   signals: SubagentSignal[]
   files: SubagentFile[]
   truncated?: boolean
+  /** When the Session's running process started (ADR-0085); kept when the answer is cut. */
+  processStartedAt?: number
 }
 
 /**
@@ -207,7 +213,7 @@ export function fitSubagentsAnswer(answer: SubagentsAnswer, maxBytes: number): S
   if (bytesOf(answer) <= maxBytes) return answer
   let cut: SubagentsAnswer = answer
   for (const length of TEXT_CUTS) {
-    cut = { found: answer.found, signals: answer.signals.map((signal) => cutSignal(signal, length)), files: answer.files.map((file) => cutFile(file, length)), truncated: true }
+    cut = { ...answer, signals: answer.signals.map((signal) => cutSignal(signal, length)), files: answer.files.map((file) => cutFile(file, length)), truncated: true }
     if (bytesOf(cut) <= maxBytes) return cut
   }
   // shortcut: with only one line of each text left the oldest half of the signals and of the files is left out until the answer fits, so the oldest Subagents leave the tree; redo with pages of the answer when a Session of so many Subagents (tens of thousands) is seen.
@@ -261,6 +267,7 @@ export function claudeHomeHandlers(
   subagents = new SubagentReader(),
   projects: () => readonly { readonly path: string }[] = () => projectStore().list(),
   search = new TranscriptSearch(registry),
+  hidden = new HiddenSubagents((projectId) => projectStore().dataDir(projectStore().get(projectId).id)),
 ): HandlerModule {
   const notFound = { found: false, events: [], cursor: { offset: 0, fileId: null }, reset: false, more: false }
   /**
@@ -302,6 +309,9 @@ export function claudeHomeHandlers(
       // A window's own main has no limit; a link connection has (LINK_MAX_PAYLOAD).
       return isRemoteCall(event) ? fitSubagentsAnswer(answer, SUBAGENTS_LINK_BYTES) : answer
     }),
+    defineHandler(claudeHomeHiddenSubagents, ({ projectId }) => hidden.list(projectId)),
+    defineHandler(claudeHomeHideSubagents, ({ projectId, sessionId, ids }) => hidden.hide(projectId, sessionId, ids)),
+    defineHandler(claudeHomeShowSubagents, ({ projectId, sessionId }) => hidden.show(projectId, sessionId)),
     defineHandler(claudeHomeSubagentTranscript, async ({ projectRoot, sessionId, agentId, cursor, maxBytes, back }, { event }) => {
       const session = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
       const path = session === null ? null : await subagentTranscriptPath(session, agentId)

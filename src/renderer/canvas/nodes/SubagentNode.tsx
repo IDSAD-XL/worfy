@@ -1,21 +1,24 @@
 import { memo, type CSSProperties } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import { subagentTypeLabel } from '../../../shared/agent/subagent-type'
-import { statusLabel, useTick } from '../../claude-home/subagents'
+import { hideSubagents, INTERRUPTED_TOOLTIP, statusLabel, useTick } from '../../claude-home/subagents'
+import { useReadOnly } from '../../projects/useProjects'
 import { openSession } from '../../session/navigation'
 import { StatusChip, type Status } from '../../theme/primitives'
 import type { NodeKindColour } from '../kind-colours'
 import { KindBand, KindIcon } from '../kind-icons'
 import { NODE_HEADER } from '../node-header'
-import { SUBAGENT_HEIGHT, SUBAGENT_WIDTH, toggleDoneSubagents, type SubagentNodeData, type SubagentSummary, type SUBAGENT_KIND } from '../sources/subagents'
+import { SUBAGENT_HEIGHT, SUBAGENT_WIDTH, toggleDoneSubagents, type Fold, type SubagentNodeData, type SubagentSummary, type SUBAGENT_KIND } from '../sources/subagents'
 import type { CanvasNodeProps } from './index'
 
 // A Subagent of a Session on the Canvas (ticket 15; CONTEXT.md, «Subagent»): its name, type and
 // model, its status with the time it has run, and the first line of its final answer — a
 // reviewer's VERIFIED or REJECTED as a chip. The Nodes come from sources/subagents.ts, to the right
-// of their Session's Node; the same kind draws the "N done" row that folds a parent's done
-// Subagents (a click opens it) and the invisible anchor the tree's lines start from. A click on
-// "Transcript" opens the Subagent's own transcript, read-only, in the Session view.
+// of their Session's Node; the same kind draws the "N done" row that folds a parent's done and
+// interrupted Subagents (a click opens it) and the invisible anchor the tree's lines start from. A
+// click on "Transcript" opens the Subagent's own transcript, read-only, in the Session view.
+// "Hide" hides the entry, of any status; "Hide" on the row hides every entry under the parent that
+// has ended (ADR-0085). Neither shows on a read-only screen: main writes the list.
 //
 // The registry (index.ts) needs the kind and size here as literals; `satisfies` fails the
 // typecheck the moment they differ from those of sources/subagents.ts.
@@ -60,13 +63,15 @@ const styles = {
     font: 'inherit',
     fontSize: 'var(--text-12)',
   },
+  foldRow: { width: '100%', height: '100%', display: 'flex', alignItems: 'center', gap: 'var(--space-1)' },
   handle: { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, border: 0, pointerEvents: 'none' },
 } satisfies Record<string, CSSProperties>
 
-const CHIP: Record<SubagentSummary['status'], Status> = { running: 'working', done: 'done', error: 'blocked' }
+const CHIP: Record<SubagentSummary['status'], Status> = { running: 'working', done: 'done', error: 'blocked', interrupted: 'stopped' }
 
 function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; agent: SubagentSummary }) {
   const now = useTick(agent.status === 'running')
+  const readOnly = useReadOnly()
   const type = subagentTypeLabel(agent.subagentType)
   const title = agent.name ?? type ?? 'Subagent'
   const kindLine = [type, agent.model].filter((part) => part !== null).join(' · ')
@@ -96,7 +101,7 @@ function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; ag
         <span className="w-mono" style={styles.name} data-testid="subagent-name" title={agent.name === null ? (agent.subagentType ?? undefined) : undefined}>
           {title}
         </span>
-        <span data-testid="subagent-status">
+        <span data-testid="subagent-status" title={agent.status === 'interrupted' ? INTERRUPTED_TOOLTIP : undefined}>
           <StatusChip status={CHIP[agent.status]} label={statusLabel(agent, now)} />
         </span>
       </div>
@@ -117,6 +122,18 @@ function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; ag
           >
             Transcript
           </button>
+          {readOnly === null ? (
+            <button
+              type="button"
+              className="nodrag"
+              style={styles.open}
+              title="Hide this Subagent from the Canvas and the Session rail; «Show hidden Subagents» in the rail brings it back"
+              data-testid="subagent-hide"
+              onClick={() => void hideSubagents(data.projectId, data.sessionId, [agent.id])}
+            >
+              Hide
+            </button>
+          ) : null}
         </div>
         <div style={styles.line} data-testid="subagent-summary">
           {agent.verdict !== null ? (
@@ -134,6 +151,46 @@ function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; ag
   )
 }
 
+function FoldRow({ id, info, fold }: { id: string; info: SubagentNodeData; fold: Fold }) {
+  const readOnly = useReadOnly()
+  const { expanded, parentKey } = fold
+  return (
+    <>
+      <Handle type="target" position={Position.Left} isConnectable={false} style={styles.handle} />
+      <div style={styles.foldRow}>
+        <button
+          type="button"
+          className="nodrag"
+          style={readOnly === null ? { ...styles.fold, flex: 1, minWidth: 0 } : styles.fold}
+          data-testid="subagent-fold"
+          data-node-id={id}
+          aria-expanded={expanded}
+          onClick={() => toggleDoneSubagents(info.projectId, info.sessionId, parentKey)}
+        >
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <path d={expanded ? 'M3.5 6l4.5 4.5L12.5 6' : 'M6 3.5l4.5 4.5L6 12.5'} />
+          </svg>
+          <span className="w-mono" style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={fold.label}>
+            {fold.label}
+          </span>
+        </button>
+        {readOnly === null ? (
+          <button
+            type="button"
+            className="nodrag"
+            style={{ ...styles.open, flex: 'none', height: '100%' }}
+            title="Hide finished: every Subagent here that has ended — done, error and interrupted; running ones stay"
+            data-testid="subagent-fold-hide"
+            onClick={() => void hideSubagents(info.projectId, info.sessionId, fold.finished)}
+          >
+            Hide
+          </button>
+        ) : null}
+      </div>
+    </>
+  )
+}
+
 function SubagentNode({ id, data }: CanvasNodeProps) {
   const info = data.node.data as SubagentNodeData
   if (info.variant === 'anchor') {
@@ -143,28 +200,7 @@ function SubagentNode({ id, data }: CanvasNodeProps) {
       </div>
     )
   }
-  if (info.variant === 'fold' && info.fold) {
-    const { count, expanded, parentKey } = info.fold
-    return (
-      <>
-        <Handle type="target" position={Position.Left} isConnectable={false} style={styles.handle} />
-        <button
-          type="button"
-          className="nodrag"
-          style={styles.fold}
-          data-testid="subagent-fold"
-          data-node-id={id}
-          aria-expanded={expanded}
-          onClick={() => toggleDoneSubagents(info.projectId, info.sessionId, parentKey)}
-        >
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-            <path d={expanded ? 'M3.5 6l4.5 4.5L12.5 6' : 'M6 3.5l4.5 4.5L6 12.5'} />
-          </svg>
-          <span className="w-mono">{count} done</span>
-        </button>
-      </>
-    )
-  }
+  if (info.variant === 'fold' && info.fold) return <FoldRow id={id} info={info} fold={info.fold} />
   if (!info.agent) return null
   return <AgentNode id={id} data={info} agent={info.agent} />
 }

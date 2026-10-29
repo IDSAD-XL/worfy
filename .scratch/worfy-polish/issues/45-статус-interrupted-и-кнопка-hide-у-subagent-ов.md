@@ -1,7 +1,8 @@
 # 45 — Старые записи Subagent-ов: статус `interrupted` и кнопка «Hide»
 
 Type: task
-Status: open
+Status: claimed 2026-10-29T08:20Z
+Branch: worfy-polish/45
 Blocked by: —
 Source: жалоба владельца и его решение 2026-10-29 (принято, ниже). Строки — по main `80149146`.
 
