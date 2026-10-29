@@ -70,7 +70,9 @@ on:
   # ci.yml calls the mode full. The inputs of a call are strings: a choice exists only for a
   # dispatch, and a mode other than files or full runs neither job. "shard" is a vitest shard,
   # `<index>/<count>`, or a part of the Harness shell tests, `harness-scripts <index>/<count>`, read
-  # by the job of the mode full only; empty runs the whole suite.
+  # by the job of the mode full only; empty runs the whole suite. "tests-base" (mode full, a pull
+  # request): the commit scripts/affected-tests.mjs compares HEAD with, so the job runs only the test
+  # files the diff touches; empty runs every file of the shard.
   workflow_call:
     inputs:
       mode:
@@ -81,6 +83,10 @@ on:
         type: string
         default: ''
       shard:
+        required: false
+        type: string
+        default: ''
+      tests-base:
         required: false
         type: string
         default: ''
@@ -164,8 +170,11 @@ jobs:
           TEST_FILES: ${{ inputs.files }}
         run: |
           test -z "$TEST_FILES" || { echo "::error::mode full runs the whole suite and takes no list of files; leave files empty or choose mode files"; exit 1; }
+      # Two commits: scripts/affected-tests.mjs compares the merge commit of a pull request with the
+      # base, its first parent.
       - uses: actions/checkout@v7
         with:
+          fetch-depth: 2
           persist-credentials: false
       # pnpm from corepack, then Node with the pnpm store cache: the same three steps as in the job
       # of the list, for the same reasons.
@@ -182,6 +191,16 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # A pull request (input tests-base): the unit and contract test files its diff touches, the same
+      # list in every job (outputs run — all, none or some — and files). Without a base the step is
+      # skipped and the next one runs its whole part of the suite.
+      - name: Pick the test files the pull request touches
+        id: tests
+        if: inputs.tests-base != ''
+        shell: bash
+        env:
+          BASE: ${{ inputs.tests-base }}
+        run: node scripts/affected-tests.mjs "$BASE" HEAD --github-output
       # `pnpm test` is `node scripts/vitest-electron.mjs`: vitest under Electron's Node, test/unit and
       # test/contract; vitest.config.ts leaves test/e2e and test/acceptance out. The shard reaches the
       # shell through env, as the list does in the other job. The step keeps the default shell of the
@@ -194,11 +213,17 @@ jobs:
       # `harness-scripts <i>/<n>` runs that file alone with part i of n of the shell tests
       # (HARNESS_SCRIPTS_PART, test/harness-shell-tests.ts). test/contract/ci-workflow.test.ts checks
       # that every test file and every shell test runs in exactly one job of ci.yml.
+      # A list of a pull request (TEST_FILES): an empty one runs nothing (the step is skipped, the job
+      # succeeds); a shard hands it to vitest (WORFY_TEST_FILES, read by scripts/vitest-electron.mjs),
+      # which splits it by --shard; a job of harness-scripts.test.ts runs only when the list has it,
+      # with no other file of the list.
       - name: Run the unit and contract suite, or a part of it
+        if: steps.tests.outputs.run != 'none'
         env:
           SHARD: ${{ inputs.shard }}
           HARNESS_SCRIPTS: test/contract/harness-scripts.test.ts
+          TEST_FILES: ${{ steps.tests.outputs.files }}
         run: |
-          if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; pnpm test $env:HARNESS_SCRIPTS }
-          elseif ($env:SHARD) { $env:WORFY_TEST_EXCLUDE = $env:HARNESS_SCRIPTS; pnpm test "--shard=$env:SHARD" }
+          if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; if ($env:TEST_FILES -and -not ((-split $env:TEST_FILES) -contains $env:HARNESS_SCRIPTS)) { 'The list has no harness-scripts.test.ts: nothing to run' } else { pnpm test $env:HARNESS_SCRIPTS } }
+          elseif ($env:SHARD) { $env:WORFY_TEST_EXCLUDE = $env:HARNESS_SCRIPTS; $env:WORFY_TEST_FILES = $env:TEST_FILES; pnpm test "--shard=$env:SHARD" }
           else { pnpm test }

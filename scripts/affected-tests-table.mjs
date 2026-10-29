@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-// Builds the `generated` part of scripts/affected-tests.table.json: which files of the repository each
-// test file and test helper reads by path, as a script it starts or a file it reads as text — the
-// links vite's module graph does not see (scripts/affected-tests.mjs).
+// Builds the generated rows of scripts/affected-tests.mjs: which files of the repository each test file
+// and test helper reads by path, as a script it starts or a file it reads as text — the links vite's
+// module graph does not see.
 //
-//   node scripts/affected-tests-table.mjs           → rewrites `generated` in the table
-//   node scripts/affected-tests-table.mjs --check   → exit 0 when the table holds what this builds, 1 when not
+//   node scripts/affected-tests-table.mjs               → prints the rows, as JSON
 //   node scripts/affected-tests-table.mjs --refs <file> → what the parser finds in one file
 //
-// test/unit/affected-tests.test.ts runs --check: a test that starts reading a file by path makes it
-// red until the table is rebuilt. The other parts of the table (`all`, `none`, `links`) are written by
-// hand and kept as they are.
+// scripts/affected-tests.mjs calls generate() on every run, on the tree it answers for. The rows are
+// never committed: a committed copy went stale when a pull request merged next to another that split a
+// test file — each was green on its own base, and main turned red. The rows written by hand (`all`,
+// `none`, `links`) stay in scripts/affected-tests.table.json.
 //
 // The readers are the files under test/ (TypeScript and JavaScript), except the e2e specs, the
 // acceptance tests and the fixtures. In each, the TypeScript parser finds the path expressions it can
@@ -32,18 +32,18 @@
 // under it is unknown here, and the string literals of the file stand for it.
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
-import { join, posix } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join, posix, resolve } from 'node:path'
 import process from 'node:process'
+import { pathToFileURL } from 'node:url'
 import ts from 'typescript'
 
-const TABLE = 'scripts/affected-tests.table.json'
 // Folders that hold many unrelated files: a reader that names one reads some file under it, not all.
 const BROAD = ['test/unit', 'test/contract', 'test/e2e', 'test/fixtures', 'harness/bin', 'harness/hooks', 'src/main', 'src/renderer', 'src/shared']
 const READER = /\.(ts|tsx|mts|cts|js|mjs|cjs)$/
 // The test of this script and of scripts/affected-tests.mjs: its literals are paths of the repositories
 // it builds and of the assertions about the table, not files it reads. Its own row in `links` names what
-// it depends on: these scripts, the table, and every test source (--check reads them all).
+// it depends on: every test source, which it runs generate() on.
 const NOT_READERS = ['test/unit/affected-tests.test.ts']
 const PATH_CALLS = new Set(['join', 'resolve', 'normalize'])
 
@@ -213,8 +213,8 @@ function tracked(root) {
   return { files: new Set(files), folders }
 }
 
-/** The `generated` part of the table for the repository at `root`. */
-function generate(root) {
+/** The generated rows for the repository at `root`: [{file, reads?, scans?}], sorted by file. */
+export function generate(root) {
   const { files, folders } = tracked(root)
   const readers = [...files]
     .filter((file) => file.startsWith('test/') && READER.test(file) && !/^test\/(e2e\/.*\.spec\.ts|acceptance\/|fixtures\/)/.test(file) && !NOT_READERS.includes(file))
@@ -248,7 +248,6 @@ function generate(root) {
 }
 
 function main() {
-  const check = process.argv.includes('--check')
   const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
   // --refs <reader>: what the parser finds in one file, before the tracked-path filter.
   const at = process.argv.indexOf('--refs')
@@ -258,22 +257,7 @@ function main() {
     process.stdout.write(`${JSON.stringify({ refs: Object.fromEntries(refs), usesRoot, literals: [...literals] }, null, 1)}\n`)
     return
   }
-  const path = join(root, TABLE)
-  const table = JSON.parse(readFileSync(path, 'utf8'))
-  const generated = generate(root)
-  if (check) {
-    if (JSON.stringify(table.generated) === JSON.stringify(generated)) return
-    const before = new Map((table.generated ?? []).map((entry) => [entry.file, JSON.stringify(entry)]))
-    const after = new Map(generated.map((entry) => [entry.file, JSON.stringify(entry)]))
-    for (const file of new Set([...before.keys(), ...after.keys()])) {
-      if (before.get(file) !== after.get(file)) process.stderr.write(`affected-tests-table: ${file}: table ${before.get(file) ?? 'none'}, now ${after.get(file) ?? 'none'}\n`)
-    }
-    process.stderr.write(`affected-tests-table: ${TABLE} is out of date; run node scripts/affected-tests-table.mjs\n`)
-    process.exitCode = 1
-    return
-  }
-  table.generated = generated
-  writeFileSync(path, `${JSON.stringify(table, null, 2)}\n`)
+  process.stdout.write(`${JSON.stringify(generate(root), null, 2)}\n`)
 }
 
-main()
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main()

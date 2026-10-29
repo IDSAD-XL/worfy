@@ -1087,6 +1087,27 @@ out="$(cd "$RT/repo" && "${clean_env[@]}" HOME="$RT/home3" USERPROFILE="$RT/home
 check "the gate under a temporary HOME without HARNESS_HOME — exit 3, not verified — got $rc: $(short "$out")" \
     bash -c '[ "$1" -eq 3 ] && grep -q "^\[gate\] not verified" <<<"$2"' _ "$rc" "$out"
 
+# A red push run on the main branch (owner's decision 2026-10-29): CI on a PR may run only the tests
+# its diff touches and the push to the main branch runs them all; while that run is red no PR with
+# code merges, the fix goes forward for at most an hour, then the culprit PR is reverted. No bisection.
+# The sentences may wrap, so the files are read as one line.
+has_flat() { tr '\n' ' ' <"$1" | tr -s ' ' | grep -qF -- "$2"; }
+check "epic-wave: a red push run has its own rule" has "$EW" '**A red push run on the main branch** (`F workflow.ci` `pr`).'
+check "epic-wave: PR CI may run only the touched tests, the push the whole suite" \
+    has_flat "$EW" 'CI on a PR may run only the tests its diff touches, as the project'"'"'s `rules.md` says; every push to the main branch runs the whole suite'
+check "epic-wave: while main is red, code waits and documents may merge" \
+    has_flat "$EW" 'While the final CI check of the latest push run on the main branch is red, no PR with code is merged; a PR with documents only may be.'
+check "epic-wave: the fix forward for at most one hour" has_flat "$EW" 'The fix goes forward first, for at most one hour from the red run'
+check "epic-wave: then the revert of the culprit PR" has_flat "$EW" 'No fix merged within the hour — revert the culprit PR'
+check "epic-wave: no bisection" has_flat "$EW" 'There is no bisection.'
+check "epic-wave: the red set after a wave-gate merge follows the same rule" \
+    has_flat "$EW" 'Red CI on the main branch after the set'"'"'s merges: the rule of "A red push run on the main branch" below.'
+check "epic-wave: no immediate revert of a red set" lacks "$EW" 'Open a revert of the squash commit'
+check "ship-ticket: the touched tests on the PR, the whole suite on the push" \
+    has_flat "$ST" 'CI on the PR may run only the tests its diff touches, as the project'"'"'s `rules.md` says; the push to the main branch runs the whole suite.'
+check "ship-ticket: points at the red main rule" \
+    has_flat "$ST" 'no PR with code is merged: the fix goes forward for at most one hour, then the culprit PR is reverted — skill `/worfy:epic-wave`, section 4, "A red push run on the main branch".'
+
 home_after="$(real_home_snapshot "$REAL_HOME" "$T")"
 check "the real ~/.claude and ~/.claude/worfy-harness are unchanged" test "$home_before" = "$home_after"
 

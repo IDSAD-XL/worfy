@@ -3,12 +3,14 @@
 // graph cannot see; ALL for a change to the test run itself and for a path nothing covers.
 // Each case makes a branch in a temporary git repository with its own small module graph and table,
 // checks the branch out and runs the script there, as CI would run it on the head of a pull request.
-// scripts/affected-tests-table.mjs, which builds the `generated` rows from the test sources, runs on a
-// second temporary repository, and with --check on this one: the committed table must be what it builds.
+// The rows of what each test reads by path are built from the test sources on every run
+// (scripts/affected-tests-table.mjs, called here in-process on a second temporary repository and on this
+// one), never committed: a committed copy went stale when two pull requests merged side by side.
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, posix } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
@@ -16,6 +18,8 @@ import { scriptNode } from '../script-node'
 const REPO = join(__dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'affected-tests.mjs')
 const GENERATOR = join(REPO, 'scripts', 'affected-tests-table.mjs')
+type Generated = { file: string; reads?: string[]; scans?: string[] }
+const { generate } = (await import(pathToFileURL(GENERATOR).href)) as { generate: (root: string) => Generated[] }
 const SETTINGS = ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0']
 
 let scratch = ''
@@ -59,16 +63,21 @@ function affected(head: string, ...extra: string[]) {
 
 /** The same with more environment variables. */
 function affectedIn(env: NodeJS.ProcessEnv, head: string, ...extra: string[]) {
+  return affectedFrom('main', env, head, ...extra)
+}
+
+/** The same from another base. */
+function affectedFrom(base: string, env: NodeJS.ProcessEnv, head: string, ...extra: string[]) {
   git('checkout', '-q', head)
   try {
-    const result = spawnSync(scriptNode(), [SCRIPT, 'main', head, ...extra], { cwd: repo, encoding: 'utf8', env: { ...gitEnv(), ...env } })
+    const result = spawnSync(scriptNode(), [SCRIPT, base, head, ...extra], { cwd: repo, encoding: 'utf8', env: { ...gitEnv(), ...env } })
     return { status: result.status, lines: result.stdout.split('\n').filter((line) => line !== ''), stdout: result.stdout, stderr: result.stderr }
   } finally {
     git('checkout', '-q', 'main')
   }
 }
 
-// The fixture's table: the shape of the real one, small.
+// The fixture's table: the shape of the real one, small, with the rows written by hand only.
 const TABLE = {
   all: [{ paths: ['vitest.config.ts', 'package.json'] }],
   none: [{ paths: ['docs/**'] }],
@@ -77,8 +86,22 @@ const TABLE = {
     { paths: ['config/flags.json'], files: ['test/flags.ts'] },
     { paths: ['test/**'], files: ['test/unit/scan.test.ts'], scan: true },
   ],
-  generated: [{ file: 'test/unit/reader.test.ts', reads: ['data/input.txt', 'data/cases', 'GUIDE.md', 'docs/spec.md'], scans: ['assets'] }],
 }
+
+// A test that reads files by path, the rows of which every run builds from its source: it reads
+// data/input.txt, GUIDE.md, docs/spec.md and the folder data/cases, and looks through assets/ (a
+// top-level folder: a scan).
+const READER = [
+  "import { readdirSync, readFileSync } from 'node:fs'",
+  "import { join } from 'node:path'",
+  "const REPO = join(__dirname, '..', '..')",
+  "export const input = readFileSync(join(REPO, 'data', 'input.txt'), 'utf8')",
+  "export const cases = readdirSync(join(REPO, 'data', 'cases'))",
+  "export const guide = readFileSync(join(REPO, 'GUIDE.md'), 'utf8')",
+  "export const spec = readFileSync(join(REPO, 'docs', 'spec.md'), 'utf8')",
+  "export const assets = readdirSync(join(REPO, 'assets'))",
+  '',
+].join('\n')
 
 // A vitest configuration without imports: the temporary repository has no node_modules. Like the
 // real one, it leaves out the files WORFY_TEST_EXCLUDE names.
@@ -124,8 +147,9 @@ beforeAll(() => {
   put('test/unit/used.test.ts', "import { used } from '../../scripts/used.mjs'\nexport const probe = used\n")
   put('test/unit/other.test.ts', 'export const probe = 0\n')
   put('test/unit/scan.test.ts', 'export const probe = 0\n')
-  put('test/unit/reader.test.ts', 'export const probe = 0\n')
+  put('test/unit/reader.test.ts', READER)
   put('data/input.txt', 'input\n')
+  put('data/cases/one.json', '{}\n')
   put('assets/logo.svg', '<svg/>\n')
   put('harness/bin/wave-gate', '#!/bin/sh\n')
   put('test/contract/harness-scripts.test.ts', 'export const probe = 0\n')
@@ -240,6 +264,21 @@ describe('affected-tests.mjs on what covers a path', () => {
     expect(affected(branch(() => put('assets/new.svg', '<svg/>\n'))).lines).toEqual(['ALL'])
   })
 
+  it('reads what the tests read from the sources of the head, so a test file split on the base since needs no table update', () => {
+    // The base moved on: reader.test.ts gave its read of data/input.txt to a new file, and the table
+    // was not touched — as when a pull request that splits a test file merges next to this one.
+    git('checkout', '-q', '-b', 'split-base', 'main')
+    put('test/unit/reader.test.ts', READER.replace("export const input = readFileSync(join(REPO, 'data', 'input.txt'), 'utf8')\n", ''))
+    put('test/unit/input-reader.test.ts', "import { readFileSync } from 'node:fs'\nimport { join } from 'node:path'\nexport const input = readFileSync(join(__dirname, '..', '..', 'data', 'input.txt'), 'utf8')\n")
+    git('add', '-A')
+    git('commit', '-q', '-m', 'split reader.test.ts')
+    git('checkout', '-q', 'main')
+    const head = branch(() => put('data/input.txt', 'changed after the split\n'), 'split-base')
+    const r = affectedFrom('split-base', {}, head)
+    expect(r.status, r.stderr).toBe(0)
+    expect(r.lines).toEqual(['test/unit/input-reader.test.ts'])
+  })
+
   it('selects the reader of a Markdown file, and of a path of `none`, that a test reads as text', () => {
     // Markdown outside the code folders and the paths of `none` need no tests of their own, but the
     // tests that read them still go in.
@@ -311,9 +350,60 @@ describe('affected-tests.mjs on the diff', () => {
     const all = affected(branch(() => put('package.json', '{"name": "x"}\n')), '--json')
     expect(JSON.parse(all.stdout)).toEqual({ all: true, files: [], reasons: ['package.json: changes the whole test run'] })
   })
+
+  it('appends run and files to $GITHUB_OUTPUT with --github-output, for the test jobs of CI', () => {
+    const output = (head: string): string => {
+      const file = join(scratch, `github-output-${head}`)
+      writeFileSync(file, 'earlier=1\n')
+      const r = affectedIn({ GITHUB_OUTPUT: file }, head, '--github-output')
+      expect(r.status, r.stderr).toBe(0)
+      return readFileSync(file, 'utf8')
+    }
+    const some = branch(() => put('src/shared/format.ts', 'export const format = (n: number): string => `[${n}]`\n'))
+    expect(output(some)).toBe('earlier=1\nrun=some\nfiles=test/unit/format.test.ts test/unit/menu.test.ts\n')
+    // The answer still goes to stdout as without the option.
+    expect(affectedIn({ GITHUB_OUTPUT: join(scratch, 'github-output-again') }, some, '--github-output').lines).toEqual(['test/unit/format.test.ts', 'test/unit/menu.test.ts'])
+    expect(output(branch(() => put('docs/notes.md', 'other notes\n')))).toBe('earlier=1\nrun=none\nfiles=\n')
+    expect(output(branch(() => put('vitest.config.ts', `${CONFIG}// for the output\n`)))).toBe('earlier=1\nrun=all\nfiles=\n')
+  })
+
+  it('answers all in $GITHUB_OUTPUT for a selected file whose name has white space, which a list split on spaces would cut', () => {
+    const head = branch(() => put('test/unit/two words.test.ts', 'export const probe = 0\n'))
+    const file = join(scratch, 'github-output-space')
+    const r = affectedIn({ GITHUB_OUTPUT: file }, head, '--github-output')
+    expect(r.status, r.stderr).toBe(0)
+    expect(r.lines).toEqual(['test/unit/scan.test.ts', 'test/unit/two words.test.ts'])
+    expect(readFileSync(file, 'utf8')).toBe('run=all\nfiles=\n')
+    expect(r.stderr).toContain('"test/unit/two words.test.ts" has white space in its name')
+  })
+
+  it('refuses --github-output without GITHUB_OUTPUT (exit code 2)', () => {
+    const head = branch(() => put('src/shared/alone.ts', 'export const alone = 4\n'))
+    const r = affectedIn({ GITHUB_OUTPUT: '' }, head, '--github-output')
+    expect(r.status).toBe(2)
+    expect(r.stderr).toContain('--github-output: GITHUB_OUTPUT is not set')
+  })
 })
 
 describe('affected-tests.mjs refuses', () => {
+  it('with --github-output, exits 2 and writes no answer: an error must fail the CI step, never read as an empty list', () => {
+    // A failing input of each kind: a table it cannot read, an unknown commit, a tree that is not the head.
+    const broken = branch(() => put('scripts/affected-tests.table.json', '{"all": [], "none": []}\n'))
+    const head = branch(() => put('src/shared/alone.ts', 'export const alone = 5\n'))
+    const runs = [
+      () => affectedIn({ GITHUB_OUTPUT: join(scratch, 'github-output-refused-1') }, broken, '--github-output'),
+      () => affectedFrom('no-such-ref', { GITHUB_OUTPUT: join(scratch, 'github-output-refused-2') }, head, '--github-output'),
+      () => spawnSync(scriptNode(), [SCRIPT, 'main', head, '--github-output'], { cwd: repo, encoding: 'utf8', env: { ...gitEnv(), GITHUB_OUTPUT: join(scratch, 'github-output-refused-3') } }),
+    ]
+    runs.forEach((run, at) => {
+      const file = join(scratch, `github-output-refused-${at + 1}`)
+      writeFileSync(file, 'earlier=1\n')
+      const r = run()
+      expect(r.status, `case ${at + 1}: ${r.stderr}`).toBe(2)
+      expect(readFileSync(file, 'utf8'), `case ${at + 1}`).toBe('earlier=1\n')
+    })
+  })
+
   it('to answer when the working tree is not the head (exit code 2)', () => {
     const head = branch(() => put('src/shared/alone.ts', 'export const alone = 3\n'))
     const r = spawnSync(scriptNode(), [SCRIPT, 'main', head], { cwd: repo, encoding: 'utf8', env: gitEnv() })
@@ -335,10 +425,12 @@ describe('affected-tests.mjs refuses', () => {
     const b = affected(broken)
     expect(b.status).toBe(2)
     expect(b.stderr).toContain('"links" must be a list of')
-    const generated = branch(() => put('scripts/affected-tests.table.json', '{"all": [], "none": [], "links": [], "generated": [{"file": "test/unit/reader.test.ts", "reads": "data"}]}\n'))
+    // A committed copy of the generated rows, even a correct one: it is what went stale before.
+    const generated = branch(() => put('scripts/affected-tests.table.json', JSON.stringify({ ...TABLE, generated: [{ file: 'test/unit/reader.test.ts', reads: ['data/input.txt'] }] })))
     const g = affected(generated)
     expect(g.status).toBe(2)
-    expect(g.stderr).toContain('"generated" must be a list of')
+    expect(g.stdout).toBe('')
+    expect(g.stderr).toContain('"generated" is built from the test sources on every run; remove it from the table')
     const missing = branch(() => git('rm', '-q', 'scripts/affected-tests.table.json'))
     const r = affected(missing)
     expect(r.status).toBe(2)
@@ -346,7 +438,7 @@ describe('affected-tests.mjs refuses', () => {
   })
 })
 
-describe('affected-tests-table.mjs, the generator of the table', () => {
+describe('affected-tests-table.mjs, the generator of the rows', () => {
   // A second repository: the generator reads every tracked file under test/ of the one it runs in.
   let gen = ''
   const inGen = (path: string, text: string): void => {
@@ -354,14 +446,11 @@ describe('affected-tests-table.mjs, the generator of the table', () => {
     writeFileSync(join(gen, path), text)
   }
   const gitGen = (...args: string[]) => spawnSync('git', [...SETTINGS, ...args], { cwd: gen, encoding: 'utf8', env: gitEnv() })
-  const generator = (...args: string[]) => spawnSync(scriptNode(), [GENERATOR, ...args], { cwd: gen, encoding: 'utf8', env: gitEnv() })
-  const generated = () => (JSON.parse(readFileSync(join(gen, 'scripts', 'affected-tests.table.json'), 'utf8')) as { generated: unknown }).generated
 
   beforeAll(() => {
     gen = join(scratch, 'generator')
     mkdirSync(gen)
     gitGen('init', '-q')
-    inGen('scripts/affected-tests.table.json', JSON.stringify({ all: [], none: [], links: [] }))
     for (const path of ['README.md', 'docs/design/SPEC.md', 'test/fixtures/agent-scripts/one.jsonl', 'test/fixtures/legacy/home.json', 'data/one.txt', 'data/two.txt', 'data/three.txt', 'src/a.ts']) inGen(path, 'x\n')
     // The forms the tests of this repository use to name a file.
     inGen(
@@ -412,9 +501,7 @@ describe('affected-tests-table.mjs, the generator of the table', () => {
   })
 
   it('finds the files each test file and helper names, in the forms the tests use', () => {
-    const r = generator()
-    expect(r.status, r.stderr).toBe(0)
-    expect(generated()).toEqual([
+    expect(generate(gen)).toEqual([
       { file: 'test/legacy.ts', reads: ['test/fixtures/legacy'] },
       { file: 'test/unit/read-helper.test.ts', reads: ['README.md', 'docs/design/SPEC.md'] },
       { file: 'test/unit/scanner.test.ts', reads: ['data/one.txt', 'data/three.txt', 'data/two.txt'], scans: ['src'] },
@@ -422,40 +509,45 @@ describe('affected-tests-table.mjs, the generator of the table', () => {
     ])
   })
 
-  it('--check answers 0 for a table it would write, and 1 for a reader the table does not know', () => {
-    expect(generator().status).toBe(0)
-    expect(generator('--check').status).toBe(0)
+  it('prints the rows as JSON when run as a command, and nothing else', () => {
+    const r = spawnSync(scriptNode(), [GENERATOR], { cwd: gen, encoding: 'utf8', env: gitEnv() })
+    expect(r.status, r.stderr).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual(generate(gen))
+  })
+
+  it('builds the rows of a reader as soon as git tracks it: nothing to rebuild or commit', () => {
     inGen('test/unit/late.test.ts', "import { readFileSync } from 'node:fs'\nexport const late = readFileSync(`${import.meta.dirname}/../../data/two.txt`, 'utf8')\n")
+    expect(generate(gen).map((row) => row.file)).not.toContain('test/unit/late.test.ts')
     gitGen('add', '-A')
-    const r = generator('--check')
-    expect(r.status).toBe(1)
-    expect(r.stderr).toContain('test/unit/late.test.ts')
-    expect(r.stderr).toContain('is out of date')
+    expect(generate(gen)).toContainEqual({ file: 'test/unit/late.test.ts', reads: ['data/two.txt'] })
   })
 })
 
 describe('scripts/affected-tests.table.json of this repository', () => {
   type Link = { paths: string[]; files: string[]; scan?: boolean }
-  type Generated = { file: string; reads?: string[]; scans?: string[] }
   const table = JSON.parse(readFileSync(join(REPO, 'scripts', 'affected-tests.table.json'), 'utf8')) as {
     all: { paths: string[] }[]
     links: Link[]
-    generated: Generated[]
   }
+  // The rows a run builds, in-process: the same call scripts/affected-tests.mjs makes.
+  let generated: Generated[] = []
+  beforeAll(() => {
+    generated = generate(REPO)
+  })
   const under = (path: string, named: string): boolean => path === named || path.startsWith(`${named}/`)
   /** What the rows select for `path`, as scripts/affected-tests.mjs reads them (without the graph). */
   const selected = (path: string): string[] => [
     ...table.links.filter((entry) => entry.paths.some((pattern) => posix.matchesGlob(path, pattern))).flatMap((entry) => entry.files),
-    ...table.generated.filter((entry) => [...(entry.reads ?? []), ...(entry.scans ?? [])].some((named) => under(path, named))).map((entry) => entry.file),
+    ...generated.filter((entry) => [...(entry.reads ?? []), ...(entry.scans ?? [])].some((named) => under(path, named))).map((entry) => entry.file),
   ]
 
-  it('holds what the generator builds from the test sources today', () => {
-    const r = spawnSync(scriptNode(), [GENERATOR, '--check'], { cwd: REPO, encoding: 'utf8' })
-    expect(r.status, r.stderr).toBe(0)
+  it('holds only the rows written by hand: the generated ones are never committed', () => {
+    expect(table).not.toHaveProperty('generated')
+    expect(generated.length).toBeGreaterThan(100)
   })
 
   it('names only files that exist', () => {
-    const named = [...table.links.flatMap((entry) => entry.files), ...table.generated.map((entry) => entry.file)]
+    const named = [...table.links.flatMap((entry) => entry.files), ...generated.map((entry) => entry.file)]
     expect(named.filter((file) => !existsSync(join(REPO, file)))).toEqual([])
   })
 
@@ -473,11 +565,13 @@ describe('scripts/affected-tests.table.json of this repository', () => {
     expect(selected('harness/hooks/gate.mjs')).toContain('test/unit/gate-state.test.ts')
     // This test runs the generator over every test source.
     expect(selected('test/unit/new.test.ts')).toContain('test/unit/affected-tests.test.ts')
-    expect(selected('scripts/affected-tests-table.mjs')).toContain('test/unit/affected-tests.test.ts')
+    expect(selected('scripts/e2e-specs.table.json')).toContain('test/contract/ci-scope-e2e.test.ts')
   })
 
   it('runs the whole suite for the configuration of the run', () => {
     const all = (path: string): boolean => table.all.some((entry) => entry.paths.some((pattern) => posix.matchesGlob(path, pattern)))
     for (const path of ['vitest.config.ts', 'package.json', 'pnpm-lock.yaml', 'tsconfig.node.json', 'test/setup-contract.ts', 'scripts/vitest-electron.mjs']) expect(all(path), path).toBe(true)
+    // A pull request that changes how the tests are picked runs them all.
+    for (const path of ['scripts/affected-tests.mjs', 'scripts/affected-tests-table.mjs', 'scripts/affected-tests.table.json']) expect(all(path), path).toBe(true)
   })
 })

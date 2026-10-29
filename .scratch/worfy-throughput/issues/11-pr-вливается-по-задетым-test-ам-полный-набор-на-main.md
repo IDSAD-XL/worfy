@@ -121,3 +121,53 @@ PR с кодом»; запись worfy в реестре gate.
 - Удаление test-ов — Ticket 15.
 
 ## Итог
+
+**Что сделано (PR #970).** CI PR гоняет на shard-ах linux и windows только unit- и contract-test-ы, которые
+задевает diff; push в `main` и ручной запуск — весь набор.
+
+- `scripts/ci-scope.mjs` печатает новый output `tests-base`: полный commit базы PR с кодом. Push, ручной
+  запуск, diff, который не прочитать, пустой diff и PR только с документами — пусто, то есть весь набор.
+- `linux-tests` (1/4–4/4) и Windows `full-suite` (1/3–3/3, `harness-scripts 1/2`, `2/2`) берут два commit-а
+  (`fetch-depth: 2`), ставят зависимости и запускают `node scripts/affected-tests.mjs <tests-base> HEAD
+  --github-output` (outputs `run` = `all` / `none` / `some` и `files`). Без `tests-base` шаг пропущен — весь
+  набор. Время шага на runner-е: 2,5 s на Linux и 2,7 s на Windows для ответа ALL (CI run 40838997020).
+- **ALL** — весь набор на этом наборе shard-ов. **Пустой ответ** — шаг vitest пропущен, job зелёный и
+  остаётся в `ci-ok` (решение владельца R2-Q4: smoke-набора нет). `ci-ok` и модель `expect` не менялись:
+  каждый test job по-прежнему обязан закончиться `success`.
+- **Как список делится между shard-ами.** Каждый shard считает тот же список (то же дерево — тот же ответ) и
+  отдаёт его vitest через `WORFY_TEST_FILES`: `scripts/vitest-electron.mjs` добавляет файлы фильтрами после
+  аргументов и `--passWithNoTests` (shard короткого списка может не получить ни одного файла). `--shard`
+  vitest режет уже отфильтрованный набор по hash пути, поэтому каждый файл списка идёт ровно в один shard.
+  На Windows shard-ы 1/3–3/3 по-прежнему исключают `harness-scripts.test.ts`, а job-ы `harness-scripts i/2`
+  запускаются, только когда он в списке. Список идёт через переменную, а не командную строку: cmd.exe, через
+  который `pnpm test` идёт на Windows, режет строку на 8191 символе, а имена всего набора — около 17 000.
+  Переменная убирается из окружения самих test-ов.
+- **Красный `main` 2026-10-29 — причина убрана.** Строки `generated` в `scripts/affected-tests.table.json`
+  больше не коммитятся: `affected-tests.mjs` строит их из исходников test-ов дерева, о котором отвечает, при
+  каждом запуске (`generate()` из `scripts/affected-tests-table.mjs`, меньше секунды). Кэша нет — не нужен.
+  В таблице остались только строки, написанные вручную; таблица с `generated` — отказ, exit code 2. Сами
+  скрипты выбора и таблица теперь в `all`: PR, который меняет выбор test-ов, гоняет весь набор. Новая
+  строка `links`: `scripts/e2e-specs.table.json` → `test/contract/ci-scope-e2e.test.ts`.
+- Долги Ticket-а 21: медленный test `--check` убран, генератор вызывается в процессе. Переименование
+  модуля по-прежнему даёт ALL (удалённый модуль) — не трогал.
+- Тексты Harness: `epic-wave` (раздел 4, «A red push run on the main branch») и `ship-ticket` (шаг 9)
+  говорят правило красного `main` (Q2): PR с кодом не вливаются, документы — можно; исправление вперёд до
+  1 h, затем revert виноватого PR; bisect-а нет. Красный набор после `wave-gate merge` идёт по тому же
+  правилу вместо немедленного revert-а. `implementer`: e2e на PR — spec-файлы по diff, на push — все.
+  Шаг 5 implementer-а (gate fast, весь `pnpm test`) не менял; `harness/bin/wave-gate` не менял.
+
+**Test-ы.** `test/unit/affected-tests.test.ts`: test-файл, разделённый на базе, читается из исходников head
+без правки таблицы; закоммиченный `generated` — отказ; `--github-output` (`some` / `none` / `all`, `all` для
+имени с пробелом, отказ без `GITHUB_OUTPUT`); генератор в процессе и как команда.
+`test/contract/ci-workflow.test.ts`: шаги выбора и запуска linux-tests и full-suite, `tests-base`; модель
+«ровно один job» на Windows — и для списка PR. `test/contract/windows-tests-workflow.test.ts`: шаг PowerShell
+под настоящим `pwsh` со stub `pnpm` для каждого вида shard-а (на Mac без `pwsh` пропуск; на runner-ах Linux и
+Windows идёт). `test/contract/vitest-electron.test.ts`: `WORFY_TEST_FILES`. Shell test-ы
+`harness/bin/tests/epic-wave-ship-ticket.test.sh` и `agents-text.test.sh` — тексты. Каждый новый test
+краснеет на своём mutant-е.
+
+Платформенный PR (меняет `harness/bin/tests`): `node scripts/windows-verdict-scope.mjs origin/main HEAD` →
+`runner`, вердикт Windows — job `windows` в `ci-ok`.
+
+Вне репозитория (шаг Orchestrator-а): `rules.md` Profile-а — PR гоняет задетые test-ы, push — весь набор.
+Пункт «Готово, когда» о двух Wave-ах после merge — Orchestrator-у.

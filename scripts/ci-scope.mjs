@@ -26,6 +26,11 @@
 //   of src/ or harness/, every spec file for anything else), the outputs `e2e-files` (empty means
 //   every spec file) and `macos-e2e-shards` / `windows-e2e-shards`: fewer shards for fewer files.
 //   A push, a run by hand and a pull request that asks for every spec file get the full shards.
+//   linux-tests and windows run on a pull request only the unit and contract test files its diff
+//   touches: the output `tests-base` is the commit BASE names, and each of their jobs runs
+//   `node scripts/affected-tests.mjs <tests-base> HEAD` after its install (that script needs the
+//   dependencies; this one runs before them). Every other run — a push, a run by hand, a diff that
+//   cannot be read, no file changed — leaves `tests-base` empty: the whole suite.
 // - workflow_dispatch: JOB=check runs lint-typecheck and linux-tests, as the batch run of a Wave did
 //   before CI ran on pull requests; JOB=full-macos runs lint-typecheck and the macOS jobs.
 //
@@ -236,7 +241,7 @@ export function e2eShards(files, specs, seconds, full) {
 // 462 files took (run 40744007856): the job ends in a few minutes instead of 11. It runs when the
 // pull request changes the app (isAppPath), one of those files, the way vitest runs, or code under
 // scripts/ or harness/, which those files check too (make-icons.test.ts runs scripts/make-icons.mjs
-// with the real sips, harness-evals.test.ts the Harness evals with the git of macOS). The push to
+// with the real sips, harness-evals-run.test.ts the Harness evals with the git of macOS). The push to
 // main runs the whole suite on macOS, and catches what an unguarded test finds only there.
 const TEST_RUNNER = new Set(['vitest.config.ts', 'scripts/vitest-electron.mjs'])
 const CHECKED_FOLDERS = ['scripts/', 'harness/']
@@ -292,6 +297,12 @@ function changedFiles(base) {
   return diff.stdout.split('\0').filter((path) => path !== '')
 }
 
+/** The full name of the commit `ref` names, or '' when git cannot name it. */
+function commitOf(ref) {
+  const named = spawnSync('git', ['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`], { encoding: 'utf8' })
+  return named.status === 0 ? named.stdout.trim() : ''
+}
+
 function decide(env) {
   const event = env.EVENT ?? ''
   if (event === 'workflow_dispatch') {
@@ -308,7 +319,9 @@ function decide(env) {
   const why = `code changed: ${code.slice(0, 20).join(' ')}${code.length > 20 ? ` and ${code.length - 20} more` : ''}`
   if (event === 'push') return { expect: only(JOBS), why }
   const decided = pullRequest(code)
-  return { expect: decided.expect, files: decided.files, e2e: decided.e2e, why: [why, ...decided.notes].join('; ') }
+  const testsBase = commitOf(env.BASE)
+  const tests = testsBase ? `linux-tests and windows run the test files the diff touches since ${testsBase}` : 'the base commit could not be named, so linux-tests and windows run every test file'
+  return { expect: decided.expect, files: decided.files, e2e: decided.e2e, testsBase, tests, why: [why, ...decided.notes].join('; ') }
 }
 
 /** The macOS jobs of a pull request that changes code: each only when the diff asks for it. */
@@ -400,9 +413,12 @@ function main() {
     `e2e-files=${e2e.files.join(' ')}`,
     `macos-e2e-shards=${JSON.stringify(e2e.shards['macos-e2e'])}`,
     `windows-e2e-shards=${JSON.stringify(e2e.shards['windows-e2e'])}`,
+    // The base linux-tests and windows hand to scripts/affected-tests.mjs; empty: every test file.
+    `tests-base=${answer.testsBase ?? ''}`,
   ].join('\n')
-  // The e2e note of a pull request that changes the app goes on a line of its own.
-  const note = answer.e2e?.note ? `e2e: ${answer.e2e.note}\n` : ''
+  // The e2e note of a pull request that changes the app, and the note on its unit and contract tests,
+  // go on lines of their own.
+  const note = `${answer.e2e?.note ? `e2e: ${answer.e2e.note}\n` : ''}${answer.tests ? `tests: ${answer.tests}\n` : ''}`
   process.stdout.write(`${answer.why}\n${note}${lines}\n`)
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `${lines}\n`)
 }

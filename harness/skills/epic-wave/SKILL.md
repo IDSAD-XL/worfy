@@ -1243,10 +1243,18 @@ run; when the main branch has moved meanwhile, it checks the set again.
 — nothing merged, check again with a new state file; a tree mismatch or a failed `gh pr merge` — the
 PRs after it are not merged). After a stop, run gate full on the main branch (the project's lock
 command); the PRs not merged go into a new set.
-Red CI on the main branch after the set's merges: no new merges. Open a revert of the squash commit
-of the first red push run (`git revert <sha>` on a branch, a PR); the revert PR goes the old way,
-outside any set, with its own gate full, and the ticket of the reverted PR gets a rework round.
-With `F workflow.ci` `batch` there are no push runs: the rule for a red batch CI run is below.
+Red CI on the main branch after the set's merges: the rule of "A red push run on the main branch"
+below. With `F workflow.ci` `batch` there are no push runs: the rule for a red batch CI run is below.
+
+**A red push run on the main branch** (`F workflow.ci` `pr`). CI on a PR may run only the tests its
+diff touches, as the project's `rules.md` says; every push to the main branch runs the whole suite,
+so a red push run names the merge that broke the main branch. While the final CI check of the latest
+push run on the main branch is red, no PR with code is merged; a PR with documents only may be.
+The fix goes forward first, for at most one hour from the red run: a PR with the fix, merged with its
+own green CI. No fix merged within the hour — revert the culprit PR, the one whose push run turned
+the main branch red (`git revert <sha>` of its squash commit on a branch, a PR with its own green
+CI), and the ticket of the reverted PR gets a rework round. There is no bisection. The wave report
+names the CI run's URL, the culprit PR, and the fix or the revert.
 
 **Batch CI on the main branch** (`F workflow.ci` `batch`). With `pr` — skip this
 paragraph: CI already ran on every head and every push. With `batch` the wave gets one CI run on the

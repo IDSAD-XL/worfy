@@ -11,7 +11,13 @@ name: CI
 #   carries), macos-tests (the macOS-only test files) when it changes the app, scripts/, harness/ or
 #   one of those files, macos-package when it changes a build input.
 # - lint-typecheck: pnpm lint and pnpm typecheck on Linux.
-# - linux-tests: pnpm test on Linux in 4 shards (vitest --shard), files in a random order.
+# - linux-tests: pnpm test on Linux in 4 shards (vitest --shard), files in a random order. A pull
+#   request runs only the unit and contract test files its diff touches (scripts/affected-tests.mjs,
+#   from the base ci-scope.mjs names, output tests-base): every shard computes the same list and
+#   hands it to vitest (WORFY_TEST_FILES, read by scripts/vitest-electron.mjs), and --shard splits the
+#   list, so each listed file still runs in exactly one shard. ALL runs the whole suite; an empty list
+#   runs no vitest and the job succeeds, so ci-ok still holds it to success. A push to main and a run
+#   by hand always run the whole suite.
 # - macos-tests: pnpm test on macOS in one job: the tests that run on macOS only are checked here. A
 #   push to main runs every file; a pull request the files with a macOS-only test or assertion
 #   (scripts/ci-scope.mjs, output macos-tests-files).
@@ -30,7 +36,8 @@ name: CI
 #   failed on Git Bash's /tmp, which test/global-setup-git-bash.ts now fixes for every vitest process.
 #   harness-scripts.test.ts, the longest file of shard 3/3 (354-617 s), runs in two jobs of its own,
 #   "windows (harness-scripts 1/2)" and "(harness-scripts 2/2)", each with half of the Harness shell
-#   tests; the three shards leave it out.
+#   tests; the three shards leave it out. A pull request narrows these jobs as it narrows linux-tests:
+#   the shards split the list, and the two harness-scripts jobs run only when the list has that file.
 # - windows-e2e: pnpm test:e2e on Windows in 4 shards, whenever macos-e2e runs, on the same spec
 #   files. It blocks ci-ok like every other job since ten push runs on main in a row had it green.
 # - ci-ok: green when every job the run needs succeeded (scripts/ci-ok.mjs). A merge reads this check.
@@ -90,6 +97,7 @@ jobs:
       e2e-files: ${{ steps.scope.outputs.e2e-files }}
       macos-e2e-shards: ${{ steps.scope.outputs.macos-e2e-shards }}
       windows-e2e-shards: ${{ steps.scope.outputs.windows-e2e-shards }}
+      tests-base: ${{ steps.scope.outputs.tests-base }}
     steps:
       # Two commits: the merge commit of a pull request and its first parent, the head of the base.
       # No checkout keeps the token in .git/config (persist-credentials: false): no step pushes or
@@ -148,8 +156,11 @@ jobs:
           - 3/4
           - 4/4
     steps:
+      # Two commits, as in the job changes: scripts/affected-tests.mjs compares the merge commit of a
+      # pull request with its first parent.
       - uses: actions/checkout@v7
         with:
+          fetch-depth: 2
           persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@v7
@@ -157,6 +168,15 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # A pull request: the unit and contract test files its diff touches, the same list in every
+      # shard (outputs run — all, none or some — and files). Skipped on a push and a run by hand, so
+      # the next step runs the whole suite.
+      - name: Pick the test files the pull request touches
+        id: tests
+        if: needs.changes.outputs.tests-base != ''
+        env:
+          BASE: ${{ needs.changes.outputs.tests-base }}
+        run: node scripts/affected-tests.mjs "$BASE" HEAD --github-output
       # The shell tests of the Harness (test/contract/harness-scripts.test.ts) run the qmd scripts
       # under zsh; the Ubuntu image has bash, git, jq and node but no zsh.
       - name: Install zsh
@@ -165,9 +185,13 @@ jobs:
       # random order (ADR-0036), so a test that passes only after or before another file turns red
       # here; the log names the seed ("Running tests with seed …") and
       # `pnpm test --shard=<shard> --sequence.shuffle.files --sequence.seed=<seed>` repeats the order.
+      # The listed files reach vitest through WORFY_TEST_FILES (scripts/vitest-electron.mjs), and
+      # --shard splits them; no list (all, or no pull request) is the whole suite.
       - name: Run unit and contract tests, one shard
+        if: steps.tests.outputs.run != 'none'
         env:
           SHARD: ${{ matrix.shard }}
+          WORFY_TEST_FILES: ${{ steps.tests.outputs.files }}
         run: pnpm test "--shard=$SHARD" --sequence.shuffle.files
       # Tests must leave the source tree as they found it: no probe or other temporary file in src/.
       - name: src/ is unchanged after the tests
@@ -311,6 +335,7 @@ jobs:
     with:
       mode: full
       shard: ${{ matrix.shard }}
+      tests-base: ${{ needs.changes.outputs.tests-base }}
 
   # pnpm test:e2e on Windows. Four shards for every spec file: in the runs of the triage one shard took
   # 7 to 15 min, so each stays under 20 min (runs 40710168910 to 40737039070, the longest shard 14.5 min
