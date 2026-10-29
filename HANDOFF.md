@@ -14,8 +14,8 @@
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–26; 12 — приёмка; открыты 27 (pointer, hover), 28 (drop, превью в чате).
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
-- `worfy-polish`: 44/45, влиты 01–40, 42 (#822), 45 (#975). 39 — #1012 (долг ревью #754). 41 — flaky Windows и зависание выхода (ПК; карантин win32, общий предел 15); 43 — flaky `afterAll` в `harness-evals`.
-- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 50/58; закрыты 04–55 кроме открытых, 57 (#1026); 56 влит, ждёт замера ПК; 31 ждёт Wave на новом plugin; 30 ждёт Wave; 14 ждёт 10; 58 (e2e `src/main`) открыт; 39 ждёт CI PR ≤15 min.
+- `worfy-polish`: 44/45, влиты 01–40, 42 (#822), 45 (#975). 39 — #1012 (долг ревью #754). 41 — часть 1 влита (#1028, карантин 11 из 15), часть 2 — ПК; 43 — flaky `afterAll` в `harness-evals`.
+- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 51/58; открыты 05, 14, 30, 31, 39, 43, 56. 56 ждёт замера ПК; 59 (e2e в 2 worker-а на macOS runner-е) — в ветке, в работе; 39 и 43 — при CI PR ≤15 min или после 59; 31, 30 ждут Wave; 14 ждёт 10.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
