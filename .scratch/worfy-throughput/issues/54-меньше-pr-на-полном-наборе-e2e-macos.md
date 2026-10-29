@@ -181,3 +181,20 @@ Run-ы `ci.yml` по событию `pull_request` с кодом, созданн
   `macos-tests` без e2e и без `macos-package`; только `windows-tests.yml` и только комментарий `ci.yml` — ни одного
   macOS-job-а; job `macos-package` в `ci.yml` — все job-ы и весь набор; только
   `harness/skills/epic-wave/SKILL.md` — 10 spec-файлов, `macos-e2e-shards=["1/1"]`.
+
+### Круг 1 ревью
+
+- `workflowParts` узнаёт ключ job-а с комментарием, anchor-ом или в кавычках после `:`. Строки внутри block
+  scalar (`run: |`) — данные, строки `#` и пустые тоже. Job из `changes`, `macos-e2e`, `macos-package`,
+  `windows-e2e`, `macos-tests`, которого нет хотя бы на одной стороне, и любой YAML anchor, alias или merge key
+  в `ci.yml` дают весь набор и `macos-package`. Contract test проверяет, что каждый job настоящего `ci.yml` — своя
+  часть.
+- Запись карантина (`test/quarantine/<id>.json`) больше не даёт весь набор: e2e запускают spec-файл из её поля
+  `file`, до изменения и после него. Удалённая или нечитаемая запись и запись, которая не называет существующий
+  spec-файл, по-прежнему дают весь набор. Триггер #977 закрыт здесь, отдельный Ticket не нужен.
+- Guard папок fixture-ов находит папку `test/fixtures` под любым именем переменной, идёт по импортам на любую
+  глубину, читает `src/` и падает, когда имя fixture-а лежит в переменной.
+- `scripts/affected-tests.mjs`: PR, который добавляет e2e spec, выбирает `ci-workflow.test.ts` (generated scan по
+  `test/e2e`). Новая папка fixture-ов даёт ALL. После этого круга PR с правкой `src/` тоже выбирает
+  `ci-workflow.test.ts`: guard читает `src/`. Без него было 105 файлов, с ним 106. Отдельная запись в таблице не
+  нужна.
