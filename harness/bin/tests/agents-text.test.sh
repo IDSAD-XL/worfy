@@ -251,6 +251,8 @@ rv "scope: an old defect goes on the 'outside the diff' line, without a severity
     'one the change neither causes nor was asked to fix, is not a finding: it goes on a separate "outside the diff: …" line, without a severity.'
 rv "answer format has the 'outside the diff' line" '"outside the diff: `path:line` — <an old defect next to the change>"'
 rv "the question about what the change removed is kept" 'what did the change remove.**'
+rv "answer format: under the lens implementer's report the verdict line comes first" \
+    'Answer format — no more than 30 lines (under the lens implementer'"'"'s report the verdict line comes first, before everything below; see that lens):'
 # The borrowed rules name their source: project, file and commit (spec of worfy-review, owner's decision 1).
 THERMOS_SOURCE='Source: Thermos, `thermos/skills/thermo-nuclear-review/SKILL.md`, commit `ccb5507cec1546dc88135c1139c811e6c59115ba`'
 rv "the borrowed rules name Thermos, the file and the commit" "$THERMOS_SOURCE"
