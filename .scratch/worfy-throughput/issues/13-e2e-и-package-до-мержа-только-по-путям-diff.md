@@ -181,6 +181,9 @@ run на push в `main`. Точку передачи выбрать при claim
   `out/harness`, `expectHarnessCopy` в spec-е или в его helper-ах (`legacy-claude-home.ts`); Browser —
   `kind: 'browser'`, test id `browser-*`, `webview`, import из `src/*/browser/`. Spec-и сверх найденных
   (`settings-health`, `autopilot`) правила держат по чтению кода, test их не требует.
+- **После круга 2:** проверки link и Browser читают и локальные helper-ы spec-а из `test/e2e`, кроме
+  `helpers.ts` (он определяет link-helper-ы и включает `webview` каждому окну), и не считают строки комментариев.
+  Test на fixture: новый spec, который зовёт `linkThroughUi` через свой helper и которого нет в правиле, краснеет.
 - **Замер на последних 20 PR с кодом (#921–#949):**
   - 7 PR без e2e, как и сейчас; 8 — весь `test:e2e`: `ci.yml`, `test/quarantine.ts`, `test/fixtures`,
     `src/main/autopilot`, `src/main/agent`; 5 — подмножество (#949, #945, #941, #935, #934, все правки Harness).

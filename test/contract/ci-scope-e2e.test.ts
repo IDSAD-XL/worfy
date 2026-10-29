@@ -161,39 +161,57 @@ describe('scripts/e2e-specs.table.json of this repository', () => {
   })
 
   // The spec files that use a feature, found in the code of the e2e tests rather than listed by hand:
-  // each rule must give every one of them for every file it maps.
-  const e2eText = (spec: string): string => readFileSync(join(REPO, spec), 'utf8')
-  /** The text of a spec file and of every helper of test/e2e it imports, at any depth. */
-  function withLocalHelpers(spec: string): string {
-    const seen = new Set<string>()
+  // each rule must give every one of them for every file it maps. `root` is the repository, or a copy
+  // of its test/e2e in a fixture.
+  const e2eText = (root: string, file: string): string => readFileSync(join(root, file), 'utf8')
+  /** The text of a file without its comment lines: a comment that names a helper is not a call of it. */
+  const codeOf = (text: string): string =>
+    text
+      .split('\n')
+      .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
+      .join('\n')
+  /**
+   * The text of a spec file and of every helper of test/e2e it imports, at any depth. `skip` leaves out
+   * a helper: test/e2e/helpers.ts defines the link helpers and is imported by nearly every spec.
+   */
+  function withLocalHelpers(root: string, spec: string, skip: readonly string[] = []): string {
+    const seen = new Set<string>(skip)
     const texts: string[] = []
     const visit = (file: string): void => {
       if (seen.has(file)) return
       seen.add(file)
-      const text = e2eText(file)
+      const text = e2eText(root, file)
       texts.push(text)
       for (const [, name = ''] of text.matchAll(/from '\.\/([\w.-]+)'/g)) {
         const helper = `test/e2e/${name}${name.endsWith('.ts') ? '' : '.ts'}`
-        if (existsSync(join(REPO, helper))) visit(helper)
+        if (existsSync(join(root, helper))) visit(helper)
       }
     }
     visit(spec)
     return texts.join('\n')
   }
+  const HELPERS = 'test/e2e/helpers.ts'
   /** The exported names of test/e2e/helpers.ts that link two apps or show the Linked machines settings. */
-  function linkHelpers(): string[] {
-    const names = [...e2eText('test/e2e/helpers.ts').matchAll(/^export (?:async function|function|const|interface|type) (\w+)/gm)].map((match) => match[1] ?? '')
+  function linkHelpers(root: string): string[] {
+    const names = [...e2eText(root, HELPERS).matchAll(/^export (?:async function|function|const|interface|type) (\w+)/gm)].map((match) => match[1] ?? '')
     return names.filter((name) => /link|machine|keep_?awake|projects_access/i.test(name))
   }
-  const FAMILIES: Array<{ name: string; path: string; least: number; known: string; uses: (spec: string) => boolean }> = [
+  interface Family {
+    name: string
+    path: string
+    least: number
+    known: string
+    uses: (root: string, spec: string) => boolean
+  }
+  const FAMILIES: Family[] = [
     {
       name: 'the link between machines',
       path: 'src/main/link/service.ts',
       least: 15,
       known: 'test/e2e/family.spec.ts',
-      uses: (spec) => {
-        const text = e2eText(spec)
-        return linkHelpers().some((name) => new RegExp(`\\b${name}\\b`).test(text)) || text.includes("'link-machine-button'") || /from '[./]*src\/main\/link\//.test(text)
+      uses: (root, spec) => {
+        const text = codeOf(withLocalHelpers(root, spec, [HELPERS]))
+        return linkHelpers(root).some((name) => new RegExp(`\\b${name}\\b`).test(text)) || text.includes("'link-machine-button'") || /from '[./]*src\/main\/link\//.test(text)
       },
     },
     {
@@ -201,36 +219,69 @@ describe('scripts/e2e-specs.table.json of this repository', () => {
       path: 'harness/hooks/gate.mjs',
       least: 9,
       known: 'test/e2e/packaged.spec.ts',
-      uses: (spec) => /out['"]?\s*,\s*['"]harness|out\/harness|expectHarnessCopy|bundledHarness/.test(withLocalHelpers(spec)),
+      uses: (root, spec) => /out['"]?\s*,\s*['"]harness|out\/harness|expectHarnessCopy|bundledHarness/.test(withLocalHelpers(root, spec)),
     },
     {
       name: 'the Browser node',
       path: 'src/main/browser/live.ts',
       least: 12,
       known: 'test/e2e/browser.spec.ts',
-      uses: (spec) => /kind: 'browser'|getByTestId\('browser-|webview|from '[./]*src\/(main|renderer|shared)\/browser\//i.test(e2eText(spec)),
+      // helpers.ts is left out: it turns on the webview tag for every window it launches.
+      uses: (root, spec) =>
+        /kind: 'browser'|getByTestId\('browser-|webview|from '[./]*src\/(main|renderer|shared)\/browser\//i.test(codeOf(withLocalHelpers(root, spec, [HELPERS]))),
     },
   ]
+  /** The paths the family's rule maps, and each spec of `used` it leaves out for one of them, as "path → spec". */
+  function missedBy(family: Family, used: string[], specList: string[], ruleList: Rule[], tracked: string[]): { mapped: string[]; missed: string[] } {
+    const rule = ruleList.find((r) => r.matchers.some((matcher) => matcher.test(family.path)))
+    const mapped = rule === undefined ? [] : tracked.filter((path) => rule.matchers.some((matcher) => matcher.test(path)))
+    const missed: string[] = []
+    for (const path of mapped) {
+      const files = e2eSpecs([path], specList, ruleList).files
+      // null: every spec file; []: a path the app does not carry (harness/bin/tests).
+      if (files === null || files.length === 0) continue
+      for (const spec of used) if (!files.includes(spec)) missed.push(`${path} → ${spec}`)
+    }
+    return { mapped, missed }
+  }
+  // git starts inside the tests, not while the file loads (test/unit/e2e-no-spawn-on-load.test.ts).
+  const trackedFiles = (): string[] => execFileSync('git', ['ls-files', '-z'], { cwd: REPO, encoding: 'utf8' }).split('\0').filter((path) => path !== '')
 
   it('finds the link helpers of test/e2e/helpers.ts it looks for', () => {
-    expect(linkHelpers()).toEqual(expect.arrayContaining(['linkThroughUi', 'launchLinkedPair', 'openLinkDialog', 'openMachinesSettings', 'machineIdOf']))
+    expect(linkHelpers(REPO)).toEqual(expect.arrayContaining(['linkThroughUi', 'launchLinkedPair', 'openLinkDialog', 'openMachinesSettings', 'machineIdOf']))
   })
 
   it.each(FAMILIES.map((family) => [family.name, family] as const))('gives every spec file that uses %s for every file of its rule', (_name, family) => {
-    const used = specs.filter(family.uses)
+    const used = specs.filter((spec) => family.uses(REPO, spec))
+    const { mapped, missed } = missedBy(family, used, specs, rules, trackedFiles())
     expect(used.length, 'spec files found').toBeGreaterThanOrEqual(family.least)
     expect(used).toContain(family.known)
-    const rule = rules.find((r) => r.matchers.some((matcher) => matcher.test(family.path)))
-    expect(rule, `the rule of ${family.path}`).toBeDefined()
-    // git starts here, not while the file loads (test/unit/e2e-no-spawn-on-load.test.ts).
-    const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: REPO, encoding: 'utf8' }).split('\0').filter((path) => path !== '')
-    const mapped = tracked.filter((path) => rule?.matchers.some((matcher) => matcher.test(path)))
-    expect(mapped).toContain(family.path)
-    for (const path of mapped) {
-      const files = e2eSpecs([path], specs, rules).files
-      // null: every spec file; []: a path the app does not carry (harness/bin/tests).
-      if (files === null || files.length === 0) continue
-      expect(used.filter((spec) => !files.includes(spec)), path).toEqual([])
+    expect(mapped, `the rule of ${family.path}`).toContain(family.path)
+    expect(missed).toEqual([])
+  })
+
+  it('catches a new spec that reaches a feature through a local helper of its own and is missing from the rule', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ci-scope-family-'))
+    try {
+      mkdirSync(join(root, 'test', 'e2e'), { recursive: true })
+      writeFileSync(join(root, HELPERS), e2eText(REPO, HELPERS))
+      // A helper of its own calls the link helper, and the Browser one adds a Browser node.
+      writeFileSync(join(root, 'test/e2e/pair-apps.ts'), "import { linkThroughUi } from './helpers'\nexport const pairApps = linkThroughUi\n")
+      writeFileSync(join(root, 'test/e2e/new-pair.spec.ts'), "import { pairApps } from './pair-apps'\nvoid pairApps\n")
+      writeFileSync(join(root, 'test/e2e/add-page.ts'), "export const node = { kind: 'browser' }\n")
+      writeFileSync(join(root, 'test/e2e/new-page.spec.ts'), "import { node } from './add-page'\nvoid node\n")
+      // Only a comment names the link helper, and helpers.ts alone mentions webview: neither counts.
+      writeFileSync(join(root, 'test/e2e/plain.spec.ts'), "import { launchApp } from './helpers'\n// not linkThroughUi\nvoid launchApp\n")
+      const fresh = ['test/e2e/new-pair.spec.ts', 'test/e2e/new-page.spec.ts', 'test/e2e/plain.spec.ts']
+      const [link, , browser] = FAMILIES
+      if (link === undefined || browser === undefined) throw new Error('FAMILIES lost a family')
+      expect(fresh.filter((spec) => link.uses(root, spec))).toEqual(['test/e2e/new-pair.spec.ts'])
+      expect(fresh.filter((spec) => browser.uses(root, spec))).toEqual(['test/e2e/new-page.spec.ts'])
+      // The rules of this repository do not name the new spec files, so each is missed for the link path.
+      const missed = missedBy(link, ['test/e2e/new-pair.spec.ts'], [...specs, ...fresh], rules, trackedFiles()).missed
+      expect(missed).toContain('src/main/link/service.ts → test/e2e/new-pair.spec.ts')
+    } finally {
+      removeTestTree(root)
     }
   })
 
