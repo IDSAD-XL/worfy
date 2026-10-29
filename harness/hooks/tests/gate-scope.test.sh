@@ -12,7 +12,13 @@
 #     (not on Windows, where a file name cannot hold a line break);
 #   - a file name that ends with a space is not taken for the name without it: root_if, which asks
 #     for names ending in .ts, does not match it, and such a file in a workspace keeps that workspace
-#     in scope (not on Windows, which drops a trailing space).
+#     in scope (not on Windows, which drops a trailing space);
+#   - a workspace whose folder name has a tab, and one whose name has a line break, each get their
+#     own scope: the gate runs that package's script and names the folder escaped, in quotes, on
+#     one line (gate-resolve.mjs prints the plan as JSON, which keeps such a name whole), and the
+#     warning about changes outside workspaces names such a file the same way (not on Windows,
+#     where a file name cannot hold a tab or a line break);
+#   - a plan the gate cannot read (the old tab-separated form) is "not verified", exit 3, not green.
 # Run: bash harness/hooks/tests/gate-scope.test.sh; exit code 0 means everything passed.
 # HOOKS_DIR runs the test on another copy of the hooks (for example, on the version before an edit).
 #
@@ -47,7 +53,12 @@ if [ "$WIN" -eq 1 ]; then
     printf '@echo off\r\nexit /b 0\r\n' >"$T/npm/npm.cmd"
     export PATH="$(cygpath -u "$T/npm"):$PATH"
 else
-    printf '#!/bin/sh\nexit 0\n' >"$T/npm/npm"
+    # It also writes down its arguments, one call per line: which package the gate ran.
+    cat >"$T/npm/npm" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$T/npm.log"
+exit 0
+EOF
     chmod +x "$T/npm/npm"
     export PATH="$T/npm:$PATH"
 fi
@@ -62,7 +73,7 @@ newrepo() {
     git -C "$repo" init -q -b main
     for dir in "$@"; do
         mkdir -p "$repo/$dir"
-        printf '{ "name": "pkg-%s", "scripts": { "check": "true" } }\n' "$(basename "$dir" | tr -c 'a-z\n' 'x')" >"$repo/$dir/package.json"
+        printf '{ "name": "pkg-%s", "scripts": { "check": "true" } }\n' "$(printf '%s' "${dir##*/}" | tr -c 'a-z' 'x')" >"$repo/$dir/package.json"
         printf 'export const value = "%s"\n' "$dir" | tr -d '"' >"$repo/$dir/mod.ts"
         list="$list${list:+, }$(jq -n --arg d "$dir" '$d')"
     done
@@ -95,6 +106,8 @@ L="$T/lead"       # key "l": a workspace whose folder name starts with a space
 N="$T/newline"    # key "n": a changed path with a line break in it
 E="$T/edge"       # key "e": a file name that ends with a space, and root scripts limited by root_if
 P="$T/trail"      # key "t": a file name that ends with a space, in a workspace
+X="$T/tab"        # key "x": a workspace whose folder name has a tab
+Y="$T/break"      # key "y": a workspace whose folder name has a line break
 newrepo "$M" packages/a packages/b
 newrepo "$S" "packages/my pkg" packages/b
 [ "$WIN" -eq 1 ] || newrepo "$Q" 'packages/q"t' packages/b
@@ -102,6 +115,8 @@ newrepo "$U" packages/a packages/b
 newrepo "$L" " lead" packages/b
 [ "$WIN" -eq 1 ] || newrepo "$N" packages/a packages/b
 [ "$WIN" -eq 1 ] || newrepo "$P" packages/a packages/b
+[ "$WIN" -eq 1 ] || newrepo "$X" "packages/a"$'\t'"tab" packages/b
+[ "$WIN" -eq 1 ] || newrepo "$Y" "packages/a"$'\n'"break" packages/b
 if [ "$WIN" -ne 1 ]; then
     # The root of «edge» has a "check" script of its own, which root_if limits to names ending in .ts.
     newrepo "$E" packages/a
@@ -109,7 +124,7 @@ if [ "$WIN" -ne 1 ]; then
     git -C "$E" -c user.email=t@t -c user.name=t commit -q -a --amend --no-edit
     git -C "$E" update-ref refs/remotes/origin/main HEAD
 fi
-jq -n --arg m "$M" --arg s "$S" --arg q "$Q" --arg u "$U" --arg l "$L" --arg n "$N" --arg e "$E" --arg p "$P" '{repos: [
+jq -n --arg m "$M" --arg s "$S" --arg q "$Q" --arg u "$U" --arg l "$L" --arg n "$N" --arg e "$E" --arg p "$P" --arg x "$X" --arg y "$Y" '{repos: [
     {key: "m", match: $m, pm: "npm", root: {}, workspace: {fast: ["check"]}},
     {key: "s", match: $s, pm: "npm", root: {}, workspace: {fast: ["check"]}},
     {key: "q", match: $q, pm: "npm", root: {}, workspace: {fast: ["check"]}},
@@ -117,6 +132,8 @@ jq -n --arg m "$M" --arg s "$S" --arg q "$Q" --arg u "$U" --arg l "$L" --arg n "
     {key: "l", match: $l, pm: "npm", root: {}, workspace: {fast: ["check"]}},
     {key: "n", match: $n, pm: "npm", root: {}, workspace: {fast: ["check"]}},
     {key: "t", match: $p, pm: "npm", root: {}, workspace: {fast: ["check"]}},
+    {key: "x", match: $x, pm: "npm", root: {}, workspace: {fast: ["check"]}},
+    {key: "y", match: $y, pm: "npm", root: {}, workspace: {fast: ["check"]}},
     {key: "e", match: $e, pm: "npm", root: {fast: ["check"]}, root_if: "\\.ts$", workspace: {}}
 ]}' >"$CLAUDE_GATE_CONFIG"
 
@@ -213,6 +230,68 @@ else
     if [[ "${scope#*—}" != *" packages/b"* ]]; then ok "a new file «packages/a/mod.ts »: packages/b stays out of the scope"
     else bad "a new file «packages/a/mod.ts » put packages/b in the scope: $scope"; fi
 fi
+
+# --- 9. A workspace whose folder name has a tab or a line break ------------------------------------
+# The plan used to be tab-separated lines: the tab split «packages/a<tab>tab» into a folder
+# «packages/a» and a package «tab», and the line break split the plan line in two. Each such workspace
+# must get its own scope: its own script runs (npm.log), and the gate names the folder escaped, in
+# quotes, on the scope line.
+if [ "$WIN" -eq 1 ]; then
+    echo "skip folder names with a tab or a line break: Windows file names cannot hold them"
+else
+    # $1 = key, $2 = repository, $3 = workspace folder, $4 = its package, $5 = the folder as the gate names it
+    own_scope() {
+        local key="$1" repo="$2" dir="$3" pkg="$4" shown="$5"
+        : >"$T/npm.log"
+        echo 'export const more = 1' >>"$repo/$dir/mod.ts"
+        gate "$repo"
+        scoped "an edit in the folder $shown: that package in the scope, named escaped" "$shown"
+        if [[ "${scope#*—}" != *" packages/b"* ]]; then ok "an edit in the folder $shown: packages/b stays out of the scope"
+        else bad "an edit in the folder $shown put packages/b in the scope: $scope"; fi
+        if grep -qxF "run check --workspace $pkg" "$T/npm.log" && [ "$(wc -l <"$T/npm.log" | tr -d ' ')" = 1 ]; then
+            ok "an edit in the folder $shown: the gate runs the script of $pkg and nothing else"
+        else bad "an edit in the folder $shown: npm calls: $(tr '\n' ';' <"$T/npm.log"), out: ${out:0:600}"; fi
+        if printf '%s\n' "$out" | grep -qxF "[gate] green (fast): $key/$shown:check"; then
+            ok "an edit in the folder $shown: the green line names it escaped, on one line"
+        else bad "an edit in the folder $shown: no one-line green line: ${out:0:600}"; fi
+    }
+    own_scope x "$X" "packages/a"$'\t'"tab" pkg-axtab '"packages/a\ttab"'
+    own_scope y "$Y" "packages/a"$'\n'"break" pkg-axbreak '"packages/a\nbreak"'
+    # A file outside workspaces whose name has a tab or a line break: the warning names it in quotes,
+    # escaped, on one line.
+    printf 'notes\n' >"$X/top"$'\t'"tab.md"
+    printf 'notes\n' >"$X/top"$'\n'"break.md"
+    gate "$X"
+    warn="$(printf '%s\n' "$out" | grep '^\[gate\] x: changes outside workspaces')"
+    if [[ "$warn" == *'"top\ttab.md"'* && "$warn" == *'"top\nbreak.md"'* ]]; then
+        ok "files outside workspaces with a tab or a line break: the warning names them escaped, in quotes, on one line"
+    else bad "the warning about files outside workspaces: «$warn», out: ${out:0:600}"; fi
+fi
+
+# --- 10. A plan the gate cannot read -----------------------------------------------------------------
+# A resolver that prints the old tab-separated plan (an old copy of the hooks), or JSON of another
+# shape (scripts as one string): the gate must not read either as a plan, and says "not verified",
+# exit 3.
+# $1 = description, $2 = the plan line the fake resolver prints (a JavaScript expression)
+unreadable() {
+    cat >"$T/bad-plan.mjs" <<EOF
+import { spawnSync } from "node:child_process"
+if (process.argv[2] !== "--which") {
+    console.log($2)
+    process.exit(0)
+}
+const r = spawnSync(process.execPath, [process.env.REAL_RESOLVE, ...process.argv.slice(2)], { stdio: "inherit" })
+process.exit(r.status ?? 1)
+EOF
+    out="$(cd "$U" && REAL_RESOLVE="$CLAUDE_GATE_RESOLVE" CLAUDE_GATE_RESOLVE="$T/bad-plan.mjs" node "$GATE" fast </dev/null 2>&1)"; rc=$?
+    if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] not verified: the plan resolver gate-resolve.mjs printed a plan the gate cannot read"* ]] && [[ "$out" != *"[gate] green"* ]]; then
+        ok "$1: not verified, exit 3"
+    else bad "$1: rc=$rc, out: ${out:0:600}"; fi
+}
+echo 'export const more = 1' >>"$U/packages/b/mod.ts"
+unreadable "a tab-separated plan" '["packages/b", "pkg-b", "check", "packages/b", ""].join("\t")'
+unreadable "a JSON plan whose scripts are one string" 'JSON.stringify({ dir: "packages/b", name: "pkg-b", scripts: "check" })'
+unreadable "a JSON plan whose workspace has no name" 'JSON.stringify({ dir: "packages/b", scripts: ["check"] })'
 
 echo
 echo "passed: $pass, failed: $fail"

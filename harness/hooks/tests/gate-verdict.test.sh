@@ -356,7 +356,7 @@ else bad "no package in the plan: the «nothing ran» line expected (rc=$rc, out
 # scripts): the gate checks nothing and says so.
 cat >"$T/plan-noscripts.mjs" <<EOF
 import { spawnSync } from "node:child_process"
-if (process.argv[2] !== "--which") { process.stdout.write(".\t\t\n"); process.exit(0) }
+if (process.argv[2] !== "--which") { console.log(JSON.stringify({ dir: ".", name: "", scripts: [] })); process.exit(0) }
 const r = spawnSync(process.execPath, [process.env.REAL_RESOLVE, ...process.argv.slice(2)], { stdio: "inherit" })
 process.exit(r.status ?? 1)
 EOF
