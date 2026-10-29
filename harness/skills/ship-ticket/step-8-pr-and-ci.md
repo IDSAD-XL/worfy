@@ -85,6 +85,9 @@ waiting for CI. A wave's documents commit changes ticket files — after it the 
 usually `DIRTY`. What else the change must fix so that CI does not turn red after the merge —
 `rules.md`.
 
+An implementer agent (`worfy:implementer`) does not wait here: its finish is the PR, one read of its CI and its
+report (`implementer-finish.md`). This wait is the orchestrator's (or the main session's, without one).
+
 Wait for CI with one long command, not frequent polling: an agent has a limited number of turns,
 and a merge was cut off twice in the middle of CI. The Bash call has timeout 600000; if it did not
 finish waiting, repeat the same command:

@@ -337,8 +337,9 @@ Autopilot) it is declined automatically.
 
 Agent `worfy:implementer` (`subagent_type: "worfy:implementer"`), name `impl-<NN>`, in the
 background: steps `F workflow.implementer_steps` of the skill `F workflow.ticket_skill` up to the
-finish `F workflow.finish` (a PR with green CI, or locally green checks); the merge stays with the
-orchestrator. The order of work and the report format are set in the agent definition; the brief
+finish `F workflow.finish` (a PR and a green gate fast, or locally green checks); the merge stays with the
+orchestrator. The implementer does not wait for CI: after its report the orchestrator waits for the
+project's final CI check (for example `ci-ok`) on the PR head, the Pipeline stage `ci`. The order of work and the report format are set in the agent definition; the brief
 does not repeat them.
 
 **Model and effort.** Every agent this skill starts gets the Agent parameters `model` and `effort`
@@ -548,7 +549,9 @@ the gate never started: the same as exit code 3, with the reason "node not found
 number — `EXIT=129`, `130`, `143`, `149` (SIGHUP, SIGINT, SIGTERM, Ctrl+Break of Windows) — the gate itself was stopped and this run wrote nothing: that is no
 verdict, and the ticket is not merged on it.
 Then the verifier checks the report by the lens "implementer's report" of agent `worfy:reviewer`
-(section "Lens descriptions" of the agent). Owner rules the verifier gets in its brief: an acceptance item that cannot be
+(section "Lens descriptions" of the agent). The line `e2e: deferred to gate full: <files>` in `not_verified` is not green: those e2e
+files did not run on the implementer's side, and they count only when the PR's final CI check or `gate full` runs them;
+the line itself is not a finding. Owner rules the verifier gets in its brief: an acceptance item that cannot be
 automated (a system dialog, an OS notification, a live terminal) may stay `[ ]` with a line
 "not verified: <why>" (in the docs' language) in the ticket's result
 section — that is not a finding and not a reason for `REJECTED`; attached evidence (a screenshot,

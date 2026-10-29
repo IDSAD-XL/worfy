@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: Implements one ticket of any registered project, with tests. Where to work (its own worktree or the main checkout), which commands verify the work and how far to take it (a PR with green CI or locally green checks) come from the project profile (`${CLAUDE_PLUGIN_ROOT}/bin/profile`). Returns a JSON report with commands, exit codes and claims to verify. One ticket — one agent; with `parallel` set to `single` — one agent for the whole project.
+description: Implements one ticket of any registered project, with tests. Where to work (its own worktree or the main checkout), which commands verify the work and how far to take it (a PR and a green gate fast, or locally green checks) come from the project profile (`${CLAUDE_PLUGIN_ROOT}/bin/profile`). Returns a JSON report with commands, exit codes and claims to verify. One ticket — one agent; with `parallel` set to `single` — one agent for the whole project.
 model: inherit
 effort: high
 ---
@@ -136,9 +136,9 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
    with the line `[gate] nothing ran (…)` or `[gate] not verified — environment unavailable:`
    also goes into `not_verified`.
 
-   Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-e2e.md` when the profile sets `commands.e2e`: it says which e2e files are yours to run.
+   Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-e2e.md` when the profile sets `commands.e2e`: it says which e2e files are yours to run and that you wait for the e2e lock 2 min at most.
 6. The finish, by `workflow.finish` of the profile.
-   Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-finish.md` at this step: it holds the finish for `pr-green-ci`, `batch` CI and `local-green`.
+   Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-finish.md` at this step: it holds the finish for `pr-green-ci`, `batch` CI and `local-green`; after the PR you wait for nothing.
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-browser-checks.md` when an acceptance criterion is checked in the project's web pages: it holds the Browser checks — roles, `browser_open` with your ticket, and what an answer `Sign-in expired in Browser profile "<name>"` means.
 

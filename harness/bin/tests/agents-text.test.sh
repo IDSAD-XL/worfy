@@ -513,10 +513,16 @@ in_text "$STEP6" 'CI is waited for as above' && bad "implementer, step 6: still 
 s6 "the CI wait of ship-ticket step 8 is not the implementer's" \
     'The CI wait of skill `/worfy:ship-ticket`, step 8, is the main session'"'"'s and the orchestrator'"'"'s, not yours.'
 
+STEP8_TEXT="$(cat "$ROOT/skills/ship-ticket/step-8-pr-and-ci.md")"
+in_text "$STEP8_TEXT" 'An implementer agent (`worfy:implementer`) does not wait here: its finish is the PR, one read of its CI and its report' \
+    && ok "ship-ticket step 8: the CI wait is not the implementer's" || bad "ship-ticket step 8: no line that the implementer does not wait for CI"
+in_text "$(cat "$ROOT/skills/epic-wave/SKILL.md")" 'The implementer does not wait for CI: after its report the orchestrator waits for the project'"'"'s final CI check (for example `ci-ok`) on the PR head, the Pipeline stage `ci`.' \
+    && ok "epic-wave: the orchestrator waits for CI after the implementer's report" || bad "epic-wave: no line that the orchestrator waits for CI after the implementer's report"
+
 # --- 11c. epic-wave: a deferred e2e run is not green ------------------------------------------
 # The deferred line lives in not_verified (11a); the verifier of skill epic-wave checks the report by
-# the lens "implementer's report", which reads not_verified as what the implementer did not check. The
-# skill's text needs no line of its own for `deferred`: the chain below is what keeps it from green.
+# the lens "implementer's report", which reads not_verified as what the implementer did not check; the
+# skill also names the deferred line as not green.
 EW_TEXT="$(cat "$ROOT/skills/epic-wave/SKILL.md")"
 in_text "$EW_TEXT" 'Then the verifier checks the report by the lens "implementer'"'"'s report" of agent `worfy:reviewer`' \
     && ok "epic-wave: the verifier checks the report by the lens implementer's report" \
@@ -524,6 +530,9 @@ in_text "$EW_TEXT" 'Then the verifier checks the report by the lens "implementer
 in_text "$(cat "$AGENTS/reviewer.md")" 'Read `not_verified` first: it names what the implementer did not check.' \
     && ok "reviewer, lens implementer's report: not_verified is what the implementer did not check" \
     || bad "reviewer: the lens implementer's report does not read not_verified as unchecked"
+in_text "$EW_TEXT" 'The line `e2e: deferred to gate full: <files>` in `not_verified` is not green: those e2e files did not run on the implementer'"'"'s side' \
+    && ok "epic-wave: the verifier does not take a deferred e2e run for green" \
+    || bad "epic-wave: no line that 'e2e: deferred to gate full' is not green"
 in_text "$STEP5" 'e2e files green.' && in_text "$STEP5" 'Put that line into `not_verified`' \
     && ok "implementer: a deferred e2e run reaches the verifier through not_verified, never as green" \
     || bad "implementer: the deferred line does not go into not_verified"
