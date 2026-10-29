@@ -235,10 +235,10 @@ note…`, который красный и до правки (5 из 5): в ко
   - #924: отказы `test-timings.test.ts:154` проверяются в процессе, остался один запуск;
   - #926: тесты запускают скрипты настоящим node через `test/script-node.ts`. Contract test
     `test/contract/script-node.test.ts` закрепляет список тех, кто остаётся на `process.execPath`, с причинами, и
-    падает на новое чтение `process.execPath` в коде тестов.
+    падает на новое чтение `process.execPath` в коде тестов;
+  - #937 (9787f176): test-ы `agent-cost` тоже переведены на `scriptNode()`, и файл ушёл из этого списка.
   Timeout не менялся.
-  Долг (low, из review #926): сторож не считает `export { execPath } from 'node:process'`. `agent-cost.test.ts`
-  остаётся в списке, пока не смёржен #922.
+  Долг (low, из review #926): сторож не считает `export { execPath } from 'node:process'`.
 - 2026-10-28, Windows e2e на runner-е, flaky — каждый по одному разу:
   - первый полный run 40742646874 (head 68491cf9): `browser.spec.ts:279` и `linked-machines.spec.ts:783`;
   - ранние triage run-ы: `trash-undo.spec.ts:115` и `controls.spec.ts:189`.
