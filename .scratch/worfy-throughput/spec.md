@@ -704,6 +704,7 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
 | 50 | `land.test.sh` быстрее: мир из шаблона, squash stub-а gh прямо в origin | 35 | да, для замеров и `check/windows` | да, только test `harness/bin/tests/land.test.sh` | платформенный PR (ADR-0056): по `scripts/windows-verdict-scope.mjs` | вне Wave (бриф моста 2026-10-29) |
 | 51 | `harness-evals.test.ts` в двух файлах и одна сборка fixture-а на кейс: короче shard 1/3 Windows | 35 | нет | только строка `harness/README.md` с именем test-файла | runner `full` по `scripts/windows-verdict-scope.mjs` | вне Wave (разбор моста 2026-10-29) |
 | 52 | worfy Autopilot начинает каждую следующую Wave в новой Session; первая команда — `wave-brief` | 28 | для merge — если в diff `test/e2e/**` | нет (код worfy) | `pc`, если в diff `test/e2e/**`; иначе runner `full` | вне Wave (решение владельца 2026-10-29, Q5) |
+| 53 | Сократить `rules.md` Profile-а worfy в старте агентов: редко нужные части — в файл по запросу; правки — предложением владельцу | 33 | нет | только если нужен код: `harness/bin/profile`, контракт Profile (`profiles/README.md`) | не платформенный, если не меняются скрипты `harness/bin` (test-ы в `harness/bin/tests/` не в счёт); иначе runner `full` | после 33 (решение владельца 2026-10-29, R2-Q7) |
 
 Почему так:
 
@@ -728,6 +729,8 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
   `harness-evals.test.ts` — 257–261 s. 51 делит файл на два и строит fixture кейса один раз, а не в каждом test-е.
 - **52 после 28:** 28 дал `wave-brief` и «report, brief, stop» в конце Wave; 52 делает то же в Autopilot —
   `src/main/autopilot/run.ts` ведёт все Wave run-а в одной SDK session.
+- **53 после 33** (решение 2026-10-29, R2-Q7): 33 переносит замер `start-context` на порог частей Harness и
+  показывает часть Profile отдельно; 53 сокращает эту часть и берёт замер «до» и «после» из того же вывода.
 - **33 после 37** (решение 2026-10-29): все три правят `harness/skills/ship-ticket/SKILL.md`; 36 влит (#950), 37 в работе у Session моста.
 - **`pc` для 40, 41, 42:** e2e-файлы входят в `PC_ONLY` (`scripts/windows-verdict-scope.mjs:80`), а ПК на паузе. Если
   e2e не нужен, такой PR идёт с runner `full`.
@@ -847,3 +850,31 @@ Ticket-ы 36–43 ведёт Session-мост на Mac — Session, котора
 - **Q9** — термин Wave brief — в `CONTEXT.md`.
 - **Q10** — `worfy-harness` 70 (`eval:harness --changed` гонит все кейсы и не держит лимит цены) снова `open`,
   приоритет низкий: рост стоимости не критичен.
+
+### Ответы владельца 2026-10-29, раунд 2
+
+Через Orchestrator, второй список вопросов того же дня. Слово владельца на все семь — «да».
+
+- **R2-Q1** — платный run `eval:harness` для Ticket-а 33 разрешён с границами: только кейсы, которые покрывают
+  перенесённые тексты; потолок $10; команду каждого кейса сначала проверить руками — что она запустит и сколько
+  это стоит (урок 2026-10-22: `--changed` прогнал все кейсы, $30,29 вместо ~$1). Дороже $10 — снова спросить
+  владельца.
+- **R2-Q2** — модель reviewer-а остаётся `inherit` (модель Session-а) на любой глубине review. scout и verifier
+  на Sonnet — по Q-L3. Это заменяет часть Q-L3 «reviewer на `low` — Sonnet сразу».
+- **R2-Q3** — merge skew: два PR зелёные каждый на своей базе и красные вместе (красный `main` на `f52dc8bb`
+  после #954 и #957, исправлен вперёд PR-ом #968). Правило Q2 остаётся: исправление вперёд до 1 h, затем revert.
+  Сгенерированные файлы в репозиторий не commit-ятся: Ticket 11 строит таблицу affected-tests во время CI run-а.
+  «Require branch up to date» и merge queue не включаем, пока skew-ов не больше одного в неделю.
+- **R2-Q4** — Ticket 11: `affected-tests` вернул пустой список — job-ы test-ов linux и windows проходят без
+  запуска vitest и всё равно отчитываются в `ci-ok`. Smoke-набора на этот случай нет.
+- **R2-Q5** — Ticket 45 Epic-а `worfy-polish` (статус `interrupted` и кнопка «Hide» у Subagent-ов) уходит в
+  работу сейчас, параллельно с Ticket-ами 11 и 33. Это платформенный PR: в его diff есть `test/e2e/**`.
+- **R2-Q6** — статус `interrupted` рисуется нейтральным серым, подпись «Interrupted», tooltip говорит, что
+  процесс Session-а перезапустился. Не красный и не янтарный. Записано в Ticket 45 Epic-а `worfy-polish`.
+- **R2-Q7** — порог стартового контекста считает только то, что контролирует Harness: файл агента, текст
+  skill-а, который агент грузит на старте, и `common.md`. Порог — 15 000 token-ов. Константа Claude Code
+  (system prompt и схемы tool-ов), вывод Profile (`rules.md`), `CLAUDE.md`/`MEMORY.md` и бриф показываются
+  отдельно и в порог не входят. Замер implementer-а — 68,8k, из них 34k — эти постоянные части. Ticket 33
+  переписан под новый порог. Новый Ticket 53: сократить `rules.md` Profile-а worfy (23 KB, около 10,6k token-ов
+  в старте каждого агента) — редко нужные части уходят в файл, который агент читает по запросу. Ticket
+  предлагает правки; менять `rules.md` (файл вне репозитория) решает владелец.
