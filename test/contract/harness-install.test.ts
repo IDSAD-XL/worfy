@@ -37,6 +37,7 @@ import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { shellStub } from '../shell-stub'
 import { harnessInstall, type HarnessStatus } from '../../src/shared/ipc/harness'
+import { ms } from '../time-scale'
 
 const REPO = join(__dirname, '..', '..')
 const V1 = '0.2.0+aaaaaaa'
@@ -1515,7 +1516,7 @@ describe.skipIf(process.platform !== 'darwin' && process.platform !== 'win32')('
         ],
       },
     ])
-    const run = (args: string[]): ReturnType<typeof spawnSync> => spawnSync(claude, args, { env, cwd: sb.root, encoding: 'utf8', timeout: 60_000 })
+    const run = (args: string[]): ReturnType<typeof spawnSync> => spawnSync(claude, args, { env, cwd: sb.root, encoding: 'utf8', timeout: ms(60_000) })
 
     const list = run(['plugin', 'list', '--json'])
     expect(list.status).toBe(0)
@@ -1528,7 +1529,7 @@ describe.skipIf(process.platform !== 'darwin' && process.platform !== 'win32')('
     expect(settings.enabledPlugins).toMatchObject({ [HARNESS_PLUGIN_ID]: true })
 
     for (const command of plans[0]!.commands) expect(run(command).status).toBe(0)
-  }, 120_000)
+  }, ms(120_000))
 })
 
 describe('a .mjs Claude Code (WORFY_CLAUDE in tests)', () => {

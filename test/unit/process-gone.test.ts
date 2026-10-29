@@ -10,6 +10,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProcessGoneDeps } from '../../src/main/diagnostics/process-gone'
 import { dataRoot } from '../../src/main/storage/paths'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 type Listener = (...args: unknown[]) => void
 
@@ -204,7 +205,7 @@ describe('processGoneLogPath', () => {
 describe('the start in src/main/index.ts', () => {
   // The import runs the whole start of the main process over mocked Electron, so it gets the time
   // limit of the contract tests that do the same.
-  it('subscribes to both events before the first window, and their lines land in the data folder', { timeout: 15_000 }, async () => {
+  it('subscribes to both events before the first window, and their lines land in the data folder', { timeout: ms(15_000) }, async () => {
     const dataDir = join(scratch, 'start-data')
     const claudeDir = join(scratch, 'start-claude')
     const previous = { data: process.env.WORFY_DATA_DIR, claude: process.env.WORFY_CLAUDE_HOME }
@@ -216,7 +217,7 @@ describe('the start in src/main/index.ts', () => {
         listenersAtWindow = [...electron.listeners.keys()]
       })
       await import('../../src/main/index')
-      await vi.waitFor(() => expect(electron.createMainWindow).toHaveBeenCalled(), { timeout: 10_000 })
+      await vi.waitFor(() => expect(electron.createMainWindow).toHaveBeenCalled(), { timeout: ms(10_000) })
       expect(listenersAtWindow).toEqual(expect.arrayContaining(['render-process-gone', 'child-process-gone']))
       expect(electron.listeners.get('render-process-gone')).toHaveLength(1)
       expect(electron.listeners.get('child-process-gone')).toHaveLength(1)

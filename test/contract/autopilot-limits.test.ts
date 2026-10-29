@@ -30,6 +30,7 @@ import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { MAX_WAIT_MS, RECHECK_MS, RESUME_MARGIN_MS } from '../../src/shared/autopilot/resume-at'
 import { autopilotChanged, autopilotStateSchema, autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
+import { ms } from '../time-scale'
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -125,8 +126,9 @@ afterEach(async () => {
 
 // ── the harness ──────────────────────────────────────────────────────────────
 
-async function until(condition: () => boolean | Promise<boolean>, what: string, ms = 3000): Promise<void> {
-  const end = Date.now() + ms
+async function until(condition: () => boolean | Promise<boolean>, what: string, limit = 3000): Promise<void> {
+  const wait = ms(limit)
+  const end = Date.now() + wait
   while (!(await condition())) {
     if (Date.now() > end) throw new Error(`timed out waiting for ${what}`)
     await new Promise((done) => setTimeout(done, 10))

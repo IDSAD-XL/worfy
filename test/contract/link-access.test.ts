@@ -44,6 +44,7 @@ import { LinkBench, type BenchMachine } from './link-bench'
 import { PROFILE_VARS, windowsProfileEnv } from '../windows-profile'
 import { nodeScript } from '../harness-node'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 const env = await vi.hoisted(async () => {
   // Before any module of main is imported: the workflow hub takes the Claude home at import.
@@ -371,8 +372,9 @@ function linkClientsOfB(): string[] {
 }
 
 /** Polls until `done` holds or `ms` pass (five seconds by default). */
-async function until(done: () => boolean, ms = 5000): Promise<void> {
-  const deadline = Date.now() + ms
+async function until(done: () => boolean, limit = 5000): Promise<void> {
+  const wait = ms(limit)
+  const deadline = Date.now() + wait
   while (!done() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20))
 }
 
@@ -382,7 +384,7 @@ async function until(done: () => boolean, ms = 5000): Promise<void> {
  */
 const SHELL_WAIT_MS = 30_000
 /** A test that waits for a shell: three waits of SHELL_WAIT_MS at most, and the rest of the test. */
-const SHELL_TEST_MS = 120_000
+const SHELL_TEST_MS = ms(120_000)
 /**
  * The prompt of a shell in its output: `$ ` of /bin/sh (PS1 of the Terminal's environment above; `# `
  * when a login /bin/sh run as root takes PS1 from /etc/profile), `PS <folder>> ` of PowerShell. A line

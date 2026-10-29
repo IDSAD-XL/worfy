@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { APP_ID, appUserModelId } from '../../src/main/app-id'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 /** What the start did, in order: `id:<value>`, `notifications`, `window`. */
 const steps = vi.hoisted((): string[] => [])
@@ -78,7 +79,7 @@ async function start(system: NodeJS.Platform, packaged: boolean): Promise<string
   Object.defineProperty(process, 'platform', { ...platform, value: system })
   await import('../../src/main/index')
   // The start registers every IPC handler first: seconds on a loaded machine.
-  await vi.waitFor(() => expect(steps).toContain('window'), { timeout: 12_000 })
+  await vi.waitFor(() => expect(steps).toContain('window'), { timeout: ms(12_000) })
   return [...steps]
 }
 

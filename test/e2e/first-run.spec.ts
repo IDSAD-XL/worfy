@@ -7,6 +7,7 @@ import { expectBorderedChipsFit } from './chip-fit'
 import { CHECK_IDS, CHECK_RUN_CALL, CLAUDE_STAND_IN, NO_QMD, TOOLS, toolFile, writeSandbox } from './first-run-sandbox'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { ms } from '../time-scale'
 
 // worfy-harness ticket 19: the first-run screen against the built app, in a sandbox. HOME, the
 // Claude home (WORFY_CLAUDE_HOME, so the Harness install is offered in this dev build) and worfy's
@@ -145,9 +146,9 @@ const toolbarHarness = (window: Page): Locator => window.getByTestId('harness-st
 /** The screen, once its checks are in. */
 async function screen(window: Page): Promise<Locator> {
   const dialog = window.getByTestId('first-run')
-  await expect(dialog).toBeVisible({ timeout: 30_000 })
-  await expect(dialog.locator('[data-check]')).toHaveCount(CHECK_IDS.length, { timeout: 30_000 })
-  await expect(dialog.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: 30_000 })
+  await expect(dialog).toBeVisible({ timeout: ms(30_000) })
+  await expect(dialog.locator('[data-check]')).toHaveCount(CHECK_IDS.length, { timeout: ms(30_000) })
+  await expect(dialog.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: ms(30_000) })
   return dialog
 }
 const row = (dialog: Locator, id: string): Locator => dialog.locator(`[data-check="${id}"]`)
@@ -205,7 +206,7 @@ test.describe('first-run screen', () => {
       // Install → one dialog with Confirm → the dependency and the Harness are installed and both rows are ok.
       await answerDialogWith(launched, 0)
       await row(dialog, 'harness').getByRole('button', { name: 'Install' }).click()
-      await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'ok', { timeout: 30_000 })
+      await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'ok', { timeout: ms(30_000) })
       await expect(row(dialog, 'harness')).toContainText(bundledHarness())
       // The toolbar learns of the install from main's `harness.changed`, without a reload: one event, the installed state.
       await expect(toolbar.getByTestId('harness-text')).toHaveText(`Harness ${bundledHarness()}`)
@@ -254,7 +255,7 @@ test.describe('first-run screen', () => {
         // Skip → Confirm → the models are "skipped".
         await answerDialogWith(launched, 0)
         await row(dialog, 'qmd-models').getByRole('button', { name: 'Skip…' }).click()
-        await expect(row(dialog, 'qmd-models')).toHaveAttribute('data-status', 'ok', { timeout: 30_000 })
+        await expect(row(dialog, 'qmd-models')).toHaveAttribute('data-status', 'ok', { timeout: ms(30_000) })
         await expect(row(dialog, 'qmd-models')).toContainText('skipped')
         expect(readFileSync(join(claudeHome, 'worfy-harness', 'qmd-models'), 'utf8')).toBe('skipped\n')
         await expect(dialog.getByTestId('first-run-summary')).toHaveText('Everything is ready')
@@ -273,7 +274,7 @@ test.describe('first-run screen', () => {
     launched = await launch()
     try {
       await expect(launched.window.getByTestId('app-shell')).toBeVisible()
-      await expect.poll(() => calls().slice(before).includes(CHECK_RUN_CALL), { timeout: 30_000 }).toBe(true)
+      await expect.poll(() => calls().slice(before).includes(CHECK_RUN_CALL), { timeout: ms(30_000) }).toBe(true)
       const startup = await launched.window.evaluate(() =>
         (globalThis as unknown as { worfy: { invoke(c: string, i?: unknown): Promise<{ ok: boolean; value: { show: boolean } }> } }).worfy.invoke('firstRun.startup'),
       )
@@ -293,7 +294,7 @@ test.describe('first-run screen', () => {
       await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
       await answerDialogWith(launched, 0)
       await row(dialog, 'harness').getByRole('button', { name: 'Install' }).click()
-      await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness error: install', { timeout: 30_000 })
+      await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness error: install', { timeout: ms(30_000) })
       await expect(toolbar.getByTestId('harness-text')).toHaveAttribute('title', /plugin install worfy@worfy-harness --scope user failed/)
       await expect(toolbar.getByTestId('harness-action')).toHaveAccessibleName('Retry')
       expect(calls()).toContain('claude plugin install worfy@worfy-harness --scope user')
@@ -315,7 +316,7 @@ test.describe('first-run screen', () => {
       await install.click()
       await expect.poll(async () => (await shownDialogs(launched)).length).toBe(1)
       // The action is over once the row offers Install again.
-      await expect(install).toBeEnabled({ timeout: 30_000 })
+      await expect(install).toBeEnabled({ timeout: ms(30_000) })
       await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'fail')
       await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
       await expect(toolbar.getByTestId('harness-action')).toHaveAccessibleName('Install')
@@ -335,7 +336,7 @@ test.describe('first-run screen', () => {
       await expect(toolbar.getByTestId('harness-action')).toHaveAccessibleName('Install')
       await answerDialogWith(launched, 0)
       await toolbar.getByTestId('harness-action').click()
-      await expect(toolbar.getByTestId('harness-text')).toHaveText(`Harness ${bundledHarness()}`, { timeout: 30_000 })
+      await expect(toolbar.getByTestId('harness-text')).toHaveText(`Harness ${bundledHarness()}`, { timeout: ms(30_000) })
       await expect(toolbar.getByTestId('harness-action')).toHaveCount(0)
 
       await window.keyboard.press('ControlOrMeta+k')
@@ -372,7 +373,7 @@ test.describe('first-run screen', () => {
 
       await answerDialogWith(launched, 0)
       await dependencies.getByRole('button', { name: 'Install…' }).click()
-      await expect(dependencies).toHaveAttribute('data-status', 'ok', { timeout: 30_000 })
+      await expect(dependencies).toHaveAttribute('data-status', 'ok', { timeout: ms(30_000) })
       await expect(dependencies).toContainText('OK')
       await expect(dependencies).toContainText(`${DEP} 1.0.0`)
       await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'ok')
@@ -472,13 +473,13 @@ test.describe('first-run screen', () => {
 
       await answerDialogWith(launched, 0)
       await accounts.getByRole('button', { name: 'Sign in…' }).click()
-      await expect(dialog).toBeHidden({ timeout: 15_000 })
+      await expect(dialog).toBeHidden({ timeout: ms(15_000) })
       const shown = await shownDialogs(launched)
       expect(shown[1]?.detail).toContain('gh auth login')
       expect(shown[1]?.detail).toContain('alpha')
       const terminal = launched.window.getByTestId('terminal-node')
       await expect(terminal).toHaveCount(1)
-      await expect(terminal.locator('.xterm-rows')).toContainText('fake gh: auth login started', { timeout: 15_000 })
+      await expect(terminal.locator('.xterm-rows')).toContainText('fake gh: auth login started', { timeout: ms(15_000) })
       expect(calls()).toContain('gh auth login')
       // The screen is closed for good: the mark has the failing GitHub check, so the next start does not open it for that.
       expect((JSON.parse(readFileSync(join(dataDir, 'first-run.json'), 'utf8')) as { failing: string[] }).failing).toContain('gh-auth')

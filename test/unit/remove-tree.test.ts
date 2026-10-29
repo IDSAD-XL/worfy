@@ -20,6 +20,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { REMOVE_RETRIES, removeFile, removeTree } from '../../src/main/storage/remove'
 import { builtCopy, COPIES } from './remove-tree-model'
+import { ms } from '../time-scale'
 
 const WINDOWS = process.platform === 'win32'
 
@@ -257,7 +258,7 @@ describe('removeTree and removeFile over real folders', () => {
     }
     removeTree(tree)
     expect(existsSync(tree)).toBe(false)
-  }, 30_000)
+  }, ms(30_000))
 
   // Review round 2 of PR #257. Every call of the application comes with no options, so it is the
   // machine that says which way a removal goes. A folder nothing may be removed from tells the two

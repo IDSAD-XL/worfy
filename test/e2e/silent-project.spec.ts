@@ -7,6 +7,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { nodeScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // A Silent Project and a Project over two repositories in the built app (worfy-harness ticket 23;
 // ADR-0042, ADR-0045). The Harness is stubbed in a temporary WORFY_CLAUDE_HOME: `bin/profile --json`
@@ -218,7 +219,7 @@ test('a Silent Project: the Epic frame with its title and the Tickets come from 
     const frame = window.locator('[data-testid="epic-frame"]')
     // The frame appears after three Harness scripts run one after another (profile, ticket root,
     // epic-status); under a loaded gate full that took longer than the default 5 s.
-    await expect(frame).toHaveCount(1, { timeout: 15_000 })
+    await expect(frame).toHaveCount(1, { timeout: ms(15_000) })
     await expect(frame.locator('.w-epic__title')).toContainText('Silent epic from the Workflow folder')
     const ticket = (num: number): Locator => window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`)
     await expect(ticket(1)).toHaveAttribute('data-state', 'work')
@@ -279,7 +280,7 @@ test('a Project over two repositories: each Ticket shows its repository, and its
     await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
     const ticket = (num: number): Locator => window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`)
     await expect(window.locator('[data-testid="epic-frame"] .w-epic__title')).toContainText('Two repositories', {
-      timeout: 15_000,
+      timeout: ms(15_000),
     })
 
     await expect(ticket(5).getByTestId('ticket-repo')).toHaveText('api')
@@ -327,7 +328,7 @@ test('an Epic put into an open Silent Project whose Workflow folder has no .scra
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_HARNESS_HOME: join(scratch, 'no-harness-home'), WORFY_GH: gh.command } })
   try {
     const { window } = launched
-    await expect(window.getByText('No epics in .scratch/')).toBeVisible({ timeout: 15_000 })
+    await expect(window.getByText('No epics in .scratch/')).toBeVisible({ timeout: ms(15_000) })
 
     // The stubbed epic-status answers with the Epic first; then the Epic is put and committed, as
     // step 15 of the acceptance instructions does.
@@ -338,7 +339,7 @@ test('an Epic put into an open Silent Project whose Workflow folder has no .scra
     git(folder, 'commit', '-q', '-m', 'epic')
 
     // No switch of the Project: the watcher alone brings the Epic in.
-    await expect(window.locator('[data-testid="sidebar-epic"][data-epic="e3-acceptance"]')).toBeVisible({ timeout: 10_000 })
+    await expect(window.locator('[data-testid="sidebar-epic"][data-epic="e3-acceptance"]')).toBeVisible({ timeout: ms(10_000) })
   } finally {
     await launched.close()
   }

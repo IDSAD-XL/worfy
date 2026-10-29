@@ -20,8 +20,9 @@ import { expect, test, type ElectronApplication, type Page } from '@playwright/t
 import { canvasReady, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript, loginProfileWithNode } from '../harness-node'
+import { ms } from '../time-scale'
 
-test.setTimeout(240_000)
+test.setTimeout(ms(240_000))
 
 const BETA = 'beta-0000000b'
 const EPIC = 'demo'
@@ -244,7 +245,7 @@ test('in a window of A on a Project of B: "+" picks with A\'s dialog and B keeps
 
     // ── "+" in the Orchestrator's Session of B ──
     const orchestrator = a.window.getByTestId('orchestrator-node')
-    await expect(orchestrator.getByTestId('orchestrator-state')).toHaveText('idle', { timeout: 30_000 })
+    await expect(orchestrator.getByTestId('orchestrator-state')).toHaveText('idle', { timeout: ms(30_000) })
     await orchestrator.locator('.w-orchestrator__header').dblclick()
     const view = a.window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
     await expect(view.getByTestId('session-state')).toHaveText('idle')
@@ -269,7 +270,7 @@ test('in a window of A on a Project of B: "+" picks with A\'s dialog and B keeps
 
     await field.press('Enter')
     await expect(view.getByTestId('attachment-chip')).toHaveCount(0)
-    await expect.poll(() => messagesOf(bSetup.log).length, { timeout: 15_000 }).toBe(1)
+    await expect.poll(() => messagesOf(bSetup.log).length, { timeout: ms(15_000) }).toBe(1)
     const sent = String(messagesOf(bSetup.log)[0]?.content)
     const match = /^read this\n\nAttached files: (\S+)$/.exec(sent)
     expect(match, sent).not.toBeNull()

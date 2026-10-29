@@ -12,6 +12,7 @@ import { RESUME_MARGIN_MS } from '../../src/shared/autopilot/resume-at'
 import { autopilotStatusLine } from '../../src/shared/ipc/autopilot'
 import { launchApp, repoRoot } from './helpers'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // The hints' phrase (DISPLAY_STAYS_ON in src/renderer/canvas/actions/AutopilotAction.tsx), written
 // out: the renderer module is not loaded into the Playwright process.
@@ -605,7 +606,7 @@ test('Force stop during the Wave\'s turn: the button says Stopping… until the 
     await item.dispatchEvent('click')
     await stop.dispatchEvent('click')
     await expect(stop).toHaveText('Stopping…')
-    await expect(status).toHaveText('stopped: user force stop', { timeout: 30_000 })
+    await expect(status).toHaveText('stopped: user force stop', { timeout: ms(30_000) })
     await expect(frame.getByTestId('action-autopilot')).toHaveText('Autopilot')
     await expect.poll(() => journalKinds(dataDir)).toEqual([
       'run-started',

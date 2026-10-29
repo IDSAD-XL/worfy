@@ -3,6 +3,7 @@
 // renders the app into #root as it loads.
 import { act } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ms } from '../time-scale'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -25,5 +26,5 @@ describe('the entry of the renderer', () => {
     } finally {
       root.remove()
     }
-  }, 30_000)
+  }, ms(30_000))
 })

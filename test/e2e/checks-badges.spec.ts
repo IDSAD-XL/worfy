@@ -7,6 +7,7 @@ import { join, relative, sep } from 'node:path'
 import { expect, test, type Locator } from '@playwright/test'
 import { expectSettledWithoutOverlaps, launchApp, ticketCardCuts } from './helpers'
 import { catScript, profileJsonScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // Gate, PR, CI and verdict badges (ticket 17) in the built app. A temporary WORFY_CLAUDE_HOME holds
 // what the gate and Claude Code leave behind: gate/config.json, a red marker for the worktree of
@@ -239,7 +240,7 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
     const ticket = (num: number): Locator => window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`)
     const session = window.locator(`[data-testid="session-node"][data-session-id="${S7}"]`)
     await expect(ticket(7)).toBeVisible()
-    await expect(session).toBeVisible({ timeout: 10_000 })
+    await expect(session).toBeVisible({ timeout: ms(10_000) })
 
     // Red by the marker, on the Ticket and on the Session in its worktree.
     await expect(ticket(7).getByTestId('checks-gate')).toHaveAttribute('data-value', 'red')
@@ -528,7 +529,7 @@ test('nine Stages on a 240 px Card: the Stage name and whom it waits for are nev
     ]
     for (const each of expected) {
       const card = ticket(each.num)
-      await expect(card).toHaveAttribute('aria-label', `Ticket 0${each.num}, ${each.stage}`, { timeout: 20_000 })
+      await expect(card).toHaveAttribute('aria-label', `Ticket 0${each.num}, ${each.stage}`, { timeout: ms(20_000) })
       await expect(card.getByTestId('stepper-label')).toHaveText(each.stage)
       await expect(card.getByTestId('stepper-rework')).toHaveCount(each.rework ? 1 : 0)
       await expect(card.getByTestId('stepper-blocked')).toHaveCount(each.blocked ? 1 : 0)
@@ -567,7 +568,7 @@ test('nine Stages, a repository chip and the Ready chip on a 240 px Card: the re
     const { window } = launched
     for (const [at, name] of names.entries()) {
       const card = window.locator(`[data-testid="ticket-node"][data-ticket="${at + 1}"]`)
-      await expect(card).toHaveAttribute('aria-label', `Ticket 0${at + 1}, Queued`, { timeout: 20_000 })
+      await expect(card).toHaveAttribute('aria-label', `Ticket 0${at + 1}, Queued`, { timeout: ms(20_000) })
       await expect(card.getByTestId('ticket-repo')).toHaveAttribute('data-repo', name)
       await expect(card.getByTestId('ticket-repo')).toHaveText(name)
       await expect(card.getByTestId('ticket-ready')).toBeVisible()
@@ -624,7 +625,7 @@ test('the width estimate against the real fonts: Cyrillic, wide letters, a long 
     await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 1000))
     for (const each of tickets) {
       const card = window.locator(`[data-testid="ticket-node"][data-ticket="${each.num}"]`)
-      await expect(card.getByTestId('ticket-repo')).toBeVisible({ timeout: 20_000 })
+      await expect(card.getByTestId('ticket-repo')).toBeVisible({ timeout: ms(20_000) })
       await expect(card.locator('.w-ticket__title')).toHaveText(each.title!)
       if (each.reason) await expect(card.locator('.w-ticket__reason')).toHaveText(each.reason)
       if (each.repo) await expect(card.getByTestId('ticket-repo')).toHaveText(each.repo)
@@ -666,7 +667,7 @@ test('a Stage name too long even for the narrow form, beside a repository chip: 
     ]
     for (const each of cards) {
       const card = window.locator(`[data-testid="ticket-node"][data-ticket="${each.num}"]`)
-      await expect(card).toHaveAttribute('aria-label', `Ticket 0${each.num}, ${each.stage}`, { timeout: 20_000 })
+      await expect(card).toHaveAttribute('aria-label', `Ticket 0${each.num}, ${each.stage}`, { timeout: ms(20_000) })
       await expect(card.getByTestId('ticket-repo')).toBeVisible()
       await expect(card.getByTestId('ticket-ready')).toHaveCount(each.ready ? 1 : 0)
       await expect(card.getByTestId('stepper-blocked')).toHaveCount(each.blocked ? 1 : 0)

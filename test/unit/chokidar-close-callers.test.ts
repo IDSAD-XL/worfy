@@ -24,7 +24,7 @@
 import { join, relative, sep } from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
-import { timeScale } from '../time-scale'
+import { ms } from '../time-scale'
 
 const REPO = join(import.meta.dirname, '..', '..')
 const MAIN = join(REPO, 'src', 'main') + sep
@@ -118,5 +118,5 @@ describe('chokidar watches in src/main are closed only through closeForGood', ()
     expect(found.filter(({ at }) => at.startsWith(`${HELPER}:`))).toEqual([expect.objectContaining({ what: 'close' })])
     expect(found.filter(({ at }) => !at.startsWith(`${HELPER}:`)).map(({ at, what }) => `${at} ${what}`), 'close these through closeForGood (src/main/chokidar-close.ts)').toEqual([])
     // The type checker reads all of src/main: some seconds alone, more in a full run.
-  }, 60_000 * timeScale)
+  }, ms(60_000))
 })

@@ -39,8 +39,9 @@ import { expectBorderedChipsFit } from './chip-fit'
 import { DENY_ACE_BYPASSED, denyBypassed } from './deny-ace'
 import { snapshotThemes } from './snapshots'
 import { catScript, loginProfileWithNode } from '../harness-node'
+import { ms } from '../time-scale'
 
-test.setTimeout(120_000)
+test.setTimeout(ms(120_000))
 
 /**
  * Takes away this user's right to add files to `folder` (`writable` false) or gives it back. Off
@@ -234,7 +235,7 @@ test('two worfy link by address and code, and each lists the other as online', a
     // The other worfy quits: nobody is online, so the dot goes; the Linked machine stays in the list.
     await b.close()
     b = undefined
-    await expect(machinesDot(a.window)).toHaveCount(0, { timeout: 20_000 })
+    await expect(machinesDot(a.window)).toHaveCount(0, { timeout: ms(20_000) })
     await expandMachines(a.window)
     await expect(row(a.window, bId)).toBeVisible()
     await expect(row(a.window, bId)).toHaveAttribute('data-state', 'unavailable')
@@ -283,8 +284,8 @@ test('revoking from A, then from B: the row goes on both within 5 s, and linking
     const { a, b, aId, bId } = pair
     for (const window of [a.window, b.window]) await expect(machinesDot(window)).toHaveAccessibleName('1 linked machine online')
     await revoke(a.window, bId)
-    await expect(row(a.window, bId)).toHaveCount(0, { timeout: 5_000 })
-    await expect(row(b.window, aId)).toHaveCount(0, { timeout: 5_000 })
+    await expect(row(a.window, bId)).toHaveCount(0, { timeout: ms(5_000) })
+    await expect(row(b.window, aId)).toHaveCount(0, { timeout: ms(5_000) })
     // No Linked machine on either side: the dot is gone from both.
     for (const window of [a.window, b.window]) await expect(machinesDot(window)).toHaveCount(0)
 
@@ -294,8 +295,8 @@ test('revoking from A, then from B: the row goes on both within 5 s, and linking
     await collapseMachines(a.window)
     await expect(machinesDot(a.window)).toBeVisible()
     await revoke(b.window, aId)
-    await expect(row(b.window, aId)).toHaveCount(0, { timeout: 5_000 })
-    await expect(row(a.window, bId)).toHaveCount(0, { timeout: 5_000 })
+    await expect(row(b.window, aId)).toHaveCount(0, { timeout: ms(5_000) })
+    await expect(row(a.window, bId)).toHaveCount(0, { timeout: ms(5_000) })
     for (const window of [a.window, b.window]) await expect(machinesDot(window)).toHaveCount(0)
     await expect(machinesHeading(a.window)).toHaveAttribute('aria-expanded', 'false')
 
@@ -593,7 +594,7 @@ test('the sidebar of A lists the Projects of B under B, with its state; not shar
     // B closed: unavailable.
     await b.close()
     b = undefined
-    await expect(group(a.window, bId)).toHaveAttribute('data-state', 'unavailable', { timeout: 20_000 })
+    await expect(group(a.window, bId)).toHaveAttribute('data-state', 'unavailable', { timeout: ms(20_000) })
     await expect(group(a.window, bId)).toContainText('Unavailable')
     // The "Unavailable" chip has a 1 px border: its text stays inside it.
     await expectBorderedChipsFit(group(a.window, bId), 'the sidebar group of an unavailable Machine')
@@ -786,7 +787,7 @@ test('Settings → Machines: a level per Linked machine; with Read only A sees t
 })
 
 test('A opens a Project of B: its Canvas, Node moves, Session, Terminal and Autopilot go to B; B gone — "unreachable", B back — the Canvas again', async () => {
-  test.setTimeout(240_000)
+  test.setTimeout(ms(240_000))
   const scratch = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-link-09-canvas-')))
   const shared = gitRepo(join(scratch, 'shared'))
   const own = gitRepo(join(scratch, 'alpha'))
@@ -822,29 +823,29 @@ test('A opens a Project of B: its Canvas, Node moves, Session, Terminal and Auto
     // camera is still where the Layout opens it, so the Epic frame is in view.
     const frame = (window: Page) => window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
     await frame(a.window).getByTestId('action-autopilot').click()
-    for (const window of [a.window, bWindow]) await expect(frame(window).getByTestId('autopilot-status')).toHaveText('Wave 1 · running', { timeout: 20_000 })
+    for (const window of [a.window, bWindow]) await expect(frame(window).getByTestId('autopilot-status')).toHaveText('Wave 1 · running', { timeout: ms(20_000) })
     await frame(a.window).getByTestId('action-autopilot-more').click()
     await a.window.getByTestId('action-force-stop-autopilot').click()
-    for (const window of [a.window, bWindow]) await expect(frame(window).getByTestId('autopilot-status')).toHaveText('stopped: user force stop', { timeout: 20_000 })
+    for (const window of [a.window, bWindow]) await expect(frame(window).getByTestId('autopilot-status')).toHaveText('stopped: user force stop', { timeout: ms(20_000) })
 
     // A Node moved in A is in the same place in B's window within a second.
     const before = await drawnAt(bWindow, 'note-b')
     await drag(a, noteInA.locator('.w-note__header'), 160, 90)
     await expect.poll(() => drawnAt(a.window, 'note-b')).not.toBe(before)
     const moved = await drawnAt(a.window, 'note-b')
-    await expect.poll(() => drawnAt(bWindow, 'note-b'), { timeout: 1_000 }).toBe(moved)
+    await expect.poll(() => drawnAt(bWindow, 'note-b'), { timeout: ms(1_000) }).toBe(moved)
 
     // What A types into the Terminal runs in B's shell, and its output is in B's window. Before the
     // Session below: a new Session moves the camera to itself, and at 1400×900 that leaves the
     // Terminal past the right edge of the window.
     const termA = a.window.locator('.react-flow__node[data-id="term"]').getByTestId('terminal-node')
     const termB = bWindow.locator('.react-flow__node[data-id="term"]').getByTestId('terminal-node')
-    await expect(termA).toHaveAttribute('data-state', 'running', { timeout: 15_000 })
+    await expect(termA).toHaveAttribute('data-state', 'running', { timeout: ms(15_000) })
     await expect(termA.getByTestId('terminal-screen')).toBeInViewport({ ratio: 1 })
     await termA.getByTestId('terminal-screen').click()
     await a.window.keyboard.type('echo from""-a-$((6*7))')
     await a.window.keyboard.press('Enter')
-    await expect.poll(() => screenText(termB), { timeout: 10_000 }).toMatch(/^from-a-42$/m)
+    await expect.poll(() => screenText(termB), { timeout: ms(10_000) }).toMatch(/^from-a-42$/m)
 
     // A Session started in A runs on B and is live in B's window.
     const live = (window: Page) => window.locator('[data-testid="session-node"][data-live="true"]')
@@ -857,13 +858,13 @@ test('A opens a Project of B: its Canvas, Node moves, Session, Terminal and Auto
     // B quits while A shows its Project: a line over the Canvas, the window stays.
     await b.close()
     b = undefined
-    await expect(a.window.getByTestId('linked-machine-notice')).toHaveText(/ is unreachable$/, { timeout: 20_000 })
+    await expect(a.window.getByTestId('linked-machine-notice')).toHaveText(/ is unreachable$/, { timeout: ms(20_000) })
     await expect(a.window.getByTestId('canvas')).toBeVisible()
     await evidence(a.window, 'canvas-unreachable')
 
     // B starts again over the same data folder: A loads again and shows B's Layout.
     b = await launchApp({ env: bSetup.env })
-    await expect(a.window.getByTestId('linked-machine-notice')).toHaveCount(0, { timeout: 60_000 })
+    await expect(a.window.getByTestId('linked-machine-notice')).toHaveCount(0, { timeout: ms(60_000) })
     await expect(a.window.getByTestId('canvas')).toHaveAttribute('data-project-id', BETA)
     // B's Layout again, with the Session Node A made and the Node where A left it. The camera is the
     // one this window saved for B's Project (worfy-link ticket 09), so a Node may lie off screen:
@@ -887,7 +888,7 @@ test('A opens a Project of B: its Canvas, Node moves, Session, Terminal and Auto
 })
 
 test('one folder in A and in B is two Projects: moving a Node in B\'s does not move A\'s; B keeps its active Project and opens the Orchestrator', async () => {
-  test.setTimeout(180_000)
+  test.setTimeout(ms(180_000))
   const scratch = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-link-09-shared-')))
   const shared = gitRepo(join(scratch, 'shared'))
   const aData = dataFolder(join(scratch, 'a-data'), [{ id: SHARED, name: 'shared', path: shared }])
@@ -928,7 +929,7 @@ test('one folder in A and in B is two Projects: moving a Node in B\'s does not m
     expect(ownAfter.layout.nodes.find((node) => node.id === 'note-s')).toMatchObject({ x: ownLayout.layout.nodes.find((node) => node.id === 'note-s')?.x, y: 80 })
     // B's active Project is still its own choice, and B opened the Orchestrator of the one A shows.
     expect(activeOfB()).toBe(BETA)
-    await expect.poll(async () => (await layoutOfB()).value.layout.nodes.filter((node) => node.kind === 'orchestrator').length, { timeout: 15_000 }).toBe(1)
+    await expect.poll(async () => (await layoutOfB()).value.layout.nodes.filter((node) => node.kind === 'orchestrator').length, { timeout: ms(15_000) }).toBe(1)
     const opened = await call<{ ok: boolean; value: { sessionId: string | null } | null }>(a.window, 'linked.invoke', { machine: bId, channel: 'orchestrator.view', input: { nodeId: (await layoutOfB()).value.layout.nodes.find((node) => node.kind === 'orchestrator')?.id ?? '' } })
     expect(opened.ok).toBe(true)
     expect(activeOfB()).toBe(BETA)

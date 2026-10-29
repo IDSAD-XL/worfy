@@ -8,6 +8,7 @@ import { expect, test } from '@playwright/test'
 import { endApp } from './end-app'
 import { launchApp, NO_WINDOW_RESTORE, repoRoot } from './helpers'
 import { directStartEnv } from './launch-env'
+import { ms } from '../time-scale'
 
 // Electron helper processes may still hold files in a directory for a moment after the app exits.
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -127,7 +128,7 @@ for (const [mode, rejection] of [
     try {
       // The replacing navigation loads the page and the window is shown, unless the app exits first.
       const shown = (): boolean => output.includes('[interrupt] page loaded') && output.includes('[interrupt] shown')
-      await expect.poll(() => exit !== undefined || shown(), { timeout: 30_000 }).toBe(true)
+      await expect.poll(() => exit !== undefined || shown(), { timeout: ms(30_000) }).toBe(true)
       expect(exit, `the app exited; output:\n${output}`).toBeUndefined()
       expect(shown()).toBe(true)
       expect(output).toContain('[interrupt] replacing the load while loading=true')
@@ -232,7 +233,7 @@ test('a moved or resized window is saved at once, without waiting for the window
       window.emit('resized')
       window.emit('moved')
     }, wanted)
-    await expect.poll(readSaved, { timeout: 5_000 }).toEqual({ bounds: wanted })
+    await expect.poll(readSaved, { timeout: ms(5_000) }).toEqual({ bounds: wanted })
     // A crash or a kill skips the 'close' event: what is on disk is all that survives. On Windows
     // the process Playwright started is cmd.exe, and killing it alone left the app running and
     // holding its data folder (EBUSY on the removal below), so the app's own PID is killed too

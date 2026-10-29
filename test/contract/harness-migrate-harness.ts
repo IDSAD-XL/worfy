@@ -16,6 +16,7 @@ import { NODE } from '../harness-node'
 import { removeTestTree } from '../remove'
 import { shellStub } from '../shell-stub'
 import { buildPlan, hookRecords, type PlanOptions } from '../../src/main/harness/migrate/plan'
+import { ms } from '../time-scale'
 
 export const REPO = join(__dirname, '..', '..')
 const INSTALLED: HarnessState = { kind: 'installed', version: '0.2.0+aaaaaaa', enabled: true }
@@ -160,7 +161,7 @@ function describeSandbox(root: string, claudeHome: string): Sandbox {
  * Windows runner a build went over the default 10 s in 6 of 57 tests (run 39250749583, whole run
  * 346 s); on the PC and on macOS it takes a few seconds.
  */
-const SANDBOX_HOOK_MS = 60_000
+const SANDBOX_HOOK_MS = ms(60_000)
 
 /** Makes a sandbox before each test of the file it is called in, and removes it after. */
 export function useSandbox(): void {

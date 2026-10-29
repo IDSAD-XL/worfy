@@ -20,6 +20,7 @@ import {
   type TerminalSink,
 } from '../../src/main/terminal/pty'
 import { alive, folderLine, harness, home, IGNORE_HANGUP, needsWindowsPowerShellOffRunner, NODE, PROJECT, root, say, SAY_THE_FOLDER, sayTheSize, SHELL_NAME, SYSTEM_ROOT, useTerminalScratch, WINDOWS, windowsEnv, type OpenResult, type Window } from './terminal-harness'
+import { ms } from '../time-scale'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
 
@@ -40,7 +41,7 @@ describe('terminal channels on a real pty', () => {
 
     await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
 
-    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 3000 })
+    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: ms(3000) })
     await vi.waitFor(() => expect(h.exits).toHaveLength(1))
     // Windows has no signal to name: the process tree of the shell is ended.
     expect(h.exits[0]).toMatchObject({ projectId: PROJECT, nodeId: NODE, signal: WINDOWS ? null : 1 })
@@ -144,11 +145,11 @@ describe('terminal channels on a real pty', () => {
 
     window.destroy()
 
-    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
+    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: ms(5000) })
     expect(alive(otherPid)).toBe(true)
     // The registry forgets the shell when its exit is reported, which can come after the pid is gone:
     // on Windows about a second after it (node-pty waits for the rest of the output).
-    await vi.waitFor(() => expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false), { timeout: 5000 })
+    await vi.waitFor(() => expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false), { timeout: ms(5000) })
     // Ended because its window went away, not on its own: not kept as exited, the next open starts a new shell.
     expect(h.registry.hasExited(terminalKey(PROJECT, NODE))).toBe(false)
     const reopened = await h.open()
@@ -194,7 +195,7 @@ describe('terminal channels on a real pty', () => {
 
     await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
 
-    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
+    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: ms(5000) })
   })
 
   it('the shell exiting on its own reports its exit code and stays exited until open asks for a restart', async (context) => {
@@ -203,7 +204,7 @@ describe('terminal channels on a real pty', () => {
     const { pid } = await h.open()
     await h.run(say('be', 'fore-exit'), /before-exit\r?\n/)
     await h.type('exit 3\r')
-    await vi.waitFor(() => expect(h.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 3, signal: null }]), { timeout: 5000 })
+    await vi.waitFor(() => expect(h.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 3, signal: null }]), { timeout: ms(5000) })
     expect(alive(pid)).toBe(false)
     expect(h.registry.size).toBe(0)
 
@@ -238,9 +239,9 @@ describe('terminal channels on a real pty', () => {
     await h.run(say('be', 'fore-exit'), /before-exit\r?\n/)
     const done = join(root, 'late-write')
     await h.type(`(trap '' HUP; while kill -0 $$ 2>/dev/null; do sleep 0.01; done; if /bin/echo la""te-line; then w=wrote; else w=failed; fi; echo $w > '${done}') & exit 0\r`)
-    await vi.waitFor(() => expect(h.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 0, signal: null }]), { timeout: 5000 })
+    await vi.waitFor(() => expect(h.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 0, signal: null }]), { timeout: ms(5000) })
     expect(alive(pid)).toBe(false)
-    const written = await vi.waitFor(async () => (await readFile(done, 'utf8')).trim(), { timeout: 5000 })
+    const written = await vi.waitFor(async () => (await readFile(done, 'utf8')).trim(), { timeout: ms(5000) })
 
     const back = await h.open()
     expect(back).toMatchObject({ pid, exited: { exitCode: 0, signal: null }, replay: h.text() })
@@ -274,7 +275,7 @@ describe('terminal channels on a real pty', () => {
     const { pid: otherPid } = await h.open('node-2')
     await h.type('exit 4\r')
     await h.type('exit 5\r', 'node-2')
-    await vi.waitFor(() => expect(h.exits).toHaveLength(2), { timeout: 5000 })
+    await vi.waitFor(() => expect(h.exits).toHaveLength(2), { timeout: ms(5000) })
     expect([alive(pid), alive(otherPid)]).toEqual([false, false])
 
     await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
@@ -309,8 +310,8 @@ describe('one Terminal on several screens (worfy-link ticket 05, ADR-0053)', () 
     expect(second).toMatchObject({ pid: first.pid, started: false })
 
     await h.run(say('two', '-screens'), /two-screens\r?\n/, NODE, a)
-    await vi.waitFor(() => expect(received(a)).toMatch(/two-screens\r?\n/), { timeout: 2000 })
-    await vi.waitFor(() => expect(received(b)).toMatch(/two-screens\r?\n/), { timeout: 2000 })
+    await vi.waitFor(() => expect(received(a)).toMatch(/two-screens\r?\n/), { timeout: ms(2000) })
+    await vi.waitFor(() => expect(received(b)).toMatch(/two-screens\r?\n/), { timeout: ms(2000) })
 
     // B got every chunk printed after it attached, with the end A got for the same chunk.
     const afterAttach = a.outputs.filter((o) => o.end > second.end)
@@ -331,7 +332,7 @@ describe('one Terminal on several screens (worfy-link ticket 05, ADR-0053)', () 
     expect(attached.end).toBe(a.outputs.at(-1)?.end)
 
     await h.run(say('af', 'ter'), /after\r?\n/, NODE, b)
-    await vi.waitFor(() => expect(received(b)).toMatch(/after\r?\n/), { timeout: 5000 })
+    await vi.waitFor(() => expect(received(b)).toMatch(/after\r?\n/), { timeout: ms(5000) })
     // The live chunks start where the replay ended: replay + chunks is the whole output, once.
     expect(b.outputs[0]?.end).toBe(attached.end + (b.outputs[0]?.data.length ?? 0))
     expect(attached.replay + received(b)).toBe(received(a))
@@ -351,12 +352,12 @@ describe('one Terminal on several screens (worfy-link ticket 05, ADR-0053)', () 
     await new Promise((resolve) => setTimeout(resolve, 300))
     expect(alive(pid)).toBe(true)
     await h.run(say('still', '-here'), /still-here\r?\n/, NODE, a)
-    await vi.waitFor(() => expect(received(a)).toMatch(/still-here\r?\n/), { timeout: 2000 })
+    await vi.waitFor(() => expect(received(a)).toMatch(/still-here\r?\n/), { timeout: ms(2000) })
     expect(received(b)).not.toContain('still-here')
 
     a.destroy()
-    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
-    await vi.waitFor(() => expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false), { timeout: 5000 })
+    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: ms(5000) })
+    await vi.waitFor(() => expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false), { timeout: ms(5000) })
     expect(h.registry.hasExited(terminalKey(PROJECT, NODE))).toBe(false)
   })
 
@@ -375,8 +376,8 @@ describe('one Terminal on several screens (worfy-link ticket 05, ADR-0053)', () 
       return root
     })
     const { pid } = await h.open(NODE, { cols: 80, rows: 24 }, a)
-    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
-    await vi.waitFor(() => expect(h.registry.size).toBe(0), { timeout: 5000 })
+    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: ms(5000) })
+    await vi.waitFor(() => expect(h.registry.size).toBe(0), { timeout: ms(5000) })
     expect(h.registry.hasExited(terminalKey(PROJECT, NODE))).toBe(false)
   })
 
@@ -388,7 +389,7 @@ describe('one Terminal on several screens (worfy-link ticket 05, ADR-0053)', () 
     const { pid } = await h.open(NODE, { cols: 80, rows: 24 }, a)
     await h.open(NODE, { cols: 80, rows: 24 }, b)
     await h.type('exit 3\r', NODE, a)
-    await vi.waitFor(() => expect(b.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 3, signal: null }]), { timeout: 5000 })
+    await vi.waitFor(() => expect(b.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 3, signal: null }]), { timeout: ms(5000) })
     expect(a.exits).toEqual(b.exits)
 
     const again = await h.open(NODE, { cols: 80, rows: 24, restart: true }, a)
@@ -399,7 +400,7 @@ describe('one Terminal on several screens (worfy-link ticket 05, ADR-0053)', () 
     const back = await h.open(NODE, { cols: 80, rows: 24 }, b)
     expect(back).toMatchObject({ pid: again.pid, started: false, exited: null })
     await h.run(say('new', '-shell'), /new-shell\r?\n/, NODE, b)
-    await vi.waitFor(() => expect(received(a)).toMatch(/new-shell\r?\n/), { timeout: 5000 })
+    await vi.waitFor(() => expect(received(a)).toMatch(/new-shell\r?\n/), { timeout: ms(5000) })
   })
 })
 
@@ -431,9 +432,9 @@ describe('the output of one Terminal on one and on two screens, measured (worfy-
       () => {
         for (const window of windows) expect(tail(window)).toMatch(/DONE-MARK/)
       },
-      { timeout: 60_000, interval: 10 },
+      { timeout: ms(60_000), interval: 10 },
     )
-    const ms = Math.round(performance.now() - started)
+    const took = Math.round(performance.now() - started)
     loop.disable()
     const got = windows.map((window, index) => window.outputs.slice(before[index]))
     const events = got[0]?.length ?? 0
@@ -444,11 +445,11 @@ describe('the output of one Terminal on one and on two screens, measured (worfy-
     const p99 = Math.round(loop.percentile(99) / 1e6)
     const max = Math.round(loop.max / 1e6)
     await h.registry.closeAll()
-    return { ms, events, bytes, p99, max }
+    return { ms: took, events, bytes, p99, max }
   }
 
   // A measurement of the pipeline on macOS, with the tools of /bin/sh; ConPTY redraws the stream in its own way.
-  it.skipIf(WINDOWS)('10 MB of output: the number of terminal.output events, the time to the last byte and the p99 delay of the event loop', { timeout: 180_000 }, async () => {
+  it.skipIf(WINDOWS)('10 MB of output: the number of terminal.output events, the time to the last byte and the p99 delay of the event loop', { timeout: ms(180_000) }, async () => {
     const one = await measure(1)
     const two = await measure(2)
     for (const [name, m] of [
@@ -683,7 +684,7 @@ describe('terminal.open with a command (worfy-harness ticket 19)', () => {
     const opened = await h.open(NODE, { cols: 80, rows: 24, command: 'gh auth login' })
     expect(opened.started).toBe(true)
     // The stand-in gh prints this line: the command reached the shell and ran there.
-    await vi.waitFor(() => expect(h.text()).toContain('fake gh: auth login started'), { timeout: 4000 }).catch((error: unknown) => {
+    await vi.waitFor(() => expect(h.text()).toContain('fake gh: auth login started'), { timeout: ms(4000) }).catch((error: unknown) => {
       throw new Error(`${String(error)}\n--- output:\n${h.text()}`)
     })
 
@@ -888,7 +889,7 @@ describe('wireRegistry: the shells follow the Layout, the Projects and quitting'
     expect([alive(pid), alive(otherPid)]).toEqual([true, true])
 
     w.removeNode(PROJECT, NODE)
-    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 3000 })
+    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: ms(3000) })
     expect(alive(otherPid)).toBe(true)
   })
 
@@ -903,9 +904,9 @@ describe('wireRegistry: the shells follow the Layout, the Projects and quitting'
     expect(pids.map(alive)).toEqual([true, true])
 
     w.setProjects(['other-00000002'])
-    await vi.waitFor(() => expect(pids.map(alive)).toEqual([false, false]), { timeout: 3000 })
+    await vi.waitFor(() => expect(pids.map(alive)).toEqual([false, false]), { timeout: ms(3000) })
     // node-pty reaps a shell before it reports the exit: the registry forgets it a moment later.
-    await vi.waitFor(() => expect(h.registry.size).toBe(0), { timeout: 3000 })
+    await vi.waitFor(() => expect(h.registry.size).toBe(0), { timeout: ms(3000) })
   })
 
   it('will-quit waits for every shell, even one that ignores SIGHUP, then quits again', async (context) => {
@@ -921,7 +922,7 @@ describe('wireRegistry: the shells follow the Layout, the Projects and quitting'
 
     expect(preventDefault).toHaveBeenCalledOnce()
     expect(w.quit).not.toHaveBeenCalled()
-    await vi.waitFor(() => expect(w.quit).toHaveBeenCalledOnce(), { timeout: 5000 })
+    await vi.waitFor(() => expect(w.quit).toHaveBeenCalledOnce(), { timeout: ms(5000) })
     expect([alive(pid), alive(otherPid)]).toEqual([false, false])
     expect(h.registry.size).toBe(0)
 
@@ -940,7 +941,7 @@ describe('wireRegistry: the shells follow the Layout, the Projects and quitting'
     // A will-quit that comes during the wait is held back too, and starts no second wait.
     expect(w.willQuit()).toHaveBeenCalledOnce()
     expect(w.quit).not.toHaveBeenCalled()
-    await vi.waitFor(() => expect(w.quit).toHaveBeenCalledOnce(), { timeout: 2000 })
+    await vi.waitFor(() => expect(w.quit).toHaveBeenCalledOnce(), { timeout: ms(2000) })
     // The wait was cut: what the shells started may be left running, and the log says so.
     expect(warn.mock.calls).toEqual([['[terminal] quitting after 50 ms with 1 shells still closing: what they started may be left running']])
     // The registry still holds the shell. The quit worfy asked for goes through all the same.
@@ -952,7 +953,7 @@ describe('wireRegistry: the shells follow the Layout, the Projects and quitting'
     expect(w.willQuit()).toHaveBeenCalledOnce()
     expect(closeAll).toHaveBeenCalledTimes(2)
     // Let that second wait end inside this test.
-    await vi.waitFor(() => expect(w.quit).toHaveBeenCalledTimes(2), { timeout: 2000 })
+    await vi.waitFor(() => expect(w.quit).toHaveBeenCalledTimes(2), { timeout: ms(2000) })
     warn.mockRestore()
   })
 
@@ -968,7 +969,7 @@ describe('wireRegistry: the shells follow the Layout, the Projects and quitting'
     }
     wireRegistry(closing, { ...w, quitWaitMs: 5000 })
     expect(w.willQuit()).toHaveBeenCalledOnce()
-    await vi.waitFor(() => expect(w.quit).toHaveBeenCalledOnce(), { timeout: 2000 })
+    await vi.waitFor(() => expect(w.quit).toHaveBeenCalledOnce(), { timeout: ms(2000) })
     expect(w.willQuit()).not.toHaveBeenCalled()
     expect(warn).not.toHaveBeenCalled()
     warn.mockRestore()

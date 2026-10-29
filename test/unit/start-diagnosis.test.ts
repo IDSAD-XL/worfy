@@ -21,6 +21,7 @@ import {
   step,
   timeLeftOnClock,
 } from '../e2e/start-diagnosis'
+import { ms } from '../time-scale'
 
 afterEach(() => {
   vi.useRealTimers()
@@ -67,18 +68,18 @@ describe('diagnosisBudget', () => {
     expect(DIAGNOSIS_MAX_MS).toBe(3 * DIAGNOSTIC_STEP_MS + DIAGNOSTIC_SAVE_MS)
     expect(DIAGNOSIS_MAX_MS).toBe(19_000)
     expect(diagnosisBudget(undefined)).toBe(DIAGNOSIS_MAX_MS)
-    expect(diagnosisBudget(60_000)).toBe(DIAGNOSIS_MAX_MS)
+    expect(diagnosisBudget(CLEANUP_MARGIN_MS + 45_000)).toBe(DIAGNOSIS_MAX_MS)
   })
 
-  it('keeps CLEANUP_MARGIN_MS (15 s) of the time left for the kill and the cleanup', () => {
-    expect(CLEANUP_MARGIN_MS).toBe(15_000)
-    expect(diagnosisBudget(25_000)).toBe(10_000)
-    expect(diagnosisBudget(15_001)).toBe(1)
+  it('keeps CLEANUP_MARGIN_MS (15 s times the run\'s multiplier) of the time left for the kill and the cleanup', () => {
+    expect(CLEANUP_MARGIN_MS).toBe(ms(15_000))
+    expect(diagnosisBudget(CLEANUP_MARGIN_MS + 10_000)).toBe(10_000)
+    expect(diagnosisBudget(CLEANUP_MARGIN_MS + 1)).toBe(1)
   })
 
   it('is 0 when the test has no more than the margin left, or is already past its timeout', () => {
-    expect(diagnosisBudget(15_000)).toBe(0)
-    expect(diagnosisBudget(12_000)).toBe(0)
+    expect(diagnosisBudget(CLEANUP_MARGIN_MS)).toBe(0)
+    expect(diagnosisBudget(CLEANUP_MARGIN_MS - 3_000)).toBe(0)
     expect(diagnosisBudget(4_000)).toBe(0)
     expect(diagnosisBudget(-2_000)).toBe(0)
   })

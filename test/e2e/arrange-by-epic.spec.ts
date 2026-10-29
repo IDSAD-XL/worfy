@@ -17,6 +17,7 @@ import { EPIC_ARRANGEMENT_ID } from '../../src/shared/layout/derived'
 import { canvasReady, launchApp, openSecondWindow, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript, loginProfileWithNode } from '../harness-node'
+import { ms } from '../time-scale'
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -172,9 +173,9 @@ test('Arrange by Epic from ⌘K: the Sessions stand right of the strip at their 
   try {
     const { window } = launched
     const frame = (epic: string) => window.locator(`[data-testid="epic-frame"][data-epic="${epic}"]`)
-    await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [frame(ALPHA), frame(BETA)], timeout: 20_000 })
+    await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [frame(ALPHA), frame(BETA)], timeout: ms(20_000) })
     // The Bindings are read: the anchors of the bound Sessions are on the Canvas.
-    for (const id of [S_ALPHA, S_BETA, S_KEPT]) await expect(window.locator(`.react-flow__node[data-id="binding-anchor:session:${id}"]`)).toHaveCount(1, { timeout: 20_000 })
+    for (const id of [S_ALPHA, S_BETA, S_KEPT]) await expect(window.locator(`.react-flow__node[data-id="binding-anchor:session:${id}"]`)).toHaveCount(1, { timeout: ms(20_000) })
     // The Project's first opening of the day writes the strip's record on its own, past the ⌘Z history,
     // once the Bindings are read and the frames settled (arrangement-record.ts). `before` is read after
     // that write: read earlier, the record would look like a Node that ⌘Z left behind.
@@ -182,7 +183,7 @@ test('Arrange by Epic from ⌘K: the Sessions stand right of the strip at their 
     const before = await state(window)
 
     await arrangeFromPalette(window)
-    await expect.poll(async () => (await state(window)).revision, { timeout: 10_000 }).toBeGreaterThan(before.revision)
+    await expect.poll(async () => (await state(window)).revision, { timeout: ms(10_000) }).toBeGreaterThan(before.revision)
     // The strip comes back left once the alpha Session left its band; the Canvas settles.
     await canvasReady(launched)
     const arranged = await state(window)
@@ -210,7 +211,7 @@ test('Arrange by Epic from ⌘K: the Sessions stand right of the strip at their 
     // frames stand side by side (K = 2 is closer to 16:10 than one column), so the Sessions right of
     // them need a wide window: React Flow draws only the Nodes in view.
     const second = await openSecondWindow(launched, { size: { width: 1700, height: 900 } })
-    await canvasReady({ window: second }, { visible: [second.locator(`[data-testid="epic-frame"][data-epic="${ALPHA}"]`)], timeout: 20_000 })
+    await canvasReady({ window: second }, { visible: [second.locator(`[data-testid="epic-frame"][data-epic="${ALPHA}"]`)], timeout: ms(20_000) })
     for (const id of [S_ALPHA, S_BETA, S_FREE, S_KEPT]) {
       const drawn = await drawnAt(second, `session:${id}`)
       expect([drawn.x, drawn.y], `session ${id} in the second window`).toEqual([at(id).x, at(id).y])

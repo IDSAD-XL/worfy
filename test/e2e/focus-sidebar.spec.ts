@@ -8,6 +8,7 @@ import { canvasReady, launchApp, openSecondWindow, type LaunchedApp } from './he
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // Focus mode next to the sidebar, against the built app: the layer covers the main area of the
 // window and the sidebar keeps working; the palette and the sidebar's menus open above the layer;
@@ -730,7 +731,7 @@ test('View ▸ Toggle Sidebar works wherever the keyboard focus is — a Termina
     expect(await holdsFocus(terminal)).toBe(true)
     await window.keyboard.type('echo side""bar-toggled')
     await window.keyboard.press('Enter')
-    await expect.poll(async () => (await terminal.locator('.xterm-rows').innerText()).replaceAll(String.fromCharCode(160), ' '), { timeout: 10_000 }).toMatch(/^sidebar-toggled$/m)
+    await expect.poll(async () => (await terminal.locator('.xterm-rows').innerText()).replaceAll(String.fromCharCode(160), ' '), { timeout: ms(10_000) }).toMatch(/^sidebar-toggled$/m)
     await toggle()
     expect(await holdsFocus(terminal)).toBe(true)
 

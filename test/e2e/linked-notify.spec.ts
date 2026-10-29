@@ -20,8 +20,9 @@ import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { canvasReady, launchApp, linkThroughUi, machineIdOf, setProjectsAccess, type LaunchedApp } from './helpers'
 import { quarantined } from './quarantine'
+import { ms } from '../time-scale'
 
-test.setTimeout(180_000)
+test.setTimeout(ms(180_000))
 
 /** Turns quiet windows off for both worfy (see the top of the file). */
 const NORMAL_WINDOWS = { WORFY_QUIET_WINDOWS: '0' }
@@ -139,8 +140,8 @@ quarantined('linked-notify-turn-click-opens-in-b')('a turn of a Session of A end
     await unfocusAll([a, onB])
     await call(a.window, 'agent.send', { sessionId, text: 'notify both' })
     const expected = { title: 'alpha', body: FAKE_ANSWER }
-    await expect.poll(() => recorded(a), { timeout: 20_000 }).toContainEqual(expected)
-    await expect.poll(() => recorded(onB), { timeout: 20_000 }).toContainEqual(expected)
+    await expect.poll(() => recorded(a), { timeout: ms(20_000) }).toContainEqual(expected)
+    await expect.poll(() => recorded(onB), { timeout: ms(20_000) }).toContainEqual(expected)
 
     // A click on B's notification: B's window loads again on A and shows that Session of A's Project.
     await onB.app.evaluate(() => {
@@ -149,9 +150,9 @@ quarantined('linked-notify-turn-click-opens-in-b')('a turn of a Session of A end
       if (note === undefined) throw new Error('no notification of the turn on B')
       note.emit('click')
     })
-    await expect(onB.window).toHaveURL(new RegExp(`[?&]machine=${aId}`), { timeout: 20_000 })
+    await expect(onB.window).toHaveURL(new RegExp(`[?&]machine=${aId}`), { timeout: ms(20_000) })
     const opened = onB.window.locator(`[data-testid="session-view"][data-node-id="${nodeId}"]`)
-    await expect(opened).toBeVisible({ timeout: 20_000 })
+    await expect(opened).toBeVisible({ timeout: ms(20_000) })
     await expect(opened).toHaveAttribute('data-session-id', sessionId ?? '')
     await expect(onB.window).toHaveURL(new RegExp(`[?&]project=${ALPHA}`))
     // A's own window stays where it was: the click is B's.

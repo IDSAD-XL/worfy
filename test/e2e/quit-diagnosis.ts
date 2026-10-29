@@ -6,6 +6,7 @@
 // test/unit/quit-diagnosis.test.ts checks them without starting an app.
 
 import type { StepResult } from './start-diagnosis'
+import { ms } from '../time-scale'
 
 /** How many frames of the main thread the log shows: the innermost ones, where the thread waits. */
 export const QUIT_STACK_LINES = 40
@@ -14,7 +15,7 @@ export const QUIT_OUTPUT_LINES = 80
 /** How long `sample` watches the app, in seconds. */
 export const SAMPLE_SECONDS = 3
 /** How long running `sample` may take in all: it reads the symbols of the app's libraries after watching. */
-export const SAMPLE_TIMEOUT_MS = 10_000
+export const SAMPLE_TIMEOUT_MS = ms(10_000)
 
 /** A thread's first line in a `sample` report: four spaces, the sample count, then `Thread_<id>`. */
 const THREAD_HEADER = /^ {4}\d+ Thread_/

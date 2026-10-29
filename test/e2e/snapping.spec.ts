@@ -7,6 +7,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // Snapping while a Node is dragged or resized (worfy-week ticket 06) against the built app: the
 // guide shows during a drag and goes out on the drop, the outline of the landing place is where the
@@ -328,8 +329,8 @@ test('a drag over an Auction-sized Canvas for 2 s keeps the frame rate', async (
   const launched = await launch()
   try {
     const { window } = launched
-    await expect(window.locator('[data-testid="epic-frame"][data-epic="epic-01"]')).toBeVisible({ timeout: 20_000 })
-    await expect(window.locator('[data-testid="ticket-node"][data-epic="epic-01"]').first()).toBeVisible({ timeout: 20_000 })
+    await expect(window.locator('[data-testid="epic-frame"][data-epic="epic-01"]')).toBeVisible({ timeout: ms(20_000) })
+    await expect(window.locator('[data-testid="ticket-node"][data-epic="epic-01"]').first()).toBeVisible({ timeout: ms(20_000) })
     await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [nodeElement(window, 'mover')] })
     const from = await startDrag(window, header(window, 'mover'))
     await window.evaluate(() => {

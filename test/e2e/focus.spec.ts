@@ -7,6 +7,7 @@ import { launchApp } from './helpers'
 import { printJoined, WINDOWS } from './terminal-shell'
 import { windowsProfileEnv } from '../windows-profile'
 import { settled } from './wait'
+import { ms } from '../time-scale'
 
 // Focus mode against the built app: selected Nodes fill the window as tiles, presets, dividers
 // and title-bar drags change the tiling, Esc brings the Canvas back with the same viewport, and
@@ -312,7 +313,7 @@ async function sttySize(window: Page, terminal: Locator, tag: string): Promise<{
   await window.keyboard.type(WINDOWS ? `echo "${tag}=$($Host.UI.RawUI.WindowSize.Height)x$($Host.UI.RawUI.WindowSize.Width)"` : `echo "${tag}=$(stty size | tr ' ' x)"`)
   await window.keyboard.press('Enter')
   const pattern = new RegExp(`^${tag}=(\\d+)x(\\d+)$`, 'm')
-  await expect.poll(async () => pattern.test(await screenText(terminal)), { timeout: 10_000 }).toBe(true)
+  await expect.poll(async () => pattern.test(await screenText(terminal)), { timeout: ms(10_000) }).toBe(true)
   const [, rows, cols] = pattern.exec(await screenText(terminal)) ?? []
   return { rows: Number(rows), cols: Number(cols) }
 }
@@ -372,7 +373,7 @@ test('a Terminal in focus mode gets the size of its tile, and after leaving focu
     await onCanvas.getByTestId('terminal-screen').click()
     await window.keyboard.type(printJoined('mark', 'er-after'))
     await window.keyboard.press('Enter')
-    await expect.poll(() => screenText(onCanvas), { timeout: 10_000 }).toMatch(/^marker-after$/m)
+    await expect.poll(() => screenText(onCanvas), { timeout: ms(10_000) }).toMatch(/^marker-after$/m)
 
     // The Canvas Node resized while focus mode is open (by main, as a tool would): the Canvas copy
     // under the layer fits itself, but the pty keeps the size of the tile until focus mode ends.

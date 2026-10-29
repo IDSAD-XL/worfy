@@ -8,6 +8,7 @@ import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { LinkState } from '../../src/shared/ipc/link'
 import type { LinkedState } from '../../src/shared/ipc/linked'
 import type { ProjectsState } from '../../src/shared/ipc/projects'
+import { ms } from '../time-scale'
 
 const THIS = '11111111-1111-4111-8111-111111111111'
 /** Online, shares its Projects. */
@@ -237,7 +238,7 @@ describe('"Add project" with Linked machines: the Machine first', () => {
     expect(within(dialog).getByTestId('connect-github-remote')).toBeTruthy()
 
     // The account's choice is checked by Mini's Harness after a short pause.
-    await waitFor(() => expect(linkedCalls(calls).map(([, channel]) => channel)).toContain('projects.connect.check'), { timeout: 2000 })
+    await waitFor(() => expect(linkedCalls(calls).map(([, channel]) => channel)).toContain('projects.connect.check'), { timeout: ms(2000) })
     const onMini = linkedCalls(calls).map(([machine, channel]) => `${machine === MINI ? 'Mini' : machine} ${channel}`)
     expect(onMini).toEqual(expect.arrayContaining(['Mini projects.connect.inspect', 'Mini projects.connect.draft', 'Mini projects.connect.accounts', 'Mini projects.connect.check']))
     expect(linkedCalls(calls)).toContainEqual([MINI, 'projects.connect.draft', expect.objectContaining({ root: '/Users/m/code/shop', workflowFolder: '/Users/m/code/shop' })])

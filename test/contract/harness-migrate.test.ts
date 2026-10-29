@@ -21,6 +21,7 @@ import { removeTestTree } from '../remove'
 import { claudeJsonPath, HARNESS_AGENTS, hasLegacyHarness, HARNESS_SKILLS, QMD_WARNING, RUNNING_SESSIONS_WARNING, type PlanOptions } from '../../src/main/harness/migrate/plan'
 import { rewriteHarnessPaths } from '../../src/main/harness/migrate/profiles'
 import { applyOptions, backupDir, everything, fileId, findNode, git, hookCommands, makeSandbox, omit, pathWithoutClaude, plan, planOptions, posix, read, readJson, REPO, run, sandbox, selection, treeOf, useSandbox } from './harness-migrate-harness'
+import { ms } from '../time-scale'
 
 // The IPC module (src/main/ipc/harness-migration.ts) runs here without Electron: a dev build
 // (`app.isPackaged` false) whose dialog and installer are watched. hasLegacyHarness and the installer
@@ -357,7 +358,7 @@ describe('the move', () => {
     // an app and never return. The time limit makes a start that hangs a failed test. SIGKILL, not
     // the SIGTERM of spawnSync: the gate has a handler of its own for SIGTERM, and that handler does
     // not run while the gate itself waits in spawnSync for git or a script that hangs.
-    const gate = run(findNode(), [join(REPO, 'harness', 'hooks', 'gate.mjs'), 'fast'], { cwd: sandbox.repos.worfy, timeout: 60_000, killSignal: 'SIGKILL' })
+    const gate = run(findNode(), [join(REPO, 'harness', 'hooks', 'gate.mjs'), 'fast'], { cwd: sandbox.repos.worfy, timeout: ms(60_000), killSignal: 'SIGKILL' })
     expect(`${gate.stdout}${gate.stderr}`).not.toMatch(/не зарегистрирован|not registered/)
     expect(gate.status).toBe(0)
   })
@@ -471,7 +472,7 @@ describe('the move', () => {
     expect(hookCommands(join(sandbox.claudeHome, 'settings.json'))).not.toContain('$HOME/.claude/bin/qmd-refresh --quiet')
     const servers = readJson(sandbox.claudeJson).mcpServers as Record<string, unknown>
     expect(Object.keys(servers)).toEqual(['freecad', 'telegram'])
-  }, process.platform === 'win32' ? 60_000 : undefined)
+  }, process.platform === 'win32' ? ms(60_000) : undefined)
 
   it('the toolbar offer: there before a move, gone after a move with the defaults, there while a Harness file is kept', async () => {
     const offered = (): boolean => hasLegacyHarness(omit(planOptions() as unknown as Record<string, unknown>, 'pluginState') as unknown as Omit<PlanOptions, 'pluginState'>)

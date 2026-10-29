@@ -4,6 +4,7 @@ import { launchApp } from './helpers'
 import { TERMINAL_AI_PROMPT, editedLine, greyText, openTerminal, screenText, terminalAiSandbox, type TerminalAiSandbox } from './terminal-ai-helpers'
 import { NO_ZSH, NO_ZSH_ON_WINDOWS } from '../zsh'
 import { shellCaughtUp } from './wait'
+import { ms } from '../time-scale'
 
 // Command request of Terminal AI from the ⌘I panel, in a Terminal Node of the built app on a real
 // zsh: ⌘I opens the panel over the screen, Enter asks the assist process, the command of its answer
@@ -108,8 +109,8 @@ test('⌘I opens the panel over the Terminal; Enter puts the command of the answ
     await expect(async () => {
       await node.getByTestId('terminal-screen').click()
       await window.keyboard.press('Meta+I')
-      await expect(panel).toBeVisible({ timeout: 1_000 })
-    }).toPass({ timeout: 15_000 })
+      await expect(panel).toBeVisible({ timeout: ms(1_000) })
+    }).toPass({ timeout: ms(15_000) })
     await expect(field).toBeFocused()
     // ⌘I did not reach the shell: the line is empty.
     expect(await editedLine(node)).toBe(TERMINAL_AI_PROMPT.trimEnd())
@@ -119,8 +120,8 @@ test('⌘I opens the panel over the Terminal; Enter puts the command of the answ
     await window.keyboard.press('Enter')
 
     // The answer: the panel is gone, and the line of the shell is the command.
-    await expect(panel).toBeHidden({ timeout: 15_000 })
-    await expect.poll(() => editedLine(node), { timeout: 10_000 }).toBe(`${TERMINAL_AI_PROMPT}${answer}`)
+    await expect(panel).toBeHidden({ timeout: ms(15_000) })
+    await expect.poll(() => editedLine(node), { timeout: ms(10_000) }).toBe(`${TERMINAL_AI_PROMPT}${answer}`)
     // The model was asked once, for the words of the panel, and it was Sonnet.
     const requests = sandbox.requests()
     expect(requests).toHaveLength(1)
@@ -133,7 +134,7 @@ test('⌘I opens the panel over the Terminal; Enter puts the command of the answ
 
     // The focus is back in the terminal: Enter there runs the command, once.
     await window.keyboard.press('Enter')
-    await expect.poll(async () => [...(await screenText(node)).matchAll(output)].length, { timeout: 10_000 }).toBe(1)
+    await expect.poll(async () => [...(await screenText(node)).matchAll(output)].length, { timeout: ms(10_000) }).toBe(1)
   } finally {
     await launched.close()
   }
@@ -150,14 +151,14 @@ test('Esc closes the panel without asking, and the focus is back in the terminal
     await expect(async () => {
       await node.getByTestId('terminal-screen').click()
       await window.keyboard.press('Meta+I')
-      await expect(panel).toBeVisible({ timeout: 1_000 })
-    }).toPass({ timeout: 15_000 })
+      await expect(panel).toBeVisible({ timeout: ms(1_000) })
+    }).toPass({ timeout: ms(15_000) })
     await window.keyboard.type('anything at all')
     await window.keyboard.press('Escape')
     await expect(panel).toBeHidden()
     // What is typed now goes to the shell.
     await window.keyboard.type(`echo ${mark}`)
-    await expect.poll(() => editedLine(node), { timeout: 10_000 }).toBe(`${TERMINAL_AI_PROMPT}echo ${mark}`)
+    await expect.poll(() => editedLine(node), { timeout: ms(10_000) }).toBe(`${TERMINAL_AI_PROMPT}echo ${mark}`)
     expect(sandbox.requests()).toEqual([])
   } finally {
     await launched.close()
@@ -169,15 +170,15 @@ async function openPanel(window: Page, node: Locator, panel: Locator): Promise<v
   await expect(async () => {
     await node.getByTestId('terminal-screen').click()
     await window.keyboard.press('Meta+I')
-    await expect(panel).toBeVisible({ timeout: 1_000 })
-  }).toPass({ timeout: 15_000 })
+    await expect(panel).toBeVisible({ timeout: ms(1_000) })
+  }).toPass({ timeout: ms(15_000) })
 }
 
 /** The requests of Command request that reached the fake, in the order they ended. */
 const commandRequests = (sandbox: TerminalAiSandbox) => sandbox.requests().filter((entry) => entry.feature === 'request')
 
 test('the line typed in the shell goes to the model with the words: without the prompt and the grey Suggestion, wrapped rows as one line, a secret redacted, a line with a space at its start not at all', async () => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   const mark = `worfy-tai-${Date.now().toString(36)}-${process.pid}`
   const answer = `echo ${mark}-answer`
   sandbox.answers([{ feature: 'request', match: mark, answer: `\`${answer}\``, delayMs: 100 }])
@@ -194,18 +195,18 @@ test('the line typed in the shell goes to the model with the words: without the 
       await node.getByTestId('terminal-screen').click()
       await window.keyboard.type(line)
       // All of it is on the screen: its start after the prompt, and its end.
-      await expect.poll(() => editedLine(node), { timeout: 10_000 }).toContain(`${TERMINAL_AI_PROMPT}${line.slice(0, 20)}`)
-      await expect.poll(() => screenText(node), { timeout: 10_000 }).toContain(line.slice(-20))
+      await expect.poll(() => editedLine(node), { timeout: ms(10_000) }).toContain(`${TERMINAL_AI_PROMPT}${line.slice(0, 20)}`)
+      await expect.poll(() => screenText(node), { timeout: ms(10_000) }).toContain(line.slice(-20))
       await ready?.()
       await openPanel(window, node, panel)
       await field.fill(`complete ${mark}`)
       await window.keyboard.press('Enter')
-      await expect(panel).toBeHidden({ timeout: 15_000 })
-      await expect.poll(() => commandRequests(sandbox).length, { timeout: 10_000 }).toBe(before + 1)
+      await expect(panel).toBeHidden({ timeout: ms(15_000) })
+      await expect.poll(() => commandRequests(sandbox).length, { timeout: ms(10_000) }).toBe(before + 1)
       // The answer is in the line; Ctrl+U takes the whole line away for the next one.
-      await expect.poll(() => screenText(node), { timeout: 10_000 }).toContain(answer)
+      await expect.poll(() => screenText(node), { timeout: ms(10_000) }).toContain(answer)
       await window.keyboard.press('Control+U')
-      await expect.poll(() => editedLine(node), { timeout: 10_000 }).toBe(TERMINAL_AI_PROMPT.trimEnd())
+      await expect.poll(() => editedLine(node), { timeout: ms(10_000) }).toBe(TERMINAL_AI_PROMPT.trimEnd())
       return commandRequests(sandbox).at(-1)?.context.line ?? '<none>'
     }
 
@@ -216,9 +217,9 @@ test('the line typed in the shell goes to the model with the words: without the 
     await node.getByTestId('terminal-screen').click()
     await window.keyboard.type(`echo ${mark} second third`)
     await window.keyboard.press('Enter')
-    await expect.poll(async () => [...(await screenText(node)).matchAll(new RegExp(`^${mark} second third$`, 'gm'))].length, { timeout: 10_000 }).toBe(1)
+    await expect.poll(async () => [...(await screenText(node)).matchAll(new RegExp(`^${mark} second third$`, 'gm'))].length, { timeout: ms(10_000) }).toBe(1)
     const rest = `${mark.slice('wo'.length)} second third`
-    expect(await contextLineOf('echo wo', () => expect.poll(async () => (await greyText(node)).text, { timeout: 10_000 }).toBe(rest))).toBe('echo wo')
+    expect(await contextLineOf('echo wo', () => expect.poll(async () => (await greyText(node)).text, { timeout: ms(10_000) }).toBe(rest))).toBe('echo wo')
 
     // Longer than the row: the screen wraps it onto the next row, the context gets it whole.
     const long = `echo ${'abcdefghij'.repeat(16)}`
@@ -286,7 +287,7 @@ async function sttySize(window: Page, node: Locator, tag: string): Promise<strin
   await window.keyboard.type(`echo "${tag}=$(stty size | tr ' ' x)"`)
   await window.keyboard.press('Enter')
   const pattern = new RegExp(`^${tag}=(\\d+x\\d+)$`, 'm')
-  await expect.poll(async () => pattern.test(await screenText(node)), { timeout: 10_000 }).toBe(true)
+  await expect.poll(async () => pattern.test(await screenText(node)), { timeout: ms(10_000) }).toBe(true)
   return pattern.exec(await screenText(node))?.[1] ?? ''
 }
 
@@ -304,7 +305,7 @@ test('the open panel hangs under the first row of the screen, also while a comma
     await window.keyboard.type(`sleep 30; : ${mark}`)
     await window.keyboard.press('Enter')
     await openPanel(window, node, panel)
-    await expect(panel.getByRole('status')).toHaveText('Terminal is busy', { timeout: 10_000 })
+    await expect(panel.getByRole('status')).toHaveText('Terminal is busy', { timeout: ms(10_000) })
     const busy = await panelPlace(node)
     expect(busy.rowText).toContain(`${TERMINAL_AI_PROMPT}sleep 30; : ${mark}`)
     expect(busy.panelTop).toBeGreaterThanOrEqual(busy.rowBottom)

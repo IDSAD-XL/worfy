@@ -26,6 +26,7 @@ import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, parkPointer, repoRoot } from './helpers'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -145,7 +146,7 @@ const expectLit = (window: Page, ids: readonly string[]): Promise<void> =>
   expect.poll(() => window.locator('[data-testid="browser-frame"][data-family="lit"]').evaluateAll((frames) => frames.map((frame) => frame.getAttribute('data-node-id')))).toEqual(ids)
 
 test('the Session Autopilot runs uses only the Browser profiles marked for it, opens a Browser for a Ticket of its Epic, is told an expired sign-in, never fills the password, and its Browser is in the Ticket’s Family', async () => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-browser-autopilot-')))
   const { dataDir, claudeHome, repo } = prepare(scratch)
   const log = join(scratch, 'agent.jsonl')
@@ -165,7 +166,7 @@ test('the Session Autopilot runs uses only the Browser profiles marked for it, o
       const listed = (await bridgeCall(window, 'agent.list')).value as { sessionId: string; cwd: string; state: string }[] | undefined
       return listed?.find((each) => each.cwd === repo && each.state === 'busy')?.sessionId ?? null
     }
-    await expect.poll(sessionOf, { timeout: 20_000, message: 'the unattended Orchestrator Session' }).not.toBeNull()
+    await expect.poll(sessionOf, { timeout: ms(20_000), message: 'the unattended Orchestrator Session' }).not.toBeNull()
     const session = (await sessionOf())!
     await expect.poll(() => app.evaluate(() => typeof (globalThis as { worfyBrowserTool?: unknown }).worfyBrowserTool)).toBe('function')
 
@@ -188,9 +189,9 @@ test('the Session Autopilot runs uses only the Browser profiles marked for it, o
     // «user» opens for Ticket 01, as the Session's own Browser.
     const opened = ok<{ id: string; url: string; ticket: string }>(await tool(app, session, 'browser_open', { profile: USER, url: `${origin}/`, ticket: 'demo/01' }), 'browser_open user')
     expect(opened).toMatchObject({ url: `${origin}/`, ticket: 'demo/01' })
-    await expect(frameOf(window, opened.id)).toBeVisible({ timeout: 20_000 })
+    await expect(frameOf(window, opened.id)).toBeVisible({ timeout: ms(20_000) })
     const saved = (): { id: string; data: { openedBy?: string } }[] => (JSON.parse(readFileSync(join(dataDir, PROJECT, 'layout.json'), 'utf8')) as { nodes: { id: string; data: { openedBy?: string } }[] }).nodes
-    await expect.poll(() => saved().find((node) => node.id === opened.id)?.data.openedBy, { timeout: 10_000 }).toBe(session)
+    await expect.poll(() => saved().find((node) => node.id === opened.id)?.data.openedBy, { timeout: ms(10_000) }).toBe(session)
     expect(saved().find((node) => node.id === opened.id)?.data).toMatchObject({ ticket: { epic: EPIC, num: 1 } })
 
     // The site sends it to the sign-in page: the sign-in expired, and the Session is told so.
@@ -201,7 +202,7 @@ test('the Session Autopilot runs uses only the Browser profiles marked for it, o
     const typing = refusal(await tool(app, session, 'browser_type', { id: opened.id, selector: '#password', text: 'hunter2' }), 'browser_type #password')
     expect(typing).toContain('only browser_navigate away is allowed')
     expect(refusal(await tool(app, session, 'browser_click', { id: opened.id, selector: 'button' }), 'browser_click Sign in')).toContain('only browser_navigate away is allowed')
-    await expect.poll(() => passwords(app, '/login'), { timeout: 10_000 }).toEqual([''])
+    await expect.poll(() => passwords(app, '/login'), { timeout: ms(10_000) }).toEqual([''])
 
     // The Browser is in the Family of Ticket 01, which it was opened for; not in Ticket 02's.
     await canvasReady(launched, { visible: [ticket, frameOf(window, opened.id)] })

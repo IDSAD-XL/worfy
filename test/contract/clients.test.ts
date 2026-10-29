@@ -13,6 +13,7 @@ import type { HandlerModule } from '../../src/main/ipc/index'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import type { LayoutOpInput } from '../../src/shared/layout/types'
 import { removeTestTree, saveLayoutNow } from '../remove'
+import { ms } from '../time-scale'
 
 const PROJECT = 'demo-0a1b2c3d'
 const CLAUDE_HOME_FIXTURE = join(import.meta.dirname, '..', 'fixtures', 'claude-home')
@@ -120,7 +121,7 @@ const note = (id: string): LayoutOpInput => ({ op: 'create', node: { id, kind: '
 
 /** Polls until `done` holds or five seconds pass. */
 async function until(done: () => boolean): Promise<void> {
-  const deadline = Date.now() + 5000
+  const deadline = Date.now() + ms(5000)
   while (!done() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20))
 }
 

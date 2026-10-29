@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Frame, type Page } from '@playwright/test'
 import { launchApp, type LaunchedApp } from './helpers'
+import { ms } from '../time-scale'
 
 // The Card runtime against the built app: Cards are folders in the Project's data folder, the
 // Canvas shows them in iframes on worfy-card://, a file change reloads the Card, and a Card reaches
@@ -120,7 +121,7 @@ test('a Card is shown with its <title>, a file change reloads it within a second
   await expect(content).toHaveText('v1, watched')
   const started = Date.now()
   await writeFile(join(cardDir('c1'), 'index.html'), cardHtml('Clock v2', 'v2'))
-  await expect(content).toHaveText('v2', { timeout: 1000 })
+  await expect(content).toHaveText('v2', { timeout: ms(1000) })
   expect(Date.now() - started).toBeLessThanOrEqual(1000)
   await expect(c1.getByTestId('card-title')).toHaveText('Clock v2')
 

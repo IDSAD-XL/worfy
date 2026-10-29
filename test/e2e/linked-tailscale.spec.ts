@@ -6,8 +6,9 @@
 import { expect, test, type Page } from '@playwright/test'
 import { launchApp, openLinkDialog, shownCode } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { ms } from '../time-scale'
 
-test.setTimeout(120_000)
+test.setTimeout(ms(120_000))
 
 const INTERFACES = { en0: ['192.168.1.20'], utun4: ['100.101.102.103', 'fd7a:115c:a1e0::1'] }
 

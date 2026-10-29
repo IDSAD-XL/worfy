@@ -17,6 +17,7 @@ import type { ProjectLayout } from '../../src/main/workflow/folder'
 import type { EpicStatusRunner } from '../../src/main/workflow/reader'
 import { ticketsIgnored, WorkflowWatcher } from '../../src/main/workflow/watch'
 import { canLink, countFsCalls, SHARE, through, until } from './counted-fs'
+import { ms } from '../time-scale'
 
 const WINDOWS = process.platform === 'win32'
 const LINKS = canLink()
@@ -174,7 +175,7 @@ describe.runIf(WINDOWS)('the watch of a Tickets root on Windows', () => {
     } finally {
       counted.restore()
     }
-  }, 30_000)
+  }, ms(30_000))
 
   it('the same link in place of the issues folder, of a Ticket file, and of the Tickets root itself', async (context) => {
     context.skip(!LINKS, 'this user may not make a symlink (Developer Mode is off)')
@@ -208,7 +209,7 @@ describe.runIf(WINDOWS)('the watch of a Tickets root on Windows', () => {
     } finally {
       counted.restore()
     }
-  }, 30_000)
+  }, ms(30_000))
 
   it.skipIf(LINKS)('the cases with a symlink to a share are skipped: this user may not make a symlink (Developer Mode is off)', () => {
     expect(LINKS).toBe(false)
@@ -238,5 +239,5 @@ describe.runIf(WINDOWS && LINKS)('chokidar on Windows, for comparison', () => {
     } finally {
       counted.restore()
     }
-  }, 30_000)
+  }, ms(30_000))
 })

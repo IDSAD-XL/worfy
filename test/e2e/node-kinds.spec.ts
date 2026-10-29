@@ -7,6 +7,7 @@ import { expect, test, type Locator } from '@playwright/test'
 import { canvasReady, launchApp, parkPointer } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // The kind of a Node in its header (worfy-canvas ticket 05, ADR-0077; F-SPEC "Node header"):
 // Session, Orchestrator and the Epic frame carry a 4 px band in their `kind-*` colour on the pale
@@ -159,7 +160,7 @@ test('node headers carry the band and the ground of their kind; a finished Sessi
     // The Session ends: its Node stays, finished, at lower opacity; hovering it gives the full opacity back.
     rmSync(registry)
     claude.kill('SIGTERM')
-    await expect(nodes.session).toHaveAttribute('data-status', 'finished', { timeout: 15_000 })
+    await expect(nodes.session).toHaveAttribute('data-status', 'finished', { timeout: ms(15_000) })
     const opacity = () => nodes.session.evaluate((element) => Number((globalThis as unknown as { getComputedStyle(target: unknown): { opacity: string } }).getComputedStyle(element).opacity))
     // The machine's own cursor may rest over the Node and give it the full opacity: the test's pointer goes away first.
     await parkPointer(window)

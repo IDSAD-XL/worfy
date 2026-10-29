@@ -23,6 +23,7 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import type { PipelineSnapshot, PipelineTicket } from '../../src/shared/ipc/pipeline'
 import { DEFAULT_PIPELINE, type PipelineStage } from '../../src/shared/workflow/pipeline'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
+import { ms } from '../time-scale'
 
 const WORKFLOW_STUB = join(__dirname, '..', 'fixtures', 'workflow-stub')
 const ownEnv = (): Promise<NodeJS.ProcessEnv> => Promise.resolve(process.env)
@@ -197,14 +198,15 @@ const ticket = (snapshot: PipelineSnapshot, num: number): PipelineTicket => {
 }
 
 /** Resolves with the next snapshot sent for which `match` holds, or rejects after `ms`. */
-function nextSnapshot(sent: PipelineSnapshot[], match: (snapshot: PipelineSnapshot) => boolean, ms = 8000): Promise<PipelineSnapshot> {
+function nextSnapshot(sent: PipelineSnapshot[], match: (snapshot: PipelineSnapshot) => boolean, limit = 8000): Promise<PipelineSnapshot> {
+  const wait = ms(limit)
   const start = sent.length
   return new Promise((resolvePromise, reject) => {
-    const deadline = Date.now() + ms
+    const deadline = Date.now() + wait
     const poll = () => {
       const found = sent.slice(start).find(match)
       if (found) return resolvePromise(found)
-      if (Date.now() > deadline) return reject(new Error(`no matching pipeline.changed within ${ms} ms; last: ${JSON.stringify(sent.at(-1)?.tickets ?? null)}`))
+      if (Date.now() > deadline) return reject(new Error(`no matching pipeline.changed within ${wait} ms; last: ${JSON.stringify(sent.at(-1)?.tickets ?? null)}`))
       setTimeout(poll, 10)
     }
     poll()
@@ -530,7 +532,7 @@ describe('pipeline IPC channels', () => {
     expect(hub.roots).toEqual([world.repo])
 
     writeFileSync(join(world.repo, '.scratch', 'demo', 'issues', '02-second.md'), ticketText(2, 'blocked 2026-10-17T15:00Z', ['Blocked reason: waits for the owner', 'Waits: owner']))
-    const deadline = Date.now() + 8000
+    const deadline = Date.now() + ms(8000)
     while (!sent.length && Date.now() < deadline) await new Promise((done) => setTimeout(done, 20))
     expect(sent[0]?.channel).toBe('worfy:pipeline.changed')
     expect(ticket(sent[0]!.payload as PipelineSnapshot, 2)).toMatchObject({ stage: 'implementing', blocked: { reason: 'waits for the owner' }, waits: 'owner' })

@@ -18,9 +18,10 @@
 import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { gitBash } from './git-bash'
+import { ms } from './time-scale'
 
 // How long the setup waits for the bash to start before it gives up on holding /tmp.
-const START_MS = 30_000
+const START_MS = ms(30_000)
 
 export default async function setup(): Promise<() => Promise<void>> {
   if (process.platform !== 'win32') return async () => {}

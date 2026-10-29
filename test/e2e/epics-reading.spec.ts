@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { launchApp } from './helpers'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // The sidebar's Epics section during the first read of an app run (worfy-harness ticket 44). That
 // read waits for the environment of the user's login shell (`$SHELL -ilc`, src/main/agent/env.ts),
@@ -122,12 +123,12 @@ test('while the login shell is slow, the Epics section says "Reading epics…", 
     // The shell has not answered: it waits for the release file. The row must show within the
     // shell's 9 s, which may have started before the window: a window that starts too slowly
     // fails here, clearly, once the shell answers by itself and the row gives way to the list.
-    await expect(reading).toBeVisible({ timeout: 9_000 })
+    await expect(reading).toBeVisible({ timeout: ms(9_000) })
     await expect(rows).toHaveCount(0)
 
     writeFileSync(release, '')
     // What is left of the 2 s, the login shell's rc files and epic-status.
-    await expect(rows).toHaveCount(EPICS.length, { timeout: 15_000 })
+    await expect(rows).toHaveCount(EPICS.length, { timeout: ms(15_000) })
     for (const epic of EPICS) await expect(section.locator(`[data-testid="sidebar-epic"][data-epic="${epic}"]`)).toHaveCount(1)
     await expect(reading).toHaveCount(0)
   } finally {

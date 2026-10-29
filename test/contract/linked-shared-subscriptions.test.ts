@@ -21,6 +21,7 @@ import type { HandlerModule, ModuleLoader } from '../../src/main/ipc/index'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { LinkBench, type BenchMachine } from './link-bench'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 const env = await vi.hoisted(async () => {
   // Before any module of main is imported: the workflow hub takes the Claude home at import.
@@ -226,7 +227,7 @@ async function windowCall(window: Window, channel: string, input: unknown): Prom
 
 /** Polls until `done` holds or five seconds pass. */
 async function until(done: () => boolean): Promise<void> {
-  const deadline = Date.now() + 5000
+  const deadline = Date.now() + ms(5000)
   while (!done() && Date.now() < deadline) await new Promise((wait) => setTimeout(wait, 20))
 }
 

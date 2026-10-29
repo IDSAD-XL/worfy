@@ -20,9 +20,10 @@ import { REPLAY_LIMIT, TerminalRegistry, type TerminalSink } from '../../src/mai
 import { ShellIntegration, SOCKET_PATH_MAX, socketPath } from '../../src/main/terminal/shell-integration'
 import { removeTestTree } from '../remove'
 import { needsPosix, needsZsh, zshPath } from '../zsh'
+import { ms } from '../time-scale'
 
 const KEY = 'terminal-1'
-const WAIT = { timeout: 10_000, interval: 20 }
+const WAIT = { timeout: ms(10_000), interval: 20 }
 /**
  * Ubuntu's /etc/zsh/zshrc runs compinit unless skip_global_compinit is set, and on the CI runner
  * compinit finds insecure folders in fpath and waits for a key; zsh without worfy waits the same.
@@ -520,7 +521,7 @@ describe('the output of a zsh Terminal with the integration, measured (worfy-lin
   const enforce = process.env.WORFY_PERF === '1'
   const BYTES = 10_000_000
 
-  it('10 MB of output: the time to the last byte and the p99 delay of the event loop of main', { timeout: 120_000 }, async () => {
+  it('10 MB of output: the time to the last byte and the p99 delay of the event loop of main', { timeout: ms(120_000) }, async () => {
     const { open } = await start()
     const t = await open()
     await t.prompt()

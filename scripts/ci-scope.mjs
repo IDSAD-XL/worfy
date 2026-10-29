@@ -120,6 +120,7 @@ const APP_FILES = new Set([
   'test/big-transcript.ts',
   'test/quarantine.ts',
   'test/flaky.ts',
+  'test/time-scale.ts',
   'test/claude-home-legacy.ts',
 ])
 // The folders of test/fixtures that the e2e tests and their helpers read. The others (eval-stub,

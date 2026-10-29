@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fullLayout } from '../../src/main/workflow/folder'
 import { WorkflowWatcher } from '../../src/main/workflow/watch'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 interface StandWatcher {
   readonly paths: unknown
@@ -168,7 +169,7 @@ describe('the watch of the branches when a folder it watches is gone', () => {
     await start()
     const [first] = branches()
     first!.raw(WORKTREES, WORKTREES)
-    await vi.waitFor(() => expect(branches()).toHaveLength(2), { timeout: 2000, interval: 5 })
+    await vi.waitFor(() => expect(branches()).toHaveLength(2), { timeout: ms(2000), interval: 5 })
     const second = branches()[1]!
     expect(first!.closed).toBe(true)
     expect(second.closed).toBe(false)
@@ -203,9 +204,9 @@ describe('the watch of the branches when a folder it watches is gone', () => {
     const lines = warnings()
     const watcher = await start()
     branches()[0]!.raw(WORKTREES, WORKTREES)
-    await vi.waitFor(() => expect(branches()).toHaveLength(2), { timeout: 2000, interval: 5 })
+    await vi.waitFor(() => expect(branches()).toHaveLength(2), { timeout: ms(2000), interval: 5 })
     branches()[1]!.raw(WORKTREES, WORKTREES)
-    await vi.waitFor(() => expect(branches()).toHaveLength(3), { timeout: 2000, interval: 5 })
+    await vi.waitFor(() => expect(branches()).toHaveLength(3), { timeout: ms(2000), interval: 5 })
     expect(branches().map((made) => made.closed)).toEqual([true, true, false])
     expect(lines()).toEqual([[SAID], [SAID]])
 
@@ -218,7 +219,7 @@ describe('the watch of the branches when a folder it watches is gone', () => {
     const watcher = await start()
     for (let n = 1; n <= 3; n++) {
       branches()[n - 1]!.raw(WORKTREES, WORKTREES)
-      await vi.waitFor(() => expect(branches()).toHaveLength(n + 1), { timeout: 2000, interval: 5 })
+      await vi.waitFor(() => expect(branches()).toHaveLength(n + 1), { timeout: ms(2000), interval: 5 })
     }
     // The gone ones were closed once, by the remake; one the watcher still held would be closed
     // again below, and until then a closed watch would stay in memory for as long as the Project.
@@ -233,16 +234,16 @@ describe('the watch of the branches when a folder it watches is gone', () => {
     await pause(50)
     const before = reads.worktrees
     branches()[0]!.raw(WORKTREES, WORKTREES)
-    await vi.waitFor(() => expect(branches()).toHaveLength(2), { timeout: 2000, interval: 5 })
+    await vi.waitFor(() => expect(branches()).toHaveLength(2), { timeout: ms(2000), interval: 5 })
     // The stand-in sends no change of its own: only the remake asks for this read.
-    await vi.waitFor(() => expect(reads.worktrees).toBeGreaterThan(before), { timeout: 2000, interval: 5 })
+    await vi.waitFor(() => expect(reads.worktrees).toBeGreaterThan(before), { timeout: ms(2000), interval: 5 })
   })
 
   it('a watch that goes before it is ready: the start does not wait for it, but for the watch made anew', async () => {
     warnings()
     stand.holdReady = true
     const starting = begin()
-    await vi.waitFor(() => expect(branches()).toHaveLength(1), { timeout: 5000, interval: 5 })
+    await vi.waitFor(() => expect(branches()).toHaveLength(1), { timeout: ms(5000), interval: 5 })
     branches()[0]!.raw(WORKTREES, WORKTREES)
     const outcome = await Promise.race([starting.then(() => 'started'), pause(3000).then(() => 'still waiting')])
     expect(outcome).toBe('started')
@@ -285,7 +286,7 @@ describe('the watch of the branches when a folder it watches is gone', () => {
     const watcher = await start()
     // One watch closed by the remake, the rest by close().
     branches()[0]!.raw(WORKTREES, WORKTREES)
-    await vi.waitFor(() => expect(branches()).toHaveLength(2), { timeout: 2000, interval: 5 })
+    await vi.waitFor(() => expect(branches()).toHaveLength(2), { timeout: ms(2000), interval: 5 })
     await watcher.close()
     expect(stand.made.length).toBeGreaterThanOrEqual(3)
     for (const made of stand.made) {
@@ -299,7 +300,7 @@ describe('the watch of the branches when a folder it watches is gone', () => {
     const watcher = await start()
     // One watch closed by the remake, the rest by close().
     branches()[0]!.raw(WORKTREES, WORKTREES)
-    await vi.waitFor(() => expect(branches()).toHaveLength(2), { timeout: 2000, interval: 5 })
+    await vi.waitFor(() => expect(branches()).toHaveLength(2), { timeout: ms(2000), interval: 5 })
     await watcher.close()
     expect(stand.made.length).toBeGreaterThanOrEqual(3)
     for (const made of stand.made) {

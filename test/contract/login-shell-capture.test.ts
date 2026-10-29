@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { agentEnv, captureLoginShellEnv, MAX_SHELL_OUTPUT, SYSTEM_PATH, type CapturedEnv } from '../../src/main/agent/env'
 import { harnessScriptEnv, withProcessPath } from '../../src/main/harness/script-env'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 /** The files in HOME where an rc file writes the pids of what it leaves behind. */
 const PID_FILES = ['background.pid', 'probe.pid', 'shell.pid']
@@ -61,10 +62,11 @@ function alive(pid: number): boolean {
   }
 }
 
-async function until(done: () => boolean, what: string, ms: number): Promise<void> {
-  const end = Date.now() + ms
+async function until(done: () => boolean, what: string, limit: number): Promise<void> {
+  const wait = ms(limit)
+  const end = Date.now() + wait
   while (!done()) {
-    if (Date.now() > end) throw new Error(`not within ${ms} ms: ${what}`)
+    if (Date.now() > end) throw new Error(`not within ${wait} ms: ${what}`)
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
 }
@@ -121,7 +123,7 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
     expect(result.error).toBeNull()
     expect(result.env.HOME).toBe(home)
     expect(took).toBeLessThan(2_000)
-  }, 20_000)
+  }, ms(20_000))
 
   it("leaves that process running — it is the user's — and its writes to the shell's output and stderr after the answer do not kill it", async () => {
     profile(BACKGROUND + LATE_WRITER)
@@ -131,7 +133,7 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
     await until(() => existsSync(join(home, 'after')), 'the background process wrote after its late writes', 10_000)
     expect(readFileSync(join(home, 'after'), 'utf8').trim()).toBe('survived')
     expect(alive(pidOf('background.pid'))).toBe(true)
-  }, 20_000)
+  }, ms(20_000))
 
   it('drops what that process writes after the answer: more than MAX_SHELL_OUTPUT of it neither piles up nor breaks its pipe', async () => {
     // After HOME/go, 17 MB to the shell's output; HOME/after gets the exit status of that pipeline.
@@ -142,7 +144,7 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
     await until(() => existsSync(join(home, 'after')), 'the background process wrote the status of its 17 MB', 15_000)
     // 0, not 141 (SIGPIPE): kept output past the limit would have closed the pipe under it.
     expect(readFileSync(join(home, 'after'), 'utf8').trim()).toBe('0')
-  }, 30_000)
+  }, ms(30_000))
 
   it("does not keep worfy's process alive while that process runs", () => {
     // A process of its own (Electron's Node, as the test run, which strips the types of env.ts):
@@ -159,14 +161,14 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
       ].join('\n'),
     )
     const started = Date.now()
-    const run = spawnSync(process.execPath, [script], { env: { PATH: SYSTEM_PATH, HOME: home, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: 20_000 })
+    const run = spawnSync(process.execPath, [script], { env: { PATH: SYSTEM_PATH, HOME: home, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: ms(20_000) })
     const took = Date.now() - started
     expect(run.stdout.trim(), run.stderr).toBe('login-shell')
     expect(run.status).toBe(0)
     expect(alive(pidOf('background.pid'))).toBe(true)
     // Held by the drain, it would end with `sleep 30`, or be killed at the 20 s timeout.
     expect(took).toBeLessThan(10_000)
-  }, 30_000)
+  }, ms(30_000))
 
   it('keeps nothing of what that process writes after the answer', () => {
     // A process of its own, run with --expose-gc: its memory (RSS) is measured before and after the
@@ -196,14 +198,14 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
         'process.exit(0)',
       ].join('\n'),
     )
-    const run = spawnSync(process.execPath, ['--expose-gc', script], { env: { PATH: SYSTEM_PATH, HOME: home, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: 20_000 })
+    const run = spawnSync(process.execPath, ['--expose-gc', script], { env: { PATH: SYSTEM_PATH, HOME: home, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: ms(20_000) })
     expect(run.status, run.stderr).toBe(0)
     const answer = JSON.parse(run.stdout) as { from: string; grownMB: number; status: string }
     expect(answer.from).toBe('login-shell')
     expect(answer.status).toBe('0')
     // Kept, the 100 MB would stay: about +200 MB of RSS; dropped, under +10 MB.
     expect(answer.grownMB).toBeLessThan(50)
-  }, 30_000)
+  }, ms(30_000))
 
   it('still falls back at the time limit when the shell prints nothing, and ends that shell', async () => {
     // The shell becomes `sleep 30`: it never prints the environment and never exits by itself.
@@ -217,7 +219,7 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
     // The timer fired: not before the limit, and the run did not hang.
     expect(took).toBeGreaterThanOrEqual(950)
     await until(() => !alive(pidOf('shell.pid')), 'the shell that hung ended', 5_000)
-  }, 20_000)
+  }, ms(20_000))
 
   // The ticket's risk: a shell ended early skips its logout files. The capture still answers with no error.
   for (const [shell, rcFile] of [
@@ -234,7 +236,7 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
       expect(result.error).toBeNull()
       expect(result.env.HOME).toBe(home)
       expect(took).toBeLessThan(2_000)
-    }, 20_000)
+    }, ms(20_000))
   }
 })
 
@@ -267,7 +269,7 @@ describe.skipIf(process.platform === 'win32')('the reason of a fallback', () => 
     expect(MAX_SHELL_OUTPUT).toBe(16_777_216)
     expect(result.from).toBe('fallback')
     expect(result.error).toMatch(/^\/bin\/sh -ilc failed: more than 16777216 characters of output/)
-  }, 20_000)
+  }, ms(20_000))
 })
 
 describe('a shell started without pipes (out of file descriptors)', () => {

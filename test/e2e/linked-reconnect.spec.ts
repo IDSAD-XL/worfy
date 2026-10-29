@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { expandMachines, launchApp, linkThroughUi, machineIdOf, openLinkDialog, type LaunchedApp } from './helpers'
+import { ms } from '../time-scale'
 
 const row = (window: Page, machineId: string): Locator => window.locator(`[data-testid="machine-row"][data-machine-id="${machineId}"]`)
 
@@ -100,13 +101,13 @@ async function closeB(pair: Pair): Promise<void> {
   pair.b = undefined
   await expandMachines(pair.a.window)
   const bRow = row(pair.a.window, pair.bId)
-  await expect(bRow).toHaveAttribute('data-state', 'unavailable', { timeout: 20_000 })
+  await expect(bRow).toHaveAttribute('data-state', 'unavailable', { timeout: ms(20_000) })
   await expect(bRow).toContainText('Offline')
   for (const testId of ['machine-reconnect', 'machine-change-address', 'machine-remove']) await expect(bRow.getByTestId(testId)).toBeVisible()
 }
 
 test('Remove from the row of an offline Machine: gone here at once, and on the other side after its next dial', async () => {
-  test.setTimeout(150_000)
+  test.setTimeout(ms(150_000))
   let pair: Pair | undefined
   try {
     pair = await linkedPair()
@@ -131,7 +132,7 @@ test('Remove from the row of an offline Machine: gone here at once, and on the o
     await openLinkDialog(a.window)
     pair.b = await launchApp({ env: { WORFY_DATA_DIR: bDir } })
     await expandMachines(pair.b.window)
-    await expect(row(pair.b.window, aId)).toHaveCount(0, { timeout: 30_000 })
+    await expect(row(pair.b.window, aId)).toHaveCount(0, { timeout: ms(30_000) })
     // And A did not get B back.
     await expect(row(a.window, bId)).toHaveCount(0)
   } finally {
@@ -140,7 +141,7 @@ test('Remove from the row of an offline Machine: gone here at once, and on the o
 })
 
 test('Change address…: another worfy at the address is refused in the window; the right address brings the link back', async () => {
-  test.setTimeout(150_000)
+  test.setTimeout(ms(150_000))
   let pair: Pair | undefined
   try {
     pair = await linkedPair()
@@ -162,14 +163,14 @@ test('Change address…: another worfy at the address is refused in the window; 
     // A's own server answers there: another certificate.
     await dialog.getByTestId('change-address-input').fill(`127.0.0.1:${portOf(aDir)}`)
     await dialog.getByRole('button', { name: 'Save' }).click()
-    await expect(dialog.getByRole('alert')).toBeVisible({ timeout: 20_000 })
+    await expect(dialog.getByRole('alert')).toBeVisible({ timeout: ms(20_000) })
     await expect(dialog).toBeVisible()
     await expect(row(a.window, bId)).toHaveAttribute('data-state', 'unavailable')
 
     await dialog.getByTestId('change-address-input').fill(`127.0.0.1:${newPort}`)
     await dialog.getByRole('button', { name: 'Save' }).click()
-    await expect(dialog).toHaveCount(0, { timeout: 20_000 })
-    await expect(row(a.window, bId)).toHaveAttribute('data-state', 'online', { timeout: 20_000 })
+    await expect(dialog).toHaveCount(0, { timeout: ms(20_000) })
+    await expect(row(a.window, bId)).toHaveAttribute('data-state', 'online', { timeout: ms(20_000) })
     await expandMachines(pair.b.window)
     await expect(row(pair.b.window, aId)).toHaveAttribute('data-state', 'online')
   } finally {

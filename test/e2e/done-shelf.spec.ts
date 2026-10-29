@@ -8,6 +8,7 @@ import { canvasReady, launchApp, openSecondWindow, parkPointer, type LaunchedApp
 import { snapshotThemes } from './snapshots'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // The done shelf in the built app (worfy-canvas ticket 02, ADR-0075 point 5). The Project is a
 // temporary git repository with five Epics, three of them done (every Ticket done, no Layout Node,
@@ -151,9 +152,9 @@ async function launch(): Promise<LaunchedApp> {
 /** Waits until the strip and the shelf are drawn as `frames` and `chips` say and the Canvas is at rest. */
 async function shown(launched: { window: Page; app?: LaunchedApp['app'] }, frames: string[], chips: string[], size?: { width: number; height: number }): Promise<void> {
   const { window } = launched
-  await expect.poll(() => frameNames(window), { timeout: 20_000 }).toEqual([...frames].sort())
-  await expect.poll(() => chipNames(window), { timeout: 20_000 }).toEqual(chips)
-  await canvasReady(launched, { ...(size ? { size } : {}), frames: 20, timeout: 20_000 })
+  await expect.poll(() => frameNames(window), { timeout: ms(20_000) }).toEqual([...frames].sort())
+  await expect.poll(() => chipNames(window), { timeout: ms(20_000) }).toEqual(chips)
+  await canvasReady(launched, { ...(size ? { size } : {}), frames: 20, timeout: ms(20_000) })
 }
 
 test('the done Epics stand as chips on the shelf under the strip; a click opens the frame last in the order, ⌘Z puts it back on the shelf', async () => {

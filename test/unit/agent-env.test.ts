@@ -47,6 +47,7 @@ import {
 } from '../../src/main/agent/env'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
+import { ms } from '../time-scale'
 
 let home: string
 
@@ -429,7 +430,7 @@ describe('captureAgentEnv on win32', () => {
   it('an environment with a NUL in the registry still starts a process', async () => {
     const { env } = await capture({ readKey: async (name) => (name === PERSISTENT_ENV_KEYS[0] ? key(['TOOLS', SZ, 'C:\\tools\0junk'], ['N\0UL', SZ, 'x']) : regAnswers[name]!) })
     expect(env.TOOLS).toBe('C:\\tools')
-    const started = spawnSync(scriptNode(), ['-e', ''], { env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, timeout: 20_000 })
+    const started = spawnSync(scriptNode(), ['-e', ''], { env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, timeout: ms(20_000) })
     expect(started.error).toBeUndefined()
     expect(started.status).toBe(0)
   })
@@ -748,14 +749,14 @@ describe('findOnPath and the registry reader', () => {
     const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', WORFY_RUN_FILE_TEST: 'given Ключ' }
     const script = 'process.stdout.write(String(process.env.WORFY_RUN_FILE_TEST))'
     const answer = await new Promise<{ error: unknown; stdout: string }>((resolve) =>
-      runFile(scriptNode(), ['-e', script], { encoding: 'utf8', timeout: 10_000, windowsHide: true, env }, (error, stdout) => resolve({ error, stdout })),
+      runFile(scriptNode(), ['-e', script], { encoding: 'utf8', timeout: ms(10_000), windowsHide: true, env }, (error, stdout) => resolve({ error, stdout })),
     )
     expect(answer).toEqual({ error: null, stdout: 'given Ключ' })
   })
 })
 
 // Each test starts Windows PowerShell: about half a second alone, several under the load of the whole run.
-describe.runIf(process.platform === 'win32')('the registry reader on this Windows machine', { timeout: 30_000 }, () => {
+describe.runIf(process.platform === 'win32')('the registry reader on this Windows machine', { timeout: ms(30_000) }, () => {
   // A scratch key of the test only; Environment is never written.
   const SCRATCH = 'HKCU\\Software\\worfy-test-registry-reader'
   afterEach(() => {
@@ -786,7 +787,7 @@ describe.runIf(process.platform === 'win32')('the registry reader on this Window
   })
 })
 
-describe.runIf(process.platform === 'win32')('agentEnv on this Windows machine', { timeout: 30_000 }, () => {
+describe.runIf(process.platform === 'win32')('agentEnv on this Windows machine', { timeout: ms(30_000) }, () => {
   it('finds git, node and gh, points CLAUDE_CODE_GIT_BASH_PATH at a Git Bash outside System32, and carries no parent session', async () => {
     const { env, from, error } = await agentEnv()
     expect(from).toBe('registry')

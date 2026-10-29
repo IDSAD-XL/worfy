@@ -8,6 +8,7 @@ import { canvasReady, inJson, launchApp, marksOf, repoRoot, startTimeline } from
 import { snapshotThemes } from './snapshots'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // The Subagent tree of a Session (ticket 15), against the built app:
 // - the Orchestrator on the fake agent (test/fixtures/agent-scripts/subagents.jsonl) starts a
@@ -129,7 +130,7 @@ test('the Orchestrator starts Subagents: their Nodes appear, run with a ticking 
     const impl = window.locator('[data-testid="subagent-node"][data-subagent-id="afake00000000impl"]')
     await startTimeline(window, { impl: { selector: '[data-testid="subagent-node"][data-subagent-id="afake00000000impl"]' } })
     await sendToOrchestrator(window, 'run wave 3')
-    await impl.waitFor({ state: 'visible', timeout: 5000 })
+    await impl.waitFor({ state: 'visible', timeout: ms(5000) })
     const marks = await marksOf(window, ['sent', 'impl'])
     const appeared = Math.round(marks.impl! - marks.sent!)
     // Only a Node that came after the message counts.
@@ -151,7 +152,7 @@ test('the Orchestrator starts Subagents: their Nodes appear, run with a ticking 
     // The running time goes on.
     const first = await impl.getByTestId('subagent-status').textContent()
     expect(first).toMatch(/^running \d+s$/)
-    await expect(impl.getByTestId('subagent-status')).not.toHaveText(first ?? '', { timeout: 3000 })
+    await expect(impl.getByTestId('subagent-status')).not.toHaveText(first ?? '', { timeout: ms(3000) })
     await window.screenshot({ path: test.info().outputPath('subagent-tree-running.png') })
 
     // The next turn brings both task-notifications: done, and folded into one row under the Orchestrator.
@@ -298,7 +299,7 @@ test('a terminal Session with three Subagents: the tree from its files, REJECTED
     await window.getByRole('button', { name: /Canvas/ }).click()
     write(join(subagents, 'agent-a3000000000000286.jsonl'), `${fixtureLines(join(S7, 'subagents', 'agent-a3000000000000286.jsonl')).at(-1)!}\n`, 'append')
     write(join(dir, `${S7}.jsonl`), `${main.slice(notification).join('\n')}\n`, 'append')
-    await expect(impl).toHaveAttribute('data-status', 'done', { timeout: 5000 })
+    await expect(impl).toHaveAttribute('data-status', 'done', { timeout: ms(5000) })
     await sessionFold.click()
     await expect(impl).toHaveCount(0)
     await expect(sessionFold).toHaveText('2 done')
@@ -342,9 +343,9 @@ test('a Session with 24 Subagents: the tree is shown within a second of opening 
     const claude = claudeProcess()
     writeFileSync(join(claudeHome, 'sessions', `${claude.pid}.json`), JSON.stringify({ pid: claude.pid, sessionId, cwd: projectPath, kind: 'interactive', entrypoint: 'cli', status: 'busy', version: '2.1.289', name: 'audit' }))
     const node = window.locator(`[data-testid="session-node"][data-session-id="${sessionId}"]`)
-    await node.waitFor({ state: 'visible', timeout: 5000 })
+    await node.waitFor({ state: 'visible', timeout: ms(5000) })
     // The Canvas reads the tree as soon as the Session has a Node.
-    await window.locator('[data-testid="subagent-node"]').first().waitFor({ state: 'visible', timeout: 5000 })
+    await window.locator('[data-testid="subagent-node"]').first().waitFor({ state: 'visible', timeout: ms(5000) })
     const onCanvas = await marksOf(window, ['sessionNode', 'tree'])
     const treeShown = Math.round(onCanvas.tree! - onCanvas.sessionNode!)
     expect(treeShown).toBeGreaterThanOrEqual(0)
@@ -352,7 +353,7 @@ test('a Session with 24 Subagents: the tree is shown within a second of opening 
     expect(treeShown).toBeLessThanOrEqual(1000)
     await node.getByTestId('session-node-title').dblclick()
     const rows = window.locator(rowSelector)
-    await expect(rows).toHaveCount(24, { timeout: 5000 })
+    await expect(rows).toHaveCount(24, { timeout: ms(5000) })
     const inRail = await marksOf(window, ['opened', 'rows'])
     const shown = Math.round(inRail.rows! - inRail.opened!)
     // The rows come with the opened Session, not before it.
@@ -394,7 +395,7 @@ test('a Session with running, failed and done Subagents: the rail lists the newe
     writeFileSync(join(claudeHome, 'sessions', `${claude.pid}.json`), JSON.stringify({ pid: claude.pid, sessionId, cwd: projectPath, kind: 'interactive', entrypoint: 'cli', status: 'busy', version: '2.1.289', name: 'wave' }))
     expected = snapshot()
     const node = window.locator(`[data-testid="session-node"][data-session-id="${sessionId}"]`)
-    await node.waitFor({ state: 'visible', timeout: 5000 })
+    await node.waitFor({ state: 'visible', timeout: ms(5000) })
     await node.getByTestId('session-node-title').dblclick()
     const rail = window.locator('.w-shell__view[data-view="session"]').getByTestId('subagents-rail')
     const rows = rail.getByTestId('subagents-rail-row')
@@ -495,13 +496,13 @@ test('a Session that runs a workflow script: its agents hang under the run and e
 
     // The journal ends the reviewer (failed) and the scout (result); the run still runs.
     write(join(run, 'journal.jsonl'), `${journal.slice(5).join('\n')}\n`, 'append')
-    await expect(review).toHaveAttribute('data-status', 'error', { timeout: 5000 })
+    await expect(review).toHaveAttribute('data-status', 'error', { timeout: ms(5000) })
     await expect(runFold).toHaveText('2 done')
     await expect(runNode).toHaveAttribute('data-status', 'running')
     // The run's task-notification ends it: done, folded under the Session.
     write(join(dir, `${S12}.jsonl`), `${main.slice(notification).join('\n')}\n`, 'append')
     const sessionFold = window.locator('[data-testid="subagent-fold"][data-node-id$="/done:session"]')
-    await expect(sessionFold).toHaveText('1 done', { timeout: 5000 })
+    await expect(sessionFold).toHaveText('1 done', { timeout: ms(5000) })
     await expect(runNode).toHaveCount(0)
     expectUntouched()
   } finally {
@@ -553,7 +554,7 @@ test('a continued Session: a Subagent of its earlier process is interrupted, and
   try {
     const { window } = launched
     await canvasReady(launched, { size: { width: 1600, height: 900 } })
-    await expect(window.locator(`[data-testid="session-node"][data-session-id="${sessionId}"]`)).toBeVisible({ timeout: 5000 })
+    await expect(window.locator(`[data-testid="session-node"][data-session-id="${sessionId}"]`)).toBeVisible({ timeout: ms(5000) })
     // On the Canvas: the running one and the failed one in the column; the done and the interrupted one folded.
     await expect(canvasNode(window, 3)).toHaveAttribute('data-status', 'running')
     await expect(canvasNode(window, 1)).toHaveAttribute('data-status', 'error')
@@ -610,7 +611,7 @@ test('a continued Session: a Subagent of its earlier process is interrupted, and
   try {
     const { window } = launched
     await canvasReady(launched, { size: { width: 1600, height: 900 } })
-    await expect(window.locator(`[data-testid="session-node"][data-session-id="${sessionId}"]`)).toBeVisible({ timeout: 5000 })
+    await expect(window.locator(`[data-testid="session-node"][data-session-id="${sessionId}"]`)).toBeVisible({ timeout: ms(5000) })
     const rail = await openRail(window)
     const showHidden = rail.getByTestId('subagents-rail-show-hidden')
     await expect(showHidden).toHaveText('Show hidden Subagents (4)')

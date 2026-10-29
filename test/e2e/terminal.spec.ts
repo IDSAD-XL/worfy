@@ -6,6 +6,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, openSecondWindow, packagedBuild, packagedExecutable, type LaunchedApp, type LaunchOptions } from './helpers'
 import { childrenOf, chooseGitBash, printJoined, shellsOf, SIZE_EXPRESSION, WINDOWS, windowsProcessName } from './terminal-shell'
 import { windowsProfileEnv } from '../windows-profile'
+import { ms } from '../time-scale'
 
 // The Terminal Node against the built app: "New terminal" in the Canvas context menu starts the
 // user's shell in the Project root on a real pty; the Node's size is the pty's size; the output
@@ -171,7 +172,7 @@ async function expectPwdIsRoot(window: Page, node: Locator): Promise<void> {
   await node.getByTestId('terminal-screen').click()
   await window.keyboard.type(WINDOWS ? 'echo "cwd=$($PWD.Path)"' : 'pwd')
   await window.keyboard.press('Enter')
-  await expect.poll(async () => (await screenText(node)).replace(/\n/g, ''), { timeout: 10_000 }).toContain(WINDOWS ? `cwd=${root}` : root)
+  await expect.poll(async () => (await screenText(node)).replace(/\n/g, ''), { timeout: ms(10_000) }).toContain(WINDOWS ? `cwd=${root}` : root)
 }
 
 /** Prints TERM_PROGRAM in the shell's own syntax. */
@@ -182,7 +183,7 @@ async function run(window: Page, node: Locator, command: string, expected: RegEx
   await node.getByTestId('terminal-screen').click()
   await window.keyboard.type(command)
   await window.keyboard.press('Enter')
-  await expect.poll(() => screenText(node), { timeout: 10_000 }).toMatch(expected)
+  await expect.poll(() => screenText(node), { timeout: ms(10_000) }).toMatch(expected)
 }
 
 /**
@@ -194,7 +195,7 @@ async function runUntilTyped(window: Page, node: Locator, command: string): Prom
   await node.getByTestId('terminal-screen').click()
   await window.keyboard.type(command)
   await window.keyboard.press('Enter')
-  await expect.poll(async () => (await screenText(node)).replace(/\s/g, ''), { timeout: 10_000 }).toContain(command.replace(/\s/g, ''))
+  await expect.poll(async () => (await screenText(node)).replace(/\s/g, ''), { timeout: ms(10_000) }).toContain(command.replace(/\s/g, ''))
 }
 
 /** The last `cols=N rows=M` the shell printed. */
@@ -290,7 +291,7 @@ test('New terminal starts the shell in the Project root; resize, Session view an
     await reloaded.getByRole('button', { name: 'Close terminal' }).click()
     await expect(reloaded).toHaveCount(0)
     expect(await terminalNodes(window)).toEqual([])
-    await expect.poll(() => alive(pid), { timeout: 10_000 }).toBe(false)
+    await expect.poll(() => alive(pid), { timeout: ms(10_000) }).toBe(false)
   } finally {
     await launched.close()
   }
@@ -419,7 +420,7 @@ test('quitting worfy ends every shell; after a restart the Node starts a new she
     // On Windows this test proves less: closing the pseudo-console with the app already ends
     // PowerShell and ping, so it passes whether or not worfy ends them itself before it exits.
     await runUntilTyped(window, nodes.nth(1), WINDOWS ? 'ping -n 31 127.0.0.1 > $null' : `trap '' HUP; sleep 30`)
-    await expect.poll(() => childrenOf(pids[1] ?? 0).length, { timeout: 15_000 }).toBe(1)
+    await expect.poll(() => childrenOf(pids[1] ?? 0).length, { timeout: ms(15_000) }).toBe(1)
     jobs.push(...childrenOf(pids[1] ?? 0))
     expect(pids.every(alive)).toBe(true)
 
@@ -427,7 +428,7 @@ test('quitting worfy ends every shell; after a restart the Node starts a new she
     // worfy quits only after its shells have exited: once its main process is gone, so are they.
     // (Waiting for close() instead would not tell: it resolves only when the app's output pipes
     // close, and a surviving shell keeps them open until its job ends.)
-    await expect.poll(() => alive(mainPid), { timeout: 15_000 }).toBe(false)
+    await expect.poll(() => alive(mainPid), { timeout: ms(15_000) }).toBe(false)
     expect(pids.filter(alive)).toEqual([])
   } finally {
     for (const pid of [...pids, ...jobs]) if (alive(pid)) process.kill(pid, 'SIGKILL')
@@ -460,13 +461,13 @@ test('a Terminal Node removed from the Layout by another route, or its Project r
     if (!stored) throw new Error('no terminal node')
     expect(await invokeIn(window, 'layout.apply', { projectId: PROJECT, op: { op: 'remove', id: stored.id } })).toMatchObject({ ok: true })
     await expect(node).toHaveCount(0)
-    await expect.poll(() => alive(pid), { timeout: 10_000 }).toBe(false)
+    await expect.poll(() => alive(pid), { timeout: ms(10_000) }).toBe(false)
 
     // The Project removed from the list takes its shell with it.
     const second = await newTerminal(window)
     const secondPid = await pidOf(second)
     expect(await invokeIn(window, 'projects.remove', { id: PROJECT })).toMatchObject({ ok: true })
-    await expect.poll(() => alive(secondPid), { timeout: 10_000 }).toBe(false)
+    await expect.poll(() => alive(secondPid), { timeout: ms(10_000) }).toBe(false)
   } finally {
     await launched.close()
   }
@@ -488,7 +489,7 @@ test('a shell that exited stays exited across a reload of the window; Restart st
     await window.keyboard.press('Enter')
     await expect(node).toHaveAttribute('data-state', 'exited')
     await expect(node.getByText('exit 3', { exact: true })).toBeVisible()
-    await expect.poll(() => alive(pid), { timeout: 10_000 }).toBe(false)
+    await expect.poll(() => alive(pid), { timeout: ms(10_000) }).toBe(false)
 
     // The Node mounts again: it shows the exit and the last output, and starts nothing.
     await window.reload()
@@ -549,7 +550,7 @@ async function timeToMarker(window: Page, node: Locator, views: Locator[], tag: 
   await window.keyboard.press('Enter')
   const seen = await Promise.all(
     views.map(async (view) => {
-      await expect.poll(() => screenText(view), { timeout: 60_000, intervals: [50] }).toMatch(marker)
+      await expect.poll(() => screenText(view), { timeout: ms(60_000), intervals: [50] }).toMatch(marker)
       return Date.now()
     }),
   )
@@ -568,7 +569,7 @@ async function setNewestWindowSize(launched: LaunchedApp, width: number, height:
 }
 
 test('one Terminal on two windows: both show the output, the second gets the replay, the pty has the size of the window that typed or clicked last; Restart and closing a window', async () => {
-  test.setTimeout(240_000)
+  test.setTimeout(ms(240_000))
   // On Windows ConPTY does not pass every byte on: it repaints the console screen, so the 10 MB
   // timing there measures the repaint rather than worfy's output path. Hold it to the limit only
   // with WORFY_PERF=1, as on the Mac.
@@ -616,7 +617,7 @@ test('one Terminal on two windows: both show the output, the second gets the rep
     await second.keyboard.type(`${WINDOWS ? 'Start-Sleep 2' : 'sleep 2'}; echo "late-size=${SIZE_EXPRESSION}"`)
     await second.keyboard.press('Enter')
     await node.getByTestId('terminal-screen').click()
-    await expect.poll(() => screenText(tile), { timeout: 10_000 }).toMatch(/^late-size=\d+x\d+$/m)
+    await expect.poll(() => screenText(tile), { timeout: ms(10_000) }).toMatch(/^late-size=\d+x\d+$/m)
     const late = /^late-size=(\d+)x(\d+)$/m.exec(await screenText(tile)) ?? []
     expect({ cols: Number(late[1]), rows: Number(late[2]) }).toEqual(sizeOne)
     // Window 2 sees the output laid out for window 1 until it types or clicks: Q14, no hint.
@@ -686,7 +687,7 @@ test('on Windows, Git Bash chosen in the settings starts in the Project root; cl
     expect(inner).toHaveLength(1)
     await node.getByRole('button', { name: 'Close terminal' }).click()
     await expect(node).toHaveCount(0)
-    await expect.poll(() => [pid, ...inner].filter(alive), { timeout: 10_000 }).toEqual([])
+    await expect.poll(() => [pid, ...inner].filter(alive), { timeout: ms(10_000) }).toEqual([])
     expect(shellsOf(mainPid)).toEqual([])
   } finally {
     await launched.close()
@@ -704,7 +705,7 @@ test(`the Terminal works in the packaged ${WINDOWS ? 'worfy.exe' : 'worfy.app'} 
     await window.screenshot({ path: test.info().outputPath('packaged-terminal.png') })
     const pid = await pidOf(node)
     await node.getByRole('button', { name: 'Close terminal' }).click()
-    await expect.poll(() => alive(pid), { timeout: 10_000 }).toBe(false)
+    await expect.poll(() => alive(pid), { timeout: ms(10_000) }).toBe(false)
   } finally {
     await launched.close()
   }

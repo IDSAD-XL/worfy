@@ -8,6 +8,7 @@ import { canvasReady, launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { chooseGitBash, WINDOWS } from './terminal-shell'
 import { windowsProfileEnv } from '../windows-profile'
+import { ms } from '../time-scale'
 
 // The wheel over a Node (worfy-week ticket 16). Until a Node is clicked, a wheel or a two-finger
 // swipe over it moves the Canvas, whatever the Node draws: a scrolling HANDOFF, a Note's textarea,
@@ -117,7 +118,7 @@ async function start(): Promise<Page> {
   await expect(statusBlock(window)).toBeVisible()
   expect(await invoke(window, 'agent.interrupt', { sessionId })).toMatchObject({ ok: true })
   expect(await invoke(window, 'terminal.input', { projectId: PROJECT, nodeId: 'term', data: `${WINDOWS ? 'unset HISTFILE; ' : ''}seq 1 200\n` })).toMatchObject({ ok: true })
-  await expect.poll(() => terminalTop(window), { timeout: 10_000 }).toMatch(/^\d+$/)
+  await expect.poll(() => terminalTop(window), { timeout: ms(10_000) }).toMatch(/^\d+$/)
   await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: NODES.map((node) => nodeElement(window, node.id)) })
   // The block holds four short lines: nothing to scroll.
   const block = await statusBlock(window).evaluate((element) => {
@@ -341,7 +342,7 @@ test('a Terminal running a program in the alternate screen gets no arrow keys fr
   await window.keyboard.type(" printf '\\033[?1049h'; seq 1 40; cat -v")
   await window.keyboard.press('Enter')
   // In the alternate screen the earlier output (1 to 200) is gone.
-  await expect.poll(() => terminalRows(window).innerText(), { timeout: 10_000 }).not.toMatch(/\b200\b/)
+  await expect.poll(() => terminalRows(window).innerText(), { timeout: ms(10_000) }).not.toMatch(/\b200\b/)
   await clickPlane(window)
   await expectNotActive(window, 'term')
 
@@ -357,12 +358,12 @@ test('a Terminal running a program in the alternate screen gets no arrow keys fr
   await expectActive(window, 'term')
   await window.keyboard.type('MARK')
   await window.keyboard.press('Enter')
-  await expect.poll(async () => (await terminalRows(window).innerText()).split('MARK').length - 1, { timeout: 5_000 }).toBeGreaterThanOrEqual(2)
+  await expect.poll(async () => (await terminalRows(window).innerText()).split('MARK').length - 1, { timeout: ms(5_000) }).toBeGreaterThanOrEqual(2)
   expect(await terminalRows(window).innerText()).not.toMatch(/\^\[\[[AB]/)
 
   await wheelOver(window, terminalScreen(window), -NOTCH)
   await window.keyboard.press('Enter')
-  await expect.poll(() => terminalRows(window).innerText(), { timeout: 5_000 }).toMatch(/\^\[\[A/)
+  await expect.poll(() => terminalRows(window).innerText(), { timeout: ms(5_000) }).toMatch(/\^\[\[A/)
   await window.keyboard.press('Control+C')
 })
 

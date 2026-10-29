@@ -7,6 +7,7 @@ import { expect, test, type Locator } from '@playwright/test'
 import { claudePluginStub } from './claude-plugin-stub'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { legacyClaudeHome } from './legacy-claude-home'
+import { ms } from '../time-scale'
 
 // The shared Select (src/renderer/theme/Select.tsx) in the two forms that had a native select:
 // the Profile form of "Add project" (the same path as test/e2e/projects-connect.spec.ts: a
@@ -87,7 +88,7 @@ test('the Profile form of "Add project": a field opens from the keyboard, letter
     await window.getByRole('button', { name: 'Add project' }).click()
     const dialog = window.getByTestId('connect-project')
     await dialog.getByRole('button', { name: 'Write draft' }).click()
-    await expect(dialog).toHaveAttribute('data-step', 'form', { timeout: 20_000 })
+    await expect(dialog).toHaveAttribute('data-step', 'form', { timeout: ms(20_000) })
 
     // The draft of the fake agent writes the reports in English.
     const reports = dialog.getByRole('combobox', { name: 'Reports' })
@@ -155,7 +156,7 @@ test('the Profile fields of the move form: chosen through the Select, inactive w
     await window.getByTestId('harness-status').getByTestId('harness-migrate').click()
     const form = window.getByTestId('migration-form')
     const fields = form.getByTestId('profile-fields').first()
-    await expect(fields).toBeVisible({ timeout: 20_000 })
+    await expect(fields).toBeVisible({ timeout: ms(20_000) })
     const row = form.locator('[data-testid="migration-row"][data-row^="profile:"]').first()
     await fields.evaluate((element) => element.scrollIntoView({ block: 'center' }))
 

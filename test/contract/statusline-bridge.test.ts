@@ -14,6 +14,7 @@ import { type BuildKind, dataRoot } from '../../src/main/storage/paths'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { shellStub } from '../shell-stub'
+import { ms } from '../time-scale'
 
 const MJS = join(__dirname, '..', '..', 'scripts', 'statusline-bridge.mjs')
 const SH = join(__dirname, '..', '..', 'scripts', 'statusline-bridge.sh')
@@ -61,7 +62,7 @@ function run(entry: Entry, stdin: string, args: string[] = [], env: Record<strin
 }
 
 /** No outer spawnSync waits for ever: a bridge that hangs fails its test (review round 4 of PR #200). */
-const SPAWN_TIMEOUT_MS = 30_000
+const SPAWN_TIMEOUT_MS = ms(30_000)
 
 /**
  * A run through an async spawn, for input past the size of a pipe buffer: spawnSync with such an
@@ -211,7 +212,7 @@ describe('statusline-bridge scripts', () => {
       expect(await runAsync(scriptNode(), [MJS, 'wc -c'], big), `run ${round}`).toMatchObject({ status: 0, stdout: expect.stringMatching(new RegExp(`^\\s*${big.length}\\s*$`)) })
     }
     expect(written()).toEqual(RATE_LIMITS)
-  }, 180_000)
+  }, ms(180_000))
 
   it('runs a user command that does not read its stdin, with its output and exit code', async () => {
     const big = JSON.stringify({ ...STATUS, padding: 'x'.repeat(300_000) })

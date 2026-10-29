@@ -3,6 +3,8 @@
 // the app's output and the line that sums it all up. No Electron and no Playwright here, so
 // test/unit/start-diagnosis.test.ts checks them without starting an app.
 
+import { ms } from '../time-scale'
+
 /** How long each step that asks the app may take: the app may be hung, and the diagnosis must not hang with it. */
 export const DIAGNOSTIC_STEP_MS = 3_000
 /** How long saving and attaching the files may take. */
@@ -15,9 +17,10 @@ export const DIAGNOSIS_MAX_MS = 3 * DIAGNOSTIC_STEP_MS + DIAGNOSTIC_SAVE_MS
  * (GONE_TIMEOUT_MS) for the app's own process to exit after SIGKILL, then three folders are removed
  * one after another (cleanDirs in helpers.ts), each with up to 5 retries 100, 200 … 500 ms apart:
  * about 1.5 s per folder, 4.5 s in all (removeDir in helpers.ts). An app that never reported its
- * PID costs up to 5 s instead (PID_TIMEOUT_MS in helpers.ts) and skips that 10 s wait.
+ * PID costs up to 5 s instead (PID_TIMEOUT_MS in helpers.ts) and skips that 10 s wait. Both waits are
+ * times the run's multiplier (test/time-scale.ts), so the margin is too.
  */
-export const CLEANUP_MARGIN_MS = 15_000
+export const CLEANUP_MARGIN_MS = ms(15_000)
 /** How much of the app's output (stdout and stderr together) a launch keeps for a diagnosis: the last 256 KB. */
 export const OUTPUT_LIMIT = 256 * 1024
 /** The problem of a step that did not run because the budget was spent. */

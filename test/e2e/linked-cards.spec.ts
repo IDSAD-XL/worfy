@@ -13,8 +13,9 @@ import { join } from 'node:path'
 import { expect, test, type Frame, type Page } from '@playwright/test'
 import { launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { ms } from '../time-scale'
 
-test.setTimeout(180_000)
+test.setTimeout(ms(180_000))
 
 const SHARED = 'shared-0000005c'
 const LABEL = '0000005c'
@@ -86,7 +87,7 @@ const projectButton = (window: Page, groupSelector: string) => group(window, gro
  * three Card specs together); the 5 s default was missed once with several Electron apps of other
  * worktrees running at load ~7. Like epic-frame.spec.ts, the first frame gets 15 s.
  */
-const FIRST_FRAME_MS = 15_000
+const FIRST_FRAME_MS = ms(15_000)
 
 /**
  * The frame of Card `cardId` whose address starts with `origin`, once its page ran its script.
@@ -255,13 +256,13 @@ test('A shows the Card of B from B, its own Card as before; a file change on B r
     await expect(a.window.frameLocator('[data-card-id="c1"] iframe').locator('#title')).toHaveText('Card of B, watched')
     const started = Date.now()
     await writeFile(join(bData, SHARED, 'cards', 'c1', 'index.html'), cardHtml('Card of B v2'))
-    await expect(a.window.frameLocator('[data-card-id="c1"] iframe').locator('#title')).toHaveText('Card of B v2', { timeout: 1_000 })
+    await expect(a.window.frameLocator('[data-card-id="c1"] iframe').locator('#title')).toHaveText('Card of B v2', { timeout: ms(1_000) })
     expect(Date.now() - started).toBeLessThanOrEqual(1_000)
     cardOfB = await cardFrame(a, 'c1', linkedOrigin)
 
     // session.ask from the Card of B in A's window: the dialog on A once, never on B; "Cancel" sends
     // nothing, "Send" reaches the Orchestrator of B.
-    await expect(a.window.getByTestId('orchestrator-node').getByTestId('orchestrator-state')).toHaveText('idle', { timeout: 30_000 })
+    await expect(a.window.getByTestId('orchestrator-node').getByTestId('orchestrator-state')).toHaveText('idle', { timeout: ms(30_000) })
     await recordPrompts(b.window)
     await answerWith(b.app, 0)
     await answerWith(a.app, 1)
@@ -278,7 +279,7 @@ test('A shows the Card of B from B, its own Card as before; a file change on B r
     expect(await shownDialogs(a.app)).toHaveLength(2)
     expect(await shownDialogs(b.app)).toEqual([])
     const bWindow = b.window
-    await expect.poll(() => prompts(bWindow), { timeout: 10_000 }).toEqual(['Message from Card "Card of B v2" (c1):\n\nIs ticket 07 done?'])
+    await expect.poll(() => prompts(bWindow), { timeout: ms(10_000) }).toEqual(['Message from Card "Card of B v2" (c1):\n\nIs ticket 07 done?'])
     await evidence(a.window, 'card-of-linked-machine-sent')
 
     // Card B reaches neither the window, nor another Card, nor the own Card of A with the same ids.
@@ -306,7 +307,7 @@ test('A shows the Card of B from B, its own Card as before; a file change on B r
       // however long the page would take over the link. A refused navigation never starts: neither
       // did-frame-navigate nor did-fail-provisional-load follows it (Electron 44), so a recorded
       // end can only be a commit that should not have happened.
-      await expect.poll(() => navigationTo(a.app, target), { message: target, timeout: 10_000 }).toBeDefined()
+      await expect.poll(() => navigationTo(a.app, target), { message: target, timeout: ms(10_000) }).toBeDefined()
       const navigation = await navigationTo(a.app, target)
       expect(navigation?.prevented, `${target}: ${JSON.stringify(navigation)}`).toBe(true)
       expect(navigation?.end, target).not.toBe('committed')

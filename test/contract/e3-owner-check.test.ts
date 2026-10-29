@@ -11,6 +11,7 @@ import { join, relative, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { gitBash } from '../git-bash'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 const REPO = join(__dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'e3-owner-check.sh')
@@ -95,7 +96,7 @@ const FINISHED: Line[] = [{ kind: 'run-started' }, wave('wave-started', 1, ['01'
 
 function check(journalPath: string | null, options: { claude?: string; env?: Record<string, string> } = {}): { status: number | null; stdout: string; stderr: string } {
   const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir(), LANG: 'C.UTF-8', E3_CLAUDE: options.claude ?? claudeStub(), E3_HARNESS_DONE_AT: DONE_AT, ...options.env }
-  const run = spawnSync(gitBash(), journalPath === null ? [SCRIPT] : [SCRIPT, journalPath], { cwd: scratch, env, encoding: 'utf8', input: '', timeout: 30_000, killSignal: 'SIGKILL' })
+  const run = spawnSync(gitBash(), journalPath === null ? [SCRIPT] : [SCRIPT, journalPath], { cwd: scratch, env, encoding: 'utf8', input: '', timeout: ms(30_000), killSignal: 'SIGKILL' })
   expect(run.error).toBeUndefined()
   return { status: run.status, stdout: run.stdout, stderr: run.stderr }
 }

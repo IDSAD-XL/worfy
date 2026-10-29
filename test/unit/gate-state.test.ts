@@ -21,6 +21,7 @@ import {
 } from '../../src/main/gate/state'
 import { worktreeOfCwd, worktreeOfTicket, type ChecksSnapshot } from '../../src/shared/ipc/checks'
 import { scriptNode } from '../script-node'
+import { ms } from '../time-scale'
 
 // The gate's verdict per worktree (ticket 17): the Gate's tag, the key from gate/config.json, the
 // red/unverified markers, and the last `[gate]` line of the worktree's transcripts. The tests named
@@ -838,7 +839,7 @@ describe('GateReader and the verdict file', () => {
     const [wt] = await new GateReader({ home }).read(repo, await listWorktrees(repo))
     expect(wt!.gate).toEqual({ outcome: 'green', source: 'file', at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u) })
     // git three times and the gate, each a process of its own: over 5 seconds on a busy Windows machine.
-  }, 60_000)
+  }, ms(60_000))
 })
 
 describe('TranscriptGateScanner', () => {

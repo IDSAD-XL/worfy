@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { inPart, parsePart, shellTests, type Part } from '../harness-shell-tests'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
+import { ms } from '../time-scale'
 
 const REPO = join(__dirname, '..', '..')
 const WORKFLOW = join(REPO, '.github', 'workflows', 'ci.yml')
@@ -325,7 +326,7 @@ function vitestFiles(filters: readonly string[], exclude: readonly string[]): st
   // The variables vitest sets for the run around this test stay out of the child vitest.
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('VITEST') && name !== 'WORFY_TEST_EXCLUDE'))
   if (exclude.length > 0) env.WORFY_TEST_EXCLUDE = exclude.join(' ')
-  const list = spawnSync(scriptNode(), [join(REPO, 'node_modules', 'vitest', 'vitest.mjs'), 'list', '--filesOnly', ...filters], { cwd: REPO, env, encoding: 'utf8', timeout: 60_000 })
+  const list = spawnSync(scriptNode(), [join(REPO, 'node_modules', 'vitest', 'vitest.mjs'), 'list', '--filesOnly', ...filters], { cwd: REPO, env, encoding: 'utf8', timeout: ms(60_000) })
   if (list.status !== 0) throw new Error(`vitest list --filesOnly ${filters.join(' ')}: exit ${list.status}\n${list.stdout}\n${list.stderr}`)
   // A line is `[<project>] <file>`, the file relative to the repository.
   const files = [...new Set(list.stdout.split(/\r?\n/).flatMap((line) => /^\[[^\]]+\] (.+)$/.exec(line.trim())?.[1]?.replaceAll('\\', '/') ?? []))].sort()

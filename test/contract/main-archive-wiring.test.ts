@@ -10,9 +10,10 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AutoArchiveDeps } from '../../src/main/layout/archive'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 /** How long a test waits for the start: on a loaded machine it takes longer than the 1 s vi.waitFor waits by default. */
-const START_WAIT = { timeout: 10_000 }
+const START_WAIT = { timeout: ms(10_000) }
 
 const TICK = '4321'
 
@@ -98,7 +99,7 @@ beforeAll(async () => {
   Object.defineProperty(process, 'resourcesPath', { value: resources, configurable: true, writable: true })
   await import('../../src/main/index')
   await vi.waitFor(() => expect(electron.createMainWindow).toHaveBeenCalled(), START_WAIT)
-}, 20_000)
+}, ms(20_000))
 
 afterAll(() => {
   delete process.env.WORFY_ARCHIVE_TICK_MS

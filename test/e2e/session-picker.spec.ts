@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
+import { ms } from '../time-scale'
 
 // The Session view's choice of Session (worfy-polish ticket 44), against the built app: a temporary
 // WORFY_CLAUDE_HOME stands in for ~/.claude, and two `sleep` processes play two Claude Code
@@ -101,7 +102,7 @@ test('the Session picker switches the Session view, a sidebar row opens its Sess
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
     terminalSession(FIRST, 'fix-flaky-test', 'Fix the flaky test')
     terminalSession(SECOND, 'release-notes', 'Write the release notes')
-    await expect(window.locator('[data-testid="session-node"]')).toHaveCount(2, { timeout: 10_000 })
+    await expect(window.locator('[data-testid="session-node"]')).toHaveCount(2, { timeout: ms(10_000) })
 
     // The Session tab shows the Orchestrator: nothing was opened in this Project yet.
     const canvasView = window.locator('.w-shell__view[data-view="canvas"]')

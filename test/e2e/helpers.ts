@@ -15,6 +15,7 @@ import { quitDiagnosisText, quitLogLines, SAMPLE_SECONDS, SAMPLE_TIMEOUT_MS, typ
 import type { StepResult } from './start-diagnosis'
 import { currentTest, recordOutput, startDiagnostics, startTestClock } from './start-diagnostics-run'
 import { clickMenuItem } from './menu'
+import { ms } from '../time-scale'
 
 export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const mainEntry = join(repoRoot, 'out', 'main', 'index.js')
@@ -97,11 +98,11 @@ export function packagedResources(app: string): string {
  * takes about a second; a start that has not shown a window by then has hung, and waiting out the
  * whole test timeout would only hide where it hung.
  */
-const FIRST_WINDOW_TIMEOUT_MS = 30_000
+const FIRST_WINDOW_TIMEOUT_MS = ms(30_000)
 /** How long the app may take to quit. A quit takes well under a second; this bounds a quit that hangs. */
-const QUIT_TIMEOUT_MS = 20_000
+const QUIT_TIMEOUT_MS = ms(20_000)
 /** How long a kill waits for the app to name its PID (launchApp); an app that answers at all does in milliseconds. */
-const PID_TIMEOUT_MS = 5_000
+const PID_TIMEOUT_MS = ms(5_000)
 
 /**
  * Arguments every test start of the app passes. macOS remembers when Electron (one bundle id,
@@ -184,7 +185,7 @@ async function saveArtifacts(app: ElectronApplication, window: Page, tracing: bo
   const info = currentTest()
   if (!info) return
   const screenshot = info.outputPath(`${APP_SCREENSHOT}-${info.retry}-${Date.now()}.png`)
-  if (await within(window.screenshot({ path: screenshot, timeout: 5_000 }), 6_000)) {
+  if (await within(window.screenshot({ path: screenshot, timeout: ms(5_000) }), ms(6_000))) {
     await info.attach(APP_SCREENSHOT, { path: screenshot, contentType: 'image/png' })
     await removeDir(screenshot)
   }
@@ -1048,7 +1049,7 @@ export async function settledRead<T>(read: () => Promise<T>, message: string, op
         seen.value = value
         return { settled, problems: options.problems?.(value) ?? [] }
       },
-      { message, timeout: options.timeout ?? 10_000, intervals: [100, 250, 500] },
+      { message, timeout: options.timeout ?? ms(10_000), intervals: [100, 250, 500] },
     )
     .toEqual({ settled: true, problems: [] })
   return seen.value as T

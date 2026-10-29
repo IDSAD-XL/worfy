@@ -9,6 +9,7 @@ import { join, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DocsWatcher, errorEndsWatch, ROOT_RETRY_MS, SETTLE_READS_MS, type Docs, type DocsWatchOptions, type WatchRoot } from '../../src/main/docs/watch'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 /** The time between two looks for the root, in these tests. */
 const RETRY = 10
@@ -103,7 +104,7 @@ async function start(model: Stand, extra: Partial<DocsWatchOptions> = {}): Promi
 }
 
 const gone = (): string => `[docs] the folder ${root} is gone: its documents are not watched until it is back`
-const until = (done: () => void): Promise<void> => vi.waitFor(done, { timeout: 3000, interval: 5 })
+const until = (done: () => void): Promise<void> => vi.waitFor(done, { timeout: ms(3000), interval: 5 })
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 /** A wait on the real clock, also while the test has faked it: a look at the folder answers from the thread pool. */
 const realTimeout = globalThis.setTimeout

@@ -7,6 +7,7 @@ import { CHECK_IDS, CHECK_RUN_CALL, CLAUDE_STAND_IN, NO_QMD, TOOLS, toolFile, wr
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
+import { ms } from '../time-scale'
 
 // worfy-ui ticket 6: Settings → Health against the built app, in the sandbox of
 // test/e2e/first-run.spec.ts — HOME, the Claude home and worfy's data folder are temporary, the
@@ -75,8 +76,8 @@ const mark = (): string => join(dataDir, 'first-run.json')
 
 /** The rows of `place` once its checks are in: the id, the name and the status of each. */
 async function checksOf(place: Locator): Promise<{ id: string | null; name: string | null; status: string | null }[]> {
-  await expect(place.locator('[data-check]')).toHaveCount(CHECK_IDS.length, { timeout: 30_000 })
-  await expect(place.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: 30_000 })
+  await expect(place.locator('[data-check]')).toHaveCount(CHECK_IDS.length, { timeout: ms(30_000) })
+  await expect(place.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: ms(30_000) })
   return place.locator('[data-check]').evaluateAll((rows) => rows.map((each) => ({ id: each.getAttribute('data-check'), name: each.getAttribute('aria-label'), status: each.getAttribute('data-status') })))
 }
 
@@ -151,7 +152,7 @@ test('Settings → Health shows the checks of the First run dialog; closing Sett
 
     // "Check again" runs the checks once more.
     await health.getByRole('button', { name: 'Check again' }).click()
-    await expect.poll(checkRuns, { timeout: 30_000 }).toBe(2)
+    await expect.poll(checkRuns, { timeout: ms(30_000) }).toBe(2)
     expect(await checksOf(health)).toEqual(inHealth)
 
     // Close: there was no mark, and there still is none.
@@ -181,7 +182,7 @@ test('Settings → Health shows the checks of the First run dialog; closing Sett
     expect(existsSync(mark())).toBe(false)
 
     // Only the dialog's own Close writes it.
-    await expect(dialog.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: 30_000 })
+    await expect(dialog.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: ms(30_000) })
     await dialog.getByRole('button', { name: 'Close' }).click()
     await expect(dialog).toBeHidden()
     await expect.poll(() => existsSync(mark())).toBe(true)
@@ -207,7 +208,7 @@ test('"Move…" in Health opens the move form above Settings; the keyboard stays
 
     const form = window.getByTestId('migration-form')
     // The form as it is once main answered with the plan: its buttons are in.
-    await expect(form.getByTestId('migration-actions')).toBeVisible({ timeout: 30_000 })
+    await expect(form.getByTestId('migration-actions')).toBeVisible({ timeout: ms(30_000) })
     // Above the window: its layer is higher, and it is what the middle of the window shows.
     const formLayer = await zIndexOf(form.locator('xpath=..'))
     expect(formLayer).toBeGreaterThan(await zIndexOf(window.locator('.w-settings__backdrop')))
@@ -278,7 +279,7 @@ test('"Move…" in Health opens the move form above Settings; the keyboard stays
     await expect(settings).toBeVisible()
     await expect(settings.getByRole('heading', { level: 2 })).toHaveText('Health')
     await expect(move).toBeFocused()
-    await expect.poll(checkRuns, { timeout: 30_000 }).toBe(runs + 1)
+    await expect.poll(checkRuns, { timeout: ms(30_000) }).toBe(runs + 1)
     await checksOf(health)
 
     // The next Esc is the window's.
@@ -309,7 +310,7 @@ test('a click on text of the move form scrolled down leaves the form where it is
     await checksOf(health)
     await health.locator('[data-check="legacy-harness"]').getByRole('button', { name: 'Move…' }).click()
     const form = window.getByTestId('migration-form')
-    await expect(form.getByTestId('migration-actions')).toBeVisible({ timeout: 30_000 })
+    await expect(form.getByTestId('migration-actions')).toBeVisible({ timeout: ms(30_000) })
 
     // The focus is on a control at the top of the plan, and the wheel takes that control out of sight.
     const body = form.getByTestId('migration-body')

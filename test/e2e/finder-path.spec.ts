@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { launchApp, repoRoot } from './helpers'
+import { ms } from '../time-scale'
 
 // worfy started from Finder (worfy-harness ticket 37). launchd gives such an app the PATH
 // /usr/bin:/bin:/usr/sbin:/sbin, and node is not on it; the user's node is on the PATH of the login
@@ -109,11 +110,11 @@ test('started with the PATH of Finder, a Silent Project shows its Epic: the Harn
 
     const row = window.getByTestId('sidebar-epic')
     // The login shell and three Harness scripts run before the row appears.
-    await expect(row).toHaveCount(1, { timeout: 20_000 })
+    await expect(row).toHaveCount(1, { timeout: ms(20_000) })
     await expect(row).toHaveAttribute('data-epic', 'e3-acceptance')
     await expect(row).toHaveAttribute('title', 'Epic in the Workflow folder')
     const frame = window.locator('[data-testid="epic-frame"]')
-    await expect(frame).toHaveCount(1, { timeout: 15_000 })
+    await expect(frame).toHaveCount(1, { timeout: ms(15_000) })
     await expect(frame.locator('.w-epic__title')).toContainText('Epic in the Workflow folder')
     await expect(window.locator('[data-testid="ticket-node"][data-ticket="1"]')).toHaveAttribute('data-state', 'open')
     // The documents ask the app's layout cache where the workflow lives: it runs `profile` too.
@@ -138,7 +139,7 @@ test('started with the PATH of Finder and no node in the login shell either, the
 
     // worfy finds no node to run `profile` with: where the workflow lives is unknown, and the window says so.
     const reason = window.getByText(/^worfy could not ask the Harness where the workflow of this Project lives: the profile script could not be run: node not found in PATH/)
-    await expect(reason).toBeVisible({ timeout: 20_000 })
+    await expect(reason).toBeVisible({ timeout: ms(20_000) })
     await expect(window.getByText('No epics in .scratch/')).toHaveCount(0)
     await expect(window.getByTestId('sidebar-epic')).toHaveCount(0)
     await expect(window.getByTestId('first-epic')).toHaveCount(0)

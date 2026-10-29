@@ -13,6 +13,7 @@ import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { writeBigTranscript } from '../big-transcript'
+import { ms } from '../time-scale'
 
 type Listener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 type Found = { found: boolean; hits: { offset: number; count: number }[]; total: number; skipped: number }
@@ -53,7 +54,7 @@ beforeAll(async () => {
     if (!listener) throw new Error(`no handler for ${channel}`)
     return (await listener({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
   }
-}, 120_000)
+}, ms(120_000))
 
 afterAll(async () => {
   await close?.()

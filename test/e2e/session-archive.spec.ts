@@ -7,6 +7,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, closeSettings, launchApp, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
+import { ms } from '../time-scale'
 
 // The automatic archive's Setting and command in the built app (worfy-canvas ticket 08, ADR-0076).
 // The Project holds five external Session Nodes: OLD_A and OLD_B, finished, last record 30 h ago;
@@ -140,8 +141,8 @@ test('«Never» archives nothing on a fast timer; Settings → Canvas offers the
     const { window } = launched
     const started = Date.now()
     await expect(window.getByTestId('canvas')).toHaveAttribute('data-project-id', PROJECT_ID)
-    await canvasReady(launched, { size: { width: 1400, height: 900 }, timeout: 20_000 })
-    for (const id of [OLD_A, OLD_B, KEPT, FRESH, LIVE]) await expect(nodeOf(window, id)).toBeVisible({ timeout: 20_000 })
+    await canvasReady(launched, { size: { width: 1400, height: 900 }, timeout: ms(20_000) })
+    for (const id of [OLD_A, OLD_B, KEPT, FRESH, LIVE]) await expect(nodeOf(window, id)).toBeVisible({ timeout: ms(20_000) })
     await expect(nodeOf(window, KEPT).getByTestId('session-node-keep')).toHaveAttribute('aria-pressed', 'true')
     await expect(nodeOf(window, FRESH).getByTestId('session-node-keep')).toHaveAttribute('aria-pressed', 'false')
 
@@ -159,7 +160,7 @@ test('«Never» archives nothing on a fast timer; Settings → Canvas offers the
 
     // «Never»: the timer has had time for eight runs since the start, and archived nothing. A wait
     // on the clock, as only the absence of a change is checked; the last step shows the timer runs.
-    await expect.poll(() => Date.now() - started, { timeout: 10_000 }).toBeGreaterThan(8 * TICK_MS)
+    await expect.poll(() => Date.now() - started, { timeout: ms(10_000) }).toBeGreaterThan(8 * TICK_MS)
     expect(await archivedIds(window)).toEqual([])
 
     // Keep is a step of ⌘Z.
@@ -203,7 +204,7 @@ test('«Never» archives nothing on a fast timer; Settings → Canvas offers the
     await window.getByRole('listbox', { name: 'Archive finished sessions after' }).getByRole('option', { name: '24 h' }).click()
     await expect(dialog.getByRole('combobox', { name: 'Archive finished sessions after' })).toContainText('24 h')
     await closeSettings(window)
-    await expect.poll(() => archivedIds(window), { timeout: 15_000 }).toEqual([`session:${LIVE}`])
+    await expect.poll(() => archivedIds(window), { timeout: ms(15_000) }).toEqual([`session:${LIVE}`])
     await expect(nodeOf(window, LIVE)).toHaveCount(0)
   } finally {
     await launched.close()

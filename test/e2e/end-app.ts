@@ -1,11 +1,12 @@
 import { execFile, type ChildProcess } from 'node:child_process'
+import { ms } from '../time-scale'
 
 /**
  * How long the app's own process may outlive the exit of the process Playwright started, once both
  * were sent SIGKILL. A killed process is gone within milliseconds; one still there after this has
  * survived the kill.
  */
-const GONE_TIMEOUT_MS = 10_000
+const GONE_TIMEOUT_MS = ms(10_000)
 
 /** Resolves once `child` has exited; at once when it already has. */
 export function exited(child: ChildProcess): Promise<void> {

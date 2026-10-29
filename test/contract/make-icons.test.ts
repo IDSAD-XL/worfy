@@ -14,6 +14,7 @@ import { inflateSync } from 'node:zlib'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
+import { ms } from '../time-scale'
 
 const REPO = join(__dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'make-icons.mjs')
@@ -235,7 +236,7 @@ describe.skipIf(process.platform !== 'darwin')('scripts/make-icons.mjs (macOS on
     temporary = join(scratch, 'tmp')
     mkdirSync(temporary)
     run = spawnSync(scriptNode(), [SCRIPT, '--out', out], { encoding: 'utf8', env: { ...process.env, TMPDIR: temporary } })
-  }, 120_000)
+  }, ms(120_000))
 
   afterAll(() => {
     removeTestTree(scratch)

@@ -26,6 +26,7 @@ import { LayoutStore } from '../../src/main/layout/store'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 const EVIL = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 const OWN = '0aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -180,7 +181,7 @@ describe('the Claude home folder named exactly like a root is shared with a fold
     await watch.ready
     await appendFile(evilTranscript, `${userLine('more', '/elsewhere', 'evil-2')}\n`)
     await appendFile(ownTranscript ?? '', `${userLine('more', missing, 'own-2')}\n`)
-    await vi.waitFor(() => expect(changes.flatMap((change) => change.transcripts)).toContain(OWN), { timeout: 3000, interval: 20 })
+    await vi.waitFor(() => expect(changes.flatMap((change) => change.transcripts)).toContain(OWN), { timeout: ms(3000), interval: 20 })
     // The change of EVIL came first: had it been reported, it would be in by now.
     await new Promise((done) => setTimeout(done, 200))
     expect(changes.flatMap((change) => change.transcripts)).not.toContain(EVIL)
@@ -343,7 +344,7 @@ describe('the cwd of a transcript is the first record that names one', () => {
     for (const watch of watches) closers.push(() => watch.close())
     await Promise.all(watches.map((watch) => watch.ready))
     await appendFile(none, `${dequeue(NONE)}\n`)
-    await vi.waitFor(() => expect(local.flatMap((change) => change.transcripts)).toContain(NONE), { timeout: 3000, interval: 20 })
+    await vi.waitFor(() => expect(local.flatMap((change) => change.transcripts)).toContain(NONE), { timeout: ms(3000), interval: 20 })
     await new Promise((done) => setTimeout(done, 200))
     expect(remote.flatMap((change) => change.transcripts)).not.toContain(NONE)
   })
@@ -359,7 +360,7 @@ describe('a transcript removed before it ever changed', () => {
       sent.filter((entry) => entry.to === to && entry.channel === 'worfy:claudeHome.changed').flatMap((entry) => (entry.payload as { transcripts: string[] }).transcripts)
     await vi.waitFor(() => {
       for (const sender of [linked, window]) expect(reported(sender.id)).toContain(OWN)
-    }, { timeout: 3000, interval: 20 })
+    }, { timeout: ms(3000), interval: 20 })
     await new Promise((done) => setTimeout(done, 200))
     for (const sender of [linked, window]) expect(reported(sender.id)).not.toContain(EVIL)
   })
@@ -402,7 +403,7 @@ describe('a folder that is only named like a folder inside the Project (round 3)
     await appendFile(own, `${summary('more')}\n`)
     await appendFile(foreign, `${summary('more')}\n`)
     // The folder of /p/A is named exactly like its root, that of /p/A-evil only like a folder inside it.
-    await vi.waitFor(() => expect(local.flatMap((change) => change.transcripts)).toContain(N), { timeout: 3000, interval: 20 })
+    await vi.waitFor(() => expect(local.flatMap((change) => change.transcripts)).toContain(N), { timeout: ms(3000), interval: 20 })
     await new Promise((done) => setTimeout(done, 300))
     expect(local.flatMap((change) => change.transcripts)).not.toContain(E)
     expect(remote.flatMap((change) => change.transcripts)).not.toContain(N)
@@ -474,7 +475,7 @@ describe('the watcher scans on from where it stopped (round 3)', () => {
     await settle()
     expect(reported()).not.toContain(id)
     await appendFile(path, `${line.slice(300)}\n`)
-    await vi.waitFor(() => expect(reported()).toContain(id), { timeout: 3000, interval: 20 })
+    await vi.waitFor(() => expect(reported()).toContain(id), { timeout: ms(3000), interval: 20 })
   })
 
   it('a file rewritten shorter than where the last scan stopped is scanned from its start again', async () => {
@@ -484,7 +485,7 @@ describe('the watcher scans on from where it stopped (round 3)', () => {
     await settle()
     expect(reported()).not.toContain(id)
     await writeFile(path, `${userLine('a prompt', project, 'u')}\n`)
-    await vi.waitFor(() => expect(reported()).toContain(id), { timeout: 3000, interval: 20 })
+    await vi.waitFor(() => expect(reported()).toContain(id), { timeout: ms(3000), interval: 20 })
   })
 
   it('a file emptied and written again 15 ms later is reported, though chokidar reports only the emptying', async () => {
@@ -497,6 +498,6 @@ describe('the watcher scans on from where it stopped (round 3)', () => {
     await writeFile(path, '')
     await new Promise((done) => setTimeout(done, 15))
     await appendFile(path, `${userLine('a prompt', project, 'u')}\n`)
-    await vi.waitFor(() => expect(reported()).toContain(id), { timeout: 3000, interval: 20 })
+    await vi.waitFor(() => expect(reported()).toContain(id), { timeout: ms(3000), interval: 20 })
   })
 })

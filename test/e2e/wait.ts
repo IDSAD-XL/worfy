@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 import { editedLine } from './terminal-ai-helpers'
+import { ms } from '../time-scale'
 
 // Waits on the app's own state instead of on the clock. A fixed pause is either too short under
 // load (the test turns red) or longer than needed (the test is slow); these helpers end when the
@@ -45,7 +46,7 @@ export async function settled(window: Page): Promise<void> {
  */
 export async function shellCaughtUp(window: Page, node: Locator, line: string): Promise<void> {
   await window.keyboard.type('x')
-  await expect.poll(() => editedLine(node), { timeout: 10_000 }).toBe(`${line}x`)
+  await expect.poll(() => editedLine(node), { timeout: ms(10_000) }).toBe(`${line}x`)
   await window.keyboard.press('Backspace')
-  await expect.poll(() => editedLine(node), { timeout: 10_000 }).toBe(line)
+  await expect.poll(() => editedLine(node), { timeout: ms(10_000) }).toBe(line)
 }

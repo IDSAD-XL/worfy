@@ -9,6 +9,7 @@ import { CARD_LINK_DEPTH, CardStore, type CardFs } from '../../src/main/cards/st
 import { RETRY_DELAY_MS, SLOW_RETRY_DELAY_MS } from '../../src/main/link-safe-watch'
 import { countFsCalls } from '../contract/counted-fs'
 import { FILE, FOLDER, linkTo, windowsDisk, type DiskEntry, type WindowsDisk } from './windows-disk'
+import { ms } from '../time-scale'
 
 const PROJECT = 'demo-0a1b2c3d'
 const DATA = 'C:\\data\\demo'
@@ -54,8 +55,8 @@ const through = (disk: WindowsDisk, link: string): string[] =>
     return path.startsWith(`${link.toLowerCase()}\\`)
   })
 
-const watching = (disk: WindowsDisk, what: string[]): Promise<void> => vi.waitFor(() => expect(disk.open()).toEqual(what), { timeout: 2000, interval: 5 })
-const changed = (seen: CardInfo[], cardId: string): Promise<void> => vi.waitFor(() => expect(seen.map((info) => info.cardId)).toContain(cardId), { timeout: 2000, interval: 5 })
+const watching = (disk: WindowsDisk, what: string[]): Promise<void> => vi.waitFor(() => expect(disk.open()).toEqual(what), { timeout: ms(2000), interval: 5 })
+const changed = (seen: CardInfo[], cardId: string): Promise<void> => vi.waitFor(() => expect(seen.map((info) => info.cardId)).toContain(cardId), { timeout: ms(2000), interval: 5 })
 
 describe('the watch of the Cards of a Project, by the rules of Windows', () => {
   it('watches the Cards folder with one handle, makes no folder, and reports a change of a file of a Card by the id of the Card', async () => {
@@ -95,7 +96,7 @@ describe('the watch of the Cards of a Project, by the rules of Windows', () => {
     await changed(seen, 'c1')
     expect(seen).toEqual([expect.objectContaining({ cardId: 'c1', exists: true, revision: 1 })])
     disk.put(`${CARDS}\\c1\\index.html`, FILE)
-    await vi.waitFor(() => expect(seen.at(-1)).toMatchObject({ cardId: 'c1', revision: 2 }), { timeout: 2000, interval: 5 })
+    await vi.waitFor(() => expect(seen.at(-1)).toMatchObject({ cardId: 'c1', revision: 2 }), { timeout: ms(2000), interval: 5 })
   })
 
   it('a report of the Cards folder with no name — Windows lost events — reads every Card that was asked about again, and no other', async () => {
@@ -229,7 +230,7 @@ describe('the watch of the Cards of a Project, by the rules of Windows', () => {
     const disk = windowsDisk({ [`${DATA}\\layout.json`]: FILE, [CARDS]: linkTo(`${EVIL}\\cards`) })
     const { store } = makeStore(disk)
     expect(await store.info(PROJECT, 'c1')).toMatchObject({ exists: false, title: null })
-    await vi.waitFor(() => expect(disk.calls.filter((call) => call === `readlink ${CARDS}`).length).toBeGreaterThanOrEqual(2), { timeout: 2000, interval: 5 })
+    await vi.waitFor(() => expect(disk.calls.filter((call) => call === `readlink ${CARDS}`).length).toBeGreaterThanOrEqual(2), { timeout: ms(2000), interval: 5 })
     expect(disk.open()).toEqual([])
     expect(disk.contacts).toEqual([])
     expect(through(disk, CARDS)).toEqual([])
@@ -248,7 +249,7 @@ describe('the watch of the Cards of a Project, by the rules of Windows', () => {
     await store.info(PROJECT, 'c2')
     await store.info(PROJECT, 'away')
     await watching(disk, [`${CARDS} (recursive)`])
-    await vi.waitFor(() => expect(disk.calls).toContain(`readlink ${link}`), { timeout: 2000, interval: 5 })
+    await vi.waitFor(() => expect(disk.calls).toContain(`readlink ${link}`), { timeout: ms(2000), interval: 5 })
 
     disk.put(`${CARDS}\\c1\\js\\app.js`, FILE)
     await changed(seen, 'c1')
@@ -291,7 +292,7 @@ describe('the watch of the Cards of a Project, by the rules of Windows', () => {
     const { store } = makeStore(disk)
     await store.info(PROJECT, 'c1')
     await watching(disk, [`${CARDS} (recursive)`])
-    await vi.waitFor(() => expect(disk.calls).toContain(`readdir ${CARDS}\\c1\\js`), { timeout: 2000, interval: 5 })
+    await vi.waitFor(() => expect(disk.calls).toContain(`readdir ${CARDS}\\c1\\js`), { timeout: ms(2000), interval: 5 })
     expect(disk.calls).not.toContain(`readdir ${CARDS}\\c1\\js\\vendor`)
     expect(disk.calls).not.toContain(`readlink ${CARDS}\\c1\\js\\vendor\\deep`)
     expect(CARD_LINK_DEPTH).toBe(2)

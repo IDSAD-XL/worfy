@@ -8,6 +8,7 @@ import { canvasReady, launchApp, openSecondWindow, type LaunchedApp } from './he
 import { snapshotThemes } from './snapshots'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // The Epic frames in a strip of K columns in the built app (worfy-canvas ticket 01, ADR-0075). The
 // Project is a temporary git repository with 11 Epics, two of them done and so on the done shelf
@@ -169,9 +170,9 @@ async function launch(): Promise<LaunchedApp> {
 
 /** Waits until the 9 frames of the strip and the 2 chips of the shelf are drawn and the Canvas is at rest (ELK has answered for every Epic). */
 async function allFrames(launched: LaunchedApp, size?: { width: number; height: number }): Promise<Record<string, Rect>> {
-  await expect(launched.window.locator('[data-testid="epic-frame"]')).toHaveCount(STRIP.length, { timeout: 20_000 })
+  await expect(launched.window.locator('[data-testid="epic-frame"]')).toHaveCount(STRIP.length, { timeout: ms(20_000) })
   await expect(launched.window.locator('[data-testid="done-shelf-chip"]')).toHaveCount(SHELF.length)
-  await canvasReady(launched, { ...(size ? { size } : {}), frames: 20, timeout: 20_000 })
+  await canvasReady(launched, { ...(size ? { size } : {}), frames: 20, timeout: ms(20_000) })
   return frames(launched.window)
 }
 
@@ -231,7 +232,7 @@ test('fit to the window\'s width, the strip of 9 frames is at most 1.5 window he
     await window.getByRole('menuitem', { name: 'Re-pack' }).click()
     await expect.poll(async () => ((await recordIn(window))?.order as string[] | undefined)?.[0]).toBe(ACTIVE)
     await expect.poll(async () => shownOrder(await frames(window))[0]).toBe(ACTIVE)
-    await canvasReady(launched, { frames: 20, timeout: 20_000 })
+    await canvasReady(launched, { frames: 20, timeout: ms(20_000) })
     const repacked = await frames(window)
     expect(repacked).not.toEqual(before)
 
@@ -239,7 +240,7 @@ test('fit to the window\'s width, the strip of 9 frames is at most 1.5 window he
     await window.keyboard.press('ControlOrMeta+z')
     await expect.poll(async () => (await recordIn(window))?.order).toEqual(STRIP)
     expect(await recordIn(window)).toEqual(recordBefore)
-    await canvasReady(launched, { frames: 20, timeout: 20_000 })
+    await canvasReady(launched, { frames: 20, timeout: ms(20_000) })
     expect(await frames(window)).toEqual(before)
   } finally {
     await launched.close()
@@ -253,8 +254,8 @@ test('two windows of one Project of different size show the frames at the same p
     const big = await allFrames(launched, { width: 1500, height: 950 })
     const second = await openSecondWindow(launched, { size: { width: 1000, height: 760 } })
     await expect(second.getByTestId('canvas')).toHaveAttribute('data-project-id', PROJECT_ID)
-    await expect(second.locator('[data-testid="epic-frame"]')).toHaveCount(STRIP.length, { timeout: 20_000 })
-    await canvasReady({ window: second }, { frames: 20, timeout: 20_000 })
+    await expect(second.locator('[data-testid="epic-frame"]')).toHaveCount(STRIP.length, { timeout: ms(20_000) })
+    await canvasReady({ window: second }, { frames: 20, timeout: ms(20_000) })
     expect(await frames(second)).toEqual(big)
     expect(columnsOf(big)).toBeGreaterThan(1)
   } finally {

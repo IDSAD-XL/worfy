@@ -16,7 +16,7 @@ import { runGit } from '../../src/main/projects/store'
 import { githubAccountsStepSchema, githubChoice, withGithubAccount, type GithubAccountsStep, type ProfileDraft } from '../../src/shared/ipc/projects'
 import { authStatus, ghWorld, STUB_COMMAND, type GhWorld, type StubAccount, type StubRepos } from './gh-world'
 import { removeTestTree } from '../remove'
-import { timeScale } from '../time-scale'
+import { ms } from '../time-scale'
 
 let scratch: string
 
@@ -374,7 +374,7 @@ describe('"Sign in with gh"', () => {
     const exited = new Promise<number>((resolve) => {
       void registry.open('s1', { cwd: scratch, cols: 80, rows: 24 }, {}, { output: (data) => void (output += data), exit: (code) => resolve(code), started: () => undefined })
     })
-    await vi.waitFor(() => expect(output).toContain('Press Enter to sign in'), { timeout: 10_000 * timeScale })
+    await vi.waitFor(() => expect(output).toContain('Press Enter to sign in'), { timeout: ms(10_000) })
     // Until the user answers, gh waits: no account was added.
     expect(gh.calls()).toEqual([['auth', 'login']])
     expect(readFileSync(join(gh.dir, 'auth-status.json'), 'utf8')).not.toContain('carol')
@@ -393,7 +393,7 @@ describe('"Sign in with gh"', () => {
     const registry = signInRegistry({ command: gh.command, env: () => Promise.resolve({ ...process.env, GH_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_ENTERPRISE_TOKEN: undefined, GITHUB_ENTERPRISE_TOKEN: undefined, ...gh.env }) })
     let output = ''
     await registry.open('s2', { cwd: scratch, cols: 80, rows: 24 }, {}, { output: (data) => void (output += data), exit: () => undefined, started: () => undefined })
-    await vi.waitFor(() => expect(output).toContain('Press Enter'), { timeout: 10_000 * timeScale })
+    await vi.waitFor(() => expect(output).toContain('Press Enter'), { timeout: ms(10_000) })
     await registry.close('s2')
     expect(registry.has('s2')).toBe(false)
     expect(readFileSync(join(gh.dir, 'auth-status.json'), 'utf8')).not.toContain('carol')

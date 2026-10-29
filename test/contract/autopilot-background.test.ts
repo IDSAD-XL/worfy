@@ -27,6 +27,7 @@ import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
 import { IGNORE_TERM_EXIT_SIGNAL, StubProcesses, type StubKind } from './claude-process-stub'
+import { ms } from '../time-scale'
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -114,8 +115,9 @@ function variant(name: string, map: (line: Record<string, unknown>) => Record<st
   return name
 }
 
-async function until(condition: () => boolean | Promise<boolean>, what: string, ms = 5000): Promise<void> {
-  const end = Date.now() + ms
+async function until(condition: () => boolean | Promise<boolean>, what: string, limit = 5000): Promise<void> {
+  const wait = ms(limit)
+  const end = Date.now() + wait
   while (!(await condition())) {
     if (Date.now() > end) throw new Error(`timed out waiting for ${what}`)
     await new Promise((done) => setTimeout(done, 10))

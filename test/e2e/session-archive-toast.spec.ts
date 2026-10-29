@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { ms } from '../time-scale'
 
 // The toast of a batch of the automatic archive in the built app (worfy-canvas ticket 10, ADR-0076,
 // point 8). The Machine chose nothing in Settings → Canvas, so the default threshold, 24 h, is in
@@ -100,10 +101,10 @@ test('with the default threshold the timer archives the finished Sessions as one
   try {
     const { window } = launched
     await expect(window.getByTestId('canvas')).toHaveAttribute('data-project-id', PROJECT_ID)
-    await canvasReady(launched, { size: { width: 1400, height: 900 }, timeout: 20_000 })
+    await canvasReady(launched, { size: { width: 1400, height: 900 }, timeout: ms(20_000) })
 
     // The first run after the window read the Layout: one batch of OLD_A and OLD_B; FRESH stays.
-    await expect.poll(() => archivedIds(window), { timeout: 20_000 }).toEqual([`session:${OLD_A}`, `session:${OLD_B}`])
+    await expect.poll(() => archivedIds(window), { timeout: ms(20_000) }).toEqual([`session:${OLD_A}`, `session:${OLD_B}`])
     const batches = new Set((await layoutNodes(window)).flatMap((node) => (node.archived == null ? [] : [node.archived.batch])))
     expect(batches.size, 'one batch').toBe(1)
     await expect(nodeOf(window, OLD_A)).toHaveCount(0)
@@ -134,7 +135,7 @@ test('with the default threshold the timer archives the finished Sessions as one
     // The Undo touched the Nodes: the timer, with eight runs' time from here, leaves them for a threshold.
     // A wait on the clock, as only the absence of a change is checked.
     const after = Date.now()
-    await expect.poll(() => Date.now() - after, { timeout: 10_000 }).toBeGreaterThan(8 * TICK_MS)
+    await expect.poll(() => Date.now() - after, { timeout: ms(10_000) }).toBeGreaterThan(8 * TICK_MS)
     expect(await archivedIds(window)).toEqual([])
     expect(await placesOf(window)).toEqual(PLACES)
     await expect(nodeOf(window, OLD_A)).toBeVisible()

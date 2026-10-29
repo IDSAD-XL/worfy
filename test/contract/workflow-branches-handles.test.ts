@@ -22,7 +22,7 @@ import { REMOVE_RETRY_MS } from '../../src/main/storage/remove'
 import { fullLayout } from '../../src/main/workflow/folder'
 import { WorkflowWatcher } from '../../src/main/workflow/watch'
 import { removeTestTree } from '../remove'
-import { timeScale } from '../time-scale'
+import { ms } from '../time-scale'
 
 const WINDOWS = process.platform === 'win32'
 const EPIC_JSON = JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: false, hasMap: false }], tickets: [] })
@@ -129,7 +129,7 @@ describe('the watch of the branches gives back its fs.watch handles when another
       if (held.at(-1) !== before) break
     }
     expect(held, `fs.watch handles before: ${before}; after each round: ${held.join(', ')}`).toEqual(Array.from({ length: ROUNDS }, () => before))
-    // Alone a round takes about 3 s on the owner's PC; 6 s a round is twice that, and timeScale
-    // stretches it on Windows like every other limit of the run, for the slower full run there.
-  }, ROUNDS * 6_000 * timeScale)
+    // Alone a round takes about 3 s on the owner's PC; 6 s a round is twice that, and ms
+    // stretches it like every other limit of the run, for a slower full run.
+  }, ms(ROUNDS * 6_000))
 })

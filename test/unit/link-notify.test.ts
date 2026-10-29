@@ -13,6 +13,7 @@ import type { AgentEvent } from '../../src/shared/agent/events'
 import type { Frame } from '../../src/main/link/messages'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { APP_URL } from '../app-url'
+import { ms } from '../time-scale'
 
 const electron = vi.hoisted(() => ({ windows: [] as unknown[] }))
 
@@ -81,7 +82,7 @@ const init = (cwd: string): AgentEvent => ({
 })
 
 // Real connections: linking and connecting take a moment more than vitest's default 5 s allows on a busy machine.
-vi.setConfig({ testTimeout: 20_000 })
+vi.setConfig({ testTimeout: ms(20_000) })
 
 let bench: Bench
 const stops: (() => void)[] = []
@@ -101,7 +102,7 @@ const until = (check: () => boolean): Promise<void> =>
     () => {
       if (!check()) throw new Error('not yet')
     },
-    { timeout: 5_000, interval: 10 },
+    { timeout: ms(5_000), interval: 10 },
   )
 
 /** Links `from` to `to` and opens one connection, dialled by `from`; resolves once both sides see it. */

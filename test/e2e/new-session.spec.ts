@@ -6,6 +6,7 @@ import { join, relative } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { canvasReady, launchApp } from './helpers'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // Sessions started from worfy (ticket 18), against the built app on the fake agent: "New session"
 // makes a new live Node and two of them answer side by side; "New conversation" sends the
@@ -244,7 +245,7 @@ test('New session, New conversation, the history and Resume', async () => {
     await panTo(window, orchestrator.id)
     await expect(window.getByTestId('orchestrator-new-conversation')).toBeInViewport()
     await messageOrchestrator(window, 'hello')
-    await expect.poll(() => orchestratorSessionId(window), { timeout: 10_000 }).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
+    await expect.poll(() => orchestratorSessionId(window), { timeout: ms(10_000) }).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
     await expect(window.getByTestId('orchestrator-state')).toHaveText('idle')
     const oldOrchestrator = (await orchestratorSessionId(window)) ?? ''
     // Claude Code wrote the transcript of that Session (the fake agent writes none).
@@ -256,7 +257,7 @@ test('New session, New conversation, the history and Resume', async () => {
     await expect.poll(() => orchestratorSessionId(window)).toBeNull()
     await expect(window.getByTestId('orchestrator-state')).toHaveText('idle')
     await messageOrchestrator(window, 'again')
-    await expect.poll(() => orchestratorSessionId(window), { timeout: 10_000 }).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
+    await expect.poll(() => orchestratorSessionId(window), { timeout: ms(10_000) }).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
     expect(await orchestratorSessionId(window)).not.toBe(oldOrchestrator)
 
     // ── The history: every Session of the Project, with Resume where the rule allows it.

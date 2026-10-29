@@ -12,6 +12,7 @@ import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { SessionNodeView } from '../../src/shared/ipc/sessions'
+import { ms } from '../time-scale'
 
 const ROOT = '/Users/test/projects/demo'
 const PROJECT = { id: 'demo-0000000a', name: 'demo', path: ROOT, branch: 'main' }
@@ -479,7 +480,7 @@ describe('Load earlier', () => {
     await vi.waitFor(() => expect(texts(hook.result.current.events)).toEqual(['answer 0', 'answer 1', 'answer 2']))
   })
 
-  it('ExternalSessionPanel: the row the reader looked at stays in place when the cap moved the first row while Load earlier read', { timeout: 60_000 }, async () => {
+  it('ExternalSessionPanel: the row the reader looked at stays in place when the cap moved the first row while Load earlier read', { timeout: ms(60_000) }, async () => {
     const module = await import('../../src/renderer/claude-home/useClaudeHome')
     const { ExternalSessionPanel } = await import('../../src/renderer/session/ExternalSessionPanel')
     const keep = module.KEEP_EVENTS
@@ -491,7 +492,7 @@ describe('Load earlier', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     try {
       render(<ExternalSessionPanel projectId={PROJECT.id} nodeId="claude-session:dddd" sessionId={S} />)
-      await vi.waitFor(() => expect(screen.getByTestId('transcript').textContent).toContain(`answer ${99 + keep}`), { timeout: 20_000 })
+      await vi.waitFor(() => expect(screen.getByTestId('transcript').textContent).toContain(`answer ${99 + keep}`), { timeout: ms(20_000) })
       const log = screen.getByTestId('transcript')
       layout.attach(log)
       // The reader scrolled up to «answer 120» and pressed Load earlier.
@@ -512,8 +513,8 @@ describe('Load earlier', () => {
       release(ok({ ...lines(0, 100), earlier: 0, cursor: { offset: 100 * 100, fileId: FILE } }))
       // All of the file is read: the 110 rows of the second answer (answers 0–109) are the space
       // above the first row drawn, «answer 110», OVERSCAN px above the reader's.
-      await vi.waitFor(() => expect(requests).toHaveLength(4), { timeout: 20_000 })
-      await vi.waitFor(() => expect(module.sessionTranscriptNow(ROOT, S).events).toHaveLength(110 + keep), { timeout: 20_000 })
+      await vi.waitFor(() => expect(requests).toHaveLength(4), { timeout: ms(20_000) })
+      await vi.waitFor(() => expect(module.sessionTranscriptNow(ROOT, S).events).toHaveLength(110 + keep), { timeout: ms(20_000) })
       await vi.waitFor(() => {
         const space = log.querySelector<HTMLElement>(':scope > [data-space]')
         expect(space?.style.height).toBe(`${110 * ROW}px`)
@@ -622,6 +623,7 @@ describe('a main that does not know `back` (an older build on a Linked machine)'
     expect(hook.result.current.events).toHaveLength(keep)
   })
 
+  // unscaled: a time budget of the reader (linear, not quadratic), not a limit for a slow machine
   it('reads a long file in time in proportion to its length, not to its square', { timeout: 5_000 }, async () => {
     const module = await import('../../src/renderer/claude-home/useClaudeHome')
     const keep = module.KEEP_EVENTS

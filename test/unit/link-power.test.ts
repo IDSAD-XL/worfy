@@ -7,6 +7,7 @@
 // connections over 127.0.0.1 in this vitest process.
 import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ms } from '../time-scale'
 
 const electron = vi.hoisted(() => {
   const started = new Map<number, string>()
@@ -72,7 +73,7 @@ const until = (check: () => boolean): Promise<void> =>
     () => {
       if (!check()) throw new Error('not yet')
     },
-    { timeout: 5_000, interval: 10 },
+    { timeout: ms(5_000), interval: 10 },
   )
 
 const linkBlockers = (): number => [...electron.started.values()].filter((type) => type === 'prevent-app-suspension').length

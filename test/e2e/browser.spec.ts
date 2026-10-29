@@ -10,6 +10,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { generate } from 'selfsigned'
 import { canvasReady, launchApp, openSecondWindow, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { ms } from '../time-scale'
 
 // The Browser Node (worfy-browser ticket 02, ADR-0078): "New browser" in the Canvas menu makes an
 // empty frame, an address typed into its address bar opens the page in the Browser layer, the
@@ -235,7 +236,7 @@ test('New browser from the Canvas menu opens the typed address; the address the 
   await address.click()
   await address.fill(pageUrl)
   await address.press('Enter')
-  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: 15_000, message: 'the fixture page has loaded' }).toEqual([[pageUrl, 'yes']])
+  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: ms(15_000), message: 'the fixture page has loaded' }).toEqual([[pageUrl, 'yes']])
   await expect(address).toHaveValue(pageUrl)
   await expect.poll(() => savedBrowsers()[0]?.data.url, { message: 'the address is kept in the Node' }).toBe(pageUrl)
 
@@ -249,7 +250,7 @@ test('New browser from the Canvas menu opens the typed address; the address the 
 
   // The page goes on by itself: the bar shows where it is, the Node keeps that address.
   await inGuest(pageUrl, `location.href = ${JSON.stringify(nextUrl)}`)
-  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: 15_000 }).toEqual([[nextUrl, 'yes']])
+  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: ms(15_000) }).toEqual([[nextUrl, 'yes']])
   await expect(address).toHaveValue(nextUrl)
   await expect.poll(() => savedBrowsers()[0]?.data.url, { message: 'the address the page reached is kept' }).toBe(nextUrl)
 
@@ -258,17 +259,17 @@ test('New browser from the Canvas menu opens the typed address; the address the 
   launched = undefined
   window = await start()
   await expect(window.getByTestId('browser-frame').getByTestId('browser-address')).toHaveValue(nextUrl)
-  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: 15_000, message: 'the page after the restart' }).toEqual([[nextUrl, 'yes']])
+  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: ms(15_000), message: 'the page after the restart' }).toEqual([[nextUrl, 'yes']])
 
   // A second window of the Project (ADR-0053) shows the same Node, with the frames of its one page
   // (worfy-browser ticket 07, ADR-0078 item 16): the first window keeps the page.
   const second = await openSecondWindow(launched!)
   const secondFrame = second.locator(`[data-testid="browser-frame"][data-node-id="${id}"]`)
-  await expect(secondFrame).toBeVisible({ timeout: 15_000 })
+  await expect(secondFrame).toBeVisible({ timeout: ms(15_000) })
   await expect(secondFrame.getByTestId('browser-address')).toHaveValue(nextUrl)
-  await expect(secondFrame).toHaveAttribute('data-page', 'frames', { timeout: 15_000 })
-  await expect(secondFrame.getByTestId('browser-frames')).toHaveAttribute('data-frame', 'shown', { timeout: 15_000 })
-  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: 15_000, message: 'one page, in the first window' }).toEqual([[nextUrl, 'yes']])
+  await expect(secondFrame).toHaveAttribute('data-page', 'frames', { timeout: ms(15_000) })
+  await expect(secondFrame.getByTestId('browser-frames')).toHaveAttribute('data-frame', 'shown', { timeout: ms(15_000) })
+  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: ms(15_000), message: 'one page, in the first window' }).toEqual([[nextUrl, 'yes']])
 })
 
 // worfy-browser ticket 01 found that a press begun outside a Browser frame did not keep the page
@@ -283,7 +284,7 @@ test('on a Canvas without a Card, a Note dragged across the page of a Browser fo
     { id: 'n1', kind: 'note', x: 120, y: 240, w: 160, h: 100, data: { text: 'dragged across' } },
   ])
   const window = await start()
-  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: 15_000 }).toEqual([[pageUrl, 'yes']])
+  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: ms(15_000) }).toEqual([[pageUrl, 'yes']])
   expect(await window.locator('[data-testid="card-node"]').count(), 'no Card on the Canvas').toBe(0)
 
   const note = window.locator('.react-flow__node[data-id="n1"]')
@@ -327,7 +328,7 @@ test('a cookie the page sets is there again after a restart, kept in the Project
   const pageUrl = `${origin}/page.html`
   project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: 480, h: 440, data: { url: pageUrl } }])
   await start()
-  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[pageUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000) }).toEqual([[pageUrl, 'yes']])
   await inGuest(pageUrl, "document.cookie = 'kept=yes; max-age=86400; path=/'")
   expect(await inGuest(pageUrl, 'document.cookie')).toContain('kept=yes')
   const storage = await launched!.app.evaluate(({ webContents }) => {
@@ -341,7 +342,7 @@ test('a cookie the page sets is there again after a restart, kept in the Project
   await launched!.close()
   launched = undefined
   const window = await start()
-  await expect.poll(pageStates, { timeout: 15_000, message: 'the page after the restart' }).toEqual([[pageUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000), message: 'the page after the restart' }).toEqual([[pageUrl, 'yes']])
   expect(await inGuest(pageUrl, 'document.cookie'), 'the cookie after the restart').toContain('kept=yes')
   await canvasReady(launched!)
   const body = (await window.getByTestId('browser-frame-body').boundingBox())!
@@ -355,7 +356,7 @@ test('back, forward and reload left of the address bar move the page through its
   const nextUrl = `${origin}/next.html`
   project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: 640, h: 440, data: { url: pageUrl } }])
   const window = await start()
-  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[pageUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000) }).toEqual([[pageUrl, 'yes']])
   const frame = window.getByTestId('browser-frame')
   const address = frame.getByTestId('browser-address')
   const back = frame.getByRole('button', { name: 'Back' })
@@ -378,13 +379,13 @@ test('back, forward and reload left of the address bar move the page through its
     const load = await inGuest(pageUrl, 'document.body?.dataset.ready === "yes" ? document.body.dataset.load : null').catch(() => null)
     return typeof load === 'string' && load !== firstLoad
   }
-  await expect.poll(loadedAgain, { timeout: 15_000, message: 'the page loaded again' }).toBe(true)
+  await expect.poll(loadedAgain, { timeout: ms(15_000), message: 'the page loaded again' }).toBe(true)
   await expect(back).toBeDisabled()
   await expect(forward).toBeDisabled()
 
   // The page goes on by a link: back is active, forward still not.
   await inGuest(pageUrl, `location.href = ${JSON.stringify(nextUrl)}`)
-  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[nextUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000) }).toEqual([[nextUrl, 'yes']])
   await expect(back).toBeEnabled()
   await expect(forward).toBeDisabled()
   await canvasReady(launched!)
@@ -394,7 +395,7 @@ test('back, forward and reload left of the address bar move the page through its
 
   // Back: the first page again, in the bar and the Node too; now only forward is active.
   await back.click()
-  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[pageUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000) }).toEqual([[pageUrl, 'yes']])
   await expect(address).toHaveValue(pageUrl)
   await expect.poll(() => savedBrowsers()[0]?.data.url).toBe(pageUrl)
   await expect(back).toBeDisabled()
@@ -402,7 +403,7 @@ test('back, forward and reload left of the address bar move the page through its
 
   // Forward: the next page again; forward inactive at the end of the history.
   await forward.click()
-  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[nextUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000) }).toEqual([[nextUrl, 'yes']])
   await expect(address).toHaveValue(nextUrl)
   await expect(back).toBeEnabled()
   await expect(forward).toBeDisabled()
@@ -416,21 +417,21 @@ test('a target="_blank" link and window.open of the page open in the same Browse
   const pageUrl = `${origin}/page.html`
   project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: 640, h: 440, data: { url: blankUrl } }])
   const window = await start()
-  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[blankUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000) }).toEqual([[blankUrl, 'yes']])
   expect(await windowCount()).toBe(1)
   const frame = window.getByTestId('browser-frame')
 
   await inGuest(blankUrl, "document.getElementById('blank').click()")
-  await expect.poll(pageStates, { timeout: 15_000, message: 'the link opened in the same Browser' }).toEqual([[nextUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000), message: 'the link opened in the same Browser' }).toEqual([[nextUrl, 'yes']])
   await expect(frame.getByTestId('browser-address')).toHaveValue(nextUrl)
   await expect.poll(() => savedBrowsers()[0]?.data.url).toBe(nextUrl)
   await expect(frame.getByRole('button', { name: 'Back' })).toBeEnabled()
   expect(await windowCount(), 'no new window').toBe(1)
 
   await frame.getByRole('button', { name: 'Back' }).click()
-  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[blankUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000) }).toEqual([[blankUrl, 'yes']])
   await inGuest(blankUrl, "document.getElementById('open').click()")
-  await expect.poll(pageStates, { timeout: 15_000, message: 'window.open opened in the same Browser' }).toEqual([[pageUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000), message: 'window.open opened in the same Browser' }).toEqual([[pageUrl, 'yes']])
   await expect(frame.getByTestId('browser-address')).toHaveValue(pageUrl)
   // A moment more for a late window: still one window and one page.
   await window.waitForTimeout(1_000)
@@ -451,7 +452,7 @@ test('a frame of another origin that calls window.open on load leaves the page w
   const askedUrl = `${otherOrigin}/next.html`
   project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: 640, h: 440, data: { url: framedUrl } }])
   const window = await start()
-  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[framedUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000) }).toEqual([[framedUrl, 'yes']])
   const frame = window.getByTestId('browser-frame')
   const bar = frame.getByTestId('browser-open-bar')
 
@@ -462,7 +463,7 @@ test('a frame of another origin that calls window.open on load leaves the page w
       const frame = guest?.mainFrame.frames[0]
       return frame === undefined ? null : frame.executeJavaScript('document.body?.dataset.asked ?? null')
     })
-  await expect.poll(frameAsked, { timeout: 15_000, message: 'the third-party frame asked for a window' }).toBe('yes')
+  await expect.poll(frameAsked, { timeout: ms(15_000), message: 'the third-party frame asked for a window' }).toBe('yes')
   // The Open bar shows the address the frame asked for, whole.
   await expect(bar).toBeVisible()
   await expect(bar).toContainText('The page wants to open')
@@ -480,7 +481,7 @@ test('a frame of another origin that calls window.open on load leaves the page w
 
   // Open: the page goes to the address, the address bar and the Node keep it, the bar is gone.
   await bar.getByRole('button', { name: 'Open' }).click()
-  await expect.poll(pageStates, { timeout: 15_000, message: 'Open sent the page to the address' }).toEqual([[askedUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000), message: 'Open sent the page to the address' }).toEqual([[askedUrl, 'yes']])
   await expect(bar).toBeHidden()
   await expect(frame.getByTestId('browser-address')).toHaveValue(askedUrl)
   await expect.poll(() => savedBrowsers()[0]?.data.url).toBe(askedUrl)
@@ -488,8 +489,8 @@ test('a frame of another origin that calls window.open on load leaves the page w
 
   // The framed page again: the frame asks again, and the close button leaves the page where it is.
   await inGuest(askedUrl, `location.href = ${JSON.stringify(framedUrl)}`)
-  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[framedUrl, 'yes']])
-  await expect(bar.getByTestId('browser-open-url')).toHaveText(askedUrl, { timeout: 15_000 })
+  await expect.poll(pageStates, { timeout: ms(15_000) }).toEqual([[framedUrl, 'yes']])
+  await expect(bar.getByTestId('browser-open-url')).toHaveText(askedUrl, { timeout: ms(15_000) })
   await bar.getByRole('button', { name: 'Close' }).click()
   await expect(bar).toBeHidden()
   await window.waitForTimeout(1_000)
@@ -499,7 +500,7 @@ test('a frame of another origin that calls window.open on load leaves the page w
   // The page's own window.open, with no user gesture: Electron passes it to main's handler, and
   // the page goes to the address in the same Browser, with no bar.
   await inGuest(framedUrl, "window.open('next.html')", false)
-  await expect.poll(pageStates, { timeout: 15_000, message: 'the page\'s own window.open without a click' }).toEqual([[nextUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000), message: 'the page\'s own window.open without a click' }).toEqual([[nextUrl, 'yes']])
   await expect(bar).toBeHidden()
   expect(await windowCount(), 'no new window').toBe(1)
 })
@@ -512,26 +513,26 @@ test('a rel="noreferrer" link of the page is offered in the Open bar: Open sends
   const nextUrl = `${origin}/next.html`
   project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: 640, h: 440, data: { url: blankUrl } }])
   const window = await start()
-  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[blankUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000) }).toEqual([[blankUrl, 'yes']])
   const frame = window.getByTestId('browser-frame')
   const bar = frame.getByTestId('browser-open-bar')
   await expect(bar).toBeHidden()
 
   await inGuest(blankUrl, "document.getElementById('noreferrer').click()")
-  await expect(bar.getByTestId('browser-open-url')).toHaveText(nextUrl, { timeout: 15_000 })
+  await expect(bar.getByTestId('browser-open-url')).toHaveText(nextUrl, { timeout: ms(15_000) })
   await window.waitForTimeout(1_000)
   expect(await pageStates(), 'the page did not go by itself').toEqual([[blankUrl, 'yes']])
 
   await bar.getByRole('button', { name: 'Open' }).click()
-  await expect.poll(pageStates, { timeout: 15_000, message: 'Open sent the page to the address' }).toEqual([[nextUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000), message: 'Open sent the page to the address' }).toEqual([[nextUrl, 'yes']])
   await expect(bar).toBeHidden()
   await expect(frame.getByTestId('browser-address')).toHaveValue(nextUrl)
   await expect.poll(() => savedBrowsers()[0]?.data.url).toBe(nextUrl)
 
   await inGuest(nextUrl, `location.href = ${JSON.stringify(blankUrl)}`)
-  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[blankUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000) }).toEqual([[blankUrl, 'yes']])
   await inGuest(blankUrl, "document.getElementById('noreferrer').click()")
-  await expect(bar.getByTestId('browser-open-url')).toHaveText(nextUrl, { timeout: 15_000 })
+  await expect(bar.getByTestId('browser-open-url')).toHaveText(nextUrl, { timeout: ms(15_000) })
   await bar.getByRole('button', { name: 'Close' }).click()
   await expect(bar).toBeHidden()
   await window.waitForTimeout(1_000)
@@ -555,7 +556,7 @@ for (const { width, name, underLabel } of [
     const longUrl = `http://${host}/${'b'.repeat(60)}/bank.example.com/login`
     project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: width, h: 440, data: { url: blankUrl } }])
     const window = await start()
-    await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[blankUrl, 'yes']])
+    await expect.poll(pageStates, { timeout: ms(15_000) }).toEqual([[blankUrl, 'yes']])
     const frame = window.getByTestId('browser-frame')
     const bar = frame.getByTestId('browser-open-bar')
 
@@ -565,7 +566,7 @@ for (const { width, name, underLabel } of [
       `const link = document.createElement('a'); link.href = ${JSON.stringify(longUrl)}; link.target = '_blank'; link.rel = 'noreferrer'; document.body.append(link); link.click()`,
     )
     const address = bar.getByTestId('browser-open-url')
-    await expect(address).toHaveText(longUrl, { timeout: 15_000 })
+    await expect(address).toHaveText(longUrl, { timeout: ms(15_000) })
     await expect(address).toHaveAttribute('title', longUrl)
     await expect(bar.getByTestId('browser-open-site')).toHaveText(`http://${host}`)
 
@@ -649,7 +650,7 @@ test('a target="_blank" link from an https page to an http address, on the net o
   const secureUrl = `${secureOrigin}/insecure.html?to=${encodeURIComponent(remote)}&near=${encodeURIComponent(near)}`
   project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: 640, h: 440, data: { url: blankUrl } }])
   const window = await start()
-  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[blankUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000) }).toEqual([[blankUrl, 'yes']])
   // The Browser's session accepts the fixture server's self-signed certificate; the session lives
   // in this test's own data folder.
   await launched!.app.evaluate(({ webContents }) => {
@@ -658,23 +659,23 @@ test('a target="_blank" link from an https page to an http address, on the net o
     guest.session.setCertificateVerifyProc((_request, callback) => callback(0))
   })
   await inGuest(blankUrl, `location.href = ${JSON.stringify(secureUrl)}`)
-  await expect.poll(pageStates, { timeout: 15_000, message: 'the https page has loaded' }).toEqual([[secureUrl, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000), message: 'the https page has loaded' }).toEqual([[secureUrl, 'yes']])
   const frame = window.getByTestId('browser-frame')
   const bar = frame.getByTestId('browser-open-bar')
 
   await inGuest(secureUrl, "document.getElementById('insecure').click()")
-  await expect(bar.getByTestId('browser-open-url')).toHaveText(remote, { timeout: 15_000 })
+  await expect(bar.getByTestId('browser-open-url')).toHaveText(remote, { timeout: ms(15_000) })
   await window.waitForTimeout(1_000)
   expect(await pageStates(), 'the page did not go by itself').toEqual([[secureUrl, 'yes']])
   await bar.getByRole('button', { name: 'Close' }).click()
   await expect(bar).toBeHidden()
 
   await inGuest(secureUrl, "document.getElementById('near').click()")
-  await expect(bar.getByTestId('browser-open-url')).toHaveText(near, { timeout: 15_000 })
+  await expect(bar.getByTestId('browser-open-url')).toHaveText(near, { timeout: ms(15_000) })
   await window.waitForTimeout(1_000)
   expect(await pageStates(), 'the page did not go to http on this machine by itself').toEqual([[secureUrl, 'yes']])
   await bar.getByRole('button', { name: 'Open' }).click()
-  await expect.poll(pageStates, { timeout: 15_000, message: 'Open sent the page to the http address' }).toEqual([[near, 'yes']])
+  await expect.poll(pageStates, { timeout: ms(15_000), message: 'Open sent the page to the http address' }).toEqual([[near, 'yes']])
   await expect(bar).toBeHidden()
   expect(await windowCount(), 'no new window').toBe(1)
 })

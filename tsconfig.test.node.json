@@ -52,6 +52,7 @@
     "test/flaky.ts",
     "test/flaky-reporter.ts",
     "test/time-scale.ts",
+    "test/timeout-literals.ts",
     "test/zsh.ts",
     "test/windows-runner.ts",
     "test/windows-profile.ts",

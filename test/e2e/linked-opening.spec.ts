@@ -21,8 +21,9 @@ import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, mach
 import { snapshotThemes } from './snapshots'
 import { loginProfileWithNode } from '../harness-node'
 import { MANY_EPICS, manyEpicsStatus, writeSessionHistory } from './many-epics'
+import { ms } from '../time-scale'
 
-test.setTimeout(240_000)
+test.setTimeout(ms(240_000))
 
 /** WORFY_EVIDENCE=1: the line in both themes (test-results/e2e/snapshots/33-loading-line/), with B's epic-status held for EVIDENCE_DELAY_MS so the line stays. */
 const EVIDENCE = process.env.WORFY_EVIDENCE === '1'
@@ -188,7 +189,7 @@ test('the first opening of a Project of a Linked machine: the loading line from 
     await chooseLevel(b.window, settings.getByTestId(`link-machine-access-${aId}`), 'all')
     await closeSettings(b.window)
     const betaRow = a.window.locator(`[data-testid="machine-group"][data-machine-id="${bId}"] [data-testid="project-row"][data-project-id="${BETA}"]`)
-    await expect(betaRow).toContainText('beta', { timeout: 20_000 })
+    await expect(betaRow).toContainText('beta', { timeout: ms(20_000) })
 
     // The recorder runs in every new document of A's window, before the app's own scripts.
     const cdp = await a.app.context().newCDPSession(a.window)
@@ -210,7 +211,7 @@ test('the first opening of a Project of a Linked machine: the loading line from 
     // Pan while it loads, as the owner did: a wheel turn over the Canvas every 50 ms until the line goes.
     const area = { x: SIZE.width - 400, y: SIZE.height / 2 }
     await a.window.mouse.move(area.x, area.y)
-    const deadline = Date.now() + 120_000
+    const deadline = Date.now() + ms(120_000)
     let turn = 0
     while (Date.now() < deadline) {
       const now = await opening(a.window)

@@ -16,6 +16,7 @@ import { findStatusBlock } from '../../src/shared/agent/status-block'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { CASES, childEnv, EVALS, HARNESS, SCAFFOLD_TIMEOUT_MS, stubSetup, tempDir } from './harness-evals-shared'
+import { ms } from '../time-scale'
 
 /**
  * The YAML front matter of a case or grader file, as raw text ('' when there is none). Lines may end
@@ -750,7 +751,7 @@ describe('harness/evals: reviewer-simplification is the diff the case describes'
     // The change itself works: a reviewer has nothing to report but its shape.
     const tests = inFixture(home, work, 'node', ['--test'])
     expect(tests.status, `${tests.stdout}\n${tests.stderr}`).toBe(0)
-  }, process.platform === 'win32' ? 53_000 : undefined)
+  }, process.platform === 'win32' ? ms(53_000) : undefined)
 })
 
 // Every child of this file and of harness-evals-run.test.ts that runs a scaffold script, a Harness

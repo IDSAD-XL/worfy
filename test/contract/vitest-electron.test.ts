@@ -9,25 +9,26 @@ import { stripVTControlCharacters } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
+import { ms } from '../time-scale'
 
 const REPO = join(__dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'vitest-electron.mjs')
 
 const run = (...args: string[]) =>
-  spawnSync(scriptNode(), [SCRIPT, ...args], { cwd: REPO, encoding: 'utf8', timeout: 120_000 })
+  spawnSync(scriptNode(), [SCRIPT, ...args], { cwd: REPO, encoding: 'utf8', timeout: ms(120_000) })
 
 describe('scripts/vitest-electron.mjs', () => {
   it('passes the exit code of vitest on: a filter that matches no test file exits 1', () => {
     const result = run('test/contract/no-such-file-zz-vitest-electron.test.ts')
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(1)
-  }, 120_000)
+  }, ms(120_000))
 
   it('passes the exit code of vitest on: a green file exits 0 and prints the summary', () => {
     const result = run('test/contract/postinstall.test.ts')
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
     expect(stripVTControlCharacters(result.stdout)).toMatch(/^\s*Test Files\s+\d+ passed/m)
     expect(result.stderr).not.toContain(NO_SUMMARY)
-  }, 120_000)
+  }, ms(120_000))
 
   it('is the test script of package.json', () => {
     const pkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { scripts: Record<string, string> }
@@ -92,7 +93,7 @@ const runStandInWith = (env: NodeJS.ProcessEnv, mode: string, ...args: string[])
   spawnSync(scriptNode(), [join(standInRepo, 'scripts', 'vitest-electron.mjs'), ...args], {
     cwd: standInRepo,
     encoding: 'utf8',
-    timeout: 30_000,
+    timeout: ms(30_000),
     env: { ...process.env, ...env, STAND_IN_MODE: mode },
   })
 const runStandIn = (mode: string, ...args: string[]) => runStandInWith({}, mode, ...args)
