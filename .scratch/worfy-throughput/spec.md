@@ -697,6 +697,7 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
 | 42 | Preset Profile по плану подписки | 36, 37, 41 | для merge — если в diff `test/e2e/**` | да (`bin/profile-set`, `profiles/README.md`) | платформенный PR: `pc`, если в diff `test/e2e/**` (`scripts/windows-verdict-scope.mjs:80`); иначе runner `full` | 4 |
 | 43 | Замер эффекта: eval `eco` против `full`, повторный замер | 19, 36, 37, 39; из другого Epic-а — `worfy-harness` 52 | нет | нет | не платформенный | 4 |
 | 45 | MCP-инструменты и инструкции connector-ов claude.ai в стартовом контексте Session: сначала замер | 38 | нет | нет на шаге 1; да, если путь идёт через `harness/` | runner `full` | 2 |
+| 46 | Медленные test-файлы Windows shard 1/3: harness-migrate и install-stable | 35 | да, для замеров | нет | по `scripts/windows-verdict-scope.mjs` | — |
 
 Почему так:
 
