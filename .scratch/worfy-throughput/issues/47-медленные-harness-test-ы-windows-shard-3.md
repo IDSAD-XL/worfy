@@ -1,7 +1,8 @@
 # 47 — Медленные Harness test-ы в shard-е 3/3 Windows: короткие timeout-ы в guard-silent, тела bash и zsh в heartbeat параллельно
 
 Type: task
-Status: claimed 2026-10-29T01:12Z
+Status: done 2026-10-29T02:37Z
+PR: #942
 Branch: worfy-throughput/47
 Blocked by: 35
 Source: договорённость моста и Orchestrator-а 2026-10-29: находка Ticket-а 15 вне его скоупа (out_of_scope), замер по
