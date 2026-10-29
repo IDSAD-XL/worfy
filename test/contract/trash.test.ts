@@ -37,6 +37,11 @@ const sessions = vi.hoisted(() => ({ views: [] as { projectId: string; nodeId: s
 vi.mock('../../src/main/agent/app-node-sessions', () => ({
   sharedNodeSessions: () => ({ list: (projectId: string) => sessions.views.filter((view) => view.projectId === projectId) }),
 }))
+// The real move, wrapped so a test can see that a store built without `move` goes through it.
+vi.mock('../../src/main/storage/move', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/main/storage/move')>()
+  return { ...real, moveWhenFree: vi.fn(real.moveWhenFree) }
+})
 
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
 
@@ -219,6 +224,14 @@ describe('trash: a Card and its data', () => {
     expect(nodeOf('c1')).toBeUndefined()
     expect(existsSync(cardDir('c1'))).toBe(false)
     expect(readFileSync(join(trashDir(), entry.label, 'card', 'index.html'), 'utf8')).toBe('<title>Card c1</title><p>hello</p>')
+  })
+
+  it('trash.put moves the Card through moveWhenFree, the move that waits out a busy folder on Windows', async () => {
+    makeCard('c1')
+    vi.mocked(moveWhenFree).mockClear()
+
+    await put('c1')
+    expect(vi.mocked(moveWhenFree).mock.calls.map(([from]) => from)).toEqual([cardDir('c1'), cardDataFile('c1')])
   })
 
   it('a put whose second move fails moves the Card folder back with the same move and leaves no entry', () => {

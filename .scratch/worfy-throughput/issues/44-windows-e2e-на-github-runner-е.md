@@ -188,7 +188,7 @@ FLAKY одного test-а за неделю — Ticket на причину (ADR
 [40816108815](https://github.com/IDSAD-XL/worfy/actions/runs/40816108815), [40818299601](https://github.com/IDSAD-XL/worfy/actions/runs/40818299601). FLAKY в них: 40802610050 — 2, 40807449099 — 1, 40810815478 — 1,
 40813630615 — 3.
 
-PR этого раздела: `NON_BLOCKING` в `scripts/ci-ok.mjs` пуст, и нужный run-у `windows-e2e`, который упал, отменён
+PR этого раздела: набор `NON_BLOCKING` в `scripts/ci-ok.mjs` удалён, решает каждый job, и нужный run-у `windows-e2e`, который упал, отменён
 или пропущен, краснит `ci-ok`. Contract test — `test/contract/ci-workflow.test.ts` (красный нужный
 `windows-e2e` при `failure`, `cancelled`, `skipped`; падение любого job-а краснит `ci-ok`). ADR-0083 — запись
 Amendments 2026-10-29.
