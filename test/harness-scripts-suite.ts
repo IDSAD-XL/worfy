@@ -26,7 +26,7 @@ import { CI_RETRIES } from './flaky'
 import { gitBash } from './git-bash'
 import { HARNESS_SCRIPTS_FILES, inFile, inPart, MEASURED_SECONDS, parsePart, shareOf, shellTests, startOrder } from './harness-shell-tests'
 import { removeTestTree } from './remove'
-import { timeScale } from './time-scale'
+import { ms } from './time-scale'
 
 const REPO = join(__dirname, '..')
 const HARNESS = join(REPO, 'harness')
@@ -42,7 +42,11 @@ const WINDOWS = process.platform === 'win32'
 // On the GitHub macOS runner profile.test.sh (56-116 s) and skill-blocks.test.sh (71-113 s) were cut
 // off at 120 s (CI runs 40602360006 and 40606566772, 2026-10-28); they are split by theme since, as
 // wave-gate.test.sh was, and the limit stays.
-const FILE_TIMEOUT_MS = WINDOWS ? 900_000 : 120_000
+// Both go through the run's multiplier (ms, test/time-scale.ts; worfy-throughput 57). Windows is
+// written as 300 s so that at the default multiplier 3 it stays the 900 s above, not 2700 s: with
+// one CI retry a hanging .test.sh would then outlast the 60-minute Windows job before its FAIL line.
+// On Linux and macOS the default multiplier makes 120 s into 360 s.
+const FILE_TIMEOUT_MS = ms(WINDOWS ? 300_000 : 120_000)
 
 const names = shellTests(HARNESS)
 const MEASURED = MEASURED_SECONDS[WINDOWS ? 'windows' : 'other']
@@ -280,7 +284,7 @@ async function expectGroupEnded(pgid: number): Promise<void> {
       const running = process.platform === 'linux' ? runningMembers(pgid) : ['the group answers signal 0']
       expect(running, `processes of the run's group ${pgid} still run`).toEqual([])
     },
-    { timeout: GROUP_END_MS * timeScale, interval: 10 },
+    { timeout: ms(GROUP_END_MS), interval: 10 },
   )
 }
 
@@ -293,8 +297,8 @@ export function harnessScripts(file: number): void {
   const count = HARNESS_SCRIPTS_FILES.length
   // How many times each shell test of this file started in this run: every one once, and once more for
   // each retry CI allows (CI_RETRIES, test/flaky.ts; afterAll below fails on any further start). A
-  // retried one is printed as FLAKY when it passes, and it may take FILE_TIMEOUT_MS twice: 120 s more
-  // on Linux and macOS, 900 s more on Windows.
+  // retried one is printed as FLAKY when it passes, and it may take FILE_TIMEOUT_MS twice: at the default multiplier
+  // 360 s more on Linux and macOS, 900 s more on Windows.
   const starts = new Map<string, number>()
 
   describe(`harness shell tests, file ${file} of ${count}`, () => {
@@ -412,7 +416,7 @@ export function harnessScripts(file: number): void {
     }
     it.concurrent.for(toRun)(
       '%s exits 0 with an empty HOME',
-      { timeout: FILE_TIMEOUT_MS + 10_000 },
+      { timeout: FILE_TIMEOUT_MS + ms(10_000) },
       (name, context) => runFile(name, context),
     )
 
@@ -425,8 +429,9 @@ export function harnessScripts(file: number): void {
           const script = join(dir, 'hang.test.sh')
           writeFileSync(script, 'echo started\nsleep 30 &\nsleep 30\n')
           const begun = Date.now()
+          // unscaled: the limit this case expects to run out; the message below names its 1 s
           const { run, home } = await runInEmptyHome(script, 1_000)
-          expect(Date.now() - begun).toBeLessThan((1_000 + CLOSE_GRACE_MS + 3_000) * timeScale)
+          expect(Date.now() - begun).toBeLessThan(ms(1_000 + CLOSE_GRACE_MS + 3_000))
           expect(failure(script, run, 1_000)).toMatch(/did not finish: it was killed after 1 s\nstarted/)
           expect(existsSync(home)).toBe(false)
           expect(run.pid).toBeDefined()
@@ -444,11 +449,12 @@ export function harnessScripts(file: number): void {
           const script = join(dir, 'left.test.sh')
           writeFileSync(script, 'echo done\nsleep 30 &\nexit 0\n')
           const begun = Date.now()
+          // unscaled: the limit this case expects the left child to outlast
           const { run } = await runInEmptyHome(script, 1_000)
           const took = Date.now() - begun
           // The 1 s limit stopped counting when bash exited; the case waited out the grace instead.
           expect(took).toBeGreaterThanOrEqual(CLOSE_GRACE_MS - 100)
-          expect(took).toBeLessThan((CLOSE_GRACE_MS + 3_000) * timeScale)
+          expect(took).toBeLessThan(ms(CLOSE_GRACE_MS + 3_000))
           expect(failure(script, run, 1_000)).toBeNull()
           expect(run.output).toContain('done')
           if (!WINDOWS) await expectGroupEnded(run.pid ?? 0)
@@ -465,12 +471,12 @@ export function harnessScripts(file: number): void {
           const started = join(dir, 'started')
           const script = join(dir, 'stop.test.sh')
           writeFileSync(script, `sleep 30 &\n: > '${started.replaceAll('\\', '/')}'\nsleep 30\n`)
-          const running = runInEmptyHome(script, 60_000)
-          await vi.waitFor(() => expect(existsSync(started)).toBe(true), { timeout: 10_000 * timeScale })
+          const running = runInEmptyHome(script, ms(60_000))
+          await vi.waitFor(() => expect(existsSync(started)).toBe(true), { timeout: ms(10_000) })
           const begun = Date.now()
           killLiveRuns()
           const { run, home } = await running
-          expect(Date.now() - begun).toBeLessThan(3_000 * timeScale)
+          expect(Date.now() - begun).toBeLessThan(ms(3_000))
           expect(run.timedOut).toBe(false)
           expect(run.status).not.toBe(0)
           expect(liveRuns.size).toBe(0)

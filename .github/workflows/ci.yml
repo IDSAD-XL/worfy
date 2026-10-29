@@ -394,14 +394,17 @@ jobs:
       # check the folder's ACL. The tests that deny the user a folder (icacls /deny) then still get in.
       # Under PowerShell both privileges stay disabled. The shard goes to playwright test, and so do
       # the spec files of a pull request (e2e-files, plain names separated by spaces): -split cuts the
-      # list on its spaces, the filter drops the empty string an empty list leaves, and each name of the
-      # array becomes one argument. No name: every spec file.
+      # list on its spaces, the filter drops the empty string an empty list leaves, and splatting the
+      # variable (`@files`) makes each name one argument. No name: every spec file. An array
+      # expression in its place, `@(-split …)`, reaches the pnpm.ps1 shim of corepack as one argument
+      # holding the array, and the shim hands it to node as one string with every name in it (the
+      # Harness shell test jobs of windows-tests.yml, run 40939802575).
       - name: Run the e2e tests, one shard
         shell: pwsh
         env:
           SHARD: ${{ matrix.shard }}
           E2E_FILES: ${{ needs.changes.outputs.e2e-files }}
-        run: pnpm test:e2e "--shard=$env:SHARD" @(-split $env:E2E_FILES | Where-Object { $_ })
+        run: $files = @(-split $env:E2E_FILES | Where-Object { $_ }); pnpm test:e2e "--shard=$env:SHARD" @files
       # A failing e2e test keeps the app's trace and a screenshot of its window under test-results/.
       - if: failure()
         uses: actions/upload-artifact@v7

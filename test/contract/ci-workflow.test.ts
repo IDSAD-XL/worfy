@@ -185,7 +185,7 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     const windows = job('windows')
     expect(value(windows, 'uses')).toBe('./.github/workflows/windows-tests.yml')
     expect(under(windows, '    with:')).toEqual(['      mode: full', '      shard: ${{ matrix.shard }}', '      tests-base: ${{ needs.changes.outputs.tests-base }}'])
-    expect(runs('windows-e2e')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test:e2e "--shard=$env:SHARD" @(-split $env:E2E_FILES | Where-Object { $_ })'])
+    expect(runs('windows-e2e')).toEqual(['pnpm install --frozen-lockfile', '$files = @(-split $env:E2E_FILES | Where-Object { $_ }); pnpm test:e2e "--shard=$env:SHARD" @files'])
   })
 
   it('runs the Windows e2e tests under PowerShell: Git Bash would enable the backup and restore privileges for every process it starts', () => {
@@ -204,9 +204,33 @@ describe('ci.yml: every pull request and every push to main, one check for the m
       'env:',
       'SHARD: ${{ matrix.shard }}',
       'E2E_FILES: ${{ needs.changes.outputs.e2e-files }}',
-      'run: pnpm test:e2e "--shard=$env:SHARD" @(-split $env:E2E_FILES | Where-Object { $_ })',
+      'run: $files = @(-split $env:E2E_FILES | Where-Object { $_ }); pnpm test:e2e "--shard=$env:SHARD" @files',
     ])
     expect(steps.join('\n')).not.toMatch(/shell: bash/)
+  })
+
+  // The command of that step under PowerShell, with pnpm a function that prints each argument in its
+  // own <>: an array expression in place of `@files` reaches a function, or the pnpm.ps1 shim of
+  // corepack, as one argument holding every name (run 40939802575, the same pattern in windows-tests.yml).
+  // PowerShell ships on the Windows and Linux runners; a machine without it skips these cases.
+  let pwsh: string | null | undefined
+  const findPwsh = (): string | null => {
+    pwsh ??= ['pwsh', 'pwsh.exe'].find((name) => spawnSync(name, ['-NoProfile', '-Command', 'exit 0']).status === 0) ?? null
+    return pwsh
+  }
+  it.for([
+    ['no spec file: every spec file', '', 'pnpm <test:e2e> <--shard=2/4>'],
+    ['one spec file', 'test/e2e/a.spec.ts', 'pnpm <test:e2e> <--shard=2/4> <test/e2e/a.spec.ts>'],
+    ['two spec files, each its own argument', 'test/e2e/a.spec.ts  test/e2e/b.spec.ts', 'pnpm <test:e2e> <--shard=2/4> <test/e2e/a.spec.ts> <test/e2e/b.spec.ts>'],
+  ] as const)('windows-e2e hands playwright the shard and the spec files of a pull request under PowerShell: %s', ([, list, printed], { skip }) => {
+    const shell = findPwsh()
+    if (shell === null) return skip('no PowerShell on this machine')
+    const run = runs('windows-e2e').at(-1) ?? ''
+    expect(run).toMatch(/pnpm test:e2e/)
+    const stub = 'function pnpm { "pnpm " + (($args | ForEach-Object { "<$_>" }) -join " ") }'
+    const result = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command', [stub, run].join('\n')], { encoding: 'utf8', env: { ...process.env, SHARD: '2/4', E2E_FILES: list } })
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+    expect(result.stdout.trim()).toBe(printed)
   })
 
   it('splits the tests into shards that together cover every file', () => {
@@ -1523,7 +1547,7 @@ describe('ci.yml: the e2e jobs run the spec files and shards that scripts/ci-sco
     // macOS: scripts/e2e-shard.mjs splits the files given by their measured time, and every spec file when none is given.
     expect(runs('macos-e2e')).toContain('node scripts/e2e-shard.mjs "$SHARD" $E2E_FILES')
     // Windows: PowerShell cuts the list on its spaces and drops the empty string an empty list leaves.
-    expect(runs('windows-e2e')).toContain('pnpm test:e2e "--shard=$env:SHARD" @(-split $env:E2E_FILES | Where-Object { $_ })')
+    expect(runs('windows-e2e')).toContain('$files = @(-split $env:E2E_FILES | Where-Object { $_ }); pnpm test:e2e "--shard=$env:SHARD" @files')
   })
 
   it('never edits the Playwright config to pick spec files: it is a file only the Windows PC checks', () => {

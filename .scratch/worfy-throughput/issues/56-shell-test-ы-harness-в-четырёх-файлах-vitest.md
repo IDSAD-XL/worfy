@@ -162,3 +162,18 @@ average 9–15 во время всех run-ов: на Mac работали др
 - `macos-tests` (весь набор в одном job-е на push в `main`): `HARNESS_SCRIPTS_PART: 1/1` — файл 1 гоняет все shell
   test-ы по пять, как один файл на `main` (локально: 72 case-а в файле 1, по одному в файлах 2–4). Деление на четыре
   файла остаётся для локальных run-ов (Mac, ПК). Timeout-ы не менялись.
+
+### Раунд после #1026 (множитель timeout-ов) и windows-e2e
+
+- Rebase на `origin/main` 82dedd3a (#1026) без конфликтов. `FILE_TIMEOUT_MS` теперь `ms(WINDOWS ? 300_000 : 120_000)`.
+  При множителе 3 по умолчанию на Windows остаётся 900 s, как было, а не 2700 s: с одним повтором в CI зависший
+  `.test.sh` пережил бы 60-минутный Windows job раньше, чем напечатал бы свою строку FAIL. На Linux и macOS 120 s
+  становятся 360 s — это решение владельца про общий множитель. Исключение `OWNED_ELSEWHERE` для `FILE_TIMEOUT_MS`
+  из `test/contract/test-timeout-scale.test.ts` убрано вместе с механизмом: других записей в нём не было.
+  Остальные пределы `test/harness-scripts-suite.ts` идут через `ms()`. Два предела в 1 s, которые case-ы ждут
+  истёкшими, помечены `// unscaled:`.
+- windows-e2e (`ci.yml`) передавал spec-файлы тем же `@(-split $env:E2E_FILES | Where-Object { $_ })`. На pwsh
+  7.6.9 два файла доходят до функции одним аргументом `<a b>`, а пустой список — лишним пустым аргументом `<>`.
+  Теперь `$files = @(…); pnpm test:e2e "--shard=$env:SHARD" @files`. `ci-workflow.test.ts` гоняет команду из
+  workflow под PowerShell со stub-ом `pnpm`, который печатает каждый аргумент отдельно (три случая: без файлов,
+  один, два). Mutation check: со старой командой два случая красные, exit 1.
