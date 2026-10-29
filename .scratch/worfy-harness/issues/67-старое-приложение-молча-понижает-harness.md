@@ -1,7 +1,8 @@
 # 67 — Старая сборка worfy молча ставит свой, более старый Harness поверх нового
 
 Type: bug
-Status: open
+Status: claimed 2026-10-29T16:10Z
+Branch: worfy-harness/67
 Blocked by: —
 Source: случай у владельца 2026-10-21 (время Mac 14:08–14:09).
 
@@ -34,4 +35,52 @@ Harness просто другая (`copy` — `:89`, «it carries another versio
 
 ## Итог
 
-Заполняется при закрытии.
+Installer (`src/main/harness/install.ts`) сравнивает версию Harness сборки с версией установленной копии
+(`<harnessHome>/plugin/.claude-plugin/plugin.json`) и с версией, которую называет `claude plugin list`, функцией
+`compareHarnessVersions`. Формат версии — `<semver>+<short SHA>[.dirty]` (`scripts/build-version.ts`, пишет
+`electron.vite.config.ts`); порядок есть только у semver.
+
+Правила:
+
+- **Установлен semver выше, чем у сборки** — отказ: ни копии, ни `plugin update`, ни команд зависимости, диалог не
+  открывается. Состояние — `error` шага `copy` с причиной в одну строку («the installed Harness X is newer than this
+  build's Y, so worfy does not replace it: open the worfy build that installed it instead, or … remove <pluginDir>,
+  then Install»); её показывают Health (строка Harness plugin) и toolbar. В log — `console.warn('[harness] …')`: при
+  чтении состояния один раз на причину, при каждой попытке установки — каждый раз.
+- **Версия установленной копии — не версия сборки** (`banana`, `0.4.0-beta+…`) — такой же отказ, причина называет
+  эту версию. Версии нет вовсе (нет поля, нет файла) — как сейчас: ставится.
+- **Semver ниже, или копии нет** — ставится как раньше, через диалог «Update X → Y».
+- **Тот же semver, другой commit (или один из двух `.dirty`)** — ставится, но только через тот же диалог согласия, и
+  его текст другой: кнопка `Replace`, вопрос «Replace the worfy Harness X with Y?», первая строка — обе версии
+  `0.3.0`, отличаются только commit-ом, worfy не может сказать, какая новее; заменить, только если эта сборка новее,
+  иначе Cancel. Других путей установки без диалога нет: `install()` зовут только `harness.install` (диалог в
+  `src/main/ipc/harness.ts`) и first-run (`src/main/first-run/actions.ts`, тот же `confirmationText`); test
+  «the same semver from another commit…» закрепляет, что Cancel ничего не пишет.
+
+Почему так. Случай владельца 2026-10-21 — сборка от 2026-10-14 с версией `0.2.0+…` поверх `0.3.0+…` (semver стал
+0.3.0 в #323, 2026-10-15) — ловит правило «semver выше». Равный semver упорядочить нельзя: short SHA не имеет
+порядка, а semver меняется раз в эпик, так что отказ на равном semver остановил бы каждое обычное обновление Stable.
+Упорядочить commit-ы позже можно штампом времени commit-а при сборке — в отдельном файле копии Harness, не в
+`plugin.json`, чтобы не задеть проверку manifest-а Claude Code. Защита действует только в сборках с этой правкой:
+сборка от 2026-10-14 и любая другая старая сборка по-прежнему ставит свой Harness молча.
+
+Явного действия «поставить старую версию» в Health нет, и новый UI тикет не строит: причина отказа говорит, что делать
+(удалить `<harnessHome>/plugin` руками, потом Install). Без папки отказа нет — test «the way out the reason names…».
+
+Mutation testing (`test/contract/harness-install.test.ts`, блок «a Harness newer than the build…»; каждый mutant —
+отдельный run, exit 1):
+
+| Mutant | Что сломано | Какие test-ы покраснели |
+| --- | --- | --- |
+| M1 | более высокий semver не отказывает | «a newer Harness installed…», «reading the state again…» |
+| M2 | нечитаемая версия не отказывает | «an installed version worfy cannot read…» |
+| M3 | диалог равного semver — прежний «Update» | «the same semver from another commit…» |
+| M4 | причина не попадает в состояние (Health) | «a newer Harness installed…» |
+| M5 | нет записи в log | «a newer Harness installed…», «reading the state again…» |
+| M6 | отказ только в состоянии, install() копирует | «a newer Harness installed…», «an installed version worfy cannot read…» |
+| M7 | порядок semver перевёрнут | 6 строк таблицы `compareHarnessVersions`, «a newer Harness installed…», «reading the state again…» |
+
+Test-ы: красные на main (16 из 17 нового блока), зелёные с правкой; `pnpm lint && pnpm typecheck && pnpm test` —
+exit 0. В существующих test-ах `V2` стал `0.3.0+bbbbbbb` (обновление — это более высокий semver), а повторная
+установка в test-е «the new copy in place but the previous one cannot be removed…» идёт с `0.4.0`, не со старой
+версией.

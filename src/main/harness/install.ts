@@ -26,6 +26,14 @@
 // An install ends installed or not installed, never half way (ADR-0059): the dependency goes first,
 // and a failure there leaves no Harness copy and no `worfy`; a first `install` of `worfy` that
 // fails but left its record is uninstalled again.
+//
+// An older build never replaces a newer Harness (worfy-harness ticket 67). The version is
+// `<semver>+<short SHA>[.dirty]` (scripts/build-version.ts), and only its semver part has an order:
+// - the installed copy carries a higher semver, or a version that is not a build version: no copy,
+//   no command, and the reason in the state (Health) and in the log; putting this build's Harness
+//   in place then takes removing <harnessHome>/plugin by hand;
+// - the same semver from another commit: a short SHA has no order, so the install runs only through
+//   the consent dialog, which says worfy cannot tell which one is newer.
 import { execFile } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, rename, rm } from 'node:fs/promises'
@@ -86,7 +94,7 @@ export interface InstallPlan {
   from: string | null
   /** The version of this build. */
   to: string
-  /** Whether the folder is replaced by the copy of this build (it carries another version, or none). */
+  /** Whether the folder is replaced by the copy of this build (it carries an older or unordered version, or none: refusal()). */
   copy: boolean
   /** The dependencies this install adds: those of plugin.json that Claude Code does not list. */
   dependencies: string[]
@@ -200,6 +208,31 @@ interface Planned {
   marketplacesUnread: string | null
 }
 
+/** A Harness version as scripts/build-version.ts stamps it, `<major>.<minor>.<patch>+<short SHA>[.dirty]`; the part after `+` may be missing. */
+const HARNESS_VERSION = /^(\d+)\.(\d+)\.(\d+)(?:\+[0-9a-f]{7,}(?:\.dirty)?)?$/
+
+/**
+ * How the Harness version of this build stands to an installed one:
+ * - `same` — the same string;
+ * - `newer` / `older` — the semver part orders them (this build is newer / older);
+ * - `unordered` — the same semver from another commit, or one of the two `.dirty`: a short SHA has
+ *   no order, so worfy cannot tell which is newer;
+ * - `unknown` — either is not a build version.
+ */
+export type HarnessVersionOrder = 'same' | 'newer' | 'older' | 'unordered' | 'unknown'
+
+export function compareHarnessVersions(build: string, installed: string): HarnessVersionOrder {
+  if (build === installed) return 'same'
+  const ours = HARNESS_VERSION.exec(build)
+  const theirs = HARNESS_VERSION.exec(installed)
+  if (ours === null || theirs === null) return 'unknown'
+  for (const part of [1, 2, 3]) {
+    const difference = Number(ours[part]) - Number(theirs[part])
+    if (difference !== 0) return difference > 0 ? 'newer' : 'older'
+  }
+  return 'unordered'
+}
+
 /** `version` of `<dir>/.claude-plugin/plugin.json`; null when the file or the field is unreadable. */
 function manifestVersion(dir: string): string | null {
   const manifest = readManifest(dir)
@@ -301,6 +334,15 @@ export function confirmationText(plan: InstallPlan): { button: string; message: 
   if (onlyDependencies) {
     return { button: 'Install', message: `Install ${plan.dependencies.join(', ')} for the worfy Harness?`, detail: lines.join('\n') }
   }
+  if (plan.from !== null && compareHarnessVersions(plan.to, plan.from) === 'unordered') {
+    // No "Update A → B": the version does not say that B is the newer one.
+    const semver = plan.to.split('+')[0] ?? plan.to
+    lines.unshift(
+      `Both carry version ${semver} and differ only in the commit they were built from: worfy cannot tell which of them is newer. Replace the installed Harness only if this build is the newer one; otherwise Cancel and open the worfy build that installed ${plan.from}.`,
+      '',
+    )
+    return { button: 'Replace', message: `Replace the worfy Harness ${plan.from} with ${plan.to}?`, detail: lines.join('\n') }
+  }
   return {
     button: update ? 'Update' : 'Install',
     message: update ? `Update the worfy Harness ${plan.from ?? ''} → ${plan.to}?` : `Install the worfy Harness ${plan.to}?`,
@@ -311,6 +353,8 @@ export function confirmationText(plan: InstallPlan): { button: string; message: 
 export class HarnessInstaller {
   private readonly pluginDir: string
   private running: Promise<{ outcome: InstallOutcome; status: HarnessStatus }> | null = null
+  /** The refusal the state last logged: a state read again logs it once, an install every time. */
+  private loggedRefusal: string | null = null
 
   constructor(private readonly options: InstallerOptions) {
     this.pluginDir = join(options.harnessHome, 'plugin')
@@ -507,7 +551,37 @@ export class HarnessInstaller {
     return { known: (parsed as { name: string }[]).some(({ name }) => name === DEPENDENCY_MARKETPLACE), unread: null }
   }
 
-  private stateOf({ bundled, folder, entry, dependencies }: Facts): HarnessState {
+  /**
+   * Why worfy does not replace the Harness in <harnessHome>/plugin with this build's: the copy or
+   * the plugin Claude Code lists carries a newer semver, or a version that is not a build version
+   * (compareHarnessVersions). Null when there is no folder: whoever removed it chose to replace it.
+   * One line, as Health shows the last line of a reason.
+   */
+  private refusal({ bundled, folder, entry }: Facts): string | null {
+    if (bundled === null || folder === undefined) return null
+    for (const installed of [folder, entry?.version ?? null]) {
+      if (installed === null) continue
+      const order = compareHarnessVersions(bundled, installed)
+      if (order !== 'older' && order !== 'unknown') continue
+      const why = order === 'older' ? `the installed Harness ${installed} is newer than this build's ${bundled}` : `worfy cannot compare the installed Harness version "${installed}" with this build's ${bundled}`
+      return `${why}, so worfy does not replace it: open the worfy build that installed it instead, or, to put this build's Harness in place all the same, remove ${this.pluginDir}, then Install`
+    }
+    return null
+  }
+
+  private logRefusal(reason: string, again: boolean): void {
+    if (!again && reason === this.loggedRefusal) return
+    this.loggedRefusal = reason
+    console.warn(`[harness] ${reason}`)
+  }
+
+  private stateOf(facts: Facts): HarnessState {
+    const { bundled, folder, entry, dependencies } = facts
+    const refusal = this.refusal(facts)
+    if (refusal !== null) {
+      this.logRefusal(refusal, false)
+      return { kind: 'error', step: 'copy', reason: refusal }
+    }
     if (folder === undefined || entry === null) return { kind: 'not-installed' }
     if (bundled !== null && (entry.version !== bundled || folder !== bundled)) return { kind: 'outdated', from: entry.version, to: bundled }
     // `plugin install` succeeds when a dependency is missing, and Claude Code then loads nothing of
@@ -526,8 +600,15 @@ export class HarnessInstaller {
    * there with this build's version. Reads which marketplaces Claude Code knows when a dependency
    * is missing; a missing dependency worfy does not install is a StepError naming it.
    */
-  private async planOf({ bundled, folder, entry, dependencies }: Facts): Promise<Planned> {
+  private async planOf(facts: Facts): Promise<Planned> {
+    const { bundled, folder, entry, dependencies } = facts
     if (bundled === null) return { plan: null, marketplacesUnread: null }
+    // Before the dependencies too: nothing of an older build goes over a newer Harness.
+    const refusal = this.refusal(facts)
+    if (refusal !== null) {
+      this.logRefusal(refusal, true)
+      throw new StepError('copy', refusal)
+    }
     const missing = dependencies.filter((each) => each.status === 'missing').map((each) => each.id)
     const foreign = missing.filter((id) => marketplaceOf(id) !== DEPENDENCY_MARKETPLACE)
     if (foreign.length > 0) {
