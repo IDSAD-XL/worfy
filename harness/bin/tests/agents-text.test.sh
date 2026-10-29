@@ -474,7 +474,7 @@ EOF
     for sh in $LOCK_SHELLS; do
         rmdir "$LW/lock" 2>/dev/null; mkdir "$LW/lock"
         lock_case "$sh" ""
-        [ "$lrc" -ne 0 ] && [[ "$lout" == *'e2e: deferred to gate full: test/e2e/a.spec.ts'* && "$lout" != *RAN* ]] && [ "$lsleeps" = "20 20 20 20 20 20 " ] && [ -d "$LW/lock" ] \
+        [ "$lrc" -eq 75 ] && [[ "$lout" == *'e2e: deferred to gate full: test/e2e/a.spec.ts'* && "$lout" != *RAN* ]] && [ "$lsleeps" = "20 20 20 20 20 20 " ] && [ -d "$LW/lock" ] \
             && ok "$sh: a held e2e lock — 2 min of waiting (six sleeps of 20 s), exit $lrc, the deferred line, nothing run, the lock left to its holder" \
             || bad "$sh: a held e2e lock: exit $lrc, sleeps [$lsleeps], out [$lout]"
         rmdir "$LW/lock" 2>/dev/null
@@ -505,8 +505,12 @@ s6 "pr-green-ci: the PR and a green step 5, then nothing to wait for" \
     '`workflow.finish: "pr-green-ci"` — a PR and a green step 5 (gate fast); after the PR you wait for nothing.'
 s6 "one CI read, no gh run watch, no polling" \
     'Do not wait for CI: no `gh run watch`, and no second `gh pr checks` or `mergeable` call after that one check.'
-in_text "$STEP6" 'Wait for CI with one long `gh run watch`' && bad "implementer, step 6: still waits for CI with gh run watch" \
-    || ok "implementer, step 6: the old wait for CI is gone"
+# No CI wait anywhere in the finish: `gh run watch` and `--watch` appear only inside the ban itself.
+left="$(printf '%s\n' "$STEP6" | tr '\n' ' ' | tr -s ' ' | sed 's/no `gh run watch`//g' | grep -oE 'gh run watch|--watch')"
+[ -z "$left" ] && ok "implementer, step 6: no gh run watch or --watch outside the ban" \
+    || bad "implementer, step 6: a CI wait is still in the finish: [$left]"
+s6 "the report calls CI green only on CI=pass" \
+    'the report does not call CI green unless it says `CI=pass`.'
 in_text "$STEP6" 'CI is waited for as above' && bad "implementer, step 6: still says CI is waited for" \
     || ok "implementer, step 6: no 'CI is waited for'"
 # Steps 1–8 of skill ship-ticket are the implementer's steps too, and step 8 waits for CI: the finish says that wait is not the implementer's.
@@ -518,6 +522,27 @@ in_text "$STEP8_TEXT" 'An implementer agent (`worfy:implementer`) does not wait 
     && ok "ship-ticket step 8: the CI wait is not the implementer's" || bad "ship-ticket step 8: no line that the implementer does not wait for CI"
 in_text "$(cat "$ROOT/skills/epic-wave/SKILL.md")" 'The implementer does not wait for CI: after its report the orchestrator waits for the project'"'"'s final CI check (for example `ci-ok`) on the PR head, the Pipeline stage `ci`.' \
     && ok "epic-wave: the orchestrator waits for CI after the implementer's report" || bad "epic-wave: no line that the orchestrator waits for CI after the implementer's report"
+
+# The definition's own lines, which skill_text replaces by the step files: the description and the two pointers.
+RAW_IM="$ROOT/agents/implementer.md"
+sed -n '/^---$/,/^---$/p' "$RAW_IM" | grep '^description:' | grep -qF 'green CI' \
+    && bad "implementer.md: the description still promises green CI" || ok "implementer.md: the description promises no green CI"
+grep -F 'skills/ship-ticket/implementer-e2e.md` when' "$RAW_IM" | grep -qF '2 min at most' \
+    && ok "implementer.md: the e2e pointer names the 2-min lock bound" || bad "implementer.md: the e2e pointer has no '2 min at most'"
+grep -F 'skills/ship-ticket/implementer-finish.md` at this step' "$RAW_IM" | grep -qF 'after the PR you wait for nothing' \
+    && ok "implementer.md: the finish pointer says nothing is waited for after the PR" || bad "implementer.md: the finish pointer has no 'wait for nothing'"
+# 1: epic-wave section 3 waits for the head's CI before the review mark and the verifier.
+EW3="$(awk '/^## 3\. /{s=1} s && /^## 4\. /{exit} s' "$ROOT/skills/epic-wave/SKILL.md")"
+in_text "$EW3" '**First the CI of the head.** With `pr-green-ci` and `agent-review` after `ci` the orchestrator waits for CI on the PR head with the CI wait block of section 4 before `review pending` and the verifier' \
+    && ok "epic-wave section 3: the CI of the head is waited for before the verifier" || bad "epic-wave section 3: no wait for the head's CI before the verifier"
+in_text "$EW3" 'With `F workflow.ci` `batch` this step does not exist.' \
+    && ok "epic-wave section 3: no CI wait with batch" || bad "epic-wave section 3: the CI wait does not leave out batch"
+in_text "$EW3" '`CI=pending` the verifier still sees is not a finding and not a reason for `REJECTED`' \
+    && ok "epic-wave section 3: a pending CI is no REJECTED" || bad "epic-wave section 3: no rule for a verifier's CI=pending"
+first_wait="$(printf '%s\n' "$EW3" | grep -nF '**First the CI of the head.**' | head -n 1 | cut -d: -f1)"
+first_verifier="$(printf '%s\n' "$EW3" | grep -nF 'For every returned report' | head -n 1 | cut -d: -f1)"
+[ -n "$first_wait" ] && [ -n "$first_verifier" ] && [ "$first_wait" -lt "$first_verifier" ] \
+    && ok "epic-wave section 3: the CI wait comes before the verifier" || bad "epic-wave section 3: the CI wait [$first_wait] is not before the verifier [$first_verifier]"
 
 # --- 11c. epic-wave: a deferred e2e run is not green ------------------------------------------
 # The deferred line lives in not_verified (11a); the verifier of skill epic-wave checks the report by

@@ -476,6 +476,10 @@ report says so. With `agent-review` before `ci` there is no PR yet: the verifier
 ticket's branch, the checks of the PR below wait for step 8, and the review mark goes on the
 branch's head.
 
+**First the CI of the head.** With `pr-green-ci` and `agent-review` after `ci` the orchestrator waits for CI on the PR head with the CI wait block of section 4 before `review pending` and the verifier: the
+implementer does not wait for CI. Red CI goes to a rework round (below) without a verifier. With `F workflow.ci` `batch` this step does not exist. A
+`CI=pending` the verifier still sees is not a finding and not a reason for `REJECTED`: it goes on its "could not verify" line.
+
 For every returned report — agent `worfy:reviewer` (name `verify-<NN>`, lens "implementer's
 report", the brief gives the path to the worktree). By then the implementer's worktree is idle and
 the verifier is alone in it — so it uses that worktree (with `single` — the main checkout); do not

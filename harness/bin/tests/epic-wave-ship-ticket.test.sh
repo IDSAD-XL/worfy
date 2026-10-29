@@ -519,10 +519,23 @@ check "implementer: a rework round starts in its isolation-worktree tree and nev
     in_flat "$(cat "$IM")" 'the orchestrator launches you with `isolation: "worktree"`: your working directory is already a fresh tree of your own, the previous round'"'"'s tree is removed. Never call `EnterWorktree` — it refuses a subagent started at the repository root, by `path` and by `name` — and do not create another tree.'
 # The choice is by whether the branch reached origin, not by workflow.finish: a pr-green-ci branch that was
 # never pushed (a small ticket handed over before its push) has no origin/<branch> to check out.
-check "implementer: a rework round checks an already pushed branch out from origin in its tree" \
-    in_flat "$(cat "$IM")" 'Check out the branch in your tree. Already pushed (`git ls-remote --exit-code --heads origin <branch>` exits 0) — from origin: `git checkout -B <branch> origin/<branch>`.'
-check "implementer: a rework round on a branch that is not pushed checks out the local branch" \
-    in_flat "$(cat "$IM")" 'Not pushed (`local-green`, no `origin`, or a branch that never reached it): check out the local branch, `git checkout <branch>` (worktrees share the branches; the orchestrator kept it).'
+# Exit 2 of `git ls-remote --exit-code` is "no such branch"; 128 is a network or access error, which must not
+# pass for "not pushed". The fetch comes first: origin/<branch> in the tree may be older than the remote.
+check "implementer: a rework round without origin checks out the local branch" \
+    in_flat "$(cat "$IM")" 'Check out the branch in your tree. Without `origin` (`git remote get-url origin` fails: `local-green`, Silent mode): the local branch, `git checkout <branch>` (worktrees share the branches; the orchestrator kept it).'
+check "implementer: a rework round fetches a pushed branch before checking it out" \
+    in_flat "$(cat "$IM")" 'With `origin`, `git ls-remote --exit-code --heads origin <branch>`: exit 0 — pushed: `git fetch origin <branch>`, then `git checkout -B <branch> origin/<branch>`;'
+check "implementer: a rework round treats only exit 2 as not pushed" \
+    in_flat "$(cat "$IM")" 'exit 2 — never pushed: the local branch, as above; any other exit (network, access) — stop and report, do not guess.'
+LSR="$(mktemp -d)"; git init -q --bare "$LSR/origin.git"; git init -q "$LSR/w"
+git -C "$LSR/w" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+git -C "$LSR/w" remote add origin "$LSR/origin.git"; git -C "$LSR/w" push -q origin HEAD:refs/heads/pushed
+git -C "$LSR/w" ls-remote --exit-code --heads origin pushed >/dev/null 2>&1; lr_yes=$?
+git -C "$LSR/w" ls-remote --exit-code --heads origin never >/dev/null 2>&1; lr_no=$?
+git -C "$LSR/w" ls-remote --exit-code --heads "$LSR/missing.git" pushed >/dev/null 2>&1; lr_err=$?
+check "git ls-remote --exit-code: 0 pushed, 2 never pushed, 128 an unreachable remote — got $lr_yes $lr_no $lr_err" \
+    test "$lr_yes $lr_no $lr_err" = "0 2 128"
+rm -rf "$LSR"
 check "implementer: the rework checkout no longer picks by pr-green-ci" \
     lacks "$IM" 'Pushed (`pr-green-ci`) — from origin'
 check "implementer: the old wording — always from origin — is gone" \
