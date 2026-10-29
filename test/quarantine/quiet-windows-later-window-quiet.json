@@ -1,0 +1,12 @@
+{
+  "runner": "playwright",
+  "file": "test/e2e/quiet-windows.spec.ts",
+  "test": "a window worfy opens later is quiet too: shown inactive, transparent, and the mouse goes through it",
+  "platforms": [
+    "darwin"
+  ],
+  "reason": "On the macOS runner the test's own app.evaluate (the first window destroyed, then a second-instance start) sometimes never returns, and the Playwright worker then hits its 60 s teardown limit; the retry passes, but the job is red. Red on main's push run 40864889606 (job 123417104155, cf64639c) and on #995's run (job 123475643252), a PR whose code no spec of that shard reaches. #985 fixed an earlier hang of this spec; this one remains.",
+  "owner": "worfy-throughput 55",
+  "since": "2026-10-29",
+  "until": "2026-11-12"
+}

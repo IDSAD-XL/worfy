@@ -11,6 +11,7 @@
 import { expect, test } from '@playwright/test'
 import { SHOW_POLL_MS, waitForFirstWindowShown } from './first-window-shown'
 import { launchApp, type LaunchedApp } from './helpers'
+import { quarantined } from './quarantine'
 
 const QUIET = { WORFY_QUIET_WINDOWS: '1' }
 
@@ -71,7 +72,7 @@ test('a second start of worfy does not bring the quiet window to the front', asy
   }
 })
 
-test('a window worfy opens later is quiet too: shown inactive, transparent, and the mouse goes through it', async () => {
+quarantined('quiet-windows-later-window-quiet')('a window worfy opens later is quiet too: shown inactive, transparent, and the mouse goes through it', async () => {
   const launched = await launchApp({ env: QUIET })
   try {
     const reopened = await launched.app.evaluate(async ({ app, BrowserWindow }, { waitSource, intervalMs }) => {
