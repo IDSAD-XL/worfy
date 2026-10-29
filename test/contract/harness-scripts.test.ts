@@ -63,11 +63,13 @@ const relative = (file: string): string => file.slice(HARNESS.length + 1).replac
 // skill-blocks and profile are split by theme too (cut off at 120 s on the macOS runner): alone on a Mac
 // (2026-10-28) skill-blocks took 54 s, then skill-blocks-gate 16 s and skill-blocks 8 s; profile-schema2 12,
 // profile-attribution 11, profile-user 8 and profile 4 s.
+// gate-verdict is split the same way (106 s on the macOS runner, cut off at 120 s there): alone on a Mac
+// (2026-10-29) gate-verdict-signals took 22 s, gate-verdict 10 s and gate-verdict-inside 7 s.
 // shortcut: the list is a measured snapshot and does not follow a file that grows slower, redo it
 // when this file runs longer than the longest single shell test plus a few seconds.
 const RUN_FIRST = [
   'hooks/tests/guard-silent.test.sh',
-  'hooks/tests/gate-verdict.test.sh',
+  'hooks/tests/gate-verdict-signals.test.sh',
   'bin/tests/skill-blocks-gate.test.sh',
   'bin/tests/profile-schema2.test.sh',
   'bin/tests/profile-attribution.test.sh',
