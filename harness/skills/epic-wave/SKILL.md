@@ -242,6 +242,25 @@ An incomplete list (no test, no entry point, or not what `rules.md` requires for
 completed before dispatch by the agent `worfy:scout` (the brief gives the path `<repo>`): a map of
 the ticket with `file:line`.
 
+**Agents mode.** How many subagents a ticket starts is `F workflow.agents`: `full` or `eco`.
+No field (exit 4 or `null`) — `full`: the agents as before. Any other value is read as `full`, with
+the reason `workflow.agents`. The orchestrator decides the mode per ticket in the preflight, by its
+trail section, and checks it again on the diff of a small ticket it did itself (section 2). With `eco` the scout goes only when no file the trail
+section names exists yet, or the ticket touches a folder that the trail section of no earlier ticket
+of the epic names; otherwise the orchestrator completes the list itself, reading the files at their
+`file:line`. With `eco` a small ticket — only documents, or one change in one file of its trail
+section — gets no implementer: the orchestrator does it itself (section 2), and the verifier checks
+it like any other ticket (section 3). `full` is required in `eco` too when the change touches a
+script or a hook (the `bin/` or `hooks/` of the Harness, or a script of the repository), when it is
+a platform PR (one that needs the verdict of another operating system by the `rules.md` of the
+project), or when its diff deletes files, stops processes or replaces a copy (the cases that block
+a merge by the review depth scale, `/worfy:ship-ticket`, step 7). The report names the mode of the
+ticket: `Agents: eco` or `Agents: full — <reason>`, where `<reason>` is `workflow.agents`,
+`default: the profile has no workflow.agents`, or the case of the list above that applies
+(`script or hook`, `platform PR`, `destructive action`). Next to it goes the line
+`Subagents: <number> — <names>`: every subagent started for the ticket counts — the scout, the
+implementers, the verifier, the reviewers and the sceptics.
+
 The wave plan is a table, and it is also the outcome of the preflight:
 
 | Ticket | Files | ADR / migration | Who |
@@ -321,6 +340,26 @@ background: steps `F workflow.implementer_steps` of the skill `F workflow.ticket
 finish `F workflow.finish` (a PR with green CI, or locally green checks); the merge stays with the
 orchestrator. The order of work and the report format are set in the agent definition; the brief
 does not repeat them.
+
+A small ticket in `eco` (section 1) gets no implementer: the orchestrator does it itself, in a
+worktree of its own by `F worktree.implementer`, by the steps `F workflow.implementer_steps`, and
+gives the verifier the fields of an implementer's report (commands with exit codes, claims, what
+was removed). Its row of the plan names `orchestrator` in the "Who" column. Right after
+`git worktree add` the orchestrator enters that worktree with `EnterWorktree` (the `path` of the
+worktree): the PreToolUse check on Edit and Write lets edits only into the session's worktree.
+Before any push or PR — after its local checks and a local commit — the orchestrator checks the
+diff of the small ticket against the cases where `full` is required (section 1). No match: it goes
+on to the finish `F workflow.finish`, returns with `ExitWorktree` (`action: "keep"`) and starts the
+verifier; the worktree stays for the gate and the merge. On a match nothing is pushed and no PR is
+opened: the orchestrator returns with `ExitWorktree` (`action: "keep"`), and the ticket goes to an
+implementer the way a rework round does (section 3): `git worktree remove <worktree>` only, the
+local branch stays, the agent starts with `isolation: "worktree"`, and its brief is the rework
+brief with `Findings: none — a small ticket handed over: <the case>` and the line
+`Worktree: your launch tree (isolation "worktree") — git checkout <branch>` (the local branch, not
+pushed), never the `F worktree.implementer` template of the first brief. The implementer takes the
+orchestrator's commit as its starting point: it reviews that commit, adds the tests the change
+needs, runs the checks and carries the ticket to its finish (push, PR, CI). The report line of the
+ticket is `Agents: full — <the case>`, for example `Agents: full — destructive action`.
 
 - `parallel: worktrees` — one agent per ticket, all in one message. `F worktree.root` must lie under
   `.claude/worktrees/` of the repository: an implementer subagent edits only in a tree it entered with
@@ -508,7 +547,9 @@ command output) that does not show what is claimed is a high-severity finding.
 wave's gate is `F review.depth.wave`. An argument overrides it:
 `/worfy:epic-wave tickets 05, 06 of epic X depth medium`; the owner's word in the message
 (`wave depth medium`, in any language) is the same argument. No field (exit 4 or `null`) — `low` depth, the gate as described above, and the report says so:
-"depth low: the profile has no review.depth.wave". Above `low` depth the gate of every ticket gets
+"depth low: the profile has no review.depth.wave". The agents mode does not change the gate: in
+`eco` the verifier stays, for a ticket the orchestrator did itself too, and the rework round and the
+narrow round go as described here. Above `low` depth the gate of every ticket gets
 more agents next to the verifier; they work like it, each in its own worktree
 (`F worktree.reviewer`), and answer the orchestrator:
 
@@ -1516,6 +1557,14 @@ depth and where it came from, and the subagent tokens of each of its rounds with
 ```
 07: Review depth: low — default: the profile has no review.depth.wave
 07: Review tokens: 410000 + 380000 = 790000
+```
+
+Then, for every ticket of the table, its agents line and the number of subagents started for it
+(section 1):
+
+```
+07: Agents: eco
+07: Subagents: 2 — impl-07, verify-07
 ```
 
 **A wave without a human names its decision log** (section 1). Before the report is written,
