@@ -1,9 +1,7 @@
 # 04 — Вердикт Windows без ручного разбора: порядок Ticket-ов `worfy-windows` 53, 51, 14 и запись worfy в реестре Gate на ПК
 
 Type: task
-Status: blocked
-Blocked reason: research: ведёт Session Orchestrator-а вместе с Session на Windows-ПК, итог — в «Итог»; Autopilot не берёт (spec, «Соглашения», «Кто ведёт»)
-Waits: agent
+Status: done 2026-10-29T14:40Z
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-16, пункт 1; замер: `worfy-polish` 13 ждал
 9 h (gate full на Windows-ПК); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md),
@@ -83,3 +81,15 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
 - Установка Harness на ПК целиком — `worfy-windows` 13 и 16.
 
 ## Итог
+
+**Закрыт без кода: заменён (Orchestrator, 2026-10-29).** Вопрос Ticket-а — как Orchestrator узнаёт вердикт
+Windows без ручной сверки списков падений — решили другие Ticket-ы:
+
+- Вердикт Windows — job-ы `ci-ok` на Windows-runner-е (`windows`, `windows-e2e`; ADR-0083, `worfy-throughput` 35,
+  решения владельца по runner-ам 2026-10-28) и метка `check/windows` для PR со scope `pc`; ПК гоняет gate full на
+  `main` раз в Wave (`worfy-throughput` 30, ADR-0086). Сверки списков известных падений нет нигде.
+- Порядок пункта 1: `worfy-windows` 53 и 51 — `done`; 14 ещё в работе, но он больше не условие вердикта PR.
+- Временный шаг пункта 2 не нужен: `worfy-windows` 30 («Add project» на Windows) — `done`, запись реестра Gate
+  на ПК пишет `project-connect`.
+
+Пункты «Готово, когда» не отмечены: они проверяют прежнюю схему (gate full на ПК на каждый платформенный PR).
