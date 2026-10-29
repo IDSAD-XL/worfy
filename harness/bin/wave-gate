@@ -422,10 +422,13 @@ function closeTree() {
 }
 // One check per repository at a time: <git common dir>/worfy-wave-gate.pid, created with O_EXCL ("wx"), so two
 // checks that start together cannot both get it. A file whose pid is dead, or which stays without a pid for
-// longer than PID_EMPTY_S (its writer died between open and write), is stale. It is taken over by renaming it
-// to a name of our own first: only one of two racing checks gets the rename, and the file it got is read again —
-// if it is not the stale one it saw (another check took over and wrote a live pid in between), it is put back
-// with link(), which fails rather than overwrite a newer file, and this check gives way.
+// longer than PID_EMPTY_S (its writer died between open and write), is stale. Of two checks that found it stale
+// only one may take it over, and a rename does not decide that on Windows: two renames of one path both succeed
+// (takeOver). So a check first makes `<pid file>.takeover` with mkdir; the other gives way. Under the token the
+// file is read again and taken only while it is still the stale one seen: it is renamed to a name of our own and
+// read again — if it is not the stale one (an older wave-gate, which makes no token, took it over and wrote a live
+// pid in between), it is put back with link(), which fails rather than overwrite a newer file, and this check gives
+// way. A token older than TAKEOVER_STALE_S was left by a check killed in those milliseconds and is removed.
 const PID_EMPTY_S = 10
 const pidAlive = (pid) => {
     try {
@@ -456,15 +459,16 @@ function startedAt(pid) {
     return Number.isFinite(at) ? at : null
 }
 // Test-only: with WAVE_GATE_PID_SYNC=<folder> that holds `hold-<at>`, the check stops at the point `at`: it creates
-// `<at>` there and waits for `resume-<at>`, up to 30 s. The point `alive`: the pid of the pid file was found running,
-// and when its process started is not asked yet.
+// `<at>-<pid>` there and waits for `resume-<at>`, up to 30 s. The point `alive`: the pid of the pid file was found
+// running, and when its process started is not asked yet. The point `stale`: the pid file was found stale, and its
+// takeover has not begun.
 function stopPoint(at) {
     const dir = process.env.WAVE_GATE_PID_SYNC
     if (!dir || !fs.existsSync(path.join(dir, `hold-${at}`))) return
-    fs.writeFileSync(path.join(dir, at), "")
-    for (const until = Date.now() + 30000; !fs.existsSync(path.join(dir, `resume-${at}`)) && Date.now() < until; ) {
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
-    }
+    fs.writeFileSync(path.join(dir, `${at}-${process.pid}`), "")
+    // A spin, not a sleep: two checks stopped at one point go on within microseconds of each other, as two started
+    // together do, and not up to a sleep apart.
+    for (const until = Date.now() + 30000; !fs.existsSync(path.join(dir, `resume-${at}`)) && Date.now() < until; );
 }
 // Whether the process that wrote `pid` (started at `started`, when the record names it) still runs: false, or why it
 // is taken to run, which the error names.
@@ -528,23 +532,62 @@ function guardPid(common) {
         const seen = pidState(file)
         if (seen.gone) continue
         if (seen.live) fail(`another wave-gate check runs in this repository (${seen.pid ? `pid ${seen.pid}, ${seen.live}` : "its pid is being written"}, ${file})`)
-        const aside = `${file}.stale-${process.pid}`
+        stopPoint("stale")
+        const token = `${file}.takeover`
         try {
-            fs.renameSync(file, aside)
+            fs.mkdirSync(token)
         } catch (e) {
-            if (e.code === "ENOENT") continue
-            throw e
-        }
-        const got = fs.readFileSync(aside, "utf8")
-        if (got !== seen.text) {
+            if (e.code !== "EEXIST") throw e
+            let old = false
             try {
-                fs.linkSync(aside, file)
+                old = (Date.now() - fs.statSync(token).mtimeMs) / 1000 > TAKEOVER_STALE_S
             } catch {}
-            fs.rmSync(aside, { force: true })
-            fail(`another wave-gate check took over ${file} at the same moment`)
+            if (!old) fail(`another wave-gate check is taking over ${file} at the same moment`)
+            try {
+                fs.rmdirSync(token)
+            } catch (e2) {
+                if (e2.code !== "ENOENT") fail(`${token} is older than ${TAKEOVER_STALE_S} s and could not be removed: ${e2.message}`)
+            }
+            continue
         }
-        say(`${file} named ${seen.pid ? `pid ${seen.pid}, which is not running` : "no pid for over " + PID_EMPTY_S + " s"} — stale, taken over`)
-        fs.rmSync(aside, { force: true })
+        try {
+            let now = null
+            try {
+                now = fs.readFileSync(file, "utf8")
+            } catch (e) {
+                if (e.code !== "ENOENT") throw e
+            }
+            // gone or written again since it was seen: the next attempt looks at it afresh
+            if (now !== seen.text) continue
+            const aside = `${file}.stale-${process.pid}`
+            try {
+                fs.renameSync(file, aside)
+            } catch (e) {
+                if (e.code === "ENOENT") continue
+                throw e
+            }
+            let got
+            try {
+                got = fs.readFileSync(aside, "utf8")
+            } catch (e) {
+                // an older wave-gate renamed it on at the same moment (two renames of one path both succeed on Windows)
+                if (e.code === "ENOENT") fail(`another wave-gate check took over ${file} at the same moment`)
+                throw e
+            }
+            if (got !== seen.text) {
+                try {
+                    fs.linkSync(aside, file)
+                } catch {}
+                fs.rmSync(aside, { force: true })
+                fail(`another wave-gate check took over ${file} at the same moment`)
+            }
+            say(`${file} named ${seen.pid ? `pid ${seen.pid}, which is not running` : "no pid for over " + PID_EMPTY_S + " s"} — stale, taken over`)
+            fs.rmSync(aside, { force: true })
+        } finally {
+            try {
+                fs.rmdirSync(token)
+            } catch {}
+        }
     }
     fail(`could not create ${file}`)
 }
