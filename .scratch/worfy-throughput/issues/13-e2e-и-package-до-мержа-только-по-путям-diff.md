@@ -1,7 +1,8 @@
 # 13 — e2e и `test:package` до merge — только когда diff трогает renderer, main process, упаковку или watcher-ы; иначе — ночной run на `main`
 
 Type: task
-Status: claimed 2026-10-29T04:15Z
+Status: done 2026-10-29T08:18Z
+PR: #953
 Branch: worfy-throughput/13
 Blocked by: 10, 21, 35
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-20: скорость test-ов», решение Q5;
@@ -13,11 +14,11 @@ Ticket [03](03-implementer-гоняет-только-свои-e2e.md) (done, PR 
 ## Что происходит
 
 - gate full перед merge гоняет весь `test:e2e` (88 файлов в `test/e2e`; 87 из них запускают Electron через
-  `launchApp` → `_electron.launch`, `test/e2e/helpers.ts:146`, кроме `linked-autopilot.spec.ts`) и
+  `launchApp` → `_electron.launch`, `test/e2e/helpers.ts:275`, кроме `linked-autopilot.spec.ts`) и
   `test:package` (собранный `.app`) на каждом PR с кодом или на наборе Wave. Playwright идёт в один
   поток: `workers: 1`, `fullyParallel: false` (`playwright.config.ts`).
 - Ticket 03 записал правило implementer-а: e2e — только файлы, которые трогает Ticket; весь `test:e2e` —
-  в gate full Orchestrator-а перед merge (`harness/agents/implementer.md:174-179`).
+  в gate full Orchestrator-а перед merge (`harness/agents/implementer.md:200-207`).
 - Пути, от которых зависит e2e: renderer — `src/renderer/`, `src/preload/`; main process — `src/main/`;
   упаковка — `electron-builder.yml`, `electron.vite.config.ts`, `build/`; watcher-ы —
   `src/main/workflow/watch.ts`, `src/main/link-safe-watch.ts`, `src/main/chokidar-close.ts`,
@@ -47,9 +48,9 @@ run на push в `main`. Точку передачи выбрать при claim
 4. **Связь с Ticket-ом 03.** Первая половина правила 03 остаётся: implementer гоняет только e2e-файлы,
    которые трогает Ticket. Вторая половина — «весь `test:e2e` — в gate full перед merge» — меняется:
    перед merge — только spec-и по таблице пункта 1, весь `test:e2e` — ночью. Текст
-   `harness/agents/implementer.md:174-179` и пункт `rules.md` Profile-а, который записал 03, правятся
+   `harness/agents/implementer.md:200-207` и пункт `rules.md` Profile-а, который записал 03, правятся
    под это.
-5. `docs/lessons/agents.md:57-66` и `:95-101` (заблокированный экран — e2e падает на первом окне) касаются и
+5. `docs/lessons/agents.md:57-66` и `:95-102` (заблокированный экран — e2e падает на первом окне) касаются и
    ночного run-а: экран Mac ночью должен быть включён.
 
 Платформенный PR (ADR-0056, пункт 2): меняются скрипты Harness — до merge нужен вердикт Windows (ADR-0071).
@@ -58,15 +59,27 @@ run на push в `main`. Точку передачи выбрать при claim
 
 - [ ] `profile` читает и проверяет поле списка путей; неверный тип — exit 1 с причиной;
       `harness/bin/tests/profile.test.sh` это проверяет.
+      Не проверено: поля Profile-а нет — PR #953 сузил e2e в CI (`scripts/e2e-specs.table.json`), поле
+      Profile-а осталось открытым (раздел «Итог», «Открыто»).
 - [ ] На временном репозитории: diff в файле из таблицы — шаг перед merge гоняет только его spec-и; diff в
       `src/renderer/` вне таблицы — весь `test:e2e`; diff только в `src/shared/` без связи с e2e — e2e нет;
       shell test это проверяет. `playwright.config.ts` в diff PR-а нет.
+      Не проверено: shell test-а на временном репозитории нет. Те же случаи проверяет contract test
+      `test/contract/ci-scope-e2e.test.ts`: путь из таблицы — его spec-и (`:61`), путь `src/` вне таблицы — весь
+      `test:e2e` (`:76-92`), diff без пути приложения — e2e нет (`:407`). `src/shared/` по решению Orchestrator-а
+      входит в приложение и правила в таблице не имеет, то есть даёт весь `test:e2e`, а не «e2e нет».
+      `playwright.config.ts` в diff #953 нет — проверено (`git diff --name-only 87b87f6a~1 87b87f6a`).
 - [ ] Текст implementer-а и skill-ов говорит новое правило; `harness/bin/tests/agents-text.test.sh`
       проверяет фразу; правило Ticket-а 03 о своих e2e-файлах на месте.
+      Не проверено: тексты Harness в #953 не менялись; правило 03 на месте (`harness/agents/implementer.md:200-207`),
+      новой фразы и её проверки нет.
 - [x] ~~Ночной run на `main` запущен хотя бы один раз; ссылка или лог и код выхода — в «Итог».~~ Снято решением
       владельца 2026-10-29: весь `test:e2e` гоняет каждый push в `main`.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; shell test-ы Harness — exit 0; вердикт
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; shell test-ы Harness — exit 0; вердикт
       Windows; gate full — шаг Orchestrator-а перед merge (последний по старой схеме).
+      `ci-ok` на head PR-а e71fdf41 — SUCCESS: `lint-typecheck`, `linux-tests` 1–4/4, `macos-tests`, `macos-e2e`
+      1–2/2, `macos-package`, `windows` 1–3/3 и `harness-scripts` 1–2/2 (shell test-ы Harness), `windows-e2e`
+      1–4/4. Вердикт Windows — job CI; gate full заменён `ci-ok` (решения о CI runner-ах 2026-10-28).
 
 ## Открытые вопросы
 
@@ -86,7 +99,7 @@ run на push в `main`. Точку передачи выбрать при claim
 
 - `harness/bin/profile`, `harness/bin/tests/profile.test.sh`
 - `harness/bin/wave-gate`, `harness/skills/epic-wave/SKILL.md` (раздел 3 «Verification gate»)
-- `harness/agents/implementer.md` (`:174-179`), `harness/bin/tests/agents-text.test.sh`
+- `harness/agents/implementer.md` (`:200-207`), `harness/bin/tests/agents-text.test.sh`
 - `harness/profiles/README.md`, `harness/profiles/draft.schema.json`
 - `playwright.config.ts` (только чтение)
 
@@ -198,6 +211,15 @@ run на push в `main`. Точку передачи выбрать при claim
   `ci-ok` PR-а — в отчёте implementer-а. Круг 1: `pnpm lint && pnpm typecheck && pnpm test` — exit 0, gate fast —
   green; 5 мутантов таблицы (убрать `family`, `controls`, `browser-family` из правила link, `packaged` из правила
   Harness, `browser-family` из правила Browser) новый contract test убивает все.
+- **Ревью:** круг 1 — REJECTED (правило link пропускало `family`, `controls`, `browser-family`, правило Harness —
+  `packaged.spec.ts`), круг 2 — VERIFIED. Follow-up d932dc58 (в PR — e71fdf41 после rebase, тот же patch):
+  проверки link и Browser идут и по локальным helper-ам spec-а.
+- **CI:** на head PR-а e71fdf41 все job-ы зелёные, `ci-ok` — SUCCESS; merge — 87b87f6a. Flaky test
+  `test/e2e/quiet-windows.spec.ts:72` (окно, которое worfy открывает позже, «тихое») упал один раз по таймауту
+  1 минута в `macos-e2e (1/2)` run-а 40824106891 на прежнем head e7dd70c9. Не из diff: #953 не трогает ни этот
+  spec, ни его код.
+- **Номера строк сверены 2026-10-29 по `main` 87b87f6a:** `test/e2e/helpers.ts:275` (было `:146`),
+  `harness/agents/implementer.md:200-207` (было `:174-179`), `docs/lessons/agents.md:95-102` (было `:95-101`).
 - **Открыто (вне этого PR):**
   - тексты Harness: правило 03 в `implementer.md`, формулировка gate full;
   - поле Profile-а со списком путей;
