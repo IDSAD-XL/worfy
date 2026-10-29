@@ -123,18 +123,7 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
    only under `set -o pipefail`. Environment requirements — `commands.requires`. A red check is your
    work, not an obstacle: do not get around it.
    Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-temporary-home.md` when the brief says `Temporary HOME: yes`: it holds the recipe for both commands of this step.
-   Gate exit codes: `2` — red, fix it. `3` — not verified (neither green nor red): the line
-   `[gate] not verified: …` names the reason (project not registered,
-   registry unreadable, resolver crashed); put it into `not_verified` with code 3 and do
-   not call the work green. `127` — node is not on PATH and the gate never started: put it into
-   `not_verified` with that code. 128 + the signal number — `129`, `130`, `143`, `149` (SIGHUP,
-   SIGINT, SIGTERM, Ctrl+Break of Windows) — the gate itself was stopped:
-   this run wrote nothing, the work is not verified; put it into `not_verified` with that code,
-   never green. A signal in the gate's first tens of milliseconds, or while it waits up to 2 s on
-   an open stdin that sends nothing, may leave the verdict of an earlier run in place.
-   `0` is green only if the output has `[gate] green (…)`; `0`
-   with the line `[gate] nothing ran (…)` or `[gate] not verified — environment unavailable:`
-   also goes into `not_verified`.
+   Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-gate-codes.md` when the gate gives anything but exit code 0 with `[gate] green (…)`: what each exit code means for the report.
 
    Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-e2e.md` when the profile sets `commands.e2e`: it says which e2e files are yours to run.
 6. The finish, by `workflow.finish` of the profile.
@@ -168,21 +157,4 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-source.md` only to ma
   "sign_in_needed": ["sign-in needed as <role>", "sign-in expired in Browser profile <name>"]
 }
 ```
-`pr` is the PR number. Fields the project does not have (`pr` with `local-green`, `worktree` with
-`single`) are `null`, not omitted.
-`not_verified` — only real gaps: what is not verified and why; the first line is a false premise of
-the brief, if there was one. Things noticed outside the ticket do not go there — they go to
-`out_of_scope` (empty — `[]`).
-`sign_in_needed` — the Browser checks that did not run for want of a sign-in, one entry per role or
-profile in exactly one of the two forms above (section Order, "Browser checks"); `[]` when every
-check ran or the ticket has none. The orchestrator copies each entry into the wave report.
-Which tests now cover the change — separate claims in `claims`, with the path to the test.
-Every claim in `claims` will be re-checked by a separate agent: a claim without evidence is
-rejected, and the ticket comes back for rework.
-
-**`removed` is not a formality but the most valuable field of the report.** Reports tend to be right
-about what was added and silent about what disappeared: that is how a refusal notice on five
-screens and a whole ADR rule were lost, and both times the review found it, not the report. Before
-writing the report, ask yourself what, on the surfaces you touched, stopped working the way it
-worked yesterday — and write it down, even if you consider the loss justified. An empty `removed` is
-acceptable only when you have checked it.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-report.md` before you write the report: what each field holds, and why `removed` matters most.
