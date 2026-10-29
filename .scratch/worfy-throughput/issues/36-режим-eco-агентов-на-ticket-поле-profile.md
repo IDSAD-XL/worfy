@@ -177,3 +177,37 @@ CI run 40816011308 на head `b9d6de2d`: `ci-ok` — success; `windows (1/3)`–
 job — `windows-e2e (2/4)`: `test/e2e/linked-machines.spec.ts:412`, 1 failed, 79 passed. Этот job не блокирует
 (`NON_BLOCKING`), PR код приложения не меняет. В круге 1 красным был другой shard и другой test
 (`arrange-by-epic.spec.ts:136`, `windows-e2e (1/4)`).
+
+### Раунд 3
+
+Ревью круга 2 — `REJECTED`, одна находка med и одна low; обе исправлены.
+
+- **med, передача мелкого Ticket-а implementer-у.** Раньше Orchestrator доводил мелкий Ticket до finish и только потом
+  сверял diff. Вдобавок бриф implementer-а давал `Base:` с commit-ом Orchestrator-а и шаблон `Worktree:` первого брифа:
+  ветка и папка уже были, и `git worktree add -b` упал бы. Теперь (`harness/skills/epic-wave/SKILL.md:350-362`)
+  Orchestrator сверяет diff со случаями `full` после локальных проверок и локального commit-а, до любого push и PR.
+  Совпадения нет — finish, `ExitWorktree` (`keep`) и verifier. Совпадение есть — ничего не push-ится и PR не
+  открывается: `ExitWorktree` (`keep`), затем как в круге доработки раздела 3. Делается только
+  `git worktree remove <worktree>`, локальная ветка остаётся, агент стартует с `isolation: "worktree"`. Бриф — бриф
+  доработки с `Findings: none — a small ticket handed over: <the case>` и строкой
+  `Worktree: your launch tree (isolation "worktree") — git checkout <branch>`, без шаблона `F worktree.implementer`.
+  Implementer начинает с commit-а Orchestrator-а: проверяет его, добавляет нужные test-ы, гоняет проверки и доводит
+  Ticket до finish (push, PR, CI).
+- **low, пункт 2 «Which depth» в ship-ticket** (`harness/skills/ship-ticket/SKILL.md:371`) теперь смотрит на режим
+  Ticket-а, а не только на поле: `F workflow.agents` `eco` и ни один случай `full` не подходит к diff-у круга.
+
+Отличие от брифа ревью: бриф просил назвать существующие ветку и worktree. Ветка названа, а worktree Orchestrator-а
+перед передачей удаляется (`git worktree remove`, без `--force`). Причина: ветка, checkout-нутая в одном worktree,
+не берётся `git checkout` в другом. А implementer, запущенный с `isolation: "worktree"`, по `agents/implementer.md`
+(круг доработки) в чужой worktree не входит. Так и устроен круг доработки для локальной ветки.
+
+Test-ы. Новые проверки раздела 9e до правки: exit 1, `passed 455, failed 10`. После: exit 0, `passed 465, failed 0`.
+Mutant: в копии epic-wave (`EPIC_WAVE_FILE`) фраза про finish стоит перед сверкой diff-а — exit 1,
+`passed 464, failed 1`, красная — «the diff check comes before the finish of a small ticket».
+
+Под временным HOME, exit 0: `skill-blocks` 86/0, `agents-text` 228/0, `plugin-neutral` 31/0, `rules-hooks` 201/0.
+`main` ушёл вперёд кодом (#948, #951). Rebase на `37cb4172`, после него ещё раз `epic-wave-ship-ticket` (465/0) и
+gate fast — exit 0, `[gate] green (fast)`. Scope `node scripts/windows-verdict-scope.mjs 37cb4172 HEAD` — `runner`, exit 0.
+
+CI run 40819694000 на head `66f08a1f`: все job-ы `success` или `skipped`, `ci-ok` — success, `CI=pass`; в этот раз
+зелёный и `windows-e2e`.
