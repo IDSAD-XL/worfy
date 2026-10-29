@@ -517,7 +517,8 @@ gets none; `mergeStateStatus` above says which).
 With `F workflow.ci` `batch` the verifier skips this CI check: the PR has no CI run, so `CI=none`
 is expected, and old red checks are not a finding either. It runs
 `gh pr view <N> --json mergeable,headRefOid` instead; `CONFLICTING` goes back to the implementer
-for a rebase, like `DIRTY`. The review mark below is set as usual: it is a commit status, not CI.
+for a rebase, like `DIRTY`; `MERGEABLE` is no finding; `UNKNOWN` — GitHub is still computing it, ask
+again in a minute. The review mark below is set as usual: it is a commit status, not CI.
 
 **The review mark.** The verdict is bound to the commit it was given on: before the
 verifier starts, the orchestrator marks the head commit `review pending`; the recorded verdict marks

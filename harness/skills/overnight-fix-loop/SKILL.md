@@ -276,10 +276,11 @@ have been opened at all). Otherwise:
 
 With `F workflow.ci` `batch` GitHub CI does not run on a PR: skip `gh pr checks` and
 `mergeStateStatus`. The merge condition is two at once: `mergeable` is `MERGEABLE` and "clean" from the 1f
-reviewer; `CONFLICTING` is handled as `DIRTY` above. The night's CI run is one, in section 2.
+reviewer; `CONFLICTING` is handled as `DIRTY` above; `UNKNOWN` — GitHub is still computing it, ask
+again in a minute. The night's CI run is one, in section 2.
 
 ```bash
-gh pr view <N> --json mergeable -q .mergeable   # batch: MERGEABLE — merge; CONFLICTING — as DIRTY
+gh pr view <N> --json mergeable -q .mergeable   # batch: MERGEABLE — merge; CONFLICTING — as DIRTY; UNKNOWN — ask again in a minute
 ```
 
 The night branch has moved after the merge: this does not affect the next module, the module footprints and test
