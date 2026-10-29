@@ -12,6 +12,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { HARNESS_SCRIPTS_FILES, inFile, inPart, MEASURED_SECONDS, parsePart, shareOf, shellTests, startOrder, UNMEASURED_SECONDS, type Part } from '../harness-shell-tests'
+import { gitBash } from '../git-bash'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { ms } from '../time-scale'
@@ -165,10 +166,9 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     // The test files ci-scope.mjs names, none (every file) but on a pull request.
     expect(runs('macos-tests')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test $FILES'])
     expect(job('macos-tests')).toContain('          FILES: ${{ needs.changes.outputs.macos-tests-files }}')
-    // On Linux and macOS one harness-scripts file runs every shell test, five at a time, as the one
-    // file did before the split: two files in one job ran ten at once (run 40946353000).
+    // On macOS one harness-scripts file runs every shell test, five at a time, as the one file did
+    // before the split: the whole suite in one job would otherwise run the four files side by side.
     expect(job('macos-tests')).toContain('          HARNESS_SCRIPTS_PART: 1/1')
-    expect(job('linux-tests')).toContain('          HARNESS_SCRIPTS_PART: 1/1')
     // The shard's spec files come from scripts/e2e-shard.mjs (split by measured time), not --shard.
     expect(runs('macos-e2e')).toEqual([
       'pnpm install --frozen-lockfile',
@@ -483,6 +483,15 @@ function stepOf(lines: string[], name: string): string[] {
 // the step is skipped and the whole suite runs.
 describe('ci.yml and windows-tests.yml: a pull request runs the test files its diff touches', () => {
   const PICK = 'Pick the test files the pull request touches'
+  /**
+   * The step of linux-tests that runs the Harness shell tests after the shard, with nothing beside
+   * them: part <shard> of them, and only when a pull request's list has one of their files.
+   */
+  const LINUX_SHELL_STEP = 'Run the Harness shell tests, one part'
+  const LINUX_SHELL = [
+    'run=; [ -n "$TEST_FILES" ] || run=yes; for file in $TEST_FILES; do case " $HARNESS_SCRIPTS " in *" $file "*) run=yes ;; esac; done',
+    'if [ -z "$run" ]; then echo \'The list has no harness-scripts file: nothing to run\'; else HARNESS_SCRIPTS_PART="$SHARD" pnpm test $HARNESS_SCRIPTS; fi',
+  ]
   const pick = (base: string) => [
     `name: ${PICK}`,
     'id: tests',
@@ -507,12 +516,39 @@ describe('ci.yml and windows-tests.yml: a pull request runs the test files its d
       'env:',
       'SHARD: ${{ matrix.shard }}',
       'WORFY_TEST_FILES: ${{ steps.tests.outputs.files }}',
-      'HARNESS_SCRIPTS_PART: 1/1',
+      `WORFY_TEST_EXCLUDE: ${HARNESS_SCRIPTS_FILES.join(' ')}`,
       'run: pnpm test "--shard=$SHARD" --sequence.shuffle.files',
     ])
-    const order = ['- run: pnpm install --frozen-lockfile', `- name: ${PICK}`, '- name: Run unit and contract tests, one shard'].map((line) => lines.findIndex((l) => l.trim() === line))
+    expect(stepOf(lines, LINUX_SHELL_STEP)).toEqual([
+      `name: ${LINUX_SHELL_STEP}`,
+      "if: steps.tests.outputs.run != 'none'",
+      'env:',
+      'SHARD: ${{ matrix.shard }}',
+      `HARNESS_SCRIPTS: ${HARNESS_SCRIPTS_FILES.join(' ')}`,
+      'TEST_FILES: ${{ steps.tests.outputs.files }}',
+      'run: |',
+      ...LINUX_SHELL,
+    ])
+    const order = ['- run: pnpm install --frozen-lockfile', `- name: ${PICK}`, '- name: Run unit and contract tests, one shard', `- name: ${LINUX_SHELL_STEP}`].map((line) =>
+      lines.findIndex((l) => l.trim() === line),
+    )
     expect(order.every((at, i) => at > -1 && (i === 0 || at > (order[i - 1] ?? 0))), order.join(' ')).toBe(true)
     expect(under(under(lines, '      - uses: actions/checkout@v7'), '        with:')).toEqual(['          fetch-depth: 2', '          persist-credentials: false'])
+  })
+
+  // The step under bash, with pnpm a function that prints each argument in its own <>: what a shard
+  // of linux-tests runs of the Harness shell tests, with and without a pull request's list.
+  it.for([
+    ['without a list', '2/4', '', `pnpm ${['test', ...HARNESS_SCRIPTS_FILES].map((arg) => `<${arg}>`).join(' ')} part=[2/4] files=[]`],
+    ['the list has one of the files', '4/4', 'test/unit/a.test.ts test/contract/harness-scripts-3.test.ts', `pnpm ${['test', ...HARNESS_SCRIPTS_FILES].map((arg) => `<${arg}>`).join(' ')} part=[4/4] files=[]`],
+    ['the list has none of them', '1/4', 'test/unit/a.test.ts test/contract/harness-scripts.test.ts test/unit/harness-scripts-1.test.ts.md', 'The list has no harness-scripts file: nothing to run'],
+  ] as const)('linux-tests runs the Harness shell tests of its part after its shard, %s', ([, shard, list, printed]) => {
+    const stub = 'pnpm() { printf "pnpm"; printf " <%s>" "$@"; printf " part=[%s] files=[%s]\\n" "$HARNESS_SCRIPTS_PART" "${WORFY_TEST_FILES-}"; }'
+    const env: NodeJS.ProcessEnv = { ...process.env, SHARD: shard, HARNESS_SCRIPTS: HARNESS_SCRIPTS_FILES.join(' '), TEST_FILES: list }
+    for (const name of ['WORFY_TEST_FILES', 'HARNESS_SCRIPTS_PART']) delete env[name]
+    const result = spawnSync(gitBash(), ['-e', '-c', [stub, ...LINUX_SHELL].join('\n')], { encoding: 'utf8', env })
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+    expect(result.stdout.trim()).toBe(printed)
   })
 
   it('the Windows job full-suite picks the list after its install, with two commits checked out, and runs no vitest for an empty one', () => {

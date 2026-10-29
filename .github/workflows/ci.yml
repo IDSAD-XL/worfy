@@ -17,7 +17,8 @@ name: CI
 #   hands it to vitest (WORFY_TEST_FILES, read by scripts/vitest-electron.mjs), and --shard splits the
 #   list, so each listed file still runs in exactly one shard. ALL runs the whole suite; an empty list
 #   runs no vitest and the job succeeds, so ci-ok still holds it to success. A push to main and a run
-#   by hand always run the whole suite.
+#   by hand always run the whole suite. The Harness shell tests (test/contract/harness-scripts-<n>.test.ts)
+#   run after the shard, alone, part <shard> of them in each shard.
 # - macos-tests: pnpm test on macOS in one job: the tests that run on macOS only are checked here. A
 #   push to main runs every file; a pull request the files with a macOS-only test or assertion
 #   (scripts/ci-scope.mjs, output macos-tests-files).
@@ -191,18 +192,32 @@ jobs:
       # `pnpm test --shard=<shard> --sequence.shuffle.files --sequence.seed=<seed>` repeats the order.
       # The listed files reach vitest through WORFY_TEST_FILES (scripts/vitest-electron.mjs), and
       # --shard splits them; no list (all, or no pull request) is the whole suite.
-      # HARNESS_SCRIPTS_PART 1/1: test/contract/harness-scripts-1.test.ts runs every Harness shell test,
-      # five at a time, and the other three files run none, as the one file did before. Split across
-      # the four files, two of them shared a shard and ran ten shell tests at once on this 4-CPU
-      # runner, and the beforeAll of affected-tests.test.ts in that shard ran past its 10 s limit
-      # (run 40946353000, linux-tests (2/4)).
+      # The files of the Harness shell tests (HARNESS_SCRIPTS, test/harness-shell-tests.ts:
+      # HARNESS_SCRIPTS_FILES) are left out here (WORFY_TEST_EXCLUDE, read by vitest.config.ts) and run
+      # in the next step, after this one, with nothing else beside them.
       - name: Run unit and contract tests, one shard
         if: steps.tests.outputs.run != 'none'
         env:
           SHARD: ${{ matrix.shard }}
           WORFY_TEST_FILES: ${{ steps.tests.outputs.files }}
-          HARNESS_SCRIPTS_PART: 1/1
+          WORFY_TEST_EXCLUDE: test/contract/harness-scripts-1.test.ts test/contract/harness-scripts-2.test.ts test/contract/harness-scripts-3.test.ts test/contract/harness-scripts-4.test.ts
         run: pnpm test "--shard=$SHARD" --sequence.shuffle.files
+      # The Harness shell tests, part <shard> of them (HARNESS_SCRIPTS_PART, test/harness-shell-tests.ts):
+      # harness-scripts-1.test.ts runs the part five at a time, the other files none, and no other test
+      # file runs beside them. When they ran inside a shard, five or ten at once on this 4-CPU runner,
+      # the beforeAll of test/unit/affected-tests.test.ts in the same shard ran past its 10 s limit
+      # (runs 40946353000 and 40949170000, linux-tests (2/4)). A pull request runs them only when its
+      # list has one of their files; the four go to vitest as arguments, and vitest fails when it finds
+      # none of them, as the suite fails when the part holds no shell test.
+      - name: Run the Harness shell tests, one part
+        if: steps.tests.outputs.run != 'none'
+        env:
+          SHARD: ${{ matrix.shard }}
+          HARNESS_SCRIPTS: test/contract/harness-scripts-1.test.ts test/contract/harness-scripts-2.test.ts test/contract/harness-scripts-3.test.ts test/contract/harness-scripts-4.test.ts
+          TEST_FILES: ${{ steps.tests.outputs.files }}
+        run: |
+          run=; [ -n "$TEST_FILES" ] || run=yes; for file in $TEST_FILES; do case " $HARNESS_SCRIPTS " in *" $file "*) run=yes ;; esac; done
+          if [ -z "$run" ]; then echo 'The list has no harness-scripts file: nothing to run'; else HARNESS_SCRIPTS_PART="$SHARD" pnpm test $HARNESS_SCRIPTS; fi
       # Tests must leave the source tree as they found it: no probe or other temporary file in src/.
       - name: src/ is unchanged after the tests
         run: |
@@ -232,7 +247,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # A pull request hands the macOS-only test files, a push to main and a run by hand nothing:
       # every file. scripts/ci-scope.mjs names only plain test file names, one word each, so the
-      # shell splits the list on its spaces. HARNESS_SCRIPTS_PART 1/1, as in linux-tests: one file runs
+      # shell splits the list on its spaces. HARNESS_SCRIPTS_PART 1/1: one file runs
       # every Harness shell test, five at a time, so the whole suite on this runner never runs more.
       - name: Run unit and contract tests
         env:
