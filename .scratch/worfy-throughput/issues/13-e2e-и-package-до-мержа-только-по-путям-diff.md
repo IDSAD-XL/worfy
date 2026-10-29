@@ -1,7 +1,8 @@
 # 13 — e2e и `test:package` до merge — только когда diff трогает renderer, main process, упаковку или watcher-ы; иначе — ночной run на `main`
 
 Type: task
-Status: open
+Status: claimed 2026-10-29T04:15Z
+Branch: worfy-throughput/13
 Blocked by: 10, 21, 35
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-20: скорость test-ов», решение Q5;
 [ADR-0081](../../../docs/adr/0081-per-pr-linux-ci-shards-and-affected-tests.md) (принят 2026-10-20), пункт 3;
@@ -131,3 +132,55 @@ run на push в `main`. Точку передачи выбрать при claim
   - Цена: test без guard-а, который краснеет только на macOS (FSEvents, case-insensitive FS, BSD-утилиты), ловит
     только run push-а в `main`; PR только с unit/contract test-ами не просит ни одного macOS job-а.
   Открыто (Harness-половина): поле Profile-а, шаг gate, `implementer.md`, `rules.md`.
+
+- **e2e по spec-ам diff (2026-10-29, ветка `worfy-throughput/13`).** Решено без владельца, подтвердить:
+  Orchestrator сузил CI-половину Ticket-а под полную автономию (владелец одобрил «e2e по путям» 2026-10-20 и
+  CI на runner-ах 2026-10-28, ADR-0083). Было: PR с путём приложения гонял весь `test:e2e` — 2 shard-а
+  `macos-e2e` и 4 shard-а `windows-e2e`. Стало (`scripts/ci-scope.mjs`, таблица `scripts/e2e-specs.table.json`,
+  `.github/workflows/ci.yml`; test-ы — `test/contract/ci-scope-e2e.test.ts` и новый describe в
+  `test/contract/ci-workflow.test.ts`):
+  - На `pull_request` `ci-scope.mjs` выдаёт три новых output-а: `e2e-files` (spec-и через пробел, пусто — все),
+    `macos-e2e-shards` и `windows-e2e-shards` (JSON-список `i/n` для matrix).
+  - Правило для каждого пути приложения из diff, по порядку:
+    - изменённый spec-файл (`test/e2e/**/*.spec.ts`) идёт сам; удалённый ничего не просит;
+    - любой другой путь приложения вне `src/` и `harness/` — весь `test:e2e`: helper-ы `test/e2e`, `timings.json`,
+      `test/fixtures`, `test/quarantine`, `playwright.config.ts`, входы сборки, `package.json`, `tsconfig*`,
+      `test/*.ts`, которые импортирует e2e;
+    - путь `src/` или `harness/` — объединение spec-ов всех правил таблицы, чей glob его покрывает; путь, которого
+      нет в таблице, — весь `test:e2e`, никогда не пустой список.
+  - Таблица, которую не удалось прочитать, неверное правило или spec, которого нет, — тоже весь `test:e2e`.
+  - diff без пути приложения — e2e нет, как раньше.
+  - Число shard-ов для короткого списка — по `test/e2e/timings.json`: столько, чтобы shard был не дольше
+    shard-а полного run-а, от 1 до полного числа и не больше числа файлов. Полный run: 2 shard-а macOS с
+    разбиением по времени Ticket-а 48 (#940), 4 shard-а Windows.
+  - Push в `main` и ручной run — всегда весь `test:e2e` в полных shard-ах.
+  - `playwright.config.ts` не правился: он в `PC_ONLY` `scripts/windows-verdict-scope.mjs`.
+  - Windows получает список так: `pnpm test:e2e "--shard=$env:SHARD" @(-split $env:E2E_FILES | Where-Object { $_ })`.
+- **Таблица — три правила, консервативно** (каждое с причиной в поле `why`):
+  - `harness/` (`agents`, `bin`, `hooks`, `lib`, `profiles`, `skills`, `README.md`, `.mcp.json`) — 9 spec-ов:
+    `first-run`, `finder-path`, `harness-install`, `harness-migrate`, `launch`, `projects-connect`, `select`,
+    `settings-health`, `toolbar`. Без правила, то есть весь `test:e2e`: `harness/.claude-plugin/` (версию видит
+    каждый spec) и `harness/package.json`.
+  - `src/main/link/*` без `caller.ts`, `messages.ts`, `ipc-adapter.ts`, `autopilot-runs.ts`, плюс
+    `src/main/ipc/link.ts` и `linked.ts` — 12 spec-ов `linked-*`, `sidebar-sections`, `focus-sidebar`, `autopilot`.
+  - Browser: `src/main/browser/*` без `read-only.ts`, `cdp.ts`, `origins.ts`; `src/main/ipc/browser.ts`;
+    `src/renderer/browser/*` без `profiles.ts`; `BrowserLayer.tsx`, `browser-pages.ts`, `BrowserNode.tsx/.css`.
+    Spec-и: 10 `browser*`, `linked-browser`, `controls`.
+  - Отвергнуты scout-ом и мной: `src/main/terminal`, `terminal-ai` (`shell-link.ts` подключён к каждому
+    terminal-у), `src/renderer/pipeline`, `src/renderer/machines`, autopilot, limits, memory.
+- **Замер на последних 20 PR с кодом (#921–#949):**
+  - 7 PR без e2e, как и сейчас; 8 — весь `test:e2e`: `ci.yml`, `test/quarantine.ts`, `test/fixtures`,
+    `src/main/autopilot`, `src/main/agent`; 5 — подмножество (#949, #945, #941, #935, #934, все правки Harness).
+  - Из 13 PR, которые сейчас гоняют e2e, подмножество получили бы 5 (38 %).
+  - Такой PR гоняет 9–11 spec-ов, 125–195 s test-ов вместо 1686 s, в 1 shard-е на macOS и 1 на Windows вместо
+    2 и 4.
+  - Экономия — около 129 минут времени test-ов macOS на 20 PR и 5 macOS- и 15 Windows-job-ов. Самый долгий
+    macOS e2e job такого PR — около 2 минут test-ов вместо 14 (плюс установка и сборка, они не меняются).
+- **Проверки:** `pnpm lint`, `pnpm typecheck` — exit 0. `pnpm test` на `ci-scope-e2e`, `ci-workflow`,
+  `e2e-shard`, `windows-verdict-scope` — exit 0. 14 мутантов в копии под scratchpad убиты все. gate fast и
+  `ci-ok` PR-а — в отчёте implementer-а.
+- **Открыто (вне этого PR):**
+  - тексты Harness: правило 03 в `implementer.md`, формулировка gate full;
+  - поле Profile-а со списком путей;
+  - `test:package` по путям;
+  - подтверждение владельцем решения выше.

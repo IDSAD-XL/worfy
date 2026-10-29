@@ -21,7 +21,11 @@
 //   the macOS-only test files alone (darwinTestFiles,
 //   the second output `macos-tests-files`; empty means every file). A diff that cannot be read, a
 //   BASE of zeros (a new branch) and an empty diff run every job, the whole suite in each: when in
-//   doubt, test. windows-e2e runs whenever macos-e2e does.
+//   doubt, test. windows-e2e runs whenever macos-e2e does. Both run only the spec files the diff
+//   asks for (e2eSpecs: a changed spec file, the spec files scripts/e2e-specs.table.json gives a path
+//   of src/ or harness/, every spec file for anything else), the outputs `e2e-files` (empty means
+//   every spec file) and `macos-e2e-shards` / `windows-e2e-shards`: fewer shards for fewer files.
+//   A push, a run by hand and a pull request that asks for every spec file get the full shards.
 // - workflow_dispatch: JOB=check runs lint-typecheck and linux-tests, as the batch run of a Wave did
 //   before CI ran on pull requests; JOB=full-macos runs lint-typecheck and the macOS jobs.
 //
@@ -32,8 +36,10 @@
 
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, readdirSync, readFileSync } from 'node:fs'
-import { sep } from 'node:path'
+import { resolve, sep } from 'node:path'
 import process from 'node:process'
+import { pathToFileURL } from 'node:url'
+import { listSpecs, readTimings } from './e2e-shard.mjs'
 
 const JOBS = ['lint-typecheck', 'linux-tests', 'macos-tests', 'macos-e2e', 'macos-package', 'windows', 'windows-e2e']
 const MACOS = ['macos-tests', 'macos-e2e', 'macos-package']
@@ -123,6 +129,107 @@ function isBundledHarness(path) {
 const isAppPath = (path) =>
   isBuildInput(path) || APP_FILES.has(path) || APP_FOLDERS.some((folder) => path.startsWith(folder)) || isBundledHarness(path)
 
+// Which e2e spec files a pull request that changes the app runs (e2eSpecs), on macOS and Windows
+// alike. Each app path of the diff decides in this order:
+// - a spec file (test/e2e/**/*.spec.ts) runs itself; a deleted one asks for nothing;
+// - any other app path outside src/ and harness/ (a helper of test/e2e, test/fixtures, the
+//   Playwright config, a build input, package.json, a tsconfig) runs every spec file: they reach
+//   every test;
+// - a path of src/ or harness/ runs the spec files the table SPEC_TABLE gives it, the union over
+//   every rule whose glob matches it; a path no rule matches runs every spec file.
+// The table is a JSON file: {"rules": [{"paths": [<glob>], "specs": [<spec file>], "why": <text>}]},
+// globs from the repository root, `**` any number of folders (none too), `*` any characters but `/`.
+// It is kept small on purpose: a rule that leaves out a spec file which does check that code lets a
+// regression through to the push to main, which runs every spec file. A table that cannot be read or
+// holds a wrong rule, and a rule that names a spec file that does not exist, run every spec file.
+export const SPEC_TABLE = 'scripts/e2e-specs.table.json'
+// Full runs: the shards of the e2e jobs on a push to main and on a pull request that runs every spec
+// file. macos-e2e splits by measured time (scripts/e2e-shard.mjs), windows-e2e with Playwright's
+// --shard.
+export const E2E_SHARDS = { 'macos-e2e': 2, 'windows-e2e': 4 }
+const NARROWED = ['src/', 'harness/']
+const SPEC_FILE = /^test\/e2e\/.+\.spec\.ts$/
+
+const escapeRegExp = (text) => text.replace(/[.+^${}()|[\]\\?]/g, '\\$&')
+
+/** A glob of the table as a regular expression over the whole path (as in windows-verdict-scope.mjs). */
+export function globRegExp(glob) {
+  const source = glob
+    .split('**/')
+    .map((part) =>
+      part
+        .split('**')
+        .map((piece) => piece.split('*').map(escapeRegExp).join('[^/]*'))
+        .join('.*'),
+    )
+    .join('(?:.*/)?')
+  return new RegExp(`^${source}$`)
+}
+
+/** The rules of the table in `root`, each with its globs as regular expressions. Throws an Error with a reason. */
+export function readSpecTable(root) {
+  const table = JSON.parse(readFileSync(resolve(root, SPEC_TABLE), 'utf8'))
+  if (!Array.isArray(table?.rules)) throw new Error('no "rules" list')
+  return table.rules.map((rule, at) => {
+    const where = `rule ${at + 1}`
+    const strings = (list) => Array.isArray(list) && list.length > 0 && list.every((item) => typeof item === 'string' && item !== '')
+    if (!strings(rule?.paths)) throw new Error(`${where}: "paths" is not a list of globs`)
+    if (!strings(rule.specs)) throw new Error(`${where}: "specs" is not a list of spec files`)
+    const outside = rule.paths.find((glob) => !NARROWED.some((folder) => glob.startsWith(folder)))
+    if (outside !== undefined) throw new Error(`${where}: ${outside} is outside ${NARROWED.join(' and ')}`)
+    const odd = rule.specs.find((spec) => !SPEC_FILE.test(spec))
+    if (odd !== undefined) throw new Error(`${where}: ${odd} is not a spec file under test/e2e`)
+    return { paths: rule.paths, specs: rule.specs, matchers: rule.paths.map(globRegExp) }
+  })
+}
+
+/**
+ * The e2e spec files for the changed `paths` (only app paths count), given every spec file of the
+ * tree (`specs`) and the rules of the table (`rules`, or an Error when it cannot be read):
+ * { files: null } — every spec file; { files: [] } — none; otherwise the files, sorted. `why` says
+ * what decided it.
+ */
+export function e2eSpecs(paths, specs, rules) {
+  const existing = new Set(specs)
+  const files = new Set()
+  for (const path of paths.filter(isAppPath)) {
+    if (SPEC_FILE.test(path)) {
+      if (existing.has(path)) files.add(path)
+      continue
+    }
+    if (!NARROWED.some((folder) => path.startsWith(folder))) return { files: null, why: `${path} reaches every e2e test` }
+    if (rules instanceof Error) return { files: null, why: `${SPEC_TABLE} cannot be read (${rules.message})` }
+    const matched = rules.filter((rule) => rule.matchers.some((matcher) => matcher.test(path)))
+    if (matched.length === 0) return { files: null, why: `${path} is not in ${SPEC_TABLE}` }
+    for (const rule of matched) {
+      const missing = rule.specs.find((spec) => !existing.has(spec))
+      if (missing !== undefined) return { files: null, why: `${SPEC_TABLE} names ${missing}, which does not exist` }
+      for (const spec of rule.specs) files.add(spec)
+    }
+  }
+  const list = [...files].sort()
+  return { files: list, why: list.length === 0 ? 'only deleted spec files' : `${list.length} spec files by ${SPEC_TABLE}` }
+}
+
+/**
+ * The shards, `i/n`, of an e2e job that runs `files` (null: every spec file) where a full run has
+ * `full` shards: as many as keep each shard to about the time of a full shard by `seconds` (spec
+ * file → seconds; a file it does not know counts as the slowest), at least 1, never more than the
+ * files.
+ */
+export function e2eShards(files, specs, seconds, full) {
+  let count = full
+  if (files !== null) {
+    const known = Object.values(seconds)
+    const slowest = known.length > 0 ? Math.max(...known) : 1
+    const cost = (file) => (Object.hasOwn(seconds, file) ? seconds[file] : slowest)
+    const all = specs.reduce((sum, file) => sum + cost(file), 0)
+    const part = files.reduce((sum, file) => sum + cost(file), 0)
+    count = Math.min(full, files.length, Math.max(1, Math.ceil((full * part) / (all || 1))))
+  }
+  return Array.from({ length: count }, (_, at) => `${at + 1}/${count}`)
+}
+
 // The job macos-tests on a pull request runs only the test files that check something on macOS that
 // the Linux and Windows jobs do not: a test or a describe that runs on macOS only, or an assertion
 // that differs there (darwinTestFiles). On the macOS runner they took 179 s of the 1131 s that all
@@ -201,7 +308,7 @@ function decide(env) {
   const why = `code changed: ${code.slice(0, 20).join(' ')}${code.length > 20 ? ` and ${code.length - 20} more` : ''}`
   if (event === 'push') return { expect: only(JOBS), why }
   const decided = pullRequest(code)
-  return { expect: decided.expect, files: decided.files, why: [why, ...decided.notes].join('; ') }
+  return { expect: decided.expect, files: decided.files, e2e: decided.e2e, why: [why, ...decided.notes].join('; ') }
 }
 
 /** The macOS jobs of a pull request that changes code: each only when the diff asks for it. */
@@ -212,41 +319,92 @@ function pullRequest(code) {
     expect['macos-package'] = false
     notes.push('no build input, so no macos-package')
   }
+  let e2e = FULL_E2E
   if (!code.some(isAppPath)) {
     // windows-e2e runs the same e2e tests on Windows, so it follows macos-e2e.
     expect['macos-e2e'] = false
     expect['windows-e2e'] = false
     notes.push('no app path, so no macos-e2e and no windows-e2e')
+  } else {
+    e2e = pullRequestE2e(code)
+    if (e2e.none) {
+      expect['macos-e2e'] = false
+      expect['windows-e2e'] = false
+    }
   }
   const darwin = darwinTestFiles()
   if (darwin === null || darwin.length === 0) {
     // A test file the script cannot read or name plainly: when in doubt, the whole suite.
     notes.push('the macOS-only test files could not be listed, so macos-tests runs every file')
-    return { expect, files: [], notes }
+    return { expect, files: [], e2e, notes }
   }
   const checked = (path) => isAppPath(path) || TEST_RUNNER.has(path) || CHECKED_FOLDERS.some((folder) => path.startsWith(folder))
   if (!code.some((path) => checked(path) || darwin.includes(path))) {
     expect['macos-tests'] = false
     notes.push('no app path, script, Harness or macOS-only test file, so no macos-tests')
-    return { expect, files: [], notes }
+    return { expect, files: [], e2e, notes }
   }
   notes.push(`macos-tests runs the ${darwin.length} macOS-only test files`)
-  return { expect, files: darwin, notes }
+  return { expect, files: darwin, e2e, notes }
+}
+
+const fullShards = (job) => e2eShards(null, [], {}, E2E_SHARDS[job])
+/** Every spec file, in the shards of a full run: a push, a run by hand, a pull request that asks for all. */
+const FULL_E2E = { files: [], shards: { 'macos-e2e': fullShards('macos-e2e'), 'windows-e2e': fullShards('windows-e2e') } }
+
+/** The e2e spec files and shards of a pull request that changes the app, read from the working tree. */
+function pullRequestE2e(code) {
+  const root = process.cwd()
+  let specs
+  let seconds
+  try {
+    specs = listSpecs(root)
+    seconds = readTimings(root)
+  } catch (error) {
+    return { ...FULL_E2E, note: `the e2e spec files or their timings cannot be read (${error instanceof Error ? error.message : String(error)}), so every e2e spec file runs` }
+  }
+  let rules
+  try {
+    rules = readSpecTable(root)
+  } catch (error) {
+    rules = error instanceof Error ? error : new Error(String(error))
+  }
+  const chosen = e2eSpecs(code, specs, rules)
+  if (chosen.files === null) return { ...FULL_E2E, note: `${chosen.why}, so every e2e spec file runs` }
+  if (chosen.files.length === 0) return { ...FULL_E2E, none: true, note: `${chosen.why}, so no macos-e2e and no windows-e2e` }
+  const shards = Object.fromEntries(Object.entries(E2E_SHARDS).map(([job, full]) => [job, e2eShards(chosen.files, specs, seconds, full)]))
+  return { files: chosen.files, shards, note: `the e2e jobs run ${chosen.why}: ${chosen.files.join(' ')}` }
 }
 
 // `node scripts/ci-scope.mjs --darwin-tests` prints the macOS-only test files of the working tree,
 // one per line (exit 1 when they cannot be listed): the contract test compares them with its own look.
-const answer = process.argv[2] === '--darwin-tests' ? { darwin: darwinTestFiles() } : decide(process.env)
-if (answer.darwin !== undefined) {
-  if (answer.darwin === null) process.exitCode = 1
-  else process.stdout.write(answer.darwin.map((file) => `${file}\n`).join(''))
-} else if (answer.error) {
-  process.stderr.write(`ci-scope: ${answer.error}\n`)
-  process.exitCode = 1
-} else {
-  const expect = JSON.stringify(answer.expect)
-  // The test files macos-tests hands to `pnpm test`; empty: every file.
-  const files = (answer.files ?? []).join(' ')
-  process.stdout.write(`${answer.why}\nexpect=${expect}\nmacos-tests-files=${files}\n`)
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `expect=${expect}\nmacos-tests-files=${files}\n`)
+function main() {
+  const answer = process.argv[2] === '--darwin-tests' ? { darwin: darwinTestFiles() } : decide(process.env)
+  if (answer.darwin !== undefined) {
+    if (answer.darwin === null) process.exitCode = 1
+    else process.stdout.write(answer.darwin.map((file) => `${file}\n`).join(''))
+    return
+  }
+  if (answer.error) {
+    process.stderr.write(`ci-scope: ${answer.error}\n`)
+    process.exitCode = 1
+    return
+  }
+  const e2e = answer.e2e ?? FULL_E2E
+  const lines = [
+    `expect=${JSON.stringify(answer.expect)}`,
+    // The test files macos-tests hands to `pnpm test`; empty: every file.
+    `macos-tests-files=${(answer.files ?? []).join(' ')}`,
+    // The spec files macos-e2e and windows-e2e run, plain names separated by spaces; empty: every
+    // spec file. And the shards of each job's matrix, a JSON list of `i/n`.
+    `e2e-files=${e2e.files.join(' ')}`,
+    `macos-e2e-shards=${JSON.stringify(e2e.shards['macos-e2e'])}`,
+    `windows-e2e-shards=${JSON.stringify(e2e.shards['windows-e2e'])}`,
+  ].join('\n')
+  // The e2e note of a pull request that changes the app goes on a line of its own.
+  const note = answer.e2e?.note ? `e2e: ${answer.e2e.note}\n` : ''
+  process.stdout.write(`${answer.why}\n${note}${lines}\n`)
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `${lines}\n`)
 }
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main()

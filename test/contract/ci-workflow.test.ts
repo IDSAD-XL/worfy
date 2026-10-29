@@ -164,7 +164,7 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     expect(runs('macos-e2e')).toEqual([
       'pnpm install --frozen-lockfile',
       'osascript -l JavaScript scripts/ci-display.js',
-      'node scripts/e2e-shard.mjs "$SHARD"',
+      'node scripts/e2e-shard.mjs "$SHARD" $E2E_FILES',
       'pnpm test:e2e $FILES',
     ])
     expect(job('macos-e2e')).toContain('          FILES: ${{ steps.shard.outputs.files }}')
@@ -176,7 +176,7 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     const windows = job('windows')
     expect(value(windows, 'uses')).toBe('./.github/workflows/windows-tests.yml')
     expect(under(windows, '    with:')).toEqual(['      mode: full', '      shard: ${{ matrix.shard }}'])
-    expect(runs('windows-e2e')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test:e2e "--shard=$env:SHARD"'])
+    expect(runs('windows-e2e')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test:e2e "--shard=$env:SHARD" @(-split $env:E2E_FILES | Where-Object { $_ })'])
   })
 
   it('runs the Windows e2e tests under PowerShell: Git Bash would enable the backup and restore privileges for every process it starts', () => {
@@ -190,31 +190,41 @@ describe('ci.yml: every pull request and every push to main, one check for the m
       if (indent(line) <= indent(steps[e2e] ?? '')) break
       step.push(line.trim())
     }
-    expect(step).toEqual(['shell: pwsh', 'env:', 'SHARD: ${{ matrix.shard }}', 'run: pnpm test:e2e "--shard=$env:SHARD"'])
+    expect(step).toEqual([
+      'shell: pwsh',
+      'env:',
+      'SHARD: ${{ matrix.shard }}',
+      'E2E_FILES: ${{ needs.changes.outputs.e2e-files }}',
+      'run: pnpm test:e2e "--shard=$env:SHARD" @(-split $env:E2E_FILES | Where-Object { $_ })',
+    ])
     expect(steps.join('\n')).not.toMatch(/shell: bash/)
   })
 
   it('splits the tests into shards that together cover every file', () => {
     expect(shards('linux-tests')).toHaveLength(4)
-    expect(shards('macos-e2e')).toHaveLength(2)
     // One Windows job ran the heavy contract files side by side on one runner; three shards share them out.
     expect(shards('windows')).toHaveLength(3)
     // harness-scripts.test.ts (354-617 s on Windows) runs beside them in two jobs of its own, each
     // with half of the Harness shell tests; nothing else is in the matrix.
     expect(shards('windows', 'harness-scripts ')).toHaveLength(2)
-    expect(matrix('windows')).toEqual([...shards('windows'), ...shards('windows', 'harness-scripts ')])
-    // A shard of the Windows e2e tests took up to 14.5 min in four; one job stays under 20 min.
-    expect(shards('windows-e2e')).toHaveLength(4)
+    // The shards of macos-e2e and windows-e2e come from scripts/ci-scope.mjs: see the describe of the
+    // e2e spec files of a pull request below.
     for (const name of ['linux-tests', 'macos-e2e', 'windows-e2e']) {
       expect(job(name), name).toContain('          SHARD: ${{ matrix.shard }}')
     }
+  })
+
+  it('holds nothing but its shards in each matrix that lists them: a value shards() skips would still run a job', () => {
+    // shards() reads only the values of the form <prefix><i>/<n>; an extra value such as `all` would
+    // pass it unseen, so each listed matrix is compared whole. Only windows has a second, prefixed set.
+    expect(matrix('linux-tests')).toEqual(shards('linux-tests'))
+    expect(matrix('windows')).toEqual([...shards('windows'), ...shards('windows', 'harness-scripts ')])
   })
 
   it('asks the free plan for 3 macOS jobs on an ordinary pull request: macos-tests is one job, macos-e2e two shards', () => {
     // The free plan runs 5 macOS jobs at a time; macos-package runs only when ci-scope.mjs says so.
     expect(job('macos-tests').join('\n')).not.toMatch(/strategy:|matrix|shard/i)
     expect(value(job('macos-tests'), 'timeout-minutes')).toBe('45')
-    expect(shards('macos-e2e')).toHaveLength(2)
   })
 
   it('pastes no expression into a command: values reach the shell through env', () => {
@@ -973,5 +983,50 @@ describe('scripts/ci-ok.mjs', () => {
     const result = ok(raw)
     expect(result.status).toBe(1)
     expect(result.stderr).toMatch(reason)
+  })
+})
+
+describe('ci.yml: the e2e jobs run the spec files and shards that scripts/ci-scope.mjs gives them', () => {
+  it('the job changes hands on the spec files and the shards of both e2e jobs', () => {
+    const outputs = under(job('changes'), '    outputs:')
+    for (const name of ['e2e-files', 'macos-e2e-shards', 'windows-e2e-shards']) expect(value(outputs, name), name).toBe(`\${{ steps.scope.outputs.${name} }}`)
+  })
+
+  it('each e2e job takes its matrix of shards from the job changes, every shard to its end', () => {
+    for (const name of ['macos-e2e', 'windows-e2e']) {
+      const strategy = under(job(name), '    strategy:')
+      expect(value(strategy, 'fail-fast'), name).toBe('false')
+      expect(under(strategy, '      matrix:'), name).toEqual([`        shard: \${{ fromJSON(needs.changes.outputs.${name}-shards) }}`])
+      expect(job(name), name).toContain('          SHARD: ${{ matrix.shard }}')
+    }
+  })
+
+  it('each e2e job hands the spec files to its run through env, empty for every spec file', () => {
+    for (const name of ['macos-e2e', 'windows-e2e']) expect(job(name), name).toContain('          E2E_FILES: ${{ needs.changes.outputs.e2e-files }}')
+    // macOS: scripts/e2e-shard.mjs splits the files given by their measured time, and every spec file when none is given.
+    expect(runs('macos-e2e')).toContain('node scripts/e2e-shard.mjs "$SHARD" $E2E_FILES')
+    // Windows: PowerShell cuts the list on its spaces and drops the empty string an empty list leaves.
+    expect(runs('windows-e2e')).toContain('pnpm test:e2e "--shard=$env:SHARD" @(-split $env:E2E_FILES | Where-Object { $_ })')
+  })
+
+  it('never edits the Playwright config to pick spec files: it is a file only the Windows PC checks', () => {
+    const text = readFileSync(join(REPO, 'scripts', 'windows-verdict-scope.mjs'), 'utf8')
+    expect(text).toContain("'playwright.config.ts',")
+    expect(readFileSync(join(REPO, 'playwright.config.ts'), 'utf8')).not.toMatch(/E2E_FILES|e2e-specs/)
+  })
+
+  it('a push to main writes the full shards: two for macos-e2e, four for windows-e2e, and no list of spec files', () => {
+    const output = join(mkdtempSync(join(tmpdir(), 'worfy-ci-scope-push-')), 'output')
+    try {
+      writeFileSync(output, '')
+      const result = spawnSync(scriptNode(), [SCOPE], { cwd: REPO, encoding: 'utf8', env: { ...process.env, GITHUB_OUTPUT: output, EVENT: 'push', JOB: '', BASE: '0000000000000000000000000000000000000000' } })
+      expect(result.status, result.stderr).toBe(0)
+      const text = readFileSync(output, 'utf8')
+      expect(text).toContain('e2e-files=\n')
+      expect(text).toContain('macos-e2e-shards=["1/2","2/2"]\n')
+      expect(text).toContain('windows-e2e-shards=["1/4","2/4","3/4","4/4"]\n')
+    } finally {
+      removeTestTree(dirname(output))
+    }
   })
 })
