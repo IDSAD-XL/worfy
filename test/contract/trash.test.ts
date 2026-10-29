@@ -3,19 +3,19 @@
 // WORFY_DATA_DIR. A deleted Card moves with its files and data to <Project data folder>/trash/<label>/
 // and comes back from there; entries older than three days are deleted when the app starts; nothing
 // outside WORFY_DATA_DIR is ever touched (ADR-0005).
-import { spawn } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { TRASH_KEEP_MS, type TrashEntry } from '../../src/shared/ipc/trash'
 import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 import type { LayoutStore } from '../../src/main/layout/store'
+import { TrashStore } from '../../src/main/layout/trash'
+import { MOVE_RETRY_MS, moveWhenFree } from '../../src/main/storage/move'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree, saveLayoutNow } from '../remove'
-import { scriptNode } from '../script-node'
 
 const PROJECT = 'demo-0a1b2c3d'
 const DAY = 24 * 60 * 60 * 1000
@@ -37,6 +37,11 @@ const sessions = vi.hoisted(() => ({ views: [] as { projectId: string; nodeId: s
 vi.mock('../../src/main/agent/app-node-sessions', () => ({
   sharedNodeSessions: () => ({ list: (projectId: string) => sessions.views.filter((view) => view.projectId === projectId) }),
 }))
+// The real move, wrapped so a test can see that a store built without `move` goes through it.
+vi.mock('../../src/main/storage/move', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/main/storage/move')>()
+  return { ...real, moveWhenFree: vi.fn(real.moveWhenFree) }
+})
 
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
 
@@ -93,8 +98,26 @@ const trashDir = () => join(projectDir(), 'trash')
 const nodeOf = (id: string): LayoutNode | undefined => layout.get(PROJECT).layout.nodes.find((node) => node.id === id)
 const create = (node: Record<string, unknown>) => layout.apply(PROJECT, { op: 'create', node } as LayoutOpInput)
 
-/** A script for a child node: opens the file it is given, says so on stdout, closes it after the given ms. */
-const HOLD_OPEN = `const fs = require('node:fs'); const fd = fs.openSync(process.argv[1], 'r'); process.stdout.write('open\\n'); setTimeout(() => fs.closeSync(fd), Number(process.argv[2]))`
+/** A TrashStore over this test's data folder, as src/main/ipc/trash.ts builds it, that moves files through `move`. */
+function storeMovingWith(move: (from: string, to: string) => void): TrashStore {
+  return new TrashStore({
+    dataDirOf: () => projectDir(),
+    cardPaths: (_projectId, cardId) => ({ folder: cardDir(cardId), data: cardDataFile(cardId) }),
+    layout,
+    move,
+  })
+}
+
+/** A move that records every call and moves for real, except at the call numbers in `failAt` (from 1): those throw. */
+function recordedMove(failAt: number[]) {
+  const calls: { from: string; to: string }[] = []
+  const move = (from: string, to: string): void => {
+    calls.push({ from, to })
+    if (failAt.includes(calls.length)) throw Object.assign(new Error(`EIO: i/o error, rename '${from}'`), { code: 'EIO' })
+    renameSync(from, to)
+  }
+  return { calls, move }
+}
 
 /** A Card with two files and stored data, and its Node with tags and a place of its own. */
 function makeCard(cardId: string, nodeExtra: Record<string, unknown> = {}): void {
@@ -180,22 +203,77 @@ describe('trash: a Card and its data', () => {
 
   // Windows refuses to move a folder while another process has a file in it open (EPERM), and an
   // antivirus, the indexer or the Card's own page being read again holds one for a moment. The
-  // Delete key right after a Restore met that on the GitHub runner (trash-undo.spec.ts).
-  it.runIf(process.platform === 'win32')('a Card whose file another process holds open for a moment is still deleted', async () => {
+  // Delete key right after a Restore met that on the GitHub runner (trash-undo.spec.ts). The busy
+  // file is a rename that answers EPERM twice, so the case runs on every system and waits for no clock.
+  it('a Card whose folder is busy for a moment is still deleted: its move is tried again', () => {
     makeCard('c1')
-    const holder = spawn(scriptNode(), ['-e', HOLD_OPEN, join(cardDir('c1'), 'index.html'), '250'], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: ['ignore', 'pipe', 'inherit'] })
-    const exited = new Promise((resolve) => holder.once('exit', resolve))
-    await new Promise<void>((resolve, reject) => {
-      holder.stdout.once('data', () => resolve())
-      holder.once('exit', (code) => reject(new Error(`the holder exited with ${code} before it opened the file`)))
-    })
+    let busy = 2
+    const renames: string[] = []
+    const waits: number[] = []
+    const rename = (from: string, to: string): void => {
+      renames.push(from)
+      if (from === cardDir('c1') && busy-- > 0) throw Object.assign(new Error(`EPERM: operation not permitted, rename '${from}'`), { code: 'EPERM' })
+      renameSync(from, to)
+    }
+    const store = storeMovingWith((from, to) => moveWhenFree(from, to, { platform: 'win32', rename, wait: (ms) => void waits.push(ms) }))
 
-    const entry = await put('c1')
-    await exited
+    const entry = store.put(PROJECT, 'c1')
+    expect(renames).toEqual([cardDir('c1'), cardDir('c1'), cardDir('c1'), cardDataFile('c1')])
+    expect(waits).toEqual([MOVE_RETRY_MS, MOVE_RETRY_MS])
     expect(entry).toMatchObject({ nodeId: 'c1', hasFiles: true })
     expect(nodeOf('c1')).toBeUndefined()
     expect(existsSync(cardDir('c1'))).toBe(false)
-    expect(readdirSync(trashDir())).toEqual([entry.label])
+    expect(readFileSync(join(trashDir(), entry.label, 'card', 'index.html'), 'utf8')).toBe('<title>Card c1</title><p>hello</p>')
+  })
+
+  it('trash.put moves the Card through moveWhenFree, the move that waits out a busy folder on Windows', async () => {
+    makeCard('c1')
+    vi.mocked(moveWhenFree).mockClear()
+
+    await put('c1')
+    expect(vi.mocked(moveWhenFree).mock.calls.map(([from]) => from)).toEqual([cardDir('c1'), cardDataFile('c1')])
+  })
+
+  it('a put whose second move fails moves the Card folder back with the same move and leaves no entry', () => {
+    makeCard('c1')
+    const moves = recordedMove([2])
+
+    expect(() => storeMovingWith(moves.move).put(PROJECT, 'c1')).toThrow(/EIO/)
+    const entryDir = dirname(moves.calls[0]?.to ?? '')
+    expect(moves.calls).toEqual([
+      { from: cardDir('c1'), to: join(entryDir, 'card') },
+      { from: cardDataFile('c1'), to: join(entryDir, 'card-data.json') },
+      // The rollback.
+      { from: join(entryDir, 'card'), to: cardDir('c1') },
+    ])
+    expect(readFileSync(join(cardDir('c1'), 'index.html'), 'utf8')).toBe('<title>Card c1</title><p>hello</p>')
+    expect(readFileSync(join(cardDir('c1'), 'assets', 'app.js'), 'utf8')).toBe('console.log(1)')
+    expect(JSON.parse(readFileSync(cardDataFile('c1'), 'utf8'))).toEqual({ count: 7, items: ['a', 'b'] })
+    expect(nodeOf('c1')).toBeDefined()
+    expect(readdirSync(trashDir())).toEqual([])
+  })
+
+  it('a restore whose second move fails moves the Card folder back into the entry with the same move; the entry stays', () => {
+    makeCard('c1')
+    // Calls 1 and 2 are the put; 3 brings the folder back, 4 (the data file) fails.
+    const moves = recordedMove([4])
+    const store = storeMovingWith(moves.move)
+    const entry = store.put(PROJECT, 'c1')
+    const entryDir = join(trashDir(), entry.label)
+
+    expect(() => store.restore(PROJECT, entry.label)).toThrow(/EIO/)
+    expect(moves.calls.slice(2)).toEqual([
+      { from: join(entryDir, 'card'), to: cardDir('c1') },
+      { from: join(entryDir, 'card-data.json'), to: cardDataFile('c1') },
+      // The rollback.
+      { from: cardDir('c1'), to: join(entryDir, 'card') },
+    ])
+    expect(existsSync(cardDir('c1'))).toBe(false)
+    expect(existsSync(cardDataFile('c1'))).toBe(false)
+    expect(readFileSync(join(entryDir, 'card', 'index.html'), 'utf8')).toBe('<title>Card c1</title><p>hello</p>')
+    expect(JSON.parse(readFileSync(join(entryDir, 'card-data.json'), 'utf8'))).toEqual({ count: 7, items: ['a', 'b'] })
+    expect(nodeOf('c1')).toBeUndefined()
+    expect(store.list(PROJECT)).toEqual([entry])
   })
 
   it('a Node showing a Card under another id (data.cardId) takes that Card along', async () => {

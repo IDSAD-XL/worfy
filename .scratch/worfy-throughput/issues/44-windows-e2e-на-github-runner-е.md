@@ -180,12 +180,15 @@ FLAKY одного test-а за неделю — Ticket на причину (ADR
 
 Решение оркестратора: «зелёный» push-run — job `windows-e2e` со всеми 4 shard-ами `success`; test, прошедший со
 второй попытки (строка FLAKY), не мешает — то же правило, что у любого job-а `ci-ok` при одном повторе. Разбор ПК
-по логам job-ов: на push-run-ах `main` красных `windows-e2e` нет ни одного; run-ы, где он шёл (docs-run-ы со
-`skipped` не считаются), — десять подряд 4/4 `success`:
-40802610050, 40803738072, 40804554160, 40805696774, 40807449099, 40810815478, 40813630615, 40814249935,
-40816108815, 40818299601. FLAKY в них: 40802610050 — 2, 40807449099 — 1, 40810815478 — 1, 40813630615 — 3.
+по логам job-ов: с начала серии на push-run-ах `main` красных `windows-e2e` нет; run-ы, где он шёл (docs-run-ы
+со `skipped` не считаются), — десять подряд 4/4 `success`. Раньше серии красный был: [40798035586](https://github.com/IDSAD-XL/worfy/actions/runs/40798035586)
+(push в `main`, 01:03 UTC), shard 1/4 `failure`. Серия:
+[40802610050](https://github.com/IDSAD-XL/worfy/actions/runs/40802610050), [40803738072](https://github.com/IDSAD-XL/worfy/actions/runs/40803738072), [40804554160](https://github.com/IDSAD-XL/worfy/actions/runs/40804554160), [40805696774](https://github.com/IDSAD-XL/worfy/actions/runs/40805696774),
+[40807449099](https://github.com/IDSAD-XL/worfy/actions/runs/40807449099), [40810815478](https://github.com/IDSAD-XL/worfy/actions/runs/40810815478), [40813630615](https://github.com/IDSAD-XL/worfy/actions/runs/40813630615), [40814249935](https://github.com/IDSAD-XL/worfy/actions/runs/40814249935),
+[40816108815](https://github.com/IDSAD-XL/worfy/actions/runs/40816108815), [40818299601](https://github.com/IDSAD-XL/worfy/actions/runs/40818299601). FLAKY в них: 40802610050 — 2, 40807449099 — 1, 40810815478 — 1,
+40813630615 — 3.
 
-PR этого раздела: `NON_BLOCKING` в `scripts/ci-ok.mjs` пуст, и нужный run-у `windows-e2e`, который упал, отменён
+PR этого раздела: набор `NON_BLOCKING` в `scripts/ci-ok.mjs` удалён, решает каждый job, и нужный run-у `windows-e2e`, который упал, отменён
 или пропущен, краснит `ci-ok`. Contract test — `test/contract/ci-workflow.test.ts` (красный нужный
 `windows-e2e` при `failure`, `cancelled`, `skipped`; падение любого job-а краснит `ci-ok`). ADR-0083 — запись
 Amendments 2026-10-29.
