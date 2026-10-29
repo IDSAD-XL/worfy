@@ -1,7 +1,8 @@
 # 67 — Разбор вывода Terminal в main: один worker на все shell-ы держит flood; worker на shell или пул
 
 Type: task
-Status: claimed 2026-10-29T17:29Z
+Status: done 2026-10-29T19:15Z
+PR: #1020
 Blocked by: —
 Source: follow-up [Ticket-а 39](39-ответы-экрана-считаются-вводом.md) (PR #512, влит 2026-10-19 как `77c473cb`);
 замеры в «Итог» Ticket-а 39, «Ревью Mac, круг 3» (ПК) и ревью Mac круга 3 PR #512 (Mac); решения владельца
@@ -39,14 +40,14 @@ Source: follow-up [Ticket-а 39](39-ответы-экрана-считаются
 
 ## Готово, когда
 
-- [ ] Замер на ПК и на Mac тем же способом, что в «Итог» Ticket-а 39 (1, 2 и 4 shell-а, MB/s, CPU, отказы,
+- [x] Замер на ПК и на Mac тем же способом, что в «Итог» Ticket-а 39 (1, 2 и 4 shell-а, MB/s, CPU, отказы,
       время ответа на `ESC[6n`), для main до правки и для ветки — таблица в «Итог». Один shell — не
       медленнее, чем сейчас; 2 и 4 shell-а — скорость всего вывода растёт с числом shell-ов.
-- [ ] Ни одного отказа экрана («refused output») под flood-ом 4 shell-ов; test «60 MB printed at once…»
+- [x] Ни одного отказа экрана («refused output») под flood-ом 4 shell-ов; test «60 MB printed at once…»
       зелёный.
-- [ ] Test пункта 4 красный на мутанте; test «падение одного worker-а не трогает другой shell» красный на
+- [x] Test пункта 4 красный на мутанте; test «падение одного worker-а не трогает другой shell» красный на
       мутанте, где падение снимает все shell-ы.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full на Mac и вердикт ПК — платформенный PR
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full на Mac и вердикт ПК — платформенный PR
       (ADR-0056, пункт 2): меняет поведение Terminal на Windows.
 
 ## Тесты
@@ -158,12 +159,39 @@ RSS main без вывода (`--program idle`: в shell-е `node -e` с тай�
 - `--program node` (метод ПК, `node -e` с бесконечной записью `y\n`) на Mac проверен одним кругом:
   1 shell — 34.5 MB/s, 2 — 68.9 MB/s, как с `yes`.
 
-### Замер на ПК
+### Замер на ПК (2026-10-29, ветка `cbace87c` против main `13bf92c9`)
 
-Заполняет ПК на финальном head PR.
+Windows 11, Ryzen 7 5800X3D, `availableParallelism` 16, Electron 44.5.1, Node 24.21.0. Программа — `node.exe`,
+бесконечно пишет `y\n` (по умолчанию на win32). Прогрев 1.5 s, счёт 5 s, 3 круга; все шаги exit 0. Нагрузка до шагов —
+4–16 % (Win32_Processor LoadPercentage), 5–19 % всех ядер по скрипту; игр и test-ов не было.
 
-| Состояние | shell-ов | отказ | MB/s всего (на shell) | main-поток, % | процесс, % | pause / resume | ответ на `ESC[6n`, ms | RSS, MB |
-|---|---|---|---|---|---|---|---|---|
+MB/s всего вывода по кругам (в скобках — на один shell):
+
+| shell-ов | main `13bf92c9` | ветка, пул по умолчанию | ветка, worker на shell | ветка, 4 worker-а |
+|---|---|---|---|---|
+| 1 | 13.5 / 13.7 / 13.6 | 13.8 / 13.8 / 13.7 | 13.6 / 13.7 / 13.6 | — |
+| 2 | 17.4 / 20.7 / 21.5 (≈10) | 28.1 / 28.1 / 28.3 (≈14) | 28.2 / 28.2 / 28.1 | — |
+| 4 | 17.5 / 21.0 / 17.3 (≈5) | 50.6 / 49.6 / 49.9 (≈12.5) | 49.7 / 50.7 / 50.1 | — |
+| 8 | 21.2 / 21.9 / 21.6 (≈2.5) | — | 69.5 / 70.9 / 69.9 (≈8.7) | 54.8 / 55.2 / 56.0 (≈7) |
+
+- Отказы экрана («refused output»): 0 во всех кругах всех шагов.
+- Pause/resume pty за 5 s: main — 2 shell-а 8–10, 4 — 20–23, 8 — 26–32; ветка (worker на shell) — 0 при 1/2/4/8;
+  ветка с 4 worker-ами при 8 shell-ах — 38–40.
+- Ответ на `ESC[6n`, ms: 1 shell — main 1–4, ветка 2–3; 2 — main 101–411, ветка 1–5; 4 — main 260–903, ветка 1–6;
+  8 — main 412–1838, ветка (worker на shell) 1–5, ветка (4 worker-а) 114–562.
+- CPU, % одного ядра (main thread / процесс): main — 1 shell 6–9 / 68–72, 2 — 8–12 / 115–120, 4 — 6–11 / 102–117,
+  8 — 9–13 / 117–127; ветка — 1 shell 6–8 / 64–76, 2 — 13–19 / 149–160, 4 — 22–30 / 324–338, 8 (worker на shell) —
+  35–38 / 642–666, 8 (4 worker-а) — 25–27 / 416–451.
+- RSS при потоке, MB: main 1/2/4/8 — 182–186 / 300–324 / 354–413 / 469–481; ветка — 176–186 / 253–264 / 358–374 /
+  575–599 (worker на shell); 736–789 (4 worker-а, 8 shell-ов).
+- RSS main в покое, MB: 1 shell — main 121–126, ветка 124–130; 8 shell-ов — main 166–210, ветка 230–245.
+- 8 worker-ов против 4 при 8 shell-ах: на ПК 8 лучше — ~70 MB/s против ~55 (+27 %), pause/resume 0 против ~39,
+  `ESC[6n` 1–5 ms против 114–562 ms; плата — CPU процесса ~650 % против ~430 %. Предел `SCREEN_WORKERS_MAX = 8` подтверждён.
+- Один `node.exe` на Windows упирается в ~14 MB/s на shell (на Mac 34): при 1 shell main и ветка равны, предел — программа
+  и ConPTY, не разбор.
+- `test/contract/terminal-cursor.test.ts` на ветке на ПК — exit 0, 111 passed, 17 s (flood 2 и 4 shell-ов прошли).
+- Первый запуск скрипта на `4eec18cf` падал на Windows: `pty.pid` сразу после старта равен 0, а `process.kill(0)` на Windows
+  убивает сам процесс. Исправлено в `cbace87c` (pid читается в момент kill, pid ≤ 0 не трогается).
 
 Команды:
 
@@ -210,6 +238,11 @@ git worktree remove ..\worfy-67-main
 - «the limit of the workers is one per core, at most SCREEN_WORKERS_MAX; screenWorker.limit replaces it
   only with a whole number of at least 1 or Infinity».
 - «60 MB printed at once…» и остальные test-ы back-pressure не менялись и зелёные.
+
+### Закрытие
+
+- Влит #1020 (`00daddd0`, head `cbace87c`); `ci-ok` зелёный; `check/windows` — «ПК после Wave» (ADR-0086), замер и `terminal-cursor.test.ts` на ПК зелёные. Gate full на Mac заменён `ci-ok` (ADR-0083); gate full ПК — на main ≥ `00daddd0`, общий с #1008 и #1018.
+- Долг (low, в следующий PR, который тронет файл): test «60 MB printed at once…» ждёт `60_000` и `90_000` без `timeScale`.
 
 ### Команды (Mac, worktree ветки)
 
