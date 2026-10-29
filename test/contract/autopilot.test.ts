@@ -12,7 +12,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ActionLauncher, AUTOPILOT_RUNNING_HINT } from '../../src/main/actions/launch'
+import { ActionLauncher, AUTOPILOT_RUNNING_HINT, waveBriefText } from '../../src/main/actions/launch'
 import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
 import { AUTOPILOT_OWNS_ORCHESTRATOR, ORCHESTRATOR_HAS_QUEUE, ORCHESTRATOR_IN_TURN, Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
@@ -60,6 +60,8 @@ const nn = (num: number): string => String(num).padStart(2, '0')
 /** What the default Run wave template sends for each Wave (ticket 30: the Wave's Tickets, ADR-0033). */
 const WAVE_1 = '/epic-wave Ticket-ы 01, 02 эпика demo'
 const WAVE_2 = '/epic-wave Ticket-ы 03 эпика demo'
+/** What Wave 2 sends in a run: it starts a new SDK session, so wave-brief comes first (worfy-throughput ticket 52). */
+const WAVE_2_SENT = waveBriefText(EPIC, WAVE_2)
 const ticketPath = (num: number): string => join(repo, '.scratch', EPIC, 'issues', `${nn(num)}-ticket-${num}.md`)
 
 /** Every file the test itself wrote into the repository, as the agent would, with its last content. */
@@ -134,6 +136,8 @@ async function until(condition: () => boolean | Promise<boolean>, what: string, 
 interface HarnessOptions {
   /** The script of the unattended Session (default autopilot-waves); attended ones play `attended`. */
   script?: string
+  /** The scripts of the unattended Sessions one by one, the last for every later one (instead of `script`). */
+  scripts?: string[]
   attended?: string
   /** Marks the Tickets of a Wave done when its "Run wave" reaches the agent (default true). */
   agentMarksDone?: boolean
@@ -153,12 +157,16 @@ function harness(options: HarnessOptions = {}) {
   const env = { WORFY_DATA_DIR: join(scratch, 'data-root') }
   const calls: (FakeCall & { unattended: boolean })[] = []
   const requests: QueryRequest[] = []
+  let unattendedSessions = 0
   const registry = new SessionRegistry((request) => {
     requests.push(request)
     const unattended = request.unattended === true
+    const scripts = options.scripts
+    const own = scripts === undefined ? undefined : scripts[Math.min(unattendedSessions, scripts.length - 1)]
+    if (unattended) unattendedSessions += 1
     return fakeQueryFactory({
       scriptsDir,
-      script: unattended ? (options.script ?? 'autopilot-waves') : (options.attended ?? 'autopilot-waves'),
+      script: unattended ? (own ?? options.script ?? 'autopilot-waves') : (options.attended ?? 'autopilot-waves'),
       record: (call) => calls.push({ ...call, unattended }),
     })(request)
   })
@@ -193,7 +201,7 @@ function harness(options: HarnessOptions = {}) {
     registry.observe((_sessionId, event) => {
       if (event.type !== 'prompt') return
       if (event.text === WAVE_1) for (const num of [1, 2]) writeTicket(num, 'done — 2026-10-06')
-      if (event.text === WAVE_2) writeTicket(3, 'done — 2026-10-06')
+      if (event.text.endsWith(WAVE_2)) writeTicket(3, 'done — 2026-10-06')
     })
   }
   const power: string[] = []
@@ -260,7 +268,7 @@ describe('an Autopilot run on the fake agent', () => {
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
 
     expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave', wave: 2 })
-    expect(messages(h.calls)).toEqual([WAVE_1, WAVE_2])
+    expect(messages(h.calls)).toEqual([WAVE_1, WAVE_2_SENT])
     expect(await h.kinds()).toEqual([
       ['run-started', null],
       ['wave-started', 1],
@@ -275,7 +283,7 @@ describe('an Autopilot run on the fake agent', () => {
     // Each Wave's line carries the text that went, which names the line's Tickets (ADR-0033).
     expect(events.filter((event) => event.kind === 'wave-started').map((event) => [(event as { text?: string }).text, (event as { skipped?: unknown[] }).skipped])).toEqual([
       [WAVE_1, []],
-      [WAVE_2, []],
+      [WAVE_2_SENT, []],
     ])
     // The stop carries the Orchestrator's answer of the last Wave.
     expect(events.at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'no-ready-wave', lastText: 'Wave done: its Tickets are merged and marked done.' })
@@ -290,6 +298,70 @@ describe('an Autopilot run on the fake agent', () => {
     // agent wrote (here the test, as the agent); worfy never writes a Ticket status (ADR-0002).
     expect(written.size).toBeGreaterThan(0)
     expect(tree()).toEqual({ ...before, ...Object.fromEntries(written) })
+  })
+
+  it('starts Wave 2 in a new SDK session whose first prompt is wave-brief and then the Wave; Wave 1 continues the Orchestrator\'s session (worfy-throughput ticket 52)', async () => {
+    // The Orchestrator Node with a saved SDK session: the run's first Wave continues it, as before.
+    writeFileSync(join(scratch, 'data', PROJECT, 'layout.json'), JSON.stringify({ nodes: [{ id: 'orch', kind: 'orchestrator', x: 0, y: 0, w: 300, h: 180, locked: true, data: { sessionId: 'sdk-before' } }] }))
+    const h = harness()
+    // Every prompt, and the SDK session of each turn (its system/init): only the run's Sessions have turns here.
+    const prompts: string[] = []
+    const turns: string[] = []
+    h.registry.observe((_sessionId, event) => {
+      if (event.type === 'init') turns.push(event.sdkSessionId)
+      if (event.type === 'prompt') prompts.push(event.text)
+    })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'no-ready-wave', wave: 2 })
+
+    expect(prompts).toEqual([WAVE_1, WAVE_2_SENT])
+    // Two turns, two SDK sessions: Wave 1 in the Orchestrator's saved one, Wave 2 in a new one.
+    expect(turns).toHaveLength(2)
+    const [first, second] = turns
+    expect(first).toBe('sdk-before')
+    expect(second).toEqual(expect.any(String))
+    expect(second).not.toBe(first)
+    // Wave 2's Session is a new SDK session, not a resume; it is the first prompt of that Session.
+    const starts = h.calls.filter((call) => call.kind === 'start' && call.unattended)
+    expect(starts.map((call) => (call as Extract<FakeCall, { kind: 'start' }>).resume)).toEqual(['sdk-before', null])
+    // The first prompt of the new session: `wave-brief demo` first, then the Wave's text as "Run wave" sends it.
+    const text = prompts[1]!
+    expect(text).toContain('`wave-brief demo`')
+    expect(text.endsWith(`\n\n${WAVE_2}`)).toBe(true)
+    expect(text.indexOf('wave-brief demo')).toBeLessThan(text.indexOf(WAVE_2))
+    // The journal names what went; the run's end gives the Orchestrator back on Wave 2's session.
+    expect((await h.journal()).filter((event) => event.kind === 'wave-started').map((event) => (event as { text?: string }).text)).toEqual([WAVE_1, WAVE_2_SENT])
+    await until(() => h.requests.at(-1)?.unattended === false, 'the attended Orchestrator')
+    expect(h.requests.at(-1)?.resume).toBe(second)
+  })
+
+  it('starts a new SDK session for the next Wave only while the unattended Orchestrator is free: a held message in its queue keeps the Session (worfy-throughput ticket 52)', async () => {
+    const h = harness({ script: 'orchestrator' })
+    // Attended, the Orchestrator is a person's: no new session.
+    await h.orchestrators.open(PROJECT)
+    expect(await h.orchestrators.newUnattendedSession(PROJECT)).toBeNull()
+    await h.orchestrators.setUnattended(PROJECT, true)
+    const session = await h.session()
+    await until(() => session.state === 'idle', 'the idle Orchestrator')
+    session.send('a long task')
+    session.send('then this')
+    await session.interrupt()
+    await until(() => session.state === 'idle', 'the end of the turn')
+    expect(session.queued()).toMatchObject({ items: [{ text: 'then this' }], paused: true })
+    const requests = h.requests.length
+    // A message waits: closing the Session would leave it out, so nothing changes.
+    expect(await h.orchestrators.newUnattendedSession(PROJECT)).toBeNull()
+    expect(await h.session()).toBe(session)
+    expect(h.requests).toHaveLength(requests)
+    // Free: the old Session closes, a new unattended one starts without resuming the old SDK session.
+    expect(session.removeQueued(session.queued().items[0]!.id)).toBe(true)
+    const view = await h.orchestrators.newUnattendedSession(PROJECT)
+    expect(view?.sessionId).toEqual(expect.any(String))
+    expect(h.registry.get(view!.sessionId!)).not.toBe(session)
+    expect(session.state).toBe('closed')
+    expect(h.requests.slice(requests).map((request) => [request.unattended, request.resume])).toEqual([[true, undefined]])
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
   })
 
   it('reports a run stopped only once its end is journaled and keep-awake released', async () => {
@@ -323,7 +395,7 @@ describe('an Autopilot run on the fake agent', () => {
     expect(autopilotEpicAtWork({ ...stopped, status: 'waiting' })).toBe(EPIC)
   })
 
-  it('runs the Orchestrator unattended, continuing its SDK session, and gives it back attended after the run', async () => {
+  it('runs the Orchestrator unattended, continuing its SDK session, and gives it back attended after the run, continuing the SDK session of its last Wave', async () => {
     // The Orchestrator Node, with the user's own picks saved for it.
     writeFileSync(join(scratch, 'data', PROJECT, 'layout.json'), JSON.stringify({ nodes: [{ id: 'orch', kind: 'orchestrator', x: 0, y: 0, w: 300, h: 180, locked: true, data: {} }] }))
     const h = harness()
@@ -336,8 +408,8 @@ describe('an Autopilot run on the fake agent', () => {
     expect(unattended?.settings.permissionMode).toBe('bypassPermissions')
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
     await until(() => h.requests.at(-1)?.unattended === false, 'the attended Orchestrator')
-    // The attended Session after the run continues the SDK session of the run.
-    expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
+    // The attended Session after the run continues the SDK session of the run's last Wave; Wave 2 had a Session of its own.
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true, true, false])
     expect(typeof h.requests.at(-1)?.resume).toBe('string')
     // The forced bypassPermissions was not saved over the user's pick, and the Orchestrator has it back.
     expect(h.settings.read(PROJECT, 'orch')?.permissionMode).toBe('default')
@@ -662,7 +734,7 @@ describe('an Autopilot run on the fake agent', () => {
         writeTicket(1, 'done — 2026-10-06')
         writeTicket(2, 'claimed — 2026-10-06')
       }
-      if (event.type === 'prompt' && event.text === WAVE_2) writeTicket(3, 'done — 2026-10-06')
+      if (event.type === 'prompt' && event.text === WAVE_2_SENT) writeTicket(3, 'done — 2026-10-06')
     })
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => messages(h.calls).length === 1, 'Wave 1')
@@ -759,12 +831,13 @@ describe('an Autopilot run on the fake agent', () => {
 
   it('does not carry an answer of one Wave into the next: a Wave whose turn ends without text stops with no lastText', async () => {
     // Wave 1's turn answers, Wave 2's ends with an empty result.
-    const h = harness({ script: 'autopilot-silent-second' })
+    // Wave 2 goes to a new SDK session, which plays the script from its start: autopilot-silent.
+    const h = harness({ scripts: ['autopilot-waves', 'autopilot-silent'] })
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
 
     expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'no-ready-wave', wave: 2 })
-    expect(messages(h.calls)).toEqual([WAVE_1, WAVE_2])
+    expect(messages(h.calls)).toEqual([WAVE_1, WAVE_2_SENT])
     const last = (await h.journal()).at(-1)
     expect(last).toMatchObject({ kind: 'run-stopped', reason: 'no-ready-wave' })
     expect(last).not.toHaveProperty('lastText')

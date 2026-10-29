@@ -1,7 +1,7 @@
 # 52 — worfy Autopilot начинает каждую следующую Wave в новой Session; первая команда — `wave-brief`
 
 Type: task
-Status: open
+Status: claimed 2026-10-29T12:55Z
 Blocked by: 28
 Source: [spec.md](../spec.md), раздел «Ответы владельца 2026-10-29», ответ Q5; Ticket
 [28](28-свежий-контекст-orchestrator-а-на-wave.md), раздел «Вне скоупа» (запуск новой Session из worfy Autopilot —
@@ -52,3 +52,32 @@ diff `test/e2e/**` (`scripts/windows-verdict-scope.mjs:80`); иначе runner `
 - Сам `wave-brief` и правило «report, brief, stop» — Ticket 28.
 - Бюджет Limits на Wave — Ticket 41.
 - Wave, которую владелец запускает руками («Run wave») — новую Session начинает владелец.
+
+## Итог
+
+- Каждая Wave run-а после первой уходит в новую SDK session Orchestrator-а: перед «Run wave» run просит
+  `Orchestrators.newUnattendedSession` (`src/main/agent/orchestrator.ts`) — старая Session закрывается и
+  остаётся в истории, как при «New conversation», новая идёт unattended без `resume`. Первый prompt новой
+  session — `waveBriefText` (`src/main/actions/launch.ts`): сначала просьба выполнить `wave-brief <epic>`
+  («How to resume a wave»), затем текст Wave из шаблона «Run wave» без изменений. Первая Wave run-а — как
+  раньше: продолжает сохранённую SDK session Orchestrator-а.
+- Новая session — только если Orchestrator свободен: нет turn-а, живых background tasks, сообщений в очереди
+  и ожидающего возврата. Иначе Wave уходит в текущую Session, как раньше, без brief: закрыть Session значило бы
+  потерять turn, tasks или сообщение человека.
+- Пока старая Session закрывается, run не следит ни за одной Session (`run.session = null`): её `closed` не
+  останавливает run. Stop, Force stop или выход из приложения во время старта новой session — Wave не уходит.
+- Решение о Limits и Interrupt. Продолжение после сброса окна Limits идёт внутри той же Wave и в ту же SDK
+  session: новая session начинается только перед новой Wave (`sendWave`), а continuation шлётся в
+  `run.session`, то есть в session своей Wave. Interrupt, Stop и Force stop session не меняют. После run-а
+  Orchestrator возвращается attended и продолжает SDK session последней Wave. Следующий run после Force stop
+  берёт прерванные Ticket-ы в свою первую Wave, а первая Wave session не меняет.
+- Ожидания test-ов о продолжении после Limits (текст continuation, один раз, та же Session) не тронуты. В
+  `test/contract/autopilot-limits.test.ts` поменялись: константа `WAVE_2` (теперь это текст с `wave-brief`),
+  группировка процессов в test-е про Force stop (continuation — в процессе Wave 1, Wave 2 — в новом) и
+  сценарий второй Session в test-е про ошибку другого рода (новая Session играет сценарий с начала, опция
+  `later`). Без этого ожидания противоречили бы самому Ticket-у.
+- Цена: стоимость на Node Orchestrator-а теперь считается от нуля на каждую Wave (как после «New
+  conversation»), а не за весь run.
+- Не проверено на настоящем Claude Code: текст Wave в prompt-е новой session стоит не в начале, поэтому
+  Claude Code не раскрывает его как slash command сам — skill `epic-wave` вызывает модель по тексту. Проверяется
+  первым живым run-ом из двух Wave.

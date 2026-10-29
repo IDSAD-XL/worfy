@@ -149,6 +149,7 @@ export function sharedAutopilot(): Autopilot {
     orchestrators: {
       setUnattended: (projectId, unattended) => sharedOrchestrators().setUnattended(projectId, unattended),
       giveBackNow: (projectId) => sharedOrchestrators().giveBackNow(projectId),
+      newUnattendedSession: (projectId) => sharedOrchestrators().newUnattendedSession(projectId),
     },
     registry: {
       get: (sessionId) => sharedRegistry().get(sessionId),
@@ -156,7 +157,7 @@ export function sharedAutopilot(): Autopilot {
       observeInput: (listener) => sharedRegistry().observeInput(listener),
     },
     waves: {
-      autopilotWave: (projectId, epic, resume) => sharedLauncher().autopilotWave(projectId, epic, resume),
+      autopilotWave: (projectId, epic, resume, brief) => sharedLauncher().autopilotWave(projectId, epic, resume, brief),
       autopilotRefusal: (projectId) => sharedLauncher().autopilotRefusal(projectId),
       autopilotGateQueue: (projectId) => sharedLauncher().autopilotGateQueue(projectId),
     },

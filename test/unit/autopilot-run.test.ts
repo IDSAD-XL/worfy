@@ -165,6 +165,8 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
         out.orchestrator.push('give-back')
         return Promise.resolve({ sessionId: 'attended-session' } as OrchestratorView)
       },
+      // The Orchestrator is never free for a new SDK session here: every Wave goes to the one Session.
+      newUnattendedSession: () => Promise.resolve(null),
     },
     registry: {
       get: () => session,
@@ -1464,6 +1466,121 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'limits-timeout' })
     expect(calls).toEqual([])
     expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'limits-hit', 'run-stopped'])
+  })
+})
+
+describe('a new SDK session for every Wave after the first (worfy-throughput ticket 52)', () => {
+  const SESSION_2 = 'orch-session-2'
+
+  /** A stand-in whose Orchestrator starts SESSION_2 for Wave 2: `during` runs while it starts. */
+  function withNewSession(during: (s: StandIn) => void = () => undefined) {
+    const sinks = new Set<(sessionId: string, event: AgentEvent) => void>()
+    const briefs: boolean[] = []
+    const second = { state: 'idle' as SessionState, sent: [] as string[] }
+    const session2: RunSession = {
+      id: SESSION_2,
+      get state() {
+        return second.state
+      },
+      queued: (): QueueSnapshot => ({ items: [], paused: false }),
+      backgroundTasks: () => [],
+      halt: () => Promise.resolve(),
+      removeQueued: () => false,
+      send: (text) => {
+        second.sent.push(text)
+        return 'sent'
+      },
+    }
+    const s = standIn()
+    const first = s.deps.registry
+    s.deps.registry = {
+      get: (id) => (id === SESSION_2 ? session2 : first.get(id)),
+      observe: (sink) => {
+        sinks.add(sink)
+        const off = first.observe(sink)
+        return () => {
+          sinks.delete(sink)
+          off()
+        }
+      },
+      observeInput: first.observeInput,
+    }
+    const emit2 = (event: AgentEvent): void => {
+      for (const sink of [...sinks]) sink(SESSION_2, event)
+    }
+    s.deps.orchestrators.newUnattendedSession = async () => {
+      // The old Session closes as the new one starts.
+      s.emit({ type: 'state', state: 'closed', error: null } as AgentEvent)
+      during(s)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      return { sessionId: SESSION_2 } as OrchestratorView
+    }
+    const wave = s.deps.waves.autopilotWave
+    s.deps.waves.autopilotWave = async (projectId, epic, resume, brief) => {
+      briefs.push(brief === true)
+      if (brief !== true) return wave(projectId, epic, resume)
+      const text = `brief + /epic-wave 3`
+      emit2({ type: 'prompt', text })
+      return { sessionId: SESSION_2, text, delivery: 'sent', tickets: [3], skipped: [] }
+    }
+    return { s, briefs, emit2, second }
+  }
+
+  it('Wave 2 goes with the brief to the new Session, whose events drive the run; the old Session\'s close does not stop it', async () => {
+    const { s, briefs, emit2 } = withNewSession()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2)
+    s.emit(result())
+    await settle()
+    expect(briefs).toEqual([false, true])
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', wave: 2 })
+    // The old Session's events are not the run's any more; the new Session's result ends Wave 2.
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', wave: 2 })
+    done(s, 3)
+    emit2(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave', wave: 2 })
+    expect(kinds(s)).toEqual([
+      ['wave-started', 1],
+      ['wave-finished', 1],
+      ['wave-started', 2],
+      ['wave-finished', 2],
+      ['run-stopped', 'no-ready-wave'],
+    ])
+  })
+
+  it('a Stop clicked while the new Session starts: Wave 2 does not go, the run stops with user-stop', async () => {
+    const { s, briefs } = withNewSession((each) => void each.autopilot.stop(PROJECT))
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2)
+    s.emit(result())
+    await settle()
+    expect(briefs).toEqual([false])
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-stop', wave: 1 })
+  })
+
+  it('an Orchestrator not free for a new session (newUnattendedSession null): Wave 2 goes to the same Session without the brief', async () => {
+    const s = standIn()
+    const briefs: boolean[] = []
+    const wave = s.deps.waves.autopilotWave
+    s.deps.waves.autopilotWave = (projectId, epic, resume, brief) => {
+      briefs.push(brief === true)
+      return wave(projectId, epic, resume)
+    }
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2)
+    s.emit(result())
+    await settle()
+    expect(briefs).toEqual([false, false])
+    done(s, 3)
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave', wave: 2 })
   })
 })
 

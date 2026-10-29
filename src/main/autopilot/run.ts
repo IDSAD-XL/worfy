@@ -3,7 +3,13 @@
 //
 // - The Project's Orchestrator runs as an unattended Session for the time of the run (ADR-0022):
 //   it is started again with the unattended launch, continuing its SDK session, and given back
-//   attended when the run ends.
+//   attended when the run ends, continuing the SDK session of the run's last Wave.
+// - Every Wave after the run's first starts a new SDK session of the Orchestrator (worfy-throughput
+//   ticket 52; Orchestrators.newUnattendedSession), so its context does not grow from Wave to Wave:
+//   its first prompt asks for `wave-brief <epic>`, then has the Wave's text (launch.ts,
+//   waveBriefText). Only while the Orchestrator is free — idle, no live background task, nothing in
+//   its queue; otherwise the Wave goes to the current Session as before. Within a Wave the session
+//   stays: the continuation after a Limits wait, a Stop and the turns of background tasks go to it.
 // - Waves go out as "Run wave" does (src/main/actions/launch.ts, the Project's template); when one
 //   is finished and what comes next is the cycle's call (src/shared/autopilot/cycle.ts), over the
 //   events of the Orchestrator's Session and fresh reads of the workflow model.
@@ -193,6 +199,12 @@ export interface AutopilotDeps {
      * that process has exited and the new one started (Orchestrators.giveBackNow, ADR-0064).
      */
     giveBackNow(projectId: string): Promise<OrchestratorView | null>
+    /**
+     * Before a Wave that is not the run's first (worfy-throughput ticket 52): a new SDK session of the
+     * unattended Orchestrator, answered once its process has started; null when the Orchestrator is
+     * not free for it, and nothing changed (Orchestrators.newUnattendedSession).
+     */
+    newUnattendedSession(projectId: string): Promise<OrchestratorView | null>
   }
   registry: {
     get(sessionId: string): RunSession
@@ -208,7 +220,7 @@ export interface AutopilotDeps {
    * before it stops for want of a Wave (worfy-windows ticket 17).
    */
   waves: {
-    autopilotWave(projectId: string, epic: string, resume: readonly number[]): Promise<AutopilotWaveResult>
+    autopilotWave(projectId: string, epic: string, resume: readonly number[], brief?: boolean): Promise<AutopilotWaveResult>
     autopilotRefusal(projectId: string): string | null
     autopilotGateQueue?(projectId: string): Promise<string | null>
   }
@@ -1031,13 +1043,22 @@ export class Autopilot {
       await this.budgetWait(run, budget)
       return
     }
+    // Every Wave after the run's first goes to a new SDK session (worfy-throughput ticket 52).
+    const fresh = run.cycle.wave > 0 ? await this.newSession(run) : 'same'
+    if (fresh === 'gone') return
+    // A Stop, a Force stop or the quit while the new session started: the Wave does not go, as above.
+    if (run.stopRequested) {
+      await this.feed(run, { type: 'stop', reason: 'user-stop' })
+      return
+    }
+    if (run.rushed) return
     run.sending = true
     run.promptsWhileSending.clear()
     // Only the run's first Wave takes the interrupted Tickets along.
     const resume = run.resume
     run.resume = []
     try {
-      sent = await this.deps.waves.autopilotWave(run.projectId, run.epic, resume)
+      sent = await this.deps.waves.autopilotWave(run.projectId, run.epic, resume, fresh === 'fresh')
     } catch (error) {
       run.message = messageOf(error)
       await this.feed(run, { type: 'send-failed', message: run.message })
@@ -1060,6 +1081,41 @@ export class Autopilot {
     // the Wave goes out stopping, ahead of any step queued behind this one.
     if (run.stopRequested && !run.cycle.stopping) await this.feed(run, { type: 'graceful-stop', tickets: await this.freshTickets(run) })
     await this.feed(run, { type: 'wave-sent', tickets: sent.tickets })
+  }
+
+  /**
+   * A new SDK session of the Orchestrator for the next Wave (worfy-throughput ticket 52). The run
+   * follows no Session while the old one closes, so its end does not stop the run, then follows the
+   * new one. Answers `fresh` when the Wave goes to a new session; `same` when the Orchestrator was not
+   * free for it and the Wave goes to the current one; `gone` when the run has no Session left to
+   * send to, and the cycle has been told.
+   */
+  private async newSession(run: Run): Promise<'fresh' | 'same' | 'gone'> {
+    const old = run.session
+    run.session = null
+    let view: OrchestratorView | null = null
+    try {
+      view = await this.deps.orchestrators.newUnattendedSession(run.projectId)
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not start a new session of the Orchestrator`, error)
+    }
+    if (view === null || view.sessionId === null) {
+      run.session = old
+      if (old !== null && old.state !== 'closed') return 'same'
+      await this.feed(run, { type: 'session-closed' })
+      return 'gone'
+    }
+    run.session = this.deps.registry.get(view.sessionId)
+    // What the new Session did before the run followed it: a start that failed or closed.
+    if (run.session.state === 'error') {
+      await this.feed(run, { type: 'session-error', message: view.error ?? 'The Session failed' })
+      return 'gone'
+    }
+    if (run.session.state === 'closed') {
+      await this.feed(run, { type: 'session-closed' })
+      return 'gone'
+    }
+    return 'fresh'
   }
 
   /**

@@ -19,7 +19,10 @@
 // bypassPermissions would overwrite the mode the user picked for the Node. Going unattended is
 // refused while a turn runs (also the last turn of a run that was just stopped), while background
 // tasks live and while messages wait in the queue; going back to attended carries the queue over
-// to the new Session. Stop in Autopilot (worfy-week ticket 17, ADR-0050) gives the Orchestrator back
+// to the new Session. Before each Wave after a run's first, Autopilot asks for a new SDK session of
+// the unattended Orchestrator (newUnattendedSession, worfy-throughput ticket 52): the old Session
+// closes, as on "New conversation", only while no turn, background task or queued message would be
+// lost. Stop in Autopilot (worfy-week ticket 17, ADR-0050) gives the Orchestrator back
 // at once instead (giveBackNow): its halted Session's process closes, and with it every background
 // task and the turn the interrupt did not end.
 //
@@ -285,6 +288,28 @@ export class Orchestrators {
     return this.views.get(entry.nodeId) ?? null
   }
 
+  /**
+   * Autopilot's next Wave (worfy-throughput ticket 52): the unattended Orchestrator starts a new SDK
+   * session instead of continuing the one of the last Wave. The old Session closes and stays in the
+   * history as its transcript, as on "New conversation"; the new one runs unattended too, its cost
+   * from zero. Only while the Orchestrator is free — no turn, no live background task, nothing in its
+   * queue and no give-back waiting — since closing the old Session would end what runs there or
+   * leave a person's message out; then, and for an Orchestrator that is not open or not unattended,
+   * it does nothing and answers null. Otherwise answers the view once the new process has started.
+   */
+  async newUnattendedSession(projectId: string): Promise<OrchestratorView | null> {
+    const entry = this.entries.get(projectId)
+    if (entry === undefined) return null
+    await entry.ready
+    if (this.entries.get(projectId) !== entry || entry.cancelled || !entry.launch.unattended) return null
+    if (inTurn(this.current(entry).state) || liveTasksOf(entry) > 0 || entry.wanted !== null) return null
+    if ((entry.run?.session?.queued().items.length ?? 0) > 0) return null
+    await this.relaunch(entry, entry.launch, true)
+    // The Project may have left the list while the old process was waited for.
+    if (this.entries.get(projectId) !== entry || entry.cancelled) return null
+    return this.views.get(entry.nodeId) ?? null
+  }
+
   /** Whether the Project's Orchestrator runs unattended now. */
   isUnattended(projectId: string): boolean {
     return this.entries.get(projectId)?.launch.unattended ?? false
@@ -472,8 +497,9 @@ export class Orchestrators {
    * exited (ADR-0064). The new Session is live at once and holds what is sent to it until then; a
    * second relaunch meanwhile closes it before it started, so it waits for the same old process.
    * Settles once the new process has started (or the new Session was closed first); never rejects.
+   * `fresh`: a new SDK session instead (newUnattendedSession), with its cost from zero and no status block.
    */
-  private relaunch(entry: Entry, launch: SessionLaunch): Promise<void> {
+  private relaunch(entry: Entry, launch: SessionLaunch, fresh = false): Promise<void> {
     entry.wanted = null
     entry.launch = launch
     const old = entry.run
@@ -487,7 +513,8 @@ export class Orchestrators {
     // A new Claude Code process reports its cost from zero.
     entry.cost.processEnded()
     const view = this.current(entry)
-    this.launch(entry, entry.savedSessionId ?? undefined, { model: view.model, statusBlock: view.statusBlock }, oldExit)
+    if (fresh) this.forgetSession(entry)
+    this.launch(entry, entry.savedSessionId ?? undefined, { model: view.model, statusBlock: fresh ? null : view.statusBlock }, oldExit)
     const next = entry.run
     if (next === null || next === old || next.session === null) return oldExit ?? Promise.resolve()
     if (queue.items.length > 0) {

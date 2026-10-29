@@ -19,6 +19,8 @@
 //   Wave's Tickets ({tickets}, ADR-0033); the text, those Tickets and the skipped ones come from
 //   one read of the workflow model, so the run's journal names exactly what went. A run after a
 //   Stop passes the interrupted Wave's Tickets (worfy-week ticket 17): those still in work join it.
+//   A Wave the run sends to a new SDK session of the Orchestrator (worfy-throughput ticket 52) goes
+//   with `brief`: the text first asks for `wave-brief <epic>`, then has the template's text as is.
 // - Process gate queue: the template's text (no placeholders, /worfy:gate-queue by default) goes to
 //   the Project's Orchestrator, as "Run wave" does. Only on the machine whose Profile gives it the
 //   role `serve` of the cross-machine gate (ADR-0069), read again on every click; refused while
@@ -104,6 +106,15 @@ export interface RunWaveResult {
 export interface AutopilotWaveResult extends RunWaveResult {
   tickets: number[]
   skipped: SkippedTicket[]
+}
+
+/**
+ * Autopilot's text for a Wave that starts a new SDK session of the Orchestrator (worfy-throughput
+ * ticket 52): `wave-brief <epic>` first, as skill epic-wave says a new session starts ("How to
+ * resume a wave"), then the Wave's own text, unchanged.
+ */
+export function waveBriefText(epic: string, text: string): string {
+  return `This is a new session for the next Wave. As your first command, before any other reading, run \`wave-brief ${epic}\` (skill epic-wave, "How to resume a wave"). Then:\n\n${text}`
 }
 
 /** Why "Run wave" by hand is refused while Autopilot runs in the Project. */
@@ -245,9 +256,10 @@ export class ActionLauncher {
   /**
    * Autopilot's "Run wave": the same text to the same Orchestrator, and the Tickets it was for.
    * `resume`: the Tickets of the Wave a Stop interrupted; those still in work join the Wave.
+   * `brief`: the Orchestrator's Session is a new SDK session, so the text goes as waveBriefText.
    */
-  autopilotWave(projectId: string, epic: string, resume: readonly number[] = []): Promise<AutopilotWaveResult> {
-    return this.sendWave(projectId, epic, true, resume)
+  autopilotWave(projectId: string, epic: string, resume: readonly number[] = [], brief = false): Promise<AutopilotWaveResult> {
+    return this.sendWave(projectId, epic, true, resume, brief)
   }
 
   /**
@@ -260,7 +272,7 @@ export class ActionLauncher {
     return namesWaveTickets(template) ? null : AUTOPILOT_TEMPLATE_HINT
   }
 
-  private async sendWave(projectId: string, epic: string, autopilot: boolean, resumable: readonly number[] = []): Promise<AutopilotWaveResult> {
+  private async sendWave(projectId: string, epic: string, autopilot: boolean, resumable: readonly number[] = [], brief = false): Promise<AutopilotWaveResult> {
     const root = this.deps.projectRoot(projectId)
     const [model, branch] = await Promise.all([this.model(root), this.deps.branch(root)])
     if (!model.epics.some((each) => each.epic === epic) && !model.tickets.some((each) => each.epic === epic)) throw new Error(`The Project has no Epic ${epic}`)
@@ -270,9 +282,10 @@ export class ActionLauncher {
     const view = await this.deps.orchestrators.open(projectId)
     if (view.sessionId === null) throw new Error('The Orchestrator has no Session')
     const session = this.deps.registry.get(view.sessionId)
-    const delivery = session.send(state.text)
+    const text = brief ? waveBriefText(epic, state.text) : state.text
+    const delivery = session.send(text)
     this.bindWhenKnown(projectId, session, { kind: 'epic', epic })
-    return { sessionId: view.sessionId, text: state.text, delivery, tickets: state.tickets, skipped: state.skipped }
+    return { sessionId: view.sessionId, text, delivery, tickets: state.tickets, skipped: state.skipped }
   }
 
   /** Settles when every Binding started so far is written or given up; for tests. */
