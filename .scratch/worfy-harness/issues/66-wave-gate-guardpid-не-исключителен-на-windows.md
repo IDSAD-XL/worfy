@@ -1,7 +1,8 @@
 # 66 — `wave-gate`: `guardPid` на Windows не исключает вторую проверку
 
 Type: bug
-Status: claimed 2026-10-29T02:30Z
+Status: done 2026-10-29T03:49Z
+PR: #949
 Blocked by: —
 Source: находка ПК 2026-10-21 при работе над `worfy-windows` 72 (PR #705, замок e2e в `wave-gate`).
 
@@ -87,3 +88,12 @@ Review (correctness): блокирующих находок нет. Две ни�
 - pid-файл сравнивается только по тексту, а pid может достаться новой проверке; так было и до правки.
 
 Осталось: `wave-gate.test.sh` на Mac.
+
+Review моста (корректность, Mac): блокирующих находок нет. На Mac `wave-gate-merge`, `wave-gate`, `wave-gate-lock` — exit 0
+(20 s, 25 s, 38 s); с `wave-gate` из `main` `wave-gate-merge` — exit 1. Случай гонки — регрессионный test только для
+Windows: на macOS переименование и так исключает вторую проверку (mutant без `mkdir` маркера краснеет только в двух
+случаях про маркер). Низкая находка — в следующий PR, который тронет `harness/bin/wave-gate`: маркер, оставленный
+убитой проверкой (SIGKILL, TerminateProcess), 60 s даёт отказ «another wave-gate check is taking over … at the same
+moment», хотя никто не захватывает; сообщение должно назвать путь маркера и срок 60 s (`harness/bin/wave-gate:545`).
+Вопрос на замер ПК: на Windows `mkdir` маркера может получить EPERM вместо EEXIST, пока другой процесс держит handle
+удалённой папки (`:539`).

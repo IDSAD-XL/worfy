@@ -1,7 +1,8 @@
 # 68 — Вывод плана `gate-resolve` — текст с tab-ами: ломается на имени папки с tab или переводом строки
 
 Type: bug
-Status: open
+Status: done 2026-10-29T03:49Z
+PR: #945
 Blocked by: —
 Source: заметки PR #711 (`worfy-harness` 64), 2026-10-21.
 
@@ -67,3 +68,10 @@ Test-ы и их exit code:
 - `pnpm lint && pnpm typecheck && pnpm test` — 0; `node harness/hooks/gate.mjs fast` — 0, `[gate] green (fast)`.
 - `node scripts/windows-verdict-scope.mjs a491ef2d HEAD` — `runner`, exit 0. Случаи с tab и переводом строки на
   Windows пропускаются: имя файла там их не держит.
+
+Review моста (корректность): одна низкая находка, исправлена в том же PR (head `b599829c`). `readPlan` принимал запись
+workspace без поля `name`; пустое имя запускало его скрипты в корне репозитория и клало результат в cache как green
+этого пакета. Теперь пустое имя допустимо только у корня (`dir` `"."`), `harness/hooks/gate.mjs:192-194`; новый случай
+в `gate-scope.test.sh` — план без имени даёт exit 3. После правки: `gate-scope.test.sh` — 30 passed, `gate-verdict.test.sh`
+— exit 0, gate fast — green. Вне скоупа: `--which` по-прежнему печатает `key<TAB>match<TAB>pm`; `match` с tab сдвинет поле
+`pm` (`gate-resolve.mjs:4`, `gate.mjs:868`, `stop.mjs:138`, `bin/profile:224`).
