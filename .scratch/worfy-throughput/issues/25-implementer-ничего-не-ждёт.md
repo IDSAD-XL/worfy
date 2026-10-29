@@ -1,7 +1,7 @@
 # 25 — Implementer ничего не ждёт: замок e2e — не дольше 2 min, финиш — PR в очереди merge
 
 Type: task
-Status: open
+Status: claimed 2026-10-29T11:16Z
 Blocked by: —
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», предложение 2, решение 8;
 аналитика 2026-10-27: $1 457 перезаписи cache у

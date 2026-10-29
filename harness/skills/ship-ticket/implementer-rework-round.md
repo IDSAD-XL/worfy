@@ -10,9 +10,8 @@ test or a line in `not_verified`. A rework brief names the branch of the first r
 orchestrator launches you with `isolation: "worktree"`: your working directory is already a fresh
 tree of your own, the previous round's tree is removed. Never call `EnterWorktree` — it refuses a
 subagent started at the repository root, by `path` and by `name` — and do not create another tree.
-Check out the branch in your tree. Pushed (`pr-green-ci`) — from origin:
-`git checkout -B <branch> origin/<branch>`. With `local-green` or without `origin` nothing is
-pushed: check out the local branch, `git checkout <branch>` (worktrees share the branches; the
+Check out the branch in your tree. Already pushed (`git ls-remote --exit-code --heads origin <branch>` exits 0) — from origin:
+`git checkout -B <branch> origin/<branch>`. Not pushed (`local-green`, no `origin`, or a branch that never reached it): check out the local branch, `git checkout <branch>` (worktrees share the branches; the
 orchestrator kept it). A
 working directory that is the main checkout or someone else's tree — stop and ask. An Edit or
 Write that is refused is never written around (python, sed or a heredoc in Bash): stop and report

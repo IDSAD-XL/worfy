@@ -517,10 +517,14 @@ check "epic-wave section 4: no rework goes back to its implementer" \
     lacks "$EW" 'back to its implementer as a rework round'
 check "implementer: a rework round starts in its isolation-worktree tree and never calls EnterWorktree" \
     in_flat "$(cat "$IM")" 'the orchestrator launches you with `isolation: "worktree"`: your working directory is already a fresh tree of your own, the previous round'"'"'s tree is removed. Never call `EnterWorktree` — it refuses a subagent started at the repository root, by `path` and by `name` — and do not create another tree.'
-check "implementer: a rework round checks a pushed branch out from origin in its tree" \
-    in_flat "$(cat "$IM")" 'Check out the branch in your tree. Pushed (`pr-green-ci`) — from origin: `git checkout -B <branch> origin/<branch>`.'
-check "implementer: a local-green / no-origin rework round checks out the local branch" \
-    in_flat "$(cat "$IM")" 'With `local-green` or without `origin` nothing is pushed: check out the local branch, `git checkout <branch>` (worktrees share the branches; the orchestrator kept it).'
+# The choice is by whether the branch reached origin, not by workflow.finish: a pr-green-ci branch that was
+# never pushed (a small ticket handed over before its push) has no origin/<branch> to check out.
+check "implementer: a rework round checks an already pushed branch out from origin in its tree" \
+    in_flat "$(cat "$IM")" 'Check out the branch in your tree. Already pushed (`git ls-remote --exit-code --heads origin <branch>` exits 0) — from origin: `git checkout -B <branch> origin/<branch>`.'
+check "implementer: a rework round on a branch that is not pushed checks out the local branch" \
+    in_flat "$(cat "$IM")" 'Not pushed (`local-green`, no `origin`, or a branch that never reached it): check out the local branch, `git checkout <branch>` (worktrees share the branches; the orchestrator kept it).'
+check "implementer: the rework checkout no longer picks by pr-green-ci" \
+    lacks "$IM" 'Pushed (`pr-green-ci`) — from origin'
 check "implementer: the old wording — always from origin — is gone" \
     lacks "$IM" 'Check out the branch from origin in your tree'
 check "implementer: a local-green rework round names the head in its report and does not push" \

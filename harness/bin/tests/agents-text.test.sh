@@ -104,7 +104,7 @@ for a in $ALL; do
     left="$(grep -n '/ship-ticket\|/epic-wave' "$AGENTS/$a.md")"
     [ -z "$left" ] && ok "$a: no skill call without worfy:" || bad "$a: skill call without worfy:: $left"
 done
-has implementer '`/worfy:ship-ticket`, step 8' && ok "implementer: CI wait block is in /worfy:ship-ticket" \
+has implementer '`/worfy:ship-ticket`, step 8' && ok "implementer: names step 8 of /worfy:ship-ticket (its CI wait is not the implementer's)" \
     || bad "implementer: no /worfy:ship-ticket step 8"
 grep -F 'workflow.ticket_skill' "$AGENTS/implementer.md" | grep -F '`ship-ticket`' | grep -qF '`/worfy:ship-ticket`' \
     && ok "implementer: bare ship-ticket in workflow.ticket_skill means /worfy:ship-ticket" \
@@ -438,6 +438,95 @@ else
     e2e "the lock as the profile's rules say" 'The e2e lock, if the project has one, is described in the profile'"'"'s `rules.md`.'
     e2e "no commands.e2e, no rule" 'A profile without `commands.e2e` has no rule here.'
 fi
+
+# --- 11a. implementer: the e2e lock waits 2 min at most, then the files are deferred ----------
+# The orchestrator's gate full holds the e2e lock for about 12 min, longer than the 5 min an
+# agent's prompt cache lives. The implementer waits for the lock at most 2 min, in the same Bash
+# command; not taken — the command prints `e2e: deferred to gate full: <files>`, exits non-zero and
+# runs nothing, the line goes into not_verified, and the report never calls those files green.
+s5() { if in_text "$STEP5" "$2"; then ok "implementer, step 5, e2e lock: $1"; else bad "implementer, step 5, e2e lock: $1 — no '$2'"; fi; }
+s5 "wait at most 2 min, in the same Bash command" 'wait for it at most 2 min, in the same Bash command as your e2e run'
+s5 "not taken: the deferred line into not_verified, never green" \
+    'it prints `e2e: deferred to gate full: <files>` and exits with code 75. Put that line into `not_verified` with its reason; the report never calls those e2e files green.'
+# The bounded loop itself, run on a lock in a temporary folder; `sleep` is a stand-in that only logs
+# its argument (and frees the lock after FREE_AT calls), so 2 min of waiting take no time.
+LOCK_BLOCK="$(printf '%s\n' "$STEP5" | awk '/^ *```bash/{b=1; t=""; next} b && /^ *```/{b=0; if (t ~ /<workflow\.e2e_lock>/) { printf "%s", t; exit } next} b {sub(/^ +/, ""); t = t $0 "\n"}')"
+if [ -z "$LOCK_BLOCK" ]; then
+    bad "implementer, step 5: no bash block with <workflow.e2e_lock>"
+else
+    LW="$T/lockworld"; mkdir -p "$LW/bin"
+    cat >"$LW/bin/sleep" <<'EOF'
+#!/bin/sh
+echo "$1" >>"$SLEEP_LOG"
+if [ -n "$FREE_AT" ] && [ "$(wc -l <"$SLEEP_LOG")" -ge "$FREE_AT" ]; then rmdir "$LOCK" 2>/dev/null; fi
+exit 0
+EOF
+    chmod +x "$LW/bin/sleep"
+    LOCK_SHELLS="bash"; command -v zsh >/dev/null 2>&1 && LOCK_SHELLS="bash zsh"
+    LB="${LOCK_BLOCK//<workflow.e2e_lock>/$LW/lock}"; LB="${LB//<files>/test/e2e/a.spec.ts}"
+    # lock_case <shell> <FREE_AT or ""> → $lrc, $lout, $lsleeps (the stand-in's calls, one per line)
+    lock_case() {
+        rm -f "$LW/sleep.log"; : >"$LW/sleep.log"
+        if [ "$1" = zsh ]; then set -- "zsh -f" "$2"; fi
+        lout="$(PATH="$LW/bin:$PATH" SLEEP_LOG="$LW/sleep.log" LOCK="$LW/lock" FREE_AT="$2" $1 -c "$LB"$'\n''echo RAN' 2>&1)"; lrc=$?
+        lsleeps="$(tr '\n' ' ' <"$LW/sleep.log")"
+    }
+    for sh in $LOCK_SHELLS; do
+        rmdir "$LW/lock" 2>/dev/null; mkdir "$LW/lock"
+        lock_case "$sh" ""
+        [ "$lrc" -ne 0 ] && [[ "$lout" == *'e2e: deferred to gate full: test/e2e/a.spec.ts'* && "$lout" != *RAN* ]] && [ "$lsleeps" = "20 20 20 20 20 20 " ] && [ -d "$LW/lock" ] \
+            && ok "$sh: a held e2e lock — 2 min of waiting (six sleeps of 20 s), exit $lrc, the deferred line, nothing run, the lock left to its holder" \
+            || bad "$sh: a held e2e lock: exit $lrc, sleeps [$lsleeps], out [$lout]"
+        rmdir "$LW/lock" 2>/dev/null
+        lock_case "$sh" ""
+        [ "$lrc" -eq 0 ] && [[ "$lout" == *RAN* && "$lout" != *deferred* ]] && [ -z "$lsleeps" ] && [ -d "$LW/lock" ] \
+            && ok "$sh: a free e2e lock — taken at once, the command runs" \
+            || bad "$sh: a free e2e lock: exit $lrc, sleeps [$lsleeps], out [$lout]"
+        rmdir "$LW/lock" 2>/dev/null; mkdir "$LW/lock"
+        lock_case "$sh" 3
+        [ "$lrc" -eq 0 ] && [[ "$lout" == *RAN* && "$lout" != *deferred* ]] && [ "$lsleeps" = "20 20 20 " ] \
+            && ok "$sh: an e2e lock freed after 1 min — taken, the command runs" \
+            || bad "$sh: an e2e lock freed after 1 min: exit $lrc, sleeps [$lsleeps], out [$lout]"
+        rmdir "$LW/lock" 2>/dev/null; mkdir "$LW/lock"; touch -t 202001010000 "$LW/lock"
+        lock_case "$sh" ""
+        [ "$lrc" -eq 0 ] && [[ "$lout" == *RAN* ]] && [ "$lsleeps" = "20 " ] \
+            && ok "$sh: an abandoned e2e lock (older than 30 min) — removed and taken" \
+            || bad "$sh: an abandoned e2e lock: exit $lrc, sleeps [$lsleeps], out [$lout]"
+        rmdir "$LW/lock" 2>/dev/null
+    done
+fi
+
+# --- 11b. implementer: the finish is the PR and a green gate fast, then nothing to wait for ----
+# Waiting for CI kept implementers idle past their prompt cache: the orchestrator waits for CI after
+# the report, the implementer reads the PR's CI once and stops.
+STEP6="$(printf '%s\n' "$ORDER" | awk '/^6\. /{s=1; print; next} s && /^[^ ]/{exit} s')"
+s6() { if in_text "$STEP6" "$2"; then ok "implementer, step 6: $1"; else bad "implementer, step 6: $1 — no '$2'"; fi; }
+s6 "pr-green-ci: the PR and a green step 5, then nothing to wait for" \
+    '`workflow.finish: "pr-green-ci"` — a PR and a green step 5 (gate fast); after the PR you wait for nothing.'
+s6 "one CI read, no gh run watch, no polling" \
+    'Do not wait for CI: no `gh run watch`, and no second `gh pr checks` or `mergeable` call after that one check.'
+in_text "$STEP6" 'Wait for CI with one long `gh run watch`' && bad "implementer, step 6: still waits for CI with gh run watch" \
+    || ok "implementer, step 6: the old wait for CI is gone"
+in_text "$STEP6" 'CI is waited for as above' && bad "implementer, step 6: still says CI is waited for" \
+    || ok "implementer, step 6: no 'CI is waited for'"
+# Steps 1–8 of skill ship-ticket are the implementer's steps too, and step 8 waits for CI: the finish says that wait is not the implementer's.
+s6 "the CI wait of ship-ticket step 8 is not the implementer's" \
+    'The CI wait of skill `/worfy:ship-ticket`, step 8, is the main session'"'"'s and the orchestrator'"'"'s, not yours.'
+
+# --- 11c. epic-wave: a deferred e2e run is not green ------------------------------------------
+# The deferred line lives in not_verified (11a); the verifier of skill epic-wave checks the report by
+# the lens "implementer's report", which reads not_verified as what the implementer did not check. The
+# skill's text needs no line of its own for `deferred`: the chain below is what keeps it from green.
+EW_TEXT="$(cat "$ROOT/skills/epic-wave/SKILL.md")"
+in_text "$EW_TEXT" 'Then the verifier checks the report by the lens "implementer'"'"'s report" of agent `worfy:reviewer`' \
+    && ok "epic-wave: the verifier checks the report by the lens implementer's report" \
+    || bad "epic-wave: the verifier does not use the lens implementer's report"
+in_text "$(cat "$AGENTS/reviewer.md")" 'Read `not_verified` first: it names what the implementer did not check.' \
+    && ok "reviewer, lens implementer's report: not_verified is what the implementer did not check" \
+    || bad "reviewer: the lens implementer's report does not read not_verified as unchecked"
+in_text "$STEP5" 'e2e files green.' && in_text "$STEP5" 'Put that line into `not_verified`' \
+    && ok "implementer: a deferred e2e run reaches the verifier through not_verified, never as green" \
+    || bad "implementer: the deferred line does not go into not_verified"
 
 # --- 12. implementer, reviewer: deletes and -c scripts by the common rules -------------------
 # The full rule lives once, in hooks/rules/common.md, which every session and subagent gets. The
