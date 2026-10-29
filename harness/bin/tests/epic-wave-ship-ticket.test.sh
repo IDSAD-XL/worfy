@@ -871,21 +871,34 @@ done
 # per ticket (a small ticket without an implementer, the scout only on unknown code, one reviewer at low
 # depth); full stays required for scripts, hooks, platform PRs and destructive diffs; the reports name the
 # mode and the number of subagents. The draft schema takes eco, full, null and no field, and refuses the rest.
+lacks_re_text() { [[ "$(flat "$1")" != *"$2"* ]]; } # $1 = text, $2 = literal string it must not carry
 ew1="$(awk '/^## 1\./{p=1; next} /^## /{p=0} p' "$EW")"; ew2="$(awk '/^## 2\./{p=1; next} /^## /{p=0} p' "$EW")"
 ew5="$(awk '/^## 5\./{p=1; next} /^## /{p=0} p' "$EW")"; st7="$(awk '/^## 7\./{p=1; next} /^## /{p=0} p' "$ST")"
 RD="$HARNESS/profiles/README.md"; rd="$(cat "$RD")"
-NOFIELD='No field (exit 4 or `null`) — `full`: the agents as before.'
-FULL='`full` is required in `eco` too when the change touches a script or a hook (the `bin/` or `hooks/` of the Harness, or a script of the repository), when it is a platform PR (one that needs the verdict of another operating system by the `rules.md` of the project), or when its diff deletes files, stops processes or replaces a copy (the cases that block a merge by the review depth scale, `/worfy:ship-ticket`, step 7).'
+NOFIELD='No field (exit 4 or `null`) — `full`: the agents as before. Any other value is read as `full`, with the reason `workflow.agents`.'
+# The cases where full is required: the same words in both skills; only the pointer to the depth scale differs
+# (epic-wave points at ship-ticket step 7, ship-ticket at its own paragraph "What blocks", not at itself).
+FULL='`full` is required in `eco` too when the change touches a script or a hook (the `bin/` or `hooks/` of the Harness, or a script of the repository), when it is a platform PR (one that needs the verdict of another operating system by the `rules.md` of the project), or when its diff deletes files, stops processes or replaces a copy (the cases that block a merge by the review depth scale'
+FULL_EW="$FULL"', `/worfy:ship-ticket`, step 7).'
+FULL_ST="$FULL"', paragraph "What blocks" below).'
 AGENTS='The report names the mode of the ticket: `Agents: eco` or `Agents: full — <reason>`, where `<reason>` is `workflow.agents`, `default: the profile has no workflow.agents`, or the case of the list above that applies (`script or hook`, `platform PR`, `destructive action`).'
 SUBAGENTS='`Subagents: <number> — <names>`: every subagent started for the ticket counts — the scout, the implementers, the verifier, the reviewers and the sceptics.'
 check "README: a row for workflow.agents with eco, full and null" grep -qF '| `workflow.agents` | `"eco"` \| `"full"` \| null |' "$RD"
 check "README: no workflow.agents — full, as before" in_flat "$rd" 'absent or `null` — `full`, the agents as before'
 check "README: the skills describe the mode" in_flat "$rd" 'what `eco` changes is described in skill `epic-wave`, section 1, and skill `ship-ticket`, step 7'
+check "README: any other value of workflow.agents is read as full" in_flat "$rd" 'another value — the draft schema refuses it, and the skills read it as `full`'
+# review.depth.first_round and review.depth.later_rounds: eco overrides them for a ticket's own diff, like an argument.
+EWORD='An argument of the skill, the owner'"'"'s word in a message or `workflow.agents` `"eco"` (`low` depth for the review of a ticket'"'"'s own diff) overrides it.'
+for fld in first_round later_rounds; do
+    check "README: review.depth.$fld — eco overrides it, like an argument" bash -c 'grep -F "| \`review.depth.$1\` |" "$2" | grep -qF -- "$3"' _ "$fld" "$RD" "$EWORD"
+done
+check "README: no depth row says only the argument or the owner's word overrides it" lacks "$RD" 'An argument of the skill or the owner'"'"'s word in a message overrides it.'
 for f in "$EW" "$ST"; do
     n="$(name_of "$f")"; if [ "$f" = "$EW" ]; then s="$ew1"; else s="$st7"; fi
     check "$n: reads F workflow.agents" in_flat "$s" '`F workflow.agents`'
     check "$n: no field — full" in_flat "$s" "$NOFIELD"
-    check "$n: the cases where full is required, word for word" in_flat "$s" "$FULL"
+    if [ "$f" = "$EW" ]; then full="$FULL_EW"; else full="$FULL_ST"; fi
+    check "$n: the cases where full is required, word for word" in_flat "$s" "$full"
     check "$n: the Agents line of the report" in_flat "$s" "$AGENTS"
     check "$n: the Subagents line of the report" in_flat "$s" "$SUBAGENTS"
 done
@@ -893,16 +906,41 @@ check "epic-wave section 1: eco — the scout only on unknown code" in_flat "$ew
     'With `eco` the scout goes only when no file the trail section names exists yet, or the ticket touches a folder that the trail section of no earlier ticket of the epic names; otherwise the orchestrator completes the list itself, reading the files at their `file:line`.'
 check "epic-wave section 1: eco — a small ticket without an implementer, the verifier stays" in_flat "$ew1" \
     'With `eco` a small ticket — only documents, or one change in one file of its trail section — gets no implementer: the orchestrator does it itself (section 2), and the verifier checks it like any other ticket (section 3).'
+check "epic-wave section 1: the mode is checked again on the diff of a small ticket" in_flat "$ew1" \
+    'The orchestrator decides the mode per ticket in the preflight, by its trail section, and checks it again on the diff of a small ticket it did itself (section 2).'
 check "epic-wave section 2: the orchestrator does a small eco ticket itself" in_flat "$ew2" \
     'A small ticket in `eco` (section 1) gets no implementer: the orchestrator does it itself, in a worktree of its own by `F worktree.implementer`, by the steps `F workflow.implementer_steps` up to the finish `F workflow.finish`, and gives the verifier the fields of an implementer'"'"'s report (commands with exit codes, claims, what was removed). Its row of the plan names `orchestrator` in the "Who" column.'
+check "epic-wave section 2: the orchestrator enters the worktree of a small ticket and returns" in_flat "$ew2" \
+    'Right after `git worktree add` the orchestrator enters that worktree with `EnterWorktree` (the `path` of the worktree): the PreToolUse check on Edit and Write lets edits only into the session'"'"'s worktree. Before it starts the verifier, it returns with `ExitWorktree` (`action: "keep"`): the worktree stays for the gate and the merge.'
+check "epic-wave section 2: the diff of a small ticket against the full cases, a match goes to an implementer" in_flat "$ew2" \
+    'Before the verifier, the orchestrator checks the diff of the small ticket against the cases where `full` is required (section 1). On a match the ticket goes to an implementer, whose brief names the orchestrator'"'"'s commit in `Base:`, and the report line of the ticket is `Agents: full — <the case>`, for example `Agents: full — destructive action`.'
 check "epic-wave section 3: eco does not change the gate, the rework round or the narrow round" in_flat "$sec3" \
     'The agents mode does not change the gate: in `eco` the verifier stays, for a ticket the orchestrator did itself too, and the rework round and the narrow round go as described here.'
 check "epic-wave section 5: the agents line and the subagent count of every ticket" in_flat "$ew5" \
     'for every ticket of the table, its agents line and the number of subagents started for it (section 1)'
 check "epic-wave section 5: the example of the two lines" bash -c 'grep -qxF "07: Agents: eco" <<<"$1" && grep -qxF "07: Subagents: 2 — impl-07, verify-07" <<<"$1"' _ "$ew5"
-check "ship-ticket step 7: eco — one reviewer, one lens, low depth, unless an argument or the owner's word" in_flat "$st7" \
-    'With `eco` every review round of the ticket'"'"'s own diff has `low` depth — one reviewer with one lens — unless an argument or the owner'"'"'s word sets another depth; this comes before the `review.depth` fields of the profile.'
+# The order of "Which depth": the argument (or the owner's word), then eco, then the review.depth fields, then no field.
+# in_order <text> <line start>... — each line start begins a line of the text, each one below the one before.
+in_order() {
+    local text="$1" prev=0 n p; shift
+    for p in "$@"; do
+        n="$(awk -v p="$p" 'index($0, p) == 1 { print NR; exit }' <<<"$text")"
+        [ -n "$n" ] && [ "$n" -gt "$prev" ] || return 1
+        prev="$n"
+    done
+}
+check "ship-ticket step 7: Which depth — argument, eco, the profile fields, no field" in_order "$st7" \
+    '1. An argument:' '2. The agents mode: with `F workflow.agents` `eco`' '3. The profile: the first review round' '4. No field (exit 4 or `null`) and no argument'
+check "ship-ticket step 7: item 2 — eco gives low depth, one reviewer with one lens" in_flat "$st7" \
+    '2. The agents mode: with `F workflow.agents` `eco` (paragraph "Agents mode" below) every review round of the ticket'"'"'s own diff has `low` depth — one reviewer with one lens. The report names the source `workflow.agents: eco`.'
+check "ship-ticket step 7: the Agents mode paragraph points at item 2" in_flat "$st7" \
+    'With `eco` every review round of the ticket'"'"'s own diff has `low` depth by item 2 of the list "Which depth".'
+check "ship-ticket step 7: the source workflow.agents: eco of the depth line" in_flat "$st7" \
+    '`<where it came from>` is `argument`, `owner'"'"'s word`, `workflow.agents: eco`, `review.depth.<field>` or `default: the profile has no review.depth.<field>`.'
+check "ship-ticket step 7: no pointer to itself" lacks_re_text "$st7" '`/worfy:ship-ticket`, step 7'
 check "ship-ticket step 7: the mode is decided on the diff of the round" in_flat "$st7" 'The mode is decided on the diff of the round, before its reviewers start.'
+check "both skills decide the full cases on the diff: ship-ticket before its reviewers, epic-wave before the verifier" \
+    bash -c '[[ "$1" == *"checks it again on the diff of a small ticket"* && "$2" == *"decided on the diff of the round"* ]]' _ "$(flat "$ew1")" "$(flat "$st7")"
 # The draft schema, run through bin/project-connect --schema-only as skill connect-project proposes it.
 AM="$T/agents-mode"; mkdir -p "$AM/hh" "$AM/repo"; AM="$(cd "$AM" && node_path "$(pwd -P)")"
 # agents_schema <name> <expected exit> <expected output fragment> <workflow.agents as JSON, or "none">

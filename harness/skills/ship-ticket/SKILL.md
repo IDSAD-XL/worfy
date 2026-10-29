@@ -368,9 +368,12 @@ scale: it runs at every depth.
 1. An argument: `/worfy:ship-ticket <epic> <NN> depth <low|medium|high|max>`. The owner's word in
    a message (`review #237 — low`, in any language) is the same argument; it holds for the round
    the message asks for.
-2. The profile: the first review round of the change — `F review.depth.first_round`; a repeat
+2. The agents mode: with `F workflow.agents` `eco` (paragraph "Agents mode" below) every review
+   round of the ticket's own diff has `low` depth — one reviewer with one lens. The report names the
+   source `workflow.agents: eco`.
+3. The profile: the first review round of the change — `F review.depth.first_round`; a repeat
    review after rework — `F review.depth.later_rounds`.
-3. No field (exit 4 or `null`) and no argument — the review of the ticket's own diff stays as it
+4. No field (exit 4 or `null`) and no argument — the review of the ticket's own diff stays as it
    was, without a depth: two or three reviewers in parallel, one lens each, by
    `F review.ticket_lenses` (no field — two or three of `F review.lenses`, by what the change is
    about), and a repeat review as described below. The report says so:
@@ -379,14 +382,14 @@ scale: it runs at every depth.
    only for a PR another session wrote (section "Review of a PR another session wrote").
 
 **Agents mode.** How many subagents a ticket starts is `F workflow.agents`: `full` or `eco`.
-No field (exit 4 or `null`) — `full`: the agents as before. With `eco` every review round of the
-ticket's own diff has `low` depth — one reviewer with one lens — unless an argument or the owner's
-word sets another depth; this comes before the `review.depth` fields of the profile. The mode is
-decided on the diff of the round, before its reviewers start. `full` is required in `eco` too when
+No field (exit 4 or `null`) — `full`: the agents as before. Any other value is read as `full`, with
+the reason `workflow.agents`. With `eco` every review round of the ticket's own diff has `low` depth
+by item 2 of the list "Which depth". The mode is decided on the diff of the round, before its
+reviewers start. `full` is required in `eco` too when
 the change touches a script or a hook (the `bin/` or `hooks/` of the Harness, or a script of the
 repository), when it is a platform PR (one that needs the verdict of another operating system by
 the `rules.md` of the project), or when its diff deletes files, stops processes or replaces a copy
-(the cases that block a merge by the review depth scale, `/worfy:ship-ticket`, step 7). The report
+(the cases that block a merge by the review depth scale, paragraph "What blocks" below). The report
 names the mode of the ticket: `Agents: eco` or `Agents: full — <reason>`, where `<reason>` is
 `workflow.agents`, `default: the profile has no workflow.agents`, or the case of the list above
 that applies (`script or hook`, `platform PR`, `destructive action`). Next to it goes the line
@@ -405,8 +408,8 @@ Review depth: <depth> — <where it came from>
 Review tokens: <subagent tokens of the round> | not measured
 ```
 
-`<where it came from>` is `argument`, `owner's word`, `review.depth.<field>` or
-`default: the profile has no review.depth.<field>`. The tokens are the sum of the token counts the
+`<where it came from>` is `argument`, `owner's word`, `workflow.agents: eco`, `review.depth.<field>`
+or `default: the profile has no review.depth.<field>`. The tokens are the sum of the token counts the
 finished agents of the round report in their results (reviewers, sceptics, the agents of
 max-review); an agent whose result shows no count makes the line `Review tokens: not measured`,
 never an estimate. When the round's verdict is written down (a PR comment, a `gate:` commit, a line

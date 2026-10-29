@@ -243,8 +243,9 @@ completed before dispatch by the agent `worfy:scout` (the brief gives the path `
 the ticket with `file:line`.
 
 **Agents mode.** How many subagents a ticket starts is `F workflow.agents`: `full` or `eco`.
-No field (exit 4 or `null`) — `full`: the agents as before. The orchestrator decides the mode per
-ticket in the preflight, by its trail section. With `eco` the scout goes only when no file the trail
+No field (exit 4 or `null`) — `full`: the agents as before. Any other value is read as `full`, with
+the reason `workflow.agents`. The orchestrator decides the mode per ticket in the preflight, by its
+trail section, and checks it again on the diff of a small ticket it did itself (section 2). With `eco` the scout goes only when no file the trail
 section names exists yet, or the ticket touches a folder that the trail section of no earlier ticket
 of the epic names; otherwise the orchestrator completes the list itself, reading the files at their
 `file:line`. With `eco` a small ticket — only documents, or one change in one file of its trail
@@ -344,7 +345,14 @@ A small ticket in `eco` (section 1) gets no implementer: the orchestrator does i
 worktree of its own by `F worktree.implementer`, by the steps `F workflow.implementer_steps` up to
 the finish `F workflow.finish`, and gives the verifier the fields of an implementer's report
 (commands with exit codes, claims, what was removed). Its row of the plan names `orchestrator` in
-the "Who" column.
+the "Who" column. Right after `git worktree add` the orchestrator enters that worktree with
+`EnterWorktree` (the `path` of the worktree): the PreToolUse check on Edit and Write lets edits only
+into the session's worktree. Before it starts the verifier, it returns with `ExitWorktree`
+(`action: "keep"`): the worktree stays for the gate and the merge. Before the verifier, the
+orchestrator checks the diff of the small ticket against the cases where `full` is required
+(section 1). On a match the ticket goes to an implementer, whose brief names the orchestrator's
+commit in `Base:`, and the report line of the ticket is `Agents: full — <the case>`, for example
+`Agents: full — destructive action`.
 
 - `parallel: worktrees` — one agent per ticket, all in one message. `F worktree.root` must lie under
   `.claude/worktrees/` of the repository: an implementer subagent edits only in a tree it entered with
