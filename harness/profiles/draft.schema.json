@@ -131,6 +131,17 @@
             }
           }
         },
+        "agents": {
+          "type": ["object", "null"],
+          "description": "The model and effort of each Harness agent role (profiles/README.md, agents.<role>.model and agents.<role>.effort); skills epic-wave and ship-ticket pass them as the Agent parameters model and effort. A role or field absent or null — the agent's frontmatter, as before. No haiku.",
+          "additionalProperties": false,
+          "properties": {
+            "implementer": { "type": ["object", "null"], "additionalProperties": false, "properties": { "model": { "enum": ["sonnet", "opus", null] }, "effort": { "enum": ["low", "medium", "high", null] } } },
+            "reviewer": { "type": ["object", "null"], "additionalProperties": false, "properties": { "model": { "enum": ["sonnet", "opus", null] }, "effort": { "enum": ["low", "medium", "high", null] } } },
+            "scout": { "type": ["object", "null"], "additionalProperties": false, "properties": { "model": { "enum": ["sonnet", "opus", null] }, "effort": { "enum": ["low", "medium", "high", null] } } },
+            "verifier": { "type": ["object", "null"], "additionalProperties": false, "properties": { "model": { "enum": ["sonnet", "opus", null] }, "effort": { "enum": ["low", "medium", "high", null] } } }
+          }
+        },
         "numbering": { "type": ["object", "null"] },
         "deploy": { "type": ["object", "null"] },
         "github": {

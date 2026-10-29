@@ -914,8 +914,11 @@ check "epic-wave section 2: the orchestrator enters the worktree of a small tick
     'Right after `git worktree add` the orchestrator enters that worktree with `EnterWorktree` (the `path` of the worktree): the PreToolUse check on Edit and Write lets edits only into the session'"'"'s worktree.'
 SMALL_CHECK='Before any push or PR — after its local checks and a local commit — the orchestrator checks the diff of the small ticket against the cases where `full` is required (section 1).'
 SMALL_GO='No match: it goes on to the finish `F workflow.finish`, returns with `ExitWorktree` (`action: "keep"`) and starts the verifier; the worktree stays for the gate and the merge.'
-SMALL_HAND='On a match nothing is pushed and no PR is opened: the orchestrator returns with `ExitWorktree` (`action: "keep"`), and the ticket goes to an implementer the way a rework round does (section 3): `git worktree remove <worktree>` only, the local branch stays, the agent starts with `isolation: "worktree"`, and its brief is the rework brief with `Findings: none — a small ticket handed over: <the case>` and the line `Worktree: your launch tree (isolation "worktree") — git checkout <branch>` (the local branch, not pushed), never the `F worktree.implementer` template of the first brief.'
-SMALL_DONE='The implementer takes the orchestrator'"'"'s commit as its starting point: it reviews that commit, adds the tests the change needs, runs the checks and carries the ticket to its finish (push, PR, CI). The report line of the ticket is `Agents: full — <the case>`, for example `Agents: full — destructive action`.'
+SMALL_HAND='On a match nothing is pushed and no PR is opened: the orchestrator returns with `ExitWorktree` (`action: "keep"`), and the ticket goes to an implementer the way a rework round does (section 3): `git worktree remove <worktree>` only, the local branch stays, the agent starts with `isolation: "worktree"`, and its brief is the rework brief with `Findings: none — a small ticket handed over: <the case>`, the line `PR: none — open it (ship-ticket, step 8)` (with `agent-review` before `ci` in the Pipeline, section 0: `PR: none — stop after step 6 with the branch pushed, the review by agents comes first`; with `local-green`: `PR: none`), the line `Worktree: your launch tree (isolation "worktree") — git checkout <branch>` (the local branch, not pushed) and the line `Start from the orchestrator'"'"'s commit: review it, add the tests the change needs, run the checks and carry the ticket as far as the PR: line says.`, never the `F worktree.implementer` template of the first brief.'
+check "epic-wave section 2: the hand-off brief does not promise a PR whatever the Pipeline says" lacks_re_text "$ew2" 'carry the ticket to its finish (push, PR, CI)'
+# The hand-off brief itself carries the promise; the old prose about the implementer outside the brief is gone.
+SMALL_DONE='The report line of the ticket is `Agents: full — <the case>`, for example `Agents: full — destructive action`.'
+check "epic-wave section 2: the promise is a line of the hand-off brief, not prose around it" lacks_re_text "$ew2" 'The implementer takes the orchestrator'"'"'s commit as its starting point'
 check "epic-wave section 2: the diff of a small ticket is checked before any push or PR" in_flat "$ew2" "$SMALL_CHECK"
 check "epic-wave section 2: no match — the finish, then the verifier" in_flat "$ew2" "$SMALL_GO"
 check "epic-wave section 2: a match — no push, the rework way, the existing local branch, no worktree template" in_flat "$ew2" "$SMALL_HAND"
@@ -955,10 +958,11 @@ check "both skills decide the full cases on the diff: ship-ticket before its rev
 # The draft schema, run through bin/project-connect --schema-only as skill connect-project proposes it.
 AM="$T/agents-mode"; mkdir -p "$AM/hh" "$AM/repo"; AM="$(cd "$AM" && node_path "$(pwd -P)")"
 # agents_schema <name> <expected exit> <expected output fragment> <workflow.agents as JSON, or "none">
+#               [<the profile's agents (model and effort by role) as JSON, or "none">]
 agents_schema() {
     local out code
-    node - "$4" "$AM/repo" >"$AM/draft.json" <<'NODE' || { bad "$1 (the draft was not built)"; return; }
-const [agents, match] = process.argv.slice(2)
+    node - "$4" "$AM/repo" "${5:-none}" >"$AM/draft.json" <<'NODE' || { bad "$1 (the draft was not built)"; return; }
+const [agents, match, roles] = process.argv.slice(2)
 const workflow = { folder: null, ticket_skill: "ship-ticket", implementer_steps: "steps 1-8", finish: "local-green", merge: "orchestrator" }
 if (agents !== "none") workflow.agents = JSON.parse(agents)
 const profile = {
@@ -973,6 +977,7 @@ const profile = {
   workflow, numbering: null, deploy: null, github: { account: null }, docs: null, lessons: "repo:docs/lessons",
   mcp: { allowed: ["plugin_worfy_qmd", "worfy-canvas"] }, review: { lenses: ["correctness"], ticket_lenses: ["correctness"] },
 }
+if (roles !== "none") profile.agents = JSON.parse(roles)
 const gate = [{ key: "shop", match, profile: "shop", pm: "npm", root: { fast: ["lint", "test"], full: ["lint", "test"] }, workspace: {} }]
 process.stdout.write(JSON.stringify({ profile, rules: "# shop\n\n## Sources\n\n- package.json\n", gate }))
 NODE
@@ -987,6 +992,61 @@ agents_schema "schema: another value is refused, the field named" 1 '"path": "pr
 agents_schema "schema: a value in another case is refused" 1 '"path": "profile.workflow.agents"' '"ECO"'
 agents_schema "schema: a number is refused" 1 '"path": "profile.workflow.agents"' 2
 check "schema: --schema-only wrote nothing into HARNESS_HOME" test -z "$(ls -A "$AM/hh")"
+# 9f. Model and effort by role: the profile fields agents.<role>.model (sonnet | opus) and agents.<role>.effort
+# (low | medium | high) for implementer, reviewer, scout and verifier. Both skills pass them as the Agent
+# parameters model and effort; an argument or the owner's word overrides them for one ticket; no field — no
+# parameter, the agent's frontmatter as before; the report names the model, the effort and their source.
+M_ORDER='Which value wins: the owner'"'"'s word in a message (`Ticket <NN> — opus`, in any language), then an argument of the skill — each for that one ticket — then `F agents.<role>.model` and `F agents.<role>.effort`, then the agent'"'"'s frontmatter.'
+M_NOFIELD='No field (exit 4 or `null`) and no argument — no parameter: the agent runs with the `model` and `effort` of its frontmatter, as before.'
+M_OTHER='Any other value, `haiku` too, is not passed: the next source decides, and the report names the reason.'
+M_LINE='The report names them for every agent it started: `Model: <model> (<where it came from>), effort: <effort> (<where it came from>)`, where `<where it came from>` is `argument`, `owner'"'"'s word`, `agents.<role>` or `frontmatter`.'
+for m in M_ORDER M_NOFIELD M_OTHER M_LINE; do
+    check "ship-ticket step 7: $m" in_flat "$st7" "${!m}"
+    check "epic-wave: $m is not repeated, it points at ship-ticket" lacks_re_text "$(cat "$EW")" "${!m}"
+done
+check "ship-ticket step 7: no override sentence without the order" lacks_re_text "$st7" 'overrides the profile field for that one ticket'
+check "epic-wave section 2: the parameters of every agent from F agents.<role>" in_flat "$ew2" \
+    'Every agent this skill starts gets the Agent parameters `model` and `effort` of its role, `F agents.<role>.model` and `F agents.<role>.effort`,'
+check "epic-wave section 2: the four roles, the verifier and the sceptics placed" in_flat "$ew2" \
+    'where `<role>` is implementer, scout, verifier (agent `worfy:reviewer` with the lens "implementer'"'"'s report") or reviewer (the other reviewers and the sceptics).'
+check "epic-wave section 2: the argument form, and the word and argument set every agent of the ticket" in_flat "$ew2" \
+    'The argument is `<NN> model <sonnet|opus>` or `<NN> effort <low|medium|high>` after the list of tickets; it and the owner'"'"'s word (`Ticket <NN> — opus`) set every agent of that ticket.'
+check "epic-wave section 2: the pointer to ship-ticket step 7" in_flat "$ew2" \
+    'The order of the sources, the default, the values that are not passed and the `Model:` report line are those of `/worfy:ship-ticket`, step 7, paragraph "Model and effort".'
+check "epic-wave section 2: no role form of the owner's word left undefined" lacks_re_text "$ew2" 'a word without a role'
+check "ship-ticket step 7: the reviewer call with model and effort from F agents.reviewer" in_flat "$st7" \
+    '`Agent({subagent_type: "worfy:reviewer", model: <F agents.reviewer.model>, effort: <F agents.reviewer.effort>, …})`'
+check "ship-ticket step 7: the argument form" in_flat "$st7" 'The argument is `/worfy:ship-ticket <epic> <NN> model <sonnet|opus> effort <low|medium|high>`'
+check "epic-wave section 5: the Model lines of every ticket" in_flat "$ew5" 'and the `Model:` line of each of its agents (section 2)'
+check "epic-wave section 5: the example Model line" bash -c 'grep -qxF "07: verify-07 — Model: sonnet (agents.verifier), effort: high (frontmatter)" <<<"$1"' _ "$ew5"
+# The frontmatter of the agents does not change: an old profile without the fields works as before.
+for a in implementer:inherit:high reviewer:inherit:high scout:sonnet:medium; do
+    IFS=: read -r who model effort <<<"$a"
+    check "agents/$who.md keeps model: $model and effort: $effort" bash -c \
+        'head -12 "$1" | grep -qx "model: $2" && head -12 "$1" | grep -qx "effort: $3"' _ "$HARNESS/agents/$who.md" "$model" "$effort"
+done
+for fld in model effort; do
+    check "README: a row for agents.<role>.$fld" grep -qF "| \`agents.<role>.$fld\` |" "$RD"
+done
+check "README: the model values" grep -qF '| `agents.<role>.model` | `"sonnet"` \| `"opus"` \| null |' "$RD"
+check "README: the effort values" grep -qF '| `agents.<role>.effort` | `"low"` \| `"medium"` \| `"high"` \| null |' "$RD"
+check "README: haiku is refused" in_flat "$rd" '`"haiku"` — the draft schema refuses it'
+check "README: no field — the frontmatter, as before" in_flat "$rd" 'absent or `null` — no parameter: the agent'"'"'s frontmatter, as before'
+agents_schema "schema: no agents passes" 0 '"ok": true' none none
+agents_schema "schema: agents.implementer.model sonnet passes" 0 '"ok": true' none '{"implementer":{"model":"sonnet"}}'
+agents_schema "schema: agents.implementer.model opus passes" 0 '"ok": true' none '{"implementer":{"model":"opus"}}'
+agents_schema "schema: the four roles with model and effort pass" 0 '"ok": true' none \
+    '{"implementer":{"model":"opus","effort":"high"},"reviewer":{"model":"sonnet","effort":"medium"},"scout":{"model":"sonnet","effort":"low"},"verifier":{"model":"sonnet","effort":"high"}}'
+agents_schema "schema: null role and null fields pass" 0 '"ok": true' none '{"scout":null,"reviewer":{"model":null,"effort":null}}'
+for role in implementer reviewer scout verifier; do
+    agents_schema "schema: agents.$role.model haiku is refused, the field named" 1 "\"path\": \"profile.agents.$role.model\"" none "{\"$role\":{\"model\":\"haiku\"}}"
+    agents_schema "schema: agents.$role.effort max is refused, the field named" 1 "\"path\": \"profile.agents.$role.effort\"" none "{\"$role\":{\"effort\":\"max\"}}"
+done
+agents_schema "schema: a full model ID is refused" 1 '"path": "profile.agents.reviewer.model"' none '{"reviewer":{"model":"claude-opus-5-5"}}'
+agents_schema "schema: an unknown role is refused" 1 '"path": "profile.agents.tester"' none '{"tester":{"model":"sonnet"}}'
+agents_schema "schema: an unknown field of a role is refused" 1 '"path": "profile.agents.scout.temperature"' none '{"scout":{"temperature":1}}'
+agents_schema "schema: agents as a string is refused" 1 '"path": "profile.agents"' none '"sonnet"'
+check "schema: --schema-only wrote nothing into HARNESS_HOME (agents by role)" test -z "$(ls -A "$AM/hh")"
 # 10. The temporary HOME recipe of section 2 runs. It is cut out of the skill, with `true` for
 # <commands.verify>, and runs in a temporary git repository that a stand-in registry of a stand-in
 # home registers. The recipe's gate finds that registry: both EXIT=0 and the green line. The same
