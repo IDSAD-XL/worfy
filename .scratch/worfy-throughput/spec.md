@@ -684,7 +684,7 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
 Правило то же: Ticket стоит в первой Wave, где закрыты его блокеры; при общем файле Ticket с большим номером уходит
 дальше. Номера Wave в этой таблице свои. Ticket, который правит `harness/skills/epic-wave/SKILL.md` или
 `ship-ticket/SKILL.md`, идёт не раньше Ticket-а 28 первой таблицы (`epic-wave/SKILL.md` правят 07, 13, 26, 27, 28;
-`ship-ticket/SKILL.md` — 33). Порядок по общему файлу: 33 → 36 → 37.
+`ship-ticket/SKILL.md` — 33). Порядок по общему файлу: 36 → 37 → 33 (решение 2026-10-29).
 
 | Тикет | Что | Blocked by | Нужен ПК? | Трогает Harness? | Вердикт Windows | Волна |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -692,7 +692,7 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
 | 39 | Карта кода: замер доли разведки; только если доля большая — карта scout-а | 19 | нет | да, если карта нужна (`harness/bin/code-map`, `scout.md`) | runner `full`, если есть скрипт | 1 |
 | 40 | Доля Limits на Wave в журнале Autopilot и оценка перед Wave | 19 | для merge — если в diff `test/e2e/**` | нет (код worfy) | `pc`, если в diff `test/e2e/**`; иначе runner `full` | 1 |
 | 41 | Autopilot с бюджетом Limits | 40 | для merge — если в diff `test/e2e/**` | нет (код worfy) | `pc`, если в diff `test/e2e/**`; иначе runner `full` | 2 |
-| 36 | Режим `eco`: агентов на Ticket — поле Profile | — | нет | да (`epic-wave`, `ship-ticket`, `profiles/README.md`, schema) | не платформенный, если не меняются скрипты `harness/bin` (test-ы в `harness/bin/tests/` не в счёт) | 2 (после 28 и 33) |
+| 36 | Режим `eco`: агентов на Ticket — поле Profile | — | нет | да (`epic-wave`, `ship-ticket`, `profiles/README.md`, schema) | не платформенный, если не меняются скрипты `harness/bin` (test-ы в `harness/bin/tests/` не в счёт) | 2 (после 28; 33 теперь после 37) |
 | 37 | Модель и effort по роли из Profile | — | нет | да (`epic-wave`, `ship-ticket`, `profiles/README.md`, schema; frontmatter агентов не меняется) | не платформенный, если не меняются скрипты `harness/bin` (test-ы в `harness/bin/tests/` не в счёт) | 3 (общие файлы с 36) |
 | 42 | Preset Profile по плану подписки | 36, 37, 41 | для merge — если в diff `test/e2e/**` | да (`bin/profile-set`, `profiles/README.md`) | платформенный PR: `pc`, если в diff `test/e2e/**` (`scripts/windows-verdict-scope.mjs:80`); иначе runner `full` | 4 |
 | 43 | Замер эффекта: eval `eco` против `full`, повторный замер | 19, 36, 37, 39; из другого Epic-а — `worfy-harness` 52 | нет | нет | не платформенный | 4 |
@@ -725,7 +725,7 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
   Фиксированных ожиданий там нет: время уходит на сборку миров git-ом и на clone в `pr merge` stub-а gh.
 - **52 после 28:** 28 дал `wave-brief` и «report, brief, stop» в конце Wave; 52 делает то же в Autopilot —
   `src/main/autopilot/run.ts` ведёт все Wave run-а в одной SDK session.
-- **33 правит `ship-ticket/SKILL.md`**, как 36 и 37: 33 (Wave 3 первой таблицы) идёт раньше.
+- **33 после 37** (решение 2026-10-29): все три правят `harness/skills/ship-ticket/SKILL.md`; 36 влит (#950), 37 в работе у Session моста.
 - **`pc` для 40, 41, 42:** e2e-файлы входят в `PC_ONLY` (`scripts/windows-verdict-scope.mjs:80`), а ПК на паузе. Если
   e2e не нужен, такой PR идёт с runner `full`.
 

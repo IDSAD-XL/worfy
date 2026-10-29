@@ -1,7 +1,7 @@
 # 12 — CI на Linux на каждый PR: unit и contract test-ы в 3–4 shard-ах на `ubuntu-latest`
 
 Type: task
-Status: open
+Status: done 2026-10-29T06:13Z
 Blocked by: 10
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-20: скорость test-ов», решение Q4;
 [ADR-0081](../../../docs/adr/0081-per-pr-linux-ci-shards-and-affected-tests.md) (принят 2026-10-20), пункт 1;
@@ -39,28 +39,37 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 
 ## Готово, когда
 
-- [ ] PR этого Ticket-а сам получает CI run из 3–4 shard-ов на `ubuntu-latest`; ссылка — в «Итог».
-- [ ] Время CI на PR от push до итогового check — в «Итог», рядом с 14,4 min медианы job-а `check`.
-- [ ] `test/contract/ci-workflow.test.ts` проверяет: триггер `pull_request`, matrix shard-ов только на
-      `ubuntu-latest`, ни одного job-а на macOS на PR, dispatch для batch на месте.
+- [x] PR этого Ticket-а сам получает CI run из 3–4 shard-ов на `ubuntu-latest`; ссылка — в «Итог».
+- [x] Время CI на PR от push до итогового check — в «Итог», рядом с 14,4 min медианы job-а `check`.
+- [x] `test/contract/ci-workflow.test.ts` проверяет: триггер `pull_request`, matrix shard-ов только на
+      `ubuntu-latest`, ни одного job-а на macOS на PR, dispatch для batch на месте. (Пункт «ни одного job-а на
+      macOS на PR» — заменено Ticket-ом 35 / ADR-0083: macOS-job-ы идут на PR. Пункт «dispatch для batch» —
+      заменено Ticket-ом 35 / ADR-0083, пункт 7: batch на `main` заменён run-ом на push в `main`; остался только
+      ручной dispatch `job=check`.)
 - [ ] `profile --field workflow.ci` принимает новый режим; неизвестное значение — exit 1 с причиной;
-      `harness/bin/tests/profile.test.sh` это проверяет.
-- [ ] С новым режимом тексты Harness ждут CI на PR и запускают batch на `main`; shell test-ы проверяют.
+      `harness/bin/tests/profile.test.sh` это проверяет. — заменено Ticket-ом 35 / ADR-0083: нового режима
+      нет, режим `pr`.
+- [ ] С новым режимом тексты Harness ждут CI на PR и запускают batch на `main`; shell test-ы проверяют. —
+      заменено Ticket-ом 35 / ADR-0083: batch на `main` заменён CI на каждый push.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; shell test-ы Harness — exit 0; вердикт
-      Windows; gate full — шаг Orchestrator-а перед merge.
+      Windows; gate full — шаг Orchestrator-а перед merge. — заменено Ticket-ом 35 / ADR-0083: условие merge —
+      check `ci-ok`.
 
 ## Открытые вопросы
 
 Решает владелец по числам Ticket-а 10; исполнитель не выбирает сам.
 
-- **3 или 4 shard-а.** И как делить: `--shard` vitest делит по числу файлов, а contract-файлы в разы
+- ~~**3 или 4 shard-а.**~~ — решено Ticket-ом 35: 4 shard-а `--shard` vitest
+  (`.github/workflows/ci.yml:138-143`). И как делить: `--shard` vitest делит по числу файлов, а contract-файлы в разы
   дороже unit-файлов — возможно, нужен свой раздел по времени файлов из отчёта Ticket-а 10.
 - ~~Flaky test на PR: чинить или карантин~~ — решено 2026-10-28: карантин с владельцем и датой выхода, без
   автоматического повтора shard-а (решение 2 раздела «Решения владельца 2026-10-28»), делает Ticket 20.
-- **Число shard-ов зависит от runner-а.** Сколько vCPU у `ubuntu-latest` в CI run-ах репозитория (для
+- ~~**Число shard-ов зависит от runner-а.**~~ — решено Ticket-ом 35: 4 shard-а, каждый 2–4 min на
+  #870. Сколько vCPU у `ubuntu-latest` в CI run-ах репозитория (для
   приватного репозитория стандартный runner — 2 vCPU; по логу CI не подтверждено), столько параллельных
   потоков vitest внутри shard-а; от этого зависит, 3 или 4 shard-а.
-- **Имя режима Profile-а.** Новое значение `workflow.ci` (например `pr+batch`) или отдельное поле.
+- ~~**Имя режима Profile-а.**~~ — решено Ticket-ом 35: режим `pr` (`profile --field
+  workflow.ci` печатает `pr`), без нового значения. Новое значение `workflow.ci` (например `pr+batch`) или отдельное поле.
 
 ## Где в коде
 
@@ -81,3 +90,19 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - Windows-runner — по ADR-0071, без изменений.
 
 ## Итог
+
+Выполнен Ticket-ом 35 (PR #870), [ADR-0083](../../../docs/adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md).
+Своего PR у Ticket-а нет.
+
+- `ci.yml` запускается на `pull_request`, на push в `main` и вручную (`.github/workflows/ci.yml:47-57`;
+  `test/contract/ci-workflow.test.ts:85`). Job `linux-tests` — `ubuntu-latest`, matrix `1/4`…`4/4`,
+  `pnpm test --shard` (`ci.yml:131-143`, `:165`; test `:152`, `:197`). Итоговый check — `ci-ok`, он ждёт все job-ы
+  (`ci.yml:354`; test `:237`). Ручной dispatch `job=check` (lint и Linux-shard-ы) остался (test `:95`, `:840`), но batch run-ом на `main`
+  больше не служит.
+- CI run #870: `linux-tests (1/4)`…`(4/4)` — SUCCESS, 2–4 min каждый, Linux-часть готова через 4 min после
+  push (медиана прежнего job-а `check` — 14,4 min). `ci-ok` на #870 — через 24 min (его держат macOS e2e и
+  Windows `full-suite`), и он красный: `macos-e2e` и `windows / full-suite` упали. PR влит раньше, когда
+  условием merge ещё был gate full.
+- Заменено Ticket-ом 35 / ADR-0083: режим Profile-а «pr+batch» и тексты Harness, которые ждут batch на `main`
+  (batch заменён CI на каждый push в `main`); gate full перед merge (условие merge — `ci-ok`); job-ов macOS на PR теперь три.
+  Минуты Actions (пункт 4 «Что делаем») — не вопрос: репозиторий публичный, GitHub-hosted runner-ы бесплатны.
