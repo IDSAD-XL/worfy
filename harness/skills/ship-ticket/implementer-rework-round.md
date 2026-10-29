@@ -11,7 +11,7 @@ orchestrator launches you with `isolation: "worktree"`: your working directory i
 tree of your own, the previous round's tree is removed. Never call `EnterWorktree` — it refuses a
 subagent started at the repository root, by `path` and by `name` — and do not create another tree.
 Check out the branch in your tree. Without `origin` (`git remote get-url origin` fails: `local-green`, Silent mode): the local branch, `git checkout <branch>` (worktrees share the branches; the
-orchestrator kept it). With `origin`, `git ls-remote --exit-code --heads origin <branch>`: exit 0 — pushed: `git fetch origin <branch>`, then `git checkout -B <branch> origin/<branch>`;
+orchestrator kept it). With `origin`, `git ls-remote --exit-code --heads origin <branch>`: exit 0 — pushed: `git fetch origin <branch>`, then `git checkout -B <branch> origin/<branch>`, unless the local branch has commits origin lacks (`git merge-base --is-ancestor <branch> origin/<branch>` exits 1): then the local branch;
 exit 2 — never pushed: the local branch, as above; any other exit (network, access) — stop and report, do not guess. A
 working directory that is the main checkout or someone else's tree — stop and ask. An Edit or
 Write that is refused is never written around (python, sed or a heredoc in Bash): stop and report

@@ -736,8 +736,10 @@ Otherwise the previous round's worktree is idle: remove it and launch the new ag
 Agent parameter `isolation: "worktree"`, which gives it a fresh tree of its own. What happens to
 the branch depends on where it lives:
 - `pr-green-ci`: `git worktree remove <worktree>`, then the block below decides on the local branch
-  by `git ls-remote --exit-code --heads origin <branch>`: exit 0 (on origin) — `git branch -D
-  <branch>`, and the new agent fetches it and checks it out from origin; exit 2 (never pushed) — the
+  by `git ls-remote --exit-code --heads origin <branch>`: exit 0 (on origin) — fetch it, and `git
+  branch -D <branch>` only when the local tip is in origin's (`git merge-base --is-ancestor <branch>
+  origin/<branch>`); then the new agent checks it out from origin. Local commits not on origin keep
+  the branch, and the new agent takes the local branch; exit 2 (never pushed) — the
   branch stays, as with `local-green` below; any other exit — the branch stays, and the wave report
   says why.
 - `local-green` or a repository without `origin` — nothing is pushed, and the local branch is the
@@ -749,7 +751,10 @@ the branch depends on where it lives:
 git -C <repo> worktree remove <worktree>; echo "EXIT=$?"
 git -C <repo> ls-remote --exit-code --heads origin <branch> >/dev/null; rc=$?
 case $rc in
-  0) git -C <repo> branch -D <branch> ;;   # on origin: the new agent fetches it
+  0) if ! git -C <repo> fetch -q origin <branch>; then echo "KEEP: fetch failed, <branch> kept"
+     elif git -C <repo> merge-base --is-ancestor <branch> origin/<branch>; then
+       git -C <repo> branch -D <branch>   # all on origin: the new agent fetches it
+     else echo "KEEP: <branch> has local commits not on origin (the new agent takes it)"; fi ;;
   2) echo "KEEP: <branch> never pushed, the local branch is its only copy" ;;
   *) echo "KEEP: ls-remote exit $rc, <branch> not deleted (say so in the report)" ;;
 esac

@@ -455,7 +455,7 @@ check "epic-wave section 3: the orchestrator removes the previous round's idle w
 # The delete goes by whether the branch is on origin, not by workflow.finish: a pr-green-ci branch whose
 # implementer stopped before its push holds the only copy of its commits.
 check "epic-wave section 3: a pr-green-ci branch is deleted only when it is on origin" \
-    in_rw3 '- `pr-green-ci`: `git worktree remove <worktree>`, then the block below decides on the local branch by `git ls-remote --exit-code --heads origin <branch>`: exit 0 (on origin) — `git branch -D <branch>`, and the new agent fetches it and checks it out from origin; exit 2 (never pushed) — the branch stays, as with `local-green` below; any other exit — the branch stays, and the wave report says why.'
+    in_rw3 '- `pr-green-ci`: `git worktree remove <worktree>`, then the block below decides on the local branch by `git ls-remote --exit-code --heads origin <branch>`: exit 0 (on origin) — fetch it, and `git branch -D <branch>` only when the local tip is in origin'"'"'s (`git merge-base --is-ancestor <branch> origin/<branch>`); then the new agent checks it out from origin. Local commits not on origin keep the branch, and the new agent takes the local branch; exit 2 (never pushed) — the branch stays, as with `local-green` below; any other exit — the branch stays, and the wave report says why.'
 check "epic-wave section 3: no unconditional branch -D for a pushed branch" \
     lacks "$EW" '- pushed (`pr-green-ci`): `git worktree remove <worktree>`, then `git branch -D <branch>`'
 # The block itself, on a repository with a bare origin: pushed — deleted; never pushed — kept; origin unreachable — kept.
@@ -464,10 +464,12 @@ check "epic-wave section 3: a bash block decides on the branch by ls-remote" tes
 DR="$(mktemp -d)"; git init -q --bare "$DR/origin.git"; git init -q -b main "$DR/repo"
 git -C "$DR/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
 git -C "$DR/repo" remote add origin "$DR/origin.git"
-del_case() { # del_case <branch> <push: yes|no> <origin url> → $drc $dout; the branch is in its own worktree
+del_case() { # del_case <branch> <push: yes|no> <origin url> [ahead] → $drc $dout; the branch is in its own worktree
     git -C "$DR/repo" branch "$1"; git -C "$DR/repo" worktree add -q "$DR/wt-$1" "$1"
     git -C "$DR/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m only-copy
     [ "$2" = yes ] && git -C "$DR/repo" push -q origin "$1:refs/heads/$1"
+    # ahead: the next round's commit on the branch after its push, never pushed itself
+    [ "${4:-}" = ahead ] && git -C "$DR/wt-$1" -c user.name=t -c user.email=t@t commit -q --allow-empty -m next-round
     git -C "$DR/repo" remote set-url origin "$3"
     local b="${DEL_BLOCK//<repo>/$DR/repo}"; b="${b//<worktree>/$DR/wt-$1}"; b="${b//<branch>/$1}"
     dout="$(cd "$DR" && bash -c "$b" 2>&1)"; drc=$?
@@ -476,6 +478,9 @@ del_case() { # del_case <branch> <push: yes|no> <origin url> → $drc $dout; the
 del_case pushed yes "$DR/origin.git"
 check "branch block: a branch on origin is deleted, its worktree removed — exit $drc [$dout]" \
     bash -c '[ "$1" = 0 ] && ! git -C "$2/repo" rev-parse -q --verify refs/heads/pushed >/dev/null && [ ! -d "$2/wt-pushed" ]' _ "$drc" "$DR"
+del_case ahead yes "$DR/origin.git" ahead
+check "branch block: a pushed branch with a local commit on top is kept — exit $drc [$dout]" \
+    bash -c 'git -C "$2/repo" log -1 --format=%s refs/heads/ahead 2>/dev/null | grep -qx next-round && [[ "$3" == *KEEP*"local commits not on origin"* ]]' _ "$drc" "$DR" "$dout"
 del_case never no "$DR/origin.git"
 check "branch block: a branch never pushed is kept — exit $drc [$dout]" \
     bash -c 'git -C "$2/repo" rev-parse -q --verify refs/heads/never >/dev/null && [ ! -d "$2/wt-never" ] && [[ "$3" == *KEEP* ]]' _ "$drc" "$DR" "$dout"
@@ -556,7 +561,7 @@ check "implementer: a rework round starts in its isolation-worktree tree and nev
 check "implementer: a rework round without origin checks out the local branch" \
     in_flat "$(cat "$IM")" 'Check out the branch in your tree. Without `origin` (`git remote get-url origin` fails: `local-green`, Silent mode): the local branch, `git checkout <branch>` (worktrees share the branches; the orchestrator kept it).'
 check "implementer: a rework round fetches a pushed branch before checking it out" \
-    in_flat "$(cat "$IM")" 'With `origin`, `git ls-remote --exit-code --heads origin <branch>`: exit 0 — pushed: `git fetch origin <branch>`, then `git checkout -B <branch> origin/<branch>`;'
+    in_flat "$(cat "$IM")" 'With `origin`, `git ls-remote --exit-code --heads origin <branch>`: exit 0 — pushed: `git fetch origin <branch>`, then `git checkout -B <branch> origin/<branch>`, unless the local branch has commits origin lacks (`git merge-base --is-ancestor <branch> origin/<branch>` exits 1): then the local branch;'
 check "implementer: a rework round treats only exit 2 as not pushed" \
     in_flat "$(cat "$IM")" 'exit 2 — never pushed: the local branch, as above; any other exit (network, access) — stop and report, do not guess.'
 LSR="$(mktemp -d)"; git init -q --bare "$LSR/origin.git"; git init -q "$LSR/w"
