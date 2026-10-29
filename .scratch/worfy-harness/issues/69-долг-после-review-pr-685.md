@@ -1,18 +1,19 @@
 # 69 — Долг после review PR #685: grader и закрепление «вердикт первым»
 
 Type: task
-Status: claimed 2026-10-29T17:15Z
+Status: done 2026-10-29T17:43Z
+PR: #1015
 Branch: worfy-harness/69
 Blocked by: —
 Source: ревью PR [#685](https://github.com/IDSAD-XL/worfy/pull/685) (follow-up Ticket-а 50), 2026-10-21. Все находки — low.
 
 ## Готово, когда
 
-- [ ] `harness/evals/reviewer-verdict/graders/rejected-first.md:4` — шаблон `^REJECTED` не проверяет двоеточие и
+- [x] `harness/evals/reviewer-verdict/graders/rejected-first.md:4` — шаблон `^REJECTED` не проверяет двоеточие и
       «один вердикт»: `REJECTED — …; VERIFIED: …` проходит. Правка: `^REJECTED:(?!.*VERIFIED)` или второй grader.
-- [ ] `harness/agents/reviewer.md:198-199` — оговорка «Answer format» (под линзой отчёта implementer-а вердикт идёт
+- [x] `harness/agents/reviewer.md:198-199` — оговорка «Answer format» (под линзой отчёта implementer-а вердикт идёт
       первым) не закреплена в `agents-text.test.sh`; добавить строку `rv`.
-- [ ] Test-ы `harness/` по затронутым файлам — exit 0.
+- [x] Test-ы `harness/` по затронутым файлам — exit 0.
 
 ## Риски
 
@@ -33,3 +34,7 @@ Source: ревью PR [#685](https://github.com/IDSAD-XL/worfy/pull/685) (follow
 - `harness/bin/tests/agents-text.test.sh`: строка `rv` закрепляет оговорку «Answer format» в
   `harness/agents/reviewer.md:198-199`; без неё в агенте test красный (`AT_EXIT=1`).
 - Платный eval не запускался, `pnpm eval:harness` не нужен.
+- Ревью: VERIFIED с одним low, исправлен Orchestrator-ом в `ec44de4e`: комментарий test-а ссылался на
+  `scripts/eval-outcome-check.mjs`, который этот grader не применяет; test теперь применяет шаблон как
+  `claude plugin eval` (без trim) и требует, чтобы `REJECTED:` на второй строке не проходил (mutant `flags: m` красный).
+  Merge `0be09773`.
