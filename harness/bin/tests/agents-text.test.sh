@@ -509,6 +509,9 @@ s6 "one CI read, no gh run watch, no polling" \
 left="$(printf '%s\n' "$STEP6" | tr '\n' ' ' | tr -s ' ' | sed 's/no `gh run watch`//g' | grep -oE 'gh run watch|--watch')"
 [ -z "$left" ] && ok "implementer, step 6: no gh run watch or --watch outside the ban" \
     || bad "implementer, step 6: a CI wait is still in the finish: [$left]"
+# Polling in words is a wait too: "repeat the check every 60 s", "poll until it passes".
+left="$(printf '%s\n' "$STEP6" | tr '\n' ' ' | tr -s ' ' | grep -oiE 'every [0-9]+ ?(s|sec|seconds?|min|minutes?)\b|\bpoll(s|ing)?\b|until [^.]*pass|repeat (the|it|this)[^.]*(check|read|call)')"
+[ -z "$left" ] && ok "implementer, step 6: no polling in words" || bad "implementer, step 6: polling in words: [$left]"
 s6 "the report calls CI green only on CI=pass" \
     'the report does not call CI green unless it says `CI=pass`.'
 in_text "$STEP6" 'CI is waited for as above' && bad "implementer, step 6: still says CI is waited for" \
@@ -535,6 +538,8 @@ grep -F 'skills/ship-ticket/implementer-finish.md` at this step' "$RAW_IM" | gre
 EW3="$(awk '/^## 3\. /{s=1} s && /^## 4\. /{exit} s' "$ROOT/skills/epic-wave/SKILL.md")"
 in_text "$EW3" '**First the CI of the head.** With `pr-green-ci` and `agent-review` after `ci` the orchestrator waits for CI on the PR head with the CI wait block of section 4 before `review pending` and the verifier' \
     && ok "epic-wave section 3: the CI of the head is waited for before the verifier" || bad "epic-wave section 3: no wait for the head's CI before the verifier"
+in_text "$EW3" 'Red CI goes to a rework round (below) or to the project'"'"'s quarantine rule, without a verifier.' \
+    && ok "epic-wave section 3: red CI — a rework round or the quarantine rule" || bad "epic-wave section 3: red CI lost the quarantine rule"
 in_text "$EW3" 'With `F workflow.ci` `batch` this step does not exist.' \
     && ok "epic-wave section 3: no CI wait with batch" || bad "epic-wave section 3: the CI wait does not leave out batch"
 in_text "$EW3" '`CI=pending` the verifier still sees is not a finding and not a reason for `REJECTED`' \
