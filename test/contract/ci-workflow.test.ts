@@ -210,8 +210,8 @@ describe('ci.yml: every pull request and every push to main, one check for the m
   })
 
   // The command of that step under PowerShell, with pnpm a function that prints each argument in its
-  // own <>: an array expression in place of `@files` reaches a function, or the pnpm.ps1 shim of
-  // corepack, as one argument holding every name (run 40939802575, the same pattern in windows-tests.yml).
+  // own <>: an array expression in place of `@files` reaches a function, or a PowerShell script shim
+  // of pnpm (pnpm.ps1), as one argument holding every name (run 40939802575, the same pattern in windows-tests.yml).
   // PowerShell ships on the Windows and Linux runners; a machine without it skips these cases.
   let pwsh: string | null | undefined
   const findPwsh = (): string | null => {
@@ -424,7 +424,7 @@ describe('Windows CI: every unit and contract test file, and every Harness shell
       'run: |',
       "if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; if ($env:TEST_FILES -and -not ((-split $env:TEST_FILES) | Where-Object { (-split $env:HARNESS_SCRIPTS) -contains $_ })) { 'The list has no harness-scripts file: nothing to run' } else { $files = -split $env:HARNESS_SCRIPTS; pnpm test @files } }",
       'elseif ($env:SHARD) { $env:WORFY_TEST_EXCLUDE = $env:HARNESS_SCRIPTS; $env:WORFY_TEST_FILES = $env:TEST_FILES; pnpm test "--shard=$env:SHARD" }',
-      'else { pnpm test }',
+      "else { $env:HARNESS_SCRIPTS_PART = '1/1'; pnpm test }",
     ])
     for (const file of HARNESS_SCRIPTS) {
       expect(testFiles()).toContain(file)

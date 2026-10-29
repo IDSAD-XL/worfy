@@ -396,9 +396,9 @@ jobs:
       # the spec files of a pull request (e2e-files, plain names separated by spaces): -split cuts the
       # list on its spaces, the filter drops the empty string an empty list leaves, and splatting the
       # variable (`@files`) makes each name one argument. No name: every spec file. An array
-      # expression in its place, `@(-split …)`, reaches the pnpm.ps1 shim of corepack as one argument
-      # holding the array, and the shim hands it to node as one string with every name in it (the
-      # Harness shell test jobs of windows-tests.yml, run 40939802575).
+      # expression in its place, `@(-split …)`, reaches a PowerShell script shim of pnpm (pnpm.ps1) as
+      # one argument holding the array, and the shim hands it to node as one string with every name in
+      # it (the Harness shell test jobs of windows-tests.yml, run 40939802575).
       - name: Run the e2e tests, one shard
         shell: pwsh
         env:

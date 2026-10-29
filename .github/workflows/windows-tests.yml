@@ -224,6 +224,9 @@ jobs:
       # corepack, as one argument that holds the array; the shim hands it to node as one string with
       # the four paths, and vitest found no test file for it (run 40939802575). vitest then fails with
       # "No test files found": no --passWithNoTests here, so a job that would run no shell test is red.
+      # A dispatch (no shard) runs the whole suite in one job on a 4-CPU runner: HARNESS_SCRIPTS_PART 1/1
+      # has harness-scripts-1.test.ts run every shell test five at a time and the other three none, as
+      # in macos-tests of ci.yml, instead of four files of shell tests side by side.
       - name: Run the unit and contract suite, or a part of it
         if: steps.tests.outputs.run != 'none'
         env:
@@ -233,4 +236,4 @@ jobs:
         run: |
           if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; if ($env:TEST_FILES -and -not ((-split $env:TEST_FILES) | Where-Object { (-split $env:HARNESS_SCRIPTS) -contains $_ })) { 'The list has no harness-scripts file: nothing to run' } else { $files = -split $env:HARNESS_SCRIPTS; pnpm test @files } }
           elseif ($env:SHARD) { $env:WORFY_TEST_EXCLUDE = $env:HARNESS_SCRIPTS; $env:WORFY_TEST_FILES = $env:TEST_FILES; pnpm test "--shard=$env:SHARD" }
-          else { pnpm test }
+          else { $env:HARNESS_SCRIPTS_PART = '1/1'; pnpm test }

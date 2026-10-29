@@ -98,7 +98,7 @@ const REFUSE = ['test -z "$TEST_FILES" || { echo "::error::mode full runs the wh
 const SUITE = [
   "if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; if ($env:TEST_FILES -and -not ((-split $env:TEST_FILES) | Where-Object { (-split $env:HARNESS_SCRIPTS) -contains $_ })) { 'The list has no harness-scripts file: nothing to run' } else { $files = -split $env:HARNESS_SCRIPTS; pnpm test @files } }",
   'elseif ($env:SHARD) { $env:WORFY_TEST_EXCLUDE = $env:HARNESS_SCRIPTS; $env:WORFY_TEST_FILES = $env:TEST_FILES; pnpm test "--shard=$env:SHARD" }',
-  'else { pnpm test }',
+  "else { $env:HARNESS_SCRIPTS_PART = '1/1'; pnpm test }",
 ]
 /** A pull request (input tests-base): the test files its diff touches, as step outputs run and files. */
 const PICK = 'node scripts/affected-tests.mjs "$BASE" HEAD --github-output'
@@ -299,7 +299,7 @@ describe('.github/workflows/windows-tests.yml', () => {
     ['a part, the list has one of the files', 'harness-scripts 1/2', 'test/unit/a.test.ts test/contract/harness-scripts-3.test.ts', 'pnpm [<test> <test/contract/harness-scripts-1.test.ts> <test/contract/harness-scripts-2.test.ts> <test/contract/harness-scripts-3.test.ts> <test/contract/harness-scripts-4.test.ts>] files=[] exclude=[] part=[1/2]'],
     ['a part, the list has none of them', 'harness-scripts 2/2', 'test/unit/a.test.ts test/unit/harness-scripts-1.test.ts.md test/contract/harness-scripts.test.ts', 'The list has no harness-scripts file: nothing to run'],
     ['a part without a list', 'harness-scripts 2/2', '', 'pnpm [<test> <test/contract/harness-scripts-1.test.ts> <test/contract/harness-scripts-2.test.ts> <test/contract/harness-scripts-3.test.ts> <test/contract/harness-scripts-4.test.ts>] files=[] exclude=[] part=[2/2]'],
-    ['a dispatch', '', '', 'pnpm [<test>] files=[] exclude=[] part=[]'],
+    ['a dispatch: the whole suite, one file runs every shell test', '', '', 'pnpm [<test>] files=[] exclude=[] part=[1/1]'],
   ] as const)('mode full: the step that runs the suite under PowerShell, %s', ([, shard, list, printed], { skip }) => {
     const shell = findPwsh()
     if (shell === null) return skip('no PowerShell on this machine')

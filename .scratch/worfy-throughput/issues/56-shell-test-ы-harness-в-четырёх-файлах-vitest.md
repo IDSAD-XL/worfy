@@ -39,7 +39,9 @@ worker-ов, потом этот файл шёл один.
    `files`, как отказывал одному.
 
 Нужен ПК: замер после merge. Платформенный: да — меняет шаг Windows CI shard-ов и job-ов `harness-scripts <i>/<n>`
-и то, как Windows-run делит shell test-ы. Трогает Harness: нет (`harness/` не меняется). Вердикт Windows — по
+и то, как Windows-run делит shell test-ы. Трогает Harness: да, только текст — `harness/README.md` и комментарии
+`harness/bin/tests/wave-gate.test.sh` и `harness/hooks/tests/gate-verdict-world.sh` называли удалённый файл; поведение
+скриптов Harness не меняется. Вердикт Windows — по
 `node scripts/windows-verdict-scope.mjs`.
 
 ## Готово, когда
@@ -49,7 +51,9 @@ worker-ов, потом этот файл шёл один.
 - [x] CI: `ci-workflow.test.ts` и `windows-tests-workflow.test.ts` проверяют новый шаг, каждый shell test ровно в
       одном Windows job-е; `affected-tests` выбирает все четыре файла для пути `harness/`.
 - [x] Деление — по измеренным секундам, не по числу.
-- [x] Timeout-ы не подняты, test-ы не удалены (diff это показывает).
+- [x] Test-ы не удалены. Предел одного shell test-а (`FILE_TIMEOUT_MS`) этот тикет руками не поднимал, но после
+      тикета 57 (общий множитель timeout-ов, #1026) он идёт через `ms()`: при множителе 3 по умолчанию на Linux и
+      macOS — 360 s вместо 120 s, так задумано в тикете 57; на Windows — 900 s, как было.
 - [x] Замер на Mac (`--maxWorkers=9`): wall time `pnpm test` и gate fast до и после, время файла или файлов — в «Итог».
 - [ ] Замер на ПК — после merge.
 - [x] gate fast — `[gate] green` (exit 0, `pnpm lint && pnpm typecheck && pnpm test` — exit 0).
@@ -80,9 +84,7 @@ worker-ов, потом этот файл шёл один.
 
 ## Вне скоупа
 
-- `harness/README.md:57`, `harness/bin/tests/wave-gate.test.sh:10`, `harness/hooks/tests/gate-verdict-world.sh:6`,
-  `docs/lessons/README.md:27` называют старый файл `test/contract/harness-scripts.test.ts`. Правка `harness/`
-  запускает e2e на PR; эти ссылки — для отдельного docs-PR.
+Нет.
 
 ## Итог
 
@@ -161,7 +163,8 @@ average 9–15 во время всех run-ов: на Mac работали др
   случай «список содержит файл» красный).
 - `macos-tests` (весь набор в одном job-е на push в `main`): `HARNESS_SCRIPTS_PART: 1/1` — файл 1 гоняет все shell
   test-ы по пять, как один файл на `main` (локально: 72 case-а в файле 1, по одному в файлах 2–4). Деление на четыре
-  файла остаётся для локальных run-ов (Mac, ПК). Timeout-ы не менялись.
+  файла остаётся для локальных run-ов (Mac, ПК). Предел shell test-а в этом шаге не менялся; после rebase на
+  тикет 57 `FILE_TIMEOUT_MS` на Linux и macOS — 360 s при множителе 3 по умолчанию (раздел ниже).
 
 ### Раунд после #1026 (множитель timeout-ов) и windows-e2e
 
@@ -177,3 +180,7 @@ average 9–15 во время всех run-ов: на Mac работали др
   Теперь `$files = @(…); pnpm test:e2e "--shard=$env:SHARD" @files`. `ci-workflow.test.ts` гоняет команду из
   workflow под PowerShell со stub-ом `pnpm`, который печатает каждый аргумент отдельно (три случая: без файлов,
   один, два). Mutation check: со старой командой два случая красные, exit 1.
+- Ручной запуск `windows-tests.yml` без shard-а (`else { pnpm test }`, весь набор в одном job-е на runner-е с 4 CPU)
+  теперь ставит `HARNESS_SCRIPTS_PART=1/1`, как `macos-tests`: файл 1 гоняет все shell test-ы по пять, а не четыре
+  файла рядом. Case «a dispatch» в `windows-tests-workflow.test.ts` ждёт `part=[1/1]`; mutation check: без этой
+  установки case красный, exit 1.
