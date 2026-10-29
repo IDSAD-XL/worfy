@@ -1,7 +1,8 @@
 # 52 — worfy Autopilot начинает каждую следующую Wave в новой Session; первая команда — `wave-brief`
 
 Type: task
-Status: claimed 2026-10-29T12:55Z
+Status: done 2026-10-29T14:30Z
+PR: #994
 Blocked by: 28
 Source: [spec.md](../spec.md), раздел «Ответы владельца 2026-10-29», ответ Q5; Ticket
 [28](28-свежий-контекст-orchestrator-а-на-wave.md), раздел «Вне скоупа» (запуск новой Session из worfy Autopilot —
