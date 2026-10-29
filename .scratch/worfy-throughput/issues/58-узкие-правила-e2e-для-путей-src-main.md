@@ -187,6 +187,8 @@ check-run-ы `macos-e2e*` (`gh api repos/IDSAD-XL/worfy/commits/<sha>/check-runs
 - `pnpm lint` — exit 0; `pnpm typecheck` — exit 0.
 - `pnpm test test/contract/ci-scope-e2e.test.ts test/contract/ci-workflow.test.ts test/unit/affected-tests.test.ts`
   (все test-ы, которые читают `ci-scope`) — exit 0: 3 файла, 276 passed, 8 skipped (карантин worfy-polish 41).
+- `pnpm lint && pnpm typecheck && pnpm test` — exit 0: 476 файлов passed, 7 skipped; 10374 test-ов passed.
+- gate fast — exit 0, `[gate] nothing ran`: diff только в тикете, gate его не проверяет. Это не green.
 
 ### «Готово, когда»
 
@@ -194,5 +196,6 @@ check-run-ы `macos-e2e*` (`gh api repos/IDSAD-XL/worfy/commits/<sha>/check-runs
 - [ ] Новые строки таблицы — нет: ни один измеренный путь не проходит правило таблицы (раздел выше).
 - [ ] Contract test на каждую новую строку и mutant — нечего проверять: строк нет.
 - [x] В diff нет `.github/workflows/**`.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 - [ ] Медиана времени по стене следующих 10 PR — после merge, не implementer.
 - [ ] Повторный замер на 10 PR — после merge, не implementer.
