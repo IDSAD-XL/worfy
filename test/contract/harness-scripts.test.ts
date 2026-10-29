@@ -422,6 +422,10 @@ describe('harness shell tests', () => {
     starts.set(name, (starts.get(name) ?? 0) + 1)
     const { run } = await runInEmptyHome(file, FILE_TIMEOUT_MS)
     const problem = failure(file, run, FILE_TIMEOUT_MS)
+    // vitest prints a test's error only when its retry in CI fails too: a failed first try and a passed retry
+    // leave a FLAKY line alone (test/flaky.ts), with no word of the check that failed. Every failed try is in
+    // the log here, written directly, as test/quarantine.ts writes its lines.
+    if (problem !== null) process.stderr.write(`[harness-scripts] ${name}, try ${starts.get(name)}, failed: ${problem}\n`)
     context.expect(problem === null, problem ?? '').toBe(true)
   }
   it.concurrent.for(toRun.map((file): [string, string] => [relative(file), file]))(
