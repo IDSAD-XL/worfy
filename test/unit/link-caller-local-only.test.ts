@@ -65,6 +65,17 @@ describe('localProjectIn: what names a Project local to this Machine', () => {
     expect(localProjectIn('workflow.changed', { root: demo, epics: [] })).toStrictEqual(demoProject)
   })
 
+  it('its project label: `projectLabel` (cards.file), or the store `canvas.<project label>` on an images channel (images.file)', () => {
+    setLocalProjects(() => [demoProject])
+    expect(localProjectIn('cards.file', { projectLabel: '0a1b2c3d', cardId: 'c1', path: '/index.html' })).toStrictEqual(demoProject)
+    expect(localProjectIn('images.file', { store: 'canvas.0a1b2c3d', name: 'x.png' })).toStrictEqual(demoProject)
+    // Another Project's label, the store of sent images, and a `store` on another channel name nothing.
+    expect(localProjectIn('cards.file', { projectLabel: '1a2b3c4d', cardId: 'c1', path: '/index.html' })).toBeNull()
+    expect(localProjectIn('images.file', { store: 'attachments', name: 'x.png' })).toBeNull()
+    expect(localProjectIn('images.file', { store: 'canvas.1a2b3c4d', name: 'x.png' })).toBeNull()
+    expect(localProjectIn('browser.profiles.list', { store: 'canvas.0a1b2c3d' })).toBeNull()
+  })
+
   it('a relative path is taken from main\'s working folder, as fs and `git -C` take it', () => {
     setLocalProjects(() => [demoProject])
     expect(localProjectIn('projects.add', { path: relative(process.cwd(), demo) })).toStrictEqual(demoProject)

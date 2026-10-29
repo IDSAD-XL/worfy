@@ -61,8 +61,11 @@ function redPng(width: number, height: number): Buffer {
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', header), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))])
 }
 
-function imageNode(id: string, file: string, x: number) {
-  return { id, kind: 'image', x, y: 120, w: NATURAL.width, h: NATURAL.height, hidden: false, locked: false, pinned: false, tags: [], data: { file, ...NATURAL, mime: 'image/png' } }
+const BASE = { hidden: false, locked: false, pinned: false, tags: [] }
+
+/** An image Node at (x, y), `w` × `h` on the Canvas; the image itself is NATURAL. */
+function imageNode(id: string, file: string, x: number, y: number, w = NATURAL.width, h = NATURAL.height) {
+  return { id, kind: 'image', x, y, w, h, ...BASE, data: { file, ...NATURAL, mime: 'image/png' } }
 }
 
 /** A data folder that lists the one shared folder as Project SHARED, with `nodes` on its Canvas. */
@@ -114,7 +117,13 @@ test('A shows the image of B from B, undistorted and only to look at; a missing 
   const scratch = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-canvas-24-images-')))
   const shared = gitRepo(join(scratch, 'shared'))
   const aData = dataFolder(join(scratch, 'a-data'), shared, [])
-  const bData = dataFolder(join(scratch, 'b-data'), shared, [imageNode('pic', PICTURE, 40), imageNode('gone', GONE, 480), imageNode('big', BIG, 920)])
+  const bData = dataFolder(join(scratch, 'b-data'), shared, [
+    // The image first: a Delete of the selection goes through it before the note.
+    imageNode('pic', PICTURE, 40, 120),
+    imageNode('gone', GONE, 480, 120, 260, 130),
+    { id: 'note', kind: 'note', x: 780, y: 120, w: 200, h: 100, ...BASE, data: { text: 'A note of B' } },
+    imageNode('big', BIG, 480, 360),
+  ])
   const imagesOfB = join(bData, SHARED, 'images')
   writeFileSync(join(imagesOfB, PICTURE), redPng(NATURAL.width, NATURAL.height))
   // Over the 20 MB limit: B answers too-large and sends none of it.
@@ -149,13 +158,21 @@ test('A shows the image of B from B, undistorted and only to look at; a missing 
     await expect(a.window.locator('[data-node-id="gone"]').getByRole('img', { name: 'Image not available' })).toBeVisible({ timeout: FIRST_IMAGE_MS })
     await expect(a.window.locator('[data-node-id="big"]').getByRole('img', { name: 'Image too large' })).toBeVisible({ timeout: FIRST_IMAGE_MS })
 
-    // Selected, the image of B has no resize handles; Delete leaves it, and its file on B.
+    // Selected, the image of B has no resize handles.
     await node.click()
     await expect(a.window.locator('.react-flow__node.selected [data-node-id="pic"]')).toHaveCount(1)
     await expect(a.window.locator('.react-flow__resize-control')).toHaveCount(0)
     await evidence(a.window, 'image-of-linked-machine')
+
+    // Delete of the image with a note of B: the note goes to B's trash — the sign that the key was
+    // handled and its trash calls answered, the image's first — and the image stays, its file on B too.
+    await a.window.locator('.react-flow__node[data-id="note"] .w-note__header').click({ modifiers: ['ControlOrMeta'] })
+    await expect(a.window.locator('.react-flow__node.selected')).toHaveCount(2)
     await a.window.keyboard.press('Delete')
+    await expect(a.window.locator('.react-flow__node[data-id="note"]')).toHaveCount(0)
+    await expect(b.window.locator('.react-flow__node[data-id="note"]')).toHaveCount(0)
     await expect(node).toHaveCount(1)
+    await expect(node.getByRole('img', { name: 'Image' })).toBeVisible()
     expect(existsSync(join(imagesOfB, PICTURE))).toBe(true)
     await expect(b.window.locator('[data-testid="image-node"][data-node-id="pic"]')).toHaveCount(1)
   } finally {

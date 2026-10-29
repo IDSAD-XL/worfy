@@ -164,6 +164,20 @@ describe('an image of a Linked machine comes over the link', () => {
     expect(asked).toEqual([0])
   })
 
+  it('a piece with more bytes than the size M declared is not glued: read again, then missing', async () => {
+    const asked: number[] = []
+    const source = createLinkedImageSource({
+      machines: () => Promise.resolve([{ id: MACHINE_M }]),
+      call: (_machine, _channel, input) => {
+        asked.push(imagesFile.input.parse(input).offset)
+        return Promise.resolve({ ok: true, value: { status: 'file', extension: '.png', size: 10, mtimeMs: 1, base64: Buffer.alloc(20, 7).toString('base64') } })
+      },
+    })
+    expect(await source({ machineLabel: M_LABEL, store: 'canvas.0a1b2c3d', name: FILE, head: false })).toEqual({ status: 'missing' })
+    // Each read stops at its first piece; the second attempt starts from the start again.
+    expect(asked).toEqual([0, 0])
+  })
+
   it('M unreachable is a 502 with the reason; an unknown machine label is a 404 and nothing is asked', async () => {
     reachable = false
     const response = await get(canvasOfM(FILE))

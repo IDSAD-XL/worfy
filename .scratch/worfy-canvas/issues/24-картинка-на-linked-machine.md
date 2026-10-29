@@ -85,6 +85,23 @@ Linked machine — другая машина, к которой подключе
 `test/contract/linked-image-protocol.test.ts`. Сторона, которая показывает, ещё раз проверяет
 расширение (то, что просило имя) и предел.
 
+**Project только этой машины (`localOnly`, круг 1 ревью).** `cards.file` и `images.file` называют
+Project не `projectId`, а project label (последние 8 hex его id): `projectLabel` у `cards.file`,
+хранилище `canvas.<project label>` у `images.file`. Раньше link adapter такой вызов не узнавал, и
+Linked machine получала файлы Card и картинки Project-а с `localOnly`; у `cards.file` дыра была и до
+этого ticket-а. Теперь `localProjectIn` (`src/main/link/caller.ts`) находит Project и по label-у,
+поэтому оба канала получают тот же отказ до handler-а, что и `layout.get`: «<имя> is local to this
+Machine». Тесты — через link adapter в `test/contract/projects.test.ts` и в
+`test/unit/link-caller-local-only.test.ts`.
+
+**Хранилище `attachments` под `localOnly` не попадает, и это осознанно.** Копии отправленных картинок
+лежат в одной общей папке `<data>/attachments/images/` под именем `<sha256 содержимого>.<ext>`.
+Записи о том, из Session какого Project-а копия, нет, поэтому привязать копию к Project-у нельзя.
+Чтобы получить копию, Linked machine должна знать sha256 картинки. Узнать его она может только из
+Transcript-а, а Transcript Session Project-а с `localOnly` ей не отдаётся. Остаётся одна возможность:
+проверить, есть ли на машине картинка, которая у Linked machine уже есть, по хешу её байтов.
+**Решено без владельца, подтвердить.**
+
 **Протокол.** `worfy-image://<хранилище>.<machine label>/<имя>` больше не 404: handler берёт байты
 через link (`src/main/images/remote.ts`). Это и картинки Canvas Linked machine, и миниатюры картинок
 из чата её Session (`attachments.<machine label>`). Нет файла — 404, больше предела — 413, link
@@ -101,7 +118,8 @@ Linked machine — другая машина, к которой подключе
 **Тесты.** contract — `test/contract/linked-image-protocol.test.ts`; unit —
 `test/unit/image-node.test.tsx` (плашки, поздний ответ, нет resize, Delete); e2e с двумя машинами —
 `test/e2e/linked-images.spec.ts` (картинка B на A с натуральным размером 400 × 200 и пропорциями на
-экране, плашки для пропавшего и слишком большого файла, нет resize, Delete ничего не удаляет),
+экране, плашки для пропавшего и слишком большого файла, нет resize; Delete картинки вместе с note
+убирает note в корзину B, а картинка и её файл на B остаются),
 добавлен в `scripts/e2e-specs.table.json`. Миниатюра из чата проверена только contract-тестом: e2e с
 Session на Linked machine не написан.
 
