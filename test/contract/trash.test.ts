@@ -3,6 +3,7 @@
 // WORFY_DATA_DIR. A deleted Card moves with its files and data to <Project data folder>/trash/<label>/
 // and comes back from there; entries older than three days are deleted when the app starts; nothing
 // outside WORFY_DATA_DIR is ever touched (ADR-0005).
+import { spawn } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
@@ -14,6 +15,7 @@ import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 import type { LayoutStore } from '../../src/main/layout/store'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree, saveLayoutNow } from '../remove'
+import { scriptNode } from '../script-node'
 
 const PROJECT = 'demo-0a1b2c3d'
 const DAY = 24 * 60 * 60 * 1000
@@ -90,6 +92,9 @@ const cardDataFile = (cardId: string) => join(projectDir(), 'card-data', `${card
 const trashDir = () => join(projectDir(), 'trash')
 const nodeOf = (id: string): LayoutNode | undefined => layout.get(PROJECT).layout.nodes.find((node) => node.id === id)
 const create = (node: Record<string, unknown>) => layout.apply(PROJECT, { op: 'create', node } as LayoutOpInput)
+
+/** A script for a child node: opens the file it is given, says so on stdout, closes it after the given ms. */
+const HOLD_OPEN = `const fs = require('node:fs'); const fd = fs.openSync(process.argv[1], 'r'); process.stdout.write('open\\n'); setTimeout(() => fs.closeSync(fd), Number(process.argv[2]))`
 
 /** A Card with two files and stored data, and its Node with tags and a place of its own. */
 function makeCard(cardId: string, nodeExtra: Record<string, unknown> = {}): void {
@@ -171,6 +176,26 @@ describe('trash: a Card and its data', () => {
     // The entry is used up.
     expect(readdirSync(trashDir())).toEqual([])
     expect(await list()).toEqual([])
+  })
+
+  // Windows refuses to move a folder while another process has a file in it open (EPERM), and an
+  // antivirus, the indexer or the Card's own page being read again holds one for a moment. The
+  // Delete key right after a Restore met that on the GitHub runner (trash-undo.spec.ts).
+  it.runIf(process.platform === 'win32')('a Card whose file another process holds open for a moment is still deleted', async () => {
+    makeCard('c1')
+    const holder = spawn(scriptNode(), ['-e', HOLD_OPEN, join(cardDir('c1'), 'index.html'), '250'], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: ['ignore', 'pipe', 'inherit'] })
+    const exited = new Promise((resolve) => holder.once('exit', resolve))
+    await new Promise<void>((resolve, reject) => {
+      holder.stdout.once('data', () => resolve())
+      holder.once('exit', (code) => reject(new Error(`the holder exited with ${code} before it opened the file`)))
+    })
+
+    const entry = await put('c1')
+    await exited
+    expect(entry).toMatchObject({ nodeId: 'c1', hasFiles: true })
+    expect(nodeOf('c1')).toBeUndefined()
+    expect(existsSync(cardDir('c1'))).toBe(false)
+    expect(readdirSync(trashDir())).toEqual([entry.label])
   })
 
   it('a Node showing a Card under another id (data.cardId) takes that Card along', async () => {

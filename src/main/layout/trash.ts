@@ -29,7 +29,7 @@
 // data. So put() makes `<data>\trash\<label>` before the Card is looked at, and restore() and
 // purge() use the trash folder as they find it.
 import { randomBytes } from 'node:crypto'
-import { lstatSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs'
+import { lstatSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import * as nativePath from 'node:path'
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -40,6 +40,7 @@ import { IMAGE_FILE_PATTERN } from '../../shared/ipc/canvas-images'
 import { titleOf } from '../cards/store'
 import { leadsToRemoteSync, type LinkFsSync, type PathRules } from '../remote-links'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
+import { moveWhenFree } from '../storage/move'
 import { removeTree } from '../storage/remove'
 import { imageFileOf, imagesDirOf } from './images'
 
@@ -92,6 +93,8 @@ export interface TrashDeps {
   now?: () => number
   /** How the trash lists and removes its entry folders; on the disk by default, replaced in tests. */
   fs?: TrashFs
+  /** How a Card's folder, its data and an image move into an entry and back: moveWhenFree by default, which waits out a busy file on Windows. */
+  move?: (from: string, to: string) => void
 }
 
 /** The two calls the trash makes about its entry folders. */
@@ -205,11 +208,13 @@ const labelTime = (label: string): number => Number(label.slice(0, label.indexOf
 export class TrashStore {
   private readonly now: () => number
   private readonly fs: TrashFs
+  private readonly move: (from: string, to: string) => void
 
   /** Does no I/O. */
   constructor(private readonly deps: TrashDeps) {
     this.now = deps.now ?? (() => Date.now())
     this.fs = deps.fs ?? diskTrashFs
+    this.move = deps.move ?? ((from, to) => moveWhenFree(from, to))
   }
 
   /** The folder of a Project's trash. Throws for a Project that is not in the list. */
@@ -250,7 +255,7 @@ export class TrashStore {
         const found = cardOnDisk(paths, this.deps.dataDirOf(projectId))
         const move = (there: boolean, from: string, to: string): boolean => {
           if (shared || !there) return false
-          renameSync(from, to)
+          this.move(from, to)
           moved.push({ from, to })
           return true
         }
@@ -268,7 +273,7 @@ export class TrashStore {
         const imageMoved = !sharedImage && there
         if (imageMoved) {
           const to = join(dir, imageFile)
-          renameSync(from, to)
+          this.move(from, to)
           moved.push({ from, to })
         }
         image = { file: imageFile, moved: imageMoved }
@@ -279,7 +284,7 @@ export class TrashStore {
       return summaryOf(label, entry)
     } catch (error) {
       // Put back what moved, newest first, and drop the half-made entry.
-      for (const { from, to } of moved.reverse()) renameSync(to, from)
+      for (const { from, to } of moved.reverse()) this.move(to, from)
       this.fs.removeTree(dir)
       throw error
     }
@@ -322,12 +327,12 @@ export class TrashStore {
     try {
       for (const move of back) {
         mkdirSync(join(move.to, '..'), { recursive: true })
-        renameSync(move.from, move.to)
+        this.move(move.from, move.to)
         done.push(move)
       }
       this.deps.layout.apply(projectId, { op: 'create', node }, screen)
     } catch (error) {
-      for (const { from, to } of done.reverse()) renameSync(to, from)
+      for (const { from, to } of done.reverse()) this.move(to, from)
       throw error
     }
     this.fs.removeTree(dir)
