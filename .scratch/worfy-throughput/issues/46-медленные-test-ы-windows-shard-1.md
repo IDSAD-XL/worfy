@@ -1,7 +1,8 @@
 # 46 — Медленные test-файлы Windows shard 1/3: harness-migrate и install-stable
 
 Type: task
-Status: claimed 2026-10-29T01:11Z
+Status: done 2026-10-29T02:22Z
+PR: #943
 Branch: worfy-throughput/46
 Blocked by: 35
 Source: договорённость моста и Orchestrator-а 2026-10-29: главный приоритет владельца — скорость CI; после #927 PR,
@@ -112,4 +113,19 @@ Review (correctness): блокирующих находок нет. Одна н�
 файлах, которые ещё держит антивирус. Исправлено так: копия и `removeTestTree`, который повторяет удаление при
 EBUSY и EPERM.
 
-Shard 1/3 на runner-е: до — около 480–490 s (run main 40788089367); после — по CI этого PR.
+Shard 1/3 на runner-е: до — около 480–490 s (run `main` 40788089367); в CI run-е PR-а (head `330e3f22`) — 395 s.
+Shard 3/3 того же run-а — 744 s: там guard-silent и heartbeat, их срезает Ticket 47.
+
+На Mac `harness-migrate.test.ts` — 29,1 → 19,4 s.
+
+Поправки к тексту выше, найдены на review моста (все низкие, код не меняют):
+
+- Объяснение, почему заглушка `claude` пишется на каждый test, неверно: ссылка и так абсолютная, она ведёт на общий
+  `SHELL_STUB` (`test/shell-stub.ts:27`). Запись на каждый test безвредна.
+- Test macOS «Launch Services отказал в регистрации» (`test/unit/install-stable.test.ts:162`) тоже переехал в процесс
+  (`installStable`), в списке выше его нет.
+- `test/unit/install-stable-harness.ts` не менялся.
+- Число `expect` в двух файлах — 241 → 227: убраны повторы, смысл тот же. Префикс и exit code отказов
+  по-прежнему проверяют CLI-test-ы `install-stable.test.ts:120-121` и `:632-634`.
+- Если `removeTestTree` в `afterEach` упадёт (`harness-migrate-harness.ts:119`), каждый следующий test файла упадёт с
+  «папка прошлого test-а ещё на месте»: первая ошибка — настоящая, остальные — её следствие.
