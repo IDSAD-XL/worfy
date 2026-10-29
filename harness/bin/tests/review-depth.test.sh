@@ -21,6 +21,10 @@ CONNECT="${CONNECT_BIN:-$HARNESS/bin/project-connect}"
 # in that spelling, or bin/profile does not find the repository (/tmp/… is C:\tmp\… to node). Elsewhere: pwd -P.
 T="$(mktemp -d)"; T="$(cd "$T" && node_path "$(pwd -P)")"
 trap 'rm -rf "$T"' EXIT
+# The skill as an agent reads it in full: SKILL.md with its step files put in place of their pointer
+# lines (skill-text.sh). Steps moved out of SKILL.md are checked where the skill puts them.
+. "$(dirname "$0")/skill-text.sh"
+[ -f "$ST" ] && { skill_text "$ST" "$T/ship-ticket.md" || { echo "FAIL cannot assemble $ST"; exit 1; }; ST="$T/ship-ticket.md"; }
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }

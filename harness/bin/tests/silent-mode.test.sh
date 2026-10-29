@@ -314,8 +314,10 @@ jq -e '.hooks | type == "object" and (has("WorktreeCreate") | not) and ([.. | st
 block() { # $1 skill file, $2 a string that identifies the ```bash block
     awk -v m="$2" '/^```bash/{inb=1; buf=""; next} /^```/{if(inb && index(buf,m)) printf "%s", buf; inb=0; next} inb{buf=buf $0 "\n"}' "$1"
 }
-FIN="$(block "$SKILLS/ship-ticket/SKILL.md" 'MERGED=')"
-[ -n "$FIN" ] || bad "the local finish block (MERGED=) is not in ship-ticket/SKILL.md"
+. "$(dirname "$0")/skill-text.sh"   # ship-ticket with its step files in place: step 11 is a file of its own
+skill_text "$SKILLS/ship-ticket/SKILL.md" "$T/ship-ticket.md" || bad "cannot assemble ship-ticket/SKILL.md with its step files"
+FIN="$(block "$T/ship-ticket.md" 'MERGED=')"
+[ -n "$FIN" ] || bad "the local finish block (MERGED=) is not in ship-ticket (SKILL.md and its step files)"
 FIN="${FIN//<epic>/ep}"        # the epic of the Full project fp below; sp's repository has no such folder
 ran=0
 for sh in bash zsh; do

@@ -2,10 +2,10 @@
   "cases": {
     "epic-wave-tickets": ["skills/epic-wave/SKILL.md"],
     "epic-wave-old-form": ["skills/epic-wave/SKILL.md"],
-    "ship-ticket-local-green": ["skills/ship-ticket/SKILL.md"],
-    "ship-ticket-pr-green-ci": ["skills/ship-ticket/SKILL.md"],
-    "no-os-screen-capture": ["skills/ship-ticket/SKILL.md"],
-    "implementer-report": ["agents/implementer.md"],
+    "ship-ticket-local-green": ["skills/ship-ticket/SKILL.md", "skills/ship-ticket/step-7-review.md", "skills/ship-ticket/step-8-pr-and-ci.md", "skills/ship-ticket/step-11-close.md"],
+    "ship-ticket-pr-green-ci": ["skills/ship-ticket/SKILL.md", "skills/ship-ticket/step-8-pr-and-ci.md", "skills/ship-ticket/step-11-close.md"],
+    "no-os-screen-capture": ["skills/ship-ticket/SKILL.md", "skills/ship-ticket/step-6-manual-gui-checks.md"],
+    "implementer-report": ["agents/implementer.md", "skills/ship-ticket/implementer-finish.md"],
     "reviewer-verdict": ["skills/epic-wave/SKILL.md", "agents/reviewer.md"],
     "reviewer-intended-breakage": ["agents/reviewer.md"],
     "reviewer-simplification": ["agents/reviewer.md"],
@@ -21,6 +21,18 @@
     "skills/gate-queue/SKILL.md": "No case yet.",
     "skills/max-review/SKILL.md": "No case yet.",
     "agents/scout.md": "No case yet.",
-    "hooks/rules/common.md": "No case yet: status-block loads these rules with the orchestrator rules but grades only the latter."
+    "hooks/rules/common.md": "No case yet: status-block loads these rules with the orchestrator rules but grades only the latter.",
+    "skills/ship-ticket/step-9-merge.md": "No case yet: the pr-green-ci case cannot open a PR, so no run reaches the merge.",
+    "skills/ship-ticket/step-10-production.md": "No case yet: the demo profile has no deploy.",
+    "skills/ship-ticket/review-of-another-pr.md": "No case yet.",
+    "skills/ship-ticket/silent-mode.md": "No case yet: the demo profile is in Full mode.",
+    "skills/ship-ticket/step-5-source.md": "The source and licence of step 5's rules: nothing for an agent to do.",
+    "skills/ship-ticket/implementer-no-skill.md": "No case yet: the demo profile names a ticket skill.",
+    "skills/ship-ticket/implementer-temporary-home.md": "No case yet: no case brief says Temporary HOME: yes.",
+    "skills/ship-ticket/implementer-e2e.md": "No case yet: the demo profile has no commands.e2e.",
+    "skills/ship-ticket/implementer-browser-checks.md": "No case yet: the demo project has no web pages.",
+    "skills/ship-ticket/implementer-rework-round.md": "No case yet.",
+    "skills/ship-ticket/implementer-silent-mode.md": "No case yet: the demo profile is in Full mode.",
+    "skills/ship-ticket/implementer-source.md": "The source and licence of the implementer's steps 1-4: nothing for an agent to do."
   }
 }

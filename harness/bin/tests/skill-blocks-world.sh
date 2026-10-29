@@ -83,7 +83,10 @@ reset_tickets() {
 git -C "$SW" init -q -b main
 SENV=(env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR -u CLAUDE_PROFILE_BIN -u CLAUDE_TICKET_BIN HOME="$SH/home" HARNESS_HOME="$SHH" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
       GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t)
-SHIP="$SKILLS/ship-ticket/SKILL.md" WAVE="$SKILLS/epic-wave/SKILL.md" GQF="$SKILLS/gate-queue/SKILL.md"
+# ship-ticket as an agent reads it in full: SKILL.md with its step files in place (skill-text.sh).
+. "$(dirname "$0")/skill-text.sh"
+skill_text "$SKILLS/ship-ticket/SKILL.md" "$T/ship-ticket.md" || { echo "FAIL cannot assemble ship-ticket"; exit 1; }
+SHIP="$T/ship-ticket.md" WAVE="$SKILLS/epic-wave/SKILL.md" GQF="$SKILLS/gate-queue/SKILL.md"
 sub() { local c="$1"; c="${c//<repo>/$SR}"; c="${c//<epic>/pay-flow}"; printf '%s' "$c"; }
 # The checks at the end of each file: no block changed by the arguments, and the real home untouched.
 finish_blocks() {
