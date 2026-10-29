@@ -1,7 +1,8 @@
 # 45 — Старые записи Subagent-ов: статус `interrupted` и кнопка «Hide»
 
 Type: task
-Status: claimed 2026-10-29T08:20Z
+Status: done 2026-10-29T11:23Z
+PR: #975
 Branch: worfy-polish/45
 Blocked by: —
 Source: жалоба владельца и его решение 2026-10-29 (принято, ниже). Строки — по main `80149146`.
@@ -143,34 +144,34 @@ Windows-проверку по правилу ADR-0056.
 
 ## Готово, когда
 
-- [ ] Unit, `statusOf`: Subagent без конца, `startedAt` процесса Session-а позже его последней записи в
+- [x] Unit, `statusOf`: Subagent без конца, `startedAt` процесса Session-а позже его последней записи в
   transcript, — `interrupted`; раньше — `running`.
-- [ ] Unit, та же секунда: последняя запись за 300 ms до `startedAt` нового процесса — `interrupted`;
+- [x] Unit, та же секунда: последняя запись за 300 ms до `startedAt` нового процесса — `interrupted`;
   через 300 ms после — `running`.
-- [ ] Unit, агент workflow-скрипта (`statusOf`): агент без конца, `startedAt` позже его последней записи, —
+- [x] Unit, агент workflow-скрипта (`statusOf`): агент без конца, `startedAt` позже его последней записи, —
   `interrupted`.
-- [ ] Unit, прогон workflow-скрипта: у прогона нет своего transcript (`describeRun`, `:595-604`).
+- [x] Unit, прогон workflow-скрипта: у прогона нет своего transcript (`describeRun`, `:595-604`).
   Прогон с вызовом без конца — `interrupted`, когда хотя бы один его агент `interrupted` и ни один не
   `running`; прогон без агентов — `interrupted`, когда `startedAt` процесса позже `workflow?.at` (или
   `result?.at`). Свод по агентам (`:721-722`) это учитывает; такой прогон не держит опрос renderer-а.
-- [ ] Unit: процесс Session-а не известен (`sessionRuns` → `null`) или у записи нет `startedAt` —
+- [x] Unit: процесс Session-а не известен (`sessionRuns` → `null`) или у записи нет `startedAt` —
   Subagent без конца остаётся `running`, как сегодня; закрытая Session — `error`, как сегодня (ADR-0031).
-- [ ] Unit, опрос: Session, где остались только законченные и `interrupted`, renderer не опрашивает
+- [x] Unit, опрос: Session, где остались только законченные и `interrupted`, renderer не опрашивает
   (`setInterval` каждые `POLL_MS` не запущен или снят, `src/renderer/claude-home/subagents.ts:137-140`).
-- [ ] Contract: `SubagentReader.session` отдаёт `startedAt` записи живого процесса; запись без
+- [x] Contract: `SubagentReader.session` отдаёт `startedAt` записи живого процесса; запись без
   `startedAt` даёт прежнее поведение.
-- [ ] Test хранения: скрытая запись остаётся скрытой после перезапуска (новый экземпляр хранилища читает
+- [x] Test хранения: скрытая запись остаётся скрытой после перезапуска (новый экземпляр хранилища читает
   тот же файл); «Show hidden Subagents» возвращает её.
-- [ ] e2e или component test кнопки «Hide»: одна запись и группа законченных исчезают с Canvas и из
+- [x] e2e или component test кнопки «Hide»: одна запись и группа законченных исчезают с Canvas и из
   rail-а; одна запись `running` тоже скрывается; «Hide» группы законченных `running` не трогает.
-- [ ] Новый ADR (0085 или следующий свободный) — Статус: принят; ADR-0031 получил раздел
+- [x] Новый ADR (0085 или следующий свободный) — Статус: принят; ADR-0031 получил раздел
   `## Amendments` со ссылкой на него.
-- [ ] Чип `interrupted` — нейтральный серый, подпись «Interrupted», tooltip о перезапуске процесса Session-а —
+- [x] Чип `interrupted` — нейтральный серый, подпись «Interrupted», tooltip о перезапуске процесса Session-а —
   на Canvas и в rail-е; unit или component test проверяет подпись и tooltip (решение владельца 2026-10-29,
   R2-Q6).
-- [ ] Снимки панели Subagent-ов (Canvas и rail, со статусом `interrupted` и кнопкой «Hide») в светлой и
+- [x] Снимки панели Subagent-ов (Canvas и rail, со статусом `interrupted` и кнопкой «Hide») в светлой и
   тёмной теме — в «Итог»; reviewer их проверил.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; затронутые e2e — exit 0.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; затронутые e2e — exit 0.
 
 ## Вне scope
 
@@ -178,3 +179,20 @@ Windows-проверку по правилу ADR-0056.
 - Subagent-ы при неизвестном процессе (`sessionRuns` → `null`): остаются `running`, статус не
   меняется; такую запись убирает кнопка «Hide» у неё самой.
 - Удаление файлов transcript-ов Subagent-ов.
+
+## Итог
+
+Влит #975 (`cf64639c`), ADR-0085. Subagent без конца получает `interrupted`, когда `startedAt` процесса
+Session-а позже его последней записи; время процесса идёт в необязательном поле верхнего уровня
+`processStartedAt`, поэтому Linked peer на старой сборке ответ не отвергает (ADR-0079, пункт 8 ADR-0085).
+Скрытые записи — `<dataDir>/<projectId>/hidden-subagents.json`, «Show hidden Subagents» возвращает их.
+Проверка: unit `subagent-nodes`, `subagent-trees`, contract `claude-home-registry`, e2e
+`subagent-tree.spec.ts` (новый test: Canvas и rail, Hide, перезапуск, Show hidden); 17 мутантов
+implementer-а и 7 мутантов reviewer-а красные. Ревью: круг 1 REJECTED (high — новый сигнал ломал ответ
+старому Linked peer-у), круг 2 VERIFIED. Снимки в обеих темах (Canvas и rail с `interrupted`) лежали в
+scratchpad implementer-а, reviewer их смотрел. Windows: gate full на ПК красный от нагрузки (6 файлов
+vitest с timeout-ами зелёные отдельным запуском), e2e `browser-family.spec.ts:154` — 2/19 на #975 против
+0/18 на main, diff его не трогает; check/windows success.
+
+Долг ([low], из вердикта): на новом экране поверх старого peer-а «Hide» молча ничего не делает, только
+`console.error` на каждый mount.
