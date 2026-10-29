@@ -34,30 +34,35 @@
 // the cursor row after a resize matches a view's (5000 lines of scrollback) while the scrollback
 // is deeper than the screen is tall (300 rows at most, clampSize).
 //
-// The screens parse in one worker thread, not on main's event loop: parsing all output there took
+// The screens parse in worker threads, not on main's event loop: parsing all output there took
 // most of a core under a flood (`yes` ran 3.8 times slower on the Mac), and node-pty reads the
-// output on that same loop. main posts each chunk and each resize to the worker in the order they
-// came; the worker posts back what its xterm.js answers, and main writes the cursor-position
-// answers to the pty. One worker for all shells, started with the first and ended with the last.
-// It is code in a string (`eval`), the same in tests, a dev run and the package; it loads
-// @xterm/headless by path, from app.asar.unpacked in the package (electron-builder.yml asarUnpack).
+// output on that same loop. Each shell's screen lives in one worker for its whole life, so main
+// posts each chunk and each resize of a shell to that worker in the order they came; the worker
+// posts back what its xterm.js answers, and main writes the answers to the pty. One worker parses
+// about 35 MB/s on the Mac and 12 MB/s on the PC, for all the shells it holds, so the shells get a
+// worker each, up to screenWorkersLimit (the cores, at most SCREEN_WORKERS_MAX); past it a new
+// shell joins the worker with the fewest screens (worfy-windows ticket 67, measured there). A
+// worker starts with its first screen and ends with its last. It is code in a string (`eval`), the
+// same in tests, a dev run and the package; it loads @xterm/headless by path, from
+// app.asar.unpacked in the package (electron-builder.yml asarUnpack).
 //
-// The worker may fall behind a program that floods its output (one thread parses for every shell).
-// xterm.js keeps what it has not parsed yet, and past 50 MB it refuses more. So the worker says
-// how much of each shell's output it has parsed, and main keeps at most HIGH_WATER characters of a
-// shell on the way: above it main pauses that shell's pty, and resumes it once the worker is down
-// to LOW_WATER. The screens of the views get the output at the pace the worker parses it then.
-// Before a pty is closed, or when main stops answering a shell, its pty is resumed for good
-// (`letOutputFlow`): on Windows node-pty reports the exit only when the output of the console has
-// been read to its end.
+// A worker may fall behind a program that floods its output. xterm.js keeps what it has not parsed
+// yet, and past 50 MB it refuses more. So the worker says how much of each shell's output it has
+// parsed, and main keeps at most HIGH_WATER characters of a shell on the way: above it main pauses
+// that shell's pty, and resumes it once the worker is down to LOW_WATER. The screens of the views
+// get the output at the pace the worker parses it then. Before a pty is closed, or when main stops
+// answering a shell, its pty is resumed for good (`letOutputFlow`): on Windows node-pty reports the
+// exit only when the output of the console has been read to its end.
 //
 // The screen may refuse output: xterm.js throws "write data discarded" once more than 50 MB wait
-// to be parsed; the worker may also fail to start or stop. Then main stops answering for that
+// to be parsed; a worker may also fail to start or stop, which ends the screens it holds and no
+// other. Then main stops answering for that
 // shell until it ends (`answering` is false, a warning is logged once) and the views' marked
 // answers reach the shell again (TerminalRegistry.write): a position from a screen that skipped
 // output would be wrong, and the shell's output itself never depends on this screen. A new screen
 // would not know where the cursor is until the program moved it to a fixed place, so none is made.
 import { createRequire } from 'node:module'
+import { availableParallelism } from 'node:os'
 import { Worker } from 'node:worker_threads'
 import { colourAnswers, CURSOR_BLINK, isMainAnswer } from '../../shared/terminal/cursor-answer'
 
@@ -110,8 +115,19 @@ export const HIGH_WATER = 4_000_000
 /** ... and at or below which main resumes it. */
 export const LOW_WATER = 1_000_000
 
-/** For tests: a module to load in place of @xterm/headless when the worker starts. */
-export const screenWorker: { headless: string | undefined } = { headless: undefined }
+/** The most worker threads the screens use however many cores there are; see the head of the file. */
+export const SCREEN_WORKERS_MAX = 8
+
+/**
+ * For tests and scripts/terminal-flood-bench.mjs: `headless`, a module to load in place of
+ * @xterm/headless when a worker starts; `limit`, the most workers in place of screenWorkersLimit.
+ */
+export const screenWorker: { headless: string | undefined; limit: number | undefined } = { headless: undefined, limit: undefined }
+
+/** How many workers the screens may use: one per core, at most SCREEN_WORKERS_MAX. */
+export function screenWorkersLimit(): number {
+  return Math.max(1, screenWorker.limit ?? Math.min(availableParallelism(), SCREEN_WORKERS_MAX))
+}
 
 /** A module's path inside app.asar, as the same path out of it: electron-builder.yml unpacks @xterm/headless. */
 export function unpackedPath(path: string): string {
@@ -175,11 +191,16 @@ export interface OutputFlow {
   resume(): void
 }
 
-/** The one worker and the screens in it. */
+/** One worker and the screens in it. */
 class ScreenWorker {
   private worker: Worker | null = null
   private readonly screens = new Map<number, ScreenListener>()
   private next = 0
+
+  /** How many screens it holds. */
+  get size(): number {
+    return this.screens.size
+  }
 
   open(size: { cols: number; rows: number }, listener: ScreenListener): number {
     const id = ++this.next
@@ -234,11 +255,26 @@ class ScreenWorker {
   }
 }
 
-let shared: ScreenWorker | undefined
-const screenWorkerOf = (): ScreenWorker => (shared ??= new ScreenWorker())
+/** The workers made so far; one that holds no screen has no thread. */
+const pool: ScreenWorker[] = []
+
+/** The worker for a new shell's screen: an empty one, a new one below the limit, or the one with the fewest screens. */
+function screenWorkerFor(): ScreenWorker {
+  const empty = pool.find((each) => each.size === 0)
+  if (empty !== undefined) return empty
+  if (pool.length < screenWorkersLimit()) {
+    const made = new ScreenWorker()
+    pool.push(made)
+    return made
+  }
+  // shortcut: shares by the number of screens, not by how much each shell prints, redo when shells past the limit are seen flooding a worker while another worker idles.
+  return pool.reduce((fewest, each) => (each.size < fewest.size ? each : fewest))
+}
 
 /** Follows the output of one shell and answers its requests (isMainAnswer) through `answer`. */
 export class CursorAnswers {
+  /** The worker of this shell's screen: every message of the shell goes to it, so they stay in order. */
+  private readonly screens = screenWorkerFor()
   private readonly id: number
   private disposed = false
   /** The screen refused output or the worker was lost: its position is no longer the shell's. */
@@ -257,7 +293,7 @@ export class CursorAnswers {
     private readonly name = 'terminal',
     private readonly flow?: OutputFlow,
   ) {
-    this.id = screenWorkerOf().open(size, {
+    this.id = this.screens.open(size, {
       data: (data) => {
         if (this.answering && isMainAnswer(data)) answer(data)
       },
@@ -278,7 +314,7 @@ export class CursorAnswers {
   feed(data: string): void {
     if (!this.answering) return
     this.inFlight += data.length
-    screenWorkerOf().post({ t: 'feed', id: this.id, data })
+    this.screens.post({ t: 'feed', id: this.id, data })
     if (!this.paused && !this.flowing && this.inFlight > HIGH_WATER) {
       this.paused = true
       this.flow?.pause()
@@ -293,13 +329,13 @@ export class CursorAnswers {
 
   /** The pty took a new size: applied after the output that came before it, as on a view. */
   resize(cols: number, rows: number): void {
-    if (this.answering) screenWorkerOf().post({ t: 'resize', id: this.id, cols, rows })
+    if (this.answering) this.screens.post({ t: 'resize', id: this.id, cols, rows })
   }
 
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    screenWorkerOf().close(this.id)
+    this.screens.close(this.id)
     this.letOutputFlow()
   }
 

@@ -8,8 +8,9 @@
 // it and records what it is typed; no process starts.
 import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { availableParallelism } from 'node:os'
 import { join } from 'node:path'
-import { COLOUR_ANSWER_WINDOW_MS, CursorAnswers, HIGH_WATER, SCROLLBACK, screenWorker, unpackedPath } from '../../src/main/terminal/cursor-answers'
+import { COLOUR_ANSWER_WINDOW_MS, CursorAnswers, HIGH_WATER, SCREEN_WORKERS_MAX, SCROLLBACK, screenWorker, screenWorkersLimit, unpackedPath } from '../../src/main/terminal/cursor-answers'
 import { colourAnswers, isMainAnswer } from '../../src/shared/terminal/cursor-answer'
 import { ROWS_MAX, TerminalRegistry, type PtyProcess, type TerminalSink } from '../../src/main/terminal/pty'
 import { timeScale } from '../time-scale'
@@ -19,6 +20,9 @@ const KEY = JSON.stringify(['alpha-0000000a', 'terminal-node-1'])
 const REFUSING_HEADLESS = join(import.meta.dirname, '..', 'fixtures', 'headless-refuses.cjs')
 const SILENT_HEADLESS = join(import.meta.dirname, '..', 'fixtures', 'headless-silent.cjs')
 const EXITING_HEADLESS = join(import.meta.dirname, '..', 'fixtures', 'headless-exits.cjs')
+/** The real @xterm/headless, except that the worker ends when a screen is given CRASH. */
+const CRASHING_HEADLESS = join(import.meta.dirname, '..', 'fixtures', 'headless-exits-on-mark.cjs')
+const CRASH = `\x1b]worfy-crash\x07`
 /** 999 999 characters of `y` lines, as `yes` floods a shell; the same string each time. */
 const MEGABYTE = 'y\r\n'.repeat(333_333)
 const ESC = '\x1b'
@@ -486,6 +490,82 @@ describe('main holds a flood back while its screen lags (worfy-windows ticket 39
       expect(await writtenSoon(pty, 1)).toEqual([`${ESC}[24;1R`])
     } finally {
       screenWorker.headless = undefined
+    }
+  })
+})
+
+describe('the screens of several shells parse in parallel, a worker each up to a limit (worfy-windows ticket 67)', () => {
+  it('a pty paused for the screen is resumed when the shell exits on its own and its screen is taken apart (dispose)', async () => {
+    screenWorker.headless = SILENT_HEADLESS
+    try {
+      const { pty } = await shell()
+      for (let i = 0; i < 5; i += 1) pty.print(MEGABYTE)
+      expect(pty.paused).toBe(true)
+      // Off Windows nothing but dispose() resumes the pty on an exit that was not a close.
+      pty.kill()
+      expect(pty.paused).toBe(false)
+      expect(pty.resumes).toBe(1)
+    } finally {
+      screenWorker.headless = undefined
+    }
+  })
+
+  it('two shells on different workers: the worker of one ends (a crash), and the other shell is still answered', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    screenWorker.headless = CRASHING_HEADLESS
+    screenWorker.limit = 2
+    try {
+      const first = await shell()
+      const second = await shell()
+      first.pty.print(`ab${REQUEST}`)
+      second.pty.print(`abc${REQUEST}`)
+      expect(await writtenSoon(first.pty, 1)).toEqual([`${ESC}[1;3R`])
+      expect(await writtenSoon(second.pty, 1)).toEqual([`${ESC}[1;4R`])
+
+      first.pty.print(CRASH)
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1))
+      expect(String(warn.mock.calls[0]?.[0])).toContain('exit code 7')
+      second.pty.print(`\r\nx${REQUEST}`)
+      first.pty.print(REQUEST)
+      expect(await writtenSoon(second.pty, 2)).toEqual([`${ESC}[1;4R`, `${ESC}[2;2R`])
+      // The shell of the worker that ended is answered by its views from now on, not by main.
+      expect(first.pty.writes).toEqual([`${ESC}[1;3R`])
+      expect(warn).toHaveBeenCalledTimes(1)
+    } finally {
+      screenWorker.headless = undefined
+      screenWorker.limit = undefined
+    }
+  })
+
+  it.each([2, 4])('a flood of %i shells at once: none of the screens refuses output, and each shell’s request after its flood is answered', async (count) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const shells: (Awaited<ReturnType<typeof shell>> & { shown: { length: number } })[] = []
+    // One after another: shell() takes the pty started last.
+    for (let i = 0; i < count; i += 1) {
+      const shown = { length: 0 }
+      shells.push({ ...(await shell('linux', { cols: 80, rows: 24 }, { ...nothing, output: (data) => void (shown.length += data.length) })), shown })
+    }
+    for (const { pty } of shells) {
+      for (let i = 0; i < 15; i += 1) pty.print(MEGABYTE)
+      pty.print(REQUEST)
+      expect(pty.pauses).toBe(1)
+    }
+    for (const { pty, shown } of shells) {
+      await vi.waitFor(() => expect(pty.writes.length + warn.mock.calls.length).toBeGreaterThan(0), { timeout: 60_000, interval: 50 })
+      expect(warn).not.toHaveBeenCalled()
+      expect(await writtenSoon(pty, 1)).toEqual([`${ESC}[24;1R`])
+      expect(pty.paused).toBe(false)
+      expect(shown.length).toBe(15 * MEGABYTE.length + REQUEST.length)
+    }
+  }, 90_000)
+
+  it('the limit of the workers is one per core, at most SCREEN_WORKERS_MAX, and at least one', () => {
+    expect(screenWorkersLimit()).toBe(Math.min(availableParallelism(), SCREEN_WORKERS_MAX))
+    screenWorker.limit = 0
+    try {
+      expect(screenWorkersLimit()).toBe(1)
+    } finally {
+      screenWorker.limit = undefined
     }
   })
 })
