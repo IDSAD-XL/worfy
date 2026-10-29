@@ -33,6 +33,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 const SCRIPT = join(import.meta.dirname, '..', '..', 'scripts', 'agent-cost.mjs')
 const FIXTURE = join(import.meta.dirname, '..', 'fixtures', 'agent-cost', 'project')
@@ -94,12 +95,12 @@ function tempDir(): string {
 
 const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== 'CLAUDE_CONFIG_DIR'))
 
-/** Runs the script as `pnpm test` runs it: under Electron as Node. */
+/** Runs the script under the real node (test/script-node.ts). */
 function run(args: string[], options: { cwd?: string; env?: Record<string, string> } = {}): { status: number | null; stdout: string; stderr: string } {
-  const result = spawnSync(process.execPath, [SCRIPT, ...args], {
+  const result = spawnSync(scriptNode(), [SCRIPT, ...args], {
     cwd: options.cwd,
     encoding: 'utf8',
-    env: { ...inherited, ELECTRON_RUN_AS_NODE: '1', ...options.env },
+    env: { ...inherited, ...options.env },
   })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }

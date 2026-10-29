@@ -31,8 +31,6 @@ const STAYS: Record<string, string> = {
   // Electron itself is what this test needs: captureLoginShellEnv (src/main/agent/env.ts) runs in the
   // app's main process, and Electron's V8 keeps large strings outside heapUsed.
   'contract/login-shell-capture.test.ts': 'runs captureLoginShellEnv on Electron, the runtime of the app\'s main process where it runs',
-  // shortcut: agent-cost keeps its launch while #922 changes that file, switch it once #922 is merged.
-  'unit/agent-cost.test.ts': 'waits for #922, which changes this file',
 }
 
 /**
