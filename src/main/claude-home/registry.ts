@@ -758,6 +758,16 @@ const TRANSCRIPT = /^([A-Za-z0-9][A-Za-z0-9-]*)\.jsonl$/
  */
 const CHANGE_QUIET_MS = 50
 
+/**
+ * When a new transcript folder is listed once more after chokidar reported it. chokidar 5.0.0
+ * reports a new folder (addDir) before it lists it, and starts its fs.watch of the folder only
+ * after that list (`_handleDir` in its handler.js): a file written between the two is reported by
+ * neither until its next write. Claude Code makes the folder of a new worktree or subfolder and
+ * writes the first transcript into it at once.
+ */
+// shortcut: one list 1 s after the folder appears; a chokidar that takes longer than that to start its watch of the folder still misses a file written in the gap until its next write, redo if a first transcript of a new folder goes unreported again.
+const NEW_DIR_RELIST_MS = 1000
+
 export class ClaudeHomeRegistry {
   readonly home: string
   private readonly listWorktrees: NonNullable<RegistryOptions['listWorktrees']>
@@ -975,11 +985,30 @@ export class ClaudeHomeRegistry {
       })
     }
 
+    // A new folder of the Project's transcripts, listed once more (NEW_DIR_RELIST_MS): each transcript
+    // in it is noted as if chokidar had reported it, which reports one chokidar did report a second time.
+    const relist = (dir: string): void => {
+      const [dirName = '', ...deeper] = relative(projectsDir, dir).split(sep)
+      if (deeper.length > 0 || dirName === '' || dirName === '..' || dirMatch(dirName, roots) === 'none') return
+      const timer = setTimeout(() => {
+        relooks.delete(timer)
+        if (closed) return
+        void listDir(dir)
+          .then((entries) => {
+            if (closed) return
+            for (const entry of entries) if (entry.isFile && TRANSCRIPT.test(entry.name)) note(join(dir, entry.name))
+          })
+          .catch((error: unknown) => console.error('[claude-home] listing a new transcript folder failed', error))
+      }, NEW_DIR_RELIST_MS)
+      relooks.add(timer)
+    }
+
     const watcher: FSWatcher = watch(this.home, { ignoreInitial: true, depth: 2, ignored, persistent: true })
     watcher
       .on('add', (path) => note(path))
       .on('change', (path) => note(path))
       .on('unlink', (path) => note(path, true))
+      .on('addDir', (path) => relist(path))
     watcher.on('error', (error) => console.error('[claude-home] watch error', error))
     // Started after the watcher, so a file is either seen here or reported by the watcher.
     const prefilled: Promise<void> = this.transcriptDirs(roots)

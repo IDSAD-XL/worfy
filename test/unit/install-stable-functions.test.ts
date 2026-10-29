@@ -444,7 +444,13 @@ interface DeployMark {
   markDeploy: (facts: { repo: string; commit: string; dirty: boolean; prebuilt: boolean; env: Env }, exec?: Exec) => string | null
   installStable: (
     argv: string[],
-    options: { env: Env; repo: string; build?: (platform: string, repo: string) => void; mark?: (facts: { repo: string; commit: string; dirty: boolean; prebuilt: boolean; env: Env }) => string },
+    options: {
+      env: Env
+      repo: string
+      build?: (platform: string, repo: string) => void
+      mark?: (facts: { repo: string; commit: string; dirty: boolean; prebuilt: boolean; env: Env }) => string
+      listing?: (platform: string) => string
+    },
   ) => string
 }
 const { markDeploy, installStable: install } = (await import(pathToFileURL(join(REPO, 'scripts', 'install-stable.mjs')).href)) as DeployMark
@@ -532,8 +538,13 @@ describe('the deploy mark', () => {
 // for every test, and macOS checks a new executable before its first run — about 400 ms on an idle Mac, several
 // seconds on one a full gate loads, which took these cases past vitest's 5 s default. These cases do not look at
 // what was registered, so the program they register with is /usr/bin/true, a system program macOS runs at once.
-// What is left are real programs all the same (git, ps twice, ditto; PowerShell's list of processes twice on
-// Windows), around 150 ms on an idle Mac: the explicit timeout keeps a loaded machine from failing them on time
+// Nor do they look at the check for a running copy, so the list of processes is a stand-in with no process in it
+// (noProcesses). The real one is PowerShell's Get-CimInstance on Windows, twice per install: the first case of the
+// file paid for its cold start, past the 15 s below on a loaded Windows runner and 8.5 s on the retry (CI job
+// 123257471981; FLAKY in runs 40811298374, 40812832776 and 40816108815). The installs of
+// install-stable.test.ts take an empty list as well (inProcess there); the real list is checked by its cases
+// "refuses while a program of the copy is running", which list the processes for real. What is left are real
+// programs all the same (git, ditto), around 150 ms on an idle Mac: the explicit timeout keeps a loaded machine from failing them on time
 // alone, as the contract project's 15 s does for its real processes. A case that really hangs still fails.
 describe.runIf(process.platform !== 'linux')('the deploy mark after a whole install', { timeout: 15_000 }, () => {
   useStandInBuild()
@@ -541,6 +552,8 @@ describe.runIf(process.platform !== 'linux')('the deploy mark after a whole inst
     // After useStandInBuild's own beforeEach, which points the variable at its script; its afterEach puts back the value from before.
     if (process.platform === 'darwin') process.env.WORFY_STABLE_LSREGISTER = '/usr/bin/true'
   })
+  // An empty list of processes, as each platform prints it: \`ps\` prints lines, PowerShell a JSON list.
+  const noProcesses = (platform: string): string => (platform === 'win32' ? '[]' : '')
   const repoWithBuild = () => {
     const repo = join(dir, 'repo')
     mkdirSync(repo)
@@ -566,7 +579,7 @@ describe.runIf(process.platform !== 'linux')('the deploy mark after a whole inst
       seen.push({ commit: given.commit, dirty: given.dirty, prebuilt: given.prebuilt, copied: existsSync(target), metadata: existsSync(metadataPath(process.platform, target)) })
       return 'install-stable: deploy mark: stand-in'
     }
-    const out = install([target], { env: { ...process.env, LOCALAPPDATA: local, WORFY_STABLE_PREBUILT: '' }, repo, build, mark })
+    const out = install([target], { env: { ...process.env, LOCALAPPDATA: local, WORFY_STABLE_PREBUILT: '' }, repo, build, mark, listing: noProcesses })
     expect(seen).toEqual([{ commit: head, dirty: false, prebuilt: false, copied: true, metadata: true }])
     expect(out).toContain(`install-stable: installed ${target} (commit ${head.slice(0, 7)})`)
     expect(out.split('\n').at(-1)).toBe('install-stable: deploy mark: stand-in')
@@ -578,7 +591,7 @@ describe.runIf(process.platform !== 'linux')('the deploy mark after a whole inst
     const mark = (): string => {
       throw new Error('no network')
     }
-    const out = install([target], { env: { ...process.env, LOCALAPPDATA: local, WORFY_STABLE_PREBUILT: '' }, repo, build, mark })
+    const out = install([target], { env: { ...process.env, LOCALAPPDATA: local, WORFY_STABLE_PREBUILT: '' }, repo, build, mark, listing: noProcesses })
     expect(out).toContain(`install-stable: installed ${target}`)
     expect(out).toContain('install-stable: deploy mark skipped: no network')
     expect(existsSync(target)).toBe(true)
@@ -586,7 +599,7 @@ describe.runIf(process.platform !== 'linux')('the deploy mark after a whole inst
 
   it('with the real mark and a prebuilt app, as every other test installs, runs no gh and adds no line', () => {
     const target = targetIn('apps', 'worfy-stable')
-    const out = install([target], { env: { ...process.env, LOCALAPPDATA: local, WORFY_STABLE_PREBUILT: build, WORFY_STABLE_GH: join(dir, 'no-such-gh') }, repo: REPO })
+    const out = install([target], { env: { ...process.env, LOCALAPPDATA: local, WORFY_STABLE_PREBUILT: build, WORFY_STABLE_GH: join(dir, 'no-such-gh') }, repo: REPO, listing: noProcesses })
     expect(out.split('\n')).toEqual([expect.stringContaining(`install-stable: installed ${target} (commit `)])
   })
 })

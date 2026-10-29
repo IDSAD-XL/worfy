@@ -187,7 +187,7 @@ cat >"$STUB" <<'EOF'
 const fs = require("node:fs")
 const log = process.env.STUB_LOG
 const n = fs.existsSync(log) ? fs.readFileSync(log, "utf8").split("\n").filter(Boolean).length : 0
-fs.appendFileSync(log, "call\n")
+fs.appendFileSync(log, `call ${Date.now()}\n`)
 const plan = (process.env.STUB_PLAN || "0").split(",")
 const step = plan[Math.min(n, plan.length - 1)]
 if (step === "sleep") {
@@ -214,7 +214,14 @@ if (step === "many") {
 process.exit(Number(step))
 EOF
 TRY_MS=500
-now_ms() { node -e 'process.stdout.write(String(Date.now()))'; }
+# The time in ms. Bash 5 has the clock built in (EPOCHREALTIME, in seconds with a dot under LANG=C.UTF-8); an
+# older bash asks node, whose start (up to seconds on a loaded Windows runner) then counts in what is measured.
+now_ms() {
+    if [[ "${EPOCHREALTIME:-}" =~ ^([0-9]+)[.,]([0-9]{3}) ]]; then echo "${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
+    else node -e 'process.stdout.write(String(Date.now()))'; fi
+}
+# When the stand-in was first called, in ms (the line `call <ms>` it writes), else $1.
+first_call_ms() { local at; at="$(awk 'NR == 1 { print $2 }' "$STUB_LOG" 2>/dev/null)"; [[ "$at" =~ ^[0-9]+$ ]] && echo "$at" || echo "$1"; }
 calls() { [ -f "$STUB_LOG" ] && grep -c . "$STUB_LOG" || echo 0; }
 use_stub() { # <plan>
     export STUB_LOG="$T/stub-$RANDOM-$RANDOM.log" STUB_PLAN="$1" CLAUDE_SILENT_CHECK_BIN="$STUB" CLAUDE_SILENT_CHECK_TIMEOUT_MS="$TRY_MS"
@@ -308,8 +315,15 @@ stub sleep,traces "timeout, then the retry finds traces -> deny with the traces"
 # Two checks in one command share the budget of two tries: the first check uses a try and its retry, the
 # second gets only what is left of the budget, and no retry of its own.
 use_stub sleep,0,sleep
+# Counted from the stand-in's first start, not from before the hook: the hook's own node start and jq are not part
+# of the budget, and on a loaded Windows runner they took the 1.5 s to spare (FLAKY 4 times there, 2026-10-29).
+# The error this accepts: the hook's budget starts before it spawns the first stand-in (`deadline` in guard.mjs),
+# and the stand-in writes its time only after its own node start, so that start drops out of what is measured too.
+# A hook past its budget by less than one node start would pass. The fault this case is for, a second check with a
+# try of its own, adds a whole try (3 s) and stays red. The limit is the same as before; a mutant in review was red
+# by only 20-30 ms on the Mac, so a change here should be checked against one.
 t0="$(now_ms)"; got="$(guard "$R" 'git checkout -b fix/x && git commit -m "Fix y"')"; t1="$(now_ms)"
-n="$(calls)"; no_stub
+t0="$(first_call_ms "$t0")"; n="$(calls)"; no_stub
 elapsed=$((t1 - t0))
 [[ "$got" == deny*'`git commit` was not run'*"did not finish"* ]] && ok "two checks, one budget: the second check runs out of it -> deny" \
     || bad "two checks, one budget: ${got:0:300}"
