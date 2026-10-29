@@ -473,43 +473,38 @@
       ]
     },
     {
-      "file": "test/contract/harness-evals.test.ts",
+      "file": "test/contract/harness-evals-run.test.ts",
       "reads": [
-        ".gitignore",
-        "README.md",
-        "electron.vite.config.ts",
         "harness/agents/implementer.md",
         "harness/agents/reviewer.md",
         "harness/bin/profile",
-        "harness/evals",
-        "harness/evals/epic-wave-old-form/graders/04-in-the-wave.md",
         "harness/evals/lib/coverage.json",
         "harness/evals/lib/demo-project.sh",
-        "harness/evals/lib/state-guard.cjs",
-        "harness/evals/reviewer-simplification/prompt.md",
-        "harness/evals/ship-ticket-local-green/graders/gate-fast.md",
-        "harness/evals/status-block/graders/ends-with-status-block.md",
         "harness/evals/status-block/graders/epic-status-ran.md",
-        "harness/evals/status-block/scaffold.sh",
-        "harness/hooks/gate.mjs",
         "harness/hooks/hooks.json",
         "harness/hooks/inject-rules.mjs",
         "harness/hooks/rules/orchestrator.md",
         "harness/skills/epic-wave/SKILL.md",
         "harness/skills/qmd/SKILL.md",
-        "harness/skills/ship-ticket/SKILL.md",
         "scripts/eval-harness-coverage.mjs",
         "scripts/eval-harness.mjs",
         "scripts/eval-run-env.mjs",
-        "src/main/index.ts",
+        "src/main/index.ts"
+      ]
+    },
+    {
+      "file": "test/contract/harness-evals-shared.ts",
+      "reads": [
         "test/fixtures/eval-stub/claude.cjs"
       ],
       "scans": [
-        "harness",
-        "harness/bin",
-        "scripts",
-        "src",
-        "test"
+        "harness"
+      ]
+    },
+    {
+      "file": "test/contract/harness-evals.test.ts",
+      "scans": [
+        "test/contract"
       ]
     },
     {
@@ -1373,7 +1368,7 @@
     {
       "file": "test/unit/stale-leftovers.test.ts",
       "reads": [
-        "test/contract/harness-evals.test.ts",
+        "test/contract/harness-evals-shared.ts",
         "test/unit/glob-probe.tsx",
         "vitest.config.ts"
       ]
