@@ -1,7 +1,8 @@
 # 51 — `harness-evals.test.ts` в двух файлах и общие fixture-ы кейсов: короче долгий shard Windows
 
 Type: task
-Status: claimed 2026-10-29T04:55Z
+Status: done 2026-10-29T08:18Z
+PR: #957
 Branch: worfy-throughput/51
 Blocked by: 35
 Source: разбор моста 2026-10-29 после #948 (Ticket 49): самый долгий job Windows — `windows (1/3) / full-suite`,
@@ -173,3 +174,23 @@ Windows, CI run PR-а 40821804650 (до — run-ы 40811277830 и 40813892212 н
 - `pnpm lint`, `pnpm typecheck`, gate fast (`[gate] green (fast)`) — exit 0, до и после rebase на `80149146`. Gate
   предупреждает: `harness-evals-run.test.ts` — 1246 строк (больше 1000).
 - `node scripts/windows-verdict-scope.mjs 80149146 HEAD` — `runner`, exit 0.
+
+### Ревью на Mac и merge
+
+PR #957 влит, merge-commit `f52dc8bb`. Ревью на Mac — три low, ни одна не блокирует merge. Каждая переходит в
+следующий PR, который тронет её файл:
+
+- `test/contract/harness-evals.test.ts:165-173` (`putBack`): fixture восстанавливается копией, поэтому у файлов
+  новые время и inode. Если позже read-only test запустит в таком fixture-е `git status`, git перепишет
+  `.git/index`, и `afterEach` покажет ложный красный: содержимое fixture-а не совпадёт со сборкой. Сейчас такого
+  test-а нет, ошибка скрытая; mutant это доказал.
+- `test/contract/harness-evals.test.ts:113-122` (`contentOf`): hash не учитывает режим файла и цель symlink-а.
+- `scripts/ci-scope.mjs:239` (на `f52dc8bb` — `:132`): комментарий называет один файл `harness-evals.test.ts`, а их
+  теперь два. Пункт идёт в бриф Orchestrator-а для Ticket-а 11.
+
+**Расхождение при merge.** #957 и #954 (Ticket 21, affected-tests) влиты порознь, и вместе оставили устаревшим
+`scripts/affected-tests.table.json`: его строки описывали `harness-evals.test.ts` до разделения, без
+`harness-evals-run.test.ts`. `main` на `f52dc8bb` красный —
+`test/unit/affected-tests.test.ts:452` («holds what the generator builds from the test sources today»). Исправлено
+вперёд в течение часа: #968 (`8664b8da`) заново собрал таблицу. Причину убирает Ticket 11: генерируемые строки
+таблицы строятся во время run-а, а не хранятся в файле.
