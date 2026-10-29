@@ -1,7 +1,8 @@
 # 70 — `pnpm eval:harness --changed` гонит все кейсы тега и глотает `--max-cost-usd` пользователя; `--dry-run`
 
 Type: bug
-Status: open 2026-10-29T05:16Z
+Status: claimed 2026-10-29T15:40Z
+Branch: worfy-harness/70-r2
 Blocked by: —
 Source: платный run на PR #738 (2026-10-22): `pnpm eval:harness --changed origin/main -- --max-cost-usd 3`
 стоил 30.29 USD вместо ожидаемых ~1 USD; log run-а — в scratchpad сессии Orchestrator-а (`eval-738.log`), выдержки ниже.
@@ -86,30 +87,30 @@ Source: платный run на PR #738 (2026-10-22): `pnpm eval:harness --chang
 
 ## Готово, когда
 
-- [ ] `--changed` со stub-ом во временном git-репозитории (как test-ы Ticket-а 29), правка
+- [x] `--changed` со stub-ом во временном git-репозитории (как test-ы Ticket-а 29), правка
   `harness/skills/epic-wave/SKILL.md`, аргументы `['--changed', 'main', '--', '--runs', '1']`: три вызова, у каждого
   ровно один `--case` (`epic-wave-old-form`, `epic-wave-tickets`, `reviewer-verdict`), `--runs 1` есть, `--` в
   аргументах ни одного вызова нет.
-- [ ] Stub разбирает аргументы как `claude`: всё после `--` — не опции. Test на нём падает на коде `7fcb5f74`
+- [x] Stub разбирает аргументы как `claude`: всё после `--` — не опции. Test на нём падает на коде `7fcb5f74`
   (`--case` после `--`) и проходит после правки. Поиск опций в test-ах (`listAfter`) не смотрит за `--`.
-- [ ] Stub пишет `aggregate-result.json` с `casesTotal` больше выбранного — строка для PR кончается на
+- [x] Stub пишет `aggregate-result.json` с `casesTotal` больше выбранного — строка для PR кончается на
   `, cases mismatch: report <n>, chosen <m>`, код выхода скрипта не 0.
-- [ ] `['--changed', 'main', '--', '--max-cost-usd', '3']`, stub отчитывается `costUsd` 1.5 за вызов: вызовы получают
+- [x] `['--changed', 'main', '--', '--max-cost-usd', '3']`, stub отчитывается `costUsd` 1.5 за вызов: вызовы получают
   `--max-cost-usd` 3, затем 1.5; третий не стартует, exit 2; в аргументах `claude` только одна `--max-cost-usd`.
-- [ ] То же для `['--', '--max-cost-usd=3']` без `--changed` и для `--max-cost-usd 3` без `--`.
-- [ ] `--max-cost-usd 50` — вызовы получают 30, в выводе строка, что потолок остаётся 30 USD.
+- [x] То же для `['--', '--max-cost-usd=3']` без `--changed` и для `--max-cost-usd 3` без `--`.
+- [x] `--max-cost-usd 50` — вызовы получают 30, в выводе строка, что потолок остаётся 30 USD.
   `--max-cost-usd 0`, `--max-cost-usd abc`, `--max-cost-usd` без значения — exit 1, лог stub-а пуст.
-- [ ] `--dry-run` (с `--changed` и без): лог stub-а пуст, `claude --version` не вызван, папки `harness/evals/results/`
+- [x] `--dry-run` (с `--changed` и без): лог stub-а пуст, `claude --version` не вызван, папки `harness/evals/results/`
   нет; вывод содержит бюджет и командную строку каждого вызова, ровно ту, что получил бы stub без `--dry-run`
   (test сравнивает два run-а). Exit 0. `--dry-run --changed no-such-branch` — exit 1.
-- [ ] Мутанты в своём worktree красные: проверка `--` только на первом месте (`:204` как сейчас); `...passThrough` перед
+- [x] Мутанты в своём worktree красные: проверка `--` только на первом месте (`:204` как сейчас); `...passThrough` перед
   `...call.args` с `--` внутри; бюджет без `min` с лимитом пользователя; `--max-cost-usd` пользователя оставлен в
   аргументах `claude`; `--dry-run`, который вызывает `claude --version`.
-- [ ] `harness/README.md`, раздел «Evals»: `--max-cost-usd` пользователя снижает бюджет run-а, не повышает его;
+- [x] `harness/README.md`, раздел «Evals»: `--max-cost-usd` пользователя снижает бюджет run-а, не повышает его;
   `--dry-run` и проверка его вывода перед платным `--changed`. `grep -n -- '--dry-run' harness/README.md` — код 0.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0. Ни один test не запускает настоящий Claude Code, не обращается к
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0. Ни один test не запускает настоящий Claude Code, не обращается к
   модели и не пишет в `~/.claude`.
-- [ ] `node harness/hooks/gate.mjs fast` на ветке — код 0 и строка `[gate] green (…)`.
+- [x] `node harness/hooks/gate.mjs fast` на ветке — код 0 и строка `[gate] green (…)`.
 
 ## Тесты
 
@@ -142,3 +143,37 @@ Source: платный run на PR #738 (2026-10-22): `pnpm eval:harness --chang
   `summary` дописывает `, cases mismatch: report <n>, chosen <m>` и поднимает код выхода до 1.
 - Мутанты (свой worktree): `--` только первым; `...passThrough` перед `...call.args` с `--`; бюджет без `min`;
   `--max-cost-usd` оставлен для `claude`; `--dry-run` с `claude --version`; mismatch без влияния на код — все красные.
+
+### Повторная проверка 2026-10-29 (Ticket снова `open` после решения владельца, ветка `worfy-harness/70-r2`)
+
+- Исправление уже в `main` с 2026-10-22: PR #778 (`18497651`). Код `scripts/eval-harness.mjs` на `ef5fb55e` убирает
+  каждый `--` (`:271`), забирает `--max-cost-usd` пользователя (`:279-286`, бюджет `min(BUDGET_USD, x)`), ставит
+  `--case` вызова до `--allow-tools` и аргументов пользователя (`callArgs`, `:336-339`), сверяет число кейсов
+  (`summary`, `:226-249`, код выхода не ниже 1 при mismatch, `:417`) и печатает план вызовов при `--dry-run`
+  (`:343-351`). Строки `:204`, `:212`, `:235`, `:281-282` из «Что происходит» относятся к `7fcb5f74`, их уже нет.
+- Test-ы Ticket-а переехали из `test/contract/harness-evals.test.ts` в `test/contract/harness-evals-run.test.ts`
+  (describe «a `--` anywhere, the cost limit of the user, --dry-run», `:1010-1232`). `listAfter` (`:94-101`) не
+  смотрит за `--`, stub `test/fixtures/eval-stub/claude.cjs:39-40` тоже: всё после `--` — не опции, как у `claude`.
+- Правок кода нет: эта ветка только отмечает пункты «Готово, когда» и дописывает таблицу мутантов ниже. Платных run-ов
+  не было: каждый test зовёт stub, не `claude`.
+- Мутанты на `ef5fb55e` (свой worktree, `scripts/eval-harness.mjs` восстановлен из копии после каждого), test-файл
+  `test/contract/harness-evals-run.test.ts`, без мутанта — 98 passed, 4 skipped:
+
+| Мутант | Красных test-ов | Пример красного test-а |
+| --- | --- | --- |
+| весь скрипт с `7fcb5f74` (код до правки) | 31 | `:1023` у вызовов нет `--case`, `:1060` первый вызов получает 30, не 3 |
+| `--` убирается, только если он первый | 6 | `:1023`, `:1035`, `:1076`, `:1199` (оба), `:1214` |
+| аргументы пользователя за `--` перед `...call.args` | 20 | `:1023` `--case` за `--` — не опция |
+| бюджет без `min`: лимит пользователя поднимает потолок | 1 | `:1087` при `--max-cost-usd 50` вызов получает 30 |
+| бюджет без лимита пользователя | 9 | `:1060` вызовы получают 3, затем 1.5 |
+| `--max-cost-usd` пользователя оставлен в аргументах `claude` | 5 | `:1060` одна `--max-cost-usd` на вызов |
+| плохое значение `--max-cost-usd` принято | 6 | `0`, `abc`, без значения, два раза — exit 1, лог stub-а пуст |
+| нет строки о потолке 30 USD | 1 | `:1087` |
+| вызов одного кейса без `--case` | 14 | `:1023`, `--changed` и `--case` пользователя |
+| mismatch не меняет код выхода | 3 | `:1042` код выхода не 0 |
+| нет хвоста `, cases mismatch: …` | 3 | `:1042`, `:1052`, `:1151` |
+| `--dry-run` зовёт `claude --version` | 2 | `:1199` с `--changed` и без |
+| `--dry-run` запускает вызовы | 3 | `:1199` лог stub-а не пуст |
+| `--dry-run` не печатает командные строки | 3 | `:1199` сравнение с настоящим run-ом |
+
+- Статус остаётся `claimed`: Ticket закрывает владелец (решение владельца о Ticket-е 70).
