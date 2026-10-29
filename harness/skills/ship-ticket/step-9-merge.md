@@ -19,7 +19,10 @@ the ticket waits for them. With `human-review` the merge waits for
 `gh pr view <N> --json reviewDecision` to say `APPROVED`. With a `check` Stage the PR merges only
 while its head carries every `check/<name>` `success` or `skipped`: the marks, who sets them and the
 block that reads them — skill `/worfy:epic-wave`, section 4, "Checks before merge"; a PR whose line
-there is not `ready` waits, and a `failed` one goes back to rework. With no `check` Stage in the
+there is not `ready` waits, and a `failed` one goes back to rework. A Check that answers on the main
+branch after the merge (the same section; worfy: `windows` for scope `pc`) is read there before the
+merge — the record of a red main branch holds it — and after the merge you ask its session for it on
+the merge commit yourself: no wave ends here to ask for it. With no `check` Stage in the
 Pipeline a platform PR — one the project's rules send to another platform's verdict — merges only
 after that verdict, the old way: the same section, "Gate before merge".
 

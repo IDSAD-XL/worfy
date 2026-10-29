@@ -957,6 +957,43 @@ the old way or one after another — every Check of the Pipeline has its mark on
   with a Russian word in place of `green`: the same verdict, for one release); red — `failure`: the PR is not merged and goes
   to a rework round (section 3, a fresh implementer) with that report; "could not verify", or a report on
   another commit — no new mark, and the PR waits.
+- A check that answers on the main branch after the merge. The project's rules (`rules.md`) may say
+  that a PR needs a Check another session runs, but not on its own head (worfy: `windows` for a PR of
+  scope `pc`). Such a PR merges by the rest of its conditions, unless the main branch is red there
+  (below). Its mark is `success` on the head once the PR's CI is green, and the wave report lists the
+  PR as "checked after the wave", so that nobody reads the mark as a check of that head.
+  - When to ask. After a wave that merged at least one such PR, ask that session for its check on the
+    SHA of the last merge of the wave. A wave that merged no such PR asks for nothing. A PR merged
+    outside a wave (skill `/worfy:ship-ticket`, step 9) is asked for right after its merge, on its
+    merge commit, by the session that merged it. Ask the same way you ask for a check of a PR's head.
+    A request that has no report yet is replaced by a newer one: one check on the newer SHA answers
+    both.
+  - Its report names the commit, the exit code and the verdict line, as for a PR's head. Green — the
+    check is done.
+  - Red — that session first runs the failing tests once more, one at a time, on the same SHA, to
+    check for a flaky test. Red again — the main branch is red there, and that session records it in
+    the one place the project's rules name for it (worfy: an open GitHub issue with the label
+    `pc-main-red`, its title the SHA, its body the report). That session also clears it. Green on that
+    rerun — a flaky test, and the main branch is not red: the report lists those tests with their exit
+    codes, and a test that fails like that again goes to quarantine by the project's rules.
+  - The record is written so that the read below finds it: a record it does not find reads as green.
+    Worfy: `gh label create pc-main-red --force --color B60205 --description "main is red on the PC gate full"`
+    first, so the label exists, then `gh issue create --label pc-main-red`. An issue opened without
+    the label is not found by the read below.
+  - Before merging any PR that needs this check — in a wave or not — read that place (worfy:
+    `gh issue list --label pc-main-red --state open`). While the main branch is red there, no PR that
+    needs this check merges, and the wave report says so with the SHA. Other PRs merge as before.
+  - The exception is the PR that fixes that red: a fix forward or a revert of the PR that broke it.
+    Its description names the record (worfy: the issue, without a GitHub word that closes it on
+    merge). It merges on its other conditions plus that session's check of the failing tests on its
+    head.
+  - Right after the fix merges, ask that session for its check on the fix's merge commit. A green
+    check there, or on a later SHA of the main branch, ends the red, and that session clears the
+    record.
+  - How long a fix forward may take before the PR that broke it is reverted is the project's rule
+    (worfy: 1 h from the record, then the orchestrator reverts it by hand). There is no automatic
+    revert.
+  - A check not asked for yet, or with no report yet, holds no merge.
 - A check a CI runner may answer. The project's rules (`rules.md`) may name, for a Check, a scope
   command, a dispatch command (with `$ref` for the branch), the workflow of that dispatch, the job
   whose conclusion is the verdict and the step of that job that runs the tests. No such rules — skip

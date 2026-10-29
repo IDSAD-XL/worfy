@@ -44,12 +44,13 @@ without_allowed_claude() { without "$1" "${ALLOWED_CLAUDE[@]}"; }
 for f in "$EW" "$ST"; do
     n="$(name_of "$f")"
 
-    # 1. No Harness paths under ~/.claude.
-    rest="$(without_allowed_claude "$f")"
+    # 1. No Harness paths under ~/.claude. The text goes through a file: a skill is longer than the
+    # 128 KiB Linux allows one argument of a command (MAX_ARG_STRLEN).
+    without_allowed_claude "$f" > "$STT/rest.$n"
     check "$n: no ~/.claude/bin, ~/.claude/hooks, \$HOME/.claude" \
-        bash -c '! grep -qE "~/\.claude/(bin|hooks)|\\\$HOME/\.claude|\\\$\{HOME\}/\.claude" <<<"$1"' _ "$rest"
+        lacks_re "$STT/rest.$n" '~/\.claude/(bin|hooks)|\$HOME/\.claude|\$\{HOME\}/\.claude'
     check "$n: ~/.claude only as ~/.claude/projects, ~/.claude/worfy-harness and 'Write to ~/.claude'" \
-        bash -c '! grep -qF "~/.claude" <<<"$1"' _ "$rest"
+        lacks "$STT/rest.$n" '~/.claude'
 
     # 2. Profile and Gate through the plugin root; the profile-value rule is there.
     check "$n: F is \${CLAUDE_PLUGIN_ROOT}/bin/profile --field" has "$f" '"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field <field>'
@@ -859,6 +860,29 @@ check "Check: the set takes only the ready PRs" in_ew4 'Only the PRs whose line 
 check "Check: PLATFORM=() is filled from the PRs whose Check is not skipped" in_ew4 'the `ready, PLATFORM` ones go into its `PLATFORM=(…)` too'
 check "Check: a push or a rebase leaves the marks on the old head" in_ew4 'after a push or a rebase the new head has no marks, and the PR waits again'
 check "Check: which PRs need a Check is the project's rule" in_ew4 'the project'"'"'s rules (`rules.md`) say the PR does not need this check'
+check "Check after the merge: the PR merges with the mark success once its CI is green" in_ew4 'Its mark is `success` on the head once the PR'"'"'s CI is green, and the wave report lists the PR as "checked after the wave"'
+check "Check after the merge: asked on the SHA of the wave's last merge" in_ew4 'After a wave that merged at least one such PR, ask that session for its check on the SHA of the last merge of the wave'
+check "Check after the merge: a wave with no such PR asks for nothing" in_ew4 'A wave that merged no such PR asks for nothing'
+check "Check after the merge: a PR merged outside a wave is asked for right after its merge" in_ew4 'A PR merged outside a wave (skill `/worfy:ship-ticket`, step 9) is asked for right after its merge, on its merge commit, by the session that merged it'
+check "Check after the merge: a newer request replaces one with no report" in_ew4 'A request that has no report yet is replaced by a newer one: one check on the newer SHA answers both'
+check "Check after the merge: red — one rerun of the failing tests, then the red is recorded in one place" in_ew4 'first runs the failing tests once more, one at a time, on the same SHA, to check for a flaky test. Red again — the main branch is red there, and that session records it in the one place the project'"'"'s rules name for it'
+check "Check after the merge: the record is read before every merge that needs it" in_ew4 'Before merging any PR that needs this check — in a wave or not — read that place'
+check "Check after the merge: while red, no PR that needs it merges" in_ew4 'While the main branch is red there, no PR that needs this check merges'
+check "Check after the merge: other PRs merge as before" in_ew4 'needs this check merges, and the wave report says so with the SHA. Other PRs merge as before.'
+check "Check after the merge: the PR that fixes the red is the exception" in_ew4 'The exception is the PR that fixes that red: a fix forward or a revert of the PR that broke it'
+check "Check after the merge: the fixing PR merges with a check of the failing tests on its head" in_ew4 'It merges on its other conditions plus that session'"'"'s check of the failing tests on its head'
+check "Check after the merge: a green check on the fix or later ends the red" in_ew4 'A green check there, or on a later SHA of the main branch, ends the red, and that session clears the record'
+check "Check after the merge: the revert deadline is the project's rule, no automatic revert" in_ew4 'is the project'"'"'s rule (worfy: 1 h from the record, then the orchestrator reverts it by hand). There is no automatic revert.'
+check "Check after the merge: a check with no report holds no merge" in_ew4 'A check not asked for yet, or with no report yet, holds no merge.'
+check "Check after the merge: green on the rerun is a flaky test, the main branch is not red" in_ew4 'Green on that rerun — a flaky test, and the main branch is not red'
+check "Check after the merge: the label is created before the issue, so the read finds the record" in_ew4 '`gh label create pc-main-red --force --color B60205 --description "main is red on the PC gate full"` first, so the label exists, then `gh issue create --label pc-main-red`'
+check "Check after the merge: the record is read by its label" in_ew4 '(worfy: `gh issue list --label pc-main-red --state open`)'
+check "Check after the merge: the fixing PR names the record without a word that closes it on merge" in_ew4 'Its description names the record (worfy: the issue, without a GitHub word that closes it on merge)'
+check "Check after the merge: after the fix, the check is asked on the fix's merge commit" in_ew4 'Right after the fix merges, ask that session for its check on the fix'"'"'s merge commit'
+st9="$(awk '/^## 9\./{p=1; next} /^## /{p=0} p' "$ST")"
+in_st9() { printf '%s\n' "$st9" | tr '\n' ' ' | tr -s ' ' | grep -qF -- "$1"; }
+check "ship-ticket step 9: a Check after the merge is asked for on the merge commit, with no wave to ask" in_st9 'after the merge you ask its session for it on the merge commit yourself: no wave ends here to ask for it'
+check "ship-ticket step 9: a Check after the merge is read before the merge, and a red record holds it" in_st9 'is read there before the merge — the record of a red main branch holds it'
 # Without a `check` Stage (the default Pipeline, a profile not yet edited) the rule in words stays: platform PRs
 # keep out of the set, go into PLATFORM=() and merge the old way after the other platform's verdict.
 check "Check: no Check in the Pipeline — PLATFORM=() lists the platform PRs by the project's rules" \

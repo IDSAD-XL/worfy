@@ -105,7 +105,7 @@ _Avoid_: проверка, CI (CI — отдельная проверка на G
 _Avoid_: полный гейт, полная проверка, full gate, ci-ok (как синоним)
 
 **Windows verdict**:
-Ответ на вопрос, работает ли изменение PR на Windows. С первого зелёного `ci-ok` на `main` (ADR-0083) для каждого PR это job `windows` в составе check `ci-ok` CI на GitHub-hosted runner-е; для платформенного PR, который трогает то, чего runner не проверяет (Terminal, окна, меню, уведомления, e2e, упаковку), — Gate full на Windows-ПК владельца. Какой из двух нужен, решает скрипт scope, а не человек ([ADR-0083](docs/adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md)).
+Ответ на вопрос, работает ли изменение PR на Windows. С первого зелёного `ci-ok` на `main` (ADR-0083) для каждого PR это job `windows` в составе check `ci-ok` CI на GitHub-hosted runner-е; для платформенного PR, который трогает то, чего runner не проверяет (Terminal, окна, меню, уведомления, e2e, упаковку), — Gate full на Windows-ПК владельца. Какой из двух нужен, решает скрипт scope, а не человек ([ADR-0083](docs/adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md)). С [ADR-0086](docs/adr/0086-pc-gate-full-once-per-wave.md) этот gate full идёт не на head PR, а на `main` после merge: PR со scope `pc` вливается по `ci-ok`.
 _Avoid_: проверка Windows, Windows-гейт, `check/windows` (это отметка, в которой Windows verdict записан)
 
 **Harness**:
