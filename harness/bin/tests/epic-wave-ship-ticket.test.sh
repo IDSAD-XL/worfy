@@ -909,11 +909,22 @@ check "epic-wave section 1: eco — a small ticket without an implementer, the v
 check "epic-wave section 1: the mode is checked again on the diff of a small ticket" in_flat "$ew1" \
     'The orchestrator decides the mode per ticket in the preflight, by its trail section, and checks it again on the diff of a small ticket it did itself (section 2).'
 check "epic-wave section 2: the orchestrator does a small eco ticket itself" in_flat "$ew2" \
-    'A small ticket in `eco` (section 1) gets no implementer: the orchestrator does it itself, in a worktree of its own by `F worktree.implementer`, by the steps `F workflow.implementer_steps` up to the finish `F workflow.finish`, and gives the verifier the fields of an implementer'"'"'s report (commands with exit codes, claims, what was removed). Its row of the plan names `orchestrator` in the "Who" column.'
-check "epic-wave section 2: the orchestrator enters the worktree of a small ticket and returns" in_flat "$ew2" \
-    'Right after `git worktree add` the orchestrator enters that worktree with `EnterWorktree` (the `path` of the worktree): the PreToolUse check on Edit and Write lets edits only into the session'"'"'s worktree. Before it starts the verifier, it returns with `ExitWorktree` (`action: "keep"`): the worktree stays for the gate and the merge.'
-check "epic-wave section 2: the diff of a small ticket against the full cases, a match goes to an implementer" in_flat "$ew2" \
-    'Before the verifier, the orchestrator checks the diff of the small ticket against the cases where `full` is required (section 1). On a match the ticket goes to an implementer, whose brief names the orchestrator'"'"'s commit in `Base:`, and the report line of the ticket is `Agents: full — <the case>`, for example `Agents: full — destructive action`.'
+    'A small ticket in `eco` (section 1) gets no implementer: the orchestrator does it itself, in a worktree of its own by `F worktree.implementer`, by the steps `F workflow.implementer_steps`, and gives the verifier the fields of an implementer'"'"'s report (commands with exit codes, claims, what was removed). Its row of the plan names `orchestrator` in the "Who" column.'
+check "epic-wave section 2: the orchestrator enters the worktree of a small ticket" in_flat "$ew2" \
+    'Right after `git worktree add` the orchestrator enters that worktree with `EnterWorktree` (the `path` of the worktree): the PreToolUse check on Edit and Write lets edits only into the session'"'"'s worktree.'
+SMALL_CHECK='Before any push or PR — after its local checks and a local commit — the orchestrator checks the diff of the small ticket against the cases where `full` is required (section 1).'
+SMALL_GO='No match: it goes on to the finish `F workflow.finish`, returns with `ExitWorktree` (`action: "keep"`) and starts the verifier; the worktree stays for the gate and the merge.'
+SMALL_HAND='On a match nothing is pushed and no PR is opened: the orchestrator returns with `ExitWorktree` (`action: "keep"`), and the ticket goes to an implementer the way a rework round does (section 3): `git worktree remove <worktree>` only, the local branch stays, the agent starts with `isolation: "worktree"`, and its brief is the rework brief with `Findings: none — a small ticket handed over: <the case>` and the line `Worktree: your launch tree (isolation "worktree") — git checkout <branch>` (the local branch, not pushed), never the `F worktree.implementer` template of the first brief.'
+SMALL_DONE='The implementer takes the orchestrator'"'"'s commit as its starting point: it reviews that commit, adds the tests the change needs, runs the checks and carries the ticket to its finish (push, PR, CI). The report line of the ticket is `Agents: full — <the case>`, for example `Agents: full — destructive action`.'
+check "epic-wave section 2: the diff of a small ticket is checked before any push or PR" in_flat "$ew2" "$SMALL_CHECK"
+check "epic-wave section 2: no match — the finish, then the verifier" in_flat "$ew2" "$SMALL_GO"
+check "epic-wave section 2: a match — no push, the rework way, the existing local branch, no worktree template" in_flat "$ew2" "$SMALL_HAND"
+check "epic-wave section 2: what the implementer does with the orchestrator's commit" in_flat "$ew2" "$SMALL_DONE"
+# The order inside the paragraph: the diff check, then the finish (no push or PR before the check).
+before_finish() { local t; t="$(flat "$1")"; t="${t%%"$3"*}"; [[ "$t" == *"$2"* && "$(flat "$1")" == *"$3"* ]]; }
+check "epic-wave section 2: the diff check comes before the finish of a small ticket" before_finish "$ew2" "$SMALL_CHECK" "$SMALL_GO"
+check "epic-wave section 2: the hand-off brief does not move the base to the orchestrator's commit" lacks_re_text "$ew2" 'names the orchestrator'"'"'s commit in `Base:`'
+check "epic-wave section 2: the small ticket does not go up to the finish before the check" lacks_re_text "$ew2" 'by the steps `F workflow.implementer_steps` up to the finish `F workflow.finish`, and gives the verifier'
 check "epic-wave section 3: eco does not change the gate, the rework round or the narrow round" in_flat "$sec3" \
     'The agents mode does not change the gate: in `eco` the verifier stays, for a ticket the orchestrator did itself too, and the rework round and the narrow round go as described here.'
 check "epic-wave section 5: the agents line and the subagent count of every ticket" in_flat "$ew5" \
@@ -930,9 +941,9 @@ in_order() {
     done
 }
 check "ship-ticket step 7: Which depth — argument, eco, the profile fields, no field" in_order "$st7" \
-    '1. An argument:' '2. The agents mode: with `F workflow.agents` `eco`' '3. The profile: the first review round' '4. No field (exit 4 or `null`) and no argument'
+    '1. An argument:' '2. The agents mode: when the mode of the ticket is `eco`' '3. The profile: the first review round' '4. No field (exit 4 or `null`) and no argument'
 check "ship-ticket step 7: item 2 — eco gives low depth, one reviewer with one lens" in_flat "$st7" \
-    '2. The agents mode: with `F workflow.agents` `eco` (paragraph "Agents mode" below) every review round of the ticket'"'"'s own diff has `low` depth — one reviewer with one lens. The report names the source `workflow.agents: eco`.'
+    '2. The agents mode: when the mode of the ticket is `eco` (paragraph "Agents mode" below: `F workflow.agents` `eco`, and none of the cases where `full` is required applies to the diff of the round), every review round of the ticket'"'"'s own diff has `low` depth — one reviewer with one lens. The report names the source `workflow.agents: eco`.'
 check "ship-ticket step 7: the Agents mode paragraph points at item 2" in_flat "$st7" \
     'With `eco` every review round of the ticket'"'"'s own diff has `low` depth by item 2 of the list "Which depth".'
 check "ship-ticket step 7: the source workflow.agents: eco of the depth line" in_flat "$st7" \

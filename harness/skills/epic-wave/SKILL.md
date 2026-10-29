@@ -342,17 +342,24 @@ orchestrator. The order of work and the report format are set in the agent defin
 does not repeat them.
 
 A small ticket in `eco` (section 1) gets no implementer: the orchestrator does it itself, in a
-worktree of its own by `F worktree.implementer`, by the steps `F workflow.implementer_steps` up to
-the finish `F workflow.finish`, and gives the verifier the fields of an implementer's report
-(commands with exit codes, claims, what was removed). Its row of the plan names `orchestrator` in
-the "Who" column. Right after `git worktree add` the orchestrator enters that worktree with
-`EnterWorktree` (the `path` of the worktree): the PreToolUse check on Edit and Write lets edits only
-into the session's worktree. Before it starts the verifier, it returns with `ExitWorktree`
-(`action: "keep"`): the worktree stays for the gate and the merge. Before the verifier, the
-orchestrator checks the diff of the small ticket against the cases where `full` is required
-(section 1). On a match the ticket goes to an implementer, whose brief names the orchestrator's
-commit in `Base:`, and the report line of the ticket is `Agents: full — <the case>`, for example
-`Agents: full — destructive action`.
+worktree of its own by `F worktree.implementer`, by the steps `F workflow.implementer_steps`, and
+gives the verifier the fields of an implementer's report (commands with exit codes, claims, what
+was removed). Its row of the plan names `orchestrator` in the "Who" column. Right after
+`git worktree add` the orchestrator enters that worktree with `EnterWorktree` (the `path` of the
+worktree): the PreToolUse check on Edit and Write lets edits only into the session's worktree.
+Before any push or PR — after its local checks and a local commit — the orchestrator checks the
+diff of the small ticket against the cases where `full` is required (section 1). No match: it goes
+on to the finish `F workflow.finish`, returns with `ExitWorktree` (`action: "keep"`) and starts the
+verifier; the worktree stays for the gate and the merge. On a match nothing is pushed and no PR is
+opened: the orchestrator returns with `ExitWorktree` (`action: "keep"`), and the ticket goes to an
+implementer the way a rework round does (section 3): `git worktree remove <worktree>` only, the
+local branch stays, the agent starts with `isolation: "worktree"`, and its brief is the rework
+brief with `Findings: none — a small ticket handed over: <the case>` and the line
+`Worktree: your launch tree (isolation "worktree") — git checkout <branch>` (the local branch, not
+pushed), never the `F worktree.implementer` template of the first brief. The implementer takes the
+orchestrator's commit as its starting point: it reviews that commit, adds the tests the change
+needs, runs the checks and carries the ticket to its finish (push, PR, CI). The report line of the
+ticket is `Agents: full — <the case>`, for example `Agents: full — destructive action`.
 
 - `parallel: worktrees` — one agent per ticket, all in one message. `F worktree.root` must lie under
   `.claude/worktrees/` of the repository: an implementer subagent edits only in a tree it entered with

@@ -368,9 +368,10 @@ scale: it runs at every depth.
 1. An argument: `/worfy:ship-ticket <epic> <NN> depth <low|medium|high|max>`. The owner's word in
    a message (`review #237 — low`, in any language) is the same argument; it holds for the round
    the message asks for.
-2. The agents mode: with `F workflow.agents` `eco` (paragraph "Agents mode" below) every review
-   round of the ticket's own diff has `low` depth — one reviewer with one lens. The report names the
-   source `workflow.agents: eco`.
+2. The agents mode: when the mode of the ticket is `eco` (paragraph "Agents mode" below:
+   `F workflow.agents` `eco`, and none of the cases where `full` is required applies to the diff of
+   the round), every review round of the ticket's own diff has `low` depth — one reviewer with one
+   lens. The report names the source `workflow.agents: eco`.
 3. The profile: the first review round of the change — `F review.depth.first_round`; a repeat
    review after rework — `F review.depth.later_rounds`.
 4. No field (exit 4 or `null`) and no argument — the review of the ticket's own diff stays as it
