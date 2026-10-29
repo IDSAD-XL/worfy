@@ -141,6 +141,27 @@ describe('the command Arrange by Epic', () => {
     expect(String(warn.mock.calls[0]?.[0])).toContain('nothing was moved')
   })
 
+  it('places at once by the transcripts when main answered bindings.get with an error: the Canvas shows no manual Binding then either', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    // Every transcript is read; main's answer to `bindings.get` is an error.
+    readBindings()
+    useBindingsStore.setState(({ manual, manualError }) => ({
+      manual: Object.fromEntries(Object.entries(manual).filter(([id]) => id !== PROJECT)),
+      manualError: { ...manualError, [PROJECT]: 'bindings.json is not readable' },
+    }))
+    const apply = vi.fn<(op: LayoutOpInput) => Promise<void>>(() => Promise.resolve())
+    // An error answer counts as read: the command does not wait for the limit, and finds the manual Bindings answered.
+    const started = Date.now()
+    const op = await run(apply, 1000)
+    expect(Date.now() - started).toBeLessThan(1000)
+    expect(apply).toHaveBeenCalledWith(op)
+    expect(movesOf(op)).toEqual([
+      { id: `session:${BOUND}`, x: COLUMN, y: 0 },
+      { id: `session:${FREE}`, x: COLUMN, y: 120 + FRAME_GAP },
+    ])
+    expect(warn).not.toHaveBeenCalled()
+  })
+
   it('releases the Project after a timeout and after an exception: the next command runs', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     vi.spyOn(console, 'error').mockImplementation(() => undefined)

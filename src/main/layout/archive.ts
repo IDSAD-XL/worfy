@@ -463,8 +463,10 @@ export class AutoArchiver {
 
   /** Runs now and then every `everyMs`, until the returned function is called. */
   start(everyMs: number = ARCHIVE_TICK_MS): () => void {
-    // A Project is run the moment main first reads its Layout: a window opened it, so its overdue
-    // Sessions go now, not a tick later. Overlapping with a tick is safe: the rule runs again at the write.
+    // A Project is run the moment main first reads its Layout — a window opened it, a Linked machine
+    // asked for it, or main read it itself (the Canvas's MCP tools, docs, the trash, the Nodes'
+    // Sessions; ADR-0076, Amendments) — so its overdue Sessions go now, not a tick later.
+    // Overlapping with a tick is safe: the rule runs again at the write.
     const stopReads = this.deps.store.onFirstRead((projectId) => {
       const project = this.deps.projects().find((each) => each.id === projectId)
       if (project === undefined) return

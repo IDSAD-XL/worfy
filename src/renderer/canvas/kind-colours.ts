@@ -1,6 +1,7 @@
 // The colour of each Node kind that has one (ADR-0077; kind-icons.tsx draws the band and the icon):
-// the one place a `kind-*` role is named. A Node file names its kind (`kindColour`, nodes/index.ts),
-// never a colour.
+// the one script that names a `kind-*` role. A Node file names its kind (`kindColour`, nodes/index.ts),
+// never a colour. The only stylesheet that names one is epic-frame.css: the Epic frame's ground is
+// `--kind-epic-tint`, drawn by a class of its own rather than an inline style.
 
 export type NodeKindColour = 'orchestrator' | 'session' | 'subagent' | 'epic'
 

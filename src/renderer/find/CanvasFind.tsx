@@ -10,8 +10,9 @@
 // Esc closes. The index (search-index.ts) is updated when its sources change, not per keystroke.
 //
 // Everything here only reads: the search, the outline and the tag filter are this window's view,
-// nothing is saved, and nothing reaches the Project (ADR-0002, ADR-0005). A new Node and "Tidy up"
-// from the palette go through the Canvas's LayoutOps like a click in the Canvas menu.
+// nothing is saved, and nothing reaches the Project (ADR-0002, ADR-0005). A new Node from the
+// palette goes through the Canvas's LayoutOps like a click in the Canvas menu; the palette's "Tidy
+// up", "Arrange by Epic" and "Re-pack" are carried out by the Canvas menu (overlays/CanvasMenu.tsx).
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Panel, useReactFlow, useStore, useStoreApi, type ReactFlowInstance } from '@xyflow/react'
 import { shownOnCanvas } from '../../shared/layout/derived'
@@ -20,7 +21,6 @@ import { SHORTCUTS } from '../../shared/shortcuts'
 import { requestCardText } from '../canvas/card-bridge'
 import { nodeTypes, type CanvasFlowNode } from '../canvas/nodes'
 import { createItems, newNodeData } from '../canvas/overlays/create-items'
-import { useTidyUp, useTreeBlocks } from '../canvas/tidy'
 import { useLayout, useLayoutOps } from '../canvas/useLayout'
 import { useDocs, useDocText } from '../docs/useDocs'
 import { activeProject, useProjects } from '../projects/useProjects'
@@ -122,18 +122,6 @@ function useCreateRequests(projectId: string): void {
     attempt()
     return () => cancelAnimationFrame(frame)
   }, [request, projectId, flow, store, ops])
-}
-
-/** Carries out the palette's "Tidy up" (canvas/tidy.ts) through the Canvas's LayoutOps, as the Canvas menu item does. */
-function useTidyRequests(projectId: string, root: string): void {
-  const tidyUp = useTidyUp(projectId, useTreeBlocks(projectId, root))
-  const request = useCanvasRequests((state) => state.tidy)
-  const handled = useRef(useCanvasRequests.getState().tidy?.seq ?? 0)
-  useEffect(() => {
-    if (!request || request.projectId !== projectId || request.seq <= handled.current) return
-    handled.current = request.seq
-    void tidyUp()
-  }, [request, projectId, tidyUp])
 }
 
 const filterStyles = {
@@ -443,7 +431,6 @@ function ProjectFind({ projectId, root }: FindBarProps) {
   const open = useCanvasRequests((state) => state.findOpen)
   useFocusRequests(projectId)
   useCreateRequests(projectId)
-  useTidyRequests(projectId, root)
 
   // ⌘F, while the Canvas is the view on screen (the Session view hides it).
   useEffect(() => {

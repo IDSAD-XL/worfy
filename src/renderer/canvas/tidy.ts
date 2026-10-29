@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { Layout, LayoutNode, LayoutOpInput } from '../../shared/layout/types'
 import type { SubagentInfo } from '../../shared/transcript/subagents'
 import { useSubagentTrees } from '../claude-home/subagents'
+import { useCanvasRequests } from '../find/canvas-requests'
 import { elkEngine } from './elk/client'
 import type { ElkEngine } from './elk/layout'
 import { packRects } from './elk/pack'
@@ -144,4 +145,18 @@ export function useTidyUp(projectId: string, trees: TreeBlocks): () => Promise<v
   return useCallback(async () => {
     await runTidyUp(projectId, trees, (op) => ops.apply(op))
   }, [projectId, trees, ops])
+}
+
+/**
+ * Carries out the palette's "Tidy up" (find/canvas-requests.ts) for the Project with `run`, once per
+ * request; a request made before it is mounted is not carried out.
+ */
+export function useTidyUpRequests(projectId: string, run: () => Promise<void>): void {
+  const request = useCanvasRequests((state) => state.tidy)
+  const handled = useRef(useCanvasRequests.getState().tidy?.seq ?? 0)
+  useEffect(() => {
+    if (!request || request.projectId !== projectId || request.seq <= handled.current) return
+    handled.current = request.seq
+    void run()
+  }, [request, projectId, run])
 }

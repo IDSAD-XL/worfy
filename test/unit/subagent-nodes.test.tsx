@@ -17,6 +17,7 @@ import subagentSource, {
   SUBAGENT_HEIGHT,
   SUBAGENT_WIDTH,
   subagentPlaneRects,
+  subagentRectsBySession,
   type SubagentNodeData,
 } from '../../src/renderer/canvas/sources/subagents'
 import { formatElapsed, INTERRUPTED_TOOLTIP, statusLabel, withoutHidden } from '../../src/renderer/claude-home/subagents'
@@ -166,6 +167,41 @@ describe('buildSubagentNodes', () => {
     const agent = nodes.find((each) => variant(each) === 'agent')!
     // Not saved: the Canvas puts the Node back where the source has it (Canvas.tsx).
     expect(subagentSource.moved({ projectId: 'p-drag-none', layout: layoutWith(session) }, { ...agent, position: { x: agent.position.x + 200, y: agent.position.y + 200 } })).toBe(false)
+  })
+})
+
+describe('subagentRectsBySession: the Subagent Nodes on the plane, for the Epic frames and Arrange by Epic', () => {
+  /** A Node as React Flow holds it, with its top-left corner on the plane in `at`. */
+  const flowNode = (type: string, parentId: string | undefined, variant: string, at: { x: number; y: number }, w?: number, h?: number) => ({
+    type,
+    parentId,
+    width: w,
+    height: h,
+    at,
+    data: { node: { data: { variant } } },
+  })
+
+  it('groups them by their Session’s Node in the order they come, without the anchor, other kinds, a Node without a Session or one with nothing to measure from', () => {
+    const nodes = [
+      flowNode('subagent', 's1', 'agent', { x: 10, y: 20 }, 300, 80),
+      flowNode('subagent', 's1', 'anchor', { x: 5, y: 5 }, 1, 1),
+      flowNode('subagent', 's2', 'fold', { x: 40, y: 50 }, 300, 28),
+      flowNode('session', 's1', 'agent', { x: 0, y: 0 }, 300, 120),
+      flowNode('subagent', undefined, 'agent', { x: 0, y: 0 }, 300, 80),
+      flowNode('subagent', 'gone', 'agent', { x: 0, y: 0 }, 300, 80),
+      flowNode('subagent', 's1', 'agent', { x: 10, y: 120 }),
+    ]
+    const rects = subagentRectsBySession(nodes, (node, sessionNodeId) => (sessionNodeId === 'gone' ? undefined : node.at))
+    expect([...rects]).toEqual([
+      [
+        's1',
+        [
+          { x: 10, y: 20, w: 300, h: 80 },
+          { x: 10, y: 120, w: 0, h: 0 },
+        ],
+      ],
+      ['s2', [{ x: 40, y: 50, w: 300, h: 28 }]],
+    ])
   })
 })
 
