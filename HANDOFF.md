@@ -14,12 +14,12 @@
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–26; 12 — приёмка; открыты 27 (pointer, hover), 28 (drop, превью в чате).
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
-- `worfy-polish`: 43/45, влиты 01–38, 40 (#1007), 42 (#822), 45 (#975, `interrupted` у Subagent-ов). 39 (#754) — долг ревью; 41 — flaky Windows (пересчёт 2026-10-23); 43 — flaky `afterAll` в `harness-evals` test-ах.
+- `worfy-polish`: 44/45, влиты 01–40, 42 (#822), 45 (#975). 39 — #1012 (долг ревью #754). 41 — flaky Windows и зависание выхода (ПК; карантин win32, общий предел 15); 43 — flaky `afterAll` в `harness-evals`.
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 49/55; закрыты 04, 09, 11, 13, 22, 24, 25, 29, 33, 34, 36, 37, 42, 44, 49–55; 31 ждёт Wave на новом plugin; 30 ждёт Wave; 14 ждёт владельца; eval 33: symlink-и Docker, к владельцу; 39 ждёт CI PR ≤15 min.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 01–22 влиты (13 → 22); открыты 23 (картинки на Canvas), 24 (на Linked machine).
-- `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 16/18; 08 (Autopilot в Browser) — #791, ADR-0078. Открыты: 17 — страница не видна в focus mode; 18 — resize и свой viewport, после 17.
+- `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 18/18; 18 — #1008, ADR-0087 (viewport через CSS). Вручную на Stable — за владельцем.
 
 ## Ждёт владельца
 

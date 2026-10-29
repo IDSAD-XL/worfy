@@ -1,7 +1,8 @@
 # 18 — Resize карточки Browser и viewport страницы отдельно от размера карточки; сайдбар настроек в хедере
 
 Type: feature
-Status: claimed 2026-10-29T15:35Z
+Status: done 2026-10-29T17:05Z
+PR: #1008
 Branch: worfy-browser/18
 Blocked by: 17
 Source: владелец, 2026-10-25 (чат Mac-оркестратора)
@@ -66,16 +67,16 @@ Source: владелец, 2026-10-25 (чат Mac-оркестратора)
 
 ## Готово, когда
 
-- [ ] Выбор способа (CSS или CDP) записан в «Итог» с причиной; если это меняет устройство Browser — ADR.
-- [ ] Карточку Browser можно растянуть мышью; размер сохраняется в Layout и переживает перезапуск —
+- [x] Выбор способа (CSS или CDP) записан в «Итог» с причиной; если это меняет устройство Browser — ADR.
+- [x] Карточку Browser можно растянуть мышью; размер сохраняется в Layout и переживает перезапуск —
       unit test на операцию `resize` для Browser, e2e на resize.
-- [ ] Viewport, заданный в сайдбаре, отличается от размера карточки: страница видит заданную ширину
+- [x] Viewport, заданный в сайдбаре, отличается от размера карточки: страница видит заданную ширину
       (e2e: `window.innerWidth` страницы равен заданному), карточка на Canvas своего размера.
-- [ ] Viewport хранится в `data.viewport` и переживает перезапуск — unit test.
-- [ ] Кадры для других окон и Linked machine и клики с них попадают в верные точки страницы при viewport,
+- [x] Viewport хранится в `data.viewport` и переживает перезапуск — unit test.
+- [x] Кадры для других окон и Linked machine и клики с них попадают в верные точки страницы при viewport,
       отличном от карточки — test на пересчёт координат.
-- [ ] Проверки пикселей Browser на Canvas и в focus mode (Ticket 17) зелёные.
-- [ ] Mutant-ы: без `data.viewport` страница снова размером карточки — test красный; без пересчёта координат
+- [x] Проверки пикселей Browser на Canvas и в focus mode (Ticket 17) зелёные.
+- [x] Mutant-ы: без `data.viewport` страница снова размером карточки — test красный; без пересчёта координат
       test ввода красный.
 - [ ] gate full на Mac зелёный; вручную на Stable — resize и смена viewport.
 
@@ -128,3 +129,7 @@ working set GPU-процесса при viewport-е 3840 × 3840 не растё
   `browser`, `browser-sleep` e2e — 27 passed локально.
 - Не сделано здесь: вручную на Stable (resize и смена viewport-а) — за владельцем; gate full на Mac не
   гонялся (по правилам проекта merge решает `ci-ok`).
+- Не проверено: gate full на Mac (по правилу CI-раннеров merge решает `ci-ok`) и вручную на Stable — за владельцем.
+- Ревью: круг 1 — REJECTED (8 пунктов, high), круг 2 — VERIFIED на `3bcd053e`. Merge `9974d9da` с
+  `check/windows` «PC after Wave» (ADR-0086); gate full на ПК по main запрошен у моста. Вне скоупа:
+  `src/main/mcp/canvas-server.ts:239` — `resize_node` не держит минимум 360 × 200 для Browser.
