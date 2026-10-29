@@ -6,7 +6,7 @@
 the brief, if there was one. Things noticed outside the ticket do not go there — they go to
 `out_of_scope` (empty — `[]`).
 `sign_in_needed` — the Browser checks that did not run for want of a sign-in, one entry per role or
-profile in exactly one of the two forms above (section Order, "Browser checks"); `[]` when every
+profile in exactly one of the two forms of `implementer-browser-checks.md`; `[]` when every
 check ran or the ticket has none. The orchestrator copies each entry into the wave report.
 Which tests now cover the change — separate claims in `claims`, with the path to the test.
 Every claim in `claims` will be re-checked by a separate agent: a claim without evidence is

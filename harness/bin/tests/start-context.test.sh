@@ -137,7 +137,7 @@ got="$(field 'j.agents.map((a) => a.tokens).join(" ")')"
 [ "$rc" = 0 ] && [ "$got" = "$tok_small" ] && ok "a longer install folder: the same counted tokens ($got)" || bad "a longer install folder: exit $rc, tokens $got, want $tok_small"
 
 run "$H/bin/start-context" --profile "$(tn "$P")" --instructions "$(tn "$T/instr-empty")"
-[ "$rc" = 0 ] && grep -q '^implementer: .* tokens — ok: .*; whole start about [0-9 ]*$' "$T/out" && grep -q '^scout: .* tokens — ok: ' "$T/out" && ok "text output: an ok line per agent, with the whole start" || bad "text output, exit $rc:"$'\n'"$(cat "$T/out")"
+[ "$rc" = 0 ] && grep -q '^implementer: .* tokens — ok: .*; whole start at most [0-9 ]*$' "$T/out" && grep -q '^scout: .* tokens — ok: ' "$T/out" && ok "text output: an ok line per agent, with the whole start" || bad "text output, exit $rc:"$'\n'"$(cat "$T/out")"
 grep -q '^  definition agents/scout.md .* counted$' "$T/out" && ok "text output: the parts under the agent" || bad "text output has no part lines"
 grep -q '^  Claude Code constant .* not counted$' "$T/out" && grep -q '^  profile .* not counted$' "$T/out" && grep -q '^  instructions .* not counted$' "$T/out" && ok "text output: the fixed parts are shown, marked not counted" || bad "text output: fixed parts not shown as not counted:"$'\n'"$(cat "$T/out")"
 
@@ -146,7 +146,7 @@ cp "$H/agents/reviewer.md" "$T/reviewer.md.small"
 fill "$H/agents/reviewer.md" 150000
 run "$H/bin/start-context" --profile "$(tn "$P")" --instructions "$(tn "$T/instr-empty")"
 [ "$rc" = 1 ] && ok "blown-up definition: exit 1" || bad "blown-up definition: exit $rc, want 1"
-grep -q '^reviewer: [0-9 ]* tokens — RED: over the threshold by [0-9 ]*; largest part: definition agents/reviewer.md; whole start about [0-9 ]*$' "$T/out" && ok "the red line names the reviewer and its largest part" || bad "no red reviewer line:"$'\n'"$(cat "$T/out")"
+grep -q '^reviewer: [0-9 ]* tokens — RED: over the threshold by [0-9 ]*; largest part: definition agents/reviewer.md; whole start at most [0-9 ]*$' "$T/out" && ok "the red line names the reviewer and its largest part" || bad "no red reviewer line:"$'\n'"$(cat "$T/out")"
 grep -q '^verifier: .* RED: .*largest part: definition agents/reviewer.md; ' "$T/out" && ok "the verifier, which reads the same definition, is red too" || bad "the verifier is not red"
 grep -q '^implementer: .* — ok: ' "$T/out" && grep -q '^scout: .* — ok: ' "$T/out" && ok "the other agents stay ok" || bad "another agent went red"
 run "$H/bin/start-context" --agent scout --profile "$(tn "$P")" --instructions "$(tn "$T/instr-empty")"

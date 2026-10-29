@@ -268,7 +268,8 @@ function profilePart(given) {
 }
 
 // "ship-ticket", "/ship-ticket" or "/plugin:ship-ticket" -> skills/ship-ticket/SKILL.md of this Harness,
-// the plugin root spelled out (at ROOT_BYTES) as in the definition.
+// the plugin root spelled out (at ROOT_BYTES) as in the definition. Counted with its frontmatter on
+// purpose: whether Claude Code sends it with the skill body is not verified, so the count errs high.
 function skillPart(name) {
     const bare = name.replace(/^\//, "").replace(/^[^:]*:/, "")
     const rel = `skills/${bare}/SKILL.md`
@@ -308,7 +309,7 @@ function printText(results, notes) {
         const verdict = r.over
             ? `RED: over the threshold by ${group(r.tokens - THRESHOLD)}; largest part: ${r.largest}`
             : `ok: ${group(THRESHOLD - r.tokens)} below the threshold`
-        out.push(`${r.agent}: ${group(r.tokens)} tokens — ${verdict}; whole start about ${group(r.total)}`)
+        out.push(`${r.agent}: ${group(r.tokens)} tokens — ${verdict}; whole start at most ${group(r.total)}`)
         const line = (name, bytes, tokens, counted) => `  ${name.padEnd(52)} ${bytes.padStart(9)}  ${group(tokens).padStart(7)}  ${counted ? "counted" : "not counted"}`
         for (const p of r.parts.filter((p) => p.counted)) out.push(line(p.name, `${group(p.bytes)} B`, p.tokens, true))
         out.push(line("Claude Code constant", "", r.constant, false))
