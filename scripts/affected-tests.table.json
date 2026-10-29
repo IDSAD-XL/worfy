@@ -260,6 +260,36 @@
       ]
     },
     {
+      "file": "test/contract/ci-scope-e2e.test.ts",
+      "reads": [
+        "HANDOFF.md",
+        "electron-builder.yml",
+        "harness/bin/ticket",
+        "harness/hooks/gate.mjs",
+        "harness/skills/epic-wave/SKILL.md",
+        "package.json",
+        "playwright.config.ts",
+        "scripts/agent-cost.mjs",
+        "scripts/ci-scope.mjs",
+        "scripts/e2e-shard.mjs",
+        "src/main/browser/live.ts",
+        "src/main/link/service.ts",
+        "test/e2e/browser.spec.ts",
+        "test/e2e/family.spec.ts",
+        "test/e2e/helpers.ts",
+        "test/e2e/packaged.spec.ts",
+        "test/e2e/timings.json",
+        "test/e2e/wait.ts",
+        "test/quarantine.ts",
+        "tsconfig.web.json"
+      ],
+      "scans": [
+        "scripts",
+        "test",
+        "test/e2e"
+      ]
+    },
+    {
       "file": "test/contract/ci-workflow.test.ts",
       "reads": [
         ".github/workflows",
@@ -298,6 +328,7 @@
         "scripts/statusline-bridge.mjs",
         "scripts/statusline-bridge.sh",
         "scripts/vitest-electron.mjs",
+        "scripts/windows-verdict-scope.mjs",
         "src/card-runtime/worfy-card.ts",
         "src/main/index.ts",
         "src/preload/index.ts",
