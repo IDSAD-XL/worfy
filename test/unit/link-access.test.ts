@@ -211,6 +211,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'docs.read',
     // Read-only gh, as checks.get: the cross-machine gate queue (worfy-windows ticket 17).
     'gateQueue.get',
+    // A stored image for the window of a Linked machine that shows it (worfy-canvas ticket 24): reading, as cards.file.
+    'images.file',
     // The candidates of «Archive finished sessions now»: the registry and the transcripts are read;
     // the screen sends the archive itself through layout.apply (worfy-canvas ticket 08).
     'layout.archiveCandidates',

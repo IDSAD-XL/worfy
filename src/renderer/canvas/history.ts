@@ -35,10 +35,11 @@
 // sends the operation again with `keep`, so the same Browsers stay with the user. The step reads
 // main's own Layout and takeovers before the operation (MainNow), not the window's copy. Deleting a Session Node to the trash is the same `remove` in main, and
 // its ⌘Z — restoring the entry — brings the Browsers back the same way (trashRecorded).
+import { IMAGE_NODE_KIND } from '../../shared/ipc/canvas-images'
 import { stillInBatch } from '../../shared/layout/derived'
 import type { ArchiveRule, Layout, LayoutNode, LayoutOpInput } from '../../shared/layout/types'
 import { trashRefusal, type TrashEntry } from '../../shared/ipc/trash'
-import { invoke } from '../ipc'
+import { invoke, windowMachine } from '../ipc'
 import { readOnlyNow } from '../projects/read-only-now'
 import { showToast } from '../toast/toasts'
 import { screenId } from './screen'
@@ -898,8 +899,12 @@ export async function trashRecorded(projectId: string, nodeId: string, trash: Tr
   return undefined
 }
 
-/** The Nodes of a selection the user may delete (trashRefusal); main still has the last word. */
-export const deletableNodes = (nodes: readonly LayoutNode[]): LayoutNode[] => nodes.filter((node) => trashRefusal(node) === null)
+/**
+ * The Nodes of a selection the user may delete (trashRefusal); main still has the last word. On the
+ * Canvas of a Linked machine an image stays: it is only shown there (worfy-canvas ticket 24).
+ */
+export const deletableNodes = (nodes: readonly LayoutNode[]): LayoutNode[] =>
+  nodes.filter((node) => trashRefusal(node) === null && !(node.kind === IMAGE_NODE_KIND && windowMachine() !== null))
 
 /**
  * Deletes what may be deleted of the Nodes to the Project's trash, one after another, as one step
