@@ -144,6 +144,10 @@ const isAppPath = (path) =>
 // Which e2e spec files a pull request that changes the app runs (e2eSpecs), on macOS and Windows
 // alike. Each app path of the diff decides in this order:
 // - a spec file (test/e2e/**/*.spec.ts) runs itself; a deleted one asks for nothing;
+// - a quarantine entry (test/quarantine/<id>.json) runs the spec file its `file` names, before the
+//   change and after it: only a spec that calls quarantined('<id>') reads it. A deleted entry, one
+//   that cannot be read, and one that names no spec file or one that does not exist run every spec
+//   file;
 // - any other app path outside src/ and harness/ (a helper of test/e2e, a fixture folder the e2e
 //   tests read, the Playwright config, a build input, package.json, a tsconfig) runs every spec
 //   file: they reach every test;
@@ -161,6 +165,7 @@ export const SPEC_TABLE = 'scripts/e2e-specs.table.json'
 export const E2E_SHARDS = { 'macos-e2e': 2, 'windows-e2e': 4 }
 const NARROWED = ['src/', 'harness/']
 const SPEC_FILE = /^test\/e2e\/.+\.spec\.ts$/
+const QUARANTINE_ENTRY = /^test\/quarantine\/[^/]+\.json$/
 
 const escapeRegExp = (text) => text.replace(/[.+^${}()|[\]\\?]/g, '\\$&')
 
@@ -197,16 +202,25 @@ export function readSpecTable(root) {
 
 /**
  * The e2e spec files for the changed `paths` (only app paths count), given every spec file of the
- * tree (`specs`) and the rules of the table (`rules`, or an Error when it cannot be read):
- * { files: null } — every spec file; { files: [] } — none; otherwise the files, sorted. `why` says
- * what decided it.
+ * tree (`specs`), the rules of the table (`rules`, or an Error when it cannot be read) and what a
+ * quarantine entry names (`quarantined`: path → its spec files before and after the change, or null
+ * when they cannot be told): { files: null } — every spec file; { files: [] } — none; otherwise the
+ * files, sorted. `why` says what decided it.
  */
-export function e2eSpecs(paths, specs, rules) {
+export function e2eSpecs(paths, specs, rules, quarantined = () => null) {
   const existing = new Set(specs)
   const files = new Set()
   for (const path of paths.filter(isAppPath)) {
     if (SPEC_FILE.test(path)) {
       if (existing.has(path)) files.add(path)
+      continue
+    }
+    if (QUARANTINE_ENTRY.test(path)) {
+      const named = quarantined(path)
+      if (named === null) return { files: null, why: `${path} is gone, cannot be read or names no spec file` }
+      const missing = named.find((spec) => !existing.has(spec))
+      if (missing !== undefined) return { files: null, why: `${path} names ${missing}, which does not exist` }
+      for (const spec of named) files.add(spec)
       continue
     }
     if (!NARROWED.some((folder) => path.startsWith(folder))) return { files: null, why: `${path} reaches every e2e test` }
@@ -299,38 +313,89 @@ const only = (names) => Object.fromEntries(JOBS.map((name) => [name, names.inclu
 const CI_WORKFLOW = '.github/workflows/ci.yml'
 const PACKAGING_PARTS = ['', 'changes', 'macos-e2e', 'macos-package', 'windows-e2e']
 
+// A job key under `jobs:`: two spaces, the name (bare or in quotes), a colon, then nothing, a
+// comment or an anchor.
+const JOB_KEY = /^ {2}(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))\s*:(?:\s.*)?$/
+// A value that starts a block scalar (`run: |`, `- run: >-`): the lines after it that are indented
+// more than its key, blank lines among them, are data, `#` lines too.
+const BLOCK_SCALAR = /:\s*[|>][-+0-9]*\s*(?:#.*)?$/
+// An anchor (&name), an alias (*name) or a merge key (<<:) of YAML: one part can then change another.
+const ANCHOR = /(?:^|[\s[{,])[&*][A-Za-z0-9_-]+(?=$|[\s,\]}])|^\s*(?:- )?<<\s*:/
+
 /**
  * The parts of a workflow, read as text the way the contract tests read it (block style, one key per
- * line, `#` only at the start of a comment line): '' for the top-level keys but `jobs:`, and one part
- * per job, each its lines without comments and blank lines.
+ * line): `parts` — '' for the top-level keys but `jobs:`, and one part per job, each its lines
+ * without comments and blank lines (but inside a block scalar); `anchored` — whether a line outside a
+ * block scalar holds a YAML anchor, alias or merge key.
  */
 export function workflowParts(text) {
   const parts = new Map([['', []]])
   let part = ''
   let inJobs = false
+  let anchored = false
+  // The indent of the key whose block scalar is being read; -1 outside one.
+  let block = -1
+  const endBlock = () => {
+    const lines = parts.get(part)
+    while (lines.length > 0 && lines.at(-1).trim() === '') lines.pop()
+    block = -1
+  }
   for (const line of text.split(/\r?\n/)) {
+    const indent = line.length - line.trimStart().length
+    if (block >= 0) {
+      if (line.trim() === '' || indent > block) {
+        parts.get(part).push(line)
+        continue
+      }
+      endBlock()
+    }
     if (line.trim() === '' || line.trimStart().startsWith('#')) continue
-    if (!line.startsWith(' ')) {
-      inJobs = /^jobs:\s*$/.test(line)
+    if (ANCHOR.test(line)) anchored = true
+    if (indent === 0) {
+      inJobs = /^jobs:\s*(?:#.*)?$/.test(line)
       part = ''
       if (inJobs) continue
-    } else if (inJobs) {
-      const job = /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(line)
+    } else if (inJobs && indent === 2) {
+      const job = JOB_KEY.exec(line)
       if (job) {
-        part = job[1]
+        part = job[1] ?? job[2] ?? job[3]
         parts.set(part, [])
         continue
       }
     }
     parts.get(part).push(line)
+    if (BLOCK_SCALAR.test(line)) block = indent
   }
-  return parts
+  if (block >= 0) endBlock()
+  return { parts, anchored }
 }
 
 /** The text of `path` at the commit `ref` names, or null when git cannot show it. */
 function fileAt(ref, path) {
   const shown = spawnSync('git', ['show', `${ref}:${path}`], { encoding: 'utf8' })
   return shown.status === 0 ? shown.stdout : null
+}
+
+/**
+ * The spec files the quarantine entry `path` names at `base` (when it is there) and at HEAD, or null
+ * when HEAD has no such entry or one of them cannot be read or names no spec file.
+ */
+function quarantinedSpecs(base, path) {
+  const now = fileAt('HEAD', path)
+  if (now === null) return null
+  const before = fileAt(base, path)
+  const specs = []
+  for (const text of before === null ? [now] : [before, now]) {
+    let file
+    try {
+      file = JSON.parse(text)?.file
+    } catch {
+      return null
+    }
+    if (typeof file !== 'string' || !SPEC_FILE.test(file)) return null
+    specs.push(file)
+  }
+  return specs
 }
 
 /**
@@ -343,7 +408,12 @@ function ciPackaging(base) {
   const after = fileAt('HEAD', CI_WORKFLOW)
   if (before === null || after === null) return { packaging: true, macosTests: true, note: `${CI_WORKFLOW} changes what packages the app or runs the e2e tests (it is new, gone or unreadable)` }
   const [old, now] = [workflowParts(before), workflowParts(after)]
-  const same = (name) => JSON.stringify(old.get(name) ?? null) === JSON.stringify(now.get(name) ?? null)
+  const packaging = (why) => ({ packaging: true, macosTests: true, note: `${CI_WORKFLOW} changes what packages the app or runs the e2e tests (${why})` })
+  if (old.anchored || now.anchored) return packaging('it uses YAML anchors or aliases, which tie its parts together')
+  // A job this cannot find on one side: its lines went to another part, so no change of it shows.
+  const missing = ['macos-tests', ...PACKAGING_PARTS].filter((name) => name !== '' && !(old.parts.has(name) && now.parts.has(name)))
+  if (missing.length > 0) return packaging(missing.map((name) => `no job ${name} on both sides`).join(', '))
+  const same = (name) => JSON.stringify(old.parts.get(name)) === JSON.stringify(now.parts.get(name))
   const changed = PACKAGING_PARTS.filter((name) => !same(name))
   const macosTests = !same('macos-tests')
   if (changed.length > 0) {
@@ -388,7 +458,7 @@ function decide(env) {
   if (code.length === 0) return { expect: only(['lint-typecheck']), why: `documents only: ${files.join(' ')}` }
   const why = `code changed: ${code.slice(0, 20).join(' ')}${code.length > 20 ? ` and ${code.length - 20} more` : ''}`
   if (event === 'push') return { expect: only(JOBS), why }
-  const decided = pullRequest(code, code.includes(CI_WORKFLOW) ? ciPackaging(env.BASE) : null)
+  const decided = pullRequest(code, code.includes(CI_WORKFLOW) ? ciPackaging(env.BASE) : null, env.BASE)
   const testsBase = commitOf(env.BASE)
   const tests = testsBase ? `linux-tests and windows run the test files the diff touches since ${testsBase}` : 'the base commit could not be named, so linux-tests and windows run every test file'
   return { expect: decided.expect, files: decided.files, e2e: decided.e2e, testsBase, tests, why: [why, ...decided.notes].join('; ') }
@@ -398,7 +468,7 @@ function decide(env) {
  * The macOS jobs of a pull request that changes `all` code: each only when the diff asks for it.
  * `ci` says what a change of ci.yml asks for (ciPackaging), null when the diff leaves it alone.
  */
-function pullRequest(all, ci) {
+function pullRequest(all, ci, base) {
   const expect = only(JOBS)
   const notes = []
   // ci.yml is a build input and an app path only when it changes what packages the app or runs the
@@ -416,7 +486,7 @@ function pullRequest(all, ci) {
     expect['windows-e2e'] = false
     notes.push('no app path, so no macos-e2e and no windows-e2e')
   } else {
-    e2e = pullRequestE2e(code)
+    e2e = pullRequestE2e(code, base)
     if (e2e.none) {
       expect['macos-e2e'] = false
       expect['windows-e2e'] = false
@@ -443,7 +513,7 @@ const fullShards = (job) => e2eShards(null, [], {}, E2E_SHARDS[job])
 const FULL_E2E = { files: [], shards: { 'macos-e2e': fullShards('macos-e2e'), 'windows-e2e': fullShards('windows-e2e') } }
 
 /** The e2e spec files and shards of a pull request that changes the app, read from the working tree. */
-function pullRequestE2e(code) {
+function pullRequestE2e(code, base) {
   const root = process.cwd()
   let specs
   let seconds
@@ -459,7 +529,7 @@ function pullRequestE2e(code) {
   } catch (error) {
     rules = error instanceof Error ? error : new Error(String(error))
   }
-  const chosen = e2eSpecs(code, specs, rules)
+  const chosen = e2eSpecs(code, specs, rules, (path) => quarantinedSpecs(base, path))
   if (chosen.files === null) return { ...FULL_E2E, note: `${chosen.why}, so every e2e spec file runs` }
   if (chosen.files.length === 0) return { ...FULL_E2E, none: true, note: `${chosen.why}, so no macos-e2e and no windows-e2e` }
   const shards = Object.fromEntries(Object.entries(E2E_SHARDS).map(([job, full]) => [job, e2eShards(chosen.files, specs, seconds, full)]))
