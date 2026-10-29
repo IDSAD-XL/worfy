@@ -59,7 +59,7 @@ const jsonReport = `${outputDir.replace(/[\\/]+$/, '')}-report.json`
 // since the fallback show of the window and the start diagnosis (src/main/window-show.ts,
 // test/e2e/start-diagnosis.ts), three runs at three took 204–227 s, 289 passed, none flaky. If
 // that failure comes back, the start-diagnostics-… folder in test-results says why.
-const E2E_WORKERS = process.platform === 'darwin' && !process.env.CI ? 3 : 1
+const E2E_WORKERS = process.platform === 'darwin' ? (process.env.CI ? 2 : 3) : 1
 export default defineConfig({
   testDir: 'test/e2e',
   testMatch: '**/*.spec.ts',

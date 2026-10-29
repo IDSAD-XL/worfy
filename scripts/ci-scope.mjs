@@ -163,7 +163,7 @@ export const SPEC_TABLE = 'scripts/e2e-specs.table.json'
 // Full runs: the shards of the e2e jobs on a push to main and on a pull request that runs every spec
 // file. macos-e2e splits by measured time (scripts/e2e-shard.mjs), windows-e2e with Playwright's
 // --shard.
-export const E2E_SHARDS = { 'macos-e2e': 2, 'windows-e2e': 4 }
+export const E2E_SHARDS = { 'macos-e2e': 1, 'windows-e2e': 4 }
 const NARROWED = ['src/', 'harness/']
 const SPEC_FILE = /^test\/e2e\/.+\.spec\.ts$/
 const QUARANTINE_ENTRY = /^test\/quarantine\/[^/]+\.json$/
