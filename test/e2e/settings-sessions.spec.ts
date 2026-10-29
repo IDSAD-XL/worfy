@@ -6,6 +6,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { closeSettings, launchApp, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { NO_ZSH, NO_ZSH_ON_WINDOWS, zshPath } from '../zsh'
+import { ms } from '../time-scale'
 
 // Settings → Sessions (worfy-polish ticket 24) against the built app: the autocompact window of the
 // Orchestrator and of the other Sessions — the defaults, a window of the user's own and "Claude
@@ -97,7 +98,7 @@ test('names CLAUDE_CODE_AUTO_COMPACT_WINDOW when the login shell sets it', async
   try {
     const { window } = launched
     const dialog = await openSessions(launched)
-    await expect(dialog.getByTestId('settings-autocompact-shell-override')).toHaveText('Overridden by CLAUDE_CODE_AUTO_COMPACT_WINDOW in your shell (300000).', { timeout: 15_000 })
+    await expect(dialog.getByTestId('settings-autocompact-shell-override')).toHaveText('Overridden by CLAUDE_CODE_AUTO_COMPACT_WINDOW in your shell (300000).', { timeout: ms(15_000) })
     await inBothThemes(window, dialog, '24-sessions-shell-override')
     await closeSettings(window)
   } finally {

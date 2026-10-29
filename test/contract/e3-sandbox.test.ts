@@ -22,7 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { gitBash } from '../git-bash'
 import { shellStub } from '../shell-stub'
 import { removeTestTree } from '../remove'
-import { timeScale } from '../time-scale'
+import { ms } from '../time-scale'
 
 const SCRIPT = join(__dirname, '..', '..', 'scripts', 'e3-sandbox.sh')
 /** e3-sandbox.sh is the acceptance sandbox of the macOS app; it is not supported on Windows. */
@@ -97,7 +97,7 @@ function sandboxEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
 function sandbox(args: string[], options: { env?: Record<string, string>; timeout?: number } = {}): Run {
   const env = sandboxEnv(options.env)
   const started = Date.now()
-  const run = spawnSync(gitBash(), [SCRIPT, ...args], { cwd: scratch, env, encoding: 'utf8', input: '', timeout: options.timeout ?? 10_000, killSignal: 'SIGKILL' })
+  const run = spawnSync(gitBash(), [SCRIPT, ...args], { cwd: scratch, env, encoding: 'utf8', input: '', timeout: options.timeout ?? ms(10_000), killSignal: 'SIGKILL' })
   return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '', timedOut: run.error !== undefined, ms: Date.now() - started }
 }
 
@@ -621,7 +621,7 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh place', () => {
   it('refuses without a HOME, and with a HOME that is not a folder or is /', () => {
     const env = sandboxEnv()
     delete env.HOME
-    const unset = spawnSync('bash', [SCRIPT, 'path'], { cwd: scratch, env, encoding: 'utf8', timeout: 10_000 })
+    const unset = spawnSync('bash', [SCRIPT, 'path'], { cwd: scratch, env, encoding: 'utf8', timeout: ms(10_000) })
     expect(unset.status, unset.stderr).toBe(2)
     expect(unset.stderr).toContain('HOME is not set')
     writeFileSync(join(scratch, 'a-file'), 'x\n')
@@ -965,8 +965,9 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
   }
   /** The pids listed one per line in a file, none when there is no file. */
   const pidsIn = (file: string): number[] => (existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map(Number) : [])
-  const until = async (done: () => boolean, ms: number): Promise<void> => {
-    for (const end = Date.now() + ms; !done() && Date.now() < end; ) await new Promise((resolve) => setTimeout(resolve, 50))
+  const until = async (done: () => boolean, limit: number): Promise<void> => {
+    const wait = ms(limit)
+    for (const end = Date.now() + wait; !done() && Date.now() < end; ) await new Promise((resolve) => setTimeout(resolve, 50))
   }
   // Every test starts with a stand-in `sleep` that records the pid of each heartbeat `sleep 300` and
   // then sleeps for real; after the test any of them still alive is killed by pid. Tests that need
@@ -1058,6 +1059,7 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
 
   it('waits for a fresh lock of someone else: the command does not run and the lock stays', () => {
     mkdirSync(lock)
+    // unscaled: the command must still be waiting when this bound ends; a longer bound only slows the test
     const run = sandbox(['lock-run', ...touchRan], { env: { SCRATCH: scratch }, timeout: 2_500 })
     expect(run.timedOut).toBe(true)
     expect(ran()).toBe(false)
@@ -1069,6 +1071,7 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
   it('waits for a lock touched 29 minutes ago, and takes one left 31 minutes ago', () => {
     mkdirSync(lock)
     utimesSync(lock, minutesAgo(29), minutesAgo(29))
+    // unscaled: the command must still be waiting when this bound ends; a longer bound only slows the test
     const waiting = sandbox(['lock-run', ...touchRan], { env: { SCRATCH: scratch }, timeout: 2_500 })
     expect(waiting.timedOut).toBe(true)
     expect(ran()).toBe(false)
@@ -1201,7 +1204,7 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
     const pauses = ['first', 'second'].flatMap((name) => readFileSync(join(race, `${name}.pauses`), 'utf8').trim().split('\n'))
     expect(pauses.sort()).toEqual(['7', '7', '7'])
     expect(existsSync(lock)).toBe(false)
-  }, 120_000)
+  }, ms(120_000))
 
   it('refuses without a command, taking no lock', () => {
     expectExit(sandbox(['lock-run']), 2)
@@ -1277,8 +1280,9 @@ describe('e3-sandbox.sh lock-run: the release of the heartbeat, also in Git Bash
    * so the event loop runs: Node reaps a killed child only then, and a child it has not reaped is a
    * zombie, which `kill -0` still finds alive on macOS and Linux.
    */
-  const until = async (done: () => boolean, ms: number): Promise<boolean> => {
-    for (const end = Date.now() + ms; Date.now() < end; await new Promise((resolve) => setTimeout(resolve, 100))) if (done()) return true
+  const until = async (done: () => boolean, limit: number): Promise<boolean> => {
+    const wait = ms(limit)
+    for (const end = Date.now() + wait; Date.now() < end; await new Promise((resolve) => setTimeout(resolve, 100))) if (done()) return true
     return done()
   }
 
@@ -1316,7 +1320,7 @@ describe('e3-sandbox.sh lock-run: the release of the heartbeat, also in Git Bash
           env: sandboxEnv({ HB_PIDS: join(scratch, `hb-${i}`), STUBS: join(scratch, 'bin'), STARTED: join(scratch, 'bin', 'started.sh') }),
           // No pipes: in Git Bash a `sleep` the trap left behind holds the pipes of the whole run open.
           stdio: 'ignore',
-          timeout: 60_000,
+          timeout: ms(60_000),
           killSignal: 'SIGKILL',
         })
         codes.push(run.error === undefined ? String(run.status) : 'timeout')
@@ -1333,7 +1337,7 @@ describe('e3-sandbox.sh lock-run: the release of the heartbeat, also in Git Bash
       procs('end', procs('alive', linesOf(shells), marker))
       procs('end', procs('alive', linesOf(sleeps), 'sleep 300'))
     }
-  }, 900_000 * timeScale)
+  }, ms(900_000))
 
   it('a heartbeat whose script was killed with kill -9 ends with that script, though the lock stays', async () => {
     // The trap did not run, so the lock folder stays until it goes stale; the heartbeat must not keep
@@ -1364,5 +1368,5 @@ describe('e3-sandbox.sh lock-run: the release of the heartbeat, also in Git Bash
       procs('end', procs('alive', linesOf(command), marker))
       if (!exited) child.kill('SIGKILL')
     }
-  }, 60_000 * timeScale)
+  }, ms(60_000))
 })

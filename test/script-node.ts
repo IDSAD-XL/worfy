@@ -19,6 +19,7 @@
 // test starts. That test also fails on a new read of process.execPath anywhere else in the test code.
 import { spawnSync } from 'node:child_process'
 import process from 'node:process'
+import { ms } from './time-scale'
 
 /**
  * The node `env` names, checked by starting it once: its absolute path. Throws when it does not start or
@@ -33,7 +34,7 @@ export function findScriptNode(env: Readonly<Record<string, string | undefined>>
   const run = spawnSync(candidate, ['-p', 'JSON.stringify([process.execPath, process.versions.electron ?? null])'], {
     encoding: 'utf8',
     env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
-    timeout: 30_000,
+    timeout: ms(30_000),
     windowsHide: true,
   })
   const fail = (why: string): never => {

@@ -16,6 +16,7 @@ import { spawnShellPty, TerminalRegistry, terminalShellOptions, type SpawnPty, t
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL } from '../app-url'
 import { profileVars } from '../windows-profile'
+import { ms } from '../time-scale'
 
 export const PROJECT = 'demo-00000001'
 export const NODE = 'node-1'
@@ -321,7 +322,7 @@ export async function harness(options: HarnessOptions = {}) {
     let ok = false
     try {
       await type(`${command}\r`, nodeId, from)
-      await vi.waitFor(() => expect(text(nodeId)).toMatch(expected), { timeout: 5000 })
+      await vi.waitFor(() => expect(text(nodeId)).toMatch(expected), { timeout: ms(5000) })
       ok = true
     } finally {
       if (timed) process.stdout.write(`[first41] ${JSON.stringify({ test: expect.getState().currentTestName, ms: Date.now() - started, ok })}\n`)

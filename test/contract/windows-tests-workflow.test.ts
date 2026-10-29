@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { gitBash } from '../git-bash'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
+import { ms } from '../time-scale'
 
 const REPO = join(__dirname, '..', '..')
 const WORKFLOW = join(REPO, '.github', 'workflows', 'windows-tests.yml')
@@ -553,7 +554,7 @@ describe('scripts/windows-test-list.mjs', () => {
       expect(result.status, result.stderr).toBe(0)
     }
     // One run of the script per 12 files: about twenty processes, too many for the 15 s of a contract test.
-  }, 120_000)
+  }, ms(120_000))
 
   it('names files as vitest takes them: vitest lists exactly the accepted files, and runs none here', () => {
     const accepted = check(TWO.join(', '))
@@ -563,7 +564,7 @@ describe('scripts/windows-test-list.mjs', () => {
     const listed = spawnSync(scriptNode(), [join(REPO, 'node_modules', 'vitest', 'vitest.mjs'), 'list', '--filesOnly', ...files], {
       cwd: REPO,
       encoding: 'utf8',
-      timeout: 120_000,
+      timeout: ms(120_000),
     })
     expect(listed.status, `${listed.stdout}\n${listed.stderr}`).toBe(0)
     // One line per file: "[project] path", with the separators of the system.
@@ -572,5 +573,5 @@ describe('scripts/windows-test-list.mjs', () => {
       .filter((line) => line.trim() !== '')
       .map((line) => line.trim().replace(/^\[[^\]]+\]\s+/, '').split('\\').join('/'))
     expect(names.sort()).toEqual([...TWO].sort())
-  }, 120_000)
+  }, ms(120_000))
 })

@@ -8,6 +8,7 @@ import { catScript, loginProfileWithNode } from '../harness-node'
 import { canvasReady, launchApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
+import { ms } from '../time-scale'
 
 // Where the toasts go (worfy-ui ticket 16), in the built app at 1280×800 and 1024×768: an `error`
 // toast stays until it is closed, so wherever it sits it covers what is under it. With one on
@@ -18,7 +19,7 @@ import { snapshotThemes } from './snapshots'
 // a toast. The error is a real one: main's `claudeHome.live` answers with a failure, as when the
 // Claude home cannot be read, for a Project with a live Session (a `sleep` process in its registry).
 
-test.setTimeout(180_000)
+test.setTimeout(ms(180_000))
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -112,7 +113,7 @@ async function expectClear(window: Page, selector: string, what: string, withRoo
         last = await clearance(window, selector, withRoots)
         return last.covered
       },
-      { timeout: 5000, message: `controls of ${what} that a toast covers` },
+      { timeout: ms(5000), message: `controls of ${what} that a toast covers` },
     )
     .toEqual([])
   expect(last.toasts, `the error toast is on screen over ${what}`).toBe(1)
@@ -200,7 +201,7 @@ test('an error toast that stays covers no control: focus mode on a Ticket, the C
 
     // The poll of the live Sessions fails: one error toast, and it stays.
     const toast = window.getByTestId('toasts').getByRole('alert').locator('.w-toast')
-    await expect(toast).toHaveText(`Live Sessions not read: claudeHome.live: ${LIVE_FAILURE}`, { timeout: 10_000 })
+    await expect(toast).toHaveText(`Live Sessions not read: claudeHome.live: ${LIVE_FAILURE}`, { timeout: ms(10_000) })
     await expect(toast).toHaveAttribute('data-kind', 'error')
 
     // The Session view: the Orchestrator's (Interrupt at the right end of its header) and the live

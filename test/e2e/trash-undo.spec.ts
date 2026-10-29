@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, openSecondWindow, type LaunchedApp } from './helpers'
+import { ms } from '../time-scale'
 
 // Ticket 30 against the built app: ⌘Z and ⇧⌘Z undo and redo a move; a Card deleted from the
 // selection toolbar comes back from the Trash popover with its files and data; one deleted with the
@@ -341,7 +342,7 @@ test.describe('⌘Z with two windows', () => {
       await expect.poll(async () => await nodeIn(b, 'n1')).toMatchObject({ x: byA.x, y: byA.y })
       await expect(b.getByTestId('undo-skipped')).toHaveCount(0)
       // The notice goes away by itself, TOAST_MS (4 s) after it showed.
-      await expect(notice).toHaveCount(0, { timeout: 8000 })
+      await expect(notice).toHaveCount(0, { timeout: ms(8000) })
       const times = (await a.evaluate('window.toastTimes')) as { shown?: number; gone?: number }
       expect(times.shown).toBeDefined()
       expect(times.gone).toBeDefined()

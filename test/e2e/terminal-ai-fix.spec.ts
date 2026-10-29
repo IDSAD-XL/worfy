@@ -4,6 +4,7 @@ import { launchApp } from './helpers'
 import { TERMINAL_AI_PROMPT, editedLine, openTerminal, screenText, terminalAiSandbox, type TerminalAiSandbox } from './terminal-ai-helpers'
 import { NO_ZSH, NO_ZSH_ON_WINDOWS } from '../zsh'
 import { settled, shellCaughtUp } from './wait'
+import { ms } from '../time-scale'
 
 // Fix of Terminal AI in a Terminal Node of the built app on a real zsh: after a command that failed,
 // "Fix" is in the header of the Node; a click asks the assist process, the corrected command of its
@@ -86,12 +87,12 @@ test('after a command that failed, Fix puts the corrected command into the line;
 
     await window.keyboard.type(FAILING)
     await window.keyboard.press('Enter')
-    await expect(fix).toBeVisible({ timeout: 15_000 })
+    await expect(fix).toBeVisible({ timeout: ms(15_000) })
     await inBothThemes(window, node, fix)
 
     await fix.click()
     // The answer: the line of the shell is the corrected command, and the button is gone.
-    await expect.poll(() => editedLine(node), { timeout: 10_000 }).toBe(`${TERMINAL_AI_PROMPT}${answer}`)
+    await expect.poll(() => editedLine(node), { timeout: ms(10_000) }).toBe(`${TERMINAL_AI_PROMPT}${answer}`)
     await expect(fix).toHaveCount(0)
     // Nothing ran: once the shell has read all it was given, the output of the command is not on the screen.
     const output = new RegExp(`^${mark} fixed$`, 'gm')
@@ -108,10 +109,10 @@ test('after a command that failed, Fix puts the corrected command into the line;
 
     // The focus stayed in the terminal: Enter there runs the command, once, and no button comes back.
     await window.keyboard.press('Enter')
-    await expect.poll(async () => [...(await screenText(node)).matchAll(output)].length, { timeout: 10_000 }).toBe(1)
+    await expect.poll(async () => [...(await screenText(node)).matchAll(output)].length, { timeout: ms(10_000) }).toBe(1)
     // The shell reports how the command ended before it prints the next prompt; once that prompt
     // is on the screen and the renderer has caught up, the button would be back if it were coming.
-    await expect.poll(() => editedLine(node), { timeout: 10_000 }).toBe(TERMINAL_AI_PROMPT.trimEnd())
+    await expect.poll(() => editedLine(node), { timeout: ms(10_000) }).toBe(TERMINAL_AI_PROMPT.trimEnd())
     await settled(window)
     await expect(fix).toHaveCount(0)
   } finally {

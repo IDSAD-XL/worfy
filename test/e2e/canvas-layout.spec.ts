@@ -520,6 +520,7 @@ test('canvasReady waits for the viewport and the Nodes to stop moving, and fails
     // into a plain pause (as it would if React Flow renamed the class).
     await swapClass(window, 'react-flow__viewport', 'canvas-ready-test-viewport')
     try {
+      // unscaled: the expected error names this bound (1000 ms); the page never comes to rest, so the bound is not a limit
       await expect(canvasReady({ window }, { timeout: 1_000 })).rejects.toThrow(/did not come to rest within 1000 ms; last state: no \.react-flow__viewport/)
     } finally {
       await swapClass(window, 'canvas-ready-test-viewport', 'react-flow__viewport')

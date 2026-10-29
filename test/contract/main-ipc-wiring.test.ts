@@ -8,9 +8,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 /** How long a test waits for the start: on a loaded machine it takes longer than the 1 s vi.waitFor waits by default. */
-const START_WAIT = { timeout: 10_000 }
+const START_WAIT = { timeout: ms(10_000) }
 
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
 
@@ -142,7 +143,7 @@ beforeAll(async () => {
   startup.policyBeforeWindow =
     (electron.installWebPolicy.mock.invocationCallOrder[0] ?? Infinity) < (electron.createMainWindow.mock.invocationCallOrder[0] ?? -Infinity)
   // Above START_WAIT: the default 10 s of a hook would cut that wait short.
-}, 20_000)
+}, ms(20_000))
 
 describe('IPC wiring in src/main/index.ts', () => {
   it('answers a call from the window the app loads', async () => {

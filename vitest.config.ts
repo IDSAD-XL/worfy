@@ -6,7 +6,7 @@ import { searchForWorkspaceRoot } from 'vite'
 import { configDefaults, defineConfig } from 'vitest/config'
 import { CI_RETRIES } from './test/flaky'
 import { removeStaleProbes, removeStaleTempFolders } from './test/stale-leftovers'
-import { timeScale } from './test/time-scale'
+import { ms } from './test/time-scale'
 
 // Worktrees of other tickets live under .claude/worktrees/ inside this checkout;
 // their tests must never be picked up by a run here.
@@ -27,7 +27,7 @@ removeStaleProbes(join(import.meta.dirname, 'src'))
 const tempDir = realpathSync.native(tmpdir())
 removeStaleTempFolders(tempDir, Date.now())
 
-// On Windows every time limit is three times the default: see test/time-scale.ts.
+// Every time limit below is times the run's multiplier, one value on every machine: see test/time-scale.ts.
 
 export default defineConfig({
   server: {
@@ -50,8 +50,8 @@ export default defineConfig({
     // The FLAKY line names the line of the test's declaration (test/flaky.ts); vitest collects it only
     // with this option, at the cost of one stack trace per declared test.
     includeTaskLocation: true,
-    testTimeout: 5_000 * timeScale,
-    hookTimeout: 10_000 * timeScale,
+    testTimeout: ms(5_000),
+    hookTimeout: ms(10_000),
     projects: [
       {
         extends: true,
@@ -69,8 +69,8 @@ export default defineConfig({
           include: ['test/contract/**/*.test.ts'],
           // Contract tests start real processes (bash, git, node, the Harness scripts). Alone one
           // takes about a second; in a full run on a loaded Mac they reach 4–5 s, past vitest's
-          // 5 s default, and fail on time alone. A test that really hangs still fails at 15 s (45 s on Windows).
-          testTimeout: 15_000 * timeScale,
+          // 5 s default, and fail on time alone. A test that really hangs still fails at 15 s times the multiplier.
+          testTimeout: ms(15_000),
           // How many concurrent tests of one file run at once: the shell tests of the Harness
           // (test/contract/harness-scripts.test.ts) are the only ones. Five keeps that file near
           // 100 s on the Mac; more would load the machine further in a full run, where

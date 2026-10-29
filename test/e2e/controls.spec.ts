@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
+import { ms } from '../time-scale'
 
 // The control rules of src/renderer/theme/tokens.css in the built app: every control shows the
 // pointer, an inactive one the not-allowed cursor, a text field the text cursor; a control under
@@ -187,7 +188,7 @@ async function expectAllCursors(window: Page, area: string): Promise<void> {
 
 for (const scheme of ['light', 'dark'] as const) {
   test(`every control shows the pointer and a hover of its own, inactive ones and labels do not (${scheme})`, async () => {
-    test.setTimeout(120_000)
+    test.setTimeout(ms(120_000))
     launched = await start()
     const { app, window } = launched
     await window.emulateMedia({ colorScheme: scheme })
@@ -317,7 +318,7 @@ function git(cwd: string, ...args: string[]): void {
 // write actions there carry aria-disabled, not disabled (projects/read-only.ts): the items of the
 // Canvas menu and the rows of the command palette that would change B's Layout.
 test('the write actions of a read-only screen show not-allowed and no hover', async () => {
-  test.setTimeout(180_000)
+  test.setTimeout(ms(180_000))
   const projectOf = (name: string, id: string): string => {
     const repo = join(scratch, name)
     const dataDir = join(scratch, `${name}-data`)
@@ -345,7 +346,7 @@ test('the write actions of a read-only screen show not-allowed and no hover', as
 
     const window = a.window
     const group = window.locator(`[data-testid="machine-group"][data-machine-id="${bId}"]`)
-    await expect(group.getByTestId('machine-read-only')).toHaveText('Read only', { timeout: 20_000 })
+    await expect(group.getByTestId('machine-read-only')).toHaveText('Read only', { timeout: ms(20_000) })
     await group.locator(`[data-testid="project-row"][data-project-id="${BETA}"]`).getByRole('button').click()
     await expect(window.getByTestId('canvas')).toHaveAttribute('data-project-id', BETA)
     await expect(window.getByTestId('canvas-read-only')).toBeVisible()

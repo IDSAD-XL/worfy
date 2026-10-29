@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { COLOUR_ANSWER_WINDOW_MS, CursorAnswers, HIGH_WATER, SCREEN_WORKERS_MAX, SCROLLBACK, screenWorker, screenWorkersLimit, unpackedPath } from '../../src/main/terminal/cursor-answers'
 import { colourAnswers, isMainAnswer } from '../../src/shared/terminal/cursor-answer'
 import { ROWS_MAX, TerminalRegistry, type PtyProcess, type TerminalSink } from '../../src/main/terminal/pty'
-import { timeScale } from '../time-scale'
+import { ms } from '../time-scale'
 
 const KEY = JSON.stringify(['alpha-0000000a', 'terminal-node-1'])
 /** A stand-in of @xterm/headless whose write throws "write data discarded". */
@@ -126,7 +126,7 @@ async function shell(platform: NodeJS.Platform = 'linux', size = { cols: 80, row
  * Main's answer comes from a worker thread; under load it once came later than vi.waitFor's default 1 s.
  */
 async function writtenSoon(pty: StandInPty, count: number): Promise<string[]> {
-  await vi.waitFor(() => expect(pty.writes.length).toBeGreaterThanOrEqual(count), { timeout: 5_000 * timeScale })
+  await vi.waitFor(() => expect(pty.writes.length).toBeGreaterThanOrEqual(count), { timeout: ms(5_000) })
   await new Promise((resolve) => setTimeout(resolve, 50))
   return pty.writes
 }
@@ -264,7 +264,7 @@ describe('main answers the cursor-position requests (worfy-windows ticket 39)', 
       const { registry, pty, a } = await shell('linux', { cols: 80, rows: 24 }, { ...nothing, output: (data) => void outputs.push(data) })
       pty.print(`$ ${REQUEST}`)
       expect(outputs).toEqual([`$ ${REQUEST}`])
-      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1), { timeout: 5_000 * timeScale })
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1), { timeout: ms(5_000) })
 
       // The view answers, marked: with main silent now, its answer goes to the shell.
       registry.write(KEY, `${ESC}[1;3R`, a, { reply: true })
@@ -427,7 +427,7 @@ describe('main holds a flood back while its screen lags (worfy-windows ticket 39
     const heldAtOnce = pty.heldLength
 
     // Without the pause all 60 MB reach xterm.js of the worker at once, and it refuses past 50 MB.
-    await vi.waitFor(() => expect(pty.writes.length + warn.mock.calls.length).toBeGreaterThan(0), { timeout: 60_000, interval: 50 })
+    await vi.waitFor(() => expect(pty.writes.length + warn.mock.calls.length).toBeGreaterThan(0), { timeout: ms(60_000), interval: 50 })
     expect(warn).not.toHaveBeenCalled()
     expect(await writtenSoon(pty, 1)).toEqual([`${ESC}[24;1R`])
     // Paused at the fifth megabyte, the 55 others and the request waiting in the pty.
@@ -437,7 +437,7 @@ describe('main holds a flood back while its screen lags (worfy-windows ticket 39
     expect(pty.resumes).toBe(pty.pauses)
     expect(pty.paused).toBe(false)
     expect(shown.length).toBe(60 * MEGABYTE.length + REQUEST.length)
-  }, 90_000)
+  }, ms(90_000))
 
   it('a screen that never says it parsed anything: the pty stays paused at HIGH_WATER with the rest of the output in it, and resumes when the screen catches up', async () => {
     screenWorker.headless = SILENT_HEADLESS
@@ -456,7 +456,7 @@ describe('main holds a flood back while its screen lags (worfy-windows ticket 39
 
       // The stand-in parses all it keeps at the empty write the worker makes for a resize.
       registry.resize(KEY, 100, 30, a)
-      await vi.waitFor(() => expect(pty.resumes).toBe(1), { timeout: 5_000 * timeScale })
+      await vi.waitFor(() => expect(pty.resumes).toBe(1), { timeout: ms(5_000) })
       expect(pty.paused).toBe(false)
       expect(pty.heldLength).toBe(0)
       expect(shown.length).toBe(6 * MEGABYTE.length)
@@ -493,7 +493,7 @@ describe('main holds a flood back while its screen lags (worfy-windows ticket 39
       for (let i = 0; i < 5; i += 1) pty.print(MEGABYTE)
       pty.print(REQUEST)
       expect(pty.pauses).toBe(1)
-      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1), { timeout: 5_000 * timeScale })
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1), { timeout: ms(5_000) })
       expect(String(warn.mock.calls[0]?.[0])).toContain('exit code 7')
       expect(pty.paused).toBe(false)
       expect(pty.heldLength).toBe(0)
@@ -535,7 +535,7 @@ describe('the screens of several shells parse in parallel, a worker each up to a
       expect(await writtenSoon(second.pty, 1)).toEqual([`${ESC}[1;4R`])
 
       first.pty.print(CRASH)
-      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1), { timeout: 5_000 * timeScale })
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1), { timeout: ms(5_000) })
       expect(String(warn.mock.calls[0]?.[0])).toContain('exit code 7')
       second.pty.print(`\r\nx${REQUEST}`)
       first.pty.print(REQUEST)
@@ -563,13 +563,13 @@ describe('the screens of several shells parse in parallel, a worker each up to a
       expect(pty.pauses).toBe(1)
     }
     for (const { pty, shown } of shells) {
-      await vi.waitFor(() => expect(pty.writes.length + warn.mock.calls.length).toBeGreaterThan(0), { timeout: 60_000 * timeScale, interval: 50 })
+      await vi.waitFor(() => expect(pty.writes.length + warn.mock.calls.length).toBeGreaterThan(0), { timeout: ms(60_000), interval: 50 })
       expect(warn).not.toHaveBeenCalled()
       expect(await writtenSoon(pty, 1)).toEqual([`${ESC}[24;1R`])
       expect(pty.paused).toBe(false)
       expect(shown.length).toBe(15 * MEGABYTE.length + REQUEST.length)
     }
-  }, 90_000 * timeScale)
+  }, ms(90_000))
 
   it('with the default limit, as many shells as the limit (up to four here) each get a worker thread of their own', async () => {
     screenWorker.headless = CRASHING_HEADLESS
@@ -597,7 +597,7 @@ describe('the screens of several shells parse in parallel, a worker each up to a
       expect(td).toBe(tb)
 
       a.pty.print(CRASH)
-      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(2), { timeout: 5_000 * timeScale })
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(2), { timeout: ms(5_000) })
       for (const { pty } of [a, b, c, d]) pty.print(REQUEST)
       expect((await writtenSoon(b.pty, 2)).at(-1)).toBe(`${ESC}[1;1R`)
       expect((await writtenSoon(d.pty, 2)).at(-1)).toBe(`${ESC}[1;1R`)

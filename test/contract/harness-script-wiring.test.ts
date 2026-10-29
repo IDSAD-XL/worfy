@@ -24,6 +24,7 @@ import { WorkflowWatcher } from '../../src/main/workflow/watch'
 import type { WorkflowModel } from '../../src/shared/workflow/types'
 import { NODE_DIR } from '../harness-node'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 /** The login shell environment the stand-in source answers with. */
 const LOGIN: HarnessScriptEnv = Object.freeze({ PATH: '/login-shell/bin:/usr/bin:/bin', HOME: '/login-home', MARK: 'login-shell' })
@@ -494,7 +495,7 @@ describe.skipIf(process.platform === 'win32')('the watcher asks for a fresh envi
     expect(requests.slice(1, 3)).toEqual(['always', 'always'])
     expect(requests.slice(first).filter((each) => each === 'always')).toEqual([])
     expect(watcher.current.epics.map((epic) => epic.epic)).toEqual(['demo'])
-  }, 60_000)
+  }, ms(60_000))
 })
 
 describe.skipIf(process.platform === 'win32')('an empty SHELL', () => {

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ClaudeHomeRegistry, projectDirName, type ClaudeHomeChange, type ClaudeHomeWatch } from '../../src/main/claude-home/registry'
+import { ms } from '../time-scale'
 
 // chokidar 5 reports a change of a path at most once in 50 ms and drops the rest: a writer that
 // truncates a transcript and then writes it gives one `change`, and the watcher may read the file
@@ -110,7 +111,7 @@ describe('a write that chokidar drops after the change it reported', () => {
     const read = nextRead(path, () => writeFileSync(path, `${userLine(project)}\n`))
     state.watcher?.emit('change', path)
     await read
-    await vi.waitFor(() => expect(changes.flatMap((change) => change.transcripts)).toContain(ID), { timeout: 3000, interval: 20 })
+    await vi.waitFor(() => expect(changes.flatMap((change) => change.transcripts)).toContain(ID), { timeout: ms(3000), interval: 20 })
   })
 
   it('a transcript whose cwd stays unknown is read once more per change, not again and again', async () => {
@@ -118,7 +119,7 @@ describe('a write that chokidar drops after the change it reported', () => {
     const read = nextRead(path)
     state.watcher?.emit('change', path)
     await read
-    await vi.waitFor(() => expect(state.opened).toHaveLength(2), { timeout: 3000, interval: 10 })
+    await vi.waitFor(() => expect(state.opened).toHaveLength(2), { timeout: ms(3000), interval: 10 })
     await new Promise((done) => setTimeout(done, 300))
     expect(state.opened).toHaveLength(2)
     expect(changes.flatMap((change) => change.transcripts)).not.toContain(ID)

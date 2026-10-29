@@ -9,6 +9,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { decodePng, MAGENTA } from './browser-pixels'
 import { canvasReady, launchApp, openSecondWindow, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { ms } from '../time-scale'
 
 // The resize of a Browser frame and the page viewport set apart from it (worfy-browser ticket 18,
 // ADR-0087): the frame is resized by its handle like any Node, and its page follows the body; the
@@ -101,7 +102,7 @@ async function start(): Promise<Page> {
   launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir(), HOME: join(scratch, 'home') } })
   const { window } = launched
   await canvasReady(launched, { size: WINDOW, visible: [frameNode(window)] })
-  await expect.poll(() => pageSize().then((size) => size !== null), { timeout: 15_000, message: 'the fixture page has loaded in the <webview>' }).toBe(true)
+  await expect.poll(() => pageSize().then((size) => size !== null), { timeout: ms(15_000), message: 'the fixture page has loaded in the <webview>' }).toBe(true)
   return window
 }
 
@@ -245,19 +246,19 @@ test('the viewport set in the sidebar is the page\'s window size while the frame
 })
 
 test('a second window fits the frames of a page whose viewport is wider than the body as the page lies, and a click on what it shows hits the same point', async () => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   // 1280 × 400 in a 638 × 410 body: scaled by 638 / 1280, with an empty strip under the picture.
   seed({ viewport: { w: 1280, h: 400 } }, `${pageUrl.replace('/page.html', '/target.html')}`)
   launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir(), HOME: join(scratch, 'home') } })
   const first = launched.window
   await canvasReady(launched, { size: WINDOW, visible: [frameNode(first)] })
-  await expect.poll(() => inPage<string>('document.body?.dataset.ready ?? ""'), { timeout: 15_000 }).toBe('yes')
+  await expect.poll(() => inPage<string>('document.body?.dataset.ready ?? ""'), { timeout: ms(15_000) }).toBe('yes')
   expect(await inPage<number>('innerWidth')).toBe(1280)
 
   const second = await openSecondWindow(launched, { size: { width: 1100, height: 760 } })
   await canvasReady({ window: second }, { visible: [frameNode(second)] })
   const frames = frameNode(second).getByTestId('browser-frames')
-  await expect(frames).toHaveAttribute('data-frame', 'shown', { timeout: 15_000 })
+  await expect(frames).toHaveAttribute('data-frame', 'shown', { timeout: ms(15_000) })
   // Where the square is in what the second window shows: the centre of its magenta pixels.
   const box = await frames.boundingBox()
   if (!box) throw new Error('no frames')
@@ -283,5 +284,5 @@ test('a second window fits the frames of a page whose viewport is wider than the
   expect(Math.abs(shown.y - 280 * fit)).toBeLessThan(4)
 
   await frames.click({ position: shown })
-  await expect.poll(() => inPage<string>('document.body.dataset.hit ?? ""'), { timeout: 15_000, message: 'the click on the square in the frames hit the square' }).toBe('square')
+  await expect.poll(() => inPage<string>('document.body.dataset.hit ?? ""'), { timeout: ms(15_000), message: 'the click on the square in the frames hit the square' }).toBe('square')
 })

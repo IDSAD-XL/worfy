@@ -29,6 +29,7 @@ import { CARD_FILE_CHUNK_BYTES, CARD_FILE_LIMIT_BYTES, cardsFile } from '../../s
 import { projectId, projectIdHash } from '../../src/main/projects/store'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 const electron = vi.hoisted(() => {
   const sent: { channel: string; payload: unknown }[] = []
@@ -566,14 +567,14 @@ describe('Card store', () => {
       })
       const started = Date.now()
       writeFileSync(join(cardDir('c1'), 'index.html'), '<title>Clock v2</title>')
-      await vi.waitFor(() => expect(seen.at(-1)?.title).toBe('Clock v2'), { timeout: 1000, interval: 20 })
+      await vi.waitFor(() => expect(seen.at(-1)?.title).toBe('Clock v2'), { timeout: ms(1000), interval: 20 })
       expect((reportedAt ?? Infinity) - started).toBeLessThan(1000)
       // At least one: FSEvents may also deliver the fixture's own writes from just before the watch began.
       expect(seen.at(-1)).toMatchObject({ cardId: 'c1', exists: true })
       expect(seen.at(-1)?.revision).toBeGreaterThanOrEqual(1)
 
       removeTestTree(cardDir('c1'))
-      await vi.waitFor(() => expect(seen.at(-1)?.exists).toBe(false), { timeout: 1000, interval: 20 })
+      await vi.waitFor(() => expect(seen.at(-1)?.exists).toBe(false), { timeout: ms(1000), interval: 20 })
     } finally {
       await watching.close()
     }
@@ -642,7 +643,7 @@ describe('Card store', () => {
       const seen: CardInfo[] = []
       watching.onChange((info) => seen.push(info))
       writeFileSync(join(cardDir('o1', OTHER), 'index.html'), '<title>Other v2</title>')
-      await vi.waitFor(() => expect(seen.some((info) => info.cardId === 'o1' && info.title === 'Other v2')).toBe(true), { timeout: 1500, interval: 20 })
+      await vi.waitFor(() => expect(seen.some((info) => info.cardId === 'o1' && info.title === 'Other v2')).toBe(true), { timeout: ms(1500), interval: 20 })
     })
 
     it('drops a change of its Cards that was waiting out the quiet period', async () => {
@@ -762,7 +763,7 @@ describe('cards IPC domain', () => {
     await new Promise((done) => setTimeout(done, 300))
     writeFileSync(join(cardDir('c1'), 'js', 'app.js'), 'document.title = "tock"')
     await vi.waitFor(() => expect(electron.sent.some((message) => message.channel === `${IPC_CHANNEL_PREFIX}cards.changed`)).toBe(true), {
-      timeout: 1000,
+      timeout: ms(1000),
       interval: 20,
     })
     const payload = electron.sent.find((message) => message.channel === `${IPC_CHANNEL_PREFIX}cards.changed`)?.payload

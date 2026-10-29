@@ -6,6 +6,7 @@ import { join, relative } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
 import { settled } from './wait'
+import { ms } from '../time-scale'
 
 // Sessions started outside worfy (ticket 14), against the built app: a temporary WORFY_CLAUDE_HOME
 // stands in for ~/.claude. A `sleep` process plays the Claude Code process — the registry checks
@@ -150,7 +151,7 @@ test('a Session started in a terminal: its Node, its read-only transcript, its e
     register(claude, EXTERNAL, { name: 'fix-flaky-test' })
 
     const node = window.locator(`[data-testid="session-node"][data-session-id="${EXTERNAL}"]`)
-    await node.waitFor({ state: 'visible', timeout: 5000 })
+    await node.waitFor({ state: 'visible', timeout: ms(5000) })
     const appeared = Date.now() - written
     expect(appeared, `the Session Node appeared ${appeared} ms after the registry file`).toBeLessThanOrEqual(1000)
     await expect(node.getByTestId('session-node-title')).toHaveText('fix-flaky-test')
@@ -187,7 +188,7 @@ test('a Session started in a terminal: its Node, its read-only transcript, its e
     await window.getByRole('button', { name: /Canvas/ }).click()
     await expect(canvasView).toBeVisible()
     await stop(claude)
-    await expect(node.getByTestId('session-node-status')).toHaveText('finished', { timeout: 10_000 })
+    await expect(node.getByTestId('session-node-status')).toHaveText('finished', { timeout: ms(10_000) })
     await expect(node.getByTestId('session-node-status').locator('.w-chip')).toHaveAttribute('data-status', 'done')
     await expect(window.getByTestId('sidebar-sessions-live')).toHaveText('0 live')
 
@@ -199,7 +200,7 @@ test('a Session started in a terminal: its Node, its read-only transcript, its e
       const [session] = (listed.value as { sessionId: string }[] | undefined) ?? []
       if (session) await bridge.invoke('agent.send', { sessionId: session.sessionId, text: 'hello' })
     })
-    await expect.poll(() => orchestratorSessionId(window), { timeout: 10_000 }).not.toBeNull()
+    await expect.poll(() => orchestratorSessionId(window), { timeout: ms(10_000) }).not.toBeNull()
     const own = (await orchestratorSessionId(window)) ?? ''
     write(join(transcriptDir(projectPath), `${own}.jsonl`), prompt(own, 'o1', 'hello') + answer(own, 'o2', 'hi'))
     register(claudeProcess(), own, { entrypoint: 'sdk-ts' })

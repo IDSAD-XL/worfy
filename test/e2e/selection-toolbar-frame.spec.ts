@@ -7,6 +7,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, settledBoxes, settledBoxLists, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // The selection toolbar (Pin, Tags, Delete) over an Epic frame in the built app, at zoom 1 and 0.6:
 // above a Ticket of the frame's top row it would cover the frame's header and the column labels,
@@ -212,7 +213,7 @@ for (const { zoom, scale } of CASES) {
       const { window } = launched
       const frame = window.locator('[data-testid="epic-frame"][data-epic="demo"]')
       // The first read of the Project's Tickets can take longer than the default 5 s.
-      await expect(frame).toBeVisible({ timeout: 20_000 })
+      await expect(frame).toBeVisible({ timeout: ms(20_000) })
       // Sized first: at a larger interface scale the Tickets are outside the window's first size, and React Flow draws only what is on screen.
       await windowReady(launched, scale)
       await expect(ticketNode(window, 2)).toBeVisible()

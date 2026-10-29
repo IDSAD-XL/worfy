@@ -36,6 +36,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, posix, relative, resolve } from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
+import { ms } from '../time-scale'
 
 const REPO = join(import.meta.dirname, '..', '..')
 const ROOTS = [join(REPO, 'test', 'e2e'), join(REPO, 'test', 'contract')]
@@ -504,7 +505,7 @@ const onPurpose = ({ path, use }: { path: string; use: string }): boolean => STA
 
 describe('a process started while a module of test/e2e or test/contract loads', () => {
   // It parses every file of the two folders and of src/ that they load: about 2 s alone on Windows, more in a full run.
-  it('is started by no file of test/e2e or test/contract, nor by a file they load: Playwright loads every spec before it runs any, vitest fails the whole file', { timeout: 20_000 }, () => {
+  it('is started by no file of test/e2e or test/contract, nor by a file they load: Playwright loads every spec before it runs any, vitest fails the whole file', { timeout: ms(20_000) }, () => {
     const p = program(ROOTS.flatMap(sources), (path) => readFileSync(path, 'utf8'), onDisk)
     const spawning = spawningFunctions(p)
     const found = [...p.files.values()].flatMap((source) => spawnsOnLoad(p, source, spawning).map((use) => ({ path: inRepo(source.path), use })))

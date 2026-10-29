@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
+import { ms } from '../time-scale'
 
 const REPO = join(import.meta.dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'e2e-shard.mjs')
@@ -170,7 +171,7 @@ describe('scripts/e2e-shard.mjs', () => {
   })
 
   it('runs as a command: prints the files of the shard and its expected seconds', () => {
-    const result = spawnSync(scriptNode(), [SCRIPT, '2/2'], { cwd: REPO, encoding: 'utf8', timeout: 30_000, env: { ...process.env, GITHUB_OUTPUT: '' } })
+    const result = spawnSync(scriptNode(), [SCRIPT, '2/2'], { cwd: REPO, encoding: 'utf8', timeout: ms(30_000), env: { ...process.env, GITHUB_OUTPUT: '' } })
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout.split('\n').filter((line) => line !== '')).toEqual(shardsOf(2)[1])
     expect(result.stderr).toMatch(/^e2e-shard: shard 2\/2: \d+ of \d+ spec files, [\d.]+ s expected of [\d.]+ s/)

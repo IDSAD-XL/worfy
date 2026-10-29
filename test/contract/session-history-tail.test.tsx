@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { IPC_CHANNEL_PREFIX, type WorfyBridge } from '../../src/shared/ipc/channels'
 import { mainThreadEvents, parseTranscriptLines } from '../../src/shared/transcript/parse'
+import { ms } from '../time-scale'
 
 const ROOT = '/Users/test/projects/big'
 const S = 'b1900000-0000-4000-8000-000000000021'
@@ -170,12 +171,12 @@ const changed = () =>
   })
 
 describe('opening a large transcript', () => {
-  it('reads only its last 4 MiB, in one call and one state update', { timeout: 120_000 }, async () => {
+  it('reads only its last 4 MiB, in one call and one state update', { timeout: ms(120_000) }, async () => {
     const { turns, size } = writeBigTranscript(file, { sessionId: S, cwd: ROOT })
     expect(size).toBeGreaterThan(40 * MB)
     const started = performance.now()
     const { hook, drawn } = await open()
-    await vi.waitFor(() => expect(texts(hook.result.current.events)).toContain(`Answer number ${turns - 1}`), { timeout: 10_000, interval: 5 })
+    await vi.waitFor(() => expect(texts(hook.result.current.events)).toContain(`Answer number ${turns - 1}`), { timeout: ms(10_000), interval: 5 })
     const newest = performance.now() - started
     const first = drawn()[0]
     report(
@@ -231,7 +232,7 @@ describe('after the tail', () => {
     expect(hook.result.current).toBe(shown)
   })
 
-  it('a growth of several windows is read forward and drawn in one state update', { timeout: 30_000 }, async () => {
+  it('a growth of several windows is read forward and drawn in one state update', { timeout: ms(30_000) }, async () => {
     writeBigTranscript(file, { sessionId: S, cwd: ROOT, bytes: 5 * MB })
     const { hook, drawn } = await open()
     await vi.waitFor(() => expect(hook.result.current.loaded).toBe(true))
@@ -243,7 +244,7 @@ describe('after the tail', () => {
     appendFileSync(file, readFileSync(extra))
     const calls = transcriptCalls().length
     await changed()
-    await vi.waitFor(() => expect(texts(hook.result.current.events)).toContain(`Answer number ${turns - 1}`), { timeout: 20_000 })
+    await vi.waitFor(() => expect(texts(hook.result.current.events)).toContain(`Answer number ${turns - 1}`), { timeout: ms(20_000) })
     expect(drawn()).toHaveLength(2)
     expect(transcriptCalls().length - calls).toBeLessThanOrEqual(3)
     expect(hook.result.current.events.length).toBeGreaterThan(before)
@@ -251,7 +252,7 @@ describe('after the tail', () => {
 })
 
 describe('Load earlier', () => {
-  it('prepends the window before the shown events, again and again, until the start of the file', { timeout: 60_000 }, async () => {
+  it('prepends the window before the shown events, again and again, until the start of the file', { timeout: ms(60_000) }, async () => {
     writeBigTranscript(file, { sessionId: S, cwd: ROOT, bytes: 10 * MB })
     const { module, hook } = await open()
     await vi.waitFor(() => expect(hook.result.current.loaded).toBe(true))
@@ -297,7 +298,7 @@ function writeShortLines(count: number): number[] {
 }
 
 describe('a window of more than KEEP_EVENTS short lines', () => {
-  it('keeps the newest KEEP_EVENTS, Load earlier starts at the first line kept, and brings the rest back', { timeout: 60_000 }, async () => {
+  it('keeps the newest KEEP_EVENTS, Load earlier starts at the first line kept, and brings the rest back', { timeout: ms(60_000) }, async () => {
     const count = 40_000
     const offsets = writeShortLines(count)
     const { module, hook } = await open()
@@ -322,7 +323,7 @@ describe('a window of more than KEEP_EVENTS short lines', () => {
 })
 
 describe('a Subagent\'s transcript', () => {
-  it('opens on the window at the end of its file and loads the rest with Load earlier', { timeout: 60_000 }, async () => {
+  it('opens on the window at the end of its file and loads the rest with Load earlier', { timeout: ms(60_000) }, async () => {
     const agentId = 'a21tail'
     writeFileSync(file, '')
     const folder = join(dir, S, 'subagents')
@@ -330,7 +331,7 @@ describe('a Subagent\'s transcript', () => {
     const agentFile = join(folder, `agent-${agentId}.jsonl`)
     const { turns, size } = writeBigTranscript(agentFile, { sessionId: S, cwd: ROOT, bytes: 6 * MB })
     const { module, hook } = await open(agentId)
-    await vi.waitFor(() => expect(hook.result.current.loaded).toBe(true), { timeout: 10_000 })
+    await vi.waitFor(() => expect(hook.result.current.loaded).toBe(true), { timeout: ms(10_000) })
     const calls = asked.filter((call) => call.channel === 'claudeHome.subagentTranscript')
     expect(calls[0]?.input).toMatchObject({ projectRoot: ROOT, sessionId: S, agentId, back: { bytes: WINDOW } })
     expect(texts(hook.result.current.events)).toContain(`Answer number ${turns - 1}`)
@@ -347,7 +348,7 @@ describe('a Subagent\'s transcript', () => {
 })
 
 describe('a main that does not know `back` (an older build on a Linked machine)', () => {
-  it('is read forward to the end the old way: the newest answer shows, no Load earlier, live records still come', { timeout: 60_000 }, async () => {
+  it('is read forward to the end the old way: the newest answer shows, no Load earlier, live records still come', { timeout: ms(60_000) }, async () => {
     const { turns } = writeBigTranscript(file, { sessionId: S, cwd: ROOT, bytes: 12 * MB })
     // The old main's schema drops `back`, and its answer has no `earlier` and no `offsets`.
     const bridge = (globalThis as { worfy?: WorfyBridge }).worfy as unknown as { invoke: (channel: string, input: unknown) => Promise<unknown> }
@@ -363,7 +364,7 @@ describe('a main that does not know `back` (an older build on a Linked machine)'
       return { ...result, value }
     }
     const { module, hook } = await open()
-    await vi.waitFor(() => expect(hook.result.current.loaded).toBe(true), { timeout: 30_000 })
+    await vi.waitFor(() => expect(hook.result.current.loaded).toBe(true), { timeout: ms(30_000) })
     const keep = module.KEEP_EVENTS
     const whole = wholeFile()
     expect(whole.length).toBeGreaterThan(keep)

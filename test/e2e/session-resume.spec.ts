@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp } from './helpers'
+import { ms } from '../time-scale'
 
 // The turns a Session had before worfy resumed it (worfy-daily ticket 22), against the built app on
 // the fake agent: a Session Node resumed over a transcript of two turns shows their last answer at
@@ -181,7 +182,7 @@ test('the Orchestrator shows the turns of its saved Session after a restart of w
       const sent = await bridge.invoke('agent.send', { sessionId: view.sessionId, text: 'hello' })
       if (!sent.ok) throw new Error(sent.error)
     }, PROJECT)
-    await expect.poll(() => orchestratorSessionId(first.window), { timeout: 10_000 }).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
+    await expect.poll(() => orchestratorSessionId(first.window), { timeout: ms(10_000) }).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
     saved = (await orchestratorSessionId(first.window)) ?? ''
   } finally {
     await first.close()

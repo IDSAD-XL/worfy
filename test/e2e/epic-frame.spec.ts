@@ -18,6 +18,7 @@ import { snapshotThemes } from './snapshots'
 import { measuresReference, RUNNER_START_CAP_MS, START_RATIO, startBudget } from './start-budget'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // Epic frames on the Canvas of the built app, over Projects in temporary git repositories and a
 // stub `bin/epic-status` in a temporary WORFY_CLAUDE_HOME that reads the Ticket files the way the
@@ -337,7 +338,7 @@ test('the worfy-mvp Epic: columns by level, places and routes by ELK in a worker
     })
     const started = Date.now()
     setStatus(first, 'claimed 2026-10-05T09:41Z')
-    await expect(ticketNode(window, 1)).toHaveAttribute('data-state', 'work', { timeout: 5_000 })
+    await expect(ticketNode(window, 1)).toHaveAttribute('data-state', 'work', { timeout: ms(5_000) })
     const shownAt = await window.evaluate(() => (globalThis as unknown as { claimedAt?: number }).claimedAt)
     expect(shownAt).toBeDefined()
     const elapsed = shownAt! - started
@@ -487,7 +488,7 @@ test('a Ticket is not dragged and keeps its ELK place; a frame dragged by its he
     setStatus(join(issues, '02-t2.md'), 'done')
     const after = (await demoByElk({ 2: 'done' })).folded
     expect(placeOf(after, 3)).not.toEqual(placeOf((await demoByElk({})).folded, 3))
-    await expect.poll(() => inFrame(window, 'demo', 3), { timeout: 5_000 }).toEqual(placeOf(after, 3))
+    await expect.poll(() => inFrame(window, 'demo', 3), { timeout: ms(5_000) }).toEqual(placeOf(after, 3))
     await expect(ticketNode(window, 2)).toHaveCount(0)
     expect(await inFrame(window, 'demo', 4)).toEqual(placeOf(after, 4))
     const zetaAfterDone = await zetaAuto(window, { 2: 'done' })
@@ -524,7 +525,7 @@ const area = (a: { x: number; y: number; width: number; height: number }, b: { x
 
 /** The Orchestrator and HANDOFF Nodes of the Layout, once main has placed both. */
 async function mainNodes(window: Page): Promise<StateNode[]> {
-  await expect.poll(async () => (await layoutNodes(window)).filter((node) => node.kind === 'orchestrator' || node.kind === 'handoff').length, { timeout: 10_000 }).toBe(2)
+  await expect.poll(async () => (await layoutNodes(window)).filter((node) => node.kind === 'orchestrator' || node.kind === 'handoff').length, { timeout: ms(10_000) }).toBe(2)
   return (await layoutNodes(window)).filter((node) => node.kind === 'orchestrator' || node.kind === 'handoff')
 }
 
@@ -545,7 +546,7 @@ test('Tickets that arrive after main placed the Orchestrator and HANDOFF Nodes k
     const { window } = launched
     const placed = await mainNodes(window)
     expect(placed.find((node) => node.kind === 'orchestrator')).toMatchObject({ x: 40, y: 40 })
-    await expect(window.getByTestId('rf__node-epic:demo')).toBeVisible({ timeout: 15_000 })
+    await expect(window.getByTestId('rf__node-epic:demo')).toBeVisible({ timeout: ms(15_000) })
     for (const node of placed) await expect(window.getByTestId(`rf__node-${node.id}`)).toBeVisible()
     // Tab moves the focus to a Node's React Flow wrapper: it has its node source's name, or its kind's.
     await expect(window.getByTestId('rf__node-epic:demo')).toHaveAttribute('aria-label', 'Epic demo')
@@ -1090,8 +1091,8 @@ async function hoverUntilLit(window: Page, epic: string, pane: { x: number; y: n
  * 36–110 ms shorter than this one; this one is the stricter of the two.
  */
 async function interactiveAfter(window: Page, epic: string): Promise<number> {
-  await expect(window.locator(`[data-testid="epic-frame"][data-epic="${epic}"]`)).toBeVisible({ timeout: 20_000 })
-  await expect(window.locator(`[data-testid="ticket-node"][data-epic="${epic}"]`).first()).toBeVisible({ timeout: 20_000 })
+  await expect(window.locator(`[data-testid="epic-frame"][data-epic="${epic}"]`)).toBeVisible({ timeout: ms(20_000) })
+  await expect(window.locator(`[data-testid="ticket-node"][data-epic="${epic}"]`).first()).toBeVisible({ timeout: ms(20_000) })
   return window.evaluate(
     () => new Promise<number>((done) => (globalThis as unknown as PageGlobals).requestAnimationFrame(() => done(Math.round((globalThis as unknown as PageGlobals).performance.now())))),
   )

@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { canvasReady, launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { ms } from '../time-scale'
 
 // Browser profiles (worfy-browser ticket 03, ADR-0078 item 5). One profile's cookies are shared by
 // all its Browsers and seen by no Browser of another profile, and they survive a restart: each
@@ -140,7 +141,7 @@ test('a cookie of one Browser profile is seen by its other Browser, not by a Bro
   await expect(frame('b0').getByTestId('browser-profile-name')).toHaveText('Default')
   expect(existsSync(join(dataDir(), PROJECT, 'browser-profiles.json')), 'reading the profiles writes no file').toBe(false)
   await expect.poll(() => savedBrowsers().b0?.profile, { message: 'the old Browser keeps Default' }).toBe('default')
-  await expect.poll(pages, { timeout: 15_000 }).toEqual([[old, 'yes', expect.stringContaining('worfy-browser-0000000c-default')]])
+  await expect.poll(pages, { timeout: ms(15_000) }).toEqual([[old, 'yes', expect.stringContaining('worfy-browser-0000000c-default')]])
   // The Browsers of the gone profile show an empty frame with «Choose a profile» and open no page.
   await expect(frame('b1').getByTestId('browser-choose-profile')).toContainText('was deleted')
   await expect(frame('b2').getByTestId('browser-choose-profile-button')).toBeVisible()
@@ -187,7 +188,7 @@ test('a cookie of one Browser profile is seen by its other Browser, not by a Bro
   }
   await expect.poll(() => [savedBrowsers().b1?.profile, savedBrowsers().b2?.profile]).toEqual([admin, admin])
   await expect
-    .poll(pages, { timeout: 15_000, message: 'three pages, two on the partition of admin' })
+    .poll(pages, { timeout: ms(15_000), message: 'three pages, two on the partition of admin' })
     .toEqual([
       [old, 'yes', expect.stringContaining('worfy-browser-0000000c-default')],
       [one, 'yes', expect.stringContaining(`worfy-browser-0000000c-${admin}`)],
@@ -222,7 +223,7 @@ test('a cookie of one Browser profile is seen by its other Browser, not by a Bro
   await launched!.close()
   launched = undefined
   window = await start()
-  await expect.poll(pages, { timeout: 15_000, message: 'the pages after the restart' }).toEqual([
+  await expect.poll(pages, { timeout: ms(15_000), message: 'the pages after the restart' }).toEqual([
     [old, 'yes', expect.stringContaining('-default')],
     [one, 'yes', expect.stringContaining(admin)],
     [two, 'yes', expect.stringContaining(admin)],
@@ -251,7 +252,7 @@ test('deleting a profile names the Browsers that use it, erases its cookies, and
   project([{ id: 'b0', kind: 'browser', x: 600, y: 20, w: 360, h: 280, data: { url: page } }])
   const window = await start()
   const frame = window.locator('[data-testid="browser-frame"][data-node-id="b0"]')
-  await expect.poll(pages, { timeout: 15_000 }).toEqual([[page, 'yes', expect.stringContaining('-default')]])
+  await expect.poll(pages, { timeout: ms(15_000) }).toEqual([[page, 'yes', expect.stringContaining('-default')]])
   await inGuest(page, "document.cookie = 'kept=yes; max-age=86400; path=/'")
   // The cookie is in the partition's storage before the delete, read in main from the session itself.
   const partition = 'persist:worfy-browser-0000000c-default'

@@ -22,8 +22,9 @@ import { DENY_ACE_BYPASSED, denyBypassed } from './deny-ace'
 import { snapshotThemes } from './snapshots'
 import { windowsProfileEnv } from '../windows-profile'
 import { loginProfileWithNode, printScript, profileJsonScript } from '../harness-node'
+import { ms } from '../time-scale'
 
-test.setTimeout(240_000)
+test.setTimeout(ms(240_000))
 
 const ALPHA = 'alpha-0000000a'
 const BETA = 'beta-0000000b'
@@ -250,8 +251,8 @@ test('in A: Add project → Machine B → B\'s folders → a repository: the Pro
     // A's window opens the new Project on B.
     // The id hashes the root as git spells it (projectId, src/main/projects/store.ts): C:/… on Windows.
     const shopId = `shop-${createHash('sha256').update(git(shop, 'rev-parse', '--show-toplevel').trim()).digest('hex').slice(0, 8)}`
-    await expect(a.window).toHaveURL(new RegExp(`[?&]machine=${bId}.*[?&]project=${shopId}|[?&]project=${shopId}.*[?&]machine=${bId}`), { timeout: 20_000 })
-    await expect(a.window.getByTestId('canvas')).toHaveAttribute('data-project-id', shopId, { timeout: 20_000 })
+    await expect(a.window).toHaveURL(new RegExp(`[?&]machine=${bId}.*[?&]project=${shopId}|[?&]project=${shopId}.*[?&]machine=${bId}`), { timeout: ms(20_000) })
+    await expect(a.window.getByTestId('canvas')).toHaveAttribute('data-project-id', shopId, { timeout: ms(20_000) })
     const shopRow = groupOf(a.window, bId).locator(`[data-testid="project-row"][data-project-id="${shopId}"]`)
     await expect(shopRow).toBeVisible()
     await expect(shopRow.getByRole('button')).toHaveAttribute('aria-current', 'true')

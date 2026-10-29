@@ -10,8 +10,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { closeSettings, KEEP_AWAKE_LABEL, launchApp, launchLinkedPair, machineIdOf, openMachinesSettings, setKeepAwake, setProjectsAccess } from './helpers'
+import { ms } from '../time-scale'
 
-test.setTimeout(120_000)
+test.setTimeout(ms(120_000))
 
 const row = (window: Page, machineId: string) => window.locator(`[data-testid="machine-row"][data-machine-id="${machineId}"]`)
 

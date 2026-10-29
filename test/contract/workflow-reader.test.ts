@@ -19,6 +19,7 @@ import { diffModels, type EpicStatusSnapshot, type WorkflowDelta, type WorkflowM
 import { hasSh, NODE_DIR, withPath } from '../harness-node'
 import { generateScratch } from './scratch-gen'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 /**
  * The scripts' environment the readers are handed here: this process's own. The stub below reads
@@ -172,14 +173,15 @@ function treeState(dir: string): Map<string, string> {
 const ticketOf = (model: WorkflowModel, num: number) => model.tickets.find((t) => t.epic === 'demo' && t.num === num)
 
 /** Resolves with the next delta for which `match` holds, or rejects after `ms`. */
-function nextDelta(deltas: WorkflowDelta[], match: (delta: WorkflowDelta) => boolean, ms = 5000): Promise<{ delta: WorkflowDelta; at: number }> {
+function nextDelta(deltas: WorkflowDelta[], match: (delta: WorkflowDelta) => boolean, limit = 5000): Promise<{ delta: WorkflowDelta; at: number }> {
+  const wait = ms(limit)
   const start = deltas.length
   return new Promise((resolvePromise, reject) => {
-    const deadline = Date.now() + ms
+    const deadline = Date.now() + wait
     const poll = () => {
       const found = deltas.slice(start).find(match)
       if (found) return resolvePromise({ delta: found, at: performance.now() })
-      if (Date.now() > deadline) return reject(new Error(`no matching workflow delta within ${ms} ms; got ${JSON.stringify(deltas.slice(start))}`))
+      if (Date.now() > deadline) return reject(new Error(`no matching workflow delta within ${wait} wait; got ${JSON.stringify(deltas.slice(start))}`))
       setTimeout(poll, 10)
     }
     poll()
@@ -1224,10 +1226,11 @@ function deafWatch(made: string[], readyMs = 0, onMade: (watch: EventEmitter) =>
 const pause = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms))
 
 /** Waits until `done` holds, or fails after `ms`. */
-async function until(what: string, done: () => boolean, ms = 5000): Promise<void> {
-  const end = Date.now() + ms
+async function until(what: string, done: () => boolean, limit = 5000): Promise<void> {
+  const wait = ms(limit)
+  const end = Date.now() + wait
   while (!done()) {
-    if (Date.now() > end) throw new Error(`timed out after ${ms} ms waiting for ${what}`)
+    if (Date.now() > end) throw new Error(`timed out after ${wait} wait waiting for ${what}`)
     await pause(10)
   }
 }
@@ -1306,7 +1309,7 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     setStatus(scratch, 'next', 1, 'blocked')
     const edited = await nextDelta(deltas, (d) => d.tickets.length > 0, 5000)
     expect(edited.delta.tickets.map((t) => [t.epic, t.num, t.state])).toEqual([['next', 1, 'blocked']])
-  }, 20_000)
+  }, ms(20_000))
 
   it('a Tickets root removed and made again with another Epic before the watcher read (12 ms): an edit of its Ticket comes as a new model within 5 s', async () => {
     const { repo, folder, scratch } = makeSilent(dir)
@@ -1324,7 +1327,7 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     setStatus(scratch, 'next', 1, 'blocked')
     const edited = await nextDelta(deltas, (d) => d.tickets.length > 0, 5000)
     expect(edited.delta.tickets.map((t) => [t.epic, t.num, t.state])).toEqual([['next', 1, 'blocked']])
-  }, 20_000)
+  }, ms(20_000))
 
   // The case the 12 ms test above falls into on a loaded machine (it failed so twice in a full run
   // on 2026-10-21): the root is a folder again before chokidar looks at it after the removal
@@ -1345,7 +1348,7 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     setStatus(scratch, 'next', 1, 'blocked')
     const edited = await nextDelta(deltas, (d) => d.tickets.length > 0, 5000)
     expect(edited.delta.tickets.map((t) => [t.epic, t.num, t.state])).toEqual([['next', 1, 'blocked']])
-  }, 20_000)
+  }, ms(20_000))
 
   it('the same Tickets root removed and made again, the watch told only of what was in it (a stubbed watch): the read sees another folder and makes the watch anew', async () => {
     // The real race above, with the order fixed: chokidar's look at the root is replaced by a
@@ -1374,7 +1377,7 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     await until('the watch made anew', () => made.length === 2)
     expect(made).toEqual([scratch, scratch])
     await watcher.idle()
-  }, 20_000)
+  }, ms(20_000))
 
   it('the removal of an Epic folder, not of the root, does not make the watch anew', async () => {
     const { repo, folder, scratch } = makeSilent(dir)
@@ -1388,7 +1391,7 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     await nextDelta(deltas, (d) => d.removedEpics.includes('demo'), 5000)
     await watcher.idle()
     expect(chokidar.made).toHaveLength(1)
-  }, 20_000)
+  }, ms(20_000))
 
   it('Silent layout, no Workflow folder at the start: made later with .scratch and an Epic, the model with the Epic comes within 5 s', async () => {
     const { repo, folder, scratch } = makeSilentWithout(dir, 'none')
@@ -1404,7 +1407,7 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
       ['demo', 1],
       ['demo', 2],
     ])
-  }, 20_000)
+  }, ms(20_000))
 
   it('Silent layout, a Workflow folder with .git and no .scratch: an Epic put and committed comes as a model, then an edit of its Ticket as one more', async () => {
     const { repo, folder, scratch } = makeSilentWithout(dir, 'git')
@@ -1422,7 +1425,7 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     setStatus(scratch, 'e3-acceptance', 1, 'blocked')
     const edited = await nextDelta(deltas, (d) => d.tickets.length > 0, 5000)
     expect(edited.delta.tickets.map((t) => [t.epic, t.num, t.state])).toEqual([['e3-acceptance', 1, 'blocked']])
-  }, 20_000)
+  }, ms(20_000))
 
   it('a lost notification: the root appears and the watch never tells of it — the Epic is in the model within 5 s', async () => {
     const { repo, folder, scratch } = makeSilentWithout(dir, 'git')
@@ -1436,7 +1439,7 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     await nextDelta(deltas, hasEpic('demo'), 5000)
     // The watch was made anew on the folder that is there now.
     expect(made).toEqual([scratch, scratch])
-  }, 20_000)
+  }, ms(20_000))
 
   it('a root removed whose own removal event is lost (only an event about a file in it came): the read looks for it, and the Epic made again is read', async () => {
     const { repo, folder, scratch } = makeSilent(dir)
@@ -1453,7 +1456,7 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     await nextDelta(deltas, hasEpic('next'), 5000)
     expect(made).toEqual([scratch, scratch])
     await watcher.idle()
-  }, 20_000)
+  }, ms(20_000))
 
   it('a file where the Tickets root should be is not a folder: replaced by a folder with an Epic, the Epic is read', async () => {
     const { repo, folder, scratch } = makeSilentWithout(dir, 'git')
@@ -1466,7 +1469,7 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     rmSync(scratch)
     putEpic(scratch, 'demo', [1])
     await nextDelta(deltas, hasEpic('demo'), 5000)
-  }, 20_000)
+  }, ms(20_000))
 
   it('the start does not hang when the first watch is made anew before it is ready (the root removed during its first scan)', async () => {
     const { repo, folder, scratch } = makeSilent(dir)
@@ -1479,7 +1482,7 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     const outcome = await Promise.race([started.then(() => 'started'), pause(3000).then(() => 'still waiting after 3 s')])
     expect(outcome).toBe('started')
     expect(made).toEqual([scratch, scratch])
-  }, 10_000)
+  }, ms(10_000))
 
   it('while the Tickets root is a folder, there are no timed looks for it and no reads beyond the start', async () => {
     const { repo, folder, scratch } = makeSilent(dir)
@@ -1514,7 +1517,7 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     await pause(700)
     await watcher.idle()
     expect(calls(log).length).toBe(before + 1)
-  }, 20_000)
+  }, ms(20_000))
 
   it('close drops the timer of the looks for the root', async () => {
     const { repo, folder, scratch } = makeSilentWithout(dir, 'git')
@@ -1859,7 +1862,7 @@ describe('workflow IPC channels', () => {
 
     const file = join(repo, '.scratch/demo/issues/02-second.md')
     writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked'))
-    const deadline = Date.now() + 5000
+    const deadline = Date.now() + ms(5000)
     while (!sent.length && Date.now() < deadline) await new Promise((done) => setTimeout(done, 20))
     expect(sent[0]?.channel).toBe('worfy:workflow.changed')
     const delta = sent[0]!.payload as WorkflowDelta
@@ -1880,7 +1883,7 @@ describe('workflow IPC channels', () => {
     expect(destroyed).toHaveLength(1)
 
     destroyed[0]!()
-    const deadline = Date.now() + 5000
+    const deadline = Date.now() + ms(5000)
     while (hub.roots.length && Date.now() < deadline) await new Promise((done) => setTimeout(done, 20))
     expect(hub.roots).toEqual([])
   })

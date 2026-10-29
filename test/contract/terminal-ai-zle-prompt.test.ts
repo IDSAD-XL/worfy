@@ -23,9 +23,10 @@ import { ASK_KEPT_MS, HISTORY_FEATURE, ShellLink, type FeatureLoader, type Shell
 import { DEFAULT_TERMINAL_AI_SETTINGS, type TerminalAiSettings } from '../../src/shared/terminal-ai/settings'
 import { shellStub } from '../shell-stub'
 import { needsZsh, zshPath } from '../zsh'
+import { ms } from '../time-scale'
 
 const KEY = 'terminal-1'
-const WAIT = { timeout: 10_000, interval: 20 }
+const WAIT = { timeout: ms(10_000), interval: 20 }
 /** Ubuntu's /etc/zsh/zshrc runs compinit unless this is set, and on the CI runner compinit waits for a key. */
 const QUIET_ZSH: Env = { skip_global_compinit: '1' }
 /** The name the tests' asks go under: no feature of Terminal AI, so the real features' scripts never ask under it. */

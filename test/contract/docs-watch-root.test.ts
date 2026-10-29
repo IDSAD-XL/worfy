@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DocsWatcher, type Docs } from '../../src/main/docs/watch'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 const WINDOWS = process.platform === 'win32'
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -47,7 +48,7 @@ describe.runIf(WINDOWS)('DocsWatcher on Windows, real folders: the root is remov
       await pause(1200)
       unlinkSync(join(root, 'HANDOFF.md'))
       rmdirSync(root)
-      await vi.waitFor(() => expect(changes.at(-1)).toEqual({ handoff: null, adrs: [] }), { timeout: 5000, interval: 50 })
+      await vi.waitFor(() => expect(changes.at(-1)).toEqual({ handoff: null, adrs: [] }), { timeout: ms(5000), interval: 50 })
       // One second with the root gone. Before the fix this process spent about 990 ms of it on events.
       const before = process.cpuUsage()
       await pause(1000)
@@ -58,12 +59,12 @@ describe.runIf(WINDOWS)('DocsWatcher on Windows, real folders: the root is remov
     const back = async (text: string, later: string): Promise<void> => {
       mkdirSync(root)
       writeFileSync(join(root, 'HANDOFF.md'), text)
-      await vi.waitFor(() => expect(changes.at(-1)?.handoff).not.toBeNull(), { timeout: 5000, interval: 50 })
+      await vi.waitFor(() => expect(changes.at(-1)?.handoff).not.toBeNull(), { timeout: ms(5000), interval: 50 })
       // And it is watched, not only read once: a later change comes through.
       const version = changes.at(-1)?.handoff?.version
       await pause(1200)
       writeFileSync(join(root, 'HANDOFF.md'), later)
-      await vi.waitFor(() => expect(changes.at(-1)?.handoff?.version).not.toBe(version), { timeout: 5000, interval: 50 })
+      await vi.waitFor(() => expect(changes.at(-1)?.handoff?.version).not.toBe(version), { timeout: ms(5000), interval: 50 })
     }
 
     await gone()
@@ -75,7 +76,7 @@ describe.runIf(WINDOWS)('DocsWatcher on Windows, real folders: the root is remov
     await gone()
     expect(lines()).toEqual([[said], [said]])
     await back('# handoff, a third time\n', '# handoff, changed a third time\n')
-  }, 40_000)
+  }, ms(40_000))
 })
 
 // macOS (worfy-windows ticket 38): a root that is removed or renamed gives one event, named by the
@@ -128,7 +129,7 @@ describe.runIf(MACOS)('DocsWatcher on macOS, real folders: the root is removed o
     await pause(1200)
 
     away()
-    await vi.waitFor(() => expect(changes.at(-1)).toEqual({ handoff: null, adrs: [] }), { timeout: 3000, interval: 50 })
+    await vi.waitFor(() => expect(changes.at(-1)).toEqual({ handoff: null, adrs: [] }), { timeout: ms(3000), interval: 50 })
     // A folder renamed away is not followed under its new name.
     if (existsSync(join(dir, 'moved'))) {
       writeFileSync(join(dir, 'moved', 'HANDOFF.md'), '# handoff, moved\n')
@@ -137,14 +138,14 @@ describe.runIf(MACOS)('DocsWatcher on macOS, real folders: the root is removed o
     }
 
     back()
-    await vi.waitFor(() => expect(changes.at(-1)?.handoff?.path).toBe('HANDOFF.md'), { timeout: 3000, interval: 50 })
+    await vi.waitFor(() => expect(changes.at(-1)?.handoff?.path).toBe('HANDOFF.md'), { timeout: ms(3000), interval: 50 })
     // Followed, not only read once: a later change comes through.
     const version = changes.at(-1)?.handoff?.version
     writeFileSync(join(root, 'HANDOFF.md'), '# handoff, changed once more\n')
-    await vi.waitFor(() => expect(changes.at(-1)?.handoff?.version).not.toBe(version), { timeout: 3000, interval: 50 })
+    await vi.waitFor(() => expect(changes.at(-1)?.handoff?.version).not.toBe(version), { timeout: ms(3000), interval: 50 })
     // The watch was kept: the line of a root that is gone is a Windows one.
     expect(warn).not.toHaveBeenCalled()
-  }, 20_000)
+  }, ms(20_000))
 })
 
 /**
@@ -165,7 +166,7 @@ const WRITTEN: { as: string; written: () => string; folder: () => string }[] = [
 ]
 
 describe.runIf(MACOS)('DocsWatcher on macOS, real folders: a root written otherwise than on the disk', () => {
-  it.for(WRITTEN)('$as: renamed away, the documents read as gone; renamed back, they are read again', { timeout: 20_000 }, async ({ written, folder }, context) => {
+  it.for(WRITTEN)('$as: renamed away, the documents read as gone; renamed back, they are read again', { timeout: ms(20_000) }, async ({ written, folder }, context) => {
     removeTestTree(root)
     const disk = folder()
     mkdirSync(join(disk, 'docs', 'adr'), { recursive: true })
@@ -184,9 +185,9 @@ describe.runIf(MACOS)('DocsWatcher on macOS, real folders: a root written otherw
     await pause(1200)
 
     renameSync(disk, join(dir, 'moved'))
-    await vi.waitFor(() => expect(changes.at(-1)).toEqual({ handoff: null, adrs: [] }), { timeout: 3000, interval: 50 })
+    await vi.waitFor(() => expect(changes.at(-1)).toEqual({ handoff: null, adrs: [] }), { timeout: ms(3000), interval: 50 })
     renameSync(join(dir, 'moved'), disk)
-    await vi.waitFor(() => expect(changes.at(-1)?.handoff?.path).toBe('HANDOFF.md'), { timeout: 3000, interval: 50 })
+    await vi.waitFor(() => expect(changes.at(-1)?.handoff?.path).toBe('HANDOFF.md'), { timeout: ms(3000), interval: 50 })
     expect(changes.at(-1)?.adrs).toHaveLength(1)
   })
 })

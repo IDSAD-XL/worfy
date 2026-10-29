@@ -32,6 +32,7 @@ import type { TerminalAiSettingsPatch } from '../../src/shared/terminal-ai/setti
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
 import { needsZsh, zshPath } from '../zsh'
+import { ms } from '../time-scale'
 
 // The real SDK module, replaced: a test that reached it would fail here instead of starting Claude Code.
 vi.mock('@anthropic-ai/claude-agent-sdk', () => {
@@ -45,7 +46,7 @@ const PROJECT = 'alpha-0000000a'
 const NODE = 'terminal-node-1'
 const SH_NODE = 'terminal-node-sh'
 const KEY = terminalKey(PROJECT, NODE)
-const WAIT = { timeout: 10_000, interval: 20 }
+const WAIT = { timeout: ms(10_000), interval: 20 }
 /** Ubuntu's /etc/zsh/zshrc runs compinit unless this is set, and on the CI runner compinit waits for a key. */
 const QUIET_ZSH: Env = { skip_global_compinit: '1' }
 

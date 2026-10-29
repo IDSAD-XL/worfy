@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
 import { browserPartition } from '../../src/shared/browser/partition'
 import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { ms } from '../time-scale'
 
 // main's guard of the Browser's <webview> (worfy-browser ticket 02, ADR-0078 item 3), against the
 // real Electron: a <webview> with a preload, with web security off, on another partition or on the
@@ -132,8 +133,8 @@ test('a <webview> with a preload, with web security off, on another partition or
   await insertWebview(window, 'good', 1060, { src: `${pageUrl}?good`, partition: BROWSER_PARTITION })
 
   const good = `${pageUrl}?good`
-  await expect.poll(() => guestUrls(), { timeout: 15_000, message: 'the good <webview> has a page' }).toContain(good)
-  await expect.poll(() => inGuest(good, 'document.body?.dataset.ready ?? null'), { timeout: 15_000 }).toBe('yes')
+  await expect.poll(() => guestUrls(), { timeout: ms(15_000), message: 'the good <webview> has a page' }).toContain(good)
+  await expect.poll(() => inGuest(good, 'document.body?.dataset.ready ?? null'), { timeout: ms(15_000) }).toBe('yes')
   // A moment more for anything late: still only the good page.
   await window.waitForTimeout(1_000)
   expect(await guestUrls()).toEqual([good])
@@ -158,8 +159,8 @@ test('the page of a Browser gets no permission: notifications are denied, a perm
   const window = await start()
   const url = `${pageUrl}?permissions`
   await insertWebview(window, 'permissions', 20, { src: url, partition: BROWSER_PARTITION })
-  await expect.poll(() => guestUrls(), { timeout: 15_000 }).toContain(url)
-  await expect.poll(() => inGuest(url, 'document.body?.dataset.ready ?? null'), { timeout: 15_000 }).toBe('yes')
+  await expect.poll(() => guestUrls(), { timeout: ms(15_000) }).toContain(url)
+  await expect.poll(() => inGuest(url, 'document.body?.dataset.ready ?? null'), { timeout: ms(15_000) }).toBe('yes')
 
   expect(await inGuest(url, 'Notification.requestPermission()'), 'the request for notifications').toBe('denied')
   expect(await inGuest(url, 'Notification.permission'), 'the check of notifications').toBe('denied')

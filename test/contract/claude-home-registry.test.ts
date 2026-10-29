@@ -24,6 +24,7 @@ import { parseTranscriptLines } from '../../src/shared/transcript/parse'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { copyClaudeHome, projectDir, windowsProcStart } from './claude-home-fixture'
 import { scriptNode } from '../script-node'
+import { ms } from '../time-scale'
 
 // The Claude home of ticket 09 (test/fixtures/claude-home/README.md). Tests never touch it. FIXTURE
 // is a copy in a temporary directory that the tests which only read share; a test that writes
@@ -130,7 +131,7 @@ function changeLog() {
   return {
     changes,
     onChange: (change: ClaudeHomeChange) => changes.push({ at: Date.now(), change }),
-    waitFor: (match: (change: ClaudeHomeChange) => boolean, timeoutMs = 3000) =>
+    waitFor: (match: (change: ClaudeHomeChange) => boolean, timeoutMs = ms(3000)) =>
       vi.waitFor(
         () => {
           const found = changes.find((entry) => match(entry.change))
@@ -859,7 +860,7 @@ describe('claudeHome IPC channels', () => {
     // FSEvents may also replay the fixture copy made just before the watch (a `sessions: true`
     // change); the test looks for the append, not for an exact list.
     const mentionsS1 = (entry: { payload: unknown }) => (entry.payload as { transcripts: string[] }).transcripts.includes(S1)
-    await vi.waitFor(() => expect(window.sent.filter(mentionsS1)).toHaveLength(1), { timeout: 3000, interval: 20 })
+    await vi.waitFor(() => expect(window.sent.filter(mentionsS1)).toHaveLength(1), { timeout: ms(3000), interval: 20 })
     // The root as the window sent it (ticket 57): on Windows resolve(DEMO) would be C:\Users\….
     expect(window.sent.find(mentionsS1)).toMatchObject({ channel: 'worfy:claudeHome.changed', payload: { projectRoot: DEMO, transcripts: [S1] } })
 
@@ -891,7 +892,7 @@ describe('claudeHome IPC channels', () => {
     await appendFile(join(home, 'projects', projectDir(DEMO), `${S1}.jsonl`), `${assistantLine('after close', 'c-1')}\n`)
     await appendFile(join(home, 'projects', projectDir(CYRILLIC), `${S6}.jsonl`), `${assistantLine('still watched', 'c-2')}\n`)
     const payloads = () => window.sent.map((entry) => entry.payload as { projectRoot: string; transcripts: string[] })
-    await vi.waitFor(() => expect(payloads().some((payload) => payload.transcripts.includes(S6))).toBe(true), { timeout: 3000, interval: 20 })
+    await vi.waitFor(() => expect(payloads().some((payload) => payload.transcripts.includes(S6))).toBe(true), { timeout: ms(3000), interval: 20 })
     await new Promise((done) => setTimeout(done, 400))
     expect(payloads().every((payload) => payload.projectRoot === CYRILLIC)).toBe(true)
   })
@@ -918,7 +919,7 @@ describe('claudeHome IPC channels', () => {
     expect((await call('claudeHome.sessions', { projectRoot: DEMO }, window.sender)).ok).toBe(true)
     // `sessions` may be true as well when FSEvents replays the fixture copy; the append is what counts.
     await vi.waitFor(() => expect(window.sent).toContainEqual({ channel: 'worfy:claudeHome.changed', payload: expect.objectContaining({ projectRoot: DEMO, transcripts: [S1] }) }), {
-      timeout: 3000,
+      timeout: ms(3000),
       interval: 20,
     })
   })

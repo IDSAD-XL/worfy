@@ -32,6 +32,7 @@ import {
   type PlacedTicket,
 } from '../../src/renderer/canvas/epic-layout'
 import { layoutEpicElk } from '../../src/renderer/canvas/elk/layout'
+import { ms } from '../time-scale'
 
 // ELK without a worker: the same layout code the app runs against the worker (ADR-0037).
 const elk = new ELK()
@@ -295,7 +296,7 @@ describe('layoutEpic by ELK', () => {
       }
       // 240 ELK layouts, about 30 ms each: 7.2 s alone on the Windows PC (2026-10-19), past the
       // default 5 s. In the app ELK runs once per change, in a Web Worker.
-    }, 30_000)
+    }, ms(30_000))
 
     it('opens a stack of one done Ticket, a stack with nothing open beside it, and changes nothing without done Tickets', async () => {
       const one = [ticket(1, done), ticket(2, blocked(1)), ticket(3, blocked(1, 2)), ticket(4)]

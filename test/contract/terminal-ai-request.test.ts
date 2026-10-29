@@ -33,6 +33,7 @@ import type { TerminalAiSettingsPatch } from '../../src/shared/terminal-ai/setti
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
 import { needsZsh, zshPath } from '../zsh'
+import { ms } from '../time-scale'
 
 // The real SDK module, replaced: a test that reached it would fail here instead of starting Claude Code.
 const sdkModule = vi.hoisted(() => ({ loaded: 0 }))
@@ -50,7 +51,7 @@ const SH_NODE = 'terminal-node-sh'
 const LATER_NODE = 'terminal-node-later'
 /** The key of the zsh Terminal, as main keys the shells of Terminal Nodes. */
 const KEY = terminalKey(PROJECT, NODE)
-const WAIT = { timeout: 10_000, interval: 20 }
+const WAIT = { timeout: ms(10_000), interval: 20 }
 /** Ubuntu's /etc/zsh/zshrc runs compinit unless this is set, and on the CI runner compinit waits for a key. */
 const QUIET_ZSH: Env = { skip_global_compinit: '1' }
 /** The modules of the features as main finds them: the glob of shell-link.ts over ./features/. */
@@ -495,7 +496,7 @@ describe('a line that starts with `# ` and Enter', () => {
     // An insert with no status before it — the ⌘I panel — replaces the line.
     expect(s.link.push(KEY, { type: 'insert', text: 'echo from-the-panel' })).toBe(true)
     await vi.waitFor(async () => expect((await s.probe()).line).toBe('echo from-the-panel'), WAIT)
-  }, 30_000)
+  }, ms(30_000))
 
   it('only the one late answer is dropped: an insert of the panel right after it, or after a late refusal, is taken', async () => {
     const w = world()
@@ -520,7 +521,7 @@ describe('a line that starts with `# ` and Enter', () => {
     expect(s.link.push(KEY, { type: 'status', id: second, text: 'Claude could not answer' })).toBe(true)
     expect(s.link.push(KEY, { type: 'insert', text: 'echo again-from-the-panel' })).toBe(true)
     await vi.waitFor(async () => expect((await s.probe()).line).toBe('echo again-from-the-panel'), WAIT)
-  }, 30_000)
+  }, ms(30_000))
 
   it('`#comment` without a space, and `# ` without words, are accept-line as before: no ask', async () => {
     const s = await start()

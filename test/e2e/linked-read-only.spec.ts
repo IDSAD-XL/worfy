@@ -16,8 +16,9 @@ import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, mach
 import { expectBorderedChipsFit } from './chip-fit'
 import { snapshotThemes } from './snapshots'
 import { catScript, loginProfileWithNode } from '../harness-node'
+import { ms } from '../time-scale'
 
-test.setTimeout(180_000)
+test.setTimeout(ms(180_000))
 
 const ALPHA = 'alpha-0000000a'
 const BETA = 'beta-0000000b'
@@ -144,7 +145,7 @@ test('Read only: A marks B in the sidebar, B\'s Canvas in A only shows — inact
 
     // A's sidebar: "Read only" beside Online, with the reason as its tooltip; B's Project is listed.
     const mark = group(a.window, bId).getByTestId('machine-read-only')
-    await expect(mark).toHaveText('Read only', { timeout: 20_000 })
+    await expect(mark).toHaveText('Read only', { timeout: ms(20_000) })
     await expect(mark).toHaveAttribute('title', HINT)
     // The "Read only" chip has a 1 px border: its text stays inside it.
     await expectBorderedChipsFit(group(a.window, bId), 'the sidebar group of a read-only Machine')
@@ -192,7 +193,7 @@ test('Read only: A marks B in the sidebar, B\'s Canvas in A only shows — inact
     const again = await openMachinesSettings(b)
     await chooseLevel(b.window, again.getByTestId(`link-machine-access-${aId}`), 'all')
     await closeSettings(b.window)
-    await expect(a.window.getByTestId('canvas-read-only')).toHaveCount(0, { timeout: 20_000 })
+    await expect(a.window.getByTestId('canvas-read-only')).toHaveCount(0, { timeout: ms(20_000) })
     await expect(a.window.getByTestId('sidebar-new-session')).not.toHaveAttribute('aria-disabled', 'true')
     await expect(note.getByRole('textbox', { name: 'Note text' })).toBeEditable()
     await expect(group(a.window, bId).getByTestId('machine-read-only')).toHaveCount(0)

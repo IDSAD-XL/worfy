@@ -12,6 +12,7 @@ import { expect, test } from '@playwright/test'
 import { SHOW_POLL_MS, waitForFirstWindowShown } from './first-window-shown'
 import { launchApp, type LaunchedApp } from './helpers'
 import { quarantined } from './quarantine'
+import { ms } from '../time-scale'
 
 const QUIET = { WORFY_QUIET_WINDOWS: '1' }
 
@@ -126,7 +127,7 @@ test("Playwright's screenshot of the transparent window still shows the page", a
   try {
     await expect(launched.window.getByText('worfy', { exact: true })).toBeVisible()
     // The same call helpers.ts makes for the screenshot a failing test keeps.
-    const png = await launched.window.screenshot({ timeout: 5_000 })
+    const png = await launched.window.screenshot({ timeout: ms(5_000) })
     const colours = await launched.app.evaluate(({ nativeImage }, base64) => {
       const image = nativeImage.createFromBuffer(Buffer.from(base64, 'base64'))
       const bitmap = image.toBitmap()

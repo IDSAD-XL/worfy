@@ -8,6 +8,7 @@ import { claudePluginStub } from './claude-plugin-stub'
 import { writeSandbox } from './first-run-sandbox'
 import { launchApp, type LaunchedApp, repoRoot } from './helpers'
 import { legacyClaudeHome } from './legacy-claude-home'
+import { ms } from '../time-scale'
 
 // worfy-harness ticket 14: the move form opens from the Harness item of the toolbar, shows the rows
 // by group and CLAUDE.md as a diff, its switches work, and after Move it shows the backup and the
@@ -109,7 +110,7 @@ test('the move form: from the toolbar, rows by group and the CLAUDE.md diff, swi
     await form.getByTestId('migration-actions').getByRole('button', { name: 'Move' }).click()
     const done = form.getByTestId('migration-done')
     // The move copies the backup first; on Windows that takes longer than the default 5 s.
-    await expect(done).toBeVisible({ timeout: 30_000 })
+    await expect(done).toBeVisible({ timeout: ms(30_000) })
     const backup = (await form.getByTestId('migration-backup').textContent()) ?? ''
     expect(backup).toMatch(new RegExp(`^${join(claudeHome, 'worfy-harness', 'backup-').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
     // Quoted by the rule of the system (test/contract/harness-migrate.test.ts pins it): double
@@ -159,14 +160,14 @@ test('a move from the form of the first-run screen: "Move old Harness…" leaves
     await expect(item.getByTestId('harness-migrate')).toHaveAccessibleName('Move old Harness…')
 
     const screen = window.getByTestId('first-run')
-    await expect(screen).toBeVisible({ timeout: 30_000 })
-    await expect(screen.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: 30_000 })
+    await expect(screen).toBeVisible({ timeout: ms(30_000) })
+    await expect(screen.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: ms(30_000) })
     await screen.locator('[data-check="legacy-harness"]').getByRole('button', { name: 'Move…' }).click()
     const form = window.getByTestId('migration-form')
     await expect(form.getByTestId('migration-group').first()).toBeVisible()
     await answerDialogWith(launched, 0)
     await form.getByTestId('migration-actions').getByRole('button', { name: 'Move' }).click()
-    await expect(form.getByTestId('migration-done')).toBeVisible({ timeout: 30_000 })
+    await expect(form.getByTestId('migration-done')).toBeVisible({ timeout: ms(30_000) })
     // The form is still open and was not opened by the toolbar: only `harnessMigration.changed` tells the toolbar.
     await expect(item.getByTestId('harness-migrate')).toHaveCount(0)
     expect(existsSync(join(claudeHome, 'agents', 'scout.md'))).toBe(false)

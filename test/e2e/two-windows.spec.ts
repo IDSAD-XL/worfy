@@ -7,6 +7,7 @@ import { expect, test, type ElectronApplication, type Page } from '@playwright/t
 import { epicStatusSchema } from '../../src/shared/workflow/types'
 import { launchApp, openSecondWindow, repoRoot, type LaunchedApp } from './helpers'
 import { catScript, profileJsonScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 /**
  * A `bin/profile` stub that knows every folder: `--json` exits 0, a `--field` is absent (exit 4).
@@ -179,8 +180,8 @@ test('two windows of one worfy: the shared state reaches both live; a closed win
       (await heard(window, 'workflow.changed')).some((delta) =>
         (delta as { tickets: { epic: string; num: number; state: string }[] }).tickets.some((ticket) => ticket.epic === EPIC && ticket.num === target.num && ticket.state === 'done'),
       )
-    await expect.poll(() => doneIn(one), { message: 'window 1 hears the Ticket done', timeout: 15_000 }).toBe(true)
-    await expect.poll(() => doneIn(two), { message: 'window 2 hears the Ticket done', timeout: 15_000 }).toBe(true)
+    await expect.poll(() => doneIn(one), { message: 'window 1 hears the Ticket done', timeout: ms(15_000) }).toBe(true)
+    await expect.poll(() => doneIn(two), { message: 'window 2 hears the Ticket done', timeout: ms(15_000) }).toBe(true)
 
     // Window 2 closes: window 1 still hears layout.changed, and main logs no failed send.
     await record(one, 'layout.changed')

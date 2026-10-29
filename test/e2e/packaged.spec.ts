@@ -11,6 +11,7 @@ import { DIRECT_START_PROFILE, directStartEnv } from './launch-env'
 import { WINDOWS } from './terminal-shell'
 import { profileVars, windowsProfileEnv } from '../windows-profile'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // The packaged tests drive the stable copy of worfy that scripts/install-stable.mjs installs:
 // into a temporary folder from the dist/ build of `pnpm test:package`, or the copy named by
@@ -162,11 +163,11 @@ const windowStates = (launched: LaunchedApp): Promise<{ minimized: boolean; visi
  */
 async function expectSecondStartRestoresWindow(first: LaunchedApp, command: string, args: string[]): Promise<void> {
   // The window is created hidden and shown once its page is ready; a hidden window does not minimize.
-  await expect.poll(() => windowStates(first), { timeout: 10_000 }).toEqual([{ minimized: false, visible: true }])
+  await expect.poll(() => windowStates(first), { timeout: ms(10_000) }).toEqual([{ minimized: false, visible: true }])
   await first.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.minimize())
-  await expect.poll(() => windowStates(first), { timeout: 10_000 }).toEqual([expect.objectContaining({ minimized: true })])
+  await expect.poll(() => windowStates(first), { timeout: ms(10_000) }).toEqual([expect.objectContaining({ minimized: true })])
   expect(await secondStart(first, command, args)).toEqual({ exited: true, code: 0 })
-  await expect.poll(() => windowStates(first), { timeout: 10_000 }).toEqual([{ minimized: false, visible: true }])
+  await expect.poll(() => windowStates(first), { timeout: ms(10_000) }).toEqual([{ minimized: false, visible: true }])
 }
 
 /**
@@ -175,9 +176,9 @@ async function expectSecondStartRestoresWindow(first: LaunchedApp, command: stri
  */
 async function expectSecondStartOpensWindow(first: LaunchedApp, command: string, args: string[]): Promise<void> {
   await first.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close())
-  await expect.poll(() => windowStates(first), { timeout: 10_000 }).toEqual([])
+  await expect.poll(() => windowStates(first), { timeout: ms(10_000) }).toEqual([])
   expect(await secondStart(first, command, args)).toEqual({ exited: true, code: 0 })
-  await expect.poll(() => windowStates(first), { timeout: 10_000 }).toEqual([{ minimized: false, visible: true }])
+  await expect.poll(() => windowStates(first), { timeout: ms(10_000) }).toEqual([{ minimized: false, visible: true }])
 }
 
 /** The file of a stand-in app (standInApp) whose time install-stable takes for the build time. */
@@ -626,8 +627,8 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
         await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
         const frame = window.locator(`[data-testid="epic-frame"][data-epic="${HARNESS_EPIC}"]`)
         const chip = frame.getByTestId('autopilot-harness-behind')
-        await expect(frame.getByTestId('action-autopilot')).toBeVisible({ timeout: 20_000 })
-        await expect(chip).toBeVisible({ timeout: 20_000 })
+        await expect(frame.getByTestId('action-autopilot')).toBeVisible({ timeout: ms(20_000) })
+        await expect(chip).toBeVisible({ timeout: ms(20_000) })
         await expect(chip).toHaveText('Harness in main is newer than the Stable copy')
         await expect(chip).toHaveAttribute('title', `origin/main has 1 commit in harness/ that this build (${version}) has not. Rebuild the Stable copy with pnpm install:stable between runs`)
         // Whole, inside the header, and over none of its buttons or the Epic's title.
@@ -649,7 +650,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
         type Bridge = { invoke(channel: string, input?: unknown): Promise<{ ok: boolean; value?: unknown }> }
         const call = (channel: string, input: unknown) => window.evaluate(([name, value]) => (globalThis as unknown as { worfy: Bridge }).worfy.invoke(name as string, value), [channel, input] as const)
         expect(await call('projects.select', { id: ids.current })).toMatchObject({ ok: true })
-        await expect(frame.getByTestId('action-autopilot')).toBeVisible({ timeout: 20_000 })
+        await expect(frame.getByTestId('action-autopilot')).toBeVisible({ timeout: ms(20_000) })
         // A window in which nothing may happen: main keeps no "compared" mark apart from "not
         // behind" (autopilot.state answers null for both), so nothing shows that the comparison of
         // this clone is over. It answers through autopilot.changed once git has read the clone's refs,

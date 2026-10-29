@@ -7,6 +7,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 /**
  * The shadow tokens inside comma-separated box-shadow lists: the second card of the done stack
@@ -140,7 +141,7 @@ test('the folded done stack draws its second card and a selected Node and Ticket
   const { window } = launched
 
   const stack = window.getByTestId('done-stack')
-  await expect(stack).toBeVisible({ timeout: 15_000 })
+  await expect(stack).toBeVisible({ timeout: ms(15_000) })
   await expect(stack.locator('.w-epic__stack-title')).toHaveText('2 done')
   const ticket = window.locator('[data-testid="ticket-node"][data-ticket="3"]')
   const note = window.locator('[data-testid="note-node"][data-node-id="n1"]')

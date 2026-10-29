@@ -31,6 +31,7 @@ import { autopilotChanged, autopilotEpicAtWork, autopilotStatusLine, type Autopi
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE, PLUGIN_HARNESS_TEMPLATES, type HarnessKind } from '../../src/shared/projects/action-templates'
 import { APP_URL, INDEX_HTML } from '../app-url'
+import { ms } from '../time-scale'
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -125,8 +126,9 @@ afterEach(async () => {
 
 // ── the harness ──────────────────────────────────────────────────────────────
 
-async function until(condition: () => boolean | Promise<boolean>, what: string, ms = 5000): Promise<void> {
-  const end = Date.now() + ms
+async function until(condition: () => boolean | Promise<boolean>, what: string, limit = 5000): Promise<void> {
+  const wait = ms(limit)
+  const end = Date.now() + wait
   while (!(await condition())) {
     if (Date.now() > end) throw new Error(`timed out waiting for ${what}`)
     await new Promise((done) => setTimeout(done, 10))

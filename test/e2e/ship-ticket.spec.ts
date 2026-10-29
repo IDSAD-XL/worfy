@@ -11,6 +11,7 @@ import { onThePlane } from '../../src/shared/layout/derived'
 import { canvasReady, launchApp } from './helpers'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // "Ship ticket", "Run wave" and "Open PR" (ticket 23) in the built app on the fake agent, which
 // records every message it gets (WORFY_AGENT_LOG) and never calls the model. The Project is a git
@@ -272,7 +273,7 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
     expect(messages(log).filter((text) => text.startsWith('/epic-wave'))).toHaveLength(1)
 
     // Open PR: the GitHub address opens; another address is refused on the button.
-    await expect(ticket(10).getByTestId('action-open-pr')).toHaveAttribute('aria-disabled', 'false', { timeout: 15_000 })
+    await expect(ticket(10).getByTestId('action-open-pr')).toHaveAttribute('aria-disabled', 'false', { timeout: ms(15_000) })
     await ticket(10).getByTestId('action-open-pr').click()
     await expect.poll(() => app.evaluate(() => (globalThis as unknown as { opened: string[] }).opened)).toEqual(['https://github.com/o/r/pull/41'])
     await expect(ticket(11).getByTestId('action-open-pr')).toHaveAttribute('aria-disabled', 'true')

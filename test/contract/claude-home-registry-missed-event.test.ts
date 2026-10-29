@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ClaudeHomeRegistry, type ClaudeHomeChange, type ClaudeHomeWatch } from '../../src/main/claude-home/registry'
 import { projectDir } from './claude-home-fixture'
+import { ms } from '../time-scale'
 
 // On macOS every fs.watch of the process shares one FSEvents stream, which libuv makes again each
 // time a watch starts or stops; a file written meanwhile is never reported. Here chokidar reports
@@ -63,7 +64,7 @@ const sessionsChange = (changes: { at: number; change: ClaudeHomeChange }[]) =>
       if (!found) throw new Error('no sessions change yet')
       return found
     },
-    { timeout: 3000, interval: 20 },
+    { timeout: ms(3000), interval: 20 },
   )
 
 describe('a registry change the file watcher never reports', () => {
@@ -151,7 +152,7 @@ describe('a transcript in a new folder the file watcher never reports', () => {
       () => {
         if (!reported(changes, 'ours')) throw new Error('no change of ours yet')
       },
-      { timeout: 3000, interval: 20 },
+      { timeout: ms(3000), interval: 20 },
     )
     await sleep(300)
     expect(reported(changes, 'foreign')).toBe(false)

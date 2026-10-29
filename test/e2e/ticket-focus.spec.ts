@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { expect, test, type ElectronApplication } from '@playwright/test'
 import { catScript, loginProfileWithNode } from '../harness-node'
 import { canvasReady, launchApp } from './helpers'
+import { ms } from '../time-scale'
 
 // The focused Ticket in the built app: a double click on a Ticket card opens focus mode on it, the
 // tile shows the whole Ticket file as markdown under the header, an edit of the file shows there
@@ -141,7 +142,7 @@ test('a double click on a Ticket card shows the whole Ticket in focus mode, foll
 
     // An edit of the body alone shows in the open tile.
     writeFileSync(file, `${readFileSync(file, 'utf8')}\n## Итог\n\nDone in the e2e test.\n`)
-    await expect(body.getByRole('heading', { name: 'Итог' })).toBeVisible({ timeout: 15_000 })
+    await expect(body.getByRole('heading', { name: 'Итог' })).toBeVisible({ timeout: ms(15_000) })
     await expect(body).toContainText('Done in the e2e test.')
 
     await window.keyboard.press('Escape')

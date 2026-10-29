@@ -16,6 +16,7 @@ import { LINK_MAX_PAYLOAD } from '../../src/main/link/messages'
 import { buildSubagentTree, type SubagentFile, type SubagentSignal } from '../../src/shared/transcript/subagents'
 import { LinkBench, type BenchMachine } from './link-bench'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 const env = await vi.hoisted(async () => {
   // Before any module of main is imported: claude-home.ts makes its default registry at import.
@@ -131,7 +132,7 @@ describe('claudeHome.subagents over a link', () => {
     const texts = answer.signals.flatMap((signal) => (signal.kind === 'result' ? [signal.text] : []))
     expect(texts.every((text) => text.startsWith('First line of the answer'))).toBe(true)
     expect(Buffer.byteLength(JSON.stringify(answer))).toBeLessThanOrEqual(LINK_MAX_PAYLOAD)
-  }, 60_000)
+  }, ms(60_000))
 
   it('an answer that fits goes out as it is, without the flag', async () => {
     session = bigSession(20)

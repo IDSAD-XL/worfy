@@ -16,6 +16,7 @@ import { pathToFileURL } from 'node:url'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
+import { ms } from '../time-scale'
 
 const REPO = join(__dirname, '..', '..')
 const HARNESS = join(REPO, 'harness')
@@ -34,12 +35,12 @@ const PLANNED = ['fix-hidden-tests', 'review-planted-defects', 'false-done-trap'
  * beforeAll. Alone it takes a few seconds; under a full run on a loaded Mac, or on Windows, it takes
  * tens of seconds, past the time of one test.
  */
-const SETUP_TIMEOUT = 300_000
+const SETUP_TIMEOUT = ms(300_000)
 /**
  * The time of a test that does heavy work of its own: the scorer, the checker or the wrapper end to
  * end, fixture.sh (git init, a commit, a bare repository, a push), or a copy of the whole harness/.
  */
-const RUN_TIMEOUT = 60_000
+const RUN_TIMEOUT = ms(60_000)
 const NO_SIGNALS_ON_WINDOWS = 'Windows has no SIGTERM a process can catch: process.kill ends the process there'
 
 interface Stats {
@@ -196,7 +197,7 @@ const baseVars = (): NodeJS.ProcessEnv => {
 
 /** Runs a script of scripts/ under the real node (test/script-node.ts). */
 const node = (script: string, args: string[], home: string, vars: NodeJS.ProcessEnv = {}, cwd = REPO): SpawnSyncReturns<string> =>
-  spawnSync(scriptNode(), [script, ...args], { cwd, encoding: 'utf8', env: childEnv(home, { ...baseVars(), ELECTRON_RUN_AS_NODE: '1', ...vars }), timeout: 120_000 })
+  spawnSync(scriptNode(), [script, ...args], { cwd, encoding: 'utf8', env: childEnv(home, { ...baseVars(), ELECTRON_RUN_AS_NODE: '1', ...vars }), timeout: ms(120_000) })
 
 const git = (cwd: string, home: string, ...args: string[]): string => {
   const run = spawnSync('git', args, { cwd, encoding: 'utf8', env: childEnv(home, { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: '1' }) })
@@ -207,7 +208,7 @@ const git = (cwd: string, home: string, ...args: string[]): string => {
 /** Runs `script` (a file) with bash in `work` (created) with HOME `home`, the way a scaffold runs. */
 const runScript = (script: string, work: string, home: string, extra: NodeJS.ProcessEnv = {}): SpawnSyncReturns<string> => {
   mkdirSync(work, { recursive: true })
-  return spawnSync('bash', [script], { cwd: work, encoding: 'utf8', env: childEnv(home, { ...baseVars(), ...extra }), timeout: 60_000 })
+  return spawnSync('bash', [script], { cwd: work, encoding: 'utf8', env: childEnv(home, { ...baseVars(), ...extra }), timeout: ms(60_000) })
 }
 
 /** Every file of `dir` outside .git, relative, with `/`. */

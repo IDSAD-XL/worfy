@@ -19,6 +19,7 @@ class FakeWindow extends EventEmitter implements WatchedWindow {
   }
 }
 
+// unscaled: the bound of the function under test, run on fake timers; no test waits it out
 const TIMEOUT_MS = 30_000
 
 /**

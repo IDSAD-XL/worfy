@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTree } from '../../src/main/storage/remove'
 import { ticketsIgnored } from '../../src/main/workflow/watch'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 let dir: string
 let root: string
@@ -41,10 +42,11 @@ async function started(at = root): Promise<{ watcher: FSWatcher; events: string[
   return { watcher, events }
 }
 
-async function until(what: string, done: () => boolean, ms = 5000): Promise<void> {
-  const end = performance.now() + ms
+async function until(what: string, done: () => boolean, limit = 5000): Promise<void> {
+  const wait = ms(limit)
+  const end = performance.now() + wait
   while (!done()) {
-    if (performance.now() > end) throw new Error(`timed out after ${ms} ms waiting for ${what}`)
+    if (performance.now() > end) throw new Error(`timed out after ${wait} wait waiting for ${what}`)
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
 }
@@ -76,7 +78,7 @@ describe('chokidar with the filter of a Tickets root', () => {
     })
     expect(events.filter((event) => event.endsWith('late.md'))).toEqual([])
     expect(watchedPaths(watcher)).not.toContain(join(root, 'late.md'))
-  }, 15_000)
+  }, ms(15_000))
 
   // For a root that is not there chokidar says `ready` first and only then starts to watch the
   // folder above, which it does not list: a root made before that watch exists is never reported,
@@ -96,7 +98,7 @@ describe('chokidar with the filter of a Tickets root', () => {
       writeFileSync(join(dir, 'README.md'), `code ${events.length}`)
       return false
     })
-  }, 15_000)
+  }, ms(15_000))
 
   // Records of what chokidar 5 does not see (worfy-harness ticket 41): the watcher looks for such a
   // root itself (src/main/workflow/watch.ts, `awaitTicketsRoot`). If a new chokidar starts to see
@@ -116,7 +118,7 @@ describe('chokidar with the filter of a Tickets root', () => {
       writeFileSync(join(deep, 'demo', 'issues', '01-a.md'), `# 01 ${index}\n`)
     }
     expect(events).toEqual([])
-  }, 15_000)
+  }, ms(15_000))
 
   // After the root is removed chokidar does not watch the folder above for it again. Measured on
   // macOS only: on Windows a removed folder chokidar watches sends events without end
@@ -152,5 +154,5 @@ describe('chokidar with the filter of a Tickets root', () => {
       writeFileSync(join(root, 'next', 'issues', '01-b.md'), `# 01 ${index}\n`)
     }
     expect(events.slice(afterRemoval)).toEqual([])
-  }, 15_000)
+  }, ms(15_000))
 })

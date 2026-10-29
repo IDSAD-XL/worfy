@@ -7,6 +7,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { profileJsonScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // The Pipeline tab and the Pipeline section of the sidebar (worfy-pipeline ticket 04) against the
 // built app, over a Project in a temporary git repository with three Tickets: 01 open, 02 claimed,
@@ -124,7 +125,7 @@ test('the Pipeline tab shows the board, a claim moves a card without a reload, a
     await views.getByRole('button', { name: 'Pipeline' }).click()
     await expect(views.getByRole('button', { name: 'Pipeline' })).toHaveAttribute('aria-pressed', 'true')
     await expect(window.getByRole('main', { name: 'Pipeline' })).toBeVisible()
-    await expect(board).toBeVisible({ timeout: 15_000 })
+    await expect(board).toBeVisible({ timeout: ms(15_000) })
     await expect(board.getByTestId('pipeline-column-title')).toHaveText(['Queued', 'Implementing', 'CI', 'Agent review', 'Check «windows»', 'Gate & merge', 'Deploy', 'Closing', 'Done'])
     await expect(column(window, 'queued').locator(card(window, 1))).toBeVisible()
     await expect(card(window, 1)).toContainText('demo 01')
@@ -153,7 +154,7 @@ test('the Pipeline tab shows the board, a claim moves a card without a reload, a
     window.on('framenavigated', (frame) => navigations.push(frame.url()))
     const first = ticketPath(1, 'board')
     writeFileSync(first, readFileSync(first, 'utf8').replace('Status: open', 'Status: claimed 2026-10-18T10:00Z'))
-    await expect(column(window, 'implementing').locator(card(window, 1))).toBeVisible({ timeout: 10_000 })
+    await expect(column(window, 'implementing').locator(card(window, 1))).toBeVisible({ timeout: ms(10_000) })
     await expect(column(window, 'queued').getByTestId('pipeline-card')).toHaveCount(0)
     await expect(section.getByTestId('pipeline-row')).toHaveCount(2)
     expect(navigations).toEqual([])

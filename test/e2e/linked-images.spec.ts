@@ -15,8 +15,9 @@ import { expect, test, type Page } from '@playwright/test'
 import { decodePng } from './browser-pixels'
 import { launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { ms } from '../time-scale'
 
-test.setTimeout(180_000)
+test.setTimeout(ms(180_000))
 
 const SHARED = 'shared-0000024c'
 const LABEL = '0000024c'
@@ -92,7 +93,7 @@ const projectButton = (window: Page, machineId: string) =>
   window.locator(`[data-testid="machine-group"][data-machine-id="${machineId}"] [data-testid="project-row"][data-project-id="${SHARED}"]`).getByRole('button')
 
 /** How long the first image of B may take in A's window: A's window loads again on B, then A's protocol asks B for the file (as FIRST_FRAME_MS of linked-cards.spec.ts). */
-const FIRST_IMAGE_MS = 15_000
+const FIRST_IMAGE_MS = ms(15_000)
 
 /** The red part of a capture of the Node: where the image's own pixels are. */
 async function redBox(window: Page, nodeId: string): Promise<{ width: number; height: number; card: { width: number; height: number } }> {

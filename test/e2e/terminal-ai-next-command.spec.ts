@@ -3,6 +3,7 @@ import { launchApp } from './helpers'
 import { TERMINAL_AI_PROMPT, editedLine, greyText, openTerminal, screenText, terminalAiSandbox, type TerminalAiSandbox } from './terminal-ai-helpers'
 import { NO_ZSH, NO_ZSH_ON_WINDOWS } from '../zsh'
 import { shellCaughtUp } from './wait'
+import { ms } from '../time-scale'
 
 // Next command of Terminal AI, in a Terminal Node of the built app on a real zsh: once a command is
 // over and the line is empty, the assist process proposes the next command after a pause; it is on
@@ -38,10 +39,10 @@ test('after a command the empty line shows the next one in grey; → puts it int
 
     await window.keyboard.type(first)
     await window.keyboard.press('Enter')
-    await expect.poll(async () => (await screenText(node)).match(new RegExp(`^${mark} first$`, 'm')) !== null, { timeout: 10_000 }).toBe(true)
+    await expect.poll(async () => (await screenText(node)).match(new RegExp(`^${mark} first$`, 'm')) !== null, { timeout: ms(10_000) }).toBe(true)
 
     // After the pause the proposed command is grey on the empty line.
-    await expect.poll(async () => (await greyText(node)).text, { timeout: 15_000 }).toBe(answer)
+    await expect.poll(async () => (await greyText(node)).text, { timeout: ms(15_000) }).toBe(answer)
     expect(await editedLine(node)).toBe(`${TERMINAL_AI_PROMPT}${answer}`)
     expect((await greyText(node)).color).not.toBe('')
     expect([...(await screenText(node)).matchAll(ran)]).toHaveLength(0)
@@ -51,14 +52,14 @@ test('after a command the empty line shows the next one in grey; → puts it int
 
     // → puts it into the line: nothing grey is left, and nothing ran.
     await window.keyboard.press('ArrowRight')
-    await expect.poll(async () => (await greyText(node)).text, { timeout: 10_000 }).toBe('')
+    await expect.poll(async () => (await greyText(node)).text, { timeout: ms(10_000) }).toBe('')
     expect(await editedLine(node)).toBe(`${TERMINAL_AI_PROMPT}${answer}`)
     await shellCaughtUp(window, node, `${TERMINAL_AI_PROMPT}${answer}`)
     expect([...(await screenText(node)).matchAll(ran)]).toHaveLength(0)
 
     // Enter is the user's: the command runs once.
     await window.keyboard.press('Enter')
-    await expect.poll(async () => [...(await screenText(node)).matchAll(ran)].length, { timeout: 10_000 }).toBe(1)
+    await expect.poll(async () => [...(await screenText(node)).matchAll(ran)].length, { timeout: ms(10_000) }).toBe(1)
   } finally {
     await launched.close()
   }

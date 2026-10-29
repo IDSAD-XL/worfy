@@ -15,6 +15,7 @@ import type { DocsState } from '../../src/shared/ipc/docs'
 import type { LayoutState } from '../../src/shared/layout/types'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree, saveLayoutNow } from '../remove'
+import { ms } from '../time-scale'
 
 const PROJECT_ID = 'repo-00000001'
 /** The canned Harness script: prints <link>.out (test/fixtures/harness-stub/canned). */
@@ -267,14 +268,14 @@ describe('docs.open', () => {
     await pastStartReads()
     expect(sender.sent).toStrictEqual([])
     writeFileSync(join(repo, 'HANDOFF.md'), `${HANDOFF}\n- ещё строка\n`)
-    await vi.waitFor(() => expect(sender.sent.at(-1)?.handoff?.version).not.toBe(first.handoff?.version), { timeout: 1000, interval: 20 })
+    await vi.waitFor(() => expect(sender.sent.at(-1)?.handoff?.version).not.toBe(first.handoff?.version), { timeout: ms(1000), interval: 20 })
     expect(await value('docs.read', { projectId: PROJECT_ID, path: 'HANDOFF.md' })).toStrictEqual({ path: 'HANDOFF.md', text: `${HANDOFF}\n- ещё строка\n` })
 
     writeFileSync(join(repo, 'docs', 'adr', '0003-new.md'), '# Новое\n\nДата: 2026-10-06. Статус: принят.\n')
-    await vi.waitFor(() => expect(sender.sent.at(-1)?.adrs.map((adr) => adr.number)).toStrictEqual(['0001', '0002', '0003']), { timeout: 1000, interval: 20 })
+    await vi.waitFor(() => expect(sender.sent.at(-1)?.adrs.map((adr) => adr.number)).toStrictEqual(['0001', '0002', '0003']), { timeout: ms(1000), interval: 20 })
 
     unlinkSync(join(repo, 'HANDOFF.md'))
-    await vi.waitFor(() => expect(sender.sent.at(-1)?.handoff).toBeNull(), { timeout: 1000, interval: 20 })
+    await vi.waitFor(() => expect(sender.sent.at(-1)?.handoff).toBeNull(), { timeout: ms(1000), interval: 20 })
   })
 
   it('stops sending after docs.close', async () => {
@@ -294,9 +295,9 @@ describe('the HANDOFF Node', () => {
 
     await pastStartReads()
     unlinkSync(join(repo, 'HANDOFF.md'))
-    await vi.waitFor(() => expect(handoffNodes()[0]?.hidden).toBe(true), { timeout: 1000, interval: 20 })
+    await vi.waitFor(() => expect(handoffNodes()[0]?.hidden).toBe(true), { timeout: ms(1000), interval: 20 })
     writeFileSync(join(repo, 'HANDOFF.md'), HANDOFF)
-    await vi.waitFor(() => expect(handoffNodes()[0]?.hidden).toBe(false), { timeout: 1000, interval: 20 })
+    await vi.waitFor(() => expect(handoffNodes()[0]?.hidden).toBe(false), { timeout: ms(1000), interval: 20 })
     // The same Node all along: its place and size stay the user's.
     expect(handoffNodes().map((n) => n.id)).toStrictEqual([node!.id])
   })
@@ -312,10 +313,10 @@ describe('the HANDOFF Node', () => {
 
     const moved = join(scratch, 'moved')
     renameSync(repo, moved)
-    await vi.waitFor(() => expect(handoffNodes()[0]).toMatchObject({ hidden: true, data: { missing: true } }), { timeout: 1000, interval: 20 })
+    await vi.waitFor(() => expect(handoffNodes()[0]).toMatchObject({ hidden: true, data: { missing: true } }), { timeout: ms(1000), interval: 20 })
     expect(sender.sent.at(-1)).toMatchObject({ handoff: null, adrs: [] })
     renameSync(moved, repo)
-    await vi.waitFor(() => expect(handoffNodes()[0]).toMatchObject({ hidden: false, data: { missing: false } }), { timeout: 1000, interval: 20 })
+    await vi.waitFor(() => expect(handoffNodes()[0]).toMatchObject({ hidden: false, data: { missing: false } }), { timeout: ms(1000), interval: 20 })
     expect(sender.sent.at(-1)?.adrs.map((adr) => adr.number)).toStrictEqual(['0001', '0002'])
     expect(handoffNodes().map((n) => n.id)).toStrictEqual([node!.id])
   })
@@ -327,11 +328,11 @@ describe('the HANDOFF Node', () => {
 
     await pastStartReads()
     writeFileSync(join(repo, 'HANDOFF.md'), HANDOFF)
-    await vi.waitFor(() => expect(handoffNodes()).toHaveLength(1), { timeout: 1000, interval: 20 })
+    await vi.waitFor(() => expect(handoffNodes()).toHaveLength(1), { timeout: ms(1000), interval: 20 })
     const id = handoffNodes()[0]!.id
     layoutModule.layoutStore().apply(PROJECT_ID, { op: 'hide', id, hidden: true })
     writeFileSync(join(repo, 'HANDOFF.md'), `${HANDOFF}x\n`)
-    await vi.waitFor(() => expect(sender.sent.length).toBeGreaterThan(1), { timeout: 1000, interval: 20 })
+    await vi.waitFor(() => expect(sender.sent.length).toBeGreaterThan(1), { timeout: ms(1000), interval: 20 })
     expect(handoffNodes()[0]?.hidden).toBe(true)
   })
 
@@ -342,25 +343,25 @@ describe('the HANDOFF Node', () => {
     await pastStartReads()
 
     unlinkSync(join(repo, 'HANDOFF.md'))
-    await vi.waitFor(() => expect(handoffNodes()[0]).toMatchObject({ hidden: true, data: { missing: true } }), { timeout: 1000, interval: 20 })
+    await vi.waitFor(() => expect(handoffNodes()[0]).toMatchObject({ hidden: true, data: { missing: true } }), { timeout: ms(1000), interval: 20 })
     // An agent shows it again through the canvas tools while the file is still gone.
     store.apply(PROJECT_ID, { op: 'hide', id, hidden: false })
     writeFileSync(join(repo, 'HANDOFF.md'), HANDOFF)
-    await vi.waitFor(() => expect(handoffNodes()[0]?.data.missing).toBe(false), { timeout: 1000, interval: 20 })
+    await vi.waitFor(() => expect(handoffNodes()[0]?.data.missing).toBe(false), { timeout: ms(1000), interval: 20 })
     expect(handoffNodes()[0]?.hidden).toBe(false)
 
     // Now the user hides it; the next edit of HANDOFF.md leaves it hidden.
     store.apply(PROJECT_ID, { op: 'hide', id, hidden: true })
     const sent = sender.sent.length
     writeFileSync(join(repo, 'HANDOFF.md'), `${HANDOFF}y\n`)
-    await vi.waitFor(() => expect(sender.sent.length).toBeGreaterThan(sent), { timeout: 1000, interval: 20 })
+    await vi.waitFor(() => expect(sender.sent.length).toBeGreaterThan(sent), { timeout: ms(1000), interval: 20 })
     expect(handoffNodes()[0]?.hidden).toBe(true)
   })
 
   it('is kept for the active Project by main itself once a window exists', async () => {
     expect(handoffNodes()).toStrictEqual([])
     for (const listener of electron.listeners.get('browser-window-created') ?? []) listener()
-    await vi.waitFor(() => expect(handoffNodes()).toHaveLength(1), { timeout: 1000, interval: 20 })
+    await vi.waitFor(() => expect(handoffNodes()).toHaveLength(1), { timeout: ms(1000), interval: 20 })
   })
 
   it('cannot be removed', async () => {
@@ -416,7 +417,7 @@ describe('a Silent Project (worfy-harness ticket 23)', () => {
         expect(sender.sent.length).toBeGreaterThan(0)
         expect(sender.sent.at(-1)?.handoff?.version).not.toBe(first.handoff?.version)
       },
-      { timeout: 1000, interval: 20 },
+      { timeout: ms(1000), interval: 20 },
     )
     expect(await value('docs.read', { projectId: PROJECT_ID, path: 'HANDOFF.md' })).toStrictEqual({ path: 'HANDOFF.md', text: '# HANDOFF, edited\n' })
     // An edit of the repository's HANDOFF.md is not this Project's.
@@ -461,7 +462,7 @@ describe('the ADR status label the Profile names (docs.adr_status_label)', () =>
     await value<DocsState>('docs.open', { projectId: PROJECT_ID })
     await pastStartReads()
     writeFileSync(adr, '# Décision révisée\n\nStatut : remplacée.\n')
-    await vi.waitFor(() => expect(sender.sent.at(-1)?.adrs.find((each) => each.number === '0003')).toMatchObject({ title: 'Décision révisée', status: 'remplacée' }), { timeout: 1000, interval: 20 })
+    await vi.waitFor(() => expect(sender.sent.at(-1)?.adrs.find((each) => each.number === '0003')).toMatchObject({ title: 'Décision révisée', status: 'remplacée' }), { timeout: ms(1000), interval: 20 })
   })
 
   it.each(['active', 'held'] as const)('the documents main keeps for a %s Project are read with the Profile\'s label, and docs.open gets that state', async (kind) => {
@@ -472,7 +473,7 @@ describe('the ADR status label the Profile names (docs.adr_status_label)', () =>
       const { projectHolds } = await import('../../src/main/projects/holds')
       projectHolds().set({ id: 'linked', once: () => undefined, isDestroyed: () => false } as never, 'projects', PROJECT_ID)
     }
-    await vi.waitFor(() => expect(docsModule.docsHub.projects).toStrictEqual([PROJECT_ID]), { timeout: 1000, interval: 20 })
+    await vi.waitFor(() => expect(docsModule.docsHub.projects).toStrictEqual([PROJECT_ID]), { timeout: ms(1000), interval: 20 })
     await pastStartReads()
     const state = await value<DocsState>('docs.open', { projectId: PROJECT_ID })
     expect(state.adrs.find((adr) => adr.number === '0003')).toMatchObject({ status: 'acceptée' })

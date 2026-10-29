@@ -6,6 +6,7 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { endApp, exited, killThenClean, running } from '../e2e/end-app'
 import { scriptNode } from '../script-node'
+import { ms } from '../time-scale'
 
 const started: ChildProcess[] = []
 const strays: number[] = []
@@ -52,7 +53,7 @@ async function zombie(): Promise<{ parent: ChildProcess; pid: number }> {
   const parent = spawn('sh', ['-c', 'sleep 0.2 & echo $!; exec sleep 30'], { stdio: ['ignore', 'pipe', 'ignore'] })
   started.push(parent)
   const pid = await firstNumber(parent)
-  const deadline = Date.now() + 5_000
+  const deadline = Date.now() + ms(5_000)
   while (!execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).trim().startsWith('Z')) {
     if (Date.now() > deadline) throw new Error(`process ${pid} did not become a zombie`)
     await new Promise((done) => setTimeout(done, 20))
@@ -115,7 +116,7 @@ describe('endApp', () => {
     // The zombie goes once its parent dies and init reaps it: well after `child` has exited.
     const killParent = setTimeout(() => parent.kill('SIGKILL'), 500)
 
-    await endApp(child, pid, { goneTimeoutMs: 5_000 })
+    await endApp(child, pid, { goneTimeoutMs: ms(5_000) })
 
     expect(running(pid)).toBe(false)
     clearTimeout(killParent)

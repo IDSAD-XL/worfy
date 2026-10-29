@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { build, buildCommand, builtApp, checkTarget, ELECTRON_INSTALL, electronMissing, defaultTarget, dir, installerDir, leftoverName, leftovers, local, LSREGISTER, metadataPath, notACopy, registerCommand, removeInRounds, REPO, runningCopies, stamp, swapIn, targetIn, useStandInBuild, WIN_HOME, WINDOWS, type Env, type Files } from './install-stable-harness'
+import { ms } from '../time-scale'
 
 const WIN_ENV = { LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local' }
 const MAC_HOME = '/Users/dev'
@@ -546,7 +547,7 @@ describe('the deploy mark', () => {
 // "refuses while a program of the copy is running", which list the processes for real. What is left are real
 // programs all the same (git, ditto), around 150 ms on an idle Mac: the explicit timeout keeps a loaded machine from failing them on time
 // alone, as the contract project's 15 s does for its real processes. A case that really hangs still fails.
-describe.runIf(process.platform !== 'linux')('the deploy mark after a whole install', { timeout: 15_000 }, () => {
+describe.runIf(process.platform !== 'linux')('the deploy mark after a whole install', { timeout: ms(15_000) }, () => {
   useStandInBuild()
   beforeEach(() => {
     // After useStandInBuild's own beforeEach, which points the variable at its script; its afterEach puts back the value from before.

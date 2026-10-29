@@ -5,6 +5,7 @@
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 const DATA_DIR = '/tmp/worfy-startup-failure-test/data'
 
@@ -325,7 +326,7 @@ describe('the start in src/main/index.ts', () => {
       // The first start that gets past registerIpc imports every IPC module cold: about 2 s on
       // Windows, more than waitFor's default of 1 s. A start still running after a timed-out test
       // would show its window in the next one.
-      await vi.waitFor(() => expect(electron.showErrorBox).toHaveBeenCalled(), { timeout: 10_000 })
+      await vi.waitFor(() => expect(electron.showErrorBox).toHaveBeenCalled(), { timeout: ms(10_000) })
       // After ready the exit comes on a later turn of the event loop (exitWithFailure): waited for
       // here, so it never lands in the next test.
       await vi.waitFor(() => expect(electron.exit).toHaveBeenCalled())

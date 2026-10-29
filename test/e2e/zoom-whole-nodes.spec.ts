@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { canvasReady, launchApp } from './helpers'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // No semantic zoom (worfy-canvas ticket 20, the owner's decision of 2026-10-21; F-SPEC "Zoom"): at
 // every zoom each Node is drawn whole, only scaled by the Canvas transform. Ticket 06 had drawn a
@@ -170,7 +171,7 @@ test('every Node is drawn whole at any zoom, down to the lowest: bodies, Ticket 
     writeFileSync(join(claudeHome, 'sessions', `${claude.pid}.json`), JSON.stringify({ pid: claude.pid, sessionId: SESSION, cwd: projectPath, kind: 'interactive', entrypoint: 'cli', status: 'busy', version: '2.1.289', name: 'wave-06' }))
     for (const node of Object.values(nodes)) await expect(node).toBeVisible()
     await expect(nodes.session).toHaveAttribute('data-status', 'busy')
-    await expect(nodes.terminal).toHaveAttribute('data-state', 'running', { timeout: 15_000 })
+    await expect(nodes.terminal).toHaveAttribute('data-state', 'running', { timeout: ms(15_000) })
 
     // What a Node shows below its header, and what a Ticket card and an Epic frame show: all of it at every zoom.
     const whole = {

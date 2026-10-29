@@ -10,6 +10,7 @@ import type { CardInfo } from '../../src/shared/ipc/cards'
 import { CardStore } from '../../src/main/cards/store'
 import { removeTree } from '../../src/main/storage/remove'
 import { canLink, countFsCalls, SHARE, through, until } from './counted-fs'
+import { ms } from '../time-scale'
 
 const WINDOWS = process.platform === 'win32'
 const LINKS = canLink()
@@ -108,7 +109,7 @@ describe.runIf(WINDOWS)('the watch of the Cards of a Project on Windows', () => 
     } finally {
       counted.restore()
     }
-  }, 30_000)
+  }, ms(30_000))
 
   it.runIf(LINKS)('a Cards folder that is itself a symlink to an unreachable share: the Card is not there, nothing is watched, and no call names a path through the link', async () => {
     symlinkSync(`${SHARE}\\cards`, cards, 'dir')
@@ -122,7 +123,7 @@ describe.runIf(WINDOWS)('the watch of the Cards of a Project on Windows', () => 
     } finally {
       counted.restore()
     }
-  }, 30_000)
+  }, ms(30_000))
 
   it.skipIf(LINKS)('the cases with a symlink to a share are skipped: this user may not make a symlink (Developer Mode is off)', () => {
     expect(LINKS).toBe(false)

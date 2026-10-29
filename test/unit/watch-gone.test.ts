@@ -8,6 +8,7 @@ import { join, posix, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { namesTheFolder, notThere, watchWithNode } from '../../src/main/watch-gone'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -26,8 +27,9 @@ describe('watchWithNode, the real fs.watch', () => {
   })
 
   /** Writes `file` (under the folder) every 50 ms until `done` says so or `ms` have passed: the event stream starts a moment after the watch. */
-  async function writeUntil(file: string, done: () => boolean, ms: number): Promise<void> {
-    const end = Date.now() + ms
+  async function writeUntil(file: string, done: () => boolean, limit: number): Promise<void> {
+    const wait = ms(limit)
+    const end = Date.now() + wait
     for (let times = 0; Date.now() < end && !done(); times++) {
       writeFileSync(join(dir, file), String(times))
       await pause(50)

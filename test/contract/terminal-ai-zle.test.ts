@@ -19,6 +19,7 @@ import { HISTORY_FEATURE, ShellLink, type FeatureLoader, type ShellAsk, type She
 import { DEFAULT_TERMINAL_AI_SETTINGS, type TerminalAiSettings } from '../../src/shared/terminal-ai/settings'
 import { removeTestTree } from '../remove'
 import { needsPosix, needsZsh, zshPath } from '../zsh'
+import { ms } from '../time-scale'
 
 /**
  * Runs a script as a program the shell starts: a zsh without startup files. Not /bin/sh: dash, which
@@ -27,7 +28,7 @@ import { needsPosix, needsZsh, zshPath } from '../zsh'
  */
 const program = (): string => `${zshPath()} -fc`
 const KEY = 'terminal-1'
-const WAIT = { timeout: 10_000, interval: 20 }
+const WAIT = { timeout: ms(10_000), interval: 20 }
 /** Ubuntu's /etc/zsh/zshrc runs compinit unless this is set, and on the CI runner compinit waits for a key. */
 const QUIET_ZSH: Env = { skip_global_compinit: '1' }
 
@@ -414,10 +415,10 @@ describe('the Suggestion from the history of commands', () => {
     const pressed = performance.now()
     t.type(ESC)
     // zsh repaints the line without the grey text once it knows Esc starts no longer sequence (KEYTIMEOUT).
-    await vi.waitFor(() => expect(t.text().length).toBeGreaterThan(from), { timeout: 5000, interval: 5 })
-    const ms = Math.round(performance.now() - pressed)
-    console.log(`terminal ai, zsh: Esc hid the grey text after ${ms} ms (KEYTIMEOUT of zsh is 400 ms by default)`)
-    expect(ms).toBeLessThan(2000)
+    await vi.waitFor(() => expect(t.text().length).toBeGreaterThan(from), { timeout: ms(5000), interval: 5 })
+    const took = Math.round(performance.now() - pressed)
+    console.log(`terminal ai, zsh: Esc hid the grey text after ${took} ms (KEYTIMEOUT of zsh is 400 ms by default)`)
+    expect(took).toBeLessThan(2000)
     expect(await t.redrawn()).toMatch(lineAlone('echo wo'))
     // → has nothing to take now.
     t.type(RIGHT)
@@ -493,7 +494,7 @@ describe('the Suggestion from the history of commands', () => {
     expect(await t.redrawn()).toMatch(lineWithGrey('echo wo', 'rfy-zle-1'))
     const from = t.text().length
     t.type(ESC)
-    await vi.waitFor(() => expect(t.text().length).toBeGreaterThan(from), { timeout: 5000, interval: 5 })
+    await vi.waitFor(() => expect(t.text().length).toBeGreaterThan(from), { timeout: ms(5000), interval: 5 })
     expect(await t.redrawn()).toMatch(lineAlone('echo wo'))
     // Ctrl+A, then Alt+→ with nothing to take: the cursor is at the start of `wo`, where the X lands.
     t.type(`\x01${ALT_RIGHT}X`)
@@ -517,7 +518,7 @@ describe('the Suggestion from the history of commands', () => {
     await t.settle()
     const from = t.text().length
     t.type(ESC)
-    await vi.waitFor(() => expect(t.text().length).toBeGreaterThan(from), { timeout: 5000, interval: 5 })
+    await vi.waitFor(() => expect(t.text().length).toBeGreaterThan(from), { timeout: ms(5000), interval: 5 })
     await t.settle()
     // Command mode: the cursor went back onto the `o`, and `x` deletes it. The grey text is not in the line.
     t.type('x')

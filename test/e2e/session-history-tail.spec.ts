@@ -7,6 +7,7 @@ import { expect, test } from '@playwright/test'
 import { writeBigTranscript, writeMarkedTranscript } from '../big-transcript'
 import { launchApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { ms } from '../time-scale'
 
 // A Session's history opens from its end (worfy-ui ticket 21), against the built app: a temporary
 // WORFY_CLAUDE_HOME stands in for ~/.claude, with one Session started in a terminal whose
@@ -50,7 +51,7 @@ test.afterEach(async () => {
 })
 
 test('a 40 MB transcript opens on its newest turns; Load earlier brings the ones before', async () => {
-  test.setTimeout(180_000)
+  test.setTimeout(ms(180_000))
   mkdirSync(transcriptDir(projectPath), { recursive: true })
   const { turns, size } = writeBigTranscript(join(transcriptDir(projectPath), `${SESSION}.jsonl`), { sessionId: SESSION, cwd: projectPath })
   const claude = spawn('sleep', ['600'], { stdio: 'ignore' })
@@ -65,13 +66,13 @@ test('a 40 MB transcript opens on its newest turns; Load earlier brings the ones
     const { window } = launched
     await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
     const node = window.locator(`[data-testid="session-node"][data-session-id="${SESSION}"]`)
-    await node.waitFor({ state: 'visible', timeout: 10_000 })
+    await node.waitFor({ state: 'visible', timeout: ms(10_000) })
 
     const view = window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
     const newest = view.getByTestId('transcript-text').filter({ hasText: `Answer number ${turns - 1}` })
     const opened = Date.now()
     await node.getByTestId('session-node-title').dblclick()
-    await expect(newest).toBeVisible({ timeout: 120_000 })
+    await expect(newest).toBeVisible({ timeout: ms(120_000) })
     const shown = Date.now() - opened
     test.info().annotations.push({ type: 'measure', description: `${(size / 1024 / 1024).toFixed(1)} MB transcript: newest answer visible ${shown} ms after the double click` })
     console.info(`[history-tail e2e] ${(size / 1024 / 1024).toFixed(1)} MB: newest answer visible after ${shown} ms`)
@@ -103,7 +104,7 @@ test('a 40 MB transcript opens on its newest turns; Load earlier brings the ones
     ]
     appendFileSync(join(transcriptDir(projectPath), `${SESSION}.jsonl`), added.map((record) => `${JSON.stringify(record)}\n`).join(''))
     const latest = view.getByTestId('transcript-text').filter({ hasText: `Answer number ${turns}` })
-    await expect(latest).toBeInViewport({ timeout: 30_000 })
+    await expect(latest).toBeInViewport({ timeout: ms(30_000) })
 
     // The first prompt at the top of the log; after Load earlier it stays where the reader sees it.
     await log.evaluate((element) => {
@@ -138,7 +139,7 @@ test('a 40 MB transcript opens on its newest turns; Load earlier brings the ones
 })
 
 test('⌘F in the read-only view of a terminal Session finds a match behind «Load earlier» and loads up to it (worfy-ui ticket 26)', async () => {
-  test.setTimeout(180_000)
+  test.setTimeout(ms(180_000))
   mkdirSync(transcriptDir(projectPath), { recursive: true })
   writeMarkedTranscript(join(transcriptDir(projectPath), `${SESSION}.jsonl`), SESSION, projectPath, 10 * 1024 * 1024)
   const claude = spawn('sleep', ['600'], { stdio: 'ignore' })
@@ -153,11 +154,11 @@ test('⌘F in the read-only view of a terminal Session finds a match behind «Lo
     const { window } = launched
     await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 800))
     const node = window.locator(`[data-testid="session-node"][data-session-id="${SESSION}"]`)
-    await node.waitFor({ state: 'visible', timeout: 10_000 })
+    await node.waitFor({ state: 'visible', timeout: ms(10_000) })
     await node.getByTestId('session-node-title').dblclick()
     const view = window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
     await expect(view).toHaveAttribute('data-read-only', 'true')
-    await expect(view.getByTestId('transcript-text').last()).toContainText('in the garden', { timeout: 60_000 })
+    await expect(view.getByTestId('transcript-text').last()).toContainText('in the garden', { timeout: ms(60_000) })
     await expect(view.getByText('Answer number 2: the')).toHaveCount(0)
 
     await window.keyboard.press('ControlOrMeta+f')
@@ -167,7 +168,7 @@ test('⌘F in the read-only view of a terminal Session finds a match behind «Lo
     const count = view.getByTestId('session-find-count')
     await expect(count).toHaveText('3 of 3')
     await field.press('Enter')
-    await expect(count).toHaveText('1 of 3', { timeout: 30_000 })
+    await expect(count).toHaveText('1 of 3', { timeout: ms(30_000) })
     await expect(view.getByText('Answer number 2: the')).toBeInViewport()
     // The match, far above the rows drawn before (worfy-ui ticket 22), is painted where the reader sees it.
     type Box = { top: number; bottom: number; height: number }

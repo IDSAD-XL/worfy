@@ -17,6 +17,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, openSecondWindow, parkPointer, PROJECTS_ACCESS_LABEL, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript, loginProfileWithNode } from '../harness-node'
+import { ms } from '../time-scale'
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -202,7 +203,7 @@ test('hovering a Session draws its Binding line and fades no Node; "Show family"
 })
 
 test.describe('on a read-only screen', () => {
-  test.setTimeout(180_000)
+  test.setTimeout(ms(180_000))
 
   test('hovering a Ticket of a Linked machine shown read-only fades no Node; "Show family" is there and active', async () => {
     const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-family-ro-')))
@@ -244,7 +245,7 @@ test.describe('on a read-only screen', () => {
 
       // A opens beta of B, read-only.
       const group = a.window.locator(`[data-testid="machine-group"][data-machine-id="${bId}"]`)
-      await expect(group.getByTestId('machine-read-only')).toHaveText('Read only', { timeout: 20_000 })
+      await expect(group.getByTestId('machine-read-only')).toHaveText('Read only', { timeout: ms(20_000) })
       await group.locator(`[data-testid="project-row"][data-project-id="${BETA}"]`).getByRole('button').click()
       await expect(a.window.getByTestId('canvas')).toHaveAttribute('data-project-id', BETA)
       await expect(a.window.getByTestId('canvas-read-only')).toBeVisible()

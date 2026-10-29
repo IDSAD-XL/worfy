@@ -25,6 +25,7 @@ import type { LiveSession } from '../../src/shared/ipc/claude-home'
 import { LIVE_SESSION_HEIGHT, LIVE_SESSION_WIDTH, type SessionNodeView } from '../../src/shared/ipc/sessions'
 import { isArchived, type LayoutNode } from '../../src/shared/layout/types'
 import { APP_URL } from '../app-url'
+import { ms } from '../time-scale'
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -99,7 +100,7 @@ function harness(options: { script?: string | ((request: QueryRequest) => string
     if (!found) throw new Error(`no view of ${nodeId}`)
     return found
   }
-  const until = (nodeId: string, state: SessionNodeView['state']) => vi.waitFor(() => expect(view(nodeId).state).toBe(state), { timeout: 2000 })
+  const until = (nodeId: string, state: SessionNodeView['state']) => vi.waitFor(() => expect(view(nodeId).state).toBe(state), { timeout: ms(2000) })
   return { layout, registry, requests, claude, broadcast, published, settings, sessions, nodes, node, view, until }
 }
 

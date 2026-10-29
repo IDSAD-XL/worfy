@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { ms } from '../time-scale'
 
 // Live and Asleep Browsers (worfy-browser ticket 05, ADR-0078 items 6, 7 and 15), in the real app:
 // - at most three Browsers are Live: a fourth one opened from the Canvas menu puts to sleep the
@@ -165,7 +166,7 @@ test('four Browsers: three are Live, the fourth puts to sleep the one used longe
     ],
     0.5,
   )
-  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: 15_000, message: 'three Live pages' }).toEqual([
+  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: ms(15_000), message: 'three Live pages' }).toEqual([
     [at(1), 'yes'],
     [at(2), 'yes'],
     [at(3), 'yes'],
@@ -183,8 +184,8 @@ test('four Browsers: three are Live, the fourth puts to sleep the one used longe
   await window.mouse.click(empty.x + empty.width + 120, empty.y + 40, { button: 'right' })
   await window.getByRole('menuitem', { name: 'New browser' }).click()
   await expect(window.getByTestId('browser-frame')).toHaveCount(4)
-  await expect(frame(window, 'b2')).toHaveAttribute('data-life', 'asleep', { timeout: 10_000 })
-  await expect.poll(urls, { timeout: 15_000, message: 'b2\'s page is closed, the new one is open' }).toEqual(['about:blank', at(1), at(3)])
+  await expect(frame(window, 'b2')).toHaveAttribute('data-life', 'asleep', { timeout: ms(10_000) })
+  await expect.poll(urls, { timeout: ms(15_000), message: 'b2\'s page is closed, the new one is open' }).toEqual(['about:blank', at(1), at(3)])
   for (const id of ['b1', 'b3']) await expect(frame(window, id)).toHaveAttribute('data-life', 'live')
 
   // Asleep: the picture of its page under «Asleep · Click to wake».
@@ -200,14 +201,14 @@ test('four Browsers: three are Live, the fourth puts to sleep the one used longe
 
   // A click wakes it on the same address, scrolled where it was; b1, now the one used longest ago, sleeps.
   await asleep.click()
-  await expect(frame(window, 'b2')).toHaveAttribute('data-life', 'live', { timeout: 10_000 })
-  await expect(frame(window, 'b1')).toHaveAttribute('data-life', 'asleep', { timeout: 10_000 })
-  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: 15_000, message: 'b2 Live again, b1 asleep' }).toEqual([
+  await expect(frame(window, 'b2')).toHaveAttribute('data-life', 'live', { timeout: ms(10_000) })
+  await expect(frame(window, 'b1')).toHaveAttribute('data-life', 'asleep', { timeout: ms(10_000) })
+  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: ms(15_000), message: 'b2 Live again, b1 asleep' }).toEqual([
     ['about:blank', undefined],
     [at(2), 'yes'],
     [at(3), 'yes'],
   ])
-  await expect.poll(async () => (await guests()).find((guest) => guest.url === at(2))?.scrollY, { timeout: 15_000, message: 'b2 is scrolled where it went to sleep' }).toBe(600)
+  await expect.poll(async () => (await guests()).find((guest) => guest.url === at(2))?.scrollY, { timeout: ms(15_000), message: 'b2 is scrolled where it went to sleep' }).toBe(600)
   await expect(frame(window, 'b2').getByTestId('browser-address')).toHaveValue(at(2))
 })
 
@@ -222,7 +223,7 @@ test('a page with a beforeunload handler stays Live and says «Unsaved changes»
     { browserSleep: { offscreenSeconds: 3 } },
   )
   const all = [`${origin}/page?n=3`, `${origin}/unsaved`, `${origin}/unsaved-attr`]
-  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: 15_000 }).toEqual(all.map((url) => [url, 'yes']))
+  await expect.poll(async () => (await guests()).map((guest) => [guest.url, guest.ready]), { timeout: ms(15_000) }).toEqual(all.map((url) => [url, 'yes']))
 
   // The three frames leave the screen, panned away over the empty plane.
   await window.mouse.move(700, 800)
@@ -236,7 +237,7 @@ test('a page with a beforeunload handler stays Live and says «Unsaved changes»
   // Under the threshold every page is still there.
   expect(await urls()).toEqual(all)
 
-  await expect.poll(urls, { timeout: 15_000, message: 'the page without a handler sleeps' }).toEqual([`${origin}/unsaved`, `${origin}/unsaved-attr`])
+  await expect.poll(urls, { timeout: ms(15_000), message: 'the page without a handler sleeps' }).toEqual([`${origin}/unsaved`, `${origin}/unsaved-attr`])
   expect(Date.now() - left, 'not before the threshold of 3 s').toBeGreaterThanOrEqual(2_500)
   // Twice the threshold later, the pages with a handler are still Live.
   await window.waitForTimeout(6_000)

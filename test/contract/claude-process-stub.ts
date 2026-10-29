@@ -11,6 +11,7 @@ import type { ChildProcess } from 'node:child_process'
 import { watchedSpawn } from '../../src/main/agent/options'
 import { exitOf } from '../../src/main/agent/session/process'
 import type { QueryFactory, QueryRequest } from '../../src/main/agent/session'
+import { ms } from '../time-scale'
 
 /** `ignore-term`: SIGTERM and the stdin's end do not end it, only SIGKILL does; `exit-at-once`: exits when its stdin ends. */
 export type StubKind = 'ignore-term' | 'exit-at-once'
@@ -24,10 +25,10 @@ export type StubKind = 'ignore-term' | 'exit-at-once'
 export const IGNORE_TERM_EXIT_SIGNAL: NodeJS.Signals = process.platform === 'win32' ? 'SIGTERM' : 'SIGKILL'
 
 /** How long a stub process lives at most, whatever happens to the test. */
-const STUB_LIFETIME_MS = 30_000
+const STUB_LIFETIME_MS = ms(30_000)
 
 /** How long a stub process may take to say `ready`. */
-const STUB_READY_MS = 10_000
+const STUB_READY_MS = ms(10_000)
 
 const READY = `process.stdin.resume(); setTimeout(() => process.exit(3), ${STUB_LIFETIME_MS}); process.stderr.write('ready\\n')`
 

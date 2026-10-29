@@ -11,6 +11,7 @@ import { findGitBash, findOnPath } from '../../src/main/agent/env'
 import { terminalKey } from '../../src/main/ipc/terminal'
 import { endDescendants, spawnShellPty, type SpawnPty } from '../../src/main/terminal/pty'
 import { alive, consoleHosts, folderLine, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, root, say, SAY_THE_FOLDER, settledHandleCount, SYSTEM_ROOT, threads, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
+import { ms } from '../time-scale'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
 
@@ -67,7 +68,7 @@ describe('terminal channels on a real pty', () => {
       const h = await harness()
       const { pid } = await h.open()
       const number = async (pattern: RegExp): Promise<number> => {
-        await vi.waitFor(() => expect(h.text()).toMatch(pattern), { timeout: 10_000 })
+        await vi.waitFor(() => expect(h.text()).toMatch(pattern), { timeout: ms(10_000) })
         return Number(pattern.exec(h.text())?.[1])
       }
       // A program with a window and a console of its own: still a child of the shell.
@@ -129,7 +130,7 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     const { pid } = await h.open()
     // cmd.exe in a window of its own: neither it nor what it starts is on the console of the shell.
     await h.type(`$p = Start-Process -WindowStyle Hidden -PassThru -WorkingDirectory (Get-Location).Path -FilePath $env:ComSpec -ArgumentList '/d','/c','"${node}" keep.js'; Write-Output ('cmd=' + $p.Id)\r`)
-    await vi.waitFor(() => expect(h.text()).toMatch(/cmd=(\d+)\r?\n/), { timeout: 10_000 })
+    await vi.waitFor(() => expect(h.text()).toMatch(/cmd=(\d+)\r?\n/), { timeout: ms(10_000) })
     const cmd = Number(/cmd=(\d+)\r?\n/.exec(h.text())?.[1])
     let grandchild = 0
     await vi.waitFor(
@@ -137,7 +138,7 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
         grandchild = Number(await readFile(join(root, 'grandchild.pid'), 'utf8'))
         expect(grandchild).toBeGreaterThan(0)
       },
-      { timeout: 10_000 },
+      { timeout: ms(10_000) },
     )
     try {
       expect([alive(pid), alive(cmd), alive(grandchild)]).toEqual([true, true, true])
@@ -153,7 +154,7 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
         }
       }
     }
-  }, 60_000)
+  }, ms(60_000))
 
   // Review of PR #280 (item 5): the count of hosts was compared, not their pids, and nothing showed
   // that the host of the package's console (OpenConsole.exe) was counted at all.
@@ -175,8 +176,8 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     expect(h.registry.size).toBe(0)
     // None that was not there before: the set before may still hold a console of an earlier test
     // that is closing. Three Terminals closed the old way would leave three.
-    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !before.has(pid))).toEqual([]), { timeout: 5000, interval: 500 })
-  }, 60_000)
+    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !before.has(pid))).toEqual([]), { timeout: ms(5000), interval: 500 })
+  }, ms(60_000))
 
   // worfy-windows ticket 22. Under the console of the system each such shell left its conhost.exe
   // until worfy quit: node-pty forgets a pseudo-console the moment its shell exits.
@@ -190,11 +191,11 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
       await h.run(say('rea', 'dy'), /ready\r?\n/, nodeId)
       expect(newHosts(before, seen).length, 'the host of the console of a running shell is counted').toBeGreaterThanOrEqual(1)
       await h.type('exit\r', nodeId)
-      await vi.waitFor(() => expect(h.exits.map((exit) => exit.nodeId)).toContain(nodeId), { timeout: 5000 })
+      await vi.waitFor(() => expect(h.exits.map((exit) => exit.nodeId)).toContain(nodeId), { timeout: ms(5000) })
     }
     // None that was not there before: the set before may still hold a console of an earlier test that is closing.
-    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !before.has(pid))).toEqual([]), { timeout: 5000, interval: 500 })
-  }, 60_000)
+    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !before.has(pid))).toEqual([]), { timeout: ms(5000), interval: 500 })
+  }, ms(60_000))
 
   // Review of PR #280. On the console of the package node-pty reports an exit only when the console
   // closes, and the console lives while any process is on it: measured on the PC, this shell was
@@ -208,11 +209,11 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     const typed = performance.now()
     // The program is silent, sits on the console of the shell, and works in a folder no test removes.
     await h.type("Start-Process -NoNewWindow -WorkingDirectory $env:SystemRoot powershell -ArgumentList '-NoProfile','-Command','Start-Sleep 15'; exit 6\r")
-    await vi.waitFor(() => expect(h.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 6, signal: null }]), { timeout: 8000, interval: 100 })
+    await vi.waitFor(() => expect(h.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 6, signal: null }]), { timeout: ms(8000), interval: 100 })
     expect(performance.now() - typed).toBeLessThan(8000)
     // The Node shows the exit; asking for its size again does not fail.
     expect((await h.open()).exited).toEqual({ exitCode: 6, signal: null })
-  }, 60_000)
+  }, ms(60_000))
 
   // With the console of the package node-pty stops the thread that reads the output only when output
   // comes after kill(), and none does: the registry stops it (stopOutputWorker). Without that each
@@ -227,12 +228,12 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
       await h.run(say('rea', 'dy'), /ready\r?\n/, nodeId)
       if (index % 2 === 0) {
         await h.type('exit\r', nodeId)
-        await vi.waitFor(() => expect(h.exits.map((exit) => exit.nodeId)).toContain(nodeId), { timeout: 5000 })
+        await vi.waitFor(() => expect(h.exits.map((exit) => exit.nodeId)).toContain(nodeId), { timeout: ms(5000) })
       }
       await h.ok('terminal.close', { projectId: PROJECT, nodeId })
     }
-    await vi.waitFor(() => expect(threads() - before).toBeLessThan(6), { timeout: 8000, interval: 500 })
-  }, 120_000)
+    await vi.waitFor(() => expect(threads() - before).toBeLessThan(6), { timeout: ms(8000), interval: 500 })
+  }, ms(120_000))
 
   // Review of PR #280 (item 5): on the console of the package kill() starts no helper at all, so
   // this ran on that console without proving anything. On the console of the system — a spawn of
@@ -246,7 +247,7 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     const { pid } = await h.open()
     await h.run(say('rea', 'dy'), /ready\r?\n/)
     await h.type('exit 3\r')
-    await vi.waitFor(() => expect(h.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 3, signal: null }]), { timeout: 5000 })
+    await vi.waitFor(() => expect(h.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 3, signal: null }]), { timeout: ms(5000) })
     await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
     expect(fork).not.toHaveBeenCalled()
     expect(signals.mock.calls.filter(([target]) => target === pid)).toEqual([])
@@ -268,7 +269,7 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     const startedBy = Date.now()
     let output = ''
     shell.stdout.on('data', (chunk: Buffer) => (output += chunk.toString()))
-    await vi.waitFor(() => expect(output).toMatch(/child=\d+/), { timeout: 15_000 })
+    await vi.waitFor(() => expect(output).toMatch(/child=\d+/), { timeout: ms(15_000) })
     const child = Number(/child=(\d+)/.exec(output)?.[1])
     const end = () => {
       for (const pid of [child, shell.pid ?? 0]) {
@@ -334,7 +335,7 @@ describe.runIf(WINDOWS)('the handles a shell leaves in this process on Windows, 
           await h.open(nodeId)
           await h.run(say('rea', 'dy'), /ready\r?\n/, nodeId)
           await h.type('exit\r', nodeId)
-          await vi.waitFor(() => expect(h.exits.map((exit) => exit.nodeId)).toContain(nodeId), { timeout: 10_000 })
+          await vi.waitFor(() => expect(h.exits.map((exit) => exit.nodeId)).toContain(nodeId), { timeout: ms(10_000) })
           await h.ok('terminal.close', { projectId: PROJECT, nodeId })
         }),
       )
@@ -357,6 +358,6 @@ describe.runIf(WINDOWS)('the handles a shell leaves in this process on Windows, 
     // land inside the range by chance after node-pty is fixed.
     const added = (await settledHandleCount()) - before
     expect(Math.abs(added - SHELLS * LEAK_PER_SHELL), `added ${added} handles`).toBeLessThanOrEqual(NOISE)
-    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !hostsBefore.has(pid))).toEqual([]), { timeout: 5000, interval: 500 })
-  }, 60_000)
+    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !hostsBefore.has(pid))).toEqual([]), { timeout: ms(5000), interval: 500 })
+  }, ms(60_000))
 })

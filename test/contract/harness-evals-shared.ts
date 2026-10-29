@@ -10,6 +10,7 @@ import { join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterAll, afterEach, beforeEach } from 'vitest'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 export const REPO = join(__dirname, '..', '..')
 export const HARNESS = join(REPO, 'harness')
@@ -29,7 +30,7 @@ export const CASES: [name: string, tag: 'main' | 'gui'][] = [
   ['reviewer-simplification', 'main'],
 ]
 // A scaffold script has 120 seconds inside `claude plugin eval`; here it takes about a second.
-export const SCAFFOLD_TIMEOUT_MS = 60_000
+export const SCAFFOLD_TIMEOUT_MS = ms(60_000)
 
 // The temporary folders of a test file that imports this module. A folder a test makes is removed
 // after that test, in afterEach; afterAll removes only the folders made outside a test (while the

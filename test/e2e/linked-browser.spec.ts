@@ -15,8 +15,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, type LaunchedApp } from './helpers'
+import { ms } from '../time-scale'
 
-test.setTimeout(180_000)
+test.setTimeout(ms(180_000))
 
 const ALPHA = 'alpha-0000000a'
 const BETA = 'beta-0000000b'
@@ -101,7 +102,7 @@ test('a Browser of B: full access shows its frames and types in its page; read-o
     await canvasReady(b, { size: SIZE, visible: [frameOf(b.window, 'b1')] })
     await canvasReady(a, { size: SIZE })
     // B draws the page of b1; b2 waits Asleep (one Live Browser at a time).
-    await expect(frameOf(b.window, 'b1')).toHaveAttribute('data-page', 'here', { timeout: 20_000 })
+    await expect(frameOf(b.window, 'b1')).toHaveAttribute('data-page', 'here', { timeout: ms(20_000) })
     await linkThroughUi(a.window, b.window)
     const aId = await machineIdOf(a.window)
     const bId = await machineIdOf(b.window)
@@ -114,35 +115,35 @@ test('a Browser of B: full access shows its frames and types in its page; read-o
 
     // A opens beta of B: b1's frame shows the frames of B's page, and A has no page of its own.
     const betaRow = a.window.locator(`[data-testid="machine-group"][data-machine-id="${bId}"] [data-testid="project-row"][data-project-id="${BETA}"]`)
-    await betaRow.getByRole('button').click({ timeout: 20_000 })
+    await betaRow.getByRole('button').click({ timeout: ms(20_000) })
     await expect(a.window).toHaveURL(new RegExp(`[?&]machine=${bId}`))
     const b1 = frameOf(a.window, 'b1')
     await canvasReady(a, { visible: [b1] })
-    await expect(b1).toHaveAttribute('data-page', 'frames', { timeout: 20_000 })
+    await expect(b1).toHaveAttribute('data-page', 'frames', { timeout: ms(20_000) })
     const frames = b1.getByTestId('browser-frames')
-    await expect(frames).toHaveAttribute('data-frame', 'shown', { timeout: 20_000 })
+    await expect(frames).toHaveAttribute('data-frame', 'shown', { timeout: ms(20_000) })
     expect(await a.window.locator('webview').count(), 'A draws no page of B').toBe(0)
     expect(await a.app.evaluate(({ webContents }) => webContents.getAllWebContents().filter((contents) => contents.getType() === 'webview').length), 'A has no page of B in main').toBe(0)
 
     // A clicks into the page's input and types: the text lands in B's page.
     await frames.click({ position: { x: 200, y: 60 } })
     await a.window.keyboard.type('hello')
-    await expect.poll(() => typedOnB(b!), { timeout: 15_000, message: 'what A typed reached B\'s page' }).toBe('hello')
+    await expect.poll(() => typedOnB(b!), { timeout: ms(15_000), message: 'what A typed reached B\'s page' }).toBe('hello')
 
     // On B, b2 is woken by a click: b1 goes to sleep with a picture, which A with full access sees.
     await frameOf(b.window, 'b2').getByTestId('browser-asleep').click()
-    await expect(frameOf(b.window, 'b1')).toHaveAttribute('data-life', 'asleep', { timeout: 20_000 })
-    await expect(b1.getByTestId('browser-asleep')).toBeVisible({ timeout: 20_000 })
-    await expect(b1.getByTestId('browser-picture')).toHaveCount(1, { timeout: 20_000 })
+    await expect(frameOf(b.window, 'b1')).toHaveAttribute('data-life', 'asleep', { timeout: ms(20_000) })
+    await expect(b1.getByTestId('browser-asleep')).toBeVisible({ timeout: ms(20_000) })
+    await expect(b1.getByTestId('browser-picture')).toHaveCount(1, { timeout: ms(20_000) })
 
     // Read only for A: only the frame and the name of its Browser profile.
     const again = await openMachinesSettings(b)
     await chooseLevel(b.window, again.getByTestId(`link-machine-access-${aId}`), 'read')
     await closeSettings(b.window)
-    await expect(a.window.getByTestId('canvas-read-only')).toBeVisible({ timeout: 20_000 })
+    await expect(a.window.getByTestId('canvas-read-only')).toBeVisible({ timeout: ms(20_000) })
     for (const id of ['b1', 'b2']) {
       const frame = frameOf(a.window, id)
-      await expect(frame.getByTestId('browser-profile-name')).toHaveText('Default', { timeout: 20_000 })
+      await expect(frame.getByTestId('browser-profile-name')).toHaveText('Default', { timeout: ms(20_000) })
       await expect(frame.getByTestId('browser-address')).toHaveCount(0)
       await expect(frame.getByTestId('browser-frames')).toHaveCount(0)
       await expect(frame.getByTestId('browser-asleep')).toHaveCount(0)

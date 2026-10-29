@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { creamInside, decodePng, pagePixelsOutside, type Box, type Image } from './browser-pixels'
 import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { ms } from '../time-scale'
 
 // A Browser in focus mode (worfy-browser ticket 17). The page of a Browser is a <webview> of the
 // Browser layer on the Canvas (src/renderer/canvas/overlays/BrowserLayer.tsx); focus mode draws its
@@ -95,7 +96,7 @@ async function start(zoom: number, { extra = [], cards = {} }: StartOptions = {}
   launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, HOME: home } })
   const { window } = launched
   await canvasReady(launched, { size: WINDOW, visible: [window.locator(`.react-flow__node[data-id="${FRAME.id}"]`)] })
-  await expect.poll(() => guestState('/page.html').then((state) => state?.ready), { timeout: 15_000, message: 'the fixture page has loaded in the <webview>' }).toBe('yes')
+  await expect.poll(() => guestState('/page.html').then((state) => state?.ready), { timeout: ms(15_000), message: 'the fixture page has loaded in the <webview>' }).toBe('yes')
   return window
 }
 
@@ -450,7 +451,7 @@ const windowFocus = (window: Page): Promise<{ tag: string; covered: boolean; til
 
 test('a Browser left on the Canvas stays on screen for itself under focus mode, and nothing under the layer takes the keyboard', async () => {
   const window = await start(1, { extra: [{ ...OTHER, data: { url: `${origin}/other.html` } }, GRABBER], cards: { c1: GRABBER_HTML } })
-  await expect.poll(() => guestState('/other.html').then((state) => state?.ready), { timeout: 15_000, message: 'the second Browser has loaded' }).toBe('yes')
+  await expect.poll(() => guestState('/other.html').then((state) => state?.ready), { timeout: ms(15_000), message: 'the second Browser has loaded' }).toBe('yes')
   await expect(window.locator(`.react-flow__node[data-id="${GRABBER.id}"] iframe`)).toHaveCount(1)
   await inGuest(`(() => { document.documentElement.style.background = '${BLUE}'; document.body.style.background = '${BLUE}'; return true })()`, '/other.html')
   await canvasReady(launched!, { frames: 5 })
@@ -497,7 +498,7 @@ test('a Browser left on the Canvas stays on screen for itself under focus mode, 
 
 test('two Browsers in tiles: each page lies on its own tile and is seen there', async () => {
   const window = await start(1, { extra: [{ ...OTHER, data: { url: `${origin}/other.html` } }] })
-  await expect.poll(() => guestState('/other.html').then((state) => state?.ready), { timeout: 15_000, message: 'the second Browser has loaded' }).toBe('yes')
+  await expect.poll(() => guestState('/other.html').then((state) => state?.ready), { timeout: ms(15_000), message: 'the second Browser has loaded' }).toBe('yes')
   const header = (await window.locator(`.react-flow__node[data-id="${FRAME.id}"] .w-browser-frame__header`).boundingBox())!
   await window.mouse.click(header.x + header.width - 30, header.y + header.height / 2)
   const otherHeader = window.locator(`.react-flow__node[data-id="${OTHER.id}"] .w-browser-frame__header`)

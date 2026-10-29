@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { launchApp } from './helpers'
 import { TERMINAL_AI_PROMPT, editedLine, greyText, openTerminal, screenText, terminalAiSandbox, typedColor, type TerminalAiSandbox } from './terminal-ai-helpers'
 import { NO_ZSH, NO_ZSH_ON_WINDOWS } from '../zsh'
+import { ms } from '../time-scale'
 
 // The Suggestion of Terminal AI from the model, in a Terminal Node of the built app on a real zsh:
 // a line the history of commands has nothing for is answered by the assist process after a pause,
@@ -43,7 +44,7 @@ test('a line the history has nothing for is completed in grey by the model after
 
     await window.keyboard.type(typed)
     // The rest of the answer is on the screen in grey, after what was typed.
-    await expect.poll(async () => (await greyText(node)).text, { timeout: 15_000 }).toBe('cond third')
+    await expect.poll(async () => (await greyText(node)).text, { timeout: ms(15_000) }).toBe('cond third')
     expect(await editedLine(node)).toBe(`${TERMINAL_AI_PROMPT}${answer}`)
     const grey = await greyText(node)
     expect(grey.color).not.toBe('')
@@ -54,17 +55,17 @@ test('a line the history has nothing for is completed in grey by the model after
 
     // → takes the answer: nothing grey is left, and the line is the whole command.
     await window.keyboard.press('ArrowRight')
-    await expect.poll(async () => (await greyText(node)).text, { timeout: 10_000 }).toBe('')
+    await expect.poll(async () => (await greyText(node)).text, { timeout: ms(10_000) }).toBe('')
     expect(await editedLine(node)).toBe(`${TERMINAL_AI_PROMPT}${answer}`)
     // Enter is the user's: the command runs once.
     await window.keyboard.press('Enter')
-    await expect.poll(async () => [...(await screenText(node)).matchAll(output)].length, { timeout: 10_000 }).toBe(1)
+    await expect.poll(async () => [...(await screenText(node)).matchAll(output)].length, { timeout: ms(10_000) }).toBe(1)
 
     // The model was asked once about the line, as it was typed, and it was Haiku. An ask about the
     // line that was taken would have gone out before the one about the next line typed, after the
     // same pause, and with the same delay of the answer would have ended before it.
     await window.keyboard.type(laterTyped)
-    await expect.poll(async () => (await greyText(node)).text, { timeout: 15_000 }).toBe('acon')
+    await expect.poll(async () => (await greyText(node)).text, { timeout: ms(15_000) }).toBe('acon')
     const requests = sandbox.requests().filter((r) => r.feature === 'suggest')
     expect(requests.map((r) => r.context.line)).toEqual([typed, laterTyped])
     expect(requests[0]).toMatchObject({ feature: 'suggest', model: 'haiku', cancelled: false, context: { line: typed, cwd: sandbox.root, commands: [] } })

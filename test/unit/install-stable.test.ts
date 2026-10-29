@@ -19,6 +19,7 @@ import { basename, delimiter, dirname, join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 import { build, checkTarget, dir, head, installerDir, installStable, junction, leftoverName, links, local, onDisk, registrations, REMOVE_ROUNDS, REPO, run, stamp, targetIn, useStandInBuild, WIN_HOME, WINDOWS } from './install-stable-harness'
+import { ms } from '../time-scale'
 
 /**
  * One copy of /bin/sleep for every test of this file. A plain copy of an Apple binary fails the
@@ -53,7 +54,7 @@ const sleepCopyAt = (program: string): void => {
  * fails at once rather than after the deadline.
  */
 const waitUntilListed = (pid: number | undefined, program: string): void => {
-  const deadline = Date.now() + 10_000
+  const deadline = Date.now() + ms(10_000)
   for (;;) {
     let command = ''
     try {
@@ -83,7 +84,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
   it('refuses more than one argument before anything is made', () => {
     expect(() => installStable([targetIn('one'), targetIn('two')], inProcess())).toThrow('expected at most one argument, the target path; got 2')
     expect(readdirSync(dir).sort()).toEqual(['build'])
-  }, 60_000)
+  }, ms(60_000))
 
   it('refuses a build that is not a folder, and one that does not look like a built worfy, and puts nothing at the target', () => {
     const target = targetIn('apps', 'worfy-stable')
@@ -95,7 +96,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
     )
     expect(existsSync(target)).toBe(false)
     expect(readdirSync(join(dir, 'apps'))).toEqual([])
-  }, 60_000)
+  }, ms(60_000))
 
   // `pnpm install` can leave node_modules/electron/dist empty (2026-10-19), and electron-builder then
   // fails late with "electronDist does not exist". The script says what to run before it builds.
@@ -122,7 +123,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
     expect(result.stderr).toContain(`Run \`node node_modules/electron/install.js\` in ${repo}, then run this again.`)
     expect(existsSync(started)).toBe(false)
     expect(existsSync(target)).toBe(false)
-  }, 60_000)
+  }, ms(60_000))
 
   // A whole install copies with ditto on macOS and with Node on Windows; Linux has neither system's copy.
   describe.runIf(process.platform !== 'linux')('a whole install', () => {
@@ -143,7 +144,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(metadata.installedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
       expect(result.stdout).toContain(`install-stable: installed ${target} (commit ${head().slice(0, 7)}`)
       expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
-    }, 60_000)
+    }, ms(60_000))
 
     // Notification Center keeps the icon Launch Services gave it for dev.worfy.app; the first copies
     // carried Electron's icon. Each install registers its copy again, with the time of the install.
@@ -157,7 +158,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(statSync(target).mtimeMs).toBeGreaterThanOrEqual(before)
       expect(run([target]).status).toBe(0)
       expect(registrations()).toEqual([`-f ${target}`, `-f ${target}`])
-    }, 60_000)
+    }, ms(60_000))
 
     it.runIf(process.platform === 'darwin')('a registration that Launch Services refuses is named, and the copy stays installed', () => {
       const target = targetIn('apps', 'worfy-stable')
@@ -166,7 +167,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(line).toContain(`install-stable: Launch Services could not be told about ${target} (/usr/bin/false -f ${target} exited with 1): notifications and the Dock may keep the icon of an earlier worfy until it is registered`)
       expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
       expect(existsSync(join(dir, 'apps', 'worfy-stable.json'))).toBe(true)
-    }, 60_000)
+    }, ms(60_000))
 
     it('replaces an earlier copy: a file that the new build does not have is gone, and nothing is left next to the target', () => {
       const target = targetIn('apps', 'worfy-stable')
@@ -180,7 +181,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('the next build')
       // Neither the copy in progress nor the earlier copy set aside.
       expect(readdirSync(join(dir, 'apps')).sort()).toEqual([WINDOWS ? 'worfy-stable' : 'worfy-stable.app', 'worfy-stable.json'].sort())
-    }, 60_000)
+    }, ms(60_000))
 
     /** The name of the copy in its folder. */
     const NAME = WINDOWS ? 'worfy-stable' : 'worfy-stable.app'
@@ -212,7 +213,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(moves).toEqual([`${NAME} -> ${NAME}.replaced-${process.pid}`])
       expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
       expect(readdirSync(apps).sort()).toEqual([NAME, 'worfy-stable.json'].sort())
-    }, 60_000)
+    }, ms(60_000))
 
     it('clears what an interrupted run left only when there is a build to install, and only what is its own', () => {
       const target = targetIn('apps', 'worfy-stable')
@@ -266,7 +267,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       installStable([target], { ...inProcess(), rename: recording(moves) })
       expect(moves).toEqual([`${NAME} -> ${leftoverName(NAME, 'replaced', process.pid)}`, `${leftoverName(NAME, 'installing', process.pid)} -> ${NAME}`])
       expect(all()).toEqual([NAME, 'worfy-stable.json', ...mine].sort())
-    }, 120_000)
+    }, ms(120_000))
 
     it('refuses when a name it needs is taken by what it may not clear — a link to a folder of the user, or a file — and touches neither', () => {
       const target = targetIn('apps', 'worfy-stable')
@@ -316,7 +317,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(readFileSync(aside, 'utf8')).toBe('a file of mine')
       expect(existsSync(staging)).toBe(false)
       untouched()
-    }, 60_000)
+    }, ms(60_000))
 
     it('with nothing at the target, what lies at the name of a copy moved aside is not in the way: that name is not used', () => {
       const target = targetIn('apps', 'worfy-stable')
@@ -327,7 +328,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(installStable([target], inProcess())).toContain(`install-stable: installed ${target} (commit `)
       expect(readFileSync(aside, 'utf8')).toBe('a file of mine')
       expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
-    }, 60_000)
+    }, ms(60_000))
 
     // Review round 2 of PR #257. The checks above come after a copy is installed; on a first
     // install the name of the unfinished copy is the only one the run uses, and it is checked too.
@@ -360,7 +361,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(() => installStable([target], inProcess())).toThrow(`${staging} is in the way`)
       expect(readFileSync(staging, 'utf8')).toBe('a file of mine')
       untouched(basename(staging))
-    }, 60_000)
+    }, ms(60_000))
 
     // A link at the target that leads nowhere is a copy to move aside all the same: the name of
     // the copy moved aside is needed, and a file of the user under it is in the way.
@@ -380,7 +381,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(readFileSync(aside, 'utf8')).toBe('a file of mine')
       expect(lstatSync(target).isSymbolicLink()).toBe(true)
       expect(readdirSync(apps).sort()).toEqual([NAME, basename(aside)].sort())
-    }, 60_000)
+    }, ms(60_000))
 
     // Review round 1 of PR #257. A real folder under the name of this run's unfinished copy is a
     // leftover and is cleared — unless it cannot be: then the build must not be copied into it.
@@ -420,7 +421,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
           await gone
         } else chmodSync(locked, 0o755)
       }
-    }, 120_000)
+    }, ms(120_000))
 
     it('names every leftover it clears; of two copies moved aside the first by name goes back, the other is removed', () => {
       const target = targetIn('apps', 'worfy-stable')
@@ -446,7 +447,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       ])
       expect(readdirSync(apps).sort()).toEqual([NAME, 'worfy-stable.json'].sort())
       expect(existsSync(join(target, 'old.txt'))).toBe(false)
-    }, 60_000)
+    }, ms(60_000))
 
     it('a copy moved aside that cannot be put back is named, and the install goes on', () => {
       const target = targetIn('apps', 'worfy-stable')
@@ -462,7 +463,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(line).not.toContain('is back at')
       expect(readFileSync(join(stale, 'old.txt'), 'utf8')).toBe('of an earlier run')
       expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
-    }, 60_000)
+    }, ms(60_000))
 
     it('a link named like a leftover is somebody\'s own: it stays, and so does the folder it leads to', () => {
       const target = targetIn('apps', 'worfy-stable')
@@ -481,7 +482,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       for (const link of named) expect(lstatSync(link).isSymbolicLink(), link).toBe(true)
       expect(readdirSync(mine)).toEqual(['notes.txt'])
       expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
-    }, 60_000)
+    }, ms(60_000))
 
     it('a move that the system refuses for a moment is tried again on Windows; elsewhere the first refusal ends the run', () => {
       const target = targetIn('apps', 'worfy-stable')
@@ -503,7 +504,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
         expect(moves).toEqual([move])
         expect(readdirSync(apps)).toEqual([])
       }
-    }, 60_000)
+    }, ms(60_000))
 
     // worfy-windows ticket 28, from the review of PR #257. The walk of Windows has five waits for a
     // whole tree; before PR #257 every entry had five tries of its own. The script runs the walk
@@ -558,7 +559,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       const broken = again(99, 'EIO')
       expect(broken.asked).toBe(1)
       expect(broken.out).toContain('(EIO: the copy moved aside is held)')
-    }, 60_000)
+    }, ms(60_000))
 
     it('when the file that names the build cannot be written, says so; the new copy is in, and no earlier copy stays aside', () => {
       const target = targetIn('apps', 'worfy-stable')
@@ -610,7 +611,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
         chmodSync(elsewhere, 0o644)
         unlinkSync(json)
       }
-    }, 60_000)
+    }, ms(60_000))
   })
 
   // Not run on the PC this was written on: there the same refusal is tested in the Windows block.
@@ -638,7 +639,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
         child.kill()
         await gone
       }
-    }, 60_000)
+    }, ms(60_000))
   })
 
   // Not run on the PC this was written on either: there the Windows block has the same case.
@@ -679,7 +680,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
           await gone
         }
       }
-    }, 60_000)
+    }, ms(60_000))
   })
 
   describe.runIf(WINDOWS)('on Windows', () => {
@@ -696,7 +697,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       // The archive is copied as the file it is.
       expect(readFileSync(join(local, 'worfy-stable', 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
       expect(result.stdout).toContain(`install-stable: installed ${join(local, 'worfy-stable')} (commit ${head().slice(0, 7)}`)
-    }, 60_000)
+    }, ms(60_000))
 
     // Windows shows the path a program was started by. A copy started through a junction (or a
     // `subst` drive, or an 8.3 short name) is shown in that spelling, so the script spells the
@@ -731,7 +732,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(refused.stderr).toContain('holds no worfy.exe')
       expect(readdirSync(mine)).toEqual(['letter.txt'])
       expect(existsSync(`${mine}.json`)).toBe(false)
-    }, 60_000)
+    }, ms(60_000))
 
     it('refuses the installed worfy under another spelling of its folder, and a worfy the installer put elsewhere', () => {
       // The installer's folder, with what the installer writes into it.
@@ -760,7 +761,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(moved.status).not.toBe(0)
       expect(moved.stderr).toContain('the installer of worfy put it there')
       for (const folder of [installed, elsewhere]) expect(readdirSync(folder).sort()).toEqual(['Uninstall worfy.exe', 'worfy.exe'])
-    }, 120_000)
+    }, ms(120_000))
 
     // An 8.3 short name is one more spelling of a folder. This volume gives none to a new folder,
     // so the case takes a name the system has, when it has it. Both calls only read the disk.
@@ -799,7 +800,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       mkdirSync(join(moved, 'worfy'))
       expect(run([join(moved, 'worfy')]).stderr).toContain('install-stable: the target cannot be the folder the installer of worfy uses')
       expect(readdirSync(join(moved, 'worfy'))).toEqual([])
-    }, 60_000)
+    }, ms(60_000))
 
     it('a leftover of an earlier run that cannot be cleared is named, and the install goes on', async () => {
       const target = join(dir, 'apps', 'worfy-stable')
@@ -826,7 +827,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
         holder.kill()
         await gone
       }
-    }, 120_000)
+    }, ms(120_000))
 
     it('removes an earlier copy that holds a read-only file', () => {
       const target = join(dir, 'apps', 'worfy-stable')
@@ -837,7 +838,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(again.stderr).toBe('')
       expect(again.stdout).not.toContain('could not be removed')
       expect(readdirSync(join(dir, 'apps')).sort()).toEqual(['worfy-stable', 'worfy-stable.json'])
-    }, 60_000)
+    }, ms(60_000))
 
     it('a junction at the target is replaced as a link: the folder it led to keeps its files', () => {
       const behind = join(dir, 'behind')
@@ -857,7 +858,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(readdirSync(join(dir, 'apps')).sort()).toEqual(['worfy-stable', 'worfy-stable.json'])
       expect(readdirSync(behind).sort()).toEqual(['notes.txt', 'worfy.exe'])
       expect(readFileSync(join(behind, 'worfy.exe'), 'utf8')).toBe('behind the junction')
-    }, 60_000)
+    }, ms(60_000))
 
     it('copies the build from its real folder when it is given as a link: the copy is a folder, not a link to the build', () => {
       const link = join(dir, 'build-link')
@@ -870,7 +871,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(readFileSync(join(target, 'worfy.exe'), 'utf8')).toBe('not a real program')
       // The file next to the copy names the build as it was given.
       expect((JSON.parse(readFileSync(`${target}.json`, 'utf8')) as { source: string }).source).toBe(link)
-    }, 60_000)
+    }, ms(60_000))
 
     it('refuses while a program of the copy is running — before it looks at the build — and leaves the copy in place', async () => {
       const target = join(dir, 'apps', 'worfy-stable')
@@ -906,7 +907,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
         child.kill()
         await gone
       }
-    }, 120_000)
+    }, ms(120_000))
 
     it('a copy that cannot be moved aside stays whole, with the file that names its build; nothing of the new copy is left', async () => {
       const target = join(dir, 'apps', 'worfy-stable')
@@ -933,7 +934,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
         holder.kill()
         await gone
       }
-    }, 120_000)
+    }, ms(120_000))
 
     it('with no build given it builds, takes dist\\win-unpacked of the repository, and looks for a running copy again after the build', async () => {
       // A repository of its own, and a build step of the test: pnpm is never started.
@@ -980,6 +981,6 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       removeTestTree(join(repo, 'dist'))
       expect(() => installStable([target], { env, repo, build: () => undefined })).toThrow('expected dist\\win-unpacked after the build, and it is not there')
       expect(existsSync(join(target, 'worfy.exe'))).toBe(true)
-    }, 180_000)
+    }, ms(180_000))
   })
 })

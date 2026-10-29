@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { crowds, freePlace, freeShift, isClear, NODE_GAP, removeOverlaps, stopResize, type Rect, type Shift } from '../../src/shared/layout/free-place'
 import type { LayoutNode } from '../../src/shared/layout/types'
+import { ms } from '../time-scale'
 
 /** A Note dropped onto a Card; test/contract/layout-store.test.ts sends main the same move and expects the same place. */
 const DROP_FIXTURE = { card: { x: 0, y: 0, w: 300, h: 200 }, note: { x: 40, y: 40, w: 220, h: 120 } }
@@ -255,7 +256,7 @@ describe('freeShift against the search before ticket 14', () => {
       expect([Object.is(shift.dx, expected.dx), Object.is(shift.dy, expected.dy)], `round ${round}`).toEqual([true, true])
       expect(isClear(moving, obstacles, shift, gap), `round ${round}`).toBe(true)
     }
-  }, 120_000)
+  }, ms(120_000))
 
   // The count of the search before is the constant measured once: running the reference search
   // over the whole wave took 18 s of this file's 28 s on a Mac (2026-10-29). It still gives the
@@ -271,7 +272,7 @@ describe('freeShift against the search before ticket 14', () => {
     // The search reports what it compared; none at all would mean the count is not wired.
     expect(now).toBeGreaterThan(0)
     expect(now * 10).toBeLessThanOrEqual(PREVIOUS_PAIR_CHECKS)
-  }, 120_000)
+  }, ms(120_000))
 })
 
 describe('stopResize', () => {

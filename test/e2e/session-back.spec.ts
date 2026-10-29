@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { canvasReady, launchApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { ms } from '../time-scale'
 
 // The way back from a Subagent's window, and "Go to Orchestrator" in the palette (worfy-polish
 // ticket 25), against the built app. The Orchestrator on the fake agent
@@ -135,8 +136,8 @@ test('a Subagent window leads back to its parent, and the palette goes to the Or
 
     const rail = view.getByTestId('subagents-rail')
     const row = (agentId: string) => rail.locator(`[data-testid="subagents-rail-row"][data-subagent-id="${agentId}"]`)
-    await expect(row(IMPL)).toBeEnabled({ timeout: 10_000 })
-    await expect(row(SCOUT)).toBeEnabled({ timeout: 10_000 })
+    await expect(row(IMPL)).toBeEnabled({ timeout: ms(10_000) })
+    await expect(row(SCOUT)).toBeEnabled({ timeout: ms(10_000) })
 
     // Orchestrator → impl-09 from the rail → the arrow → the Orchestrator's Session view.
     await row(IMPL).click()

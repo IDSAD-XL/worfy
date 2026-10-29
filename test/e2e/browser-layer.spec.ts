@@ -9,6 +9,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { creamInside, decodePng, edgeBound, edgeErrors, outlineWidth, pagePixelsNear, pagePixelsOutside, type Box, type Edge, type Image } from './browser-pixels'
 import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { ms } from '../time-scale'
 
 // The prototype of the layer of live Browsers (worfy-browser ticket 01, ADR-0078 item 12): the
 // Canvas draws a Browser Node as an empty frame, and a separate layer draws the frame's <webview>
@@ -87,7 +88,7 @@ async function start(viewport: Viewport, extra: Record<string, unknown>[] = []):
   launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, HOME: home } })
   const { window } = launched
   await canvasReady(launched, { size: WINDOW, visible: [window.locator(`.react-flow__node[data-id="${FRAME.id}"]`)] })
-  await expect.poll(() => guestState().then((state) => state?.ready), { timeout: 15_000, message: 'the fixture page has loaded in the <webview>' }).toBe('yes')
+  await expect.poll(() => guestState().then((state) => state?.ready), { timeout: ms(15_000), message: 'the fixture page has loaded in the <webview>' }).toBe('yes')
   return window
 }
 

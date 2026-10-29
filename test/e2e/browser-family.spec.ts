@@ -22,6 +22,7 @@ import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, openSecondWindow, parkPointer, PROJECTS_ACCESS_LABEL, type LaunchedApp } from './helpers'
 import { catScript, loginProfileWithNode } from '../harness-node'
+import { ms } from '../time-scale'
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -152,7 +153,7 @@ const expectLit = (window: Page, ids: readonly string[]): Promise<void> =>
   expect.poll(() => lit(window).evaluateAll((frames) => frames.map((frame) => frame.getAttribute('data-node-id')))).toEqual(ids)
 
 test('a Session’s Browser is in its Ticket’s Family and leaves the Canvas with the Session; the user’s Browsers stay, in both windows', async () => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-browser-family-')))
   const projectId = 'demo-0000000d'
   const { claudeHome, dataDir, home } = fixture(scratch, projectId, [userBrowser(USER_BROWSER, 0, 600), userBrowser(DRIVEN_BROWSER, 0, 1200)])
@@ -168,9 +169,9 @@ test('a Session’s Browser is in its Ticket’s Family and leaves the Canvas wi
     // The Session opens a Browser of its own and drives one of the user's.
     const opened = await tool<{ id: string }>(app, projectId, 'browser_open', { profile: PROFILE, url: `${origin}/` })
     await tool(app, projectId, 'browser_screenshot', { id: DRIVEN_BROWSER })
-    for (const page of [window, second]) await expect(frameOf(page, opened.id)).toBeVisible({ timeout: 20_000 })
+    for (const page of [window, second]) await expect(frameOf(page, opened.id)).toBeVisible({ timeout: ms(20_000) })
     await expect(frameOf(window, DRIVEN_BROWSER)).toHaveAttribute('data-control', 'claude')
-    await expect.poll(() => pageUrls(app), { timeout: 20_000 }).toContain(`${origin}/`)
+    await expect.poll(() => pageUrls(app), { timeout: ms(20_000) }).toContain(`${origin}/`)
     await canvasReady(launched, { visible: [ticket, frameOf(window, opened.id)] })
 
     // Nothing hovered: no Browser is marked.
@@ -197,7 +198,7 @@ test('a Session’s Browser is in its Ticket’s Family and leaves the Canvas wi
     // Where the Session's Browser stands, as main saves it.
     const saved = (): string => readFileSync(join(dataDir, projectId, 'layout.json'), 'utf8')
     const placeOf = (id: string): { x: number; y: number } | undefined => (JSON.parse(saved()) as { nodes: { id: string; x: number; y: number }[] }).nodes.find((node) => node.id === id)
-    await expect.poll(() => placeOf(opened.id), { timeout: 10_000 }).toBeDefined()
+    await expect.poll(() => placeOf(opened.id), { timeout: ms(10_000) }).toBeDefined()
     const place = placeOf(opened.id)!
 
     // Hide the Session: its Browser leaves the Canvas of both windows and its page is closed.
@@ -210,9 +211,9 @@ test('a Session’s Browser is in its Ticket’s Family and leaves the Canvas wi
       await expect(frameOf(page, DRIVEN_BROWSER).getByTestId('browser-claude-drives'), page === window ? 'first window' : 'second window').toHaveCount(0)
       await expect(frameOf(page, DRIVEN_BROWSER)).not.toHaveAttribute('data-control', /.+/)
     }
-    await expect.poll(() => pageUrls(app), { timeout: 20_000 }).not.toContain(`${origin}/`)
+    await expect.poll(() => pageUrls(app), { timeout: ms(20_000) }).not.toContain(`${origin}/`)
     // And layout.json has it no more, once main writes it.
-    await expect.poll(saved, { timeout: 10_000 }).not.toContain(opened.id)
+    await expect.poll(saved, { timeout: ms(10_000) }).not.toContain(opened.id)
     expect(saved()).toContain(USER_BROWSER)
     // One ⌘Z brings the Session back with its Browser, at its former place, in both windows, and
     // the Browser's page opens again.
@@ -222,8 +223,8 @@ test('a Session’s Browser is in its Ticket’s Family and leaves the Canvas wi
       await expect(page.locator(`[data-testid="session-node"][data-session-id="${CLAIM}"]`)).toBeVisible()
       await expect(frameOf(page, opened.id)).toHaveCount(1)
     }
-    await expect.poll(() => placeOf(opened.id), { timeout: 10_000 }).toEqual(place)
-    await expect.poll(() => pageUrls(app), { timeout: 20_000 }).toContain(`${origin}/`)
+    await expect.poll(() => placeOf(opened.id), { timeout: ms(10_000) }).toEqual(place)
+    await expect.poll(() => pageUrls(app), { timeout: ms(20_000) }).toContain(`${origin}/`)
   } finally {
     await launched.close()
     await removeDir(scratch)
@@ -231,7 +232,7 @@ test('a Session’s Browser is in its Ticket’s Family and leaves the Canvas wi
 })
 
 test.describe('on a read-only screen', () => {
-  test.setTimeout(180_000)
+  test.setTimeout(ms(180_000))
 
   test('a Linked machine shown the Project read-only lights the Session’s Browser in the Ticket’s Family', async () => {
     const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-browser-family-ro-')))
@@ -254,7 +255,7 @@ test.describe('on a read-only screen', () => {
       await canvasReady(a, { size })
       // B's Session opens its Browser on B, the Project's Machine.
       const opened = await tool<{ id: string }>(machineB.app, BETA, 'browser_open', { profile: PROFILE })
-      await expect(frameOf(machineB.window, opened.id)).toBeVisible({ timeout: 20_000 })
+      await expect(frameOf(machineB.window, opened.id)).toBeVisible({ timeout: ms(20_000) })
 
       await linkThroughUi(a.window, machineB.window)
       const aId = await machineIdOf(a.window)
@@ -265,7 +266,7 @@ test.describe('on a read-only screen', () => {
       await closeSettings(machineB.window)
 
       const group = a.window.locator(`[data-testid="machine-group"][data-machine-id="${bId}"]`)
-      await expect(group.getByTestId('machine-read-only')).toHaveText('Read only', { timeout: 20_000 })
+      await expect(group.getByTestId('machine-read-only')).toHaveText('Read only', { timeout: ms(20_000) })
       await group.locator(`[data-testid="project-row"][data-project-id="${BETA}"]`).getByRole('button').click()
       await expect(a.window.getByTestId('canvas')).toHaveAttribute('data-project-id', BETA)
       await expect(a.window.getByTestId('canvas-read-only')).toBeVisible()

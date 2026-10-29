@@ -11,6 +11,7 @@ import type { TestModule, Vitest } from 'vitest/node'
 import { removeTestTree } from '../remove'
 import TimingsReporter, { TIMINGS_REPORT, type TimingsReport } from '../timings-reporter'
 import { scriptNode } from '../script-node'
+import { ms } from '../time-scale'
 
 const SCRIPT = join(import.meta.dirname, '..', '..', 'scripts', 'test-timings.mjs')
 
@@ -27,7 +28,7 @@ function put(dir: string, file: string, content: unknown): void {
   mkdirSync(join(dir, file, '..'), { recursive: true })
   writeFileSync(join(dir, file), typeof content === 'string' ? content : JSON.stringify(content))
 }
-const run = (cwd: string, ...args: string[]) => spawnSync(scriptNode(), [SCRIPT, ...args], { cwd, encoding: 'utf8', timeout: 30_000 })
+const run = (cwd: string, ...args: string[]) => spawnSync(scriptNode(), [SCRIPT, ...args], { cwd, encoding: 'utf8', timeout: ms(30_000) })
 
 interface TestTimings {
   testTimings: (args: string[], io: { cwd: string; out: (text: string) => void; err: (line: string) => void }) => number

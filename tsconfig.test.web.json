@@ -3,6 +3,6 @@
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.cache/tsconfig.test.web.tsbuildinfo"
   },
-  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx", "src/shared/**/*.ts", "test/**/*.tsx", "test/setup-dom.ts"],
+  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx", "src/shared/**/*.ts", "test/**/*.tsx", "test/setup-dom.ts", "test/time-scale.ts"],
   "exclude": ["node_modules", "out", ".claude/worktrees/**"]
 }

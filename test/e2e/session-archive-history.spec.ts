@@ -7,6 +7,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, parkPointer, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // The Archive of the Canvas in the built app (worfy-canvas ticket 09, ADR-0076). The Project is a
 // temporary git repository with one Epic of two Tickets; `bin/epic-status` in a temporary
@@ -127,8 +128,8 @@ test('a bound Session is in its Ticket\'s history, Show puts it next to the Tick
   try {
     const { window } = launched
     const ticket = window.locator(`[data-testid="ticket-node"][data-epic="${EPIC}"][data-ticket="1"]`)
-    await expect(ticket).toBeVisible({ timeout: 20_000 })
-    await canvasReady(launched, { size: { width: 1400, height: 900 }, frames: 20, timeout: 20_000 })
+    await expect(ticket).toBeVisible({ timeout: ms(20_000) })
+    await canvasReady(launched, { size: { width: 1400, height: 900 }, frames: 20, timeout: ms(20_000) })
     await parkPointer(window)
 
     // Neither archived Session is on the Canvas.
@@ -136,7 +137,7 @@ test('a bound Session is in its Ticket\'s history, Show puts it next to the Tick
 
     // The bound Session: «1 session» on its Ticket, a button with its name.
     const badge = ticket.getByRole('button', { name: '1 session archived of ticket demo/01' })
-    await expect(badge).toBeVisible({ timeout: 20_000 })
+    await expect(badge).toBeVisible({ timeout: ms(20_000) })
     await expect(window.locator(`[data-testid="ticket-node"][data-ticket="2"]`).getByTestId('ticket-sessions-button')).toHaveCount(0)
     // The Epic frame's header counts it too.
     await expect(window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`).getByRole('button', { name: '1 session archived of epic demo' })).toBeVisible()
@@ -159,7 +160,7 @@ test('a bound Session is in its Ticket\'s history, Show puts it next to the Tick
     await expect.poll(async () => (await layoutNode(window, BOUND_NODE))?.archived ?? null).toBeNull()
     const shown = window.locator(`[data-testid="session-node"][data-node-id="${BOUND_NODE}"]`)
     await expect(shown).toBeVisible()
-    await canvasReady(launched, { frames: 20, timeout: 20_000 })
+    await canvasReady(launched, { frames: 20, timeout: ms(20_000) })
     const frame = await box(window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`))
     const ticketBox = await box(ticket)
     const shownBox = await box(shown)

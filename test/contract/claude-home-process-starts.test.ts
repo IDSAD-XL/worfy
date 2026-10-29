@@ -10,6 +10,7 @@ import {
   PROCESS_STARTS_SCRIPT,
   readWindowsProcessStarts,
 } from '../../src/main/claude-home/registry'
+import { ms } from '../time-scale'
 
 // The live Session check on Windows, of src/main/claude-home/registry.ts: the start time of each
 // process read by one Windows PowerShell call. Moved out of claude-home-registry.test.ts, which
@@ -188,7 +189,7 @@ describe('process liveness on Windows (worfy-windows ticket 08)', () => {
   })
 })
 
-describe.runIf(process.platform === 'win32')('process liveness on this Windows machine', { timeout: 30_000 }, () => {
+describe.runIf(process.platform === 'win32')('process liveness on this Windows machine', { timeout: ms(30_000) }, () => {
   it('is alive for this process at its own start time, gone at another, read through PowerShell', async () => {
     const own = (await readWindowsProcessStarts()([process.pid])).get(process.pid)
     expect(own).toMatch(/^\d{17,}$/)

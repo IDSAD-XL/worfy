@@ -15,6 +15,7 @@ import type { LimitsState } from '../../src/shared/agent/limits'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 // node:fs as it is, except that watch is a spy: one test puts in a folder watch that reports nothing,
 // to check the poll alone.
@@ -210,7 +211,7 @@ describe('statusline-limits.json', () => {
     }
   })
 
-  it('is followed while watched: a new file updates the Limits', { timeout: 15_000 }, async () => {
+  it('is followed while watched: a new file updates the Limits', { timeout: ms(15_000) }, async () => {
     const limits = tracker()
     const changed = new Promise<LimitsState>((resolve) => limits.subscribe(resolve))
     limits.watchStatusline()
@@ -223,7 +224,7 @@ describe('statusline-limits.json', () => {
     }
   })
 
-  it('is polled too: a write made while the folder watch starts is read although the watch never reports it', { timeout: 10_000 }, async () => {
+  it('is polled too: a write made while the folder watch starts is read although the watch never reports it', { timeout: ms(10_000) }, async () => {
     // FSEvents starts its stream on another thread and may miss a write made before the stream is up.
     // This folder watch misses the write made while it starts, and reports nothing afterwards either.
     let starts = 0

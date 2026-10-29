@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fullLayout } from '../../src/main/workflow/folder'
 import { WorkflowWatcher } from '../../src/main/workflow/watch'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 // The real chokidar; each watch it makes is kept, to see that the one made anew still follows the refs.
 const made = vi.hoisted(() => ({ watches: [] as { paths: unknown; watcher: import('chokidar').FSWatcher }[] }))
@@ -79,7 +80,7 @@ describe.runIf(WINDOWS)('the watch of the branches on Windows, real folders: a f
     await pause(1000)
 
     git('worktree', 'remove', worktree)
-    await vi.waitFor(() => expect(lines()).toHaveLength(1), { timeout: 5000, interval: 50 })
+    await vi.waitFor(() => expect(lines()).toHaveLength(1), { timeout: ms(5000), interval: 50 })
     // `worktrees` or `worktrees\wt`, whichever handle says it first.
     expect(lines()[0]!.startsWith(`[workflow] the folder ${join(repo, '.git', 'worktrees')}`)).toBe(true)
     expect(lines()[0]!.endsWith(' is gone: the watch of the branches is made anew')).toBe(true)
@@ -91,12 +92,12 @@ describe.runIf(WINDOWS)('the watch of the branches on Windows, real folders: a f
     branches()[1]!.on('all', () => (seen += 1))
     await pause(500)
     git('worktree', 'add', '-q', '-b', 'side2', join(dir, 'wt2'))
-    await vi.waitFor(() => expect(seen).toBeGreaterThan(0), { timeout: 5000, interval: 50 })
+    await vi.waitFor(() => expect(seen).toBeGreaterThan(0), { timeout: ms(5000), interval: 50 })
 
     // The repository goes: one more line, and the handles of `.git` and `refs\heads` are let go.
     await pause(1000)
     removeTestTree(repo)
-    await vi.waitFor(() => expect(lines().length).toBeGreaterThanOrEqual(2), { timeout: 5000, interval: 50 })
+    await vi.waitFor(() => expect(lines().length).toBeGreaterThanOrEqual(2), { timeout: ms(5000), interval: 50 })
     expect(await spentInASecond()).toBeLessThan(300)
     expect(lines()).toHaveLength(2)
     expect(lines()[1]!.startsWith(`[workflow] the folder ${join(repo, '.git')}`)).toBe(true)
@@ -116,10 +117,10 @@ describe.runIf(WINDOWS)('the watch of the branches on Windows, real folders: a f
     watchers.push(watcher)
     await pause(1000)
     removeTestTree(repo)
-    await vi.waitFor(() => expect(lines()).toHaveLength(1), { timeout: 5000, interval: 50 })
+    await vi.waitFor(() => expect(lines()).toHaveLength(1), { timeout: ms(5000), interval: 50 })
     expect(await spentInASecond()).toBeLessThan(300)
     expect(lines()).toHaveLength(1)
     // `.git` or `.git\refs\heads`, whichever handle says it first; with `\` only.
     expect(lines()[0]!.startsWith(`[workflow] the folder ${join(repo, '.git')}`)).toBe(true)
-  }, 20_000)
+  }, ms(20_000))
 })

@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { defineConfig } from '@playwright/test'
+import { ms } from './test/time-scale'
 
 // The acceptance run of the worfy-harness Epic: test/acceptance/e3.spec.ts drives the packaged
 // worfy.app (dist/mac*/worfy.app of `pnpm package`, or WORFY_PACKAGED_APP) with the real agent in
@@ -22,7 +23,8 @@ export default defineConfig({
   testMatch: '**/*.spec.ts',
   fullyParallel: false,
   workers: 1,
-  timeout: 15 * 60_000,
+  // Times the run's multiplier (test/time-scale.ts), like every other limit of the test run.
+  timeout: ms(15 * 60_000),
   reporter: [['list']],
   outputDir: join('test-results-acceptance', startedAt),
   use: {

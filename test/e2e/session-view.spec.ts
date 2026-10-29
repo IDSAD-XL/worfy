@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { writeMarkedTranscript } from '../big-transcript'
 import { launchApp } from './helpers'
+import { ms } from '../time-scale'
 
 // The Session view against the built app, on the fake agent: the script
 // test/fixtures/agent-scripts/session-view.jsonl plays two turns and starts over. Turn 1 runs a
@@ -387,7 +388,7 @@ test('a prompt sent just before local midnight shows its date once the day has t
 })
 
 test('⌘F finds in the whole history of a resumed Session: «N of M», Enter and Shift+Enter, a match behind «Load earlier» loaded and scrolled to, Esc (worfy-ui ticket 26)', async () => {
-  test.setTimeout(180_000)
+  test.setTimeout(ms(180_000))
   // The Orchestrator saved the Session SAVED; its transcript is 10 MB, the view opens on the last 4 MiB.
   const SAVED = 'f1d00000-0000-4000-8000-0000000000e2'
   const cwd = join(scratch, 'alpha')
@@ -453,7 +454,7 @@ test('⌘F finds in the whole history of a resumed Session: «N of M», Enter an
     expect(await painted('worfy-find-current')).toEqual(['Зебра'])
     // Back past the first row: windows are loaded until the line of turn 2, and the log scrolls to it.
     await field.press('Shift+Enter')
-    await expect(count).toHaveText('1 of 3', { timeout: 30_000 })
+    await expect(count).toHaveText('1 of 3', { timeout: ms(30_000) })
     await expect(view.getByText('Answer number 2: the')).toBeVisible()
     await expect.poll(() => painted('worfy-find-current')).toEqual(['зебра'])
     await expect.poll(currentInSight).toBe(true)

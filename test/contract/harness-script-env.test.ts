@@ -26,6 +26,7 @@ import { epicStatusRunner, readCheckout, readWorkflow } from '../../src/main/wor
 import { WorkflowHub, WorkflowWatcher } from '../../src/main/workflow/watch'
 import type { WorkflowModel } from '../../src/shared/workflow/types'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 const HARNESS = join(__dirname, '..', '..', 'harness')
 
@@ -228,10 +229,11 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
   // Next to last in this file: it adds a Ticket to the Workflow folder, and it leaves the app's
   // source holding the environment it captured.
   it("the app's own source: node added to the login shell's .profile after the start shows the Epics without a restart, and a Ticket written after that shows too", async () => {
-    const until = async (done: () => boolean, what: string, ms = 20_000): Promise<void> => {
-      const end = Date.now() + ms
+    const until = async (done: () => boolean, what: string, limit = 20_000): Promise<void> => {
+      const wait = ms(limit)
+      const end = Date.now() + wait
       while (!done()) {
-        if (Date.now() > end) throw new Error(`not within ${ms} ms: ${what}`)
+        if (Date.now() > end) throw new Error(`not within ${wait} wait: ${what}`)
         await new Promise((resolve) => setTimeout(resolve, 50))
       }
     }
@@ -260,7 +262,7 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
       await watcher.close()
       rmSync(second, { force: true })
     }
-  }, 60_000)
+  }, ms(60_000))
 
   // After the test above: it starts from a login shell without node, and leaves one with node.
   // Review round 2 of PR #311: "Check again" turned its own row green while the sidebar kept the
@@ -308,7 +310,7 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
     } finally {
       await hub.closeAll()
     }
-  }, 60_000)
+  }, ms(60_000))
 
   // Review round 3 of PR #311 (mutant K13): a failure that is not about the environment is brought
   // back by "Check again" too. An old node on the login shell's PATH runs the script and exits with
@@ -343,5 +345,5 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
     } finally {
       await hub.closeAll()
     }
-  }, 60_000)
+  }, ms(60_000))
 })

@@ -7,6 +7,7 @@ import { expect, test, type ElectronApplication, type Locator } from '@playwrigh
 import { expectBorderedChipsFit } from './chip-fit'
 import { claudePluginStub } from './claude-plugin-stub'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { ms } from '../time-scale'
 
 // worfy-harness ticket 24: "Add project" on a repository the Harness does not know opens the dialog
 // that connects it — Silent mode by default, the draft of the fake agent
@@ -101,7 +102,7 @@ test('Add project connects a new repository: Silent by default, the draft, the f
     await expect(window.getByTestId('project-row')).toHaveCount(0)
 
     await dialog.getByRole('button', { name: 'Write draft' }).click()
-    await expect(dialog).toHaveAttribute('data-step', 'form', { timeout: 20_000 })
+    await expect(dialog).toHaveAttribute('data-step', 'form', { timeout: ms(20_000) })
     const messages = readFileSync(agentLog, 'utf8')
       .trim()
       .split('\n')
@@ -144,7 +145,7 @@ test('Add project connects a new repository: Silent by default, the draft, the f
     expect(existsSync(join(harnessHome, 'projects', 'shop', 'profile.json'))).toBe(true)
     expect(existsSync(join(harnessHome, 'projects', 'shop', 'workflow', '.git'))).toBe(true)
     const panel = window.getByTestId('first-epic')
-    await expect(panel).toBeVisible({ timeout: 20_000 })
+    await expect(panel).toBeVisible({ timeout: ms(20_000) })
     await expect(panel).toContainText('No epics yet')
     await shoot(launched, window.locator('.react-flow'), 'first-epic')
     await panel.getByRole('button', { name: 'Plan first epic' }).click()
@@ -213,7 +214,7 @@ async function toForm(launched: LaunchedApp, repo: string): Promise<Locator> {
   await launched.window.getByRole('button', { name: 'Add project' }).click()
   const dialog = launched.window.getByTestId('connect-project')
   await dialog.getByRole('button', { name: 'Write draft' }).click()
-  await expect(dialog).toHaveAttribute('data-step', 'form', { timeout: 20_000 })
+  await expect(dialog).toHaveAttribute('data-step', 'form', { timeout: ms(20_000) })
   return dialog
 }
 
@@ -235,37 +236,37 @@ test('the GitHub account: the active account with access by default, "Sign in wi
     const dialog = await toForm(launched, shop)
     const step = dialog.getByTestId('connect-github')
     const rows = step.getByTestId('connect-github-account')
-    await expect(rows).toHaveCount(2, { timeout: 20_000 })
+    await expect(rows).toHaveCount(2, { timeout: ms(20_000) })
     await expect(rows.nth(0)).toHaveAttribute('data-login', 'alice')
     await expect(rows.nth(0).getByRole('radio')).toBeChecked()
     // The "active" chip has a 1 px border: its text stays inside it.
     await expectBorderedChipsFit(step, 'the GitHub account step')
     await expect(rows.nth(1).getByTestId('connect-github-reason')).toHaveText('bob has no write access to acme/shop: Tickets will close with the local finish.')
     await expect(dialog.getByLabel('Finish', { exact: true })).toHaveAttribute('data-value', 'pr-green-ci')
-    await expect(dialog.getByRole('button', { name: 'Connect' })).toBeEnabled({ timeout: 10_000 })
+    await expect(dialog.getByRole('button', { name: 'Connect' })).toBeEnabled({ timeout: ms(10_000) })
     await shoot(launched, dialog, 'account-list', '25')
 
     // Sign in: the stand-in's gh auth login runs in the dialog and waits for its user.
     await step.getByRole('button', { name: 'Sign in with gh' }).click()
     const signIn = step.getByTestId('connect-signin')
-    await expect(signIn).toHaveAttribute('data-state', 'running', { timeout: 20_000 })
-    await expect(signIn.getByTestId('connect-signin-terminal')).toContainText('Press Enter to sign in', { timeout: 20_000 })
+    await expect(signIn).toHaveAttribute('data-state', 'running', { timeout: ms(20_000) })
+    await expect(signIn.getByTestId('connect-signin-terminal')).toContainText('Press Enter to sign in', { timeout: ms(20_000) })
     expect(ghCalls(ghLog)).toContain('auth login')
     await shoot(launched, dialog, 'account-signin', '25')
     await signIn.getByTestId('connect-signin-terminal').click()
     await launched.window.keyboard.press('Enter')
-    await expect(signIn).toHaveAttribute('data-state', 'exited', { timeout: 20_000 })
+    await expect(signIn).toHaveAttribute('data-state', 'exited', { timeout: ms(20_000) })
     // gh exited: the accounts were read again, with the one the sign-in added (now gh's active one).
-    await expect(rows).toHaveCount(3, { timeout: 20_000 })
+    await expect(rows).toHaveCount(3, { timeout: ms(20_000) })
     await expect(step.locator('[data-login="carol"]').getByRole('radio')).toBeChecked()
 
     // The person picks bob, who cannot push: the local finish.
     await step.locator('[data-login="bob"]').getByRole('radio').check()
     await expect(dialog.getByLabel('Finish', { exact: true })).toHaveAttribute('data-value', 'local-green')
     const connect = dialog.getByRole('button', { name: 'Connect' })
-    await expect(connect).toBeEnabled({ timeout: 10_000 })
+    await expect(connect).toBeEnabled({ timeout: ms(10_000) })
     await connect.click()
-    await expect(dialog).toHaveCount(0, { timeout: 20_000 })
+    await expect(dialog).toHaveCount(0, { timeout: ms(20_000) })
 
     // The sandbox Harness only: the gate exports CLAUDE_GATE_CONFIG (its own registry) to the tests it runs.
     const outside = /^(CLAUDE_GATE_|CLAUDE_PROFILES_DIR$|PROJECT_CONNECT_|ELECTRON_RUN_AS_NODE$)/
@@ -297,20 +298,20 @@ test('the GitHub account: gh failing says why; gh without accounts offers the si
     harnessFor(launched)
     const dialog = await toForm(launched, shop)
     const step = dialog.getByTestId('connect-github')
-    await expect(step.getByTestId('connect-github-error')).toHaveText('gh auth status failed: error connecting to api.github.com', { timeout: 20_000 })
+    await expect(step.getByTestId('connect-github-error')).toHaveText('gh auth status failed: error connecting to api.github.com', { timeout: ms(20_000) })
     await expect(dialog.getByLabel('Finish', { exact: true })).toHaveAttribute('data-value', 'local-green')
     const connect = dialog.getByRole('button', { name: 'Connect' })
-    await expect(connect).toBeEnabled({ timeout: 10_000 })
+    await expect(connect).toBeEnabled({ timeout: ms(10_000) })
     // Nothing in focus: the screenshot shows the error, not a focus ring.
     await dialog.focus()
     await shoot(launched, dialog, 'account-error', '25')
 
     unlinkSync(join(ghDir, 'fail'))
     await step.getByRole('button', { name: 'Check again' }).click()
-    await expect(step.getByTestId('connect-github-empty')).toHaveText('gh has no account for github.com. Sign in with gh, or connect without an account.', { timeout: 20_000 })
+    await expect(step.getByTestId('connect-github-empty')).toHaveText('gh has no account for github.com. Sign in with gh, or connect without an account.', { timeout: ms(20_000) })
     await expect(step.getByTestId('connect-github-none').getByRole('radio')).toBeChecked()
     await expect(step.getByRole('button', { name: 'Sign in with gh' })).toBeEnabled()
-    await expect(connect).toBeEnabled({ timeout: 10_000 })
+    await expect(connect).toBeEnabled({ timeout: ms(10_000) })
     await dialog.focus()
     await shoot(launched, dialog, 'account-empty', '25')
   } finally {

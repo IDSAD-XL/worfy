@@ -10,6 +10,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ConnectFolder, GithubAccountsStep, ProfileDraft } from '../../src/shared/ipc/projects'
+import { ms } from '../time-scale'
 
 const ipc = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -101,7 +102,7 @@ async function toForm(issues: { path: string; kind: string; message: string }[],
 /** Waits until the accounts have come and the check of the last edit has come back. */
 const checked = async () => {
   await waitFor(() => expect(screen.queryByTestId('connect-github-loading')).toBeNull())
-  await waitFor(() => expect(screen.getByRole('button', { name: /Connect/ }).closest('[role=dialog]')?.textContent).not.toContain('Checking the draft'), { timeout: 2000 })
+  await waitFor(() => expect(screen.getByRole('button', { name: /Connect/ }).closest('[role=dialog]')?.textContent).not.toContain('Checking the draft'), { timeout: ms(2000) })
 }
 
 /** The drafts the form sent to the check, in order. */
@@ -128,7 +129,7 @@ describe('the form', () => {
 
     ipc.invoke.mockImplementation(() => Promise.resolve({ ok: false, error: 'main is gone' }))
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'shop2' } })
-    await waitFor(() => expect(screen.getByTestId('connect-message').textContent).toContain('The draft could not be checked'), { timeout: 2000 })
+    await waitFor(() => expect(screen.getByTestId('connect-message').textContent).toContain('The draft could not be checked'), { timeout: ms(2000) })
     expect(connect.disabled).toBe(true)
     // Clicking it anyway writes nothing.
     await act(async () => {
@@ -139,7 +140,7 @@ describe('the form', () => {
 
     ipc.invoke.mockImplementation(() => Promise.resolve({ ok: true, value: { issues: [] } }))
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'shop3' } })
-    await waitFor(() => expect(connect.disabled).toBe(false), { timeout: 2000 })
+    await waitFor(() => expect(connect.disabled).toBe(false), { timeout: ms(2000) })
     expect(screen.queryByTestId('connect-message')).toBeNull()
   })
 
@@ -150,7 +151,7 @@ describe('the form', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
     await waitFor(() => expect(screen.getByTestId('connect-message').textContent).toContain('the write broke'))
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'shop2' } })
-    await waitFor(() => expect(screen.getByTestId('connect-message').textContent).toContain('The draft could not be checked'), { timeout: 2000 })
+    await waitFor(() => expect(screen.getByTestId('connect-message').textContent).toContain('The draft could not be checked'), { timeout: ms(2000) })
     expect(screen.getByTestId('connect-message').textContent).not.toContain('the write broke')
   })
 })
@@ -309,7 +310,7 @@ describe('the GitHub account step', () => {
       answer(ACCOUNTS)
       await Promise.resolve()
     })
-    await waitFor(() => expect((screen.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(false), { timeout: 2000 })
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(false), { timeout: ms(2000) })
     expect(checkedDrafts().at(-1)?.profile).toMatchObject({ github: { account: 'alice' } })
   })
 

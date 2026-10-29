@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync 
 import { join } from 'node:path'
 import { _electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { NO_WINDOW_RESTORE, repoRoot } from '../e2e/helpers'
+import { ms } from '../time-scale'
 
 // The acceptance run of the worfy-harness Epic (ticket 26): the packaged worfy.app with the real
 // agent, on a machine whose Claude home is empty — the sandbox of scripts/e3-sandbox.sh (HOME,
@@ -42,7 +43,7 @@ const ACCOUNT = process.env.E3_GH_ACCOUNT ?? 'IDSAD-XL'
 const NO_LOGIN = 'не проверено: нет входа в песочнице — шаг владельца'
 const NO_REPO = 'не проверено: нет E3_SILENT_REPO (пустой private-репозиторий на GitHub) — шаг владельца'
 const REPO_NOT_EMPTY = 'is not empty: this run pushes its own main there. The owner deletes it and makes it again, empty and private, or names another empty repository in E3_SILENT_REPO'
-const WAVE_TIMEOUT_MS = 90 * 60_000
+const WAVE_TIMEOUT_MS = ms(90 * 60_000)
 /** The checks of the first-run screen (Q22), in the order the screen shows them. */
 const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'git-identity', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'harness-scripts', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
 /** Files of the workflow that must never reach a Silent Project's repository. */
@@ -233,7 +234,7 @@ async function launch(box: Sandbox, app: string, dataDir: string): Promise<Launc
   const electron = await _electron.launch({ executablePath: join(app, 'Contents', 'MacOS', 'worfy'), args: NO_WINDOW_RESTORE, env, cwd: box.env.HOME })
   const child = electron.process()
   try {
-    const window = await electron.firstWindow({ timeout: 60_000 })
+    const window = await electron.firstWindow({ timeout: ms(60_000) })
     await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
     return {
       app: electron,
@@ -266,9 +267,9 @@ async function pickFolder(app: ElectronApplication, folder: string): Promise<voi
 /** The first-run screen once its checks are in. */
 async function firstRunScreen(window: Page): Promise<Locator> {
   const screen = window.getByTestId('first-run')
-  await expect(screen, 'the first-run screen opens by itself on a fresh data folder').toBeVisible({ timeout: 60_000 })
-  await expect(screen.locator('[data-check]')).toHaveCount(CHECK_IDS.length, { timeout: 120_000 })
-  await expect(screen.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: 120_000 })
+  await expect(screen, 'the first-run screen opens by itself on a fresh data folder').toBeVisible({ timeout: ms(60_000) })
+  await expect(screen.locator('[data-check]')).toHaveCount(CHECK_IDS.length, { timeout: ms(120_000) })
+  await expect(screen.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: ms(120_000) })
   return screen
 }
 
@@ -459,7 +460,7 @@ test('silent: control — a read of the draft dialog gets what is left of the wa
 })
 
 test('sandbox: the packaged app installs its Harness and qmd into an empty Claude home', async () => {
-  test.setTimeout(process.env.E3_QMD_MODELS === '1' ? 90 * 60_000 : 20 * 60_000)
+  test.setTimeout(process.env.E3_QMD_MODELS === '1' ? ms(90 * 60_000) : ms(20 * 60_000))
   requireLock()
   const app = packagedApp()
   const version = appVersion(app)
@@ -575,12 +576,12 @@ test('silent: a Silent Project connects, one Wave runs, and no workflow trace re
     await dialog.getByRole('button', { name: 'Write draft' }).click()
     await expectDraftForm(dialog, 15 * 60_000)
     const account = dialog.getByTestId('connect-github').locator(`[data-testid="connect-github-account"][data-login="${ACCOUNT}"]`)
-    await expect(account).toBeVisible({ timeout: 60_000 })
+    await expect(account).toBeVisible({ timeout: ms(60_000) })
     await account.getByRole('radio').check()
     const connect = dialog.getByRole('button', { name: 'Connect' })
-    await expect(connect).toBeEnabled({ timeout: 60_000 })
+    await expect(connect).toBeEnabled({ timeout: ms(60_000) })
     await connect.click()
-    await expect(dialog).toHaveCount(0, { timeout: 60_000 })
+    await expect(dialog).toHaveCount(0, { timeout: ms(60_000) })
 
     const profile = (field: string): Run => inSandbox(box, join(bin, 'profile'), ['-C', repo, '--field', field])
     expect(profile('mode').stdout.trim()).toBe('silent')
@@ -607,11 +608,11 @@ test('silent: a Silent Project connects, one Wave runs, and no workflow trace re
     // One Wave, unattended: Autopilot runs the Wave without a person ("Run wave" would hand it to an
     // attended Orchestrator, whose permission prompts nobody answers here).
     const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
-    await expect(frame).toBeVisible({ timeout: 120_000 })
+    await expect(frame).toBeVisible({ timeout: ms(120_000) })
     const autopilot = frame.getByTestId('action-autopilot')
-    await expect(autopilot).toHaveAttribute('aria-disabled', 'false', { timeout: 60_000 })
+    await expect(autopilot).toHaveAttribute('aria-disabled', 'false', { timeout: ms(60_000) })
     await autopilot.click()
-    await expect(frame.getByTestId('autopilot-status')).toBeVisible({ timeout: 60_000 })
+    await expect(frame.getByTestId('autopilot-status')).toBeVisible({ timeout: ms(60_000) })
 
     const ticketState = (): string => {
       const status = inSandbox(box, join(bin, 'epic-status'), ['--json'], { cwd: repo })
@@ -621,7 +622,7 @@ test('silent: a Silent Project connects, one Wave runs, and no workflow trace re
     }
     await expect.poll(ticketState, { timeout: WAVE_TIMEOUT_MS, intervals: [30_000] }).toBe('done')
     // The line stays after the run and names why it stopped (F-SPEC, "Status line text" and "Visible when").
-    await expect(frame.getByTestId('autopilot-status'), 'the run stops once no Wave is left').toHaveText('stopped: no ready wave', { timeout: 15 * 60_000 })
+    await expect(frame.getByTestId('autopilot-status'), 'the run stops once no Wave is left').toHaveText('stopped: no ready wave', { timeout: ms(15 * 60_000) })
 
     // The run's journal: no point where it asked for a person, and no person stepped in.
     const journals = join(dataDir, 'autopilot')

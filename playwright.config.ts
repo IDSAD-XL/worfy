@@ -1,5 +1,6 @@
 import { defineConfig } from '@playwright/test'
 import { CI_RETRIES } from './test/flaky'
+import { ms } from './test/time-scale'
 
 // Quiet windows (src/main/quiet-windows.ts): every worfy an e2e test starts shows its window without
 // taking the focus, without a Dock icon, transparent and letting the mouse through, so a run does
@@ -65,7 +66,10 @@ export default defineConfig({
   outputDir: OUTPUT_DIR,
   fullyParallel: false,
   workers: E2E_WORKERS,
-  timeout: 60_000,
+  // Both limits times the run's multiplier (test/time-scale.ts, WORFY_TEST_TIMEOUT_SCALE), like every
+  // limit a spec sets for itself through ms. 5 s is Playwright's own default of expect.
+  timeout: ms(60_000),
+  expect: { timeout: ms(5_000) },
   retries: CI_RETRIES,
   reporter: [['list'], ['./test/e2e/helpers.ts'], ['./test/e2e/flaky-reporter.ts'], ['json', { outputFile: jsonReport }]],
   use: {

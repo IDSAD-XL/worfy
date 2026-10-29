@@ -14,6 +14,7 @@ import { PAIR_PATH } from '../../src/main/link/messages'
 import { PAIRING_CLOSE_FAILED, PAIRING_FAILED, PAIRING_MAX_FAILURES } from '../../src/main/link/pairing'
 import { LinkBench, type BenchMachine } from './link-bench'
 import { linkPairingHelpers } from './link-pairing-helpers'
+import { ms } from '../time-scale'
 
 let bench: LinkBench
 const { errors, rejection, certificateOf, secretsOf } = linkPairingHelpers(() => bench)
@@ -395,7 +396,7 @@ describe('round 2: a pairing socket that dies mid-step', () => {
     }
     const started = Date.now()
     await rejection(a.service.pair({ host: '127.0.0.1', port: bench.portOf(b), code }))
-    await expect.poll(() => b.pairingFailures.length, { timeout: 2000 }).toBe(1)
+    await expect.poll(() => b.pairingFailures.length, { timeout: ms(2000) }).toBe(1)
     expect(Date.now() - started).toBeLessThan(2000)
   })
 })

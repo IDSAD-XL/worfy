@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, openSecondWindow } from './helpers'
 import { NO_ZSH, NO_ZSH_ON_WINDOWS, zshPath } from '../zsh'
+import { ms } from '../time-scale'
 
 // The Suggestion of Terminal AI from the history of commands, in a Terminal Node of the built app
 // on a real zsh: a command that ran is offered again in grey when its start is typed, → and
@@ -141,13 +142,13 @@ test('a command that ran is suggested in grey from the history; → and Alt+→ 
     const node = await newTerminal(window)
     const screen = node.getByTestId('terminal-screen')
     await screen.click()
-    await expect.poll(() => screenText(node), { timeout: 15_000 }).toMatch(/^e2e% /m)
+    await expect.poll(() => screenText(node), { timeout: ms(15_000) }).toMatch(/^e2e% /m)
 
     // The command runs once: its output is one line that is the mark and two more words.
     await window.keyboard.type(`echo ${mark} second third`)
     await window.keyboard.press('Enter')
     const output = new RegExp(`^${mark} second third$`, 'gm')
-    await expect.poll(async () => [...(await screenText(node)).matchAll(output)].length, { timeout: 10_000 }).toBe(1)
+    await expect.poll(async () => [...(await screenText(node)).matchAll(output)].length, { timeout: ms(10_000) }).toBe(1)
 
     // The same Terminal in a second window, before anything is typed.
     const second = await openSecondWindow(launched)
@@ -159,14 +160,14 @@ test('a command that ran is suggested in grey from the history; → and Alt+→ 
     await screen.click()
     await window.keyboard.type('echo wo')
     const rest = `${mark.slice('wo'.length)} second third`
-    await expect.poll(async () => (await greyText(node)).text, { timeout: 10_000 }).toBe(rest)
+    await expect.poll(async () => (await greyText(node)).text, { timeout: ms(10_000) }).toBe(rest)
     expect(await editedLine(node)).toBe(`e2e% echo ${mark} second third`)
     // Grey is another colour than what was typed, not only another class.
     const grey = await greyText(node)
     expect(grey.color).not.toBe('')
     expect(grey.color).not.toBe(await typedColor(node))
     // The second window shows the same line with the same part of it in grey.
-    await expect.poll(async () => (await greyText(node2)).text, { timeout: 10_000 }).toBe(rest)
+    await expect.poll(async () => (await greyText(node2)).text, { timeout: ms(10_000) }).toBe(rest)
     expect(await editedLine(node2)).toBe(`e2e% echo ${mark} second third`)
 
     if (EVIDENCE_DIR !== undefined) {
@@ -179,19 +180,19 @@ test('a command that ran is suggested in grey from the history; → and Alt+→ 
 
     // Alt+→ takes one word: the mark; the two words after it stay grey.
     await window.keyboard.press('Alt+ArrowRight')
-    await expect.poll(async () => (await greyText(node)).text, { timeout: 10_000 }).toBe(' second third')
-    await expect.poll(async () => (await greyText(node2)).text, { timeout: 10_000 }).toBe(' second third')
+    await expect.poll(async () => (await greyText(node)).text, { timeout: ms(10_000) }).toBe(' second third')
+    await expect.poll(async () => (await greyText(node2)).text, { timeout: ms(10_000) }).toBe(' second third')
     // → takes the rest: nothing grey is left, and Enter runs the whole command a second time.
     await window.keyboard.press('ArrowRight')
-    await expect.poll(async () => (await greyText(node)).text, { timeout: 10_000 }).toBe('')
+    await expect.poll(async () => (await greyText(node)).text, { timeout: ms(10_000) }).toBe('')
     expect(await editedLine(node)).toBe(`e2e% echo ${mark} second third`)
     await window.keyboard.press('Enter')
-    await expect.poll(async () => [...(await screenText(node)).matchAll(output)].length, { timeout: 10_000 }).toBe(2)
-    await expect.poll(async () => [...(await screenText(node2)).matchAll(output)].length, { timeout: 10_000 }).toBe(2)
+    await expect.poll(async () => [...(await screenText(node)).matchAll(output)].length, { timeout: ms(10_000) }).toBe(2)
+    await expect.poll(async () => [...(await screenText(node2)).matchAll(output)].length, { timeout: ms(10_000) }).toBe(2)
     // Nothing of worfy's is in the environment of what the shell runs.
     await window.keyboard.type('echo "env-$(env | grep -c WORFY_)"')
     await window.keyboard.press('Enter')
-    await expect.poll(() => screenText(node), { timeout: 10_000 }).toMatch(/^env-0$/m)
+    await expect.poll(() => screenText(node), { timeout: ms(10_000) }).toMatch(/^env-0$/m)
   } finally {
     await launched.close()
   }

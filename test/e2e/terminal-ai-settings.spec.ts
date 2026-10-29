@@ -6,6 +6,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { closeSettings, launchApp, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { NO_ZSH, NO_ZSH_ON_WINDOWS, zshPath } from '../zsh'
+import { ms } from '../time-scale'
 
 // Settings → "Terminal AI" against the built app:
 // - the switches reach a zsh that is already running: with "Suggestion" off, and with "Terminal AI"
@@ -241,9 +242,9 @@ test('Suggestion off, and Terminal AI off, take the grey text from a zsh that is
     const expectGrey = (): Promise<void> =>
       expect(async () => {
         await typeStart()
-        await expect.poll(() => greyText(node), { timeout: 2_000 }).toBe(rest)
+        await expect.poll(() => greyText(node), { timeout: ms(2_000) }).toBe(rest)
         expect(await editedLine(node)).toBe(`e2e% echo ${mark} second third`)
-      }).toPass({ timeout: 20_000 })
+      }).toPass({ timeout: ms(20_000) })
     const expectNoGrey = (): Promise<void> =>
       expect(async () => {
         await typeStart()
@@ -253,18 +254,18 @@ test('Suggestion off, and Terminal AI off, take the grey text from a zsh that is
         for (const letter of ['', 'r', 'f', 'y']) {
           if (letter !== '') await window.keyboard.type(letter)
           typed += letter
-          await expect.poll(() => editedLine(node), { timeout: 2_000 }).toBe(`e2e% ${typed}`)
+          await expect.poll(() => editedLine(node), { timeout: ms(2_000) }).toBe(`e2e% ${typed}`)
           expect(await greyText(node)).toBe('')
         }
-      }).toPass({ timeout: 20_000 })
+      }).toPass({ timeout: ms(20_000) })
 
     await screen.click()
-    await expect.poll(() => screenText(node), { timeout: 15_000 }).toMatch(/^e2e% /m)
+    await expect.poll(() => screenText(node), { timeout: ms(15_000) }).toMatch(/^e2e% /m)
     // The command runs once: its output is one line that is the mark and two more words.
     await window.keyboard.type(`echo ${mark} second third`)
     await window.keyboard.press('Enter')
     const output = new RegExp(`^${mark} second third$`, 'gm')
-    await expect.poll(async () => [...(await screenText(node)).matchAll(output)].length, { timeout: 10_000 }).toBe(1)
+    await expect.poll(async () => [...(await screenText(node)).matchAll(output)].length, { timeout: ms(10_000) }).toBe(1)
 
     // Everything is on from the start: the rest of the command is grey after its start.
     await expectGrey()

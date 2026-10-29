@@ -13,6 +13,7 @@ import { findGitBash } from '../../src/main/agent/env'
 import { spawnShellPty, type SpawnPty } from '../../src/main/terminal/pty'
 import { endDescendants, endShell, type StartedShell } from '../../src/main/terminal/windows-pty'
 import { alive, consoleHosts, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, settledHandleCount, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
+import { ms } from '../time-scale'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
 
@@ -47,7 +48,7 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty',
     const lines = (await readFile(file, 'utf8')).split(/\r?\n/)
     expect(lines).toContain(first.command)
     expect(lines).toContain(second.command)
-  }, 30_000)
+  }, ms(30_000))
 
   // node-pty 1.2.0-beta.15 forgets the pseudo-console of a shell that exits by itself and never
   // closes it: two handles of this process per shell (microsoft/node-pty#965). Before this ticket
@@ -81,8 +82,8 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty',
     // One reading of a settled count, as in the test of ticket 92 in terminal-windows.test.ts.
     const added = (await settledHandleCount()) - before
     expect(Math.abs(added), `added ${added} handles`).toBeLessThanOrEqual(NOISE)
-    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !hostsBefore.has(pid))).toEqual([]), { timeout: 5000, interval: 500 })
-  }, 90_000)
+    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !hostsBefore.has(pid))).toEqual([]), { timeout: ms(5000), interval: 500 })
+  }, ms(90_000))
 })
 
 // The launcher of Git Bash the helper suspended cannot exit by itself: whatever fails on the way,
@@ -103,7 +104,7 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows when a step fail
 
   async function expectNothingLeft(launcher: number, hostsBefore: Set<number>): Promise<void> {
     expect(alive(launcher), `the launcher ${launcher}`).toBe(false)
-    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !hostsBefore.has(pid))).toEqual([]), { timeout: 5000, interval: 500 })
+    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !hostsBefore.has(pid))).toEqual([]), { timeout: ms(5000), interval: 500 })
   }
 
   it('the helper fails after it held the launcher: the close still calls kill(), and the launcher is ended', async (context) => {
@@ -120,7 +121,7 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows when a step fail
     const { launcher, ms } = await openAndClose(h)
     expect(ms).toBeLessThan(10_000)
     await expectNothingLeft(launcher, hostsBefore)
-  }, 40_000)
+  }, ms(40_000))
 
   it('the helper answers gone after it held the launcher: the close still calls kill(), and the launcher is ended', async (context) => {
     needsGitBash(context)
@@ -136,7 +137,7 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows when a step fail
     const { launcher, ms } = await openAndClose(h)
     expect(ms).toBeLessThan(10_000)
     await expectNothingLeft(launcher, hostsBefore)
-  }, 40_000)
+  }, ms(40_000))
 
   it('kill() of the pty throws: the launcher is ended by its pid', async (context) => {
     needsGitBash(context)
@@ -152,7 +153,7 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows when a step fail
     const { launcher, ms } = await openAndClose(h)
     expect(ms).toBeLessThan(10_000)
     await expectNothingLeft(launcher, hostsBefore)
-  }, 40_000)
+  }, ms(40_000))
 
   // node-pty reports the exit 1 s after the close stops its output thread, whether or not the
   // launcher is gone; the end by pid took 840-900 ms on the owner's PC, so a slower start of its
@@ -175,7 +176,7 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows when a step fail
     const { launcher, ms } = await openAndClose(h)
     expect(ms).toBeLessThan(10_000)
     await expectNothingLeft(launcher, hostsBefore)
-  }, 40_000)
+  }, ms(40_000))
 
   it('closeAll with six Git Bash Terminals open, as quitting the app does, leaves no launcher, bash or console host', async (context) => {
     needsGitBash(context)
@@ -193,6 +194,6 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows when a step fail
     await h.registry.closeAll()
     expect(h.registry.size).toBe(0)
     expect(launchers.filter((pid) => alive(pid))).toEqual([])
-    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !hostsBefore.has(pid))).toEqual([]), { timeout: 5000, interval: 500 })
-  }, 60_000)
+    await vi.waitFor(() => expect(consoleHosts().filter((pid) => !hostsBefore.has(pid))).toEqual([]), { timeout: ms(5000), interval: 500 })
+  }, ms(60_000))
 })

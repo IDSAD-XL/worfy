@@ -33,6 +33,7 @@ import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
 import { ABORTED, hasSh, NODE_DIR, nodeScript, OUT_OF_MEMORY, scriptsEnv } from '../harness-node'
 import { removeTestTree } from '../remove'
 import { shellStub } from '../shell-stub'
+import { ms } from '../time-scale'
 
 const mocks = vi.hoisted(() => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -815,10 +816,10 @@ describe('a failed profile call in the workflow model', () => {
       expect(watcher.current.epics).toEqual([])
       expect(runs).toEqual([])
       // Still failing: asked again, the same reason, nothing sent.
-      await vi.waitFor(() => expect(answers).toBeGreaterThanOrEqual(3), { timeout: 5000 })
+      await vi.waitFor(() => expect(answers).toBeGreaterThanOrEqual(3), { timeout: ms(5000) })
       expect(changes).toEqual([])
       cured = true
-      await vi.waitFor(() => expect(watcher.current.epics.map((epic) => epic.epic)).toEqual(['demo']), { timeout: 5000 })
+      await vi.waitFor(() => expect(watcher.current.epics.map((epic) => epic.epic)).toEqual(['demo']), { timeout: ms(5000) })
       expect(watcher.current.error).toBeNull()
       expect(runs.length).toBeGreaterThan(0)
       expect(changes.at(-1)).toMatchObject({ error: null })

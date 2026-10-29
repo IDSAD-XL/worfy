@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { canvasReady, launchApp, settledBoxLists } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { ms } from '../time-scale'
 
 // "Tidy up" (worfy-week/07) against the built app: from ⌘K and from the Canvas menu the Nodes of
 // the Layout on the plane are packed by ELK in its Web Worker, sent to main as one `moveMany`, and
@@ -126,7 +127,7 @@ async function expectApartOnScreen(window: Page, ids: readonly string[], zoom: n
 
 /** Waits for main's Layout to take a revision past `revision`, then for the Canvas to come to rest. */
 async function nextLayout(launched: { window: Page }, revision: number): Promise<StateNode[]> {
-  await expect.poll(async () => (await state(launched.window)).revision, { timeout: 10_000 }).toBeGreaterThan(revision)
+  await expect.poll(async () => (await state(launched.window)).revision, { timeout: ms(10_000) }).toBeGreaterThan(revision)
   await canvasReady(launched)
   return (await state(launched.window)).nodes
 }
@@ -221,7 +222,7 @@ test('200 Nodes are laid out within 2 s from the command to the last place on th
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
   try {
     const { window } = launched
-    await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [window.getByTestId('rf__node-n0')], timeout: 20_000 })
+    await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [window.getByTestId('rf__node-n0')], timeout: ms(20_000) })
     const before = await state(window)
     await window.keyboard.press('ControlOrMeta+k')
     const input = window.getByTestId('palette-input')

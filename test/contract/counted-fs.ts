@@ -5,6 +5,7 @@ import fs, { mkdtempSync, rmdirSync, symlinkSync, unlinkSync } from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { ms } from '../time-scale'
 
 /** A share of a host that does not exist: a call through a link to it fails after more than a second. */
 export const SHARE = '\\\\worfy-no-such-host\\share'
@@ -24,10 +25,11 @@ export function canLink(): boolean {
   }
 }
 
-export async function until(what: string, done: () => boolean, ms = 5000): Promise<void> {
-  const end = performance.now() + ms
+export async function until(what: string, done: () => boolean, limit = 5000): Promise<void> {
+  const wait = ms(limit)
+  const end = performance.now() + wait
   while (!done()) {
-    if (performance.now() > end) throw new Error(`timed out after ${ms} ms waiting for ${what}`)
+    if (performance.now() > end) throw new Error(`timed out after ${wait} wait waiting for ${what}`)
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
 }

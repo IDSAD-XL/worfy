@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LinkSafeWatch, MAX_SCAN_DEPTH, RETRY_DELAY_MS, RETRY_SLOW_AFTER, ROOT_ERRORS_BEFORE_PAUSE, SLOW_RETRY_DELAY_MS, type LinkSafeWatchOptions, type WatchFs, type WatchState } from '../../src/main/link-safe-watch'
 import { UNCHECKED } from '../../src/main/remote-links'
 import { FILE, FOLDER, linkTo, windowsDisk, type DiskEntry, type WindowsDisk } from './windows-disk'
+import { ms } from '../time-scale'
 
 const REPO = 'C:\\p\\repo'
 const ROOT = `${REPO}\\.scratch`
@@ -72,7 +73,7 @@ const RETRY = 5
 
 /** Waits until the watch has looked again and is where the test expects it. */
 async function until(what: string, done: () => boolean): Promise<void> {
-  const end = performance.now() + 2000
+  const end = performance.now() + ms(2000)
   while (!done()) {
     if (performance.now() > end) throw new Error(`timed out waiting for ${what}`)
     await pause(RETRY)
