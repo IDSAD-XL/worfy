@@ -72,7 +72,7 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
       `harness/bin/tests/epic-wave-ship-ticket.test.sh:1090-1109`.
 - [x] Пустой список affected-tests: job-ы test-ов linux и windows зелёные без запуска vitest, `ci-ok` их
       учитывает; раздела `generated` в `scripts/affected-tests.table.json` в репозитории нет — CI строит его в run-е (решение
-      владельца 2026-10-29, R2-Q3/R2-Q4). — заменено R2-Q3/R2-Q4: `.github/workflows/ci.yml:190-191`,
+      владельца 2026-10-29, R2-Q3/R2-Q4). — сделано в #970: `.github/workflows/ci.yml:190-191`,
       `.github/workflows/windows-tests.yml:220-221`, `scripts/ci-ok.mjs:53-54`, `scripts/affected-tests.mjs:111-112`;
       test-ы `test/contract/ci-workflow.test.ts:485-510`, `test/unit/affected-tests.test.ts:423-433`, `:544-547`.
 - [ ] Первые две Wave-ы после merge: время от зелёных проверок до merge (Ticket 14) и число красных
