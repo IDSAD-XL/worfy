@@ -16,6 +16,8 @@ trap 'rm -rf "$T"' EXIT
 # A path under $T as node reads it: C:/… in Git Bash on Windows (pwd -W); unchanged elsewhere.
 TN="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
 tn() { case "$1" in "$T"/*) printf '%s' "$TN${1#"$T"}" ;; *) printf '%s' "$1" ;; esac; }
+# The same path as the script prints it: node's path.resolve, C:\… with backslashes on Windows.
+np() { node -e 'process.stdout.write(require("path").resolve(process.argv[1]))' "$(tn "$1")"; }
 . "$HERE/real-home.sh"
 REAL_HOME="$HOME"
 home_before="$(real_home_snapshot "$REAL_HOME" "$T")"
@@ -109,7 +111,7 @@ in_section Land "#11 e/01 merged ${S11:0:8}" && in_section Land "#12 e/02 merged
     && ok "land: the merged PRs with their ticket and merge SHA" || bad "land: merged lines missing: $(section Land)"
 in_section Land '#13 e/03 waits (waits): no review mark on the head' && ok "land: a PR that waits, with its reason" || bad "land: waits line: $(section Land)"
 in_section Land "documents PR #900 for #11, #12: merged ${D900:0:8}" && ok "land: the documents PR" || bad "land: documents line: $(section Land)"
-in_section Land "Land state: $(tn "$S")" && in_section Land "log: $(tn "$T")/land-e-1.log" && ok "land: names the state file and its log" || bad "land: paths: $(section Land)"
+in_section Land "Land state: $(np "$S")" && in_section Land "log: $(np "$T/land-e-1.log")" && ok "land: names the state file and its log" || bad "land: paths: $(section Land)"
 in_section Waiting '03 claimed' && in_section Waiting '04 blocked · waits: owner · needs the PC · PR #21' \
     && ok "waiting: the claimed ticket and the blocked one with Waits:, its reason and PR" || bad "waiting: $(section Waiting)"
 ! in_section Waiting '01 ' && ! in_section Waiting '06 ' && ok "waiting: done and open tickets are not listed" || bad "waiting lists done/open: $(section Waiting)"
@@ -120,7 +122,7 @@ in_section 'Open PRs' "#21 e/04 · branch fix-the-pc-path @ ${S12:0:8} · marks:
 ! in_section 'Open PRs' '#20' && ok "open PRs: another epic's PR is left out" || bad "open PRs shows #20: $(section 'Open PRs')"
 in_section 'Next wave' 'ready (open, every blocker done): 06, 07' && in_section 'Next wave' '05 waits for 03' && in_section 'Next wave' 'done 2/7' \
     && ok "next wave: the open tickets with every blocker done, the held one and what it waits for" || bad "next wave: $(section 'Next wave')"
-in_section Journal "run folder: $(tn "$NEW")" && in_section Journal "(2 rows)" && ok "journal: the newest run folder of the epic and its decision log" || bad "journal: $(section Journal)"
+in_section Journal "run folder: $(np "$NEW")" && in_section Journal "(2 rows)" && ok "journal: the newest run folder of the epic and its decision log" || bad "journal: $(section Journal)"
 has 'Stage: /implement · e 2/7' && ok "epic: the Stage line of epic-status" || bad "epic: no Stage line: $(head -n 3 "$T/out")"
 n="$(wc -c <"$T/out" | tr -d ' ')"
 [ "$n" -lt 12000 ] && ok "size: $n bytes < 12000" || bad "size: $n bytes"
@@ -134,12 +136,12 @@ brief e; rc=$?
 # --- 3. a brief saved in the run folder names the state file for the next session --------------------------
 (cd "$R" && "$WB" e --land "$(tn "$S")") >"$NEW/wave-brief.txt"
 brief e; rc=$?
-[ "$rc" = 0 ] && in_section Land 'LAND=unverified' && in_section Journal "saved brief: $(tn "$NEW")/wave-brief.txt" \
+[ "$rc" = 0 ] && in_section Land 'LAND=unverified' && in_section Journal "saved brief: $(np "$NEW/wave-brief.txt")" \
     && ok "saved brief: a bare run reads the state file it names" || bad "saved brief: exit $rc: $(section Land) / $(section Journal)"
 # a newer run folder without a brief (the next wave's log already started): the saved brief is still found
 mkdir -p "$RUNS/e-wave-20261029T080000Z"
 brief e
-in_section Land 'LAND=unverified' && in_section Journal "run folder: $(tn "$RUNS")/e-wave-20261029T080000Z" && in_section Journal 'decision log: none in it' \
+in_section Land 'LAND=unverified' && in_section Journal "run folder: $(np "$RUNS/e-wave-20261029T080000Z")" && in_section Journal 'decision log: none in it' \
     && ok "saved brief: found in an older run folder when the newest has none" || bad "saved brief, newer folder: $(section Land) / $(section Journal)"
 
 # --- 4. a state file that cannot be read: one line, exit 0 ----------------------------------------------
