@@ -2,7 +2,7 @@
 // (src/renderer/canvas/sources/subagents.ts), the tree's lines (edges/subagents.ts), what a Node
 // shows (nodes/SubagentNode.tsx) and the rail's list (session/rail/SubagentsRail.tsx). The tree is
 // the one of the synthetic Session 7777 (test/fixtures/claude-home/README.md).
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import subagentEdges from '../../src/renderer/canvas/edges/subagents'
@@ -19,13 +19,21 @@ import subagentSource, {
   subagentPlaneRects,
   type SubagentNodeData,
 } from '../../src/renderer/canvas/sources/subagents'
-import { formatElapsed, statusLabel } from '../../src/renderer/claude-home/subagents'
+import { formatElapsed, INTERRUPTED_TOOLTIP, statusLabel, withoutHidden } from '../../src/renderer/claude-home/subagents'
 import { useNavigation } from '../../src/renderer/session/navigation'
 import { SubagentsList } from '../../src/renderer/session/rail/SubagentsRail'
 import { Transcript } from '../../src/renderer/session/Transcript'
 import type { Layout, LayoutNode } from '../../src/shared/layout/types'
 import { parseTranscriptLines } from '../../src/shared/transcript/parse'
+import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { buildSubagentTree, flattenSubagents, subagentFile, subagentSignals, type SubagentFile, type SubagentInfo } from '../../src/shared/transcript/subagents'
+
+// The level of the screen: null for full access, the hint of a read-only Linked machine otherwise.
+const screenLevel = vi.hoisted(() => ({ readOnly: null as string | null }))
+vi.mock('../../src/renderer/projects/useProjects', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/renderer/projects/useProjects')>()),
+  useReadOnly: () => screenLevel.readOnly,
+}))
 
 const S7 = '77777777-7777-4777-8777-777777777777'
 /** The files of Session 7777, by path relative to its project folder. */
@@ -40,8 +48,8 @@ const lines = (path: string, until?: string): string[] =>
     .filter((line) => line.trim() !== '')
     .filter((line) => until === undefined || ((JSON.parse(line) as { timestamp?: string }).timestamp ?? '') <= until)
 
-/** The tree of Session 7777 as it was at `until`. */
-function tree7(until?: string): SubagentInfo[] {
+/** The tree of Session 7777 as it was at `until`; with `processStartedAt`, as a running process of the Session that started then sees it (ADR-0085). */
+function tree7(until?: string, processStartedAt?: number): SubagentInfo[] {
   const files: SubagentFile[] = []
   for (const path of Object.keys(FILES).sort()) {
     const agentId = new RegExp(`^${S7}/subagents/agent-(.+)\\.jsonl$`).exec(path)?.[1]
@@ -50,7 +58,8 @@ function tree7(until?: string): SubagentInfo[] {
     const transcript = lines(path, until)
     if (transcript.length > 0) files.push(subagentFile(agentId, meta === undefined ? null : JSON.parse(meta), transcript))
   }
-  return buildSubagentTree({ signals: subagentSignals(parseTranscriptLines(lines(`${S7}.jsonl`, until))), files })
+  const signals = subagentSignals(parseTranscriptLines(lines(`${S7}.jsonl`, until)))
+  return buildSubagentTree({ signals: processStartedAt === undefined ? signals : [...signals, { kind: 'session-process', startedAt: processStartedAt }], files })
 }
 
 const RUNNING_AT = '2026-06-01T10:01:10.000Z'
@@ -61,6 +70,8 @@ const trees = (tree: SubagentInfo[]) => new Map([[S7, tree]])
 
 afterEach(() => {
   vi.useRealTimers()
+  screenLevel.readOnly = null
+  delete (globalThis as { worfy?: WorfyBridge }).worfy
   useNavigation.setState({ view: 'canvas', opened: {}, offCanvas: {} })
 })
 
@@ -73,7 +84,7 @@ describe('placeSubagents', () => {
       { key: 'anchor', x: 300, y: 18, h: 1, parentId: null, fold: null },
       { key: 'toolu_01S7AGENT1XXXXXXXXXXXXXX', x: X, y: 0, h: SUBAGENT_HEIGHT, parentId: anchorNodeId(S7), fold: null },
       { key: 'toolu_01S7AGENT2XXXXXXXXXXXXXX', x: X + SUBAGENT_WIDTH + 56, y: 0, h: SUBAGENT_HEIGHT, parentId: `subagent:${S7}/toolu_01S7AGENT1XXXXXXXXXXXXXX`, fold: null },
-      { key: 'done:session', x: X, y: SUBAGENT_HEIGHT + 12, h: FOLD_HEIGHT, parentId: anchorNodeId(S7), fold: { parentKey: 'session', count: 1, expanded: false } },
+      { key: 'done:session', x: X, y: SUBAGENT_HEIGHT + 12, h: FOLD_HEIGHT, parentId: anchorNodeId(S7), fold: { parentKey: 'session', count: 1, label: '1 done', expanded: false, finished: ['toolu_01S7AGENT3XXXXXXXXXXXXXX'] } },
     ])
   })
 
@@ -89,7 +100,14 @@ describe('placeSubagents', () => {
   it('folds every done Subagent of the finished Session into one row, nested ones included', () => {
     const placed = placeSubagents({ sessionId: S7, sessionWidth: 300, tree: tree7(), expanded: () => false })
     expect(placed.map((place) => place.key)).toEqual(['anchor', 'done:session'])
-    expect(placed[1]!.fold).toEqual({ parentKey: 'session', count: 2, expanded: false })
+    // «Hide finished» on the row hides every entry under the Session that has ended, the nested one too.
+    expect(placed[1]!.fold).toEqual({
+      parentKey: 'session',
+      count: 2,
+      label: '2 done',
+      expanded: false,
+      finished: ['toolu_01S7AGENT1XXXXXXXXXXXXXX', 'toolu_01S7AGENT2XXXXXXXXXXXXXX', 'toolu_01S7AGENT3XXXXXXXXXXXXXX'],
+    })
   })
 })
 
@@ -458,6 +476,136 @@ function settled(list: SubagentInfo[], depth = 1): SubagentInfo[] {
     .map((info) => ({ ...info, depth, children: settled(info.children, depth + 1) }))
 }
 const railIds = (): (string | undefined)[] => screen.queryAllByTestId('subagents-rail-row').map((row) => row.dataset.subagentId)
+
+// ADR-0085: a Subagent of an earlier process of its Session is `interrupted`, neutral grey; «Hide»
+// hides one entry of any status, «Hide finished» the ones that have ended.
+describe('interrupted Subagents and Hide', () => {
+  /** Session 7777 at RUNNING_AT, seen by a process of the Session that started an hour later: its two running Subagents died with the earlier one. */
+  const AFTER = Date.parse('2026-06-01T11:00:00.000Z')
+  const interrupted7 = () => tree7(RUNNING_AT, AFTER)
+
+  /** Records what the renderer asks main; answers the hidden list it was given. */
+  function bridge() {
+    const calls: Array<{ channel: string; input: unknown }> = []
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      invoke: (channel: string, input: unknown) => {
+        calls.push({ channel, input })
+        return Promise.resolve({ ok: true, value: { sessions: {} } })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    return calls
+  }
+
+  it('labels the status Interrupted, with its time, and the tooltip says the process restarted', () => {
+    expect(statusLabel({ status: 'interrupted', startedAt: 0, durationMs: 3000 }, 99_000)).toBe('Interrupted 3s')
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(AFTER)
+    // Folded with the done ones: the row is opened to draw its Node.
+    const open = buildSubagentNodes('p-int', layoutWith(session), trees(interrupted7()), { [`p-int|${S7}|session`]: true }).find((each) => each.id.endsWith('AGENT1XXXXXXXXXXXXXX'))
+    renderNode(open!.data.node.data as SubagentNodeData)
+    expect(screen.getByTestId('subagent-node').dataset.status).toBe('interrupted')
+    const status = screen.getByTestId('subagent-status')
+    expect(status.title).toBe(INTERRUPTED_TOOLTIP)
+    expect(status.title).toContain("process restarted after this agent's last record")
+    // Neutral grey with a pause mark: not the amber of `error`, not the blue of `running`.
+    expect(status.querySelector('[data-status]')?.getAttribute('data-status')).toBe('stopped')
+    const label = status.textContent
+    expect(label).toMatch(/^Interrupted \d/)
+    // Its time does not go on.
+    act(() => vi.advanceTimersByTime(5000))
+    expect(status.textContent).toBe(label)
+  })
+
+  it('folds interrupted Subagents with the done ones on the Canvas, and draws their lines as ended', () => {
+    const placed = placeSubagents({ sessionId: S7, sessionWidth: 300, tree: interrupted7(), expanded: () => false })
+    expect(placed.map((place) => place.key)).toEqual(['anchor', 'done:session'])
+    expect(placed[1]!.fold).toMatchObject({ count: 2, label: '1 done · 1 interrupted' })
+    const open = buildSubagentNodes('p-int-edges', layoutWith(session), trees(interrupted7()), { [`p-int-edges|${S7}|session`]: true }).map((each) => each.data.node)
+    expect(subagentEdges([session, ...open]).some((edge) => String(edge.className).includes('running'))).toBe(false)
+  })
+
+  it('puts interrupted ones into the rail\'s group, and the tooltip on their status', () => {
+    render(<SubagentsList tree={interrupted7()} now={AFTER} onOpen={() => undefined} sessionKey="list-int" />)
+    expect(railIds()).toEqual([])
+    expect(screen.getByTestId('subagents-rail-done').textContent).toBe('Done (2) · 1 interrupted')
+    fireEvent.click(screen.getByTestId('subagents-rail-done'))
+    const rows = screen.getAllByTestId('subagents-rail-row')
+    expect(rows.map((row) => row.dataset.status)).toEqual(['done', 'interrupted', 'interrupted'])
+    expect(within(rows[1]!).getByTestId('subagents-rail-status').title).toBe(INTERRUPTED_TOOLTIP)
+  })
+
+  it('hides one Node of any status, running too, and every finished entry under the parent from its row', async () => {
+    const calls = bridge()
+    const data = dataOf('AGENT1XXXXXXXXXXXXXX')
+    expect(data.agent!.status).toBe('running')
+    renderNode(data)
+    fireEvent.click(screen.getByTestId('subagent-hide'))
+    await vi.waitFor(() => expect(calls).toContainEqual({ channel: 'claudeHome.hideSubagents', input: { projectId: data.projectId, sessionId: S7, ids: ['toolu_01S7AGENT1XXXXXXXXXXXXXX'] } }))
+    cleanup()
+    const fold = dataOf('done:session', tree7())
+    renderNode(fold)
+    expect(screen.getByTestId('subagent-fold').textContent).toBe('2 done')
+    fireEvent.click(screen.getByTestId('subagent-fold-hide'))
+    await vi.waitFor(() =>
+      expect(calls.at(-1)).toEqual({
+        channel: 'claudeHome.hideSubagents',
+        input: { projectId: fold.projectId, sessionId: S7, ids: ['toolu_01S7AGENT1XXXXXXXXXXXXXX', 'toolu_01S7AGENT2XXXXXXXXXXXXXX', 'toolu_01S7AGENT3XXXXXXXXXXXXXX'] },
+      }),
+    )
+  })
+
+  it('shows no Hide on the Canvas of a read-only Linked machine', () => {
+    screenLevel.readOnly = 'Mini gives this Machine read-only access'
+    renderNode(dataOf('AGENT1XXXXXXXXXXXXXX'))
+    expect(screen.queryByTestId('subagent-hide')).toBeNull()
+    cleanup()
+    renderNode(dataOf('done:session', tree7()))
+    expect(screen.getByTestId('subagent-fold')).toBeTruthy()
+    expect(screen.queryByTestId('subagent-fold-hide')).toBeNull()
+  })
+
+  it('hides a rail row of any status, and «Hide finished» leaves the running ones, nested ones too', () => {
+    const tree = settled([sub('err', 'error', 1000), sub('run', 'running', 2000, [sub('run-done', 'done', 2100)]), sub('fin', 'done', 3000, [sub('fin-run', 'running', 3100), sub('fin-int', 'interrupted', 3200)])])
+    const onHide = vi.fn()
+    render(<SubagentsList tree={tree} now={10_000} onOpen={() => undefined} sessionKey="list-hide" onHide={onHide} />)
+    const runRow = screen.getAllByTestId('subagents-rail-row').find((row) => row.dataset.subagentId === 'run')!
+    fireEvent.click(within(runRow.parentElement!).getByTestId('subagents-rail-hide'))
+    expect(onHide).toHaveBeenLastCalledWith(['run'])
+    fireEvent.click(screen.getByTestId('subagents-rail-hide-finished'))
+    expect(onHide).toHaveBeenLastCalledWith(['err', 'run-done', 'fin', 'fin-int'])
+  })
+
+  it('offers «Show hidden Subagents» while some are hidden, and no Hide without a way to write', () => {
+    const onShow = vi.fn()
+    const tree = settled([sub('a', 'done', 1000)])
+    const view = render(<SubagentsList tree={tree} now={10_000} onOpen={() => undefined} sessionKey="list-show" onHide={() => undefined} hiddenCount={3} onShowHidden={onShow} />)
+    fireEvent.click(screen.getByTestId('subagents-rail-show-hidden'))
+    expect(onShow).toHaveBeenCalledOnce()
+    expect(screen.getByTestId('subagents-rail-show-hidden').textContent).toBe('Show hidden Subagents (3)')
+    view.rerender(<SubagentsList tree={[]} now={10_000} onOpen={() => undefined} sessionKey="list-show" onHide={() => undefined} hiddenCount={1} onShowHidden={onShow} />)
+    expect(screen.getByTestId('subagents-rail').textContent).toContain('Every Subagent is hidden')
+    view.rerender(<SubagentsList tree={tree} now={10_000} onOpen={() => undefined} sessionKey="list-show" hiddenCount={3} />)
+    expect(screen.queryByTestId('subagents-rail-hide')).toBeNull()
+    expect(screen.queryByTestId('subagents-rail-hide-finished')).toBeNull()
+    expect(screen.queryByTestId('subagents-rail-show-hidden')).toBeNull()
+  })
+
+  it('leaves hidden entries out of the tree; a hidden entry\'s own Subagents take its place', () => {
+    const tree = settled([sub('fin', 'done', 1000, [sub('fin-run', 'running', 1100, [sub('deep', 'done', 1200)])]), sub('other', 'running', 2000)])
+    expect(withoutHidden(tree, new Set())).toBe(tree)
+    expect(withoutHidden(tree, new Set(['unknown']))).toBe(tree)
+    const shown = withoutHidden(tree, new Set(['fin', 'other']))
+    expect(flattenSubagents(shown).map(({ id, depth }) => [id, depth])).toEqual([
+      ['fin-run', 1],
+      ['deep', 2],
+    ])
+    // Hidden on the Canvas too: buildSubagentNodes gets the tree without them.
+    const nodes = buildSubagentNodes('p-hidden', layoutWith(session), trees([...withoutHidden(tree7(RUNNING_AT), new Set(['toolu_01S7AGENT1XXXXXXXXXXXXXX']))]), {})
+    expect(nodes.map((each) => each.id)).toEqual([anchorNodeId(S7), `subagent:${S7}/toolu_01S7AGENT2XXXXXXXXXXXXXX`, `subagent:${S7}/done:session`])
+  })
+})
 
 describe('the Subagent row of a transcript', () => {
   it('shows the type of a `worfy` plugin Subagent without the plugin, the full type in the tooltip', () => {

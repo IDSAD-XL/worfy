@@ -150,6 +150,10 @@ _Avoid_: оркестратор, composer, главный чат, Morphy
 Агент, которого Session запустила для части работы (например, scout, implementer, reviewer); у него свой транскрипт и итог, и он принадлежит запустившей его Session.
 _Avoid_: субагент, воркер, teammate
 
+**Interrupted**:
+Subagent, процесс Session которого кончился раньше, чем он закончил; это не сбой. Признак: у Subagent-а нет записи о конце, а текущий процесс его Session запущен позже последней записи в его транскрипте (ADR-0085). На Canvas и в rail-е — серый статус «Interrupted».
+_Avoid_: оборванный, упавший, stale, error
+
 **Background task**:
 Работа, которую Session запустила и не ждёт в своём ходе: Subagent или Bash с `run_in_background`, workflow-скрипт (ADR-0029). Живёт, пока жив процесс Claude Code этой Session; о своём конце сообщает task-notification, которая начинает новый ход Session. Это не Ticket: в строке Autopilot «2 background tasks» и в журнале прогона считаются только такие задачи.
 _Avoid_: job; «task» и «задача» без «background»

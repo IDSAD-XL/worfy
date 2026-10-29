@@ -153,6 +153,17 @@ describe('useSubagentTrees: asking the files again while a Subagent runs', () =>
     expect(readsOf(B)).toBe(1)
   })
 
+  it('does not ask again for a Session whose Subagents have only ended or were interrupted (ADR-0085)', async () => {
+    // The Subagent's call is at 1000; the Session's running process started at 5000, after it.
+    filesOf = (sessionId) => ({ signals: [...running(sessionId), { kind: 'session-process', startedAt: 5000 }], files: [], found: true })
+    const { hook, store } = await mount([A])
+    await vi.waitFor(() => expect(hook.result.current.get(A)?.[0]?.status).toBe('interrupted'))
+    expect(readsOf(A)).toBe(1)
+    await act(async () => vi.advanceTimersByTime(store.POLL_MS * 3))
+    expect(readsOf(A)).toBe(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('does not ask again while no Subagent runs', async () => {
     filesOf = () => ({ signals: [], files: [], found: false })
     const { store } = await mount([A])

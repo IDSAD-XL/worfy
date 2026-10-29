@@ -66,6 +66,12 @@ export const subagentSignalSchema = z.discriminatedUnion('kind', [
    * Counts only among the Session's own signals.
    */
   z.object({ kind: z.literal('session-closed') }),
+  /**
+   * The Session's Claude Code process runs and started at `startedAt` (ms since the epoch, from its
+   * `sessions/<pid>.json`). A Subagent without an end whose last record is older than that died with
+   * an earlier process of the same Session (ADR-0085). Counts only among the Session's own signals.
+   */
+  z.object({ kind: z.literal('session-process'), startedAt: z.number() }),
 ])
 export type SubagentSignal = z.infer<typeof subagentSignalSchema>
 
@@ -121,7 +127,11 @@ export const subagentFileSchema = z.object({
 export type SubagentFile = z.infer<typeof subagentFileSchema>
 export type WorkflowAgent = Omit<NonNullable<SubagentFile['workflow']>, 'runId'>
 
-export type SubagentStatus = 'running' | 'done' | 'error'
+/**
+ * `interrupted`: it has no end, and the Session's current process started after its last record —
+ * it died with an earlier process of the Session; not a failure (ADR-0085).
+ */
+export type SubagentStatus = 'running' | 'done' | 'error' | 'interrupted'
 
 /** One Subagent in the tree. */
 export interface SubagentInfo {
@@ -525,6 +535,7 @@ function gather(index: Index, signals: readonly SubagentSignal[], thread: string
         index.get(signal.agentId, signal.toolUseId).finished = signal
         break
       case 'session-closed':
+      case 'session-process':
         break
     }
   }
@@ -536,12 +547,28 @@ function firstOf<T>(...values: Array<T | null | undefined>): T | null {
   return null
 }
 
+/** What the Session's own signals say about its process. */
+interface SessionState {
+  /** Its process is not running (ADR-0031). */
+  closed: boolean
+  /** When its running process started, ms since the epoch; null when not known (ADR-0085). */
+  processStartedAt: number | null
+}
+
+/** The time of the last record known of a Subagent: its file's last record, else its call's or its start's. */
+const lastSeen = ({ file, call, started, result }: Gathered): number | null => file?.lastAt ?? firstOf(result?.at, started?.at, call?.at)
+
+/** Something without an end, last seen at `last`, from before the Session's running process started (ADR-0085). */
+const before = (state: SessionState, last: number | null): boolean => state.processStartedAt !== null && last !== null && state.processStartedAt > last
+
 /**
  * `closed`: the Session's process is not running. A Subagent that has not ended by then was cut off
  * with it — an error, like one the user stopped (ADR-0031). While the Session runs, a Subagent
- * without an end stays `running`, however long its file has not changed.
+ * without an end stays `running`, however long its file has not changed — unless the running
+ * process started after its last record: then it died with an earlier process of the Session and
+ * is `interrupted` (ADR-0085).
  */
-function statusOf(record: Gathered, background: boolean, closed: boolean): SubagentStatus {
+function statusOf(record: Gathered, background: boolean, state: SessionState): SubagentStatus {
   const { finished, result, file } = record
   if (finished) return finished.status === null || finished.status === 'completed' ? 'done' : 'error'
   // An agent of a workflow script: its run's journal says how it ended (ADR-0035).
@@ -549,14 +576,15 @@ function statusOf(record: Gathered, background: boolean, closed: boolean): Subag
   if (result?.isError || file?.meta?.stoppedByUser === true) return 'error'
   if (result && !background) return 'done'
   if (file?.ended) return 'done'
-  return closed ? 'error' : 'running'
+  if (state.closed) return 'error'
+  return before(state, lastSeen(record)) ? 'interrupted' : 'running'
 }
 
-function describe(record: Gathered, closed: boolean): Omit<SubagentInfo, 'parentAgentId' | 'depth' | 'children'> {
+function describe(record: Gathered, state: SessionState): Omit<SubagentInfo, 'parentAgentId' | 'depth' | 'children'> {
   const { call, result, started, finished, file } = record
   const meta = file?.meta ?? null
   const background = meta?.requestShape === 'background' || call?.background === true || result?.launched === true
-  const status = statusOf(record, background, closed)
+  const status = statusOf(record, background, state)
   // The final answer: the notification's, a synchronous call's result, the last answer in its
   // file, a failed call's error, and the notification's one-line summary last.
   const answer = firstOf(
@@ -599,6 +627,7 @@ const runEnded = (run: Gathered | undefined): boolean => run !== undefined && (r
 function describeRun(record: Gathered, closed: boolean): Omit<SubagentInfo, 'parentAgentId' | 'depth' | 'children'> {
   const { workflow, result, finished } = record
   const failed = result?.isError === true
+  // A run without an end is `running` here; its agents may yet make it `interrupted` (buildSubagentTree).
   const status: SubagentStatus = finished ? (finished.status === null || finished.status === 'completed' ? 'done' : 'error') : failed || closed ? 'error' : 'running'
   const startedAt = firstOf(workflow?.at, result?.at)
   const endedAt = status === 'running' ? null : firstOf(finished?.at, failed ? result?.at : null)
@@ -633,6 +662,8 @@ const byStart =(a: SubagentInfo, b: SubagentInfo): number =>
  */
 export function buildSubagentTree({ signals, files }: { signals: readonly SubagentSignal[]; files: readonly SubagentFile[] }): SubagentInfo[] {
   const closed = signals.some((signal) => signal.kind === 'session-closed')
+  const process = signals.findLast((signal): signal is Signal<'session-process'> => signal.kind === 'session-process')
+  const state: SessionState = { closed, processStartedAt: process?.startedAt ?? null }
   const index = new Index()
   gather(index, signals, null)
   for (const file of files) gather(index, file.signals, file.agentId)
@@ -684,7 +715,8 @@ export function buildSubagentTree({ signals, files }: { signals: readonly Subage
   const infos = new Map<Gathered, SubagentInfo>()
   for (const record of kept) {
     // An agent of a run that has ended was cut off with it, as one of a closed Session is.
-    const described = record.workflow !== undefined || withoutCall.has(record) ? describeRun(record, closed) : describe(record, closed || runEnded(runOf(record)))
+    const described =
+      record.workflow !== undefined || withoutCall.has(record) ? describeRun(record, closed) : describe(record, { ...state, closed: closed || runEnded(runOf(record)) })
     infos.set(record, { ...described, parentAgentId: null, depth: 1, children: [] })
   }
 
@@ -709,7 +741,8 @@ export function buildSubagentTree({ signals, files }: { signals: readonly Subage
     }
   }
   // A run without a known call has no end of its own: it runs while an agent of it runs, and one
-  // cut off by the closed Session ends it with an error.
+  // cut off by the closed Session ends it with an error, one interrupted with an earlier process of
+  // the Session (ADR-0085) with `interrupted`.
   for (const record of withoutCall) {
     const info = infos.get(record)!
     const agents = kept.filter((each) => runOf(each) === record)
@@ -718,8 +751,19 @@ export function buildSubagentTree({ signals, files }: { signals: readonly Subage
       return at === null ? [] : [at]
     })
     info.startedAt = starts.length > 0 ? Math.min(...starts) : null
+    const statuses = agents.map((agent) => infos.get(agent)!.status)
     const cutOff = agents.some((agent) => infos.get(agent)!.status === 'error' && agent.file?.workflow?.end === null)
-    info.status = agents.some((agent) => infos.get(agent)!.status === 'running') ? 'running' : cutOff ? 'error' : 'done'
+    info.status = statuses.includes('running') ? 'running' : cutOff ? 'error' : statuses.includes('interrupted') ? 'interrupted' : 'done'
+  }
+  // A run with a Workflow call but no end yet died with an earlier process of the Session when none
+  // of its agents runs and one was interrupted; a run without agents, when the process started after
+  // its call (ADR-0085).
+  for (const record of kept) {
+    const info = infos.get(record)!
+    if (record.workflow === undefined || info.status !== 'running') continue
+    const statuses = kept.filter((each) => runOf(each) === record).map((agent) => infos.get(agent)!.status)
+    const interrupted = statuses.length > 0 ? !statuses.includes('running') && statuses.includes('interrupted') : before(state, firstOf(record.workflow?.at, record.result?.at))
+    if (interrupted) info.status = 'interrupted'
   }
   const settle = (list: SubagentInfo[], depth: number): void => {
     list.sort(byStart)

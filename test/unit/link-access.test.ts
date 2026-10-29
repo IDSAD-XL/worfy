@@ -193,6 +193,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'checks.get',
     'checks.repos',
     'claudeHome.close',
+    // The Subagent entries hidden with «Hide» (worfy-polish ticket 45): a list of ids, as the tree itself.
+    'claudeHome.hiddenSubagents',
     'claudeHome.live',
     'claudeHome.search',
     'claudeHome.sessions',
@@ -278,6 +280,9 @@ describe('the read-or-write mark of `project` channels', () => {
     'cardApi.askFinish',
     'cardApi.askPrepare',
     'cardApi.dataSet',
+    // Hiding Subagent entries and showing them again write the Project's data folder (worfy-polish ticket 45).
+    'claudeHome.hideSubagents',
+    'claudeHome.showSubagents',
     // Writes an image file into the Project's data folder (worfy-canvas ticket 23).
     'canvasImage.add',
     'layout.apply',

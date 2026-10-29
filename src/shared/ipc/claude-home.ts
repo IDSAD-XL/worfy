@@ -158,6 +158,42 @@ export const claudeHomeSubagents = invokeChannel(
   'read',
 )
 
+/** The id of a Subagent entry of a tree (SubagentInfo.id): its call's id, `agent:<agentId>` or `workflow:<runId>`. */
+export const subagentEntryIdSchema = z.string().min(1).max(200)
+
+/** At most this many entries are hidden by one call; a Session keeps at most HIDDEN_PER_SESSION. */
+export const HIDE_SUBAGENTS_MAX = 5000
+export const HIDDEN_PER_SESSION = 20_000
+
+/** The hidden Subagent entries of a Project, by Session id. */
+export const hiddenSubagentsSchema = z.object({ sessions: z.record(sessionIdSchema, z.array(subagentEntryIdSchema)) })
+export type HiddenSubagents = z.infer<typeof hiddenSubagentsSchema>
+
+/**
+ * The Subagent entries the user hid with «Hide» (worfy-polish ticket 45, ADR-0085), by Session id.
+ * main keeps them in the Project's own data folder, never under ~/.claude; the Canvas and the
+ * Session rail leave them out.
+ */
+export const claudeHomeHiddenSubagents = invokeChannel('claudeHome.hiddenSubagents', z.object({ projectId: z.string().min(1) }), hiddenSubagentsSchema, 'project', 'read')
+
+/** Hides Subagent entries of a Session, of any status; answers every hidden entry of the Project. Writes worfy's data. */
+export const claudeHomeHideSubagents = invokeChannel(
+  'claudeHome.hideSubagents',
+  z.object({ projectId: z.string().min(1), sessionId: sessionIdSchema, ids: z.array(subagentEntryIdSchema).min(1).max(HIDE_SUBAGENTS_MAX) }),
+  hiddenSubagentsSchema,
+  'project',
+  'write',
+)
+
+/** «Show hidden Subagents»: shows every hidden entry of a Session again; answers what stays hidden in the Project. */
+export const claudeHomeShowSubagents = invokeChannel(
+  'claudeHome.showSubagents',
+  z.object({ projectId: z.string().min(1), sessionId: sessionIdSchema }),
+  hiddenSubagentsSchema,
+  'project',
+  'write',
+)
+
 /**
  * Events of one Subagent's transcript (`<sessionId>/subagents/agent-<agentId>.jsonl`) after
  * `cursor`, like `claudeHome.transcript`: every record of the file is the Subagent's own.
@@ -262,6 +298,9 @@ declare module './channels' {
     'claudeHome.transcript': typeof claudeHomeTranscript
     'claudeHome.subagents': typeof claudeHomeSubagents
     'claudeHome.subagentTranscript': typeof claudeHomeSubagentTranscript
+    'claudeHome.hiddenSubagents': typeof claudeHomeHiddenSubagents
+    'claudeHome.hideSubagents': typeof claudeHomeHideSubagents
+    'claudeHome.showSubagents': typeof claudeHomeShowSubagents
     'claudeHome.search': typeof claudeHomeSearch
     'claudeHome.transcriptFind': typeof claudeHomeTranscriptFind
     'claudeHome.changed': typeof claudeHomeChanged

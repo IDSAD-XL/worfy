@@ -132,12 +132,17 @@ const CLOSED: SubagentSignal = { kind: 'session-closed' }
 
 /**
  * Whether the Session `sessionId` runs, by the `sessions/` folder of the Claude home that holds
- * `transcript` (`<home>/projects/<folder>/<sessionId>.jsonl`): true when an entry names it and its
- * process runs, false when none does. Null — not known, so not closed — when the transcript is not
- * under `projects/`, the home has no `sessions/` folder, an entry cannot be read (one being
+ * `transcript` (`<home>/projects/<folder>/<sessionId>.jsonl`): an object when an entry names it and
+ * its process runs — with the entry's numeric `startedAt` (ms since the epoch), null when it has
+ * none (ADR-0085) — false when none does. Null — not known, so not closed — when the transcript is
+ * not under `projects/`, the home has no `sessions/` folder, an entry cannot be read (one being
  * rewritten may be the Session's own), or whether its process runs cannot be told.
  */
-async function sessionRuns(transcript: string, sessionId: string, processOf: NonNullable<SubagentReaderOptions['processState']>): Promise<boolean | null> {
+async function sessionRuns(
+  transcript: string,
+  sessionId: string,
+  processOf: NonNullable<SubagentReaderOptions['processState']>,
+): Promise<{ startedAt: number | null } | false | null> {
   const projects = dirname(dirname(transcript))
   if (basename(projects) !== 'projects') return null
   const dir = join(dirname(projects), 'sessions')
@@ -158,10 +163,10 @@ async function sessionRuns(transcript: string, sessionId: string, processOf: Non
       continue
     }
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue
-    const { pid, sessionId: id, procStart } = entry as Record<string, unknown>
+    const { pid, sessionId: id, procStart, startedAt } = entry as Record<string, unknown>
     if (id !== sessionId || typeof pid !== 'number') continue
     const state = await processOf(pid, typeof procStart === 'string' ? procStart : undefined)
-    if (state === 'alive') return true
+    if (state === 'alive') return { startedAt: typeof startedAt === 'number' && Number.isFinite(startedAt) ? startedAt : null }
     if (state === 'unknown') unknown = true
   }
   return unknown ? null : false
@@ -263,14 +268,19 @@ export class SubagentReader {
     return files
   }
 
-  /** Both, for the Session whose transcript is at `path`; a `session-closed` signal last when its process is gone. */
+  /**
+   * Both, for the Session whose transcript is at `path`; a `session-closed` signal last when its
+   * process is gone, a `session-process` signal with the start of its process when it runs (ADR-0085).
+   */
   async session(path: string): Promise<SessionSubagents> {
     const sessionId = transcriptSessionId(path)
     // Asked before the files are read: a Session found closed has written every end it will
     // report, so a Subagent that ended just before the process did is read as ended, not cut off.
     const runs = await sessionRuns(path, sessionId, this.processState)
     const [signals, files] = await Promise.all([this.signals(path), this.files(join(dirname(path), sessionId, 'subagents'))])
-    return { signals: runs === false ? [...signals, CLOSED] : signals, files }
+    if (runs === false) return { signals: [...signals, CLOSED], files }
+    if (runs !== null && runs.startedAt !== null) return { signals: [...signals, { kind: 'session-process', startedAt: runs.startedAt }], files }
+    return { signals, files }
   }
 
   private async transcript(path: string, agentId: string, meta: unknown): Promise<SubagentFile> {

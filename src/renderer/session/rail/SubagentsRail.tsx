@@ -1,8 +1,20 @@
-import { useId, useSyncExternalStore, type CSSProperties } from 'react'
+import { useId, useMemo, useSyncExternalStore, type CSSProperties } from 'react'
 import { subagentTypeLabel } from '../../../shared/agent/subagent-type'
 import { flattenSubagents, type SubagentInfo } from '../../../shared/transcript/subagents'
-import { statusLabel, useSubagentTree, useTick } from '../../claude-home/subagents'
-import { useProjects } from '../../projects/useProjects'
+import {
+  finishedIds,
+  folds,
+  hiddenIdsOf,
+  hideSubagents,
+  INTERRUPTED_TOOLTIP,
+  showHiddenSubagents,
+  statusLabel,
+  useHiddenSubagents,
+  useSubagentTree,
+  useTick,
+  withoutHidden,
+} from '../../claude-home/subagents'
+import { useProjects, useReadOnly } from '../../projects/useProjects'
 import { StatusChip, type Status } from '../../theme/primitives'
 import { openSession } from '../navigation'
 import type { RailBlockProps } from './index'
@@ -13,15 +25,20 @@ import type { RailBlockProps } from './index'
 // the Subagent's transcript, read-only.
 //
 // The rail orders the list itself, newest first on every level (the shared tree is oldest first,
-// and the Canvas places its Nodes by that order). A Subagent of the Session that is done goes, with
-// everything it started, into one "Done (N)" group under the running and failed ones; the group is
-// closed until opened, and stays open for that Session while the window runs (not saved to disk).
-// The Canvas folds done Subagents by its own rule, under each parent.
+// and the Canvas places its Nodes by that order). A Subagent of the Session that is done or
+// interrupted goes, with everything it started, into one "Done (N)" group under the running and
+// failed ones; the group is closed until opened, and stays open for that Session while the window
+// runs (not saved to disk). The Canvas folds them by its own rule, under each parent.
+//
+// "Hide" on a row hides that entry, of any status; "Hide" by the group ("Hide finished") hides
+// every entry of the Session that has ended — done, error, interrupted. main keeps the hidden entries in the
+// Project's data folder, and «Show hidden Subagents» under the list brings them back (ADR-0085).
+// A read-only screen shows none of the three: they write.
 
 // After the Binding (ticket 16), last in the rail.
 export const order = 20
 
-const CHIP: Record<SubagentInfo['status'], Status> = { running: 'working', done: 'done', error: 'blocked' }
+const CHIP: Record<SubagentInfo['status'], Status> = { running: 'working', done: 'done', error: 'blocked', interrupted: 'stopped' }
 
 const styles = {
   heading: { margin: 0, fontSize: 'var(--text-11)', lineHeight: '14px', fontWeight: 600, color: 'var(--text-muted)' },
@@ -46,6 +63,19 @@ const styles = {
   name: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   group: { color: 'var(--text-muted)' },
   chevron: { flex: 'none' },
+  line: { display: 'flex', alignItems: 'center' },
+  hide: {
+    flex: 'none',
+    marginRight: 6,
+    padding: '0 6px',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-button)',
+    background: 'transparent',
+    color: 'var(--text-secondary)',
+    font: 'inherit',
+    fontSize: 'var(--text-11)',
+    lineHeight: '16px',
+  },
 } satisfies Record<string, CSSProperties>
 
 /**
@@ -82,21 +112,28 @@ export interface SubagentsListProps {
   onOpen: (info: SubagentInfo) => void
   /** The Session the list belongs to: whether its "Done (N)" group is open is kept per Session. */
   sessionKey: string
+  /** Hides entries by id; without it (a read-only screen) no Hide button shows. */
+  onHide?: ((ids: string[]) => void) | undefined
+  /** How many entries of the Session are hidden, and how to show them again. */
+  hiddenCount?: number
+  onShowHidden?: (() => void) | undefined
 }
 
 /** The list for a tree at `now`; exported for tests, which pass their own tree. */
-export function SubagentsList({ tree, now, onOpen, sessionKey }: SubagentsListProps) {
+export function SubagentsList({ tree, now, onOpen, sessionKey, onHide, hiddenCount = 0, onShowHidden }: SubagentsListProps) {
   const groupId = useId()
   const open = useSyncExternalStore(subscribe, () => openGroups.has(sessionKey))
-  const done = tree.filter((info) => info.status === 'done')
-  const active = newestFirst(tree.filter((info) => info.status !== 'done'))
+  const done = tree.filter(folds)
+  const active = newestFirst(tree.filter((info) => !folds(info)))
+  const finished = finishedIds(tree)
+  const interrupted = done.filter((info) => info.status === 'interrupted').length
   const row = (info: SubagentInfo) => {
     const canOpen = info.agentId !== null && info.transcript
     return (
-      <li key={info.id}>
+      <li key={info.id} style={styles.line}>
         <button
           type="button"
-          style={{ ...styles.row, paddingLeft: 10 + (info.depth - 1) * 14 }}
+          style={{ ...styles.row, flex: 1, minWidth: 0, paddingLeft: 10 + (info.depth - 1) * 14 }}
           disabled={!canOpen}
           title={info.summary ?? info.description ?? undefined}
           data-testid="subagents-rail-row"
@@ -112,8 +149,15 @@ export function SubagentsList({ tree, now, onOpen, sessionKey }: SubagentsListPr
             {info.name !== null && info.subagentType !== null ? <span style={{ color: 'var(--text-muted)' }}> · {subagentTypeLabel(info.subagentType)}</span> : null}
           </span>
           {info.verdict !== null ? <StatusChip status={info.verdict === 'VERIFIED' ? 'done' : 'blocked'} label={info.verdict} /> : null}
-          <StatusChip status={CHIP[info.status]} label={statusLabel(info, now)} />
+          <span title={info.status === 'interrupted' ? INTERRUPTED_TOOLTIP : undefined} data-testid="subagents-rail-status">
+            <StatusChip status={CHIP[info.status]} label={statusLabel(info, now)} />
+          </span>
         </button>
+        {onHide ? (
+          <button type="button" style={styles.hide} title="Hide this Subagent from the rail and the Canvas" data-testid="subagents-rail-hide" onClick={() => onHide([info.id])}>
+            Hide
+          </button>
+        ) : null}
       </li>
     )
   }
@@ -122,23 +166,37 @@ export function SubagentsList({ tree, now, onOpen, sessionKey }: SubagentsListPr
       <h2 style={styles.heading}>Subagents</h2>
       <div style={styles.card}>
         {tree.length === 0 ? (
-          <span style={styles.empty}>No Subagents yet</span>
+          <span style={styles.empty}>{hiddenCount > 0 ? 'Every Subagent is hidden' : 'No Subagents yet'}</span>
         ) : (
           <>
             {active.length > 0 ? <ul style={styles.list}>{active.map(row)}</ul> : null}
             {done.length > 0 ? (
               <>
-                <button
-                  type="button"
-                  style={{ ...styles.row, ...styles.group }}
-                  aria-expanded={open}
-                  aria-controls={groupId}
-                  data-testid="subagents-rail-done"
-                  onClick={() => toggleGroup(sessionKey)}
-                >
-                  {chevron(open)}
-                  Done <span className="w-mono">({done.length})</span>
-                </button>
+                <div style={styles.line}>
+                  <button
+                    type="button"
+                    style={{ ...styles.row, ...styles.group, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden' }}
+                    aria-expanded={open}
+                    aria-controls={groupId}
+                    data-testid="subagents-rail-done"
+                    onClick={() => toggleGroup(sessionKey)}
+                  >
+                    {chevron(open)}
+                    Done <span className="w-mono">({done.length})</span>
+                    {interrupted > 0 ? <span className="w-mono"> · {interrupted} interrupted</span> : null}
+                  </button>
+                  {onHide ? (
+                    <button
+                      type="button"
+                      style={styles.hide}
+                      title="Hide finished: every Subagent of this Session that has ended — done, error and interrupted; running ones stay"
+                      data-testid="subagents-rail-hide-finished"
+                      onClick={() => onHide(finished)}
+                    >
+                      Hide
+                    </button>
+                  ) : null}
+                </div>
                 <ul id={groupId} style={styles.list} hidden={!open}>
                   {open ? newestFirst(done).map(row) : null}
                 </ul>
@@ -146,6 +204,11 @@ export function SubagentsList({ tree, now, onOpen, sessionKey }: SubagentsListPr
             ) : null}
           </>
         )}
+        {hiddenCount > 0 && onShowHidden ? (
+          <button type="button" style={{ ...styles.row, ...styles.group }} data-testid="subagents-rail-show-hidden" onClick={onShowHidden}>
+            Show hidden Subagents <span className="w-mono">({hiddenCount})</span>
+          </button>
+        ) : null}
       </div>
     </div>
   )
@@ -154,11 +217,26 @@ export function SubagentsList({ tree, now, onOpen, sessionKey }: SubagentsListPr
 export default function SubagentsRail({ projectId, nodeId, sessionId, claudeSessionId }: RailBlockProps) {
   const root = useProjects()?.projects.find((project) => project.id === projectId)?.path
   const session = claudeSessionId ?? sessionId
-  const tree = useSubagentTree(root, session)
+  const all = useSubagentTree(root, session)
+  const hidden = useHiddenSubagents(projectId)
+  const hiddenIds = useMemo(() => hiddenIdsOf(hidden, session), [hidden, session])
+  const tree = useMemo(() => withoutHidden(all, hiddenIds), [all, hiddenIds])
+  const readOnly = useReadOnly()
   const now = useTick(flattenSubagents(tree).some((info) => info.status === 'running'))
   const open = (info: SubagentInfo) => {
     if (session === null || info.agentId === null) return
     openSession({ nodeId, projectId, external: { sessionId: session, agentId: info.agentId } })
   }
-  return <SubagentsList tree={tree} now={now} onOpen={open} sessionKey={`${projectId}/${session ?? nodeId}`} />
+  const writes = readOnly === null && session !== null
+  return (
+    <SubagentsList
+      tree={tree}
+      now={now}
+      onOpen={open}
+      sessionKey={`${projectId}/${session ?? nodeId}`}
+      onHide={writes ? (ids) => void hideSubagents(projectId, session, ids) : undefined}
+      hiddenCount={hiddenIds.size}
+      onShowHidden={writes ? () => void showHiddenSubagents(projectId, session) : undefined}
+    />
+  )
 }

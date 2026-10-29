@@ -508,3 +508,120 @@ test('a Session that runs a workflow script: its agents hang under the run and e
     await launched.close()
   }
 })
+
+// ADR-0085: a Session continued in a new process keeps its sessionId; a Subagent that died with the
+// earlier process is `interrupted`. «Hide» hides one entry of any status, «Hide finished» the ended
+// ones; worfy keeps the list in the Project's data folder, so it holds across a restart.
+test('a continued Session: a Subagent of its earlier process is interrupted, and Hide hides entries across a restart', async () => {
+  const sessionId = '45454545-4545-4545-8545-454545454545'
+  const dir = transcriptDir(projectPath)
+  // A minute apart: done, error, then two in the background. The running process of the Session
+  // started at 10:03:30, after the third one's last record and before the fourth one's.
+  const kinds = ['done', 'error', 'background', 'background'] as const
+  const at = (minute: number): string => `2026-10-05T10:${String(minute).padStart(2, '0')}:00.000Z`
+  const record = (minute: number, fields: Record<string, unknown>) => JSON.stringify({ cwd: projectPath, sessionId, version: '2.1.289', timestamp: at(minute), ...fields })
+  const main = [record(0, { type: 'user', isSidechain: false, message: { role: 'user', content: 'Run the wave.' } })]
+  mkdirSync(join(dir, sessionId, 'subagents'), { recursive: true })
+  const agentOf = (n: number): string => `a${String(n).padStart(16, '0')}`
+  kinds.forEach((kind, n) => {
+    const agentId = agentOf(n)
+    const toolUseId = `toolu_cont_${n}`
+    const background = kind === 'background'
+    main.push(record(n + 1, { type: 'assistant', isSidechain: false, message: { id: `m${n}`, model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: toolUseId, name: 'Agent', input: { subagent_type: 'implementer', name: `impl-${n}`, run_in_background: background } }] } }))
+    const content = background ? 'Async agent launched successfully.' : kind === 'error' ? 'Agent failed: the tests are red.' : `impl-${n} is done.`
+    main.push(record(n + 1, { type: 'user', isSidechain: false, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content, is_error: kind === 'error' }] }, toolUseResult: background ? { status: 'async_launched', agentId } : undefined }))
+    writeFileSync(join(dir, sessionId, 'subagents', `agent-${agentId}.meta.json`), JSON.stringify({ agentType: 'implementer', name: `impl-${n}`, toolUseId, spawnDepth: 1, requestShape: background ? 'background' : 'foreground' }))
+    writeFileSync(join(dir, sessionId, 'subagents', `agent-${agentId}.jsonl`), `${record(n + 1, { type: 'assistant', isSidechain: true, agentId, message: { model: 'claude-sonnet-5', content: [{ type: 'text', text: 'Working.' }], stop_reason: 'tool_use' } })}\n`)
+  })
+  writeFileSync(join(dir, `${sessionId}.jsonl`), `${main.join('\n')}\n`)
+  const claude = claudeProcess()
+  writeFileSync(
+    join(claudeHome, 'sessions', `${claude.pid}.json`),
+    JSON.stringify({ pid: claude.pid, sessionId, cwd: projectPath, kind: 'interactive', entrypoint: 'cli', status: 'busy', version: '2.1.289', name: 'wave', startedAt: Date.parse('2026-10-05T10:03:30.000Z') }),
+  )
+  expected = snapshot()
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'turn' }
+  const canvasNode = (window: Page, n: number) => window.locator(`[data-testid="subagent-node"][data-subagent-id="${agentOf(n)}"]`)
+  const openRail = async (window: Page) => {
+    await window.locator(`[data-testid="session-node"][data-session-id="${sessionId}"]`).getByTestId('session-node-title').dblclick()
+    return window.locator('.w-shell__view[data-view="session"]').getByTestId('subagents-rail')
+  }
+  const shown = (rail: ReturnType<Page['locator']>) => () =>
+    rail.getByTestId('subagents-rail-row').evaluateAll((list) => list.map((row) => `${row.getAttribute('data-subagent-id')?.slice(-1)}:${row.getAttribute('data-status')}`))
+
+  let launched = await launchApp({ env })
+  try {
+    const { window } = launched
+    await canvasReady(launched, { size: { width: 1600, height: 900 } })
+    await expect(window.locator(`[data-testid="session-node"][data-session-id="${sessionId}"]`)).toBeVisible({ timeout: 5000 })
+    // On the Canvas: the running one and the failed one in the column; the done and the interrupted one folded.
+    await expect(canvasNode(window, 3)).toHaveAttribute('data-status', 'running')
+    await expect(canvasNode(window, 1)).toHaveAttribute('data-status', 'error')
+    const fold = window.locator('[data-testid="subagent-fold"][data-node-id$="/done:session"]')
+    await expect(fold).toHaveText('1 done · 1 interrupted')
+    await fold.click()
+    const interrupted = canvasNode(window, 2)
+    await expect(interrupted).toHaveAttribute('data-status', 'interrupted')
+    await expect(interrupted.getByTestId('subagent-status')).toHaveText(/^Interrupted /)
+    await expect(interrupted.getByTestId('subagent-status')).toHaveAttribute('title', /process restarted after this agent's last record/)
+    const canvasShots = await snapshotThemes(window, 'subagents-interrupted-canvas')
+
+    // In the rail: the interrupted one in the group with the done one.
+    const rail = await openRail(window)
+    const group = rail.getByTestId('subagents-rail-done')
+    await expect(group).toHaveText('Done (2) · 1 interrupted')
+    await expect.poll(shown(rail)).toEqual(['3:running', '1:error'])
+    await group.click()
+    await expect.poll(shown(rail)).toEqual(['3:running', '1:error', '2:interrupted', '0:done'])
+    const railShots = await snapshotThemes(window, 'subagents-interrupted-rail')
+
+    // «Hide» on the failed one's Node: gone from the Canvas and from the rail.
+    await window.getByRole('button', { name: /Canvas/ }).click()
+    await canvasNode(window, 1).getByTestId('subagent-hide').click()
+    await expect(canvasNode(window, 1)).toHaveCount(0)
+    await openRail(window)
+    await expect.poll(shown(rail)).toEqual(['3:running', '2:interrupted', '0:done'])
+    // «Hide finished» in the rail: the done and the interrupted one go, the running one stays.
+    await rail.getByTestId('subagents-rail-hide-finished').click()
+    await expect.poll(shown(rail)).toEqual(['3:running'])
+    // «Hide» on the running one's row: a running entry hides too.
+    await rail.getByTestId('subagents-rail-hide').click()
+    await expect(rail).toContainText('Every Subagent is hidden')
+    await window.getByRole('button', { name: /Canvas/ }).click()
+    await expect(window.getByTestId('subagent-node')).toHaveCount(0)
+    await expect(window.getByTestId('subagent-fold')).toHaveCount(0)
+
+    if (EVIDENCE_DIR) {
+      mkdirSync(EVIDENCE_DIR, { recursive: true })
+      for (const [place, shots] of [['canvas', canvasShots], ['rail', railShots]] as const) {
+        copyFileSync(shots.light, join(EVIDENCE_DIR, `45-subagents-interrupted-${place}-light.png`))
+        copyFileSync(shots.dark, join(EVIDENCE_DIR, `45-subagents-interrupted-${place}-dark.png`))
+      }
+    }
+  } finally {
+    await launched.close()
+  }
+  expect(JSON.parse(readFileSync(join(dataDir, PROJECT, 'hidden-subagents.json'), 'utf8'))).toEqual({
+    sessions: { [sessionId]: ['toolu_cont_1', 'toolu_cont_0', 'toolu_cont_2', 'toolu_cont_3'] },
+  })
+
+  // worfy starts again: still hidden; «Show hidden Subagents» brings every entry back.
+  launched = await launchApp({ env })
+  try {
+    const { window } = launched
+    await canvasReady(launched, { size: { width: 1600, height: 900 } })
+    await expect(window.locator(`[data-testid="session-node"][data-session-id="${sessionId}"]`)).toBeVisible({ timeout: 5000 })
+    const rail = await openRail(window)
+    const showHidden = rail.getByTestId('subagents-rail-show-hidden')
+    await expect(showHidden).toHaveText('Show hidden Subagents (4)')
+    await expect(rail.getByTestId('subagents-rail-row')).toHaveCount(0)
+    await showHidden.click()
+    await expect.poll(shown(rail)).toEqual(['3:running', '1:error'])
+    await expect(showHidden).toHaveCount(0)
+    await window.getByRole('button', { name: /Canvas/ }).click()
+    await expect(canvasNode(window, 3)).toHaveAttribute('data-status', 'running')
+    expectUntouched()
+  } finally {
+    await launched.close()
+  }
+})
