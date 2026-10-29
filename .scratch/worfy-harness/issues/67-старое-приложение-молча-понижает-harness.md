@@ -1,7 +1,8 @@
 # 67 — Старая сборка worfy молча ставит свой, более старый Harness поверх нового
 
 Type: bug
-Status: claimed 2026-10-29T16:10Z
+Status: done 2026-10-29T17:21Z
+PR: #1011
 Branch: worfy-harness/67
 Blocked by: —
 Source: случай у владельца 2026-10-21 (время Mac 14:08–14:09).
