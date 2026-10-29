@@ -1,5 +1,7 @@
 # ship-ticket, step 11: Close
 
+Plugin root: `CLAUDE_PLUGIN_ROOT` in this file is the folder two levels above it. Claude Code spells it out only in SKILL.md and the agent definitions, and Bash may have it empty: in every command below put that folder in its place, or start the command with `export CLAUDE_PLUGIN_ROOT=<that folder>;`.
+
 **Local finish** — only with `local-green` (contract: `profiles/README.md`, "Local finish"). The
 ticket closes when its branch is merged locally into the main branch of its repository and the local
 `gate full` is green on exactly what is merged. The main branch is `F worktree.base` without

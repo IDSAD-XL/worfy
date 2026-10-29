@@ -5,7 +5,8 @@
 # Writes the text as an agent reads it in full: the file with every pointer line to a step file —
 # a line that starts, after its indentation, with
 #   Read `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/<file>`
-# — replaced by that step file without its title line and the blank line after it, each of its lines
+# — replaced by that step file without its title line and the blank line after it (and without its
+# "Plugin root:" line and the blank line after that, when it has one), each of its lines
 # indented like the pointer line. The step file is looked up next to a SKILL.md of that skill, or in
 # ../skills/<skill>/ from an agent definition. A step moved out of the file to keep the agents'
 # starting context small (bin/start-context) is then checked where the text puts it, by the same
@@ -30,6 +31,7 @@ skill_text() {
             my $body = <$s>; close $s;
             my @b = split /\n/, $body, -1;
             @b = @b[2 .. $#b];
+            @b = @b[2 .. $#b] if @b > 1 && $b[0] =~ /^Plugin root: / && $b[1] eq "";
             pop @b while @b && $b[-1] eq "";
             $line = join "\n", map { $_ eq "" ? "" : "$indent$_" } @b;
         }

@@ -37,6 +37,12 @@ for a in $ALL; do
     skill_text "$AGENTS/$a.md" "$T/agents/$a.md" || { bad "$a.md: cannot put its step files in place"; echo "passed $pass, failed $fail"; exit 1; }
 done
 AGENTS="$T/agents"
+# The rework round opens on every rework brief, not only after a REJECTED: epic-wave sends the same brief
+# (`Rework:`, `Findings:`) after a red check and for a small ticket handed over.
+REWORK_PTR="$(grep -F 'skills/ship-ticket/implementer-rework-round.md` when' "$ROOT/agents/implementer.md")"
+[[ "$REWORK_PTR" == *'`Rework:`'* && "$REWORK_PTR" == *'`Findings:`'* ]] \
+    && ok "implementer: the rework round opens on a brief with Rework: or Findings:" \
+    || bad "implementer: the rework-round pointer does not name Rework: and Findings: [$REWORK_PTR]"
 
 # The one sentence that may name ~/.claude/bin: Profile values of schema 1 that start with it.
 BIN_RULE='`~/.claude/bin/` (schema 1)'

@@ -1,5 +1,7 @@
 # ship-ticket, step 8: PR and green CI
 
+Plugin root: `CLAUDE_PLUGIN_ROOT` in this file is the folder two levels above it. Claude Code spells it out only in SKILL.md and the agent definitions, and Bash may have it empty: in every command below put that folder in its place, or start the command with `export CLAUDE_PLUGIN_ROOT=<that folder>;`.
+
 Only with `workflow.finish: pr-green-ci`; with `local-green` — "step 8 skipped: the project
 finishes on locally green checks". With `agent-review` before `ci` in the Pipeline (section 0) the PR
 is opened only after `review success` on the branch's head (step 7), from that same head.

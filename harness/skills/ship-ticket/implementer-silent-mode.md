@@ -1,5 +1,7 @@
 # implementer: Silent mode
 
+Plugin root: `CLAUDE_PLUGIN_ROOT` in this file is the folder two levels above it. Claude Code spells it out only in SKILL.md and the agent definitions, and Bash may have it empty: in every command below put that folder in its place, or start the command with `export CLAUDE_PLUGIN_ROOT=<that folder>;`.
+
 **Silent mode** — `profile --field _resolved.mode` prints `silent` (contract: `profiles/README.md`,
 "Full mode and Silent mode"). The workflow files — the ticket, the spec, ADRs, the state file, the
 glossary, lessons, evidence screenshots — live in the Workflow folder

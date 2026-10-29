@@ -25,8 +25,8 @@ is reviewed, `<file>` — a test file) are part of the profile contract: substit
 
 **Step files.** Steps 7 to 11, the review of a PR another session wrote and the parts only some
 tickets need (Silent mode, manual GUI checks, the source of step 5) live in files next to this one.
-Each line that starts with `Read` names one and says when to read it: read it then, not before — an
-agent that never gets there never pays for it. Claude Code spells out the plugin root only in this
+Each line that starts with `Read` names one and says when to read it: read it then, not before, unless another
+skill sends you there earlier — an agent that never gets there never pays for it. Claude Code spells out the plugin root only in this
 file: in those files, read every `CLAUDE_PLUGIN_ROOT` placeholder as `${CLAUDE_PLUGIN_ROOT}`.
 
 ## 0. Profile

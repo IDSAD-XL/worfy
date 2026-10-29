@@ -532,7 +532,7 @@ check "implementer: the old rework wording — no EnterWorktree, edit by absolut
 check "implementer: a rework round skips claim and base, rebases first and names the rebased head" \
     in_flat "$(cat "$IM")" 'Skip steps 1–2 of the ticket skill (claim, base): rebase onto the base first — `Head` is from before it — and name the head after that rebase in your PR comment'
 check "implementer: the create-a-tree rule points a rework round at the brief's tree" \
-    in_flat "$(cat "$IM")" '(a rework round starts in the fresh tree it was launched in and skips this step, see "A rework round")'
+    in_flat "$(cat "$IM")" '(a rework round starts in the fresh tree it was launched in and skips this step, see `implementer-rework-round.md`, named in "Order")'
 check "implementer: a rework round is not sent into EnterWorktree" \
     lacks "$IM" 'enter that tree (`EnterWorktree`'
 # In Silent mode the verdict is the last gate: line of the ticket file, not its last line: group lines follow

@@ -47,7 +47,7 @@ files read every `CLAUDE_PLUGIN_ROOT` placeholder as `${CLAUDE_PLUGIN_ROOT}`.
   yet: `EnterWorktree` does not reach such a tree, and the plugin registers no
   hook that would put you there. It is a false premise of the brief (see "Boundaries").
 - **First of all, create a working tree FOR YOURSELF and work only in it** (a rework round starts
-  in the fresh tree it was launched in and skips this step, see "A rework round") — with the profile command
+  in the fresh tree it was launched in and skips this step, see `implementer-rework-round.md`, named in "Order") — with the profile command
   `worktree.implementer` (root `worktree.root`, base `worktree.base`) — and enter it right away:
   `EnterWorktree` with the `path` of that tree. The PreToolUse check on Edit and Write lets edits
   through only inside the session's tree; without entering it your edits are refused, and getting
@@ -115,7 +115,7 @@ everyone.
 ## Order
 
 If the profile names a skill (`workflow.ticket_skill`; a bare `ship-ticket` there (schema 1) means `/worfy:ship-ticket`), follow it, steps `workflow.implementer_steps`.
-Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-no-skill.md` only when the profile names no skill: it holds steps 1–4 for that case.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-no-skill.md` when the profile names no skill or the skill did not load: it holds steps 1–4 for that case.
 
 Steps 5–6 are mandatory in both cases, with exactly these commands, even if the skill did not load:
 5. A bare check with the exit code: `<commands.verify>; echo "EXIT=$?"`, then
@@ -142,7 +142,7 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-browser-checks.md` when an acceptance criterion is checked in the project's web pages: it holds the Browser checks — roles, `browser_open` with your ticket, and what an answer `Sign-in expired in Browser profile "<name>"` means.
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-rework-round.md` when the orchestrator returned `REJECTED` with a list of findings: it holds the rework round.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-rework-round.md` when the brief starts with `Rework:` or carries a `Findings:` line (after a `REJECTED`, a red check or a small ticket handed over): it holds the rework round.
 
 **Never launch review agents (`worfy:reviewer` or any other) — under no circumstances.** The review
 step in the ticket skill is written for the main session, not for you: your children report to the

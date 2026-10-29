@@ -201,6 +201,16 @@ for f in "$SKILLS_DIR"/*/SKILL.md "$AGENTS_DIR"/*.md; do
     done
 done
 [ "$step_files" -gt 0 ] && ok "the skills have step files ($step_files)" || bad "no step file next to any SKILL.md"
+# Claude Code spells out ${CLAUDE_PLUGIN_ROOT} only in SKILL.md and the agents, and Bash may have it empty:
+# a step file that uses it says, on its third line, where the plugin root is (a block of step 11 once lost
+# the documents silently, F printing nothing).
+ROOT_LINE='Plugin root: `CLAUDE_PLUGIN_ROOT` in this file is the folder two levels above it.'
+for f in "$SKILLS_DIR"/*/*.md; do
+    [ "$(basename "$f")" = SKILL.md ] && continue
+    grep -qF '${CLAUDE_PLUGIN_ROOT}' "$f" || continue
+    sed -n 3p "$f" | grep -qF -- "$ROOT_LINE" && ok "$(basename "$f"): uses the placeholder and says where the plugin root is" \
+        || bad "$(basename "$f"): uses \${CLAUDE_PLUGIN_ROOT} without the line '$ROOT_LINE' on its third line"
+done
 
 # --- 4. The usual instruction files, the auto memory, no profile -----------------------------------
 G="$T/repo"; mkdir -p "$G"; git -C "$G" init -q

@@ -1,6 +1,6 @@
 # implementer: a rework round
 
-**A rework round** (the orchestrator returned `REJECTED` with a list of findings) is new code just
+**A rework round** (a brief that starts with `Rework:` and carries `Findings:` — after a `REJECTED`, a red check, or a small ticket handed over) is new code just
 like the first round: rework rounds have introduced defects themselves. Fix exactly what is on the
 list. Cover every new behaviour of the rework with a test and make sure it goes red on a mutant of
 that change (the mutant lives in your own tree; restore from a copy, not with `git checkout`). In

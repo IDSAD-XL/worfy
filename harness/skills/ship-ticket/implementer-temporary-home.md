@@ -1,5 +1,7 @@
 # implementer, step 5: Temporary HOME
 
+Plugin root: `CLAUDE_PLUGIN_ROOT` in this file is the folder two levels above it. Claude Code spells it out only in SKILL.md and the agent definitions, and Bash may have it empty: in every command below put that folder in its place, or start the command with `export CLAUDE_PLUGIN_ROOT=<that folder>;`.
+
 **Temporary HOME.** With `Temporary HOME: yes` in the brief, run both commands of this step with
 HOME in a temporary folder, by this recipe:
 ```bash
