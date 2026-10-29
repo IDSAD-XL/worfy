@@ -679,7 +679,11 @@ With no `merge_gate` and `F workflow.ci` `pr` no gate full runs before the merge
 project's final CI check on the PR's head (its `rules.md` names it, for example `ci-ok`) completed
 with `success`, no CI run still going on that head, and the `review` mark `success` on the same head.
 The orchestrator merges through `bin/land`, a single ticket too — a state file of one PR (skill
-`/worfy:epic-wave`, section 4, "Merge with land").
+`/worfy:epic-wave`, section 4, "Merge with land"). CI on the PR may run only the tests its diff
+touches, as the project's `rules.md` says; the push to the main branch runs the whole suite. While
+the latest push run on the main branch is red, no PR with code is merged: the fix goes forward for at
+most one hour, then the culprit PR is reverted — skill `/worfy:epic-wave`, section 4,
+"A red push run on the main branch".
 
 With `F workflow.ci` `batch` the merge does not wait for CI: the PR merges on its gate when
 `mergeable` is `MERGEABLE`. A single ticket outside a wave is a wave of one: after its merge, the
