@@ -143,11 +143,14 @@ gate full (worfy-harness 53) и время падения; предел test-а 
 
 ## Поведение проверяется в одном слое; второй слой — только с причиной в описании PR
 
-- Аудит 2026-10-29: четыре e2e test-а (`no-overlap.spec.ts` — Note на Card, перетаскивание группы, Layout
-  с наложением; `linked-reconnect.spec.ts` — Reconnect, 40 s ожидания паузы retry) повторяли то, что уже
-  проверяли contract test хранилища Layout (`test/contract/layout-store.test.ts`), unit test истории и
-  contract test-ы связи. На каждый e2e нашёлся mutant, которого оставшийся test ловит, — e2e дорогой
-  повтор, а не второй сторож.
+- Аудит 2026-10-29: три e2e test-а (`no-overlap.spec.ts` — Note на Card, Layout с наложением;
+  `linked-reconnect.spec.ts` — Reconnect, 40 s ожидания паузы retry) повторяли то, что уже проверяли
+  contract test хранилища Layout (`test/contract/layout-store.test.ts`) и contract test-ы связи. На
+  каждый нашёлся mutant, которого оставшийся test ловит, — e2e дорогой повтор, а не второй сторож.
+- Четвёртый, перетаскивание группы Note, тоже казался повтором: поправку группы в main ловит contract
+  test. Ревью нашло mutant в связке окна (`src/renderer/canvas/Canvas.tsx`: в drop уходит только Node
+  под курсором вместо всех `released`), который переживает весь `test/unit`. Test вернули: mutant
+  ищут и в коде между слоями, не только в коде, который проверяет оставшийся test.
 - e2e нужен тому, чего ниже не видно: связка окна и main через IPC, настоящая отрисовка, перезапуск.
   Логику (координаты, порядок, правило) проверяет unit или contract test; e2e этой логики не
   перепроверяет.

@@ -63,7 +63,7 @@ PR #935, ветка `worfy-throughput/15`. Замер «до» — CI run 407704
 | Что | Слой | Пара (что проверяет то же) | Доказательство | Команда, код выхода |
 | --- | --- | --- | --- | --- |
 | `no-overlap.spec.ts` «a Note dropped onto a Card goes next to it…» (10,5 s) | e2e | `test/contract/layout-store.test.ts:729` (место Note, Card стоит), `:655` (перезапуск main читает Layout), `test/e2e/snapping.spec.ts:197` (drop на Card в окне) | mutant `drop-not-corrected`: `src/main/layout/store.ts` `settle` возвращает `node` без `freePlace` — 7 test-ов layout-store красные | `mutant.sh … test/contract/layout-store.test.ts` → тесты exit 1, mutant убит |
-| `no-overlap.spec.ts` «two neighbouring Notes dragged together…» (6,2 s) | e2e | `test/contract/layout-store.test.ts:799` (moveMany +100 px без поправки), `test/unit/history.test.ts:521` (⌘Z, ⇧⌘Z группы), `test/unit/canvas.test.tsx:285` (drag нескольких Node шлёт один moveMany) | mutant `group-corrected-off-itself`: `obstaclesFor(moved, new Set())` в `moveMany` — красные `layout-store.test.ts:799`, `history.test.ts:521`, `:934` | exit 1, убит |
+| ~~`no-overlap.spec.ts` «two neighbouring Notes dragged together…» (6,2 s)~~ — **восстановлен в круге 2 ревью**, как был на `main` | e2e | правку поправки группы в main ловят `test/contract/layout-store.test.ts:799` и `test/unit/history.test.ts:521` (mutant `group-corrected-off-itself`: `obstaclesFor(moved, new Set())` в `moveMany` — красные `:799`, `history:521`, `:934`). Но связку `onNodeDragStop` → `dropNodes` со всеми `released` Node React Flow (`src/renderer/canvas/Canvas.tsx:338`) проверяет только этот e2e: `test/unit/canvas.test.tsx:285` проверяет чистую `dropOperation` | mutant `released-lead-only`: `released.map(` → `[lead].map(` в `Canvas.tsx` переживает весь `test/unit` (находка ревью круга 1), а восстановленный e2e на нём красный | `mutant-e2e.sh released-lead-only … test/e2e/no-overlap.spec.ts -g 'two neighbouring Notes'` → e2e exit 1, убит; без mutant-а `pnpm test:e2e test/e2e/no-overlap.spec.ts` exit 0, 2 passed (оба под `/tmp/worfy-e2e.lock` с holder.json) |
 | `no-overlap.spec.ts` «a saved Layout with two overlapping Nodes…» (5,8 s) | e2e | `test/contract/layout-store.test.ts:848` (B уходит с A, строка в log, второе чтение ничего не пишет) | mutant `saved-overlap-kept`: `src/main/layout/upgrade.ts` без `removeOverlaps` — красные `:848`, `:885` | exit 1, убит |
 | `linked-reconnect.spec.ts` «Reconnect dials at once…» (39,6 s) | e2e | `test/contract/link-reconnect.test.ts:261`, `:314` (обе стороны, два настоящих Machine), `test/contract/link-dialing.test.ts:108` (IPC handler `link.reconnect`), `test/unit/machines-section.test.tsx:617` (кнопка) | mutant `reconnect-no-dial`: `src/main/link/connections.ts` `else this.dial(each)` → `else void 0` — 8 test-ов красные | exit 1, убит |
 | `harness-evals.test.ts`: три test-а одного scaffold без `EVAL_*` на каждый из 10 кейсов → один test на кейс | contract | те же assert-ы, перенесены дословно в «builds its fixture…» | mutant `fixture-state-elsewhere`: `harness/evals/lib/demo-project.sh` пишет состояние в `worfy-harness-x` — 8 из 10 кейсов красные | `mutant.sh … -t 'builds its fixture'` → exit 1, убит |
@@ -71,7 +71,7 @@ PR #935, ветка `worfy-throughput/15`. Замер «до» — CI run 407704
 | `harness/hooks/tests/gate-verdict.test.sh` (106 s на macOS runner; в `macos-tests` срезан пределом 120 s на файл: 2026-10-28 и run 40784870040 вместе с повтором) → три файла по темам над общим `gate-verdict-world.sh`: пути gate, настоящие signal-ы (`-signals`), те же моменты внутри процесса gate (`-inside`). Предел не поднят, ничего не удалено | shell (contract через `harness-scripts.test.ts`) | те же проверки, дословно | 166 строк `ok` до = 166 строк `ok` после (`diff` отсортированных списков: отличие — только две новые проверки «no temporary files» в двух новых файлах) | `bash …/gate-verdict*.test.sh` с пустым HOME: exit 0 у каждого, 62 + 71 + 35 = 168 passed; было 166 passed за 35 s одним файлом, стало 10 s, 22 s и 7 s (Mac, параллельно, `nice -n 10`); `pnpm test test/contract/harness-scripts.test.ts -t 'gate-verdict\|RUN_FIRST\|…'` exit 0, 7 passed |
 
 Локально (Mac, `nice -n 10`): `free-place.test.ts` 28,6 s → 24,4 s под coverage (без coverage test эталона 18,2 s → 4,0 s под coverage).
-Четыре e2e test-а — 62 s из 1685 s e2e на macOS в CI (оба shard-а).
+Три удалённых e2e test-а — 56 s из 1685 s e2e на macOS в CI (оба shard-а); четвёртый, перетаскивание группы, восстановлен в круге 2.
 
 ### Удаление по правилу «упорный test»
 
@@ -97,6 +97,8 @@ PR #935, ветка `worfy-throughput/15`. Замер «до» — CI run 407704
 Суммы слоёв между двумя одиночными run-ами шумят сильнее выигрыша: e2e после стал на 94 s дольше при
 четырёх test-ах меньше, Windows — на 367 s дольше за счёт других файлов. Сравнение по слою надёжно только
 по медиане нескольких run-ов `main` после merge.
+Числа «после» сняты до круга 2: восстановленный test перетаскивания группы возвращает в `no-overlap.spec.ts`
+около 6 s (6,2 s в CI до), итог по e2e на macOS — около −59 s вместо −65 s.
 
 ### Что ещё дорого и не тронуто (кандидаты дальше)
 

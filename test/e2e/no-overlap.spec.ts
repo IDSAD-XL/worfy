@@ -3,22 +3,25 @@ import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from '
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { FRAME_GAP } from '../../src/renderer/canvas/epic-layout'
 import { ORCHESTRATOR_WIDTH } from '../../src/shared/ipc/orchestrator'
 import { canvasReady, launchApp, settledBoxes } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
 
-// Nodes never overlap (ADR-0038) against the built app: an Epic frame whose offset puts it on a
-// Card is drawn next to the Card. The correction of a drop, of a drag of several Nodes and of a
-// saved Layout with overlapping Nodes is checked in main's layout store
-// (test/contract/layout-store.test.ts, "Nodes never overlap"), its ⌘Z in test/unit/history.test.ts,
-// the operation a drag sends in test/unit/canvas.test.tsx, and a drop on a Card in the window in
+// Nodes never overlap (ADR-0038) against the built app: a drag of several Nodes is one operation
+// with every dropped Node and one step of ⌘Z (the only test of the Canvas handing React Flow's
+// released Nodes to the drop), and an Epic frame whose offset puts it on a Card is drawn next to
+// the Card. The Projects are written into projects.json up front. The correction of a drop on a
+// Card and of a saved Layout with overlapping Nodes is checked in main's layout store
+// (test/contract/layout-store.test.ts, "Nodes never overlap"), a drop on a Card in the window in
 // test/e2e/snapping.spec.ts.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
+const ALPHA = 'alpha-0000000a'
+const BETA = 'beta-0000000b'
 /** The gap two Nodes on the plane keep (ADR-0038). */
 const GAP = 16
 
@@ -40,6 +43,20 @@ let dataDir: string
 
 const base = { hidden: false, locked: false, pinned: false, tags: [] }
 const cardNode = (id: string, x: number, y: number) => ({ id, kind: 'card', x, y, w: 300, h: 220, ...base, data: { title: id } })
+const noteNode = (id: string, x: number, y: number) => ({ id, kind: 'note', x, y, w: 220, h: 120, ...base, data: { text: id } })
+
+/** Two Projects; `layouts` gives each its layout.json. */
+function makeProjects(layouts: Record<string, unknown[]>, active = ALPHA): void {
+  const projects = [ALPHA, BETA].map((id) => {
+    const name = id.split('-')[0] ?? id
+    const path = join(scratch, name)
+    mkdirSync(path, { recursive: true })
+    mkdirSync(join(dataDir, id), { recursive: true })
+    if (layouts[id]) writeFileSync(join(dataDir, id, 'layout.json'), JSON.stringify({ nodes: layouts[id], viewport: { x: 0, y: 0, zoom: 1 } }))
+    return { id, name, path }
+  })
+  writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects, activeId: active }))
+}
 
 test.beforeEach(() => {
   scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-no-overlap-')))
@@ -66,8 +83,29 @@ const byId = async (window: Page, projectId: string, id: string): Promise<StateN
   return node
 }
 
+async function box(locator: Locator): Promise<Box> {
+  const found = await locator.boundingBox()
+  if (!found) throw new Error('the element has no box')
+  return found
+}
 /** How far apart two boxes are on the screen along the axis they are separated on; negative when they overlap. */
 const apart = (a: Box, b: Box): number => Math.max(b.x - (a.x + a.width), a.x - (b.x + b.width), b.y - (a.y + a.height), a.y - (b.y + b.height))
+
+async function center(locator: Locator): Promise<{ x: number; y: number }> {
+  const found = await box(locator)
+  return { x: found.x + found.width / 2, y: found.y + found.height / 2 }
+}
+
+/** Presses on `from` and lets go over `to` (or `dx`, `dy` further), once the Canvas is at rest. */
+async function drag(window: Page, from: Locator, to: { x: number; y: number } | { dx: number; dy: number }): Promise<void> {
+  await canvasReady({ window }, { visible: [from] })
+  const start = await center(from)
+  const end = 'dx' in to ? { x: start.x + to.dx, y: start.y + to.dy } : to
+  await window.mouse.move(start.x, start.y)
+  await window.mouse.down()
+  await window.mouse.move(end.x, end.y, { steps: 12 })
+  await window.mouse.up()
+}
 
 const nodeElement = (window: Page, id: string) => window.getByTestId(`rf__node-${id}`)
 
@@ -76,6 +114,42 @@ async function apartOnScreen(window: Page, a: string, b: string): Promise<number
   const boxes = await settledBoxes(window, { a: `[data-testid="rf__node-${a}"]`, b: `[data-testid="rf__node-${b}"]` }, `the boxes of ${a} and ${b}`)
   return apart(boxes.a, boxes.b)
 }
+
+test('two neighbouring Notes dragged together move by the same distance, uncorrected, and one ⌘Z brings both back', async () => {
+  // 20 px apart: alone, the first Note would land within 16 px of the second, not yet moved.
+  makeProjects({ [ALPHA]: [noteNode('a', 500, 300), noteNode('b', 740, 300)] })
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+  try {
+    const { window } = launched
+    const header = (id: string) => window.locator(`[data-testid="note-node"][data-node-id="${id}"] .w-note__header`)
+    await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [header('a'), header('b')] })
+    await header('a').click()
+    await header('b').click({ modifiers: ['ControlOrMeta'] })
+    await drag(window, header('a'), { dx: 100, dy: 0 })
+
+    await expect.poll(async () => (await byId(window, ALPHA, 'a')).x).toBeGreaterThan(550)
+    const a = await byId(window, ALPHA, 'a')
+    const b = await byId(window, ALPHA, 'b')
+    // The same distance for both: the group moved as one and main did not move it off itself.
+    expect(b.x - a.x).toBeCloseTo(240, 6)
+    expect(b.y - a.y).toBeCloseTo(0, 6)
+    // The group moves by the shift that puts a on the grid of 8 (worfy-week ticket 06): y 300 goes to 304.
+    expect(a.y).toBeCloseTo(304, 6)
+    expect(a.x % 8).toBe(0)
+    // About the 100 px the pointer went (React Flow starts a drag past a small threshold), give or take the grid.
+    expect(a.x - 500).toBeGreaterThan(50)
+    expect(a.x - 500).toBeLessThanOrEqual(104)
+
+    await window.locator('.react-flow__pane').click({ position: { x: 300, y: 700 } })
+    await window.keyboard.press('ControlOrMeta+z')
+    await expect.poll(async () => [await byId(window, ALPHA, 'a'), await byId(window, ALPHA, 'b')].map(({ x, y }) => [x, y])).toEqual([
+      [500, 300],
+      [740, 300],
+    ])
+  } finally {
+    await launched.close()
+  }
+})
 
 // ── an Epic frame with an offset yields to a Card ───────────────────────────
 

@@ -219,6 +219,8 @@ const sineWave = (): { x: number; y: number }[] =>
 /**
  * Rectangle pairs the search before ticket 14 compared for a group of 10 Notes along sineWave on
  * scatteredGrid(random(7)), measured with previousFreeShift on main at 501e92a (free-place.ts as at 3bf0abb).
+ * No test re-counts it: measure it again (sum the pairs previousFreeShift compares over sineWave)
+ * whenever sineWave, scatteredGrid, noteGroup or random change.
  */
 const PREVIOUS_PAIR_CHECKS = 2_049_070_418
 
