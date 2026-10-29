@@ -74,6 +74,12 @@ check "placeholders: the summary of the old Russian placeholders has no Russian 
 eq "rules.md: --rules prints the old Russian headings in English" "$("$P2" -C "$T/r/phen" --rules)" "$P2" -C "$T/r/phru" --rules
 check "rules.md: the summary prints the English heading" 0 "## Required reading for the implementer" "$P2" -C "$T/r/phru"
 check "rules.md: a heading with more words after it stays as written" 0 "" bash -c 'o="$("$@")" && [[ "$o" == *"## Ночной прогон и аудит (old)"* && "$o" != *"## Overnight run and audit (old)"* ]]' _ "$P2" -C "$T/r/phru" --rules
+# rules.md's sources section is for whoever maintains the profile: neither the summary nor --rules prints it, under
+# the English heading or the old Russian one; every other section is printed as written.
+SRCS_KEPT=$'# srcs\n\n## Facts\n\n- keep me\n\n## After\n\n- kept too'
+eq "rules.md: --rules leaves out the sources sections and keeps the rest" "$SRCS_KEPT" "$P2" -C "$T/r/srcs" --rules
+eq "rules.md: the summary leaves out the sources sections and keeps the rest" "$SRCS_KEPT" \
+    bash -c 'set -o pipefail; "$@" | sed -n "/^--- rules.md\$/,\$p" | tail -n +2' _ "$P2" -C "$T/r/srcs"
 fails_with "profile.json that is not an object -> 1 with the reason" 1 "not a JSON object" "$P2" -C "$T/r/notobj" --name
 check "schema 1: --json and briefing name no ~/.claude/bin" 0 "" bash -c 'o="$("$@" --json && "$@")" && [[ "$o" == *"$0"* && "$o" != *"~/.claude/bin"* ]]' "$(json_printed "$BINREAL")/ticket" "$P2" -C "$T/r/legacy"
 eq "schema 1: string language -> language.reports" ru "$P2" -C "$T/r/legacy" --field language.reports
