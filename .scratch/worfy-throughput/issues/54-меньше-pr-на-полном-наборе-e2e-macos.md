@@ -1,7 +1,7 @@
 # 54 — Меньше PR на полном наборе e2e macOS: узкие триггеры полного набора и `macos-package`
 
 Type: task
-Status: open
+Status: claimed 2026-10-29T10:54Z
 Blocked by: 11 (Ticket [11](11-pr-вливается-по-задетым-test-ам-полный-набор-на-main.md) правит те же файлы —
 `.github/workflows/ci.yml` и `scripts/ci-scope.mjs`)
 Source: замер 2026-10-29 около 09:30 UTC по 13 последним завершённым run-ам `ci.yml` и по macOS-job-ам этих run-ов
@@ -138,3 +138,46 @@ windows-e2e-shards=["1/1"]
 - Ускорение job-ов Windows и Linux: они не ждут в очереди.
 
 ## Итог
+
+### Шаг 1: замер на run-ах после `87b87f6a` (2026-10-29, около 10:55 UTC)
+
+Run-ы `ci.yml` по событию `pull_request` с кодом, созданные после `87b87f6a` (push в `main` 08:16 UTC). Head каждого
+содержит `87b87f6a` (`git merge-base --is-ancestor`). Путь — строка `e2e:` лога job-а `changes`; `macos-package` —
+есть ли в первой строке «no build input».
+
+| PR | Run-ы (head) | Весь набор e2e — путь | `macos-package` — почему | По новому правилу |
+| --- | --- | --- | --- | --- |
+| #970 (Ticket 11, влит) | 40842230929 (`73130e28`), 40848990263 (`6f071e6a`), 40858408423 (`4e212b0b`); 40842227052 отменён до macOS | `.github/workflows/ci.yml reaches every e2e test`, shard-ы `1/2`, `2/2` | да: `.github/workflows/ci.yml` и `windows-tests.yml` — build input целой папкой | то же: diff меняет job `changes` (вывод `tests-base`), это часть, которая решает, что запускают e2e; `windows-tests.yml` сам по себе больше не триггер |
+| #977 (карантин linked-notify, влит) | 40852416392 (`34dfcade`), 40855794394 (`52da66d1`) | `test/quarantine/linked-notify-turn-click-opens-in-b.json reaches every e2e test`, `1/2`, `2/2` | нет | то же: `test/quarantine/` — путь приложения, этот Ticket его не трогает |
+| #975 (worfy-polish 45, открыт) | 40844710604 (`cbc7e4f3`), 40851345258 (`80e53112`) | `src/main/claude-home/hidden-subagents.ts is not in scripts/e2e-specs.table.json`, `1/2`, `2/2` | нет | то же: путь `src/` вне таблицы — весь набор по правилу таблицы |
+| #974 (worfy-throughput 33, открыт) | 40844213262 (`4259e533`), 40849045234 (`7bab921b`) | не весь набор: 10 spec-файлов правила Harness, `1/1` | нет | то же |
+
+- 4 PR с кодом, 9 завершённых run-ов с macOS-job-ами. На всём наборе — 3 PR (7 run-ов), с `macos-package` — 1 PR
+  (#970, 3 run-а).
+- Триггер workflow на данных есть (#970) — (b) сделан, не сведён к test-у нынешнего поведения. Сам #970 и по
+  новому правилу шёл бы на весь набор с `macos-package`: он менял job `changes`.
+- Триггер `test/fixtures/**` на run-ах после `87b87f6a` не встретился: ни один PR fixture-ы не менял. Правило
+  живое (synthetic run ниже, и #957 до таблицы), поэтому (a) сделан.
+- Новый триггер, которого нет в таблице выше: `test/quarantine/*.json` (#977). Запись карантина влияет только на
+  spec-файл, который она называет, но «Что делаем» оставляет остальные пути приложения на всём наборе — это
+  кандидат на отдельный Ticket.
+
+### Что сделано
+
+- `scripts/ci-scope.mjs`: `.github/workflows/` больше не build input целой папкой. `ci.yml` — build input (и путь
+  приложения, то есть весь набор e2e), только когда меняется одна из частей, что упаковывают приложение или
+  запускают e2e: job-ы `changes`, `macos-e2e`, `macos-package`, `windows-e2e` или ключи до `jobs:` (`on`, `env`,
+  `concurrency`, `permissions`). Части сравниваются по тексту ci.yml на BASE и на HEAD (`git show`), без строк
+  комментариев и пустых строк (`workflowParts`). Правка job-а `macos-tests` просит только `macos-tests`. ci.yml,
+  которого git не показывает на одной из сторон (новый, удалён), — всё, как раньше. `windows-tests.yml` и любой
+  другой workflow — не build input и не путь приложения.
+- Пути приложения в `test/fixtures/` — только папки, которые читают e2e и их helper-ы (`E2E_FIXTURES`:
+  `agent-scripts`, `browser`, `claude-home`, `claude-home-legacy`, `e2e-shell`, `first-run-tools`, `gh`,
+  `worfy-mvp-epic`). Остальной `test/fixtures/` (как `eval-stub`) просит `macos-tests` (его читают contract
+  test-ы, macOS-only среди них), но не e2e и не `macos-package`.
+- `e2eShards` и таблица `scripts/e2e-specs.table.json` не менялись. В `ci.yml` изменён только комментарий о
+  `macos-package`; `windows-tests.yml` не менялся.
+- Synthetic run на дереве ветки (`EVENT=pull_request BASE=HEAD^1`): только `test/fixtures/eval-stub/claude.cjs` —
+  `macos-tests` без e2e и без `macos-package`; только `windows-tests.yml` и только комментарий `ci.yml` — ни одного
+  macOS-job-а; job `macos-package` в `ci.yml` — все job-ы и весь набор; только
+  `harness/skills/epic-wave/SKILL.md` — 10 spec-файлов, `macos-e2e-shards=["1/1"]`.
