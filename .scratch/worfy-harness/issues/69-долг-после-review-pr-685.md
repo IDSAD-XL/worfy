@@ -1,7 +1,8 @@
 # 69 — Долг после review PR #685: grader и закрепление «вердикт первым»
 
 Type: task
-Status: open
+Status: claimed 2026-10-29T17:15Z
+Branch: worfy-harness/69
 Blocked by: —
 Source: ревью PR [#685](https://github.com/IDSAD-XL/worfy/pull/685) (follow-up Ticket-а 50), 2026-10-21. Все находки — low.
 
@@ -19,4 +20,16 @@ Source: ревью PR [#685](https://github.com/IDSAD-XL/worfy/pull/685) (follow
 
 ## Итог
 
-Заполняется при закрытии.
+- Grader `harness/evals/reviewer-verdict/graders/rejected-first.md`: шаблон `^REJECTED` заменён на
+  `^REJECTED:(?!.*VERIFIED)`. Ответ без двоеточия (`REJECTED — …`, `REJECTED …`) и ответ с двумя вердиктами в
+  первой строке (`REJECTED: …; VERIFIED: …`) теперь не проходят. Флага `s` нет, поэтому `.` не переходит через
+  конец строки: слово VERIFIED в следующих строках ответа grader не роняет. Остальные grader-ы кейса — `llm` и
+  `tool_used`, той же дыры в них нет.
+- Contract test `test/contract/harness-evals.test.ts` («reviewer-verdict: the rejected-first grader …») читает
+  шаблон из grader-а и гоняет его по ответам-fixture так же, как `scripts/eval-outcome-check.mjs` (ответ после
+  `trim()`): три хороших ответа проходят, шесть плохих — нет. Mutation testing: `^REJECTED`,
+  `^REJECTED(?!.*VERIFIED)` и `^REJECTED:` краснят строки плохих ответов; `^REJECTED:(?![\s\S]*VERIFIED)` краснит
+  строку хорошего многострочного ответа.
+- `harness/bin/tests/agents-text.test.sh`: строка `rv` закрепляет оговорку «Answer format» в
+  `harness/agents/reviewer.md:198-199`; без неё в агенте test красный (`AT_EXIT=1`).
+- Платный eval не запускался, `pnpm eval:harness` не нужен.

@@ -361,6 +361,25 @@ describe('harness/evals: the cases', () => {
     expect(prose).not.toMatch(pattern)
     expect(block.join('\n')).toMatch(pattern)
   })
+
+  // The reviewer's lens "implementer's report" (agents/reviewer.md) starts the answer with
+  // `REJECTED: <the unconfirmed claims>`, and one verdict only: VERIFIED never shares that line. The
+  // grader reads the saved answer the way scripts/eval-outcome-check.mjs runs a regex grader.
+  it('reviewer-verdict: the rejected-first grader takes one REJECTED: verdict and refuses a missing colon or a second verdict', () => {
+    const grader = frontMatter(join(EVALS, 'reviewer-verdict', 'graders', 'rejected-first.md'))
+    const pattern = new RegExp(field(grader, 'pattern') ?? '<none>', field(grader, 'flags') ?? '')
+    const grade = (answer: string): boolean => pattern.test(answer.trim())
+    const claim = '`node --test` exits 0 — it exits 1 (reported 0, mine 1)'
+    expect(grade(`REJECTED: ${claim}`)).toBe(true)
+    expect(grade(`REJECTED: ${claim}\nRan: node --test, exit code 1.\nThe other claims: VERIFIED by re-reading.`)).toBe(true)
+    expect(grade(`REJECTED: ${claim}\r\nRan: node --test, exit code 1.\r\n`)).toBe(true)
+    expect(grade(`REJECTED — ${claim}`)).toBe(false)
+    expect(grade(`REJECTED ${claim}`)).toBe(false)
+    expect(grade(`REJECTED: ${claim}; VERIFIED: the rest`)).toBe(false)
+    expect(grade('VERIFIED')).toBe(false)
+    expect(grade(`Verdict: REJECTED: ${claim}`)).toBe(false)
+    expect(grade(`**REJECTED:** ${claim}`)).toBe(false)
+  })
 })
 
 // On Windows these need the paths of the fixture's gate registry ("match", "pm") in node's spelling,
