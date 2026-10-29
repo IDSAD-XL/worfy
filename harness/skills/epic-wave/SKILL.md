@@ -341,6 +341,20 @@ finish `F workflow.finish` (a PR with green CI, or locally green checks); the me
 orchestrator. The order of work and the report format are set in the agent definition; the brief
 does not repeat them.
 
+**Model and effort.** Every agent this skill starts gets the Agent parameters `model` and `effort`
+of its role, `F agents.<role>.model` and `F agents.<role>.effort`, where `<role>` is implementer,
+scout, verifier (agent `worfy:reviewer` with the lens "implementer's report") or reviewer (the
+other reviewers and the sceptics). The implementer, for example:
+`Agent({subagent_type: "worfy:implementer", name: "impl-<NN>", model: <F agents.implementer.model>, effort: <F agents.implementer.effort>, …})`.
+An argument of the skill or the owner's word in a message (`Ticket <NN> — opus`, in any language)
+overrides the profile field for that one ticket. The argument is `<NN> model <sonnet|opus>` or
+`<NN> effort <low|medium|high>` after the list of tickets; a word without a role sets every agent of
+the ticket. No field (exit 4 or `null`) and no argument — no parameter: the agent runs with the
+`model` and `effort` of its frontmatter, as before. Any other value, `haiku` too, is not passed: the
+next source decides, and the report names the reason. The report names them for every agent it
+started: `Model: <model> (<where it came from>), effort: <effort> (<where it came from>)`, where
+`<where it came from>` is `argument`, `owner's word`, `agents.<role>` or `frontmatter`.
+
 A small ticket in `eco` (section 1) gets no implementer: the orchestrator does it itself, in a
 worktree of its own by `F worktree.implementer`, by the steps `F workflow.implementer_steps`, and
 gives the verifier the fields of an implementer's report (commands with exit codes, claims, what
@@ -354,12 +368,12 @@ verifier; the worktree stays for the gate and the merge. On a match nothing is p
 opened: the orchestrator returns with `ExitWorktree` (`action: "keep"`), and the ticket goes to an
 implementer the way a rework round does (section 3): `git worktree remove <worktree>` only, the
 local branch stays, the agent starts with `isolation: "worktree"`, and its brief is the rework
-brief with `Findings: none — a small ticket handed over: <the case>` and the line
+brief with `Findings: none — a small ticket handed over: <the case>`, the line
+`PR: none — open it (ship-ticket, step 8)` (with `local-green`: `PR: none`), the line
 `Worktree: your launch tree (isolation "worktree") — git checkout <branch>` (the local branch, not
-pushed), never the `F worktree.implementer` template of the first brief. The implementer takes the
-orchestrator's commit as its starting point: it reviews that commit, adds the tests the change
-needs, runs the checks and carries the ticket to its finish (push, PR, CI). The report line of the
-ticket is `Agents: full — <the case>`, for example `Agents: full — destructive action`.
+pushed) and the line `Start from the orchestrator's commit: review it, add the tests the change
+needs, run the checks and carry the ticket to its finish (push, PR, CI).`, never the
+`F worktree.implementer` template of the first brief. The report line of the ticket is `Agents: full — <the case>`, for example `Agents: full — destructive action`.
 
 - `parallel: worktrees` — one agent per ticket, all in one message. `F worktree.root` must lie under
   `.claude/worktrees/` of the repository: an implementer subagent edits only in a tree it entered with
@@ -1560,11 +1574,12 @@ depth and where it came from, and the subagent tokens of each of its rounds with
 ```
 
 Then, for every ticket of the table, its agents line and the number of subagents started for it
-(section 1):
+(section 1), and the `Model:` line of each of its agents (section 2):
 
 ```
 07: Agents: eco
 07: Subagents: 2 — impl-07, verify-07
+07: verify-07 — Model: sonnet (agents.verifier), effort: high (frontmatter)
 ```
 
 **A wave without a human names its decision log** (section 1). Before the report is written,

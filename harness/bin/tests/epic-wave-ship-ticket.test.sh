@@ -995,7 +995,7 @@ check "schema: --schema-only wrote nothing into HARNESS_HOME" test -z "$(ls -A "
 # (low | medium | high) for implementer, reviewer, scout and verifier. Both skills pass them as the Agent
 # parameters model and effort; an argument or the owner's word overrides them for one ticket; no field — no
 # parameter, the agent's frontmatter as before; the report names the model, the effort and their source.
-M_OVERRIDE='An argument of the skill or the owner'"'"'s word in a message (`Ticket 05 — opus`, in any language) overrides the profile field for that one ticket.'
+M_OVERRIDE='An argument of the skill or the owner'"'"'s word in a message (`Ticket <NN> — opus`, in any language) overrides the profile field for that one ticket.'
 M_NOFIELD='No field (exit 4 or `null`) and no argument — no parameter: the agent runs with the `model` and `effort` of its frontmatter, as before.'
 M_OTHER='Any other value, `haiku` too, is not passed: the next source decides, and the report names the reason.'
 M_LINE='The report names them for every agent it started: `Model: <model> (<where it came from>), effort: <effort> (<where it came from>)`, where `<where it came from>` is `argument`, `owner'"'"'s word`, `agents.<role>` or `frontmatter`.'
@@ -1009,7 +1009,7 @@ done
 check "epic-wave section 2: the implementer call with model and effort from F agents.implementer" in_flat "$ew2" \
     '`Agent({subagent_type: "worfy:implementer", name: "impl-<NN>", model: <F agents.implementer.model>, effort: <F agents.implementer.effort>, …})`'
 check "epic-wave section 2: the four roles, the verifier and the sceptics placed" in_flat "$ew2" \
-    'where `<role>` is `implementer`, `scout`, `verifier` (agent `worfy:reviewer` with the lens "implementer'"'"'s report") or `reviewer` (the other reviewers and the sceptics).'
+    'where `<role>` is implementer, scout, verifier (agent `worfy:reviewer` with the lens "implementer'"'"'s report") or reviewer (the other reviewers and the sceptics).'
 check "epic-wave section 2: the argument form" in_flat "$ew2" 'The argument is `<NN> model <sonnet|opus>` or `<NN> effort <low|medium|high>` after the list of tickets'
 check "ship-ticket step 7: the reviewer call with model and effort from F agents.reviewer" in_flat "$st7" \
     '`Agent({subagent_type: "worfy:reviewer", model: <F agents.reviewer.model>, effort: <F agents.reviewer.effort>, …})`'

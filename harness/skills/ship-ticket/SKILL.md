@@ -345,6 +345,17 @@ of a round in parallel. Each brief gives the path to its worktree (the agent run
 `profile -C <path>`), the lens, the branch and the base. How many reviewers a round has is set by
 its review depth.
 
+**Model and effort.** Each reviewer and sceptic gets the Agent parameters of its role:
+`Agent({subagent_type: "worfy:reviewer", model: <F agents.reviewer.model>, effort: <F agents.reviewer.effort>, …})`.
+An argument of the skill or the owner's word in a message (`Ticket <NN> — opus`, in any language)
+overrides the profile field for that one ticket. The argument is
+`/worfy:ship-ticket <epic> <NN> model <sonnet|opus> effort <low|medium|high>` (either half alone).
+No field (exit 4 or `null`) and no argument — no parameter: the agent runs with the `model` and
+`effort` of its frontmatter, as before. Any other value, `haiku` too, is not passed: the next source
+decides, and the report names the reason. The report names them for every agent it started:
+`Model: <model> (<where it came from>), effort: <effort> (<where it came from>)`, where
+`<where it came from>` is `argument`, `owner's word`, `agents.<role>` or `frontmatter`.
+
 **Review depth.** A scale, like effort: `low`, `medium`, `high`, `max`. It sets how many agents
 review a round, with which lenses, how much mutation testing they do and which findings get a
 sceptic (one `worfy:reviewer` agent per finding, tasked with refuting it, as in the narrow round of
