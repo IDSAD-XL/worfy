@@ -346,9 +346,11 @@ of a round in parallel. Each brief gives the path to its worktree (the agent run
 its review depth.
 
 **Model and effort.** Each reviewer and sceptic gets the Agent parameters of its role:
-`Agent({subagent_type: "worfy:reviewer", model: <F agents.reviewer.model>, effort: <F agents.reviewer.effort>, …})`.
-An argument of the skill or the owner's word in a message (`Ticket <NN> — opus`, in any language)
-overrides the profile field for that one ticket. The argument is
+`Agent({subagent_type: "worfy:reviewer", model: <F agents.reviewer.model>,
+effort: <F agents.reviewer.effort>, …})`.
+Which value wins: the owner's word in a message (`Ticket <NN> — opus`, in any language), then an
+argument of the skill — each for that one ticket — then `F agents.<role>.model` and
+`F agents.<role>.effort`, then the agent's frontmatter. The argument is
 `/worfy:ship-ticket <epic> <NN> model <sonnet|opus> effort <low|medium|high>` (either half alone).
 No field (exit 4 or `null`) and no argument — no parameter: the agent runs with the `model` and
 `effort` of its frontmatter, as before. Any other value, `haiku` too, is not passed: the next source

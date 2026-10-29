@@ -344,16 +344,11 @@ does not repeat them.
 **Model and effort.** Every agent this skill starts gets the Agent parameters `model` and `effort`
 of its role, `F agents.<role>.model` and `F agents.<role>.effort`, where `<role>` is implementer,
 scout, verifier (agent `worfy:reviewer` with the lens "implementer's report") or reviewer (the
-other reviewers and the sceptics). The implementer, for example:
-`Agent({subagent_type: "worfy:implementer", name: "impl-<NN>", model: <F agents.implementer.model>, effort: <F agents.implementer.effort>, …})`.
-An argument of the skill or the owner's word in a message (`Ticket <NN> — opus`, in any language)
-overrides the profile field for that one ticket. The argument is `<NN> model <sonnet|opus>` or
-`<NN> effort <low|medium|high>` after the list of tickets; a word without a role sets every agent of
-the ticket. No field (exit 4 or `null`) and no argument — no parameter: the agent runs with the
-`model` and `effort` of its frontmatter, as before. Any other value, `haiku` too, is not passed: the
-next source decides, and the report names the reason. The report names them for every agent it
-started: `Model: <model> (<where it came from>), effort: <effort> (<where it came from>)`, where
-`<where it came from>` is `argument`, `owner's word`, `agents.<role>` or `frontmatter`.
+other reviewers and the sceptics). The argument is `<NN> model <sonnet|opus>` or
+`<NN> effort <low|medium|high>` after the list of tickets; it and the owner's word
+(`Ticket <NN> — opus`) set every agent of that ticket. The order of the sources, the default, the
+values that are not passed and the `Model:` report line are those of `/worfy:ship-ticket`, step 7,
+paragraph "Model and effort".
 
 A small ticket in `eco` (section 1) gets no implementer: the orchestrator does it itself, in a
 worktree of its own by `F worktree.implementer`, by the steps `F workflow.implementer_steps`, and
@@ -369,11 +364,14 @@ opened: the orchestrator returns with `ExitWorktree` (`action: "keep"`), and the
 implementer the way a rework round does (section 3): `git worktree remove <worktree>` only, the
 local branch stays, the agent starts with `isolation: "worktree"`, and its brief is the rework
 brief with `Findings: none — a small ticket handed over: <the case>`, the line
-`PR: none — open it (ship-ticket, step 8)` (with `local-green`: `PR: none`), the line
+`PR: none — open it (ship-ticket, step 8)` (with `agent-review` before `ci` in the Pipeline,
+section 0: `PR: none — stop after step 6 with the branch pushed, the review by agents comes first`;
+with `local-green`: `PR: none`), the line
 `Worktree: your launch tree (isolation "worktree") — git checkout <branch>` (the local branch, not
 pushed) and the line `Start from the orchestrator's commit: review it, add the tests the change
-needs, run the checks and carry the ticket to its finish (push, PR, CI).`, never the
-`F worktree.implementer` template of the first brief. The report line of the ticket is `Agents: full — <the case>`, for example `Agents: full — destructive action`.
+needs, run the checks and carry the ticket as far as the PR: line says.`, never the
+`F worktree.implementer` template of the first brief. The report line of the ticket is
+`Agents: full — <the case>`, for example `Agents: full — destructive action`.
 
 - `parallel: worktrees` — one agent per ticket, all in one message. `F worktree.root` must lie under
   `.claude/worktrees/` of the repository: an implementer subagent edits only in a tree it entered with

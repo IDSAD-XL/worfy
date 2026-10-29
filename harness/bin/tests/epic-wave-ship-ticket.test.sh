@@ -914,7 +914,8 @@ check "epic-wave section 2: the orchestrator enters the worktree of a small tick
     'Right after `git worktree add` the orchestrator enters that worktree with `EnterWorktree` (the `path` of the worktree): the PreToolUse check on Edit and Write lets edits only into the session'"'"'s worktree.'
 SMALL_CHECK='Before any push or PR — after its local checks and a local commit — the orchestrator checks the diff of the small ticket against the cases where `full` is required (section 1).'
 SMALL_GO='No match: it goes on to the finish `F workflow.finish`, returns with `ExitWorktree` (`action: "keep"`) and starts the verifier; the worktree stays for the gate and the merge.'
-SMALL_HAND='On a match nothing is pushed and no PR is opened: the orchestrator returns with `ExitWorktree` (`action: "keep"`), and the ticket goes to an implementer the way a rework round does (section 3): `git worktree remove <worktree>` only, the local branch stays, the agent starts with `isolation: "worktree"`, and its brief is the rework brief with `Findings: none — a small ticket handed over: <the case>`, the line `PR: none — open it (ship-ticket, step 8)` (with `local-green`: `PR: none`), the line `Worktree: your launch tree (isolation "worktree") — git checkout <branch>` (the local branch, not pushed) and the line `Start from the orchestrator'"'"'s commit: review it, add the tests the change needs, run the checks and carry the ticket to its finish (push, PR, CI).`, never the `F worktree.implementer` template of the first brief.'
+SMALL_HAND='On a match nothing is pushed and no PR is opened: the orchestrator returns with `ExitWorktree` (`action: "keep"`), and the ticket goes to an implementer the way a rework round does (section 3): `git worktree remove <worktree>` only, the local branch stays, the agent starts with `isolation: "worktree"`, and its brief is the rework brief with `Findings: none — a small ticket handed over: <the case>`, the line `PR: none — open it (ship-ticket, step 8)` (with `agent-review` before `ci` in the Pipeline, section 0: `PR: none — stop after step 6 with the branch pushed, the review by agents comes first`; with `local-green`: `PR: none`), the line `Worktree: your launch tree (isolation "worktree") — git checkout <branch>` (the local branch, not pushed) and the line `Start from the orchestrator'"'"'s commit: review it, add the tests the change needs, run the checks and carry the ticket as far as the PR: line says.`, never the `F worktree.implementer` template of the first brief.'
+check "epic-wave section 2: the hand-off brief does not promise a PR whatever the Pipeline says" lacks_re_text "$ew2" 'carry the ticket to its finish (push, PR, CI)'
 # The hand-off brief itself carries the promise; the old prose about the implementer outside the brief is gone.
 SMALL_DONE='The report line of the ticket is `Agents: full — <the case>`, for example `Agents: full — destructive action`.'
 check "epic-wave section 2: the promise is a line of the hand-off brief, not prose around it" lacks_re_text "$ew2" 'The implementer takes the orchestrator'"'"'s commit as its starting point'
@@ -995,22 +996,24 @@ check "schema: --schema-only wrote nothing into HARNESS_HOME" test -z "$(ls -A "
 # (low | medium | high) for implementer, reviewer, scout and verifier. Both skills pass them as the Agent
 # parameters model and effort; an argument or the owner's word overrides them for one ticket; no field — no
 # parameter, the agent's frontmatter as before; the report names the model, the effort and their source.
-M_OVERRIDE='An argument of the skill or the owner'"'"'s word in a message (`Ticket <NN> — opus`, in any language) overrides the profile field for that one ticket.'
+M_ORDER='Which value wins: the owner'"'"'s word in a message (`Ticket <NN> — opus`, in any language), then an argument of the skill — each for that one ticket — then `F agents.<role>.model` and `F agents.<role>.effort`, then the agent'"'"'s frontmatter.'
 M_NOFIELD='No field (exit 4 or `null`) and no argument — no parameter: the agent runs with the `model` and `effort` of its frontmatter, as before.'
 M_OTHER='Any other value, `haiku` too, is not passed: the next source decides, and the report names the reason.'
 M_LINE='The report names them for every agent it started: `Model: <model> (<where it came from>), effort: <effort> (<where it came from>)`, where `<where it came from>` is `argument`, `owner'"'"'s word`, `agents.<role>` or `frontmatter`.'
-for f in "$EW" "$ST"; do
-    n="$(name_of "$f")"; if [ "$f" = "$EW" ]; then s="$ew2"; else s="$st7"; fi
-    check "$n: an argument and the owner's word override the profile field" in_flat "$s" "$M_OVERRIDE"
-    check "$n: no field — the frontmatter, as before" in_flat "$s" "$M_NOFIELD"
-    check "$n: haiku and other values are not passed" in_flat "$s" "$M_OTHER"
-    check "$n: the Model line of the report" in_flat "$s" "$M_LINE"
+for m in M_ORDER M_NOFIELD M_OTHER M_LINE; do
+    check "ship-ticket step 7: $m" in_flat "$st7" "${!m}"
+    check "epic-wave: $m is not repeated, it points at ship-ticket" lacks_re_text "$(cat "$EW")" "${!m}"
 done
-check "epic-wave section 2: the implementer call with model and effort from F agents.implementer" in_flat "$ew2" \
-    '`Agent({subagent_type: "worfy:implementer", name: "impl-<NN>", model: <F agents.implementer.model>, effort: <F agents.implementer.effort>, …})`'
+check "ship-ticket step 7: no override sentence without the order" lacks_re_text "$st7" 'overrides the profile field for that one ticket'
+check "epic-wave section 2: the parameters of every agent from F agents.<role>" in_flat "$ew2" \
+    'Every agent this skill starts gets the Agent parameters `model` and `effort` of its role, `F agents.<role>.model` and `F agents.<role>.effort`,'
 check "epic-wave section 2: the four roles, the verifier and the sceptics placed" in_flat "$ew2" \
     'where `<role>` is implementer, scout, verifier (agent `worfy:reviewer` with the lens "implementer'"'"'s report") or reviewer (the other reviewers and the sceptics).'
-check "epic-wave section 2: the argument form" in_flat "$ew2" 'The argument is `<NN> model <sonnet|opus>` or `<NN> effort <low|medium|high>` after the list of tickets'
+check "epic-wave section 2: the argument form, and the word and argument set every agent of the ticket" in_flat "$ew2" \
+    'The argument is `<NN> model <sonnet|opus>` or `<NN> effort <low|medium|high>` after the list of tickets; it and the owner'"'"'s word (`Ticket <NN> — opus`) set every agent of that ticket.'
+check "epic-wave section 2: the pointer to ship-ticket step 7" in_flat "$ew2" \
+    'The order of the sources, the default, the values that are not passed and the `Model:` report line are those of `/worfy:ship-ticket`, step 7, paragraph "Model and effort".'
+check "epic-wave section 2: no role form of the owner's word left undefined" lacks_re_text "$ew2" 'a word without a role'
 check "ship-ticket step 7: the reviewer call with model and effort from F agents.reviewer" in_flat "$st7" \
     '`Agent({subagent_type: "worfy:reviewer", model: <F agents.reviewer.model>, effort: <F agents.reviewer.effort>, …})`'
 check "ship-ticket step 7: the argument form" in_flat "$st7" 'The argument is `/worfy:ship-ticket <epic> <NN> model <sonnet|opus> effort <low|medium|high>`'
@@ -1035,9 +1038,11 @@ agents_schema "schema: agents.implementer.model opus passes" 0 '"ok": true' none
 agents_schema "schema: the four roles with model and effort pass" 0 '"ok": true' none \
     '{"implementer":{"model":"opus","effort":"high"},"reviewer":{"model":"sonnet","effort":"medium"},"scout":{"model":"sonnet","effort":"low"},"verifier":{"model":"sonnet","effort":"high"}}'
 agents_schema "schema: null role and null fields pass" 0 '"ok": true' none '{"scout":null,"reviewer":{"model":null,"effort":null}}'
-agents_schema "schema: agents.implementer.model haiku is refused, the field named" 1 '"path": "profile.agents.implementer.model"' none '{"implementer":{"model":"haiku"}}'
+for role in implementer reviewer scout verifier; do
+    agents_schema "schema: agents.$role.model haiku is refused, the field named" 1 "\"path\": \"profile.agents.$role.model\"" none "{\"$role\":{\"model\":\"haiku\"}}"
+    agents_schema "schema: agents.$role.effort max is refused, the field named" 1 "\"path\": \"profile.agents.$role.effort\"" none "{\"$role\":{\"effort\":\"max\"}}"
+done
 agents_schema "schema: a full model ID is refused" 1 '"path": "profile.agents.reviewer.model"' none '{"reviewer":{"model":"claude-opus-5-5"}}'
-agents_schema "schema: effort max is refused" 1 '"path": "profile.agents.verifier.effort"' none '{"verifier":{"effort":"max"}}'
 agents_schema "schema: an unknown role is refused" 1 '"path": "profile.agents.tester"' none '{"tester":{"model":"sonnet"}}'
 agents_schema "schema: an unknown field of a role is refused" 1 '"path": "profile.agents.scout.temperature"' none '{"scout":{"temperature":1}}'
 agents_schema "schema: agents as a string is refused" 1 '"path": "profile.agents"' none '"sonnet"'

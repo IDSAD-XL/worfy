@@ -110,3 +110,19 @@ claim после 36.
 
 **Test-ы.** `harness/bin/tests/epic-wave-ship-ticket.test.sh`, раздел 9f: сначала красный (29 FAIL), после правки
 502/0. Остальные shell test-ы Harness — в описании PR.
+
+**Ревью круга 1 (PR #965, head c8d981fe): одна med и пять low, все исправлены в этом PR.**
+
+- **med, brief передачи мелкого Ticket-а** (`epic-wave`, раздел 2). Строка `PR:` теперь зависит от Pipeline: с
+  `agent-review` перед `ci` — `PR: none — stop after step 6 with the branch pushed, the review by agents comes first`.
+  Строка-обещание больше не обещает PR: «carry the ticket as far as the PR: line says». Сначала красный test.
+- **low, haiku для каждой роли.** Schema test проверяет отказ `haiku` и `effort: max` у всех четырёх ролей; mutant с
+  `haiku` у scout ловится. `$defs`/`$ref` не взяты: валидатор `harness/bin/project-connect` знает только type, enum,
+  const, required, properties, additionalProperties, items, minItems, minLength. Правка валидатора меняла бы скрипт
+  `harness/bin` и делала бы PR платформенным.
+- **low, «a word without a role»** убрано: аргумент и слово владельца задают всех агентов Ticket-а.
+- **low, порядок источников одной фразой** (ship-ticket, шаг 7): слово владельца, аргумент skill-а, `F agents.<role>`,
+  frontmatter.
+- **low, длинная строка** переразбита; строка вызова reviewer-а в ship-ticket — тоже.
+- **low, дубли.** Полный текст — только в ship-ticket, шаг 7; в epic-wave — роли, форма аргумента и ссылка на
+  ship-ticket. Test проверяет, что четыре фразы не повторяются в epic-wave.
