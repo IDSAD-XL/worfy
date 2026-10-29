@@ -37,6 +37,7 @@ import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
+import { killShells } from './terminal-flood-bench-kill.mjs'
 
 const HERE = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -44,7 +45,13 @@ if (process.versions.electron === undefined) {
   const electron = createRequire(import.meta.url)('electron')
   const child = spawn(electron, [fileURLToPath(import.meta.url), ...process.argv.slice(2)], { stdio: 'inherit', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => child.kill(signal))
-  child.on('close', (code) => (process.exitCode = code ?? 1))
+  child.on('close', (code, signal) => {
+    // Never a silent 1: say how Electron's Node ended when it did not end well.
+    if (signal !== null) process.stderr.write(`terminal-flood-bench: Electron's Node was ended by ${signal}\n`)
+    else if (code === null) process.stderr.write("terminal-flood-bench: Electron's Node ended without an exit code\n")
+    else if (code !== 0) process.stderr.write(`terminal-flood-bench: Electron's Node exited with code ${code}\n`)
+    process.exitCode = code ?? 1
+  })
 } else {
   await main()
 }
@@ -121,16 +128,10 @@ async function main() {
     else warn(...args)
   }
 
+  // The ptys, not their pids: on Windows a pty's pid is 0 until the console has started the shell,
+  // so it is read when the shells are killed; a pid of 0 or less is never signalled (killShells).
   const started = new Set()
-  const killAll = () => {
-    for (const pid of started) {
-      try {
-        process.kill(pid, 'SIGKILL')
-      } catch {
-        // Gone already.
-      }
-    }
-  }
+  const killAll = () => killShells([...started].map((pty) => pty.pid))
   process.on('exit', killAll)
   // Ctrl+C or a stop of the run: the shells go first (130, 143: 128 + the signal's number).
   process.on('SIGINT', () => {
@@ -151,7 +152,7 @@ async function main() {
         env: async () => ({ ...process.env }),
         spawn: (_file, _args, options) => {
           const pty = spawnShellPty(program.file, program.args, options)
-          started.add(pty.pid)
+          started.add(pty)
           const shell = shells.at(-1)
           return instrument(pty, shell)
         },
