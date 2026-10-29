@@ -82,6 +82,19 @@
 //   the number, resetsAt the ISO time the window resets or null. Before both lines worfy asks the
 //   usage once when the number is older than 5 minutes. A limits value outside this shape is
 //   dropped and the line read without it. Lines written before ticket 40 have no limits
+//   budget-stop    cause, share,     the next Wave did not start for the budget of the Limits
+//                  used, need,       (worfy-throughput ticket 41, Settings → Autopilot): checked
+//                  until, text       before each Wave, never inside one. cause: `daily-share`
+//                                    (nothing left of today's share, or less than the estimate of
+//                                    the Wave) or `five-hour` (today's share is left, the 5-hour
+//                                    window is full); share: today's share of the week, 0..1, as
+//                                    (1 − reserve − the 7-day share at the start of the day) / days
+//                                    until the 7-day reset; used: the 7-day share used since the
+//                                    start of the day; need: the estimate of the Wave (0 without
+//                                    one); until: the ISO time the run tries the Wave again; text:
+//                                    the reason in words. waiting-until with the same time follows,
+//                                    and resumed when the time comes. Journals written before
+//                                    ticket 41 have none
 //   limits-hit     window, resetsAt  a Session was refused by the Limits; window: `five_hour`,
 //                                    `seven_day`, … or null; resetsAt: ISO time or null
 //   waiting-until  until             the run sleeps until this ISO time
@@ -175,6 +188,7 @@ export const JOURNAL_EVENT_KINDS = [
   'wave-started',
   'narrow-round',
   'wave-finished',
+  'budget-stop',
   'limits-hit',
   'waiting-until',
   'resumed',
@@ -193,6 +207,9 @@ export type JournalEventKind = (typeof JOURNAL_EVENT_KINDS)[number]
 /** Who wrote a `human-input` line. */
 export const HUMAN_INPUT_SOURCES = ['worfy', 'observer'] as const
 export type HumanInputSource = (typeof HUMAN_INPUT_SOURCES)[number]
+
+/** What a `budget-stop` line says stopped the run (src/shared/autopilot/budget.ts, BudgetCause). */
+export const BUDGET_CAUSES = ['daily-share', 'five-hour'] as const
 
 /** The states of a narrow fix round a `narrow-round` line names. */
 export const NARROW_OUTCOMES = ['started', 'verified', 'rejected'] as const
@@ -250,6 +267,7 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('wave-started', { ...wave, text: z.string().optional(), skipped: skipped.optional(), limits }),
   event('narrow-round', { ticket: text, outcome: z.enum(NARROW_OUTCOMES), text: text.max(LAST_TEXT_MAX) }),
   event('wave-finished', { ...wave, limits }),
+  event('budget-stop', { cause: z.enum(BUDGET_CAUSES), share: z.number().nonnegative(), used: z.number().nonnegative(), need: z.number().nonnegative(), until: isoTime, text }),
   event('limits-hit', { window: z.string().min(1).nullable(), resetsAt: isoTime.nullable() }),
   event('waiting-until', { until: isoTime }),
   event('resumed', {}),

@@ -79,6 +79,15 @@
 //   number is older than FRESH_USAGE_MS (deps.usage, the app's LimitsRefresher: no model tokens).
 //   `wave-started` has the number from before "Run wave" went; `wave-finished` the one at its
 //   writing. A failed ask is logged, and the line goes with the number there is.
+// - The budget of the Limits (worfy-throughput ticket 41, src/shared/autopilot/budget.ts, Settings →
+//   Autopilot): before "Run wave" goes — never inside a Wave — the run weighs what is left of today's
+//   share of the week against the estimate of the Wave (limits-estimate.ts), by the journals of the
+//   Project's recent runs (deps.budget). When it does not fit, or the 5-hour window is full, the Wave
+//   does not go: `budget-stop` and `waiting-until` go to the journal, the run is `waiting` with the
+//   reason in words, and at the time the step that sends the Wave runs again (`resumed` first), with
+//   the check again. A Stop during that wait ends the run at once with `user-stop` (no Wave is in
+//   work); Force stop and the quit end it with their own reasons and no Tickets; every end cancels
+//   the wait's timer.
 //
 // worfy still writes no Ticket status (ADR-0002): the agents do, through `ticket`.
 import { realpath } from 'node:fs/promises'
@@ -90,6 +99,9 @@ import { messageText } from '../../shared/agent/attachments'
 import { isTaskEvent, type BackgroundTask } from '../../shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
 import { clipLastText, journalLimits, journalReason, type JournalEventFields, type JournalLimits } from '../../shared/autopilot/journal'
+import { budgetDecision, budgetStopText, type AutopilotBudget, type BudgetDecision } from '../../shared/autopilot/budget'
+import type { JournalEvent } from '../../shared/autopilot/journal'
+import { waveEstimate } from '../../shared/autopilot/limits-estimate'
 import { toMs, type LimitsHit } from '../../shared/autopilot/resume-at'
 import {
   BACKGROUND_STALL_MS,
@@ -105,10 +117,11 @@ import type { AutopilotState, HarnessBehind } from '../../shared/ipc/autopilot'
 import type { PullRequest } from '../../shared/ipc/checks'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
+import { readyWave } from '../../shared/workflow/waves'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import { BASE_INTERVAL_MS } from '../github/prs'
 import type { RunStart } from './journal'
-import { LimitsWait, type LimitsWaitDeps } from './limits-wait'
+import { LimitsWait, wallTimer, type LimitsWaitDeps } from './limits-wait'
 
 /** The run's Orchestrator Session, as far as the run needs it. */
 export interface RunSession {
@@ -220,6 +233,16 @@ export interface AutopilotDeps {
    * resolving once the answer is in `limits`; without it the Wave's lines carry what `limits` has.
    */
   usage?: { refresh(olderThanMs: number): Promise<void> }
+  /**
+   * The budget of the Limits (worfy-throughput ticket 41): the settings in force, read before each
+   * Wave, and the events of the Project's recent runs, the current one included (readRecentRuns).
+   * Without it, or without `limits`, no budget stops a Wave. The wait goes by `limits.now` and
+   * `limits.schedule`, as the wait for the Limits does.
+   */
+  budget?: {
+    settings(): AutopilotBudget
+    runs(projectId: string): Promise<readonly (readonly JournalEvent[])[]>
+  }
   /** How long a run waits for its background tasks without an event of theirs (default BACKGROUND_STALL_MS). */
   backgroundStallMs?: number
   /** How long a run waits for the task-notification turn after the last task ended (default TASKS_GRACE_MS). */
@@ -403,6 +426,14 @@ class Run {
   prsTimer: unknown = null
   /** When the run started (ms): narrow-round comments made before it are not this run's. */
   readonly startedAt = Date.now()
+  /**
+   * The wait of the budget before the next Wave (worfy-throughput ticket 41): its id, when the step
+   * that sends the Wave runs again, why, the reason in words and the cancel of its timer; null
+   * otherwise.
+   */
+  budget: { id: number; until: number; cause: Extract<BudgetDecision, { kind: 'stop' }>['cause']; text: string; cancel: () => void } | null = null
+  /** The id of the last budget wait: a timer of an earlier one sends no Wave. */
+  budgetIds = 0
   /** Set once a Force stop or the app's quit has come: the end does not wait for gh any more. */
   rushed = false
   /** Settles when `rushed` is set. */
@@ -698,6 +729,11 @@ export class Autopilot {
     run.requestStop()
     await run.enqueue(async () => {
       if (run.cycle.phase === 'stopped' || run.cycle.stopping) return
+      // Waiting for the budget before a Wave: no Wave is in work, the run ends now (ticket 41).
+      if (run.budget !== null) {
+        await this.feed(run, { type: 'stop', reason: 'user-stop' })
+        return
+      }
       await this.feed(run, { type: 'graceful-stop', tickets: await this.freshTickets(run) })
     })
     if (run.cycle.phase === 'stopped') await run.ended
@@ -978,6 +1014,8 @@ export class Autopilot {
     // First: a Stop clicked while the usage is asked ends that wait at once and is seen below, and
     // the Wave does not go. A Stop clicked before asks nothing: no Wave line needs the answer.
     if (!run.stopRequested) run.sentLimits = await this.freshLimits(run, run.stopAsked)
+    // The budget, on the number just asked (ticket 41); not weighed once a stop has come.
+    const budget = run.stopRequested || run.rushed ? null : await this.budgetCheck(run)
     // Stop was clicked while the step that decided on this Wave ran (worfy-week ticket 18): the
     // Wave has not gone, so no Ticket was taken, and the run ends here. Checked before a Force stop
     // or the app's quit: a Stop clicked first ends the run with its own reason, and the stop step
@@ -989,6 +1027,10 @@ export class Autopilot {
     // A Force stop or the app's quit came meanwhile, without a Stop: its stop step waits behind this
     // one and stops the run with its own reason; the Wave does not go.
     if (run.rushed) return
+    if (budget !== null && budget.kind === 'stop') {
+      await this.budgetWait(run, budget)
+      return
+    }
     run.sending = true
     run.promptsWhileSending.clear()
     // Only the run's first Wave takes the interrupted Tickets along.
@@ -1037,6 +1079,69 @@ export class Autopilot {
       }
     }
     return journalLimits(this.deps.limits.state())
+  }
+
+  /**
+   * Whether the budget lets the next Wave go (budget.ts); `go` without deps.budget or deps.limits,
+   * with the budget off, and when the journals cannot be read. The Tickets of the Wave are counted
+   * from a fresh read only when there is an estimate to multiply.
+   */
+  private async budgetCheck(run: Run): Promise<BudgetDecision> {
+    const deps = this.deps.budget
+    const limits = this.deps.limits
+    if (deps === undefined || limits === undefined) return { kind: 'go' }
+    const budget = deps.settings()
+    if (!budget.enabled) return { kind: 'go' }
+    let runs: readonly (readonly JournalEvent[])[]
+    try {
+      runs = await deps.runs(run.projectId)
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not read the journals for the budget; the Wave goes`, error)
+      return { kind: 'go' }
+    }
+    const estimate = waveEstimate(runs)
+    const tickets = estimate === null ? 0 : readyWave(await this.freshTickets(run), run.epic).ready.length
+    return budgetDecision({ budget, now: (limits.now ?? Date.now)(), limits: limits.state(), runs, estimate, tickets })
+  }
+
+  /**
+   * The budget stops the next Wave (ticket 41): `budget-stop` and `waiting-until` go to the journal,
+   * the run waits until `until`, and the step that sends the Wave runs again then. The cycle stays
+   * `sending`; the finished Wave's Tickets leave it, so a Force stop during the wait names none.
+   */
+  private async budgetWait(run: Run, decision: Extract<BudgetDecision, { kind: 'stop' }>): Promise<void> {
+    const until = new Date(decision.until).toISOString()
+    const text = budgetStopText(decision.cause, decision.until)
+    await this.write(run, { kind: 'budget-stop', cause: decision.cause, share: decision.share, used: decision.used, need: decision.need, until, text })
+    await this.write(run, { kind: 'waiting-until', until })
+    run.cycle = { ...run.cycle, tickets: [] }
+    this.cancelBudget(run)
+    run.budgetIds += 1
+    const id = run.budgetIds
+    const limits = this.deps.limits
+    const schedule = limits?.schedule ?? wallTimer(limits?.now ?? Date.now)
+    const cancel = schedule(decision.until, () => void run.enqueue(() => this.budgetResume(run, id)))
+    run.budget = { id, until: decision.until, cause: decision.cause, text, cancel }
+    run.message = text
+    this.publish(run.projectId)
+  }
+
+  /** The budget wait `id` is over: `resumed`, and the step that sends the Wave again. A wait cancelled or replaced since resumes nothing. */
+  private async budgetResume(run: Run, id: number): Promise<void> {
+    if (run.budget === null || run.budget.id !== id || run.cycle.phase !== 'sending') return
+    this.cancelBudget(run)
+    await this.write(run, { kind: 'resumed' })
+    this.publish(run.projectId)
+    await this.sendWave(run)
+  }
+
+  /** Cancels the budget wait's timer, and its words in `message`. */
+  private cancelBudget(run: Run): void {
+    const budget = run.budget
+    if (budget === null) return
+    run.budget = null
+    budget.cancel()
+    if (run.message === budget.text) run.message = null
   }
 
   /**
@@ -1392,6 +1497,7 @@ export class Autopilot {
     if (run.tasksTimer !== null) (this.deps.tasksClock ?? realClock).clearTimeout(run.tasksTimer)
     run.tasksTimer = null
     run.limits?.cancel()
+    this.cancelBudget(run)
   }
 
   private async write(run: Run, fields: JournalEventFields): Promise<void> {
@@ -1404,7 +1510,10 @@ export class Autopilot {
   }
 
   private snapshot(run: Run): AutopilotState {
-    const resumesAt = run.running ? (run.limits?.until ?? null) : null
+    const limitsUntil = run.running ? (run.limits?.until ?? null) : null
+    const budget = run.running ? run.budget : null
+    const resumesAt = limitsUntil ?? budget?.until ?? null
+    const waitingFor = limitsUntil !== null ? 'limits' : budget?.cause
     // From the click on: the run's step for it may still wait behind another one.
     const stopping = run.running && (run.cycle.stopping || run.stopRequested)
     return {
@@ -1414,6 +1523,7 @@ export class Autopilot {
       wave: run.cycle.wave,
       backgroundTasks: run.running ? this.liveTasks(run).length : 0,
       resumesAt,
+      ...(waitingFor === undefined ? {} : { waitingFor }),
       reason: run.done ? run.cycle.reason : null,
       message: run.message,
       resumable: run.done && run.cycle.reason === 'user-force-stop' ? [...run.interrupted] : [],

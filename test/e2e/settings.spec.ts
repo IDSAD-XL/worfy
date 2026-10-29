@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -255,5 +255,47 @@ test('Settings is modal: ⌘K, ⌘F and ⌘↩ do nothing under it, also with th
   } finally {
     await launched.close()
     await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('Settings → Autopilot: the daily budget is off at first with the reserve disabled; on, the reserve can be picked, and both are kept in app-settings.json', async () => {
+  // worfy-throughput ticket 41: the budget of the Limits for Autopilot. No price anywhere.
+  const launched = await launchApp()
+  try {
+    const { app, window, dataDir } = launched
+    await clickMenuItem(app, SETTINGS_MENU_ITEM_ID)
+    const dialog = window.getByRole('dialog', { name: 'Settings' })
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Autopilot', exact: true }).click()
+    await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('Autopilot')
+
+    const budget = dialog.getByRole('switch', { name: 'Daily budget of the Limits', exact: true })
+    const reserve = dialog.getByTestId('settings-autopilot-reserve')
+    const reserveRow = dialog.getByTestId('settings-autopilot-reserve-row')
+    await expect(budget).toHaveAttribute('aria-checked', 'false')
+    await expect(reserve).toBeDisabled()
+    await expect(reserve).toHaveText(/15 % of the week/)
+    await expect(reserveRow).toHaveAttribute('data-disabled', '')
+    await expect(dialog).not.toContainText(/\$|USD|€|price/i)
+    await snapshotThemes(window, 'settings-autopilot-off')
+
+    await budget.click()
+    await expect(budget).toHaveAttribute('aria-checked', 'true')
+    await expect(reserve).toBeEnabled()
+    await expect(reserveRow).not.toHaveAttribute('data-disabled', '')
+    await reserve.click()
+    await window.getByRole('option', { name: '25 % of the week', exact: true }).click()
+    await expect(reserve).toHaveText(/25 % of the week/)
+    await snapshotThemes(window, 'settings-autopilot-on')
+    await expect
+      .poll(() => (JSON.parse(readFileSync(join(dataDir, 'app-settings.json'), 'utf8')) as { autopilotBudget?: unknown }).autopilotBudget)
+      .toEqual({ enabled: true, reservePercent: 25 })
+
+    await budget.click()
+    await expect(budget).toHaveAttribute('aria-checked', 'false')
+    await expect(reserve).toBeDisabled()
+    await expect(reserve).toHaveText(/25 % of the week/)
+  } finally {
+    await launched.close()
   }
 })

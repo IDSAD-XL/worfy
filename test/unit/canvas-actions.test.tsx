@@ -559,6 +559,16 @@ describe('the graceful Stop and the "⋯" menu (worfy-week ticket 18)', () => {
     // While waiting for the Limits the line keeps saying so.
     expect(autopilotStatusLine({ status: 'waiting', wave: 1, reason: null, resumesAt: null, stopping: true, ticketsInWork: 1 })).toBe('waiting for limits')
   })
+
+  it('autopilotStatusLine says what a wait is for: the Limits, today\'s share of the budget, or a full 5-hour window (worfy-throughput ticket 41)', () => {
+    const at = Date.UTC(2026, 9, 29, 0, 0)
+    const utc = { timeZone: 'UTC' }
+    expect(autopilotStatusLine({ status: 'waiting', wave: 2, reason: null, resumesAt: at, waitingFor: 'limits' }, utc)).toBe('waiting for limits · resumes 00:00')
+    expect(autopilotStatusLine({ status: 'waiting', wave: 2, reason: null, resumesAt: at, waitingFor: 'daily-share' }, utc)).toBe("today's share used · resumes 00:00")
+    expect(autopilotStatusLine({ status: 'waiting', wave: 2, reason: null, resumesAt: at + 2 * 3_600_000 + 12 * 60_000, waitingFor: 'five-hour' }, utc)).toBe('5-hour limits full · resumes 02:12')
+    // A state of an older build, without the field, is a wait for the Limits.
+    expect(autopilotStatusLine({ status: 'waiting', wave: 2, reason: null, resumesAt: at }, utc)).toBe('waiting for limits · resumes 00:00')
+  })
 })
 
 describe('Autopilot status line hint (ticket 32, ADR-0034)', () => {

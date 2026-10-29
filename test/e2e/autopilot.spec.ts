@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { AUTOPILOT_RUNNING_HINT } from '../../src/main/actions/launch'
+import { openRun } from '../../src/main/autopilot/journal'
 import { SELF_PROJECT_MESSAGE, STOP_TEXT } from '../../src/main/autopilot/run'
+import { budgetStopText, localDayStart, nextLocalDayStart } from '../../src/shared/autopilot/budget'
 import { RESUME_MARGIN_MS } from '../../src/shared/autopilot/resume-at'
 import { autopilotStatusLine } from '../../src/shared/ipc/autopilot'
 import { launchApp, repoRoot } from './helpers'
@@ -412,6 +414,82 @@ test('Autopilot waits for the Limits after a refusal: the status line says until
       .toEqual(['run-started', 'wave-started 1', 'limits-hit', 'waiting-until', 'run-stopping 1', 'run-stopped user-force-stop', 'orchestrator-returned'])
     expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
     // worfy wrote nothing into the repository, and nothing into the Claude home the run read.
+    expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
+    expect(files(claudeHome)).toEqual(claudeHomeBefore)
+  } finally {
+    await launched.close()
+  }
+})
+
+test("Autopilot keeps the daily budget of the Limits: today's share used before Wave 1, the status line and its tooltip say why and until when; Stop ends the wait at once", async () => {
+  const { dataDir, claudeHome, log, repo, statusBefore, claudeHomeBefore } = prepare()
+  const scripts = join(scratch, 'scripts')
+  mkdirSync(scripts, { recursive: true })
+  writeFileSync(join(scripts, 'autopilot-limits.jsonl'), readFileSync(join(repoRoot, 'test', 'fixtures', 'agent-scripts', 'autopilot-limits.jsonl')))
+  // The budget on, the default 15 % kept. An earlier run of today began at 30 % of the week, and
+  // the week stands at 40 % now: 10 % used today against a share of (1 − 0.15 − 0.30) / 7 days.
+  writeFileSync(join(dataDir, 'app-settings.json'), JSON.stringify({ autopilotBudget: { enabled: true } }))
+  const now = Date.now()
+  const earlier = Math.max(localDayStart(now), now - 60_000)
+  const weekReset = now + 6.5 * 86_400_000
+  const journalEnv = { WORFY_DATA_DIR: dataDir }
+  const before = await openRun({ project: PROJECT, epic: EPIC }, { env: journalEnv, now: () => new Date(earlier) })
+  const reading = (utilization: number, at: number) => ({ utilization, receivedAt: new Date(at).toISOString(), resetsAt: new Date(weekReset).toISOString() })
+  await before.append({ kind: 'wave-started', wave: 1, tickets: ['01'], limits: { five_hour: null, seven_day: reading(0.3, earlier) } })
+  await before.append({ kind: 'run-stopped', reason: 'user-stop' })
+  writeFileSync(
+    join(dataDir, 'limits.json'),
+    JSON.stringify({ windows: { seven_day: { utilization: 0.4, resetsAt: Math.floor(weekReset / 1000), status: null, receivedAt: now, source: 'usage' } } }),
+  )
+  const journals = (): string[] => readdirSync(join(dataDir, 'autopilot')).filter((name) => name !== `${before.run}.jsonl`)
+  /** The kinds of the lines of this test's run (not the earlier one), with the reason of run-stopped. */
+  const kinds = (): string[] => {
+    const [file] = journals()
+    if (file === undefined) return []
+    return readFileSync(join(dataDir, 'autopilot', file), 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { kind: string; reason?: string })
+      .map((event) => [event.kind, event.reason].filter((part) => part !== undefined).join(' '))
+  }
+
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPTS: scripts, WORFY_AGENT_SCRIPT: 'autopilot-limits', WORFY_AGENT_LOG: log }
+  const launched = await launchApp({ env })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
+    const power = await recordPower(app)
+
+    const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
+    const header = frame.locator('header')
+    const status = frame.getByTestId('autopilot-status')
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+
+    await frame.getByTestId('action-autopilot').click()
+    const until = nextLocalDayStart(now)
+    const line = autopilotStatusLine({ status: 'waiting', wave: 1, reason: null, resumesAt: until, waitingFor: 'daily-share' })
+    expect(line).toMatch(/^today's share used · resumes \d{2}:\d{2}$/)
+    await expect(status).toHaveText(line!)
+    await expect(status).toHaveAttribute('data-status', 'waiting')
+    // The tooltip says why in a sentence, with the same time.
+    await expect(status).toHaveAttribute('title', budgetStopText('daily-share', until))
+    expect(await status.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await expectStatusClear(window, header, status)
+    // No Wave went: the Orchestrator got no message, and the journal says why the run waits.
+    await expect.poll(kinds).toEqual(['run-started', 'budget-stop', 'waiting-until'])
+    expect(messages(log)).toEqual([])
+    expect(await power()).toEqual(['start prevent-display-sleep'])
+    await snapshots(window, header, 'autopilot-budget-waiting')
+
+    // Stop during the budget wait does not wait for the next day: one run-stopped, user-stop.
+    await frame.getByTestId('action-stop-autopilot').click()
+    await expect(status).toHaveText('stopped: user stop')
+    await expect.poll(kinds).toContain('run-stopped user-stop')
+    expect(kinds().slice(0, 4)).toEqual(['run-started', 'budget-stop', 'waiting-until', 'run-stopped user-stop'])
+    expect(kinds().filter((kind) => kind.startsWith('run-stopped'))).toEqual(['run-stopped user-stop'])
+    expect(journals()).toHaveLength(1)
+    expect(messages(log)).toEqual([])
+    expect(await power()).toEqual(['start prevent-display-sleep', 'stop'])
     expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
     expect(files(claudeHome)).toEqual(claudeHomeBefore)
   } finally {
