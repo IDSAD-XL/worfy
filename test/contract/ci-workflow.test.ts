@@ -22,8 +22,9 @@ const REPO = join(__dirname, '..', '..')
 const WORKFLOW = join(REPO, '.github', 'workflows', 'ci.yml')
 const SCOPE = join(REPO, 'scripts', 'ci-scope.mjs')
 const OK = join(REPO, 'scripts', 'ci-ok.mjs')
-const { workflowParts } = (await import(pathToFileURL(SCOPE).href)) as {
+const { workflowParts, E2E_SHARDS } = (await import(pathToFileURL(SCOPE).href)) as {
   workflowParts: (text: string) => { parts: Map<string, string[]>; anchored: boolean }
+  E2E_SHARDS: Record<'macos-e2e' | 'windows-e2e', number>
 }
 
 /** A workflow file without its comment lines and blank lines. */
@@ -259,6 +260,15 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     // The free plan runs 5 macOS jobs at a time; macos-package runs only when ci-scope.mjs says so.
     expect(job('macos-tests').join('\n')).not.toMatch(/strategy:|matrix|shard/i)
     expect(value(job('macos-tests'), 'timeout-minutes')).toBe('45')
+  })
+
+  it('runs a full macos-e2e in two shards of one Playwright worker each: two workers on the runner were measured flaky', () => {
+    // worfy-throughput ticket 59 (2026-10-30): one shard in two workers took 1340 s, over the 20 min
+    // allowed one job; two shards in two workers went red once and brought 7 flaky tests in three
+    // runs, against none in one worker. playwright.config.ts keeps CI at one worker, and the job
+    // passes no --workers of its own (its run lines are pinned above).
+    expect(E2E_SHARDS['macos-e2e']).toBe(2)
+    expect(readFileSync(join(REPO, 'playwright.config.ts'), 'utf8')).toMatch(/^const E2E_WORKERS = process\.platform === 'darwin' && !process\.env\.CI \? 3 : 1$/m)
   })
 
   it('pastes no expression into a command: values reach the shell through env', () => {

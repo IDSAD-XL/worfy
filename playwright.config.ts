@@ -50,16 +50,22 @@ const jsonReport = `${outputDir.replace(/[\\/]+$/, '')}-report.json`
 //
 // Three workers on macOS outside CI, by measurement on the owner's Mac only (2026-10-21, 287
 // tests): one worker 565 s, two 292 s, three 207 s, then three runs in a row at three 202–203 s,
-// all green with no retries. One worker everywhere else: the Windows PC and the GitHub macOS runner
-// (the manual job full-macos, CI set) were not measured and stay at one until they are; several
+// all green with no retries. One worker everywhere else: the Windows PC was not measured; several
 // Electron starts at once slow every start, and some specs time a reaction in milliseconds.
+// The GitHub macOS runner (macos-latest, 3 CPU, CI set) stays at one by measurement (2026-10-30, three
+// manual full-macos runs, worfy-throughput ticket 59). One worker, the last three pushes to main:
+// shards of 975–1112 s, 0 flaky, 0 failed. Two workers: one shard 1340 s with 2 flaky (run
+// 40968393929); two shards 433 + 807 s, red, epic-frame.spec.ts:1104 failed its 7.3 s start limit
+// twice, 3 flaky (40971289237); two shards 619 + 866 s, 2 flaky (40973032360). In each run the first
+// test of the second worker failed once with "Process failed to launch!" (two first Electron starts at
+// once), so two workers buy speed only with new flaky tests.
 // `--workers=N` on the command line overrides either; `pnpm test:package` passes --workers=1, since
 // the packaged run was not measured in several workers.
 // At three, 2 of 4 gate full runs went red on "the window was not shown within 30 s" (2026-10-21);
 // since the fallback show of the window and the start diagnosis (src/main/window-show.ts,
 // test/e2e/start-diagnosis.ts), three runs at three took 204–227 s, 289 passed, none flaky. If
 // that failure comes back, the start-diagnostics-… folder in test-results says why.
-const E2E_WORKERS = process.platform === 'darwin' ? (process.env.CI ? 2 : 3) : 1
+const E2E_WORKERS = process.platform === 'darwin' && !process.env.CI ? 3 : 1
 export default defineConfig({
   testDir: 'test/e2e',
   testMatch: '**/*.spec.ts',
