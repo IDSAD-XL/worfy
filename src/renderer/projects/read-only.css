@@ -3,9 +3,8 @@
   opacity: 0.5;
 }
 
-/* The "Read only" mark beside a Machine's state, and the line that explains a read-only screen. */
+/* The "Read only" mark beside a Machine's state (a `.w-chip--bordered`), and the line that explains a read-only screen. */
 .w-read-only-chip {
-  border: 1px solid var(--border);
   background: var(--surface-raised);
   color: var(--text-secondary);
 }

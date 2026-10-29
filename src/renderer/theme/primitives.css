@@ -13,6 +13,15 @@
   font-weight: 500;
   white-space: nowrap;
 }
+/* A chip with a 1 px border: the border leaves 16 px of the 18 px box, so the chip has its own 16 px
+   line; the line it would inherit (17 px on body) stands out of the border. A chip without a border
+   keeps the inherited line: 16 px in its 18 px would move the text by half a pixel. The open state
+   chip (epic-frame.css) is one of them. A chip of another border colour sets only `border-color`. */
+.w-chip--bordered,
+.w-chip--open {
+  border: 1px solid var(--border);
+  line-height: 16px;
+}
 .w-chip__dot {
   width: 6px;
   height: 6px;

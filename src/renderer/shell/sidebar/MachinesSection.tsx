@@ -15,7 +15,7 @@ export const order = 15
 const styles = {
   list: { margin: 0, padding: 0, listStyle: 'none' },
   message: { margin: '2px 8px 4px', fontSize: 'var(--text-12)', lineHeight: '16px', color: 'var(--blocked-text)', overflowWrap: 'anywhere' },
-  unavailable: { border: '1px solid var(--border)', background: 'var(--surface-raised)', color: 'var(--text-muted)' },
+  unavailable: { background: 'var(--surface-raised)', color: 'var(--text-muted)' },
   details: { display: 'flex', flexDirection: 'column', gap: 2, padding: '0 8px 4px 31px', fontSize: 'var(--text-12)', lineHeight: '16px' },
   access: { margin: 0, color: 'var(--text-secondary)' },
   hint: { margin: 0, color: 'var(--text-muted)', overflowWrap: 'anywhere' },
@@ -90,7 +90,7 @@ function MachineState({ machine }: { machine: LinkedMachineView }) {
   if (machine.certificateChanged) return <StatusChip status="blocked" label="Certificate changed" />
   if (machine.state === 'online') return <StatusChip status="ready" label="Online" />
   return (
-    <span className="w-chip" style={styles.unavailable}>
+    <span className="w-chip w-chip--bordered" style={styles.unavailable}>
       {machine.state === 'sleeping' ? 'Sleeping' : 'Offline'}
     </span>
   )

@@ -53,8 +53,8 @@ const styles = {
   detail: { color: 'var(--text-secondary)', fontSize: 'var(--text-12)', overflowWrap: 'anywhere' },
   detailBlocked: { color: 'var(--blocked-text)', fontSize: 'var(--text-12)', overflowWrap: 'anywhere' },
   actions: { display: 'flex', gap: 'var(--space-2)', alignItems: 'center' },
-  chipNeutral: { background: 'var(--surface-raised)', color: 'var(--text-secondary)', border: '1px solid var(--border)' },
-  chipBlocked: { background: 'var(--blocked-bg)', color: 'var(--blocked-text)', border: '1px solid var(--blocked-ring)' },
+  chipNeutral: { background: 'var(--surface-raised)', color: 'var(--text-secondary)' },
+  chipBlocked: { background: 'var(--blocked-bg)', color: 'var(--blocked-text)', borderColor: 'var(--blocked-ring)' },
   chipWorking: { background: 'var(--working-bg)', color: 'var(--working-text)' },
   terminalBox: { margin: 'var(--space-2) 0 0', border: '1px solid var(--border)', borderRadius: 'var(--radius-button)', overflow: 'hidden', background: 'var(--terminal-bg)' },
   terminalHead: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: 'var(--space-1) var(--space-2)', color: 'var(--terminal-text)', fontSize: 'var(--text-12)' },
@@ -171,12 +171,12 @@ export function GithubAccount({ root, machine, machineName, disabled, onChoose, 
                 <span style={styles.login}>
                   <span style={styles.mono}>{account.login}</span>
                   {account.active ? (
-                    <span className="w-chip" style={styles.chipNeutral}>
+                    <span className="w-chip w-chip--bordered" style={styles.chipNeutral}>
                       active
                     </span>
                   ) : null}
                   {account.state !== 'success' ? (
-                    <span className="w-chip" style={styles.chipBlocked}>
+                    <span className="w-chip w-chip--bordered" style={styles.chipBlocked}>
                       {account.state || 'unknown state'}
                     </span>
                   ) : null}

@@ -35,6 +35,7 @@ import {
   thisUser,
   type LaunchedApp,
 } from './helpers'
+import { expectBorderedChipsFit } from './chip-fit'
 import { DENY_ACE_BYPASSED, denyBypassed } from './deny-ace'
 import { snapshotThemes } from './snapshots'
 import { catScript, loginProfileWithNode } from '../harness-node'
@@ -238,6 +239,8 @@ test('two worfy link by address and code, and each lists the other as online', a
     await expect(row(a.window, bId)).toBeVisible()
     await expect(row(a.window, bId)).toHaveAttribute('data-state', 'unavailable')
     await expect(row(a.window, bId)).toContainText('Offline')
+    // The "Offline" chip has a 1 px border: its text stays inside it.
+    await expectBorderedChipsFit(row(a.window, bId), 'the row of an offline Machine')
   } finally {
     await a.close()
     await b?.close()
@@ -592,6 +595,8 @@ test('the sidebar of A lists the Projects of B under B, with its state; not shar
     b = undefined
     await expect(group(a.window, bId)).toHaveAttribute('data-state', 'unavailable', { timeout: 20_000 })
     await expect(group(a.window, bId)).toContainText('Unavailable')
+    // The "Unavailable" chip has a 1 px border: its text stays inside it.
+    await expectBorderedChipsFit(group(a.window, bId), 'the sidebar group of an unavailable Machine')
     await expect(group(a.window, bId).getByTestId('project-row')).toHaveCount(0)
     await evidence(a.window, 'sidebar-unavailable')
   } finally {

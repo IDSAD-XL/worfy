@@ -4,6 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator } from '@playwright/test'
+import { expectBorderedChipsFit } from './chip-fit'
 import { claudePluginStub } from './claude-plugin-stub'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 
@@ -85,6 +86,8 @@ test('Add project connects a new repository: Silent by default, the draft, the f
     await expect(dialog).toBeVisible()
     await expect(dialog).toHaveAttribute('data-step', 'mode')
     await expect(dialog.getByTestId('connect-folder')).toHaveText(shop)
+    // The "Git repository" chip has a 1 px border: its text stays inside it.
+    await expectBorderedChipsFit(dialog, 'Add project, the mode step')
     // Silent mode by default, with the default Workflow folder in the Harness home.
     await expect(dialog.getByTestId('connect-mode-silent').getByRole('radio')).toBeChecked()
     await expect(dialog.getByTestId('connect-workflow-folder')).toHaveText(`${harnessHome}/projects/<name>/workflow/`)
@@ -235,6 +238,8 @@ test('the GitHub account: the active account with access by default, "Sign in wi
     await expect(rows).toHaveCount(2, { timeout: 20_000 })
     await expect(rows.nth(0)).toHaveAttribute('data-login', 'alice')
     await expect(rows.nth(0).getByRole('radio')).toBeChecked()
+    // The "active" chip has a 1 px border: its text stays inside it.
+    await expectBorderedChipsFit(step, 'the GitHub account step')
     await expect(rows.nth(1).getByTestId('connect-github-reason')).toHaveText('bob has no write access to acme/shop: Tickets will close with the local finish.')
     await expect(dialog.getByLabel('Finish', { exact: true })).toHaveAttribute('data-value', 'pr-green-ci')
     await expect(dialog.getByRole('button', { name: 'Connect' })).toBeEnabled({ timeout: 10_000 })

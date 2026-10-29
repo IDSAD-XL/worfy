@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { canvasReady, icacls, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, thisUser, type LaunchedApp } from './helpers'
+import { expectBorderedChipsFit } from './chip-fit'
 import { DENY_ACE_BYPASSED, denyBypassed } from './deny-ace'
 import { snapshotThemes } from './snapshots'
 import { windowsProfileEnv } from '../windows-profile'
@@ -240,6 +241,8 @@ test('in A: Add project → Machine B → B\'s folders → a repository: the Pro
     await folderRow(a.window, 'code').getByRole('button').click()
     await expect(browser.getByTestId('folder-browser-path')).toHaveText(join(bHome, 'code'))
     await expect(folderRow(a.window, 'shop').getByText('git', { exact: true })).toBeVisible()
+    // The "git" chip has a 1 px border: its text stays inside it.
+    await expectBorderedChipsFit(browser, 'the folder browser of B')
     await folderRow(a.window, 'shop').getByRole('button').click()
     await expect(browser.getByTestId('folder-browser-path')).toHaveText(shop)
     await browser.getByRole('button', { name: 'Choose' }).click()
