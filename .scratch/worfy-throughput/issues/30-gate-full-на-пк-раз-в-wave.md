@@ -24,7 +24,8 @@ ADR-0056 (Windows-проверки и две Session), пункт 2 —
    вперёд Session на ПК; пока `main` красный на ПК, новые PR со scope `pc` не вливаются.
 2. Skill `epic-wave`, раздел 4: метка `check/windows` для `pc` — `success` по run-у runner-а с пометкой
    «ПК — после Wave»; после Wave — запрос gate full на ПК на SHA `main` (так же, как сейчас запрос на head PR).
-3. `rules.md` Profile-а (Orchestrator после merge): то же правило.
+3. `rules.md` Profile-а worfy на обеих машинах после merge (у каждой свой, ADR-0042): на Mac — Orchestrator, на
+   ПК — Session на ПК; то же правило.
 
 Нужен ПК: **да** — для приёмки на настоящей Wave; текст и ADR можно писать на Mac. **Трогает Harness: да** —
 skill `epic-wave`, `rules.md` Profile-а; слово владельца дано 2026-10-28 (решение 1); новый ADR.
@@ -37,6 +38,8 @@ skill `epic-wave`, `rules.md` Profile-а; слово владельца дано
 
 - [x] ADR и `## Amendments` в ADR-0056.
 - [x] Текст skill-а; `harness/bin/tests/epic-wave-ship-ticket.test.sh` — exit 0.
+- [ ] После merge: правило ADR-0086 в `rules.md` Profile-а worfy на обеих машинах (ADR-0042) — на Mac правит
+      Orchestrator, на ПК — Session на ПК; Session на ПК открывает и закрывает issue `pc-main-red`.
 - [ ] (вручную, ПК) Первая Wave с PR со scope `pc`: PR влит до gate full на ПК; gate full на ПК на `main` после
       Wave — код и строка `[gate] green (full)` в «Итог»; время Windows-Ticket-а до merge — по Ticket-у 14.
 
@@ -46,7 +49,8 @@ skill `epic-wave`, `rules.md` Profile-а; слово владельца дано
 - `docs/adr/<новый>`, `docs/adr/0056-windows-checks-and-two-sessions.md` — только `## Amendments`
 - Только читать: `scripts/windows-verdict-scope.mjs`
 
-Вне репозитория (Orchestrator после merge): `rules.md` Profile-а worfy, пункт «Gate перед мержем PR с кодом».
+Вне репозитория (после merge): `rules.md` Profile-а worfy, пункт «Gate перед мержем PR с кодом», — на Mac
+(Orchestrator) и на ПК (Session на ПК).
 
 ## Вне скоупа
 
@@ -54,19 +58,41 @@ skill `epic-wave`, `rules.md` Profile-а; слово владельца дано
 
 ## Итог
 
-- ADR-0086 (`docs/adr/0086-pc-gate-full-once-per-wave.md`): PR со scope `pc` вливается по зелёному `ci-ok` и
-  отметке `review`; `check/windows` — `success` на таком head, в отчёте Wave пометка «ПК — после Wave»; ПК гоняет
-  `GATE_SCOPE=all` gate full на `main` (SHA последнего merge) раз в Wave, где был такой PR; красный — один
-  повтор упавших test-ов поодиночке, снова красный — исправление вперёд Session на ПК; пока `main` красный на
-  ПК, новые PR со scope `pc` не вливаются. В ADR записано, что e2e на Windows с #958 проверяет job
-  `windows-e2e` в составе `ci-ok` (`NON_BLOCKING` в `scripts/ci-ok.mjs` пуст), и на ПК остаются Terminal, окна,
-  меню, уведомления и упаковка.
-- `## Amendments` одной датированной строкой: ADR-0056 (пункт 2), ADR-0071 (пункт 4), ADR-0083 (пункт 6).
-  ADR-0071 и ADR-0083 добавлены сверх списка Ticket-а: оба держали «PR со scope `pc` ждёт ПК».
+PR #989, после двух раундов ревью Orchestrator-а.
+
+- ADR-0086 (`docs/adr/0086-pc-gate-full-once-per-wave.md`), восемь пунктов:
+  - PR со scope `pc` вливается по зелёному `ci-ok` и отметке `review`, если `main` не красный на ПК;
+    `check/windows` — `success` на таком head, в отчёте Wave пометка «ПК — после Wave».
+  - ПК гоняет `GATE_SCOPE=all` gate full на `main`: в Wave — раз после Wave с таким PR, на SHA её последнего
+    merge (просит Orchestrator); вне Wave — сразу после merge, на merge-коммите (просит Session, которая
+    вливала). Запрос без отчёта заменяется более новым.
+  - Красный — один повтор упавших test-ов поодиночке на том же SHA. Зелёный повтор — flaky test: `main` не
+    красный, повторяется — карантин. Снова красный — `main` красный на ПК.
+  - Состояние — открытый issue с меткой `pc-main-red` в `IDSAD-XL/worfy`. Его открывает и закрывает Session
+    на ПК; перед `gh issue create` она выполняет `gh label create pc-main-red --force …`, чтобы метка была
+    всегда: issue без метки `gh issue list --label pc-main-red --state open` не находит и читает как зелёный.
+    Этот список читают перед merge любого PR со scope `pc`, в Wave и без неё.
+  - Исключение — PR-исправление (вперёд или revert): называет issue без закрывающего слова GitHub (`Fixes`,
+    `Closes`, `Resolves`) и вливается по `ci-ok`, `review` и прицельной проверке ПК упавших test-ов на своём
+    head. `main` снова зелёный — зелёный gate full на merge-коммите исправления или более позднем SHA.
+  - 1 h на исправление вперёд, потом Orchestrator вливает revert руками; автоматического revert нет.
+  - «Последствия»: пока ПК занят или на паузе при красном `main`, issue никто не закрывает и PR со scope
+    `pc` стоят до возвращения ПК — не хуже прежнего, но этим ADR не решено. Раздел Considered Options.
+  - После merge `rules.md` Profile-а worfy правится на обеих машинах (ADR-0042): на Mac — Orchestrator, на ПК —
+    Session на ПК.
+- `## Amendments` одной датированной строкой: ADR-0056 (пункт 2), ADR-0071 (пункт 4), ADR-0083 (пункт 6); у
+  ADR-0072 раздел `## Amendments` новый. В `CONTEXT.md` — предложение со ссылкой на ADR-0086.
 - Skill `epic-wave`, раздел 4, «Checks before merge»: пункт «A check that answers on the main branch after
-  the wave» — без имён worfy, кроме примера: что этот Check — `windows` для scope `pc`, говорят `rules.md`.
-  Пометку нельзя положить в описание отметки: `ticket mark` описания не принимает, поэтому она в отчёте Wave.
-- `harness/bin/tests/epic-wave-ship-ticket.test.sh`: четыре проверки нового пункта. На тексте skill-а с
-  `main` — exit 1, `passed 491, failed 4` (ровно эти четыре); на новом — exit 0, `passed 495, failed 0`.
-- Не сделано здесь: строка `rules.md` Profile-а worfy (Orchestrator после merge) и приёмка на первой Wave с PR
-  со scope `pc` (последний пункт «Готово, когда»).
+  the merge» — когда просить, отчёт, повтор, запись красного (с `gh label create` перед `gh issue create`),
+  чтение перед merge, исключение, конец красного, срок revert-а. Имена worfy — только в примерах: что этот
+  Check — `windows` для scope `pc`, говорят `rules.md`. Пометка «ПК — после Wave» — в отчёте Wave: `ticket
+  mark` описания не принимает. Skill `ship-ticket`, шаг 9 (`step-9-merge.md`): Check читают перед merge, и
+  вне Wave его просит на merge-коммите тот, кто вливал.
+- `harness/bin/tests/epic-wave-ship-ticket.test.sh`: 19 проверок пункта раздела 4 и 2 проверки шага 9; на ПК
+  `HOME=$(mktemp -d) bash harness/bin/tests/epic-wave-ship-ticket.test.sh` — exit 0, `passed 544, failed 0`.
+  Мутанты текста (удалить или переиначить одно правило) — каждый даёт exit 1.
+- `harness/skills/epic-wave/SKILL.md` с этим PR — 133 722 байта, больше предела Linux на
+  один аргумент argv (`MAX_ARG_STRLEN`, 131 072 байта): любая проверка читает его из файла и никогда не
+  передаёт одним аргументом (проверки 1 test.sh пишут текст во временный файл).
+- Не сделано здесь: правило в `rules.md` на обеих машинах (после merge) и приёмка на первой Wave с PR со scope
+  `pc` (последние пункты «Готово, когда»).

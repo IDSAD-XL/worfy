@@ -874,9 +874,15 @@ check "Check after the merge: the fixing PR merges with a check of the failing t
 check "Check after the merge: a green check on the fix or later ends the red" in_ew4 'A green check there, or on a later SHA of the main branch, ends the red, and that session clears the record'
 check "Check after the merge: the revert deadline is the project's rule, no automatic revert" in_ew4 'is the project'"'"'s rule (worfy: 1 h from the record, then the orchestrator reverts it by hand). There is no automatic revert.'
 check "Check after the merge: a check with no report holds no merge" in_ew4 'A check not asked for yet, or with no report yet, holds no merge.'
+check "Check after the merge: green on the rerun is a flaky test, the main branch is not red" in_ew4 'Green on that rerun — a flaky test, and the main branch is not red'
+check "Check after the merge: the label is created before the issue, so the read finds the record" in_ew4 '`gh label create pc-main-red --force --color B60205 --description "main is red on the PC gate full"` first, so the label exists, then `gh issue create --label pc-main-red`'
+check "Check after the merge: the record is read by its label" in_ew4 '(worfy: `gh issue list --label pc-main-red --state open`)'
+check "Check after the merge: the fixing PR names the record without a word that closes it on merge" in_ew4 'Its description names the record (worfy: the issue, without a GitHub word that closes it on merge)'
+check "Check after the merge: after the fix, the check is asked on the fix's merge commit" in_ew4 'Right after the fix merges, ask that session for its check on the fix'"'"'s merge commit'
 st9="$(awk '/^## 9\./{p=1; next} /^## /{p=0} p' "$ST")"
 in_st9() { printf '%s\n' "$st9" | tr '\n' ' ' | tr -s ' ' | grep -qF -- "$1"; }
 check "ship-ticket step 9: a Check after the merge is asked for on the merge commit, with no wave to ask" in_st9 'after the merge you ask its session for it on the merge commit yourself: no wave ends here to ask for it'
+check "ship-ticket step 9: a Check after the merge is read before the merge, and a red record holds it" in_st9 'is read there before the merge — the record of a red main branch holds it'
 # Without a `check` Stage (the default Pipeline, a profile not yet edited) the rule in words stays: platform PRs
 # keep out of the set, go into PLATFORM=() and merge the old way after the other platform's verdict.
 check "Check: no Check in the Pipeline — PLATFORM=() lists the platform PRs by the project's rules" \

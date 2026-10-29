@@ -973,7 +973,13 @@ the old way or one after another — every Check of the Pipeline has its mark on
   - Red — that session first runs the failing tests once more, one at a time, on the same SHA, to
     check for a flaky test. Red again — the main branch is red there, and that session records it in
     the one place the project's rules name for it (worfy: an open GitHub issue with the label
-    `pc-main-red`, its title the SHA, its body the report). That session also clears it.
+    `pc-main-red`, its title the SHA, its body the report). That session also clears it. Green on that
+    rerun — a flaky test, and the main branch is not red: the report lists those tests with their exit
+    codes, and a test that fails like that again goes to quarantine by the project's rules.
+  - The record is written so that the read below finds it: a record it does not find reads as green.
+    Worfy: `gh label create pc-main-red --force --color B60205 --description "main is red on the PC gate full"`
+    first, so the label exists, then `gh issue create --label pc-main-red`. An issue opened without
+    the label is not found by the read below.
   - Before merging any PR that needs this check — in a wave or not — read that place (worfy:
     `gh issue list --label pc-main-red --state open`). While the main branch is red there, no PR that
     needs this check merges, and the wave report says so with the SHA. Other PRs merge as before.

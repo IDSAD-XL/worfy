@@ -1,6 +1,7 @@
 # 0086 — PR со scope `pc` вливается по `ci-ok`, а gate full на Windows-ПК идёт на `main` после Wave; меняет ADR-0056, пункт 2, ADR-0071, пункт 4, ADR-0072 и ADR-0083, пункт 6
-Дата: 2026-10-29. Статус: принят. Вступает в силу с merge PR этого ADR; `rules.md` Profile-а worfy Orchestrator
-правит после merge.
+Дата: 2026-10-29. Статус: принят. Вступает в силу с merge PR этого ADR. После merge правятся `rules.md` Profile-а
+worfy на обеих машинах — у каждой свой (ADR-0042): на Mac его правит Orchestrator, на ПК — Session на ПК,
+которая и открывает и закрывает issue `pc-main-red` (пункты 4 и 6).
 
 **Контекст.** Платформенный PR, для которого `node scripts/windows-verdict-scope.mjs <base> <head>` из
 checkout-а `main` печатает `pc` (Terminal, окна, меню, уведомления, `test/e2e/**`, упаковка — список
@@ -41,8 +42,12 @@ runner не видит: настоящий Terminal (ConPTY, PowerShell, `node-p
    регрессия, и `main` красный на ПК.
 4. **Красный `main` на ПК — открытый issue GitHub с меткой `pc-main-red`** в репозитории `IDSAD-XL/worfy`.
    Открывает его Session на ПК, когда повтор подтвердил регрессию: в заголовке SHA, в теле отчёт gate (код
-   выхода, строка вердикта, упавшие test-ы `file:line`). Это единственное место состояния: его видят все
-   Wave всех epic-ов и merge без Wave. Перед merge любого PR со scope `pc` Session, которая вливает, читает
+   выхода, строка вердикта, упавшие test-ы `file:line`). Сначала она создаёт метку:
+   `gh label create pc-main-red --repo IDSAD-XL/worfy --force --color B60205 --description "main is red on the PC gate full"`
+   (`--force` не падает, если метка уже есть), потом —
+   `gh issue create --repo IDSAD-XL/worfy --label pc-main-red`. Issue без метки чтение ниже не находит и
+   принимает красный `main` за зелёный. Это единственное место состояния: его видят все Wave всех epic-ов и
+   merge без Wave. Перед merge любого PR со scope `pc` Session, которая вливает, читает
    `gh issue list --repo IDSAD-XL/worfy --label pc-main-red --state open`: есть открытый — PR не вливается и
    ждёт. Прочие PR вливаются как обычно: их условие — `ci-ok` (ADR-0083, пункт 7, про красный `ci-ok` на
    `main` не меняется). Запрошенный, но ещё не прогнанный gate full на `main` merge не держит.
@@ -69,7 +74,12 @@ gate full на ПК на том же head».
 
 **Последствия.**
 
-- PR со scope `pc` не ждёт ПК: путь до merge — как у прочих PR, ПК нужен раз в Wave, а не на каждый такой PR.
+- PR со scope `pc` не ждёт ПК, пока `main` не красный на ПК: путь до merge — как у прочих PR, ПК нужен раз в
+  Wave, а не на каждый такой PR.
+- Пока ПК занят или на паузе, а `main` красный на ПК, issue `pc-main-red` никто не закрывает, и PR со scope
+  `pc` стоят до возвращения ПК: исправлению вперёд и revert-у нужна прицельная проверка ПК (пункт 5), а снять
+  красный может только зелёный gate full на ПК (пункт 6). Это не хуже прежнего порядка, где при паузе ПК
+  стоял каждый PR со scope `pc`, но этот ADR такой случай не решает.
 - Регрессия Terminal, окон, меню или уведомлений на Windows попадает в `main` и видна после Wave, а не до
   merge. Цена — до 1 h исправления вперёд и gate full на ПК после него, пока новые PR со scope `pc` стоят.
 - Отметка `check/windows` `success` у PR со scope `pc` больше не значит «ПК проверил этот head»: это говорит
@@ -83,7 +93,8 @@ gate full на ПК на том же head».
 ## Considered Options
 
 - **Как было: gate full на ПК на head каждого PR со scope `pc` (ADR-0083, пункт 6).** Отвергнуто: очередь на
-  ПК, 2,5 h до merge, и при паузе ПК такие PR стоят совсем.
+  ПК и 2,5 h до merge. При паузе ПК такие PR стояли всегда; по выбранному порядку они стоят, только если
+  `main` красный на ПК (раздел «Последствия»).
 - **gate full на ПК раз в Wave, состояние красного `main` — в decision log или отчёте Wave.** Отвергнуто
   (ревью #989): decision log есть только у Wave Autopilot-а, Wave другого epic-а и merge без Wave его не
   видят.
