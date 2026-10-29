@@ -1043,8 +1043,9 @@ const fs = require("fs"), path = require("path"), os = require("os")
 const [file, repo, branch, ci, check, workflow, docs, root, mode, ...prs] = process.argv.slice(2)
 const val = (v) => (v === "" || v === "null" ? null : v)
 const abs = val(root) && (root.startsWith("~/") ? path.join(os.homedir(), root.slice(2)) : root)
-const rel = !abs ? ".scratch" : path.isAbsolute(abs) ? path.relative(repo, abs) : abs
-const tickets_root = mode === "silent" || rel === "" || rel.startsWith("..") || path.isAbsolute(rel) ? null : rel.replace(/[\\/]+$/, "")
+const rel = !abs ? ".scratch" : path.isAbsolute(abs) ? path.relative(repo, abs).split(path.sep).join("/") : abs
+const dir = path.normalize(rel || ".").replace(/[\\/]+$/, "")   // "." or "" — the repository itself, not a tickets folder
+const tickets_root = mode === "silent" || dir === "." || dir === "" || rel.startsWith("..") || path.isAbsolute(rel) ? null : rel.replace(/[\\/]+$/, "")
 const list = prs.map((p) => { const [number, epic, ticket, head, checks] = p.split(":"); return { number: +number, epic, ticket, head, checks: checks ? checks.split(",") : [] } })
 if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify({ repo, branch, ci: ci || "pr", ci_check: check, ci_workflow: workflow,
   docs_check: val(docs), tickets_root, prs: list }, null, 2) + "\n")

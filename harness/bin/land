@@ -170,9 +170,15 @@ function load(file) {
     if (
         st.tickets_root !== undefined &&
         st.tickets_root !== null &&
-        !(text("tickets_root") && !path.isAbsolute(st.tickets_root) && !path.normalize(st.tickets_root).startsWith(".."))
+        !(
+            text("tickets_root") &&
+            !path.isAbsolute(st.tickets_root) &&
+            !path.normalize(st.tickets_root).startsWith("..") &&
+            // the repository itself would exclude the whole diff from the comparison of two heads
+            ![".", ""].includes(path.normalize(st.tickets_root).replace(/[\\/]+$/, ""))
+        )
     )
-        fail(`${file}: "tickets_root" must be a path relative to the repository root, inside it, or null`)
+        fail(`${file}: "tickets_root" must be a folder inside the repository, relative to its root, or null`)
     if (st.main_lock !== undefined && st.main_lock !== null && (typeof st.main_lock !== "string" || !path.isAbsolute(st.main_lock)))
         fail(`${file}: "main_lock" must be an absolute path`)
     if (!Array.isArray(st.prs) || !st.prs.length) fail(`${file}: "prs" must be a list of PRs`)

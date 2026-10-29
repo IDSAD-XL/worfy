@@ -465,9 +465,10 @@ node -e 'const fs=require("fs"),s=JSON.parse(fs.readFileSync(process.argv[1]));s
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(git -C "$W/origin.git" show --name-only --format= refs/pull/900/head)" = "work/tickets/e/issues/01.md" ] \
     && ok "docs: tickets_root from the state file is the root of ticket done" || bad "root: exit $rc: $(cat "$W/out") files $(git -C "$W/origin.git" show --name-only --format= refs/pull/900/head 2>&1)"
-# the input: a tickets root outside the repository, the old scope rule and a PR without its checks are refused
+# the input: a tickets root outside the repository or the repository itself (it would exclude the whole diff when two heads
+# are compared), the old scope rule and a PR without its checks are refused
 i=0
-for bad_input in 's.tickets_root="/abs/.scratch"' 's.tickets_root="../.scratch"' 's.scope=null' 'delete s.prs[0].checks' 's.prs[0].checks=["two words"]'; do
+for bad_input in 's.tickets_root="/abs/.scratch"' 's.tickets_root="../.scratch"' 's.tickets_root="."' 's.tickets_root="./"' 's.tickets_root="a/.."' 's.scope=null' 'delete s.prs[0].checks' 's.prs[0].checks=["two words"]'; do
     i=$((i + 1)); new_world "input$i" 1
     state 1
     node -e "const fs=require('fs'),s=JSON.parse(fs.readFileSync(process.argv[1]));$bad_input;fs.writeFileSync(process.argv[1],JSON.stringify(s))" "$S"
@@ -500,8 +501,8 @@ echo '{"review":"success","check/windows":"success"}' >"$GHD/status-$(head_of 1)
 # the tickets root: an absolute one inside the repository becomes relative, one outside it and Silent mode give null; no Check — []
 skill_root() { node "$T/skill-state.js" "$(tn "$W/s-$1.json")" "$(tn "$W/repo")" main pr ci-ok ci.yml "" "$2" "$3" "1:e:01:$(head_of 1):" >/dev/null 2>&1 && q "$W/s-$1.json" 's.tickets_root'; }
 [ "$(skill_root abs "$(tn "$W/repo")/work/tickets/" full)" = work/tickets ] && [ "$(skill_root out "$(tn "$T")/elsewhere/" full)" = null ] \
-    && [ "$(skill_root silent .scratch/ silent)" = null ] && [ "$(skill_root none "" full)" = .scratch ] && [ "$(q "$W/s-none.json" 's.prs[0].checks')" = '[]' ] \
-    && ok "skill: tickets_root from the profile — absolute made relative, outside the repository or Silent mode null" || bad "skill roots: abs $(q "$W/s-abs.json" 's.tickets_root') out $(q "$W/s-out.json" 's.tickets_root') silent $(q "$W/s-silent.json" 's.tickets_root') none $(q "$W/s-none.json" 's.tickets_root')"
+    && [ "$(skill_root silent .scratch/ silent)" = null ] && [ "$(skill_root dot ./ full)" = null ] && [ "$(skill_root repo "$(tn "$W/repo")/" full)" = null ] && [ "$(skill_root none "" full)" = .scratch ] && [ "$(q "$W/s-none.json" 's.prs[0].checks')" = '[]' ] \
+    && ok "skill: tickets_root from the profile — absolute made relative, outside the repository, the repository itself or Silent mode null" || bad "skill roots: abs $(q "$W/s-abs.json" 's.tickets_root') out $(q "$W/s-out.json" 's.tickets_root') silent $(q "$W/s-silent.json" 's.tickets_root') dot $(q "$W/s-dot.json" 's.tickets_root') repo $(q "$W/s-repo.json" 's.tickets_root') none $(q "$W/s-none.json" 's.tickets_root')"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || { bad "the real home changed"; real_home_diff "$home_before" "$home_after"; }
