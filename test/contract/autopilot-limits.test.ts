@@ -286,6 +286,7 @@ function harness(options: HarnessOptions = {}) {
     ...(refresher === null ? {} : { usage: { refresh: (olderThanMs: number) => refresher.refreshIfOlder(olderThanMs) } }),
     ...(options.budget === undefined ? {} : { budget: { settings: budgetSettings(options.budget), runs: (projectId: string) => readRecentRuns(projectId, { env }) } }),
     journal: (start) => openRun(start, { env }),
+    harness: () => 'plugin',
     keepAwake: () => ({ start: () => power.push('start'), stop: () => power.push('stop') }),
     onChange: (state) => states.push(state),
     settleMs: 60_000,

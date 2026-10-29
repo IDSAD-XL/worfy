@@ -198,6 +198,7 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
           return Promise.resolve()
         },
       }),
+    harness: () => 'plugin',
     keepAwake: () => ({ start: () => void out.power.push('start'), stop: () => void out.power.push('stop') }),
     settleMs: 60_000,
     ...overrides,
@@ -279,7 +280,7 @@ describe('the Wave a result ends', () => {
     const wave2 = s.deps.waves.autopilotWave
     s.deps.waves.autopilotWave = (projectId, epic, resume) => {
       s.emit(result())
-      return wave2(projectId, epic, resume)
+      return wave2(projectId, epic, resume, false)
     }
     await settle()
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', wave: 2 })
@@ -831,7 +832,7 @@ describe('the click on Stop is noted at once: no Wave goes after it (worfy-week 
       // The click lands while Wave 2 is being sent; its turn starts at once and runs.
       answers.push(s.autopilot.stop(PROJECT))
       s.state = 'busy'
-      return wave(projectId, epic, resume)
+      return wave(projectId, epic, resume, false)
     }
     s.emit(result())
     await settle()
@@ -1471,6 +1472,7 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
 
 describe('a new SDK session for every Wave after the first (worfy-throughput ticket 52)', () => {
   const SESSION_2 = 'orch-session-2'
+  const TASK: BackgroundTask = { taskId: 'task-1', taskType: 'local_agent', description: 'Implement 01' }
 
   /** A stand-in whose Orchestrator starts SESSION_2 for Wave 2: `during` runs while it starts. */
   function withNewSession(during: (s: StandIn) => void = () => undefined) {
@@ -1518,7 +1520,7 @@ describe('a new SDK session for every Wave after the first (worfy-throughput tic
     const wave = s.deps.waves.autopilotWave
     s.deps.waves.autopilotWave = async (projectId, epic, resume, brief) => {
       briefs.push(brief === true)
-      if (brief !== true) return wave(projectId, epic, resume)
+      if (brief !== true) return wave(projectId, epic, resume, false)
       const text = `brief + /epic-wave 3`
       emit2({ type: 'prompt', text })
       return { sessionId: SESSION_2, text, delivery: 'sent', tickets: [3], skipped: [] }
@@ -1563,13 +1565,99 @@ describe('a new SDK session for every Wave after the first (worfy-throughput tic
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-stop', wave: 1 })
   })
 
+  /** A stand-in that counts the asks for a new session and the brief of each "Run wave"; `ask` answers them. */
+  function counted(ask: () => Promise<OrchestratorView | null>, overrides: Partial<AutopilotDeps> = {}) {
+    const s = standIn(overrides)
+    const briefs: boolean[] = []
+    let asks = 0
+    s.deps.orchestrators.newUnattendedSession = () => {
+      asks += 1
+      return ask()
+    }
+    const wave = s.deps.waves.autopilotWave
+    s.deps.waves.autopilotWave = (projectId, epic, resume, brief) => {
+      briefs.push(brief)
+      return wave(projectId, epic, resume, false)
+    }
+    return { s, briefs, asks: () => asks }
+  }
+
+  /** Starts the run and ends Wave 1 with its Tickets done. */
+  async function afterWave1(s: StandIn): Promise<void> {
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2)
+    s.emit(result())
+    await settle()
+  }
+
+  it('the old Harness (legacy): no new session is asked for; Wave 2 goes to the same Session without the brief', async () => {
+    const { s, briefs, asks } = counted(() => Promise.resolve(null), { harness: () => 'legacy' })
+    await afterWave1(s)
+    expect(asks()).toBe(0)
+    expect(briefs).toEqual([false, false])
+  })
+
+  it('Force stop while the new Session starts: the run does not wait for it, ends with user-force-stop, and Wave 2 does not go', async () => {
+    const { s, briefs, asks } = counted(() => new Promise<never>(() => undefined))
+    await afterWave1(s)
+    expect(asks()).toBe(1)
+    expect(await s.autopilot.forceStop(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-force-stop' })
+    expect(briefs).toEqual([false])
+    expect(s.journal.at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'user-force-stop' })
+  })
+
+  it('the app quits while the new Session starts: run-stopped app-quit is journaled at once, and Wave 2 does not go', async () => {
+    const { s, briefs } = counted(() => new Promise<never>(() => undefined))
+    await afterWave1(s)
+    await s.autopilot.stopAll()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'app-quit' })
+    expect(briefs).toEqual([false])
+    expect(s.journal.at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'app-quit' })
+  })
+
+  it('no new Session, and the old one closed meanwhile: the run stops with session-closed, Wave 2 does not go', async () => {
+    const { s, briefs } = counted(() => {
+      s.state = 'closed'
+      return Promise.resolve(null)
+    })
+    await afterWave1(s)
+    expect(briefs).toEqual([false])
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'session-closed' })
+  })
+
+  it('the new Session failed as it started: the run stops with session-error, Wave 2 does not go', async () => {
+    const { s, briefs, second } = withNewSession()
+    second.state = 'error'
+    await afterWave1(s)
+    expect(briefs).toEqual([false])
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'session-error' })
+  })
+
+  it('a Wave judged when the wait for its tasks\' last turn ran out: the next Wave stays in the Session, where that turn may still come', async () => {
+    const { s, briefs, asks } = counted(() => Promise.resolve(null), { tasksGraceMs: 5 })
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2)
+    s.tasks = [TASK]
+    s.emit({ type: 'background_tasks', tasks: [TASK] })
+    s.emit(result())
+    await settle()
+    // The last task ends; its task-notification turn does not come within the grace time.
+    s.tasks = []
+    s.emit({ type: 'background_tasks', tasks: [] })
+    for (let i = 0; i < 50 && briefs.length < 2; i += 1) await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(asks()).toBe(0)
+    expect(briefs).toEqual([false, false])
+  })
+
   it('an Orchestrator not free for a new session (newUnattendedSession null): Wave 2 goes to the same Session without the brief', async () => {
     const s = standIn()
     const briefs: boolean[] = []
     const wave = s.deps.waves.autopilotWave
     s.deps.waves.autopilotWave = (projectId, epic, resume, brief) => {
       briefs.push(brief === true)
-      return wave(projectId, epic, resume)
+      return wave(projectId, epic, resume, false)
     }
     await s.autopilot.start(PROJECT, EPIC)
     await settle()

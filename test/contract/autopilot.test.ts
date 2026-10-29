@@ -29,7 +29,7 @@ import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { REASON_MAX, type JournalEvent } from '../../src/shared/autopilot/journal'
 import { autopilotChanged, autopilotEpicAtWork, autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE, PLUGIN_HARNESS_TEMPLATES } from '../../src/shared/projects/action-templates'
+import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE, PLUGIN_HARNESS_TEMPLATES, type HarnessKind } from '../../src/shared/projects/action-templates'
 import { APP_URL, INDEX_HTML } from '../app-url'
 
 vi.mock('electron', () => ({
@@ -138,6 +138,8 @@ interface HarnessOptions {
   script?: string
   /** The scripts of the unattended Sessions one by one, the last for every later one (instead of `script`). */
   scripts?: string[]
+  /** The Harness on the machine (default `plugin`: it has wave-brief, worfy-throughput ticket 52). */
+  harness?: HarnessKind
   attended?: string
   /** Marks the Tickets of a Wave done when its "Run wave" reaches the agent (default true). */
   agentMarksDone?: boolean
@@ -230,6 +232,7 @@ function harness(options: HarnessOptions = {}) {
       }
       return { run: opened.run, append }
     },
+    harness: () => options.harness ?? 'plugin',
     keepAwake: () => ({ start: () => power.push('start'), stop: () => power.push('stop') }),
     onChange: (state) => {
       states.push(state)
@@ -353,6 +356,48 @@ describe('an Autopilot run on the fake agent', () => {
     expect(wave2!.indexOf('wave-brief demo')).toBeLessThan(wave2!.indexOf('Run the wave'))
   })
 
+  it('with the old Harness (legacy, no wave-brief) Wave 2 goes to the same Session, without the brief (worfy-throughput ticket 52)', async () => {
+    const h = harness({ harness: 'legacy' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'no-ready-wave', wave: 2 })
+    expect(messages(h.calls)).toEqual([WAVE_1, WAVE_2])
+    expect(h.requests.filter((request) => request.unattended === true)).toHaveLength(1)
+  })
+
+  /** A run whose `stop` comes as Wave 1's Session closes for Wave 2's new one, before Wave 2 goes. */
+  async function stopInTheWindow(stop: (h: ReturnType<typeof harness>) => Promise<unknown>) {
+    writeFileSync(join(scratch, 'data', PROJECT, 'layout.json'), JSON.stringify({ nodes: [{ id: 'orch', kind: 'orchestrator', x: 0, y: 0, w: 300, h: 180, locked: true, data: { sessionId: 'sdk-before' } }] }))
+    const h = harness()
+    let stopped: Promise<unknown> | null = null
+    h.registry.observe((_sessionId, event) => {
+      // The attended Session closes before any message; Wave 1's closes after its turn.
+      if (event.type === 'state' && event.state === 'closed' && messages(h.calls).length === 1 && stopped === null) stopped = stop(h)
+    })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => stopped !== null, 'the new session for Wave 2')
+    await stopped
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(messages(h.calls)).toEqual([WAVE_1])
+    const node = (JSON.parse(readFileSync(join(scratch, 'data', PROJECT, 'layout.json'), 'utf8')) as { nodes: { data: { sessionId?: string } }[] }).nodes[0]!
+    // The Node still names Wave 1's SDK session: the new one never had its first prompt.
+    expect(node.data.sessionId).toBe('sdk-before')
+    return h
+  }
+
+  it('a Stop as Wave 2\'s new session starts: Wave 2 does not go, and the attended Orchestrator continues Wave 1\'s SDK session (worfy-throughput ticket 52)', async () => {
+    const h = await stopInTheWindow((each) => each.autopilot.stop(PROJECT))
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'user-stop', wave: 1 })
+    await until(() => h.requests.at(-1)?.unattended === false, 'the attended Orchestrator')
+    expect(h.requests.at(-1)?.resume).toBe('sdk-before')
+  })
+
+  it('the app quits as Wave 2\'s new session starts: run-stopped app-quit is journaled, Wave 2 does not go (worfy-throughput ticket 52)', async () => {
+    const h = await stopInTheWindow((each) => each.autopilot.stopAll())
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'app-quit', wave: 1 })
+    expect((await h.journal()).at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'app-quit' })
+  })
+
   it('starts a new SDK session for the next Wave only while the unattended Orchestrator is free: a held message in its queue keeps the Session (worfy-throughput ticket 52)', async () => {
     const h = harness({ script: 'orchestrator' })
     // Attended, the Orchestrator is a person's: no new session.
@@ -470,9 +515,15 @@ describe('an Autopilot run on the fake agent', () => {
 
   it('journals a permission Claude Code asked for in bypassPermissions: the Subagent and the reason, the home folder as ~, no command', async () => {
     const h = harness({ script: 'autopilot-refused-permission' })
+    // Wave 1's Session as its turn reports it: by the time the lines are read, Wave 2 may run in a new one (ticket 52).
+    const inits: string[] = []
+    h.registry.observe((sessionId, event) => {
+      if (event.type === 'init') inits.push(sessionId)
+    })
     await h.autopilot.start(PROJECT, EPIC)
     await until(async () => (await h.kinds()).filter(([kind]) => kind === 'refused-dialog').length >= 2, 'two refused-dialog lines')
-    const session = (await h.session()).id
+    const session = inits[0]
+    expect(session).toEqual(expect.any(String))
     await h.autopilot.forceStop(PROJECT)
     // The model got the reason with the refusal (the fake records canUseTool's answer).
     const [answer] = h.calls.filter((call) => call.kind === 'permission')

@@ -136,6 +136,11 @@ interface Run {
   resume: string | undefined
   /** Claude Code has reported the session (system/init): the resume, if any, worked. */
   initSeen: boolean
+  /**
+   * A new SDK session in place of the saved one (newUnattendedSession): the Node keeps the saved id
+   * and cost until this Session's first init, so a give-back before it continues the saved session.
+   */
+  fresh: boolean
   session: Session | null
 }
 
@@ -292,7 +297,8 @@ export class Orchestrators {
    * Autopilot's next Wave (worfy-throughput ticket 52): the unattended Orchestrator starts a new SDK
    * session instead of continuing the one of the last Wave. The old Session closes and stays in the
    * history as its transcript, as on "New conversation"; the new one runs unattended too, its cost
-   * from zero. Only while the Orchestrator is free — no turn, no live background task, nothing in its
+   * from zero. The Node keeps the old SDK session id and cost until the new session's first init
+   * (after its first prompt): a give-back before that continues the old session. Only while the Orchestrator is free — no turn, no live background task, nothing in its
    * queue and no give-back waiting — since closing the old Session would end what runs there or
    * leave a person's message out; then, and for an Orchestrator that is not open or not unattended,
    * it does nothing and answers null. Otherwise answers the view once the new process has started.
@@ -387,8 +393,8 @@ export class Orchestrators {
   }
 
   /** Starts the Orchestrator's Session; with `after`, its Claude Code process waits for `after` (relaunch). */
-  private launch(entry: Entry, resume: string | undefined, facts: TranscriptFacts, after?: Promise<void>): void {
-    const run: Run = { current: true, resume, initSeen: false, session: null }
+  private launch(entry: Entry, resume: string | undefined, facts: TranscriptFacts, after?: Promise<void>, fresh = false): void {
+    const run: Run = { current: true, resume, initSeen: false, fresh, session: null }
     entry.run = run
     // The view goes first: the registry reports `starting` before start() returns.
     this.setView(entry, {
@@ -427,8 +433,17 @@ export class Orchestrators {
     const next = { ...this.current(entry), sessionId }
     switch (event.type) {
       case 'init':
-        run.initSeen = true
         next.model = event.model
+        if (run.fresh && !run.initSeen) {
+          // The new SDK session is the Node's from now on, its cost from zero (newUnattendedSession).
+          run.initSeen = true
+          entry.savedSessionId = event.sdkSessionId
+          entry.cost = new CostCounter(0)
+          next.costUsd = 0
+          this.patch(entry, { sessionId: event.sdkSessionId, costUsd: 0 })
+          break
+        }
+        run.initSeen = true
         if (event.sdkSessionId !== entry.savedSessionId) {
           entry.savedSessionId = event.sdkSessionId
           this.patch(entry, { sessionId: event.sdkSessionId })
@@ -497,7 +512,8 @@ export class Orchestrators {
    * exited (ADR-0064). The new Session is live at once and holds what is sent to it until then; a
    * second relaunch meanwhile closes it before it started, so it waits for the same old process.
    * Settles once the new process has started (or the new Session was closed first); never rejects.
-   * `fresh`: a new SDK session instead (newUnattendedSession), with its cost from zero and no status block.
+   * `fresh`: a new SDK session instead (newUnattendedSession), with no status block; the saved id and
+   * the cost go only at its first init (Run.fresh).
    */
   private relaunch(entry: Entry, launch: SessionLaunch, fresh = false): Promise<void> {
     entry.wanted = null
@@ -513,8 +529,8 @@ export class Orchestrators {
     // A new Claude Code process reports its cost from zero.
     entry.cost.processEnded()
     const view = this.current(entry)
-    if (fresh) this.forgetSession(entry)
-    this.launch(entry, entry.savedSessionId ?? undefined, { model: view.model, statusBlock: fresh ? null : view.statusBlock }, oldExit)
+    if (fresh) this.launch(entry, undefined, { model: view.model, statusBlock: null }, oldExit, true)
+    else this.launch(entry, entry.savedSessionId ?? undefined, { model: view.model, statusBlock: view.statusBlock }, oldExit)
     const next = entry.run
     if (next === null || next === old || next.session === null) return oldExit ?? Promise.resolve()
     if (queue.items.length > 0) {

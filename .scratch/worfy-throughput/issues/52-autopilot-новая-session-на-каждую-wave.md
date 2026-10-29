@@ -64,11 +64,22 @@ diff `test/e2e/**` (`scripts/windows-verdict-scope.mjs:80`); иначе runner `
   просьба идёт после пустой строки и попадает в skill как часть аргументов. Skill разбирает «tickets NN, NN of
   epic X» по смыслу (раздел «What goes into the wave»), точной формы без хвоста не требует. Шаблон без `/` —
   просьба впереди. Первая Wave run-а — как раньше: продолжает сохранённую SDK session Orchestrator-а.
+- Новая session — только с Harness, где есть `wave-brief`: plugin или его копия, которую Session несёт сама,
+  когда Harness не установлен (`none`). Со старым Harness (`legacy`) `wave-brief` нет, и его skill читает только
+  русскую форму аргументов, поэтому Wave уходит в ту же Session без brief, как раньше.
 - Новая session — только если Orchestrator свободен: нет turn-а, живых background tasks, сообщений в очереди
   и ожидающего возврата. Иначе Wave уходит в текущую Session, как раньше, без brief: закрыть Session значило бы
   потерять turn, tasks или сообщение человека.
+- Wave, которую cycle закрыл по `tasks-timeout` (последний task кончился, а его task-notification turn не
+  пришёл за grace time), новой session не получает: этот turn ещё может прийти в старой Session, а закрытие её
+  процесса его выбросило бы. Следующая Wave уходит в ту же Session.
+- Node Orchestrator-а хранит id старой SDK session и её стоимость до первого `init` новой session (он приходит
+  после её первого prompt-а). Stop, Force stop или выход из приложения в этом окне возвращают человеку session
+  прошлой Wave, а не пустой разговор. Force stop и выход не ждут старта нового процесса, поэтому строка
+  `run-stopped` успевает в журнал.
 - Пока старая Session закрывается, run не следит ни за одной Session (`run.session = null`): её `closed` не
   останавливает run. Stop, Force stop или выход из приложения во время старта новой session — Wave не уходит.
+  Шаблон с пробелами в начале тоже считается slash command (`trimStart`).
 - Решение о Limits и Interrupt. Продолжение после сброса окна Limits идёт внутри той же Wave и в ту же SDK
   session: новая session начинается только перед новой Wave (`sendWave`), а continuation шлётся в
   `run.session`, то есть в session своей Wave. Interrupt, Stop и Force stop session не меняют. После run-а

@@ -7,9 +7,12 @@
 // - Every Wave after the run's first starts a new SDK session of the Orchestrator (worfy-throughput
 //   ticket 52; Orchestrators.newUnattendedSession), so its context does not grow from Wave to Wave:
 //   its first prompt asks for `wave-brief <epic>`, then has the Wave's text (launch.ts,
-//   waveBriefText). Only while the Orchestrator is free — idle, no live background task, nothing in
-//   its queue; otherwise the Wave goes to the current Session as before. Within a Wave the session
-//   stays: the continuation after a Limits wait, a Stop and the turns of background tasks go to it.
+//   waveBriefText). Only with a Harness that has `wave-brief` (the plugin, also carried inline when
+//   none is installed; not the old Harness, `legacy`), only while the Orchestrator is free — idle,
+//   no live background task, nothing in its queue — and not after a Wave the wait for its tasks'
+//   last turn ended (`tasks-timeout`: that turn may still come in the old session); otherwise the
+//   Wave goes to the current Session as before. Within a Wave the session stays: the continuation
+//   after a Limits wait, a Stop and the turns of background tasks go to it.
 // - Waves go out as "Run wave" does (src/main/actions/launch.ts, the Project's template); when one
 //   is finished and what comes next is the cycle's call (src/shared/autopilot/cycle.ts), over the
 //   events of the Orchestrator's Session and fresh reads of the workflow model.
@@ -120,6 +123,7 @@ import {
   type CycleState,
 } from '../../shared/autopilot/cycle'
 import type { AutopilotState, HarnessBehind } from '../../shared/ipc/autopilot'
+import type { HarnessKind } from '../../shared/projects/action-templates'
 import type { PullRequest } from '../../shared/ipc/checks'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
@@ -220,7 +224,7 @@ export interface AutopilotDeps {
    * before it stops for want of a Wave (worfy-windows ticket 17).
    */
   waves: {
-    autopilotWave(projectId: string, epic: string, resume: readonly number[], brief?: boolean): Promise<AutopilotWaveResult>
+    autopilotWave(projectId: string, epic: string, resume: readonly number[], brief: boolean): Promise<AutopilotWaveResult>
     autopilotRefusal(projectId: string): string | null
     autopilotGateQueue?(projectId: string): Promise<string | null>
   }
@@ -229,6 +233,12 @@ export interface AutopilotDeps {
    * when the start went past a run of another Machine, and the Linked machines it could not ask.
    */
   journal(start: RunStart): Promise<RunJournalLike>
+  /**
+   * The Harness on the machine (src/main/harness/locate.ts, currentHarness), read before each Wave
+   * after the first: only one with `wave-brief` (not `legacy`) gets a new SDK session per Wave
+   * (worfy-throughput ticket 52).
+   */
+  harness(): HarnessKind
   /** A new keep-awake for one run (power.ts, KeepAwake). */
   keepAwake(): { start(): void; stop(): void }
   /** Told every new state of any Project's run. */
@@ -393,6 +403,11 @@ class Run {
   tasksTimer: unknown = null
   /** Turns of the Orchestrator's Session the run has seen start: one per `prompt` event. */
   turns = 0
+  /**
+   * The Wave was judged after the wait for its tasks' last turn ran out (`tasks-timeout`), not by a
+   * turn's end: that turn may still come in the Session, so the next Wave keeps it (ticket 52).
+   */
+  turnMayCome = false
   /** True while "Run wave" is on its way to the Session (autopilotWave has not answered yet). */
   sending = false
   /** The prompts of the turns that started while "Run wave" was on its way, by turn number. */
@@ -837,6 +852,7 @@ export class Autopilot {
           if (hit !== null && !interrupted) return this.limitsHit(run, hit)
           // A turn of the Wave that was not refused ends any wait (a person's turn during it, too).
           run.limits?.passed()
+          run.turnMayCome = false
           return this.readAndFeed(run, 'stop', (tickets) => ({
             type: 'turn-ended',
             isError: event.isError,
@@ -1044,7 +1060,7 @@ export class Autopilot {
       return
     }
     // Every Wave after the run's first goes to a new SDK session (worfy-throughput ticket 52).
-    const fresh = run.cycle.wave > 0 ? await this.newSession(run) : 'same'
+    const fresh = run.cycle.wave > 0 && !run.turnMayCome && this.deps.harness() !== 'legacy' ? await this.newSession(run) : 'same'
     if (fresh === 'gone') return
     // A Stop, a Force stop or the quit while the new session started: the Wave does not go, as above.
     if (run.stopRequested) {
@@ -1088,17 +1104,18 @@ export class Autopilot {
    * follows no Session while the old one closes, so its end does not stop the run, then follows the
    * new one. Answers `fresh` when the Wave goes to a new session; `same` when the Orchestrator was not
    * free for it and the Wave goes to the current one; `gone` when the run has no Session left to
-   * send to, and the cycle has been told.
+   * send to, and the cycle has been told. A Force stop or the quit does not wait for the new process
+   * (as freshLimits): `gone`, with no Session followed, and their stop step ends the run.
    */
   private async newSession(run: Run): Promise<'fresh' | 'same' | 'gone'> {
     const old = run.session
     run.session = null
-    let view: OrchestratorView | null = null
-    try {
-      view = await this.deps.orchestrators.newUnattendedSession(run.projectId)
-    } catch (error) {
+    const asked = this.deps.orchestrators.newUnattendedSession(run.projectId).catch((error: unknown) => {
       console.warn(`[autopilot] ${run.projectId}: could not start a new session of the Orchestrator`, error)
-    }
+      return null
+    })
+    const view = await Promise.race([asked, run.rushing.then(() => 'rushed' as const)])
+    if (view === 'rushed') return 'gone'
     if (view === null || view.sessionId === null) {
       run.session = old
       if (old !== null && old.state !== 'closed') return 'same'
@@ -1330,7 +1347,12 @@ export class Autopilot {
     const timer = clock.setTimeout(() => {
       if (run.tasksTimer !== timer) return
       run.tasksTimer = null
-      void run.enqueue(() => this.readAndFeed(run, 'stop', (tickets) => ({ type: 'tasks-timeout', tasks: this.liveTasks(run).length, tickets })))
+      void run.enqueue(() =>
+        this.readAndFeed(run, 'stop', (tickets) => {
+          run.turnMayCome = true
+          return { type: 'tasks-timeout', tasks: this.liveTasks(run).length, tickets }
+        }),
+      )
     }, ms)
     run.tasksTimer = timer
   }

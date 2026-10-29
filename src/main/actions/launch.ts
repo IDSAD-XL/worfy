@@ -119,7 +119,7 @@ export interface AutopilotWaveResult extends RunWaveResult {
  */
 export function waveBriefText(epic: string, text: string): string {
   const brief = `This is a new session for the next Wave: before anything else, run \`wave-brief ${epic}\` (skill epic-wave, "How to resume a wave").`
-  return text.startsWith('/') ? `${text}\n\n${brief}` : `${brief} Then:\n\n${text}`
+  return text.trimStart().startsWith('/') ? `${text}\n\n${brief}` : `${brief} Then:\n\n${text}`
 }
 
 /** Why "Run wave" by hand is refused while Autopilot runs in the Project. */

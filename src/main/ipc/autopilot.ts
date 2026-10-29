@@ -41,6 +41,7 @@ import { readOriginKey } from '../autopilot/origin'
 import { Autopilot, RunningElsewhere, selfProjectRefusal, type AutopilotDeps } from '../autopilot/run'
 import { toEveryWindow } from '../broadcast'
 import { bundledHarnessVersion } from '../harness/bundled'
+import { currentHarness } from '../harness/locate'
 import { harnessScriptEnv } from '../harness/script-env'
 import { AutopilotRunsLink } from '../link/autopilot-runs'
 import { appLinkService, onAppLinkStart, type LinkService } from '../link/service'
@@ -162,6 +163,7 @@ export function sharedAutopilot(): Autopilot {
       autopilotGateQueue: (projectId) => sharedLauncher().autopilotGateQueue(projectId),
     },
     journal: (start) => openRun(start),
+    harness: () => currentHarness().kind,
     keepAwake: () => new KeepAwake(),
     harnessDrift: harnessDriftWatch({ packaged: app.isPackaged, harnessVersion: () => bundledHarnessVersion() }),
     prs: sharedPrTracker(),
