@@ -177,9 +177,11 @@ cp "$T/sp-profile.json" "$SPP"
 # exit 1 with a finding; `profile` / `root` — exit 2 with the reason bin/silent-check gives when the profile or
 # the tickets root is not read; `kill` — killed by a signal; `many` — exit 1 with 120 findings; a number —
 # that exit code, nothing printed.
-# One try lasts $TRY_MS here. Where only timeouts happen, 3 s is enough: the stand-in that hangs sleeps far
-# longer than any try, so the result never depends on how fast the machine is. Where a stand-in must answer
-# inside a try, a try lasts 5 s, so a node start on a loaded machine never runs out of it.
+# One try lasts $TRY_MS here. Where only timeouts happen, 0.5 s is enough: the stand-in that hangs sleeps far
+# longer than any try, so the result never depends on how fast the machine is, and each such try is waited out
+# in full. Where a stand-in must answer inside a try, a try lasts 5 s, so a node start on a loaded machine never
+# runs out of it; where a timeout comes first and the retry must answer, 3 s (each case waits out one try or
+# two). The default try is checked once, at the end of the section.
 STUB="$T/silent-check-stub.cjs"
 cat >"$STUB" <<'EOF'
 const fs = require("node:fs")
@@ -211,7 +213,7 @@ if (step === "many") {
 }
 process.exit(Number(step))
 EOF
-TRY_MS=3000
+TRY_MS=500
 now_ms() { node -e 'process.stdout.write(String(Date.now()))'; }
 calls() { [ -f "$STUB_LOG" ] && grep -c . "$STUB_LOG" || echo 0; }
 use_stub() { # <plan>
@@ -295,6 +297,7 @@ export CLAUDE_SILENT_CHECK_BIN="$T/no-such-silent-check"
 expect "silent-check does not exist -> deny with the reason" deny "$R" "$CLEAN" 'could not start'
 unset CLAUDE_SILENT_CHECK_BIN
 
+TRY_MS=3000
 stub sleep,0 "timeout, then the retry answers 0 -> allow" allow "$CLEAN" '' 2
 stub sleep,traces "timeout, then the retry finds traces -> deny with the traces" deny "$CLEAN" 'ticket number "Ticket 05"' 2
 # Two checks in one command share the budget of two tries: the first check uses a try and its retry, the
