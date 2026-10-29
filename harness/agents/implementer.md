@@ -127,7 +127,8 @@ Without a skill, steps 1–4 are:
 1. A fresh base (`worktree.base` or the main branch of the repository).
 2. Numbers — from the brief.
 3. **Test first**: for a bug — a failing test that reproduces it; make sure it is red, and only then
-   fix.
+   fix. A behaviour is tested in one layer (unit, contract or e2e); a second layer needs a reason
+   in the PR description.
 4. Implementation inside the ticket's trail: the smallest change that does the whole ticket. It
    comes after step 3 — the failing test stays first — and it never drops an item of the ticket's
    list of what "done" means.

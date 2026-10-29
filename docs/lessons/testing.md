@@ -159,5 +159,5 @@ gate full (worfy-harness 53) и время падения; предел test-а 
 
 Как узнать: новый e2e или contract test утверждает те же числа или то же правило, что test слоем ниже.
 Что делать: оставить один слой; второй — только с причиной в описании PR.
-Проверка: проверки нет: правило держится ревью PR; фразу правила в `harness/agents/implementer.md` проверяет `harness/bin/tests/agents-text.test.sh` после follow-up worfy-throughput 15.
+Проверка: harness/bin/tests/agents-text.test.sh:130 — фраза правила одного слоя в harness/agents/implementer.md.
 Источник: worfy-throughput/15.

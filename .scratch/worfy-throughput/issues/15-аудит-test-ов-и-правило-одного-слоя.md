@@ -30,7 +30,7 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - [ ] Для каждого убранного или слитого test-а в «Итог» — пара, доказательство (coverage до и после или
       имя mutant-а) и команда с кодом выхода.
 - [ ] Ни один модуль не теряет покрытие строк или ветвей: отчёт coverage до и после — в «Итог».
-- [ ] Правило одного слоя — в `harness/agents/implementer.md`; `harness/bin/tests/agents-text.test.sh`
+- [x] Правило одного слоя — в `harness/agents/implementer.md`; `harness/bin/tests/agents-text.test.sh`
       проверяет фразу.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — шаг Orchestrator-а перед merge.
 
@@ -109,4 +109,4 @@ PR #935, ветка `worfy-throughput/15`. Замер «до» — CI run 407704
 
 ### Правило одного слоя
 
-`docs/lessons/testing.md` — урок «Поведение проверяется в одном слое». Правило в `harness/agents/implementer.md` и проверка фразы в `harness/bin/tests/agents-text.test.sh` (пункт 3 Ticket-а) не сделаны: PR #934 Ticket-а 27 правит те же два файла и ещё открыт. Это follow-up после его merge; пункт «Готово, когда» о них открыт.
+`docs/lessons/testing.md` — урок «Поведение проверяется в одном слое». Правило — в шаге 3 `harness/agents/implementer.md`: «A behaviour is tested in one layer (unit, contract or e2e); a second layer needs a reason in the PR description.» Фразу проверяет `harness/bin/tests/agents-text.test.sh:130`; mutant (фраза убрана из `implementer.md`) — `agents-text.test.sh` exit 1, «FAIL implementer: no one-layer rule». С фразой `agents-text.test.sh` exit 0 (216 passed), `plugin-neutral.test.sh` exit 0 (31 passed), оба с временным HOME. Сделано после merge #934 (Ticket 27 правил те же два файла).
