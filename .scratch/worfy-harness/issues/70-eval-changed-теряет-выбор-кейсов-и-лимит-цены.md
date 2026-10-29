@@ -1,7 +1,7 @@
 # 70 — `pnpm eval:harness --changed` гонит все кейсы тега и глотает `--max-cost-usd` пользователя; `--dry-run`
 
 Type: bug
-Status: claimed 2026-10-22T17:27Z
+Status: open 2026-10-29T05:16Z
 Blocked by: —
 Source: платный run на PR #738 (2026-10-22): `pnpm eval:harness --changed origin/main -- --max-cost-usd 3`
 стоил 30.29 USD вместо ожидаемых ~1 USD; log run-а — в scratchpad сессии Orchestrator-а (`eval-738.log`), выдержки ниже.
@@ -10,6 +10,8 @@ Source: платный run на PR #738 (2026-10-22): `pnpm eval:harness --chang
 
 Приоритет — high: каждый следующий `--changed` перед мержем PR с правками правил Harness платит за все кейсы тега
 `main`, а лимит цены пользователя не действует. До исправления платный `--changed` не запускать.
+
+Владелец 2026-10-29: рост стоимости не критичен — низкий приоритет. Ticket снова `open`.
 
 ## Что происходит
 

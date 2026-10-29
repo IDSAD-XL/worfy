@@ -80,6 +80,10 @@ _Avoid_: волна, batch, спринт
 Место Ticket-а в Pipeline его Project-а, например Implementing, Agent review или Awaiting merge. Вычисляется из статуса Ticket-а, его ветки, PR и отметок проверок, нигде не хранится. Статус Ticket-а — не Stage: один и тот же `claimed` бывает на нескольких Stage подряд; `blocked` — не Stage, а пометка на любом Stage.
 _Avoid_: этап (как имя), статус, фаза, step
 
+**Wave brief**:
+Короткая сводка Epic-а, которую Orchestrator сохраняет в конце Wave и читает первой в новой Session: что влито, какие Ticket-ы ждут и чего, открытые PR, следующая Wave.
+_Avoid_: бриф, handoff (HANDOFF.md — другой документ: состояние всего проекта)
+
 **Pipeline**:
 Упорядоченный список Stage, через которые проходит каждый Ticket одного Project-а; свой у каждого Project-а (у одного есть review людьми и ручной merge, у другого — выкатка). Без настройки — Queued, Implementing, CI, Agent review, Gate & merge, Closing, Done.
 _Avoid_: воркфлоу (как имя списка), процесс, board
