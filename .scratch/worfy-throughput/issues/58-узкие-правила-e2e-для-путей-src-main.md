@@ -73,10 +73,11 @@ Source: решение владельца 2026-10-29, раунд 3, Q9 ([spec.md
 
 ## Итог
 
-Итог implementer-а 2026-10-30: замер сделан, новых строк в `scripts/e2e-specs.table.json` нет. Каждый путь
-`src/main`, который в замере отправил PR на весь набор, выполняется при запуске приложения или в действиях,
-которые делают десятки spec-файлов. По правилу таблицы (поле `about`: «when in doubt, leave the path out»)
-такой путь в таблицу не идёт. Поэтому нет и новых contract test-ов, и mutant-а для них.
+Итог implementer-а 2026-10-30, после круга ревью 1: замер сделан. В `scripts/e2e-specs.table.json` добавлена
+одна строка: `src/main/first-run/checks.ts` и `src/main/first-run/actions.ts` → 5 spec-файлов, 1 shard из 2. По
+времени из `test/e2e/timings.json` это 84 s из 1686 s. Для неё есть contract test и mutant. Остальные пути
+`src/main` из замера выполняются при запуске приложения или в действиях, у которых нет доказуемого набора
+spec-файлов. По правилу таблицы (поле `about`: «when in doubt, leave the path out») они в таблицу не идут.
 
 ### Замер: 30 последних PR с кодом
 
@@ -121,33 +122,59 @@ check-run-ы `macos-e2e*` (`gh api repos/IDSAD-XL/worfy/commits/<sha>/check-runs
 `ipc/harness-migration.ts`, `projects/connect.ts` (#1011); `ipc/first-run.ts` (#995); `storage/remove.ts`
 (#1000); `claude-home/subagents.ts`, `ipc/claude-home.ts` (#975).
 
-Шире, 80 PR с кодом (#896 … #1023): весь набор — 32 PR. Чаще других среди причин — `autopilot/run.ts` и
-`ipc/autopilot.ts` (3 PR: #994, #933, #928). У всех трёх есть и другая причина: `actions/launch.ts`,
+Шире, 80 PR с кодом (#896 … #1023): весь набор — 32 PR. Чаще всего среди причин — `.github/workflows/ci.yml`
+(10 PR). Среди путей `src/main` чаще других — `autopilot/run.ts` и `ipc/autopilot.ts` (3 PR: #994, #933, #928). У всех трёх есть и другая причина: `actions/launch.ts`,
 `settings/store.ts`, `agent/limits-usage.ts`. Только в `src/main` — 9 PR. Из них, кроме пяти выше: #931 и
 #920 (`agent/options.ts`), #918 (`agent/session.ts`), #907 (`terminal/zsh/rc.d/20-suggest-ai.zsh`).
 
-### Почему ни один путь не стал строкой таблицы
+### Какие пути стали строкой таблицы и почему остальные — нет
 
 Строка годится, только когда код под её glob-ами e2e test-ы видят лишь через её spec-файлы. Проверены
 импорты, IPC-каналы и то, что приложение делает при запуске.
 
-- `first-run/checks.ts`, `ipc/first-run.ts` (#995, #1011). Renderer вызывает `firstRun.startup` при каждом
-  запуске (`src/renderer/shell/FirstRun.tsx`, `first-run-store.ts`). `checks.ts` импортируют ещё
-  `link/server.ts`, `link/discovery.ts`, `link/service.ts`, `ipc/pipeline.ts`, `ipc/autopilot.ts`. Код видит
-  каждый spec.
-- `storage/move.ts`, `layout/trash.ts`, `ipc/trash.ts` (#969, #1000). `move.ts` зовёт только `layout/trash.ts`,
-  а его — только `ipc/trash.ts`. Но `ipc/trash.ts` при каждом запуске чистит корзину каждого Project-а
-  (`setTimeout(…, 0)` → `TrashStore.purge`). Корзину пишет любое удаление Node-а (`trash.put`). Ошибка в
-  `purge` или в переносе папок задевает данные всех spec-файлов. `storage/remove.ts` (вторая причина #1000)
-  зовёт `storage/json-file.ts`, то есть любую запись настроек и layout-а.
+- **Строка: `first-run/checks.ts`, `first-run/actions.ts`** (#995 и #1011 — первая причина). Их импортирует
+  только `src/main/ipc/first-run.ts:22-23`, а `actions.ts:35` ещё импортирует `checks.ts`. Код выполняется
+  четырьмя путями:
+  1. `firstRun.startup`, если `WORFY_FIRST_RUN_AUTO` не равен 0. `test/e2e/launch-env.ts:93` ставит 0 каждому
+     запуску, через `launchEnv` и `directStartEnv`. Значение 1 ставят только `first-run.spec.ts:91` и
+     `harness-migrate.spec.ts:156`. Обработчик выходит до проверок: `src/main/ipc/first-run.ts:189`.
+  2. `firstRun.checks` и `firstRun.run` с экрана первого запуска. Экран открывают команда палитры «First-run
+     checks» (`src/renderer/palette/commands.ts:305`; это делают `first-run.spec.ts` и
+     `settings-health.spec.ts`) и кнопка «First-run checks…» в Connect Project (`ProjectsSection.tsx:525`;
+     это делает `projects-connect.spec.ts:178`).
+  3. Те же каналы из Settings → Health (`HealthSection.tsx:26`, `checkOnShow`) — `settings-health.spec.ts`.
+     Settings открывается на General и показывает по одному разделу (`SettingsDialog.tsx:49-53`). Health
+     выбирают только в `settings-health.spec.ts`.
+  4. `askAccount` через `askSignedInAccount` (`ipc/first-run.ts:99`). Его зовёт только `PlanSource.get` при
+     `planPreset.read` и `apply` (`ipc/plan-preset.ts:55`, `:130`, `:140`). Это Settings → Plan, то есть
+     `settings.spec.ts:331`.
+
+  Других вызовов каналов `firstRun.*` и `planPreset.*` в `src/renderer` и `test/e2e` нет: grep
+  `firstRun\.|planPreset\.` находит только `first-run-store.ts`, `FirstRunChecks.tsx`, `PlanSection.tsx`,
+  `first-run.spec.ts`, `settings-health.spec.ts`. Contract test проверяет набор двумя способами. Первый —
+  test строки. Второй — семья `the first-run checks` в `FAMILIES`: она ищет пути к экрану в тексте spec-файлов
+  и их помощников, находит ровно эти 5 и требует, чтобы строка давала их все. `src/main/ipc/first-run.ts`
+  остаётся вне таблицы: его `firstRun.startup` выполняет каждый запуск, пусть и с немедленным выходом.
+  Поэтому #995 (вторая причина — `ipc/first-run.ts`) идёт на весь набор и с этой строкой.
+- `storage/move.ts` (#1000, #969). `moveWhenFree` зовут только `put` и `restore` корзины
+  (`src/main/layout/trash.ts:217`, через `this.move` на `:258`, `:276`, `:330`), а не очистка при запуске
+  (`ipc/trash.ts:42-52`). Перенос идёт, только если у удаляемого Node-а есть Card (`kind: 'card'`, `cardIdOf`)
+  или картинка. Такой Node создают layout-ы spec-файлов, UI, MCP tools fake-агента (сценарии в
+  `test/fixtures/agent-scripts`) и связь между машинами. Удаляют его Delete, Backspace, selection toolbar,
+  меню и ⌘Z. Grep «удаляет и есть Card или картинка» находит 5 spec-файлов (`canvas-image`, `linked-images`,
+  `no-overlap`, `tidy-up`, `trash-undo`), оценка ревью — около 11. Признака без пропусков нет: Card из сценария
+  агента в тексте spec-файла не видна. Кроме того, отдельная строка для `move.ts` не сузила бы ни один PR
+  замера: в #1000 вторая причина — `storage/remove.ts`, в #969 — `layout/trash.ts`. Есть сомнение — путь в
+  таблицу не идёт. `storage/remove.ts` импортирует `storage/json-file.ts:21`, то есть его код идёт в каждой
+  записи настроек и layout-а. `layout/trash.ts` выполняет очистку при каждом запуске.
 - `claude-home/registry.ts` (#996). Его используют `agent/app-node-sessions.ts`, `agent/app-orchestrators.ts`,
   `ipc/bindings.ts`, `gate/state.ts`, `layout/archive.ts`, `claude-home/search.ts`, `claude-home/subagents.ts`.
   Код видит каждый spec.
 - `terminal/cursor-answers.ts` (#1020). `CursorAnswers` создаёт `terminal/pty.ts` для каждого pty: для
   Terminal Node-ов (`ipc/terminal.ts`, `terminal.open`), для входа в gh (`ipc/projects.ts`,
   `github/accounts.ts`) и для терминала первого запуска (`FirstRunChecks.tsx`). Node вида `terminal` задают
-  layout-ы 7 spec-файлов, и ещё больше spec-файлов создают его через UI и Terminal AI. Упоминания terminal есть
-  в 71 файле `test/e2e`. Надёжного признака «spec открывает pty» без пропусков нет, а пропуск значит регрессию
+  layout-ы 7 spec-файлов, и ещё больше spec-файлов создают его через UI и Terminal AI. Слово terminal есть
+  в 43 файлах `test/e2e` (`grep -rli terminal test/e2e`). Надёжного признака «spec открывает pty» без пропусков нет, а пропуск значит регрессию
   до push в `main`. Есть сомнение — путь в таблицу не идёт.
 - `autopilot/run.ts`, `ipc/autopilot.ts` (самые частые на 80 PR). При первом за день открытии Canvas-а с
   эпиками renderer зовёт `autopilot.state` (`src/renderer/canvas/arrangement-record.ts`, `activityNow`). Это
@@ -162,8 +189,10 @@ check-run-ы `macos-e2e*` (`gh api repos/IDSAD-XL/worfy/commits/<sha>/check-runs
   отдаёт список Session-ов каждого Canvas-а. Кроме того, #975 правил ещё 9 путей `src/renderer` и
   `src/shared`, так что строка для main этот PR не сузила бы.
 
-Даже если бы все строки, которые можно защитить, были добавлены, из 30 PR сузились бы самое большее #1020 и
-#996. Это пути, которые видит каждый spec или почти каждый.
+С новой строкой ни один из 30 PR замера не сужается целиком: у #995 и #1011 остаются другие причины. Замер на
+таблице этой ветки — по-прежнему 16 PR на весь набор. Единственные причины по одному пути — #1020
+(`terminal/cursor-answers.ts`) и #996 (`claude-home/registry.ts`). Это пути, которые выполняет каждый
+spec-файл или почти каждый.
 
 ### Что дальше (предложение, не сделано здесь)
 
@@ -186,15 +215,20 @@ check-run-ы `macos-e2e*` (`gh api repos/IDSAD-XL/worfy/commits/<sha>/check-runs
 - `gh pr view <n> --json headRefOid` и `gh api repos/IDSAD-XL/worfy/commits/<sha>/check-runs` по 30 PR — exit 0.
 - `pnpm lint` — exit 0; `pnpm typecheck` — exit 0.
 - `pnpm test test/contract/ci-scope-e2e.test.ts test/contract/ci-workflow.test.ts test/unit/affected-tests.test.ts`
-  (все test-ы, которые читают `ci-scope`) — exit 0: 3 файла, 276 passed, 8 skipped (карантин worfy-polish 41).
-- `pnpm lint && pnpm typecheck && pnpm test` — exit 0: 476 файлов passed, 7 skipped; 10374 test-ов passed.
-- gate fast — exit 0, `[gate] nothing ran`: diff только в тикете, gate его не проверяет. Это не green.
+  (все test-ы, которые читают `ci-scope`) — exit 0: 3 файла, 278 passed, 8 skipped (карантин worfy-polish 41).
+- те же test-ы на mutant-ах строки (строка удалена; из строки убран `settings.spec.ts`) — exit 1 оба раза:
+  красные test строки и семья `the first-run checks`.
+- `pnpm lint && pnpm typecheck && pnpm test` — exit 0: 476 файлов passed, 7 skipped; 10376 test-ов passed.
+- gate fast — exit 0, `[gate] green (fast): worfy/.:lint worfy/.:typecheck worfy/.:test`.
 
 ### «Готово, когда»
 
 - [x] Таблица замера по 30 PR, команды и коды выхода — выше.
-- [ ] Новые строки таблицы — нет: ни один измеренный путь не проходит правило таблицы (раздел выше).
-- [ ] Contract test на каждую новую строку и mutant — нечего проверять: строк нет.
+- [x] Новая строка `src/main/first-run/{checks,actions}.ts` с полем `why`. Test-ы таблицы зелёные: каждый glob
+      совпадает с файлом, каждый spec-файл существует. Остальные пути — раздел выше.
+- [x] Contract test строки (`test/contract/ci-scope-e2e.test.ts`: test строки и семья `the first-run checks`).
+      Mutant 1: строку удалили — оба test-а красные, exit 1. Mutant 2: из строки убрали `settings.spec.ts` —
+      оба test-а красные, exit 1. Таблицу восстановили из копии.
 - [x] В diff нет `.github/workflows/**`.
 - [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 - [ ] Медиана времени по стене следующих 10 PR — после merge, не implementer.

@@ -159,6 +159,27 @@ describe('scripts/e2e-specs.table.json of this repository', () => {
     expect(e2eShards(files, specs, readTimings(REPO), E2E_SHARDS['macos-e2e'])).toEqual(['1/1'])
   })
 
+  it('gives a pull request that changes the first-run checks or actions the spec files of the first-run rule alone, in fewer shards than a full run; src/main/ipc/first-run.ts still runs them all', () => {
+    const firstRun = rules.filter((rule) => rule.paths.includes('src/main/first-run/checks.ts'))
+    expect(firstRun).toHaveLength(1)
+    const specsOfRule = [...(firstRun[0]?.specs ?? [])].sort()
+    expect(specsOfRule).toEqual([
+      'test/e2e/first-run.spec.ts',
+      'test/e2e/harness-migrate.spec.ts',
+      'test/e2e/projects-connect.spec.ts',
+      'test/e2e/settings-health.spec.ts',
+      'test/e2e/settings.spec.ts',
+    ])
+    for (const path of ['src/main/first-run/checks.ts', 'src/main/first-run/actions.ts']) {
+      expect(rules.filter((rule) => rule.matchers.some((matcher) => matcher.test(path))), path).toEqual(firstRun)
+      const files = e2eSpecs([path], specs, rules).files
+      expect(files, path).toEqual(specsOfRule)
+      expect(e2eShards(files, specs, readTimings(REPO), E2E_SHARDS['macos-e2e']).length, path).toBeLessThan(E2E_SHARDS['macos-e2e'])
+    }
+    // Its neighbour answers firstRun.startup on every launch: it stays out of the table.
+    expect(e2eSpecs(['src/main/ipc/first-run.ts'], specs, rules)).toEqual({ files: null, why: `src/main/ipc/first-run.ts is not in ${SPEC_TABLE}` })
+  })
+
   it('names only spec files that exist', () => {
     for (const rule of rules) for (const spec of rule.specs) expect(specs, `${rule.paths.join(' ')} → ${spec}`).toContain(spec)
   })
@@ -238,6 +259,17 @@ describe('scripts/e2e-specs.table.json of this repository', () => {
       // helpers.ts is left out: it turns on the webview tag for every window it launches.
       uses: (root, spec) =>
         /kind: 'browser'|getByTestId\('browser-|webview|from '[./]*src\/(main|renderer|shared)\/browser\//i.test(codeOf(withLocalHelpers(root, spec, [HELPERS]))),
+    },
+    {
+      name: 'the first-run checks',
+      path: 'src/main/first-run/checks.ts',
+      least: 5,
+      known: 'test/e2e/first-run.spec.ts',
+      // The doors to the checks: the screen opening by itself (WORFY_FIRST_RUN_AUTO=1), the palette's
+      // command or Connect Project's button "First-run checks…", Settings → Health and Settings → Plan,
+      // or the firstRun and planPreset channels asked directly.
+      uses: (root, spec) =>
+        /First-run checks|WORFY_FIRST_RUN_AUTO: '1'|\b(firstRun|planPreset)\.\w|name: '(Health|Plan)'|toHaveText\('(Health|Plan)'\)/.test(codeOf(withLocalHelpers(root, spec))),
     },
   ]
   /** The paths the family's rule maps, and each spec of `used` it leaves out for one of them, as "path → spec". */
