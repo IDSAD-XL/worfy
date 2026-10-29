@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join, relative, sep } from 'node:path'
-import { afterEach, beforeEach } from 'vitest'
+import { afterAll, afterEach, beforeEach } from 'vitest'
 import type { HarnessState } from '../../src/shared/ipc/harness'
 import type { MigrationChoice, MigrationPlan, MigrationSelection } from '../../src/shared/ipc/harness-migration'
 import type { ApplyOptions } from '../../src/main/harness/migrate/apply'
@@ -75,20 +75,63 @@ function installPlugin(target: string, withQmd: boolean): void {
   const manifest = join(target, '.claude-plugin', 'plugin.json')
   const { name, ...rest } = JSON.parse(readFileSync(manifest, 'utf8')) as Record<string, unknown>
   writeFileSync(manifest, `${JSON.stringify({ name, version: '0.2.0+aaaaaaa', ...rest }, null, 2)}\n`)
-  // harness/ declares qmd since worfy-harness ticket 17; without `withQmd` the plugin is one from before it.
+  pluginQmd(target, withQmd)
+}
+
+/** harness/ declares qmd since worfy-harness ticket 17; without `withQmd` the plugin is one from before it. */
+function pluginQmd(target: string, withQmd: boolean): void {
   if (withQmd) writeFileSync(join(target, '.mcp.json'), `${JSON.stringify({ mcpServers: { qmd: { command: '${CLAUDE_PLUGIN_ROOT}/bin/qmd-mcp' } } }, null, 2)}\n`)
   else rmSync(join(target, '.mcp.json'), { force: true })
 }
 
-export function makeSandbox({ qmdInPlugin = false }: { qmdInPlugin?: boolean } = {}): Sandbox {
+/**
+ * The sandbox of a test file: its folder, the same for every test of the file, and a copy of the
+ * sandbox as it is built, kept next to it. The fixture writes the folder's path into files that its
+ * repositories commit, so a copy is right only at the path it was built for: each test gets a fresh
+ * copy at that path. Building it once saves each test its twelve git calls, about 1.7 s of the 2 s a
+ * sandbox took on the Windows PC (ticket 46). A test never shares a sandbox: it writes in its own copy.
+ */
+let built: { root: string; copy: string } | undefined
+
+function builtSandbox(): { root: string; copy: string } {
+  if (built !== undefined) return built
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-migrate-')))
   const claudeHome = copyLegacyFixture(REPO, root)
+  const s = describeSandbox(root, claudeHome)
+  sandbox = s
+  for (const dir of [claudeHome, s.repos.worfy, s.repos.auction, s.repos.atakamaServer]) {
+    git(dir, 'init', '-q')
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-q', '-m', 'fixture')
+  }
+  installPlugin(s.pluginDir, false)
+  const copy = `${root}-built`
+  // Copied and removed, not renamed: on Windows a rename right after git wrote the files may meet
+  // them still held (EPERM, EBUSY), and the removal waits that out.
+  cpSync(root, copy, { recursive: true })
+  removeTestTree(root)
+  built = { root, copy }
+  return built
+}
+
+export function makeSandbox({ qmdInPlugin = false }: { qmdInPlugin?: boolean } = {}): Sandbox {
+  const { root, copy } = builtSandbox()
+  if (existsSync(root)) throw new Error(`the sandbox ${root} of the last test is still there: remove it before making the next one`)
+  cpSync(copy, root, { recursive: true })
+  sandbox = describeSandbox(root, join(root, 'home', '.claude'))
+  // Written per test, not copied: off Windows the stub is a link, and a copied link is not checked here.
+  mkdirSync(sandbox.stubDir)
+  shellStub(join(sandbox.stubDir, 'claude'), STUB)
+  if (qmdInPlugin) pluginQmd(sandbox.pluginDir, true)
+  return sandbox
+}
+
+/** The paths and the environment of a sandbox at `root`. */
+function describeSandbox(root: string, claudeHome: string): Sandbox {
   const home = join(root, 'home')
   const harnessHome = join(claudeHome, 'worfy-harness')
   const pluginDir = join(harnessHome, 'plugin')
   const stubDir = join(root, 'stub-bin')
-  mkdirSync(stubDir)
-  shellStub(join(stubDir, 'claude'), STUB)
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
     HOME: home,
@@ -108,20 +151,14 @@ export function makeSandbox({ qmdInPlugin = false }: { qmdInPlugin?: boolean } =
     atakama: join(root, 'repos', 'Atakama'),
     atakamaServer: join(root, 'repos', 'Atakama', 'Atakama-Browser-Server'),
   }
-  sandbox = { root, home, claudeHome, harnessHome, pluginDir, claudeJson: join(claudeHome, '.claude.json'), repos, stubDir, stubLog: join(root, 'claude-calls.log'), env }
-  for (const dir of [claudeHome, repos.worfy, repos.auction, repos.atakamaServer]) {
-    git(dir, 'init', '-q')
-    git(dir, 'add', '-A')
-    git(dir, 'commit', '-q', '-m', 'fixture')
-  }
-  installPlugin(pluginDir, qmdInPlugin)
-  return sandbox
+  return { root, home, claudeHome, harnessHome, pluginDir, claudeJson: join(claudeHome, '.claude.json'), repos, stubDir, stubLog: join(root, 'claude-calls.log'), env }
 }
 
 /**
- * The time a sandbox hook may take: a fixture copy, four git repositories (twelve git calls) and the
- * plugin copy. On a clean GitHub Windows runner it went over the default 10 s in 6 of 57 tests
- * (run 39250749583, whole run 346 s); on the PC and on macOS it takes a few seconds.
+ * The time a sandbox hook may take: the first one of a file builds the sandbox (a fixture copy, four
+ * git repositories with twelve git calls, the plugin copy), the others copy it. On a clean GitHub
+ * Windows runner a build went over the default 10 s in 6 of 57 tests (run 39250749583, whole run
+ * 346 s); on the PC and on macOS it takes a few seconds.
  */
 const SANDBOX_HOOK_MS = 60_000
 
@@ -136,6 +173,11 @@ export function useSandbox(): void {
   // left the folder behind (worfy-windows tickets 23 and 26).
   afterEach(() => {
     removeTestTree(sandbox.root)
+  }, SANDBOX_HOOK_MS)
+
+  afterAll(() => {
+    if (built !== undefined) removeTestTree(built.copy)
+    built = undefined
   }, SANDBOX_HOOK_MS)
 }
 
