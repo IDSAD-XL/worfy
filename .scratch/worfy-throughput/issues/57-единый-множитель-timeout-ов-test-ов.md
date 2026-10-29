@@ -45,7 +45,7 @@ Source: решение владельца 2026-10-29 — «множитель м
 - [x] Литеральные пределы test-ов идут через `ms(...)`; contract test это сторожит, mutant с сырым литералом красный.
 - [x] «Итог»: значение по умолчанию и довод, цена для CI (насколько позже ловится зависший test), список бюджетов
       продукта, оставленных как есть, follow-up для предела shell test-ов Harness.
-- [ ] gate fast — `[gate] green`; один e2e spec под замком e2e показывает, что Playwright берёт множитель.
+- [x] gate fast — `[gate] green`; один e2e spec под замком e2e показывает, что Playwright берёт множитель.
 
 ## Где в коде
 
@@ -181,3 +181,16 @@ Source: решение владельца 2026-10-29 — «множитель м
 
 ### Проверки
 
+- gate fast на 3894b62b + ветка: exit 0, `[gate] green (fast): worfy/.:lint worfy/.:typecheck worfy/.:test`
+  (test 145,3 s). Первый прогон был красным на `ci-workflow.test.ts:1079` («every file outside test/e2e that the e2e
+  tests import makes a pull request run macos-e2e»): `test/time-scale.ts` теперь импортируют e2e-файлы; он добавлен
+  в `APP_FILES` `scripts/ci-scope.mjs`. После rebase на `e595af96` `main` ушёл вперёд только документами.
+- `pnpm test --maxWorkers=9` (весь vitest): exit 0, 473 файла passed, 7 skipped, 10 359 test-ов, 161,6 s.
+- `pnpm test test/contract/test-timeout-scale.test.ts`: exit 0, 6 passed; с `WORFY_TEST_TIMEOUT_SCALE=2` — exit 0,
+  6 passed. Два mutant-а — exit 1 (см. «Механизм»).
+- e2e под замком `/tmp/worfy-e2e.lock` с `holder.json`: `pnpm test:e2e test/e2e/finder-path.spec.ts` — exit 0,
+  2 passed; в JSON-отчёте Playwright `projects[0].timeout` = 180000 (60 000 × 3). `npx playwright test --list
+  --reporter=json` с `WORFY_TEST_TIMEOUT_SCALE=2` — 120000, без переменной — 180000.
+- `pnpm typecheck`, `pnpm lint` — exit 0.
+- Платформенный: ПК проверяет после merge (gate full `GATE_SCOPE=all` на `main`); там же — замер для значения по
+  умолчанию.
