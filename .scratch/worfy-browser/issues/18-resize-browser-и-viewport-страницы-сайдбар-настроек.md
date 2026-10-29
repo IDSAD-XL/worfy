@@ -1,7 +1,7 @@
 # 18 — Resize карточки Browser и viewport страницы отдельно от размера карточки; сайдбар настроек в хедере
 
 Type: feature
-Status: open 2026-10-24T21:58Z
+Status: claimed 2026-10-29T15:35Z
 Branch: worfy-browser/18
 Blocked by: 17
 Source: владелец, 2026-10-25 (чат Mac-оркестратора)
