@@ -248,6 +248,35 @@ async function diagnoseQuit(pid: number | undefined, output: string): Promise<vo
  * Every e2e test launches the app through this helper, so a new isolation variable added to its
  * environment (launchEnv, launch-env.ts) covers the packaged-app tests too.
  */
+// Measurement only, not for merge: how long after the launch the window first answers and its
+// page reaches readyState "complete", per launch, with the launch's place in this worker.
+let launchesInWorker = 0
+async function probeLaunch(launchedAtMs: number, window: Page): Promise<void> {
+  launchesInWorker += 1
+  const shownMs = Date.now() - launchedAtMs
+  const first = await window.evaluate(() => (globalThis as unknown as { document: { readyState: string } }).document.readyState)
+  const firstAnswerMs = Date.now() - launchedAtMs
+  let completeMs: number | null = first === 'complete' ? firstAnswerMs : null
+  for (let read = 0; completeMs === null && read < 600; read++) {
+    await window.waitForTimeout(50)
+    const state = await window.evaluate(() => (globalThis as unknown as { document: { readyState: string } }).document.readyState)
+    if (state === 'complete') completeMs = Date.now() - launchedAtMs
+  }
+  const info = currentTest()
+  const record = {
+    test: info === undefined ? null : `${info.file.split(/[\\/]/).pop()}:${info.line}`,
+    retry: info?.retry ?? null,
+    worker: process.env.TEST_WORKER_INDEX ?? null,
+    launch: launchesInWorker,
+    workerUptimeS: Math.round(process.uptime()),
+    shownMs,
+    firstAnswerMs,
+    firstState: first,
+    completeMs,
+  }
+  console.log(`E2E-LAUNCH-TIMING ${JSON.stringify(record)}`)
+}
+
 export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedApp> {
   const { executablePath } = options
   if (executablePath === undefined && !existsSync(mainEntry)) {
@@ -308,6 +337,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
     if (shown === 'timeout') {
       throw new Error(`the window was not shown within ${FIRST_WINDOW_TIMEOUT_MS / 1000} s`)
     }
+    await probeLaunch(launchedAtMs, window)
     return {
       app,
       window,

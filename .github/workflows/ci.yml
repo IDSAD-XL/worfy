@@ -331,6 +331,17 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Measurement only, not for merge: reads Defender's state and exclusions; changes nothing.
+      - name: Defender state (read only)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Get-MpComputerStatus | Select-Object AMRunningMode, AntivirusEnabled, RealTimeProtectionEnabled, OnAccessProtectionEnabled, IoavProtectionEnabled, BehaviorMonitorEnabled | Format-List
+          $p = Get-MpPreference
+          "ExclusionPath: $($p.ExclusionPath -join '; ')"
+          "ExclusionProcess: $($p.ExclusionProcess -join '; ')"
+          "DisableRealtimeMonitoring: $($p.DisableRealtimeMonitoring)"
+          "Logical processors: $((Get-CimInstance Win32_Processor | Measure-Object NumberOfLogicalProcessors -Sum).Sum)"
       # Under PowerShell, not Git Bash. The runner's user is an administrator, and its token holds the
       # backup and restore privileges, disabled. Git Bash (its MSYS2 runtime) enables both when it
       # starts; every process it starts inherits them — pnpm, Playwright, the app under test — and
