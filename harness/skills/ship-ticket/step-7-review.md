@@ -1,6 +1,6 @@
 # ship-ticket, step 7: Review agents on the diff
 
-Plugin root: `CLAUDE_PLUGIN_ROOT` in this file is the folder two levels above it. Claude Code spells it out only in SKILL.md and the agent definitions, and Bash may have it empty: in every command below put that folder in its place, or start the command with `export CLAUDE_PLUGIN_ROOT=<that folder>;`.
+Plugin root: `CLAUDE_PLUGIN_ROOT` in this file is the plugin folder, the one that holds `bin/` and `skills/`: the path you read this file from, without `/skills/ship-ticket/<this file>`. Claude Code spells it out only in SKILL.md and the agent definitions, and Bash may have it empty: in every command below put that folder in its place, or start the command with `export CLAUDE_PLUGIN_ROOT=<that folder>;`.
 
 A WIP commit first: the reviewer's worktree takes only what is committed; it will not see an
 uncommitted change and will review old code. In Silent mode its message describes the change, like any

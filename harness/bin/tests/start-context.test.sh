@@ -204,7 +204,7 @@ done
 # Claude Code spells out ${CLAUDE_PLUGIN_ROOT} only in SKILL.md and the agents, and Bash may have it empty:
 # a step file that uses it says, on its third line, where the plugin root is (a block of step 11 once lost
 # the documents silently, F printing nothing).
-ROOT_LINE='Plugin root: `CLAUDE_PLUGIN_ROOT` in this file is the folder two levels above it.'
+ROOT_LINE='Plugin root: `CLAUDE_PLUGIN_ROOT` in this file is the plugin folder, the one that holds `bin/` and `skills/`: the path you read this file from, without `/skills/ship-ticket/<this file>`.'
 for f in "$SKILLS_DIR"/*/*.md; do
     [ "$(basename "$f")" = SKILL.md ] && continue
     grep -qF '${CLAUDE_PLUGIN_ROOT}' "$f" || continue
