@@ -9,6 +9,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { inPart, parsePart, shellTests, type Part } from '../harness-shell-tests'
 import { removeTestTree } from '../remove'
@@ -18,6 +19,9 @@ const REPO = join(__dirname, '..', '..')
 const WORKFLOW = join(REPO, '.github', 'workflows', 'ci.yml')
 const SCOPE = join(REPO, 'scripts', 'ci-scope.mjs')
 const OK = join(REPO, 'scripts', 'ci-ok.mjs')
+const { workflowParts } = (await import(pathToFileURL(SCOPE).href)) as {
+  workflowParts: (text: string) => { parts: Map<string, string[]>; anchored: boolean }
+}
 
 /** A workflow file without its comment lines and blank lines. */
 const codeOf = (file: string): string[] =>
@@ -549,6 +553,25 @@ describe('scripts/ci-scope.mjs', () => {
     git('commit', '-q', '--allow-empty', '-m', 'change')
   }
 
+  /**
+   * A commit on top of `from` (the base by default) that writes each file exactly as given (null
+   * deletes it); HEAD is left on it, and its name is returned.
+   */
+  function commitTexts(texts: Record<string, string | null>, from = base): string {
+    git('checkout', '-q', '--detach', from)
+    for (const [file, text] of Object.entries(texts)) {
+      if (text === null) {
+        git('rm', '-q', file)
+        continue
+      }
+      mkdirSync(join(repo, dirname(file)), { recursive: true })
+      writeFileSync(join(repo, file), text)
+    }
+    git('add', '-A')
+    git('commit', '-q', '--allow-empty', '-m', 'change')
+    return git('rev-parse', 'HEAD')
+  }
+
   let outputs = 0
   const scope = (env: Record<string, string>) => {
     const output = join(scratch, `output-${++outputs}`)
@@ -583,7 +606,47 @@ describe('scripts/ci-scope.mjs', () => {
   // The guards are put together here, so that this file holds none: ci-scope.mjs would list it.
   const DARWIN = "'darwin'"
   const MAC_ONLY = `describe.skipIf(process.platform !== ${DARWIN})('x', () => {})\n`
+  // A small ci.yml of the base, with every job of the real one: which of its parts a pull request
+  // changes decides whether the workflow asks for macos-package and every e2e spec file.
+  const CI_YML = [
+    'name: CI',
+    '# what the workflow does',
+    'on:',
+    '  pull_request:',
+    'jobs:',
+    '  changes:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - run: node scripts/ci-scope.mjs',
+    '  lint-typecheck:',
+    '    runs-on: ubuntu-latest',
+    '  linux-tests:',
+    '    runs-on: ubuntu-latest',
+    '  macos-tests:',
+    '    runs-on: macos-latest',
+    '  macos-e2e:',
+    '    runs-on: macos-latest',
+    '    steps:',
+    '      - run: |',
+    '          echo one',
+    '          # a line of the script',
+    '          echo two',
+    '  macos-package:',
+    '    runs-on: macos-latest',
+    '  windows:',
+    '    uses: ./.github/workflows/windows-tests.yml',
+    '  windows-e2e:',
+    '    runs-on: windows-latest',
+    '  ci-ok:',
+    '    runs-on: ubuntu-latest',
+    '',
+  ].join('\n')
+  const CI_PATH = '.github/workflows/ci.yml'
+  /** ci.yml of the base with the line `after` put right after the line `line`. */
+  const ciWith = (line: string, after: string): string => CI_YML.replace(`${line}\n`, `${line}\n${after}\n`)
   const BASE_FILES: Record<string, string> = {
+    [CI_PATH]: CI_YML,
+    '.github/workflows/windows-tests.yml': 'name: windows\non:\n  workflow_call:\n',
     'test/unit/mac-only.test.ts': MAC_ONLY,
     'test/contract/mac-menu.test.tsx': `const file = process.platform === ${DARWIN.replaceAll("'", '"')} ? 'fileMenu' : 'File'\n`,
     'test/unit/windows-only.test.ts': "describe.runIf(process.platform === 'win32')('x', () => {})\n",
@@ -678,14 +741,127 @@ describe('scripts/ci-scope.mjs', () => {
     'test/e2e/terminal.spec.ts',
     // packagedBuild, packagedExecutable and packagedResources of the @packaged tests.
     'test/e2e/helpers.ts',
-    '.github/workflows/ci.yml',
-    '.github/workflows/windows-tests.yml',
   ])('a pull request that changes the build input %s runs every job, macos-package too', (file) => {
     commitOnBase([file])
     const result = scope({ EVENT: 'pull_request', BASE: base })
     expect(result.status, result.stderr).toBe(0)
     expect(result.expect).toEqual(ALL)
     expect(result.files).toEqual(DARWIN_FILES)
+  })
+
+  // ci.yml is a build input only where it runs the package and the e2e tests: the job changes, which
+  // decides what they run, the jobs macos-e2e, macos-package and windows-e2e, and what comes before
+  // `jobs:` (the triggers, the env of every job). Comments and blank lines are not code.
+  it.each([
+    ['the job changes', ciWith('    runs-on: ubuntu-latest\n    steps:\n      - run: node scripts/ci-scope.mjs', '      - run: echo more')],
+    ['the job macos-e2e', ciWith('  macos-e2e:', '    timeout-minutes: 40')],
+    ['the job macos-package', ciWith('  macos-package:', '    timeout-minutes: 40')],
+    ['the job windows-e2e', ciWith('  windows-e2e:', '    timeout-minutes: 40')],
+    ['the triggers before jobs:', ciWith('  pull_request:', '  push:')],
+    ['a new top-level key', ciWith('  pull_request:', 'env:\n  A: b')],
+    ['the whole file, rewritten', 'changed\n'],
+    // A top-level key after the jobs is not part of the last job.
+    ['a top-level key after jobs:', `${CI_YML}env:\n  A: b\n`],
+    // In a block scalar a line that starts with # and a blank line are data, not comments.
+    ['a # line of a block scalar of macos-e2e', CI_YML.replace('          # a line of the script', '          # another line of the script')],
+    ['a blank line in a block scalar of macos-e2e', ciWith('          echo one', '')],
+    // An anchor or an alias ties parts together: a change of one may change another.
+    ['an anchor or an alias', CI_YML.replace('  lint-typecheck:\n    runs-on: ubuntu-latest', '  lint-typecheck:\n    runs-on: &linux ubuntu-latest')],
+  ])('a pull request that changes %s of ci.yml runs every job, macos-package and every e2e spec file too', (_name, text) => {
+    commitTexts({ [CI_PATH]: text })
+    const result = scope({ EVENT: 'pull_request', BASE: base })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(ALL)
+    expect(result.files).toEqual(DARWIN_FILES)
+    expect(result.stdout).toContain(`${CI_PATH} changes what packages the app or runs the e2e tests (`)
+  })
+
+  it('a pull request that deletes ci.yml runs every job: when in doubt, test', () => {
+    commitTexts({ [CI_PATH]: null })
+    const result = scope({ EVENT: 'pull_request', BASE: base })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(ALL)
+  })
+
+  it.each([
+    ['only its comments and blank lines', ciWith('  macos-e2e:', '    # why this job waits\n').replace('# what the workflow does', '# what it does now')],
+    ['the job lint-typecheck', ciWith('  lint-typecheck:', '    timeout-minutes: 5')],
+    ['the job linux-tests', ciWith('  linux-tests:', '    timeout-minutes: 5')],
+    ['the job windows', ciWith('  windows:', '    with:\n      files: x')],
+    ['the job ci-ok', ciWith('  ci-ok:', '    timeout-minutes: 5')],
+    // A comment after a block scalar, less indented than its key, is a comment again.
+    ['a comment and a blank line after a block scalar', ciWith('          echo two', '\n    # after the script')],
+    // A comment after a job key does not hide the job.
+    ['a comment after the key of macos-e2e', CI_YML.replace('  macos-e2e:\n', '  macos-e2e: # e2e on macOS\n')],
+  ])('a pull request that changes %s of ci.yml asks for no macOS job and no e2e', (_name, text) => {
+    commitTexts({ [CI_PATH]: text })
+    const result = scope({ EVENT: 'pull_request', BASE: base })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(NO_MACOS)
+    expect(result.stdout).toContain(`${CI_PATH} changes nothing that packages the app or runs the e2e tests`)
+  })
+
+  it('a pull request that changes the job macos-tests of ci.yml runs macos-tests with the macOS-only files, and no e2e', () => {
+    commitTexts({ [CI_PATH]: ciWith('  macos-tests:', '    timeout-minutes: 30') })
+    const result = scope({ EVENT: 'pull_request', BASE: base })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(TESTS_ONLY)
+    expect(result.files).toEqual(DARWIN_FILES)
+  })
+
+  // The first commit gives ci.yml a form of its own; the pull request is the second, on top of it.
+  it.each([
+    ['a comment after the key', '  macos-e2e: # e2e on macOS\n'],
+    ['an anchor after the key', '  macos-e2e: &e2e\n'],
+    ['a key in double quotes', '  "macos-e2e":\n'],
+    ['a key in single quotes', "  'macos-e2e':\n"],
+  ])('a pull request that changes only the body of macos-e2e, written with %s, runs every job', (_name, key) => {
+    const keyed = CI_YML.replace('  macos-e2e:\n', key)
+    const first = commitTexts({ [CI_PATH]: keyed })
+    commitTexts({ [CI_PATH]: keyed.replace('          echo two', '          echo three') }, first)
+    const result = scope({ EVENT: 'pull_request', BASE: first })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(ALL)
+  })
+
+  it('a pull request that changes only the anchor an alias of macos-e2e reads runs every job', () => {
+    const anchored = CI_YML.replace('  lint-typecheck:\n    runs-on: ubuntu-latest', '  lint-typecheck:\n    runs-on: &os ubuntu-latest').replace(
+      '  macos-e2e:\n    runs-on: macos-latest',
+      '  macos-e2e:\n    runs-on: *os',
+    )
+    const first = commitTexts({ [CI_PATH]: anchored })
+    commitTexts({ [CI_PATH]: anchored.replace('&os ubuntu-latest', '&os ubuntu-24.04') }, first)
+    const result = scope({ EVENT: 'pull_request', BASE: first })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(ALL)
+    expect(result.stdout).toContain('YAML anchors or aliases')
+  })
+
+  it('a pull request on a ci.yml in which a job that packages or runs e2e cannot be found runs every job: when in doubt, test', () => {
+    // No job macos-e2e on either side: the change of lint-typecheck cannot be told apart from one of it.
+    const without = CI_YML.replace(/ {2}macos-e2e:\n(?: {4,}.*\n)+/, '')
+    expect(without).not.toContain('macos-e2e')
+    const first = commitTexts({ [CI_PATH]: without })
+    commitTexts({ [CI_PATH]: without.replace('  lint-typecheck:\n', '  lint-typecheck:\n    timeout-minutes: 5\n') }, first)
+    const result = scope({ EVENT: 'pull_request', BASE: first })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(ALL)
+    expect(result.stdout).toContain('no job macos-e2e')
+  })
+
+  it('reads every job of the real ci.yml as a part of its own, with no anchor or alias', () => {
+    const { parts, anchored } = workflowParts(readFileSync(WORKFLOW, 'utf8'))
+    expect([...parts.keys()].sort()).toEqual(['', ...JOBS].sort())
+    expect(anchored).toBe(false)
+    for (const name of JOBS) expect(parts.get(name)?.length, name).toBeGreaterThan(0)
+  })
+
+  it('a pull request that changes only windows-tests.yml, which packages nothing, asks for no macOS job and no e2e', () => {
+    commitOnBase(['.github/workflows/windows-tests.yml'])
+    const result = scope({ EVENT: 'pull_request', BASE: base })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(NO_MACOS)
+    expect(result.stdout).toContain('no build input, so no macos-package')
   })
 
   it.each([
@@ -733,8 +909,10 @@ describe('scripts/ci-scope.mjs', () => {
 
   it.each([
     ['Markdown under src/', 'src/renderer/notes.md', NO_PACKAGE],
-    // The e2e tests read test/fixtures/.
-    ['Markdown under test/fixtures/', 'test/fixtures/epic/spec.md', NO_PACKAGE],
+    // The e2e tests read test/fixtures/worfy-mvp-epic/.
+    ['Markdown under a fixture folder the e2e tests read', 'test/fixtures/worfy-mvp-epic/spec.md', NO_PACKAGE],
+    // Only the contract tests of the evals read test/fixtures/eval-stub/; the macOS-only ones among them.
+    ['a fixture no e2e test reads', 'test/fixtures/eval-stub/claude.cjs', TESTS_ONLY],
     // The build copies harness/ into the app.
     ['Markdown under harness/', 'harness/skills/x/SKILL.md', NO_PACKAGE],
     // test/contract/harness-evals-outcome.test.ts reads the README files of scripts/eval-outcome/.
@@ -745,7 +923,8 @@ describe('scripts/ci-scope.mjs', () => {
     ['any file under docs/design/', 'docs/design/F-1.dc.html', NO_MACOS],
     ['README.md, which a test reads', 'README.md', NO_MACOS],
     ['the lessons index, which a test reads', 'docs/lessons/README.md', NO_MACOS],
-    ['a workflow', '.github/workflows/ci.yml', ALL],
+    ['ci.yml, rewritten', '.github/workflows/ci.yml', ALL],
+    ['a workflow that packages nothing', '.github/workflows/windows-tests.yml', NO_MACOS],
     ['package.json', 'package.json', ALL],
   ])('%s next to documents runs the tests: every job on a push, the macOS jobs its path asks for on a pull request', (_name, file, pullRequest) => {
     commitOnBase(['docs/adr/0001-a.md', file])
@@ -843,7 +1022,8 @@ describe('scripts/ci-scope.mjs', () => {
   it.each([
     'test/e2e/canvas.spec.ts',
     'test/e2e/helpers.ts',
-    'test/fixtures/epic/spec.md',
+    'test/fixtures/worfy-mvp-epic/spec.md',
+    'test/fixtures/agent-scripts/demo.jsonl',
     'test/quarantine/demo.json',
     'playwright.config.ts',
     'electron.vite.config.ts',
@@ -875,6 +1055,104 @@ describe('scripts/ci-scope.mjs', () => {
     for (const path of imported) {
       commitOnBase([path])
       expect(scope({ EVENT: 'pull_request', BASE: base }).expect?.['macos-e2e'], path).toBe(true)
+    }
+  })
+
+  /**
+   * The folders of test/fixtures that `entries` (files from the repository root) and every file they
+   * import, at any depth, read; and each place that names a fixture in a way this cannot read (a name
+   * in a variable), as "file: text". Comments are left out: a comment that names a fixture reads none.
+   */
+  function fixtureReads(entries: string[], root = REPO): { read: Set<string>; unread: string[] } {
+    const texts = new Map<string, string>()
+    const queue = [...entries]
+    while (queue.length > 0) {
+      const file = queue.pop() ?? ''
+      if (texts.has(file)) continue
+      const text = readFileSync(join(root, file), 'utf8')
+        .replace(/(^|\s)\/\*[\s\S]*?\*\//g, '$1')
+        .replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1')
+      texts.set(file, text)
+      for (const [, from = ''] of text.matchAll(/(?:from|import)\s*\(?\s*'(\.{1,2}\/[^']+)'/g)) {
+        const target = relative(root, resolve(root, dirname(file), from)).split(sep).join('/')
+        const found = [target, `${target}.ts`, `${target}.tsx`, `${target}/index.ts`].find((path) => /\.[cm]?[jt]sx?$/.test(path) && existsSync(join(root, path)))
+        if (found !== undefined && !found.startsWith('..')) queue.push(found)
+      }
+    }
+    const read = new Set<string>()
+    const unread: string[] = []
+    // A literal name, or anything else: a variable, a call, a template.
+    const segment = (file: string, arg: string): void => {
+      const literal = /^\s*['"]([\w.-]+)['"]\s*$/.exec(arg)
+      if (literal?.[1] !== undefined) read.add(literal[1])
+      else unread.push(`${file}: ${arg.trim()}`)
+    }
+    // The variables that hold the folder test/fixtures itself, in any file: join(…, 'fixtures') or a
+    // path that ends in fixtures. An argument may be a call without arguments: app.getAppPath().
+    const folderVars = new Set<string>()
+    for (const text of texts.values()) {
+      for (const [, name = ''] of text.matchAll(/\b(\w+)\s*=\s*(?:join|resolve)\((?:[^()]|\(\))*['"]fixtures['"]\s*\)/g)) folderVars.add(name)
+      for (const [, name = ''] of text.matchAll(/\b(\w+)\s*=\s*['"`][^'"`\n]*\bfixtures\/?['"`]/g)) folderVars.add(name)
+    }
+    for (const [file, text] of texts) {
+      // A path: test/fixtures/gh, ../fixtures/gh; with ${…} after fixtures/ the name is in a variable.
+      for (const [, name = ''] of text.matchAll(/\bfixtures\/([\w.-]+)/g)) read.add(name)
+      for (const [whole] of text.matchAll(/\bfixtures\/\$\{[^}]*\}/g)) unread.push(`${file}: ${whole}`)
+      // Segments of a join: join(repoRoot, 'test', 'fixtures', 'gh'). 'fixtures' last is the folder itself: fine when a variable holds it.
+      // A 'fixtures' outside a join or a resolve is no path (a commit message, say).
+      for (const match of text.matchAll(/['"]fixtures['"]\s*(?:,([^,()]+)|\))/g)) {
+        const before = text.slice(0, match.index)
+        if (!/\b(?:join|resolve)\((?:[^()]|\(\))*$/.test(before)) continue
+        if (match[1] !== undefined) segment(file, match[1])
+        else if (!/\b\w+\s*=\s*(?:join|resolve)\((?:[^()]|\(\))*$/.test(before)) unread.push(`${file}: ${match[0]}`)
+      }
+      for (const name of folderVars) {
+        for (const match of text.matchAll(new RegExp(`\\(\\s*${name}\\s*,([^,()]+)`, 'g'))) segment(file, match[1] ?? '')
+        for (const match of text.matchAll(new RegExp(`\\$\\{${name}\\}/([\\w.-]+)`, 'g'))) read.add(match[1] ?? '')
+      }
+    }
+    const fixtures = new Set(readdirSync(join(root, 'test', 'fixtures')))
+    return { read: new Set([...read].filter((name) => fixtures.has(name))), unread }
+  }
+
+  /** The e2e files and the app: the files whose reads of test/fixtures the e2e tests see. */
+  const e2eEntries = (): string[] =>
+    ['test/e2e', 'src'].flatMap((folder) =>
+      readdirSync(join(REPO, folder), { recursive: true, encoding: 'utf8' })
+        .filter((name) => /\.[cm]?[jt]sx?$/.test(name))
+        .map((name) => `${folder}/${name.split(sep).join('/')}`),
+    )
+
+  it('every fixture folder the e2e tests, their imports at any depth or the app read makes a pull request run macos-e2e', () => {
+    const { read, unread } = fixtureReads(e2eEntries())
+    // A name this cannot read: write the folder into the code as a literal, or into this test by hand.
+    expect(unread, 'a fixture named by a variable: name the folder as a literal').toEqual([])
+    expect([...read]).toEqual(expect.arrayContaining(['agent-scripts', 'browser', 'claude-home', 'e2e-shell', 'first-run-tools', 'gh', 'worfy-mvp-epic']))
+    expect(read.has('eval-stub')).toBe(false)
+    for (const name of read) {
+      const path = `test/fixtures/${name}/changed.json`
+      commitOnBase([path])
+      expect(scope({ EVENT: 'pull_request', BASE: base }).expect?.['macos-e2e'], path).toBe(true)
+    }
+  })
+
+  it('the look for fixture reads finds a folder under any variable, through an import two deep and in the app, and refuses a name in a variable', () => {
+    const root = mkdtempSync(join(tmpdir(), 'worfy-fixture-reads-'))
+    try {
+      for (const name of ['qmd-stub', 'eval-stub']) mkdirSync(join(root, 'test', 'fixtures', name), { recursive: true })
+      mkdirSync(join(root, 'test', 'e2e', 'deep'), { recursive: true })
+      writeFileSync(join(root, 'test/e2e/a.spec.ts'), "import { b } from './deep/b'\nvoid b\n")
+      writeFileSync(join(root, 'test/e2e/deep/b.ts'), "import { c } from '../../c'\nexport const b = c\n")
+      // Two imports deep, the folder under a name of its own and a name in a comment, which reads nothing.
+      writeFileSync(join(root, 'test/c.ts'), "const FIXTURE_DIR = join(root, 'test', 'fixtures')\n// test/fixtures/eval-stub\nexport const c = join(FIXTURE_DIR, 'qmd-stub')\n")
+      writeFileSync(join(root, 'test/e2e/d.ts'), "export const d = (name: string) => join(root, 'fixtures', name)\n")
+      const { read, unread } = fixtureReads(['test/e2e/a.spec.ts', 'test/e2e/d.ts'], root)
+      expect([...read]).toEqual(['qmd-stub'])
+      expect(unread).toEqual(['test/e2e/d.ts: name'])
+      // The app reads one too: src/main/agent/app-registry.ts the scripts of the fake agent.
+      expect(fixtureReads(['src/main/agent/app-registry.ts']).read.has('agent-scripts')).toBe(true)
+    } finally {
+      removeTestTree(root)
     }
   })
 

@@ -80,7 +80,7 @@ describe('scripts/ci-scope.mjs: the e2e spec files of a pull request', () => {
     ['a helper of the e2e tests', 'test/e2e/helpers.ts'],
     ['another helper of the e2e tests', 'test/e2e/wait.ts'],
     ['the measured times of the spec files', 'test/e2e/timings.json'],
-    ['a fixture', 'test/fixtures/projects/a.json'],
+    ['a fixture the e2e tests read', 'test/fixtures/agent-scripts/a.jsonl'],
     ['the Playwright config', 'playwright.config.ts'],
     ['package.json', 'package.json'],
     ['a build input', 'electron-builder.yml'],
@@ -92,10 +92,9 @@ describe('scripts/ci-scope.mjs: the e2e spec files of a pull request', () => {
     expect(e2eSpecs([path, 'test/e2e/a.spec.ts'], SPECS, RULES).files).toBeNull()
   })
 
-  it('ignores paths that are not the app: unit and contract tests, other scripts, the Harness tests', () => {
-    expect(e2eSpecs(['src/main/alpha/run.ts', 'test/unit/x.test.ts', 'scripts/agent-cost.mjs', 'harness/bin/tests/x.test.sh'], SPECS, RULES).files).toEqual([
-      'test/e2e/a.spec.ts',
-    ])
+  it('ignores paths that are not the app: unit and contract tests, other scripts, the Harness tests, fixtures no e2e test reads, workflows', () => {
+    const others = ['test/unit/x.test.ts', 'scripts/agent-cost.mjs', 'harness/bin/tests/x.test.sh', 'test/fixtures/eval-stub/claude.cjs', '.github/workflows/windows-tests.yml']
+    expect(e2eSpecs(['src/main/alpha/run.ts', ...others], SPECS, RULES).files).toEqual(['test/e2e/a.spec.ts'])
   })
 
   it('runs every spec file for a path of src/ when the table cannot be read, or names a spec file that does not exist', () => {
@@ -148,6 +147,16 @@ describe('scripts/e2e-specs.table.json of this repository', () => {
     expect(rules.length).toBeGreaterThan(0)
     const table = JSON.parse(readFileSync(join(REPO, SPEC_TABLE), 'utf8')) as { rules: Array<{ why?: unknown }> }
     for (const [at, rule] of table.rules.entries()) expect(typeof rule.why === 'string' && rule.why.length > 20, `rule ${at + 1}: why`).toBe(true)
+  })
+
+  it('gives a pull request that changes only harness/skills/epic-wave/SKILL.md the spec files of the Harness rule alone, in one shard', () => {
+    const path = 'harness/skills/epic-wave/SKILL.md'
+    const harness = rules.filter((rule) => rule.paths.includes('harness/skills/**'))
+    expect(harness).toHaveLength(1)
+    expect(rules.filter((rule) => rule.matchers.some((matcher) => matcher.test(path)))).toEqual(harness)
+    const files = e2eSpecs([path], specs, rules).files
+    expect(files).toEqual([...(harness[0]?.specs ?? [])].sort())
+    expect(e2eShards(files, specs, readTimings(REPO), E2E_SHARDS['macos-e2e'])).toEqual(['1/1'])
   })
 
   it('names only spec files that exist', () => {
@@ -341,6 +350,19 @@ describe('scripts/ci-scope.mjs: the outputs e2e-files, macos-e2e-shards and wind
   }
 
   const FULL = { files: '', macos: ['1/2', '2/2'], windows: ['1/4', '2/4', '3/4', '4/4'] }
+  /** A quarantine entry (test/quarantine/<id>.json) of an e2e test of `file`. */
+  const entry = (file: string): string => `${JSON.stringify({ runner: 'playwright', file, test: 'x', platforms: ['win32'], reason: 'r', owner: 'o', since: '2026-10-29', until: '2026-11-12' })}\n`
+
+  /** A commit on top of `base` that writes each file exactly as given; HEAD is left on it. */
+  function commitTexts(texts: Record<string, string>): void {
+    git('checkout', '-q', '--detach', base)
+    for (const [file, text] of Object.entries(texts)) {
+      mkdirSync(join(repo, dirname(file)), { recursive: true })
+      writeFileSync(join(repo, file), text)
+    }
+    git('add', '-A')
+    git('commit', '-q', '--allow-empty', '-m', 'change')
+  }
   const TABLE = {
     rules: [
       { paths: ['src/main/alpha/**'], specs: ['test/e2e/a.spec.ts'], why: 'test table' },
@@ -359,6 +381,8 @@ describe('scripts/ci-scope.mjs: the outputs e2e-files, macos-e2e-shards and wind
     writeFileSync(join(repo, 'test/e2e/helpers.ts'), '')
     writeFileSync(join(repo, 'test/e2e/timings.json'), JSON.stringify({ seconds: { 'test/e2e/a.spec.ts': 10, 'test/e2e/b.spec.ts': 30, 'test/e2e/c.spec.ts': 30, 'test/e2e/packaged.spec.ts': 30 } }))
     writeFileSync(join(repo, SPEC_TABLE), JSON.stringify(TABLE))
+    mkdirSync(join(repo, 'test', 'quarantine'))
+    writeFileSync(join(repo, 'test/quarantine/old.json'), entry('test/e2e/b.spec.ts'))
     git('add', '-A')
     git('commit', '-q', '-m', 'base')
     base = git('rev-parse', 'HEAD')
@@ -402,6 +426,28 @@ describe('scripts/ci-scope.mjs: the outputs e2e-files, macos-e2e-shards and wind
     expect([result.e2e, result.windowsE2e]).toEqual([true, true])
     expect({ files: result.files, macos: result.macos, windows: result.windows }).toEqual(FULL)
     expect(result.stdout).toContain('so every e2e spec file runs')
+  })
+
+  it('a pull request that changes a quarantine entry runs the spec file it names, before and after; a deleted or unreadable entry runs them all', () => {
+    commitTexts({ 'test/quarantine/new.json': entry('test/e2e/a.spec.ts') })
+    const added = scope({ EVENT: 'pull_request', BASE: base })
+    expect(added.status, added.stderr).toBe(0)
+    expect({ files: added.files, macos: added.macos }).toEqual({ files: 'test/e2e/a.spec.ts', macos: ['1/1'] })
+    // The entry moves from b to c: both spec files call quarantined('old').
+    commitTexts({ 'test/quarantine/old.json': entry('test/e2e/c.spec.ts') })
+    expect(scope({ EVENT: 'pull_request', BASE: base }).files).toBe('test/e2e/b.spec.ts test/e2e/c.spec.ts')
+    // Deleted, not JSON, naming a spec file that does not exist.
+    const changes: Array<() => void> = [
+      () => commitOnBase(['-test/quarantine/old.json']),
+      () => commitOnBase(['test/quarantine/old.json']),
+      () => commitTexts({ 'test/quarantine/new.json': entry('test/e2e/gone.spec.ts') }),
+    ]
+    for (const [at, change] of changes.entries()) {
+      change()
+      const full = scope({ EVENT: 'pull_request', BASE: base })
+      expect(full.e2e, `change ${at + 1}`).toBe(true)
+      expect({ files: full.files, macos: full.macos, windows: full.windows }, `change ${at + 1}`).toEqual(FULL)
+    }
   })
 
   it('a pull request that changes Markdown only, or only deletes a spec file, runs no e2e', () => {

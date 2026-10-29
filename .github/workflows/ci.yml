@@ -28,7 +28,10 @@ name: CI
 #   them all.
 # - macos-package: pnpm test:package on macOS: the packaged .app. On every push to main, and on a
 #   pull request that changes a build input (scripts/ci-scope.mjs: package.json, the lockfile, the
-#   build configs, build/, the scripts the .app ships, the packaged tests, the workflows).
+#   build configs, build/, the scripts the .app ships, the packaged tests, and the parts of this file
+#   that package the app or run the e2e tests: the jobs changes, macos-e2e, macos-package and
+#   windows-e2e, and the keys before jobs:). Such a change of this file runs every e2e spec file too;
+#   a change of its other jobs or of a comment, and a change of windows-tests.yml, runs neither.
 # - windows: the job full-suite of windows-tests.yml, pnpm test on Windows in 3 shards (vitest
 #   --shard), jobs "windows (1/3) / full-suite" to "windows (3/3) / full-suite". In one job the heavy
 #   contract files (harness-evals 943 s, harness-migrate 450 s, harness-scripts 421 s) ran at the same
