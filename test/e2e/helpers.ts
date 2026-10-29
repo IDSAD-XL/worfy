@@ -262,6 +262,30 @@ async function probeLaunch(launchedAtMs: number, window: Page): Promise<void> {
     const state = await window.evaluate(() => (globalThis as unknown as { document: { readyState: string } }).document.readyState)
     if (state === 'complete') completeMs = Date.now() - launchedAtMs
   }
+  // The page's own load steps, as ms from the launch (the renderer and this process share the clock),
+  // and the slowest script it fetched.
+  const steps = await window.evaluate(() => {
+    const page = globalThis as unknown as {
+      performance: {
+        timing: Record<string, number>
+        getEntriesByType: (type: string) => { name: string; initiatorType: string; startTime: number; responseEnd: number; duration: number }[]
+        timeOrigin: number
+      }
+    }
+    const t = page.performance.timing
+    const scripts = page.performance.getEntriesByType('resource').filter((entry) => entry.initiatorType === 'script')
+    const slowest = scripts.sort((a, b) => b.duration - a.duration)[0]
+    return {
+      navigationStart: t.navigationStart,
+      responseEnd: t.responseEnd,
+      domInteractive: t.domInteractive,
+      domContentLoadedEnd: t.domContentLoadedEventEnd,
+      loadEnd: t.loadEventEnd,
+      scripts: scripts.length,
+      slowestScript: slowest === undefined ? null : { name: slowest.name.split('/').pop(), startMs: Math.round(slowest.startTime), durationMs: Math.round(slowest.duration) },
+    }
+  })
+  const fromLaunch = (at: number | undefined): number | null => (at !== undefined && at > 0 ? at - launchedAtMs : null)
   const info = currentTest()
   const record = {
     test: info === undefined ? null : `${info.file.split(/[\\/]/).pop()}:${info.line}`,
@@ -273,6 +297,13 @@ async function probeLaunch(launchedAtMs: number, window: Page): Promise<void> {
     firstAnswerMs,
     firstState: first,
     completeMs,
+    navigationStartMs: fromLaunch(steps.navigationStart),
+    responseEndMs: fromLaunch(steps.responseEnd),
+    domInteractiveMs: fromLaunch(steps.domInteractive),
+    domContentLoadedMs: fromLaunch(steps.domContentLoadedEnd),
+    loadEndMs: fromLaunch(steps.loadEnd),
+    scripts: steps.scripts,
+    slowestScript: steps.slowestScript,
   }
   console.log(`E2E-LAUNCH-TIMING ${JSON.stringify(record)}`)
 }
