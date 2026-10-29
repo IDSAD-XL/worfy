@@ -86,8 +86,8 @@ Session Claude Code сохраняет свой `sessionId`. Transcript Orchestr
    «процесс жив» (строки сравниваются как есть, `registry.ts:295`, `:308`). `sessionRuns` при живом
    процессе отдаёт и `startedAt` его записи; `SubagentReader.session` кладёт его новым сигналом рядом с
    `session-closed` (схема `subagentSignalSchema`, `src/shared/transcript/subagents.ts:68`).
-3. **Статус.** `SubagentStatus` получает `interrupted`. Правило в `statusOf` и в `describeRun` (агент
-   workflow): Subagent без конца, у которого `startedAt` текущего процесса Session-а больше его последней
+3. **Статус.** `SubagentStatus` получает `interrupted`. Правило в `statusOf` — для любого
+   Subagent-а, агенты workflow-скрипта тоже идут через него (`:549`, `:687`): Subagent без конца, у которого `startedAt` текущего процесса Session-а больше его последней
    записи в transcript (`file.lastAt`, ms, `src/shared/transcript/subagents.ts:367-370`), — `interrupted`.
    Иначе — `running`, как сейчас. Процесс не известен (`sessionRuns` → `null`) или у записи нет
    `startedAt` — `running`, как сейчас. Session закрыта — `error`, как сейчас (ADR-0031). Статус прогона
@@ -113,7 +113,7 @@ Session Claude Code сохраняет свой `sessionId`. Transcript Orchestr
 
 ## Где в коде
 
-- `src/shared/transcript/subagents.ts` — `SubagentStatus`, сигнал, `statusOf`, `describeRun`.
+- `src/shared/transcript/subagents.ts` — `SubagentStatus`, сигнал, `statusOf`, `describeRun` (статус прогона), свод по агентам `:719-722`.
 - `src/main/claude-home/subagents.ts` — `sessionRuns`, `SubagentReader.session`.
 - `src/shared/ipc/claude-home.ts`, `src/main/ipc/claude-home.ts` — канал скрытых записей.
 - `src/renderer/canvas/nodes/SubagentNode.tsx`, `src/renderer/session/rail/SubagentsRail.tsx`,
@@ -139,8 +139,12 @@ Windows-проверку по правилу ADR-0056.
   transcript, — `interrupted`; раньше — `running`.
 - [ ] Unit, та же секунда: последняя запись за 300 ms до `startedAt` нового процесса — `interrupted`;
   через 300 ms после — `running`.
-- [ ] Unit, `describeRun`: агент workflow без конца, `startedAt` позже его последней записи, —
-  `interrupted`; статус прогона по его агентам (`:721-722`) это учитывает.
+- [ ] Unit, агент workflow-скрипта (`statusOf`): агент без конца, `startedAt` позже его последней записи, —
+  `interrupted`.
+- [ ] Unit, прогон workflow-скрипта: у прогона нет своего transcript (`describeRun`, `:595-604`).
+  Прогон с вызовом без конца — `interrupted`, когда хотя бы один его агент `interrupted` и ни один не
+  `running`; прогон без агентов — `interrupted`, когда `startedAt` процесса позже `workflow?.at` (или
+  `result?.at`). Свод по агентам (`:721-722`) это учитывает; такой прогон не держит опрос renderer-а.
 - [ ] Unit: процесс Session-а не известен (`sessionRuns` → `null`) или у записи нет `startedAt` —
   Subagent без конца остаётся `running`, как сегодня; закрытая Session — `error`, как сегодня (ADR-0031).
 - [ ] Unit, опрос: Session, где остались только законченные и `interrupted`, renderer не опрашивает
