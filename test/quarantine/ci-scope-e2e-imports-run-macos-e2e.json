@@ -1,0 +1,12 @@
+{
+  "runner": "vitest",
+  "file": "test/contract/ci-workflow.test.ts",
+  "test": "scripts/ci-scope.mjs > every file outside test/e2e that the e2e tests import makes a pull request run macos-e2e",
+  "reason": "On the owner's Windows PC, in the full vitest run only: \"Test timed out in 45000ms\". First red: the full vitest run of the ticket 44 leftovers branch on 2026-10-29 (base 19180516). Red in the full vitest run of the PC gate full (ADR-0086) on main 755ce722, b2b30e07 and 0be09773 (2026-10-29). Alone on the same SHA it passes (exit 0) every time; no cause found beyond the load of the full run.",
+  "platforms": [
+    "win32"
+  ],
+  "owner": "worfy-polish 41",
+  "since": "2026-10-29",
+  "until": "2026-11-12"
+}

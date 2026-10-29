@@ -16,6 +16,26 @@ export const QUIT_OUTPUT_LINES = 80
 export const SAMPLE_SECONDS = 3
 /** How long running `sample` may take in all: it reads the symbols of the app's libraries after watching. */
 export const SAMPLE_TIMEOUT_MS = ms(10_000)
+/** How long reading the app's processes on Windows may take: one PowerShell listing of every process. */
+export const PROCESSES_TIMEOUT_MS = ms(10_000)
+/** How many characters of a process's command line the list keeps. */
+export const COMMAND_LINE_CHARS = 160
+
+/**
+ * The PowerShell that prints process `pid` and its descendants, one line each: pid, parent, threads,
+ * name, command line (cut to COMMAND_LINE_CHARS). A process that names itself as its parent is skipped
+ * as a child, so the walk ends. A process older than its recorded parent is not a child: Windows hands
+ * a freed pid out again, and a leftover whose parent died would otherwise look like the app's.
+ */
+export function processTreeScript(pid: number): string {
+  return [
+    '$all = @(Get-CimInstance Win32_Process)',
+    `$ids = @{ ${pid} = $true }`,
+    '$born = @{}; foreach ($p in $all) { $born[[int]$p.ProcessId] = $p.CreationDate }',
+    'do { $before = $ids.Count; foreach ($p in $all) { if ($ids.ContainsKey([int]$p.ParentProcessId) -and $p.ProcessId -ne $p.ParentProcessId -and $p.CreationDate -ge $born[[int]$p.ParentProcessId]) { $ids[[int]$p.ProcessId] = $true } } } while ($ids.Count -gt $before)',
+    `foreach ($p in $all) { if ($ids.ContainsKey([int]$p.ProcessId)) { $c = "$($p.CommandLine)"; if ($c.Length -gt ${COMMAND_LINE_CHARS}) { $c = $c.Substring(0, ${COMMAND_LINE_CHARS}) }; "$($p.ProcessId) parent=$($p.ParentProcessId) threads=$($p.ThreadCount) $($p.Name) $c".TrimEnd() } }`,
+  ].join('; ')
+}
 
 /** A thread's first line in a `sample` report: four spaces, the sample count, then `Thread_<id>`. */
 const THREAD_HEADER = /^ {4}\d+ Thread_/
@@ -49,18 +69,32 @@ export function lastLines(text: string, count: number = QUIT_OUTPUT_LINES): stri
   return count > 0 ? lines.slice(-count) : []
 }
 
-/** What the diagnosis of a quit that timed out found. `sample` is undefined where there is no `sample` (off macOS, or not installed). */
+/**
+ * What the diagnosis of a quit that timed out found. `sample` is undefined where there is no `sample`
+ * (off macOS, or not installed). `processes` is the app's process and its descendants, one per line
+ * (pid, parent, threads, name, command line), read on Windows only, where there is no `sample`.
+ */
 export interface QuitFindings {
   quitTimeoutMs: number
   pid: number | undefined
   sample: StepResult<string> | undefined
+  processes?: StepResult<string> | undefined
   output: string
+}
+
+/** The log lines of the app's processes: which of them were still there when the quit timed out. */
+function processLines(processes: StepResult<string> | undefined): string[] {
+  if (processes === undefined) return []
+  if ('problem' in processes) return [`  its processes could not be read: ${processes.problem}`]
+  const lines = lastLines(processes.value, Number.POSITIVE_INFINITY)
+  if (lines.length === 0) return ['  its processes: none found']
+  return ['  its processes (pid, parent, threads, name, command line):', ...lines.map((line) => `    ${line}`)]
 }
 
 /** The lines the test log shows: what happened, and the main thread's innermost frames when there are any. */
 export function quitLogLines(findings: QuitFindings): string[] {
   const head = `[quit diagnosis] the app (PID ${findings.pid ?? 'unknown'}) did not quit within ${findings.quitTimeoutMs / 1000} s`
-  if (findings.sample === undefined) return [`${head}; no \`sample\` on this system: the app's output is attached`]
+  if (findings.sample === undefined) return [`${head}; no \`sample\` on this system: the app's output is attached`, ...processLines(findings.processes)]
   if ('problem' in findings.sample) return [`${head}; \`sample\` failed: ${findings.sample.problem}`]
   const stack = mainThreadStack(findings.sample.value)
   if (stack.length === 0) return [`${head}; the \`sample\` report has no main thread: it is attached`]

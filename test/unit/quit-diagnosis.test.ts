@@ -1,8 +1,11 @@
 // The pure parts of the diagnosis of an e2e app that did not quit in time (test/e2e/quit-diagnosis.ts,
 // used by close() of launchApp in test/e2e/helpers.ts): it runs only when a quit hangs, so the
 // stack it picks out of a `sample` report, the output tail and the attached text are checked here.
+import { spawn, spawnSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
-import { lastLines, mainThreadStack, QUIT_OUTPUT_LINES, QUIT_STACK_LINES, quitDiagnosisText, quitLogLines, type QuitFindings } from '../e2e/quit-diagnosis'
+import { COMMAND_LINE_CHARS, lastLines, mainThreadStack, processTreeScript, QUIT_OUTPUT_LINES, QUIT_STACK_LINES, quitDiagnosisText, quitLogLines, type QuitFindings } from '../e2e/quit-diagnosis'
+import { scriptNode } from '../script-node'
+import { ms } from '../time-scale'
 
 /** A `sample` report cut down to its shape: a header, the main thread, then two more threads. */
 const SAMPLE = [
@@ -97,6 +100,35 @@ describe('quitLogLines', () => {
     ])
     expect(quitLogLines(findings({ sample: { problem: 'exit code 1: no such process' } }))[0]).toMatch(/`sample` failed: exit code 1: no such process$/)
     expect(quitLogLines(findings({ sample: { value: 'nothing' } }))[0]).toMatch(/has no main thread: it is attached$/)
+  })
+
+  it('adds the processes of the app on Windows, one per line, or why they could not be read', () => {
+    const tree = '80412 parent=1 threads=31 electron.exe "C:\\app\\electron.exe" .\n80500 parent=80412 threads=9 OpenConsole.exe\n'
+    expect(quitLogLines(findings({ sample: undefined, processes: { value: tree } }))).toEqual([
+      "[quit diagnosis] the app (PID 17928) did not quit within 20 s; no `sample` on this system: the app's output is attached",
+      '  its processes (pid, parent, threads, name, command line):',
+      '    80412 parent=1 threads=31 electron.exe "C:\\app\\electron.exe" .',
+      '    80500 parent=80412 threads=9 OpenConsole.exe',
+    ])
+    expect(quitLogLines(findings({ sample: undefined, processes: { problem: 'exit code 1' } })).at(-1)).toBe('  its processes could not be read: exit code 1')
+    expect(quitLogLines(findings({ sample: undefined, processes: { value: '' } })).at(-1)).toBe('  its processes: none found')
+  })
+})
+
+describe('processTreeScript', () => {
+  it.skipIf(process.platform !== 'win32')('lists a process and its child with their parents, and nothing outside its tree', () => {
+    const child = spawn(scriptNode(), ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore' })
+    try {
+      const run = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', processTreeScript(process.pid)], { encoding: 'utf8', timeout: ms(4_000), windowsHide: true })
+      expect(run.status).toBe(0)
+      const lines = run.stdout.trim().split(/\r?\n/)
+      expect(lines.find((line) => line.startsWith(`${process.pid} `))).toMatch(new RegExp(`^${process.pid} parent=${process.ppid} threads=\\d+ \\S+`))
+      expect(lines.find((line) => line.startsWith(`${child.pid} `))).toMatch(new RegExp(`^${child.pid} parent=${process.pid} threads=\\d+ \\S+ .*setTimeout`))
+      expect(lines.some((line) => line.startsWith(`${process.ppid} `))).toBe(false)
+      for (const line of lines) expect(/^\d+ parent=\d+ threads=\d+ \S+ ?(.*)$/.exec(line)?.[1]?.length).toBeLessThanOrEqual(COMMAND_LINE_CHARS)
+    } finally {
+      child.kill()
+    }
   })
 })
 

@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectLayout } from '../../src/main/workflow/folder'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
+import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
 
 const PROJECT_ID = 'repo-00000001'
@@ -464,7 +465,8 @@ describe('shell.openInEditor opens documents and asks about anything else', () =
     expect(shown()).toStrictEqual([])
   })
 
-  it.each(['darwin', 'win32', 'linux'] as const)('on %s asks about every known launcher kind, in either letter case', async (platform) => {
+  // The win32 case is in quarantine on Windows (test/quarantine/shell-launcher-kinds-win32.json).
+  const launcherKinds = (platform: keyof typeof LAUNCHERS) => async () => {
     const files = LAUNCHERS[platform].flatMap((kind) => [projectFile(`kinds/x${kind}`), projectFile(`kinds/Y${kind.toUpperCase()}`)])
     await asPlatform(platform, async () => {
       for (const path of files) expect(outcome(await open(path)), path).toBe('cancelled')
@@ -475,7 +477,10 @@ describe('shell.openInEditor opens documents and asks about anything else', () =
     expect(boxes().every(([, options]) => options.buttons![1] === SHOW_LABEL[platform])).toBe(true)
     expect(opened()).toStrictEqual([])
     expect(shown()).toStrictEqual([files[0]])
-  })
+  }
+  it('on darwin asks about every known launcher kind, in either letter case', launcherKinds('darwin'))
+  quarantined('shell-launcher-kinds-win32')('on win32 asks about every known launcher kind, in either letter case', launcherKinds('win32'))
+  it('on linux asks about every known launcher kind, in either letter case', launcherKinds('linux'))
 
   it('asks about a file of an unknown kind and one without an extension, whatever its bits', async () => {
     // Windows drops a trailing dot or space of `trail.md.` and `space.md ` when it makes the file, so

@@ -13,6 +13,7 @@ import { pathToFileURL } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { HARNESS_SCRIPTS_FILES, inFile, inPart, MEASURED_SECONDS, parsePart, shareOf, shellTests, startOrder, UNMEASURED_SECONDS, type Part } from '../harness-shell-tests'
 import { gitBash } from '../git-bash'
+import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { ms } from '../time-scale'
@@ -1183,7 +1184,7 @@ describe('scripts/ci-scope.mjs', () => {
     expect(pr.expect?.['macos-e2e']).toBe(true)
   })
 
-  it('every file outside test/e2e that the e2e tests import makes a pull request run macos-e2e', () => {
+  quarantined('ci-scope-e2e-imports-run-macos-e2e')('every file outside test/e2e that the e2e tests import makes a pull request run macos-e2e', () => {
     const e2e = join(REPO, 'test', 'e2e')
     const imported = new Set<string>()
     for (const name of readdirSync(e2e, { recursive: true, encoding: 'utf8' })) {
