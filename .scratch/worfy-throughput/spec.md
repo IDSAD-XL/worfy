@@ -705,6 +705,7 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
 | 51 | `harness-evals.test.ts` в двух файлах и одна сборка fixture-а на кейс: короче shard 1/3 Windows | 35 | нет | только строка `harness/README.md` с именем test-файла | runner `full` по `scripts/windows-verdict-scope.mjs` | вне Wave (разбор моста 2026-10-29) |
 | 52 | worfy Autopilot начинает каждую следующую Wave в новой Session; первая команда — `wave-brief` | 28 | для merge — если в diff `test/e2e/**` | нет (код worfy) | `pc`, если в diff `test/e2e/**`; иначе runner `full` | вне Wave (решение владельца 2026-10-29, Q5) |
 | 53 | Сократить `rules.md` Profile-а worfy в старте агентов: редко нужные части — в файл по запросу; правки — предложением владельцу | 33 | нет | только если нужен код: `harness/bin/profile`, контракт Profile (`profiles/README.md`) | не платформенный, если не меняются скрипты `harness/bin` (test-ы в `harness/bin/tests/` не в счёт); иначе runner `full` | после 33 (решение владельца 2026-10-29, R2-Q7) |
+| 54 | Меньше PR на полном наборе e2e macOS: узкие триггеры полного набора (`test/fixtures/**`, `.github/workflows/**`) и `macos-package` только на настоящий build input; сначала замер на run-ах после таблицы путей (`87b87f6a`) | 11 | нет | нет | runner (если меняется `windows-tests.yml` — сказать) | после 11 (замер 2026-10-29: медиана ожидания macOS на PR 20 min) |
 
 Почему так:
 
@@ -731,6 +732,9 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
   `src/main/autopilot/run.ts` ведёт все Wave run-а в одной SDK session.
 - **53 после 33** (решение 2026-10-29, R2-Q7): 33 переносит замер `start-context` на порог частей Harness и
   показывает часть Profile отдельно; 53 сокращает эту часть и берёт замер «до» и «после» из того же вывода.
+- **54 после 11:** оба правят `.github/workflows/ci.yml` и `scripts/ci-scope.mjs`. Замер 2026-10-29: у run-ов PR
+  медиана ожидания в очереди macOS 20 min из 31 min по стене; 54 сужает пути, которые шлют PR на весь набор e2e и
+  на `macos-package`. Один shard на PR — нет: весь набор в одном shard-е — 28–30 min.
 - **33 после 37** (решение 2026-10-29): все три правят `harness/skills/ship-ticket/SKILL.md`; 36 влит (#950), 37 в работе у Session моста.
 - **`pc` для 40, 41, 42:** e2e-файлы входят в `PC_ONLY` (`scripts/windows-verdict-scope.mjs:80`), а ПК на паузе. Если
   e2e не нужен, такой PR идёт с runner `full`.

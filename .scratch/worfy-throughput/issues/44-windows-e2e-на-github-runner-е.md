@@ -189,3 +189,31 @@ PR этого раздела: `NON_BLOCKING` в `scripts/ci-ok.mjs` пуст, и
 или пропущен, краснит `ci-ok`. Contract test — `test/contract/ci-workflow.test.ts` (красный нужный
 `windows-e2e` при `failure`, `cancelled`, `skipped`; падение любого job-а краснит `ci-ok`). ADR-0083 — запись
 Amendments 2026-10-29.
+
+### Замер времени запуска окна (#963) и исправления после блокировки
+
+Черновик PR #963 — замер времени запуска окна приложения в e2e на runner-е — закрыт, не влит. Run-ы
+[40824551794](https://github.com/IDSAD-XL/worfy/actions/runs/40824551794),
+[40829545443](https://github.com/IDSAD-XL/worfy/actions/runs/40829545443) и
+[40836748129](https://github.com/IDSAD-XL/worfy/actions/runs/40836748129): около 1100 запусков, все shard-ы зелёные.
+
+- **Defender — не причина.** Real-time protection выключена, `C:\` и `D:\` в исключениях.
+- **Холодный первый запуск.** Окно появляется через 4,4–7,3 s против медианы 0,9–1,2 s. Всё лишнее время — от
+  запуска до `navigationStart`: 3,8–5,4 s против 0,5–0,7 s. Это старт Electron/main на холодном диске; сама
+  страница грузится около 0,3 s.
+- **Первый ответ окна 6,6–13 s** — пять случаев в run-е 3 (40836748129):
+  - `ship-ticket.spec.ts:157` — на холодном старте;
+  - `linked-machines.spec.ts:783` — 7,4 s, и `:884` — 7,6 s и 13,1 s: страница загружена к 3,1 s, дальше main
+    thread занят, пока идёт второе приложение того же test-а;
+  - `browser-mcp.spec.ts:230` — 10,5 s.
+- Красный `linked-machines.spec.ts:412` и повтор `browser-family.spec.ts:236` тоже шли с двумя приложениями сразу.
+  Гипотеза, не доказана: два экземпляра Electron на runner-е с 4 CPU.
+- `linked-machines.spec.ts:412` — класс (c): наблюдать; Ticket — при 3 строках FLAKY за неделю.
+
+| Spec или job | PR | Что сделано |
+| --- | --- | --- |
+| `windows-e2e` | #958 | блокирует `ci-ok` |
+| `arrange-by-epic.spec.ts:136` | #959 | исправлен test: Layout читается после записи полосы дня |
+| `controls.spec.ts:189` | #962 | исправлен test: Reload — после готовности страницы Browser |
+| `ship-ticket.spec.ts:157` | #964 | исправлен test: ждёт Canvas до первой проверки |
+| `trash-undo.spec.ts:115` | #969 | исправлен код: повтор перемещения Card в корзину на Windows, пока файл занят |
