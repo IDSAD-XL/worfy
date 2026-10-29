@@ -122,9 +122,13 @@ export const SCREEN_WORKERS_MAX = 8
  * For tests and scripts/terminal-flood-bench.mjs: `headless`, a module to load in place of
  * @xterm/headless when a worker starts; `limit`, the most workers in place of the default of
  * screenWorkersLimit (a whole number of at least 1, or Infinity for a worker per shell; anything
- * else is ignored).
+ * else is ignored); `poolSize()`, how many workers the pool has made, with a thread or without.
  */
-export const screenWorker: { headless: string | undefined; limit: number | undefined } = { headless: undefined, limit: undefined }
+export const screenWorker: { headless: string | undefined; limit: number | undefined; poolSize: () => number } = {
+  headless: undefined,
+  limit: undefined,
+  poolSize: () => pool.length,
+}
 
 /** How many workers the screens may use: one per core, at most SCREEN_WORKERS_MAX, unless `screenWorker.limit` says otherwise. */
 export function screenWorkersLimit(): number {

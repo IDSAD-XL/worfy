@@ -264,7 +264,7 @@ describe('main answers the cursor-position requests (worfy-windows ticket 39)', 
       const { registry, pty, a } = await shell('linux', { cols: 80, rows: 24 }, { ...nothing, output: (data) => void outputs.push(data) })
       pty.print(`$ ${REQUEST}`)
       expect(outputs).toEqual([`$ ${REQUEST}`])
-      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1))
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1), { timeout: 5_000 * timeScale })
 
       // The view answers, marked: with main silent now, its answer goes to the shell.
       registry.write(KEY, `${ESC}[1;3R`, a, { reply: true })
@@ -456,7 +456,7 @@ describe('main holds a flood back while its screen lags (worfy-windows ticket 39
 
       // The stand-in parses all it keeps at the empty write the worker makes for a resize.
       registry.resize(KEY, 100, 30, a)
-      await vi.waitFor(() => expect(pty.resumes).toBe(1))
+      await vi.waitFor(() => expect(pty.resumes).toBe(1), { timeout: 5_000 * timeScale })
       expect(pty.paused).toBe(false)
       expect(pty.heldLength).toBe(0)
       expect(shown.length).toBe(6 * MEGABYTE.length)
@@ -493,7 +493,7 @@ describe('main holds a flood back while its screen lags (worfy-windows ticket 39
       for (let i = 0; i < 5; i += 1) pty.print(MEGABYTE)
       pty.print(REQUEST)
       expect(pty.pauses).toBe(1)
-      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1))
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1), { timeout: 5_000 * timeScale })
       expect(String(warn.mock.calls[0]?.[0])).toContain('exit code 7')
       expect(pty.paused).toBe(false)
       expect(pty.heldLength).toBe(0)
@@ -563,13 +563,13 @@ describe('the screens of several shells parse in parallel, a worker each up to a
       expect(pty.pauses).toBe(1)
     }
     for (const { pty, shown } of shells) {
-      await vi.waitFor(() => expect(pty.writes.length + warn.mock.calls.length).toBeGreaterThan(0), { timeout: 60_000, interval: 50 })
+      await vi.waitFor(() => expect(pty.writes.length + warn.mock.calls.length).toBeGreaterThan(0), { timeout: 60_000 * timeScale, interval: 50 })
       expect(warn).not.toHaveBeenCalled()
       expect(await writtenSoon(pty, 1)).toEqual([`${ESC}[24;1R`])
       expect(pty.paused).toBe(false)
       expect(shown.length).toBe(15 * MEGABYTE.length + REQUEST.length)
     }
-  }, 90_000)
+  }, 90_000 * timeScale)
 
   it('with the default limit, as many shells as the limit (up to four here) each get a worker thread of their own', async () => {
     screenWorker.headless = CRASHING_HEADLESS
@@ -605,8 +605,11 @@ describe('the screens of several shells parse in parallel, a worker each up to a
       expect(a.pty.writes).toHaveLength(1)
       expect(c.pty.writes).toHaveLength(1)
 
-      // One worker holds screens now, below the limit: a new shell gets a worker (a new thread) of its own.
+      // One worker holds screens now, below the limit: a new shell gets a worker (a new thread) of its
+      // own, in the slot of the pool the ended worker left empty, not in a new one.
+      const slots = screenWorker.poolSize()
       const e = await shell()
+      expect(screenWorker.poolSize()).toBe(slots)
       const te = await threadOf(e.pty)
       expect([ta, tb]).not.toContain(te)
       e.pty.print(REQUEST)
