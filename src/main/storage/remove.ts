@@ -166,7 +166,8 @@ export interface RemoveOptions {
 }
 
 const nodeFs: RemoveFs = { lstatSync, readdirSync: (path) => readdirSync(path), unlinkSync, rmdirSync, rmSync }
-const sleep = (ms: number): void => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+/** Blocks the calling thread for `ms`: the wait between two tries here and in src/main/storage/move.ts. */
+export const sleep = (ms: number): void => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 const codeOf = (error: unknown): string | undefined => (error as NodeJS.ErrnoException | null)?.code
 const onWindows = (options: RemoveOptions): boolean => (options.platform ?? process.platform) === 'win32'
 

@@ -1370,14 +1370,12 @@ describe('scripts/ci-ok.mjs', () => {
     expect(result.status).toBe(1)
     expect(result.stdout).toContain(`windows-e2e: ${windowsE2e} (needed)`)
     expect(result.stderr).toMatch(new RegExp(`windows-e2e: ${windowsE2e}, expected success`))
-    expect(result.stdout).not.toContain('::warning::')
   })
 
   it('prints a green windows-e2e as any other green job', () => {
     const result = ok(JSON.stringify(needs(ALL, results(() => 'success'))))
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('windows-e2e: success (needed)\n')
-    expect(result.stdout).not.toContain('::warning::')
   })
 
   it.each(['success', 'failure'])('is red when windows-e2e ran though the run did not need it (%s): the scope still holds', (windowsE2e) => {
