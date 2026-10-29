@@ -43,6 +43,18 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 Заголовок, пункты 2–4, два пункта «Готово, когда» и три открытых вопроса заменены решением владельца
 2026-10-29 (Q2/Q3): `spec.md`, раздел «Ответы владельца 2026-10-29».
 
+Правка 2026-10-29 (spec, раздел «Ответы владельца 2026-10-29, раунд 2»):
+
+- **R2-Q4 — пустой список.** `scripts/affected-tests.mjs` вернул пустой список — job-ы test-ов linux и windows
+  проходят без запуска vitest и всё равно отчитываются в `ci-ok` (job зелёный, а не пропущенный). Smoke-набора
+  на этот случай нет.
+- **R2-Q3 — без сгенерированных файлов в репозитории.** Сгенерированную часть таблицы affected-tests (раздел
+  `generated` в `scripts/affected-tests.table.json`, его пишет `node scripts/affected-tests-table.mjs`) CI строит
+  во время run-а; в репозиторий она не commit-ится. Рукописные строки `links` остаются в файле. Причина — merge skew 2026-10-29: #954 и #957 зелёные каждый на своей
+  базе, вместе красный `main` на `f52dc8bb`; #968 исправил вперёд, перегенерировав таблицу. Правило красного
+  `main` (пункт 4) остаётся; «require branch up to date» и merge queue не включаем, пока skew-ов не больше
+  одного в неделю.
+
 Платформенный PR (ADR-0056, пункт 2): меняются скрипты Harness — до merge нужен вердикт Windows (ADR-0071).
 
 ## Готово, когда
@@ -52,6 +64,9 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - [ ] Тексты `epic-wave` и `ship-ticket` говорят правило красного `main` пункта 4 (исправление вперёд до
       1 h, затем revert; PR с кодом ждут зелёного `main`); shell test текстов проверяет — заменено
       решением владельца 2026-10-29 (Q2/Q3), вместо test-а bisect-а на временном репозитории.
+- [ ] Пустой список affected-tests: job-ы test-ов linux и windows зелёные без запуска vitest, `ci-ok` их
+      учитывает; раздела `generated` в `scripts/affected-tests.table.json` в репозитории нет — CI строит его в run-е (решение
+      владельца 2026-10-29, R2-Q3/R2-Q4).
 - [ ] Первые две Wave-ы после merge: время от зелёных проверок до merge (Ticket 14) и число красных
       `main` — в «Итог».
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; shell test-ы Harness — exit 0; вердикт
@@ -83,7 +98,18 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
   `harness/skills/ship-ticket/SKILL.md`, `harness/agents/implementer.md`
 - `harness/bin/tests/agents-text.test.sh` — shell test текстов Harness
 - `vitest.config.ts`, `scripts/vitest-electron.mjs`
-- только вызов `scripts/affected-tests.mjs` (Ticket 21)
+- `scripts/affected-tests.mjs` — вызов (Ticket 21) и чтение `table.generated` (`:95`), которое по R2-Q3
+  строится в run-е, а не берётся из файла
+- `scripts/affected-tests-table.mjs` — строит раздел `generated`; по R2-Q3 запускается в CI run-е
+- `scripts/affected-tests.table.json` — раздел `generated` уходит из файла, `links` остаются
+- `test/unit/affected-tests.test.ts` — test `--check` на закоммиченной таблице (`:452-455`, комментарий
+  `:6-7`) уходит вместе с разделом `generated`
+- `.github/workflows/ci.yml` — job-ы `linux-tests` (`:137`), `windows` (`:298`), `ci-ok` (`:364`): пустой
+  список — зелёный job без vitest (R2-Q4)
+- `.github/workflows/windows-tests.yml` — job `full-suite` (`:151`), который зовёт job `windows`
+- `scripts/ci-scope.mjs` — выходы для job-ов (как `macos-tests-files`, `:397`)
+- `test/contract/ci-workflow.test.ts` (команда `linux-tests` — `:159`),
+  `test/contract/windows-tests-workflow.test.ts` (`FULL_JOB` — `:47`)
 
 Вне репозитория (шаг Orchestrator-а после merge): `rules.md` Profile-а worfy, пункт «Gate перед мержем
 PR с кодом»; запись worfy в реестре gate.
