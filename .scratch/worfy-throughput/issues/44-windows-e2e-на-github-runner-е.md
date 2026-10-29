@@ -1,7 +1,8 @@
 # 44 — Windows e2e на GitHub runner-е: job в `ci-ok`, сначала только статистика, блокирует после пяти зелёных run-ов подряд
 
 Type: task
-Status: claimed 2026-10-28T18:00Z
+Status: done 2026-10-29T15:25Z
+PR: #1000
 Branch: worfy-throughput/44
 Blocked by: 35
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», решение 15 (Windows e2e —
@@ -48,7 +49,7 @@ ADR-0083).
 - [x] Пока job не блокирует, красный `windows-e2e` не краснит `ci-ok`; contract test это закрепляет.
 - [x] Пять зелёных push-run-ов `windows-e2e` подряд на `main` — ссылки в «Итог»; после них PR делает job
       блокирующим, и contract test закрепляет это.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; условие merge — `ci-ok`.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; условие merge — `ci-ok`.
 
 ## База ПК 2026-10-28
 
