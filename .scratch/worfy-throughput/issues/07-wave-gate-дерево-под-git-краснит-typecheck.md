@@ -1,7 +1,7 @@
 # 07 — `wave-gate`: временное дерево под `.git/` краснит typecheck, и красная база называется виной первого PR
 
 Type: task
-Status: open
+Status: done 2026-10-29T10:58Z
 Blocked by: 35
 Source: Wave `worfy-link` 17, 19 (2026-10-16) — первый набор `wave-gate` на Mac;
 [ADR-0065](../../../docs/adr/0065-one-gate-full-per-wave-merge-set.md); лог решений Wave — каталог
@@ -45,12 +45,14 @@ Wave вместо одного на PR; с `ci-ok` этот довод уход�
 
 ## Готово, когда
 
-- [ ] `wave-gate check` на наборе из PR, который не трогает `src/main/ipc/`, на базе с зелёным
-  typecheck в обычном worktree даёт зелёный typecheck.
-- [ ] Shell test `wave-gate`: красная база (stub gate красный на любом дереве) даёт
-  `STATUS=unverified`, а не `culprit`.
-- [ ] «Итог» называет найденную причину TS2883 под `.git/` или говорит, почему её не искали.
-- [ ] Платформенный PR: Harness-скрипт — вердикт Windows-ПК до merge (ADR-0056, пункт 2).
+- [x] `wave-gate check` на наборе из PR, который не трогает `src/main/ipc/`, на базе с зелёным
+  typecheck в обычном worktree даёт зелёный typecheck. — заменено ADR-0083 и решением владельца Q2 (2026-10-29).
+- [x] Shell test `wave-gate`: красная база (stub gate красный на любом дереве) даёт
+  `STATUS=unverified`, а не `culprit`. — заменено ADR-0083 и решением владельца Q2 (2026-10-29).
+- [x] «Итог» называет найденную причину TS2883 под `.git/` или говорит, почему её не искали. — заменено
+  ADR-0083 и решением владельца Q2 (2026-10-29).
+- [x] Платформенный PR: Harness-скрипт — вердикт Windows-ПК до merge (ADR-0056, пункт 2). — заменено ADR-0083
+  и решением владельца Q2 (2026-10-29).
 
 ## Где в коде
 
@@ -63,3 +65,5 @@ Wave вместо одного на PR; с `ci-ok` этот довод уход�
 - Ошибки TS2883 в обычном worktree: их там нет.
 
 ## Итог
+
+Закрыт без правок: заменён ADR-0083 (ci-ok на каждом PR — условие merge, push в main гоняет весь набор) и решением владельца Q2 от 2026-10-29 (красный main — исправление вперёд до 1 h, затем revert; бисекции нет). На 2026-10-29 ни один Profile на Mac (worfy, auction, atakama) не задаёт workflow.merge_gate "wave" или workflow.ci "batch", а только в этих режимах skill epic-wave вызывает bin/wave-gate (harness/skills/epic-wave/SKILL.md:1046, :1049, :1259; harness/skills/overnight-fix-loop/SKILL.md:331-332; harness/bin/profile:420 — ci по умолчанию "pr"). Profile worfy — merge_gate null (merge через bin/land). Причину TS2883 под .git/ не искали: путь, где она проявляется, больше не вызывается. Дефект остаётся в harness/bin/wave-gate:45,105 (дерево <git common dir>/worfy-wave-gate) и в его бисекции; если какой-то Profile включит "wave" или "batch", Ticket открывают заново. Не проверено: Profile-ы на Windows-ПК (реестр доступен только с ПК).
