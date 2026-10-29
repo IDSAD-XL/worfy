@@ -205,11 +205,27 @@ describe('harness/evals: the cases', () => {
       for (const type of types) expect(['regex', 'tool_used', 'tool_order', 'file_exists', 'llm']).toContain(type)
     })
 
-    it('builds its fixture with exit code 0 in a temporary HOME', () => {
+    // One scaffold without EVAL_* serves the three checks of that fixture: building it is the cost of
+    // the test (about 1.5 s on macOS, 5 s on Windows), and the profile runs only read it.
+    // On Windows the profile runs need the paths of the fixture's gate registry ("match", "pm") in
+    // node's spelling, C:/…/work, not /tmp/…/work of Git Bash: harness/evals/lib/demo-project.sh
+    // writes them from node's realpathSync.native (worfy-windows ticket 65, step 4).
+    it('builds its fixture with exit code 0 in a temporary HOME, and bin/profile -C <fixture> finds profile demo with and without EVAL_HARNESS_HOME', () => {
       const { work, home, run } = scaffold(name)
       expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
       expect(existsSync(join(work, '.git'))).toBe(true)
       expect(existsSync(join(home, '.claude', 'worfy-harness', 'projects', 'demo', 'profile.json'))).toBe(true)
+      const profile = harness(home, work, 'profile', ['-C', work, '--name'])
+      expect(profile.status, profile.stderr).toBe(0)
+      expect(profile.stdout.trim()).toBe('demo')
+
+      // pnpm eval:harness gives every run EVAL_HARNESS_HOME=worfy-harness, but `claude plugin eval`
+      // starts the scaffold with a short fixed environment and no EVAL_* (claude 2.1.289): the fixture
+      // never sees EVAL_HARNESS_HOME, and the scripts of the run must still find its state in <fixture>/.git.
+      expect(existsSync(join(work, '.git', 'worfy-harness', 'gate', 'config.json'))).toBe(true)
+      const evalProfile = harness(home, work, 'profile', ['-C', work, '--name'], { EVAL_HARNESS_HOME: 'worfy-harness' })
+      expect(evalProfile.status, evalProfile.stderr).toBe(0)
+      expect(evalProfile.stdout.trim()).toBe('demo')
     })
   })
 
@@ -323,28 +339,9 @@ describe('harness/evals: the cases', () => {
 
 // On Windows these need the paths of the fixture's gate registry ("match", "pm") in node's spelling,
 // C:/…/work, not /tmp/…/work of Git Bash: harness/evals/lib/demo-project.sh writes them from node's
-// realpathSync.native (worfy-windows ticket 65, step 4).
+// realpathSync.native (worfy-windows ticket 65, step 4). A scaffold without EVAL_* is checked with
+// bin/profile in the test "builds its fixture" of each case above.
 describe('harness/evals: the fixture is a project the Harness recognises', () => {
-  it.each(CASES.map(([name]) => name))('%s: bin/profile -C <fixture> exits 0 with profile demo', (name) => {
-    const { work, home, run } = scaffold(name)
-    expect(run.status, run.stderr).toBe(0)
-    const profile = harness(home, work, 'profile', ['-C', work, '--name'])
-    expect(profile.status, profile.stderr).toBe(0)
-    expect(profile.stdout.trim()).toBe('demo')
-  })
-
-  // pnpm eval:harness gives every run EVAL_HARNESS_HOME=worfy-harness, but `claude plugin eval`
-  // starts the scaffold with a short fixed environment and no EVAL_* (claude 2.1.289): the fixture
-  // never sees EVAL_HARNESS_HOME, and the scripts of the run must still find its state in <fixture>/.git.
-  it.each(CASES.map(([name]) => name))('%s: a scaffold without EVAL_* leaves state the scripts of an eval:harness run find', (name) => {
-    const { work, home, run } = scaffold(name)
-    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
-    expect(existsSync(join(work, '.git', 'worfy-harness', 'gate', 'config.json'))).toBe(true)
-    const profile = harness(home, work, 'profile', ['-C', work, '--name'], { EVAL_HARNESS_HOME: 'worfy-harness' })
-    expect(profile.status, profile.stderr).toBe(0)
-    expect(profile.stdout.trim()).toBe('demo')
-  })
-
   // The sandbox lets a run write only into its working folder, so the fixture keeps the Harness
   // state in its .git (ticket 28); a scaffold that does get EVAL_HARNESS_HOME (a run by hand) uses
   // the folder it names and nothing else — no copy in $HOME.

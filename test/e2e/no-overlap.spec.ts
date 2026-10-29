@@ -10,10 +10,13 @@ import { canvasReady, launchApp, settledBoxes } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
 
-// Nodes never overlap (ADR-0038) against the built app: main corrects the operation a drop sends,
-// a drag of several Nodes is one operation and one step of ⌘Z, a saved Layout with overlapping
-// Nodes is fixed on its first read with a line in main's log, and an Epic frame whose offset puts
-// it on a Card is drawn next to the Card. The Projects are written into projects.json up front.
+// Nodes never overlap (ADR-0038) against the built app: a drag of several Nodes is one operation
+// with every dropped Node and one step of ⌘Z (the only test of the Canvas handing React Flow's
+// released Nodes to the drop), and an Epic frame whose offset puts it on a Card is drawn next to
+// the Card. The Projects are written into projects.json up front. The correction of a drop on a
+// Card and of a saved Layout with overlapping Nodes is checked in main's layout store
+// (test/contract/layout-store.test.ts, "Nodes never overlap"), a drop on a Card in the window in
+// test/e2e/snapping.spec.ts.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -87,8 +90,6 @@ async function box(locator: Locator): Promise<Box> {
 }
 /** How far apart two boxes are on the screen along the axis they are separated on; negative when they overlap. */
 const apart = (a: Box, b: Box): number => Math.max(b.x - (a.x + a.width), a.x - (b.x + b.width), b.y - (a.y + a.height), a.y - (b.y + b.height))
-/** The same for two Layout Nodes. */
-const separation = (a: StateNode, b: StateNode): number => Math.max(b.x - (a.x + a.w), a.x - (b.x + b.w), b.y - (a.y + a.h), a.y - (b.y + b.h))
 
 async function center(locator: Locator): Promise<{ x: number; y: number }> {
   const found = await box(locator)
@@ -113,41 +114,6 @@ async function apartOnScreen(window: Page, a: string, b: string): Promise<number
   const boxes = await settledBoxes(window, { a: `[data-testid="rf__node-${a}"]`, b: `[data-testid="rf__node-${b}"]` }, `the boxes of ${a} and ${b}`)
   return apart(boxes.a, boxes.b)
 }
-const projectButton = (window: Page, name: string) => window.getByTestId('project-row').filter({ hasText: name }).getByRole('button')
-
-test('a Note dropped onto a Card goes next to it and the Card stays, also after a restart', async () => {
-  makeProjects({ [ALPHA]: [cardNode('c1', 500, 300), noteNode('n1', 1000, 300)] })
-  const first = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
-  let dropped: StateNode
-  try {
-    const { window } = first
-    await canvasReady(first, { size: { width: 1600, height: 1000 }, visible: [nodeElement(window, 'c1'), nodeElement(window, 'n1')] })
-    const cardBefore = await box(nodeElement(window, 'c1'))
-    await drag(window, window.locator('[data-testid="note-node"][data-node-id="n1"] .w-note__header'), await center(nodeElement(window, 'c1')))
-
-    await expect.poll(async () => separation(await byId(window, ALPHA, 'n1'), await byId(window, ALPHA, 'c1'))).toBeGreaterThanOrEqual(GAP)
-    expect(await byId(window, ALPHA, 'c1')).toMatchObject({ x: 500, y: 300, w: 300, h: 220 })
-    dropped = await byId(window, ALPHA, 'n1')
-    // On the screen too: the Note stands next to the Card, which has not moved.
-    await canvasReady(first)
-    expect(await box(nodeElement(window, 'c1'))).toEqual(cardBefore)
-    expect(await apartOnScreen(window, 'n1', 'c1')).toBeGreaterThanOrEqual(GAP - 1)
-    await snapshotThemes(window, '04-note-dropped-on-card')
-  } finally {
-    await first.close()
-  }
-
-  const second = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
-  try {
-    const { window } = second
-    await canvasReady(second, { size: { width: 1600, height: 1000 }, visible: [nodeElement(window, 'c1'), nodeElement(window, 'n1')] })
-    expect(await byId(window, ALPHA, 'n1')).toMatchObject({ x: dropped.x, y: dropped.y })
-    expect(await byId(window, ALPHA, 'c1')).toMatchObject({ x: 500, y: 300 })
-    expect(await apartOnScreen(window, 'n1', 'c1')).toBeGreaterThanOrEqual(GAP - 1)
-  } finally {
-    await second.close()
-  }
-})
 
 test('two neighbouring Notes dragged together move by the same distance, uncorrected, and one ⌘Z brings both back', async () => {
   // 20 px apart: alone, the first Note would land within 16 px of the second, not yet moved.
@@ -180,26 +146,6 @@ test('two neighbouring Notes dragged together move by the same distance, uncorre
       [500, 300],
       [740, 300],
     ])
-  } finally {
-    await launched.close()
-  }
-})
-
-test('a saved Layout with two overlapping Nodes: on its first read the later Node goes next to the earlier one, main logs the move, and the screen shows no overlap', async () => {
-  // BETA is opened only after the test listens to main's console: its layout.json is read then.
-  makeProjects({ [ALPHA]: [], [BETA]: [cardNode('A', 500, 300), noteNode('B', 540, 340)] })
-  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
-  try {
-    const { app, window } = launched
-    const lines: string[] = []
-    app.on('console', (message) => lines.push(message.text()))
-    await projectButton(window, 'beta').click()
-    await expect(window.getByTestId('canvas')).toHaveAttribute('data-project-id', BETA)
-    await expect.poll(() => lines.find((line) => line.includes('moved Node B'))).toMatch(new RegExp(`^\\[layout\\] ${BETA}: moved Node B from \\(540, 340\\) to \\(-?\\d+, -?\\d+\\)`))
-    await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [nodeElement(window, 'A'), nodeElement(window, 'B')] })
-    expect(await byId(window, BETA, 'A')).toMatchObject({ x: 500, y: 300 })
-    expect(separation(await byId(window, BETA, 'B'), await byId(window, BETA, 'A'))).toBeGreaterThanOrEqual(GAP)
-    expect(await apartOnScreen(window, 'B', 'A')).toBeGreaterThanOrEqual(GAP - 1)
   } finally {
     await launched.close()
   }

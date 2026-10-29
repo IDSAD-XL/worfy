@@ -6,6 +6,11 @@
 // server listens on, link/linked.json the address and port of each Linked machine. Moving B's port
 // and pointing B's record of A at a port where nothing listens leaves A as the only side that can
 // dial: whatever brings the link back then comes from A.
+//
+// That Reconnect dials at once, without the pause between retries, is checked without a window:
+// test/contract/link-reconnect.test.ts ("link.reconnect and the count of failures", "on either
+// side"), the IPC handler in test/contract/link-dialing.test.ts and the button in
+// test/unit/machines-section.test.tsx. The window test of it waited 34 s for the pause to grow.
 import { readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
@@ -129,36 +134,6 @@ test('Remove from the row of an offline Machine: gone here at once, and on the o
     await expect(row(pair.b.window, aId)).toHaveCount(0, { timeout: 30_000 })
     // And A did not get B back.
     await expect(row(a.window, bId)).toHaveCount(0)
-  } finally {
-    await closePair(pair)
-  }
-})
-
-test('Reconnect dials at once: the link is back without waiting for the pause between retries', async () => {
-  test.setTimeout(180_000)
-  let pair: Pair | undefined
-  try {
-    pair = await linkedPair()
-    const { aId, bId, bDir } = pair
-    await closeB(pair)
-    const closedAt = Date.now()
-    // B cannot dial A when it is back: its record of A points where nothing listens. B keeps its port.
-    pointRecordAt(bDir, aId, await freePort())
-
-    // A's retries come 1, 2, 4, 8, 16 and 30 s apart: past 32 s the next one is about 30 s away.
-    await pair.a.window.waitForTimeout(Math.max(0, closedAt + 34_000 - Date.now()))
-    pair.b = await launchApp({ env: { WORFY_DATA_DIR: bDir } })
-    await machineIdOf(pair.b.window)
-    const clickedAfter = Date.now() - closedAt
-    expect(clickedAfter, 'B started too slowly: a retry of A might bring the link back by itself').toBeLessThan(52_000)
-
-    const reconnect = row(pair.a.window, bId).getByTestId('machine-reconnect')
-    await reconnect.click()
-    await expect(row(pair.a.window, bId)).toHaveAttribute('data-state', 'online', { timeout: 6_000 })
-    expect(Date.now() - closedAt, 'online before the next retry of A was due').toBeLessThan(60_000)
-    await expandMachines(pair.b.window)
-    await expect(row(pair.b.window, aId)).toHaveAttribute('data-state', 'online')
-    await expect(row(pair.a.window, bId).getByTestId('machine-reconnect')).toHaveCount(0)
   } finally {
     await closePair(pair)
   }
