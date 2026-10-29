@@ -450,6 +450,14 @@ describe('scripts/ci-scope.mjs: the outputs e2e-files, macos-e2e-shards and wind
     }
   })
 
+  it('a pull request that changes a quarantine entry of a vitest test runs no e2e', () => {
+    const vitest = `${JSON.stringify({ runner: 'vitest', file: 'test/unit/plain.test.ts', test: 'x', platforms: ['win32'], reason: 'r', owner: 'o', since: '2026-10-29', until: '2026-11-12' })}\n`
+    commitTexts({ 'test/quarantine/unit.json': vitest })
+    const added = scope({ EVENT: 'pull_request', BASE: base })
+    expect(added.status, added.stderr).toBe(0)
+    expect([added.e2e, added.windowsE2e]).toEqual([false, false])
+  })
+
   it('a pull request that changes Markdown only, or only deletes a spec file, runs no e2e', () => {
     commitOnBase(['docs/notes.md', 'HANDOFF.md'])
     const docs = scope({ EVENT: 'pull_request', BASE: base })

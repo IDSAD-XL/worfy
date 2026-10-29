@@ -145,9 +145,9 @@ const isAppPath = (path) =>
 // alike. Each app path of the diff decides in this order:
 // - a spec file (test/e2e/**/*.spec.ts) runs itself; a deleted one asks for nothing;
 // - a quarantine entry (test/quarantine/<id>.json) runs the spec file its `file` names, before the
-//   change and after it: only a spec that calls quarantined('<id>') reads it. A deleted entry, one
-//   that cannot be read, and one that names no spec file or one that does not exist run every spec
-//   file;
+//   change and after it: only a spec that calls quarantined('<id>') reads it. An entry of a vitest
+//   test (`runner: "vitest"`) runs none. A deleted entry, one that cannot be read, and one that
+//   names no spec file or one that does not exist run every spec file;
 // - any other app path outside src/ and harness/ (a helper of test/e2e, a fixture folder the e2e
 //   tests read, the Playwright config, a build input, package.json, a tsconfig) runs every spec
 //   file: they reach every test;
@@ -314,8 +314,9 @@ const CI_WORKFLOW = '.github/workflows/ci.yml'
 const PACKAGING_PARTS = ['', 'changes', 'macos-e2e', 'macos-package', 'windows-e2e']
 
 // A job key under `jobs:`: two spaces, the name (bare or in quotes), a colon, then nothing, a
-// comment or an anchor.
-const JOB_KEY = /^ {2}(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))\s*:(?:\s.*)?$/
+// comment or an anchor. A job written on one line (`name: {runs-on: …}`) is no key here: its body
+// would not be read, so the job counts as not found.
+const JOB_KEY = /^ {2}(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))\s*:(?:\s*(?:#.*|&\S+.*))?$/
 // A value that starts a block scalar (`run: |`, `- run: >-`): the lines after it that are indented
 // more than its key, blank lines among them, are data, `#` lines too.
 const BLOCK_SCALAR = /:\s*[|>][-+0-9]*\s*(?:#.*)?$/
@@ -364,7 +365,8 @@ export function workflowParts(text) {
       }
     }
     parts.get(part).push(line)
-    if (BLOCK_SCALAR.test(line)) block = indent
+    // In `- run: |` the key is past the dash: the script is what is indented more than the key.
+    if (BLOCK_SCALAR.test(line)) block = indent + (/^-\s+/.exec(line.trimStart())?.[0].length ?? 0)
   }
   if (block >= 0) endBlock()
   return { parts, anchored }
@@ -378,7 +380,8 @@ function fileAt(ref, path) {
 
 /**
  * The spec files the quarantine entry `path` names at `base` (when it is there) and at HEAD, or null
- * when HEAD has no such entry or one of them cannot be read or names no spec file.
+ * when HEAD has no such entry or one of them cannot be read or names no spec file. An entry of a
+ * vitest test names none: it adds no spec file.
  */
 function quarantinedSpecs(base, path) {
   const now = fileAt('HEAD', path)
@@ -386,12 +389,14 @@ function quarantinedSpecs(base, path) {
   const before = fileAt(base, path)
   const specs = []
   for (const text of before === null ? [now] : [before, now]) {
-    let file
+    let entry
     try {
-      file = JSON.parse(text)?.file
+      entry = JSON.parse(text)
     } catch {
       return null
     }
+    if (entry?.runner === 'vitest') continue
+    const file = entry?.file
     if (typeof file !== 'string' || !SPEC_FILE.test(file)) return null
     specs.push(file)
   }
