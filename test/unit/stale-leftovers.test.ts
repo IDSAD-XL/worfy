@@ -77,7 +77,7 @@ describe('removeStaleTempFolders', () => {
   it('is old after an hour, and its prefixes are the names the runs make their folders with', () => {
     expect(STALE_AFTER_MS).toBe(HOUR)
     expect(STALE_PREFIXES).toEqual(['worfy-glob-probe-', CONTRACT_HOMES_PREFIX, 'worfy-eval-stub-'])
-    expect(readFileSync(join(REPO, 'test', 'contract', 'harness-evals.test.ts'), 'utf8')).toContain("tempDir('worfy-eval-stub-')")
+    expect(readFileSync(join(REPO, 'test', 'contract', 'harness-evals-shared.ts'), 'utf8')).toContain("tempDir('worfy-eval-stub-')")
     // test/unit/glob-probe.tsx is type-checked without the types of Node and cannot import the constant.
     expect(readFileSync(join(REPO, 'test', 'unit', 'glob-probe.tsx'), 'utf8')).toContain('fs.mkdtempSync(`${tmpdir()}/worfy-glob-probe-`)')
   })

@@ -297,10 +297,32 @@ const testFiles = (): string[] =>
 
 type WindowsJob = { name: string; files: string[]; shellTests: string[] }
 
+const listed = new Map<string, string[]>()
+
+/**
+ * The test files vitest finds for `pnpm test <filters>`: `vitest list --filesOnly` with WORFY_TEST_EXCLUDE
+ * as windows-tests.yml sets it (unset when empty), so vitest.config.ts decides what a job leaves out.
+ * vitest 5.0.3's list ignores --shard: vitest's own sequencer cuts the shard below. Listed once per key.
+ */
+function vitestFiles(filters: readonly string[], exclude: readonly string[]): string[] {
+  const key = JSON.stringify([filters, exclude])
+  const known = listed.get(key)
+  if (known !== undefined) return known
+  // The variables vitest sets for the run around this test stay out of the child vitest.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('VITEST') && name !== 'WORFY_TEST_EXCLUDE'))
+  if (exclude.length > 0) env.WORFY_TEST_EXCLUDE = exclude.join(' ')
+  const list = spawnSync(scriptNode(), [join(REPO, 'node_modules', 'vitest', 'vitest.mjs'), 'list', '--filesOnly', ...filters], { cwd: REPO, env, encoding: 'utf8', timeout: 60_000 })
+  if (list.status !== 0) throw new Error(`vitest list --filesOnly ${filters.join(' ')}: exit ${list.status}\n${list.stdout}\n${list.stderr}`)
+  // A line is `[<project>] <file>`, the file relative to the repository.
+  const files = [...new Set(list.stdout.split(/\r?\n/).flatMap((line) => /^\[[^\]]+\] (.+)$/.exec(line.trim())?.[1]?.replaceAll('\\', '/') ?? []))].sort()
+  if (files.length === 0) throw new Error(`vitest list --filesOnly ${filters.join(' ')} named no file:\n${list.stdout}\n${list.stderr}`)
+  listed.set(key, files)
+  return files
+}
+
 /** What each value of the matrix runs, by the step of windows-tests.yml; `exclude` is what a shard leaves out. */
 async function windowsJobs(values: readonly string[], exclude: readonly string[]): Promise<WindowsJob[]> {
   const { BaseSequencer } = await import('vitest/node')
-  const all = testFiles()
   const shell = shellTests(join(REPO, 'harness'))
   const root = REPO.split(sep).join('/')
   const shellOf = (files: string[], part?: Part): string[] => (files.includes(HARNESS_SCRIPTS) ? (part ? inPart(shell, part) : shell) : [])
@@ -309,13 +331,13 @@ async function windowsJobs(values: readonly string[], exclude: readonly string[]
       const own = /^harness-scripts (.+)$/.exec(name)
       if (own) {
         // `pnpm test test/contract/harness-scripts.test.ts`: vitest takes the path as a filter, a part of the name.
-        const files = all.filter((file) => file.includes(HARNESS_SCRIPTS))
+        const files = vitestFiles([HARNESS_SCRIPTS], [])
         return { name, files, shellTests: shellOf(files, parsePart(own[1])) }
       }
       const shard = parsePart(name)
       if (!shard) throw new Error(`no job runs the whole suite in CI: ${name}`)
       const sequencer = new BaseSequencer({ config: { root, shard } } as never)
-      const specs = all.filter((file) => !exclude.includes(file)).map((file) => ({ moduleId: `${root}/${file}` }))
+      const specs = vitestFiles([], exclude).map((file) => ({ moduleId: `${root}/${file}` }))
       const files = (await sequencer.shard(specs as never)).map((spec) => spec.moduleId.slice(root.length + 1))
       return { name, files, shellTests: shellOf(files) }
     }),

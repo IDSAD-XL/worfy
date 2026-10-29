@@ -4,7 +4,7 @@
 //   uncovered — rule file -> one sentence on why no case checks it.
 // Pure functions over the map, kept out of scripts/eval-harness.mjs, which starts a run as soon as it
 // is imported. `pnpm eval:harness -- --changed <base>` uses them to run only the cases of the rule
-// files a branch changed; test/contract/harness-evals.test.ts checks the map against the disk.
+// files a branch changed; test/contract/harness-evals-run.test.ts checks the map against the disk.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
