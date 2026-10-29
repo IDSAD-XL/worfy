@@ -1,7 +1,9 @@
 # 22 — Flaky test-ы Mac под нагрузкой: `collectNodeTypes`, `session-node-drop`, `login-shell-capture` — причина и правка
 
 Type: task
-Status: open
+Status: done 2026-10-29T12:58Z
+PR: #991
+Branch: worfy-throughput/22
 Blocked by: 20
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», предложение 3; gate full на Mac
 2026-10-27 — красные под load average 30–60
@@ -31,11 +33,11 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 
 ## Готово, когда
 
-- [ ] «Итог»: на каждый test — красных до правки (из N повторов под нагрузкой), причина, правка.
-- [ ] Каждый test зелёный в 10 повторах под нагрузкой (`pnpm test <файл>` параллельно с полным `pnpm test`);
+- [x] «Итог»: на каждый test — красных до правки (из N повторов под нагрузкой), причина, правка.
+- [x] Каждый test зелёный в 10 повторах под нагрузкой (`pnpm test <файл>` параллельно с полным `pnpm test`);
       команда и коды выхода — в «Итог».
-- [ ] Записей карантина этого Ticket-а не осталось; timeout-ы test-ов не изменены (diff это показывает).
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; условие merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
+- [x] Записей карантина этого Ticket-а не осталось; timeout-ы test-ов не изменены (diff это показывает).
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; условие merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
 
 ## Где в коде
 
@@ -155,3 +157,41 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
   последних macOS e2e run-ов зелёный. Один случай — строка здесь, не Ticket (правило: 3 FLAKY за неделю).
 - `test/unit/session-view.test.tsx:391` — на #922, job macos-tests: timeout монтирования, повтор видел два textbox-а.
   Причина — гонка повтора; правка — PR #932 (Orchestrator), merge 2026-10-29.
+
+### Повтор по методу Ticket-а и история после правок (2026-10-29, `origin/main` 1a428502)
+
+Правки всех трёх test-ов уже в `main`: `canvas` — PR #877, `session-node-drop` — PR #906, `login-shell-capture` —
+PR #904. Этот круг кода не меняет: проверяет их нагрузкой, которую называет «Готово, когда» (полный `pnpm test`
+рядом), и историей gate и CI после merge.
+
+- **Нагрузка.** В фоне — полный `pnpm test` с `--maxWorkers=9` (половина из 18 ядер), в своей группе процессов,
+  не дольше 115 s; на переднем плане — 10 прогонов одного файла подряд:
+  `node scripts/vitest-electron.mjs <файл> --reporter=verbose` (то же, что `pnpm test <файл>`). По одному такому
+  run-у на файл, после каждого фоновая группа снята и проверено, что процессов этого worktree не осталось (0).
+  Load average за 1 минуту — 6,7–12,3. Тишина — те же 10 прогонов без фона (load average 2,8–3,3: на Mac
+  работали другие агенты).
+
+  | Test | Тишина: красных | Нагрузка: красных | Первый test, тишина | Первый test, нагрузка | Файл, нагрузка |
+  | --- | --- | --- | --- | --- | --- |
+  | `test/unit/canvas.test.tsx` (`collectNodeTypes`) | 0 из 10, все exit 0 | 0 из 10, все exit 0 | 1–2 ms | 1–2 ms | 2,0–5,3 s |
+  | `test/unit/session-node-drop.test.tsx` | 0 из 10, все exit 0 | 0 из 10, все exit 0 | 129–132 ms | 132–148 ms | 3,6–5,5 s |
+  | `test/contract/login-shell-capture.test.ts` (`keeps nothing…`) | 0 из 10, все exit 0 | 0 из 10, все exit 0 | 377–391 ms | 383–453 ms | 3,2–5,2 s |
+
+- **Gate на Mac после правок.** В `~/.claude/worfy-harness/gate/state/logs/` 131 лог `pnpm test` с
+  2026-10-28T05:32Z по 2026-10-28T21:20Z (позже gate full на Mac не запускался: условие merge — `ci-ok`). В 29 из
+  них есть `FAIL` или `Test timed out` других test-ов; ни одного у трёх файлов этого Ticket-а.
+- **CI после правок.** 195 законченных run-ов workflow `CI` с 2026-10-28T20:21Z по 2026-10-29T12:26Z, 1188 job-ов с test-ами.
+  Прочитаны логи 633 job-ов (macOS — 33, Linux — 396, Windows — 204; остальные не скачались: GitHub ответил
+  403 rate limit). Во всех 33 macOS-логах `canvas.test.tsx` выполнялся; строк `FLAKY` у macOS-job-ов нет совсем.
+  Ни в одном прочитанном логе нет `FAIL`, `Test timed out` или `FLAKY` у трёх файлов. `FLAKY` в CI есть у других
+  test-ов — `harness-scripts.test.ts` (shell-test-ы Harness), `claude-home-registry.test.ts:597`,
+  `install-stable-functions.test.ts:561` и ещё 9 файлов; они вне этого Ticket-а.
+- **Карантин.** В `test/quarantine/` одна запись — `linked-notify-turn-click-opens-in-b.json` (e2e на Windows,
+  владелец — Ticket 44); записей этого Ticket-а нет. Timeout-ы не менялись: diff этого круга — только этот файл.
+- **Проверки.** `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (`Test Files 464 passed | 7 skipped`,
+  `Tests 10159 passed | 105 skipped`, 160,7 s). `GATE_SCOPE=all node <Harness>/hooks/gate.mjs fast` — exit 0,
+  `[gate] green (fast): worfy/.:lint worfy/.:typecheck worfy/.:test`; без `GATE_SCOPE=all` gate ничего не
+  запускает (diff — только документ).
+- **Чего этот круг не воспроизвёл.** Load average 30–60, при котором test-ы краснели 2026-10-25 – 2026-10-27,
+  половиной ядер не получить: предел брифа — не больше половины ядер и 2 минуты на run. Правки подтверждают время
+  первого test-а (дорогой transform вынесен из test-а в сбор файла) и отсутствие красных в gate и CI после merge.
