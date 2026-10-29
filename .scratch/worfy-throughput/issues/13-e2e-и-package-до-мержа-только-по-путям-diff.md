@@ -63,7 +63,8 @@ run на push в `main`. Точку передачи выбрать при claim
       shell test это проверяет. `playwright.config.ts` в diff PR-а нет.
 - [ ] Текст implementer-а и skill-ов говорит новое правило; `harness/bin/tests/agents-text.test.sh`
       проверяет фразу; правило Ticket-а 03 о своих e2e-файлах на месте.
-- [ ] Ночной run на `main` запущен хотя бы один раз; ссылка или лог и код выхода — в «Итог».
+- [x] ~~Ночной run на `main` запущен хотя бы один раз; ссылка или лог и код выхода — в «Итог».~~ Снято решением
+      владельца 2026-10-29: весь `test:e2e` гоняет каждый push в `main`.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; shell test-ы Harness — exit 0; вердикт
       Windows; gate full — шаг Orchestrator-а перед merge (последний по старой схеме).
 
@@ -133,7 +134,7 @@ run на push в `main`. Точку передачи выбрать при claim
     только run push-а в `main`; PR только с unit/contract test-ами не просит ни одного macOS job-а.
   Открыто (Harness-половина): поле Profile-а, шаг gate, `implementer.md`, `rules.md`.
 
-- **e2e по spec-ам diff (2026-10-29, ветка `worfy-throughput/13`).** Решено без владельца, подтвердить:
+- **e2e по spec-ам diff (2026-10-29, ветка `worfy-throughput/13`).** Подтверждено владельцем 2026-10-29:
   Orchestrator сузил CI-половину Ticket-а под полную автономию (владелец одобрил «e2e по путям» 2026-10-20 и
   CI на runner-ах 2026-10-28, ADR-0083). Было: PR с путём приложения гонял весь `test:e2e` — 2 shard-а
   `macos-e2e` и 4 shard-а `windows-e2e`. Стало (`scripts/ci-scope.mjs`, таблица `scripts/e2e-specs.table.json`,
@@ -157,30 +158,44 @@ run на push в `main`. Точку передачи выбрать при claim
   - `playwright.config.ts` не правился: он в `PC_ONLY` `scripts/windows-verdict-scope.mjs`.
   - Windows получает список так: `pnpm test:e2e "--shard=$env:SHARD" @(-split $env:E2E_FILES | Where-Object { $_ })`.
 - **Таблица — три правила, консервативно** (каждое с причиной в поле `why`):
-  - `harness/` (`agents`, `bin`, `hooks`, `lib`, `profiles`, `skills`, `README.md`, `.mcp.json`) — 9 spec-ов:
-    `first-run`, `finder-path`, `harness-install`, `harness-migrate`, `launch`, `projects-connect`, `select`,
-    `settings-health`, `toolbar`. Без правила, то есть весь `test:e2e`: `harness/.claude-plugin/` (версию видит
+  - `harness/` (`agents`, `bin`, `hooks`, `lib`, `profiles`, `skills`, `README.md`, `.mcp.json`) — 10 spec-ов:
+    `first-run`, `finder-path`, `harness-install`, `harness-migrate`, `launch`, `packaged` (его блок без тега
+    `@packaged` проверяет биты исполнения `out/harness`), `projects-connect`, `select`, `settings-health`, `toolbar`. Без правила, то есть весь `test:e2e`: `harness/.claude-plugin/` (версию видит
     каждый spec) и `harness/package.json`.
   - `src/main/link/*` без `caller.ts`, `messages.ts`, `ipc-adapter.ts`, `autopilot-runs.ts`, плюс
-    `src/main/ipc/link.ts` и `linked.ts` — 12 spec-ов `linked-*`, `sidebar-sections`, `focus-sidebar`, `autopilot`.
+    `src/main/ipc/link.ts` и `linked.ts` — 12 spec-ов `linked-*`, `family`, `controls`, `browser-family` (связывают
+    два приложения через `linkThroughUi`), `sidebar-sections`, `focus-sidebar`, `autopilot`.
   - Browser: `src/main/browser/*` без `read-only.ts`, `cdp.ts`, `origins.ts`; `src/main/ipc/browser.ts`;
     `src/renderer/browser/*` без `profiles.ts`; `BrowserLayer.tsx`, `browser-pages.ts`, `BrowserNode.tsx/.css`.
     Spec-и: 10 `browser*`, `linked-browser`, `controls`.
   - Отвергнуты scout-ом и мной: `src/main/terminal`, `terminal-ai` (`shell-link.ts` подключён к каждому
     terminal-у), `src/renderer/pipeline`, `src/renderer/machines`, autopilot, limits, memory.
+- **Ночной run снят** (решение владельца 2026-10-29): каждый push в `main` и так гоняет весь `test:e2e` в полных
+  shard-ах, отдельный ночной run его повторял бы.
+- **Цена пропущенного spec-а** — красный `main` после merge. Правило владельца 2026-10-29: исправление вперёд
+  не дольше 1 часа, затем revert виноватого PR; пока `main` красный, PR с кодом не вливаются.
+- **Ревью, круг 1 (REJECTED):** правило link пропускало `family`, `controls`, `browser-family`, правило Harness —
+  `packaged`. Добавлены. Новый contract test выводит нужные spec-и из кода test-ов и краснеет, если правило не
+  даёт их хотя бы для одного своего файла: link — вызовы link-helper-ов `test/e2e/helpers.ts` (`linkThroughUi`,
+  `launchLinkedPair`, `openMachinesSettings`…), `link-machine-button`, import из `src/main/link/`; Harness —
+  `out/harness`, `expectHarnessCopy` в spec-е или в его helper-ах (`legacy-claude-home.ts`); Browser —
+  `kind: 'browser'`, test id `browser-*`, `webview`, import из `src/*/browser/`. Spec-и сверх найденных
+  (`settings-health`, `autopilot`) правила держат по чтению кода, test их не требует.
 - **Замер на последних 20 PR с кодом (#921–#949):**
   - 7 PR без e2e, как и сейчас; 8 — весь `test:e2e`: `ci.yml`, `test/quarantine.ts`, `test/fixtures`,
     `src/main/autopilot`, `src/main/agent`; 5 — подмножество (#949, #945, #941, #935, #934, все правки Harness).
   - Из 13 PR, которые сейчас гоняют e2e, подмножество получили бы 5 (38 %).
   - Такой PR гоняет 9–11 spec-ов, 125–195 s test-ов вместо 1686 s, в 1 shard-е на macOS и 1 на Windows вместо
-    2 и 4.
-  - Экономия — около 129 минут времени test-ов macOS на 20 PR и 5 macOS- и 15 Windows-job-ов. Самый долгий
+    2 и 4. Замер сделан до круга 1: правило Harness теперь даёт на spec больше (`packaged`, 16 s), то есть
+    10–12 spec-ов и 141–211 s.
+  - Экономия — около 128 минут (129 до круга 1) времени test-ов macOS на 20 PR и 5 macOS- и 15 Windows-job-ов. Самый долгий
     macOS e2e job такого PR — около 2 минут test-ов вместо 14 (плюс установка и сборка, они не меняются).
 - **Проверки:** `pnpm lint`, `pnpm typecheck` — exit 0. `pnpm test` на `ci-scope-e2e`, `ci-workflow`,
   `e2e-shard`, `windows-verdict-scope` — exit 0. 14 мутантов в копии под scratchpad убиты все. gate fast и
-  `ci-ok` PR-а — в отчёте implementer-а.
+  `ci-ok` PR-а — в отчёте implementer-а. Круг 1: `pnpm lint && pnpm typecheck && pnpm test` — exit 0, gate fast —
+  green; 5 мутантов таблицы (убрать `family`, `controls`, `browser-family` из правила link, `packaged` из правила
+  Harness, `browser-family` из правила Browser) новый contract test убивает все.
 - **Открыто (вне этого PR):**
   - тексты Harness: правило 03 в `implementer.md`, формулировка gate full;
   - поле Profile-а со списком путей;
-  - `test:package` по путям;
-  - подтверждение владельцем решения выше.
+  - `test:package` по путям.

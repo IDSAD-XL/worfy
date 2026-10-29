@@ -18,12 +18,13 @@
         "test/e2e/harness-install.spec.ts",
         "test/e2e/harness-migrate.spec.ts",
         "test/e2e/launch.spec.ts",
+        "test/e2e/packaged.spec.ts",
         "test/e2e/projects-connect.spec.ts",
         "test/e2e/select.spec.ts",
         "test/e2e/settings-health.spec.ts",
         "test/e2e/toolbar.spec.ts"
       ],
-      "why": "The app reads its Harness copy (out/harness, src/main/harness/bundled.ts) only to install or migrate it (ipc/harness.ts, ipc/harness-migration.ts), for profiles/draft.schema.json (ipc/projects.ts) and for its version; e2e sessions run the fake agent. These specs copy out/harness or install it and run its scripts (finder-path: bin/profile, bin/ticket, bin/epic-status; projects-connect: bin/project-connect, bin/profile; first-run: profile --help), read hooks/rules and .mcp.json (harness-migrate, select through legacy-claude-home.ts) or check the Harness status (settings-health, toolbar). Every other spec writes its own stub scripts. Left out on purpose: .claude-plugin/ (the version every spec sees) and package.json."
+      "why": "The app reads its Harness copy (out/harness, src/main/harness/bundled.ts) only to install or migrate it (ipc/harness.ts, ipc/harness-migration.ts), for profiles/draft.schema.json (ipc/projects.ts) and for its version; e2e sessions run the fake agent. These specs copy out/harness or install it and run its scripts (finder-path: bin/profile, bin/ticket, bin/epic-status; projects-connect: bin/project-connect, bin/profile; first-run: profile --help), read hooks/rules and .mcp.json (harness-migrate, select through legacy-claude-home.ts) check the Harness status (settings-health, toolbar), or check the executable bits of out/harness (packaged.spec.ts, its untagged block for the dev run of the unpacked build, expectHarnessCopy). Every other spec writes its own stub scripts. Left out on purpose: .claude-plugin/ (the version every spec sees) and package.json."
     },
     {
       "paths": [
@@ -50,6 +51,9 @@
       ],
       "specs": [
         "test/e2e/autopilot.spec.ts",
+        "test/e2e/browser-family.spec.ts",
+        "test/e2e/controls.spec.ts",
+        "test/e2e/family.spec.ts",
         "test/e2e/focus-sidebar.spec.ts",
         "test/e2e/linked-add-project.spec.ts",
         "test/e2e/linked-autopilot.spec.ts",
@@ -65,7 +69,7 @@
         "test/e2e/linked-tailscale.spec.ts",
         "test/e2e/sidebar-sections.spec.ts"
       ],
-      "why": "The link between machines: its remote paths run only with a linked machine (the linked-* specs); sidebar-sections and focus-sidebar show the Link machine button, autopilot.spec.ts reaches service.ts through ipc/autopilot.ts. Left out: caller.ts and messages.ts (every ipc handler calls through them), ipc-adapter.ts (browser/read-only.ts, read by ipc/layout.ts for every canvas) and autopilot-runs.ts (ipc/autopilot.ts)."
+      "why": "The link between machines: its remote paths run only with a linked machine, in the specs that pair two apps (linkThroughUi, launchLinkedPair) or open the Linked machines settings: the linked-* specs, family.spec.ts, controls.spec.ts and browser-family.spec.ts; sidebar-sections and focus-sidebar show the Link machine button, autopilot.spec.ts reaches service.ts through ipc/autopilot.ts. Left out: caller.ts and messages.ts (every ipc handler calls through them), ipc-adapter.ts (browser/read-only.ts, read by ipc/layout.ts for every canvas) and autopilot-runs.ts (ipc/autopilot.ts)."
     },
     {
       "paths": [

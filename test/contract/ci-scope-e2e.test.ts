@@ -3,7 +3,7 @@
 // scripts/e2e-specs.table.json gives it; any other app path, and a path the table does not know, runs
 // every spec file. A push to main runs every spec file in the full shards.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -158,6 +158,80 @@ describe('scripts/e2e-specs.table.json of this repository', () => {
     // git starts here, not while the file loads (test/unit/e2e-no-spawn-on-load.test.ts).
     const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: REPO, encoding: 'utf8' }).split('\0').filter((path) => path !== '')
     for (const rule of rules) for (const [at, matcher] of rule.matchers.entries()) expect(tracked.some((path) => matcher.test(path)), rule.paths[at]).toBe(true)
+  })
+
+  // The spec files that use a feature, found in the code of the e2e tests rather than listed by hand:
+  // each rule must give every one of them for every file it maps.
+  const e2eText = (spec: string): string => readFileSync(join(REPO, spec), 'utf8')
+  /** The text of a spec file and of every helper of test/e2e it imports, at any depth. */
+  function withLocalHelpers(spec: string): string {
+    const seen = new Set<string>()
+    const texts: string[] = []
+    const visit = (file: string): void => {
+      if (seen.has(file)) return
+      seen.add(file)
+      const text = e2eText(file)
+      texts.push(text)
+      for (const [, name = ''] of text.matchAll(/from '\.\/([\w.-]+)'/g)) {
+        const helper = `test/e2e/${name}${name.endsWith('.ts') ? '' : '.ts'}`
+        if (existsSync(join(REPO, helper))) visit(helper)
+      }
+    }
+    visit(spec)
+    return texts.join('\n')
+  }
+  /** The exported names of test/e2e/helpers.ts that link two apps or show the Linked machines settings. */
+  function linkHelpers(): string[] {
+    const names = [...e2eText('test/e2e/helpers.ts').matchAll(/^export (?:async function|function|const|interface|type) (\w+)/gm)].map((match) => match[1] ?? '')
+    return names.filter((name) => /link|machine|keep_?awake|projects_access/i.test(name))
+  }
+  const FAMILIES: Array<{ name: string; path: string; least: number; known: string; uses: (spec: string) => boolean }> = [
+    {
+      name: 'the link between machines',
+      path: 'src/main/link/service.ts',
+      least: 15,
+      known: 'test/e2e/family.spec.ts',
+      uses: (spec) => {
+        const text = e2eText(spec)
+        return linkHelpers().some((name) => new RegExp(`\\b${name}\\b`).test(text)) || text.includes("'link-machine-button'") || /from '[./]*src\/main\/link\//.test(text)
+      },
+    },
+    {
+      name: 'the Harness copy of the build',
+      path: 'harness/hooks/gate.mjs',
+      least: 9,
+      known: 'test/e2e/packaged.spec.ts',
+      uses: (spec) => /out['"]?\s*,\s*['"]harness|out\/harness|expectHarnessCopy|bundledHarness/.test(withLocalHelpers(spec)),
+    },
+    {
+      name: 'the Browser node',
+      path: 'src/main/browser/live.ts',
+      least: 12,
+      known: 'test/e2e/browser.spec.ts',
+      uses: (spec) => /kind: 'browser'|getByTestId\('browser-|webview|from '[./]*src\/(main|renderer|shared)\/browser\//i.test(e2eText(spec)),
+    },
+  ]
+
+  it('finds the link helpers of test/e2e/helpers.ts it looks for', () => {
+    expect(linkHelpers()).toEqual(expect.arrayContaining(['linkThroughUi', 'launchLinkedPair', 'openLinkDialog', 'openMachinesSettings', 'machineIdOf']))
+  })
+
+  it.each(FAMILIES.map((family) => [family.name, family] as const))('gives every spec file that uses %s for every file of its rule', (_name, family) => {
+    const used = specs.filter(family.uses)
+    expect(used.length, 'spec files found').toBeGreaterThanOrEqual(family.least)
+    expect(used).toContain(family.known)
+    const rule = rules.find((r) => r.matchers.some((matcher) => matcher.test(family.path)))
+    expect(rule, `the rule of ${family.path}`).toBeDefined()
+    // git starts here, not while the file loads (test/unit/e2e-no-spawn-on-load.test.ts).
+    const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: REPO, encoding: 'utf8' }).split('\0').filter((path) => path !== '')
+    const mapped = tracked.filter((path) => rule?.matchers.some((matcher) => matcher.test(path)))
+    expect(mapped).toContain(family.path)
+    for (const path of mapped) {
+      const files = e2eSpecs([path], specs, rules).files
+      // null: every spec file; []: a path the app does not carry (harness/bin/tests).
+      if (files === null || files.length === 0) continue
+      expect(used.filter((spec) => !files.includes(spec)), path).toEqual([])
+    }
   })
 
   it('reaches every spec file: each runs when it changes, and the full shards of both jobs run them all', () => {
