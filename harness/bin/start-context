@@ -21,7 +21,7 @@
 //
 // The parts, per agent (AGENTS below):
 //   - definition    agents/<definition>.md without its frontmatter, ${CLAUDE_PLUGIN_ROOT} spelled
-//                   as the folder of this Harness, as Claude Code passes it;
+//                   out as Claude Code passes it, at a worst-case length (ROOT_BYTES below);
 //   - rules         what hooks/inject-rules.mjs common prints for a SubagentStart event in the
 //                   current folder, in two parts: rules/common.md (counted) and the user's
 //                   $HARNESS_HOME/user/rules.md with its heading (not counted);
@@ -33,12 +33,13 @@
 //                   replaces them all;
 //   - brief         the median brief of that agent in the calibration, a fixed number of bytes;
 //   - profile       what bin/profile prints in the current folder; with --profile <path> (a profile
-//                   folder or its profile.json), that profile.json and the rules.md next to it, plus
-//                   PROFILE_HEADER bytes for the lines bin/profile prints around them. Without a
+//                   folder or its profile.json), that profile.json and the rules.md next to it
+//                   without its Sources section, as bin/profile prints it, plus PROFILE_HEADER bytes for the lines bin/profile prints around them. Without a
 //                   profile there is no profile part and no skill part;
 //   - skill         for an agent that follows the profile's skill (the implementer), the SKILL.md of
 //                   the profile's workflow.ticket_skill ("ship-ticket" or "/<plugin>:ship-ticket");
-//                   the other files of the skill folder are read at their own step, not at the start.
+//                   ${CLAUDE_PLUGIN_ROOT} spelled out as in the definition; the other files of the
+//                   skill folder are read at their own step, not at the start.
 //
 // Output: per agent a line with its counted tokens, its verdict and the whole start, then its parts
 // with bytes, tokens and whether they count. A red line names the agent, by how much it is over and
@@ -105,6 +106,18 @@ const AGENTS = {
 // repository and the checkout, two separator lines.
 const PROFILE_HEADER = 200
 const MEMORY_LINES = 200
+// Claude Code spells ${CLAUDE_PLUGIN_ROOT} out as the plugin folder in the agent definition and in
+// the text of SKILL.md (the plugin spike of 2026-10-07 saw it in SKILL.md), and hooks/inject-rules.mjs
+// does the same in common.md. Each placeholder is counted as a worst-case plugin folder of
+// ROOT_BYTES bytes, not as the folder of this copy, so the verdict is the same wherever the Harness
+// is installed: about twice the longest folder seen (70 bytes, the Stable app's
+// …/worfy-stable.app/Contents/Resources/harness); only a folder longer than ROOT_BYTES can take an
+// agent over the threshold unseen. The whole start is then an upper bound, by (ROOT_BYTES - the real
+// folder's length) bytes per placeholder.
+const ROOT_BYTES = 150
+const COUNTED_ROOT = "/" + "x".repeat(ROOT_BYTES - 1)
+const TOKEN = "${CLAUDE_PLUGIN_ROOT}"
+const spellRoot = (text, root) => text.split(TOKEN).join(root)
 
 const USAGE = `usage: start-context [--agent <name>] [--profile <path>] [--instructions <file>]... [--json]
   estimates the starting context of each Harness agent (${Object.keys(AGENTS).join(", ")}) in tokens
@@ -146,22 +159,24 @@ function readText(file) {
     }
 }
 
-// The definition as the model reads it: the body after the frontmatter, the plugin root spelled out.
+// The definition as the model reads it: the body after the frontmatter, the plugin root spelled out
+// (at ROOT_BYTES).
 function definitionText(name) {
     const file = path.join(HARNESS, "agents", `${name}.md`)
     const text = readText(file)
     if (text === null) throw new Usage(`no agent definition ${file}`)
     const body = text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
-    return { file: `agents/${name}.md`, text: body.split("${CLAUDE_PLUGIN_ROOT}").join(HARNESS) }
+    return { file: `agents/${name}.md`, text: spellRoot(body, COUNTED_ROOT) }
 }
 
 // The rules part: exactly what the SubagentStart hook would inject in this folder, split into
-// rules/common.md as the hook spells it (trailing newlines cut, the plugin root spelled out) and the
-// rest — the user's rules with their heading.
+// rules/common.md as the hook spells it (trailing newlines cut, the plugin root spelled out; counted
+// at ROOT_BYTES) and the rest — the user's rules with their heading.
 function rulesParts() {
-    const common = (readText(path.join(HARNESS, "hooks", "rules", "common.md")) ?? "").replace(/\n+$/, "").split("${CLAUDE_PLUGIN_ROOT}").join(HARNESS)
+    const common = (readText(path.join(HARNESS, "hooks", "rules", "common.md")) ?? "").replace(/\n+$/, "")
     const injected = injectedRules()
-    return { common, user: injected.startsWith(common) ? injected.slice(common.length) : "" }
+    const asInjected = spellRoot(common, HARNESS)
+    return { common: spellRoot(common, COUNTED_ROOT), user: injected.startsWith(asInjected) ? injected.slice(asInjected.length) : "" }
 }
 
 function injectedRules() {
@@ -213,6 +228,21 @@ function instructionFiles(given) {
     return found
 }
 
+// The `## Sources` section of rules.md is for whoever maintains the profile: bin/profile and
+// hooks/session-start.mjs leave it out, from a heading that starts with the word to the next `## `
+// heading.
+function withoutSources(text) {
+    let skip = false
+    return text
+        .split("\n")
+        .filter((line) => {
+            // shortcut: accepts the old Russian token, remove after the next release
+            if (line.startsWith("## ")) skip = /^## (Sources|Источники)/.test(line)
+            return !skip
+        })
+        .join("\n")
+}
+
 // The profile part and the skill the profile names: { bytes, label, skill } or null.
 function profilePart(given) {
     if (given) {
@@ -220,7 +250,7 @@ function profilePart(given) {
         if (fs.statSync(given, { throwIfNoEntry: false })?.isFile()) dir = path.dirname(given)
         const json = readText(path.join(dir, "profile.json"))
         if (json === null) throw new Usage(`no profile.json in ${dir}`)
-        const rules = readText(path.join(dir, "rules.md")) ?? ""
+        const rules = withoutSources(readText(path.join(dir, "rules.md")) ?? "")
         let skill = null
         try {
             skill = JSON.parse(json)?.workflow?.ticket_skill ?? null
@@ -237,12 +267,14 @@ function profilePart(given) {
     return { label: "bin/profile output", bytes: bytesOf(run.stdout), skill: skill && skill !== "null" ? skill : null }
 }
 
-// "ship-ticket", "/ship-ticket" or "/plugin:ship-ticket" -> skills/ship-ticket/SKILL.md of this Harness.
+// "ship-ticket", "/ship-ticket" or "/plugin:ship-ticket" -> skills/ship-ticket/SKILL.md of this Harness,
+// the plugin root spelled out (at ROOT_BYTES) as in the definition. Counted with its frontmatter on
+// purpose: whether Claude Code sends it with the skill body is not verified, so the count errs high.
 function skillPart(name) {
     const bare = name.replace(/^\//, "").replace(/^[^:]*:/, "")
     const rel = `skills/${bare}/SKILL.md`
     const text = readText(path.join(HARNESS, rel))
-    return text === null ? { name: `skill ${bare} (not in this Harness)`, bytes: 0 } : { name: `skill ${rel}`, bytes: bytesOf(text) }
+    return text === null ? { name: `skill ${bare} (not in this Harness)`, bytes: 0 } : { name: `skill ${rel}`, bytes: bytesOf(spellRoot(text, COUNTED_ROOT)) }
 }
 
 function estimate(name, shared) {
@@ -271,13 +303,13 @@ function estimate(name, shared) {
 const group = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ")
 
 function printText(results, notes) {
-    const out = [`start-context: threshold ${group(THRESHOLD)} tokens of the Harness's own parts, ${BYTES_PER_TOKEN} bytes per token`]
+    const out = [`start-context: threshold ${group(THRESHOLD)} tokens of the Harness's own parts, ${BYTES_PER_TOKEN} bytes per token, the plugin root counted as ${ROOT_BYTES} bytes`]
     for (const note of notes) out.push(`note: ${note}`)
     for (const r of results) {
         const verdict = r.over
             ? `RED: over the threshold by ${group(r.tokens - THRESHOLD)}; largest part: ${r.largest}`
             : `ok: ${group(THRESHOLD - r.tokens)} below the threshold`
-        out.push(`${r.agent}: ${group(r.tokens)} tokens — ${verdict}; whole start about ${group(r.total)}`)
+        out.push(`${r.agent}: ${group(r.tokens)} tokens — ${verdict}; whole start at most ${group(r.total)}`)
         const line = (name, bytes, tokens, counted) => `  ${name.padEnd(52)} ${bytes.padStart(9)}  ${group(tokens).padStart(7)}  ${counted ? "counted" : "not counted"}`
         for (const p of r.parts.filter((p) => p.counted)) out.push(line(p.name, `${group(p.bytes)} B`, p.tokens, true))
         out.push(line("Claude Code constant", "", r.constant, false))
@@ -298,7 +330,7 @@ function main() {
     const shared = { rules: rulesParts(), instructions: instructionFiles(opts.instructions), profile }
     const names = opts.agent ? [opts.agent] : Object.keys(AGENTS)
     const results = names.map((name) => estimate(name, shared))
-    if (opts.json) process.stdout.write(JSON.stringify({ threshold: THRESHOLD, bytesPerToken: BYTES_PER_TOKEN, notes, agents: results }, null, 2) + "\n")
+    if (opts.json) process.stdout.write(JSON.stringify({ threshold: THRESHOLD, bytesPerToken: BYTES_PER_TOKEN, rootBytes: ROOT_BYTES, notes, agents: results }, null, 2) + "\n")
     else printText(results, notes)
     return results.some((r) => r.over) ? 1 : 0
 }

@@ -69,16 +69,7 @@ line, a Check with its name (`check windows`):
 set -o pipefail; "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field _resolved.pipeline | node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { for (const t of JSON.parse(s)) console.log(t.kind + (t.name ? " " + t.name : "")) })'; echo "EXIT=$?"
 ```
 
-What each Stage means is in skill `/worfy:epic-wave`, section 0; for this loop:
-- Steps 7 and 8 go in the order of the Pipeline. `agent-review` before `ci` — step 7, then step 8,
-  as numbered: the PR is opened only after `review success` on the branch's head, from that head.
-  `agent-review` after `ci` (the default) — step 8 first (the PR and its CI), then step 7 on the PR's
-  head. With no `agent-review` in the Pipeline — step 7 is skipped, and that is said.
-- `check` — step 9 merges only while the PR's head carries `check/<name>` `success` or `skipped`.
-  With no `check` Stage a platform PR still waits for the other platform's verdict (step 9).
-- `human-review` — step 9 waits for the review decision `APPROVED`; `awaiting-merge` — no step 9:
-  people merge, and the ticket stays `claimed` with its PR open until they do.
-- `deploy` — step 11 closes the ticket only after its merge commit is deployed.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/pipeline-stages.md` once step 6 is green, before the step that follows it: how the Stages order steps 7–11.
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/silent-mode.md` when `F _resolved.mode` prints `silent`: the rules of Silent mode (workflow files in the Workflow folder, no trace of the workflow in the branch, commits and PR texts) are there. Full mode (`full`) — everything as written below.
 
@@ -148,17 +139,7 @@ agents; do not switch the global account without the owner's permission: other s
 If `gh` answers "Could not resolve to a Repository", compare `gh auth status` with
 `F github.account` and say so in the report.
 
-**Silent mode branch.** There is no `F tickets.branch` template: the branch is named by what the
-change does, checked and recorded in the ticket before the worktree is created:
-
-```bash
-b=<kind>/<what-the-change-does>        # fix/lot-withdraw-button — no epic name, ticket or ADR number
-if "${CLAUDE_PLUGIN_ROOT}/bin/silent-check" -C <repo> "$b"; then          # prints the traces it finds
-  (cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/ticket" claim <epic> <NN> --branch "$b"); echo "EXIT=$?"   # Status and Branch: in the Workflow folder
-else echo "RENAME: the branch name carries a trace of the workflow"; fi
-```
-
-`<branch>` in the templates below is then `$b`.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-2-silent-branch.md` in Silent mode, before the worktree: it names the branch by the change and records it in the ticket.
 
 **`parallel: worktrees`.** Work from your own worktree from the first minute (`F worktree.implementer`,
 where `<branch>` = `F tickets.branch` (Silent mode: the branch above), `<ticket-name>` = `<NN>-<slug>`, and `<epic>`, `<NN>`, `<slug>`
@@ -180,19 +161,7 @@ previous ticket's local merge, step 11; see `/worfy:epic-wave`).
 The step exists only if the profile keeps numbers: `F numbering.adr` or `F numbering.migrations`.
 Both `null` or absent — "the project has no ADR or migration numbers, step 3 skipped".
 
-Take the next free number from the output of step 2; do not run it a second time (the preflight's
-`ADR:` and `migrations:` lines; details — `rules.md`). If the preflight could not run, the number
-is printed by `"${CLAUDE_PLUGIN_ROOT}/bin/preflight"` from a repository checkout. Count across all `origin/*` and local branches, not
-within one directory. A number is taken with a placeholder at once and the content is written
-later: that is how 0039 turned into 0059, when two sessions took the same number. In Silent mode the
-ADRs are files of the Workflow folder, in no branch: the preflight counts them there, and the
-placeholder is a file in the Workflow folder's ADR directory, not a commit in the repository.
-
-Migrations — only with `F numbering.migrations.generate`. Order is kept by the field
-`F numbering.migrations.order_key` in `F numbering.migrations.journal`, not by the file name; what
-happens when two green branches merge and how to fix it — `rules.md`. For reference: a duplicate
-ADR number and a broken migration order are caught later by `F numbering.adr.check` and
-`F numbering.migrations.check`; do not run them as a separate step here.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-3-numbers.md` when the profile keeps numbers: where the next free number comes from, the placeholder, and the order of migrations.
 
 ## 4. Failing test first
 
@@ -246,18 +215,8 @@ Test runners run once only, never in watch mode (vitest — `vitest run`): a wat
 exits, and the agent hangs.
 The gate gives the verdict: `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"`
 — always with stdin closed: the script is written for a hook and first reads the hook's JSON from
-stdin. On an open stdin that sends nothing it waits 2 s before it starts, and a signal in those
-2 s may leave the verdict of an earlier run in place (the bash gate before it waited on `cat`
-forever: a ticket once stood like that for ten hours).
-Gate exit codes: `0` — green, only if the output has the line `[gate] green (…)` (exit code 0
-with `[gate] nothing ran (…)` or `[gate] not verified — environment unavailable:` is not a
-check); `2` — red, fix it; `3` — not verified, neither green nor red: the
-line `[gate] not verified: …` names the reason (project not registered, registry
-unreadable, resolver crashed); `127` — node is not on PATH and the gate never started; 128 + the
-signal number — `129`, `130`, `143`, `149` (SIGHUP, SIGINT, SIGTERM, Ctrl+Break of Windows) — the
-gate itself was stopped and this run wrote nothing. On exit code 3, 127, 129, 130, 143 or 149 do
-not merge and do not call the ticket done: the work is not verified, the code
-goes into the report as "not verified", and on 3 or 127 a human fixes the environment.
+stdin.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-6-gate-codes.md` when the gate gives anything but exit code 0 with the line `[gate] green (…)`: what each exit code means and what to do.
 
 With `local-green` a green step 6 is the ticket's finish as far as code goes: next are step 7
 (review) and step 11 (close, with the local merge), steps 8–10 are skipped.
