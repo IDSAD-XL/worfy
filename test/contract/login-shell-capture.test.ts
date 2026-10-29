@@ -66,7 +66,7 @@ async function until(done: () => boolean, what: string, limit: number): Promise<
   const wait = ms(limit)
   const end = Date.now() + wait
   while (!done()) {
-    if (Date.now() > end) throw new Error(`not within ${wait} wait: ${what}`)
+    if (Date.now() > end) throw new Error(`not within ${wait} ms: ${what}`)
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
 }

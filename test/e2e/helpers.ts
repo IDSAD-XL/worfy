@@ -185,7 +185,7 @@ async function saveArtifacts(app: ElectronApplication, window: Page, tracing: bo
   const info = currentTest()
   if (!info) return
   const screenshot = info.outputPath(`${APP_SCREENSHOT}-${info.retry}-${Date.now()}.png`)
-  if (await within(window.screenshot({ path: screenshot, timeout: ms(5_000) }), 6_000)) {
+  if (await within(window.screenshot({ path: screenshot, timeout: ms(5_000) }), ms(6_000))) {
     await info.attach(APP_SCREENSHOT, { path: screenshot, contentType: 'image/png' })
     await removeDir(screenshot)
   }

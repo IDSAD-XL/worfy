@@ -95,6 +95,12 @@ Source: решение владельца 2026-10-29 — «множитель м
   `linked-opening.spec.ts`. Длительность действия, а не предел (`snapping.spec.ts:350`, `:450`,
   `epic-frame.spec.ts:1162` — 2 и 5 s движения мыши), не тронута. Эти ожидания scanner не видит (форма у каждого
   своя): новый такой цикл держится на ревью.
+- Запасы под пределы, которые сами умножены: `CLEANUP_MARGIN_MS` (`test/e2e/start-diagnosis.ts`, запас на
+  `GONE_TIMEOUT_MS` и `PID_TIMEOUT_MS`) — `ms(15_000)`; внешний `within(…)` снимка экрана в `test/e2e/helpers.ts` —
+  `ms(6_000)` поверх `ms(5_000)`. Сообщение `test/script-node.ts` строится из той же константы (`ANSWER_MS`).
+- `playwright.config.ts`: `globalTimeout` 40 min только в CI, без множителя: он отвечает фиксированному
+  `timeout-minutes: 45` job-а `macos-e2e`, и run нескольких зависших test-ов кончается в Playwright строками FAIL,
+  а не отменой job-а. Локально (gate full, ПК) предела нет: там нечего опережать.
 - Два локальных `ms` (переменные времени в `terminal.test.ts` и `terminal-ai-zle.test.ts`) переименованы в `took`.
 - `test/contract/test-timeout-scale.test.ts` + scanner `test/timeout-literals.ts` (AST): предел test-а как голое
   число (литерал или арифметика литералов) — красный test с `файл:строка`. Смотрит `test/**` (кроме
@@ -120,7 +126,8 @@ Source: решение владельца 2026-10-29 — «множитель м
 
 - Зелёный run не дольше. Полный `pnpm test --maxWorkers=9` на Mac: exit 0, 473 файла, 161,6 s wall, сумма времён
   файлов 1164 s; полный run worktree #1023 на той же машине за 2 минуты до того (множитель 1) — 176,1 s wall, 1259 s.
-  Медленнее намеренно только пауза `chokidar-close` (200 → 600 ms).
+  Медленнее стали ожидания, которые test ждёт до конца: пауза `chokidar-close` (200 → 600 ms) и ожидаемый отказ
+  в `autopilot-background.test.ts:611` (`until(…, 'no wave-finished', 300)` теперь ждёт 900 ms до `rejects`).
 - Зависший test ловится позже: на (3 − 1) × предел за попытку, а CI повторяет упавший test один раз
   (`CI_RETRIES`). Unit: 5 → 15 s (+20 s с повтором); contract: 15 → 45 s (+60 s); hook: 10 → 30 s; e2e: 60 → 180 s
   на test (+240 s с повтором). На Windows пределы vitest по умолчанию не изменились.
@@ -155,8 +162,11 @@ Source: решение владельца 2026-10-29 — «множитель м
   `test/acceptance/e3.spec.ts:414` (10 000), `test/e2e/card-runtime.spec.ts:125` (≤ 1000),
   `test/e2e/linked-cards.spec.ts:260` (≤ 1000), `test/e2e/edges.spec.ts:372` (≤ 100),
   `test/e2e/epic-frame.spec.ts:346` (≤ 1000), `test/e2e/tidy-up.spec.ts:263` (`BUDGET_MS`), бюджеты старта
-  `test/e2e/start-budget.ts` (`START_MS`, `RUNNER_START_CAP_MS`). `harness-scripts.test.ts:447`, `:469`, `:491` уже
-  умножены на `timeScale` и теперь ×3 и на Mac.
+  `test/e2e/start-budget.ts` (`START_MS`, `RUNNER_START_CAP_MS`).
+- Бюджеты, которые уже были умножены на `timeScale` и теперь ×3 и на Mac/Linux (то есть мягче, чем были):
+  `test/contract/harness-scripts.test.ts:447` (`(1_000 + CLOSE_GRACE_MS + 3_000) * timeScale`), `:469`
+  (`(CLOSE_GRACE_MS + 3_000) * timeScale`), `:491` (`3_000 * timeScale`). Файл — #1023, здесь не тронут; решение
+  о них — вместе с остальными бюджетами, у владельца.
 - Помечены `// unscaled:`: `test/unit/session-history-tail.test.tsx:626` (timeout test-а — бюджет чтения: линейно,
   не квадратично); `test/contract/e3-sandbox.test.ts:1061`, `:1073` (команда должна ещё ждать, когда окно 2,5 s
   кончится; длиннее — только медленнее); `test/e2e/canvas-layout.spec.ts:523` (ожидаемая ошибка называет 1000 ms);

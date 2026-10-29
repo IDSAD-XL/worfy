@@ -206,7 +206,7 @@ function nextSnapshot(sent: PipelineSnapshot[], match: (snapshot: PipelineSnapsh
     const poll = () => {
       const found = sent.slice(start).find(match)
       if (found) return resolvePromise(found)
-      if (Date.now() > deadline) return reject(new Error(`no matching pipeline.changed within ${wait} wait; last: ${JSON.stringify(sent.at(-1)?.tickets ?? null)}`))
+      if (Date.now() > deadline) return reject(new Error(`no matching pipeline.changed within ${wait} ms; last: ${JSON.stringify(sent.at(-1)?.tickets ?? null)}`))
       setTimeout(poll, 10)
     }
     poll()

@@ -181,7 +181,7 @@ function nextDelta(deltas: WorkflowDelta[], match: (delta: WorkflowDelta) => boo
     const poll = () => {
       const found = deltas.slice(start).find(match)
       if (found) return resolvePromise({ delta: found, at: performance.now() })
-      if (Date.now() > deadline) return reject(new Error(`no matching workflow delta within ${wait} wait; got ${JSON.stringify(deltas.slice(start))}`))
+      if (Date.now() > deadline) return reject(new Error(`no matching workflow delta within ${wait} ms; got ${JSON.stringify(deltas.slice(start))}`))
       setTimeout(poll, 10)
     }
     poll()
@@ -1230,7 +1230,7 @@ async function until(what: string, done: () => boolean, limit = 5000): Promise<v
   const wait = ms(limit)
   const end = Date.now() + wait
   while (!done()) {
-    if (Date.now() > end) throw new Error(`timed out after ${wait} wait waiting for ${what}`)
+    if (Date.now() > end) throw new Error(`timed out after ${wait} ms waiting for ${what}`)
     await pause(10)
   }
 }

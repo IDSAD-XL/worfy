@@ -70,6 +70,11 @@ export default defineConfig({
   // limit a spec sets for itself through ms. 5 s is Playwright's own default of expect.
   timeout: ms(60_000),
   expect: { timeout: ms(5_000) },
+  // In CI the whole run ends at 40 min, before the 45-min limit of the macos-e2e job (.github/workflows/ci.yml)
+  // cancels it: a run of several hung tests then ends in Playwright, with a FAIL line for each, not in a
+  // cancelled job. Not times the multiplier: it answers to the job's fixed limit, not to the speed of a machine.
+  // None outside CI: a local run (gate full, the Windows PC) has no job limit to beat.
+  globalTimeout: process.env.CI ? 40 * 60_000 : 0,
   retries: CI_RETRIES,
   reporter: [['list'], ['./test/e2e/helpers.ts'], ['./test/e2e/flaky-reporter.ts'], ['json', { outputFile: jsonReport }]],
   use: {

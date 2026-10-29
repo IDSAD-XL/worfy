@@ -25,6 +25,9 @@ import { ms } from './time-scale'
  * The node `env` names, checked by starting it once: its absolute path. Throws when it does not start or
  * is Electron. `env` is process.env except in tests of this function.
  */
+/** How long the node may take to answer: 30 s times the run's multiplier. */
+const ANSWER_MS = ms(30_000)
+
 export function findScriptNode(env: Readonly<Record<string, string | undefined>>): string {
   const fromPnpm = env.npm_node_execpath
   const candidate = fromPnpm === undefined || fromPnpm === '' ? 'node' : fromPnpm
@@ -34,7 +37,7 @@ export function findScriptNode(env: Readonly<Record<string, string | undefined>>
   const run = spawnSync(candidate, ['-p', 'JSON.stringify([process.execPath, process.versions.electron ?? null])'], {
     encoding: 'utf8',
     env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
-    timeout: ms(30_000),
+    timeout: ANSWER_MS,
     windowsHide: true,
   })
   const fail = (why: string): never => {
@@ -44,7 +47,7 @@ export function findScriptNode(env: Readonly<Record<string, string | undefined>>
   }
   if (run.error !== undefined) {
     const timedOut = (run.error as NodeJS.ErrnoException).code === 'ETIMEDOUT'
-    return fail(timedOut ? 'started but did not answer within 30 s' : `did not start (${run.error.message})`)
+    return fail(timedOut ? `started but did not answer within ${ANSWER_MS / 1000} s` : `did not start (${run.error.message})`)
   }
   if (run.status !== 0) return fail(`exited with ${run.status ?? run.signal}: ${run.stderr.trim()}`)
   let answer: unknown

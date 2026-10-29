@@ -29,7 +29,7 @@ export async function until(what: string, done: () => boolean, limit = 5000): Pr
   const wait = ms(limit)
   const end = performance.now() + wait
   while (!done()) {
-    if (performance.now() > end) throw new Error(`timed out after ${wait} wait waiting for ${what}`)
+    if (performance.now() > end) throw new Error(`timed out after ${wait} ms waiting for ${what}`)
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
 }
