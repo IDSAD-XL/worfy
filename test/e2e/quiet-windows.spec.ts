@@ -37,9 +37,11 @@ test('the window is on screen but takes no focus, has no Dock icon and is transp
     expect(state.anyFocused).toBe(false)
     // Linux has no window opacity: getOpacity() answers 1 there whatever was set.
     if (process.platform !== 'linux') expect(state.opacity).toBe(0)
-    // Only macOS has a Dock (app.dock is undefined elsewhere).
+    // Only macOS has a Dock (app.dock is undefined elsewhere). The activation policy is set before
+    // the first window, but macOS may take it in later on a loaded Mac: the Dock is read until it
+    // says so, not once.
     if (process.platform === 'darwin') {
-      expect(await launched.app.evaluate(({ app }) => app.dock?.isVisible())).toBe(false)
+      await expect.poll(() => launched.app.evaluate(({ app }) => app.dock?.isVisible()), { message: 'the Dock icon' }).toBe(false)
     }
   } finally {
     await launched.close()
@@ -88,9 +90,12 @@ test('a window worfy opens later is quiet too: shown inactive, transparent, and 
       app.on('window-all-closed', () => undefined)
       const [first] = BrowserWindow.getAllWindows()
       if (first === undefined) throw new Error('no window')
+      // destroy(), not close(): close() asks the page first and waits for its answer, and a page that
+      // did not answer left 'closed' waiting past the test's timeout on the macOS runner. This test
+      // checks the window opened after; how the first one goes is not its subject.
       await new Promise<void>((done) => {
         first.once('closed', () => done())
-        first.close()
+        first.destroy()
       })
       // A second start with no window open: worfy opens one (src/main/index.ts, second-instance).
       app.emit('second-instance', {}, [], process.cwd(), {})
