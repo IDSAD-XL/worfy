@@ -3,7 +3,7 @@
 # verdict check, the stand-in package manager, the fixture repositories and their registry, and
 # finish, which checks that no temporary file of the gate is left and prints the count. Not a test
 # of its own (no .test.sh). The three files were one, which took 106 s on the macOS runner and was
-# cut off at the 120 s limit of a shell test in test/contract/harness-scripts.test.ts.
+# cut off at the 120 s limit of a shell test in test/harness-scripts-suite.ts.
 #
 # The registry, the state folder and the repositories are temporary (CLAUDE_GATE_CONFIG,
 # CLAUDE_GATE_STATE): the test does not touch the live registry or markers.

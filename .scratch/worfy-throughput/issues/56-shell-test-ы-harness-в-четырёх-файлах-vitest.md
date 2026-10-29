@@ -112,3 +112,29 @@ average 9–15 во время всех run-ов: на Mac работали др
 - Список выполненных shell test-ов до и после совпадает в обоих run-ах: 55 из 55, все `passed`, `diff` пустой.
   Части CI: `HARNESS_SCRIPTS_PART=1/2` — 28, `2/2` — 27, вместе 55 без повторов; файлы 2–4 в части — 0 shell test-ов.
 - Деление по таблице: Windows — 421/421/419/418 s на файл, Mac — 211/211/211/210 s (секунды при пяти сразу).
+
+### Красный CI первого push-а (run 40939802575) и исправление
+
+- Причина одна на все четыре красных job-а. Step `windows-tests.yml` передавал файлы как `pnpm test
+  @(-split $env:HARNESS_SCRIPTS)`. Выражение-массив `@(…)` доходит до функции или скрипта PowerShell одним
+  аргументом, в котором лежит массив. На runner-е `pnpm` — shim `pnpm.ps1` из corepack: он отдал node одну строку
+  с четырьмя путями через пробел (`node scripts/vitest-electron.mjs "test/contract/harness-scripts-1.test.ts …
+  -4.test.ts"`), фильтр vitest не совпал ни с одним файлом, и vitest вышел с кодом 1: «No test files found»
+  (`windows (harness-scripts 1/2)` и `2/2`, ~1 min). Тот же step под stub-функцией `pnpm` в
+  `windows-tests-workflow.test.ts` напечатал `test System.Object[]`, отсюда красные `linux-tests (3/4)` и
+  `windows (3/3)` (PowerShell есть на обоих runner-ах).
+- Исправление: `$files = -split $env:HARNESS_SCRIPTS; pnpm test @files` — splatting переменной даёт каждый путь
+  отдельным аргументом. Stub в contract test-е печатает каждый аргумент в своих `<>`, так что склеенный аргумент
+  виден. Mutation check: со старой строкой этот test красный на двух случаях части (`<… … … …>` вместо четырёх
+  `<…>`); воспроизведено и на PowerShell 7.6.9 с shim-ом `.ps1`, который передаёт `$args` в node.
+- Защита от job-а без shell test-ов. Фильтр без совпадений — уже красный: `--passWithNoTests` в этом step нет, и
+  run 40939802575 сам это показал. Добавлено: case «runs its share» в файле 1 с частью (и в каждом файле без
+  части) требует хотя бы один shell test. Mutation check: `inPart` возвращает `[]` → `expected 0 to be greater
+  than 0`, exit 1.
+- Нагрузка на Linux: shard-ы `linux-tests (1/4)` и `(2/4)` гоняли по два файла сразу. Время каждого shell test-а
+  в run-е PR против двух run-ов `main` (40938293043, 40927995527, худшее из двух): самый долгий — 72,4 s против
+  76,0 s на `main`, рост больше 1,3× только у `gate-args.test.sh` (1,7 → 2,4 s); большинство стали быстрее. Предел
+  120 s не ближе, чем на `main`, конкурентность на CI не менялась.
+- Устаревшие ссылки на удалённый `test/contract/harness-scripts.test.ts`: `harness/README.md`,
+  `harness/bin/tests/wave-gate.test.sh`, `harness/hooks/tests/gate-verdict-world.sh`, `docs/lessons/README.md`.
+  Скрипта, который читает это имя, нет (`git grep` по `harness/`, `scripts/`, `*.json`, `*.mjs`, `*.yml`).

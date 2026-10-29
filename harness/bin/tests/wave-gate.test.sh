@@ -7,7 +7,7 @@
 # Below — the wave-gate blocks of skills/epic-wave/SKILL.md, and its gate full block of one PR with holder.json in the
 # e2e lock, cut out of the file and run under bash and zsh.
 # The setup and the stubs are in wave-gate-world.sh. The other cases are split by theme, so each file stays well
-# inside the per-file time limit of test/contract/harness-scripts.test.ts on a loaded machine: resume, the merges,
+# inside the per-file time limit of test/harness-scripts-suite.ts on a loaded machine: resume, the merges,
 # the pid file and batch CI in wave-gate-merge.test.sh; the e2e lock in wave-gate-lock.test.sh; the screen and
 # caffeinate in wave-gate-screen.test.sh.
 # Run: bash harness/bin/tests/wave-gate.test.sh; exit code 0 — everything passed.

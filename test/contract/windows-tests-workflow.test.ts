@@ -96,7 +96,7 @@ const REFUSE = ['test -z "$TEST_FILES" || { echo "::error::mode full runs the wh
  * of ci.yml run every test file once.
  */
 const SUITE = [
-  "if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; if ($env:TEST_FILES -and -not ((-split $env:TEST_FILES) | Where-Object { (-split $env:HARNESS_SCRIPTS) -contains $_ })) { 'The list has no harness-scripts file: nothing to run' } else { pnpm test @(-split $env:HARNESS_SCRIPTS) } }",
+  "if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; if ($env:TEST_FILES -and -not ((-split $env:TEST_FILES) | Where-Object { (-split $env:HARNESS_SCRIPTS) -contains $_ })) { 'The list has no harness-scripts file: nothing to run' } else { $files = -split $env:HARNESS_SCRIPTS; pnpm test @files } }",
   'elseif ($env:SHARD) { $env:WORFY_TEST_EXCLUDE = $env:HARNESS_SCRIPTS; $env:WORFY_TEST_FILES = $env:TEST_FILES; pnpm test "--shard=$env:SHARD" }',
   'else { pnpm test }',
 ]
@@ -284,6 +284,8 @@ describe('.github/workflows/windows-tests.yml', () => {
 
   // The step under PowerShell, with pnpm a function that prints what it was given: what each job of a
   // shard, a part of the Harness shell tests or a dispatch runs, with and without a pull request's list.
+  // Each argument prints in its own <>: run 40939802575 handed the four files to pnpm as one argument
+  // (`@(-split …)` reaches a function or the pnpm.ps1 shim as one array), and vitest found no file.
   // PowerShell ships on the Windows and Linux runners; a machine without it skips these cases.
   let pwsh: string | null | undefined
   /** The PowerShell of this machine, looked for once, when a case first runs (never while the file loads). */
@@ -292,16 +294,16 @@ describe('.github/workflows/windows-tests.yml', () => {
     return pwsh
   }
   it.for([
-    ['a shard with a list', '2/3', 'test/unit/a.test.ts test/contract/harness-scripts-1.test.ts', 'pnpm [test --shard=2/3] files=[test/unit/a.test.ts test/contract/harness-scripts-1.test.ts] exclude=[test/contract/harness-scripts-1.test.ts test/contract/harness-scripts-2.test.ts test/contract/harness-scripts-3.test.ts test/contract/harness-scripts-4.test.ts] part=[]'],
-    ['a shard without a list', '1/3', '', 'pnpm [test --shard=1/3] files=[] exclude=[test/contract/harness-scripts-1.test.ts test/contract/harness-scripts-2.test.ts test/contract/harness-scripts-3.test.ts test/contract/harness-scripts-4.test.ts] part=[]'],
-    ['a part, the list has one of the files', 'harness-scripts 1/2', 'test/unit/a.test.ts test/contract/harness-scripts-3.test.ts', 'pnpm [test test/contract/harness-scripts-1.test.ts test/contract/harness-scripts-2.test.ts test/contract/harness-scripts-3.test.ts test/contract/harness-scripts-4.test.ts] files=[] exclude=[] part=[1/2]'],
+    ['a shard with a list', '2/3', 'test/unit/a.test.ts test/contract/harness-scripts-1.test.ts', 'pnpm [<test> <--shard=2/3>] files=[test/unit/a.test.ts test/contract/harness-scripts-1.test.ts] exclude=[test/contract/harness-scripts-1.test.ts test/contract/harness-scripts-2.test.ts test/contract/harness-scripts-3.test.ts test/contract/harness-scripts-4.test.ts] part=[]'],
+    ['a shard without a list', '1/3', '', 'pnpm [<test> <--shard=1/3>] files=[] exclude=[test/contract/harness-scripts-1.test.ts test/contract/harness-scripts-2.test.ts test/contract/harness-scripts-3.test.ts test/contract/harness-scripts-4.test.ts] part=[]'],
+    ['a part, the list has one of the files', 'harness-scripts 1/2', 'test/unit/a.test.ts test/contract/harness-scripts-3.test.ts', 'pnpm [<test> <test/contract/harness-scripts-1.test.ts> <test/contract/harness-scripts-2.test.ts> <test/contract/harness-scripts-3.test.ts> <test/contract/harness-scripts-4.test.ts>] files=[] exclude=[] part=[1/2]'],
     ['a part, the list has none of them', 'harness-scripts 2/2', 'test/unit/a.test.ts test/unit/harness-scripts-1.test.ts.md test/contract/harness-scripts.test.ts', 'The list has no harness-scripts file: nothing to run'],
-    ['a part without a list', 'harness-scripts 2/2', '', 'pnpm [test test/contract/harness-scripts-1.test.ts test/contract/harness-scripts-2.test.ts test/contract/harness-scripts-3.test.ts test/contract/harness-scripts-4.test.ts] files=[] exclude=[] part=[2/2]'],
-    ['a dispatch', '', '', 'pnpm [test] files=[] exclude=[] part=[]'],
+    ['a part without a list', 'harness-scripts 2/2', '', 'pnpm [<test> <test/contract/harness-scripts-1.test.ts> <test/contract/harness-scripts-2.test.ts> <test/contract/harness-scripts-3.test.ts> <test/contract/harness-scripts-4.test.ts>] files=[] exclude=[] part=[2/2]'],
+    ['a dispatch', '', '', 'pnpm [<test>] files=[] exclude=[] part=[]'],
   ] as const)('mode full: the step that runs the suite under PowerShell, %s', ([, shard, list, printed], { skip }) => {
     const shell = findPwsh()
     if (shell === null) return skip('no PowerShell on this machine')
-    const stub = 'function pnpm { "pnpm [$args] files=[$env:WORFY_TEST_FILES] exclude=[$env:WORFY_TEST_EXCLUDE] part=[$env:HARNESS_SCRIPTS_PART]" }'
+    const stub = 'function pnpm { "pnpm [$(($args | ForEach-Object { "<$_>" }) -join " ")] files=[$env:WORFY_TEST_FILES] exclude=[$env:WORFY_TEST_EXCLUDE] part=[$env:HARNESS_SCRIPTS_PART]" }'
     const env: NodeJS.ProcessEnv = { ...process.env, SHARD: shard, HARNESS_SCRIPTS: HARNESS_SCRIPTS_FILES.join(' '), TEST_FILES: list }
     for (const name of ['WORFY_TEST_FILES', 'WORFY_TEST_EXCLUDE', 'HARNESS_SCRIPTS_PART']) delete env[name]
     const result = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command', [stub, ...SUITE].join('\n')], { encoding: 'utf8', env })

@@ -304,6 +304,9 @@ export function harnessScripts(file: number): void {
       const expected = part ? (file === 1 ? inPart(names, part) : []) : inFile(names, file, count, MEASURED)
       expect([...toRun].sort()).toEqual([...expected].sort())
       expect(toRun).toEqual(startOrder(toRun, MEASURED))
+      // A file meant to run shell tests runs at least one, so a Windows job of a part (file 1 with
+      // HARNESS_SCRIPTS_PART) that would run none is red, not green with only these cases passing.
+      if (!part || file === 1) expect(toRun.length, `shell tests of file ${file}, part ${process.env.HARNESS_SCRIPTS_PART || 'none'}`).toBeGreaterThan(0)
     })
 
     // The cases that check this runner, not a shell test: file 1 holds them, once per run.
