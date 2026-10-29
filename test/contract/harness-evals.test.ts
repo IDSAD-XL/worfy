@@ -364,15 +364,17 @@ describe('harness/evals: the cases', () => {
 
   // The reviewer's lens "implementer's report" (agents/reviewer.md) starts the answer with
   // `REJECTED: <the unconfirmed claims>`, and one verdict only: VERIFIED never shares that line. The
-  // grader reads the saved answer the way scripts/eval-outcome-check.mjs runs a regex grader.
+  // grader reads the saved answer the way `claude plugin eval` runs a regex grader: new RegExp(pattern,
+  // flags) on the text as it is, no trim, so with no `m` flag `^` is the start of the answer.
   it('reviewer-verdict: the rejected-first grader takes one REJECTED: verdict and refuses a missing colon or a second verdict', () => {
     const grader = frontMatter(join(EVALS, 'reviewer-verdict', 'graders', 'rejected-first.md'))
     const pattern = new RegExp(field(grader, 'pattern') ?? '<none>', field(grader, 'flags') ?? '')
-    const grade = (answer: string): boolean => pattern.test(answer.trim())
+    const grade = (answer: string): boolean => pattern.test(answer)
     const claim = '`node --test` exits 0 — it exits 1 (reported 0, mine 1)'
     expect(grade(`REJECTED: ${claim}`)).toBe(true)
     expect(grade(`REJECTED: ${claim}\nRan: node --test, exit code 1.\nThe other claims: VERIFIED by re-reading.`)).toBe(true)
     expect(grade(`REJECTED: ${claim}\r\nRan: node --test, exit code 1.\r\n`)).toBe(true)
+    expect(grade(`Ran: node --test.\nREJECTED: ${claim}`)).toBe(false)
     expect(grade(`REJECTED — ${claim}`)).toBe(false)
     expect(grade(`REJECTED ${claim}`)).toBe(false)
     expect(grade(`REJECTED: ${claim}; VERIFIED: the rest`)).toBe(false)
