@@ -99,6 +99,7 @@ const APP_FILES = new Set([
   'tsconfig.web.json',
   'scripts/dev-bundle.ts',
   'scripts/ci-display.js',
+  'scripts/e2e-shard.mjs',
   'test/harness-node.ts',
   'test/zsh.ts',
   'test/windows-profile.ts',

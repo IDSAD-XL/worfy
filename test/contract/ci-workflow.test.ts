@@ -156,7 +156,15 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     // The test files ci-scope.mjs names, none (every file) but on a pull request.
     expect(runs('macos-tests')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test $FILES'])
     expect(job('macos-tests')).toContain('          FILES: ${{ needs.changes.outputs.macos-tests-files }}')
-    expect(runs('macos-e2e')).toEqual(['pnpm install --frozen-lockfile', 'osascript -l JavaScript scripts/ci-display.js', 'pnpm test:e2e "--shard=$SHARD"'])
+    // The shard's spec files come from scripts/e2e-shard.mjs (split by measured time), not --shard.
+    expect(runs('macos-e2e')).toEqual([
+      'pnpm install --frozen-lockfile',
+      'osascript -l JavaScript scripts/ci-display.js',
+      'node scripts/e2e-shard.mjs "$SHARD"',
+      'pnpm test:e2e $FILES',
+    ])
+    expect(job('macos-e2e')).toContain('          FILES: ${{ steps.shard.outputs.files }}')
+    expect(job('macos-e2e')).toContain('        id: shard')
     // electron-builder needs the binary that Electron downloads only on its first require.
     expect(runs('macos-package')).toEqual(['pnpm install --frozen-lockfile', `node -e "require('electron')"`, 'pnpm test:package'])
     // Windows: the job full-suite of windows-tests.yml, which runs pnpm test with the shard it is
@@ -559,6 +567,8 @@ describe('scripts/ci-scope.mjs', () => {
     'scripts/dev-bundle.ts',
     'scripts/build-version.ts',
     'scripts/ci-display.js',
+    'scripts/e2e-shard.mjs',
+    'test/e2e/timings.json',
   ])('a pull request that changes %s, which the e2e run builds or reads, runs macos-e2e', (file) => {
     commitOnBase([file])
     const pr = scope({ EVENT: 'pull_request', BASE: base })

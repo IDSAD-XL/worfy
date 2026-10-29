@@ -15,7 +15,8 @@ name: CI
 # - macos-tests: pnpm test on macOS in one job: the tests that run on macOS only are checked here. A
 #   push to main runs every file; a pull request the files with a macOS-only test or assertion
 #   (scripts/ci-scope.mjs, output macos-tests-files).
-# - macos-e2e: pnpm test:e2e on macOS in 2 shards (Playwright --shard), Electron with a window.
+# - macos-e2e: pnpm test:e2e on macOS in 2 shards, Electron with a window. scripts/e2e-shard.mjs gives
+#   each shard its spec files by their measured time (test/e2e/timings.json), not by test count.
 # - macos-package: pnpm test:package on macOS: the packaged .app. On every push to main, and on a
 #   pull request that changes a build input (scripts/ci-scope.mjs: package.json, the lockfile, the
 #   build configs, build/, the scripts the .app ships, the packaged tests, the workflows).
@@ -222,11 +223,22 @@ jobs:
       # system_profiler lists no display on the runner's virtual machine; AppKit gives the size.
       - name: Show the display of the runner
         run: osascript -l JavaScript scripts/ci-display.js
-      # Builds the app into out/ and drives it with Playwright; the shard goes to playwright test.
-      - name: Run the e2e tests, one shard
+      # Playwright's --shard splits by the count of tests and left the heavy spec files almost all in
+      # shard 1: 900–1121 s against 696–925 s for shard 2 on main (runs 40770425114 to 40788089367).
+      # scripts/e2e-shard.mjs splits the spec files by their seconds in test/e2e/timings.json instead,
+      # about 843 s of tests each, and hands this shard's files to the next step (output files). The
+      # file names are plain, one word each, so the shell splits the list on its spaces. The script
+      # fails rather than hand an empty list, which would run every file.
+      - name: Pick the spec files of this shard
+        id: shard
         env:
           SHARD: ${{ matrix.shard }}
-        run: pnpm test:e2e "--shard=$SHARD"
+        run: node scripts/e2e-shard.mjs "$SHARD"
+      # Builds the app into out/ and drives it with Playwright, on the spec files of this shard.
+      - name: Run the e2e tests, one shard
+        env:
+          FILES: ${{ steps.shard.outputs.files }}
+        run: pnpm test:e2e $FILES
       # A failing e2e test keeps the app's trace and a screenshot of its window under test-results/.
       - if: failure()
         uses: actions/upload-artifact@v7

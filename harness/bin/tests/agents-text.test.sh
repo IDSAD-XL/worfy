@@ -125,6 +125,9 @@ got="$(jq -c '.sign_in_needed' "$T/report.json" 2>&1)"
 for f in "$NEEDED" "$EXPIRED" 'Sign-in expired in Browser profile "<name>"' '`Browser roles`' 'never sign in yourself'; do
     flat_has "$AGENTS/implementer.md" "$f" && ok "implementer: Browser checks name '$f'" || bad "implementer: Browser checks lack '$f'"
 done
+# One layer per behaviour: a second layer of tests only with a reason in the PR.
+ONE_LAYER='A behaviour is tested in one layer (unit, contract or e2e); a second layer needs a reason in the PR description.'
+flat_has "$AGENTS/implementer.md" "$ONE_LAYER" && ok "implementer: the one-layer rule of tests" || bad "implementer: no one-layer rule: $ONE_LAYER"
 for f in "\`<NN>: $NEEDED\`" "\`<NN>: $EXPIRED\`" 'Browser roles: <the ticket'"'"'s Roles: line> | Default' '`Roles: admin, user`' 'Never infer'; do
     flat_has "$EW_REF" "$f" && ok "epic-wave: Browser checks name '$f'" || bad "epic-wave: Browser checks lack '$f'"
 done

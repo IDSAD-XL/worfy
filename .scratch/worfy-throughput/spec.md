@@ -698,6 +698,7 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
 | 43 | Замер эффекта: eval `eco` против `full`, повторный замер | 19, 36, 37, 39; из другого Epic-а — `worfy-harness` 52 | нет | нет | не платформенный | 4 |
 | 45 | MCP-инструменты и инструкции connector-ов claude.ai в стартовом контексте Session: сначала замер | 38 | нет | нет на шаге 1; да, если путь идёт через `harness/` | runner `full` | 2 |
 | 46 | Медленные test-файлы Windows shard 1/3: harness-migrate и install-stable | 35 | да, для замеров | нет | по `scripts/windows-verdict-scope.mjs` | — |
+| 48 | Shard-ы macOS e2e по измеренному времени spec-файлов, а не по числу test-ов | 35 | нет | нет | `pc` по `test/e2e/**` (только таблица `timings.json`, кода e2e нет) | 2 |
 
 Почему так:
 
@@ -710,6 +711,8 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
   `worfy-harness` 52 (там `Waits: owner`); без них два пункта 43 — режим сравнения на настоящих задачах и платный
   run — не закрываются.
 - **45 после 38:** находка Ticket-а 38 вне скоупа (около 10k token-ов MCP на старт Session Orchestrator-а); общих файлов с 41 нет.
+- **48 после 35:** правит job `macos-e2e`, который завёл 35; делит shard-ы по медианам 5 run-ов `main`, около 190 s с
+  самого долгого shard-а каждого run-а.
 - **33 правит `ship-ticket/SKILL.md`**, как 36 и 37: 33 (Wave 3 первой таблицы) идёт раньше.
 - **`pc` для 40, 41, 42:** e2e-файлы входят в `PC_ONLY` (`scripts/windows-verdict-scope.mjs:80`), а ПК на паузе. Если
   e2e не нужен, такой PR идёт с runner `full`.
