@@ -1,7 +1,8 @@
 # 39 — Долг после review PR #754: worfy-canvas 19, часть 4
 
 Type: task
-Status: claimed 2026-10-29T16:05Z
+Status: done 2026-10-29T17:05Z
+PR: #1012
 Branch: worfy-polish/39
 Blocked by: —
 Source: ревью PR [#754](https://github.com/IDSAD-XL/worfy/pull/754) (worfy-canvas Ticket 19, часть 4: остаток
@@ -117,3 +118,8 @@ worfy-canvas, «Итог».
 - Проверки: `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (469 файлов, 10269 test-ов), gate fast — green.
   e2e под замком: `arrange-by-epic`, `tidy-up`, `focus`, `epic-frame` — 17 passed. Каждый новый test проверен
   mutant-ом своей правки (8 mutant-ов, все красные). Ничего видимого не менялось, снимков нет.
+- Ревью: VERIFIED с двумя low, оба исправлены Orchestrator-ом в `d8795f91`: test «runs once per request»
+  перерисовывает hook с новым `run` и краснеет без `handled.current = request.seq`; doc comment
+  `LiveSessionNode` снова над ним. Долг вне диффа: `test/unit/node-kind-header.test.tsx:106` — `placed('focus')`
+  оборачивает в устаревшую копию `FocusTileContext` (статический import до `vi.resetModules`), поэтому старые
+  test-ы «in a focus tile» проверяют только CSS. Merge `2167d13a`.
