@@ -1,7 +1,8 @@
 # 22 — Flaky test-ы Mac под нагрузкой: `collectNodeTypes`, `session-node-drop`, `login-shell-capture` — причина и правка
 
 Type: task
-Status: claimed 2026-10-29T12:50Z
+Status: done 2026-10-29T12:58Z
+PR: #991
 Branch: worfy-throughput/22
 Blocked by: 20
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», предложение 3; gate full на Mac
