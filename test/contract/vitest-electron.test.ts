@@ -47,6 +47,7 @@ const out = (text) => process.stdout.write(text)
 const summary = (files, tests) =>
   out('\\n \\x1b[2mTest Files\\x1b[22m  ' + files + '\\n      \\x1b[2mTests\\x1b[22m  ' + tests + '\\n   Start at  02:00:00\\n')
 out('ARGS ' + JSON.stringify(process.argv.slice(2)) + '\\n RUN  v5.0.3 /stand-in\\n')
+out('LIST ' + JSON.stringify(process.env.WORFY_TEST_FILES ?? null) + '\\n')
 if (mode === 'no-summary') process.exit(0)
 if (mode === 'no-summary-code-3') process.exit(3)
 if (mode === 'summary') { summary('\\x1b[32m1 passed\\x1b[39m (1)', '\\x1b[32m2 passed\\x1b[39m (2)'); process.exit(0) }
@@ -87,19 +88,36 @@ beforeAll(() => {
 })
 afterAll(() => removeTestTree(standInRepo))
 
-const runStandIn = (mode: string, ...args: string[]) =>
+const runStandInWith = (env: NodeJS.ProcessEnv, mode: string, ...args: string[]) =>
   spawnSync(scriptNode(), [join(standInRepo, 'scripts', 'vitest-electron.mjs'), ...args], {
     cwd: standInRepo,
     encoding: 'utf8',
     timeout: 30_000,
-    env: { ...process.env, STAND_IN_MODE: mode },
+    env: { ...process.env, ...env, STAND_IN_MODE: mode },
   })
+const runStandIn = (mode: string, ...args: string[]) => runStandInWith({}, mode, ...args)
 
 describe('scripts/vitest-electron.mjs with a stand-in vitest', () => {
   it('a leading -- (pnpm test -- <file>) is dropped, so the file filter reaches vitest run', () => {
     const result = runStandIn('summary', '--', 'test/unit/a.test.ts', '--project', 'node')
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
     expect(result.stdout).toContain('ARGS ["run","test/unit/a.test.ts","--project","node"]')
+  })
+
+  it('WORFY_TEST_FILES (the files a CI job runs) goes to vitest as file filters after the arguments, with --passWithNoTests, and not to the tests', () => {
+    const result = runStandInWith({ WORFY_TEST_FILES: ' test/unit/a.test.ts  test/contract/b.test.ts\n' }, 'summary', '--shard=2/4', '--sequence.shuffle.files')
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+    expect(result.stdout).toContain('ARGS ["run","--shard=2/4","--sequence.shuffle.files","--passWithNoTests","test/unit/a.test.ts","test/contract/b.test.ts"]')
+    // A test that starts this script again must not run the same list.
+    expect(result.stdout).toContain('LIST null')
+  })
+
+  it('an empty or blank WORFY_TEST_FILES adds nothing: the whole suite, with no --passWithNoTests', () => {
+    for (const value of ['', '  ']) {
+      const result = runStandInWith({ WORFY_TEST_FILES: value }, 'summary', '--shard=1/4')
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+      expect(result.stdout).toContain('ARGS ["run","--shard=1/4"]')
+    }
   })
 
   it('a -- that is not the first argument is passed on as it is', () => {

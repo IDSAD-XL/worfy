@@ -16,12 +16,15 @@
 // 3. The rows of the table that match the path: the files they name. A named test file goes in as it
 //    is; any other named file is a module, and the tests that import it, directly or not, go in. The
 //    rows hold what the import graph cannot see: a script a test starts as a process, a file a test or
-//    a module reads as text. `generated` is built from the test sources by
-//    scripts/affected-tests-table.mjs (its `reads` and `scans`); `links` is written by hand.
+//    a module reads as text. `links` is written by hand in the table. The generated rows — what each
+//    test file or helper reads by path (`reads`) or looks through (`scans`) — are built from the test
+//    sources of the working tree on every run (generate() of scripts/affected-tests-table.mjs) and
+//    never committed: a committed copy goes stale when a pull request that splits, adds or renames a
+//    test file merges next to another one, each green on its own base.
 // 4. A module (.ts, .tsx, .js, .mjs, .cjs, .css…): the test files that import it, directly or not,
 //    by vite's module graph, as `vitest related` computes it.
 //
-// A row covers the path unless it is a scan (`"scan": true` in `links`, `scans` in `generated`): a
+// A row covers the path unless it is a scan (`"scan": true` in `links`, `scans` of a generated row): a
 // test that reads every file of a folder looking for one thing, which adds itself to the list but does
 // not stand for the tests of the file. A file that nothing covers is ALL, never an empty list:
 // - a module outside src/ and test/ that no test imports and no covering row names;
@@ -35,7 +38,13 @@
 // Output: ALL, or the selected files one per line, sorted, as paths from the repository root; nothing
 // for an empty list. With --json one object: {"all": boolean, "files": [...], "reasons": [...]},
 // `reasons` naming each file that made the answer ALL. Exit code 0 for an answer; 2 for wrong
-// arguments, a git error, a working tree that is not <head>, or a table that cannot be read.
+// arguments, a git error, a working tree that is not <head>, or a table that cannot be read (one that
+// still holds a committed `generated` part included).
+//
+// With --github-output the answer also goes to the file $GITHUB_OUTPUT, for the test jobs of CI
+// (.github/workflows/ci.yml and windows-tests.yml): `run` is `all`, `none` or `some`, and `files` the
+// selected files separated by spaces (empty unless `run` is `some`). A selected name with white space
+// in it could not be split back into one file, so such an answer is `all`.
 //
 // The graph comes from vitest's own API, run on the vitest configuration of the working tree, so it
 // resolves imports as the test run does. Loading that configuration runs what it runs before each
@@ -43,11 +52,13 @@
 // no test is started.
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { join, posix, sep } from 'node:path'
 import process from 'node:process'
+import { generate } from './affected-tests-table.mjs'
 
-const USAGE = 'usage: node scripts/affected-tests.mjs <base> <head> [--json]'
+const USAGE = 'usage: node scripts/affected-tests.mjs <base> <head> [--json] [--github-output]'
+const FLAGS = ['--json', '--github-output']
 // With forward slashes on every platform: it is also how the messages name it.
 const TABLE = 'scripts/affected-tests.table.json'
 // What vite's module graph follows from a test file. A file of another kind never shows up in it.
@@ -70,13 +81,17 @@ function git(root, args) {
 }
 
 function parseArgs(argv) {
-  const json = argv.includes('--json')
-  const rest = argv.filter((arg) => arg !== '--json')
+  const rest = argv.filter((arg) => !FLAGS.includes(arg))
   if (rest.length !== 2 || rest.some((arg) => arg.startsWith('-'))) throw new Refusal(USAGE)
-  return { base: rest[0], head: rest[1], json }
+  const githubOutput = argv.includes('--github-output')
+  if (githubOutput && !process.env.GITHUB_OUTPUT) throw new Refusal('--github-output: GITHUB_OUTPUT is not set')
+  return { base: rest[0], head: rest[1], json: argv.includes('--json'), githubOutput }
 }
 
-/** The table, its three lists checked for shape: a wrong table must not read as "no links". */
+/**
+ * The table, its three lists checked for shape (a wrong table must not read as "no links"), and the
+ * generated rows of the tree at `root`.
+ */
 function readTable(root) {
   let table
   try {
@@ -92,10 +107,9 @@ function readTable(root) {
     }
     return list
   }
-  const generated = table.generated ?? []
-  if (!Array.isArray(generated) || !generated.every((entry) => typeof entry?.file === 'string' && (entry.reads === undefined || strings(entry.reads)) && (entry.scans === undefined || strings(entry.scans)))) {
-    throw new Refusal(`${TABLE}: "generated" must be a list of {"file": ..., "reads": [...], "scans": [...]}`)
-  }
+  // A committed copy would be read in place of the sources, or next to them, and go stale again.
+  if (table && Object.hasOwn(table, 'generated')) throw new Refusal(`${TABLE}: "generated" is built from the test sources on every run; remove it from the table`)
+  const generated = generate(root)
   // A generated path is a file or a folder: the row matches the file and everything under the folder.
   const rows = (paths) => paths.flatMap((path) => [path, `${path}/**`])
   const links = [
@@ -176,7 +190,7 @@ async function openGraph(root) {
 }
 
 async function main() {
-  const { base, head, json } = parseArgs(process.argv.slice(2))
+  const { base, head, json, githubOutput } = parseArgs(process.argv.slice(2))
   const root = git(process.cwd(), ['rev-parse', '--show-toplevel']).trim()
   const headTree = git(root, ['rev-parse', '--verify', '--end-of-options', `${head}^{tree}`]).trim()
   const workTree = git(root, ['rev-parse', '--verify', 'HEAD^{tree}']).trim()
@@ -208,6 +222,15 @@ async function main() {
   else if (answer.all) process.stdout.write('ALL\n')
   else if (answer.files.length > 0) process.stdout.write(`${answer.files.join('\n')}\n`)
   if (!json) for (const line of answer.reasons) process.stderr.write(`affected-tests: ${line}\n`)
+  if (githubOutput) appendFileSync(process.env.GITHUB_OUTPUT, githubLines(answer))
+}
+
+/** The answer as step outputs: `run` (all, none or some) and `files`, separated by spaces. */
+function githubLines(answer) {
+  const odd = answer.files.find((file) => /\s/.test(file))
+  if (odd !== undefined) process.stderr.write(`affected-tests: ${JSON.stringify(odd)} has white space in its name, so the whole suite runs\n`)
+  const run = answer.all || odd !== undefined ? 'all' : answer.files.length === 0 ? 'none' : 'some'
+  return `run=${run}\nfiles=${run === 'some' ? answer.files.join(' ') : ''}\n`
 }
 
 main().catch((error) => {

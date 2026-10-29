@@ -175,7 +175,7 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     // given (its own contract test), once per shard of the matrix.
     const windows = job('windows')
     expect(value(windows, 'uses')).toBe('./.github/workflows/windows-tests.yml')
-    expect(under(windows, '    with:')).toEqual(['      mode: full', '      shard: ${{ matrix.shard }}'])
+    expect(under(windows, '    with:')).toEqual(['      mode: full', '      shard: ${{ matrix.shard }}', '      tests-base: ${{ needs.changes.outputs.tests-base }}'])
     expect(runs('windows-e2e')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test:e2e "--shard=$env:SHARD" @(-split $env:E2E_FILES | Where-Object { $_ })'])
   })
 
@@ -325,13 +325,17 @@ function vitestFiles(filters: readonly string[], exclude: readonly string[]): st
   if (list.status !== 0) throw new Error(`vitest list --filesOnly ${filters.join(' ')}: exit ${list.status}\n${list.stdout}\n${list.stderr}`)
   // A line is `[<project>] <file>`, the file relative to the repository.
   const files = [...new Set(list.stdout.split(/\r?\n/).flatMap((line) => /^\[[^\]]+\] (.+)$/.exec(line.trim())?.[1]?.replaceAll('\\', '/') ?? []))].sort()
-  if (files.length === 0) throw new Error(`vitest list --filesOnly ${filters.join(' ')} named no file:\n${list.stdout}\n${list.stderr}`)
+  // A shard of a pull request's list may leave out every file of it; the whole suite never names none.
+  if (files.length === 0 && filters.length === 0) throw new Error(`vitest list --filesOnly named no file:\n${list.stdout}\n${list.stderr}`)
   listed.set(key, files)
   return files
 }
 
-/** What each value of the matrix runs, by the step of windows-tests.yml; `exclude` is what a shard leaves out. */
-async function windowsJobs(values: readonly string[], exclude: readonly string[]): Promise<WindowsJob[]> {
+/**
+ * What each value of the matrix runs, by the step of windows-tests.yml; `exclude` is what a shard leaves
+ * out, `list` the test files of a pull request (TEST_FILES; none: every file).
+ */
+async function windowsJobs(values: readonly string[], exclude: readonly string[], list?: readonly string[]): Promise<WindowsJob[]> {
   const { BaseSequencer } = await import('vitest/node')
   const shell = shellTests(join(REPO, 'harness'))
   const root = REPO.split(sep).join('/')
@@ -340,6 +344,8 @@ async function windowsJobs(values: readonly string[], exclude: readonly string[]
     values.map(async (name): Promise<WindowsJob> => {
       const own = /^harness-scripts (.+)$/.exec(name)
       if (own) {
+        // A list without the file: the job runs nothing.
+        if (list !== undefined && !list.includes(HARNESS_SCRIPTS)) return { name, files: [], shellTests: [] }
         // `pnpm test test/contract/harness-scripts.test.ts`: vitest takes the path as a filter, a part of the name.
         const files = vitestFiles([HARNESS_SCRIPTS], [])
         return { name, files, shellTests: shellOf(files, parsePart(own[1])) }
@@ -347,7 +353,9 @@ async function windowsJobs(values: readonly string[], exclude: readonly string[]
       const shard = parsePart(name)
       if (!shard) throw new Error(`no job runs the whole suite in CI: ${name}`)
       const sequencer = new BaseSequencer({ config: { root, shard } } as never)
-      const specs = vitestFiles([], exclude).map((file) => ({ moduleId: `${root}/${file}` }))
+      // WORFY_TEST_FILES: the list goes to vitest as file filters (scripts/vitest-electron.mjs), and
+      // vitest shards what they match.
+      const specs = vitestFiles(list ?? [], exclude).map((file) => ({ moduleId: `${root}/${file}` }))
       const files = (await sequencer.shard(specs as never)).map((spec) => spec.moduleId.slice(root.length + 1))
       return { name, files, shellTests: shellOf(files) }
     }),
@@ -372,12 +380,14 @@ describe('Windows CI: every unit and contract test file, and every Harness shell
   it('reads the step that runs the suite as pinned: a shard leaves harness-scripts.test.ts out, a job of its own runs it with its part', () => {
     expect(suiteStep()).toEqual([
       'name: Run the unit and contract suite, or a part of it',
+      "if: steps.tests.outputs.run != 'none'",
       'env:',
       'SHARD: ${{ inputs.shard }}',
       `HARNESS_SCRIPTS: ${HARNESS_SCRIPTS}`,
+      'TEST_FILES: ${{ steps.tests.outputs.files }}',
       'run: |',
-      "if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; pnpm test $env:HARNESS_SCRIPTS }",
-      'elseif ($env:SHARD) { $env:WORFY_TEST_EXCLUDE = $env:HARNESS_SCRIPTS; pnpm test "--shard=$env:SHARD" }',
+      "if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; if ($env:TEST_FILES -and -not ((-split $env:TEST_FILES) -contains $env:HARNESS_SCRIPTS)) { 'The list has no harness-scripts.test.ts: nothing to run' } else { pnpm test $env:HARNESS_SCRIPTS } }",
+      'elseif ($env:SHARD) { $env:WORFY_TEST_EXCLUDE = $env:HARNESS_SCRIPTS; $env:WORFY_TEST_FILES = $env:TEST_FILES; pnpm test "--shard=$env:SHARD" }',
       'else { pnpm test }',
     ])
     expect(testFiles()).toContain(HARNESS_SCRIPTS)
@@ -423,6 +433,80 @@ describe('Windows CI: every unit and contract test file, and every Harness shell
     const firstHalf = inPart(shellTests(join(REPO, 'harness')), { index: 1, count: 2 }).map((name) => `harness/${name}`)
     expect(await none(real.filter((entry) => entry !== 'harness-scripts 1/2'), exclude)).toEqual(firstHalf)
     expect(await twice([...real, 'harness-scripts 1/2'], exclude)).toEqual(firstHalf)
+  })
+
+  it('runs each file of a pull request\'s list in exactly one Windows job, and no other file', async () => {
+    const shell = shellTests(join(REPO, 'harness')).map((name) => `harness/${name}`)
+    const all = testFiles()
+    // Every seventh file, with and without harness-scripts.test.ts, and a list of one file.
+    const some = all.filter((_file, at) => at % 7 === 0 && all[at] !== HARNESS_SCRIPTS)
+    for (const list of [some, [...some, HARNESS_SCRIPTS], [HARNESS_SCRIPTS], [some[0] ?? '']]) {
+      const per = jobsPerTest(await windowsJobs(matrix('windows'), ownJobFiles(), list))
+      const expected = [...list.filter((file) => file !== HARNESS_SCRIPTS), ...(list.includes(HARNESS_SCRIPTS) ? shell : [])].sort()
+      expect(inJobs(per, (n) => n === 1).sort(), list.join(' ')).toEqual(expected)
+      expect(inJobs(per, (n) => n > 1), list.join(' ')).toEqual([])
+    }
+  })
+})
+
+/** The lines of the step named `name` of a job's lines, trimmed, the `- ` of its first line removed. */
+function stepOf(lines: string[], name: string): string[] {
+  const at = lines.findIndex((line) => line.trim() === `- name: ${name}`)
+  expect(at, name).toBeGreaterThan(-1)
+  const step = [`name: ${name}`]
+  for (const line of lines.slice(at + 1)) {
+    if (indent(line) <= indent(lines[at] ?? '')) break
+    step.push(line.trim())
+  }
+  return step
+}
+
+// A pull request runs only the unit and contract test files its diff touches in linux-tests and in the
+// Windows jobs: each job after its install runs scripts/affected-tests.mjs from the base ci-scope.mjs
+// names (tests-base), and hands the list to vitest. A push to main and a run by hand have no base:
+// the step is skipped and the whole suite runs.
+describe('ci.yml and windows-tests.yml: a pull request runs the test files its diff touches', () => {
+  const PICK = 'Pick the test files the pull request touches'
+  const pick = (base: string) => [
+    `name: ${PICK}`,
+    'id: tests',
+    `if: ${base} != ''`,
+    ...(base.startsWith('inputs.') ? ['shell: bash'] : []),
+    'env:',
+    `BASE: \${{ ${base} }}`,
+    'run: node scripts/affected-tests.mjs "$BASE" HEAD --github-output',
+  ]
+
+  it('the job changes hands its base on as the output tests-base, and windows gets it as an input', () => {
+    expect(value(under(job('changes'), '    outputs:'), 'tests-base')).toBe('${{ steps.scope.outputs.tests-base }}')
+    expect(value(under(job('windows'), '    with:'), 'tests-base')).toBe('${{ needs.changes.outputs.tests-base }}')
+  })
+
+  it('linux-tests picks the list after its install, with two commits checked out, and runs no vitest for an empty one', () => {
+    const lines = job('linux-tests')
+    expect(stepOf(lines, PICK)).toEqual(pick('needs.changes.outputs.tests-base'))
+    expect(stepOf(lines, 'Run unit and contract tests, one shard')).toEqual([
+      'name: Run unit and contract tests, one shard',
+      "if: steps.tests.outputs.run != 'none'",
+      'env:',
+      'SHARD: ${{ matrix.shard }}',
+      'WORFY_TEST_FILES: ${{ steps.tests.outputs.files }}',
+      'run: pnpm test "--shard=$SHARD" --sequence.shuffle.files',
+    ])
+    const order = ['- run: pnpm install --frozen-lockfile', `- name: ${PICK}`, '- name: Run unit and contract tests, one shard'].map((line) => lines.findIndex((l) => l.trim() === line))
+    expect(order.every((at, i) => at > -1 && (i === 0 || at > (order[i - 1] ?? 0))), order.join(' ')).toBe(true)
+    expect(under(under(lines, '      - uses: actions/checkout@v7'), '        with:')).toEqual(['          fetch-depth: 2', '          persist-credentials: false'])
+  })
+
+  it('the Windows job full-suite picks the list after its install, with two commits checked out, and runs no vitest for an empty one', () => {
+    const lines = under(under(codeOf(WINDOWS_TESTS), 'jobs:'), '  full-suite:')
+    expect(stepOf(lines, PICK)).toEqual(pick('inputs.tests-base'))
+    expect(suiteStep()[1]).toBe("if: steps.tests.outputs.run != 'none'")
+    const order = ['- run: pnpm install --frozen-lockfile', `- name: ${PICK}`, '- name: Run the unit and contract suite, or a part of it'].map((line) => lines.findIndex((l) => l.trim() === line))
+    expect(order.every((at, i) => at > -1 && (i === 0 || at > (order[i - 1] ?? 0))), order.join(' ')).toBe(true)
+    expect(under(under(lines, '      - uses: actions/checkout@v7'), '        with:')).toEqual(['          fetch-depth: 2', '          persist-credentials: false'])
+    const call = under(under(under(codeOf(WINDOWS_TESTS), 'on:'), '  workflow_call:'), '    inputs:')
+    expect(under(call, '      tests-base:')).toEqual(['        required: false', '        type: string', "        default: ''"])
   })
 })
 
@@ -477,6 +561,7 @@ describe('scripts/ci-scope.mjs', () => {
     const written = /^expect=(.*)$/m.exec(text)?.[1]
     const files = /^macos-tests-files=(.*)$/m.exec(text)?.[1]
     return {
+      testsBase: /^tests-base=(.*)$/m.exec(text)?.[1],
       status: result.status,
       stdout: result.stdout,
       stderr: result.stderr,
@@ -860,6 +945,23 @@ describe('scripts/ci-scope.mjs', () => {
       expect(result.expect, event).toEqual(ALL)
       expect(result.files, event).toEqual([])
     }
+  })
+
+  it('names the base of the test files a pull request touches (tests-base); a push, a run by hand, documents only and no change leave it empty', () => {
+    commitOnBase(['src/main/index.ts'])
+    const pr = scope({ EVENT: 'pull_request', BASE: base })
+    expect(pr.status, pr.stderr).toBe(0)
+    expect(pr.testsBase).toBe(base)
+    expect(pr.stdout).toContain(`\ntests: linux-tests and windows run the test files the diff touches since ${base}\n`)
+    // The job changes names it HEAD^1; the output is the full commit, the same for every job of the run.
+    expect(scope({ EVENT: 'pull_request', BASE: 'HEAD^1' }).testsBase).toBe(base)
+    expect(scope({ EVENT: 'push', BASE: base }).testsBase).toBe('')
+    expect(scope({ EVENT: 'workflow_dispatch', JOB: 'check' }).testsBase).toBe('')
+    expect(scope({ EVENT: 'pull_request', BASE: '0000000000000000000000000000000000000000' }).testsBase).toBe('')
+    commitOnBase(['docs/adr/0001-a.md'])
+    expect(scope({ EVENT: 'pull_request', BASE: base }).testsBase).toBe('')
+    commitOnBase([])
+    expect(scope({ EVENT: 'pull_request', BASE: base }).testsBase).toBe('')
   })
 
   it('runs every job when no file changed', () => {

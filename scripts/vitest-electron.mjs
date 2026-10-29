@@ -35,6 +35,13 @@ const vitest = join(REPO, 'node_modules', 'vitest', 'vitest.mjs')
 // not as file filters, so the filter was dropped and the whole suite ran. A leading `--` is removed.
 const args = process.argv.slice(2)
 if (args[0] === '--') args.shift()
+// WORFY_TEST_FILES: the test files a CI job of a pull request runs (scripts/affected-tests.mjs), paths
+// separated by spaces. They go to vitest as file filters after the other arguments: from the environment,
+// not the command line, because cmd.exe, which runs `pnpm test` on Windows, stops at 8191 characters,
+// and the whole suite's names take about 17 000. With --passWithNoTests: a shard of a short list may get
+// no file, and a shard that leaves out the only listed file (WORFY_TEST_EXCLUDE) has none. Unset elsewhere.
+const listed = (process.env.WORFY_TEST_FILES ?? '').split(/\s+/).filter(Boolean)
+if (listed.length > 0) args.push('--passWithNoTests', ...listed)
 
 // The built-in reporters that end a run with the summary; any other (json, junit, a custom file)
 // may print none, so a run that names only such reporters is not checked.
@@ -65,9 +72,12 @@ const scan = (line) => {
   if (NO_FILES_LINE.test(plain)) sawNoFiles = true
 }
 
+// The list stays out of the tests' environment: a test that starts this script again must not inherit it.
+const env = { ...process.env }
+delete env.WORFY_TEST_FILES
 const child = spawn(electron, [vitest, 'run', ...args], {
   stdio: ['inherit', 'pipe', 'inherit'],
-  env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+  env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
 })
 // A reader that went away (`pnpm test | head`) must not stop the run: vitest keeps its output going
 // and its exit code still decides.

@@ -94,10 +94,12 @@ const REFUSE = ['test -z "$TEST_FILES" || { echo "::error::mode full runs the wh
  * of ci.yml run every test file once.
  */
 const SUITE = [
-  "if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; pnpm test $env:HARNESS_SCRIPTS }",
-  'elseif ($env:SHARD) { $env:WORFY_TEST_EXCLUDE = $env:HARNESS_SCRIPTS; pnpm test "--shard=$env:SHARD" }',
+  "if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; if ($env:TEST_FILES -and -not ((-split $env:TEST_FILES) -contains $env:HARNESS_SCRIPTS)) { 'The list has no harness-scripts.test.ts: nothing to run' } else { pnpm test $env:HARNESS_SCRIPTS } }",
+  'elseif ($env:SHARD) { $env:WORFY_TEST_EXCLUDE = $env:HARNESS_SCRIPTS; $env:WORFY_TEST_FILES = $env:TEST_FILES; pnpm test "--shard=$env:SHARD" }',
   'else { pnpm test }',
 ]
+/** A pull request (input tests-base): the test files its diff touches, as step outputs run and files. */
+const PICK = 'node scripts/affected-tests.mjs "$BASE" HEAD --github-output'
 
 describe('.github/workflows/windows-tests.yml', () => {
   it('starts by hand or from a call: workflow_dispatch and workflow_call are its only triggers', () => {
@@ -109,9 +111,11 @@ describe('.github/workflows/windows-tests.yml', () => {
     expect(lines.join('\n')).not.toMatch(/\b(push|pull_request|pull_request_target|schedule|workflow_run)\b/)
   })
 
-  it('takes three string inputs from a call: the mode, a list of files and a shard, both empty by default', () => {
+  it('takes four string inputs from a call: the mode, a list of files, a shard and the base of a pull request, all but the mode empty by default', () => {
     const inputs = under(under(under(code(), 'on:'), '  workflow_call:'), '    inputs:')
-    expect(keys(inputs)).toEqual(['mode', 'files', 'shard'])
+    expect(keys(inputs)).toEqual(['mode', 'files', 'shard', 'tests-base'])
+    // Empty, the job runs every test file of its part: a push to main and a dispatch.
+    expect(under(inputs, '      tests-base:')).toEqual(['        required: false', '        type: string', "        default: ''"])
     expect(under(inputs, '      mode:')).toEqual(['        required: true', '        type: string'])
     expect(under(inputs, '      files:')).toEqual(['        required: false', '        type: string', "        default: ''"])
     // Empty, the job of the mode full runs the whole suite: a call that names no shard runs everything.
@@ -153,7 +157,13 @@ describe('.github/workflows/windows-tests.yml', () => {
     // The two conditions cover the two values of the choice, one each: one dispatch runs exactly one job.
     expect(job(FILES_JOB)).toContain("    if: inputs.mode == 'files'")
     expect(job(FULL_JOB)).toContain("    if: inputs.mode == 'full'")
-    expect(code().filter((line) => /^\s*if:/.test(line))).toEqual(["    if: inputs.mode == 'files'", "    if: inputs.mode == 'full'"])
+    // And two of steps of the mode full: the list of a pull request, and no vitest for an empty one.
+    expect(code().filter((line) => /^\s*if:/.test(line))).toEqual([
+      "    if: inputs.mode == 'files'",
+      "    if: inputs.mode == 'full'",
+      "        if: inputs.tests-base != ''",
+      "        if: steps.tests.outputs.run != 'none'",
+    ])
     expect(code().join('\n')).not.toMatch(/matrix|strategy/)
     expect(code().filter((line) => /runs-on/.test(line))).toEqual(['    runs-on: windows-latest', '    runs-on: windows-latest'])
   })
@@ -182,12 +192,14 @@ describe('.github/workflows/windows-tests.yml', () => {
       run: CHECK,
     })
     // An expression inside `run` is pasted into the script before the shell reads it: a list such
-    // as `x; rm -rf .` would run as a command. Expressions stand in the four `env` values only.
+    // as `x; rm -rf .` would run as a command. Expressions stand in the six `env` values only.
     expect(code().filter((line) => line.includes('${{'))).toEqual([
       '          TEST_FILES: ${{ inputs.files }}',
       '          TEST_FILES: ${{ steps.list.outputs.files }}',
       '          TEST_FILES: ${{ inputs.files }}',
+      '          BASE: ${{ inputs.tests-base }}',
       '          SHARD: ${{ inputs.shard }}',
+      '          TEST_FILES: ${{ steps.tests.outputs.files }}',
     ])
     for (const name of [FILES_JOB, FULL_JOB]) {
       for (const step of steps(name)) expect([step.run ?? []].flat().join('\n')).not.toContain('${{')
@@ -228,8 +240,8 @@ describe('.github/workflows/windows-tests.yml', () => {
     for (const command of commands) expect(command).not.toMatch(/pnpm\s+(run\s+)?test|vitest(?!-electron\.mjs \$TEST_FILES$)/)
   })
 
-  it('mode full: refuses a list of files first, then checkout, pnpm, node, install and pnpm test or one shard of it, nothing else', () => {
-    expect(steps(FULL_JOB).map(does)).toEqual([REFUSE, 'actions/checkout', 'actions/setup-node', PNPM, 'actions/setup-node', INSTALL, SUITE])
+  it('mode full: refuses a list of files first, then checkout, pnpm, node, install, the list of a pull request and pnpm test or one shard of it, nothing else', () => {
+    expect(steps(FULL_JOB).map(does)).toEqual([REFUSE, 'actions/checkout', 'actions/setup-node', PNPM, 'actions/setup-node', INSTALL, PICK, SUITE])
     // The refusal comes before checkout: a dispatch with a list fails within seconds, not after the install.
     expect(steps(FULL_JOB)[0]).toEqual({
       name: 'Refuse a list of files',
@@ -239,12 +251,22 @@ describe('.github/workflows/windows-tests.yml', () => {
     })
     // The whole step: the shard reaches PowerShell through env, and no `shell` key changes the shell
     // the suite has always run under.
+    // The list: only on a pull request, under Git Bash as the other steps that read a list.
     expect(steps(FULL_JOB)[6]).toEqual({
+      name: 'Pick the test files the pull request touches',
+      id: 'tests',
+      if: "inputs.tests-base != ''",
+      shell: 'bash',
+      env: ['BASE: ${{ inputs.tests-base }}'],
+      run: PICK,
+    })
+    expect(steps(FULL_JOB)[7]).toEqual({
       name: 'Run the unit and contract suite, or a part of it',
-      env: ['SHARD: ${{ inputs.shard }}', 'HARNESS_SCRIPTS: test/contract/harness-scripts.test.ts'],
+      if: "steps.tests.outputs.run != 'none'",
+      env: ['SHARD: ${{ inputs.shard }}', 'HARNESS_SCRIPTS: test/contract/harness-scripts.test.ts', 'TEST_FILES: ${{ steps.tests.outputs.files }}'],
       run: SUITE,
     })
-    expect(steps(FULL_JOB).flatMap((step) => step.run ?? [])).toEqual([...REFUSE, ...PNPM, INSTALL, ...SUITE])
+    expect(steps(FULL_JOB).flatMap((step) => step.run ?? [])).toEqual([...REFUSE, ...PNPM, INSTALL, PICK, ...SUITE])
   })
 
   it('mode full: runs unit and contract tests only — no e2e, no packaged app, no acceptance', () => {
@@ -256,6 +278,28 @@ describe('.github/workflows/windows-tests.yml', () => {
     expect(vitest).toMatch(/'test\/acceptance\/\*\*'/)
     const manifest = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { scripts?: Record<string, string> }
     expect(manifest.scripts?.test).toBe('node scripts/vitest-electron.mjs')
+  })
+
+  // The step under PowerShell, with pnpm a function that prints what it was given: what each job of a
+  // shard, a part of harness-scripts.test.ts or a dispatch runs, with and without a pull request's list.
+  // PowerShell ships on the Windows and Linux runners; a machine without it skips this test.
+  const pwsh = ['pwsh', 'pwsh.exe'].find((name) => spawnSync(name, ['-NoProfile', '-Command', 'exit 0']).status === 0)
+  describe.skipIf(pwsh === undefined)('mode full: the step that runs the suite, under PowerShell', () => {
+  it.each([
+    ['a shard with a list', '2/3', 'test/unit/a.test.ts test/contract/harness-scripts.test.ts', 'pnpm [test --shard=2/3] files=[test/unit/a.test.ts test/contract/harness-scripts.test.ts] exclude=[test/contract/harness-scripts.test.ts] part=[]'],
+    ['a shard without a list', '1/3', '', 'pnpm [test --shard=1/3] files=[] exclude=[test/contract/harness-scripts.test.ts] part=[]'],
+    ['a part, the list has the file', 'harness-scripts 1/2', 'test/unit/a.test.ts test/contract/harness-scripts.test.ts', 'pnpm [test test/contract/harness-scripts.test.ts] files=[] exclude=[] part=[1/2]'],
+    ['a part, the list has not', 'harness-scripts 2/2', 'test/unit/a.test.ts test/unit/harness-scripts.test.ts.md', 'The list has no harness-scripts.test.ts: nothing to run'],
+    ['a part without a list', 'harness-scripts 2/2', '', 'pnpm [test test/contract/harness-scripts.test.ts] files=[] exclude=[] part=[2/2]'],
+    ['a dispatch', '', '', 'pnpm [test] files=[] exclude=[] part=[]'],
+  ])('%s', (_name, shard, list, printed) => {
+    const stub = 'function pnpm { "pnpm [$args] files=[$env:WORFY_TEST_FILES] exclude=[$env:WORFY_TEST_EXCLUDE] part=[$env:HARNESS_SCRIPTS_PART]" }'
+    const env: NodeJS.ProcessEnv = { ...process.env, SHARD: shard, HARNESS_SCRIPTS: 'test/contract/harness-scripts.test.ts', TEST_FILES: list }
+    for (const name of ['WORFY_TEST_FILES', 'WORFY_TEST_EXCLUDE', 'HARNESS_SCRIPTS_PART']) delete env[name]
+    const result = spawnSync(pwsh ?? 'pwsh', ['-NoProfile', '-NonInteractive', '-Command', [stub, ...SUITE].join('\n')], { encoding: 'utf8', env })
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+    expect(result.stdout.trim()).toBe(printed)
+  })
   })
 
   it.each([
