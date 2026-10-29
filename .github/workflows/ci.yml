@@ -16,7 +16,10 @@ name: CI
 #   push to main runs every file; a pull request the files with a macOS-only test or assertion
 #   (scripts/ci-scope.mjs, output macos-tests-files).
 # - macos-e2e: pnpm test:e2e on macOS in 2 shards, Electron with a window. scripts/e2e-shard.mjs gives
-#   each shard its spec files by their measured time (test/e2e/timings.json), not by test count.
+#   each shard its spec files by their measured time (test/e2e/timings.json), not by test count. A
+#   pull request runs only the spec files its diff asks for (scripts/e2e-specs.table.json, output
+#   e2e-files), in fewer shards when they take less time; any app path the table does not narrow runs
+#   them all.
 # - macos-package: pnpm test:package on macOS: the packaged .app. On every push to main, and on a
 #   pull request that changes a build input (scripts/ci-scope.mjs: package.json, the lockfile, the
 #   build configs, build/, the scripts the .app ships, the packaged tests, the workflows).
@@ -28,8 +31,8 @@ name: CI
 #   harness-scripts.test.ts, the longest file of shard 3/3 (354-617 s), runs in two jobs of its own,
 #   "windows (harness-scripts 1/2)" and "(harness-scripts 2/2)", each with half of the Harness shell
 #   tests; the three shards leave it out.
-# - windows-e2e: pnpm test:e2e on Windows in 4 shards, whenever macos-e2e runs. It blocks ci-ok like
-#   every other job since ten push runs on main in a row had it green.
+# - windows-e2e: pnpm test:e2e on Windows in 4 shards, whenever macos-e2e runs, on the same spec
+#   files. It blocks ci-ok like every other job since ten push runs on main in a row had it green.
 # - ci-ok: green when every job the run needs succeeded (scripts/ci-ok.mjs). A merge reads this check.
 #
 # The free plan runs 5 macOS jobs at a time, and pull requests waited 26 to 67 minutes for them while
@@ -84,6 +87,9 @@ jobs:
     outputs:
       expect: ${{ steps.scope.outputs.expect }}
       macos-tests-files: ${{ steps.scope.outputs.macos-tests-files }}
+      e2e-files: ${{ steps.scope.outputs.e2e-files }}
+      macos-e2e-shards: ${{ steps.scope.outputs.macos-e2e-shards }}
+      windows-e2e-shards: ${{ steps.scope.outputs.windows-e2e-shards }}
     steps:
       # Two commits: the merge commit of a pull request and its first parent, the head of the base.
       # No checkout keeps the token in .git/config (persist-credentials: false): no step pushes or
@@ -203,12 +209,12 @@ jobs:
     if: fromJSON(needs.changes.outputs.expect)['macos-e2e']
     runs-on: macos-latest
     timeout-minutes: 45
+    # The shards come from scripts/ci-scope.mjs: two for every spec file, fewer when a pull request
+    # runs only the spec files its diff asks for (output e2e-files), so no runner starts for nothing.
     strategy:
       fail-fast: false
       matrix:
-        shard:
-          - 1/2
-          - 2/2
+        shard: ${{ fromJSON(needs.changes.outputs.macos-e2e-shards) }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -229,12 +235,14 @@ jobs:
       # scripts/e2e-shard.mjs splits the spec files by their seconds in test/e2e/timings.json instead,
       # about 843 s of tests each, and hands this shard's files to the next step (output files). The
       # file names are plain, one word each, so the shell splits the list on its spaces. The script
-      # fails rather than hand an empty list, which would run every file.
+      # fails rather than hand an empty list, which would run every file. On a pull request it splits
+      # only the spec files the diff asks for (e2e-files, plain names); empty means every spec file.
       - name: Pick the spec files of this shard
         id: shard
         env:
           SHARD: ${{ matrix.shard }}
-        run: node scripts/e2e-shard.mjs "$SHARD"
+          E2E_FILES: ${{ needs.changes.outputs.e2e-files }}
+        run: node scripts/e2e-shard.mjs "$SHARD" $E2E_FILES
       # Builds the app into out/ and drives it with Playwright, on the spec files of this shard.
       - name: Run the e2e tests, one shard
         env:
@@ -304,8 +312,10 @@ jobs:
       mode: full
       shard: ${{ matrix.shard }}
 
-  # pnpm test:e2e on Windows. Four shards: in the runs of the triage one shard took 7 to 15 min, so
-  # each stays under 20 min (runs 40710168910 to 40737039070, the longest shard 14.5 min in 40719521332).
+  # pnpm test:e2e on Windows. Four shards for every spec file: in the runs of the triage one shard took
+  # 7 to 15 min, so each stays under 20 min (runs 40710168910 to 40737039070, the longest shard 14.5 min
+  # in 40719521332). A pull request that runs only the spec files its diff asks for gets fewer
+  # (scripts/ci-scope.mjs, outputs e2e-files and windows-e2e-shards).
   windows-e2e:
     needs: changes
     if: fromJSON(needs.changes.outputs.expect)['windows-e2e']
@@ -314,11 +324,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard:
-          - 1/4
-          - 2/4
-          - 3/4
-          - 4/4
+        shard: ${{ fromJSON(needs.changes.outputs.windows-e2e-shards) }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -334,12 +340,16 @@ jobs:
       # starts; every process it starts inherits them — pnpm, Playwright, the app under test — and
       # Node (libuv) opens a folder with FILE_FLAG_BACKUP_SEMANTICS, so with them Windows does not
       # check the folder's ACL. The tests that deny the user a folder (icacls /deny) then still get in.
-      # Under PowerShell both privileges stay disabled. The shard goes to playwright test.
+      # Under PowerShell both privileges stay disabled. The shard goes to playwright test, and so do
+      # the spec files of a pull request (e2e-files, plain names separated by spaces): -split cuts the
+      # list on its spaces, the filter drops the empty string an empty list leaves, and each name of the
+      # array becomes one argument. No name: every spec file.
       - name: Run the e2e tests, one shard
         shell: pwsh
         env:
           SHARD: ${{ matrix.shard }}
-        run: pnpm test:e2e "--shard=$env:SHARD"
+          E2E_FILES: ${{ needs.changes.outputs.e2e-files }}
+        run: pnpm test:e2e "--shard=$env:SHARD" @(-split $env:E2E_FILES | Where-Object { $_ })
       # A failing e2e test keeps the app's trace and a screenshot of its window under test-results/.
       - if: failure()
         uses: actions/upload-artifact@v7

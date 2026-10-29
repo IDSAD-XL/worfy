@@ -1,0 +1,105 @@
+{
+  "about": "Which e2e spec files a pull request runs for a changed path of src/ or harness/ (scripts/ci-scope.mjs, e2eSpecs). A changed path that no rule matches runs every spec file, and so does any other app path (a helper of test/e2e, a fixture, the Playwright config, a build input, package.json). A rule is added only when the code under its globs is seen by e2e tests through its spec files alone; when in doubt, leave the path out. test/contract/ci-scope-e2e.test.ts checks that every glob matches a file and every spec file exists.",
+  "rules": [
+    {
+      "paths": [
+        "harness/agents/**",
+        "harness/bin/**",
+        "harness/hooks/**",
+        "harness/lib/**",
+        "harness/profiles/**",
+        "harness/skills/**",
+        "harness/README.md",
+        "harness/.mcp.json"
+      ],
+      "specs": [
+        "test/e2e/finder-path.spec.ts",
+        "test/e2e/first-run.spec.ts",
+        "test/e2e/harness-install.spec.ts",
+        "test/e2e/harness-migrate.spec.ts",
+        "test/e2e/launch.spec.ts",
+        "test/e2e/projects-connect.spec.ts",
+        "test/e2e/select.spec.ts",
+        "test/e2e/settings-health.spec.ts",
+        "test/e2e/toolbar.spec.ts"
+      ],
+      "why": "The app reads its Harness copy (out/harness, src/main/harness/bundled.ts) only to install or migrate it (ipc/harness.ts, ipc/harness-migration.ts), for profiles/draft.schema.json (ipc/projects.ts) and for its version; e2e sessions run the fake agent. These specs copy out/harness or install it and run its scripts (finder-path: bin/profile, bin/ticket, bin/epic-status; projects-connect: bin/project-connect, bin/profile; first-run: profile --help), read hooks/rules and .mcp.json (harness-migrate, select through legacy-claude-home.ts) or check the Harness status (settings-health, toolbar). Every other spec writes its own stub scripts. Left out on purpose: .claude-plugin/ (the version every spec sees) and package.json."
+    },
+    {
+      "paths": [
+        "src/main/link/checks.ts",
+        "src/main/link/client.ts",
+        "src/main/link/connection.ts",
+        "src/main/link/connections.ts",
+        "src/main/link/discovery.ts",
+        "src/main/link/identity.ts",
+        "src/main/link/keep-awake.ts",
+        "src/main/link/log-file.ts",
+        "src/main/link/notes.ts",
+        "src/main/link/pairing.ts",
+        "src/main/link/remote-calls.ts",
+        "src/main/link/secrets.ts",
+        "src/main/link/server.ts",
+        "src/main/link/service.ts",
+        "src/main/link/settings.ts",
+        "src/main/link/sleep-notice.ts",
+        "src/main/link/store.ts",
+        "src/main/link/tailscale.ts",
+        "src/main/ipc/link.ts",
+        "src/main/ipc/linked.ts"
+      ],
+      "specs": [
+        "test/e2e/autopilot.spec.ts",
+        "test/e2e/focus-sidebar.spec.ts",
+        "test/e2e/linked-add-project.spec.ts",
+        "test/e2e/linked-autopilot.spec.ts",
+        "test/e2e/linked-browser.spec.ts",
+        "test/e2e/linked-cards.spec.ts",
+        "test/e2e/linked-machines.spec.ts",
+        "test/e2e/linked-notify.spec.ts",
+        "test/e2e/linked-opening.spec.ts",
+        "test/e2e/linked-read-only.spec.ts",
+        "test/e2e/linked-reconnect.spec.ts",
+        "test/e2e/linked-sleep.spec.ts",
+        "test/e2e/linked-system-actions.spec.ts",
+        "test/e2e/linked-tailscale.spec.ts",
+        "test/e2e/sidebar-sections.spec.ts"
+      ],
+      "why": "The link between machines: its remote paths run only with a linked machine (the linked-* specs); sidebar-sections and focus-sidebar show the Link machine button, autopilot.spec.ts reaches service.ts through ipc/autopilot.ts. Left out: caller.ts and messages.ts (every ipc handler calls through them), ipc-adapter.ts (browser/read-only.ts, read by ipc/layout.ts for every canvas) and autopilot-runs.ts (ipc/autopilot.ts)."
+    },
+    {
+      "paths": [
+        "src/main/browser/attach-policy.ts",
+        "src/main/browser/live.ts",
+        "src/main/browser/owner.ts",
+        "src/main/browser/profiles.ts",
+        "src/main/browser/screencast.ts",
+        "src/main/browser/sleep.ts",
+        "src/main/ipc/browser.ts",
+        "src/renderer/browser/BrowserProfiles.tsx",
+        "src/renderer/browser/control.ts",
+        "src/renderer/browser/frames.ts",
+        "src/renderer/browser/lives.ts",
+        "src/renderer/canvas/overlays/BrowserLayer.tsx",
+        "src/renderer/canvas/overlays/browser-pages.ts",
+        "src/renderer/canvas/nodes/BrowserNode.tsx",
+        "src/renderer/canvas/nodes/BrowserNode.css"
+      ],
+      "specs": [
+        "test/e2e/browser-autopilot.spec.ts",
+        "test/e2e/browser-family.spec.ts",
+        "test/e2e/browser-focus.spec.ts",
+        "test/e2e/browser-layer.spec.ts",
+        "test/e2e/browser-mcp.spec.ts",
+        "test/e2e/browser-profile.spec.ts",
+        "test/e2e/browser-screens.spec.ts",
+        "test/e2e/browser-sleep.spec.ts",
+        "test/e2e/browser-webview-guard.spec.ts",
+        "test/e2e/browser.spec.ts",
+        "test/e2e/controls.spec.ts",
+        "test/e2e/linked-browser.spec.ts"
+      ],
+      "why": "The Browser node and its layer: web pages in the app, seen by the browser* specs, linked-browser.spec.ts and controls.spec.ts (a Browser node among the controls). Left out: read-only.ts (ipc/layout.ts), cdp.ts and origins.ts (the MCP server of every agent session), shared/browser/* and renderer browser-frame.ts and profiles.ts (the menu that creates nodes, create-items.ts)."
+    }
+  ]
+}
