@@ -337,8 +337,9 @@ Autopilot) it is declined automatically.
 
 Agent `worfy:implementer` (`subagent_type: "worfy:implementer"`), name `impl-<NN>`, in the
 background: steps `F workflow.implementer_steps` of the skill `F workflow.ticket_skill` up to the
-finish `F workflow.finish` (a PR with green CI, or locally green checks); the merge stays with the
-orchestrator. The order of work and the report format are set in the agent definition; the brief
+finish `F workflow.finish` (a PR and a green gate fast, or locally green checks); the merge stays with the
+orchestrator. The implementer does not wait for CI: after its report the orchestrator waits for the
+project's final CI check (for example `ci-ok`) on the PR head, the Pipeline stage `ci`. The order of work and the report format are set in the agent definition; the brief
 does not repeat them.
 
 **Model and effort.** Every agent this skill starts gets the Agent parameters `model` and `effort`
@@ -475,6 +476,10 @@ report says so. With `agent-review` before `ci` there is no PR yet: the verifier
 ticket's branch, the checks of the PR below wait for step 8, and the review mark goes on the
 branch's head.
 
+**First the CI of the head.** With `pr-green-ci` and `agent-review` after `ci` the orchestrator waits for CI on the PR head with the CI wait block of section 4 before `review pending` and the verifier: the
+implementer does not wait for CI. Red CI goes to a rework round (below) or to the project's quarantine rule, without a verifier. With `F workflow.ci` `batch` this step does not exist. A
+`CI=pending` the verifier still sees is not a finding and not a reason for `REJECTED`: it goes on its "could not verify" line.
+
 For every returned report — agent `worfy:reviewer` (name `verify-<NN>`, lens "implementer's
 report", the brief gives the path to the worktree). By then the implementer's worktree is idle and
 the verifier is alone in it — so it uses that worktree (with `single` — the main checkout); do not
@@ -548,7 +553,9 @@ the gate never started: the same as exit code 3, with the reason "node not found
 number — `EXIT=129`, `130`, `143`, `149` (SIGHUP, SIGINT, SIGTERM, Ctrl+Break of Windows) — the gate itself was stopped and this run wrote nothing: that is no
 verdict, and the ticket is not merged on it.
 Then the verifier checks the report by the lens "implementer's report" of agent `worfy:reviewer`
-(section "Lens descriptions" of the agent). Owner rules the verifier gets in its brief: an acceptance item that cannot be
+(section "Lens descriptions" of the agent). The line `e2e: deferred to gate full: <files>` in `not_verified` is not green: those e2e
+files did not run on the implementer's side, and they count only when the PR's final CI check or `gate full` runs them;
+the line itself is not a finding. Owner rules the verifier gets in its brief: an acceptance item that cannot be
 automated (a system dialog, an OS notification, a live terminal) may stay `[ ]` with a line
 "not verified: <why>" (in the docs' language) in the ticket's result
 section — that is not a finding and not a reason for `REJECTED`; attached evidence (a screenshot,
@@ -728,12 +735,30 @@ exception: the old implementer sent its final report less than 5 min before this
 Otherwise the previous round's worktree is idle: remove it and launch the new agent with the
 Agent parameter `isolation: "worktree"`, which gives it a fresh tree of its own. What happens to
 the branch depends on where it lives:
-- pushed (`pr-green-ci`): `git worktree remove <worktree>`, then `git branch -D <branch>`; the
-  new agent checks out the branch from origin (`git checkout -B <branch> origin/<branch>`).
+- `pr-green-ci`: `git worktree remove <worktree>`, then the block below decides on the local branch
+  by `git ls-remote --exit-code --heads origin <branch>`: exit 0 (on origin) — fetch it, and `git
+  branch -D <branch>` only when the local tip is in origin's (`git merge-base --is-ancestor <branch>
+  origin/<branch>`); then the new agent checks it out from origin. Local commits not on origin keep
+  the branch, and the new agent takes the local branch; exit 2 (never pushed) — the
+  branch stays, as with `local-green` below; any other exit — the branch stays, and the wave report
+  says why.
 - `local-green` or a repository without `origin` — nothing is pushed, and the local branch is the
   only copy of the first round's commits and of the `gate: REJECTED` commits that count the
   rounds: `git worktree remove <worktree>` only, the branch stays (no `git branch -D`); the new
   agent checks out the local branch (`git checkout <branch>`; worktrees share the branches).
+
+```bash
+git -C <repo> worktree remove <worktree>; echo "EXIT=$?"
+git -C <repo> ls-remote --exit-code --heads origin <branch> >/dev/null; rc=$?
+case $rc in
+  0) if ! git -C <repo> fetch -q origin <branch>; then echo "KEEP: fetch failed, <branch> kept"
+     elif git -C <repo> merge-base --is-ancestor <branch> origin/<branch>; then
+       git -C <repo> branch -D <branch>   # all on origin: the new agent fetches it
+     else echo "KEEP: <branch> has local commits not on origin (the new agent takes it)"; fi ;;
+  2) echo "KEEP: <branch> never pushed, the local branch is its only copy" ;;
+  *) echo "KEEP: ls-remote exit $rc, <branch> not deleted (say so in the report)" ;;
+esac
+```
 
 If `git worktree remove` refuses (untracked or modified files), look at what is there instead of
 forcing it. Either way the new agent rebases first. Never send it into an existing tree:
@@ -749,8 +774,9 @@ Repository: <repo>
 Ticket: <F tickets.path for NN>; spec: <F tickets.spec>
 PR: <N>                               # local-green: none
 Branch: <branch>
-Worktree: your launch tree (isolation "worktree") — git checkout -B <branch> origin/<branch>
-                          # local-green or no origin: git checkout <branch> (the local branch)
+Worktree: your launch tree (isolation "worktree") — git fetch origin <branch>
+                          # and git checkout -B <branch> origin/<branch>
+                          # local-green, no origin or never pushed: git checkout <branch>
 Head: <sha>               # the branch HEAD before the rework; the implementer rebases it first
 Findings: <the Act on group of the recorded `REJECTED` | the failing tests of the red run>
 Verifier report: <the recorded verdict: PR comment URL, gate: commit or ticket file | the run log>
