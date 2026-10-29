@@ -9,8 +9,6 @@
 import type { CSSProperties } from 'react'
 import { KIND, type NodeKindColour } from './kind-colours'
 
-export type { NodeKindColour } from './kind-colours'
-
 const colourOf = (kind: NodeKindColour): string => KIND[kind].band
 
 const ICON_PATHS: Record<NodeKindColour, readonly string[]> = {

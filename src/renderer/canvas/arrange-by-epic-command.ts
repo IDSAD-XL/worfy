@@ -11,8 +11,6 @@
 // the menu and the palette show the command inactive there.
 import { useCallback, useEffect, useRef } from 'react'
 import { useStoreApi } from '@xyflow/react'
-import { SUBAGENT_KIND } from '../../shared/layout/derived'
-import type { Rect } from '../../shared/layout/free-place'
 import type { Layout, LayoutOpInput } from '../../shared/layout/types'
 import { manualRead, storedBindings, useBindingsStore, whenBindingsRead } from '../binding/store'
 import { useCanvasRequests } from '../find/canvas-requests'
@@ -22,7 +20,7 @@ import { arrangeByEpic } from './arrange-by-epic'
 import type { CanvasFlowNode } from './nodes'
 import { frameReserves } from './overlays/session-spots'
 import { spotInputs, type DrawnNode } from './session-spot'
-import { sessionParents } from './sources/subagents'
+import { sessionParents, subagentRectsBySession } from './sources/subagents'
 import type { TreeBlocks } from './tidy'
 import { currentLayout, useLayoutOps } from './useLayout'
 
@@ -62,17 +60,6 @@ function sessionEpics(projectId: string, root: string, layout: Layout): Map<stri
       return binding === undefined ? [] : [[node.id, binding.target.epic] as const]
     }),
   )
-}
-
-/** The Subagent Nodes as drawn, on the plane, by their Session's Node id; the anchor of a tree (1 × 1, not drawn) takes no room. */
-function drawnTreesOf(nodes: readonly DrawnFlowNode[]): Map<string, Rect[]> {
-  const trees = new Map<string, Rect[]>()
-  for (const node of nodes) {
-    if (node.type !== SUBAGENT_KIND || node.parentId === undefined || node.data.node?.data?.variant === 'anchor') continue
-    const { x, y } = node.internals.positionAbsolute
-    trees.set(node.parentId, [...(trees.get(node.parentId) ?? []), { x, y, w: node.width ?? 0, h: node.height ?? 0 }])
-  }
-  return trees
 }
 
 /** "Arrange by Epic" runs at most once at a time per Project: a second command while one waits is dropped. */
@@ -117,7 +104,8 @@ export async function runArrangeByEpic({ projectId, root, drawn, trees, apply, w
       epics: sessionEpics(projectId, root, layout),
       drawn: spotInputs(flow, frameReserves(projectId)),
       trees: trees(layout),
-      drawnTrees: drawnTreesOf(flow),
+      // The Subagent Nodes as drawn, on the plane.
+      drawnTrees: subagentRectsBySession(flow, (node) => node.internals.positionAbsolute),
     })
     if (op !== undefined) await apply(op)
     return op

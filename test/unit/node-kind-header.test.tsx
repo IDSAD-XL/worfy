@@ -236,6 +236,58 @@ describe('read-only Session Node', () => {
   })
 })
 
+describe('the title id that names a Session Node’s React Flow wrapper (flow-nodes.ts)', () => {
+  const external = { id: `session-${SESSION}`, kind: 'session', x: 0, y: 0, w: 480, h: 320, data: { origin: 'external', sessionId: SESSION, source: 'terminal', cwd: ROOT } } as unknown as LayoutNode
+  const worfy = { id: LIVE_NODE, kind: 'session', x: 0, y: 0, w: 480, h: 320, data: { origin: 'worfy', sessionId: SESSION } } as unknown as LayoutNode
+
+  /**
+   * The Node in its wrapper on the Canvas, named as flow-nodes.ts names it; with `tile`, in a focus
+   * tile too, as focus mode draws it while the Canvas keeps its own copy. The tile comes first in the
+   * document, so an id it shares with the Canvas copy is the one an id lookup finds.
+   */
+  async function wrapped(node: LayoutNode, tile: boolean): Promise<HTMLElement> {
+    const { toFlowNodes } = await import('../../src/renderer/canvas/flow-nodes')
+    const { default: SessionNode } = await import('../../src/renderer/canvas/nodes/SessionNode')
+    // The module SessionNode reads the context from: the modules are loaded afresh for each test.
+    const { FocusTileContext: TileContext } = await import('../../src/renderer/focus/focus-tile')
+    const [flow] = toFlowNodes([node], [], [])
+    const element = <SessionNode {...propsOf(node.id, { node })} />
+    render(
+      <ReactFlowProvider>
+        {tile ? (
+          <div className="w-focus__node">
+            <TileContext.Provider value={true}>{element}</TileContext.Provider>
+          </div>
+        ) : null}
+        <div role="group" aria-label={flow!.ariaLabel} {...flow!.domAttributes} data-testid="wrapper">
+          {element}
+        </div>
+      </ReactFlowProvider>,
+    )
+    await vi.waitFor(() => expect(screen.getAllByTestId('session-node').map((each) => each.getAttribute('data-status'))).toEqual(tile ? ['idle', 'idle'] : ['idle']))
+    return screen.getByTestId('wrapper')
+  }
+
+  it('a Session started outside worfy names its wrapper by its title', async () => {
+    live = [{ pid: 100, sessionId: SESSION, cwd: ROOT, status: 'idle', entrypoint: 'cli', name: 'wave-05' }]
+    const wrapper = await wrapped(external, false)
+    expect(screen.getAllByRole('group', { name: 'Session wave-05' })).toContain(wrapper)
+  })
+
+  it.each([
+    ['a Session started outside worfy', external, 'Session wave-05'],
+    ['a Session worfy runs', worfy, 'Session dddddddd'],
+  ])('%s in a focus tile: its title id stays the Canvas copy’s alone, and the wrapper keeps its name', async (_name, node, name) => {
+    live = [{ pid: 100, sessionId: SESSION, cwd: ROOT, status: 'idle', entrypoint: 'cli', name: 'wave-05' }]
+    views = [liveView('idle')]
+    const wrapper = await wrapped(node, true)
+    const id = wrapper.getAttribute('aria-labelledby')!
+    expect(document.querySelectorAll(`[id="${id}"]`)).toHaveLength(1)
+    expect(wrapper.contains(document.getElementById(id))).toBe(true)
+    expect(screen.getAllByRole('group', { name })).toContain(wrapper)
+  })
+})
+
 describe('live Session Node (a Session worfy runs)', () => {
   it('running: the band and the icon of kind-session, its name, full opacity, a chip without kind colour', async () => {
     views = [liveView('idle')]
@@ -420,6 +472,14 @@ describe('the kind colours of the Node files', () => {
     const files = readdirSync(dir).filter((file) => file.endsWith('.tsx'))
     expect(files.length).toBeGreaterThan(5)
     for (const file of files) expect(readFileSync(join(dir, file), 'utf8'), file).not.toMatch(/var\(--kind-/)
+  })
+
+  it('outside the theme only kind-colours.ts and, for the Epic frame’s ground, epic-frame.css name a kind-* role', () => {
+    const root = join(process.cwd(), 'src/renderer')
+    const files = readdirSync(root, { recursive: true, encoding: 'utf8' }).filter((file) => /\.(tsx?|css)$/.test(file) && file !== join('theme', 'tokens.css'))
+    expect(files.length).toBeGreaterThan(100)
+    const naming = files.filter((file) => /var\(--kind-/.test(readFileSync(join(root, file), 'utf8'))).map((file) => file.split('\\').join('/'))
+    expect(naming.sort()).toEqual(['canvas/epic-frame.css', 'canvas/kind-colours.ts'])
   })
 
   it('each kind with a colour shows on the minimap in its band colour', async () => {

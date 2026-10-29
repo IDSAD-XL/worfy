@@ -306,17 +306,44 @@ export function buildSubagentNodes(
   return nodes
 }
 
+/** A Subagent Node as React Flow holds it: its kind, the Session Node it hangs from, its size and its own Node's data. */
+interface SubagentFlowNode {
+  type?: string | undefined
+  parentId?: string | undefined
+  width?: number | null | undefined
+  height?: number | null | undefined
+  data: { node?: { data?: Record<string, unknown> } }
+}
+
+/**
+ * The rectangles of the Subagent Nodes on the plane, in absolute canvas units, by their Session's
+ * Node id, in the order the Nodes come. `corner` is a Node's top-left corner on the plane, or
+ * undefined when there is nothing to measure it from. Any other kind of Node is left out, and so is
+ * the anchor of a tree (1 × 1, not drawn): it takes no room. The Epic frames (subagentPlaneRects)
+ * and "Arrange by Epic" (arrange-by-epic-command.ts) read the Subagent Nodes through it.
+ */
+export function subagentRectsBySession<N extends SubagentFlowNode>(nodes: Iterable<N>, corner: (node: N, sessionNodeId: string) => { x: number; y: number } | undefined): Map<string, Rect[]> {
+  const trees = new Map<string, Rect[]>()
+  for (const node of nodes) {
+    if (node.type !== SUBAGENT_KIND || node.parentId === undefined || node.data.node?.data?.variant === 'anchor') continue
+    const at = corner(node, node.parentId)
+    if (at === undefined) continue
+    trees.set(node.parentId, [...(trees.get(node.parentId) ?? []), { x: at.x, y: at.y, w: node.width ?? 0, h: node.height ?? 0 }])
+  }
+  return trees
+}
+
 /**
  * Where the Subagent Nodes are on the plane, in absolute canvas units: a Subagent Node's position is
- * relative to its Session's Node. The anchor (1×1, not drawn) takes no room.
+ * relative to its Session's Node, so a Node whose Session Node is not in the Layout is left out.
  */
 export function subagentPlaneRects(layout: Layout, nodes: readonly CanvasFlowNode[]): Rect[] {
   const sessions = new Map(layout.nodes.map((node) => [node.id, node]))
-  return nodes.flatMap((node) => {
-    const session = node.parentId === undefined ? undefined : sessions.get(node.parentId)
-    if (!session || (node.data.node.data as SubagentNodeData).variant === 'anchor') return []
-    return [{ x: session.x + node.position.x, y: session.y + node.position.y, w: node.width ?? 0, h: node.height ?? 0 }]
+  const trees = subagentRectsBySession(nodes, (node, sessionNodeId) => {
+    const session = sessions.get(sessionNodeId)
+    return session === undefined ? undefined : { x: session.x + node.position.x, y: session.y + node.position.y }
   })
+  return [...trees.values()].flat()
 }
 
 function useSubagentNodes({ projectId, layout }: NodeSourceContext): readonly CanvasFlowNode[] {

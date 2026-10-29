@@ -8,15 +8,17 @@
 // The file is .tsx, in the jsdom project, though the ticket names tidy.test.ts: tidy.ts uses the
 // renderer's modules (React, the Subagent source), which the node project's type check does not
 // take in (tsconfig.test.node.json lists its renderer files one by one).
+import { act, renderHook } from '@testing-library/react'
 import ELK from 'elkjs/lib/elk.bundled.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { applyRecorded, historyOf, resetHistories } from '../../src/renderer/canvas/history'
 import type { ElkEngine } from '../../src/renderer/canvas/elk/layout'
 import { packGraph } from '../../src/renderer/canvas/elk/pack'
 import { clearShift, placeSubagents } from '../../src/renderer/canvas/sources/subagents'
-import { naturalTreeBlocks, runTidyUp, tidyOperation } from '../../src/renderer/canvas/tidy'
+import { naturalTreeBlocks, runTidyUp, tidyOperation, useTidyUpRequests } from '../../src/renderer/canvas/tidy'
 import { TIDY_GAP, tidyItems } from '../../src/renderer/canvas/tidy-items'
 import { acceptLayoutState } from '../../src/renderer/canvas/useLayout'
+import { requestTidyUp } from '../../src/renderer/find/canvas-requests'
 import type { Rect } from '../../src/renderer/canvas/epic-layout'
 import { crowds, freeShift, isParticipant, NODE_GAP, obstaclesFor } from '../../src/shared/layout/free-place'
 import { DEFAULT_VIEWPORT, layoutNodeSchema, layoutOpSchema, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../src/shared/layout/types'
@@ -325,5 +327,25 @@ describe('Tidy up', () => {
     // Without the tree the Session's rectangle is the Session alone.
     expect(tidyItems(layout().nodes).find((item) => item.id === 's')!.rect).toEqual({ x: nodeOf('s').x, y: nodeOf('s').y, w: 480, h: 320 })
     expect(await tidyOperation(layout().nodes.slice(0, 1), new Map(), elk)).toBeUndefined()
+  })
+})
+
+// The palette leaves a request (find/canvas-requests.ts); the Canvas menu carries it out with the
+// same "Tidy up" its own item runs (overlays/CanvasMenu.tsx).
+describe("the palette's Tidy up (useTidyUpRequests)", () => {
+  it('runs once per request for its Project: not for one made before it was mounted, nor for another Project', () => {
+    const run = vi.fn(() => Promise.resolve())
+    act(() => requestTidyUp('tidy-requests'))
+    const { rerender, unmount } = renderHook(() => useTidyUpRequests('tidy-requests', run))
+    expect(run).not.toHaveBeenCalled()
+    act(() => requestTidyUp('tidy-requests-other'))
+    expect(run).not.toHaveBeenCalled()
+    act(() => requestTidyUp('tidy-requests'))
+    expect(run).toHaveBeenCalledTimes(1)
+    rerender()
+    expect(run).toHaveBeenCalledTimes(1)
+    act(() => requestTidyUp('tidy-requests'))
+    expect(run).toHaveBeenCalledTimes(2)
+    unmount()
   })
 })

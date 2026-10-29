@@ -6,8 +6,8 @@
 // lays out the Nodes of the Canvas (../tidy.ts, worfy-week/07), "Arrange by Epic" lines the Sessions
 // up at their Epic frames (../arrange-by-epic.ts, worfy-canvas ticket 12), and "Re-pack" puts the
 // Epic frames in the order "active first" and counts their columns again (../sources/epics.ts,
-// ADR-0075). The menu also carries out the palette's "Arrange by Epic" and "Re-pack": it is inside
-// the Canvas's LayoutOps, so each write is one step of ⌘Z.
+// ADR-0075). The menu also carries out the palette's "Tidy up", "Arrange by Epic" and "Re-pack": it
+// is inside the Canvas's LayoutOps, so each write is one step of ⌘Z.
 //
 // The menu is HTML, not a native Menu.popup: Playwright cannot click a native menu (ticket 04).
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
@@ -20,7 +20,7 @@ import { activeProject, useProjects, useReadOnly } from '../../projects/useProje
 import { nodeTypes, type NodeType } from '../nodes'
 import { useRepack } from '../arrangement-record'
 import { useRepackRequests } from '../sources/epics'
-import { useTidyUp, useTreeBlocks } from '../tidy'
+import { useTidyUp, useTidyUpRequests, useTreeBlocks } from '../tidy'
 import { createItems, newNodeData } from './create-items'
 import { useLayoutOps } from '../useLayout'
 
@@ -55,9 +55,10 @@ export default function CanvasMenu() {
 function ProjectCanvasMenu({ projectId, root }: { projectId: string; root: string }) {
   const flow = useReactFlow()
   const ops = useLayoutOps()
-  // One subscription to the Subagent trees for both layout commands.
+  // One subscription to the Subagent trees for both layout commands, from the menu and the palette.
   const trees = useTreeBlocks(projectId, root)
   const tidyUp = useTidyUp(projectId, trees)
+  useTidyUpRequests(projectId, tidyUp)
   const arrangeByEpic = useArrangeByEpic(projectId, root, trees)
   useArrangeByEpicRequests(projectId, arrangeByEpic)
   const repack = useRepack(projectId)

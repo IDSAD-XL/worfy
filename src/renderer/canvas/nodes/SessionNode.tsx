@@ -15,6 +15,7 @@ import {
   type SESSION_WIDTH,
 } from '../../claude-home/session-nodes'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
+import { useInFocusTile } from '../../focus/focus-tile'
 import { invoke } from '../../ipc'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
@@ -220,8 +221,16 @@ function KeepButton({ id, keep, readOnly }: { id: string; keep: boolean; readOnl
 }
 
 /** A Session worfy runs, or ran: main's view while it runs, its saved session id otherwise. */
+/**
+ * The id that names the Node's React Flow wrapper (flow-nodes.ts), on the Canvas copy alone: focus
+ * mode draws the Node in a tile while the Canvas keeps its own copy, and an id twice in the document
+ * is invalid, with the wrapper named by whichever copy comes first.
+ */
+const useTitleElementId = (id: string): string | undefined => (useInFocusTile() ? undefined : sessionTitleElementId(id))
+
 function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeProps, 'id' | 'selected'> & { info: WorfySessionNodeData; project: ProjectView; keep: boolean }) {
   const ops = useLayoutOps()
+  const titleId = useTitleElementId(id)
   const { history } = useClaudeHome(project.path)
   const view = useSessionNodeView(project.id, id)
   const running = isRunning(view)
@@ -351,7 +360,7 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
       className="w-node-surface"
       style={dragging ? { ...styles.root, ...styles.dragging } : styles.root}
       role="group"
-      id={sessionTitleElementId(id)}
+      id={titleId}
       aria-label={sessionLabel(title)}
       data-testid="session-node"
       data-live="true"
@@ -488,6 +497,7 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
   const info = readSessionNodeData(data.node.data)
   const project = activeProject(useProjects())
   const { live, history } = useClaudeHome(project?.path)
+  const titleId = useTitleElementId(id)
 
   if (worfy !== null && project !== undefined) return <LiveSessionNode id={id} selected={selected} info={worfy} project={project} keep={data.node.keep === true} />
 
@@ -514,7 +524,7 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
       className="w-node-surface"
       style={styles.root}
       role="group"
-      id={sessionTitleElementId(id)}
+      id={titleId}
       aria-label={sessionLabel(title)}
       data-testid="session-node"
       data-node-id={id}

@@ -13,7 +13,7 @@ import type { LayoutOpInput } from '../../src/shared/layout/types'
 
 /** What useTreeBlocks gives: a new object on every call, so a second subscription in one render shows as a second object. */
 type FakeTrees = (() => Map<string, never>) & { root: string | undefined }
-const tidyUp = vi.hoisted(() => ({ run: vi.fn(() => Promise.resolve()), projects: [] as [string, string | undefined][], trees: undefined as unknown }))
+const tidyUp = vi.hoisted(() => ({ run: vi.fn(() => Promise.resolve()), projects: [] as [string, string | undefined][], requests: [] as string[], trees: undefined as unknown }))
 
 vi.mock('../../src/renderer/canvas/tidy', () => ({
   useTreeBlocks: (_projectId: string, root: string | undefined): FakeTrees => Object.assign(() => new Map<string, never>(), { root }),
@@ -21,6 +21,9 @@ vi.mock('../../src/renderer/canvas/tidy', () => ({
     if (!tidyUp.projects.some(([id]) => id === projectId)) tidyUp.projects.push([projectId, trees.root])
     tidyUp.trees = trees
     return tidyUp.run
+  },
+  useTidyUpRequests: (projectId: string, run: unknown) => {
+    if (run === tidyUp.run && !tidyUp.requests.includes(projectId)) tidyUp.requests.push(projectId)
   },
 }))
 
@@ -192,13 +195,15 @@ describe('the Canvas menu', () => {
     return screen.findByRole('menu', { name: 'Canvas' })
   }
 
-  it('opens on a right click on the empty plane with the New items, a separator, then Tidy up, which runs the Canvas’s Tidy up (worfy-week/07)', async () => {
+  it('opens on a right click on the empty plane with the New items, a separator, then Tidy up, which runs the Canvas’s Tidy up and carries out the palette’s requests (worfy-week/07)', async () => {
     const menu = await openMenu()
     const rows = [...menu.children].map((child) => (child.getAttribute('role') === 'separator' ? '—' : child.textContent))
     expect(rows.length).toBeGreaterThan(3)
     expect(rows.slice(-4)).toEqual(['—', 'Tidy up', 'Arrange by Epic', 'Re-pack'])
     expect(rows.slice(0, -4).every((label) => label?.startsWith('New '))).toBe(true)
     expect(tidyUp.projects).toEqual([['p1', '/repo/one']])
+    // The palette's request runs the menu's own Tidy up, on the one subscription to the Subagent trees.
+    expect(tidyUp.requests).toEqual(['p1'])
 
     fireEvent.click(screen.getByRole('menuitem', { name: 'Tidy up' }))
     expect(tidyUp.run).toHaveBeenCalledTimes(1)
