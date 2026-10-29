@@ -148,3 +148,10 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - `pnpm lint` — exit 0; `pnpm typecheck` — exit 0.
 - `node "$HOME/.claude/worfy-harness/plugin/hooks/gate.mjs" fast </dev/null` — exit 0,
   `[gate] green (fast): worfy/.:lint worfy/.:typecheck worfy/.:test` (весь `pnpm test`, 163,5 s).
+
+### Наблюдения CI 2026-10-28 (Session-мост)
+
+- `test/e2e/epic-frame.spec.ts:1103` (perf) — timeout на обеих попытках в run 40765186156 (PR #929); в 15 из 16
+  последних macOS e2e run-ов зелёный. Один случай — строка здесь, не Ticket (правило: 3 FLAKY за неделю).
+- `test/unit/session-view.test.tsx:391` — на #922, job macos-tests: timeout монтирования, повтор видел два textbox-а.
+  Причина — гонка повтора; правка — PR #932 (Orchestrator), merge 2026-10-29.

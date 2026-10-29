@@ -1,7 +1,8 @@
 # 41 — Autopilot с бюджетом Limits: доля недели на день, остановка между Wave-ами, продолжение после сброса
 
 Type: task
-Status: claimed 2026-10-28T21:38Z
+Status: done 2026-10-29T00:28Z
+PR: #933
 Branch: worfy-throughput/41
 Blocked by: 40
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: меньше token-ов на Ticket, чтобы хватало Limits подписки», идея 8, строка L1
@@ -92,3 +93,11 @@ diff есть `test/e2e/**` (`scripts/windows-verdict-scope.mjs:80`); иначе
   подсказка говорят причину и время, Stop завершает ожидание сразу одной строкой `run-stopped` `user-stop`. Снимки в двух
   темах: `test-results/e2e/snapshots/settings-autopilot-{off,on}/` и `autopilot-budget-waiting-{light,dark}.png` в
   выводе test-а. Ночь Autopilot с бюджетом (вручную) — ждёт владельца.
+- **Merge** — PR #933, 6679b4cf (admin merge Orchestrator-а: красный job — flaky test
+  `test/e2e/quiet-windows.spec.ts:72` и timeout teardown worker-а, #933 этот код не трогает). Review: раунд 1
+  REJECTED (бюджет включён по умолчанию, большая Wave ждала весь день, нет test-а связи Settings → run, нет e2e),
+  раунд 2 VERIFIED. Windows: `autopilot.spec.ts` и `settings.spec.ts` — 10 passed на ПК.
+- **Решение моста без владельца**: бюджет по умолчанию выключен — вопрос владельцу утром, оставить ли так.
+- **Low, не исправлено**: `test/e2e/autopilot.spec.ts:433-434` может ложно упасть, если test стартует в последние
+  секунды перед местной полуночью (часы test-а и приложения расходятся). Правка — ждать полночь, если до неё меньше 2 мин.
+- **Вручную, ждёт владельца**: одна ночь Autopilot с включённым бюджетом.
