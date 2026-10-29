@@ -80,7 +80,7 @@ describe('scripts/ci-scope.mjs: the e2e spec files of a pull request', () => {
     ['a helper of the e2e tests', 'test/e2e/helpers.ts'],
     ['another helper of the e2e tests', 'test/e2e/wait.ts'],
     ['the measured times of the spec files', 'test/e2e/timings.json'],
-    ['a fixture', 'test/fixtures/projects/a.json'],
+    ['a fixture the e2e tests read', 'test/fixtures/agent-scripts/a.jsonl'],
     ['the Playwright config', 'playwright.config.ts'],
     ['package.json', 'package.json'],
     ['a build input', 'electron-builder.yml'],
@@ -92,10 +92,9 @@ describe('scripts/ci-scope.mjs: the e2e spec files of a pull request', () => {
     expect(e2eSpecs([path, 'test/e2e/a.spec.ts'], SPECS, RULES).files).toBeNull()
   })
 
-  it('ignores paths that are not the app: unit and contract tests, other scripts, the Harness tests', () => {
-    expect(e2eSpecs(['src/main/alpha/run.ts', 'test/unit/x.test.ts', 'scripts/agent-cost.mjs', 'harness/bin/tests/x.test.sh'], SPECS, RULES).files).toEqual([
-      'test/e2e/a.spec.ts',
-    ])
+  it('ignores paths that are not the app: unit and contract tests, other scripts, the Harness tests, fixtures no e2e test reads, workflows', () => {
+    const others = ['test/unit/x.test.ts', 'scripts/agent-cost.mjs', 'harness/bin/tests/x.test.sh', 'test/fixtures/eval-stub/claude.cjs', '.github/workflows/windows-tests.yml']
+    expect(e2eSpecs(['src/main/alpha/run.ts', ...others], SPECS, RULES).files).toEqual(['test/e2e/a.spec.ts'])
   })
 
   it('runs every spec file for a path of src/ when the table cannot be read, or names a spec file that does not exist', () => {
@@ -148,6 +147,16 @@ describe('scripts/e2e-specs.table.json of this repository', () => {
     expect(rules.length).toBeGreaterThan(0)
     const table = JSON.parse(readFileSync(join(REPO, SPEC_TABLE), 'utf8')) as { rules: Array<{ why?: unknown }> }
     for (const [at, rule] of table.rules.entries()) expect(typeof rule.why === 'string' && rule.why.length > 20, `rule ${at + 1}: why`).toBe(true)
+  })
+
+  it('gives a pull request that changes only harness/skills/epic-wave/SKILL.md the spec files of the Harness rule alone, in one shard', () => {
+    const path = 'harness/skills/epic-wave/SKILL.md'
+    const harness = rules.filter((rule) => rule.paths.includes('harness/skills/**'))
+    expect(harness).toHaveLength(1)
+    expect(rules.filter((rule) => rule.matchers.some((matcher) => matcher.test(path)))).toEqual(harness)
+    const files = e2eSpecs([path], specs, rules).files
+    expect(files).toEqual([...(harness[0]?.specs ?? [])].sort())
+    expect(e2eShards(files, specs, readTimings(REPO), E2E_SHARDS['macos-e2e'])).toEqual(['1/1'])
   })
 
   it('names only spec files that exist', () => {

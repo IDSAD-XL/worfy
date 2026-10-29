@@ -549,6 +549,21 @@ describe('scripts/ci-scope.mjs', () => {
     git('commit', '-q', '--allow-empty', '-m', 'change')
   }
 
+  /** A commit on top of `base` that writes each file exactly as given (null deletes it); HEAD is left on it. */
+  function commitTexts(texts: Record<string, string | null>): void {
+    git('checkout', '-q', '--detach', base)
+    for (const [file, text] of Object.entries(texts)) {
+      if (text === null) {
+        git('rm', '-q', file)
+        continue
+      }
+      mkdirSync(join(repo, dirname(file)), { recursive: true })
+      writeFileSync(join(repo, file), text)
+    }
+    git('add', '-A')
+    git('commit', '-q', '--allow-empty', '-m', 'change')
+  }
+
   let outputs = 0
   const scope = (env: Record<string, string>) => {
     const output = join(scratch, `output-${++outputs}`)
@@ -583,7 +598,42 @@ describe('scripts/ci-scope.mjs', () => {
   // The guards are put together here, so that this file holds none: ci-scope.mjs would list it.
   const DARWIN = "'darwin'"
   const MAC_ONLY = `describe.skipIf(process.platform !== ${DARWIN})('x', () => {})\n`
+  // A small ci.yml of the base, with every job of the real one: which of its parts a pull request
+  // changes decides whether the workflow asks for macos-package and every e2e spec file.
+  const CI_YML = [
+    'name: CI',
+    '# what the workflow does',
+    'on:',
+    '  pull_request:',
+    'jobs:',
+    '  changes:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - run: node scripts/ci-scope.mjs',
+    '  lint-typecheck:',
+    '    runs-on: ubuntu-latest',
+    '  linux-tests:',
+    '    runs-on: ubuntu-latest',
+    '  macos-tests:',
+    '    runs-on: macos-latest',
+    '  macos-e2e:',
+    '    runs-on: macos-latest',
+    '  macos-package:',
+    '    runs-on: macos-latest',
+    '  windows:',
+    '    uses: ./.github/workflows/windows-tests.yml',
+    '  windows-e2e:',
+    '    runs-on: windows-latest',
+    '  ci-ok:',
+    '    runs-on: ubuntu-latest',
+    '',
+  ].join('\n')
+  const CI_PATH = '.github/workflows/ci.yml'
+  /** ci.yml of the base with the line `after` put right after the line `line`. */
+  const ciWith = (line: string, after: string): string => CI_YML.replace(`${line}\n`, `${line}\n${after}\n`)
   const BASE_FILES: Record<string, string> = {
+    [CI_PATH]: CI_YML,
+    '.github/workflows/windows-tests.yml': 'name: windows\non:\n  workflow_call:\n',
     'test/unit/mac-only.test.ts': MAC_ONLY,
     'test/contract/mac-menu.test.tsx': `const file = process.platform === ${DARWIN.replaceAll("'", '"')} ? 'fileMenu' : 'File'\n`,
     'test/unit/windows-only.test.ts': "describe.runIf(process.platform === 'win32')('x', () => {})\n",
@@ -678,14 +728,69 @@ describe('scripts/ci-scope.mjs', () => {
     'test/e2e/terminal.spec.ts',
     // packagedBuild, packagedExecutable and packagedResources of the @packaged tests.
     'test/e2e/helpers.ts',
-    '.github/workflows/ci.yml',
-    '.github/workflows/windows-tests.yml',
   ])('a pull request that changes the build input %s runs every job, macos-package too', (file) => {
     commitOnBase([file])
     const result = scope({ EVENT: 'pull_request', BASE: base })
     expect(result.status, result.stderr).toBe(0)
     expect(result.expect).toEqual(ALL)
     expect(result.files).toEqual(DARWIN_FILES)
+  })
+
+  // ci.yml is a build input only where it runs the package and the e2e tests: the job changes, which
+  // decides what they run, the jobs macos-e2e, macos-package and windows-e2e, and what comes before
+  // `jobs:` (the triggers, the env of every job). Comments and blank lines are not code.
+  it.each([
+    ['the job changes', ciWith('    runs-on: ubuntu-latest\n    steps:\n      - run: node scripts/ci-scope.mjs', '      - run: echo more')],
+    ['the job macos-e2e', ciWith('  macos-e2e:', '    timeout-minutes: 40')],
+    ['the job macos-package', ciWith('  macos-package:', '    timeout-minutes: 40')],
+    ['the job windows-e2e', ciWith('  windows-e2e:', '    timeout-minutes: 40')],
+    ['the triggers before jobs:', ciWith('  pull_request:', '  push:')],
+    ['a new top-level key', ciWith('  pull_request:', 'env:\n  A: b')],
+    ['the whole file, rewritten', 'changed\n'],
+  ])('a pull request that changes %s of ci.yml runs every job, macos-package and every e2e spec file too', (_name, text) => {
+    commitTexts({ [CI_PATH]: text })
+    const result = scope({ EVENT: 'pull_request', BASE: base })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(ALL)
+    expect(result.files).toEqual(DARWIN_FILES)
+    expect(result.stdout).toContain(`${CI_PATH} changes what packages the app or runs the e2e tests (`)
+  })
+
+  it('a pull request that deletes ci.yml runs every job: when in doubt, test', () => {
+    commitTexts({ [CI_PATH]: null })
+    const result = scope({ EVENT: 'pull_request', BASE: base })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(ALL)
+  })
+
+  it.each([
+    ['only its comments and blank lines', ciWith('  macos-e2e:', '    # why this job waits\n').replace('# what the workflow does', '# what it does now')],
+    ['the job lint-typecheck', ciWith('  lint-typecheck:', '    timeout-minutes: 5')],
+    ['the job linux-tests', ciWith('  linux-tests:', '    timeout-minutes: 5')],
+    ['the job windows', ciWith('  windows:', '    with:\n      files: x')],
+    ['the job ci-ok', ciWith('  ci-ok:', '    timeout-minutes: 5')],
+  ])('a pull request that changes %s of ci.yml asks for no macOS job and no e2e', (_name, text) => {
+    commitTexts({ [CI_PATH]: text })
+    const result = scope({ EVENT: 'pull_request', BASE: base })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(NO_MACOS)
+    expect(result.stdout).toContain(`${CI_PATH} changes nothing that packages the app or runs the e2e tests`)
+  })
+
+  it('a pull request that changes the job macos-tests of ci.yml runs macos-tests with the macOS-only files, and no e2e', () => {
+    commitTexts({ [CI_PATH]: ciWith('  macos-tests:', '    timeout-minutes: 30') })
+    const result = scope({ EVENT: 'pull_request', BASE: base })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(TESTS_ONLY)
+    expect(result.files).toEqual(DARWIN_FILES)
+  })
+
+  it('a pull request that changes only windows-tests.yml, which packages nothing, asks for no macOS job and no e2e', () => {
+    commitOnBase(['.github/workflows/windows-tests.yml'])
+    const result = scope({ EVENT: 'pull_request', BASE: base })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(NO_MACOS)
+    expect(result.stdout).toContain('no build input, so no macos-package')
   })
 
   it.each([
@@ -733,8 +838,10 @@ describe('scripts/ci-scope.mjs', () => {
 
   it.each([
     ['Markdown under src/', 'src/renderer/notes.md', NO_PACKAGE],
-    // The e2e tests read test/fixtures/.
-    ['Markdown under test/fixtures/', 'test/fixtures/epic/spec.md', NO_PACKAGE],
+    // The e2e tests read test/fixtures/worfy-mvp-epic/.
+    ['Markdown under a fixture folder the e2e tests read', 'test/fixtures/worfy-mvp-epic/spec.md', NO_PACKAGE],
+    // Only the contract tests of the evals read test/fixtures/eval-stub/; the macOS-only ones among them.
+    ['a fixture no e2e test reads', 'test/fixtures/eval-stub/claude.cjs', TESTS_ONLY],
     // The build copies harness/ into the app.
     ['Markdown under harness/', 'harness/skills/x/SKILL.md', NO_PACKAGE],
     // test/contract/harness-evals-outcome.test.ts reads the README files of scripts/eval-outcome/.
@@ -745,7 +852,8 @@ describe('scripts/ci-scope.mjs', () => {
     ['any file under docs/design/', 'docs/design/F-1.dc.html', NO_MACOS],
     ['README.md, which a test reads', 'README.md', NO_MACOS],
     ['the lessons index, which a test reads', 'docs/lessons/README.md', NO_MACOS],
-    ['a workflow', '.github/workflows/ci.yml', ALL],
+    ['ci.yml, rewritten', '.github/workflows/ci.yml', ALL],
+    ['a workflow that packages nothing', '.github/workflows/windows-tests.yml', NO_MACOS],
     ['package.json', 'package.json', ALL],
   ])('%s next to documents runs the tests: every job on a push, the macOS jobs its path asks for on a pull request', (_name, file, pullRequest) => {
     commitOnBase(['docs/adr/0001-a.md', file])
@@ -843,7 +951,8 @@ describe('scripts/ci-scope.mjs', () => {
   it.each([
     'test/e2e/canvas.spec.ts',
     'test/e2e/helpers.ts',
-    'test/fixtures/epic/spec.md',
+    'test/fixtures/worfy-mvp-epic/spec.md',
+    'test/fixtures/agent-scripts/demo.jsonl',
     'test/quarantine/demo.json',
     'playwright.config.ts',
     'electron.vite.config.ts',
@@ -873,6 +982,36 @@ describe('scripts/ci-scope.mjs', () => {
     }
     expect(imported.size).toBeGreaterThan(3)
     for (const path of imported) {
+      commitOnBase([path])
+      expect(scope({ EVENT: 'pull_request', BASE: base }).expect?.['macos-e2e'], path).toBe(true)
+    }
+  })
+
+  it('every fixture folder the e2e tests or their helpers read makes a pull request run macos-e2e', () => {
+    // The e2e files, and the files outside test/e2e they import, each read as text.
+    const e2e = join(REPO, 'test', 'e2e')
+    const sources: string[] = []
+    for (const name of readdirSync(e2e, { recursive: true, encoding: 'utf8' })) {
+      if (!/\.ts$/.test(name)) continue
+      const text = readFileSync(join(e2e, name), 'utf8')
+      sources.push(text)
+      for (const [, from = ''] of text.matchAll(/from '(\.{1,2}\/[^']+)'/g)) {
+        const path = resolve(e2e, dirname(name), from)
+        const file = /\.[cm]?[jt]sx?$/.test(path) ? path : `${path}.ts`
+        if (!relative(e2e, file).startsWith('..') || !existsSync(file)) continue
+        sources.push(readFileSync(file, 'utf8'))
+      }
+    }
+    // A fixture is named as a path (test/fixtures/gh, ../fixtures/gh), as segments of a join
+    // (join(repoRoot, 'test', 'fixtures', 'gh')) or after a variable for the folder (join(fixtures, 'gh')).
+    const patterns = [/fixtures\/([\w.-]+)/g, /['"]fixtures['"]\s*,\s*['"]([\w.-]+)['"]/g, /\bfixtures\s*,\s*['"]([\w.-]+)['"]/g]
+    const folders = new Set(readdirSync(join(REPO, 'test', 'fixtures')))
+    const read = new Set<string>()
+    for (const text of sources) for (const pattern of patterns) for (const [, name = ''] of text.matchAll(pattern)) if (folders.has(name)) read.add(name)
+    expect([...read]).toEqual(expect.arrayContaining(['agent-scripts', 'browser', 'claude-home', 'e2e-shell', 'first-run-tools', 'gh', 'worfy-mvp-epic']))
+    expect(read.has('eval-stub')).toBe(false)
+    for (const name of read) {
+      const path = `test/fixtures/${name}/changed.json`
       commitOnBase([path])
       expect(scope({ EVENT: 'pull_request', BASE: base }).expect?.['macos-e2e'], path).toBe(true)
     }
