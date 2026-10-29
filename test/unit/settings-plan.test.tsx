@@ -25,11 +25,12 @@ const settings = (budget: boolean): AppSettings => ({
 
 interface FakeMain {
   calls: { channel: string; input: unknown }[]
-  read: PlanPresetRead
+  /** What planPreset.read answers; a string — main threw with it. */
+  read: PlanPresetRead | string
   apply: PlanPresetApplyResult
 }
 
-function preload(read: PlanPresetRead, budget = false): FakeMain {
+function preload(read: PlanPresetRead | string, budget = false): FakeMain {
   const main: FakeMain = { calls: [], read, apply: { status: 'saved', warning: null } }
   const answer = (value: unknown) => Promise.resolve({ ok: true, value } as never)
   const bridge: WorfyBridge = {
@@ -37,7 +38,7 @@ function preload(read: PlanPresetRead, budget = false): FakeMain {
       main.calls.push({ channel, input })
       switch (channel) {
         case 'planPreset.read':
-          return answer(main.read)
+          return typeof main.read === 'string' ? Promise.resolve({ ok: false, error: main.read } as never) : answer(main.read)
         case 'planPreset.apply':
           return answer(main.apply)
         case 'appSettings.get':
@@ -67,7 +68,7 @@ afterEach(() => {
   delete (globalThis as { worfy?: WorfyBridge }).worfy
 })
 
-async function mount(read: PlanPresetRead, budget = false) {
+async function mount(read: PlanPresetRead | string, budget = false) {
   const main = preload(read, budget)
   const section = await import('../../src/renderer/settings/PlanSection')
   render(<section.PlanOffer root={ROOT} />)
@@ -126,13 +127,24 @@ describe('Settings → Plan', () => {
   })
 
   it.each([
-    ['Max', { subscriptionType: 'Claude Max', planError: null, profile: null }, 'Plan: Claude Max. Your settings stay as they are.'],
+    ['Max', { subscriptionType: 'Claude Max', planError: null, profile: null }, 'Plan: Max. Your settings stay as they are.'],
+    ['Max 20x', { subscriptionType: 'Claude Max 20x', planError: null, profile: null }, 'Plan: Max. Your settings stay as they are.'],
+    ['Team', { subscriptionType: 'Claude Team', planError: null, profile: null }, 'Plan: Team. worfy has no recommended settings for this plan.'],
+    ['Enterprise', { subscriptionType: 'Claude Enterprise', planError: null, profile: null }, 'Plan: Enterprise. worfy has no recommended settings for this plan.'],
     ['an unknown plan', { subscriptionType: 'Claude Something New', planError: null, profile: null }, 'Plan: Claude Something New. worfy has no recommended settings for this plan.'],
   ])('%s: the plan, no offer, no Apply', async (_name, read, line) => {
     const { main } = await mount(read)
     expect((await screen.findByTestId('plan-no-offer')).textContent).toBe(line)
     expect(screen.queryByTestId('plan-apply')).toBeNull()
     expect(applies(main)).toEqual([])
+  })
+
+  it('main could not read the Profile (bin/profile-set --read failed): says so, not that the plan is unknown', async () => {
+    await mount('bin/profile-set --read failed (exit 1): profile-set: cannot read /h/projects/demo/profile.json')
+    const line = (await screen.findByTestId('plan-read-failed')).textContent
+    expect(line).toContain("Could not read the Project's Profile")
+    expect(line).not.toMatch(/the plan/u)
+    expect(screen.queryByTestId('plan-apply')).toBeNull()
   })
 
   it('Claude Code did not answer: the plan is not known, no offer', async () => {

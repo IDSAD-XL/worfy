@@ -169,7 +169,7 @@ function fieldProblem(f, v) {
         if (r === null) continue
         if (!isObject(r)) return `agents.${role}: an object of model and effort or null`
         for (const [k, x] of Object.entries(r)) {
-            if (!(k in ROLE_FIELDS)) return `agents.${role}.${k}: not a field (model, effort)`
+            if (!Object.hasOwn(ROLE_FIELDS, k)) return `agents.${role}.${k}: not a field (model, effort)`
             if (x !== null && !ROLE_FIELDS[k].includes(x)) return `agents.${role}.${k}: ${ROLE_FIELDS[k].map((y) => `"${y}"`).join(", ")} or null, not ${JSON.stringify(x)}`
         }
     }
@@ -180,7 +180,7 @@ function fieldsProblem(value) {
     if (!isObject(value)) return `the value is not a JSON object of ${WHAT}`
     for (const k of Object.keys(value)) if (!fields.includes(k)) return `${k}: not a field of this write (${WHAT})`
     for (const f of fields) {
-        if (!(f in value)) return `${f}: missing; null removes the field`
+        if (!Object.hasOwn(value, f)) return `${f}: missing; null removes the field`
         const problem = fieldProblem(f, value[f])
         if (problem !== null) return problem
     }

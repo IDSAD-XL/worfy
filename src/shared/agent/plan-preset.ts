@@ -16,6 +16,9 @@
 export const PLANS = ['pro', 'max', 'team', 'enterprise'] as const
 export type Plan = (typeof PLANS)[number]
 
+/** The short name of each plan in the UI: «Plan: Max», not the "Claude Max" Claude Code answers. */
+export const PLAN_LABELS: Readonly<Record<Plan, string>> = Object.freeze({ pro: 'Pro', max: 'Max', team: 'Team', enterprise: 'Enterprise' })
+
 /** The Harness agent roles a Profile's `agents` sets a model and effort for (harness/profiles/README.md). */
 export const AGENT_ROLES = ['implementer', 'reviewer', 'scout', 'verifier'] as const
 export type AgentRole = (typeof AGENT_ROLES)[number]
@@ -49,7 +52,7 @@ const SONNET_MEDIUM: RoleSettings = { model: 'sonnet', effort: 'medium' }
 export const PLAN_PRESETS: Readonly<Partial<Record<Plan, PlanPreset>>> = Object.freeze({
   pro: {
     plan: 'pro',
-    label: 'Pro',
+    label: PLAN_LABELS.pro,
     profile: {
       'workflow.agents': 'eco',
       agents: { implementer: SONNET_MEDIUM, reviewer: SONNET_MEDIUM, scout: SONNET_MEDIUM, verifier: SONNET_MEDIUM },

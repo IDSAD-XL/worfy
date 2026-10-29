@@ -651,6 +651,9 @@ for bad_value in \
     '{"workflow.agents":"eco","agents":{"implementer":{"effort":"max"}}}|agents.implementer.effort' \
     '{"workflow.agents":"eco","agents":{"orchestrator":{"model":"sonnet"}}}|agents.orchestrator' \
     '{"workflow.agents":"eco","agents":{"scout":{"model":"sonnet","temperature":1}}}|agents.scout.temperature' \
+    '{"workflow.agents":"eco","agents":{"scout":{"toString":"sonnet"}}}|agents.scout.toString: not a field' \
+    '{"workflow.agents":"eco","agents":{"scout":{"__proto__":"sonnet"}}}|agents.scout.__proto__: not a field' \
+    '{"workflow.agents":"eco","agents":{"__proto__":{"model":"sonnet"}}}|agents.__proto__: not a role' \
     '{"workflow.agents":"eco"}|agents' \
     '{"workflow.agents":"eco","agents":null,"review":{}}|review' \
     '"eco"|not a JSON object'; do

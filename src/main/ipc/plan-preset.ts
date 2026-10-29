@@ -2,16 +2,19 @@
 // plan Claude Code is signed in with, and the preset of that plan written to a Project's Profile.
 //
 // The plan is the `subscriptionType` of the latest `account` event of any Session of the app
-// (src/main/agent/session.ts); with none yet, a Claude Code process is asked once, as the first-run
-// sign-in check asks it (src/main/ipc/first-run.ts), and its answer is kept for the app's life.
+// (src/main/agent/session.ts); with none yet, a Claude Code process is asked, as the first-run sign-in
+// check asks it (src/main/ipc/first-run.ts), and a plan it names is kept for the app's life. Only the
+// Plan section of Settings reads it, and only while it is the section shown. An ask still in flight
+// when the app quits is stopped: its Claude Code process is closed then, not at the ask's timeout.
 //
 // The Profile is read and written only through the Harness's `bin/profile-set --field workflow.agents
 // --field agents` (ADR-0073): worfy never writes it itself (ADR-0002, ADR-0005). `planPreset.read`
 // only reads; `planPreset.apply` — the click of Apply — writes the preset from the table in
 // src/shared/agent/plan-preset.ts, then turns on the Autopilot budget of this Machine.
 import { resolve } from 'node:path'
+import { app } from 'electron'
 import type { AgentEvent } from '../../shared/agent/events'
-import { PLAN_PRESETS, presetFor } from '../../shared/agent/plan-preset'
+import { PLAN_PRESETS, planOf, presetFor } from '../../shared/agent/plan-preset'
 import { planPresetApply, planPresetRead, type PlanPresetApplyResult, type PlanPresetProfile, type PlanPresetRead } from '../../shared/ipc/plan-preset'
 import type { AppSettingsPatch } from '../../shared/settings/app-settings'
 import { sharedRegistry } from '../agent/app-registry'
@@ -29,35 +32,48 @@ import { PROFILE_SET_BUSY, PROFILE_SET_CONFLICT, profileSetRunner, type ProfileS
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
-/** The plan of this Machine's sign-in: what the latest Session reported, else one answer of Claude Code. */
+/** The plan of this Machine's sign-in: what the latest Session reported, else an answer of Claude Code. */
 export class PlanSource {
-  private known: { subscriptionType: string | null } | null = null
-  private asking: Promise<{ subscriptionType: string | null }> | null = null
+  /** The plan last named; null while none is (no Session reported one, or one reported no sign-in). */
+  private known: string | null = null
+  private asking: Promise<string | null> | null = null
+  /** Stops the ask in flight; aborted for good by stop(). */
+  private readonly stopping = new AbortController()
 
-  constructor(private readonly ask: () => Promise<AccountInfoLike>) {}
+  /** `ask` must close its Claude Code process when `signal` aborts (askAccount does). */
+  constructor(private readonly ask: (signal: AbortSignal) => Promise<AccountInfoLike>) {}
 
-  /** Every Session event of the app comes here; an `account` event sets the plan. */
+  /** Every Session event of the app comes here; an `account` event sets the plan, or forgets it when it names none. */
   readonly note: EventSink = (_sessionId, event: AgentEvent) => {
-    if (event.type === 'account') this.known = { subscriptionType: event.subscriptionType }
+    if (event.type === 'account') this.known = event.subscriptionType
   }
 
-  /** The plan; asks Claude Code when no Session has reported one. A failed ask is not kept: the next read asks again. */
+  /**
+   * The plan; asks Claude Code when none is known. Two reads at a time share one ask. An answer
+   * without a plan and a failed ask are not kept: the next read asks again.
+   */
   async get(): Promise<{ subscriptionType: string | null; error: string | null }> {
-    if (this.known !== null) return { ...this.known, error: null }
-    this.asking ??= this.ask()
+    if (this.known !== null) return { subscriptionType: this.known, error: null }
+    if (this.stopping.signal.aborted) return { subscriptionType: null, error: 'worfy is quitting' }
+    this.asking ??= this.ask(this.stopping.signal)
       .then((info) => {
         // A Session that reported while the process was asked is newer: it stays.
-        this.known ??= { subscriptionType: info.subscriptionType ?? null }
+        this.known ??= info.subscriptionType ?? null
         return this.known
       })
       .finally(() => {
         this.asking = null
       })
     try {
-      return { ...(await this.asking), error: null }
+      return { subscriptionType: await this.asking, error: null }
     } catch (error) {
       return { subscriptionType: null, error: messageOf(error) }
     }
+  }
+
+  /** The app quits: the ask in flight, if any, closes its Claude Code process now, and no new one starts. */
+  stop(): void {
+    this.stopping.abort()
   }
 }
 
@@ -124,6 +140,11 @@ export function planPresetHandlers(options: PlanPresetHandlersOptions): HandlerM
     defineHandler(planPresetApply, async ({ root, plan, expected }): Promise<PlanPresetApplyResult> => {
       const preset = PLAN_PRESETS[plan]
       if (preset === undefined) throw new Error(`planPreset.apply: the plan ${plan} has no preset`)
+      // The plan is main's, not the window's: a window that read before the sign-in changed gets no preset of the old plan.
+      const now = await options.plan.get()
+      if (planOf(now.subscriptionType) !== plan) {
+        throw new Error(`planPreset.apply: Claude Code is signed in with ${now.subscriptionType ?? 'no known plan'} now, not ${preset.label}; read the plan again`)
+      }
       const checked = projectOf(root)
       if (checked === null) throw new Error(`planPreset.apply: ${root} is not a Project of this Machine; a Profile is written on the Machine of its Project`)
       const run = await runOrTooOld(profileSet, ['-C', checked, ...FIELDS, '--expect', expected, '--set', '-'], JSON.stringify(preset.profile))
@@ -145,10 +166,11 @@ export function planPresetHandlers(options: PlanPresetHandlersOptions): HandlerM
   ]
 }
 
-/** The app's plan: every Session's events feed it from the time the IPC handlers are registered. */
+/** The app's plan: every Session's events feed it from the time the IPC handlers are registered; an ask in flight stops when the app quits. */
 function appPlan(): PlanSource {
   const plan = new PlanSource(askSignedInAccount)
   sharedRegistry().observe(plan.note)
+  app.on('will-quit', () => plan.stop())
   return plan
 }
 

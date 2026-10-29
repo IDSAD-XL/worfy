@@ -13,18 +13,38 @@ import type { AppSettingsPatch } from '../../src/shared/settings/app-settings'
 import { NODE } from '../harness-node'
 import { removeTestTree } from '../remove'
 
+/** The app's listeners, by event: the module subscribes the app's plan to will-quit. */
+const appListeners = vi.hoisted(() => new Map<string, (() => void)[]>())
+/** The signals of the app plan's asks, and how many of their Claude Code processes were closed. */
+const appAsks = vi.hoisted(() => ({ signals: [] as AbortSignal[], closed: 0 }))
 vi.mock('electron', () => ({
-  app: { on: () => undefined, getVersion: () => '0.2.0', isPackaged: false, getAppPath: () => '/' },
+  app: {
+    on: (event: string, listener: () => void) => void appListeners.set(event, [...(appListeners.get(event) ?? []), listener]),
+    getVersion: () => '0.2.0',
+    isPackaged: false,
+    getAppPath: () => '/',
+  },
   BrowserWindow: { getAllWindows: () => [], fromWebContents: () => null },
   dialog: {},
   shell: {},
 }))
 // The app's plan and Session registry are not this test's: the handlers get their own PlanSource.
 vi.mock('../../src/main/agent/app-registry', () => ({ sharedRegistry: () => ({ observe: () => () => undefined }), queryFactoryFromEnv: () => undefined }))
-vi.mock('../../src/main/ipc/first-run', () => ({ askSignedInAccount: () => Promise.reject(new Error('the app plan is not asked in this test')) }))
+// The app plan's ask never answers by itself, as a Claude Code that hangs: only its signal ends it, closing the process.
+vi.mock('../../src/main/ipc/first-run', () => ({
+  askSignedInAccount: (signal: AbortSignal) =>
+    new Promise((_, reject) => {
+      appAsks.signals.push(signal)
+      signal.addEventListener('abort', () => {
+        appAsks.closed += 1
+        reject(new Error('the account question was stopped'))
+      })
+    }),
+}))
 vi.mock('../../src/main/harness/script-env', () => ({ harnessScriptEnv: () => Promise.resolve(process.env) }))
 
-const { planPresetHandlers, PlanSource } = await import('../../src/main/ipc/plan-preset')
+const { default: appHandlers, planPresetHandlers, PlanSource } = await import('../../src/main/ipc/plan-preset')
+const { askAccount, ACCOUNT_ASK_STOPPED } = await import('../../src/main/first-run/checks')
 type Handlers = ReturnType<typeof planPresetHandlers>
 
 const PROFILE_SET = join(process.cwd(), 'harness', 'bin', 'profile-set')
@@ -161,6 +181,27 @@ describe('planPreset over the real bin/profile-set', () => {
     expect(runs).toEqual([])
   })
 
+  it('Apply takes the plan from main: signed in with Max by now, the Pro preset is refused before profile-set runs', async () => {
+    const module = handlers('Claude Pro')
+    const read = (await call(module, 'planPreset.read', { root: repo })) as { profile: { fingerprint: string } }
+    const before = readFileSync(profileJson, 'utf8')
+    runs = []
+    const now = planPresetHandlers({ plan: { get: async () => ({ subscriptionType: 'Claude Max', error: null }) }, projects: () => [{ path: repo }], profileSet, setAppSettings: (patch) => void settings.push(patch) })
+    await expect(call(now, 'planPreset.apply', { root: repo, plan: 'pro', expected: read.profile.fingerprint })).rejects.toThrow(/signed in with Claude Max now, not Pro/u)
+    expect(runs).toEqual([])
+    expect(readFileSync(profileJson, 'utf8')).toBe(before)
+    expect(settings).toEqual([])
+  })
+
+  it('Apply with the plan known asks Claude Code no more', async () => {
+    const ask = vi.fn(async () => ({ subscriptionType: 'Claude Pro' }))
+    const plan = new PlanSource(ask)
+    const module = planPresetHandlers({ plan, projects: () => [{ path: repo }], profileSet, setAppSettings: (patch) => void settings.push(patch) })
+    const read = (await call(module, 'planPreset.read', { root: repo })) as { profile: { fingerprint: string } }
+    expect(await call(module, 'planPreset.apply', { root: repo, plan: 'pro', expected: read.profile.fingerprint })).toEqual({ status: 'saved', warning: null })
+    expect(ask).toHaveBeenCalledTimes(1)
+  })
+
   it('Apply for a root that is no Project of this Machine is refused before profile-set runs', async () => {
     const outside = join(scratch, 'r')
     await expect(call(handlers('Claude Pro'), 'planPreset.apply', { root: outside, plan: 'pro', expected: `sha256:${'0'.repeat(64)}` })).rejects.toThrow(/not a Project of this Machine/u)
@@ -212,6 +253,53 @@ describe('PlanSource', () => {
     expect(await reading).toEqual({ subscriptionType: 'Claude Max', error: null })
     plan.note('s2', account('Claude Pro'))
     expect(await plan.get()).toEqual({ subscriptionType: 'Claude Pro', error: null })
+  })
+
+  it('an answer without a plan is not kept, nor a Session that reported no sign-in: the next read asks again', async () => {
+    const ask = vi.fn().mockResolvedValueOnce({ tokenSource: 'none' }).mockResolvedValueOnce({ subscriptionType: 'Claude Pro' }).mockResolvedValueOnce({ subscriptionType: 'Claude Max' })
+    const plan = new PlanSource(ask)
+    expect(await plan.get()).toEqual({ subscriptionType: null, error: null })
+    expect(await plan.get()).toEqual({ subscriptionType: 'Claude Pro', error: null })
+    plan.note('s1', account(null))
+    expect(await plan.get()).toEqual({ subscriptionType: 'Claude Max', error: null })
+    expect(ask).toHaveBeenCalledTimes(3)
+  })
+
+  it('stop(): the ask in flight closes its Claude Code process at once and the read ends; no new ask starts', async () => {
+    const query = { closed: 0, accountInfo: () => new Promise<never>(() => undefined), close: () => void (query.closed += 1) }
+    // The real askAccount over a Claude Code that never answers, with the first-run timeout of 60 s.
+    const ask = vi.fn((signal: AbortSignal) => askAccount(() => Promise.resolve(query), 60_000, signal))
+    const plan = new PlanSource(ask)
+    const reading = plan.get()
+    await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(1))
+    const started = Date.now()
+    plan.stop()
+    expect(await reading).toEqual({ subscriptionType: null, error: ACCOUNT_ASK_STOPPED })
+    expect(Date.now() - started).toBeLessThan(1_000)
+    expect(query.closed).toBe(1)
+    expect(await plan.get()).toEqual({ subscriptionType: null, error: 'worfy is quitting' })
+    expect(ask).toHaveBeenCalledTimes(1)
+  })
+
+  it('askAccount stopped while Claude Code is still starting: the process is closed once it is there', async () => {
+    const query = { closed: 0, accountInfo: () => new Promise<never>(() => undefined), close: () => void (query.closed += 1) }
+    let started: (value: typeof query) => void = () => undefined
+    const stop = new AbortController()
+    const asked = askAccount(() => new Promise((done) => (started = done)), 60_000, stop.signal)
+    stop.abort()
+    await expect(asked).rejects.toThrow(ACCOUNT_ASK_STOPPED)
+    started(query)
+    await vi.waitFor(() => expect(query.closed).toBe(1))
+    await expect(askAccount(() => Promise.resolve(query), 60_000, stop.signal)).rejects.toThrow(ACCOUNT_ASK_STOPPED)
+    expect(query.closed).toBe(1)
+  })
+
+  it('the app: a read waiting on Claude Code ends when the app quits (will-quit), its process closed', async () => {
+    const reading = call(appHandlers, 'planPreset.read', { root: '/nowhere' })
+    await vi.waitFor(() => expect(appAsks.signals).toHaveLength(1))
+    for (const listener of appListeners.get('will-quit') ?? []) listener()
+    expect(await reading).toEqual({ subscriptionType: null, planError: 'the account question was stopped', profile: null })
+    expect(appAsks.closed).toBe(1)
   })
 
   it('a failed ask is reported and not kept: the next read asks again', async () => {

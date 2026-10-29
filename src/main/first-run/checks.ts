@@ -339,12 +339,15 @@ export interface AccountQuery {
 /**
  * accountInfo() of a query that `open` starts, within `timeoutMs`. The query is closed exactly once,
  * whatever comes first: the answer, an error, or the timeout — a query that opens or answers after
- * the timeout is closed then, and its late answer or error goes nowhere.
+ * the timeout is closed then, and its late answer or error goes nowhere. `signal` stops it the same way
+ * before the timeout (Settings → Plan's ask when the app quits, src/main/ipc/plan-preset.ts).
  */
-export async function askAccount(open: () => Promise<AccountQuery>, timeoutMs: number): Promise<AccountInfoLike> {
+export async function askAccount(open: () => Promise<AccountQuery>, timeoutMs: number, signal?: AbortSignal): Promise<AccountInfoLike> {
+  if (signal?.aborted) throw new Error(ACCOUNT_ASK_STOPPED)
   let query: AccountQuery | null = null
   let closed = false
   let timedOut = false
+  let stopped: (() => void) | undefined
   const close = (): void => {
     if (closed || query === null) return
     closed = true
@@ -361,6 +364,12 @@ export async function askAccount(open: () => Promise<AccountQuery>, timeoutMs: n
       close()
       reject(new Error(`Claude Code did not answer within ${Math.round(timeoutMs / 1000)} s`))
     }, timeoutMs)
+    stopped = () => {
+      timedOut = true
+      close()
+      reject(new Error(ACCOUNT_ASK_STOPPED))
+    }
+    signal?.addEventListener('abort', stopped, { once: true })
   })
   const ask = (async () => {
     const opened = await open()
@@ -377,9 +386,13 @@ export async function askAccount(open: () => Promise<AccountQuery>, timeoutMs: n
     return await Promise.race([ask, timeout])
   } finally {
     clearTimeout(timer)
+    if (stopped !== undefined) signal?.removeEventListener('abort', stopped)
     close()
   }
 }
+
+/** What askAccount rejects with when its signal stopped it. */
+export const ACCOUNT_ASK_STOPPED = 'the account question was stopped'
 
 async function signIn(deps: CheckDeps): Promise<Row> {
   let account: AccountInfoLike

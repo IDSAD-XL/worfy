@@ -50,7 +50,7 @@ const silence = (): AsyncIterable<never> => ({ [Symbol.asyncIterator]: () => ({ 
  * WORFY_AGENT=fake), in the home folder, with no prompt; the process is closed after the answer,
  * the error or ACCOUNT_TIMEOUT_MS (askAccount).
  */
-function accountInfo(env: Env): Promise<AccountInfoLike> {
+function accountInfo(env: Env, signal?: AbortSignal): Promise<AccountInfoLike> {
   const open = () =>
     queryFactoryFromEnv()({
       prompt: silence(),
@@ -61,7 +61,7 @@ function accountInfo(env: Env): Promise<AccountInfoLike> {
       canUseTool: () => Promise.resolve({ behavior: 'deny', message: 'the first-run check runs no tools' }),
       unattended: false,
     })
-  return askAccount(open, ACCOUNT_TIMEOUT_MS)
+  return askAccount(open, ACCOUNT_TIMEOUT_MS, signal)
 }
 
 /** The connected Projects with their Profile's name and qmd collections, through `bin/profile`. */
@@ -95,8 +95,8 @@ async function projectProfiles(env: Env): Promise<ProjectProfile[]> {
 
 const loginEnv = async (): Promise<Env> => (await agentEnv()).env
 
-/** accountInfo() of a Claude Code process, as the sign-in check asks it: Settings → Plan asks the plan this way (src/main/ipc/plan-preset.ts). */
-export const askSignedInAccount = async (): Promise<AccountInfoLike> => accountInfo(await loginEnv())
+/** accountInfo() of a Claude Code process, as the sign-in check asks it, until `signal`: Settings → Plan asks the plan this way (src/main/ipc/plan-preset.ts). */
+export const askSignedInAccount = async (signal?: AbortSignal): Promise<AccountInfoLike> => accountInfo(await loginEnv(), signal)
 
 /** The Limits bridge of this build (worfy-windows ticket 13); a dev build has none of its own. */
 const limitsBridge = (): string | null => (app.isPackaged ? bridgeFile(process.platform, process.resourcesPath) : null)

@@ -5,7 +5,7 @@
 // `bin/profile-set --field` and then turns the budget on (`planPreset.apply`, src/main/ipc/plan-preset.ts).
 // Max and the plans worfy does not know get no offer. No prices.
 import { useEffect, useState, type CSSProperties } from 'react'
-import { planOf, presetFor, presetInUse, type PlanPreset } from '../../shared/agent/plan-preset'
+import { PLAN_LABELS, planOf, presetFor, presetInUse } from '../../shared/agent/plan-preset'
 import type { PlanPresetRead } from '../../shared/ipc/plan-preset'
 import { autopilotBudgetOf } from '../../shared/settings/app-settings'
 import { invoke, readableReason, windowMachine } from '../ipc'
@@ -34,8 +34,11 @@ const styles = {
 
 type Outcome = null | { kind: 'saved'; warning: string | null } | { kind: 'conflict' } | { kind: 'busy' } | { kind: 'too-old' } | { kind: 'failed'; reason: string }
 
-/** The plan's name for the line «Plan: …»: the preset's label, else what Claude Code answered. */
-const planName = (read: PlanPresetRead, preset: PlanPreset | null): string => preset?.label ?? read.subscriptionType ?? 'not known'
+/** The plan's name for the line «Plan: …»: the short name of a plan worfy knows, else what Claude Code answered. */
+function planName(subscriptionType: string | null): string {
+  const plan = planOf(subscriptionType)
+  return plan !== null ? PLAN_LABELS[plan] : (subscriptionType ?? 'not known')
+}
 
 interface PlanOfferProps {
   root: string
@@ -65,7 +68,7 @@ export function PlanOffer({ root }: PlanOfferProps) {
   if ('error' in read) {
     return (
       <p style={styles.problem} role="alert" data-testid="plan-read-failed">
-        Could not read the plan: {read.error}
+        Could not read the Project's Profile: {read.error}
       </p>
     )
   }
@@ -80,7 +83,7 @@ export function PlanOffer({ root }: PlanOfferProps) {
   if (preset === null) {
     return (
       <p style={styles.lead} data-testid="plan-no-offer">
-        Plan: {planName(read, null)}.{' '}
+        Plan: {planName(read.subscriptionType)}.{' '}
         {planOf(read.subscriptionType) === 'max' ? 'Your settings stay as they are.' : 'worfy has no recommended settings for this plan.'}
       </p>
     )
