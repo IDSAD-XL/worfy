@@ -1,7 +1,8 @@
 # 25 — Implementer ничего не ждёт: замок e2e — не дольше 2 min, финиш — PR в очереди merge
 
 Type: task
-Status: claimed 2026-10-29T11:16Z
+Status: done 2026-10-29T12:55Z
+PR: #982
 Blocked by: —
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», предложение 2, решение 8;
 аналитика 2026-10-27: $1 457 перезаписи cache у
@@ -33,11 +34,11 @@ e2e; слово владельца дано 2026-10-28 (решение 1). Ве�
 
 ## Готово, когда
 
-- [ ] `implementer.md` говорит предел 2 min, строку `e2e: deferred to gate full` и что после PR агент не
+- [x] `implementer.md` говорит предел 2 min, строку `e2e: deferred to gate full` и что после PR агент не
       ждёт; `harness/bin/tests/agents-text.test.sh` проверяет все три фразы — exit 0.
-- [ ] Команда замка с пределом в shell test-е на временной папке: занятый замок — выход через 2 min с
+- [x] Команда замка с пределом в shell test-е на временной папке: занятый замок — выход через 2 min с
       кодом, который не 0, и строкой `deferred`; свободный — команда идёт (время — через подставной `sleep`).
-- [ ] Shell test-ы Harness — exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; условие merge — `ci-ok` (Ticket 35; до него — gate full
+- [x] Shell test-ы Harness — exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; условие merge — `ci-ok` (Ticket 35; до него — gate full
       Orchestrator-а перед merge.
 - [ ] (вручную, после обновления Stable copy) Первая Wave: ни один implementer не ждал замок дольше 2 min
       (журнал Wave); перезапись cache у implementer-ов — по Ticket-у 19, в «Итог».
@@ -57,3 +58,20 @@ e2e; слово владельца дано 2026-10-28 (решение 1). Ве�
 - Доработка свежим агентом — Ticket 26. 1 h cache — Ticket 31.
 
 ## Итог
+
+Влит #982 (`548f8d94`), вёл bridge, ревью medium в три круга. Текст: `implementer-e2e.md` — замок циклом из шести
+`sleep 20`, не взял — строка `e2e: deferred to gate full: <файлы>`, код 75, в `not_verified`;
+`implementer-finish.md` — PR и gate fast, один взгляд на CI, без `gh run watch`; `implementer-rework-round.md` —
+checkout по `git ls-remote`. Круг 2 нашёл удаление: `epic-wave` удалял ветку по режиму финиша, и ветка без push
+теряла коммиты; теперь `git branch -D` — только после fetch и `merge-base --is-ancestor`, иначе ветка остаётся
+(test «push + локальный коммит → остаётся»). `epic-wave-ship-ticket.test.sh` 532/0, `start-context` зелёный:
+implementer на `main` после #982 и #983 — 14 617 при пороге 15 000.
+
+Profile (Orchestrator после merge, 2026-10-29): `workflow.implementer_steps` без «зелёный check ci-ok на head»;
+в `rules.md` — предел замка e2e 2 min для implementer-а и такой же предел ожидания разблокировки экрана (четыре
+`sleep 30`, строка `e2e: deferred to gate full: screen locked`); Orchestrator и `wave-gate` ждут, как раньше.
+Те же строки внесены в предложение Ticket-а 53 (`rules-local-e2e.md`).
+
+Не проверено: пункт «первая Wave» — после обновления Stable copy: установленный plugin старше #974, агент ещё не
+читал файлы шагов. Долг [low] (следующий PR в `epic-wave/SKILL.md`): блок ожидания CI берёт `[0]` run-ов на head
+любого workflow, не фильтрует по CI workflow, как `land`.
