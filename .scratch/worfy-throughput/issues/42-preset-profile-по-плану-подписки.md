@@ -1,7 +1,8 @@
 # 42 — Preset Profile по плану подписки: worfy узнаёт план и предлагает настройки для Pro
 
 Type: task
-Status: claimed 2026-10-29T13:11Z
+Status: done 2026-10-29T14:29Z
+PR: #995
 Branch: worfy-throughput/42
 Blocked by: 36, 37, 41
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: меньше token-ов на Ticket, чтобы хватало Limits подписки», идея 9, строка L2
@@ -43,15 +44,15 @@ Windows: платформенный PR (скрипт Harness, ADR-0056, пунк
 
 ## Готово, когда
 
-- [ ] «Итог»: строки `subscriptionType` и ответ про Opus на Pro, с источником.
-- [ ] Сначала падающий unit test: `subscriptionType` Pro → preset Pro; Max и неизвестная строка → нет
+- [x] «Итог»: строки `subscriptionType` и ответ про Opus на Pro, с источником.
+- [x] Сначала падающий unit test: `subscriptionType` Pro → preset Pro; Max и неизвестная строка → нет
       предложения.
-- [ ] Shell test `harness/bin/tests/profile-set.test.sh`: запись `workflow.agents` и `agents.*` с верным
+- [x] Shell test `harness/bin/tests/profile-set.test.sh`: запись `workflow.agents` и `agents.*` с верным
       fingerprint, отказ с неверным; другие поля Profile не меняются.
-- [ ] Contract test: без клика «Применить» Profile не меняется; с кликом — вызван `profile-set` с preset-ом.
-- [ ] e2e (fake agent с `subscriptionType` Pro; `test/e2e/settings.spec.ts`): предложение видно в Project settings;
+- [x] Contract test: без клика «Применить» Profile не меняется; с кликом — вызван `profile-set` с preset-ом.
+- [x] e2e (fake agent с `subscriptionType` Pro; `test/e2e/settings.spec.ts`): предложение видно в Project settings;
       снимки в двух темах.
-- [ ] Shell test-ы Harness и `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; e2e — только свои spec-и;
+- [x] Shell test-ы Harness и `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; e2e — только свои spec-и;
       условие merge — `ci-ok`.
 
 ## Где в коде
@@ -108,3 +109,14 @@ Windows: платформенный PR (скрипт Harness, ADR-0056, пунк
 коде»; Project settings здесь — раздел Plan окна Settings, рядом с Pipeline.
 
 Снимки Settings → Plan в двух темах — в scratchpad ревью (в репозиторий не кладутся).
+
+**Merge (2026-10-29).** Влит #995 (`602bbf0e`). Ревью high в два круга: круг 1 — две линзы VERIFIED (корректность
+и UI со снимками в двух темах; безопасность IPC: root внутри зарегистрированного Project-а, `profile-set` без shell,
+preset из таблицы main, каналы `local`), но `ci-ok` красный — `quiet-windows.spec.ts:74` («Worker teardown
+timeout»); Orchestrator заподозрил ask плана и вернул PR. Доработка: `will-quit` останавливает ask, `profile-set`
+через `Object.hasOwn`, Apply берёт план у main, null не кешируется, короткие имена планов, правило таблицы e2e →
+`settings.spec.ts`. Круг 2 — VERIFIED: красный опровергнут (тот же сбой был на `main` до этого кода), test ушёл в
+карантин #998. Вердикт Windows — targeted run на ПК (settings.spec 5/5, `profile-set.test.sh`, unit и contract).
+Долг [low]: снятие слушателя abort (`src/main/first-run/checks.ts:389`) не закреплено test-ом; ошибка повторного
+ask теряется в тексте отказа Apply (`src/main/ipc/plan-preset.ts:146`); предложение в диалоге подключения
+Project-а («Что делаем», п. 4) не сделано; Apply в e2e не кликается (запись — contract test).
