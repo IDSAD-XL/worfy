@@ -1,7 +1,8 @@
 # 42 — Preset Profile по плану подписки: worfy узнаёт план и предлагает настройки для Pro
 
 Type: task
-Status: open
+Status: claimed 2026-10-29T13:11Z
+Branch: worfy-throughput/42
 Blocked by: 36, 37, 41
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: меньше token-ов на Ticket, чтобы хватало Limits подписки», идея 9, строка L2
 таблицы «Цель и числа», риск «На Pro может не быть Opus»; [`worfy-onboarding`](../../worfy-onboarding/spec.md),
@@ -66,3 +67,44 @@ Windows: платформенный PR (скрипт Harness, ADR-0056, пунк
 - Правка Epic-а `worfy-onboarding`. Цены в UI. Автоматическое применение без клика.
 
 ## Итог
+
+**Шаг 1 — факты (2026-10-29, implementer, без запуска Claude Code).**
+
+- Строка `subscriptionType`. `accountInfo()` Claude Code 2.1.289 (SDK 0.3.289; строки бинарника
+  `@anthropic-ai/claude-agent-sdk-darwin-arm64/claude`, прочитаны `strings`, не запущены) отвечает функцией,
+  которая даёт `Claude <plan_display_name>` организации, если он есть и проходит проверку, иначе по коду плана:
+  `enterprise` → «Claude Enterprise», `team` → «Claude Team», `max` → «Claude Max», `pro` → «Claude Pro», без
+  подписки — «Claude API». Значит у Pro — **«Claude Pro»**, у Max 5x и Max 20x — «Claude Max», пока сервер не
+  присылает `plan_display_name`.
+- Строка владельца — **«Claude Max»**: события `account` в «Итог» `worfy-mvp` 06 и 07, отчёт приёмки E3
+  (`worfy-harness` 26); `~/.claude.json` (только чтение) — `oauthAccount.planDisplayName: null`, то есть
+  запасная строка по коду плана. В папке данных worfy событий `account` не нашлось.
+- Не проверено: строка Pro на живом аккаунте Pro (такого аккаунта нет) и вид `plan_display_name`, если
+  сервер начнёт его присылать (например «Max 20x»). Поэтому правило сопоставления
+  (`src/shared/agent/plan-preset.ts`): текст без «Claude » в начале, в любом регистре, — это ровно код плана
+  («Pro») или у Max код и уровень через пробел («Max 20x»). Иное — неизвестный план, предложения нет;
+  unit test закрепляет известные строки и неизвестные («Claude Pro Plus», «Claude API», пустая, null).
+- Opus на Pro: документация Claude Code «Model configuration» (https://code.claude.com/docs/en/model-config,
+  раздел «Special model behavior»): «Pro, Max, Team, Enterprise, and Anthropic API: defaults to Opus 5.5»;
+  до v2.1.280 `default` на Pro был Sonnet 5. То есть Opus в Claude Code на Pro **доступен** (по документации,
+  не на живом аккаунте). Статья поддержки «Using Claude Code with your Pro or Max plan» про модели молчит.
+  Preset Pro всё равно Opus не называет: Sonnet для всех ролей, как велит пункт 2.
+
+**Сделано.**
+
+- `harness/bin/profile-set --field workflow.agents --field agents`: `--read`, `--set`, `--reset` над этими
+  полями с той же проверкой `--expect <fingerprint>` (fingerprint двух полей вместе), проверка значений по
+  правилам draft schema, замок и commit как у Pipeline. Без `--field` — как было.
+- Preset-ы — константа `PLAN_PRESETS` в `src/shared/agent/plan-preset.ts`: Pro — `eco`, Sonnet + `medium` для
+  implementer, reviewer, scout, verifier, бюджет Autopilot включён; у Max preset-а нет.
+- Settings → Plan (`src/renderer/settings/PlanSection.tsx`): «Plan: Pro», список настроек и кнопка «Apply» для
+  активного Project-а. Клик — `planPreset.apply`: main пишет Profile через `profile-set`, потом включает
+  бюджет Autopilot этой машины. Без клика не пишется ничего. Max — «Your settings stay as they are.»
+- План main берёт из последнего события `account` любой Session, а если Session ещё не было — один раз
+  спрашивает Claude Code так же, как проверка входа First run.
+- С `worfy-onboarding` 09: «дешевле» там — Sonnet + `medium`, preset Pro — то же сочетание; цен нет в обоих местах.
+
+**Не сделано в этом Ticket-е:** предложение в диалоге подключения Project-а (пункт 4) — его файлы вне «Где в
+коде»; Project settings здесь — раздел Plan окна Settings, рядом с Pipeline.
+
+Снимки Settings → Plan в двух темах — в scratchpad ревью (в репозиторий не кладутся).

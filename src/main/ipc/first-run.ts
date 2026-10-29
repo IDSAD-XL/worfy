@@ -95,6 +95,9 @@ async function projectProfiles(env: Env): Promise<ProjectProfile[]> {
 
 const loginEnv = async (): Promise<Env> => (await agentEnv()).env
 
+/** accountInfo() of a Claude Code process, as the sign-in check asks it: Settings → Plan asks the plan this way (src/main/ipc/plan-preset.ts). */
+export const askSignedInAccount = async (): Promise<AccountInfoLike> => accountInfo(await loginEnv())
+
 /** The Limits bridge of this build (worfy-windows ticket 13); a dev build has none of its own. */
 const limitsBridge = (): string | null => (app.isPackaged ? bridgeFile(process.platform, process.resourcesPath) : null)
 
