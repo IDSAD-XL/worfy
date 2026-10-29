@@ -3,6 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expectBorderedChipsFit } from './chip-fit'
 import { CHECK_IDS, CHECK_RUN_CALL, CLAUDE_STAND_IN, NO_QMD, TOOLS, toolFile, writeSandbox } from './first-run-sandbox'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
@@ -167,6 +168,8 @@ test.describe('first-run screen', () => {
     try {
       const dialog = await screen(launched.window)
       expect(await dialog.locator('[data-check]').evaluateAll((rows) => rows.map((each) => each.getAttribute('data-check')))).toEqual(CHECK_IDS)
+      // The status chips and the summary chip have a 1 px border: their text stays inside it.
+      await expectBorderedChipsFit(dialog, 'the first-run screen')
       for (const id of ['claude-login', 'claude-version', 'git', 'git-identity', 'gh', 'node', 'jq', 'gh-auth', 'legacy-harness', ...(NO_QMD ? [] : ['qmd']), 'qmd-collections']) {
         await expect(row(dialog, id), id).toHaveAttribute('data-status', 'ok')
       }

@@ -57,7 +57,7 @@ const styles = {
   list: { margin: 0, padding: 0, listStyle: 'none' },
   muted: { margin: 'var(--space-2)', color: 'var(--text-muted)', fontSize: 'var(--text-12)' },
   error: { margin: 'var(--space-2)', color: 'var(--blocked-text)', fontSize: 'var(--text-12)', overflowWrap: 'anywhere' },
-  chip: { background: 'var(--surface-raised)', color: 'var(--text-secondary)', border: '1px solid var(--border)' },
+  chip: { background: 'var(--surface-raised)', color: 'var(--text-secondary)' },
   footer: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--border)' },
   hidden: { flex: 1, display: 'flex', alignItems: 'center', gap: 'var(--space-1)', fontSize: 'var(--text-12)', color: 'var(--text-secondary)' },
 } satisfies Record<string, CSSProperties>
@@ -143,7 +143,7 @@ export function FolderBrowser({ machine, machineName, title, hint, onChoose, onC
                   icon={folderIcon}
                   trailing={
                     folder.gitRepo ? (
-                      <span className="w-chip" style={styles.chip}>
+                      <span className="w-chip w-chip--bordered" style={styles.chip}>
                         git
                       </span>
                     ) : undefined

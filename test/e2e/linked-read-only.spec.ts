@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, repoRoot, type LaunchedApp } from './helpers'
+import { expectBorderedChipsFit } from './chip-fit'
 import { snapshotThemes } from './snapshots'
 import { catScript, loginProfileWithNode } from '../harness-node'
 
@@ -145,6 +146,8 @@ test('Read only: A marks B in the sidebar, B\'s Canvas in A only shows — inact
     const mark = group(a.window, bId).getByTestId('machine-read-only')
     await expect(mark).toHaveText('Read only', { timeout: 20_000 })
     await expect(mark).toHaveAttribute('title', HINT)
+    // The "Read only" chip has a 1 px border: its text stays inside it.
+    await expectBorderedChipsFit(group(a.window, bId), 'the sidebar group of a read-only Machine')
     await expect(group(a.window, bId).getByText('Online')).toBeVisible()
     const betaRow = group(a.window, bId).locator(`[data-testid="project-row"][data-project-id="${BETA}"]`)
     await expect(betaRow).toContainText('beta')

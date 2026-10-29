@@ -143,8 +143,8 @@ const styles = {
   footerMessage: { flex: 1, minWidth: 0, fontSize: 'var(--text-12)', color: 'var(--text-secondary)', overflowWrap: 'anywhere' },
   footerError: { flex: 1, minWidth: 0, fontSize: 'var(--text-12)', color: 'var(--blocked-text)', overflowWrap: 'anywhere' },
   chipWorking: { background: 'var(--working-bg)', color: 'var(--working-text)' },
-  chipBlocked: { background: 'var(--blocked-bg)', color: 'var(--blocked-text)', border: '1px solid var(--blocked-ring)' },
-  chipNeutral: { background: 'var(--surface-raised)', color: 'var(--text-secondary)', border: '1px solid var(--border)' },
+  chipBlocked: { background: 'var(--blocked-bg)', color: 'var(--blocked-text)', borderColor: 'var(--blocked-ring)' },
+  chipNeutral: { background: 'var(--surface-raised)', color: 'var(--text-secondary)' },
 } satisfies Record<string, CSSProperties>
 
 const STEPS = ['Folder', 'Mode', 'Harness', 'Draft', 'Review'] as const
@@ -199,7 +199,7 @@ function formPaths(draft: ProfileDraft): string[] {
 function Chip({ tone, children }: { tone: 'working' | 'blocked' | 'neutral'; children: ReactNode }) {
   const style = tone === 'working' ? styles.chipWorking : tone === 'blocked' ? styles.chipBlocked : styles.chipNeutral
   return (
-    <span className="w-chip" style={style}>
+    <span className={tone === 'working' ? 'w-chip' : 'w-chip w-chip--bordered'} style={style}>
       {children}
     </span>
   )

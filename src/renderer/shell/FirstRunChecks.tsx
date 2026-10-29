@@ -68,7 +68,7 @@ const CHIP_STYLE: Record<ChipState, CSSProperties> = {
 
 function StatusChip({ state }: { state: ChipState }) {
   return (
-    <span className="w-chip" data-chip={state} style={{ ...CHIP_STYLE[state], flex: 'none', width: 64, justifyContent: 'center', borderWidth: 1, borderStyle: 'solid' }}>
+    <span className="w-chip w-chip--bordered" data-chip={state} style={{ ...CHIP_STYLE[state], flex: 'none', width: 64, justifyContent: 'center' }}>
       {CHIP_LABEL[state]}
     </span>
   )
@@ -438,7 +438,7 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, formLaye
       {children({
         summary:
           summary !== '' ? (
-            <span className="w-chip" data-testid="first-run-summary" style={{ ...(checking ? CHIP_STYLE.running : failed > 0 ? CHIP_STYLE.fail : warned > 0 ? CHIP_STYLE.warn : CHIP_STYLE.ok), borderWidth: 1, borderStyle: 'solid' }}>
+            <span className="w-chip w-chip--bordered" data-testid="first-run-summary" style={checking ? CHIP_STYLE.running : failed > 0 ? CHIP_STYLE.fail : warned > 0 ? CHIP_STYLE.warn : CHIP_STYLE.ok}>
               {summary}
             </span>
           ) : null,

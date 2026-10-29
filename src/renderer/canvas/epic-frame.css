@@ -375,12 +375,9 @@
   pointer-events: none;
 }
 
-/* The state chip of an open Ticket: neutral, like the F mockups. Its own line height: the 18 px
-   chip keeps 16 px inside the border, and the card's 17 px line (or `normal`, which follows the
-   font a system falls back to) would stand out of it. */
+/* The state chip of an open Ticket: neutral, like the F mockups. Its border and its 16 px line are
+   those of every chip with a border (`.w-chip--bordered`, theme/primitives.css). */
 .w-chip--open {
-  line-height: 16px;
-  border: 1px solid var(--border);
   background: var(--surface-raised);
   color: var(--text-secondary);
 }

@@ -38,7 +38,7 @@ const styles = {
   group: { marginTop: 'var(--space-1)' },
   groupHeader: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minHeight: 22, padding: '0 8px', fontSize: 'var(--text-12)', color: 'var(--text-secondary)' },
   groupName: { flex: 1, minWidth: 0, display: 'flex' },
-  unavailable: { border: '1px solid var(--border)', background: 'var(--surface-raised)', color: 'var(--text-muted)' },
+  unavailable: { background: 'var(--surface-raised)', color: 'var(--text-muted)' },
   menu: {
     position: 'fixed',
     zIndex: 90,
@@ -287,7 +287,7 @@ function GroupState({ group }: { group: ProjectGroup }) {
       <>
         <StatusChip status="ready" label="Online" />
         {group.readOnly ? (
-          <span className="w-chip w-read-only-chip" data-testid="machine-read-only" title={readOnlyHint(group.name)}>
+          <span className="w-chip w-chip--bordered w-read-only-chip" data-testid="machine-read-only" title={readOnlyHint(group.name)}>
             Read only
           </span>
         ) : null}
@@ -295,7 +295,7 @@ function GroupState({ group }: { group: ProjectGroup }) {
     )
   }
   return (
-    <span className="w-chip" style={styles.unavailable}>
+    <span className="w-chip w-chip--bordered" style={styles.unavailable}>
       Unavailable
     </span>
   )
