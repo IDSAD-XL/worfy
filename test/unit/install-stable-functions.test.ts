@@ -542,9 +542,9 @@ describe('the deploy mark', () => {
 // (noProcesses). The real one is PowerShell's Get-CimInstance on Windows, twice per install: the first case of the
 // file paid for its cold start, past the 15 s below on a loaded Windows runner and 8.5 s on the retry (CI job
 // 123257471981; FLAKY in runs 40811298374, 40812832776 and 40816108815). The installs of
-// install-stable.test.ts take an empty list as well (inProcess there); the real list is checked by its "the copy is
-// running" refusals (install-stable.test.ts:618, :671, :875). What is left are real programs all the same (git,
-// ditto), around 150 ms on an idle Mac: the explicit timeout keeps a loaded machine from failing them on time
+// install-stable.test.ts take an empty list as well (inProcess there); the real list is checked by its cases
+// "refuses while a program of the copy is running", which list the processes for real. What is left are real
+// programs all the same (git, ditto), around 150 ms on an idle Mac: the explicit timeout keeps a loaded machine from failing them on time
 // alone, as the contract project's 15 s does for its real processes. A case that really hangs still fails.
 describe.runIf(process.platform !== 'linux')('the deploy mark after a whole install', { timeout: 15_000 }, () => {
   useStandInBuild()

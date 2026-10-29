@@ -73,8 +73,8 @@ vitest-job-ов и 30 логов Windows `harness-scripts`, по одному, �
   «копия запущена» в этих case-ах не участвует: они проверяют отметку deploy.
 - **Правка.** Три case-а «the deploy mark after a whole install» передают `listing: noProcesses` (пустой список:
   `''` для `ps`, `'[]'` для PowerShell). Timeout не менялся. Установки `install-stable.test.ts`
-  тоже получают пустой список (`inProcess`); настоящий проверяют его отказы «the copy is running»
-  (`install-stable.test.ts:618`, `:671`, `:875`).
+  тоже получают пустой список (`inProcess`); настоящий проверяют его case-ы «refuses while a program of the copy is
+  running» (в `install-stable.test.ts`; ссылка по имени, номера строк уходят).
 
 ### `claude-home-registry.test.ts:597` — Linux
 
@@ -131,6 +131,25 @@ vitest-job-ов и 30 логов Windows `harness-scripts`, по одному, �
   всего 20–30 ms.
 - Комментарий `install-stable-functions` исправлен: настоящий список процессов проверяют отказы
   `install-stable.test.ts`.
+
+### Круг правок 2 (красный `ci-ok` на c68628d9)
+
+- **Как падал.** `windows (1/3) / full-suite`, run 40888369746, job 123498218529: case 1 нового describe красный
+  в обеих попытках, `Error: no change of ours yet` (`vi.waitFor`, 3000 ms); остальные 1035 test-ов shard-а
+  зелёные, Linux и macOS зелёные.
+- **Причина — в test-е, не в `src/`.** Имена папок test строил как `projectDirName(DEMO)`, без `resolve`. Registry
+  берёт корень через `resolve` (`roots()`), а на Windows `/Users/test/projects/demo` превращается в
+  `C:\Users\test\projects\demo`, имя папки — `C--Users-test-projects-demo`. Папка test-а `-Users-test-projects-demo-web`
+  для `dirMatch` — `none`, и повторного чтения не было по правилу «чужая папка не читается». Case-ы 2 и 3 ждут
+  «ничего не прочитано», поэтому на Windows прошли и ничего не проверили. Остальные test-ы registry строят имя
+  через `projectDir()` из `test/contract/claude-home-fixture.ts` (`projectDirName(resolve(cwd))`).
+- **Правка.** Новые case-ы берут имена папок через `projectDir()`, как остальные test-ы registry. Код в `src/`
+  не менялся: он сравнивает имя с корнем, полученным через `resolve`.
+- Ссылка на отказы `install-stable.test.ts` дана по имени case-а, а не номером строки.
+- Проверки на Mac, Windows здесь нет: `claude-home-registry-missed-event` — exit 0 (7 passed), ×10 параллельно —
+  10 из 10 exit 0; `claude-home-registry` — exit 0 (70); `install-stable-functions` — exit 0 (63). Mutant-ы
+  `NEW_DIR_RELIST_MS = 0` и `= 5000` — exit 1, красный case 1; `registry.ts` восстановлен из копии, `cmp` — 0.
+  Вердикт Windows — следующий `ci-ok`.
 
 Mutant-ы `src/main/claude-home/registry.ts`, по одному; файл восстановлен из копии, `cmp` — 0. Команда каждого:
 `node scripts/vitest-electron.mjs test/contract/claude-home-registry-missed-event.test.ts`.

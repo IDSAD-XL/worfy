@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, realpath, rm, unlink, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ClaudeHomeRegistry, projectDirName, type ClaudeHomeChange, type ClaudeHomeWatch } from '../../src/main/claude-home/registry'
+import { ClaudeHomeRegistry, type ClaudeHomeChange, type ClaudeHomeWatch } from '../../src/main/claude-home/registry'
+import { projectDir } from './claude-home-fixture'
 
 // On macOS every fs.watch of the process shares one FSEvents stream, which libuv makes again each
 // time a watch starts or stops; a file written meanwhile is never reported. Here chokidar reports
@@ -120,8 +121,8 @@ describe('a transcript in a new folder the file watcher never reports', () => {
     home = await realpath(await mkdtemp(join(tmpdir(), 'worfy-missed-event-')))
     await mkdir(join(home, 'sessions'))
     const projects = join(home, 'projects')
-    await mkdir(join(projects, projectDirName(DEMO)), { recursive: true })
-    await writeFile(join(projects, projectDirName(DEMO), 'old.jsonl'), `${userLine(DEMO, 'old-1')}\n`)
+    await mkdir(join(projects, projectDir(DEMO)), { recursive: true })
+    await writeFile(join(projects, projectDir(DEMO), 'old.jsonl'), `${userLine(DEMO, 'old-1')}\n`)
     const changes: { at: number; change: ClaudeHomeChange }[] = []
     const registry = new ClaudeHomeRegistry({ home, listWorktrees: noWorktrees, isAlive: () => Promise.resolve(true) })
     watch = await registry.watch(DEMO, (change) => changes.push({ at: Date.now(), change }), { debounceMs: 50 })
@@ -138,7 +139,7 @@ describe('a transcript in a new folder the file watcher never reports', () => {
   it('the new folder is listed again: a transcript written after its addDir is reported, a look-alike Project\'s is not', async () => {
     const { projects, changes, watcher } = await watchedHome()
     // One folder name for `<demo>/web` and the other Project `/Users/test/projects/demo-web`.
-    const dir = join(projects, projectDirName(`${DEMO}/web`))
+    const dir = join(projects, projectDir(`${DEMO}/web`))
     await mkdir(dir)
     await writeFile(join(dir, 'foreign.jsonl'), `${userLine('/Users/test/projects/demo-web', 'f-1')}\n`)
     watcher.emit('addDir', dir)
@@ -161,7 +162,7 @@ describe('a transcript in a new folder the file watcher never reports', () => {
 
   it('a folder of another Project is not read', async () => {
     const { projects, changes, watcher } = await watchedHome()
-    const other = join(projects, projectDirName('/Users/test/projects/other'))
+    const other = join(projects, projectDir('/Users/test/projects/other'))
     await mkdir(other)
     await writeFile(join(other, 'theirs.jsonl'), `${userLine('/Users/test/projects/other', 't-1')}\n`)
     watcher.emit('addDir', other)
@@ -172,7 +173,7 @@ describe('a transcript in a new folder the file watcher never reports', () => {
 
   it('a watch closed before the second list reads nothing more', async () => {
     const { projects, changes, watcher } = await watchedHome()
-    const dir = join(projects, projectDirName(`${DEMO}/web`))
+    const dir = join(projects, projectDir(`${DEMO}/web`))
     await mkdir(dir)
     await writeFile(join(dir, 'ours.jsonl'), `${userLine(`${DEMO}/web`, 'o-1')}\n`)
     watcher.emit('addDir', dir)
