@@ -1,7 +1,8 @@
 # 49 — `harness-scripts.test.ts` отдельным job-ом Windows: shard 3/3 перестаёт быть самым долгим
 
 Type: task
-Status: claimed 2026-10-29T03:28Z
+Status: done 2026-10-29T06:10Z
+PR: #948
 Branch: worfy-throughput/49
 Blocked by: 35
 Source: разбор моста 2026-10-29 после #942 (Ticket 47): shard 3/3 Windows шёл 825 s в run-е 40805903962, хотя #942
@@ -35,10 +36,10 @@ Job `windows / full-suite` (`.github/workflows/windows-tests.yml`) идёт в 3
 
 ## Готово, когда
 
-- [ ] `harness-scripts.test.ts` идёт в своём Windows job-е, в shard-ах `full-suite` его нет.
-- [ ] Contract test ловит файл, который не попал ни в один Windows job, и файл, который попал в два.
-- [ ] `pull_request_target` нет, secrets нет, `persist-credentials: false`, сторонние action-ы по sha.
-- [ ] Время Windows job-ов CI run-а PR-а — в «Итог», вместе со скоростью runner-а (быстрый или медленный run).
+- [x] `harness-scripts.test.ts` идёт в своём Windows job-е, в shard-ах `full-suite` его нет.
+- [x] Contract test ловит файл, который не попал ни в один Windows job, и файл, который попал в два.
+- [x] `pull_request_target` нет, secrets нет, `persist-credentials: false`, сторонние action-ы по sha.
+- [x] Время Windows job-ов CI run-а PR-а — в «Итог», вместе со скоростью runner-а (быстрый или медленный run).
 
 ## Где в коде
 
@@ -119,3 +120,24 @@ Harness shell test, runs in exactly one job»). Какие файлы попад
 медленных. Shard 3/3 без файла — 336 s (ожидали около 300 s). Части `harness-scripts` разошлись: 294 и 188 s по vitest.
 Правило по имени не знает времени, а land.test.sh шёл в части 2 почти весь её срок. Один run — не замер: эффект и
 скорость считать по нескольким push-run-ам `main` после merge.
+
+### Merge
+
+PR #948 влит, merge-commit `37cb4172`. На `main` `harness-scripts.test.ts` идёт в Windows job-ах
+`windows (harness-scripts 1/2) / full-suite` и `(harness-scripts 2/2)`; shard-ы `1/3`–`3/3` его исключают через
+`WORFY_TEST_EXCLUDE`.
+
+Время Windows job-ов, s:
+
+| Run | 1/3 | 2/3 | 3/3 | harness-scripts 1/2 | harness-scripts 2/2 |
+| --- | --- | --- | --- | --- | --- |
+| run PR-а 40811277830 | 402 | 315 | 336 | 356 | 239 |
+| второй run 40813892212 | 386 | 230 | 305 | 338 | 292 |
+
+Низкие находки ревью:
+
+- `shards()` в `test/contract/ci-workflow.test.ts:77` слишком строгий — ушло в Ticket 13.
+- Test «ровно в одном job-е» не запускает `vitest.config.ts`: mutant без `ciExclude` остался зелёным. Там же устаревший
+  комментарий `scripts/windows-verdict-scope.mjs:12-13`. Обе правки несёт Ticket 51 (#957).
+
+Самым долгим Windows job-ом стал shard 1/3: в нём `harness-evals.test.ts`, около 261 s. Это — Ticket 51.
