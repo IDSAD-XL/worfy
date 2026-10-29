@@ -1,7 +1,8 @@
 # 30 — gate full на Windows-ПК раз в Wave на `main`, а не на каждый PR со scope `pc`
 
 Type: task
-Status: open 2026-10-29T12:07Z
+Status: claimed 2026-10-29T12:19Z
+Branch: worfy-throughput/30-pc-gate-once-per-wave
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», предложение 1, решение 7;
 ADR-0056 (Windows-проверки и две Session), пункт 2 —
 платформенный PR вливается после gate full на ПК; аналитика 2026-10-27: Windows-Ticket до merge 2,5 h.
