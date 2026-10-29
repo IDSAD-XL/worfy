@@ -20,12 +20,12 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it, vi, type TestContext } from 'vitest'
 import { CI_RETRIES } from '../flaky'
 import { gitBash } from '../git-bash'
+import { inPart, parsePart, shellTests } from '../harness-shell-tests'
 import { removeTestTree } from '../remove'
 import { timeScale } from '../time-scale'
 
 const REPO = join(__dirname, '..', '..')
 const HARNESS = join(REPO, 'harness')
-const TEST_DIRS = [join(HARNESS, 'bin', 'tests'), join(HARNESS, 'hooks', 'tests')]
 
 // The ticket imports 5 tests under bin/tests and 3 under hooks/tests.
 const MIN_TESTS = 8
@@ -40,14 +40,7 @@ const WINDOWS = process.platform === 'win32'
 // wave-gate.test.sh was, and the limit stays.
 const FILE_TIMEOUT_MS = WINDOWS ? 900_000 : 120_000
 
-const testFiles = TEST_DIRS.flatMap((dir) =>
-  existsSync(dir)
-    ? readdirSync(dir)
-        .filter((name) => name.endsWith('.test.sh'))
-        .sort()
-        .map((name) => join(dir, name))
-    : [],
-)
+const testFiles = shellTests(HARNESS).map((name) => join(HARNESS, name))
 
 const relative = (file: string): string => file.slice(HARNESS.length + 1).replaceAll('\\', '/')
 
@@ -67,7 +60,10 @@ const relative = (file: string): string => file.slice(HARNESS.length + 1).replac
 // (2026-10-29) gate-verdict-signals took 22 s, gate-verdict 10 s and gate-verdict-inside 7 s.
 // shortcut: the list is a measured snapshot and does not follow a file that grows slower, redo it
 // when this file runs longer than the longest single shell test plus a few seconds.
+// land.test.sh is first: on the Windows runner it is the longest shell test (306 s in run 40805903962,
+// next wave-gate 216 s), and started in name order it ended its part last.
 const RUN_FIRST = [
+  'bin/tests/land.test.sh',
   'hooks/tests/guard-silent.test.sh',
   'hooks/tests/gate-verdict-signals.test.sh',
   'bin/tests/skill-blocks-gate.test.sh',
@@ -87,6 +83,13 @@ function runOrder(files: readonly string[], first: readonly string[], name: (fil
 }
 
 const ordered = runOrder(testFiles, RUN_FIRST, relative)
+
+// In Windows CI this file runs in jobs of its own, each with one part of the shell tests:
+// HARNESS_SCRIPTS_PART `<index>/<count>` (.github/workflows/windows-tests.yml, test/harness-shell-tests.ts).
+// Unset, every shell test runs. A misspelt part throws here, and the file fails.
+const part = parsePart(process.env.HARNESS_SCRIPTS_PART)
+const inThisPart = part ? new Set(inPart(testFiles.map(relative), part)) : undefined
+const toRun = inThisPart ? ordered.filter((file) => inThisPart.has(relative(file))) : ordered
 
 const tail = (text: string, lines: number): string => text.split('\n').slice(-lines).join('\n')
 
@@ -350,6 +353,12 @@ describe('harness shell tests', () => {
     expect(runOrder([], ['a'], (file) => file)).toEqual([])
   })
 
+  it(`runs the shell tests of its part (${process.env.HARNESS_SCRIPTS_PART || 'none: all of them'}), in the start order`, () => {
+    const expected = part ? inPart(testFiles.map(relative), part) : testFiles.map(relative)
+    expect([...toRun.map(relative)].sort()).toEqual([...expected].sort())
+    expect(toRun).toEqual(ordered.filter((file) => toRun.includes(file)))
+  })
+
   // The bash in the test's name, so the run's output shows which one ran the files.
   let shown: string
   try {
@@ -415,7 +424,7 @@ describe('harness shell tests', () => {
     const problem = failure(file, run, FILE_TIMEOUT_MS)
     context.expect(problem === null, problem ?? '').toBe(true)
   }
-  it.concurrent.for(ordered.map((file): [string, string] => [relative(file), file]))(
+  it.concurrent.for(toRun.map((file): [string, string] => [relative(file), file]))(
     '%s exits 0 with an empty HOME',
     { timeout: FILE_TIMEOUT_MS + 10_000 },
     ([name, file], context) => runFile(name, file, context),
