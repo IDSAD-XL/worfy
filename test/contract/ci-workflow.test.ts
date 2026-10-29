@@ -824,6 +824,40 @@ describe('scripts/ci-scope.mjs', () => {
     expect(result.expect).toEqual(ALL)
   })
 
+  // The first commit gives ci.yml a form of its own; the pull request changes `from` to `to` in it.
+  it.each([
+    ['a key of macos-e2e in double quotes', CI_YML.replace('  macos-e2e:\n', '  "macos-e2e":\n'), '  lint-typecheck:\n', '  lint-typecheck:\n    timeout-minutes: 5\n'],
+    ['a key of macos-e2e in single quotes', CI_YML.replace('  macos-e2e:\n', "  'macos-e2e':\n"), '  lint-typecheck:\n', '  lint-typecheck:\n    timeout-minutes: 5\n'],
+    ['a comment after jobs:', CI_YML.replace('jobs:\n', 'jobs: # what runs\n'), '  lint-typecheck:\n', '  lint-typecheck:\n    timeout-minutes: 5\n'],
+    // After `- run: |` the script is what is indented more than the key `run`, not more than the dash.
+    ['a comment at the column of the dash after a block scalar', ciWith('          echo two', '      # after the script'), '# after the script', '# after it'],
+    ['a comment at the column of the key after a block scalar', ciWith('          echo two', '        # after the script'), '# after the script', '# after it'],
+  ])('on a ci.yml with %s, a pull request that changes no job that packages the app or runs the e2e tests asks for no macOS job and no e2e', (_name, form, from, to) => {
+    const first = commitTexts({ [CI_PATH]: form })
+    commitTexts({ [CI_PATH]: form.replace(from, to) }, first)
+    const result = scope({ EVENT: 'pull_request', BASE: first })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(NO_MACOS)
+  })
+
+  it('a pull request that changes a job written on one line, {runs-on: …, steps: […]}, runs every job: its body is not read', () => {
+    const flow = CI_YML.replace('  macos-package:\n    runs-on: macos-latest\n', '  macos-package: {runs-on: macos-latest, steps: [{run: pnpm package}]}\n')
+    const first = commitTexts({ [CI_PATH]: flow })
+    commitTexts({ [CI_PATH]: flow.replace('pnpm package', 'pnpm package --dir') }, first)
+    const result = scope({ EVENT: 'pull_request', BASE: first })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(ALL)
+  })
+
+  it('a pull request on a ci.yml with an anchor on the key after a `- run: |` block runs every job', () => {
+    const anchored = ciWith('  lint-typecheck:', '    steps:\n      - run: |\n          pnpm lint\n        shell: &sh bash')
+    const first = commitTexts({ [CI_PATH]: anchored })
+    commitTexts({ [CI_PATH]: anchored.replace('pnpm lint', 'pnpm lint --quiet') }, first)
+    const result = scope({ EVENT: 'pull_request', BASE: first })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(ALL)
+  })
+
   it('a pull request that changes only the anchor an alias of macos-e2e reads runs every job', () => {
     const anchored = CI_YML.replace('  lint-typecheck:\n    runs-on: ubuntu-latest', '  lint-typecheck:\n    runs-on: &os ubuntu-latest').replace(
       '  macos-e2e:\n    runs-on: macos-latest',
