@@ -165,7 +165,7 @@ check-run-ы `macos-e2e*` (`gh api repos/IDSAD-XL/worfy/commits/<sha>/check-runs
   `no-overlap`, `tidy-up`, `trash-undo`), оценка ревью — около 11. Признака без пропусков нет: Card из сценария
   агента в тексте spec-файла не видна. Кроме того, отдельная строка для `move.ts` не сузила бы ни один PR
   замера: в #1000 вторая причина — `storage/remove.ts`, в #969 — `layout/trash.ts`. Есть сомнение — путь в
-  таблицу не идёт. `storage/remove.ts` импортирует `storage/json-file.ts:21`, то есть его код идёт в каждой
+  таблицу не идёт. `storage/json-file.ts:21` импортирует `storage/remove.ts` (`import { removeFile } from './remove'`), то есть его код идёт в каждой
   записи настроек и layout-а. `layout/trash.ts` выполняет очистку при каждом запуске.
 - `claude-home/registry.ts` (#996). Его используют `agent/app-node-sessions.ts`, `agent/app-orchestrators.ts`,
   `ipc/bindings.ts`, `gate/state.ts`, `layout/archive.ts`, `claude-home/search.ts`, `claude-home/subagents.ts`.
