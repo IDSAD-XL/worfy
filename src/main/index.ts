@@ -21,6 +21,7 @@ import { appImageStore } from './images/stores'
 import { bundledHarnessVersion } from './harness/bundled'
 import { liveSessionListeners, type LiveSessionsListener } from './ipc/claude-home'
 import { sharedGateQueue } from './ipc/gate-queue'
+import { startGettingStarted } from './ipc/getting-started'
 import { appUrlMatcher, registerIpc } from './ipc/index'
 import { appNoteLink } from './link/notes'
 import { appLinkService, onAppLinkStart, startAppLink, stopLinkOnQuit } from './link/service'
@@ -179,6 +180,14 @@ function start(): void {
         app.on('will-quit', installAutoArchive())
       } catch (error) {
         console.error('[archive] the automatic archive did not start', error)
+      }
+      // Getting started (worfy-onboarding ticket 06): its state read before the first window, so a
+      // new or an existing user is decided before the user can add a Project, and its steps marked
+      // from the app's events from now on. Not a startup step: worfy runs without it.
+      try {
+        app.on('will-quit', startGettingStarted())
+      } catch (error) {
+        console.error('[getting-started] Getting started did not start', error)
       }
       // The Limits asked from Claude Code every 30 minutes, at zero model tokens, while the
       // Sessions and the status line bring nothing fresh (limits-usage.ts). Not a startup step:
