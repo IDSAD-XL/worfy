@@ -11,6 +11,11 @@
 // Ticket 09: `gettingStarted.hintSeen` records a hint shown, `gettingStarted.setCost` switches the
 // demo's Orchestrator through DemoCostSwitch (src/main/getting-started/demo.ts), wired here to the
 // app's Layouts, Session settings, Orchestrators and Sessions.
+//
+// Ticket 10: `gettingStarted.removeDemo` asks with a native dialog on the window that called, and
+// removes the demo through DemoRemover (src/main/getting-started/remove.ts), wired here to the app's
+// Project list, Layouts, Orchestrators, Sessions, Terminals and Harness.
+import { BrowserWindow, dialog } from 'electron'
 import { homedir, tmpdir } from 'node:os'
 import {
   gettingStartedChanged,
@@ -18,12 +23,14 @@ import {
   gettingStartedCreateProgress,
   gettingStartedHintSeen,
   gettingStartedNoticeSeen,
+  gettingStartedRemoveDemo,
   gettingStartedSetCost,
   gettingStartedSetSection,
   gettingStartedStateChannel,
   type CreateDemoResult,
   type DemoCost,
   type GettingStartedSnapshot,
+  type RemoveDemoResult,
 } from '../../shared/ipc/getting-started'
 import { ORCHESTRATOR_KIND } from '../../shared/ipc/orchestrator'
 import { agentEnv } from '../agent/env'
@@ -35,24 +42,33 @@ import { SessionSettingsStore } from '../agent/session-settings'
 import { toEveryWindow } from '../broadcast'
 import { DemoCostSwitch, DemoCreator, demoGit, gateRegistryRepos, type CostDeps } from '../getting-started/demo'
 import { GettingStartedProgress } from '../getting-started/progress'
+import { DemoRemover, removeConfirmation, type RemoveDeps } from '../getting-started/remove'
 import { gettingStartedState, type GettingStartedState } from '../getting-started/state'
 import { harnessHomes, locateHarness } from '../harness/locate'
 import { layoutStore, type LayoutStore } from '../layout/store'
 import { connectScriptRunner } from '../projects/connect'
 import { projectStore } from '../projects/store'
-import { claudeHome } from '../storage/paths'
+import { claudeHome, dataRoot } from '../storage/paths'
+import type { TerminalRegistry } from '../terminal/pty'
+import { profileRunner } from '../workflow/profile'
 import { defineHandler, emit, type HandlerModule } from './index'
 import { stageHub } from './pipeline'
+import { terminalNodeRegistry } from './terminal'
 import { workflowHub } from './workflow'
 
-/** The handlers over a creation of the Demo project, a state and a cost switch; tests pass their own. */
+/**
+ * The handlers over a creation of the Demo project, a state, a cost switch and a removal; tests pass
+ * their own. The removal gets the confirmation of the window that asked.
+ */
 export function gettingStartedHandlers(
   createDemo: () => Promise<CreateDemoResult>,
   state: () => Pick<GettingStartedState, 'read' | 'setSection' | 'noticeSeen' | 'hintSeen'> = gettingStartedState,
   setCost: (cost: DemoCost) => Promise<GettingStartedSnapshot> = (cost) => appCostSwitch().set(cost),
+  removeDemo: (confirm: RemoveDeps['confirm']) => Promise<RemoveDemoResult> = (confirm) => appRemover().remove(confirm),
 ): HandlerModule {
   return [
     defineHandler(gettingStartedCreateDemo, () => createDemo()),
+    defineHandler(gettingStartedRemoveDemo, (_input, { event }) => removeDemo((folder) => confirmRemoval(BrowserWindow.fromWebContents(event.sender), folder))),
     defineHandler(gettingStartedStateChannel, () => state().read()),
     defineHandler(gettingStartedSetSection, ({ section }) => state().setSection(section)),
     defineHandler(gettingStartedNoticeSeen, () => state().noticeSeen()),
@@ -138,6 +154,90 @@ function appCreator(): DemoCreator {
     progress: (step) => toEveryWindow((client) => emit(client, gettingStartedCreateProgress, { step })),
   }))
   return creator
+}
+
+/** The native dialog of the removal, on the window that asked; only "Confirm" (button 0) removes. */
+async function confirmRemoval(owner: BrowserWindow | null, folder: string): Promise<boolean> {
+  const options = {
+    type: 'warning' as const,
+    buttons: ['Confirm', 'Cancel'],
+    // Nothing is deleted by a stray Enter.
+    defaultId: 1,
+    cancelId: 1,
+    title: 'Getting started',
+    ...removeConfirmation(folder),
+    noLink: true,
+  }
+  const { response } = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options)
+  return response === 0
+}
+
+/** The Sessions of `registry` with their folders; a close ends the Session and waits for its processes. */
+export function sessionPlaces(registry: Pick<SessionRegistry, 'list' | 'get' | 'noteInput'>): RemoveDeps['sessions'] {
+  return {
+    list: () => registry.list().map(({ sessionId, cwd }) => ({ sessionId, cwd })),
+    close: async (sessionId) => {
+      let session: ReturnType<SessionRegistry['get']>
+      try {
+        session = registry.get(sessionId)
+      } catch {
+        // Closed meanwhile.
+        return
+      }
+      registry.noteInput(sessionId, 'closed the Session (Getting started: Remove the demo project)')
+      session.close()
+      await session.exited()
+    },
+  }
+}
+
+/**
+ * The Terminal Nodes' shells of `registry` with their folders: the one the shell integration last
+ * reported, else the root of the Project the shell was started in (terminal.open starts every shell
+ * there). The keys are those of terminalKey (src/main/ipc/terminal.ts).
+ */
+export function terminalPlaces(registry: Pick<TerminalRegistry, 'keys' | 'shellState' | 'close'>, projectRoot: (projectId: string) => string | null): RemoveDeps['terminals'] {
+  const rootOf = (key: string): string | null => {
+    try {
+      const [projectId] = JSON.parse(key) as [unknown]
+      return typeof projectId === 'string' ? projectRoot(projectId) : null
+    } catch {
+      return null
+    }
+  }
+  return {
+    list: () => registry.keys().map((key) => ({ key, cwd: registry.shellState(key)?.cwd ?? rootOf(key) })),
+    close: (key) => registry.close(key),
+  }
+}
+
+let remover: DemoRemover | null = null
+
+/** The app's remover, made on the first call: importing this module does no I/O. */
+function appRemover(): DemoRemover {
+  remover ??= new DemoRemover((confirm) => ({
+    home: homedir(),
+    dataRoot: dataRoot(),
+    confirm,
+    profileName: async (folder) => profileRunner(claudeHome(), (await agentEnv()).env)(folder, ['-C', folder, '--name']),
+    registeredRepos: gateRegistryRepos(() => locateHarness(harnessHomes(claudeHome())).gateDir),
+    connect: connectScriptRunner({ harness: () => locateHarness(harnessHomes(claudeHome())), env: async () => (await agentEnv()).env }),
+    projects: {
+      find: (id) => projectStore().find(id),
+      // As projects.remove does: the Layout written while the Project is listed, forgotten once it is out.
+      remove: (id) => {
+        layoutStore().flush(id)
+        projectStore().remove(id)
+        layoutStore().forget(id)
+      },
+      dataDir: (id) => projectStore().dataDir(id),
+    },
+    stopOrchestrator: (projectId) => sharedOrchestrators().retain(new Set(projectStore().list().flatMap((project) => (project.id === projectId ? [] : [project.id])))),
+    sessions: sessionPlaces(sharedRegistry()),
+    terminals: terminalPlaces(terminalNodeRegistry(), (projectId) => projectStore().find(projectId)?.path ?? null),
+    state: gettingStartedState(),
+  }))
+  return remover
 }
 
 /** Where orchestratorMatcher looks: the Layouts, the Orchestrators and the Sessions of the app. */

@@ -3,6 +3,7 @@ import '../../canvas/actions/actions.css'
 import { failureReason } from '../../../shared/ipc/channels'
 import { GETTING_STARTED_STEPS, type GettingStartedSnapshot, type GettingStartedStep } from '../../../shared/ipc/getting-started'
 import CostSwitch from '../../getting-started/CostSwitch'
+import DoneScreen from '../../getting-started/DoneScreen'
 import { stageHint, type StageHint } from '../../getting-started/hints'
 import ReviewExample from '../../getting-started/ReviewExample'
 import { skipGettingStarted, useGettingStarted, useGettingStartedStore, GETTING_STARTED_SECTION_ID } from '../../getting-started/store'
@@ -34,6 +35,10 @@ import { SidebarSection } from '../SidebarSection'
  * neither a second window nor a restart shows it again. Under step 2, while there is a demo, the cost
  * switch (CostSwitch.tsx). Step 5, marked without a rework round seen, says the review found nothing
  * in place of its line and offers the recorded example of one (ReviewExample.tsx).
+ *
+ * Ticket 10: once step 6 is marked, the screen Done (DoneScreen.tsx) stands in place of the steps,
+ * with "Connect your own project" and "Remove the demo project"; "Show steps" brings the list back
+ * until the section mounts again. A removal takes steps 2–6 back, so the list returns by itself.
  */
 export const order = 5
 
@@ -174,6 +179,7 @@ export default function GettingStartedSection() {
   const [progress, setProgress] = useState<string | null>(null)
   const [failure, setFailure] = useState<{ step: GettingStartedStep; text: string } | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [showSteps, setShowSteps] = useState(false)
 
   // The steps of the demo's creation, for whichever window asked; shown only while this one waits.
   useEffect(() => {
@@ -277,67 +283,73 @@ export default function GettingStartedSection() {
       }
     >
       <div ref={anchor}>
-        <p style={styles.intro}>A guided demo: one ticket from start to merge.</p>
-        <ol style={styles.steps} aria-label="Steps">
-          {GETTING_STARTED_STEPS.map((step) => {
-            const at = snapshot.steps[step]
-            const done = at !== undefined
-            const isCurrent = step === current
-            const text = STEP_TEXTS[step]
-            // The review ended without a rework round: step 5 says so in place of what it was to show.
-            const fallback = step === '5' && done && !snapshot.reworkSeen
-            return (
-              <li key={step} style={styles.step} data-step={step} data-done={done ? 'true' : undefined} aria-current={isCurrent ? 'step' : undefined} data-testid="getting-started-step">
-                <span
-                  data-testid="getting-started-mark"
-                  title={done ? doneTitle(at) : undefined}
-                  style={{ ...styles.mark, ...(done ? styles.markDone : isCurrent ? styles.markCurrent : styles.markLater) }}
-                >
-                  {done ? <CheckIcon /> : <span aria-hidden="true">{step}</span>}
-                </span>
-                <div style={styles.body}>
-                  <span style={{ ...styles.title, ...(done ? styles.titleDone : {}) }}>
-                    {text.title}
-                    {done ? (
-                      <>
-                        {' '}
-                        <span style={styles.hidden}>done</span>
-                      </>
-                    ) : null}
-                  </span>
-                  {fallback ? <ReviewExample /> : <p style={styles.line}>{text.line}</p>}
-                  {step === '2' ? <p style={styles.note}>The agents work for real and use your Claude Code usage.</p> : null}
-                  {step === '2' && demo !== null ? <CostSwitch cost={demo.cost} /> : null}
-                  {isCurrent ? actionOf(step) : null}
-                  {hint !== null && step === (current ?? '6') ? (
-                    <p style={styles.hint} data-testid="getting-started-hint" data-hint={hint.id}>
-                      {hint.text}
-                    </p>
-                  ) : null}
-                  {busy === step && step === '2' && progress !== null ? (
-                    <p role="status" style={styles.progress}>
-                      {progress}
-                    </p>
-                  ) : null}
-                  {failure?.step === step ? (
-                    <p role="alert" style={styles.error}>
-                      {failure.text}
-                    </p>
-                  ) : null}
-                </div>
-              </li>
-            )
-          })}
-        </ol>
-        <div style={styles.connect}>
-          <span style={styles.title}>Connect your own project</span>
-          <p style={styles.line}>Add a repository you work on. Not part of the demo.</p>
-          <div style={styles.action}>
-            <button type="button" className="w-action" onClick={() => requestAddProject()}>
-              Connect…
-            </button>
-          </div>
-        </div>
+        {snapshot.steps['6'] !== undefined && !showSteps ? (
+          <DoneScreen hasDemo={demo !== null} onShowSteps={() => setShowSteps(true)} onMessage={setMessage} />
+        ) : (
+          <>
+            <p style={styles.intro}>A guided demo: one ticket from start to merge.</p>
+            <ol style={styles.steps} aria-label="Steps">
+              {GETTING_STARTED_STEPS.map((step) => {
+                const at = snapshot.steps[step]
+                const done = at !== undefined
+                const isCurrent = step === current
+                const text = STEP_TEXTS[step]
+                // The review ended without a rework round: step 5 says so in place of what it was to show.
+                const fallback = step === '5' && done && !snapshot.reworkSeen
+                return (
+                  <li key={step} style={styles.step} data-step={step} data-done={done ? 'true' : undefined} aria-current={isCurrent ? 'step' : undefined} data-testid="getting-started-step">
+                    <span
+                      data-testid="getting-started-mark"
+                      title={done ? doneTitle(at) : undefined}
+                      style={{ ...styles.mark, ...(done ? styles.markDone : isCurrent ? styles.markCurrent : styles.markLater) }}
+                    >
+                      {done ? <CheckIcon /> : <span aria-hidden="true">{step}</span>}
+                    </span>
+                    <div style={styles.body}>
+                      <span style={{ ...styles.title, ...(done ? styles.titleDone : {}) }}>
+                        {text.title}
+                        {done ? (
+                          <>
+                            {' '}
+                            <span style={styles.hidden}>done</span>
+                          </>
+                        ) : null}
+                      </span>
+                      {fallback ? <ReviewExample /> : <p style={styles.line}>{text.line}</p>}
+                      {step === '2' ? <p style={styles.note}>The agents work for real and use your Claude Code usage.</p> : null}
+                      {step === '2' && demo !== null ? <CostSwitch cost={demo.cost} /> : null}
+                      {isCurrent ? actionOf(step) : null}
+                      {hint !== null && step === (current ?? '6') ? (
+                        <p style={styles.hint} data-testid="getting-started-hint" data-hint={hint.id}>
+                          {hint.text}
+                        </p>
+                      ) : null}
+                      {busy === step && step === '2' && progress !== null ? (
+                        <p role="status" style={styles.progress}>
+                          {progress}
+                        </p>
+                      ) : null}
+                      {failure?.step === step ? (
+                        <p role="alert" style={styles.error}>
+                          {failure.text}
+                        </p>
+                      ) : null}
+                    </div>
+                  </li>
+                )
+              })}
+            </ol>
+            <div style={styles.connect}>
+              <span style={styles.title}>Connect your own project</span>
+              <p style={styles.line}>Add a repository you work on. Not part of the demo.</p>
+              <div style={styles.action}>
+                <button type="button" className="w-action" onClick={() => requestAddProject()}>
+                  Connect…
+                </button>
+              </div>
+            </div>
+          </>
+        )}
         <div style={styles.footer}>
           <button type="button" style={styles.skip} onClick={() => void skip()}>
             Skip

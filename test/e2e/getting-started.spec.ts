@@ -183,9 +183,10 @@ test('Getting started: first in the sidebar, the demo created, the Orchestrator 
     await expect(field).toHaveValue(QUESTION)
     expect(messagesSent(agentLog)).toEqual([])
 
-    // All six marked: the section read again after Skip shows them.
+    // All six marked: the section read again after Skip shows the screen Done (ticket 10), and "Show steps" all six.
     markSteps(dataDir, ['3', '4', '5', '6'])
     await skipAndReopen(window)
+    await section.getByTestId('getting-started-done').getByRole('button', { name: 'Show steps' }).click()
     await expect(section.locator('[data-testid="getting-started-step"][data-done="true"]')).toHaveCount(6)
     await expect(section.locator('[aria-current="step"]')).toHaveCount(0)
     await shoot(launched, 'all-six')

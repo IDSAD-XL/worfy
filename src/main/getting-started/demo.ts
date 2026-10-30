@@ -118,7 +118,7 @@ const UPDATE_HARNESS =
   "Update the Harness first: this Harness's project-connect does not know --no-qmd. Open the first-run checks (Command palette: First-run checks) and update the Harness plugin there."
 
 /** Runs bin/project-connect; exit 2 is a Harness older than `--no-qmd` and `--remove`. */
-async function harness(deps: DemoDeps, args: readonly string[], stdin: string): Promise<ScriptRun> {
+async function harness(deps: Pick<DemoDeps, 'connect'>, args: readonly string[], stdin: string): Promise<ScriptRun> {
   let run: ScriptRun
   try {
     run = await deps.connect(args, stdin)
@@ -217,18 +217,37 @@ function namesFolder(match: string, folder: string): boolean {
  */
 async function forget(deps: DemoDeps, record: DemoRecord): Promise<void> {
   if (deps.projects.find(record.projectId) !== undefined) deps.projects.remove(record.projectId)
-  const repos = await deps.registeredRepos(record.profile)
-  const ours = repos.length > 0 && repos.every((match) => namesFolder(match, record.path))
-  if (!ours) {
+  if (!(await profileIsOurs(deps, record))) {
     deps.state.setDemo(null)
     return
   }
-  const removed = await harness(deps, ['--remove', record.profile, '--no-qmd'], '')
-  const errors = connectErrors(removed)
-  if (removed.code !== 0 && !errors.every((each) => each.message.startsWith(`no profile ${record.profile}`))) {
-    throw new Refusal(`The Profile ${record.profile} of the earlier demo, whose folder ${record.path} is gone, could not be removed: ${errors.map((each) => each.message).join('; ')}`)
+  const failed = await removeDemoProfile(deps, record.profile)
+  if (failed !== null) {
+    throw new Refusal(`The Profile ${record.profile} of the earlier demo, whose folder ${record.path} is gone, could not be removed: ${failed}`)
   }
   deps.state.setDemo(null)
+}
+
+/**
+ * Whether the Profile `record.profile` is still the demo's: it has gate registry entries, and every
+ * one of them names the demo's folder. The check before the demo's Profile is removed here, and
+ * before the demo's folder is deleted (ticket 10, remove.ts).
+ */
+export async function profileIsOurs(deps: Pick<DemoDeps, 'registeredRepos'>, record: Pick<DemoRecord, 'profile' | 'path'>): Promise<boolean> {
+  const repos = await deps.registeredRepos(record.profile)
+  return repos.length > 0 && repos.every((match) => namesFolder(match, record.path))
+}
+
+/**
+ * `project-connect --remove <profile> --no-qmd`; a Profile already gone is not a failure. Null when
+ * it went, else the script's messages. A Harness that cannot be run, or is older than `--remove`,
+ * throws with the reason.
+ */
+export async function removeDemoProfile(deps: Pick<DemoDeps, 'connect'>, profile: string): Promise<string | null> {
+  const removed = await harness(deps, ['--remove', profile, '--no-qmd'], '')
+  const errors = connectErrors(removed)
+  if (removed.code === 0 || errors.every((each) => each.message.startsWith(`no profile ${profile}`))) return null
+  return errors.map((each) => each.message).join('; ')
 }
 
 /** What this call made, for the rollback. */

@@ -117,6 +117,20 @@ export class GettingStartedState {
     })
   }
 
+  /**
+   * The Demo project was removed (ticket 10): its record goes, and the steps it marked, 2 to 6; step
+   * 1, the user's setup, stays. One write, so no reader sees the record gone and its steps still
+   * marked. The section stays as it is.
+   */
+  forgetDemo(): void {
+    this.update((file) => {
+      const rest: StateFile = { ...file }
+      delete rest.demo
+      const setup = stepsOf(file.steps)['1']
+      return { ...rest, steps: setup === undefined ? {} : { '1': setup } }
+    })
+  }
+
   /** Marks `step` now; a step already marked keeps its time. True when this call marked it. */
   markStep(step: GettingStartedStep): boolean {
     let marked = false
