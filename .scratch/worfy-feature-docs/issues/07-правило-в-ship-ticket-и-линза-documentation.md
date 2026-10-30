@@ -98,7 +98,9 @@ Test-ы `bin/profile` и контракта Profile: поле есть, поля
   `silent-mode.md`) и в проверке списка файлов Ticket-а в `harness/skills/epic-wave/SKILL.md`.
 - Линза `documentation` называет severity `[med]` и считает находкой новую фразу, которую код не подтверждает.
 - `harness/profiles/README.md`: значение читается как записано, путь не проверяется. Поведение `bin/profile` не менялось;
-  абсолютный путь и `..` закреплены test-ом.
+  абсолютный путь и `..` закреплены test-ом. То же в описании поля в `draft.schema.json`.
+- Сообщение Silent mode в `harness/hooks/session-start.mjs` называет оба исключения для `docs.feature_pages`, как
+  `silent-mode.md` и `implementer-silent-mode.md`; проверка в `harness/hooks/tests/session-hooks.test.sh`.
 - Test-ы: `""`, `false`, `0` и объект в `profile-schema2.test.sh`, подсчёт строк stderr вместо поиска подстроки; массив,
   объект и `false` в `project-connect.test.sh`; абзац шага и пункт границ сверяются целиком, новые фразы — по тексту.
 
