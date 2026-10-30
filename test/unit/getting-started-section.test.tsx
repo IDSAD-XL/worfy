@@ -58,8 +58,16 @@ interface FakeMain {
 
 let main: FakeMain
 
-/** This Machine's preload: `gettingStarted.state` answers `state` (null: the test answers it), the app settings at once. */
-function preload(state: GettingStartedSnapshot | null): void {
+/** What `appSettings.set` was asked, oldest first. */
+let settingsAsked: unknown[] = []
+
+/**
+ * This Machine's preload: `gettingStarted.state` answers `state` (null: the test answers it), the
+ * app settings at once — `settings` first, then whatever `appSettings.set` makes of them.
+ */
+function preload(state: GettingStartedSnapshot | null, settings: AppSettings = appSettings): void {
+  let current = settings
+  settingsAsked = []
   const handlers = new Map<string, Set<(payload: unknown) => void>>()
   const fake: FakeMain = {
     calls: [],
@@ -70,8 +78,13 @@ function preload(state: GettingStartedSnapshot | null): void {
   ;(globalThis as { worfy?: WorfyBridge }).worfy = {
     invoke: (channel, input) => {
       if (channel === 'gettingStarted.state' && state !== null) return Promise.resolve({ ok: true, value: state } as never)
-      if (channel === 'appSettings.get') return Promise.resolve({ ok: true, value: appSettings } as never)
-      if (channel === 'appSettings.set') return Promise.resolve({ ok: true, value: appSettings } as never)
+      if (channel === 'appSettings.get') return Promise.resolve({ ok: true, value: current } as never)
+      if (channel === 'appSettings.set') {
+        settingsAsked.push(input)
+        const collapsed = { ...current.sidebar.collapsed, ...(input as { sidebar?: { collapsed?: Record<string, boolean> } }).sidebar?.collapsed }
+        current = { ...current, sidebar: { ...current.sidebar, collapsed }, revision: current.revision + 1 }
+        return Promise.resolve({ ok: true, value: current } as never)
+      }
       return new Promise((resolve) => fake.calls.push({ channel, input, answer: resolve as (result: IpcResult<unknown>) => void }))
     },
     on: (channel, handler) => {
@@ -292,6 +305,25 @@ describe('the Getting started section', () => {
     await act(async () => call.answer({ ok: true, value: twoDone() }))
     expect(await opened).toBeUndefined()
     const heading = within(region()).getByRole('button', { name: 'Getting started' })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+  })
+
+  it('openGettingStarted() expands a section the user collapsed', async () => {
+    const { openGettingStarted } = await import('../../src/renderer/getting-started/store')
+    const collapsed = { ...appSettings, sidebar: { ...appSettings.sidebar, collapsed: { GettingStartedSection: true } } }
+    preload(twoDone(), collapsed)
+    const { default: GettingStartedSection } = await import('../../src/renderer/shell/sidebar/GettingStartedSection')
+    render(<GettingStartedSection />)
+    const heading = await waitFor(() => within(region()).getByRole('button', { name: 'Getting started' }))
+    await waitFor(() => expect(heading.getAttribute('aria-expanded')).toBe('false'))
+    let opened: Promise<string | undefined> | undefined
+    act(() => {
+      opened = openGettingStarted()
+    })
+    await act(async () => (await callOf('gettingStarted.setSection')).answer({ ok: true, value: twoDone() }))
+    expect(await opened).toBeUndefined()
+    expect(settingsAsked).toEqual([{ sidebar: { collapsed: { GettingStartedSection: false } } }])
+    await waitFor(() => expect(heading.getAttribute('aria-expanded')).toBe('true'))
     await waitFor(() => expect(document.activeElement).toBe(heading))
   })
 

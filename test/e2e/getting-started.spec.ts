@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { windowsProfileEnv } from '../windows-profile'
 import { ms } from '../time-scale'
 
 // worfy-onboarding ticket 07: the Getting started section at the top of the sidebar.
@@ -38,7 +39,12 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
-/** The app's home folder and temporary folder, side by side in the test's scratch folder: the home is not inside the temporary one. */
+/**
+ * The app's home folder and temporary folder, side by side in the test's scratch folder: the home is
+ * not inside the temporary one. On Windows the app's git does not see HOME: worfy builds the
+ * environment of what it runs from the registry and the session's profile variables (USERPROFILE,
+ * HOMEDRIVE + HOMEPATH; src/main/agent/env.ts), so the whole profile moves to the home folder.
+ */
 function homes(): Record<string, string> {
   const home = join(scratch, 'home')
   const temp = join(scratch, 'tmp')
@@ -46,7 +52,7 @@ function homes(): Record<string, string> {
   mkdirSync(temp, { recursive: true })
   // The demo's first commit needs an author; git reads it from this home's global config.
   writeFileSync(join(home, '.gitconfig'), '[user]\n\tname = Demo Tester\n\temail = demo@example.com\n')
-  return { HOME: home, USERPROFILE: home, TMPDIR: temp, TEMP: temp, TMP: temp }
+  return { HOME: home, ...windowsProfileEnv(home), TMPDIR: temp, TEMP: temp, TMP: temp }
 }
 
 /** This build's Harness in the temporary Claude home, with an empty gate registry. */
@@ -155,8 +161,15 @@ test('Getting started: first in the sidebar, the demo created, the Orchestrator 
 
     // Step 2: the demo is created in the home folder; main marks the step and the Project is in the list.
     await section.getByRole('button', { name: 'Create demo project' }).click()
-    await expect(stepOf(window, '2')).toHaveAttribute('data-done', 'true', { timeout: ms(60_000) })
-    await expect(stepOf(window, '2').getByRole('alert')).toHaveCount(0)
+    // Marked, or refused: a refusal is the received value, so a failed run says why.
+    const step2 = stepOf(window, '2')
+    const outcome = async (): Promise<string> => {
+      if ((await step2.getAttribute('data-done')) === 'true') return 'marked'
+      const alert = step2.getByRole('alert')
+      return (await alert.count()) > 0 ? await alert.innerText() : 'creating'
+    }
+    await expect.poll(outcome, { timeout: ms(60_000), message: 'step 2 is marked after Create demo project' }).toBe('marked')
+    await expect(step2.getByRole('alert')).toHaveCount(0)
     await expect(window.getByRole('region', { name: 'Projects' }).getByText('worfy-demo')).toBeVisible()
     await expect(stepOf(window, '3')).toHaveAttribute('aria-current', 'step')
     await shoot(launched, 'steps-1-2')
