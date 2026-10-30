@@ -91,6 +91,10 @@ function isolation(dataDir: string, claudeHome: string, profileDir: string, plat
     // window of every test, and its checks would run. test/e2e/first-run.spec.ts turns it back on
     // with WORFY_FIRST_RUN_AUTO=1.
     WORFY_FIRST_RUN_AUTO: '0',
+    // The Getting started section (worfy-onboarding ticket 06) does not show by itself either: the
+    // first read of its state hides it. test/e2e/getting-started*.spec.ts turn it back on with
+    // WORFY_GETTING_STARTED_AUTO=1.
+    WORFY_GETTING_STARTED_AUTO: '0',
     // The link server (worfy-link) listens on loopback only, so the macOS firewall never asks about
     // incoming connections, and Bonjour is off, so macOS never asks for the Local Network
     // permission: either prompt would stop a run. Linked worfy in a test reach each other at

@@ -21,6 +21,8 @@ import { agentEnv } from '../agent/env'
 import type { AccountInfoLike } from '../agent/session'
 import { FirstRunActions, type Confirmation } from '../first-run/actions'
 import { ACCOUNT_TIMEOUT_MS, askAccount, ghOverride, oldHarnessPresent, runChecks, type Env, type ProjectProfile } from '../first-run/checks'
+import { noteFirstRunReport } from '../getting-started/progress'
+import { gettingStartedState } from '../getting-started/state'
 import { harnessScriptEnv, recaptureForCheckAgain } from '../harness/script-env'
 import { bridgeFile } from '../harness/status-line'
 import { projectStore } from '../projects/store'
@@ -181,6 +183,13 @@ function writeMark(mark: Mark): void {
 let lastReport: FirstRunReport | null = null
 const remember = (report: FirstRunReport): FirstRunReport => {
   lastReport = report
+  // Step 1 of Getting started (worfy-onboarding ticket 06): every report is heard, from the start,
+  // "Check again" and an action alike. A state that cannot be written does not fail the checks.
+  try {
+    noteFirstRunReport(gettingStartedState(), report, process.platform)
+  } catch (error) {
+    console.warn('[getting-started] step 1 could not be marked', error)
+  }
   return report
 }
 
