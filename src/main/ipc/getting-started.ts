@@ -211,6 +211,22 @@ export function terminalPlaces(registry: Pick<TerminalRegistry, 'keys' | 'shellS
   }
 }
 
+/**
+ * RemoveDeps.stopOrchestrator over `orchestrators`: stops the Project's Orchestrator, then holds it
+ * closed (keepClosed) and answers the release. The hold is taken after the stop, so a stop that
+ * throws leaves no hold that nobody lets go.
+ */
+export function stopAndHold(
+  orchestrators: Pick<Orchestrators, 'retain'>,
+  projectIds: () => readonly string[],
+  hold: (projectId: string) => () => void = keepClosed,
+): RemoveDeps['stopOrchestrator'] {
+  return (projectId) => {
+    orchestrators.retain(new Set(projectIds().filter((id) => id !== projectId)))
+    return hold(projectId)
+  }
+}
+
 let remover: DemoRemover | null = null
 
 /** The app's remover, made on the first call: importing this module does no I/O. */
@@ -232,11 +248,7 @@ function appRemover(): DemoRemover {
       },
       dataDir: (id) => projectStore().dataDir(id),
     },
-    stopOrchestrator: (projectId) => {
-      const release = keepClosed(projectId)
-      sharedOrchestrators().retain(new Set(projectStore().list().flatMap((project) => (project.id === projectId ? [] : [project.id]))))
-      return release
-    },
+    stopOrchestrator: stopAndHold(sharedOrchestrators(), () => projectStore().list().map((project) => project.id)),
     sessions: sessionPlaces(sharedRegistry()),
     terminals: terminalPlaces(terminalNodeRegistry(), (projectId) => projectStore().find(projectId)?.path ?? null),
     state: gettingStartedState(),

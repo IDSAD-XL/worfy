@@ -11,8 +11,9 @@
 //   1. the native dialog with the text of the spec and the folder; Cancel — nothing;
 //   2. the demo's Orchestrator stops, and every Session and Terminal whose folder is inside the demo's
 //      is closed and waited for: Windows refuses to delete a folder a process works in. Until the
-//      removal ends main does not open the demo's Orchestrator by itself (keepClosed of
-//      src/main/agent/app-orchestrators.ts), so a window opened meanwhile starts no Session there;
+//      removal ends, whether it removed everything or not, the demo's Orchestrator is not opened —
+//      neither by main itself nor for a window, whose `orchestrator.open` answers that the project
+//      is being removed (keepClosed of src/main/agent/app-orchestrators.ts) — so no Session starts there;
 //   3. `project-connect --remove worfy-demo`: the Profile, its gate registry entries, runs/worfy-demo/;
 //   4. the Project leaves the list, and its worfy data folder is deleted;
 //   5. the record `demo` goes, and steps 2–6 with it; step 1 stays. Before the folder, not after: the

@@ -209,7 +209,7 @@ async function app(options: Options = {}) {
     log.push(`deleted: ${path}`)
     removeTree(path)
   }
-  const { gettingStartedHandlers, sessionPlaces, terminalPlaces } = await import('../../src/main/ipc/getting-started')
+  const { gettingStartedHandlers, sessionPlaces, stopAndHold, terminalPlaces } = await import('../../src/main/ipc/getting-started')
   const remover = new DemoRemover((confirm) => ({
     home,
     dataRoot: data,
@@ -226,11 +226,14 @@ async function app(options: Options = {}) {
       },
       dataDir: (id) => projects.dataDir(id),
     },
-    stopOrchestrator: (projectId) => {
-      log.push('orchestrator held closed')
-      orchestrators.retain(new Set(projects.list().flatMap((project) => (project.id === projectId ? [] : [project.id]))))
-      return () => void log.push('orchestrator let go')
-    },
+    stopOrchestrator: stopAndHold(
+      orchestrators,
+      () => projects.list().map((project) => project.id),
+      () => {
+        log.push('orchestrator held closed')
+        return () => void log.push('orchestrator let go')
+      },
+    ),
     sessions: sessionPlaces(registry),
     terminals: terminalPlaces(terminals, (projectId) => projects.find(projectId)?.path ?? options.roots?.[projectId] ?? null),
     state,
@@ -482,6 +485,8 @@ describe('gettingStarted.removeDemo', () => {
     expect(existsSync(join(demo.path, '.git'))).toBe(true)
     expect(h.projectsFile().projects).toHaveLength(1)
     expect(h.state.demo()?.path).toBe(demo.path)
+    // A removal that refused lets the Orchestrator be opened again.
+    expect(h.log.filter((line) => line.startsWith('orchestrator '))).toEqual(['orchestrator held closed', 'orchestrator let go'])
   })
 
   it(`tries a busy folder again after a pause, ${String(FOLDER_TRIES)} times at most, and names what stays and why`, async () => {
@@ -548,6 +553,7 @@ describe('the guards of the folder', () => {
     const asked: string[] = []
     const deleted: string[] = []
     let forgot = false
+    let released = 0
     const deps: RemoveDeps = {
       ...places,
       confirm: (path) => {
@@ -562,7 +568,7 @@ describe('the guards of the folder', () => {
         remove: () => undefined,
         dataDir: (id) => join(places.dataRoot, id),
       },
-      stopOrchestrator: () => () => undefined,
+      stopOrchestrator: () => () => void (released += 1),
       sessions: { list: () => [], close: () => Promise.resolve() },
       terminals: { list: () => [], close: () => Promise.resolve() },
       state: {
@@ -579,7 +585,7 @@ describe('the guards of the folder', () => {
       removeTree: (path) => void deleted.push(path),
       wait: () => Promise.resolve(),
     }
-    return { deps, asked, deleted, forgot: () => forgot }
+    return { deps, asked, deleted, forgot: () => forgot, released: () => released }
   }
 
   const cases: [string, () => { folder: string; places: { home: string; dataRoot: string } }, RegExp][] = [
@@ -649,6 +655,52 @@ describe('the guards of the folder', () => {
     expect(g.forgot()).toBe(true)
   })
 
+  it('lets the Orchestrator be opened again when the removal fails on the way', async () => {
+    const folder = join(home, 'worfy-demo')
+    mkdirSync(folder)
+    const g = guarded(folder, { home, dataRoot: data })
+    g.deps.sessions = {
+      list: () => {
+        throw new Error('the registry is gone')
+      },
+      close: () => Promise.resolve(),
+    }
+
+    const result = await removeDemo(g.deps)
+
+    expect(result).toEqual({ removed: false, reason: 'The demo project was not removed: the registry is gone' })
+    expect(g.released()).toBe(1)
+    expect(g.deleted).toEqual([])
+    expect(existsSync(folder)).toBe(true)
+  })
+
+  it('takes no hold when stopping the Orchestrator throws, so none is left behind', async () => {
+    const { stopAndHold } = await import('../../src/main/ipc/getting-started')
+    const held: string[] = []
+    const stop = stopAndHold(
+      {
+        retain: () => {
+          throw new Error('the Layout is gone')
+        },
+      },
+      () => ['demo-id', 'other-id'],
+      (projectId) => {
+        held.push(projectId)
+        return () => undefined
+      },
+    )
+    expect(() => stop('demo-id')).toThrow('the Layout is gone')
+    expect(held).toEqual([])
+    const kept: string[][] = []
+    const ok = stopAndHold({ retain: (ids) => void kept.push([...ids]) }, () => ['demo-id', 'other-id'], (projectId) => {
+      held.push(projectId)
+      return () => undefined
+    })
+    ok('demo-id')
+    expect(kept).toEqual([['other-id']])
+    expect(held).toEqual(['demo-id'])
+  })
+
   /** A link to a folder: a junction on Windows, which needs no right to make links there. */
   const linkFolder = (target: string, path: string): void => symlinkSync(target, path, process.platform === 'win32' ? 'junction' : 'dir')
 
@@ -691,10 +743,10 @@ describe('the guards of the folder', () => {
   })
 })
 
-describe('main does not open a held Orchestrator by itself', () => {
+describe('a held Orchestrator is not opened', () => {
   const PROJECT = 'demo-0000000d'
 
-  it('neither for a new window nor for a screen of a Linked machine, until it is let go', async () => {
+  it('neither by main for a new window or the screen of a Linked machine, nor by orchestrator.open of a window, until it is let go', async () => {
     const repo = join(scratch, 'repo')
     mkdirSync(repo)
     mkdirSync(join(data, PROJECT), { recursive: true })
@@ -708,12 +760,24 @@ describe('main does not open a held Orchestrator by itself', () => {
     electron.listeners.clear()
     vi.resetModules()
     try {
-      const { keepClosed, sharedOrchestrators, startOrchestrators } = await import('../../src/main/agent/app-orchestrators')
+      const { BEING_REMOVED, keepClosed, sharedOrchestrators, startOrchestrators } = await import('../../src/main/agent/app-orchestrators')
       const { sharedRegistry } = await import('../../src/main/agent/app-registry')
       const { projectHolds } = await import('../../src/main/projects/holds')
+      const { orchestratorHandlers } = await import('../../src/main/ipc/orchestrator')
+      const { registerIpc } = await import('../../src/main/ipc/index')
       cleanups.push(() => sharedRegistry().closeAll(), saveLayoutNow)
+      const handlers = new Map<string, (event: IpcMainInvokeEvent, input: unknown) => unknown>()
+      await registerIpc(
+        { handle: (name, listener) => handlers.set(name, listener) },
+        { modules: { './orchestrator.ts': () => Promise.resolve(orchestratorHandlers(sharedOrchestrators)) }, isTrustedSender: (url) => url === APP_URL },
+      )
+      /** orchestrator.open as a window calls it (SessionView). */
+      const openFromWindow = async (): Promise<IpcResult<unknown>> => {
+        const listener = handlers.get(`${IPC_CHANNEL_PREFIX}orchestrator.open`)
+        if (!listener) throw new Error('orchestrator.open is not registered')
+        return (await listener({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, { projectId: PROJECT })) as IpcResult<unknown>
+      }
       startOrchestrators()
-      const opened = vi.spyOn(sharedOrchestrators(), 'open')
       const newWindow = (): void => {
         for (const listener of electron.listeners.get('browser-window-created') ?? []) listener()
       }
@@ -722,13 +786,18 @@ describe('main does not open a held Orchestrator by itself', () => {
       newWindow()
       const screen = { id: 7, once: () => undefined, isDestroyed: () => false }
       expect(projectHolds().set(screen, 'screen-1', PROJECT)).toBe(true)
-      expect(opened).not.toHaveBeenCalled()
+      const refused = await openFromWindow()
+      expect(refused.ok).toBe(false)
+      expect(!refused.ok && refused.error).toContain(BEING_REMOVED)
+      await expect(sharedOrchestrators().newConversation(PROJECT)).rejects.toThrow(BEING_REMOVED)
+      // Nothing started: no Session in the Project's folder.
+      expect(sharedRegistry().list()).toEqual([])
 
       release()
       release()
-      newWindow()
-      expect(opened).toHaveBeenCalledWith(PROJECT)
-      await vi.waitFor(() => expect(sharedRegistry().list().map((session) => session.cwd)).toEqual([repo]))
+      const opened = await openFromWindow()
+      expect(opened.ok).toBe(true)
+      expect(sharedRegistry().list().map((session) => session.cwd)).toEqual([repo])
     } finally {
       vi.unstubAllEnvs()
     }
