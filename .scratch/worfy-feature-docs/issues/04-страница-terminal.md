@@ -66,6 +66,11 @@ Source: «Как устроено» и Q18 [spec.md](../spec.md); решения
 - `src/renderer/platform.ts`, `src/renderer/shortcuts/match.ts`, `src/shared/shortcuts.ts`, `src/renderer/canvas/wheel-router.ts`
 - `src/main/ipc/projects.ts`, `src/renderer/shell/FirstRunChecks.tsx` («Sign in with gh»)
 
+Добавлено в rework, раунд 1 (код только читался):
+
+- `src/main/github/accounts.ts`, `src/renderer/projects/GithubAccount.tsx` («Sign in with gh»)
+- `src/main/agent/env.ts` (окружение на Windows)
+
 ## Вне скоупа
 
 - Исправление найденных багов продукта: такая находка — в `## Итог`.
@@ -73,7 +78,7 @@ Source: «Как устроено» и Q18 [spec.md](../spec.md); решения
 
 ## Итог
 
-Страница написана: `docs/features/terminal.md` и перевод `docs/features/ru/terminal.md`, по 350 строк с небольшим, делить её не
+Страница написана: `docs/features/terminal.md` и перевод `docs/features/ru/terminal.md`, по 360 строк с небольшим, делить её не
 пришлось. Разделы соответствуют списку. Приложение не запускалось, платных запросов к Claude не было.
 
 **Не вошло на страницу: код или test не подтверждают.**
@@ -96,6 +101,9 @@ Source: «Как устроено» и Q18 [spec.md](../spec.md); решения
   неверно. Сборки под Linux нет (в `electron-builder.yml` только `mac` и `win`), поэтому сейчас на поведение не влияет.
 - Раздел Settings «Terminal AI» показан и на Windows, где ни одна функция работать не может: shell там никогда не zsh. Страница пишет это как
   факт, текст раздела говорит только «Works in zsh Terminals.»
+- Вне скоупа Ticket-а: комментарий в `src/renderer/canvas/nodes/TerminalNode.tsx` над компонентом говорит, что ⌘I в Terminal-е без
+  панели идёт в shell. Это неточно: ⌘I остаётся у xterm.js и shell не получает ничего. Та же неточность в комментарии
+  `test/unit/terminal-ai-request.test.tsx` («⌘I goes to the shell again»).
 - Заметка «Terminal AI is off» в таблице отказов на практике редкая: при выключенном Command request строка `# …` просто запускается как
   обычная, а панели нет. Заметка возможна только при гонке с изменением настройки.
 

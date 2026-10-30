@@ -10,8 +10,8 @@ in the input line of that shell. Terms are explained in [Concepts](concepts.md).
 A Terminal is a Node on the Canvas with a real shell in it. It is for the user: agents do not use it.
 
 **Creating and closing.** "New terminal" in the Canvas context menu creates the Node. Its default size is 560 by 340
-pixels. The shell starts in the root folder of the Project, with the environment of the user's login shell. The user
-cannot choose another folder for the start, and each Node has exactly one shell. The close button in the header, or
+pixels. The shell starts in the root folder of the Project, on macOS with the environment of the user's login shell. The
+user cannot choose another folder for the start, and each Node has exactly one shell. The close button in the header, or
 any other way the Node leaves the Canvas, ends the shell. A locked Node has no close button.
 
 **Which shell.** On macOS it is `$SHELL -l`, or `/bin/zsh -l` when the variable is not set. The header shows the name
@@ -64,6 +64,8 @@ are accepted, the list has this one command, and attaching to a shell that alrea
 
 - The shell is PowerShell: `pwsh.exe` from the Path, including an MSIX install, otherwise Windows PowerShell. `cmd.exe`
   is never used, and `$SHELL` is not read.
+- No login shell is read, because Windows has none. The shell starts with an environment built from the variables of the
+  Windows session and the registry.
 - "Project settings…" has a "Terminal shell" field with PowerShell and Git Bash. The choice applies to the next shell:
   Restart, or a new Node. When Git Bash is not found, the field says so and PowerShell starts. Settings that cannot be
   read also give PowerShell.
@@ -82,7 +84,7 @@ are accepted, the list has this one command, and attaching to a shell that alrea
   never a folder or a program: main starts a shell only for a Node of kind `terminal` in the Layout of that Project.
 - **Output has a running length.** Each chunk carries `end`, the length of all output so far. The answer to an open
   carries the `end` of its replay, so a view drops what it already has.
-- **The environment** is the same login shell environment as for Sessions
+- **The environment** is the same as for Sessions, on macOS that of the login shell
   ([ADR-0007](../adr/0007-claude-code-launch-environment.md)), plus `TERM`, `COLORTERM`, `TERM_PROGRAM=worfy` and `PWD`, and
   on macOS `LANG` when it is not set.
 - **A program's questions to its terminal are answered once.** Programs ask the terminal for the cursor position, the
@@ -109,6 +111,10 @@ resizes in their places. Windows has no process groups and no SIGHUP, so a close
 the shell, then closes the pseudo-console. If the shell has not reported its exit within 5 seconds, the Terminal is closed
 without it. Why PowerShell is the default: [ADR-0054](../adr/0054-full-windows-port.md).
 
+Windows has no login shell to ask for the environment, so worfy builds it the way a new sign-in does: the persistent variables
+of the machine and the user from the registry, on top of a short list of variables that Windows sets for the session
+([ADR-0057](../adr/0057-agent-environment-on-windows.md)). Nothing else of the process that started worfy reaches the shell.
+
 ### Implementation
 
 | What | Where |
@@ -116,6 +122,7 @@ without it. Why PowerShell is the default: [ADR-0054](../adr/0054-full-windows-p
 | The IPC contract of the `terminal` domain | `src/shared/ipc/terminal.ts` |
 | Handlers, and what ends a shell (Layout, Projects, quit) | `src/main/ipc/terminal.ts` |
 | The registry of shells: start, subscribers, size, close | `src/main/terminal/pty.ts` |
+| The environment, shared with Sessions | `src/main/agent/env.ts` |
 | node-pty on Windows, and the helper that ends processes | `src/main/terminal/windows-pty.ts` |
 | The kept output and its sizes | `src/main/terminal/replay-buffer.ts` |
 | Answers to a program's requests | `src/main/terminal/cursor-answers.ts`, `src/shared/terminal/cursor-answer.ts` |
@@ -138,7 +145,8 @@ click on `terminal.takeSize`. An answer of xterm.js to a program goes on `termin
 take the size.
 
 The "Sign in with gh" dialog of the account step uses the same registry class with `gh` itself as the process, without a
-shell and without the integration. It lives in `src/main/ipc/projects.ts`.
+shell and without the integration. That registry is in `src/main/github/accounts.ts`, the dialog in
+`src/renderer/projects/GithubAccount.tsx`, and its handlers and the registry's instance in `src/main/ipc/projects.ts`.
 
 **Main tests.**
 
@@ -189,10 +197,12 @@ shell, after an empty line or Ctrl+C, after a command that starts with a space, 
 - Type `# ` and words, then press Enter. The line does not run and does not go into the history. A grey "asking Claude…"
   appears, and any key before the answer cancels the request and leaves the line. `#comment` without the space and `# `
   without words are ordinary lines.
-- On macOS, press ⌘I in a Terminal. A panel opens under the first row of the screen. Enter asks and Esc closes, and either
-  way the focus goes back to the terminal. The panel also sends the line typed in the shell, read off the screen. When
-  the panel is not available (no zsh connected to Terminal AI, or Command request off), ⌘I reaches the shell as usual.
-  Ctrl+I always does: in a terminal it is Tab.
+- On a macOS screen, press ⌘I in a Terminal. A panel opens under the first row of the screen. Enter asks. When the command
+  is in the line, the panel closes and the focus goes back to the terminal. Esc closes the panel, with the same result for
+  the focus. On a refusal, in a busy Terminal or with an empty field, the panel stays open and the focus stays in its field.
+  The panel also sends the line typed in the shell, read off the screen. When the panel is not available (no zsh connected
+  to Terminal AI, or Command request off), ⌘I stays with xterm.js and the shell receives nothing. Ctrl+I always reaches the
+  shell: in a terminal it is Tab.
 
 A refusal is a short note in the line or in the panel. Fix shows the same texts in its toast:
 
@@ -250,13 +260,14 @@ while a full-screen program holds the Terminal. The log names each process start
 request. It never has the words, the line, the context or the answer.
 
 **Linked machines.** The settings and the state are local to each Machine, and a Linked machine does not reach them. From a
-Linked machine's screen with write access, Fix and the panel work, and the Machine of the Terminal asks the model on its own
-subscription and within its own Limits.
+Linked machine's screen with write access, Fix works on any system, and the panel works only on a macOS screen, because ⌘I
+is a key of the screen. The Machine of the Terminal asks the model on its own subscription and within its own Limits.
 
 #### Windows
 
-A Terminal on Windows is never zsh, so none of the functions works there. The Settings section is still shown, with the hint
-"Works in zsh Terminals." The ⌘I shortcut exists on macOS only.
+A Terminal whose Machine runs Windows is never zsh, so none of the functions works in it. The Settings section is still shown,
+with the hint "Works in zsh Terminals." From a Windows screen, in a Terminal of a Mac, Suggestion, Next command, the `# ` line
+and Fix work. Only the panel does not, because the ⌘I shortcut exists on macOS only.
 
 ### How it works
 
@@ -318,9 +329,10 @@ A Terminal on Windows is never zsh, so none of the functions works there. The Se
 | Suggestion, Next command and Command request in zsh | `src/main/terminal/zsh/rc.d/20-suggest-ai.zsh`, `src/main/terminal/zsh/rc.d/30-next-command.zsh`, `src/main/terminal/zsh/rc.d/40-command-request.zsh` |
 | The fake backend for tests | `src/main/terminal-ai/fake-backend.ts` |
 
-A new function that the shell asks for adds its switch in the settings, a module under `src/main/terminal-ai/features` and a
-script under `src/main/terminal/zsh/rc.d`. The module and the script are found by a glob, so `ShellLink` and the startup files
-do not change.
+A new function that the shell asks for adds its switch in the settings, its time limit, prompt and title in
+`src/main/terminal-ai/options.ts`, a module under `src/main/terminal-ai/features` and a script under
+`src/main/terminal/zsh/rc.d`. The module and the script are found by a glob, so `ShellLink` and the startup files do not
+change.
 
 **Data flow of a Suggestion from the model.** `20-suggest-ai.zsh` waits for the pause and sends `ask <id> suggest <line>`.
 `ShellLink` passes it to the handler of `suggest`, which builds the input from `ShellState` and calls `AssistService.request`.
