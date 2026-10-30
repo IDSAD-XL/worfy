@@ -61,3 +61,29 @@ Source: «Как устроено» и Q9 [spec.md](../spec.md); решения 
 
 ## Итог
 
+Страница `docs/features/link.md` и перевод `docs/features/ru/link.md` написаны. Разделы соответствуют списку: Machine, Linked machine. Страница на 418 строк, это в пределах «примерно 400», на две не делил. Windows описан по коду, приложение не запускалось.
+
+**Не подтвердилось, на страницу не попало:**
+
+- TTL объявления Bonjour 8 часов: число есть только в комментариях, исходник библиотеки не проверен (в worktree нет `node_modules`).
+- «С закрытой крышкой Mac всё равно засыпает»: только комментарий в коде.
+- Дают ли права 0600 и 0700 защиту на Windows: кода для Windows нет, поведение не проверено.
+- Настоящее поведение mDNS и firewall на Windows: на странице только то, что делает код и текст подсказки.
+
+**Написано по ADR-0053 и состоянию renderer, без запуска приложения:** что selection, Find и открытые панели свои у каждого экрана.
+
+**Возможные баги продукта, код не менял:**
+
+- После 10 неудач подряд без часовой паузы (неудачи растянуты больше чем на час) окно «Link a machine» остаётся на «Opening…» с текстом ошибки, пока его не откроют заново: `LinkMachineDialog` вызывает открытие только при mount.
+- Диалог Remove говорит, что другая сторона забудет эту Machine при следующем соединении, а подключённая сторона узнаёт сразу через сообщение `revoked`.
+- Комментарий в `src/main/link/connections.ts` говорит, что новое соединение на другой стороне снимает «Certificate changed». `checkPeerId` отказывает новому соединению с другим сертификатом, пока Machine не удалена.
+- `PAIRING_MAX_FAILURES` и `PAIRING_HOURLY_FAILURES` оба равны 10, поэтому лимит «подряд» почти никогда не виден отдельно.
+- Подсказка «Work already started keeps running» не упоминает исключение для Terminal, которое задумано в ADR-0060.
+- Раздел Projects показывает «Unavailable», а раздел Machines для того же состояния показывает «Offline» или «Sleeping».
+- Комментарий в начале `src/main/link/service.ts` говорит, что код соединения не попадает в ответ IPC, а `link.state` передаёт его в окна этой Machine.
+
+**Сверка «Где в коде».** Список был неполным и с одной лишней строкой:
+
+- `src/main/remote-links.ts` не относится к Link. Это проверка символических ссылок, ведущих за пределы машины (worfy-windows), её используют чтение workflow, Cards, Layout и другие модули. На странице её нет.
+- Не хватало: `src/main/ipc/link.ts`, `src/main/ipc/linked.ts`, `src/shared/ipc/link.ts`, `src/shared/ipc/linked.ts`, `src/shared/ipc/channels.ts`, `src/renderer/ipc.ts`, `src/renderer/projects/useProjects.ts`, `src/renderer/projects/read-only.ts`, `src/renderer/shell/sidebar/MachinesSection.tsx`, `src/renderer/shell/sidebar/ProjectsSection.tsx`, `src/renderer/settings/MachinesSection.tsx`, `src/renderer/palette/commands.ts`, `src/renderer/canvas/ReadOnlyTerminal.tsx`, `src/renderer/canvas/overlays/ReadOnlyCanvas.tsx`, `src/renderer/canvas/read-only-nodes.ts`, `src/main/projects/holds.ts`, `src/main/projects/browse.ts`, `src/main/layout/viewports.ts`.
+
