@@ -196,13 +196,15 @@ export class Orchestrators {
   /**
    * Makes sure the Project has its Node and a running Session, and answers its view; a second call
    * while the Session runs (or starts) changes nothing. Rejects for a Project that is not in the
-   * list, or that left it while the Orchestrator started.
+   * list, or that left it while the Orchestrator started. `firstSettings`: the picks a Node with
+   * none saved starts with, saved for it (the Demo project's cheaper Orchestrator, worfy-onboarding
+   * ticket 05); an Orchestrator already open, or a Node with saved picks, keeps its own.
    */
-  async open(projectId: string): Promise<OrchestratorView> {
+  async open(projectId: string, options: { firstSettings?: SessionSettings } = {}): Promise<OrchestratorView> {
     const path = this.deps.projectPath(projectId)
     let entry = this.entries.get(projectId)
     if (entry === undefined) {
-      entry = this.begin(projectId, path)
+      entry = this.begin(projectId, path, options.firstSettings)
       this.entries.set(projectId, entry)
     }
     await entry.ready
@@ -339,7 +341,7 @@ export class Orchestrators {
     }
   }
 
-  private begin(projectId: string, path: string): Entry {
+  private begin(projectId: string, path: string, firstSettings?: SessionSettings): Entry {
     const node = this.node(projectId)
     const saved = readOrchestratorData(node.data)
     const entry: Entry = {
@@ -351,7 +353,7 @@ export class Orchestrators {
       run: null,
       cost: new CostCounter(saved.costUsd ?? 0),
       savedSessionId: saved.sessionId ?? null,
-      settings: this.savedSettings(projectId, node.id),
+      settings: this.savedSettings(projectId, node.id, firstSettings),
       launch: ATTENDED,
       wanted: null,
     }
@@ -359,14 +361,27 @@ export class Orchestrators {
     return entry
   }
 
-  /** The Node's saved picks; the defaults when there are none or they cannot be read, so the start goes on. */
-  private savedSettings(projectId: string, nodeId: string): SessionSettings {
+  /**
+   * The Node's saved picks; when there are none, `firstSettings` (saved for the Node) or the
+   * defaults; the defaults also when they cannot be read, so the start goes on.
+   */
+  private savedSettings(projectId: string, nodeId: string, firstSettings?: SessionSettings): SessionSettings {
+    let saved: SessionSettings | undefined
     try {
-      return this.deps.settings.read(projectId, nodeId) ?? DEFAULT_SETTINGS
+      saved = this.deps.settings.read(projectId, nodeId)
     } catch (error) {
       console.warn(`[orchestrator] could not read the saved settings of ${projectId}; starting with the defaults`, error)
       return DEFAULT_SETTINGS
     }
+    if (saved !== undefined) return saved
+    if (firstSettings === undefined) return DEFAULT_SETTINGS
+    try {
+      this.deps.settings.write(projectId, nodeId, firstSettings)
+    } catch (error) {
+      // The live Session keeps them; only the next start of the app loses them.
+      console.warn(`[orchestrator] could not save the first settings of ${projectId}`, error)
+    }
+    return firstSettings
   }
 
   /** Reads the saved session's transcript, then starts the Session: resumed, or new when it is gone. */

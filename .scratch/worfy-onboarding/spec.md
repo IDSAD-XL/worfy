@@ -264,6 +264,41 @@ Session проектирования 2026-10-26. Номера — как у вл
   from the Command palette: Getting started.»
 - Строка о стоимости под шагом 2: «The agents work for real and use your Claude Code usage.»
 
+**Создание Demo project** (Ticket 05; черновик, onboarding 05)
+
+Строки хода (`gettingStarted.createProgress`), по порядку:
+
+- «Creating the folder»
+- «Writing the files»
+- «Making the first commit»
+- «Connecting the project to the Harness»
+- «Adding the project»
+- «Opening the Orchestrator»
+
+Причины отказа (`reason` ответа; в шаге 2 — после «Could not create the demo project: »):
+
+- Папка во временной: «The home folder <home> is inside the temporary folder <temp>, which the system
+  cleans: worfy does not put the demo project there.»
+- Нет автора git: «git does not know the commit author (<user.name and user.email> not set). Set your name
+  and email once: git config --global user.name "Your Name" && git config --global user.email "you@example.com"»
+- git не ответил: «git config failed: <последняя строка stderr>»
+- git не запускается: «git could not be run: <ошибка>. Install git, then try again.»
+- Все имена заняты: «<home>/worfy-demo and 99 folders after it are taken.»
+- Скрипт Harness не запускается: «The Harness could not be run: <ошибка>. Check the Harness in the
+  first-run checks (Command palette: First-run checks).»
+- Старый Harness (exit 2): «Update the Harness first: this Harness's project-connect does not know
+  --no-qmd. Open the first-run checks (Command palette: First-run checks) and update the Harness plugin
+  there.»
+- Имя занято чужим Profile-ем: «The Harness already has a Profile named worfy-demo that this demo did not
+  create (<сообщение project-connect>). worfy leaves it as it is: remove or rename it, then try again.»
+- Другой отказ project-connect: «The Harness refused the demo project: <сообщения через "; ">»
+- Profile прежнего demo, чья папка удалена, не снимается: «The Profile <имя> of the earlier demo, whose
+  folder <path> is gone, could not be removed: <сообщения>»
+- Шаг git упал: «git <команда> failed: <последняя строка вывода>»
+- Без текста ошибки: «the demo project could not be created»
+- Откат не всё вернул — к причине добавляется «. Not undone: <список через "; ">.», элементы: «the Project
+  stays in the list (<ошибка>)», «the Profile <имя> stays (<ошибка>)», «the folder <path> stays (<ошибка>)»
+
 **Переключатель стоимости** (Ticket 09)
 
 - Подпись: «Demo agents»
