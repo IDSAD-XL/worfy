@@ -1,7 +1,8 @@
 # 01 — Основа `docs/features/`: индекс, понятия, заготовки страниц, шаблон
 
 Type: task
-Status: claimed 2026-10-30T21:17Z
+Status: done 2026-10-30T21:32Z
+PR: #1061
 Branch: worfy-feature-docs/01
 Blocked by: —
 Source: «Как устроено» и «Решено без владельца», Р2, [spec.md](../spec.md); решения владельца 2026-10-30, Q9, Q10, Q11, Q14, Q17, Q22; [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md)
