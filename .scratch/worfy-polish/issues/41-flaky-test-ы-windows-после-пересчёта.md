@@ -1,7 +1,8 @@
 # 41 — Flaky test-ы Windows после пересчёта 2026-10-23: 2 e2e и 5 unit/contract, красные только под нагрузкой или изредка
 
 Type: task
-Status: claimed 2026-10-30T13:35Z
+Status: done 2026-10-30T20:06Z
+PR: #1052
 Branch: worfy-polish/41-part2
 Blocked by: —
 Source: пересчёт на ПК владельца 2026-10-23 (e2e на main `f8ada2a3`, unit и contract на main `bc19f2f7`,

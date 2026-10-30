@@ -1,7 +1,8 @@
 # 14 — Gate full на Windows: unit- и e2e-test-ы, ручной job «Windows» в CI
 
 Type: task
-Status: claimed 2026-10-21T18:06Z
+Status: done 2026-10-30T21:33Z
+PR: #1058
 Blocked by: 03, 08, 10, 11, 12
 Source: решения владельца 2026-10-07: Q23 (Windows-раннера на PR нет; gate full на ПК владельца перед мержем платформенных PR; ручной job «Windows»), Q20 (Terminal на Windows — PowerShell, Git Bash — в настройках), Q24 (Windows 10 21H2+ и 11, x64); «Готово, когда» Epic-а, пункт 2 (подтверждено 2026-10-08); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions»; [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port»; [spec.md](../spec.md); решение владельца 2026-10-19: часть unit/contract (пункт 1 «Что делаем» — main зелёный на Windows) идёт первой, от неё зависит [Ticket 66](66-полный-unit-contract-на-windows-runner.md) (полный `pnpm test` на Windows-runner-е, [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md)); `harness-evals` — [Ticket 65](65-harness-evals-на-windows.md)
 
@@ -267,8 +268,9 @@ Harness (Ticket 05); test-ы qmd (Ticket 15); Windows-раннер на PR (Q23 
 - [x] На ПК владельца `pnpm test:package` — код 0: test-ы `@packaged` запустили `dist/win-unpacked/worfy.exe`, Terminal в собранном приложении работает.
 - [x] `harness-scripts.test.ts` на Windows запускает `.test.sh` через Git Bash, а не через `C:\Windows\System32\bash.exe` (путь bash виден в выводе test-а); `qmd.test.sh` пропущен с причиной, где назван Ticket 15.
 - [x] `GATE_SCOPE=all` gate full (команда Gate — какой её оставил Ticket 03) на ПК владельца — код 0 и вердикт «зелено». Вывод `[gate]` — в Итог.
-- [ ] То же на Mac: вердикт — `ci-ok` на main; локальный gate full на Mac не требуется с 2026-10-28. **Ждём
-  решение:** main красный в push-CI с `bd732aa4`; пункт дописывается с зелёным прогоном main.
+- [x] То же на Mac: вердикт — `ci-ok` на main; локальный gate full на Mac не требуется с 2026-10-28. Зелёный push-CI
+  main на `f057add4` — [run 41125795834](https://github.com/IDSAD-XL/worfy/actions/runs/41125795834), 2026-10-30
+  (красный с `bd732aa4` был из-за смены образа `ubuntu-latest` на 26.04, починен #1059).
 - [x] ~~`ci.yml`: `git diff origin/main -- .github/workflows/ci.yml` не трогает job `check` и триггеры `pull_request` и `push`; job `windows` и `full-macos` идут только на `workflow_dispatch` со своим значением `platform`.~~
   Заменён решением владельца 2026-10-28 (пункт 4): вердикт по Windows — job `windows` внутри `ci-ok`, ручного
   job-а нет; у `workflow_dispatch` на main нет ввода `platform`.
