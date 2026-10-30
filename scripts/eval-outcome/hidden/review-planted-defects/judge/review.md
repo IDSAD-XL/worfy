@@ -49,7 +49,8 @@ so a file with CRLF line ends leaves '\r' at the end of every row; the output fo
 exportReport(), savePage() and bin/report.mjs have no tests; the test name 'words splits on any
 whitespace' still says words; general suggestions about style, naming or documentation that do not
 claim a bug. A finding that is not listed here but follows directly from the code as this prompt
-describes it is not a false finding either.
+describes it is not a false finding either. A finding against Decoy A or Decoy B is still a decoy
+finding, and it counts as a false finding.
 
 Every other finding that claims a bug, a risk or a needed change is a false finding. Count each
 distinct finding once, even when it is repeated.
