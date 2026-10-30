@@ -287,6 +287,7 @@ describe('readMcpAllowlist with the real runner', () => {
   // Review round 3 of PR #311: node's crash report reached the sidebar with the stack's addresses.
   // The reason the sidebar shows (layoutFailure) for a real process.abort(), and for one after
   // node's out-of-memory report: the FATAL ERROR line, no frame.
+  // Windows: process.abort() ends there with an exit code, not a signal the sidebar could name.
   it.skipIf(process.platform === 'win32')('a script that aborts: the sidebar names the signal and the FATAL ERROR line, never a frame of the stack', async () => {
     const home = join(scratch, 'abort-home')
     mkdirSync(join(home, 'bin'), { recursive: true })
@@ -357,6 +358,7 @@ describe('readMcpAllowlist with the real runner', () => {
     }
   })
 
+  // Windows: an older Harness's shell profile is not run there (the next case).
   it.skipIf(process.platform === 'win32')("an older Harness's shell profile is started by itself, not by node, which could not read it", async () => {
     const { home } = bashProfileHome()
     const list = await readMcpAllowlist({ root: projectRoot(), claudeHome: home, env: loginEnv(), log })

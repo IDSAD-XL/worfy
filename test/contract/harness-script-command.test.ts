@@ -148,6 +148,7 @@ describe('harnessScriptCommand', () => {
     else expect(await started).toEqual({ file: path, args: ['--json'] })
   })
 
+  // Windows: an older Harness's shell script is refused there (NOT_NODE, the byte order mark case above).
   it.skipIf(WINDOWS)("on macOS and Linux an older Harness's shell script is started by itself with the arguments", async () => {
     const path = script('epic-status', '#!/bin/sh\necho "{}"\n')
     expect(await harnessScriptCommand(path, ['--json', '--ref', 'demo/02'], env())).toEqual({ file: path, args: ['--json', '--ref', 'demo/02'] })
@@ -177,6 +178,7 @@ describe('runEpicStatus when the start fails after the checks', () => {
     await expect(run).rejects.toMatchObject({ workflowError: { code: 'not-found', message: expect.stringMatching(/^epic-status could not be started: /) } })
   })
 
+  // Windows has no execute bit (the case of a node file that is not executable, above).
   it.skipIf(WINDOWS || ROOT)("an older Harness's shell script without the execute bit: not-found, not a failed script", async () => {
     const claudeHome = home('#!/bin/sh\necho "{}"\n', 0o644)
     const run = epicStatusRunner(claudeHome, () => Promise.resolve(scriptsEnv([NODE_DIR])))(scratch, null)

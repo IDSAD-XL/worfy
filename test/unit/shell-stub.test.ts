@@ -18,6 +18,7 @@ afterEach(() => {
   removeTestTree(dir)
 })
 
+// Windows: the stub is a POSIX shell script started through its link; Windows starts no #! script by itself.
 describe.skipIf(process.platform === 'win32')('shellStub', () => {
   it('is a link to the one stub file, which runs the body with the arguments, $0 and the exit code of a script', () => {
     const tool = join(dir, 'tool')

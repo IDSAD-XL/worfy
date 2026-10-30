@@ -241,6 +241,7 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
 })
 
 // What the First run window shows when the capture falls back (src/main/workflow/folder.ts).
+// Windows: the capture runs `/bin/sh -ilc`, the login shell of macOS and Linux; Windows has no /bin/sh.
 describe.skipIf(process.platform === 'win32')('the reason of a fallback', () => {
   it("says the exit code and ends with what the rc file printed to stderr", async () => {
     profile('echo "profile: line 1: syntax error near nvm" >&2\nexit 3\n')
@@ -306,6 +307,7 @@ describe('a shell started without pipes (out of file descriptors)', () => {
 describe('the PATH of the Harness scripts when the capture fails', () => {
   const failed = (path: string): CapturedEnv => ({ env: { PATH: path, HOME: '/home/u' }, from: 'fallback', error: 'shell failed' })
 
+  // Windows: the agent environment there is not a login shell capture (captureAgentEnv takes captureWindowsEnv), so SHELL cannot make it fall back.
   it.skipIf(process.platform === 'win32')("the app's source: a failed capture gives the scripts the folder with node from worfy's own PATH, after the system PATH", async () => {
     const nodeDir = join(home, 'node-bin')
     const saved = { SHELL: process.env.SHELL, PATH: process.env.PATH }

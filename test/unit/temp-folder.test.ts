@@ -77,6 +77,7 @@ describe.runIf(process.platform === 'win32')('insideUserTemp on this Windows mac
   })
 })
 
+// Windows: a folder in the real temporary folder is inside it there (the case above).
 describe.runIf(process.platform !== 'win32')('insideUserTemp on this machine (not Windows)', () => {
   it('the real temporary folder is never reported', () => {
     const made = mkdtempSync(join(tmpdir(), 'worfy-temp-'))
