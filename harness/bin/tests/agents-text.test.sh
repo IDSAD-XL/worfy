@@ -113,6 +113,24 @@ grep -F 'workflow.ticket_skill' "$AGENTS/implementer.md" | grep -F '`ship-ticket
 has implementer '`worfy:reviewer`' && ok "implementer: names the reviewer agent as worfy:reviewer" || bad "implementer: no worfy:reviewer"
 has reviewer '`worfy:implementer`' && ok "reviewer: names the implementer agent as worfy:implementer" || bad "reviewer: no worfy:implementer"
 
+# --- 3a. prompt cache lifetime: 1 hour only for the implementer -------------------------------
+# A subagent gets the 5-minute prompt cache unless its frontmatter asks for more. The implementer
+# waits on its checks for 5-60 min at a median of one pause per agent, measured from the
+# transcripts by the cost report with its idle option: the 1-hour cache (write 2x the input
+# price instead of 1.25x) costs less than rewriting the whole context after each such pause. The
+# reviewer and the scout have no such pause at the median and stay on 5 minutes. Claude Code reads
+# the key only inside the map `experimental`, so a top-level cacheTtl is a mistake too.
+for a in implementer:1h reviewer: scout:; do
+    IFS=: read -r who ttl <<<"$a"
+    fm="$(sed -n '1,/^---$/{1d;/^---$/d;p;}' "$AGENTS/$who.md")"
+    got="$(printf '%s\n' "$fm" | awk '/^experimental:[[:space:]]*$/ { s = 1; next }
+        s && /^[[:space:]]+cacheTtl:/ { sub(/^[[:space:]]+cacheTtl:[[:space:]]*/, ""); print; exit }
+        s && /^[^[:space:]]/ { exit }')"
+    top="$(printf '%s\n' "$fm" | grep -c '^cacheTtl:')"
+    if [ "$got" = "$ttl" ] && [ "$top" = 0 ]; then ok "$who: experimental.cacheTtl is '${ttl:-absent}'"
+    else bad "$who: experimental.cacheTtl is '${got:-absent}' (top-level cacheTtl lines: $top), expected '${ttl:-absent}'"; fi
+done
+
 # --- 4. EXIT=$? instead of the old exit-code line ---------------------------------------------
 for a in $ALL; do
     left="$(grep -n 'КОД=' "$AGENTS/$a.md")"

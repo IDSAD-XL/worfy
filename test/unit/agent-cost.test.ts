@@ -36,6 +36,16 @@
 // after the tool result that says it started; msg_w12 after its notice "Background command …
 // completed". agent-await, the implementer, also answers a background command notice: --waits
 // counts the Orchestrator only.
+// The idle fixture (test/fixtures/agent-cost/idle/, synthetic) is one main session, three
+// implementers and a reviewer, all on claude-opus-5-5:
+//   - s-idle.jsonl, the Orchestrator on the 1-hour cache: msg_m2 comes 30 min after msg_m1 and reads
+//     its whole context (its input of 50 makes the context it lost negative, counted as none);
+//   - agent-ai1: msg_a3 comes 10 min after msg_a2 and msg_a4 7 min after msg_a3, each rewrites its
+//     context; msg_a6 comes 80 min after msg_a5 (over an hour); msg_a7 comes 11 min after msg_a6,
+//     reads 1300 of the 1401 tokens msg_a6 had and writes 10, so a 1-hour cache keeps only those 10;
+//   - agent-ai2: msg_b2 comes 6 min after msg_b1 and msg_b3 exactly 60 min after msg_b2, both
+//     rewrite their context;
+//   - agent-ai3 on 2026-10-24, one response; agent-arv, the reviewer, two responses 2 min apart.
 // The report runs in this process: spawning the script takes seconds on a loaded Windows runner.
 // Two tests spawn it, once each: the one that checks it writes nothing and the missing folder.
 import { spawnSync } from 'node:child_process'
@@ -51,6 +61,7 @@ const SCRIPT = join(import.meta.dirname, '..', '..', 'scripts', 'agent-cost.mjs'
 const FIXTURE = join(import.meta.dirname, '..', 'fixtures', 'agent-cost', 'project')
 const BY_TICKET = join(import.meta.dirname, '..', 'fixtures', 'agent-cost', 'by-ticket')
 const WAITS = join(import.meta.dirname, '..', 'fixtures', 'agent-cost', 'waits')
+const IDLE = join(import.meta.dirname, '..', 'fixtures', 'agent-cost', 'idle')
 
 type RoleName = 'orchestrator' | 'implementer' | 'reviewer' | 'scout' | 'other'
 interface Role {
@@ -462,3 +473,72 @@ function unlock(dir: string): void {
   chmodSync(dir, 0o755)
   for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) chmodSync(join(entry.parentPath, entry.name), entry.isDirectory() ? 0o755 : 0o644)
 }
+
+interface IdleRole {
+  agents: number
+  agentsWithPause: number
+  medianPauses: number
+  pauses: number
+  longPauses: number
+  rewrite: { calls: number; cost: number }
+  writeCost: number
+  writeCost1h: number
+  saving: number
+}
+
+async function idle(args: string[] = []): Promise<Report & { idle: Record<RoleName, IdleRole> }> {
+  const result = await inProcess(['--transcripts', IDLE, '--json', '--idle', ...args])
+  expect(result.stderr).toBe('')
+  expect(result.status).toBe(0)
+  return JSON.parse(result.stdout) as Report & { idle: Record<RoleName, IdleRole> }
+}
+
+/** Every cache write of the implementers in tokens, all at 5 minutes; and what a 1-hour cache keeps. */
+const IMPL_WRITTEN = 1000 + 100 + 1200 + 1300 + 50 + 1400 + 10 + (500 + 600 + 700) + 500
+// msg_a3 1100, msg_a4 1200, msg_a7 10, msg_b2 500, msg_b3 600: the previous context less what was read or sent uncached.
+const IMPL_KEPT = 1100 + 1200 + 10 + 500 + 600
+
+describe('agent-cost --idle on the idle fixture', () => {
+  it('counts per agent the pauses of 5-60 min, 60 min included, and the pauses over an hour apart', async () => {
+    const r = await idle()
+    expect(r.idle.implementer).toMatchObject({ agents: 3, agentsWithPause: 2, medianPauses: 2, pauses: 5, longPauses: 1 })
+    expect(r.idle.reviewer).toMatchObject({ agents: 1, agentsWithPause: 0, medianPauses: 0, pauses: 0, longPauses: 0 })
+    expect(r.idle.scout).toMatchObject({ agents: 0, pauses: 0 })
+  })
+
+  it('counts the rewrites after a 5-60 min pause, not the one after an hour or a pause that read its context', async () => {
+    const r = await idle()
+    expect(r.idle.implementer.rewrite).toEqual({ calls: 4, cost: expect.closeTo(opus(0, 0, 0, 1200 + 1300 + 600 + 700), 9) })
+    expect(r.idle.orchestrator).toMatchObject({ pauses: 1, rewrite: { calls: 0, cost: 0 } })
+  })
+
+  it('prices every write at 1 hour and reads what a 1-hour cache keeps over a 5-60 min pause', async () => {
+    const r = await idle()
+    const now = opus(0, 0, 0, IMPL_WRITTEN)
+    const hour = opus(0, 0, IMPL_KEPT, 0, IMPL_WRITTEN - IMPL_KEPT)
+    expect(r.idle.implementer.writeCost).toBeCloseTo(now, 9)
+    expect(r.idle.implementer.writeCost1h).toBeCloseTo(hour, 9)
+    expect(r.idle.implementer.saving).toBeCloseTo(now - hour, 9)
+    expect(r.idle.reviewer.saving).toBeCloseTo(opus(0, 0, 0, 820) - opus(0, 0, 0, 0, 820), 9)
+    expect(r.idle.orchestrator.saving).toBeCloseTo(0, 9)
+    expect(r.idle.orchestrator.writeCost1h).toBeCloseTo(opus(0, 0, 0, 0, 2100), 9)
+  })
+
+  it('keeps to the period and measures a pause from the response before it', async () => {
+    const day = await idle(['--until', '2026-10-23'])
+    expect(day.idle.implementer).toMatchObject({ agents: 2, medianPauses: 2.5 })
+    const one = await idle(['--since', '2026-10-23T10:10:00Z', '--until', '2026-10-23T10:12:00Z'])
+    expect(one.idle.implementer).toMatchObject({ agents: 1, pauses: 1, rewrite: { calls: 1 } })
+    expect(one.idle.implementer.writeCost1h).toBeCloseTo(opus(0, 0, 1100, 0, 100), 9)
+    expect(one.idle.orchestrator.agents).toBe(0)
+  })
+
+  it('is absent without --idle, and prints a row per role with an agent in the table', async () => {
+    expect((await report()) as Report & { idle?: unknown }).not.toHaveProperty('idle')
+    const result = await inProcess(['--transcripts', IDLE, '--idle'])
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('Pauses a 1-hour prompt cache keeps (5-60 min)')
+    expect(result.stdout).toMatch(/\n {2}implementer +3 +2 +2 +5 +1 +4 /)
+    expect(result.stdout).not.toMatch(/\n {2}scout /)
+  })
+})
