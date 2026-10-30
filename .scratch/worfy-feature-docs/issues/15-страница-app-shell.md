@@ -75,3 +75,30 @@ Source: «Как устроено» и Q9 [spec.md](../spec.md); решения 
 
 ## Итог
 
+**Разделение страницы.** Шесть разделов дали 550 строк. Раздел «Уведомления» вынесен в `docs/features/notifications.md`, перевод
+в `docs/features/ru/notifications.md`. `docs/features/app-shell.md` теперь держит Command palette, Shortcuts, Menu, Settings и Theme и
+ссылается на новую страницу. Индекс `docs/features/README.md` и таблица spec-а не правились: новую страницу в них добавляет отдельный PR.
+
+**Утверждения, которые не подтвердились и на страницу не пошли.**
+
+- Комментарий `src/main/app-id.ts`: dev-запуску на Windows нужно закрепить `electron.exe` в меню Start, иначе уведомлений нет. Это
+  ссылка на документацию Electron, код и test-ы показывают только выбор id. На странице оставлен только выбор id.
+- Комментарий `src/renderer/theme/tokens.css` говорит о настройке macOS. Что `prefers-color-scheme` следует теме Windows, код и test-ы
+  отдельно не показывают. На странице раздел Windows описывает только рамку и цвет фона, общее поведение описано без платформы.
+- `.w-mono`: «Every id, path, number, branch, model and cost» — правило в комментарии CSS, по всем местам не сверялось. Убрано.
+- Комментарий `EmptyPalette` «only the view commands are left» неточен: без Project-а есть ещё строки Project и строки машин. На странице
+  написано по коду.
+
+**Возможные баги продукта (код не менялся, приложение не запускалось).**
+
+- Windows: при открытых Settings клавиша Ctrl+/ ничего не делает. Меню её не забирает (`rendererCatchesOn`), а модальный guard
+  `src/renderer/settings/settings-window.ts` останавливает её до обработчика `src/renderer/shortcuts/ShortcutsOverlay.tsx`. На macOS то же
+  сочетание показывает раздел Shortcuts через меню. `test/e2e/shortcuts.spec.ts` проверяет только клик по пункту меню.
+- В палитре нет команды перехода на вид Pipeline: есть Switch to Canvas и Switch to Session, а Pipeline открывается только другими путями.
+
+**Сверка папок из «Где в коде».** Все 13 путей существуют. `src/main/actions` и `src/shared/actions` относятся к запуску Ship ticket и Run
+wave: на этой странице это только то, что вызывает палитра, основное описание — дело страницы Workflow. Список стоит дополнить:
+`src/renderer/find/search-index.ts`, `src/main/claude-home/search.ts`, `src/renderer/platform.ts`, `src/renderer/menu-command.ts`, `src/main/ipc/menu.ts`,
+`src/main/ipc/view.ts`, `src/main/window-frame.ts`, `src/main/foreground.ts`, `src/main/app-id.ts`, `src/main/notify-pending.ts`,
+`src/main/workflow/waits-notify.ts`, `src/main/link/notes.ts`, `src/renderer/canvas/overlays/NotificationTarget.tsx`.
+
