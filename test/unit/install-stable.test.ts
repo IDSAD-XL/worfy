@@ -12,17 +12,18 @@
 // lines). Every case that runs the script stays in this one file, so that they run one after
 // another: on Windows the script takes a worfy.exe whose path Windows does not give for a running
 // copy, and some cases here start a worfy.exe.
-import { execFileSync, spawn } from 'node:child_process'
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 import { build, checkTarget, dir, head, installerDir, installStable, junction, leftoverName, links, local, onDisk, registrations, REMOVE_ROUNDS, REPO, run, stamp, targetIn, useStandInBuild, WIN_HOME, WINDOWS } from './install-stable-harness'
 import { ms } from '../time-scale'
 
 /**
- * One copy of /bin/sleep for every test of this file. A plain copy of an Apple binary fails the
+ * macOS: one copy of /bin/sleep for every test of this file. A plain copy of an Apple binary fails the
  * code-signature check and the kernel kills it with SIGKILL within moments of its start; the
  * refusal tests then passed only when the script listed processes before the kill, and went red
  * under a loaded gate. An ad-hoc signature makes the copy a program of its own that runs.
@@ -34,19 +35,34 @@ afterAll(() => {
   if (signedSleep !== '') removeTestTree(dirname(signedSleep))
 })
 
-/** At `program`, a link to the one copy of sleep: `ps` lists the program under the link's path. */
-const sleepCopyAt = (program: string): void => {
+/**
+ * At `program`, a link to a program that waits: `ps` lists it under the link's path. macOS: the
+ * one copy of sleep. Linux (CI): the node of the tests' scripts (scriptNode). Not sleep there:
+ * Ubuntu 26.04, the ubuntu-latest runner since 2026-10-30, ships uutils coreutils — one binary
+ * that picks its tool by the name it is started under. Started as `worfy` it is no tool, says so,
+ * and exits at once: the process was gone before `ps` listed it.
+ */
+const standInAt = (program: string): void => {
+  mkdirSync(dirname(program), { recursive: true })
+  if (process.platform !== 'darwin') {
+    symlinkSync(scriptNode(), program)
+    return
+  }
   if (signedSleep === '') {
     const copy = join(realpathSync(mkdtempSync(join(tmpdir(), 'worfy-install-stable-sleep-'))), 'sleep')
     copyFileSync('/bin/sleep', copy)
     chmodSync(copy, 0o755)
-    // Linux (CI) runs these cases too: it has no codesign and does not kill the copy.
-    if (process.platform === 'darwin') execFileSync('codesign', ['--sign', '-', '--force', copy], { stdio: 'ignore' })
+    execFileSync('codesign', ['--sign', '-', '--force', copy], { stdio: 'ignore' })
     signedSleep = copy
   }
-  mkdirSync(dirname(program), { recursive: true })
   symlinkSync(signedSleep, program)
 }
+
+/** Starts the program that `standInAt` put at `program`; it waits for a minute, or until killed. */
+const startStandIn = (program: string): ChildProcess =>
+  process.platform === 'darwin'
+    ? spawn(program, ['60'], { stdio: 'ignore' })
+    : spawn(program, ['-e', 'setTimeout(() => {}, 60_000)'], { stdio: 'ignore' })
 
 /**
  * macOS: waits until `ps` lists the process under `program`. Node's 'spawn' event fires once the
@@ -618,10 +634,10 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
   describe.runIf(!WINDOWS)('off Windows', () => {
     it('refuses while a program of the copy is running — before it looks at the build', async () => {
       const target = targetIn('apps', 'worfy-stable')
-      // A real program inside the copy: sleep under the name of the app.
+      // A real program inside the copy, under the name of the app.
       const program = join(target, 'Contents', 'MacOS', 'worfy')
-      sleepCopyAt(program)
-      const child = spawn(program, ['60'], { stdio: 'ignore' })
+      standInAt(program)
+      const child = startStandIn(program)
       try {
         await new Promise((resolve, reject) => {
           child.once('spawn', resolve)
@@ -654,9 +670,9 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       git('add', '.')
       git('commit', '-q', '-m', 'a repository')
       const target = targetIn('apps', 'worfy-stable')
-      // A real program inside the copy: sleep under the name of the app. It is not running yet.
+      // A real program inside the copy, under the name of the app. It is not running yet.
       const program = join(target, 'Contents', 'MacOS', 'worfy')
-      sleepCopyAt(program)
+      standInAt(program)
       const env = { ...process.env, WORFY_STABLE_PREBUILT: '' }
       const builds: string[] = []
       let child: ReturnType<typeof spawn> | undefined
@@ -665,7 +681,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
         builds.push(`${platform} ${where}`)
         mkdirSync(join(repo, 'dist', 'mac-arm64', 'worfy.app', 'Contents'), { recursive: true })
         writeFileSync(join(repo, 'dist', 'mac-arm64', 'worfy.app', 'Contents', 'Info.plist'), 'not a real plist')
-        child = spawn(program, ['60'], { stdio: 'ignore' })
+        child = startStandIn(program)
         waitUntilListed(child.pid, program)
       }
       try {
