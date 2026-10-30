@@ -24,7 +24,7 @@ stay visible. The choice is per Session, in the window's local storage, and foll
 **Find.** ⌘F opens a find bar over the Transcript. The query needs 2 characters, and case is ignored. It searches user messages,
 Claude's text, thinking, a tool's name and one line about it, a Subagent's description, a hook's name and output, notices and
 errors. It does not search a tool's whole input or result. It counts the text a row shows, so a hook's output and an added notice
-count up to their first 20 000 characters. Matches count oldest first, as "1 of M", up to 20 000. At most 5000 are painted. The part
+count up to their first 20 000 characters. Matches count oldest first, as "1 of M". At most 5000 are painted. The part
 of the file not loaded yet counts too.
 
 **Search across a Project.** "In transcripts" in the Command palette takes 3 to 200 characters. It covers only user messages and

@@ -22,8 +22,8 @@ Session, которую ведёт worfy, принадлежит приложе�
 
 **Состояния.** Session находится в одном из шести состояний, показанных chip-ом.
 
-| Состояние | Chip | Значение |
-| --------- | ---- | -------- |
+| Состояние | Статус chip-а | Значение |
+| --------- | ------------- | -------- |
 | `starting` | working | Процесс запущен. Становится `idle`, когда Claude Code отвечает об аккаунте |
 | `idle` | ready | Ждёт сообщение |
 | `busy` | working | Идёт turn |
@@ -31,17 +31,19 @@ Session, которую ведёт worfy, принадлежит приложе�
 | `error` | blocked | Процесс умер или упал. Tooltip показывает конец его stderr |
 | `closed` | done | Session закрыта |
 
+Текст chip-а — имя состояния: `needs_permission` читается как «needs permission».
+
 **Отправка.** Return отправляет, Shift+Return начинает новую строку. ↑ и ↓ в пустом поле ходят по истории отправленных сообщений. Поле
 растёт до 200 пикселей. Пустое сообщение без вложений отклоняется. Неудачная отправка возвращает в поле текст и chip-ы вложений. «/»
 открывает меню slash-команд и skills, о которых Claude Code сообщает для этой Session.
 
-**Очередь.** Сообщение, отправленное во время turn, ждёт в очереди в main. Кнопка в это время называется «Return to queue». Сообщения идут
-по одному на turn, каждое после `result` предыдущего turn. Chip «N queued» открывает список, где × убирает сообщение. Interrupt или crash
-придерживают очередь: заголовок списка меняется на «Held after Interrupt», и ничего не уходит до «Send queued». Пустая очередь никогда не
-придерживается. Очередь не переживает свою Session. Исключение — Orchestrator: его очередь переходит в новый процесс при перезапуске.
+**Очередь.** Сообщение, отправленное во время turn, ждёт в очереди в main. Подсказка рядом с кнопкой отправки в это время говорит «Return to queue».
+Сообщения идут по одному на turn, каждое после `result` предыдущего turn. Chip «N queued» открывает список, где × убирает сообщение. Interrupt
+или crash придерживают очередь: заголовок списка меняется на «Held after Interrupt», и ничего не уходит до «Send queued». Пустая очередь никогда не
+придерживается. Очередь не переживает свою Session. Исключение — Orchestrator: его очередь переходит в новый процесс, когда Autopilot его возвращает.
 
-**Interrupt.** Кнопка или Esc работает в `busy` и `needs_permission`. Interrupt придерживает очередь, отменяет открытые запросы разрешений и
-вопросы и просит Claude Code остановить turn.
+**Interrupt.** Кнопка в Session view или Esc в её поле ввода работает в `busy` и `needs_permission`. Interrupt придерживает очередь, отменяет
+открытые запросы разрешений и вопросы и просит Claude Code остановить turn.
 
 **Crash.** Session переходит в `error`. Очередь придерживается, открытые запросы отменяются, а о фоновых задачах забывают. Следующее
 сообщение запускает новый процесс, который продолжает тот же разговор.
@@ -96,8 +98,8 @@ Next. Варианты — кнопки с описаниями или пере�
 **Вложения.** «+», drop в любое место чата и вставленное изображение добавляют chip. В сообщении до 20 вложений.
 
 - Изображения: PNG, JPEG, GIF и WebP, до 3.75 MB каждое.
-- Файлы внутри Project идут по пути, любого размера.
-- Файлы вне Project копируются в папку данных Project, до 20 MB каждый.
+- Файлы, выбранные через «+» внутри Project, идут по пути, любого размера.
+- Файлы, выбранные вне Project, и каждый брошенный файл копируются в папку данных Project, до 20 MB каждый.
 
 **Session view.** Второй view окна, рядом с Canvas. В шапке заголовок («Orchestrator» или «Session» и Project), chip состояния, Session picker,
 Model, Effort, Permissions, Cost, Hide tools и Interrupt. Cost показывает значение только для Orchestrator: `$0.00`, с четырьмя знаками ниже
@@ -116,7 +118,7 @@ Orchestrator. Память об этом выборе живёт столько 
 
 **Orchestrator.** Главная Session Project-а. Node показывает её состояние, модель, суммарную стоимость и последний status block её ответов.
 
-- «New conversation» отклоняется во время turn и пока работает Autopilot. Старый разговор остаётся в истории, а стоимость начинается с нуля.
+- «New conversation» отклоняется в `busy` и пока работает Autopilot. Старый разговор остаётся в истории, а стоимость начинается с нуля.
 - Когда Orchestrator открывается, его сохранённая Session продолжается. Если transcript пропал, стартует новая Session.
 - Eco mode, переключатель под полем ввода Orchestrator, пишет `workflow.agents` в Profile Project-а. Действует со следующего Ticket-а.
 - Autopilot ведёт эту Session без человека. См. [Autopilot](autopilot.md). В это время permission mode принудительно Bypass permissions и не
@@ -140,7 +142,7 @@ worfy. Session из терминала или Claude desktop уведомляе�
 
 - Claude Code — это `claude.exe`. Его окружение строится из переменных сессии Windows и registry, потому что login shell в Windows нет. Для tool
   Bash передаётся Git Bash.
-- Подсказки клавиш пишут Enter и Shift+Enter.
+- Подсказки клавиш пишут Enter и Shift+Enter. Подсказка рядом с кнопкой отправки всё равно говорит Return.
 
 ### How it works
 
@@ -152,9 +154,9 @@ worfy. Session из терминала или Claude desktop уведомляе�
   событие `renamed` переносит всё на настоящий id. Каналы принимают оба.
 - **Node Orchestrator-а хранит только id Session и стоимость.** Всё остальное приходит из transcript-а и live-событий
   ([ADR-0010](../../adr/0010-orchestrator-state-session-id-and-cost-only.md)).
-- **Tools и skills ограничены Profile.** Session в Project получает только MCP-серверы из списка её Profile. Список идёт в Claude Code как policy
-  tier, поэтому Subagent получает тот же набор ([ADR-0021](../../adr/0021-mcp-servers-allowlist-in-profile.md)). `worfy-canvas` и `worfy-browser`
-  передаются, только когда список их называет. Plugins и skills следуют той же идее через flag settings, чтобы сэкономить токены их описаний
+- **Tools и skills ограничены Profile.** Session в Project получает только MCP-серверы из списка её Profile, а если списка нет — список по умолчанию. Список идёт
+  в Claude Code как policy tier, поэтому Subagent получает тот же набор ([ADR-0021](../../adr/0021-mcp-servers-allowlist-in-profile.md)). `worfy-canvas`
+  передаётся, только когда список его называет, а `worfy-browser` — когда список называет его или `worfy-canvas`. Plugins и skills следуют той же идее через flag settings, чтобы сэкономить токены их описаний
   ([ADR-0084](../../adr/0084-session-skills-and-plugins-by-profile-list.md)).
 - **Harness идёт inline**, если на машине нет старого Harness ([ADR-0040](../../adr/0040-harness-delivery-local-marketplace.md),
   [ADR-0049](../../adr/0049-worfy-sessions-without-inline-plugin-on-legacy-harness.md)).

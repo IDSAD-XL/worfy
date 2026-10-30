@@ -73,7 +73,7 @@ Source: «Как устроено» и Q9 [spec.md](../spec.md); решения 
 
 **Страница разделена на две (Q9).** Текст вышел больше 500 строк, и он разбит так:
 
-- `docs/features/sessions.md`, 308 строк: Session и Subagent.
+- `docs/features/sessions.md`, 310 строк: Session и Subagent.
 - `docs/features/transcripts-and-usage.md`, 214 строк: Transcript, Claude home, Memory и Limits.
 - Переводы лежат в `docs/features/ru/` под теми же именами.
 
@@ -99,6 +99,14 @@ Source: «Как устроено» и Q9 [spec.md](../spec.md); решения 
 - `closeRefusal` в `src/main/agent/resume.ts` отказывает только в `busy`. UI считает `needs_permission` идущим turn-ом
   (`src/renderer/session/SessionView.tsx`), комментарий к функции говорит про «a running turn». Поэтому Session с открытым запросом
   разрешения можно закрыть, а Orchestrator в этом состоянии пускает «New conversation». Не проверено, задумано ли так.
+- «New conversation» без предупреждения теряет сообщения очереди, придержанные тоже (`src/main/agent/orchestrator.ts`, `newConversation`):
+  старая Session закрывается без `handOverQueue`, а Node не спрашивает подтверждения.
+- «Return to send» и «Return to queue» на Windows всё равно говорят Return (`src/renderer/session/MessageInput.tsx`): это постоянный текст,
+  а подсказка под полем берёт клавиши из `src/renderer/session/hints.ts` и пишет Enter.
+- На Session Node нет Interrupt в `needs_permission` (`src/renderer/canvas/nodes/SessionNode.tsx`): кнопка показывается только в `busy`, а Session view
+  предлагает Interrupt и в этом состоянии.
+
+Эти три нашла проверка PR #1079 при чтении кода. Приложение для них не запускалось.
 
 **Поправка к списку «Где в коде».** Кроме перечисленных папок, понадобились:
 

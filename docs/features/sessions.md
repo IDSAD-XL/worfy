@@ -21,8 +21,8 @@ it, and it stops when worfy quits.
 
 **States.** A Session is in one of six states, shown as a chip.
 
-| State | Chip | Meaning |
-| ----- | ---- | ------- |
+| State | Chip status | Meaning |
+| ----- | ----------- | ------- |
 | `starting` | working | The process started. It becomes `idle` when Claude Code answers about the account |
 | `idle` | ready | Waits for a message |
 | `busy` | working | A turn runs |
@@ -30,19 +30,21 @@ it, and it stops when worfy quits.
 | `error` | blocked | The process died or failed. The tooltip shows the end of its stderr |
 | `closed` | done | The Session is closed |
 
+The chip's text is the state's name: `needs_permission` reads "needs permission".
+
 **Sending.** Return sends, Shift+Return starts a new line. ↑ and ↓ in an empty field walk the history of sent messages.
 The field grows to 200 pixels. An empty message without attachments is refused. A send that fails puts the text and the
 attachment chips back into the field. "/" opens the menu of the slash commands and skills that Claude Code reports for
 this Session.
 
-**Queue.** A message sent during a turn waits in a queue in main. The button says "Return to queue" then. Messages go one
-per turn, each after the `result` of the previous turn. The chip "N queued" opens the list, where × removes a message. An
-Interrupt or a crash holds the queue: the list title changes to "Held after Interrupt", and nothing goes until "Send
-queued". An empty queue is never held. A queue does not outlive its Session. The exception is the Orchestrator, whose
-queue moves to the new process when it is started again.
+**Queue.** A message sent during a turn waits in a queue in main. The hint beside the send button says "Return to queue"
+then. Messages go one per turn, each after the `result` of the previous turn. The chip "N queued" opens the list, where ×
+removes a message. An Interrupt or a crash holds the queue: the list title changes to "Held after Interrupt", and nothing
+goes until "Send queued". An empty queue is never held. A queue does not outlive its Session. The exception is the
+Orchestrator, whose queue moves to the new process when Autopilot gives it back.
 
-**Interrupt.** The button or Esc works in `busy` and `needs_permission`. Interrupt holds the queue, cancels open permission
-requests and questions, and asks Claude Code to stop the turn.
+**Interrupt.** The Session view's button, or Esc in its input field, works in `busy` and `needs_permission`. Interrupt holds
+the queue, cancels open permission requests and questions, and asks Claude Code to stop the turn.
 
 **A crash.** The Session goes to `error`. The queue is held, open requests are cancelled and the background tasks are
 forgotten. The next message starts a new process that continues the same conversation.
@@ -99,8 +101,8 @@ refuses the call. The card has no "Always allow".
 **Attachments.** "+", a drop anywhere on the chat and a pasted image all add a chip. A message takes 20 attachments.
 
 - Images: PNG, JPEG, GIF and WebP, up to 3.75 MB each.
-- Files inside the Project go by their path, at any size.
-- Files outside the Project are copied into the Project's data folder, up to 20 MB each.
+- Files picked with "+" inside the Project go by their path, at any size.
+- Files picked outside the Project, and every dropped file, are copied into the Project's data folder, up to 20 MB each.
 
 **Session view.** The second view of the window, beside the Canvas. Its header holds the title ("Orchestrator" or "Session"
 and the Project), the state chip, the Session picker, Model, Effort, Permissions, Cost, Hide tools and Interrupt. Cost shows
@@ -122,7 +124,7 @@ login shell overrides both rows, and the section says so. A running Session keep
 **Orchestrator.** The Project's main Session. The Node shows its state, model, summed cost and the last status block of its
 answers.
 
-- "New conversation" is refused during a turn and while Autopilot runs. The old conversation stays in the history, and the
+- "New conversation" is refused in `busy` and while Autopilot runs. The old conversation stays in the history, and the
   cost starts from zero.
 - When the Orchestrator opens, its saved Session is resumed. With the transcript gone, a new Session starts.
 - Eco mode, a switch under the Orchestrator's input field, writes `workflow.agents` in the Project's Profile. It applies
@@ -148,7 +150,7 @@ Session sends at most one notification in 10 seconds. A click opens that Session
 
 - Claude Code is `claude.exe`. Its environment is built from the variables of the Windows session and the registry, because
   Windows has no login shell. Git Bash is passed for the Bash tool.
-- The key hints read Enter and Shift+Enter.
+- The key hints read Enter and Shift+Enter. The hint beside the send button still says Return.
 
 ### How it works
 
@@ -161,10 +163,10 @@ Session sends at most one notification in 10 seconds. A click opens that Session
   `system/init`, and then a `renamed` event moves everything to the real id. Channels accept both.
 - **The Orchestrator's Node keeps only the Session id and the cost.** Everything else comes from the transcript and the live
   events ([ADR-0010](../adr/0010-orchestrator-state-session-id-and-cost-only.md)).
-- **Tools and skills are limited by the Profile.** A Session in a Project gets only the MCP servers on its Profile's list. The
-  list goes to Claude Code as a policy tier, so a Subagent gets the same set
-  ([ADR-0021](../adr/0021-mcp-servers-allowlist-in-profile.md)). `worfy-canvas` and `worfy-browser` are passed only when the
-  list names them. Plugins and skills follow the same idea through flag settings, to save the tokens of their descriptions
+- **Tools and skills are limited by the Profile.** A Session in a Project gets only the MCP servers on its Profile's list, or
+  the default list when it has none. The list goes to Claude Code as a policy tier, so a Subagent gets the same set
+  ([ADR-0021](../adr/0021-mcp-servers-allowlist-in-profile.md)). `worfy-canvas` is passed only when the list names it, and
+  `worfy-browser` when the list names it or `worfy-canvas`. Plugins and skills follow the same idea through flag settings, to save the tokens of their descriptions
   ([ADR-0084](../adr/0084-session-skills-and-plugins-by-profile-list.md)).
 - **The Harness goes inline** unless the old Harness is on the machine
   ([ADR-0040](../adr/0040-harness-delivery-local-marketplace.md),
