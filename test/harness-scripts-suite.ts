@@ -15,8 +15,14 @@
 // Inside a file the shell tests run a few at a time (it.concurrent), not one after another. vitest
 // runs files in parallel but the tests of one file in sequence, so the serial loop made the one file
 // take the whole wall time of `pnpm test` (517 s of 519 s on the Mac, 2026-10-20). How many run at
-// once is the `maxConcurrency` of the contract project (vitest.config.ts), per file; a waiting case
-// has not started, so its time limit counts from its own start, not from the start of the file.
+// once is the `maxConcurrency` of the file, which harnessScripts sets with vi.setConfig to atOnce
+// (test/harness-shell-tests.ts): five in a CI job of a part, where file 1 runs alone; without a part
+// the four files share five, 2, 1, 1, 1, as the one file ran five before the split. At five per file
+// a local full run started twenty at once (worfy-throughput 56). vitest's own limit holds a waiting
+// case before it starts, so its time limit counts from its own start, not from the start of the file.
+// A semaphore shared by the workers (a lock file in temp) would let a file use the slots another file
+// left free, but its wait would be inside the case and count against the case's time limit, and the
+// limit is not to be raised; the split by seconds over slots (inFile) makes the files end together instead.
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -24,7 +30,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it, vi, type TestContext } from 'vitest'
 import { CI_RETRIES } from './flaky'
 import { gitBash } from './git-bash'
-import { HARNESS_SCRIPTS_FILES, inFile, inPart, MEASURED_SECONDS, parsePart, shareOf, shellTests, startOrder } from './harness-shell-tests'
+import { atOnce, HARNESS_SCRIPTS_FILES, inFile, inPart, MEASURED_SECONDS, parsePart, shareOf, shellTests, startOrder } from './harness-shell-tests'
 import { removeTestTree } from './remove'
 import { ms } from './time-scale'
 
@@ -295,6 +301,11 @@ async function expectGroupEnded(pgid: number): Promise<void> {
 export function harnessScripts(file: number): void {
   const toRun = shareOfFile(file)
   const count = HARNESS_SCRIPTS_FILES.length
+  // How many shell tests this file runs at once, and the most it ran: afterAll checks the one against the other.
+  const limit = atOnce(file, count, parsePart(process.env.HARNESS_SCRIPTS_PART))
+  vi.setConfig({ maxConcurrency: limit })
+  let running = 0
+  let peak = 0
   // How many times each shell test of this file started in this run: every one once, and once more for
   // each retry CI allows (CI_RETRIES, test/flaky.ts; afterAll below fails on any further start). A
   // retried one is printed as FLAKY when it passes, and it may take FILE_TIMEOUT_MS twice: at the default multiplier
@@ -404,7 +415,11 @@ export function harnessScripts(file: number): void {
       context.skip(WINDOWS && ZSH_ONLY.has(name), NO_ZSH_UNTIL_TICKET_15)
       starts.set(name, (starts.get(name) ?? 0) + 1)
       const path = join(HARNESS, name)
-      const { run } = await runInEmptyHome(path, FILE_TIMEOUT_MS)
+      running += 1
+      peak = Math.max(peak, running)
+      const { run } = await runInEmptyHome(path, FILE_TIMEOUT_MS).finally(() => {
+        running -= 1
+      })
       const problem = failure(path, run, FILE_TIMEOUT_MS)
       // vitest prints a test's error only when its retry in CI fails too: a failed first try and a passed retry
       // leave a FLAKY line alone (test/flaky.ts), with no word of the check that failed. A failed try that a retry
@@ -494,6 +509,7 @@ export function harnessScripts(file: number): void {
       unwatchStops()
       const repeated = [...starts].filter(([, count]) => count > 1 + CI_RETRIES).map(([name]) => name)
       expect(repeated, 'shell test files started more than once in this run').toEqual([])
+      expect(peak, `shell tests file ${file} ran at once`).toBeLessThanOrEqual(limit)
     })
   })
 }

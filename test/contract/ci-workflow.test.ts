@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { HARNESS_SCRIPTS_FILES, inFile, inPart, MEASURED_SECONDS, parsePart, shareOf, shellTests, startOrder, UNMEASURED_SECONDS, type Part } from '../harness-shell-tests'
+import { atOnce, fileEnds, HARNESS_SCRIPTS_FILES, inFile, inPart, MEASURED_SECONDS, parsePart, shareOf, shellTests, SHELL_TESTS_AT_ONCE, startOrder, UNMEASURED_SECONDS, type Part } from '../harness-shell-tests'
 import { gitBash } from '../git-bash'
 import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
@@ -625,29 +625,54 @@ describe('test/harness-shell-tests.ts: the part of the Harness shell tests one W
   })
 
   it('splits the names across the files by measured seconds, not by count, each name in exactly one file', () => {
-    // One long name against four short ones: by count file 1 would get three names, here it gets the long one alone.
-    const measured = { long: 40, s1: 10, s2: 10, s3: 10, s4: 10 }
-    const names = ['s1', 's2', 'long', 's3', 's4']
-    expect(inFile(names, 1, 2, measured)).toEqual(['long'])
-    expect(inFile(names, 2, 2, measured)).toEqual(['s1', 's2', 's3', 's4'])
+    // Four files that run 2, 1, 1, 1 at once. Ten equal names: file 1 runs two at once, so it gets twice
+    // the names of each other file, and all four end at 20 s.
+    const equal = Object.fromEntries([...'abcdefghij'].map((name) => [name, 10]))
+    expect([1, 2, 3, 4].map((file) => inFile(Object.keys(equal), file, 4, equal))).toEqual([['a', 'b', 'f', 'g'], ['c', 'h'], ['d', 'i'], ['e', 'j']])
+    // One long name against seven short ones: by count each file would get two names; the long one
+    // ends file 1 at 40 s whatever runs beside it, so the short ones go to the files that end sooner.
+    const measured = { long: 40, s1: 10, s2: 10, s3: 10, s4: 10, s5: 10, s6: 10, s7: 10 }
+    const names = ['s1', 's2', 'long', 's3', 's4', 's5', 's6', 's7']
+    expect([1, 2, 3, 4].map((file) => inFile(names, file, 4, measured))).toEqual([['long'], ['s1', 's4', 's7'], ['s2', 's5'], ['s3', 's6']])
+    expect(fileEnds([40, 10, 10, 10], 2)).toBe(40)
+    expect(fileEnds([40, 30, 20], 2)).toBe(45)
+    expect(fileEnds([], 1)).toBe(0)
     const shell = shellTests(join(REPO, 'harness'))
     for (const [platform, seconds] of Object.entries(MEASURED_SECONDS)) {
       for (const count of [1, 2, 4, 5]) {
         const files = Array.from({ length: count }, (_, at) => inFile(shell, at + 1, count, seconds))
         expect(files.flat().sort(), `${platform} ${count}`).toEqual(shell)
-        // Longest first to the least loaded file: no two files differ by more than the longest shell test.
-        const loads = files.map((names) => names.reduce((sum, name) => sum + (seconds[name] ?? UNMEASURED_SECONDS), 0))
+        // Longest first to the file that would end first: no two files end (fileEnds) further apart than
+        // the longest shell test.
+        const ends = files.map((names, at) => fileEnds(names.map((name) => seconds[name] ?? UNMEASURED_SECONDS), atOnce(at + 1, count, undefined)))
         const longest = Math.max(...shell.map((name) => seconds[name] ?? UNMEASURED_SECONDS))
-        expect(Math.max(...loads) - Math.min(...loads), `${platform} ${count}: ${loads.join(' ')}`).toBeLessThanOrEqual(longest)
+        expect(Math.max(...ends) - Math.min(...ends), `${platform} ${count}: ${ends.join(' ')}`).toBeLessThanOrEqual(longest)
       }
     }
+  })
+
+  it('runs at most five shell tests at once in a run: the files of a local run share them, the one file of a CI part has all five', () => {
+    expect(SHELL_TESTS_AT_ONCE).toBe(5)
+    const count = HARNESS_SCRIPTS_FILES.length
+    const local = Array.from({ length: count }, (_, at) => atOnce(at + 1, count, undefined))
+    // The four files of a local run (`pnpm test`, the gate) run on workers of their own at the same time.
+    expect(local).toEqual([2, 1, 1, 1])
+    for (const files of [1, 2, 3, 4, 5]) {
+      const shares = Array.from({ length: files }, (_, at) => atOnce(at + 1, files, undefined))
+      expect(shares.reduce((sum, n) => sum + n, 0), `${files} files`).toBe(SHELL_TESTS_AT_ONCE)
+      expect(Math.min(...shares), `${files} files`).toBeGreaterThanOrEqual(1)
+    }
+    expect(() => atOnce(1, 6, undefined)).toThrow(/cannot share 5/)
+    // A CI job of a part: file 1 runs the whole part alone, five at once, as before the split.
+    for (const part of [{ index: 1, count: 2 }, { index: 2, count: 2 }, { index: 1, count: 1 }]) expect(atOnce(1, count, part), JSON.stringify(part)).toBe(5)
   })
 
   it('gives a file its share in start order without a part, and the whole part to file 1 alone with one', () => {
     const measured = { a: 1, b: 9, c: 5, d: 7 }
     const names = ['a', 'b', 'c', 'd']
-    expect(shareOf(names, 1, 2, undefined, measured)).toEqual(['b', 'a'])
-    expect(shareOf(names, 2, 2, undefined, measured)).toEqual(['d', 'c'])
+    // Two files run 3 and 2 at once: file 1 ends with b (9 s) whatever runs beside it, file 2 gets the rest.
+    expect(shareOf(names, 1, 2, undefined, measured)).toEqual(['b'])
+    expect(shareOf(names, 2, 2, undefined, measured)).toEqual(['d', 'c', 'a'])
     expect(shareOf(names, 1, 2, { index: 2, count: 2 }, measured)).toEqual(['b', 'd'])
     expect(shareOf(names, 2, 2, { index: 2, count: 2 }, measured)).toEqual([])
   })
