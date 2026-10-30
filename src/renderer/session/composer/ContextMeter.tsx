@@ -16,12 +16,12 @@ import type { ComposerItemProps } from './index'
 // shares of this one.
 
 /**
- * Before the pickers (Pickers.tsx, order 10). In a wide bar it stands right before the model
- * picker. In a narrower one the bar moves the pickers to a second line and the meter stays on the
- * line of the hint, so it never takes width from the pickers: the permission mode stays whole on
- * the default model (test/e2e/session-controls.spec.ts, test/e2e/context-meter.spec.ts).
+ * On the line of the hint (index.ts), at its right end, in every width: the pickers have the line
+ * below to themselves, so the meter never takes width from them (test/e2e/session-controls.spec.ts,
+ * test/e2e/context-meter.spec.ts).
  */
 export const order = 5
+export const line = 'hint'
 
 const FILL: Record<LimitLevel, string> = {
   normal: 'var(--text-secondary)',

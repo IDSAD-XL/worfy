@@ -708,15 +708,40 @@
   flex: none;
   box-sizing: border-box;
   display: flex;
-  /* A narrow transcript column (sidebar and rail open) moves the controls to a second line rather
-     than pushing Interrupt and Send under the rail; the moved controls keep to the right, so the
-     queue list that opens above its chip stays inside the column. */
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 6px var(--space-2);
+  flex-direction: column;
+  gap: 6px;
   padding: 6px 6px 6px 10px;
   border-top: 1px solid var(--border);
+}
+
+/* Two lines (worfy-throughput ticket 60): the hint line — attach, the hints, the context meter at its
+   right end — and the controls line — the pickers and the other items from the left, «Return to send»
+   and Send at the right. A narrow transcript column wraps the controls line rather than pushing
+   Send under the rail. */
+.w-composer__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px var(--space-2);
+}
+
+/* The send group keeps to the right: the queue chip, Interrupt while a turn runs, «Return to send»
+   and Send. The room between it and the pickers stays empty — the pickers take theirs first (their
+   item grows up to its full width) — and a send group wrapped onto a line of its own stays at the
+   right, so the queue list, which opens leftwards above its chip, stays inside the column. */
+.w-composer__line[data-line='controls'] > :is(.w-composer__item[data-item='Queue']:not(:empty), .w-composer__interrupt, .w-composer__send-hint) {
+  margin-left: auto;
+}
+.w-composer__line[data-line='controls']
+  > :is(.w-composer__item[data-item='Queue']:not(:empty), .w-composer__interrupt, .w-composer__send-hint)
+  ~ :is(.w-composer__interrupt, .w-composer__send-hint) {
+  margin-left: 0;
+}
+
+/* An item with nothing to show here (the Eco mode switch outside the Orchestrator, an empty queue)
+   takes no gap. */
+.w-composer__item:empty {
+  display: none;
 }
 
 .w-composer__hint {

@@ -435,7 +435,7 @@ test('a caption "Model" or "Permissions" goes when a value would be cut with it,
     }
 
     for (const [sidebar, width, height] of [
-      ['shown', 1440, 900],
+      ['shown', 1320, 900],
       ['shown', 900, 600],
       ['shown', 800, 520],
       ['hidden', 1920, 1080],
@@ -462,7 +462,7 @@ test('a caption "Model" or "Permissions" goes when a value would be cut with it,
       await expect(model).toHaveAttribute('title', 'Default (recommended)')
       await expect(mode).toHaveAccessibleName('Permission mode')
       await expect(mode).toHaveAttribute('title', 'Bypass permissions')
-      if (width === 1440) {
+      if (width === 1320) {
         // The model's value was cut: its caption goes, and more of the value shows; the permission mode is whole.
         expect(before.model.cut, where).toBe(true)
         expect(now.model.caption, where).toBe(false)
@@ -484,9 +484,9 @@ test('a caption "Model" or "Permissions" goes when a value would be cut with it,
     }
 
     // Both captions gone at the narrow end, both shown at the wide one, the pickers on one line between.
-    await resizeWindow(app, bar, 1320, 900)
+    await resizeWindow(app, bar, 1000, 900)
     await frames()
-    expect([(await shows(model)).caption, (await shows(mode)).caption], 'the captions at 1320 px').toEqual([false, false])
+    expect([(await shows(model)).caption, (await shows(mode)).caption], 'the captions at 1000 px').toEqual([false, false])
 
     // A slow resize across the widths where the captions come back, and back again: each caption
     // turns on once and off once. Every change of a button's class is written down as it happens.
@@ -514,13 +514,14 @@ test('a caption "Model" or "Permissions" goes when a value would be cut with it,
         await frames()
       }
     }
-    // The Orchestrator's bar has the Eco mode switch right of the pickers (worfy-throughput ticket 60):
-    // measured with it, the permission mode's caption comes back at about 1440 px and the model's at
-    // about 1480 px (its own caption, the first to go, at about 1540 px).
-    await sweep(1360, 1560)
-    expect([(await shows(model)).caption, (await shows(mode)).caption], 'the captions at 1560 px').toEqual([true, true])
+    // The pickers have the controls line of the bar (worfy-throughput ticket 60), with the Eco mode
+    // switch of the Orchestrator after them: with the sidebar hidden the permission mode's caption
+    // comes back at about 1064 px and the model's at about 1104 px (the switch's own, the first to
+    // go, at about 1168 px).
+    await sweep(1000, 1200)
+    expect([(await shows(model)).caption, (await shows(mode)).caption], 'the captions at 1200 px').toEqual([true, true])
     expect(await changes(), 'widening').toEqual(['picker-permissions on', 'picker-model on'])
-    await sweep(1560, 1360)
+    await sweep(1200, 1000)
     expect(await changes(), 'widening, then narrowing').toEqual(['picker-permissions on', 'picker-model on', 'picker-model off', 'picker-permissions off'])
   } finally {
     await launched.close()

@@ -70,6 +70,10 @@ export interface MessageInputHandle {
 /** The tallest the field grows before it scrolls, in px. */
 const MAX_HEIGHT = 200
 
+/** The items of the bar's two lines (composer/index.ts): the hint line's, and the controls line's. */
+const hintItems = composerItems.filter((item) => item.line === 'hint')
+const controlItems = composerItems.filter((item) => item.line === 'controls')
+
 /** An attachment shown as a chip; `key` tells two attachments of one name apart. */
 export interface Chip {
   key: number
@@ -331,35 +335,46 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
             onPaste={onPaste}
           />
           <div className="w-composer__bar">
-            <button type="button" className="w-composer__attach" aria-label="Attach files" title={readOnly ?? 'Attach files'} data-testid="input-attach" disabled={disabled} onClick={pick}>
-              <PlusIcon />
-            </button>
-            {pickHere ? <input ref={chooser} type="file" multiple hidden tabIndex={-1} aria-hidden="true" data-testid="input-attach-file" onChange={chosen} /> : null}
-            <span className="w-composer__hint w-mono">{composerHint()}</span>
-            <span className="w-composer__spacer" />
-            {composerItems.map(({ id, Component }) => (
-              <span key={id} className="w-composer__item" data-item={id}>
-                <Component sessionId={sessionId} busy={busy} text={text} setText={edit} />
-              </span>
-            ))}
-            {busy ? (
-              <button type="button" className="w-session__button" data-testid="input-interrupt" {...writeAction(readOnly, onInterrupt)}>
-                <StopIcon />
-                Interrupt
-                <kbd className="w-session__kbd w-mono">esc</kbd>
+            {/* The hint line: attach, the hints, and the items that stand there (the context meter). */}
+            <div className="w-composer__line" data-line="hint">
+              <button type="button" className="w-composer__attach" aria-label="Attach files" title={readOnly ?? 'Attach files'} data-testid="input-attach" disabled={disabled} onClick={pick}>
+                <PlusIcon />
               </button>
-            ) : null}
-            <span className="w-composer__hint">{busy ? 'Return to queue' : 'Return to send'}</span>
-            <button
-              type="button"
-              className="w-composer__send"
-              aria-label={busy ? 'Queue message' : 'Send message'}
-              data-testid="input-send"
-              disabled={!canSend}
-              onClick={() => void send()}
-            >
-              <SendIcon />
-            </button>
+              {pickHere ? <input ref={chooser} type="file" multiple hidden tabIndex={-1} aria-hidden="true" data-testid="input-attach-file" onChange={chosen} /> : null}
+              <span className="w-composer__hint w-mono">{composerHint()}</span>
+              <span className="w-composer__spacer" />
+              {hintItems.map(({ id, Component }) => (
+                <span key={id} className="w-composer__item" data-item={id}>
+                  <Component sessionId={sessionId} busy={busy} text={text} setText={edit} />
+                </span>
+              ))}
+            </div>
+            {/* The controls line: the pickers and the other items from the left, Send at the right. */}
+            <div className="w-composer__line" data-line="controls">
+              {controlItems.map(({ id, Component }) => (
+                <span key={id} className="w-composer__item" data-item={id}>
+                  <Component sessionId={sessionId} busy={busy} text={text} setText={edit} />
+                </span>
+              ))}
+              {busy ? (
+                <button type="button" className="w-session__button w-composer__interrupt" data-testid="input-interrupt" {...writeAction(readOnly, onInterrupt)}>
+                  <StopIcon />
+                  Interrupt
+                  <kbd className="w-session__kbd w-mono">esc</kbd>
+                </button>
+              ) : null}
+              <span className="w-composer__hint w-composer__send-hint">{busy ? 'Return to queue' : 'Return to send'}</span>
+              <button
+                type="button"
+                className="w-composer__send"
+                aria-label={busy ? 'Queue message' : 'Send message'}
+                data-testid="input-send"
+                disabled={!canSend}
+                onClick={() => void send()}
+              >
+                <SendIcon />
+              </button>
+            </div>
           </div>
         </div>
       </div>
