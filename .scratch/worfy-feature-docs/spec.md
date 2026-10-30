@@ -43,6 +43,7 @@ Ticket-ы: Epic `worfy-feature-docs`, 19 Ticket-ов, нумерация с `01`
 | Cards (`cards.md`) | Card как файл, Card API, Canvas MCP | 05 |
 | Canvas (`canvas.md`) | Node и Layout, Find, вставка изображений | 08 |
 | Epic frames (`epic-frames.md`) | Epic frame, Done shelf | 08 |
+| Focus mode (`focus-mode.md`) | один раздел | — |
 | Projects (`projects.md`) | Full mode и Silent mode, переключатель, просмотр ADR и HANDOFF | 09 |
 | Workflow (`workflow.md`) | Ticket и Epic на Canvas, Pipeline, Binding | 10 |
 | Sessions (`sessions.md`) | Session, Subagent | 11 |

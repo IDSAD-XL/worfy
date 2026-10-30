@@ -21,6 +21,7 @@ the [ADRs](../adr/) and in Tickets, and a page links to them.
 | [Cards](cards.md) | Card as a file, Card API, Canvas MCP |
 | [Canvas](canvas.md) | Node and Layout, Find, inserting images |
 | [Epic frames](epic-frames.md) | Epic frame, Done shelf |
+| [Focus mode](focus-mode.md) | Focus mode |
 | [Projects](projects.md) | Full mode and Silent mode, the switch between them, viewing ADRs and HANDOFF |
 | [Workflow](workflow.md) | Ticket and Epic on the Canvas, Pipeline, Binding |
 | [Sessions](sessions.md) | Session, Subagent |

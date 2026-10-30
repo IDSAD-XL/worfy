@@ -71,7 +71,7 @@ covers nothing, otherwise the one that covers least. A pinned selection always g
 - **Show family.** With one selected Node that has a Family, the camera fits the Family without zooming in. It skips
   members hidden by a tag filter and also works on a read-only screen.
 
-The Focus button under the selection and ⌘↩ open the selection in focus mode.
+The Focus button under the selection and ⌘↩ open the selection in [focus mode](focus-mode.md).
 
 **Keys.** While the Canvas is on screen, with the focus on it or nowhere and not in a text field: Delete and Backspace
 move the selection to the Trash, ⌘Z and ⇧⌘Z undo and redo, and Esc with nothing selected folds the done stack opened
@@ -156,7 +156,7 @@ separately for each Linked machine's Project.
 #### Windows
 
 Ctrl takes the place of ⌘. Inside a Terminal Node, Ctrl and a key belong to the shell and not to the Canvas. The
-exception is zoom: Ctrl+= and Ctrl+− still zoom the Canvas from there, and do nothing in a tile of focus mode. Ctrl+_ stays the shell's undo.
+exception is zoom: Ctrl+= and Ctrl+− still zoom the Canvas from there, and do nothing in a tile of [focus mode](focus-mode.md). Ctrl+_ stays the shell's undo.
 
 ### How it works
 
