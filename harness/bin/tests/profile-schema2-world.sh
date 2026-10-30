@@ -172,7 +172,7 @@ done
 # docs.adr_status_label (tickets.trail_section stays as written: null there means "no such section").
 # Values of a project whose documents are not in English, nulls (the defaults), null groups, and one
 # malformed value per field.
-HD_PROFILES=(hdset hdnull hdgroupsnull hddonenum hddoneempty hdmanuallist hdstatusnum)
+HD_PROFILES=(hdset hdnull hdgroupsnull hddonenum hddoneempty hdmanuallist hdstatusnum fpset fpnull fpnum fpblank fplist)
 for n in "${HD_PROFILES[@]}"; do
     git -C "$T/r" init -q -b main "$n"
     jq --arg m "$T/r/$n" --arg n "$n" '.repos += [{key: $n, match: $m, profile: $n}]' "$HH/gate/config.json" >"$T/cfg.json" && mv "$T/cfg.json" "$HH/gate/config.json"
@@ -185,6 +185,12 @@ hd hddonenum '"tickets":{"done_section":5}'
 hd hddoneempty '"tickets":{"done_section":"  "}'
 hd hdmanuallist '"tickets":{"manual_mark":["manual"]}'
 hd hdstatusnum '"docs":{"adr_status_label":1}'
+# docs.feature_pages: the optional folder of feature pages: a path, null and one malformed value per kind.
+hd fpset '"docs":{"adr_dir":"docs/adr","feature_pages":"docs/pages"}'
+hd fpnull '"docs":{"feature_pages":null}'
+hd fpnum '"docs":{"adr_dir":"docs/adr","feature_pages":5}'
+hd fpblank '"docs":{"feature_pages":"  "}'
+hd fplist '"docs":{"feature_pages":["docs/pages"]}'
 cat >"$T/p2" <<EOF
 #!/usr/bin/env bash
 exec env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" USERPROFILE="$H" HARNESS_HOME="$HH" "$PROFILE" "\$@"

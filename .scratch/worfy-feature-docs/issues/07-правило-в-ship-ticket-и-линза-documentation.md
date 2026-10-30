@@ -78,3 +78,23 @@ Test-ы `bin/profile` и контракта Profile: поле есть, поля
 
 ## Итог
 
+Сделаны пункты 1–3 раздела «Что делаем»:
+
+- Поле `docs.feature_pages`: контракт в `harness/profiles/README.md`, необязательное свойство в `draft.schema.json`
+  (пустая строка и не строка отказаны), чтение в `harness/bin/profile`: путь печатается как записан, без поля — exit 4,
+  неверный тип или пустая строка — одно предупреждение в stderr, и поле читается как отсутствующее. Исключение для
+  Silent mode записано в README: страницы лежат в репозитории и правятся в том же PR.
+- Условный шаг `**Feature pages**` в шаге 5 `harness/skills/ship-ticket/SKILL.md`: поле задано и PR меняет описанное
+  поведение — страница правится в том же PR; поля нет — шаг пропущен, и об этом сказано одной строкой.
+- `### Lens: documentation` в `harness/agents/reviewer.md`, раздел «Lens descriptions».
+- Test-ы: `profile-schema2.test.sh` (поле есть, поля нет, `null`, неверный тип), `project-connect.test.sh` (схема),
+  `agents-text.test.sh` (текст линзы целиком), `epic-wave-ship-ticket.test.sh` (шаг skill-а и строка контракта). На
+  старом коде они падали: exit code 1 у всех четырёх файлов.
+
+Не сделано здесь:
+
+- Пункт 4 — Profile worfy вне репозитория (`docs.feature_pages`, `documentation` в `review.lenses`, `audit_lenses`),
+  `rules.md` на обеих машинах, `rules-merge.md` на ПК. Делает Orchestrator после merge. Поэтому пункты «Готово, когда» про
+  `bin/profile --field` в worfy и про строки в правилах пока не закрыты.
+- `pnpm install:stable` после merge и вердикт Windows по платформенному PR — тоже за Orchestrator-ом.
+

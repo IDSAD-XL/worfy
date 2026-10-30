@@ -1223,6 +1223,26 @@ check "batch mergeable, overnight-fix-loop: the command comment names UNKNOWN" \
     grep -qF 'gh pr view <N> --json mergeable -q .mergeable   # batch: MERGEABLE — merge; CONFLICTING — as DIRTY; UNKNOWN — ask again in a minute' \
     "$HARNESS/skills/overnight-fix-loop/SKILL.md"
 
+# --- docs.feature_pages: the conditional step of ship-ticket and the Profile contract -----------
+# The step lives in step 5, says that it is skipped without the field, and names neither a project
+# nor a language of the pages.
+pages_para="$(para_of "$ST" '**Feature pages**')"
+check "feature pages: the paragraph is found" test -n "$pages_para"
+step5="$(awk '/^## 5\. Implementation/{s=1; next} s && /^## /{exit} s' "$ST")"
+check "feature pages: the paragraph is in step 5" grep -qF -- '**Feature pages**' <<<"$step5"
+for p in '`F docs.feature_pages`' \
+    'Exit code 4 or `null`: say "feature pages skipped: the profile has no `docs.feature_pages`".' \
+    'Set, and the change alters behaviour a page in that folder describes: update that page in this same PR (with `local-green`, on this branch; in Silent mode too), even if the ticket'"'"'s file list does not name it.' \
+    'Refactoring and tests that keep the behaviour need no page edit.'; do
+    check "feature pages: says '$p'" grep -qF -- "$p" <<<"$pages_para"
+done
+check "feature pages: names no project and no language" bash -c '! grep -qiE "worfy|english|russian|translat" <<<"$1"' _ "$pages_para"
+pages_row="$(grep -F '| `docs.feature_pages` |' "$HARNESS/profiles/README.md")"
+for p in '| `docs.feature_pages` | path \| null |' 'relative to the root of the working tree' 'Absent or `null`' 'one warning on stderr' 'ship-ticket (step 5), reviewer (lens `documentation`)'; do
+    check "profiles/README.md, docs.feature_pages: '$p'" grep -qF -- "$p" <<<"$pages_row"
+done
+check "profiles/README.md, Silent mode: the pages are an exception to read-only documents" grep -qF -- 'and the pages of `docs.feature_pages`' "$HARNESS/profiles/README.md"
+
 home_after="$(real_home_snapshot "$REAL_HOME" "$T")"
 check "the real ~/.claude and ~/.claude/worfy-harness are unchanged" test "$home_before" = "$home_after"
 

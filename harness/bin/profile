@@ -376,6 +376,13 @@ for (const [group, field, value] of DOC_HEADINGS) {
         err(`profile: ${pjPath}: ${group}.${field} must be a non-empty string or null, got ${JSON.stringify(given)} — ignored`)
     profile[group][field] = value
 }
+// docs.feature_pages (profiles/README.md): the optional folder of feature pages, with no default: absent says
+// the project has none, and the skills skip the step. A malformed value is one warning and reads as absent.
+const pages = profile.docs.feature_pages
+if (pages !== undefined && pages !== null && !(typeof pages === "string" && pages.trim())) {
+    err(`profile: ${pjPath}: docs.feature_pages must be a non-empty path or null, got ${JSON.stringify(pages)} — ignored`)
+    delete profile.docs.feature_pages
+}
 
 let checkoutReal = null
 if (checkout) {

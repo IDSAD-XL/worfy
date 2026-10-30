@@ -720,6 +720,29 @@ for p in 'Read `land` and agent output as a summary: one line per PR and the ver
     else bad "orchestrator.md, Long output: no '$p'"; fi
 done
 
+# --- reviewer: the lens "documentation" --------------------------------------------------------
+# The whole section, sentence by sentence, and the plugin's neutrality: it names the profile field
+# and no project, no language of the pages.
+DOC_LENS="### Lens: documentation"
+doc_at="$(line_of "$DOC_LENS")"
+[ -n "$descriptions" ] && [ -n "$doc_at" ] && [ "$descriptions" -lt "$doc_at" ] && { [ -z "$next_h2" ] || [ "$doc_at" -lt "$next_h2" ]; } \
+    && ok "reviewer: 'Lens: documentation' is inside 'Lens descriptions'" \
+    || bad "reviewer: no '$DOC_LENS' inside '## Lens descriptions' (lines: [$descriptions] [$doc_at] [$next_h2])"
+sentences "$(section "$DOC_LENS")" "lens documentation" whole <<'EOF'
+the question of the lens :: The question of the lens: does the diff change behaviour that a page from `docs.feature_pages` of the profile describes, without editing that page.
+no field, nothing to check :: With the field absent or `null` the project keeps no such pages: answer "clean" and say why.
+how to look :: Otherwise take each behaviour the diff changes and search that folder for what the pages say about it.
+what a finding names :: A finding points at the changed line; its scenario names the page with `path:line`, the sentence that no longer holds and what the code does now.
+an edited page still counts :: A page the diff edits still counts when such a sentence stays in it.
+the list of what is not a finding :: Not a finding:
+no change in behaviour :: - **No change in behaviour.** Refactoring and tests that leave the behaviour as it was.
+behaviour no page describes :: - **Behaviour no page describes.** This lens checks the pages that exist; it does not ask for new ones.
+an old mismatch :: - **A sentence that was already wrong before the diff.** It goes on the "outside the diff: …" line.
+EOF
+section "$DOC_LENS" | grep -qiE 'worfy|english|russian|translat' \
+    && bad "reviewer, lens documentation: names a project or a language" \
+    || ok "reviewer, lens documentation: names no project and no language"
+
 # The Profile contract points at the descriptions (harness/profiles/README.md, the row of review.lenses).
 README="${PROFILES_README_FILE:-$ROOT/profiles/README.md}"
 LENSES_ROW='the project'"'"'s review lenses; the orchestrator gives each reviewer one. What a lens looks for is described in `agents/reviewer.md`, section "Lens descriptions"; a description applies to the lens of the same name, and a lens that has no description there is read by its name |'

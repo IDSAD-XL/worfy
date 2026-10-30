@@ -242,6 +242,21 @@ no sentence about what you checked or are about to say. One verdict only: `VERIF
 whole answer stays within its 30 lines. What happens to the verdict — where it is recorded, which
 commit it marks — is the business of the skill that launched the review.
 
+### Lens: documentation
+
+The question of the lens: does the diff change behaviour that a page from `docs.feature_pages` of
+the profile describes, without editing that page. With the field absent or `null` the project keeps
+no such pages: answer "clean" and say why. Otherwise take each behaviour the diff changes and search
+that folder for what the pages say about it. A finding points at the changed line; its scenario
+names the page with `path:line`, the sentence that no longer holds and what the code does now. A
+page the diff edits still counts when such a sentence stays in it.
+
+Not a finding:
+- **No change in behaviour.** Refactoring and tests that leave the behaviour as it was.
+- **Behaviour no page describes.** This lens checks the pages that exist; it does not ask for new
+  ones.
+- **A sentence that was already wrong before the diff.** It goes on the "outside the diff: …" line.
+
 ### Lens: simplification
 
 The question of the lens: what in the diff can be deleted, reused or made simpler while the

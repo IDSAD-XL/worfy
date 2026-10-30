@@ -103,6 +103,22 @@ for spec in "hddonenum|tickets.done_section|## Done when|got 5" "hddoneempty|tic
     eq "$p: a malformed $f -> the default" "$want" "$P2" -C "$T/r/$p" --field "$f"
     fails_with "$p: a malformed $f -> exit 0 and one warning with the path" 0 "profile: $(printed "$HH/projects/$p/profile.json"): $f must be a non-empty string or null, $got — ignored" "$P2" -C "$T/r/$p" --name
 done
+# --- docs.feature_pages -------------------------------------------------------------------------
+eq "--field docs.feature_pages as written" "docs/pages" "$P2" -C "$T/r/fpset" --field docs.feature_pages
+eq "--field docs.feature_pages null stays null" null "$P2" -C "$T/r/fpnull" --field docs.feature_pages
+# No field: the skills skip the step on exit 4, and the profile reads as before, with no warning.
+for p in bare hdgroupsnull legacy; do
+    check "$p: docs.feature_pages absent -> 4" 4 "" "$P2" -C "$T/r/$p" --field docs.feature_pages
+    eq "$p: --json has no docs.feature_pages" false bash -c 'set -o pipefail; "$@" --json | jq ".docs | has(\"feature_pages\")" | tr -d "\r"' _ "$P2" -C "$T/r/$p"
+    eq "$p: no field, no warning" "" bash -c '"$@" 2>&1 >/dev/null | grep -F feature_pages || true' _ "$P2" -C "$T/r/$p" --name
+done
+# A malformed value is one warning with the profile's path, and the field reads as absent: the project is still read.
+for spec in "fpnum|got 5" "fpblank|got \"  \"" "fplist|got [\"docs/pages\"]"; do
+    p="${spec%%|*}" got="${spec#*|}"
+    check "$p: a malformed docs.feature_pages -> 4, as absent" 4 "" "$P2" -C "$T/r/$p" --field docs.feature_pages
+    fails_with "$p: a malformed docs.feature_pages -> exit 0 and one warning with the path" 0 "profile: $(printed "$HH/projects/$p/profile.json"): docs.feature_pages must be a non-empty path or null, $got — ignored" "$P2" -C "$T/r/$p" --name
+done
+eq "a malformed docs.feature_pages leaves the rest of docs" "docs/adr" "$P2" -C "$T/r/fpnum" --field docs.adr_dir
 # --- workflow.pipeline ------------------------------------------------------------------------
 PL_DEFAULT='[{"kind":"queued"},{"kind":"implementing"},{"kind":"ci"},{"kind":"agent-review"},{"kind":"gate-merge"},{"kind":"closing"},{"kind":"done"}]'
 eq "no workflow.pipeline -> _resolved.pipeline is the default Pipeline" "$PL_DEFAULT" bash -c 'set -o pipefail; "$@" | jq -c .' _ "$P2" -C "$T/r/bare" --field _resolved.pipeline
