@@ -107,7 +107,7 @@ state, apply to all Projects of the Machine and do not go into a Project's repos
 list of six steps for a new user, from the First run checks to a Ticket of the Demo project taken through review and rework
 to merge. The steps tick themselves off when done, and the list can be skipped and blocks nothing. The **Demo project** is
 a Project that worfy creates itself for Getting started: a small local git repository without GitHub, in Full mode, with one
-Epic and one Ticket. Agents really work in it, and one command deletes it along with its Profile.
+Epic and one Ticket. Agents really work in it, and a button on the screen Done deletes it along with its Profile.
 
 A **Machine** is a computer of the user with worfy installed. More exactly, a Machine is tied to a worfy data folder, so
 two installs with different data folders on one computer, such as a dev build and the Stable copy, are two Machines. A
