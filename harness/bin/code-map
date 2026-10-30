@@ -1,0 +1,245 @@
+#!/usr/bin/env node
+// code-map — the code map of a repository, kept on this machine next to the project's profile.
+//
+//   code-map path  [-C <dir>]            prints the path of the map (it may not exist yet)
+//   code-map stale [-C <dir>]            prints the folders of the map whose files changed since
+//                                        their commit, one per line; no map — "no map: <path>"
+//   code-map put <folder> [-C <dir>]     writes the description on stdin as the section of <folder>,
+//                                        with the commit of HEAD
+//
+// The map is one Markdown file per repository: <profile dir>/state/code-map/<repository>.md, where the
+// profile directory is what `bin/profile --dir` prints for <dir> (default: the current directory) and
+// <repository> is the folder name of the repository's main checkout, so every worktree of a repository
+// reads and writes the same map. state/ of a profile is working state, not versioned (profiles/README.md):
+// the map is derived from the code and is rewritten from it.
+//
+// The scout (agents/scout.md) reads the map first, runs `stale`, and describes again only the stale
+// folders and the folders the map lacks. Each folder is a section:
+//
+//   ## src/main
+//   commit: <full hash of HEAD when the section was written>
+//
+//   <description>
+//
+// A folder is a path from the root of the work tree with `/`, `.` for the root; it covers every file
+// under it, so a parent folder goes stale with its child. A folder is stale when
+// `git diff --name-only --no-renames <commit> HEAD` names a file under it (a file moved out of it
+// counts), when its commit is not in the repository, or when its section has no commit line. Changes
+// not committed yet do not count. `stale` prints the folders in the order of the map and a count on
+// stderr.
+//
+// `put` refuses (exit 2, map unchanged): an empty description, a folder that is not a directory of the
+// work tree, leaves it or is ignored by git, and a description line that starts a level-1 or level-2 heading (it would
+// start a section of its own). Level 3 and deeper are fine.
+//
+// Exit codes: 0 — done (also "no map"); 1 — git failed (no work tree, no commit yet) or the map cannot
+// be read or written; 2 — usage error or a refused put; 3 — <dir> belongs to no registered project with
+// a profile (what bin/profile answered, passed on).
+"use strict"
+
+const fs = require("node:fs")
+const path = require("node:path")
+const { spawnSync } = require("node:child_process")
+// The git to start, with the variable of an eval run (EVAL_GIT).
+const { git: GIT } = require("../hooks/eval-env.cjs")
+
+const USAGE = `usage: code-map path [-C <dir>]
+       code-map stale [-C <dir>]
+       code-map put <folder> [-C <dir>]   (description on stdin)
+exit: 0 done, 1 git or the map failed, 2 usage or a refused put, 3 no registered project`
+
+const BIN = path.dirname(fs.realpathSync(__filename))
+
+const out = (s) => process.stdout.write(s + "\n")
+const err = (s) => process.stderr.write(s + "\n")
+const die = (code, msg) => {
+    if (msg) err(`code-map: ${msg}`)
+    process.exit(code)
+}
+const usage = (msg) => {
+    if (msg) err(`code-map: ${msg}`)
+    err(USAGE)
+    process.exit(2)
+}
+
+// --- arguments -----------------------------------------------------------------
+const argv = process.argv.slice(2)
+let target = process.cwd()
+const positional = []
+for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    if (a === "-C") {
+        target = argv[++i]
+        if (!target) usage("-C needs a directory")
+    } else if (a === "-h" || a === "--help") {
+        out(USAGE)
+        process.exit(0)
+    } else if (a.startsWith("-") && a !== "-") usage(`unknown option: ${a}`)
+    else positional.push(a)
+}
+const [command, folderArg, ...extra] = positional
+if (!["path", "stale", "put"].includes(command)) usage(command ? `unknown subcommand: ${command}` : "a subcommand is needed")
+if (command === "put" ? folderArg === undefined || extra.length : folderArg !== undefined) usage()
+
+const dir = path.resolve(target)
+if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) usage(`not a directory: ${target}`)
+
+// --- git and the profile ---------------------------------------------------------
+const git = (...args) => {
+    const r = spawnSync(GIT, ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
+    return { ok: r.status === 0, stdout: r.stdout || "", stderr: (r.stderr || "").trim() || (r.error ? r.error.message : "") }
+}
+const line = (r) => r.stdout.replace(/\r?\n$/, "")
+
+const top = git("rev-parse", "--show-toplevel")
+if (!top.ok) die(1, `${dir} is not inside a git work tree: ${top.stderr}`)
+const checkout = line(top)
+const common = git("rev-parse", "--path-format=absolute", "--git-common-dir")
+if (!common.ok) die(1, `git cannot name the repository of ${dir}: ${common.stderr}`)
+// The main checkout: the folder that holds .git. A repository whose git folder is named otherwise
+// (a submodule's lives in .git/modules/<name>) is named by its own work tree.
+const commonDir = line(common)
+const repoName = path.basename(path.basename(commonDir) === ".git" ? path.dirname(commonDir) : checkout)
+
+const prof = spawnSync(process.execPath, [path.join(BIN, "profile"), "-C", dir, "--dir"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+})
+if (prof.status !== 0) {
+    if (prof.stderr) process.stderr.write(prof.stderr)
+    die(prof.status === 3 ? 3 : 1, `no profile for ${dir} (bin/profile exit ${prof.status}) — no place for the map`)
+}
+// shortcut: two repositories of one profile with the same folder name share a map file, redo when a profile names two such repositories.
+const MAP = path.join(prof.stdout.trim(), "state", "code-map", `${repoName}.md`)
+
+if (command === "path") {
+    out(MAP)
+    process.exit(0)
+}
+
+// --- the map -----------------------------------------------------------------------
+// { head: lines before the first section, sections: [{ folder, commit, body: lines after the commit line }] }
+function readMap() {
+    let text
+    try {
+        text = fs.readFileSync(MAP, "utf8")
+    } catch (e) {
+        if (e.code === "ENOENT") return null
+        die(1, `cannot read ${MAP}: ${e.message}`)
+    }
+    const lines = text.replace(/^﻿/, "").split(/\r?\n/)
+    const head = []
+    const sections = []
+    let cur = null
+    for (const l of lines) {
+        const h = /^## (.+?)\s*$/.exec(l)
+        if (h) {
+            cur = { folder: h[1], commit: null, body: [] }
+            sections.push(cur)
+        } else if (!cur) head.push(l)
+        else if (cur.commit === null && cur.body.every((b) => b.trim() === "") && /^commit: *([0-9a-f]{7,64}) *$/.test(l))
+            cur.commit = /^commit: *([0-9a-f]{7,64})/.exec(l)[1]
+        else cur.body.push(l)
+    }
+    return { head, sections }
+}
+
+const trimEnd = (ls) => {
+    const a = [...ls]
+    while (a.length && a[a.length - 1].trim() === "") a.pop()
+    return a
+}
+
+if (command === "stale") {
+    const map = readMap()
+    if (!map) {
+        out(`no map: ${MAP}`)
+        process.exit(0)
+    }
+    // One diff per commit: the sections of one map mostly share a few commits.
+    const changedSince = new Map()
+    const changed = (commit) => {
+        if (!changedSince.has(commit)) {
+            const r = git("diff", "--name-only", "--no-renames", "-z", commit, "HEAD", "--")
+            changedSince.set(commit, r.ok ? r.stdout.split("\0").filter(Boolean) : null)
+        }
+        return changedSince.get(commit)
+    }
+    const stale = []
+    for (const s of map.sections) {
+        if (!s.commit) {
+            err(`code-map: section ${s.folder} has no commit line — describe it again`)
+            stale.push(s.folder)
+            continue
+        }
+        const files = changed(s.commit)
+        if (files === null) {
+            err(`code-map: commit ${s.commit} of ${s.folder} is not in this repository — describe it again`)
+            stale.push(s.folder)
+        } else if (files.some((f) => s.folder === "." || f === s.folder || f.startsWith(s.folder + "/"))) stale.push(s.folder)
+    }
+    for (const f of stale) out(f)
+    err(`${stale.length} of ${map.sections.length} folders stale; map ${MAP}`)
+    process.exit(0)
+}
+
+// --- put ------------------------------------------------------------------------------
+// The folder as git names its files: from the real work tree, in the case the disk keeps, with `/`.
+// `src//main`, `src/./main`, `Src/Main` on a case-insensitive disk and a path through a symbolic link
+// all become the one name git prints, or the section would never go stale.
+const abs = path.resolve(checkout, folderArg)
+if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) usage(`${folderArg} is not a folder of ${checkout}`)
+const rel = path.relative(fs.realpathSync.native(checkout), fs.realpathSync.native(abs))
+if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) usage(`${folderArg} is outside the work tree ${checkout}`)
+const folder = rel === "" ? "." : rel.split(path.sep).join("/")
+// git never reports a file of an ignored folder (build output, node_modules): its section would never go stale.
+if (folder !== ".") {
+    const ignored = spawnSync(GIT, ["-C", checkout, "check-ignore", "-q", "--", folder], { stdio: "ignore", windowsHide: true })
+    if (ignored.status === 0) usage(`${folder} is ignored by git: no change in it would make its section stale`)
+    if (ignored.status !== 1) die(1, `git check-ignore failed on ${folder} (exit ${ignored.status})`)
+}
+
+if (process.stdin.isTTY) usage("the description comes on stdin")
+let desc
+try {
+    desc = fs.readFileSync(0, "utf8")
+} catch (e) {
+    // An empty or closed stdin on Windows can throw EOF instead of returning "".
+    desc = e.code === "EOF" ? "" : die(1, `cannot read stdin: ${e.message}`)
+}
+const descLines = trimEnd(desc.replace(/^﻿/, "").split(/\r?\n/))
+while (descLines.length && descLines[0].trim() === "") descLines.shift()
+if (!descLines.length) usage(`no description on stdin for ${folder}`)
+const heading = descLines.findIndex((l) => /^#{1,2}(\s|$)/.test(l))
+if (heading >= 0) usage(`description line ${heading + 1} starts a level-1 or level-2 heading; use ### or deeper`)
+
+const head = git("rev-parse", "--verify", "HEAD")
+if (!head.ok) die(1, `no commit in ${checkout} to describe the folder at: ${head.stderr}`)
+
+const map = readMap() || { head: [`# Code map: ${repoName}`, "", "Written by `code-map put`; `code-map stale` lists the folders whose files changed since their commit.", ""], sections: [] }
+const section = { folder, commit: line(head), body: ["", ...descLines] }
+const at = map.sections.findIndex((s) => s.folder === folder)
+if (at >= 0) map.sections[at] = section
+else map.sections.push(section)
+map.sections.sort((a, b) => (a.folder < b.folder ? -1 : a.folder > b.folder ? 1 : 0))
+
+const text = [
+    ...trimEnd(map.head),
+    "",
+    ...map.sections.flatMap((s) => [`## ${s.folder}`, ...(s.commit ? [`commit: ${s.commit}`] : []), ...trimEnd(s.body), ""]),
+].join("\n")
+// Written next to the map and renamed over it: a reader never sees half a file.
+// shortcut: two puts at the same moment keep only the later one's change, redo when scouts of one repository run in parallel often enough to lose sections.
+const tmp = `${MAP}.${process.pid}.tmp`
+try {
+    fs.mkdirSync(path.dirname(MAP), { recursive: true })
+    fs.writeFileSync(tmp, text)
+    fs.renameSync(tmp, MAP)
+} catch (e) {
+    try {
+        fs.rmSync(tmp, { force: true })
+    } catch {}
+    die(1, `cannot write ${MAP}: ${e.message}`)
+}
+err(`${folder}: described at ${section.commit.slice(0, 12)}; map ${MAP}`)

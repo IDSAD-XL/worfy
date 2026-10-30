@@ -2,7 +2,8 @@
 # Text of the Harness agents (harness/agents/{implementer,reviewer,scout}.md) after the move to the
 # plugin: English text, paths through ${CLAUDE_PLUGIN_ROOT}, the worfy:
 # prefix for skills and agents, EXIT=$? instead of the old Russian exit-code line, an unchanged
-# JSON report of the implementer, the English brief labels shared with skill epic-wave, and
+# JSON report of the implementer, the English brief labels shared with skill epic-wave, the code map
+# the scout reads first (bin/code-map), and
 # Cyrillic only in the strings other programs and files still expect.
 # Run: bash harness/bin/tests/agents-text.test.sh; exit code 0 means every check passed.
 # AGENTS_DIR checks another copy of the agents.
@@ -173,6 +174,25 @@ for a in reviewer scout; do
     [ "$(sed -n '1,/^---$/{1d;/^---$/d;p;}' "$AGENTS/$a.md" | grep '^tools:')" = "$TOOLS" ] \
         && ok "$a: tools: is the plugin qmd list" || bad "$a: tools: changed"
 done
+# The code map (bin/code-map): the scout reads it before the code and describes again only the stale
+# folders; `code-map put` is its one write.
+scout_order="$(awk '/^Order of work:/{s=1; next} s && /^$/{exit} s' "$AGENTS/scout.md" | tr '\n' ' ' | tr -s ' ')"
+first_step="${scout_order%% 2. *}"
+for p in '1. **The code map before the code.**' 'first run `${CLAUDE_PLUGIN_ROOT}/bin/code-map stale -C <repository>`' \
+    'Read the map (`code-map path -C <repository>` prints where it lies)' 'take every folder that is not stale from it as it stands' \
+    'Read the code only of the stale folders and of the folders the question needs that the map lacks, and rewrite only those: `code-map put <folder> -C <repository>`' \
+    'Do not rewrite a folder that is not stale.'; do
+    if printf '%s' "$first_step" | grep -qF -- "$p"; then ok "scout, first step of the order of work: '$p'"
+    else bad "scout, first step of the order of work: no '$p'"; fi
+done
+for p in 'You edit no files of the repository and run no stack; your one write is the code map (step 1).' \
+    'any writes other than `code-map put`'; do
+    tr '\n' ' ' <"$AGENTS/scout.md" | tr -s ' ' | grep -qF -- "$p" && ok "scout: '$p'" || bad "scout: no '$p'"
+done
+sed -n '1,/^---$/{1d;/^---$/d;p;}' "$AGENTS/scout.md" | grep '^description:' \
+    | grep -qF 'Edits no repository files and does not review; its one write is the code map outside the repository (`${CLAUDE_PLUGIN_ROOT}/bin/code-map put`).' \
+    && ok "scout: the description names code-map put as its one write" || bad "scout: the description does not name code-map put as its one write"
+[ -x "$ROOT/bin/code-map" ] && ok "scout: bin/code-map exists" || bad "scout: bin/code-map is missing"
 sed -n '1,/^---$/{1d;/^---$/d;p;}' "$AGENTS/implementer.md" | grep -q '^tools:' && bad "implementer: got a tools: line" \
     || ok "implementer: no tools: line (all tools, as before)"
 

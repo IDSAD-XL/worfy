@@ -59,7 +59,8 @@ export const UNMEASURED_SECONDS = 20
 /**
  * Seconds each shell test took, five at a time in one file: `windows` on the GitHub Windows runner (CI run
  * 40927995527 of 2026-10-29, jobs `harness-scripts 1/2` and `2/2`; qmd.test.sh is skipped there), `other`
- * on the owner's Mac in a whole `pnpm test --maxWorkers=9` (2026-10-29), used on macOS and Linux. They
+ * on the owner's Mac in a whole `pnpm test --maxWorkers=9` (2026-10-29; code-map.test.sh in the four
+ * harness-scripts files alone, 2026-10-30, and not yet on Windows), used on macOS and Linux. They
  * split the shell tests across HARNESS_SCRIPTS_FILES (inFile) and set the order they start in (startOrder).
  * shortcut: a measured snapshot, redo it when the harness-scripts files of a full run end further apart than the longest shell test takes.
  * It does not follow a shell test that grows slower, and a new one counts UNMEASURED_SECONDS.
@@ -148,6 +149,7 @@ export const MEASURED_SECONDS: { windows: Seconds; other: Seconds } = {
     'hooks/tests/gate-verdict.test.sh': 12,
     'bin/tests/plugin-neutral.test.sh': 11,
     'hooks/tests/gate-file-size.test.sh': 11,
+    'bin/tests/code-map.test.sh': 11,
     'bin/tests/ticket-mark.test.sh': 10,
     'hooks/tests/gate-scope.test.sh': 8,
     'hooks/tests/gate-verdict-inside.test.sh': 8,
