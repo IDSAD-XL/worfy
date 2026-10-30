@@ -113,7 +113,9 @@ without it. Why PowerShell is the default: [ADR-0054](../adr/0054-full-windows-p
 
 Windows has no login shell to ask for the environment, so worfy builds it the way a new sign-in does: the persistent variables
 of the machine and the user from the registry, on top of a short list of variables that Windows sets for the session
-([ADR-0057](../adr/0057-agent-environment-on-windows.md)). Nothing else of the process that started worfy reaches the shell.
+([ADR-0057](../adr/0057-agent-environment-on-windows.md)). Nothing else of the process that started worfy reaches the shell,
+with one exception: when the registry cannot be read, for example because a policy forbids `powershell.exe`, the shell gets
+only those session variables and the `Path` of worfy's process.
 
 ### Implementation
 
