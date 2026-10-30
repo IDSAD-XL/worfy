@@ -19,7 +19,9 @@
 // Gate is the last VERIFIED comment. CI is green at the last successful workflow run of the branch
 // that finished before the Gate (a rebase before the merge reruns CI after it); without the runs,
 // when every check of the PR's latest commit succeeded or was skipped, at the time the last one
-// finished. A step without data is an empty cell with
+// finished. Green → merge (the owner's Q1, worfy-throughput 14) runs from the later of the last
+// VERIFIED and a green CI on the PR head (its `ci-ok`, else its check runs) to the merge; its budget
+// (Q2) is 15 min, 30 min when the PR's diff has UI (UI_FILE). A step without data is an empty cell with
 // the reason, never zero. The report holds Ticket numbers, PR numbers and times only: no text of a
 // journal line, a comment or a transcript, and no path.
 //
@@ -49,7 +51,7 @@ Input
   --epic <name>        one Epic. Default: every Epic the journals name.
   --tickets <list>     only these Tickets, "01,02" (the summary then covers a Wave).
   --prs <file>         PR data as a JSON array of gh's fields (number, headRefName, state,
-                       createdAt, mergedAt, statusCheckRollup, comments, commits) instead of gh;
+                       createdAt, mergedAt, statusCheckRollup, comments, commits, files) instead of gh;
                        an optional "ciRuns" of a PR is gh run list's (status, conclusion,
                        event, updatedAt) for its branch.
   --repo <owner/repo>  the repository gh asks. Default: origin of the run (run-started), else
@@ -60,6 +62,10 @@ Output
   an empty cell is "—" with the reason — and the summary: the sum and the median of each step
   and the critical step by both. CSV durations are seconds; the rows "sum" and "median" of
   each Epic carry the summary.
+  Green → merge: from the later of the last VERIFIED and a green CI on the PR head (ci-ok)
+  to the merge. Budget: 15 min, 30 min when the PR's diff touches src/renderer .tsx, .css
+  or UI texts. The summary names each Ticket over budget and where the time after green
+  went: the gate (until the last review or check mark) or the merge queue.
   --csv                CSV instead of Markdown.
   --out <file>         write the report to this file instead of stdout. Refused inside the
                        journals, the worfy data folder, --root and ~/.claude.
@@ -94,7 +100,7 @@ const REFUSED = 2
 const FAILED = 1
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const TICKET = /^[0-9]+$/
-const GH_FIELDS = 'number,headRefName,state,createdAt,mergedAt,statusCheckRollup,comments,commits'
+const GH_FIELDS = 'number,headRefName,state,createdAt,mergedAt,statusCheckRollup,comments,commits,files'
 const GH_RUN_FIELDS = 'status,conclusion,event,createdAt,updatedAt'
 const GH_PARALLEL = 4
 const NOT_RUN = 'not run by Autopilot (no wave-started)'
@@ -106,7 +112,18 @@ const STEPS = [
   ['ci_to_gate', 'CI → Gate', 'ci', 'gate'],
   ['gate_to_merge', 'Gate → merge', 'gate', 'merge'],
 ]
-const MARK_TITLES = { start: 'claim', pr: 'PR', ci: 'CI', gate: 'Gate', merge: 'merge' }
+const MARK_TITLES = { start: 'claim', pr: 'PR', ci: 'CI', gate: 'Gate', green: 'green', merge: 'merge' }
+
+/** The budget of Green → merge (owner's Q2, worfy-throughput 14): 15 min for a Ticket without UI, 30 min with UI. */
+const BUDGET_MS = { noUi: 15 * 60_000, ui: 30 * 60_000 }
+/**
+ * A file whose change makes a Ticket one "with UI" (owner's answer Q8): `.tsx` and `.css` under
+ * src/renderer, the renderer's index.html and the renderer's modules of UI texts.
+ * shortcut: UI texts are found by the module's name (hints, notice, *-text, labels, strings, copy,
+ * messages), so a text changed inside another renderer `.ts` file is not seen; redo when the
+ * project keeps its UI texts in named files or the owner lists them.
+ */
+const UI_FILE = /^src\/renderer\/(?:.+\.(?:tsx|css)|index\.html|(?:.+\/)?(?:[^/]*[-.])?(?:text|texts|hints|notice|labels?|strings|copy|messages)\.ts)$/
 
 /**
  * The journals folder: WORFY_DATA_DIR/autopilot when it is set, else that of the app's data folder on
@@ -443,6 +460,75 @@ function ciMark(pr, gate) {
   return last === null ? { why: 'no time on the CI checks' } : { at: last }
 }
 
+const isCheckRun = (check) => check && typeof check === 'object' && check.__typename !== 'StatusContext' && !('state' in check && !('conclusion' in check))
+const checkTime = (check) => time(check.completedAt) ?? time(check.startedAt)
+
+/**
+ * CI on the PR's head commit: the `ci-ok` check when the head has one (ADR-0083), else every check
+ * run of the head. { at } — green, at null when the head has no CI; or { why }. Commit statuses
+ * (`review`, `check/windows`) are the Orchestrator's merge marks, not CI.
+ */
+function headCi(pr) {
+  const runs = (Array.isArray(pr.statusCheckRollup) ? pr.statusCheckRollup : []).filter(isCheckRun)
+  const oks = runs.filter((check) => check.name === 'ci-ok')
+  if (oks.length > 0) {
+    const ok = oks.reduce((a, b) => ((checkTime(b) ?? 0) >= (checkTime(a) ?? 0) ? b : a))
+    if (ok.status !== 'COMPLETED') return { why: 'ci-ok not finished on the PR head' }
+    if (ok.conclusion !== 'SUCCESS') return { why: `ci-ok not green on the PR head (${ok.conclusion})` }
+    return time(ok.completedAt) === null ? { why: 'no time on ci-ok' } : { at: time(ok.completedAt) }
+  }
+  let last = null
+  for (const check of runs) {
+    const name = check.name ?? 'check'
+    if (check.status !== 'COMPLETED') return { why: `CI not finished on the PR head (${name})` }
+    if (!['SUCCESS', 'SKIPPED', 'NEUTRAL'].includes(check.conclusion)) return { why: `CI not green on the PR head (${name}: ${check.conclusion})` }
+    const at = time(check.completedAt)
+    if (at !== null && (last === null || at > last)) last = at
+  }
+  if (runs.length > 0 && last === null) return { why: 'no time on the CI checks' }
+  return { at: last }
+}
+
+/**
+ * "Checks green" of the owner's Q1: the later of the last VERIFIED and a green CI on the PR head.
+ * A push after the VERIFIED (a CI fix) moves it to that head's green CI. { at, by } or { why }.
+ */
+function greenMark(pr, gate) {
+  if (gate === null) return { why: 'no VERIFIED comment on the PR' }
+  const ci = headCi(pr)
+  if (ci.why !== undefined) return ci
+  return ci.at !== null && ci.at > gate ? { at: ci.at, by: 'CI' } : { at: gate, by: 'Gate' }
+}
+
+/** Whether the PR's diff makes the Ticket one with UI; null without the PR's file list. */
+function withUi(pr) {
+  if (!Array.isArray(pr.files)) return null
+  return pr.files.some((file) => UI_FILE.test(typeof file === 'string' ? file : String(file?.path ?? '')))
+}
+
+/**
+ * Green → merge against its budget, and where the time after green went: until the last merge mark
+ * of the head (`review`, `check/windows`) — the gate — and from it to the merge — the merge queue.
+ */
+function budgetOf(pr, marks, step) {
+  const ui = pr ? withUi(pr) : null
+  const budget = { ui, ms: ui === null ? null : ui ? BUDGET_MS.ui : BUDGET_MS.noUi }
+  if (step.ms === undefined) return { ...budget, why: step.why }
+  if (ui === null) return { ...budget, why: 'no file list of the PR' }
+  const green = marks.green.at
+  const merge = marks.merge.at
+  let lastMark = green
+  for (const check of Array.isArray(pr.statusCheckRollup) ? pr.statusCheckRollup : []) {
+    if (!check || isCheckRun(check)) continue
+    const at = time(check.startedAt) ?? time(check.createdAt)
+    if (at !== null && at > lastMark && at <= merge) lastMark = at
+  }
+  const gate = lastMark - green
+  const queue = merge - lastMark
+  const over = step.ms > budget.ms
+  return { ...budget, over, gate, queue, step: over ? (gate > queue ? 'gate' : 'merge queue') : null }
+}
+
 const VERDICT = /^\s*(NARROW:\s*)?(VERIFIED|REJECTED)\b/
 const NARROW = /^\s*NARROW:/
 
@@ -496,8 +582,9 @@ function measure(ticket, prData) {
     marks.pr = time(pr.createdAt) !== null ? { at: time(pr.createdAt) } : { why: 'no opening time on the PR' }
     marks.gate = found.gate !== null ? { at: found.gate } : { why: 'no VERIFIED comment on the PR' }
     marks.ci = ciMark(pr, found.gate)
+    marks.green = greenMark(pr, found.gate)
     marks.merge = time(pr.mergedAt) !== null ? { at: time(pr.mergedAt) } : { why: `PR not merged (${pr.state ?? 'unknown'})` }
-  } else for (const mark of ['pr', 'ci', 'gate', 'merge']) marks[mark] = { why: prWhy }
+  } else for (const mark of ['pr', 'ci', 'gate', 'green', 'merge']) marks[mark] = { why: prWhy }
   const span = (from, to) => {
     const a = marks[from]
     const b = marks[to]
@@ -508,6 +595,8 @@ function measure(ticket, prData) {
   }
   const steps = Object.fromEntries(STEPS.map(([key, , from, to]) => [key, span(from, to)]))
   steps.total = span('start', 'merge')
+  steps.green_to_merge = span('green', 'merge')
+  const budget = budgetOf(pr, marks, steps.green_to_merge)
   if (journal === null) steps.limits_wait = { why: NOT_RUN }
   else if (journal.openWait) steps.limits_wait = { why: 'a wait has no end in the journal' }
   else steps.limits_wait = { ms: journal.wait }
@@ -517,10 +606,10 @@ function measure(ticket, prData) {
   else if (journal !== null) narrow = { n: journal.narrow.started }
   else narrow = { why: prWhy }
   const stops = journal === null ? { why: NOT_RUN } : { n: journal.stops.length, reasons: journal.stops }
-  return { ticket, pr, start: marks.start.at ?? null, startWhy: marks.start.why, source, steps, rework, narrow, stops }
+  return { ticket, pr, start: marks.start.at ?? null, startWhy: marks.start.why, source, steps, greenBy: marks.green.by ?? null, budget, rework, narrow, stops }
 }
 
-const COLUMNS = [...STEPS.map(([key, title]) => [key, title]), ['total', 'Total'], ['limits_wait', 'Limits wait']]
+const COLUMNS = [...STEPS.map(([key, title]) => [key, title]), ['total', 'Total'], ['limits_wait', 'Limits wait'], ['green_to_merge', 'Green → merge']]
 
 function median(values) {
   const sorted = [...values].sort((a, b) => a - b)
@@ -562,6 +651,28 @@ function count(value) {
   return value.reasons?.length ? `${value.n} (${value.reasons.join('; ')})` : String(value.n)
 }
 
+const uiText = (ui) => (ui ? 'UI' : 'no UI')
+
+function budgetCell(budget) {
+  if (budget.over === undefined) return empty(budget.why)
+  return `${budget.over ? 'over' : 'in'} (budget ${human(budget.ms)}, ${uiText(budget.ui)})`
+}
+
+/** The Tickets over the budget of Green → merge: number, PR, time, budget and where the time after green went. */
+function overBudgetLines(rows) {
+  const known = rows.filter((row) => row.budget.over !== undefined)
+  const over = known.filter((row) => row.budget.over)
+  const lines = [
+    `Over budget: ${over.length} of ${known.length} Tickets with data (Green → merge over ${human(BUDGET_MS.noUi)} without UI, over ${human(BUDGET_MS.ui)} with UI).`,
+  ]
+  for (const { ticket, pr, steps, greenBy, budget } of over) {
+    lines.push(
+      `- ${ticket.num}, PR #${pr.number}: ${human(steps.green_to_merge.ms)}, budget ${human(budget.ms)} (${uiText(budget.ui)}); green by ${greenBy}; after green: gate ${human(budget.gate)}, merge queue ${human(budget.queue)} — most went to ${budget.step}.`,
+    )
+  }
+  return lines
+}
+
 function sourcesLine(journal, options) {
   const files = journal.found ? `${journal.files.length} files` : 'no journals folder (0 files)'
   const skipped = journal.notJson + journal.unknownKind + journal.badFields
@@ -578,13 +689,13 @@ function toMarkdown(groups, walked, journal, options) {
   for (const { epic, rows } of groups) {
     if (rows.length === 0) continue
     lines.push(`## ${epic}`, '')
-    lines.push(`| Ticket | Status | PR | Start | ${COLUMNS.map(([, title]) => title).join(' | ')} | Rework rounds | Narrow rounds | Stops |`)
-    lines.push(`|${' --- |'.repeat(COLUMNS.length + 7)}`)
+    lines.push(`| Ticket | Status | PR | Start | ${COLUMNS.map(([, title]) => title).join(' | ')} | Budget | Rework rounds | Narrow rounds | Stops |`)
+    lines.push(`|${' --- |'.repeat(COLUMNS.length + 8)}`)
     for (const row of rows) {
       const start = row.start !== null ? `${clock(row.start)} (${row.source})` : empty(row.startWhy)
       const steps = COLUMNS.map(([key]) => (row.steps[key].ms !== undefined ? human(row.steps[key].ms) : empty(row.steps[key].why)))
       const pr = row.pr ? `#${row.pr.number}` : '—'
-      lines.push(`| ${row.ticket.num} | ${row.ticket.file?.state || '—'} | ${pr} | ${start} | ${steps.join(' | ')} | ${count(row.rework)} | ${count(row.narrow)} | ${count(row.stops)} |`)
+      lines.push(`| ${row.ticket.num} | ${row.ticket.file?.state || '—'} | ${pr} | ${start} | ${steps.join(' | ')} | ${budgetCell(row.budget)} | ${count(row.rework)} | ${count(row.narrow)} | ${count(row.stops)} |`)
     }
     const summary = summarize(rows)
     lines.push('', `Summary of ${rows.length} Tickets:`, '', '| Step | Tickets with data | Sum | Median |', '| --- | --- | --- | --- |')
@@ -597,6 +708,7 @@ function toMarkdown(groups, walked, journal, options) {
     lines.push('')
     if (bySum === null) lines.push('Critical step: no step has data.')
     else lines.push(`Critical step: by sum — ${bySum.title} (${human(bySum.value)}); by median — ${byMedian.title} (${human(byMedian.value)}).`)
+    lines.push(...overBudgetLines(rows))
     const total = (pick) => rows.reduce((n, row) => n + (pick(row).n ?? 0), 0)
     lines.push(
       `Limits wait in the runs of this Epic: ${human(walked.epics.get(epic)?.wait ?? 0)}${walked.epics.get(epic)?.openWait ? ' and a wait with no end in the journal' : ''}. Rework rounds: ${total((r) => r.rework)}. Narrow rounds: ${total((r) => r.narrow)}. Stops: ${total((r) => r.stops)}.`,
@@ -614,6 +726,14 @@ const CSV_HEADER = [
   'start',
   'start_source',
   ...COLUMNS.flatMap(([key]) => [`${key}_s`, `${key}_why`]),
+  'green_by',
+  'ui',
+  'budget_s',
+  'over_budget',
+  'budget_why',
+  'after_green_gate_s',
+  'after_green_queue_s',
+  'over_budget_step',
   'rework_rounds',
   'rework_why',
   'narrow_rounds',
@@ -641,6 +761,14 @@ function toCsv(groups) {
         pr: row.pr?.number ?? '',
         start: row.start !== null ? new Date(row.start).toISOString() : '',
         start_source: row.source,
+        green_by: row.greenBy,
+        ui: row.budget.ui === null ? '' : row.budget.ui ? 'yes' : 'no',
+        budget_s: seconds(row.budget.ms),
+        over_budget: row.budget.over === undefined ? '' : row.budget.over ? 'yes' : 'no',
+        budget_why: row.budget.why,
+        after_green_gate_s: seconds(row.budget.gate),
+        after_green_queue_s: seconds(row.budget.queue),
+        over_budget_step: row.budget.step,
         rework_rounds: row.rework.n,
         rework_why: row.rework.why,
         narrow_rounds: row.narrow.n,
