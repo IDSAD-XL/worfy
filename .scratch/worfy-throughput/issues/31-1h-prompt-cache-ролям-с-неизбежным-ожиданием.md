@@ -37,11 +37,10 @@ https://code.claude.com/docs/en/prompt-caching.md («Cache lifetime», «Subagen
 ## Готово, когда
 
 - [x] «Итог»: таблица по ролям — простои, перезапись в $, ожидаемая разница с 1 h; решение по каждой роли.
-- [ ] Для каждой роли с `cacheTtl: 1h` — `agents-text.test.sh` проверяет поле; в транскрипте первого такого
+- [x] Для каждой роли с `cacheTtl: 1h` — `agents-text.test.sh` проверяет поле; в транскрипте первого такого
       агента после обновления Stable copy `usage.cache_creation.ephemeral_1h_input_tokens` > 0 (вручную, в
-      «Итог»). *Проверка поля в `agents-text.test.sh` — сделана (implementer); ручная проверка транскрипта
-      после обновления Stable — за Orchestrator-ом.*
-- [ ] Shell test-ы Harness — exit 0; условие merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
+      «Итог»). *Проверено 2026-10-30 ~06:00Z, Stable 408b25c7, implementer onboarding 05: «Итог».*
+- [x] Shell test-ы Harness — exit 0; условие merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
 - [ ] Через неделю — перезапись после простоя по Ticket-у 19 против базы, в «Итог». *Не implementer-а: замер Orchestrator-а около
       2026-11-06, `node scripts/agent-cost.mjs --idle --since 2026-10-30`.*
 
@@ -109,3 +108,10 @@ scout-а поля нет, `cacheTtl` верхнего уровня нет (mutan
 
 Осталось: ручная проверка `ephemeral_1h_input_tokens` > 0 у первого implementer-а после обновления Stable
 и повторный замер через неделю — пункты «Готово, когда» выше.
+
+### Проверка после обновления Stable (2026-10-30)
+
+Stable на Mac — 408b25c7 (#1040), `agents/implementer.md` — `experimental.cacheTtl: 1h`. Первый implementer после
+обновления (onboarding 05), первые ~10 вызовов: `ephemeral_1h_input_tokens` — 403, 7629, 30842 (> 0),
+`ephemeral_5m_input_tokens` — 0 во всех. Часовой cache включился, пятиминутный implementer не пишет. Merge #1040 был
+по `ci-ok` success.

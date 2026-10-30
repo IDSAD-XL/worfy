@@ -15,7 +15,7 @@
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–26; 12 — приёмка; открыты 27 (pointer, hover), 28 (drop, превью в чате).
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
 - `worfy-polish`: 44/45, влиты 01–40, 42 (#822), 45 (#975). 39 — #1012 (долг ревью #754). 41 — часть 1 влита (#1028, карантин 11 из 15), часть 2 — ПК; 43 — flaky `afterAll` в `harness-evals`.
-- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 54/59; открыты 05, 14, 30, 31, 43. CI живёт с текущим (58, 59). 43: eco/full сравнён (#1038), worfy остаётся full, eco проверяет друг владельца. 31 влит (#1040), замер 2026-11-06; 30 ждёт Wave; 14 ждёт 10.
+- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 54/59; открыты 05, 14, 30, 31, 43. 43: worfy на full, eco проверяет друг владельца. 31: замер 2026-11-06. 57: множитель 3, ПК — 8 worker-ов.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
@@ -55,7 +55,7 @@
 - Очередь мержа (владелец, Q7, Q10) пройдена: #517, #496, #508 влиты; `worfy-pipeline` 08 влит (#552).
 - `worfy-harness` 50, 51 — платный повтор кейса eval (`~/.docker/bin` вынести на время run-а); 52 — Session без plugin-а для задач и платные шаги 2б, 4, 5.
 - `worfy-windows`, очередь ПК (2026-10-24): 113 (замер на worfy, запущенной вручную) → 07 (первая настоящая Wave на ПК) → 15 (сначала исследование краша qmd, Q3), 67, 68 → приёмка 16; 61 — low; 73 — правка на ПК (`worfy-windows/70-lows`).
-- `worfy-onboarding` (Getting started на Demo project, [spec](.scratch/worfy-onboarding/spec.md)): 5/12, влиты 01–04, 11; дальше 05.
+- `worfy-onboarding` (Getting started на Demo project, [spec](.scratch/worfy-onboarding/spec.md)): 7/12, влиты 01–06, 11; в работе 07 (#1044), дальше 08 и 09, 10, приёмка 12 с владельцем.
 - Приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - После `pnpm install:stable` — первый `retro` на настоящем сбое (`worfy-reliability` 09, пункт «(вручную)»).

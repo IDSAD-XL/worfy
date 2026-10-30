@@ -1,7 +1,8 @@
 # 05 — Создание Demo project одной кнопкой
 
 Type: task
-Status: open
+Status: done 2026-10-30T07:12Z
+PR: #1042
 Blocked by: 03, 04, 11
 Source: решения владельца 2026-10-26, пункты 2 (шаг «Open the demo project» — одна кнопка), 5 (локальный репозиторий в домашней папке, на Windows не в `%TEMP%`, Profile `worfy-demo` на установленном Harness), 6 (по умолчанию подешевле), 8 (macOS и Windows одинаково); [spec.md](../spec.md), «Решено без владельца», Р5, Р6, Р13 (решено без владельца, подтверждено владельцем 2026-10-26)
 
@@ -87,4 +88,19 @@ Source: решения владельца 2026-10-26, пункты 2 (шаг «O
 
 ## Итог
 
-Заполняется при закрытии.
+PR #1042 (merge c4f6518d). Канал `gettingStarted.createDemo` и событие `gettingStarted.createProgress`, состояние
+`getting-started.json` (`demo`), `createDemo` в `src/main/getting-started/demo.ts`. Contract test
+`test/contract/getting-started-demo.test.ts` — настоящий `project-connect` во временной `HARNESS_HOME`, 12 case-ов.
+
+- Вне следа: `Orchestrators.open` (`src/main/agent/orchestrator.ts`) получил необязательный `firstSettings` — Orchestrator
+  demo открывается сразу с Sonnet / medium, до выбора Project-а; без параметра поведение прежнее.
+- Gate, круг 1 — REJECTED: пересоздание demo после ручного удаления папки снимало любой Profile `worfy-demo`, в том числе
+  чужой; test-ы отката не ловили удаление всей home. Круг 2 — VERIFIED: Profile снимается, только если все его записи
+  gate registry указывают на папку demo; папку занимает сам `mkdirSync` (EEXIST → следующее имя); test-ы отката
+  проверяют, что home и соседний файл целы. Мутанты: снятие всегда / никогда, откат `dirname(folder)`, гонка EEXIST.
+- Тексты хода и отказов — в spec.md, «Тексты (черновик)», с пометкой «onboarding 05».
+- CI: `windows-e2e (1/4)` красный на `browser.spec.ts` (ширина окна) и `card-api.spec.ts` — вне кода тикета, на `main`
+  408b25c7 тоже красный другой shard; перезапуск только упавших job-ов — зелёный.
+- Не проверено: пункт «(вручную)» — dev-сборка забирает фокус окна и требует установленный Harness во временной home.
+- Debt (low): ветка realpath в `namesFolder` (`demo.ts:193`) без test-а; при нечитаемом gate registry отказ говорит
+  «Profile, который этот demo не создавал», хотя он мог быть нашим (`demo.ts:205`, `:290`).
