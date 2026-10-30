@@ -16,6 +16,7 @@
         "test/e2e/finder-path.spec.ts",
         "test/e2e/first-run.spec.ts",
         "test/e2e/getting-started.spec.ts",
+        "test/e2e/getting-started-hints.spec.ts",
         "test/e2e/harness-install.spec.ts",
         "test/e2e/harness-migrate.spec.ts",
         "test/e2e/launch.spec.ts",
@@ -25,7 +26,7 @@
         "test/e2e/settings-health.spec.ts",
         "test/e2e/toolbar.spec.ts"
       ],
-      "why": "The app reads its Harness copy (out/harness, src/main/harness/bundled.ts) only to install or migrate it (ipc/harness.ts, ipc/harness-migration.ts), for profiles/draft.schema.json (ipc/projects.ts) and for its version; e2e sessions run the fake agent. These specs copy out/harness or install it and run its scripts (finder-path: bin/profile, bin/ticket, bin/epic-status; projects-connect: bin/project-connect, bin/profile; getting-started: bin/project-connect through the Demo project's creation; first-run: profile --help), read hooks/rules and .mcp.json (harness-migrate, select through legacy-claude-home.ts) check the Harness status (settings-health, toolbar), or check the executable bits of out/harness (packaged.spec.ts, its untagged block for the dev run of the unpacked build, expectHarnessCopy). Every other spec writes its own stub scripts. Left out on purpose: .claude-plugin/ (the version every spec sees) and package.json."
+      "why": "The app reads its Harness copy (out/harness, src/main/harness/bundled.ts) only to install or migrate it (ipc/harness.ts, ipc/harness-migration.ts), for profiles/draft.schema.json (ipc/projects.ts) and for its version; e2e sessions run the fake agent. These specs copy out/harness or install it and run its scripts (finder-path: bin/profile, bin/ticket, bin/epic-status; projects-connect: bin/project-connect, bin/profile; getting-started, getting-started-hints: bin/project-connect through the Demo project's creation; first-run: profile --help), read hooks/rules and .mcp.json (harness-migrate, select through legacy-claude-home.ts) check the Harness status (settings-health, toolbar), or check the executable bits of out/harness (packaged.spec.ts, its untagged block for the dev run of the unpacked build, expectHarnessCopy). Every other spec writes its own stub scripts. Left out on purpose: .claude-plugin/ (the version every spec sees) and package.json."
     },
     {
       "paths": [

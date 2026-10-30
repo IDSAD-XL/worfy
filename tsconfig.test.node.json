@@ -34,6 +34,7 @@
     "src/renderer/platform.ts",
     "src/renderer/projects/read-only-now.ts",
     "src/renderer/toast/toasts.ts",
+    "src/renderer/getting-started/hints.ts",
     "src/renderer/toast/placement.ts",
     "test/app-url.ts",
     "test/big-transcript.ts",

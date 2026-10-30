@@ -26,11 +26,18 @@
 // Everything that reaches outside — the home and temporary folders, git, the Harness script, the
 // Project list, the Orchestrators, the state file — comes in through DemoDeps, so the contract test
 // runs it in a temporary folder.
+//
+// The cost switch (ticket 09, DemoCostSwitch): the settings of the demo's Orchestrator Node are
+// saved first, so a Session that starts meanwhile starts with them; then a live Session of that
+// Orchestrator gets the change as `agent.configure` gives it, in force from its next turn; then the
+// demo record keeps the cost. A live Session that refuses the change makes the call reject after
+// that, with the reason for the switch's line. Calls run one after another, so the last one wins
+// everywhere, and one that rejected does not stop the next.
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import type { SessionSettings } from '../../shared/agent/settings'
-import type { CreateDemoResult } from '../../shared/ipc/getting-started'
+import { DEFAULT_SETTINGS, type SessionSettings, type SettingsChange } from '../../shared/agent/settings'
+import type { CreateDemoResult, DemoCost, GettingStartedSnapshot } from '../../shared/ipc/getting-started'
 import { isInsidePath } from '../claude-home/registry'
 import { GIT_IDENTITY_COMMANDS } from '../first-run/checks'
 import { readGateConfig } from '../gate/state'
@@ -46,6 +53,15 @@ export const DEMO_PROFILE = 'worfy-demo'
 
 /** "Cheaper" of decision 5: the settings the demo's Orchestrator starts with. */
 export const CHEAPER_SETTINGS: SessionSettings = { model: 'sonnet', effort: 'medium', permissionMode: 'bypassPermissions' }
+
+/**
+ * The model and effort of each cost of the demo's Orchestrator (decision 5): "cheaper" as it
+ * starts, "more expensive" Opus with the model's default effort. The permission mode stays as it is.
+ */
+export const COST_SETTINGS: Readonly<Record<DemoCost, Pick<SessionSettings, 'model' | 'effort'>>> = {
+  cheaper: { model: CHEAPER_SETTINGS.model, effort: CHEAPER_SETTINGS.effort },
+  'more-expensive': { model: 'opus', effort: null },
+}
 
 /** How many folder names are tried: worfy-demo, worfy-demo-2 … worfy-demo-<this>. */
 const FOLDER_TRIES = 100
@@ -346,5 +362,71 @@ export class DemoCreator {
       this.running = null
     })
     return this.running
+  }
+}
+
+/** A live Session of the demo's Orchestrator, as much of it as the cost switch changes. */
+export interface CostSession {
+  configure(change: SettingsChange): Promise<SessionSettings>
+}
+
+export interface CostDeps {
+  state: Pick<GettingStartedState, 'demo' | 'setDemo' | 'read'>
+  /** The id of the Project's Orchestrator Node in its Layout; null when it has none yet. */
+  orchestratorNode: (projectId: string) => string | null
+  /** Where the picks of a Node are kept (src/main/agent/session-settings.ts). */
+  settings: {
+    read(projectId: string, nodeId: string): SessionSettings | undefined
+    write(projectId: string, nodeId: string, settings: SessionSettings): void
+  }
+  /**
+   * The live Session of the Orchestrator behind `nodeId`, once one that is starting has started;
+   * null when the Orchestrator is not open. Opens none.
+   */
+  liveSession: (projectId: string, nodeId: string) => Promise<CostSession | null>
+}
+
+/** The reason setCost answers when the live Session refused the change; `<reason>` is its error. */
+export const costNotAppliedReason = (reason: string): string =>
+  `Saved for the next start of the Orchestrator; its running Session kept its settings: ${reason}`
+
+/**
+ * Sets the cost of the demo (decision 5): the Node's saved picks, its live Session, the record.
+ * Answers the state. When the live Session refuses the change, the pick stays saved and recorded
+ * (its next start takes it) and the call rejects with costNotAppliedReason, for the switch's line.
+ */
+export async function setDemoCost(deps: CostDeps, cost: DemoCost): Promise<GettingStartedSnapshot> {
+  const record = deps.state.demo()
+  if (record === null) throw new Error('there is no demo project')
+  const change = COST_SETTINGS[cost]
+  const nodeId = deps.orchestratorNode(record.projectId)
+  let refused: string | null = null
+  if (nodeId !== null) {
+    // Saved before the live Session is looked for: one that starts in between starts with these.
+    deps.settings.write(record.projectId, nodeId, { ...(deps.settings.read(record.projectId, nodeId) ?? DEFAULT_SETTINGS), ...change })
+    const session = await deps.liveSession(record.projectId, nodeId)
+    try {
+      await session?.configure(change)
+    } catch (error) {
+      refused = messageOf(error) || 'no reason given'
+    }
+  }
+  const now = deps.state.demo()
+  if (now !== null && now.projectId === record.projectId) deps.state.setDemo({ ...now, cost })
+  if (refused !== null) throw new Error(costNotAppliedReason(refused))
+  return deps.state.read()
+}
+
+/** The cost switch of the app: one call at a time, so of two calls in a row the second one wins. */
+export class DemoCostSwitch {
+  private last: Promise<unknown> = Promise.resolve()
+
+  /** `deps` is asked on each call, so building the switch does no I/O. */
+  constructor(private readonly deps: () => CostDeps) {}
+
+  set(cost: DemoCost): Promise<GettingStartedSnapshot> {
+    const task = this.last.catch(() => undefined).then(() => setDemoCost(this.deps(), cost))
+    this.last = task
+    return task
   }
 }

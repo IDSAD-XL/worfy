@@ -1,7 +1,8 @@
 // The state of Getting started (worfy-onboarding epic): worfy's own file `getting-started.json` in
 // its data folder (ADR-0005), next to `first-run.json`. Ticket 05 keeps the Demo project there
 // (`demo`); ticket 06 adds whether the user was new or existing, whether the section shows, the
-// steps marked with their times, whether a rework round was seen and whether the notice was shown.
+// steps marked with their times, whether a rework round was seen and whether the notice was shown;
+// ticket 09, the hints of the demo's Stages already shown (`hintsSeen`, not in the snapshot).
 //
 // The file goes through src/main/storage/json-file.ts: the write is atomic (a temporary file renamed
 // over the target), and a file that does not read is set aside and the state starts empty. Keys
@@ -21,6 +22,7 @@ import {
   gettingStartedStepSchema,
   gettingStartedUserSchema,
   type DemoRecord,
+  type GettingStartedHint,
   type GettingStartedSection,
   type GettingStartedSnapshot,
   type GettingStartedStep,
@@ -40,6 +42,7 @@ const fileSchema = z.looseObject({
   steps: z.unknown().optional(),
   reworkSeen: z.unknown().optional(),
   noticeShown: z.unknown().optional(),
+  hintsSeen: z.unknown().optional(),
 })
 type StateFile = z.output<typeof fileSchema>
 
@@ -144,6 +147,22 @@ export class GettingStartedState {
   /** The notice for an existing user was shown (ticket 08). */
   noticeSeen(): GettingStartedSnapshot {
     return this.snapshotOf(this.update((file) => ({ ...file, noticeShown: true })))
+  }
+
+  /**
+   * Records that the hint `id` of the demo Ticket's Stages was shown (ticket 09). True when this
+   * call recorded it: the one caller that shows its toast. Hints the file holds that this build does
+   * not know are kept.
+   */
+  hintSeen(id: GettingStartedHint): boolean {
+    let first = false
+    this.update((file) => {
+      const seen = Array.isArray(file.hintsSeen) ? file.hintsSeen.filter((each): each is string => typeof each === 'string') : []
+      if (seen.includes(id)) return file
+      first = true
+      return { ...file, hintsSeen: [...seen, id] }
+    })
+    return first
   }
 
   /**

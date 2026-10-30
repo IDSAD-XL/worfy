@@ -12,6 +12,10 @@
 // Machine and made active, with its Orchestrator on the cheaper settings. While it runs, every window
 // hears `gettingStarted.createProgress` with the step it is on. main: src/main/getting-started/demo.ts
 // and src/main/ipc/getting-started.ts.
+//
+// Ticket 09: `gettingStarted.hintSeen` records that a hint of the demo Ticket's Stages was shown as a
+// toast, so it is shown once (decision 10); `gettingStarted.setCost` switches the demo's Orchestrator
+// between the cheaper and the more expensive settings (decision 5).
 import { z } from 'zod'
 import { eventChannel, invokeChannel } from './channels'
 
@@ -86,6 +90,27 @@ export const gettingStartedCreateDemo = invokeChannel('gettingStarted.createDemo
 /** The step `gettingStarted.createDemo` is on, one line. */
 export const gettingStartedCreateProgress = eventChannel('gettingStarted.createProgress', z.object({ step: z.string().min(1) }), 'local')
 
+/** The demo's Epic and its one Ticket, `todo 01` (spec, decision 14; src/main/getting-started/demo-template.ts). */
+export const DEMO_TICKET_REF = { epic: 'todo', num: 1 } as const
+
+/** The hints of the demo Ticket's Stages (decision 10; src/renderer/getting-started/hints.ts). */
+export const GETTING_STARTED_HINTS = ['epic-ticket', 'implementing', 'agent-review', 'rework', 'gate-merge', 'done'] as const
+export const gettingStartedHintSchema = z.enum(GETTING_STARTED_HINTS)
+export type GettingStartedHint = z.infer<typeof gettingStartedHintSchema>
+
+/**
+ * A hint was shown. `first` is true for the one call that recorded it: only that window shows its
+ * toast, so a hint is a toast once, across windows and restarts.
+ */
+export const gettingStartedHintSeen = invokeChannel('gettingStarted.hintSeen', z.object({ id: gettingStartedHintSchema }), z.object({ first: z.boolean() }), 'local')
+
+/**
+ * Sets the settings of the demo's Orchestrator (decision 5) and records `cost` in the demo record:
+ * saved for its Node, and applied to its live Session from the next turn, as `agent.configure` does.
+ * Rejects when there is no demo. Answers the state.
+ */
+export const gettingStartedSetCost = invokeChannel('gettingStarted.setCost', z.object({ cost: demoCostSchema }), gettingStartedSnapshotSchema, 'local')
+
 declare module './channels' {
   interface IpcContract {
     'gettingStarted.createDemo': typeof gettingStartedCreateDemo
@@ -94,5 +119,7 @@ declare module './channels' {
     'gettingStarted.changed': typeof gettingStartedChanged
     'gettingStarted.setSection': typeof gettingStartedSetSection
     'gettingStarted.noticeSeen': typeof gettingStartedNoticeSeen
+    'gettingStarted.hintSeen': typeof gettingStartedHintSeen
+    'gettingStarted.setCost': typeof gettingStartedSetCost
   }
 }

@@ -212,6 +212,10 @@ Session проектирования 2026-10-26. Номера — как у вл
 - **Р10. Подсказки Stage-й** (Ticket 09) — решено без владельца, подтверждено владельцем 2026-10-26. Строка под текущим шагом
   раздела и один toast `info` на подсказку, с `projectId` Demo project (toast виден, только пока demo
   активен).
+  Подсказка «Epic и Ticket» (шаг 3) — после ответа Orchestrator-а: шаг 3 отмечен, шаг 4 ещё нет, Ticket
+  в Queued (решено без владельца, onboarding 09, подтвердить). Причина — высота раздела: показанная
+  сразу после создания demo, подсказка вместе с переключателем стоимости не помещается в раздел окна
+  высотой 1000 px. Цена — кто пропустил шаг 3, эту подсказку не увидит.
 - **Р11. Записанный пример доработки** (Ticket 09) — решено без владельца, подтверждено владельцем 2026-10-26. Короткий текст,
   вшитый в приложение: вердикт ревьюера REJECTED с находкой про уже сделанную задачу, правка
   исполнителя и повторный вердикт. Раскрывается в шаге 5 кнопкой «Show an example». Не снимок экрана:
@@ -304,6 +308,8 @@ Session проектирования 2026-10-26. Номера — как у вл
 - Подпись: «Demo agents»
 - «Sonnet — a bit cheaper» (по умолчанию)
 - «Opus — a bit more expensive»
+- Живая Session не приняла смену (черновик, onboarding 09): «Saved for the next start of the
+  Orchestrator; its running Session kept its settings: <ошибка>»
 
 **Подсказки Stage-й** (Ticket 09)
 
@@ -316,6 +322,8 @@ Session проектирования 2026-10-26. Номера — как у вл
 - Gate & merge: «Review passed. The Orchestrator runs the Gate — the project's full checks — and merges.»
 - Done: «Merged. The ticket is done.»
 - Запасной путь шага 5: «This time the review found nothing.» Кнопка: «Show an example»
+- Подписи для screen reader в раскрытом примере (черновик, onboarding 09): список — «Example of a rework
+  round», diff правки — «The implementer's fix»
 
 **Уведомление в углу** (Ticket 08)
 
