@@ -1,7 +1,7 @@
 # 04 — Страница Terminal: Terminal и Terminal AI
 
 Type: task
-Status: open
+Status: claimed 2026-10-30T21:37Z
 Blocked by: 01
 Source: «Как устроено» и Q18 [spec.md](../spec.md); решения владельца 2026-10-30, Q2, Q3, Q7, Q9, Q10, Q20, Q21, Q22; [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md) (английский как основной язык Feature page)
 
@@ -57,10 +57,56 @@ Source: «Как устроено» и Q18 [spec.md](../spec.md); решения
 - `src/main/terminal-ai`
 - `src/shared/terminal-ai`
 
+Добавлено при claim (код только читался, правки в нём нет):
+
+- `src/main/ipc/terminal.ts`, `src/main/ipc/terminal-ai*.ts`, `src/shared/ipc/terminal*.ts`
+- `src/renderer/canvas/nodes/TerminalNode.tsx`, `src/renderer/canvas/nodes/terminal-*.ts`, `src/renderer/canvas/nodes/TerminalAiRequest.tsx`,
+  `src/renderer/canvas/ReadOnlyTerminal.tsx`
+- `src/renderer/settings/TerminalAiSection.tsx`, `src/renderer/settings/useTerminalAi.ts`, `src/renderer/shell/ProjectSettings.tsx`
+- `src/renderer/platform.ts`, `src/renderer/shortcuts/match.ts`, `src/shared/shortcuts.ts`, `src/renderer/canvas/wheel-router.ts`
+- `src/main/ipc/projects.ts`, `src/renderer/shell/FirstRunChecks.tsx` («Sign in with gh»)
+
 ## Вне скоупа
 
 - Исправление найденных багов продукта: такая находка — в `## Итог`.
 - Feature, которых нет в `main`.
 
 ## Итог
+
+Страница написана: `docs/features/terminal.md` и перевод `docs/features/ru/terminal.md`, по 350 строк с небольшим, делить её не
+пришлось. Разделы соответствуют списку. Приложение не запускалось, платных запросов к Claude не было.
+
+**Не вошло на страницу: код или test не подтверждают.**
+
+1. Задержки ответов модели (Haiku без thinking, медиана ~1,3 с; Sonnet 1,4–3,8 с). Источник — только spike в ADR-0058, это замер
+   2026-10-09, кодом и test-ами не проверяется.
+2. Запускаются ли hooks встроенных plugin-ов Claude Code в assist-процессе. Код только пишет в log те, что запустились; есть ли они,
+   из кода не видно.
+3. Что запущенное через `open` приложение macOS остаётся жить после закрытия Terminal-а. Это комментарий в `pty.ts`, test-а нет.
+4. Замеры Windows из комментариев кода: консоль задерживает вывод на 3 секунды без ответа на запрос атрибутов, запрашивает позицию
+   курсора около десяти раз после resize, скорость разбора у worker-ов. На страницу вошло только то, что main отвечает и что делает,
+   без этих чисел.
+5. Что PowerShell записывает историю после каждой команды. Это комментарий, test-а нет. На странице только SIGHUP и история у Git Bash.
+6. Копирование и вставка клавишами в Terminal-е. Своего кода у worfy нет, это поведение xterm.js и меню Electron, test-а в этих файлах не
+   нашёл. На странице только то, что вставленное идёт как ввод.
+
+**Находки в коде (не исправлял, уровень low).**
+
+- `ASSIST_SYSTEM_PROMPT` в `src/main/terminal-ai/options.ts` говорит модели «zsh prompt on macOS» на любой системе. На Linux с zsh это
+  неверно. Сборки под Linux нет (в `electron-builder.yml` только `mac` и `win`), поэтому сейчас на поведение не влияет.
+- Раздел Settings «Terminal AI» показан и на Windows, где ни одна функция работать не может: shell там никогда не zsh. Страница пишет это как
+  факт, текст раздела говорит только «Works in zsh Terminals.»
+- Заметка «Terminal AI is off» в таблице отказов на практике редкая: при выключенном Command request строка `# …` просто запускается как
+  обычная, а панели нет. Заметка возможна только при гонке с изменением настройки.
+
+**Вопросы пилота к владельцу.**
+
+- **Linux.** Код различает «Windows» и «не Windows», и test-ы идут на Linux в CI, но пакета под Linux нет. Страница называет только macOS и
+  Windows. Если Linux считать поддерживаемым, блоки «On macOS» надо расширить.
+- **Группировка подошла:** две Feature на одной странице читаются нормально. Но код Terminal AI лежит и в `src/main/terminal/zsh/rc.d`, так что
+  таблицы Implementation у разделов частично ссылаются на одну папку.
+- **Шаблон подошёл,** подзаголовок Windows внутри блока работает. Спорное место: в How it works у Terminal AI оказалась таблица моделей и предел
+  времени. Это и принцип, и деталь реализации; оставил там, потому что выбор модели — решение ADR-0058.
+- **Числа в Behaviour.** На странице есть конкретные значения (600 мс, 800 мс, 80 %, 256 КБ, 20 команд, 50 строк). Все они подтверждены кодом, но
+  устаревают при правке констант, а проверка путей этого не заметит. Заметит только линза `documentation` или аудит.
 
