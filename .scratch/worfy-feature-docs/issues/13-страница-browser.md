@@ -1,7 +1,8 @@
 # 13 — Страница Browser
 
 Type: task
-Status: open
+Status: done 2026-10-30T23:41Z
+PR: #1076
 Blocked by: 06
 Source: «Как устроено» и Q9 [spec.md](../spec.md); решения владельца 2026-10-30, Q2, Q3, Q7, Q9, Q10, Q20, Q21, Q22; [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md) (английский как основной язык Feature page)
 
