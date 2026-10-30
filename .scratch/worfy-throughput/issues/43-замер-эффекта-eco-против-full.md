@@ -1,8 +1,8 @@
 # 43 — Замер эффекта: eval исхода `eco` против `full` и повторный замер расхода
 
 Type: task
-Status: blocked 2026-10-30T02:41Z
-Blocked reason: paid compare done 2026-10-30 (no quality loss, tokens full/eco 0.92-1.40, ~$4); step 3 (two weeks before/after) needs the owner to switch worfy's profile to eco
+Status: blocked 2026-10-30T02:45Z
+Blocked reason: paid compare done (#1038); owner 2026-10-30: worfy's profile stays full, a friend tests eco on their own tasks; step 3 waits for those results
 Waits: owner
 Blocked by: 19, 36, 37, 39
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: меньше token-ов на Ticket, чтобы хватало Limits подписки», идеи 4 и 10, строки

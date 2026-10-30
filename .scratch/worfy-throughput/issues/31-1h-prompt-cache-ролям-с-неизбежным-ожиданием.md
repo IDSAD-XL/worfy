@@ -1,7 +1,9 @@
 # 31 — 1 h prompt cache только тем агентам, у которых простой 5–60 min остался после Ticket-ов 25 и 26
 
 Type: task
-Status: open
+Status: blocked 2026-10-30T03:31Z
+Blocked reason: merged in #1040 (implementer cacheTtl 1h, expected +$562 per 10 days); open: ephemeral_1h_input_tokens > 0 in the first implementer after the Stable update, and the re-measure with agent-cost --idle on 2026-11-06
+Waits: owner
 Blocked by: 19, 25, 26
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», предложение 2, решение 10, раздел
 «Prompt cache на 1 h»;
