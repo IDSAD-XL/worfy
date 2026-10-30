@@ -626,7 +626,7 @@ describe('critical-path: green checks → merge and its budget (Q1, Q2)', () => 
   })
 
   it('counts a Ticket as with UI by its diff: renderer .tsx, .css, index.html and UI text files; not renderer logic, tests or other folders', async () => {
-    for (const file of ['src/renderer/theme/tokens.css', 'src/renderer/index.html', 'src/renderer/getting-started/hints.ts', 'src/renderer/canvas/nodes/ticket-text.ts', 'src/renderer/getting-started/notice.ts']) {
+    for (const file of ['src/renderer/theme/tokens.css', 'src/renderer/index.html', 'src/renderer/getting-started/hints.ts', 'src/renderer/canvas/nodes/ticket-text.ts', 'src/renderer/getting-started/notice.ts', 'src/renderer/menu/labels.ts', 'src/renderer/menu/label.ts', 'src/renderer/menu/strings.ts', 'src/renderer/menu/copy.ts', 'src/renderer/menu/messages.ts']) {
       expect(await rowFor({ files: [file] }), file).toMatchObject({ ui: 'yes' })
     }
     expect(await rowFor({ files: ['src/renderer/getting-started/store.ts', 'src/main/Window.tsx', 'test/unit/Sidebar.tsx', 'test/e2e/x.css', 'docs/design/F-SPEC.md', 'xsrc/renderer/A.tsx'] })).toMatchObject({ ui: 'no' })
@@ -638,12 +638,20 @@ describe('critical-path: green checks → merge and its budget (Q1, Q2)', () => 
     expect(await rowFor({ checks: [], statuses: [5], merge: 10 })).toMatchObject({ green_to_merge_s: '600', green_by: 'Gate' })
   })
 
+  it('takes the latest of two ci-ok checks on the head: an early red one and a later green one, in either order', async () => {
+    const ciOk = (conclusion: string, end: number): object => ({ __typename: 'CheckRun', name: 'ci-ok', status: 'COMPLETED', conclusion, startedAt: at(end - 1), completedAt: at(end) })
+    expect(await rowFor({ checks: [ciOk('FAILURE', -10), ciOk('SUCCESS', 3)], merge: 17 })).toMatchObject({ green_to_merge_s: '840', green_by: 'CI' })
+    expect(await rowFor({ checks: [ciOk('SUCCESS', 3), ciOk('FAILURE', -10)], merge: 17 })).toMatchObject({ green_to_merge_s: '840', green_by: 'CI' })
+  })
+
   it('leaves Green → merge and the budget empty with the reason, never zero', async () => {
     expect(await rowFor({ verified: null })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'no VERIFIED comment on the PR', over_budget: '', budget_why: 'no VERIFIED comment on the PR' })
     expect(await rowFor({ ciOkConclusion: 'FAILURE' })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'ci-ok not green on the PR head (FAILURE)', over_budget: '' })
     expect(await rowFor({ ciOkConclusion: null })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'ci-ok not finished on the PR head' })
     const failed = { __typename: 'CheckRun', name: 'tests', status: 'COMPLETED', conclusion: 'FAILURE', completedAt: at(1) }
     expect(await rowFor({ checks: [failed] })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'CI not green on the PR head (tests: FAILURE)' })
+    const timeless = { __typename: 'CheckRun', name: 'tests', status: 'COMPLETED', conclusion: 'SUCCESS', completedAt: null }
+    expect(await rowFor({ checks: [timeless] })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'no time on the CI checks' })
     expect(await rowFor({ merge: null })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'PR not merged (OPEN)', ui: 'no', over_budget: '' })
     expect(await rowFor({ ciOk: 20, merge: 14 })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'out of order: merge before green' })
     // Without the PR's files the budget is not known; the time still is.
@@ -664,6 +672,8 @@ describe('critical-path: green checks → merge and its budget (Q1, Q2)', () => 
     expect(rowOf(rows, 'demo-epic', '01')).toMatchObject({ over_budget: 'yes', after_green_gate_s: '1800', after_green_queue_s: '600', over_budget_step: 'gate' })
     expect(rowOf(rows, 'demo-epic', '03')).toMatchObject({ over_budget: 'yes', green_by: 'CI', after_green_gate_s: '0', after_green_queue_s: '1200', over_budget_step: 'merge queue' })
     expect(rowOf(rows, 'demo-epic', '02')).toMatchObject({ over_budget: 'no', over_budget_step: '' })
+    // A review or check mark set after the merge is not part of the wait: the queue never goes negative.
+    expect(await rowFor({ merge: 20, statuses: [25] })).toMatchObject({ after_green_gate_s: '0', after_green_queue_s: '1200', over_budget_step: 'merge queue' })
   })
 
   it('takes the median of Green → merge and names the Tickets over budget in Markdown: number, PR, time, budget and the step', async () => {
