@@ -62,3 +62,29 @@ Source: «Как устроено» и Q9 [spec.md](../spec.md); решения 
 
 ## Итог
 
+Страница `docs/features/gate-and-github.md`, 3 раздела: Gate, Gate full, PR and CI badges. Не делилась.
+
+Утверждения, которые не пошли на страницу, потому что код и test-ы их не подтверждают:
+
+- Длительность gate full (минуты на Mac и на ПК): числа есть только в ADR и в памяти, в коде их нет.
+- Branch protection `main` с обязательным `ci-ok`: это настройка GitHub, её нет в репозитории.
+- Что `cross_machine_gate` снят из Profile-а worfy на обеих Machine: Profile лежит вне репозитория. На странице только
+  «собственный репозиторий worfy её больше не использует», по ADR-0083, пункт 5.
+
+Что взято не из кода репозитория: список скриптов `fast` и `full` собственного репозитория worfy. Registry лежит на Machine; проверено
+по `~/.claude/worfy-harness/gate/config.json` на Mac, и `full` совпадает с комментарием в начале `.github/workflows/ci.yml`.
+
+Возможные баги продукта (не чинились):
+
+- Chip Gate у Session читается из снимка корня Project-а (`SessionChecks` в `src/renderer/canvas/badges/ChecksBadges.tsx`, `useChecks(root)`
+  без репозитория). В Project-е над несколькими репозиториями корень обычно не git, поэтому worktree Session-и там не находится, и
+  chip показывает исход корня, чаще всего `gate: no data`. Вывод сделан по коду, приложение не запускалось. Test-а на этот случай нет.
+- Комментарий в начале `src/shared/ipc/checks.ts` называет папку `~/.claude/gate`. С плагином Harness папка другая
+  (`src/main/harness/locate.ts`). Поведение верное, устарел только комментарий.
+
+Сверка папок из «Где в коде»: список верный, но неполный. Страница ещё опирается на `src/main/ipc/checks.ts`, `src/shared/ipc/checks.ts`,
+`src/renderer/canvas/badges/`, `src/main/ipc/gate-queue.ts`, `src/shared/ipc/gate-queue.ts`, `src/renderer/projects/useGateQueue.ts`,
+`harness/hooks/stop.mjs`, `harness/hooks/gate-*.mjs`, `harness/bin/wave-gate`, `harness/skills/gate-queue/`. Из `src/main/github`
+файлы `accounts.ts` (подключение Project-а) и `deployments.ts` (Stage Deploy) относятся к страницам Projects и Workflow: здесь на них
+только ссылка.
+
