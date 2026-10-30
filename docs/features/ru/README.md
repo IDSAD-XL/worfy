@@ -21,14 +21,17 @@ Epic-ам и Ticket-ам.
 | [Autopilot](autopilot.md) | Autopilot |
 | [Terminal](terminal.md) | Terminal, Terminal AI |
 | [Cards](cards.md) | Card как файл, Card API, Canvas MCP |
-| [Canvas](canvas.md) | Node и Layout, Epic frame, Done shelf, Find, вставка изображений |
+| [Canvas](canvas.md) | Node и Layout, Find, вставка изображений |
+| [Epic frames](epic-frames.md) | Epic frame, Done shelf |
 | [Projects](projects.md) | Full mode и Silent mode, переключатель, просмотр ADR и HANDOFF |
 | [Workflow](workflow.md) | Ticket и Epic на Canvas, Pipeline, Binding |
-| [Sessions](sessions.md) | Session, Subagent, transcript, Claude home, Memory, Limits |
+| [Sessions](sessions.md) | Session, Subagent |
+| [Transcripts и usage](transcripts-and-usage.md) | Transcript, Claude home, Memory, Limits |
 | [Gate и GitHub](gate-and-github.md) | Gate, Gate full, бейджи PR и CI |
 | [Browser](browser.md) | Browser, Browser profile |
 | [Link](link.md) | Machine, Linked machine |
-| [App shell](app-shell.md) | Command palette, shortcuts, menu, Settings, theme, уведомления |
+| [App shell](app-shell.md) | Command palette, shortcuts, menu, Settings, theme |
+| [Notifications](notifications.md) | уведомления |
 | [Onboarding](onboarding.md) | First run, Getting started, Demo project |
 | [Storage и диагностика](storage-and-diagnostics.md) | папка данных, diagnostics |
 | [Harness](harness.md) | установка из приложения, plugin, skills, агенты, hooks |
