@@ -412,6 +412,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 12 | `test/e2e/session-view.spec.ts` | 6 |
 | 13 | `src/renderer/canvas/nodes/TerminalNode.tsx`, `src/renderer/canvas/nodes/TerminalNode.css`, `src/renderer/canvas/nodes/TerminalAiRequest.tsx`, `src/shared/ipc/terminal-ai-request.ts`, `src/main/ipc/terminal-ai-request.ts`, `src/main/terminal-ai/features/command-request.ts`, `test/unit/terminal-ai-request.test.tsx`, `test/contract/terminal-ai-request.test.ts`, `test/e2e/terminal-ai-request.spec.ts` | 6 |
 | 16 | `src/main/terminal-ai/assist.ts`, `src/main/terminal-ai/options.ts`, `test/contract/terminal-ai-assist.test.ts`, `.scratch/worfy-terminal-ai/spec.md` | 7 |
+| 17 | `src/main/terminal-ai/git-branch.ts`, `test/contract/terminal-ai-git-branch.test.ts` | 7 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.
