@@ -1,7 +1,9 @@
 # 43 — Замер эффекта: eval исхода `eco` против `full` и повторный замер расхода
 
 Type: task
-Status: open
+Status: blocked 2026-10-30T01:08Z
+Blocked reason: code part merged in #1035 (compare mode, --waits); the paid eco-vs-full run waits for the outcome-eval tasks of worfy-harness 52, written by a plain session the owner starts (brief-52-plain-session.md); paid runs pre-approved 2026-10-30
+Waits: owner
 Blocked by: 19, 36, 37, 39
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: меньше token-ов на Ticket, чтобы хватало Limits подписки», идеи 4 и 10, строки
 L2–L4 таблицы «Цель и числа»; решение 14 раздела «процесс» (платный eval — только с «да» владельца);

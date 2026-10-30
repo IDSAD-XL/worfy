@@ -1,7 +1,8 @@
 # 59 — e2e на GitHub macOS runner-е в два worker-а Playwright: сначала замер, потом один shard вместо двух
 
 Type: task
-Status: open
+Status: done 2026-10-30T01:08Z
+PR: #1033
 Blocked by: —
 Source: итог Ticket-а [58](58-узкие-правила-e2e-для-путей-src-main.md) (узких строк таблицы для частых путей `src/main`
 нет: они выполняются при каждом старте приложения); решение владельца 2026-10-29, раунд 3, Q9 (не выходим за
