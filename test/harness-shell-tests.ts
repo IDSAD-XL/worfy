@@ -190,17 +190,50 @@ export function startOrder(names: readonly string[], measured: Seconds): string[
 }
 
 /**
+ * How many shell tests run at once in one run, all HARNESS_SCRIPTS_FILES together: as many as the one
+ * file ran before the split (worfy-throughput 56). Four files at five each ran twenty at once, and on
+ * the owner's 16-thread Windows PC 11 shell tests ran into their 900 s limit in both full runs of
+ * 63b8182e, where alone they take 200-415 s.
+ */
+export const SHELL_TESTS_AT_ONCE = 5
+
+/**
+ * How many shell tests test file `file` of `count` (both from 1) runs at once: its maxConcurrency
+ * (test/harness-scripts-suite.ts sets it with vi.setConfig). With a part (a CI job of its own) file 1
+ * runs the whole part, SHELL_TESTS_AT_ONCE at once, and the other files none. Without a part the files
+ * run in one run on workers of their own, so they share SHELL_TESTS_AT_ONCE: an equal number each,
+ * and one more for each of the first files while the remainder lasts (2, 1, 1, 1 for four files).
+ */
+export function atOnce(file: number, count: number, part: Part | undefined): number {
+  if (part) return SHELL_TESTS_AT_ONCE
+  if (count > SHELL_TESTS_AT_ONCE) throw new Error(`${count} harness-scripts files cannot share ${SHELL_TESTS_AT_ONCE} shell tests at once`)
+  return Math.floor(SHELL_TESTS_AT_ONCE / count) + (file <= SHELL_TESTS_AT_ONCE % count ? 1 : 0)
+}
+
+/**
+ * When a file that runs `slots` shell tests at once ends, by measured seconds: its seconds over its
+ * slots, but no sooner than its longest shell test, which one slot runs alone.
+ */
+export function fileEnds(seconds: readonly number[], slots: number): number {
+  return Math.max(seconds.reduce((sum, one) => sum + one, 0) / slots, ...seconds, 0)
+}
+
+/**
  * The names test file `index` of `count` (both from 1) runs, split by measured seconds, not by count:
- * in start order each name goes to the file with the fewest seconds so far, the lowest index on a tie
- * (longest processing time first). Every name is in exactly one of the files 1/count … count/count.
+ * in start order each name goes to the file that would end first with it (fileEnds, with the shell
+ * tests the file runs at once, atOnce without a part), the lowest index on a tie (longest processing
+ * time first). A file that runs two at once gets about twice the seconds of one that runs one, so the
+ * files end together. Every name is in exactly one of the files 1/count … count/count.
  */
 export function inFile(names: readonly string[], index: number, count: number, measured: Seconds): string[] {
-  const load = Array.from({ length: count }, () => 0)
+  const files: number[][] = Array.from({ length: count }, () => [])
   const share: string[] = []
   for (const name of startOrder(names, measured)) {
-    const least = load.indexOf(Math.min(...load))
-    load[least] = (load[least] ?? 0) + secondsOf(measured, name)
-    if (least === index - 1) share.push(name)
+    const seconds = secondsOf(measured, name)
+    const ends = files.map((taken, at) => fileEnds([...taken, seconds], atOnce(at + 1, count, undefined)))
+    const first = ends.indexOf(Math.min(...ends))
+    files[first]?.push(seconds)
+    if (first === index - 1) share.push(name)
   }
   return share
 }

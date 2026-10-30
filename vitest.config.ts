@@ -73,9 +73,12 @@ export default defineConfig({
           testTimeout: ms(15_000),
           // How many concurrent tests of one file run at once: the shell tests of the Harness
           // (test/contract/harness-scripts-<n>.test.ts, four files that vitest runs on workers of
-          // their own) are the only ones. Five per file kept the shell tests near 100 s on the Mac
-          // when they were one file; more would load the machine further in a full run, where
+          // their own) are the only ones. Five kept the shell tests near 100 s on the Mac when they
+          // were one file; more would load the machine further in a full run, where
           // wave-gate.test.sh has already hit its 120 s limit once (docs/lessons/testing.md).
+          // Five is the most for a file run alone (a CI job of a part); in a run of all four files
+          // each file lowers it to its share of five with vi.setConfig (atOnce,
+          // test/harness-shell-tests.ts), so the four together run five, not twenty.
           // Five is also vitest 5.0.3's default; it is set here on purpose, so a new default in a
           // vitest update does not change the load on the Mac unnoticed.
           maxConcurrency: 5,
