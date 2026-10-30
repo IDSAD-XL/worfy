@@ -1,7 +1,7 @@
 # 05 — Страница Cards: Card как файл и Card MCP
 
 Type: task
-Status: open
+Status: claimed 2026-10-30T21:37Z
 Blocked by: 01
 Source: «Как устроено» и Q18 [spec.md](../spec.md); решения владельца 2026-10-30, Q2, Q3, Q7, Q9, Q10, Q20, Q21, Q22; [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md) (английский как основной язык Feature page)
 
@@ -62,4 +62,41 @@ Source: «Как устроено» и Q18 [spec.md](../spec.md); решения
 - Feature, которых нет в `main`.
 
 ## Итог
+
+Страницы написаны: `docs/features/cards.md` и `docs/features/ru/cards.md`, примерно 310 строк, делить не нужно.
+
+**Не подтвердилось, на страницу не попало:**
+
+- Проигрывание аудио и видео в Card. Протокол отдаёт `.mp3`, `.wav`, `.ogg`, `.mp4`, `.webm`, но схема `worfy-card`
+  зарегистрирована без привилегии `stream`, запросы `Range` обработчик не разбирает, и ни один test не проигрывает такой
+  файл. На странице сказано только, что эти типы отдаются.
+- Подробности поведения вокруг `data.cardId`. Читают это поле `CardNode`, trash, Find и Command palette. Код, который задаёт
+  `data.cardId`, в `src` не найден: `create_card` пишет в `data` только `title`, поле задают лишь test-ы trash. На страницу поле
+  не вынесено. Фраза страницы о том, что папка Card остаётся на месте, если ту же Card показывает другой Node, описывает проверку
+  из `src/main/layout/trash.ts`. Сейчас такой второй Node может появиться только из Layout с уже заданным `data.cardId`.
+
+**Вероятные баги продукта: страница описывает фактическое поведение, код не менялся:**
+
+- `update_node` меняет `data.title`, а шапка Node читает `<title>` из `index.html`. Описание tool говорит «Change a Card's
+  title», но агент шапку этим не изменит.
+- `link_card` проверяет цель и сохраняет `data.links`, но кроме самого `link_card` эти связи никто не читает: на Canvas ничего
+  не появляется, хотя инструкция агенту подаёт это как связь Card с Epic или Ticket.
+- Инструкция агенту говорит только «Network: https only» и советует класть локальные файлы рядом с `index.html`. Test
+  `test/e2e/card-runtime.spec.ts` подтверждает, что CSP запрещает и `fetch` этих файлов, а инструкция об этом не предупреждает.
+
+**Вопросы пилота к владельцу о группировке и шаблоне:**
+
+- Название «Card MCP» неточное. Server `worfy-canvas` также создаёт заметки и двигает, меняет размер и скрывает Node-ы любого
+  вида, кроме выведенных из workflow. Это ближе к Canvas, но раздел оставлен здесь, как в списке Ticket-а, и страница об этом
+  говорит. Можно назвать раздел «Canvas MCP» или вынести его на страницу Canvas.
+- Card API (`window.worfy`) не назван в списке разделов. Он описан внутри раздела «Card как файл», и этот раздел вышел самым
+  большим. Card API мог бы стать третьим разделом.
+- Шаблон подошёл. Изменение: внутри блоков понадобился ещё подзаголовок «On a Linked machine», устроенный так же, как подзаголовок
+  отличий платформы. Linked machine меняет поведение Card не меньше, чем Windows.
+- Список папок из Ticket-а оказался неполным. Дополнительно прочитаны `src/main/ipc/cards.ts`, `src/main/ipc/card-api.ts`,
+  `src/shared/ipc/cards.ts`, `src/shared/ipc/card-api.ts`, `src/shared/canvas/tools.ts`, `src/renderer/canvas/nodes/CardNode.tsx`,
+  `src/renderer/canvas/card-bridge.ts`, `src/renderer/canvas/overlays/CardBridge.tsx`, `src/main/agent/options.ts` и `src/main/layout/trash.ts`.
+  `src/main/mcp/browser-server.ts` относится к странице Browser.
+
+Приложение не запускалось, платных запросов к Claude не было. Отличия Windows описаны по коду и test-ам, на Windows не проверялись.
 
