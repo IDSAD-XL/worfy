@@ -1,7 +1,8 @@
 # 05 — Страница Cards: Card как файл и Card MCP
 
 Type: task
-Status: claimed 2026-10-30T21:37Z
+Status: done 2026-10-30T22:19Z
+PR: #1064
 Blocked by: 01
 Source: «Как устроено» и Q18 [spec.md](../spec.md); решения владельца 2026-10-30, Q2, Q3, Q7, Q9, Q10, Q20, Q21, Q22; [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md) (английский как основной язык Feature page)
 
