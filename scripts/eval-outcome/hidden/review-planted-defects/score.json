@@ -1,0 +1,15 @@
+{
+  "checks": [
+    { "name": "review", "kind": "judge", "prompt": "judge/review.md", "input": { "file": "review.md" },
+      "missing": { "d1": false, "d2": false, "d3": false, "defects_found": 0, "defect_catch": 0, "all_found": false, "false_findings": 0, "decoy_findings": 0, "pass": false } },
+    { "name": "asks", "kind": "judge", "prompt": "judge/asks.md", "input": "final-answer" }
+  ],
+  "metrics": {
+    "defect_catch": { "mean": "review.defect_catch" },
+    "all_defects_found": { "rate": "review.all_found" },
+    "false_findings": { "mean": "review.false_findings" },
+    "decoy_findings": { "mean": "review.decoy_findings" },
+    "human_intervention": { "rate": { "any": ["trace.asked_user", "asks.asks_user"] } }
+  },
+  "primary": []
+}

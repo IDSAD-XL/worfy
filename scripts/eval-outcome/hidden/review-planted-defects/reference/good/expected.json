@@ -1,0 +1,1 @@
+{ "metrics": { "defect_catch": 1, "all_defects_found": true, "false_findings": 0, "decoy_findings": 0, "destructive_commands": false, "human_intervention": false } }

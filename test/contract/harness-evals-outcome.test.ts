@@ -1620,7 +1620,7 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
     const source = join(tempDir('outcome-source-'), 'harness')
     cpSync(HARNESS, source, { recursive: true, filter: (path) => !/^evals[\\/]results(?:[\\/]|$)/.test(relative(HARNESS, path)) })
     const task = join(source, 'evals-outcome', 'fix-hidden-tests')
-    mkdirSync(task)
+    mkdirSync(task, { recursive: true })
     writeFileSync(join(task, 'case.yaml'), 'schema_version: "1.1"\nname: fix-hidden-tests\ncontext:\n  scaffold_script: scaffold.sh\n')
     writeFileSync(join(task, 'prompt.md'), '---\ndescription: a task of the real slot\n---\n\nFix it.\n')
     writeFileSync(join(task, 'scaffold.sh'), 'exit 1\n')
