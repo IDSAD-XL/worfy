@@ -94,7 +94,7 @@ PR #1048 (merge f2e654c4). Экран Done (`DoneScreen.tsx`) вместо ша�
 - Gate: круг 1 — REJECTED (test корня диска красный на Windows CI: `mkdir D:\` EPERM; нет test-а на соседнюю
   `worfy-demo-2`; нет test-а с symlink-ами; новое окно снова открывало Orchestrator). Круг 2 — REJECTED (снятие hold
   при неудачном удалении без test-а; путь через renderer мимо hold-а; hold до `retain`). Узкий круг — решён
-  оркестратором без владельца (листовой тикет, ночная автономия; подтвердить) — NARROW: VERIFIED. Удаление за пределы
+  оркестратором без владельца (листовой тикет, ночная автономия; подтверждено владельцем 2026-10-30) — NARROW: VERIFIED. Удаление за пределы
   папки demo reviewer проверил пробами: symlink-и наружу, папка-symlink, `/var` и `/private/var`, регистр, `..`, пустой и
   относительный путь.
 - CI: после узкого круга `getting-started.spec.ts:192` на macOS runner-е — тело раздела под «Show steps» выше на 9 px;
