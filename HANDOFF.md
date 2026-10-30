@@ -23,11 +23,11 @@
 
 ## Ждёт владельца
 
-- `worfy-onboarding`: приёмка 12; подтвердить решения ночи 2026-10-30 («Итог» 08–10).
+- `worfy-onboarding`: приёмка 12 сегодня: Mac, затем ПК вместе с link 31.
 - С `check/windows` skipped, пока ПК на паузе, влит #878 — его покрывает полный run Windows e2e ПК на свежем `main` (решение 2026-10-28).
 - Вход в песочнице приёмки открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08.
 - Песочница приёмки в `$TMPDIR`: macOS чистит файлы через три дня без обращений. Исправление — `worfy-harness` 36; после merge владелец запускает `move` (команды — в PR).
-- Приёмка `worfy-link` 16 (Bonjour, запрос Local Network из 02) — код готов. Tailscale на Mac и ПК ставит владелец (ADR-0070, Ticket 31).
+- Приёмка `worfy-link` 16 (Bonjour, запрос Local Network из 02) — код готов. Tailscale на Mac и ПК ставит владелец (ADR-0070, Ticket 31 — с Windows-частью onboarding 12).
 - Одной сессией после `worfy-terminal-ai` 09 — проверки только для владельца: знак worfy в Dock и Finder (`worfy-daily` 31), щелчок по баннеру с выключенным Focus (`worfy-mvp` 21), запрос разрешения на уведомления (`worfy-daily` 03), трекпад в Terminal (`worfy-daily` 13), fish (`worfy-mvp` 06).
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
 - `worfy-windows`, ПК: на C: нет места (Фото iCloud); 12 — SmartScreen установщика; 07 — Q31 и `Get-Process` установленного worfy.
