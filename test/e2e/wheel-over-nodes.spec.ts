@@ -118,7 +118,11 @@ async function start(): Promise<Page> {
   await expect(statusBlock(window)).toBeVisible()
   expect(await invoke(window, 'agent.interrupt', { sessionId })).toMatchObject({ ok: true })
   expect(await invoke(window, 'terminal.input', { projectId: PROJECT, nodeId: 'term', data: `${WINDOWS ? 'unset HISTFILE; ' : ''}seq 1 200\n` })).toMatchObject({ ok: true })
-  await expect.poll(() => terminalTop(window), { timeout: ms(10_000) }).toMatch(/^\d+$/)
+  // The output has ended once the prompt stands below its last line. Before that the top row is not settled: Git
+  // Bash prints its prompt after a blank line and a line of its own, which moves the rows up by two (gate full of
+  // e6802c9e: the top row was 181 when read and 183 when checked, the prompt late on a busy machine).
+  await expect.poll(() => outputEnded(window), { timeout: ms(10_000) }).toBe(true)
+  expect(await terminalTop(window)).toMatch(/^\d+$/)
   await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: NODES.map((node) => nodeElement(window, node.id)) })
   // The block holds four short lines: nothing to scroll.
   const block = await statusBlock(window).evaluate((element) => {
@@ -165,6 +169,12 @@ const cardScroll = (window: Page): Promise<number> =>
   cardPage(window).evaluate((body) => (body as unknown as { ownerDocument: { defaultView: { scrollY: number } } }).ownerDocument.defaultView.scrollY)
 /** The text of the terminal's top row: what scrolling the terminal changes. xterm.js draws spaces as no-break spaces, which \s covers. */
 const terminalTop = async (window: Page): Promise<string> => ((await terminalScreen(window).locator('.xterm-rows > div').first().textContent()) ?? '').replace(/\s+/g, ' ').trim()
+/** Whether the output of `seq 1 200` has ended: a row after its last line is a prompt. */
+const outputEnded = async (window: Page): Promise<boolean> => {
+  const rows = (await terminalScreen(window).locator('.xterm-rows > div').allTextContents()).map((row) => row.replace(/\s+/g, ' ').trim())
+  const last = rows.lastIndexOf('200')
+  return last >= 0 && rows.slice(last + 1).some((row) => /[$#%]$/.test(row))
+}
 const isActive = async (window: Page, id: string): Promise<boolean> => /\bw-node--active\b/.test((await nodeElement(window, id).getAttribute('class')) ?? '')
 
 /** Resolves after the renderer has drawn two frames, so whatever the last event changed is on screen. */

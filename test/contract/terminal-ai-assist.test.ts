@@ -5,9 +5,9 @@
 // No test here starts Claude Code or asks a model: the SDK is a fake passed in, the module itself is
 // mocked so that any call to it fails the test, and the real backend refuses to start under vitest.
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import type { ClaimOptions, Options } from '@anthropic-ai/claude-agent-sdk'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -16,7 +16,7 @@ import { appUrlMatcher, registerIpc } from '../../src/main/ipc/index'
 import { terminalAiHandlers } from '../../src/main/ipc/terminal-ai'
 import { AssistService, IDLE_MS, backendFromEnv, commandOf, realBackend, sdkBackend, type AssistAnswer, type AssistQuery, type AssistSdk } from '../../src/main/terminal-ai/assist'
 import type { FakeLogEntry } from '../../src/main/terminal-ai/fake-backend'
-import { gitBranch } from '../../src/main/terminal-ai/git-branch'
+import { GIT_BRANCH_TIMEOUT_MS, gitBranch, type GitBranchOptions } from '../../src/main/terminal-ai/git-branch'
 import { TerminalAiSettingsStore } from '../../src/main/terminal-ai/settings'
 import type { LimitWindowState } from '../../src/shared/agent/limits'
 import { accessOf, IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -25,7 +25,20 @@ import type { TerminalAiInput } from '../../src/shared/terminal-ai/context'
 import { REDACTED } from '../../src/shared/terminal-ai/redact'
 import type { TerminalAiFeature } from '../../src/shared/terminal-ai/settings'
 import { APP_URL, INDEX_HTML } from '../app-url'
+import { NODE } from '../harness-node'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
+
+// gitBranch as the service calls it, with the product's 1 s times the run's multiplier like every limit of a test:
+// a process start under the load of the whole suite once took longer than a bare 1 s. A limit given by the caller wins.
+vi.mock('../../src/main/terminal-ai/git-branch', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/main/terminal-ai/git-branch')>()
+  const { ms: scaled } = await import('../time-scale')
+  return {
+    ...actual,
+    gitBranch: (cwd: string, options: GitBranchOptions = {}) => actual.gitBranch(cwd, { timeoutMs: scaled(actual.GIT_BRANCH_TIMEOUT_MS), ...options }),
+  }
+})
 
 // The real SDK module, replaced: a test that reached it would fail here instead of starting Claude Code.
 const sdkModule = vi.hoisted(() => ({ loaded: 0 }))
@@ -981,10 +994,66 @@ describe('gitBranch', () => {
     const repo = join(scratch, 'repo')
     mkdirSync(repo)
     execFileSync('git', ['init', '-q', '-b', 'feature/terminal-ai'], { cwd: repo })
-    expect(await gitBranch(repo)).toBe('feature/terminal-ai')
+    // The product's own 1 s, times the run's multiplier like every limit of a test: under the load of the whole
+    // suite git once took longer than a bare 1 s.
+    expect(await gitBranch(repo, { timeoutMs: ms(GIT_BRANCH_TIMEOUT_MS) })).toBe('feature/terminal-ai')
     const plain = join(scratch, 'plain')
     mkdirSync(plain)
-    expect(await gitBranch(plain, { timeoutMs: 1000 })).toBeNull()
+    expect(await gitBranch(plain, { timeoutMs: ms(GIT_BRANCH_TIMEOUT_MS) })).toBeNull()
     expect(await gitBranch(join(scratch, 'missing'))).toBeNull()
+  })
+
+  it('gives null when git answers later than its time: the request then goes without a branch', async () => {
+    vi.useRealTimers()
+    // A slow git: node in place of git runs the file `branch` of its folder, which answers after 10 s.
+    const slow = join(scratch, 'slow')
+    mkdirSync(slow)
+    writeFileSync(join(slow, 'branch'), "setTimeout(() => console.log('late'), 10_000)\n")
+    const started = Date.now()
+    expect(await gitBranch(slow, { git: NODE, timeoutMs: 200 })).toBeNull()
+    // Killed at its limit: neither sooner (the stand-in did not start) nor after its answer.
+    expect(Date.now() - started).toBeGreaterThanOrEqual(150)
+    expect(Date.now() - started).toBeLessThan(10_000)
+  })
+
+  it('a service built without branchOf reads the branch with the git on PATH: the request carries what it printed', async () => {
+    vi.useRealTimers()
+    // The git first on PATH is node under the name git: run in the folder of the request, it runs the file `branch`
+    // there, which prints a branch no real git gives.
+    const bin = join(scratch, 'bin')
+    mkdirSync(bin)
+    if (process.platform === 'win32') {
+      const git = join(bin, 'git.exe')
+      try {
+        linkSync(NODE, git)
+      } catch {
+        copyFileSync(NODE, git)
+      }
+    } else {
+      writeFileSync(join(bin, 'git'), `#!/bin/sh\nexec '${NODE.replaceAll("'", `'\\''`)}' "$@"\n`)
+      chmodSync(join(bin, 'git'), 0o755)
+    }
+    const work = join(scratch, 'work')
+    mkdirSync(work)
+    writeFileSync(join(work, 'branch'), "console.log('from-path-git')\n")
+    vi.stubEnv('PATH', `${bin}${delimiter}${process.env.PATH ?? ''}`)
+    const sdk = new FakeSdk()
+    const service = new AssistService({
+      backend: async () => sdkBackend(sdk),
+      prewarmOptions: async () => ({ settingSources: [], tools: [], env: {} }),
+      settings: new TerminalAiSettingsStore(dataDir),
+      limits: new LimitsTracker({ dataDir, now: () => Date.now() }),
+      dataDir,
+      log: () => undefined,
+    })
+    try {
+      const fix = service.request('fix', input({ cwd: work, exitCode: 1, branch: undefined }))
+      await vi.waitFor(() => expect(sdk.spares[0]?.query?.prompt).toContain('Git branch: from-path-git'), { timeout: ms(GIT_BRANCH_TIMEOUT_MS * 2), interval: 20 })
+      sdk.spares[0]?.query?.answer('make')
+      expect(await fix).toMatchObject({ ok: true, command: 'make' })
+    } finally {
+      service.dispose()
+      vi.unstubAllEnvs()
+    }
   })
 })

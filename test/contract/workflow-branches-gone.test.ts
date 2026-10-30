@@ -94,8 +94,11 @@ describe.runIf(WINDOWS)('the watch of the branches on Windows, real folders: a f
     git('worktree', 'add', '-q', '-b', 'side2', join(dir, 'wt2'))
     await vi.waitFor(() => expect(seen).toBeGreaterThan(0), { timeout: ms(5000), interval: 50 })
 
-    // The repository goes: one more line, and the handles of `.git` and `refs\heads` are let go.
+    // The repository goes: one more line, and the handles of `.git` and `refs\heads` are let go. First the read
+    // that the new worktree started ends: its `git worktree list` works in the repository, and Windows does not
+    // remove a folder that a running process works in (EBUSY, worfy-polish 41).
     await pause(1000)
+    await watcher.idle()
     removeTestTree(repo)
     await vi.waitFor(() => expect(lines().length).toBeGreaterThanOrEqual(2), { timeout: ms(5000), interval: 50 })
     expect(await spentInASecond()).toBeLessThan(300)

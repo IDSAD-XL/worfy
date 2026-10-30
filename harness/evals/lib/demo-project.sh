@@ -50,21 +50,38 @@ if pwd -W >/dev/null 2>&1; then
     git_bash=1
     work_node="$(node -e 'process.stdout.write(require("node:fs").realpathSync.native(".").split(String.fromCharCode(92)).join("/"))')" || exit 1
 fi
-node "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/state-guard.cjs" "${HOME:-}" "$work" || exit 1
+# The folder of this script, cut from its path in bash rather than by dirname: in Git Bash every
+# process start costs 0.1–0.4 s, more under load. Git Bash may spell it with `\`.
+lib=.
+case "${BASH_SOURCE[0]}" in */* | *\\*) lib="${BASH_SOURCE[0]%[/\\]*}" ;; esac
+node "$lib/state-guard.cjs" "${HOME:-}" "$work" || exit 1
 # The folders the Harness scripts of the run may use. A run gets no HARNESS_HOME (the scaffold's
 # environment is fixed, see above), so it is ignored here too: the folder hooks/eval-env.cjs names
 # for EVAL_HARNESS_HOME (worfy-harness when unset), asked once the repository exists (a relative
 # value is taken from its .git), and, when EVAL_HARNESS_HOME is unset, $HOME/.claude/worfy-harness.
-eval_env="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../hooks" && pwd -P)/eval-env.cjs"
+eval_env="$lib/../../hooks/eval-env.cjs"
 
 # The run's HOME is empty: git has no identity there, and the fixture must not depend on one.
 export GIT_AUTHOR_NAME=demo GIT_AUTHOR_EMAIL=demo@example.invalid
 export GIT_COMMITTER_NAME=demo GIT_COMMITTER_EMAIL=demo@example.invalid
 export GIT_AUTHOR_DATE=2026-10-01T12:00:00Z GIT_COMMITTER_DATE=2026-10-01T12:00:00Z
+# Each commit and fetch would start `git maintenance run --auto`, which has nothing to do in a
+# repository this small: one process less each time. The setting lives in the environment of this
+# script only, not in the fixture's .git/config.
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false
+
+# put <file> <<EOF — writes the here-document to <file>, as `cat ><file>` would, without starting a
+# process: in Git Bash every process start costs 0.1–0.4 s, more under load, and the fixture writes
+# some twenty files.
+put() {
+    local text
+    IFS= read -r -d '' text || true
+    printf '%s' "$text" >"$1"
+}
 
 # --- the code ---------------------------------------------------------------------------
 mkdir -p src test .scratch/demo/issues
-cat >package.json <<'EOF'
+put package.json <<'EOF'
 {
   "name": "demo",
   "private": true,
@@ -74,13 +91,13 @@ cat >package.json <<'EOF'
   }
 }
 EOF
-cat >src/sum.mjs <<'EOF'
+put src/sum.mjs <<'EOF'
 /** Adds two numbers. */
 export function sum(a, b) {
   return a + b
 }
 EOF
-cat >test/sum.test.mjs <<'EOF'
+put test/sum.test.mjs <<'EOF'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { sum } from '../src/sum.mjs'
@@ -95,7 +112,7 @@ printf 'node_modules/\n' >.gitignore
 blocker03='—'
 [ "$variant" = blocked ] && blocker03='01'
 
-cat >.scratch/demo/spec.md <<'EOF'
+put .scratch/demo/spec.md <<'EOF'
 # Epic demo — четыре маленькие функции
 
 Учебный Epic: четыре независимые функции в `src/`, у каждой свой test.
@@ -113,7 +130,7 @@ EOF
 # ticket <NN> <slug> <title> <blocked by> <function> <body of the function> <example call> <expected>
 ticket() {
     local nn="$1" slug="$2" title="$3" blocked="$4" fn="$5" body="$6" call="$7" expected="$8"
-    cat >".scratch/demo/issues/$nn-$slug.md" <<EOF
+    put ".scratch/demo/issues/$nn-$slug.md" <<EOF
 # $nn — $title
 
 Type: task
@@ -145,13 +162,13 @@ EOF
 }
 
 if [ "$variant" = ui ]; then
-    cat >src/button.mjs <<'EOF'
+    put src/button.mjs <<'EOF'
 /** HTML of the Save button. */
 export function renderButton() {
   return '<button class="save">Save</button>'
 }
 EOF
-    cat >".scratch/demo/issues/01-alpha.md" <<'EOF'
+    put ".scratch/demo/issues/01-alpha.md" <<'EOF'
 # 01 — alpha: красная кнопка Save
 
 Type: task
@@ -192,7 +209,7 @@ ticket 03 charlie 'charlie: функция negate' "$blocker03" negate 'возв
 ticket 04 delta 'delta: функция tripel' '—' triple 'возвращает `n * 3`' 'triple(2)' 6
 
 git init -q -b main
-state="$(EVAL_HARNESS_HOME="${EVAL_HARNESS_HOME:-worfy-harness}" env -u HARNESS_HOME node "$eval_env" harness-home)"
+state="$(unset HARNESS_HOME; EVAL_HARNESS_HOME="${EVAL_HARNESS_HOME:-worfy-harness}" exec node "$eval_env" harness-home)"
 home_state="$state"
 [ -n "${EVAL_HARNESS_HOME:-}" ] || home_state="$HOME/.claude/worfy-harness"
 for dir in "$state" "$home_state"; do
@@ -205,13 +222,13 @@ if [ "$variant" = reviewer ]; then
     # Ticket 01 in work: its commit breaks sum, and the implementer's report says the tests are green.
     sed -i.bak 's/^Status: open$/Status: claimed 2026-10-01T09:00Z/' .scratch/demo/issues/01-alpha.md
     rm .scratch/demo/issues/01-alpha.md.bak
-    cat >src/alpha.mjs <<'EOF'
+    put src/alpha.mjs <<'EOF'
 /** Doubles a number. */
 export function double(n) {
   return n * 2
 }
 EOF
-    cat >test/alpha.test.mjs <<'EOF'
+    put test/alpha.test.mjs <<'EOF'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { double } from '../src/alpha.mjs'
@@ -220,7 +237,7 @@ test('double doubles', () => {
   assert.equal(double(2), 4)
 })
 EOF
-    cat >src/sum.mjs <<'EOF'
+    put src/sum.mjs <<'EOF'
 /** Adds two numbers. */
 export function sum(a, b) {
   return a - b
@@ -228,7 +245,7 @@ export function sum(a, b) {
 EOF
     git add -A
     git commit -q -m "demo/01: double"
-    cat >report.json <<'EOF'
+    put report.json <<'EOF'
 {
   "ticket": "demo/01",
   "branch": "main",
@@ -263,7 +280,7 @@ fi
 # in an eval run on a Mac with node from nvm: npm's own files lie outside PATH in the home folder,
 # which the sandbox of the run does not let it read. It lives in .git, so git status does not show it.
 pm="$work/.git/demo-pm"
-cat >"$pm" <<'EOF'
+put "$pm" <<'EOF'
 #!/bin/sh
 # The package manager of the demo fixture for the gate: `run test` starts the test script of package.json.
 # shortcut: knows only `run test`, redo when the gate registry entry of the fixture names another script.
@@ -274,7 +291,7 @@ chmod +x "$pm"
 # Windows does not start a script by its shebang: the gate looks for <pm> with the extensions of
 # PATHEXT and starts a .cmd through cmd.exe, so the same package manager is written as demo-pm.cmd too.
 if [ -n "$git_bash" ]; then
-    cat >"$pm.cmd" <<'EOF'
+    put "$pm.cmd" <<'EOF'
 @echo off
 rem The package manager of the demo fixture on Windows, as demo-pm next to it: only `run test`.
 if not "%~1"=="run" goto unknown
@@ -288,7 +305,7 @@ exit /b 2
 EOF
 fi
 mkdir -p "$state/gate" "$state/projects/demo"
-cat >"$state/gate/config.json" <<EOF
+put "$state/gate/config.json" <<EOF
 {
   "repos": [
     {
@@ -303,7 +320,7 @@ cat >"$state/gate/config.json" <<EOF
   ]
 }
 EOF
-cat >"$state/projects/demo/profile.json" <<EOF
+put "$state/projects/demo/profile.json" <<EOF
 {
   "schema": 2,
   "name": "demo",
@@ -357,7 +374,7 @@ cat >"$state/projects/demo/profile.json" <<EOF
   "audit_lenses": null
 }
 EOF
-cat >"$state/projects/demo/rules.md" <<'EOF'
+put "$state/projects/demo/rules.md" <<'EOF'
 # demo — правила проекта
 
 Учебный проект: функции в `src/`, test-ы в `test/`, запуск — `node --test`. Деплоя нет.

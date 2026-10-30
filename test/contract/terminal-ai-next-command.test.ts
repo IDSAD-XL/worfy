@@ -156,6 +156,9 @@ function world(options: { backend?: () => Promise<AssistBackend>; settings?: Ter
     settings: new TerminalAiSettingsStore(dataDir),
     limits,
     dataDir,
+    // The branch of the test's repository without git: under the load of the whole suite `git branch` once took
+    // longer than its 1 s and the request went without one. gitBranch itself is tested in terminal-ai-assist.test.ts.
+    branchOf: (cwd) => Promise.resolve(cwd === root ? BRANCH : null),
   })
   services.push(service)
   service.setSettings({ suggestionAsksModel: false, commandRequest: false, fix: false, ...options.settings })

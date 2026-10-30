@@ -21,6 +21,94 @@ import { generateScratch } from './scratch-gen'
 import { removeTestTree } from '../remove'
 import { ms } from '../time-scale'
 
+/** A child process started by worfy's code (epic-status, `git worktree list`), in performance.now() time. */
+interface OutsideRun {
+  name: string
+  start: number
+  end: number
+}
+
+/** Every child process the code under test started through execFile or spawn, as the mock below records them. */
+const outsideRuns = vi.hoisted((): OutsideRun[] => [])
+
+// node:child_process with execFile and spawn timed from the call to the end of the process: the promise of 1.5 s is
+// checked on the time worfy's own code takes, and only the processes themselves are taken out of it. The test's own
+// execFileSync and spawnSync are the real ones.
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  const { basename } = await import('node:path')
+  const { promisify } = await import('node:util')
+  type Child = import('node:child_process').ChildProcess
+  const record = (file: unknown, args: unknown): OutsideRun => {
+    const words = [file, ...(Array.isArray(args) ? args.slice(0, 2) : [])].map((word) => basename(String(word)).replace(/\.exe$/i, ''))
+    const run = { name: words.join(' '), start: performance.now(), end: Number.NaN }
+    outsideRuns.push(run)
+    return run
+  }
+  const ended = (run: OutsideRun) => () => {
+    if (Number.isNaN(run.end)) run.end = performance.now()
+  }
+  const execFile = (...params: unknown[]): Child => {
+    const run = record(params[0], params[1])
+    const last = params.length - 1
+    if (typeof params[last] === 'function') {
+      const callback = params[last] as (...result: unknown[]) => void
+      params[last] = (...result: unknown[]) => {
+        ended(run)()
+        callback(...result)
+      }
+    }
+    try {
+      return (actual.execFile as (...all: unknown[]) => Child)(...params).once('close', ended(run))
+    } catch (error) {
+      ended(run)()
+      throw error
+    }
+  }
+  // As node's own promisify(execFile) gives: { stdout, stderr }, or the error carrying both. Set by assignment, not
+  // passed to a call: test/unit/e2e-no-spawn-on-load.test.ts takes a spawning function handed to a call at load for a start.
+  ;(execFile as unknown as Record<symbol, unknown>)[promisify.custom] = (...params: unknown[]) =>
+    new Promise((resolve, reject) => {
+      execFile(...params, (error: Error | null, stdout: unknown, stderr: unknown) =>
+        error ? reject(Object.assign(error, { stdout, stderr })) : resolve({ stdout, stderr }),
+      )
+    })
+  const spawn = (...params: unknown[]): Child => {
+    const run = record(params[0], params[1])
+    try {
+      return (actual.spawn as (...all: unknown[]) => Child)(...params).once('close', ended(run))
+    } catch (error) {
+      ended(run)()
+      throw error
+    }
+  }
+  return { ...actual, execFile, spawn }
+})
+
+/**
+ * The time from the save to the delta that is worfy's own: without the child processes in between. The
+ * processes are started in the app too, but how fast a busy machine runs them is not worfy's code: under the
+ * load of the whole suite epic-status took 1.2–2.8 s, against ≈0.2 s quiet. `stages` names each one.
+ */
+function ownTime(savedAt: number, at: number): { own: number; started: number; stages: string } {
+  // Started after the save: a watcher that ran its processes more often than it should would hide behind the
+  // subtraction, so the tests also bound how many there are.
+  const started = outsideRuns.filter((run) => run.start >= savedAt && run.start < at).length
+  const spans = outsideRuns
+    .map((run) => ({ ...run, start: Math.max(run.start, savedAt), end: Math.min(Number.isNaN(run.end) ? at : run.end, at) }))
+    .filter((run) => run.end > run.start)
+    .sort((a, b) => a.start - b.start)
+  let outside = 0
+  let reached = savedAt
+  for (const span of spans) {
+    outside += Math.max(0, span.end - Math.max(span.start, reached))
+    reached = Math.max(reached, span.end)
+  }
+  const round = (value: number): number => Math.round(value - savedAt)
+  const stages = spans.map((span) => `${span.name} ${round(span.start)}–${round(span.end)} ms`).join(', ')
+  return { own: at - savedAt - outside, started, stages: `${round(at)} ms from the save to the delta, ${Math.round(outside)} ms of it outside: ${stages || 'no outside run'}` }
+}
+
 /**
  * The scripts' environment the readers are handed here: this process's own. The stub below reads
  * STUB_LOG, STUB_MODE and the like from it, and a test changes them between reads, so it is asked
@@ -828,7 +916,8 @@ describe('workflow watcher', () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
     const deltas: WorkflowDelta[] = []
-    const watcher = await startWatcher(repo, home, deltas)
+    // The watcher's own runner, the one it makes without `run`.
+    const watcher = await startWatcher(repo, home, deltas, epicStatusRunner(home, ownEnv))
     expect(ticketOf(watcher.current, 3)?.state).toBe('open')
 
     const file = join(repo, '.scratch/demo/issues/03-third.md')
@@ -836,7 +925,10 @@ describe('workflow watcher', () => {
     writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked\nBlocked reason: waiting'))
     const { delta, at } = await nextDelta(deltas, (d) => d.tickets.length > 0)
 
-    expect(at - savedAt).toBeLessThanOrEqual(1500)
+    const { own, started, stages } = ownTime(savedAt, at)
+    expect(own, stages).toBeLessThanOrEqual(1500)
+    // One read for the save: epic-status, then `git worktree list`.
+    expect(started, stages).toBeLessThanOrEqual(2)
     expect(delta.tickets.map((t) => [t.num, t.state])).toEqual([[3, 'blocked']])
     expect(delta.epics).toEqual([])
     expect(delta.removedTickets).toEqual([])
@@ -1013,11 +1105,15 @@ describe('workflow watcher', () => {
     const watcher = await startWatcher(repo, home, deltas, racing)
     expect(savedAt).toBeGreaterThan(0)
 
-    // Either `start` already gives the saved state, or a delta brings it within 1.5 s of the save.
+    // Either `start` already gives the saved state, or a delta brings it within 1.5 s of the save, the child
+    // processes not counted (ownTime).
     if (ticketOf(watcher.current, 3)?.state !== 'work') {
       const { delta, at } = await nextDelta(deltas, (d) => d.tickets.some((t) => t.num === 3))
       expect(delta.tickets.map((t) => [t.num, t.state])).toEqual([[3, 'work']])
-      expect(at - savedAt).toBeLessThanOrEqual(1500)
+      const { own, started, stages } = ownTime(savedAt, at)
+      expect(own, stages).toBeLessThanOrEqual(1500)
+      // The end of the first read (`git worktree list`), then one read for the save: epic-status and `git worktree list`.
+      expect(started, stages).toBeLessThanOrEqual(3)
     }
     await watcher.idle()
     expect(ticketOf(watcher.current, 3)?.state).toBe('work')

@@ -205,3 +205,34 @@ test('two windows of one worfy: the shared state reaches both live; a closed win
     await launched.close()
   }
 })
+
+// browser-family.spec.ts once got a Browser's <webview> page from openSecondWindow (gate full of e6802c9e): the
+// helper took the app's next page, whatever it was. Here a hidden window opens just before the second one, in the
+// helper's own first call into main, so its page comes to Playwright first every time.
+test('openSecondWindow gives the window it opened, not a page that opened just before it', async () => {
+  const launched = await launch()
+  try {
+    const { app, window: one } = launched
+    await expect(one.getByTestId('canvas')).toHaveAttribute('data-project-id', PROJECT)
+    await app.evaluate(({ BrowserWindow }) => {
+      const original = BrowserWindow.getAllWindows
+      BrowserWindow.getAllWindows = () => {
+        const windows = original.call(BrowserWindow)
+        // The app's own calls (a broadcast to every window) pass through: the decoy is for the helper's call.
+        if (/[\\/]out[\\/]main[\\/]/.test(new Error().stack ?? '')) return windows
+        BrowserWindow.getAllWindows = original
+        const decoy = new BrowserWindow({ show: false, width: 640, height: 410 })
+        ;(globalThis as { decoyId?: number }).decoyId = decoy.id
+        void decoy.loadURL('about:blank')
+        return windows
+      }
+    })
+    const two = await openSecondWindow(launched)
+    expect(two.url()).toBe(one.url())
+    await expect(two.getByTestId('canvas')).toHaveAttribute('data-project-id', PROJECT)
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(3)
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.fromId((globalThis as { decoyId?: number }).decoyId ?? -1)?.destroy())
+  } finally {
+    await launched.close()
+  }
+})

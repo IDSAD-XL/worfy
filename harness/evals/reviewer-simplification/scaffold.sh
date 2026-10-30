@@ -16,22 +16,44 @@
 # Writes only into the current folder and $HOME.
 set -euo pipefail
 
-bash "$(dirname "$0")/../lib/demo-project.sh" local-green none
+# The folder of this script, cut in bash rather than by dirname: a process start is slow in Git Bash
+# (lib/demo-project.sh). Git Bash may spell it with `\`.
+here=.
+case "$0" in */* | *\\*) here="${0%[/\\]*}" ;; esac
+bash "$here/../lib/demo-project.sh" local-green none
 
 # The run's HOME is empty: git has no identity there, and the fixture must not depend on one.
 export GIT_AUTHOR_NAME=demo GIT_AUTHOR_EMAIL=demo@example.invalid
 export GIT_COMMITTER_NAME=demo GIT_COMMITTER_EMAIL=demo@example.invalid
 export GIT_AUTHOR_DATE=2026-10-01T12:00:00Z GIT_COMMITTER_DATE=2026-10-01T12:00:00Z
+# No `git maintenance run --auto` after each commit and fetch, and files written without a process
+# each: as in lib/demo-project.sh, which explains both.
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false
+put() {
+    local text
+    IFS= read -r -d '' text || true
+    printf '%s' "$text" >"$1"
+}
+# swap <file> <line> <new line> — replaces every line <line> of <file> with <new line>, as
+# `sed -i 's/^<line>$/<new line>/'` would, without a process.
+swap() {
+    local line out=
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ "$line" = "$2" ] && line=$3
+        out+=$line$'\n'
+    done <"$1"
+    printf '%s' "$out" >"$1"
+}
 
 # --- main: the existing helper, its caller, and the ticket --------------------------------
-cat >src/duration.mjs <<'EOF'
+put src/duration.mjs <<'EOF'
 /** A duration in milliseconds as text: 65000 is "1m 05s". */
 export function formatDuration(ms) {
   const seconds = Math.round(ms / 1000)
   return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`
 }
 EOF
-cat >src/report.mjs <<'EOF'
+put src/report.mjs <<'EOF'
 import { formatDuration } from './duration.mjs'
 
 /** One line of the report: "build took 1m 05s". */
@@ -39,7 +61,7 @@ export function reportLine(task) {
   return `${task.name} took ${formatDuration(task.ms)}`
 }
 EOF
-cat >test/duration.test.mjs <<'EOF'
+put test/duration.test.mjs <<'EOF'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { formatDuration } from '../src/duration.mjs'
@@ -48,7 +70,7 @@ test('formatDuration shows minutes and seconds', () => {
   assert.equal(formatDuration(65000), '1m 05s')
 })
 EOF
-cat >test/report.test.mjs <<'EOF'
+put test/report.test.mjs <<'EOF'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { reportLine } from '../src/report.mjs'
@@ -57,7 +79,7 @@ test('reportLine names the task and its duration', () => {
   assert.equal(reportLine({ id: 7, name: 'build', ms: 65000 }), 'build took 1m 05s')
 })
 EOF
-cat >.scratch/demo/issues/01-alpha.md <<'EOF'
+put .scratch/demo/issues/01-alpha.md <<'EOF'
 # 01 — alpha: строки экспорта задачи в CSV и TSV
 
 Type: task
@@ -95,8 +117,7 @@ Blocked by: —
 
 Заполняется при закрытии.
 EOF
-sed -i.bak 's#| 01 | src/alpha.mjs, test/alpha.test.mjs | 1 |#| 01 | src/export.mjs, test/export.test.mjs | 1 |#' .scratch/demo/spec.md
-rm .scratch/demo/spec.md.bak
+swap .scratch/demo/spec.md '| 01 | src/alpha.mjs, test/alpha.test.mjs | 1 |' '| 01 | src/export.mjs, test/export.test.mjs | 1 |'
 git add -A
 git commit -q -m "demo: formatDuration, its report line and ticket 01"
 git push -q origin main
@@ -104,9 +125,8 @@ git fetch -q origin
 
 # --- demo/01: the implementer's change ----------------------------------------------------
 git checkout -q -b demo/01
-sed -i.bak 's/^Status: open$/Status: claimed 2026-10-01T09:00Z/' .scratch/demo/issues/01-alpha.md
-rm .scratch/demo/issues/01-alpha.md.bak
-cat >src/export.mjs <<'EOF'
+swap .scratch/demo/issues/01-alpha.md 'Status: open' 'Status: claimed 2026-10-01T09:00Z'
+put src/export.mjs <<'EOF'
 import { formatDuration } from './duration.mjs'
 
 /** The duration of a task as text. */
@@ -125,7 +145,7 @@ export function tsvLine(task) {
   return [task.id, task.name, durationText(task.ms)].join('\t')
 }
 EOF
-cat >test/export.test.mjs <<'EOF'
+put test/export.test.mjs <<'EOF'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { csvLine, tsvLine } from '../src/export.mjs'
