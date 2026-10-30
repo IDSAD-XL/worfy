@@ -89,8 +89,8 @@ First run так же, как «Close», и показывает раздел б
 - **Windows version** (группа Windows): сборка 19044, Windows 10 21H2, или новее, иначе Failed. Нечитаемая сборка — Warning.
 - **Architecture** (группа Windows): всё, кроме x64, — Warning. Предпочитается архитектура машины, а не процесса worfy.
 - **PowerShell** (группа Windows): OK с PowerShell 7. Только с Windows PowerShell — Warning с `winget install Microsoft.PowerShell`.
-- **Limits from terminal** (Claude Code): запускает ли status line Claude Code мост Limits этой сборки, иначе Warning. «Set up…» меняет
-  только эту настройку, после диалога с нынешней и новой командой. У сборки для разработки своего моста нет, и кнопки в строке нет.
+- **Limits from terminal** (Claude Code): запускает ли status line Claude Code bridge Limits этой сборки, иначе Warning. «Set up…» меняет
+  только эту настройку, после диалога с нынешней и новой командой. У сборки для разработки своего bridge нет, и кнопки в строке нет.
 
 #### На Linked machine
 
@@ -122,7 +122,7 @@ first-run checks, и что вход в gh делается там же.
 - `src/main/first-run/checks.ts` содержит все проверки и `runChecks`. Система, её release, архитектура и ответы инструментов приходят
   через `CheckDeps`, поэтому test-ы проверяют Windows на любой машине.
 - `src/main/first-run/actions.ts` содержит `FirstRunActions`: диалоги, одно действие за раз и падения по строкам. Сама работа — в
-  `src/main/harness/install.ts` и `src/main/harness/qmd.ts`.
+  `src/main/harness/install.ts`, `src/main/harness/qmd.ts` и, для Limits from terminal, `src/main/harness/migrate/apply.ts`.
 - `src/main/ipc/first-run.ts` связывает их с приложением, пишет и читает отметку и сообщает Getting started о каждом отчёте. Каналы — в
   `src/shared/ipc/first-run.ts`, все с отметкой доступа `local`.
 - `src/renderer/shell/FirstRun.tsx` — диалог. `src/renderer/shell/FirstRunConcepts.tsx` — страница приветствия.
@@ -145,10 +145,10 @@ Getting started — раздел боковой панели, выше Projects.
 | Пользователь | Чем определяется | Что получает |
 |---|---|---|
 | Новый | В списке нет Project-ов, не считая Demo project | Раздел показывается сам, а First run, если ни разу не закрывался, начинается со страницы приветствия |
-| Существующий | В списке есть Project, или список не прочитался и отложен в сторону | Раздел скрыт. Одно уведомление в углу, «New: Getting started — a guided demo of worfy.», с «Open» и «Not now» |
+| Существующий | В списке есть Project, или список не прочитался и отложен в сторону | Раздел скрыт. Один notice в углу, «New: Getting started — a guided demo of worfy.», с «Open» и «Not now» |
 
-Уведомление держится, пока пользователь не ответит или не закроет его. Как бы оно ни ушло, в следующем окне или при следующем запуске
-оно не вернётся. «Open» показывает раздел.
+Notice держится, пока пользователь не ответит или не закроет его. Как бы он ни ушёл, в следующем окне или при следующем запуске
+он не вернётся. «Open» показывает раздел.
 
 **Шаги.** Шаг отмечается сам, когда факт верен, в любом порядке, и когда работа сделана другим путём. Первый неотмеченный шаг — текущий,
 и только у него есть кнопка. Кнопка — это короткий путь, а не условие. Отмеченный шаг показывает галочку, а в tooltip — время.
@@ -173,8 +173,8 @@ project?» и `/worfy:ship-ticket todo 01`. Ничего не отправляе
 Удаление Demo project снимает шаги 2–6. В остальном отмеченный шаг остаётся: упавшая позже проверка не снимает шаг 1. Шаги продолжают
 отмечаться, пока раздел скрыт или окно показывает другой Project.
 
-**Подсказки.** Пока раздел виден и Ticket demo стоит на Stage с подсказкой, подсказка — строка под текущим шагом, а когда отмечены все, под
-шагом 6. Кроме того, каждая подсказка один раз становится toast, с учётом всех окон и перезапусков. Этот toast принадлежит Demo project,
+**Подсказки.** Пока раздел виден и Ticket demo стоит на Stage с подсказкой, подсказка — строка под текущим шагом, а когда отмечены все и «Show steps» вернул список,
+под шагом 6. Кроме того, каждая подсказка один раз становится toast, с учётом всех окон и перезапусков. Этот toast принадлежит Demo project,
 поэтому виден, только пока этот Project активен.
 
 | Ticket demo | Подсказка |
@@ -223,11 +223,12 @@ worfy `getting-started.json` ([ADR-0005](../../adr/0005-worfy-own-state-inventor
   и Stage-ы demo; эта подписка закрывается, когда Project уходит из списка. `firstRunPasses` содержит проверки, на которые смотрит шаг 1.
 - `src/main/ipc/getting-started.ts` содержит handler-ы и `startGettingStarted`, который `src/main/index.ts` запускает до первого окна. Это первое чтение
   решает, новый пользователь или существующий. Каналы — в `src/shared/ipc/getting-started.ts`, все с отметкой доступа `local`.
-- `src/renderer/shell/sidebar/GettingStartedSection.tsx` — раздел. `src/renderer/getting-started/store.ts` держит снимок main в окне, а окно пишет только
-  раздел и уведомление. `src/renderer/getting-started/hints.ts` выбирает подсказку. `src/renderer/getting-started/notice.ts` — уведомление.
+- `src/renderer/shell/sidebar/GettingStartedSection.tsx` — раздел. `src/renderer/getting-started/store.ts` держит снимок main в окне. Окно не отмечает
+  шаги: состояние оно меняет только запросами к main о разделе, notice, показанной подсказке, стоимости, создании и удалении demo.
+  `src/renderer/getting-started/hints.ts` выбирает подсказку. `src/renderer/getting-started/notice.ts` — notice.
   `src/renderer/getting-started/ReviewExample.tsx` и `src/renderer/getting-started/DoneScreen.tsx` — записанный пример и экран Done.
   `src/renderer/session/pending-input.ts` держит готовый текст.
-- `WORFY_GETTING_STARTED_AUTO=0` оставляет раздел скрытым для нового пользователя и считает уведомление показанным, для e2e test-ов.
+- `WORFY_GETTING_STARTED_AUTO=0` оставляет раздел скрытым для нового пользователя и считает notice показанным, для e2e test-ов.
 - Главные test-ы: `test/contract/getting-started-state.test.ts`, `test/unit/getting-started-progress.test.ts`,
   `test/unit/getting-started-section.test.tsx`, `test/unit/getting-started-hints.test.ts`, `test/unit/getting-started-notice.test.tsx`,
   `test/e2e/getting-started.spec.ts`, `test/e2e/getting-started-entry.spec.ts`, `test/e2e/getting-started-hints.spec.ts` и
@@ -244,7 +245,8 @@ Demo project — небольшой todo CLI в локальном git-репо�
 
 1. Creating the folder: `worfy-demo` в домашней папке, или `worfy-demo-2`, `-3` и так далее до `-100`, если имя занято. Папку пользователь не выбирает.
 2. Writing the files.
-3. Making the first commit, автором, которого знает git, с выключенными подписью и hook-ами для этого одного commit-а.
+3. Making the first commit, автором, которого знает git, с выключенными подписью и hook-ами `pre-commit` и `commit-msg` для этого
+   одного commit-а.
 4. Connecting the project to the Harness, со своим Profile `worfy-demo`.
 5. Adding the project: Project попадает в список.
 6. Opening the Orchestrator. Затем Project становится активным. Сообщение не отправляется.

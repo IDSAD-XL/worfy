@@ -125,7 +125,8 @@ action counts only while its check does not pass, so a cause fixed outside worfy
 - `src/main/first-run/checks.ts` holds every check and `runChecks`. The system, its release, its architecture and the
   answers of the tools come in through `CheckDeps`, so tests check Windows on any machine.
 - `src/main/first-run/actions.ts` holds `FirstRunActions`: the dialogs, one action at a time, and the failures kept per row. The
-  work itself is in `src/main/harness/install.ts` and `src/main/harness/qmd.ts`.
+  work itself is in `src/main/harness/install.ts`, `src/main/harness/qmd.ts` and, for Limits from terminal,
+  `src/main/harness/migrate/apply.ts`.
 - `src/main/ipc/first-run.ts` wires them to the app, writes and reads the mark, and tells Getting started about each report. The
   channels are in `src/shared/ipc/first-run.ts`, all with the access mark `local`.
 - `src/renderer/shell/FirstRun.tsx` is the dialog. `src/renderer/shell/FirstRunConcepts.tsx` is the welcome page.
@@ -178,7 +179,7 @@ Removing the Demo project takes back steps 2 to 6. Apart from that a marked step
 step 1. The steps go on being marked while the section is hidden or the window shows another Project.
 
 **Hints.** While the section shows and the demo Ticket stands on a Stage with a hint, the hint is a line under the current step,
-or under step 6 once all are marked. Each hint is also a toast once, across windows and restarts. That toast belongs to the Demo project, so it shows only while that
+or under step 6 once all are marked and "Show steps" has brought the list back. Each hint is also a toast once, across windows and restarts. That toast belongs to the Demo project, so it shows only while that
 Project is active.
 
 | The demo Ticket | Hint |
@@ -232,7 +233,8 @@ does the work.
   window. That first read decides new or existing. The channels are in `src/shared/ipc/getting-started.ts`, all with the access mark
   `local`.
 - `src/renderer/shell/sidebar/GettingStartedSection.tsx` is the section. `src/renderer/getting-started/store.ts` holds main's snapshot
-  in the window, and the window writes only the section and the notice. `src/renderer/getting-started/hints.ts` chooses the hint.
+  in the window. The window marks no step: it changes the state only by asking main for the section, the notice, a hint shown, the
+  cost, and creating or removing the demo. `src/renderer/getting-started/hints.ts` chooses the hint.
   `src/renderer/getting-started/notice.ts` is the notice. `src/renderer/getting-started/ReviewExample.tsx` and
   `src/renderer/getting-started/DoneScreen.tsx` are the recorded example and the screen Done. `src/renderer/session/pending-input.ts`
   holds the ready text.
@@ -255,7 +257,8 @@ no prices.
 1. Creating the folder: `worfy-demo` in the home folder, or `worfy-demo-2`, `-3` and so on up to `-100` when the name is taken.
    The user does not choose the folder.
 2. Writing the files.
-3. Making the first commit, by the author git knows, with signing and hooks turned off for that one commit.
+3. Making the first commit, by the author git knows, with signing and the `pre-commit` and `commit-msg` hooks turned off for that
+   one commit.
 4. Connecting the project to the Harness, with its own Profile `worfy-demo`.
 5. Adding the project to the list.
 6. Opening the Orchestrator. The Project then becomes active. No message is sent.

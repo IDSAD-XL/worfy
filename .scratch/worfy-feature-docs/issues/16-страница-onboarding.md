@@ -70,7 +70,7 @@ Claude не было. Деления страницы нет: меньше 400 �
 - Высота раздела 720 px и 144 px из комментария `GettingStartedSection.tsx`: в самом файле есть только высота строки 48 px. Предел
   с кодом не сверялся, число на страницу не пошло.
 - `docs/features/concepts.md` говорит о Demo project «one command deletes it». Команды нет: это кнопка «Remove the demo project»
-  на экране Done, она появляется только после шага 6. `concepts.md` вне этого Ticket-а и не правился.
+  на экране Done, она появляется только после шага 6. `concepts.md` и его перевод поправлены в этом же PR.
 
 **Возможные баги продукта (найдены чтением кода, не воспроизводились):**
 
@@ -86,6 +86,11 @@ Claude не было. Деления страницы нет: меньше 400 �
   системы. Test «says nothing of brew anywhere» этого не ловит, если node в его окружении находится.
 - Комментарий `notice.ts` сам называет shortcut: два окна, открытые вместе, показывают уведомление оба, пока одно не закроют. На странице
   сказано лишь, что оно не возвращается в следующем окне или при запуске.
+- `src/main/first-run/checks.ts`, строка «qmd collections»: в Profile-е Demo project нет `qmd.collections`, поэтому строка предупреждает
+  «none for worfy-demo» и предлагает «Set up…». В Full mode копию обновляет `qmd-sync-main`, а он делает fetch из `origin`; у demo
+  `origin` нет.
+- `src/main/getting-started/state.ts`: `forgetDemo` оставляет `reworkSeen` и `hintsSeen`. У второго demo подсказки Stage-ей больше не
+  становятся toast, а шаг 5 не предлагает «Show an example», даже если круга доработки не было.
 
 **Сверка папок «Где в коде».** Все три папки есть, но списка мало. Ещё нужны: `src/renderer/shell/FirstRun.tsx`,
 `src/renderer/shell/FirstRunChecks.tsx`, `src/renderer/shell/FirstRunConcepts.tsx`, `src/renderer/shell/first-run-store.ts`,
