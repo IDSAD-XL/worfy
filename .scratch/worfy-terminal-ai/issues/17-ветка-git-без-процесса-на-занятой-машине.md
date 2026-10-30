@@ -75,9 +75,23 @@ PATH в папке без `.git`) остаётся зелёным — прове
 submodule на ветке и с отсоединённым HEAD, папка в submodule — сверка с настоящим `git branch --show-current`,
 stub не вызван; папка вне репозитория — `null`, как у git. Повреждённый `HEAD` (пустой, мусор, reftable, ref вне
 `refs/heads`) и папка вне репозитория — ответ процесса git; при медленном stub — `null` за предел. Разбор `HEAD` и
-`gitdir:` (в том числе пути Windows через `path.win32`) — отдельными случаями. Связка по умолчанию в
-`AssistService` без `branchOf` — покрыта test-ом из PR #1052 (в `terminal-ai-assist.test.ts`), этот файл
-Ticket не правит. Пределы test-ов не подняты: новые test-ы берут время через `ms()`.
+`gitdir:` (в том числе пути Windows через `path.win32`) — отдельными случаями. Пределы test-ов не подняты:
+новые test-ы берут время через `ms()`.
+
+**Связка по умолчанию в `AssistService` (без `branchOf`)** — test «a service built without branchOf reads the
+branch with the git on PATH…» в `test/contract/terminal-ai-assist.test.ts:1019` (пришёл в main с PR #1052,
+2399dcc8; этот Ticket файл не правит). Мутант `src/main/terminal-ai/assist.ts:291` →
+`options.branchOf ?? (async () => null)` на ветке после rebase на 2399dcc8: test красный, exit code 1
+(`expected 'Folder: …' to contain 'Git branch: from-path-git'`); файл возвращён из копии.
 
 **Платформа.** Пути `.git` с `\` и буквой диска — платформенный PR (ADR-0056); на Windows test с настоящим git
 идёт со stub-ом, одним в PATH, а test-ы со stub-ом-скриптом `/bin/sh` пропускаются. `pnpm lint`, `pnpm typecheck`, `pnpm test` на Mac — exit 0; Windows-вердикт — job Windows в CI этого PR, пункт открыт до него.
+
+**Долги ревью PR #1056 (low, тикетов не заводят).**
+
+- `HEAD`-symlink (так HEAD хранил очень старый git) даёт `null`: `readFile` идёт по ссылке, читает sha ветки и
+  считает HEAD отсоединённым (`src/main/terminal-ai/git-branch.ts:89`).
+- `GIT_DIR` и подобные переменные в окружении main не учитываются, пока `.git` найден по файлам
+  (`src/main/terminal-ai/git-branch.ts:96`); учитываются только на пути через процесс git.
+- `safe.directory`: в репозитории другого владельца git отказывал и ветки не было; теперь ветка видна. Это не
+  утечка: имя ветки уходит только в запрос из Terminal-а, открытого в этой папке тем же пользователем.
