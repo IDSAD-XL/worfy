@@ -64,3 +64,37 @@ Source: «Как устроено» и Q9 [spec.md](../spec.md); решения 
 
 ## Итог
 
+Страница `docs/features/projects.md`: 415 строк, это в пределах «примерно 400», на две не делилась. Перевод:
+`docs/features/ru/projects.md`. Секции: Full mode and Silent mode, Project switcher, ADRs and HANDOFF.
+
+**Расхождение с индексом.** Строка `docs/features/README.md` говорит о переключении между режимами («the switch between
+them»), а этот Ticket — о «Переключателе Project-ов». В коде нет элемента управления, который меняет режим подключённого
+Project-а: режим выбирается в «Add project» и в форме миграции Profile схемы 1. Страница описывает Project switcher и прямо
+говорит, что переключателя режима нет. Индекс этот Ticket не правит, строку нужно поправить отдельно.
+
+**Утверждения, которые не подтвердились кодом и не попали на страницу (2).**
+
+- Что Harness в Silent mode не делает documents commit в репозитории: это есть только в тексте `harness/profiles/README.md`,
+  проверки поведения я не нашёл. На странице только то, что подтверждено `harness/bin/project-connect` и guard.
+- Что Layout восстанавливается при повторном добавлении Project-а: это вывод из того, что папка данных остаётся, теста на это нет.
+  На странице сказано только про настройки.
+
+**Возможные баги продукта (код не менялся).**
+
+1. Silent Project с Workflow folder вне корня: «Open in Editor» панели ADR и относительные ссылки HANDOFF и ADR идут по пути
+   относительно корня Project-а (`shell.openInEditor`, `resolveProjectFile`). Файл не находится, ошибка уходит только в консоль, а
+   если в репозитории есть файл по тому же пути, откроется он. Поведение описано на странице как есть.
+2. worfy жёстко читает `HANDOFF.md` и `docs/adr`. Поля Profile `docs.handoff.path` и `docs.adr_dir` из контракта Harness он не
+   читает, поэтому Profile с другими путями не будет показан.
+3. `projects.hold` — канал `write`, поэтому `linked.open` экрана с доступом только для чтения получает отказ (`console.warn`), и
+   Machine не держит для такого экрана открытыми Orchestrator и документы. Сами документы при этом читаются: `docs.open` — `read`.
+4. У канала `projects.add` нет вызова из renderer-а: новый Project идёт через `projects.connect.*`, канал вызывают только тесты.
+   На странице он упомянут только в списке каналов.
+
+**Сверка папок из «Где в коде».** Список неполный: `src/shared/projects` содержит только шаблоны действий. Код этих Feature лежит
+ещё в `src/main/workflow/folder.ts`, `src/main/workflow/profile.ts`, `src/main/ipc/{projects,docs,shell,linked}.ts`,
+`src/shared/ipc/{projects,docs}.ts`, `src/renderer/shell/sidebar/{ProjectsSection,AdrSection}.tsx`,
+`src/renderer/shell/ProjectSettings.tsx`, `src/renderer/canvas/nodes/HandoffNode.tsx` и `harness/bin/project-connect`.
+
+**Не проверено запуском.** Части про Windows написаны по коду и тестам: приложение не запускалось ни на одной системе.
+
