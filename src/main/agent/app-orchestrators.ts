@@ -48,10 +48,30 @@ export function sharedOrchestrators(): Orchestrators {
   return shared
 }
 
+/** Projects whose Orchestrator main does not open by itself for now (kept closed). */
+const keptClosed = new Map<string, number>()
+
+/**
+ * Main does not open the Project's Orchestrator by itself — for a new window, a change of the active
+ * Project or a screen of a Linked machine — until the returned function is called. The removal of
+ * the Demo project holds it while it deletes the folder (worfy-onboarding ticket 10).
+ */
+export function keepClosed(projectId: string): () => void {
+  keptClosed.set(projectId, (keptClosed.get(projectId) ?? 0) + 1)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    const left = (keptClosed.get(projectId) ?? 1) - 1
+    if (left > 0) keptClosed.set(projectId, left)
+    else keptClosed.delete(projectId)
+  }
+}
+
 function openActive(): void {
   try {
     const active = projectStore().active()
-    if (active) {
+    if (active && !keptClosed.has(active.id)) {
       sharedOrchestrators()
         .open(active.id)
         .catch((error: unknown) => console.error(`[orchestrator] could not open the Orchestrator of ${active.id}`, error))
@@ -67,6 +87,7 @@ function openActive(): void {
  */
 function openHeld(): void {
   for (const projectId of projectHolds().projectIds()) {
+    if (keptClosed.has(projectId)) continue
     try {
       sharedOrchestrators()
         .open(projectId)

@@ -7,7 +7,7 @@
 // every folder "ours", so a missing guard shows as a deletion asked for, never as one made.
 // Nothing here starts a real agent or writes to ~/.claude.
 import { execFile, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -28,11 +28,17 @@ import { TerminalRegistry, type PtyProcess, type TerminalSink } from '../../src/
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import type { RemoveDemoResult } from '../../src/shared/ipc/getting-started'
 import { APP_URL } from '../app-url'
-import { removeTestTree } from '../remove'
+import { removeTestTree, saveLayoutNow } from '../remove'
 import { scriptNode } from '../script-node'
 
+const electron = vi.hoisted(() => ({ listeners: new Map<string, (() => void)[]>() }))
+
 vi.mock('electron', () => ({
-  app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
+  app: {
+    isPackaged: false,
+    getAppPath: () => '/nowhere',
+    on: (event: string, listener: () => void) => electron.listeners.set(event, [...(electron.listeners.get(event) ?? []), listener]),
+  },
   BrowserWindow: { getAllWindows: () => [] },
 }))
 
@@ -220,15 +226,11 @@ async function app(options: Options = {}) {
       },
       dataDir: (id) => projects.dataDir(id),
     },
-    stopOrchestrator: (projectId) =>
-      orchestrators.retain(
-        new Set(
-          projects
-            .list()
-            .map((project) => project.id)
-            .filter((id) => id !== projectId),
-        ),
-      ),
+    stopOrchestrator: (projectId) => {
+      log.push('orchestrator held closed')
+      orchestrators.retain(new Set(projects.list().flatMap((project) => (project.id === projectId ? [] : [project.id]))))
+      return () => void log.push('orchestrator let go')
+    },
     sessions: sessionPlaces(registry),
     terminals: terminalPlaces(terminals, (projectId) => projects.find(projectId)?.path ?? options.roots?.[projectId] ?? null),
     state,
@@ -318,8 +320,11 @@ describe('gettingStarted.removeDemo', () => {
   it('after Confirm closes the Sessions and Terminals inside the folder first, then removes the Profile, the list row, the data folder, the record and the folder', async () => {
     const elsewhere = join(scratch, 'elsewhere')
     mkdirSync(elsewhere)
-    // Terminals start in the root of their Project: one of a Project inside the demo's folder, one of a Project outside it.
-    const h = await app({ roots: { visitor: join(home, 'worfy-demo', 'src'), outsider: elsewhere } })
+    // A folder next to the demo whose name starts with the demo's: not inside it.
+    const nextDoor = join(home, 'worfy-demo-2')
+    mkdirSync(nextDoor)
+    // Terminals start in the root of their Project: one of a Project inside the demo's folder, two of Projects outside it.
+    const h = await app({ roots: { visitor: join(home, 'worfy-demo', 'src'), outsider: elsewhere, neighbour: nextDoor } })
     const demo = await h.createDemo()
     markAll(h.state)
     const sibling = join(home, 'notes.txt')
@@ -327,8 +332,10 @@ describe('gettingStarted.removeDemo', () => {
     const inDemo = await h.openTerminal(demo.projectId, 'term-1', demo.path)
     const visiting = await h.openTerminal('visitor', 'term-2', join(demo.path, 'src'))
     const outside = await h.openTerminal('outsider', 'term-3', elsewhere)
-    // A Session outside the demo's folder.
+    const neighbour = await h.openTerminal('neighbour', 'term-4', nextDoor)
+    // Sessions outside the demo's folder, one of them next door.
     const other = h.registry.start(elsewhere, undefined, () => undefined)
+    const nextDoorSession = h.registry.start(nextDoor, undefined, () => undefined)
 
     const result = await h.removeDemo()
 
@@ -343,8 +350,16 @@ describe('gettingStarted.removeDemo', () => {
     expect(h.terminals.has(inDemo)).toBe(false)
     expect(h.terminals.has(visiting)).toBe(false)
     expect(h.terminals.has(outside)).toBe(true)
-    expect(h.registry.list().map((session) => session.cwd)).toEqual([elsewhere])
+    expect(h.terminals.has(neighbour)).toBe(true)
+    expect(h.log).not.toContain(`terminal closed: ${nextDoor}`)
+    expect(h.registry.list().map((session) => session.cwd).sort()).toEqual([elsewhere, nextDoor].sort())
     expect(other.state).not.toBe('closed')
+    expect(nextDoorSession.state).not.toBe('closed')
+    expect(existsSync(nextDoor)).toBe(true)
+    // main does not open the demo's Orchestrator by itself from before the first close to after the last deletion.
+    expect(h.log.indexOf('orchestrator held closed')).toBeLessThan(h.log.indexOf(`terminal closed: ${demo.path}`))
+    expect(h.log.filter((line) => line === 'orchestrator let go')).toHaveLength(1)
+    expect(h.log.indexOf('orchestrator let go')).toBeGreaterThan(h.log.lastIndexOf(`deleted: ${demo.path}`))
 
     // The folder is gone; the home folder and what else it holds stay.
     expect(existsSync(demo.path)).toBe(false)
@@ -547,7 +562,7 @@ describe('the guards of the folder', () => {
         remove: () => undefined,
         dataDir: (id) => join(places.dataRoot, id),
       },
-      stopOrchestrator: () => undefined,
+      stopOrchestrator: () => () => undefined,
       sessions: { list: () => [], close: () => Promise.resolve() },
       terminals: { list: () => [], close: () => Promise.resolve() },
       state: {
@@ -592,7 +607,8 @@ describe('the guards of the folder', () => {
   for (const [name, make, reason] of cases) {
     it(`never deletes ${name}, and does not ask`, async () => {
       const { folder, places } = make()
-      mkdirSync(folder, { recursive: true })
+      // The root of a disk is there, and Windows refuses to make it (EPERM): only a missing folder is made.
+      if (!existsSync(folder)) mkdirSync(folder, { recursive: true })
       const g = guarded(folder, places)
       const result = await removeDemo(g.deps)
       expect(result).toMatchObject({
@@ -631,5 +647,90 @@ describe('the guards of the folder', () => {
     expect(new Set(g.deleted)).toEqual(new Set([folder, join(data, 'demo-id')]))
     expect(g.asked).toEqual([folder])
     expect(g.forgot()).toBe(true)
+  })
+
+  /** A link to a folder: a junction on Windows, which needs no right to make links there. */
+  const linkFolder = (target: string, path: string): void => symlinkSync(target, path, process.platform === 'win32' ? 'junction' : 'dir')
+
+  it('with the real removal, a link inside the demo is removed as a link: the folder it leads to and the home folder stay whole', async () => {
+    const outside = join(scratch, 'outside')
+    mkdirSync(outside)
+    writeFileSync(join(outside, 'keep.txt'), 'keep\n')
+    writeFileSync(join(home, 'notes.txt'), 'mine\n')
+    const folder = join(home, 'worfy-demo')
+    mkdirSync(join(folder, 'sub'), { recursive: true })
+    writeFileSync(join(folder, 'todo.mjs'), 'demo\n')
+    linkFolder(outside, join(folder, 'outside-link'))
+    linkFolder(outside, join(folder, 'sub', 'outside-link'))
+    linkFolder(home, join(folder, 'home-link'))
+    // A link to a file needs the right to make links on Windows: only elsewhere.
+    if (process.platform !== 'win32') symlinkSync(join(outside, 'keep.txt'), join(folder, 'file-link'))
+    const g = guarded(folder, { home, dataRoot: data })
+    delete g.deps.removeTree
+
+    expect(await removeDemo(g.deps)).toEqual({ removed: true })
+
+    expect(existsSync(folder)).toBe(false)
+    expect(readFileSync(join(outside, 'keep.txt'), 'utf8')).toBe('keep\n')
+    expect(readFileSync(join(home, 'notes.txt'), 'utf8')).toBe('mine\n')
+  })
+
+  it('with the real removal, a demo folder that is itself a link goes as the link; the folder it leads to stays whole', async () => {
+    const outside = join(scratch, 'outside')
+    mkdirSync(outside)
+    writeFileSync(join(outside, 'keep.txt'), 'keep\n')
+    const folder = join(home, 'worfy-demo')
+    linkFolder(outside, folder)
+    const g = guarded(folder, { home, dataRoot: data })
+    delete g.deps.removeTree
+
+    expect(await removeDemo(g.deps)).toEqual({ removed: true })
+
+    expect(existsSync(folder)).toBe(false)
+    expect(readFileSync(join(outside, 'keep.txt'), 'utf8')).toBe('keep\n')
+  })
+})
+
+describe('main does not open a held Orchestrator by itself', () => {
+  const PROJECT = 'demo-0000000d'
+
+  it('neither for a new window nor for a screen of a Linked machine, until it is let go', async () => {
+    const repo = join(scratch, 'repo')
+    mkdirSync(repo)
+    mkdirSync(join(data, PROJECT), { recursive: true })
+    mkdirSync(join(scratch, 'claude-home', 'projects'), { recursive: true })
+    writeFileSync(join(data, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'repo', path: repo }], activeId: PROJECT }))
+    vi.stubEnv('WORFY_DATA_DIR', data)
+    vi.stubEnv('WORFY_CLAUDE_HOME', join(scratch, 'claude-home'))
+    vi.stubEnv('WORFY_AGENT', 'fake')
+    vi.stubEnv('WORFY_AGENT_SCRIPTS', AGENT_SCRIPTS)
+    vi.stubEnv('WORFY_AGENT_SCRIPT', 'orchestrator')
+    electron.listeners.clear()
+    vi.resetModules()
+    try {
+      const { keepClosed, sharedOrchestrators, startOrchestrators } = await import('../../src/main/agent/app-orchestrators')
+      const { sharedRegistry } = await import('../../src/main/agent/app-registry')
+      const { projectHolds } = await import('../../src/main/projects/holds')
+      cleanups.push(() => sharedRegistry().closeAll(), saveLayoutNow)
+      startOrchestrators()
+      const opened = vi.spyOn(sharedOrchestrators(), 'open')
+      const newWindow = (): void => {
+        for (const listener of electron.listeners.get('browser-window-created') ?? []) listener()
+      }
+
+      const release = keepClosed(PROJECT)
+      newWindow()
+      const screen = { id: 7, once: () => undefined, isDestroyed: () => false }
+      expect(projectHolds().set(screen, 'screen-1', PROJECT)).toBe(true)
+      expect(opened).not.toHaveBeenCalled()
+
+      release()
+      release()
+      newWindow()
+      expect(opened).toHaveBeenCalledWith(PROJECT)
+      await vi.waitFor(() => expect(sharedRegistry().list().map((session) => session.cwd)).toEqual([repo]))
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })

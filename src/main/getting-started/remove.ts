@@ -10,7 +10,9 @@
 // Otherwise the answer is a refusal and nothing is touched. Then:
 //   1. the native dialog with the text of the spec and the folder; Cancel — nothing;
 //   2. the demo's Orchestrator stops, and every Session and Terminal whose folder is inside the demo's
-//      is closed and waited for: Windows refuses to delete a folder a process works in;
+//      is closed and waited for: Windows refuses to delete a folder a process works in. Until the
+//      removal ends main does not open the demo's Orchestrator by itself (keepClosed of
+//      src/main/agent/app-orchestrators.ts), so a window opened meanwhile starts no Session there;
 //   3. `project-connect --remove worfy-demo`: the Profile, its gate registry entries, runs/worfy-demo/;
 //   4. the Project leaves the list, and its worfy data folder is deleted;
 //   5. the record `demo` goes, and steps 2–6 with it; step 1 stays. Before the folder, not after: the
@@ -30,7 +32,7 @@ import type { ConnectScript } from '../projects/connect'
 import { realpathOrSelf } from '../projects/real-path'
 import { removeTree } from '../storage/remove'
 import { DEMO_PROFILE, profileIsOurs, removeDemoProfile, type DemoDeps } from './demo'
-import type { GettingStartedState } from './state'
+import type { DemoRecord, GettingStartedState } from './state'
 
 /** How many times a folder is asked to go, with FOLDER_PAUSE_MS between two tries. */
 export const FOLDER_TRIES = 5
@@ -65,8 +67,11 @@ export interface RemoveDeps {
     remove(id: string): void
     dataDir(id: string): string
   }
-  /** Stops the Project's Orchestrator, so nothing opens its Session again. */
-  stopOrchestrator: (projectId: string) => void
+  /**
+   * Stops the Project's Orchestrator and keeps main from opening it again by itself (a new window,
+   * the active Project); the returned function lets go. Held until the removal ends.
+   */
+  stopOrchestrator: (projectId: string) => () => void
   /** The live Sessions; close() resolves once the Session's processes have exited. */
   sessions: {
     list(): readonly { sessionId: string; cwd: string }[]
@@ -130,12 +135,11 @@ async function notOurs(deps: RemoveDeps, folder: string): Promise<string | null>
   return null
 }
 
-/** Closes the Orchestrator and every Session and Terminal whose folder is inside `folder`, and waits for them. */
-async function closeInside(deps: RemoveDeps, projectId: string, folder: string): Promise<void> {
+/** Closes every Session and Terminal whose folder is inside `folder`, and waits for them. */
+async function closeInside(deps: RemoveDeps, folder: string): Promise<void> {
   const inside = (cwd: string | null): boolean => cwd !== null && within(cwd, folder)
   const sessions = deps.sessions.list().filter((session) => inside(session.cwd))
   const terminals = deps.terminals.list().filter((terminal) => inside(terminal.cwd))
-  deps.stopOrchestrator(projectId)
   const closing = [...sessions.map((session) => deps.sessions.close(session.sessionId)), ...terminals.map((terminal) => deps.terminals.close(terminal.key))]
   for (const result of await Promise.allSettled(closing)) {
     // Gone already, or not closable: the deletion below says what stays and why.
@@ -198,7 +202,20 @@ async function removeChecked(deps: RemoveDeps): Promise<RemoveDemoResult> {
   if (foreign !== null) return refused(`Nothing was removed: ${foreign}.`)
   if (!(await deps.confirm(folder))) return { removed: false, reason: null }
 
-  await closeInside(deps, record.projectId, folder)
+  // Held until the folder is gone: a window that opens meanwhile would start the Orchestrator's
+  // Session in the folder again.
+  const release = deps.stopOrchestrator(record.projectId)
+  try {
+    return await removeConfirmed(deps, record)
+  } finally {
+    release()
+  }
+}
+
+/** Steps 2–6 of the top of this file, once the user has confirmed. */
+async function removeConfirmed(deps: RemoveDeps, record: DemoRecord): Promise<RemoveDemoResult> {
+  const folder = record.path
+  await closeInside(deps, folder)
   const failed = await removeDemoProfile(deps, DEMO_PROFILE)
   if (failed !== null)
     return refused(`The demo's Sessions were closed, but its Profile ${DEMO_PROFILE} could not be removed, so nothing was deleted: ${failed}`)

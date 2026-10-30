@@ -34,7 +34,7 @@ import {
 } from '../../shared/ipc/getting-started'
 import { ORCHESTRATOR_KIND } from '../../shared/ipc/orchestrator'
 import { agentEnv } from '../agent/env'
-import { sharedOrchestrators } from '../agent/app-orchestrators'
+import { keepClosed, sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
 import type { Orchestrators } from '../agent/orchestrator'
 import type { SessionRegistry } from '../agent/session'
@@ -232,7 +232,11 @@ function appRemover(): DemoRemover {
       },
       dataDir: (id) => projectStore().dataDir(id),
     },
-    stopOrchestrator: (projectId) => sharedOrchestrators().retain(new Set(projectStore().list().flatMap((project) => (project.id === projectId ? [] : [project.id])))),
+    stopOrchestrator: (projectId) => {
+      const release = keepClosed(projectId)
+      sharedOrchestrators().retain(new Set(projectStore().list().flatMap((project) => (project.id === projectId ? [] : [project.id]))))
+      return release
+    },
     sessions: sessionPlaces(sharedRegistry()),
     terminals: terminalPlaces(terminalNodeRegistry(), (projectId) => projectStore().find(projectId)?.path ?? null),
     state: gettingStartedState(),
