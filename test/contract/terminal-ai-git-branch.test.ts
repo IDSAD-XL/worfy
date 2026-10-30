@@ -8,7 +8,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, join, win32 } from 'node:path'
+import { delimiter, join, posix, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { gitBranch, gitDirFromFile, readHead } from '../../src/main/terminal-ai/git-branch'
 import { removeTestTree } from '../remove'
@@ -186,12 +186,15 @@ describe('readHead', () => {
 
 describe('gitDirFromFile', () => {
   it('follows an absolute and a relative gitdir, with Windows paths too', () => {
-    expect(gitDirFromFile('gitdir: /repo/.git/worktrees/x\n', '/wt')).toBe('/repo/.git/worktrees/x')
-    expect(gitDirFromFile('gitdir: ../.git/modules/sub\n', '/repo/sub')).toBe('/repo/.git/modules/sub')
+    // The path module is given on every line: Windows' own path reads `/repo` as a folder of the current drive.
+    expect(gitDirFromFile('gitdir: /repo/.git/worktrees/x\n', '/wt', posix)).toBe('/repo/.git/worktrees/x')
+    expect(gitDirFromFile('gitdir: ../.git/modules/sub\n', '/repo/sub', posix)).toBe('/repo/.git/modules/sub')
     expect(gitDirFromFile('gitdir: C:/repo/.git/worktrees/x\r\n', 'D:\\wt', win32)).toBe('C:\\repo\\.git\\worktrees\\x')
     expect(gitDirFromFile('gitdir: C:\\repo\\.git\\worktrees\\x\n', 'D:\\wt', win32)).toBe('C:\\repo\\.git\\worktrees\\x')
     expect(gitDirFromFile('gitdir: ../.git/modules/sub\n', 'C:\\repo\\sub', win32)).toBe('C:\\repo\\.git\\modules\\sub')
     expect(gitDirFromFile('gitdir: ..\\.git\\modules\\sub\n', 'C:\\repo\\sub', win32)).toBe('C:\\repo\\.git\\modules\\sub')
+    // A path from the root without a drive is on the drive of the folder that holds `.git`, as git reads it there.
+    expect(gitDirFromFile('gitdir: /repo/.git/worktrees/x\n', 'E:\\wt', win32)).toBe('E:\\repo\\.git\\worktrees\\x')
   })
 
   it('gives null for a .git file in another form', () => {
