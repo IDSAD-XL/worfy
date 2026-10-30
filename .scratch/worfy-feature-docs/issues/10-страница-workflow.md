@@ -65,3 +65,30 @@ Source: «Как устроено» и Q9 [spec.md](../spec.md); решения 
 
 ## Итог
 
+Страница одна, 424 строки: это считаю «примерно 400», поэтому не делил. Если Orchestrator считает иначе, граница деления — раздел Binding
+(105 строк). Разделы — Ticket и Epic на Canvas, Pipeline, Binding, как в списке. Английский здесь намеренно (ADR-0088).
+
+**Не подтвердившиеся утверждения.** На странице их нет. При самопроверке 13 формулировок черновика разошлись с кодом и исправлены до
+PR, например порог stuck на Done и то, что `test/contract/workflow-reader.test.ts` запускает stub, а не настоящий `epic-status`.
+Режим прав новой Session и правило фокуса для уведомлений оставлены страницам Sessions и App shell.
+
+**Возможные баги продукта (код не менялся).**
+
+- Ticket, завершённый только в невлитой ветке worktree: `applyBranches` даёт `state: done` и `fromBranch`, `stageOf` ставит его на Done
+  при всё ещё открытом PR, а ready Wave и Ship ticket считают его незакрытым. Test-а на это нет.
+- Кнопка «Remove binding» в Session rail (`BindingRail`) не проверяет экран только для чтения: она активна, а клик лишь пишет подсказку
+  в console. Пункт меню Node-а при этом неактивен и объясняет почему.
+- Секция Epics пишет «No epics in .scratch/» и в Silent mode, где Ticket-ы лежат в Workflow folder.
+
+**Расхождения комментариев и кода (страница следует коду).**
+
+- Комментарий `stuckAfterMs` говорит, что у Queued, Check, Deploy и Closing нет порога, а `Waits: owner` или `team` даёт им 24 часа.
+- Комментарий в `stages.ts` говорит, что git не запускается в корне-папке, а `rev-parse` запускается, когда Profile нельзя прочитать.
+- Строка `PR:` шапки читается в модель, но Stage-ы находят PR по ветке.
+
+**Правка «Где в коде».** Шесть папок существуют, но Feature живёт ещё здесь: `src/renderer/canvas/sources/epics.ts`,
+`src/renderer/canvas/sources/workflow-bindings.ts`, `src/renderer/canvas/epic-layout.ts`, `src/renderer/canvas/ticket-card.ts`,
+`src/renderer/canvas/nodes/` (Ticket, frame Epic-а), `src/renderer/canvas/edges/`, `src/renderer/canvas/actions/`,
+`src/renderer/canvas/overlays/BindingDrop.tsx`, `src/renderer/session/rail/BindingRail.tsx`, `src/renderer/settings/PipelineSection.tsx`,
+`src/renderer/shell/sidebar/`, `src/main/layout/bindings.ts`, `src/main/claude-home/binding-signals.ts`, `src/main/actions/launch.ts`,
+`src/main/github/`, `src/main/ipc/`, `src/shared/ipc/`, `src/shared/actions/`.
