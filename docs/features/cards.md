@@ -1,8 +1,8 @@
 # Cards
 
-A Card is a small HTML app that an agent builds and that runs inside a Node on the Canvas. This page has two sections:
-Card as a file covers the Card itself, and Card MCP covers the tools through which an agent creates a Card and changes the
-Canvas. Terms are explained in [Concepts](concepts.md).
+A Card is a small HTML app that an agent builds and that runs inside a Node on the Canvas. This page has three sections:
+Card as a file covers the Card itself, Card API covers the `window.worfy` calls of a Card's page, and Canvas MCP covers the
+tools through which an agent creates Cards and notes and changes the Canvas. Terms are explained in [Concepts](concepts.md).
 
 ## Card as a file
 
@@ -28,7 +28,7 @@ answer `Not found`.
 
 **Reloading.** When a file of the Card is written or removed, the Node reloads the page within a second. A burst of writes
 reloads it once, after 100 ms of quiet. A reload loads a new document, so anything the page keeps only in memory is lost.
-Data saved with `worfy.data` stays.
+Data saved through the Card API stays.
 
 **Mouse.** On the Canvas, a Card's page takes the mouse only while its Node is the active one. Until then the wheel over a
 Card moves the Canvas, and the first click activates the Card and does not reach the page. While a Node is dragged or
@@ -43,7 +43,7 @@ drawn outside the Canvas, so its page takes the mouse at once.
 - Send network requests to https addresses only. This rule also stops `fetch` of the Card's own files.
 - Go to other files of its own Card.
 - Use `localStorage` on its own origin, which no other Card shares.
-- Use the Card API, described below.
+- Use the Card API, described in its own section.
 
 **What a page may not do:**
 
@@ -54,7 +54,101 @@ drawn outside the Canvas, so its page takes the mouse at once.
 - Serve a file with another extension, or a file outside its folder. Such a request gets a 404. The served types are HTML,
   CSS, JavaScript, JSON, plain text, SVG and common image, font, audio and video formats.
 
-**Card API.** Every HTML page of a Card has `window.worfy`, and the page cannot replace it. Every call except
+**Find.** The Canvas search also reads the visible text of Cards, up to 100 000 characters. Only a Card whose page is
+running can answer, and it has 2 seconds.
+
+**Deleting.** The user can delete a Card Node. Its folder and its data move to the Project's trash, are kept for 3 days and
+can be restored. They stay in place if another Node still shows the same Card. Agents cannot delete a Node.
+
+#### On a Linked machine
+
+A window can show a Card of a Project on a Linked machine. Its files are on the Machine of the Project. A file change on the
+Machine of the Project reloads the Card in the window.
+
+- A file larger than 20 MB gets the answer 413.
+- When the Linked machine cannot be reached, the answer is 502.
+
+### How it works
+
+**Files, not an API.** An agent writes Cards with the file tools it already has, and worfy only reads them
+([ADR-0003](../adr/0003-cards-as-files-canvas-via-tools.md)). The files and the saved data are in the Project data folder,
+so they never reach the Project's repository ([ADR-0005](../adr/0005-worfy-own-state-inventory.md)). The folders are
+`<Project data folder>/cards/<id>/` and `<Project data folder>/card-data/<id>.json`. See
+[Storage and diagnostics](storage-and-diagnostics.md).
+
+**A separate origin for each Card.** A Card is code that an agent wrote, so it is isolated from the app
+([ADR-0012](../adr/0012-card-origin-worfy-card-scheme.md)). The address is `worfy-card://<card id>.<project label>/<path>`,
+where the label is the 8 hex characters that end the Project id. The app registers this scheme as standard and secure, so
+each host is an origin of its own. The iframe has `sandbox="allow-scripts allow-same-origin"`. "Same origin" here means the
+Card's own origin, never that of the window. An address whose label matches no Project, or more than one, gets a 404.
+
+**Three separate checks.** The protocol serves only files of the Card and sends the same headers on every answer: a
+Content-Security-Policy, `nosniff` and `no-store`. The main process decides which navigations a frame may make, and refuses
+new windows and web permissions. The worfy window accepts a Card's message only from the frame of that Card and with that
+frame's origin. It drops any other message without an answer. The Card API section describes these messages.
+
+**Reloads come from a revision number.** The main process watches a Project's Cards from the first time one of them is asked
+for, until the Project leaves the list. Each change raises the Card's revision, which is kept in memory only. The Node makes
+a new iframe for each new revision, and a later revision always wins over an earlier answer.
+
+**A Card on a Linked machine has its own origin.** Its host gets a third part, the Machine id without dashes:
+`worfy-card://<card id>.<project label>.<machine label>/<path>`. Its origin therefore differs from that of any Card of this
+Machine, even one with the same id and label. The Machine of the Project finds and checks the file as for its own frames and
+sends it in pieces of at most 4 MB.
+
+#### Windows
+
+On Windows, a system call that follows a link to `\\host\share\…` makes the system contact that host with the user's
+credentials. So the links on the way to a Card are read first, without being followed:
+
+- A Card whose folder leads to a share counts as missing. A Card whose `index.html` leads there has no title.
+- A file behind such a link is not served.
+- A Cards folder that leads to a share is not watched. A link inside a Card that leads there is left alone, and the other
+  Cards are watched as usual. A link to a folder or a file on this machine is still followed.
+
+The watch itself differs too. It uses one recursive handle instead of chokidar and does not create the Cards folder: it waits
+for the folder to appear. Links are looked for down to the folders right inside a Card. When Windows reports lost events,
+every Card asked about so far in that Project is read again. Swap and backup files of an editor are not a change.
+
+### Implementation
+
+| Module | What it holds |
+|---|---|
+| `src/main/cards/store.ts` | `CardStore`: Card folders, the `<title>`, the watch and revisions |
+| `src/main/cards/protocol.ts` | The `worfy-card://` handler, CSP, file types, address parsing, script insertion, navigation rule |
+| `src/main/cards/remote.ts` | The second source of files: Cards of Linked machines |
+| `src/main/link/file-chunks.ts` | Sending a file over the link in pieces |
+| `src/main/ipc/cards.ts` | IPC handlers for a Card and its files, and the `cards.changed` event |
+| `src/main/window.ts` | `installWebPolicy`: navigation, new windows and permissions for all pages |
+| `src/main/link-safe-watch.ts`, `src/main/remote-links.ts` | The Windows watch and the reading of links |
+| `src/shared/cards/bridge.ts` | The origin and the machine label of a Card address |
+| `src/shared/ipc/cards.ts` | IPC channels and the Card id format |
+| `src/renderer/canvas/nodes/CardNode.tsx` | The Node, its states and the iframe |
+| `src/main/layout/trash.ts` | Moving a Card to the trash and back |
+
+The protocol is installed once before the first window, from `src/main/index.ts`. Its privileges are registered in
+`src/main/schemes.ts`.
+
+**Data flow of a file change.** A file changes in the Cards folder. `CardStore` waits for the quiet period, raises the
+revision and reads the Card again. `src/main/ipc/cards.ts` sends `cards.changed` to every window. `CardNode` picks out its own
+Card and makes a new iframe.
+
+**Main tests:**
+
+- `test/contract/card-protocol.test.ts`: serving files and refusing others, addresses, Linked machine files, navigation, the
+  store.
+- `test/contract/card-links.test.ts`, `test/unit/cards-watch.test.ts`, `test/contract/cards-watch-links.test.ts`: links and
+  the watch by the Windows rules.
+- `test/e2e/card-runtime.spec.ts`: reload, isolation, CSP and zoom in the running app.
+- `test/e2e/card-drag.spec.ts`: drag, resize and pan across a Card's iframe.
+- `test/e2e/linked-cards.spec.ts`: a Card shown from a Linked machine.
+- `test/contract/trash.test.ts`: deleting and restoring a Card.
+
+## Card API
+
+### Behaviour
+
+Every HTML page of a Card has `window.worfy`, and the page cannot replace it. Every call except
 `worfy.workflow.subscribe` returns a Promise, and a refused call rejects it with the reason. `worfy.workflow.subscribe`
 returns its stop function at once, and a failed subscription is only written to the page's console.
 
@@ -84,52 +178,22 @@ dialog names the Card and the recipient and shows the exact text. Nothing is sen
 - **An unattended recipient.** A Session run by Autopilot has nobody to answer the dialog. The call is refused without a
   dialog, and nothing is sent. The same check runs again after `Send`, in case the Session became unattended meanwhile.
 
-**Find.** The Canvas search also reads the visible text of Cards, up to 100 000 characters. Only a Card whose page is
-running can answer, and it has 2 seconds.
-
-**Deleting.** The user can delete a Card Node. Its folder and its data move to the Project's trash, are kept for 3 days and
-can be restored. They stay in place if another Node still shows the same Card. Agents cannot delete a Node.
-
 #### On a Linked machine
 
-A window can show a Card of a Project on a Linked machine. Its files, its saved data and the Session that gets its messages
-are on the Machine of the Project. The dialog of `worfy.ask` appears on the Machine of the window. A file change on the
-Machine of the Project reloads the Card in the window.
-
-- A file larger than 20 MB gets the answer 413.
-- When the Linked machine cannot be reached, the answer is 502.
-- On a read-only screen `worfy.data.set` and `worfy.ask` fail at once with the read-only hint. Reading still works.
+The saved data of a Card on a Linked machine, and the Session that gets its messages, are on the Machine of the Project. The
+dialog of `worfy.ask` appears on the Machine of the window. On a read-only screen `worfy.data.set` and `worfy.ask` fail at
+once with the read-only hint. Reading still works.
 
 ### How it works
-
-**Files, not an API.** An agent writes Cards with the file tools it already has, and worfy only reads them
-([ADR-0003](../adr/0003-cards-as-files-canvas-via-tools.md)). The files and the saved data are in the Project data folder,
-so they never reach the Project's repository ([ADR-0005](../adr/0005-worfy-own-state-inventory.md)). The folders are
-`<Project data folder>/cards/<id>/` and `<Project data folder>/card-data/<id>.json`. See
-[Storage and diagnostics](storage-and-diagnostics.md).
-
-**A separate origin for each Card.** A Card is code that an agent wrote, so it is isolated from the app
-([ADR-0012](../adr/0012-card-origin-worfy-card-scheme.md)). The address is `worfy-card://<card id>.<project label>/<path>`,
-where the label is the 8 hex characters that end the Project id. The app registers this scheme as standard and secure, so
-each host is an origin of its own. The iframe has `sandbox="allow-scripts allow-same-origin"`. "Same origin" here means the
-Card's own origin, never that of the window. An address whose label matches no Project, or more than one, gets a 404.
-
-**Three separate checks.** The protocol serves only files of the Card and sends the same headers on every answer: a
-Content-Security-Policy, `nosniff` and `no-store`. The main process decides which navigations a frame may make, and refuses
-new windows and web permissions. The worfy window accepts a Card's message only from the frame of that Card and with that
-frame's origin. It drops any other message without an answer.
 
 **The Card API is messages.** A Card has no Node.js and no IPC. It talks to its parent window with `postMessage`
 ([ADR-0015](../adr/0015-card-api-window-worfy-postmessage.md)). The protocol puts the small script that provides
 `window.worfy` at the start of the `<head>` of each HTML file it serves, so it runs before the Card's own scripts. The file
-on disk does not change. The window validates each request with a schema and passes on only the parsed request. Saved data
+on disk does not change. A Card on a Linked machine arrives from the Machine of the Project without this script, and the
+Machine of the window adds its own. The window validates each request with a schema and passes on only the parsed request. Saved data
 and messages go to the main process over IPC. The window builds the workflow snapshot from what it already reads, and it
 starts reading only after a Card first asks. A subscribed Card hears only of a real change. worfy does not own the workflow,
 so a Card only reads it ([ADR-0002](../adr/0002-worfy-is-a-view-over-the-workflow.md)).
-
-**Reloads come from a revision number.** The main process watches a Project's Cards from the first time one of them is asked
-for, until the Project leaves the list. Each change raises the Card's revision, which is kept in memory only. The Node makes
-a new iframe for each new revision, and a later revision always wins over an earlier answer.
 
 **The last editor comes from tool calls.** For a Session attached to a Project, the main process watches the `Write`, `Edit`,
 `MultiEdit` and `NotebookEdit` calls against the Cards folder of that Project. A call that names a file inside a Card's folder
@@ -143,24 +207,7 @@ screen that asked ([ADR-0053](../adr/0053-several-screens-on-one-project.md)). O
 question. A refusal to an unattended Session also reaches that Session's subscribers as a `refused_dialog` event, and the
 Autopilot journal records it. A message the user sends to a Session of an Autopilot run is recorded there as human input.
 
-**A Card on a Linked machine has its own origin.** Its host gets a third part, the Machine id without dashes:
-`worfy-card://<card id>.<project label>.<machine label>/<path>`. Its origin therefore differs from that of any Card of this
-Machine, even one with the same id and label. The Machine of the Project finds and checks the file as for its own frames and
-sends it in pieces of at most 4 MB, without the Card API script. The Machine of the window adds its own script.
-
 #### Windows
-
-On Windows, a system call that follows a link to `\\host\share\…` makes the system contact that host with the user's
-credentials. So the links on the way to a Card are read first, without being followed:
-
-- A Card whose folder leads to a share counts as missing. A Card whose `index.html` leads there has no title.
-- A file behind such a link is not served.
-- A Cards folder that leads to a share is not watched. A link inside a Card that leads there is left alone, and the other
-  Cards are watched as usual. A link to a folder or a file on this machine is still followed.
-
-The watch itself differs too. It uses one recursive handle instead of chokidar and does not create the Cards folder: it waits
-for the folder to appear. Links are looked for down to the folders right inside a Card. When Windows reports lost events,
-every Card asked about so far in that Project is read again. Swap and backup files of an editor are not a change.
 
 For the last editor, a Windows path takes `\` and `/` as one separator and is compared without regard to case. A Git Bash path
 such as `/c/Users/…` is read as drive C:.
@@ -169,57 +216,36 @@ such as `/c/Users/…` is read as drive C:.
 
 | Module | What it holds |
 |---|---|
-| `src/main/cards/store.ts` | `CardStore`: Card folders, the `<title>`, the watch and revisions |
-| `src/main/cards/protocol.ts` | The `worfy-card://` handler, CSP, file types, address parsing, script insertion, navigation rule |
+| `src/card-runtime/worfy-card.ts` | The source of `window.worfy` |
 | `src/main/cards/data.ts` | `CardDataStore`: one JSON file per Card |
 | `src/main/cards/ask.ts` | `CardAsk`: the recipient and the waiting questions |
-| `src/main/cards/remote.ts` | The second source of files: Cards of Linked machines |
-| `src/main/link/file-chunks.ts` | Sending a file over the link in pieces |
-| `src/main/ipc/cards.ts`, `src/main/ipc/card-api.ts` | IPC handlers, the dialog and the check for an unattended recipient |
-| `src/main/window.ts` | `installWebPolicy`: navigation, new windows and permissions for all pages |
-| `src/main/link-safe-watch.ts`, `src/main/remote-links.ts` | The Windows watch and the reading of links |
-| `src/shared/cards/bridge.ts` | The message formats and limits, the workflow snapshot, the origin and machine label |
+| `src/main/ipc/card-api.ts` | IPC handlers, the dialog and the check for an unattended recipient |
+| `src/shared/cards/bridge.ts` | The message formats and limits, the workflow snapshot |
 | `src/shared/cards/last-editor.ts` | Which Card a tool call wrote into |
-| `src/shared/ipc/cards.ts`, `src/shared/ipc/card-api.ts` | IPC channels and the Card id format |
-| `src/card-runtime/worfy-card.ts` | The source of `window.worfy` |
-| `src/renderer/canvas/nodes/CardNode.tsx` | The Node, its states and the iframe |
+| `src/shared/ipc/card-api.ts` | IPC channels of the Card API |
 | `src/renderer/canvas/card-bridge.ts` | The window's side of the messages, with no DOM globals |
 | `src/renderer/canvas/overlays/CardBridge.tsx` | Mounts the bridge, finds the frames and feeds the workflow |
-| `src/main/layout/trash.ts` | Moving a Card to the trash and back |
 
-The protocol is installed once before the first window, from `src/main/index.ts`. Its privileges are registered in
-`src/main/schemes.ts`.
+The script is inserted by `src/main/cards/protocol.ts`, and the last editor is recorded by `src/main/mcp/canvas-server.ts`.
 
 **Data flow of a request.** A page calls `window.worfy`. The script posts a message to the parent window.
 `src/renderer/canvas/card-bridge.ts` checks the sender and the schema. Saved data and messages then go over IPC to
 `src/main/ipc/card-api.ts`. The answer goes back to the same frame, addressed to its origin.
 
-**Data flow of a file change.** A file changes in the Cards folder. `CardStore` waits for the quiet period, raises the
-revision and reads the Card again. `src/main/ipc/cards.ts` sends `cards.changed` to every window. `CardNode` picks out its own
-Card and makes a new iframe.
-
 **Main tests:**
 
-- `test/contract/card-protocol.test.ts`: serving files and refusing others, addresses, Linked machine files, navigation, the
-  store.
 - `test/contract/card-bridge.test.ts`: messages, who may talk to the bridge, saved data, the snapshot, `window.worfy`.
 - `test/contract/card-api.test.ts`: the three steps of a message, the dialog, an unattended recipient.
 - `test/contract/card-last-editor.test.ts`: paths and the last editor, Windows paths included.
-- `test/contract/card-links.test.ts`, `test/unit/cards-watch.test.ts`, `test/contract/cards-watch-links.test.ts`: links and
-  the watch by the Windows rules.
-- `test/e2e/card-runtime.spec.ts`: reload, isolation, CSP and zoom in the running app.
 - `test/e2e/card-api.spec.ts`: saved data across a restart and the message dialog.
-- `test/e2e/card-drag.spec.ts`: drag, resize and pan across a Card's iframe.
-- `test/e2e/linked-cards.spec.ts`: a Card shown from a Linked machine.
-- `test/contract/trash.test.ts`: deleting and restoring a Card.
 
-## Card MCP
+## Canvas MCP
 
 ### Behaviour
 
 **Who gets the tools.** A Session that worfy starts in a Project gets the MCP server `worfy-canvas`. It also gets the Project's
-Cards folder as an extra writable directory, and a short instruction in its system prompt. Despite this section's name, the
-server is not only about Cards: it is the agent's way to change the Canvas.
+Cards folder as an extra writable directory, and a short instruction in its system prompt. The server is the agent's way to
+change the Canvas, and it is wider than Cards: it also makes notes, and moves, resizes and hides other Nodes.
 
 - The Session gets the server only if the Project's Profile lists it. The default list does.
 - A Session whose working directory is in no Project runs without these tools. So does a Session whose canvas failed to start.
