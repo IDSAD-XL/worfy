@@ -3,6 +3,8 @@ name: implementer
 description: Implements one ticket of any registered project, with tests. Where to work (its own worktree or the main checkout), which commands verify the work and how far to take it (a PR and a green gate fast, or locally green checks) come from the project profile (`${CLAUDE_PLUGIN_ROOT}/bin/profile`). Returns a JSON report with commands, exit codes and claims to verify. One ticket — one agent; with `parallel` set to `single` — one agent for the whole project.
 model: inherit
 effort: high
+experimental:
+  cacheTtl: 1h
 ---
 
 **First action — the project profile.** If the brief names a repository or worktree path (lines

@@ -35,6 +35,8 @@ export const FALLBACK_MODEL = 'claude-opus-5-5'
 export const FAST_MULTIPLIER = 2
 /** A pause longer than this before a request lets the 5-minute prompt cache expire. */
 export const IDLE_MS = 5 * 60 * 1000
+/** A pause up to this long keeps a 1-hour prompt cache; a longer one rewrites it with either lifetime. */
+export const HOUR_MS = 60 * 60 * 1000
 export const ROLES = ['orchestrator', 'implementer', 'reviewer', 'scout', 'other']
 
 const HELP = `usage: node scripts/agent-cost.mjs [options]
@@ -62,6 +64,13 @@ an Orchestrator call and the start context of a subagent, from Claude Code trans
                           gh run watch; one run in the background counts by its notice);
                           their tokens and cost. Responses right after the notice that a
                           subagent finished are shown apart and are not counted as waits.
+  --idle                  per role, what a 1-hour prompt cache would change: the agents, the
+                          median count per agent of pauses of 5-60 min (a 1-hour cache keeps
+                          its context over them), the pauses over 60 min (rewritten with either
+                          lifetime), the cache rewritten after the 5-60 min pauses, and the
+                          cache write cost now against the cost with 1 hour: every write at the
+                          1-hour price, the context the 5-minute cache lost in a 5-60 min pause
+                          read instead of written.
   --json                  JSON instead of the table.
   --help                  this text.
 
@@ -80,13 +89,14 @@ function parseTime(text, end) {
 
 /** Options from the arguments; throws with the reason when they are wrong. */
 export function parseArgs(args) {
-  const options = { json: false, help: false, byTicket: false, waits: false }
+  const options = { json: false, help: false, byTicket: false, waits: false, idle: false }
   const valued = { '--transcripts': 'transcripts', '--since': 'since', '--until': 'until' }
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     if (arg === '--json') options.json = true
     else if (arg === '--by-ticket') options.byTicket = true
     else if (arg === '--waits') options.waits = true
+    else if (arg === '--idle') options.idle = true
     else if (arg === '--help' || arg === '-h') options.help = true
     else if (arg in valued) {
       const value = args[++i]
@@ -519,11 +529,60 @@ export async function measure(files, options) {
     unpricedModels: [...unpriced].sort(),
   }
   if (options.byTicket) report.tickets = byTicket(transcripts, inPeriod)
+  if (options.idle) report.idle = idleOf(transcripts, inPeriod)
   if (options.waits) {
     const { orchestratorCalls, orchestratorTokens } = waits
     report.waits = { ...waits, share: orchestratorCalls ? waits.calls / orchestratorCalls : 0, tokenShare: orchestratorTokens ? waits.tokens / orchestratorTokens : 0 }
   }
   return report
+}
+
+/**
+ * The --idle numbers per role, from transcripts whose responses are sorted by time. A pause is the
+ * time from one response of a transcript to the next, measured over the whole transcript like the
+ * idle rewrite. An agent is a transcript with a response in the period. With a 1-hour cache every
+ * cache write would cost the 1-hour price, and a response after a pause of 5-60 min would read,
+ * not write, the context the previous response had: the previous context less what this response
+ * read from the cache or sent uncached, at most what it wrote. `saving` is the write cost now less
+ * the cost with 1 hour, positive when 1 hour is cheaper.
+ */
+function idleOf(transcripts, inPeriod) {
+  const sums = Object.fromEntries(ROLES.map((role) => [role, { perAgent: [], pauses: 0, longPauses: 0, rewrite: { calls: 0, cost: 0 }, writeCost: 0, writeCost1h: 0 }]))
+  for (const transcript of transcripts) {
+    const sum = sums[transcript.role]
+    let pauses
+    let previous
+    for (const call of transcript.calls) {
+      const before = previous
+      previous = call
+      if (!inPeriod(call)) continue
+      pauses ??= 0
+      const pause = before === undefined ? 0 : call.ts - before.ts
+      const bridged = pause > IDLE_MS && pause <= HOUR_MS
+      const [, , read, write5m, write1h] = PRICES[call.model] ?? PRICES[FALLBACK_MODEL]
+      const k = (call.fast ? FAST_MULTIPLIER : 1) / 1e6
+      const written = call.write5m + call.write1h
+      const kept = bridged ? Math.min(written, Math.max(0, contextOf(before) - call.cacheRead - call.input)) : 0
+      const write = (call.write5m * write5m + call.write1h * write1h) * k
+      sum.writeCost += write
+      sum.writeCost1h += ((written - kept) * write1h + kept * read) * k
+      if (pause > HOUR_MS) sum.longPauses++
+      if (!bridged) continue
+      pauses++
+      sum.pauses++
+      if (written > contextOf(call) / 2) {
+        sum.rewrite.calls++
+        sum.rewrite.cost += write
+      }
+    }
+    if (pauses !== undefined) sum.perAgent.push(pauses)
+  }
+  return Object.fromEntries(
+    ROLES.map((role) => {
+      const { perAgent, ...sum } = sums[role]
+      return [role, { agents: perAgent.length, agentsWithPause: perAgent.filter((n) => n > 0).length, medianPauses: median(perAgent), ...sum, saving: sum.writeCost - sum.writeCost1h }]
+    }),
+  )
 }
 
 const tokensOf = (call) => call.input + call.output + call.cacheRead + call.write5m + call.write1h
@@ -650,6 +709,24 @@ function toWaitLines({ waits }) {
   ]
 }
 
+/** The --idle lines: a row per role with an agent. */
+function toIdleLines({ idle }) {
+  if (idle === undefined) return []
+  const out = [
+    '',
+    `Pauses a 1-hour prompt cache keeps (${IDLE_MS / 60000}-${HOUR_MS / 60000} min) and the cache write cost with it:`,
+    '  role          agents  with pause  median  pauses  over 1 h  rewrites  rewrite cost  writes now  writes 1 h     saving',
+  ]
+  for (const role of ROLES) {
+    const r = idle[role]
+    if (r.agents === 0) continue
+    out.push(
+      `  ${role.padEnd(12)} ${String(r.agents).padStart(7)} ${String(r.agentsWithPause).padStart(11)} ${String(r.medianPauses).padStart(7)} ${String(r.pauses).padStart(7)} ${String(r.longPauses).padStart(9)} ${String(r.rewrite.calls).padStart(9)} ${dollars(r.rewrite.cost).padStart(13)} ${dollars(r.writeCost).padStart(11)} ${dollars(r.writeCost1h).padStart(11)} ${dollars(r.saving).padStart(10)}`,
+    )
+  }
+  return out
+}
+
 function toTable(report) {
   const { period, roles, idleRewrite, orchestratorContext, startContext } = report
   const out = [
@@ -658,7 +735,7 @@ function toTable(report) {
     '',
   ]
   if (report.tickets !== undefined) {
-    out.push(...toTicketTable(report), ...toWaitLines(report))
+    out.push(...toTicketTable(report), ...toWaitLines(report), ...toIdleLines(report))
     if (report.unpricedModels.length) out.push('', `Priced as ${FALLBACK_MODEL}: ${report.unpricedModels.join(', ')}`)
     return `${out.join('\n')}\n`
   }
@@ -682,7 +759,7 @@ function toTable(report) {
     const days = Object.entries(s.byDay).map(([day, d]) => `${day.slice(5)} ${kTokens(d.median)} (${d.agents})`).join(', ')
     out.push(`  ${role.padEnd(12)} ${s.agents} agents, median ${kTokens(s.median)}, mean ${kTokens(s.mean)}; by day, median: ${days}`)
   }
-  out.push(...toWaitLines(report))
+  out.push(...toWaitLines(report), ...toIdleLines(report))
   if (report.unpricedModels.length) out.push('', `Priced as ${FALLBACK_MODEL}: ${report.unpricedModels.join(', ')}`)
   return `${out.join('\n')}\n`
 }
@@ -694,7 +771,7 @@ export async function agentCost(args, deps = { env: process.env, home: homedir()
     options = parseArgs(args)
   } catch (error) {
     deps.err(`agent-cost: ${error.message}`)
-    deps.err('usage: node scripts/agent-cost.mjs [--transcripts <folder>] [--since <date>] [--until <date>] [--by-ticket] [--waits] [--json] | --help')
+    deps.err('usage: node scripts/agent-cost.mjs [--transcripts <folder>] [--since <date>] [--until <date>] [--by-ticket] [--waits] [--idle] [--json] | --help')
     return REFUSED
   }
   if (options.help) {
