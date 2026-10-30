@@ -40,7 +40,7 @@ Enter или клик запускает выбранную строку. Esc и
 - Show all Nodes: только пока включён фильтр по тегу.
 
 Строка «Go to» показывает Canvas и центрирует его на Node-е. Архивный или скрытый Node сначала возвращается. Ticket в свёрнутом
-frame центрирует этот frame. Строка ADR открывает этот ADR только для чтения и не двигает Canvas. Строка Orchestrator открывает
+frame центрирует этот frame. Строка ADR открывает этот ADR только для чтения и не двигает Canvas. При скрытом sidebar ADR откроется, когда sidebar покажут. Строка Orchestrator открывает
 Session view и запускает Orchestrator, если он не работает. Строка Manual check ведёт к своему Ticket-у и ничего не отмечает.
 Выбор строки «In transcripts» открывает эту Session в Session view.
 

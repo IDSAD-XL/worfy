@@ -38,7 +38,7 @@ Some rows exist only in some states:
 - Show all Nodes: only while a tag filter is on.
 
 A "Go to" row shows the Canvas and centers it on the Node. An archived or hidden Node is brought back first. A Ticket of a
-collapsed frame centers its frame. An ADR row opens that ADR read-only and does not move the Canvas. The Orchestrator row
+collapsed frame centers its frame. An ADR row opens that ADR read-only and does not move the Canvas. With the sidebar hidden, the ADR opens when the sidebar is shown. The Orchestrator row
 opens the Session view and starts the Orchestrator if it does not run. A Manual check row goes to its Ticket and ticks
 nothing. Picking an "In transcripts" row opens that Session in the Session view.
 
