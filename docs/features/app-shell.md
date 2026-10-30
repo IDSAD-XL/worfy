@@ -38,9 +38,9 @@ Some rows exist only in some states:
 - Show all Nodes: only while a tag filter is on.
 
 A "Go to" row shows the Canvas and centers it on the Node. An archived or hidden Node is brought back first. A Ticket of a
-collapsed frame centers its frame. The Orchestrator row opens the Session view and starts the Orchestrator if it does not
-run. A Manual check row goes to its Ticket and ticks nothing. Picking an "In transcripts" row opens that Session in the
-Session view.
+collapsed frame centers its frame. An ADR row opens that ADR read-only and does not move the Canvas. The Orchestrator row
+opens the Session view and starts the Orchestrator if it does not run. A Manual check row goes to its Ticket and ticks
+nothing. Picking an "In transcripts" row opens that Session in the Session view.
 
 **Ranking.** An exact key beats every title, for example a Ticket number (`07`, `7`, `worfy-mvp/07`) or an ADR number. Then
 come, in order: the start of the title, the start of a word in the title, anywhere in the title, the detail, all the words of
@@ -60,8 +60,8 @@ reads the user's messages and Claude's replies, not tool calls, their output, th
 
 At most 20 Sessions come back, newest first, each with a snippet of up to 120 characters from around the match. One search
 reads at most 200 transcripts and 64 MiB. When a limit leaves some unread, the group says "Older transcripts were not
-searched". It also says "Searching…" and "Could not search the transcripts: …". These rows come on top of the 50 command
-rows.
+searched". It also says "Searching…" and "Could not search the transcripts: …". These rows come in addition to the 50
+command rows, below them.
 
 **Without a Project** the palette has the View rows, the Project rows and the machine rows, and no transcript search.
 
@@ -159,8 +159,8 @@ entry: Ctrl on macOS, the Windows key on Windows.
   exception: Ctrl+= and Ctrl+- still zoom, and only Ctrl+\_ stays with the shell. See [Terminal](terminal.md).
 - AltGr types a character and is never a shortcut, although it arrives as Ctrl+Alt. Ctrl+Alt pressed as two keys is a
   combination.
-- The menu shows Ctrl+/ but does not take it. The page catches it, outside a Terminal, where it stays with the shell. Ctrl+B
-  stays with the shell by itself: xterm.js cancels it, and the menu gets only the presses the page did not cancel.
+- The menu shows Ctrl+/ but does not take it. The page catches it, outside a Terminal, where it stays with the shell. With
+  Settings open the key does nothing. Ctrl+B stays with the shell by itself: xterm.js cancels it, and the menu gets only the presses the page did not cancel.
 - ⌘I has no entry here, because Ctrl+I is Tab of the shell.
 
 ### How it works
@@ -171,8 +171,9 @@ entry: Ctrl on macOS, the Windows key on Windows.
 - **Places do not clash.** An entry has a scope such as `app`, `canvas` or `terminal`. Two entries of one scope never share
   keys, and no entry shares the keys of an `app` entry. A test checks this.
 - **The rule of the Terminal is one rule.** On Windows the shell's keys share Ctrl with worfy's, so an entry with the primary
-  key gives up a press inside a terminal. An entry names what it keeps in `shellKeeps`, and the shell has the rest. On macOS
-  the shell's keys are on Ctrl and worfy's on ⌘, so nothing is given up there.
+  key gives up a press inside a terminal. An entry names in `shellKeeps` the keys the shell keeps, and the entry keeps the
+  rest. Without `shellKeeps`, the shell keeps all of them. On macOS the shell's keys are on Ctrl and worfy's on ⌘, so nothing
+  is given up there.
 - **The system comes from the user agent**, with no IPC channel: `src/renderer/main.tsx` writes it on `<html>` as
   `data-platform`, and the styles and `currentPlatform` read it there.
 
@@ -193,7 +194,7 @@ Main tests: `test/unit/shortcuts.test.tsx`, `test/unit/shortcuts-overlay.test.ts
 
 ### Behaviour
 
-The app menu is Electron's default menu, item for item, plus worfy's own items.
+The app menu is built on Electron's default menu, plus worfy's own items.
 
 | Menu | Items |
 |---|---|
@@ -205,13 +206,13 @@ The app menu is Electron's default menu, item for item, plus worfy's own items.
 | Help | Keyboard Shortcuts; on macOS also the system's search field |
 
 - **Settings…** (⌘,) opens the [Settings](#settings) window of the window it was chosen for.
-- **Actual size, Bigger, Smaller** change the interface scale of the Machine by a tenth, from 80 % to 150 %, in every window.
-  They stand where Electron's zoom items stand and do not zoom one window. Their keys carry ⌥ (Alt), because ⌘= and ⌘- zoom
+- **Bigger and Smaller** change the interface scale of the Machine by a tenth, from 80 % to 150 %, and **Actual size** sets it
+  to 100 %, in every window. They stand where Electron's zoom items stand and do not zoom one window. Their keys carry ⌥ (Alt), because ⌘= and ⌘- zoom
   the Canvas. Bigger is disabled at 150 % and Smaller at 80 %, also when the scale changed in Settings.
-- **Toggle Sidebar** (⌘B) hides or shows the sidebar of the window it was chosen for, wherever the focus is. The one exception
-  is inside a Terminal on Windows, below. The normal view and focus mode have separate answers, and the switch changes the
-  answer of what the window shows now. Both answers outlive a restart. The button in the toolbar and in the focus mode bar does
-  the same.
+- **Toggle Sidebar** (⌘B) hides or shows the sidebar, wherever the focus is. The one exception is inside a Terminal on Windows,
+  below. The normal view and focus mode have separate answers, and the switch changes the answer of what the window it was
+  chosen for shows now. Both answers are settings of the Machine: every window in that mode follows, and they outlive a
+  restart. The button in the toolbar and in the focus mode bar does the same.
 - **Show Minimap** is a checkbox, on at first. It applies to every window and lasts until worfy quits.
 - A command chosen right after a window appears is carried out and not lost. It waits for the page for up to 10 seconds, and
   up to 8 commands per window wait. A reload of the page drops what waited.
