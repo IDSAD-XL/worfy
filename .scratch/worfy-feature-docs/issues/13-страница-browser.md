@@ -61,3 +61,34 @@ Source: «Как устроено» и Q9 [spec.md](../spec.md); решения 
 
 ## Итог
 
+Страница `docs/features/browser.md`, 409 строк, разделы Browser и Browser profile, как в списке. Делить не стал: это
+«примерно 400», как и 404 строки у Autopilot. Перевод `docs/features/ru/browser.md` в том же PR. Приложение не запускалось,
+test-ы прочитаны, но не запускались.
+
+Не подтвердилось кодом или test-ом, на страницу не пошло (3):
+
+- ADR-0078: «каждый Live Browser — примерно 100–300 МБ». Константы и test-а нет.
+- ADR-0087: `browser_screenshot` с viewport-ом снимает размер viewport-а, а не рамки. Вызов `Page.captureScreenshot` без
+  размеров есть, test-а на размер снимка нет.
+- Комментарий `src/main/browser/screencast.ts`: Chromium шлёт кадр «только когда страница изменилась». Это поведение Chromium,
+  ни код, ни test этого не проверяют.
+
+Отличия Windows: в модулях Browser одна ветка по платформе (`editingCommands`). Других отличий код не содержит; на Windows
+страница не проверялась, это выведено только из кода.
+
+Возможные баги продукта (код не менялся):
+
+- `src/main/browser/live.ts`: запись `controls` не удаляется, когда Node Browser уходит из Layout вне ухода Session, в отличие
+  от `lifes` и `calls`. `browser.control.list` продолжает её отдавать, пока Session на Canvas.
+- `src/main/layout/store.ts`: заблокированный Browser Session, ушедшей с Canvas, остаётся с `openedBy`. Ушедшая Session его не
+  ведёт, другие получают отказ «opened by another Session», поэтому вести его не может никто, пока Session не покажут снова.
+- `src/shared/ipc/browser.ts`: `browser.profiles.list` — канал `read`, и Linked machine с read-only получает sign-in page вместе
+  с query. `signInExpiry` в `src/main/mcp/browser-server.ts` query намеренно не показывает. ADR-0078 в поправке называет только
+  origins, про sign-in page решения нет.
+- `src/main/browser/cdp.ts`: отмеченный в комментарии shortcut. Debugger не отключается, поэтому обход service worker длится до
+  закрытия страницы, также после конца управления Session.
+
+Сверка папок «Где в коде»: три папки верны, но неполны. Feature также живёт в `src/main/ipc/browser.ts`,
+`src/main/mcp/browser-server.ts`, `src/main/window.ts`, `src/main/layout/store.ts`, `src/renderer/canvas/nodes/`,
+`src/renderer/canvas/overlays/`, `src/renderer/settings/BrowserSection.tsx`, `src/shared/ipc/browser.ts`.
+
