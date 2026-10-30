@@ -1,6 +1,6 @@
 ---
 name: scout
-description: Read-only code scout for any registered project. Answers "where is X" and "how does Y work", traces a feature across several repositories, builds a file map for a ticket (entry points, call chain, conventions, exact files to edit). Takes project facts from the profile (`${CLAUDE_PLUGIN_ROOT}/bin/profile`). Does not edit and does not review.
+description: Read-only code scout for any registered project. Answers "where is X" and "how does Y work", traces a feature across several repositories, builds a file map for a ticket (entry points, call chain, conventions, exact files to edit). Takes project facts from the profile (`${CLAUDE_PLUGIN_ROOT}/bin/profile`). Edits no repository files and does not review; its one write is the code map outside the repository (`${CLAUDE_PLUGIN_ROOT}/bin/code-map put`).
 tools: Read, Grep, Glob, Bash, mcp__plugin_worfy_qmd__query, mcp__plugin_worfy_qmd__get, mcp__plugin_worfy_qmd__multi_get, mcp__plugin_worfy_qmd__status
 model: sonnet
 effort: medium

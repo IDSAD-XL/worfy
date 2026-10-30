@@ -11,7 +11,10 @@
 #     does not; a folder whose name starts another folder's name (src/a, src/ab) is not confused with
 #     it; a file moved out of a folder makes it stale; a commit the repository does not have makes the
 #     folder stale and says so on stderr; a map with CRLF line ends reads the same;
-#   - refusals: no description, a folder that is not there or leaves the repository, a description
+#   - one name per folder: `src//a`, `src/./a`, `./src/a/` and `SRC/A` on a case-insensitive disk write
+#     the section src/a;
+#   - refusals: no description, a folder that is not there, leaves the repository (an existing one,
+#     relative or absolute) or is ignored by git, a description
 #     with a level-1 or level-2 heading — exit 2 and the map unchanged; a repository of no registered
 #     project — exit 3; no subcommand — exit 2.
 # Run: bash harness/bin/tests/code-map.test.sh; exit code 0 means everything passed.
@@ -50,7 +53,7 @@ change() { mkdir -p "$(dirname "$R/$1")"; printf '%s\n' "$2" >"$R/$1"; git -C "$
 # stale_is <name> <want> — `code-map stale` exits 0 and prints exactly <want>
 stale_is() {
     run stale -C "$R"
-    local got; got="$(tr -d '\r' <"$T/out")"
+    local got; got="$(slashes "$(tr -d '\r' <"$T/out")")"
     [ "$rc" -eq 0 ] && [ "$got" = "$2" ] && ok "$1" \
         || bad "$1 (exit $rc)"$'\n'"--- got:"$'\n'"$got"$'\n'"--- want:"$'\n'"$2"$'\n'"--- stderr:"$'\n'"$(cat "$T/err")"
 }
@@ -144,7 +147,25 @@ run path -C "$T/wt"
 [ "$rc" -eq 0 ] && [ "$(slashes "$(tr -d '\r' <"$T/out")")" = "$MAP" ] && ok "a worktree of the repository gets the same map" \
     || bad "worktree: exit $rc, got [$(cat "$T/out")]; stderr: $(cat "$T/err")"
 
-# --- 10. Refusals -----------------------------------------------------------------------------------
+# --- 10. One name per folder ------------------------------------------------------------------------
+# put names the folder as git prints its files, so `src//a`, `src/./a`, `./src/a/` and, on a
+# case-insensitive disk, `SRC/A` all write the section src/a; another spelling would never go stale.
+for f in src//a src/./a ./src/a/; do
+    put_desc "$f" "Folder a: put as $f."
+    [ "$rc" -eq 0 ] && [ "$(grep -cx '## src/a' "$MAP")" = 1 ] && [ "$(grep -c '^## ' "$MAP")" = 3 ] \
+        && ok "put $f writes the section src/a, no new section" || bad "put $f: exit $rc; sections:"$'\n'"$(grep '^## ' "$MAP")"
+done
+if [ -d "$R/SRC/A" ]; then
+    put_desc SRC/A 'Folder a: put in capitals.'
+    [ "$rc" -eq 0 ] && [ "$(grep -c '^## ' "$MAP")" = 3 ] && sec src/a | grep -qxF 'Folder a: put in capitals.' \
+        && ok "case-insensitive disk: put SRC/A writes the section src/a, as git names it" || bad "put SRC/A: exit $rc; sections:"$'\n'"$(grep '^## ' "$MAP")"
+else
+    put_desc SRC/A 'Folder a: put in capitals.'
+    [ "$rc" -eq 2 ] && ok "case-sensitive disk: put SRC/A is no folder, exit 2" || bad "case-sensitive disk: put SRC/A exit $rc"
+fi
+stale_is "after the puts of other spellings nothing is stale" ""
+
+# --- 11. Refusals -----------------------------------------------------------------------------------
 cp "$MAP" "$T/map-before"
 unchanged() { cmp -s "$MAP" "$T/map-before" && ok "$1: the map is unchanged" || bad "$1: the map changed"; }
 run put src/a -C "$R"
@@ -152,8 +173,19 @@ run put src/a -C "$R"
 unchanged "empty description"
 put_desc src/none 'No such folder.'
 [ "$rc" -eq 2 ] && ok "put of a folder that is not there: exit 2" || bad "put of a missing folder: exit $rc"
+mkdir -p "$T/outside"   # it exists: the refusal is for leaving the work tree, not for a missing folder
 put_desc ../outside 'Outside.'
-[ "$rc" -eq 2 ] && ok "put of a folder outside the repository: exit 2" || bad "put of ../outside: exit $rc"
+[ "$rc" -eq 2 ] && grep -q 'outside the work tree' "$T/err" && ok "put of ../outside (it exists): exit 2, outside the work tree" \
+    || bad "put of ../outside: exit $rc; stderr: $(cat "$T/err")"
+put_desc "$T/outside" 'Outside, absolute.'
+[ "$rc" -eq 2 ] && grep -q 'outside the work tree' "$T/err" && ok "put of an absolute folder outside the repository: exit 2" \
+    || bad "put of $T/outside: exit $rc; stderr: $(cat "$T/err")"
+printf 'out/\n' >"$R/.gitignore"; git -C "$R" add .gitignore && git -C "$R" commit -qm "ignore out"
+mkdir -p "$R/out/build"; printf 'built\n' >"$R/out/build/x.js"
+put_desc out 'Build output.'
+[ "$rc" -eq 2 ] && grep -q 'ignored by git' "$T/err" && ok "put of a folder git ignores: exit 2" || bad "put of out/: exit $rc; stderr: $(cat "$T/err")"
+put_desc out/build 'Build output, deeper.'
+[ "$rc" -eq 2 ] && ok "put of a folder inside an ignored one: exit 2" || bad "put of out/build: exit $rc"
 put_desc src/a $'Text.\n## Another section'
 [ "$rc" -eq 2 ] && ok "put of a description with a level-2 heading: exit 2" || bad "put with a ## heading: exit $rc"
 unchanged "refused puts"

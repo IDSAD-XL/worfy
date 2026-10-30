@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests of real-home.sh on a temporary home, on every OS: a write into a volatile folder (gate/state,
-# worktree-sessions, profiles/<name>/state, skills/synced) is not a difference unless the file names the
+# worktree-sessions, profiles/<name>/state, worfy-harness/projects/<name>/state, skills/synced) is not a difference unless the file names the
 # marker (as node spells it, and with \ on Windows); a write anywhere else in the Harness parts is one;
 # real_home_diff prints at most 10 differing lines.
 # Run: bash harness/bin/tests/real-home.test.sh; exit code 0 — everything passed.
@@ -32,6 +32,8 @@ changed() {
 changed "gate/state: a write without the marker is no difference" same "$H/.claude/gate/state/red-x" "verdict"
 changed "worktree-sessions: a write without the marker is no difference" same "$H/.claude/worfy-harness/worktree-sessions/lock" "pid 1"
 changed "profiles/<name>/state: a write without the marker is no difference" same "$H/.claude/profiles/p/state/retro.log" "row"
+changed "worfy-harness/projects/<name>/state: a code map written by a scout is no difference" same "$H/.claude/worfy-harness/projects/p/state/code-map/repo.md" "## src"
+changed "worfy-harness/projects/<name> outside state: any write is a difference" differs "$H/.claude/worfy-harness/projects/p/profile.json" "{}"
 changed "skills/synced: a write without the marker is no difference" same "$H/.claude/skills/synced/s/manifest.json" "{}"
 changed "gate/state: a file naming the marker (node's spelling) is a difference" differs "$H/.claude/gate/state/mine" "repo $MK_NODE"
 changed "worktree-sessions: a file naming the marker with \\ (Windows) or / is a difference" differs "$H/.claude/worfy-harness/worktree-sessions/mine" "tree $MK_BACK"

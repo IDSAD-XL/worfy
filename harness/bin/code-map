@@ -29,7 +29,7 @@
 // stderr.
 //
 // `put` refuses (exit 2, map unchanged): an empty description, a folder that is not a directory of the
-// work tree or leaves it, and a description line that starts a level-1 or level-2 heading (it would
+// work tree, leaves it or is ignored by git, and a description line that starts a level-1 or level-2 heading (it would
 // start a section of its own). Level 3 and deeper are fine.
 //
 // Exit codes: 0 — done (also "no map"); 1 — git failed (no work tree, no commit yet) or the map cannot
@@ -185,12 +185,20 @@ if (command === "stale") {
 }
 
 // --- put ------------------------------------------------------------------------------
-let folder = folderArg.replace(/\\/g, "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "")
-if (folder === "") folder = "."
-if (path.isAbsolute(folder) || /^[A-Za-z]:/.test(folder) || folder.split("/").includes(".."))
-    usage(`the folder is a path inside the work tree, got ${folderArg}`)
-const abs = path.join(checkout, folder)
-if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) usage(`${folder} is not a folder of ${checkout}`)
+// The folder as git names its files: from the real work tree, in the case the disk keeps, with `/`.
+// `src//main`, `src/./main`, `Src/Main` on a case-insensitive disk and a path through a symbolic link
+// all become the one name git prints, or the section would never go stale.
+const abs = path.resolve(checkout, folderArg)
+if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) usage(`${folderArg} is not a folder of ${checkout}`)
+const rel = path.relative(fs.realpathSync.native(checkout), fs.realpathSync.native(abs))
+if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) usage(`${folderArg} is outside the work tree ${checkout}`)
+const folder = rel === "" ? "." : rel.split(path.sep).join("/")
+// git never reports a file of an ignored folder (build output, node_modules): its section would never go stale.
+if (folder !== ".") {
+    const ignored = spawnSync(GIT, ["-C", checkout, "check-ignore", "-q", "--", folder], { stdio: "ignore", windowsHide: true })
+    if (ignored.status === 0) usage(`${folder} is ignored by git: no change in it would make its section stale`)
+    if (ignored.status !== 1) die(1, `git check-ignore failed on ${folder} (exit ${ignored.status})`)
+}
 
 if (process.stdin.isTTY) usage("the description comes on stdin")
 let desc

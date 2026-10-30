@@ -189,6 +189,9 @@ for p in 'You edit no files of the repository and run no stack; your one write i
     'any writes other than `code-map put`'; do
     tr '\n' ' ' <"$AGENTS/scout.md" | tr -s ' ' | grep -qF -- "$p" && ok "scout: '$p'" || bad "scout: no '$p'"
 done
+sed -n '1,/^---$/{1d;/^---$/d;p;}' "$AGENTS/scout.md" | grep '^description:' \
+    | grep -qF 'Edits no repository files and does not review; its one write is the code map outside the repository (`${CLAUDE_PLUGIN_ROOT}/bin/code-map put`).' \
+    && ok "scout: the description names code-map put as its one write" || bad "scout: the description does not name code-map put as its one write"
 [ -x "$ROOT/bin/code-map" ] && ok "scout: bin/code-map exists" || bad "scout: bin/code-map is missing"
 sed -n '1,/^---$/{1d;/^---$/d;p;}' "$AGENTS/implementer.md" | grep -q '^tools:' && bad "implementer: got a tools: line" \
     || ok "implementer: no tools: line (all tools, as before)"
