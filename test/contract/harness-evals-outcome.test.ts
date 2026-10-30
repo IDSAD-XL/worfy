@@ -4,16 +4,18 @@
 // texts carry none of the plugin's own words, the shared fixture builds in a temporary HOME and its
 // own tests pass, `pnpm eval:outcome` builds the call with `--ablation with-without` and the pinned
 // models of scripts/eval-run-env.mjs, the run environment it shares with `pnpm eval:harness`
-// (against a stub claude), the scorer works on copies of the kept
+// (against a stub claude), `--compare-profiles` runs the same tasks with the profiles full and eco
+// and puts their scores, tokens and rework rounds side by side, the scorer works on copies of the kept
 // run folders and computes the metrics (stub judge), the statistics give known values, and the free
 // checker compares reference solutions with their expected verdicts on a synthetic task that lives
 // only in a temporary folder.
 import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { availableParallelism, homedir, tmpdir } from 'node:os'
-import { delimiter, dirname, join, relative, sep } from 'node:path'
+import { basename, delimiter, dirname, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { PLAN_PRESETS } from '../../src/shared/agent/plan-preset'
 import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
@@ -1443,11 +1445,17 @@ describe('the tests-intact check (stub agents on synthetic kept runs)', () => {
 // arguments, EVAL_*, CLAUDECODE and PATH to STUB_LOG, then does what `claude plugin eval
 // --keep-temp` leaves behind for each case of <target>/<eval dir>: per arm one kept run (scaffold,
 // then the case's stub-agent-<arm>.sh, then a trace whose answer is STUB_ANSWER_<arm>), sealed as
-// claude seals it, and aggregate-result.json in --output-dir. Exits STUB_CODE.
+// claude seals it, and aggregate-result.json in --output-dir. Exits STUB_CODE. `--ablation none`
+// runs the arm with the plugin alone, as claude does. After the scaffold it appends to
+// STUB_PROFILES (when set) the profile the plugin would read, from both places the plugin state
+// script writes it; STUB_BY_PROFILE (JSON, keyed by the profile's workflow.agents) gives the trace
+// of that profile its tokens and its subagent calls, so the summary shows which run had which.
 const STUB = `#!/usr/bin/env node
 const { spawnSync } = require('node:child_process')
 const { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } = require('node:fs')
 const { join } = require('node:path')
+const profileAt = (file) => (existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null)
+const fieldsOf = (p) => (p ? { agents: p.workflow && p.workflow.agents !== undefined ? p.workflow.agents : null, roles: p.agents !== undefined ? p.agents : 'absent' } : null)
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log(process.env.STUB_VERSION + ' (Claude Code)'); process.exit(0) }
 appendFileSync(process.env.STUB_LOG, JSON.stringify({ args, evalGit: process.env.EVAL_GIT || null, evalHarnessHome: process.env.EVAL_HARNESS_HOME || null, claudecode: process.env.CLAUDECODE || null, path: process.env.PATH }) + '\\n')
@@ -1459,7 +1467,7 @@ for (const name of readdirSync(evalDir)) {
   const dir = join(evalDir, name)
   if (!existsSync(join(dir, 'case.yaml'))) continue
   const arms = {}
-  for (const arm of ['with', 'without']) {
+  for (const arm of opt('--ablation') === 'none' ? ['with'] : ['with', 'without']) {
     const root = realpathSync(mkdtempSync(join(process.env.STUB_KEEP, 'e-')))
     const home = join(root, 'home'), work = join(home, 'cwd')
     for (const d of [work, join(root, 'tmp'), join(root, 'out'), join(root, 'config')]) mkdirSync(d, { recursive: true })
@@ -1468,8 +1476,13 @@ for (const name of readdirSync(evalDir)) {
     const agent = existsSync(join(dir, 'stub-agent-' + arm + '.sh')) ? readFileSync(join(dir, 'stub-agent-' + arm + '.sh'), 'utf8') : ''
     for (const script of [join(dir, 'scaffold.sh')]) { const r = spawnSync('bash', [script], { cwd: work, env, encoding: 'utf8' }); if (r.status !== 0) { console.error(r.stderr); process.exit(9) } }
     if (agent) { const r = spawnSync('bash', ['-c', agent], { cwd: work, env, encoding: 'utf8' }); if (r.status !== 0) { console.error(r.stderr); process.exit(9) } }
+    const state = fieldsOf(profileAt(join(work, '.git', 'worfy-harness', 'projects', 'fixture', 'profile.json')))
+    const homeState = fieldsOf(profileAt(join(home, '.claude', 'worfy-harness', 'projects', 'fixture', 'profile.json')))
+    if (process.env.STUB_PROFILES) appendFileSync(process.env.STUB_PROFILES, JSON.stringify({ case: name, arm, output: opt('--output-dir'), state, homeState }) + '\\n')
+    const behaviour = (JSON.parse(process.env.STUB_BY_PROFILE || '{}'))[state ? String(state.agents) : ''] || { tokens: 0, briefs: [] }
     const answer = process.env['STUB_ANSWER_' + arm] || 'Done.'
-    const events = [{ type: 'system', subtype: 'init', cwd: work }, ...agent.split('\\n').filter(Boolean).map((command, i) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't' + i, name: 'Bash', input: { command } }] } })), { type: 'result', result: answer }]
+    const subagents = behaviour.briefs.map((prompt, i) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'a' + i, name: 'Agent', input: { subagent_type: 'worfy:implementer', prompt } }] } }))
+    const events = [{ type: 'system', subtype: 'init', cwd: work }, ...agent.split('\\n').filter(Boolean).map((command, i) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't' + i, name: 'Bash', input: { command } }] } })), ...subagents, { type: 'result', result: answer, modelUsage: { m: { inputTokens: behaviour.tokens, outputTokens: 0 } } }]
     writeFileSync(join(root, 'out', 'trace.jsonl'), events.map((e) => JSON.stringify(e)).join('\\n') + '\\n')
     mkdirSync(join(root, 'sealed'))
     renameSync(home, join(root, 'sealed', 'home'))
@@ -1491,6 +1504,20 @@ interface StubCall {
   evalHarnessHome: string | null
   claudecode: string | null
   path: string
+}
+
+/** The profile fields a stub run found after its scaffold, in .git/worfy-harness and in its HOME. */
+interface ProfileFields {
+  agents: string | null
+  /** `agents` of the profile; 'absent' when the profile has no such field. */
+  roles: Record<string, { model: string; effort: string }> | null | 'absent'
+}
+interface StubProfile {
+  case: string
+  arm: string
+  output: string
+  state: ProfileFields | null
+  homeState: ProfileFields | null
 }
 
 /**
@@ -1528,7 +1555,7 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
     withTask: boolean,
     extra: NodeJS.ProcessEnv = {},
     source = HARNESS,
-  ): { run: SpawnSyncReturns<string>; calls: StubCall[]; harness: string; root: string; results: string; log: string } {
+  ): { run: SpawnSyncReturns<string>; calls: StubCall[]; profiles: StubProfile[]; harness: string; root: string; results: string; log: string } {
     const root = tempDir('outcome-wrapper-')
     const harness = join(root, 'harness')
     pluginForStub(source, harness)
@@ -1557,6 +1584,7 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
     const keep = join(root, 'keep')
     mkdirSync(keep)
     const log = join(root, 'calls.log')
+    const profileLog = join(root, 'profiles.log')
     const results = join(root, 'results')
     const judge = stubJudge(root)
     const run = node(WRAPPER, args, join(root, 'home'), {
@@ -1564,6 +1592,7 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
       CLAUDE_BIN: claude,
       STUB_VERSION: '2.1.289',
       STUB_LOG: log,
+      STUB_PROFILES: profileLog,
       STUB_KEEP: keep,
       STUB_ANSWER_with: BLOCK_ANSWER,
       STUB_ANSWER_without: 'All done, every test passes.',
@@ -1572,8 +1601,10 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
       ...judge.env,
       ...extra,
     })
-    const calls = existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as StubCall) : []
-    return { run, calls, harness, root, results, log }
+    const lines = (file: string): string[] => (existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean) : [])
+    const calls = lines(log).map((l) => JSON.parse(l) as StubCall)
+    const profiles = lines(profileLog).map((l) => JSON.parse(l) as StubProfile)
+    return { run, calls, profiles, harness, root, results, log }
   }
   const scored = (results: string): string[] => (existsSync(results) ? readdirSync(results).filter((d) => existsSync(join(results, d, 'outcome.json'))) : [])
 
@@ -1682,6 +1713,137 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
     expect(run.status).toBe(143)
     expect(run.stdout + run.stderr).toMatch(/stopped by SIGTERM/)
     expect(scored(results)).toEqual([])
+  }, RUN_TIMEOUT)
+
+  // --compare-profiles: the same tasks and the same plugin, one run with the profile `full` and one
+  // with `eco` and the models of the Pro preset. The stub gives the full profile's trace 5000 tokens
+  // and three subagent briefs, two of them rework rounds; the eco one 1000 tokens and one brief.
+  const BY_PROFILE = {
+    full: { tokens: 5000, briefs: ['Implement ticket demo/01', 'Rework: round 1 of demo/01', 'Fix demo/01.\nFindings: the test is red'] },
+    eco: { tokens: 1000, briefs: ['Implement ticket demo/01'] },
+  }
+  interface CompareSide {
+    metrics: Record<string, { k?: number; n: number }>
+    tokens: { median: number | null }
+    rework_rounds: { mean: number | null; runs: number[] }
+    subagents: { mean: number | null }
+  }
+  interface Compare {
+    maxCostUsd: number
+    profiles: Record<string, { results: string; maxCostUsd: number; fields: Record<string, unknown> }>
+    tasks: Record<string, { full: CompareSide; eco: CompareSide; difference: Record<string, { kind: string; difference?: number | null; ratio?: number | null; fisherP?: number | null }> }>
+  }
+  // The plugin state script of this copy already gives the profile a model and the mode eco, so
+  // each run shows that its profile replaces both rather than adds to them.
+  const preset = (): string => {
+    const source = join(tempDir('outcome-source-'), 'harness')
+    cpSync(HARNESS, source, { recursive: true, filter: (path) => !/^evals[\\/]results(?:[\\/]|$)/.test(relative(HARNESS, path)) })
+    const script = join(source, 'evals-outcome', 'lib', 'plugin-state', 'worfy.sh')
+    const text = readFileSync(script, 'utf8')
+    const edited = text.replace('"audit_lenses": null\n}', '"audit_lenses": null,\n  "agents": { "scout": { "model": "opus", "effort": "high" } }\n}').replace('"merge": "orchestrator"\n', '"merge": "orchestrator",\n    "agents": "eco"\n')
+    expect(edited.match(/"agents"/g)).toHaveLength(2)
+    writeFileSync(script, edited)
+    return source
+  }
+  const compare = (() => {
+    let cache: ReturnType<typeof stubRun> | null = null
+    return () => (cache ??= stubRun(['--', '--compare-profiles', '--max-cost-usd', '5', '--runs', '1'], true, { STUB_BY_PROFILE: JSON.stringify(BY_PROFILE) }, preset()))
+  })()
+  beforeBlock(compare, SETUP_TIMEOUT)
+  const compareJson = (): Compare => {
+    const { results } = compare()
+    const [stamp, ...more] = readdirSync(results).filter((d) => existsSync(join(results, d, 'compare.json')))
+    expect(more).toEqual([])
+    return JSON.parse(readFileSync(join(results, stamp!, 'compare.json'), 'utf8')) as Compare
+  }
+
+  it('--compare-profiles makes two calls on the same tasks, each with the plugin alone and half the cost limit', () => {
+    const { run, calls, results } = compare()
+    expect(run.stderr).toBe('')
+    expect(run.status).toBe(0)
+    expect(calls).toHaveLength(2)
+    const pair = (args: string[], name: string): string | undefined => args[args.indexOf(name) + 1]
+    for (const { args } of calls) {
+      expect(pair(args, '--ablation')).toBe('none')
+      expect(pair(args, '--eval-dir')).toBe('evals-outcome')
+      expect(pair(args, '--model')).toBe(runEnv.MODEL)
+      expect(pair(args, '--max-cost-usd')).toBe('2.5')
+      expect(args.filter((arg) => arg === '--max-cost-usd')).toHaveLength(1)
+    }
+    const outputs = calls.map(({ args }) => relative(results, pair(args, '--output-dir')!).split(sep))
+    expect(outputs.map((parts) => parts[1])).toEqual(['full', 'eco'])
+    expect(outputs[0]![0]).toBe(outputs[1]![0])
+  })
+
+  it('--compare-profiles: each run reads its own profile, in both places the plugin looks, and the plugin under test is not touched', () => {
+    const { profiles, harness } = compare()
+    const byProfile = (name: string): StubProfile[] => profiles.filter((p) => p.output.endsWith(`${sep}${name}`))
+    expect(byProfile('full')).toHaveLength(1)
+    expect(byProfile('eco')).toHaveLength(1)
+    // No `agents` field at all: the agents keep the models of their own definitions.
+    const full = { agents: 'full', roles: 'absent' }
+    const eco = { agents: PLAN_PRESETS.pro!.profile['workflow.agents'], roles: PLAN_PRESETS.pro!.profile.agents }
+    expect(byProfile('full')[0]).toMatchObject({ arm: 'with', state: full, homeState: full })
+    expect(byProfile('eco')[0]).toMatchObject({ arm: 'with', state: eco, homeState: eco })
+    expect(readdirSync(join(harness, 'evals-outcome', 'lib', 'plugin-state'))).toEqual(['worfy.sh'])
+  })
+
+  it('--compare-profiles writes compare.json: the score, tokens, rework rounds and subagents of each run, and the difference', () => {
+    const { run } = compare()
+    const result = compareJson()
+    expect(result.maxCostUsd).toBe(5)
+    expect(Object.keys(result.profiles)).toEqual(['full', 'eco'])
+    expect(result.profiles.eco).toMatchObject({ maxCostUsd: 2.5, fields: PLAN_PRESETS.pro!.profile })
+    const task = result.tasks['synthetic-add']!
+    expect(task.full.metrics.solved).toMatchObject({ k: 1, n: 1 })
+    expect(task.eco.metrics.solved).toMatchObject({ k: 1, n: 1 })
+    expect(task.full.tokens.median).toBe(5000)
+    expect(task.eco.tokens.median).toBe(1000)
+    expect(task.full.rework_rounds).toEqual({ mean: 2, runs: [2] })
+    expect(task.eco.rework_rounds).toEqual({ mean: 0, runs: [0] })
+    expect(task.full.subagents.mean).toBe(3)
+    expect(task.eco.subagents.mean).toBe(1)
+    expect(task.difference.tokens).toMatchObject({ kind: 'tokens', ratio: 5 })
+    expect(task.difference.solved).toMatchObject({ kind: 'rate', difference: 0, fisherP: 1 })
+    expect(run.stdout).toMatch(/synthetic-add full: .*\bsolved 1\/1\b.*; tokens 5000 .*rework rounds 2, subagents 3/)
+    expect(run.stdout).toMatch(/synthetic-add eco: .*\bsolved 1\/1\b.*; tokens 1000 .*rework rounds 0, subagents 1/)
+    expect(run.stdout).toMatch(/synthetic-add: tokens full \/ eco 5\b/)
+  })
+
+  it.each([
+    ['without --max-cost-usd', ['--compare-profiles'], /--max-cost-usd/],
+    ['with --no-score', ['--compare-profiles', '--max-cost-usd', '5', '--no-score'], /--no-score/],
+    ['with a limit too small to split', ['--compare-profiles', '--max-cost-usd', '0.01'], /two runs/],
+    ['with a value of its own', ['--compare-profiles=eco', '--max-cost-usd', '5'], /takes no value/],
+    ['with a second --max-cost-usd, which would undo the split', ['--compare-profiles', '--max-cost-usd', '5', '--max-cost-usd=40'], /given twice/],
+  ])('--compare-profiles %s: exit 2, no claude', (_, args, message) => {
+    const { run, calls } = stubRun(args, true)
+    expect(run.status).toBe(2)
+    expect(run.stderr).toMatch(message)
+    expect(calls).toEqual([])
+  }, RUN_TIMEOUT)
+
+  it('--compare-profiles: a scaffold without the plugin state fails on the profile script, and the failed first call starts no second', () => {
+    const source = join(tempDir('outcome-source-'), 'harness')
+    cpSync(HARNESS, source, { recursive: true, filter: (path) => !/^evals[\\/]results(?:[\\/]|$)/.test(relative(HARNESS, path)) && basename(path) !== 'worfy.sh' })
+    const { run, calls, profiles } = stubRun(['--compare-profiles', '--max-cost-usd', '5'], true, {}, source)
+    expect(run.stderr).toMatch(/zz-compare-profile\.sh: no profile in /)
+    expect(run.stderr).toMatch(/nothing to score/)
+    expect(run.status).not.toBe(0)
+    expect(calls).toHaveLength(1)
+    expect(profiles).toEqual([])
+  }, RUN_TIMEOUT)
+
+  it('--dry-run prints each call it would make, with its cost limit and profile, and calls no claude', () => {
+    const { run, calls, results } = stubRun(['--compare-profiles', '--max-cost-usd', '5', '--dry-run'], true)
+    expect(run.stderr).toBe('')
+    expect(run.status).toBe(0)
+    expect(calls).toEqual([])
+    const lines = run.stdout.split('\n').filter((line) => / claude plugin eval /.test(line))
+    expect(lines).toHaveLength(2)
+    for (const line of lines) expect(line).toMatch(/--ablation none .*--max-cost-usd 2\.5/)
+    expect(run.stdout).toMatch(/profile eco: .*"workflow\.agents":"eco"/)
+    expect(existsSync(results)).toBe(false)
   }, RUN_TIMEOUT)
 
   leavesTmpEmpty()

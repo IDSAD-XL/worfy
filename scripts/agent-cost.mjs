@@ -55,7 +55,12 @@ an Orchestrator call and the start context of a subagent, from Claude Code trans
                           earlier. The Ticket of a subagent comes from its brief (see ticketOf);
                           the Orchestrator from the wave command, split evenly between the
                           Wave's Tickets; the rest is the row "(no ticket)".
-  --json                  JSON instead of the table.
+  --waits                 how many Orchestrator responses come right after a wait: the
+                          notice that a background command or a Monitor ended, or the result
+                          of a CI wait (gh pr checks --watch, gh run watch); their tokens and
+                          cost. Responses right after the notice that a subagent finished are
+                          shown apart and are not counted as waits.
+  --json                 JSON instead of the table.
   --help                  this text.
 
 Exit code: 0 the report was made; 2 wrong arguments or no transcripts folder.`
@@ -73,12 +78,13 @@ function parseTime(text, end) {
 
 /** Options from the arguments; throws with the reason when they are wrong. */
 export function parseArgs(args) {
-  const options = { json: false, help: false, byTicket: false }
+  const options = { json: false, help: false, byTicket: false, waits: false }
   const valued = { '--transcripts': 'transcripts', '--since': 'since', '--until': 'until' }
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     if (arg === '--json') options.json = true
     else if (arg === '--by-ticket') options.byTicket = true
+    else if (arg === '--waits') options.waits = true
     else if (arg === '--help' || arg === '-h') options.help = true
     else if (arg in valued) {
       const value = args[++i]
@@ -221,6 +227,38 @@ export function shellReads(command) {
 }
 
 /**
+ * What a response of --waits came right after, strongest first: the result of a CI wait, the
+ * notice that a background command or a Monitor ended (both are waits), the notice that a subagent
+ * finished (shown apart, not a wait).
+ */
+export const WAIT_KINDS = ['ci', 'background', 'agent']
+const COUNTED_WAITS = ['ci', 'background']
+
+/**
+ * Whether a shell command waits for CI: `gh pr checks … --watch` or `gh run watch`.
+ * shortcut: matched as text, as shellReads does; a wait in a script or a polling loop of
+ * `gh pr checks` without --watch is not seen, redo it if the CI share must be exact.
+ */
+export const ciWait = (command) => /\bgh\s+(?:pr\s+checks\b[^\n;&|]*\s--watch\b|run\s+watch\b)/.test(command)
+
+/**
+ * Notes in `pending` what a main session's user line brings: a task notification (Claude Code's
+ * `<task-notification>` message) of a background command or a Monitor, or of a subagent; the result
+ * of a tool call in `ciTools`. A response after several of them gets the first of WAIT_KINDS among
+ * them; a prompt of the person in between does not change that.
+ */
+function noteWait(message, pending, ciTools) {
+  const content = message?.content
+  const results = Array.isArray(content) ? content.filter((block) => block?.type === 'tool_result') : []
+  for (const block of results) if (ciTools.delete(block.tool_use_id)) pending.add('ci')
+  const text = results.length > 0 ? '' : messageText(message).trimStart()
+  if (!text.startsWith('<task-notification>')) return
+  const summary = /<summary>([\s\S]*?)<\/summary>/.exec(text)?.[1].trim() ?? ''
+  if (/^(?:Background command|Monitor)\b/.test(summary)) pending.add('background')
+  else if (/^(?:Background agent|Agent)\b|^\d+ background agents\b/.test(summary)) pending.add('agent')
+}
+
+/**
  * A path a subagent read, relative to its repository: the part after `.claude/worktrees/<name>/`,
  * else after the repository of its working directory; any other path stays as it is.
  */
@@ -272,19 +310,25 @@ const count = (value) => (Number.isFinite(value) && value > 0 ? value : 0)
  * The responses of one transcript, its brief (the first user message of a subagent), its working
  * directory and, for a main session, its wave commands. Only lines that carry a usage, the first
  * user line of a subagent and a main session's user lines that mention epic-wave are parsed: a
- * main session runs to hundreds of megabytes.
+ * main session runs to hundreds of megabytes. With `waits` a main session's user lines are parsed
+ * too, and each response gets the wait it came right after (waitKind), or null.
  */
-async function readTranscript(path, subagent) {
+async function readTranscript(path, subagent, waits = false) {
   const calls = []
   const waves = []
   let brief
   let cwd
   let order = 0
+  const noteWaits = waits && !subagent
+  // What came in since the previous response: kinds of WAIT_KINDS, and the CI waits still running.
+  const pending = new Set()
+  const ciTools = new Set()
   const lines = createInterface({ input: createReadStream(path, { encoding: 'utf8' }), crlfDelay: Infinity })
   for await (const line of lines) {
     const wantBrief = subagent && brief === undefined && line.includes('"user"')
     const wantWave = !subagent && line.includes('epic-wave') && line.includes('"user"')
-    if (!wantBrief && !wantWave && !line.includes('"usage"')) continue
+    const wantWait = noteWaits && line.includes('"user"')
+    if (!wantBrief && !wantWave && !wantWait && !line.includes('"usage"')) continue
     let entry
     try {
       entry = JSON.parse(line)
@@ -296,8 +340,10 @@ async function readTranscript(path, subagent) {
       brief = messageText(entry.message)
       continue
     }
-    if (entry?.type === 'user' && wantWave && !entry.isMeta) {
-      const tickets = waveTickets(messageText(entry.message))
+    if (entry?.type === 'user' && (wantWave || wantWait)) {
+      if (entry.isMeta) continue
+      if (wantWait) noteWait(entry.message, pending, ciTools)
+      const tickets = wantWave ? waveTickets(messageText(entry.message)) : null
       const ts = Date.parse(entry.timestamp)
       if (tickets !== null && !Number.isNaN(ts)) waves.push({ ts, tickets })
       continue
@@ -311,7 +357,12 @@ async function readTranscript(path, subagent) {
     const hasSplit = split && typeof split === 'object' && ('ephemeral_5m_input_tokens' in split || 'ephemeral_1h_input_tokens' in split)
     const written = count(usage.cache_creation_input_tokens)
     const tools = Array.isArray(message.content) ? message.content.filter((block) => block?.type === 'tool_use') : []
+    // The second line of a response finds nothing pending: measure keeps the wait of its first line.
+    const wait = noteWaits ? (WAIT_KINDS.find((kind) => pending.has(kind)) ?? null) : null
+    pending.clear()
+    for (const block of tools) if (noteWaits && block.name === 'Bash' && ciWait(String(block.input?.command ?? ''))) ciTools.add(block.id)
     calls.push({
+      wait,
       id: message.id || entry.requestId || `${path}#${order}`,
       ts,
       model: message.model || '',
@@ -360,7 +411,7 @@ export async function measure(files, options) {
     if (statSync(path).mtimeMs < options.sinceMs) continue
     const subagent = path.split(sep).includes('subagents')
     const meta = subagent ? readMeta(path) : {}
-    const { calls, brief, cwd, waves } = await readTranscript(path, subagent)
+    const { calls, brief, cwd, waves } = await readTranscript(path, subagent, options.waits)
     const role = roleOf({ subagent, agentType: meta.agentType, name: meta.name, description: meta.description, brief: firstLine(brief) })
     const transcript = { subagent, role, calls: [], ticket: subagent ? ticketOf(brief) : null, cwd, waves }
     transcripts.push(transcript)
@@ -387,6 +438,8 @@ export async function measure(files, options) {
   const roles = Object.fromEntries(ROLES.map((role) => [role, { calls: 0, cost: 0 }]))
   const rewrite = { calls: 0, cost: 0, byRole: Object.fromEntries(ROLES.map((role) => [role, { calls: 0, cost: 0 }])) }
   const orchestrator = { calls: 0, context: 0, cacheRead: 0 }
+  const part = () => ({ calls: 0, tokens: 0, cost: 0 })
+  const waits = { orchestratorCalls: 0, orchestratorTokens: 0, ...part(), byKind: Object.fromEntries(WAIT_KINDS.map((kind) => [kind, part()])) }
   const starts = Object.fromEntries(ROLES.filter((role) => role !== 'orchestrator').map((role) => [role, []]))
   let total = 0
   let calls = 0
@@ -416,6 +469,14 @@ export async function measure(files, options) {
         orchestrator.calls++
         orchestrator.context += context
         orchestrator.cacheRead += call.cacheRead
+        waits.orchestratorCalls++
+        waits.orchestratorTokens += tokensOf(call)
+        const counted = call.wait === null ? [] : COUNTED_WAITS.includes(call.wait) ? [waits.byKind[call.wait], waits] : [waits.byKind[call.wait]]
+        for (const sum of counted) {
+          sum.calls++
+          sum.tokens += tokensOf(call)
+          sum.cost += cost
+        }
       }
     }
     const first = transcript.calls[0]
@@ -454,6 +515,10 @@ export async function measure(files, options) {
     unpricedModels: [...unpriced].sort(),
   }
   if (options.byTicket) report.tickets = byTicket(transcripts, inPeriod)
+  if (options.waits) {
+    const { orchestratorCalls, orchestratorTokens } = waits
+    report.waits = { ...waits, share: orchestratorCalls ? waits.calls / orchestratorCalls : 0, tokenShare: orchestratorTokens ? waits.tokens / orchestratorTokens : 0 }
+  }
   return report
 }
 
@@ -567,6 +632,20 @@ function toTicketTable(report) {
   return out
 }
 
+/** The --waits lines: the share of Orchestrator responses that come right after a wait, by kind. */
+function toWaitLines({ waits }) {
+  if (waits === undefined) return []
+  const line = (label, part, note = '') =>
+    `  ${label.padEnd(32)} ${String(part.calls).padStart(6)} ${kTokens(part.tokens).padStart(10)} tokens ${dollars(part.cost).padStart(9)}${note}`
+  return [
+    '',
+    `Orchestrator waits: ${waits.calls} of ${waits.orchestratorCalls} responses (${percent(waits.share)}) come right after a wait; ${kTokens(waits.tokens)} tokens (${percent(waits.tokenShare)} of the Orchestrator's), ${dollars(waits.cost)}`,
+    line('background command or Monitor', waits.byKind.background),
+    line('CI wait (gh … --watch)', waits.byKind.ci),
+    line('a subagent finished', waits.byKind.agent, '  (not a wait)'),
+  ]
+}
+
 function toTable(report) {
   const { period, roles, idleRewrite, orchestratorContext, startContext } = report
   const out = [
@@ -575,7 +654,7 @@ function toTable(report) {
     '',
   ]
   if (report.tickets !== undefined) {
-    out.push(...toTicketTable(report))
+    out.push(...toTicketTable(report), ...toWaitLines(report))
     if (report.unpricedModels.length) out.push('', `Priced as ${FALLBACK_MODEL}: ${report.unpricedModels.join(', ')}`)
     return `${out.join('\n')}\n`
   }
@@ -599,6 +678,7 @@ function toTable(report) {
     const days = Object.entries(s.byDay).map(([day, d]) => `${day.slice(5)} ${kTokens(d.median)} (${d.agents})`).join(', ')
     out.push(`  ${role.padEnd(12)} ${s.agents} agents, median ${kTokens(s.median)}, mean ${kTokens(s.mean)}; by day, median: ${days}`)
   }
+  out.push(...toWaitLines(report))
   if (report.unpricedModels.length) out.push('', `Priced as ${FALLBACK_MODEL}: ${report.unpricedModels.join(', ')}`)
   return `${out.join('\n')}\n`
 }
@@ -610,7 +690,7 @@ export async function agentCost(args, deps = { env: process.env, home: homedir()
     options = parseArgs(args)
   } catch (error) {
     deps.err(`agent-cost: ${error.message}`)
-    deps.err('usage: node scripts/agent-cost.mjs [--transcripts <folder>] [--since <date>] [--until <date>] [--by-ticket] [--json] | --help')
+    deps.err('usage: node scripts/agent-cost.mjs [--transcripts <folder>] [--since <date>] [--until <date>] [--by-ticket] [--waits] [--json] | --help')
     return REFUSED
   }
   if (options.help) {
