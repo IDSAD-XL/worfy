@@ -8,6 +8,7 @@ import { useMachines } from '../../machines/useMachines'
 import { ConnectProject } from '../../projects/ConnectProject'
 import { FolderBrowser } from '../../projects/FolderBrowser'
 import { readOnlyHint, writeAction } from '../../projects/read-only'
+import { onAddProjectRequest } from '../../projects/add-project'
 import { useGateQueue } from '../../projects/useGateQueue'
 import { acceptMachineProjects, openProject, useProjectGroups, useProjects, type ProjectGroup } from '../../projects/useProjects'
 import { ListRow, StatusChip } from '../../theme/primitives'
@@ -347,7 +348,8 @@ function ProjectRows({ group, onSelect, onMenu }: RowsProps) {
  * for the Machine (worfy-link ticket 11): a Linked machine's folder is chosen among its folders
  * inside worfy (FolderBrowser.tsx), every step runs on it, the Project is added there without
  * switching its active one, and this window opens it. The context menu of a row opens its
- * settings or removes it from the list (its data folder stays), on the row's Machine.
+ * settings or removes it from the list (its data folder stays), on the row's Machine. "Connect…" of
+ * Getting started asks for "Add project" too (projects/add-project.ts).
  */
 export default function ProjectsSection() {
   const state = useProjects()
@@ -404,6 +406,10 @@ export default function ProjectsSection() {
     if (groups !== null && (link?.linked.length ?? 0) > 0) return setPicking({ kind: 'machine' })
     await pickOn(null, link?.machine?.name ?? 'This Machine')
   }
+
+  // "Connect…" of Getting started asks for this same flow (projects/add-project.ts; worfy-onboarding ticket 07).
+  // Listens anew after each render, so the request runs this render's addProject.
+  useEffect(() => onAddProjectRequest(() => void addProject()))
 
   const select = async (machine: string | null, project: ProjectView): Promise<void> => {
     setMessage(undefined)
