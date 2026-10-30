@@ -1,10 +1,8 @@
 # 56 — Shell test-ы Harness в четырёх файлах vitest, а не в одном в конце run-а
 
 Type: task
-Status: blocked 2026-10-29T22:12Z
-Blocked reason: merged in #1023 (ef17acab); only the PC before/after gate-full measurement is left
-Waits: machine
-PR: #1023
+Status: done 2026-10-30T03:49Z
+PR: #1039
 Branch: worfy-throughput/56
 Blocked by: —
 Source: замер gate full на ПК 2026-10-29, bridge Session (ПК-сессия на Windows-ПК владельца): на `main` b2b30e07
@@ -57,7 +55,7 @@ worker-ов, потом этот файл шёл один.
       тикета 57 (общий множитель timeout-ов, #1026) он идёт через `ms()`: при множителе 3 по умолчанию на Linux и
       macOS — 360 s вместо 120 s, так задумано в тикете 57; на Windows — 900 s, как было.
 - [x] Замер на Mac (`--maxWorkers=9`): wall time `pnpm test` и gate fast до и после, время файла или файлов — в «Итог».
-- [ ] Замер на ПК — после merge.
+- [x] Замер на ПК — после merge (80defef3, «Итог», последний раздел).
 - [x] gate fast — `[gate] green` (exit 0, `pnpm lint && pnpm typecheck && pnpm test` — exit 0).
 
 ## Тесты
@@ -223,3 +221,20 @@ average 9–15 во время всех run-ов: на Mac работали др
   2, 1, 1, 1 для четырёх файлов, сумму 5 для 1–5 файлов, 5 для части и деление по слотам. Mutation check: без
   `vi.setConfig` файл 2 один красный (`expected 5 to be less than or equal to 1`); `atOnce` всегда 5 — два case-а
   `ci-workflow.test.ts` красные (`[5, 5, 5, 5]` вместо `[2, 1, 1, 1]`).
+
+### Замер на ПК после #1039 (80defef3)
+
+ПК владельца, 2026-10-30 03:22–03:47Z, под игровой нагрузкой (How to Fish шла в начале и в конце run-а): четыре
+файла harness-scripts одной командой vitest, `HARNESS_SCRIPTS_PART` не задан. Отчёт — комментарий в PR #1039.
+
+| Run | Итог | Wall time | Пик `.test.sh` сразу | Убиты по пределу 900 s |
+| --- | --- | --- | --- | --- |
+| ffcb8ede (до #1039), вместе | exit 1 | 1169 s | 20 | 4 |
+| ffcb8ede (до #1039), по одному файлу подряд | exit 0 | 1537 s всего | 5 | 0 |
+| 80defef3 (после #1039), вместе | exit 0, 74 passed / 2 skipped / 0 failed | 1517 s | 5 (ровно 5 — 228 выборок из 286, раз в 5 s) | 0 |
+
+- Самые долгие shell test-ы после: `land` 424 s, `plugin-neutral` 385 s, `wave-gate` 358 s, `wave-gate-merge`
+  356 s, остальные ≤ 273 s. До предела 900 s у самого долгого остаётся 476 s.
+- После исправления четыре файла вместе идут столько же, сколько по одному подряд, и без красных.
+- `guard-silent`: его собственный предел внутри скрипта (две проверки за 7500 ms) на ffcb8ede при 20 сразу дал
+  7690 ms; при 5 сразу — зелёный, 209 s на весь скрипт. Правки не нужно.
