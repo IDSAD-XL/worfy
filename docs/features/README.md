@@ -18,7 +18,7 @@ the [ADRs](../adr/) and in Tickets, and a page links to them.
 |---|---|
 | [Autopilot](autopilot.md) | Autopilot |
 | [Terminal](terminal.md) | Terminal, Terminal AI |
-| [Cards](cards.md) | Card as a file, Card MCP |
+| [Cards](cards.md) | Card as a file, Card API, Canvas MCP |
 | [Canvas](canvas.md) | Node and Layout, Epic frame, Done shelf, Find, inserting images |
 | [Projects](projects.md) | Full mode and Silent mode, the switch between them, viewing ADRs and HANDOFF |
 | [Workflow](workflow.md) | Ticket and Epic on the Canvas, Pipeline, Binding |
@@ -44,7 +44,9 @@ order from the user to the code, so that one section answers both readers:
 - **Implementation**: modules and entry points with their paths, the data flow, the main tests. No line numbers and
   no copied signatures: they go out of date first.
 
-Platform differences go under a subheading inside the block they concern. Windows has no page of its own.
+Platform differences and work on a Linked machine go under a subheading inside the block they concern (`On a Linked
+machine`). Windows has no page of its own, and Linux is not described: it has no package. A Feature with many states
+may use subheadings and tables inside Behaviour. Concrete numbers stay on a page.
 
 A page describes only the present: no changelog and no retelling of ADRs. Code and tests are the source of a page,
 and a claim they do not confirm stays off it. A difference between a page and the code is a bug to fix. There are
