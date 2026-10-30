@@ -19,14 +19,17 @@ the [ADRs](../adr/) and in Tickets, and a page links to them.
 | [Autopilot](autopilot.md) | Autopilot |
 | [Terminal](terminal.md) | Terminal, Terminal AI |
 | [Cards](cards.md) | Card as a file, Card API, Canvas MCP |
-| [Canvas](canvas.md) | Node and Layout, Epic frame, Done shelf, Find, inserting images |
+| [Canvas](canvas.md) | Node and Layout, Find, inserting images |
+| [Epic frames](epic-frames.md) | Epic frame, Done shelf |
 | [Projects](projects.md) | Full mode and Silent mode, the switch between them, viewing ADRs and HANDOFF |
 | [Workflow](workflow.md) | Ticket and Epic on the Canvas, Pipeline, Binding |
-| [Sessions](sessions.md) | Session, Subagent, transcript, Claude home, Memory, Limits |
+| [Sessions](sessions.md) | Session, Subagent |
+| [Transcripts and usage](transcripts-and-usage.md) | Transcript, Claude home, Memory, Limits |
 | [Gate and GitHub](gate-and-github.md) | Gate, Gate full, PR and CI badges |
 | [Browser](browser.md) | Browser, Browser profile |
 | [Link](link.md) | Machine, Linked machine |
-| [App shell](app-shell.md) | Command palette, shortcuts, menu, Settings, theme, notifications |
+| [App shell](app-shell.md) | Command palette, shortcuts, menu, Settings, theme |
+| [Notifications](notifications.md) | Notifications |
 | [Onboarding](onboarding.md) | First run, Getting started, Demo project |
 | [Storage and diagnostics](storage-and-diagnostics.md) | data folder, diagnostics |
 | [Harness](harness.md) | installing from the app, plugin, skills, agents, hooks |

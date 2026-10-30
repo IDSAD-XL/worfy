@@ -41,14 +41,17 @@ Ticket-ы: Epic `worfy-feature-docs`, 19 Ticket-ов, нумерация с `01`
 | Autopilot (`autopilot.md`) | один раздел | 03 |
 | Terminal (`terminal.md`) | Terminal, Terminal AI | 04 |
 | Cards (`cards.md`) | Card как файл, Card API, Canvas MCP | 05 |
-| Canvas (`canvas.md`) | Node и Layout, Epic frame, Done shelf, Find, вставка изображений | 08 |
+| Canvas (`canvas.md`) | Node и Layout, Find, вставка изображений | 08 |
+| Epic frames (`epic-frames.md`) | Epic frame, Done shelf | 08 |
 | Projects (`projects.md`) | Full mode и Silent mode, переключатель, просмотр ADR и HANDOFF | 09 |
 | Workflow (`workflow.md`) | Ticket и Epic на Canvas, Pipeline, Binding | 10 |
-| Sessions (`sessions.md`) | Session, Subagent, transcript, Claude home, Memory, Limits | 11 |
+| Sessions (`sessions.md`) | Session, Subagent | 11 |
+| Transcripts и usage (`transcripts-and-usage.md`) | Transcript, Claude home, Memory, Limits | 11 |
 | Gate и GitHub (`gate-and-github.md`) | Gate, Gate full, бейджи PR и CI | 12 |
 | Browser (`browser.md`) | Browser, Browser profile | 13 |
 | Link (`link.md`) | Machine, Linked machine | 14 |
-| App shell (`app-shell.md`) | Command palette, shortcuts, menu, Settings, theme, уведомления | 15 |
+| App shell (`app-shell.md`) | Command palette, shortcuts, menu, Settings, theme | 15 |
+| Notifications (`notifications.md`) | уведомления | 15 |
 | Onboarding (`onboarding.md`) | First run, Getting started, Demo project | 16 |
 | Storage и диагностика (`storage-and-diagnostics.md`) | папка данных, diagnostics | 17 |
 | Harness (`harness.md`) | установка из приложения, plugin, skills, агенты, hooks | 18 |
@@ -141,7 +144,7 @@ Commit — это последний commit, менявший английски
    отменить. Ticket-ы и ADR нужны только для «почему так» и как подсказка, где искать.
 8. **Q8. Harness входит,** отдельной страницей в том же месте и на тех же языках, внутрь plugin-а страницы
    не попадают. Пишется после страниц приложения.
-9. **Q9. 14 страниц** из таблицы выше; страница больше примерно 400 строк делится на две.
+9. **Q9. 14 страниц** из таблицы выше; при написании деление дало 17; страница больше примерно 400 строк делится на две.
 10. **Q10. Шаблон** Behaviour / How it works / Implementation, без скриншотов.
 11. **Q11. Место:** `docs/features/`, перевод в `docs/features/ru/`, индекс, ссылка из README, без сайта.
 12. **Q12. В PR только английский;** шапка русского файла называет commit английской версии, скрипт
@@ -244,7 +247,7 @@ Commit — это последний commit, менявший английски
 
 ## Готово, когда
 
-- [ ] 14 страниц, `concepts.md` и индекс в `main`, заготовок не осталось.
+- [ ] 17 страниц (14 по плану и три от деления по размеру), `concepts.md` и индекс в `main`, заготовок не осталось.
 - [ ] Русский перевод не отстаёт: отчёт об отставании пуст.
 - [ ] Работают проверка путей (часть `pnpm lint`) и отчёт об отставании перевода.
 - [ ] Правило `worfy:ship-ticket` и линза `documentation` включены в Profile worfy.
