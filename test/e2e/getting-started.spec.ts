@@ -93,11 +93,14 @@ async function skipAndReopen(window: Page): Promise<void> {
   await expect(sectionOf(window)).toBeVisible()
 }
 
-/** Screenshots of the section in both themes, kept with the test's output. */
-async function shoot(launched: LaunchedApp, name: string): Promise<void> {
+/**
+ * Screenshots of the section in both themes, kept with the test's output. With `whole`, the body of
+ * the section must not scroll: the screenshot is the whole section.
+ */
+async function shoot(launched: LaunchedApp, name: string, { whole = true }: { whole?: boolean } = {}): Promise<void> {
   const section = sectionOf(launched.window)
   // The whole section, not a part of a body that scrolls; no focus ring of the palette's focusing.
-  expect(await section.locator('.w-sidebar-section__body').evaluate((body) => body.scrollHeight - body.clientHeight)).toBe(0)
+  if (whole) expect(await section.locator('.w-sidebar-section__body').evaluate((body) => body.scrollHeight - body.clientHeight)).toBe(0)
   await section.getByRole('button', { name: 'Getting started' }).blur()
   for (const scheme of ['light', 'dark'] as const) {
     await launched.window.emulateMedia({ colorScheme: scheme })
@@ -189,7 +192,13 @@ test('Getting started: first in the sidebar, the demo created, the Orchestrator 
     await section.getByTestId('getting-started-done').getByRole('button', { name: 'Show steps' }).click()
     await expect(section.locator('[data-testid="getting-started-step"][data-done="true"]')).toHaveCount(6)
     await expect(section.locator('[aria-current="step"]')).toHaveCount(0)
-    await shoot(launched, 'all-six')
+    // Under "Show steps" the steps stand with the line of the last step's hint, and the body of the
+    // section may scroll (at most 15 rows, overflow-y: auto): each step is checked to be visible instead.
+    for (const step of await section.getByTestId('getting-started-step').all()) {
+      await step.scrollIntoViewIfNeeded()
+      await expect(step).toBeVisible()
+    }
+    await shoot(launched, 'all-six', { whole: false })
     // The question is still not sent.
     expect(messagesSent(agentLog)).toEqual([])
   } finally {
