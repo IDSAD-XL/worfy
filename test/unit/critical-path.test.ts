@@ -456,7 +456,7 @@ describe('critical-path: PR data through gh', () => {
       return { code: 0, stdout: JSON.stringify(number === undefined ? found : found[0]), stderr: '' }
     })
     expect(code).toBe(0)
-    const fields = 'number,headRefName,state,createdAt,mergedAt,statusCheckRollup,comments,commits'
+    const fields = 'number,headRefName,state,createdAt,mergedAt,statusCheckRollup,comments,commits,files'
     expect(calls).toContainEqual(['pr', 'view', '11', '--repo', 'github.com/owner/demo', '--json', fields])
     expect(calls).toContainEqual(['pr', 'list', '--head', 'demo-epic/03', '--state', 'all', '--limit', '20', '--json', fields, '--repo', 'github.com/owner/demo'])
     expect(calls).toContainEqual(['run', 'list', '--branch', 'demo-epic/04-manual', '--limit', '100', '--json', 'status,conclusion,event,createdAt,updatedAt', '--repo', 'github.com/owner/demo'])
@@ -477,7 +477,7 @@ describe('critical-path: PR data through gh', () => {
       calls.push(args)
       return { code: 0, stdout: '[]', stderr: '' }
     }, ['--journals', journals, '--epic', 'old-epic'])
-    expect(calls).toEqual([['pr', 'list', '--head', 'old-epic/01', '--state', 'all', '--limit', '20', '--json', 'number,headRefName,state,createdAt,mergedAt,statusCheckRollup,comments,commits', '--repo', 'github.com/owner/demo']])
+    expect(calls).toEqual([['pr', 'list', '--head', 'old-epic/01', '--state', 'all', '--limit', '20', '--json', 'number,headRefName,state,createdAt,mergedAt,statusCheckRollup,comments,commits,files', '--repo', 'github.com/owner/demo']])
   })
 
   it('leaves the PR steps empty with gh’s reason, home folder hidden, when gh fails or is missing', async () => {
@@ -540,5 +540,141 @@ describe('critical-path: PR data through gh', () => {
     const failedRuns = [{ status: 'completed', conclusion: 'failure', event: 'pull_request', updatedAt: '2026-10-06T02:00:00Z' }]
     const noGreenRun = await report(async (call) => ({ code: 0, stdout: JSON.stringify(call[0] === 'run' ? failedRuns : pr('SUCCESS', 'COMPLETED')), stderr: '' }), args)
     expect(rowOf(parseCsv(noGreenRun.text), 'demo-epic', '01')).toMatchObject({ pr_to_ci_s: '', pr_to_ci_why: 'CI not green (no successful run)' })
+  })
+})
+
+describe('critical-path: green checks → merge and its budget (Q1, Q2)', () => {
+  const T0 = Date.parse('2026-10-06T02:00:00Z')
+  /** The time `min` minutes after 02:00. */
+  const at = (min: number): string => new Date(T0 + min * 60_000).toISOString().replace('.000Z', 'Z')
+  interface Shape {
+    number?: number
+    head?: string
+    verified?: number | null
+    ciOk?: number | null
+    ciOkConclusion?: string | null
+    checks?: object[]
+    statuses?: number[]
+    merge?: number | null
+    files?: string[] | null
+  }
+  /** A PR in gh's shape: VERIFIED at `verified`, ci-ok at `ciOk`, review statuses at `statuses`, merged at `merge` (minutes after 02:00). */
+  function prOf({ number = 11, head = 'demo-epic/01', verified = 0, ciOk = -5, ciOkConclusion = 'SUCCESS', checks, statuses = [], merge = 14, files = ['src/main/a.ts'] }: Shape): object {
+    const ciOkCheck =
+      ciOk === null ? [] : [{ __typename: 'CheckRun', name: 'ci-ok', status: ciOkConclusion === null ? 'IN_PROGRESS' : 'COMPLETED', conclusion: ciOkConclusion ?? '', startedAt: at(ciOk - 1), completedAt: ciOkConclusion === null ? null : at(ciOk) }]
+    return {
+      number,
+      headRefName: head,
+      state: merge === null ? 'OPEN' : 'MERGED',
+      createdAt: at(-60),
+      mergedAt: merge === null ? null : at(merge),
+      commits: [{ authoredDate: at(-70) }],
+      statusCheckRollup: [...(checks ?? ciOkCheck), ...statuses.map((s, i) => ({ __typename: 'StatusContext', context: i === 0 ? 'review' : 'check/windows', state: 'SUCCESS', startedAt: at(s) }))],
+      comments: [{ createdAt: at(-30), body: 'REJECTED (round 1):\n- [high] a' }, ...(verified === null ? [] : [{ createdAt: at(verified), body: 'VERIFIED (head abc)' }])],
+      ...(files === null ? {} : { files: files.map((path) => ({ path, additions: 1, deletions: 0 })) }),
+    }
+  }
+
+  /** The report of demo-epic's Tickets with gh answering from `list`: `pr view N` by number, `pr list --head` by branch, no workflow runs. */
+  async function reportOf(list: object[], tickets: string, csv = true): Promise<string> {
+    let text = ''
+    const gh = async (args: string[]): Promise<GhResult> => {
+      if (args[0] === 'run') return { code: 0, stdout: '[]', stderr: '' }
+      const prs = list as { number: number; headRefName: string }[]
+      if (args[1] === 'view') return { code: 0, stdout: JSON.stringify(prs.find((pr) => pr.number === Number(args[2])) ?? null), stderr: '' }
+      const head = args[args.indexOf('--head') + 1]
+      return { code: 0, stdout: JSON.stringify(prs.filter((pr) => pr.headRefName === head)), stderr: '' }
+    }
+    const args = ['--journals', JOURNALS, '--root', ROOT, '--epic', 'demo-epic', '--tickets', tickets, ...(csv ? ['--csv'] : [])]
+    const code = await criticalPath(args, { env: {}, home: '/Users/someone', cwd: tempDir(), gh, out: (t) => (text += t), err: () => undefined })
+    expect(code).toBe(0)
+    return text
+  }
+  const rowFor = async (shape: Shape): Promise<Record<string, string>> => rowOf(parseCsv(await reportOf([prOf(shape)], '01')), 'demo-epic', '01')
+
+  it('asks gh for the files of the PR', async () => {
+    const calls: string[][] = []
+    let text = ''
+    await criticalPath(['--journals', JOURNALS, '--root', ROOT, '--epic', 'demo-epic', '--tickets', '01'], {
+      env: {},
+      home: '/Users/someone',
+      cwd: tempDir(),
+      gh: async (args) => {
+        calls.push(args)
+        return { code: 0, stdout: '[]', stderr: '' }
+      },
+      out: (t) => (text += t),
+      err: () => undefined,
+    })
+    expect(calls[0]).toContain('number,headRefName,state,createdAt,mergedAt,statusCheckRollup,comments,commits,files')
+  })
+
+  it('counts Green → merge from the later of the last VERIFIED and a green ci-ok on the PR head', async () => {
+    // ci-ok green before the Gate: green at the VERIFIED.
+    expect(await rowFor({ verified: 0, ciOk: -5, merge: 14 })).toMatchObject({ green_to_merge_s: '840', green_to_merge_why: '', green_by: 'Gate' })
+    // A push after the VERIFIED (a CI fix): green at the ci-ok of the last head.
+    expect(await rowFor({ verified: 0, ciOk: 3, merge: 17 })).toMatchObject({ green_to_merge_s: '840', green_by: 'CI' })
+  })
+
+  it('puts a Ticket without UI at 14 and 15 min in the budget and at 16 min over it; a Ticket with UI at 29 min in and at 31 min over', async () => {
+    expect(await rowFor({ merge: 14 })).toMatchObject({ ui: 'no', budget_s: '900', over_budget: 'no', budget_why: '' })
+    expect(await rowFor({ merge: 15 })).toMatchObject({ over_budget: 'no' })
+    expect(await rowFor({ merge: 16 })).toMatchObject({ ui: 'no', budget_s: '900', over_budget: 'yes' })
+    const ui = ['src/main/a.ts', 'src/renderer/shell/Sidebar.tsx']
+    expect(await rowFor({ merge: 29, files: ui })).toMatchObject({ green_to_merge_s: '1740', ui: 'yes', budget_s: '1800', over_budget: 'no' })
+    expect(await rowFor({ merge: 31, files: ui })).toMatchObject({ ui: 'yes', budget_s: '1800', over_budget: 'yes' })
+  })
+
+  it('counts a Ticket as with UI by its diff: renderer .tsx, .css, index.html and UI text files; not renderer logic, tests or other folders', async () => {
+    for (const file of ['src/renderer/theme/tokens.css', 'src/renderer/index.html', 'src/renderer/getting-started/hints.ts', 'src/renderer/canvas/nodes/ticket-text.ts', 'src/renderer/getting-started/notice.ts']) {
+      expect(await rowFor({ files: [file] }), file).toMatchObject({ ui: 'yes' })
+    }
+    expect(await rowFor({ files: ['src/renderer/getting-started/store.ts', 'src/main/Window.tsx', 'test/unit/Sidebar.tsx', 'test/e2e/x.css', 'docs/design/F-SPEC.md', 'xsrc/renderer/A.tsx'] })).toMatchObject({ ui: 'no' })
+  })
+
+  it('takes CI on a head without ci-ok from all its check runs, and a head without CI as the VERIFIED alone; a review or check/windows status is not CI', async () => {
+    const run = (name: string, end: number): object => ({ __typename: 'CheckRun', name, status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: at(end - 1), completedAt: at(end) })
+    expect(await rowFor({ checks: [run('lint', 2), run('tests', 4)], merge: 10 })).toMatchObject({ green_to_merge_s: '360', green_by: 'CI' })
+    expect(await rowFor({ checks: [], statuses: [5], merge: 10 })).toMatchObject({ green_to_merge_s: '600', green_by: 'Gate' })
+  })
+
+  it('leaves Green → merge and the budget empty with the reason, never zero', async () => {
+    expect(await rowFor({ verified: null })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'no VERIFIED comment on the PR', over_budget: '', budget_why: 'no VERIFIED comment on the PR' })
+    expect(await rowFor({ ciOkConclusion: 'FAILURE' })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'ci-ok not green on the PR head (FAILURE)', over_budget: '' })
+    expect(await rowFor({ ciOkConclusion: null })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'ci-ok not finished on the PR head' })
+    const failed = { __typename: 'CheckRun', name: 'tests', status: 'COMPLETED', conclusion: 'FAILURE', completedAt: at(1) }
+    expect(await rowFor({ checks: [failed] })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'CI not green on the PR head (tests: FAILURE)' })
+    expect(await rowFor({ merge: null })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'PR not merged (OPEN)', ui: 'no', over_budget: '' })
+    expect(await rowFor({ ciOk: 20, merge: 14 })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'out of order: merge before green' })
+    // Without the PR's files the budget is not known; the time still is.
+    expect(await rowFor({ files: null })).toMatchObject({ green_to_merge_s: '840', ui: '', budget_s: '', over_budget: '', budget_why: 'no file list of the PR' })
+  })
+
+  const wave = [
+    // 01: no UI, 40 min; the review and check/windows marks came 30 min after green.
+    prOf({ number: 11, head: 'demo-epic/01', merge: 40, statuses: [25, 30] }),
+    // 02: with UI, 20 min — in the budget.
+    prOf({ number: 12, head: 'demo-epic/02', merge: 20, files: ['src/renderer/a/B.tsx'] }),
+    // 03: no UI, 20 min, ci-ok after the VERIFIED, no marks after green.
+    prOf({ number: 13, head: 'demo-epic/03', ciOk: 2, merge: 22, statuses: [1] }),
+  ]
+
+  it('says where the time after green went: until the last review or check mark (gate), then the merge queue', async () => {
+    const rows = parseCsv(await reportOf(wave, '01,02,03'))
+    expect(rowOf(rows, 'demo-epic', '01')).toMatchObject({ over_budget: 'yes', after_green_gate_s: '1800', after_green_queue_s: '600', over_budget_step: 'gate' })
+    expect(rowOf(rows, 'demo-epic', '03')).toMatchObject({ over_budget: 'yes', green_by: 'CI', after_green_gate_s: '0', after_green_queue_s: '1200', over_budget_step: 'merge queue' })
+    expect(rowOf(rows, 'demo-epic', '02')).toMatchObject({ over_budget: 'no', over_budget_step: '' })
+  })
+
+  it('takes the median of Green → merge and names the Tickets over budget in Markdown: number, PR, time, budget and the step', async () => {
+    expect(rowOf(parseCsv(await reportOf(wave, '01,02,03')), 'demo-epic', 'median')).toMatchObject({ green_to_merge_s: '1200' })
+    const text = await reportOf(wave, '01,02,03', false)
+    expect(text).toContain('| Green → merge | 3 of 3 | 1 h 20 min | 20 min |')
+    expect(text.split('\n').find((l) => l.startsWith('| 01 |'))).toContain('| 40 min | over (budget 15 min, no UI) |')
+    expect(text.split('\n').find((l) => l.startsWith('| 02 |'))).toContain('| 20 min | in (budget 30 min, UI) |')
+    expect(text).toContain('Over budget: 2 of 3 Tickets with data (Green → merge over 15 min without UI, over 30 min with UI).')
+    expect(text).toContain('- 01, PR #11: 40 min, budget 15 min (no UI); green by Gate; after green: gate 30 min, merge queue 10 min — most went to gate.')
+    expect(text).toContain('- 03, PR #13: 20 min, budget 15 min (no UI); green by CI; after green: gate 0 s, merge queue 20 min — most went to merge queue.')
+    expect(text).not.toContain('- 02, PR #12')
   })
 })
