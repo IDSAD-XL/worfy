@@ -7,15 +7,23 @@
 // The state (ticket 06) is read and written through src/main/getting-started/state.ts; its steps are
 // marked by src/main/getting-started/progress.ts, which startGettingStarted() wires to the app's
 // sources once at startup, together with `gettingStarted.changed` to every window.
+//
+// Ticket 09: `gettingStarted.hintSeen` records a hint shown, `gettingStarted.setCost` switches the
+// demo's Orchestrator through DemoCostSwitch (src/main/getting-started/demo.ts), wired here to the
+// app's Layouts, Session settings, Orchestrators and Sessions.
 import { homedir, tmpdir } from 'node:os'
 import {
   gettingStartedChanged,
   gettingStartedCreateDemo,
   gettingStartedCreateProgress,
+  gettingStartedHintSeen,
   gettingStartedNoticeSeen,
+  gettingStartedSetCost,
   gettingStartedSetSection,
   gettingStartedStateChannel,
   type CreateDemoResult,
+  type DemoCost,
+  type GettingStartedSnapshot,
 } from '../../shared/ipc/getting-started'
 import { ORCHESTRATOR_KIND } from '../../shared/ipc/orchestrator'
 import { agentEnv } from '../agent/env'
@@ -23,8 +31,9 @@ import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
 import type { Orchestrators } from '../agent/orchestrator'
 import type { SessionRegistry } from '../agent/session'
+import { SessionSettingsStore } from '../agent/session-settings'
 import { toEveryWindow } from '../broadcast'
-import { DemoCreator, demoGit, gateRegistryRepos } from '../getting-started/demo'
+import { DemoCostSwitch, DemoCreator, demoGit, gateRegistryRepos, type CostDeps } from '../getting-started/demo'
 import { GettingStartedProgress } from '../getting-started/progress'
 import { gettingStartedState, type GettingStartedState } from '../getting-started/state'
 import { harnessHomes, locateHarness } from '../harness/locate'
@@ -36,17 +45,72 @@ import { defineHandler, emit, type HandlerModule } from './index'
 import { stageHub } from './pipeline'
 import { workflowHub } from './workflow'
 
-/** The handlers over a creation of the Demo project and a state; tests pass their own. */
+/** The handlers over a creation of the Demo project, a state and a cost switch; tests pass their own. */
 export function gettingStartedHandlers(
   createDemo: () => Promise<CreateDemoResult>,
-  state: () => Pick<GettingStartedState, 'read' | 'setSection' | 'noticeSeen'> = gettingStartedState,
+  state: () => Pick<GettingStartedState, 'read' | 'setSection' | 'noticeSeen' | 'hintSeen'> = gettingStartedState,
+  setCost: (cost: DemoCost) => Promise<GettingStartedSnapshot> = (cost) => appCostSwitch().set(cost),
 ): HandlerModule {
   return [
     defineHandler(gettingStartedCreateDemo, () => createDemo()),
     defineHandler(gettingStartedStateChannel, () => state().read()),
     defineHandler(gettingStartedSetSection, ({ section }) => state().setSection(section)),
     defineHandler(gettingStartedNoticeSeen, () => state().noticeSeen()),
+    defineHandler(gettingStartedHintSeen, ({ id }) => ({ first: state().hintSeen(id) })),
+    defineHandler(gettingStartedSetCost, ({ cost }) => setCost(cost)),
   ]
+}
+
+/** The id of the Orchestrator Node in the Project's Layout, or null. */
+export function orchestratorNodeOf(layout: Pick<LayoutStore, 'get'>, projectId: string): string | null {
+  return layout.get(projectId).layout.nodes.find((each) => each.kind === ORCHESTRATOR_KIND)?.id ?? null
+}
+
+/**
+ * The live Session of the Orchestrator behind `nodeId`, for the cost switch: none when that
+ * Orchestrator was never opened in this run or its Session closed; after a failed start, the one
+ * that failed if it is still live (never a new one); otherwise the one it runs once it has started
+ * (open() of an open Orchestrator starts nothing). A change through it is told to the
+ * registry first, as `agent.configure` tells it: a person acts on the Session (Autopilot's journal).
+ */
+export function liveOrchestratorSession(
+  orchestrators: Pick<Orchestrators, 'view' | 'open'>,
+  registry: Pick<SessionRegistry, 'get' | 'noteInput'>,
+): CostDeps['liveSession'] {
+  return async (projectId, nodeId) => {
+    const view = orchestrators.view(nodeId)
+    if (view === null || view.state === 'closed') return null
+    // After a failed start open() would start a new Session: the one that failed, when it is still
+    // live, gets the change itself, and the next start reads the saved picks.
+    const sessionId = view.state === 'error' ? view.sessionId : (await orchestrators.open(projectId)).sessionId
+    if (sessionId === null) return null
+    let session: ReturnType<SessionRegistry['get']>
+    try {
+      session = registry.get(sessionId)
+    } catch {
+      // Closed in between: its next start reads the saved picks.
+      return null
+    }
+    return {
+      configure: (change) => {
+        registry.noteInput(sessionId, 'changed the model and effort (Getting started)')
+        return session.configure(change)
+      },
+    }
+  }
+}
+
+let costSwitch: DemoCostSwitch | null = null
+
+/** The app's cost switch, made on the first call: importing this module does no I/O. */
+function appCostSwitch(): DemoCostSwitch {
+  costSwitch ??= new DemoCostSwitch(() => ({
+    state: gettingStartedState(),
+    orchestratorNode: (projectId) => orchestratorNodeOf(layoutStore(), projectId),
+    settings: new SessionSettingsStore((projectId) => projectStore().dataDir(projectStore().get(projectId).id)),
+    liveSession: liveOrchestratorSession(sharedOrchestrators(), sharedRegistry()),
+  }))
+  return costSwitch
 }
 
 /** The login shell's environment without the caller's GIT_* variables (a GIT_DIR would point git elsewhere). */
@@ -92,8 +156,8 @@ export function orchestratorMatcher(lookup: () => OrchestratorLookup): (projectI
   return (projectId, sessionId) => {
     try {
       const { layout, orchestrators, registry } = lookup()
-      const node = layout.get(projectId).layout.nodes.find((each) => each.kind === ORCHESTRATOR_KIND)
-      const live = node === undefined ? null : (orchestrators.view(node.id)?.sessionId ?? null)
+      const nodeId = orchestratorNodeOf(layout, projectId)
+      const live = nodeId === null ? null : (orchestrators.view(nodeId)?.sessionId ?? null)
       if (live === null) return false
       return registry.get(live) === registry.get(sessionId)
     } catch {

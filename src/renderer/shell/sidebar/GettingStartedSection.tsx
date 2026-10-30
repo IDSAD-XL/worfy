@@ -2,12 +2,17 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import '../../canvas/actions/actions.css'
 import { failureReason } from '../../../shared/ipc/channels'
 import { GETTING_STARTED_STEPS, type GettingStartedSnapshot, type GettingStartedStep } from '../../../shared/ipc/getting-started'
+import CostSwitch from '../../getting-started/CostSwitch'
+import { stageHint, type StageHint } from '../../getting-started/hints'
+import ReviewExample from '../../getting-started/ReviewExample'
 import { skipGettingStarted, useGettingStarted, useGettingStartedStore, GETTING_STARTED_SECTION_ID } from '../../getting-started/store'
 import { invoke, subscribe } from '../../ipc'
+import { usePipeline } from '../../pipeline/usePipeline'
 import { requestAddProject } from '../../projects/add-project'
 import { openProject } from '../../projects/useProjects'
 import { openSession } from '../../session/navigation'
 import { setPendingInput } from '../../session/pending-input'
+import { showToast } from '../../toast/toasts'
 import { openFirstRun } from '../first-run-store'
 import { SidebarSection } from '../SidebarSection'
 
@@ -22,14 +27,23 @@ import { SidebarSection } from '../SidebarSection'
  * Steps 3 and 4 open the demo's Orchestrator with a ready text in its input field
  * (session/pending-input.ts); the user sends it (decision 4 of the onboarding spec). Texts are those
  * of the spec, section "Texts (draft)".
+ *
+ * Ticket 09: while the demo Ticket stands on a Stage with a hint (getting-started/hints.ts), the hint
+ * is a line under the current step (under the last one once all are marked) and, once, an `info`
+ * toast of the Demo project: main answers `first` to one call of `gettingStarted.hintSeen` only, so
+ * neither a second window nor a restart shows it again. Under step 2, while there is a demo, the cost
+ * switch (CostSwitch.tsx). Step 5, marked without a rework round seen, says the review found nothing
+ * in place of its line and offers the recorded example of one (ReviewExample.tsx).
  */
 export const order = 5
 
 /**
- * The section's rows are its steps, two to four lines each; at 42 px the body is 630 px high at
- * most, the whole demo with every line, and shrinks to 126 px when the sidebar is short.
+ * The section's rows are its steps, two to four lines each, with the cost switch under step 2, a
+ * hint line under the current step and the fallback of step 5 (ticket 09); at 48 px the body is
+ * 720 px high at most, the whole demo with every line, and shrinks to 144 px when the sidebar is
+ * short. The recorded review example of step 5, once opened, scrolls within that height.
  */
-const ROW_HEIGHT = 42
+const ROW_HEIGHT = 48
 
 const QUESTION = 'What is planned in this project?'
 const SHIP = '/worfy:ship-ticket todo 01'
@@ -62,6 +76,15 @@ const styles = {
   note: { margin: '2px 0 0', fontSize: 'var(--text-11)', lineHeight: '14px', color: 'var(--text-muted)' },
   action: { marginTop: 6 },
   code: { fontSize: 'var(--text-11)' },
+  hint: {
+    margin: '6px 0 0',
+    padding: '3px 6px',
+    borderLeft: '2px solid var(--accent)',
+    fontSize: 'var(--text-12)',
+    lineHeight: '15px',
+    color: 'var(--text-secondary)',
+    overflowWrap: 'anywhere',
+  },
   progress: { margin: '4px 0 0', fontSize: 'var(--text-12)', lineHeight: '16px', color: 'var(--working-text)' },
   error: { margin: '4px 0 0', fontSize: 'var(--text-12)', lineHeight: '16px', color: 'var(--blocked-text)', overflowWrap: 'anywhere' },
   connect: { margin: '6px 8px 0', padding: '8px 0 0', borderTop: '1px solid var(--border)' },
@@ -125,6 +148,24 @@ function doneTitle(at: string): string {
 /** Brings the section into view and focuses its heading each time openGettingStarted() asks; an old request is not done again on a remount. */
 let focusDone = 0
 
+/** The hints this window has told main about; a remount or a Stage met again asks no more. */
+const hintsTold = new Set<string>()
+
+/** Tells main the hint was shown; the one call main answers `first` shows the toast, in the Demo project only. */
+function announceHint(hint: StageHint, projectId: string): void {
+  if (hintsTold.has(hint.id)) return
+  hintsTold.add(hint.id)
+  void invoke('gettingStarted.hintSeen', { id: hint.id }).then((result) => {
+    if (!result.ok) {
+      // Asked again at the next mount: a hint is better shown twice than never.
+      hintsTold.delete(hint.id)
+      console.error('gettingStarted.hintSeen failed:', result.error)
+    } else if (result.value.first) {
+      showToast({ kind: 'info', text: hint.text, projectId, key: `getting-started-hint-${hint.id}`, testId: 'getting-started-hint-toast' })
+    }
+  })
+}
+
 export default function GettingStartedSection() {
   const snapshot = useGettingStarted()
   const focusAsked = useGettingStartedStore((store) => store.focusAsked)
@@ -145,6 +186,14 @@ export default function GettingStartedSection() {
   }, [])
 
   const shown = snapshot?.section === 'shown'
+  // The demo's Stages are read only while the section shows.
+  const demoRecord = snapshot !== null && shown ? snapshot.demo : null
+  const pipeline = usePipeline(demoRecord?.path)
+  const hint = snapshot === null ? null : stageHint({ demo: demoRecord, steps: snapshot.steps, pipeline: pipeline.snapshot })
+  useEffect(() => {
+    if (hint !== null && demoRecord !== null) announceHint(hint, demoRecord.projectId)
+  }, [hint, demoRecord])
+
   useEffect(() => {
     if (!shown || focusAsked <= focusDone) return
     focusDone = focusAsked
@@ -235,6 +284,8 @@ export default function GettingStartedSection() {
             const done = at !== undefined
             const isCurrent = step === current
             const text = STEP_TEXTS[step]
+            // The review ended without a rework round: step 5 says so in place of what it was to show.
+            const fallback = step === '5' && done && !snapshot.reworkSeen
             return (
               <li key={step} style={styles.step} data-step={step} data-done={done ? 'true' : undefined} aria-current={isCurrent ? 'step' : undefined} data-testid="getting-started-step">
                 <span
@@ -254,9 +305,15 @@ export default function GettingStartedSection() {
                       </>
                     ) : null}
                   </span>
-                  <p style={styles.line}>{text.line}</p>
+                  {fallback ? <ReviewExample /> : <p style={styles.line}>{text.line}</p>}
                   {step === '2' ? <p style={styles.note}>The agents work for real and use your Claude Code usage.</p> : null}
+                  {step === '2' && demo !== null ? <CostSwitch cost={demo.cost} /> : null}
                   {isCurrent ? actionOf(step) : null}
+                  {hint !== null && step === (current ?? '6') ? (
+                    <p style={styles.hint} data-testid="getting-started-hint" data-hint={hint.id}>
+                      {hint.text}
+                    </p>
+                  ) : null}
                   {busy === step && step === '2' && progress !== null ? (
                     <p role="status" style={styles.progress}>
                       {progress}
