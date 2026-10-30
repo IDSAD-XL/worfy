@@ -57,7 +57,7 @@ to a Node or another frame, it is drawn at the nearest clear place and keeps its
 #### On a Linked machine
 
 With Read only access, the frames do not move and the chevron is inactive. Opening the Done stack still works, since it
-saves nothing. The automatic writes of the order do not run, and "Re-pack" is inactive.
+saves nothing. The automatic writes of the record do not run, and "Re-pack" is inactive.
 
 ### How it works
 

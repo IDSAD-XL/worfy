@@ -52,7 +52,7 @@ out N of M, the Sessions history. On this Machine it shows only after 300 ms, so
 5. The active Node has something to scroll at the pointer: the content scrolls, even at the end of its scroll.
 6. Otherwise: the Canvas pans.
 
-**Active Node.** A plain click on a Node selects it and makes it active. A click on the empty plane, a press outside the Node,
+**Active Node.** A plain click on a Node that can be selected selects it and makes it active. A click on the empty plane, a press outside the Node,
 Esc outside a Terminal, or losing the selection ends it. A Card takes the mouse only while it is active. No Card takes
 the mouse during a drag, a resize or a pan.
 
@@ -156,7 +156,7 @@ separately for each Linked machine's Project.
 #### Windows
 
 Ctrl takes the place of ⌘. Inside a Terminal Node, Ctrl and a key belong to the shell and not to the Canvas. The
-exception is zoom: Ctrl+= and Ctrl+− still zoom the Canvas from there, while Ctrl+_ stays the shell's undo.
+exception is zoom: Ctrl+= and Ctrl+− still zoom the Canvas from there, and do nothing in a tile of focus mode. Ctrl+_ stays the shell's undo.
 
 ### How it works
 

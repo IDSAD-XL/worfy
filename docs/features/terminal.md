@@ -70,7 +70,7 @@ are accepted, the list has this one command, and attaching to a shell that alrea
   Restart, or a new Node. When Git Bash is not found, the field says so and PowerShell starts. Settings that cannot be
   read also give PowerShell.
 - Inside a Terminal, worfy's shortcuts with Ctrl do not match, so Ctrl+K, Ctrl+F and Ctrl+C reach the shell. The exception
-  is zooming the Canvas: Ctrl+= and Ctrl+- still zoom, and only Ctrl+\_ stays with the shell. On macOS nothing is given up,
+  is zooming the Canvas: Ctrl+= and Ctrl+- still zoom, or do nothing in a tile of focus mode, and only Ctrl+\_ stays with the shell. On macOS nothing is given up,
   because worfy's shortcuts use ⌘.
 - Closing a Node ends every process under the shell, including one started with `Start-Process` and one two levels down,
   and then the shell. Git Bash gets SIGHUP first, so bash writes its history.
