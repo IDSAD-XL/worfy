@@ -71,3 +71,31 @@ Source: «Как устроено» и Q8, Q9 [spec.md](../spec.md); решен�
 
 ## Итог
 
+Страница вышла больше 400 строк и разделена на две: `docs/features/harness.md` (Installing from the app, Plugin) и
+`docs/features/skills-agents-and-hooks.md` (Skills, Agents, Hooks). Перевод каждой лежит в `docs/features/ru/`. Строка индекса
+`docs/features/README.md` и таблица `spec.md` называют пять разделов на одной странице: это правится отдельным PR.
+
+Страница описывает `main` без изменений PR #1084 (поле `docs.feature_pages`, шаг в ship-ticket, линза `documentation`).
+
+**Сверка папок из «Где в коде».** Список был неполным. Страница использует ещё `harness/.claude-plugin`, `harness/.mcp.json`,
+`src/main/ipc/harness.ts`, `src/main/ipc/harness-migration.ts`, `src/shared/ipc/harness.ts`,
+`src/shared/ipc/harness-migration.ts`, `src/renderer/shell/toolbar/HarnessStatus.tsx`, `src/main/first-run/actions.ts`,
+`src/main/agent/options.ts`, `src/main/agent/app-registry.ts`, `src/main/workflow/profile.ts`, `electron.vite.config.ts`,
+`electron-builder.yml` и `scripts/build-version.ts`. В `src/renderer/harness` лежит только форма переноса.
+
+**Утверждения, которые не подтвердились и на страницу не попали:**
+
+- `harness/agents/implementer.md`: «The PreToolUse check on Edit and Write lets edits through only inside the session's tree».
+  В `harness/hooks/hooks.json` `PreToolUse` есть только на Bash. Если такая проверка есть, она не в plugin-е.
+- Что делают на Windows `qmd-mcp`, `qmd-refresh` и `qmd-sync-main`. Это zsh-скрипты, а hook `Stop` называет `qmd-refresh` напрямую.
+  Код не говорит, как это работает на Windows.
+- `harness/README.md`: «Some text is still in Russian». Кириллица нашлась только в `harness/skills/epic-wave/SKILL.md`,
+  `harness/profiles/README.md` и `harness/profiles/draft.schema.json`, поэтому страница говорит только о словах других языков,
+  которые читают скрипты. Подробнее не проверялось.
+
+**Возможные баги продукта (код не менялся):**
+
+- `harness/README.md`, строка про skills: нет `connect-project`, хотя skill есть в `harness/skills/`.
+- `harness/skills/retro/SKILL.md`, `harness/skills/tickets-to-tasks/SKILL.md` и `harness/skills/continuous-audit/SKILL.md` называют
+  контракт Profile по старому пути `~/.claude/profiles/README.md`. Настоящий путь: `profiles/README.md` внутри plugin-а.
+
