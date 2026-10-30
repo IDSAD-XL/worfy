@@ -323,6 +323,21 @@ describe('GettingStartedProgress, the subscription to the Stages', () => {
     expect(opened).toEqual([DEMO.path])
   })
 
+  it('a workflow model that answers after the subscription closed marks no step 6', async () => {
+    const { state, deps, subscribers, setProjects, progress } = await started()
+    const asked: ((answer: WorkflowModel) => void)[] = []
+    deps.workflow = { model: () => new Promise((resolve) => asked.push(resolve)) }
+    subscribers.get(DEMO.path)?.send(snapshot(DEMO.path, ticketOn('done')))
+    // The snapshot's work runs up to its read of the model.
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(asked).toHaveLength(1)
+    expect(state.steps['5']).toBeDefined()
+    setProjects([])
+    asked[0]?.(model(DEMO.path, 'done'))
+    await progress.settled()
+    expect(state.steps['6']).toBeUndefined()
+  })
+
   it('stop() closes the subscription and every listener', async () => {
     const { closed, stop, listening, progress } = await started()
     stop()

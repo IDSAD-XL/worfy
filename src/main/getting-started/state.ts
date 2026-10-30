@@ -12,7 +12,8 @@
 // the demo's creation, the window. Each write is one synchronous read-modify-write of the file and
 // nothing is kept in memory between calls, so two writes can neither interleave nor drop each
 // other's mark, whichever instance over the folder makes them.
-import { join } from 'node:path'
+import { readdirSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { z } from 'zod'
 import {
   demoRecordSchema,
@@ -61,6 +62,12 @@ export interface GettingStartedStateOptions {
    * state reads the app's list; without it the list is empty.
    */
   projects?: () => readonly { readonly id: string }[]
+  /**
+   * Whether a Project list that did not read was set aside (`projects.json.unreadable-*`): the list
+   * reads empty then, but the user had Projects, so they count as existing. Asked after `projects`,
+   * whose first read is what sets the file aside.
+   */
+  lostProjects?: () => boolean
   /** False: the section does not show by itself (WORFY_GETTING_STARTED_AUTO=0, the e2e tests). */
   auto?: () => boolean
   /** Clock for the times of the steps; tests pass a fixed one. */
@@ -83,7 +90,9 @@ export class GettingStartedState {
   /**
    * The state now. With no `user` in the file — no file, or one written before this was decided —
    * this read decides it and writes it (decision 7): a Project in the list besides the demo means an
-   * existing user, the section hidden; none, a new user, the section shown. It is not decided again.
+   * existing user, the section hidden; none, a new user, the section shown. A list that did not read
+   * and was set aside counts as Projects: an existing user is never made to go through Getting
+   * started. It is not decided again.
    */
   read(): GettingStartedSnapshot {
     return this.snapshotOf(this.update((file) => file))
@@ -173,7 +182,7 @@ export class GettingStartedState {
     if (user === undefined) {
       const demoId = this.demoOf(file)?.projectId
       const others = (this.options.projects?.() ?? []).filter((project) => project.id !== demoId)
-      user = others.length > 0 ? 'existing' : 'new'
+      user = others.length > 0 || this.options.lostProjects?.() === true ? 'existing' : 'new'
     }
     let section = gettingStartedSectionSchema.safeParse(file.section).data
     section ??= user === 'new' && (this.options.auto?.() ?? true) ? 'shown' : 'hidden'
@@ -198,6 +207,16 @@ export class GettingStartedState {
   }
 }
 
+/** Whether `dir` holds a set-aside copy of `name` (src/main/storage/json-file.ts names it `<name>.unreadable-<time>`). */
+function setAsideIn(dir: string, name: string): boolean {
+  try {
+    return readdirSync(dir).some((entry) => entry.startsWith(`${name}.unreadable-`))
+  } catch {
+    // No data folder yet: nothing was set aside.
+    return false
+  }
+}
+
 let shared: GettingStartedState | undefined
 
 /**
@@ -207,6 +226,7 @@ let shared: GettingStartedState | undefined
 export function gettingStartedState(): GettingStartedState {
   shared ??= new GettingStartedState(dataRoot(), {
     projects: () => projectStore().list(),
+    lostProjects: () => setAsideIn(dataRoot(), basename(projectStore().file)),
     auto: () => process.env.WORFY_GETTING_STARTED_AUTO !== '0',
   })
   return shared

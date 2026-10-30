@@ -21,12 +21,14 @@ import { ORCHESTRATOR_KIND } from '../../shared/ipc/orchestrator'
 import { agentEnv } from '../agent/env'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
+import type { Orchestrators } from '../agent/orchestrator'
+import type { SessionRegistry } from '../agent/session'
 import { toEveryWindow } from '../broadcast'
 import { DemoCreator, demoGit, gateRegistryRepos } from '../getting-started/demo'
 import { GettingStartedProgress } from '../getting-started/progress'
 import { gettingStartedState, type GettingStartedState } from '../getting-started/state'
 import { harnessHomes, locateHarness } from '../harness/locate'
-import { layoutStore } from '../layout/store'
+import { layoutStore, type LayoutStore } from '../layout/store'
 import { connectScriptRunner } from '../projects/connect'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
@@ -74,22 +76,30 @@ function appCreator(): DemoCreator {
   return creator
 }
 
+/** Where orchestratorMatcher looks: the Layouts, the Orchestrators and the Sessions of the app. */
+export interface OrchestratorLookup {
+  layout: Pick<LayoutStore, 'get'>
+  orchestrators: Pick<Orchestrators, 'view'>
+  registry: Pick<SessionRegistry, 'get'>
+}
+
 /**
  * Whether `sessionId` is the live Session of `projectId`'s Orchestrator: the Session behind the
- * Project's Orchestrator Node, by either of its ids (the temporary one and Claude Code's).
+ * Project's Orchestrator Node, by either of its ids (the temporary one and Claude Code's). `lookup`
+ * is asked on each call, so making the matcher creates none of the app's stores.
  */
-function isOrchestratorOf(projectId: string, sessionId: string): boolean {
-  try {
-    const node = layoutStore()
-      .get(projectId)
-      .layout.nodes.find((each) => each.kind === ORCHESTRATOR_KIND)
-    const live = node === undefined ? null : (sharedOrchestrators().view(node.id)?.sessionId ?? null)
-    if (live === null) return false
-    const registry = sharedRegistry()
-    return registry.get(live) === registry.get(sessionId)
-  } catch {
-    // No Layout for the Project, or no live Session under one of the ids.
-    return false
+export function orchestratorMatcher(lookup: () => OrchestratorLookup): (projectId: string, sessionId: string) => boolean {
+  return (projectId, sessionId) => {
+    try {
+      const { layout, orchestrators, registry } = lookup()
+      const node = layout.get(projectId).layout.nodes.find((each) => each.kind === ORCHESTRATOR_KIND)
+      const live = node === undefined ? null : (orchestrators.view(node.id)?.sessionId ?? null)
+      if (live === null) return false
+      return registry.get(live) === registry.get(sessionId)
+    } catch {
+      // No Layout for the Project, or no live Session under one of the ids.
+      return false
+    }
   }
 }
 
@@ -112,7 +122,7 @@ export function startGettingStarted(): () => void {
     stages: stageHub,
     workflow: workflowHub,
     sessions: sharedRegistry(),
-    isOrchestratorOf,
+    isOrchestratorOf: orchestratorMatcher(() => ({ layout: layoutStore(), orchestrators: sharedOrchestrators(), registry: sharedRegistry() })),
   }).start()
   return () => {
     stopProgress()
