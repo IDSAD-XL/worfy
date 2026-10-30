@@ -65,12 +65,12 @@ Source: «Как устроено» и Q9 [spec.md](../spec.md); решения 
 
 ## Итог
 
-Страница одна, 424 строки: это считаю «примерно 400», поэтому не делил. Если Orchestrator считает иначе, граница деления — раздел Binding
+Страница одна, 426 строк: это считаю «примерно 400», поэтому не делил. Если Orchestrator считает иначе, граница деления — раздел Binding
 (105 строк). Разделы — Ticket и Epic на Canvas, Pipeline, Binding, как в списке. Английский здесь намеренно (ADR-0088).
 
 **Не подтвердившиеся утверждения.** На странице их нет. При самопроверке 13 формулировок черновика разошлись с кодом и исправлены до
 PR, например порог stuck на Done и то, что `test/contract/workflow-reader.test.ts` запускает stub, а не настоящий `epic-status`.
-Режим прав новой Session и правило фокуса для уведомлений оставлены страницам Sessions и App shell.
+Режим прав новой Session оставлен странице Sessions.
 
 **Возможные баги продукта (код не менялся).**
 
@@ -79,6 +79,12 @@ PR, например порог stuck на Done и то, что `test/contract/w
 - Кнопка «Remove binding» в Session rail (`BindingRail`) не проверяет экран только для чтения: она активна, а клик лишь пишет подсказку
   в console. Пункт меню Node-а при этом неактивен и объясняет почему.
 - Секция Epics пишет «No epics in .scratch/» и в Silent mode, где Ticket-ы лежат в Workflow folder.
+- Ожидание, начатое при окне worfy в фокусе, теряется навсегда: `WaitsNotices` в `src/main/workflow/waits-notify.ts` помечает его seen
+  до решения display, а `NoteDisplay` в `src/main/notify.ts` при фокусе ничего не показывает и не откладывает. Когда фокус уйдёт,
+  уведомления не будет.
+- Ship ticket из Command palette ставит Session не рядом с Ticket-ом: строка в `src/renderer/palette/commands.ts` не передаёт `near`,
+  а кнопка в `src/renderer/canvas/actions/TicketActions.tsx` передаёт. Node попадает туда, куда и любой новый Node, даже когда frame-ы
+  есть на Canvas.
 
 **Расхождения комментариев и кода (страница следует коду).**
 

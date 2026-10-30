@@ -37,7 +37,7 @@ header. The text follows edits of the file. "Open in editor" opens the file. A f
 fails, "The Ticket file could not be read" shows with the reason, and the text read earlier stays.
 
 **The Epic frame.** Its header has the Epic's name, the H1 of its `spec.md`, a progress bar of 12 segments, the count
-`done/total`, Run wave and the [Autopilot](autopilot.md) buttons. The columns inside go from left to right:
+`done/total`, the count of archived Sessions when there are any, Run wave and the [Autopilot](autopilot.md) buttons. The columns inside go from left to right:
 
 | Column | Tickets |
 |---|---|
@@ -72,7 +72,7 @@ gives the reason in its tooltip.
 
 | Action | Shown | Active when | What it does |
 |---|---|---|---|
-| Ship ticket | On a Ticket that is `open`, `blocked` or has no status | It is `open`, every blocker is done in the checkout, no Session it launched for this Ticket is alive, the template is set and renders | A new Session Node with the text as its first message, right of the strip of frames at the Ticket's height. Without those on the Canvas, where any new Node goes |
+| Ship ticket | On a Ticket that is `open`, `blocked` or has no status | It is `open`, every blocker is done in the checkout, no Session it launched for this Ticket is alive, the template is set and renders | A new Session Node with the text as its first message, right of the strip of frames at the Ticket's height. Without those on the Canvas, where any new Node goes. From the Command palette no spot is sent: the Node goes where any new Node goes |
 | Run wave | On a frame, unless all its Tickets are done | The ready Wave is not empty and the template is set and renders | The text goes to the Orchestrator, into its queue while a turn runs. Refused while Autopilot runs in the Project |
 | Open PR | On a Ticket with a PR | The address is on `https://github.com/` | Opens the PR in the browser and writes nothing to GitHub |
 
@@ -104,8 +104,8 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   Without them the defaults are `## Where in code`, `## Done when` and `manual`, and the older Russian names are read too.
 - **Reads follow changes.** A file event under the Tickets root leads to one full `epic-status` after 300 ms of quiet, and
   at the latest 1 s after the first event of a series. Reads never overlap. In Full mode the git refs and the worktree list
-  are watched too, and only branches whose head moved are read again, four at a time. A Tickets root that is not a folder
-  is looked for every 2 s. Only the files `epic-status` reads are watched: Epic folders, `spec.md`, `map.md` and `issues/*.md`.
+  are watched too, and only branches whose head moved are read again, four at a time. On macOS a Tickets root that is not a
+  folder is looked for every 2 s. Only the files `epic-status` reads are watched: Epic folders, `spec.md`, `map.md` and `issues/*.md`.
 - **A branch never undoes the checkout.** This is why a blocked Ticket with an old worktree branch does not look open
   ([ADR-0033](../adr/0033-autopilot-names-wave-tickets.md)).
 - **Frames and cards are computed, not saved.** The Layout keeps only a frame's offset and collapse
@@ -118,6 +118,8 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
 - The Tickets root is watched by a watcher that reads each link before following it, not by chokidar. Reads of Ticket files
   and specs treat a link that leads to a network share, or cannot be checked, as a file that cannot be read. The Project
   root, its real path and the Tickets root may lie on a share themselves.
+- A missing Tickets root is waited for at the nearest folder above it. A look at the root that fails is repeated every 2 s,
+  and every 30 s after five failures in a row.
 - When a folder of the branch watch is removed, the watch is closed and made anew on the same paths.
 - An older Harness's bash script cannot run on Windows: `epic-status` fails with a message that says to update the Harness
   ([ADR-0055](../adr/0055-harness-scripts-in-node.md)).
@@ -142,7 +144,7 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
 | Whether an action can run; templates | `src/shared/actions/render-template.ts`, `src/shared/projects/action-templates.ts` |
 | Starting the work | `src/main/actions/launch.ts`, `src/main/ipc/actions.ts`, `src/shared/ipc/actions.ts` |
 
-**Data flow.** The first window that needs a Project calls `workflow.open`. `WorkflowHub` keeps one watcher per Project, runs
+**Data flow.** The first view of a Project in each window calls `workflow.open`. `WorkflowHub` keeps one watcher per Project, runs
 `epic-status`, lays branch statuses over the checkout and answers with the model. After each read that changed something,
 each subscriber gets `workflow.changed` with only the Epics and Tickets that changed. The renderer applies it to its shared
 copy, and `sources/epics.ts` turns the copy into Nodes. The same hub serves the Stages, Autopilot and the notes of waits.
@@ -153,9 +155,9 @@ copy, and `sources/epics.ts` turns the copy into Nodes. The same hub serves the 
 - `test/contract/workflow-reader.test.ts`, `test/contract/tickets-read.test.ts`, `test/contract/actions.test.ts`: a stub
   `epic-status` run as a child process, the file guard and the channels.
 - `test/unit/waves.test.ts`, `test/unit/epic-layout.test.ts`, `test/unit/ticket-card.test.tsx`,
-  `test/unit/render-template.test.ts`, `test/unit/launch.test.ts`: the pure rules.
-- `test/unit/tickets-watch.test.ts`, `test/contract/workflow-watch-retry.test.ts`: reads and retries.
-- Windows: `test/unit/workflow-remote-links.test.ts`, `test/contract/workflow-watch-links.test.ts`,
+  `test/unit/render-template.test.ts`, `test/unit/launch.test.ts`: the pure rules; the last also runs `ActionLauncher` over fakes.
+- `test/contract/workflow-watch-retry.test.ts`: retries of the layout.
+- Windows: `test/unit/tickets-watch.test.ts`, `test/unit/workflow-remote-links.test.ts`, `test/contract/workflow-watch-links.test.ts`,
   `test/contract/workflow-branches-gone.test.ts`, `test/contract/workflow-branches-handles.test.ts`.
 
 ## Pipeline
@@ -241,9 +243,9 @@ A Pipeline changed elsewhere since the read saves nothing and offers Reload. Ano
 Harness without the editor's script shows the Harness item with its Update. A commit that failed in the Harness home's git
 leaves the write in place, with a warning.
 
-**A notification** comes when a Ticket starts to wait for a person, that is, its `Waits:` is `owner` or a Machine's name. Its
+**A notification** comes when a Ticket starts to wait for a person, that is, its `Waits:` is `owner` or a Machine's name, and no worfy window of the Machine that shows it has focus. Its
 title is `<epic> NN is waiting for you`, its text the blocked reason or `<epic> NN — <title>`, and a click opens the board of
-the Project. `team` and `agent` give none, and neither do other transitions such as red CI. One wait notifies once. A wait
+the Project. `team` and `agent` give none, and neither do other transitions such as red CI. One wait notifies at most once: a wait that begins while a worfy window has focus gives no notification later, and a second wait of the same Ticket within 10 s gives none. A wait
 already there when worfy first reads the Project gives none.
 
 #### On a Linked machine
@@ -369,7 +371,7 @@ binds and removes as here.
 - **Automatic Bindings are never stored.** They are read from the transcripts each time
   ([ADR-0002](../adr/0002-worfy-is-a-view-over-the-workflow.md)). Only manual and launch Bindings are kept, in
   `<Project data folder>/bindings.json`, never in the repository or `~/.claude`
-  ([ADR-0005](../adr/0005-worfy-own-state-inventory.md)). An agent has at most one of each, so a Binding survives a restart.
+  ([ADR-0005](../adr/0005-worfy-own-state-inventory.md)). An agent has at most one of each. They are in a file, so a Binding survives a restart.
 - **The rules are a pure list**, strongest first, so main, the renderer and tests resolve alike. `/epic-wave` comes before the
   branch because the Orchestrator's checkout often holds the branch of a Ticket it merges rather than works on.
 - **The forms a signal reads.**
@@ -381,7 +383,7 @@ binds and removes as here.
   - A skill counts under its bare name or with the `worfy:` prefix, not under another plugin's.
   - A task is the first `.scratch/<epic>/issues/<NN>-…` path in a Subagent's first prompt.
 - **A Subagent has no cwd or branch of its own.** Its file carries its Session's, so they are dropped from its signals, and its
-  task decides unless it claims.
+  task decides unless it claims or calls `/epic-wave` or `/ship-ticket`.
 - **Reading is incremental.** main folds the new lines of each transcript into a state, so asking again costs only what was
   appended. The renderer asks again when a transcript changes and every 3 s for a live Session, because a Subagent's file is not
   watched.

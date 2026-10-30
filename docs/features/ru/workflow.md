@@ -36,7 +36,7 @@ mode статус ветки worktree Ticket-а идёт поверх стату
 следует за правками файла. «Open in editor» открывает файл. Файл больше 1 МБ не читается. Когда чтение не удалось,
 показывается «The Ticket file could not be read» с причиной, а прочитанный ранее текст остаётся.
 
-**Frame Epic-а.** В шапке — имя Epic-а, H1 его `spec.md`, полоса прогресса из 12 сегментов, счётчик `done/total`, Run wave и
+**Frame Epic-а.** В шапке — имя Epic-а, H1 его `spec.md`, полоса прогресса из 12 сегментов, счётчик `done/total`, счётчик архивных Session, когда они есть, Run wave и
 кнопки [Autopilot](autopilot.md). Колонки внутри идут слева направо:
 
 | Колонка | Ticket-ы |
@@ -49,10 +49,10 @@ mode статус ветки worktree Ticket-а идёт поверх стату
 на подсвеченной цепочке Node-а под курсором или выбранного Node-а. Стрелка завершённого blocker-а сплошная и рисуется только
 при подсветке. Стрелка рисуется, только когда у обоих Ticket-ов есть карточка на Canvas.
 
-**Боковая панель и палитра.** Секция Epics перечисляет Epic-и активного Project-а с их прогрессом и `N in work`; клик
+**Sidebar и Command palette.** Секция Epics перечисляет Epic-и активного Project-а с их прогрессом и `N in work`; клик
 центрирует frame. В Command palette есть строка «Go to» для каждого Epic-а и Ticket-а, а для Ticket-а без карточки она
 центрирует frame. Каждая неотмеченная ручная проверка Ticket-а (пункт его раздела готовности с ручной пометкой из Profile) —
-строка палитры, которая находится только при вводе текста. Выбор строки ведёт к Ticket-у. worfy эти пункты не отмечает.
+строка Command palette, которая находится только при вводе текста. Выбор строки ведёт к Ticket-у. worfy эти пункты не отмечает.
 
 **Ready Wave** вычисляется для каждого Epic-а и нигде не хранится. Ticket входит в неё, когда:
 
@@ -74,7 +74,7 @@ Ticket без раздела со следом может быть в Wave: он
 
 | Действие | Показано | Активно, когда | Что делает |
 |---|---|---|---|
-| Ship ticket | На Ticket-е, который `open`, `blocked` или без статуса | Он `open`, каждый blocker завершён в checkout, запущенная этой кнопкой Session этого Ticket-а не жива, шаблон задан и заполняется | Новый Session Node с текстом как первым сообщением, справа от полосы frame-ов на высоте Ticket-а. Если их нет на Canvas — там, куда попадает любой новый Node |
+| Ship ticket | На Ticket-е, который `open`, `blocked` или без статуса | Он `open`, каждый blocker завершён в checkout, запущенная этой кнопкой Session этого Ticket-а не жива, шаблон задан и заполняется | Новый Session Node с текстом как первым сообщением, справа от полосы frame-ов на высоте Ticket-а. Если их нет на Canvas — там, куда попадает любой новый Node. Из Command palette место не передаётся: Node попадает туда, куда и любой новый Node |
 | Run wave | На frame, если не все его Ticket-ы завершены | Ready Wave не пуста, шаблон задан и заполняется | Текст уходит Orchestrator-у, в очередь, пока идёт turn. Отказ, пока в Project-е работает Autopilot |
 | Open PR | На Ticket-е с PR | Адрес на `https://github.com/` | Открывает PR в браузере и ничего не пишет в GitHub |
 
@@ -106,7 +106,7 @@ Project-а. Focus mode тоже читает файл там, а «Open in edito
   умолчанию действуют `## Where in code`, `## Done when` и `manual`, а старые русские названия тоже читаются.
 - **Чтения следуют за изменениями.** Событие файла под корнем Ticket-ов ведёт к одному полному `epic-status` после 300 мс тишины
   и не позже чем через 1 с после первого события серии. Чтения не накладываются друг на друга. В Full mode отслеживаются ещё git
-  refs и список worktree, и заново читаются только ветки, у которых сдвинулся head, по четыре за раз. Корень Ticket-ов, который
+  refs и список worktree, и заново читаются только ветки, у которых сдвинулся head, по четыре за раз. На macOS корень Ticket-ов, который
   не является папкой, ищется каждые 2 с. Отслеживаются только файлы, которые читает `epic-status`: папки Epic-ов, `spec.md`,
   `map.md` и `issues/*.md`.
 - **Ветка никогда не отменяет checkout.** Поэтому заблокированный Ticket со старой веткой worktree не выглядит открытым
@@ -121,6 +121,8 @@ Project-а. Focus mode тоже читает файл там, а «Open in edito
 - Корень Ticket-ов отслеживает watcher, который читает каждую ссылку, прежде чем пройти по ней, а не chokidar. Чтения файлов
   Ticket-ов и spec-ов считают ссылку, которая ведёт на сетевой ресурс или не поддаётся проверке, файлом, который нельзя прочитать.
   Корень Project-а, его настоящий путь и корень Ticket-ов сами могут лежать на сетевом ресурсе.
+- Отсутствующий корень Ticket-ов ожидается у ближайшей папки над ним. Неудачный взгляд на корень повторяется каждые 2 с, а после пяти
+  неудач подряд — каждые 30 с.
 - Когда папка из отслеживания веток удалена, это отслеживание закрывается и создаётся заново на тех же путях.
 - Bash script старого Harness не запускается на Windows: `epic-status` завершается с ошибкой и сообщением обновить Harness
   ([ADR-0055](../../adr/0055-harness-scripts-in-node.md)).
@@ -140,12 +142,12 @@ Project-а. Focus mode тоже читает файл там, а «Open in edito
 | Frame-ы и карточки как Node-ы; колонки; высота карточки | `src/renderer/canvas/sources/epics.ts`, `src/renderer/canvas/epic-layout.ts`, `src/renderer/canvas/ticket-card.ts` |
 | View | `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/nodes/TicketBody.tsx`, `src/renderer/canvas/nodes/ticket-text.ts`, `src/renderer/canvas/nodes/EpicFrameNode.tsx` |
 | Стрелки | `src/renderer/canvas/edges/blocking.ts` |
-| Боковая панель, палитра, пустая панель | `src/renderer/shell/sidebar/EpicsSection.tsx`, `src/renderer/palette/commands.ts`, `src/renderer/canvas/overlays/FirstEpic.tsx` |
+| Sidebar, Command palette, пустая панель | `src/renderer/shell/sidebar/EpicsSection.tsx`, `src/renderer/palette/commands.ts`, `src/renderer/canvas/overlays/FirstEpic.tsx` |
 | Кнопки | `src/renderer/canvas/actions/TicketActions.tsx`, `src/renderer/canvas/actions/EpicActions.tsx`, `src/renderer/canvas/actions/OpenPr.tsx`, `src/renderer/canvas/actions/gates.ts` |
 | Может ли действие выполниться; шаблоны | `src/shared/actions/render-template.ts`, `src/shared/projects/action-templates.ts` |
 | Запуск работы | `src/main/actions/launch.ts`, `src/main/ipc/actions.ts`, `src/shared/ipc/actions.ts` |
 
-**Поток данных.** Первое окно, которому нужен Project, вызывает `workflow.open`. `WorkflowHub` держит один watcher на Project,
+**Поток данных.** Первый view Project-а в каждом окне вызывает `workflow.open`. `WorkflowHub` держит один watcher на Project,
 запускает `epic-status`, кладёт статусы веток поверх checkout и отвечает моделью. После каждого чтения, которое что-то изменило,
 каждый подписчик получает `workflow.changed` только с изменившимися Epic-ами и Ticket-ами. Renderer применяет его к своей общей
 копии, а `sources/epics.ts` превращает копию в Node-ы. Тот же hub обслуживает Stage-ы, Autopilot и уведомления об ожиданиях.
@@ -156,9 +158,9 @@ Project-а. Focus mode тоже читает файл там, а «Open in edito
 - `test/contract/workflow-reader.test.ts`, `test/contract/tickets-read.test.ts`, `test/contract/actions.test.ts`: stub
   `epic-status`, запущенный как дочерний процесс, проверка файлов и каналы.
 - `test/unit/waves.test.ts`, `test/unit/epic-layout.test.ts`, `test/unit/ticket-card.test.tsx`,
-  `test/unit/render-template.test.ts`, `test/unit/launch.test.ts`: чистые правила.
-- `test/unit/tickets-watch.test.ts`, `test/contract/workflow-watch-retry.test.ts`: чтения и повторы.
-- Windows: `test/unit/workflow-remote-links.test.ts`, `test/contract/workflow-watch-links.test.ts`,
+  `test/unit/render-template.test.ts`, `test/unit/launch.test.ts`: чистые правила; последний ещё запускает `ActionLauncher` над fake-ами.
+- `test/contract/workflow-watch-retry.test.ts`: повторы чтения layout.
+- Windows: `test/unit/tickets-watch.test.ts`, `test/unit/workflow-remote-links.test.ts`, `test/contract/workflow-watch-links.test.ts`,
   `test/contract/workflow-branches-gone.test.ts`, `test/contract/workflow-branches-handles.test.ts`.
 
 ## Pipeline
@@ -177,7 +179,7 @@ CI, Agent review, Gate & merge, Closing, Done.
   каждый Ticket. Done свёрнут в `N done`, пока по нему не кликнуть. Board сам следует за изменениями, а клик по карточке показывает
   этот Ticket на Canvas или его frame, когда карточка свёрнута. Когда фактов не хватает, сообщение пишет «Some Stages may be short
   of facts» с причиной.
-- **Секция Pipeline в боковой панели:** Ticket-ы каждого Project-а этой Machine, которые не стоят ни на Queued, ни на Done. Клик
+- **Секция Pipeline в sidebar:** Ticket-ы каждого Project-а этой Machine, которые не стоят ни на Queued, ни на Done. Клик
   открывает board этого Project-а. Без таких Ticket-ов она пишет «Nothing in work».
 
 **Правило.** Stage-ы идут в порядке Pipeline, и Ticket стоит на первом непройденном. Статус `done` проходит все Stage-ы, кроме Done,
@@ -243,9 +245,9 @@ Pipeline, изменённый в другом месте после чтени�
 again». Harness без script-а редактора показывает пункт Harness с его Update. Неудавшийся commit в git домашней папки Harness оставляет
 запись на месте и показывает предупреждение.
 
-**Уведомление** приходит, когда Ticket начинает ждать человека, то есть его `Waits:` — `owner` или имя Machine. Заголовок —
+**Уведомление** приходит, когда Ticket начинает ждать человека, то есть его `Waits:` — `owner` или имя Machine, и ни одно окно worfy на Machine, которая его показывает, не в фокусе. Заголовок —
 `<epic> NN is waiting for you`, текст — причина блокировки или `<epic> NN — <title>`, а клик открывает board Project-а. `team` и
-`agent` уведомлений не дают, как и другие переходы, например красный CI. Одно ожидание уведомляет один раз. Ожидание, которое уже было
+`agent` уведомлений не дают, как и другие переходы, например красный CI. Одно ожидание уведомляет не больше одного раза: ожидание, начатое при окне worfy в фокусе, позже уведомления не даёт, а второе ожидание того же Ticket-а в пределах 10 с тоже его не даёт. Ожидание, которое уже было
 при первом чтении Project-а, уведомления не даёт.
 
 #### On a Linked machine
@@ -298,7 +300,7 @@ on <Machine>»: запись отклоняется для каждой Linked m
 | IPC, чтение и запись редактора | `src/shared/ipc/pipeline.ts`, `src/main/ipc/pipeline.ts` |
 | Общая копия в renderer | `src/renderer/pipeline/usePipeline.ts` |
 | Board, stepper, общие формулировки | `src/renderer/pipeline/PipelineBoard.tsx`, `src/renderer/pipeline/Stepper.tsx`, `src/renderer/pipeline/board.ts` |
-| Секция боковой панели; открытие board | `src/renderer/shell/sidebar/PipelineSection.tsx`, `src/renderer/pipeline/open.ts` |
+| Секция sidebar; открытие board | `src/renderer/shell/sidebar/PipelineSection.tsx`, `src/renderer/pipeline/open.ts` |
 | Редактор | `src/renderer/settings/PipelineSection.tsx` |
 | Уведомления об ожиданиях | `src/main/workflow/waits-notify.ts`, `src/main/notify.ts`, `src/renderer/canvas/overlays/NotificationTarget.tsx` |
 
@@ -310,7 +312,7 @@ on <Machine>»: запись отклоняется для каждой Linked m
 
 **Главные test-ы.**
 
-- `test/e2e/pipeline.spec.ts`: board, claim, который двигает карточку, и строка боковой панели, в приложении.
+- `test/e2e/pipeline.spec.ts`: board, claim, который двигает карточку, и строка sidebar, в приложении.
 - `test/contract/workflow-stages.test.ts`: факты из настоящего git-репозитория в Full и Silent mode, блокировка и каналы.
 - `test/unit/pipeline.test.ts`: `stageOf`, каталог и stuck.
 - `test/contract/pipeline-rules-agree.test.ts`: две копии правил дают один вердикт.
@@ -369,7 +371,7 @@ frame-ов; см. [Canvas](canvas.md) и [Sessions](sessions.md).
 - **Автоматические Binding никогда не хранятся.** Они каждый раз читаются из transcript-ов
   ([ADR-0002](../../adr/0002-worfy-is-a-view-over-the-workflow.md)). Хранятся только ручные Binding и Binding запуска, в
   `<Project data folder>/bindings.json`, никогда не в репозитории и не в `~/.claude`
-  ([ADR-0005](../../adr/0005-worfy-own-state-inventory.md)). У агента не больше одного каждого вида, поэтому Binding переживает перезапуск.
+  ([ADR-0005](../../adr/0005-worfy-own-state-inventory.md)). У агента не больше одного каждого вида. Они лежат в файле, поэтому Binding переживает перезапуск.
 - **Правила — это чистый список** от сильного к слабому, поэтому main, renderer и test-ы разрешают одинаково. `/epic-wave` стоит раньше ветки,
   потому что в checkout Orchestrator-а часто стоит ветка Ticket-а, который он вливает, а не над которым работает.
 - **Какие формы читает сигнал.**
@@ -381,7 +383,7 @@ frame-ов; см. [Canvas](canvas.md) и [Sessions](sessions.md).
   - Skill считается под голым именем или с префиксом `worfy:`, но не под именем другого плагина.
   - Задача — это первый путь `.scratch/<epic>/issues/<NN>-…` в первом prompt Subagent.
 - **У Subagent нет своего cwd и ветки.** Его файл несёт значения его Session, поэтому они убираются из его сигналов, и решает его задача,
-  если он не сделал claim.
+  если он не сделал claim и не вызвал `/epic-wave` или `/ship-ticket`.
 - **Чтение инкрементальное.** Main сворачивает новые строки каждого transcript в состояние, поэтому повторный запрос стоит только того, что
   дописано. Renderer спрашивает снова, когда transcript меняется, и каждые 3 с для живой Session, потому что файл Subagent не отслеживается.
 - **Binding запуска записывается, как только Claude Code сообщает session id,** который называет transcript. Session, которая не сообщила его за
