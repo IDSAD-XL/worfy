@@ -12,10 +12,11 @@ Autopilot ведёт Wave-ы одного Epic-а одну за другой, б
 
 #### Запуск run-а
 
-На рамке Epic-а на Canvas есть кнопка **Autopilot**. Кнопки нет, когда все Ticket-ы Epic-а в `done` и run-а по нему нет.
-Она активна, когда мог бы сработать «Run wave» и шаблон «Run wave» Project-а называет Ticket-ы Wave через `{tickets}`.
-Её tooltip говорит, что она делает, что экран останется включённым до конца run-а и сколько недели обычно занимает такая
-Wave:
+На рамке Epic-а на Canvas есть кнопка **Autopilot**. Кнопки нет, только когда все Ticket-ы Epic-а в `done` и у Epic-а нет
+идущего run-а, строки состояния прошлого run-а, остановки в пути и отказа «running on <Machine>». Поэтому после оконченного
+run-а она остаётся неактивной, пока приложение не перезапустят или Project не запустит другой Epic. Она активна, когда мог бы
+сработать «Run wave» и шаблон «Run wave» Project-а называет Ticket-ы Wave через `{tickets}`. Её tooltip говорит, что она делает,
+что экран останется включённым до конца run-а и сколько недели обычно занимает такая Wave:
 
 > A Wave like this usually takes about 6% of the week. Used now: 41%, resets in 2 d 5 h
 
@@ -61,12 +62,13 @@ Wave:
 - Запрос разрешения, вопрос с вариантами ответа и `session.ask` от Card сразу получают отказ: отвечать некому. Каждый отказ
   идёт в journal. Если Claude Code назвал причину запроса разрешения, модель получает эту причину и может изменить команду.
 - «Run wave» и «Process gate queue» вручную и «New conversation» у Orchestrator-а получают отказ.
-- Человек по-прежнему может написать Orchestrator-у. Всё, что человек делает с его Session через worfy, идёт в journal как
+- Человек по-прежнему может написать Orchestrator-у. То, что человек делает с его Session через worfy, идёт в journal как
   `human-input`: сообщение, сообщение от Card, Interrupt, «Send queued», удаление сообщения из очереди, смена настроек, в том
-  числе та, в которой отказано. Действия в других Session туда не попадают.
+  числе та, в которой отказано. «Run wave», «Process gate queue» и «New conversation», получившие отказ, строки не пишут, и
+  действия в других Session тоже.
 - Interrupt turn-а Wave завершает run с причиной `interrupted`.
 - Session использует только Browser profile с отметкой «Available to Autopilot», при открытии Browser обязана назвать Ticket
-  этого Epic-а и никогда не входит в аккаунт. Подробности — на [странице Browser](../browser.md).
+  этого Epic-а и никогда не входит в аккаунт. Подробности — на [странице Browser](browser.md).
 - worfy просит систему держать экран включённым от начала run-а до конца, в том числе во время ожиданий, описанных ниже.
 - Если есть Linked machines, chip «on <Machine>» под кнопкой говорит, какая Machine ведёт run. Linked machine с полным доступом
   может запускать и останавливать run. С доступом read-only она видит состояние, а её кнопки неактивны. Run всегда выполняется
@@ -128,7 +130,9 @@ HANDOFF. Сам worfy эту запись не пишет.
 
 #### Остановка
 
-**Stop autopilot** — graceful Stop: run не берёт новых Ticket-ов. После клика ни одна Wave не уходит.
+**Stop autopilot** — graceful Stop: run не отправляет новых Wave. Клик до отправки «Run wave» не даёт этой Wave уйти. Клик, пока
+«Run wave» в пути, этого не делает: Wave уходит, а за ней сообщение об остановке, если только Wave ещё не ждёт в очереди Session
+(первый случай ниже).
 
 - Если Wave не в работе, run сразу заканчивается с `user-stop`. Сюда входят время до первой Wave, Wave, которая ещё ждёт в
   очереди Session (её убирают оттуда), ожидание бюджета и ожидание, пока Ticket-ы выйдут из работы после turn-а.
@@ -186,7 +190,7 @@ Orchestrator-у шаблон «Process gate queue», один раз за run. �
 #### Journal
 
 Каждый run пишет journal: один текстовый файл, в каждой строке один объект JSON. Это запись того, что произошло: каждая Wave с
-отправленным текстом, пропущенные Ticket-ы, диалоги с отказом, каждое действие человека, ожидания, background task-и и причина
+отправленным текстом, пропущенные Ticket-ы, диалоги с отказом, действия человека с Session, ожидания, background task-и и причина
 остановки. Экрана для него в приложении нет, файл читают напрямую. Наблюдатель вне worfy может дописать строку `human-input` через
 `>>`, если человек сделал что-то видимое только на экране, например ответил на системный диалог.
 
@@ -210,7 +214,8 @@ Orchestrator-у шаблон «Process gate queue», один раз за run. �
 | `stopped` | Run окончен. |
 
 Все шаги run-а идут через одну очередь на run, поэтому события обрабатываются по порядку, а клик по Stop отмечается раньше, чем его
-шаг встанет в эту очередь. Поэтому после клика ни одна Wave не уходит.
+шаг встанет в эту очередь. Идущий шаг читает эту отметку прямо перед отправкой «Run wave», поэтому клик до этого момента не даёт Wave уйти.
+Более поздний клик отправку не отменит: цикл отмечает остановку в фазе `sending`, а сообщение об остановке идёт за Wave.
 
 **Какой turn принадлежит Wave.** Wave может ждать в очереди Session за сообщением человека. Закончить Wave может только turn, который
 начался с prompt-а этой Wave, или более поздний. Результат более раннего turn-а не может.
@@ -255,19 +260,21 @@ turn-а сам по себе ничего не значит. Их task-notificat
 
 **Один run на Epic и репозиторий.** Один репозиторий на двух Machine — это два Project-а, поэтому ключ run-а — Epic и нормализованный адрес
 remote `origin` ([ADR-0053](../../adr/0053-several-screens-on-one-project.md)). Старт считает себя среди run-ов этой Machine раньше, чем
-спрашивает. Поэтому два одновременных старта одного ключа могут оба получить отказ, но оба не пойдут никогда. Вопрос идёт независимо от того,
-включён ли доступ для Linked machines: ответ несёт только Epic и ключ каждого run-а.
+спрашивает. Поэтому, пока обе Machine отвечают, два одновременных старта одного ключа могут оба получить отказ, но оба не пойдут. Machine, которая
+не подключена или не ответила за 3 секунды, считается `unasked`, и тогда оба run-а могут идти. Вопрос идёт независимо от того, включён ли доступ
+для Linked machines: ответ несёт только Epic и ключ каждого run-а.
 
 **worfy над самим собой.** Агенты Wave над worfy пересобирают приложение, поэтому development-сборка там получает отказ. Harness в работающей сборке
 не меняется во время run-а. worfy только показывает, что он отстал, а Stable copy пересобирают между run-ами
 ([ADR-0047](../../adr/0047-harness-lessons-by-pr-early-owner-switch.md)).
 
-**Экран.** Run берёт power save blocker, который держит включённым не только систему, но и экран: e2e test-ам агентов нужно окно, а macOS блокирует
-погасший экран ([ADR-0034](../../adr/0034-autopilot-keeps-display-awake.md)). Настройки системы worfy не меняет.
+**Экран.** Run просит систему через power save blocker держать включённым не только систему, но и экран: e2e test-ам агентов нужно окно
+([ADR-0034](../../adr/0034-autopilot-keeps-display-awake.md)). Настройки системы worfy не меняет.
 
 **Узкий круг исправления (narrow fix round).** Skill `/epic-wave` пишет свои вердикты комментариями `NARROW: …` в PR Ticket-а
 ([ADR-0046](../../adr/0046-autopilot-narrow-round-without-owner.md)). Run только переносит их в journal. Он читает их через тот же PR tracker, что и
-бейджи PR, а тот запускает `gh` не чаще раза в минуту, поэтому лишних вызовов `gh` не появляется.
+PR badges. Tracker ограничивает `gh` для них вместе: один список PR на Project в минуту и один поиск за 5 минут для ветки, которой нет в этом списке.
+Badges опрашивают, только пока окно в фокусе, поэтому без фокуса `gh` запускает собственное чтение run-а.
 
 ### Implementation
 
@@ -276,7 +283,7 @@ remote `origin` ([ADR-0053](../../adr/0053-several-screens-on-one-project.md)). 
 | Путь | Что там |
 |---|---|
 | `src/main/autopilot/run.ts` | Класс `Autopilot` и один `Run`: проверки старта, события Session, эффекты цикла, остановки, возврат Orchestrator-а. |
-| `src/shared/autopilot/cycle.ts` | Цикл: фазы, события, эффекты, причины остановки и их сроки. Чистый код. |
+| `src/shared/autopilot/cycle.ts` | Цикл: фазы, события, эффекты, причины остановки и их сроки. Чистые функции. |
 | `src/main/ipc/autopilot.ts` | Обработчики IPC и `sharedAutopilot`, который связывает с run-ом Project-ы, Orchestrator-ы, Session-ы, watch и journal приложения. |
 | `src/shared/ipc/autopilot.ts` | Каналы IPC `autopilot`, состояние run-а и текст строки состояния. |
 | `src/main/actions/launch.ts` | `autopilotWave`, `autopilotRefusal`, `autopilotGateQueue`: текст из шаблона, отправленный Orchestrator-у. |
@@ -287,10 +294,10 @@ remote `origin` ([ADR-0053](../../adr/0053-several-screens-on-one-project.md)). 
 | `src/main/agent/permissions.ts` | `unattendedCanUseTool`: отказ на каждый запрос. |
 | `src/main/agent/session.ts` | `halt` для Force stop, `refuseDialog`. |
 | `src/main/autopilot/limits-wait.ts` | Ожидание Limits, таймер по wall clock, текст продолжения. |
-| `src/shared/autopilot/resume-at.ts` | Когда run продолжает после отказа. Чистый код. |
-| `src/shared/autopilot/budget.ts` | Бюджет и его решение перед Wave. Чистый код. |
-| `src/shared/autopilot/limits-estimate.ts` | Оценка Wave и строка tooltip. Чистый код. |
-| `src/shared/autopilot/journal.ts` | Формат journal, описанный в комментарии в начале файла, с разбором и записью строки. Чистый код. |
+| `src/shared/autopilot/resume-at.ts` | Когда run продолжает после отказа. Чистые функции. |
+| `src/shared/autopilot/budget.ts` | Бюджет и его решение перед Wave. Чистые функции. |
+| `src/shared/autopilot/limits-estimate.ts` | Оценка Wave и строка tooltip. Чистые функции. |
+| `src/shared/autopilot/journal.ts` | Формат journal, описанный в комментарии в начале файла, с разбором и записью строки. Чистые функции. |
 | `src/main/autopilot/journal.ts` | Файлы journal: открыть, дописать, перечислить, прочитать. |
 | `src/main/autopilot/power.ts` | `KeepAwake` поверх `powerSaveBlocker` из Electron. |
 | `src/main/autopilot/origin.ts` | Ключ remote `origin`. |
@@ -356,8 +363,9 @@ development-сборки — `~/Library/Application Support/worfy-dev`, а `WORF
 - Stable copy — папка `%LOCALAPPDATA%\worfy-stable`, скопированная из `dist\win-unpacked`. Скрипт установки отказывает для цели внутри папки установщика
   `%LOCALAPPDATA%\Programs\worfy`.
 
-На Windows важны два правила одного и того же кода на всех платформах. `refused-dialog` пишет домашнюю папку как `~` в любой форме пути, включая формы с диском и MSYS.
-Ключ origin считает remote, который является путём с диском Windows, локальным путём.
+На Windows важны две вещи в коде, общем для всех платформ. `refused-dialog` пишет домашнюю папку как `~` в любой форме пути, включая формы с диском и MSYS.
+Ключ origin у run-а читает букву диска в пути Windows как хост: `C:/repos/x.git` даёт `c/repos/x`. Локальным путём диск считает только `remoteHasHost`, его вызывает
+ключ совпадения Project-а.
 
 #### Test-ы
 

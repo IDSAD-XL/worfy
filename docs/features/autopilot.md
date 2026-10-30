@@ -10,10 +10,11 @@ pass over an Epic is a **run**. New to the terms: start with [Concepts](concepts
 
 #### Starting a run
 
-The frame of an Epic on the Canvas has an **Autopilot** button. The button is hidden when every Ticket of the Epic is
-done and no run of it goes on. It is active when "Run wave" could run now and the Project's "Run wave" template names
-the Wave's Tickets with `{tickets}`. Its tooltip says what it does, that the display stays on until the run ends, and
-how much of the week a Wave like this usually takes:
+The frame of an Epic on the Canvas has an **Autopilot** button. The button is hidden only when every Ticket of the Epic is
+done and the Epic has no run going on, no status line of a past run, no stop on its way and no "running on <Machine>"
+refusal. So after a finished run it stays, inactive, until the app restarts or the Project runs another Epic. It is active
+when "Run wave" could run now and the Project's "Run wave" template names the Wave's Tickets with `{tickets}`. Its tooltip
+says what it does, that the display stays on until the run ends, and how much of the week a Wave like this usually takes:
 
 > A Wave like this usually takes about 6% of the week. Used now: 41%, resets in 2 d 5 h
 
@@ -60,9 +61,10 @@ While a run goes on:
   there to answer. Each refusal goes to the journal. When Claude Code gave a reason for a permission request, the model
   gets that reason so it can change the command.
 - "Run wave" and "Process gate queue" by hand and "New conversation" of the Orchestrator are refused.
-- A person can still write to the Orchestrator. Everything a person does on its Session through worfy goes to the journal
-  as `human-input`: a message, a Card's message, Interrupt, "Send queued", removing a queued message, a change of settings,
-  also one that was refused. Actions in other Sessions do not go there.
+- A person can still write to the Orchestrator. What a person does on its Session through worfy goes to the journal as
+  `human-input`: a message, a Card's message, Interrupt, "Send queued", removing a queued message, a change of settings,
+  also one that was refused. A refused "Run wave", "Process gate queue" or "New conversation" writes no line, and neither do
+  actions in other Sessions.
 - Interrupting a turn of the Wave ends the run with the reason `interrupted`.
 - The Session uses only the Browser profiles marked "Available to Autopilot", must name a Ticket of the Epic when it opens
   a Browser, and never signs in. The [Browser page](browser.md) covers this.
@@ -128,7 +130,9 @@ hard limit.
 
 #### Stopping
 
-**Stop autopilot** is graceful: the run takes no new Ticket. No Wave goes after the click.
+**Stop autopilot** is graceful: the run sends no new Wave. A click before "Run wave" is sent keeps that Wave from going. A click
+while "Run wave" is on its way does not: the Wave goes out, and the stop message follows it, unless the Wave still waits in the
+Session's queue (the first case below).
 
 - With no Wave in work, the run ends at once with `user-stop`. This covers the time before the first Wave, a Wave still
   waiting in the Session's queue (it is taken out), a run waiting for the budget, and a run waiting for Tickets to leave work
@@ -188,7 +192,7 @@ with the reason it had, even if the turn made a Ticket ready. A Stop before it s
 #### The journal
 
 Each run writes a journal: one text file with one JSON object per line. It is the record of what happened: each Wave with the
-text sent, Tickets left out, refused dialogs, every action of a person, waits, background tasks and the reason of the stop.
+text sent, Tickets left out, refused dialogs, a person's actions on the Session, waits, background tasks and the reason of the stop.
 The app has no screen for it, so read the file. An observer outside worfy may append a `human-input` line with `>>`, for a
 touch that only the screen shows, such as a system dialog.
 
@@ -213,7 +217,8 @@ phases are:
 | `stopped` | The run is over. |
 
 Every step of a run goes through one queue per run, so events are handled in order, and a click on Stop is noted before its
-step waits in that queue. That is why no Wave goes after the click.
+step waits in that queue. A step under way reads that note right before it sends "Run wave", so a click until then keeps the Wave
+from going. A later click cannot take the send back: the cycle notes the stop in phase `sending`, and the stop message follows the Wave.
 
 **Which turn is the Wave's.** A Wave may wait in the Session's queue behind a person's message. Only the turn that started with
 the Wave's prompt, or a later one, can end the Wave. The result of an earlier turn cannot.
@@ -259,20 +264,21 @@ lines the run asks the usage once when its number is older than 5 minutes, which
 
 **One run per Epic and repository.** One repository on two Machines is two Projects, so a run is keyed by the Epic and the normalized
 address of remote `origin` ([ADR-0053](../adr/0053-several-screens-on-one-project.md)). A start counts itself among this Machine's
-runs before it asks. So two starts of one key at once may both be refused, but never both go. The question goes whether or not access
-for Linked machines is on: the answer carries only the Epic and the key of each run.
+runs before it asks. So while both Machines answer, two starts of one key at once may both be refused, but do not both go. A Machine that
+is not connected, or gives no answer within 3 seconds, counts as `unasked`, and then both runs can go. The question goes whether or not
+access for Linked machines is on: the answer carries only the Epic and the key of each run.
 
 **worfy on itself.** The agents of a Wave over worfy rebuild the app, so a development build refuses a run there. The Harness in a
 running build does not change during a run. worfy only shows that it is behind, and the Stable copy is rebuilt between runs
 ([ADR-0047](../adr/0047-harness-lessons-by-pr-early-owner-switch.md)).
 
-**The display.** The run takes the power save blocker that also keeps the display on, not only the system: the agents' e2e tests need
-a window, and macOS locks a screen that went dark ([ADR-0034](../adr/0034-autopilot-keeps-display-awake.md)). worfy changes no system
-setting.
+**The display.** The run asks the system, through a power save blocker, to keep the display on and not only the system: the agents' e2e
+tests need a window ([ADR-0034](../adr/0034-autopilot-keeps-display-awake.md)). worfy changes no system setting.
 
 **The narrow fix round.** The `/epic-wave` skill writes its verdicts as `NARROW: …` comments on a Ticket's PR
 ([ADR-0046](../adr/0046-autopilot-narrow-round-without-owner.md)). The run only copies them to the journal. It reads them through the
-same PR tracker as the PR badges, which runs `gh` at most once a minute, so it adds no `gh` calls.
+same PR tracker as the PR badges. The tracker limits `gh` for both together: one PR list per Project per minute, and one lookup per
+5 minutes for a branch missing from that list. The badges poll only while a window has focus, so without focus the run's own read starts `gh`.
 
 ### Implementation
 
@@ -365,8 +371,9 @@ The Autopilot modules have no branch by platform. The differences are in what th
 - The Stable copy is the folder `%LOCALAPPDATA%\worfy-stable`, copied from `dist\win-unpacked`. The install script refuses a target
   inside the installer's folder `%LOCALAPPDATA%\Programs\worfy`.
 
-Two rules of the same code on every platform matter on Windows. `refused-dialog` writes the home folder as `~` in every form of the path,
-the drive and the MSYS forms included. The origin key reads a remote that is a Windows drive path as a local path.
+Two things in the code shared by every platform matter on Windows. `refused-dialog` writes the home folder as `~` in every form of the path,
+the drive and the MSYS forms included. The origin key of a run reads the drive letter of a Windows path as a host: `C:/repos/x.git` gives
+`c/repos/x`. Only `remoteHasHost`, which the Project match key calls, takes a drive as a local path.
 
 #### Tests
 

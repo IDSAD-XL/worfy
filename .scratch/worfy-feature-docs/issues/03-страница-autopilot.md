@@ -63,7 +63,7 @@ Source: «Как устроено» и Q18 [spec.md](../spec.md); решения
 ## Итог
 
 Страницы написаны по коду и test-ам `origin/main` (773915d8), приложение и настоящий Autopilot не запускались. Страница — один раздел
-Autopilot, как в таблице spec-а: 397 строк, близко к пределу «примерно 400», делить не пришлось. Список папок из `## Где в коде` оказался
+Autopilot, как в таблице spec-а: 404 строки после правок review, в пределах «примерно 400», делить не пришлось. Список папок из `## Где в коде` оказался
 неполным: источник ещё `src/main/ipc/autopilot.ts`, `src/shared/ipc/autopilot.ts`, `src/main/actions/launch.ts`,
 `src/main/agent/orchestrator.ts`, `src/main/agent/session-settings.ts`, `src/main/agent/permissions.ts`, `src/main/link/autopilot-runs.ts`,
 `src/main/mcp/browser-server.ts`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `src/renderer/settings/AutopilotSection.tsx`,
@@ -97,6 +97,15 @@ Autopilot, как в таблице spec-а: 397 строк, близко к п�
 - Список прерванных Ticket-ов после Force stop живёт только в памяти, перезапуск приложения его теряет. На странице это записано как поведение.
 - В оценке бюджета `readyWave(...).ready.length` не считает прерванные Ticket-ы, которые идут в первую Wave следующего run-а.
 - README, раздел об обновлении Stable copy, требует Gate full на Mac перед обновлением, хотя условие merge теперь `ci-ok` (ADR-0083).
+
+**Находки вне скоупа (из review, не исправлялись):**
+
+- `CONTEXT.md` и `README.md` говорят, что Autopilot над самим worfy идёт «только из Stable copy». Это строже кода: код отказывает только
+  development-сборке.
+- Комментарий в начале `src/main/autopilot/run.ts` повторяет неверное утверждение: после клика по Stop не уходит ни одна Wave. На деле Wave,
+  которая уже в пути, уходит, а за ней сообщение об остановке (test «Stop while "Run wave" is on its way» в `test/unit/autopilot-run.test.ts`).
+- Кнопка Autopilot без действия остаётся на рамке Epic-а после завершённого run-а, когда все Ticket-ы в `done`: она неактивна и держится, пока
+  приложение не перезапустят или Project не запустит run другого Epic-а. Страница записывает это как поведение.
 
 **Вопросы пилота к владельцу:**
 
