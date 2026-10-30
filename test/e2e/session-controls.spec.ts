@@ -564,9 +564,12 @@ test('a turn and its queue take no room from the pickers: the captions stay as t
       expect(sendBox.x - (hintBox.x + hintBox.width), `${where}: Send right after the hint`).toBeGreaterThanOrEqual(0)
       expect(sendBox.x - (hintBox.x + hintBox.width), `${where}: Send right after the hint`).toBeLessThan(16)
       expect(line.x + line.width - (sendBox.x + sendBox.width), `${where}: Send at the right end`).toBeLessThan(1)
-      // The send group is as wide whichever hint it shows.
+      // The send group is as wide whichever hint it shows; the bar as tall, so the field stays where it was.
       const group = Math.round((await box(view.getByTestId('input-send-group'))).width)
-      return `model ${await caption('picker-model')}, permissions ${await caption('picker-permissions')}, eco ${await view.locator('.w-eco__label').isVisible()}, pickers ${Math.round(pickersBox.width)} px, send group ${group} px`
+      const [barBox, fieldBox] = [await box(bar), await box(view.getByRole('textbox', { name: 'Message Orchestrator' }))]
+      // Below 1250 px the hint line cannot hold Interrupt and the queue chip next to the hints: they wrap to a line of their own.
+      const height = width >= 1250 ? `, bar ${Math.round(barBox.height)} px high, field at y ${Math.round(fieldBox.y)}` : ''
+      return `model ${await caption('picker-model')}, permissions ${await caption('picker-permissions')}, eco ${await view.locator('.w-eco__label').isVisible()}, pickers ${Math.round(pickersBox.width)} px, send group ${group} px${height}`
     }
     const shoot = async (width: number, name: string): Promise<void> => {
       if (width !== 1100 && width !== 1400 && width !== 1920) return

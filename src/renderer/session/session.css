@@ -137,11 +137,17 @@
   min-width: var(--space-2);
 }
 
+/* The height of a Session button (Interrupt, «Send queued»): the hint line of the input bar keeps
+   room for one, so a turn that starts or ends does not move the input field. */
+:root {
+  --w-session-button-height: 26px;
+}
+
 .w-session__button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  height: 26px;
+  height: var(--w-session-button-height);
   flex: none;
   box-sizing: border-box;
   padding: 0 5px 0 9px;
@@ -725,8 +731,11 @@
   gap: 6px var(--space-2);
 }
 
-/* What the hint line cannot hold (Interrupt, the queue chip in a narrow column) wraps to the right. */
+/* What the hint line cannot hold (Interrupt, the queue chip in a narrow column) wraps to the right.
+   It is as tall as Interrupt and «Send queued» whether they are there or not: the bar keeps its
+   height when a turn starts or ends. */
 .w-composer__line[data-line='hint'] {
+  min-height: var(--w-session-button-height);
   justify-content: flex-end;
 }
 
