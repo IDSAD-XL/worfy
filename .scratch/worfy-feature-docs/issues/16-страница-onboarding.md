@@ -62,3 +62,32 @@ Source: «Как устроено» и Q9 [spec.md](../spec.md); решения 
 
 ## Итог
 
+Страница написана по коду ветки: разделы First run, Getting started, Demo project. Приложение не запускалось, платных запросов к
+Claude не было. Деления страницы нет: меньше 400 строк.
+
+**Не подтвердилось и на страницу не пошло:**
+
+- Высота раздела 720 px и 144 px из комментария `GettingStartedSection.tsx`: в самом файле есть только высота строки 48 px. Предел
+  с кодом не сверялся, число на страницу не пошло.
+- `docs/features/concepts.md` говорит о Demo project «one command deletes it». Команды нет: это кнопка «Remove the demo project»
+  на экране Done, она появляется только после шага 6. `concepts.md` вне этого Ticket-а и не правился.
+
+**Возможные баги продукта (найдены чтением кода, не воспроизводились):**
+
+- Demo project убран из списка Project-ов или его папка удалена руками при уже отмеченном шаге 2. Шаг не снимается, кнопки «Create
+  demo project» больше нет, это единственный вызов `gettingStarted.createDemo`. Поэтому ветки `reopen` и `forget` в `demo.ts` из UI
+  недостижимы. Кнопки шагов 3 и 4 в первом случае показывают ошибку `projects.select`.
+- Убрать demo можно только после шага 6: кто бросил demo раньше, получает лишь удаление строки из списка, папка и Profile остаются.
+- «Sign in…» в окне, которое показывает Linked machine: `firstRun.*` идут на эту Machine (`local`), а `terminal.open` и `layout.apply`
+  на Machine окна (`project`). Строка проверяет gh этой Machine, а `gh auth login` запускается на другой.
+- Кнопки шагов 3 и 4 в окне на Linked machine: `openProject(null, …)` перезагружает окно, а следом `orchestrator.open` (`project`)
+  идёт на Linked machine с id локального demo; готовый текст теряется.
+- На Windows, если node нет или он старше 22, строка qmd предлагает `brew install node`: `qmdRows` берёт `NODE_INSTALL_HINT` без учёта
+  системы. Test «says nothing of brew anywhere» этого не ловит, если node в его окружении находится.
+- Комментарий `notice.ts` сам называет shortcut: два окна, открытые вместе, показывают уведомление оба, пока одно не закроют. На странице
+  сказано лишь, что оно не возвращается в следующем окне или при запуске.
+
+**Сверка папок «Где в коде».** Все три папки есть, но списка мало. Ещё нужны: `src/renderer/shell/FirstRun.tsx`,
+`src/renderer/shell/FirstRunChecks.tsx`, `src/renderer/shell/FirstRunConcepts.tsx`, `src/renderer/shell/first-run-store.ts`,
+`src/renderer/shell/sidebar/GettingStartedSection.tsx`, `src/renderer/settings/HealthSection.tsx`, `src/main/ipc/first-run.ts`,
+`src/main/ipc/getting-started.ts`, `src/shared/ipc/first-run.ts`, `src/shared/ipc/getting-started.ts`.
