@@ -30,7 +30,7 @@ it, and it stops when worfy quits.
 | `error` | blocked | The process died or failed. The tooltip shows the end of its stderr |
 | `closed` | done | The Session is closed |
 
-The chip's text is the state's name: `needs_permission` reads "needs permission".
+The chip's text is the state's name: `needs_permission` reads "needs permission". The exception is a Live Session Node whose Session is not running: it reads "finished", or "new" before the first start.
 
 **Sending.** Return sends, Shift+Return starts a new line. ↑ and ↓ in an empty field walk the history of sent messages.
 The field grows to 200 pixels. An empty message without attachments is refused. A send that fails puts the text and the
