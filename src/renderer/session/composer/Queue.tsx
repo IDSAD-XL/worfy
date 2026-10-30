@@ -12,6 +12,8 @@ import type { ComposerItemProps } from './index'
 // and its actions are inactive.
 
 export const order = 20
+/** On the hint line (index.ts), with Interrupt: a turn and its queue take no room from the pickers. */
+export const line = 'hint'
 
 export default function Queue({ sessionId }: ComposerItemProps) {
   const { queue } = useSessionControls(sessionId)

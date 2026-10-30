@@ -335,7 +335,7 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
             onPaste={onPaste}
           />
           <div className="w-composer__bar">
-            {/* The hint line: attach, the hints, and the items that stand there (the context meter). */}
+            {/* The hint line: attach, the hints, the items that stand there (the context meter, the queue) and Interrupt. */}
             <div className="w-composer__line" data-line="hint">
               <button type="button" className="w-composer__attach" aria-label="Attach files" title={readOnly ?? 'Attach files'} data-testid="input-attach" disabled={disabled} onClick={pick}>
                 <PlusIcon />
@@ -348,32 +348,36 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
                   <Component sessionId={sessionId} busy={busy} text={text} setText={edit} />
                 </span>
               ))}
+              {busy ? (
+                <button type="button" className="w-session__button" data-testid="input-interrupt" {...writeAction(readOnly, onInterrupt)}>
+                  <StopIcon />
+                  Interrupt
+                  <kbd className="w-session__kbd w-mono">esc</kbd>
+                </button>
+              ) : null}
             </div>
-            {/* The controls line: the pickers and the other items from the left, Send at the right. */}
+            {/* The controls line: the pickers and the other items from the left, the send group at the right. */}
             <div className="w-composer__line" data-line="controls">
               {controlItems.map(({ id, Component }) => (
                 <span key={id} className="w-composer__item" data-item={id}>
                   <Component sessionId={sessionId} busy={busy} text={text} setText={edit} />
                 </span>
               ))}
-              {busy ? (
-                <button type="button" className="w-session__button w-composer__interrupt" data-testid="input-interrupt" {...writeAction(readOnly, onInterrupt)}>
-                  <StopIcon />
-                  Interrupt
-                  <kbd className="w-session__kbd w-mono">esc</kbd>
+              <span className="w-composer__send-group" data-testid="input-send-group">
+                <span className="w-composer__hint w-composer__send-hint" data-reserve={busy ? 'Return to send' : 'Return to queue'}>
+                  <span>{busy ? 'Return to queue' : 'Return to send'}</span>
+                </span>
+                <button
+                  type="button"
+                  className="w-composer__send"
+                  aria-label={busy ? 'Queue message' : 'Send message'}
+                  data-testid="input-send"
+                  disabled={!canSend}
+                  onClick={() => void send()}
+                >
+                  <SendIcon />
                 </button>
-              ) : null}
-              <span className="w-composer__hint w-composer__send-hint">{busy ? 'Return to queue' : 'Return to send'}</span>
-              <button
-                type="button"
-                className="w-composer__send"
-                aria-label={busy ? 'Queue message' : 'Send message'}
-                data-testid="input-send"
-                disabled={!canSend}
-                onClick={() => void send()}
-              >
-                <SendIcon />
-              </button>
+              </span>
             </div>
           </div>
         </div>

@@ -725,17 +725,34 @@
   gap: 6px var(--space-2);
 }
 
-/* The send group keeps to the right: the queue chip, Interrupt while a turn runs, «Return to send»
-   and Send. The room between it and the pickers stays empty — the pickers take theirs first (their
-   item grows up to its full width) — and a send group wrapped onto a line of its own stays at the
-   right, so the queue list, which opens leftwards above its chip, stays inside the column. */
-.w-composer__line[data-line='controls'] > :is(.w-composer__item[data-item='Queue']:not(:empty), .w-composer__interrupt, .w-composer__send-hint) {
+/* What the hint line cannot hold (Interrupt, the queue chip in a narrow column) wraps to the right. */
+.w-composer__line[data-line='hint'] {
+  justify-content: flex-end;
+}
+
+/* «Return to send» and Send: one group that never breaks, always at the right end of the controls
+   line, or of a line of its own when the line is too short. The hint is as wide as the longer of its
+   two texts (data-reserve holds the other one, unseen), so a turn that starts or ends changes
+   nothing of the room the pickers have. The queue chip and Interrupt stand on the hint line. */
+.w-composer__send-group {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
   margin-left: auto;
 }
-.w-composer__line[data-line='controls']
-  > :is(.w-composer__item[data-item='Queue']:not(:empty), .w-composer__interrupt, .w-composer__send-hint)
-  ~ :is(.w-composer__interrupt, .w-composer__send-hint) {
-  margin-left: 0;
+
+.w-composer__send-hint {
+  display: inline-grid;
+  justify-items: end;
+}
+.w-composer__send-hint > *,
+.w-composer__send-hint::after {
+  grid-area: 1 / 1;
+}
+.w-composer__send-hint::after {
+  content: attr(data-reserve);
+  visibility: hidden;
 }
 
 /* An item with nothing to show here (the Eco mode switch outside the Orchestrator, an empty queue)
@@ -980,19 +997,29 @@
   max-width: max-content;
 }
 
-/* The width is the pickers' full width with both captions (Pickers.tsx pins it): the bar gives them
-   the same room whichever captions are shown, so a caption that goes never moves the pickers to
-   another line, and the room they are given decides alone which captions show. What a hidden
-   caption leaves unused stays on the left, next to the spacer; buttons wider than the room still
-   overflow on the right, as before ("safe"), never out of the bar on the left. */
+/* While the pickers lay out a step for a measure (data-probe), their width is their full width with
+   every caption (Pickers.tsx pins it): the bar gives them the same room whichever captions are shown
+   now, so the room alone decides which captions show. Outside a measure they are as wide as what
+   they show, from the left of their line: a caption that went leaves no gap before the next item
+   (the Eco mode switch) in any Session. Buttons wider than the room overflow on the right, never
+   out of the bar on the left. */
 .w-pickers {
   display: flex;
   flex: 0 1 auto;
-  width: var(--w-pickers-width, auto);
   min-width: 0;
-  justify-content: safe flex-end;
+  justify-content: flex-start;
   align-items: center;
   gap: 4px;
+}
+.w-pickers[data-probe] {
+  width: var(--w-pickers-width, auto);
+}
+
+/* While the pickers measure, their line does not break: the room a step leaves them is the room
+   next to the Eco mode switch and the send group, so it only grows with the window and a caption
+   comes back once, never because the send group went to a line of its own (Pickers.tsx). */
+.w-composer__line[data-line='controls']:has(> .w-composer__item > .w-pickers[data-probe]) {
+  flex-wrap: nowrap;
 }
 
 /* The three buttons have the look of the shared Select's button (theme/select.css): 24 px tall, a

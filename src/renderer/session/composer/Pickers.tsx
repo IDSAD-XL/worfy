@@ -91,10 +91,12 @@ const probeOf = (captions: Captions | 'natural'): string =>
 /**
  * The captions the pickers show, and a ref for their element: the first of CAPTION_STEPS with which
  * no value of a button is cut; none when a value is cut even without them. Each step is laid out and
- * read before the page paints, at a width that does not depend on the captions: the pickers' full
- * width with both captions is pinned on their element (--w-pickers-width), so the bar gives them
- * the room it gave them before any caption went, and that room alone picks the step. Read at the
- * width a step makes itself, a caption would go, free the room it needed, come back and go again.
+ * read before the page paints, at a width that does not depend on the captions: while a step is
+ * laid out, the pickers' full width with every caption is pinned on their element
+ * (--w-pickers-width) and their line does not break (session.css), so the line gives them the room
+ * it gives them next to the Eco mode switch and the send group, and that room alone picks the step.
+ * Read at the width a step makes itself, a caption would go, free the room it needed, come back and
+ * go again.
  */
 function useCaptions(): { ref: RefObject<HTMLSpanElement | null>; captions: Captions } {
   const ref = useRef<HTMLSpanElement>(null)
@@ -110,7 +112,9 @@ function useCaptions(): { ref: RefObject<HTMLSpanElement | null>; captions: Capt
       delete pickers.dataset['probe']
       return
     }
-    pickers.style.setProperty('--w-pickers-width', `${full}px`)
+    // Written only when it changes: a size changed inside a ResizeObserver's callback that the
+    // observer then has to report again is the "ResizeObserver loop" error.
+    if (pickers.style.getPropertyValue('--w-pickers-width') !== `${full}px`) pickers.style.setProperty('--w-pickers-width', `${full}px`)
     const whole = (step: Captions): boolean => {
       pickers.dataset['probe'] = probeOf(step)
       return values.every((value) => value.scrollWidth <= value.clientWidth)
@@ -124,15 +128,27 @@ function useCaptions(): { ref: RefObject<HTMLSpanElement | null>; captions: Capt
   useLayoutEffect(() => {
     const pickers = ref.current
     if (pickers === null || typeof ResizeObserver === 'undefined') return
-    // The pickers' own width follows the bar; a button's follows its value (the effort's level). The
-    // bar too: the room the Eco mode caption frees can leave the pickers at their full width while a
-    // wider bar would bring the caption back.
-    const observer = new ResizeObserver(measure)
+    // The pickers' own width follows the room they are given; a button's follows its value (the
+    // effort's level). Their line too: with room to spare the pickers are only as wide as what they
+    // show, and a wider line can bring a caption back without changing their width.
+    // A measure lays the pickers out for each step: done in the observer's callback, the sizes it
+    // changes on the way are left for the observer to report again ("ResizeObserver loop completed
+    // with undelivered notifications"). So the callback asks for one measure in the next frame.
+    let frame: number | null = null
+    const observer = new ResizeObserver(() => {
+      frame ??= requestAnimationFrame(() => {
+        frame = null
+        measure()
+      })
+    })
     observer.observe(pickers)
     for (const child of pickers.children) observer.observe(child)
-    const bar = pickers.closest('.w-composer__bar')
-    if (bar !== null) observer.observe(bar)
-    return () => observer.disconnect()
+    const line = pickers.closest('.w-composer__line')
+    if (line !== null) observer.observe(line)
+    return () => {
+      observer.disconnect()
+      if (frame !== null) cancelAnimationFrame(frame)
+    }
   }, [measure])
   return { ref, captions }
 }

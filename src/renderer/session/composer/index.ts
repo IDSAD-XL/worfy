@@ -9,8 +9,8 @@
 // attachments (ticket 20) can arrive as items without editing MessageInput.tsx.
 //
 // The bar has two lines (worfy-throughput ticket 60): the hint line (attach, the hints, then the
-// items that say `export const line = 'hint'` — the context meter), and the controls line (every
-// other item, left to right, then Interrupt, «Return to send» and Send).
+// items that say `export const line = 'hint'` — the context meter and the queue — and Interrupt),
+// and the controls line (every other item, left to right, then «Return to send» and Send).
 import type { ComponentType } from 'react'
 import { collectExtensions } from '../../shell/registry'
 

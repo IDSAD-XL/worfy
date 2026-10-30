@@ -270,6 +270,9 @@ const NATIVE_LISTS_WIDTH = 427
 
 type Box = { x: number; y: number; width: number; height: number }
 
+/** The vertical middle of a box. */
+const middle = (found: Box): number => found.y + found.height / 2
+
 async function box(locator: Locator): Promise<Box> {
   const found = await locator.boundingBox()
   if (found === null) throw new Error('no box')
@@ -435,7 +438,6 @@ test('a caption "Model" or "Permissions" goes when a value would be cut with it,
     }
 
     for (const [sidebar, width, height] of [
-      ['shown', 1320, 900],
       ['shown', 900, 600],
       ['shown', 800, 520],
       ['hidden', 1920, 1080],
@@ -462,13 +464,7 @@ test('a caption "Model" or "Permissions" goes when a value would be cut with it,
       await expect(model).toHaveAttribute('title', 'Default (recommended)')
       await expect(mode).toHaveAccessibleName('Permission mode')
       await expect(mode).toHaveAttribute('title', 'Bypass permissions')
-      if (width === 1320) {
-        // The model's value was cut: its caption goes, and more of the value shows; the permission mode is whole.
-        expect(before.model.cut, where).toBe(true)
-        expect(now.model.caption, where).toBe(false)
-        expect(now.model.value, where).toBeGreaterThan(before.model.value)
-        expect(now.mode.cut, where).toBe(false)
-      } else if (width === 1920) {
+      if (width === 1920) {
         expect([now.model, now.mode], where).toEqual([expect.objectContaining({ caption: true, cut: false }), expect.objectContaining({ caption: true, cut: false })])
       } else {
         expect([now.model.caption, now.mode.caption], where).toEqual([false, false])
@@ -483,16 +479,23 @@ test('a caption "Model" or "Permissions" goes when a value would be cut with it,
       }
     }
 
-    // Both captions gone at the narrow end, both shown at the wide one, the pickers on one line between.
-    await resizeWindow(app, bar, 1000, 900)
+    // A slow resize from the narrowest window to a wide one, and back again (worfy-throughput ticket
+    // 60): every caption turns on once and off once, in an order that does not depend on the fonts of
+    // the system — the Eco mode switch's goes first, then the model's, then the permission mode's,
+    // and they come back the other way round. Every change is written down as it happens: of a
+    // button's class, and of the pickers' mark of the switch's caption. No ResizeObserver loop
+    // error on the way.
+    await resizeWindow(app, bar, 800, 900)
     await frames()
-    expect([(await shows(model)).caption, (await shows(mode)).caption], 'the captions at 1000 px').toEqual([false, false])
-
-    // A slow resize across the widths where the captions come back, and back again: each caption
-    // turns on once and off once. Every change of a button's class is written down as it happens.
+    expect([(await shows(model)).caption, (await shows(mode)).caption], 'the captions at 800 px').toEqual([false, false])
+    await expect(view.locator('.w-eco__label')).toBeHidden()
     await pickers.evaluate((element) => {
       const changes: string[] = []
-      ;(globalThis as unknown as { captionChanges: string[] }).captionChanges = changes
+      const errors: string[] = []
+      const scope = globalThis as unknown as { captionChanges: string[]; pageErrors: string[]; addEventListener: (type: 'error', listener: (event: { message: string }) => void) => void }
+      scope.captionChanges = changes
+      scope.pageErrors = errors
+      scope.addEventListener('error', (event) => errors.push(event.message))
       const bare = (className: string | null): boolean => (className ?? '').split(' ').includes('w-pickers__select--bare')
       type Record = { oldValue: string | null }
       const { MutationObserver: Observer } = globalThis as unknown as {
@@ -506,23 +509,141 @@ test('a caption "Model" or "Permissions" goes when a value would be cut with it,
           })
         }).observe(button, { attributes: true, attributeFilter: ['class'], attributeOldValue: true })
       }
+      new Observer((records) => {
+        records.forEach((record, at) => {
+          const next = at + 1 < records.length ? (records[at + 1]?.oldValue ?? null) : element.getAttribute('data-eco-caption')
+          if ((record.oldValue === 'off') !== (next === 'off')) changes.push(`eco ${next === 'off' ? 'off' : 'on'}`)
+        })
+      }).observe(element, { attributes: true, attributeFilter: ['data-eco-caption'], attributeOldValue: true })
     })
     const changes = (): Promise<string[]> => window.evaluate(() => [...(globalThis as unknown as { captionChanges: string[] }).captionChanges])
     const sweep = async (from: number, to: number): Promise<void> => {
-      for (let width = from; from < to ? width <= to : width >= to; width += from < to ? 4 : -4) {
+      for (let width = from; from < to ? width <= to : width >= to; width += from < to ? 8 : -8) {
         await resizeWindow(app, bar, width, 900)
         await frames()
       }
     }
-    // The pickers have the controls line of the bar (worfy-throughput ticket 60), with the Eco mode
-    // switch of the Orchestrator after them: with the sidebar hidden the permission mode's caption
-    // comes back at about 1064 px and the model's at about 1104 px (the switch's own, the first to
-    // go, at about 1168 px).
-    await sweep(1000, 1200)
-    expect([(await shows(model)).caption, (await shows(mode)).caption], 'the captions at 1200 px').toEqual([true, true])
-    expect(await changes(), 'widening').toEqual(['picker-permissions on', 'picker-model on'])
-    await sweep(1200, 1000)
-    expect(await changes(), 'widening, then narrowing').toEqual(['picker-permissions on', 'picker-model on', 'picker-model off', 'picker-permissions off'])
+    await sweep(800, 1600)
+    expect([(await shows(model)).caption, (await shows(mode)).caption], 'the captions at 1600 px').toEqual([true, true])
+    await expect(view.locator('.w-eco__label')).toBeVisible()
+    expect(await changes(), 'widening').toEqual(['picker-permissions on', 'picker-model on', 'eco on'])
+    await sweep(1600, 800)
+    expect(await changes(), 'widening, then narrowing').toEqual(['picker-permissions on', 'picker-model on', 'eco on', 'eco off', 'picker-model off', 'picker-permissions off'])
+    expect(await window.evaluate(() => (globalThis as unknown as { pageErrors: string[] }).pageErrors), 'errors of the page during the resizes').toEqual([])
+  } finally {
+    await launched.close()
+  }
+})
+
+test('a turn and its queue take no room from the pickers: the captions stay as they were, and «Return to send» with Send stays at the right end', async () => {
+  // worfy-throughput ticket 60: the queue chip and Interrupt stand on the hint line, and the send
+  // group («Return to send» or «Return to queue», then Send) is one group as wide in both states.
+  // So at every width the pickers show the same captions idle, during a turn, with a message queued
+  // and after Interrupt holds the queue; the pickers start at the left of their line, and Send
+  // stands right after the hint at the right end of it.
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view', WORFY_AGENT_LOG: log }
+  const launched = await launchApp({ env })
+  try {
+    const { window, app } = launched
+    const view = await openSession(window)
+    const bar = view.locator('.w-composer__bar')
+    const controls = bar.locator('.w-composer__line[data-line="controls"]')
+    const pickers = view.getByTestId('pickers')
+    const hint = view.getByTestId('input-send-group').locator('.w-composer__send-hint')
+    const send = view.getByTestId('input-send')
+    const caption = (testId: string): Promise<boolean> => view.getByTestId(testId).locator('.w-select__prefix').evaluate((element) => element.checkVisibility())
+    const WIDTHS = [1100, 1250, 1320, 1400, 1480, 1920] as const
+    /** What the pickers show at `width`, after checking where the pickers and the send group stand. */
+    const look = async (width: number, state: string): Promise<string> => {
+      await resizeWindow(app, bar, width, 900)
+      await nextFrames(window)
+      const where = `${width} px, ${state}`
+      const [line, pickersBox, hintBox, sendBox] = [await box(controls), await box(pickers), await box(hint), await box(send)]
+      expect(Math.abs((await box(view.getByTestId('picker-model'))).x - line.x), `${where}: the pickers at the left of their line`).toBeLessThan(1)
+      expect(Math.abs(middle(sendBox) - middle(hintBox)), `${where}: Send on the line of the hint`).toBeLessThan(4)
+      expect(sendBox.x - (hintBox.x + hintBox.width), `${where}: Send right after the hint`).toBeGreaterThanOrEqual(0)
+      expect(sendBox.x - (hintBox.x + hintBox.width), `${where}: Send right after the hint`).toBeLessThan(16)
+      expect(line.x + line.width - (sendBox.x + sendBox.width), `${where}: Send at the right end`).toBeLessThan(1)
+      // The send group is as wide whichever hint it shows.
+      const group = Math.round((await box(view.getByTestId('input-send-group'))).width)
+      return `model ${await caption('picker-model')}, permissions ${await caption('picker-permissions')}, eco ${await view.locator('.w-eco__label').isVisible()}, pickers ${Math.round(pickersBox.width)} px, send group ${group} px`
+    }
+    const shoot = async (width: number, name: string): Promise<void> => {
+      if (width !== 1100 && width !== 1400 && width !== 1920) return
+      for (const scheme of ['light', 'dark'] as const) {
+        await window.emulateMedia({ colorScheme: scheme })
+        await view.getByTestId('message-input').screenshot({ path: test.info().outputPath(`bar-${name}-${width}-${scheme}.png`), animations: 'disabled' })
+      }
+      await window.emulateMedia({ colorScheme: null })
+    }
+
+    const idle = new Map<number, string>()
+    for (const width of WIDTHS) {
+      idle.set(width, await look(width, 'idle'))
+      await shoot(width, 'idle')
+    }
+    const same = async (state: string): Promise<void> => {
+      for (const width of WIDTHS) {
+        expect(await look(width, state), `${width} px, ${state}`).toBe(idle.get(width))
+        await shoot(width, state)
+      }
+    }
+
+    const field = view.getByRole('textbox', { name: 'Message Orchestrator' })
+    await field.fill('first')
+    await field.press('Enter')
+    await expect(view.getByTestId('transcript-turn-done')).toHaveCount(1)
+    // Turn 2 holds until it is interrupted.
+    await field.fill('hold')
+    await field.press('Enter')
+    await expect(view.getByTestId('session-state')).toHaveText('busy')
+    await expect(view.getByText('Return to queue')).toBeVisible()
+    await expect(view.getByTestId('input-interrupt')).toBeVisible()
+    await same('turn')
+
+    await field.fill('queued one')
+    await field.press('Enter')
+    await expect(view.getByTestId('queue-chip')).toHaveText('1 queued')
+    await same('turn-queue')
+
+    // Interrupt holds the queue: the chip and its «Send queued» stay, and still take no room from the pickers.
+    await view.getByTestId('input-interrupt').click()
+    await expect(view.getByTestId('session-state')).toHaveText('idle')
+    await expect(view.getByTestId('queue-send')).toBeVisible()
+    await same('interrupted-queue')
+  } finally {
+    await launched.close()
+  }
+})
+
+test('in a Session as in the Orchestrator the pickers start at the left of their line, whatever captions they show', async () => {
+  // worfy-throughput ticket 60: a caption that went leaves no room in front of the pickers; the
+  // Orchestrator's Eco mode switch stands right after them.
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view', WORFY_AGENT_LOG: log }
+  const launched = await launchApp({ env })
+  try {
+    const { window, app } = launched
+    const view = await openSession(window)
+    const bar = view.locator('.w-composer__bar')
+    const atTheLeft = async (who: string): Promise<void> => {
+      for (const width of [1100, 1200, 1250, 1320, 1400, 1920]) {
+        await resizeWindow(app, bar, width, 900)
+        await nextFrames(window)
+        // The first button, not the pickers' element: room left inside it would put the buttons further right.
+        const [line, modelBox] = [await box(bar.locator('.w-composer__line[data-line="controls"]')), await box(view.getByTestId('picker-model'))]
+        expect(Math.abs(modelBox.x - line.x), `${who}, ${width} px: the pickers at the left of their line`).toBeLessThan(1)
+      }
+    }
+    await atTheLeft('the Orchestrator')
+
+    await resizeWindow(app, bar, 1400, 900)
+    await window.getByTestId('sidebar-new-session').click()
+    const live = window.locator('[data-testid="session-node"][data-live="true"]')
+    await expect(live.getByTestId('session-node-status')).toHaveText('idle')
+    await live.getByTestId('session-node-title').dblclick()
+    await expect(view.getByRole('switch', { name: 'Eco mode' })).toHaveCount(0)
+    await expect(view.getByTestId('picker-permissions')).toBeEnabled()
+    await atTheLeft('a Session')
   } finally {
     await launched.close()
   }
