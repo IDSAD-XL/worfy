@@ -60,7 +60,7 @@ Source: «Как устроено» и Q9 [spec.md](../spec.md); решения 
 
 ## Итог
 
-Страница написана: разделы «Data folder» и «Diagnostics», 357 строк, делить не пришлось. Перевод — `docs/features/ru/storage-and-diagnostics.md`.
+Страница написана: разделы «Data folder» и «Diagnostics», 360 строк, делить не пришлось. Перевод — `docs/features/ru/storage-and-diagnostics.md`.
 
 **Сверка папок из «Где в коде».** Список был неполным. `src/main/storage` и `src/main/diagnostics` верны. Страница опирается также на `src/main/index.ts`, `src/main/startup-failure.ts`, `src/main/window.ts`, `src/main/ipc/memory.ts`, `src/shared/memory.ts`, `src/shared/ipc/memory.ts`, `src/renderer/memory`, `scripts/hang-sample.mjs` и на модули отдельных файлов состояния.
 
@@ -72,6 +72,7 @@ Source: «Как устроено» и Q9 [spec.md](../spec.md); решения 
 - Комментарий в `test/unit/no-rmsync.test.ts`: у `fs.rmSync` «one place in src/». Копия есть и в строке скрипта внутри `src/main/harness/migrate/restore.ts`. На странице написано «модуль и его копии».
 - Покрывает ли запись о завершившемся процессе процессы Card-ов и Browser. По документации Electron событие общее для всех webContents, но test проверяет только окно. На странице написано «renderer process», без перечисления.
 - Имя папки `Partitions` внутри `userData` и ответ Electron об exit-е из callback-а `ready`: первое — поведение Electron, в коде его нет; второе в комментарии названо прочитанным из исходников Electron, а не проверенным. На странице только измеренное следствие.
+- Останавливает ли старт на Windows папка, в которую worfy нельзя писать. Проверка — `accessSync(folder, W_OK)` в `src/main/startup-failure.ts`. Review вспоминает, что libuv на Windows пропускает через этот вызов любую папку, даже с запрещающим ACL. Исходников libuv на диске нет, а в `test/contract/startup-failure.test.ts` нет случая с папкой без права записи, поэтому ни код, ни test этого не подтверждают и не опровергают. На странице это утверждение оставлено только для macOS. Нужен один замер на PC, и если поведение подтвердится, одно предложение в подразделе Windows.
 
 **Возможные баги продукта (не чинил):**
 

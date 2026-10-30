@@ -23,13 +23,13 @@ builds of one user share one folder, the Stable copy and a fresh build alike. Al
 whichever worktree they start from.
 
 **One process per folder.** A second start over a folder in use quits with exit code 0 and prints "another worfy already
-runs over" and the folder on stderr. The running worfy restores its first window if it is minimized and focuses it. With
-every window closed, it opens one. A second start made before the first process has created its first window changes
-nothing on the screen.
+runs over" and the folder on stderr. The running worfy restores its first window if it is minimized and focuses it. On
+macOS, with every window closed, it opens one. A second start made before the first process has created its first window
+changes nothing on the screen.
 
-**A folder that cannot be used stops the start.** When the path is a file, lies under a file, or is a folder worfy may
-not write to, worfy shows the error window of a failed start (see [Diagnostics](#diagnostics)) and exits with code 1. A
-folder that does not exist yet is fine.
+**A folder that cannot be used stops the start.** When the path is a file, lies under a file, or, on macOS, is a folder
+worfy may not write to, worfy shows the error window of a failed start (see [Diagnostics](#diagnostics)) and exits with
+code 1. A folder that does not exist yet is fine.
 
 **Each Project has its own subfolder.** Its name is the Project's id: the name of the Project's folder, a dash and the
 first 8 hex characters of the SHA-256 of its path. So the id follows the path. The same path added again finds the same
@@ -52,8 +52,8 @@ A read that fails for another reason, such as a missing permission, throws and d
 
 #### Windows
 
-The two folders are `%APPDATA%\worfy` and `%APPDATA%\worfy-dev`. When `APPDATA` is missing or is not an absolute path,
-they are in `AppData\Roaming` of the user's home folder.
+Both folders are in the user's roaming application data. worfy quits when its last window closes, so the state with every
+window closed does not exist there.
 
 #### On a Linked machine
 
@@ -101,8 +101,9 @@ the folder is not empty, and it does not list a folder it knows to be on another
 entry that cannot be removed does not stop the walk: the others go, and the first error is thrown at the end.
 
 Another process, such as an antivirus or the indexer, can hold a file for a moment. So a removal waits up to 5 times, 100
-ms each, half a second at most for the whole removal. A move of a file or folder waits in the same steps when it meets
-`EBUSY`, `EPERM` or `EACCES`. On macOS a move is one call.
+ms each, half a second at most for the whole removal. A move into the trash and back, of a Card's folder, its data or an
+image, waits in the same steps when it meets `EBUSY`, `EPERM` or `EACCES`. A rename of a state file, such as the atomic
+write, is one call. On macOS the move of the trash is one call too.
 
 ### Implementation
 
@@ -111,7 +112,7 @@ ms each, half a second at most for the whole removal. A move of a file or folder
 | `src/main/storage/paths.ts` | `dataRoot`, with the build kind that `setBuildKind` sets; also the Claude home and the Harness home. The one module of the app that knows where the data folder is. |
 | `src/main/storage/json-file.ts` | The read with a schema and the set-aside; the atomic write. Most state files go through it. |
 | `src/main/storage/remove.ts` | `removeTree` and `removeFile`. The comment at its top records the measurements behind each rule. |
-| `src/main/storage/move.ts` | `moveWhenFree`, the move with its waits on Windows. |
+| `src/main/storage/move.ts` | `moveWhenFree`, the move of the trash with its waits on Windows. |
 | `src/main/startup-failure.ts` | `checkDataFolder`, which only reads. |
 | `src/main/index.ts` | The order at the start: build kind, folder check, `userData`, lock, then the `second-instance` handler. |
 | `src/main/projects/store.ts` | `projectId`, the Project list and `dataDir`, the subfolder of a Project. |
@@ -132,7 +133,9 @@ Scripts that run without the app keep copies, and tests keep the copies in step:
 #### The folder
 
 On macOS the packaged build uses `~/Library/Application Support/worfy`, the development build
-`~/Library/Application Support/worfy-dev`. What lies directly in the folder:
+`~/Library/Application Support/worfy-dev`. On Windows they are `%APPDATA%\worfy` and `%APPDATA%\worfy-dev`. When `APPDATA`
+is missing or is not an absolute path, they are in `AppData\Roaming` of the user's home folder. What lies directly in the
+folder:
 
 | Name | What it holds | Module |
 |---|---|---|
