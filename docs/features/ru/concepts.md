@@ -62,8 +62,7 @@ mode** это папка вне репозитория, которую поль�
 GitHub. **Gate full** — полный Gate на одной Machine: lint, typecheck, все test-ы, e2e и проверка собранного приложения. Gate
 fast — то же без e2e и сборки. С [ADR-0083](../../adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md) PR вливается, когда на его head-коммите
 есть три вещи: зелёный check `ci-ok` CI на GitHub, commit status `review` со значением `success` (ревью агентов пройдено) и
-отметка `check/windows` со значением `success` (Windows verdict, см. ниже). Документный PR, который закрывает влитые Ticket-ы,
-требует только `ci-ok`. Gate full — инструмент implementer-а и разбора сбоя. **Windows verdict** отвечает на вопрос,
+отметка `check/windows` со значением `success` (Windows verdict, см. ниже). PR только с документами не требует `check/windows` и ревью агентов, кроме страницы `docs/features/`: её проверяет один агент. Gate full — инструмент implementer-а и разбора сбоя. **Windows verdict** отвечает на вопрос,
 работает ли изменение PR на Windows. Для каждого PR это job `windows` в составе `ci-ok`. Для платформенного PR, который трогает
 то, чего GitHub runner не проверяет (Terminal, окна, меню, уведомления, e2e, упаковка), это Gate full на Windows-ПК владельца.
 Какой из двух нужен, решает скрипт scope, а этот Gate full идёт на `main` после merge
